@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Repo is public for unlimited free Actions minutes (see docs/ci-and-public-repo.md).
+# Rule that follows from that: never print user data, emails, or secrets to logs -
+# public repo logs are readable by any logged-in GitHub account.
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=apps/web
+      - run: npm run lint --workspace=apps/web
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=apps/api
+      - run: npm run test --workspace=apps/api
