@@ -144,3 +144,9 @@ vite.config.ts.timestamp-*
 
 # OSM pipeline scratch data (large binaries, downloaded on demand)
 scripts/osm-pipeline/tmp/
+
+# Playwright / Lighthouse CI local artifacts
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/.lighthouseci/
+apps/web/blob-report/
