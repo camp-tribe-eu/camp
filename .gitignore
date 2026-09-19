@@ -141,3 +141,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# OSM pipeline scratch data (large binaries, downloaded on demand)
+scripts/osm-pipeline/tmp/
