@@ -150,3 +150,5 @@ apps/web/test-results/
 apps/web/playwright-report/
 apps/web/.lighthouseci/
 apps/web/blob-report/
+apps/cms/.env
+apps/cms/uploads/

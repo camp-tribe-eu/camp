@@ -1,0 +1,12 @@
+{
+  "name": "cms",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "bootstrap": "directus bootstrap",
+    "start": "directus start"
+  },
+  "dependencies": {
+    "directus": "^11"
+  }
+}
