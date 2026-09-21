@@ -73,6 +73,80 @@ export async function getSpotIndex(): Promise<SpotIndexEntry[]> {
   return res.json();
 }
 
+// ── CAMP-71: hubs ────────────────────────────────────────────────────────
+
+export interface CountrySummary {
+  country: string;
+  spots: number;
+  regions: number;
+}
+
+export interface RegionSummary {
+  region: string;
+  slug: string;
+  spots: number;
+  /** False below the threshold — the page exists but carries `noindex`. */
+  indexable: boolean;
+}
+
+export interface SpotCard {
+  slug: string;
+  name: string | null;
+  country: string;
+  region: string | null;
+  type: Spot['type'];
+  amenities: Amenities;
+}
+
+export async function getCountries(): Promise<CountrySummary[]> {
+  const res = await fetch(`${API_BASE}/spots/countries`, {
+    next: { revalidate: 86400 },
+  });
+  return res.ok ? res.json() : [];
+}
+
+export async function getRegions(country: string): Promise<RegionSummary[]> {
+  const res = await fetch(
+    `${API_BASE}/spots/${encodeURIComponent(country)}/regions`,
+    { next: { revalidate: 86400 } },
+  );
+  return res.ok ? res.json() : [];
+}
+
+export async function getRegionSpots(
+  country: string,
+  region: string,
+  page = 1,
+): Promise<{ region: string | null; total: number; items: SpotCard[] }> {
+  const res = await fetch(
+    `${API_BASE}/spots/${encodeURIComponent(country)}/${encodeURIComponent(
+      region,
+    )}?page=${page}`,
+    { next: { revalidate: 86400 } },
+  );
+  if (!res.ok) return { region: null, total: 0, items: [] };
+  return res.json();
+}
+
+export const REGION_PER_PAGE = 24;
+
+/**
+ * "SI" → "Slovenia". Intl ships the list with the runtime, so this needs no
+ * table of our own and no translation file — and it will follow the site's
+ * language once i18n lands (CAMP-40).
+ */
+export function countryName(code: string, locale = 'en'): string {
+  try {
+    return (
+      new Intl.DisplayNames([locale], { type: 'region' }).of(
+        code.toUpperCase(),
+      ) ?? code.toUpperCase()
+    );
+  } catch {
+    return code.toUpperCase();
+  }
+}
+
 /** Owner corrections win over OSM at read time (CAMP-86). */
 export function withOwnerOverrides(spot: Spot): Spot {
   const o = spot.ownerOverrides ?? {};

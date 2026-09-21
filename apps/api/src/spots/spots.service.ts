@@ -19,6 +19,16 @@ export interface SpotView {
   missingSince: Date | null;
 }
 
+/** The reduced shape a listing needs — no geometry, no owner data. */
+export interface SpotCard {
+  slug: string;
+  name: string | null;
+  country: string;
+  region: string | null;
+  type: string;
+  amenities: CampingSpotAmenities;
+}
+
 export interface NearbySpot {
   slug: string;
   name: string | null;
@@ -96,6 +106,87 @@ export class SpotsService {
     );
   }
 
+  /** Countries we actually hold data for, for /camping. */
+  async countries(): Promise<
+    { country: string; spots: number; regions: number }[]
+  > {
+    const rows = await this.db.query(
+      `SELECT lower(country) AS country,
+              count(*)::int AS spots,
+              count(DISTINCT region)::int AS regions
+         FROM camping_spots
+        WHERE region IS NOT NULL AND missing_since IS NULL
+        GROUP BY 1 ORDER BY 2 DESC`,
+    );
+    return rows;
+  }
+
+  /**
+   * Regions of one country. Every region is returned, including the thin
+   * ones — leaving them out would break the crawl path to their campsites.
+   */
+  async regions(country: string): Promise<
+    { region: string; slug: string; spots: number; indexable: boolean }[]
+  > {
+    const rows = await this.db.query(
+      `SELECT region, count(*)::int AS spots
+         FROM camping_spots
+        WHERE lower(country) = lower($1)
+          AND region IS NOT NULL AND missing_since IS NULL
+        GROUP BY 1 ORDER BY 2 DESC, 1`,
+      [country],
+    );
+    return rows.map((r: { region: string; spots: number }) => ({
+      region: r.region,
+      slug: slugifyRegion(r.region),
+      spots: r.spots,
+      indexable: r.spots >= REGION_INDEX_THRESHOLD,
+    }));
+  }
+
+  /**
+   * Campsites of one region, a page at a time.
+   *
+   * Named sites first: a list that opens with six "Campsite" rows tells the
+   * reader nothing, even though those rows are honest. `region` is matched
+   * on the slug, because that is what the URL carries.
+   */
+  async regionSpots(
+    country: string,
+    regionSlug: string,
+    page = 1,
+    perPage = 24,
+  ): Promise<{ region: string | null; total: number; items: SpotCard[] }> {
+    // The slug is resolved in JS, not in SQL. Postgres cannot strip
+    // diacritics without the `unaccent` extension, and "Šentilj" has to
+    // become "sentilj" the same way here and in the URL the page was built
+    // with. One function, used by both, cannot drift; two implementations
+    // would eventually disagree and 404 a live page.
+    const region =
+      (await this.regions(country)).find((r) => r.slug === regionSlug)
+        ?.region ?? null;
+    if (!region) return { region: null, total: 0, items: [] };
+
+    const [{ total }] = await this.db.query(
+      `SELECT count(*)::int AS total FROM camping_spots
+        WHERE lower(country) = lower($1) AND region = $2
+          AND missing_since IS NULL`,
+      [country, region],
+    );
+
+    const items = await this.db.query(
+      `SELECT slug, name, country, region, type, amenities
+         FROM camping_spots
+        WHERE lower(country) = lower($1) AND region = $2
+          AND missing_since IS NULL
+        ORDER BY (name IS NULL), name, slug
+        LIMIT $3 OFFSET $4`,
+      [country, region, perPage, (page - 1) * perPage],
+    );
+
+    return { region, total, items };
+  }
+
   /**
    * Every publishable spot, for the sitemap and for static generation.
    * A spot without a region has no URL, so it is excluded here rather than
@@ -118,6 +209,22 @@ export class SpotsService {
     }));
   }
 }
+
+/**
+ * 🔴 CAMP-71: below this, a region hub exists but is not indexed.
+ *
+ * Measured on the Slovenian import: of 106 regions, 26 (25%) hold exactly
+ * one campsite and 31 more hold two — 54% of hubs would be thin pages, and
+ * a hub listing one campsite is a duplicate of that campsite's own page
+ * with nothing added. A hub earns its place by offering a choice.
+ *
+ * It is `noindex, follow`, never a 404 and never omitted: the page is the
+ * parent of real campsite URLs and the target of their breadcrumb, and the
+ * crawl path from the country page down to the campsite has to survive
+ * (the card's criterion is four clicks without JavaScript). So the robot
+ * still walks through it — it just does not compete as a landing page.
+ */
+export const REGION_INDEX_THRESHOLD = 3;
 
 /** Region names carry diacritics and spaces; URLs must not. */
 export function slugifyRegion(region: string | null): string {

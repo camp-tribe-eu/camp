@@ -16,6 +16,32 @@ export class SpotsController {
     return this.spots.allPublishable();
   }
 
+  /** CAMP-71: countries for /camping. */
+  @Get('countries')
+  countries() {
+    return this.spots.countries();
+  }
+
+  /** CAMP-71: regions of one country, thin ones included. */
+  @Get(':country/regions')
+  regions(@Param('country') country: string) {
+    return this.spots.regions(country);
+  }
+
+  @Get(':country/:region')
+  region(
+    @Param('country') country: string,
+    @Param('region') region: string,
+    @Query('page') page?: string,
+  ) {
+    const n = Number(page);
+    return this.spots.regionSpots(
+      country,
+      region,
+      Number.isFinite(n) && n > 0 ? Math.floor(n) : 1,
+    );
+  }
+
   @Get(':country/:region/:slug')
   async one(
     @Param('country') country: string,

@@ -41,6 +41,95 @@ if (RUN_DIRECTLY && !/^[A-Z]{2}$/.test(COUNTRY)) {
   process.exit(1);
 }
 
+/** Metres within which two identically named sites are taken to be one. */
+const DUPLICATE_RADIUS_M = 200;
+
+/** Rough metres between two WKT points. Fine at this scale. */
+function metresApart(a: string, b: string): number {
+  const p = (w: string) => {
+    const m = /POINT\s*\(([-\d.]+)\s+([-\d.]+)\)/.exec(w);
+    return m ? { lon: +m[1], lat: +m[2] } : null;
+  };
+  const x = p(a);
+  const y = p(b);
+  if (!x || !y) return Infinity;
+  const dLat = (y.lat - x.lat) * 111_320;
+  const dLon =
+    (y.lon - x.lon) * 111_320 * Math.cos(((x.lat + y.lat) / 2) * (Math.PI / 180));
+  return Math.hypot(dLat, dLon);
+}
+
+/**
+ * 🔴 One campsite, two OSM objects.
+ *
+ * OSM commonly carries a campsite as a node AND as the way around its
+ * perimeter, and our filter asks for both, so both arrive as separate
+ * rows with different type_ids. Measured on Slovenia: 120 such pairs,
+ * average 37 m apart — **51% of all rows were involved in a duplicate**.
+ * Every listing page showed each site twice, and every count was inflated.
+ *
+ * The way wins, not the node: it carries the real footprint, which is
+ * what the campsite page is meant to draw. The node's tags are merged in
+ * underneath, because the two objects rarely carry the same tags and
+ * throwing the node away wholesale would lose amenities.
+ *
+ * Unnamed duplicates are NOT merged. Without a name, proximity alone
+ * cannot tell "the same site mapped twice" from "two pitches next to each
+ * other", and silently merging two real campsites is worse than showing
+ * two entries for one.
+ */
+export function dedupe(rows: StagingRow[]): StagingRow[] {
+  const byName = new Map<string, StagingRow[]>();
+  const out: StagingRow[] = [];
+
+  for (const row of rows) {
+    const name = row.tags.name?.trim().toLowerCase();
+    if (!name) {
+      out.push(row);
+      continue;
+    }
+    const bucket = byName.get(name);
+    if (bucket) bucket.push(row);
+    else byName.set(name, [row]);
+  }
+
+  for (const bucket of byName.values()) {
+    const clusters: StagingRow[][] = [];
+    for (const row of bucket) {
+      const near = clusters.find((c) =>
+        c.some((o) => metresApart(o.point_wkt, row.point_wkt) <= DUPLICATE_RADIUS_M),
+      );
+      if (near) near.push(row);
+      else clusters.push([row]);
+    }
+
+    for (const cluster of clusters) {
+      if (cluster.length === 1) {
+        out.push(cluster[0]);
+        continue;
+      }
+      // Ways (`w…`) and areas (`a…`) beat nodes (`n…`); between equals,
+      // the richer tag set wins so the merge starts from the better row.
+      const ranked = [...cluster].sort((a, b) => {
+        const rank = (r: StagingRow) => (r.osm_ref.startsWith('n') ? 1 : 0);
+        return (
+          rank(a) - rank(b) ||
+          Object.keys(b.tags).length - Object.keys(a.tags).length
+        );
+      });
+      const [winner, ...losers] = ranked;
+      for (const loser of losers) {
+        for (const [k, v] of Object.entries(loser.tags)) {
+          if (winner.tags[k] === undefined) winner.tags[k] = v;
+        }
+      }
+      out.push(winner);
+    }
+  }
+
+  return out;
+}
+
 /** Latin-ish slug. Falls back to the OSM id when a name yields nothing. */
 function slugify(name: string | null, osmRef: string): string {
   const base = (name ?? '')
@@ -161,6 +250,9 @@ async function main(): Promise<void> {
     };
   });
 
+  const deduped = dedupe(staged);
+  const droppedAsDuplicate = staged.length - deduped.length;
+
   // Existing slugs stay with their spot; new ones must not collide.
   const known = await db.query<{ osm_ref: string; slug: string }>(
     `SELECT osm_ref, slug FROM camping_spots WHERE osm_ref IS NOT NULL`,
@@ -182,7 +274,7 @@ async function main(): Promise<void> {
 
   await db.query('BEGIN');
   try {
-    for (const row of staged) {
+    for (const row of deduped) {
       const name = row.tags.name?.trim() || null;
       if (!name) unnamed++;
 
@@ -261,6 +353,7 @@ async function main(): Promise<void> {
 
     console.log(`\nOSM import — ${COUNTRY}, from "${TABLE}"\n`);
     console.log(`  staged rows        ${staged.length}`);
+    console.log(`  merged duplicates  ${droppedAsDuplicate}  (same name within 200 m; way beats node)`);
     console.log(`  inserted           ${inserted}`);
     console.log(`  updated            ${updated}`);
     console.log(`  newly missing      ${gone.rowCount}`);

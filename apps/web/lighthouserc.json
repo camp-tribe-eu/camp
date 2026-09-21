@@ -6,7 +6,10 @@
       "url": [
         "http://localhost:3000/",
         "http://localhost:3000/camping/si/bled/camping-bled",
-        "http://localhost:3000/camping/si/kobarid/spot-n896349092"
+        "http://localhost:3000/camping/si/kobarid/spot-n896349092",
+        "http://localhost:3000/camping",
+        "http://localhost:3000/camping/si",
+        "http://localhost:3000/camping/si/bovec"
       ],
       "numberOfRuns": 3
     },
