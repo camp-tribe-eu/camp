@@ -4,9 +4,11 @@
   "version": "0.0.1",
   "scripts": {
     "bootstrap": "directus bootstrap",
-    "start": "directus start"
+    "start": "directus start",
+    "configure": "node configure.mjs",
+    "verify:permissions": "node verify-permissions.mjs"
   },
   "dependencies": {
-    "directus": "^11"
+    "directus": "^12"
   }
 }
