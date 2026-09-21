@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AmenityValue, CampingSpotAmenities } from '../osm/tag-mapping';
+import { SpotContext } from '../osm/spot-context';
 
 /** One campsite as a page needs it. Geometry is already reduced to lat/lon. */
 export interface SpotView {
@@ -17,6 +18,8 @@ export interface SpotView {
   ownerOverrides: Record<string, unknown>;
   lastSeenAt: Date | null;
   missingSince: Date | null;
+  /** CAMP-33: computed surroundings — the part no competitor publishes. */
+  context: SpotContext;
 }
 
 /** The reduced shape a listing needs — no geometry, no owner data. */
@@ -58,7 +61,8 @@ export class SpotsService {
       `SELECT slug, name, country, region, type,
               ST_Y(location::geometry) AS lat,
               ST_X(location::geometry) AS lon,
-              amenities, owner_overrides, last_seen_at, missing_since
+              amenities, owner_overrides, last_seen_at, missing_since,
+              context
          FROM camping_spots
         WHERE slug = $1
         LIMIT 1`,
@@ -273,5 +277,6 @@ function toView(row: Record<string, unknown>): SpotView {
     ownerOverrides: (row.owner_overrides ?? {}) as Record<string, unknown>,
     lastSeenAt: (row.last_seen_at as Date) ?? null,
     missingSince: (row.missing_since as Date) ?? null,
+    context: (row.context ?? {}) as SpotContext,
   };
 }

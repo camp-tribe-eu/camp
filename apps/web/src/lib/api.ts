@@ -17,6 +17,44 @@ export interface Amenities {
   wifi: AmenityValue;
 }
 
+// CAMP-33: the computed surroundings. Mirrors apps/api/src/osm/spot-context.ts.
+export type WaterKind = 'sea' | 'lake' | 'reservoir' | 'river';
+export type TerrainType = 'flat' | 'rolling' | 'hilly' | 'mountainous';
+
+export interface NearestFeature {
+  m: number;
+  name?: string;
+}
+
+export interface SpotContext {
+  water?: NearestFeature & { kind: WaterKind };
+  town?: NearestFeature;
+  supermarket?: NearestFeature;
+  station?: NearestFeature;
+  elevation?: number;
+  terrain?: { relief: number; type: TerrainType };
+  at?: { lat: number; lon: number };
+}
+
+/** 98 → "98 m"; 2616 → "2.6 km". Never rounded in the flattering direction. */
+export function formatDistance(m: number): string {
+  return m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`;
+}
+
+export const WATER_LABEL: Record<WaterKind, string> = {
+  sea: 'Sea',
+  lake: 'Lake',
+  reservoir: 'Reservoir',
+  river: 'River',
+};
+
+export const TERRAIN_LABEL: Record<TerrainType, string> = {
+  flat: 'Flat',
+  rolling: 'Rolling',
+  hilly: 'Hilly',
+  mountainous: 'Mountainous',
+};
+
 export interface Spot {
   slug: string;
   name: string | null;
@@ -29,6 +67,7 @@ export interface Spot {
   ownerOverrides: Record<string, unknown>;
   lastSeenAt: string | null;
   missingSince: string | null;
+  context: SpotContext;
 }
 
 export interface NearbySpot {

@@ -78,3 +78,50 @@ test.describe('campsite page', () => {
     expect(results.violations).toEqual([]);
   });
 });
+
+test.describe('what is around it (CAMP-33)', () => {
+  test('🔴 states the surroundings as a sentence, not a table of numbers', async ({
+    page,
+  }) => {
+    await page.goto(RICH);
+    const section = page.locator('section', {
+      has: page.getByRole('heading', { name: /around it/i }),
+    });
+    // The prose line is the part an assistant can quote and a person can
+    // read. A bare list of figures would satisfy neither.
+    await expect(section).toContainText(/sits at \d+ m above sea level/i);
+    await expect(section).toContainText(/from Blejsko jezero/i);
+  });
+
+  test('🔴 the nearest water is a real one, not the nearest ditch', async ({
+    page,
+  }) => {
+    // Camping Bled has an unnamed stream 98 m away and Lake Bled at
+    // 365 m. Reporting the stream would be true and useless, and would
+    // make half the country look waterfront.
+    await page.goto(RICH);
+    const section = page.locator('section', {
+      has: page.getByRole('heading', { name: /around it/i }),
+    });
+    await expect(section).toContainText('365 m');
+    await expect(section).not.toContainText('98 m');
+  });
+
+  test('the search description carries a distinguishing fact', async ({
+    page,
+  }) => {
+    await page.goto(RICH);
+    const description = await page
+      .locator('meta[name="description"]')
+      .getAttribute('content');
+    // Not the same sentence 291 times with a swapped name.
+    expect(description).toMatch(/Blejsko jezero|above sea level/);
+  });
+
+  test('a site with no computed context still renders', async ({ page }) => {
+    // Nothing here may depend on the context existing: a newly imported
+    // campsite has none until the next compute run.
+    await page.goto(EMPTY);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  });
+});

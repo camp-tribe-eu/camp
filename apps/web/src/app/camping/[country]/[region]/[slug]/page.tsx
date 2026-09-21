@@ -8,7 +8,10 @@ import {
   getSpotIndex,
   NearbySpot,
   Spot,
+  formatDistance,
   SPOT_TYPE_LABEL,
+  TERRAIN_LABEL,
+  WATER_LABEL,
   withOwnerOverrides,
 } from '@/lib/api';
 
@@ -53,10 +56,12 @@ export async function generateMetadata({
 
   return {
     title: `${name} — ${where}`,
-    // No superlatives and no invented detail: the description says only
-    // what the row actually contains, because a description that promises
-    // what the page lacks is the fastest way to earn a bounce.
-    description: `${SPOT_TYPE_LABEL[spot.type]} in ${where}. Location, facilities and nearby campsites — from OpenStreetMap, with gaps shown as gaps.`,
+    // No superlatives and no invented detail: the description carries the
+    // computed facts (CAMP-33) because those are the part that differs
+    // from site to site and the part a person is actually choosing on.
+    // A description built only from the template would be the same
+    // sentence 291 times with the name swapped.
+    description: describe(spot, where),
     alternates: {
       canonical: `/camping/${params.country}/${params.region}/${params.slug}`,
     },
@@ -108,6 +113,8 @@ export default async function CampsitePage({ params }: { params: Params }) {
 
       <NoPhotos />
 
+      <Around spot={spot} />
+
       <Section title="Facilities">
         {known === 0 ? (
           <p className="max-w-prose text-sm text-ink-2">
@@ -132,14 +139,38 @@ export default async function CampsitePage({ params }: { params: Params }) {
 
       <Section title="Getting there">
         <dl className="grid grid-cols-[auto,1fr] gap-x-6 gap-y-2 text-sm">
+          {spot.context.station && (
+            <>
+              <dt className="text-ink-2">Nearest station</dt>
+              <dd>
+                {spot.context.station.name ?? 'Railway station'}
+                {', '}
+                <span className="tabular-nums">
+                  {formatDistance(spot.context.station.m)}
+                </span>
+              </dd>
+            </>
+          )}
+          {spot.context.town && (
+            <>
+              <dt className="text-ink-2">Nearest town</dt>
+              <dd>
+                {spot.context.town.name ?? 'Town'}
+                {', '}
+                <span className="tabular-nums">
+                  {formatDistance(spot.context.town.m)}
+                </span>
+              </dd>
+            </>
+          )}
           <dt className="text-ink-2">Coordinates</dt>
           <dd className="tabular-nums">
             {spot.lat.toFixed(5)}, {spot.lon.toFixed(5)}
           </dd>
         </dl>
-        <p className="mt-4 text-sm text-ink-2">
-          Distances to water, towns and the elevation profile are not
-          calculated yet.
+        <p className="mt-4 text-xs text-ink-2">
+          Distances are straight-line, measured from the centre of the site —
+          the road will always be longer.
         </p>
       </Section>
 
@@ -162,6 +193,163 @@ export default async function CampsitePage({ params }: { params: Params }) {
       <Attribution lastSeenAt={spot.lastSeenAt} />
     </main>
   );
+}
+
+/** Search-result description, built from what this site actually has. */
+function describe(spot: Spot, where: string): string {
+  const c = spot.context ?? {};
+  const bits: string[] = [];
+  if (c.water) {
+    bits.push(
+      `${formatDistance(c.water.m)} from ${
+        c.water.name ?? WATER_LABEL[c.water.kind].toLowerCase()
+      }`,
+    );
+  }
+  if (c.elevation !== undefined) bits.push(`${c.elevation} m above sea level`);
+  if (c.town) {
+    bits.push(`${formatDistance(c.town.m)} from ${c.town.name ?? 'town'}`);
+  }
+
+  const head = `${SPOT_TYPE_LABEL[spot.type]} in ${where}`;
+  // Under ~155 characters is where Google stops showing it; the facts are
+  // ordered so the most distinguishing one survives a truncation.
+  return bits.length
+    ? `${head} — ${bits.join(', ')}. Facilities and nearby sites, from OpenStreetMap.`
+    : `${head}. Location, facilities and nearby campsites — from OpenStreetMap, with gaps shown as gaps.`;
+}
+
+/**
+ * 🔴 CAMP-33 — the section that justifies the page existing.
+ *
+ * Without photographs and with two thirds of amenities unrecorded, this
+ * is the only thing here that a reader cannot get from Park4Night,
+ * Campercontact or ACSI: none of them publish how far the lake is, how
+ * high the site sits, or whether a train stops within walking distance.
+ * It is also the shape of fact an assistant quotes when someone asks for
+ * "a campsite by a lake near Bled".
+ *
+ * The prose line first, the numbers under it. A reader takes the
+ * sentence; a machine takes the list. Writing only the list would make
+ * the page a spreadsheet, and writing only the sentence would lose the
+ * precision that makes it worth quoting.
+ */
+function Around({ spot }: { spot: Spot }) {
+  const c = spot.context ?? {};
+  const facts: { label: string; value: string }[] = [];
+
+  if (c.water) {
+    facts.push({
+      label: c.water.name ?? WATER_LABEL[c.water.kind],
+      value: formatDistance(c.water.m),
+    });
+  }
+  if (c.town) {
+    facts.push({
+      label: c.town.name ?? 'Nearest town',
+      value: formatDistance(c.town.m),
+    });
+  }
+  if (c.supermarket) {
+    facts.push({ label: 'Supermarket', value: formatDistance(c.supermarket.m) });
+  }
+  if (c.station) {
+    facts.push({
+      label: c.station.name ? `${c.station.name} station` : 'Railway station',
+      value: formatDistance(c.station.m),
+    });
+  }
+  if (c.elevation !== undefined) {
+    facts.push({ label: 'Elevation', value: `${c.elevation} m` });
+  }
+  if (c.terrain) {
+    facts.push({
+      label: 'Terrain',
+      value: `${TERRAIN_LABEL[c.terrain.type]} (${c.terrain.relief} m relief)`,
+    });
+  }
+
+  if (facts.length === 0) {
+    return (
+      <Section title="What&rsquo;s around it">
+        <p className="max-w-prose text-sm text-ink-2">
+          The surroundings of this site have not been calculated yet.
+        </p>
+      </Section>
+    );
+  }
+
+  return (
+    <Section title="What&rsquo;s around it">
+      <p className="max-w-prose">{summarise(spot)}</p>
+      <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+        {facts.map((f) => (
+          <div
+            key={f.label}
+            className="flex items-baseline justify-between gap-3 border-b border-line-2 py-1.5 text-sm"
+          >
+            <dt className="text-ink-2">{f.label}</dt>
+            <dd className="tabular-nums text-heading">{f.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-3 text-xs text-ink-2">
+        Calculated by us from OpenStreetMap geometry and the Copernicus
+        elevation model. Straight-line distances.
+      </p>
+    </Section>
+  );
+}
+
+/**
+ * One sentence built from whatever is actually known.
+ *
+ * Deliberately not a template with slots: a sentence that reads "is 2.6 km
+ * from and 412 m from" when two facts are missing is worse than a shorter
+ * sentence. Clauses are assembled only for the facts that exist.
+ */
+function summarise(spot: Spot): string {
+  const c = spot.context ?? {};
+  const what = SPOT_TYPE_LABEL[spot.type].toLowerCase();
+  const parts: string[] = [];
+
+  if (c.terrain && c.elevation !== undefined) {
+    parts.push(
+      `This ${what} sits at ${c.elevation} m above sea level in ${TERRAIN_LABEL[
+        c.terrain.type
+      ].toLowerCase()} country`,
+    );
+  } else if (c.elevation !== undefined) {
+    parts.push(`This ${what} sits at ${c.elevation} m above sea level`);
+  } else {
+    parts.push(`This ${what}`);
+  }
+
+  if (c.water) {
+    const named = c.water.name
+      ? `${c.water.name}`
+      : `the nearest ${WATER_LABEL[c.water.kind].toLowerCase()}`;
+    parts.push(`${formatDistance(c.water.m)} from ${named}`);
+  }
+  if (c.town) {
+    parts.push(
+      `${formatDistance(c.town.m)} from ${c.town.name ?? 'the nearest town'}`,
+    );
+  }
+  if (c.station) {
+    parts.push(
+      `${formatDistance(c.station.m)} from ${
+        c.station.name ? `${c.station.name} station` : 'a railway station'
+      }`,
+    );
+  }
+
+  const [head, ...rest] = parts;
+  if (rest.length === 0) return `${head}.`;
+  const last = rest.pop() as string;
+  return rest.length
+    ? `${head}, ${rest.join(', ')} and ${last}.`
+    : `${head}, ${last}.`;
 }
 
 function Breadcrumbs({ spot, params }: { spot: Spot; params: Params }) {
