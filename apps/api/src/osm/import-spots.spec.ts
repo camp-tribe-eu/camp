@@ -85,12 +85,23 @@ describe('dedupe (CAMP-71)', () => {
     expect(out).toHaveLength(2);
   });
 
-  it('🔴 never merges unnamed sites, however close', () => {
-    // Two pitches beside each other are not one campsite, and without a
-    // name there is nothing to tell the two cases apart.
+  it('merges unnamed sites that are metres apart', () => {
+    // Measured: 54 unnamed pairs sit within 50 m, 39 of them an area and
+    // the way it was built from, averaging 19 m. That is `osmium export`
+    // emitting one outline twice, not two campsites.
+    const out = dedupe([
+      row('w1', 14.0, 46.0, {}),
+      row('a2', 14.0001, 46.0001, {}),
+    ]);
+    expect(out).toHaveLength(1);
+  });
+
+  it('🔴 leaves unnamed sites beyond the tight radius alone', () => {
+    // ~120 m apart. Without a name there is no second signal, so the
+    // radius is the only guard and it stays a quarter of the named one.
     const out = dedupe([
       row('n1', 14.0, 46.0, {}),
-      row('n2', 14.00001, 46.00001, {}),
+      row('n2', 14.0, 46.00108, {}),
     ]);
     expect(out).toHaveLength(2);
   });

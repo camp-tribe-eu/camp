@@ -73,25 +73,26 @@ function metresApart(a: string, b: string): number {
  * underneath, because the two objects rarely carry the same tags and
  * throwing the node away wholesale would lose amenities.
  *
- * Unnamed duplicates are NOT merged. Without a name, proximity alone
- * cannot tell "the same site mapped twice" from "two pitches next to each
- * other", and silently merging two real campsites is worse than showing
- * two entries for one.
+ * Unnamed sites are merged only under a much stricter rule — see
+ * `mergeUnnamed` below.
  */
 export function dedupe(rows: StagingRow[]): StagingRow[] {
   const byName = new Map<string, StagingRow[]>();
+  const unnamed: StagingRow[] = [];
   const out: StagingRow[] = [];
 
   for (const row of rows) {
     const name = row.tags.name?.trim().toLowerCase();
     if (!name) {
-      out.push(row);
+      unnamed.push(row);
       continue;
     }
     const bucket = byName.get(name);
     if (bucket) bucket.push(row);
     else byName.set(name, [row]);
   }
+
+  out.push(...mergeUnnamed(unnamed));
 
   for (const bucket of byName.values()) {
     const clusters: StagingRow[][] = [];
@@ -125,6 +126,79 @@ export function dedupe(rows: StagingRow[]): StagingRow[] {
       }
       out.push(winner);
     }
+  }
+
+  return out;
+}
+
+/** Unnamed sites merge only this close — a quarter of the named radius. */
+const UNNAMED_DUPLICATE_RADIUS_M = 50;
+
+/** `n123` is a node; `w456` and `a789` are both the traced outline. */
+const isPolygon = (ref: string) => !ref.startsWith('n');
+
+/** Polygon beats node; between equals, the richer tag set wins. */
+function betterRow(a: StagingRow, b: StagingRow): StagingRow {
+  if (isPolygon(a.osm_ref) !== isPolygon(b.osm_ref)) {
+    return isPolygon(a.osm_ref) ? a : b;
+  }
+  return Object.keys(a.tags).length >= Object.keys(b.tags).length ? a : b;
+}
+
+/**
+ * 🔴 Unnamed duplicates: merged, on a much tighter radius.
+ *
+ * With no name, proximity alone cannot tell "one site mapped twice" from
+ * "two pitches side by side", so the first version of this refused to
+ * merge unnamed rows at all. Measuring the built pages showed the cost:
+ * the most duplicate-looking pages on the whole site were pairs of
+ * unnamed spots in one region — same heading, same breadcrumb, every
+ * amenity unknown, differing only in coordinates.
+ *
+ * So the rule is tightened instead of dropped: unnamed rows merge within
+ * 50 m, a quarter of the named radius.
+ *
+ * The first attempt also demanded that one row be a node and the other a
+ * polygon. Measuring killed that idea: of the 54 unnamed pairs inside
+ * 50 m, only 8 are node-vs-polygon. The dominant pattern is 39 pairs of
+ * `a` against `w` — an area and the way it was built from, both emitted
+ * by `osmium export`, 3 to 43 m apart and averaging 19 m. That is our own
+ * pipeline producing the same outline twice, not two campsites.
+ *
+ * The "two pitches side by side" worry that motivated the original
+ * caution was calibrated for the 200 m radius and does not survive here:
+ * we filter `tourism=camp_site` and `caravan_site`, never
+ * `tourism=camp_pitch`, so individual pitches are not in this data at
+ * all, and two whole campsites 19 m apart are not a real arrangement.
+ */
+export function mergeUnnamed(rows: StagingRow[]): StagingRow[] {
+  const out: StagingRow[] = [];
+  const taken = new Set<number>();
+
+  for (let i = 0; i < rows.length; i++) {
+    if (taken.has(i)) continue;
+    let winner = rows[i];
+
+    for (let j = i + 1; j < rows.length; j++) {
+      if (taken.has(j)) continue;
+      const other = rows[j];
+      if (
+        metresApart(winner.point_wkt, other.point_wkt) >
+        UNNAMED_DUPLICATE_RADIUS_M
+      ) {
+        continue;
+      }
+
+      taken.add(j);
+      const keep = betterRow(winner, other);
+      const drop = keep === winner ? other : winner;
+      for (const [k, v] of Object.entries(drop.tags)) {
+        if (keep.tags[k] === undefined) keep.tags[k] = v;
+      }
+      winner = keep;
+    }
+
+    out.push(winner);
   }
 
   return out;
@@ -353,7 +427,7 @@ async function main(): Promise<void> {
 
     console.log(`\nOSM import — ${COUNTRY}, from "${TABLE}"\n`);
     console.log(`  staged rows        ${staged.length}`);
-    console.log(`  merged duplicates  ${droppedAsDuplicate}  (same name within 200 m; way beats node)`);
+    console.log(`  merged duplicates  ${droppedAsDuplicate}  (named within 200 m, unnamed within 50 m; polygon beats node)`);
     console.log(`  inserted           ${inserted}`);
     console.log(`  updated            ${updated}`);
     console.log(`  newly missing      ${gone.rowCount}`);

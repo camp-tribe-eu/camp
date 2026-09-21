@@ -23,6 +23,15 @@ jobs:
       - run: npm run build --workspace=apps/web
       - run: npm run lint --workspace=apps/web
 
+      # CAMP-36. The acceptance criterion of the programmatic-SEO work is
+      # that no generated page duplicates another by a swapped value. That
+      # is invisible to a unit test — it only exists across pages, after
+      # generation — so it is checked on the built output, here, and it
+      # fails the build rather than being noticed six months later by a
+      # ranking drop.
+      - name: No near-duplicate generated pages
+        run: node scripts/seo/check-duplicate-pages.mjs
+
   api:
     runs-on: ubuntu-latest
     steps:
