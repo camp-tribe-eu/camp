@@ -32,6 +32,16 @@ jobs:
       - name: No near-duplicate generated pages
         run: node scripts/seo/check-duplicate-pages.mjs
 
+      # CAMP-37. Two steps, not one. The self-test proves the validator
+      # still rejects broken markup — a checker that has quietly stopped
+      # checking passes everything, and that is worse than no checker.
+      # Only then is it worth believing the run against the real pages.
+      - name: Structured-data validator still catches breakage
+        run: node scripts/seo/check-structured-data.mjs --self-test
+
+      - name: JSON-LD validates against the schema.org vocabulary
+        run: node scripts/seo/check-structured-data.mjs
+
   api:
     runs-on: ubuntu-latest
     steps:

@@ -125,3 +125,62 @@ test.describe('what is around it (CAMP-33)', () => {
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   });
 });
+
+test.describe('structured data (CAMP-37)', () => {
+  const graphs = async (page: import('@playwright/test').Page) =>
+    page.$$eval('script[type="application/ld+json"]', (nodes) =>
+      nodes.map((n) => JSON.parse(n.textContent ?? '{}')),
+    );
+
+  test('🔴 a campsite is a Campground, not a CampingPitch', async ({ page }) => {
+    await page.goto(RICH);
+    const docs = await graphs(page);
+    const camp = docs.find((d) => d['@type'] === 'Campground');
+    expect(camp, 'no Campground block on the page').toBeTruthy();
+    // CampingPitch is one pitch inside a campsite. Using it here would
+    // tell every consumer we are describing a single pitch.
+    expect(docs.some((d) => d['@type'] === 'CampingPitch')).toBe(false);
+    expect(camp.geo.latitude).toBeCloseTo(46.36, 1);
+    expect(camp.address.addressCountry).toBe('SI');
+  });
+
+  test('🔴 an unknown amenity is absent, never marked up as false', async ({
+    page,
+  }) => {
+    await page.goto(EMPTY);
+    const docs = await graphs(page);
+    const camp = docs.find((d) => d['@type'] === 'Campground');
+    // This site has nothing recorded. Emitting `value: false` would put a
+    // false claim about a real business into every consumer of the graph.
+    expect(camp.amenityFeature ?? []).toHaveLength(0);
+  });
+
+  test('breadcrumbs are numbered from 1 without gaps', async ({ page }) => {
+    await page.goto(RICH);
+    const docs = await graphs(page);
+    const crumbs = docs.find((d) => d['@type'] === 'BreadcrumbList');
+    expect(crumbs).toBeTruthy();
+    const positions = crumbs.itemListElement.map(
+      (i: { position: number }) => i.position,
+    );
+    // Google drops the whole list on one wrong position, silently.
+    expect(positions).toEqual([1, 2, 3, 4]);
+  });
+
+  test('🔴 no rating markup while we have no reviews', async ({ page }) => {
+    await page.goto(RICH);
+    const html = await page.content();
+    expect(html).not.toMatch(/aggregateRating|ratingValue/);
+  });
+
+  test('a hub describes itself as a CollectionPage with its items', async ({
+    page,
+  }) => {
+    await page.goto('/camping/si');
+    const docs = await graphs(page);
+    const collection = docs.find((d) => d['@type'] === 'CollectionPage');
+    expect(collection).toBeTruthy();
+    expect(collection.mainEntity['@type']).toBe('ItemList');
+    expect(collection.mainEntity.itemListElement.length).toBeGreaterThan(10);
+  });
+});

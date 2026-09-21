@@ -1,8 +1,23 @@
 import Link from "next/link";
+import { abs, jsonLdProps } from "@/lib/jsonld";
 
 export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
+      {/* CAMP-37. The site node: it tells Google and every assistant what
+          this domain is called, which is what they fall back on when a
+          deep page is cited without its own name. */}
+      <script
+        {...jsonLdProps({
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          "@id": `${abs("/")}#website`,
+          name: "CampTribe",
+          url: abs("/"),
+          description:
+            "Campsite map, route library and camper rental search for Europe.",
+        })}
+      />
       <h1 className="text-3xl font-bold">CampTribe</h1>
       <p className="text-lg text-gray-600 dark:text-gray-300">
         Plan Better. Camp Smarter.

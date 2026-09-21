@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import {
   Amenities,
   AmenityValue,
+  countryName,
   getSpot,
   getSpotIndex,
   NearbySpot,
@@ -14,6 +15,11 @@ import {
   WATER_LABEL,
   withOwnerOverrides,
 } from '@/lib/api';
+import {
+  breadcrumbList,
+  campgroundGraph,
+  jsonLdProps,
+} from '@/lib/jsonld';
 
 // CAMP-34 — the campsite page.
 //
@@ -81,8 +87,21 @@ export default async function CampsitePage({ params }: { params: Params }) {
     (v) => v !== 'unknown',
   ).length;
 
+  const path = `/camping/${params.country}/${params.region}/${params.slug}`;
+  const crumbs = [
+    { name: 'Camping', path: '/camping' },
+    { name: countryName(spot.country), path: `/camping/${params.country}` },
+    { name: spot.region ?? '', path: `/camping/${params.country}/${params.region}` },
+    { name: name ?? SPOT_TYPE_LABEL[spot.type], path },
+  ];
+
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
+      {/* CAMP-37. Two blocks rather than one @graph: Google reads both,
+          and a breakage in one does not take the other down with it. */}
+      <script {...jsonLdProps(campgroundGraph(spot, path, data.nearby))} />
+      <script {...jsonLdProps(breadcrumbList(crumbs))} />
+
       <Breadcrumbs spot={spot} params={params} />
 
       <header className="mt-4">

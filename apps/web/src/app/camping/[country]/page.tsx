@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { countryName, getCountries, getRegions } from '@/lib/api';
+import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 
 // CAMP-71, level 1: the country hub.
 //
@@ -42,6 +43,27 @@ export default async function CountryHub({ params }: { params: Params }) {
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
+      <script
+        {...jsonLdProps(
+          collectionGraph({
+            name: `Campsites in ${name}`,
+            description: `${spots} campsites across ${regions.length} regions of ${name}.`,
+            path: `/camping/${params.country}`,
+            items: regions.map((r) => ({
+              name: r.region,
+              path: `/camping/${params.country}/${r.slug}`,
+            })),
+          }),
+        )}
+      />
+      <script
+        {...jsonLdProps(
+          breadcrumbList([
+            { name: 'Camping', path: '/camping' },
+            { name, path: `/camping/${params.country}` },
+          ]),
+        )}
+      />
       <nav aria-label="Breadcrumb" className="text-sm text-ink-2">
         <ol className="flex flex-wrap items-center gap-x-2">
           <li>

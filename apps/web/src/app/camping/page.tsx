@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { countryName, getCountries } from '@/lib/api';
+import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 
 // CAMP-71, level 0. The root of the crawl path: home → here → country →
 // region → campsite is four clicks, which is the card's criterion, and
@@ -20,6 +21,19 @@ export default async function CampingIndex() {
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
+      <script
+        {...jsonLdProps(
+          collectionGraph({
+            name: 'Campsites in Europe',
+            description: `${total} campsites across ${countries.length} countries.`,
+            path: '/camping',
+            items: countries.map((c) => ({
+              name: countryName(c.country),
+              path: `/camping/${c.country}`,
+            })),
+          }),
+        )}
+      />
       <h1 className="text-3xl font-bold md:text-[42px]">Campsites in Europe</h1>
       <p className="mt-3 max-w-prose text-ink-2">
         {total.toLocaleString('en-GB')} campsites, motorhome parks and camper

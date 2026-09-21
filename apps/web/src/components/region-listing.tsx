@@ -8,6 +8,7 @@ import {
   SPOT_TYPE_LABEL,
   type SpotCard,
 } from '@/lib/api';
+import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 
 // CAMP-71, level 2: the region hub. Shared by /camping/{c}/{r} and
 // /camping/{c}/{r}/page/{n} so the first page and the rest cannot drift.
@@ -36,6 +37,28 @@ export default async function RegionListing({
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
+      <script
+        {...jsonLdProps(
+          collectionGraph({
+            name: `Campsites in ${data.region}`,
+            description: `${data.total} campsites in ${data.region}, ${cName}.`,
+            path: page === 1 ? base : `${base}/page/${page}`,
+            items: data.items.map((s) => ({
+              name: s.name ?? SPOT_TYPE_LABEL[s.type],
+              path: `${base}/${s.slug}`,
+            })),
+          }),
+        )}
+      />
+      <script
+        {...jsonLdProps(
+          breadcrumbList([
+            { name: 'Camping', path: '/camping' },
+            { name: cName, path: `/camping/${country}` },
+            { name: data.region as string, path: base },
+          ]),
+        )}
+      />
       <nav aria-label="Breadcrumb" className="text-sm text-ink-2">
         <ol className="flex flex-wrap items-center gap-x-2">
           <li>
