@@ -5,8 +5,11 @@
 #   ./import.sh <path-to-region.osm.pbf> <target-table> [database-url]
 #
 # Example (tiny smoke-test region, ~3MB):
-#   curl -o li.osm.pbf https://download.geofabrik.de/europe/liechtenstein-latest.osm.pbf
+#   curl -L -o li.osm.pbf https://download.geofabrik.de/europe/liechtenstein-latest.osm.pbf
 #   ./import.sh li.osm.pbf osm_camping_staging
+#
+# -L on the curl above is required: Geofabrik answers 302 and without it you
+# save a 244-byte HTML redirect page instead of the extract.
 #
 # Lands raw OSM camping/caravan features into a staging table with their
 # original tags as columns. Mapping staging rows onto the camping_spots
@@ -33,8 +36,17 @@ osmium tags-filter "$PBF_PATH" \
   w/tourism=camp_site w/tourism=caravan_site \
   -o "$FILTERED" --overwrite
 
-echo "==> 2/3 osmium export -> GeoJSON"
-osmium export "$FILTERED" -o "$GEOJSON" --overwrite -f geojson
+echo "==> 2/3 osmium export -> GeoJSON (with stable OSM id)"
+# 🔴 -u type_id is not optional (CAMP-28).
+#
+# Without it the export carries no OSM identifier at all: ogr2ogr then
+# invents `ogc_fid`, a row counter that changes between runs. Upserting on
+# that is impossible, so every weekly import would duplicate the entire
+# dataset instead of updating it.
+#
+# `type_id` emits values like `n2601234` / `w871234` - the type prefix
+# matters because a node and a way can share the same number.
+osmium export "$FILTERED" -o "$GEOJSON" --overwrite -f geojson -u type_id
 
 FEATURE_COUNT="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['features']))" "$GEOJSON")"
 echo "    features found: $FEATURE_COUNT"

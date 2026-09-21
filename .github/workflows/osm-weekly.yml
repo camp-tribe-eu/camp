@@ -1,0 +1,144 @@
+name: OSM weekly extract
+
+# CAMP-28: rebuild the campsite extract once a week.
+#
+# OSM is alive - the community adds and corrects campsites daily. Without a
+# schedule our map is half a year stale by summer, and the one thing we do
+# have over the competition is data that is not wrong.
+#
+# 🔴 Why the heavy work is here and the import is not:
+#
+# Downloading a 300 MB extract, filtering it with osmium and converting it
+# costs minutes of CPU. On a public repository those minutes are free, so
+# they belong here. The *import* does not: it needs the production
+# database, and giving a third-party runner a route into our database would
+# mean opening it to the internet for the sake of a cron job. The runner
+# produces a file; the VPS pulls that file and imports it locally.
+#
+# Repo is public. Never print user data, emails or secrets - the logs are
+# readable by any logged-in GitHub account.
+
+on:
+  schedule:
+    # 04:00 UTC every Monday. Geofabrik publishes daily extracts overnight,
+    # and nobody is looking at the site at 6am on a Monday.
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: 'Space-separated Geofabrik paths, e.g. "europe/slovenia europe/austria"'
+        required: false
+        default: 'europe/slovenia'
+
+env:
+  # Kept small on purpose until CAMP-97 settles where the output goes.
+  # Adding a country is one word here, and the run time scales with it.
+  DEFAULT_REGIONS: 'europe/slovenia'
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install osmium and GDAL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends osmium-tool gdal-bin
+          osmium --version | head -1
+          ogr2ogr --version
+
+      - name: Download, filter and convert
+        id: build
+        run: |
+          set -euo pipefail
+          REGIONS="${{ github.event.inputs.regions || env.DEFAULT_REGIONS }}"
+          mkdir -p out
+          TOTAL=0
+          for REGION in $REGIONS; do
+            SLUG="$(echo "$REGION" | tr '/' '-')"
+            echo "::group::$REGION"
+
+            # -L matters: Geofabrik answers 302 and without it curl saves a
+            # 244-byte HTML redirect page instead of the extract.
+            curl -sSL --retry 3 --retry-delay 10 \
+              -o "$SLUG.osm.pbf" \
+              "https://download.geofabrik.de/$REGION-latest.osm.pbf"
+
+            # A truncated or redirected download must fail loudly here
+            # rather than quietly produce an empty extract downstream.
+            SIZE=$(stat -c%s "$SLUG.osm.pbf")
+            if [ "$SIZE" -lt 100000 ]; then
+              echo "::error::$REGION download is only $SIZE bytes — not a PBF"
+              exit 1
+            fi
+
+            osmium tags-filter "$SLUG.osm.pbf" \
+              n/tourism=camp_site n/tourism=caravan_site \
+              w/tourism=camp_site w/tourism=caravan_site \
+              -o "$SLUG.filtered.osm.pbf" --overwrite
+
+            # -u type_id is not optional: it is the only stable key the
+            # import can upsert on. Without it every weekly run would
+            # duplicate the whole dataset instead of updating it.
+            osmium export "$SLUG.filtered.osm.pbf" \
+              -o "out/$SLUG.geojson" --overwrite -f geojson -u type_id
+
+            COUNT=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))['features']))" "out/$SLUG.geojson")
+            echo "$REGION: $COUNT features"
+            TOTAL=$((TOTAL + COUNT))
+            echo "::endgroup::"
+          done
+
+          # An empty result is never right for Europe and almost always
+          # means the filter or the download broke. Fail rather than ship
+          # a file that would blank the map.
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "::error::0 features across all regions — refusing to publish"
+            exit 1
+          fi
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          gzip -9 out/*.geojson
+          ls -lh out/
+
+      - name: Publish as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: osm-camping-extract
+          path: out/
+          retention-days: 14
+
+      # ⏸ Blocked on CAMP-97 (Cloudflare payment card / R2 vs VPS decision).
+      # Until that is settled the artifact above is the delivery mechanism
+      # and the VPS can pull it with the GitHub API. The step is written out
+      # rather than left as a TODO so the shape of the change is obvious,
+      # and it is skipped cleanly while the secret is absent.
+      - name: Upload to R2
+        # `secrets` is available in a step `if`; `env` defined in this same
+        # step is not — checking env here would skip the step forever.
+        if: ${{ secrets.R2_ACCESS_KEY_ID != '' }}
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          pip install --quiet awscli
+          aws s3 sync out/ "s3://camptribe-osm/$(date -u +%Y-%m-%d)/" \
+            --endpoint-url "$R2_ENDPOINT"
+
+      - name: Summary
+        run: |
+          {
+            echo "### OSM weekly extract"
+            echo ""
+            echo "- features: **${{ steps.build.outputs.total }}**"
+            echo "- artifact: \`osm-camping-extract\`, kept 14 days"
+            echo ""
+            echo "The VPS imports this with:"
+            echo '```'
+            echo "./scripts/osm-pipeline/import.sh <file>.osm.pbf osm_camping_staging"
+            echo "npx ts-node apps/api/src/osm/import-spots.ts <COUNTRY>"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
