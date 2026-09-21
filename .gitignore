@@ -152,3 +152,14 @@ apps/web/.lighthouseci/
 apps/web/blob-report/
 apps/cms/.env
 apps/cms/uploads/
+
+# === 🔴 КОНФІДЕНЦІЙНИЙ КОД UTD — НІКОЛИ В GIT ===
+# Вихідники комерційних Shopify-тем UTD (Fuse, Lucent, Theme 7 та ін.).
+# Власник позначив їх як цілком таємні. Репозиторій camp — ПУБЛІЧНИЙ.
+*.liquid
+**/lucent*/
+**/fuse*/
+**/adastra*
+theme-source/
+themes-private/
+*.fig
