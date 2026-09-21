@@ -1,17 +1,5 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
 import "./globals.css";
-
-const geistSans = localFont({
-  src: "./fonts/GeistVF.woff",
-  variable: "--font-geist-sans",
-  weight: "100 900",
-});
-const geistMono = localFont({
-  src: "./fonts/GeistMonoVF.woff",
-  variable: "--font-geist-mono",
-  weight: "100 900",
-});
 
 // Canonical domain from Facts/project-identity.md in the Camping brain.
 // Overridable via env so staging/preview deploys don't claim the production URL.
@@ -53,11 +41,28 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
-      </body>
+      <head>
+        {/* CAMP-88: only the `latin` cuts are preloaded — every visitor needs
+            them, so waiting for the CSS to be parsed first costs visible text
+            delay. `latin-ext` is deliberately not preloaded: most readers
+            never need ą, ř or ț, and preloading it would download 49 KB that
+            most of them throw away. */}
+        <link
+          rel="preload"
+          href="/fonts/archivo-latin.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+        <link
+          rel="preload"
+          href="/fonts/archivo-narrow-latin.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
+      </head>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }
