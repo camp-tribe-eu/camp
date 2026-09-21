@@ -80,6 +80,10 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
 interface StagingRow {
   osm_ref: string;
   point_wkt: string;
+  /** Admin-1 name the point falls inside, e.g. "Bled". Null outside coverage. */
+  admin_region: string | null;
+  /** ISO-3166-1 alpha-2 of that polygon - overrides the CLI argument. */
+  admin_country: string | null;
   tags: OsmTags;
 }
 
@@ -97,20 +101,49 @@ async function main(): Promise<void> {
   );
   const tagColumns = cols.rows.map((r) => r.column_name).filter((c) => c !== 'id');
 
+  // CAMP-34: the region and the country come from the geometry, not from
+  // tags and not from the command line.
+  //
+  // Tags cannot supply them: addr:state or addr:province was present on
+  // 0 of 448 Slovenian campsites (measured). And the country argument is
+  // a claim about the whole extract, which is wrong at the edges - a
+  // Geofabrik extract carries a strip beyond the border, so nine spots in
+  // the Slovenian file actually stand in Croatia and Austria. Publishing
+  // those under /camping/si/ would be a wrong URL that CAMP-87 then
+  // forbids us to move.
+  const hasBoundaries = await db.query(
+    `SELECT to_regclass('public.ne_admin1') IS NOT NULL AS ok`,
+  );
+  if (!hasBoundaries.rows[0]?.ok) {
+    throw new Error(
+      'Table ne_admin1 is missing - every page URL depends on it.\n' +
+        'Run: ./scripts/osm-pipeline/load-boundaries.sh',
+    );
+  }
+
   // 🔴 68% of the Slovenian extract are ways, not nodes - campsites are
   // mapped as areas. ST_PointOnSurface, not ST_Centroid: the centroid of a
   // concave or ring-shaped site can land outside it, which would put the
   // pin in a neighbouring field.
   const rows = await db.query(
-    `SELECT s.id AS osm_ref,
-            ST_AsText(
+    `WITH pts AS (
+       SELECT s.*,
               CASE WHEN GeometryType(s.geom) = 'POINT'
                    THEN s.geom
-                   ELSE ST_PointOnSurface(s.geom) END
-            ) AS point_wkt,
-            s.*
-       FROM "${TABLE}" s
-      WHERE s.id IS NOT NULL`,
+                   ELSE ST_PointOnSurface(s.geom) END AS pt
+         FROM "${TABLE}" s
+        WHERE s.id IS NOT NULL
+     )
+     SELECT p.id AS osm_ref,
+            ST_AsText(p.pt) AS point_wkt,
+            a.name   AS admin_region,
+            a.iso_a2 AS admin_country,
+            p.*
+       FROM pts p
+       LEFT JOIN LATERAL (
+         SELECT name, iso_a2 FROM ne_admin1
+          WHERE ST_Contains(geom, p.pt) LIMIT 1
+       ) a ON true`,
   );
 
   const staged: StagingRow[] = rows.rows.map((row) => {
@@ -119,7 +152,13 @@ async function main(): Promise<void> {
       const v = row[col];
       if (v !== null && v !== undefined && v !== '') tags[col] = String(v);
     }
-    return { osm_ref: row.osm_ref, point_wkt: row.point_wkt, tags };
+    return {
+      osm_ref: row.osm_ref,
+      point_wkt: row.point_wkt,
+      admin_region: row.admin_region ?? null,
+      admin_country: row.admin_country ?? null,
+      tags,
+    };
   });
 
   // Existing slugs stay with their spot; new ones must not collide.
@@ -136,6 +175,10 @@ async function main(): Promise<void> {
   let updated = 0;
   let unnamed = 0;
   let fromPolygon = 0;
+  /** Points whose polygon says a different country than the argument. */
+  let outsideExtent = 0;
+  /** Points outside every admin-1 polygon - these get no page URL. */
+  let withoutRegion = 0;
 
   await db.query('BEGIN');
   try {
@@ -156,13 +199,19 @@ async function main(): Promise<void> {
 
       const amenities = mapAmenities(row.tags);
       const type = mapSpotType(row.tags).type;
-      const region = row.tags['addr:state'] ?? row.tags['addr:province'] ?? null;
+
+      // Geometry wins over the argument. The argument only stands in where
+      // the point falls outside every polygon (open sea, a gap in the data).
+      const region = row.admin_region;
+      const country = row.admin_country ?? COUNTRY;
+      if (row.admin_country && row.admin_country !== COUNTRY) outsideExtent++;
+      if (!region) withoutRegion++;
 
       const res = await db.query(
         UPSERT_SPOT_SQL,
         [
           name,
-          COUNTRY,
+          country,
           region,
           slug,
           type,
@@ -219,6 +268,10 @@ async function main(): Promise<void> {
     console.log(`  rows in ${COUNTRY} now     ${total.rows[0].n}`);
     console.log(`\n  without a name     ${unnamed}  (pin shown, name honestly unknown)`);
     console.log(`  mapped as areas    ${fromPolygon}  (ST_PointOnSurface)`);
+    console.log(`  outside ${COUNTRY.padEnd(2)}         ${outsideExtent}  (extent overlaps the border; country taken from geometry)`);
+    if (withoutRegion) {
+      console.log(`  🔴 no region       ${withoutRegion}  (no admin-1 polygon — these cannot get a page URL)`);
+    }
     if (unknownCounts.rowCount) {
       console.log('\n  amenities still unknown:');
       for (const r of unknownCounts.rows) {

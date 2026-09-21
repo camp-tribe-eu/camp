@@ -9,6 +9,7 @@ import { Route } from './entities/route.entity';
 import { RoutePoint } from './entities/route-point.entity';
 import { Trip } from './entities/trip.entity';
 import { TripStop } from './entities/trip-stop.entity';
+import { SpotsModule } from './spots/spots.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { TripStop } from './entities/trip-stop.entity';
       entities: [User, CampingSpot, Route, RoutePoint, Trip, TripStop],
       synchronize: false,
     }),
+    SpotsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

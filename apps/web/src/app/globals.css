@@ -66,9 +66,46 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CAMP-34: the measured design tokens, ported from Design/_base.css in the
+ * brain — the same file every Sprint 0 mock-up is built from, so a colour
+ * here and a colour in the mock-up cannot drift apart.
+ *
+ * 🔴 Three states, not two. `@media (prefers-color-scheme: dark)` is
+ * guarded by `:root:not([data-theme="light"])` so a reader who explicitly
+ * chose light is not overridden by their OS, and `:root[data-theme="dark"]`
+ * lets them choose dark on a light OS. Two states cannot express "the user
+ * asked for the opposite of their system".
+ *
+ * These values were read off the live theme, not picked by eye
+ * (Facts/design-tokens.md, 177 variables).
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #f0f2f4;
+  --surface: #ffffff;
+  --surface-2: #f8f8f9;
+  --accent-surface: #dfe9f9;
+  --ink: #000000;
+  --ink-2: #5a5a5a;
+  --ink-3: #a1a1a1;
+  --heading: #343d50;
+  --line: #cacaca;
+  --line-2: #d4d4d4;
+  --line-blue: #7c92b7;
+  --ok: #4ba883;
+  --warn: #c83d28;
+  --amber: #ffc83c;
+  --btn: #404b62;
+  --btn-hover: #2f384a;
+  --btn-ink: #ffffff;
+
+  --r: 16px;
+  --r-sm: 12px;
+  --r-xs: 8px;
+  --r-xxs: 6px;
+
+  --t-short: 0.2s;
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --shadow: 0 1px 2px rgba(52, 61, 80, 0.05), 0 8px 24px -16px rgba(52, 61, 80, 0.35);
 
   --font-sans: 'Archivo', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     sans-serif;
@@ -76,18 +113,66 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme='light']) {
+    --bg: #181d26;
+    --surface: #212836;
+    --surface-2: #2a3243;
+    --accent-surface: #2c3648;
+    --ink: #edeff2;
+    --ink-2: #9aa3b2;
+    --ink-3: #6e7889;
+    --heading: #c9d3e4;
+    --line: #39435a;
+    --line-2: #333c50;
+    --line-blue: #5a6e92;
+    --ok: #5fbf98;
+    --warn: #e4715c;
+    --amber: #ffd36b;
+    --btn: #4c5a76;
+    --btn-hover: #5c6c8c;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -16px rgba(0, 0, 0, 0.8);
   }
 }
 
+:root[data-theme='dark'] {
+  --bg: #181d26;
+  --surface: #212836;
+  --surface-2: #2a3243;
+  --accent-surface: #2c3648;
+  --ink: #edeff2;
+  --ink-2: #9aa3b2;
+  --ink-3: #6e7889;
+  --heading: #c9d3e4;
+  --line: #39435a;
+  --line-2: #333c50;
+  --line-blue: #5a6e92;
+  --ok: #5fbf98;
+  --warn: #e4715c;
+  --amber: #ffd36b;
+  --btn: #4c5a76;
+  --btn-hover: #5c6c8c;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -16px rgba(0, 0, 0, 0.8);
+}
+
 body {
-  color: var(--foreground);
-  background: var(--background);
+  color: var(--ink);
+  background: var(--bg);
   /* System fallbacks are listed so the page is readable during the swap
    * and if the woff2 ever fails to load. */
   font-family: var(--font-sans);
+}
+
+h1,
+h2,
+h3 {
+  color: var(--heading);
+  text-wrap: balance;
+  letter-spacing: -0.012em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--line-blue);
+  outline-offset: 2px;
 }
 
 @layer utilities {
