@@ -111,11 +111,22 @@ export function dedupe(rows: StagingRow[]): StagingRow[] {
       }
       // Ways (`w…`) and areas (`a…`) beat nodes (`n…`); between equals,
       // the richer tag set wins so the merge starts from the better row.
+      //
+      // 🔴 The osm_ref comparison is the important one, even though it
+      // looks like a formality. Without it two equally-ranked rows are
+      // ordered by whatever Postgres happened to return, which is not
+      // guaranteed and does change — so the winner, and therefore the
+      // slug, and therefore the published URL, would flip between runs.
+      // Caught in testing: Camping Bled moved between `camping-bled` and
+      // `camping-bled-2` on consecutive imports of identical data, which
+      // is precisely the URL churn CAMP-87 forbids, happening silently
+      // every Monday.
       const ranked = [...cluster].sort((a, b) => {
         const rank = (r: StagingRow) => (r.osm_ref.startsWith('n') ? 1 : 0);
         return (
           rank(a) - rank(b) ||
-          Object.keys(b.tags).length - Object.keys(a.tags).length
+          Object.keys(b.tags).length - Object.keys(a.tags).length ||
+          a.osm_ref.localeCompare(b.osm_ref)
         );
       });
       const [winner, ...losers] = ranked;
@@ -137,12 +148,22 @@ const UNNAMED_DUPLICATE_RADIUS_M = 50;
 /** `n123` is a node; `w456` and `a789` are both the traced outline. */
 const isPolygon = (ref: string) => !ref.startsWith('n');
 
-/** Polygon beats node; between equals, the richer tag set wins. */
+/**
+ * Polygon beats node; between equals, the richer tag set wins; and when
+ * those tie, osm_ref decides.
+ *
+ * 🔴 That last step is not tidiness. Two equal rows would otherwise be
+ * separated by input order, which comes from Postgres and is not
+ * guaranteed stable — so the same data could elect a different winner on
+ * a later run and move a published URL.
+ */
 function betterRow(a: StagingRow, b: StagingRow): StagingRow {
   if (isPolygon(a.osm_ref) !== isPolygon(b.osm_ref)) {
     return isPolygon(a.osm_ref) ? a : b;
   }
-  return Object.keys(a.tags).length >= Object.keys(b.tags).length ? a : b;
+  const byTags = Object.keys(b.tags).length - Object.keys(a.tags).length;
+  if (byTags !== 0) return byTags < 0 ? a : b;
+  return a.osm_ref.localeCompare(b.osm_ref) <= 0 ? a : b;
 }
 
 /**
@@ -225,8 +246,8 @@ function slugify(name: string | null, osmRef: string): string {
  */
 export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            (name, country, region, slug, type, amenities, location,
-            osm_ref, last_seen_at, missing_since)
-         VALUES ($1, $2, $3, $4, $5, $6, ST_GeomFromText($7, 4326), $8, $9, NULL)
+            osm_ref, last_seen_at, missing_since, content_changed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, ST_GeomFromText($7, 4326), $8, $9, NULL, $9)
          ON CONFLICT (osm_ref) DO UPDATE SET
            name          = EXCLUDED.name,
            country       = EXCLUDED.country,
@@ -235,10 +256,30 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            amenities     = EXCLUDED.amenities,
            location      = EXCLUDED.location,
            last_seen_at  = EXCLUDED.last_seen_at,
-           missing_since = NULL
+           missing_since = NULL,
+           -- 🔴 CAMP-39: only moves when something a reader would notice
+           -- moved. last_seen_at ticks every week whether or not anything
+           -- changed, so using it as <lastmod> would restamp every page
+           -- each Monday and teach crawlers the field is noise.
+           content_changed_at = CASE
+             WHEN (camping_spots.name, camping_spots.country,
+                   camping_spots.region, camping_spots.type,
+                   camping_spots.amenities)
+                  IS DISTINCT FROM
+                  (EXCLUDED.name, EXCLUDED.country,
+                   EXCLUDED.region, EXCLUDED.type,
+                   EXCLUDED.amenities)
+               OR NOT ST_Equals(camping_spots.location, EXCLUDED.location)
+             THEN EXCLUDED.last_seen_at
+             ELSE camping_spots.content_changed_at
+           END
            -- slug and owner_overrides are intentionally absent: see the
            -- header. Adding them here is the bug this comment prevents.
-         RETURNING (xmax = 0) AS was_insert`;
+         -- RETURNING sees the final row, never EXCLUDED — Postgres
+         -- rejects it there. $9 is the same value last_seen_at was set
+         -- to, so comparing against it answers the same question.
+         RETURNING (xmax = 0) AS was_insert,
+                   (camping_spots.content_changed_at = $9) AS content_changed`;
 
 interface StagingRow {
   osm_ref: string;
@@ -306,7 +347,8 @@ async function main(): Promise<void> {
        LEFT JOIN LATERAL (
          SELECT name, iso_a2 FROM ne_admin1
           WHERE ST_Contains(geom, p.pt) LIMIT 1
-       ) a ON true`,
+       ) a ON true
+      ORDER BY p.id`,
   );
 
   const staged: StagingRow[] = rows.rows.map((row) => {

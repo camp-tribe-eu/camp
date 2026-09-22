@@ -84,6 +84,8 @@ export interface SpotIndexEntry {
   region: string;
   slug: string;
   lastSeenAt: string | null;
+  /** When the page's content last actually changed — the sitemap's lastmod. */
+  contentChangedAt: string | null;
 }
 
 /** Null rather than throw: a missing campsite is a 404, not a broken build. */

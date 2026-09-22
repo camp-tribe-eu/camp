@@ -112,3 +112,51 @@ describe('dedupe (CAMP-71)', () => {
     expect(out[0].osm_ref).toBe('w9');
   });
 });
+
+describe('🔴 dedupe is deterministic (CAMP-39)', () => {
+  const row = (osm_ref: string, lon: number, lat: number, tags = {}) => ({
+    osm_ref,
+    point_wkt: `POINT(${lon} ${lat})`,
+    admin_region: 'Bled',
+    admin_country: 'SI',
+    tags,
+  });
+
+  // Two polygons, same name, same tag count, 18 m apart — the real
+  // Camping Bled. Nothing but osm_ref can separate them.
+  const pair = () => [
+    row('w460186862', 14.0779, 46.3608, { name: 'Camping Bled' }),
+    row('a920373724', 14.0781, 46.3609, { name: 'Camping Bled' }),
+  ];
+
+  it('picks the same winner whatever order the rows arrive in', () => {
+    // Input order comes from Postgres, which does not guarantee it. When
+    // the winner depended on it, the published URL flipped between
+    // /camping-bled and /camping-bled-2 on consecutive imports of
+    // identical data — silent URL churn, every Monday.
+    const forward = dedupe(pair());
+    const reversed = dedupe(pair().reverse());
+    expect(forward).toHaveLength(1);
+    expect(reversed).toHaveLength(1);
+    expect(forward[0].osm_ref).toBe(reversed[0].osm_ref);
+  });
+
+  it('picks the same winner for unnamed pairs too', () => {
+    const unnamed = () => [
+      row('w1266747456', 14.0779, 46.3608),
+      row('a2533494912', 14.0781, 46.3609),
+    ];
+    expect(dedupe(unnamed())[0].osm_ref).toBe(
+      dedupe(unnamed().reverse())[0].osm_ref,
+    );
+  });
+
+  it('still prefers the polygon over the node regardless of order', () => {
+    const mixed = () => [
+      row('n111', 14.0779, 46.3608, { name: 'X' }),
+      row('w222', 14.0781, 46.3609, { name: 'X' }),
+    ];
+    expect(dedupe(mixed())[0].osm_ref).toBe('w222');
+    expect(dedupe(mixed().reverse())[0].osm_ref).toBe('w222');
+  });
+});

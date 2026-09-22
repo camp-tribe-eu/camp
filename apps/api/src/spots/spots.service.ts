@@ -197,10 +197,16 @@ export class SpotsService {
    * being given an invented one.
    */
   async allPublishable(): Promise<
-    { country: string; region: string; slug: string; lastSeenAt: Date | null }[]
+    {
+      country: string;
+      region: string;
+      slug: string;
+      lastSeenAt: Date | null;
+      contentChangedAt: Date | null;
+    }[]
   > {
     const rows = await this.db.query(
-      `SELECT country, region, slug, last_seen_at
+      `SELECT country, region, slug, last_seen_at, content_changed_at
          FROM camping_spots
         WHERE region IS NOT NULL AND missing_since IS NULL
         ORDER BY country, region, slug`,
@@ -210,6 +216,9 @@ export class SpotsService {
       region: slugifyRegion(r.region as string),
       slug: r.slug as string,
       lastSeenAt: (r.last_seen_at as Date) ?? null,
+      // 🔴 What <lastmod> must be built from. See the column's migration:
+      // last_seen_at ticks weekly whether or not anything changed.
+      contentChangedAt: (r.content_changed_at as Date) ?? null,
     }));
   }
 }
