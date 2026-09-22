@@ -1,0 +1,58 @@
+name: CodeQL
+
+# Static analysis of our own code, by GitHub's analyser.
+#
+# 🔴 Why this is here and not clicked on in the UI. GitHub offers a
+# "default setup" that needs one click and lives in the repository
+# settings, invisible to anyone reading the code. Every other guard in
+# this project is a file you can read and a self-test you can run, and a
+# check nobody can see is a check nobody maintains. This also means it
+# runs on the same trigger as the rest of CI.
+#
+# What it looks for that our other checks do not: injection, unsafe
+# regular expressions, path traversal, and misuse of the DOM — reasoning
+# about how data flows through our code rather than matching patterns.
+# Campsite names come from OpenStreetMap and are untrusted by design, so
+# taint analysis is exactly the shape of check we want.
+#
+# 🔴 On every branch, not just main. CAMP-34 through CAMP-39 each added a
+# CI step that never once ran, because the workflow triggered only on
+# main while all the work was on a feature branch. Free for public
+# repositories, which is what pays for being thorough here.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+  schedule:
+    # 🔴 Weekly as well as per-push. CodeQL's query packs are updated by
+    # GitHub, so the same unchanged code can become a finding tomorrow —
+    # a push-only trigger would never notice on a quiet week.
+    - cron: '0 5 * * 1'
+
+permissions:
+  contents: read
+  # Writing the findings back to the Security tab is the whole point.
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze JavaScript and TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # security-extended adds the lower-confidence security queries.
+          # We would rather read a few false positives than miss a real
+          # one on a project that is about to take public traffic.
+          queries: security-extended
+
+      - name: Analyse
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript-typescript
