@@ -30,9 +30,9 @@ describe('parseFilters: only values this codebase defines reach the SQL', () => 
   });
 
   it('collapses repeats, so one tick cannot become two conditions', () => {
-    expect(parseFilters({ amenities: 'shower,shower,shower' }).amenities).toEqual(
-      ['shower'],
-    );
+    expect(
+      parseFilters({ amenities: 'shower,shower,shower' }).amenities,
+    ).toEqual(['shower']);
   });
 
   it('treats a missing, empty or non-string parameter as no filter', () => {

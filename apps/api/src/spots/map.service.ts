@@ -141,8 +141,7 @@ export class MapQueryService {
   ): Promise<number> {
     if (!f.lenientWhere) return 0;
 
-    const base =
-      `FROM camping_spots
+    const base = `FROM camping_spots
         WHERE missing_since IS NULL
           AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)`;
 

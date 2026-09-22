@@ -22,7 +22,7 @@ describe('slugifyRegion', () => {
     expect(slugifyRegion('Dubrovacko - Neretvanska')).toBe(
       'dubrovacko-neretvanska',
     );
-    expect(slugifyRegion("Mestna obcina  Ljubljana")).toBe(
+    expect(slugifyRegion('Mestna obcina  Ljubljana')).toBe(
       'mestna-obcina-ljubljana',
     );
   });

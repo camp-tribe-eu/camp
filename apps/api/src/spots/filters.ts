@@ -66,7 +66,10 @@ export const NO_FILTERS: MapFilters = {
  */
 export function parseFilters(query: Record<string, unknown>): MapFilters {
   return {
-    types: pickKnown(query.types, SPOT_TYPES as readonly string[]) as SpotType[],
+    types: pickKnown(
+      query.types,
+      SPOT_TYPES as readonly string[],
+    ) as SpotType[],
     amenities: pickKnown(query.amenities, AMENITY_KEYS) as AmenityKey[],
     includeUnknown: isTruthy(query.unknown),
   };
