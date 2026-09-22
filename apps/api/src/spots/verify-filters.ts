@@ -132,8 +132,10 @@ function firstDifference(a: string[], b: string[]): string {
   const inA = a.filter((s) => !b.includes(s));
   const inB = b.filter((s) => !a.includes(s));
   const bits: string[] = [];
-  if (inA.length) bits.push(`only from the generator: ${inA.slice(0, 5).join(', ')}`);
-  if (inB.length) bits.push(`only from hand-written SQL: ${inB.slice(0, 5).join(', ')}`);
+  if (inA.length)
+    bits.push(`only from the generator: ${inA.slice(0, 5).join(', ')}`);
+  if (inB.length)
+    bits.push(`only from hand-written SQL: ${inB.slice(0, 5).join(', ')}`);
   return bits.join(' | ') || 'same members, different order';
 }
 
@@ -208,7 +210,9 @@ async function main(): Promise<void> {
   }
 
   if (failed) {
-    console.error(`\n✗ ${failed} filter case(s) disagree with hand-written SQL`);
+    console.error(
+      `\n✗ ${failed} filter case(s) disagree with hand-written SQL`,
+    );
     process.exitCode = 1;
     return;
   }

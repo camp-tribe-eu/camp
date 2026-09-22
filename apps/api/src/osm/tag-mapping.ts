@@ -424,7 +424,10 @@ export const AMENITY_KEYS: AmenityKey[] = [
  * not doing the same thing, and burying the second inside a list of nine
  * tick-boxes is how it gets missed.
  */
-export const ACCESSIBILITY_KEYS: AmenityKey[] = ['wheelchair', 'wheelchairFull'];
+export const ACCESSIBILITY_KEYS: AmenityKey[] = [
+  'wheelchair',
+  'wheelchairFull',
+];
 
 /** Resolves the full amenity set for one OSM feature. */
 export function mapAmenities(tags: OsmTags): CampingSpotAmenities {

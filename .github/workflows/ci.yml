@@ -191,6 +191,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build --workspace=apps/api
+
+      # 🔴 The API was never linted in CI — only the web app was. Ten
+      # formatting errors from CAMP-35 sat on main for a day and were
+      # found by accident, while running lint by hand during a dependency
+      # upgrade. A rule nobody enforces is a rule that quietly stops
+      # applying, so it runs here now.
+      #
+      # --max-warnings=0 because a warning that never fails is a warning
+      # nobody reads.
+      - name: Lint the API
+        working-directory: apps/api
+        run: npx eslint "src/**/*.ts" --max-warnings=0
+
       - run: npm run test --workspace=apps/api
 
       - name: Migrate

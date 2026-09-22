@@ -414,9 +414,9 @@ describe('CAMP-35: grey-water disposal', () => {
 
 describe('CAMP-35: laundry, on tags people actually use', () => {
   it('accepts washing_machine, because `laundry` appears on zero sites here', () => {
-    expect(
-      resolveAmenity('laundry', { washing_machine: 'yes' }).value,
-    ).toBe(AmenityValue.YES);
+    expect(resolveAmenity('laundry', { washing_machine: 'yes' }).value).toBe(
+      AmenityValue.YES,
+    );
   });
 
   // A laundry room with no dryer is still a laundry room, so the absence
@@ -447,9 +447,9 @@ describe('rule.no outranks the global truthy set, and nothing else moved', () =>
   });
 
   it('keeps the wifi rules exactly as they were', () => {
-    expect(
-      resolveAmenity('wifi', { internet_access: 'terminal' }).value,
-    ).toBe(AmenityValue.NO);
+    expect(resolveAmenity('wifi', { internet_access: 'terminal' }).value).toBe(
+      AmenityValue.NO,
+    );
     expect(
       resolveAmenity('wifi', { internet_access: 'wlan;terminal' }).value,
     ).toBe(AmenityValue.YES);
