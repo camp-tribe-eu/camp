@@ -25,7 +25,7 @@ export enum AmenityValue {
 }
 
 export type AmenityKey =
-  'electricity' | 'water' | 'shower' | 'dogFriendly' | 'wifi';
+  'electricity' | 'water' | 'shower' | 'toilets' | 'dogFriendly' | 'wifi';
 
 export type OsmTags = Record<string, string | undefined | null>;
 
@@ -60,7 +60,15 @@ interface ValueRule {
 interface PresenceRule {
   kind: 'presence';
   key: string;
-  value: string;
+  /**
+   * Omit when the key EXISTING is the statement, whatever it says.
+   *
+   * `toilets:wheelchair=no` describes a toilet that is not accessible —
+   * which still tells us there is a toilet. Reading its value would give
+   * exactly the wrong answer, and measured on the Croatian extract it is
+   * the only evidence of toilets on 8 sites.
+   */
+  value?: string;
 }
 
 export type AmenityRule = ValueRule | PresenceRule;
@@ -148,6 +156,51 @@ export const AMENITY_RULES: Record<AmenityKey, AmenityRule[]> = {
     { kind: 'value', key: 'showers' },
   ],
 
+  // CAMP-32: the owner's call, and he is right — for a lot of people a
+  // site without toilets is simply not an option, so an unanswered
+  // question here is worth more than a guess.
+  //
+  // 🔴 `toilets=yes` is the documented tag on a campsite. `amenity=toilets`
+  // is a DIFFERENT statement: it marks a toilet block as its own object,
+  // and on a campsite feature it means the same thing — this site has
+  // toilets. Both are accepted.
+  //
+  // `toilets:disposal` names how waste is handled (flush, pitlatrine,
+  // chemical, bucket). Somebody who wrote that has certainly seen a
+  // toilet, so it counts as a yes in the same way a named power socket
+  // does — but `none` is an explicit no, which is exactly the kind of
+  // honest negative the three-state model exists to carry.
+  toilets: [
+    // `separated` means separate facilities for men and women — plainly a
+    // yes, and not in the standard truthy set. Two sites in the Croatian
+    // extract say exactly that, and were reading as "unknown".
+    { kind: 'value', key: 'toilets', yes: ['separated'] },
+    { kind: 'presence', key: 'amenity', value: 'toilets' },
+    // How the waste is handled (flush, chemical, pitlatrine…). Someone
+    // who wrote that has seen a toilet — and `none` is them saying there
+    // is nowhere to go, which is the honest negative the three-state
+    // model exists to carry.
+    //
+    // 🔴 Above the accessibility tag on purpose: this is a direct
+    // statement about the toilet, that one is an inference from a tag
+    // about something else. A site carrying both should be read by what
+    // it states, not by what we deduce.
+    {
+      kind: 'value',
+      key: 'toilets:disposal',
+      namedVariantMeansYes: true,
+      no: ['none'],
+    },
+    // 🔴 The key alone, not its value. Someone who recorded whether the
+    // toilets are wheelchair-accessible has seen toilets, and
+    // `toilets:wheelchair=no` means "not accessible", never "no toilet".
+    // Measured: the only evidence of toilets on 8 Croatian sites.
+    { kind: 'presence', key: 'toilets:wheelchair' },
+    // Seen on caravan sites: the chemical-toilet disposal point. It is a
+    // facility for emptying a toilet, not a toilet, so it is deliberately
+    // NOT a match — the distinction matters to the person filtering.
+  ],
+
   // `leashed` is a yes with a condition, not a no - the dog may come.
   dogFriendly: [
     { kind: 'value', key: 'dog', yes: ['leashed', 'outside'] },
@@ -223,7 +276,13 @@ function readPresenceRule(
 ): AmenityResolution | null {
   const raw = tags[rule.key];
   if (raw === undefined || raw === null) return null;
-  if (raw.trim().toLowerCase() !== rule.value) return null;
+  const text = raw.trim().toLowerCase();
+  if (text === '') return null;
+  // No `value` means the key's existence is the whole statement.
+  if (rule.value === undefined) {
+    return { value: AmenityValue.YES, matchedBy: rule.key };
+  }
+  if (text !== rule.value) return null;
   return {
     value: AmenityValue.YES,
     matchedBy: `${rule.key}=${rule.value}`,
@@ -251,6 +310,7 @@ export const AMENITY_KEYS: AmenityKey[] = [
   'electricity',
   'water',
   'shower',
+  'toilets',
   'dogFriendly',
   'wifi',
 ];

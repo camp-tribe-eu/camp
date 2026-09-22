@@ -22,6 +22,8 @@
 
 import {
   Amenities,
+  AMENITY_KEYS,
+  AMENITY_LABEL,
   countryName,
   formatDistance,
   NearbySpot,
@@ -70,14 +72,7 @@ export function breadcrumbList(crumbs: Crumb[]) {
  * the honest encoding of not knowing.
  */
 function amenityFeatures(amenities: Amenities) {
-  const labels: [keyof Amenities, string][] = [
-    ['electricity', 'Electricity'],
-    ['water', 'Drinking water'],
-    ['shower', 'Showers'],
-    ['dogFriendly', 'Dogs allowed'],
-    ['wifi', 'Wi-Fi'],
-  ];
-  return labels
+  return AMENITY_KEYS.map((key) => [key, AMENITY_LABEL[key]] as const)
     .filter(([key]) => amenities?.[key] === 'yes' || amenities?.[key] === 'no')
     .map(([key, name]) => ({
       '@type': 'LocationFeatureSpecification',

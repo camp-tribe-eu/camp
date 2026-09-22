@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { AMENITY_KEYS } from '@/lib/api';
 
 // CAMP-73 — 404, 410, 500 and the empty states.
 //
@@ -208,9 +209,7 @@ test.describe('empty states', () => {
     ).json();
     const bare = features.find(
       (f: { properties: Record<string, string> }) =>
-        ['electricity', 'water', 'shower', 'dogFriendly', 'wifi'].every(
-          (k) => f.properties[k] === 'unknown',
-        ),
+        AMENITY_KEYS.every((k) => f.properties[k] === 'unknown'),
     );
     test.skip(!bare, 'the fixture holds no campsite without facilities');
 

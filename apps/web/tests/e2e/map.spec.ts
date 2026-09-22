@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { AMENITY_KEYS } from '@/lib/api';
+import { INITIAL_VIEW } from '@/lib/map-sources';
 
 // CAMP-31/32 — the map, its source switcher, its escape hatch, and the
 // markers.
@@ -65,8 +67,11 @@ async function zoomIn(page: Page, times: number) {
   }
 }
 
-/** Where the map opens — mirrors INITIAL_VIEW in lib/map-sources.ts. */
-const CENTRE = { lng: 14.5, lat: 46.1 };
+/** Where the map opens — imported, never copied. A second copy of the
+ * centre would silently drift the day the dataset grows and the opening
+ * view moves with it, and the tests would then place their fixtures
+ * somewhere the map is not looking. */
+const CENTRE = { lng: INITIAL_VIEW.lng, lat: INITIAL_VIEW.lat };
 
 /**
  * Replace the campsite data with points we place ourselves.
@@ -184,7 +189,7 @@ test.describe('/map', () => {
     const body = await (await page.request.get('/data/spots.geojson')).json();
     const values = new Set<string>();
     for (const f of body.features) {
-      for (const key of ['electricity', 'water', 'shower', 'dogFriendly', 'wifi']) {
+      for (const key of AMENITY_KEYS) {
         values.add(f.properties[key]);
       }
     }

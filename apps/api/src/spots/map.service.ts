@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { CampingSpotAmenities } from '../osm/tag-mapping';
-import { canonicalPath } from './spots.service';
+import { canonicalPath, readAmenities } from './spots.service';
 import { gridFor, POINT_LIMIT, type Bbox } from './viewport';
 
 export * from './viewport';
@@ -155,7 +155,9 @@ function toMarker(row: Record<string, unknown>): SpotMarker {
     type: row.type as string,
     lat: Number(row.lat),
     lon: Number(row.lon),
-    amenities: row.amenities as CampingSpotAmenities,
+    // Read through the same normaliser as the page, so the two can
+    // never disagree about which amenities exist.
+    amenities: readAmenities(row.amenities),
     path: canonicalPath(
       row.country as string,
       (row.region as string) ?? null,

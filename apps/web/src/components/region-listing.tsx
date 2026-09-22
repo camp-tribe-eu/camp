@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
+  AMENITY_KEYS,
+  AMENITY_LABEL_SHORT,
   countryName,
   getRegions,
   getRegionSpots,
@@ -114,14 +116,8 @@ function SpotListCard({ spot, href }: { spot: SpotCard; href: string }) {
   // Only what is actually recorded. A card that prints five grey icons for
   // five unknown amenities says "we know nothing" five times; one honest
   // line says it once and leaves room for what we do know.
-  const known = (
-    [
-      ['electricity', 'Electricity'],
-      ['water', 'Water'],
-      ['shower', 'Showers'],
-      ['dogFriendly', 'Dogs'],
-      ['wifi', 'Wi-Fi'],
-    ] as const
+  const known = AMENITY_KEYS.map(
+    (k) => [k, AMENITY_LABEL_SHORT[k]] as const,
   ).filter(([k]) => spot.amenities?.[k] === 'yes');
 
   return (

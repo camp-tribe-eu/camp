@@ -13,9 +13,55 @@ export interface Amenities {
   electricity: AmenityValue;
   water: AmenityValue;
   shower: AmenityValue;
+  toilets: AmenityValue;
   dogFriendly: AmenityValue;
   wifi: AmenityValue;
 }
+
+export type AmenityKey = keyof Amenities;
+
+/**
+ * 🔴 One list, in one place, in the order a reader reads them.
+ *
+ * Adding `toilets` meant finding five separate hard-coded copies of the
+ * same five keys — in the JSON-LD, the region cards, the campsite page,
+ * the map popup and the GeoJSON route — and being sure none was missed.
+ * Grep found them, but grep is not a guarantee, and the failure mode is
+ * an amenity that exists in the data and is invisible on one surface
+ * with nothing to indicate it.
+ *
+ * The next one is a line here.
+ */
+export const AMENITY_KEYS: AmenityKey[] = [
+  'electricity',
+  'water',
+  'shower',
+  // Sanitary facilities together: a reader checking for one is checking
+  // for the other.
+  'toilets',
+  'dogFriendly',
+  'wifi',
+];
+
+/** Full labels — the campsite page and the structured data. */
+export const AMENITY_LABEL: Record<AmenityKey, string> = {
+  electricity: 'Electricity',
+  water: 'Drinking water',
+  shower: 'Showers',
+  toilets: 'Toilets',
+  dogFriendly: 'Dogs allowed',
+  wifi: 'Wi-Fi',
+};
+
+/** Short labels — the chips on listing cards, where space is the constraint. */
+export const AMENITY_LABEL_SHORT: Record<AmenityKey, string> = {
+  electricity: 'Electricity',
+  water: 'Water',
+  shower: 'Showers',
+  toilets: 'Toilets',
+  dogFriendly: 'Dogs',
+  wifi: 'Wi-Fi',
+};
 
 // CAMP-33: the computed surroundings. Mirrors apps/api/src/osm/spot-context.ts.
 export type WaterKind = 'sea' | 'lake' | 'reservoir' | 'river';

@@ -351,8 +351,45 @@ async function main(): Promise<void> {
             p.*
        FROM pts p
        LEFT JOIN LATERAL (
-         SELECT name, iso_a2 FROM ne_admin1
-          WHERE ST_Contains(geom, p.pt) LIMIT 1
+         -- 🔴 Containment first, nearest polygon second — and the second
+         -- is not a nicety.
+         --
+         -- Natural Earth is 1:10m, so its coastline is generalised. The
+         -- first Croatian import put 367 campsites of 778 — 47% — outside
+         -- every admin-1 polygon, and without a region a campsite gets no
+         -- page URL at all. Measured, every one of them was within
+         -- 3.85 km of a Croatian polygon; the average was 593 m and the
+         -- closest 8 m. They are not in the sea: they are on a shore or a
+         -- small island that the generalised outline smooths away, and
+         -- Croatia's campsites are overwhelmingly coastal.
+         --
+         -- So a point that falls in nothing takes the nearest polygon of
+         -- a country, within a hard limit. The limit is what keeps this
+         -- honest: beyond it the row keeps no region and gets no page,
+         -- rather than being assigned a county by a guess.
+         --
+         -- 🔴 Two steps, because one was unusably slow. Casting every
+         -- polygon to geography to measure a distance defeats the GiST
+         -- index, and the query then compared each point against all
+         -- 4,594 admin-1 polygons on Earth. First the index narrows to a
+         -- handful of candidates by bounding box and KNN; only those few
+         -- are measured exactly.
+         SELECT c.name, c.iso_a2
+           FROM (
+             SELECT name, iso_a2, geom, ST_Contains(geom, p.pt) AS inside
+               FROM ne_admin1
+              WHERE geom && ST_Expand(p.pt, 0.1)
+              ORDER BY geom <-> p.pt
+              LIMIT 8
+           ) c
+          WHERE c.inside
+             OR ST_DWithin(c.geom::geography, p.pt::geography, 5000)
+          -- Containment always wins; among near misses the closest wins.
+          -- 🔴 name breaks the tie, because two polygons can be
+          -- equidistant and an undetermined winner would move a published
+          -- URL between runs (the lesson of CAMP-39).
+          ORDER BY c.inside DESC, c.geom <-> p.pt, c.name
+          LIMIT 1
        ) a ON true
       ORDER BY p.id`,
   );
@@ -439,15 +476,36 @@ async function main(): Promise<void> {
     // Anything in this country that OSM stopped mentioning. Only the first
     // disappearance is stamped, so the four-import rule from CAMP-87 can
     // measure how long it has been gone.
+    //
+    // 🔴 `last_seen_at < startedAt` on its own is wrong, and the second
+    // country is what exposed it.
+    //
+    // Geofabrik's extracts overlap at the borders, and their idea of a
+    // border is OSM's, while ours is Natural Earth's. Kamp Hupkač sits in
+    // Međimurje: Natural Earth puts it inside Croatia, so we store it as
+    // HR — and Geofabrik's Croatian extract does not contain it, because
+    // OSM's boundary runs differently. It arrived in the SLOVENIAN
+    // extract, an hour earlier in the same import cycle.
+    //
+    // With the naive condition, every weekly Croatian import declared a
+    // campsite that plainly exists to be missing, and after four of them
+    // CAMP-73 would start answering 410 for a live campsite — the exact
+    // damage the 410 was built to avoid.
+    //
+    // So a spot seen by ANY extract in this cycle is not missing. The
+    // window is generous on purpose: the gone rule already waits four
+    // weeks, so nothing is lost by being slow to suspect.
+    const CYCLE_HOURS = 24;
     const gone = await db.query(
       `UPDATE camping_spots
           SET missing_since = $1
         WHERE country = $2
           AND osm_ref IS NOT NULL
-          AND (last_seen_at IS NULL OR last_seen_at < $1)
+          AND (last_seen_at IS NULL
+               OR last_seen_at < $1::timestamptz - ($3 || ' hours')::interval)
           AND missing_since IS NULL
         RETURNING osm_ref`,
-      [startedAt, COUNTRY],
+      [startedAt, COUNTRY, CYCLE_HOURS],
     );
 
     await db.query('COMMIT');

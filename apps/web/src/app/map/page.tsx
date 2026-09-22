@@ -40,8 +40,8 @@ export default async function MapPage() {
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
       {/* 🔴 The markup describes the country list, not the map. A crawler
-          never runs the map, so claiming this page "contains" 289
-          campsites would be describing something no machine can see
+          never runs the map, so claiming this page "contains" every
+          campsite would be describing something no machine can see
           here. What it can see, and what it can follow, is the list —
           so that is what the page says it is. */}
       <script

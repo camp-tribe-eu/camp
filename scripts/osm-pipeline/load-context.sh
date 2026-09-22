@@ -27,6 +27,10 @@
 set -euo pipefail
 
 DB_URL="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"
+
+# shellcheck source=_pgconn.sh
+. "$(dirname "$0")/_pgconn.sh"
+OGR_CONN="$(pg_conninfo "$DB_URL")"
 WORK_DIR="${WORK_DIR:-/tmp/camptribe-context}"
 REGIONS=("$@")
 
@@ -85,12 +89,25 @@ load_layer() {
   osmium export "merged.$name.pbf" -o "ctx_$name.geojson" \
     --overwrite -f geojson -u type_id
 
-  ogr2ogr -f PostgreSQL "PG:${DB_URL#postgres://}" "ctx_$name.geojson" \
+  ogr2ogr -f PostgreSQL "PG:$OGR_CONN" "ctx_$name.geojson" \
     -nln "osm_ctx_$name" -overwrite \
     -lco GEOMETRY_NAME=geom -nlt PROMOTE_TO_MULTI -lco SPATIAL_INDEX=GIST
 
-  local n
-  n=$(psql "$DB_URL" -t -A -c "SELECT count(*) FROM osm_ctx_$name;")
+  # 🔴 Check that the rows actually arrived, and fail loudly if not.
+  #
+  # ogr2ogr can print "ERROR 1" and still leave the previous table in
+  # place. That happened: the layers kept their old, Slovenia-only
+  # contents while the script reported nothing wrong, and the next step
+  # would have measured every Croatian campsite's surroundings against a
+  # country that was not there. A load that silently does nothing is the
+  # worst possible outcome, because everything downstream still runs.
+  local expected n
+  expected=$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['features']))" "ctx_$name.geojson")
+  n=$(psql "$DB_URL" -t -A -c "SELECT count(*) FROM osm_ctx_$name;" 2>/dev/null || echo 0)
+  if [ "$n" != "$expected" ]; then
+    echo "::error::osm_ctx_$name holds $n rows but the export had $expected — the load did not take" >&2
+    exit 1
+  fi
   echo "  osm_ctx_$name: $n features"
 }
 

@@ -211,3 +211,117 @@ describe('spot type inference', () => {
     expect(result.reason).toMatch(/defaulted/);
   });
 });
+
+// CAMP-32, added on the owner's call: "туалети дуже важливі, треба
+// додавати точно бо людям без них ну ніяк". For a lot of people a site
+// without toilets is simply not an option, which makes an honest
+// "nobody wrote it down" worth more here than anywhere else.
+describe('toilets', () => {
+  it('reads the documented tag and the standalone object alike', () => {
+    expect(resolveAmenity('toilets', { toilets: 'yes' }).value).toBe(
+      AmenityValue.YES,
+    );
+    expect(resolveAmenity('toilets', { amenity: 'toilets' }).value).toBe(
+      AmenityValue.YES,
+    );
+  });
+
+  it('counts a named disposal method as a yes', () => {
+    // Someone who wrote down how the waste is handled has seen a toilet.
+    // Same reasoning as a named power socket being a stronger yes than
+    // power_supply=yes.
+    for (const how of ['flush', 'pitlatrine', 'chemical', 'bucket']) {
+      expect(resolveAmenity('toilets', { 'toilets:disposal': how }).value).toBe(
+        AmenityValue.YES,
+      );
+    }
+  });
+
+  it('reads toilets:disposal=none as an explicit NO', () => {
+    // 🔴 The honest negative. This is a mapper stating there is nowhere
+    // to go, which is exactly the fact the three-state model exists to
+    // carry — and the one a camper most needs before arriving.
+    expect(
+      resolveAmenity('toilets', { 'toilets:disposal': 'none' }).value,
+    ).toBe(AmenityValue.NO);
+  });
+
+  it('never invents an answer from a neighbouring tag', () => {
+    expect(resolveAmenity('toilets', { shower: 'yes' }).value).toBe(
+      AmenityValue.UNKNOWN,
+    );
+    // 🔴 A chemical-toilet disposal point is a place to EMPTY a toilet,
+    // not a toilet. Treating it as one would tell a tent camper there is
+    // a facility they cannot use.
+    expect(
+      resolveAmenity('toilets', { sanitary_dump_station: 'yes' }).value,
+    ).toBe(AmenityValue.UNKNOWN);
+  });
+
+  it('is part of the full amenity set, not an afterthought', () => {
+    // The set is built from AMENITY_KEYS; a key added to the type but
+    // forgotten there would be missing from every imported row.
+    expect(Object.keys(mapAmenities({}))).toContain('toilets');
+    expect(mapAmenities({ toilets: 'yes' }).toilets).toBe(AmenityValue.YES);
+  });
+});
+
+describe('toilets: values found on the real Croatian extract (1,189 sites)', () => {
+  it('reads toilets=separated as a yes', () => {
+    // Separate facilities for men and women. Not in the standard truthy
+    // set, so it read as "unknown" until measured: 2 sites.
+    expect(resolveAmenity('toilets', { toilets: 'separated' }).value).toBe(
+      AmenityValue.YES,
+    );
+  });
+
+  it('takes the accessibility tag as evidence that a toilet exists', () => {
+    // 🔴 Including when it says "no". `toilets:wheelchair=no` means the
+    // toilet is not wheelchair-accessible — reading that value as the
+    // answer would turn the only evidence of a toilet into a denial of
+    // one. Measured: the sole evidence on 8 sites.
+    for (const v of ['yes', 'no', 'limited', 'designated']) {
+      expect(resolveAmenity('toilets', { 'toilets:wheelchair': v }).value).toBe(
+        AmenityValue.YES,
+      );
+    }
+  });
+
+  it('still lets an explicit toilets=no win, because it is more specific', () => {
+    // Rule order matters: the direct tag is read first.
+    expect(
+      resolveAmenity('toilets', {
+        toilets: 'no',
+        'toilets:wheelchair': 'no',
+      }).value,
+    ).toBe(AmenityValue.NO);
+  });
+
+  it('ignores an empty tag value rather than reading it as presence', () => {
+    expect(
+      resolveAmenity('toilets', { 'toilets:wheelchair': '  ' }).value,
+    ).toBe(AmenityValue.UNKNOWN);
+  });
+});
+
+describe('toilets: which tag wins when they disagree', () => {
+  it('reads a direct statement before an inference', () => {
+    // 🔴 `toilets:disposal=none` is a mapper saying there is nowhere to
+    // go. `toilets:wheelchair` only implies a toilet exists because
+    // someone described its accessibility. When a site carries both, the
+    // direct statement decides — otherwise the weaker signal would
+    // silently overrule the stronger one.
+    expect(
+      resolveAmenity('toilets', {
+        'toilets:disposal': 'none',
+        'toilets:wheelchair': 'yes',
+      }).value,
+    ).toBe(AmenityValue.NO);
+  });
+
+  it('names the tag that decided, so coverage stays auditable', () => {
+    expect(
+      resolveAmenity('toilets', { 'toilets:wheelchair': 'no' }).matchedBy,
+    ).toBe('toilets:wheelchair');
+  });
+});

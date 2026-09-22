@@ -24,6 +24,10 @@ PBF_PATH="${1:?usage: import.sh <region.osm.pbf> <target-table> [database-url]}"
 TABLE="${2:?usage: import.sh <region.osm.pbf> <target-table> [database-url]}"
 DB_URL="${3:-dbname=camptribe_dev}"
 
+# shellcheck source=_pgconn.sh
+. "$(dirname "$0")/_pgconn.sh"
+DB_URL="$(pg_conninfo "$DB_URL")"
+
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 

@@ -54,6 +54,14 @@ const ELEVATION_BATCH = 100;
 const RELIEF_RADIUS_M = 1000;
 const RELIEF_SAMPLES = 8;
 
+/**
+ * Pause between elevation batches. With 8 relief samples per campsite,
+ * a thousand sites is ~100 requests; at this pace the run stays inside
+ * Open-Meteo's per-minute allowance instead of provoking the 20-second
+ * penalty that a 429 costs.
+ */
+const BATCH_PAUSE_MS = 700;
+
 const argv = process.argv.slice(2);
 const FORCE_ALL = argv.includes('--all');
 const COUNTRY = (() => {
@@ -170,6 +178,9 @@ function ring(lat: number, lon: number): { lat: number; lon: number }[] {
  *     first real run and the only trace was a coverage number that came
  *     out at 87.7% instead of 100%.
  */
+/** Not a failure to retry: the budget is gone until tomorrow. */
+class DailyLimitReached extends Error {}
+
 async function elevations(
   points: { lat: number; lon: number }[],
   label: string,
@@ -187,14 +198,76 @@ async function elevations(
     let got: (number | null)[] | null = null;
     let lastError = '';
 
-    for (let attempt = 0; attempt < 4 && !got; attempt++) {
+    // 🔴 Node's fetch has no default timeout: a connection that is
+    // accepted and then goes quiet hangs for ever. This runs unattended
+    // every week (CAMP-28), so "for ever" means a job that never
+    // finishes and never fails — the one outcome nobody gets alerted
+    // about. Observed here as a 9-minute silence with the process at 0%
+    // CPU while I worked out whether it was stuck or merely slow.
+    const TIMEOUT_MS = 30_000;
+
+    // 🔴 Patience is measured in attempts, and four was not enough.
+    //
+    // Observed on the Croatian import: the run sails through the first
+    // couple of thousand sample points and then starts collecting 429s,
+    // which is consistent with the free tier's 5,000 calls/hour counting
+    // each LOCATION rather than each HTTP request — 6,320 relief samples
+    // in one run crosses that, while 64 requests comes nowhere near the
+    // 600/minute limit. Their documentation describes weighting by
+    // variables and time span, not by location, so this is what the
+    // behaviour says rather than what the docs promise.
+    //
+    // Either way the right response is to wait longer, not to give up:
+    // a lost batch is a hundred sample points, about eleven campsites
+    // with no terrain. Twelve attempts at twenty seconds rides out a
+    // limit boundary; a genuine outage still ends after four minutes.
+    const MAX_ATTEMPTS = 12;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS && !got; attempt++) {
       try {
-        const res = await fetch(url);
-        if (res.status === 429) {
-          // Their per-minute limit. Waiting is the correct response;
-          // hammering gets the whole project blocked, and their terms
-          // say so in as many words.
-          lastError = 'HTTP 429';
+        const res = await fetch(url, {
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+        // 🔴 429 and 5xx both mean "come back later", and both deserve
+        // the same patience.
+        //
+        // 429 is their per-minute limit; waiting is the correct response,
+        // because hammering gets the whole project blocked and their
+        // terms say so in as many words. A 503 is their server under
+        // load — and it was being treated as an ordinary error, given
+        // three retries two seconds apart, and then given up on. Observed
+        // live: one relief batch lost that way writes nulls for a hundred
+        // sample points, which is about eleven campsites with no terrain.
+        // They are picked up again on the next run, but only because the
+        // selection above looks for the gap; there is no reason to create
+        // it in the first place.
+        if (res.status === 429 || res.status >= 500) {
+          lastError = `HTTP ${res.status}`;
+
+          // 🔴 The daily limit is not something to wait out.
+          //
+          // Open-Meteo says it in as many words — "Daily API request
+          // limit exceeded. Please try again tomorrow." — and the free
+          // tier allows 10,000 calls a day. We made 74 HTTP requests
+          // before hitting it, which is only possible if each LOCATION
+          // in a multi-point request counts as a call: 1,079 elevations
+          // plus 8 relief samples each is about 9,700.
+          //
+          // Retrying that is pointless and impolite: twelve attempts
+          // twenty seconds apart, across seventy batches, is four hours
+          // of hammering a limit that resets tomorrow. Stop, say why,
+          // and let the next run pick up the gap — the selection above
+          // already looks for spots whose terrain is missing.
+          const body = await res.text().catch(() => '');
+          if (/daily .*limit/i.test(body)) {
+            throw new DailyLimitReached(
+              'Open-Meteo daily limit reached: ' +
+                'the free tier counts each coordinate, not each request, ' +
+                'so a bulk import of a country spends it in one go. ' +
+                'The campsites without surroundings are picked up by the ' +
+                'next run; nothing else needs doing.',
+            );
+          }
+
           await new Promise((r) => setTimeout(r, 20_000));
           continue;
         }
@@ -210,9 +283,13 @@ async function elevations(
           typeof v === 'number' && Number.isFinite(v) ? v : null,
         );
       } catch (err) {
+        if (err instanceof DailyLimitReached) throw err;
         lastError = String(err);
-        if (attempt < 3) {
-          await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        if (attempt < MAX_ATTEMPTS - 1) {
+          // Capped, so a long tail of retries cannot become an hour.
+          await new Promise((r) =>
+            setTimeout(r, Math.min(20_000, 2000 * (attempt + 1))),
+          );
         }
       }
     }
@@ -225,12 +302,32 @@ async function elevations(
     }
 
     out.push(...got);
-    process.stdout.write(
-      `\r  ${label} ${Math.min(i + ELEVATION_BATCH, points.length)}/${points.length}   `,
-    );
+
+    // 🔴 `\r` only works on a terminal. Redirected to a file or a CI log
+    // it writes a line that never ends, so a run that takes twenty
+    // minutes looks like a run that produced nothing — which is exactly
+    // how three failed batches went unnoticed once before. One line per
+    // batch when nobody is watching a terminal.
+    const done = Math.min(i + ELEVATION_BATCH, points.length);
+    if (process.stdout.isTTY) {
+      process.stdout.write(`\r  ${label} ${done}/${points.length}   `);
+    } else {
+      console.log(`  ${label} ${done}/${points.length}`);
+    }
+
+    // 🔴 A deliberate pause between batches.
+    //
+    // Firing them as fast as the network allows earns a 429, and the
+    // handler then waits 20 seconds — so going faster makes the whole
+    // run slower, and a batch that exhausts its four attempts is written
+    // as nulls, losing the elevation for a hundred campsites silently.
+    // Their terms ask for this politeness in as many words.
+    if (i + ELEVATION_BATCH < points.length) {
+      await new Promise((r) => setTimeout(r, BATCH_PAUSE_MS));
+    }
   }
 
-  process.stdout.write('\n');
+  if (process.stdout.isTTY) process.stdout.write('\n');
   if (out.length !== points.length) {
     // Belt and braces: the invariant the whole alignment rests on.
     throw new Error(
@@ -428,7 +525,22 @@ async function main(): Promise<void> {
 
 if (require.main === module) {
   main().catch((err) => {
-    console.error(err);
-    process.exitCode = 1;
+    // A limit we have been told to wait out is not a crash: say it in one
+    // sentence, without a stack trace nobody needs.
+    if (err instanceof DailyLimitReached) {
+      console.error(`\n⚠ ${err.message}\n`);
+    } else {
+      console.error(err);
+    }
+    // 🔴 Exit, rather than only setting exitCode.
+    //
+    // On this path the Postgres client is still open, its socket keeps
+    // the event loop alive, and the process hangs for ever having
+    // already printed the failure. For a weekly unattended job that is
+    // the worst shape of failure: the reason is reported and the run
+    // never ends, so what the workflow eventually shows is a timeout
+    // instead. Found by watching a run sit for ten minutes after it had
+    // already decided to give up.
+    process.exit(1);
   });
 }

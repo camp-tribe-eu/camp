@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
-  Amenities,
+  AMENITY_KEYS,
+  AMENITY_LABEL,
   AmenityValue,
   countryName,
   getSpot,
@@ -166,16 +167,12 @@ export default async function CampsitePage({ params }: { params: Params }) {
           </p>
         ) : null}
         <ul className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {(
-            [
-              ['electricity', 'Electricity'],
-              ['water', 'Drinking water'],
-              ['shower', 'Showers'],
-              ['dogFriendly', 'Dogs allowed'],
-              ['wifi', 'Wi-Fi'],
-            ] as [keyof Amenities, string][]
-          ).map(([key, label]) => (
-            <Amenity key={key} label={label} value={spot.amenities[key]} />
+          {AMENITY_KEYS.map((key) => (
+            <Amenity
+              key={key}
+              label={AMENITY_LABEL[key]}
+              value={spot.amenities[key]}
+            />
           ))}
         </ul>
       </Section>

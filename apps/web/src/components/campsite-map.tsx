@@ -21,6 +21,7 @@ import {
   MAP_SOURCES,
   type MapSource,
 } from '@/lib/map-sources';
+import { AMENITY_KEYS, AMENITY_LABEL, type AmenityKey } from '@/lib/api';
 
 // CAMP-31/32: the map, the switch that makes its supplier replaceable,
 // and the markers.
@@ -74,17 +75,12 @@ setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
 const CLUSTER_FONT = ['Noto Sans Bold'];
 
 /** What a campsite feature carries. Flat, because cluster leaves are flat. */
-interface SpotProperties {
+type SpotProperties = {
   slug: string;
   name: string | null;
   type: string;
   href: string;
-  electricity: string;
-  water: string;
-  shower: string;
-  dogFriendly: string;
-  wifi: string;
-}
+} & Record<AmenityKey, string>;
 
 /**
  * The closest thing we hold to a price. OSM records whether a site
@@ -99,14 +95,6 @@ const TYPE_LABEL: Record<string, string> = {
   camper_stop: 'Camper stop, free',
   rv_park: 'Motorhome park',
 };
-
-const AMENITY_LABEL: [keyof SpotProperties, string][] = [
-  ['electricity', 'Electricity'],
-  ['water', 'Drinking water'],
-  ['shower', 'Shower'],
-  ['dogFriendly', 'Dogs welcome'],
-  ['wifi', 'Wi-Fi'],
-];
 
 export default function CampsiteMap() {
   const container = useRef<HTMLDivElement>(null);
@@ -499,21 +487,21 @@ function markerCard(p: SpotProperties): HTMLElement {
     root.append(el);
   }
 
-  const yes = AMENITY_LABEL.filter(([key]) => p[key] === 'yes');
-  const no = AMENITY_LABEL.filter(([key]) => p[key] === 'no');
+  const yes = AMENITY_KEYS.filter((key) => p[key] === 'yes');
+  const no = AMENITY_KEYS.filter((key) => p[key] === 'no');
 
   if (yes.length || no.length) {
     const list = document.createElement('ul');
     list.className = 'ct-popup-amenities';
-    for (const [, label] of yes) {
+    for (const key of yes) {
       const li = document.createElement('li');
-      li.textContent = label;
+      li.textContent = AMENITY_LABEL[key];
       list.append(li);
     }
-    for (const [, label] of no) {
+    for (const key of no) {
       const li = document.createElement('li');
       li.className = 'is-no';
-      li.textContent = `No ${label.toLowerCase()}`;
+      li.textContent = `No ${AMENITY_LABEL[key].toLowerCase()}`;
       list.append(li);
     }
     root.append(list);

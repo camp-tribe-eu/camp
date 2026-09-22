@@ -87,5 +87,16 @@ if (process.env.NEXT_PUBLIC_SELF_TILES_URL) {
 
 export const DEFAULT_SOURCE_ID = MAP_SOURCES[0].id;
 
-/** Europe, roughly — the map opens on what we actually have. */
-export const INITIAL_VIEW = { lng: 14.5, lat: 46.1, zoom: 6.4 };
+/**
+ * Where the map opens — on what we actually hold, not on "Europe".
+ *
+ * 🔴 Derived from the data, and it moved once already. With Slovenia
+ * alone the centre was 14.5, 46.1; adding Croatia pulled the campsites
+ * down the Adriatic and the real extent became 13.45–19.38 °E,
+ * 42.45–46.78 °N, centred on 15.14, 44.82. The old view opened north of
+ * most of the dataset, which reads as "they have nothing down there".
+ *
+ * This is worth re-checking whenever a country is imported: a map that
+ * opens away from its own data looks emptier than it is.
+ */
+export const INITIAL_VIEW = { lng: 15.1, lat: 44.8, zoom: 6.2 };

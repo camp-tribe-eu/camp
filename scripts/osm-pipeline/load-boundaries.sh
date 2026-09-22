@@ -32,6 +32,10 @@
 set -euo pipefail
 
 DB_URL="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"
+
+# shellcheck source=_pgconn.sh
+. "$(dirname "$0")/_pgconn.sh"
+OGR_CONN="$(pg_conninfo "$DB_URL")"
 WORK_DIR="${WORK_DIR:-/tmp/camptribe-boundaries}"
 NE_URL="https://naciscdn.org/naturalearth/10m/cultural/ne_10m_admin_1_states_provinces.zip"
 
@@ -56,7 +60,7 @@ echo "→ loading into PostGIS as ne_admin1…"
 # Only the columns the import actually reads. iso_a2 is what corrects the
 # country: it comes from the polygon the point falls in, not from an
 # argument somebody typed.
-ogr2ogr -f PostgreSQL "PG:${DB_URL#postgres://}" \
+ogr2ogr -f PostgreSQL "PG:$OGR_CONN" \
   ne_10m_admin_1_states_provinces.shp \
   -nln ne_admin1 -overwrite \
   -lco GEOMETRY_NAME=geom -nlt PROMOTE_TO_MULTI \

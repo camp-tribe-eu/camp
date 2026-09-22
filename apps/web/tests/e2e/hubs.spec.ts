@@ -6,9 +6,42 @@ import { API_BASE, REGION_PER_PAGE } from '@/lib/api';
  * A fixture pinned to "zelezniki" tests today's import, not the rule —
  * and the campsite specs already broke twice that way.
  */
+interface Region {
+  region: string;
+  slug: string;
+  spots: number;
+  indexable: boolean;
+  /** Which country hub it hangs off — needed to build any URL. */
+  country: string;
+}
+
+/**
+ * Regions are resolved from the database, never named in the test.
+ * A fixture pinned to "zelezniki" tests today's import, not the rule —
+ * and the campsite specs already broke twice that way.
+ *
+ * 🔴 Across every country, not just Slovenia. These tests asked
+ * `/spots/si/regions` and built `/camping/si/…` URLs, which was harmless
+ * while Slovenia was the only country — and then silently wrong: the
+ * pagination tests kept skipping with "nothing paginates at the current
+ * data volume" after Croatia arrived with eight paginated counties,
+ * because Slovenia's admin-1 units are municipalities and no Slovenian
+ * region will ever reach a page. A test that names a country is a test
+ * about that country.
+ */
 async function regions(request: APIRequestContext) {
-  const all: { region: string; slug: string; spots: number; indexable: boolean }[] =
-    await (await request.get(`${API_BASE}/spots/si/regions`)).json();
+  const countries: { country: string }[] = await (
+    await request.get(`${API_BASE}/spots/countries`)
+  ).json();
+
+  const all: Region[] = [];
+  for (const { country } of countries) {
+    const rs: Omit<Region, 'country'>[] = await (
+      await request.get(`${API_BASE}/spots/${country}/regions`)
+    ).json();
+    all.push(...rs.map((r) => ({ ...r, country })));
+  }
+
   const thin = all.find((r) => !r.indexable);
   const fat = all.find((r) => r.indexable);
   if (!thin || !fat) {
@@ -16,6 +49,9 @@ async function regions(request: APIRequestContext) {
   }
   return { all, thin, fat };
 }
+
+/** The hub URL of a region, whichever country it belongs to. */
+const hub = (r: Region) => `/camping/${r.country}/${r.slug}`;
 
 // CAMP-71. The card's criterion is one sentence: "from the home page you
 // can reach any campsite card in at most 4 clicks, without using the map
@@ -70,8 +106,8 @@ test.describe('hub crawl path', () => {
     // their campsites hang off the sitemap alone and the four-click claim
     // holds only for the big regions.
     const { thin } = await regions(request);
-    await page.goto('/camping/si');
-    await expect(page.locator(`a[href="/camping/si/${thin.slug}"]`)).toBeVisible();
+    await page.goto(`/camping/${thin.country}`);
+    await expect(page.locator(`a[href="${hub(thin)}"]`)).toBeVisible();
   });
 
   test('pagination works as plain links', async ({ page, request }) => {
@@ -87,14 +123,12 @@ test.describe('hub crawl path', () => {
       `No region currently exceeds ${REGION_PER_PAGE} campsites, so nothing paginates.`,
     );
 
-    await page.goto(`/camping/si/${paged!.slug}`);
+    await page.goto(hub(paged!));
     await page
       .getByRole('navigation', { name: 'Pagination' })
       .getByRole('link', { name: '2' })
       .click();
-    await expect(page).toHaveURL(
-      new RegExp(`/camping/si/${paged!.slug}/page/2$`),
-    );
+    await expect(page).toHaveURL(new RegExp(`${hub(paged!)}/page/2$`));
     await expect(page.locator('main ul li a').first()).toBeVisible();
   });
 
@@ -104,7 +138,7 @@ test.describe('hub crawl path', () => {
   }) => {
     const { all } = await regions(request);
     const small = all.find((r) => r.spots <= REGION_PER_PAGE)!;
-    await page.goto(`/camping/si/${small.slug}`);
+    await page.goto(hub(small));
     await expect(
       page.getByRole('navigation', { name: 'Pagination' }),
     ).toHaveCount(0);
@@ -118,7 +152,7 @@ test.describe('hub indexing rules', () => {
     // Below the threshold there is nothing for a reader to choose
     // between, so the hub adds nothing over the campsite's own page.
     const { thin } = await regions(request);
-    const html = await (await request.get(`/camping/si/${thin.slug}`)).text();
+    const html = await (await request.get(hub(thin))).text();
     expect(html).toMatch(/<meta name="robots" content="noindex[,\s]*follow/i);
   });
 
@@ -132,7 +166,7 @@ test.describe('hub indexing rules', () => {
       'The indexing threshold is invisible while the whole site is closed.',
     );
     const { fat } = await regions(request);
-    const html = await (await request.get(`/camping/si/${fat.slug}`)).text();
+    const html = await (await request.get(hub(fat))).text();
     expect(html).not.toMatch(/content="noindex/i);
   });
 
@@ -143,7 +177,7 @@ test.describe('hub indexing rules', () => {
 
     // Asserting on a 404 would pass for the wrong reason — Next's
     // not-found page is noindex too.
-    const res = await request.get(`/camping/si/${paged!.slug}/page/2`);
+    const res = await request.get(`${hub(paged!)}/page/2`);
     expect(res.status()).toBe(200);
     expect(await res.text()).toMatch(
       /<meta name="robots" content="noindex/i,
@@ -152,7 +186,7 @@ test.describe('hub indexing rules', () => {
 
   test('every hub declares a canonical', async ({ request }) => {
     const { fat } = await regions(request);
-    for (const url of ['/camping', '/camping/si', `/camping/si/${fat.slug}`]) {
+    for (const url of ['/camping', `/camping/${fat.country}`, hub(fat)]) {
       const html = await (await request.get(url)).text();
       expect(html, url).toMatch(/<link rel="canonical"/i);
     }

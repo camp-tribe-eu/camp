@@ -20,9 +20,10 @@ import { abs, jsonLdProps } from '@/lib/jsonld';
 // 🔴 Two decisions made against the mock-up, both for the same reason.
 //
 // The mock-up's headline reads "55,376 campsites across Europe". We have
-// 289. Printing the aspiration would be the same lie as a stock
-// photograph of a place nobody visited, on the most-read page we own, so
-// the number is read from the database and will grow on its own.
+// a fraction of that. Printing the aspiration would be the same lie as a
+// stock photograph of a place nobody visited, on the most-read page we
+// own, so the number is read from the database and grows on its own —
+// as it did the day Croatia was imported, with no change here.
 //
 // The mock-up's hero is a search form. Search does not exist yet
 // (CAMP-67) and a box that swallows what you type is worse than no box.

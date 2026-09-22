@@ -1,5 +1,5 @@
-import { API_BASE } from '@/lib/api';
-import type { Amenities } from '@/lib/api';
+import { AMENITY_KEYS, API_BASE } from '@/lib/api';
+import type { Amenities, AmenityKey } from '@/lib/api';
 
 // CAMP-31/32: every campsite as one GeoJSON file the map fetches once.
 //
@@ -42,21 +42,19 @@ interface Marker {
 interface Feature {
   type: 'Feature';
   geometry: { type: 'Point'; coordinates: [number, number] };
+  // 🔴 Amenities are flattened, one string property per amenity, and the
+  // keys come from AMENITY_KEYS rather than being written out here.
+  // MapLibre's cluster leaves and feature-state expressions work with
+  // flat properties, and a nested object reaches the click handler as a
+  // JSON string in some browsers and an object in others — flat removes
+  // the question. Listing the keys a second time is how an amenity ends
+  // up in the data and missing on the map.
   properties: {
     slug: string;
     name: string | null;
     type: string;
     href: string;
-    // 🔴 Flattened, one string per amenity. MapLibre's `getClusterLeaves`
-    // and its feature-state expressions work with flat properties, and a
-    // nested object arrives at the click handler as a JSON string in
-    // some browsers and an object in others. Flat removes the question.
-    electricity: string;
-    water: string;
-    shower: string;
-    dogFriendly: string;
-    wifi: string;
-  };
+  } & Record<AmenityKey, string>;
 }
 
 export async function GET() {
@@ -88,11 +86,9 @@ export async function GET() {
       name: m.name,
       type: m.type,
       href: m.path,
-      electricity: m.amenities?.electricity ?? 'unknown',
-      water: m.amenities?.water ?? 'unknown',
-      shower: m.amenities?.shower ?? 'unknown',
-      dogFriendly: m.amenities?.dogFriendly ?? 'unknown',
-      wifi: m.amenities?.wifi ?? 'unknown',
+      ...(Object.fromEntries(
+        AMENITY_KEYS.map((k) => [k, m.amenities?.[k] ?? 'unknown']),
+      ) as Record<AmenityKey, string>),
     },
   }));
 

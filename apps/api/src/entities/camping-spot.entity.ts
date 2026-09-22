@@ -29,6 +29,7 @@ export const UNKNOWN_AMENITIES: CampingSpotAmenities = {
   electricity: AmenityValue.UNKNOWN,
   water: AmenityValue.UNKNOWN,
   shower: AmenityValue.UNKNOWN,
+  toilets: AmenityValue.UNKNOWN,
   dogFriendly: AmenityValue.UNKNOWN,
   wifi: AmenityValue.UNKNOWN,
 };
