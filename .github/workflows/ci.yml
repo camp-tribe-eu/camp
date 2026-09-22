@@ -43,6 +43,15 @@ jobs:
 
       # Fails on an advisory nobody has looked at, not on every known
       # one — the reasoning is in scripts/security/known-advisories.json.
+      #
+      # 🔴 The self-test is here because this guard is the one that went
+      # blind. Its workspace list was hand-written and stopped at two
+      # entries while a third workspace was added, so it reported "no new
+      # advisories" over 40 it could not see, one of them critical. The
+      # first case it now asserts is exactly that: a workspace added later
+      # must be discovered.
+      - name: Dependency guard still sees every workspace
+        run: node scripts/security/check-dependencies.mjs --self-test
       - name: No new dependency advisories
         run: node scripts/security/check-dependencies.mjs
 
