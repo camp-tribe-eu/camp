@@ -60,6 +60,14 @@ runs:
       working-directory: apps/api
       env:
         DATABASE_URL: ${{ inputs.database-url }}
+        # 🔴 Explicit, because main.ts defaults to 3000 and only reaches
+        # 3001 through apps/api/.env — which is gitignored and therefore
+        # does not exist here. The first CI run started the API perfectly
+        # on 3000 while this step polled 3001 for sixty seconds. "Works
+        # locally because of an untracked file" is the whole failure.
+        #
+        # 3000 would also collide with `next start`, which Lighthouse uses.
+        PORT: '3001'
       run: |
         npx nest start > /tmp/api.log 2>&1 &
         # The build fetches from it, so a race here would produce an empty
