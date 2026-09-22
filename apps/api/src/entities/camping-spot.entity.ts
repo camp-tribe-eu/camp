@@ -32,6 +32,14 @@ export const UNKNOWN_AMENITIES: CampingSpotAmenities = {
   toilets: AmenityValue.UNKNOWN,
   dogFriendly: AmenityValue.UNKNOWN,
   wifi: AmenityValue.UNKNOWN,
+  // CAMP-35 / CAMP-25. No migration: the column is jsonb and
+  // `readAmenities` walks AMENITY_KEYS, so a row written before these
+  // existed reads them as `unknown` — which is the truth about it until
+  // the next import.
+  greyWater: AmenityValue.UNKNOWN,
+  laundry: AmenityValue.UNKNOWN,
+  wheelchair: AmenityValue.UNKNOWN,
+  wheelchairFull: AmenityValue.UNKNOWN,
 };
 
 @Entity('camping_spots')

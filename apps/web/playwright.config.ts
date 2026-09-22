@@ -22,6 +22,11 @@ export default defineConfig({
         timeout: 60_000,
       },
   projects: [
+    // 🔴 Pure logic, no browser and no server. The map filters decide what
+    // a reader is shown, and that decision is worth testing in
+    // milliseconds rather than only through six browsers — the same rule
+    // the API side follows, where filters.ts has its own unit spec.
+    { name: 'unit', testDir: './tests/unit' },
     { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'] } },
     { name: 'firefox-desktop', use: { ...devices['Desktop Firefox'] } },
     { name: 'webkit-desktop', use: { ...devices['Desktop Safari'] } },

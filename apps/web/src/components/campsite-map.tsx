@@ -21,7 +21,28 @@ import {
   MAP_SOURCES,
   type MapSource,
 } from '@/lib/map-sources';
-import { AMENITY_KEYS, AMENITY_LABEL, type AmenityKey } from '@/lib/api';
+import {
+  AMENITY_KEYS,
+  AMENITY_LABEL,
+  SPOT_TYPES,
+  type AmenityKey,
+} from '@/lib/api';
+import {
+  applyFilters,
+  EMPTY_FILTERS,
+  fromSearchParams,
+  toSearchParams,
+  type MapFilterState,
+  type SpotProperties as FilterProperties,
+} from '@/lib/map-filter';
+import MapFilters from './map-filters';
+
+/** One campsite in the collection the map draws. */
+interface SpotFeature {
+  type: 'Feature';
+  geometry: { type: 'Point'; coordinates: [number, number] };
+  properties: FilterProperties;
+}
 
 // CAMP-31/32: the map, the switch that makes its supplier replaceable,
 // and the markers.
@@ -106,6 +127,33 @@ export default function CampsiteMap() {
   const tried = useRef<Set<string>>(new Set());
   const applied = useRef<string>(MAP_SOURCES[0].style);
 
+  // CAMP-35. The whole collection, held once, and the filtered view of it.
+  //
+  // 🔴 The source is fed an object rather than the URL it used to be
+  // given. MapLibre clusters when the SOURCE loads, so hiding features
+  // with a layer filter leaves the counts computed over everything: a
+  // bubble saying twelve that opens to three. Re-setting the data makes
+  // it cluster the set the reader asked for.
+  const everything = useRef<SpotFeature[]>([]);
+  const drawn = useRef<SpotFeature[]>([]);
+  // 🔴 Read from the URL at the first render, not in an effect.
+  //
+  // It was an effect, and the bug was subtle: the effect that WRITES the
+  // query string also runs on mount, with the empty state, so it cleared
+  // `?amenities=toilets` a tick before the effect that reads it ran.
+  // Opening a shared filtered link showed all 1079 campsites and a clean
+  // URL, with nothing to indicate anything had been dropped.
+  //
+  // Safe at render because this component is only ever loaded through
+  // map-embed.tsx with `ssr: false`, so there is no server pass — the
+  // guard is there for the day somebody changes that.
+  const [filters, setFilters] = useState<MapFilterState>(() =>
+    typeof window === 'undefined'
+      ? EMPTY_FILTERS
+      : fromSearchParams(window.location.search, SPOT_TYPES, AMENITY_KEYS),
+  );
+  const [tally, setTally] = useState({ shown: 0, total: 0, unknownExcluded: 0 });
+
   const active =
     MAP_SOURCES.find((s) => s.id === sourceId) ?? MAP_SOURCES[0];
 
@@ -162,7 +210,11 @@ export default function CampsiteMap() {
       if (!m.getSource(SOURCE_ID)) {
         m.addSource(SOURCE_ID, {
           type: 'geojson',
-          data: SPOTS_URL,
+          // 🔴 Whatever is currently drawn, not the URL. setStyle drops
+          // every source, so this runs again on each style change — and
+          // reading the ref means switching the basemap keeps the
+          // reader's filters instead of silently restoring all 1079.
+          data: { type: 'FeatureCollection', features: drawn.current },
           // CAMP-32. Clustering happens in the worker, over the whole
           // set, so the browser only ever draws what is on screen.
           cluster: true,
@@ -295,8 +347,25 @@ export default function CampsiteMap() {
       const rendered = (layer: string) =>
         m.getLayer(layer) ? m.queryRenderedFeatures({ layers: [layer] }) : [];
       const points = rendered(POINT_LAYER);
-      el.dataset.visibleClusters = String(rendered(CLUSTER_LAYER).length);
+      const clusters = rendered(CLUSTER_LAYER);
+      el.dataset.visibleClusters = String(clusters.length);
       el.dataset.visiblePoints = String(points.length);
+
+      // CAMP-35: how many campsites the bubbles claim to contain, plus
+      // the ones drawn individually.
+      //
+      // 🔴 This is what makes "the filter really re-clustered" checkable.
+      // MapLibre clusters when the SOURCE loads, so hiding a LAYER would
+      // leave every bubble still counting campsites that are no longer
+      // drawn — twelve on the circle, three when you click it. Comparing
+      // this sum against the filtered total catches exactly that, and
+      // nothing else on the page can: the numbers live in a WebGL canvas.
+      el.dataset.clusteredTotal = String(
+        clusters.reduce(
+          (sum, c) => sum + Number(c.properties?.point_count ?? 0),
+          points.length,
+        ),
+      );
 
       // Where the first campsite currently sits on screen, in container
       // pixels. Same reasoning as the counts: a marker's position is
@@ -326,6 +395,64 @@ export default function CampsiteMap() {
       map.current = null;
     };
   }, []);
+
+  // CAMP-35: load the collection once, then filter it in the browser.
+  //
+  // 🔴 Fetched here rather than handed to MapLibre, because filtering
+  // needs the features and MapLibre keeps its copy inside a worker. One
+  // request either way; the difference is who can read the answer.
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(SPOTS_URL)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((collection: { features?: SpotFeature[] }) => {
+        if (cancelled) return;
+        everything.current = collection.features ?? [];
+        // The filters may already be set from the query string.
+        applyFilterState(filtersRef.current);
+      })
+      .catch(() => {
+        // A missing collection is a map with no campsites on it, which
+        // the basemap still renders honestly. The counts stay at zero
+        // rather than the page failing around a fetch.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 🔴 Read through a ref inside the fetch above: that effect runs once,
+  // and closing over `filters` would pin it to whatever was set on the
+  // first render — so a link opened with filters already in its query
+  // string would load, then quietly draw everything.
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
+  const applyFilterState = (state: MapFilterState) => {
+    const all = everything.current;
+    const { shown, unknownExcluded } = applyFilters(all, state);
+    drawn.current = shown;
+    setTally({ shown: shown.length, total: all.length, unknownExcluded });
+
+    const source = map.current?.getSource(SOURCE_ID) as
+      | GeoJSONSource
+      | undefined;
+    source?.setData({ type: 'FeatureCollection', features: shown });
+  };
+
+  useEffect(() => {
+    applyFilterState(filters);
+
+    // 🔴 history.replaceState, not the Next router. A filtered map should
+    // be a link somebody can send, but routing would re-render the page
+    // and tear down the map on every tick of a checkbox — the reader
+    // would lose their position mid-filter.
+    const qs = toSearchParams(filters);
+    const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    window.history.replaceState(null, '', url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   // Switching sources.
   useEffect(() => {
@@ -445,11 +572,29 @@ export default function CampsiteMap() {
         </p>
       )}
 
+      {/* 🔴 Above the map, not floating over it. A panel overlaying the
+          canvas has to shrink or hide on a phone, and CAMP-35 carries the
+          UST-466 lesson about a block that silently vanished in one
+          display mode. Here the map gets shorter and every control stays
+          exactly where it was. */}
+      <div className="mt-3">
+        <MapFilters
+          state={filters}
+          onChange={setFilters}
+          shown={tally.shown}
+          total={tally.total}
+          unknownExcluded={tally.unknownExcluded}
+        />
+      </div>
+
       <div
         ref={container}
         data-testid="map"
         data-active-source={active.id}
-        className="mt-3 h-[60vh] min-h-[360px] w-full overflow-hidden rounded-card border border-line-2"
+        data-shown={tally.shown}
+        data-total={tally.total}
+        data-unknown-excluded={tally.unknownExcluded}
+        className="h-[60vh] min-h-[360px] w-full overflow-hidden rounded-card border border-line-2"
       />
 
       <p className="mt-2 text-xs text-ink-2">{active.attribution}</p>

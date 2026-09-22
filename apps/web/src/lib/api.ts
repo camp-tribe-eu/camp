@@ -16,6 +16,12 @@ export interface Amenities {
   toilets: AmenityValue;
   dogFriendly: AmenityValue;
   wifi: AmenityValue;
+  greyWater: AmenityValue;
+  laundry: AmenityValue;
+  /** Any level of wheelchair access, including `limited`. */
+  wheelchair: AmenityValue;
+  /** Step-free access only — `limited` is a no here. See ACCESSIBILITY_KEYS. */
+  wheelchairFull: AmenityValue;
 }
 
 export type AmenityKey = keyof Amenities;
@@ -39,9 +45,31 @@ export const AMENITY_KEYS: AmenityKey[] = [
   // Sanitary facilities together: a reader checking for one is checking
   // for the other.
   'toilets',
+  'greyWater',
+  'laundry',
   'dogFriendly',
   'wifi',
+  // 🔴 Last in this list but shown in their own group — see
+  // ACCESSIBILITY_KEYS. They belong here so nothing that walks every
+  // amenity (the GeoJSON route, the campsite page) can miss them.
+  'wheelchair',
+  'wheelchairFull',
 ];
+
+/**
+ * CAMP-25: accessibility is its own group on every surface.
+ *
+ * 🔴 Not a style choice. Someone scanning for a shower and someone who
+ * cannot climb a step are not doing the same thing, and the second is the
+ * one competitors leave out — which is the whole reason the card exists.
+ * Burying it as tick-box nine of eleven is how it gets missed.
+ */
+export const ACCESSIBILITY_KEYS: AmenityKey[] = ['wheelchair', 'wheelchairFull'];
+
+/** Everything that is not accessibility, in reading order. */
+export const GENERAL_AMENITY_KEYS: AmenityKey[] = AMENITY_KEYS.filter(
+  (k) => !ACCESSIBILITY_KEYS.includes(k),
+);
 
 /** Full labels — the campsite page and the structured data. */
 export const AMENITY_LABEL: Record<AmenityKey, string> = {
@@ -49,8 +77,16 @@ export const AMENITY_LABEL: Record<AmenityKey, string> = {
   water: 'Drinking water',
   shower: 'Showers',
   toilets: 'Toilets',
+  greyWater: 'Grey-water disposal',
+  laundry: 'Laundry',
   dogFriendly: 'Dogs allowed',
   wifi: 'Wi-Fi',
+  // 🔴 The wording carries the distinction the data makes. "Wheelchair
+  // access" alone would read as step-free to the person who needs it,
+  // and 43 of our 87 answered sites are tagged `limited` — so saying it
+  // plainly is the difference between a useful filter and a wasted trip.
+  wheelchair: 'Wheelchair access, incl. limited',
+  wheelchairFull: 'Step-free wheelchair access',
 };
 
 /** Short labels — the chips on listing cards, where space is the constraint. */
@@ -59,8 +95,33 @@ export const AMENITY_LABEL_SHORT: Record<AmenityKey, string> = {
   water: 'Water',
   shower: 'Showers',
   toilets: 'Toilets',
+  greyWater: 'Grey water',
+  laundry: 'Laundry',
   dogFriendly: 'Dogs',
   wifi: 'Wi-Fi',
+  // 🔴 Short, but the distinction survives. "Wheelchair" alone reads as
+  // step-free to the person who needs it, and 43 of our 87 answered
+  // campsites are tagged `limited` — so the qualifier stays even here,
+  // where space is the constraint.
+  wheelchair: 'Wheelchair, incl. limited',
+  wheelchairFull: 'Step-free',
+};
+
+/** The campsite types a reader can filter by, in the card's order. */
+export const SPOT_TYPES = ['free', 'paid', 'camper_stop', 'rv_park', 'wild'] as const;
+export type SpotType = (typeof SPOT_TYPES)[number];
+
+/**
+ * Short labels — the filter chips. `SPOT_TYPE_LABEL` further down is the
+ * prose form ("Free campsite", "Wild camping spot") that a sentence on a
+ * page needs; a chip has one line and says the distinguishing word.
+ */
+export const SPOT_TYPE_LABEL_SHORT: Record<SpotType, string> = {
+  free: 'Free',
+  paid: 'Paid',
+  camper_stop: 'Camper stop',
+  rv_park: 'RV park',
+  wild: 'Wild camping',
 };
 
 // CAMP-33: the computed surroundings. Mirrors apps/api/src/osm/spot-context.ts.

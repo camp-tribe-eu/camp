@@ -47,6 +47,58 @@ sanitary AS (
   (SELECT * FROM camping_spots
     WHERE missing_since IS NULL AND region IS NOT NULL
       AND amenities->>'toilets' = 'no' ORDER BY slug LIMIT 1)),
+filterable AS (
+  -- CAMP-35 / CAMP-25: a subject for each new filter, for the same reason
+  -- the `sanitary` block above exists — a filter with nothing to match is
+  -- a test that passes by finding zero and would go on passing after the
+  -- filter broke.
+  --
+  -- 🔴 The third row is the important one. `wheelchair = yes` with
+  -- `wheelchairFull = no` is a campsite OSM tags `wheelchair=limited`,
+  -- and it is the only row that can tell the two accessibility filters
+  -- apart. Without it both would return identical sets in CI and the
+  -- whole argument for splitting them would be untested. Measured on the
+  -- real data, 43 of 87 answered campsites are in exactly this state.
+  (SELECT * FROM camping_spots
+    WHERE missing_since IS NULL AND region IS NOT NULL
+      AND amenities->>'greyWater' = 'yes' ORDER BY slug LIMIT 1)
+  UNION ALL
+  (SELECT * FROM camping_spots
+    WHERE missing_since IS NULL AND region IS NOT NULL
+      AND amenities->>'laundry' = 'yes' ORDER BY slug LIMIT 1)
+  UNION ALL
+  (SELECT * FROM camping_spots
+    WHERE missing_since IS NULL AND region IS NOT NULL
+      AND amenities->>'wheelchair' = 'yes'
+      AND amenities->>'wheelchairFull' = 'no' ORDER BY slug LIMIT 1)
+  UNION ALL
+  (SELECT * FROM camping_spots
+    WHERE missing_since IS NULL AND region IS NOT NULL
+      AND amenities->>'wheelchairFull' = 'yes' ORDER BY slug LIMIT 1)
+  UNION ALL
+  -- 🔴 A type and an amenity on the SAME campsite. The fixture already
+  -- held rv_parks and it already held grey-water sites, and the filter
+  -- check still failed: no single row was both, so
+  -- `type=rv_park AND greyWater=yes` returned nothing from either side
+  -- and the comparison proved only that zero equals zero. The guard
+  -- caught it because an empty case is a failure there — which is
+  -- exactly why that rule is in it.
+  (SELECT * FROM camping_spots
+    WHERE missing_since IS NULL AND region IS NOT NULL
+      AND type = 'rv_park' AND amenities->>'greyWater' = 'yes'
+    ORDER BY slug LIMIT 1)
+  UNION ALL
+  -- Two types other than `paid`, so the type filter has something to
+  -- include and something to exclude. 89% of the dataset is `paid`; a
+  -- fixture that happened to hold only those would make every type
+  -- filter look like it worked.
+  (SELECT * FROM camping_spots
+    WHERE missing_since IS NULL AND region IS NOT NULL
+      AND type = 'rv_park' ORDER BY slug LIMIT 1)
+  UNION ALL
+  (SELECT * FROM camping_spots
+    WHERE missing_since IS NULL AND region IS NOT NULL
+      AND type = 'wild' ORDER BY slug LIMIT 1)),
 surroundings AS (
   -- CAMP-33: the computed context is the project's one differentiator, so
   -- the fixture must hold both ends of it — a campsite where we know a
@@ -72,6 +124,7 @@ surroundings AS (
 picked AS (
   SELECT * FROM paged
   UNION SELECT * FROM sanitary
+  UNION SELECT * FROM filterable
   UNION SELECT * FROM surroundings
   UNION SELECT * FROM camping_spots
    WHERE missing_since IS NULL AND region IS NOT NULL
