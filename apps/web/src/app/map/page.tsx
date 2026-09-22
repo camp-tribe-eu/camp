@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { countryName, getCountries, getSummary } from '@/lib/api';
 import MapEmbed from '@/components/map-embed';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
+import { alternatesFor } from '@/lib/i18n';
 
 // CAMP-31 — /map.
 //
@@ -23,7 +24,7 @@ export const metadata: Metadata = {
   title: 'Campsite map',
   description:
     'Every campsite we hold, on one map. Pan and zoom, or browse by country.',
-  alternates: { canonical: '/map' },
+  alternates: alternatesFor('/map'),
 };
 
 export default async function MapPage() {

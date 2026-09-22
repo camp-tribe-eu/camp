@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { countryName, getCountries } from '@/lib/api';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
+import { alternatesFor } from '@/lib/i18n';
 
 // CAMP-71, level 0. The root of the crawl path: home → here → country →
 // region → campsite is four clicks, which is the card's criterion, and
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
   title: 'Campsites in Europe',
   description:
     'Browse campsites, motorhome parks and camper stops across Europe by country and region.',
-  alternates: { canonical: '/camping' },
+  alternates: alternatesFor('/camping'),
 };
 
 export default async function CampingIndex() {

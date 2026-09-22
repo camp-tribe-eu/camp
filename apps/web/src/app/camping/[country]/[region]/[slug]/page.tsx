@@ -21,6 +21,7 @@ import {
   campgroundGraph,
   jsonLdProps,
 } from '@/lib/jsonld';
+import { alternatesFor } from '@/lib/i18n';
 
 // CAMP-34 — the campsite page.
 //
@@ -86,9 +87,9 @@ export async function generateMetadata(
     // A description built only from the template would be the same
     // sentence 291 times with the name swapped.
     description: describe(spot, where),
-    alternates: {
-      canonical: `/camping/${params.country}/${params.region}/${params.slug}`,
-    },
+    alternates: alternatesFor(
+      `/camping/${params.country}/${params.region}/${params.slug}`,
+    ),
     // A campsite OSM has dropped is kept reachable but must stop ranking
     // until it comes back (the four-import rule, CAMP-87).
     //

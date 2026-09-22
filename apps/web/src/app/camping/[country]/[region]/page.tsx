@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { countryName, getCountries, getRegions } from '@/lib/api';
 import RegionListing, { regionMeta } from '@/components/region-listing';
+import { alternatesFor } from '@/lib/i18n';
 
 type Params = { country: string; region: string };
 
@@ -37,7 +38,7 @@ export async function generateMetadata(
   return {
     title: `Campsites in ${meta.region}, ${cName}`,
     description: `${meta.spots} campsites and motorhome parks in ${meta.region}, ${cName}, with facilities and locations.`,
-    alternates: { canonical: `/camping/${params.country}/${params.region}` },
+    alternates: alternatesFor(`/camping/${params.country}/${params.region}`),
     // 🔴 The threshold from CAMP-71: a hub listing one or two campsites is
     // a duplicate of those campsites' own pages. It stays crawlable
     // (`follow`) because it is the only path down to them without the map,
