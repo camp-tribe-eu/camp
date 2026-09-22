@@ -33,7 +33,15 @@ on:
 env:
   # Kept small on purpose until CAMP-97 settles where the output goes.
   # Adding a country is one word here, and the run time scales with it.
-  DEFAULT_REGIONS: 'europe/slovenia'
+  #
+  # 🔴 This must list every country we actually hold. A country missing
+  # here does NOT get its campsites marked gone — the gone rule is
+  # scoped per country and only runs when someone imports that country —
+  # which is precisely why it is easy to miss: Croatia's data would
+  # simply stop being refreshed while Slovenia kept updating, so closures
+  # and new sites never arrive and nothing anywhere looks wrong. Croatia
+  # was imported on 22.09.2026 and belongs here.
+  DEFAULT_REGIONS: 'europe/slovenia europe/croatia'
 
 jobs:
   extract:
@@ -155,3 +163,45 @@ jobs:
             echo "npx ts-node apps/api/src/osm/import-spots.ts <COUNTRY>"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # 🔴 A scheduled run that fails at 04:00 on a Monday fails to nobody.
+  #
+  # GitHub emails the person who last touched the workflow file, which is
+  # whoever happened to edit it — not necessarily anyone watching. And a
+  # weekly job can be broken for a month before the symptom (stale map
+  # data, campsites wrongly counted as missing) becomes visible on the
+  # site. So a failure opens an issue, which is loud, free and needs no
+  # third-party service.
+  #
+  # It updates the open issue instead of filing a new one each week: a
+  # watchdog that produces four identical issues a month gets muted, and
+  # a muted watchdog is worse than none.
+  alert:
+    needs: extract
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open or update the failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE='🔴 Weekly OSM extract is failing'
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number --jq '.[0].number // empty')
+          BODY="The scheduled OSM extract failed.
+          
+          Run: $RUN_URL
+          
+          While this is broken the campsite data simply stops being
+          refreshed: closures, new sites and tag changes never arrive, and
+          nothing on the site looks wrong. That is why it needs an alert
+          rather than a symptom."
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" --label ci
+          fi

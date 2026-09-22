@@ -1,11 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import {
-  AMENITY_KEYS,
-  AmenityValue,
-  CampingSpotAmenities,
-} from '../osm/tag-mapping';
+import { CampingSpotAmenities } from '../osm/tag-mapping';
+import { canonicalPath, readAmenities, slugifyRegion } from './canonical';
+
+// Re-exported so existing importers keep working; the rules themselves
+// live in canonical.ts, where a unit test can reach them.
+export { canonicalPath, readAmenities, slugifyRegion };
 import { SpotContext } from '../osm/spot-context';
 
 /** One campsite as a page needs it. Geometry is already reduced to lat/lon. */
@@ -368,49 +369,6 @@ export class SpotsService {
 export const REGION_INDEX_THRESHOLD = 3;
 
 /** Region names carry diacritics and spaces; URLs must not. */
-export function slugifyRegion(region: string | null): string {
-  if (!region) return '';
-  return region
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-export function canonicalPath(
-  country: string,
-  region: string | null,
-  slug: string,
-): string {
-  return `/camping/${country.toLowerCase()}/${slugifyRegion(region)}/${slug}`;
-}
-
-/**
- * The stored jsonb, read as a complete amenity set.
- *
- * 🔴 Exported, and used by every read path — the campsite page and the
- * map both. It was only on the page, and adding `toilets` exposed what
- * that costs: rows written before the new key simply have no such
- * property, so the page answered "unknown" while the map endpoint
- * returned a set with the key missing altogether. Two shapes for the
- * same data, differing only on the amenity that had just been added.
- *
- * A value we cannot read is unknown, never "no" — a row written before
- * CAMP-27 could hold booleans, and a missing key is not a denial.
- */
-export function readAmenities(stored: unknown): CampingSpotAmenities {
-  const raw = (stored ?? {}) as Partial<CampingSpotAmenities>;
-  return Object.fromEntries(
-    AMENITY_KEYS.map((k) => [
-      k,
-      Object.values(AmenityValue).includes(raw[k] as AmenityValue)
-        ? (raw[k] as AmenityValue)
-        : AmenityValue.UNKNOWN,
-    ]),
-  ) as unknown as CampingSpotAmenities;
-}
-
 function toView(row: Record<string, unknown>): SpotView {
   const amenities = readAmenities(row.amenities);
 
