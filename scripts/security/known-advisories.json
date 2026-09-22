@@ -4,7 +4,7 @@
       "severity": "moderate",
       "package": "@nestjs/core",
       "title": "@nestjs/core Improperly Neutralizes Special Elements in Output Used by a Downstream Compon",
-      "why": "Output neutralisation in Nest itself; no fix available below a major. Our responses are JSON built from typed values, never interpolated strings."
+      "why": "Output neutralisation in Nest itself; no fix below a major, and a NestJS major is a migration rather than a version bump (major updates are ignored in dependabot.yml for this reason). Our responses are JSON built from typed values, never interpolated strings."
     },
     "GHSA-3f6p-5ww8-9rcr": {
       "severity": "high",
@@ -144,7 +144,7 @@
       "severity": "high",
       "package": "postcss",
       "title": "PostCSS: Arbitrary file read and information disclosure via attacker-controlled sourceMapp",
-      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first."
+      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first (debt #19)."
     },
     "GHSA-c2c7-rcm5-vvqj": {
       "severity": "high",
@@ -156,25 +156,19 @@
       "severity": "moderate",
       "package": "postcss",
       "title": "PostCSS: incomplete fix of GHSA-6g55-p6wh-862q \u2014 attacker-controlled sourceMappingURL read",
-      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first."
+      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first (debt #19)."
     },
     "GHSA-qx2v-qp2m-jg93": {
       "severity": "moderate",
       "package": "postcss",
       "title": "PostCSS has XSS via Unescaped </style> in its CSS Stringify Output",
-      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first."
+      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first (debt #19)."
     },
     "GHSA-r28c-9q8g-f849": {
       "severity": "high",
       "package": "postcss",
       "title": "PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Ar",
-      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first."
-    },
-    "GHSA-rgj7-g3m4-5g8c": {
-      "severity": "high",
-      "package": "sharp",
-      "title": "sharp: Vulnerabilities in libheif: GHSA-g89c-p67h-r497 and GHSA-2jg2-4ch7-h545",
-      "why": "Only used by Next image optimisation. We use no next/image and ship no images, and images.unoptimized is set \u2014 the libheif/AVIF path is unreachable. Cleared by Next 16."
+      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first (debt #19)."
     }
   }
 }

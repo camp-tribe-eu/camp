@@ -38,6 +38,14 @@ updates:
         update-types: ['version-update:semver-major']
       - dependency-name: eslint
         update-types: ['version-update:semver-major']
+      # 🔴 Додано 22.09.2026, після того як перший же прогін Dependabot
+      # відкрив вісім PR з мажорами NestJS (10 → 11 і 10 → 12) — кожен
+      # з яких це окрема міграція фреймворку, а не оновлення рядка у
+      # package.json. Патчі й мінори далі приходять як завжди.
+      - dependency-name: '@nestjs/*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: eslint-config-next
+        update-types: ['version-update:semver-major']
 
   # 🔴 The workflows themselves. A pinned action is a dependency like any
   # other, it runs with write access to this repository, and nothing else
