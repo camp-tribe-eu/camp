@@ -45,7 +45,7 @@
 // stays out loud; it just stops being a decision we take every morning.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, rmSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -273,22 +273,34 @@ function selfTest() {
   check('a glob it cannot expand fails loudly', threw, true);
 
   // — reading, without a check-then-use window ——————————————————
-  check(
-    'a file that is not there reads as null, not as an error',
-    readJson(path.join(tmpdir(), `nope-${process.pid}.json`)),
-    null,
-  );
-
-  const broken = path.join(tmpdir(), `broken-${process.pid}.json`);
-  writeFileSync(broken, '{ this is not json');
-  let parseThrew = false;
+  //
+  // 🔴 mkdtemp, not a name built in the temp directory. The first version
+  // of these two cases wrote `broken-${process.pid}.json` straight into
+  // os.tmpdir(), and CodeQL failed the very next run on
+  // js/insecure-temporary-file (high): a predictable path in a
+  // world-writable directory can be a symlink somebody else planted
+  // before we get there. mkdtemp returns a directory that is ours, 0700,
+  // with a random name nobody can guess in advance.
+  const box = mkdtempSync(path.join(tmpdir(), 'camptribe-guard-'));
   try {
-    readJson(broken);
-  } catch {
-    parseThrew = true;
+    check(
+      'a file that is not there reads as null, not as an error',
+      readJson(path.join(box, 'nope.json')),
+      null,
+    );
+
+    const broken = path.join(box, 'broken.json');
+    writeFileSync(broken, '{ this is not json');
+    let parseThrew = false;
+    try {
+      readJson(broken);
+    } catch {
+      parseThrew = true;
+    }
+    check('a file it cannot parse throws, and never reads as absent', parseThrew, true);
+  } finally {
+    rmSync(box, { recursive: true, force: true });
   }
-  rmSync(broken, { force: true });
-  check('a file it cannot parse throws, and never reads as absent', parseThrew, true);
 
   // — the baseline decision ————————————————————————————————
   const moderate = { severity: 'moderate', package: 'p', title: 't' };
