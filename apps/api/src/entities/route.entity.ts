@@ -1,4 +1,11 @@
-import { Column, CreateDateColumn, Entity, Index, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  OneToMany,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
 import { RoutePoint } from './route-point.entity';
 
 // Curated routes per mvp-strategy.md, e.g. "Norway Fjords 10 Days"

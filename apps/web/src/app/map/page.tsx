@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import dynamicImport from 'next/dynamic';
 import { countryName, getCountries, getSummary } from '@/lib/api';
+import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 
 // CAMP-31 — /map.
 //
@@ -38,6 +39,24 @@ export default async function MapPage() {
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
+      {/* 🔴 The markup describes the country list, not the map. A crawler
+          never runs the map, so claiming this page "contains" 289
+          campsites would be describing something no machine can see
+          here. What it can see, and what it can follow, is the list —
+          so that is what the page says it is. */}
+      <script
+        {...jsonLdProps(
+          collectionGraph({
+            name: 'Campsite map',
+            description: `${summary.spots} campsites across ${countries.length} countries, on one map.`,
+            path: '/map',
+            items: countries.map((c) => ({
+              name: countryName(c.country),
+              path: `/camping/${c.country}`,
+            })),
+          }),
+        )}
+      />
       <h1 className="text-3xl font-bold md:text-[42px]">Campsite map</h1>
       <p className="mt-3 max-w-prose text-ink-2">
         {summary.spots.toLocaleString('en-GB')} campsites and motorhome parks.

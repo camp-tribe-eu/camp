@@ -16,7 +16,8 @@ import { SpotsModule } from './spots/spots.module';
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot({
       type: 'postgres',
-      url: process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev',
+      url:
+        process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev',
       entities: [User, CampingSpot, Route, RoutePoint, Trip, TripStop],
       synchronize: false,
     }),

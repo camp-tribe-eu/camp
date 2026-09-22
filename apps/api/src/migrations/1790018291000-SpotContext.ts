@@ -35,6 +35,8 @@ export class SpotContext1790018291000 implements MigrationInterface {
     await queryRunner.query(
       `ALTER TABLE "camping_spots" DROP COLUMN "context_computed_at"`,
     );
-    await queryRunner.query(`ALTER TABLE "camping_spots" DROP COLUMN "context"`);
+    await queryRunner.query(
+      `ALTER TABLE "camping_spots" DROP COLUMN "context"`,
+    );
   }
 }

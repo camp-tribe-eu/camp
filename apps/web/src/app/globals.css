@@ -180,3 +180,93 @@ h3 {
     text-wrap: balance;
   }
 }
+
+/* CAMP-32 — the campsite card inside a map popup.
+ *
+ * 🔴 Plain CSS, not Tailwind classes. MapLibre builds the popup and
+ * moves it into its own container, so the markup is created in a
+ * component but lives outside React's tree. Utility classes would still
+ * apply, but every change to the card would then be split between a
+ * .tsx file and whatever the popup's own stylesheet does to it. One
+ * block here is easier to keep truthful.
+ *
+ * The popup shell itself is MapLibre's; these rules only style what we
+ * put inside it, plus the shell's background so it follows dark mode. */
+.maplibregl-popup-content {
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+}
+
+.maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: var(--surface);
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: var(--surface);
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--surface);
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--surface);
+}
+
+.ct-popup-title {
+  display: block;
+  color: var(--heading);
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.3;
+  text-decoration: none;
+}
+a.ct-popup-title:hover {
+  text-decoration: underline;
+}
+
+.ct-popup-kind {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.ct-popup-amenities {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  padding: 0;
+}
+
+.ct-popup-amenities li {
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 6px;
+  /* color-mix, because --ok is a hex and Tailwind's `/10` opacity
+   * modifier compiles to rgb(var(--ok) / .1), which is invalid for a hex
+   * variable and renders as nothing at all. Measured, not guessed. */
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  color: var(--heading);
+}
+
+.ct-popup-amenities li.is-no {
+  background: color-mix(in srgb, var(--ink-3) 18%, transparent);
+  color: var(--ink-2);
+}
+
+.ct-popup-empty {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.ct-popup-link {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--btn);
+}

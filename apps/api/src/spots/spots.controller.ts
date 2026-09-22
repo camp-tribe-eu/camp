@@ -1,9 +1,34 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { SpotsService } from './spots.service';
+import { MapQueryService, parseBbox } from './map.service';
 
 @Controller('spots')
 export class SpotsController {
-  constructor(private readonly spots: SpotsService) {}
+  constructor(
+    private readonly spots: SpotsService,
+    private readonly map: MapQueryService,
+  ) {}
+
+  // CAMP-32. 🔴 Both map routes are declared here, above every route with
+  // a `:country` segment. Nest matches in declaration order, so moving
+  // them below would make "map" a country and answer these with an empty
+  // region listing and a 200 — a failure that looks like no data.
+
+  /**
+   * Campsites under the viewport. The client asks for this only once the
+   * window is small enough that the answer is drawable; `truncated` says
+   * when it guessed wrong and should go back to clusters.
+   */
+  @Get('map/points')
+  points(@Query('bbox') bbox?: string) {
+    return this.map.points(parseBbox(bbox));
+  }
+
+  /** Counts per grid cell, for a viewport too wide to draw point by point. */
+  @Get('map/clusters')
+  clusters(@Query('bbox') bbox?: string) {
+    return this.map.clusters(parseBbox(bbox));
+  }
 
   /**
    * Everything the sitemap (CAMP-39) and static generation need, in one

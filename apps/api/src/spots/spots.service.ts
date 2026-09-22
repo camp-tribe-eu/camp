@@ -129,7 +129,9 @@ export class SpotsService {
    * Regions of one country. Every region is returned, including the thin
    * ones — leaving them out would break the crawl path to their campsites.
    */
-  async regions(country: string): Promise<
+  async regions(
+    country: string,
+  ): Promise<
     { region: string; slug: string; spots: number; indexable: boolean }[]
   > {
     const rows = await this.db.query(
@@ -225,7 +227,11 @@ export class SpotsService {
   }
 
   /** Countries plus their campsite totals, for the home page. */
-  async summary(): Promise<{ spots: number; countries: number; regions: number }> {
+  async summary(): Promise<{
+    spots: number;
+    countries: number;
+    regions: number;
+  }> {
     const [row] = await this.db.query(
       `SELECT count(*)::int AS spots,
               count(DISTINCT country)::int AS countries,
@@ -309,14 +315,14 @@ function toView(row: Record<string, unknown>): SpotView {
   // imported that way, but a page must never crash on old data - and an
   // amenity we cannot read is unknown, never "no".
   const amenities = Object.fromEntries(
-    (
-      ['electricity', 'water', 'shower', 'dogFriendly', 'wifi'] as const
-    ).map((k) => [
-      k,
-      Object.values(AmenityValue).includes(stored[k] as AmenityValue)
-        ? (stored[k] as AmenityValue)
-        : AmenityValue.UNKNOWN,
-    ]),
+    (['electricity', 'water', 'shower', 'dogFriendly', 'wifi'] as const).map(
+      (k) => [
+        k,
+        Object.values(AmenityValue).includes(stored[k] as AmenityValue)
+          ? (stored[k] as AmenityValue)
+          : AmenityValue.UNKNOWN,
+      ],
+    ),
   ) as unknown as CampingSpotAmenities;
 
   return {

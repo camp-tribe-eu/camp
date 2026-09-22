@@ -55,7 +55,9 @@ function metresApart(a: string, b: string): number {
   if (!x || !y) return Infinity;
   const dLat = (y.lat - x.lat) * 111_320;
   const dLon =
-    (y.lon - x.lon) * 111_320 * Math.cos(((x.lat + y.lat) / 2) * (Math.PI / 180));
+    (y.lon - x.lon) *
+    111_320 *
+    Math.cos(((x.lat + y.lat) / 2) * (Math.PI / 180));
   return Math.hypot(dLat, dLon);
 }
 
@@ -98,7 +100,9 @@ export function dedupe(rows: StagingRow[]): StagingRow[] {
     const clusters: StagingRow[][] = [];
     for (const row of bucket) {
       const near = clusters.find((c) =>
-        c.some((o) => metresApart(o.point_wkt, row.point_wkt) <= DUPLICATE_RADIUS_M),
+        c.some(
+          (o) => metresApart(o.point_wkt, row.point_wkt) <= DUPLICATE_RADIUS_M,
+        ),
       );
       if (near) near.push(row);
       else clusters.push([row]);
@@ -303,7 +307,9 @@ async function main(): Promise<void> {
       WHERE table_name = $1 AND data_type IN ('text','character varying')`,
     [TABLE],
   );
-  const tagColumns = cols.rows.map((r) => r.column_name).filter((c) => c !== 'id');
+  const tagColumns = cols.rows
+    .map((r) => r.column_name)
+    .filter((c) => c !== 'id');
 
   // CAMP-34: the region and the country come from the geometry, not from
   // tags and not from the command line.
@@ -415,20 +421,17 @@ async function main(): Promise<void> {
       if (row.admin_country && row.admin_country !== COUNTRY) outsideExtent++;
       if (!region) withoutRegion++;
 
-      const res = await db.query(
-        UPSERT_SPOT_SQL,
-        [
-          name,
-          country,
-          region,
-          slug,
-          type,
-          JSON.stringify(amenities),
-          row.point_wkt,
-          row.osm_ref,
-          startedAt,
-        ],
-      );
+      const res = await db.query(UPSERT_SPOT_SQL, [
+        name,
+        country,
+        region,
+        slug,
+        type,
+        JSON.stringify(amenities),
+        row.point_wkt,
+        row.osm_ref,
+        startedAt,
+      ]);
       if (res.rows[0]?.was_insert) inserted++;
       else updated++;
     }
@@ -469,17 +472,25 @@ async function main(): Promise<void> {
 
     console.log(`\nOSM import — ${COUNTRY}, from "${TABLE}"\n`);
     console.log(`  staged rows        ${staged.length}`);
-    console.log(`  merged duplicates  ${droppedAsDuplicate}  (named within 200 m, unnamed within 50 m; polygon beats node)`);
+    console.log(
+      `  merged duplicates  ${droppedAsDuplicate}  (named within 200 m, unnamed within 50 m; polygon beats node)`,
+    );
     console.log(`  inserted           ${inserted}`);
     console.log(`  updated            ${updated}`);
     console.log(`  newly missing      ${gone.rowCount}`);
     console.log(`  ─────────────────────────`);
     console.log(`  rows in ${COUNTRY} now     ${total.rows[0].n}`);
-    console.log(`\n  without a name     ${unnamed}  (pin shown, name honestly unknown)`);
+    console.log(
+      `\n  without a name     ${unnamed}  (pin shown, name honestly unknown)`,
+    );
     console.log(`  mapped as areas    ${fromPolygon}  (ST_PointOnSurface)`);
-    console.log(`  outside ${COUNTRY.padEnd(2)}         ${outsideExtent}  (extent overlaps the border; country taken from geometry)`);
+    console.log(
+      `  outside ${COUNTRY.padEnd(2)}         ${outsideExtent}  (extent overlaps the border; country taken from geometry)`,
+    );
     if (withoutRegion) {
-      console.log(`  🔴 no region       ${withoutRegion}  (no admin-1 polygon — these cannot get a page URL)`);
+      console.log(
+        `  🔴 no region       ${withoutRegion}  (no admin-1 polygon — these cannot get a page URL)`,
+      );
     }
     if (unknownCounts.rowCount) {
       console.log('\n  amenities still unknown:');

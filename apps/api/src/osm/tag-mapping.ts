@@ -25,11 +25,7 @@ export enum AmenityValue {
 }
 
 export type AmenityKey =
-  | 'electricity'
-  | 'water'
-  | 'shower'
-  | 'dogFriendly'
-  | 'wifi';
+  'electricity' | 'water' | 'shower' | 'dogFriendly' | 'wifi';
 
 export type OsmTags = Record<string, string | undefined | null>;
 
@@ -183,7 +179,10 @@ export interface AmenityResolution {
   matchedBy: string | null;
 }
 
-function readValueRule(rule: ValueRule, tags: OsmTags): AmenityResolution | null {
+function readValueRule(
+  rule: ValueRule,
+  tags: OsmTags,
+): AmenityResolution | null {
   const raw = tags[rule.key];
   if (raw === undefined || raw === null || raw === '') return null;
 
@@ -195,9 +194,14 @@ function readValueRule(rule: ValueRule, tags: OsmTags): AmenityResolution | null
   // Any part saying yes wins: `yes;cee_17_blue` is a yes, and a site that
   // lists two socket types has not become less electrified.
   for (const value of parts) {
-    if (rule.yes?.includes(value)) return { value: AmenityValue.YES, matchedBy };
+    if (rule.yes?.includes(value))
+      return { value: AmenityValue.YES, matchedBy };
     if (TRUTHY.has(value)) return { value: AmenityValue.YES, matchedBy };
-    if (rule.namedVariantMeansYes && !NON_COMMITTAL.has(value) && !FALSY.has(value)) {
+    if (
+      rule.namedVariantMeansYes &&
+      !NON_COMMITTAL.has(value) &&
+      !FALSY.has(value)
+    ) {
       return { value: AmenityValue.YES, matchedBy };
     }
   }
@@ -305,7 +309,11 @@ export function mapSpotType(tags: OsmTags): SpotTypeResolution {
       };
     }
     if (FALSY.has(fee ?? '')) {
-      return { type: 'camper_stop', confident: true, reason: 'caravan_site + fee=no' };
+      return {
+        type: 'camper_stop',
+        confident: true,
+        reason: 'caravan_site + fee=no',
+      };
     }
     return { type: 'rv_park', confident: true, reason: 'tourism=caravan_site' };
   }

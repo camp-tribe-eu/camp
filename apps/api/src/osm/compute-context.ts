@@ -276,7 +276,10 @@ async function main(): Promise<void> {
     // Checking only `elevation` was not enough: a failed ring batch left
     // the height in place and quietly dropped the terrain, and the spot
     // then looked complete for ever.
-    if (r.context?.elevation === undefined || r.context?.terrain === undefined) {
+    if (
+      r.context?.elevation === undefined ||
+      r.context?.terrain === undefined
+    ) {
       return true;
     }
     return (
@@ -285,7 +288,9 @@ async function main(): Promise<void> {
     );
   });
 
-  console.log(`\nCAMP-33 context — ${rows.length} spots, ${todo.length} to compute\n`);
+  console.log(
+    `\nCAMP-33 context — ${rows.length} spots, ${todo.length} to compute\n`,
+  );
   if (todo.length === 0) {
     console.log('  nothing moved since the last run\n');
     await db.end();
@@ -374,7 +379,9 @@ async function main(): Promise<void> {
   for (const f of filled.rows) {
     const pct = ((Number(f.n) / total) * 100).toFixed(1);
     const flag = Number(pct) >= 90 ? ' ' : '🔴';
-    console.log(`  ${flag} ${f.field.padEnd(12)} ${String(f.n).padStart(4)} / ${total}  ${pct}%`);
+    console.log(
+      `  ${flag} ${f.field.padEnd(12)} ${String(f.n).padStart(4)} / ${total}  ${pct}%`,
+    );
   }
   if (reliefs.length) {
     reliefs.sort((a, b) => a - b);
@@ -386,7 +393,9 @@ async function main(): Promise<void> {
   if (noWater) console.log(`  without water      ${noWater}`);
   if (noStation) console.log(`  without station    ${noStation}`);
   if (failedBatches) {
-    console.log(`  ⚠ failed batches   ${failedBatches}  (rerun to fill them in)`);
+    console.log(
+      `  ⚠ failed batches   ${failedBatches}  (rerun to fill them in)`,
+    );
   }
 
   // The card's own bar: "fields filled for >90% of a country's records".
@@ -411,7 +420,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(`\n✓ every field above 90% (worst ${(worst * 100).toFixed(1)}%)\n`);
+  console.log(
+    `\n✓ every field above 90% (worst ${(worst * 100).toFixed(1)}%)\n`,
+  );
   await db.end();
 }
 

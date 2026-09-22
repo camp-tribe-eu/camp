@@ -1,16 +1,18 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// CAMP-31 — the map, its source switcher, and its escape hatch.
+// CAMP-31/32 — the map, its source switcher, its escape hatch, and the
+// markers.
 //
 // 🔴 Not one of these tests touches tiles.openfreemap.org.
 //
-// The card's two criteria are about OUR behaviour: that the switcher
-// really changes the tile source, and that the map survives one source
-// being down. Proving them against the live provider would make the
-// suite depend on a third party that says in its own terms it "may
-// discontinue it at any time without notice", and a red build would then
-// mean nothing about our code. So every style request is intercepted and
-// answered locally, and the tests fail only when we break something.
+// The cards' criteria are about OUR behaviour: that the switcher really
+// changes the tile source, that the map survives one source being down,
+// and that points cluster instead of turning Europe into mush. Proving
+// them against the live provider would make the suite depend on a third
+// party that says in its own terms it "may discontinue it at any time
+// without notice", and a red build would then mean nothing about our
+// code. So every style request is intercepted and answered locally, and
+// the tests fail only when we break something.
 
 /** The smallest thing MapLibre accepts as a style. */
 const EMPTY_STYLE = {
@@ -45,7 +47,88 @@ async function stubStyles(page: Page, broken: string[] = []) {
   return asked;
 }
 
+/**
+ * Zoom with the map's own control, which works under touch emulation.
+ *
+ * 🔴 With a pause between clicks. MapLibre animates each zoom step over
+ * about 300ms and a click that lands mid-animation is dropped, so eight
+ * clicks fired as fast as Playwright can send them produced far fewer
+ * than eight zoom levels — and the test failed reporting that clusters
+ * had not resolved, when the map had simply not zoomed as far as the
+ * test believed.
+ */
+async function zoomIn(page: Page, times: number) {
+  const button = page.locator('.maplibregl-ctrl-zoom-in');
+  for (let i = 0; i < times; i++) {
+    await button.click();
+    await page.waitForTimeout(350);
+  }
+}
+
+/** Where the map opens — mirrors INITIAL_VIEW in lib/map-sources.ts. */
+const CENTRE = { lng: 14.5, lat: 46.1 };
+
+/**
+ * Replace the campsite data with points we place ourselves.
+ *
+ * 🔴 Because geography is not a test fixture. These tests first zoomed
+ * into the middle of the real dataset and looked for a campsite there.
+ * That worked on a desktop viewport and failed on both phones — at the
+ * same zoom a 375px-wide screen covers a few square kilometres, and
+ * Slovenia holds roughly one campsite per seventy. The tests were
+ * measuring the density of Slovenian tourism, not our clustering.
+ */
+async function stubSpots(
+  page: Page,
+  points: { lng: number; lat: number; name?: string }[],
+) {
+  await page.route('**/data/spots.geojson', (route) =>
+    route.fulfill({
+      contentType: 'application/geo+json',
+      json: {
+        type: 'FeatureCollection',
+        features: points.map((p, i) => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+          properties: {
+            slug: `fixture-${i}`,
+            name: p.name ?? `Fixture campsite ${i}`,
+            type: 'paid',
+            href: '/camping',
+            electricity: 'yes',
+            water: 'unknown',
+            shower: 'no',
+            dogFriendly: 'unknown',
+            wifi: 'unknown',
+          },
+        })),
+      },
+    }),
+  );
+}
+
 const map = (page: Page) => page.getByTestId('map');
+
+/**
+ * 🔴 Skip, rather than fail, where the browser genuinely cannot run the
+ * feature.
+ *
+ * Headless Firefox on a runner with no GPU has no WebGL2 context, and
+ * MapLibre cannot draw anything without one. That is not our bug and no
+ * assertion here can make it pass. What IS our bug is what the page does
+ * in that browser — it used to replace the whole page with "Application
+ * error" — and that has its own test below, which runs everywhere.
+ */
+async function skipWithoutWebGL(page: Page) {
+  const ok = await page.evaluate(() => {
+    try {
+      return !!document.createElement('canvas').getContext('webgl2');
+    } catch {
+      return false;
+    }
+  });
+  test.skip(!ok, 'no WebGL2 in this browser — see the fallback test');
+}
 
 test.describe('/map', () => {
   // 🔴 The regression that cost the most time on this card, and the
@@ -77,7 +160,43 @@ test.describe('/map', () => {
     }
   });
 
-  test('renders the map and the campsite points', async ({ page }) => {
+  test('every marker links to a page that exists', async ({ page }) => {
+    // CAMP-32. The href is built by the API, from the same function the
+    // pages use, precisely so this holds — and the web app briefly
+    // re-derived the region slug itself, which is the way it breaks.
+    const geo = await page.request.get('/data/spots.geojson');
+    expect(geo.status()).toBe(200);
+    const body = await geo.json();
+    expect(body.type).toBe('FeatureCollection');
+    expect(body.features.length).toBeGreaterThan(0);
+
+    // A handful is enough to catch a broken rule; all of them would make
+    // this test scale with the dataset.
+    for (const f of body.features.slice(0, 12)) {
+      const href = f.properties.href as string;
+      expect(href).toMatch(/^\/camping\/[a-z]{2}\/[^/]+\/[^/]+$/);
+      const res = await page.request.get(href);
+      expect(res.status(), `${href} is a dead marker link`).toBe(200);
+    }
+  });
+
+  test('a marker carries the facilities we actually hold', async ({ page }) => {
+    const body = await (await page.request.get('/data/spots.geojson')).json();
+    const values = new Set<string>();
+    for (const f of body.features) {
+      for (const key of ['electricity', 'water', 'shower', 'dogFriendly', 'wifi']) {
+        values.add(f.properties[key]);
+      }
+    }
+    // 🔴 The three-state rule, checked on the data the map draws from:
+    // an amenity nobody recorded must stay "unknown" and never arrive as
+    // a false "no". A dataset that contained only yes/no would mean the
+    // tri-state had been flattened somewhere on the way here.
+    for (const v of values) expect(['yes', 'no', 'unknown']).toContain(v);
+    expect(values.has('unknown'), 'no unknown amenities survived').toBe(true);
+  });
+
+  test('renders the map and clusters the campsites', async ({ page }) => {
     await stubStyles(page);
     const mimeErrors: string[] = [];
     page.on('console', (m) => {
@@ -87,18 +206,105 @@ test.describe('/map', () => {
     });
 
     await page.goto('/map');
+    await skipWithoutWebGL(page);
     await expect(map(page)).toBeVisible();
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
 
-    // The points come from our own static GeoJSON, and the worker is
-    // what turns it into something drawable.
-    const geo = await page.request.get('/data/spots.geojson');
-    expect(geo.status()).toBe(200);
-    const body = await geo.json();
-    expect(body.type).toBe('FeatureCollection');
-    expect(body.features.length).toBeGreaterThan(0);
+    // 🔴 The card's criterion. At the opening zoom the campsites must
+    // arrive as a handful of counted bubbles, not as one circle each.
+    await expect
+      .poll(async () => Number(await map(page).getAttribute('data-visible-clusters')), {
+        timeout: 15_000,
+        message: 'nothing clustered at the opening zoom',
+      })
+      .toBeGreaterThan(0);
 
     expect(mimeErrors, 'the worker failed to load').toEqual([]);
+  });
+
+  test('zooming in breaks the clusters into campsites', async ({ page }) => {
+    await stubStyles(page);
+    // Twenty campsites within a few hundred metres of the opening
+    // centre: one bubble at first, twenty circles once we are close.
+    await stubSpots(
+      page,
+      Array.from({ length: 20 }, (_, i) => ({
+        lng: CENTRE.lng + (i % 5) * 0.002,
+        lat: CENTRE.lat + Math.floor(i / 5) * 0.002,
+      })),
+    );
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await expect(map(page)).toBeVisible();
+
+    await expect
+      .poll(async () => Number(await map(page).getAttribute('data-visible-clusters')), {
+        timeout: 20_000,
+      })
+      .toBeGreaterThan(0);
+
+    // 🔴 The zoom-in control, not a double-click. Double-clicking zooms
+    // on a desktop and does nothing under touch emulation, so an earlier
+    // version of this test passed on three profiles and failed on the
+    // two phones — for a reason that had nothing to do with clustering.
+    // The control is a real button on every device.
+    await zoomIn(page, 8);
+
+    await expect
+      .poll(async () => Number(await map(page).getAttribute('data-visible-points')), {
+        timeout: 20_000,
+        message: 'the clusters never resolved into individual campsites',
+      })
+      .toBeGreaterThan(0);
+    await expect(map(page)).toHaveAttribute('data-visible-clusters', '0');
+  });
+
+  test('clicking a campsite opens a card that links to its page', async ({
+    page,
+  }) => {
+    await stubStyles(page);
+    // One campsite, exactly where the map opens, so this test is about
+    // the card and not about finding a marker.
+    await stubSpots(page, [{ ...CENTRE, name: 'Fixture campsite 0' }]);
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await expect(map(page)).toBeVisible();
+
+    await expect
+      .poll(async () => await map(page).getAttribute('data-point-at'), {
+        timeout: 20_000,
+      })
+      .not.toBeNull();
+
+    const box = (await map(page).boundingBox())!;
+
+    const [x, y] = (await map(page).getAttribute('data-point-at'))!
+      .split(',')
+      .map(Number);
+    await page.mouse.click(box.x + x, box.y + y);
+
+    const popup = page.locator('.maplibregl-popup-content');
+    await expect(popup).toBeVisible();
+
+    // 🔴 What the card must NOT contain is as much the point as what it
+    // does. We hold no ratings, no photos and no prices, so a card that
+    // showed empty stars or a placeholder frame would make every
+    // campsite look unrated rather than unrecorded.
+    await expect(popup).not.toContainText('★');
+    await expect(popup).not.toContainText('undefined');
+    await expect(popup).not.toContainText('null');
+
+    const link = popup.getByRole('link', { name: 'Open campsite page' });
+    await expect(link).toBeVisible();
+    const href = await link.getAttribute('href');
+    expect((await page.request.get(href!)).status()).toBe(200);
+
+    // The facilities shown are the ones the feature claims — and the two
+    // it says nothing about are absent rather than denied.
+    await expect(popup).toContainText('Electricity');
+    await expect(popup).toContainText('No shower');
+    await expect(popup).not.toContainText('Drinking water');
+    await expect(popup).not.toContainText('Wi-Fi');
   });
 
   test('the switcher changes the tile source, not just the button', async ({
@@ -106,6 +312,7 @@ test.describe('/map', () => {
   }) => {
     const asked = await stubStyles(page);
     await page.goto('/map');
+    await skipWithoutWebGL(page);
     await expect(map(page)).toBeVisible();
     await expect.poll(() => asked.length).toBeGreaterThan(0);
 
@@ -134,6 +341,7 @@ test.describe('/map', () => {
     const asked = await stubStyles(page, ['liberty']);
 
     await page.goto('/map');
+    await skipWithoutWebGL(page);
     await expect(map(page)).toBeVisible();
 
     // It says which supplier failed, rather than showing a grey box.
@@ -160,6 +368,7 @@ test.describe('/map', () => {
     );
 
     await page.goto('/map');
+    await skipWithoutWebGL(page);
     await expect(page.getByTestId('map-fallback')).toContainText(
       'could not be loaded from any of our sources',
     );
@@ -168,6 +377,56 @@ test.describe('/map', () => {
     await expect(
       page.getByRole('heading', { name: 'Browse instead' }),
     ).toBeVisible();
+  });
+
+  test('a browser without WebGL gets a sentence, not a broken page', async ({
+    browser,
+  }) => {
+    // 🔴 This is a real defect that CI caught, not a hypothetical.
+    //
+    // MapLibre's constructor throws when it cannot get a WebGL context.
+    // Unhandled, that exception escaped into React and Next replaced the
+    // whole page with "Application error: a client-side exception has
+    // occurred" — taking out the country list underneath, which was the
+    // entire point of having a fallback. Headless Firefox with no GPU
+    // behaves exactly this way, and so does a reader with WebGL
+    // disabled.
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      const real = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (
+        this: HTMLCanvasElement,
+        type: string,
+        ...rest: unknown[]
+      ) {
+        if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
+          return null;
+        }
+        return (real as (...a: unknown[]) => unknown).call(this, type, ...rest);
+      } as typeof HTMLCanvasElement.prototype.getContext;
+    });
+
+    const crashes: string[] = [];
+    page.on('pageerror', (e) => crashes.push(e.message));
+
+    await page.goto('/map');
+
+    await expect(page.getByTestId('map-unsupported')).toBeVisible();
+    await expect(page.getByTestId('map-unsupported')).toContainText('WebGL');
+
+    // The page is still a page: heading, and the way onward.
+    await expect(
+      page.getByRole('heading', { name: 'Campsite map' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Browse instead' }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('Application error', { exact: false }),
+    ).toHaveCount(0);
+
+    await context.close();
   });
 
   test('works with JavaScript off', async ({ browser }) => {

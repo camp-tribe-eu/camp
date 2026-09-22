@@ -102,13 +102,13 @@ describe('per-amenity vocabularies', () => {
   });
 
   it('counts internet_access=wlan as wifi but terminal as not wifi', () => {
-    expect(
-      resolveAmenity('wifi', { internet_access: 'wlan' }).value,
-    ).toBe(AmenityValue.YES);
+    expect(resolveAmenity('wifi', { internet_access: 'wlan' }).value).toBe(
+      AmenityValue.YES,
+    );
     // A shared computer in reception is not wifi in the van.
-    expect(
-      resolveAmenity('wifi', { internet_access: 'terminal' }).value,
-    ).toBe(AmenityValue.NO);
+    expect(resolveAmenity('wifi', { internet_access: 'terminal' }).value).toBe(
+      AmenityValue.NO,
+    );
   });
 
   it('accepts the caravan water-filling point as water', () => {
@@ -118,9 +118,9 @@ describe('per-amenity vocabularies', () => {
   });
 
   it('accepts power_supply as electricity', () => {
-    expect(
-      resolveAmenity('electricity', { power_supply: 'yes' }).value,
-    ).toBe(AmenityValue.YES);
+    expect(resolveAmenity('electricity', { power_supply: 'yes' }).value).toBe(
+      AmenityValue.YES,
+    );
   });
 });
 
@@ -162,9 +162,9 @@ describe('values found on the real Slovenian extract (448 sites)', () => {
     expect(
       resolveAmenity('wifi', { internet_access: 'no;terminal' }).value,
     ).toBe(AmenityValue.NO);
-    expect(
-      resolveAmenity('wifi', { internet_access: 'no;wlan' }).value,
-    ).toBe(AmenityValue.YES);
+    expect(resolveAmenity('wifi', { internet_access: 'no;wlan' }).value).toBe(
+      AmenityValue.YES,
+    );
   });
 });
 

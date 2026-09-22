@@ -126,6 +126,19 @@ jobs:
 
   api:
     runs-on: ubuntu-latest
+    # CAMP-32 gave this job a database. The query plan for the map's
+    # viewport query is part of the card's acceptance, and a plan can
+    # only be read from a real planner with real statistics.
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: camptribe_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -135,6 +148,28 @@ jobs:
       - run: npm ci
       - run: npm run build --workspace=apps/api
       - run: npm run test --workspace=apps/api
+
+      - name: Migrate
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: npx typeorm-ts-node-commonjs migration:run -d src/data-source.ts
+
+      # CAMP-32. Two steps, as with the structured-data validator: first
+      # prove the check still fails when the index is taken away, then
+      # believe the run that says it is used. A performance guard that
+      # has stopped guarding reports green forever.
+      - name: Query-plan check still catches a missing index
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: npx ts-node src/spots/explain-map-queries.ts --self-test
+
+      - name: Viewport query uses the spatial index at 55 000 rows
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: npx ts-node src/spots/explain-map-queries.ts
 
   e2e:
     runs-on: ubuntu-latest

@@ -121,7 +121,10 @@ async function main(): Promise<void> {
       else if (value === AmenityValue.NO) stats[key].no++;
       else stats[key].unknown++;
       if (matchedBy) {
-        stats[key].byRule.set(matchedBy, (stats[key].byRule.get(matchedBy) ?? 0) + 1);
+        stats[key].byRule.set(
+          matchedBy,
+          (stats[key].byRule.get(matchedBy) ?? 0) + 1,
+        );
       }
     }
 
@@ -174,8 +177,12 @@ async function main(): Promise<void> {
 
   console.log('\n  spot type');
   console.log('  ' + '-'.repeat(52));
-  for (const [type, n] of [...typeCounts.entries()].sort((a, b) => b[1] - a[1])) {
-    console.log(`  ${type.padEnd(13)} ${String(n).padStart(5)}   ${pct(n, total)}`);
+  for (const [type, n] of [...typeCounts.entries()].sort(
+    (a, b) => b[1] - a[1],
+  )) {
+    console.log(
+      `  ${type.padEnd(13)} ${String(n).padStart(5)}   ${pct(n, total)}`,
+    );
   }
   console.log(
     `\n  🔴 guessed (no fee tag): ${typeGuesses} of ${total}  ${pct(typeGuesses, total)}`,

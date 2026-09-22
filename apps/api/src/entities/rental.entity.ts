@@ -48,17 +48,41 @@ export class CamperType {
   @Column({ type: 'int', default: 0 })
   position: number;
 
-  @Column({ name: 'length_min_m', type: 'numeric', precision: 3, scale: 1, nullable: true })
+  @Column({
+    name: 'length_min_m',
+    type: 'numeric',
+    precision: 3,
+    scale: 1,
+    nullable: true,
+  })
   lengthMinM?: string;
 
-  @Column({ name: 'length_max_m', type: 'numeric', precision: 3, scale: 1, nullable: true })
+  @Column({
+    name: 'length_max_m',
+    type: 'numeric',
+    precision: 3,
+    scale: 1,
+    nullable: true,
+  })
   lengthMaxM?: string;
 
   /** Matters for tunnels and ferries, not just for parking. */
-  @Column({ name: 'height_m', type: 'numeric', precision: 3, scale: 1, nullable: true })
+  @Column({
+    name: 'height_m',
+    type: 'numeric',
+    precision: 3,
+    scale: 1,
+    nullable: true,
+  })
   heightM?: string;
 
-  @Column({ name: 'mass_t', type: 'numeric', precision: 3, scale: 2, nullable: true })
+  @Column({
+    name: 'mass_t',
+    type: 'numeric',
+    precision: 3,
+    scale: 2,
+    nullable: true,
+  })
   massT?: string;
 
   @Column({ name: 'licence_class', type: 'enum', enum: LicenceClass })
