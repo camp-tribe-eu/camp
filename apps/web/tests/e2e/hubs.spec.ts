@@ -35,7 +35,10 @@ test.describe('hub crawl path', () => {
     let clicks = 0;
 
     await page.goto('/');
-    await page.getByRole('link', { name: /browse campsites/i }).click();
+    // By destination, not by wording: the home page's copy is CAMP-41's
+    // to change, and a test pinned to a phrase breaks on a rewrite while
+    // the path it is actually asserting still works.
+    await page.locator('main a[href="/camping"]').first().click();
     clicks++;
     await expect(page).toHaveURL(/\/camping$/);
 

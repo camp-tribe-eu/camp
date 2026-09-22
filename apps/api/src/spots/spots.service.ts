@@ -192,6 +192,51 @@ export class SpotsService {
   }
 
   /**
+   * CAMP-41: the campsites the home page puts forward.
+   *
+   * 🔴 Not "featured" and not "best". We have no reviews, no ratings and
+   * no visits, so any claim of quality would be invented — and inventing
+   * one on the home page is exactly the misleading practice we refused
+   * for photographs. The rule is instead **the ones we know most about**,
+   * and the page says so in those words.
+   *
+   * Ranking, in order: how many of the five amenities are actually
+   * recorded, then whether there is a named body of water, then how close
+   * it is. All three are facts about our data, not opinions about the
+   * place.
+   */
+  async notable(limit = 6): Promise<SpotCard[]> {
+    return this.db.query(
+      `SELECT slug, name, country, region, type, amenities, context
+         FROM camping_spots
+        WHERE missing_since IS NULL
+          AND region IS NOT NULL
+          AND name IS NOT NULL
+        ORDER BY (
+          SELECT count(*) FROM jsonb_each_text(amenities)
+           WHERE value <> 'unknown'
+        ) DESC,
+        (context -> 'water' ->> 'name' IS NOT NULL) DESC,
+        coalesce((context -> 'water' ->> 'm')::int, 999999) ASC,
+        slug
+        LIMIT $1`,
+      [limit],
+    );
+  }
+
+  /** Countries plus their campsite totals, for the home page. */
+  async summary(): Promise<{ spots: number; countries: number; regions: number }> {
+    const [row] = await this.db.query(
+      `SELECT count(*)::int AS spots,
+              count(DISTINCT country)::int AS countries,
+              count(DISTINCT (country, region))::int AS regions
+         FROM camping_spots
+        WHERE missing_since IS NULL AND region IS NOT NULL`,
+    );
+    return row;
+  }
+
+  /**
    * Every publishable spot, for the sitemap and for static generation.
    * A spot without a region has no URL, so it is excluded here rather than
    * being given an invented one.

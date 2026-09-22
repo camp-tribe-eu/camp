@@ -518,48 +518,29 @@ function NearbyCard({ spot }: { spot: NearbySpot }) {
 }
 
 /**
- * ODbL requires attribution wherever the data is shown, and it has to name
- * the licence, not just the project (CAMP-87). The "checked on" date is
- * ours, not a licence requirement — but a directory that does not say how
- * fresh it is invites the reader to assume the worst.
+ * How fresh this particular page is.
+ *
+ * 🔴 The ODbL licence line lives in the site footer (CAMP-41), once, so
+ * it cannot be forgotten on a template. What stays here is the part that
+ * is true of this page and no other: the last time OpenStreetMap still
+ * contained this campsite. A directory that does not say how fresh it is
+ * invites the reader to assume the worst.
  */
 function Attribution({ lastSeenAt }: { lastSeenAt: string | null }) {
+  if (!lastSeenAt) return null;
+  const d = new Date(lastSeenAt);
   return (
-    <footer className="mt-10 border-t border-line-2 pt-4 text-xs text-ink-2">
-      <p>
-        Campsite data ©{' '}
-        <a
-          href="https://www.openstreetmap.org/copyright"
-          className="underline"
-          rel="noopener"
-        >
-          OpenStreetMap contributors
-        </a>
-        , available under the{' '}
-        <a
-          href="https://opendatacommons.org/licenses/odbl/"
-          className="underline"
-          rel="noopener"
-        >
-          Open Database License
-        </a>
-        .
-        {lastSeenAt && (
-          <>
-            {' '}
-            Last checked against OpenStreetMap on{' '}
-            <time dateTime={new Date(lastSeenAt).toISOString()}>
-              {new Date(lastSeenAt).toLocaleDateString('en-GB', {
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric',
-              })}
-            </time>
-            .
-          </>
-        )}
-      </p>
-    </footer>
+    <p className="mt-10 border-t border-line-2 pt-4 text-xs text-ink-2">
+      Last checked against OpenStreetMap on{' '}
+      <time dateTime={d.toISOString()}>
+        {d.toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })}
+      </time>
+      .
+    </p>
   );
 }
 

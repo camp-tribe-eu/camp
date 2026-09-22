@@ -104,11 +104,15 @@ test.describe('campsite page', () => {
     page,
   }) => {
     await page.goto(fx.rich);
-    const footer = page.locator('footer');
+    // One licence notice per page, in the site footer — not repeated per
+    // template, where it eventually gets left off one of them.
+    const footer = page.locator('body > footer');
     await expect(footer).toContainText('OpenStreetMap contributors');
     await expect(
       footer.getByRole('link', { name: /Open Database License/i }),
     ).toBeVisible();
+    // The page keeps only what is true of it alone: how fresh it is.
+    await expect(page.locator('main')).toContainText(/Last checked against/i);
   });
 
   test('page fits the viewport with no horizontal scroll', async ({ page }) => {

@@ -16,6 +16,18 @@ export class SpotsController {
     return this.spots.allPublishable();
   }
 
+  /** CAMP-41: real totals for the home page — never a rounded promise. */
+  @Get('summary')
+  summary() {
+    return this.spots.summary();
+  }
+
+  /** CAMP-41: the campsites we know most about. */
+  @Get('notable')
+  notable() {
+    return this.spots.notable();
+  }
+
   /** CAMP-71: countries for /camping. */
   @Get('countries')
   countries() {

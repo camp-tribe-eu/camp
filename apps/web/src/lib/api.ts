@@ -171,6 +171,32 @@ export async function getRegionSpots(
 
 export const REGION_PER_PAGE = 24;
 
+// ── CAMP-41: the home page ───────────────────────────────────────────────
+
+export interface SiteSummary {
+  spots: number;
+  countries: number;
+  regions: number;
+}
+
+/** Real totals. The home page never rounds these up into a promise. */
+export async function getSummary(): Promise<SiteSummary> {
+  const res = await fetch(`${API_BASE}/spots/summary`, {
+    next: { revalidate: 86400 },
+  });
+  return res.ok ? res.json() : { spots: 0, countries: 0, regions: 0 };
+}
+
+/** The campsites we know most about — see the API for the ranking rule. */
+export async function getNotable(): Promise<(SpotCard & {
+  context?: SpotContext;
+})[]> {
+  const res = await fetch(`${API_BASE}/spots/notable`, {
+    next: { revalidate: 86400 },
+  });
+  return res.ok ? res.json() : [];
+}
+
 /**
  * "SI" → "Slovenia". Intl ships the list with the runtime, so this needs no
  * table of our own and no translation file — and it will follow the site's

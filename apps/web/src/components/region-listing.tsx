@@ -106,25 +106,6 @@ export default async function RegionListing({
         cName={cName}
       />
 
-      <footer className="mt-10 border-t border-line-2 pt-4 text-xs text-ink-2">
-        Campsite data ©{' '}
-        <a
-          href="https://www.openstreetmap.org/copyright"
-          className="underline"
-          rel="noopener"
-        >
-          OpenStreetMap contributors
-        </a>
-        , available under the{' '}
-        <a
-          href="https://opendatacommons.org/licenses/odbl/"
-          className="underline"
-          rel="noopener"
-        >
-          Open Database License
-        </a>
-        .
-      </footer>
     </main>
   );
 }
