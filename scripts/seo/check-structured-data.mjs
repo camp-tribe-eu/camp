@@ -173,7 +173,15 @@ function validateHtml(html, label) {
       return;
     }
     const ctx = parsed['@context'];
-    if (typeof ctx !== 'string' || !/schema\.org/.test(ctx)) {
+    // 🔴 Anchored, and CodeQL is the reason this is not just
+    // `/schema\.org/`.
+    //
+    // Unanchored, the test passes for "https://evil.example/schema.org-x"
+    // and for "schema.org.attacker.test" — a validator that accepts a
+    // context pointing anywhere is not validating the context at all.
+    // The real vocabulary is served from exactly these, with or without
+    // a trailing slash.
+    if (typeof ctx !== 'string' || !/^https?:\/\/schema\.org\/?$/.test(ctx)) {
       errors.push(`${where}: @context is not schema.org (${JSON.stringify(ctx)})`);
     }
     validateNode(parsed, where, errors);
@@ -197,6 +205,30 @@ if (SELF_TEST) {
       amenityFeature: [
         { '@type': 'LocationFeatureSpecification', name: 'Wi-Fi', value: true },
       ],
+    }],
+    // 🔴 The case CodeQL asked for. Before the anchor, both of these
+    // passed: the check only looked for "schema.org" ANYWHERE in the
+    // string, so a context served from someone else's domain satisfied
+    // it. Found by CodeQL on 22.09.2026, in this file.
+    ['@context on a lookalike domain', false, {
+      '@context': 'https://evil.example/schema.org-fake',
+      '@type': 'Campground',
+      name: 'x',
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+    }],
+    ['@context on a subdomain of an attacker', false, {
+      '@context': 'https://schema.org.attacker.test/',
+      '@type': 'Campground',
+      name: 'x',
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+    }],
+    ['@context with a trailing slash is still fine', true, {
+      '@context': 'https://schema.org/',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'SI' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
     }],
     ['invented @type', false, {
       '@context': 'https://schema.org',

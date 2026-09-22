@@ -20,7 +20,7 @@
 // itself; this runs after the commit exists. Both, not either.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -135,20 +135,29 @@ let scanned = 0;
 for (const rel of tracked()) {
   if (ALLOW_PATHS.some((re) => re.test(rel))) continue;
   const abs = path.join(ROOT, rel);
-  let st;
-  try {
-    st = statSync(abs);
-  } catch {
-    continue;
-  }
-  // Binaries and large data files are not where a token hides, and
-  // reading them costs more than it finds.
-  if (!st.isFile() || st.size > 2 * 1024 * 1024) continue;
+
+  // 🔴 One file descriptor, opened once, then measured and read through
+  // that same descriptor.
+  //
+  // The first version called statSync(path) and then readFileSync(path):
+  // two lookups of the same name, with a gap in between. CodeQL flagged
+  // it as a file-system race, and it is right — whatever the second call
+  // opens need not be what the first one measured. In a scanner whose
+  // whole job is to decide whether a file is safe, checking one file and
+  // reading another is precisely the wrong failure.
+  let fd;
   let text;
   try {
-    text = readFileSync(abs, 'utf8');
+    fd = openSync(abs, 'r');
+    const st = fstatSync(fd);
+    // Binaries and large data files are not where a token hides, and
+    // reading them costs more than it finds.
+    if (!st.isFile() || st.size > 2 * 1024 * 1024) continue;
+    text = readFileSync(fd, 'utf8');
   } catch {
     continue;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
   if (text.includes('\0')) continue;
   scanned++;
