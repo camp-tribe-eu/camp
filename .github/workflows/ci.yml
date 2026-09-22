@@ -45,6 +45,12 @@ jobs:
 
       - run: npm run lint --workspace=apps/web
 
+      # 🔴 `next build` typechecks only what the app imports, so nothing
+      # ever looked at tests/ — the e2e specs were unchecked TypeScript
+      # for as long as they have existed. Run separately, so a broken
+      # test file fails here rather than at 2am in a Playwright run.
+      - run: npm run typecheck --workspace=apps/web
+
       # CAMP-36. The acceptance criterion of the programmatic-SEO work is
       # that no generated page duplicates another by a swapped value. That
       # is invisible to a unit test — it only exists across pages, after

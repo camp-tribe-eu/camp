@@ -20,9 +20,9 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
+  { href: '/map', label: 'Map' },
   { href: '/camping', label: 'Campsites' },
   // Added as each ships, not before:
-  //   { href: '/map',     label: 'Map' },        CAMP-31
   //   { href: '/routes',  label: 'Routes' },     CAMP-45
   //   { href: '/plan',    label: 'Plan a trip' },CAMP-46
   //   { href: '/rentals', label: 'Rentals' },    CAMP-54
