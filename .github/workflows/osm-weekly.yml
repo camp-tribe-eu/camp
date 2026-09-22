@@ -52,7 +52,7 @@ jobs:
       # `if` can read job env but must not read `secrets` directly.
       HAS_R2: ${{ secrets.R2_ACCESS_KEY_ID != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install osmium and GDAL
         run: |
@@ -115,7 +115,7 @@ jobs:
           ls -lh out/
 
       - name: Publish as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: osm-camping-extract
           path: out/
@@ -183,7 +183,7 @@ jobs:
     permissions:
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Open or update the failure issue
         env:
           GH_TOKEN: ${{ github.token }}
