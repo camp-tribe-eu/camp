@@ -110,6 +110,79 @@ export class SpotsService {
     );
   }
 
+  /**
+   * CAMP-73/87: campsites that are gone for good, and where to send
+   * someone who arrives at their old URL.
+   *
+   * 🔴 Gone is not the same as missing. An object deleted from OSM by
+   * mistake usually reappears within a week, so CAMP-87 only declares it
+   * gone after four consecutive imports without it. The column records a
+   * timestamp rather than a count, and the import runs weekly, so four
+   * imports is 28 days — written here because it is a derivation, not a
+   * constant somebody chose.
+   *
+   * Everything else in this service filters `missing_since IS NULL`, so
+   * these rows are already absent from the pages and the sitemap. What
+   * they need is the right HTTP status at the old address: a 410 tells
+   * Google the URL is intentionally gone, which 404 does not.
+   */
+  async gone(): Promise<
+    {
+      path: string;
+      name: string | null;
+      missingSince: Date;
+      nearest: { path: string; name: string | null; metres: number } | null;
+    }[]
+  > {
+    const rows = await this.db.query(
+      `SELECT g.slug, g.name, g.country, g.region, g.missing_since,
+              n.slug AS n_slug, n.name AS n_name,
+              n.country AS n_country, n.region AS n_region,
+              round(ST_Distance(g.location::geography,
+                                n.location::geography)) AS n_metres
+         FROM camping_spots g
+         -- 🔴 LATERAL, so the nearest live campsite is found per row with
+         -- the GiST index (<->) rather than by joining every pair.
+         LEFT JOIN LATERAL (
+           SELECT s.slug, s.name, s.country, s.region, s.location
+             FROM camping_spots s
+            WHERE s.missing_since IS NULL
+              AND s.region IS NOT NULL
+            ORDER BY s.location <-> g.location
+            LIMIT 1
+         ) n ON true
+        WHERE g.missing_since IS NOT NULL
+          AND g.missing_since < now() - interval '28 days'
+          AND g.region IS NOT NULL
+        ORDER BY g.country, g.region, g.slug`,
+    );
+
+    return rows.map((r: Record<string, unknown>) => ({
+      path: canonicalPath(
+        r.country as string,
+        (r.region as string) ?? null,
+        r.slug as string,
+      ),
+      name: (r.name as string) ?? null,
+      missingSince: r.missing_since as Date,
+      // 🔴 Offered as a link, never as a redirect. "The nearest campsite
+      // to one that closed" is a guess, and a 301 would tell Google the
+      // two are the same place. A reader can judge 400 metres for
+      // themselves; a search engine cannot.
+      nearest: r.n_slug
+        ? {
+            path: canonicalPath(
+              r.n_country as string,
+              (r.n_region as string) ?? null,
+              r.n_slug as string,
+            ),
+            name: (r.n_name as string) ?? null,
+            metres: Number(r.n_metres),
+          }
+        : null,
+    }));
+  }
+
   /** Countries we actually hold data for, for /camping. */
   async countries(): Promise<
     { country: string; spots: number; regions: number }[]

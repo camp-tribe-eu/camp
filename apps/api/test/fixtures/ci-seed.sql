@@ -53,3 +53,22 @@ INSERT INTO camping_spots (id, name, country, region, slug, type, amenities, loc
 INSERT INTO camping_spots (id, name, country, region, slug, type, amenities, location, osm_ref, owner_overrides, last_seen_at, missing_since, created_at, context, content_changed_at) VALUES ('5435b024-c722-4b27-a224-f2d6c8d9d4ae', NULL, 'SI', 'Radovljica', 'spot-n13929432764', 'paid'::camping_spots_type_enum, '{"wifi": "unknown", "water": "unknown", "shower": "unknown", "dogFriendly": "unknown", "electricity": "unknown"}'::jsonb, ST_GeomFromText('POINT(14.1729207 46.3493774)', 4326), 'n13929432764', '{}'::jsonb, '2026-09-22 08:01:52.788+02', NULL, '2026-09-22 08:01:52.878338', '{"at": {"lat": 46.3493774, "lon": 14.1729207}, "town": {"m": 656, "name": "Radovljica"}, "water": {"m": 1142, "kind": "river"}, "station": {"m": 952, "name": "Radovljica"}, "terrain": {"type": "rolling", "relief": 54}, "elevation": 498, "supermarket": {"m": 419, "name": "Spar"}}'::jsonb, '2026-09-22 08:01:52.788+02');
 INSERT INTO camping_spots (id, name, country, region, slug, type, amenities, location, osm_ref, owner_overrides, last_seen_at, missing_since, created_at, context, content_changed_at) VALUES ('7cbc4f3b-c735-4466-97b5-cfa7cc092b68', 'Rogaska Slatina Camper Parkplatz', 'SI', 'Rogaška Slatina', 'rogaska-slatina-camper-parkplatz', 'camper_stop'::camping_spots_type_enum, '{"wifi": "unknown", "water": "unknown", "shower": "unknown", "dogFriendly": "unknown", "electricity": "yes"}'::jsonb, ST_GeomFromText('POINT(15.640122602664615 46.22076415)', 4326), 'a2857906482', '{}'::jsonb, '2026-09-22 08:01:52.788+02', NULL, '2026-09-22 08:01:52.878338', '{"at": {"lat": 46.22076415, "lon": 15.640122602664615}, "town": {"m": 1365, "name": "Rogaška Slatina"}, "water": {"m": 4767, "kind": "reservoir"}, "station": {"m": 1241, "name": "Rogaška Slatina"}, "terrain": {"type": "hilly", "relief": 132}, "elevation": 215, "supermarket": {"m": 420, "name": "Spar"}}'::jsonb, '2026-09-22 08:01:52.788+02');
 INSERT INTO camping_spots (id, name, country, region, slug, type, amenities, location, osm_ref, owner_overrides, last_seen_at, missing_since, created_at, context, content_changed_at) VALUES ('fa00dc64-e54b-4794-8493-1eb843e03e97', NULL, 'SI', 'Sevnica', 'spot-a2634912036', 'camper_stop'::camping_spots_type_enum, '{"wifi": "unknown", "water": "unknown", "shower": "unknown", "dogFriendly": "unknown", "electricity": "yes"}'::jsonb, ST_GeomFromText('POINT(15.315162912170472 46.008683500000004)', 4326), 'a2634912036', '{}'::jsonb, '2026-09-22 08:01:52.788+02', NULL, '2026-09-22 08:01:52.878338', '{"at": {"lat": 46.008683500000004, "lon": 15.315162912170472}, "town": {"m": 895, "name": "Sevnica"}, "water": {"m": 400, "kind": "river"}, "station": {"m": 1087, "name": "Sevnica"}, "terrain": {"type": "hilly", "relief": 119}, "elevation": 218, "supermarket": {"m": 775, "name": "Spar"}}'::jsonb, '2026-09-22 08:01:52.788+02');
+
+-- CAMP-73: one campsite that OpenStreetMap has dropped for good.
+--
+-- 🔴 Added as an UPDATE on a row above rather than as another INSERT, so
+-- regenerating the fixture from the dev database cannot silently drop
+-- it. regenerate.sh appends this file every time.
+--
+-- Why the fixture needs it at all: without a gone campsite the whole
+-- 410 path — the generated list, the middleware, the page that names the
+-- campsite — builds, deploys and is never once executed. Every test of
+-- it would pass by never running, which is the failure mode this project
+-- keeps meeting.
+--
+-- 40 days: the import runs weekly and CAMP-87 declares an object gone
+-- only after four consecutive imports without it, so the threshold is 28
+-- days. 40 is comfortably past it and not so far as to look arbitrary.
+UPDATE camping_spots
+   SET missing_since = now() - interval '40 days'
+ WHERE slug = 'prijon-sport-center';

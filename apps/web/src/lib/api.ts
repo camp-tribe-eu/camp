@@ -232,3 +232,48 @@ export const SPOT_TYPE_LABEL: Record<Spot['type'], string> = {
   camper_stop: 'Camper stop',
   rv_park: 'Motorhome park',
 };
+
+// CAMP-73 — the campsites that are gone, and where to send their traffic.
+
+export interface GoneSpot {
+  /** The URL that must now answer 410. */
+  path: string;
+  name: string | null;
+  missingSince: string;
+  nearest: { path: string; name: string | null; metres: number } | null;
+}
+
+// 🔴 No getGone() here on purpose. The gone list is read from the file
+// scripts/gen-gone.mjs writes, because the middleware reads that same
+// file — and when the page fetched its own copy instead, Next's fetch
+// cache handed it a stale one and the two disagreed about which
+// campsites were gone. A second way to obtain the same data is what
+// caused that, so there is now only one.
+
+/**
+ * Every country and region we hold, for the recovery offered on a 404.
+ *
+ * 🔴 Fetched once and embedded in the page rather than queried when
+ * someone lands on a dead URL. A 404 page that needs the API to be up is
+ * a 404 page that is broken exactly when things are going wrong.
+ */
+export interface Place {
+  country: string;
+  name: string;
+  regions: { slug: string; name: string; spots: number }[];
+}
+
+export async function getPlaces(): Promise<Place[]> {
+  const countries = await getCountries();
+  return Promise.all(
+    countries.map(async (c) => ({
+      country: c.country,
+      name: countryName(c.country),
+      regions: (await getRegions(c.country)).map((r) => ({
+        slug: r.slug,
+        name: r.region,
+        spots: r.spots,
+      })),
+    })),
+  );
+}

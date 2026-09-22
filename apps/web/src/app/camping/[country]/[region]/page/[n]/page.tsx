@@ -21,6 +21,14 @@ import RegionListing, { regionMeta } from '@/components/region-listing';
 
 type Params = { country: string; region: string; n: string };
 
+// 🔴 CAMP-73. Without this, a URL that is not in the build is rendered
+// on demand, calls notFound(), and Next answers with its client-side
+// error shell: the 404 content travels inside the RSC payload instead of
+// as markup, so the page is perfect in a browser and blank to anyone
+// without JavaScript — a crawler included. `false` sends unknown params
+// to the prerendered 404, which is real HTML.
+export const dynamicParams = false;
+
 export async function generateStaticParams(): Promise<Params[]> {
   const out: Params[] = [];
   for (const c of await getCountries()) {

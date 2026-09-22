@@ -39,7 +39,23 @@ import {
 
 type Params = { country: string; region: string; slug: string };
 
-export const dynamicParams = true;
+// 🔴 CAMP-73: false, and the reason is what a reader without JavaScript
+// sees.
+//
+// With `true`, a campsite URL that is not in the build is rendered on
+// demand, calls notFound(), and Next answers with its client-side error
+// shell — `<html id="__next_error__">` carrying the 404 content inside
+// the RSC payload rather than as markup. It looks perfect in a browser
+// and is completely blank to anyone without JavaScript, including a
+// crawler that does not run it. That is the exact page where being
+// readable without JavaScript matters most: dead campsite URLs are
+// guaranteed here, because the weekly OSM import rebuilds slugs.
+//
+// With `false`, an unknown campsite falls through to the prerendered
+// 404, which is real HTML. Nothing is lost: we know every campsite at
+// build time, and one that appears between builds is not ours to serve
+// until the next one anyway.
+export const dynamicParams = false;
 
 export async function generateStaticParams(): Promise<Params[]> {
   const index = await getSpotIndex();

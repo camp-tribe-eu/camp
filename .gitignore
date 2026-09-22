@@ -167,3 +167,4 @@ themes-private/
 # CAMP-90: generated per build from NEXT_PUBLIC_SITE_MODE, never committed.
 apps/web/public/_headers
 apps/web/public/maplibre/
+apps/web/src/generated/

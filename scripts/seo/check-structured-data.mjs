@@ -330,7 +330,11 @@ if (allErrors.length) {
 // a thing exists at a URL where nothing does. Their absence is correct,
 // so they are named here rather than being allowed to weaken the rule
 // for everyone.
-const ERROR_PAGES = new Set(['_not-found', '404', '500']);
+// `gone` (CAMP-73) is served as the body of a 410 at the address of a
+// campsite that no longer exists — the same case exactly: describing a
+// Campground there would assert in machine-readable form that a place
+// exists where we are telling the crawler it does not.
+const ERROR_PAGES = new Set(['_not-found', '404', '500', 'gone']);
 const missing = files
   .map((f) => path.relative(ROOT, f).replace(/\.html$/, ''))
   .filter(

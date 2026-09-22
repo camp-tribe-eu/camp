@@ -53,6 +53,16 @@ export class SpotsController {
     return this.spots.notable();
   }
 
+  /**
+   * CAMP-73: campsites whose URL should now answer 410, and the nearest
+   * live one to offer instead. Declared above the `:country` routes for
+   * the same reason as the map ones.
+   */
+  @Get('gone')
+  gone() {
+    return this.spots.gone();
+  }
+
   /** CAMP-71: countries for /camping. */
   @Get('countries')
   countries() {
