@@ -1,0 +1,52 @@
+# Dependabot, tuned before it is switched on.
+#
+# 🔴 This file exists so that "Dependabot version updates" is safe to
+# enable. Without it that setting opens a pull request per outdated
+# package, on a monorepo with two workspaces — which is the fastest way
+# to teach everyone to ignore Dependabot, and an ignored Dependabot is
+# worse than none, because the security ones drown with the rest.
+#
+# Security alerts are a separate setting and are NOT configured here:
+# they need no file and should be on regardless of this.
+
+version: 2
+updates:
+  # The npm workspaces. One entry covers both apps: the root package-lock
+  # is the single lockfile.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    # Enough to be useful, few enough to read in one sitting.
+    open-pull-requests-limit: 5
+    groups:
+      # 🔴 One pull request for everything that cannot break a build, so
+      # the noisy majority arrives as a single reviewable change.
+      routine:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # 🔴 Next is upgraded deliberately, not by a robot.
+      #
+      # Measured on 22.09.2026: 14 → 15 needed a client-component wrapper
+      # for the map and a codemod for async params; 15 → 16 additionally
+      # requires migrating ESLint 8 to 9 with a flat config. A pull
+      # request that changes this number without those changes is a
+      # broken build, every month, for ever.
+      - dependency-name: next
+        update-types: ['version-update:semver-major']
+      - dependency-name: eslint
+        update-types: ['version-update:semver-major']
+
+  # 🔴 The workflows themselves. A pinned action is a dependency like any
+  # other, it runs with write access to this repository, and nothing else
+  # we have would ever tell us it went stale.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ['*']
