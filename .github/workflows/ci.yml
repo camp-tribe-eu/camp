@@ -188,11 +188,23 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # 🔴 PUBLIC, unlike every other job here.
+      #
+      # Lighthouse's SEO category contains a "page is blocked from
+      # indexing" audit, and a closed build fails it on every page: the
+      # score lands at 0.63-0.66 and the assertion fails for a reason
+      # that has nothing to do with the code. Scoring the SEO of a
+      # deliberately-hidden site is meaningless anyway — what we need to
+      # know is the score of what we will actually publish.
+      #
+      # Measured both ways on the same commit: closed 0.63, public 1.00.
       - uses: ./.github/actions/build-site
         with:
-          site-mode: closed
+          site-mode: public
           database-url: ${{ env.CI_DATABASE_URL }}
       # Hard-fails on accessibility/SEO regressions (min score 0.9), warns on
       # performance/best-practices — thresholds in apps/web/lighthouserc.cjs,
       # whose URL list is computed from the built sitemap.
       - run: npm run lighthouse --workspace=apps/web
+        env:
+          NEXT_PUBLIC_SITE_MODE: public
