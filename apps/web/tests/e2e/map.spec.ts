@@ -281,6 +281,15 @@ test.describe('/map', () => {
       })
       .not.toBeNull();
 
+    // 🔴 Scrolled into view before the coordinates are read, not after.
+    //
+    // The click is at absolute viewport pixels, so it only lands on the
+    // map if the map is on screen. CAMP-35 added the filter panel above
+    // it and the marker moved 35 px below the fold — this test failed in
+    // five browsers, which is exactly what it is for, but the fix belongs
+    // in both places: the panel got shorter, and this stopped assuming
+    // the map is the first thing on the page.
+    await map(page).scrollIntoViewIfNeeded();
     const box = (await map(page).boundingBox())!;
 
     const [x, y] = (await map(page).getAttribute('data-point-at'))!
