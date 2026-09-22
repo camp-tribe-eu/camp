@@ -45,13 +45,36 @@
 // stays out loud; it just stops being a decision we take every morning.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
 const BASELINE = path.join(here, 'known-advisories.json');
+
+/**
+ * Read a JSON file, or null if it is not there.
+ *
+ * 🔴 Never `existsSync` then `readFileSync`. CodeQL failed this file on
+ * exactly that pair (js/file-system-race, high) the first time it ran,
+ * as it had failed check-secrets.mjs the day before: between the check
+ * and the use, the path can become something else. One syscall, and a
+ * missing file answered by its own error, has no window to exploit.
+ *
+ * Only ENOENT becomes null. A malformed package.json or baseline still
+ * throws, because "cannot parse" must never read as "not there" — that
+ * is how a guard turns into a no-op.
+ */
+function readJson(file) {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
 
 /**
  * Every workspace npm would install, read from the same `workspaces`
@@ -233,11 +256,7 @@ function selfTest() {
 
   check(
     'the real repository still resolves all three workspaces',
-    discoverWorkspaces(
-      ROOT,
-      (p) => (existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null),
-      (d) => readdirSync(d),
-    ),
+    discoverWorkspaces(ROOT, readJson, (d) => readdirSync(d)),
     ['apps/api', 'apps/cms', 'apps/web'],
   );
 
@@ -252,6 +271,24 @@ function selfTest() {
     threw = true;
   }
   check('a glob it cannot expand fails loudly', threw, true);
+
+  // — reading, without a check-then-use window ——————————————————
+  check(
+    'a file that is not there reads as null, not as an error',
+    readJson(path.join(tmpdir(), `nope-${process.pid}.json`)),
+    null,
+  );
+
+  const broken = path.join(tmpdir(), `broken-${process.pid}.json`);
+  writeFileSync(broken, '{ this is not json');
+  let parseThrew = false;
+  try {
+    readJson(broken);
+  } catch {
+    parseThrew = true;
+  }
+  rmSync(broken, { force: true });
+  check('a file it cannot parse throws, and never reads as absent', parseThrew, true);
 
   // — the baseline decision ————————————————————————————————
   const moderate = { severity: 'moderate', package: 'p', title: 't' };
@@ -313,17 +350,13 @@ function selfTest() {
 
 if (process.argv.includes('--self-test')) selfTest();
 
-const WORKSPACES = discoverWorkspaces(
-  ROOT,
-  (p) => (existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null),
-  (d) => readdirSync(d),
-);
+const WORKSPACES = discoverWorkspaces(ROOT, readJson, (d) => readdirSync(d));
 
 const found = {};
 for (const ws of WORKSPACES) found[ws] = advisoriesFor(ws);
 
 if (process.argv.includes('--update')) {
-  const previous = existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : {};
+  const previous = readJson(BASELINE) ?? {};
   const baseline = {};
   for (const ws of WORKSPACES) {
     baseline[ws] = Object.fromEntries(
@@ -348,7 +381,8 @@ if (process.argv.includes('--update')) {
   process.exit(0);
 }
 
-if (!existsSync(BASELINE)) {
+const baseline = readJson(BASELINE);
+if (!baseline) {
   console.error(
     `No baseline at ${BASELINE}. Run with --update and write a reason for ` +
       'each entry. A check with nothing to compare against is not a check.',
@@ -356,11 +390,7 @@ if (!existsSync(BASELINE)) {
   process.exit(1);
 }
 
-const { problems, notes } = evaluate(
-  found,
-  JSON.parse(readFileSync(BASELINE, 'utf8')),
-  new Date(),
-);
+const { problems, notes } = evaluate(found, baseline, new Date());
 
 for (const ws of WORKSPACES) {
   const counts = {};
