@@ -1,0 +1,180 @@
+{
+  "apps/api": {
+    "GHSA-36xv-jgw5-4q75": {
+      "severity": "moderate",
+      "package": "@nestjs/core",
+      "title": "@nestjs/core Improperly Neutralizes Special Elements in Output Used by a Downstream Compon",
+      "why": "Output neutralisation in Nest itself; no fix available below a major. Our responses are JSON built from typed values, never interpolated strings."
+    },
+    "GHSA-3f6p-5ww8-9rcr": {
+      "severity": "high",
+      "package": "mysql2",
+      "title": "MySQL2: Auth Plugin Downgrade to mysql_clear_password Leaks Plaintext Credentials",
+      "why": "TypeORM installs the MySQL driver as a plain dependency. We use Postgres and never import mysql2 \u2014 no code path reaches it."
+    },
+    "GHSA-3p4h-7m6x-2hcm": {
+      "severity": "moderate",
+      "package": "multer",
+      "title": "Multer vulnerable to Denial of Service via incomplete cleanup of aborted uploads",
+      "why": "Arrives with @nestjs/platform-express. No endpoint parses multipart, so nothing reaches the parser. \u26a0\ufe0f This stops being true the day photo uploads ship (CAMP-86) \u2014 revisit then."
+    },
+    "GHSA-3v7f-55p6-f55p": {
+      "severity": "moderate",
+      "package": "picomatch",
+      "title": "Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching",
+      "why": "Glob matching at build and test time only. Patterns come from our own config, never from a request."
+    },
+    "GHSA-4mjr-xmp4-gh2g": {
+      "severity": "moderate",
+      "package": "qs",
+      "title": "qs: Denial of Service via Attacker Controlled isBuffer",
+      "why": "Express query-string parsing, so it does see request input \u2014 but all three are denial of service, our query parameters are validated on arrival (viewport.ts), and production sits behind Cloudflare."
+    },
+    "GHSA-535w-7cp7-47q4": {
+      "severity": "high",
+      "package": "multer",
+      "title": "multer vulnerable to Denial of Service via oversized array index in field names",
+      "why": "Arrives with @nestjs/platform-express. No endpoint parses multipart, so nothing reaches the parser. \u26a0\ufe0f This stops being true the day photo uploads ship (CAMP-86) \u2014 revisit then."
+    },
+    "GHSA-5528-5vmv-3xc2": {
+      "severity": "high",
+      "package": "multer",
+      "title": "Multer Vulnerable to Denial of Service via Uncontrolled Recursion",
+      "why": "Arrives with @nestjs/platform-express. No endpoint parses multipart, so nothing reaches the parser. \u26a0\ufe0f This stops being true the day photo uploads ship (CAMP-86) \u2014 revisit then."
+    },
+    "GHSA-5v7r-6r5c-r473": {
+      "severity": "moderate",
+      "package": "file-type",
+      "title": "file-type affected by infinite loop in ASF parser on malformed input with zero-size sub-he",
+      "why": "Transitive. We never sniff or parse uploaded files."
+    },
+    "GHSA-72gw-mp4g-v24j": {
+      "severity": "high",
+      "package": "multer",
+      "title": "Multer vulnerable to Denial of Service via deeply nested field names",
+      "why": "Arrives with @nestjs/platform-express. No endpoint parses multipart, so nothing reaches the parser. \u26a0\ufe0f This stops being true the day photo uploads ship (CAMP-86) \u2014 revisit then."
+    },
+    "GHSA-c2c7-rcm5-vvqj": {
+      "severity": "high",
+      "package": "picomatch",
+      "title": "Picomatch has a ReDoS vulnerability via extglob quantifiers",
+      "why": "Glob matching at build and test time only. Patterns come from our own config, never from a request."
+    },
+    "GHSA-f23m-r3pf-42rh": {
+      "severity": "moderate",
+      "package": "lodash",
+      "title": "lodash vulnerable to Prototype Pollution via array path bypass in `_.unset` and `_.omit`",
+      "why": "Transitive. We do not import lodash and never pass request data to it; the advisories need attacker-controlled input to _.template/_.unset."
+    },
+    "GHSA-j47w-4g3g-c36v": {
+      "severity": "moderate",
+      "package": "file-type",
+      "title": "file-type: ZIP Decompression Bomb DoS via [Content_Types].xml entry",
+      "why": "Transitive. We never sniff or parse uploaded files."
+    },
+    "GHSA-q8mj-m7cp-5q26": {
+      "severity": "moderate",
+      "package": "qs",
+      "title": "qs has a remotely triggerable DoS: qs.stringify crashes with TypeError on null/undefined e",
+      "why": "Express query-string parsing, so it does see request input \u2014 but all three are denial of service, our query parameters are validated on arrival (viewport.ts), and production sits behind Cloudflare."
+    },
+    "GHSA-qvfw-j98x-7q72": {
+      "severity": "low",
+      "package": "multer",
+      "title": "multer vulnerable to file size limit bypass via async fileFilter race condition",
+      "why": "Arrives with @nestjs/platform-express. No endpoint parses multipart, so nothing reaches the parser. \u26a0\ufe0f This stops being true the day photo uploads ship (CAMP-86) \u2014 revisit then."
+    },
+    "GHSA-r5fr-rjxr-66jc": {
+      "severity": "high",
+      "package": "lodash",
+      "title": "lodash vulnerable to Code Injection via `_.template` imports key names",
+      "why": "Transitive. We do not import lodash and never pass request data to it; the advisories need attacker-controlled input to _.template/_.unset."
+    },
+    "GHSA-rgwj-5xj2-c3m3": {
+      "severity": "moderate",
+      "package": "mysql2",
+      "title": "MySQL2: Unbounded zlib inflate in compressed MySQL protocol handler allows decompression-b",
+      "why": "TypeORM installs the MySQL driver as a plain dependency. We use Postgres and never import mysql2 \u2014 no code path reaches it."
+    },
+    "GHSA-v422-hmwv-36x6": {
+      "severity": "low",
+      "package": "body-parser",
+      "title": "body-parser vulnerable to denial of service when invalid limit value silently disables siz",
+      "why": "Denial of service when a custom limit is set to an invalid value. We set no limit."
+    },
+    "GHSA-v52c-386h-88mc": {
+      "severity": "high",
+      "package": "multer",
+      "title": "Multer vulnerable to Denial of Service via resource exhaustion",
+      "why": "Arrives with @nestjs/platform-express. No endpoint parses multipart, so nothing reaches the parser. \u26a0\ufe0f This stops being true the day photo uploads ship (CAMP-86) \u2014 revisit then."
+    },
+    "GHSA-wc9g-mqfw-jrwm": {
+      "severity": "high",
+      "package": "multer",
+      "title": "multer vulnerable to Denial of Service via crafted multipart field names",
+      "why": "Arrives with @nestjs/platform-express. No endpoint parses multipart, so nothing reaches the parser. \u26a0\ufe0f This stops being true the day photo uploads ship (CAMP-86) \u2014 revisit then."
+    },
+    "GHSA-x5fp-wj9c-mxmx": {
+      "severity": "moderate",
+      "package": "qs",
+      "title": "qs array-limit bypass via bracket-key comma parsing",
+      "why": "Express query-string parsing, so it does see request input \u2014 but all three are denial of service, our query parameters are validated on arrival (viewport.ts), and production sits behind Cloudflare."
+    },
+    "GHSA-xf7r-hgr6-v32p": {
+      "severity": "high",
+      "package": "multer",
+      "title": "Multer vulnerable to Denial of Service via incomplete cleanup",
+      "why": "Arrives with @nestjs/platform-express. No endpoint parses multipart, so nothing reaches the parser. \u26a0\ufe0f This stops being true the day photo uploads ship (CAMP-86) \u2014 revisit then."
+    },
+    "GHSA-xxjr-mmjv-4gpg": {
+      "severity": "moderate",
+      "package": "lodash",
+      "title": "Lodash has Prototype Pollution Vulnerability in `_.unset` and `_.omit` functions",
+      "why": "Transitive. We do not import lodash and never pass request data to it; the advisories need attacker-controlled input to _.template/_.unset."
+    }
+  },
+  "apps/web": {
+    "GHSA-3v7f-55p6-f55p": {
+      "severity": "moderate",
+      "package": "picomatch",
+      "title": "Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching",
+      "why": "Glob matching at build and test time only. Patterns come from our own config, never from a request."
+    },
+    "GHSA-6g55-p6wh-862q": {
+      "severity": "high",
+      "package": "postcss",
+      "title": "PostCSS: Arbitrary file read and information disclosure via attacker-controlled sourceMapp",
+      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first."
+    },
+    "GHSA-c2c7-rcm5-vvqj": {
+      "severity": "high",
+      "package": "picomatch",
+      "title": "Picomatch has a ReDoS vulnerability via extglob quantifiers",
+      "why": "Glob matching at build and test time only. Patterns come from our own config, never from a request."
+    },
+    "GHSA-fxqj-rqcc-2cmp": {
+      "severity": "moderate",
+      "package": "postcss",
+      "title": "PostCSS: incomplete fix of GHSA-6g55-p6wh-862q \u2014 attacker-controlled sourceMappingURL read",
+      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first."
+    },
+    "GHSA-qx2v-qp2m-jg93": {
+      "severity": "moderate",
+      "package": "postcss",
+      "title": "PostCSS has XSS via Unescaped </style> in its CSS Stringify Output",
+      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first."
+    },
+    "GHSA-r28c-9q8g-f849": {
+      "severity": "high",
+      "package": "postcss",
+      "title": "PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Ar",
+      "why": "Build-time CSS processing of our own stylesheets. The advisories need an attacker-controlled sourceMappingURL in CSS we would have to author ourselves. Cleared by Next 16, which needs an ESLint 9 migration first."
+    },
+    "GHSA-rgj7-g3m4-5g8c": {
+      "severity": "high",
+      "package": "sharp",
+      "title": "sharp: Vulnerabilities in libheif: GHSA-g89c-p67h-r497 and GHSA-2jg2-4ch7-h545",
+      "why": "Only used by Next image optimisation. We use no next/image and ship no images, and images.unoptimized is set \u2014 the libheif/AVIF path is unreachable. Cleared by Next 16."
+    }
+  }
+}

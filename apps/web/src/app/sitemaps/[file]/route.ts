@@ -20,10 +20,8 @@ export async function generateStaticParams() {
   return (await sitemapChildren()).map((name) => ({ file: `${name}.xml` }));
 }
 
-export async function GET(
-  _request: Request,
-  { params }: { params: { file: string } },
-) {
+export async function GET(_request: Request, props: { params: Promise<{ file: string }> }) {
+  const params = await props.params;
   const name = params.file.replace(/\.xml$/, '');
 
   if (name === 'hubs') {

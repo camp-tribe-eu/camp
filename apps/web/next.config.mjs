@@ -1,3 +1,5 @@
+import { SECURITY_HEADERS } from './scripts/security-headers.mjs';
+
 /** @type {import('next').NextConfig} */
 
 // CAMP-90: `X-Robots-Tag` at the transport level, not only in a meta tag.
@@ -17,16 +19,36 @@
 const isPublic = process.env.NEXT_PUBLIC_SITE_MODE === 'public';
 
 const nextConfig = {
+  // 🔴 Do not announce the framework. It tells an attacker which
+  // advisory list to read and tells a reader nothing.
+  poweredByHeader: false,
+
+  images: {
+    // 🔴 Off, because we do not use it and it is the one endpoint in a
+    // Next server that decodes attacker-supplied binary.
+    //
+    // /_next/image exists whether or not the app renders <Image>: it
+    // answered requests here before this line, and it is the route
+    // behind the AVIF/libheif remote-code-execution advisory
+    // (GHSA-2xp9-vwfh-vxw4). We ship no images, so switching it off
+    // costs nothing and removes the surface rather than relying on
+    // "nobody points it at an image".
+    unoptimized: true,
+  },
+
   async headers() {
-    if (isPublic) return [];
-    return [
-      {
-        source: '/:path*',
-        headers: [
-          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
-        ],
-      },
-    ];
+    const headers = Object.entries(SECURITY_HEADERS).map(([key, value]) => ({
+      key,
+      value,
+    }));
+    if (!isPublic) {
+      headers.push({ key: 'X-Robots-Tag', value: 'noindex, nofollow' });
+    }
+    // 🔴 The security headers are NOT conditional on the build mode.
+    // They were, in effect, before this: the only `headers()` entry was
+    // the robots one, so a public build sent no security headers at all
+    // from `next start` — the mode that will one day be production.
+    return [{ source: '/:path*', headers }];
   },
 };
 
