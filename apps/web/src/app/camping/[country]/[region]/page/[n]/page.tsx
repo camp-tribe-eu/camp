@@ -8,6 +8,7 @@ import {
   REGION_PER_PAGE,
 } from '@/lib/api';
 import RegionListing, { regionMeta } from '@/components/region-listing';
+import { alternatesFor } from '@/lib/i18n';
 
 // CAMP-71: pages 2..n of a region.
 //
@@ -55,9 +56,9 @@ export async function generateMetadata(
   return {
     title: `Campsites in ${meta.region}, ${cName} — page ${params.n}`,
     description: `Page ${params.n} of campsites and motorhome parks in ${meta.region}, ${cName}.`,
-    alternates: {
-      canonical: `/camping/${params.country}/${params.region}/page/${params.n}`,
-    },
+    alternates: alternatesFor(
+      `/camping/${params.country}/${params.region}/page/${params.n}`,
+    ),
     // Page 2 of a list is not a landing page. It is followed so the
     // campsites on it are found, but it should never rank instead of the
     // region itself — and below the threshold neither should page 1.

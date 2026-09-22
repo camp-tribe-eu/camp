@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { isPublic } from "@/lib/environment";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
+import { DEFAULT_LOCALE } from "@/lib/i18n";
 
 // Canonical domain from Facts/project-identity.md in the Camping brain.
 // Overridable via env so staging/preview deploys don't claim the production URL.
@@ -43,8 +44,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // 🔴 CAMP-40: the language comes from the registry, not from a string
+  // written here. This attribute and the `hreflang` on every page have to
+  // agree about what language the document is in, and two hand-written
+  // copies of that fact are two chances to disagree — silently, because
+  // nothing validates it.
   return (
-    <html lang="en">
+    <html lang={DEFAULT_LOCALE}>
       <head>
         {/* CAMP-88: only the `latin` cuts are preloaded — every visitor needs
             them, so waiting for the CSS to be parsed first costs visible text

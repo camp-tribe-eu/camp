@@ -21,6 +21,7 @@ import {
   getSpotIndex,
   type SpotIndexEntry,
 } from './api';
+import { absoluteAlternates, liveLocales } from './i18n';
 
 export const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://camptribe.eu';
 
@@ -48,6 +49,51 @@ const escapeXml = (s: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 
+/**
+ * CAMP-40: the alternates that belong beside each URL.
+ *
+ * 🔴 The sitemap carries them as well as the pages, and that is not
+ * belt-and-braces. Google's own documentation gives three ways to declare
+ * alternates — HTML head, HTTP header, sitemap — and says a page must be
+ * reachable by at least one; in practice the sitemap is the one that gets
+ * read first for a site of a thousand pages, because it means the
+ * relationship is known before a single page is fetched.
+ *
+ * Emitted only when there is more than one live language. With one, every
+ * `<xhtml:link>` would point at the `<loc>` it sits next to — 1256 lines
+ * of XML saying nothing, in a file whose size is itself a crawl cost.
+ */
+/**
+ * The path part of a URL, by parsing it rather than by string surgery.
+ *
+ * 🔴 This was `loc.startsWith(SITE) ? loc.slice(SITE.length) : loc`, and
+ * CodeQL failed it on js/incomplete-url-substring-sanitization (high) —
+ * correctly. `https://camptribe.eu.example.com/x` also "starts with"
+ * `https://camptribe.eu`, and would have been sliced into a path of
+ * `.example.com/x`. Nothing attacker-controlled reaches this function
+ * today, but SITE comes from an environment variable and the check was
+ * simply the wrong shape: a host is a structure, not a prefix.
+ */
+function pathOf(loc: string): string {
+  try {
+    const url = new URL(loc, SITE);
+    return `${url.pathname}${url.search}`;
+  } catch {
+    // Not a URL at all — treat it as the path it appears to be.
+    return loc.startsWith('/') ? loc : `/${loc}`;
+  }
+}
+
+function alternateLinks(loc: string): string[] {
+  const live = liveLocales();
+  if (live.length < 2) return [];
+
+  return absoluteAlternates(pathOf(loc), SITE).map(
+    (a) =>
+      `    <xhtml:link rel="alternate" hreflang="${escapeXml(a.hreflang)}" href="${escapeXml(a.href)}"/>`,
+  );
+}
+
 export function urlsetXml(urls: SitemapUrl[]): string {
   const body = urls
     .map((u) => {
@@ -55,11 +101,16 @@ export function urlsetXml(urls: SitemapUrl[]): string {
       if (u.lastmod) parts.push(`    <lastmod>${u.lastmod}</lastmod>`);
       if (u.changefreq) parts.push(`    <changefreq>${u.changefreq}</changefreq>`);
       if (u.priority) parts.push(`    <priority>${u.priority}</priority>`);
+      parts.push(...alternateLinks(u.loc));
       return `  <url>\n${parts.join('\n')}\n  </url>`;
     })
     .join('\n');
+  // 🔴 The xhtml namespace is declared whether or not it is used. A
+  // sitemap whose namespace list changes the day a language goes live is
+  // a sitemap that has to be re-validated then; declaring it once costs
+  // 44 bytes and removes that step.
   return `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
 ${body}
 </urlset>
 `;

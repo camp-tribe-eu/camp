@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { countryName, getCountries, getRegions } from '@/lib/api';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
+import { alternatesFor } from '@/lib/i18n';
 
 // CAMP-71, level 1: the country hub.
 //
@@ -39,7 +40,7 @@ export async function generateMetadata(
   return {
     title: `Campsites in ${name}`,
     description: `${spots} campsites and motorhome parks across ${regions.length} regions of ${name}. Facilities, locations and nearby sites.`,
-    alternates: { canonical: `/camping/${params.country}` },
+    alternates: alternatesFor(`/camping/${params.country}`),
   };
 }
 

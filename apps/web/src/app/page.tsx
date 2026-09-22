@@ -10,6 +10,7 @@ import {
   WATER_LABEL,
 } from '@/lib/api';
 import { abs, jsonLdProps } from '@/lib/jsonld';
+import { alternatesFor } from '@/lib/i18n';
 
 // CAMP-41 — the home page.
 //
@@ -37,7 +38,7 @@ import { abs, jsonLdProps } from '@/lib/jsonld';
 // own backlog.
 
 export const metadata: Metadata = {
-  alternates: { canonical: '/' },
+  alternates: alternatesFor('/'),
 };
 
 export default async function Home() {
