@@ -63,12 +63,32 @@ const escapeXml = (s: string) =>
  * `<xhtml:link>` would point at the `<loc>` it sits next to — 1256 lines
  * of XML saying nothing, in a file whose size is itself a crawl cost.
  */
+/**
+ * The path part of a URL, by parsing it rather than by string surgery.
+ *
+ * 🔴 This was `loc.startsWith(SITE) ? loc.slice(SITE.length) : loc`, and
+ * CodeQL failed it on js/incomplete-url-substring-sanitization (high) —
+ * correctly. `https://camptribe.eu.example.com/x` also "starts with"
+ * `https://camptribe.eu`, and would have been sliced into a path of
+ * `.example.com/x`. Nothing attacker-controlled reaches this function
+ * today, but SITE comes from an environment variable and the check was
+ * simply the wrong shape: a host is a structure, not a prefix.
+ */
+function pathOf(loc: string): string {
+  try {
+    const url = new URL(loc, SITE);
+    return `${url.pathname}${url.search}`;
+  } catch {
+    // Not a URL at all — treat it as the path it appears to be.
+    return loc.startsWith('/') ? loc : `/${loc}`;
+  }
+}
+
 function alternateLinks(loc: string): string[] {
   const live = liveLocales();
   if (live.length < 2) return [];
 
-  const path = loc.startsWith(SITE) ? loc.slice(SITE.length) : loc;
-  return absoluteAlternates(path, SITE).map(
+  return absoluteAlternates(pathOf(loc), SITE).map(
     (a) =>
       `    <xhtml:link rel="alternate" hreflang="${escapeXml(a.hreflang)}" href="${escapeXml(a.href)}"/>`,
   );

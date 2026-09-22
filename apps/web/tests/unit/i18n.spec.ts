@@ -168,4 +168,20 @@ test.describe('adding a language changes data, not structure', () => {
       expect(xml).toContain('href="https://camptribe.eu/nl/camping/hr"');
     });
   });
+
+  // 🔴 The host is read as a structure, not matched as a prefix. CodeQL
+  // failed the first version of this on js/incomplete-url-substring-
+  // sanitization: a look-alike host passes `startsWith` and would have
+  // been sliced into a nonsense path.
+  test('a look-alike host is not mistaken for ours', () => {
+    withLocaleLive('nl', () => {
+      const xml = urlsetXml([
+        { loc: 'https://camptribe.eu.example.com/camping/hr' },
+      ]);
+      // The path is taken from the parsed URL, so the alternate is built
+      // on /camping/hr under OUR site — never on `.example.com/...`.
+      expect(xml).toContain('href="https://camptribe.eu/nl/camping/hr"');
+      expect(xml).not.toContain('example.com/camping/hr"');
+    });
+  });
 });
