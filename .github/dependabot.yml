@@ -19,6 +19,36 @@ updates:
       interval: monthly
     # Enough to be useful, few enough to read in one sitting.
     open-pull-requests-limit: 5
+    # 🔴 Let a release be used by other people before it is used by us.
+    #
+    # The owner's position, and it is the right one: a version that came
+    # out this morning has been run by almost nobody. Waiting a week or
+    # two costs nothing and lets somebody else find the regression. We
+    # are not chasing features here — we upgrade when we need something
+    # or when a bug is fixed, not because a number changed.
+    #
+    # 🔴 Security updates are NOT delayed by this. Verified in GitHub's
+    # own reference: "The cooldown option is only available for version
+    # updates, not security updates." There was a real bug where security
+    # updates did sit in the cooldown (dependabot-core#13979); it was
+    # fixed and deployed in February 2026 and confirmed on a live run by
+    # a third party. So the fix we would actually need in a hurry still
+    # arrives the day it exists.
+    #
+    # 🔴 One thing to know rather than discover: cooldown for TRANSITIVE
+    # dependencies has been shaky (dependabot-core#14683). The issue was
+    # closed, then reopened in substance — the last comment, 17.08.2026,
+    # says the fix landed in PR #15485 and "let's see if that PR fixes the
+    # actual problem". Nearly everything in our advisory baseline is
+    # transitive, so if a too-fresh transitive version ever shows up in a
+    # PR here, that is the known gap and not a mystery.
+    #
+    # GitHub applies a 3-day cooldown to everything by default since
+    # 14.07.2026; these numbers replace it, they do not add to it.
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
+      semver-patch-days: 7
     groups:
       # 🔴 One pull request for everything that cannot break a build, so
       # the noisy majority arrives as a single reviewable change.
@@ -55,6 +85,12 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 3
+    # 🔴 Only default-days here. The semver-* keys are supported for the
+    # language ecosystems (npm among them) and github-actions is not on
+    # that list, so writing semver-major-days here would be a line that
+    # looks like a policy and enforces nothing.
+    cooldown:
+      default-days: 14
     groups:
       actions:
         patterns: ['*']
