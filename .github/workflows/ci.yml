@@ -215,6 +215,33 @@ jobs:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
         run: npx ts-node src/spots/explain-map-queries.ts
 
+      # CAMP-35 names its own acceptance: "комбінація фільтрів дає той
+      # самий набір, що й прямий SQL-запит". This is that check, and it
+      # needs real rows — unlike the query-plan guard above, which builds
+      # its own synthetic table.
+      - name: Seed the fixture for the filter check
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d camptribe_test -v ON_ERROR_STOP=1 \
+            -f apps/api/test/fixtures/ci-seed.sql
+          echo "campsites: $(psql -h localhost -U postgres -d camptribe_test -t -A \
+            -c 'SELECT count(*) FROM camping_spots')"
+
+      # Two steps again: first prove the comparison can fail, then believe
+      # the run that says the generator and hand-written SQL agree.
+      - name: Filter check still catches a mismatch
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: npx ts-node src/spots/verify-filters.ts --self-test
+
+      - name: Every filter combination matches a direct SQL query
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: npx ts-node src/spots/verify-filters.ts
+
   e2e:
     runs-on: ubuntu-latest
     services:

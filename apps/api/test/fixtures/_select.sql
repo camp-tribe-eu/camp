@@ -76,6 +76,18 @@ filterable AS (
     WHERE missing_since IS NULL AND region IS NOT NULL
       AND amenities->>'wheelchairFull' = 'yes' ORDER BY slug LIMIT 1)
   UNION ALL
+  -- 🔴 A type and an amenity on the SAME campsite. The fixture already
+  -- held rv_parks and it already held grey-water sites, and the filter
+  -- check still failed: no single row was both, so
+  -- `type=rv_park AND greyWater=yes` returned nothing from either side
+  -- and the comparison proved only that zero equals zero. The guard
+  -- caught it because an empty case is a failure there — which is
+  -- exactly why that rule is in it.
+  (SELECT * FROM camping_spots
+    WHERE missing_since IS NULL AND region IS NOT NULL
+      AND type = 'rv_park' AND amenities->>'greyWater' = 'yes'
+    ORDER BY slug LIMIT 1)
+  UNION ALL
   -- Two types other than `paid`, so the type filter has something to
   -- include and something to exclude. 89% of the dataset is `paid`; a
   -- fixture that happened to hold only those would make every type
