@@ -325,3 +325,139 @@ describe('toilets: which tag wins when they disagree', () => {
     ).toBe('toilets:wheelchair');
   });
 });
+
+// ---------------------------------------------------------------------------
+// CAMP-25 — accessibility as its own answer
+// ---------------------------------------------------------------------------
+
+describe('CAMP-25: wheelchair access, where "limited" is not "yes"', () => {
+  // 🔴 The case the whole two-key design exists for. Measured in the
+  // Croatian and Slovenian extract: 47 of the 144 positively-tagged sites
+  // say `limited`. Folding them into a single "accessible" answer would
+  // send a third of the results to somebody who cannot use them.
+  it('reads limited as accessible-with-restrictions, and NOT as step-free', () => {
+    expect(resolveAmenity('wheelchair', { wheelchair: 'limited' }).value).toBe(
+      AmenityValue.YES,
+    );
+    expect(
+      resolveAmenity('wheelchairFull', { wheelchair: 'limited' }).value,
+    ).toBe(AmenityValue.NO);
+  });
+
+  it('reads designated as the strongest yes in both', () => {
+    for (const key of ['wheelchair', 'wheelchairFull'] as const) {
+      expect(resolveAmenity(key, { wheelchair: 'designated' }).value).toBe(
+        AmenityValue.YES,
+      );
+    }
+  });
+
+  it('reads an explicit no as no in both', () => {
+    for (const key of ['wheelchair', 'wheelchairFull'] as const) {
+      expect(resolveAmenity(key, { wheelchair: 'no' }).value).toBe(
+        AmenityValue.NO,
+      );
+    }
+  });
+
+  it('stays unknown when nobody tagged it', () => {
+    for (const key of ['wheelchair', 'wheelchairFull'] as const) {
+      expect(resolveAmenity(key, { tourism: 'camp_site' }).value).toBe(
+        AmenityValue.UNKNOWN,
+      );
+    }
+  });
+
+  // 🔴 An accessible toilet says the toilet block is reachable. It does
+  // not say the pitch, the path or the gate are — and guessing that they
+  // are is how somebody ends up unable to get out of their van.
+  it('never infers site access from an accessible toilet', () => {
+    expect(
+      resolveAmenity('wheelchair', { 'toilets:wheelchair': 'yes' }).value,
+    ).toBe(AmenityValue.UNKNOWN);
+    // …while that same tag still proves there IS a toilet.
+    expect(
+      resolveAmenity('toilets', { 'toilets:wheelchair': 'yes' }).value,
+    ).toBe(AmenityValue.YES);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CAMP-35 — the two amenities the card named that we did not have
+// ---------------------------------------------------------------------------
+
+describe('CAMP-35: grey-water disposal', () => {
+  it('counts customers-only as a yes, like every other amenity', () => {
+    expect(
+      resolveAmenity('greyWater', { sanitary_dump_station: 'customers' }).value,
+    ).toBe(AmenityValue.YES);
+  });
+
+  it('carries the explicit no — 52 sites in our extract say exactly that', () => {
+    expect(
+      resolveAmenity('greyWater', { sanitary_dump_station: 'no' }).value,
+    ).toBe(AmenityValue.NO);
+  });
+
+  // 🔴 Regression guard for a distinction the toilets rules call out in
+  // prose: a dump station is somewhere to empty a tank, not somewhere to
+  // go. Merging them would answer the wrong question for both filters.
+  it('is not toilets, and toilets are not it', () => {
+    expect(
+      resolveAmenity('toilets', { sanitary_dump_station: 'yes' }).value,
+    ).toBe(AmenityValue.UNKNOWN);
+    expect(resolveAmenity('greyWater', { toilets: 'yes' }).value).toBe(
+      AmenityValue.UNKNOWN,
+    );
+  });
+});
+
+describe('CAMP-35: laundry, on tags people actually use', () => {
+  it('accepts washing_machine, because `laundry` appears on zero sites here', () => {
+    expect(
+      resolveAmenity('laundry', { washing_machine: 'yes' }).value,
+    ).toBe(AmenityValue.YES);
+  });
+
+  // A laundry room with no dryer is still a laundry room, so the absence
+  // of a dryer must not read as the absence of laundry.
+  it('reads dryer=no as no laundry evidence, not as a laundry', () => {
+    expect(resolveAmenity('laundry', { dryer: 'no' }).value).toBe(
+      AmenityValue.NO,
+    );
+    expect(resolveAmenity('laundry', { dryer: 'yes' }).value).toBe(
+      AmenityValue.YES,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The rule-priority change CAMP-25 needed, and what it must not break
+// ---------------------------------------------------------------------------
+
+describe('rule.no outranks the global truthy set, and nothing else moved', () => {
+  it('lets a rule overrule a globally-truthy word for its own question', () => {
+    // `limited` is truthy everywhere else on purpose.
+    expect(resolveAmenity('shower', { shower: 'limited' }).value).toBe(
+      AmenityValue.YES,
+    );
+    expect(
+      resolveAmenity('wheelchairFull', { wheelchair: 'limited' }).value,
+    ).toBe(AmenityValue.NO);
+  });
+
+  it('keeps the wifi rules exactly as they were', () => {
+    expect(
+      resolveAmenity('wifi', { internet_access: 'terminal' }).value,
+    ).toBe(AmenityValue.NO);
+    expect(
+      resolveAmenity('wifi', { internet_access: 'wlan;terminal' }).value,
+    ).toBe(AmenityValue.YES);
+  });
+
+  it('keeps toilets:disposal=none a no', () => {
+    expect(
+      resolveAmenity('toilets', { 'toilets:disposal': 'none' }).value,
+    ).toBe(AmenityValue.NO);
+  });
+});

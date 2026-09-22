@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { SpotsService } from './spots.service';
-import { MapQueryService, parseBbox } from './map.service';
+import { MapQueryService, parseBbox, parseFilters } from './map.service';
 
 @Controller('spots')
 export class SpotsController {
@@ -19,15 +19,22 @@ export class SpotsController {
    * window is small enough that the answer is drawable; `truncated` says
    * when it guessed wrong and should go back to clusters.
    */
+  /**
+   * CAMP-35 / CAMP-25: `types`, `amenities` and `unknown` narrow both map
+   * routes. They are read with `@Query()` as a whole object and handed to
+   * `parseFilters`, which keeps only values this codebase defines — so an
+   * old bookmark naming an amenity we have renamed still draws the map
+   * instead of erroring, and nothing a caller invents reaches the SQL.
+   */
   @Get('map/points')
-  points(@Query('bbox') bbox?: string) {
-    return this.map.points(parseBbox(bbox));
+  points(@Query() query: Record<string, string>) {
+    return this.map.points(parseBbox(query.bbox), parseFilters(query));
   }
 
   /** Counts per grid cell, for a viewport too wide to draw point by point. */
   @Get('map/clusters')
-  clusters(@Query('bbox') bbox?: string) {
-    return this.map.clusters(parseBbox(bbox));
+  clusters(@Query() query: Record<string, string>) {
+    return this.map.clusters(parseBbox(query.bbox), parseFilters(query));
   }
 
   /**

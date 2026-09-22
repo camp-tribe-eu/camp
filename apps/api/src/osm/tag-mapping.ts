@@ -25,7 +25,16 @@ export enum AmenityValue {
 }
 
 export type AmenityKey =
-  'electricity' | 'water' | 'shower' | 'toilets' | 'dogFriendly' | 'wifi';
+  | 'electricity'
+  | 'water'
+  | 'shower'
+  | 'toilets'
+  | 'dogFriendly'
+  | 'wifi'
+  | 'greyWater'
+  | 'laundry'
+  | 'wheelchair'
+  | 'wheelchairFull';
 
 export type OsmTags = Record<string, string | undefined | null>;
 
@@ -51,6 +60,24 @@ interface ValueRule {
    */
   namedVariantMeansYes?: boolean;
 }
+
+/**
+ * 🔴 Priority between the two lists and the global sets, decided by
+ * CAMP-25 and worth stating because it is not obvious.
+ *
+ *   rule.yes  >  rule.no  >  TRUTHY  >  namedVariantMeansYes  >  FALSY
+ *
+ * `rule.no` has to outrank TRUTHY because one word can mean opposite
+ * things in different questions. `limited` is globally truthy — a shower
+ * with restrictions is still a shower — but `wheelchair=limited` is
+ * precisely NOT full step-free access, and telling a wheelchair user it
+ * is would send them on a wasted journey. Measured in the Croatian and
+ * Slovenian extract: 47 of the 144 positively-tagged sites say `limited`,
+ * so this is a third of the answer, not an edge case.
+ *
+ * Existing rules are unaffected: `toilets:disposal` lists `none` (already
+ * falsy) and `internet_access` lists `terminal`/`wired` (in neither set).
+ */
 
 /**
  * A rule where the key/value pair itself is the statement, e.g.
@@ -220,6 +247,67 @@ export const AMENITY_RULES: Record<AmenityKey, AmenityRule[]> = {
     { kind: 'value', key: 'wifi', yes: ['free'] },
     { kind: 'value', key: 'internet_access:ssid' },
   ],
+
+  // CAMP-35 "злив сірої води". The best-covered of the new amenities and
+  // the reason this one was worth adding first: measured on the Croatian
+  // and Slovenian extract, `sanitary_dump_station` is set on 341 of 1739
+  // sites (19.6%) — better coverage than wifi's `internet_access`, and
+  // 52 of those are an explicit `no`, which is a real negative answer
+  // rather than silence.
+  //
+  // 🔴 This is deliberately NOT part of `toilets` — see the note there.
+  // A chemical-toilet disposal point is somewhere to empty a tank, not
+  // somewhere to go, and to the camper filtering for one they are
+  // different questions.
+  greyWater: [
+    { kind: 'value', key: 'sanitary_dump_station' },
+    { kind: 'presence', key: 'amenity', value: 'sanitary_dump_station' },
+    { kind: 'value', key: 'sanitary_dump_station:fee' },
+  ],
+
+  // CAMP-35 "пральня". The honest position on coverage: the documented
+  // `laundry` key does not appear on a single campsite in our two
+  // countries (measured: 0 of 1739). What people actually tag is
+  // `washing_machine`, on 68 sites (3.9%), and `dryer` on 7.
+  //
+  // So this filter is thin, and the three-state model is what makes it
+  // safe to ship anyway: 96% of sites answer "unknown" rather than
+  // pretending to answer "no". The rules keep `laundry` first because it
+  // is the correct tag and coverage elsewhere in Europe may differ.
+  //
+  // `dryer` is a value rule, not a presence rule: `dryer=no` plausibly
+  // describes a laundry room without one, so its absence of a dryer is
+  // not evidence either way — unlike `toilets:wheelchair`, where any
+  // value at all proves a toilet exists.
+  laundry: [
+    { kind: 'value', key: 'laundry' },
+    { kind: 'presence', key: 'amenity', value: 'laundry' },
+    { kind: 'value', key: 'washing_machine' },
+    { kind: 'value', key: 'dryer' },
+  ],
+
+  // CAMP-25. Kept as its own category rather than folded in with the
+  // amenities above, which is what the card asks for and also what the
+  // data deserves: `wheelchair` is set on 166 of 1739 sites here (9.5%),
+  // and 4.0 million times across OSM.
+  //
+  // 🔴 Only the site-level `wheelchair` tag. `toilets:wheelchair` says the
+  // toilet block is accessible, which is a statement about the toilet —
+  // inferring from it that the *site* is reachable by wheelchair is
+  // exactly the kind of guess that ends with somebody unable to get out
+  // of their van. It stays where it belongs: as evidence of toilets.
+  //
+  // Two keys, because one would have to lie. Measured values here:
+  // yes 91, limited 47, no 22, designated 6.
+  wheelchair: [{ kind: 'value', key: 'wheelchair' }],
+
+  // Full step-free access, with `limited` counted as a no. The distinction
+  // is the whole point of CAMP-25: "accessible with restrictions" is
+  // useful to many people and useless to a wheelchair user who needs the
+  // real thing, and 47 of our 144 positives are exactly that case.
+  wheelchairFull: [
+    { kind: 'value', key: 'wheelchair', yes: ['designated'], no: ['limited'] },
+  ],
 };
 
 export interface AmenityResolution {
@@ -249,6 +337,16 @@ function readValueRule(
   for (const value of parts) {
     if (rule.yes?.includes(value))
       return { value: AmenityValue.YES, matchedBy };
+  }
+
+  // Then this rule's own negatives, BEFORE the global truthy set — see the
+  // priority note above `ValueRule`. This is the only place a rule can say
+  // "for this question, that word means no".
+  for (const value of parts) {
+    if (rule.no?.includes(value)) return { value: AmenityValue.NO, matchedBy };
+  }
+
+  for (const value of parts) {
     if (TRUTHY.has(value)) return { value: AmenityValue.YES, matchedBy };
     if (
       rule.namedVariantMeansYes &&
@@ -313,7 +411,20 @@ export const AMENITY_KEYS: AmenityKey[] = [
   'toilets',
   'dogFriendly',
   'wifi',
+  'greyWater',
+  'laundry',
+  'wheelchair',
+  'wheelchairFull',
 ];
+
+/**
+ * Accessibility is its own group, not an amenity among amenities —
+ * CAMP-25 asks for that explicitly, and the reason is not cosmetic: a
+ * camper scanning for a shower and a camper who cannot climb a step are
+ * not doing the same thing, and burying the second inside a list of nine
+ * tick-boxes is how it gets missed.
+ */
+export const ACCESSIBILITY_KEYS: AmenityKey[] = ['wheelchair', 'wheelchairFull'];
 
 /** Resolves the full amenity set for one OSM feature. */
 export function mapAmenities(tags: OsmTags): CampingSpotAmenities {

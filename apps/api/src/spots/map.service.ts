@@ -3,9 +3,11 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { CampingSpotAmenities } from '../osm/tag-mapping';
 import { canonicalPath, readAmenities } from './spots.service';
+import { filterSql, NO_FILTERS, type MapFilters } from './filters';
 import { gridFor, POINT_LIMIT, type Bbox } from './viewport';
 
 export * from './viewport';
+export * from './filters';
 
 /** One campsite as a marker needs it — no geometry beyond the point. */
 export interface SpotMarker {
@@ -31,6 +33,19 @@ export interface MarkerResult {
   markers: SpotMarker[];
   /** True when the cap cut the answer short — the client must not draw it. */
   truncated: boolean;
+  /**
+   * CAMP-35. How many campsites in this viewport were left out *only*
+   * because nobody has recorded the amenity being filtered on — not
+   * because they lack it.
+   *
+   * 🔴 This number is the card's honesty requirement made operational.
+   * Measured on our data, filtering for a shower returns 315 sites and
+   * this says 874: without it the map would quietly claim three quarters
+   * of Croatia has no shower, which is not something we know.
+   *
+   * Zero when no amenity is filtered, because then nothing is hidden.
+   */
+  unknownExcluded: number;
 }
 
 export interface Cluster {
@@ -77,27 +92,70 @@ export class MapQueryService {
    * for. ST_Intersects adds an exact-geometry recheck that means nothing
    * for a point and hides what the plan is really doing.
    */
-  async points(bbox: Bbox, limit = POINT_LIMIT): Promise<MarkerResult> {
+  async points(
+    bbox: Bbox,
+    filters: MapFilters = NO_FILTERS,
+    limit = POINT_LIMIT,
+  ): Promise<MarkerResult> {
+    const box = [bbox.minLon, bbox.minLat, bbox.maxLon, bbox.maxLat];
+    const f = filterSql(filters, box.length);
+
     const rows = await this.db.query(
       `SELECT slug, name, country, region, type, amenities,
               ST_Y(location::geometry) AS lat,
               ST_X(location::geometry) AS lon
          FROM camping_spots
         WHERE missing_since IS NULL
-          AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+          AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)${f.where}
         -- 🔴 Deterministic, because the cap below may cut the list and
         -- an unordered LIMIT would return a different subset each run.
         -- Same lesson as the dedup in CAMP-39.
         ORDER BY slug
-        LIMIT $5`,
-      [bbox.minLon, bbox.minLat, bbox.maxLon, bbox.maxLat, limit + 1],
+        LIMIT $${box.length + f.params.length + 1}`,
+      [...box, ...f.params, limit + 1],
     );
 
     const truncated = rows.length > limit;
     return {
       markers: (truncated ? rows.slice(0, limit) : rows).map(toMarker),
       truncated,
+      unknownExcluded: await this.countUnknownExcluded(box, f),
     };
+  }
+
+  /**
+   * How many rows the strict filter dropped for want of data.
+   *
+   * 🔴 A second query rather than a window function over the first. The
+   * first one carries a LIMIT, and a count taken alongside a truncated
+   * list would count the truncation too — reporting "40 more where it is
+   * unknown" when the real number is four hundred. Counting is the one
+   * thing that must see the whole viewport.
+   *
+   * Both counts ride in one statement so the viewport is scanned once for
+   * the pair, and it is skipped entirely when no amenity is filtered.
+   */
+  private async countUnknownExcluded(
+    box: unknown[],
+    f: ReturnType<typeof filterSql>,
+  ): Promise<number> {
+    if (!f.lenientWhere) return 0;
+
+    const base =
+      `FROM camping_spots
+        WHERE missing_since IS NULL
+          AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)`;
+
+    const [row] = await this.db.query(
+      `SELECT (SELECT COUNT(*)::int ${base}${f.where}) AS strict,
+              (SELECT COUNT(*)::int ${base}${f.lenientWhere}) AS lenient`,
+      [...box, ...f.params, ...f.lenientParams],
+    );
+
+    // Never negative: `lenient` is a superset of `strict` by construction,
+    // but a clamp costs nothing and a negative count on screen would be
+    // the kind of nonsense that destroys trust in the whole number.
+    return Math.max(0, Number(row.lenient) - Number(row.strict));
   }
 
   /**
@@ -108,8 +166,16 @@ export class MapQueryService {
    * output is a count bubble, not a measurement, and correcting it would
    * mean reprojecting every row on every request.
    */
-  async clusters(bbox: Bbox): Promise<Cluster[]> {
+  async clusters(
+    bbox: Bbox,
+    filters: MapFilters = NO_FILTERS,
+  ): Promise<Cluster[]> {
     const grid = gridFor(bbox);
+    const box = [bbox.minLon, bbox.minLat, bbox.maxLon, bbox.maxLat];
+    // 🔴 The same fragment the point query uses, from the same builder.
+    // Two hand-written copies of "what the filter means" is how a map
+    // ends up showing a cluster of twelve that opens to three markers.
+    const f = filterSql(filters, box.length);
 
     const rows = await this.db.query(
       `SELECT COUNT(*)::int AS count,
@@ -122,10 +188,10 @@ export class MapQueryService {
               MIN(region) AS region
          FROM camping_spots
         WHERE missing_since IS NULL
-          AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-        GROUP BY ST_SnapToGrid(location::geometry, $5, $5)
+          AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)${f.where}
+        GROUP BY ST_SnapToGrid(location::geometry, $${box.length + f.params.length + 1}, $${box.length + f.params.length + 1})
         ORDER BY count DESC, lon, lat`,
-      [bbox.minLon, bbox.minLat, bbox.maxLon, bbox.maxLat, grid],
+      [...box, ...f.params, grid],
     );
 
     return rows.map((r: Record<string, unknown>) => {

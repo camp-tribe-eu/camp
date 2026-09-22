@@ -1,5 +1,5 @@
 import { canonicalPath, readAmenities, slugifyRegion } from './canonical';
-import { AmenityValue } from '../osm/tag-mapping';
+import { AMENITY_KEYS, AmenityValue } from '../osm/tag-mapping';
 
 // 🔴 The rule CAMP-87 is built on: a URL, once published, does not move.
 //
@@ -83,9 +83,13 @@ describe('readAmenities', () => {
     // endpoint returned a set without the key at all — two shapes of the
     // same data, differing exactly on the newest amenity.
     expect(a.toilets).toBe(AmenityValue.UNKNOWN);
-    expect(Object.keys(a).sort()).toEqual(
-      ['dogFriendly', 'electricity', 'shower', 'toilets', 'water', 'wifi'].sort(),
-    );
+    // 🔴 Compared against AMENITY_KEYS rather than a list written out
+    // here. The hand-written version failed the day CAMP-35 added four
+    // amenities — not because anything was broken, but because the test
+    // held a second copy of the list. A copy that has to be edited every
+    // time the real one changes is not testing agreement, it is testing
+    // whether somebody remembered.
+    expect(Object.keys(a).sort()).toEqual([...AMENITY_KEYS].sort());
   });
 
   it('reads an unrecognised value as unknown, never as no', () => {
