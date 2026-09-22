@@ -60,6 +60,13 @@ export default function GlobalError({
             Try again
           </button>
           <p style={{ marginTop: 24 }}>
+            {/* 🔴 A plain <a>, not next/link, and eslint is wrong here.
+                global-error replaces the root layout, which is where the
+                router provider lives — the very thing that may have
+                failed. A <Link> would need that context and could throw
+                inside the page whose whole job is to survive when
+                everything else did not. A full page load is the point. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
             <a href="/" style={{ color: '#404B62' }}>
               Go to the home page
             </a>

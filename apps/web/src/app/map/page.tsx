@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import dynamicImport from 'next/dynamic';
 import { countryName, getCountries, getSummary } from '@/lib/api';
+import MapEmbed from '@/components/map-embed';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 
 // CAMP-31 — /map.
@@ -14,15 +14,10 @@ import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 // What a reader without JavaScript gets here is not an apology. It is
 // the country list — the same route the crawler takes — so the page
 // still answers "where can I look?" instead of showing a grey box.
-
-const CampsiteMap = dynamicImport(() => import('@/components/campsite-map'), {
-  ssr: false,
-  loading: () => (
-    <div className="mt-3 flex h-[60vh] min-h-[360px] w-full items-center justify-center rounded-card border border-line-2 bg-surface text-sm text-ink-2">
-      Loading the map…
-    </div>
-  ),
-});
+//
+// The map itself is loaded by components/map-embed.tsx: Next 15 will not
+// allow `ssr: false` in a Server Component, and this page stays a Server
+// Component so everything above survives without JavaScript.
 
 export const metadata: Metadata = {
   title: 'Campsite map',
@@ -64,7 +59,7 @@ export default async function MapPage() {
       </p>
 
       <div className="mt-6">
-        <CampsiteMap />
+        <MapEmbed />
       </div>
 
       {/* Rendered by the server, so it is here with JavaScript off, and

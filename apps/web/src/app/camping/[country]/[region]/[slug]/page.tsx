@@ -63,11 +63,12 @@ export async function generateStaticParams(): Promise<Params[]> {
   return index.map(({ country, region, slug }) => ({ country, region, slug }));
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Params;
-}): Promise<Metadata> {
+export async function generateMetadata(
+  props: {
+    params: Promise<Params>;
+  }
+): Promise<Metadata> {
+  const params = await props.params;
   const data = await getSpot(params.country, params.region, params.slug);
   if (!data) return { title: 'Campsite not found' };
 
@@ -102,7 +103,8 @@ export async function generateMetadata({
   };
 }
 
-export default async function CampsitePage({ params }: { params: Params }) {
+export default async function CampsitePage(props: { params: Promise<Params> }) {
+  const params = await props.params;
   const data = await getSpot(params.country, params.region, params.slug);
   if (!data) notFound();
 

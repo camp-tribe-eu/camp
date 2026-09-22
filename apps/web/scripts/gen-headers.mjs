@@ -16,6 +16,7 @@
 // whatever it said the day someone last edited it.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { SECURITY_HEADERS } from './security-headers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -29,8 +30,7 @@ const lines = [
   `# Build mode: ${isPublic ? 'public' : 'closed'}`,
   '',
   '/*',
-  '  X-Content-Type-Options: nosniff',
-  '  Referrer-Policy: strict-origin-when-cross-origin',
+  ...Object.entries(SECURITY_HEADERS).map(([k, v]) => `  ${k}: ${v}`),
 ];
 
 if (!isPublic) {

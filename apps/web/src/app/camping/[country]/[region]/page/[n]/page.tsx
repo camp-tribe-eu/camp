@@ -42,11 +42,12 @@ export async function generateStaticParams(): Promise<Params[]> {
   return out;
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Params;
-}): Promise<Metadata> {
+export async function generateMetadata(
+  props: {
+    params: Promise<Params>;
+  }
+): Promise<Metadata> {
+  const params = await props.params;
   const meta = await regionMeta(params.country, params.region);
   if (!meta) return { title: 'Region not found' };
   const cName = countryName(params.country);
@@ -64,7 +65,8 @@ export async function generateMetadata({
   };
 }
 
-export default async function RegionPageN({ params }: { params: Params }) {
+export default async function RegionPageN(props: { params: Promise<Params> }) {
+  const params = await props.params;
   const page = Number(params.n);
   if (!Number.isInteger(page) || page < 2) notFound();
 

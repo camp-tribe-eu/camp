@@ -26,11 +26,12 @@ export async function generateStaticParams(): Promise<Params[]> {
   return (await getCountries()).map((c) => ({ country: c.country }));
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Params;
-}): Promise<Metadata> {
+export async function generateMetadata(
+  props: {
+    params: Promise<Params>;
+  }
+): Promise<Metadata> {
+  const params = await props.params;
   const name = countryName(params.country);
   const regions = await getRegions(params.country);
   const spots = regions.reduce((n, r) => n + r.spots, 0);
@@ -42,7 +43,8 @@ export async function generateMetadata({
   };
 }
 
-export default async function CountryHub({ params }: { params: Params }) {
+export default async function CountryHub(props: { params: Promise<Params> }) {
+  const params = await props.params;
   const regions = await getRegions(params.country);
   if (regions.length === 0) notFound();
 

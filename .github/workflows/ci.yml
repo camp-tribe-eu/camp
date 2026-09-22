@@ -20,6 +20,32 @@ env:
   CI_DATABASE_URL: postgres://postgres:postgres@localhost:5432/camptribe_test
 
 jobs:
+  # Runs first and needs nothing: no database, no build, no browsers. A
+  # leaked credential or a new advisory should be visible in under a
+  # minute, not after the slowest job on the board.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # 🔴 The repo is public and the owner has had a leak before. Two
+      # steps, as everywhere: first prove the scanner still catches a
+      # planted secret, then believe the run that says the tree is clean.
+      - name: Secret scanner still catches a planted secret
+        run: node scripts/security/check-secrets.mjs --self-test
+      - name: No secrets in tracked files
+        run: node scripts/security/check-secrets.mjs
+
+      # Fails on an advisory nobody has looked at, not on every known
+      # one — the reasoning is in scripts/security/known-advisories.json.
+      - name: No new dependency advisories
+        run: node scripts/security/check-dependencies.mjs
+
   web:
     runs-on: ubuntu-latest
     services:
