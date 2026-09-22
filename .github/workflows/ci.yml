@@ -46,6 +46,15 @@ jobs:
       - name: No new dependency advisories
         run: node scripts/security/check-dependencies.mjs
 
+      # 🔴 A branch that grows past a card's worth of work stops being a
+      # feature branch. On 22.09.2026 one carried 28 commits for days,
+      # during which CodeQL and Dependabot reported on main and therefore
+      # on none of it. docs/git-workflow.md has the whole account.
+      - name: Branch-drift guard still catches a stale branch
+        run: node scripts/ci/check-branch-drift.mjs --self-test
+      - name: This branch has not drifted from main
+        run: node scripts/ci/check-branch-drift.mjs
+
   web:
     runs-on: ubuntu-latest
     services:
