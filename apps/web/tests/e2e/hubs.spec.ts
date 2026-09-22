@@ -120,6 +120,14 @@ test.describe('hub indexing rules', () => {
   });
 
   test('a region above the threshold is indexable', async ({ request }) => {
+    // 🔴 Only observable in a public build: when the whole site is closed
+    // (CAMP-90) every page is noindex and the threshold makes no visible
+    // difference. Skipped rather than weakened — the rule is asserted in
+    // CI's public-build job by check-indexing.mjs --expect public.
+    test.skip(
+      process.env.NEXT_PUBLIC_SITE_MODE !== 'public',
+      'The indexing threshold is invisible while the whole site is closed.',
+    );
     const { fat } = await regions(request);
     const html = await (await request.get(`/camping/si/${fat.slug}`)).text();
     expect(html).not.toMatch(/content="noindex/i);

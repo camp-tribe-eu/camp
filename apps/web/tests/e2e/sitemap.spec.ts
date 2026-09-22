@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
 
+// 🔴 The same flag the build was made with. These assertions are about
+// the sitemap agreeing with the pages, and what "agreeing" means flips
+// with the mode — so the test flips too rather than being skipped.
+// A test that only runs in one mode stops running the day we launch.
+const CLOSED = process.env.NEXT_PUBLIC_SITE_MODE !== 'public';
+
 // CAMP-39. The card's criteria, as tests: a new page in the database
 // appears in the sitemap without a code change, the sitemap is valid, and
 // llms.txt is served at its correct path.
@@ -22,15 +28,18 @@ test.describe('sitemap', () => {
     }
   });
 
-  test('🔴 nothing in the sitemap is noindex', async ({ request }) => {
-    // A sitemap says "index this"; a noindex meta says the opposite. Which
-    // one wins is Google's choice, not ours — so they must never disagree.
+  test('🔴 the sitemap and the pages never disagree', async ({ request }) => {
+    // A sitemap says "index this"; a noindex meta says the opposite.
+    // Which one wins is Google's choice, not ours, so they must agree —
+    // both indexable in a public build, both noindex in a closed one.
     const hubs = await (await request.get('/sitemaps/hubs.xml')).text();
     const urls = [...hubs.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+    expect(urls.length).toBeGreaterThan(0);
 
     for (const url of urls.slice(0, 20)) {
       const html = await (await request.get(new URL(url).pathname)).text();
-      expect(html, url).not.toMatch(/<meta name="robots"[^>]*content="[^"]*noindex/i);
+      const noindex = /<meta name="robots"[^>]*content="[^"]*noindex/i.test(html);
+      expect(noindex, url).toBe(CLOSED);
     }
   });
 
@@ -66,9 +75,17 @@ test.describe('sitemap', () => {
     expect(listed).toBe(spots.length);
   });
 
-  test('robots.txt points at the sitemap', async ({ request }) => {
+  test('robots.txt points at the sitemap only when it should', async ({
+    request,
+  }) => {
     const robots = await (await request.get('/robots.txt')).text();
-    expect(robots).toMatch(/Sitemap:\s*\S+\/sitemap\.xml/i);
+    if (CLOSED) {
+      // Advertising a page list while blocking the crawl is two
+      // contradictory instructions about the same URLs.
+      expect(robots).not.toMatch(/^\s*Sitemap:/im);
+    } else {
+      expect(robots).toMatch(/Sitemap:\s*\S+\/sitemap\.xml/i);
+    }
   });
 });
 

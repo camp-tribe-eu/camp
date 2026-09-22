@@ -132,6 +132,18 @@ if (!shouldBeIndexable && wrong.length) {
 if (shouldBeIndexable && noindexPages === pages.length) {
   errors.push('every page is noindex in a build that is meant to be public');
 }
+// 🔴 The other half, and the one a public build can silently lose: the
+// thin-hub threshold from CAMP-71 and the four-import rule from CAMP-87
+// both work by marking SOME pages noindex. Zero of them in a public
+// build does not mean everything is fine — it means those rules stopped
+// applying, and the only symptom would be thin pages entering the index.
+if (shouldBeIndexable && noindexPages === 0) {
+  errors.push(
+    'no page is noindex in a public build — the thin-hub threshold ' +
+      '(CAMP-71) and the missing-campsite rule (CAMP-87) have stopped ' +
+      'applying',
+  );
+}
 
 // ── 4. the sitemap, which must not contradict the rest ───────────────────
 const sitemap =

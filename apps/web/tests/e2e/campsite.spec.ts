@@ -230,12 +230,21 @@ test.describe('structured data (CAMP-37)', () => {
 
   test('a hub describes itself as a CollectionPage with its items', async ({
     page,
+    request,
   }) => {
+    // The list must hold exactly what the page links to. Asserting "more
+    // than ten" was a claim about how much data happened to be loaded —
+    // it passed locally on 102 regions and failed in CI on 5.
+    const regions = await (
+      await request.get(`${API_BASE}/spots/si/regions`)
+    ).json();
+
     await page.goto('/camping/si');
     const docs = await graphs(page);
     const collection = docs.find((d) => d['@type'] === 'CollectionPage');
     expect(collection).toBeTruthy();
     expect(collection.mainEntity['@type']).toBe('ItemList');
-    expect(collection.mainEntity.itemListElement.length).toBeGreaterThan(10);
+    expect(collection.mainEntity.itemListElement).toHaveLength(regions.length);
+    expect(collection.mainEntity.numberOfItems).toBe(regions.length);
   });
 });
