@@ -1,8 +1,12 @@
 name: CI
 
 on:
+  # 🔴 Every branch, not only main. CAMP-34 through CAMP-39 all added CI
+  # steps and none of them ever ran: the work lives on a feature branch,
+  # there was no PR, and this only triggered on main. "Wired into CI" was
+  # true of the file and false of reality for two days.
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
     branches: [main]
 
@@ -10,17 +14,35 @@ on:
 # Rule that follows from that: never print user data, emails, or secrets to logs -
 # public repo logs are readable by any logged-in GitHub account.
 
+# The fixture database every job that builds pages runs against.
+# Credentials are throwaway and local to the runner; nothing here is a secret.
+env:
+  CI_DATABASE_URL: postgres://postgres:postgres@localhost:5432/camptribe_test
+
 jobs:
   web:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: camptribe_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm run build --workspace=apps/web
+      - uses: ./.github/actions/build-site
+        with:
+          site-mode: closed
+          database-url: ${{ env.CI_DATABASE_URL }}
+
       - run: npm run lint --workspace=apps/web
 
       # CAMP-36. The acceptance criterion of the programmatic-SEO work is
@@ -43,9 +65,9 @@ jobs:
         run: node scripts/seo/check-structured-data.mjs
 
       # CAMP-39. xmllint against the committed sitemaps.org schemas, then
-      # the things a schema cannot express — chiefly that nothing in the
-      # sitemap carries noindex. The XML stays perfectly valid while that
-      # is wrong, which is exactly why it needs its own check.
+      # the things a schema cannot express — chiefly that the sitemap and
+      # the pages agree about indexing. The XML stays perfectly valid
+      # while that is wrong, which is exactly why it needs its own check.
       - name: Sitemap validates against the sitemaps.org schema
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq libxml2-utils
@@ -55,7 +77,46 @@ jobs:
             apps/web/.next/server/app/sitemaps/*.xml.body
 
       - name: Sitemap agrees with what the pages say
-        run: node scripts/seo/check-sitemap.mjs
+        run: node scripts/seo/check-sitemap.mjs --mode closed
+
+      # CAMP-90. The build above was made closed; this proves all four
+      # mechanisms actually are.
+      - name: The whole site is closed to indexing
+        run: node scripts/seo/check-indexing.mjs --expect closed
+
+  # 🔴 CAMP-90. The same build, made public, checked the other way round.
+  # The card's stated risk is `noindex` surviving into the real launch —
+  # the classic way a site vanishes from the index. This job is the proof
+  # that the switch flips, and it runs on every commit rather than being
+  # discovered on launch day.
+  public-build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: camptribe_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: ./.github/actions/build-site
+        with:
+          site-mode: public
+          database-url: ${{ env.CI_DATABASE_URL }}
+
+      - name: Nothing is left blocking the index
+        run: node scripts/seo/check-indexing.mjs --expect public
+
+      - name: Sitemap lists only indexable pages
+        run: node scripts/seo/check-sitemap.mjs --mode public
 
   api:
     runs-on: ubuntu-latest
@@ -71,6 +132,16 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: camptribe_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -80,12 +151,18 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
         working-directory: apps/web
-      - run: npm run build --workspace=apps/web
+      - uses: ./.github/actions/build-site
+        with:
+          site-mode: closed
+          database-url: ${{ env.CI_DATABASE_URL }}
       # Cross-browser (chromium/firefox/webkit) + cross-platform (desktop/mobile/tablet
       # viewports) + accessibility (axe-core, WCAG AA) + console-error capture — CAMP-13.
+      # The API is still running from build-site: the tests resolve their
+      # own fixtures from it rather than naming slugs (CAMP-39).
       - run: npm run test:e2e --workspace=apps/web
         env:
           CI: true
+          API_BASE_URL: http://localhost:3001
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -95,14 +172,27 @@ jobs:
 
   lighthouse:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: camptribe_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm run build --workspace=apps/web
+      - uses: ./.github/actions/build-site
+        with:
+          site-mode: closed
+          database-url: ${{ env.CI_DATABASE_URL }}
       # Hard-fails on accessibility/SEO regressions (min score 0.9), warns on
-      # performance/best-practices — thresholds in apps/web/lighthouserc.json.
+      # performance/best-practices — thresholds in apps/web/lighthouserc.cjs,
+      # whose URL list is computed from the built sitemap.
       - run: npm run lighthouse --workspace=apps/web

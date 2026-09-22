@@ -1,0 +1,96 @@
+name: Build the site with real data
+description: >
+  Migrate a PostGIS database, seed the CI fixture, start the API, and build
+  the web app against it. Shared by every job that needs built pages.
+
+# 🔴 CAMP-90. Without this the CI build reached no API, every fetch failed,
+# and the site was generated with zero campsites. Each SEO check then either
+# passed on an empty set or failed for a reason that had nothing to do with
+# the code. A pipeline that builds nothing and reports green is worse than
+# one that is honestly red.
+#
+# The `services:` block that provides Postgres has to live in the job — a
+# composite action cannot declare one — so each job that uses this also
+# declares the service. Everything after that is here, once.
+
+inputs:
+  site-mode:
+    description: 'public or closed — drives robots, headers and meta'
+    required: false
+    default: 'closed'
+  database-url:
+    description: 'Connection string for the PostGIS service'
+    required: false
+    default: 'postgres://postgres:postgres@localhost:5432/camptribe_test'
+
+runs:
+  using: composite
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: npm ci
+
+    - name: Create the PostGIS extension
+      shell: bash
+      env:
+        PGPASSWORD: postgres
+      run: |
+        psql -h localhost -U postgres -d camptribe_test \
+          -c 'CREATE EXTENSION IF NOT EXISTS postgis;'
+
+    - name: Run migrations
+      shell: bash
+      working-directory: apps/api
+      env:
+        DATABASE_URL: ${{ inputs.database-url }}
+      run: npx typeorm-ts-node-commonjs migration:run -d src/data-source.ts
+
+    - name: Load the CI fixture
+      shell: bash
+      env:
+        PGPASSWORD: postgres
+      run: |
+        psql -h localhost -U postgres -d camptribe_test -v ON_ERROR_STOP=1 \
+          -f apps/api/test/fixtures/ci-seed.sql
+        echo "campsites: $(psql -h localhost -U postgres -d camptribe_test -t -A \
+          -c 'SELECT count(*) FROM camping_spots;')"
+
+    - name: Start the API
+      shell: bash
+      working-directory: apps/api
+      env:
+        DATABASE_URL: ${{ inputs.database-url }}
+      run: |
+        npx nest start > /tmp/api.log 2>&1 &
+        # The build fetches from it, so a race here would produce an empty
+        # site that still exits 0 — wait for a real answer, not a sleep.
+        for i in $(seq 1 60); do
+          if curl -fsS http://localhost:3001/spots/countries > /dev/null 2>&1; then
+            echo "API up after ${i}s"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::API did not start in 60s"
+        tail -40 /tmp/api.log
+        exit 1
+
+    - name: Build the web app
+      shell: bash
+      env:
+        NEXT_PUBLIC_SITE_MODE: ${{ inputs.site-mode }}
+        API_BASE_URL: http://localhost:3001
+      run: npm run build --workspace=apps/web
+
+    - name: Refuse an empty build
+      shell: bash
+      run: |
+        # The failure this whole action exists to prevent, asserted
+        # directly: a build that reached no data still exits 0.
+        PAGES=$(find apps/web/.next/server/app/camping -name '*.html' | wc -l)
+        echo "campsite and hub pages built: $PAGES"
+        if [ "$PAGES" -lt 10 ]; then
+          echo "::error::only $PAGES pages built — the API was not reachable"
+          tail -40 /tmp/api.log
+          exit 1
+        fi

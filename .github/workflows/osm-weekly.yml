@@ -39,6 +39,10 @@ jobs:
   extract:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Whether the R2 step can run. Computed once here because a step's
+      # `if` can read job env but must not read `secrets` directly.
+      HAS_R2: ${{ secrets.R2_ACCESS_KEY_ID != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -114,10 +118,19 @@ jobs:
       # and the VPS can pull it with the GitHub API. The step is written out
       # rather than left as a TODO so the shape of the change is obvious,
       # and it is skipped cleanly while the secret is absent.
+      # 🔴 The secret is tested through a JOB-level env, not directly.
+      #
+      # My previous "fix" here put `secrets.X` straight into the step's
+      # `if`, on the belief that `env` did not work there. That was wrong
+      # in the worst way: it made the whole workflow file unparseable, so
+      # GitHub failed the run in 0s with no jobs on every push for two
+      # days — and because the failure is a config error, it produces no
+      # log to read.
+      #
+      # Job-level env is resolved before the step is evaluated, so this
+      # form is both valid and does what the original intent was.
       - name: Upload to R2
-        # `secrets` is available in a step `if`; `env` defined in this same
-        # step is not — checking env here would skip the step forever.
-        if: ${{ secrets.R2_ACCESS_KEY_ID != '' }}
+        if: env.HAS_R2 == 'true'
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}

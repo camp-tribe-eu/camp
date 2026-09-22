@@ -73,7 +73,15 @@ export async function generateMetadata({
     },
     // A campsite OSM has dropped is kept reachable but must stop ranking
     // until it comes back (the four-import rule, CAMP-87).
-    robots: spot.missingSince ? { index: false, follow: true } : undefined,
+    //
+    // 🔴 Spread, never `robots: undefined`. Next merges child metadata
+    // over the root, and a key that is present with an undefined value
+    // still overwrites — which silently cancelled the site-wide noindex
+    // from CAMP-90 on 326 of 401 pages. Omitting the key is the only way
+    // to mean "do not narrow this".
+    ...(spot.missingSince
+      ? { robots: { index: false, follow: true } }
+      : {}),
   };
 }
 

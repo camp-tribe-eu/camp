@@ -23,6 +23,26 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
 const args = process.argv.slice(2);
+const modeIndex = args.indexOf('--mode');
+/**
+ * 🔴 CAMP-90 made this two-sided instead of optional.
+ *
+ * When the whole site is closed, every page carries noindex, so the
+ * rule "nothing in the sitemap is noindex" would fail on every URL. The
+ * tempting fix is to skip the rule in closed mode — which is how a
+ * check quietly stops checking and then passes everything for ever.
+ *
+ * So it inverts instead. In a closed build the sitemap must be entirely
+ * noindex, for the same reason it must be entirely indexable in a
+ * public one: the sitemap and the pages have to agree, whichever way
+ * round that is.
+ */
+const MODE = modeIndex >= 0 ? args[modeIndex + 1] : 'public';
+if (MODE !== 'public' && MODE !== 'closed') {
+  console.error('--mode must be "public" or "closed"');
+  process.exit(2);
+}
+const expectIndexable = MODE === 'public';
 const dirIndex = args.indexOf('--dir');
 const ROOT =
   dirIndex >= 0 && args[dirIndex + 1]
@@ -86,8 +106,9 @@ for (const { url, from } of allUrls) {
   seen.add(url);
 }
 
-// 🔴 The check this script exists for.
+// 🔴 The check this script exists for — in whichever direction applies.
 let noindexed = 0;
+const disagree = [];
 for (const { url, from } of allUrls) {
   const p = new URL(url).pathname.replace(/^\/|\/$/g, '') || 'index';
   const html = read(path.join(ROOT, `${p}.html`));
@@ -95,10 +116,16 @@ for (const { url, from } of allUrls) {
     errors.push(`${from}: "${url}" has no built page`);
     continue;
   }
-  if (/<meta name="robots"[^>]*content="[^"]*noindex/i.test(html)) {
-    noindexed++;
-    errors.push(`${from}: "${url}" is in the sitemap but carries noindex`);
-  }
+  const isNoindex = /<meta name="robots"[^>]*content="[^"]*noindex/i.test(html);
+  if (isNoindex) noindexed++;
+  if (isNoindex === expectIndexable) disagree.push(`${from}: ${url}`);
+}
+if (disagree.length) {
+  errors.push(
+    expectIndexable
+      ? `${disagree.length} URL(s) in the sitemap carry noindex: ${disagree[0]}`
+      : `${disagree.length} URL(s) in a closed build are still indexable: ${disagree[0]}`,
+  );
 }
 
 // ── llms.txt ─────────────────────────────────────────────────────────────
@@ -115,6 +142,7 @@ if (!llms) {
   }
 }
 
+console.log(`mode            ${MODE}`);
 console.log(`children        ${children.length}`);
 console.log(`urls            ${allUrls.length}`);
 console.log(`distinct dates  ${lastmods.size}`);
@@ -134,4 +162,7 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log('\n✓ sitemap is consistent with what the pages actually say');
+console.log(
+  `\n✓ sitemap and pages agree — all ${allUrls.length} are ` +
+    `${expectIndexable ? 'indexable' : 'noindex, as a closed build requires'}`,
+);

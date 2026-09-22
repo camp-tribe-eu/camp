@@ -33,7 +33,10 @@ export async function generateMetadata({
     // a duplicate of those campsites' own pages. It stays crawlable
     // (`follow`) because it is the only path down to them without the map,
     // but it must not compete in the index as a landing page.
-    robots: meta.indexable ? undefined : { index: false, follow: true },
+    //
+    // Spread rather than `robots: undefined` — see the campsite page:
+    // an explicitly-undefined key overwrites the root's value.
+    ...(meta.indexable ? {} : { robots: { index: false, follow: true } }),
   };
 }
 

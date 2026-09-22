@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { isPublic } from "@/lib/environment";
 
 // Canonical domain from Facts/project-identity.md in the Camping brain.
 // Overridable via env so staging/preview deploys don't claim the production URL.
@@ -13,11 +14,13 @@ export const metadata: Metadata = {
   },
   description:
     "Find campsites, plan routes and book camper rentals across Europe in one place.",
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: { index: true, follow: true },
-  },
+  // CAMP-90. Site-wide, from the one flag. A page may still narrow this
+  // further (a thin hub, a campsite OSM has dropped) — it can never
+  // widen it, because Next merges child metadata over the root and the
+  // children only ever say noindex.
+  robots: isPublic
+    ? { index: true, follow: true, googleBot: { index: true, follow: true } }
+    : { index: false, follow: false, googleBot: { index: false, follow: false } },
   openGraph: {
     type: "website",
     siteName: "CampTribe",
