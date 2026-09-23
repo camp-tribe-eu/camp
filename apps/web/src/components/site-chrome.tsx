@@ -29,7 +29,7 @@ const NAV: NavItem[] = [
   //   { href: '/routes',  label: 'Routes' },     CAMP-45
   //   { href: '/plan',    label: 'Plan a trip' },CAMP-46
   //   { href: '/rentals', label: 'Rentals' },    CAMP-54
-  //   { href: '/guides',  label: 'Guides' },     CAMP-66
+  { href: '/guides', label: 'Guides' }, // CAMP-66
 ];
 
 export function SiteHeader() {

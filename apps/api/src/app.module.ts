@@ -11,6 +11,7 @@ import { Trip } from './entities/trip.entity';
 import { TripStop } from './entities/trip-stop.entity';
 import { SpotsModule } from './spots/spots.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
+import { GuidesModule } from './guides/guides.module';
 import { ClientError } from './entities/client-error.entity';
 
 @Module({
@@ -33,6 +34,7 @@ import { ClientError } from './entities/client-error.entity';
     }),
     SpotsModule,
     TelemetryModule,
+    GuidesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

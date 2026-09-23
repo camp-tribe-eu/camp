@@ -65,9 +65,24 @@ export class GuideProvenance1790313600000 implements MigrationInterface {
     await queryRunner.query(
       `CREATE INDEX "IDX_guides_status_category" ON "guides" ("status", "category")`,
     );
+
+    // 🔴 One translation per guide per language, which the standard i18n
+    // pattern assumes and nothing enforced. The generator re-runs every
+    // time the data moves; without this, each run would add another copy
+    // of every translation and the page would render whichever the
+    // planner happened to return first. Found by trying to write the
+    // upsert and discovering there was nothing to upsert on.
+    await queryRunner.query(`
+      ALTER TABLE "guide_translations"
+        ADD CONSTRAINT "UQ_guide_translations_guide_language"
+        UNIQUE ("guide_id", "language_code")
+    `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(
+      `ALTER TABLE "guide_translations" DROP CONSTRAINT "UQ_guide_translations_guide_language"`,
+    );
     await queryRunner.query(`DROP INDEX "IDX_guides_status_category"`);
     await queryRunner.query(
       `ALTER TABLE "guides" DROP CONSTRAINT "CHK_guides_provenance_is_accountable"`,
