@@ -350,6 +350,71 @@ export class SpotsService {
       contentChangedAt: (r.content_changed_at as Date) ?? null,
     }));
   }
+
+  /**
+   * CAMP-67: everything the site search needs, in one pass.
+   *
+   * 🔴 Built here and downloaded once, rather than answered per
+   * keystroke. The web app runs with this API switched off (CAMP-39) and
+   * the map already works that way; a search that needed a live endpoint
+   * would be the one feature that breaks when the backend does.
+   *
+   * 🔴 `near` is the part that makes the card's second criterion
+   * possible — "results ordered by distance, not alphabetically". The
+   * town, water and station in `context` were computed in CAMP-33 WITH
+   * their distances, so a query naming a place already has a number to
+   * sort by. Nothing is geocoded at search time.
+   *
+   * Unnamed campsites are included: 212 of the Croatian import have no
+   * name, and they are still findable by their region and surroundings.
+   */
+  async searchDocuments(): Promise<
+    {
+      name: string | null;
+      country: string;
+      region: string;
+      slug: string;
+      lat: number;
+      lon: number;
+      near: { name: string; m: number }[];
+    }[]
+  > {
+    const rows = await this.db.query(
+      `SELECT name, country, region, slug,
+              ST_Y(location::geometry) AS lat,
+              ST_X(location::geometry) AS lon,
+              context
+         FROM camping_spots
+        WHERE region IS NOT NULL AND missing_since IS NULL
+        ORDER BY country, region, slug`,
+    );
+
+    return rows.map((r: Record<string, unknown>) => {
+      const ctx = (r.context ?? {}) as Record<
+        string,
+        { name?: string; m?: number } | undefined
+      >;
+      const near: { name: string; m: number }[] = [];
+      // Only the features that carry a name — a river we know the
+      // distance to but not the name of cannot be searched for.
+      for (const key of ['town', 'water', 'supermarket', 'station']) {
+        const f = ctx[key];
+        if (f?.name && typeof f.m === 'number') {
+          near.push({ name: f.name, m: f.m });
+        }
+      }
+
+      return {
+        name: (r.name as string) ?? null,
+        country: String(r.country).toLowerCase(),
+        region: slugifyRegion(r.region as string),
+        slug: r.slug as string,
+        lat: Number(r.lat),
+        lon: Number(r.lon),
+        near,
+      };
+    });
+  }
 }
 
 /**
