@@ -70,6 +70,19 @@ jobs:
       - name: This branch has not drifted from main
         run: node scripts/ci/check-branch-drift.mjs
 
+      # CAMP-60, debt #2. The verdict logic, including the case that
+      # matters most: a run that sent nothing must FAIL, not report
+      # "0 errors".
+      - name: Load-test verdict still fails a bad run
+        run: node scripts/load/load-test.mjs --self-test
+
+      # 🔴 CAMP-60. `retries: 1` means a test that fails then passes
+      # leaves the job green. On 23.09.2026 that hid a real design fault
+      # for a whole run and was found only by reading the log by hand.
+      # This guard's own self-test is driven by that exact report shape.
+      - name: Flaky-test guard still catches a retry that went green
+        run: node scripts/ci/check-flaky.mjs --self-test
+
       # 🔴 A broken workflow file is the failure that reports nothing.
       #
       # On 21.09.2026 a step in osm-weekly.yml was given
@@ -354,11 +367,92 @@ jobs:
           # the same throwaway value build-site gives the API it starts.
           CLIENT_ERRORS_READ_TOKEN: ci-read-token
           NEXT_PUBLIC_ERROR_ENDPOINT: ${{ env.CI_ERROR_ENDPOINT }}
+
+      # 🔴 `always()`, and this is the point of the step. A flake leaves
+      # the job green, so the check has to run on a green job too —
+      # otherwise it only ever sees the runs that were already red.
+      - name: No test passed only on a retry
+        if: always()
+        run: node scripts/ci/check-flaky.mjs apps/web/playwright-report/report.json
+
+      # CAMP-60, debt #2. The API from build-site is still running. Ten
+      # seconds at twenty concurrent: this asserts the API does not fall
+      # over or start answering 200 with an empty body, and prints the
+      # latencies rather than failing on them — a runner is a shared
+      # machine and a latency budget tuned elsewhere only cries wolf.
+      - name: The API holds up under concurrency
+        env:
+          API_BASE_URL: http://localhost:3001
+        run: node scripts/load/load-test.mjs --profile smoke
+
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
           path: apps/web/playwright-report/
+          retention-days: 7
+
+  # CAMP-60, debt #3. Visual regression on the pages where a CSS change
+  # is invisible to every other test.
+  #
+  # 🔴 The baselines were generated on this runner and committed, because
+  # a baseline is a rendering by a particular platform and every machine
+  # we develop on is macOS while this is Linux. That is also why the
+  # snapshot path carries {platform}: a locally generated file can never
+  # be mistaken for the real baseline.
+  #
+  # To change them on purpose: change the page, let this job fail, read
+  # the diff in the uploaded report, and only then re-run with
+  # `--update-snapshots` and commit what comes back. Never update them to
+  # make a red build green without looking at the diff — that is how a
+  # visual suite becomes a rubber stamp.
+  #
+  # It earned its place on the first run: the very first baseline showed
+  # "8 of 5 facilities recorded" on the home page, a real defect that
+  # none of the 642 other tests could see.
+  visual:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: camptribe_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - uses: ./.github/actions/build-site
+        with:
+          site-mode: closed
+          database-url: ${{ env.CI_DATABASE_URL }}
+
+      # The fixture is what makes screenshotting a data-driven site
+      # possible: ci-seed.sql is the same rows on every run, so the
+      # counts and names on these pages do not move.
+      - name: Nothing looks different
+        run: npm run test:visual --workspace=apps/web
+        env:
+          CI: true
+
+      # On a failure this carries both the diff and the actual render, so
+      # a change can be judged rather than rubber-stamped.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: visual-diff
+          path: |
+            apps/web/test-results/
+            apps/web/playwright-report/
           retention-days: 7
 
   lighthouse:

@@ -138,242 +138,242 @@
       "severity": "critical",
       "package": "tar",
       "title": "node-tar: Decompression/parse DoS via unlimited input",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix exists at any version: @directus/api pins tar 7.5.8 exactly, Directus 12.3.1 is the newest release, and an npm `overrides` entry is silently ignored in this tree (verified on 22.09.2026 — overriding tar to a version that does not exist still exits 0 and changes nothing, and forcing the lockfile to re-resolve strips integrity hashes from 2019 of 2022 entries).",
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix is available to us today, re-measured on 23.09.2026 rather than assumed. (a) @directus/api 39.1.0 pins tar 7.5.8 exactly; the critical GHSA-23hp-3jrh-7fpw covers <=7.5.18. (b) Directus 12.4.1 exists and installing it drops this workspace from 49 advisories to 30 — but tar 7.5.8 survives it, so the critical is untouched. It was published on 23.09.2026, the day this was measured, and 12.4.0 the day before; taking a release that is one day old is exactly what our update policy forbids, and Dependabot's 14-day cooldown will offer it when it has been looked at by other people. Revisit after 07.10.2026. (c) An npm `overrides` entry does nothing in this tree, and the earlier note under-stated the evidence. Re-tested with a REAL version (tar 7.5.22, which is patched) and with a second unrelated package: npm 11.16.0 never writes the overrides field into package-lock.json at all and node_modules is unchanged, with `npm install` and with `--package-lock-only` alike. The standard remedy for a transitive advisory is therefore unavailable here, which is a fact about this repository worth knowing before anyone reaches for it again.",
       "acceptedUntil": "2026-12-22"
     },
     "GHSA-2883-xcg3-v3hh": {
       "severity": "high",
       "package": "js-yaml",
       "title": "js-yaml: maxTotalMergeKeys does not limit CPU use for empty merge sources",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus parses its own configuration and schema snapshots — YAML we author, committed in this repository. The quadratic-complexity DoS needs attacker-supplied YAML, and there is no path for one."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus parses its own configuration and schema snapshots — YAML we author, committed in this repository. The quadratic-complexity DoS needs attacker-supplied YAML, and there is no path for one."
     },
     "GHSA-2x7j-588g-ccc2": {
       "severity": "high",
       "package": "nodemailer",
       "title": "Nodemailer: Quadratic (O(n²)) time complexity in addressparser allows remote denial of ser",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus mail transport. We configure no SMTP credentials, so Directus sends no mail and this code never runs."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus mail transport. We configure no SMTP credentials, so Directus sends no mail and this code never runs."
     },
     "GHSA-3f6p-5ww8-9rcr": {
       "severity": "high",
       "package": "mysql2",
       "title": "MySQL2: Auth Plugin Downgrade to mysql_clear_password Leaks Plaintext Credentials",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Driver Directus ships for every database it supports. We run Postgres; mysql2 is never loaded."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Driver Directus ships for every database it supports. We run Postgres; mysql2 is never loaded."
     },
     "GHSA-3v7f-55p6-f55p": {
       "severity": "moderate",
       "package": "picomatch",
       "title": "Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Method injection in POSIX character classes, inside Directus build/glob tooling. Patterns come from Directus and from us, never from a request."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Method injection in POSIX character classes, inside Directus build/glob tooling. Patterns come from Directus and from us, never from a request."
     },
     "GHSA-42h9-826w-cgv3": {
       "severity": "moderate",
       "package": "axios",
       "title": "Axios: Excessive recursion in formDataToJSON can cause denial of service",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
     },
     "GHSA-4mjr-xmp4-gh2g": {
       "severity": "moderate",
       "package": "qs",
       "title": "qs: Denial of Service via Attacker Controlled isBuffer",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Query-string array-limit bypass in the Directus HTTP layer. Directus is not publicly reachable — it is a local content tool, absent from every workflow in .github/workflows."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Query-string array-limit bypass in the Directus HTTP layer. Directus is not publicly reachable — it is a local content tool, absent from every workflow in .github/workflows."
     },
     "GHSA-528h-pc64-c93x": {
       "severity": "moderate",
       "package": "stream-json",
       "title": "stream-json: pick/ignore/filter/replace filters are O(depth²) on nested input — small craf",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. O(depth) filters in a JSON stream parser used by Directus import. Input is files the owner chooses to import."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. O(depth) filters in a JSON stream parser used by Directus import. Input is files the owner chooses to import."
     },
     "GHSA-52cp-r559-cp3m": {
       "severity": "high",
       "package": "js-yaml",
       "title": "js-yaml: YAML merge-key chains can force quadratic CPU consumption",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus parses its own configuration and schema snapshots — YAML we author, committed in this repository. The quadratic-complexity DoS needs attacker-supplied YAML, and there is no path for one."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus parses its own configuration and schema snapshots — YAML we author, committed in this repository. The quadratic-complexity DoS needs attacker-supplied YAML, and there is no path for one."
     },
     "GHSA-5p4m-2wfm-xmqj": {
       "severity": "high",
       "package": "js-yaml",
       "title": "JS-YAML: Quadratic CPU consumption in !!omap resolution (3.x and 4.x) — CVE-2026-59870 fix",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus parses its own configuration and schema snapshots — YAML we author, committed in this repository. The quadratic-complexity DoS needs attacker-supplied YAML, and there is no path for one."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus parses its own configuration and schema snapshots — YAML we author, committed in this repository. The quadratic-complexity DoS needs attacker-supplied YAML, and there is no path for one."
     },
     "GHSA-6w3j-5fw6-r9vr": {
       "severity": "low",
       "package": "joi",
       "title": "joi: Prototype pollution via a `__proto__` language key in custom messages",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Prototype pollution via a `__proto__` language key in a deep transitive validator. Needs attacker-controlled schema input; Directus schemas are ours."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Prototype pollution via a `__proto__` language key in a deep transitive validator. Needs attacker-controlled schema input; Directus schemas are ours."
     },
     "GHSA-7q8q-rj6j-mhjq": {
       "severity": "moderate",
       "package": "axios",
       "title": "Axios: Nested axios option objects can consume polluted prototype values",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
     },
     "GHSA-866g-f22w-33x8": {
       "severity": "low",
       "package": "@ai-sdk/provider-utils",
       "title": "@ai-sdk/provider-utils has an Uncontrolled Resource Consumption issue",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Uncontrolled resource consumption in an AI SDK helper pulled in by a Directus dependency. No AI provider is configured."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Uncontrolled resource consumption in an AI SDK helper pulled in by a Directus dependency. No AI provider is configured."
     },
     "GHSA-8988-4f7v-96qf": {
       "severity": "moderate",
       "package": "@opentelemetry/core",
       "title": "OpenTelemetry Core: Unbounded memory allocation in W3C Baggage propagation",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Unbounded allocation parsing W3C baggage headers. We enable no OpenTelemetry exporter, and no external caller reaches Directus."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Unbounded allocation parsing W3C baggage headers. We enable no OpenTelemetry exporter, and no external caller reaches Directus."
     },
     "GHSA-8m3c-c648-2xjj": {
       "severity": "moderate",
       "package": "nodemailer",
       "title": "Nodemailer: resolveContent() on a MailMessage bypasses disableFileAccess/disableUrlAccess ",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus mail transport. We configure no SMTP credentials, so Directus sends no mail and this code never runs."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus mail transport. We configure no SMTP credentials, so Directus sends no mail and this code never runs."
     },
     "GHSA-8x88-c5mf-7j5w": {
       "severity": "high",
       "package": "tar",
       "title": "node-tar: Negative tar entry size causes infinite loop in archive replace",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix exists at any version: @directus/api pins tar 7.5.8 exactly, Directus 12.3.1 is the newest release, and an npm `overrides` entry is silently ignored in this tree (verified on 22.09.2026 — overriding tar to a version that does not exist still exits 0 and changes nothing, and forcing the lockfile to re-resolve strips integrity hashes from 2019 of 2022 entries)."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix is available to us today, re-measured on 23.09.2026 rather than assumed. (a) @directus/api 39.1.0 pins tar 7.5.8 exactly; the critical GHSA-23hp-3jrh-7fpw covers <=7.5.18. (b) Directus 12.4.1 exists and installing it drops this workspace from 49 advisories to 30 — but tar 7.5.8 survives it, so the critical is untouched. It was published on 23.09.2026, the day this was measured, and 12.4.0 the day before; taking a release that is one day old is exactly what our update policy forbids, and Dependabot's 14-day cooldown will offer it when it has been looked at by other people. Revisit after 07.10.2026. (c) An npm `overrides` entry does nothing in this tree, and the earlier note under-stated the evidence. Re-tested with a REAL version (tar 7.5.22, which is patched) and with a second unrelated package: npm 11.16.0 never writes the overrides field into package-lock.json at all and node_modules is unchanged, with `npm install` and with `--package-lock-only` alike. The standard remedy for a transitive advisory is therefore unavailable here, which is a fact about this repository worth knowing before anyone reaches for it again."
     },
     "GHSA-9ppj-qmqm-q256": {
       "severity": "high",
       "package": "tar",
       "title": "node-tar Symlink Path Traversal via Drive-Relative Linkpath",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix exists at any version: @directus/api pins tar 7.5.8 exactly, Directus 12.3.1 is the newest release, and an npm `overrides` entry is silently ignored in this tree (verified on 22.09.2026 — overriding tar to a version that does not exist still exits 0 and changes nothing, and forcing the lockfile to re-resolve strips integrity hashes from 2019 of 2022 entries)."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix is available to us today, re-measured on 23.09.2026 rather than assumed. (a) @directus/api 39.1.0 pins tar 7.5.8 exactly; the critical GHSA-23hp-3jrh-7fpw covers <=7.5.18. (b) Directus 12.4.1 exists and installing it drops this workspace from 49 advisories to 30 — but tar 7.5.8 survives it, so the critical is untouched. It was published on 23.09.2026, the day this was measured, and 12.4.0 the day before; taking a release that is one day old is exactly what our update policy forbids, and Dependabot's 14-day cooldown will offer it when it has been looked at by other people. Revisit after 07.10.2026. (c) An npm `overrides` entry does nothing in this tree, and the earlier note under-stated the evidence. Re-tested with a REAL version (tar 7.5.22, which is patched) and with a second unrelated package: npm 11.16.0 never writes the overrides field into package-lock.json at all and node_modules is unchanged, with `npm install` and with `--package-lock-only` alike. The standard remedy for a transitive advisory is therefore unavailable here, which is a fact about this repository worth knowing before anyone reaches for it again."
     },
     "GHSA-c2c7-rcm5-vvqj": {
       "severity": "high",
       "package": "picomatch",
       "title": "Picomatch has a ReDoS vulnerability via extglob quantifiers",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Method injection in POSIX character classes, inside Directus build/glob tooling. Patterns come from Directus and from us, never from a request."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Method injection in POSIX character classes, inside Directus build/glob tooling. Patterns come from Directus and from us, never from a request."
     },
     "GHSA-cc9r-2j5m-2m83": {
       "severity": "moderate",
       "package": "nodemailer",
       "title": "Nodemailer: Recipient-domain validation bypass via RFC 5322 comment mis-parsing leads to e",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus mail transport. We configure no SMTP credentials, so Directus sends no mail and this code never runs."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus mail transport. We configure no SMTP credentials, so Directus sends no mail and this code never runs."
     },
     "GHSA-f4gw-2p7v-4548": {
       "severity": "moderate",
       "package": "axios",
       "title": "Axios: NO_PROXY bypass for 0.0.0.0 local addresses in axios",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
     },
     "GHSA-gcfj-64vw-6mp9": {
       "severity": "high",
       "package": "axios",
       "title": "Axios Node HTTP adapter can use an inherited proxy after interceptor config cloning",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
     },
     "GHSA-gg4h-3hg2-grpc": {
       "severity": "low",
       "package": "joi",
       "title": "joi: object().rename() with a template target can set the validated object's prototype",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Prototype pollution via a `__proto__` language key in a deep transitive validator. Needs attacker-controlled schema input; Directus schemas are ours."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Prototype pollution via a `__proto__` language key in a deep transitive validator. Needs attacker-controlled schema input; Directus schemas are ours."
     },
     "GHSA-gvwx-54wh-qm9j": {
       "severity": "moderate",
       "package": "tar",
       "title": "node-tar: Uncaught Exception DoS via NUL byte in PAX path/linkpath records",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix exists at any version: @directus/api pins tar 7.5.8 exactly, Directus 12.3.1 is the newest release, and an npm `overrides` entry is silently ignored in this tree (verified on 22.09.2026 — overriding tar to a version that does not exist still exits 0 and changes nothing, and forcing the lockfile to re-resolve strips integrity hashes from 2019 of 2022 entries)."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix is available to us today, re-measured on 23.09.2026 rather than assumed. (a) @directus/api 39.1.0 pins tar 7.5.8 exactly; the critical GHSA-23hp-3jrh-7fpw covers <=7.5.18. (b) Directus 12.4.1 exists and installing it drops this workspace from 49 advisories to 30 — but tar 7.5.8 survives it, so the critical is untouched. It was published on 23.09.2026, the day this was measured, and 12.4.0 the day before; taking a release that is one day old is exactly what our update policy forbids, and Dependabot's 14-day cooldown will offer it when it has been looked at by other people. Revisit after 07.10.2026. (c) An npm `overrides` entry does nothing in this tree, and the earlier note under-stated the evidence. Re-tested with a REAL version (tar 7.5.22, which is patched) and with a second unrelated package: npm 11.16.0 never writes the overrides field into package-lock.json at all and node_modules is unchanged, with `npm install` and with `--package-lock-only` alike. The standard remedy for a transitive advisory is therefore unavailable here, which is a fact about this repository worth knowing before anyone reaches for it again."
     },
     "GHSA-h67p-54hq-rp68": {
       "severity": "moderate",
       "package": "js-yaml",
       "title": "JS-YAML: Quadratic-complexity DoS in merge key handling via repeated aliases",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus parses its own configuration and schema snapshots — YAML we author, committed in this repository. The quadratic-complexity DoS needs attacker-supplied YAML, and there is no path for one."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus parses its own configuration and schema snapshots — YAML we author, committed in this repository. The quadratic-complexity DoS needs attacker-supplied YAML, and there is no path for one."
     },
     "GHSA-hcpx-6fm6-wx23": {
       "severity": "moderate",
       "package": "axios",
       "title": "Axios form serializer maxDepth bypass via {} metatoken",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
     },
     "GHSA-jqh4-m9w3-8hp9": {
       "severity": "moderate",
       "package": "axios",
       "title": "Axios: Fetch adapter `ReadableStream` uploads bypass `maxBodyLength`",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
     },
     "GHSA-mmx7-hfxf-jppx": {
       "severity": "moderate",
       "package": "axios",
       "title": "Axios: Prototype pollution gadgets can alter axios request construction",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
     },
     "GHSA-mwf2-3pr3-8698": {
       "severity": "moderate",
       "package": "axios",
       "title": "Axios: HTTP/2 streamed uploads bypass `maxBodyLength`",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
     },
     "GHSA-pmv8-rq9r-6j72": {
       "severity": "moderate",
       "package": "axios",
       "title": "Axios: Deep formToJSON Key Recursion Can Cause Denial of Service",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
     },
     "GHSA-qffp-2rhf-9h96": {
       "severity": "high",
       "package": "tar",
       "title": "tar has Hardlink Path Traversal via Drive-Relative Linkpath",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix exists at any version: @directus/api pins tar 7.5.8 exactly, Directus 12.3.1 is the newest release, and an npm `overrides` entry is silently ignored in this tree (verified on 22.09.2026 — overriding tar to a version that does not exist still exits 0 and changes nothing, and forcing the lockfile to re-resolve strips integrity hashes from 2019 of 2022 entries)."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix is available to us today, re-measured on 23.09.2026 rather than assumed. (a) @directus/api 39.1.0 pins tar 7.5.8 exactly; the critical GHSA-23hp-3jrh-7fpw covers <=7.5.18. (b) Directus 12.4.1 exists and installing it drops this workspace from 49 advisories to 30 — but tar 7.5.8 survives it, so the critical is untouched. It was published on 23.09.2026, the day this was measured, and 12.4.0 the day before; taking a release that is one day old is exactly what our update policy forbids, and Dependabot's 14-day cooldown will offer it when it has been looked at by other people. Revisit after 07.10.2026. (c) An npm `overrides` entry does nothing in this tree, and the earlier note under-stated the evidence. Re-tested with a REAL version (tar 7.5.22, which is patched) and with a second unrelated package: npm 11.16.0 never writes the overrides field into package-lock.json at all and node_modules is unchanged, with `npm install` and with `--package-lock-only` alike. The standard remedy for a transitive advisory is therefore unavailable here, which is a fact about this repository worth knowing before anyone reaches for it again."
     },
     "GHSA-r292-9mhp-454m": {
       "severity": "high",
       "package": "tar",
       "title": "node-tar: Uncontrolled recursion in mapHas/filesFilter allows uncatchable stack-overflow D",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix exists at any version: @directus/api pins tar 7.5.8 exactly, Directus 12.3.1 is the newest release, and an npm `overrides` entry is silently ignored in this tree (verified on 22.09.2026 — overriding tar to a version that does not exist still exits 0 and changes nothing, and forcing the lockfile to re-resolve strips integrity hashes from 2019 of 2022 entries)."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix is available to us today, re-measured on 23.09.2026 rather than assumed. (a) @directus/api 39.1.0 pins tar 7.5.8 exactly; the critical GHSA-23hp-3jrh-7fpw covers <=7.5.18. (b) Directus 12.4.1 exists and installing it drops this workspace from 49 advisories to 30 — but tar 7.5.8 survives it, so the critical is untouched. It was published on 23.09.2026, the day this was measured, and 12.4.0 the day before; taking a release that is one day old is exactly what our update policy forbids, and Dependabot's 14-day cooldown will offer it when it has been looked at by other people. Revisit after 07.10.2026. (c) An npm `overrides` entry does nothing in this tree, and the earlier note under-stated the evidence. Re-tested with a REAL version (tar 7.5.22, which is patched) and with a second unrelated package: npm 11.16.0 never writes the overrides field into package-lock.json at all and node_modules is unchanged, with `npm install` and with `--package-lock-only` alike. The standard remedy for a transitive advisory is therefore unavailable here, which is a fact about this repository worth knowing before anyone reaches for it again."
     },
     "GHSA-rgj7-g3m4-5g8c": {
       "severity": "high",
       "package": "sharp",
       "title": "sharp: Vulnerabilities in libheif: GHSA-g89c-p67h-r497 and GHSA-2jg2-4ch7-h545",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. libheif vulnerabilities behind Directus image transforms. Would need a crafted HEIF upload, and uploads sit behind the admin login which only the owner holds."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. libheif vulnerabilities behind Directus image transforms. Would need a crafted HEIF upload, and uploads sit behind the admin login which only the owner holds."
     },
     "GHSA-rgwj-5xj2-c3m3": {
       "severity": "moderate",
       "package": "mysql2",
       "title": "MySQL2: Unbounded zlib inflate in compressed MySQL protocol handler allows decompression-b",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Driver Directus ships for every database it supports. We run Postgres; mysql2 is never loaded."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Driver Directus ships for every database it supports. We run Postgres; mysql2 is never loaded."
     },
     "GHSA-vmf3-w455-68vh": {
       "severity": "moderate",
       "package": "tar",
       "title": "node-tar applies PAX size override to intermediary GNU long-name/long-link headers, causin",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix exists at any version: @directus/api pins tar 7.5.8 exactly, Directus 12.3.1 is the newest release, and an npm `overrides` entry is silently ignored in this tree (verified on 22.09.2026 — overriding tar to a version that does not exist still exits 0 and changes nothing, and forcing the lockfile to re-resolve strips integrity hashes from 2019 of 2022 entries)."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix is available to us today, re-measured on 23.09.2026 rather than assumed. (a) @directus/api 39.1.0 pins tar 7.5.8 exactly; the critical GHSA-23hp-3jrh-7fpw covers <=7.5.18. (b) Directus 12.4.1 exists and installing it drops this workspace from 49 advisories to 30 — but tar 7.5.8 survives it, so the critical is untouched. It was published on 23.09.2026, the day this was measured, and 12.4.0 the day before; taking a release that is one day old is exactly what our update policy forbids, and Dependabot's 14-day cooldown will offer it when it has been looked at by other people. Revisit after 07.10.2026. (c) An npm `overrides` entry does nothing in this tree, and the earlier note under-stated the evidence. Re-tested with a REAL version (tar 7.5.22, which is patched) and with a second unrelated package: npm 11.16.0 never writes the overrides field into package-lock.json at all and node_modules is unchanged, with `npm install` and with `--package-lock-only` alike. The standard remedy for a transitive advisory is therefore unavailable here, which is a fact about this repository worth knowing before anyone reaches for it again."
     },
     "GHSA-w5hq-g745-h8pq": {
       "severity": "moderate",
       "package": "uuid",
       "title": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Missing buffer bounds check in v3/v5/v6 when a buffer is passed. Directus calls uuid without a buffer argument."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Missing buffer bounds check in v3/v5/v6 when a buffer is passed. Directus calls uuid without a buffer argument."
     },
     "GHSA-w8wr-v893-vjvp": {
       "severity": "moderate",
       "package": "tar",
       "title": "node-tar: Process crash via PAX numeric path type confusion",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix exists at any version: @directus/api pins tar 7.5.8 exactly, Directus 12.3.1 is the newest release, and an npm `overrides` entry is silently ignored in this tree (verified on 22.09.2026 — overriding tar to a version that does not exist still exits 0 and changes nothing, and forcing the lockfile to re-resolve strips integrity hashes from 2019 of 2022 entries)."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Hardlink path traversal and decompression DoS in node-tar. Reached only where an archive is extracted: node-gyp at install time on our own machine, and Directus when an extension is installed — we install none. No fix is available to us today, re-measured on 23.09.2026 rather than assumed. (a) @directus/api 39.1.0 pins tar 7.5.8 exactly; the critical GHSA-23hp-3jrh-7fpw covers <=7.5.18. (b) Directus 12.4.1 exists and installing it drops this workspace from 49 advisories to 30 — but tar 7.5.8 survives it, so the critical is untouched. It was published on 23.09.2026, the day this was measured, and 12.4.0 the day before; taking a release that is one day old is exactly what our update policy forbids, and Dependabot's 14-day cooldown will offer it when it has been looked at by other people. Revisit after 07.10.2026. (c) An npm `overrides` entry does nothing in this tree, and the earlier note under-stated the evidence. Re-tested with a REAL version (tar 7.5.22, which is patched) and with a second unrelated package: npm 11.16.0 never writes the overrides field into package-lock.json at all and node_modules is unchanged, with `npm install` and with `--package-lock-only` alike. The standard remedy for a transitive advisory is therefore unavailable here, which is a fact about this repository worth knowing before anyone reaches for it again."
     },
     "GHSA-wmmp-3585-3rmp": {
       "severity": "moderate",
       "package": "nodemailer",
       "title": "Nodemailer: IDN/Punycode domain allow-list bypass leads to email delivery to an attacker-c",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus mail transport. We configure no SMTP credentials, so Directus sends no mail and this code never runs."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Directus mail transport. We configure no SMTP credentials, so Directus sends no mail and this code never runs."
     },
     "GHSA-x5fp-wj9c-mxmx": {
       "severity": "moderate",
       "package": "qs",
       "title": "qs array-limit bypass via bracket-key comma parsing",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Query-string array-limit bypass in the Directus HTTP layer. Directus is not publicly reachable — it is a local content tool, absent from every workflow in .github/workflows."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Query-string array-limit bypass in the Directus HTTP layer. Directus is not publicly reachable — it is a local content tool, absent from every workflow in .github/workflows."
     },
     "GHSA-x5gf-qvw8-r2rm": {
       "severity": "low",
       "package": "pm2",
       "title": "pm2 Regular Expression Denial of Service vulnerability",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Process manager bundled by Directus. We start it with `directus start`; pm2 is not invoked."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. Process manager bundled by Directus. We start it with `directus start`; pm2 is not invoked."
     },
     "GHSA-xj6q-8x83-jv6g": {
       "severity": "moderate",
       "package": "axios",
       "title": "Axios: Prototype pollution auth subfields can inject Basic auth",
-      "why": "apps/cms is Directus 12.3.1 — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
+      "why": "apps/cms is Directus 12.3.1 (12.4.1 released 23.09.2026, deliberately not taken yet — see below) — one dependency we chose, and a tree of ~1500 we did not. It is a local editing tool: it appears in no workflow, is deployed nowhere, and the public site reads from our own API, never from Directus. HTTP client inside @directus/api and its update-check. The requests are ones Directus makes to hosts it chose; no reader input reaches a URL or an auth field. Fix requires a Directus release."
     }
   },
   "apps/web": {
