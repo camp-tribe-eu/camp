@@ -20,16 +20,19 @@ const CAMPSITE =
   'https://www.datatourisme.fr/ontology/core#PlaceOfInterest|https://www.datatourisme.fr/ontology/core#CampingAndCaravanning';
 
 const row = (over: Record<string, string> = {}) => ({
-  URI_ID_du_POI: 'https://data.datatourisme.fr/13/eb3a71b4-4b02-347b-b088-e1566d0cd566',
+  URI_ID_du_POI:
+    'https://data.datatourisme.fr/13/eb3a71b4-4b02-347b-b088-e1566d0cd566',
   Nom_du_POI: 'Camping Port Pothuau',
   Categories_de_POI: CAMPSITE,
   Latitude: '43.120449',
   Longitude: '6.184928',
   Adresse_postale: '101 chemin des Ourlèdes Les Salins',
   Code_postal_et_commune: '83400#Hyères',
-  Classements_du_POI: '4 étoiles#Classement officiel des hébergements touristiques',
+  Classements_du_POI:
+    '4 étoiles#Classement officiel des hébergements touristiques',
   Date_de_mise_a_jour: '2026-08-28',
-  Description: 'Situé à 1 km de la mer, le camping bénéficie d’un paysage naturel.',
+  Description:
+    'Situé à 1 km de la mer, le camping bénéficie d’un paysage naturel.',
   Contacts_du_POI: '#https://www.campingportpothuau.com/',
   ...over,
 });
@@ -182,7 +185,9 @@ describe('the commune column holds two values', () => {
 describe('what counts as a campsite', () => {
   it('accepts the two categories the source uses', () => {
     expect(isCampsite({ Categories_de_POI: CAMPSITE })).toBe(true);
-    expect(isCampsite({ Categories_de_POI: 'x#HotellerieDePleinAir' })).toBe(true);
+    expect(isCampsite({ Categories_de_POI: 'x#HotellerieDePleinAir' })).toBe(
+      true,
+    );
   });
 
   it('rejects everything else', () => {

@@ -106,7 +106,12 @@ export type Coverage = {
   newestUpdate: string;
 };
 
-export function summarise(file: string, spots: ReturnType<typeof parseRow>[], rows: number, campsiteRows: number): Coverage {
+export function summarise(
+  file: string,
+  spots: ReturnType<typeof parseRow>[],
+  rows: number,
+  campsiteRows: number,
+): Coverage {
   const kept = spots.filter((s): s is NonNullable<typeof s> => s !== null);
   const dates = kept.map((s) => s.updatedAt).sort();
   return {
@@ -146,7 +151,9 @@ export function verdict(c: Coverage): string[] {
   return problems;
 }
 
-async function readCsv(path: string): Promise<{ rows: DatatourismeRow[]; total: number }> {
+async function readCsv(
+  path: string,
+): Promise<{ rows: DatatourismeRow[]; total: number }> {
   const rl = createInterface({
     input: createReadStream(path, { encoding: 'utf8' }),
     crlfDelay: Infinity,
@@ -184,20 +191,37 @@ async function main() {
     const check = (name: string, got: unknown, want: unknown) => {
       const ok = JSON.stringify(got) === JSON.stringify(want);
       if (!ok) {
-        console.error(`  ✗ ${name}\n      got  ${JSON.stringify(got)}\n      want ${JSON.stringify(want)}`);
+        console.error(
+          `  ✗ ${name}\n      got  ${JSON.stringify(got)}\n      want ${JSON.stringify(want)}`,
+        );
         failures++;
       } else console.log(`  ✓ ${name}`);
     };
 
     check('a plain line splits', splitCsvLine('a,b,c'), ['a', 'b', 'c']);
-    check('a quoted comma stays inside its field', splitCsvLine('a,"b,c",d'), ['a', 'b,c', 'd']);
-    check('a doubled quote is one quote', splitCsvLine('a,"say ""hi""",b'), ['a', 'say "hi"', 'b']);
+    check('a quoted comma stays inside its field', splitCsvLine('a,"b,c",d'), [
+      'a',
+      'b,c',
+      'd',
+    ]);
+    check('a doubled quote is one quote', splitCsvLine('a,"say ""hi""",b'), [
+      'a',
+      'say "hi"',
+      'b',
+    ]);
     check('an empty field survives', splitCsvLine('a,,b'), ['a', '', 'b']);
 
     const base: Coverage = {
-      file: 'x', rows: 100, campsiteRows: 10, parsed: 10, rejected: 0,
-      withStars: 9, withDescription: 10, withWebsite: 9,
-      oldestUpdate: '2022-01-04', newestUpdate: '2026-09-23',
+      file: 'x',
+      rows: 100,
+      campsiteRows: 10,
+      parsed: 10,
+      rejected: 0,
+      withStars: 9,
+      withDescription: 10,
+      withWebsite: 9,
+      oldestUpdate: '2022-01-04',
+      newestUpdate: '2026-09-23',
     };
     check('a healthy file passes', verdict(base), []);
     // 🔴 The silent failure this guard exists for.
@@ -211,9 +235,17 @@ async function main() {
       verdict({ ...base, parsed: 5 }).length,
       1,
     );
-    check('an empty file is refused', verdict({ ...base, rows: 0, campsiteRows: 0, parsed: 0 }).length, 2);
+    check(
+      'an empty file is refused',
+      verdict({ ...base, rows: 0, campsiteRows: 0, parsed: 0 }).length,
+      2,
+    );
 
-    console.log(failures ? `\n✗ ${failures} self-test failure(s)` : '\n✓ self-test passed');
+    console.log(
+      failures
+        ? `\n✗ ${failures} self-test failure(s)`
+        : '\n✓ self-test passed',
+    );
     process.exit(failures ? 1 : 0);
   }
 
@@ -226,17 +258,27 @@ async function main() {
   for (const path of args) {
     const { rows, total } = await readCsv(path);
     const spots = rows.map(parseRow);
-    const c = summarise(path.split('/').pop() ?? path, spots, total, rows.length);
-    const pct = (n: number) => (c.parsed ? `${((100 * n) / c.parsed).toFixed(1)}%` : '—');
+    const c = summarise(
+      path.split('/').pop() ?? path,
+      spots,
+      total,
+      rows.length,
+    );
+    const pct = (n: number) =>
+      c.parsed ? `${((100 * n) / c.parsed).toFixed(1)}%` : '—';
 
     console.log(`\n${c.file}`);
     console.log(`  POI in file          ${c.rows}`);
     console.log(`  campsite rows        ${c.campsiteRows}`);
-    console.log(`  parsed               ${c.parsed}   (rejected ${c.rejected})`);
+    console.log(
+      `  parsed               ${c.parsed}   (rejected ${c.rejected})`,
+    );
     console.log(`  official stars       ${pct(c.withStars)}`);
     console.log(`  description          ${pct(c.withDescription)}`);
     console.log(`  website              ${pct(c.withWebsite)}`);
-    console.log(`  last updated between ${c.oldestUpdate} and ${c.newestUpdate}`);
+    console.log(
+      `  last updated between ${c.oldestUpdate} and ${c.newestUpdate}`,
+    );
     problems.push(...verdict(c));
   }
 

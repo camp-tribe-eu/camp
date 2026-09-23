@@ -22,7 +22,8 @@
 // optional here: see the note on it.
 
 /** The official French classification. Any other scheme is not stars. */
-export const OFFICIAL_SCHEME = 'Classement officiel des hébergements touristiques';
+export const OFFICIAL_SCHEME =
+  'Classement officiel des hébergements touristiques';
 
 /** The accessibility mark, which is the other scheme worth keeping. */
 export const ACCESSIBILITY_SCHEME = 'Marque Tourisme et Handicap';
@@ -150,9 +151,7 @@ function hostOf(url: string): string {
 export function urlsOf(contacts: string | undefined): string[] {
   const out: string[] = [];
   for (const part of (contacts ?? '').split(/<>|\|/)) {
-    const value = part.includes('#')
-      ? part.slice(part.indexOf('#') + 1)
-      : part;
+    const value = part.includes('#') ? part.slice(part.indexOf('#') + 1) : part;
     const url = value.trim();
     if (/^https?:\/\/\S+$/i.test(url)) out.push(url);
   }
