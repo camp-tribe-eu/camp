@@ -168,3 +168,12 @@ themes-private/
 apps/web/public/_headers
 apps/web/public/maplibre/
 apps/web/src/generated/
+
+# CAMP-103: local backups of the data we cannot download again.
+#
+# 🔴 The default location is OUTSIDE the repository ($HOME/CampTribe-backups)
+# on purpose — this repository is public, and a backup holds every review,
+# every human correction and every computed context we own. This line is
+# the second line of that defence, not the first.
+CampTribe-backups/
+*.csv.gz
