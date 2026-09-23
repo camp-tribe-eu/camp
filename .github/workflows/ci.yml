@@ -328,13 +328,21 @@ jobs:
   # CAMP-60, debt #3. Visual regression on the pages where a CSS change
   # is invisible to every other test.
   #
-  # 🔴 BOOTSTRAP MODE. There are no baselines in the repository yet, and
-  # there cannot be: a baseline is a rendering by a particular platform,
-  # and every machine we develop on is macOS while this runner is Linux.
-  # So this run GENERATES them and uploads them; they are then committed,
-  # and the step below flips to comparison. `continue-on-error` is here
-  # for exactly that one commit and is removed with it — a permanently
-  # non-failing check is not a check.
+  # 🔴 The baselines were generated on this runner and committed, because
+  # a baseline is a rendering by a particular platform and every machine
+  # we develop on is macOS while this is Linux. That is also why the
+  # snapshot path carries {platform}: a locally generated file can never
+  # be mistaken for the real baseline.
+  #
+  # To change them on purpose: change the page, let this job fail, read
+  # the diff in the uploaded report, and only then re-run with
+  # `--update-snapshots` and commit what comes back. Never update them to
+  # make a red build green without looking at the diff — that is how a
+  # visual suite becomes a rubber stamp.
+  #
+  # It earned its place on the first run: the very first baseline showed
+  # "8 of 5 facilities recorded" on the home page, a real defect that
+  # none of the 642 other tests could see.
   visual:
     runs-on: ubuntu-latest
     services:
@@ -364,21 +372,21 @@ jobs:
       # The fixture is what makes screenshotting a data-driven site
       # possible: ci-seed.sql is the same rows on every run, so the
       # counts and names on these pages do not move.
-      - name: Screenshots
-        id: shots
-        continue-on-error: true
-        run: npm run test:visual --workspace=apps/web -- --update-snapshots
+      - name: Nothing looks different
+        run: npm run test:visual --workspace=apps/web
         env:
           CI: true
 
-      - name: Hand the generated baselines over to be committed
-        uses: actions/upload-artifact@v7
-        if: always()
+      # On a failure this carries both the diff and the actual render, so
+      # a change can be judged rather than rubber-stamped.
+      - uses: actions/upload-artifact@v7
+        if: failure()
         with:
-          name: visual-baselines
-          path: apps/web/tests/visual/__screenshots__/
+          name: visual-diff
+          path: |
+            apps/web/test-results/
+            apps/web/playwright-report/
           retention-days: 7
-          if-no-files-found: error
 
   lighthouse:
     runs-on: ubuntu-latest
