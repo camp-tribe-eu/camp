@@ -187,7 +187,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           <blockquote
             lang={spot.descriptionLang ?? undefined}
             cite={
-              spot.sources.find((s) => s.fields.includes('description'))?.ref
+              spot.sources?.find((s) => s.fields.includes('description'))?.ref
             }
             className="max-w-prose border-l-2 border-line-2 pl-4 text-ink-2"
           >

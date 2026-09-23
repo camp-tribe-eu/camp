@@ -23,6 +23,9 @@ export default function TravelNotice({
   return (
     <aside
       data-testid="travel-notice"
+      // Same reasoning as the attribution block: word-for-word identical
+      // on every campsite page, so it carries no signal about duplication.
+      data-boilerplate="travel-notice"
       className={`rounded-card border border-line-2 bg-surface-2 p-3 text-xs leading-5 text-ink-2 ${className}`}
     >
       <p>

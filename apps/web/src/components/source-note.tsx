@@ -23,13 +23,28 @@ import {
 // attributes neither correctly, and would leave us unable to answer the
 // one question CAMP-87 has to answer — what exactly is derived from what.
 
-export default function SourceNote({ sources }: { sources: SpotSource[] }) {
-  const described = describeSources(sources);
+export default function SourceNote({
+  sources,
+}: {
+  sources: SpotSource[] | undefined;
+}) {
+  // 🔴 Tolerant of a missing field, and not out of politeness.
+  //
+  // The API and the site deploy separately. An API that has not yet
+  // learned about `sources` returns a spot without it, and the first
+  // version of this crashed the whole page render with "a is not
+  // iterable" — every campsite page down because one field was absent.
+  // A missing attribution block is a bug; a blank site is an outage.
+  const described = describeSources(sources ?? []);
   if (described.length === 0) return null;
 
   return (
     <section
       data-testid="source-note"
+      // 🔴 Identical on every campsite page by design, so it says nothing
+      // about whether two pages describe two different campsites. The
+      // near-duplicate guard strips it — see check-duplicate-pages.mjs.
+      data-boilerplate="attribution"
       aria-labelledby="sources-heading"
       className="mt-8 rounded-card border border-line-2 bg-surface-2 p-4"
     >
