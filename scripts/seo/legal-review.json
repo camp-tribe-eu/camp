@@ -1,0 +1,9 @@
+{
+  "_": "CAMP-56. The record of who read our legal pages before they went live. See scripts/seo/check-legal-review.mjs. While `acknowledgedUntil` is in the future a public build warns; past it, it fails. That is the same shape as known-advisories.json: a debt we have looked at, with a date it stops being acceptable.",
+  "jurisdiction": "Belgium — Wetboek van economisch recht, plus GDPR and Directive 2011/83/EU. The company is UTD BV, Antwerpen, so a Dutch or French lawyer is not a substitute.",
+  "reviewedBy": null,
+  "reviewedOn": null,
+  "note": "Owner debt #4. Nothing here is signed off yet. Filling this in is a statement that a qualified lawyer read these exact versions — not that somebody skimmed them.",
+  "pages": {},
+  "acknowledgedUntil": "2026-10-31"
+}

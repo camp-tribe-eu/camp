@@ -18,6 +18,12 @@ on:
 # Credentials are throwaway and local to the runner; nothing here is a secret.
 env:
   CI_DATABASE_URL: postgres://postgres:postgres@localhost:5432/camptribe_test
+  # CAMP-92. One value, used twice in the e2e job: once to build the
+  # bundle (NEXT_PUBLIC_* is inlined at build time) and once for the test
+  # process, because the security spec recomputes the expected CSP from
+  # the same environment. Two copies of this string would drift, and the
+  # symptom would be a CSP mismatch that looks like a security regression.
+  CI_ERROR_ENDPOINT: http://localhost:3001/client-errors
 
 jobs:
   # Runs first and needs nothing: no database, no build, no browsers. A
@@ -63,6 +69,39 @@ jobs:
         run: node scripts/ci/check-branch-drift.mjs --self-test
       - name: This branch has not drifted from main
         run: node scripts/ci/check-branch-drift.mjs
+
+      # 🔴 A broken workflow file is the failure that reports nothing.
+      #
+      # On 21.09.2026 a step in osm-weekly.yml was given
+      # `if: ${{ secrets.X != '' }}`. `secrets` is not available in a
+      # step condition, so the file became unparseable — and GitHub's
+      # answer to an unparseable workflow is a run that fails in 0
+      # seconds with no jobs and therefore no log to read. CI was down
+      # for two days and the only visible symptom was a red tick.
+      #
+      # actionlint was checked against that exact commit before being
+      # added here: it names the line and the reason. shellcheck comes
+      # with the runner, so the `run:` bodies are checked too — which is
+      # most of what these workflows are.
+      #
+      # Pinned to a version rather than a moving tag: an unpinned linter
+      # can start failing the build because of somebody else's release.
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.7
+        run: |
+          set -euo pipefail
+          curl -sSL -o actionlint.tgz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          tar xzf actionlint.tgz actionlint
+          ./actionlint --version
+      - name: Workflow files parse and their scripts are sane
+        run: ./actionlint
+
+      # The silence watchdog's own logic. The check that runs daily and
+      # the check that is tested are the same file.
+      - name: Silence watchdog still catches a job that stopped
+        run: node scripts/ci/check-schedule.mjs --self-test
 
   web:
     runs-on: ubuntu-latest
@@ -165,6 +204,16 @@ jobs:
       - name: Nothing is left blocking the index
         run: node scripts/seo/check-indexing.mjs --expect public
 
+      # CAMP-56. The legal pages may not go live unread.
+      #
+      # 🔴 Two steps, as with every guard here: first prove it still
+      # refuses an unreviewed public build, then run it. Without the
+      # first, a gate that has quietly stopped gating reports safety.
+      - name: Legal gate still refuses an unreviewed public build
+        run: node scripts/seo/check-legal-review.mjs --self-test
+      - name: Legal pages are reviewed, or the debt is still in date
+        run: node scripts/seo/check-legal-review.mjs --expect public
+
       - name: Sitemap lists only indexable pages
         run: node scripts/seo/check-sitemap.mjs --mode public
 
@@ -255,6 +304,18 @@ jobs:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
         run: npx ts-node src/spots/verify-filters.ts
 
+      # CAMP-103. The backup holds the only copy of what we cannot
+      # download again — the computed context, which is rationed by
+      # Open-Meteo's per-coordinate daily quota and therefore costs weeks
+      # to rebuild. Its restore must never overwrite newer work with
+      # older, and that rule is three WHERE clauses. This drives them
+      # against temp tables; it was checked by removing the guard, which
+      # makes it fail.
+      - name: Restoring a backup cannot destroy newer work
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: ./scripts/osm-pipeline/backup-local.sh --self-test
+
   e2e:
     runs-on: ubuntu-latest
     services:
@@ -280,6 +341,7 @@ jobs:
         with:
           site-mode: closed
           database-url: ${{ env.CI_DATABASE_URL }}
+          error-endpoint: ${{ env.CI_ERROR_ENDPOINT }}
       # Cross-browser (chromium/firefox/webkit) + cross-platform (desktop/mobile/tablet
       # viewports) + accessibility (axe-core, WCAG AA) + console-error capture — CAMP-13.
       # The API is still running from build-site: the tests resolve their
@@ -288,6 +350,10 @@ jobs:
         env:
           CI: true
           API_BASE_URL: http://localhost:3001
+          # CAMP-92. Reading client errors back is token-guarded; this is
+          # the same throwaway value build-site gives the API it starts.
+          CLIENT_ERRORS_READ_TOKEN: ci-read-token
+          NEXT_PUBLIC_ERROR_ENDPOINT: ${{ env.CI_ERROR_ENDPOINT }}
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

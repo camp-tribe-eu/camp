@@ -13,6 +13,15 @@ import { SECURITY_HEADERS } from '../../scripts/security-headers.mjs';
 //
 // Both now come from one module, and this asserts what actually arrives
 // over HTTP.
+//
+// 🔴 The module derives some of the policy from the environment — the
+// tile origins have always worked this way, and CAMP-92 added the error
+// endpoint's origin to connect-src. So this test only holds when the
+// test process is given the SAME environment the build was given. In CI
+// that is one value, `CI_ERROR_ENDPOINT`, passed to both; locally it
+// means building and testing in one shell. Getting it wrong shows up as
+// a CSP mismatch that reads like a security regression and is not one —
+// which is why it is written down here rather than learned twice.
 
 /** Paths that must all carry the policy, not just the HTML pages. */
 const PATHS = ['/', '/camping', '/map', '/data/spots.geojson', '/robots.txt'];
