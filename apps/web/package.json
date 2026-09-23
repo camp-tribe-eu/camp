@@ -10,7 +10,8 @@
     "test:e2e": "playwright test",
     "lighthouse": "lhci autorun",
     "prebuild": "node scripts/clear-fetch-cache.mjs && node scripts/gen-headers.mjs && node scripts/copy-maplibre-worker.mjs && node scripts/gen-gone.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:visual": "VISUAL=1 playwright test"
   },
   "dependencies": {
     "maplibre-gl": "^6.10.0",

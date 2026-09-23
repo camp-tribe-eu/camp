@@ -88,4 +88,28 @@ test.describe('security headers', () => {
     const allow = res.headers()['access-control-allow-origin'];
     expect(allow === undefined || allow === '').toBeTruthy();
   });
+
+  // 🔴 CAMP-60, debt #4. The test above, alone, is worth very little:
+  // it passes just as happily when CORS is switched off entirely, when
+  // the API is not running, and when the allowlist is empty. Every
+  // negative assertion needs its positive twin, or it is only asserting
+  // that nothing happened.
+  test('and it IS reachable from the origin we allowed', async ({
+    request,
+  }) => {
+    const base = process.env.API_BASE_URL ?? 'http://localhost:3001';
+    const site = 'http://localhost:3000';
+    const res = await request.fetch(`${base}/spots/summary`, {
+      method: 'GET',
+      headers: { Origin: site },
+    });
+    expect(res.status()).toBe(200);
+    const allow = res.headers()['access-control-allow-origin'];
+    expect(
+      allow,
+      'the allowlisted origin was refused — CORS is not configured at all',
+    ).toBe(site);
+    // 🔴 And never the wildcard. `*` would make the allowlist decorative.
+    expect(allow).not.toBe('*');
+  });
 });

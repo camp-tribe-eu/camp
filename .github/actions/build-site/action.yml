@@ -68,6 +68,13 @@ runs:
         #
         # 3000 would also collide with `next start`, which Lighthouse uses.
         PORT: '3001'
+        # CAMP-60, debt #4. The allowlist is empty unless CORS_ORIGINS is
+        # set, which is the right default — an unconfigured machine stays
+        # closed. But it also means the only CORS assertion we had was
+        # negative: "an unknown origin gets nothing", which stays green
+        # when CORS is switched off entirely. Setting it here lets the
+        # test assert both directions.
+        CORS_ORIGINS: 'http://localhost:3000'
       run: |
         npx nest start > /tmp/api.log 2>&1 &
         # The build fetches from it, so a race here would produce an empty
