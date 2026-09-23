@@ -93,10 +93,15 @@ export default function Attribution() {
 
       <H2 id="type">Typefaces</H2>
       <P>
-        Text is set in Noto Sans, released under the{' '}
+        Text is set in <B>Archivo</B> and <B>Archivo Narrow</B> by
+        Omnibus-Type, released under the{' '}
         <A href="https://openfontlicense.org/">SIL Open Font License</A>, and
         served from our own domain rather than from a font network — so
         reading this page tells nobody else that you did.
+      </P>
+      <P>
+        The labels drawn on the map itself are set in Noto Sans, which
+        comes from the tile provider along with the imagery, not from us.
       </P>
 
       <H2 id="wrong">Something wrong on the map?</H2>

@@ -204,3 +204,29 @@ test.describe('the legal pages', () => {
     await expect(footer).toContainText('Belgium');
   });
 });
+
+test.describe('security.txt', () => {
+  // 🔴 RFC 9116 makes `Expires` mandatory and requires it to be in the
+  // future. A file past its expiry is not merely untidy — the RFC says it
+  // should be treated as no longer valid, so the contact stops counting.
+  // Ours is computed at build time; this proves the arithmetic.
+  test('is served, names a contact, and has not expired', async ({
+    request,
+  }) => {
+    const res = await request.get('/.well-known/security.txt');
+    expect(res.ok(), 'security.txt is not served').toBe(true);
+    expect(res.headers()['content-type']).toContain('text/plain');
+
+    const body = await res.text();
+    expect(body).toContain('Contact: mailto:');
+    expect(body).toContain('Canonical:');
+
+    const expires = /^Expires:\s*(.+)$/m.exec(body)?.[1];
+    expect(expires, 'Expires is required by RFC 9116').toBeTruthy();
+    const when = Date.parse(expires!.trim());
+    expect(Number.isNaN(when)).toBe(false);
+    expect(when, 'security.txt has expired').toBeGreaterThan(Date.now());
+    // And inside the one-year ceiling the RFC sets.
+    expect(when).toBeLessThan(Date.now() + 366 * 24 * 60 * 60 * 1000);
+  });
+});

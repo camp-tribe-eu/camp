@@ -44,13 +44,18 @@ export default function Privacy() {
       </P>
       <UL>
         <li>
+          <B>Who does it:</B> Cloudflare, Inc., as our hosting provider and
+          processor.
+        </li>
+        <li>
           <B>Legal basis:</B> our legitimate interests in operating and
           securing the service — Article 6(1)(f) GDPR.
         </li>
         <li>
-          <B>Kept for:</B> as long as our hosting provider retains its
-          operational logs, which is a matter of days, and no longer than
-          thirty days.
+          <B>Kept for:</B> we do not receive these logs, do not store them
+          and cannot search them. They exist inside our provider&rsquo;s
+          infrastructure under its own retention policy, for operational
+          and security purposes only.
         </li>
       </UL>
 
@@ -92,12 +97,17 @@ export default function Privacy() {
 
       <H2 id="who-else">Who else sees it</H2>
       <P>
-        Our hosting provider processes data on our behalf, under a contract
-        that obliges it to act only on our instructions — Article 28 GDPR.
-        Where that involves a transfer outside the European Economic Area,
-        it is covered by the European Commission&rsquo;s Standard
-        Contractual Clauses. Nobody else receives personal data from this
-        site, except where we are legally required to disclose it.
+        <B>Cloudflare, Inc.</B> hosts this site and processes data on our
+        behalf, under a contract that obliges it to act only on our
+        instructions — Article 28 GDPR. Where that involves a transfer
+        outside the European Economic Area, it is covered by the European
+        Commission&rsquo;s Standard Contractual Clauses.
+      </P>
+      <P>
+        That is the complete list. Nobody else receives personal data from
+        this site, except where we are legally required to disclose it — and
+        if that list ever grows, this page grows with it in the same
+        release.
       </P>
 
       <H2 id="map">The map</H2>
