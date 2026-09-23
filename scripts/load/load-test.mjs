@@ -36,6 +36,9 @@
 // latency as a number to print. The soak profile, run deliberately, is
 // where a latency budget means something.
 
+import { appendFileSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { argv, env, exit } from 'node:process';
 
 // ---------------------------------------------------------------------
@@ -245,14 +248,25 @@ function report(result, profile, v) {
     `throughput ${Math.round((result.total / profile.durationMs) * 1000)} req/s at ${profile.concurrency} concurrent`,
   );
   console.log('');
-  for (const [name, stat] of [...result.byScenario].sort()) {
+  // Tolerant of a missing map: this function has already killed one CI
+  // step after the run it was reporting on had passed, and a reporter
+  // that can throw turns a green result into a red build.
+  for (const [name, stat] of [...(result.byScenario ?? new Map())].sort()) {
     console.log(
       `  ${name.padEnd(28)} ${String(stat.n).padStart(5)}  p99 ${Math.round(percentile(stat.ms, 99))}ms`,
     );
   }
 
+  // 🔴 `appendFileSync` is imported at the top, not require()d here.
+  //
+  // It was a lazy `require('node:fs')` and it only ever ran when
+  // GITHUB_STEP_SUMMARY was set — that is, only in CI, never once on a
+  // laptop. Node refuses a file that mixes require() with top-level
+  // await (ERR_AMBIGUOUS_MODULE_SYNTAX), so the whole step died AFTER
+  // reporting a perfectly healthy run. A branch that only executes in
+  // CI is a branch nothing tests, which is why the self-test below now
+  // drives this one too.
   if (env.GITHUB_STEP_SUMMARY) {
-    const { appendFileSync } = require('node:fs');
     appendFileSync(
       env.GITHUB_STEP_SUMMARY,
       `### Load test\n\n- ${result.total} requests, ${result.failed} non-2xx, ${result.errors} connection errors\n- p50 ${p(50)}, p90 ${p(90)}, p99 ${p(99)}\n`,
@@ -294,6 +308,7 @@ function selfTest() {
     errors: 0,
     invalidBodies: 0,
     latencies: Array(1000).fill(50),
+    byScenario: new Map([['map/points istria', { n: 1000, ms: Array(1000).fill(50) }]]),
   };
   const smoke = PROFILES.smoke;
 
@@ -340,6 +355,26 @@ function selfTest() {
   check('every scenario asks a different question', paths.size, scenarios().length);
   check('the heavy viewport is included', scenarios().some((s) => s.name.includes('everything')), true);
   check('weights expand', weighted([{ weight: 2, name: 'a' }, { weight: 1, name: 'b' }]).length, 3);
+
+  // 🔴 The step-summary branch, driven on purpose. It is the one piece
+  // of this file that runs only under GITHUB_STEP_SUMMARY, and the first
+  // version of it crashed the whole step in CI while the load test
+  // itself had just passed. Untested branches are where that lives.
+  {
+    const tmp = join(tmpdir(), `camp-load-summary-${process.pid}`);
+    const previous = env.GITHUB_STEP_SUMMARY;
+    env.GITHUB_STEP_SUMMARY = tmp;
+    try {
+      report(clean, smoke, verdict(clean, smoke));
+      const written = readFileSync(tmp, 'utf8');
+      check('the CI step summary is written, not crashed on', written.includes('Load test'), true);
+      check('and it carries the numbers', written.includes('1000 requests'), true);
+    } finally {
+      if (previous === undefined) delete env.GITHUB_STEP_SUMMARY;
+      else env.GITHUB_STEP_SUMMARY = previous;
+      rmSync(tmp, { force: true });
+    }
+  }
 
   console.log(failures ? `\n✗ ${failures} self-test failure(s)` : '\n✓ self-test passed');
   exit(failures ? 1 : 0);
