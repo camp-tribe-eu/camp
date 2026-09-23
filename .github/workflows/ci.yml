@@ -64,6 +64,39 @@ jobs:
       - name: This branch has not drifted from main
         run: node scripts/ci/check-branch-drift.mjs
 
+      # 🔴 A broken workflow file is the failure that reports nothing.
+      #
+      # On 21.09.2026 a step in osm-weekly.yml was given
+      # `if: ${{ secrets.X != '' }}`. `secrets` is not available in a
+      # step condition, so the file became unparseable — and GitHub's
+      # answer to an unparseable workflow is a run that fails in 0
+      # seconds with no jobs and therefore no log to read. CI was down
+      # for two days and the only visible symptom was a red tick.
+      #
+      # actionlint was checked against that exact commit before being
+      # added here: it names the line and the reason. shellcheck comes
+      # with the runner, so the `run:` bodies are checked too — which is
+      # most of what these workflows are.
+      #
+      # Pinned to a version rather than a moving tag: an unpinned linter
+      # can start failing the build because of somebody else's release.
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.7
+        run: |
+          set -euo pipefail
+          curl -sSL -o actionlint.tgz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          tar xzf actionlint.tgz actionlint
+          ./actionlint --version
+      - name: Workflow files parse and their scripts are sane
+        run: ./actionlint
+
+      # The silence watchdog's own logic. The check that runs daily and
+      # the check that is tested are the same file.
+      - name: Silence watchdog still catches a job that stopped
+        run: node scripts/ci/check-schedule.mjs --self-test
+
   web:
     runs-on: ubuntu-latest
     services:
@@ -254,6 +287,18 @@ jobs:
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
         run: npx ts-node src/spots/verify-filters.ts
+
+      # CAMP-103. The backup holds the only copy of what we cannot
+      # download again — the computed context, which is rationed by
+      # Open-Meteo's per-coordinate daily quota and therefore costs weeks
+      # to rebuild. Its restore must never overwrite newer work with
+      # older, and that rule is three WHERE clauses. This drives them
+      # against temp tables; it was checked by removing the guard, which
+      # makes it fail.
+      - name: Restoring a backup cannot destroy newer work
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: ./scripts/osm-pipeline/backup-local.sh --self-test
 
   e2e:
     runs-on: ubuntu-latest

@@ -1,8 +1,8 @@
 name: OSM weekly extract
 
-# CAMP-28: rebuild the campsite extract once a week.
+# CAMP-28 + CAMP-103: rebuild the campsite extract once a week, and keep it.
 #
-# OSM is alive - the community adds and corrects campsites daily. Without a
+# OSM is alive — the community adds and corrects campsites daily. Without a
 # schedule our map is half a year stale by summer, and the one thing we do
 # have over the competition is data that is not wrong.
 #
@@ -13,9 +13,26 @@ name: OSM weekly extract
 # they belong here. The *import* does not: it needs the production
 # database, and giving a third-party runner a route into our database would
 # mean opening it to the internet for the sake of a cron job. The runner
-# produces a file; the VPS pulls that file and imports it locally.
+# produces a file; the machine holding the database pulls that file and
+# imports it locally.
 #
-# Repo is public. Never print user data, emails or secrets - the logs are
+# 🔴 CAMP-103 changed two things about that, both measured on 23.09.2026.
+#
+# 1. The output used to be an artifact with `retention-days: 14`. Nothing
+#    imported it, so every run's work evaporated a fortnight later and the
+#    project accumulated nothing. It is now a GitHub Release asset: free on
+#    a public repository, no expiry, and reachable by URL from any machine
+#    without a token. The R2 step below still runs when its secrets appear
+#    (CAMP-97), but we no longer lose data while waiting for it.
+#
+# 2. The countries used to be `europe/slovenia europe/croatia`, and the
+#    whole list ran in one job. Adding the market order to one job would
+#    have meant 16 GB of downloads sequentially inside one 90-minute
+#    timeout, with France's failure losing Croatia's work. It is a matrix:
+#    each country is its own job, they run at once, and `fail-fast: false`
+#    means one country's bad day costs that country only.
+#
+# Repo is public. Never print user data, emails or secrets — the logs are
 # readable by any logged-in GitHub account.
 
 on:
@@ -26,120 +43,300 @@ on:
   workflow_dispatch:
     inputs:
       regions:
-        description: 'Space-separated Geofabrik paths, e.g. "europe/slovenia europe/austria"'
+        description: 'Space-separated Geofabrik paths; empty means the full list'
         required: false
-        default: 'europe/slovenia'
+        default: ''
+
+# Least privilege by default; the publish job raises it for itself.
+permissions:
+  contents: read
 
 env:
-  # Kept small on purpose until CAMP-97 settles where the output goes.
-  # Adding a country is one word here, and the run time scales with it.
-  #
   # 🔴 This must list every country we actually hold. A country missing
   # here does NOT get its campsites marked gone — the gone rule is
   # scoped per country and only runs when someone imports that country —
   # which is precisely why it is easy to miss: Croatia's data would
   # simply stop being refreshed while Slovenia kept updating, so closures
-  # and new sites never arrive and nothing anywhere looks wrong. Croatia
-  # was imported on 22.09.2026 and belongs here.
-  DEFAULT_REGIONS: 'europe/slovenia europe/croatia'
+  # and new sites never arrive and nothing anywhere looks wrong.
+  #
+  # Order is the market order from the research, then the two we already
+  # hold. Sizes measured 23.09.2026 from Geofabrik's own headers, because
+  # the reason this used to be two countries was a guess about cost:
+  #   SI 299 MB · HR 191 MB · AT 773 MB · NL 1.3 GB · CH 521 MB
+  #   IT 2.1 GB · ES 1.4 GB · FR 4.9 GB · DE 4.6 GB
+  # 16 GB in total, but never on one runner at one time — see the matrix.
+  DEFAULT_REGIONS: >-
+    europe/slovenia
+    europe/croatia
+    europe/austria
+    europe/netherlands
+    europe/switzerland
+    europe/italy
+    europe/spain
+    europe/france
+    europe/germany
 
 jobs:
-  extract:
+  # Turn the region list into a matrix. It is its own job because a
+  # matrix has to be JSON before the jobs it drives are created.
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    env:
-      # Whether the R2 step can run. Computed once here because a step's
-      # `if` can read job env but must not read `secrets` directly.
-      HAS_R2: ${{ secrets.R2_ACCESS_KEY_ID != '' }}
+    outputs:
+      regions: ${{ steps.plan.outputs.regions }}
+      count: ${{ steps.plan.outputs.count }}
     steps:
-      - uses: actions/checkout@v7
+      - id: plan
+        # 🔴 The input arrives through env, not through ${{ }} inside the
+        # script. Interpolating a workflow input straight into a shell
+        # body is the standard Actions script-injection hole: the value
+        # is pasted before bash sees it, so a crafted input runs as our
+        # workflow. Through env it is data that bash quotes.
+        env:
+          REQUESTED: ${{ inputs.regions }}
+        run: |
+          set -euo pipefail
+          # An array, not a bare variable: the split is deliberate here,
+          # and saying so in the code beats silencing the linter that
+          # correctly points at an unquoted expansion.
+          #
+          # Newlines are flattened first because `read` stops at the
+          # first one. DEFAULT_REGIONS is a folded YAML scalar today, so
+          # it arrives as one line — but a later edit to `|-` would
+          # otherwise silently build Slovenia and nothing else.
+          read -r -a REGIONS <<< "$(printf '%s' "${REQUESTED:-$DEFAULT_REGIONS}" | tr '\n' ' ')"
 
+          if [ "${#REGIONS[@]}" -eq 0 ]; then
+            echo "::error::no regions to build"
+            exit 1
+          fi
+
+          # Only Geofabrik-shaped paths. This is both a typo guard and
+          # the second half of the injection defence: whatever arrives,
+          # what reaches a URL is [a-z-]/[a-z-].
+          for R in "${REGIONS[@]}"; do
+            if ! printf '%s' "$R" | grep -Eq '^[a-z-]+/[a-z-]+$'; then
+              echo "::error::'$R' is not a Geofabrik path like europe/croatia"
+              exit 1
+            fi
+          done
+
+          JSON=$(printf '%s\n' "${REGIONS[@]}" | jq -R . | jq -sc .)
+          echo "regions=$JSON" >> "$GITHUB_OUTPUT"
+          echo "count=${#REGIONS[@]}" >> "$GITHUB_OUTPUT"
+          echo "planned: ${REGIONS[*]}"
+
+  extract:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      # 🔴 One country's bad day must not cost the others. Geofabrik
+      # occasionally serves a partial file, and with fail-fast the whole
+      # week's work would go with it.
+      fail-fast: false
+      # The runner allowance is generous on public repos, but flooding
+      # Geofabrik with nine parallel downloads is rude and gets us
+      # rate-limited. Four at a time is plenty: the wall clock is the
+      # slowest country, not the sum.
+      max-parallel: 4
+      matrix:
+        region: ${{ fromJson(needs.plan.outputs.regions) }}
+    steps:
       - name: Install osmium and GDAL
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends osmium-tool gdal-bin
           osmium --version | head -1
-          ogr2ogr --version
 
       - name: Download, filter and convert
         id: build
+        env:
+          REGION: ${{ matrix.region }}
         run: |
           set -euo pipefail
-          REGIONS="${{ github.event.inputs.regions || env.DEFAULT_REGIONS }}"
+          SLUG="$(echo "$REGION" | tr '/' '-')"
           mkdir -p out
-          TOTAL=0
-          for REGION in $REGIONS; do
-            SLUG="$(echo "$REGION" | tr '/' '-')"
-            echo "::group::$REGION"
 
-            # -L matters: Geofabrik answers 302 and without it curl saves a
-            # 244-byte HTML redirect page instead of the extract.
-            curl -sSL --retry 3 --retry-delay 10 \
-              -o "$SLUG.osm.pbf" \
-              "https://download.geofabrik.de/$REGION-latest.osm.pbf"
+          # -L matters: Geofabrik answers 302 and without it curl saves a
+          # 244-byte HTML redirect page instead of the extract.
+          curl -sSL --retry 3 --retry-delay 10 \
+            -o "$SLUG.osm.pbf" \
+            "https://download.geofabrik.de/$REGION-latest.osm.pbf"
 
-            # A truncated or redirected download must fail loudly here
-            # rather than quietly produce an empty extract downstream.
-            SIZE=$(stat -c%s "$SLUG.osm.pbf")
-            if [ "$SIZE" -lt 100000 ]; then
-              echo "::error::$REGION download is only $SIZE bytes — not a PBF"
-              exit 1
-            fi
-
-            osmium tags-filter "$SLUG.osm.pbf" \
-              n/tourism=camp_site n/tourism=caravan_site \
-              w/tourism=camp_site w/tourism=caravan_site \
-              -o "$SLUG.filtered.osm.pbf" --overwrite
-
-            # -u type_id is not optional: it is the only stable key the
-            # import can upsert on. Without it every weekly run would
-            # duplicate the whole dataset instead of updating it.
-            osmium export "$SLUG.filtered.osm.pbf" \
-              -o "out/$SLUG.geojson" --overwrite -f geojson -u type_id
-
-            COUNT=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))['features']))" "out/$SLUG.geojson")
-            echo "$REGION: $COUNT features"
-            TOTAL=$((TOTAL + COUNT))
-            echo "::endgroup::"
-          done
-
-          # An empty result is never right for Europe and almost always
-          # means the filter or the download broke. Fail rather than ship
-          # a file that would blank the map.
-          if [ "$TOTAL" -eq 0 ]; then
-            echo "::error::0 features across all regions — refusing to publish"
+          # A truncated or redirected download must fail loudly here
+          # rather than quietly produce an empty extract downstream.
+          SIZE=$(stat -c%s "$SLUG.osm.pbf")
+          if [ "$SIZE" -lt 100000 ]; then
+            echo "::error::$REGION download is only $SIZE bytes — not a PBF"
             exit 1
           fi
-          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
-          gzip -9 out/*.geojson
+
+          osmium tags-filter "$SLUG.osm.pbf" \
+            n/tourism=camp_site n/tourism=caravan_site \
+            w/tourism=camp_site w/tourism=caravan_site \
+            -o "$SLUG.filtered.osm.pbf" --overwrite
+
+          # -u type_id is not optional: it is the only stable key the
+          # import can upsert on. Without it every weekly run would
+          # duplicate the whole dataset instead of updating it.
+          osmium export "$SLUG.filtered.osm.pbf" \
+            -o "out/$SLUG.geojson" --overwrite -f geojson -u type_id
+
+          # France is 4.9 GB and the runner has about 14 GB free. Nothing
+          # downstream needs the PBF, so it goes before anything else can
+          # run out of room.
+          rm -f "$SLUG.osm.pbf" "$SLUG.filtered.osm.pbf"
+
+          COUNT=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))['features']))" "out/$SLUG.geojson")
+          echo "$REGION: $COUNT features"
+
+          # 🔴 Zero is never right for a European country and almost
+          # always means the filter or the download broke. Failing here
+          # keeps a file that would blank a country out of the release.
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::$REGION produced 0 campsites — refusing to publish it"
+            exit 1
+          fi
+
+          gzip -9 "out/$SLUG.geojson"
+          # The publish job sums these rather than decompressing nine
+          # files to count what this job already knows.
+          echo "$REGION $COUNT" > "out/$SLUG.count"
+          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
           ls -lh out/
 
-      - name: Publish as artifact
+      - name: Hand the file to the publish job
         uses: actions/upload-artifact@v7
         with:
-          name: osm-camping-extract
+          name: extract-${{ steps.build.outputs.slug }}
           path: out/
-          retention-days: 14
+          # Short on purpose: this is a courier between two jobs of the
+          # same run, not storage. Storage is the release below.
+          retention-days: 1
+
+  publish:
+    needs: [plan, extract]
+    # `always()` so a release still happens when one country failed —
+    # eight countries of fresh data beat none. The completeness check
+    # below is what makes the gap loud instead of silent.
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # v7, not v8. One version behind on purpose — the same rule we
+      # gave Dependabot in its cooldown: let a major release be looked at
+      # by other people for a fortnight first. Dependabot will offer v8
+      # when its own cooldown expires.
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: extract-*
+          merge-multiple: true
+          path: out
+
+      - name: Check what arrived
+        id: check
+        env:
+          PLANNED: ${{ needs.plan.outputs.count }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          GOT=$(find out -name '*.geojson.gz' | wc -l | tr -d ' ')
+          echo "got=$GOT planned=$PLANNED"
+
+          # Nothing at all means every country failed. There is no
+          # release to make and the alert below is the whole output.
+          if [ "$GOT" -eq 0 ]; then
+            echo "::error::no region produced an extract"
+            echo "complete=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          TOTAL=$(cat out/*.count | awk '{s+=$2} END {print s}')
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "got=$GOT" >> "$GITHUB_OUTPUT"
+          if [ "$GOT" -lt "$PLANNED" ]; then
+            echo "complete=partial" >> "$GITHUB_OUTPUT"
+          else
+            echo "complete=full" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish the release
+        if: steps.check.outputs.complete != 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMPLETE: ${{ steps.check.outputs.complete }}
+          TOTAL: ${{ steps.check.outputs.total }}
+          GOT: ${{ steps.check.outputs.got }}
+          PLANNED: ${{ needs.plan.outputs.count }}
+        run: |
+          set -euo pipefail
+          TAG="osm-$(date -u +%Y-%m-%d)"
+
+          {
+            echo "Campsite extract built from Geofabrik's daily OpenStreetMap exports on $(date -u +%Y-%m-%d)."
+            echo
+            echo "| region | campsites |"
+            echo "| --- | --- |"
+            sort out/*.count | awk '{printf "| %s | %s |\n", $1, $2}'
+            echo
+            echo "**$TOTAL campsites across $GOT of $PLANNED regions.**"
+            if [ "$COMPLETE" = 'partial' ]; then
+              echo
+              echo "> ⚠️ Incomplete: $((PLANNED - GOT)) region(s) failed to build."
+              echo "> The regions listed above are fresh; the missing ones keep"
+              echo "> whatever an earlier release holds. See the run log."
+            fi
+            echo
+            echo "Import with:"
+            echo '```'
+            echo "./scripts/osm-pipeline/import.sh <file>.osm.pbf osm_camping_staging"
+            echo "npx ts-node apps/api/src/osm/import-spots.ts <COUNTRY>"
+            echo '```'
+            echo
+            # 🔴 ODbL requires attribution and the licence notice from
+            # anyone who redistributes the database — and publishing a
+            # release asset is redistribution, not display. See
+            # /legal/attribution for the same notice on the site.
+            echo '---'
+            echo
+            echo "Contains information from [OpenStreetMap](https://www.openstreetmap.org/),"
+            echo "which is made available under the [Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/1-0/)."
+            echo "© OpenStreetMap contributors. Extracts by [Geofabrik](https://download.geofabrik.de/)."
+          } > notes.md
+
+          # A re-run on the same day updates the day's release instead of
+          # failing on the existing tag.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md
+            gh release upload "$TAG" out/*.geojson.gz out/*.count --clobber
+          else
+            # 🔴 Pre-release on purpose. These are weekly data snapshots;
+            # marking one "Latest release" would put a geojson dump at the
+            # top of the repository page as though it were the product.
+            gh release create "$TAG" out/*.geojson.gz out/*.count \
+              --prerelease \
+              --title "OSM campsites — $(date -u +%Y-%m-%d)" \
+              --notes-file notes.md
+          fi
+          echo "published $TAG"
 
       # ⏸ Blocked on CAMP-97 (Cloudflare payment card / R2 vs VPS decision).
-      # Until that is settled the artifact above is the delivery mechanism
-      # and the VPS can pull it with the GitHub API. The step is written out
-      # rather than left as a TODO so the shape of the change is obvious,
-      # and it is skipped cleanly while the secret is absent.
-      # 🔴 The secret is tested through a JOB-level env, not directly.
+      # 🔴 The secret is tested through env, not read directly in `if`.
       #
       # My previous "fix" here put `secrets.X` straight into the step's
       # `if`, on the belief that `env` did not work there. That was wrong
       # in the worst way: it made the whole workflow file unparseable, so
       # GitHub failed the run in 0s with no jobs on every push for two
       # days — and because the failure is a config error, it produces no
-      # log to read.
-      #
-      # Job-level env is resolved before the step is evaluated, so this
-      # form is both valid and does what the original intent was.
+      # log to read. Hence the workflow-lint step in CI.
       - name: Upload to R2
-        if: env.HAS_R2 == 'true'
+        if: steps.check.outputs.complete != 'none' && env.HAS_R2 == 'true'
         env:
+          HAS_R2: ${{ secrets.R2_ACCESS_KEY_ID != '' }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
@@ -149,19 +346,37 @@ jobs:
           aws s3 sync out/ "s3://camptribe-osm/$(date -u +%Y-%m-%d)/" \
             --endpoint-url "$R2_ENDPOINT"
 
+      # 🔴 Weekly releases accumulate at 52 a year. Without this the
+      # release list becomes unreadable and the useful one — the newest —
+      # is buried. Half a year of history is far more than any import
+      # needs, and the raw data is always rebuildable from Geofabrik.
+      - name: Prune data releases older than the last 26
+        if: steps.check.outputs.complete != 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The pattern is exact on purpose: only tags this workflow
+          # creates can match, so nothing a human tagged is reachable
+          # from here even by accident.
+          gh release list --limit 200 --json tagName --jq '.[].tagName' \
+            | grep -E '^osm-[0-9]{4}-[0-9]{2}-[0-9]{2}$' \
+            | sort -r \
+            | tail -n +27 \
+            | while read -r OLD; do
+                echo "pruning $OLD"
+                gh release delete "$OLD" --yes --cleanup-tag
+              done
+
       - name: Summary
+        if: always()
         run: |
           {
             echo "### OSM weekly extract"
             echo ""
-            echo "- features: **${{ steps.build.outputs.total }}**"
-            echo "- artifact: \`osm-camping-extract\`, kept 14 days"
-            echo ""
-            echo "The VPS imports this with:"
-            echo '```'
-            echo "./scripts/osm-pipeline/import.sh <file>.osm.pbf osm_camping_staging"
-            echo "npx ts-node apps/api/src/osm/import-spots.ts <COUNTRY>"
-            echo '```'
+            echo "- regions: **${{ steps.check.outputs.got }} of ${{ needs.plan.outputs.count }}**"
+            echo "- campsites: **${{ steps.check.outputs.total }}**"
+            echo "- release: \`osm-$(date -u +%Y-%m-%d)\` (kept, not expiring)"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # 🔴 A scheduled run that fails at 04:00 on a Monday fails to nobody.
@@ -176,14 +391,16 @@ jobs:
   # It updates the open issue instead of filing a new one each week: a
   # watchdog that produces four identical issues a month gets muted, and
   # a muted watchdog is worse than none.
+  #
+  # 🔴 This cannot catch the workflow not running at all — a job with
+  # `if: failure()` needs a run to fail. That is what watchdog.yml is for.
   alert:
-    needs: extract
-    if: failure()
+    needs: [plan, extract, publish]
+    if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:
       issues: write
     steps:
-      - uses: actions/checkout@v7
       - name: Open or update the failure issue
         env:
           GH_TOKEN: ${{ github.token }}
@@ -192,14 +409,17 @@ jobs:
           TITLE='🔴 Weekly OSM extract is failing'
           EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
             --json number --jq '.[0].number // empty')
-          BODY="The scheduled OSM extract failed.
-          
+          BODY="The scheduled OSM extract failed, in whole or for some regions.
+
           Run: $RUN_URL
-          
+
           While this is broken the campsite data simply stops being
           refreshed: closures, new sites and tag changes never arrive, and
           nothing on the site looks wrong. That is why it needs an alert
-          rather than a symptom."
+          rather than a symptom.
+
+          A partial failure still publishes a release for the regions that
+          worked — check the run log for which region failed and why."
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --body "$BODY"
           else
