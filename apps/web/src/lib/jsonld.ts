@@ -194,6 +194,46 @@ export function collectionGraph(opts: {
   };
 }
 
+/**
+ * CAMP-56: a legal page, described for machines.
+ *
+ * 🔴 It exists because our own guard demanded it — check-structured-data
+ * failed the build with "5 page(s) carry no JSON-LD at all", which is
+ * exactly what that guard is for. But it earns its place beyond passing:
+ * `version` and `datePublished` put the answer to "which text was in
+ * force on that date" into a machine-readable field, next to the human
+ * one printed on the page.
+ *
+ * `WebPage` rather than something more specific, because schema.org has
+ * no TermsOfService or PrivacyPolicy type — inventing one would fail
+ * validation and describe nothing.
+ */
+export function legalPageGraph(opts: {
+  name: string;
+  description: string;
+  path: string;
+  version: string;
+  effectiveFrom: string;
+  publisher: string;
+}) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    '@id': `${abs(opts.path)}#page`,
+    name: opts.name,
+    description: opts.description,
+    url: abs(opts.path),
+    inLanguage: 'en',
+    version: opts.version,
+    datePublished: opts.effectiveFrom,
+    publisher: {
+      '@type': 'Organization',
+      name: opts.publisher,
+      url: SITE,
+    },
+  };
+}
+
 /** One <script> tag's worth of JSON, escaped for embedding in HTML. */
 export function jsonLdProps(doc: unknown) {
   return {

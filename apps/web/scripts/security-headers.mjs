@@ -17,7 +17,18 @@ const OFM = process.env.NEXT_PUBLIC_TILES_URL ?? 'https://tiles.openfreemap.org'
 const SELF_TILES = process.env.NEXT_PUBLIC_SELF_TILES_URL ?? '';
 const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
 
-const tileOrigins = [OFM, SELF_TILES, API]
+// 🔴 CAMP-92. The error reporter POSTs from the reader's browser, so its
+// host has to be in connect-src or the CSP blocks it — which is exactly
+// what happened the first time this was run: the endpoint worked when
+// called with curl and every browser-side report was silently dropped.
+//
+// It is read from the same variable the reporter reads, and only the
+// ORIGIN is taken, so the allowance is the one host we configured and
+// nothing else. Unset means nothing is added, which is also why a build
+// with no error endpoint has no wider policy than before.
+const ERROR_ENDPOINT = process.env.NEXT_PUBLIC_ERROR_ENDPOINT ?? '';
+
+const connectOrigins = [OFM, SELF_TILES, API, ERROR_ENDPOINT]
   .filter(Boolean)
   .map((u) => {
     try {
@@ -26,7 +37,10 @@ const tileOrigins = [OFM, SELF_TILES, API]
       return '';
     }
   })
-  .filter(Boolean);
+  .filter(Boolean)
+  // The API and the error endpoint are normally the same host, and a
+  // policy that names it twice is a policy nobody reads.
+  .filter((origin, i, all) => all.indexOf(origin) === i);
 
 /**
  * 🔴 `'unsafe-inline'` for scripts, stated plainly rather than hidden.
@@ -59,7 +73,7 @@ const csp = [
   // worker, and without this the map loses every vector layer while
   // still looking alive — the failure CAMP-31 spent hours on.
   "worker-src 'self' blob:",
-  `connect-src 'self' ${tileOrigins.join(' ')}`.trim(),
+  `connect-src 'self' ${connectOrigins.join(' ')}`.trim(),
   "manifest-src 'self'",
   // 🔴 No `upgrade-insecure-requests`, and the reason is measured.
   //

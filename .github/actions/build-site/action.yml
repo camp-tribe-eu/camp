@@ -22,6 +22,19 @@ inputs:
     description: 'Connection string for the PostGIS service'
     required: false
     default: 'postgres://postgres:postgres@localhost:5432/camptribe_test'
+  error-endpoint:
+    description: >
+      CAMP-92. Where the browser posts client errors. Baked into the
+      bundle at build time, so it cannot be set later by `next start`.
+
+      🔴 Empty by default, and only the e2e job passes a value. The
+      endpoint's origin joins `connect-src`, so a default here would put
+      `http://localhost:3001` into the Content-Security-Policy of the
+      `public-build` job — the one job whose whole purpose is to be
+      shaped exactly like production. A test fixture must not be able to
+      widen the real policy.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -68,13 +81,22 @@ runs:
         #
         # 3000 would also collide with `next start`, which Lighthouse uses.
         PORT: '3001'
-        # CAMP-60, debt #4. The allowlist is empty unless CORS_ORIGINS is
-        # set, which is the right default — an unconfigured machine stays
-        # closed. But it also means the only CORS assertion we had was
-        # negative: "an unknown origin gets nothing", which stays green
-        # when CORS is switched off entirely. Setting it here lets the
-        # test assert both directions.
+        # Two cards arrived at this same line, and both reasons hold.
+        #
+        # CAMP-92: the browser POSTs a client error cross-origin
+        # (3000 → 3001), so the allowlist has to name the site.
+        #
+        # CAMP-60, debt #4: the allowlist is empty unless CORS_ORIGINS is
+        # set — the right default, since an unconfigured machine stays
+        # closed. But it also meant our only CORS assertion was negative
+        # ("an unknown origin gets nothing"), which stays green when CORS
+        # is switched off entirely, and when the API is not running at
+        # all. Setting it here is what lets the test assert both
+        # directions.
         CORS_ORIGINS: 'http://localhost:3000'
+        # Reading errors back needs a token, and with none set the route
+        # 404s. Throwaway and local to the runner; nothing here is secret.
+        CLIENT_ERRORS_READ_TOKEN: 'ci-read-token'
       run: |
         npx nest start > /tmp/api.log 2>&1 &
         # The build fetches from it, so a race here would produce an empty
@@ -95,6 +117,7 @@ runs:
       env:
         NEXT_PUBLIC_SITE_MODE: ${{ inputs.site-mode }}
         API_BASE_URL: http://localhost:3001
+        NEXT_PUBLIC_ERROR_ENDPOINT: ${{ inputs.error-endpoint }}
       run: npm run build --workspace=apps/web
 
     - name: Refuse an empty build

@@ -1,0 +1,105 @@
+name: Watchdog
+
+# CAMP-103: notice when a scheduled job stops happening.
+#
+# 🔴 Why this is a separate workflow and not a job inside the one it
+# watches. `osm-weekly.yml` already has an `alert` job with
+# `if: failure()`. That job fires when a run fails — it cannot fire when
+# there is no run, and no run is exactly the state we were in: measured
+# on 23.09.2026, `gh run list --workflow=osm-weekly.yml --event=schedule`
+# returned nothing at all, while the Actions tab showed the workflow as
+# active and healthy. A cron that stops, stops silently.
+#
+# Daily rather than weekly: a watchdog that checks as rarely as the thing
+# it watches doubles the time to notice. This is a few seconds of runner
+# time a day.
+#
+# 🔴 The hole that remains, said out loud rather than papered over:
+# GitHub disables scheduled workflows in a repository after 60 days
+# without activity, and it would disable this one alongside the job it
+# watches. We commit most days, so it is not near — but the honest shape
+# of the guarantee is "this catches a cron that broke", not "this catches
+# a project that was abandoned". Nothing running inside GitHub can catch
+# the second, because the thing that would report it is the thing that
+# stopped.
+
+on:
+  schedule:
+    # 08:00 UTC daily — four hours after the weekly job's slot, so a
+    # Monday run has finished before the watchdog looks at it.
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quiet:
+    runs-on: ubuntu-latest
+    permissions:
+      # To read other workflows' run history.
+      actions: read
+      # To open the issue when something has gone quiet.
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      # Same pin as CI. The check needs no dependencies — node builtins
+      # and `gh`, which the runner already has — so there is no npm ci.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # The logic is tested here too, not only in CI. A watchdog that
+      # ships broken to its own schedule is worse than no watchdog: it
+      # reports "fine" by never reporting.
+      - name: Prove the check works
+        run: node scripts/ci/check-schedule.mjs --self-test
+
+      - name: Look for silence
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/check-schedule.mjs
+        continue-on-error: true
+
+      - name: Open or update the silence issue
+        if: steps.check.outputs.quiet == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ steps.check.outputs.body }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE='🔴 A scheduled job has gone quiet'
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number --jq '.[0].number // empty')
+          FULL="$BODY
+
+          Checked by: $RUN_URL
+
+          This is the failure mode a failure alert cannot catch: there is
+          no failing run to attach an alert to. Either the schedule was
+          never reached, or it stopped."
+          # One issue, updated — four identical issues a month get muted,
+          # and a muted watchdog is worse than none.
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$FULL"
+          else
+            gh issue create --title "$TITLE" --body "$FULL" --label ci
+          fi
+
+      # 🔴 Close the issue when the job recovers. An alert that stays open
+      # after the problem is fixed teaches everyone to ignore it.
+      - name: Close the silence issue once everything is running again
+        if: steps.check.outputs.quiet != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TITLE='🔴 A scheduled job has gone quiet'
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" \
+              --comment "Every watched job has run recently again. Closing."
+          fi

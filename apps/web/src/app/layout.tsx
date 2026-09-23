@@ -3,6 +3,9 @@ import "./globals.css";
 import { isPublic } from "@/lib/environment";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
 import { DEFAULT_LOCALE } from "@/lib/i18n";
+import CookieConsent from "@/components/cookie-consent";
+import ErrorReporter from "@/components/error-reporter";
+import { BOOTSTRAP } from "@/lib/error-bootstrap";
 
 // Canonical domain from Facts/project-identity.md in the Camping brain.
 // Overridable via env so staging/preview deploys don't claim the production URL.
@@ -71,11 +74,26 @@ export default function RootLayout({
           type="font/woff2"
           crossOrigin="anonymous"
         />
+        {/* CAMP-92. The error listeners, installed before anything else
+            can run. They used to be attached in a React effect, which
+            runs after hydration — CI proved that too late: a hydration
+            mismatch or a chunk that 404s throws before any effect, and
+            those are the failures most likely to leave a blank page.
+            This queues; components/error-reporter.tsx decides and sends,
+            so the privacy rules exist in one language only. */}
+        <script dangerouslySetInnerHTML={{ __html: BOOTSTRAP }} />
       </head>
       <body className="flex min-h-screen flex-col antialiased">
+        {/* Drains what the head script caught. Renders null. */}
+        <ErrorReporter />
         <SiteHeader />
         <div className="flex-1">{children}</div>
         <SiteFooter />
+        {/* 🔴 Last in the document, and it blocks nothing above it. The
+            banner must never be a gate: a reader who ignores it keeps the
+            whole site, which is what makes any consent given freely
+            given. */}
+        <CookieConsent />
       </body>
     </html>
   );

@@ -22,6 +22,7 @@ import {
   jsonLdProps,
 } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import TravelNotice from '@/components/travel-notice';
 
 // CAMP-34 — the campsite page.
 //
@@ -216,6 +217,13 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           the road will always be longer.
         </p>
       </Section>
+
+      {/* 🔴 CAMP-56 item 4: the warning where it counts. It sits above
+          the fold-ish, in the flow of the page, because the card is
+          explicit that a footer link is legally weaker and the notice
+          has to be visible at the moment somebody decides to drive
+          here. */}
+      <TravelNotice className="mt-6" />
 
       <Section title="Weather on site">
         <p className="max-w-prose text-sm text-ink-2">

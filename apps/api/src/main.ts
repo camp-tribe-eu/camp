@@ -27,7 +27,15 @@ async function bootstrap() {
   if (origins.length > 0) {
     app.enableCors({
       origin: origins,
-      methods: ['GET'],
+      // 🔴 POST is here for exactly one route: CAMP-92's client-error
+      // report, which a broken page sends from the reader's browser.
+      // It is safe to add only because the allowlist above is still the
+      // gate — a POST from an origin we did not list never reaches the
+      // handler — and because the endpoint itself validates, truncates
+      // and rate-limits everything it accepts. If a future route needs
+      // a wider method set, it needs its own reasoning, not this one.
+      methods: ['GET', 'POST'],
+      allowedHeaders: ['Content-Type'],
       // We send no cookies and no Authorization, so credentials must stay
       // off — turning them on is what makes a mistaken allowlist entry
       // dangerous rather than merely wrong.
