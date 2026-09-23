@@ -1,5 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
-import { gridFor, parseBbox } from './viewport';
+import {
+  gridFor,
+  parseBbox,
+  parseLimit,
+  POINT_LIMIT,
+  MAX_POINT_LIMIT,
+} from './viewport';
 
 // CAMP-32. The viewport arrives as four numbers in a query string, from
 // a browser we do not control, and everything downstream trusts it.
@@ -81,5 +87,37 @@ describe('gridFor', () => {
 
   it('grows with the viewport, so a wider view means fewer bubbles', () => {
     expect(gridFor(bbox(-10, 30))).toBeGreaterThan(gridFor(bbox(13, 17)));
+  });
+});
+
+// CAMP-101: the limit a caller may ask for.
+describe('parseLimit', () => {
+  it('falls back to the viewport default when nothing is asked for', () => {
+    expect(parseLimit(undefined)).toBe(POINT_LIMIT);
+    expect(parseLimit('')).toBe(POINT_LIMIT);
+  });
+
+  it('honours a reasonable request', () => {
+    expect(parseLimit('500')).toBe(500);
+    expect(parseLimit('5000')).toBe(5000);
+  });
+
+  // 🔴 The reason this function exists rather than `Number(query.limit)`:
+  // the route is public, and "give me every campsite in Europe" is a
+  // different request from "draw this viewport".
+  it('clamps an outsized request instead of serving it', () => {
+    expect(parseLimit('100000')).toBe(MAX_POINT_LIMIT);
+    expect(parseLimit('999999999')).toBe(MAX_POINT_LIMIT);
+  });
+
+  it('refuses nonsense rather than silently using the default', () => {
+    // Silently defaulting would hide a bug in whatever built the URL.
+    expect(() => parseLimit('nope')).toThrow();
+    expect(() => parseLimit('0')).toThrow();
+    expect(() => parseLimit('-5')).toThrow();
+  });
+
+  it('truncates a fractional limit rather than passing it to SQL', () => {
+    expect(parseLimit('10.9')).toBe(10);
   });
 });

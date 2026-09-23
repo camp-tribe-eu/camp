@@ -23,6 +23,7 @@ import {
 } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import TravelNotice from '@/components/travel-notice';
+import SourceNote from '@/components/source-note';
 
 // CAMP-34 — the campsite page.
 //
@@ -145,6 +146,19 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         </h1>
         <p className="mt-2 text-ink-2">
           {[spot.region, spot.country.toUpperCase()].filter(Boolean).join(', ')}
+          {/* 🔴 The official national classification, where a source
+              publishes one — France does, OpenStreetMap does not carry
+              it at all. Said as what it is: somebody else's rating, not
+              ours. We have no opinion about any campsite and say so on
+              the disclaimer page. */}
+          {spot.stars !== null && (
+            <>
+              {' · '}
+              <span data-testid="official-stars">
+                {spot.stars}-star official classification
+              </span>
+            </>
+          )}
         </p>
         {!name && (
           // 26% of campsites in OSM carry no name at all (measured on 448
@@ -158,6 +172,33 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
       </header>
 
       {spot.missingSince && <MissingNotice since={spot.missingSince} />}
+
+      {/* 🔴 The operator's own description, as a quotation and in their
+          own language.
+          
+          Not paraphrased, not translated, and not presented as ours. It
+          is promotional text written by a tourist office, and passing it
+          off as a neutral description would be exactly the kind of
+          invention this site is built not to do. `lang` is set so a
+          screen reader pronounces it correctly and a translating crawler
+          knows what it is looking at. */}
+      {spot.description && (
+        <figure data-testid="source-description" className="mt-6">
+          <blockquote
+            lang={spot.descriptionLang ?? undefined}
+            cite={
+              spot.sources.find((s) => s.fields.includes('description'))?.ref
+            }
+            className="max-w-prose border-l-2 border-line-2 pl-4 text-ink-2"
+          >
+            {spot.description}
+          </blockquote>
+          <figcaption className="mt-2 max-w-prose text-xs text-ink-2">
+            Written by the campsite or its local tourist office, quoted as
+            published — see where this comes from, below.
+          </figcaption>
+        </figure>
+      )}
 
       <NoPhotos />
 
@@ -241,7 +282,17 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         </Section>
       )}
 
-      <Attribution lastSeenAt={spot.lastSeenAt} />
+      {/* 🔴 One attribution block, not two.
+          
+          There used to be a separate line reading "Last checked against
+          OpenStreetMap on …" under every campsite. CAMP-101 added 478
+          French campsites that are not in OpenStreetMap at all, and that
+          line appeared on every one of them — a plain false statement
+          about where our information came from, repeated 478 times.
+          
+          The per-source block says the same thing accurately, for each
+          source, with the phrasing each licence needs. */}
+      <SourceNote sources={spot.sources} />
     </main>
   );
 }
@@ -550,24 +601,6 @@ function NearbyCard({ spot }: { spot: NearbySpot }) {
  * contained this campsite. A directory that does not say how fresh it is
  * invites the reader to assume the worst.
  */
-function Attribution({ lastSeenAt }: { lastSeenAt: string | null }) {
-  if (!lastSeenAt) return null;
-  const d = new Date(lastSeenAt);
-  return (
-    <p className="mt-10 border-t border-line-2 pt-4 text-xs text-ink-2">
-      Last checked against OpenStreetMap on{' '}
-      <time dateTime={d.toISOString()}>
-        {d.toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        })}
-      </time>
-      .
-    </p>
-  );
-}
-
 function Section({
   title,
   children,

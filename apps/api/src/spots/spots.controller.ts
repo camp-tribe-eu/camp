@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { SpotsService } from './spots.service';
 import { MapQueryService, parseBbox, parseFilters } from './map.service';
+import { parseLimit } from './viewport';
 
 @Controller('spots')
 export class SpotsController {
@@ -28,7 +29,11 @@ export class SpotsController {
    */
   @Get('map/points')
   points(@Query() query: Record<string, string>) {
-    return this.map.points(parseBbox(query.bbox), parseFilters(query));
+    return this.map.points(
+      parseBbox(query.bbox),
+      parseFilters(query),
+      parseLimit(query.limit),
+    );
   }
 
   /** Counts per grid cell, for a viewport too wide to draw point by point. */

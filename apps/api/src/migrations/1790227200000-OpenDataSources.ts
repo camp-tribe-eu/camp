@@ -74,6 +74,26 @@ export class OpenDataSources1790227200000 implements MigrationInterface {
         CHECK ("description" IS NULL OR "description_lang" IS NOT NULL)
     `);
 
+    // 🔴 Backfill what is already here. Every existing row came from
+    // OpenStreetMap, and without this the attribution block on the page
+    // would render for French campsites and vanish for Croatian ones —
+    // the ODbL credit disappearing from the very rows that need it.
+    //
+    // `updatedAt` is `last_seen_at`: the day our import last still found
+    // the campsite. OSM cannot tell us when a mapper last touched it,
+    // and the page phrases this source's date as "last checked against
+    // this source on" for that reason.
+    await queryRunner.query(`
+      UPDATE "camping_spots"
+         SET "sources" = jsonb_build_array(jsonb_build_object(
+               'id', 'osm',
+               'ref', "osm_ref",
+               'updatedAt', to_char(COALESCE("last_seen_at", "created_at"), 'YYYY-MM-DD'),
+               'fields', '["name","location","amenities"]'::jsonb))
+       WHERE "osm_ref" IS NOT NULL
+         AND "sources" = '[]'::jsonb
+    `);
+
     // The question asked of this column is always "which campsites came
     // from source X", never "show me the whole array".
     await queryRunner.query(

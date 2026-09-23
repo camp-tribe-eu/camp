@@ -250,8 +250,12 @@ function slugify(name: string | null, osmRef: string): string {
  */
 export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            (name, country, region, slug, type, amenities, location,
-            osm_ref, last_seen_at, missing_since, content_changed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, ST_GeomFromText($7, 4326), $8, $9, NULL, $9)
+            osm_ref, last_seen_at, missing_since, content_changed_at, sources)
+         VALUES ($1, $2, $3, $4, $5, $6, ST_GeomFromText($7, 4326), $8, $9, NULL, $9,
+                 jsonb_build_array(jsonb_build_object(
+                   'id', 'osm', 'ref', $8::text,
+                   'updatedAt', to_char($9::timestamptz, 'YYYY-MM-DD'),
+                   'fields', '["name","location","amenities"]'::jsonb)))
          ON CONFLICT (osm_ref) DO UPDATE SET
            name          = EXCLUDED.name,
            country       = EXCLUDED.country,
@@ -261,6 +265,19 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            location      = EXCLUDED.location,
            last_seen_at  = EXCLUDED.last_seen_at,
            missing_since = NULL,
+           -- 🔴 CAMP-101. Replace only OUR entry; keep every other
+           -- source's. Writing EXCLUDED.sources wholesale would erase
+           -- the DATAtourisme attribution every Monday — the same class
+           -- of bug as overwriting owner_overrides, and just as silent.
+           --
+           -- The date here is when WE last found the campsite in OSM,
+           -- never when a mapper last edited it, and the page says
+           -- exactly that ("last checked against this source on").
+           sources = (
+             SELECT COALESCE(jsonb_agg(e), '[]'::jsonb)
+               FROM jsonb_array_elements(camping_spots.sources) e
+              WHERE e->>'id' <> 'osm'
+           ) || EXCLUDED.sources,
            -- 🔴 CAMP-39: only moves when something a reader would notice
            -- moved. last_seen_at ticks every week whether or not anything
            -- changed, so using it as <lastmod> would restamp every page

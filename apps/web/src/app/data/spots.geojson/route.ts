@@ -26,6 +26,36 @@ export const dynamic = 'force-static';
 /** The whole world. The API rejects anything wider. */
 const EVERYTHING = '-180,-85,180,85';
 
+/**
+ * 🔴 An explicit limit, because POINT_LIMIT is not this question.
+ *
+ * POINT_LIMIT (2 000) is the API's safety valve for ONE viewport, and it
+ * is right for that. This route asks for the whole world, so it used to
+ * inherit that cap by accident — and on 23.09.2026, when CAMP-101 took
+ * the dataset from 1 079 campsites to 3 147, the build stopped with
+ * "the dataset no longer fits in one download". The dataset had not
+ * outgrown a download at all; it had outgrown a number meant for
+ * something else.
+ *
+ * A sanity ceiling, not a budget: the budget below is in bytes, which is
+ * the thing that actually matters to a phone on a campsite's wifi.
+ */
+const WHOLE_WORLD_LIMIT = 10_000;
+
+/**
+ * What we are willing to send to one reader before the map has to start
+ * asking per viewport instead.
+ *
+ * The same shape as the search index's guard, and chosen the same way:
+ * measured, then rounded. 3 147 campsites are 1.2 MB of this file
+ * uncompressed and about a fifth of that over the wire, because GeoJSON
+ * of repeated keys compresses extremely well. 4 MB leaves room to roughly
+ * triple the dataset again before anyone has to think about it, and the
+ * failure when it arrives is a red build with instructions rather than a
+ * map that is quietly missing campsites.
+ */
+const MAX_BYTES = 4_000_000;
+
 interface Marker {
   slug: string;
   name: string | null;
@@ -58,7 +88,9 @@ interface Feature {
 }
 
 export async function GET() {
-  const res = await fetch(`${API_BASE}/spots/map/points?bbox=${EVERYTHING}`);
+  const res = await fetch(
+    `${API_BASE}/spots/map/points?bbox=${EVERYTHING}&limit=${WHOLE_WORLD_LIMIT}`,
+  );
   if (!res.ok) {
     throw new Error(`Map points request failed: ${res.status}`);
   }
@@ -72,9 +104,10 @@ export async function GET() {
     // campsites with no sign that anything is wrong, which is the worst
     // possible way to find out we outgrew this design.
     throw new Error(
-      'The campsite dataset no longer fits in one download. The map must ' +
-        'now query /spots/map/points per viewport instead of reading this ' +
-        'file — the endpoint and its query plan are already in place.',
+      `More than ${WHOLE_WORLD_LIMIT} campsites: the whole-world snapshot ` +
+        'was truncated. The map must now query /spots/map/points per ' +
+        'viewport instead of reading this file — the endpoint and its ' +
+        'query plan are already in place.',
     );
   }
 
@@ -92,8 +125,28 @@ export async function GET() {
     },
   }));
 
+  const body = JSON.stringify({ type: 'FeatureCollection', features });
+
+  // 🔴 The guard that matters: bytes to a reader, not rows in a table.
+  // A map that takes four seconds to appear on a phone is a map nobody
+  // waits for, and CAMP-39's whole promise is that this file works with
+  // the backend switched off — so it has to stay small enough to ship.
+  const bytes = Buffer.byteLength(body);
+  if (bytes > MAX_BYTES) {
+    throw new Error(
+      `The map snapshot is ${(bytes / 1e6).toFixed(1)} MB, over the ` +
+        `${MAX_BYTES / 1e6} MB budget. Either trim what each feature ` +
+        'carries, or move the map to per-viewport queries against ' +
+        '/spots/map/points.',
+    );
+  }
+  console.log(
+    `map snapshot: ${features.length} campsites, ${Math.round(bytes / 1024)} KB ` +
+      `(${Math.round((100 * bytes) / MAX_BYTES)}% of the limit)`,
+  );
+
   return new Response(
-    JSON.stringify({ type: 'FeatureCollection', features }),
+    body,
     {
       headers: {
         'Content-Type': 'application/geo+json; charset=utf-8',

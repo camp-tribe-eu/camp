@@ -8,6 +8,7 @@ import { canonicalPath, readAmenities, slugifyRegion } from './canonical';
 // live in canonical.ts, where a unit test can reach them.
 export { canonicalPath, readAmenities, slugifyRegion };
 import { SpotContext } from '../osm/spot-context';
+import type { SpotSource } from '../entities/camping-spot.entity';
 
 /** One campsite as a page needs it. Geometry is already reduced to lat/lon. */
 export interface SpotView {
@@ -25,6 +26,22 @@ export interface SpotView {
   missingSince: Date | null;
   /** CAMP-33: computed surroundings — the part no competitor publishes. */
   context: SpotContext;
+  /** CAMP-101: the operator's own words, verbatim, in their own language. */
+  description: string | null;
+  descriptionLang: string | null;
+  /** Official national classification, 1–5, where a source publishes one. */
+  stars: number | null;
+  website: string | null;
+  /**
+   * 🔴 Which source gave which field, and when it last changed it.
+   *
+   * This travels to the page because the page is where the attribution
+   * has to appear: Licence Ouverte requires the source AND the date of
+   * the last update of the information reused, and our records carry
+   * dates from 2022 to today. A single line at the foot of the site
+   * cannot say that.
+   */
+  sources: SpotSource[];
 }
 
 /** The reduced shape a listing needs — no geometry, no owner data. */
@@ -67,7 +84,8 @@ export class SpotsService {
               ST_Y(location::geometry) AS lat,
               ST_X(location::geometry) AS lon,
               amenities, owner_overrides, last_seen_at, missing_since,
-              context
+              context, description, description_lang, stars, website,
+              sources
          FROM camping_spots
         WHERE slug = $1
         LIMIT 1`,
@@ -450,5 +468,11 @@ function toView(row: Record<string, unknown>): SpotView {
     lastSeenAt: (row.last_seen_at as Date) ?? null,
     missingSince: (row.missing_since as Date) ?? null,
     context: (row.context ?? {}) as SpotContext,
+    description: (row.description as string) ?? null,
+    descriptionLang: (row.description_lang as string) ?? null,
+    stars:
+      row.stars === null || row.stars === undefined ? null : Number(row.stars),
+    website: (row.website as string) ?? null,
+    sources: (row.sources ?? []) as SpotSource[],
   };
 }

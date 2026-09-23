@@ -247,11 +247,28 @@ test.describe('/map filters', () => {
       await page.goto(`/map?${query}`);
       await loaded(page);
 
+      // 🔴 The same limit the snapshot was built with, and the same
+      // reason. The API's default is POINT_LIMIT (2 000), a safety valve
+      // for ONE viewport; the map reads a whole-world file built with
+      // the higher cap. Asking without it compared 2 000 against 3 131
+      // and read like a filter bug — it was a question asked two
+      // different ways.
       const res = await request.get(
-        `${API}/spots/map/points?bbox=-180,-85,180,85&${query}`,
+        `${API}/spots/map/points?bbox=-180,-85,180,85&limit=10000&${query}`,
       );
       expect(res.ok(), `API refused ${query}`).toBe(true);
-      const { markers } = (await res.json()) as { markers: unknown[] };
+      const { markers, truncated } = (await res.json()) as {
+        markers: unknown[];
+        truncated: boolean;
+      };
+
+      // 🔴 And if THAT cap is ever reached, this must fail rather than
+      // compare two truncated answers and call them equal. The build
+      // refuses the snapshot at the same point, so the two guards agree.
+      expect(
+        truncated,
+        'the whole-world query was truncated — the map can no longer be one file',
+      ).toBe(false);
 
       expect(
         await shown(page),
