@@ -202,3 +202,67 @@ test.describe('the endpoint is not a free database', () => {
     expect(wrong.status()).toBe(404);
   });
 });
+
+test.describe('🔴 the window before hydration', () => {
+  test.beforeEach(onlyDesktopChromium);
+
+  // This is the regression test for the flake that found the design
+  // fault. The listeners used to be attached in a React effect, so
+  // anything thrown before hydration was lost — a hydration mismatch, a
+  // chunk that 404s, a polyfill that throws on an old browser. CI hit
+  // it as "the broken page produced no record" on a cold first run and
+  // passed on retry, which is exactly how a real gap disguises itself.
+  //
+  // Rather than wait and hope, this holds the application chunks back so
+  // the gap is wide and certain, throws inside it, and then lets them
+  // through. If the listeners ever move back into the effect, this fails
+  // every time instead of one run in ten.
+  test('an error thrown before hydration is still reported', async ({
+    page,
+    request,
+  }) => {
+    const m = marker('h');
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await page.route('**/_next/static/chunks/**', async (route) => {
+      await held;
+      await route.continue();
+    });
+
+    // 'commit' returns as soon as the document starts arriving. Then
+    // wait for the queue to exist — the head script has run — rather
+    // than racing the parser, which is what the first version of this
+    // test did and why it failed for the wrong reason.
+    await page.goto('/', { waitUntil: 'commit' });
+    await page.waitForFunction(() => Boolean(window.__campErrors));
+
+    // 🔴 And assert we really are before hydration: the queue exists,
+    // the drain does not. Without this the test would still pass if the
+    // bundle had quietly loaded, which would make it prove nothing.
+    expect(
+      await page.evaluate(() => Boolean(window.__campDrain)),
+      'the bundle already hydrated — this test is no longer testing the gap',
+    ).toBe(false);
+
+    await page.evaluate((x) => {
+      setTimeout(() => {
+        throw new Error(x);
+      }, 0);
+    }, m);
+
+    // Nothing can have been sent yet: the code that sends has not loaded.
+    const early = await waitForReport(request, (e) => e.message.includes(m), 1500);
+    expect(early, 'something sent the report before the bundle existed').toBeNull();
+
+    release!();
+    const stored = await waitForReport(request, (e) => e.message.includes(m));
+    expect(
+      stored,
+      'the pre-hydration error was lost — the listeners are back in the effect',
+    ).toBeTruthy();
+    expect(stored!.kind).toBe('error');
+  });
+});

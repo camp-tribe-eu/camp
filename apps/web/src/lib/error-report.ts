@@ -122,6 +122,15 @@ export function normalise(input: {
   kind: ClientError['kind'];
   error?: unknown;
   message?: string;
+  /**
+   * A stack as plain text.
+   *
+   * 🔴 Needed because the listeners live in an inline script now (see
+   * components/error-reporter.tsx): an Error object does not survive
+   * being queued by code that imports nothing, so what arrives here is
+   * `error.stack` already flattened to a string.
+   */
+  stack?: string;
   href: string;
   userAgent: string;
   source?: string;
@@ -138,7 +147,10 @@ export function normalise(input: {
   const message = clamp(scrub(rawMessage).trim(), MAX_MESSAGE);
   if (message === '') return null;
 
-  const rawStack = err instanceof Error && err.stack ? err.stack : undefined;
+  const rawStack =
+    (typeof input.stack === 'string' && input.stack) ||
+    (err instanceof Error && err.stack) ||
+    undefined;
   const stack = rawStack ? clamp(scrub(rawStack), MAX_STACK) : undefined;
 
   const report: ClientError = {
