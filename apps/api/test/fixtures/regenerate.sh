@@ -5,8 +5,10 @@ DB="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 head -20 "$DIR/ci-seed.sql" | grep '^--' > "$DIR/.header.tmp"
 # ci-seed-gone.sql is appended every time: it holds the states that cannot
-# come out of the dev database (a campsite OSM has dropped), and without
-# this line regenerating the fixture would quietly delete them.
+# come out of the dev database (a campsite OSM has dropped) and the
+# source attribution the seeded rows need, because migrations run BEFORE
+# the seed in CI and the backfill therefore never sees them. Without this
+# line regenerating the fixture would quietly delete both.
 { cat "$DIR/.header.tmp"; echo; psql "$DB" -t -A -f "$DIR/_select.sql"; \
   cat "$DIR/ci-seed-gone.sql"; } > "$DIR/ci-seed.sql"
 rm -f "$DIR/.header.tmp"
