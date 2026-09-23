@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { alternatesFor } from '@/lib/i18n';
-import { LEGAL_PAGES, legalPage, legalPath } from '@/lib/legal';
+import { COMPANY, LEGAL_PAGES, legalPage, legalPath } from '@/lib/legal';
+import { breadcrumbList, jsonLdProps, legalPageGraph } from '@/lib/jsonld';
 import Terms from '@/content/legal/terms';
 import Privacy from '@/content/legal/privacy';
 import Cookies from '@/content/legal/cookies';
@@ -62,6 +63,31 @@ export default async function LegalPageRoute({
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
+      {/* 🔴 The version and the date it took effect are in here as well
+          as printed above, because "which text applied on that day" is a
+          question that may one day be asked of a machine-readable record
+          rather than of a person reading the page. */}
+      <script
+        {...jsonLdProps(
+          legalPageGraph({
+            name: page.title,
+            description: page.summary,
+            path: legalPath(page.slug),
+            version: page.version,
+            effectiveFrom: page.effectiveFrom,
+            publisher: COMPANY.name,
+          }),
+        )}
+      />
+      <script
+        {...jsonLdProps(
+          breadcrumbList([
+            { name: 'CampTribe', path: '/' },
+            { name: page.title, path: legalPath(page.slug) },
+          ]),
+        )}
+      />
+
       <nav aria-label="Breadcrumb" className="text-xs text-ink-2">
         <Link href="/" className="underline">
           Home
