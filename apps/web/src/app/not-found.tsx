@@ -14,9 +14,10 @@ import PathRecovery from '@/components/path-recovery';
 // work out what the reader meant from the URL, offer the country and
 // region hubs, and only then apologise.
 //
-// 🔴 What it deliberately does NOT have is the site search the card
-// asks for: there is no search on the site yet (it is its own card), and
-// a box that goes nowhere is worse than no box.
+// 🔴 The search box the card asked for is here as of CAMP-67. It was
+// deliberately absent before — there was no search on the site, and a box
+// that goes nowhere is worse than no box. Now there is one, so the
+// promise this page makes is one it can keep.
 
 export default async function NotFound() {
   // Both are already cached by the API layer, and this page is built
@@ -35,6 +36,30 @@ export default async function NotFound() {
         Campsite data comes from OpenStreetMap and we reimport it every week,
         so addresses do change. Nothing is lost — here is the way back in.
       </p>
+
+      {/* 🔴 A GET form, not a script. It works with JavaScript switched
+          off — which matters more here than anywhere else on the site,
+          because this is the page a reader lands on when something has
+          already gone wrong. */}
+      <form action="/search" method="get" className="mt-6 flex max-w-lg gap-2">
+        <label htmlFor="nf-q" className="sr-only">
+          Search campsites
+        </label>
+        <input
+          id="nf-q"
+          name="q"
+          type="search"
+          placeholder="A campsite, a region, or a place nearby"
+          data-testid="notfound-search"
+          className="h-11 flex-1 rounded-sm border border-line-2 bg-surface px-3 text-base text-heading placeholder:text-ink-3"
+        />
+        <button
+          type="submit"
+          className="h-11 shrink-0 rounded-sm border border-line-blue bg-accent-surface px-4 text-sm font-semibold text-heading"
+        >
+          Search
+        </button>
+      </form>
 
       <PathRecovery places={places} />
 

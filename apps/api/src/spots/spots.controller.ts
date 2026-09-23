@@ -48,6 +48,12 @@ export class SpotsController {
     return this.spots.allPublishable();
   }
 
+  /** CAMP-67: the documents the static search index is built from. */
+  @Get('search-index')
+  searchIndex() {
+    return this.spots.searchDocuments();
+  }
+
   /** CAMP-41: real totals for the home page — never a rounded promise. */
   @Get('summary')
   summary() {
