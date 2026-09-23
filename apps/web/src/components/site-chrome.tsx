@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { COMPANY, LEGAL_PAGES, legalPath } from '@/lib/legal';
+import { CookieSettingsLink } from './cookie-consent';
 
 // CAMP-41: the header and footer every page wears.
 //
@@ -89,11 +91,41 @@ export function SiteFooter() {
           >
             Open Database License
           </a>
-          . Elevation from the Copernicus DEM. Distances and terrain are
-          calculated by CampTribe from that data.
+          . Boundaries from Natural Earth. Elevation from the Copernicus
+          DEM. Distances and terrain are calculated by CampTribe from that
+          data —{' '}
+          <Link href="/legal/attribution" className="underline">
+            full sources and licences
+          </Link>
+          .
         </p>
-        <p className="mt-3">
-          © {new Date().getFullYear()} CampTribe
+
+        {/* 🔴 CAMP-56: on every page, because that is where a reader
+            looks for them and because the E-Commerce Directive expects
+            the operator to be identifiable without hunting. Built from
+            LEGAL_PAGES, so a page added to that list cannot be one the
+            footer forgets. */}
+        <nav aria-label="Legal" className="mt-4">
+          <ul className="flex flex-wrap gap-x-4 gap-y-1">
+            {LEGAL_PAGES.map((p) => (
+              <li key={p.slug}>
+                <Link href={legalPath(p.slug)} className="underline">
+                  {p.title}
+                </Link>
+              </li>
+            ))}
+            <li>
+              <CookieSettingsLink />
+            </li>
+          </ul>
+        </nav>
+
+        <p className="mt-4">
+          © {new Date().getFullYear()} CampTribe — {COMPANY.name},{' '}
+          {COMPANY.city}, {COMPANY.country} ·{' '}
+          <a href={`mailto:${COMPANY.email}`} className="underline">
+            {COMPANY.email}
+          </a>
         </p>
       </div>
     </footer>
