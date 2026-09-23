@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
+  AMENITY_KEYS,
   countryName,
   formatDistance,
   getCountries,
@@ -254,8 +255,17 @@ function Notable({ spots }: { spots: Awaited<ReturnType<typeof getNotable>> }) {
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/^-+|-+$/g, '');
           const water = s.context?.water;
-          const known = Object.values(s.amenities ?? {}).filter(
-            (v) => v !== 'unknown',
+          // 🔴 Both halves of this ratio come from AMENITY_KEYS.
+          //
+          // It used to count Object.values(amenities) against a hardcoded
+          // "of 5", and CAMP-25 added four keys without touching the 5.
+          // The home page then told readers "8 of 5 facilities recorded",
+          // which is the kind of nonsense that costs trust on the one
+          // page whose whole pitch is that we do not invent numbers. The
+          // first visual baseline caught it on the day it was generated.
+          const known = AMENITY_KEYS.filter(
+            (k) => (s.amenities ?? {})[k] !== undefined
+              && (s.amenities ?? {})[k] !== 'unknown',
           ).length;
           return (
             <li
@@ -279,8 +289,8 @@ function Notable({ spots }: { spots: Awaited<ReturnType<typeof getNotable>> }) {
                     : ''}
               </p>
               <p className="mt-2 text-xs text-ink-2">
-                <span className="tabular-nums">{known}</span> of 5 facilities
-                recorded
+                <span className="tabular-nums">{known}</span> of{' '}
+                {AMENITY_KEYS.length} facilities recorded
               </p>
             </li>
           );

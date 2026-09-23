@@ -81,9 +81,18 @@ runs:
         #
         # 3000 would also collide with `next start`, which Lighthouse uses.
         PORT: '3001'
-        # CAMP-92. The browser posts cross-origin (3000 → 3001), so the
-        # allowlist has to name the site. It is empty by default in
-        # main.ts precisely so a machine nobody configured stays closed.
+        # Two cards arrived at this same line, and both reasons hold.
+        #
+        # CAMP-92: the browser POSTs a client error cross-origin
+        # (3000 → 3001), so the allowlist has to name the site.
+        #
+        # CAMP-60, debt #4: the allowlist is empty unless CORS_ORIGINS is
+        # set — the right default, since an unconfigured machine stays
+        # closed. But it also meant our only CORS assertion was negative
+        # ("an unknown origin gets nothing"), which stays green when CORS
+        # is switched off entirely, and when the API is not running at
+        # all. Setting it here is what lets the test assert both
+        # directions.
         CORS_ORIGINS: 'http://localhost:3000'
         # Reading errors back needs a token, and with none set the route
         # 404s. Throwaway and local to the runner; nothing here is secret.
