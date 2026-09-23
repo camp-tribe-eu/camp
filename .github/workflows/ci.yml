@@ -18,6 +18,12 @@ on:
 # Credentials are throwaway and local to the runner; nothing here is a secret.
 env:
   CI_DATABASE_URL: postgres://postgres:postgres@localhost:5432/camptribe_test
+  # CAMP-92. One value, used twice in the e2e job: once to build the
+  # bundle (NEXT_PUBLIC_* is inlined at build time) and once for the test
+  # process, because the security spec recomputes the expected CSP from
+  # the same environment. Two copies of this string would drift, and the
+  # symptom would be a CSP mismatch that looks like a security regression.
+  CI_ERROR_ENDPOINT: http://localhost:3001/client-errors
 
 jobs:
   # Runs first and needs nothing: no database, no build, no browsers. A
@@ -325,6 +331,7 @@ jobs:
         with:
           site-mode: closed
           database-url: ${{ env.CI_DATABASE_URL }}
+          error-endpoint: ${{ env.CI_ERROR_ENDPOINT }}
       # Cross-browser (chromium/firefox/webkit) + cross-platform (desktop/mobile/tablet
       # viewports) + accessibility (axe-core, WCAG AA) + console-error capture — CAMP-13.
       # The API is still running from build-site: the tests resolve their
@@ -333,6 +340,10 @@ jobs:
         env:
           CI: true
           API_BASE_URL: http://localhost:3001
+          # CAMP-92. Reading client errors back is token-guarded; this is
+          # the same throwaway value build-site gives the API it starts.
+          CLIENT_ERRORS_READ_TOKEN: ci-read-token
+          NEXT_PUBLIC_ERROR_ENDPOINT: ${{ env.CI_ERROR_ENDPOINT }}
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
