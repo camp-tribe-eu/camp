@@ -22,6 +22,41 @@ const MAX_SPAN_DEG = 360;
 export const POINT_LIMIT = 2000;
 
 /**
+ * The most a caller may ask for, however loudly they ask.
+ *
+ * 🔴 The build needs more than POINT_LIMIT: it writes the whole-world
+ * snapshot the map reads with the backend switched off (CAMP-39), and on
+ * 23.09.2026 that dataset passed 2 000 and the build stopped. So the
+ * endpoint now accepts a limit — and clamps it, because it is public.
+ * "Give me every campsite in Europe" from an anonymous caller is a
+ * different request from "draw this viewport", and only one of them is
+ * what this route is for.
+ *
+ * 10 000 is not arbitrary: the snapshot's own budget is 4 MB, which is
+ * roughly this many features. Past it the map has to query per viewport
+ * anyway, so a bigger number would only buy a slower way to fail.
+ */
+export const MAX_POINT_LIMIT = 10_000;
+
+/** Read a caller's limit, or fall back to the viewport default. */
+export function parseLimit(
+  raw: string | undefined,
+  fallback = POINT_LIMIT,
+  max = MAX_POINT_LIMIT,
+): number {
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  // A limit that is not a positive number is a bug in the caller, and
+  // silently using the default would hide it.
+  if (!Number.isFinite(n) || n < 1) {
+    throw new BadRequestException(
+      `limit must be a positive number, got "${raw}"`,
+    );
+  }
+  return Math.min(Math.floor(n), max);
+}
+
+/**
  * Cells across the viewport when clustering. Higher means smaller, more
  * numerous clusters. Eight keeps a continent-wide view at a few dozen
  * bubbles, which is readable and cheap to draw.

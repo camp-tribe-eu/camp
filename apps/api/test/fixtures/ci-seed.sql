@@ -136,3 +136,35 @@ BEGIN
 
   RAISE NOTICE 'CI fixture: % marked gone', target;
 END $$;
+
+-- CAMP-101: give the seeded rows the source attribution real rows carry.
+--
+-- 🔴 The migration backfills `sources` for rows that exist WHEN IT RUNS.
+-- In CI the order is migrate → seed, so every seeded campsite arrived
+-- afterwards with `sources = '[]'` — and the attribution block, which is
+-- a licence condition, rendered on no page at all. The e2e caught it
+-- with "no campsite carries an OpenStreetMap source", which is exactly
+-- what that test is for.
+--
+-- Same shape the OSM import writes: the date is when we last SAW the
+-- campsite in OpenStreetMap, never when a mapper last edited it.
+UPDATE camping_spots
+   SET sources = jsonb_build_array(jsonb_build_object(
+         'id', 'osm',
+         'ref', osm_ref,
+         'updatedAt', to_char(COALESCE(last_seen_at, created_at), 'YYYY-MM-DD'),
+         'fields', '["name","location","amenities"]'::jsonb))
+ WHERE osm_ref IS NOT NULL
+   AND sources = '[]'::jsonb;
+
+DO $$
+DECLARE n int;
+BEGIN
+  SELECT count(*) INTO n FROM camping_spots WHERE sources <> '[]'::jsonb;
+  IF n = 0 THEN
+    RAISE EXCEPTION
+      'CI fixture: no campsite carries a source. The attribution block is '
+      'a licence condition and would render on no page.';
+  END IF;
+  RAISE NOTICE 'CI fixture: % campsites carry a source', n;
+END $$;
