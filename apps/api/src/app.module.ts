@@ -10,6 +10,8 @@ import { RoutePoint } from './entities/route-point.entity';
 import { Trip } from './entities/trip.entity';
 import { TripStop } from './entities/trip-stop.entity';
 import { SpotsModule } from './spots/spots.module';
+import { TelemetryModule } from './telemetry/telemetry.module';
+import { ClientError } from './entities/client-error.entity';
 
 @Module({
   imports: [
@@ -18,10 +20,19 @@ import { SpotsModule } from './spots/spots.module';
       type: 'postgres',
       url:
         process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev',
-      entities: [User, CampingSpot, Route, RoutePoint, Trip, TripStop],
+      entities: [
+        User,
+        CampingSpot,
+        Route,
+        RoutePoint,
+        Trip,
+        TripStop,
+        ClientError,
+      ],
       synchronize: false,
     }),
     SpotsModule,
+    TelemetryModule,
   ],
   controllers: [AppController],
   providers: [AppService],

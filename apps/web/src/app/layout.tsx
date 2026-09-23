@@ -3,6 +3,7 @@ import "./globals.css";
 import { isPublic } from "@/lib/environment";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
 import { DEFAULT_LOCALE } from "@/lib/i18n";
+import ErrorReporter from "@/components/error-reporter";
 
 // Canonical domain from Facts/project-identity.md in the Camping brain.
 // Overridable via env so staging/preview deploys don't claim the production URL.
@@ -73,6 +74,10 @@ export default function RootLayout({
         />
       </head>
       <body className="flex min-h-screen flex-col antialiased">
+        {/* CAMP-92. First in the body, before anything that can throw:
+            a listener attached after the failure it was meant to hear
+            is a listener that reports nothing. It renders null. */}
+        <ErrorReporter />
         <SiteHeader />
         <div className="flex-1">{children}</div>
         <SiteFooter />
