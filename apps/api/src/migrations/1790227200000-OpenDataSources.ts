@@ -28,6 +28,13 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *      "updatedAt": "2026-08-28",
  *      "fields": ["name", "description", "stars", "website"] }]
  *
+ * 🔴 `website` is here because without it `sources` would lie. The first
+ * run recorded `"fields": [… "website" …]` on every French record while
+ * no such column existed — an attribution for a field we never stored,
+ * in the very column added to make attribution honest. Found by reading
+ * a row back rather than by any test, which is the argument for reading
+ * rows back.
+ *
  * `description_lang` exists because the descriptions are French and the
  * site is English. We do not translate them — a machine translation of
  * an operator's own words, published as if it were theirs, is exactly
@@ -43,6 +50,7 @@ export class OpenDataSources1790227200000 implements MigrationInterface {
         ADD COLUMN "description" text,
         ADD COLUMN "description_lang" character varying(8),
         ADD COLUMN "stars" smallint,
+        ADD COLUMN "website" text,
         ADD COLUMN "sources" jsonb NOT NULL DEFAULT '[]'::jsonb
     `);
 
@@ -84,6 +92,7 @@ export class OpenDataSources1790227200000 implements MigrationInterface {
     await queryRunner.query(`
       ALTER TABLE "camping_spots"
         DROP COLUMN "sources",
+        DROP COLUMN "website",
         DROP COLUMN "stars",
         DROP COLUMN "description_lang",
         DROP COLUMN "description"

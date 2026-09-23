@@ -142,6 +142,10 @@ export class CampingSpot {
   })
   descriptionLang: string | null;
 
+  /** The operator's own site, where a source gives us one. */
+  @Column({ type: 'text', nullable: true })
+  website: string | null;
+
   /**
    * Official national classification, 1–5, where one exists.
    *

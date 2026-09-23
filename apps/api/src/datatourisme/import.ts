@@ -251,7 +251,7 @@ async function main() {
       return;
     }
 
-    const used = new Set(
+    const used = new Set<string>(
       (
         await db.query<{ slug: string }>('SELECT slug FROM camping_spots')
       ).rows.map((r) => r.slug),
@@ -265,10 +265,9 @@ async function main() {
       const existing = await db.query<{
         name: string | null;
         website: string | null;
-      }>(
-        `SELECT name, NULL::text AS website FROM camping_spots WHERE id = $1`,
-        [decision.id],
-      );
+      }>(`SELECT name, website FROM camping_spots WHERE id = $1`, [
+        decision.id,
+      ]);
       const fields = fieldsToFill(
         spot,
         existing.rows[0] ?? { name: null, website: null },
@@ -282,6 +281,7 @@ async function main() {
           description      = COALESCE($3, description),
           description_lang = CASE WHEN $3 IS NULL THEN description_lang ELSE 'fr' END,
           stars            = COALESCE($4, stars),
+          website          = COALESCE(website, $7),
           sources          = (
             SELECT COALESCE(jsonb_agg(e), '[]'::jsonb) || $5::jsonb
               FROM jsonb_array_elements(sources) e
@@ -297,6 +297,7 @@ async function main() {
           spot.stars,
           JSON.stringify([sourceEntry(spot, fields)]),
           SOURCE_ID,
+          spot.website,
         ],
       );
       merged++;
@@ -310,15 +311,57 @@ async function main() {
         `
         INSERT INTO camping_spots
           (name, country, region, slug, type, amenities, location,
-           description, description_lang, stars, sources, last_seen_at)
-        SELECT $1, $2,
-               (SELECT lower(regexp_replace(a.name, '[^a-zA-Z0-9]+', '-', 'g'))
+           description, description_lang, stars, website, sources, last_seen_at)
+        SELECT $1::text, $2::text,
+               -- Natural Earth's admin-1 for France is the département
+               -- (Var, Vaucluse…), not the région. That is the better
+               -- unit for us anyway: it is how French readers search,
+               -- and it keeps the hub pages the same size as elsewhere.
+               -- 🔴 Containment first, then the nearest polygon within
+               -- 5 km — the same rule the OSM import uses, and for the
+               -- same reason: a campsite on a spit, an island or right
+               -- on a coastline falls outside every polygon, and a row
+               -- with no region gets no page URL at all. The first run
+               -- lost 9 of 478 French campsites exactly this way.
+               -- 🔴 The region's NAME, not a slug of it.
+               --
+               -- The first version slugified the name right here, which
+               -- put French regions in a different shape from every
+               -- other country: OSM stores
+               -- "Primorsko-Goranska" and this stored "bouches-du-rh-ne":
+               -- the accented letter became a dash, so both the page
+               -- heading and the URL would have read "rh-ne", and the two
+               -- sources would have disagreed about what a region even
+               -- is. The web app slugifies for URLs; the database holds
+               -- what a reader should see.
+               --
+               -- (The backticks that were in this comment terminated the
+               -- template literal and broke the file. A comment can be a
+               -- syntax error.)
+               (SELECT a.name
                   FROM ne_admin1 a
-                 WHERE ST_Contains(a.geom, ST_SetSRID(ST_MakePoint($4, $3), 4326))
+                 WHERE a.geom && ST_Expand(ST_SetSRID(ST_MakePoint($4::float8, $3::float8), 4326), 0.1)
+                   AND (ST_Contains(a.geom, ST_SetSRID(ST_MakePoint($4::float8, $3::float8), 4326))
+                        OR ST_DWithin(a.geom::geography,
+                                      ST_SetSRID(ST_MakePoint($4::float8, $3::float8), 4326)::geography,
+                                      5000))
+                 -- Containment always wins; among near misses, the
+                 -- closest, and the name breaks a tie so the answer
+                 -- cannot change between runs.
+                 ORDER BY ST_Contains(a.geom, ST_SetSRID(ST_MakePoint($4::float8, $3::float8), 4326)) DESC,
+                          a.geom <-> ST_SetSRID(ST_MakePoint($4::float8, $3::float8), 4326),
+                          a.name
                  LIMIT 1),
-               $5, 'paid', '{}'::jsonb,
-               ST_SetSRID(ST_MakePoint($4, $3), 4326),
-               $6, CASE WHEN $6 IS NULL THEN NULL ELSE 'fr' END, $7, $8::jsonb, now()
+               $5::text, 'paid', '{}'::jsonb,
+               ST_SetSRID(ST_MakePoint($4::float8, $3::float8), 4326),
+               -- 🔴 Every placeholder is cast. Postgres could not infer
+               -- the type of the description inside the CASE and refused
+               -- the whole statement — "could not determine data type of
+               -- parameter $6" — which is a compile error dressed as a
+               -- runtime one, and only the real run finds it.
+               $6::text,
+               CASE WHEN $6::text IS NULL THEN NULL ELSE 'fr' END,
+               $7::smallint, $9::text, $8::jsonb, now()
         `,
         [
           spot.name,
@@ -329,13 +372,28 @@ async function main() {
           spot.description,
           spot.stars,
           JSON.stringify([sourceEntry(spot, fields)]),
+          spot.website,
         ],
       );
       inserted++;
     }
 
+    // 🔴 A row with no region has no page URL, so it is invisible on the
+    // site however good its data is. Counting it is the difference
+    // between "478 imported" and the truth.
+    const orphans = await db.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM camping_spots
+        WHERE country = $1 AND region IS NULL`,
+      [COUNTRY],
+    );
     await db.query('COMMIT');
     console.log(`\n✓ merged ${merged}, inserted ${inserted}`);
+    const without = Number(orphans.rows[0]?.n ?? 0);
+    if (without > 0) {
+      console.log(
+        `⚠ ${without} ${COUNTRY} campsites have no region and therefore no page URL`,
+      );
+    }
   } catch (err) {
     await db.query('ROLLBACK').catch(() => undefined);
     throw err;
