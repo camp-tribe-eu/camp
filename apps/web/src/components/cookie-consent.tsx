@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
+  CONSENT_KEY,
   readConsent,
   writeConsent,
   REOPEN_EVENT,
@@ -37,7 +38,21 @@ export default function CookieConsent() {
     // The footer's "Cookie settings" asks for it back.
     const reopen = () => setShow(true);
     window.addEventListener(REOPEN_EVENT, reopen);
-    return () => window.removeEventListener(REOPEN_EVENT, reopen);
+
+    // 🔴 Answered in another tab counts as answered here. Without this a
+    // reader with two tabs open refuses in one and is still being asked
+    // in the other — which reads as the site ignoring them, and is the
+    // exact impression a consent banner must not give. The `storage`
+    // event fires only in the OTHER tabs, which is precisely the case.
+    const elsewhere = (e: StorageEvent) => {
+      if (e.key === CONSENT_KEY || e.key === null) decide();
+    };
+    window.addEventListener('storage', elsewhere);
+
+    return () => {
+      window.removeEventListener(REOPEN_EVENT, reopen);
+      window.removeEventListener('storage', elsewhere);
+    };
   }, []);
 
   if (!show) return null;

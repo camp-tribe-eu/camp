@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { LEGAL_PAGES, legalPath } from '@/lib/legal';
 import { CONSENT_KEY } from '@/lib/consent';
 
@@ -228,5 +229,36 @@ test.describe('security.txt', () => {
     expect(when, 'security.txt has expired').toBeGreaterThan(Date.now());
     // And inside the one-year ceiling the RFC sets.
     expect(when).toBeLessThan(Date.now() + 366 * 24 * 60 * 60 * 1000);
+  });
+});
+
+test.describe('the banner is usable without a mouse', () => {
+  // 🔴 A consent control that a keyboard or a screen reader cannot use
+  // is not a choice freely given — it is a choice only some readers get
+  // to make. axe runs over the page with the banner up, which is the
+  // state the existing home-page check never sees.
+  test('carries no accessibility violations', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('cookie-banner')).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+
+    expect(
+      results.violations.map((v) => `${v.id}: ${v.description}`),
+      'the cookie banner introduced accessibility violations',
+    ).toEqual([]);
+  });
+
+  test('both answers are reachable and operable by keyboard', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    const reject = page.getByTestId('cookie-reject');
+    await reject.focus();
+    await expect(reject).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('cookie-banner')).toBeHidden();
   });
 });

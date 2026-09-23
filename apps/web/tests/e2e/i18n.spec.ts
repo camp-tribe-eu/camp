@@ -39,9 +39,8 @@ async function pageTypes(request: APIRequestContext): Promise<string[]> {
     `/camping/${spot.country}`,
     `/camping/${spot.country}/${spot.region}`,
     `/camping/${spot.country}/${spot.region}/${spot.slug}`,
-    // 🔴 /legal/* joins this list with CAMP-56, not before: a page that
-    // does not exist yet would make this test fail for the right reason
-    // at the wrong time.
+    // Joined the list with CAMP-56, once the pages existed.
+    '/legal/privacy',
   ];
 }
 

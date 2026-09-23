@@ -38,12 +38,26 @@ export default function Attribution() {
       </P>
 
       <Callout>
-        <B>If you take our data, the same licence follows it.</B> ODbL is a
-        share-alike licence. You may copy, adapt and use this material,
-        including commercially, provided you attribute OpenStreetMap
-        contributors, keep it under ODbL, and do not use technical measures
-        to restrict others. That condition binds us and it binds you — it
-        is not something either of us can sign away in terms of use.
+        <B>If you take this data, the licence goes with it.</B> You may copy,
+        adapt and use it, including commercially. What you owe in return
+        depends on what you make:
+        <br />
+        <br />
+        If you publish an adapted <B>database</B>, ODbL&rsquo;s share-alike
+        applies and you must offer that database under ODbL too. If you
+        publish something produced <i>from</i> the data — a map image, a
+        printed guide — that work does not itself become ODbL, but it must
+        carry a notice saying it came from an ODbL database. Either way,
+        OpenStreetMap contributors are credited, and you may not use
+        technical measures to stop others exercising the same rights.
+        <br />
+        <br />
+        Those conditions bind us exactly as they bind you, and neither of us
+        can set them aside in terms of use. The{' '}
+        <A href="https://opendatacommons.org/licenses/odbl/1-0/">
+          licence text
+        </A>{' '}
+        is the authority; this paragraph is a summary and nothing more.
       </Callout>
 
       <H3>What we added</H3>

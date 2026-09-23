@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   CONSENT_KEY,
   consentVersion,
+  MAX_AGE_DAYS,
   mayLoadOptional,
   readConsent,
   writeConsent,
@@ -131,5 +132,45 @@ test.describe('what is written down', () => {
   test('the version asked about is the cookie policy’s own version', () => {
     // Bumping the policy must re-ask; this is the link that makes it so.
     expect(consentVersion()).toBe('1.0');
+  });
+});
+
+test.describe('an answer does not last for ever', () => {
+  const day = 24 * 60 * 60 * 1000;
+
+  // 🔴 The gap the sceptical re-read found: the first version had no
+  // expiry, so a yes given once stood for ever — including after the
+  // policy, the processors or the purposes had changed. Supervisory
+  // authorities put the refresh around six months.
+  test('a fresh answer still counts', () => {
+    const store = fakeStore();
+    const then = new Date('2026-09-23T00:00:00.000Z');
+    writeConsent('accepted', store, then);
+    const soon = new Date(then.getTime() + 30 * day);
+    expect(mayLoadOptional(readConsent(store, soon))).toBe(true);
+  });
+
+  test('an answer older than the window is no answer at all', () => {
+    const store = fakeStore();
+    const then = new Date('2026-09-23T00:00:00.000Z');
+    writeConsent('accepted', store, then);
+    const later = new Date(then.getTime() + (MAX_AGE_DAYS + 1) * day);
+    expect(readConsent(store, later)).toBeNull();
+    expect(mayLoadOptional(readConsent(store, later))).toBe(false);
+  });
+
+  test('a refusal expires too, so the question is asked again', () => {
+    const store = fakeStore();
+    const then = new Date('2026-09-23T00:00:00.000Z');
+    writeConsent('rejected', store, then);
+    const later = new Date(then.getTime() + (MAX_AGE_DAYS + 1) * day);
+    expect(readConsent(store, later)).toBeNull();
+  });
+
+  test('a timestamp we cannot read fails closed', () => {
+    const broken = fakeStore(
+      JSON.stringify({ choice: 'accepted', at: 'not a date', version: consentVersion() }),
+    );
+    expect(mayLoadOptional(readConsent(broken))).toBe(false);
   });
 });

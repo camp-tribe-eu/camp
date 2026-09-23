@@ -32,6 +32,22 @@ export interface ConsentRecord {
 
 export const CONSENT_KEY = 'camptribe.consent';
 
+/**
+ * 🔴 How long an answer counts for.
+ *
+ * Consent that never expires is consent nobody ever revisits, and it is
+ * a point supervisory authorities make repeatedly — the CNIL's guidance
+ * puts the refresh at six months, and other authorities land in the same
+ * range. Our first version had no expiry at all: a yes given once would
+ * have stood for ever, including after the policy, the processors or the
+ * purposes had changed.
+ *
+ * Six months, and then the banner asks again. The version check below
+ * handles the other direction: if the policy changes sooner, the answer
+ * lapses immediately rather than waiting out the clock.
+ */
+export const MAX_AGE_DAYS = 182;
+
 /** The version currently being asked about. */
 export const consentVersion = (): string =>
   legalPage('cookies')?.version ?? '0';
@@ -39,6 +55,7 @@ export const consentVersion = (): string =>
 /** The stored decision, or null if there is none we can still rely on. */
 export function readConsent(
   store: Pick<Storage, 'getItem'> | undefined = safeStorage(),
+  now: Date = new Date(),
 ): ConsentRecord | null {
   if (!store) return null;
   let raw: string | null;
@@ -63,6 +80,13 @@ export function readConsent(
   // 🔴 An answer to an older version of the policy is not an answer to
   // this one. Treated as no decision at all, so the banner asks again.
   if (r.version !== consentVersion()) return null;
+
+  // And an answer old enough to predate anything we can remember is not
+  // an answer either. An unparseable date fails closed, like everything
+  // else here.
+  const given = Date.parse(r.at);
+  if (Number.isNaN(given)) return null;
+  if (now.getTime() - given > MAX_AGE_DAYS * 24 * 60 * 60 * 1000) return null;
 
   return { choice: r.choice, at: r.at, version: r.version };
 }

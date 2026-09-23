@@ -75,9 +75,8 @@ export default function Privacy() {
       </P>
       <UL>
         <li>
-          <B>Legal basis:</B> our legitimate interest in answering people
-          who contact us, or the steps taken at your request — Article
-          6(1)(f) and 6(1)(b) GDPR.
+          <B>Legal basis:</B> our legitimate interest in answering people who
+          write to us — Article 6(1)(f) GDPR.
         </li>
       </UL>
 
@@ -130,8 +129,11 @@ export default function Privacy() {
       </P>
       <P>
         Write to <A href={`mailto:${COMPANY.email}`}>{COMPANY.email}</A>. We
-        answer within one month. In practice the honest answer to most such
-        requests will be that we hold nothing about you, because we do not.
+        answer within one month, and if a request is complex enough to need
+        longer we will tell you inside that month and say why — which is what
+        Article 12(3) allows and requires. In practice the honest answer to
+        most such requests will be that we hold nothing about you, because we
+        do not.
       </P>
 
       <Callout>
