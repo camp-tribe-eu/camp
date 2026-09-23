@@ -22,6 +22,34 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+/**
+ * How the sentences in a guide came to exist.
+ *
+ * 🔴 Article 50(2) of the EU AI Act, in force since 02.08.2026, requires
+ * machine-generated text to be marked as such. The Digital Omnibus
+ * deferred the high-risk obligations; it did not defer Article 50. So
+ * this is a publication condition, not metadata — and the column is NOT
+ * NULL so that it cannot be forgotten rather than merely remembered.
+ */
+export enum GuideProvenance {
+  /** A person wrote it. We name them; no machine label is due. */
+  HUMAN = 'human',
+  /** A person wrote and edited it with machine help. Labelled. */
+  AI_ASSISTED = 'ai-assisted',
+  /** A machine wrote it and a person checked it. Labelled. */
+  AI_GENERATED = 'ai-generated',
+  /**
+   * Assembled from our own database by a named program, where every
+   * sentence is a value we hold.
+   *
+   * 🔴 Not a loophole. A template filled from measured rows is narrower
+   * than what the Act covers, not wider — but a reader still deserves to
+   * know a program wrote the sentence, and it is the one kind of text we
+   * can produce at volume without inventing anything.
+   */
+  DATA_GENERATED = 'data-generated',
+}
+
 /** Publication state shared by every editorial collection. */
 export enum ContentStatus {
   DRAFT = 'draft',
@@ -72,6 +100,19 @@ export class Guide {
 
   @Column({ type: 'enum', enum: ContentStatus, default: ContentStatus.DRAFT })
   status: ContentStatus;
+
+  /**
+   * How this guide was made. Required — see GuideProvenance.
+   *
+   * The database also enforces the pair: a `human` guide must name its
+   * author, anything else must name the program that produced it.
+   */
+  @Column({ type: 'enum', enum: GuideProvenance })
+  provenance: GuideProvenance;
+
+  /** The program that produced a generated guide, e.g. "region-facts@1". */
+  @Column({ nullable: true })
+  generator?: string;
 
   @Column({ name: 'author_name', nullable: true })
   authorName?: string;
