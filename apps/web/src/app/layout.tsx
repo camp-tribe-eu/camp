@@ -3,6 +3,7 @@ import "./globals.css";
 import { isPublic } from "@/lib/environment";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
 import { DEFAULT_LOCALE } from "@/lib/i18n";
+import CookieConsent from "@/components/cookie-consent";
 import ErrorReporter from "@/components/error-reporter";
 import { BOOTSTRAP } from "@/lib/error-bootstrap";
 
@@ -88,6 +89,11 @@ export default function RootLayout({
         <SiteHeader />
         <div className="flex-1">{children}</div>
         <SiteFooter />
+        {/* 🔴 Last in the document, and it blocks nothing above it. The
+            banner must never be a gate: a reader who ignores it keeps the
+            whole site, which is what makes any consent given freely
+            given. */}
+        <CookieConsent />
       </body>
     </html>
   );

@@ -204,6 +204,16 @@ jobs:
       - name: Nothing is left blocking the index
         run: node scripts/seo/check-indexing.mjs --expect public
 
+      # CAMP-56. The legal pages may not go live unread.
+      #
+      # 🔴 Two steps, as with every guard here: first prove it still
+      # refuses an unreviewed public build, then run it. Without the
+      # first, a gate that has quietly stopped gating reports safety.
+      - name: Legal gate still refuses an unreviewed public build
+        run: node scripts/seo/check-legal-review.mjs --self-test
+      - name: Legal pages are reviewed, or the debt is still in date
+        run: node scripts/seo/check-legal-review.mjs --expect public
+
       - name: Sitemap lists only indexable pages
         run: node scripts/seo/check-sitemap.mjs --mode public
 
