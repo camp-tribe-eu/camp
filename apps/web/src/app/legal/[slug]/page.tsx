@@ -7,6 +7,7 @@ import { breadcrumbList, jsonLdProps, legalPageGraph } from '@/lib/jsonld';
 import Terms from '@/content/legal/terms';
 import Privacy from '@/content/legal/privacy';
 import Cookies from '@/content/legal/cookies';
+import Disclaimer from '@/content/legal/disclaimer';
 import Attribution from '@/content/legal/attribution';
 import Notice from '@/content/legal/notice';
 
@@ -28,6 +29,7 @@ const BODIES: Record<string, () => React.JSX.Element> = {
   terms: Terms,
   privacy: Privacy,
   cookies: Cookies,
+  disclaimer: Disclaimer,
   attribution: Attribution,
   notice: Notice,
 };

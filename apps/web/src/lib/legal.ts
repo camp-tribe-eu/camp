@@ -97,6 +97,14 @@ export const LEGAL_PAGES: LegalPage[] = [
     effectiveFrom: '2026-09-23',
   },
   {
+    slug: 'disclaimer',
+    summary:
+      'Nobody from CampTribe has visited these campsites. What that means before you drive somewhere.',
+    title: 'What we do and do not know',
+    version: '1.0',
+    effectiveFrom: '2026-09-23',
+  },
+  {
     slug: 'attribution',
     title: 'Data and attribution',
     summary:

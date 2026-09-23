@@ -262,3 +262,47 @@ test.describe('the banner is usable without a mouse', () => {
     await expect(page.getByTestId('cookie-banner')).toBeHidden();
   });
 });
+
+test.describe('🔴 the warning is where the card asks for it', () => {
+  // CAMP-56 item 4, verbatim: "дрібний лінк у футері юридично слабший —
+  // попередження має бути видиме В МОМЕНТ ДІЇ". The moment of action for
+  // a campsite page is the moment somebody decides to drive there.
+  test('a campsite page carries it in the page, not only in the footer', async ({
+    page,
+    request,
+  }) => {
+    const spots: { country: string; region: string; slug: string }[] = await (
+      await request.get(`${process.env.API_BASE_URL ?? 'http://localhost:3001'}/spots/index`)
+    ).json();
+    const s = spots[0];
+    await page.goto(`/camping/${s.country}/${s.region}/${s.slug}`);
+
+    const notice = page.getByTestId('travel-notice');
+    await expect(notice).toBeVisible();
+
+    // 🔴 In the body, not inside the footer — which is the whole point.
+    expect(
+      await notice.evaluate((n) => !!n.closest('footer')),
+      'the notice is inside the footer, which the card calls legally weaker',
+    ).toBe(false);
+
+    // The two facts it must carry.
+    await expect(notice).toContainText('nobody from CampTribe has visited');
+    await expect(notice).toContainText('not permission to camp there');
+    await expect(
+      notice.getByRole('link', { name: /what we do and do not know/i }),
+    ).toBeVisible();
+  });
+
+  test('and it cannot be dismissed away', async ({ page, request }) => {
+    const spots: { country: string; region: string; slug: string }[] = await (
+      await request.get(`${process.env.API_BASE_URL ?? 'http://localhost:3001'}/spots/index`)
+    ).json();
+    const s = spots[0];
+    await page.goto(`/camping/${s.country}/${s.region}/${s.slug}`);
+    // A notice a reader can close is a notice half of them never see.
+    await expect(
+      page.getByTestId('travel-notice').getByRole('button'),
+    ).toHaveCount(0);
+  });
+});
