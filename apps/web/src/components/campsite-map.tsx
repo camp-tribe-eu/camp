@@ -36,6 +36,15 @@ import {
   type SpotProperties as FilterProperties,
 } from '@/lib/map-filter';
 import MapFilters from './map-filters';
+import {
+  DETAIL_ZOOM,
+  chunkUrl,
+  chunksInView,
+  countInView,
+  dataMessage,
+  type MapDataState,
+  type RegionSummary,
+} from '@/lib/map-chunks';
 
 /** One campsite in the collection the map draws. */
 interface SpotFeature {
@@ -59,8 +68,11 @@ interface SpotFeature {
 //   4. a marker says what we actually know about a campsite, and never
 //      more than that.
 
-const SPOTS_URL = '/data/spots.geojson';
+const INDEX_URL = '/data/spots/index.json';
 const SOURCE_ID = 'campsites';
+const REGION_SOURCE = 'campsite-regions';
+const REGION_CIRCLE = 'campsite-region-circles';
+const REGION_COUNT = 'campsite-region-count';
 const CLUSTER_LAYER = 'campsite-clusters';
 const COUNT_LAYER = 'campsite-cluster-count';
 const POINT_LAYER = 'campsite-points';
@@ -117,6 +129,88 @@ const TYPE_LABEL: Record<string, string> = {
   rv_park: 'Motorhome park',
 };
 
+/**
+ * CAMP-127: one circle per region, for a view too wide for markers.
+ *
+ * 🔴 Drawn from the index, which is already in hand — so the wide view
+ * costs nothing beyond what was fetched to decide what is in view. The
+ * alternative was an empty map with a note saying to zoom in, and a
+ * reader looking at an empty map does not read notes.
+ *
+ * The circle sits on the CENTROID OF THE CAMPSITES, not of the region's
+ * shape: a region whose sites are all on one coast would otherwise put
+ * its circle inland, where zooming in finds nothing.
+ */
+function drawRegions(
+  m: InstanceType<typeof MapLibreMap>,
+  regions: readonly RegionSummary[],
+) {
+  const data: GeoJSON.FeatureCollection = {
+    type: 'FeatureCollection',
+    features: regions.map((r) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [r.lon, r.lat] },
+      properties: { count: r.count, label: String(r.count) },
+    })),
+  };
+
+  const existing = m.getSource(REGION_SOURCE) as GeoJSONSource | undefined;
+  if (existing) {
+    existing.setData(data);
+  } else {
+    m.addSource(REGION_SOURCE, { type: 'geojson', data });
+  }
+
+  if (!m.getLayer(REGION_CIRCLE)) {
+    m.addLayer({
+      id: REGION_CIRCLE,
+      type: 'circle',
+      source: REGION_SOURCE,
+      paint: {
+        'circle-color': '#404B62',
+        'circle-opacity': 0.85,
+        'circle-stroke-width': 1,
+        'circle-stroke-color': '#0B0F17',
+        // Area in proportion to the count, so a region with four times
+        // as many looks twice as wide — the honest encoding. Clamped,
+        // because Bayern's 1 433 against a median of 26 would otherwise
+        // swallow half the continent.
+        'circle-radius': [
+          'interpolate',
+          ['linear'],
+          ['sqrt', ['get', 'count']],
+          1,
+          6,
+          38,
+          26,
+        ],
+      },
+    });
+  }
+  if (!m.getLayer(REGION_COUNT)) {
+    m.addLayer({
+      id: REGION_COUNT,
+      type: 'symbol',
+      source: REGION_SOURCE,
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-font': CLUSTER_FONT,
+        'text-size': 11,
+        'text-allow-overlap': false,
+      },
+      paint: { 'text-color': '#FFFFFF' },
+    });
+  }
+}
+
+/** Take the region circles away once real markers are on the map. */
+function clearRegions(m: InstanceType<typeof MapLibreMap>) {
+  for (const id of [REGION_COUNT, REGION_CIRCLE]) {
+    if (m.getLayer(id)) m.removeLayer(id);
+  }
+  if (m.getSource(REGION_SOURCE)) m.removeSource(REGION_SOURCE);
+}
+
 export default function CampsiteMap() {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<InstanceType<typeof MapLibreMap> | null>(null);
@@ -153,6 +247,10 @@ export default function CampsiteMap() {
       : fromSearchParams(window.location.search, SPOT_TYPES, AMENITY_KEYS),
   );
   const [tally, setTally] = useState({ shown: 0, total: 0, unknownExcluded: 0 });
+  // CAMP-127: the table of contents, and which of its chunks are in hand.
+  const index = useRef<RegionSummary[]>([]);
+  const loaded = useRef<Set<string>>(new Set());
+  const [dataState, setDataState] = useState<MapDataState>({ kind: 'loading' });
 
   const active =
     MAP_SOURCES.find((s) => s.id === sourceId) ?? MAP_SOURCES[0];
@@ -351,6 +449,35 @@ export default function CampsiteMap() {
       el.dataset.visibleClusters = String(clusters.length);
       el.dataset.visiblePoints = String(points.length);
 
+      // 🔴 CAMP-127: the viewport, and how many of OUR features are in it.
+      //
+      // The map used to hold every campsite on earth, so a test could
+      // compare it against the API asking for the whole world. It now
+      // holds the regions in view, so the comparison has to be scoped —
+      // and the scope has to come from the map itself, because only the
+      // map knows where it is looking. Published together so the two can
+      // never describe different moments.
+      const b = m.getBounds();
+      el.dataset.bounds = [
+        b.getWest(),
+        b.getSouth(),
+        b.getEast(),
+        b.getNorth(),
+      ]
+        .map((n) => n.toFixed(6))
+        .join(',');
+      el.dataset.inView = String(
+        drawn.current.filter((f) => {
+          const [lon, lat] = f.geometry.coordinates;
+          return (
+            lon >= b.getWest() &&
+            lon <= b.getEast() &&
+            lat >= b.getSouth() &&
+            lat <= b.getNorth()
+          );
+        }).length,
+      );
+
       // CAMP-35: how many campsites the bubbles claim to contain, plus
       // the ones drawn individually.
       //
@@ -382,6 +509,13 @@ export default function CampsiteMap() {
     };
     m.on('idle', publishCounts);
 
+    // 🔴 CAMP-127: the map now fetches what is in view, so moving it is
+    // a data event and not only a rendering one. `moveend` rather than
+    // `move`: one fetch when the reader stops, not sixty while they drag.
+    m.on('moveend', () => {
+      void refreshRef.current();
+    });
+
     m.on('click', CLUSTER_LAYER, onClusterClick);
     m.on('click', POINT_LAYER, onPointClick);
     for (const layer of [CLUSTER_LAYER, POINT_LAYER]) {
@@ -396,31 +530,116 @@ export default function CampsiteMap() {
     };
   }, []);
 
-  // CAMP-35: load the collection once, then filter it in the browser.
+  // CAMP-127: the index first, then the chunks the reader is looking at.
   //
-  // 🔴 Fetched here rather than handed to MapLibre, because filtering
-  // needs the features and MapLibre keeps its copy inside a worker. One
-  // request either way; the difference is who can read the answer.
+  // 🔴 This used to be one fetch of one file. That file carried every
+  // campsite on earth, capped at 20 000 — and on 24.09.2026 the EU-27
+  // import took us to 61 521, the cap fired, and the map served a 500.
+  // Its own comment had predicted the day: "the map calls the same
+  // endpoint per viewport instead of reading this file".
+  //
+  // 🔴 And the failure was SILENT, which was worse than the outage. The
+  // old catch swallowed it with a comment saying an empty map "still
+  // renders honestly" — and it does not. Seen on screen: the request
+  // answered 500 and the panel read "0 campsites", which any reader
+  // reads as "there are none here". Every failure below is said out
+  // loud, because an empty map is the one thing that must never be
+  // quiet.
   useEffect(() => {
     let cancelled = false;
-    void fetch(SPOTS_URL)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((collection: { features?: SpotFeature[] }) => {
+    void fetch(INDEX_URL)
+      .then((r) =>
+        r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)),
+      )
+      .then((regions: RegionSummary[]) => {
         if (cancelled) return;
-        everything.current = collection.features ?? [];
-        // The filters may already be set from the query string.
-        applyFilterState(filtersRef.current);
+        if (!Array.isArray(regions) || regions.length === 0) {
+          // 🔴 An empty index is a broken build, not an empty continent.
+          setDataState({ kind: 'failed', what: 'the index is empty' });
+          return;
+        }
+        index.current = regions;
+        void refresh();
       })
-      .catch(() => {
-        // A missing collection is a map with no campsites on it, which
-        // the basemap still renders honestly. The counts stay at zero
-        // rather than the page failing around a fetch.
+      .catch((err: Error) => {
+        if (!cancelled) setDataState({ kind: 'failed', what: err.message });
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Fetch what the current viewport needs, and say what is happening.
+   *
+   * 🔴 Chunks are never discarded once fetched. A reader who pans away
+   * and back should not pay twice, and the memory cost is bounded by how
+   * much of Europe one person looks at in a sitting.
+   */
+  const refresh = async () => {
+    const m = map.current;
+    if (!m || index.current.length === 0) return;
+
+    const b = m.getBounds();
+    const view = {
+      west: b.getWest(),
+      south: b.getSouth(),
+      east: b.getEast(),
+      north: b.getNorth(),
+    };
+
+    if (m.getZoom() < DETAIL_ZOOM) {
+      // Too wide for markers. The index already holds the counts, so
+      // this costs nothing and still answers "how many are down there".
+      setDataState({ kind: 'wide', count: countInView(index.current, view) });
+      drawRegions(m, index.current);
+      return;
+    }
+
+    const { keys, tooMany } = chunksInView(index.current, view);
+    if (tooMany) {
+      setDataState({ kind: 'wide', count: countInView(index.current, view) });
+      drawRegions(m, index.current);
+      return;
+    }
+
+    const missing = keys.filter((k) => !loaded.current.has(k));
+    if (missing.length > 0) setDataState({ kind: 'loading' });
+
+    const failures: string[] = [];
+    for (const key of missing) {
+      // 🔴 Marked as loaded BEFORE the await, so a second moveend while
+      // this is in flight does not fetch the same chunk again. A failed
+      // one is un-marked below, so a retry is still possible.
+      loaded.current.add(key);
+      try {
+        const res = await fetch(chunkUrl(key));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const collection = (await res.json()) as { features?: SpotFeature[] };
+        everything.current = [
+          ...everything.current,
+          ...(collection.features ?? []),
+        ];
+      } catch (err) {
+        loaded.current.delete(key);
+        failures.push(`${key}: ${(err as Error).message}`);
+      }
+    }
+
+    clearRegions(m);
+    applyFilterState(filtersRef.current);
+    setDataState(
+      failures.length > 0
+        ? { kind: 'failed', what: failures[0] }
+        : { kind: 'ready' },
+    );
+  };
+
+  // 🔴 The same reason `filtersRef` exists: the map effect runs once, so
+  // it must not close over the first render's `refresh`.
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
 
   // 🔴 Read through a ref inside the fetch above: that effect runs once,
   // and closing over `filters` would pin it to whatever was set on the
@@ -586,6 +805,31 @@ export default function CampsiteMap() {
           unknownExcluded={tally.unknownExcluded}
         />
       </div>
+
+      {/* 🔴 CAMP-127: what the map is doing, in words, above the canvas.
+          
+          The defect this replaces: the data request answered 500, the
+          catch swallowed it, and the panel read "0 campsites" over an
+          empty map. A reader reads that as "there are none here". Now
+          loading says loading, a failure says what failed, and a view
+          too wide for markers says what the circles are. A working map
+          says nothing at all — silence is reserved for the one case
+          where it is true. */}
+      {dataMessage(dataState) && (
+        <p
+          role="status"
+          data-testid="map-data-state"
+          data-kind={dataState.kind}
+          className={
+            'mt-3 rounded border p-3 text-sm ' +
+            (dataState.kind === 'failed'
+              ? 'border-warn/40 bg-warn/5 text-ink-2'
+              : 'border-line-2 bg-surface text-ink-2')
+          }
+        >
+          {dataMessage(dataState)}
+        </p>
+      )}
 
       <div
         ref={container}

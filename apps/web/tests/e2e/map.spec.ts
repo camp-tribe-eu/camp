@@ -83,11 +83,36 @@ const CENTRE = { lng: INITIAL_VIEW.lng, lat: INITIAL_VIEW.lat };
  * Slovenia holds roughly one campsite per seventy. The tests were
  * measuring the density of Slovenian tourism, not our clustering.
  */
+// CAMP-127: the snapshot these tests used to read no longer exists.
+//
+// 🔴 It was one file with every campsite and a cap of 20 000. The EU-27
+// import took the database to 61 521, the cap fired, and the map served a
+// 500 — so the map now reads an index and fetches the regions in view.
+// These tests follow it: one real chunk is a better sample than a whole
+// continent, and it is the same shape of document.
+async function aChunk(page: import('@playwright/test').Page) {
+  const index = await page.request.get('/data/spots/index.json');
+  expect(index.status(), 'the map index is missing').toBe(200);
+  const regions = (await index.json()) as {
+    country: string;
+    slug: string;
+    count: number;
+  }[];
+  expect(regions.length, 'an empty index is a broken build').toBeGreaterThan(0);
+  // The biggest one, so the sample is worth taking.
+  const biggest = regions.reduce((a, b) => (b.count > a.count ? b : a));
+  const res = await page.request.get(
+    `/data/spots/${biggest.country.toLowerCase()}/${biggest.slug}.geojson`,
+  );
+  expect(res.status(), `chunk ${biggest.country}/${biggest.slug} is missing`).toBe(200);
+  return { body: await res.json(), region: biggest };
+}
+
 async function stubSpots(
   page: Page,
   points: { lng: number; lat: number; name?: string }[],
 ) {
-  await page.route('**/data/spots.geojson', (route) =>
+  await page.route('**/data/spots/**', (route) =>
     route.fulfill({
       contentType: 'application/geo+json',
       json: {
@@ -169,16 +194,21 @@ test.describe('/map', () => {
     // CAMP-32. The href is built by the API, from the same function the
     // pages use, precisely so this holds — and the web app briefly
     // re-derived the region slug itself, which is the way it breaks.
-    const geo = await page.request.get('/data/spots.geojson');
-    expect(geo.status()).toBe(200);
-    const body = await geo.json();
+    const { body } = await aChunk(page);
     expect(body.type).toBe('FeatureCollection');
     expect(body.features.length).toBeGreaterThan(0);
 
     // A handful is enough to catch a broken rule; all of them would make
     // this test scale with the dataset.
     for (const f of body.features.slice(0, 12)) {
-      const href = f.properties.href as string;
+      const href = f.properties.href as string | null;
+      // 🔴 Null is a legitimate answer now, and the reason is CAMP-127:
+      // 135 campsites carry no region, so they have no page — and the
+      // href used to be `/camping/cy//arazi`, a 404 the map handed out.
+      // The popup renders text instead. What must never appear is a
+      // path with a hole in it.
+      if (href === null) continue;
+      expect(href).not.toContain('//');
       expect(href).toMatch(/^\/camping\/[a-z]{2}\/[^/]+\/[^/]+$/);
       const res = await page.request.get(href);
       expect(res.status(), `${href} is a dead marker link`).toBe(200);
@@ -186,7 +216,7 @@ test.describe('/map', () => {
   });
 
   test('a marker carries the facilities we actually hold', async ({ page }) => {
-    const body = await (await page.request.get('/data/spots.geojson')).json();
+    const { body } = await aChunk(page);
 
     // 🔴 The three-state rule, checked on the data the map draws from.
     //
@@ -226,7 +256,7 @@ test.describe('/map', () => {
     const { markers } = await (
       await request.get(`${api}/spots/map/points?bbox=-180,-85,180,85&limit=400`)
     ).json();
-    const body = await (await page.request.get('/data/spots.geojson')).json();
+    const { body } = await aChunk(page);
     const bySlug = new Map<string, Record<string, unknown>>(
       body.features.map((f: { properties: { slug: string } }) => [
         f.properties.slug,

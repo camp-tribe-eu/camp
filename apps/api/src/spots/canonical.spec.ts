@@ -111,3 +111,40 @@ describe('readAmenities', () => {
     }
   });
 });
+
+// CAMP-127: the URL that was never a URL.
+//
+// 🔴 This returned `/camping/cy//arazi` — a double slash, a 404, and a
+// link the map was handing out. Measured 24.09.2026: 135 campsites carry
+// no region, every one of them with a broken link, 36 of those on Cyprus
+// where the boundary file gives no ISO code (CAMP-125).
+//
+// A campsite with no region has no page, because CAMP-34 builds the page
+// URL from the region. The pin stays on the map — the location is real —
+// but the link goes, because it was never a link.
+describe('a campsite with no page gets no address', () => {
+  it.each([null, '', '   ', '!!!'])(
+    'region %p yields null, not a path with a hole in it',
+    (region) => {
+      expect(canonicalPath('CY', region as string | null, 'arazi')).toBeNull();
+    },
+  );
+
+  it('and so does a missing country or slug', () => {
+    expect(canonicalPath('', 'Vendée', 'x')).toBeNull();
+    expect(canonicalPath('FR', 'Vendée', '')).toBeNull();
+  });
+
+  it('a real one is unchanged, because CAMP-87 forbids moving it', () => {
+    expect(canonicalPath('FR', 'Vendée', 'camping-du-lac')).toBe(
+      '/camping/fr/vendee/camping-du-lac',
+    );
+  });
+
+  it('never produces a double slash, whatever it is given', () => {
+    for (const region of [null, '', '-', '///', 'Šibensko-Kninska']) {
+      const path = canonicalPath('HR', region as string | null, 'x');
+      if (path !== null) expect(path).not.toContain('//');
+    }
+  });
+});

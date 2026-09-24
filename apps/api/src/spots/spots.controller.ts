@@ -46,6 +46,41 @@ export class SpotsController {
     );
   }
 
+  /**
+   * CAMP-127: the map's table of contents, and one region of it.
+   *
+   * 🔴 Different limits, because they are different questions.
+   *
+   * `map/regions` describes the whole dataset in one answer — 812 rows,
+   * every region we hold — so it belongs in the bulk bucket beside the
+   * other whole-dataset routes.
+   *
+   * `map/region/*` does not. It is one region, at most 1 433 markers
+   * (measured), which is the same order of magnitude as a region page we
+   * already serve at the default limit. Putting it in the bulk bucket
+   * meant six chunks a minute against 812 of them: measured, the build
+   * stopped at 429 on the very first run. Walking all 812 at the default
+   * takes a scraper about seven minutes — the same as walking the region
+   * pages, which is the honest comparison.
+   *
+   * Declared before `:country/:region/:slug`, like the others here: Nest
+   * matches in declaration order, and "map" would otherwise be read as a
+   * country.
+   */
+  @Throttle(BULK)
+  @Get('map/regions')
+  mapRegions() {
+    return this.map.regions();
+  }
+
+  @Get('map/region/:country/:region')
+  mapRegionMarkers(
+    @Param('country') country: string,
+    @Param('region') region: string,
+  ) {
+    return this.map.regionMarkers(country, region);
+  }
+
   /** Counts per grid cell, for a viewport too wide to draw point by point. */
   @Get('map/clusters')
   clusters(@Query() query: Record<string, string>) {

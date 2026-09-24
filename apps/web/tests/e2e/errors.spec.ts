@@ -205,7 +205,7 @@ test.describe('empty states', () => {
     page,
   }) => {
     const { features } = await (
-      await page.request.get('/data/spots.geojson')
+      await page.request.get('/data/spots/index.json')
     ).json();
     const bare = features.find(
       (f: { properties: Record<string, string> }) =>

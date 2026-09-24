@@ -402,10 +402,19 @@ test.describe('/map filters', () => {
     page,
     request,
   }) => {
-    await page.goto('/map');
-    await skipWithoutWebGL(page);
-    await loaded(page);
-
+    // 🔴 Rewritten for CAMP-127, and the premise had to change with it.
+    //
+    // This compared the map against the API for the WHOLE WORLD, because
+    // the map read one file that held the whole world. It no longer
+    // does: the file had a cap of 20 000, the EU-27 import took the
+    // database to 61 521, and the map now fetches the regions in view.
+    //
+    // So the comparison is scoped to the viewport, which is both honest
+    // and exact — inside the view the map has fetched every chunk, so
+    // the two sets must match in BOTH directions. A subset assertion
+    // would have caught the map hiding something and missed it showing
+    // something, and the drift this test exists to catch can go either
+    // way.
     for (const query of [
       'amenities=toilets',
       'amenities=toilets,shower',
@@ -414,41 +423,36 @@ test.describe('/map filters', () => {
       'amenities=toilets&unknown=1',
     ]) {
       await page.goto(`/map?${query}`);
+      await skipWithoutWebGL(page);
       await loaded(page);
 
-      // 🔴 The same limit the snapshot was built with, and the same
-      // reason. The API's default is POINT_LIMIT (2 000), a safety valve
-      // for ONE viewport; the map reads a whole-world file built with
-      // the higher cap. Asking without it compared 2 000 against 3 131
-      // and read like a filter bug — it was a question asked two
-      // different ways.
-      //
-      // 🔴 20 000, and it must stay equal to WHOLE_WORLD_LIMIT in
-      // app/data/spots.geojson/route.ts. It was 10 000 and CAMP-107 took
-      // the dataset past it, at which point this test failed on its own
-      // truncation guard below — correctly, and for a reason that had
-      // nothing to do with filtering. The number is written twice
-      // because a route file may not export it; the check below is what
-      // makes the duplication safe.
+      // What the map has drawn inside its own viewport, and the viewport
+      // itself — read together so they cannot describe two moments.
+      const drawn = await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="map"]');
+        return {
+          inView: Number(el?.getAttribute('data-in-view') ?? -1),
+          box: el?.getAttribute('data-bounds') ?? '',
+        };
+      });
+      expect(drawn.box, 'the map did not publish its bounds').not.toBe('');
+
       const res = await request.get(
-        `${API}/spots/map/points?bbox=-180,-85,180,85&limit=20000&${query}`,
+        `${API}/spots/map/points?bbox=${drawn.box}&limit=20000&${query}`,
       );
       expect(res.ok(), `API refused ${query}`).toBe(true);
       const { markers, truncated } = (await res.json()) as {
         markers: unknown[];
         truncated: boolean;
       };
-
-      // 🔴 And if THAT cap is ever reached, this must fail rather than
-      // compare two truncated answers and call them equal. The build
-      // refuses the snapshot at the same point, so the two guards agree.
-      expect(
-        truncated,
-        'the whole-world query was truncated — the map can no longer be one file',
-      ).toBe(false);
+      // One viewport of markers must never hit the cap; if it does, the
+      // two sides are comparing truncated answers and calling them equal.
+      expect(truncated, `the viewport query was truncated for ${query}`).toBe(
+        false,
+      );
 
       expect(
-        await shown(page),
+        drawn.inView,
         `the map and the API disagree for ${query}`,
       ).toBe(markers.length);
     }
