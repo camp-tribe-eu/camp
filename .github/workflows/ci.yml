@@ -9,6 +9,25 @@ on:
     branches: ['**']
   pull_request:
     branches: [main]
+  # 🔴 The only way to regenerate a visual baseline on the machine that
+  # owns it.
+  #
+  # The `visual` job's comment has always said "re-run with
+  # --update-snapshots and commit what comes back" — and there was no way
+  # to re-run anything on this runner, so the only route was to generate
+  # them on a Mac, which the {platform} suffix exists precisely to
+  # prevent. A documented process nobody can perform is not a process.
+  #
+  # The new files come back as an artifact rather than as a commit from a
+  # bot: the point of the step is that a person looks at the diff first,
+  # and a self-committing baseline is the rubber stamp that comment warns
+  # about.
+  workflow_dispatch:
+    inputs:
+      update-visual-baselines:
+        description: 'Regenerate the visual baselines and upload them'
+        type: boolean
+        default: false
 
 # Repo is public for unlimited free Actions minutes (see docs/ci-and-public-repo.md).
 # Rule that follows from that: never print user data, emails, or secrets to logs -
@@ -454,6 +473,7 @@ jobs:
       # possible: ci-seed.sql is the same rows on every run, so the
       # counts and names on these pages do not move.
       - name: Nothing looks different
+        if: inputs.update-visual-baselines != true
         run: npm run test:visual --workspace=apps/web
         env:
           CI: true
@@ -467,6 +487,22 @@ jobs:
           path: |
             apps/web/test-results/
             apps/web/playwright-report/
+          retention-days: 7
+
+      # Only on a manual run that asked for it. This never happens on a
+      # push, so no branch can quietly rewrite its own baselines and go
+      # green.
+      - name: Regenerate the baselines
+        if: inputs.update-visual-baselines == true
+        run: npm run test:visual --workspace=apps/web -- --update-snapshots
+        env:
+          CI: true
+
+      - uses: actions/upload-artifact@v7
+        if: inputs.update-visual-baselines == true
+        with:
+          name: visual-baselines
+          path: apps/web/tests/visual/__screenshots__/
           retention-days: 7
 
   lighthouse:

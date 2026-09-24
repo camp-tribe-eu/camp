@@ -68,6 +68,36 @@ runs:
         echo "campsites: $(psql -h localhost -U postgres -d camptribe_test -t -A \
           -c 'SELECT count(*) FROM camping_spots;')"
 
+    # CAMP-66. Guides are DERIVED from the campsites above, so they are
+    # generated here rather than written into the fixture by hand.
+    #
+    # 🔴 Written by hand they would be a lie in miniature: a guide saying
+    # "15 of 20 campsites in Bovec" inside a fixture that holds no Bovec
+    # is exactly the kind of number-that-matches-nothing this project
+    # refuses to publish. Generated, they describe the rows that are
+    # actually there — and the generator itself gets run on every commit
+    # instead of only on my machine.
+    #
+    # Measured on a database built from this fixture: 72 campsites
+    # support 4 guides at the 5-subject threshold.
+    - name: Generate the guides the fixture supports
+      shell: bash
+      working-directory: apps/api
+      env:
+        DATABASE_URL: ${{ inputs.database-url }}
+      run: |
+        npx ts-node src/guides/generate.ts --apply
+        # 🔴 A generator that wrote nothing must fail here, not four jobs
+        # later as "no guides are published". The guides section was
+        # invisible to CI for exactly this reason until the disclosure
+        # gate refused to pass on zero pages.
+        count=$(psql "$DATABASE_URL" -t -A -c 'SELECT count(*) FROM guides;')
+        echo "guides: $count"
+        if [ "$count" -lt 1 ]; then
+          echo "::error::the generator produced no guides from this fixture"
+          exit 1
+        fi
+
     - name: Start the API
       shell: bash
       working-directory: apps/api
