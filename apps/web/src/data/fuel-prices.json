@@ -1,0 +1,150 @@
+{
+  "bulletinDate": "2026-09-21",
+  "fetchedAt": "2026-09-24",
+  "unit": "EUR per litre, including taxes",
+  "source": "https://energy.ec.europa.eu/data-and-analysis/weekly-oil-bulletin_en",
+  "sourceFile": "https://energy.ec.europa.eu/document/download/264c2d0f-f161-4ea3-a777-78faae59bea0_en?filename=Weekly%20Oil%20Bulletin%20Weekly%20prices%20with%20Taxes%20-%202026-09-21.xlsx",
+  "licence": "CC BY 4.0",
+  "attribution": "European Commission, Weekly Oil Bulletin — © European Union, licensed CC BY 4.0",
+  "euAverage": {
+    "petrol": 2.092,
+    "diesel": 2.226
+  },
+  "countries": {
+    "AT": {
+      "name": "Austria",
+      "petrol": 1.925,
+      "diesel": 2.238
+    },
+    "BE": {
+      "name": "Belgium",
+      "petrol": 1.988,
+      "diesel": 2.387
+    },
+    "BG": {
+      "name": "Bulgaria",
+      "petrol": 1.663,
+      "diesel": 1.916
+    },
+    "HR": {
+      "name": "Croatia",
+      "petrol": 1.796,
+      "diesel": 1.975
+    },
+    "CY": {
+      "name": "Cyprus",
+      "petrol": 1.677,
+      "diesel": 1.948
+    },
+    "CZ": {
+      "name": "Czechia",
+      "petrol": 1.884,
+      "diesel": 2.071
+    },
+    "DK": {
+      "name": "Denmark",
+      "petrol": 2.618,
+      "diesel": 2.555
+    },
+    "EE": {
+      "name": "Estonia",
+      "petrol": 1.917,
+      "diesel": 2.113
+    },
+    "FI": {
+      "name": "Finland",
+      "petrol": 2.364,
+      "diesel": 2.555
+    },
+    "FR": {
+      "name": "France",
+      "petrol": 2.219,
+      "diesel": 2.383
+    },
+    "DE": {
+      "name": "Germany",
+      "petrol": 2.348,
+      "diesel": 2.457
+    },
+    "GR": {
+      "name": "Greece",
+      "petrol": 2.197,
+      "diesel": 2.224
+    },
+    "HU": {
+      "name": "Hungary",
+      "petrol": 1.752,
+      "diesel": 1.957
+    },
+    "IE": {
+      "name": "Ireland",
+      "petrol": 1.945,
+      "diesel": 2.05
+    },
+    "IT": {
+      "name": "Italy",
+      "petrol": 2.141,
+      "diesel": 2.281
+    },
+    "LV": {
+      "name": "Latvia",
+      "petrol": 1.997,
+      "diesel": 2.169
+    },
+    "LT": {
+      "name": "Lithuania",
+      "petrol": 1.95,
+      "diesel": 2.258
+    },
+    "LU": {
+      "name": "Luxembourg",
+      "petrol": 1.849,
+      "diesel": 2.114
+    },
+    "MT": {
+      "name": "Malta",
+      "petrol": 1.34,
+      "diesel": 1.21
+    },
+    "NL": {
+      "name": "Netherlands",
+      "petrol": 2.449,
+      "diesel": 2.579
+    },
+    "PL": {
+      "name": "Poland",
+      "petrol": 1.82,
+      "diesel": 2.039
+    },
+    "PT": {
+      "name": "Portugal",
+      "petrol": 2.107,
+      "diesel": 2.21
+    },
+    "RO": {
+      "name": "Romania",
+      "petrol": 1.891,
+      "diesel": 2.093
+    },
+    "SK": {
+      "name": "Slovakia",
+      "petrol": 1.853,
+      "diesel": 1.95
+    },
+    "SI": {
+      "name": "Slovenia",
+      "petrol": 1.706,
+      "diesel": 1.975
+    },
+    "ES": {
+      "name": "Spain",
+      "petrol": 1.928,
+      "diesel": 1.918
+    },
+    "SE": {
+      "name": "Sweden",
+      "petrol": 1.579,
+      "diesel": 2.09
+    }
+  }
+}

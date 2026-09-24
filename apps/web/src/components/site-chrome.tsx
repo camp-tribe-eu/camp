@@ -30,6 +30,7 @@ const NAV: NavItem[] = [
   //   { href: '/plan',    label: 'Plan a trip' },CAMP-46
   //   { href: '/rentals', label: 'Rentals' },    CAMP-54
   { href: '/guides', label: 'Guides' }, // CAMP-66
+  { href: '/tools', label: 'Tools' }, // CAMP-55
 ];
 
 export function SiteHeader() {

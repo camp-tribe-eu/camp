@@ -23,6 +23,7 @@ import {
 } from './api';
 import { absoluteAlternates, liveLocales } from './i18n';
 import { getGuides } from './guides';
+import { FUEL, FUEL_COUNTRIES } from './fuel';
 
 export const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://camptribe.eu';
 
@@ -139,7 +140,36 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
     { loc: `${SITE}/`, changefreq: 'weekly', priority: '1.0' },
     { loc: `${SITE}/camping`, changefreq: 'weekly', priority: '0.9' },
     { loc: `${SITE}/guides`, changefreq: 'weekly', priority: '0.7' },
+    { loc: `${SITE}/tools`, changefreq: 'monthly', priority: '0.7' },
   ];
+
+  // CAMP-55. The two tools, plus one page per member state.
+  //
+  // 🔴 `lastmod` is the bulletin's own date, not the build's. These pages
+  // change when the European Commission publishes, which is weekly, and
+  // saying "modified today" on every deploy is how a sitemap teaches a
+  // crawler to stop believing its own lastmod.
+  //
+  // 🔴 And only these URLs. The calculators carry their state in query
+  // strings — `?km=1500&c=de` — which are real, shareable results and
+  // must never reach the sitemap: an unbounded set of parameterised URLs
+  // is the duplicate-page trap CAMP-37 exists to measure, not content.
+  for (const path of ['/tools/camper-trip-cost', '/tools/camper-packing-list']) {
+    urls.push({
+      loc: `${SITE}${path}`,
+      changefreq: 'weekly',
+      priority: '0.7',
+      lastmod: FUEL.bulletinDate,
+    });
+  }
+  for (const code of FUEL_COUNTRIES) {
+    urls.push({
+      loc: `${SITE}/tools/camper-trip-cost/${code.toLowerCase()}`,
+      changefreq: 'weekly',
+      priority: '0.6',
+      lastmod: FUEL.bulletinDate,
+    });
+  }
 
   // CAMP-66. Guides go in the sitemap because the card asks for them to
   // be indexed, and because a section linked from the header that no
