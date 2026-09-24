@@ -34,16 +34,30 @@
 import { readFileSync } from 'node:fs';
 
 /**
- * The Union, as of 2026, as ISO 3166-1 alpha-2.
+ * The Union, read from the API's own source of truth.
  *
- * ⚠️ Twenty-seven is a fact about this year, not a constant. When it
- * changes, this list changes and the check tells you what else has to.
+ * 🔴 Not a second copy. Two lists of member states in one repository is
+ * two lists that will disagree, and the disagreement will be discovered
+ * the way the original problem was — by finding Bosnian campsites in a
+ * database whose scope is the EU.
+ *
+ * `apps/api/src/osm/eu.ts` is the list; the import filter uses it at
+ * runtime and this check parses it. Precedent in the repo:
+ * throttle.spec.ts reads spots.controller.ts to assert a decorator is
+ * present, for the same reason — the assertion has to be about the real
+ * thing, not about a restatement of it.
  */
-export const EU = [
-  'at', 'be', 'bg', 'hr', 'cy', 'cz', 'dk', 'ee', 'fi', 'fr', 'de', 'gr',
-  'hu', 'ie', 'it', 'lv', 'lt', 'lu', 'mt', 'nl', 'pl', 'pt', 'ro', 'sk',
-  'si', 'es', 'se',
-];
+export function readEu(source) {
+  const block = /EU_MEMBER_STATES\s*=\s*\[([\s\S]*?)\]\s*as const/.exec(source);
+  if (!block) throw new Error('EU_MEMBER_STATES not found in apps/api/src/osm/eu.ts');
+  const codes = [...block[1].matchAll(/'([a-z]{2})'/g)].map((m) => m[1]);
+  if (codes.length === 0) throw new Error('EU_MEMBER_STATES is empty');
+  return codes;
+}
+
+export const EU = readEu(
+  readFileSync(new URL('../../apps/api/src/osm/eu.ts', import.meta.url), 'utf8'),
+);
 
 /**
  * Geofabrik's path for each member state.
@@ -133,6 +147,18 @@ function selfTest() {
     checks.push({ name, pass: Boolean(cond), detail });
 
   ok('the Union has 27 members', EU.length === 27, String(EU.length));
+  ok('the list really is read from eu.ts, not restated here', (() => {
+    const fake = "export const EU_MEMBER_STATES = [\n  'aa', // A\n  'bb', // B\n] as const;";
+    return readEu(fake).join(',') === 'aa,bb';
+  })());
+  ok('a missing list in eu.ts is refused, not defaulted', (() => {
+    try {
+      readEu('export const SOMETHING_ELSE = [];');
+      return false;
+    } catch {
+      return true;
+    }
+  })());
   ok('every member has a Geofabrik path', Object.keys(GEOFABRIK).length === 27);
   ok('the two lists agree', EU.every((c) => GEOFABRIK[c]));
   ok('no duplicate paths', new Set(Object.values(GEOFABRIK)).size === 27);

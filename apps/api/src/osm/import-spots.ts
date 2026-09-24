@@ -21,6 +21,7 @@
 import 'dotenv/config';
 import { Client } from 'pg';
 import { mapAmenities, mapSpotType, OsmTags } from './tag-mapping';
+import { isEuMemberState } from './eu';
 
 const COUNTRY = (process.argv[2] ?? '').toUpperCase();
 const TABLE = process.argv[3] ?? 'osm_camping_staging';
@@ -445,6 +446,8 @@ async function main(): Promise<void> {
   let fromPolygon = 0;
   /** Points whose polygon says a different country than the argument. */
   let outsideExtent = 0;
+  /** Points that resolved to a country outside the European Union. */
+  let outsideUnion = 0;
   /** Points outside every admin-1 polygon - these get no page URL. */
   let withoutRegion = 0;
 
@@ -474,6 +477,25 @@ async function main(): Promise<void> {
       const country = row.admin_country ?? COUNTRY;
       if (row.admin_country && row.admin_country !== COUNTRY) outsideExtent++;
       if (!region) withoutRegion++;
+
+      // 🔴 CAMP-118: the Union, and nothing else.
+      //
+      // Geofabrik cuts its extracts to bounding boxes, so Slovenia's
+      // includes a strip of Bosnia and Croatia's a strip of Serbia. The
+      // line above resolves those points to their real country — which is
+      // right — and the old code then imported them anyway, merely
+      // counting them as `outsideExtent`. That is how 13 Bosnian and 2
+      // Serbian campsites ended up in a database whose stated scope is
+      // the EU, with nobody deciding anything.
+      //
+      // They are skipped here rather than filtered later, because a row
+      // that never arrives cannot be forgotten about; and the count is
+      // printed, because a filter that silently drops things is the next
+      // problem after the one it fixed.
+      if (!isEuMemberState(country)) {
+        outsideUnion++;
+        continue;
+      }
 
       const res = await db.query(UPSERT_SPOT_SQL, [
         name,
@@ -562,6 +584,14 @@ async function main(): Promise<void> {
     console.log(
       `  outside ${COUNTRY.padEnd(2)}         ${outsideExtent}  (extent overlaps the border; country taken from geometry)`,
     );
+    if (outsideUnion) {
+      // 🔴 Said out loud every run. A filter nobody sees working is a
+      // filter somebody removes as dead code, and this one is the only
+      // thing keeping the project's stated scope true in the data.
+      console.log(
+        `  outside the EU     ${outsideUnion}  (skipped — CAMP-118, we serve the Union)`,
+      );
+    }
     if (withoutRegion) {
       console.log(
         `  🔴 no region       ${withoutRegion}  (no admin-1 polygon — these cannot get a page URL)`,
