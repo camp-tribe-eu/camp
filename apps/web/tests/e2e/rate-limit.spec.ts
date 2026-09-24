@@ -117,6 +117,64 @@ test.describe('🔴 the API is not a free buffet', () => {
     ).toBe(true);
   });
 
+  // 🔴 Where the forged-header case lives, and why it is NOT here.
+  //
+  // An adversarial review pulled 62 MB out of /spots/search-index with
+  // thirty rotating forged CF-Connecting-IP values, because the header
+  // was believed unconditionally. The fix is that it is believed only
+  // when TRUST_PROXY_CLIENT_IP says the origin really is behind a proxy
+  // that sets it.
+  //
+  // That cannot be asserted here. This suite runs against an API started
+  // WITH the trust on, because that is the production shape — behind
+  // Cloudflare — and it is the only shape in which the /64 case below
+  // means anything. Asserting the opposite would need a second API on a
+  // second port, which is a lot of machinery for a branch that
+  // throttle.spec.ts drives directly and purely:
+  //   clientKey({'cf-connecting-ip': x}, socket, false) === socket
+  // Written down rather than left as a gap somebody rediscovers.
+
+  // 🔴 The other half of the same review finding, and the more dangerous
+  // one because locking the origin down does not touch it: a residential
+  // IPv6 line is routed a whole /64, so without masking one visitor is
+  // effectively unlimited callers. @nestjs/throttler masks to /64; the
+  // first version of our tracker threw that away and twelve addresses in
+  // one /64 got twelve 200s on a route that allows six.
+  test('addresses inside one IPv6 /64 are one caller, not many', async () => {
+    const codes: number[] = [];
+    for (let i = 1; i <= 12; i++) {
+      const line = await playwrightRequest.newContext({
+        extraHTTPHeaders: { 'cf-connecting-ip': `2001:db8:cc:dd::${i}` },
+      });
+      codes.push((await line.get(`${API}/spots/index`)).status());
+      await line.dispose();
+    }
+    expect(
+      codes.filter((c) => c === 429).length,
+      `twelve addresses in one /64 were all allowed: ${codes.join(',')}`,
+    ).toBeGreaterThan(0);
+  });
+
+  // 🔴 One caller, several expensive routes, one bucket. The library keys
+  // per handler by default, which made the documented six a minute into
+  // eighteen — measured across /spots/index, /spots/search-index and
+  // /spots/map/points before generateKey was overridden.
+  test('the expensive routes share one allowance, not one each', async () => {
+    const anon = await stranger();
+    const codes: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      codes.push((await anon.get(`${API}/spots/index`)).status());
+    }
+    for (let i = 0; i < 5; i++) {
+      codes.push((await anon.get(`${API}/spots/search-index`)).status());
+    }
+    await anon.dispose();
+    expect(
+      codes.filter((c) => c === 200).length,
+      `ten whole-dataset downloads were allowed across two routes: ${codes.join(',')}`,
+    ).toBeLessThanOrEqual(7);
+  });
+
   test('an ordinary read is far more generous than a whole-dataset one', async () => {
     const anon = await stranger();
     const codes: number[] = [];

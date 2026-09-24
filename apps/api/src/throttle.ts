@@ -66,8 +66,8 @@ export const BULK_ROUTES = [
  *
  * Two cases, and the second one was learned the hard way.
  *
- * 1. The health check. A monitor polling it every few seconds is the one
- *    caller we WANT hitting us constantly (CAMP-59).
+ * 1. The root route. A monitor polling it every few seconds is the one
+ *    caller we WANT hitting us constantly (CAMP-59), and it is cheap.
  *
  * 2. 🔴 The build, which is by far our heaviest legitimate client.
  *
@@ -98,7 +98,11 @@ export function isExempt(
   token?: string | null,
   expected = process.env.API_BUILD_TOKEN,
 ): boolean {
-  if (path === '/' || path === '/health') return true;
+  // 🔴 Only the root. The first version also exempted `/health`, which
+  // does not exist — measured, it 404s. An exemption for a route nobody
+  // serves is a line that looks like a monitoring decision and is not
+  // one; when CAMP-59 adds a real health route, it is added here too.
+  if (path === '/') return true;
   if (!expected) return false;
   return typeof token === 'string' && token.length > 0 && token === expected;
 }
@@ -107,24 +111,68 @@ export function isExempt(
 export const BUILD_TOKEN_HEADER = 'x-build-token';
 
 /**
+ * Does this path answer with the whole dataset?
+ *
+ * 🔴 Used for the BUCKET, while the decorator sets the NUMBER. Two
+ * mechanisms for one idea is usually a smell; here it is deliberate and
+ * each catches what the other cannot. The decorator is what
+ * @nestjs/throttler reads for the limit, and throttle.spec.ts asserts it
+ * is present by reading the controller. This function is what puts all
+ * three expensive routes in ONE bucket per caller — without it the
+ * library keys per handler, and six-a-minute silently becomes
+ * eighteen-a-minute across the three.
+ */
+export function isBulkPath(path: string): boolean {
+  const clean = path.split('?')[0].replace(/^\/+|\/+$/g, '');
+  return BULK_ROUTES.some((r) => clean === r);
+}
+
+/**
  * The client this request is counted against.
  *
- * 🔴 Behind Cloudflare, `req.ip` is Cloudflare's address, and every
- * reader in Europe would share one bucket — the limit would then be a
- * denial of service we built ourselves. `CF-Connecting-IP` is the header
- * Cloudflare sets to the real client, and it is set by Cloudflare rather
- * than by the caller.
+ * 🔴 Two things here were WRONG in the first version, both found by an
+ * adversarial review rather than by CI, and both measured on the running
+ * API before being believed.
  *
- * ⚠️ It IS forgeable by anyone reaching the origin directly, which is
- * why the origin must not be reachable directly in production. That is a
- * deployment property (CAMP-61), not something this file can enforce, so
- * it is named here rather than assumed.
+ * 1. THE HEADER WAS TRUSTED UNCONDITIONALLY.
+ *
+ *    `CF-Connecting-IP` is set by Cloudflare to the real visitor, and
+ *    reading it is right *behind Cloudflare* — otherwise every reader in
+ *    Europe shares one bucket and the limit becomes an outage we built
+ *    ourselves. But anybody who reaches the origin directly can simply
+ *    write it themselves. Measured: 40 rotating forged values pulled
+ *    **62 MB** out of `/spots/search-index` in a few seconds, against a
+ *    limit meant to cap that route at about 9 MB a minute.
+ *
+ *    The old comment waved at this — "the origin must not be reachable
+ *    directly, that is a deployment property" — which is an unwritten
+ *    assumption wearing a card number. Now it is a switch: the header is
+ *    ignored unless `TRUST_PROXY_CLIENT_IP` is set, which is a thing
+ *    somebody turns on *when* the origin is actually behind Cloudflare.
+ *    Off by default, so a machine nobody configured is safe rather than
+ *    open.
+ *
+ * 2. IPv6 WAS NOT NORMALISED, AND THAT ONE SURVIVES CLOUDFLARE.
+ *
+ *    @nestjs/throttler masks IPv6 to a /64 (`normalizeIp`, its
+ *    DEFAULT_IPV6_SUBNET_PREFIX) precisely so one customer cannot be
+ *    thousands of callers. Overriding getTracker threw that away.
+ *
+ *    A residential IPv6 line is routed a whole /64; cloud VMs get /64 to
+ *    /48. Measured: twelve addresses inside one /64 got twelve 200s on a
+ *    bulk route that allows six. And because Cloudflare reports each
+ *    address faithfully, locking the origin down does not help at all —
+ *    this is the more dangerous of the two.
  */
 export function clientKey(
   headers: Record<string, unknown>,
   fallback: string,
+  trustHeader = process.env.TRUST_PROXY_CLIENT_IP === '1',
 ): string {
+  if (!trustHeader) return fallback;
   const cf = headers['cf-connecting-ip'];
+  // 45 characters is the longest possible IPv6 text form; anything
+  // longer is a payload, and an unbounded bucket key is a memory leak.
   if (typeof cf === 'string' && cf.length > 0 && cf.length <= 45) return cf;
   return fallback;
 }

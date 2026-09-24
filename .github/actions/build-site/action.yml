@@ -136,6 +136,12 @@ runs:
         # null rather than throwing, it exits 0 with most of the site
         # missing. Measured: 580 campsite pages instead of 9 830.
         API_BUILD_TOKEN: 'ci-build-token'
+        # 🔴 The production shape: the API sits behind Cloudflare, which
+        # sets CF-Connecting-IP, so it is believed. Off by default
+        # everywhere else — an origin reachable directly must not let a
+        # caller choose its own rate-limit bucket, which an adversarial
+        # review measured at 62 MB pulled in seconds.
+        TRUST_PROXY_CLIENT_IP: '1'
       run: |
         npx nest start > /tmp/api.log 2>&1 &
         # The build fetches from it, so a race here would produce an empty

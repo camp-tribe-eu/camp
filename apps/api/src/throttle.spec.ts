@@ -5,6 +5,7 @@ import {
   BULK_ROUTES,
   clientKey,
   DEFAULT_LIMIT,
+  isBulkPath,
   isExempt,
 } from './throttle';
 
@@ -36,6 +37,58 @@ describe('the numbers', () => {
   });
 });
 
+// 🔴 Everything in this block was missing, and an adversarial review
+// found the holes by measuring the running API. Each case below is one
+// it confirmed, written so the hole cannot reopen.
+describe('🔴 the token branch, which no test used to execute', () => {
+  it('a matching token exempts', () => {
+    expect(isExempt('/spots/index', 'secret', 'secret')).toBe(true);
+  });
+
+  it('a wrong token does not', () => {
+    expect(isExempt('/spots/index', 'guess', 'secret')).toBe(false);
+  });
+
+  it('an empty token does not, even against an empty expectation', () => {
+    // The `undefined === undefined` shape that lets the world through.
+    expect(isExempt('/spots/index', '', '')).toBe(false);
+    expect(isExempt('/spots/index', undefined, undefined)).toBe(false);
+    expect(isExempt('/spots/index', null, '')).toBe(false);
+  });
+
+  it('nothing is exempt when no token is configured at all', () => {
+    expect(isExempt('/spots/index', 'anything', undefined)).toBe(false);
+    expect(isExempt('/spots/index', 'anything', '')).toBe(false);
+  });
+});
+
+describe('🔴 which bucket a path lands in', () => {
+  // Without this, @nestjs/throttler keys per handler and the three
+  // whole-dataset routes each get their own six a minute — eighteen
+  // where the file promises six. Measured on the running API.
+  it('every bulk route is recognised', () => {
+    for (const r of BULK_ROUTES) {
+      expect(isBulkPath(`/${r}`)).toBe(true);
+      expect(isBulkPath(`/${r}?limit=20000`)).toBe(true);
+      expect(isBulkPath(`/${r}/`)).toBe(true);
+    }
+  });
+
+  it('an ordinary route is not', () => {
+    expect(isBulkPath('/spots/countries')).toBe(false);
+    expect(isBulkPath('/spots/fr/lot/camping-du-lac')).toBe(false);
+    expect(isBulkPath('/guides')).toBe(false);
+    expect(isBulkPath('/')).toBe(false);
+  });
+
+  it('a path that merely starts like one is not', () => {
+    // /spots/index-of-something must not inherit the bulk bucket, and
+    // /spots/indexes must not either.
+    expect(isBulkPath('/spots/indexes')).toBe(false);
+    expect(isBulkPath('/spots/index-of-things')).toBe(false);
+  });
+});
+
 describe('who a request is counted against', () => {
   // 🔴 The failure this prevents is not a leak, it is an outage we build
   // ourselves: behind Cloudflare every request arrives from Cloudflare's
@@ -43,37 +96,43 @@ describe('who a request is counted against', () => {
   // and 429 the seventh reader of the day.
   it('prefers the real client address Cloudflare passes through', () => {
     expect(
-      clientKey({ 'cf-connecting-ip': '203.0.113.7' }, '198.51.100.1'),
+      clientKey({ 'cf-connecting-ip': '203.0.113.7' }, '198.51.100.1', true),
     ).toBe('203.0.113.7');
   });
 
   it('falls back to the socket address when the header is absent', () => {
-    expect(clientKey({}, '198.51.100.1')).toBe('198.51.100.1');
+    expect(clientKey({}, '198.51.100.1', true)).toBe('198.51.100.1');
   });
 
   it('ignores an empty or absurd header rather than keying on rubbish', () => {
-    expect(clientKey({ 'cf-connecting-ip': '' }, '198.51.100.1')).toBe(
+    expect(clientKey({ 'cf-connecting-ip': '' }, '198.51.100.1', true)).toBe(
       '198.51.100.1',
     );
     // Longer than any IPv6 address: somebody is sending us a payload,
     // not an address, and a bucket key of unbounded length is a memory
     // leak with extra steps.
     expect(
-      clientKey({ 'cf-connecting-ip': 'x'.repeat(500) }, '198.51.100.1'),
+      clientKey({ 'cf-connecting-ip': 'x'.repeat(500) }, '198.51.100.1', true),
     ).toBe('198.51.100.1');
   });
 
   it('ignores a header that is not a string', () => {
-    expect(clientKey({ 'cf-connecting-ip': 12345 }, '198.51.100.1')).toBe(
+    expect(clientKey({ 'cf-connecting-ip': 12345 }, '198.51.100.1', true)).toBe(
       '198.51.100.1',
     );
   });
 });
 
 describe('what is exempt', () => {
-  it('the health check, because a monitor is meant to poll it', () => {
+  it('the root, because a monitor is meant to poll it', () => {
     expect(isExempt('/')).toBe(true);
-    expect(isExempt('/health')).toBe(true);
+  });
+
+  // 🔴 /health was exempt and does not exist — measured, it 404s. An
+  // exemption for a route nobody serves reads as a monitoring decision
+  // and is not one.
+  it('and not a route we do not serve', () => {
+    expect(isExempt('/health')).toBe(false);
   });
 
   it('and nothing else — especially not the expensive routes', () => {
