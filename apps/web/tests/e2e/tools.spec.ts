@@ -217,20 +217,40 @@ test.describe('the packing list', () => {
 test.describe('what the review found', () => {
   test('a shared link keeps the country even when it is the module default', async ({
     page,
-    context,
   }) => {
     // 🔴 `toSearch` compared against the module defaults, whose country
     // is DE. On /tools/camper-trip-cost/fr a reader who picked Germany
     // had it dropped from the link — and the button still said "Link
     // copied". The recipient saw France, a different measured price and
     // a different total, with nothing to say anything was lost.
-    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    //
+    // 🔴 The clipboard is INTERCEPTED, not granted. `grantPermissions`
+    // with 'clipboard-read' is Chromium-only and throws "Unknown
+    // permission" on Firefox and WebKit — this suite runs on six
+    // projects, so the first version of this test was green locally on
+    // chromium and red in CI on three browsers. Replacing writeText
+    // captures exactly the string the button produces, in every engine,
+    // and needs no permission at all.
+    await page.addInitScript(() => {
+      (window as unknown as { __copied?: string }).__copied = undefined;
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: (text: string) => {
+            (window as unknown as { __copied?: string }).__copied = text;
+            return Promise.resolve();
+          },
+        },
+      });
+    });
     await page.goto('/tools/camper-trip-cost/fr');
     await page.getByLabel('Country you are driving in').selectOption('DE');
     const before = await page.getByTestId('total').textContent();
 
     await page.getByRole('button', { name: /copy a link/i }).click();
-    const link = await page.evaluate(() => navigator.clipboard.readText());
+    const link = await page.evaluate(
+      () => (window as unknown as { __copied?: string }).__copied ?? '',
+    );
     expect(link, 'the country was dropped from the shared link').toContain('c=DE');
 
     await page.goto(link);
