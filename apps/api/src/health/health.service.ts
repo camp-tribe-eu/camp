@@ -3,6 +3,21 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { evaluate, type Facts, type Level } from './health.rules';
 
+/**
+ * How long one answer stands for.
+ *
+ * Five seconds: shorter than any sane monitor's interval, so a real
+ * outage is still noticed within one poll, and long enough that a flood
+ * cannot turn the health check into the outage.
+ */
+const CACHE_MS = 5_000;
+
+interface HealthReport {
+  status: Level;
+  checkedAt: string;
+  checks: Record<string, { ok: boolean; detail: string }>;
+}
+
 // CAMP-59: measuring, kept apart from deciding.
 //
 // 🔴 Every measurement is allowed to fail on its own, and a failure is
@@ -56,15 +71,25 @@ export class HealthService {
     const alive = await this.number('SELECT 1');
     const databaseMs = alive === null ? null : Date.now() - started;
 
-    // 🔴 Not `postgis_version()` alone: that proves the function exists.
-    // A real geography computation proves the extension can actually do
-    // the thing every map request needs.
+    // 🔴 The version ONLY IF the computation agrees. NULL otherwise.
+    //
+    // The first version appended " (ST_DWithin disagrees with itself)" to
+    // the version string — and a longer string is still a string, so the
+    // rules, which fail only on null, reported a PostGIS that answers
+    // wrong as healthy with a 200. Review reproduced it by forcing the
+    // predicate false: the endpoint said ok and the detail read
+    // "PostGIS 3.6 (ST_DWithin disagrees with itself)".
+    //
+    // Now a disagreement produces NULL, which is the path the rules
+    // already treat as "we could not measure, and that is a failure".
+    // The check is worth making because a row count proves rows; only a
+    // real geography computation proves the extension can do the thing
+    // every map request needs.
     const postgis = await this.text(
-      `SELECT postgis_version() ||
-              CASE WHEN ST_DWithin(
+      `SELECT CASE WHEN ST_DWithin(
                      ST_MakePoint(14.09, 46.36)::geography,
                      ST_MakePoint(14.10, 46.37)::geography, 5000)
-                   THEN '' ELSE ' (ST_DWithin disagrees with itself)' END`,
+                   THEN postgis_version() END`,
     );
 
     const spots = await this.number(
@@ -74,20 +99,78 @@ export class HealthService {
       `SELECT count(*) FROM camping_spots
         WHERE missing_since IS NULL AND context <> '{}'::jsonb`,
     );
+    // 🔴 The STALEST country, not the freshest row anywhere.
+    //
+    // This was `max(last_seen_at)` across the whole table, and
+    // osm-weekly.yml is a `fail-fast: false` matrix of 27 jobs — so one
+    // country failing while the rest succeed is the EXPECTED failure, and
+    // the workflow's own comment says of it: "a country's data would
+    // simply stop being refreshed while the others kept updating … and
+    // nothing anywhere looks wrong."
+    //
+    // The aggregate hid exactly that. Review reproduced it: France 120
+    // days stale, Malta fresh, and the endpoint reported "last import 1 h
+    // ago", ok, 200. Blindness mode 1 from the list at the top of
+    // health.rules.ts, reintroduced by a max().
     const importAgeHours = await this.number(
-      `SELECT EXTRACT(EPOCH FROM (now() - max(last_seen_at))) / 3600
-         FROM camping_spots`,
+      `SELECT EXTRACT(EPOCH FROM (now() - min(last))) / 3600
+         FROM (SELECT max(last_seen_at) AS last
+                 FROM camping_spots
+                WHERE missing_since IS NULL
+                GROUP BY country) per_country`,
     );
 
-    return { databaseMs, postgis, spots, withSurroundings, importAgeHours };
+    // 🔴 Per country, because a total cannot notice one disappearing.
+    const countries = await this.number(
+      `SELECT count(DISTINCT country) FROM camping_spots WHERE missing_since IS NULL`,
+    );
+    const smallestCountry = await this.number(
+      `SELECT min(n) FROM (SELECT count(*) AS n FROM camping_spots
+                            WHERE missing_since IS NULL GROUP BY country) c`,
+    );
+
+    return {
+      databaseMs,
+      postgis,
+      spots,
+      withSurroundings,
+      importAgeHours,
+      countries,
+      smallestCountry,
+    };
   }
+
+  /**
+   * 🔴 Cached for a few seconds, because /health is the one route with no
+   * rate limit and the most database work per request.
+   *
+   * Measured by review on the live database: two sequential counts over
+   * camping_spots, ~31 MB of buffer traffic each, and 130 unthrottled
+   * requests from one client in 7 seconds — 18.6 req/s, no key, no limit.
+   * throttle.ts exists so that "a single misbehaving client … gets a 429
+   * rather than a bill", and the route exempted from it was the most
+   * expensive one. It also scales with a dataset that went from 9,830 to
+   * 61,521 rows in one night.
+   *
+   * A monitor polling every 60 s sees no difference; a flood costs one
+   * query set per window instead of one per request. `Cache-Control:
+   * no-store` still governs what the CLIENT may keep — this is our own
+   * memory, not theirs.
+   */
+  private cached: { at: number; value: HealthReport } | null = null;
 
   async report(): Promise<{
     status: Level;
     checkedAt: string;
     checks: Record<string, { ok: boolean; detail: string }>;
   }> {
+    const now = Date.now();
+    if (this.cached && now - this.cached.at < CACHE_MS)
+      return this.cached.value;
+
     const { status, checks } = evaluate(await this.facts());
-    return { status, checkedAt: new Date().toISOString(), checks };
+    const value = { status, checkedAt: new Date().toISOString(), checks };
+    this.cached = { at: now, value };
+    return value;
   }
 }

@@ -47,8 +47,19 @@ export interface Facts {
   spots: number | null;
   /** Of those, how many carry computed surroundings. */
   withSurroundings: number | null;
-  /** Hours since the OSM import last touched a row, or null if never. */
+  /** Hours since the STALEST country was last touched, or null if never. */
   importAgeHours: number | null;
+  /**
+   * 🔴 How many countries, and the smallest one's campsite count.
+   *
+   * A single total cannot notice a country disappearing. Measured
+   * 24.09.2026: the floor was 1,000 while the site held 61,521 across 27
+   * states — losing France and Germany outright would leave 28,450 and
+   * still report "ok". A floor that does not track the data stops meaning
+   * anything the moment the data grows.
+   */
+  countries: number | null;
+  smallestCountry: number | null;
 }
 
 /**
@@ -66,13 +77,37 @@ export const IMPORT_STALE_HOURS = 9 * 24;
 /**
  * Below this, the database is answering but not usefully.
  *
- * 🔴 Not zero. Zero campsites is obviously broken; so is 40, on a site
- * that has 9,830. A floor set well under the real number catches a
- * half-restored or half-imported database — the state where everything
- * responds and the site is empty, which is exactly what the throttled
- * build produced when it shipped 580 pages and exited 0.
+ * 🔴 Not zero. Zero campsites is obviously broken; so is 580 on a site
+ * with tens of thousands, which is exactly what the throttled build
+ * produced when it shipped 580 pages and exited 0.
+ *
+ * ⚠️ But an ABSOLUTE floor decays. This was 1,000 when the site held
+ * 9,830 — a tenth of it. One night later the site held 61,521 and the
+ * same number was 1.6%, so losing France and Germany together would
+ * still have read as healthy. The absolute floor is kept only as a
+ * backstop against a genuinely empty database; the real check is per
+ * country, below.
  */
-export const MIN_SPOTS = 1000;
+export const MIN_SPOTS = 100;
+
+/**
+ * Every published country must have at least one campsite.
+ *
+ * 🔴 This is what actually catches a country vanishing, and it catches it
+ * whatever the total is. A country with zero published campsites has
+ * either lost its import or lost its rows, and both mean the site is
+ * serving country pages that lead nowhere.
+ */
+export const MIN_PER_COUNTRY = 1;
+
+/**
+ * Fewer than this many countries means the import itself is broken.
+ *
+ * The EU-27 is the stated scope (CAMP-118). A database holding two or
+ * three countries is the state this project was in before the import was
+ * fixed on 24.09.2026 — and it looked entirely healthy at the time.
+ */
+export const MIN_COUNTRIES = 20;
 
 /** Slow enough that a person would notice, measured on the cheapest query. */
 export const SLOW_DB_MS = 2000;
@@ -106,7 +141,13 @@ export function evaluate(facts: Facts): {
         detail: 'PostGIS did not answer — every map query depends on it',
       };
 
-  if (facts.spots === null) {
+  // 🔴 A count must be a whole, non-negative number. NaN and Infinity are
+  // not "absent", so the null checks do not catch them — and review
+  // showed evaluate() calling NaN campsites healthy with a 200.
+  const counted = (n: number | null): n is number =>
+    typeof n === 'number' && Number.isInteger(n) && n >= 0;
+
+  if (!counted(facts.spots)) {
     checks.spots = { ok: false, detail: 'could not count campsites' };
   } else if (facts.spots < MIN_SPOTS) {
     checks.spots = {
@@ -117,13 +158,50 @@ export function evaluate(facts: Facts): {
     checks.spots = { ok: true, detail: `${facts.spots} campsites published` };
   }
 
+  // 🔴 The check that notices one country disappearing, whatever the total.
+  if (!counted(facts.countries) || !counted(facts.smallestCountry)) {
+    checks.countries = {
+      ok: false,
+      detail: 'could not count campsites per country',
+    };
+  } else if (facts.countries < MIN_COUNTRIES) {
+    checks.countries = {
+      ok: false,
+      detail: `only ${facts.countries} countries are published, expected at least ${MIN_COUNTRIES}`,
+    };
+  } else if (facts.smallestCountry < MIN_PER_COUNTRY) {
+    checks.countries = {
+      ok: false,
+      detail: 'a published country has no campsites at all',
+    };
+  } else {
+    checks.countries = {
+      ok: true,
+      detail: `${facts.countries} countries, smallest has ${facts.smallestCountry}`,
+    };
+  }
+
   // Surroundings are the site's one real differentiator, so their
   // disappearance is worth noticing — but a shortfall degrades rather
   // than downs: the site still works, it is just less itself.
-  if (facts.withSurroundings === null || facts.spots === null) {
+  if (!counted(facts.withSurroundings) || !counted(facts.spots)) {
     checks.surroundings = {
       ok: false,
       detail: 'could not count computed surroundings',
+    };
+  } else if (facts.withSurroundings > facts.spots) {
+    // 🔴 An impossible number is a broken measurement, not good news.
+    //
+    // Surroundings are a subset of campsites, so this is arithmetic that
+    // cannot happen while both queries are counting the same thing. It
+    // happens when they are not: rows left behind by a delete, a join
+    // that multiplies, a filter on one side and not the other. Reported
+    // as a fault, because the alternative is a number that looks better
+    // the more wrong it is — 999 999 of 61 521 would have read as 1626%
+    // coverage and passed a `> 0` test with room to spare.
+    checks.surroundings = {
+      ok: false,
+      detail: `${facts.withSurroundings} campsites have surroundings but only ${facts.spots} exist — the two counts disagree`,
     };
   } else {
     const share = facts.spots > 0 ? facts.withSurroundings / facts.spots : 0;
@@ -133,10 +211,18 @@ export function evaluate(facts: Facts): {
     };
   }
 
-  if (facts.importAgeHours === null) {
+  if (facts.importAgeHours === null || !Number.isFinite(facts.importAgeHours)) {
     checks.osmImport = {
       ok: false,
       detail: 'no campsite has ever been seen by the import',
+    };
+  } else if (facts.importAgeHours < 0) {
+    // 🔴 A row stamped in the future is a clock, not freshness, and a
+    // negative age sails under every upper bound. check-schedule.mjs
+    // learned the same thing and clamps; here it is said out loud.
+    checks.osmImport = {
+      ok: false,
+      detail: `the newest campsite is stamped ${Math.abs(Math.floor(facts.importAgeHours))} h in the future — check the clock`,
     };
   } else if (facts.importAgeHours > IMPORT_STALE_HOURS) {
     checks.osmImport = {
@@ -156,7 +242,11 @@ export function evaluate(facts: Facts): {
   // things that mean "the site cannot serve" — no database, no PostGIS,
   // no data — must be the things that produce a non-200. Everything
   // else is worth saying in the body and not worth waking anybody for.
-  const fatal = !checks.database.ok || !checks.postgis.ok || !checks.spots.ok;
+  const fatal =
+    !checks.database.ok ||
+    !checks.postgis.ok ||
+    !checks.spots.ok ||
+    !checks.countries.ok;
   const anyBad = Object.values(checks).some((c) => !c.ok);
 
   return {

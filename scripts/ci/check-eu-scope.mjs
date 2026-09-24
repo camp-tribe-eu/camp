@@ -35,69 +35,36 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 /**
- * The Union, read from the API's own source of truth.
+ * The Union and its extracts, from the one machine-readable file.
  *
- * 🔴 Not a second copy. Two lists of member states in one repository is
- * two lists that will disagree, and the disagreement will be discovered
- * the way the original problem was — by finding Bosnian campsites in a
- * database whose scope is the EU.
+ * 🔴 This used to run a regex over eu.ts. Review demonstrated what
+ * that costs: rewrite a single entry with double quotes — which prettier
+ * does by default, and this repository has no .prettierrc — and the regex
+ * returns a SHORTER list, silently. drop-non-eu.mjs then reads the missing
+ * country as "outside the Union" and deletes it. Reproduced: two French
+ * rows gone, exit 0, and the script's own post-delete verification passed,
+ * because it re-read the same wrong list.
  *
- * `apps/api/src/osm/eu.ts` is the list; the import filter uses it at
- * runtime and this check parses it. Precedent in the repo:
- * throttle.spec.ts reads spots.controller.ts to assert a decorator is
- * present, for the same reason — the assertion has to be about the real
- * thing, not about a restatement of it.
+ * JSON cannot be misparsed by accident, so the list moved there and the
+ * regex is gone. An unreadable file throws, which is the only acceptable
+ * failure mode for something that decides what to delete.
  */
-export function readEu(source) {
-  const block = /EU_MEMBER_STATES\s*=\s*\[([\s\S]*?)\]\s*as const/.exec(source);
-  if (!block) throw new Error('EU_MEMBER_STATES not found in apps/api/src/osm/eu.ts');
-  const codes = [...block[1].matchAll(/'([a-z]{2})'/g)].map((m) => m[1]);
-  if (codes.length === 0) throw new Error('EU_MEMBER_STATES is empty');
-  return codes;
-}
-
-export const EU = readEu(
-  readFileSync(new URL('../../apps/api/src/osm/eu.ts', import.meta.url), 'utf8'),
+const DATA = JSON.parse(
+  readFileSync(
+    new URL('../../apps/api/src/osm/eu-member-states.json', import.meta.url),
+    'utf8',
+  ),
 );
 
-/**
- * Geofabrik's path for each member state.
- *
- * 🔴 Written out, not derived. Geofabrik names regions its own way, and
- * two of them are not the country name: Czechia is `czech-republic`, and
- * Ireland only exists as `ireland-and-northern-ireland` — an extract that
- * includes part of the United Kingdom. That is the shape of the source,
- * and the country filter at import is what keeps non-EU rows out.
- */
-export const GEOFABRIK = {
-  at: 'europe/austria',
-  be: 'europe/belgium',
-  bg: 'europe/bulgaria',
-  hr: 'europe/croatia',
-  cy: 'europe/cyprus',
-  cz: 'europe/czech-republic',
-  dk: 'europe/denmark',
-  ee: 'europe/estonia',
-  fi: 'europe/finland',
-  fr: 'europe/france',
-  de: 'europe/germany',
-  gr: 'europe/greece',
-  hu: 'europe/hungary',
-  ie: 'europe/ireland-and-northern-ireland',
-  it: 'europe/italy',
-  lv: 'europe/latvia',
-  lt: 'europe/lithuania',
-  lu: 'europe/luxembourg',
-  mt: 'europe/malta',
-  nl: 'europe/netherlands',
-  pl: 'europe/poland',
-  pt: 'europe/portugal',
-  ro: 'europe/romania',
-  sk: 'europe/slovakia',
-  si: 'europe/slovenia',
-  es: 'europe/spain',
-  se: 'europe/sweden',
-};
+if (!DATA.members || typeof DATA.members !== 'object') {
+  throw new Error('eu-member-states.json has no "members" map');
+}
+
+/** ISO 3166-1 alpha-2 → the Geofabrik extract that covers it. */
+export const GEOFABRIK = DATA.members;
+
+/** The member states, sorted, from the same map. */
+export const EU = Object.keys(GEOFABRIK).sort();
 
 export const isEu = (code) => EU.includes(String(code ?? '').toLowerCase());
 
@@ -148,21 +115,14 @@ function selfTest() {
     checks.push({ name, pass: Boolean(cond), detail });
 
   ok('the Union has 27 members', EU.length === 27, String(EU.length));
-  ok('the list really is read from eu.ts, not restated here', (() => {
-    const fake = "export const EU_MEMBER_STATES = [\n  'aa', // A\n  'bb', // B\n] as const;";
-    return readEu(fake).join(',') === 'aa,bb';
-  })());
-  ok('a missing list in eu.ts is refused, not defaulted', (() => {
-    try {
-      readEu('export const SOMETHING_ELSE = [];');
-      return false;
-    } catch {
-      return true;
-    }
-  })());
-  ok('every member has a Geofabrik path', Object.keys(GEOFABRIK).length === 27);
-  ok('the two lists agree', EU.every((c) => GEOFABRIK[c]));
-  ok('no duplicate paths', new Set(Object.values(GEOFABRIK)).size === 27);
+  ok('every code is two lower-case letters', EU.every((c) => /^[a-z]{2}$/.test(c)));
+  ok('every member has an extract path',
+    EU.every((c) => typeof GEOFABRIK[c] === 'string' && GEOFABRIK[c].startsWith('europe/')));
+  ok('no two states share an extract',
+    new Set(Object.values(GEOFABRIK)).size === EU.length);
+  // \u{1F534} The countries a well-meaning hand is most likely to add.
+  ok('no non-member has crept into the file',
+    !['ch', 'no', 'gb', 'ba', 'rs', 'me', 'al', 'mk', 'ua', 'tr'].some((c) => c in GEOFABRIK));
 
   ok('Switzerland is not a member', !isEu('ch'));
   ok('Bosnia is not a member', !isEu('ba'));

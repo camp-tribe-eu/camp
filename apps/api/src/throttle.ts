@@ -110,7 +110,20 @@ export function isExempt(
   // constantly, and it must not be the caller a rate limit silences —
   // an uptime check that gets 429d reports an outage that is not
   // happening, which is the fastest way to teach everyone to ignore it.
-  if (path === '/' || path === '/health') return true;
+  //
+  // 🔴 Compared after normalising, not as a raw string. Review pointed at
+  // the obvious hole: `/health/`, `/HEALTH` and `/health?probe=1` are all
+  // the same route to the router and none of them matched here. An uptime
+  // monitor writes the URL however its form was filled in, and a trailing
+  // slash is the single most common way — so the exemption would have
+  // been absent for exactly the caller it was written for, and nobody
+  // would have found out until the first 429 during an incident.
+  // isBulkPath below has always normalised; this now does the same.
+  const clean = path
+    .split('?')[0]
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
+  if (clean === '' || clean === 'health') return true;
   if (!expected) return false;
   return typeof token === 'string' && token.length > 0 && token === expected;
 }

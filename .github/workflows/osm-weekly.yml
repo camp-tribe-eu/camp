@@ -329,11 +329,20 @@ jobs:
               echo "> whatever an earlier release holds. See the run log."
             fi
             echo
-            echo "Import with:"
+            # 🔴 The command must match what this release actually holds.
+            #
+            # These notes told the reader to run import.sh on a
+            # `<file>.osm.pbf`, and the assets below are `.geojson.gz` —
+            # the PBFs never leave the runner. Anyone following the
+            # instruction downloads an asset the command cannot open.
+            # Instructions that do not run are worse than none: they are
+            # believed first and debugged second.
+            echo "Import the whole release with:"
             echo '```'
-            echo "./scripts/osm-pipeline/import.sh <file>.osm.pbf osm_camping_staging"
-            echo "npx ts-node apps/api/src/osm/import-spots.ts <COUNTRY>"
+            echo "node scripts/osm-pipeline/import-release.mjs --tag $TAG"
             echo '```'
+            echo
+            echo "Or one member state at a time — \`... --tag $TAG fr si\`."
             echo
             # 🔴 ODbL requires attribution and the licence notice from
             # anyone who redistributes the database — and publishing a

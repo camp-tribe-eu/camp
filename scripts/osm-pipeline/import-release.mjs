@@ -41,10 +41,26 @@ const STAGING = 'osm_camping_staging';
 const DB = process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
 
 const args = process.argv.slice(2);
-const opt = (name, fallback = null) => {
-  const i = args.indexOf(`--${name}`);
-  return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
-};
+/**
+ * The value of a `--flag value` pair.
+ *
+ * 🔴 A flag with no value is an error, not a default. Review found
+ * `--tag` written last on the line falling silently back to "the latest
+ * release" — so `import-release.mjs fr --tag` would import France from
+ * whatever happened to be newest, print a tag nobody asked for, and
+ * succeed. A typo must stop the run, not change what it imports.
+ */
+export function readOpt(argv, name, fallback = null) {
+  const i = argv.indexOf(`--${name}`);
+  if (i < 0) return fallback;
+  const value = argv[i + 1];
+  if (value === undefined || value.startsWith('--')) {
+    throw new Error(`--${name} needs a value`);
+  }
+  return value;
+}
+
+const opt = (name, fallback = null) => readOpt(args, name, fallback);
 
 /**
  * A DATABASE_URL as ogr2ogr actually wants it.
@@ -64,12 +80,52 @@ const opt = (name, fallback = null) => {
 export function conninfo(url) {
   if (!/^postgres(ql)?:\/\//.test(url)) return url; // already key=value
   const u = new URL(url);
-  const parts = [`dbname=${decodeURIComponent(u.pathname.replace(/^\//, '')) || 'postgres'}`];
-  if (u.hostname) parts.push(`host=${u.hostname}`);
-  if (u.port) parts.push(`port=${u.port}`);
-  if (u.username) parts.push(`user=${decodeURIComponent(u.username)}`);
-  if (u.password) parts.push(`password=${decodeURIComponent(u.password)}`);
+  const parts = [];
+  const add = (key, value) => parts.push(`${key}=${quoteValue(value)}`);
+
+  add('dbname', decodeURIComponent(u.pathname.replace(/^\//, '')) || 'postgres');
+  if (u.hostname) add('host', u.hostname);
+  if (u.port) add('port', u.port);
+  if (u.username) add('user', decodeURIComponent(u.username));
+  if (u.password) add('password', decodeURIComponent(u.password));
+
+  // 🔴 The query string is not decoration — `?sslmode=require` is the
+  // whole difference between an encrypted connection and a refused one.
+  //
+  // Review found this dropping everything after the `?`. Locally that is
+  // invisible, because a local socket needs none of it; the day the URL
+  // points at a managed Postgres (every one of them requires TLS) the
+  // import would fail with a message about SSL that names nothing in
+  // this file. libpq's URI parameters ARE its keywords, one for one, so
+  // they carry across unchanged.
+  for (const [key, value] of u.searchParams) {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+      throw new Error(`DATABASE_URL carries a parameter libpq cannot name: ${key}`);
+    }
+    // Ours win: the URL's own user/host/port are the authoritative ones.
+    if (parts.some((p) => p.startsWith(`${key}=`))) continue;
+    add(key, value);
+  }
   return parts.join(' ');
+}
+
+/**
+ * A value as libpq's key=value grammar requires it.
+ *
+ * 🔴 Values were pasted in raw. libpq splits on whitespace, so a password
+ * containing a space silently became a password plus a garbage keyword —
+ * and a single quote or backslash corrupted everything after it. Neither
+ * is exotic: a generated password is exactly where those characters come
+ * from, and the failure would arrive as an authentication error nobody
+ * would trace back to string concatenation.
+ *
+ * Quoted when it must be, bare when it need not, so the common case
+ * stays readable in the logs.
+ */
+export function quoteValue(value) {
+  const v = String(value);
+  if (v !== '' && !/[\s'\\]/.test(v)) return v;
+  return `'${v.replace(/([\\'])/g, '\\$1')}'`;
 }
 
 /**
@@ -129,6 +185,40 @@ export function plan(requested, sizes) {
   );
 }
 
+/**
+ * Byte size per country, read from the release itself.
+ *
+ * 🔴 plan() has sorted smallest-first since it was written, and until now
+ * it was handed `{}` — so the sort key was always 0 and the order was
+ * alphabetical: Austria first, Malta twenty-first. The comment described
+ * behaviour the code never had, which is worse than no comment, because
+ * the next person reads it and believes a failing run will fail fast.
+ *
+ * A failure to read the sizes is not a failure of the import: the order
+ * degrades to alphabetical, which is what it already was, and says so.
+ */
+export function sizesFromAssets(assets) {
+  const byName = new Map(assets.map((a) => [a.name, Number(a.size) || 0]));
+  const sizes = {};
+  for (const code of EU) {
+    const size = byName.get(assetFor(code));
+    if (size) sizes[code] = size;
+  }
+  return sizes;
+}
+
+function assetSizes(tag) {
+  try {
+    const json = run('gh', [
+      'release', 'view', tag, '-R', REPO, '--json', 'assets',
+    ]);
+    return sizesFromAssets(JSON.parse(json).assets ?? []);
+  } catch (err) {
+    console.log(`  (could not read asset sizes: ${String(err.message).split('\n')[0]} — importing alphabetically)`);
+    return {};
+  }
+}
+
 const run = (cmd, argv, opts = {}) =>
   execFileSync(cmd, argv, { encoding: 'utf8', stdio: 'pipe', ...opts });
 
@@ -157,6 +247,32 @@ function selfTest() {
     conninfo('dbname=x host=y') === 'dbname=x host=y');
   ok('a URL with no database falls back rather than producing dbname=',
     conninfo('postgres://localhost/').startsWith('dbname=postgres'));
+
+  // 🔴 Everything after the `?` used to be thrown away.
+  ok('sslmode survives — without it a managed Postgres refuses the connection',
+    conninfo('postgres://u:p@db.neon.tech/app?sslmode=require') ===
+      "dbname=app host=db.neon.tech user=u password=p sslmode=require",
+    conninfo('postgres://u:p@db.neon.tech/app?sslmode=require'));
+  ok('several parameters all survive',
+    conninfo('postgres://h/app?sslmode=require&connect_timeout=10') ===
+      'dbname=app host=h sslmode=require connect_timeout=10');
+  ok('a parameter cannot overwrite the host the URL already gave',
+    conninfo('postgres://real.host/app?host=evil.host') ===
+      'dbname=app host=real.host');
+  ok('a parameter libpq could not name is refused, not dropped',
+    throws(() => conninfo('postgres://h/app?not a keyword=1')));
+
+  // 🔴 libpq splits on whitespace, so an unquoted space is a second keyword.
+  ok('a password with a space is quoted',
+    conninfo('postgres://u:two%20words@h/app') ===
+      "dbname=app host=h user=u password='two words'",
+    conninfo('postgres://u:two%20words@h/app'));
+  ok("a password with a quote and a backslash is escaped",
+    quoteValue("a'b\\c") === "'a\\'b\\\\c'", quoteValue("a'b\\c"));
+  ok('an ordinary value stays bare, so the log stays readable',
+    quoteValue('camptribe_dev') === 'camptribe_dev');
+  ok('an empty value is written as empty, not as nothing',
+    quoteValue('') === "''");
 
   // 🔴 The single malformed tag that cost France 25,793 campsites.
   ok('a blank key is dropped', (() => {
@@ -199,6 +315,32 @@ function selfTest() {
   ok('without sizes the order is still deterministic',
     plan(['si', 'fr', 'mt'], {}).join(',') === plan(['mt', 'fr', 'si'], {}).join(','));
 
+  // 🔴 …and the sizes now actually reach it. They did not before.
+  ok('sizes are read off the release assets', (() => {
+    const sizes = sizesFromAssets([
+      { name: 'europe-france.geojson.gz', size: 25793000 },
+      { name: 'europe-malta.geojson.gz', size: 1800 },
+      { name: 'something-else.txt', size: 5 },
+    ]);
+    return sizes.fr === 25793000 && sizes.mt === 1800 &&
+      Object.keys(sizes).length === 2;
+  })());
+  ok('a release with no assets yields no sizes rather than throwing',
+    Object.keys(sizesFromAssets([])).length === 0);
+  ok('real sizes put the small country first',
+    plan(['fr', 'mt'], sizesFromAssets([
+      { name: 'europe-france.geojson.gz', size: 25793000 },
+      { name: 'europe-malta.geojson.gz', size: 1800 },
+    ])).join(',') === 'mt,fr');
+
+  // 🔴 A flag with no value used to mean "whatever is newest".
+  ok('--tag written last is an error, not a silent default',
+    throws(() => readOpt(['fr', '--tag'], 'tag')));
+  ok('--tag followed by another flag is an error too',
+    throws(() => readOpt(['--tag', '--dry-run'], 'tag')));
+  ok('--tag with a value is read', readOpt(['--tag', 'osm-2026-09-24'], 'tag') === 'osm-2026-09-24');
+  ok('an absent flag still falls back', readOpt(['fr'], 'tag', 'latest') === 'latest');
+
   for (const c of checks) {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
   }
@@ -225,7 +367,7 @@ async function main() {
     run('gh', ['release', 'list', '-R', REPO, '--limit', '1', '--json', 'tagName', '-q', '.[0].tagName']).trim();
   if (!tag) throw new Error('no release found');
 
-  const countries = plan(args.filter((a) => /^[a-zA-Z]{2}$/.test(a)), {});
+  const countries = plan(args.filter((a) => /^[a-zA-Z]{2}$/.test(a)), assetSizes(tag));
   console.log(`release ${tag} — ${countries.length} member state(s)\n`);
 
   const work = mkdtempSync(join(tmpdir(), 'camptribe-release-'));

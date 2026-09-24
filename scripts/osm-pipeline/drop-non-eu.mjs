@@ -22,18 +22,61 @@
 // which is why this is a safeguard rather than an obstacle.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { EU, GEOFABRIK } from '../ci/check-eu-scope.mjs';
 
 const DB = process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
 const APPLY = process.argv.includes('--apply');
 
-/** The Union, from the same file the import filter uses. */
-export function readEu(source) {
-  const block = /EU_MEMBER_STATES\s*=\s*\[([\s\S]*?)\]\s*as const/.exec(source);
-  if (!block) throw new Error('EU_MEMBER_STATES not found in apps/api/src/osm/eu.ts');
-  const codes = [...block[1].matchAll(/'([a-z]{2})'/g)].map((m) => m[1]);
-  if (codes.length === 0) throw new Error('EU_MEMBER_STATES is empty');
-  return codes;
+/**
+ * 🔴 REFUSE TO RUN ON A LIST THAT LOOKS WRONG.
+ *
+ * This script deletes rows. It used to carry its OWN copy of a regex that
+ * recovered the member states by parsing eu.ts, and it checked nothing
+ * about the result. Review demonstrated the consequence: rewrite one entry
+ * in eu.ts with double quotes — which prettier does by default, and this
+ * repository has no .prettierrc — and the regex returns a shorter list.
+ * Every campsite in the missing country then reads as "outside the Union".
+ *
+ *   two French rows deleted, exit 0, and the post-delete verification
+ *   PASSED, because it re-read the same wrong list
+ *
+ * On the live database that country is 23,652 rows.
+ *
+ * The list now comes from eu-member-states.json through the same module
+ * the CI check uses, so there is one list. And before deleting anything,
+ * that list is sanity-checked here too — because a script whose failure is
+ * irreversible does not get to assume its inputs.
+ */
+export function listProblems(eu, geofabrik) {
+  const problems = [];
+  const paths = Object.keys(geofabrik);
+  if (eu.length !== paths.length) {
+    problems.push(`${eu.length} member states but ${paths.length} extract paths`);
+  }
+  if (eu.length < 20) {
+    problems.push(`only ${eu.length} member states — the Union has not shrunk that far`);
+  }
+  for (const c of eu) {
+    if (!/^[a-z]{2}$/.test(c)) problems.push(`"${c}" is not an ISO 3166-1 alpha-2 code`);
+    if (typeof geofabrik[c] !== 'string') problems.push(`${c} has no extract path`);
+  }
+  // The four largest holdings. If any of them is missing from the list,
+  // something has gone very wrong and this script is about to delete a
+  // country's worth of campsites.
+  for (const c of ['fr', 'de', 'it', 'es']) {
+    if (!eu.includes(c)) problems.push(`${c} is missing from the list`);
+  }
+  return problems;
+}
+
+/** The same check, as the caller needs it: stop before touching anything. */
+function assertPlausible(eu, geofabrik) {
+  const problems = listProblems(eu, geofabrik);
+  if (problems.length === 0) return;
+  console.error('✗ refusing to touch the database — the member-state list looks wrong:\n');
+  for (const p of problems) console.error(`   ${p}`);
+  console.error('\nNothing was deleted. Fix apps/api/src/osm/eu-member-states.json first.\n');
+  process.exit(2);
 }
 
 /**
@@ -91,9 +134,25 @@ function selfTest() {
     return r.removable.length === 0 && r.keep.length === 0;
   })());
 
-  ok('the EU list is read, not restated', readEu(
-    "export const EU_MEMBER_STATES = [\n  'aa',\n  'bb',\n] as const;",
-  ).join(',') === 'aa,bb');
+  // \u{1F534} The guard that stands between a mis-read list and a deleted
+  // country. It exits the process, so it is driven as data here.
+  ok('the real list passes', listProblems(EU, GEOFABRIK).length === 0);
+
+  // \u{1F534} Exactly the mis-parse review used to delete France: one
+  // country silently absent from the list.
+  const withoutFrance = EU.filter((c) => c !== 'fr');
+  ok('a list missing France is refused',
+    listProblems(withoutFrance, GEOFABRIK).some((p) => /fr is missing/.test(p)));
+  ok('a truncated list is refused',
+    listProblems(['fr', 'de'], { fr: 'europe/france', de: 'europe/germany' })
+      .some((p) => /has not shrunk/.test(p)));
+  ok('a code that is not ISO 3166-1 alpha-2 is refused',
+    listProblems([...EU, 'bel'], { ...GEOFABRIK, bel: 'europe/belgium' })
+      .some((p) => /alpha-2/.test(p)));
+  ok('a member with no extract is refused',
+    listProblems([...EU, 'zz'], GEOFABRIK).some((p) => /zz has no extract/.test(p)));
+  ok('the real list is the whole Union', EU.length === 27 && EU.includes('fr'));
+  ok('every member has an extract', EU.every((c) => typeof GEOFABRIK[c] === 'string'));
 
   for (const c of checks) {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
@@ -107,9 +166,8 @@ if (process.argv.includes('--self-test')) {
   process.exit(selfTest() ? 0 : 1);
 }
 
-const eu = readEu(
-  readFileSync(new URL('../../apps/api/src/osm/eu.ts', import.meta.url), 'utf8'),
-);
+const eu = EU;
+assertPlausible(eu, GEOFABRIK);
 
 const raw = psql(`
   SELECT slug, lower(country) AS country,

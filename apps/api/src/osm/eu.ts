@@ -1,78 +1,54 @@
 // CAMP-118: who we serve, in one place.
 //
-// 🔴 THE SINGLE SOURCE OF TRUTH FOR THE PROJECT'S SCOPE.
+// 🔴 THE LIST ITSELF LIVES IN eu-member-states.json, NOT HERE.
 //
-// "We build for the EU only" was written in CLAUDE.md, in the
-// architecture notes and in every decision for months. Measured on the
-// live database 24.09.2026:
+// It used to be a TypeScript array, and the shell-side tools recovered it
+// by running a regex over this file. Review demonstrated what that costs:
+// rewrite one entry with double quotes — which `prettier` does by default,
+// and this repository has no .prettierrc — and the regex silently returns
+// a SHORTER list. `drop-non-eu.mjs` then treats the missing country as
+// "outside the Union" and deletes it.
 //
-//   ba  13 campsites   not a member state
-//   rs   2 campsites   not a member state
+// Reproduced against a scratch database: two French campsites removed,
+// exit 0, and the script's own post-delete verification passed, because it
+// re-read the same wrong list. On the live database that is 23,652 rows.
 //
-// Nobody added them. import-spots.ts takes the country from the polygon
-// the point falls in — which is right — and then imported it anyway,
-// merely COUNTING the ones outside the extract's country. Geofabrik's
-// extracts are cut to bounding boxes, so Slovenia's includes a strip of
-// Bosnia, and Croatia's a strip of Serbia.
+// JSON cannot be misparsed by accident. Every consumer now reads the same
+// file: this module, scripts/ci/check-eu-scope.mjs and
+// scripts/osm-pipeline/drop-non-eu.mjs.
 //
-// A rule that nothing enforces is a rule that has already stopped
-// applying. This file is the enforcement, and scripts/ci/check-eu-scope.mjs
-// reads it so that the weekly import list cannot drift from it either.
-//
-// 🔴 Why it matters more than tidiness: every source this project relies
-// on for safety is an EU instrument — MeteoAlarm, Copernicus EFFIS and
-// EFAS, the national access points required by the ITS Directive. A
-// campsite page outside the Union gets no hazard data behind it, and a
-// hazard layer that is silent in some countries is worse than one that
-// is absent everywhere, because people learn to trust it.
+// 🔴 Why the scope matters at all: every source this project relies on for
+// safety is an EU instrument — MeteoAlarm, Copernicus EFFIS and EFAS, the
+// national access points required by the ITS Directive. A campsite page
+// outside the Union gets no hazard data behind it, and a hazard layer that
+// is silent in some countries is worse than one that is absent
+// everywhere, because people learn to trust it.
 
-/**
- * The European Union as of 2026, ISO 3166-1 alpha-2, lower case.
- *
- * ⚠️ Twenty-seven is a fact about this year, not a constant of the
- * universe. The day it changes, this array changes and every check that
- * reads it tells you what else has to.
- */
-export const EU_MEMBER_STATES = [
-  'at', // Austria
-  'be', // Belgium
-  'bg', // Bulgaria
-  'hr', // Croatia
-  'cy', // Cyprus
-  'cz', // Czechia
-  'dk', // Denmark
-  'ee', // Estonia
-  'fi', // Finland
-  'fr', // France
-  'de', // Germany
-  'gr', // Greece
-  'hu', // Hungary
-  'ie', // Ireland
-  'it', // Italy
-  'lv', // Latvia
-  'lt', // Lithuania
-  'lu', // Luxembourg
-  'mt', // Malta
-  'nl', // Netherlands
-  'pl', // Poland
-  'pt', // Portugal
-  'ro', // Romania
-  'sk', // Slovakia
-  'si', // Slovenia
-  'es', // Spain
-  'se', // Sweden
-] as const;
+// 🔴 `import * as`, not a default import. The API compiles to CommonJS
+// without esModuleInterop, so `import data from './x.json'` resolves to
+// `undefined` under ts-jest and takes the whole suite down with
+// "Cannot read properties of undefined (reading 'members')".
+import * as data from './eu-member-states.json';
 
-export type EuCountry = (typeof EU_MEMBER_STATES)[number];
+/** ISO 3166-1 alpha-2 → the Geofabrik extract that covers it. */
+export const EU_GEOFABRIK: Readonly<Record<string, string>> = data.members;
+
+/** The European Union as of 2026, lower case, sorted for stable output. */
+export const EU_MEMBER_STATES: readonly string[] = Object.keys(
+  EU_GEOFABRIK,
+).sort();
 
 /**
  * Is this a country we serve?
  *
- * Tolerant of case and of nothing at all, because it guards an import
- * loop where the country may be missing entirely — and a missing country
- * is emphatically not a member state.
+ * Tolerant of case and of nothing at all, because it guards an import loop
+ * where the country may be missing entirely — and a missing country is
+ * emphatically not a member state.
  */
 export function isEuMemberState(code: string | null | undefined): boolean {
   if (typeof code !== 'string') return false;
-  return (EU_MEMBER_STATES as readonly string[]).includes(code.toLowerCase());
+  return Object.prototype.hasOwnProperty.call(
+    EU_GEOFABRIK,
+    code.trim().toLowerCase(),
+  );
 }

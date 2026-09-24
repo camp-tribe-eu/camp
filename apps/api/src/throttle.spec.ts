@@ -139,6 +139,30 @@ describe('what is exempt', () => {
     expect(isExempt('/health')).toBe(true);
   });
 
+  // 🔴 However the monitor's URL field happened to be filled in.
+  //
+  // Review found the exemption comparing raw strings, so `/health/` —
+  // the commonest way a person types a URL — was throttled like any
+  // scraper. The route answers all of these; the exemption must too.
+  it.each(['/health/', '/HEALTH', '/Health/', '//health', '/health?probe=1'])(
+    '%s is the same route to the router, so it is exempt too',
+    (path) => {
+      expect(isExempt(path)).toBe(true);
+    },
+  );
+
+  it.each(['//', '/?probe=1'])('and the root, however written: %s', (path) => {
+    expect(isExempt(path)).toBe(true);
+  });
+
+  // The normalisation must not turn into "anything containing health".
+  it.each(['/health/deep', '/healthz', '/spots/health'])(
+    '%s is a different route and stays throttled',
+    (path) => {
+      expect(isExempt(path)).toBe(false);
+    },
+  );
+
   it('the health route exists, or its exemption is a lie', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { readFileSync } = require('node:fs');

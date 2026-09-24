@@ -378,7 +378,23 @@ async function main(): Promise<void> {
      SELECT p.id AS osm_ref,
             ST_AsText(p.pt) AS point_wkt,
             a.name   AS admin_region,
-            a.iso_a2 AS admin_country,
+            -- 🔴 Natural Earth writes -1 where it has no ISO code, and
+            -- that is "unknown", not "not a country".
+            --
+            -- Measured 24.09.2026 on the released Cyprus extract: of 66
+            -- campsites, 33 fall in the polygon called Northern Cyprus
+            -- and 3 in Dhekelia, both coded -1. Read literally, the EU
+            -- filter below then throws 55% of Cyprus away as foreign —
+            -- from the extract of a member state, which is the one place
+            -- it cannot be right. (Some builds use -99; both are here.)
+            --
+            -- A sentinel becomes NULL, and NULL already has an answer
+            -- one line down: fall back to the country being imported.
+            -- That is the same rule as a point in the sea, for the same
+            -- reason — we do not know better than the extract, and a
+            -- missing value must never read as a refusal.
+            CASE WHEN a.iso_a2 ~ '^[A-Za-z]{2}$' THEN a.iso_a2 END
+              AS admin_country,
             p.*
        FROM pts p
        LEFT JOIN LATERAL (
@@ -467,8 +483,44 @@ async function main(): Promise<void> {
   await db.query('BEGIN');
   try {
     for (const row of deduped) {
+      // Geometry wins over the argument. The argument only stands in where
+      // the point falls outside every polygon (open sea, a gap in the data).
+      const region = row.admin_region;
+      const country = row.admin_country ?? COUNTRY;
+
+      // 🔴 CAMP-118: the Union, and nothing else. DECIDED FIRST, on purpose.
+      //
+      // Geofabrik cuts its extracts to bounding boxes, so Slovenia's
+      // includes a strip of Bosnia and Croatia's a strip of Serbia. The
+      // line above resolves those points to their real country — which is
+      // right — and the old code then imported them anyway, merely
+      // counting them as `outsideExtent`. That is how 13 Bosnian and 2
+      // Serbian campsites ended up in a database whose stated scope is
+      // the EU, with nobody deciding anything.
+      //
+      // They are skipped here rather than filtered later, because a row
+      // that never arrives cannot be forgotten about; and the count is
+      // printed, because a filter that silently drops things is the next
+      // problem after the one it fixed.
+      //
+      // 🔴 And it stands BEFORE the slug, not after. Review caught the
+      // first version skipping the row only once the slug had already
+      // been reserved in `usedSlugs`: a Bosnian "Camping Sava" that we
+      // never import would take `camping-sava` with it, and the Slovenian
+      // one arriving later in the same run would be published as
+      // `camping-sava-2` — a permanent URL, paid for by a row that does
+      // not exist. Same reason the other counters moved down: a row we
+      // refuse is not an unnamed campsite, not a border campsite and not
+      // a region-less campsite. It is not a campsite of ours at all.
+      if (!isEuMemberState(country)) {
+        outsideUnion++;
+        continue;
+      }
+
       const name = row.tags.name?.trim() || null;
       if (!name) unnamed++;
+      if (row.admin_country && row.admin_country !== COUNTRY) outsideExtent++;
+      if (!region) withoutRegion++;
 
       let slug = slugByRef.get(row.osm_ref);
       if (!slug) {
@@ -483,32 +535,6 @@ async function main(): Promise<void> {
 
       const amenities = mapAmenities(row.tags);
       const type = mapSpotType(row.tags).type;
-
-      // Geometry wins over the argument. The argument only stands in where
-      // the point falls outside every polygon (open sea, a gap in the data).
-      const region = row.admin_region;
-      const country = row.admin_country ?? COUNTRY;
-      if (row.admin_country && row.admin_country !== COUNTRY) outsideExtent++;
-      if (!region) withoutRegion++;
-
-      // 🔴 CAMP-118: the Union, and nothing else.
-      //
-      // Geofabrik cuts its extracts to bounding boxes, so Slovenia's
-      // includes a strip of Bosnia and Croatia's a strip of Serbia. The
-      // line above resolves those points to their real country — which is
-      // right — and the old code then imported them anyway, merely
-      // counting them as `outsideExtent`. That is how 13 Bosnian and 2
-      // Serbian campsites ended up in a database whose stated scope is
-      // the EU, with nobody deciding anything.
-      //
-      // They are skipped here rather than filtered later, because a row
-      // that never arrives cannot be forgotten about; and the count is
-      // printed, because a filter that silently drops things is the next
-      // problem after the one it fixed.
-      if (!isEuMemberState(country)) {
-        outsideUnion++;
-        continue;
-      }
 
       const res = await db.query(UPSERT_SPOT_SQL, [
         name,
