@@ -244,7 +244,15 @@ do_restore() {
   esac
 
   local sql
-  sql="$(mktemp -t camptribe-restore)"
+  # 🔴 A full template, not `-t`. `mktemp -t camptribe-restore` works on
+  # macOS, where BSD mktemp appends its own suffix — and fails outright on
+  # Linux with "too few X's in template", because GNU mktemp requires them.
+  #
+  # So the restore path had never run anywhere but this laptop, and nobody
+  # knew, because nobody had ever restored. The nightly rehearsal added in
+  # CAMP-58 found it on its first CI run — which is the entire argument of
+  # that card, arriving as evidence rather than as a claim.
+  sql="$(mktemp "${TMPDIR:-/tmp}/camptribe-restore.XXXXXX")"
   # shellcheck disable=SC2064  # $sql must be expanded now, not at trap time
   trap "rm -f '$sql'" RETURN
 
