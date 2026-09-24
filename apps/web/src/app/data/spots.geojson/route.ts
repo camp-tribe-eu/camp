@@ -1,4 +1,4 @@
-import { API_BASE } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 import type { Amenities, AmenityKey } from '@/lib/api';
 import { knownAmenities } from '@/lib/map-filter';
 
@@ -108,8 +108,7 @@ interface Feature {
 }
 
 export async function GET() {
-  const res = await fetch(
-    `${API_BASE}/spots/map/points?bbox=${EVERYTHING}&limit=${WHOLE_WORLD_LIMIT}`,
+  const res = await apiFetch(`/spots/map/points?bbox=${EVERYTHING}&limit=${WHOLE_WORLD_LIMIT}`,
   );
   if (!res.ok) {
     throw new Error(`Map points request failed: ${res.status}`);

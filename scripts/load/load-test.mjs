@@ -201,7 +201,20 @@ async function run(base, profile) {
       const s = pool[Math.floor(Math.random() * pool.length)];
       const started = performance.now();
       try {
-        const res = await fetch(base + s.path);
+        // 🔴 CAMP-69. With the build token, because this measures how
+        // the API behaves under load — not whether the rate limiter
+        // works, which rate-limit.spec.ts asks separately and without a
+        // token.
+        //
+        // Without it the answer is meaningless in the worst way: 35 910
+        // requests came back 429 in milliseconds, latency looked superb,
+        // and the run "proved" the API is fast at refusing. Measured on
+        // the first CI run after throttling landed.
+        const res = await fetch(base + s.path, {
+          headers: process.env.API_BUILD_TOKEN
+            ? { 'x-build-token': process.env.API_BUILD_TOKEN }
+            : {},
+        });
         const ms = performance.now() - started;
         result.total++;
         result.latencies.push(ms);

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './api-request';
 
 // CAMP-90. The tests read the mode the build declares and then assert
 // the whole site agrees with it — the same shape as the CI checker, but

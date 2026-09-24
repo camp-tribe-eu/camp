@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './api-request';
 import { AMENITY_KEYS } from '@/lib/api';
 import { INITIAL_VIEW } from '@/lib/map-sources';
 

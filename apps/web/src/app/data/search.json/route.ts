@@ -1,4 +1,4 @@
-import { API_BASE, countryName } from '@/lib/api';
+import { apiFetch, countryName } from '@/lib/api';
 import {
   fold,
   packIndex,
@@ -46,7 +46,7 @@ interface Doc {
 }
 
 export async function GET() {
-  const res = await fetch(`${API_BASE}/spots/search-index`);
+  const res = await apiFetch(`/spots/search-index`);
   if (!res.ok) {
     throw new Error(`Search index request failed: ${res.status}`);
   }

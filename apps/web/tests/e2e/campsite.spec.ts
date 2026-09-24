@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './api-request';
 import { API_BASE } from '@/lib/api';
 
 // CAMP-34. Two fixtures on purpose: a campsite where OSM knows plenty,

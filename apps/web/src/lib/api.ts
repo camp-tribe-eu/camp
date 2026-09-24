@@ -11,6 +11,41 @@ export type { SpotSource };
 export const API_BASE =
   process.env.API_BASE_URL ?? 'http://localhost:3001';
 
+/**
+ * CAMP-69: every call to our API goes through here.
+ *
+ * 🔴 One function rather than eleven `fetch` calls, and the reason is
+ * the rate limit.
+ *
+ * The API throttles public callers. The build is not a public caller —
+ * it asks for all 9 830 campsites in about two minutes, roughly forty
+ * times the limit — so it identifies itself with a token the public does
+ * not have. A header that has to be added at each call site is a header
+ * the twelfth call site will not have, and the failure is invisible:
+ * that one endpoint quietly starts returning 429 and its pages vanish.
+ *
+ * Measured, not imagined. Before this existed, a throttled build exited
+ * **0** and produced **580** campsite pages instead of 9 830, because
+ * `getSpot` returns null rather than throwing. Silence all the way down.
+ *
+ * ⚠️ Server-side only. `API_BUILD_TOKEN` has no `NEXT_PUBLIC_` prefix, so
+ * it is never in the browser bundle — which is the point: a token shipped
+ * to every reader is not a token.
+ */
+export async function apiFetch(
+  path: string,
+  init: RequestInit & { next?: { revalidate?: number } } = {},
+): Promise<Response> {
+  const token = process.env.API_BUILD_TOKEN;
+  return fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      ...(init.headers as Record<string, string> | undefined),
+      ...(token ? { 'x-build-token': token } : {}),
+    },
+  });
+}
+
 export type AmenityValue = 'yes' | 'no' | 'unknown';
 
 export interface Amenities {
@@ -233,8 +268,7 @@ export async function getSpot(
   region: string,
   slug: string,
 ): Promise<{ spot: Spot; nearby: NearbySpot[] } | null> {
-  const res = await fetch(
-    `${API_BASE}/spots/${encodeURIComponent(country)}/${encodeURIComponent(
+  const res = await apiFetch(`/spots/${encodeURIComponent(country)}/${encodeURIComponent(
       region,
     )}/${encodeURIComponent(slug)}`,
     // Campsite data changes at most once a week (CAMP-28), so revalidating
@@ -246,7 +280,7 @@ export async function getSpot(
 }
 
 export async function getSpotIndex(): Promise<SpotIndexEntry[]> {
-  const res = await fetch(`${API_BASE}/spots/index`, {
+  const res = await apiFetch(`/spots/index`, {
     next: { revalidate: 86400 },
   });
   if (!res.ok) return [];
@@ -279,15 +313,14 @@ export interface SpotCard {
 }
 
 export async function getCountries(): Promise<CountrySummary[]> {
-  const res = await fetch(`${API_BASE}/spots/countries`, {
+  const res = await apiFetch(`/spots/countries`, {
     next: { revalidate: 86400 },
   });
   return res.ok ? res.json() : [];
 }
 
 export async function getRegions(country: string): Promise<RegionSummary[]> {
-  const res = await fetch(
-    `${API_BASE}/spots/${encodeURIComponent(country)}/regions`,
+  const res = await apiFetch(`/spots/${encodeURIComponent(country)}/regions`,
     { next: { revalidate: 86400 } },
   );
   return res.ok ? res.json() : [];
@@ -298,8 +331,7 @@ export async function getRegionSpots(
   region: string,
   page = 1,
 ): Promise<{ region: string | null; total: number; items: SpotCard[] }> {
-  const res = await fetch(
-    `${API_BASE}/spots/${encodeURIComponent(country)}/${encodeURIComponent(
+  const res = await apiFetch(`/spots/${encodeURIComponent(country)}/${encodeURIComponent(
       region,
     )}?page=${page}`,
     { next: { revalidate: 86400 } },
@@ -320,7 +352,7 @@ export interface SiteSummary {
 
 /** Real totals. The home page never rounds these up into a promise. */
 export async function getSummary(): Promise<SiteSummary> {
-  const res = await fetch(`${API_BASE}/spots/summary`, {
+  const res = await apiFetch(`/spots/summary`, {
     next: { revalidate: 86400 },
   });
   return res.ok ? res.json() : { spots: 0, countries: 0, regions: 0 };
@@ -330,7 +362,7 @@ export async function getSummary(): Promise<SiteSummary> {
 export async function getNotable(): Promise<(SpotCard & {
   context?: SpotContext;
 })[]> {
-  const res = await fetch(`${API_BASE}/spots/notable`, {
+  const res = await apiFetch(`/spots/notable`, {
     next: { revalidate: 86400 },
   });
   return res.ok ? res.json() : [];

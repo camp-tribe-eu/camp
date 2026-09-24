@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './api-request';
 
 // CAMP-92 — the card's own acceptance, run rather than asserted:
 // "Навмисно зламана сторінка дає запис у системі помилок — перевірено

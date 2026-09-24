@@ -1,7 +1,16 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { SpotsService } from './spots.service';
 import { MapQueryService, parseBbox, parseFilters } from './map.service';
 import { parseLimit } from './viewport';
+import { BULK_LIMIT } from '../throttle';
+
+// 🔴 CAMP-69. Three routes here answer with the WHOLE dataset, and they
+// carry a tighter limit than everything else — see BULK_LIMIT for the
+// measured reason. The decorator sits on each of them rather than on the
+// controller, because the per-campsite and per-region routes below are
+// ordinary reads and should stay generous.
+const BULK = { default: BULK_LIMIT };
 
 @Controller('spots')
 export class SpotsController {
@@ -27,6 +36,7 @@ export class SpotsController {
    * old bookmark naming an amenity we have renamed still draws the map
    * instead of erroring, and nothing a caller invents reaches the SQL.
    */
+  @Throttle(BULK)
   @Get('map/points')
   points(@Query() query: Record<string, string>) {
     return this.map.points(
@@ -48,12 +58,14 @@ export class SpotsController {
    * matches in declaration order, and otherwise "index" would be read as
    * a country.
    */
+  @Throttle(BULK)
   @Get('index')
   index() {
     return this.spots.allPublishable();
   }
 
   /** CAMP-67: the documents the static search index is built from. */
+  @Throttle(BULK)
   @Get('search-index')
   searchIndex() {
     return this.spots.searchDocuments();

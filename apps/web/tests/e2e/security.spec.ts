@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './api-request';
 import { SECURITY_HEADERS } from '../../scripts/security-headers.mjs';
 
 // The security headers, asserted on real responses.
