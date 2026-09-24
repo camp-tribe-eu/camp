@@ -1,5 +1,10 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { search, type SearchDoc } from '@/lib/search';
+import {
+  search,
+  unpackIndex,
+  type PackedIndex,
+  type SearchDoc,
+} from '@/lib/search';
 
 // CAMP-67 — the search, against the index the site actually ships.
 //
@@ -14,7 +19,10 @@ import { search, type SearchDoc } from '@/lib/search';
 async function index(request: APIRequestContext): Promise<SearchDoc[]> {
   const res = await request.get('/data/search.json');
   expect(res.ok(), 'the search index is not served').toBe(true);
-  const { docs } = (await res.json()) as { docs: SearchDoc[] };
+  // CAMP-107: the file is packed. Unpacked with the same function the
+  // browser uses, so this suite tests the format the reader gets rather
+  // than a second reading of it.
+  const docs = unpackIndex((await res.json()) as PackedIndex);
   expect(docs.length, 'the index is empty').toBeGreaterThan(0);
   return docs;
 }

@@ -253,8 +253,16 @@ test.describe('/map filters', () => {
       // the higher cap. Asking without it compared 2 000 against 3 131
       // and read like a filter bug — it was a question asked two
       // different ways.
+      //
+      // 🔴 20 000, and it must stay equal to WHOLE_WORLD_LIMIT in
+      // app/data/spots.geojson/route.ts. It was 10 000 and CAMP-107 took
+      // the dataset past it, at which point this test failed on its own
+      // truncation guard below — correctly, and for a reason that had
+      // nothing to do with filtering. The number is written twice
+      // because a route file may not export it; the check below is what
+      // makes the duplication safe.
       const res = await request.get(
-        `${API}/spots/map/points?bbox=-180,-85,180,85&limit=10000&${query}`,
+        `${API}/spots/map/points?bbox=-180,-85,180,85&limit=20000&${query}`,
       );
       expect(res.ok(), `API refused ${query}`).toBe(true);
       const { markers, truncated } = (await res.json()) as {

@@ -1,5 +1,6 @@
-import { AMENITY_KEYS, API_BASE } from '@/lib/api';
+import { API_BASE } from '@/lib/api';
 import type { Amenities, AmenityKey } from '@/lib/api';
+import { knownAmenities } from '@/lib/map-filter';
 
 // CAMP-31/32: every campsite as one GeoJSON file the map fetches once.
 //
@@ -39,8 +40,25 @@ const EVERYTHING = '-180,-85,180,85';
  *
  * A sanity ceiling, not a budget: the budget below is in bytes, which is
  * the thing that actually matters to a phone on a campsite's wifi.
+ *
+ * 🔴 Raised from 10 000 to 20 000 on 24.09.2026, and the point is that
+ * it is now ABOVE the byte budget rather than below it.
+ *
+ * It happened again, one card later: CAMP-107 took the dataset to 10 519
+ * and this number stopped the build. Raising it let the BYTE budget do
+ * its job instead — and the byte budget immediately said 4.9 MB, over
+ * the 4 MB line, which is the answer that was actually worth having.
+ * The count ceiling had been hiding the real constraint.
+ *
+ * What followed is in `knownAmenities`: 2.26 MB of that file was the
+ * string "unknown" written out 103 582 times. With it gone the snapshot
+ * is 2.6 MB, and this ceiling sits above the byte budget rather than
+ * below it — which is what the sentence above always claimed.
+ *
+ * When the byte guard fires again the answer is the per-viewport query,
+ * not a bigger number.
  */
-const WHOLE_WORLD_LIMIT = 10_000;
+const WHOLE_WORLD_LIMIT = 20_000;
 
 /**
  * What we are willing to send to one reader before the map has to start
@@ -84,7 +102,9 @@ interface Feature {
     name: string | null;
     type: string;
     href: string;
-  } & Record<AmenityKey, string>;
+    // 🔴 Partial, because only known amenities are written. An absent
+    // key means unknown — see the comment where these are built.
+  } & Partial<Record<AmenityKey, 'yes' | 'no'>>;
 }
 
 export async function GET() {
@@ -119,9 +139,22 @@ export async function GET() {
       name: m.name,
       type: m.type,
       href: m.path,
-      ...(Object.fromEntries(
-        AMENITY_KEYS.map((k) => [k, m.amenities?.[k] ?? 'unknown']),
-      ) as Record<AmenityKey, string>),
+      // 🔴 Only what is KNOWN. An absent key means unknown.
+      //
+      // Writing "unknown" out explicitly cost 2.26 MB of a 4.9 MB file:
+      // measured on 24.09.2026, 103 582 of the 105 190 amenity values
+      // were the string "unknown", and 96% of campsites had nothing
+      // recorded at all. More than half the map snapshot was the words
+      // "we do not know", repeated.
+      //
+      // Nothing downstream changes, and that is not luck — the filter
+      // was written this way on purpose. matchesStrict asks
+      // `props[k] === 'yes'` and matchesLenient asks `props[k] !== 'no'`,
+      // and its docblock already says an absent property is how a
+      // campsite imported before an amenity existed appears, and that
+      // keeping it in is the right answer. Absence and "unknown" were
+      // always the same thing; only one of them costs 2 MB.
+      ...knownAmenities(m.amenities),
     },
   }));
 

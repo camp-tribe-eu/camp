@@ -3,8 +3,10 @@ import {
   editDistance,
   fold,
   search,
+  packIndex,
   terms,
   tolerance,
+  unpackIndex,
   type SearchDoc,
 } from '../../src/lib/search';
 
@@ -188,5 +190,103 @@ test.describe('the answer is stable', () => {
     );
     expect(search(many, 'camp')).toHaveLength(20);
     expect(search(many, 'camp', { limit: 5 })).toHaveLength(5);
+  });
+});
+
+// CAMP-107 — the packed index format.
+//
+// 🔴 A mistake here is not a build failure, it is a search that returns
+// the wrong campsite. The pack halves the file by removing the JSON
+// keys and the two fields that are derivable from the others, so a
+// wrong index arithmetic or a lost `near` array would produce documents
+// that look perfectly well-formed and point at the wrong page.
+test.describe('the packed index', () => {
+  // 🔴 The path is built from country, region and slug here, exactly as
+  // the real index route builds it — because that is the assumption the
+  // packing rests on. The shared `doc()` helper hardcodes hr/istria in
+  // the path, so using it with another country would describe a document
+  // the site never produces, and the round-trip would "fail" on data
+  // that cannot exist.
+  const at = (
+    country: string,
+    region: string,
+    slug: string,
+    over: Partial<SearchDoc> & { name: string },
+  ): SearchDoc => ({
+    ...doc(over),
+    country,
+    region,
+    path: `/camping/${country}/${region}/${slug}`,
+  });
+
+  const docs: SearchDoc[] = [
+    at('hr', 'istria', 'camping-du-lac', { name: 'Camping du Lac' }),
+    at('si', 'bovec', 'autocamp-tabor', { name: 'Autocamp Tabor' }),
+    at('fr', 'Finistère', 'camping-molene', {
+      name: 'Camping Molène',
+      near: [
+        { name: 'Le Conquet', m: 1200 },
+        { name: 'Brest', m: 24000 },
+      ],
+    }),
+    // 🔴 The unnamed ones. 212 Croatian campsites have no name, and an
+    // empty string must survive the trip as an empty string rather than
+    // becoming undefined and then "undefined" on the page.
+    at('hr', 'istria', 'unnamed-1', { name: '' }),
+  ];
+
+  test('every document comes back exactly as it went in', () => {
+    const back = unpackIndex(packIndex(docs));
+    expect(back).toEqual(docs);
+  });
+
+  test('a campsite with places near it keeps them, in order', () => {
+    const back = unpackIndex(packIndex(docs));
+    expect(back[2].near).toEqual([
+      { name: 'Le Conquet', m: 1200 },
+      { name: 'Brest', m: 24000 },
+    ]);
+  });
+
+  test('a campsite with nothing near it gets an array, not undefined', () => {
+    const back = unpackIndex(packIndex(docs));
+    expect(back[0].near).toEqual([]);
+  });
+
+  test('the path is rebuilt, not stored', () => {
+    const packed = packIndex(docs);
+    // The saving only exists if the path really is absent from the file.
+    expect(JSON.stringify(packed)).not.toContain('/camping/');
+    expect(unpackIndex(packed)[2].path).toBe(docs[2].path);
+  });
+
+  test('countries and regions are stored once each', () => {
+    const many = [...docs, ...docs, ...docs];
+    const packed = packIndex(many);
+    expect(packed.c.length).toBe(3); // hr, si, fr
+    expect(new Set(packed.c).size).toBe(packed.c.length);
+    expect(unpackIndex(packed)).toHaveLength(many.length);
+  });
+
+  // 🔴 A browser can hold a cached copy of the old file. Reading it as
+  // the new format would silently produce documents with the wrong
+  // fields; refusing is what makes the page say search is unavailable.
+  test('an unknown format version is refused, not guessed at', () => {
+    const packed = packIndex(docs) as unknown as { v: number };
+    packed.v = 2;
+    expect(() => unpackIndex(packed as never)).toThrow(/not supported/);
+    expect(() => unpackIndex(undefined as never)).toThrow(/not supported/);
+  });
+
+  test('searching the unpacked index finds what searching the original does', () => {
+    const back = unpackIndex(packIndex(docs));
+    const a = search(docs, 'tabor').map((h) => h.doc.path);
+    const b = search(back, 'tabor').map((h) => h.doc.path);
+    expect(b).toEqual(a);
+    expect(b.length).toBeGreaterThan(0);
+  });
+
+  test('an empty index packs and unpacks to an empty index', () => {
+    expect(unpackIndex(packIndex([]))).toEqual([]);
   });
 });

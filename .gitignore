@@ -177,3 +177,14 @@ apps/web/src/generated/
 # the second line of that defence, not the first.
 CampTribe-backups/
 *.csv.gz
+
+# CAMP-107. Somebody else's data, not our source.
+#
+# 🔴 The DATAtourisme regional files are 11-64 MB each and this
+# repository is public. `fetch-regions.mjs` writes them outside the tree
+# by default, so this line is the second line of that defence rather
+# than the first — but the first is a default, and a default is one
+# `--out .` away from a 64 MB commit that cannot be taken back out of a
+# public history. No CSV is tracked today (checked 24.09.2026); if one
+# ever needs to be, un-ignore that path explicitly.
+*.csv
