@@ -425,6 +425,12 @@ jobs:
       - name: The API holds up under concurrency
         env:
           API_BASE_URL: http://localhost:3001
+          # 🔴 CAMP-69. This measures the API under load; the rate limiter
+          # is measured separately, by a test that deliberately has no
+          # token. Without this the first throttled run reported 35 910
+          # non-2xx responses and excellent latency — a perfect score for
+          # refusing to answer.
+          API_BUILD_TOKEN: ci-build-token
         run: node scripts/load/load-test.mjs --profile smoke
 
       - uses: actions/upload-artifact@v7

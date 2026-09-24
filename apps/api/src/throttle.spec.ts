@@ -42,9 +42,9 @@ describe('who a request is counted against', () => {
   // address, so counting `req.ip` would put all of Europe in one bucket
   // and 429 the seventh reader of the day.
   it('prefers the real client address Cloudflare passes through', () => {
-    expect(clientKey({ 'cf-connecting-ip': '203.0.113.7' }, '198.51.100.1')).toBe(
-      '203.0.113.7',
-    );
+    expect(
+      clientKey({ 'cf-connecting-ip': '203.0.113.7' }, '198.51.100.1'),
+    ).toBe('203.0.113.7');
   });
 
   it('falls back to the socket address when the header is absent', () => {
@@ -58,9 +58,9 @@ describe('who a request is counted against', () => {
     // Longer than any IPv6 address: somebody is sending us a payload,
     // not an address, and a bucket key of unbounded length is a memory
     // leak with extra steps.
-    expect(clientKey({ 'cf-connecting-ip': 'x'.repeat(500) }, '198.51.100.1')).toBe(
-      '198.51.100.1',
-    );
+    expect(
+      clientKey({ 'cf-connecting-ip': 'x'.repeat(500) }, '198.51.100.1'),
+    ).toBe('198.51.100.1');
   });
 
   it('ignores a header that is not a string', () => {

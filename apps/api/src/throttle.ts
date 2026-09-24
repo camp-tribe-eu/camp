@@ -120,7 +120,10 @@ export const BUILD_TOKEN_HEADER = 'x-build-token';
  * deployment property (CAMP-61), not something this file can enforce, so
  * it is named here rather than assumed.
  */
-export function clientKey(headers: Record<string, unknown>, fallback: string): string {
+export function clientKey(
+  headers: Record<string, unknown>,
+  fallback: string,
+): string {
   const cf = headers['cf-connecting-ip'];
   if (typeof cf === 'string' && cf.length > 0 && cf.length <= 45) return cf;
   return fallback;
