@@ -2,7 +2,16 @@
 # CAMP-33: the OSM layers a campsite's surroundings are measured against.
 #
 #   ./scripts/osm-pipeline/load-context.sh europe/slovenia
-#   ./scripts/osm-pipeline/load-context.sh europe/slovenia europe/austria
+#   ./scripts/osm-pipeline/load-context.sh europe/slovenia europe/croatia europe/france
+#
+# 🔴 PASS EVERY REGION YOU WANT, EVERY TIME.
+#
+# ogr2ogr runs with -overwrite, so each run REPLACES the three tables
+# rather than adding to them. Loading France on its own would silently
+# drop Slovenia and Croatia, and the next compute-context run would
+# measure their campsites against a country that is no longer there —
+# the same silent-wrong-data shape the row check below exists to stop,
+# arriving through the front door instead.
 #
 # Then:
 #   cd apps/api && npx ts-node src/osm/compute-context.ts
@@ -60,9 +69,18 @@ for REGION in "${REGIONS[@]}"; do
     fi
   fi
 
+  # 🔴 No streams. The comment at the top of this file has said so since
+  # CAMP-33, but the filter kept taking them anyway — and compute-context
+  # never asks for them (`x.waterway = 'river'`, nothing else). Measured
+  # on the Slovenia+Croatia layers before France was loaded: 39 585 of
+  # 82 278 water rows were streams, 48% of the table, read by nothing.
+  #
+  # On a 313 MB extract that is waste. On France's 4.74 GB it is waste
+  # that has to be exported, parsed and indexed first, and France has far
+  # more streams than Slovenia has anything.
   osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.water.pbf" --overwrite \
     n/natural=water w/natural=water r/natural=water \
-    w/waterway=river w/waterway=stream w/natural=coastline
+    w/waterway=river w/natural=coastline
   osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.place.pbf" --overwrite \
     n/place=city n/place=town n/place=village
   osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.poi.pbf" --overwrite \
@@ -86,10 +104,21 @@ load_layer() {
 
   # -u type_id gives every feature a stable id; nothing upserts on it
   # here, but it makes a row traceable back to the OSM object.
-  osmium export "merged.$name.pbf" -o "ctx_$name.geojson" \
-    --overwrite -f geojson -u type_id
+  #
+  # 🔴 GeoJSONSeq (one feature per line), not one big GeoJSON object.
+  #
+  # The count below used to be `python3 -c "json.load(...)"`, which holds
+  # the entire export in memory. That was fine for Slovenia. France is
+  # 4.74 GB of source data and its water export is not something to load
+  # into a Python dict on a 16 GB machine — the check meant to protect
+  # the load would have been the thing that killed it.
+  #
+  # One feature per line makes the count `wc -l`, which is O(1) memory
+  # whatever the country, and GDAL reads the format natively.
+  osmium export "merged.$name.pbf" -o "ctx_$name.geojsonl" \
+    --overwrite -f geojsonseq -u type_id
 
-  ogr2ogr -f PostgreSQL "PG:$OGR_CONN" "ctx_$name.geojson" \
+  ogr2ogr -f PostgreSQL "PG:$OGR_CONN" "ctx_$name.geojsonl" \
     -nln "osm_ctx_$name" -overwrite \
     -lco GEOMETRY_NAME=geom -nlt PROMOTE_TO_MULTI -lco SPATIAL_INDEX=GIST
 
@@ -102,7 +131,7 @@ load_layer() {
   # country that was not there. A load that silently does nothing is the
   # worst possible outcome, because everything downstream still runs.
   local expected n
-  expected=$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['features']))" "ctx_$name.geojson")
+  expected=$(wc -l < "ctx_$name.geojsonl" | tr -d ' ')
   n=$(psql "$DB_URL" -t -A -c "SELECT count(*) FROM osm_ctx_$name;" 2>/dev/null || echo 0)
   if [ "$n" != "$expected" ]; then
     echo "::error::osm_ctx_$name holds $n rows but the export had $expected — the load did not take" >&2
