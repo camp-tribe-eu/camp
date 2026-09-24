@@ -42,6 +42,13 @@ export interface SpotView {
    * cannot say that.
    */
   sources: SpotSource[];
+  /**
+   * CAMP-105: false when this page has nothing on it but a name.
+   *
+   * Decided in SQL (NOTHING_TO_SAY_SQL) so the page and the sitemap
+   * cannot disagree about it.
+   */
+  indexable: boolean;
 }
 
 /** The reduced shape a listing needs — no geometry, no owner data. */
@@ -85,7 +92,8 @@ export class SpotsService {
               ST_X(location::geometry) AS lon,
               amenities, owner_overrides, last_seen_at, missing_since,
               context, description, description_lang, stars, website,
-              sources
+              sources,
+              NOT ${NOTHING_TO_SAY_SQL} AS indexable
          FROM camping_spots
         WHERE slug = $1
         LIMIT 1`,
@@ -350,10 +358,13 @@ export class SpotsService {
       slug: string;
       lastSeenAt: Date | null;
       contentChangedAt: Date | null;
+      /** False when the page has nothing but a name — see NOTHING_TO_SAY_SQL. */
+      indexable: boolean;
     }[]
   > {
     const rows = await this.db.query(
-      `SELECT country, region, slug, last_seen_at, content_changed_at
+      `SELECT country, region, slug, last_seen_at, content_changed_at,
+              NOT ${NOTHING_TO_SAY_SQL} AS indexable
          FROM camping_spots
         WHERE region IS NOT NULL AND missing_since IS NULL
         ORDER BY country, region, slug`,
@@ -366,6 +377,7 @@ export class SpotsService {
       // 🔴 What <lastmod> must be built from. See the column's migration:
       // last_seen_at ticks weekly whether or not anything changed.
       contentChangedAt: (r.content_changed_at as Date) ?? null,
+      indexable: r.indexable === true,
     }));
   }
 
@@ -451,6 +463,64 @@ export class SpotsService {
  */
 export const REGION_INDEX_THRESHOLD = 3;
 
+/**
+ * 🔴 CAMP-105: a campsite page with nothing on it but its name.
+ *
+ * The same idea as REGION_INDEX_THRESHOLD one level down, and it arrived
+ * the same way: not from an opinion about thin content, but because the
+ * near-duplicate guard kept nearly failing. Two campsites about which we
+ * know only a name and a point produce two pages that differ by the name
+ * — they are near-identical because there is nothing to differ.
+ *
+ * Measured 24.09.2026, after the French import: 2 354 of 9 830 campsites
+ * (24%) have no amenity recorded, no surroundings computed, no
+ * description and no star rating.
+ *
+ * Two different shapes of nothing, which is what made the first version
+ * of this rule wrong: France stores a literal '{}' where nothing is
+ * known, OpenStreetMap stores every key explicitly as "unknown". Asking
+ * `amenities = '{}'` counted only the first and missed 482 of the
+ * second.
+ *
+ * `noindex, follow`, never a 404 and never hidden:
+ *
+ *  - the page is honest — it says what is not recorded, which is exactly
+ *    what this project promises to do;
+ *  - it is reachable from the map and from its region hub, and somebody
+ *    looking for that specific campsite should find it;
+ *  - it just should not compete in a search result against pages that
+ *    have something to say.
+ *
+ * 🔴 And it lifts by itself. The day CAMP-33 computes surroundings for a
+ * campsite, or an owner adds one fact, the page has something and this
+ * expression stops matching. No list to maintain, nothing to remember.
+ *
+ * Written as SQL rather than in the web app on purpose: the sitemap asks
+ * this question about ten thousand pages at once and the page asks it
+ * about one, and two implementations of the same rule drift.
+ */
+export const NOTHING_TO_SAY_SQL = `(
+  -- 🔴 "No amenity is KNOWN", not "the object is empty".
+  --
+  -- The first version of this asked \`amenities = '{}'\`, and it was wrong
+  -- in a way only the CI fixture revealed. A campsite imported from
+  -- OpenStreetMap stores every amenity explicitly, as
+  -- {"wifi":"unknown","water":"unknown",…} — a full object that answers
+  -- nothing. \`= '{}'\` is false for those rows, so 482 campsites that
+  -- carry no fact whatsoever were counted as having something. Measured
+  -- 24.09.2026: 1 872 by the old rule, 2 354 by this one.
+  --
+  -- The French rows happen to store a literal '{}', which is why the
+  -- mistake produced a plausible number instead of an obvious one.
+  NOT jsonb_path_exists(
+    coalesce(amenities, '{}'::jsonb),
+    '$.* ? (@ == "yes" || @ == "no")'
+  )
+  AND (context IS NULL OR context = '{}'::jsonb)
+  AND description IS NULL
+  AND stars IS NULL
+)`;
+
 /** Region names carry diacritics and spaces; URLs must not. */
 function toView(row: Record<string, unknown>): SpotView {
   const amenities = readAmenities(row.amenities);
@@ -474,5 +544,11 @@ function toView(row: Record<string, unknown>): SpotView {
       row.stars === null || row.stars === undefined ? null : Number(row.stars),
     website: (row.website as string) ?? null,
     sources: (row.sources ?? []) as SpotSource[],
+    // 🔴 Defaults to indexable when the column is absent, not to hidden.
+    // A query that forgot to select it must not silently noindex a page
+    // that has plenty to say — the failure should be a page that ranks
+    // when it should not, which somebody notices, rather than a page
+    // that quietly disappears, which nobody does.
+    indexable: row.indexable !== false,
   };
 }

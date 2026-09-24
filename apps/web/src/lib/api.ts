@@ -178,6 +178,13 @@ export interface Spot {
   ownerOverrides: Record<string, unknown>;
   lastSeenAt: string | null;
   missingSince: string | null;
+  /**
+   * CAMP-105: false when this page carries nothing but a name and a
+   * point. Decided by the API in SQL, so the page and the sitemap cannot
+   * disagree. Defaults to true if an older API omits it — a page that
+   * ranks when it should not is visible; one that quietly vanishes is not.
+   */
+  indexable?: boolean;
   context: SpotContext;
   /**
    * CAMP-101. The operator's own words, in their own language — carried
@@ -210,6 +217,14 @@ export interface SpotIndexEntry {
   lastSeenAt: string | null;
   /** When the page's content last actually changed — the sitemap's lastmod. */
   contentChangedAt: string | null;
+  /**
+   * CAMP-105: false when the page carries nothing but a name and a point.
+   *
+   * Decided by the API in SQL, never recomputed here — the sitemap asks
+   * this about ten thousand pages and the page asks it about one, and two
+   * implementations of one rule drift.
+   */
+  indexable: boolean;
 }
 
 /** Null rather than throw: a missing campsite is a 404, not a broken build. */
