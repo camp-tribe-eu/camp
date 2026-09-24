@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './api-request';
 import AxeBuilder from '@axe-core/playwright';
 import { LEGAL_PAGES, legalPath } from '@/lib/legal';
 import { CONSENT_KEY } from '@/lib/consent';

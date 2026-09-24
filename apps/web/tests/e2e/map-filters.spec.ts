@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './api-request';
 import {
   ACCESSIBILITY_KEYS,
   GENERAL_AMENITY_KEYS,

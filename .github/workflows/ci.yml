@@ -399,6 +399,15 @@ jobs:
           # CAMP-92. Reading client errors back is token-guarded; this is
           # the same throwaway value build-site gives the API it starts.
           CLIENT_ERRORS_READ_TOKEN: ci-read-token
+          # 🔴 CAMP-69. The suite resolves its fixtures from the API and
+          # asks the bulk routes tens of times a minute across six browser
+          # projects — far past the public limit, and for the same reason
+          # the build is exempt: these are our own callers, not the world.
+          #
+          # One test deliberately does NOT send it, and asserts the 429.
+          # That is the card's acceptance criterion, and it would be
+          # untestable if the limit were simply raised instead.
+          API_BUILD_TOKEN: ci-build-token
           NEXT_PUBLIC_ERROR_ENDPOINT: ${{ env.CI_ERROR_ENDPOINT }}
 
       # 🔴 `always()`, and this is the point of the step. A flake leaves

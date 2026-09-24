@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './api-request';
 
 // 🔴 The same flag the build was made with. These assertions are about
 // the sitemap agreeing with the pages, and what "agreeing" means flips

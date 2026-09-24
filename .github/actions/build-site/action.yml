@@ -127,6 +127,15 @@ runs:
         # Reading errors back needs a token, and with none set the route
         # 404s. Throwaway and local to the runner; nothing here is secret.
         CLIENT_ERRORS_READ_TOKEN: 'ci-read-token'
+        # 🔴 CAMP-69. The build is our heaviest legitimate caller — it
+        # asks for every campsite — so it identifies itself and skips the
+        # rate limit. Throwaway and local to the runner; the point is not
+        # secrecy but that the PUBLIC does not have it.
+        #
+        # Without this the build is throttled and, because getSpot returns
+        # null rather than throwing, it exits 0 with most of the site
+        # missing. Measured: 580 campsite pages instead of 9 830.
+        API_BUILD_TOKEN: 'ci-build-token'
       run: |
         npx nest start > /tmp/api.log 2>&1 &
         # The build fetches from it, so a race here would produce an empty
@@ -148,17 +157,52 @@ runs:
         NEXT_PUBLIC_SITE_MODE: ${{ inputs.site-mode }}
         API_BASE_URL: http://localhost:3001
         NEXT_PUBLIC_ERROR_ENDPOINT: ${{ inputs.error-endpoint }}
+        # The same token the API was started with. Server-side only: no
+        # NEXT_PUBLIC_ prefix, so it never reaches the browser bundle.
+        API_BUILD_TOKEN: 'ci-build-token'
       run: npm run build --workspace=apps/web
 
-    - name: Refuse an empty build
+    - name: Refuse an incomplete build
       shell: bash
+      env:
+        DATABASE_URL: ${{ inputs.database-url }}
       run: |
         # The failure this whole action exists to prevent, asserted
         # directly: a build that reached no data still exits 0.
-        PAGES=$(find apps/web/.next/server/app/camping -name '*.html' | wc -l)
-        echo "campsite and hub pages built: $PAGES"
-        if [ "$PAGES" -lt 10 ]; then
-          echo "::error::only $PAGES pages built — the API was not reachable"
+        #
+        # 🔴 Against the number the API reports, not against 10.
+        #
+        # This compared with `-lt 10`, which answers "did the API reply at
+        # all" and nothing else. CAMP-69 produced the case it cannot see:
+        # rate limiting throttled the per-campsite fetches, `getSpot`
+        # returned null rather than throwing — deliberately, a missing
+        # campsite is a 404 — and the build exited 0 having written 580
+        # campsite pages out of 9 830. Every one of those 580 was perfect.
+        # The other 9 250 simply were not there, and `580 -gt 10` passed.
+        #
+        # A build missing 94% of the site is not a smaller site; it is a
+        # site that has silently dropped most of its content while
+        # reporting success.
+        # 🔴 With the token: /spots/index is one of the rate-limited bulk
+        # routes, and a guard that 429s itself would report a broken
+        # build on every run.
+        EXPECTED=$(curl -fsS -H 'x-build-token: ci-build-token' \
+          "http://localhost:3001/spots/index" \
+          | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).length))')
+        BUILT=$(find apps/web/.next/server/app/camping \
+          -name '*.html' -not -name 'page.html' | wc -l | tr -d ' ')
+        echo "campsites the API lists: $EXPECTED"
+        echo "campsite and hub pages built: $BUILT"
+
+        if [ "$EXPECTED" -lt 1 ]; then
+          echo "::error::the API lists no campsites at all — the fixture did not load"
+          tail -40 /tmp/api.log
+          exit 1
+        fi
+        # Hubs are built too, so BUILT is legitimately larger than
+        # EXPECTED. What must never happen is BUILT falling below it.
+        if [ "$BUILT" -lt "$EXPECTED" ]; then
+          echo "::error::only $BUILT pages built for $EXPECTED campsites — pages were lost"
           tail -40 /tmp/api.log
           exit 1
         fi

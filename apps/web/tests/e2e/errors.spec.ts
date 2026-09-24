@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from './api-request';
 import { AMENITY_KEYS } from '@/lib/api';
 
 // CAMP-73 — 404, 410, 500 and the empty states.

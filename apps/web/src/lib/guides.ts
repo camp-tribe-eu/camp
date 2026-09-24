@@ -10,7 +10,7 @@
 // of the page, before the text it describes, because a disclosure a
 // reader meets after reading is not a disclosure.
 
-import { API_BASE } from './api';
+import { apiFetch } from './api';
 
 export type GuideProvenance =
   | 'human'
@@ -100,14 +100,14 @@ export function publishable(guide: Guide): string[] {
 }
 
 export async function getGuides(): Promise<Guide[]> {
-  const res = await fetch(`${API_BASE}/guides`, {
+  const res = await apiFetch(`/guides`, {
     next: { revalidate: 3600 },
   });
   return res.ok ? res.json() : [];
 }
 
 export async function getGuide(slug: string): Promise<Guide | null> {
-  const res = await fetch(`${API_BASE}/guides/${slug}`, {
+  const res = await apiFetch(`/guides/${slug}`, {
     next: { revalidate: 3600 },
   });
   return res.ok ? res.json() : null;

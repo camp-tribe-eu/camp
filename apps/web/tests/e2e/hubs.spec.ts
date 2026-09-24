@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './api-request';
 import { API_BASE, REGION_PER_PAGE } from '@/lib/api';
 
 /**

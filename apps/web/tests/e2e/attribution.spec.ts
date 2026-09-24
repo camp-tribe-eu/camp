@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './api-request';
 
 // CAMP-101 — the attribution, asserted on real pages.
 //

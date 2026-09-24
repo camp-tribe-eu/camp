@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './api-request';
 
 // CAMP-66 — the guides section, on real pages.
 //

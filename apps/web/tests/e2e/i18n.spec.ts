@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './api-request';
 import { DEFAULT_LOCALE, LOCALES } from '@/lib/i18n';
 
 // CAMP-40 — the language declarations, in the pages that are actually
