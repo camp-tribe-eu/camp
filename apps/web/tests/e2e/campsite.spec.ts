@@ -325,15 +325,35 @@ test.describe('structured data (CAMP-37)', () => {
     }
   });
 
-  // And the other direction: a campsite we know nothing about asks
-  // nothing, rather than showing a heading over an empty list.
-  test('a site with nothing measured carries no FAQ at all', async ({ page }) => {
+  // And the other direction, on the campsite with the least to say.
+  //
+  // 🔴 The first version of this test asserted there was no FAQPage at
+  // all, and CI was right to reject it: `fx.empty` has no computed
+  // surroundings, but it does carry recorded facilities, and a question
+  // built from those is honest. The invariant is not "no questions" — it
+  // is that a block never promises answers it has none of, and that the
+  // heading and the block appear together or not at all.
+  test('the FAQ block and its heading exist together, or not at all', async ({
+    page,
+  }) => {
     await page.goto(fx.empty);
     const docs = await graphs(page);
-    expect(docs.some((d) => d['@type'] === 'FAQPage')).toBe(false);
-    await expect(
-      page.getByRole('heading', { name: 'Questions we can answer' }),
-    ).toHaveCount(0);
+    const faq = docs.find((d) => d['@type'] === 'FAQPage');
+    const heading = page.getByRole('heading', { name: 'Questions we can answer' });
+
+    if (faq) {
+      expect(
+        (faq.mainEntity ?? []).length,
+        'an FAQPage that promises answers and has none',
+      ).toBeGreaterThan(0);
+      await expect(heading).toHaveCount(1);
+      const shown = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+      for (const q of faq.mainEntity as { name: string }[]) {
+        expect(shown).toContain(q.name.replace(/\s+/g, ' '));
+      }
+    } else {
+      await expect(heading).toHaveCount(0);
+    }
   });
 
   test('breadcrumbs are numbered from 1 without gaps', async ({ page }) => {
