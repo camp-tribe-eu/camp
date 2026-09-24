@@ -29,6 +29,7 @@ import {
   NearbySpot,
   Spot,
   SPOT_TYPE_LABEL,
+  TERRAIN_LABEL,
   WATER_LABEL,
 } from './api';
 
@@ -106,6 +107,188 @@ function contextSentence(spot: Spot): string | undefined {
   return bits.length ? `${SPOT_TYPE_LABEL[spot.type]}, ${bits.join(', ')}.` : undefined;
 }
 
+/**
+ * CAMP-114: the measured surroundings, as machine-readable values.
+ *
+ * 🔴 This is the one block a competitor cannot copy, because none of them
+ * compute it. Measured 24.09.2026 (CAMP-109): Pitchup publishes 34 JSON-LD
+ * blocks to our 1, but not one of them says how far the water is. Ours are
+ * numbers we calculated from geometry, so they belong in the graph as
+ * numbers — an assistant asked "campsites within 500 m of a lake" can
+ * answer from this and cannot answer from prose.
+ *
+ * `additionalProperty` is legal here because Campground descends from
+ * Place, which is where schema.org defines it — checked against the
+ * vocabulary index, not assumed. `unitCode` is UN/CEFACT: MTR is metres.
+ *
+ * Every entry is omitted when the measurement is absent. There is no
+ * "0 m to the sea" for a site nowhere near it: not knowing is not zero,
+ * the same rule the amenities follow.
+ */
+export function surroundingProperties(spot: Spot) {
+  const c = spot.context ?? {};
+  const out: Record<string, unknown>[] = [];
+  const metres = (name: string, value: number) => ({
+    '@type': 'PropertyValue',
+    name,
+    value,
+    unitCode: 'MTR',
+  });
+
+  if (c.water) {
+    out.push(
+      metres(
+        `Distance to ${c.water.name ?? WATER_LABEL[c.water.kind].toLowerCase()}`,
+        c.water.m,
+      ),
+    );
+  }
+  if (c.town) out.push(metres(`Distance to ${c.town.name ?? 'the nearest town'}`, c.town.m));
+  if (c.supermarket) out.push(metres('Distance to the nearest supermarket', c.supermarket.m));
+  if (c.station) {
+    out.push(
+      metres(
+        `Distance to ${c.station.name ? `${c.station.name} station` : 'the nearest railway station'}`,
+        c.station.m,
+      ),
+    );
+  }
+  if (c.elevation !== undefined) out.push(metres('Elevation above sea level', c.elevation));
+  if (c.terrain) {
+    out.push(metres(`Relief within 1 km (${TERRAIN_LABEL[c.terrain.type].toLowerCase()})`, c.terrain.relief));
+  }
+  return out;
+}
+
+export interface FaqItem {
+  q: string;
+  a: string;
+}
+
+/**
+ * CAMP-114: the questions our own data answers, and only those.
+ *
+ * 🔴 Exported so the page renders exactly this list. Google's FAQ policy
+ * requires the answer to be visible on the page, and beyond the policy it
+ * is the honest arrangement: markup that says something the page does not
+ * is a claim made only to machines.
+ *
+ * ⚠️ Not for rich results. Google restricted FAQ rich snippets to
+ * government and health sites in August 2023, so nothing here will draw a
+ * dropdown in search. It is here for the assistants — the channel the
+ * owner named alongside search — which read the graph directly.
+ *
+ * 🔴 The questions are NEUTRAL, never yes/no. "Is there water nearby?"
+ * answered "Yes" is a lie at 8 km and the truth at 80 m, and the markup
+ * cannot tell which it is. "How far is the nearest water?" is true at
+ * every distance, because the answer carries the number.
+ */
+export function campsiteFaq(spot: Spot): FaqItem[] {
+  const c = spot.context ?? {};
+  const name = spot.name ?? `this ${SPOT_TYPE_LABEL[spot.type].toLowerCase()}`;
+  const items: FaqItem[] = [];
+
+  if (c.water) {
+    const what = c.water.name ?? WATER_LABEL[c.water.kind].toLowerCase();
+    items.push({
+      q: `How far is the nearest water from ${name}?`,
+      a: `${formatDistance(c.water.m)} to ${what}, measured straight-line from the centre of the site. The walk or drive will be longer.`,
+    });
+  }
+  if (c.town) {
+    items.push({
+      q: `How far is the nearest town?`,
+      a: `${c.town.name ?? 'The nearest town'} is ${formatDistance(c.town.m)} away in a straight line.`,
+    });
+  }
+  if (c.supermarket) {
+    items.push({
+      q: `Where can you buy food nearby?`,
+      a: `The nearest supermarket is ${formatDistance(c.supermarket.m)} away in a straight line.`,
+    });
+  }
+  if (c.station) {
+    items.push({
+      q: `Can you reach it without a car?`,
+      a: `${c.station.name ? `${c.station.name} station` : 'The nearest railway station'} is ${formatDistance(c.station.m)} away in a straight line. We do not know whether a bus or a path connects the two.`,
+    });
+  }
+  if (c.elevation !== undefined || c.terrain) {
+    const bits: string[] = [];
+    if (c.elevation !== undefined) bits.push(`${c.elevation} m above sea level`);
+    if (c.terrain) {
+      bits.push(
+        `${TERRAIN_LABEL[c.terrain.type].toLowerCase()} ground, ${c.terrain.relief} m of relief within a kilometre`,
+      );
+    }
+    items.push({
+      q: `How high is it, and what is the ground like?`,
+      a: `${bits.join('; ')}.`,
+    });
+  }
+
+  // Facilities, from the tri-state — and both halves of it. A recorded
+  // "no" is as useful to a reader as a recorded "yes", and the gap
+  // between them is the thing this site exists to show.
+  const yes = AMENITY_KEYS.filter((k) => spot.amenities?.[k] === 'yes');
+  const no = AMENITY_KEYS.filter((k) => spot.amenities?.[k] === 'no');
+  if (yes.length || no.length) {
+    const said: string[] = [];
+    // The labels are used exactly as the page prints them. Lower-casing
+    // them turned "Wi-Fi" into "wi-fi" — a small thing, but the answer is
+    // quoted verbatim by assistants, and a name we mangled is a name we
+    // got wrong.
+    if (yes.length) said.push(`recorded as present: ${yes.map((k) => AMENITY_LABEL[k]).join(', ')}`);
+    if (no.length) said.push(`recorded as absent: ${no.map((k) => AMENITY_LABEL[k]).join(', ')}`);
+    const unknown = AMENITY_KEYS.length - yes.length - no.length;
+    items.push({
+      q: `What facilities are recorded?`,
+      a: `${said.join('. ')}. ${
+        unknown > 0
+          ? `The remaining ${unknown} of ${AMENITY_KEYS.length} have not been recorded by anyone — that is a gap in the data, not a statement that they are missing.`
+          : `All ${AMENITY_KEYS.length} we track have been recorded.`
+      }`,
+    });
+  }
+
+  if (spot.type === 'free' || spot.type === 'wild') {
+    items.push({
+      q: `Does it cost anything?`,
+      a: `It is recorded as a ${SPOT_TYPE_LABEL[spot.type].toLowerCase()}, which carries no fee. Local rules can still forbid staying overnight — check before you rely on it.`,
+    });
+  }
+
+  if (spot.stars !== null) {
+    items.push({
+      q: `Is it officially classified?`,
+      a: `Yes — ${spot.stars} stars in the national classification published by the authority of ${countryName(spot.country)}. That is somebody else's rating, not ours; we do not rate campsites.`,
+    });
+  }
+
+  return items;
+}
+
+/**
+ * The FAQ as a graph, or null when we have nothing to ask.
+ *
+ * 🔴 Null, not an empty FAQPage. A FAQPage with no questions is a type
+ * claiming content that is not there — the exact shape of thing the
+ * validator and CAMP-114 both forbid.
+ */
+export function faqGraph(items: FaqItem[], path: string) {
+  if (items.length === 0) return null;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    '@id': `${abs(path)}#faq`,
+    mainEntity: items.map((f) => ({
+      '@type': 'Question',
+      name: f.q,
+      acceptedAnswer: { '@type': 'Answer', text: f.a },
+    })),
+  };
+}
+
 export function campgroundGraph(
   spot: Spot,
   path: string,
@@ -145,6 +328,38 @@ export function campgroundGraph(
 
   const features = amenityFeatures(spot.amenities);
   if (features.length) node.amenityFeature = features;
+
+  // CAMP-114: the surroundings as numbers, not only as a sentence.
+  const measured = surroundingProperties(spot);
+  if (measured.length) node.additionalProperty = measured;
+
+  // 🔴 `petsAllowed` only where somebody recorded an answer.
+  //
+  // It is legal on Campground through LodgingBusiness, and it maps
+  // exactly onto one amenity we already hold — so it costs nothing and
+  // says something a traveller with a dog is actually searching for.
+  // `unknown` emits nothing at all: the tri-state's whole point.
+  if (spot.amenities?.dogFriendly === 'yes') node.petsAllowed = true;
+  else if (spot.amenities?.dogFriendly === 'no') node.petsAllowed = false;
+
+  // 🔴 Somebody else's classification, marked as a Rating rather than
+  // implied by a number. France publishes a 1-5 classement; OpenStreetMap
+  // carries none. `author` is deliberately absent — we know a national
+  // authority issued it, but not which body, and naming the wrong one
+  // would be worse than naming none. We have no opinion about any
+  // campsite, and `aggregateRating` stays absent for exactly that reason.
+  if (spot.stars !== null && spot.stars !== undefined) {
+    node.starRating = {
+      '@type': 'Rating',
+      ratingValue: spot.stars,
+      bestRating: 5,
+      worstRating: 1,
+    };
+  }
+
+  // The operator's own site, where a source gave us one. `sameAs` is the
+  // property for "another page that is unambiguously this same thing".
+  if (spot.website) node.sameAs = spot.website;
 
   // Only claimed where the data actually says so. `free` and `wild` are
   // the two types that carry no fee; for the rest we do not know the

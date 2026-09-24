@@ -19,6 +19,8 @@ import {
 import {
   breadcrumbList,
   campgroundGraph,
+  campsiteFaq,
+  faqGraph,
   jsonLdProps,
 } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
@@ -134,6 +136,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
   ).length;
 
   const path = `/camping/${params.country}/${params.region}/${params.slug}`;
+  const faq = campsiteFaq(spot);
   const crumbs = [
     { name: 'Camping', path: '/camping' },
     { name: countryName(spot.country), path: `/camping/${params.country}` },
@@ -147,6 +150,10 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           and a breakage in one does not take the other down with it. */}
       <script {...jsonLdProps(campgroundGraph(spot, path, data.nearby))} />
       <script {...jsonLdProps(breadcrumbList(crumbs))} />
+      {/* CAMP-114. Emitted only when there are questions to ask — and
+          the same list is rendered below, because markup that says
+          something the page does not is a claim made only to machines. */}
+      {faq.length > 0 && <script {...jsonLdProps(faqGraph(faq, path))} />}
 
       <Breadcrumbs spot={spot} params={params} />
 
@@ -308,6 +315,28 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           
           The per-source block says the same thing accurately, for each
           source, with the phrasing each licence needs. */}
+      {faq.length > 0 && (
+        <Section title="Questions we can answer">
+          {/* 🔴 Visible, and identical to the JSON-LD above.
+              
+              Not decoration and not an SEO trick: Google's FAQ policy
+              requires the answer to be on the page, and the honest reason
+              is the same one — we do not tell machines anything we are
+              unwilling to tell a reader. Every answer here is a number we
+              measured or a field somebody recorded, which is why a site
+              with no computed surroundings gets no section at all rather
+              than a page of empty questions. */}
+          <dl className="mt-1 max-w-prose">
+            {faq.map((f) => (
+              <div key={f.q} className="border-b border-line-2 py-3 last:border-0">
+                <dt className="font-semibold text-heading">{f.q}</dt>
+                <dd className="mt-1 text-sm text-ink-2">{f.a}</dd>
+              </div>
+            ))}
+          </dl>
+        </Section>
+      )}
+
       <SourceNote sources={spot.sources} />
     </main>
   );

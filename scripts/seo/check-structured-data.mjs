@@ -28,6 +28,7 @@
 import { readFileSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const args = process.argv.slice(2);
 const SELF_TEST = args.includes('--self-test');
@@ -64,9 +65,9 @@ const KEYWORDS = new Set([
  * Walks one node and everything nested inside it.
  * Errors carry a path so a failure names the offending key, not the file.
  */
-function validateNode(node, where, errors) {
+function validateNode(node, where, errors, inStarRating = false) {
   if (Array.isArray(node)) {
-    node.forEach((n, i) => validateNode(n, `${where}[${i}]`, errors));
+    node.forEach((n, i) => validateNode(n, `${where}[${i}]`, errors, inStarRating));
     return;
   }
   if (!node || typeof node !== 'object') return;
@@ -97,7 +98,7 @@ function validateNode(node, where, errors) {
           `(valid on ${domains.slice(0, 4).join(', ')})`,
       );
     }
-    validateNode(value, `${where}.${key}`, errors);
+    validateNode(value, `${where}.${key}`, errors, key === 'starRating');
   }
 
   // ── beyond "is it legal vocabulary" ───────────────────────────────────
@@ -141,12 +142,65 @@ function validateNode(node, where, errors) {
   }
 
   // 🔴 Ratings we do not have. Reviews arrive with CAMP-53; until then
-  // any rating markup would be fabricated, which is both a lie and the
-  // fastest route to a manual action from Google.
-  if (node.aggregateRating || node.reviewCount || node.ratingValue) {
+  // any rating OF OUR OWN would be fabricated, which is both a lie and
+  // the fastest route to a manual action from Google.
+  //
+  // ⚠️ This used to ban `ratingValue` outright, and that was one word too
+  // broad. CAMP-114 added `starRating` — the national classification a
+  // state authority publishes (France's classement; OpenStreetMap carries
+  // none), which lives in `spot.stars` and is printed on the page as
+  // somebody else's rating. That is a recorded fact about the business,
+  // not an opinion we formed, and schema.org has a separate property for
+  // exactly that distinction.
+  //
+  // So the rule is narrowed, not weakened: aggregates stay banned
+  // everywhere, and a bare ratingValue stays banned everywhere EXCEPT
+  // inside a starRating, where it must be a complete Rating.
+  if (node.aggregateRating || node.reviewCount || node.ratingCount) {
     errors.push(
-      `${where}: rating markup, but the site has no reviews yet (CAMP-53)`,
+      `${where}: aggregate rating markup, but the site has no reviews yet (CAMP-53)`,
     );
+  }
+  if (node.ratingValue !== undefined && !inStarRating) {
+    errors.push(
+      `${where}: ratingValue outside a starRating — we rate nothing (CAMP-53)`,
+    );
+  }
+  if (inStarRating && types.includes('Rating')) {
+    // A star rating without its scale is unreadable: 3 out of what?
+    if (node.ratingValue === undefined) {
+      errors.push(`${where}: starRating without a ratingValue`);
+    }
+    if (node.bestRating === undefined) {
+      errors.push(`${where}: starRating without a bestRating — 3 out of what?`);
+    }
+  }
+
+  // 🔴 A type that claims content it does not carry.
+  //
+  // CAMP-114's rule, in the validator rather than in a comment: an empty
+  // FAQPage is worse than no FAQPage, because it tells an assistant there
+  // are answers here and then has none.
+  if (types.includes('FAQPage')) {
+    const qs = [].concat(node.mainEntity ?? []);
+    if (qs.length === 0) errors.push(`${where}: FAQPage with no questions`);
+    qs.forEach((q, i) => {
+      if (!q?.name) errors.push(`${where}: question ${i} has no text`);
+      if (!q?.acceptedAnswer?.text) {
+        errors.push(`${where}: question ${i} has no answer`);
+      }
+    });
+  }
+
+  // A PropertyValue whose value is missing describes nothing, and a
+  // distance without a unit is a number nobody can use.
+  if (types.includes('PropertyValue')) {
+    if (node.value === undefined || node.value === null) {
+      errors.push(`${where}: PropertyValue without a value`);
+    }
+    if (typeof node.value === 'number' && !node.unitCode) {
+      errors.push(`${where}: numeric PropertyValue without a unitCode`);
+    }
   }
 }
 
@@ -159,7 +213,7 @@ function blocksIn(html) {
   return out;
 }
 
-function validateHtml(html, label) {
+export function validateHtml(html, label) {
   const errors = [];
   const blocks = blocksIn(html);
   blocks.forEach((raw, i) => {
@@ -280,6 +334,100 @@ if (SELF_TEST) {
       name: 'x',
       geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
     }],
+
+    // ── CAMP-114 ──────────────────────────────────────────────────────
+    // The narrowed rating rule, proved in both directions: the official
+    // classification is accepted, and every other shape of rating is not.
+    ['official star classification', true, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'FR' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      starRating: { '@type': 'Rating', ratingValue: 4, bestRating: 5, worstRating: 1 },
+    }],
+    ['a rating of our own, dressed as a star rating', false, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'FR' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      starRating: {
+        '@type': 'Rating', ratingValue: 4.8, bestRating: 5, ratingCount: 149,
+      },
+    }],
+    ['a star rating with no scale', false, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'FR' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      starRating: { '@type': 'Rating', ratingValue: 4 },
+    }],
+    ['a bare ratingValue anywhere else', false, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'FR' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      ratingValue: 5,
+    }],
+
+    ['an FAQ with questions', true, {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: [{
+        '@type': 'Question',
+        name: 'How far is the nearest water?',
+        acceptedAnswer: { '@type': 'Answer', text: '365 m to Lake Bled.' },
+      }],
+    }],
+    ['an FAQ that promises answers and has none', false, {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: [],
+    }],
+    ['a question with no answer', false, {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: [{ '@type': 'Question', name: 'How far is the water?' }],
+    }],
+
+    ['a measured distance with its unit', true, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'SI' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      additionalProperty: [
+        { '@type': 'PropertyValue', name: 'Distance to Lake Bled', value: 365, unitCode: 'MTR' },
+      ],
+    }],
+    ['a number with no unit — 365 of what?', false, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'SI' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      additionalProperty: [
+        { '@type': 'PropertyValue', name: 'Distance to Lake Bled', value: 365 },
+      ],
+    }],
+    ['a property that carries no value at all', false, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'SI' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      additionalProperty: [{ '@type': 'PropertyValue', name: 'Elevation' }],
+    }],
   ];
 
   let failures = 0;
@@ -311,6 +459,28 @@ if (SELF_TEST) {
   process.exit(failures === 0 ? 0 : 1);
 }
 
+// 🔴 Only when run as a command, never when imported.
+//
+// Everything below is top-level, so a unit test that wants `validateHtml`
+// would otherwise walk .next/server/app and exit the process. The tests
+// for CAMP-114's markup check the same rules this file enforces, against
+// the same vocabulary index — importing it is how the two cannot drift.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedDirectly) {
+  // 🔴 `.catch`, not top-level `await`. A module with top-level await is
+  // an async ESM graph, and `require()` refuses to load one — which shut
+  // out every CommonJS consumer, including ts-node. Nothing here needs to
+  // block the module's evaluation, so nothing does.
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+async function main() {
 // ── the real run ─────────────────────────────────────────────────────────
 const files = [];
 for await (const f of glob(`${ROOT}/**/*.html`)) files.push(f);
@@ -384,3 +554,4 @@ if (missing.length) {
 }
 
 console.log('\n✓ every block validates against the schema.org vocabulary');
+}
