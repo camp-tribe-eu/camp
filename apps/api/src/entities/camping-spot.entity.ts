@@ -42,6 +42,18 @@ export const UNKNOWN_AMENITIES: CampingSpotAmenities = {
   wheelchairFull: AmenityValue.UNKNOWN,
 };
 
+/** One source's contribution to one campsite. */
+export type SpotSource = {
+  /** Short stable id, e.g. "osm", "datatourisme". */
+  id: string;
+  /** The record's identity in that source. */
+  ref: string;
+  /** ISO date the source last changed it — required by Licence Ouverte. */
+  updatedAt: string;
+  /** Which of our fields this source is responsible for. */
+  fields: string[];
+};
+
 @Entity('camping_spots')
 export class CampingSpot {
   @PrimaryGeneratedColumn('uuid')
@@ -108,6 +120,53 @@ export class CampingSpot {
    */
   @Column({ name: 'owner_overrides', type: 'jsonb', default: {} })
   ownerOverrides: Record<string, unknown>;
+
+  /**
+   * CAMP-101. The operator's own words, verbatim, in their own language.
+   *
+   * 🔴 Never translated by us. A machine translation of somebody's
+   * description, published as though it were theirs, is invention — the
+   * one thing this site exists not to do. It is carried as written and
+   * rendered with `lang`, so a reader and a crawler both know what they
+   * are looking at.
+   */
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
+
+  /** BCP 47, e.g. "fr". Required whenever `description` is set. */
+  @Column({
+    name: 'description_lang',
+    type: 'varchar',
+    length: 8,
+    nullable: true,
+  })
+  descriptionLang: string | null;
+
+  /** The operator's own site, where a source gives us one. */
+  @Column({ type: 'text', nullable: true })
+  website: string | null;
+
+  /**
+   * Official national classification, 1–5, where one exists.
+   *
+   * France publishes it (91% of Provence, 53% of Occitanie); OSM does
+   * not carry it at all. It is one of the few facts we can state that a
+   * volunteer map cannot — and it is an official rating, not ours.
+   */
+  @Column({ type: 'smallint', nullable: true })
+  stars: number | null;
+
+  /**
+   * Where each field came from, and when that source last changed it.
+   *
+   * 🔴 Per FIELD, not per record. One campsite can be built from OSM
+   * (ODbL, share-alike) and DATAtourisme (Licence Ouverte, attribution
+   * with the update date). The two licences do not ask the same thing of
+   * the same fields, so "sources: OSM, DATAtourisme" at the foot of a
+   * page attributes neither correctly.
+   */
+  @Column({ type: 'jsonb', default: [] })
+  sources: SpotSource[];
 
   /** Last import run in which OSM still contained this spot. */
   @Column({ name: 'last_seen_at', type: 'timestamptz', nullable: true })

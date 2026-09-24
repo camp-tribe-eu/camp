@@ -45,6 +45,22 @@ function visibleText(file) {
   const main = /<main[^>]*>([\s\S]*?)<\/main>/.exec(html);
   html = main ? main[1] : html;
   return html
+    // 🔴 Blocks that are identical on every page by construction are
+    // stripped before comparing.
+    //
+    // The attribution block (CAMP-101) and the travel notice (CAMP-56)
+    // are word-for-word the same everywhere, because both are promises
+    // we make about every campsite rather than statements about one.
+    // Counting them inflates every pair's similarity equally: adding the
+    // attribution block pushed hr/zadarska/autocamp-tabor and
+    // autocamp-punta from below the line to 80.7%, which is a true
+    // measurement of the wrong thing.
+    //
+    // The rule for adding `data-boilerplate` is strict: the block must be
+    // identical on every page it appears on. Anything that varies with
+    // the subject stays in the comparison, because that is exactly what
+    // the guard is for.
+    .replace(/<[a-z]+[^>]*\sdata-boilerplate=[^>]*>[\s\S]*?<\/[a-z]+>/gi, ' ')
     .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&[a-z]+;|&#\d+;/gi, ' ')

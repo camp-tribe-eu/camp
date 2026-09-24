@@ -148,14 +148,48 @@ test.describe('cookie consent', () => {
 });
 
 test.describe('the legal pages', () => {
+  // 🔴 Fetched, not navigated to — six browser navigations in one test.
+  //
+  // This is asking what the SERVED HTML says, and a browser adds nothing
+  // to that answer except six page loads. Under CI's parallelism it
+  // timed out at 30 s on mobile-safari and passed on the retry, which
+  // the flaky guard caught. The same fix the i18n suite already needed,
+  // for the same reason: use `request` when the question is about the
+  // document rather than about the rendering.
   test('every one of them exists and says which version it is', async ({
-    page,
+    request,
   }) => {
     for (const p of LEGAL_PAGES) {
-      const res = await page.goto(legalPath(p.slug));
-      expect(res?.status(), `${p.slug} did not load`).toBeLessThan(400);
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText(p.title);
-      await expect(page.getByTestId('legal-version')).toContainText(p.version);
+      const res = await request.get(legalPath(p.slug));
+      expect(res.status(), `${p.slug} did not load`).toBeLessThan(400);
+      const html = await res.text();
+
+      // 🔴 The heading's text, captured up to the first tag rather than
+      // stripped of tags afterwards.
+      //
+      // The earlier version ran `.replace(/<[^>]+>/g, '')` over the
+      // captured HTML, and CodeQL flagged it as incomplete
+      // multi-character sanitization — correctly, as a pattern. Nothing
+      // here is rendered, so there was no vulnerability, but the pattern
+      // has no business in the codebase either: a regex that removes
+      // tags is the one everybody copies into a place where it DOES get
+      // rendered.
+      //
+      // Nothing else is needed, because the heading is `{page.title}`
+      // and nothing more. Verified against every built legal page: each
+      // h1 holds plain text. If markup is ever nested inside one, this
+      // capture comes back empty and the test says so, which is the
+      // honest outcome — the silent strip would have hidden it.
+      const h1 = /<h1[^>]*>([^<]*)<\/h1>/i.exec(html)?.[1] ?? '';
+      expect(h1.trim(), `${p.slug} has the wrong heading`).toContain(p.title);
+
+      const version =
+        /data-testid="legal-version"[\s\S]{0,400}?Version[^0-9]{0,10}([0-9.]+)/.exec(
+          html,
+        )?.[1] ?? '';
+      expect(version, `${p.slug} does not state its version`).toContain(
+        p.version,
+      );
     }
   });
 

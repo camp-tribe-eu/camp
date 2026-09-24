@@ -4,6 +4,10 @@
 // cross-origin call and the base URL differs per environment. Hard-coding
 // it in pages would mean finding every call site the day the host changes.
 
+import type { SpotSource } from './sources';
+
+export type { SpotSource };
+
 export const API_BASE =
   process.env.API_BASE_URL ?? 'http://localhost:3001';
 
@@ -175,6 +179,19 @@ export interface Spot {
   lastSeenAt: string | null;
   missingSince: string | null;
   context: SpotContext;
+  /**
+   * CAMP-101. The operator's own words, in their own language — carried
+   * verbatim and rendered with `lang`. We never translate them: a machine
+   * translation of somebody's description, published as if it were
+   * theirs, is invention.
+   */
+  description: string | null;
+  descriptionLang: string | null;
+  /** Official national classification, 1–5, where a source publishes one. */
+  stars: number | null;
+  website: string | null;
+  /** Which source gave which field, and when it last changed it. */
+  sources: SpotSource[];
 }
 
 export interface NearbySpot {

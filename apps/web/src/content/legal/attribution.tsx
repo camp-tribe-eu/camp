@@ -69,6 +69,44 @@ export default function Attribution() {
         — see the <A href="/legal/terms">terms of use</A>.
       </P>
 
+      <H2 id="datatourisme">French campsites: names, descriptions and stars</H2>
+      <P>
+        Campsites in France also come from{' '}
+        <A href="https://www.datatourisme.fr/">DATAtourisme</A>, France’s
+        national tourism data platform, whose records are written by
+        regional tourist offices and aggregated by ADN Tourisme. It is
+        published under the{' '}
+        <A href="https://www.etalab.gouv.fr/licence-ouverte-open-licence/">
+          Licence Ouverte 2.0 (Etalab)
+        </A>
+        , which permits commercial reuse worldwide and asks for
+        attribution in return.
+      </P>
+      <P>
+        It gives us three things OpenStreetMap does not carry at all: the
+        campsite’s own description, its <B>official star classification</B>{' '}
+        — the French state rating, not ours — and, for most sites, the
+        operator’s website.
+      </P>
+      <Callout>
+        <B>The licence asks for the date, not only the name.</B> It says a
+        reuse must not mislead anyone about the information, its source or
+        its date of last update. The records we hold were last touched
+        anywhere between January 2022 and this week, so a single notice at
+        the foot of the site would do exactly that. Every campsite page
+        therefore carries its own “where this comes from” block naming the
+        source, the licence, which fields came from it and the day that
+        source last changed them — and says so plainly when nothing has
+        changed in over two years.
+      </Callout>
+      <P>
+        We do not translate those descriptions. They are quoted as
+        published, in French, marked as French so that a screen reader
+        pronounces them properly. A machine translation of somebody else’s
+        words, printed as though it were theirs, would be the kind of
+        invention this site exists not to do.
+      </P>
+
       <H2 id="tiles">Background map tiles</H2>
       <P>
         Map imagery is served by{' '}

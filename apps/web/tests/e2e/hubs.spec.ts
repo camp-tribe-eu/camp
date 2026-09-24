@@ -126,7 +126,11 @@ test.describe('hub crawl path', () => {
     await page.goto(hub(paged!));
     await page
       .getByRole('navigation', { name: 'Pagination' })
-      .getByRole('link', { name: '2' })
+      // 🔴 `exact`, because a region with twelve pages makes "2" match
+      // "12" as well. It passed for a year on regions that never had
+      // more than nine pages, and broke the day France arrived — a test
+      // that was right about behaviour and wrong about scale.
+      .getByRole('link', { name: '2', exact: true })
       .click();
     await expect(page).toHaveURL(new RegExp(`${hub(paged!)}/page/2$`));
     await expect(page.locator('main ul li a').first()).toBeVisible();
