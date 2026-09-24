@@ -102,7 +102,7 @@ export async function generateMetadata(
     // to mean "do not narrow this".
     // 🔴 CAMP-105. And a page that has nothing on it but a name.
     //
-    // 1 872 of 9 830 campsites (19%, measured 24.09.2026) carry no
+    // 2 354 of 9 830 campsites (24%, measured 24.09.2026) carry no
     // amenity, no computed surroundings, no description and no star
     // rating. The page is honest — it says what is not recorded, which is
     // the whole promise — but two such pages differ only by the name, and

@@ -472,11 +472,15 @@ export const REGION_INDEX_THRESHOLD = 3;
  * know only a name and a point produce two pages that differ by the name
  * — they are near-identical because there is nothing to differ.
  *
- * Measured 24.09.2026, after the French import: 1 872 of 9 830 campsites
- * (19%) have no amenity recorded, no surroundings computed, no
- * description and no star rating. All of them are French, and it is a
- * property of the source rather than of the site: where a tourist office
- * filled in nothing, we have nothing. Croatia and Slovenia have none.
+ * Measured 24.09.2026, after the French import: 2 354 of 9 830 campsites
+ * (24%) have no amenity recorded, no surroundings computed, no
+ * description and no star rating.
+ *
+ * Two different shapes of nothing, which is what made the first version
+ * of this rule wrong: France stores a literal '{}' where nothing is
+ * known, OpenStreetMap stores every key explicitly as "unknown". Asking
+ * `amenities = '{}'` counted only the first and missed 482 of the
+ * second.
  *
  * `noindex, follow`, never a 404 and never hidden:
  *
@@ -496,7 +500,22 @@ export const REGION_INDEX_THRESHOLD = 3;
  * about one, and two implementations of the same rule drift.
  */
 export const NOTHING_TO_SAY_SQL = `(
-  (amenities IS NULL OR amenities = '{}'::jsonb)
+  -- 🔴 "No amenity is KNOWN", not "the object is empty".
+  --
+  -- The first version of this asked \`amenities = '{}'\`, and it was wrong
+  -- in a way only the CI fixture revealed. A campsite imported from
+  -- OpenStreetMap stores every amenity explicitly, as
+  -- {"wifi":"unknown","water":"unknown",…} — a full object that answers
+  -- nothing. \`= '{}'\` is false for those rows, so 482 campsites that
+  -- carry no fact whatsoever were counted as having something. Measured
+  -- 24.09.2026: 1 872 by the old rule, 2 354 by this one.
+  --
+  -- The French rows happen to store a literal '{}', which is why the
+  -- mistake produced a plausible number instead of an obvious one.
+  NOT jsonb_path_exists(
+    coalesce(amenities, '{}'::jsonb),
+    '$.* ? (@ == "yes" || @ == "no")'
+  )
   AND (context IS NULL OR context = '{}'::jsonb)
   AND description IS NULL
   AND stars IS NULL
