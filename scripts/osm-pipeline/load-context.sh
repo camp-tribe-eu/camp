@@ -91,6 +91,40 @@ for REGION in "${REGIONS[@]}"; do
       echo "::error::$REGION is $LOCAL_SIZE bytes, Geofabrik says $REMOTE_SIZE" >&2
       exit 1
     fi
+
+    # 🔴 A BYTE COUNT IS NOT INTEGRITY.
+    #
+    # Geofabrik re-cuts every extract daily. Resume a download that
+    # started before a re-cut and `curl -C -` appends the NEW file's tail
+    # to the OLD file's head — and the result is exactly the expected
+    # length, so the size check above waves it through. Demonstrated by
+    # review against a range-capable server: 400 bytes of one file
+    # followed by 600 of another, accepted.
+    #
+    # France takes hours, so a download that spans a re-cut is not an
+    # edge case. The md5 Geofabrik publishes beside each extract costs
+    # one read of the file and settles it: truncation, splicing and
+    # corruption all fail the same check.
+    EXPECT_MD5=$(curl -sSL --max-time 60 "$URL.md5" | awk '{print $1}')
+    if [ -z "$EXPECT_MD5" ]; then
+      echo "::error::no .md5 published for $REGION — refusing to trust the download" >&2
+      exit 1
+    fi
+    if command -v md5sum >/dev/null 2>&1; then
+      GOT_MD5=$(md5sum "$SLUG.osm.pbf" | awk '{print $1}')
+    else
+      GOT_MD5=$(md5 -q "$SLUG.osm.pbf")
+    fi
+    if [ "$GOT_MD5" != "$EXPECT_MD5" ]; then
+      # A resumed download that spans a re-cut is the likely cause, and
+      # the cure is a clean one. Removed rather than retried in place,
+      # so the next run cannot resume the spliced file again.
+      rm -f "$SLUG.osm.pbf"
+      echo "::error::$REGION failed its checksum (got $GOT_MD5, expected $EXPECT_MD5)." >&2
+      echo "          The partial file has been deleted. Run again for a clean download." >&2
+      exit 1
+    fi
+    echo "  checksum ok"
   fi
 
   osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.water.pbf" --overwrite \
