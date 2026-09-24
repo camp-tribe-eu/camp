@@ -41,10 +41,6 @@ export default function SourceNote({
   return (
     <section
       data-testid="source-note"
-      // 🔴 Identical on every campsite page by design, so it says nothing
-      // about whether two pages describe two different campsites. The
-      // near-duplicate guard strips it — see check-duplicate-pages.mjs.
-      data-boilerplate="attribution"
       aria-labelledby="sources-heading"
       className="mt-8 rounded-card border border-line-2 bg-surface-2 p-4"
     >
@@ -86,11 +82,20 @@ export default function SourceNote({
               {source && (
                 <>
                   {' · '}
+                  {/* 🔴 Word-for-word identical on every page, so the
+                      near-duplicate guard excludes it — but only this,
+                      not the whole block. Marking the whole block also
+                      excluded the per-source DATE, which is the one
+                      genuinely page-specific thing in it, and pushed two
+                      thin Croatian pages from 79% to 80.2% similar. What
+                      is boilerplate is the text that repeats, not the
+                      element that contains it. */}
                   <a
                     href={source.licenceUrl}
                     className="underline"
                     rel="license noopener noreferrer"
                     target="_blank"
+                    data-boilerplate="licence"
                   >
                     {source.licence}
                   </a>
@@ -128,7 +133,9 @@ export default function SourceNote({
                       axe caught it the moment this block shipped. The
                       sentence explaining where data comes from is
                       exactly the sentence that must be readable. */}
-                  <span className="text-ink-2">{source.about}</span>
+                  <span className="text-ink-2" data-boilerplate="about">
+                    {source.about}
+                  </span>
                 </>
               )}
             </li>
