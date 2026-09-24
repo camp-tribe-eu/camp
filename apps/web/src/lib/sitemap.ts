@@ -22,6 +22,7 @@ import {
   type SpotIndexEntry,
 } from './api';
 import { absoluteAlternates, liveLocales } from './i18n';
+import { getGuides } from './guides';
 
 export const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://camptribe.eu';
 
@@ -137,7 +138,24 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
   const urls: SitemapUrl[] = [
     { loc: `${SITE}/`, changefreq: 'weekly', priority: '1.0' },
     { loc: `${SITE}/camping`, changefreq: 'weekly', priority: '0.9' },
+    { loc: `${SITE}/guides`, changefreq: 'weekly', priority: '0.7' },
   ];
+
+  // CAMP-66. Guides go in the sitemap because the card asks for them to
+  // be indexed, and because a section linked from the header that no
+  // crawler is told about is a section that exists for nobody.
+  //
+  // 🔴 Only published ones reach this function at all — the API filters
+  // drafts and archived rows — so a guide whose data fell below the
+  // threshold leaves the sitemap the same day it leaves the section.
+  for (const guide of await getGuides()) {
+    urls.push({
+      loc: `${SITE}/guides/${guide.slug}`,
+      changefreq: 'monthly',
+      priority: '0.6',
+      lastmod: guide.factsCheckedAt ?? guide.publishedAt ?? undefined,
+    });
+  }
 
   for (const country of await getCountries()) {
     urls.push({
