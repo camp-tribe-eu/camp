@@ -71,6 +71,101 @@ test.describe('/map filters', () => {
     }
   });
 
+  // ── CAMP-122: bulk controls ─────────────────────────────────────────
+  //
+  // 🔴 In the document at every width, like every other control in this
+  // panel. A bulk action behind a menu on a phone is a bulk action nobody
+  // uses, which is the same failure UST-466 taught and CAMP-35 recorded.
+  test('every group carries its own All and None, at this width', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    for (const group of ['type', 'amenity', 'access']) {
+      await expect(
+        page.getByTestId(`filter-${group}-all`),
+        `"All" missing on ${group} at this width`,
+      ).toBeVisible();
+      await expect(
+        page.getByTestId(`filter-${group}-none`),
+        `"None" missing on ${group} at this width`,
+      ).toBeVisible();
+    }
+  });
+
+  test('All ticks a whole group and None clears only that group', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await loaded(page);
+
+    // Tick every facility, then every accessibility entry.
+    await page.getByTestId('filter-amenity-all').click();
+    for (const a of GENERAL_AMENITY_KEYS) {
+      await expect(page.getByTestId(`filter-amenity-${a}`)).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    }
+    await page.getByTestId('filter-access-all').click();
+    for (const a of ACCESSIBILITY_KEYS) {
+      await expect(page.getByTestId(`filter-amenity-${a}`)).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    }
+
+    // 🔴 "None" on one group must not empty another. Accessibility is a
+    // separate question on purpose (CAMP-25), and a bulk control that
+    // quietly reached across the divider would undo that.
+    await page.getByTestId('filter-amenity-none').click();
+    for (const a of GENERAL_AMENITY_KEYS) {
+      await expect(page.getByTestId(`filter-amenity-${a}`)).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      );
+    }
+    for (const a of ACCESSIBILITY_KEYS) {
+      await expect(
+        page.getByTestId(`filter-amenity-${a}`),
+        `${a} was cleared by the facilities group`,
+      ).toHaveAttribute('aria-pressed', 'true');
+    }
+  });
+
+  test('a bulk control that has nothing to do is disabled, not removed', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    // Nothing is ticked on arrival, so "None" has nothing to do.
+    await expect(page.getByTestId('filter-amenity-none')).toBeDisabled();
+    await expect(page.getByTestId('filter-amenity-all')).toBeEnabled();
+
+    await page.getByTestId('filter-amenity-all').click();
+    // 🔴 Still present, so the control under the reader's thumb does not
+    // move between one tap and the next.
+    await expect(page.getByTestId('filter-amenity-all')).toBeVisible();
+    await expect(page.getByTestId('filter-amenity-all')).toBeDisabled();
+    await expect(page.getByTestId('filter-amenity-none')).toBeEnabled();
+  });
+
+  test('the bulk controls are reachable by keyboard', async ({ page }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    const all = page.getByTestId('filter-type-all');
+    await all.focus();
+    await expect(all).toBeFocused();
+    await page.keyboard.press('Enter');
+    for (const t of SPOT_TYPES) {
+      await expect(page.getByTestId(`filter-type-${t}`)).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    }
+  });
+
   test('accessibility keeps its own heading, not buried in facilities', async ({
     page,
   }) => {

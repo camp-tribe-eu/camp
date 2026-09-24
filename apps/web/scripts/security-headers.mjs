@@ -89,6 +89,31 @@ const csp = [
 ].join('; ');
 
 /**
+ * 🔴 The one thing `next dev` needs that production must never have.
+ *
+ * Next's dev server compiles client modules through `eval`, so a CSP
+ * without 'unsafe-eval' stops the browser executing ANY of our client
+ * JavaScript — measured 24.09.2026 on this very branch: `next dev`
+ * answered /map with 200 and the full HTML, the console carried one
+ * "Evaluating a string as JavaScript violates the following Content
+ * Security Policy directive", and the page mounted nothing. The map, the
+ * filters, the search box, the cost calculator and the packing list were
+ * all dead, and nothing about the page said so.
+ *
+ * That is a developer-experience bug with a security shape, so the
+ * exception is written where it can be read, applied ONLY by
+ * next.config.mjs and ONLY when NODE_ENV is development, and asserted by
+ * a test in both directions. `public/_headers`, which is what Cloudflare
+ * serves, is generated from SECURITY_HEADERS below and never sees it.
+ */
+export function cspForDevServer() {
+  return csp.replace(
+    "script-src 'self' 'unsafe-inline'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  );
+}
+
+/**
  * Header name → value. `X-Robots-Tag` is added separately by the caller,
  * because it depends on the build mode rather than on security.
  */

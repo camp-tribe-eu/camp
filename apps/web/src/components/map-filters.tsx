@@ -72,7 +72,24 @@ export default function MapFilters({
       // again and every control is present, just lower down.
       className="mb-3 rounded-card border border-line-2 bg-surface p-3 sm:flex sm:flex-wrap sm:items-start sm:gap-x-6 sm:p-4"
     >
-      <Group legend="Type">
+      {/* 🔴 CAMP-122 asks for "all" and "none" on every group, and the
+          two are NOT the same control with a different label.
+          
+          "All" on Type means every type is ticked, which shows exactly
+          what "none ticked" already shows — so it is a convenience, not a
+          new state. "All" on Facilities is a different thing entirely: it
+          demands a campsite recorded as having all ten, and measured on
+          our data that is a handful of sites. That is a legitimate and
+          very narrow query, so the button says what it does rather than
+          promising "everything". */}
+      <Group
+        legend="Type"
+        onAll={() => onChange({ ...state, types: [...SPOT_TYPES] })}
+        onNone={() => onChange({ ...state, types: [] })}
+        allPressed={state.types.length === SPOT_TYPES.length}
+        nonePressed={state.types.length === 0}
+        testId="type"
+      >
         {SPOT_TYPES.map((t) => (
           <Chip
             key={t}
@@ -84,7 +101,27 @@ export default function MapFilters({
         ))}
       </Group>
 
-      <Group legend="Facilities">
+      <Group
+        legend="Facilities"
+        onAll={() =>
+          onChange({ ...state, amenities: [...GENERAL_AMENITY_KEYS] })
+        }
+        onNone={() =>
+          onChange({
+            ...state,
+            amenities: state.amenities.filter((a) =>
+              ACCESSIBILITY_KEYS.includes(a),
+            ),
+          })
+        }
+        allPressed={GENERAL_AMENITY_KEYS.every((a) =>
+          state.amenities.includes(a),
+        )}
+        nonePressed={
+          !GENERAL_AMENITY_KEYS.some((a) => state.amenities.includes(a))
+        }
+        testId="amenity"
+      >
         {GENERAL_AMENITY_KEYS.map((a) => (
           <Chip
             key={a}
@@ -101,7 +138,29 @@ export default function MapFilters({
           43 of the 87 campsites that answer this question are tagged
           `limited`, so one combined "wheelchair access" tick would be
           wrong for half the people relying on it. */}
-      <Group legend="Accessibility">
+      <Group
+        legend="Accessibility"
+        onAll={() =>
+          onChange({
+            ...state,
+            amenities: [
+              ...state.amenities.filter((a) => !ACCESSIBILITY_KEYS.includes(a)),
+              ...ACCESSIBILITY_KEYS,
+            ],
+          })
+        }
+        onNone={() =>
+          onChange({
+            ...state,
+            amenities: state.amenities.filter(
+              (a) => !ACCESSIBILITY_KEYS.includes(a),
+            ),
+          })
+        }
+        allPressed={ACCESSIBILITY_KEYS.every((a) => state.amenities.includes(a))}
+        nonePressed={!ACCESSIBILITY_KEYS.some((a) => state.amenities.includes(a))}
+        testId="access"
+      >
         {ACCESSIBILITY_KEYS.map((a) => (
           <Chip
             key={a}
@@ -178,17 +237,83 @@ export default function MapFilters({
 function Group({
   legend,
   children,
+  onAll,
+  onNone,
+  allPressed,
+  nonePressed,
+  testId,
 }: {
   legend: string;
   children: React.ReactNode;
+  onAll?: () => void;
+  onNone?: () => void;
+  allPressed?: boolean;
+  nonePressed?: boolean;
+  testId?: string;
 }) {
   return (
     <fieldset className="mt-3 first:mt-0 sm:mt-0">
-      <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-2">
+      <legend className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink-2">
         {legend}
+        {/* 🔴 In the document at every width, like every other control
+            here — CAMP-35's rule. A bulk action hidden behind a menu on a
+            phone is a bulk action nobody uses, and this panel already
+            carries the lesson that a filter behind a button that fails to
+            open is a filter that does not exist. */}
+        {onAll && onNone && (
+          <span className="flex gap-1 normal-case tracking-normal">
+            <Bulk
+              testId={`filter-${testId}-all`}
+              label="All"
+              disabled={allPressed}
+              onClick={onAll}
+            />
+            <Bulk
+              testId={`filter-${testId}-none`}
+              label="None"
+              disabled={nonePressed}
+              onClick={onNone}
+            />
+          </span>
+        )}
       </legend>
       <div className="flex flex-wrap gap-1.5">{children}</div>
     </fieldset>
+  );
+}
+
+/** A bulk action, small but still a real target and still focusable. */
+function Bulk({
+  label,
+  onClick,
+  disabled,
+  testId,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  testId: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onClick}
+      // 🔴 Disabled, not hidden. A control that disappears once it has
+      // nothing to do moves every other control next to it, and on a
+      // phone that means the thing under the reader's thumb changes
+      // between one tap and the next.
+      disabled={disabled}
+      aria-disabled={disabled}
+      className={
+        'rounded-sm border px-1.5 py-0.5 text-xs font-medium transition-colors ' +
+        (disabled
+          ? 'cursor-default border-line-2 text-ink-2 opacity-50'
+          : 'border-line-2 text-ink-2 hover:border-line-blue hover:text-heading')
+      }
+    >
+      {label}
+    </button>
   );
 }
 
