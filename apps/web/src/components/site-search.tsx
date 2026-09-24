@@ -76,6 +76,22 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
         className="h-11 w-full rounded-sm border border-line-2 bg-surface px-3 text-base text-heading placeholder:text-ink-3"
       />
 
+      {/* 🔴 Say that it is loading, because it now takes long enough to
+          notice. The index was 228 KB at 1 079 campsites and is 654 KB at
+          3 147; a reader who starts typing immediately used to get
+          results at once and now gets an empty page with no explanation.
+          Found by a flaky WebKit test — the browser was doing exactly
+          what a reader on a slow connection does. */}
+      {state.status === 'loading' && (
+        <p
+          data-testid="search-loading"
+          role="status"
+          className="mt-4 text-sm text-ink-2"
+        >
+          Loading the campsite index…
+        </p>
+      )}
+
       {state.status === 'failed' && (
         <p role="status" className="mt-4 text-sm text-ink-2">
           The search index could not be loaded. Every campsite is still
