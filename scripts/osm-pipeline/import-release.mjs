@@ -30,7 +30,7 @@
 // country's campsites to the other's argument.
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -70,6 +70,38 @@ export function conninfo(url) {
   if (u.username) parts.push(`user=${decodeURIComponent(u.username)}`);
   if (u.password) parts.push(`password=${decodeURIComponent(u.password)}`);
   return parts.join(' ');
+}
+
+/**
+ * Drop OSM tags whose key is blank.
+ *
+ * 🔴 One feature in 25,793 does this, and it broke the whole country.
+ *
+ * ogr2ogr turns each property into a column, and a blank key becomes a
+ * zero-length identifier that Postgres refuses outright, with the error
+ * "zero-length delimited identifier". France was the only one of
+ * twenty-seven to fail, and it failed completely: 25,793 campsites lost
+ * to a single malformed tag somebody typed into OpenStreetMap. Measured
+ * 24.09.2026 — exactly one blank key across 724 distinct properties.
+ *
+ * A tag with no name carries no information by definition, so dropping it
+ * loses nothing. The count is returned rather than swallowed, because a
+ * sanitiser that quietly fixes things is one nobody notices has started
+ * fixing a lot of things.
+ */
+export function stripBlankKeys(collection) {
+  let dropped = 0;
+  for (const feature of collection.features ?? []) {
+    const props = feature.properties;
+    if (!props) continue;
+    for (const key of Object.keys(props)) {
+      if (key.trim() === '') {
+        delete props[key];
+        dropped++;
+      }
+    }
+  }
+  return dropped;
 }
 
 /** Asset name for a country, from the single country→extract table. */
@@ -125,6 +157,25 @@ function selfTest() {
     conninfo('dbname=x host=y') === 'dbname=x host=y');
   ok('a URL with no database falls back rather than producing dbname=',
     conninfo('postgres://localhost/').startsWith('dbname=postgres'));
+
+  // 🔴 The single malformed tag that cost France 25,793 campsites.
+  ok('a blank key is dropped', (() => {
+    const c = { features: [{ properties: { '': 'x', name: 'Camp' } }] };
+    return stripBlankKeys(c) === 1 && !('' in c.features[0].properties) &&
+      c.features[0].properties.name === 'Camp';
+  })());
+  ok('whitespace-only keys count as blank', (() => {
+    const c = { features: [{ properties: { ' ': 1, '\t': 2, ok: 3 } }] };
+    return stripBlankKeys(c) === 2 && c.features[0].properties.ok === 3;
+  })());
+  ok('a clean file is left untouched', (() => {
+    const c = { features: [{ properties: { name: 'A' } }, { properties: { name: 'B' } }] };
+    return stripBlankKeys(c) === 0 && c.features.length === 2;
+  })());
+  ok('a feature without properties does not crash',
+    stripBlankKeys({ features: [{}, { properties: null }] }) === 0);
+  ok('an empty collection is fine', stripBlankKeys({ features: [] }) === 0);
+  ok('a collection with no features key is fine', stripBlankKeys({}) === 0);
 
   ok('an asset name is derived from the shared table',
     assetFor('fr') === 'europe-france.geojson.gz', assetFor('fr'));
@@ -190,6 +241,14 @@ async function main() {
         const gz = join(work, asset);
         const json = gz.replace(/\.gz$/, '');
         run('sh', ['-c', `gzip -dc '${gz}' > '${json}'`]);
+
+        // 🔴 Before ogr2ogr sees it. See stripBlankKeys.
+        const collection = JSON.parse(readFileSync(json, 'utf8'));
+        const dropped = stripBlankKeys(collection);
+        if (dropped > 0) {
+          writeFileSync(json, JSON.stringify(collection));
+          process.stdout.write(`(${dropped} blank tag${dropped === 1 ? '' : 's'} dropped) `);
+        }
 
         // The same load as import.sh's third step, against the same table.
         run('ogr2ogr', [
