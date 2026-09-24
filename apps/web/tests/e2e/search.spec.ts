@@ -129,11 +129,38 @@ test.describe('🔴 the card, on real data', () => {
 });
 
 test.describe('the page', () => {
+  // 🔴 The state a reader meets first. Before this existed the page
+  // showed nothing at all while 654 KB downloaded — no results, no
+  // explanation, no indication anything was happening. It was invisible
+  // until the index grew enough for a browser to notice.
+  test('says it is loading before it can answer', async ({ page }) => {
+    // Hold the index so the loading state is certain rather than a race.
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route('**/data/search.json', async (route) => {
+      await held;
+      await route.continue();
+    });
+
+    await page.goto('/search');
+    await expect(page.getByTestId('search-loading')).toBeVisible();
+
+    release!();
+    await expect(page.getByTestId('search-loading')).toBeHidden();
+  });
+
   test('finds a campsite as the reader types', async ({ page, request }) => {
     const docs = await index(request);
     const subject = docs.find((d) => d.name.length > 6)!;
 
     await page.goto('/search');
+    // 🔴 Wait for the index, do not race it. The whole index is fetched
+    // before a search can answer anything, and at 654 KB that is long
+    // enough on WebKit to lose the race — which is what the flaky guard
+    // caught. Typing before it lands tests nothing except the download.
+    await expect(page.getByTestId('search-loading')).toBeHidden();
     await page.getByTestId('search-input').fill(subject.name);
     await expect(page.getByTestId('search-results')).toBeVisible();
     await expect(page.getByTestId('search-results')).toContainText(
@@ -147,6 +174,7 @@ test.describe('the page', () => {
 
     await page.goto(`/search?q=${encodeURIComponent(subject.name)}`);
     await expect(page.getByTestId('search-input')).toHaveValue(subject.name);
+    await expect(page.getByTestId('search-loading')).toBeHidden();
     await expect(page.getByTestId('search-results')).toContainText(
       subject.name,
     );
@@ -154,6 +182,7 @@ test.describe('the page', () => {
 
   test('says so plainly when nothing matches', async ({ page }) => {
     await page.goto('/search?q=zzzzqqqqxxxx');
+    await expect(page.getByTestId('search-loading')).toBeHidden();
     await expect(page.getByTestId('search-count')).toContainText('Nothing');
     await expect(page.getByTestId('search-results')).toHaveCount(0);
   });
