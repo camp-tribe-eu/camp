@@ -245,6 +245,15 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
         onSubmit={(e) => e.preventDefault()}
       >
         <h2 className="text-lg font-semibold text-heading">Your trip</h2>
+        {/* 🔴 Same reason as the result panel: this form is in the served
+            HTML and looks usable before React attaches, and anything
+            typed in that window is silently overwritten when it does. */}
+        {!ready && (
+          <p data-testid="calculator-loading" className="mt-2 text-sm text-ink-3">
+            The form comes alive when the page finishes loading. The fuel
+            prices below need nothing.
+          </p>
+        )}
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div>
@@ -253,6 +262,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
             </label>
             <select
               id="tc-country"
+              disabled={!ready}
               className={field}
               value={s.country}
               onChange={(e) => set('country', e.target.value)}
@@ -271,6 +281,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
             </label>
             <select
               id="tc-fuel"
+              disabled={!ready}
               className={field}
               value={s.fuel}
               onChange={(e) => set('fuel', e.target.value as FuelType)}
@@ -286,6 +297,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
             </label>
             <select
               id="tc-vehicle"
+              disabled={!ready}
               className={field}
               value={s.vehicleId}
               onChange={(e) => {
@@ -313,6 +325,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
             </label>
             <input
               id="tc-consumption"
+              disabled={!ready}
               className={field}
               inputMode="decimal"
               value={s.litresPer100}
@@ -330,6 +343,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
             </label>
             <input
               id="tc-km"
+              disabled={!ready}
               className={field}
               inputMode="numeric"
               value={s.km}
@@ -343,6 +357,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
             </label>
             <input
               id="tc-nights"
+              disabled={!ready}
               className={field}
               inputMode="numeric"
               value={s.nights}
@@ -356,6 +371,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
             </label>
             <input
               id="tc-people"
+              disabled={!ready}
               className={field}
               inputMode="numeric"
               value={s.people}
@@ -369,6 +385,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
             </label>
             <input
               id="tc-pitch"
+              disabled={!ready}
               className={field}
               inputMode="decimal"
               placeholder="what you expect to pay"
@@ -388,6 +405,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
             </label>
             <input
               id="tc-extras"
+              disabled={!ready}
               className={field}
               inputMode="decimal"
               placeholder="tolls, ferries, food"

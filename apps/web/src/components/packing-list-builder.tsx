@@ -104,9 +104,20 @@ export default function PackingListBuilder() {
   });
   const [done, setDone] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState<'link' | 'text' | null>(null);
+  // 🔴 The controls are inert until React has attached, so they say so.
+  //
+  // This page is prerendered: the form is in the served HTML and looks
+  // usable before any JavaScript runs. A reader who changes the vehicle
+  // in that window has their choice silently discarded — React then
+  // rewrites every controlled value from its own state. It surfaced as a
+  // flaky test on WebKit, which is the honest way an intermittent real
+  // fault appears, and the retry that went green is exactly what would
+  // have hidden it.
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const parsed = fromSearch(window.location.search);
+    setReady(true);
     setInput(parsed.input);
     setDraft({
       nights: String(parsed.input.nights),
@@ -169,6 +180,7 @@ export default function PackingListBuilder() {
             </label>
             <select
               id="pk-vehicle"
+              disabled={!ready}
               className={field}
               value={input.vehicle}
               onChange={(e) => set('vehicle', e.target.value as VehicleKind)}
@@ -186,6 +198,7 @@ export default function PackingListBuilder() {
             </label>
             <select
               id="pk-season"
+              disabled={!ready}
               className={field}
               value={input.season}
               onChange={(e) => set('season', e.target.value as Season)}
@@ -203,6 +216,7 @@ export default function PackingListBuilder() {
             </label>
             <input
               id="pk-nights"
+              disabled={!ready}
               className={field}
               inputMode="numeric"
               value={draft.nights}
@@ -218,6 +232,7 @@ export default function PackingListBuilder() {
             </label>
             <input
               id="pk-people"
+              disabled={!ready}
               className={field}
               inputMode="numeric"
               value={draft.people}
@@ -243,6 +258,7 @@ export default function PackingListBuilder() {
               <label key={key} className="flex items-center gap-2 text-ink">
                 <input
                   type="checkbox"
+                  disabled={!ready}
                   checked={input[key]}
                   onChange={(e) => set(key, e.target.checked)}
                 />
@@ -251,6 +267,13 @@ export default function PackingListBuilder() {
             ))}
           </div>
         </fieldset>
+
+        {!ready && (
+          <p data-testid="packing-loading" className="mt-4 text-sm text-ink-3">
+            The list below is the usual one for a week in a motorhome. The
+            controls come alive as soon as the page finishes loading.
+          </p>
+        )}
       </form>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -288,6 +311,7 @@ export default function PackingListBuilder() {
                     <input
                       type="checkbox"
                       className="mt-1"
+                      disabled={!ready}
                       checked={done.has(item.id)}
                       onChange={() => toggle(item.id)}
                     />

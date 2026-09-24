@@ -395,3 +395,53 @@ test.describe('what the review found', () => {
     expect(withDiesel).toEqual([...withDiesel].sort((a, b) => a.localeCompare(b, 'en')));
   });
 });
+
+
+test.describe('the window before hydration', () => {
+  // 🔴 Found as a FLAKE, on webkit and tablet, by the guard that fails the
+  // build when a test passes only on a retry. The first failure was real:
+  // the form is prerendered and looks usable before React attaches, and a
+  // choice made in that window is silently discarded when it does. A
+  // human lands on the page and changes the vehicle exactly that fast.
+  //
+  // The retry going green is precisely what would have buried it.
+
+  test('the packing form is inert until it can actually respond', async ({
+    page,
+  }) => {
+    await page.goto('/tools/camper-packing-list');
+    // Once hydrated, everything is usable…
+    await expect(page.getByLabel('Travelling in')).toBeEnabled();
+    await expect(page.getByTestId('packing-loading')).toHaveCount(0);
+    await page.getByLabel('Travelling in').selectOption('car-and-tent');
+    await expect(page.getByTestId('packing').getByText('Mallet')).toBeVisible();
+  });
+
+  test('…and says so plainly with no JavaScript at all', async ({ browser }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    await page.goto('/tools/camper-packing-list');
+
+    // The list itself is served and readable — that is the useful part.
+    await expect(page.locator('[data-testid="packing"] li').first()).toBeVisible();
+    // The controls are disabled rather than pretending to work…
+    await expect(page.getByLabel('Travelling in')).toBeDisabled();
+    // …and the page says why, instead of leaving a dead form.
+    await expect(page.getByTestId('packing-loading')).toBeVisible();
+    await context.close();
+  });
+
+  test('the calculator form is inert until it can actually respond', async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    await page.goto('/tools/camper-trip-cost');
+    await expect(page.getByLabel('Distance, km')).toBeDisabled();
+    await expect(page.getByTestId('calculator-loading')).toBeVisible();
+    // The 27 measured prices are still there, because they are about the
+    // world rather than about the reader.
+    await expect(page.locator('tr[data-country]')).toHaveCount(27);
+    await context.close();
+  });
+});
