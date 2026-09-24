@@ -147,6 +147,35 @@ const CONTEXT_SQL = `
    WHERE s.missing_since IS NULL
      AND ($1::text IS NULL OR upper(s.country) = $1)`;
 
+/**
+ * Does this context actually tell a reader anything?
+ *
+ * 🔴 The most dangerous line in this file, so it is a function with a
+ * test rather than a condition inside a loop.
+ *
+ * CAMP-105 lifts `noindex` the moment `context` stops being empty — the
+ * rule is literally `AND (context IS NULL OR context = '{}'::jsonb)` in
+ * NOTHING_TO_SAY_SQL. `at` is not a fact about the campsite; it is a note
+ * to ourselves about the coordinates we measured from, and it is written
+ * on every context so the next run can tell whether the spot has moved.
+ *
+ * So a context of nothing but `at` is non-empty, lifts the noindex, and
+ * publishes a page that still says nothing — which is exactly the
+ * failure CAMP-108 exists to prevent, arriving from the other direction.
+ * A campsite we could not measure stays unmeasured and stays out of the
+ * index.
+ */
+export function saysSomething(context: SpotContext): boolean {
+  return (
+    context.water !== undefined ||
+    context.town !== undefined ||
+    context.supermarket !== undefined ||
+    context.station !== undefined ||
+    context.elevation !== undefined ||
+    context.terrain !== undefined
+  );
+}
+
 /** Eight points on a circle, for the relief of the bowl around a site. */
 function ring(lat: number, lon: number): { lat: number; lon: number }[] {
   const out: { lat: number; lon: number }[] = [];
@@ -394,80 +423,167 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Centres first, then every ring point, in one flat list so the batching
-  // does not care which spot a point belongs to.
-  const centres = todo.map((r) => ({ lat: Number(r.lat), lon: Number(r.lon) }));
-  const rings = todo.flatMap((r) => ring(Number(r.lat), Number(r.lon)));
-  const centre = await elevations(centres, 'elevation');
-  const around = await elevations(rings, 'relief   ');
-  const centreEle = centre.values;
-  const ringEle = around.values;
-  const failedBatches = centre.failedBatches + around.failedBatches;
+  // 🔴 THE WORK IS SLICED, AND EACH SLICE IS WRITTEN BEFORE THE NEXT ONE
+  // IS FETCHED. This is the difference between a job that finishes and a
+  // job that can never finish.
+  //
+  // The first version fetched every elevation and every ring point for
+  // the whole country, and only then opened a transaction and wrote. On
+  // a small country that is fine. On a large one it cannot work at all:
+  // Open-Meteo's free tier counts each COORDINATE, 10 000 a day, and a
+  // campsite costs nine of them (one centre plus eight ring samples). So
+  //
+  //   France      8 752 spots × 9 = 78 768 coordinates ≈ 8 days of quota
+  //
+  // and DailyLimitReached was thrown out of the fetch phase — before the
+  // write phase existed — so the run wrote NOTHING and the next run
+  // started from exactly the same place. Not slow: stuck, for ever.
+  //
+  // Measured 24.09.2026, and it was already biting a country whose
+  // layers are loaded: Slovenia 282 of 282 computed, Croatia 6 of 777,
+  // France 0 of 8 752. Croatia is not a layer problem — it is this.
+  //
+  // A slice is 200 spots = 1 800 coordinates, comfortably inside a day's
+  // quota, and every slice that succeeds is committed and never fetched
+  // again.
+  const SLICE = 200;
 
+  let failedBatches = 0;
   let written = 0;
   let noWater = 0;
   let noStation = 0;
+  /** Rows that would have been written with nothing but their own coordinates. */
+  let nothingToSay = 0;
+  let stoppedAtLimit = false;
   const reliefs: number[] = [];
 
-  await db.query('BEGIN');
-  try {
-    for (let i = 0; i < todo.length; i++) {
-      const r = todo[i];
-      const elevation = centreEle[i];
-      const ringHeights = ringEle
-        .slice(i * RELIEF_SAMPLES, (i + 1) * RELIEF_SAMPLES)
-        .filter((v): v is number => v !== null);
+  for (let start = 0; start < todo.length && !stoppedAtLimit; start += SLICE) {
+    const slice = todo.slice(start, start + SLICE);
 
-      const context: SpotContext = {
-        at: { lat: Number(r.lat), lon: Number(r.lon) },
-      };
-
-      if (r.water_m !== null) {
-        context.water = {
-          m: Number(r.water_m),
-          kind: (r.water_kind ?? 'river') as WaterKind,
-          ...(r.water_name ? { name: r.water_name } : {}),
-        } as NearestWater;
-      } else noWater++;
-
-      const town = feature(r.town_m, r.town_name);
-      if (town) context.town = town;
-      const shop = feature(r.shop_m, r.shop_name);
-      if (shop) context.supermarket = shop;
-      const rail = feature(r.rail_m, r.rail_name);
-      if (rail) context.station = rail;
-      else noStation++;
-
-      if (elevation !== null) context.elevation = Math.round(elevation);
-      if (elevation !== null && ringHeights.length >= RELIEF_SAMPLES / 2) {
-        const all = [elevation, ...ringHeights];
-        const relief = Math.round(Math.max(...all) - Math.min(...all));
-        reliefs.push(relief);
-        context.terrain = { relief, type: classifyTerrain(relief) };
-      }
-
-      await db.query(
-        `UPDATE camping_spots
-            SET context = $2, context_computed_at = now()
-          WHERE id = $1`,
-        [r.id, JSON.stringify(context)],
+    let centreEle: (number | null)[];
+    let ringEle: (number | null)[];
+    try {
+      const centre = await elevations(
+        slice.map((r) => ({ lat: Number(r.lat), lon: Number(r.lon) })),
+        'elevation',
       );
-      written++;
+      const around = await elevations(
+        slice.flatMap((r) => ring(Number(r.lat), Number(r.lon))),
+        'relief   ',
+      );
+      centreEle = centre.values;
+      ringEle = around.values;
+      failedBatches += centre.failedBatches + around.failedBatches;
+    } catch (err) {
+      if (!(err instanceof DailyLimitReached)) throw err;
+      // 🔴 Out of quota — but NOT out of work. The distances to water, a
+      // town, a shop and a station come from PostGIS and cost nothing at
+      // all; they are already in `slice` from the query at the top. So
+      // this slice and every remaining one still get written, without
+      // height or terrain, and the retry filter above picks them up
+      // tomorrow because `elevation === undefined`.
+      stoppedAtLimit = true;
+      centreEle = slice.map(() => null);
+      ringEle = slice.flatMap(() => Array(RELIEF_SAMPLES).fill(null));
     }
-    await db.query('COMMIT');
-  } catch (err) {
-    await db.query('ROLLBACK');
-    throw err;
+
+    await writeSlice(slice, centreEle, ringEle);
+
+    if (stoppedAtLimit) {
+      // Everything after this slice, with the PostGIS half only.
+      const rest = todo.slice(start + SLICE);
+      if (rest.length > 0) {
+        await writeSlice(
+          rest,
+          rest.map(() => null),
+          rest.flatMap(() => Array(RELIEF_SAMPLES).fill(null)),
+        );
+      }
+    }
   }
 
+  async function writeSlice(
+    part: SpotRow[],
+    centreEle: (number | null)[],
+    ringEle: (number | null)[],
+  ): Promise<void> {
+    await db.query('BEGIN');
+    try {
+      for (let i = 0; i < part.length; i++) {
+        const r = part[i];
+        const elevation = centreEle[i];
+        const ringHeights = ringEle
+          .slice(i * RELIEF_SAMPLES, (i + 1) * RELIEF_SAMPLES)
+          .filter((v): v is number => v !== null);
+
+        const context: SpotContext = {
+          at: { lat: Number(r.lat), lon: Number(r.lon) },
+        };
+
+        if (r.water_m !== null) {
+          context.water = {
+            m: Number(r.water_m),
+            kind: (r.water_kind ?? 'river') as WaterKind,
+            ...(r.water_name ? { name: r.water_name } : {}),
+          } as NearestWater;
+        } else noWater++;
+
+        const town = feature(r.town_m, r.town_name);
+        if (town) context.town = town;
+        const shop = feature(r.shop_m, r.shop_name);
+        if (shop) context.supermarket = shop;
+        const rail = feature(r.rail_m, r.rail_name);
+        if (rail) context.station = rail;
+        else noStation++;
+
+        if (elevation !== null) context.elevation = Math.round(elevation);
+        if (elevation !== null && ringHeights.length >= RELIEF_SAMPLES / 2) {
+          const all = [elevation, ...ringHeights];
+          const relief = Math.round(Math.max(...all) - Math.min(...all));
+          reliefs.push(relief);
+          context.terrain = { relief, type: classifyTerrain(relief) };
+        }
+
+        if (!saysSomething(context)) {
+          nothingToSay++;
+          continue;
+        }
+
+        await db.query(
+          `UPDATE camping_spots
+            SET context = $2, context_computed_at = now()
+          WHERE id = $1`,
+          [r.id, JSON.stringify(context)],
+        );
+        written++;
+      }
+      await db.query('COMMIT');
+    } catch (err) {
+      await db.query('ROLLBACK');
+      throw err;
+    }
+  }
+
+  // 🔴 Counted over the SAME set the run was asked about.
+  //
+  // This query had no country filter while `total` below is the count for
+  // `--country`, so a country run divided every country's rows by one
+  // country's total. Observed on the Croatian run: "station 1060 / 777
+  // 136.4%" — a percentage over one hundred, printed without complaint,
+  // on a report whose job is to decide whether coverage is good enough.
+  // The 90% gate was reading the same broken ratio, so it would have
+  // passed a country with almost nothing computed as long as its
+  // neighbours were full.
   const filled = await db.query<{ field: string; n: string }>(
     `SELECT f.field, count(*) AS n
        FROM camping_spots s,
             LATERAL (VALUES ('water'),('town'),('supermarket'),
                             ('station'),('elevation'),('terrain')) AS f(field)
       WHERE s.missing_since IS NULL
+        AND ($1::text IS NULL OR upper(s.country) = $1)
         AND s.context ? f.field
       GROUP BY 1 ORDER BY 1`,
+    [COUNTRY],
   );
   const total = rows.length;
 
@@ -489,10 +605,35 @@ async function main(): Promise<void> {
   }
   if (noWater) console.log(`  without water      ${noWater}`);
   if (noStation) console.log(`  without station    ${noStation}`);
+  if (nothingToSay) {
+    console.log(
+      `  nothing to say     ${nothingToSay}  (left noindex — see CAMP-105)`,
+    );
+  }
   if (failedBatches) {
     console.log(
       `  ⚠ failed batches   ${failedBatches}  (rerun to fill them in)`,
     );
+  }
+
+  // 🔴 A run that ran out of quota is incomplete, not substandard.
+  //
+  // The 90% gate below exists so a partial DEM run cannot ship looking
+  // fine. But once the work is sliced, stopping at the daily limit is the
+  // NORMAL way a large country is processed — France needs about eight
+  // days of quota — and failing the run every one of those days would
+  // train everybody to ignore the gate that is supposed to catch a real
+  // shortfall. Say where it got to, and leave the gate for runs that
+  // actually finished.
+  if (stoppedAtLimit) {
+    console.log(
+      `\n⚠ stopped at Open-Meteo's daily limit.\n` +
+        `  Heights and terrain are missing for the spots after the last full slice;\n` +
+        `  their water, town, shop and station distances ARE written and live.\n` +
+        `  Run again tomorrow — the selection above picks up exactly the gap.\n`,
+    );
+    await db.end();
+    return;
   }
 
   // The card's own bar: "fields filled for >90% of a country's records".
