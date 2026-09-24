@@ -8,8 +8,6 @@
     "dev:web": "npm run dev --workspace=apps/web",
     "dev:api": "npm run start:dev --workspace=apps/api",
     "build:web": "npm run build --workspace=apps/web",
-    "build:api": "npm run build --workspace=apps/api",
-    "bootstrap:cms": "npm run bootstrap --workspace=apps/cms",
-    "dev:cms": "npm run start --workspace=apps/cms"
+    "build:api": "npm run build --workspace=apps/api"
   }
 }

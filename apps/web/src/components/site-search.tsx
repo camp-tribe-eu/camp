@@ -70,7 +70,19 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
   const total = state.status === 'ready' ? state.docs.length : 0;
 
   return (
-    <div>
+    // 🔴 The state, on the element, so a test can wait for readiness
+    // rather than for the absence of loading.
+    //
+    // The e2e waited for `search-loading` to be hidden — and `toBeHidden`
+    // is satisfied by an element that is not in the DOM *yet*, which is
+    // also true in the instant before React has rendered anything at all.
+    // So it waited for nothing, typed into an index that had not arrived,
+    // and failed on the tablet project roughly one run in ten. The flaky
+    // guard caught it; the previous fix had made the loading state
+    // visible to a reader, but left the test racing.
+    //
+    // Waiting for a thing to BE has no such hole.
+    <div data-testid="search" data-state={state.status}>
       <label htmlFor="q" className="sr-only">
         Search campsites
       </label>

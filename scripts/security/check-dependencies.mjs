@@ -254,10 +254,31 @@ function selfTest() {
     ['apps/api', 'apps/cms', 'apps/web'],
   );
 
+  // 🔴 Against what is on disk, not against a list written here.
+  //
+  // This used to name the three workspaces outright, which made removing
+  // one (CAMP-106 took out apps/cms) fail a security self-test for a
+  // reason that had nothing to do with security. Worse, the hardcoded
+  // list could only ever be wrong in the direction this guard exists to
+  // prevent: somebody adds a workspace, the list does not mention it,
+  // and the "canary" happily reports the old set.
+  //
+  // Computed the other way round instead — every apps/* directory that
+  // actually holds a package.json — so it is still an independent
+  // answer, and it cannot go stale.
+  const onDisk = readdirSync(path.join(ROOT, 'apps'))
+    .filter((d) => readJson(path.join(ROOT, 'apps', d, 'package.json')))
+    .map((d) => `apps/${d}`)
+    .sort();
   check(
-    'the real repository still resolves all three workspaces',
+    'the real repository resolves exactly the workspaces on disk',
     discoverWorkspaces(ROOT, readJson, (d) => readdirSync(d)),
-    ['apps/api', 'apps/cms', 'apps/web'],
+    onDisk,
+  );
+  check(
+    'and there is at least one, so the comparison is not two empty lists',
+    onDisk.length > 0,
+    true,
   );
 
   let threw = false;
