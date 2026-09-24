@@ -52,29 +52,67 @@ permissions:
   contents: read
 
 env:
-  # 🔴 This must list every country we actually hold. A country missing
-  # here does NOT get its campsites marked gone — the gone rule is
-  # scoped per country and only runs when someone imports that country —
-  # which is precisely why it is easy to miss: Croatia's data would
-  # simply stop being refreshed while Slovenia kept updating, so closures
-  # and new sites never arrive and nothing anywhere looks wrong.
+  # 🔴 THE LIST IS THE EU-27, AND THAT IS NOW A RULE RATHER THAN A HABIT.
   #
-  # Order is the market order from the research, then the two we already
-  # hold. Sizes measured 23.09.2026 from Geofabrik's own headers, because
-  # the reason this used to be two countries was a guess about cost:
-  #   SI 299 MB · HR 191 MB · AT 773 MB · NL 1.3 GB · CH 521 MB
-  #   IT 2.1 GB · ES 1.4 GB · FR 4.9 GB · DE 4.6 GB
-  # 16 GB in total, but never on one runner at one time — see the matrix.
+  # A country missing here does NOT get its campsites marked gone — the
+  # gone rule is scoped per country and only runs when someone imports
+  # that country — which is precisely why it is easy to miss: a country's
+  # data would simply stop being refreshed while the others kept
+  # updating, so closures and new sites never arrive and nothing anywhere
+  # looks wrong.
+  #
+  # 🔴 Two things were wrong with the previous list, both found 24.09.2026.
+  #
+  # It held nine countries, and one of them — SWITZERLAND — is not in the
+  # European Union. The owner's decision that day was explicit: "поки вони
+  # не потрібні, ми про ЄС будуємо зараз" (CAMP-118). Every source this
+  # project depends on for safety data is an EU instrument: MeteoAlarm,
+  # Copernicus, the national access points of the ITS Directive. A country
+  # outside the Union gets campsite pages with no warnings behind them,
+  # and a silent hazard layer is worse than an absent one.
+  #
+  # And it held nine of twenty-seven. The goal is every campsite in the
+  # Union, so the list is every member state. Sizes measured from
+  # Geofabrik's own Content-Range headers on 24.09.2026, ~25 GB in total
+  # and never on one runner at one time — this is a matrix, one country
+  # per job, `fail-fast: false`, so one country's bad day costs that
+  # country only.
+  #
+  # ⚠️ `ireland-and-northern-ireland` is Geofabrik's only Irish extract
+  # and it includes part of the United Kingdom. That is the shape of the
+  # source, not a decision to leave the EU behind: the country filter at
+  # import time is what keeps non-EU rows out (CAMP-118).
+  #
+  # ⚠️ "27" is the Union as of 2026, not a constant of the universe. The
+  # day it changes, this list and the filter change together.
   DEFAULT_REGIONS: >-
-    europe/slovenia
-    europe/croatia
     europe/austria
-    europe/netherlands
-    europe/switzerland
-    europe/italy
-    europe/spain
+    europe/belgium
+    europe/bulgaria
+    europe/croatia
+    europe/cyprus
+    europe/czech-republic
+    europe/denmark
+    europe/estonia
+    europe/finland
     europe/france
     europe/germany
+    europe/greece
+    europe/hungary
+    europe/ireland-and-northern-ireland
+    europe/italy
+    europe/latvia
+    europe/lithuania
+    europe/luxembourg
+    europe/malta
+    europe/netherlands
+    europe/poland
+    europe/portugal
+    europe/romania
+    europe/slovakia
+    europe/slovenia
+    europe/spain
+    europe/sweden
 
 jobs:
   # Turn the region list into a matrix. It is its own job because a
