@@ -67,12 +67,35 @@ DB="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"
 # second line of that defence, not the first.
 DEFAULT_DIR="$HOME/CampTribe-backups/$(date -u +%Y-%m-%d)"
 
-# table:key-columns — the ones worth the bytes, and why, above.
+# 🔴 Parents first, and children INCLUDED — both were wrong before.
+#
+# The list used to be reviews, photo_submissions, guides, routes. Two of
+# those are shells: a guide's text lives in `guide_translations` and a
+# route's line lives in `route_points`, and neither was backed up.
+# Measured 24.09.2026: 36 guides, 36 translations, none of the text
+# saved. Restoring that backup would have produced thirty-six empty
+# guides and called it a success.
+#
+# Found by the nightly rehearsal (CAMP-58) failing to TRUNCATE `guides`
+# because of a foreign key — the error that exposed the missing child was
+# the one the test tripped over on the way to something else.
+#
+# Order matters now, because restore inserts in this order and a child
+# cannot land before its parent.
+#
+# ⚠️ Still open, deliberately: `rental_cities`, `camper_types` and their
+# translations are our own editorial data too, and empty today. They go
+# in the day they carry anything, and that day should not be discovered
+# the same way this was.
 TABLES=(
+  "guides"
+  "guide_translations"
+  "routes"
+  "route_points"
+  "legal_pages"
+  "legal_page_translations"
   "reviews"
   "photo_submissions"
-  "guides"
-  "routes"
 )
 
 SPOTS_COLUMNS="osm_ref, context, context_computed_at, owner_overrides, missing_since, content_changed_at"

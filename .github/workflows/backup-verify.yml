@@ -108,16 +108,41 @@ jobs:
             SELECT id, 'backup-rehearsal/one.jpg', 'community', DATE '2026-09-01', 'pending'
               FROM camping_spots LIMIT 1;
 
-            INSERT INTO guides (slug, category, status, provenance)
-            VALUES ('backup-rehearsal', 'data', 'draft', 'data-generated');
+            -- CHK_guides_provenance_is_accountable: anything not written
+            -- by a human must name the thing that generated it. A guide
+            -- with no accountable author is exactly what that constraint
+            -- exists to refuse, and the rehearsal row is no exception.
+            INSERT INTO guides (slug, category, status, provenance, generator)
+            VALUES ('backup-rehearsal', 'data', 'draft', 'data-generated',
+                    'backup-verify.yml');
 
             INSERT INTO routes (name, slug, country, duration_days)
-            VALUES ('Backup rehearsal route', 'backup-rehearsal', 'si', 3);"
-          psql "$DATABASE_URL" -tAc "
-            SELECT 'reviews='||(SELECT count(*) FROM reviews)
-                 ||' photos='||(SELECT count(*) FROM photo_submissions)
-                 ||' guides='||(SELECT count(*) FROM guides)
-                 ||' routes='||(SELECT count(*) FROM routes)"
+            VALUES ('Backup rehearsal route', 'backup-rehearsal', 'si', 3);
+
+            -- 🔴 The children, because they are the actual content: a
+            -- guide's text and a route's line. Both were missing from the
+            -- backup until this job tripped over the foreign key.
+            INSERT INTO guide_translations (guide_id, language_code, title, body)
+            SELECT id, 'en', 'Backup rehearsal', 'Text that must survive a restore.'
+              FROM guides WHERE slug = 'backup-rehearsal';
+
+            INSERT INTO route_points (route_id, sequence, name, location)
+            SELECT id, 1, 'Start',
+                   ST_SetSRID(ST_MakePoint(14.09, 46.36), 4326)
+              FROM routes WHERE slug = 'backup-rehearsal';"
+          # 🔴 Assert, do not merely print. Two of these are
+          # `INSERT … SELECT … FROM camping_spots LIMIT 1`, which inserts
+          # NOTHING and succeeds when the fixture has no spots — and then
+          # the whole rehearsal runs against empty tables and proves the
+          # same nothing it was written to stop proving.
+          for t in reviews photo_submissions guides guide_translations routes route_points; do
+            N=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM $t")
+            echo "$t: $N"
+            if [ "$N" -lt 1 ]; then
+              echo "::error::$t is still empty — the rehearsal would prove nothing about it" >&2
+              exit 1
+            fi
+          done
 
       # 🔴 Establish what there is to lose, before losing it. If the
       # fixture ever stops carrying computed context, every step below
@@ -156,7 +181,10 @@ jobs:
                    owner_overrides = '{}'::jsonb,
                    missing_since = NULL,
                    content_changed_at = NULL;
-            TRUNCATE reviews, photo_submissions, guides, routes;"
+            TRUNCATE reviews, photo_submissions,
+                     guide_translations, guides,
+                     route_points, routes,
+                     legal_page_translations, legal_pages;"
           LEFT=$(psql "$DATABASE_URL" -tAc \
             "SELECT count(*) FROM camping_spots WHERE context <> '{}'::jsonb")
           # If this is not zero the restore below would be comparing the
@@ -193,7 +221,9 @@ jobs:
       - name: The content tables are back
         run: |
           set -euo pipefail
-          for t in reviews photo_submissions guides routes; do
+          # 🔴 The children too. A guide whose translations did not come
+          # back is an empty page that counts as a restored row.
+          for t in reviews photo_submissions guides guide_translations routes route_points; do
             N=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM $t")
             echo "$t: $N"
             if [ "$N" -lt 1 ]; then
