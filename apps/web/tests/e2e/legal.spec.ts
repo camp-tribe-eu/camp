@@ -219,16 +219,31 @@ test.describe('the legal pages', () => {
   // comes under, not a courtesy — break it and we lose the right to use
   // the data at all. It has to be on every page, not only where we
   // remembered.
+  // 🔴 Fetched, not navigated to — the third time this file has learned
+  // the same lesson.
+  //
+  // Four `page.goto` for a question about the served HTML, and one of
+  // them is `/map`, which boots MapLibre and pulls a 2.4 MB snapshot. It
+  // timed out at 30 s on the tablet project and passed on the retry; the
+  // flaky guard caught it. The attribution is rendered into the markup by
+  // the server — a browser adds nothing to the answer except four page
+  // loads and a map.
   test('attribution appears on every page, as the licence requires', async ({
-    page,
+    request,
   }) => {
     for (const path of ['/', '/camping', '/map', '/legal/privacy']) {
-      await page.goto(path);
-      const footer = page.locator('footer');
-      await expect(footer, `${path} lost its attribution`).toContainText(
+      const html = await (await request.get(path)).text();
+      // The footer, not the whole document: `<body>` also carries the
+      // JSON-LD, and a match there would pass with the visible notice
+      // gone — which is the exact failure the licence cares about.
+      const footer = /<footer[\s\S]*<\/footer>/i.exec(html)?.[0] ?? '';
+      expect(footer, `${path} has no footer at all`).toBeTruthy();
+      expect(footer, `${path} lost its attribution`).toContain(
         'OpenStreetMap contributors',
       );
-      await expect(footer).toContainText('Open Database License');
+      expect(footer, `${path} lost the licence name`).toContain(
+        'Open Database License',
+      );
     }
   });
 
