@@ -33,8 +33,21 @@ import { createInterface } from 'node:readline';
 import { Client } from 'pg';
 import { isCampsite, parseRow } from './parse';
 import type { DatatourismeRow, ParsedSpot } from './parse';
-import { decide } from './match';
+import { decide, metresApart } from './match';
 import type { Candidate, Decision } from './match';
+
+/**
+ * How close two records from one file must be before a person looks.
+ *
+ * 🔴 Deliberately much tighter than the matcher's 400 m outer radius,
+ * because this is a different question. That radius asks "could these be
+ * the same campsite seen by two sources"; this asks "did one publisher
+ * list one place twice", and at 50 m in a single tourism feed the answer
+ * is usually yes. Measured against the 11 French regional files on
+ * 24.09.2026 — see the import report, which prints every pair it holds
+ * back rather than counting them silently.
+ */
+const SAME_PLACE_METRES = 50;
 import { splitCsvLine } from './report-coverage';
 
 const SOURCE_ID = 'datatourisme';
@@ -53,6 +66,25 @@ export function slugify(name: string, ref: string): string {
     .slice(0, 80);
   // The ref is a URI; its last path segment is the stable uuid.
   return base || `spot-${ref.split('/').pop() ?? 'unknown'}`;
+}
+
+/**
+ * One record per source URI, keeping the first.
+ *
+ * 🔴 The URI is DATAtourisme's own stable identifier for a POI, so two
+ * rows carrying the same one are the same campsite however they differ.
+ * Deduplicating here rather than at insert time means the counts printed
+ * by a dry run are the counts a real run will write.
+ */
+export function dedupeByRef<T extends { ref: string }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of rows) {
+    if (seen.has(row.ref)) continue;
+    seen.add(row.ref);
+    out.push(row);
+  }
+  return out;
 }
 
 /** A slug nobody else is using. Suffixes are stable for a given order. */
@@ -80,6 +112,17 @@ export type Plan = {
     spot: ParsedSpot;
     decision: Extract<Decision, { verdict: 'review' }>;
   }[];
+  /**
+   * Records that duplicate another record from the SAME file.
+   *
+   * Kept apart from `same` because they are a different fact: `same`
+   * means we already had this campsite, this means the source published
+   * it twice under two identifiers.
+   */
+  duplicates: {
+    spot: ParsedSpot;
+    decision: Extract<Decision, { verdict: 'same' }>;
+  }[];
 };
 
 /**
@@ -87,20 +130,106 @@ export type Plan = {
  *
  * Pure given a candidate lookup, so the whole decision layer can be
  * driven in a test without a database.
+ *
+ * 🔴 A record is matched against the database AND against the records
+ * already accepted from this same file.
+ *
+ * The database half was all there was, and it has a blind spot with a
+ * name: candidates are read once, before anything is written, so two
+ * rows describing one campsite inside a single file never meet. The
+ * matcher — the whole apparatus of distance and name similarity that
+ * exists to answer exactly this question — was simply never asked.
+ *
+ * Found on 24.09.2026 by the near-duplicate page guard, not by this
+ * importer: `Camping aux Prairies de Pacouinay` and
+ * `Emplacement camping-car - Camping chez l'habitant Les Prairies de
+ * Pacouinay`, 21 metres apart in the Vendée file, published as two pages
+ * that are 84.5% identical. DATAtourisme lists a campsite and its
+ * motorhome pitch as separate POIs with separate URIs, so dedupeByRef
+ * cannot see them either.
+ *
+ * The rule applied is the same `decide` used against the database — not
+ * a second, looser one invented here. A verdict of `same` collapses into
+ * the record already accepted; `review` keeps both and says so, because
+ * two campsites really can share a car park.
  */
 export function plan(
   spots: ParsedSpot[],
   candidatesNear: (s: ParsedSpot) => Candidate[],
 ): Plan {
-  const out: Plan = { same: [], fresh: [], review: [] };
+  const out: Plan = { same: [], fresh: [], review: [], duplicates: [] };
+  /** Records accepted from this file, as candidates for the next one. */
+  const accepted: Candidate[] = [];
+
   for (const spot of spots) {
     const d = decide(
       { name: spot.name, lat: spot.lat, lon: spot.lon },
       candidatesNear(spot),
     );
-    if (d.verdict === 'same') out.same.push({ spot, decision: d });
-    else if (d.verdict === 'review') out.review.push({ spot, decision: d });
-    else out.fresh.push(spot);
+    if (d.verdict === 'same') {
+      out.same.push({ spot, decision: d });
+      continue;
+    }
+    if (d.verdict === 'review') {
+      out.review.push({ spot, decision: d });
+      continue;
+    }
+
+    // Nothing in the database matches. Does anything already taken from
+    // this file?
+    const withinFile = decide(
+      { name: spot.name, lat: spot.lat, lon: spot.lon },
+      accepted,
+    );
+    if (withinFile.verdict === 'same') {
+      out.duplicates.push({ spot, decision: withinFile });
+      continue;
+    }
+    if (withinFile.verdict === 'review') {
+      out.review.push({ spot, decision: withinFile });
+      continue;
+    }
+
+    // 🔴 One extra rule, and only inside a single file.
+    //
+    // `decide` was measured for OSM against DATAtourisme, where two
+    // sources describe the world independently and a near-miss on the
+    // name is ordinary. Its thresholds are not touched here.
+    //
+    // Within ONE publisher's own file the prior is different. The pair
+    // that exposed this sits 21 m apart — `Camping aux Prairies de
+    // Pacouinay` and `Emplacement camping-car - Camping chez l'habitant
+    // Les Prairies de Pacouinay` — and decide's verdict was, correctly
+    // by its own rules, "nearest is 21 m away and named differently".
+    // Two independent businesses 21 m apart is possible; one tourist
+    // office listing a campsite and its motorhome pitch twice is far
+    // likelier, and only a person can tell which.
+    //
+    // So: too close to publish blind, not similar enough to merge
+    // blind — that is precisely what the review pile is for. It costs
+    // nothing when the answer is "genuinely two", and it is the only
+    // thing that stops us publishing two pages about one business.
+    const tooCloseToPublishBlind = accepted
+      .map((c) => metresApart({ lat: spot.lat, lon: spot.lon }, c))
+      .some((m) => m <= SAME_PLACE_METRES);
+    if (tooCloseToPublishBlind) {
+      out.review.push({
+        spot,
+        decision: {
+          verdict: 'review',
+          why: `another record in this same file is within ${SAME_PLACE_METRES} m`,
+        } as Extract<Decision, { verdict: 'review' }>,
+      });
+      continue;
+    }
+
+    out.fresh.push(spot);
+    accepted.push({
+      id: spot.ref,
+      name: spot.name,
+      lat: spot.lat,
+      lon: spot.lon,
+    });
   }
   return out;
 }
@@ -171,11 +300,34 @@ async function main() {
     process.exit(1);
   }
 
-  const spots = await readCampsites(path);
-  console.log(`${spots.length} campsites parsed from ${path}`);
-  if (spots.length === 0) {
+  const parsed = await readCampsites(path);
+  console.log(`${parsed.length} campsites parsed from ${path}`);
+  if (parsed.length === 0) {
     console.error('✗ nothing parsed — refusing to continue');
     process.exit(1);
+  }
+
+  // 🔴 The same POI can appear twice in one regional file.
+  //
+  // Found on 24.09.2026 in ara.csv: 14 URIs published twice, the rows
+  // byte-identical. Nothing downstream would have caught it. Candidates
+  // are fetched once, BEFORE any insert, so the second copy never sees
+  // the first and both get written — two campsites at one point with one
+  // name, which is also exactly the pair the near-duplicate guard would
+  // later flag as two pages saying the same thing.
+  //
+  // PACA and Occitanie happened to carry no repeats, so the importer has
+  // run twice without meeting this. "It has not happened yet" is not the
+  // same as "it cannot happen".
+  //
+  // First occurrence wins: the rows are identical where we have looked,
+  // so there is nothing to choose between them, and picking the first is
+  // the only rule that gives the same result on every run.
+  const spots = dedupeByRef(parsed);
+  if (spots.length !== parsed.length) {
+    console.log(
+      `  ${parsed.length - spots.length} duplicate record(s) in the file, collapsed`,
+    );
   }
 
   const db = new Client({ connectionString: DB_URL });
@@ -233,7 +385,23 @@ async function main() {
     console.log('');
     console.log(`  merge into an existing campsite   ${p.same.length}`);
     console.log(`  new campsites                     ${p.fresh.length}`);
+    console.log(`  the source published twice        ${p.duplicates.length}`);
     console.log(`  left for a human to look at       ${p.review.length}`);
+
+    // Printed rather than counted silently: these are pages we chose not
+    // to publish, and the reason is a judgement about somebody else's
+    // data. It should be readable, not buried in a number.
+    if (p.duplicates.length > 0) {
+      console.log('\n  same campsite, listed twice in this file:');
+      for (const { spot, decision } of p.duplicates.slice(0, 10)) {
+        console.log(
+          `    ${spot.name} — ${decision.metres} m from the one kept, ` +
+            `${Math.round(decision.similarity * 100)}% alike`,
+        );
+      }
+      if (p.duplicates.length > 10)
+        console.log(`    … and ${p.duplicates.length - 10} more`);
+    }
 
     if (p.review.length > 0) {
       console.log('\n  needs a look:');
@@ -318,11 +486,28 @@ async function main() {
                -- unit for us anyway: it is how French readers search,
                -- and it keeps the hub pages the same size as elsewhere.
                -- 🔴 Containment first, then the nearest polygon within
-               -- 5 km — the same rule the OSM import uses, and for the
-               -- same reason: a campsite on a spit, an island or right
-               -- on a coastline falls outside every polygon, and a row
-               -- with no region gets no page URL at all. The first run
-               -- lost 9 of 478 French campsites exactly this way.
+               -- 15 km — a campsite on a spit, an island or right on a
+               -- coastline falls outside every polygon, and a row with
+               -- no region gets no page URL at all. The first run lost
+               -- 9 of 478 French campsites exactly this way.
+               --
+               -- 🔴 15 km, not the 5 km this started with, and the
+               -- number is measured rather than chosen.
+               --
+               -- 5 km left two real campsites with no page: Île Molène
+               -- in the Iroise Sea and an island site off the Morbihan
+               -- coast, 10.0 km and 10.5 km from the nearest polygon.
+               -- Natural Earth's coastlines are simplified, so small
+               -- islands are simply not in them.
+               --
+               -- Measured across all 9 441 French campsites on
+               -- 24.09.2026: 433 fall outside every polygon, 431 of them
+               -- within 5 km, exactly those 2 between 5 and 15 km, and
+               -- NOTHING beyond 15 km at all — the furthest is 10.5 km.
+               -- So this widening picks up precisely the two islands and
+               -- can reach nothing else. Both resolve to the correct
+               -- département (Finistère, Morbihan), which is also the
+               -- administratively right answer for those islands.
                -- 🔴 The region's NAME, not a slug of it.
                --
                -- The first version slugified the name right here, which
@@ -340,11 +525,24 @@ async function main() {
                -- syntax error.)
                (SELECT a.name
                   FROM ne_admin1 a
-                 WHERE a.geom && ST_Expand(ST_SetSRID(ST_MakePoint($4::float8, $3::float8), 4326), 0.1)
+                 -- 🔴 The bounding box must be WIDER than the radius, or
+                 -- it silently becomes the real limit.
+                 --
+                 -- 0.1° looks like "about 11 km" and is not: that holds
+                 -- for latitude, while a degree of longitude shrinks with
+                 -- the cosine. At Brittany's 48°N, 0.1° east-west is
+                 -- 7.4 km — narrower than the 5 km radius was generous,
+                 -- and far narrower than 15 km. Widening ST_DWithin alone
+                 -- would have changed nothing and looked like the radius
+                 -- was not the problem.
+                 --
+                 -- 0.25° is 27.8 km north-south and 18.6 km east-west at
+                 -- 48°N, so the index filter can never be what decides.
+                 WHERE a.geom && ST_Expand(ST_SetSRID(ST_MakePoint($4::float8, $3::float8), 4326), 0.25)
                    AND (ST_Contains(a.geom, ST_SetSRID(ST_MakePoint($4::float8, $3::float8), 4326))
                         OR ST_DWithin(a.geom::geography,
                                       ST_SetSRID(ST_MakePoint($4::float8, $3::float8), 4326)::geography,
-                                      5000))
+                                      15000))
                  -- Containment always wins; among near misses, the
                  -- closest, and the name breaks a tie so the answer
                  -- cannot change between runs.

@@ -32,11 +32,27 @@ export const POINT_LIMIT = 2000;
  * different request from "draw this viewport", and only one of them is
  * what this route is for.
  *
- * 10 000 is not arbitrary: the snapshot's own budget is 4 MB, which is
- * roughly this many features. Past it the map has to query per viewport
- * anyway, so a bigger number would only buy a slower way to fail.
+ * 🔴 20 000, raised from 10 000 on 24.09.2026 — and the old number was
+ * wrong for a reason worth keeping.
+ *
+ * It was set from the estimate "4 MB is roughly 10 000 features". The
+ * import of the rest of France (CAMP-107) took the dataset to 10 519 and
+ * the build stopped, so the estimate finally got measured: a marker is
+ * *226 bytes* of this snapshot, making 10 000 of them 2.26 MB — 56% of
+ * the budget, not 100%. The 4 MB budget is really reached at about
+ * 17 700 campsites.
+ *
+ * So the count was never the constraint it was written as; it just
+ * happened to be the smaller of the two numbers. 20 000 puts it back
+ * above the byte budget, which is what the snapshot's own comment says
+ * should decide. The next real threshold is bytes, at roughly 17 700 —
+ * one more country — and at that point the map queries per viewport.
+ *
+ * Still clamped, because the endpoint is public: this bounds one
+ * request's work, not what anybody is allowed to know. The whole
+ * dataset is already published as a static file.
  */
-export const MAX_POINT_LIMIT = 10_000;
+export const MAX_POINT_LIMIT = 20_000;
 
 /** Read a caller's limit, or fall back to the viewport default. */
 export function parseLimit(

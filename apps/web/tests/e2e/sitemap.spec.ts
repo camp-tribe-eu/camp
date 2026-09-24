@@ -63,13 +63,36 @@ test.describe('sitemap', () => {
   });
 
   test('every campsite page is listed', async ({ request }) => {
-    const [index, sitemap] = await Promise.all([
-      request.get(`${process.env.API_BASE_URL ?? 'http://localhost:3001'}/spots/index`),
-      request.get('/sitemaps/campsites-0.xml'),
-    ]);
+    const index = await request.get(
+      `${process.env.API_BASE_URL ?? 'http://localhost:3001'}/spots/index`,
+    );
     const spots = await index.json();
-    const xml = await sitemap.text();
-    const listed = (xml.match(/<loc>/g) ?? []).length;
+
+    // 🔴 Across every chunk, not just the first.
+    //
+    // This read campsites-0.xml alone and was right until CAMP-107 took
+    // the dataset past URLS_PER_SITEMAP (10 000), at which point the
+    // sitemap did exactly what it was designed to do — split — and the
+    // test reported 10 000 of 10 519 as a missing-pages failure. The
+    // chunking was never the thing being tested; "every campsite has a
+    // URL somewhere in the sitemap" was.
+    const chunks = await request.get('/sitemap.xml');
+    const locs = (await chunks.text()).match(/<loc>([^<]+)<\/loc>/g) ?? [];
+    const campsiteFiles = locs
+      .map((l) => l.replace(/<\/?loc>/g, ''))
+      .filter((u) => /campsites-\d+\.xml$/.test(u))
+      .map((u) => new URL(u).pathname);
+    expect(
+      campsiteFiles.length,
+      'the sitemap index lists no campsite chunks',
+    ).toBeGreaterThan(0);
+
+    let listed = 0;
+    for (const path of campsiteFiles) {
+      const xml = await (await request.get(path)).text();
+      listed += (xml.match(/<loc>/g) ?? []).length;
+    }
+
     // No code change was needed for any of them: the list comes from the
     // database, which is the card's acceptance criterion.
     expect(listed).toBe(spots.length);

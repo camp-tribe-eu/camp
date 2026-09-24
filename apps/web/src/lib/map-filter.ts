@@ -20,7 +20,8 @@
 // asks the API for the same filter and compares its count against what
 // the map drew.
 
-import type { AmenityKey, SpotType } from './api';
+import { AMENITY_KEYS } from './api';
+import type { Amenities, AmenityKey, SpotType } from './api';
 
 export interface MapFilterState {
   /** Empty means every type, not no types. */
@@ -41,6 +42,33 @@ export type SpotProperties = Record<string, unknown>;
 
 export function isFiltering(state: MapFilterState): boolean {
   return state.types.length > 0 || state.amenities.length > 0;
+}
+
+/**
+ * CAMP-107: the amenities worth writing into the map snapshot.
+ *
+ * 🔴 Only what is KNOWN. An absent key means unknown, which is exactly
+ * what the two matchers below already assume.
+ *
+ * Writing "unknown" out explicitly cost 2.26 MB of a 4.9 MB file:
+ * measured on 24.09.2026, 103 582 of the 105 190 amenity values across
+ * 10 519 campsites were the string "unknown", and 96% of campsites had
+ * nothing recorded at all. More than half the map snapshot was the
+ * words "we do not know", repeated.
+ *
+ * It lives here rather than in the route because a Next.js route file
+ * may export only a route, and because it belongs beside the functions
+ * that read what it writes.
+ */
+export function knownAmenities(
+  amenities: Partial<Amenities> | null | undefined,
+): Partial<Record<AmenityKey, 'yes' | 'no'>> {
+  const out: Partial<Record<AmenityKey, 'yes' | 'no'>> = {};
+  for (const key of AMENITY_KEYS) {
+    const value = amenities?.[key];
+    if (value === 'yes' || value === 'no') out[key] = value;
+  }
+  return out;
 }
 
 function typeMatches(props: SpotProperties, state: MapFilterState): boolean {

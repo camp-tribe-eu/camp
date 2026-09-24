@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { countryName, formatDistance } from '@/lib/api';
-import { search, type SearchDoc, type SearchHit } from '@/lib/search';
+import {
+  search,
+  unpackIndex,
+  type PackedIndex,
+  type SearchDoc,
+  type SearchHit,
+} from '@/lib/search';
 
 // CAMP-67 — the results.
 //
@@ -32,8 +38,12 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
     let cancelled = false;
     void fetch(INDEX_URL)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((data: { docs?: SearchDoc[] }) => {
-        if (!cancelled) setState({ status: 'ready', docs: data.docs ?? [] });
+      .then((data: PackedIndex) => {
+        // CAMP-107. The file is packed; unpackIndex throws on a version
+        // it does not know, which lands in the catch below and shows the
+        // reader that search is unavailable rather than a search box
+        // that silently finds nothing.
+        if (!cancelled) setState({ status: 'ready', docs: unpackIndex(data) });
       })
       .catch(() => {
         if (!cancelled) setState({ status: 'failed' });
