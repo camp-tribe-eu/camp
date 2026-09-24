@@ -454,37 +454,49 @@ async function main(): Promise<void> {
   let noStation = 0;
   /** Rows that would have been written with nothing but their own coordinates. */
   let nothingToSay = 0;
+  /** Heights kept from the previous run because the DEM had nothing new. */
+  let carriedForward = 0;
   let stoppedAtLimit = false;
   const reliefs: number[] = [];
 
   for (let start = 0; start < todo.length && !stoppedAtLimit; start += SLICE) {
     const slice = todo.slice(start, start + SLICE);
 
-    let centreEle: (number | null)[];
-    let ringEle: (number | null)[];
+    // 🔴 Assigned BEFORE the try, and each half kept as soon as it
+    // returns. The first version declared them and filled both inside
+    // the try, so when the centres succeeded (200 coordinates spent) and
+    // the rings then hit the limit, the catch overwrote the centres with
+    // nulls — two hundred coordinates bought and thrown away — and
+    // `failedBatches` was never added either, so the "⚠ failed batches"
+    // warning vanished on exactly the runs where it mattered. Found by
+    // review with a stubbed endpoint and a budget of 250.
+    let centreEle: (number | null)[] = slice.map(() => null);
+    let ringEle: (number | null)[] = slice.flatMap(() =>
+      Array(RELIEF_SAMPLES).fill(null),
+    );
     try {
       const centre = await elevations(
         slice.map((r) => ({ lat: Number(r.lat), lon: Number(r.lon) })),
         'elevation',
       );
+      centreEle = centre.values;
+      failedBatches += centre.failedBatches;
+
       const around = await elevations(
         slice.flatMap((r) => ring(Number(r.lat), Number(r.lon))),
         'relief   ',
       );
-      centreEle = centre.values;
       ringEle = around.values;
-      failedBatches += centre.failedBatches + around.failedBatches;
+      failedBatches += around.failedBatches;
     } catch (err) {
       if (!(err instanceof DailyLimitReached)) throw err;
       // 🔴 Out of quota — but NOT out of work. The distances to water, a
       // town, a shop and a station come from PostGIS and cost nothing at
       // all; they are already in `slice` from the query at the top. So
       // this slice and every remaining one still get written, without
-      // height or terrain, and the retry filter above picks them up
+      // new height or terrain, and the retry filter above picks them up
       // tomorrow because `elevation === undefined`.
       stoppedAtLimit = true;
-      centreEle = slice.map(() => null);
-      ringEle = slice.flatMap(() => Array(RELIEF_SAMPLES).fill(null));
     }
 
     await writeSlice(slice, centreEle, ringEle);
@@ -544,6 +556,43 @@ async function main(): Promise<void> {
           context.terrain = { relief, type: classifyTerrain(relief) };
         }
 
+        // 🔴 THE DEM SAYING NOTHING IS NOT THE DEM SAYING "NO HEIGHT".
+        //
+        // This write replaces the whole context (`SET context = $2`), so
+        // a field left out is a field deleted. On the quota path every
+        // elevation is null — and the first version of the slicing change
+        // therefore ERASED heights that had already been computed and
+        // paid for, on the current slice and on every remaining spot.
+        //
+        // Measured by review, on real data: a run with the day's quota
+        // already spent took 536 Croatian spots from 536 elevations and
+        // 536 terrains to ZERO, in one pass, exiting 0. The change
+        // written to conserve Open-Meteo quota was destroying what the
+        // quota had bought, and tomorrow's run would buy it again.
+        //
+        // Elevation does not move. If the stored context was measured at
+        // the same coordinates we are looking at now, it is still true,
+        // and silence from the DEM is no reason to throw it away. The
+        // retry filter above keeps asking for the spots that genuinely
+        // have none, because `elevation === undefined` is still the test.
+        const previous = r.context;
+        const sameSpot =
+          previous?.at !== undefined &&
+          Math.abs(previous.at.lat - Number(r.lat)) <= 1e-5 &&
+          Math.abs(previous.at.lon - Number(r.lon)) <= 1e-5;
+        if (sameSpot) {
+          if (
+            context.elevation === undefined &&
+            previous.elevation !== undefined
+          ) {
+            context.elevation = previous.elevation;
+            carriedForward++;
+          }
+          if (context.terrain === undefined && previous.terrain !== undefined) {
+            context.terrain = previous.terrain;
+          }
+        }
+
         if (!saysSomething(context)) {
           nothingToSay++;
           continue;
@@ -587,13 +636,43 @@ async function main(): Promise<void> {
   );
   const total = rows.length;
 
+  // 🔴 A fixed list of fields, not whatever the query returned.
+  //
+  // `GROUP BY` omits a field with zero rows entirely, and both the table
+  // below and the 90% gate used to iterate `filled.rows`. So a country
+  // where the DEM produced nothing for anybody had no `elevation` row at
+  // all — and a missing row cannot be below 90%, so the gate passed and
+  // the field was not even printed.
+  //
+  // Measured by review: on the same database, with the DEM answering
+  // only nulls, this branch printed four fields at 100% and a ✓, while
+  // the version on main — the one with the >100% bug this change is
+  // fixing — still failed with "elevation 6.5%, terrain 6.5%". The
+  // country filter was right; iterating the result rows was the
+  // regression that came with it.
+  const FIELDS = [
+    'water',
+    'town',
+    'supermarket',
+    'station',
+    'elevation',
+    'terrain',
+  ] as const;
+  const counts = new Map<string, number>(
+    filled.rows.map((f) => [f.field, Number(f.n)] as [string, number]),
+  );
+  const coverage = FIELDS.map((field) => ({
+    field,
+    n: counts.get(field) ?? 0,
+  }));
+
   console.log(`  written            ${written}`);
   console.log(`  ─────────────────────────`);
-  for (const f of filled.rows) {
-    const pct = ((Number(f.n) / total) * 100).toFixed(1);
-    const flag = Number(pct) >= 90 ? ' ' : '🔴';
+  for (const f of coverage) {
+    const pct = total > 0 ? (f.n / total) * 100 : 0;
+    const flag = pct >= 90 ? ' ' : '🔴';
     console.log(
-      `  ${flag} ${f.field.padEnd(12)} ${String(f.n).padStart(4)} / ${total}  ${pct}%`,
+      `  ${flag} ${f.field.padEnd(12)} ${String(f.n).padStart(4)} / ${total}  ${pct.toFixed(1)}%`,
     );
   }
   if (reliefs.length) {
@@ -608,6 +687,11 @@ async function main(): Promise<void> {
   if (nothingToSay) {
     console.log(
       `  nothing to say     ${nothingToSay}  (left noindex — see CAMP-105)`,
+    );
+  }
+  if (carriedForward) {
+    console.log(
+      `  height kept        ${carriedForward}  (DEM silent, coordinates unchanged)`,
     );
   }
   if (failedBatches) {
@@ -640,16 +724,16 @@ async function main(): Promise<void> {
   // Exiting non-zero makes that a gate rather than a number somebody
   // reads once — a partial DEM run is exactly the failure that otherwise
   // ships looking fine.
-  const worst = filled.rows.reduce(
-    (min, f) => Math.min(min, Number(f.n) / total),
+  const worst = coverage.reduce(
+    (min, f) => Math.min(min, total > 0 ? f.n / total : 0),
     1,
   );
   if (worst < 0.9) {
-    const weakest = filled.rows.filter((f) => Number(f.n) / total < 0.9);
+    const weakest = coverage.filter((f) => (total > 0 ? f.n / total : 0) < 0.9);
     console.error(
       `\n✗ below the 90% bar: ` +
         weakest
-          .map((f) => `${f.field} ${((Number(f.n) / total) * 100).toFixed(1)}%`)
+          .map((f) => `${f.field} ${((f.n / total) * 100).toFixed(1)}%`)
           .join(', ') +
         '\n',
     );
