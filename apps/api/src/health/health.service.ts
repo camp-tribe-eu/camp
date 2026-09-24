@@ -54,6 +54,24 @@ export class HealthService {
     }
   }
 
+  /**
+   * One row, or null if the query did not answer.
+   *
+   * 🔴 Exists so counts that must agree are read in ONE round trip.
+   * Two queries against a live table are two moments in time, and an
+   * import running between them can make a subset look larger than its
+   * superset — an alarm about a contradiction that never existed. A
+   * false alarm at 3am is how a real one gets ignored later.
+   */
+  private async row(sql: string): Promise<Record<string, unknown> | null> {
+    try {
+      const rows = (await this.db.query(sql)) as Record<string, unknown>[];
+      return rows?.[0] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   private async text(sql: string): Promise<string | null> {
     try {
       const rows = (await this.db.query(sql)) as Record<string, unknown>[];
@@ -92,13 +110,29 @@ export class HealthService {
                    THEN postgis_version() END`,
     );
 
-    const spots = await this.number(
-      `SELECT count(*) FROM camping_spots WHERE missing_since IS NULL`,
+    // 🔴 Both counts from one scan, at one instant.
+    //
+    // They were two queries. The second counts a strict subset of the
+    // first, so in any single snapshot it cannot exceed it — but between
+    // two round trips an import can insert, and then it can, and the
+    // rules would have reported a contradiction that never happened.
+    // Measured 24.09.2026 on 61 557 rows: one scan, 26.8 ms and 4 851
+    // buffers, against 25-52 ms and ~4 850 buffers for EACH of the two
+    // it replaces. Atomic and half the cost, on the most expensive
+    // unthrottled route we serve.
+    const counts = await this.row(
+      `SELECT count(*) AS spots,
+              count(*) FILTER (WHERE context <> '{}'::jsonb) AS with_context
+         FROM camping_spots
+        WHERE missing_since IS NULL`,
     );
-    const withSurroundings = await this.number(
-      `SELECT count(*) FROM camping_spots
-        WHERE missing_since IS NULL AND context <> '{}'::jsonb`,
-    );
+    const asCount = (v: unknown): number | null => {
+      if (v === null || v === undefined) return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const spots = asCount(counts?.spots);
+    const withSurroundings = asCount(counts?.with_context);
     // 🔴 The STALEST country, not the freshest row anywhere.
     //
     // This was `max(last_seen_at)` across the whole table, and

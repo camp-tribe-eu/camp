@@ -342,7 +342,10 @@ jobs:
             echo "node scripts/osm-pipeline/import-release.mjs --tag $TAG"
             echo '```'
             echo
-            echo "Or one member state at a time — \`... --tag $TAG fr si\`."
+            echo "Or one member state at a time:"
+            echo '```'
+            echo "node scripts/osm-pipeline/import-release.mjs --tag $TAG fr si"
+            echo '```'
             echo
             # 🔴 ODbL requires attribution and the licence notice from
             # anyone who redistributes the database — and publishing a

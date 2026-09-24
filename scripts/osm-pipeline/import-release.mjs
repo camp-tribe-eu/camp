@@ -83,8 +83,13 @@ export function conninfo(url) {
   const parts = [];
   const add = (key, value) => parts.push(`${key}=${quoteValue(value)}`);
 
-  add('dbname', decodeURIComponent(u.pathname.replace(/^\//, '')) || 'postgres');
-  if (u.hostname) add('host', u.hostname);
+  add('dbname', decodeURIComponent(u.pathname.replace(/^\/+/, '')) || 'postgres');
+  // 🔴 `hostname` keeps the brackets of an IPv6 literal, and libpq does
+  // not want them: `postgres://[::1]:5432/db` produced `host=[::1]` and
+  // psql answered "could not translate host name". The Python twin never
+  // had this because urlparse strips them. Same invisible-locally,
+  // fatal-in-production shape as the dropped sslmode.
+  if (u.hostname) add('host', u.hostname.replace(/^\[|\]$/g, ''));
   if (u.port) add('port', u.port);
   if (u.username) add('user', decodeURIComponent(u.username));
   if (u.password) add('password', decodeURIComponent(u.password));
@@ -98,12 +103,24 @@ export function conninfo(url) {
   // import would fail with a message about SSL that names nothing in
   // this file. libpq's URI parameters ARE its keywords, one for one, so
   // they carry across unchanged.
-  for (const [key, value] of u.searchParams) {
+  for (const key of new Set(u.searchParams.keys())) {
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
       throw new Error(`DATABASE_URL carries a parameter libpq cannot name: ${key}`);
     }
     // Ours win: the URL's own user/host/port are the authoritative ones.
     if (parts.some((p) => p.startsWith(`${key}=`))) continue;
+    // 🔴 The LAST value, because that is what libpq does with a repeated
+    // keyword — proven against psql 17: `dbname=a dbname=b` opens b. This
+    // took the first, so `?sslmode=disable&sslmode=require` meant
+    // "disable" here and "require" in every other client reading the same
+    // URL, including our own shell twin. A TLS downgrade, and two of our
+    // tools disagreeing about one string.
+    const values = u.searchParams.getAll(key);
+    const value = values[values.length - 1];
+    // A blank parameter is dropped rather than sent as `key=''`, which
+    // libpq rejects outright (`invalid sslmode value: ""`). Writing
+    // nothing is what the URL meant and what it used to do.
+    if (value === '') continue;
     add(key, value);
   }
   return parts.join(' ');
@@ -180,8 +197,18 @@ export function plan(requested, sizes) {
   if (unknown.length > 0) {
     throw new Error(`not EU member states: ${unknown.join(', ')}`);
   }
+  // 🔴 An unknown size goes LAST, not first.
+  //
+  // It defaulted to 0, so a country the release is missing sorted ahead
+  // of Malta — and the workflow publishes partial releases on purpose
+  // (`complete=partial` when a region fails). The run would then open
+  // with a block of downloads guaranteed to fail, which is the exact
+  // opposite of the "fail fast on Malta's 18" this sort exists for.
+  // With every size unknown they are all equal and the tiebreak makes
+  // the order alphabetical, as before.
+  const size = (c) => sizes?.[c] ?? Number.MAX_SAFE_INTEGER;
   return [...new Set(wanted)].sort(
-    (a, b) => (sizes?.[a] ?? 0) - (sizes?.[b] ?? 0) || a.localeCompare(b),
+    (a, b) => size(a) - size(b) || a.localeCompare(b),
   );
 }
 
@@ -208,15 +235,31 @@ export function sizesFromAssets(assets) {
 }
 
 function assetSizes(tag) {
+  let assets;
   try {
-    const json = run('gh', [
-      'release', 'view', tag, '-R', REPO, '--json', 'assets',
-    ]);
-    return sizesFromAssets(JSON.parse(json).assets ?? []);
+    assets = JSON.parse(
+      run('gh', ['release', 'view', tag, '-R', REPO, '--json', 'assets']),
+    ).assets ?? [];
   } catch (err) {
-    console.log(`  (could not read asset sizes: ${String(err.message).split('\n')[0]} — importing alphabetically)`);
+    console.log(
+      `  could not read asset sizes (${String(err.message).split('\n')[0]}) — importing alphabetically`,
+    );
     return {};
   }
+  const sizes = sizesFromAssets(assets);
+  // 🔴 A successful read that matched nothing is the silent failure.
+  //
+  // The catch above only fires when gh itself fails. If the workflow's
+  // asset naming ever drifts from assetFor(), every lookup misses, the
+  // order quietly reverts to alphabetical and nothing is printed —
+  // "passes on empty input", which is the one thing this project treats
+  // as worse than failing.
+  if (Object.keys(sizes).length === 0) {
+    console.log(
+      `  the release lists ${assets.length} asset(s), none of them ours — importing alphabetically`,
+    );
+  }
+  return sizes;
 }
 
 const run = (cmd, argv, opts = {}) =>
@@ -273,6 +316,33 @@ function selfTest() {
     quoteValue('camptribe_dev') === 'camptribe_dev');
   ok('an empty value is written as empty, not as nothing',
     quoteValue('') === "''");
+
+  // ── the twins must agree, because two tools read one DATABASE_URL ──
+  // Every case below was measured against psql 17 and against
+  // _pgconn.sh; both now produce the same string.
+  ok('a carriage return in a password is quoted (libpq splits on isspace)',
+    conninfo('postgres://u:pa%0Dss@h/db') === "dbname=db host=h user=u password='pa\rss'",
+    JSON.stringify(conninfo('postgres://u:pa%0Dss@h/db')));
+  ok('an IPv6 host loses its brackets, which libpq does not want',
+    conninfo('postgres://[::1]:5432/db') === 'dbname=db host=::1 port=5432',
+    conninfo('postgres://[::1]:5432/db'));
+  ok('a repeated parameter takes the LAST value, as libpq does',
+    conninfo('postgres://h/db?sslmode=disable&sslmode=require') ===
+      'dbname=db host=h sslmode=require',
+    conninfo('postgres://h/db?sslmode=disable&sslmode=require'));
+  ok('a blank parameter is dropped, not sent as an empty string',
+    conninfo('postgres://h/db?sslmode=') === 'dbname=db host=h');
+  ok('a doubled slash before the database name is not part of it',
+    conninfo('postgres://h//db') === 'dbname=db host=h');
+  ok('a key with a leading digit is refused, as in the shell twin',
+    throws(() => conninfo('postgres://h/db?1abc=1')));
+
+  // ── the order the countries are done in ───────────────────────────
+  ok('a country the release is missing goes last, not first', (() => {
+    // fr is huge but present; xx-sized mt is absent from the release.
+    const order = plan(['fr', 'mt', 'si'], { fr: 25793000, si: 447000 });
+    return order.join(',') === 'si,fr,mt';
+  })(), plan(['fr', 'mt', 'si'], { fr: 25793000, si: 447000 }).join(','));
 
   // 🔴 The single malformed tag that cost France 25,793 campsites.
   ok('a blank key is dropped', (() => {
@@ -367,8 +437,12 @@ async function main() {
     run('gh', ['release', 'list', '-R', REPO, '--limit', '1', '--json', 'tagName', '-q', '.[0].tagName']).trim();
   if (!tag) throw new Error('no release found');
 
-  const countries = plan(args.filter((a) => /^[a-zA-Z]{2}$/.test(a)), assetSizes(tag));
-  console.log(`release ${tag} — ${countries.length} member state(s)\n`);
+  console.log(`release ${tag}`);
+  const countries = plan(
+    args.filter((a) => /^[a-zA-Z]{2}$/.test(a)),
+    assetSizes(tag),
+  );
+  console.log(`${countries.length} member state(s), smallest first\n`);
 
   const work = mkdtempSync(join(tmpdir(), 'camptribe-release-'));
   let done = 0;

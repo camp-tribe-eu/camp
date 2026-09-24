@@ -34,9 +34,8 @@ import * as data from './eu-member-states.json';
 export const EU_GEOFABRIK: Readonly<Record<string, string>> = data.members;
 
 /** The European Union as of 2026, lower case, sorted for stable output. */
-export const EU_MEMBER_STATES: readonly string[] = Object.keys(
-  EU_GEOFABRIK,
-).sort();
+export const EU_MEMBER_STATES: readonly string[] =
+  Object.keys(EU_GEOFABRIK).sort();
 
 /**
  * Is this a country we serve?

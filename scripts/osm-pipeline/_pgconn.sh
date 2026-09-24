@@ -31,9 +31,13 @@ import sys, urllib.parse
 # is read as a different keyword. A generated password is exactly where
 # those characters come from, and the failure arrives as an
 # authentication error that names nothing in this file.
+# 🔴 str.isspace(), not a list of three characters. libpq splits on
+# isspace(), which is also \r, \v and \f — and the .mjs twin already
+# used \s. Proven: a password holding a carriage return came out bare and
+# psql answered 'відсутній "=" після ...'.
 def q(value):
     v = str(value)
-    if v and not any(c in v for c in " \t\n'\\"):
+    if v and not any(c.isspace() or c in "'\\" for c in v):
         return v
     return "'" + v.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
@@ -48,12 +52,23 @@ if u.password: parts.append(f"password={q(urllib.parse.unquote(u.password))}")
 # included — invisible against a local socket, fatal against every
 # managed Postgres there is. libpq's URI parameters are its keywords,
 # one for one, so they carry across unchanged.
+# 🔴 The same rule as the .mjs twin, character for character.
+#
+# It was `key.replace('_','').isalnum()`, which is Unicode-aware in
+# Python: it accepted `?ключ=1` and `?1abc=1`, both of which the .mjs
+# rejects and neither of which libpq can name. Two tools reading one
+# DATABASE_URL must agree about what that URL means.
+KEY = __import__('re').compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 seen = {p.split('=', 1)[0] for p in parts}
 for key, values in urllib.parse.parse_qs(u.query, keep_blank_values=True).items():
     if key in seen:
         continue  # the URL's own host/user/port stay authoritative
-    if not key.replace('_', '').isalnum():
+    if not KEY.match(key):
         sys.exit(f"DATABASE_URL carries a parameter libpq cannot name: {key}")
+    # libpq takes the last repeat of a keyword; a blank one is dropped
+    # rather than sent as key='', which libpq refuses.
+    if values[-1] == '':
+        continue
     parts.append(f"{key}={q(values[-1])}")
 
 print(" ".join(parts))

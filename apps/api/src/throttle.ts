@@ -118,12 +118,19 @@ export function isExempt(
   // slash is the single most common way — so the exemption would have
   // been absent for exactly the caller it was written for, and nobody
   // would have found out until the first 429 during an incident.
-  // isBulkPath below has always normalised; this now does the same.
-  const clean = path
-    .split('?')[0]
-    .replace(/^\/+|\/+$/g, '')
-    .toLowerCase();
-  if (clean === '' || clean === 'health') return true;
+  // isBulkPath below stripped slashes and query but never case, which
+  // was its own hole — fixed there, in the same breath.
+  const bare = path.split('?')[0];
+  const clean = bare.replace(/^\/+|\/+$/g, '').toLowerCase();
+  // 🔴 The root is `/`, and only `/`.
+  //
+  // Normalising first made `//` and `///` collapse to the empty string
+  // and become exempt — and Express answers `//` with a 404, not the
+  // root route, so that was a hole with nothing behind it. Review found
+  // it. The route is matched exactly; only `health` is normalised,
+  // because that is the one a monitor's URL field mangles.
+  if (bare === '/') return true;
+  if (clean === 'health') return true;
   if (!expected) return false;
   return typeof token === 'string' && token.length > 0 && token === expected;
 }
@@ -144,7 +151,20 @@ export const BUILD_TOKEN_HEADER = 'x-build-token';
  * eighteen-a-minute across the three.
  */
 export function isBulkPath(path: string): boolean {
-  const clean = path.split('?')[0].replace(/^\/+|\/+$/g, '');
+  // 🔴 Lower-cased, because the router is.
+  //
+  // Nest is built on Express, whose default is `caseSensitive: false`,
+  // and AppModule is created without overriding it. Measured: a GET for
+  // `/SPOTS/SEARCH-INDEX` is answered 200 with the full 1.1 MB document
+  // — while this function said false, so it was counted in the ordinary
+  // bucket instead of the bulk one. A caller who alternated case got
+  // twelve whole-dataset responses a minute against a documented six,
+  // and polluted the ordinary counter on the way. Found in review; the
+  // route was serving, the limit was not.
+  const clean = path
+    .split('?')[0]
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
   return BULK_ROUTES.some((r) => clean === r);
 }
 

@@ -123,6 +123,28 @@ describe('who a request is counted against', () => {
   });
 });
 
+// 🔴 Express matches routes case-insensitively by default, and Nest does
+// not override it. So the limiter has to as well, or a capital letter is
+// a way round it.
+describe('the bulk bucket follows the router, not the spelling', () => {
+  it.each([
+    '/SPOTS/SEARCH-INDEX',
+    '/Spots/Map/Points',
+    '/spots/index/',
+    '//spots/index',
+    '/spots/search-index?x=1',
+  ])('%s is still a whole-dataset route', (path) => {
+    expect(isBulkPath(path)).toBe(true);
+  });
+
+  it.each(['/spots/si', '/spots', '/spots/indexes', '/health'])(
+    '%s is not',
+    (path) => {
+      expect(isBulkPath(path)).toBe(false);
+    },
+  );
+});
+
 describe('what is exempt', () => {
   it('the root, because a monitor is meant to poll it', () => {
     expect(isExempt('/')).toBe(true);
@@ -151,9 +173,19 @@ describe('what is exempt', () => {
     },
   );
 
-  it.each(['//', '/?probe=1'])('and the root, however written: %s', (path) => {
-    expect(isExempt(path)).toBe(true);
+  it('and the root with a query, which a monitor often adds', () => {
+    expect(isExempt('/?probe=1')).toBe(true);
   });
+
+  // 🔴 `//` is not the root. Express answers it with a 404, so exempting
+  // it bought nothing and gave an unlimited path to anyone who found it.
+  // The first version of the normalisation did exactly that.
+  it.each(['//', '///', '//?x=1'])(
+    '%s is a 404, not the root, and stays counted',
+    (path) => {
+      expect(isExempt(path)).toBe(false);
+    },
+  );
 
   // The normalisation must not turn into "anything containing health".
   it.each(['/health/deep', '/healthz', '/spots/health'])(

@@ -192,13 +192,16 @@ export function evaluate(facts: Facts): {
   } else if (facts.withSurroundings > facts.spots) {
     // 🔴 An impossible number is a broken measurement, not good news.
     //
-    // Surroundings are a subset of campsites, so this is arithmetic that
-    // cannot happen while both queries are counting the same thing. It
-    // happens when they are not: rows left behind by a delete, a join
-    // that multiplies, a filter on one side and not the other. Reported
-    // as a fault, because the alternative is a number that looks better
-    // the more wrong it is — 999 999 of 61 521 would have read as 1626%
-    // coverage and passed a `> 0` test with room to spare.
+    // Surroundings are a subset of campsites, so this cannot happen
+    // while both numbers count the same thing at the same moment. It
+    // stays because the second half of that sentence is a property of
+    // the query, not of the world: the service now reads both in one
+    // scan (it used to use two, and review pointed out that the only
+    // thing this rule could then catch was that race). If a later change
+    // splits them again, adds a join that multiplies, or filters one
+    // side and not the other, this is what says so — instead of a number
+    // that looks better the more wrong it is. 999 999 of 61 521 would
+    // have read as 1626% coverage and passed a `> 0` test with room.
     checks.surroundings = {
       ok: false,
       detail: `${facts.withSurroundings} campsites have surroundings but only ${facts.spots} exist — the two counts disagree`,
