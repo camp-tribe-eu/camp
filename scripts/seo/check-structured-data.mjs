@@ -25,7 +25,7 @@
 // property name is invisible to a human reviewer and invisible to
 // Lighthouse, which is exactly why it needs a machine.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -83,6 +83,17 @@ function validateNode(node, where, errors, inStarRating = false) {
   for (const t of types) for (const a of ancestors(t)) allowed.add(a);
 
   for (const [key, value] of Object.entries(node)) {
+    // 🔴 `@graph` is JSON-LD syntax, but its CONTENTS are not.
+    //
+    // Skipping the key skipped everything inside it, so a document that
+    // wrapped its nodes in a @graph was never validated at all — an
+    // invented @type, a misspelled property and a fabricated
+    // aggregateRating all passed. Found in review. The key itself is
+    // still not a schema.org property; the walk continues into it.
+    if (key === '@graph') {
+      validateNode(value, `${where}.@graph`, errors, false);
+      continue;
+    }
     if (KEYWORDS.has(key)) continue;
 
     const domains = INDEX.properties[key];
@@ -161,18 +172,46 @@ function validateNode(node, where, errors, inStarRating = false) {
       `${where}: aggregate rating markup, but the site has no reviews yet (CAMP-53)`,
     );
   }
+  // 🔴 An AggregateRating is never acceptable, wherever it stands.
+  //
+  // Review found the narrowing had a hole the blanket ban did not: the
+  // exemption asked `types.includes('Rating')`, and AggregateRating
+  // INHERITS from Rating, so `starRating: {"@type":"AggregateRating",
+  // "ratingValue":4.8,"bestRating":5}` was accepted — a rating derived
+  // from reviews we do not have, dressed as a state classification. The
+  // type is banned by name, before anything else is considered.
+  if (types.includes('AggregateRating')) {
+    errors.push(
+      `${where}: AggregateRating — the site has no reviews at all (CAMP-53)`,
+    );
+  }
   if (node.ratingValue !== undefined && !inStarRating) {
     errors.push(
       `${where}: ratingValue outside a starRating — we rate nothing (CAMP-53)`,
     );
   }
-  if (inStarRating && types.includes('Rating')) {
+  if (inStarRating && types.length > 0) {
+    // 🔴 Exactly Rating, not "something that inherits from Rating".
+    if (types.length !== 1 || types[0] !== 'Rating') {
+      errors.push(
+        `${where}: a starRating must be a plain Rating, not ${types.join('/')}`,
+      );
+    }
     // A star rating without its scale is unreadable: 3 out of what?
     if (node.ratingValue === undefined) {
       errors.push(`${where}: starRating without a ratingValue`);
     }
     if (node.bestRating === undefined) {
       errors.push(`${where}: starRating without a bestRating — 3 out of what?`);
+    }
+    // And a value outside its own scale is not a classification.
+    const v = Number(node.ratingValue);
+    const best = Number(node.bestRating);
+    const worst = node.worstRating === undefined ? 1 : Number(node.worstRating);
+    if (Number.isFinite(v) && Number.isFinite(best) && (v > best || v < worst)) {
+      errors.push(
+        `${where}: starRating ${node.ratingValue} is outside its own ${worst}-${best} scale`,
+      );
     }
   }
 
@@ -237,6 +276,10 @@ export function validateHtml(html, label) {
     // a trailing slash.
     if (typeof ctx !== 'string' || !/^https?:\/\/schema\.org\/?$/.test(ctx)) {
       errors.push(`${where}: @context is not schema.org (${JSON.stringify(ctx)})`);
+    }
+    if (parsed === null || typeof parsed !== 'object') {
+      errors.push(`${where}: the block is not a JSON-LD object`);
+      return;
     }
     validateNode(parsed, where, errors);
   });
@@ -419,6 +462,87 @@ if (SELF_TEST) {
         { '@type': 'PropertyValue', name: 'Distance to Lake Bled', value: 365 },
       ],
     }],
+    // 🔴 The cases that prove the NEW lines, not the old domain check.
+    //
+    // Review deleted all three new rating rules and found only one case
+    // went red — the other two were being rejected by the pre-existing
+    // "is this property legal on this type" check, so the rules that
+    // replaced a blanket ban were untested in both directions.
+    ['an aggregate rating smuggled in as a star rating', false, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'FR' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      starRating: { '@type': 'AggregateRating', ratingValue: 4.8, bestRating: 5 },
+    }],
+    // ratingValue IS legal on a Rating by the vocabulary, and this one
+    // stands outside any starRating — so the domain check passes it and
+    // only the new rule can reject it. That is the point: the previous
+    // version of this case was rejected by the domain check instead, and
+    // deleting the rule left it green.
+    ['a bare Rating block of our own', false, {
+      '@context': 'https://schema.org',
+      '@type': 'Rating',
+      ratingValue: 5,
+      bestRating: 5,
+    }],
+    ['four stars out of five is fine', true, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'FR' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      starRating: { '@type': 'Rating', ratingValue: 4, bestRating: 5, worstRating: 1 },
+    }],
+    ['nine stars out of five is not', false, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'FR' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      starRating: { '@type': 'Rating', ratingValue: 9, bestRating: 5, worstRating: 1 },
+    }],
+    ['zero stars is below the scale it declares', false, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'FR' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      starRating: { '@type': 'Rating', ratingValue: 0, bestRating: 5, worstRating: 1 },
+    }],
+
+    // 🔴 @graph used to hide everything inside it from every check.
+    ['a fabricated rating inside a @graph', false, {
+      '@context': 'https://schema.org',
+      '@graph': [{
+        '@type': 'Campground',
+        name: 'x',
+        url: 'https://camptribe.eu/x',
+        address: { '@type': 'PostalAddress', addressCountry: 'FR' },
+        geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+        aggregateRating: { '@type': 'AggregateRating', ratingValue: 4.9, reviewCount: 3000 },
+      }],
+    }],
+    ['an invented type inside a @graph', false, {
+      '@context': 'https://schema.org',
+      '@graph': [{ '@type': 'TotallyInventedType', name: 'x' }],
+    }],
+    ['a well-formed @graph still passes', true, {
+      '@context': 'https://schema.org',
+      '@graph': [{
+        '@type': 'Campground',
+        name: 'x',
+        url: 'https://camptribe.eu/x',
+        address: { '@type': 'PostalAddress', addressCountry: 'FR' },
+        geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      }],
+    }],
+
     ['a property that carries no value at all', false, {
       '@context': 'https://schema.org',
       '@type': 'Campground',
@@ -465,9 +589,30 @@ if (SELF_TEST) {
 // would otherwise walk .next/server/app and exit the process. The tests
 // for CAMP-114's markup check the same rules this file enforces, against
 // the same vocabulary index — importing it is how the two cannot drift.
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+// 🔴 REALPATH ON BOTH SIDES, or this guard silently switches CI off.
+//
+// `import.meta.url` is resolved through symlinks; `process.argv[1]` is
+// not. One symlink anywhere in the path makes them differ, `main()` never
+// runs, and the process prints nothing and exits 0 — a validator that has
+// quietly stopped validating, which is the exact failure this whole file
+// exists to prevent. Reproduced by review on macOS, where /tmp is a
+// symlink to /private/tmp:
+//
+//   direct   exit=1  "No built pages under … Build first."
+//   symlink  exit=0  (nothing at all)
+//
+// GitHub's runner path happens to be symlink-free today, so CI was not
+// broken — it would have broken the first time a checkout path gained a
+// symlink, and nothing would have said so.
+const invokedDirectly = (() => {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return false;
+  }
+})();
 
 if (invokedDirectly) {
   // 🔴 `.catch`, not top-level `await`. A module with top-level await is

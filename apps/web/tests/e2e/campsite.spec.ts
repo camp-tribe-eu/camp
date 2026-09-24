@@ -291,6 +291,51 @@ test.describe('structured data (CAMP-37)', () => {
     expect(camp.amenityFeature ?? []).toHaveLength(0);
   });
 
+  // ── CAMP-114 ─────────────────────────────────────────────────────────
+  //
+  // 🔴 Every marked-up question must be readable on the page.
+  //
+  // Google's FAQ policy requires the answer to be visible, and the honest
+  // reason is the same one: markup that says something the page does not
+  // is a claim made to machines only. The condition that emits the block
+  // and the condition that renders the list are 160 lines apart in
+  // page.tsx, and review pointed out that nothing tied them together — a
+  // later `.slice(0, 3)` on the visible list, or collapsing the
+  // section,
+  // would be a policy breach no test would notice.
+  test('🔴 every FAQ question in the markup is visible on the page', async ({
+    page,
+  }) => {
+    await page.goto(fx.rich);
+    const docs = await graphs(page);
+    const faq = docs.find((d) => d['@type'] === 'FAQPage');
+    expect(faq, 'no FAQPage on a campsite with computed surroundings').toBeTruthy();
+
+    const questions = faq.mainEntity as { name: string; acceptedAnswer: { text: string } }[];
+    expect(questions.length).toBeGreaterThan(0);
+
+    const shown = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+    for (const q of questions) {
+      expect(shown, `question not on the page: ${q.name}`).toContain(
+        q.name.replace(/\s+/g, ' '),
+      );
+      expect(shown, `answer not on the page: ${q.name}`).toContain(
+        q.acceptedAnswer.text.replace(/\s+/g, ' '),
+      );
+    }
+  });
+
+  // And the other direction: a campsite we know nothing about asks
+  // nothing, rather than showing a heading over an empty list.
+  test('a site with nothing measured carries no FAQ at all', async ({ page }) => {
+    await page.goto(fx.empty);
+    const docs = await graphs(page);
+    expect(docs.some((d) => d['@type'] === 'FAQPage')).toBe(false);
+    await expect(
+      page.getByRole('heading', { name: 'Questions we can answer' }),
+    ).toHaveCount(0);
+  });
+
   test('breadcrumbs are numbered from 1 without gaps', async ({ page }) => {
     await page.goto(fx.rich);
     const docs = await graphs(page);

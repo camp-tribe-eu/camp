@@ -22,6 +22,7 @@ import {
   campsiteFaq,
   faqGraph,
   jsonLdProps,
+  officialStars,
 } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import TravelNotice from '@/components/travel-notice';
@@ -174,11 +175,15 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
               it at all. Said as what it is: somebody else's rating, not
               ours. We have no opinion about any campsite and say so on
               the disclaimer page. */}
-          {spot.stars !== null && (
+          {/* 🔴 The same reading as the graph, not a looser one. This
+              checked only `!== null`, so a payload without the field
+              printed "undefined-star official classification" while the
+              JSON-LD correctly carried nothing. Found in review. */}
+          {officialStars(spot) !== undefined && (
             <>
               {' · '}
               <span data-testid="official-stars">
-                {spot.stars}-star official classification
+                {officialStars(spot)}-star official classification
               </span>
             </>
           )}

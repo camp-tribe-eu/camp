@@ -125,6 +125,29 @@ function contextSentence(spot: Spot): string | undefined {
  * "0 m to the sea" for a site nowhere near it: not knowing is not zero,
  * the same rule the amenities follow.
  */
+/**
+ * 🔴 The three ways an optional value arrives as "nothing".
+ *
+ * `undefined` (the field is absent), `null` (the column is NULL and the
+ * API passed it through) and `''` (a name nobody filled in). Review found
+ * each of them producing a published claim: `null m above sea level`,
+ * `undefined stars in the national classification`, and a PropertyValue
+ * named `Distance to ` with nothing after it. The API normalises all
+ * three today — so the web layer was relying on an invariant only the
+ * API's SQL enforces, with nothing asserting it.
+ */
+const known = (v: unknown): boolean => v !== undefined && v !== null;
+const text = (v: unknown): string | undefined => {
+  if (typeof v !== 'string') return undefined;
+  const t = v.trim();
+  return t === '' ? undefined : t;
+};
+/** A label for terrain we recognise; unknown values name nothing. */
+const terrainWord = (t: unknown): string | undefined =>
+  typeof t === 'string' && t in TERRAIN_LABEL
+    ? TERRAIN_LABEL[t as keyof typeof TERRAIN_LABEL].toLowerCase()
+    : undefined;
+
 export function surroundingProperties(spot: Spot) {
   const c = spot.context ?? {};
   const out: Record<string, unknown>[] = [];
@@ -135,29 +158,59 @@ export function surroundingProperties(spot: Spot) {
     unitCode: 'MTR',
   });
 
-  if (c.water) {
-    out.push(
-      metres(
-        `Distance to ${c.water.name ?? WATER_LABEL[c.water.kind].toLowerCase()}`,
-        c.water.m,
-      ),
-    );
+  if (c.water && known(c.water.m)) {
+    const what =
+      text(c.water.name) ?? WATER_LABEL[c.water.kind]?.toLowerCase() ?? 'water';
+    out.push(metres(`Distance to ${what}`, c.water.m));
   }
-  if (c.town) out.push(metres(`Distance to ${c.town.name ?? 'the nearest town'}`, c.town.m));
-  if (c.supermarket) out.push(metres('Distance to the nearest supermarket', c.supermarket.m));
-  if (c.station) {
+  if (c.town && known(c.town.m)) {
+    out.push(metres(`Distance to ${text(c.town.name) ?? 'the nearest town'}`, c.town.m));
+  }
+  if (c.supermarket && known(c.supermarket.m)) {
+    out.push(metres('Distance to the nearest supermarket', c.supermarket.m));
+  }
+  if (c.station && known(c.station.m)) {
+    const name = text(c.station.name);
     out.push(
       metres(
-        `Distance to ${c.station.name ? `${c.station.name} station` : 'the nearest railway station'}`,
+        `Distance to ${name ? `${name} station` : 'the nearest railway station'}`,
         c.station.m,
       ),
     );
   }
-  if (c.elevation !== undefined) out.push(metres('Elevation above sea level', c.elevation));
-  if (c.terrain) {
-    out.push(metres(`Relief within 1 km (${TERRAIN_LABEL[c.terrain.type].toLowerCase()})`, c.terrain.relief));
+  if (known(c.elevation)) {
+    out.push(metres('Elevation above sea level', c.elevation as number));
+  }
+  if (c.terrain && known(c.terrain.relief)) {
+    const word = terrainWord(c.terrain.type);
+    out.push(
+      metres(
+        word ? `Relief within 1 km (${word})` : 'Relief within 1 km',
+        c.terrain.relief,
+      ),
+    );
   }
   return out;
+}
+
+/**
+ * The national classification, or nothing.
+ *
+ * 🔴 One reading, used by both the graph and the FAQ. They disagreed:
+ * `campgroundGraph` checked null AND undefined, `campsiteFaq` checked
+ * only null, so a payload without the field printed "undefined stars in
+ * the national classification" on the page and in the markup while the
+ * Campground node correctly carried no starRating at all — the page
+ * contradicting its own graph.
+ *
+ * The range is checked because a value outside it is not a
+ * classification: the database constrains stars to 1-5, and markup that
+ * says 0 out of 5 would be a claim no authority ever made.
+ */
+export function officialStars(spot: Spot): number | undefined {
+  const n = spot.stars;
+  if (typeof n !== 'number' || !Number.isInteger(n)) return undefined;
+  return n >= 1 && n <= 5 ? n : undefined;
 }
 
 export interface FaqItem {
@@ -185,40 +238,43 @@ export interface FaqItem {
  */
 export function campsiteFaq(spot: Spot): FaqItem[] {
   const c = spot.context ?? {};
-  const name = spot.name ?? `this ${SPOT_TYPE_LABEL[spot.type].toLowerCase()}`;
+  const name = text(spot.name) ?? `this ${SPOT_TYPE_LABEL[spot.type].toLowerCase()}`;
   const items: FaqItem[] = [];
 
-  if (c.water) {
-    const what = c.water.name ?? WATER_LABEL[c.water.kind].toLowerCase();
+  if (c.water && known(c.water.m)) {
+    const what =
+      text(c.water.name) ?? WATER_LABEL[c.water.kind]?.toLowerCase() ?? 'water';
     items.push({
       q: `How far is the nearest water from ${name}?`,
       a: `${formatDistance(c.water.m)} to ${what}, measured straight-line from the centre of the site. The walk or drive will be longer.`,
     });
   }
-  if (c.town) {
+  if (c.town && known(c.town.m)) {
     items.push({
       q: `How far is the nearest town?`,
-      a: `${c.town.name ?? 'The nearest town'} is ${formatDistance(c.town.m)} away in a straight line.`,
+      a: `${text(c.town.name) ?? 'The nearest town'} is ${formatDistance(c.town.m)} away in a straight line.`,
     });
   }
-  if (c.supermarket) {
+  if (c.supermarket && known(c.supermarket.m)) {
     items.push({
-      q: `Where can you buy food nearby?`,
-      a: `The nearest supermarket is ${formatDistance(c.supermarket.m)} away in a straight line.`,
+      q: `How far is the nearest supermarket?`,
+      a: `${formatDistance(c.supermarket.m)} away in a straight line. We do not know its opening hours.`,
     });
   }
-  if (c.station) {
+  if (c.station && known(c.station.m)) {
+    const station = text(c.station.name);
     items.push({
-      q: `Can you reach it without a car?`,
-      a: `${c.station.name ? `${c.station.name} station` : 'The nearest railway station'} is ${formatDistance(c.station.m)} away in a straight line. We do not know whether a bus or a path connects the two.`,
+      q: `How far is the nearest railway station?`,
+      a: `${station ? `${station} station` : 'The nearest railway station'} is ${formatDistance(c.station.m)} away in a straight line. We do not know whether a bus or a path connects the two.`,
     });
   }
-  if (c.elevation !== undefined || c.terrain) {
+  if (known(c.elevation) || (c.terrain && known(c.terrain.relief))) {
     const bits: string[] = [];
-    if (c.elevation !== undefined) bits.push(`${c.elevation} m above sea level`);
-    if (c.terrain) {
+    if (known(c.elevation)) bits.push(`${c.elevation} m above sea level`);
+    if (c.terrain && known(c.terrain.relief)) {
+      const word = terrainWord(c.terrain.type);
       bits.push(
-        `${TERRAIN_LABEL[c.terrain.type].toLowerCase()} ground, ${c.terrain.relief} m of relief within a kilometre`,
+        `${word ? `${word} ground, ` : ''}${c.terrain.relief} m of relief within a kilometre`,
       );
     }
     items.push({
@@ -251,17 +307,24 @@ export function campsiteFaq(spot: Spot): FaqItem[] {
     });
   }
 
+  // 🔴 Neutral wording here too, and it took review to see why.
+  //
+  // "Does it cost anything?" and "Is it officially classified?" are
+  // yes/no questions — the very shape the rule above forbids — and the
+  // second was answered "Yes — ${spot.stars} stars", which prints
+  // "undefined stars" the moment the field is absent. The graph guarded
+  // against that three functions away and this did not.
   if (spot.type === 'free' || spot.type === 'wild') {
     items.push({
-      q: `Does it cost anything?`,
+      q: `What do we know about the price?`,
       a: `It is recorded as a ${SPOT_TYPE_LABEL[spot.type].toLowerCase()}, which carries no fee. Local rules can still forbid staying overnight — check before you rely on it.`,
     });
   }
 
-  if (spot.stars !== null) {
+  if (officialStars(spot) !== undefined) {
     items.push({
-      q: `Is it officially classified?`,
-      a: `Yes — ${spot.stars} stars in the national classification published by the authority of ${countryName(spot.country)}. That is somebody else's rating, not ours; we do not rate campsites.`,
+      q: `What official classification does it have?`,
+      a: `${officialStars(spot)} stars in the national classification published by the authority of ${countryName(spot.country)}. That is somebody else's rating, not ours; we do not rate campsites.`,
     });
   }
 
@@ -348,18 +411,24 @@ export function campgroundGraph(
   // authority issued it, but not which body, and naming the wrong one
   // would be worse than naming none. We have no opinion about any
   // campsite, and `aggregateRating` stays absent for exactly that reason.
-  if (spot.stars !== null && spot.stars !== undefined) {
+  const stars = officialStars(spot);
+  if (stars !== undefined) {
     node.starRating = {
       '@type': 'Rating',
-      ratingValue: spot.stars,
+      ratingValue: stars,
       bestRating: 5,
       worstRating: 1,
     };
   }
 
   // The operator's own site, where a source gave us one. `sameAs` is the
-  // property for "another page that is unambiguously this same thing".
-  if (spot.website) node.sameAs = spot.website;
+  // property for "another page that is unambiguously this same thing" —
+  // so it must be a page. 🔴 The scheme is checked here rather than
+  // trusted from upstream: `sameAs: "javascript:…"` is not an XSS in a
+  // JSON document, but it is a machine-readable claim that a script is
+  // this campsite, and only http(s) can be true.
+  const site = text(spot.website);
+  if (site && /^https?:\/\//i.test(site)) node.sameAs = site;
 
   // Only claimed where the data actually says so. `free` and `wild` are
   // the two types that carry no fee; for the rest we do not know the
