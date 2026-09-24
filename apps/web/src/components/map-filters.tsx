@@ -54,6 +54,29 @@ export default function MapFilters({
       ]),
     });
 
+  /**
+   * Clear one group, and nothing else.
+   *
+   * 🔴 Including `includeUnknown`, when nothing is left to be unknown
+   * ABOUT. Review walked it: tick Toilets, tick "also show where this is
+   * not recorded", press "None" — and the reader was left on
+   * `/map?unknown=1` with the checkbox gone (it only renders while an
+   * amenity is filtered) and "Clear filters" hidden (nothing is being
+   * filtered). A flag with no control, carried in a shareable URL, and
+   * silently re-applied to the next amenity they ticked.
+   *
+   * `filter-clear` has always reset it. Two controls that both mean
+   * "clear this" must not disagree.
+   */
+  const clearGroup = (group: readonly AmenityKey[]) => {
+    const amenities = state.amenities.filter((a) => !group.includes(a));
+    onChange({
+      ...state,
+      amenities,
+      includeUnknown: amenities.length === 0 ? false : state.includeUnknown,
+    });
+  };
+
   const filtering = isFiltering(state);
 
   return (
@@ -103,17 +126,25 @@ export default function MapFilters({
 
       <Group
         legend="Facilities"
+        // 🔴 Keeps the accessibility side, and it did not.
+        //
+        // This replaced the whole amenities array, which holds BOTH
+        // groups — so a reader who ticked "Step-free" and then pressed
+        // "All" under Facilities had their wheelchair filter silently
+        // untick, and the map started showing sites that are not
+        // step-free. Found in review; the same commit's message claimed
+        // this boundary was respected. It was, for "None", and forgotten
+        // for "All".
         onAll={() =>
-          onChange({ ...state, amenities: [...GENERAL_AMENITY_KEYS] })
-        }
-        onNone={() =>
           onChange({
             ...state,
-            amenities: state.amenities.filter((a) =>
-              ACCESSIBILITY_KEYS.includes(a),
-            ),
+            amenities: [
+              ...GENERAL_AMENITY_KEYS,
+              ...state.amenities.filter((a) => ACCESSIBILITY_KEYS.includes(a)),
+            ],
           })
         }
+        onNone={() => clearGroup(GENERAL_AMENITY_KEYS)}
         allPressed={GENERAL_AMENITY_KEYS.every((a) =>
           state.amenities.includes(a),
         )}
@@ -149,14 +180,7 @@ export default function MapFilters({
             ],
           })
         }
-        onNone={() =>
-          onChange({
-            ...state,
-            amenities: state.amenities.filter(
-              (a) => !ACCESSIBILITY_KEYS.includes(a),
-            ),
-          })
-        }
+        onNone={() => clearGroup(ACCESSIBILITY_KEYS)}
         allPressed={ACCESSIBILITY_KEYS.every((a) => state.amenities.includes(a))}
         nonePressed={!ACCESSIBILITY_KEYS.some((a) => state.amenities.includes(a))}
         testId="access"
@@ -303,6 +327,11 @@ function Bulk({
       // nothing to do moves every other control next to it, and on a
       // phone that means the thing under the reader's thumb changes
       // between one tap and the next.
+      //
+      // 🔴 Both attributes, and the test drives the FACT rather than the
+      // claim: Playwright's toBeDisabled() is satisfied by aria-disabled
+      // alone, so removing the real one left every test green while the
+      // button stayed clickable. Review proved it by mutation.
       disabled={disabled}
       aria-disabled={disabled}
       className={

@@ -69,6 +69,17 @@ export const LAYERS = [
 export type LayerId = (typeof LAYERS)[number]['id'];
 
 /**
+ * 🔴 What an id may look like, pinned rather than assumed.
+ *
+ * The URL joins them with commas, so an id containing one would split in
+ * half on the way back and the layer would vanish from a shared link —
+ * and, being absent from `active`, would not even be reported as empty.
+ * Review demonstrated it with `fire, flood`. Nothing in the type stopped
+ * it: `satisfies` only asks for a string.
+ */
+export const LAYER_ID = /^[a-z][a-z0-9-]*$|^_[a-z][a-z0-9-]*$/;
+
+/**
  * 🔴 Only what we can actually draw is ever offered.
  *
  * A switch for a dataset that does not exist is a promise, and a greyed
@@ -136,7 +147,22 @@ export function emptyLayerNotice(
   active: readonly LayerId[],
   drawn: Readonly<Record<string, number>>,
 ): string | null {
-  const silent = active.filter((id) => (drawn[id] ?? 0) === 0);
+  // 🔴 A count we cannot read is a count of nothing.
+  //
+  // `drawn[id] ?? 0` caught null and undefined and let NaN through — and
+  // NaN is the shape `Number(element.getAttribute(...))` produces, which
+  // is exactly how these numbers are read. So an unmeasured layer said
+  // "we drew something" and the map stayed silent, which is the one
+  // failure this function exists to prevent. Review found it.
+  //
+  // `Object.hasOwn`, because a bare index walks the prototype: a layer
+  // called `toString` would have read as drawn.
+  const counted = (id: string): number => {
+    if (!Object.hasOwn(drawn, id)) return 0;
+    const n = drawn[id];
+    return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const silent = active.filter((id) => counted(id) === 0);
   if (silent.length === 0) return null;
   const names = silent.map(
     (id) => LAYERS.find((l) => l.id === id)?.label ?? id,

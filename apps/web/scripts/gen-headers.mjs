@@ -23,6 +23,38 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(here, '..', 'public', '_headers');
 
+// 🔴 A build made in development mode is not a build we may ship.
+//
+// next.config.mjs relaxes the CSP with 'unsafe-eval' when NODE_ENV is
+// development, because Next's dev compiler cannot run without it. Review
+// showed that guard is keyed on the SHELL, not on the server: Next keeps
+// a NODE_ENV that is already set (next/dist/bin/next: `process.env
+// .NODE_ENV = process.env.NODE_ENV || defaultEnv`, with only a yellow
+// warning), and `next start` serves the CSP from routes-manifest.json
+// rather than re-evaluating headers(). So `NODE_ENV=development next
+// build` bakes the relaxation into the production artefact, and nothing
+// downstream would ever say so.
+//
+// This script already runs in the build's own environment, as `prebuild`
+// — which makes it the one place that can turn that assumption into an
+// assertion. CI never sets NODE_ENV, so this is a guard against the
+// accident, not against CI.
+//
+// Scoped to the build: `predev` runs this same script to keep the dev
+// server's generated files in step, and refusing there would only stop
+// people working.
+const forABuild = process.env.npm_lifecycle_event !== 'predev';
+if (forABuild && process.env.NODE_ENV === 'development') {
+  console.error(
+    '🔴 NODE_ENV=development during a build.\n' +
+      '   next.config.mjs adds \'unsafe-eval\' to the CSP in that mode, and\n' +
+      '   next start serves whatever the build baked in — so this would ship\n' +
+      '   a production site with unsafe-eval allowed.\n' +
+      '   Unset NODE_ENV (or set it to production) and build again.',
+  );
+  process.exit(1);
+}
+
 const isPublic = process.env.NEXT_PUBLIC_SITE_MODE === 'public';
 
 const lines = [

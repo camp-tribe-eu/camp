@@ -100,16 +100,27 @@ test.describe('/map filters', () => {
     await skipWithoutWebGL(page);
     await loaded(page);
 
-    // Tick every facility, then every accessibility entry.
-    await page.getByTestId('filter-amenity-all').click();
-    for (const a of GENERAL_AMENITY_KEYS) {
+    // 🔴 ACCESSIBILITY FIRST, and that order is the test.
+    //
+    // The first version clicked Facilities-All first, when there was
+    // nothing accessible to destroy — and so it passed while Facilities
+    // "All" silently untucked both wheelchair filters. Review found it by
+    // reversing these two lines.
+    await page.getByTestId('filter-access-all').click();
+    for (const a of ACCESSIBILITY_KEYS) {
       await expect(page.getByTestId(`filter-amenity-${a}`)).toHaveAttribute(
         'aria-pressed',
         'true',
       );
     }
-    await page.getByTestId('filter-access-all').click();
+    await page.getByTestId('filter-amenity-all').click();
     for (const a of ACCESSIBILITY_KEYS) {
+      await expect(
+        page.getByTestId(`filter-amenity-${a}`),
+        `${a} was cleared by the facilities group`,
+      ).toHaveAttribute('aria-pressed', 'true');
+    }
+    for (const a of GENERAL_AMENITY_KEYS) {
       await expect(page.getByTestId(`filter-amenity-${a}`)).toHaveAttribute(
         'aria-pressed',
         'true',
@@ -134,6 +145,52 @@ test.describe('/map filters', () => {
     }
   });
 
+  // 🔴 The other direction, which no test clicked at all: Accessibility
+  // "None" must not empty the facilities either.
+  test('Accessibility None leaves the facilities alone', async ({ page }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await page.getByTestId('filter-amenity-all').click();
+    await page.getByTestId('filter-access-all').click();
+    await page.getByTestId('filter-access-none').click();
+    for (const a of GENERAL_AMENITY_KEYS) {
+      await expect(
+        page.getByTestId(`filter-amenity-${a}`),
+        `${a} was cleared by the accessibility group`,
+      ).toHaveAttribute('aria-pressed', 'true');
+    }
+    for (const a of ACCESSIBILITY_KEYS) {
+      await expect(page.getByTestId(`filter-amenity-${a}`)).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      );
+    }
+  });
+
+  // 🔴 A flag with no control, carried in a shareable URL.
+  test('clearing the last amenity also clears "include unrecorded"', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await page.getByTestId('filter-amenity-toilets').click();
+    await page.getByTestId('filter-include-unknown').locator('input').check();
+    expect(page.url()).toContain('unknown=1');
+
+    await page.getByTestId('filter-amenity-none').click();
+    // Otherwise the reader is left on /map?unknown=1 with the checkbox
+    // gone (it renders only while an amenity is filtered) and "Clear
+    // filters" hidden (nothing is being filtered) — and the choice is
+    // silently re-applied to whatever they tick next.
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('unknown'))
+      .toBeNull();
+    await page.getByTestId('filter-amenity-shower').click();
+    await expect(
+      page.getByTestId('filter-include-unknown').locator('input'),
+    ).not.toBeChecked();
+  });
+
   test('a bulk control that has nothing to do is disabled, not removed', async ({
     page,
   }) => {
@@ -149,6 +206,23 @@ test.describe('/map filters', () => {
     await expect(page.getByTestId('filter-amenity-all')).toBeVisible();
     await expect(page.getByTestId('filter-amenity-all')).toBeDisabled();
     await expect(page.getByTestId('filter-amenity-none')).toBeEnabled();
+
+    // 🔴 The fact, not the claim. toBeDisabled() is satisfied by
+    // aria-disabled on its own, so removing the real attribute left this
+    // test green while the button was still clickable — proved by
+    // mutation in review. Both are asserted by name, and the behaviour
+    // is driven: clicking a disabled "All" must change nothing.
+    await expect(page.getByTestId('filter-amenity-all')).toHaveAttribute(
+      'disabled',
+      '',
+    );
+    await expect(page.getByTestId('filter-amenity-all')).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    const before = page.url();
+    await page.getByTestId('filter-amenity-all').click({ force: true });
+    expect(page.url(), 'a disabled control still did something').toBe(before);
   });
 
   test('the bulk controls are reachable by keyboard', async ({ page }) => {
