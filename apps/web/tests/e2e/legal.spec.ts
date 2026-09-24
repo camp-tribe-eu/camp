@@ -164,11 +164,24 @@ test.describe('the legal pages', () => {
       expect(res.status(), `${p.slug} did not load`).toBeLessThan(400);
       const html = await res.text();
 
-      const h1 = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1] ?? '';
-      expect(
-        h1.replace(/<[^>]+>/g, '').trim(),
-        `${p.slug} has the wrong heading`,
-      ).toContain(p.title);
+      // 🔴 The heading's text, captured up to the first tag rather than
+      // stripped of tags afterwards.
+      //
+      // The earlier version ran `.replace(/<[^>]+>/g, '')` over the
+      // captured HTML, and CodeQL flagged it as incomplete
+      // multi-character sanitization — correctly, as a pattern. Nothing
+      // here is rendered, so there was no vulnerability, but the pattern
+      // has no business in the codebase either: a regex that removes
+      // tags is the one everybody copies into a place where it DOES get
+      // rendered.
+      //
+      // Nothing else is needed, because the heading is `{page.title}`
+      // and nothing more. Verified against every built legal page: each
+      // h1 holds plain text. If markup is ever nested inside one, this
+      // capture comes back empty and the test says so, which is the
+      // honest outcome — the silent strip would have hidden it.
+      const h1 = /<h1[^>]*>([^<]*)<\/h1>/i.exec(html)?.[1] ?? '';
+      expect(h1.trim(), `${p.slug} has the wrong heading`).toContain(p.title);
 
       const version =
         /data-testid="legal-version"[\s\S]{0,400}?Version[^0-9]{0,10}([0-9.]+)/.exec(
