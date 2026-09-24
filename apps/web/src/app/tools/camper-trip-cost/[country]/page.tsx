@@ -14,6 +14,7 @@ import {
   placeText,
   rankOf,
   TANK_LITRES,
+  unionComparison,
   VEHICLES,
 } from '@/lib/fuel';
 import { abs, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
@@ -107,6 +108,7 @@ export default async function CountryTripCostPage({
     (x) => x.country === country.toLowerCase(),
   );
   const borders = borderPrices(code, 'diesel');
+  const union = borders.length === 0 ? unionComparison(code, 'diesel') : [];
   const cheaperAcross = borders.filter((b) => b.difference < 0);
 
   // 🔴 Which of the two fuels is cheaper HERE, and by how much. Tax
@@ -121,7 +123,6 @@ export default async function CountryTripCostPage({
       : null;
   const path = `/tools/camper-trip-cost/${country.toLowerCase()}`;
   const week = longDate(FUEL.bulletinDate);
-  const cheaper = rank ? rank.position - 1 : 0;
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
@@ -182,7 +183,11 @@ export default async function CountryTripCostPage({
                   {placeText(rank.position, rank.of)}
                 </strong>{' '}
                 of the {rank.of} EU countries the Commission reports on
-                {cheaper > 0 && FUEL.euAverage.diesel !== null && (
+                {/* 🔴 Was `cheaper > 0`, which is false at position 1 —
+                    so the single country where "below the EU average" is
+                    most worth saying was the one page that omitted it.
+                    The clause depends on having an average, not on rank. */}
+                {FUEL.euAverage.diesel !== null && (
                   <>
                     , {c.diesel < FUEL.euAverage.diesel ? 'below' : 'above'} the
                     EU average of {euros(FUEL.euAverage.diesel, 3)}
@@ -286,14 +291,20 @@ export default async function CountryTripCostPage({
                 <span className="text-ink">{b.name}</span>
                 <span className="text-ink-2 tabular-nums">
                   {euros(b.price, 3)}{' '}
-                  <span
-                    className={b.difference < 0 ? 'text-ok' : 'text-ink-3'}
-                  >
-                    ({b.difference < 0 ? '−' : '+'}
-                    {euros(Math.abs(b.difference), 3)} a litre,{' '}
-                    {b.difference < 0 ? '−' : '+'}
-                    {euros(Math.abs(b.perTank))} a tank)
-                  </span>
+                  {/* 🔴 An equal price is said in words, not as
+                      "+ €0.000 a litre, + €0.00 a tank" — which is what
+                      Croatia and Slovenia rendered, being identical this
+                      week. A signed zero is not a comparison. */}
+                  {b.difference === 0 ? (
+                    <span className="text-ink-3">(the same)</span>
+                  ) : (
+                    <span className={b.difference < 0 ? 'text-ok' : 'text-ink-3'}>
+                      ({b.difference < 0 ? '−' : '+'}
+                      {euros(Math.abs(b.difference), 3)} a litre,{' '}
+                      {b.difference < 0 ? '−' : '+'}
+                      {euros(Math.abs(b.perTank))} a tank)
+                    </span>
+                  )}
                 </span>
               </li>
             ))}
@@ -305,10 +316,44 @@ export default async function CountryTripCostPage({
           </p>
         </section>
       ) : (
-        <p className="mt-10 max-w-prose text-ink-2">
-          {c.name} has no land border with another EU country, so there is no
-          cheaper tank to reach by driving — the ferry decides.
-        </p>
+        <section className="mt-10" aria-labelledby="borders-heading">
+          <h2 id="borders-heading" className="text-2xl font-bold text-heading">
+            {c.name} against the rest of the Union
+          </h2>
+          <p className="mt-2 max-w-prose text-ink-2">
+            {c.name} has no land border with another EU country, so there is no
+            cheaper tank to reach by driving — you fill up at the price here.
+            What that price is worth is a comparison rather than a decision:
+          </p>
+          <ul className="mt-4 max-w-prose space-y-2">
+            {union.map((u) => (
+              <li
+                key={u.code}
+                data-union={u.code}
+                className="flex flex-wrap items-baseline justify-between gap-x-4 border-b border-line py-2"
+              >
+                <span className="text-ink">{u.name}</span>
+                <span className="text-ink-2 tabular-nums">
+                  {euros(u.price, 3)}{' '}
+                  {u.difference === 0 ? (
+                    <span className="text-ink-3">(the same)</span>
+                  ) : (
+                    <span className={u.difference < 0 ? 'text-ok' : 'text-ink-3'}>
+                      ({u.difference < 0 ? '−' : '+'}
+                      {euros(Math.abs(u.difference), 3)} a litre,{' '}
+                      {u.difference < 0 ? '−' : '+'}
+                      {euros(Math.abs(u.perTank))} a tank)
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 max-w-prose text-sm text-ink-3">
+            A tank is taken as {TANK_LITRES} litres to keep the arithmetic
+            plain. Figures from {week}, and they move every week.
+          </p>
+        </section>
       )}
 
       <TripCostCalculator country={code} />

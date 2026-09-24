@@ -329,6 +329,51 @@ export function borderPrices(code: string, type: FuelType): BorderPrice[] {
 }
 
 /**
+ * For a country with no land border: how it compares with the Union.
+ *
+ * 🔴 Written because the duplicate guard failed, and failed correctly.
+ *
+ * Ireland, Cyprus and Malta have no EU land neighbour, so their pages
+ * lost the border table — the largest section the other twenty-four
+ * have — and what remained was mostly shared wording. Measured:
+ * ie ↔ cy came out at 82.3%, over the 80% line.
+ *
+ * The answer is not a lower threshold. It is that these pages have a
+ * real question of their own — you cannot drive somewhere cheaper, so
+ * what does a tank here cost against the rest of the Union? — and three
+ * measured reference points answer it: the cheapest member state, the
+ * weighted average, and the dearest. Every figure is from the same
+ * bulletin and every difference is subtraction.
+ */
+export function unionComparison(code: string, type: FuelType): BorderPrice[] {
+  const here = priceFor(code, type);
+  const list = ranked(type);
+  if (here === null || list.length === 0) return [];
+
+  const average = FUEL.euAverage[type];
+  const rows: { code: string; name: string; price: number }[] = [
+    { code: list[0].code, name: `${list[0].name} — cheapest in the EU`, price: list[0].price },
+  ];
+  if (average !== null) {
+    rows.push({ code: 'EU', name: 'EU average, weighted', price: average });
+  }
+  const dearest = list[list.length - 1];
+  rows.push({ code: dearest.code, name: `${dearest.name} — dearest in the EU`, price: dearest.price });
+
+  return rows
+    .filter((r) => r.code !== code.toUpperCase())
+    .map((r) => {
+      const difference = Math.round((r.price - here) * 1000) / 1000;
+      return {
+        ...r,
+        difference,
+        perTank: Math.round(difference * TANK_LITRES * 100) / 100,
+      };
+    })
+    .sort((a, b) => a.price - b.price);
+}
+
+/**
  * "3rd cheapest" or "4th most expensive", whichever a reader would say.
  *
  * 🔴 Not cosmetic. Germany came out as "the 24th cheapest of 27", which

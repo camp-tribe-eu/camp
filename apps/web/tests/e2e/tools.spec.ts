@@ -207,3 +207,171 @@ test.describe('the packing list', () => {
     await expect(page.getByRole('heading', { name: 'With a dog' })).toBeVisible();
   });
 });
+
+
+// ---------------------------------------------------------------------
+// Regressions found by adversarial review of this branch, before merge.
+// Each one is a defect that shipped past the tests above.
+// ---------------------------------------------------------------------
+
+test.describe('what the review found', () => {
+  test('a shared link keeps the country even when it is the module default', async ({
+    page,
+    context,
+  }) => {
+    // 🔴 `toSearch` compared against the module defaults, whose country
+    // is DE. On /tools/camper-trip-cost/fr a reader who picked Germany
+    // had it dropped from the link — and the button still said "Link
+    // copied". The recipient saw France, a different measured price and
+    // a different total, with nothing to say anything was lost.
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/tools/camper-trip-cost/fr');
+    await page.getByLabel('Country you are driving in').selectOption('DE');
+    const before = await page.getByTestId('total').textContent();
+
+    await page.getByRole('button', { name: /copy a link/i }).click();
+    const link = await page.evaluate(() => navigator.clipboard.readText());
+    expect(link, 'the country was dropped from the shared link').toContain('c=DE');
+
+    await page.goto(link);
+    await expect(page.getByLabel('Country you are driving in')).toHaveValue('DE');
+    await expect(page.getByTestId('total')).toHaveText(before ?? '');
+  });
+
+  test('the calculator can read the number format the page itself prints', async ({
+    page,
+  }) => {
+    // The page writes distances as "1,500 km". The first version of the
+    // parser turned that into 1.5 — a fuel bill a thousand times too
+    // small, shown without a warning.
+    await page.goto('/tools/camper-trip-cost?c=DE&f=diesel&l=12&n=0');
+    await page.getByLabel('Distance, km').fill('1,500');
+    await expect(page.getByTestId('total')).toHaveText('€442.26');
+    await page.getByLabel('Distance, km').fill('1 500');
+    await expect(page.getByTestId('total')).toHaveText('€442.26');
+    // A decimal comma still means a decimal comma.
+    await page.getByLabel('Distance, km').fill('1500');
+    await page.getByLabel('Consumption, litres per 100 km').fill('12,5');
+    await expect(page.getByTestId('measured')).toContainText('187.5 litres');
+  });
+
+  test('an absurd number is refused rather than rendered as infinity', async ({
+    page,
+  }) => {
+    await page.goto('/tools/camper-trip-cost?km=1e308');
+    await expect(page.getByTestId('measured')).not.toContainText('∞');
+    await expect(page.getByTestId('total')).not.toHaveText('—');
+  });
+
+  test('without JavaScript the page shows real prices and no invented total', async ({
+    browser,
+  }) => {
+    // 🔴 The prerendered markup is the module defaults, so a shared
+    // `?c=FR&km=800` link used to render "€442.26 … 1,500 km" in Germany
+    // — somebody else's trip, presented as the reader's answer. That is
+    // also what every link-preview bot rendered.
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    await page.goto('/tools/camper-trip-cost?c=FR&km=800&l=9');
+
+    // The 27 real prices are there, because they are server-rendered.
+    await expect(page.locator('tr[data-country]')).toHaveCount(27);
+    // The total is not, because a total is about the reader.
+    await expect(page.getByTestId('total')).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText('€442.26');
+    await context.close();
+  });
+
+  test('every country page is reachable by a link, not only by the sitemap', async ({
+    page,
+  }) => {
+    // 🔴 All 27 were generated, listed in the sitemap, and linked from
+    // nowhere — unreachable by a reader and carrying none of the site's
+    // own authority.
+    await page.goto('/tools/camper-trip-cost');
+    const hrefs = await page
+      .locator('a[href*="/tools/camper-trip-cost/"]')
+      .evaluateAll((els) =>
+        els.map((e) => (e as HTMLAnchorElement).getAttribute('href') ?? ''),
+      );
+    const codes = new Set(
+      hrefs
+        .map((h) => /\/tools\/camper-trip-cost\/([a-z]{2})$/.exec(h)?.[1])
+        .filter(Boolean),
+    );
+    expect(codes.size, 'not every country is linked from the price table').toBe(27);
+  });
+
+  test('a country page does not link to itself, and links to the rest', async ({
+    page,
+  }) => {
+    await page.goto('/tools/camper-trip-cost/de');
+    await expect(
+      page.locator('a[href="/tools/camper-trip-cost/de"]'),
+      'the page you are on should not link to itself',
+    ).toHaveCount(0);
+    await expect(
+      page.locator('a[href="/tools/camper-trip-cost/fr"]'),
+    ).toHaveCount(1);
+  });
+
+  test('the cheapest country still gets the EU-average sentence', async ({
+    request,
+  }) => {
+    // `cheaper > 0` was false at position 1, so the one page where
+    // "below the EU average" matters most was the page that omitted it.
+    const html = await (await request.get('/tools/camper-trip-cost/mt')).text();
+    expect(html).toContain('EU average');
+  });
+
+  test('an identical neighbour price is said in words, not as a signed zero', async ({
+    request,
+  }) => {
+    // Croatia and Slovenia were both €1.975 and rendered "+ €0.000 a
+    // litre, + €0.00 a tank".
+    const html = await (await request.get('/tools/camper-trip-cost/hr')).text();
+    expect(html).not.toContain('€0.000 a litre');
+  });
+
+  test('the page no longer claims a freshness it cannot keep', async ({
+    request,
+  }) => {
+    const html = await (await request.get('/tools/camper-trip-cost')).text();
+    // 🔴 This sentence was inside FAQPage markup — the machine-readable
+    // form an assistant quotes back — and was true only if somebody had
+    // run the fetch script that week.
+    expect(html).not.toContain('never more than a few days behind the pumps');
+    expect(html).toContain('week of');
+  });
+
+  test('the packing list nights field survives a stray keystroke', async ({
+    page,
+  }) => {
+    // 🔴 It used to lock at the literal string "NaN" and append to it.
+    await page.goto('/tools/camper-packing-list');
+    // 🔴 By id, not by label: a generated item's own label reads
+    // "Light layers — 2 people, 7 nights", so getByLabel('Nights')
+    // matches that checkbox too and the locator is ambiguous.
+    const nights = page.locator('#pk-nights');
+    await nights.fill('x');
+    expect(await nights.inputValue()).not.toContain('NaN');
+    await nights.fill('10');
+    await expect(nights).toHaveValue('10');
+    await expect(page.getByTestId('packing-count')).toContainText('packed');
+  });
+
+  test('the country select does not reshuffle when the fuel changes', async ({
+    page,
+  }) => {
+    // It was ordered by the ranking for the chosen fuel, so switching
+    // petrol↔diesel reordered 27 options under the reader's cursor.
+    await page.goto('/tools/camper-trip-cost');
+    const names = () =>
+      page.getByLabel('Country you are driving in').locator('option').allTextContents();
+    const withDiesel = await names();
+    await page.getByLabel('Fuel').selectOption('petrol');
+    expect(await names()).toEqual(withDiesel);
+    // And it is alphabetical, which is how a person finds their country.
+    expect(withDiesel).toEqual([...withDiesel].sort((a, b) => a.localeCompare(b, 'en')));
+  });
+});

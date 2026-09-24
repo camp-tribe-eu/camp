@@ -16,6 +16,7 @@ import {
   rankOf,
   STALE_AFTER_DAYS,
   TANK_LITRES,
+  unionComparison,
   VEHICLES,
   vehicle,
 } from '../../src/lib/fuel';
@@ -268,4 +269,40 @@ test('border prices are cheapest first, with the saving per tank', () => {
 
 test('a country with no price of its own compares nothing', () => {
   expect(borderPrices('XX', 'diesel')).toEqual([]);
+});
+
+
+test('a country with no land border is compared with the Union instead', () => {
+  // 🔴 Written because the duplicate guard failed on ie ↔ cy at 82.3%:
+  // both pages lost the border table and what was left was mostly
+  // shared wording. These three reference points are what replaced it.
+  for (const code of ['IE', 'CY', 'MT']) {
+    const rows = unionComparison(code, 'diesel');
+    expect(rows.length, code).toBeGreaterThanOrEqual(2);
+    const here = priceFor(code, 'diesel')!;
+    for (const r of rows) {
+      expect(r.difference).toBeCloseTo(r.price - here, 3);
+      expect(r.perTank).toBeCloseTo(r.difference * TANK_LITRES, 1);
+    }
+    // Cheapest first, same order as the border table.
+    for (let i = 1; i < rows.length; i++) {
+      expect(rows[i].price).toBeGreaterThanOrEqual(rows[i - 1].price);
+    }
+    // 🔴 A country is never compared with itself. Malta IS the cheapest
+    // member state this week, so its own row must be dropped rather than
+    // rendered as "Malta — cheapest in the EU (the same)".
+    expect(rows.map((r) => r.code), code).not.toContain(code);
+  }
+});
+
+test('the union comparison names the extremes and the average', () => {
+  const rows = unionComparison('IE', 'diesel');
+  const names = rows.map((r) => r.name).join(' | ');
+  expect(names).toContain('cheapest in the EU');
+  expect(names).toContain('dearest in the EU');
+  expect(names).toContain('EU average');
+});
+
+test('a country we hold no price for is compared with nothing', () => {
+  expect(unionComparison('XX', 'diesel')).toEqual([]);
 });

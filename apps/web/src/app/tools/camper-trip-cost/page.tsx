@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import TripCostCalculator from '@/components/trip-cost-calculator';
 import FuelPriceTable from '@/components/fuel-price-table';
-import { FUEL, longDate, ranked } from '@/lib/fuel';
+import { FUEL, isStale, longDate, ranked } from '@/lib/fuel';
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 
@@ -53,7 +53,15 @@ function faq() {
     },
     {
       q: 'How current are these fuel prices?',
-      a: `They are the consumer prices for the week of ${week}. The European Commission collects them from member states on Wednesday and publishes on Thursday, so the figures here are never more than a few days behind the pumps.`,
+      // 🔴 The last clause used to read "so the figures here are never
+      // more than a few days behind the pumps". That is a claim about
+      // THIS PAGE today, true only if somebody ran the fetch script this
+      // week — and nothing enforced it. Worse, it was emitted inside
+      // FAQPage markup, in the machine-readable form an assistant quotes
+      // back. Now the answer states the week these figures are from and
+      // describes the Commission's schedule as the Commission's, which
+      // is the part that is true regardless of when we last refreshed.
+      a: `They are the consumer prices for the week of ${week} — that date is on every price shown here. The European Commission collects the figures from member states on a Wednesday and publishes them the following day; this page is refreshed against that bulletin, and says so rather than claiming to be live.`,
     },
   ];
 }
@@ -109,6 +117,23 @@ export default function TripCostPage() {
         figure is yours to fill in, and the result tells you which half of the
         total came from a measurement and which half came from you.
       </p>
+
+      {/* 🔴 isStale existed and nothing called it — a guard written and
+          then left unwired, which is the same as not having one. If the
+          bulletin has not been refreshed in three weeks the page says so
+          in its own voice, above the numbers, instead of leaving the
+          reader to do date arithmetic on a line of small print. */}
+      {isStale(new Date()) && (
+        <p
+          data-testid="stale-fuel"
+          className="mt-6 max-w-prose rounded-card border border-amber bg-surface-2 p-4 text-ink"
+        >
+          <strong>These prices are out of date.</strong> They are from{' '}
+          {longDate(FUEL.bulletinDate)}, and the European Commission has
+          published newer ones since. Treat the fuel figures below as
+          historical until this page is refreshed.
+        </p>
+      )}
 
       <TripCostCalculator />
 

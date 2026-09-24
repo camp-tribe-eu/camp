@@ -154,14 +154,23 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
   // strings — `?km=1500&c=de` — which are real, shareable results and
   // must never reach the sitemap: an unbounded set of parameterised URLs
   // is the duplicate-page trap CAMP-37 exists to measure, not content.
-  for (const path of ['/tools/camper-trip-cost', '/tools/camper-packing-list']) {
-    urls.push({
-      loc: `${SITE}${path}`,
-      changefreq: 'weekly',
-      priority: '0.7',
-      lastmod: FUEL.bulletinDate,
-    });
-  }
+  // 🔴 Only the fuel pages carry the bulletin's date. The packing list
+  // has nothing to do with the bulletin, and giving it that lastmod told
+  // a crawler it changes every Thursday — which is exactly the "teaches
+  // a crawler to stop believing its own lastmod" failure the paragraph
+  // above warns about, committed three lines below the warning. Found by
+  // review. It gets no lastmod at all rather than a borrowed one.
+  urls.push({
+    loc: `${SITE}/tools/camper-trip-cost`,
+    changefreq: 'weekly',
+    priority: '0.7',
+    lastmod: FUEL.bulletinDate,
+  });
+  urls.push({
+    loc: `${SITE}/tools/camper-packing-list`,
+    changefreq: 'monthly',
+    priority: '0.7',
+  });
   for (const code of FUEL_COUNTRIES) {
     urls.push({
       loc: `${SITE}/tools/camper-trip-cost/${code.toLowerCase()}`,

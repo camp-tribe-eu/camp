@@ -39,7 +39,7 @@
 
 import { writeFile } from 'node:fs/promises';
 import { inflateRawSync } from 'node:zlib';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -237,13 +237,19 @@ export function cells(xml, strings) {
  * year — a bug kept for compatibility with Lotus 1-2-3 — so serials from
  * 1 March 1900 onwards are one day ahead of the naive arithmetic. Using
  * 30 December 1899 as day zero cancels it exactly.
+ *
+ * 🔴 FLOOR, not round. A serial carries the time of day in its
+ * fraction, and rounding a date saved at or after noon moves it to the
+ * next day — which would then fail the "filename date must equal the
+ * date in the sheet" cross-check on a file that is perfectly correct,
+ * and the error would read as tampering. Found by review, not by use.
  */
 export function excelDate(serial) {
   const n = Number(serial);
   if (!Number.isFinite(n) || n < 20_000 || n > 80_000) {
     throw new Error(`implausible Excel date serial: ${serial}`);
   }
-  return new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86_400_000)
+  return new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 86_400_000)
     .toISOString()
     .slice(0, 10);
 }
@@ -280,7 +286,17 @@ export function findBulletinLink(html) {
   const found = [];
   for (const m of html.matchAll(/href="([^"]*\.xlsx[^"]*)"/gi)) {
     const href = decodeXml(m[1]);
-    const name = decodeURIComponent(href);
+    // 🔴 decodeURIComponent throws on a lone `%`, and the Commission's
+    // page carries links we do not care about. One unrelated filename
+    // containing "100%" aborted the entire run with "URI malformed" —
+    // an unrelated link taking down the fetch. Fall back to the raw
+    // href, which still matches for every well-formed name.
+    let name = href;
+    try {
+      name = decodeURIComponent(href);
+    } catch {
+      /* not percent-encoded, or not validly so — match on the raw text */
+    }
     if (!/weekly\s+prices\s+with\s+taxes/i.test(name)) continue;
     const date = /(\d{4}-\d{2}-\d{2})/.exec(name)?.[1];
     if (date) found.push({ href, date });
@@ -292,6 +308,49 @@ export function findBulletinLink(html) {
   }
   found.sort((a, b) => b.date.localeCompare(a.date));
   return found[0];
+}
+
+/**
+ * The columns are read positionally, so their headers are checked.
+ *
+ * 🔴 The gap this closes, named by review. `perLitre`'s 0.50–4.00 €/l
+ * guard catches a decimal point in the wrong place; it cannot catch
+ * petrol and diesel swapping columns, or the sheet gaining a column and
+ * everything shifting into heating oil — every one of those lands
+ * inside the plausible range and publishes confidently wrong prices.
+ *
+ * The licence is re-read every run because "a licence we merely
+ * remember is a licence we will one day be wrong about". Column
+ * positions were merely remembered. Now they are not.
+ *
+ * Matching is loose on purpose: the header cell is trilingual and
+ * carries stray spacing ("Gas oil automobile Automotive gas oil
+ * Dieselkraftstoff (I)"). What must hold is that B is the petrol column
+ * and C is the road-diesel column, not that the wording is frozen.
+ */
+export function checkColumns(grid) {
+  const norm = (v) => String(v ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const b = norm(grid.get('B1'));
+  const c = norm(grid.get('C1'));
+  const unit = norm(grid.get('B2'));
+
+  if (!/euro-?super/.test(b)) {
+    throw new Error(`column B is not the petrol column: ${JSON.stringify(grid.get('B1'))}`);
+  }
+  if (!/(automotive gas oil|dieselkraftstoff|gas oil automobile)/.test(c)) {
+    throw new Error(`column C is not the road-diesel column: ${JSON.stringify(grid.get('C1'))}`);
+  }
+  // 🔴 And that the prices really are per 1000 litres. If the bulletin
+  // ever publishes per litre, every figure would silently become a
+  // thousandth of itself and still pass a "is it a number" check.
+  if (!/1000 ?l/.test(unit)) {
+    throw new Error(`prices are not quoted per 1000 litres: ${JSON.stringify(grid.get('B2'))}`);
+  }
+  // Heating oil sits in D and must not have drifted into C.
+  const d = norm(grid.get('D1'));
+  if (d && /automotive gas oil/.test(c) && /automotive gas oil/.test(d)) {
+    throw new Error('columns C and D both look like road diesel — the sheet has shifted');
+  }
 }
 
 export async function collect() {
@@ -323,6 +382,8 @@ export async function collect() {
   // week and cell A2 says another only if we have grabbed a file that
   // does not match its own link — the exact way a caching layer serves
   // last week's numbers under this week's name.
+  checkColumns(grid);
+
   const inSheet = excelDate(grid.get('A2'));
   if (inSheet !== link.date) {
     throw new Error(
@@ -415,6 +476,45 @@ function selfTest() {
     }
   })());
 
+  ok('a serial with a time of day keeps its own date', excelDate(46286.75) === '2026-09-21', excelDate(46286.75));
+
+  const badPercent =
+    '<a href="/d/a_en?filename=Weekly%20prices%20with%20Taxes%20100%%20-%202026-09-21.xlsx">x</a>' +
+    '<a href="/d/b_en?filename=Weekly%20Oil%20Bulletin%20Weekly%20prices%20with%20Taxes%20-%202026-09-21.xlsx">y</a>';
+  ok('a stray percent in an unrelated link does not abort the run', (() => {
+    try {
+      return findBulletinLink(badPercent).href.includes('/d/b_en');
+    } catch {
+      return false;
+    }
+  })());
+
+  const header = new Map([
+    ['B1', 'Euro-super 95  (I)'],
+    ['C1', 'Gas oil automobile Automotive gas oil Dieselkraftstoff (I)'],
+    ['D1', ' Gas oil de chauffage Heating gas oil Heizöl (II)'],
+    ['B2', '1000 l'],
+  ]);
+  const throws = (fn) => {
+    try {
+      fn();
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  ok('the real headers pass', !throws(() => checkColumns(header)));
+  ok('a swapped petrol column is refused', throws(() =>
+    checkColumns(new Map([...header, ['B1', 'Gas oil automobile Automotive gas oil']])),
+  ));
+  ok('a shifted diesel column is refused', throws(() =>
+    checkColumns(new Map([...header, ['C1', ' Gas oil de chauffage Heating gas oil']])),
+  ));
+  ok('a change of unit is refused', throws(() =>
+    checkColumns(new Map([...header, ['B2', '1 l']])),
+  ));
+  ok('a missing header is refused, not assumed', throws(() => checkColumns(new Map())));
+
   ok('all 27 EU member states are mapped', EXPECTED_COUNTRIES === 27, String(EXPECTED_COUNTRIES));
   ok('no duplicate ISO codes', new Set(Object.values(COUNTRY_CODES)).size === 27);
 
@@ -450,11 +550,24 @@ function selfTest() {
   return failed === 0;
 }
 
-const args = process.argv.slice(2);
+// 🔴 Nothing above this line runs on import, and that guard is not
+// ceremony. The parsing functions are exported precisely so they can be
+// tested, and without this an `import` of any one of them performed two
+// network fetches to the European Commission and REWROTE the committed
+// fuel-prices.json — so a unit test for the parser would hit somebody
+// else's servers, change data under version control, and fail in CI
+// where there is no network. Found by review, after an import did
+// exactly that.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
 
-if (args.includes('--self-test')) {
+if (!invokedDirectly) {
+  // Imported for its functions. Do nothing.
+} else if (process.argv.slice(2).includes('--self-test')) {
   process.exit(selfTest() ? 0 : 1);
 } else {
+  const args = process.argv.slice(2);
   const data = await collect();
   const names = Object.keys(data.countries).length;
   console.log(

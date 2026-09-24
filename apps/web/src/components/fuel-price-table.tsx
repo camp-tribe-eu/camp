@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { euros, FUEL, longDate, ranked } from '@/lib/fuel';
 
 // CAMP-55 — this week's road-fuel prices, all 27 member states.
@@ -6,6 +7,20 @@ import { euros, FUEL, longDate, ranked } from '@/lib/fuel';
 // is worth indexing and the part that still works with the calculator's
 // JavaScript switched off or still loading: twenty-seven real prices with
 // a date on them. The calculator above it is the enhancement.
+//
+// 🔴 And it is the ONLY route into the twenty-seven country pages.
+//
+// Those pages were generated, listed in the sitemap, and linked from
+// nowhere at all — the table printed each country's name as plain text.
+// Twenty-seven orphans: no reader could reach them, no crawler could
+// follow anything into them, and they carried none of the site's own
+// authority. For a project whose entire acquisition channel is these
+// generated pages, that is the difference between shipping them and not.
+// Found by review, not by any test we had.
+//
+// `generateStaticParams` in [country]/page.tsx produces exactly this set
+// of codes, so `dynamicParams = false` is satisfied for every row here —
+// the two lists cannot drift, because both come from FUEL_COUNTRIES.
 
 export default function FuelPriceTable({
   highlight,
@@ -59,7 +74,17 @@ export default function FuelPriceTable({
                   }`}
                 >
                   <th scope="row" className="py-2 pr-3 text-left font-normal">
-                    {c.name}
+                    {c.code === here ? (
+                      // The page you are already on does not link to itself.
+                      c.name
+                    ) : (
+                      <Link
+                        className="underline hover:text-heading"
+                        href={`/tools/camper-trip-cost/${c.code.toLowerCase()}`}
+                      >
+                        {c.name}
+                      </Link>
+                    )}
                   </th>
                   <td className="py-2 pr-3 text-right tabular-nums">
                     {euros(c.price, 3)}

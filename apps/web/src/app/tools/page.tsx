@@ -51,10 +51,17 @@ export default function ToolsIndex() {
 
       <h1 className="text-3xl font-bold leading-tight md:text-[42px]">Tools</h1>
       <p className="mt-4 max-w-prose text-ink-2">
-        Both work without an account and without JavaScript doing the thinking
-        for you. Where a number comes from a measurement, the page says which
-        measurement and when — the fuel figures below are from the week of{' '}
-        {longDate(FUEL.bulletinDate)}.
+        {/* 🔴 This paragraph used to promise that both tools "work
+            without JavaScript" and pointed at "the fuel figures below",
+            of which this page has none. Both were false, and on a site
+            whose whole argument is that it does not overstate, a
+            throwaway line of copy is exactly where that slips. */}
+        Both are free and need no account. Where a number comes from a
+        measurement, the page says which measurement and when — the trip
+        cost calculator is built on fuel prices published by the European
+        Commission for the week of {longDate(FUEL.bulletinDate)}, and its
+        table of all 27 countries is served as plain HTML, so it reads
+        without JavaScript.
       </p>
 
       <ul className="mt-8 grid gap-6 md:grid-cols-2">

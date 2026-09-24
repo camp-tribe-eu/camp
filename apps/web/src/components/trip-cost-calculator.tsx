@@ -102,19 +102,59 @@ function fromSearch(search: string, base: State): State {
   return next;
 }
 
-function toSearch(s: State): string {
+/**
+ * 🔴 `base` is the PAGE's starting state, not the module defaults.
+ *
+ * The first version compared against DEFAULTS, whose country is DE. On
+ * /tools/camper-trip-cost/fr a reader who picked Germany therefore had
+ * the country dropped from the link — and the button still said "Link
+ * copied". Whoever opened it saw France, a different measured price and
+ * a different total, with nothing to indicate anything was lost.
+ *
+ * Found by review. The e2e test missed it because it only exercised the
+ * index page, where the two baselines happen to agree; there is now a
+ * test per country page.
+ */
+function toSearch(s: State, base: State): string {
   const q = new URLSearchParams();
   for (const [field, key] of Object.entries(KEYS) as [keyof State, string][]) {
     const v = s[field];
-    if (v !== '' && v !== DEFAULTS[field]) q.set(key, String(v));
+    if (v !== '' && v !== base[field]) q.set(key, String(v));
   }
   const str = q.toString();
   return str ? `?${str}` : '';
 }
 
+/**
+ * A number as a person types it, and the bounds a person means.
+ *
+ * 🔴 The page prints "1,500 km" through toLocaleString and the first
+ * version of this could not read its own output: `replace(',', '.')`
+ * turned 1,500 into 1.5, so copying the format the page itself uses
+ * produced a fuel bill a thousand times too small — silently. Found by
+ * review.
+ *
+ * So: spaces out (thin and non-breaking ones too, which is what a paste
+ * from a spreadsheet carries), a comma that sits before one or two final
+ * digits is a decimal comma, and every other comma is a group separator.
+ * Ambiguity is real — "1,500" is fifteen hundred in English and one and
+ * a half in German — and this resolves it the way the page writes it,
+ * which is the only convention a reader here has been shown.
+ *
+ * 🔴 And an upper bound. `?km=1e308` rendered "∞ litres" and a total of
+ * "—": nonsense presented with a straight face. Anything past the bound
+ * is a typo or a probe, and both deserve zero rather than infinity.
+ */
+const MAX_INPUT = 1_000_000;
+
 const num = (s: string) => {
-  const n = Number(s.replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
+  const cleaned = s
+    .replace(/[\s\u00a0\u202f]/g, '')
+    .replace(/,(?=\d{1,2}$)/, '.')
+    .replace(/,/g, '');
+  const n = Number(cleaned);
+  if (!Number.isFinite(n) || n < 0 || n > MAX_INPUT) return 0;
+  return n;
 };
 
 export default function TripCostCalculator({ country }: CalculatorProps) {
@@ -124,6 +164,19 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
   );
   const [s, setS] = useState<State>(initial);
   const [copied, setCopied] = useState(false);
+  // 🔴 Nothing is totalled until the query string has been read.
+  //
+  // This page is prerendered, so without JavaScript — and for the split
+  // second before hydration, and in every link-preview bot — the server
+  // markup is the module defaults: Germany, 1500 km, 12 l/100 km. A
+  // reader opening a shared `?c=FR&km=800` link was shown €442.26 for a
+  // trip in Germany that nobody had described, as though it were their
+  // answer. Found by review.
+  //
+  // The fuel TABLE below is server-rendered and stays: 27 real prices
+  // with their week on them is the part worth having without
+  // JavaScript. A total is not, because a total is about the reader.
+  const [ready, setReady] = useState(false);
 
   // 🔴 In an effect rather than useSearchParams. This site is a static
   // export; useSearchParams forces the page into a client bailout and
@@ -132,6 +185,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
   // server does not know the query string either.
   useEffect(() => {
     setS((prev) => fromSearch(window.location.search, prev));
+    setReady(true);
   }, []);
 
   const set = <K extends keyof State>(key: K, value: State[K]) => {
@@ -152,19 +206,30 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
     extras: num(s.extras),
   });
 
-  const list = ranked(s.fuel);
+  // 🔴 Alphabetical, not by price. The select was ordered by the ranking
+  // for the chosen fuel, so switching petrol↔diesel silently reshuffled
+  // twenty-seven options under the reader's cursor. A price ordering
+  // belongs in the table, which is sorted and says so; a form control is
+  // for finding your own country. Found by review.
+  const options = [...ranked('diesel'), ...ranked('petrol')]
+    .filter((c, i, all) => all.findIndex((x) => x.code === c.code) === i)
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'));
   const countryName = FUEL.countries[s.country]?.name ?? s.country;
   const pitchGiven = num(s.pitch) > 0;
 
   const share = async () => {
-    const url = `${window.location.origin}${window.location.pathname}${toSearch(s)}`;
+    const url = `${window.location.origin}${window.location.pathname}${toSearch(s, initial)}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
     } catch {
       // Clipboard is permissioned and can simply say no. Put the link in
       // the address bar instead of claiming a copy that did not happen.
-      window.history.replaceState(null, '', toSearch(s) || window.location.pathname);
+      window.history.replaceState(
+        null,
+        '',
+        toSearch(s, initial) || window.location.pathname,
+      );
       setCopied(false);
     }
   };
@@ -192,7 +257,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
               value={s.country}
               onChange={(e) => set('country', e.target.value)}
             >
-              {list.map((c) => (
+              {options.map((c) => (
                 <option key={c.code} value={c.code}>
                   {c.name}
                 </option>
@@ -336,6 +401,20 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
       <aside className="rounded-card border border-line-2 bg-surface p-5">
         <h2 className="text-lg font-semibold text-heading">What that costs</h2>
 
+        {!ready ? (
+          // 🔴 What a reader sees with no JavaScript, and for the instant
+          // before hydration. Not a spinner pretending to work: a plain
+          // statement that the sum needs the form, and a pointer to the
+          // twenty-seven real prices further down the page, which are
+          // served as HTML and need nothing.
+          <p className="mt-4 text-ink-2">
+            The totals are worked out in your browser from the form beside
+            this, so nothing is added up until it loads. This week&rsquo;s
+            fuel prices for all 27 EU countries are in the table below and
+            need no JavaScript at all.
+          </p>
+        ) : (
+        <>
         <section
           data-testid="measured"
           className="mt-4 rounded border border-line-blue bg-accent-surface p-4"
@@ -418,6 +497,8 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
         >
           {copied ? 'Link copied' : 'Copy a link to this'}
         </button>
+        </>
+        )}
       </aside>
     </div>
   );

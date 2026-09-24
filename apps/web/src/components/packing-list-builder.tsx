@@ -73,14 +73,45 @@ function toSearch(input: PackingInput, done: Set<string>): string {
   return `?${q.toString()}`;
 }
 
+/**
+ * 🔴 Nights and people are held as the RAW STRING the reader typed.
+ *
+ * The first version stored `Number(e.target.value)` while rendering
+ * `String(input.nights)`. One stray character on a field that accepts
+ * letters made the state NaN, the input then rendered the literal text
+ * "NaN", and every later keystroke appended to it — the field could not
+ * be recovered without select-all or a reload, and the shared link
+ * carried `n=NaN`. Found by review.
+ *
+ * The rule the trip-cost calculator already followed: keep the text,
+ * coerce when computing.
+ */
+interface Draft {
+  nights: string;
+  people: string;
+}
+
+const clampNum = (s: string, fallback: number) => {
+  const n = Number(s.replace(/[\s\u00a0]/g, '').replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
 export default function PackingListBuilder() {
   const [input, setInput] = useState<PackingInput>(DEFAULTS);
+  const [draft, setDraft] = useState<Draft>({
+    nights: String(DEFAULTS.nights),
+    people: String(DEFAULTS.people),
+  });
   const [done, setDone] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState<'link' | 'text' | null>(null);
 
   useEffect(() => {
     const parsed = fromSearch(window.location.search);
     setInput(parsed.input);
+    setDraft({
+      nights: String(parsed.input.nights),
+      people: String(parsed.input.people),
+    });
     setDone(parsed.done);
   }, []);
 
@@ -174,8 +205,11 @@ export default function PackingListBuilder() {
               id="pk-nights"
               className={field}
               inputMode="numeric"
-              value={String(input.nights)}
-              onChange={(e) => set('nights', Number(e.target.value))}
+              value={draft.nights}
+              onChange={(e) => {
+                setDraft((d) => ({ ...d, nights: e.target.value }));
+                set('nights', clampNum(e.target.value, DEFAULTS.nights));
+              }}
             />
           </div>
           <div>
@@ -186,8 +220,11 @@ export default function PackingListBuilder() {
               id="pk-people"
               className={field}
               inputMode="numeric"
-              value={String(input.people)}
-              onChange={(e) => set('people', Number(e.target.value))}
+              value={draft.people}
+              onChange={(e) => {
+                setDraft((d) => ({ ...d, people: e.target.value }));
+                set('people', clampNum(e.target.value, DEFAULTS.people));
+              }}
             />
           </div>
         </div>
