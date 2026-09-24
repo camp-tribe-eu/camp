@@ -315,6 +315,54 @@ SQL
   say ""
   say "Rows reported as 'not in this database' belong to countries this"
   say "database has not imported. Import them, then restore again."
+
+  # 🔴 THE FOUR TABLES THAT WERE BACKED UP AND NEVER RESTORED.
+  #
+  # Until CAMP-58's review, do_restore() loaded exactly one archive —
+  # camping_spots_context.csv.gz — while `backup` wrote five. Reviews,
+  # photo submissions, guides and routes were saved every night and had
+  # no restore path at all, which is the same as not being backed up
+  # except that it looks safer.
+  #
+  # It survived because the CI fixture holds none of them: the gate
+  # compared 0 rows against a manifest that said 0 and printed a tick.
+  # Demonstrated by review with a real row — backed up, destroyed, and
+  # still gone after a "successful" restore.
+  #
+  # 🔴 ON CONFLICT DO NOTHING, and no target column. Same rule as the
+  # clauses above: a restore must never destroy newer work. A row that
+  # exists now wins, whatever the backup says; a row that is missing
+  # comes back. Running it twice is therefore harmless, which is the
+  # property that makes it safe to run unattended.
+  #
+  # ⚠️ The CSV was written with SELECT *, so the load is POSITIONAL. If a
+  # migration adds or reorders a column between a backup and its restore,
+  # this misaligns. The temp table is created LIKE the real one, so the
+  # types usually catch it loudly — but "usually" is doing work in that
+  # sentence, and a column added at the END is the case it would not
+  # catch. Worth a header check the day these tables start changing.
+  for t in "${TABLES[@]}"; do
+    local arch="$dir/$t.csv.gz"
+    [ -f "$arch" ] || continue
+    if [ "$(table_exists "$t")" != 't' ]; then
+      say "  · $t does not exist in this database — skipped"
+      continue
+    fi
+    case "$arch" in
+      *\'*) die "the backup path contains a quote, which cannot be passed safely: $arch" ;;
+    esac
+
+    local tsql
+    tsql="$(mktemp "${TMPDIR:-/tmp}/camptribe-restore-$t.XXXXXX")"
+    {
+      printf 'CREATE TEMP TABLE incoming_%s (LIKE %s);\n' "$t" "$t"
+      printf "\\copy incoming_%s FROM PROGRAM 'gzip -dc %s' WITH CSV HEADER\n" "$t" "$arch"
+      printf 'INSERT INTO %s SELECT * FROM incoming_%s ON CONFLICT DO NOTHING;\n' "$t" "$t"
+      printf 'SELECT (SELECT count(*) FROM incoming_%s) AS "read", count(*) AS "now in %s" FROM %s;\n' "$t" "$t" "$t"
+    } > "$tsql"
+    psql "$DB" -v ON_ERROR_STOP=1 -f "$tsql"
+    rm -f "$tsql"
+  done
 }
 
 # --------------------------------------------------------------------

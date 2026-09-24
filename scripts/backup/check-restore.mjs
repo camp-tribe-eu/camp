@@ -32,6 +32,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback = null) => {
@@ -72,7 +73,25 @@ export function parseManifest(json) {
     if (typeof v?.rows !== 'number') {
       throw new Error(`manifest entry ${name} has no row count`);
     }
-    out[name.replace(/\.csv\.gz$/, '')] = v.rows;
+    const table = name.replace(/\.csv\.gz$/, '');
+    // 🔴 The manifest names a table that is interpolated into SQL.
+    //
+    // `SELECT count(*) FROM ${name}` with `psql -c`, which happily runs
+    // several statements. Demonstrated by review: a manifest key of
+    // `guides; DROP TABLE victim; SELECT count(*) FROM guides` dropped
+    // the table. And DATABASE_URL defaults to the real development
+    // database, so the target of that is not hypothetical.
+    //
+    // A manifest is a file in a backup folder — it can be corrupted,
+    // copied from somewhere, or written by whatever ends up producing
+    // backups later. Nothing about "it is our own file" survives contact
+    // with a restore run on a machine nobody is watching.
+    if (!/^[a-z_][a-z0-9_]*$/.test(table)) {
+      throw new Error(
+        `manifest names "${table}", which is not a plain table name — refusing to put it in SQL`,
+      );
+    }
+    out[table] = v.rows;
   }
   if (Object.keys(out).length === 0) {
     throw new Error('manifest lists no files');
@@ -87,11 +106,17 @@ export function parseManifest(json) {
  * A restore that lost two tables should say so once, not be discovered
  * one table per nightly run.
  *
- * 🔴 And a count of zero is ALWAYS a problem, even when the manifest
- * also said zero. An empty archive restoring to an empty database is
+ * 🔴 And a TOTAL of zero is a problem, even when the manifest also said
+ * zero. An empty archive restoring to an empty database is
  * arithmetically consistent and proves nothing at all — it is exactly
- * what a broken backup pipeline produces, and the check that waves it
- * through is the check that lets it run for a year.
+ * what a broken backup pipeline produces.
+ *
+ * ⚠️ Per table, zero is NOT flagged, and the difference matters: the
+ * comment here used to claim it was. A table that is legitimately empty
+ * today (no reviews yet) must not fail the run — but a run where every
+ * table is empty has demonstrated nothing, and that is what the total
+ * catches. `emptyTables` is returned so the caller can say which ones
+ * were vacuous rather than printing a tick beside them.
  */
 export function compareCounts(expected, actual, { minRows = MIN_ROWS } = {}) {
   const problems = [];
@@ -123,6 +148,13 @@ export function compareCounts(expected, actual, { minRows = MIN_ROWS } = {}) {
   return problems;
 }
 
+/** Tables that matched the manifest at zero rows — checked, but vacuously. */
+export function emptyTables(expected, actual) {
+  return Object.keys(expected)
+    .filter((t) => expected[t] === 0 && (actual[t] ?? 0) === 0)
+    .sort();
+}
+
 /** Did it finish inside the budget? */
 export function withinBudget(seconds, budget = BUDGET_SECONDS) {
   return Number.isFinite(seconds) && seconds >= 0 && seconds <= budget;
@@ -132,14 +164,24 @@ const psql = (sql) =>
   execFileSync('psql', [DB, '-tAX', '-c', sql], { encoding: 'utf8' }).trim();
 
 /**
- * 🔴 The check that a checksum cannot make.
+ * Is this a working PostGIS database at all?
  *
- * Rows in a table are not a working database. This asks PostGIS a
- * question of the same shape the map asks on every request — is anything
- * within N metres of this point — against the geometry that came back
- * from the archive. A restore that dropped the spatial index, lost the
- * SRID or wrote the coordinates as text passes every row count and fails
- * here, which is the whole reason this step exists.
+ * ⚠️ WHAT THIS DOES NOT PROVE, corrected after review said so.
+ *
+ * The comment here used to claim this catches "a restore that dropped
+ * the spatial index, lost the SRID or wrote the coordinates as text". It
+ * cannot: `location` is not in the backup — the archive's columns are
+ * osm_ref, context, context_computed_at, owner_overrides, missing_since,
+ * content_changed_at — so the restore never writes geometry, and this
+ * query runs against rows the restore did not touch. Measured: the count
+ * is identical before a restore, after a real one, and after a fake one
+ * that restored nothing.
+ *
+ * Geometry is deliberately out of the backup, because it comes from
+ * OpenStreetMap and the weekly import rebuilds it. So what is left for
+ * this check to say is narrower and still worth saying: the restored
+ * database has PostGIS, it answers the shape of query the map makes, and
+ * the restore did not leave the connection or the extension broken.
  */
 function postgisAnswers() {
   const version = psql('SELECT postgis_version()');
@@ -212,6 +254,35 @@ function selfTest() {
   ok('every missing table is reported, not just the first',
     twoMissing.filter((p) => /not restored at all/.test(p)).length === 2);
 
+  // 🔴 A manifest is a file, and this one names a table that goes into
+  // SQL. Review dropped a table with a crafted key.
+  for (const evil of [
+    'guides; DROP TABLE victim; SELECT count(*) FROM guides',
+    'guides"',
+    "guides'",
+    'pg_catalog.pg_tables',
+    'Guides',
+    '1guides',
+    '',
+  ]) {
+    ok(`a manifest key ${JSON.stringify(evil)} is refused`, throws(() =>
+      parseManifest({ files: { [`${evil}.csv.gz`]: { rows: 1 } } }),
+    ));
+  }
+  ok('an ordinary table name is still accepted',
+    parseManifest({ files: { 'photo_submissions.csv.gz': { rows: 2 } } }).photo_submissions === 2);
+
+  // 🔴 Zero rows per table is allowed and NAMED, not silently ticked.
+  ok('a table empty in both is reported as vacuous',
+    emptyTables({ a: 0, b: 5 }, { a: 0, b: 5 }).join(',') === 'a');
+  ok('a table with rows is not vacuous',
+    emptyTables({ b: 5 }, { b: 5 }).length === 0);
+  ok('the four content tables of an empty fixture are all named',
+    emptyTables(
+      { camping_spots_context: 36, guides: 0, reviews: 0, routes: 0 },
+      { camping_spots_context: 36, guides: 0, reviews: 0, routes: 0 },
+    ).join(',') === 'guides,reviews,routes');
+
   ok('the budget accepts a quick restore', withinBudget(12, 300));
   ok('the budget refuses a slow one', !withinBudget(301, 300));
   ok('the budget refuses nonsense', !withinBudget(Number.NaN, 300) && !withinBudget(-1, 300));
@@ -224,9 +295,26 @@ function selfTest() {
   return failed === 0;
 }
 
-if (args.includes('--self-test')) {
+// 🔴 Nothing below runs on import.
+//
+// The functions above are exported precisely so the comparison can be
+// tested without a database — and the CLI tail made that impossible:
+// importing the module printed a usage line and called process.exit(2).
+// Exactly the same mistake as scripts/fuel/fetch-fuel-prices.mjs, found
+// by the same kind of review, one day apart.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (!invokedDirectly) {
+  // Imported for its functions.
+} else if (args.includes('--self-test')) {
   process.exit(selfTest() ? 0 : 1);
+} else {
+  runCli();
 }
+
+function runCli() {
 
 const manifestPath = opt('manifest');
 if (!manifestPath) {
@@ -234,8 +322,27 @@ if (!manifestPath) {
   process.exit(2);
 }
 
-const started = Number(opt('started', '0'));
-const elapsed = started > 0 ? (Date.now() - started * 1000) / 1000 : 0;
+// 🔴 A budget that quietly stops applying is worse than none.
+//
+// This was `if (elapsed > 0)` around the whole block, so a missing,
+// empty, NaN, negative or future `--started` printed nothing and checked
+// nothing — and GitHub substitutes an empty string for a step output
+// that did not get set, which is exactly the case that skipped it.
+// Three of the self-tests asserted the guards inside withinBudget, which
+// made it read as covered while the main path never reached them.
+const startedRaw = opt('started');
+const started = startedRaw === null ? null : Number(startedRaw);
+const timing = (() => {
+  if (started === null) return { skip: 'no --started given' };
+  if (!Number.isFinite(started) || started <= 0) {
+    return { bad: `--started is ${JSON.stringify(startedRaw)}, which is not a unix time` };
+  }
+  const elapsed = (Date.now() - started * 1000) / 1000;
+  if (elapsed < 0) {
+    return { bad: `--started is ${(-elapsed).toFixed(1)}s in the future — check the clock` };
+  }
+  return { elapsed };
+})();
 
 const expected = parseManifest(readFileSync(manifestPath, 'utf8'));
 
@@ -256,10 +363,47 @@ for (const name of Object.keys(expected)) {
   } catch {
     // A table the manifest names but the restored database does not have
     // is a problem compareCounts should report, not a crash here.
+    //
+    // ⚠️ It is also indistinguishable here from a table that exists and
+    // failed to query — both arrive as "not restored at all". psql's own
+    // error goes to stderr, so the reason is on screen; the verdict is
+    // the same either way, which is why this is a diagnosis cost rather
+    // than a correctness one.
   }
 }
 
 const problems = compareCounts(expected, actual);
+
+// 🔴 The union count above can be satisfied without any context at all.
+//
+// `camping_spots_context` is counted with OR across three conditions, and
+// `missing_since IS NOT NULL` is one of them — and the restore sets
+// missing_since with no guard. Demonstrated by review: wipe every
+// context, touch only missing_since, and the gate printed
+// "36 / 36 ✓ restored" over a database with zero computed context.
+//
+// So the thing the backup exists for is counted on its own. Without
+// --expect-context it must merely be non-zero; with it, it must match,
+// and the caller that knows the number should always pass it.
+const contextRows = Number(
+  psql(`SELECT count(*) FROM camping_spots WHERE context <> '{}'::jsonb`),
+);
+const expectContext = opt('expect-context');
+if (expectContext !== null) {
+  const want = Number(expectContext);
+  if (!Number.isFinite(want)) {
+    problems.push(`--expect-context is ${JSON.stringify(expectContext)}, not a number`);
+  } else if (contextRows !== want) {
+    problems.push(
+      `computed context: ${contextRows} spots have one, expected ${want}`,
+    );
+  }
+} else if (contextRows < 1) {
+  problems.push(
+    'no campsite has any computed context — whatever was restored, it was not ' +
+      'the thing this backup exists for',
+  );
+}
 
 let postgis;
 try {
@@ -276,13 +420,34 @@ for (const name of Object.keys(expected).sort()) {
       `${String(got ?? '—').padStart(6)} / ${expected[name]}`,
   );
 }
-if (postgis) {
-  console.log(`  ✓ PostGIS ${postgis.version.split(' ')[0]} answered ST_DWithin (${postgis.within500km} spots within 500 km)`);
+const vacuous = emptyTables(expected, actual);
+if (vacuous.length > 0) {
+  // Checked, and proved nothing. Said out loud rather than shown as a tick.
+  console.log(
+    `  · ${vacuous.join(', ')} — empty in both, so the comparison says nothing about them`,
+  );
 }
-if (elapsed > 0) {
-  const fits = withinBudget(elapsed);
-  console.log(`  ${fits ? '✓' : '✗'} took ${elapsed.toFixed(1)}s of a ${BUDGET_SECONDS}s budget`);
-  if (!fits) problems.push(`restore took ${elapsed.toFixed(1)}s, over the ${BUDGET_SECONDS}s budget`);
+console.log(`  ${contextRows > 0 ? '✓' : '✗'} computed context      ${String(contextRows).padStart(6)} spots`);
+if (postgis) {
+  console.log(
+    `  ✓ PostGIS ${postgis.version.split(' ')[0]} is present and answers (${postgis.within500km} spots within 500 km of a test point)`,
+  );
+}
+if (timing.bad) {
+  problems.push(timing.bad);
+  console.log(`  ✗ ${timing.bad}`);
+} else if (timing.skip) {
+  console.log(`  · ${timing.skip} — nothing timed`);
+} else {
+  const fits = withinBudget(timing.elapsed);
+  console.log(
+    `  ${fits ? '✓' : '✗'} took ${timing.elapsed.toFixed(1)}s of a ${BUDGET_SECONDS}s budget`,
+  );
+  if (!fits) {
+    problems.push(
+      `restore took ${timing.elapsed.toFixed(1)}s, over the ${BUDGET_SECONDS}s budget`,
+    );
+  }
 }
 
 if (problems.length > 0) {
@@ -296,3 +461,4 @@ if (problems.length > 0) {
 }
 
 console.log('\n✓ restored, counted, and PostGIS answers on the restored data\n');
+}

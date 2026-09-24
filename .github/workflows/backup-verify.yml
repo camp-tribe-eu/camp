@@ -82,6 +82,43 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -f apps/api/test/fixtures/ci-seed.sql
 
+      # 🔴 One row in each content table, so the rehearsal is not vacuous.
+      #
+      # The fixture holds none of these, and the gate happily compared
+      # 0 against a manifest that said 0 and printed a tick beside all
+      # four. Review proved what that hid: reviews, photo submissions,
+      # guides and routes were backed up every night and had NO restore
+      # path at all — a real review was saved, destroyed, and still gone
+      # after a "successful" restore.
+      #
+      # Inserted here rather than in ci-seed.sql on purpose: that fixture
+      # also feeds the site build, the sitemap checks and the visual
+      # baselines, and a guide added there would become a page. This job
+      # is the only one that needs these rows.
+      - name: Give the content tables something to lose
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
+            INSERT INTO reviews (camping_spot_id, rating, body, status)
+            SELECT id, 4, 'Quiet, and the showers were hot.', 'approved'
+              FROM camping_spots LIMIT 1;
+
+            INSERT INTO photo_submissions
+                   (camping_spot_id, storage_key, source, shot_on, status)
+            SELECT id, 'backup-rehearsal/one.jpg', 'community', DATE '2026-09-01', 'pending'
+              FROM camping_spots LIMIT 1;
+
+            INSERT INTO guides (slug, category, status, provenance)
+            VALUES ('backup-rehearsal', 'data', 'draft', 'data-generated');
+
+            INSERT INTO routes (name, slug, country, duration_days)
+            VALUES ('Backup rehearsal route', 'backup-rehearsal', 'si', 3);"
+          psql "$DATABASE_URL" -tAc "
+            SELECT 'reviews='||(SELECT count(*) FROM reviews)
+                 ||' photos='||(SELECT count(*) FROM photo_submissions)
+                 ||' guides='||(SELECT count(*) FROM guides)
+                 ||' routes='||(SELECT count(*) FROM routes)"
+
       # 🔴 Establish what there is to lose, before losing it. If the
       # fixture ever stops carrying computed context, every step below
       # would still pass while proving nothing — so the number is read
@@ -108,11 +145,18 @@ jobs:
       - name: Destroy the irreplaceable half
         run: |
           set -euo pipefail
+          # 🔴 Every column the backup calls irreplaceable, not just the
+          # one that is easy. Review counted it: of six backed-up columns
+          # and four tables, exactly one column was being destroyed and
+          # demonstrably brought back.
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
             UPDATE camping_spots
                SET context = '{}'::jsonb,
                    context_computed_at = NULL,
-                   owner_overrides = '{}'::jsonb;"
+                   owner_overrides = '{}'::jsonb,
+                   missing_since = NULL,
+                   content_changed_at = NULL;
+            TRUNCATE reviews, photo_submissions, guides, routes;"
           LEFT=$(psql "$DATABASE_URL" -tAc \
             "SELECT count(*) FROM camping_spots WHERE context <> '{}'::jsonb")
           # If this is not zero the restore below would be comparing the
@@ -133,10 +177,30 @@ jobs:
 
       - name: Does it hold up?
         run: |
+          # 🔴 --expect-context, not just the manifest. The manifest's
+          # single number for camping_spots is an OR across three
+          # conditions, and one of them (missing_since) is set by the
+          # restore with no guard — so it can be satisfied with zero
+          # computed context. The caller knows the real number; it passes it.
           node scripts/backup/check-restore.mjs \
             --manifest "$RUNNER_TEMP/backup/manifest.json" \
+            --expect-context "${{ steps.before.outputs.n }}" \
             --started "${{ steps.restore.outputs.started }}" \
             --budget 300
+
+      # 🔴 And the content tables too — the ones that had no restore path
+      # at all until this job went looking.
+      - name: The content tables are back
+        run: |
+          set -euo pipefail
+          for t in reviews photo_submissions guides routes; do
+            N=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM $t")
+            echo "$t: $N"
+            if [ "$N" -lt 1 ]; then
+              echo "::error::$t is empty after the restore — it was backed up and not restored" >&2
+              exit 1
+            fi
+          done
 
       # 🔴 And the number has to be back, stated separately from the
       # checker so a bug in the checker cannot hide it.
@@ -161,8 +225,17 @@ jobs:
     permissions:
       issues: write
     steps:
+      # 🔴 GH_REPO, because this job does not check the repository out.
+      #
+      # `gh` resolves the repository from the git remote, not from
+      # GITHUB_REPOSITORY, so without either a checkout or this variable
+      # every call fails with "not a git repository" — and the alarm that
+      # was supposed to tell somebody the backups are unverified says
+      # nothing at all. Demonstrated by review with the full Actions
+      # environment set.
       - env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -181,5 +254,35 @@ jobs:
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --body "$BODY"
           else
-            gh issue create --title "$TITLE" --body "$BODY" --label ci
+            # 🔴 No --label. The repository has no `ci` label, and
+            # `gh issue create` aborts on one it cannot resolve — so the
+            # branch that runs on the FIRST failure, when there is no
+            # issue to comment on, is the branch that would fail.
+            # Verified: repos/camp-tribe-eu/camp/labels/ci is a 404.
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
+
+  # 🔴 And close it when the rehearsal passes again.
+  #
+  # The comment on the alert job promised "one issue, updated, closed when
+  # it recovers" and there was no close step — the exact behaviour
+  # watchdog.yml warns "teaches everyone to ignore it".
+  recovered:
+    needs: restore
+    if: success() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TITLE='🔴 The backup could not be restored'
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" \
+              --comment "The nightly restore rehearsal passed again. Closing."
           fi
