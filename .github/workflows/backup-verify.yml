@@ -1,0 +1,185 @@
+name: Backup restore
+
+# CAMP-58: prove nightly that the backup can be restored.
+#
+# 🔴 The card's bar, in its own words: "a real restore has happened at
+# least once — a backup you have not restored from is an assumption, not
+# a backup". Once is the floor. A restore that worked in September and
+# has not been tried since is the same assumption with a date on it, so
+# this runs every night.
+#
+# 🔴 What this job simulates, and why it is not "restore into an empty
+# database". backup-local.sh deliberately does NOT dump everything: most
+# of the database is a copy of OpenStreetMap that Geofabrik still has and
+# the weekly job rebuilds. What it saves is the part with no source to
+# rebuild from — the computed surroundings, the owner corrections, the
+# reviews, when a site was first and last seen.
+#
+# So the disaster being rehearsed is not "the server is gone". It is
+# "the database was rebuilt from OSM and everything we computed is
+# missing" — which is the likely one, and the one where the restore path
+# is a merge rather than a load. The steps below destroy exactly that,
+# check that it is really destroyed, and then bring it back.
+
+on:
+  schedule:
+    # 03:00 UTC. After the nightly window most things use, and five hours
+    # before the watchdog at 08:00 looks to see whether this ran.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+  # 🔴 Also on any change to the backup code itself. A restore path that
+  # is only exercised at 03:00 is a restore path whose breakage is found
+  # by the alert rather than by the pull request that broke it.
+  pull_request:
+    paths:
+      - 'scripts/backup/**'
+      - 'scripts/osm-pipeline/backup-local.sh'
+      - '.github/workflows/backup-verify.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/backup/**'
+      - 'scripts/osm-pipeline/backup-local.sh'
+      - '.github/workflows/backup-verify.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: camptribe_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/camptribe_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # The gate's own logic, before it is trusted to judge anything.
+      # A checker that ships broken reports "fine" by never disagreeing.
+      - name: Prove the checker works
+        run: node scripts/backup/check-restore.mjs --self-test
+
+      - name: Schema
+        working-directory: apps/api
+        run: npx typeorm-ts-node-commonjs migration:run -d src/data-source.ts
+
+      - name: Seed
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f apps/api/test/fixtures/ci-seed.sql
+
+      # 🔴 Establish what there is to lose, before losing it. If the
+      # fixture ever stops carrying computed context, every step below
+      # would still pass while proving nothing — so the number is read
+      # here and asserted to be real.
+      - name: What the fixture holds
+        id: before
+        run: |
+          set -euo pipefail
+          N=$(psql "$DATABASE_URL" -tAc \
+            "SELECT count(*) FROM camping_spots WHERE context <> '{}'::jsonb")
+          echo "spots with context: $N"
+          if [ "$N" -lt 10 ]; then
+            echo "::error::the fixture has only $N spots with context — this job would prove nothing" >&2
+            exit 1
+          fi
+          echo "n=$N" >> "$GITHUB_OUTPUT"
+
+      - name: Back up
+        run: ./scripts/osm-pipeline/backup-local.sh backup "$RUNNER_TEMP/backup"
+
+      # 🔴 The disaster. Not a dropped database — the realistic one: the
+      # spots are still there, rebuilt from OSM, and everything we
+      # computed about them is gone.
+      - name: Destroy the irreplaceable half
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
+            UPDATE camping_spots
+               SET context = '{}'::jsonb,
+                   context_computed_at = NULL,
+                   owner_overrides = '{}'::jsonb;"
+          LEFT=$(psql "$DATABASE_URL" -tAc \
+            "SELECT count(*) FROM camping_spots WHERE context <> '{}'::jsonb")
+          # If this is not zero the restore below would be comparing the
+          # database to itself, which is how a restore test passes
+          # without restoring anything.
+          if [ "$LEFT" != "0" ]; then
+            echo "::error::$LEFT spots still have context — the disaster did not happen" >&2
+            exit 1
+          fi
+          echo "context wiped from every spot"
+
+      - name: Restore
+        id: restore
+        run: |
+          set -euo pipefail
+          echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+          ./scripts/osm-pipeline/backup-local.sh restore "$RUNNER_TEMP/backup"
+
+      - name: Does it hold up?
+        run: |
+          node scripts/backup/check-restore.mjs \
+            --manifest "$RUNNER_TEMP/backup/manifest.json" \
+            --started "${{ steps.restore.outputs.started }}" \
+            --budget 300
+
+      # 🔴 And the number has to be back, stated separately from the
+      # checker so a bug in the checker cannot hide it.
+      - name: The computed context is back
+        run: |
+          set -euo pipefail
+          N=$(psql "$DATABASE_URL" -tAc \
+            "SELECT count(*) FROM camping_spots WHERE context <> '{}'::jsonb")
+          echo "spots with context after restore: $N (was ${{ steps.before.outputs.n }})"
+          if [ "$N" != "${{ steps.before.outputs.n }}" ]; then
+            echo "::error::restored $N spots, had ${{ steps.before.outputs.n }} before the wipe" >&2
+            exit 1
+          fi
+
+  # 🔴 A failing nightly job that nobody is told about is a job that is
+  # not running. The same shape as the watchdog: one issue, updated,
+  # closed when it recovers.
+  alert:
+    needs: restore
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE='🔴 The backup could not be restored'
+          BODY="The nightly restore rehearsal failed: $RUN_URL
+
+          This is the one safeguard every other safeguard assumes. Until it
+          passes, treat the backups as unverified — not as broken, but as
+          untested, which for a backup is the same thing.
+
+          What the job does: seeds a database, backs it up, destroys the
+          computed context and owner corrections, restores, and checks the
+          rows came back and that PostGIS still answers on them."
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" --label ci
+          fi

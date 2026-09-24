@@ -52,6 +52,22 @@ export const WATCHED = [
     graceDays: 1,
     why: 'campsite data stops being refreshed: closures, new sites and tag changes never arrive, and nothing on the site looks wrong',
   },
+  {
+    // CAMP-58. 🔴 The card asks for an alarm on the ABSENCE of a backup
+    // check, not only on its failure — and this is that alarm, for the
+    // same reason the one above exists: a failing job shouts, a job that
+    // stopped running says nothing at all.
+    //
+    // The consequence here is worse than stale campsite data. Nothing
+    // about the site looks different when the restore rehearsal stops;
+    // the backups keep being written and keep looking fine, and the fact
+    // that nobody has proved they can be read back is discovered on the
+    // one day it matters.
+    workflow: 'backup-verify.yml',
+    everyDays: 1,
+    graceDays: 1,
+    why: 'nobody is checking that the backups can be restored: they keep being written, they keep looking fine, and whether they can be read back is unknown until the day it is the only copy',
+  },
 ];
 
 /**
