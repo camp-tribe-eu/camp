@@ -252,7 +252,20 @@ function slugify(name: string | null, osmRef: string): string {
 export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            (name, country, region, slug, type, amenities, location,
             osm_ref, last_seen_at, missing_since, content_changed_at, sources)
-         VALUES ($1, $2, $3, $4, $5, $6, ST_GeomFromText($7, 4326), $8, $9, NULL, $9,
+         -- 🔴 $8::text in BOTH places, not just in the JSON below.
+         --
+         -- osm_ref is character varying, so an uncast $8 here made
+         -- Postgres deduce varchar from the column and text from the
+         -- cast in jsonb_build_object, and refuse the whole statement:
+         -- "inconsistent types deduced for parameter $8 — text versus
+         -- character varying". Every OSM import failed on the first row.
+         --
+         -- It went unnoticed because the sources column (CAMP-101) added
+         -- the second use of $8 after the last import had run, and the
+         -- weekly workflow only BUILDS extracts — it does not import
+         -- them. So the break sat between two jobs that each looked
+         -- healthy. Found 24.09.2026 while importing the EU.
+         VALUES ($1, $2, $3, $4, $5, $6, ST_GeomFromText($7, 4326), $8::text, $9, NULL, $9,
                  jsonb_build_array(jsonb_build_object(
                    'id', 'osm', 'ref', $8::text,
                    'updatedAt', to_char($9::timestamptz, 'YYYY-MM-DD'),

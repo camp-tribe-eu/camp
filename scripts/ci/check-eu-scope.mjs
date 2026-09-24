@@ -32,6 +32,7 @@
 // learn to trust it.
 
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 /**
  * The Union, read from the API's own source of truth.
@@ -202,10 +203,24 @@ function selfTest() {
   return failed === 0;
 }
 
-if (process.argv.includes('--self-test')) {
+// 🔴 Nothing below runs on import. The GEOFABRIK map is the repository's
+// only country→extract table, and import-release.sh reads it from here;
+// without this guard, importing it would run the whole check and exit.
+// Same mistake as the fuel script and the restore gate, avoided in
+// advance this time.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (!invokedDirectly) {
+  // Imported for EU / GEOFABRIK.
+} else if (process.argv.includes('--self-test')) {
   process.exit(selfTest() ? 0 : 1);
+} else {
+  runCheck();
 }
 
+function runCheck() {
 const yaml = readFileSync('.github/workflows/osm-weekly.yml', 'utf8');
 const regions = regionsInWorkflow(yaml);
 const problems = compare(regions);
@@ -224,3 +239,4 @@ if (problems.length > 0) {
 }
 
 console.log(`✓ all ${EU.length} member states, and nothing else`);
+}
