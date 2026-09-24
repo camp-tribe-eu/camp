@@ -100,7 +100,23 @@ export async function generateMetadata(
     // still overwrites — which silently cancelled the site-wide noindex
     // from CAMP-90 on 326 of 401 pages. Omitting the key is the only way
     // to mean "do not narrow this".
-    ...(spot.missingSince
+    // 🔴 CAMP-105. And a page that has nothing on it but a name.
+    //
+    // 1 872 of 9 830 campsites (19%, measured 24.09.2026) carry no
+    // amenity, no computed surroundings, no description and no star
+    // rating. The page is honest — it says what is not recorded, which is
+    // the whole promise — but two such pages differ only by the name, and
+    // that is what kept pushing the near-duplicate guard towards its
+    // ceiling.
+    //
+    // `follow`, and never a 404: the page is reachable from the map and
+    // from its region hub, somebody looking for that campsite should find
+    // it, and the crawl path through it has to survive. It simply should
+    // not compete in a result list against a page with something to say.
+    //
+    // It lifts by itself the day anything is recorded — the rule is a SQL
+    // expression over the row, not a list anybody maintains.
+    ...(spot.missingSince || spot.indexable === false
       ? { robots: { index: false, follow: true } }
       : {}),
   };

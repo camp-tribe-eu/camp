@@ -179,17 +179,42 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
 
 export async function campsiteUrls(): Promise<SitemapUrl[]> {
   const index = await getSpotIndex();
-  return index.map((s: SpotIndexEntry) => ({
-    loc: `${SITE}/camping/${s.country}/${s.region}/${s.slug}`,
-    // 🔴 content_changed_at, NOT last_seen_at. The second moves every
-    // week when the import merely confirms the site still exists, which
-    // would restamp every unchanged page each Monday and teach crawlers
-    // that our lastmod is noise. Verified: after a re-import with no
-    // data change, last_seen_at moved a day and this did not.
-    lastmod: isoDate(s.contentChangedAt ?? s.lastSeenAt),
-    changefreq: 'monthly' as const,
-    priority: '0.6',
-  }));
+
+  // 🔴 Printed on every build, beside the map snapshot's size and the
+  // search index's, and for the same reason: a number nobody prints is a
+  // number nobody watches. This one says how much of the site has nothing
+  // to say yet, and it should be going DOWN as CAMP-33 computes
+  // surroundings and owners claim listings. If it climbs, something is
+  // importing campsites faster than it is describing them.
+  const thin = index.filter((s: SpotIndexEntry) => !s.indexable).length;
+  // eslint-disable-next-line no-console
+  console.log(
+    `campsite pages: ${index.length}, of which ${thin} carry nothing but a ` +
+      `name (${((100 * thin) / (index.length || 1)).toFixed(1)}%) — noindex, ` +
+      'not in the sitemap',
+  );
+
+  return index
+    // 🔴 CAMP-105. A campsite page with nothing on it but its name is
+    // noindex, and a sitemap says "index this" — the two are contradictory
+    // instructions about one URL, and which wins is Google's choice rather
+    // than ours. The same rule the thin region hubs follow one level up.
+    //
+    // The pages stay alive and reachable: from the map, from their region
+    // hub, and from a direct link. They just do not compete in a result
+    // list against pages that have something to say.
+    .filter((s: SpotIndexEntry) => s.indexable)
+    .map((s: SpotIndexEntry) => ({
+      loc: `${SITE}/camping/${s.country}/${s.region}/${s.slug}`,
+      // 🔴 content_changed_at, NOT last_seen_at. The second moves every
+      // week when the import merely confirms the site still exists, which
+      // would restamp every unchanged page each Monday and teach crawlers
+      // that our lastmod is noise. Verified: after a re-import with no
+      // data change, last_seen_at moved a day and this did not.
+      lastmod: isoDate(s.contentChangedAt ?? s.lastSeenAt),
+      changefreq: 'monthly' as const,
+      priority: '0.6',
+    }));
 }
 
 /** The children the index points at, computed the same way both places. */

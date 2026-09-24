@@ -62,6 +62,63 @@ test.describe('sitemap', () => {
     expect((await request.get(`/camping/si/${thin.slug}`)).status()).toBe(200);
   });
 
+  // 🔴 CAMP-105. The same bargain the thin hubs got one level up, for the
+  // campsites that carry nothing but a name: out of the sitemap, noindex,
+  // still alive and still crawlable through.
+  test('🔴 a campsite with nothing recorded is out of the sitemap but alive', async ({
+    request,
+  }) => {
+    const index: { country: string; region: string; slug: string; indexable: boolean }[] =
+      await (
+        await request.get(
+          `${process.env.API_BASE_URL ?? 'http://localhost:3001'}/spots/index`,
+        )
+      ).json();
+
+    const thin = index.find((s) => !s.indexable);
+    const rich = index.find((s) => s.indexable);
+    // An empty comparison proves nothing: both kinds must exist, or this
+    // test passes by having no subject.
+    expect(thin, 'no campsite carries nothing — the rule has no subject').toBeTruthy();
+    expect(rich, 'every campsite carries nothing — the rule matches all').toBeTruthy();
+
+    const path = `/camping/${thin!.country}/${thin!.region}/${thin!.slug}`;
+
+    // Not in any sitemap chunk.
+    const chunks = (await (await request.get('/sitemap.xml')).text())
+      .match(/<loc>([^<]+)<\/loc>/g)!
+      .map((l) => l.replace(/<\/?loc>/g, ''))
+      .filter((u) => /campsites-\d+\.xml$/.test(u))
+      .map((u) => new URL(u).pathname);
+    for (const chunk of chunks) {
+      expect(await (await request.get(chunk)).text(), chunk).not.toContain(
+        `${path}<`,
+      );
+    }
+
+    // But reachable, and answering 200 — the page is the only way to
+    // that campsite for somebody who was sent the link.
+    const page = await request.get(path);
+    expect(page.status(), `${path} should still be served`).toBe(200);
+
+    // 🔴 noindex, FOLLOW. Never nofollow: the crawl path from the country
+    // hub down through this page has to survive, which is the same reason
+    // CAMP-71 gave for the thin hubs.
+    const html = await page.text();
+    expect(html).toMatch(/name="robots" content="noindex, follow"/);
+
+    // And a campsite that does have something keeps whatever the build
+    // mode says — so this rule narrows the thin ones and nothing else.
+    const richHtml = await (
+      await request.get(`/camping/${rich!.country}/${rich!.region}/${rich!.slug}`)
+    ).text();
+    expect(richHtml).toMatch(
+      CLOSED
+        ? /name="robots" content="noindex, nofollow"/
+        : /name="robots" content="index, follow"/,
+    );
+  });
+
   test('every campsite page is listed', async ({ request }) => {
     const index = await request.get(
       `${process.env.API_BASE_URL ?? 'http://localhost:3001'}/spots/index`,
@@ -95,7 +152,19 @@ test.describe('sitemap', () => {
 
     // No code change was needed for any of them: the list comes from the
     // database, which is the card's acceptance criterion.
-    expect(listed).toBe(spots.length);
+    //
+    // 🔴 Every campsite that HAS something, not every campsite. CAMP-105
+    // keeps the ones carrying nothing but a name out of the sitemap, so
+    // comparing against the raw total would now fail — and, worse, the
+    // obvious "fix" of loosening it to `toBeLessThanOrEqual` would stop
+    // noticing a chunk that silently lost half its pages.
+    const indexable = (
+      spots as { indexable: boolean }[]
+    ).filter((s) => s.indexable).length;
+    expect(listed).toBe(indexable);
+    // The exclusion must be a minority, not the rule. If this ever fails
+    // the site has become mostly unlisted and somebody should know.
+    expect(indexable).toBeGreaterThan(spots.length / 2);
   });
 
   test('robots.txt points at the sitemap only when it should', async ({
