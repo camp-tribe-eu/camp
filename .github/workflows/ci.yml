@@ -156,6 +156,20 @@ jobs:
       - name: No near-duplicate generated pages
         run: node scripts/seo/check-duplicate-pages.mjs
 
+      # CAMP-66. Article 50(2) of the EU AI Act, in force 02.08.2026:
+      # machine-made text has to be marked as machine-made. Thirty-six
+      # guide pages are generated, nobody re-reads them, and a template
+      # change that drops the disclosure looks like no change at all.
+      #
+      # 🔴 Two steps, as with every guard here. The self-test drives a
+      # page with no provenance, one that never mentions a machine and
+      # one that hides which machine — a gate nobody has tried to break
+      # is a comment.
+      - name: Disclosure gate still refuses an unmarked generated page
+        run: node scripts/seo/check-guide-disclosure.mjs --self-test
+      - name: Every guide says how it was made
+        run: node scripts/seo/check-guide-disclosure.mjs
+
       # CAMP-37. Two steps, not one. The self-test proves the validator
       # still rejects broken markup — a checker that has quietly stopped
       # checking passes everything, and that is worse than no checker.

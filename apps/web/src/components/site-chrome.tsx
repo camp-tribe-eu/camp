@@ -35,7 +35,26 @@ const NAV: NavItem[] = [
 export function SiteHeader() {
   return (
     <header className="border-b border-line-2 bg-surface">
-      <div className="mx-auto flex h-[62px] max-w-wrap items-center gap-6 px-4 xl:px-6">
+      {/* 🔴 Wraps below `sm`, and the height grows with it.
+
+          The fixed 62px row fitted three links by luck, not by design.
+          Adding Guides (CAMP-66) pushed it 26px past a 375px screen and
+          11px past an iPhone 14 — measured, and caught by the
+          no-horizontal-scroll test rather than by anyone looking. The
+          list above names four more links still to come, so this was
+          going to happen regardless of which card added the fourth.
+
+          Wrapping rather than hiding: a link a reader cannot see is a
+          section that does not exist for them, and a horizontally
+          scrolling nav with no affordance hides links just as
+          effectively. Two short rows on a phone costs 30px and keeps
+          every destination visible.
+
+          ⚠️ This is the honest minimum, not a mobile header. Seven
+          links will need a real one — that belongs to the design card
+          CAMP-81, not here. From `sm` up nothing changes at all, so the
+          visual baselines are untouched. */}
+      <div className="mx-auto flex min-h-[62px] max-w-wrap flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2 sm:h-[62px] sm:flex-nowrap sm:py-0 xl:px-6">
         <Link
           href="/"
           className="flex items-center gap-2 font-narrow text-[19px] font-bold text-heading"
@@ -50,7 +69,9 @@ export function SiteHeader() {
         </Link>
 
         <nav aria-label="Main" className="ml-auto">
-          <ul className="flex items-center gap-5 text-sm font-medium text-ink-2">
+          {/* Wraps too, so the row that wraps can itself wrap once the
+              fifth and sixth links arrive. */}
+          <ul className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm font-medium text-ink-2">
             {NAV.map((item) => (
               <li key={item.href}>
                 <Link href={item.href} className="hover:text-heading">
