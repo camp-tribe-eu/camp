@@ -291,6 +291,71 @@ test.describe('structured data (CAMP-37)', () => {
     expect(camp.amenityFeature ?? []).toHaveLength(0);
   });
 
+  // ── CAMP-114 ─────────────────────────────────────────────────────────
+  //
+  // 🔴 Every marked-up question must be readable on the page.
+  //
+  // Google's FAQ policy requires the answer to be visible, and the honest
+  // reason is the same one: markup that says something the page does not
+  // is a claim made to machines only. The condition that emits the block
+  // and the condition that renders the list are 160 lines apart in
+  // page.tsx, and review pointed out that nothing tied them together — a
+  // later `.slice(0, 3)` on the visible list, or collapsing the
+  // section,
+  // would be a policy breach no test would notice.
+  test('🔴 every FAQ question in the markup is visible on the page', async ({
+    page,
+  }) => {
+    await page.goto(fx.rich);
+    const docs = await graphs(page);
+    const faq = docs.find((d) => d['@type'] === 'FAQPage');
+    expect(faq, 'no FAQPage on a campsite with computed surroundings').toBeTruthy();
+
+    const questions = faq.mainEntity as { name: string; acceptedAnswer: { text: string } }[];
+    expect(questions.length).toBeGreaterThan(0);
+
+    const shown = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+    for (const q of questions) {
+      expect(shown, `question not on the page: ${q.name}`).toContain(
+        q.name.replace(/\s+/g, ' '),
+      );
+      expect(shown, `answer not on the page: ${q.name}`).toContain(
+        q.acceptedAnswer.text.replace(/\s+/g, ' '),
+      );
+    }
+  });
+
+  // And the other direction, on the campsite with the least to say.
+  //
+  // 🔴 The first version of this test asserted there was no FAQPage at
+  // all, and CI was right to reject it: `fx.empty` has no computed
+  // surroundings, but it does carry recorded facilities, and a question
+  // built from those is honest. The invariant is not "no questions" — it
+  // is that a block never promises answers it has none of, and that the
+  // heading and the block appear together or not at all.
+  test('the FAQ block and its heading exist together, or not at all', async ({
+    page,
+  }) => {
+    await page.goto(fx.empty);
+    const docs = await graphs(page);
+    const faq = docs.find((d) => d['@type'] === 'FAQPage');
+    const heading = page.getByRole('heading', { name: 'Questions we can answer' });
+
+    if (faq) {
+      expect(
+        (faq.mainEntity ?? []).length,
+        'an FAQPage that promises answers and has none',
+      ).toBeGreaterThan(0);
+      await expect(heading).toHaveCount(1);
+      const shown = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+      for (const q of faq.mainEntity as { name: string }[]) {
+        expect(shown).toContain(q.name.replace(/\s+/g, ' '));
+      }
+    } else {
+      await expect(heading).toHaveCount(0);
+    }
+  });
+
   test('breadcrumbs are numbered from 1 without gaps', async ({ page }) => {
     await page.goto(fx.rich);
     const docs = await graphs(page);
