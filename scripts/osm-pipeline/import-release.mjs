@@ -284,8 +284,8 @@ function selfTest() {
       'dbname=camptribe_dev host=localhost port=5432',
     conninfo('postgres://localhost:5432/camptribe_dev'));
   ok('credentials survive, decoded',
-    conninfo('postgresql://me:p%40ss@db.example:6543/app') ===
-      'dbname=app host=db.example port=6543 user=me password=p@ss');
+    conninfo('postgresql://me:p%40ss@db.example.invalid:6543/app') ===
+      'dbname=app host=db.example.invalid port=6543 user=me password=p@ss');
   ok('a key=value string is left alone',
     conninfo('dbname=x host=y') === 'dbname=x host=y');
   ok('a URL with no database falls back rather than producing dbname=',
@@ -293,9 +293,9 @@ function selfTest() {
 
   // 🔴 Everything after the `?` used to be thrown away.
   ok('sslmode survives — without it a managed Postgres refuses the connection',
-    conninfo('postgres://u:p@db.neon.tech/app?sslmode=require') ===
-      "dbname=app host=db.neon.tech user=u password=p sslmode=require",
-    conninfo('postgres://u:p@db.neon.tech/app?sslmode=require'));
+    conninfo('postgres://u:p@db.example.invalid/app?sslmode=require') ===
+      "dbname=app host=db.example.invalid user=u password=p sslmode=require",
+    conninfo('postgres://u:p@db.example.invalid/app?sslmode=require'));
   ok('several parameters all survive',
     conninfo('postgres://h/app?sslmode=require&connect_timeout=10') ===
       'dbname=app host=h sslmode=require connect_timeout=10');
@@ -307,9 +307,9 @@ function selfTest() {
 
   // 🔴 libpq splits on whitespace, so an unquoted space is a second keyword.
   ok('a password with a space is quoted',
-    conninfo('postgres://u:two%20words@h/app') ===
-      "dbname=app host=h user=u password='two words'",
-    conninfo('postgres://u:two%20words@h/app'));
+    conninfo('postgres://u:two%20words@h.invalid/app') ===
+      "dbname=app host=h.invalid user=u password='two words'",
+    conninfo('postgres://u:two%20words@h.invalid/app'));
   ok("a password with a quote and a backslash is escaped",
     quoteValue("a'b\\c") === "'a\\'b\\\\c'", quoteValue("a'b\\c"));
   ok('an ordinary value stays bare, so the log stays readable',
@@ -321,8 +321,8 @@ function selfTest() {
   // Every case below was measured against psql 17 and against
   // _pgconn.sh; both now produce the same string.
   ok('a carriage return in a password is quoted (libpq splits on isspace)',
-    conninfo('postgres://u:pa%0Dss@h/db') === "dbname=db host=h user=u password='pa\rss'",
-    JSON.stringify(conninfo('postgres://u:pa%0Dss@h/db')));
+    conninfo('postgres://u:pa%0Dss@h.invalid/db') === "dbname=db host=h.invalid user=u password='pa\rss'",
+    JSON.stringify(conninfo('postgres://u:pa%0Dss@h.invalid/db')));
   ok('an IPv6 host loses its brackets, which libpq does not want',
     conninfo('postgres://[::1]:5432/db') === 'dbname=db host=::1 port=5432',
     conninfo('postgres://[::1]:5432/db'));
