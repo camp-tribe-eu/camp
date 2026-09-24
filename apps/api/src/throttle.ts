@@ -98,11 +98,19 @@ export function isExempt(
   token?: string | null,
   expected = process.env.API_BUILD_TOKEN,
 ): boolean {
-  // 🔴 Only the root. The first version also exempted `/health`, which
-  // does not exist — measured, it 404s. An exemption for a route nobody
-  // serves is a line that looks like a monitoring decision and is not
-  // one; when CAMP-59 adds a real health route, it is added here too.
-  if (path === '/') return true;
+  // 🔴 The root, and now `/health` — which CAMP-59 has made real.
+  //
+  // The first version of this exempted `/health` before the route
+  // existed: measured, it 404d. An exemption for a route nobody serves
+  // is a line that looks like a monitoring decision and is not one, so
+  // it was removed with a note saying it returns when the route does.
+  // It has: apps/api/src/health/health.controller.ts.
+  //
+  // A monitor polling every minute is the one caller we WANT hitting us
+  // constantly, and it must not be the caller a rate limit silences —
+  // an uptime check that gets 429d reports an outage that is not
+  // happening, which is the fastest way to teach everyone to ignore it.
+  if (path === '/' || path === '/health') return true;
   if (!expected) return false;
   return typeof token === 'string' && token.length > 0 && token === expected;
 }

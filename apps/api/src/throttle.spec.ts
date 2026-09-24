@@ -128,11 +128,27 @@ describe('what is exempt', () => {
     expect(isExempt('/')).toBe(true);
   });
 
-  // 🔴 /health was exempt and does not exist — measured, it 404s. An
-  // exemption for a route nobody serves reads as a monitoring decision
-  // and is not one.
-  it('and not a route we do not serve', () => {
-    expect(isExempt('/health')).toBe(false);
+  // 🔴 /health, now that CAMP-59 has made it real.
+  //
+  // It was exempt before the route existed — measured, it 404d — and the
+  // exemption was removed with a note saying it returns when the route
+  // does. This test is the other half of that note: it fails if the
+  // exemption is ever added back without the controller, and it fails if
+  // the controller is deleted while the exemption stays.
+  it('and /health, because a monitor polling it must never be throttled', () => {
+    expect(isExempt('/health')).toBe(true);
+  });
+
+  it('the health route exists, or its exemption is a lie', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readFileSync } = require('node:fs');
+    const controller = readFileSync(
+      `${__dirname}/health/health.controller.ts`,
+      'utf8',
+    );
+    expect(
+      controller.includes("@Controller('health')") + ' in health.controller.ts',
+    ).toBe(true + ' in health.controller.ts');
   });
 
   it('and nothing else — especially not the expensive routes', () => {
