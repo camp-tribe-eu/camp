@@ -98,11 +98,39 @@ export function isExempt(
   token?: string | null,
   expected = process.env.API_BUILD_TOKEN,
 ): boolean {
-  // 🔴 Only the root. The first version also exempted `/health`, which
-  // does not exist — measured, it 404s. An exemption for a route nobody
-  // serves is a line that looks like a monitoring decision and is not
-  // one; when CAMP-59 adds a real health route, it is added here too.
-  if (path === '/') return true;
+  // 🔴 The root, and now `/health` — which CAMP-59 has made real.
+  //
+  // The first version of this exempted `/health` before the route
+  // existed: measured, it 404d. An exemption for a route nobody serves
+  // is a line that looks like a monitoring decision and is not one, so
+  // it was removed with a note saying it returns when the route does.
+  // It has: apps/api/src/health/health.controller.ts.
+  //
+  // A monitor polling every minute is the one caller we WANT hitting us
+  // constantly, and it must not be the caller a rate limit silences —
+  // an uptime check that gets 429d reports an outage that is not
+  // happening, which is the fastest way to teach everyone to ignore it.
+  //
+  // 🔴 Compared after normalising, not as a raw string. Review pointed at
+  // the obvious hole: `/health/`, `/HEALTH` and `/health?probe=1` are all
+  // the same route to the router and none of them matched here. An uptime
+  // monitor writes the URL however its form was filled in, and a trailing
+  // slash is the single most common way — so the exemption would have
+  // been absent for exactly the caller it was written for, and nobody
+  // would have found out until the first 429 during an incident.
+  // isBulkPath below stripped slashes and query but never case, which
+  // was its own hole — fixed there, in the same breath.
+  const bare = path.split('?')[0];
+  const clean = bare.replace(/^\/+|\/+$/g, '').toLowerCase();
+  // 🔴 The root is `/`, and only `/`.
+  //
+  // Normalising first made `//` and `///` collapse to the empty string
+  // and become exempt — and Express answers `//` with a 404, not the
+  // root route, so that was a hole with nothing behind it. Review found
+  // it. The route is matched exactly; only `health` is normalised,
+  // because that is the one a monitor's URL field mangles.
+  if (bare === '/') return true;
+  if (clean === 'health') return true;
   if (!expected) return false;
   return typeof token === 'string' && token.length > 0 && token === expected;
 }
@@ -123,7 +151,20 @@ export const BUILD_TOKEN_HEADER = 'x-build-token';
  * eighteen-a-minute across the three.
  */
 export function isBulkPath(path: string): boolean {
-  const clean = path.split('?')[0].replace(/^\/+|\/+$/g, '');
+  // 🔴 Lower-cased, because the router is.
+  //
+  // Nest is built on Express, whose default is `caseSensitive: false`,
+  // and AppModule is created without overriding it. Measured: a GET for
+  // `/SPOTS/SEARCH-INDEX` is answered 200 with the full 1.1 MB document
+  // — while this function said false, so it was counted in the ordinary
+  // bucket instead of the bulk one. A caller who alternated case got
+  // twelve whole-dataset responses a minute against a documented six,
+  // and polluted the ordinary counter on the way. Found in review; the
+  // route was serving, the limit was not.
+  const clean = path
+    .split('?')[0]
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
   return BULK_ROUTES.some((r) => clean === r);
 }
 

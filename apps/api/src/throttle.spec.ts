@@ -123,16 +123,88 @@ describe('who a request is counted against', () => {
   });
 });
 
+// 🔴 Express matches routes case-insensitively by default, and Nest does
+// not override it. So the limiter has to as well, or a capital letter is
+// a way round it.
+describe('the bulk bucket follows the router, not the spelling', () => {
+  it.each([
+    '/SPOTS/SEARCH-INDEX',
+    '/Spots/Map/Points',
+    '/spots/index/',
+    '//spots/index',
+    '/spots/search-index?x=1',
+  ])('%s is still a whole-dataset route', (path) => {
+    expect(isBulkPath(path)).toBe(true);
+  });
+
+  it.each(['/spots/si', '/spots', '/spots/indexes', '/health'])(
+    '%s is not',
+    (path) => {
+      expect(isBulkPath(path)).toBe(false);
+    },
+  );
+});
+
 describe('what is exempt', () => {
   it('the root, because a monitor is meant to poll it', () => {
     expect(isExempt('/')).toBe(true);
   });
 
-  // 🔴 /health was exempt and does not exist — measured, it 404s. An
-  // exemption for a route nobody serves reads as a monitoring decision
-  // and is not one.
-  it('and not a route we do not serve', () => {
-    expect(isExempt('/health')).toBe(false);
+  // 🔴 /health, now that CAMP-59 has made it real.
+  //
+  // It was exempt before the route existed — measured, it 404d — and the
+  // exemption was removed with a note saying it returns when the route
+  // does. This test is the other half of that note: it fails if the
+  // exemption is ever added back without the controller, and it fails if
+  // the controller is deleted while the exemption stays.
+  it('and /health, because a monitor polling it must never be throttled', () => {
+    expect(isExempt('/health')).toBe(true);
+  });
+
+  // 🔴 However the monitor's URL field happened to be filled in.
+  //
+  // Review found the exemption comparing raw strings, so `/health/` —
+  // the commonest way a person types a URL — was throttled like any
+  // scraper. The route answers all of these; the exemption must too.
+  it.each(['/health/', '/HEALTH', '/Health/', '//health', '/health?probe=1'])(
+    '%s is the same route to the router, so it is exempt too',
+    (path) => {
+      expect(isExempt(path)).toBe(true);
+    },
+  );
+
+  it('and the root with a query, which a monitor often adds', () => {
+    expect(isExempt('/?probe=1')).toBe(true);
+  });
+
+  // 🔴 `//` is not the root. Express answers it with a 404, so exempting
+  // it bought nothing and gave an unlimited path to anyone who found it.
+  // The first version of the normalisation did exactly that.
+  it.each(['//', '///', '//?x=1'])(
+    '%s is a 404, not the root, and stays counted',
+    (path) => {
+      expect(isExempt(path)).toBe(false);
+    },
+  );
+
+  // The normalisation must not turn into "anything containing health".
+  it.each(['/health/deep', '/healthz', '/spots/health'])(
+    '%s is a different route and stays throttled',
+    (path) => {
+      expect(isExempt(path)).toBe(false);
+    },
+  );
+
+  it('the health route exists, or its exemption is a lie', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readFileSync } = require('node:fs');
+    const controller = readFileSync(
+      `${__dirname}/health/health.controller.ts`,
+      'utf8',
+    );
+    expect(
+      controller.includes("@Controller('health')") + ' in health.controller.ts',
+    ).toBe(true + ' in health.controller.ts');
   });
 
   it('and nothing else — especially not the expensive routes', () => {

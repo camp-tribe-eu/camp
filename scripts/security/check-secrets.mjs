@@ -47,8 +47,25 @@ const RULES = [
     // 🔴 The throwaway CI credential is excluded by value, not by
     // guessing: it is `postgres:postgres@localhost`, it is printed in
     // the workflow on purpose, and it protects nothing.
+    //
+    // 🔴 And a host that cannot exist, by the same standard.
+    //
+    // import-release.mjs tests its connection-string builder against
+    // URLs that must carry a password, because quoting the password is
+    // the thing under test — and every one of them tripped this rule.
+    // The answer is not to stop scanning that file and not to let the
+    // pattern rot: it is that RFC 2606 and RFC 6761 reserve
+    // example.com/net/org and the .test, .example, .invalid and
+    // .localhost TLDs so that documentation can name a host which is
+    // guaranteed never to resolve. A credential pointed at one of those
+    // reaches nothing, whoever reads it.
+    //
+    // Narrow on purpose. A real provider's domain — db.neon.tech,
+    // rds.amazonaws.com, and the .eu host in the self-test below — still
+    // trips the rule, which is the whole point.
     re: /\b(?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^\s:@/]+:[^\s@/]+@/,
-    ignore: /postgres:postgres@localhost/,
+    ignore:
+      /postgres:postgres@localhost|@[\w.-]*(?:example\.(?:com|net|org)|\.(?:test|example|invalid|localhost))(?:[:/?'"\s]|$)/,
   },
   {
     name: 'assigned credential',
@@ -95,6 +112,10 @@ if (process.argv.includes('--self-test')) {
     'gh = "ghp_0123456789abcdefghijklmnopqrstuvwxyz"',
     'slack: xoxb-123456789012-abcdefghijkl',
     'DATABASE_URL=postgres://camp:s3cr3tpassword@db.example.eu:5432/camp',
+    // 🔴 The reserved-host exemption must not become "anything with the
+    // word example in it". A real provider is still a real provider.
+    "conninfo('postgres://u:s3cr3t@db.neon.tech/app')",
+    "conninfo('postgres://u:s3cr3t@example-db.camptribe.eu/app')",
     'api_key = "aZ9bY8cX7dW6eV5fU4gT3hS2iR1j"',
     '-----BEGIN RSA PRIVATE KEY-----',
   ];
@@ -113,6 +134,12 @@ if (process.argv.includes('--self-test')) {
     'API_KEY="your-key-here"',
     '// the password is never logged',
     'const token = process.env.CF_API_TOKEN;',
+    // RFC 2606 / RFC 6761: hosts guaranteed never to resolve, which is
+    // why documentation and test fixtures are allowed to use them.
+    "conninfo('postgres://u:p@db.example.invalid/app?sslmode=require')",
+    "conninfo('postgres://u:two%20words@h.invalid/app')",
+    "conninfo('postgres://u:p@db.example.com/app')",
+    "conninfo('postgres://u:p@localhost.localhost/app')",
   ];
   for (const line of benign) {
     const f = [];
