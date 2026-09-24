@@ -67,12 +67,35 @@ DB="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"
 # second line of that defence, not the first.
 DEFAULT_DIR="$HOME/CampTribe-backups/$(date -u +%Y-%m-%d)"
 
-# table:key-columns — the ones worth the bytes, and why, above.
+# 🔴 Parents first, and children INCLUDED — both were wrong before.
+#
+# The list used to be reviews, photo_submissions, guides, routes. Two of
+# those are shells: a guide's text lives in `guide_translations` and a
+# route's line lives in `route_points`, and neither was backed up.
+# Measured 24.09.2026: 36 guides, 36 translations, none of the text
+# saved. Restoring that backup would have produced thirty-six empty
+# guides and called it a success.
+#
+# Found by the nightly rehearsal (CAMP-58) failing to TRUNCATE `guides`
+# because of a foreign key — the error that exposed the missing child was
+# the one the test tripped over on the way to something else.
+#
+# Order matters now, because restore inserts in this order and a child
+# cannot land before its parent.
+#
+# ⚠️ Still open, deliberately: `rental_cities`, `camper_types` and their
+# translations are our own editorial data too, and empty today. They go
+# in the day they carry anything, and that day should not be discovered
+# the same way this was.
 TABLES=(
+  "guides"
+  "guide_translations"
+  "routes"
+  "route_points"
+  "legal_pages"
+  "legal_page_translations"
   "reviews"
   "photo_submissions"
-  "guides"
-  "routes"
 )
 
 SPOTS_COLUMNS="osm_ref, context, context_computed_at, owner_overrides, missing_since, content_changed_at"
@@ -244,7 +267,15 @@ do_restore() {
   esac
 
   local sql
-  sql="$(mktemp -t camptribe-restore)"
+  # 🔴 A full template, not `-t`. `mktemp -t camptribe-restore` works on
+  # macOS, where BSD mktemp appends its own suffix — and fails outright on
+  # Linux with "too few X's in template", because GNU mktemp requires them.
+  #
+  # So the restore path had never run anywhere but this laptop, and nobody
+  # knew, because nobody had ever restored. The nightly rehearsal added in
+  # CAMP-58 found it on its first CI run — which is the entire argument of
+  # that card, arriving as evidence rather than as a claim.
+  sql="$(mktemp "${TMPDIR:-/tmp}/camptribe-restore.XXXXXX")"
   # shellcheck disable=SC2064  # $sql must be expanded now, not at trap time
   trap "rm -f '$sql'" RETURN
 
@@ -307,6 +338,54 @@ SQL
   say ""
   say "Rows reported as 'not in this database' belong to countries this"
   say "database has not imported. Import them, then restore again."
+
+  # 🔴 THE FOUR TABLES THAT WERE BACKED UP AND NEVER RESTORED.
+  #
+  # Until CAMP-58's review, do_restore() loaded exactly one archive —
+  # camping_spots_context.csv.gz — while `backup` wrote five. Reviews,
+  # photo submissions, guides and routes were saved every night and had
+  # no restore path at all, which is the same as not being backed up
+  # except that it looks safer.
+  #
+  # It survived because the CI fixture holds none of them: the gate
+  # compared 0 rows against a manifest that said 0 and printed a tick.
+  # Demonstrated by review with a real row — backed up, destroyed, and
+  # still gone after a "successful" restore.
+  #
+  # 🔴 ON CONFLICT DO NOTHING, and no target column. Same rule as the
+  # clauses above: a restore must never destroy newer work. A row that
+  # exists now wins, whatever the backup says; a row that is missing
+  # comes back. Running it twice is therefore harmless, which is the
+  # property that makes it safe to run unattended.
+  #
+  # ⚠️ The CSV was written with SELECT *, so the load is POSITIONAL. If a
+  # migration adds or reorders a column between a backup and its restore,
+  # this misaligns. The temp table is created LIKE the real one, so the
+  # types usually catch it loudly — but "usually" is doing work in that
+  # sentence, and a column added at the END is the case it would not
+  # catch. Worth a header check the day these tables start changing.
+  for t in "${TABLES[@]}"; do
+    local arch="$dir/$t.csv.gz"
+    [ -f "$arch" ] || continue
+    if [ "$(table_exists "$t")" != 't' ]; then
+      say "  · $t does not exist in this database — skipped"
+      continue
+    fi
+    case "$arch" in
+      *\'*) die "the backup path contains a quote, which cannot be passed safely: $arch" ;;
+    esac
+
+    local tsql
+    tsql="$(mktemp "${TMPDIR:-/tmp}/camptribe-restore-$t.XXXXXX")"
+    {
+      printf 'CREATE TEMP TABLE incoming_%s (LIKE %s);\n' "$t" "$t"
+      printf "\\copy incoming_%s FROM PROGRAM 'gzip -dc %s' WITH CSV HEADER\n" "$t" "$arch"
+      printf 'INSERT INTO %s SELECT * FROM incoming_%s ON CONFLICT DO NOTHING;\n' "$t" "$t"
+      printf 'SELECT (SELECT count(*) FROM incoming_%s) AS "read", count(*) AS "now in %s" FROM %s;\n' "$t" "$t" "$t"
+    } > "$tsql"
+    psql "$DB" -v ON_ERROR_STOP=1 -f "$tsql"
+    rm -f "$tsql"
+  done
 }
 
 # --------------------------------------------------------------------

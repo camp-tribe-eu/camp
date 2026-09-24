@@ -85,7 +85,10 @@ jobs:
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --body "$FULL"
           else
-            gh issue create --title "$TITLE" --body "$FULL" --label ci
+            # No --label: the repository has no `ci` label and gh aborts
+            # on an unresolvable one, so this branch — the one that runs
+            # the very first time anything goes quiet — would have failed.
+            gh issue create --title "$TITLE" --body "$FULL"
           fi
 
       # 🔴 Close the issue when the job recovers. An alert that stays open

@@ -56,17 +56,84 @@ MERGE_WATER=() MERGE_PLACE=() MERGE_POI=()
 for REGION in "${REGIONS[@]}"; do
   SLUG="$(echo "$REGION" | tr '/' '-')"
 
-  if [ ! -f "$SLUG.osm.pbf" ]; then
-    echo "→ $REGION"
+  URL="https://download.geofabrik.de/$REGION-latest.osm.pbf"
+
+  # 🔴 The expected size comes from Geofabrik, every run.
+  #
+  # A one-byte ranged GET returns `Content-Range: bytes 0-0/<total>`;
+  # a HEAD is answered with a 302 and no length, which is why it is done
+  # this way. France is 5 087 360 116 bytes, Slovenia 313 211 467.
+  REMOTE_SIZE=$(curl -sL -D - -o /dev/null --range 0-0 --max-time 60 "$URL" \
+    | awk -F'/' '/[Cc]ontent-[Rr]ange/ {gsub(/\r/,"",$2); print $2}')
+  if ! [ "${REMOTE_SIZE:-0}" -gt 100000 ] 2>/dev/null; then
+    echo "::error::could not read the size of $REGION from Geofabrik" >&2
+    exit 1
+  fi
+
+  # 🔴 A PARTIAL DOWNLOAD IS NOT A DOWNLOAD.
+  #
+  # The old check was `[ ! -f "$SLUG.osm.pbf" ]` plus "is it at least
+  # 100 kB". An interrupted transfer leaves a large, plausible file that
+  # passes both — and France's extract takes hours, so an interruption is
+  # not a remote possibility, it is the expected case. osmium may or may
+  # not notice a truncated PBF; if it does not, the layers come out
+  # quietly incomplete and every distance computed against them is wrong
+  # in a way nothing downstream can see.
+  LOCAL_SIZE=0
+  [ -f "$SLUG.osm.pbf" ] && LOCAL_SIZE=$(wc -c < "$SLUG.osm.pbf" | tr -d ' ')
+
+  if [ "$LOCAL_SIZE" != "$REMOTE_SIZE" ]; then
+    if [ "$LOCAL_SIZE" -gt 0 ]; then
+      echo "→ $REGION (have $LOCAL_SIZE of $REMOTE_SIZE bytes, resuming)"
+    else
+      echo "→ $REGION ($REMOTE_SIZE bytes)"
+    fi
     # -L: Geofabrik answers 302 and curl without it writes a 244-byte
     # HTML page that osmium then rejects with something unhelpful.
-    curl -sSL --retry 3 --retry-delay 10 \
-      -o "$SLUG.osm.pbf" "https://download.geofabrik.de/$REGION-latest.osm.pbf"
-    SIZE=$(wc -c < "$SLUG.osm.pbf")
-    if [ "$SIZE" -lt 100000 ]; then
-      echo "::error::$REGION download is only $SIZE bytes — not a PBF" >&2
+    # -C -: resume rather than start again, which on a multi-gigabyte
+    # extract is the difference between a retry and another three hours.
+    curl -sSL -C - --retry 5 --retry-delay 10 \
+      -o "$SLUG.osm.pbf" "$URL"
+
+    LOCAL_SIZE=$(wc -c < "$SLUG.osm.pbf" | tr -d ' ')
+    if [ "$LOCAL_SIZE" != "$REMOTE_SIZE" ]; then
+      echo "::error::$REGION is $LOCAL_SIZE bytes, Geofabrik says $REMOTE_SIZE" >&2
       exit 1
     fi
+
+    # 🔴 A BYTE COUNT IS NOT INTEGRITY.
+    #
+    # Geofabrik re-cuts every extract daily. Resume a download that
+    # started before a re-cut and `curl -C -` appends the NEW file's tail
+    # to the OLD file's head — and the result is exactly the expected
+    # length, so the size check above waves it through. Demonstrated by
+    # review against a range-capable server: 400 bytes of one file
+    # followed by 600 of another, accepted.
+    #
+    # France takes hours, so a download that spans a re-cut is not an
+    # edge case. The md5 Geofabrik publishes beside each extract costs
+    # one read of the file and settles it: truncation, splicing and
+    # corruption all fail the same check.
+    EXPECT_MD5=$(curl -sSL --max-time 60 "$URL.md5" | awk '{print $1}')
+    if [ -z "$EXPECT_MD5" ]; then
+      echo "::error::no .md5 published for $REGION — refusing to trust the download" >&2
+      exit 1
+    fi
+    if command -v md5sum >/dev/null 2>&1; then
+      GOT_MD5=$(md5sum "$SLUG.osm.pbf" | awk '{print $1}')
+    else
+      GOT_MD5=$(md5 -q "$SLUG.osm.pbf")
+    fi
+    if [ "$GOT_MD5" != "$EXPECT_MD5" ]; then
+      # A resumed download that spans a re-cut is the likely cause, and
+      # the cure is a clean one. Removed rather than retried in place,
+      # so the next run cannot resume the spliced file again.
+      rm -f "$SLUG.osm.pbf"
+      echo "::error::$REGION failed its checksum (got $GOT_MD5, expected $EXPECT_MD5)." >&2
+      echo "          The partial file has been deleted. Run again for a clean download." >&2
+      exit 1
+    fi
+    echo "  checksum ok"
   fi
 
   # 🔴 No streams. The comment at the top of this file has said so since

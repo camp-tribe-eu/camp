@@ -50,7 +50,26 @@ export const WATCHED = [
     workflow: 'osm-weekly.yml',
     everyDays: 7,
     graceDays: 1,
+    // Landed on main 21.09.2026 at 17:33, after that Monday's 04:00 slot.
+    since: '2026-09-21',
     why: 'campsite data stops being refreshed: closures, new sites and tag changes never arrive, and nothing on the site looks wrong',
+  },
+  {
+    // CAMP-58. 🔴 The card asks for an alarm on the ABSENCE of a backup
+    // check, not only on its failure — and this is that alarm, for the
+    // same reason the one above exists: a failing job shouts, a job that
+    // stopped running says nothing at all.
+    //
+    // The consequence here is worse than stale campsite data. Nothing
+    // about the site looks different when the restore rehearsal stops;
+    // the backups keep being written and keep looking fine, and the fact
+    // that nobody has proved they can be read back is discovered on the
+    // one day it matters.
+    workflow: 'backup-verify.yml',
+    everyDays: 1,
+    graceDays: 1,
+    since: '2026-09-24',
+    why: 'nobody is checking that the backups can be restored: they keep being written, they keep looking fine, and whether they can be read back is unknown until the day it is the only copy',
   },
 ];
 
@@ -88,6 +107,37 @@ export function evaluate(watched, runsByWorkflow, now) {
       .sort((a, b) => b - a);
 
     if (good.length === 0) {
+      // 🔴 A workflow is not late before it was ever due.
+      //
+      // `since` is the day the schedule landed on the default branch —
+      // GitHub only runs crons from there — and nothing can have fired
+      // before it. Without this, adding a watched workflow raises an
+      // alarm the moment it merges, every time, and an alarm that cries
+      // wolf on the day it is installed is an alarm that gets muted on
+      // the same day.
+      //
+      // Measured 24.09.2026: osm-weekly.yml landed on main at 17:33 on
+      // Monday 21.09, AFTER that Monday's 04:00 slot, so its first
+      // scheduled run is 28.09 and "never run on schedule" is simply
+      // true and not yet a problem.
+      const since = w.since ? new Date(`${w.since}T00:00:00Z`) : null;
+      const waited = since ? (now - since) / DAY_MS : Infinity;
+      if (Number.isFinite(waited) && waited <= maxDays) {
+        notes.push({
+          workflow: w.workflow,
+          kind: 'not-due-yet',
+          days: Math.floor(waited),
+          maxDays,
+          why: w.why,
+          // 🔴 Said as what it is. "has run recently" would be a lie —
+          // it has not run at all — and a watchdog that rounds its own
+          // status up is the thing it was written to replace.
+          text:
+            `has not run on schedule yet; landed ${Math.floor(waited)}d ago, ` +
+            `due within ${maxDays}d`,
+        });
+        continue;
+      }
       problems.push({
         workflow: w.workflow,
         kind: runs.length === 0 ? 'never-ran' : 'never-succeeded',
@@ -150,6 +200,40 @@ function selfTest() {
   const now = new Date('2026-09-23T12:00:00Z');
   const ago = (days) => new Date(now - days * DAY_MS).toISOString();
   const one = [{ workflow: 'w', everyDays: 7, graceDays: 1, why: 'reason' }];
+  // 🔴 A workflow that has not had a chance to run yet is not late.
+  const fresh = [
+    { workflow: 'new.yml', everyDays: 1, graceDays: 1, why: 'r', since: '2026-09-25' },
+  ];
+  const at = (iso) => new Date(`${iso}T12:00:00Z`);
+  check(
+    'a brand-new schedule is not an alarm on the day it lands',
+    evaluate(fresh, { 'new.yml': [] }, at('2026-09-25')).problems.length,
+    0,
+  );
+  check(
+    'it is still not an alarm inside its grace',
+    evaluate(fresh, { 'new.yml': [] }, at('2026-09-26')).problems.length,
+    0,
+  );
+  check(
+    'and it IS an alarm once the grace is past',
+    evaluate(fresh, { 'new.yml': [] }, at('2026-09-28')).problems.length,
+    1,
+  );
+  check(
+    'a watched workflow with no `since` alarms immediately, as before',
+    evaluate(
+      [{ workflow: 'old.yml', everyDays: 1, graceDays: 1, why: 'r' }],
+      { 'old.yml': [] },
+      at('2026-09-25'),
+    ).problems.length,
+    1,
+  );
+  check(
+    'every watched workflow records when its schedule landed',
+    WATCHED.every((w) => typeof w.since === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(w.since)),
+    true,
+  );
   const kinds = (r) => r.problems.map((p) => p.kind);
   const ok = (runs) => kinds(evaluate(one, { w: runs }, now));
 
@@ -267,7 +351,30 @@ function selfTest() {
 
 if (process.argv.includes('--self-test')) selfTest();
 
-/** Ask GitHub for the recent runs of one workflow. */
+/**
+ * Ask GitHub for the recent SCHEDULED runs of one workflow.
+ *
+ * 🔴 `--event schedule`, and without it this whole file was a placebo.
+ *
+ * The header of this file says it exists because osm-weekly.yml had
+ * never once been triggered by its cron while the Actions tab showed it
+ * healthy. Measured again 24.09.2026, by review:
+ *
+ *   gh run list --workflow osm-weekly.yml --event schedule   → nothing
+ *   node scripts/ci/check-schedule.mjs → "✓ osm-weekly.yml: last
+ *                                         succeeded today"
+ *
+ * The cron still had not fired. The check was counting two manual
+ * workflow_dispatch runs and reporting the exact state it was written to
+ * catch. backup-verify.yml was the same on the day it was added: marked
+ * "succeeded today" off a pull_request run from its own feature branch,
+ * before its schedule had ever existed — and with everyDays: 1, any pull
+ * request touching the backup code would have reset the clock.
+ *
+ * A manual run proves somebody pressed a button. It says nothing about
+ * whether the schedule works, and the schedule is the only thing here
+ * that nobody is watching.
+ */
 function fetchRuns(workflow) {
   const raw = execFileSync(
     'gh',
@@ -276,6 +383,8 @@ function fetchRuns(workflow) {
       'list',
       '--workflow',
       workflow,
+      '--event',
+      'schedule',
       '--limit',
       '30',
       '--json',
@@ -301,10 +410,26 @@ for (const w of WATCHED) {
 
 const { problems, notes } = evaluate(WATCHED, runsByWorkflow, new Date());
 
-for (const n of notes) console.log(`✓ ${n.workflow}: ${n.text}`);
+for (const n of notes) {
+  // A job that has simply not come round yet is not a tick.
+  console.log(`${n.kind === 'not-due-yet' ? '·' : '✓'} ${n.workflow}: ${n.text}`);
+}
 
 if (problems.length === 0) {
-  console.log('\n✓ every scheduled job has run recently');
+  const pending = notes.filter((n) => n.kind === 'not-due-yet').length;
+  if (pending === notes.length && pending > 0) {
+    // 🔴 Nothing is wrong, and nothing has been proved either.
+    console.log(
+      `\n· nothing is overdue, but no watched job has run on schedule yet ` +
+        `(${pending} waiting for its first slot)`,
+    );
+  } else if (pending > 0) {
+    console.log(
+      `\n✓ nothing overdue (${pending} still waiting for a first scheduled run)`,
+    );
+  } else {
+    console.log('\n✓ every scheduled job has run recently');
+  }
   process.exit(0);
 }
 
