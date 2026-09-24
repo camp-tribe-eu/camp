@@ -32,7 +32,42 @@ const opt = (name, fallback) => {
 
 const MAX_SIMILARITY = opt('max', 0.8);
 const SAMPLE = opt('sample', 150);
-const ROOT = 'apps/web/.next/server/app/camping';
+const BUILD = 'apps/web/.next/server/app';
+
+/**
+ * 🔴 Two families of generated pages, not one.
+ *
+ * This guard was written for campsite pages, and for as long as it has
+ * existed those were the only generated pages we had. CAMP-55 added
+ * twenty-seven more — one per EU member state, same template, different
+ * price — and they were invisible here because the root was hard-coded
+ * to /camping.
+ *
+ * Measured the day they were written, before they were covered: two
+ * pairs sat at 88.5% and 86.7%, above the 80% line this file exists to
+ * hold. The remedy was to give each page something of its own — what
+ * fuel costs across each of that country's land borders, and how petrol
+ * and diesel compare there — and not to leave the directory unwatched.
+ *
+ * Families are compared WITHIN themselves, never across. A campsite page
+ * and a fuel-price page share almost no wording; pooling them would
+ * lower every percentile and hide exactly what this measures.
+ */
+const FAMILIES = [
+  {
+    name: 'campsites',
+    root: `${BUILD}/camping`,
+    // Campsite pages only: country and region hubs are a different shape
+    // and legitimately share more of their wording.
+    keep: (rel) =>
+      rel.split(path.sep).length === 3 && !rel.includes(`${path.sep}page${path.sep}`),
+  },
+  {
+    name: 'trip cost by country',
+    root: `${BUILD}/tools/camper-trip-cost`,
+    keep: (rel) => rel.split(path.sep).length === 1,
+  },
+];
 
 /** Deterministic sample: the same pages every run, so a rise is a change. */
 function seeded(n) {
@@ -82,62 +117,81 @@ const jaccard = (a, b) => {
   return shared / (a.size + b.size - shared);
 };
 
-const files = [];
-for await (const f of glob(`${ROOT}/**/*.html`)) {
-  // Campsite pages only: country and region hubs are a different shape
-  // and legitimately share more of their wording.
-  const depth = path.relative(ROOT, f).split(path.sep).length;
-  if (depth === 3 && !f.includes(`${path.sep}page${path.sep}`)) files.push(f);
-}
+let failed = 0;
+let analysed = 0;
 
-if (files.length === 0) {
-  console.error(
-    `No generated pages under ${ROOT}. Run the build first:\n` +
-      '  cd apps/web && npx next build',
+for (const family of FAMILIES) {
+  const files = [];
+  for await (const f of glob(`${family.root}/**/*.html`)) {
+    if (family.keep(path.relative(family.root, f))) files.push(f);
+  }
+
+  if (files.length === 0) {
+    // 🔴 An empty family is a failure, not a pass. A renamed directory or
+    // a half-finished build would otherwise make this guard report
+    // success over nothing at all — the same silent-zero shape that let a
+    // throttled build ship 580 pages and exit 0.
+    console.error(
+      `\n✗ no generated pages under ${family.root} (${family.name}).\n` +
+        '   Run the build first:  cd apps/web && npx next build',
+    );
+    failed++;
+    continue;
+  }
+
+  const texts = new Map(files.map((f) => [f, visibleText(f)]));
+  const sets = new Map([...texts].map(([f, t]) => [f, shingles(t)]));
+
+  const rnd = seeded(files.length);
+  const picked = new Set();
+  while (picked.size < Math.min(SAMPLE, files.length)) {
+    picked.add(files[Math.floor(rnd())]);
+  }
+  const sample = [...picked];
+
+  const pairs = [];
+  for (let i = 0; i < sample.length; i++) {
+    for (let j = i + 1; j < sample.length; j++) {
+      const a = sets.get(sample[i]);
+      const b = sets.get(sample[j]);
+      if (a.size && b.size) pairs.push([jaccard(a, b), sample[i], sample[j]]);
+    }
+  }
+  pairs.sort((x, y) => x[0] - y[0]);
+
+  const sims = pairs.map((p) => p[0]);
+  const at = (q) => sims[Math.min(sims.length - 1, Math.floor(sims.length * q))];
+  const words = [...texts.values()]
+    .map((t) => t.split(' ').length)
+    .sort((a, b) => a - b);
+  const pct = (x) => `${(x * 100).toFixed(1)}%`;
+  const short = (f) => path.relative(family.root, f).replace(/\.html$/, '');
+
+  analysed += files.length;
+  console.log(`\n── ${family.name}`);
+  console.log(`pages          ${files.length}`);
+  console.log(`sampled        ${sample.length}  (${pairs.length} pairs)`);
+  if (sims.length > 0) {
+    console.log(`median         ${pct(at(0.5))}`);
+    console.log(`p90            ${pct(at(0.9))}`);
+    console.log(`p99            ${pct(at(0.99))}`);
+    console.log(`max            ${pct(sims[sims.length - 1])}`);
+  }
+  console.log(
+    `words / page   median ${words[Math.floor(words.length / 2)]}, min ${words[0]}, max ${words[words.length - 1]}`,
   );
-  process.exit(1);
-}
 
-const texts = new Map(files.map((f) => [f, visibleText(f)]));
-const sets = new Map([...texts].map(([f, t]) => [f, shingles(t)]));
-
-const rnd = seeded(files.length);
-const picked = new Set();
-while (picked.size < Math.min(SAMPLE, files.length)) {
-  picked.add(files[Math.floor(rnd())]);
-}
-const sample = [...picked];
-
-const pairs = [];
-for (let i = 0; i < sample.length; i++) {
-  for (let j = i + 1; j < sample.length; j++) {
-    const a = sets.get(sample[i]);
-    const b = sets.get(sample[j]);
-    if (a.size && b.size) pairs.push([jaccard(a, b), sample[i], sample[j]]);
+  const over = pairs.filter(([s]) => s > MAX_SIMILARITY);
+  if (over.length) {
+    console.error(`\n✗ ${family.name}: ${over.length} pair(s) above ${pct(MAX_SIMILARITY)}:`);
+    for (const [s, a, b] of over.slice(-10)) {
+      console.error(`   ${pct(s)}  ${short(a)}  ↔  ${short(b)}`);
+    }
+    failed++;
   }
 }
-pairs.sort((x, y) => x[0] - y[0]);
 
-const sims = pairs.map((p) => p[0]);
-const at = (q) => sims[Math.min(sims.length - 1, Math.floor(sims.length * q))];
-const words = [...texts.values()].map((t) => t.split(' ').length).sort((a, b) => a - b);
-const pct = (x) => `${(x * 100).toFixed(1)}%`;
-const short = (f) => path.relative(ROOT, f).replace(/\.html$/, '');
-
-console.log(`pages          ${files.length}`);
-console.log(`sampled        ${sample.length}  (${pairs.length} pairs)`);
-console.log(`median         ${pct(at(0.5))}`);
-console.log(`p90            ${pct(at(0.9))}`);
-console.log(`p99            ${pct(at(0.99))}`);
-console.log(`max            ${pct(sims[sims.length - 1])}`);
-console.log(`words / page   median ${words[Math.floor(words.length / 2)]}, min ${words[0]}, max ${words[words.length - 1]}`);
-
-const over = pairs.filter(([s]) => s > MAX_SIMILARITY);
-if (over.length) {
-  console.error(`\n✗ ${over.length} pair(s) above ${pct(MAX_SIMILARITY)}:`);
-  for (const [s, a, b] of over.slice(-10)) {
-    console.error(`   ${pct(s)}  ${short(a)}  ↔  ${short(b)}`);
-  }
+if (failed > 0) {
   console.error(
     '\nThese pages differ by little more than a substituted value.\n' +
       'Either give them something of their own, or do not publish both.',
@@ -145,4 +199,4 @@ if (over.length) {
   process.exit(1);
 }
 
-console.log(`\n✓ no pair above ${pct(MAX_SIMILARITY)}`);
+console.log(`\n✓ ${analysed} generated pages, no pair above ${(MAX_SIMILARITY * 100).toFixed(1)}%`);
