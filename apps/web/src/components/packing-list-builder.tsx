@@ -164,7 +164,7 @@ export default function PackingListBuilder() {
   };
 
   const field =
-    'mt-1 w-full rounded border border-line-2 bg-surface px-3 py-2 text-ink focus:border-line-blue focus:outline-none';
+    'mt-1 w-full rounded border border-line-2 bg-surface px-3 py-2 text-ink focus:border-line-blue focus:outline-hidden';
   const label = 'block text-sm font-medium text-ink-2';
 
   return (
