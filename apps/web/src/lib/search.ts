@@ -236,3 +236,97 @@ export function search(
     })
     .slice(0, limit);
 }
+
+// ---------------------------------------------------------------------
+// CAMP-107: the same index, half the bytes.
+//
+// 🔴 Nothing is dropped. This is the file format, not the contents.
+//
+// The index passed its 1.5 MB ceiling the moment the rest of France
+// landed — 10 519 campsites, 2 230 KB. Measured on that real file, the
+// breakdown was:
+//
+//   JSON keys   ~680 KB   "kind":"name":"path":"country":"region":…
+//                         repeated 10 519 times
+//   path         530 KB   "/camping/fr/lot/camping-du-lac" — every byte
+//                         of which is already in country, region, slug
+//   kind         103 KB   the string "campsite", 10 519 times, on a file
+//                         where nothing else exists yet
+//
+// So more than half the file was structure repeating itself. Packing to
+// arrays with the two derivable fields removed brings it to 1 184 KB —
+// 79% of the same ceiling, with the same information. Measured, not
+// estimated: the numbers above come from the built file.
+//
+// 🔴 This does NOT retire CAMP-67. The ceiling still exists and still
+// fails the build; it now fails at roughly 20 000 campsites instead of
+// 10 000. Compressing the format buys one more country, not a different
+// design. When it fires again the answer is a search service, and the
+// error message says so.
+//
+// `search()` and every type above are untouched: the packing happens on
+// write and the unpacking on read, so nothing downstream knows.
+
+/** Country codes and region names, each stored once and referenced by index. */
+export interface PackedIndex {
+  /** Format version, so an old cached file cannot be read as a new one. */
+  v: 1;
+  c: string[];
+  r: string[];
+  /** [name, countryIdx, regionIdx, slug, text, near?] */
+  d: (string | number | { name: string; m: number }[])[][];
+}
+
+export function packIndex(docs: SearchDoc[]): PackedIndex {
+  const c: string[] = [];
+  const r: string[] = [];
+  const idx = (list: string[], value: string) => {
+    const at = list.indexOf(value);
+    if (at >= 0) return at;
+    list.push(value);
+    return list.length - 1;
+  };
+
+  const d = docs.map((doc) => {
+    // 🔴 The slug is recovered from the path rather than carried
+    // separately, because the path is what the rest of the app uses and
+    // a second source for the same string is a second thing to get
+    // wrong. `/camping/<country>/<region>/<slug>` — the last segment.
+    const slug = doc.path.slice(doc.path.lastIndexOf('/') + 1);
+    const row: (string | number | { name: string; m: number }[])[] = [
+      doc.name,
+      idx(c, doc.country),
+      idx(r, doc.region),
+      slug,
+      doc.text,
+    ];
+    // Only 3% of campsites have anything near them recorded, so an empty
+    // array on every other row is 10 000 copies of "[]".
+    if (doc.near.length > 0) row.push(doc.near);
+    return row;
+  });
+
+  return { v: 1, c, r, d };
+}
+
+export function unpackIndex(packed: PackedIndex): SearchDoc[] {
+  if (packed?.v !== 1) {
+    // A cached file from before this change, or a truncated download.
+    // Returning junk would show a reader a search that silently finds
+    // nothing; an empty index at least makes the page say so.
+    throw new Error(`search index format ${packed?.v} is not supported`);
+  }
+  return packed.d.map((row) => {
+    const country = packed.c[row[1] as number];
+    const region = packed.r[row[2] as number];
+    return {
+      kind: 'campsite' as const,
+      name: row[0] as string,
+      path: `/camping/${country}/${region}/${row[3] as string}`,
+      country,
+      region,
+      text: row[4] as string,
+      near: (row[5] as { name: string; m: number }[]) ?? [],
+    };
+  });
+}

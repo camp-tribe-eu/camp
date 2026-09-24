@@ -187,18 +187,77 @@ test.describe('/map', () => {
 
   test('a marker carries the facilities we actually hold', async ({ page }) => {
     const body = await (await page.request.get('/data/spots.geojson')).json();
-    const values = new Set<string>();
+
+    // 🔴 The three-state rule, checked on the data the map draws from.
+    //
+    // CAMP-107 changed how the third state is written, not whether it
+    // exists: an amenity nobody recorded is now an ABSENT key rather
+    // than the string "unknown", because writing that word out 103 582
+    // times cost 2.26 MB of a 4.9 MB file. What must never happen is
+    // still the same thing — an unrecorded amenity arriving as a
+    // definite "no".
+    const values = new Set<unknown>();
+    let absences = 0;
     for (const f of body.features) {
       for (const key of AMENITY_KEYS) {
-        values.add(f.properties[key]);
+        if (key in f.properties) values.add(f.properties[key]);
+        else absences++;
       }
     }
-    // 🔴 The three-state rule, checked on the data the map draws from:
-    // an amenity nobody recorded must stay "unknown" and never arrive as
-    // a false "no". A dataset that contained only yes/no would mean the
-    // tri-state had been flattened somewhere on the way here.
-    for (const v of values) expect(['yes', 'no', 'unknown']).toContain(v);
-    expect(values.has('unknown'), 'no unknown amenities survived').toBe(true);
+    for (const v of values) expect(['yes', 'no']).toContain(v);
+    expect(
+      values.has(undefined),
+      'an amenity was written as an explicit undefined rather than omitted',
+    ).toBe(false);
+    expect(
+      absences,
+      'every amenity of every campsite is recorded, which cannot be true',
+    ).toBeGreaterThan(0);
+  });
+
+  // 🔴 The half of the rule a file cannot prove on its own: that absence
+  // means unknown and nothing else. Compared against the API, which is
+  // where the three states are still written out in full.
+  test('an unrecorded amenity is absent, never a false no', async ({
+    page,
+    request,
+  }) => {
+    const api = process.env.API_BASE_URL ?? 'http://localhost:3001';
+    const { markers } = await (
+      await request.get(`${api}/spots/map/points?bbox=-180,-85,180,85&limit=400`)
+    ).json();
+    const body = await (await page.request.get('/data/spots.geojson')).json();
+    const bySlug = new Map<string, Record<string, unknown>>(
+      body.features.map((f: { properties: { slug: string } }) => [
+        f.properties.slug,
+        f.properties as unknown as Record<string, unknown>,
+      ]),
+    );
+
+    let compared = 0;
+    for (const m of markers as {
+      slug: string;
+      amenities: Record<string, string>;
+    }[]) {
+      const props = bySlug.get(m.slug);
+      if (!props) continue;
+      for (const key of AMENITY_KEYS) {
+        const fromApi = m.amenities?.[key] ?? 'unknown';
+        if (fromApi === 'unknown') {
+          expect(
+            key in props,
+            `${m.slug}: ${key} is unknown in the API but present on the map`,
+          ).toBe(false);
+        } else {
+          expect(props[key], `${m.slug}: ${key} disagrees with the API`).toBe(
+            fromApi,
+          );
+        }
+        compared++;
+      }
+    }
+    // An empty comparison proves nothing.
+    expect(compared, 'no campsite was compared').toBeGreaterThan(100);
   });
 
   test('renders the map and clusters the campsites', async ({ page }) => {

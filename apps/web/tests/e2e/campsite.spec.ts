@@ -22,24 +22,101 @@ interface Fixtures {
 let fx: Fixtures;
 
 async function resolveFixtures(request: APIRequestContext): Promise<Fixtures> {
-  const index = await (await request.get(`${API_BASE}/spots/index`)).json();
   let rich: Fixtures['rich'] | null = null;
   let richWater: Fixtures['richWater'] | null = null;
   let empty: string | null = null;
 
-  for (const entry of index) {
-    if (rich && empty) break;
-    const path = `/camping/${entry.country}/${entry.region}/${entry.slug}`;
-    const res = await request.get(`${API_BASE}/spots/${entry.country}/${entry.region}/${entry.slug}?nearby=0`);
-    if (!res.ok()) continue;
-    const { spot } = await res.json();
+  // 🔴 Two list requests, not one request per campsite.
+  //
+  // This used to walk the index asking for each campsite in turn, which
+  // was fine at 3 147 entries. CAMP-107 took it to 10 519, and the index
+  // is ordered by country: all 9 441 French campsites come first, none of
+  // them carry amenities or surroundings, so the walk to the first
+  // well-described one had to get through every one of them. Sixteen
+  // tests failed on a 30 s beforeAll timeout, for a reason that had
+  // nothing to do with campsite pages. Batching the requests did not
+  // help either — the problem was how many, not how fast.
+  //
+  // So the candidates are narrowed with two whole-list endpoints the API
+  // already has, and only the chosen ones are fetched in full. Nothing
+  // is named: both subjects are still whatever the data happens to
+  // contain, and the first in list order wins so the choice is stable.
+  const markers: {
+    slug: string;
+    country: string;
+    region: string;
+    name: string | null;
+    amenities: Record<string, string>;
+    /**
+     * 🔴 The page's URL as the API builds it, which is not
+     * `/camping/${country}/${region}/${slug}`.
+     *
+     * The database stores a region's NAME ("Finistère") and the URL
+     * carries its slug ("finistere"). Building the path here from the
+     * name produced a 404 and four tests reading "That page is not
+     * here" — a URL-shape bug in the test, wearing the costume of a
+     * missing page. The API already exposes the path from the same
+     * function the pages use; there is no reason for a second one.
+     */
+    path: string;
+  }[] = (
+    await (
+      await request.get(
+        `${API_BASE}/spots/map/points?bbox=-180,-85,180,85&limit=20000`,
+      )
+    ).json()
+  ).markers;
 
-    const knows = Object.values(spot.amenities).filter((v) => v !== 'unknown');
-    if (!rich && spot.name && spot.context?.water?.name && knows.length >= 2) {
-      rich = path;
+  // Campsites that have surroundings recorded — `near` is built from the
+  // same context the page renders.
+  const withNear = new Set<string>(
+    (
+      (await (await request.get(`${API_BASE}/spots/search-index`)).json()) as {
+        slug: string;
+        near: unknown[];
+      }[]
+    )
+      .filter((r) => r.near?.length)
+      .map((r) => r.slug),
+  );
+
+  const known = (a: Record<string, string>) =>
+    Object.values(a ?? {}).filter((v) => v !== 'unknown').length;
+
+  // 🔴 `electricity === 'yes'` is part of the contract, not an extra.
+  //
+  // The test below asserts that the page shows Electricity: Yes. The old
+  // walk asked only for "two known amenities" and happened to land on a
+  // campsite whose electricity was one of them — luck, holding for as
+  // long as the data did not move. It moved: the first campsite meeting
+  // the loose condition now has electricity "unknown", and the test read
+  // as a rendering bug. 83 campsites meet the strict one, measured
+  // 24.09.2026, so asking for it costs nothing and removes the luck.
+  const richCandidate = markers.find(
+    (m) =>
+      m.name &&
+      withNear.has(m.slug) &&
+      known(m.amenities) >= 2 &&
+      m.amenities?.electricity === 'yes',
+  );
+  const emptyCandidate = markers.find((m) => !m.name && known(m.amenities) === 0);
+
+  if (richCandidate) {
+    const { spot } = await (
+      await request.get(
+        `${API_BASE}/spots/${richCandidate.country}/${richCandidate.region}/${richCandidate.slug}?nearby=0`,
+      )
+    ).json();
+    // Confirmed on the record the page actually renders, not inferred
+    // from the list: `near` says something is close, the page needs a
+    // named body of water.
+    if (spot.context?.water?.name) {
+      rich = richCandidate.path;
       richWater = spot.context.water;
     }
-    if (!empty && !spot.name && knows.length === 0) empty = path;
+  }
+  if (emptyCandidate) {
+    empty = emptyCandidate.path;
   }
 
   if (!rich || !richWater || !empty) {

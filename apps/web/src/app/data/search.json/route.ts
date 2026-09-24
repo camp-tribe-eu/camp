@@ -1,5 +1,11 @@
 import { API_BASE, countryName } from '@/lib/api';
-import { fold, type SearchDoc } from '@/lib/search';
+import {
+  fold,
+  packIndex,
+  unpackIndex,
+  type PackedIndex,
+  type SearchDoc,
+} from '@/lib/search';
 
 // CAMP-67: the search index, built once at build time.
 //
@@ -69,8 +75,37 @@ export async function GET() {
     near: r.near,
   }));
 
-  const body = JSON.stringify({ docs });
+  // CAMP-107. Packed, not pretty-printed: see packIndex. The same
+  // documents, without the keys and the two derivable fields.
+  const body = JSON.stringify(packIndex(docs));
   const bytes = Buffer.byteLength(body);
+
+  // 🔴 Proved on every build, not assumed once.
+  //
+  // The packing is a format change to the one file the search depends
+  // on, and a mistake in it would be a search that finds the wrong
+  // campsite rather than a build that fails. So the round trip is
+  // checked here, against the real index, before the file is written.
+  const back = unpackIndex(JSON.parse(body) as PackedIndex);
+  if (back.length !== docs.length) {
+    throw new Error(
+      `packed index lost rows: ${docs.length} in, ${back.length} out`,
+    );
+  }
+  for (let i = 0; i < docs.length; i++) {
+    if (
+      back[i].path !== docs[i].path ||
+      back[i].name !== docs[i].name ||
+      back[i].text !== docs[i].text ||
+      back[i].country !== docs[i].country ||
+      back[i].region !== docs[i].region ||
+      back[i].near.length !== docs[i].near.length
+    ) {
+      throw new Error(
+        `packed index does not round-trip at row ${i} (${docs[i].path})`,
+      );
+    }
+  }
 
   // eslint-disable-next-line no-console
   console.log(
