@@ -98,8 +98,18 @@ export function chunksInView(
       (a.lat - midLat) ** 2 -
       ((b.lon - midLon) ** 2 + (b.lat - midLat) ** 2),
   );
+  // \U0001f534 Distinct keys. Two region NAMES can slugify to one chunk
+  // key — `slugifyRegion` strips punctuation, so "Nord-Pas-de-Calais"
+  // and "Nord Pas de Calais" would collide — and the caller fetches
+  // each key it is given. A repeated key therefore means the same file
+  // appended twice and every campsite in it drawn twice.
+  //
+  // Not reachable in today's data (measured 25.09.2026: 812 regions,
+  // 812 distinct keys), and one line keeps it that way. The sibling
+  // defect, where the loop claimed keys one at a time and a concurrent
+  // refresh grabbed a later one, WAS reachable and was measured.
   return {
-    keys: hit.slice(0, limit).map(chunkKey),
+    keys: [...new Set(hit.slice(0, limit).map(chunkKey))],
     tooMany: hit.length > limit,
   };
 }

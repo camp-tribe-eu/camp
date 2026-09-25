@@ -194,3 +194,27 @@ test.describe('filterCountLabel', () => {
     }
   });
 });
+
+test('🔴 chunksInView never returns the same key twice', () => {
+  // Two different region names that slugify identically. The caller
+  // fetches every key it is handed, so a repeat is the same file
+  // appended twice — and every campsite in it drawn twice.
+  const region = (name: string, slug: string) => ({
+    country: 'FR',
+    region: name,
+    slug,
+    count: 10,
+    minLon: 0,
+    minLat: 0,
+    maxLon: 10,
+    maxLat: 10,
+    lon: 5,
+    lat: 5,
+  });
+  const { keys } = chunksInView(
+    [region('Nord-Pas-de-Calais', 'nord-pas-de-calais'),
+     region('Nord Pas de Calais', 'nord-pas-de-calais')],
+    { west: 0, south: 0, east: 10, north: 10 },
+  );
+  expect(keys).toEqual(['fr/nord-pas-de-calais']);
+});
