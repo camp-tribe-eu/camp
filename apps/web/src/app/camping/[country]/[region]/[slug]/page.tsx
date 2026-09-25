@@ -411,6 +411,7 @@ function Around({ spot }: { spot: Spot }) {
       value: formatDistance(c.station.m),
     });
   }
+  const usedElevation = c.elevation !== undefined || c.terrain !== undefined;
   if (c.elevation !== undefined) {
     facts.push({ label: 'Elevation', value: `${c.elevation} m` });
   }
@@ -445,9 +446,20 @@ function Around({ spot }: { spot: Spot }) {
           </div>
         ))}
       </dl>
+      {/* 🔴 Credit the elevation model only where it was used.
+          
+          This said "from OpenStreetMap geometry and the Copernicus
+          elevation model" on every page carrying this section. Measured
+          25.09.2026: 9 523 campsites have computed surroundings and NO
+          elevation — the DEM was never reached for them, because
+          Open-Meteo's free tier is exhausted (CAMP-99). On those pages
+          the sentence credited a source that contributed nothing.
+          
+          Attribution is a factual claim like any other on this page. */}
       <p className="mt-3 text-xs text-ink-2">
-        Calculated by us from OpenStreetMap geometry and the Copernicus
-        elevation model. Straight-line distances.
+        Calculated by us from OpenStreetMap geometry
+        {usedElevation ? ' and the Copernicus elevation model' : ''}.
+        Straight-line distances.
       </p>
     </Section>
   );
