@@ -23,6 +23,47 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(here, '..', 'public', '_headers');
 
+// 🔴 A build made in development mode is not a build we may ship.
+//
+// next.config.mjs relaxes the CSP with 'unsafe-eval' when NODE_ENV is
+// development, because Next's dev compiler cannot run without it. Review
+// showed that guard is keyed on the SHELL, not on the server: Next keeps
+// a NODE_ENV that is already set (next/dist/bin/next: `process.env
+// .NODE_ENV = process.env.NODE_ENV || defaultEnv`, with only a yellow
+// warning), and `next start` serves the CSP from routes-manifest.json
+// rather than re-evaluating headers(). So `NODE_ENV=development next
+// build` bakes the relaxation into the production artefact, and nothing
+// downstream would ever say so.
+//
+// This script already runs in the build's own environment, as `prebuild`
+// — which makes it the one place that can turn that assumption into an
+// assertion. CI never sets NODE_ENV, so this is a guard against the
+// accident, not against CI.
+//
+// 🔴 No exemption, and the one that was here is why.
+//
+// It read `npm_lifecycle_event !== 'predev'` — for a `predev` script
+// that does not exist in this branch's package.json at all. So it
+// guarded nothing and, worse, handed anyone a one-word bypass of a
+// security check:
+//
+//   npm_lifecycle_event=predev NODE_ENV=development node gen-headers.mjs
+//
+// exited 0 and wrote the file. A guard with a documented way around it
+// is a guard that will be gone around. If a dev-time caller ever needs
+// this script, it can set NODE_ENV=production for the one command —
+// which is true, since it only writes headers for a build.
+if (process.env.NODE_ENV === 'development') {
+  console.error(
+    '🔴 NODE_ENV=development during a build.\n' +
+      '   next.config.mjs adds \'unsafe-eval\' to the CSP in that mode, and\n' +
+      '   next start serves whatever the build baked in — so this would ship\n' +
+      '   a production site with unsafe-eval allowed.\n' +
+      '   Unset NODE_ENV (or set it to production) and build again.',
+  );
+  process.exit(1);
+}
+
 const isPublic = process.env.NEXT_PUBLIC_SITE_MODE === 'public';
 
 const lines = [

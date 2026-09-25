@@ -1,4 +1,7 @@
-import { SECURITY_HEADERS } from './scripts/security-headers.mjs';
+import {
+  cspForDevServer,
+  SECURITY_HEADERS,
+} from './scripts/security-headers.mjs';
 
 /** @type {import('next').NextConfig} */
 
@@ -48,6 +51,22 @@ const nextConfig = {
     // They were, in effect, before this: the only `headers()` entry was
     // the robots one, so a public build sent no security headers at all
     // from `next start` — the mode that will one day be production.
+    //
+    // 🔴 ONE exception, and only for `next dev`.
+    //
+    // Next compiles client modules through `eval` in development, so the
+    // production CSP stops the browser running any of our client code.
+    // Measured: /map answered 200 with full HTML and mounted nothing —
+    // no map, no filters, no search, no calculator — with one console
+    // line as the only evidence. `next dev` is not a deployment target
+    // and never reaches a reader; `next build` and `next start` keep the
+    // header exactly as production has it, and so does public/_headers.
+    if (process.env.NODE_ENV === 'development') {
+      const i = headers.findIndex(
+        (h) => h.key === 'Content-Security-Policy',
+      );
+      if (i >= 0) headers[i] = { ...headers[i], value: cspForDevServer() };
+    }
     return [{ source: '/:path*', headers }];
   },
 };
