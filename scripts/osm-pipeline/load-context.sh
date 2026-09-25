@@ -235,10 +235,28 @@ for REGION in "${REGIONS[@]}"; do
   # fail and the run dies later blaming a missing .md5. A redirect onto
   # a DIFFERENT extract would be worse: it would download, verify and
   # load another country's data under a \u2713.
+  # 🔴 The file must still be NAMED for the region we asked for — and
+  # that is all we may require.
+  #
+  # The first version demanded a dated name, `<region>-YYYYMMDD.osm.pbf`,
+  # because that is what the main host redirects to. Germany does not:
+  # it redirects to a mirror,
+  #
+  #   https://ftp5.gwdg.de/pub/misc/openstreetmap/…/germany-latest.osm.pbf
+  #
+  # which keeps `-latest`. So the guard stopped the EU-27 run dead on a
+  # perfectly good URL, and said the region name was wrong when it was
+  # not. Measured 25.09.2026, on the run this was written for.
+  #
+  # Both forms are accepted, and the protection is unchanged: what this
+  # exists to catch is a redirect that lands somewhere else entirely —
+  # europe/atlantis and europe/holland both answer 200 at the site root
+  # (measured), whose basename matches neither form.
   REGION_BASE="${REGION##*/}"
-  if ! printf '%s' "$URL" | grep -qE "/${REGION_BASE}-[0-9]{6}\.osm\.pbf$"; then
+  if ! printf '%s' "$URL" |
+       grep -qE "/${REGION_BASE}-(latest|[0-9]{6})\.osm\.pbf$"; then
     echo "::error::$REGION resolves to $URL" >&2
-    echo "          That is not a dated extract for '$REGION_BASE'. Either the" >&2
+    echo "          That is not an extract named for '$REGION_BASE'. Either the" >&2
     echo "          region name is wrong or Geofabrik has moved it." >&2
     exit 1
   fi
@@ -379,7 +397,40 @@ load_layer() {
   #
   # One feature per line makes the count `wc -l`, which is O(1) memory
   # whatever the country, and GDAL reads the format natively.
+  # 🔴 Export ONLY the tags compute-context reads.
+  #
+  # Without this the pipeline works at three countries and dies at
+  # twenty-seven, with an error that names none of the above:
+  #
+  #   ERROR:  tables can have at most 1600 columns
+  #
+  # osmium writes every OSM tag as a property and ogr2ogr makes a column
+  # of each. Across the EU-27, water features alone carry more than 1600
+  # distinct keys — `clc:surfaceoverlap`, `unteredenkmalbehörde:
+  # inscription_date`, `tmc:cid_58:tabcd_1:prevlocationcode`. Postgres
+  # refuses the CREATE TABLE and nothing loads, while the previous
+  # contents stay in place looking like data.
+  #
+  # The tags below are the whole of what compute-context.ts queries
+  # (`x.water`, `x.waterway`, `x."natural"`, `x.place`, `x.shop`,
+  # `x.railway`, `x.name`). Everything else was parsed, written, re-read
+  # and indexed in order to be ignored.
+  #
+  # 🔴 This is about COLUMNS, not bytes. Measured on Malta's water
+  # layer: 87 distinct tags become 4, and the file shrinks by only 3%
+  # (1 150 012 → 1 119 666 bytes) because geometry is nearly all of it.
+  # So it does not make the export meaningfully smaller — it makes the
+  # table possible.
+  case "$name" in
+    water) TAGS='"name","natural","waterway","water"' ;;
+    place) TAGS='"name","place"' ;;
+    poi)   TAGS='"name","shop","railway"' ;;
+    *)     echo "::error::no tag list for layer $name" >&2; exit 1 ;;
+  esac
+  printf '{"include_tags":[%s]}\n' "$TAGS" > "export-$name.json"
+
   osmium export "merged.$name.pbf" -o "ctx_$name.geojsonl" \
+    --config="export-$name.json" \
     --overwrite -f geojsonseq -u type_id
 
   ogr2ogr -f PostgreSQL "PG:$OGR_CONN" "ctx_$name.geojsonl" \
