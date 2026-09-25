@@ -97,6 +97,10 @@ async function aChunk(page: import('@playwright/test').Page) {
     country: string;
     slug: string;
     count: number;
+    minLon: number;
+    minLat: number;
+    maxLon: number;
+    maxLat: number;
   }[];
   expect(regions.length, 'an empty index is a broken build').toBeGreaterThan(0);
   // The biggest one, so the sample is worth taking.
@@ -112,7 +116,40 @@ async function stubSpots(
   page: Page,
   points: { lng: number; lat: number; name?: string }[],
 ) {
-  await page.route('**/data/spots/**', (route) =>
+  // 🔴 The index is a different shape from a chunk, and one route
+  // pattern cannot answer both.
+  //
+  // CAMP-127 split the map into `/data/spots/index.json` (an ARRAY of
+  // region summaries) plus `/data/spots/<cc>/<region>.geojson` (a
+  // FeatureCollection). This stub matched `**/data/spots/**`, so it
+  // answered the index with a FeatureCollection too — the component
+  // checks `Array.isArray(regions)`, went straight to `failed`, and
+  // never called `refresh()`. Nothing was ever drawn, and two specs
+  // timed out at 20 s waiting for clusters that could not appear.
+  //
+  // One region, covering the whole world, so whatever the fixture
+  // points are they fall inside it.
+  await page.route('**/data/spots/index.json', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      json: [
+        {
+          country: 'HR',
+          region: 'Fixture',
+          slug: 'fixture',
+          count: points.length,
+          minLon: -180,
+          minLat: -85,
+          maxLon: 180,
+          maxLat: 85,
+          lon: 0,
+          lat: 0,
+        },
+      ],
+    }),
+  );
+
+  await page.route('**/data/spots/*/*.geojson', (route) =>
     route.fulfill({
       contentType: 'application/geo+json',
       json: {
@@ -253,10 +290,21 @@ test.describe('/map', () => {
     request,
   }) => {
     const api = process.env.API_BASE_URL ?? 'http://localhost:3001';
+    const { body, region } = await aChunk(page);
+    // 🔴 Ask the API for the SAME ground the chunk covers.
+    //
+    // This asked for 400 markers from the whole world and compared them
+    // against one region's chunk, so almost nothing overlapped:
+    // measured, 30 comparisons against a floor of 100, and the test
+    // failed for want of subjects rather than for a defect. Since
+    // CAMP-127 a chunk is one region, so the bbox to ask for is that
+    // region's own.
+    const bbox = [region.minLon, region.minLat, region.maxLon, region.maxLat]
+      .map((n) => n.toFixed(6))
+      .join(',');
     const { markers } = await (
-      await request.get(`${api}/spots/map/points?bbox=-180,-85,180,85&limit=400`)
+      await request.get(`${api}/spots/map/points?bbox=${bbox}&limit=20000`)
     ).json();
-    const { body } = await aChunk(page);
     const bySlug = new Map<string, Record<string, unknown>>(
       body.features.map((f: { properties: { slug: string } }) => [
         f.properties.slug,
