@@ -79,6 +79,64 @@ for REGION in "${REGIONS[@]}"; do
   # not notice a truncated PBF; if it does not, the layers come out
   # quietly incomplete and every distance computed against them is wrong
   # in a way nothing downstream can see.
+  # 🔴 Fetch, verify, and on a checksum failure fetch again — ONCE.
+  #
+  # The old code deleted the bad file and told a person to "run again for
+  # a clean download". That reads like a safe default and is not a
+  # process: Geofabrik re-cuts every extract daily, so a list of 27
+  # regions downloaded yesterday fails this check 27 times, once per run,
+  # and somebody has to start the script 27 times to get through it.
+  # Measured 25.09.2026 on europe/austria: yesterday's 810 746 083 bytes
+  # against today's 810 840 932, resumed, spliced, and correctly refused.
+  #
+  # The retry is deliberately blind to WHY the first attempt failed — a
+  # resumed splice, a truncation and a corrupt transfer all have the same
+  # cure, and guessing between them would only add a way to guess wrong.
+  # Twice and no more: a checksum that fails on a file we fetched from
+  # scratch is not a transfer problem, and looping would hide it.
+  fetch_verified() {
+    local attempt=$1
+    local resume=$2
+
+    if [ "$resume" = 'resume' ]; then
+      curl -sSL -C - --retry 5 --retry-delay 10 -o "$SLUG.osm.pbf" "$URL"
+    else
+      rm -f "$SLUG.osm.pbf"
+      curl -sSL --retry 5 --retry-delay 10 -o "$SLUG.osm.pbf" "$URL"
+    fi
+
+    # 🔴 The expected size is re-read here, not reused from before the
+    # download. A re-cut that lands mid-transfer changes it, and
+    # comparing against a stale number would report a size failure for a
+    # file that is perfectly whole.
+    local remote
+    remote=$(curl -sL -D - -o /dev/null --range 0-0 --max-time 60 "$URL" \
+      | awk -F'/' '/[Cc]ontent-[Rr]ange/ {gsub(/\r/,"",$2); print $2}')
+    local local_size
+    local_size=$(wc -c < "$SLUG.osm.pbf" | tr -d ' ')
+    if [ "$local_size" != "${remote:-0}" ]; then
+      echo "  attempt $attempt: $local_size bytes, Geofabrik says ${remote:-unknown}" >&2
+      return 1
+    fi
+
+    local expect got
+    expect=$(curl -sSL --max-time 60 "$URL.md5" | awk '{print $1}')
+    if [ -z "$expect" ]; then
+      echo "::error::no .md5 published for $REGION — refusing to trust the download" >&2
+      exit 1
+    fi
+    if command -v md5sum >/dev/null 2>&1; then
+      got=$(md5sum "$SLUG.osm.pbf" | awk '{print $1}')
+    else
+      got=$(md5 -q "$SLUG.osm.pbf")
+    fi
+    if [ "$got" != "$expect" ]; then
+      echo "  attempt $attempt: checksum $got, expected $expect" >&2
+      return 1
+    fi
+    return 0
+  }
+
   LOCAL_SIZE=0
   [ -f "$SLUG.osm.pbf" ] && LOCAL_SIZE=$(wc -c < "$SLUG.osm.pbf" | tr -d ' ')
 
@@ -88,50 +146,16 @@ for REGION in "${REGIONS[@]}"; do
     else
       echo "→ $REGION ($REMOTE_SIZE bytes)"
     fi
-    # -L: Geofabrik answers 302 and curl without it writes a 244-byte
-    # HTML page that osmium then rejects with something unhelpful.
-    # -C -: resume rather than start again, which on a multi-gigabyte
-    # extract is the difference between a retry and another three hours.
-    curl -sSL -C - --retry 5 --retry-delay 10 \
-      -o "$SLUG.osm.pbf" "$URL"
 
-    LOCAL_SIZE=$(wc -c < "$SLUG.osm.pbf" | tr -d ' ')
-    if [ "$LOCAL_SIZE" != "$REMOTE_SIZE" ]; then
-      echo "::error::$REGION is $LOCAL_SIZE bytes, Geofabrik says $REMOTE_SIZE" >&2
-      exit 1
-    fi
-
-    # 🔴 A BYTE COUNT IS NOT INTEGRITY.
-    #
-    # Geofabrik re-cuts every extract daily. Resume a download that
-    # started before a re-cut and `curl -C -` appends the NEW file's tail
-    # to the OLD file's head — and the result is exactly the expected
-    # length, so the size check above waves it through. Demonstrated by
-    # review against a range-capable server: 400 bytes of one file
-    # followed by 600 of another, accepted.
-    #
-    # France takes hours, so a download that spans a re-cut is not an
-    # edge case. The md5 Geofabrik publishes beside each extract costs
-    # one read of the file and settles it: truncation, splicing and
-    # corruption all fail the same check.
-    EXPECT_MD5=$(curl -sSL --max-time 60 "$URL.md5" | awk '{print $1}')
-    if [ -z "$EXPECT_MD5" ]; then
-      echo "::error::no .md5 published for $REGION — refusing to trust the download" >&2
-      exit 1
-    fi
-    if command -v md5sum >/dev/null 2>&1; then
-      GOT_MD5=$(md5sum "$SLUG.osm.pbf" | awk '{print $1}')
-    else
-      GOT_MD5=$(md5 -q "$SLUG.osm.pbf")
-    fi
-    if [ "$GOT_MD5" != "$EXPECT_MD5" ]; then
-      # A resumed download that spans a re-cut is the likely cause, and
-      # the cure is a clean one. Removed rather than retried in place,
-      # so the next run cannot resume the spliced file again.
-      rm -f "$SLUG.osm.pbf"
-      echo "::error::$REGION failed its checksum (got $GOT_MD5, expected $EXPECT_MD5)." >&2
-      echo "          The partial file has been deleted. Run again for a clean download." >&2
-      exit 1
+    # First attempt resumes, because on a multi-gigabyte extract that is
+    # the difference between a retry and another three hours.
+    if ! fetch_verified 1 resume; then
+      echo "  resumed copy is not the file Geofabrik has — starting clean"
+      if ! fetch_verified 2 clean; then
+        echo "::error::$REGION failed twice, the second time from scratch." >&2
+        echo "          That is not a transfer problem — look at the source." >&2
+        exit 1
+      fi
     fi
     echo "  checksum ok"
   fi
