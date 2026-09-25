@@ -484,14 +484,26 @@ test.describe('/map filters', () => {
     // immediately gets the zero it held before the map ever drew.
     await expect.poll(clustered, { timeout: 15_000 }).toBeGreaterThan(0);
 
-    const before = await clustered();
-    expect(before).toBeLessThanOrEqual(await shown(page));
+    const clusteredBefore = await clustered();
+    const shownBefore = await shown(page);
+    expect(clusteredBefore).toBeLessThanOrEqual(shownBefore);
 
     await page.getByTestId('filter-amenity-toilets').click();
-    const after = await shown(page);
-    await expect.poll(() => shown(page)).toBeLessThan(before);
 
-    await expect.poll(clustered).toBeLessThanOrEqual(after);
+    // 🔴 Fewer campsites DRAWN than before — compared against the
+    // earlier DRAWN count, not against the clustered one.
+    //
+    // This asserted `shown < clusteredBefore`, which compares two
+    // different quantities: campsites drawn against campsites inside
+    // bubbles currently on screen. It passed only while `loaded()`
+    // returned after the first chunk and `shown` happened to be small.
+    // Once `loaded()` became a real barrier the map drew more, and the
+    // comparison failed on a map doing exactly the right thing —
+    // measured on CI: clustered 2, drawn 22.
+    await expect.poll(() => shown(page)).toBeLessThan(shownBefore);
+
+    const shownAfter = await shown(page);
+    await expect.poll(clustered).toBeLessThanOrEqual(shownAfter);
     // And it did not simply stop drawing: something is still clustered.
     expect(await clustered()).toBeGreaterThan(0);
   });
