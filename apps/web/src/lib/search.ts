@@ -14,7 +14,7 @@
 // coordinates; the browser queries it. The card's staged plan is intact:
 // no new dependency, no cost. Its MeiliSearch trigger becomes something
 // measurable rather than a feeling — the build fails when the index
-// outgrows a download (see app/data/search.json/route.ts).
+// outgrows a download (see app/data/search/index.json/route.ts).
 //
 // 🔴 Folding happens HERE, once, for both the index and the query.
 //

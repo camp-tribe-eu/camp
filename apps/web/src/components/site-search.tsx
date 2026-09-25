@@ -10,6 +10,13 @@ import {
   type SearchDoc,
   type SearchHit,
 } from '@/lib/search';
+import {
+  chunkUrl,
+  fetchOrder,
+  loadProgress,
+  partialNotice,
+  type SearchIndex,
+} from '@/lib/search-chunks';
 
 // CAMP-67 — the results.
 //
@@ -22,11 +29,26 @@ import {
 // 🔴 The query lives in the URL, so a search is a link somebody can
 // send — the same rule as the map filters (CAMP-35).
 
-const INDEX_URL = '/data/search.json';
+const INDEX_URL = '/data/search/index.json';
+
+/**
+ * How many chunks are in flight at once.
+ *
+ * \ud83d\udd34 Four, not twenty-eight. A browser caps connections per origin
+ * anyway, and firing everything means the small files queue behind the
+ * big ones \u2014 which is exactly the ordering this card exists to avoid.
+ */
+const IN_FLIGHT = 4;
 
 type State =
   | { status: 'loading' }
-  | { status: 'ready'; docs: SearchDoc[] }
+  | {
+      status: 'ready';
+      docs: SearchDoc[];
+      index: SearchIndex;
+      loaded: Set<string>;
+      failed: number;
+    }
   | { status: 'failed' };
 
 export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
@@ -34,20 +56,81 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
   const [state, setState] = useState<State>({ status: 'loading' });
   const input = useRef<HTMLInputElement>(null);
 
+  // CAMP-129. The index arrives in pieces, smallest first, and the
+  // search answers from whatever has landed.
+  //
+  // \ud83d\udd34 Why not one file any more: 61 422 campsites pack to 4.26 MB,
+  // and the route refuses to hand any single file over 1.5 MB to every
+  // visitor \u2014 so since the EU-27 import this page has been saying "the
+  // search index could not be loaded" to everyone. Splitting does not
+  // make the data smaller; it makes the page useful in the first tenth
+  // of a second instead of after four megabytes.
   useEffect(() => {
     let cancelled = false;
-    void fetch(INDEX_URL)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((data: PackedIndex) => {
-        // CAMP-107. The file is packed; unpackIndex throws on a version
-        // it does not know, which lands in the catch below and shows the
-        // reader that search is unavailable rather than a search box
-        // that silently finds nothing.
-        if (!cancelled) setState({ status: 'ready', docs: unpackIndex(data) });
-      })
-      .catch(() => {
+
+    const getChunk = async (id: string): Promise<SearchDoc[]> => {
+      const r = await fetch(chunkUrl(id));
+      if (!r.ok) throw new Error(String(r.status));
+      // CAMP-107. The file is packed; unpackIndex throws on a version it
+      // does not know, which lands in the catch and is counted as a
+      // failed part rather than shown as a search that finds nothing.
+      return unpackIndex((await r.json()) as PackedIndex);
+    };
+
+    void (async () => {
+      let index: SearchIndex;
+      try {
+        const r = await fetch(INDEX_URL);
+        if (!r.ok) throw new Error(String(r.status));
+        index = (await r.json()) as SearchIndex;
+        if (!Array.isArray(index?.chunks) || index.chunks.length === 0) {
+          throw new Error('empty index');
+        }
+      } catch {
+        // \ud83d\udd34 Only the table of contents failing is a dead search.
+        // A missing piece is not \u2014 that is the `failed` count below.
         if (!cancelled) setState({ status: 'failed' });
-      });
+        return;
+      }
+
+      if (cancelled) return;
+      setState({ status: 'ready', docs: [], index, loaded: new Set(), failed: 0 });
+
+      const queue = fetchOrder(index);
+      let next = 0;
+      const worker = async () => {
+        while (!cancelled) {
+          const chunk = queue[next++];
+          if (!chunk) return;
+          try {
+            const docs = await getChunk(chunk.id);
+            if (cancelled) return;
+            setState((prev) =>
+              prev.status === 'ready'
+                ? {
+                    ...prev,
+                    docs: [...prev.docs, ...docs],
+                    loaded: new Set(prev.loaded).add(chunk.id),
+                  }
+                : prev,
+            );
+          } catch {
+            if (cancelled) return;
+            // \ud83d\udd34 Counted and said out loud. A part that never arrives
+            // means a reader can type a real campsite's name and be told
+            // nothing matches \u2014 the one outcome this page must never
+            // produce silently.
+            setState((prev) =>
+              prev.status === 'ready' ? { ...prev, failed: prev.failed + 1 } : prev,
+            );
+          }
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(IN_FLIGHT, queue.length) }, worker),
+      );
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -67,7 +150,19 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
     [state, query],
   );
 
-  const total = state.status === 'ready' ? state.docs.length : 0;
+  const progress =
+    state.status === 'ready'
+      ? loadProgress(state.index, state.loaded)
+      : { searchable: 0, total: 0, done: false };
+  const notice =
+    state.status === 'ready'
+      ? partialNotice(progress, state.failed)
+      : null;
+  // \ud83d\udd34 The number of campsites the index SAYS exist, not the number
+  // that happen to have arrived. "Searching 3 100 campsites" while the
+  // rest are still coming would be a number that shrinks the reader's
+  // idea of the site every time they arrive early.
+  const total = progress.total;
 
   return (
     // 🔴 The state, on the element, so a test can wait for readiness
@@ -82,7 +177,17 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
     // visible to a reader, but left the test racing.
     //
     // Waiting for a thing to BE has no such hole.
-    <div data-testid="search" data-state={state.status}>
+    <div
+      data-testid="search"
+      data-state={state.status}
+      // \ud83d\udd34 Two separate facts, because a test needs to pick one.
+      // `ready` means the search box answers; `complete` means it can
+      // answer about every campsite. A spec that types a French name
+      // must wait for the second, and before this attribute existed it
+      // had no way to say so.
+      data-complete={state.status === 'ready' && progress.done ? 'true' : 'false'}
+      data-searchable={progress.searchable}
+    >
       <label htmlFor="q" className="sr-only">
         Search campsites
       </label>
@@ -114,6 +219,16 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
         </p>
       )}
 
+      {notice && (
+        <p
+          data-testid="search-partial"
+          role="status"
+          className="mt-4 text-sm text-ink-2"
+        >
+          {notice}
+        </p>
+      )}
+
       {state.status === 'failed' && (
         <p role="status" className="mt-4 text-sm text-ink-2">
           The search index could not be loaded. Every campsite is still
@@ -129,7 +244,7 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
         <p data-testid="search-count" className="mt-4 text-sm text-ink-2">
           {hits.length === 0
             ? `Nothing matches “${query}”.`
-            : `${hits.length}${hits.length === 20 ? '+' : ''} of ${total} campsites`}
+            : `${hits.length}${hits.length === 20 ? '+' : ''} of ${total.toLocaleString('en-GB')} campsites`}
         </p>
       )}
 
@@ -165,7 +280,7 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
 
       {state.status === 'ready' && query.trim() === '' && (
         <p className="mt-4 max-w-prose text-sm text-ink-2">
-          Searching {total} campsites. Try a name, a region, or a town or
+          Searching {total.toLocaleString('en-GB')} campsites. Try a name, a region, or a town or
           lake nearby — results near a place you name are ordered by how
           close they are to it.
         </p>

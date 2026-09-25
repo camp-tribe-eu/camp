@@ -17,7 +17,7 @@
 //
 // The card was written when the plan was a live API behind the site. It
 // is not what we built: the browser fetches `/data/spots.geojson` and
-// `/data/search.json`, both static files from the CDN, and every call in
+// `/data/search/index.json`, both static files from the CDN, and every call in
 // apps/web/src/lib/api.ts happens during `next build` on our own
 // machine. So "the site under load" is Cloudflare serving files, which
 // is not ours to test and not ours to fix.

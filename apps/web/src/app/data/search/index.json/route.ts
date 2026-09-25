@@ -18,7 +18,7 @@ import { planChunks, type SearchIndex } from '@/lib/search-chunks';
 export const dynamic = 'force-static';
 
 /** Unchanged from the file this replaces, and for the same reason. */
-const MAX_BYTES = 1_500_000;
+export const MAX_BYTES = 1_500_000;
 
 interface Doc {
   name: string | null;
