@@ -278,6 +278,15 @@ function strongScore(words: string[], term: string): number {
  * and are deliberately not quoted here — two machines disagreed by 2x
  * on the same ratio).
  *
+ * 🔴 The obvious fix does not work, so do not spend the afternoon on
+ * it: keeping the split from the first pass and reusing it here was
+ * measured at about 10% back (`kovak` 140 ms → 129 ms) in exchange for
+ * holding 61 422 arrays of words alive for the length of every
+ * keystroke. The cost is the edit distance itself, not the splitting.
+ * Something that made this genuinely cheap would have to compare fewer
+ * words — an index by first letter or by length — which is a different
+ * change with its own measurements.
+ *
  * And the branch is not rare. It is taken whenever no document contains
  * the term EXACTLY — which includes every half-typed word, not just
  * every wrong one. Review measured 13 254 intermediate keystrokes drawn
