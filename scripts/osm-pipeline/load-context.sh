@@ -53,110 +53,127 @@ cd "$WORK_DIR"
 
 MERGE_WATER=() MERGE_PLACE=() MERGE_POI=()
 
+# 🔴 Fetch one extract and prove it is the file Geofabrik published.
+#
+# Defined once, above the loop, and told everything it needs. It used to
+# live inside the loop and read $SLUG and $URL as globals — correct, but
+# redefined twenty-seven times and inviting a reader to assume capture.
+#
+# Returns 0 only when the file on disk matches the published md5.
+fetch_verified() {
+  local attempt=$1 mode=$2 url=$3 path=$4 expect=$5
+
+  if [ "$mode" = 'resume' ]; then
+    # -C -: resume rather than start again, which on a multi-gigabyte
+    # extract is the difference between a retry and another three hours.
+    curl -fsSL -C - --retry 5 --retry-delay 10 -o "$path" "$url" || {
+      echo "  attempt $attempt: download failed" >&2
+      return 1
+    }
+  else
+    rm -f "$path"
+    curl -fsSL --retry 5 --retry-delay 10 -o "$path" "$url" || {
+      echo "  attempt $attempt: download failed" >&2
+      return 1
+    }
+  fi
+
+  local got
+  if command -v md5sum >/dev/null 2>&1; then
+    got=$(md5sum "$path" | awk '{print $1}')
+  else
+    got=$(md5 -q "$path")
+  fi
+  if [ "$got" != "$expect" ]; then
+    echo "  attempt $attempt: checksum $got, expected $expect" >&2
+    return 1
+  fi
+  return 0
+}
+
 for REGION in "${REGIONS[@]}"; do
   SLUG="$(echo "$REGION" | tr '/' '-')"
-
-  URL="https://download.geofabrik.de/$REGION-latest.osm.pbf"
-
-  # 🔴 The expected size comes from Geofabrik, every run.
+  PBF="$SLUG.osm.pbf"
+  # 🔴 What we have already proved about the file beside it.
   #
-  # A one-byte ranged GET returns `Content-Range: bytes 0-0/<total>`;
-  # a HEAD is answered with a 302 and no length, which is why it is done
-  # this way. France is 5 087 360 116 bytes, Slovenia 313 211 467.
-  REMOTE_SIZE=$(curl -sL -D - -o /dev/null --range 0-0 --max-time 60 "$URL" \
-    | awk -F'/' '/[Cc]ontent-[Rr]ange/ {gsub(/\r/,"",$2); print $2}')
-  if ! [ "${REMOTE_SIZE:-0}" -gt 100000 ] 2>/dev/null; then
-    echo "::error::could not read the size of $REGION from Geofabrik" >&2
+  # The gate used to be "is the file the expected number of bytes", and
+  # that is how a rejected download became a silent success: a resumed
+  # splice is EXACTLY the expected length (the comment below says so),
+  # so a file the script had refused twice was skipped past the checksum
+  # on the next run and loaded into PostGIS with "✓ context layers
+  # ready". Found in review, and it was a regression I introduced.
+  #
+  # A marker holding the md5 we verified answers the right question —
+  # "is this the file Geofabrik publishes NOW" — and answers it for one
+  # cent instead of re-hashing five gigabytes on every run. A re-cut
+  # changes the published md5, the marker stops matching, and the
+  # extract is fetched again.
+  STAMP="$SLUG.verified-md5"
+
+  LATEST="https://download.geofabrik.de/$REGION-latest.osm.pbf"
+
+  # 🔴 Resolve `-latest` ONCE, and use the dated URL for everything.
+  #
+  # `-latest` is a 302 to a dated file, so the download, the size and the
+  # md5 were three independent requests that could each land on a
+  # different version. A re-cut between them failed a perfectly whole
+  # file and then reported "that is not a transfer problem", which is a
+  # confident wrong diagnosis.
+  URL=$(curl -fsSLI -o /dev/null -w '%{url_effective}' --max-time 60 "$LATEST") || {
+    echo "::error::could not reach Geofabrik for $REGION" >&2
+    exit 1
+  }
+
+  # 🔴 -f, so an HTTP error page cannot become the expected checksum.
+  # Without it a 404 body — "<html><head><title>404…" — is a non-empty
+  # string, sails past the emptiness check, and costs a full re-download
+  # before the script gives up with the wrong reason.
+  EXPECT_MD5=$(curl -fsSL --max-time 60 "$URL.md5" | awk '{print $1}') || EXPECT_MD5=''
+  if ! printf '%s' "$EXPECT_MD5" | grep -qE '^[0-9a-f]{32}$'; then
+    echo "::error::no usable .md5 for $REGION — refusing to trust the download" >&2
     exit 1
   fi
 
-  # 🔴 A PARTIAL DOWNLOAD IS NOT A DOWNLOAD.
+  # 🔴 The marker records the file it was written FOR, not just a hash.
   #
-  # The old check was `[ ! -f "$SLUG.osm.pbf" ]` plus "is it at least
-  # 100 kB". An interrupted transfer leaves a large, plausible file that
-  # passes both — and France's extract takes hours, so an interruption is
-  # not a remote possibility, it is the expected case. osmium may or may
-  # not notice a truncated PBF; if it does not, the layers come out
-  # quietly incomplete and every distance computed against them is wrong
-  # in a way nothing downstream can see.
-  # 🔴 Fetch, verify, and on a checksum failure fetch again — ONCE.
+  # An md5 on its own only says "at some moment this file hashed to X".
+  # If anything writes to the extract afterwards — a half-finished copy,
+  # a disk fault, another process — the marker keeps vouching for a file
+  # that has changed. Size and modification time cost nothing to read
+  # and catch every accidental write, because any write moves mtime.
   #
-  # The old code deleted the bad file and told a person to "run again for
-  # a clean download". That reads like a safe default and is not a
-  # process: Geofabrik re-cuts every extract daily, so a list of 27
-  # regions downloaded yesterday fails this check 27 times, once per run,
-  # and somebody has to start the script 27 times to get through it.
-  # Measured 25.09.2026 on europe/austria: yesterday's 810 746 083 bytes
-  # against today's 810 840 932, resumed, spliced, and correctly refused.
-  #
-  # The retry is deliberately blind to WHY the first attempt failed — a
-  # resumed splice, a truncation and a corrupt transfer all have the same
-  # cure, and guessing between them would only add a way to guess wrong.
-  # Twice and no more: a checksum that fails on a file we fetched from
-  # scratch is not a transfer problem, and looping would hide it.
-  fetch_verified() {
-    local attempt=$1
-    local resume=$2
-
-    if [ "$resume" = 'resume' ]; then
-      curl -sSL -C - --retry 5 --retry-delay 10 -o "$SLUG.osm.pbf" "$URL"
-    else
-      rm -f "$SLUG.osm.pbf"
-      curl -sSL --retry 5 --retry-delay 10 -o "$SLUG.osm.pbf" "$URL"
-    fi
-
-    # 🔴 The expected size is re-read here, not reused from before the
-    # download. A re-cut that lands mid-transfer changes it, and
-    # comparing against a stale number would report a size failure for a
-    # file that is perfectly whole.
-    local remote
-    remote=$(curl -sL -D - -o /dev/null --range 0-0 --max-time 60 "$URL" \
-      | awk -F'/' '/[Cc]ontent-[Rr]ange/ {gsub(/\r/,"",$2); print $2}')
-    local local_size
-    local_size=$(wc -c < "$SLUG.osm.pbf" | tr -d ' ')
-    if [ "$local_size" != "${remote:-0}" ]; then
-      echo "  attempt $attempt: $local_size bytes, Geofabrik says ${remote:-unknown}" >&2
-      return 1
-    fi
-
-    local expect got
-    expect=$(curl -sSL --max-time 60 "$URL.md5" | awk '{print $1}')
-    if [ -z "$expect" ]; then
-      echo "::error::no .md5 published for $REGION — refusing to trust the download" >&2
-      exit 1
-    fi
-    if command -v md5sum >/dev/null 2>&1; then
-      got=$(md5sum "$SLUG.osm.pbf" | awk '{print $1}')
-    else
-      got=$(md5 -q "$SLUG.osm.pbf")
-    fi
-    if [ "$got" != "$expect" ]; then
-      echo "  attempt $attempt: checksum $got, expected $expect" >&2
-      return 1
-    fi
-    return 0
+  # It is not a defence against someone deliberately forging all three;
+  # it is a defence against the file quietly not being what we checked.
+  file_fingerprint() {
+    # BSD stat and GNU stat disagree about flags, so both are tried.
+    # The shell pipeline fails closed: no fingerprint, no skip.
+    stat -f '%z %m' "$1" 2>/dev/null || stat -c '%s %Y' "$1" 2>/dev/null || echo 'unknown'
   }
 
-  LOCAL_SIZE=0
-  [ -f "$SLUG.osm.pbf" ] && LOCAL_SIZE=$(wc -c < "$SLUG.osm.pbf" | tr -d ' ')
+  if [ -f "$PBF" ] && [ -f "$STAMP" ] &&
+     [ "$(cat "$STAMP")" = "$EXPECT_MD5 $(file_fingerprint "$PBF")" ]; then
+    echo "→ $REGION (already verified)"
+  else
+    # The marker is removed first, so an interrupted run can never leave
+    # a stale proof beside a half-written file.
+    rm -f "$STAMP"
+    echo "→ $REGION"
 
-  if [ "$LOCAL_SIZE" != "$REMOTE_SIZE" ]; then
-    if [ "$LOCAL_SIZE" -gt 0 ]; then
-      echo "→ $REGION (have $LOCAL_SIZE of $REMOTE_SIZE bytes, resuming)"
-    else
-      echo "→ $REGION ($REMOTE_SIZE bytes)"
-    fi
-
-    # First attempt resumes, because on a multi-gigabyte extract that is
-    # the difference between a retry and another three hours.
-    if ! fetch_verified 1 resume; then
-      echo "  resumed copy is not the file Geofabrik has — starting clean"
-      if ! fetch_verified 2 clean; then
+    if ! fetch_verified 1 resume "$URL" "$PBF" "$EXPECT_MD5"; then
+      echo "  resumed copy is not the file Geofabrik has — starting clean" >&2
+      if ! fetch_verified 2 clean "$URL" "$PBF" "$EXPECT_MD5"; then
+        # 🔴 Deleted, not left behind. The whole point of the marker is
+        # that the next run re-checks — but a rejected file of the right
+        # length is still a trap for anything else that reads this
+        # directory, and keeping it buys nothing.
+        rm -f "$PBF"
         echo "::error::$REGION failed twice, the second time from scratch." >&2
-        echo "          That is not a transfer problem — look at the source." >&2
+        echo "          The file has been deleted. That is not a transfer" >&2
+        echo "          problem — look at the source." >&2
         exit 1
       fi
     fi
+    printf '%s %s' "$EXPECT_MD5" "$(file_fingerprint "$PBF")" > "$STAMP"
     echo "  checksum ok"
   fi
 
