@@ -599,6 +599,25 @@ test.describe('a common word is a preference, a rare word is a requirement', () 
     expect(hits.every((h) => h.doc.name.startsWith('Camping'))).toBe(true);
   });
 
+  test('🔴 a word in a quarter of a SMALL index is still a requirement', () => {
+    // The absolute floor, which nothing covered: review deleted
+    // `df >= COMMON_FLOOR` and the whole suite stayed green, because
+    // every fixture smaller than 50 documents makes all words common,
+    // which `allCommon` then turns back into all-required anyway.
+    //
+    // This fixture is big enough to tell the two apart. `kamp` is in 40
+    // of 122 documents — 32.8%, far above the 5% share, but below the
+    // floor of 50 — so it must still be a requirement. Without the
+    // floor it would become a preference, and this query would answer
+    // with a campsite that has no `kamp` in it at all.
+    const docs = [
+      ...manyDocs(),
+      doc({ name: 'Camp Bovec', path: '/camping/si/bovec/camp-bovec',
+            country: 'si', region: 'bovec' }),
+    ];
+    expect(search(docs, 'kamp bovec')).toHaveLength(0);
+  });
+
   test('🔴 a prefix elsewhere does not switch typo tolerance off', () => {
     // Review's finding, and the reason `floor` asks for an EXACT match
     // rather than a prefix. On the live index one Hungarian campsite
@@ -610,10 +629,20 @@ test.describe('a common word is a preference, a rare word is a requirement', () 
       doc({ name: 'Kovako Camp', path: '/camping/hu/pest/kovako', country: 'hu', region: 'pest' }),
       doc({ name: 'Camp Kovac', path: '/camping/si/gorenjska/kovac', country: 'si', region: 'gorenjska' }),
     ];
-    const names = search(docs, 'kovak').map((h) => h.doc.name);
-    expect(names).toContain('Camp Kovac');
-    // And the prefix still outranks the near miss.
-    expect(names[0]).toBe('Kovako Camp');
+    const hits = search(docs, 'kovak');
+    expect(hits.map((h) => h.doc.name)).toContain('Camp Kovac');
+
+    // 🔴 On the SCORE, not on the order.
+    //
+    // This asserted `names[0] === 'Kovako Camp'` and review showed it
+    // passed for the wrong reason: with the fuzzy pass overwriting the
+    // prefix score the two tied exactly, and `/camping/hu/pest/kovako`
+    // simply sorts before `/camping/si/gorenjska/kovac` on the path
+    // tiebreak. The test named the band and measured the alphabet.
+    const prefix = hits.find((h) => h.doc.name === 'Kovako Camp')!;
+    const typo = hits.find((h) => h.doc.name === 'Camp Kovac')!;
+    expect(prefix.score).toBeGreaterThan(typo.score);
+    expect(prefix.score / typo.score).toBeCloseTo(60 / 30, 10);
   });
 
   test('🔴 the near miss is dropped only when the word matched exactly', () => {

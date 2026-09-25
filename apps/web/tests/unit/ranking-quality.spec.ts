@@ -64,6 +64,27 @@ function load(): SearchDoc[] | null {
 const docs = load();
 
 /**
+ * A deterministic shuffle, so both corpora are a fixed sample.
+ *
+ * 🔴 Not rejection sampling. Both of these used to draw at random and
+ * skip repeats, which is fine while the pool is much larger than the
+ * sample and turns into coupon-collecting when it is not — review
+ * pointed out that 496 wanted out of 787 eligible regions is already
+ * close enough to matter, and a corpus that gets slower as the data
+ * grows is a corpus somebody will eventually delete.
+ */
+function shuffled<T>(items: T[], seed = 132): T[] {
+  const out = [...items];
+  let state = seed;
+  const rnd = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/**
  * The 496-query corpus, in the repository rather than on a laptop.
  *
  * 🔴 Review's finding, and a fair one: `search.ts` cited "the 496-query
@@ -83,19 +104,43 @@ function regionCorpus(docs: SearchDoc[], limit = 496) {
   const regions = [...new Set(docs.map((d) => d.region))].filter(
     (r) => r && fold(r).split(' ').some((w) => w.length > 3),
   );
-  // A fixed sequence, so a rerun measures the same thing.
-  let seed = 132;
-  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-  const seen = new Set<string>();
-  const out: { q: string; region: string }[] = [];
-  while (out.length < limit && seen.size < regions.length) {
-    const r = regions[Math.floor(rnd() * regions.length)];
-    if (seen.has(r)) continue;
-    seen.add(r);
-    const w = fold(r).split(' ').filter((x) => x.length > 3)[0];
-    out.push({ q: `camping ${w}`, region: r });
+  return shuffled(regions)
+    .slice(0, limit)
+    .map((r) => ({
+      q: `camping ${fold(r).split(' ').filter((x) => x.length > 3)[0]}`,
+      region: r,
+    }));
+}
+
+/**
+ * The second corpus the comments cite: «camping <a place nearby>».
+ *
+ * 🔴 Review found defect #3 only half fixed — the region corpus was
+ * committed, the sentence said "the corpus is in this file so these can
+ * be rerun", and the 400-query place corpus behind "50.3% → 100%" was
+ * still only on a laptop. Half of a fix to a claim about evidence is
+ * the same defect.
+ *
+ * A place word is taken from the names of what campsites are NEAR, and
+ * only words that 1 to 60 campsites are near, so the query has a small,
+ * checkable answer. Right means the top hit really is near that place —
+ * or is named for it, which is the same thing said differently.
+ */
+function placeCorpus(docs: SearchDoc[], limit = 400) {
+  const places = new Map<string, Set<string>>();
+  for (const d of docs) {
+    for (const p of d.near ?? []) {
+      for (const w of fold(p.name).split(' ')) {
+        if (w.length <= 3) continue;
+        if (!places.has(w)) places.set(w, new Set());
+        places.get(w)!.add(d.path);
+      }
+    }
   }
-  return out;
+  const pool = [...places].filter(([, set]) => set.size >= 1 && set.size <= 60);
+  return shuffled(pool)
+    .slice(0, limit)
+    .map(([w, set]) => ({ q: `camping ${w}`, place: w, near: set }));
 }
 
 test.describe('ranking quality, measured on the live index', () => {
@@ -182,5 +227,30 @@ test.describe('ranking quality, measured on the live index', () => {
       share,
       `${right}/${corpus.length} correct. Worst: ${wrong.join('; ')}`,
     ).toBeGreaterThan(0.75);
+  });
+  test('🔴 the place corpus the comments cite, run here too', () => {
+    // Measured 25.09.2026 on the live index: main put the top hit near
+    // the place named for 50.3% of these, this ranking for 100%, with
+    // 199 fixed and none made worse. The floor is well under the
+    // measured figure for the same reason as above — live data moves.
+    const corpus = placeCorpus(docs!);
+    expect(corpus.length).toBe(400);
+
+    let right = 0;
+    const wrong: string[] = [];
+    for (const t of corpus) {
+      const top = search(docs!, t.q, { limit: 1 })[0]?.doc;
+      const ok =
+        !!top &&
+        (t.near.has(top.path) || top.text.split(' ').includes(t.place));
+      if (ok) right++;
+      else if (wrong.length < 5) {
+        wrong.push(`${t.q} → ${top?.name ?? '(nothing)'} [${top?.country ?? '-'}]`);
+      }
+    }
+    expect(
+      right / corpus.length,
+      `${right}/${corpus.length} correct. Worst: ${wrong.join('; ')}`,
+    ).toBeGreaterThan(0.9);
   });
 });
