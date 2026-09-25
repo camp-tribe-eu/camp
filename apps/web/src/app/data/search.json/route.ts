@@ -1,7 +1,7 @@
-import { apiFetch, countryName } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 import {
-  fold,
   packIndex,
+  searchText,
   unpackIndex,
   type PackedIndex,
   type SearchDoc,
@@ -62,17 +62,17 @@ export async function GET() {
     path: `/camping/${r.country}/${r.region}/${r.slug}`,
     country: r.country,
     region: r.region,
-    // Folded once here so the browser never folds 1000 documents on a
-    // keystroke — only the query, which is one short string.
-    text: fold(
-      [
-        r.name ?? '',
-        r.region.replace(/-/g, ' '),
-        countryName(r.country),
-        ...r.near.map((n) => n.name),
-      ].join(' '),
-    ),
     near: r.near,
+    // 🔴 The SAME function the reader uses to rebuild this, so the
+    // round-trip check below proves something rather than comparing an
+    // expression with itself. CAMP-129 stopped shipping this field — it
+    // was 39% of the file and every word of it is already in the row.
+    text: searchText({
+      name: r.name ?? '',
+      region: r.region,
+      country: r.country,
+      near: r.near,
+    }),
   }));
 
   // CAMP-107. Packed, not pretty-printed: see packIndex. The same
