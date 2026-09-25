@@ -302,6 +302,18 @@ else
   fail "two runs shared a work directory; rc=$rc: $out"
 fi
 
+# \U0001f534 And the run that was turned away must not take the lock with it.
+#
+# The trap is `rm -rf "$LOCK_DIR"` on EXIT. It is armed AFTER both
+# refusal paths, so a blocked run cannot delete the holder's lock — but
+# that is an ordering an edit could silently undo, and the damage would
+# be two concurrent runs believing they are alone.
+if [ -d "$ROOT/k/.lock" ] && [ "$(cat "$ROOT/k/.lock/pid")" = "$$" ]; then
+  pass "a run that was turned away leaves the holder's lock alone"
+else
+  fail "the blocked run removed the lock it did not own"
+fi
+
 # a lock left behind by a dead process is taken over, not fatal
 mkdir -p "$ROOT/l/.lock"; echo 999999 > "$ROOT/l/.lock/pid"
 SHIM_MODE=ok out=$(run l); rc=$?
