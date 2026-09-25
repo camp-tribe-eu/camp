@@ -481,5 +481,31 @@ test.describe('a strong match outranks a near miss', () => {
     const typo = doc({ name: 'Bleu', path: '/camping/fr/x/typo', country: 'fr', region: 'x' });
     const hits = search([typo, prefix, exact], 'bled');
     expect(hits.map((h) => h.doc.name)).toEqual(['Bled', 'Bledograd', 'Bleu']);
+    // 🔴 The SCORES, not just the order.
+    //
+    // Review mutation-tested the first version of this test: raising
+    // the prefix band from 60 to 100 left it green, because the three
+    // fixture paths happen to sort in the asserted order and the path
+    // tiebreak produced the expected result after the band this test is
+    // named for had been erased. A test that passes when the thing it
+    // names is gone is not a test.
+    expect(hits.map((h) => h.score)).toEqual([100, 60, 30]);
+  });
+
+  test('🔴 the distance says WHICH place it is from', () => {
+    // «436 m from what you searched» was shown for a fuzzy match, so
+    // "what you searched" was sometimes a different real place —
+    // measured: `aire` showed "55 m" from the river La Vire. The
+    // ordering may forgive a typo; the sentence may not.
+    const near = doc({
+      name: 'Camp Sava',
+      path: '/camping/si/bled/sava',
+      region: 'bled',
+      country: 'si',
+      near: [{ name: 'Bled Jezero', m: 878 }],
+    });
+    const [hit] = search([near], 'bled');
+    expect(hit.metres).toBe(878);
+    expect(hit.nearest).toBe('Bled Jezero');
   });
 });
