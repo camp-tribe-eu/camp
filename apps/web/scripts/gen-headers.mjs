@@ -40,11 +40,24 @@ const OUT = path.join(here, '..', 'public', '_headers');
 // assertion. CI never sets NODE_ENV, so this is a guard against the
 // accident, not against CI.
 //
-// Scoped to the build: `predev` runs this same script to keep the dev
-// server's generated files in step, and refusing there would only stop
-// people working.
-const forABuild = process.env.npm_lifecycle_event !== 'predev';
-if (forABuild && process.env.NODE_ENV === 'development') {
+// 🔴 No exemption, and the one that was here is why.
+//
+// It read `npm_lifecycle_event !== 'predev'`, which handed anyone a
+// one-word bypass of a security check:
+//
+//   npm_lifecycle_event=predev NODE_ENV=development node gen-headers.mjs
+//
+// exited 0 and wrote the file. A guard with a documented way around it
+// is a guard that will be gone around.
+//
+// `predev` is real — it runs this script so the dev server has its
+// generated files — and it is unaffected: npm does not set NODE_ENV,
+// so the assertion only fires for somebody who exported
+// NODE_ENV=development into their shell, which is the case worth
+// stopping. Anyone who genuinely needs this script in that shell sets
+// NODE_ENV=production for the one command, which is honest, since it
+// only writes headers for a build.
+if (process.env.NODE_ENV === 'development') {
   console.error(
     '🔴 NODE_ENV=development during a build.\n' +
       '   next.config.mjs adds \'unsafe-eval\' to the CSP in that mode, and\n' +

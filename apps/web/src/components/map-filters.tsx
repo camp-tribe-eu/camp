@@ -45,37 +45,59 @@ export default function MapFilters({
   const setTypes = (t: SpotType) =>
     onChange({ ...state, types: toggle(state.types, t, SPOT_TYPES) });
 
-  const setAmenity = (a: AmenityKey) =>
-    onChange({
-      ...state,
-      amenities: toggle(state.amenities, a, [
-        ...GENERAL_AMENITY_KEYS,
-        ...ACCESSIBILITY_KEYS,
-      ]),
-    });
-
   /**
-   * Clear one group, and nothing else.
+   * Apply a new amenity selection, and never leave `includeUnknown`
+   * stranded behind it.
    *
-   * 🔴 Including `includeUnknown`, when nothing is left to be unknown
-   * ABOUT. Review walked it: tick Toilets, tick "also show where this is
-   * not recorded", press "None" — and the reader was left on
-   * `/map?unknown=1` with the checkbox gone (it only renders while an
-   * amenity is filtered) and "Clear filters" hidden (nothing is being
-   * filtered). A flag with no control, carried in a shareable URL, and
-   * silently re-applied to the next amenity they ticked.
+   * 🔴 One function, because the bug came from having two.
    *
-   * `filter-clear` has always reset it. Two controls that both mean
-   * "clear this" must not disagree.
+   * `includeUnknown` only means something while an amenity is filtered —
+   * the checkbox renders only then, and `isFiltering` ignores the flag,
+   * so "Clear filters" hides too. Leave it set with no amenities and the
+   * reader is on `/map?unknown=1` with no control for it and no way back,
+   * and it is silently re-applied to whatever they tick next.
+   *
+   * The first fix put the reset in the bulk "None" handler and left the
+   * CHIP alone — and the chip is how people actually clear a filter.
+   * Review walked it in three clicks: tick Toilets, tick "also show
+   * where this is not recorded", untick Toilets. Same stranded flag, and
+   * the new test passed over it because it drove the button, not a chip.
+   *
+   * So every path that changes the amenity list goes through here.
    */
-  const clearGroup = (group: readonly AmenityKey[]) => {
-    const amenities = state.amenities.filter((a) => !group.includes(a));
+  const applyAmenities = (amenities: AmenityKey[]) =>
     onChange({
       ...state,
       amenities,
       includeUnknown: amenities.length === 0 ? false : state.includeUnknown,
     });
-  };
+
+  const setAmenity = (a: AmenityKey) =>
+    applyAmenities(
+      toggle(state.amenities, a, [
+        ...GENERAL_AMENITY_KEYS,
+        ...ACCESSIBILITY_KEYS,
+      ]),
+    );
+
+  /**
+   * Clear one group, and nothing else.
+   *
+   * 🔴 Through `applyAmenities`, so clearing the last amenity also
+   * drops `includeUnknown` — there is nothing left to be unknown ABOUT.
+   * Review walked it: tick Toilets, tick "also show where this is not
+   * recorded", press "None" — and the reader was left on
+   * `/map?unknown=1` with the checkbox gone (it only renders while an
+   * amenity is filtered) and "Clear filters" hidden (nothing is being
+   * filtered). A flag with no control, carried in a shareable URL, and
+   * silently re-applied to the next amenity they ticked.
+   *
+   * The merge of CAMP-122 and CAMP-127 briefly had this function twice,
+   * once each way. They agreed — which is exactly why it had to be one:
+   * two copies of a rule agree until somebody edits one.
+   */
+  const clearGroup = (group: readonly AmenityKey[]) =>
+    applyAmenities(state.amenities.filter((a) => !group.includes(a)));
 
   const filtering = isFiltering(state);
 
@@ -101,7 +123,7 @@ export default function MapFilters({
           "All" on Type means every type is ticked, which shows exactly
           what "none ticked" already shows — so it is a convenience, not a
           new state. "All" on Facilities is a different thing entirely: it
-          demands a campsite recorded as having all ten, and measured on
+          demands a campsite recorded as having all eight, and measured on
           our data that is a handful of sites. That is a legitimate and
           very narrow query, so the button says what it does rather than
           promising "everything". */}
@@ -136,13 +158,10 @@ export default function MapFilters({
         // this boundary was respected. It was, for "None", and forgotten
         // for "All".
         onAll={() =>
-          onChange({
-            ...state,
-            amenities: [
-              ...GENERAL_AMENITY_KEYS,
-              ...state.amenities.filter((a) => ACCESSIBILITY_KEYS.includes(a)),
-            ],
-          })
+          applyAmenities([
+            ...GENERAL_AMENITY_KEYS,
+            ...state.amenities.filter((a) => ACCESSIBILITY_KEYS.includes(a)),
+          ])
         }
         onNone={() => clearGroup(GENERAL_AMENITY_KEYS)}
         allPressed={GENERAL_AMENITY_KEYS.every((a) =>
@@ -172,13 +191,10 @@ export default function MapFilters({
       <Group
         legend="Accessibility"
         onAll={() =>
-          onChange({
-            ...state,
-            amenities: [
-              ...state.amenities.filter((a) => !ACCESSIBILITY_KEYS.includes(a)),
-              ...ACCESSIBILITY_KEYS,
-            ],
-          })
+          applyAmenities([
+            ...state.amenities.filter((a) => !ACCESSIBILITY_KEYS.includes(a)),
+            ...ACCESSIBILITY_KEYS,
+          ])
         }
         onNone={() => clearGroup(ACCESSIBILITY_KEYS)}
         allPressed={ACCESSIBILITY_KEYS.every((a) => state.amenities.includes(a))}

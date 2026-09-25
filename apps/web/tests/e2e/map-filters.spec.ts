@@ -167,6 +167,55 @@ test.describe('/map filters', () => {
     }
   });
 
+  // 🔴 The chip, which is how people actually clear a filter.
+  //
+  // The first fix put the reset in the bulk "None" handler only, and the
+  // test below drove that button — so it passed over a live bug reachable
+  // in three clicks. Review walked it. This drives the chip.
+  test('unticking the last amenity also clears "include unrecorded"', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await page.getByTestId('filter-amenity-toilets').click();
+    await page.getByTestId('filter-include-unknown').locator('input').check();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('unknown'))
+      .toBe('1');
+
+    await page.getByTestId('filter-amenity-toilets').click();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('unknown'))
+      .toBeNull();
+    // And it is not silently re-applied to the next thing ticked.
+    await page.getByTestId('filter-amenity-shower').click();
+    await expect(
+      page.getByTestId('filter-include-unknown').locator('input'),
+    ).not.toBeChecked();
+  });
+
+  // 🔴 The other direction: clearing one group while another still holds
+  // a selection must NOT clear the flag — there is still something for
+  // it to be unknown about. Nothing tested this, and a bare `false`
+  // survived the suite.
+  test('clearing one group keeps the flag while another still filters', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await page.getByTestId('filter-amenity-toilets').click();
+    await page.getByTestId('filter-amenity-wheelchair').click();
+    await page.getByTestId('filter-include-unknown').locator('input').check();
+
+    await page.getByTestId('filter-amenity-none').click();
+    await expect(
+      page.getByTestId('filter-include-unknown').locator('input'),
+    ).toBeChecked();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('unknown'))
+      .toBe('1');
+  });
+
   // 🔴 A flag with no control, carried in a shareable URL.
   test('clearing the last amenity also clears "include unrecorded"', async ({
     page,
@@ -175,7 +224,11 @@ test.describe('/map filters', () => {
     await skipWithoutWebGL(page);
     await page.getByTestId('filter-amenity-toilets').click();
     await page.getByTestId('filter-include-unknown').locator('input').check();
-    expect(page.url()).toContain('unknown=1');
+    // history.replaceState happens in an effect, so this is polled like
+    // the assertion below it — read synchronously it races the render.
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('unknown'))
+      .toBe('1');
 
     await page.getByTestId('filter-amenity-none').click();
     // Otherwise the reader is left on /map?unknown=1 with the checkbox
@@ -220,8 +273,17 @@ test.describe('/map filters', () => {
       'aria-disabled',
       'true',
     );
+    // 🔴 Driven from a state where a working click WOULD change the URL.
+    //
+    // The first version forced a click on "All" when everything was
+    // already ticked, so the URL was identical whether the click landed
+    // or not — the assertion passed in both worlds and proved nothing.
+    // Review caught it. "None" here has real work to do, so if `disabled`
+    // ever stops being honoured the URL moves and this fails.
+    await page.getByTestId('filter-amenity-none').click();
+    await expect.poll(() => new URL(page.url()).searchParams.get('amenities')).toBeNull();
     const before = page.url();
-    await page.getByTestId('filter-amenity-all').click({ force: true });
+    await page.getByTestId('filter-amenity-none').click({ force: true });
     expect(page.url(), 'a disabled control still did something').toBe(before);
   });
 
