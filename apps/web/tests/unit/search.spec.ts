@@ -3,6 +3,8 @@ import {
   editDistance,
   fold,
   search,
+  searchText,
+  slugFromName,
   packIndex,
   terms,
   tolerance,
@@ -15,15 +17,26 @@ import {
 // 🔴 The two tests the card names as its own acceptance criteria are
 // marked below. Everything else exists to stop them passing by accident.
 
-const doc = (over: Partial<SearchDoc> & { name: string }): SearchDoc => ({
-  kind: 'campsite',
-  path: `/camping/hr/istria/${fold(over.name).replace(/ /g, '-') || 'x'}`,
-  country: 'hr',
-  region: 'istria',
-  near: [],
-  ...over,
-  text: over.text ?? fold(`${over.name} istria croatia`),
-});
+// 🔴 The haystack is BUILT, not written by hand.
+//
+// It used to be `fold(`${name} istria croatia`)` for every fixture,
+// including the French ones — a document whose text did not match its
+// own country or region, which cannot exist in real data. The round-trip
+// test passed anyway, because `text` was carried verbatim through the
+// packing; the moment CAMP-129 started deriving it, the fixture's own
+// inconsistency surfaced. A fixture describing an impossible row proves
+// nothing about the rows we have.
+const doc = (over: Partial<SearchDoc> & { name: string }): SearchDoc => {
+  const base = {
+    kind: 'campsite' as const,
+    path: `/camping/hr/istria/${fold(over.name).replace(/ /g, '-') || 'x'}`,
+    country: 'hr',
+    region: 'istria',
+    near: [] as { name: string; m: number }[],
+    ...over,
+  };
+  return { ...base, text: over.text ?? searchText(base) };
+};
 
 test.describe('folding, on the letters our data actually contains', () => {
   test('strips the accents NFD knows about', () => {
@@ -212,12 +225,16 @@ test.describe('the packed index', () => {
     region: string,
     slug: string,
     over: Partial<SearchDoc> & { name: string },
-  ): SearchDoc => ({
-    ...doc(over),
-    country,
-    region,
-    path: `/camping/${country}/${region}/${slug}`,
-  });
+  ): SearchDoc => {
+    // Country and region change here, so the haystack is rebuilt after
+    // them — the order production uses.
+    const base = { ...doc(over), country, region };
+    return {
+      ...base,
+      path: `/camping/${country}/${region}/${slug}`,
+      text: over.text ?? searchText(base),
+    };
+  };
 
   const docs: SearchDoc[] = [
     at('hr', 'istria', 'camping-du-lac', { name: 'Camping du Lac' }),
@@ -273,7 +290,12 @@ test.describe('the packed index', () => {
   // fields; refusing is what makes the page say search is unavailable.
   test('an unknown format version is refused, not guessed at', () => {
     const packed = packIndex(docs) as unknown as { v: number };
-    packed.v = 2;
+    // 🔴 Version 1 specifically, because that is the file a browser may
+    // still hold: it carried `text` in the slot the reader now reads as
+    // `near`.
+    packed.v = 1;
+    expect(() => unpackIndex(packed as never)).toThrow(/not supported/);
+    packed.v = 99;
     expect(() => unpackIndex(packed as never)).toThrow(/not supported/);
     expect(() => unpackIndex(undefined as never)).toThrow(/not supported/);
   });
@@ -288,5 +310,86 @@ test.describe('the packed index', () => {
 
   test('an empty index packs and unpacks to an empty index', () => {
     expect(unpackIndex(packIndex([]))).toEqual([]);
+  });
+});
+
+// ── CAMP-129: the two fields that are no longer sent ───────────────────
+
+test.describe('what the packed index stops sending', () => {
+  const row = (over: { name: string; path: string; near?: { name: string; m: number }[] }): SearchDoc => ({
+    kind: 'campsite',
+    country: 'fr',
+    region: 'vendee',
+    near: over.near ?? [],
+    name: over.name,
+    path: over.path,
+    text: searchText({
+      name: over.name,
+      region: 'vendee',
+      country: 'fr',
+      near: over.near ?? [],
+    }),
+  });
+
+  test('a derivable slug is not stored, and comes back right', () => {
+    const doc = row({ name: 'Camping du Lac', path: '/camping/fr/vendee/camping-du-lac' });
+    const packed = packIndex([doc]);
+    // 🔴 The saving only exists if the slug really is absent.
+    expect(packed.d[0][3]).toBe(0);
+    expect(unpackIndex(packed)[0].path).toBe(doc.path);
+  });
+
+  test('a slug the name cannot produce IS stored', () => {
+    // Two campsites called "Camping Municipal": the second gets -2, and
+    // nothing about the name says so. CAMP-87 forbids moving it.
+    const doc = row({ name: 'Camping Municipal', path: '/camping/fr/vendee/camping-municipal-2' });
+    expect(packIndex([doc]).d[0][3]).toBe('camping-municipal-2');
+    expect(unpackIndex(packIndex([doc]))[0].path).toBe(doc.path);
+  });
+
+  test('an unnamed campsite keeps its slug', () => {
+    // 26% of campsites have no name; theirs is `spot-<osm ref>`, which
+    // no name could ever produce.
+    const doc = row({ name: '', path: '/camping/fr/vendee/spot-node-123' });
+    expect(packIndex([doc]).d[0][3]).toBe('spot-node-123');
+    expect(unpackIndex(packIndex([doc]))[0].path).toBe(doc.path);
+  });
+
+  test('a name past the API cut predicts the truncated slug', () => {
+    // import-spots.ts slices at 80. Without the same cut, the prediction
+    // is longer than the real slug and never matches — correct, but it
+    // pays for every long name.
+    expect(slugFromName('a'.repeat(120))).toHaveLength(80);
+  });
+
+  test('a name with nothing usable in it predicts nothing', () => {
+    expect(slugFromName('!!!')).toBeNull();
+    expect(slugFromName('')).toBeNull();
+  });
+
+  test('the haystack is not stored either, and is rebuilt identically', () => {
+    const doc = row({
+      name: 'Camping Molène',
+      path: '/camping/fr/vendee/camping-molene',
+      near: [{ name: 'Le Conquet', m: 1200 }],
+    });
+    const packed = packIndex([doc]);
+    expect(JSON.stringify(packed)).not.toContain(doc.text);
+    expect(unpackIndex(packed)[0].text).toBe(doc.text);
+  });
+
+  test('and a search over the rebuilt index finds what the original did', () => {
+    const docs = [
+      row({ name: 'Camping Molène', path: '/camping/fr/vendee/camping-molene',
+            near: [{ name: 'Le Conquet', m: 1200 }] }),
+      row({ name: 'Camping du Lac', path: '/camping/fr/vendee/camping-du-lac' }),
+    ];
+    const back = unpackIndex(packIndex(docs));
+    // Every field the haystack is built from, so a drift in any one of
+    // them shows up here rather than as a search that quietly misses.
+    for (const q of ['molene', 'conquet', 'vendee', 'france', 'lac']) {
+      expect(search(back, q).map((h) => h.doc.path), `query "${q}"`)
+        .toEqual(search(docs, q).map((h) => h.doc.path));
+    }
   });
 });

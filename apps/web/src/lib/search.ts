@@ -14,7 +14,7 @@
 // coordinates; the browser queries it. The card's staged plan is intact:
 // no new dependency, no cost. Its MeiliSearch trigger becomes something
 // measurable rather than a feeling — the build fails when the index
-// outgrows a download (see app/data/search.json/route.ts).
+// outgrows a download (see app/data/search/index.json/route.ts).
 //
 // 🔴 Folding happens HERE, once, for both the index and the query.
 //
@@ -105,6 +105,48 @@ export function tolerance(term: string): number {
   if (term.length <= 3) return 0;
   if (term.length <= 6) return 1;
   return 2;
+}
+
+// 🔴 CAMP-129 needs the country's NAME, not its code: the haystack has
+// always held "France" rather than "fr", because that is what a reader
+// types. Imported so the recipe below has exactly one definition.
+import { countryName } from './api';
+
+/**
+ * CAMP-129: the string a query is matched against, defined ONCE.
+ *
+ * 🔴 It used to be shipped. `text` is `name` + `region` + the country's
+ * name + the names of what is near — every one of which is already in
+ * the same row. Measured 25.09.2026 on the live index: 2 436 KB of
+ * 6 940 KB, 39%, spent sending the same words a second time.
+ *
+ * So it is derived on read. The catch is that a recipe used in two
+ * places drifts, and a drift here is a search that quietly stops
+ * matching what it used to — so there is one function, called by the
+ * writer and by the reader, and the index route round-trips every chunk
+ * through packIndex/unpackIndex on every build, comparing `text` field
+ * by field.
+ *
+ * 🔴 That check was lost when the single file was split, and this
+ * comment went on claiming it ran — for a while nothing under src/app
+ * imported `unpackIndex` at all. Review caught it. A comment describing
+ * a guard that does not exist is worse than no guard, because it stops
+ * anyone looking for one.
+ */
+export function searchText(doc: {
+  name: string;
+  region: string;
+  country: string;
+  near: { name: string }[];
+}): string {
+  return fold(
+    [
+      doc.name,
+      doc.region.replace(/-/g, ' '),
+      countryName(doc.country),
+      ...doc.near.map((n) => n.name),
+    ].join(' '),
+  );
 }
 
 export interface SearchDoc {
@@ -268,12 +310,52 @@ export function search(
 // write and the unpacking on read, so nothing downstream knows.
 
 /** Country codes and region names, each stored once and referenced by index. */
+/**
+ * The slug a campsite's name would produce, or null when it would not.
+ *
+ * 🔴 The same trick as `searchText`, measured on France: 16 807 of
+ * 23 645 slugs (71%) are exactly this, so storing them all costs 613 KB
+ * where storing only the exceptions costs 153 KB.
+ *
+ * 🔴 It is a PREDICTION, never a source of truth. The API assigns a slug
+ * once and CAMP-87 forbids moving it, so two campsites called "Camping
+ * Municipal" get `camping-municipal` and `camping-municipal-2` — the
+ * second is not derivable and must be carried. The packer writes the
+ * slug whenever it differs by so much as a character, so it cannot guess
+ * wrong; it can only fail to save.
+ *
+ * Must match `slugify` in apps/api/src/osm/import-spots.ts, which is
+ * where a campsite's slug is actually assigned — including its cut at
+ * 80 characters.
+ */
+export function slugFromName(name: string): string | null {
+  const slug = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return slug === '' ? null : slug;
+}
+
 export interface PackedIndex {
-  /** Format version, so an old cached file cannot be read as a new one. */
-  v: 1;
+  /**
+   * Format version, so an old cached file cannot be read as a new one.
+   *
+   * 🔴 2 since CAMP-129 dropped `text`. A version 1 file read as 2 would
+   * put the folded haystack where places-nearby belong — not a crash, a
+   * wrong page. The reader refuses instead.
+   */
+  v: 2;
   c: string[];
   r: string[];
-  /** [name, countryIdx, regionIdx, slug, text, near?] */
+  /**
+   * `[name, countryIdx, regionIdx, slug | 0, near?]`
+   *
+   * `text` is derived, and `slug` is 0 when it is exactly what the name
+   * produces — which it is for 71% of rows.
+   */
   d: (string | number | { name: string; m: number }[])[][];
 }
 
@@ -297,8 +379,11 @@ export function packIndex(docs: SearchDoc[]): PackedIndex {
       doc.name,
       idx(c, doc.country),
       idx(r, doc.region),
-      slug,
-      doc.text,
+      // 🔴 0, not an empty string: an empty string is a legitimate slug
+      // to be wrong about, and `''` beside `'0'` in a hand-read file is
+      // a mistake waiting to happen. A number says "derive it"; a string
+      // says "here it is".
+      slugFromName(doc.name) === slug ? 0 : slug,
     ];
     // Only 3% of campsites have anything near them recorded, so an empty
     // array on every other row is 10 000 copies of "[]".
@@ -306,11 +391,11 @@ export function packIndex(docs: SearchDoc[]): PackedIndex {
     return row;
   });
 
-  return { v: 1, c, r, d };
+  return { v: 2, c, r, d };
 }
 
 export function unpackIndex(packed: PackedIndex): SearchDoc[] {
-  if (packed?.v !== 1) {
+  if (packed?.v !== 2) {
     // A cached file from before this change, or a truncated download.
     // Returning junk would show a reader a search that silently finds
     // nothing; an empty index at least makes the page say so.
@@ -319,14 +404,22 @@ export function unpackIndex(packed: PackedIndex): SearchDoc[] {
   return packed.d.map((row) => {
     const country = packed.c[row[1] as number];
     const region = packed.r[row[2] as number];
+    const near = (row[4] as { name: string; m: number }[]) ?? [];
+    const name = row[0] as string;
+    // 0 means "the name produces it". Anything else is carried verbatim
+    // because the name could not — see slugFromName.
+    const slug = row[3] === 0 ? (slugFromName(name) ?? '') : (row[3] as string);
     return {
       kind: 'campsite' as const,
-      name: row[0] as string,
-      path: `/camping/${country}/${region}/${row[3] as string}`,
+      name,
+      path: `/camping/${country}/${region}/${slug}`,
       country,
       region,
-      text: row[4] as string,
-      near: (row[5] as { name: string; m: number }[]) ?? [],
+      near,
+      // Rebuilt by the same function that built it for the writer.
+      // Folding 61 000 short strings once on load takes a few
+      // milliseconds; sending them twice is paid on every visit.
+      text: searchText({ name, region, country, near }),
     };
   });
 }

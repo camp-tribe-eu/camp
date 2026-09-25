@@ -373,15 +373,44 @@ export async function getNotable(): Promise<(SpotCard & {
  * table of our own and no translation file — and it will follow the site's
  * language once i18n lands (CAMP-40).
  */
+const displayNames = new Map<string, Intl.DisplayNames | null>();
+
+/**
+ * \ud83d\udd34 One `Intl.DisplayNames` per locale, not per call.
+ *
+ * Constructing it is expensive and this function is called once per
+ * campsite. Measured 25.09.2026 by review: unpacking 61 422 search
+ * documents cost **613 ms** of main thread, of which **420 ms was this
+ * constructor** \u2014 on a desktop. A mid-range phone is three to five
+ * times slower, and it lands as a long task while the reader is typing.
+ *
+ * Nothing about it is per-call: the same locale always yields the same
+ * object. It was a constructor in a loop.
+ */
+function regionNames(locale: string): Intl.DisplayNames | null {
+  if (!displayNames.has(locale)) {
+    try {
+      displayNames.set(
+        locale,
+        new Intl.DisplayNames([locale], { type: 'region' }),
+      );
+    } catch {
+      // A runtime without this locale's data. Cached too, so a bad
+      // locale costs one failed construction rather than 61 422.
+      displayNames.set(locale, null);
+    }
+  }
+  return displayNames.get(locale) ?? null;
+}
+
 export function countryName(code: string, locale = 'en'): string {
+  const upper = code.toUpperCase();
   try {
-    return (
-      new Intl.DisplayNames([locale], { type: 'region' }).of(
-        code.toUpperCase(),
-      ) ?? code.toUpperCase()
-    );
+    return regionNames(locale)?.of(upper) ?? upper;
   } catch {
-    return code.toUpperCase();
+    // `.of` throws on a malformed code, which is a per-code problem and
+    // must not poison the cached formatter.
+    return upper;
   }
 }
 

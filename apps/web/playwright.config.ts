@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { serverlessRun } from './src/lib/cli-args';
 
 // Cross-browser (chromium/firefox/webkit) + cross-platform (desktop/mobile viewport)
 // coverage in one config, per CAMP-13.
@@ -19,6 +20,9 @@ const visualProject = {
   use: { ...devices['Desktop Chrome'] },
 };
 
+/** Projects that never touch a page, so they never need a server. */
+const SERVERLESS_PROJECTS = new Set(['unit']);
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
@@ -38,7 +42,12 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
-  webServer: process.env.BASE_URL
+  // \ud83d\udd34 The unit project is pure logic \u2014 no browser, no server \u2014 and
+  // making it wait 60 s for `next start` (which needs a build that may
+  // not exist) is how a fast check stops being run at all. If every
+  // project asked for on the command line is a serverless one, no server
+  // is started. Any other selection, and CI's full run, behave as before.
+  webServer: process.env.BASE_URL || serverlessRun(process.argv, SERVERLESS_PROJECTS)
     ? undefined
     : {
         command: 'npm run start -- -p 3000',
