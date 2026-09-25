@@ -633,11 +633,24 @@ export default function CampsiteMap() {
     if (missing.length > 0) setDataState({ kind: 'loading' });
 
     const failures: string[] = [];
+    // \U0001f534 EVERY key is claimed before the first await, not each one
+    // when its turn comes.
+    //
+    // Marking inside the loop looked equivalent and was not. With
+    // missing = [X, Y]: this call claims X and awaits it, and while it
+    // waits a second `moveend` starts another refresh. That one sees Y
+    // still unclaimed, fetches it and appends it. The first call then
+    // reaches Y, finds it already in `loaded` — but it is iterating its
+    // own list, so it fetches and appends Y a SECOND time.
+    //
+    // The result is a campsite drawn twice. Found by the spec that
+    // compares the map with the API: `spot-n9908191538` appeared twice
+    // in one viewport where the API returned it once, and it lives in
+    // exactly one chunk (hr/zadarska) — so nothing but this loop could
+    // have produced the second copy.
+    for (const key of missing) loaded.current.add(key);
+
     for (const key of missing) {
-      // 🔴 Marked as loaded BEFORE the await, so a second moveend while
-      // this is in flight does not fetch the same chunk again. A failed
-      // one is un-marked below, so a retry is still possible.
-      loaded.current.add(key);
       try {
         const res = await fetch(chunkUrl(key));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
