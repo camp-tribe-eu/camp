@@ -66,9 +66,21 @@ export const MAX_BYTES = 1_500_000;
  * So the build was failing at 8.57 MB over a budget meant to cap a
  * five-second download that in fact takes 1.4 seconds.
  *
- * It counts gzip, not brotli, deliberately: gzip is the floor every
- * host and browser supports, so brotli can only do better, and if we
- * ever serve this uncompressed the raw ceiling below catches it.
+ * 🔴 It counts gzip at level 6, and "gzip is a floor" was wrong.
+ *
+ * An earlier version of this comment said gzip is the floor every host
+ * supports "so brotli can only do better". Review measured that and it
+ * is false — the quality level matters more than the algorithm, and a
+ * CDN compressing on the fly does not use the slow ones:
+ *
+ *   gzip -9    1.78 MiB     brotli q4   1.86 MiB  ← CDN, on the fly
+ *   gzip -6    1.83 MiB     brotli q11  1.37 MiB  ← precompressed only
+ *   gzip -1    2.15 MiB
+ *
+ * Brotli as actually served is BIGGER than gzip -9. So level 6 is used
+ * here — the zlib and nginx default, the middle of that spread — and it
+ * is a representative number, not a bound. A host on gzip -1 would send
+ * 18% more than this counts.
  *
  * This is also why the index was NOT re-packed to make it smaller. A
  * shared table for the repeated place names saves 42% of the raw bytes
@@ -79,22 +91,53 @@ export const MAX_BYTES = 1_500_000;
 export const TOTAL_MAX_BYTES = 5_000_000;
 
 /**
+ * 🔴 Which of the two actually fires, so neither is decoration.
+ *
+ * Review measured that the compressed ceiling could never fire as first
+ * shipped: at a compression ratio of 4.7, raw would pass 20 MB long
+ * before gzip passed 5 MB, so the guard this card is named for was dead
+ * on arrival — the same defect this file keeps finding elsewhere.
+ *
+ * With the raw ceiling at 12 MB the arithmetic is explicit: the
+ * compressed one binds first only if the ratio falls below 2.4, and our
+ * text compresses at 4.7. So TODAY THE RAW CEILING IS THE LIVE ONE, and
+ * the compressed one is a backstop against the index ceasing to be
+ * text — identifiers, hashes, coordinates at full precision. That is a
+ * real way to break this, and it is the only way the compressed limit
+ * speaks first. Both are tested at these defaults.
+ */
+
+/**
  * And the most it may be UNCOMPRESSED — a different cost, so a
  * different number.
  *
  * Compressed bytes are what the network charges. Raw bytes are what the
- * browser charges: `JSON.parse` on the main thread, 61 422 objects held
- * for the session, and a `search()` that walks all of them on every
- * keystroke. One number cannot honestly be both limits, and the version
- * of this file that tried was the reason a 1.4-second download failed a
- * five-second budget.
+ * browser charges, and measured on the live index (8.57 MiB, 61 422
+ * campsites, a fast laptop):
  *
- * 20 MB is deliberately loose. It is not a target — it is the point
- * where the cost stops being the network and starts being the phone,
- * and where the answer is the search service CAMP-61 names rather than
- * another round of packing. Measured 25.09.2026: 8.57 MiB.
+ *   JSON.parse of every chunk         31 ms
+ *   unpackIndex on top of it         181 ms   ← the real parse cost
+ *   heap held by the index          21.3 MiB
+ *   search() per keystroke        29 - 80 ms
+ *
+ * A mid-range phone is roughly four times slower, so today's index
+ * already costs it about 0.7 s of parsing and up to 0.3 s per
+ * keystroke. This is the binding constraint, not the download.
+ *
+ * 🔴 12 MB, and the first version of this said 20 MB with nothing
+ * behind it. Review caught that, and rightly: 20 MB was 2.2x today's
+ * size — a number chosen to sit above what we already have, which is
+ * the one thing the comment two screens up forbids. It projects to
+ * ~400 ms of unpacking on a laptop and over 1.5 s on a phone, which is
+ * not a ceiling, it is a hope.
+ *
+ * 12 MB is 1.4x today. It is where the phone cost stops being tolerable
+ * rather than where it stops being measurable, and hitting it is meant
+ * to start the conversation CAMP-61 names — a search service the
+ * browser queries instead of a file it keeps — while there is still
+ * room to have it.
  */
-export const RAW_MAX_BYTES = 20_000_000;
+export const RAW_MAX_BYTES = 12_000_000;
 
 interface Doc {
   name: string | null;
@@ -134,8 +177,14 @@ export async function fetchDocs(): Promise<SearchDoc[]> {
   return toSearchDocs(rows);
 }
 
-/** Bytes as MiB, to one place — the unit both ceilings are quoted in. */
-const mib = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(2)} MiB`;
+/**
+ * Bytes as MB, decimal, because that is what the ceilings are written
+ * in: 5_000_000 reads back as "5.00 MB", not as "4.77 MiB". Review
+ * found the messages quoting 4.77 and 19.07 — numbers that appear
+ * nowhere in the code or the cards, which is how a reader ends up
+ * hunting for a limit nobody set.
+ */
+const mb = (bytes: number) => `${(bytes / 1_000_000).toFixed(2)} MB`;
 
 export const sizeOfGroup = (group: readonly SearchDoc[]): number =>
   Buffer.byteLength(JSON.stringify(packIndex([...group])));
@@ -206,30 +255,39 @@ export function checkedPlan(
     throw new Error('two chunks share an id, so they would share a URL');
   }
 
+  // 🔴 Both sizes first, then both verdicts.
+  //
+  // The raw message quotes the compressed figure — "this is not the
+  // download, that is N and it is fine" — which is the whole point of
+  // having two numbers, and it cannot say so if it runs first.
   const raw = plan.reduce((n, c) => n + c.bytes, 0);
-  if (raw > rawMax) {
-    throw new Error(
-      `The search index is ${mib(raw)} of JSON across ${plan.length} files, ` +
-        `past the ${mib(rawMax)} a browser should have to parse and hold.\n` +
-        `This is not about the download — see the compressed check below.\n` +
-        `It is the point CAMP-61 names: move the search to a service the\n` +
-        `browser queries instead of a file it keeps.`,
-    );
-  }
-
-  // 🔴 What a reader actually waits for. See TOTAL_MAX_BYTES.
   const sent = plan.reduce(
     (n, c) =>
       n +
       gzipSync(Buffer.from(JSON.stringify(packIndex([...c.docs]))), {
-        level: 9,
+        // Level 6: the zlib and nginx default. See TOTAL_MAX_BYTES.
+        level: 6,
       }).length,
     0,
   );
+
+  if (raw > rawMax) {
+    throw new Error(
+      `The search index is ${mb(raw)} of JSON across ${plan.length} files, ` +
+        `past the ${mb(rawMax)} a browser should have to parse and hold.\n` +
+        `This is not the download — that is ${mb(sent)} compressed, and fine.\n` +
+        `It is what the browser pays: parsing it, holding it, and walking it\n` +
+        `on every keystroke. Measured at 8.57 MB: 181 ms to unpack, 21 MB of\n` +
+        `heap, up to 80 ms a keystroke on a laptop — four times that on a\n` +
+        `phone. This is the point CAMP-67 names: move the search to a real\n` +
+        `search service and have the browser query it.`,
+    );
+  }
+
   if (sent > sentMax) {
     throw new Error(
-      `The search index is ${mib(sent)} compressed across ${plan.length} files ` +
-        `(${mib(raw)} raw), past the ${mib(sentMax)} we are willing to\n` +
+      `The search index is ${mb(sent)} compressed across ${plan.length} files ` +
+        `(${mb(raw)} raw), past the ${mb(sentMax)} we are willing to\n` +
         `make a reader download — about ${(sent / 1_000_000).toFixed(0)} seconds on the 1 MB/s a phone\n` +
         `on mobile data actually gets.\n` +
         `Loading it in pieces bought time; it has run out. This is the point\n` +
