@@ -36,7 +36,7 @@ DB_URL="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"
 # shellcheck source=_pgconn.sh
 . "$(dirname "$0")/_pgconn.sh"
 OGR_CONN="$(pg_conninfo "$DB_URL")"
-# \U0001f534 NOT /tmp \u2014 the same reasoning as load-context.sh, which was
+# 🔴 NOT /tmp \u2014 the same reasoning as load-context.sh, which was
 # moved on 25.09.2026 after /tmp swallowed 22 GB of extracts. Same
 # pipeline, same kind of artefact, and leaving one of the pair behind
 # would only mean rediscovering the lesson on the other one.

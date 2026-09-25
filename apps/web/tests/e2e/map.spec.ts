@@ -83,11 +83,73 @@ const CENTRE = { lng: INITIAL_VIEW.lng, lat: INITIAL_VIEW.lat };
  * Slovenia holds roughly one campsite per seventy. The tests were
  * measuring the density of Slovenian tourism, not our clustering.
  */
+// CAMP-127: the snapshot these tests used to read no longer exists.
+//
+// 🔴 It was one file with every campsite and a cap of 20 000. The EU-27
+// import took the database to 61 521, the cap fired, and the map served a
+// 500 — so the map now reads an index and fetches the regions in view.
+// These tests follow it: one real chunk is a better sample than a whole
+// continent, and it is the same shape of document.
+async function aChunk(page: import('@playwright/test').Page) {
+  const index = await page.request.get('/data/spots/index.json');
+  expect(index.status(), 'the map index is missing').toBe(200);
+  const regions = (await index.json()) as {
+    country: string;
+    slug: string;
+    count: number;
+    minLon: number;
+    minLat: number;
+    maxLon: number;
+    maxLat: number;
+  }[];
+  expect(regions.length, 'an empty index is a broken build').toBeGreaterThan(0);
+  // The biggest one, so the sample is worth taking.
+  const biggest = regions.reduce((a, b) => (b.count > a.count ? b : a));
+  const res = await page.request.get(
+    `/data/spots/${biggest.country.toLowerCase()}/${biggest.slug}.geojson`,
+  );
+  expect(res.status(), `chunk ${biggest.country}/${biggest.slug} is missing`).toBe(200);
+  return { body: await res.json(), region: biggest };
+}
+
 async function stubSpots(
   page: Page,
   points: { lng: number; lat: number; name?: string }[],
 ) {
-  await page.route('**/data/spots.geojson', (route) =>
+  // 🔴 The index is a different shape from a chunk, and one route
+  // pattern cannot answer both.
+  //
+  // CAMP-127 split the map into `/data/spots/index.json` (an ARRAY of
+  // region summaries) plus `/data/spots/<cc>/<region>.geojson` (a
+  // FeatureCollection). This stub matched `**/data/spots/**`, so it
+  // answered the index with a FeatureCollection too — the component
+  // checks `Array.isArray(regions)`, went straight to `failed`, and
+  // never called `refresh()`. Nothing was ever drawn, and two specs
+  // timed out at 20 s waiting for clusters that could not appear.
+  //
+  // One region, covering the whole world, so whatever the fixture
+  // points are they fall inside it.
+  await page.route('**/data/spots/index.json', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      json: [
+        {
+          country: 'HR',
+          region: 'Fixture',
+          slug: 'fixture',
+          count: points.length,
+          minLon: -180,
+          minLat: -85,
+          maxLon: 180,
+          maxLat: 85,
+          lon: 0,
+          lat: 0,
+        },
+      ],
+    }),
+  );
+
+  await page.route('**/data/spots/*/*.geojson', (route) =>
     route.fulfill({
       contentType: 'application/geo+json',
       json: {
@@ -136,6 +198,11 @@ async function skipWithoutWebGL(page: Page) {
 }
 
 test.describe('/map', () => {
+  // The same budget as the filter suite, and for the same measured
+  // reason: a map test now includes zooming to detail and fetching one
+  // file per region in view.
+  test.describe.configure({ timeout: 90_000 });
+
   // 🔴 The regression that cost the most time on this card, and the
   // reason it is the first test.
   //
@@ -169,16 +236,21 @@ test.describe('/map', () => {
     // CAMP-32. The href is built by the API, from the same function the
     // pages use, precisely so this holds — and the web app briefly
     // re-derived the region slug itself, which is the way it breaks.
-    const geo = await page.request.get('/data/spots.geojson');
-    expect(geo.status()).toBe(200);
-    const body = await geo.json();
+    const { body } = await aChunk(page);
     expect(body.type).toBe('FeatureCollection');
     expect(body.features.length).toBeGreaterThan(0);
 
     // A handful is enough to catch a broken rule; all of them would make
     // this test scale with the dataset.
     for (const f of body.features.slice(0, 12)) {
-      const href = f.properties.href as string;
+      const href = f.properties.href as string | null;
+      // 🔴 Null is a legitimate answer now, and the reason is CAMP-127:
+      // 135 campsites carry no region, so they have no page — and the
+      // href used to be `/camping/cy//arazi`, a 404 the map handed out.
+      // The popup renders text instead. What must never appear is a
+      // path with a hole in it.
+      if (href === null) continue;
+      expect(href).not.toContain('//');
       expect(href).toMatch(/^\/camping\/[a-z]{2}\/[^/]+\/[^/]+$/);
       const res = await page.request.get(href);
       expect(res.status(), `${href} is a dead marker link`).toBe(200);
@@ -186,7 +258,7 @@ test.describe('/map', () => {
   });
 
   test('a marker carries the facilities we actually hold', async ({ page }) => {
-    const body = await (await page.request.get('/data/spots.geojson')).json();
+    const { body } = await aChunk(page);
 
     // 🔴 The three-state rule, checked on the data the map draws from.
     //
@@ -223,10 +295,21 @@ test.describe('/map', () => {
     request,
   }) => {
     const api = process.env.API_BASE_URL ?? 'http://localhost:3001';
+    const { body, region } = await aChunk(page);
+    // 🔴 Ask the API for the SAME ground the chunk covers.
+    //
+    // This asked for 400 markers from the whole world and compared them
+    // against one region's chunk, so almost nothing overlapped:
+    // measured, 30 comparisons against a floor of 100, and the test
+    // failed for want of subjects rather than for a defect. Since
+    // CAMP-127 a chunk is one region, so the bbox to ask for is that
+    // region's own.
+    const bbox = [region.minLon, region.minLat, region.maxLon, region.maxLat]
+      .map((n) => n.toFixed(6))
+      .join(',');
     const { markers } = await (
-      await request.get(`${api}/spots/map/points?bbox=-180,-85,180,85&limit=400`)
+      await request.get(`${api}/spots/map/points?bbox=${bbox}&limit=20000`)
     ).json();
-    const body = await (await page.request.get('/data/spots.geojson')).json();
     const bySlug = new Map<string, Record<string, unknown>>(
       body.features.map((f: { properties: { slug: string } }) => [
         f.properties.slug,
@@ -274,12 +357,29 @@ test.describe('/map', () => {
     await expect(map(page)).toBeVisible();
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
 
-    // 🔴 The card's criterion. At the opening zoom the campsites must
-    // arrive as a handful of counted bubbles, not as one circle each.
+    // 🔴 The card's criterion — checked where clustering happens.
+    //
+    // CAMP-32 says campsites must arrive as a handful of counted bubbles
+    // rather than one circle each. That was asserted "at the opening
+    // zoom", which stopped being true with CAMP-127: on the full dataset
+    // /map opens too wide for markers and draws one circle per REGION,
+    // so `data-visible-clusters` is correctly 0. The criterion is about
+    // markers, so the test has to be where markers are.
+    const zoomIn = page.locator('.maplibregl-ctrl-zoom-in');
+    await expect(zoomIn).toBeVisible();
+    for (let i = 0; i < 8; i++) {
+      if (Number(await map(page).getAttribute('data-total')) > 0) break;
+      await zoomIn.click();
+      for (let w = 0; w < 8; w++) {
+        if (Number(await map(page).getAttribute('data-total')) > 0) break;
+        await page.waitForTimeout(150);
+      }
+    }
+
     await expect
       .poll(async () => Number(await map(page).getAttribute('data-visible-clusters')), {
-        timeout: 15_000,
-        message: 'nothing clustered at the opening zoom',
+        timeout: 20_000,
+        message: 'nothing clustered once the map draws campsites',
       })
       .toBeGreaterThan(0);
 

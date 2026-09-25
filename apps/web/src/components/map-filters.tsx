@@ -10,6 +10,7 @@ import {
   type SpotType,
 } from '@/lib/api';
 import { isFiltering, toggle, type MapFilterState } from '@/lib/map-filter';
+import { filterCountLabel, type MapDataState } from '@/lib/map-chunks';
 
 // CAMP-35 / CAMP-25 — the filter panel.
 //
@@ -33,6 +34,13 @@ interface Props {
   total: number;
   /** Dropped only for want of data — the honesty number. */
   unknownExcluded: number;
+  /**
+   * What the map is doing — which decides whether a count exists at all.
+   *
+   * 🔴 Passed in whole rather than as a boolean, because "no number"
+   * has three different reasons and each needs its own sentence.
+   */
+  dataState: MapDataState;
 }
 
 export default function MapFilters({
@@ -41,6 +49,7 @@ export default function MapFilters({
   shown,
   total,
   unknownExcluded,
+  dataState,
 }: Props) {
   const setTypes = (t: SpotType) =>
     onChange({ ...state, types: toggle(state.types, t, SPOT_TYPES) });
@@ -80,11 +89,27 @@ export default function MapFilters({
       ]),
     );
 
-  /** Clear one group, and nothing else. */
+  /**
+   * Clear one group, and nothing else.
+   *
+   * 🔴 Through `applyAmenities`, so clearing the last amenity also
+   * drops `includeUnknown` — there is nothing left to be unknown ABOUT.
+   * Review walked it: tick Toilets, tick "also show where this is not
+   * recorded", press "None" — and the reader was left on
+   * `/map?unknown=1` with the checkbox gone (it only renders while an
+   * amenity is filtered) and "Clear filters" hidden (nothing is being
+   * filtered). A flag with no control, carried in a shareable URL, and
+   * silently re-applied to the next amenity they ticked.
+   *
+   * The merge of CAMP-122 and CAMP-127 briefly had this function twice,
+   * once each way. They agreed — which is exactly why it had to be one:
+   * two copies of a rule agree until somebody edits one.
+   */
   const clearGroup = (group: readonly AmenityKey[]) =>
     applyAmenities(state.amenities.filter((a) => !group.includes(a)));
 
   const filtering = isFiltering(state);
+  const count = filterCountLabel(dataState, { shown, total, filtering });
 
   return (
     <section
@@ -198,9 +223,29 @@ export default function MapFilters({
       </Group>
 
       <div className="mt-3 flex w-full flex-wrap items-center gap-x-3 gap-y-2 border-t border-line-2 pt-3 text-sm">
+        {/* 🔴 "0 campsites" is a sentence about the world. This panel
+            only knows about campsites it has LOADED, and above
+            DETAIL_ZOOM it has loaded none — the map is drawing regions.
+            So it printed a bold 0 directly above "3,116 campsites in
+            view", and the two disagreed on the same screen.
+
+            That is the CAMP-127 defect again, one component over: a
+            reader reads 0 as "there are none here" and leaves. Found by
+            opening the page and looking at it, not by a test — every
+            test was green, because `shown` was correctly the number of
+            things drawn.
+
+            Zoomed out, the count says it has not counted. Filters apply
+            to individual campsites, so while none are loaded there is no
+            honest filtered number to give — and inventing one from the
+            region totals would ignore the filters the reader just set. */}
         <p data-testid="filter-count" className="text-ink-2">
-          <strong className="font-semibold text-heading">{shown}</strong>
-          {filtering ? ` of ${total} campsites` : ' campsites'}
+          {count.value !== null && (
+            <strong className="font-semibold text-heading">
+              {count.value.toLocaleString('en-GB')}
+            </strong>
+          )}
+          {count.text}
         </p>
 
         {/* 🔴 The sentence the card is really asking for. OpenStreetMap

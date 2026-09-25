@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { CampingSpotAmenities } from '../osm/tag-mapping';
 import { canonicalPath, readAmenities } from './spots.service';
+import { slugifyRegion } from './canonical';
 import { filterSql, NO_FILTERS, type MapFilters } from './filters';
 import { gridFor, POINT_LIMIT, type Bbox } from './viewport';
 
@@ -25,8 +26,14 @@ export interface SpotMarker {
    * this link, which is a second copy of a rule that already exists —
    * and the failure mode is a marker that looks right and links to a
    * 404.
+   *
+   * 🔴 Null when the campsite has no page. A campsite with no region
+   * gets no URL (CAMP-34 builds the URL from the region), and this used
+   * to hand out `/camping/cy//arazi` — 135 markers on the map, every one
+   * of them linking to a 404. The pin stays, because the location is
+   * real; the link goes, because it was never a link.
    */
-  path: string;
+  path: string | null;
 }
 
 export interface MarkerResult {
@@ -79,6 +86,55 @@ export interface Cluster {
 // It is the only shape of question that stays cheap when the answer is
 // the whole table. scripts/explain-map-queries.ts measures both.
 
+/**
+ * CAMP-127: one region of the map, and the index that lists them.
+ *
+ * 🔴 Why the map stopped being one file.
+ *
+ * The whole-world snapshot carried a hard cap of 20 000 markers and
+ * refused — correctly — to serve a truncated one. On 24.09.2026 the EU-27
+ * import took the database from 9 830 campsites to 61 521, the cap fired,
+ * and the map went from working to a 500. Raising the cap was never the
+ * answer: 9 830 markers weighed 2.4 MB, so 61 521 is roughly 15 MB for a
+ * phone to fetch, parse and cluster before it draws anything.
+ *
+ * So the map is cut into regions. Measured on the same data: 800 regions
+ * hold campsites, the largest (Bayern) has 1 433 and the median has 26 —
+ * which makes every chunk small and bounded, and lets the map fetch only
+ * what the reader is looking at.
+ */
+/**
+ * The chunk slug for a region, including the one that has no region.
+ *
+ * 🔴 `_unplaced` cannot collide with a real region, and that is a
+ * property rather than a hope: slugifyRegion strips everything that is
+ * not a letter or a digit, so no region name can ever produce a leading
+ * underscore. It is a map-data address, not a page URL — those campsites
+ * have no page, which is exactly why they are here.
+ */
+export const UNPLACED = '_unplaced';
+
+export function regionChunkSlug(region: string | null): string {
+  const slug = slugifyRegion(region);
+  return slug === '' ? UNPLACED : slug;
+}
+
+export interface RegionSummary {
+  country: string;
+  region: string | null;
+  /** The URL segment, from the same function the pages use. */
+  slug: string;
+  count: number;
+  /** The corner points of everything in it, for deciding what is in view. */
+  minLon: number;
+  minLat: number;
+  maxLon: number;
+  maxLat: number;
+  /** Where to draw the one circle that stands for the whole region. */
+  lon: number;
+  lat: number;
+}
+
 @Injectable()
 export class MapQueryService {
   constructor(@InjectDataSource() private readonly db: DataSource) {}
@@ -92,6 +148,111 @@ export class MapQueryService {
    * for. ST_Intersects adds an exact-geometry recheck that means nothing
    * for a point and hides what the plan is really doing.
    */
+  /**
+   * Every region that holds a campsite, with its extent and its count.
+   *
+   * 🔴 One query, no filters, and deliberately so. This is the map's
+   * table of contents: it decides which chunks exist and where they are,
+   * and a filtered index would make the map forget that a region exists
+   * the moment somebody ticks "showers". Filtering happens over the
+   * markers, in the browser, exactly as it does today.
+   *
+   * A region with no campsites is absent rather than present with zero —
+   * there is no chunk to fetch for it, and listing it would invite one.
+   */
+  async regions(): Promise<RegionSummary[]> {
+    const rows = await this.db.query(
+      `SELECT country,
+              region,
+              n AS count,
+              ST_XMin(extent)  AS "minLon",
+              ST_YMin(extent)  AS "minLat",
+              ST_XMax(extent)  AS "maxLon",
+              ST_YMax(extent)  AS "maxLat",
+              ST_X(centre)     AS lon,
+              ST_Y(centre)     AS lat
+         FROM (
+           SELECT country,
+                  region,
+                  ST_Extent(location::geometry) AS extent,
+                  -- 🔴 The centroid of the POINTS, not of the region's
+                  -- shape. A region whose campsites are all on one coast
+                  -- would otherwise put its circle inland, in a place
+                  -- where zooming in finds nothing.
+                  ST_Centroid(ST_Collect(location::geometry)) AS centre,
+                  count(*)::int AS n
+             FROM camping_spots
+            WHERE missing_since IS NULL
+            -- 🔴 Region-less campsites are grouped too, not filtered out.
+            --
+            -- Measured 24.09.2026: 135 campsites carry no region, 36 of
+            -- them on Cyprus where the boundary file gives no ISO code
+            -- (CAMP-125). Chunking the map by region would have made
+            -- every one of them vanish from it — a silent loss of real
+            -- locations, which is the failure this whole card exists to
+            -- prevent. They get a chunk of their own per country.
+            GROUP BY country, region
+         ) g
+        -- 🔴 No second GROUP BY. The subquery has already grouped, and
+        -- repeating it outside made Postgres try to group BY the extent
+        -- itself: "could not identify an equality operator for type
+        -- box2d". box2d has no equality operator, and it should not need
+        -- one — nothing here is being grouped twice.
+        ORDER BY country, region`,
+    );
+    return rows.map((r: Record<string, unknown>) => ({
+      country: String(r.country),
+      region: (r.region as string) ?? null,
+      slug: regionChunkSlug(r.region as string | null),
+      count: Number(r.count),
+      minLon: Number(r.minLon),
+      minLat: Number(r.minLat),
+      maxLon: Number(r.maxLon),
+      maxLat: Number(r.maxLat),
+      lon: Number(r.lon),
+      lat: Number(r.lat),
+    }));
+  }
+
+  /**
+   * Every campsite in one region, whatever the number.
+   *
+   * 🔴 No cap, and that is safe here in a way it is not for a bbox: a
+   * region is a bounded set we measured (the largest is 1 433), while a
+   * bbox is whatever the caller asks for. A cap here would reintroduce
+   * the exact failure this card exists to fix — a chunk that is quietly
+   * missing campsites, with the map looking perfectly healthy.
+   *
+   * Matched on the region NAME, not on a bounding box. Neighbouring
+   * regions overlap at their corners, so bbox chunks would draw some
+   * campsites twice and make every count wrong.
+   */
+  async regionMarkers(
+    country: string,
+    regionSlug: string,
+  ): Promise<SpotMarker[]> {
+    const rows = await this.db.query(
+      `SELECT slug, name, country, region, type, amenities,
+              ST_Y(location::geometry) AS lat,
+              ST_X(location::geometry) AS lon
+         FROM camping_spots
+        WHERE missing_since IS NULL
+          AND lower(country) = lower($1)
+        ORDER BY slug`,
+      [country],
+    );
+    // 🔴 The slug comparison happens here rather than in SQL because
+    // slugifyRegion is the one definition of that rule (CAMP-87: a
+    // published URL does not move), and re-implementing it in Postgres
+    // would be a second copy free to drift from the first.
+    return rows
+      .filter(
+        (r: Record<string, unknown>) =>
+          regionChunkSlug((r.region as string) ?? null) === regionSlug,
+      )
+      .map(toMarker);
+  }
+
   async points(
     bbox: Bbox,
     filters: MapFilters = NO_FILTERS,

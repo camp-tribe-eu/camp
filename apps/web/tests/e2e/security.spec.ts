@@ -24,7 +24,7 @@ import { SECURITY_HEADERS } from '../../scripts/security-headers.mjs';
 // which is why it is written down here rather than learned twice.
 
 /** Paths that must all carry the policy, not just the HTML pages. */
-const PATHS = ['/', '/camping', '/map', '/data/spots.geojson', '/robots.txt'];
+const PATHS = ['/', '/camping', '/map', '/data/spots/index.json', '/robots.txt'];
 
 test.describe('security headers', () => {
   for (const path of PATHS) {

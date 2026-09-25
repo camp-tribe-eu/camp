@@ -204,16 +204,49 @@ test.describe('empty states', () => {
   test('a campsite with no facilities recorded still reads as finished', async ({
     page,
   }) => {
-    const { features } = await (
-      await page.request.get('/data/spots.geojson')
-    ).json();
-    const bare = features.find(
-      (f: { properties: Record<string, string> }) =>
-        AMENITY_KEYS.every((k) => f.properties[k] === 'unknown'),
-    );
+    // \ud83d\udd34 CAMP-127 made /data/spots/index.json a table of contents,
+    // not a FeatureCollection. This spec was pointed at the new URL and
+    // not at the new SHAPE, so `features` was undefined and it died with
+    // "Cannot read properties of undefined". The campsites now live in
+    // one file per region, so it walks a few of them.
+    const regions = (await (
+      await page.request.get('/data/spots/index.json')
+    ).json()) as { country: string; slug: string; count: number }[];
+    expect(regions.length, 'the map index is empty').toBeGreaterThan(0);
+
+    let bare: { properties: Record<string, string> } | undefined;
+    // Biggest regions first: the more campsites, the likelier one of
+    // them has nothing recorded. Bounded, so a fixture where every
+    // campsite is complete skips instead of fetching 800 files.
+    const busiest = [...regions].sort((a, b) => b.count - a.count).slice(0, 8);
+    for (const r of busiest) {
+      const res = await page.request.get(
+        `/data/spots/${r.country.toLowerCase()}/${r.slug}.geojson`,
+      );
+      if (!res.ok()) continue;
+      const { features } = (await res.json()) as {
+        features: { properties: Record<string, string> }[];
+      };
+      // \ud83d\udd34 ABSENT, not the string 'unknown'.
+      //
+      // The map chunks leave an unrecorded amenity out of `properties`
+      // entirely \u2014 measured on de/bayern: 1 433 campsites, and the key
+      // 'unknown' appears zero times. So the old predicate could never
+      // match, and this test would have skipped forever while looking
+      // exactly like a test that passes.
+      //
+      // Both forms are accepted, so the spec survives the serialiser
+      // changing its mind.
+      bare = features.find((f) =>
+        AMENITY_KEYS.every(
+          (k) => f.properties[k] === undefined || f.properties[k] === 'unknown',
+        ),
+      );
+      if (bare) break;
+    }
     test.skip(!bare, 'the fixture holds no campsite without facilities');
 
-    await page.goto(bare.properties.href);
+    await page.goto(bare!.properties.href);
     await expect(page.getByRole('heading').first()).toBeVisible();
     // An absence is never rendered as a denial.
     await expect(page.getByText('No electricity')).toHaveCount(0);

@@ -31,7 +31,9 @@ import { expect, test } from '@playwright/test';
 function fromNode(): { prod: string; dev: string } {
   // __dirname, because Playwright compiles these specs to CommonJS —
   // the same reading the other specs in this repo use.
-  const module = pathToFileURL(
+  // Not `module`: Next's lint rule forbids assigning that name, and in a
+  // spec compiled to CommonJS it is a real identifier, not a free one.
+  const moduleUrl = pathToFileURL(
     path.join(__dirname, '..', '..', 'scripts', 'security-headers.mjs'),
   ).href;
   const out = execFileSync(
@@ -39,7 +41,7 @@ function fromNode(): { prod: string; dev: string } {
     [
       '--input-type=module',
       '-e',
-      `import { SECURITY_HEADERS, cspForDevServer } from ${JSON.stringify(module)};
+      `import { SECURITY_HEADERS, cspForDevServer } from ${JSON.stringify(moduleUrl)};
        process.stdout.write(JSON.stringify({
          prod: SECURITY_HEADERS['Content-Security-Policy'],
          dev: cspForDevServer(),
