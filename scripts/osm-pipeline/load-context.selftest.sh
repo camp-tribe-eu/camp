@@ -129,9 +129,17 @@ cat > "$ROOT/gnu-stat" <<'SHIM'
 # \U0001f534 /usr/bin/stat by absolute path. `command stat` would find this
 # shim again \u2014 it is first on PATH \u2014 and the -f branch would answer
 # the -c call with "? ?", which is the very thing being tested for.
-# That mistake made this case pass a broken shim off as a broken script.
+#
+# \U0001f534 And the real values are read with the SAME ordering the script
+# uses, because the host running this suite may itself be GNU: asking a
+# GNU /usr/bin/stat for `-f` returns "? ?" and exit 0, so a BSD-first
+# shim answered its own -c branch with "? ?" and failed on Linux while
+# passing on macOS. The shim reproduced the bug it was written to catch
+# \u2014 twice now, in two different ways.
 if [ "${1:-}" = '-c' ]; then
-  exec /usr/bin/stat -f '%z %m' "$3"
+  /usr/bin/stat -c '%s %Y' "$3" 2>/dev/null && exit 0
+  /usr/bin/stat -f '%z %m' "$3" 2>/dev/null && exit 0
+  exit 1
 fi
 if [ "${1:-}" = '-f' ]; then echo '? ?'; exit 0; fi
 exit 1
@@ -139,6 +147,23 @@ SHIM
 # A `stat` that can never answer, for the fail-closed case.
 printf '#!/usr/bin/env bash\nexit 1\n' > "$ROOT/broken-stat"
 chmod +x "$ROOT/gnu-stat" "$ROOT/broken-stat"
+
+# 🔴 The shims are checked before anything relies on them.
+#
+# Twice now a broken shim has looked exactly like a broken script: once
+# recursing into itself, once reading a GNU host with BSD flags. Both
+# printed "the script wrote '? ?'", which is a true sentence about the
+# wrong program. A fixture that can lie has to be asked first.
+fp=$("$ROOT/gnu-stat" -c '%s %Y' "$GOOD")
+if ! printf '%s' "$fp" | grep -qE '^[0-9]+ [0-9]+$'; then
+  echo "::error::the GNU stat shim answers -c with '$fp', not two numbers." >&2
+  echo "          That is a broken fixture, not a broken script." >&2
+  exit 1
+fi
+if [ "$("$ROOT/gnu-stat" -f '%z %m' "$GOOD")" != '? ?' ]; then
+  echo "::error::the GNU stat shim must answer -f with '? ?' to be GNU-like." >&2
+  exit 1
+fi
 
 run() {
   # run <work-dir-name> [extra PATH dir] — prints output, returns exit code
