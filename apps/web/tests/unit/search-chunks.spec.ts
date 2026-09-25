@@ -178,4 +178,24 @@ test.describe('planChunks', () => {
   test('no documents at all is no files, not one empty file', () => {
     expect(planChunks([], 100, size)).toEqual([]);
   });
+
+  test('\ud83d\udd34 a country that can never fit stops the build, it does not vanish', () => {
+    // One document bigger than the whole budget: no number of slices
+    // makes it fit. The dangerous outcome is not the error \u2014 it is an
+    // index that quietly ships without France in it, which looks exactly
+    // like a successful build.
+    const huge = [doc('fr', 1)];
+    const enormous = () => 5_000;
+    expect(() => planChunks(huge, 100, enormous)).toThrow(/Cannot split fr/);
+  });
+
+  test('\ud83d\udd34 no country is ever missing from the plan', () => {
+    const docs = [
+      ...Array.from({ length: 25 }, (_, i) => doc('fr', i)),
+      ...Array.from({ length: 3 }, (_, i) => doc('si', i)),
+      doc('at', 1),
+    ];
+    const plan = planChunks(docs, 100, size);
+    expect(new Set(plan.map((c) => c.country))).toEqual(new Set(['fr', 'si', 'at']));
+  });
 });

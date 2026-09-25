@@ -19,6 +19,30 @@ const visualProject = {
   use: { ...devices['Desktop Chrome'] },
 };
 
+/** Projects that never touch a page, so they never need a server. */
+const SERVERLESS_PROJECTS = new Set(['unit']);
+
+/**
+ * True when the run was narrowed to serverless projects only.
+ *
+ * \ud83d\udd34 Reads the command line because Playwright gives a config no other
+ * way to know what was selected. Deliberately conservative: it requires
+ * at least one --project and EVERY one of them to be serverless, so a
+ * plain `playwright test` still starts the server. Getting this wrong in
+ * the lenient direction would mean e2e specs running against nothing and
+ * failing for the wrong reason.
+ */
+function serverlessRun(): boolean {
+  const picked = process.argv
+    .flatMap((arg, i) =>
+      arg === '--project' ? [process.argv[i + 1]]
+      : arg.startsWith('--project=') ? [arg.slice('--project='.length)]
+      : [],
+    )
+    .filter((p): p is string => Boolean(p));
+  return picked.length > 0 && picked.every((p) => SERVERLESS_PROJECTS.has(p));
+}
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
@@ -38,7 +62,12 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
-  webServer: process.env.BASE_URL
+  // \ud83d\udd34 The unit project is pure logic \u2014 no browser, no server \u2014 and
+  // making it wait 60 s for `next start` (which needs a build that may
+  // not exist) is how a fast check stops being run at all. If every
+  // project asked for on the command line is a serverless one, no server
+  // is started. Any other selection, and CI's full run, behave as before.
+  webServer: process.env.BASE_URL || serverlessRun()
     ? undefined
     : {
         command: 'npm run start -- -p 3000',

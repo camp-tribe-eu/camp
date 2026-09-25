@@ -143,7 +143,8 @@ export function planChunks<T extends { country: string }>(
     // over. Re-checking is cheaper than being wrong about a limit whose
     // whole job is to be believed.
     let parts = Math.ceil(whole / maxBytes);
-    for (let guard = 0; guard < 8; guard++) {
+    let placed = false;
+    for (let guard = 0; guard < 8 && !placed; guard++) {
       const slices = sliceInto(all, parts);
       if (slices.every((s) => sizeOf(s) <= maxBytes)) {
         slices.forEach((slice, i) => {
@@ -154,9 +155,21 @@ export function planChunks<T extends { country: string }>(
             bytes: sizeOf(slice),
           });
         });
-        break;
+        placed = true;
       }
       parts += 1;
+    }
+    // \ud83d\udd34 The guard running out must NOT mean the country quietly
+    // vanishes from the index. That is the shape of every bad hour this
+    // project has had: a failure that looks like a smaller, working
+    // build. One document larger than the whole budget is unsliceable,
+    // and the only honest answer is to stop the build and say which
+    // country it was.
+    if (!placed) {
+      throw new Error(
+        `Cannot split ${country} into chunks under ${maxBytes} bytes: ` +
+          `${all.length} campsites, ${whole} bytes, still over the limit after 8 attempts.`,
+      );
     }
   }
   return out;
