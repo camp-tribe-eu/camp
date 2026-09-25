@@ -26,56 +26,66 @@ async function excluded(page: Page): Promise<number> {
   return Number(await map(page).getAttribute('data-unknown-excluded'));
 }
 
-/** Wait for the collection to arrive; before that everything is zero. */
-async function loaded(page: Page) {
-  await expect
-    .poll(async () => Number(await map(page).getAttribute('data-total')), {
-      timeout: 15_000,
-    })
-    .toBeGreaterThan(0);
-}
-
 /**
- * Zoom in until the map is drawing individual campsites.
+ * Wait until the map is drawing individual campsites and has finished.
  *
- * \ud83d\udd34 CAMP-127 made this necessary and nothing said so. /map opens
- * zoomed out, where the map draws one circle per region and fetches NO
- * markers \u2014 so `data-total` stays 0 forever and `loaded()` times out.
- * The spec that compares the map against the API was still written for
- * the old world, where one file held every campsite at every zoom.
+ * 🔴 This used to be `data-total > 0`, and both halves of that were
+ * wrong once CAMP-127 landed.
  *
- * Clicking the real control rather than reaching into the map object:
- * the same reason the counts are published on the container instead of
- * hanging the map on `window`.
+ * It is not a barrier: `data-total > 0` is the FIRST chunk, not the
+ * last. A baseline captured there photographs a half-loaded map —
+ * "clearing puts every campsite back" recorded 35 and then honestly
+ * found 69, because the rest arrived in between. It failed on four
+ * browsers for a map that was right.
+ *
+ * And on the full dataset it is never reached at all: /map opens too
+ * wide for markers, so no chunk is fetched and `data-total` stays 0.
+ * CI's fixture is small enough that every chunk in view fits, so there
+ * the map opens in detail and the same helper worked — which is why
+ * this failed in only one of the two places at a time.
+ *
+ * So: zoom in until there are markers, then wait for the fetching to
+ * stop. Clicking the real control rather than reaching into the map
+ * object, for the same reason the counts are published as attributes.
  */
-async function zoomToDetail(page: Page) {
+async function loaded(page: Page) {
   const zoomIn = page.locator('.maplibregl-ctrl-zoom-in');
   await expect(zoomIn).toBeVisible();
   for (let i = 0; i < 8; i++) {
-    const total = Number(await map(page).getAttribute('data-total'));
-    if (total > 0) break;
+    if (Number(await map(page).getAttribute('data-total')) > 0) break;
     await zoomIn.click();
     await page.waitForTimeout(700);
   }
+  await expect
+    .poll(async () => Number(await map(page).getAttribute('data-total')), {
+      timeout: 20_000,
+    })
+    .toBeGreaterThan(0);
+  // `ready` now means what it says — published only when no fetch is
+  // outstanding — so this is a real barrier rather than a hope.
+  await expect(map(page)).toHaveAttribute('data-map-state', 'ready', {
+    timeout: 20_000,
+  });
+}
+
+/**
+ * Everything `loaded` does, plus the bounds the map publishes.
+ *
+ * 🔴 `publishCounts` runs on the map's `idle` event, which is a
+ * different moment from "the data finished loading" — so the state can
+ * say ready while `data-bounds` has never been written. A spec that
+ * reads the bounds waits for them to BE something, never for a message
+ * to be absent.
+ */
+async function zoomToDetail(page: Page) {
   await loaded(page);
-  // 🔴 And then wait for it to SETTLE. `data-total > 0` means the
-  // first chunk arrived, not the last: the map fetches one file per
-  // region in view, so reading the counts at that moment compares a
-  // half-loaded map against a complete API answer. Measured: the map
-  // said 0 where the API said 54.
-  await expect(map(page)).toHaveAttribute('data-map-state', 'ready');
-  // 🔴 And for the bounds to exist. `publishCounts` runs on the
-  // map's `idle` event, which is a different moment from "the data
-  // finished loading" \u2014 so `data-map-state` can say ready while
-  // `data-bounds` has never been written. Waiting for the attribute to
-  // BE something, never for a message to be absent.
-  await expect(map(page)).not.toHaveAttribute('data-bounds', '');
   await expect
     .poll(async () => (await map(page).getAttribute('data-bounds')) ?? '', {
-      timeout: 15_000,
+      timeout: 20_000,
     })
     .not.toBe('');
 }
+
 
 async function skipWithoutWebGL(page: Page) {
   const ok = await page.evaluate(() => {
@@ -628,13 +638,35 @@ test.describe('/map filters', () => {
     const count = page.getByTestId('filter-count');
     await expect(count).toBeVisible();
 
-    // Not a bare zero, and not empty — the two ways this line has
-    // already misled somebody.
+    // 🔴 Never a bare zero, and never empty — the two ways this line
+    // has already misled somebody. True at any zoom.
     await expect(count).not.toHaveText(/^\s*0\s+campsites/);
     await expect(count).not.toHaveText(/^\s*$/);
-    await expect(count).toHaveText(/zoom in/i);
 
-    // And what the map says about itself must agree with it.
-    await expect(page.getByRole('status')).toContainText(/campsites in view/i);
+    // 🔴 Then branch on what the map says it is doing, rather than
+    // assuming.
+    //
+    // The first version asserted «zoom in» unconditionally, because on
+    // the full 61 422-campsite dataset /map opens too wide for markers.
+    // CI's fixture is small enough that every chunk in view fits, so the
+    // map opens in DETAIL and the panel correctly showed "36 campsites"
+    // — and the test failed on six browsers for a map that was right.
+    // `data-map-state` exists precisely so a test need not guess.
+    const state = await page
+      .getByTestId('map')
+      .getAttribute('data-map-state');
+
+    if (state === 'wide') {
+      await expect(count).toHaveText(/zoom in/i);
+      // And what the map says about itself must agree with it.
+      await expect(page.getByRole('status')).toContainText(
+        /campsites in the regions in view/i,
+      );
+    } else {
+      // Drawing individual campsites: a real number, and no advice to
+      // zoom in, because that would not help.
+      await expect(count).toHaveText(/\d[\d,]*\s+campsites/);
+      await expect(count).not.toHaveText(/zoom in/i);
+    }
   });
 });

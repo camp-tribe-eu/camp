@@ -289,6 +289,21 @@ export default function CampsiteMap() {
    * the empty-`missing` case MORE common, so that fix needed this one.
    */
   const inFlight = useRef(0);
+  /**
+   * `publishCounts`, reachable from outside the map effect.
+   *
+   * 🔴 The counts were published ONLY on the map's `idle` event, and
+   * `data-map-state` is set when fetching stops — two different moments.
+   * So a reader of the attributes could get numbers from the idle
+   * BEFORE the last chunk merged, while the state already said `ready`.
+   *
+   * Measured: a spec waited for `ready`, then read `data-in-view` as 36
+   * where the API, the database and the chunk files all said 54 — the
+   * missing 18 were one region that had arrived after the last idle.
+   * The map on screen was correct; only its published description was
+   * behind.
+   */
+  const publishRef = useRef<(() => void) | null>(null);
   const [dataState, setDataState] = useState<MapDataState>({ kind: 'loading' });
 
   const active =
@@ -602,6 +617,9 @@ export default function CampsiteMap() {
       }
     };
     m.on('idle', publishCounts);
+    // 🔴 And on demand, so the numbers can be republished the moment the
+    // data changes rather than whenever the map next happens to idle.
+    publishRef.current = publishCounts;
 
     // 🔴 CAMP-127: the map now fetches what is in view, so moving it is
     // a data event and not only a rendering one. `moveend` rather than
@@ -746,6 +764,10 @@ export default function CampsiteMap() {
     // 🔴 Only the LAST refresh standing may say the map is ready.
     // Anything else is a claim about work another call is still doing.
     if (inFlight.current === 0) {
+      // 🔴 Republish BEFORE announcing readiness, so the numbers a
+      // reader (or a test) sees alongside `ready` describe the data
+      // that is now drawn.
+      publishRef.current?.();
       setDataState(
         failures.length > 0
           ? { kind: 'failed', what: failures[0], loaded: everything.current.length }
