@@ -195,19 +195,45 @@ jobs:
           SLUG="$(echo "$REGION" | tr '/' '-')"
           mkdir -p out
 
-          # -L matters: Geofabrik answers 302 and without it curl saves a
-          # 244-byte HTML redirect page instead of the extract.
-          curl -sSL --retry 3 --retry-delay 10 \
-            -o "$SLUG.osm.pbf" \
-            "https://download.geofabrik.de/$REGION-latest.osm.pbf"
-
-          # A truncated or redirected download must fail loudly here
-          # rather than quietly produce an empty extract downstream.
-          SIZE=$(stat -c%s "$SLUG.osm.pbf")
-          if [ "$SIZE" -lt 100000 ]; then
-            echo "::error::$REGION download is only $SIZE bytes — not a PBF"
+          # 🔴 Resolve -latest once, and check the redirect is still this
+          # region. An md5 proves the bytes, never which file they are:
+          # Geofabrik answers an unknown or renamed region with a 302 to
+          # its own index, HTTP 200, which `curl -f` does not refuse.
+          LATEST="https://download.geofabrik.de/$REGION-latest.osm.pbf"
+          URL=$(curl -fsSL -I --retry 3 --retry-delay 10 --max-time 60 \
+                  -o /dev/null -w '%{url_effective}' "$LATEST")
+          BASE="${REGION##*/}"
+          if ! printf '%s' "$URL" | grep -qE "/${BASE}-[0-9]{6}\.osm\.pbf$"; then
+            echo "::error::$REGION resolves to $URL — not a dated extract for '$BASE'"
             exit 1
           fi
+
+          # 🔴 The checksum, which this step did not have.
+          #
+          # The only gate here was "is it at least 100 000 bytes", and
+          # that is exactly the gate load-context.sh was reviewed for
+          # having: a truncated or spliced file of the right length walks
+          # straight through it. This job then publishes the result as a
+          # release asset the API imports, so a wrong extract does not
+          # stop at this runner — it becomes our data.
+          #
+          # -f so a 404 page cannot be read as a checksum, and the hex
+          # shape asserted so an error body cannot be one either.
+          EXPECT=$(curl -fsSL --retry 3 --retry-delay 10 --max-time 60 "$URL.md5" \
+                     | awk '{print $1}') || EXPECT=''
+          if ! printf '%s' "$EXPECT" | grep -qE '^[0-9a-f]{32}$'; then
+            echo "::error::no usable .md5 for $REGION — refusing to trust the download"
+            exit 1
+          fi
+
+          curl -sSL --retry 3 --retry-delay 10 -o "$SLUG.osm.pbf" "$URL"
+
+          GOT=$(md5sum "$SLUG.osm.pbf" | awk '{print $1}')
+          if [ "$GOT" != "$EXPECT" ]; then
+            echo "::error::$REGION checksum $GOT, expected $EXPECT — not loading it"
+            exit 1
+          fi
+          echo "  $REGION: $(stat -c%s "$SLUG.osm.pbf") bytes, checksum ok"
 
           osmium tags-filter "$SLUG.osm.pbf" \
             n/tourism=camp_site n/tourism=caravan_site \

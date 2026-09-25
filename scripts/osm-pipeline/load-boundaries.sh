@@ -36,7 +36,15 @@ DB_URL="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"
 # shellcheck source=_pgconn.sh
 . "$(dirname "$0")/_pgconn.sh"
 OGR_CONN="$(pg_conninfo "$DB_URL")"
-WORK_DIR="${WORK_DIR:-/tmp/camptribe-boundaries}"
+# \U0001f534 NOT /tmp \u2014 the same reasoning as load-context.sh, which was
+# moved on 25.09.2026 after /tmp swallowed 22 GB of extracts. Same
+# pipeline, same kind of artefact, and leaving one of the pair behind
+# would only mean rediscovering the lesson on the other one.
+if [ -z "${WORK_DIR:-}" ] && [ -z "${HOME:-}" ]; then
+  echo "::error::neither WORK_DIR nor HOME is set \u2014 pass WORK_DIR=/somewhere." >&2
+  exit 1
+fi
+WORK_DIR="${WORK_DIR:-$HOME/camptribe-boundaries}"
 NE_URL="https://naciscdn.org/naturalearth/10m/cultural/ne_10m_admin_1_states_provinces.zip"
 
 mkdir -p "$WORK_DIR"
