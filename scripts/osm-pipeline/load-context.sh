@@ -40,7 +40,16 @@ DB_URL="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"
 # shellcheck source=_pgconn.sh
 . "$(dirname "$0")/_pgconn.sh"
 OGR_CONN="$(pg_conninfo "$DB_URL")"
-WORK_DIR="${WORK_DIR:-/tmp/camptribe-context}"
+# 🔴 NOT /tmp. Twenty-two gigabytes were lost there on 25.09.2026.
+#
+# The extracts are hours of downloading — France alone is 4.7 GB — and
+# /tmp is cleared by the system, by a reboot, and by whatever tidies up
+# after a process that exits. A default that quietly throws away a
+# night's work is a bad default however convenient it reads.
+#
+# ~/camptribe-osm is on the home volume, survives a reboot, and is the
+# one place a person would think to look for it.
+WORK_DIR="${WORK_DIR:-$HOME/camptribe-osm}"
 REGIONS=("$@")
 
 if [ ${#REGIONS[@]} -eq 0 ]; then
