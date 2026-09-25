@@ -357,12 +357,29 @@ test.describe('/map', () => {
     await expect(map(page)).toBeVisible();
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
 
-    // 🔴 The card's criterion. At the opening zoom the campsites must
-    // arrive as a handful of counted bubbles, not as one circle each.
+    // 🔴 The card's criterion — checked where clustering happens.
+    //
+    // CAMP-32 says campsites must arrive as a handful of counted bubbles
+    // rather than one circle each. That was asserted "at the opening
+    // zoom", which stopped being true with CAMP-127: on the full dataset
+    // /map opens too wide for markers and draws one circle per REGION,
+    // so `data-visible-clusters` is correctly 0. The criterion is about
+    // markers, so the test has to be where markers are.
+    const zoomIn = page.locator('.maplibregl-ctrl-zoom-in');
+    await expect(zoomIn).toBeVisible();
+    for (let i = 0; i < 8; i++) {
+      if (Number(await map(page).getAttribute('data-total')) > 0) break;
+      await zoomIn.click();
+      for (let w = 0; w < 8; w++) {
+        if (Number(await map(page).getAttribute('data-total')) > 0) break;
+        await page.waitForTimeout(150);
+      }
+    }
+
     await expect
       .poll(async () => Number(await map(page).getAttribute('data-visible-clusters')), {
-        timeout: 15_000,
-        message: 'nothing clustered at the opening zoom',
+        timeout: 20_000,
+        message: 'nothing clustered once the map draws campsites',
       })
       .toBeGreaterThan(0);
 

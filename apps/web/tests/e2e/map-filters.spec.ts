@@ -510,14 +510,34 @@ test.describe('/map filters', () => {
     expect(page.url()).toContain('amenities=toilets');
     expect(page.url()).toContain('types=rv_park');
 
-    const before = await shown(page);
     await page.reload();
     await loaded(page);
     await expect(page.getByTestId('filter-amenity-toilets')).toHaveAttribute(
       'aria-pressed',
       'true',
     );
-    await expect.poll(() => shown(page)).toBe(before);
+
+    // 🔴 That the filter is APPLIED, not that the number is identical.
+    //
+    // `shown` counts the filtered campsites among those LOADED, and
+    // since CAMP-127 what is loaded depends on the viewport — which the
+    // reload reaches through its own zoom sequence. Measured: 20 before,
+    // 19 after, for a map that restored the filter perfectly. The test
+    // was comparing two different viewports and calling it a bug.
+    //
+    // What the card actually claims is that a filtered map is a link:
+    // the chips come back pressed, the URL still carries the filters,
+    // and the filter is really in force — fewer campsites drawn than
+    // loaded, rather than the page merely looking filtered.
+    const after = await map(page).getAttribute('data-shown');
+    const loadedAfter = await map(page).getAttribute('data-total');
+    expect(Number(after), 'nothing is drawn after the reload').toBeGreaterThan(
+      0,
+    );
+    expect(
+      Number(after),
+      'everything is drawn, so the filter was not re-applied',
+    ).toBeLessThan(Number(loadedAfter));
   });
 
   test('clearing puts every campsite back', async ({ page }) => {
