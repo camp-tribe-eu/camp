@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 
 // CAMP-122, found while trying to verify the map controls locally.
@@ -13,14 +16,41 @@ import { expect, test } from '@playwright/test';
 // token, in exactly one directive, and that what Cloudflare serves never
 // carries it.
 
-let SECURITY_HEADERS: Record<string, string>;
-let cspForDevServer: () => string;
+// 🔴 Asked of Node, not of the bundler.
+//
+// The first version used `await import(...)`. Playwright compiles these
+// specs to CommonJS and transformed the .mjs along with them, so Node
+// then loaded a CJS body as an ES module: "ReferenceError: exports is
+// not defined in ES module scope". It passed locally and failed in CI,
+// which is the worst of both.
+//
+// A child process reads the module exactly as `next.config.mjs` and
+// `gen-headers.mjs` do — the same loader, the same file, no transform in
+// between. That is also the only reading that can prove anything about
+// what ships.
+function fromNode(): { prod: string; dev: string } {
+  // __dirname, because Playwright compiles these specs to CommonJS —
+  // the same reading the other specs in this repo use.
+  const module = pathToFileURL(
+    path.join(__dirname, '..', '..', 'scripts', 'security-headers.mjs'),
+  ).href;
+  const out = execFileSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `import { SECURITY_HEADERS, cspForDevServer } from ${JSON.stringify(module)};
+       process.stdout.write(JSON.stringify({
+         prod: SECURITY_HEADERS['Content-Security-Policy'],
+         dev: cspForDevServer(),
+       }));`,
+    ],
+    { encoding: 'utf8' },
+  );
+  return JSON.parse(out) as { prod: string; dev: string };
+}
 
-test.beforeAll(async () => {
-  ({ SECURITY_HEADERS, cspForDevServer } = await import(
-    '../../scripts/security-headers.mjs'
-  ));
-});
+const { prod: PROD_CSP, dev: DEV_CSP } = fromNode();
 
 const directives = (csp: string) =>
   new Map(
@@ -35,7 +65,7 @@ const directives = (csp: string) =>
   );
 
 test('production forbids unsafe-eval', () => {
-  const csp = SECURITY_HEADERS['Content-Security-Policy'];
+  const csp = PROD_CSP;
   expect(csp).not.toContain('unsafe-eval');
   expect(directives(csp).get('script-src')).toEqual([
     "'self'",
@@ -44,8 +74,8 @@ test('production forbids unsafe-eval', () => {
 });
 
 test('the dev server allows it, and nothing else changes', () => {
-  const prod = directives(SECURITY_HEADERS['Content-Security-Policy']);
-  const dev = directives(cspForDevServer());
+  const prod = directives(PROD_CSP);
+  const dev = directives(DEV_CSP);
 
   // 🔴 Exactly one token, in exactly one directive. A "development CSP"
   // that quietly drifted from the real one would make dev a place where
@@ -66,7 +96,7 @@ test('the dev server allows it, and nothing else changes', () => {
 test('the CSP still says the things the map needs', () => {
   // Guarding the guard: these were each learned the hard way (CAMP-31),
   // and a careless edit to script-src must not take them with it.
-  const d = directives(SECURITY_HEADERS['Content-Security-Policy']);
+  const d = directives(PROD_CSP);
   expect(d.get('worker-src')).toContain('blob:');
   expect(d.get('img-src')).toContain('blob:');
   expect(d.get('object-src')).toEqual(["'none'"]);
