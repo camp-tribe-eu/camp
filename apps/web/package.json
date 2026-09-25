@@ -23,13 +23,14 @@
     "@axe-core/playwright": "^4.13.0",
     "@lhci/cli": "^0.15.1",
     "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.20.4",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^8",
     "eslint-config-next": "15.5.25",
     "postcss": "^8",
-    "tailwindcss": "^3.4.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5"
   }
 }

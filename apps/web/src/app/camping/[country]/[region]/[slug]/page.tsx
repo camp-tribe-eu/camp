@@ -159,7 +159,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
       <Breadcrumbs spot={spot} params={params} />
 
       <header className="mt-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-2">
+        <p className="text-xs font-semibold uppercase tracking-widest text-ink-2">
           {SPOT_TYPE_LABEL[spot.type]}
         </p>
         <h1 className="mt-2 text-3xl font-bold leading-tight md:text-[42px]">
@@ -251,7 +251,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
       </Section>
 
       <Section title="Getting there">
-        <dl className="grid grid-cols-[auto,1fr] gap-x-6 gap-y-2 text-sm">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
           {spot.context.station && (
             <>
               <dt className="text-ink-2">Nearest station</dt>

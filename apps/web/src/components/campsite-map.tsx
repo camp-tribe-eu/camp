@@ -530,7 +530,7 @@ export default function CampsiteMap() {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-2">
+        <span className="text-xs font-semibold uppercase tracking-widest text-ink-2">
           Map style
         </span>
         <div role="group" aria-label="Map style" className="flex flex-wrap gap-1.5">
