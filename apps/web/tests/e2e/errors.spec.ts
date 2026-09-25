@@ -267,4 +267,54 @@ test.describe('empty states', () => {
       page.getByRole('heading', { name: 'Keep looking' }),
     ).toBeVisible();
   });
+
+
+  test('🔴 a page without elevation does not credit the elevation model', async ({
+    page,
+    request,
+  }) => {
+    // Attribution is a factual claim like every other on the page.
+    //
+    // "Calculated by us from OpenStreetMap geometry and the Copernicus
+    // elevation model" was printed on every campsite carrying computed
+    // surroundings — including the 9 523 measured on 25.09.2026 that
+    // have distances but no elevation at all, because Open-Meteo's free
+    // tier is exhausted (CAMP-99). Those pages credited a source that
+    // contributed nothing to them.
+    const api = process.env.API_BASE_URL ?? 'http://localhost:3001';
+    const res = await request.get(`${api}/spots/index`);
+    expect(res.ok(), 'the spot index is not served').toBe(true);
+    const spots = (await res.json()) as {
+      country: string;
+      region: string | null;
+      slug: string;
+    }[];
+
+    // Walk until we find one with surroundings but no elevation. Bounded,
+    // so a dataset where every spot has elevation skips instead of
+    // fetching thousands.
+    let checked: string | null = null;
+    for (const s of spots.slice(0, 40)) {
+      if (!s.region) continue;
+      const path = `/camping/${s.country.toLowerCase()}/${s.region}/${s.slug}`;
+      const one = await request.get(
+        `${api}/spots/${s.country.toLowerCase()}/${s.region}/${s.slug}`,
+      );
+      if (!one.ok()) continue;
+      const { spot } = (await one.json()) as {
+        spot: { context?: Record<string, unknown> };
+      };
+      const c = spot.context ?? {};
+      if (c.water === undefined) continue;
+      if (c.elevation !== undefined || c.terrain !== undefined) continue;
+      checked = path;
+      break;
+    }
+    test.skip(!checked, 'every sampled campsite has elevation');
+
+    await page.goto(checked!);
+    const facts = page.getByText(/Calculated by us from OpenStreetMap/);
+    await expect(facts).toBeVisible();
+    await expect(facts).not.toContainText(/Copernicus/i);
+  });
 });
