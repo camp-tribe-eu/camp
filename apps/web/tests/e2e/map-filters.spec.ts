@@ -58,13 +58,13 @@ async function zoomToDetail(page: Page) {
     await page.waitForTimeout(700);
   }
   await loaded(page);
-  // \U0001f534 And then wait for it to SETTLE. `data-total > 0` means the
+  // 🔴 And then wait for it to SETTLE. `data-total > 0` means the
   // first chunk arrived, not the last: the map fetches one file per
   // region in view, so reading the counts at that moment compares a
   // half-loaded map against a complete API answer. Measured: the map
   // said 0 where the API said 54.
   await expect(map(page)).toHaveAttribute('data-map-state', 'ready');
-  // \U0001f534 And for the bounds to exist. `publishCounts` runs on the
+  // 🔴 And for the bounds to exist. `publishCounts` runs on the
   // map's `idle` event, which is a different moment from "the data
   // finished loading" \u2014 so `data-map-state` can say ready while
   // `data-bounds` has never been written. Waiting for the attribute to
@@ -553,7 +553,7 @@ test.describe('/map filters', () => {
       );
       expect(res.ok(), `API refused ${query}`).toBe(true);
       const { markers, truncated } = (await res.json()) as {
-        markers: { path: string | null }[];
+        markers: { slug: string; path: string | null }[];
         truncated: boolean;
       };
       // One viewport of markers must never hit the cap; if it does, the
@@ -562,24 +562,30 @@ test.describe('/map filters', () => {
         false,
       );
 
-      // \U0001f534 Name the campsites, do not just count them.
+      // 🔴 Name the campsites, do not just count them.
       //
       // This said `Expected: 3, Received: 5` and left the next person to
       // work out which two \u2014 across 61 422 campsites and a viewport
       // nobody can reproduce from the message. A disagreement between
       // our client filter and our server filter is a data-correctness
       // bug, and the first question is always "which ones".
-      const apiSlugs = markers
-        .map((m) => (m.path ?? '').split('/').pop() || '(no slug)')
-        .sort();
+      // 🔴 `slug`, not something carved out of `path`.
+      //
+      // 135 campsites have no region and therefore no page, so their
+      // `path` is null — but they all have a slug, and the map draws
+      // them. Deriving the name from `path` turned every one of them
+      // into "(no slug)" on this side while the map published the real
+      // slug, so a correct map failed the comparison in any viewport
+      // containing one (CY 36, FI 30, DK 22, SE 19, FR 7 …).
+      const apiSlugs = markers.map((m) => m.slug).sort();
       const mapSlugs = [...drawn.slugs].sort();
-      // \U0001f534 The map publishes at most 200 slugs and says so with a
+      // 🔴 The map publishes at most 200 slugs and says so with a
       // sentinel. Comparing lists is the better assertion, but a capped
       // viewport still has to assert SOMETHING — and silently skipping
       // is how a test stops testing.
       const capped = drawn.slugs.length === 1 && drawn.slugs[0] === '(capped)';
 
-      // \U0001f534 The whole sorted list, not a set difference.
+      // 🔴 The whole sorted list, not a set difference.
       //
       // The first version compared sets, and a set difference cannot see
       // a DUPLICATE: the map drawing one campsite twice produced two

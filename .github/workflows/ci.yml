@@ -372,7 +372,7 @@ jobs:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
         run: ./scripts/osm-pipeline/backup-local.sh --self-test
 
-      # \U0001f534 Runs on Linux, and that is half the point.
+      # 🔴 Runs on Linux, and that is half the point.
       #
       # The bug this suite was written for only exists on GNU coreutils:
       # `stat -f` there is --file-system, so it prints "? ?" and exits 0,

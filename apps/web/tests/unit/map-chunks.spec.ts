@@ -105,7 +105,7 @@ test('the count in view comes from the index, without fetching', () => {
 test('🔴 a failure is never silent, and never reads as "none here"', () => {
   // The defect this card exists for. Seen on screen 24.09.2026: the data
   // request answered 500 and the panel read "0 campsites".
-  const msg = dataMessage({ kind: 'failed', what: 'HTTP 500' });
+  const msg = dataMessage({ kind: 'failed', what: 'HTTP 500', loaded: 0 });
   expect(msg).toContain('could not be loaded');
   expect(msg).toContain('HTTP 500');
   expect(msg).toContain('not because there is nothing here');
@@ -147,7 +147,7 @@ test.describe('filterCountLabel', () => {
 
   test('\u{1F534} nor does a map that failed to load', () => {
     const label = filterCountLabel(
-      { kind: 'failed', what: 'HTTP 500' },
+      { kind: 'failed', what: 'HTTP 500', loaded: 0 },
       { ...counts, shown: 0, total: 0 },
     );
     expect(label.value).toBeNull();
@@ -186,7 +186,7 @@ test.describe('filterCountLabel', () => {
       { kind: 'ready' as const },
       { kind: 'loading' as const },
       { kind: 'wide' as const, count: 5 },
-      { kind: 'failed' as const, what: 'x' },
+      { kind: 'failed' as const, what: 'x', loaded: 0 },
     ];
     for (const s of states) {
       const label = filterCountLabel(s, counts);
@@ -217,4 +217,49 @@ test('🔴 chunksInView never returns the same key twice', () => {
     { west: 0, south: 0, east: 10, north: 10 },
   );
   expect(keys).toEqual(['fr/nord-pas-de-calais']);
+});
+
+// ── a partial failure is not an empty map ────────────────────────────
+
+test.describe('when some chunks load and some do not', () => {
+  // 🔴 Measured in review: 13 of 14 chunks loaded, 848 campsites drawn
+  // on screen — and the page said "This map is empty because of that"
+  // over a map full of campsites, with "Not counted" beside it.
+  const partial = { kind: 'failed' as const, what: 'hr/zadarska: HTTP 500', loaded: 848 };
+
+  test('🔴 the message does not call a full map empty', () => {
+    const msg = dataMessage(partial) ?? '';
+    expect(msg).not.toMatch(/map is empty/i);
+    expect(msg).toContain('848');
+    // And it still says not to trust the map as complete.
+    expect(msg).toMatch(/not.*complete|missing/i);
+  });
+
+  test('a total failure still says the map is empty, because it is', () => {
+    const msg = dataMessage({ kind: 'failed', what: 'HTTP 500', loaded: 0 }) ?? '';
+    expect(msg).toMatch(/map is empty/i);
+  });
+
+  test('🔴 the count reports what did load, rather than refusing', () => {
+    const label = filterCountLabel(partial, { shown: 848, total: 848, filtering: false });
+    expect(label.value).toBe(848);
+    expect(label.text).toContain('loaded');
+  });
+
+  test('a total failure still refuses to give a number', () => {
+    const label = filterCountLabel(
+      { kind: 'failed', what: 'HTTP 500', loaded: 0 },
+      { shown: 0, total: 0, filtering: false },
+    );
+    expect(label.value).toBeNull();
+  });
+});
+
+test('🔴 the wide message says which set it counted', () => {
+  // `countInView` sums whole regions that TOUCH the viewport, so it is
+  // not a count of the viewport: measured 3 116 against the API's 2 456
+  // for the same box. The sentence must not claim otherwise.
+  const msg = dataMessage({ kind: 'wide', count: 3116 }) ?? '';
+  expect(msg).toContain('regions in view');
+  expect(msg).not.toMatch(/3,116 campsites in view\b/);
 });

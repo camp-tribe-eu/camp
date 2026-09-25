@@ -98,7 +98,7 @@ export function chunksInView(
       (a.lat - midLat) ** 2 -
       ((b.lon - midLon) ** 2 + (b.lat - midLat) ** 2),
   );
-  // \U0001f534 Distinct keys. Two region NAMES can slugify to one chunk
+  // 🔴 Distinct keys. Two region NAMES can slugify to one chunk
   // key — `slugifyRegion` strips punctuation, so "Nord-Pas-de-Calais"
   // and "Nord Pas de Calais" would collide — and the caller fetches
   // each key it is given. A repeated key therefore means the same file
@@ -136,16 +136,35 @@ export type MapDataState =
   | { kind: 'loading' }
   | { kind: 'ready' }
   | { kind: 'wide'; count: number }
-  | { kind: 'failed'; what: string };
+  | { kind: 'failed'; what: string; loaded: number };
 
 export function dataMessage(state: MapDataState): string | null {
   switch (state.kind) {
     case 'loading':
       return 'Loading campsites…';
     case 'wide':
-      return `${state.count.toLocaleString('en-GB')} campsites in view — zoom in to see them individually. The circles are regions, sized by how many each holds.`;
+      // 🔴 "in the regions in view", not "in view".
+      //
+      // `countInView` sums WHOLE regions whose bbox touches the
+      // viewport, because at this zoom no individual campsite has been
+      // fetched — that is the entire point of the region view. So the
+      // number is real but it is not a count of what is on screen:
+      // measured against the API for the same box, 3 116 against 2 456
+      // (+27%) at the opening view and 13 380 against 9 479 (+41%)
+      // zoomed further out.
+      //
+      // The old sentence claimed the viewport. Rather than invent a
+      // precision we do not have, it now says which set it counted —
+      // and the circles on screen are exactly those regions.
+      return `${state.count.toLocaleString('en-GB')} campsites in the regions in view — zoom in to see them individually. The circles are those regions, sized by how many each holds.`;
     case 'failed':
-      return `The campsites could not be loaded (${state.what}). This map is empty because of that, not because there is nothing here.`;
+      // 🔴 An empty map and a partly-loaded one are different
+      // sentences. `refresh` reaches this state when ONE chunk of many
+      // fails: measured, 13 of 14 loaded, 848 campsites drawn on
+      // screen, and the page said "This map is empty because of that".
+      return state.loaded > 0
+        ? `Some campsites could not be loaded (${state.what}). The ${state.loaded.toLocaleString('en-GB')} shown here are real; others are missing, so do not read this map as complete.`
+        : `The campsites could not be loaded (${state.what}). This map is empty because of that, not because there is nothing here.`;
     case 'ready':
       return null;
   }
@@ -195,8 +214,18 @@ export function filterCountLabel(
           : 'Zoom in to count campsites.',
       };
     case 'failed':
-      // 🔴 Not "0", and not silence. The message above says what failed;
-      // this says why there is no number, so the two agree.
-      return { value: null, text: 'Not counted — the campsites did not load.' };
+      // 🔴 Not "0", and not silence. The message above says what
+      // failed; this says why, so the two agree.
+      //
+      // And when SOME loaded, the number of those is real — saying
+      // "not counted" over 848 visible campsites was its own small lie.
+      return state.loaded > 0
+        ? {
+            value: counts.shown,
+            text: counts.filtering
+              ? ` of ${counts.total.toLocaleString('en-GB')} campsites that loaded`
+              : ' campsites that loaded',
+          }
+        : { value: null, text: 'Not counted — the campsites did not load.' };
   }
 }

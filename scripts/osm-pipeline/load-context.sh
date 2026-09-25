@@ -140,7 +140,7 @@ file_fingerprint() {
 # live inside the loop and read $SLUG and $URL as globals — correct, but
 # redefined twenty-seven times and inviting a reader to assume capture.
 #
-# \U0001f534 Three outcomes, not two:
+# 🔴 Three outcomes, not two:
 #   0  the file on disk matches the published md5
 #   1  the transfer failed — the partial file is WORTH KEEPING
 #   2  the bytes arrived and are not what Geofabrik published
@@ -210,7 +210,7 @@ for REGION in "${REGIONS[@]}"; do
   # different version. A re-cut between them failed a perfectly whole
   # file and then reported "that is not a transfer problem", which is a
   # confident wrong diagnosis.
-  # \U0001f534 --retry here too. This request and the .md5 one below are
+  # 🔴 --retry here too. This request and the .md5 one below are
   # small, but there are two of them per region and they run BEFORE the
   # skip check \u2014 so a fully cached 27-region run still makes 54 of them.
   # Without a retry, one blink of the network ends the whole run, and
@@ -224,7 +224,7 @@ for REGION in "${REGIONS[@]}"; do
   REMOTE_SIZE=$(printf '%s' "$HEAD_OUT" |
     awk 'tolower($1)=="content-length:"{n=$2} END{gsub(/\r/,"",n); print n+0}')
 
-  # \U0001f534 The redirect has to still be the region we asked for.
+  # 🔴 The redirect has to still be the region we asked for.
   #
   # An md5 proves INTEGRITY, never IDENTITY: it says "these bytes are
   # the bytes published at this URL", and says nothing about the URL

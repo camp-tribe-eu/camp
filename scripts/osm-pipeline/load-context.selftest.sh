@@ -126,11 +126,11 @@ chmod +x "$BIN/osmium" "$BIN/ogr2ogr" "$BIN/psql"
 # what coreutils actually does (src/stat.c, print_statfs).
 cat > "$ROOT/gnu-stat" <<'SHIM'
 #!/usr/bin/env bash
-# \U0001f534 /usr/bin/stat by absolute path. `command stat` would find this
+# 🔴 /usr/bin/stat by absolute path. `command stat` would find this
 # shim again \u2014 it is first on PATH \u2014 and the -f branch would answer
 # the -c call with "? ?", which is the very thing being tested for.
 #
-# \U0001f534 And the real values are read with the SAME ordering the script
+# 🔴 And the real values are read with the SAME ordering the script
 # uses, because the host running this suite may itself be GNU: asking a
 # GNU /usr/bin/stat for `-f` returns "? ?" and exit 0, so a BSD-first
 # shim answered its own -c branch with "? ?" and failed on Linux while
@@ -302,7 +302,7 @@ else
   fail "two runs shared a work directory; rc=$rc: $out"
 fi
 
-# \U0001f534 And the run that was turned away must not take the lock with it.
+# 🔴 And the run that was turned away must not take the lock with it.
 #
 # The trap is `rm -rf "$LOCK_DIR"` on EXIT. It is armed AFTER both
 # refusal paths, so a blocked run cannot delete the holder's lock — but

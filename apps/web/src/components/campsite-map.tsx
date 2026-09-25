@@ -211,6 +211,25 @@ function clearRegions(m: InstanceType<typeof MapLibreMap>) {
   if (m.getSource(REGION_SOURCE)) m.removeSource(REGION_SOURCE);
 }
 
+/**
+ * Hide the individual campsites, leaving the region circles alone.
+ *
+ * 🔴 Zooming back out used to leave the markers underneath. The
+ * source keeps whatever was last set, so the map drew clusters AND the
+ * circles that stand for the same campsites — measured: 5 circles over
+ * 727 clustered campsites, with the status line saying "13,380
+ * campsites in the regions in view" and the panel saying "Zoom in to
+ * count campsites". Three encodings of one thing on one screen, two of
+ * them counting it twice.
+ *
+ * The features are NOT thrown away, only un-drawn: `everything.current`
+ * still holds them, so zooming back in costs no fetch.
+ */
+function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
+  const source = m.getSource(SOURCE_ID) as GeoJSONSource | undefined;
+  source?.setData({ type: 'FeatureCollection', features: [] });
+}
+
 export default function CampsiteMap() {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<InstanceType<typeof MapLibreMap> | null>(null);
@@ -250,6 +269,26 @@ export default function CampsiteMap() {
   // CAMP-127: the table of contents, and which of its chunks are in hand.
   const index = useRef<RegionSummary[]>([]);
   const loaded = useRef<Set<string>>(new Set());
+  /**
+   * How many chunk fetches are in flight, across ALL refreshes.
+   *
+   * 🔴 `ready` has to mean "nothing is still coming", and it did not.
+   * A `moveend` during a fetch starts a second refresh; if every key it
+   * needs is already claimed its `missing` is empty, so it skips the
+   * loop and falls straight through to `setDataState({kind:'ready'})`
+   * while the first call is still downloading.
+   *
+   * Measured in the production build: `ready` was published with three
+   * fetches outstanding and 7 of 14 chunks loaded — and it never went
+   * back, because `loading` is only set when `missing` is non-empty. So
+   * the reader was told the map was complete over a third of the data,
+   * and the spec that waits on this attribute was comparing a
+   * half-loaded map against a complete API answer.
+   *
+   * Claiming every key up front (the fix for the duplicate chunk) makes
+   * the empty-`missing` case MORE common, so that fix needed this one.
+   */
+  const inFlight = useRef(0);
   const [dataState, setDataState] = useState<MapDataState>({ kind: 'loading' });
 
   const active =
@@ -473,7 +512,7 @@ export default function CampsiteMap() {
       ]
         .map((n) => n.toFixed(6))
         .join(',');
-      // \U0001f534 WHICH campsites, not only how many \u2014 capped, so this can
+      // 🔴 WHICH campsites, not only how many \u2014 capped, so this can
       // never become a megabyte of DOM attribute.
       //
       // The spec that compares the map against the API could only say
@@ -489,17 +528,19 @@ export default function CampsiteMap() {
           lat <= b.getNorth()
         );
       });
-      // \U0001f534 A campsite with no slug still counts. It has no page \u2014
-      // CAMP-127 draws it without a link \u2014 but it is on the map, and a
-      // diff that silently drops it is how "13 against 12" turned into
-      // two lists that looked identical.
-      // \U0001f534 A sentinel, not an empty string, when there are too many
+      // 🔴 Every campsite has a slug, including the 135 with no
+      // region and therefore no page — for those it is `path` that is
+      // null, not `slug`. An earlier comment here claimed otherwise and
+      // the spec was written to match it, so a correct map failed the
+      // comparison in any viewport holding one of them.
+      //
+      // 🔴 A sentinel, not an empty string, when there are too many
       // to list. Empty reads as "none in view", and a spec comparing
       // the map with the API then reported "map 0, API 125" — a
       // frightening number that meant only that the cap had been hit.
       el.dataset.inViewSlugs =
         inside.length <= SLUG_LIST_CAP
-          ? inside.map((f) => f.properties.slug || '(no slug)').join(',')
+          ? inside.map((f) => f.properties.slug).join(',')
           : '(capped)';
 
       el.dataset.inView = String(
@@ -591,14 +632,15 @@ export default function CampsiteMap() {
         if (cancelled) return;
         if (!Array.isArray(regions) || regions.length === 0) {
           // 🔴 An empty index is a broken build, not an empty continent.
-          setDataState({ kind: 'failed', what: 'the index is empty' });
+          setDataState({ kind: 'failed', what: 'the index is empty', loaded: 0 });
           return;
         }
         index.current = regions;
         void refresh();
       })
       .catch((err: Error) => {
-        if (!cancelled) setDataState({ kind: 'failed', what: err.message });
+        if (!cancelled)
+          setDataState({ kind: 'failed', what: err.message, loaded: 0 });
       });
     return () => {
       cancelled = true;
@@ -629,6 +671,7 @@ export default function CampsiteMap() {
       // Too wide for markers. The index already holds the counts, so
       // this costs nothing and still answers "how many are down there".
       setDataState({ kind: 'wide', count: countInView(index.current, view) });
+      hideMarkers(m);
       drawRegions(m, index.current);
       return;
     }
@@ -636,6 +679,7 @@ export default function CampsiteMap() {
     const { keys, tooMany } = chunksInView(index.current, view);
     if (tooMany) {
       setDataState({ kind: 'wide', count: countInView(index.current, view) });
+      hideMarkers(m);
       drawRegions(m, index.current);
       return;
     }
@@ -644,7 +688,7 @@ export default function CampsiteMap() {
     if (missing.length > 0) setDataState({ kind: 'loading' });
 
     const failures: string[] = [];
-    // \U0001f534 EVERY key is claimed before the first await, not each one
+    // 🔴 EVERY key is claimed before the first await, not each one
     // when its turn comes.
     //
     // Marking inside the loop looked equivalent and was not. With
@@ -662,6 +706,7 @@ export default function CampsiteMap() {
     for (const key of missing) loaded.current.add(key);
 
     for (const key of missing) {
+      inFlight.current += 1;
       try {
         const res = await fetch(chunkUrl(key));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -673,16 +718,23 @@ export default function CampsiteMap() {
       } catch (err) {
         loaded.current.delete(key);
         failures.push(`${key}: ${(err as Error).message}`);
+      } finally {
+        inFlight.current -= 1;
       }
     }
 
     clearRegions(m);
     applyFilterState(filtersRef.current);
-    setDataState(
-      failures.length > 0
-        ? { kind: 'failed', what: failures[0] }
-        : { kind: 'ready' },
-    );
+
+    // 🔴 Only the LAST refresh standing may say the map is ready.
+    // Anything else is a claim about work another call is still doing.
+    if (inFlight.current === 0) {
+      setDataState(
+        failures.length > 0
+          ? { kind: 'failed', what: failures[0], loaded: everything.current.length }
+          : { kind: 'ready' },
+      );
+    }
   };
 
   // 🔴 The same reason `filtersRef` exists: the map effect runs once, so
@@ -884,7 +936,7 @@ export default function CampsiteMap() {
       <div
         ref={container}
         data-testid="map"
-        // \U0001f534 What the map is doing, so a test can wait for a state to
+        // 🔴 What the map is doing, so a test can wait for a state to
         // BE rather than for a message to be absent.
         //
         // The spec comparing the map against the API read the counts the
