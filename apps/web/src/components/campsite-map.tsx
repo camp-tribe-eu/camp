@@ -419,7 +419,24 @@ export default function CampsiteMap() {
         });
       }
     };
-    m.on('styledata', attach);
+    m.on('styledata', () => {
+      attach();
+      // 🔴 The region circles have to come back too.
+      //
+      // `attach` restores SOURCE_ID and the marker layers, because
+      // setStyle drops every source — and the file already says so for
+      // markers. The regions were added later and never joined that
+      // guard: they live only inside `drawRegions`, which runs from
+      // `refresh()`, which runs on `moveend`. Switching the basemap does
+      // not move the map, so a reader zoomed out watched the circles
+      // disappear under a sentence explaining what the circles mean, and
+      // they stayed gone until they panned.
+      //
+      // `refresh()` redraws whichever of the two the current zoom calls
+      // for, and costs no fetch — every chunk it needs is already in
+      // `loaded`.
+      void refreshRef.current();
+    });
 
     // Clicking a cluster opens it, rather than doing nothing — the most
     // common complaint about clustered maps.
