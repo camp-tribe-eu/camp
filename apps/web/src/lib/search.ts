@@ -187,17 +187,121 @@ export interface SearchHit {
 }
 
 /**
- * Scores one document against one folded term.
+ * What a term match is worth, before rarity weighting.
  *
  * The bands are deliberately far apart so that a weaker kind of match
- * can never outrank a stronger one by accumulating: an exact word beats
- * any number of fuzzy ones.
+ * can never outrank a stronger one by accumulating: within one term, an
+ * exact word beats any number of fuzzy ones.
+ *
+ * 🔴 Named because `search` has to recognise an exact match in two
+ * separate decisions — whether to count it towards document frequency,
+ * and whether the term still needs an edit distance — and comparing
+ * against a bare `100` in two places is how they drift apart. They
+ * already did once: one of them said `PREFIX` where it meant
+ * `EXACT_WORD`, and a third copy of the same condition existed further
+ * down and had to be deleted.
  */
-function scoreTerm(doc: SearchDoc, term: string): number {
-  const words = doc.text.split(' ');
-  if (words.includes(term)) return 100;
-  if (words.some((w) => w.startsWith(term))) return 60;
+const EXACT_WORD = 100;
+const PREFIX = 60;
 
+/**
+ * When a word stops being a requirement and becomes a preference.
+ *
+ * 🔴 Both numbers are measured, not chosen. Swept over the 496-query
+ * region corpus (see tests/unit/ranking-quality.spec.ts for what that
+ * corpus is), counting queries whose top hit is NOT in the region named:
+ *
+ *   1%   2%   5%   10%   20%   40%
+ *   86   86   86    86    86   200
+ *
+ * 🔴 These were 69/187 in an earlier version of this comment — numbers
+ * from a corpus that lived on a laptop, cited above a sentence claiming
+ * the corpus was in the spec file. Review caught the mismatch: the
+ * table had never been re-measured against the corpus that is actually
+ * committed. Same shape, different numbers, and the shape was never the
+ * part in doubt.
+ *
+ * Anywhere below a fifth of the index gives the same answer, because
+ * the words it catches are the same handful. At 40% it stops catching
+ * `camping` — which is in 31.3% — so the word becomes a requirement
+ * again and the result falls back towards the 181 this card started
+ * from. The number has to sit below that 31.3% and above anything a
+ * real place name reaches; 5% is the middle of a flat range, not a
+ * tuned value.
+ *
+ * The absolute floor exists for small indexes. A share alone would call
+ * every word in a two-document fixture "common" and stop requiring any
+ * of them, which would quietly turn the AND off wherever the index is
+ * small — including during the first seconds of a page load, while the
+ * chunks are still arriving.
+ */
+const COMMON_SHARE = 0.05;
+const COMMON_FLOOR = 50;
+
+function strongScore(words: string[], term: string): number {
+  // 🔴 The caller splits, not this function.
+  //
+  // It used to do `doc.text.split(' ')` itself, which meant splitting
+  // every document once PER TERM. The pass below scores every term
+  // against every document, so a three-word query split 61 422 strings
+  // three times over. Splitting once per document and reusing the array
+  // measured 196 ms → 157 ms for `camping les pins` while that was the
+  // only saving; deferring the edit distance took the same query the
+  // rest of the way down, to 36 ms.
+  if (words.includes(term)) return EXACT_WORD;
+  if (words.some((w) => w.startsWith(term))) return PREFIX;
+  return 0;
+}
+
+/**
+ * The near-miss band: 30 for one edit, 20 for two.
+ *
+ * 🔴 Separate from the above because it is usually not needed at all.
+ *
+ * This is the expensive half — an edit distance against every word of
+ * every document — and the suppression rule below means its answer is
+ * thrown away whenever the term matched something properly. So it is
+ * only ever run for a term that matched NOTHING exactly or by prefix,
+ * which is the case it exists for: a reader who mistyped.
+ *
+ * That makes the common case much cheaper than the pass it replaces,
+ * despite visiting every document for every term. Measured on the live
+ * index against main: `camping bovec` 124 ms → 50 ms, `bled` 72 ms →
+ * 26 ms, `camping les pins` 108 ms → 36 ms.
+ *
+ * 🔴 It is NOT cheaper when it runs, and it runs more often than the
+ * word "mistyped" suggests.
+ *
+ * When a term does need the edit distance, this second loop splits
+ * every document's text a second time: review measured `bovek` about
+ * 20% slower than main (the absolute milliseconds are machine-specific
+ * and are deliberately not quoted here — two machines disagreed by 2x
+ * on the same ratio).
+ *
+ * 🔴 The obvious fix does not work, so do not spend the afternoon on
+ * it: keeping the split from the first pass and reusing it here was
+ * measured at about 10% back (`kovak` 140 ms → 129 ms) in exchange for
+ * holding 61 422 arrays of words alive for the length of every
+ * keystroke. The cost is the edit distance itself, not the splitting.
+ * Something that made this genuinely cheap would have to compare fewer
+ * words — an index by first letter or by length — which is a different
+ * change with its own measurements.
+ *
+ * And the branch is not rare. It is taken whenever no document contains
+ * the term EXACTLY — which includes every half-typed word, not just
+ * every wrong one. Review measured 13 254 intermediate keystrokes drawn
+ * from real campsite names: 63.1% of them land on a term with no exact
+ * match. So in a search box the expensive path is the majority, and
+ * per keystroke this ranking costs roughly three quarters of what main
+ * costs rather than the quarter that the fully-typed queries above
+ * suggest.
+ *
+ * That is the trade, stated plainly: correctness first. The earlier
+ * version of this comment claimed "every query that is spelled
+ * correctly pays a third of what it used to", which was measured on
+ * finished words and is false for the keystrokes that precede them.
+ */
+function fuzzyScore(words: string[], term: string): number {
   const allowed = tolerance(term);
   if (allowed === 0) return 0;
 
@@ -263,9 +367,30 @@ export interface SearchOptions {
  *    відстанню, а не алфавітом" — when the query names a place a
  *    campsite is near, the ordering key becomes metres.
  *
- * Every term must match something. An AND over terms is what makes a
- * second word narrow the answer instead of widening it, which is what a
- * reader typing more words is asking for.
+ * Every term that narrows the answer must match. A second word is meant
+ * to narrow, which is why this was an AND over all of them — but a word
+ * in 31.3% of the index narrows nothing, and requiring it threw away the
+ * right answer: `camping bovec` could not reach "Camp Bovec", because
+ * "Camp" is not "camping". So common words became preferences and rare
+ * words stayed requirements.
+ *
+ * Measured on the live index (61 422 campsites, 25.09.2026), by query
+ * rather than by total — the corpus is in tests/unit/ranking-quality
+ * .spec.ts so these can be rerun:
+ *
+ *   496 region queries, top hit must BE in the region named
+ *                                   60.9% → 82.7%, 108 fixed, 0 worse
+ *   400 place queries, top hit must be near the place named
+ *                                   50.3% → 100%, 199 fixed, 0 worse
+ *
+ * 🔴 Not "no query made worse" in general — review built a wider corpus
+ * (every region with at least five campsites, 562 of them) and found
+ * one: `camping tolmin` used to answer with a campsite in Tolmin and
+ * now answers with `Camp Bovec`, 40 km away, because a shop 273 m from
+ * it is called "Kmetijska Zadruga Tolmin Trgovina Market Bovec". On
+ * that corpus the trade is 42 better against 1 worse. The cause is
+ * `nearestNamed` matching a term against any place name, which
+ * CAMP-131 documented and this change made matter more often.
  */
 export function search(
   docs: SearchDoc[],
@@ -275,22 +400,156 @@ export function search(
   const ts = terms(query);
   if (ts.length === 0) return [];
 
-  const hits: SearchHit[] = [];
-  for (const doc of docs) {
-    let total = 0;
-    let ok = true;
-    for (const t of ts) {
-      const s = scoreTerm(doc, t);
-      if (s === 0) {
-        ok = false;
-        break;
-      }
-      total += s;
+  // 🔴 The pass collects everything the ranking needs to know.
+  //
+  // Per-term scores are kept rather than summed on the spot, because
+  // summing immediately makes every word weigh the same — the defect
+  // this card is about. Alongside them it counts, for each term, how
+  // many documents contain it EXACTLY (its document frequency) and the
+  // best score any document reached. Those two numbers decide
+  // everything below, and neither can be known until the pass is over —
+  // which is also why there is no early break on a term that fails.
+  //
+  // Only the cheap half runs here: an exact word or a prefix. The edit
+  // distance is deferred, because whether it is needed at all is one of
+  // the things this pass is working out.
+  const scores: number[][] = new Array(docs.length);
+  const exact = new Array<number>(ts.length).fill(0);
+  const best = new Array<number>(ts.length).fill(0);
+
+  for (let d = 0; d < docs.length; d++) {
+    const words = docs[d].text.split(' ');
+    const row = new Array<number>(ts.length);
+    for (let i = 0; i < ts.length; i++) {
+      const s = strongScore(words, ts[i]);
+      if (s === EXACT_WORD) exact[i]++;
+      if (s > best[i]) best[i] = s;
+      row[i] = s;
     }
-    if (!ok) continue;
-    const place = nearestNamed(doc, ts);
-    hits.push({ doc, score: total, metres: place?.m, nearest: place?.name });
+    scores[d] = row;
   }
+
+  // 🔴 This one line is the whole near-miss rule.
+  //
+  // `tolerance()` allows one edit on a four-letter word, so `bleu`
+  // matches `bled`. That is right when the reader mistyped and wrong
+  // when they did not: measured on the live index, `bled` matched 99
+  // documents, and of the 20 a reader is shown, 15 were not Slovenian —
+  // 10 of them French sites beside places like "Segré-en-Anjou Bleu".
+  // Once some document contains the word exactly, the near misses are
+  // not competing with it; they are noise. So they are never computed.
+  //
+  // A genuine typo is untouched, because then no document contains the
+  // word exactly and this is true.
+  //
+  // 🔴 EXACT_WORD, not PREFIX, and review had to find that twice. A
+  // prefix is a guess about a word the reader has not finished typing;
+  // it does not prove the word exists as typed. While this read
+  // `best[i] < PREFIX`, ONE incidental word among 61 422 documents that
+  // merely started with the typo switched near misses off for that
+  // term: `kovak` returned six campsites on main including `Camp
+  // Kovač`, and one here, because a Hungarian site called `Kovakő Camp`
+  // prefixes it. The suite did not notice — the test that asserts
+  // exactly this query runs against three documents, none of them
+  // `kovakő`, which is the fixture-sized blind spot this file keeps
+  // finding.
+  //
+  // (There was a second copy of this condition, a `floor` applied after
+  // the pass, and review proved it could never change an outcome:
+  // whenever it rose, this gate had already stopped the fuzzy scores
+  // from existing, so it partitioned {0, 60, 100} exactly as `>= 1`
+  // does. It was deleted. A comment explaining a guard that does not
+  // guard is the thing this file warns about two screens up.)
+  const needsFuzzy = ts.map(
+    (t, i) => best[i] !== EXACT_WORD && tolerance(t) > 0,
+  );
+  if (needsFuzzy.some(Boolean)) {
+    for (let d = 0; d < docs.length; d++) {
+      const words = docs[d].text.split(' ');
+      for (let i = 0; i < ts.length; i++) {
+        // 🔴 Fill in a blank; never overwrite a real score.
+        //
+        // This read `if (needsFuzzy[i])` and clobbered the value. It was
+        // safe only while this pass ran exclusively for terms nothing
+        // matched at all — and the moment the gate above was widened to
+        // "no EXACT match", a term could arrive here with prefix
+        // matches already scored 60, which a fuzzy 30 then erased.
+        // Measured: `kovak` returned all six hits tied on one score,
+        // so `Kovakő Camp` — the only one that really starts with the
+        // word — ranked level with five near misses instead of above
+        // them.
+        if (needsFuzzy[i] && scores[d][i] === 0) {
+          scores[d][i] = fuzzyScore(words, ts[i]);
+        }
+      }
+    }
+  }
+
+  const n = docs.length;
+
+  // 🔴 A word in a third of the index cannot be a requirement.
+  //
+  // This is the heart of the card, and the first attempt got it wrong:
+  // weighting `camping` down still left it a REQUIREMENT, so every
+  // campsite that does not contain the word was thrown away before
+  // ranking ever ran. Measured on the live index: 22 campsites are
+  // genuinely near Bovec, and not one of them contains "camping" —
+  // "Camp Bovec" is "camp". So `camping bovec` could not return the
+  // right answer at any weighting, because the right answer was not in
+  // the running.
+  //
+  // A common word therefore becomes a preference, not a filter: it adds
+  // score when present and excludes nothing. The rare word still has to
+  // match, which is what makes a second word narrow the answer.
+  const common = exact.map(
+    (df) => df / n > COMMON_SHARE && df >= COMMON_FLOOR,
+  );
+  // If EVERY word is common the query has nothing rare to stand on, so
+  // they all stay required — otherwise `camping aire` would answer with
+  // most of the index. The absolute floor does the same job for a small
+  // index, where a share means nothing: in a fixture of two documents
+  // every word is in 50% of them and none of them narrows anything.
+  const allCommon = common.every(Boolean);
+  const required = common.map((c) => allCommon || !c);
+
+
+  // 🔴 And a word that narrows the answer is worth more than one that
+  // does not.
+  //
+  // The classic inverse document frequency, measured over the whole
+  // index. On its own this changed almost nothing — measured across 896
+  // queries it moved one — because the documents it should have
+  // promoted were being filtered out first. It matters now: among the
+  // campsites that do match `bovec`, it is what stops one that merely
+  // also says "camping" from outranking one that is actually in Bovec.
+  const weight = exact.map((df) => Math.max(1, Math.log((n + 1) / (df + 1))));
+
+  const matched: { doc: SearchDoc; scores: number[] }[] = [];
+  for (let d = 0; d < docs.length; d++) {
+    const row = scores[d];
+    // 🔴 Redundant today, and kept on purpose — measured, not assumed.
+    //
+    // `required` can never be all-false (if every term is common they
+    // all become required again), so a document matching nothing already
+    // fails the loop below, and removing this line changes no result on
+    // 308 queries. It stays as the one line that still holds if somebody
+    // later makes every term optional — at which point, without it, an
+    // empty-handed document would match everything. Unlike the `floor`
+    // this replaced, it is labelled as what it is rather than described
+    // as the thing doing the work.
+    let ok = row.some((s) => s > 0);
+    for (let i = 0; ok && i < row.length; i++) {
+      if (row[i] === 0 && required[i]) ok = false;
+    }
+    if (ok) matched.push({ doc: docs[d], scores: row });
+  }
+
+  const hits: SearchHit[] = matched.map(({ doc, scores }) => {
+    let total = 0;
+    for (let i = 0; i < scores.length; i++) total += scores[i] * weight[i];
+    const place = nearestNamed(doc, ts);
+    return { doc, score: total, metres: place?.m, nearest: place?.name };
+  });
 
   return hits
     .sort((a, b) => {

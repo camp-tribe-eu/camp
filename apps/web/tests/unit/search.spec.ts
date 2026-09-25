@@ -427,11 +427,41 @@ test.describe('a strong match outranks a near miss', () => {
   });
 
   test('🔴 "bled" finds Camping Bled, not a French aire near Bleu', () => {
+    // 🔴 CAMP-132 made this stronger than CAMP-131 left it.
+    //
+    // It used to assert the aire came SECOND. It now does not come back
+    // at all, because something matched `bled` properly and a one-letter
+    // near miss is not competing with that — it is noise. Measured on
+    // the live index: `bled` matched 99 documents and the 20 shown held
+    // 15 that were not Slovenian, 10 of them French. After this change
+    // it matches 8, none of them French — which is what CAMP-132 asks
+    // for.
+    //
+    // The near miss is NOT gone in general — see the test below, which
+    // is the case fuzzy matching exists for.
     const hits = search([frenchAire, campingBled], 'bled');
-    expect(hits.map((h) => h.doc.name)).toEqual([
-      'Camping Bled',
-      "Aire l'Esplanade Antoine Glémain",
-    ]);
+    expect(hits.map((h) => h.doc.name)).toEqual(['Camping Bled']);
+  });
+
+  test('🔴 the typo band is still a band, when it is all there is', () => {
+    // 🔴 What the edit above stops covering, covered here.
+    //
+    // The old test asserted 100 / 60 / 30 in one list, and that list no
+    // longer exists: once something matches properly the near misses are
+    // suppressed, so the fuzzy band is only observable when nothing
+    // scores above it. The rule this must catch is the over-reaching
+    // version of the same change — "drop every fuzzy match" — which
+    // would leave this query with no answer at all.
+    //
+    // Absolute numbers cannot be asserted any more either, because every
+    // score is multiplied by the term's rarity. The RATIO survives that,
+    // because one term means one multiplier: one edit scores 30, two
+    // score 20, so the first must be exactly half again as much.
+    const one = doc({ name: 'Kamping', path: '/camping/fr/x/a', country: 'fr', region: 'x' });
+    const two = doc({ name: 'Kampink', path: '/camping/fr/x/b', country: 'fr', region: 'x' });
+    const hits = search([one, two], 'kampingx');
+    expect(hits.map((h) => h.doc.name)).toEqual(['Kamping', 'Kampink']);
+    expect(hits[0].score / hits[1].score).toBeCloseTo(30 / 20, 10);
   });
 
   test('the near miss is still found — it is ranked, not dropped', () => {
@@ -475,12 +505,14 @@ test.describe('a strong match outranks a near miss', () => {
     expect(hits.every((h) => h.metres === undefined)).toBe(true);
   });
 
-  test('an exact name beats a prefix, which beats a typo', () => {
+  test('an exact name beats a prefix, and a typo is not shown beside them', () => {
     const exact = doc({ name: 'Bled', path: '/camping/si/bled/exact' });
     const prefix = doc({ name: 'Bledograd', path: '/camping/si/bled/prefix' });
     const typo = doc({ name: 'Bleu', path: '/camping/fr/x/typo', country: 'fr', region: 'x' });
     const hits = search([typo, prefix, exact], 'bled');
-    expect(hits.map((h) => h.doc.name)).toEqual(['Bled', 'Bledograd', 'Bleu']);
+    // The typo is dropped, not ranked last: `bled` matched two documents
+    // properly, so `Bleu` is a different word rather than a weak answer.
+    expect(hits.map((h) => h.doc.name)).toEqual(['Bled', 'Bledograd']);
     // 🔴 The SCORES, not just the order.
     //
     // Review mutation-tested the first version of this test: raising
@@ -489,7 +521,7 @@ test.describe('a strong match outranks a near miss', () => {
     // tiebreak produced the expected result after the band this test is
     // named for had been erased. A test that passes when the thing it
     // names is gone is not a test.
-    expect(hits.map((h) => h.score)).toEqual([100, 60, 30]);
+    expect(hits.map((h) => h.score)).toEqual([100, 60]);
   });
 
   test('🔴 the distance says WHICH place it is from', () => {
@@ -507,5 +539,144 @@ test.describe('a strong match outranks a near miss', () => {
     const [hit] = search([near], 'bled');
     expect(hit.metres).toBe(878);
     expect(hit.nearest).toBe('Bled Jezero');
+  });
+});
+
+// 🔴 The rules CAMP-132 added, tested at a size where they can fire.
+//
+// These need their own fixture, and it needs to be BIG. A word only
+// stops being a requirement when it is in more than 5% of the index AND
+// in at least 50 documents — the floor exists precisely so a handful of
+// documents cannot switch the AND off. Every other fixture in this file
+// is two or three documents, so none of them reaches this code at all:
+// review measured that the whole feature had zero coverage on CI, where
+// the only test of it skips for want of a 15 MB index file.
+//
+// So the fixture is generated. 120 campsites, of which 80 contain the
+// word "camping" — 67%, which is the shape of the real index, where it
+// is 31.3%.
+const manyDocs = (): SearchDoc[] => {
+  const docs: SearchDoc[] = [];
+  for (let i = 0; i < 80; i++) {
+    docs.push(
+      doc({ name: `Camping Number ${i}`, path: `/camping/fr/loire/c${i}` }),
+    );
+  }
+  for (let i = 0; i < 40; i++) {
+    docs.push(doc({ name: `Kamp Number ${i}`, path: `/camping/hr/istria/k${i}` }));
+  }
+  return docs;
+};
+
+test.describe('a common word is a preference, a rare word is a requirement', () => {
+  test('🔴 the answer may be a campsite that lacks the common word', () => {
+    // The card's case, in miniature. "Camp Bovec" does not contain the
+    // word "camping", and an AND over both words could never return it.
+    const docs = [
+      ...manyDocs(),
+      doc({ name: 'Camp Bovec', path: '/camping/si/bovec/camp-bovec',
+            country: 'si', region: 'bovec' }),
+      doc({ name: 'Camping Boven', path: '/camping/nl/gelderland/boven',
+            country: 'nl', region: 'gelderland' }),
+    ];
+    const hits = search(docs, 'camping bovec');
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].doc.name).toBe('Camp Bovec');
+  });
+
+  test('a rare word still has to match — it is the one that narrows', () => {
+    const docs = manyDocs();
+    expect(search(docs, 'camping nonsenseword')).toHaveLength(0);
+    // And the common word alone still answers with the ones that have it.
+    expect(search(docs, 'camping', { limit: 500 })).toHaveLength(80);
+  });
+
+  test('when every word is common, all of them are required again', () => {
+    // Otherwise `camping number` would answer with most of the index.
+    const docs = manyDocs();
+    const hits = search(docs, 'camping number', { limit: 500 });
+    expect(hits).toHaveLength(80);
+    expect(hits.every((h) => h.doc.name.startsWith('Camping'))).toBe(true);
+  });
+
+  test('🔴 a word in a quarter of a SMALL index is still a requirement', () => {
+    // The absolute floor, which nothing covered: review deleted
+    // `df >= COMMON_FLOOR` and the whole suite stayed green, because
+    // every fixture smaller than 50 documents makes all words common,
+    // which `allCommon` then turns back into all-required anyway.
+    //
+    // This fixture is big enough to tell the two apart. `kamp` is in 40
+    // of 122 documents — 32.8%, far above the 5% share, but below the
+    // floor of 50 — so it must still be a requirement. Without the
+    // floor it would become a preference, and this query would answer
+    // with a campsite that has no `kamp` in it at all.
+    const docs = [
+      ...manyDocs(),
+      doc({ name: 'Camp Bovec', path: '/camping/si/bovec/camp-bovec',
+            country: 'si', region: 'bovec' }),
+    ];
+    expect(search(docs, 'kamp bovec')).toHaveLength(0);
+  });
+
+  test('🔴 a prefix elsewhere does not switch typo tolerance off', () => {
+    // Review's finding, and the reason `floor` asks for an EXACT match
+    // rather than a prefix. On the live index one Hungarian campsite
+    // called "Kovakő Camp" was enough to erase "Camp Kovač" from the
+    // results for `kovak` — six hits became one — because "kovako"
+    // starts with the typed word and was counted as matching properly.
+    const docs = [
+      ...manyDocs(),
+      doc({ name: 'Kovako Camp', path: '/camping/hu/pest/kovako', country: 'hu', region: 'pest' }),
+      doc({ name: 'Camp Kovac', path: '/camping/si/gorenjska/kovac', country: 'si', region: 'gorenjska' }),
+    ];
+    const hits = search(docs, 'kovak');
+    expect(hits.map((h) => h.doc.name)).toContain('Camp Kovac');
+
+    // 🔴 On the SCORE, not on the order.
+    //
+    // This asserted `names[0] === 'Kovako Camp'` and review showed it
+    // passed for the wrong reason: with the fuzzy pass overwriting the
+    // prefix score the two tied exactly, and `/camping/hu/pest/kovako`
+    // simply sorts before `/camping/si/gorenjska/kovac` on the path
+    // tiebreak. The test named the band and measured the alphabet.
+    const prefix = hits.find((h) => h.doc.name === 'Kovako Camp')!;
+    const typo = hits.find((h) => h.doc.name === 'Camp Kovac')!;
+    expect(prefix.score).toBeGreaterThan(typo.score);
+    expect(prefix.score / typo.score).toBeCloseTo(60 / 30, 10);
+  });
+
+  test('🔴 the near miss is dropped only when the word matched exactly', () => {
+    const docs = [
+      ...manyDocs(),
+      doc({ name: 'Bled', path: '/camping/si/bled/bled', country: 'si', region: 'bled' }),
+      doc({ name: 'Bleu', path: '/camping/fr/anjou/bleu', country: 'fr', region: 'anjou' }),
+    ];
+    expect(search(docs, 'bled').map((h) => h.doc.name)).toEqual(['Bled']);
+    // Take the exact match away and the near miss comes back.
+    const without = docs.filter((d) => d.name !== 'Bled');
+    expect(search(without, 'bled').map((h) => h.doc.name)).toEqual(['Bleu']);
+  });
+
+  test('🔴 the three bands keep their sizes relative to each other', () => {
+    // What the deleted `[100, 60, 30]` assertion used to pin. Review
+    // mutated `40 - d * 10` to `400 - d * 100` — which keeps the 30:20
+    // ratio the other test checks — and the whole suite stayed green
+    // while an exact word started losing to a two-edit typo. One term
+    // means one rarity multiplier, so within a query the ratios between
+    // bands survive the weighting and can still be asserted.
+    const exact = [
+      doc({ name: 'Kovac', path: '/camping/si/a/exact' }),
+      doc({ name: 'Kovacevo', path: '/camping/si/a/prefix' }),
+    ];
+    const [a, b] = search(exact, 'kovac');
+    expect(a.score / b.score).toBeCloseTo(100 / 60, 10);
+
+    // Prefix against a one-edit near miss, with no exact match present.
+    const near = [
+      doc({ name: 'Kovako', path: '/camping/si/a/prefix2' }),
+      doc({ name: 'Kovar', path: '/camping/si/a/typo' }),
+    ];
+    const [c, d] = search(near, 'kovak');
+    expect(c.score / d.score).toBeCloseTo(60 / 30, 10);
   });
 });
