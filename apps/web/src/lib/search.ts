@@ -709,8 +709,20 @@ export function packIndex(docs: SearchDoc[]): PackedIndex {
       // says "here it is".
       slugFromName(doc.name) === slug ? 0 : slug,
     ];
-    // Only 3% of campsites have anything near them recorded, so an empty
-    // array on every other row is 10 000 copies of "[]".
+    // 🔴 The saving this line was written for is gone, and the line is
+    // still right.
+    //
+    // It said "only 3% of campsites have anything near them recorded,
+    // so an empty array on every other row is 10 000 copies of []".
+    // That was true when it was written and is not any more: CAMP-33's
+    // context pass finished, and as of 25.09.2026 all 61 422 campsites
+    // have something near them — 207 994 entries, 3.4 each. So this
+    // omits nothing today.
+    //
+    // It stays because the shape it guards against is still possible —
+    // a fresh import, a country loaded before its context — and a row
+    // that ends early is what `unpackIndex` already expects. Kept as a
+    // cheap invariant, not as a saving it no longer makes.
     if (doc.near.length > 0) row.push(doc.near);
     return row;
   });
