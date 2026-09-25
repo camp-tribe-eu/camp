@@ -49,6 +49,19 @@ OGR_CONN="$(pg_conninfo "$DB_URL")"
 #
 # ~/camptribe-osm is on the home volume, survives a reboot, and is the
 # one place a person would think to look for it.
+# 🔴 `${HOME:-}` and an explicit check, not `$HOME` bare.
+#
+# `set -u` catches HOME being UNSET, with a message naming neither the
+# cause nor the cure. It does NOT catch HOME being EMPTY — and then
+# `$HOME/camptribe-osm` is `/camptribe-osm`, a mkdir at the filesystem
+# root, which fails on macOS and SUCCEEDS in a container running as
+# root. Cron, launchd and containers without a passwd entry all reach
+# here, so this is not a theoretical shell.
+if [ -z "${WORK_DIR:-}" ] && [ -z "${HOME:-}" ]; then
+  echo "::error::neither WORK_DIR nor HOME is set, so there is nowhere to put" >&2
+  echo "          the extracts. Pass WORK_DIR=/somewhere/with/room." >&2
+  exit 1
+fi
 WORK_DIR="${WORK_DIR:-$HOME/camptribe-osm}"
 REGIONS=("$@")
 
@@ -60,7 +73,66 @@ fi
 mkdir -p "$WORK_DIR"
 cd "$WORK_DIR"
 
+# 🔴 One run at a time in a work directory.
+#
+# Two runs sharing one WORK_DIR corrupt each other two ways: both write
+# the same .osm.pbf (one’s fresh download lands under the other’s
+# osmium), and both `ogr2ogr -overwrite` the same three tables while
+# each checks the row count against its own export. Measured: two
+# concurrent Malta runs ended with `osm_ctx_water holds 5078 rows but
+# the export had 2539` — exactly twice, two loads into one table. That
+# was loud only because the counts happened to disagree.
+#
+# mkdir, not flock: mkdir is atomic on every filesystem we care about
+# and macOS ships no flock binary. The PID inside lets a later run tell
+# a crashed lock from a live one, and say which it was.
+LOCK_DIR="$WORK_DIR/.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  OWNER=$(cat "$LOCK_DIR/pid" 2>/dev/null || echo '?')
+  if [ "$OWNER" != '?' ] && kill -0 "$OWNER" 2>/dev/null; then
+    echo "::error::another load-context run (pid $OWNER) is using $WORK_DIR." >&2
+    echo "          Wait for it, or pass a different WORK_DIR." >&2
+    exit 1
+  fi
+  echo "  a previous run (pid $OWNER) left a lock behind and is gone — taking it" >&2
+  rm -rf "$LOCK_DIR"
+  mkdir "$LOCK_DIR" || { echo "::error::cannot lock $WORK_DIR" >&2; exit 1; }
+fi
+echo $$ > "$LOCK_DIR/pid"
+# Released on every exit, including the `exit 1`s below and a Ctrl-C.
+trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
+
 MERGE_WATER=() MERGE_PLACE=() MERGE_POI=()
+
+# 🔴 Size and mtime of a file, printed as "<bytes> <epoch>".
+#
+# GNU FIRST, and that order is the whole correctness of this function.
+#
+# The previous version tried `stat -f` first "because BSD and GNU
+# disagree about flags". They do — but GNU's `-f` is `--file-system`,
+# a perfectly valid option with a different meaning, and coreutils
+# prints `?` for a directive it does not recognise and **exits 0**
+# (src/stat.c: `print_statfs` initialises `bool fail = false`, assigns
+# it nowhere, and `default:` does `fputc('?')` then `break`). So on
+# Linux every file fingerprinted as "? ?" and the `||` never reached
+# the GNU form — which quietly reduced the marker to "the md5 we saw
+# once", exactly the check this was added to strengthen. Found in
+# review; confirmed against the coreutils source, not assumed.
+#
+# BSD genuinely rejects `-c` (`stat: illegal option -- c`, exit 1,
+# measured), so GNU-then-BSD is right on both.
+#
+# 🔴 And it FAILS CLOSED. The old fallback was `|| echo 'unknown'`,
+# under a comment claiming "no fingerprint, no skip" — the reverse of
+# what it did: `unknown` was written into the marker and matched
+# `unknown` next run, so two different files compared equal. A
+# fingerprint we could not take must stop the skip, not stand in for it.
+file_fingerprint() {
+  stat -c '%s %Y' "$1" 2>/dev/null && return 0
+  stat -f '%z %m' "$1" 2>/dev/null && return 0
+  echo "::error::cannot read size and mtime of $1 — refusing to trust any marker beside it" >&2
+  return 1
+}
 
 # 🔴 Fetch one extract and prove it is the file Geofabrik published.
 #
@@ -68,7 +140,17 @@ MERGE_WATER=() MERGE_PLACE=() MERGE_POI=()
 # live inside the loop and read $SLUG and $URL as globals — correct, but
 # redefined twenty-seven times and inviting a reader to assume capture.
 #
-# Returns 0 only when the file on disk matches the published md5.
+# \U0001f534 Three outcomes, not two:
+#   0  the file on disk matches the published md5
+#   1  the transfer failed — the partial file is WORTH KEEPING
+#   2  the bytes arrived and are not what Geofabrik published
+#
+# They used to be indistinguishable, and the caller deleted the file
+# either way while printing "that is not a transfer problem — look at
+# the source". France is 4.7 GB and about three hours: a link that drops
+# twice in one run then left nothing to resume from, so a flaky
+# connection could never accumulate progress. That treadmill is the
+# thing this card was opened to remove.
 fetch_verified() {
   local attempt=$1 mode=$2 url=$3 path=$4 expect=$5
 
@@ -95,7 +177,7 @@ fetch_verified() {
   fi
   if [ "$got" != "$expect" ]; then
     echo "  attempt $attempt: checksum $got, expected $expect" >&2
-    return 1
+    return 2
   fi
   return 0
 }
@@ -128,16 +210,45 @@ for REGION in "${REGIONS[@]}"; do
   # different version. A re-cut between them failed a perfectly whole
   # file and then reported "that is not a transfer problem", which is a
   # confident wrong diagnosis.
-  URL=$(curl -fsSLI -o /dev/null -w '%{url_effective}' --max-time 60 "$LATEST") || {
+  # \U0001f534 --retry here too. This request and the .md5 one below are
+  # small, but there are two of them per region and they run BEFORE the
+  # skip check \u2014 so a fully cached 27-region run still makes 54 of them.
+  # Without a retry, one blink of the network ends the whole run, and
+  # the message it ends with blames Geofabrik.
+  HEAD_OUT=$(curl -fsSL -I --retry 3 --retry-delay 5 --max-time 60 \
+               -w '\n%{url_effective}\n' "$LATEST") || {
     echo "::error::could not reach Geofabrik for $REGION" >&2
     exit 1
   }
+  URL=$(printf '%s' "$HEAD_OUT" | tail -1)
+  REMOTE_SIZE=$(printf '%s' "$HEAD_OUT" |
+    awk 'tolower($1)=="content-length:"{n=$2} END{gsub(/\r/,"",n); print n+0}')
+
+  # \U0001f534 The redirect has to still be the region we asked for.
+  #
+  # An md5 proves INTEGRITY, never IDENTITY: it says "these bytes are
+  # the bytes published at this URL", and says nothing about the URL
+  # being the one we wanted. Geofabrik answers an unknown or renamed
+  # region with a 302 to its site index \u2014 measured: europe/atlantis,
+  # europe/holland and europe/england all land on
+  # https://download.geofabrik.de/ with HTTP 200, so `curl -f` does not
+  # fail and the run dies later blaming a missing .md5. A redirect onto
+  # a DIFFERENT extract would be worse: it would download, verify and
+  # load another country's data under a \u2713.
+  REGION_BASE="${REGION##*/}"
+  if ! printf '%s' "$URL" | grep -qE "/${REGION_BASE}-[0-9]{6}\.osm\.pbf$"; then
+    echo "::error::$REGION resolves to $URL" >&2
+    echo "          That is not a dated extract for '$REGION_BASE'. Either the" >&2
+    echo "          region name is wrong or Geofabrik has moved it." >&2
+    exit 1
+  fi
 
   # 🔴 -f, so an HTTP error page cannot become the expected checksum.
   # Without it a 404 body — "<html><head><title>404…" — is a non-empty
   # string, sails past the emptiness check, and costs a full re-download
   # before the script gives up with the wrong reason.
-  EXPECT_MD5=$(curl -fsSL --max-time 60 "$URL.md5" | awk '{print $1}') || EXPECT_MD5=''
+  EXPECT_MD5=$(curl -fsSL --retry 3 --retry-delay 5 --max-time 60 "$URL.md5" |
+    awk '{print $1}') || EXPECT_MD5=''
   if ! printf '%s' "$EXPECT_MD5" | grep -qE '^[0-9a-f]{32}$'; then
     echo "::error::no usable .md5 for $REGION — refusing to trust the download" >&2
     exit 1
@@ -153,36 +264,72 @@ for REGION in "${REGIONS[@]}"; do
   #
   # It is not a defence against someone deliberately forging all three;
   # it is a defence against the file quietly not being what we checked.
-  file_fingerprint() {
-    # BSD stat and GNU stat disagree about flags, so both are tried.
-    # The shell pipeline fails closed: no fingerprint, no skip.
-    stat -f '%z %m' "$1" 2>/dev/null || stat -c '%s %Y' "$1" 2>/dev/null || echo 'unknown'
-  }
+  # 🔴 The fingerprint is taken into a VARIABLE and checked, never
+  # spliced straight into the comparison.
+  #
+  # `[ "$(cat "$STAMP")" = "$MD5 $(file_fingerprint "$PBF")" ]` fails
+  # closed — but the matching `printf ... > "$STAMP"` did not: a failed
+  # fingerprint wrote "<md5> " into the marker, and next run the same
+  # failure produced the same empty string and the two MATCHED. The
+  # fail-open hole simply moved from the read to the write. Nothing may
+  # be written that we could not also verify.
+  HAVE_FP=''
+  if [ -f "$PBF" ]; then
+    HAVE_FP="$(file_fingerprint "$PBF")" || HAVE_FP=''
+  fi
 
-  if [ -f "$PBF" ] && [ -f "$STAMP" ] &&
-     [ "$(cat "$STAMP")" = "$EXPECT_MD5 $(file_fingerprint "$PBF")" ]; then
+  if [ -n "$HAVE_FP" ] && [ -f "$STAMP" ] &&
+     [ "$(cat "$STAMP")" = "$EXPECT_MD5 $HAVE_FP" ]; then
     echo "→ $REGION (already verified)"
   else
     # The marker is removed first, so an interrupted run can never leave
     # a stale proof beside a half-written file.
     rm -f "$STAMP"
-    echo "→ $REGION"
-
-    if ! fetch_verified 1 resume "$URL" "$PBF" "$EXPECT_MD5"; then
-      echo "  resumed copy is not the file Geofabrik has — starting clean" >&2
-      if ! fetch_verified 2 clean "$URL" "$PBF" "$EXPECT_MD5"; then
-        # 🔴 Deleted, not left behind. The whole point of the marker is
-        # that the next run re-checks — but a rejected file of the right
-        # length is still a trap for anything else that reads this
-        # directory, and keeping it buys nothing.
-        rm -f "$PBF"
-        echo "::error::$REGION failed twice, the second time from scratch." >&2
-        echo "          The file has been deleted. That is not a transfer" >&2
-        echo "          problem — look at the source." >&2
-        exit 1
-      fi
+    if [ -f "$PBF" ]; then
+      # 🔴 Say what is on disk and what is coming. `-s` gives curl no
+      # voice, and a bare "→ europe/france" in front of three silent
+      # hours is indistinguishable from a hung transfer — which matters
+      # precisely because the operator's instinct is then to kill it.
+      echo "→ $REGION (have $(wc -c < "$PBF" | tr -d ' ') of $REMOTE_SIZE bytes, resuming)"
+    else
+      echo "→ $REGION ($REMOTE_SIZE bytes)"
     fi
-    printf '%s %s' "$EXPECT_MD5" "$(file_fingerprint "$PBF")" > "$STAMP"
+
+    fetch_verified 1 resume "$URL" "$PBF" "$EXPECT_MD5" && RC=0 || RC=$?
+    if [ "$RC" -ne 0 ]; then
+      if [ "$RC" -eq 2 ]; then
+        echo "  resumed copy is not the file Geofabrik has — starting clean" >&2
+      else
+        echo "  transfer failed — starting clean" >&2
+      fi
+      fetch_verified 2 clean "$URL" "$PBF" "$EXPECT_MD5" && RC=0 || RC=$?
+    fi
+
+    if [ "$RC" -eq 2 ]; then
+      # 🔴 Deleted only when the BYTES ARE WRONG. A rejected file of
+      # the right length is a trap for anything else reading this
+      # directory, and keeping it buys nothing.
+      rm -f "$PBF"
+      echo "::error::$REGION: the bytes that arrived are not what Geofabrik publishes." >&2
+      echo "          Checked twice, the second time from scratch, and deleted." >&2
+      echo "          That is not a transfer problem — look at the source." >&2
+      exit 1
+    elif [ "$RC" -ne 0 ]; then
+      # 🔴 Kept. The transfer never finished, so what is on disk is a
+      # prefix of the right file and the next run resumes from it. The
+      # marker is already gone, so nothing vouches for it.
+      echo "::error::$REGION: the download did not complete, twice." >&2
+      echo "          What arrived has been KEPT — the next run resumes from it." >&2
+      echo "          Nothing vouches for it: the marker was removed first." >&2
+      exit 1
+    fi
+
+    NEW_FP="$(file_fingerprint "$PBF")" || {
+      echo "::error::$REGION verified, but its size and mtime could not be read." >&2
+      echo "          No marker written, so the next run will verify again." >&2
+      exit 1
+    }
+    printf '%s %s' "$EXPECT_MD5" "$NEW_FP" > "$STAMP"
     echo "  checksum ok"
   fi
 
