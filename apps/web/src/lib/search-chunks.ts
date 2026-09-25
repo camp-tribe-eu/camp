@@ -95,3 +95,76 @@ export function partialNotice(
   const pct = Math.floor((100 * progress.searchable) / progress.total);
   return `Searching ${progress.searchable.toLocaleString('en-GB')} of ${progress.total.toLocaleString('en-GB')} campsites — the rest are still loading (${pct}%).`;
 }
+
+/**
+ * Cut the documents into files no larger than the budget.
+ *
+ * 🔴 Mechanical on purpose, because the alternative is a judgement call
+ * about which countries "deserve" their own file — and that is a
+ * decision nobody could check later. The rule is: one file per country,
+ * and a country that does not fit is sliced into as many equal parts as
+ * it takes. Measured 25.09.2026: 26 countries fit, France (23 645
+ * campsites, 2 309 KB) does not and becomes two.
+ *
+ * 🔴 The budget is NOT raised to make France fit. This file already
+ * carries the reason — "the trigger is the size of this file, and the
+ * build FAILS when it is crossed rather than quietly shipping a slower
+ * site" — and raising a limit until it passes is how that guard stops
+ * meaning anything.
+ *
+ * `sizeOf` is injected so this stays pure: the caller knows how to pack
+ * a group, this only knows how to divide one.
+ */
+export function planChunks<T extends { country: string }>(
+  docs: readonly T[],
+  maxBytes: number,
+  sizeOf: (group: readonly T[]) => number,
+): { id: string; country: string; docs: T[]; bytes: number }[] {
+  const byCountry = new Map<string, T[]>();
+  for (const doc of docs) {
+    const list = byCountry.get(doc.country);
+    if (list) list.push(doc);
+    else byCountry.set(doc.country, [doc]);
+  }
+
+  const out: { id: string; country: string; docs: T[]; bytes: number }[] = [];
+  // Sorted, so two builds of the same data produce the same files —
+  // otherwise every build changes every URL.
+  for (const country of [...byCountry.keys()].sort()) {
+    const all = byCountry.get(country)!;
+    const whole = sizeOf(all);
+    if (whole <= maxBytes) {
+      out.push({ id: country, country, docs: all, bytes: whole });
+      continue;
+    }
+    // 🔴 Ceil, then one more if a part still overflows. Sizes are not
+    // perfectly linear in document count — one region's names are longer
+    // than another's — so dividing by the ratio can leave a part barely
+    // over. Re-checking is cheaper than being wrong about a limit whose
+    // whole job is to be believed.
+    let parts = Math.ceil(whole / maxBytes);
+    for (let guard = 0; guard < 8; guard++) {
+      const slices = sliceInto(all, parts);
+      if (slices.every((s) => sizeOf(s) <= maxBytes)) {
+        slices.forEach((slice, i) => {
+          out.push({
+            id: `${country}-${i + 1}`,
+            country,
+            docs: slice,
+            bytes: sizeOf(slice),
+          });
+        });
+        break;
+      }
+      parts += 1;
+    }
+  }
+  return out;
+}
+
+function sliceInto<T>(list: readonly T[], parts: number): T[][] {
+  const per = Math.ceil(list.length / parts);
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += per) out.push(list.slice(i, i + per));
+  return out;
+}

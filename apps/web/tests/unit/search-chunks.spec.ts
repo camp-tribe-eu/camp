@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   chunkUrl,
+  planChunks,
   fetchOrder,
   loadProgress,
   partialNotice,
@@ -118,4 +119,63 @@ test('a failure outranks progress, because it does not fix itself', () => {
 
 test('nothing at all yet says loading, not zero of zero', () => {
   expect(partialNotice({ searchable: 0, total: 0, done: false }, 0)).toMatch(/Loading/);
+});
+
+// ── cutting the documents into files ──────────────────────────────────
+
+test.describe('planChunks', () => {
+  const doc = (country: string, n: number) => ({ country, n });
+  // Ten bytes a document, so the arithmetic in these tests is readable.
+  const size = (g: readonly unknown[]) => g.length * 10;
+
+  test('a country that fits gets one file named after it', () => {
+    const plan = planChunks([doc('si', 1), doc('si', 2)], 100, size);
+    expect(plan).toHaveLength(1);
+    expect(plan[0].id).toBe('si');
+    expect(plan[0].bytes).toBe(20);
+  });
+
+  test('a country that does not fit is sliced, and every slice fits', () => {
+    const fr = Array.from({ length: 25 }, (_, i) => doc('fr', i));
+    const plan = planChunks(fr, 100, size);
+    expect(plan.length).toBeGreaterThan(1);
+    for (const c of plan) {
+      expect(c.bytes, `${c.id} is over the budget`).toBeLessThanOrEqual(100);
+      expect(c.id).toMatch(/^fr-\d+$/);
+    }
+    // 🔴 Nothing may be lost in the slicing.
+    expect(plan.reduce((n, c) => n + c.docs.length, 0)).toBe(25);
+  });
+
+  test('🔴 the budget is never exceeded, whatever the sizes look like', () => {
+    // Sizes that are not linear in count: one document is enormous, so
+    // dividing by the ratio leaves a part still over the line. The plan
+    // must notice and cut again rather than trust the arithmetic.
+    const docs = Array.from({ length: 10 }, (_, i) => doc('fr', i));
+    const lumpy = (g: readonly { n: number }[]) =>
+      g.reduce((t, d) => t + (d.n === 0 ? 90 : 10), 0);
+    for (const c of planChunks(docs, 100, lumpy)) {
+      expect(c.bytes, `${c.id} is over the budget`).toBeLessThanOrEqual(100);
+    }
+  });
+
+  test('countries come out in a stable order, so URLs do not churn', () => {
+    const docs = [doc('si', 1), doc('at', 1), doc('fr', 1), doc('at', 2)];
+    expect(planChunks(docs, 100, size).map((c) => c.id)).toEqual(['at', 'fr', 'si']);
+  });
+
+  test('every document ends up in exactly one file', () => {
+    const docs = [
+      ...Array.from({ length: 25 }, (_, i) => doc('fr', i)),
+      ...Array.from({ length: 3 }, (_, i) => doc('si', i)),
+    ];
+    const plan = planChunks(docs, 100, size);
+    const seen = plan.flatMap((c) => c.docs);
+    expect(seen).toHaveLength(28);
+    expect(new Set(seen).size).toBe(28);
+  });
+
+  test('no documents at all is no files, not one empty file', () => {
+    expect(planChunks([], 100, size)).toEqual([]);
+  });
 });
