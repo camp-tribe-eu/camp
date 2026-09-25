@@ -429,7 +429,14 @@ export default function CampsiteMap() {
       m.getCanvas().style.cursor = '';
     };
 
-    // 🔴 What is actually drawn right now, published on the container.
+    // How many campsite slugs may be published for the tests to read.
+  //
+  // 🔴 A cap, because this is a DOM attribute on every reader's page,
+  // not a debug channel. 200 slugs is about 5 KB; the whole of France in
+  // view would be megabytes.
+  const SLUG_LIST_CAP = 200;
+
+  // 🔴 What is actually drawn right now, published on the container.
     //
     // Whether the map clusters is the criterion of this card, and it is
     // invisible to every ordinary assertion: the campsites live in a
@@ -486,10 +493,14 @@ export default function CampsiteMap() {
       // CAMP-127 draws it without a link \u2014 but it is on the map, and a
       // diff that silently drops it is how "13 against 12" turned into
       // two lists that looked identical.
+      // \U0001f534 A sentinel, not an empty string, when there are too many
+      // to list. Empty reads as "none in view", and a spec comparing
+      // the map with the API then reported "map 0, API 125" — a
+      // frightening number that meant only that the cap had been hit.
       el.dataset.inViewSlugs =
-        inside.length <= 200
+        inside.length <= SLUG_LIST_CAP
           ? inside.map((f) => f.properties.slug || '(no slug)').join(',')
-          : '';
+          : '(capped)';
 
       el.dataset.inView = String(
         drawn.current.filter((f) => {

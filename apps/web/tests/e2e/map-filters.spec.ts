@@ -573,6 +573,11 @@ test.describe('/map filters', () => {
         .map((m) => (m.path ?? '').split('/').pop() || '(no slug)')
         .sort();
       const mapSlugs = [...drawn.slugs].sort();
+      // \U0001f534 The map publishes at most 200 slugs and says so with a
+      // sentinel. Comparing lists is the better assertion, but a capped
+      // viewport still has to assert SOMETHING — and silently skipping
+      // is how a test stops testing.
+      const capped = drawn.slugs.length === 1 && drawn.slugs[0] === '(capped)';
 
       // \U0001f534 The whole sorted list, not a set difference.
       //
@@ -580,17 +585,22 @@ test.describe('/map filters', () => {
       // a DUPLICATE: the map drawing one campsite twice produced two
       // "identical" lists and a count that was one too high. Which is
       // exactly the defect that was hiding here.
-      expect(
-        mapSlugs,
-        `the map and the API disagree for ${query} in bbox ${drawn.box} ` +
-          `(map ${mapSlugs.length}, API ${apiSlugs.length}, ` +
-          `shown ${drawn.shown} of ${drawn.total} loaded, ` +
-          `API said: ${apiSlugs.join(' ')})`,
-      ).toEqual(apiSlugs);
+      if (!capped) {
+        expect(
+          mapSlugs,
+          `the map and the API disagree for ${query} in bbox ${drawn.box} ` +
+            `(map ${mapSlugs.length}, API ${apiSlugs.length}, ` +
+            `shown ${drawn.shown} of ${drawn.total} loaded, ` +
+            `API said: ${apiSlugs.join(' ')})`,
+        ).toEqual(apiSlugs);
+      }
 
+      // The count is asserted either way \u2014 it is the one number the map
+      // always publishes, capped or not.
       expect(
         drawn.inView,
-        `the map and the API disagree on the count for ${query}`,
+        `the map and the API disagree on the count for ${query} in bbox ` +
+          `${drawn.box}${capped ? ' (too many in view to list)' : ''}`,
       ).toBe(markers.length);
     }
   });
