@@ -73,6 +73,9 @@ if [ "\$head" = 1 ]; then
     redirect-other-region)
       printf 'HTTP/1.1 200 OK\r\ncontent-length: $(wc -c < "$GOOD")\r\n\r\n\n%s\n' \\
         "https://example.invalid/europe/elsewhere-260925.osm.pbf" ;;
+    mirror)
+      printf 'HTTP/1.1 200 OK\r\ncontent-length: $(wc -c < "$GOOD")\r\n\r\n\n%s\n' \\
+        "https://mirror.invalid/pub/osm/\$region-latest.osm.pbf" ;;
     *) printf 'HTTP/1.1 200 OK\r\ncontent-length: $(wc -c < "$GOOD")\r\n\r\n\n%s\n' \\
         "https://example.invalid/europe/\$region-260925.osm.pbf" ;;
   esac
@@ -271,14 +274,22 @@ fi
 
 # ── f: a redirect that is not this region is refused ─────────────────
 SHIM_MODE=redirect-to-index out=$(run h); rc=$?
-if [ $rc -ne 0 ] && grep -q 'not a dated extract' <<<"$out"; then
+if [ $rc -ne 0 ] && grep -q 'not an extract named for' <<<"$out"; then
   pass "a redirect to the site index is refused, by name"
 else
   fail "a redirect to the index was accepted; rc=$rc: $out"
 fi
 
+# A mirror keeps `-latest` in the filename, and that is legitimate.
+SHIM_MODE=mirror out=$(run m); rc=$?
+if [ $rc -eq 0 ] && grep -q 'checksum ok' <<<"$out"; then
+  pass "a mirror that keeps -latest in the name is accepted"
+else
+  fail "a legitimate mirror redirect was refused; rc=$rc: $out"
+fi
+
 SHIM_MODE=redirect-other-region out=$(run i); rc=$?
-if [ $rc -ne 0 ] && grep -q 'not a dated extract' <<<"$out"; then
+if [ $rc -ne 0 ] && grep -q 'not an extract named for' <<<"$out"; then
   pass "a redirect onto another region's extract is refused"
 else
   fail "another region's extract was accepted; rc=$rc: $out"

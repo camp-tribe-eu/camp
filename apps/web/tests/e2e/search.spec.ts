@@ -49,6 +49,36 @@ async function contents(request: APIRequestContext): Promise<SearchIndex> {
   return toc;
 }
 
+/**
+ * How long the whole index may take to arrive, in a test.
+ *
+ * 🔴 Not the default 5 s, and the difference is not taste.
+ *
+ * The search used to be ONE file. CAMP-129 made it twenty-eight, and
+ * `data-complete` waits for the last of them.
+ *
+ * Measured 25.09.2026 against a production `next start`, fetching all
+ * 28 chunks (61 422 campsites, 3.29 MB) four at a time, the way the
+ * page does — three runs on one machine:
+ *
+ *   4 040 ms   12 805 ms   811 ms (warm cache)
+ *
+ * The middle run is the point. It was taken while a 65 000-page build
+ * was using the same machine, which is not an unfair test: it is what a
+ * CI runner looks like with six browser projects in parallel. Nothing
+ * was broken in that run — it was simply contended.
+ *
+ * The default is 5 s. `scripts/ci/check-flaky.mjs` turns ANY flake into
+ * a red build, deliberately, so a limit the machine can cross while
+ * working correctly is a red `main` waiting to happen.
+ *
+ * 20 s is not "make it pass". It is above the worst honest measurement
+ * with room to spare, and the specs still fail in seconds rather than
+ * hanging: a chunk that never arrives leaves the attribute at "false"
+ * and the failure says exactly that.
+ */
+const COMPLETE_TIMEOUT = 20_000;
+
 /** Swap one letter in the middle — the commonest real typo. */
 function mistype(word: string): string {
   const i = Math.floor(word.length / 2);
@@ -190,7 +220,11 @@ test.describe('the page', () => {
     await expect(page.getByTestId('search-loading')).toBeVisible();
 
     release!();
-    await expect(page.getByTestId('search')).toHaveAttribute('data-complete', 'true');
+    await expect(page.getByTestId('search')).toHaveAttribute(
+      'data-complete',
+      'true',
+      { timeout: COMPLETE_TIMEOUT },
+    );
   });
 
   test('finds a campsite as the reader types', async ({ page, request }) => {
@@ -216,7 +250,11 @@ test.describe('the page', () => {
     // satisfied by an element that is not in the DOM yet, which is true
     // in the instant before React renders. It waited for nothing, and
     // failed on tablet about one run in ten until the flaky guard said so.
-    await expect(page.getByTestId('search')).toHaveAttribute('data-complete', 'true');
+    await expect(page.getByTestId('search')).toHaveAttribute(
+      'data-complete',
+      'true',
+      { timeout: COMPLETE_TIMEOUT },
+    );
     await page.getByTestId('search-input').fill(subject.name);
     await expect(page.getByTestId('search-results')).toBeVisible();
     await expect(page.getByTestId('search-results')).toContainText(
@@ -230,7 +268,11 @@ test.describe('the page', () => {
 
     await page.goto(`/search?q=${encodeURIComponent(subject.name)}`);
     await expect(page.getByTestId('search-input')).toHaveValue(subject.name);
-    await expect(page.getByTestId('search')).toHaveAttribute('data-complete', 'true');
+    await expect(page.getByTestId('search')).toHaveAttribute(
+      'data-complete',
+      'true',
+      { timeout: COMPLETE_TIMEOUT },
+    );
     await expect(page.getByTestId('search-results')).toContainText(
       subject.name,
     );
@@ -238,7 +280,11 @@ test.describe('the page', () => {
 
   test('says so plainly when nothing matches', async ({ page }) => {
     await page.goto('/search?q=zzzzqqqqxxxx');
-    await expect(page.getByTestId('search')).toHaveAttribute('data-complete', 'true');
+    await expect(page.getByTestId('search')).toHaveAttribute(
+      'data-complete',
+      'true',
+      { timeout: COMPLETE_TIMEOUT },
+    );
     await expect(page.getByTestId('search-count')).toContainText('Nothing');
     await expect(page.getByTestId('search-results')).toHaveCount(0);
   });

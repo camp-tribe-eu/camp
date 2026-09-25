@@ -292,7 +292,11 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
                       would be showing a number that answers a question
                       nobody asked. */}
                   {hit.metres !== undefined && (
-                    <> · {formatDistance(hit.metres)} from what you searched</>
+                    <>
+                      {' '}
+                      · {formatDistance(hit.metres)} from{' '}
+                      {hit.nearest ?? 'what you searched'}
+                    </>
                   )}
                 </span>
               </Link>
