@@ -1,6 +1,5 @@
 import { packIndex } from '@/lib/search';
-import { planChunks } from '@/lib/search-chunks';
-import { fetchDocs, sizeOfGroup, MAX_BYTES } from '../index.json/route';
+import { checkedPlan, fetchDocs, MAX_BYTES } from '@/lib/search-index';
 
 // CAMP-129: one piece of the search index.
 //
@@ -18,15 +17,28 @@ export const dynamic = 'force-static';
 export const dynamicParams = false;
 
 /**
- * The plan, derived once per build.
+ * The plan, derived once per BUILD WORKER — not once per build.
  *
- * 🔴 Both this route and generateStaticParams need it, and Next calls
- * the handler once per chunk. Without the cache that is 28 identical
- * requests for a 4 MB payload on every build.
+ * 🔴 The first version of this comment claimed "once per build". It
+ * is not: Next prerenders across several worker processes and each gets
+ * its own module instance. Review measured it with a counting proxy in
+ * front of the API during a real build — `/spots/search-index` was
+ * requested FOUR times (once from the table of contents, three from
+ * chunk-route workers), 10 160 833 bytes each, about 40 MB and four
+ * times the planning work. It scales with core count.
+ *
+ * Kept, because it does remove the other 24 requests inside a worker.
+ * Not a throttling risk: `apiFetch` sends `x-build-token` and the
+ * exemption short-circuits before the bucket — review confirmed that
+ * path too. It is waste, and it is written down as waste rather than
+ * described as a fix.
+ *
+ * Next's own fetch cache cannot help: the response is over the 2 MB
+ * limit, which the build says out loud on every run.
  */
 let planned: ReturnType<typeof buildPlan> | null = null;
 function buildPlan() {
-  return fetchDocs().then((docs) => planChunks(docs, MAX_BYTES, sizeOfGroup));
+  return fetchDocs().then((docs) => checkedPlan(docs).plan);
 }
 const plan = () => (planned ??= buildPlan());
 

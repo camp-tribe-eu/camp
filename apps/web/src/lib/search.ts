@@ -123,8 +123,15 @@ import { countryName } from './api';
  * So it is derived on read. The catch is that a recipe used in two
  * places drifts, and a drift here is a search that quietly stops
  * matching what it used to — so there is one function, called by the
- * writer and by the reader, and the route's round-trip check compares
- * the two results on every build.
+ * writer and by the reader, and the index route round-trips every chunk
+ * through packIndex/unpackIndex on every build, comparing `text` field
+ * by field.
+ *
+ * 🔴 That check was lost when the single file was split, and this
+ * comment went on claiming it ran — for a while nothing under src/app
+ * imported `unpackIndex` at all. Review caught it. A comment describing
+ * a guard that does not exist is worse than no guard, because it stops
+ * anyone looking for one.
  */
 export function searchText(doc: {
   name: string;

@@ -2,9 +2,10 @@
 //
 // 🔴 Why it is no longer one file.
 //
-// The route refuses to send more than 1.5 MB to every visitor, and after
-// the EU-27 import the index was 6.9 MB. Deriving `text` and the slug
-// took it to 4.26 MB (measured), which is better and still not close.
+// The route refuses to send more than 1.5 MB in one file, and after the
+// EU-27 import the index was 6.9 MB. Deriving `text` and the slug took a
+// single packed file to 3.40 MB (3 404 405 B, measured 25.09.2026) —
+// better, and still more than twice the limit.
 //
 // 🔴 What this does NOT do: make the search smaller. A site-wide search
 // over 61 422 campsites has to hold 61 422 campsites. What it changes is

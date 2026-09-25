@@ -15,6 +15,7 @@ import {
   fetchOrder,
   loadProgress,
   partialNotice,
+  type SearchChunk,
   type SearchIndex,
 } from '@/lib/search-chunks';
 
@@ -59,22 +60,44 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
   // CAMP-129. The index arrives in pieces, smallest first, and the
   // search answers from whatever has landed.
   //
-  // \ud83d\udd34 Why not one file any more: 61 422 campsites pack to 4.26 MB,
-  // and the route refuses to hand any single file over 1.5 MB to every
-  // visitor \u2014 so since the EU-27 import this page has been saying "the
-  // search index could not be loaded" to everyone. Splitting does not
-  // make the data smaller; it makes the page useful in the first tenth
-  // of a second instead of after four megabytes.
+  // 🔴 Why not one file any more: 61 422 campsites pack to 3.40 MB in
+  // one file, and the route refuses to hand any single file over 1.5 MB
+  // to a visitor — so since the EU-27 import this page has been saying
+  // "the search index could not be loaded" to everyone. Splitting does
+  // not make the data smaller (3.14 MiB across 28 files, all of which
+  // this component still fetches); it makes the page useful in the
+  // first tenth of a second instead of after all of it.
   useEffect(() => {
     let cancelled = false;
 
-    const getChunk = async (id: string): Promise<SearchDoc[]> => {
-      const r = await fetch(chunkUrl(id));
+    const getChunk = async (chunk: SearchChunk): Promise<SearchDoc[]> => {
+      const r = await fetch(chunkUrl(chunk.id));
       if (!r.ok) throw new Error(String(r.status));
       // CAMP-107. The file is packed; unpackIndex throws on a version it
       // does not know, which lands in the catch and is counted as a
       // failed part rather than shown as a search that finds nothing.
-      return unpackIndex((await r.json()) as PackedIndex);
+      const docs = unpackIndex((await r.json()) as PackedIndex);
+      // \ud83d\udd34 The table of contents said how many campsites are in this
+      // file. If the file disagrees, it is NOT this file \u2014 and the whole
+      // point of the notice below is that a reader is never silently
+      // given a partial index.
+      //
+      // This is reachable in production, not theoretical: both the index
+      // and the chunks are `max-age=3600` with no content hash in any
+      // URL, and `fr-1`/`fr-2` mean "first and second half of France".
+      // France's second part is already 68% of the limit, so one import
+      // turns fr-1..2 into fr-1..3 \u2014 same URLs, different contents. A
+      // browser holding an hour-old TOC would then merge the wrong
+      // halves and call it complete.
+      //
+      // Review measured exactly that: 11 823 French campsites missing,
+      // `data-complete="true"`, notice `null`.
+      if (docs.length !== chunk.count) {
+        throw new Error(
+          `chunk ${chunk.id} holds ${docs.length} campsites, the index said ${chunk.count}`,
+        );
+      }
+      return docs;
     };
 
     void (async () => {
@@ -103,7 +126,7 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
           const chunk = queue[next++];
           if (!chunk) return;
           try {
-            const docs = await getChunk(chunk.id);
+            const docs = await getChunk(chunk);
             if (cancelled) return;
             setState((prev) =>
               prev.status === 'ready'

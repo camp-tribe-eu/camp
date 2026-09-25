@@ -1,6 +1,5 @@
-import { apiFetch } from '@/lib/api';
-import { packIndex, searchText, type SearchDoc } from '@/lib/search';
-import { planChunks, type SearchIndex } from '@/lib/search-chunks';
+import { checkedPlan, fetchDocs } from '@/lib/search-index';
+import type { SearchIndex } from '@/lib/search-chunks';
 
 // CAMP-129: the search index's table of contents.
 //
@@ -9,61 +8,21 @@ import { planChunks, type SearchIndex } from '@/lib/search-chunks';
 // The route it replaces refused to send more than 1.5 MB to every
 // visitor, and after the EU-27 import the index was 6.9 MB — so the
 // search page has been answering "the search index could not be loaded"
-// since 24.09.2026. Deriving `text` and the slug took it to 4.26 MB,
-// which is better and still not close.
+// since 24.09.2026. Deriving `text` and the slug took a single packed
+// file to 3.40 MB (measured), better and still more than twice the
+// limit. Split by country it is 3.14 MiB across 28 files, largest
+// 1 003 KiB.
 //
 // This file is the list of the pieces: 5 KB, fetched first, and it is
 // what lets the loader start with the ones that land soonest.
+//
+// 🔴 Everything it knows lives in lib/search-index.ts, because a route
+// module may not export anything but route handlers.
 
 export const dynamic = 'force-static';
 
-/** Unchanged from the file this replaces, and for the same reason. */
-export const MAX_BYTES = 1_500_000;
-
-interface Doc {
-  name: string | null;
-  country: string;
-  region: string;
-  slug: string;
-  near: { name: string; m: number }[];
-}
-
-export function toSearchDocs(rows: Doc[]): SearchDoc[] {
-  return rows.map((r) => ({
-    kind: 'campsite' as const,
-    name: r.name ?? '',
-    path: `/camping/${r.country}/${r.region}/${r.slug}`,
-    country: r.country,
-    region: r.region,
-    near: r.near,
-    text: searchText({
-      name: r.name ?? '',
-      region: r.region,
-      country: r.country,
-      near: r.near,
-    }),
-  }));
-}
-
-export async function fetchDocs(): Promise<SearchDoc[]> {
-  const res = await apiFetch('/spots/search-index');
-  if (!res.ok) throw new Error(`Search index request failed: ${res.status}`);
-  const rows = (await res.json()) as Doc[];
-  if (rows.length === 0) {
-    // 🔴 An empty index is a broken build, not a site with no campsites.
-    // Nothing downstream can tell the two apart, and the second one
-    // renders as a search that silently finds nothing.
-    throw new Error('The search index is empty — the API returned no rows.');
-  }
-  return toSearchDocs(rows);
-}
-
-export const sizeOfGroup = (group: readonly SearchDoc[]): number =>
-  Buffer.byteLength(JSON.stringify(packIndex([...group])));
-
 export async function GET() {
-  const docs = await fetchDocs();
-  const plan = planChunks(docs, MAX_BYTES, sizeOfGroup);
+  const { plan, total } = checkedPlan(await fetchDocs());
 
   const index: SearchIndex = {
     v: 1,
@@ -77,12 +36,11 @@ export async function GET() {
 
   // 🔴 Said out loud on every build, like the file this replaces.
   // A number nobody prints is a number nobody notices growing.
-  const total = index.chunks.reduce((n, c) => n + c.bytes, 0);
   // eslint-disable-next-line no-console
   console.log(
-    `search index: ${docs.length} campsites in ${index.chunks.length} files, ` +
-      `${(total / 1024 / 1024).toFixed(2)} MB total, ` +
-      `largest ${(Math.max(...index.chunks.map((c) => c.bytes)) / 1024).toFixed(0)} KB`,
+    `search index: ${plan.reduce((n, c) => n + c.docs.length, 0)} campsites in ` +
+      `${index.chunks.length} files, ${(total / 1024 / 1024).toFixed(2)} MiB total, ` +
+      `largest ${(Math.max(...index.chunks.map((c) => c.bytes)) / 1024).toFixed(0)} KiB`,
   );
 
   return new Response(JSON.stringify(index), {
