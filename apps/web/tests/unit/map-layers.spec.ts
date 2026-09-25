@@ -175,7 +175,23 @@ test('the round trip is lossless for EVERY subset, not just the ends', () => {
 test('a count we cannot read is a count of nothing', () => {
   // 🔴 NaN is what Number(missingAttribute) gives, and it used to read
   // as "we drew something".
-  for (const bad of [Number.NaN, -1, undefined, null, 'lots']) {
+  // 🔴 Each of these kills a different guard. Review mutation-tested the
+  // first version: removing `typeof n === 'number'` or `Number.isFinite`
+  // left every test green, because the list had no numeric string and no
+  // Infinity — `'3' > 0` and `Infinity > 0` both read as drawn.
+  for (const bad of [
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    -1,
+    0,
+    '3',
+    'lots',
+    true,
+    [3],
+    { valueOf: () => 3 },
+    undefined,
+    null,
+  ]) {
     const notice = emptyLayerNotice(['campsites'], {
       campsites: bad as unknown as number,
     });
@@ -184,5 +200,9 @@ test('a count we cannot read is a count of nothing', () => {
 });
 
 test('a layer named after a prototype member is not assumed drawn', () => {
-  expect(emptyLayerNotice(['toString'] as never, {})).not.toBeNull();
+  // Passes because `toString` is a function and the type check rejects
+  // it — not because anything special is done about the prototype.
+  for (const id of ['toString', 'constructor', 'valueOf', '__proto__']) {
+    expect(emptyLayerNotice([id] as never, {}), id).not.toBeNull();
+  }
 });

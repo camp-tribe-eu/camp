@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
@@ -101,4 +101,52 @@ test('the CSP still says the things the map needs', () => {
   expect(d.get('img-src')).toContain('blob:');
   expect(d.get('object-src')).toEqual(["'none'"]);
   expect(d.get('frame-ancestors')).toEqual(["'none'"]);
+});
+
+// ── the build-mode guard, which was only ever proved by hand ───────────
+//
+// 🔴 Review's point, and it was fair: "Доведено втрьох" was a session I
+// ran once, not something that re-runs. Deleting the whole block left
+// every test green. These assert it.
+
+function genHeaders(env: Record<string, string>) {
+  const script = path.join(__dirname, '..', '..', 'scripts', 'gen-headers.mjs');
+  // 🔴 Both names are removed first, so a value in the ambient shell
+  // cannot decide the result of a test about those very values.
+  const base = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k]) => k !== 'NODE_ENV' && k !== 'npm_lifecycle_event',
+    ),
+  );
+  const res = spawnSync(process.execPath, [script], {
+    encoding: 'utf8',
+    // The repo types NODE_ENV as required; here its ABSENCE is the case
+    // under test, which is exactly what the cast is for.
+    env: { ...base, ...env } as NodeJS.ProcessEnv,
+  });
+  return { code: res.status, err: res.stderr ?? '' };
+}
+
+test('a build made in development mode is refused', () => {
+  // next.config.mjs adds 'unsafe-eval' in that mode, and `next start`
+  // serves whatever the build baked into routes-manifest.json — so this
+  // would ship a production site with unsafe-eval allowed.
+  const { code, err } = genHeaders({ NODE_ENV: 'development' });
+  expect(code).toBe(1);
+  expect(err).toContain('unsafe-eval');
+});
+
+test('and no lifecycle name talks its way past it', () => {
+  // 🔴 The first version exempted `npm_lifecycle_event === 'predev'`,
+  // for a script that did not exist — a one-word bypass of a security
+  // check, documented in the source.
+  for (const event of ['predev', 'prebuild', 'build', 'dev', 'anything']) {
+    const { code } = genHeaders({ NODE_ENV: 'development', npm_lifecycle_event: event });
+    expect(code, `npm_lifecycle_event=${event} got through`).toBe(1);
+  }
+});
+
+test('a normal build is not refused', () => {
+  expect(genHeaders({}).code).toBe(0);
+  expect(genHeaders({ NODE_ENV: 'production' }).code).toBe(0);
 });

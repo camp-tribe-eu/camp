@@ -157,9 +157,13 @@ export function emptyLayerNotice(
   //
   // `Object.hasOwn`, because a bare index walks the prototype: a layer
   // called `toString` would have read as drawn.
+  // `Object.hasOwn` is deliberately absent: review showed it can never
+  // change an outcome, because nothing on Object.prototype is a positive
+  // finite number and the type check below rejects every one of them.
+  // A line that cannot fail is a line that misleads about what guards
+  // what.
   const counted = (id: string): number => {
-    if (!Object.hasOwn(drawn, id)) return 0;
-    const n = drawn[id];
+    const n: unknown = drawn[id];
     return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0;
   };
   const silent = active.filter((id) => counted(id) === 0);
