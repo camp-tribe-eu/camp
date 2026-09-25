@@ -13,12 +13,15 @@ import type { SearchIndex } from '@/lib/search-chunks';
 // limit. Split by country it was 3.14 MiB across 28 files.
 //
 // 🔴 Measured again 25.09.2026, after CAMP-33 finished computing what
-// is near every campsite: 8.57 MB raw across 29 files (France splits
-// three ways), 1.83 MB once gzipped. Those are two different budgets
-// for two different costs — see TOTAL_MAX_BYTES and RAW_MAX_BYTES.
+// is near every campsite: 8.98 MB raw across 29 files (France splits
+// three ways), 1.92 MB once gzipped — which is exactly what the line
+// below prints on every build, because a comment that disagrees with
+// the log beside it is how both stop being read. Two budgets for two
+// different costs: see TOTAL_MAX_BYTES and RAW_MAX_BYTES.
 //
-// This file is the list of the pieces: 5 KB, fetched first, and it is
-// what lets the loader start with the ones that land soonest.
+// This file is the list of the pieces: 1.5 KiB for 29 chunks (it said
+// 5 KB, measured 1 587 bytes), fetched first, and it is what lets the
+// loader start with the ones that land soonest.
 //
 // 🔴 Everything it knows lives in lib/search-index.ts, because a route
 // module may not export anything but route handlers.

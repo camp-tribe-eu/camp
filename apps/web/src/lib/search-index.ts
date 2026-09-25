@@ -50,21 +50,24 @@ export const MAX_BYTES = 1_500_000;
  * 5 MB, because that is roughly five seconds on the 1 MB/s a phone on
  * mobile data actually gets, and past that "it loads progressively" has
  * stopped being an answer — which is exactly when the card's real fix,
- * a search service the browser queries (CAMP-61), has to happen.
+ * a search service the browser queries (CAMP-67 — not CAMP-61, which is
+ * the deploy card; review found this file citing the wrong one twice),
+ * has to happen.
  *
  * 🔴 CAMP-135: the number kept its meaning and changed what it counts.
  *
  * It used to count `JSON.stringify().length`, while the sentence above
  * it reasoned about seconds on mobile data. Nobody ever downloads
- * uncompressed JSON. Measured on the live index (61 422 campsites, 27
- * files, 25.09.2026):
+ * uncompressed JSON. Measured on the live index (61 422 campsites, 29
+ * files — France splits three ways — 25.09.2026), in decimal MB, the
+ * unit the ceilings themselves are written in:
  *
- *   raw JSON   8.57 MiB   9.0 s at 1 MB/s   ← what this used to count
- *   gzip -9    1.78 MiB   1.9 s
- *   brotli 11  1.36 MiB   1.4 s             ← what a CDN actually sends
+ *   raw JSON   8.98 MB   9.0 s at 1 MB/s   ← what this used to count
+ *   gzip -6    1.92 MB   1.9 s             ← what this counts now
+ *   brotli q4  1.95 MB   2.0 s             ← what a CDN sends on the fly
  *
- * So the build was failing at 8.57 MB over a budget meant to cap a
- * five-second download that in fact takes 1.4 seconds.
+ * So the build was failing at 8.98 MB over a budget meant to cap a
+ * five-second download that in fact takes about two seconds.
  *
  * 🔴 It counts gzip at level 6, and "gzip is a floor" was wrong.
  *
@@ -73,20 +76,40 @@ export const MAX_BYTES = 1_500_000;
  * is false — the quality level matters more than the algorithm, and a
  * CDN compressing on the fly does not use the slow ones:
  *
- *   gzip -9    1.78 MiB     brotli q4   1.86 MiB  ← CDN, on the fly
- *   gzip -6    1.83 MiB     brotli q11  1.37 MiB  ← precompressed only
- *   gzip -1    2.15 MiB
+ *   gzip -9    1.87 MB      brotli q4   1.95 MB   ← CDN, on the fly
+ *   gzip -6    1.92 MB      brotli q11  1.44 MB   ← precompressed only
+ *   gzip -1    2.25 MB
  *
  * Brotli as actually served is BIGGER than gzip -9. So level 6 is used
  * here — the zlib and nginx default, the middle of that spread — and it
  * is a representative number, not a bound. A host on gzip -1 would send
  * 18% more than this counts.
  *
- * This is also why the index was NOT re-packed to make it smaller. A
- * shared table for the repeated place names saves 42% of the raw bytes
- * and 3% of the compressed ones (1.36 → 1.33 MiB) — brotli already
- * finds those repeats, and better. That would have been a format
- * migration and a new way to return the wrong campsite, for 40 KB.
+ * 🔴 The index was not re-packed, and the first version of this comment
+ * gave the wrong reason.
+ *
+ * It said a shared table for the repeated place names "saves 42% of the
+ * raw bytes and 3% of the compressed ones", and dismissed it on the 3%.
+ * Review caught the currency error: this file's whole argument is that
+ * RAW bytes are the binding cost, and then the one option that halves
+ * the binding number was priced in compressed bytes. Measured properly,
+ * end to end:
+ *
+ *   raw            8.98 MB  →  5.20 MB   −42%
+ *   gzip -6        1.92 MB  →  1.76 MB    −8%
+ *   parse+unpack    199 ms  →   171 ms   −14%
+ *   heap held      42.2 MiB →  35.2 MiB  −17%
+ *
+ * So it is a real improvement and a much smaller one than −42% sounds,
+ * because the browser's cost is in materialising 61 422 objects, not in
+ * counting bytes. That is worth knowing on its own: raw size is a proxy
+ * for that cost WITHIN this format and not across formats.
+ *
+ * It is not done here because it is a format migration (v2 → v3) with
+ * its own round-trip risk and its own failure mode — a search that
+ * returns the wrong campsite — and bundling that into a fix to the
+ * guard is how a change stops being reviewable. CAMP-138 carries it,
+ * with these numbers.
  */
 export const TOTAL_MAX_BYTES = 5_000_000;
 
@@ -112,17 +135,22 @@ export const TOTAL_MAX_BYTES = 5_000_000;
  * different number.
  *
  * Compressed bytes are what the network charges. Raw bytes are what the
- * browser charges, and measured on the live index (8.57 MiB, 61 422
+ * browser charges, and measured on the live index (8.98 MB, 61 422
  * campsites, a fast laptop):
  *
  *   JSON.parse of every chunk         31 ms
  *   unpackIndex on top of it         181 ms   ← the real parse cost
- *   heap held by the index          21.3 MiB
+ *   heap held by the index          42.2 MiB
  *   search() per keystroke        29 - 80 ms
  *
  * A mid-range phone is roughly four times slower, so today's index
- * already costs it about 0.7 s of parsing and up to 0.3 s per
+ * already costs it about 0.8 s of parsing and up to 0.3 s per
  * keystroke. This is the binding constraint, not the download.
+ *
+ * (The heap figure was first written as 21.3 MiB from a single
+ * garbage collection, which is noise, not a measurement — settling the
+ * collector on both sides and swapping the order gives 42.2 MiB twice
+ * over. Review had it right.)
  *
  * 🔴 12 MB, and the first version of this said 20 MB with nothing
  * behind it. Review caught that, and rightly: 20 MB was 2.2x today's
@@ -131,9 +159,12 @@ export const TOTAL_MAX_BYTES = 5_000_000;
  * ~400 ms of unpacking on a laptop and over 1.5 s on a phone, which is
  * not a ceiling, it is a hope.
  *
- * 12 MB is 1.4x today. It is where the phone cost stops being tolerable
+ * 12 MB is 1.34x today's 8.98 MB — and the first draft of this line
+ * said "1.4x", which only comes out if you divide decimal MB by MiB,
+ * the very mix-up the message formatter below exists to stop. It is
+ * where the phone cost stops being tolerable
  * rather than where it stops being measurable, and hitting it is meant
- * to start the conversation CAMP-61 names — a search service the
+ * to start the conversation CAMP-67 names — a search service the
  * browser queries instead of a file it keeps — while there is still
  * room to have it.
  */
@@ -277,7 +308,7 @@ export function checkedPlan(
         `past the ${mb(rawMax)} a browser should have to parse and hold.\n` +
         `This is not the download — that is ${mb(sent)} compressed, and fine.\n` +
         `It is what the browser pays: parsing it, holding it, and walking it\n` +
-        `on every keystroke. Measured at 8.57 MB: 181 ms to unpack, 21 MB of\n` +
+        `on every keystroke. Measured at 8.98 MB: 181 ms to unpack, 42 MB of\n` +
         `heap, up to 80 ms a keystroke on a laptop — four times that on a\n` +
         `phone. This is the point CAMP-67 names: move the search to a real\n` +
         `search service and have the browser query it.`,

@@ -31,8 +31,17 @@ import {
 // documents rather than the packed bytes we actually serve.
 //
 // So these tests assert the WIRING, at the shipped defaults, with no
-// injected limits at all. If the ceilings are swapped, the first two
-// fail.
+// injected limits at all — and they assert the NUMBER each message
+// quotes, not just which words it uses. That is what binds a constant
+// to its branch: a raw refusal has to name 12.00 MB, a compressed one
+// has to name 5.00 MB, and neither can do that if they are swapped or
+// if the formatter goes back to dividing by 1024.
+//
+// (The swap is caught by the compressed test and by the ceiling each
+// message quotes. It is NOT caught by the raw fixture on its own —
+// 14.5 MB is over both limits, so that branch refuses it either way.
+// An earlier version of this comment claimed both tests caught it,
+// which was the same kind of untested assertion as the code it guards.)
 
 /** A deterministic RNG that stays inside 32 bits — see `random()`. */
 function mulberry32(seed: number) {
@@ -118,6 +127,10 @@ test.describe('the ceilings on the search index', () => {
     expect(message, 'expected the raw ceiling to refuse this').toContain(
       'a browser should have to parse and hold',
     );
+    // 🔴 The ceiling it names must be RAW_MAX_BYTES, spelled in decimal
+    // MB. Swap the two defaults and this says 5.00; divide by 1024 in
+    // the formatter and it says 11.44.
+    expect(message).toContain('past the 12.00 MB a browser');
     // And it says the download is fine, which is the point of two numbers.
     expect(message).toMatch(/This is not the download — that is \d+\.\d+ MB compressed, and fine/);
   });
@@ -139,7 +152,21 @@ test.describe('the ceilings on the search index', () => {
     expect(message, 'expected the compressed ceiling to refuse this').toContain(
       'we are willing to',
     );
+    expect(message).toContain('past the 5.00 MB we are willing to');
     expect(message).toContain('seconds on the 1 MB/s');
+
+    // 🔴 The seconds must be derived from the COMPRESSED size.
+    //
+    // The message says "N seconds on the 1 MB/s a phone gets", and at
+    // 1 MB/s that is just the megabytes. Review mutated it to quote the
+    // raw size instead — the build then tells you a 5.64 MB download
+    // takes 11 seconds — and nothing failed, because only the words
+    // were asserted. Read both numbers out of the sentence and check
+    // they agree, which holds whatever size the fixture grows to.
+    const size = Number(/is (\d+\.\d+) MB compressed/.exec(message)?.[1]);
+    const seconds = Number(/about (\d+) seconds/.exec(message)?.[1]);
+    expect(size).toBeGreaterThan(0);
+    expect(seconds).toBe(Math.round(size));
   });
 
   test('🔴 it gzips the bytes it serves, summed over every file', () => {
