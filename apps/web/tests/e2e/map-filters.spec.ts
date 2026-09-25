@@ -519,4 +519,31 @@ test.describe('/map filters', () => {
       ).toBe(markers.length);
     }
   });
+
+  // \u{1F534} The sentence a reader meets first, on the real page.
+  //
+  // The unit tests prove filterCountLabel; this proves it is WIRED. The
+  // defect it replaces was exactly a wiring one — a correct number
+  // (`shown`, the campsites drawn) rendered into a sentence that claimed
+  // something else. /map opens zoomed out, draws regions, loads no
+  // markers, and printed a bold "0 campsites" directly above
+  // "3,116 campsites in view". Both numbers were about the same map.
+  test('a zoomed-out map never claims there are no campsites', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+
+    const count = page.getByTestId('filter-count');
+    await expect(count).toBeVisible();
+
+    // Not a bare zero, and not empty — the two ways this line has
+    // already misled somebody.
+    await expect(count).not.toHaveText(/^\s*0\s+campsites/);
+    await expect(count).not.toHaveText(/^\s*$/);
+    await expect(count).toHaveText(/zoom in/i);
+
+    // And what the map says about itself must agree with it.
+    await expect(page.getByRole('status')).toContainText(/campsites in view/i);
+  });
 });
