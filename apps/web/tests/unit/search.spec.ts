@@ -393,3 +393,93 @@ test.describe('what the packed index stops sending', () => {
     }
   });
 });
+
+// ── CAMP-131: how well it matches, before how close it is ─────────────
+
+test.describe('a strong match outranks a near miss', () => {
+  // 🔴 The real case, with the real names.
+  //
+  // Searching "bled" put a French aire first, because the place beside
+  // it is "Segré-en-Anjou Bleu" — "Bleu" is one letter from "bled" —
+  // and it happened to be 416 m away while Camping Bled is 878 m from
+  // Bled Jezero. Distance was the primary sort key, so a one-letter
+  // typo match always beat a perfect one.
+  const frenchAire = doc({
+    name: "Aire l'Esplanade Antoine Glémain",
+    country: 'fr',
+    region: 'maine-et-loire',
+    path: '/camping/fr/maine-et-loire/aire-esplanade',
+    near: [
+      { name: 'Segré-en-Anjou Bleu', m: 416 },
+      { name: 'Lidl', m: 938 },
+    ],
+  });
+  const campingBled = doc({
+    name: 'Camping Bled',
+    country: 'si',
+    region: 'bled',
+    path: '/camping/si/bled/camping-bled',
+    near: [
+      { name: 'Bled', m: 2606 },
+      { name: 'Blejsko jezero', m: 352 },
+      { name: 'Bled Jezero', m: 878 },
+    ],
+  });
+
+  test('🔴 "bled" finds Camping Bled, not a French aire near Bleu', () => {
+    const hits = search([frenchAire, campingBled], 'bled');
+    expect(hits.map((h) => h.doc.name)).toEqual([
+      'Camping Bled',
+      "Aire l'Esplanade Antoine Glémain",
+    ]);
+  });
+
+  test('the near miss is still found — it is ranked, not dropped', () => {
+    // 🔴 Fuzzy matching earns its keep on real typos. The fix is about
+    // ORDER, and silently dropping the weaker match would be a
+    // different change that nobody asked for.
+    const hits = search([frenchAire], 'bled');
+    expect(hits).toHaveLength(1);
+  });
+
+  test('distance still orders results that match equally well', () => {
+    // The reason distance is in the sort at all: "campsites near Bovec"
+    // must come back nearest-first. All three name Bovec exactly, so
+    // they score the same and distance decides.
+    const near = (m: number, name: string) =>
+      doc({ name, path: `/camping/si/bovec/${fold(name).replace(/ /g, '-')}`,
+            region: 'bovec', country: 'si', near: [{ name: 'Bovec', m }] });
+    const hits = search(
+      [near(3000, 'Camp Far'), near(200, 'Camp Near'), near(1200, 'Camp Mid')],
+      'bovec',
+    );
+    expect(hits.map((h) => h.doc.name)).toEqual([
+      'Camp Near',
+      'Camp Mid',
+      'Camp Far',
+    ]);
+    expect(hits.map((h) => h.metres)).toEqual([200, 1200, 3000]);
+  });
+
+  test('🔴 a query that names no place is not ordered by distance', () => {
+    // The original reasoning, kept: ordering "shower" results by metres
+    // would be sorting on a number that answers a question nobody
+    // asked. Equal scores fall through to the deterministic tiebreak.
+    const a = doc({ name: 'Shower Camp A', path: '/camping/hr/istria/a' });
+    const b = doc({ name: 'Shower Camp B', path: '/camping/hr/istria/b' });
+    const hits = search([b, a], 'shower');
+    expect(hits.map((h) => h.doc.path)).toEqual([
+      '/camping/hr/istria/a',
+      '/camping/hr/istria/b',
+    ]);
+    expect(hits.every((h) => h.metres === undefined)).toBe(true);
+  });
+
+  test('an exact name beats a prefix, which beats a typo', () => {
+    const exact = doc({ name: 'Bled', path: '/camping/si/bled/exact' });
+    const prefix = doc({ name: 'Bledograd', path: '/camping/si/bled/prefix' });
+    const typo = doc({ name: 'Bleu', path: '/camping/fr/x/typo', country: 'fr', region: 'x' });
+    const hits = search([typo, prefix, exact], 'bled');
+    expect(hits.map((h) => h.doc.name)).toEqual(['Bled', 'Bledograd', 'Bleu']);
+  });
+});

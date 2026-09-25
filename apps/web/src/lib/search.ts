@@ -264,15 +264,33 @@ export function search(
 
   return hits
     .sort((a, b) => {
-      // 🔴 Distance first, and only when the query actually named a
-      // place. Sorting by distance for a query like "shower" would be
-      // ordering by an irrelevant number and calling it relevance.
+      // 🔴 HOW WELL it matches first, then how close it is.
+      //
+      // This was the other way round, and distance alone decided. So a
+      // weak fuzzy match 416 m from something always beat a perfect
+      // match 878 m away — measured on the live index, searching "bled"
+      // put a French aire first, because the place beside it is called
+      // "Segré-en-Anjou Bleu" and "Bleu" is one letter from "bled". The
+      // Slovenian Camping Bled came fourth.
+      //
+      // The scores already say which is which: an exact word is 100, a
+      // prefix 60, a one-letter typo 30. Distance was overruling all of
+      // it.
+      //
+      // 🔴 The original reasoning is kept, not discarded. Its comment
+      // said: sorting by distance for a query like "shower" would be
+      // ordering by an irrelevant number and calling it relevance. True
+      // — and still true here, because distance now only separates
+      // results that match EQUALLY WELL. "Campsites near Bovec" all
+      // score the same on "bovec", so they are still ordered by how
+      // close they are to Bovec, which is the whole point of having the
+      // distance at all.
+      if (b.score !== a.score) return b.score - a.score;
       if (anyNamedPlace) {
         const am = a.metres ?? Number.POSITIVE_INFINITY;
         const bm = b.metres ?? Number.POSITIVE_INFINITY;
         if (am !== bm) return am - bm;
       }
-      if (b.score !== a.score) return b.score - a.score;
       // Deterministic tiebreak — the same lesson as the map's ORDER BY.
       return a.doc.path.localeCompare(b.doc.path);
     })
