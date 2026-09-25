@@ -437,6 +437,20 @@ load_layer() {
     -nln "osm_ctx_$name" -overwrite \
     -lco GEOMETRY_NAME=geom -nlt PROMOTE_TO_MULTI -lco SPATIAL_INDEX=GIST
 
+  # 🔴 ANALYZE, because a freshly bulk-loaded table has no statistics.
+  #
+  # ogr2ogr writes 6.4 million rows and PostgreSQL knows nothing about
+  # them until autovacuum gets round to it. The first query after a load
+  # is therefore planned blind — and the first query after a load is
+  # compute-context, the one that matters. Measured 25.09.2026: the
+  # tables showed `last_analyze` empty right after loading, with
+  # autoanalyze still running on the water layer while compute-context
+  # was already querying it.
+  #
+  # One line here means the planner has real numbers before anything
+  # asks a question, instead of finding out afterwards.
+  psql "$DB_URL" -v ON_ERROR_STOP=1 -q -c "ANALYZE osm_ctx_$name;"
+
   # 🔴 Check that the rows actually arrived, and fail loudly if not.
   #
   # ogr2ogr can print "ERROR 1" and still leave the previous table in
