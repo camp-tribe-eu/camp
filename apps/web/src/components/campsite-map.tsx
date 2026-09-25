@@ -466,6 +466,31 @@ export default function CampsiteMap() {
       ]
         .map((n) => n.toFixed(6))
         .join(',');
+      // \U0001f534 WHICH campsites, not only how many \u2014 capped, so this can
+      // never become a megabyte of DOM attribute.
+      //
+      // The spec that compares the map against the API could only say
+      // "5 against 3", which names nothing a person can go and look at.
+      // The slugs are already public: every one of them is a URL on
+      // this site, and each is drawn on screen right now.
+      const inside = drawn.current.filter((f) => {
+        const [lon, lat] = f.geometry.coordinates;
+        return (
+          lon >= b.getWest() &&
+          lon <= b.getEast() &&
+          lat >= b.getSouth() &&
+          lat <= b.getNorth()
+        );
+      });
+      // \U0001f534 A campsite with no slug still counts. It has no page \u2014
+      // CAMP-127 draws it without a link \u2014 but it is on the map, and a
+      // diff that silently drops it is how "13 against 12" turned into
+      // two lists that looked identical.
+      el.dataset.inViewSlugs =
+        inside.length <= 200
+          ? inside.map((f) => f.properties.slug || '(no slug)').join(',')
+          : '';
+
       el.dataset.inView = String(
         drawn.current.filter((f) => {
           const [lon, lat] = f.geometry.coordinates;
@@ -835,6 +860,16 @@ export default function CampsiteMap() {
       <div
         ref={container}
         data-testid="map"
+        // \U0001f534 What the map is doing, so a test can wait for a state to
+        // BE rather than for a message to be absent.
+        //
+        // The spec comparing the map against the API read the counts the
+        // moment any marker arrived, while the remaining chunks for the
+        // viewport were still in flight \u2014 and compared a half-loaded map
+        // with a complete API answer. Waiting on the absence of the
+        // status line would have the same hole the search had: absent is
+        // also true before React has rendered anything.
+        data-map-state={dataState.kind}
         data-active-source={active.id}
         data-shown={tally.shown}
         data-total={tally.total}

@@ -35,6 +35,48 @@ async function loaded(page: Page) {
     .toBeGreaterThan(0);
 }
 
+/**
+ * Zoom in until the map is drawing individual campsites.
+ *
+ * \ud83d\udd34 CAMP-127 made this necessary and nothing said so. /map opens
+ * zoomed out, where the map draws one circle per region and fetches NO
+ * markers \u2014 so `data-total` stays 0 forever and `loaded()` times out.
+ * The spec that compares the map against the API was still written for
+ * the old world, where one file held every campsite at every zoom.
+ *
+ * Clicking the real control rather than reaching into the map object:
+ * the same reason the counts are published on the container instead of
+ * hanging the map on `window`.
+ */
+async function zoomToDetail(page: Page) {
+  const zoomIn = page.locator('.maplibregl-ctrl-zoom-in');
+  await expect(zoomIn).toBeVisible();
+  for (let i = 0; i < 8; i++) {
+    const total = Number(await map(page).getAttribute('data-total'));
+    if (total > 0) break;
+    await zoomIn.click();
+    await page.waitForTimeout(700);
+  }
+  await loaded(page);
+  // \U0001f534 And then wait for it to SETTLE. `data-total > 0` means the
+  // first chunk arrived, not the last: the map fetches one file per
+  // region in view, so reading the counts at that moment compares a
+  // half-loaded map against a complete API answer. Measured: the map
+  // said 0 where the API said 54.
+  await expect(map(page)).toHaveAttribute('data-map-state', 'ready');
+  // \U0001f534 And for the bounds to exist. `publishCounts` runs on the
+  // map's `idle` event, which is a different moment from "the data
+  // finished loading" \u2014 so `data-map-state` can say ready while
+  // `data-bounds` has never been written. Waiting for the attribute to
+  // BE something, never for a message to be absent.
+  await expect(map(page)).not.toHaveAttribute('data-bounds', '');
+  await expect
+    .poll(async () => (await map(page).getAttribute('data-bounds')) ?? '', {
+      timeout: 15_000,
+    })
+    .not.toBe('');
+}
+
 async function skipWithoutWebGL(page: Page) {
   const ok = await page.evaluate(() => {
     try {
@@ -486,7 +528,9 @@ test.describe('/map filters', () => {
     ]) {
       await page.goto(`/map?${query}`);
       await skipWithoutWebGL(page);
-      await loaded(page);
+      // Markers only exist below DETAIL_ZOOM. Without this the map is
+      // drawing regions and there is nothing to compare.
+      await zoomToDetail(page);
 
       // What the map has drawn inside its own viewport, and the viewport
       // itself — read together so they cannot describe two moments.
@@ -494,7 +538,12 @@ test.describe('/map filters', () => {
         const el = document.querySelector('[data-testid="map"]');
         return {
           inView: Number(el?.getAttribute('data-in-view') ?? -1),
+          shown: Number(el?.getAttribute('data-shown') ?? -1),
+          total: Number(el?.getAttribute('data-total') ?? -1),
           box: el?.getAttribute('data-bounds') ?? '',
+          slugs: (el?.getAttribute('data-in-view-slugs') ?? '')
+            .split(',')
+            .filter(Boolean),
         };
       });
       expect(drawn.box, 'the map did not publish its bounds').not.toBe('');
@@ -504,7 +553,7 @@ test.describe('/map filters', () => {
       );
       expect(res.ok(), `API refused ${query}`).toBe(true);
       const { markers, truncated } = (await res.json()) as {
-        markers: unknown[];
+        markers: { path: string | null }[];
         truncated: boolean;
       };
       // One viewport of markers must never hit the cap; if it does, the
@@ -513,9 +562,35 @@ test.describe('/map filters', () => {
         false,
       );
 
+      // \U0001f534 Name the campsites, do not just count them.
+      //
+      // This said `Expected: 3, Received: 5` and left the next person to
+      // work out which two \u2014 across 61 422 campsites and a viewport
+      // nobody can reproduce from the message. A disagreement between
+      // our client filter and our server filter is a data-correctness
+      // bug, and the first question is always "which ones".
+      const apiSlugs = markers
+        .map((m) => (m.path ?? '').split('/').pop() || '(no slug)')
+        .sort();
+      const mapSlugs = [...drawn.slugs].sort();
+
+      // \U0001f534 The whole sorted list, not a set difference.
+      //
+      // The first version compared sets, and a set difference cannot see
+      // a DUPLICATE: the map drawing one campsite twice produced two
+      // "identical" lists and a count that was one too high. Which is
+      // exactly the defect that was hiding here.
+      expect(
+        mapSlugs,
+        `the map and the API disagree for ${query} in bbox ${drawn.box} ` +
+          `(map ${mapSlugs.length}, API ${apiSlugs.length}, ` +
+          `shown ${drawn.shown} of ${drawn.total} loaded, ` +
+          `API said: ${apiSlugs.join(' ')})`,
+      ).toEqual(apiSlugs);
+
       expect(
         drawn.inView,
-        `the map and the API disagree for ${query}`,
+        `the map and the API disagree on the count for ${query}`,
       ).toBe(markers.length);
     }
   });
