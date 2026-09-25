@@ -527,6 +527,16 @@ export function search(
   const matched: { doc: SearchDoc; scores: number[] }[] = [];
   for (let d = 0; d < docs.length; d++) {
     const row = scores[d];
+    // 🔴 Redundant today, and kept on purpose — measured, not assumed.
+    //
+    // `required` can never be all-false (if every term is common they
+    // all become required again), so a document matching nothing already
+    // fails the loop below, and removing this line changes no result on
+    // 308 queries. It stays as the one line that still holds if somebody
+    // later makes every term optional — at which point, without it, an
+    // empty-handed document would match everything. Unlike the `floor`
+    // this replaced, it is labelled as what it is rather than described
+    // as the thing doing the work.
     let ok = row.some((s) => s > 0);
     for (let i = 0; ok && i < row.length; i++) {
       if (row[i] === 0 && required[i]) ok = false;
