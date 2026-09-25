@@ -198,6 +198,11 @@ async function skipWithoutWebGL(page: Page) {
 }
 
 test.describe('/map', () => {
+  // The same budget as the filter suite, and for the same measured
+  // reason: a map test now includes zooming to detail and fetching one
+  // file per region in view.
+  test.describe.configure({ timeout: 90_000 });
+
   // 🔴 The regression that cost the most time on this card, and the
   // reason it is the first test.
   //

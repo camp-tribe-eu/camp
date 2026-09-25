@@ -304,6 +304,19 @@ export default function CampsiteMap() {
    * behind.
    */
   const publishRef = useRef<(() => void) | null>(null);
+  /**
+   * Chunks that failed and have not since succeeded.
+   *
+   * 🔴 `failures` was local to one `refresh` call, and that is not
+   * enough. A call that fails publishes `failed`; a later call whose
+   * `missing` is empty reaches the same tail with nothing to report and
+   * publishes `ready` over it. The map then claims to be complete while
+   * a region it could not fetch is absent, and nothing tries again
+   * until the reader happens to move.
+   *
+   * Kept across calls and cleared per key on success.
+   */
+  const failedKeys = useRef<Map<string, string>>(new Map());
   const [dataState, setDataState] = useState<MapDataState>({ kind: 'loading' });
 
   const active =
@@ -722,7 +735,6 @@ export default function CampsiteMap() {
     const missing = keys.filter((k) => !loaded.current.has(k));
     if (missing.length > 0) setDataState({ kind: 'loading' });
 
-    const failures: string[] = [];
     // 🔴 EVERY key is claimed before the first await, not each one
     // when its turn comes.
     //
@@ -746,13 +758,14 @@ export default function CampsiteMap() {
         const res = await fetch(chunkUrl(key));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const collection = (await res.json()) as { features?: SpotFeature[] };
+        failedKeys.current.delete(key);
         everything.current = [
           ...everything.current,
           ...(collection.features ?? []),
         ];
       } catch (err) {
         loaded.current.delete(key);
-        failures.push(`${key}: ${(err as Error).message}`);
+        failedKeys.current.set(key, (err as Error).message);
       } finally {
         inFlight.current -= 1;
       }
@@ -768,9 +781,20 @@ export default function CampsiteMap() {
       // reader (or a test) sees alongside `ready` describe the data
       // that is now drawn.
       publishRef.current?.();
+      // 🔴 Only chunks the reader is LOOKING at count as a failure.
+      //
+      // A region that failed and has since been panned away from must
+      // not keep the current view marked broken — that would tell the
+      // reader this map is incomplete because of something off screen.
+      // It stays in `failedKeys`, so panning back reports it again.
+      const stillWrong = keys.filter((k) => failedKeys.current.has(k));
       setDataState(
-        failures.length > 0
-          ? { kind: 'failed', what: failures[0], loaded: everything.current.length }
+        stillWrong.length > 0
+          ? {
+              kind: 'failed',
+              what: `${stillWrong[0]}: ${failedKeys.current.get(stillWrong[0])}`,
+              loaded: everything.current.length,
+            }
           : { kind: 'ready' },
       );
     }

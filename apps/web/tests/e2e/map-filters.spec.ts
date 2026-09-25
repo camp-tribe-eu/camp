@@ -54,7 +54,17 @@ async function loaded(page: Page) {
   for (let i = 0; i < 8; i++) {
     if (Number(await map(page).getAttribute('data-total')) > 0) break;
     await zoomIn.click();
-    await page.waitForTimeout(700);
+    // 🔴 Poll rather than sleep a flat 700 ms per click.
+    //
+    // Eight clicks at a fixed wait is 5.6 s spent before the real wait
+    // even begins, and on a loaded machine that pushed these tests past
+    // the 30 s budget — they failed on a timeout, not on an assertion.
+    // Most views need one or two clicks, and this leaves as soon as
+    // markers appear.
+    for (let w = 0; w < 8; w++) {
+      if (Number(await map(page).getAttribute('data-total')) > 0) break;
+      await page.waitForTimeout(150);
+    }
   }
   await expect
     .poll(async () => Number(await map(page).getAttribute('data-total')), {
@@ -99,6 +109,22 @@ async function skipWithoutWebGL(page: Page) {
 }
 
 test.describe('/map filters', () => {
+  // 🔴 90 s a test, not Playwright's default 30.
+  //
+  // Since CAMP-127 a map test is: open the page, zoom in until the map
+  // switches from region circles to markers, and wait for one file per
+  // region in view to arrive. Measured on this machine with the OSM
+  // pipeline running alongside — which is what a CI runner with six
+  // browser projects looks like — the suite took 1.5 minutes for 30
+  // tests, and several individual tests crossed 30 s and failed on the
+  // budget rather than on anything they assert.
+  //
+  // Same reasoning as the search suite's 20 s: a limit the machine can
+  // cross while working correctly turns `check-flaky.mjs` into a red
+  // `main`. This is above the worst honest measurement, and a genuinely
+  // broken map still fails in seconds with a clear message.
+  test.describe.configure({ timeout: 90_000 });
+
   test('every filter is present, at this browser and this width', async ({
     page,
   }) => {
