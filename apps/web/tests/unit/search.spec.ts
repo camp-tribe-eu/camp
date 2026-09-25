@@ -427,11 +427,40 @@ test.describe('a strong match outranks a near miss', () => {
   });
 
   test('🔴 "bled" finds Camping Bled, not a French aire near Bleu', () => {
+    // 🔴 CAMP-132 made this stronger than CAMP-131 left it.
+    //
+    // It used to assert the aire came SECOND. It now does not come back
+    // at all, because something matched `bled` properly and a one-letter
+    // near miss is not competing with that — it is noise. Measured on
+    // the live index, this is the difference between 20 hits of which 15
+    // were French aires beside "Segré-en-Anjou Bleu", and 8 hits with no
+    // French aire at any position, which is what CAMP-132 asks for.
+    //
+    // The near miss is NOT gone in general — see the test below, which
+    // is the case fuzzy matching exists for.
     const hits = search([frenchAire, campingBled], 'bled');
-    expect(hits.map((h) => h.doc.name)).toEqual([
-      'Camping Bled',
-      "Aire l'Esplanade Antoine Glémain",
-    ]);
+    expect(hits.map((h) => h.doc.name)).toEqual(['Camping Bled']);
+  });
+
+  test('🔴 the typo band is still a band, when it is all there is', () => {
+    // 🔴 What the edit above stops covering, covered here.
+    //
+    // The old test asserted 100 / 60 / 30 in one list, and that list no
+    // longer exists: once something matches properly the near misses are
+    // suppressed, so the fuzzy band is only observable when nothing
+    // scores above it. The rule this must catch is the over-reaching
+    // version of the same change — "drop every fuzzy match" — which
+    // would leave this query with no answer at all.
+    //
+    // Absolute numbers cannot be asserted any more either, because every
+    // score is multiplied by the term's rarity. The RATIO survives that,
+    // because one term means one multiplier: one edit scores 30, two
+    // score 20, so the first must be exactly half again as much.
+    const one = doc({ name: 'Kamping', path: '/camping/fr/x/a', country: 'fr', region: 'x' });
+    const two = doc({ name: 'Kampink', path: '/camping/fr/x/b', country: 'fr', region: 'x' });
+    const hits = search([one, two], 'kampingx');
+    expect(hits.map((h) => h.doc.name)).toEqual(['Kamping', 'Kampink']);
+    expect(hits[0].score / hits[1].score).toBeCloseTo(30 / 20, 10);
   });
 
   test('the near miss is still found — it is ranked, not dropped', () => {
@@ -475,12 +504,14 @@ test.describe('a strong match outranks a near miss', () => {
     expect(hits.every((h) => h.metres === undefined)).toBe(true);
   });
 
-  test('an exact name beats a prefix, which beats a typo', () => {
+  test('an exact name beats a prefix, and a typo is not shown beside them', () => {
     const exact = doc({ name: 'Bled', path: '/camping/si/bled/exact' });
     const prefix = doc({ name: 'Bledograd', path: '/camping/si/bled/prefix' });
     const typo = doc({ name: 'Bleu', path: '/camping/fr/x/typo', country: 'fr', region: 'x' });
     const hits = search([typo, prefix, exact], 'bled');
-    expect(hits.map((h) => h.doc.name)).toEqual(['Bled', 'Bledograd', 'Bleu']);
+    // The typo is dropped, not ranked last: `bled` matched two documents
+    // properly, so `Bleu` is a different word rather than a weak answer.
+    expect(hits.map((h) => h.doc.name)).toEqual(['Bled', 'Bledograd']);
     // 🔴 The SCORES, not just the order.
     //
     // Review mutation-tested the first version of this test: raising
@@ -489,7 +520,7 @@ test.describe('a strong match outranks a near miss', () => {
     // tiebreak produced the expected result after the band this test is
     // named for had been erased. A test that passes when the thing it
     // names is gone is not a test.
-    expect(hits.map((h) => h.score)).toEqual([100, 60, 30]);
+    expect(hits.map((h) => h.score)).toEqual([100, 60]);
   });
 
   test('🔴 the distance says WHICH place it is from', () => {
