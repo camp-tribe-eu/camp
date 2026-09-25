@@ -187,18 +187,18 @@ export interface SearchHit {
 }
 
 /**
- * Scores one document against one folded term.
- *
- * The bands are deliberately far apart so that a weaker kind of match
- * can never outrank a stronger one by accumulating: an exact word beats
- * any number of fuzzy ones.
- */
-/**
  * What a term match is worth, before rarity weighting.
  *
- * 🔴 Named because `search` now has to recognise an exact match to count
- * document frequency, and comparing against a bare `100` in two places
- * is how the two drift apart.
+ * The bands are deliberately far apart so that a weaker kind of match
+ * can never outrank a stronger one by accumulating: within one term, an
+ * exact word beats any number of fuzzy ones.
+ *
+ * 🔴 Named because `search` now has to recognise an exact match in three
+ * separate decisions — whether to count it towards document frequency,
+ * whether the term still needs an edit distance, and where the floor
+ * sits — and comparing against a bare `100` in three places is how they
+ * drift apart. They already did once: two of them said `PREFIX` where
+ * they meant `EXACT_WORD`.
  */
 const EXACT_WORD = 100;
 const PREFIX = 60;
@@ -256,10 +256,19 @@ function strongScore(words: string[], term: string): number {
  * only ever run for a term that matched NOTHING exactly or by prefix,
  * which is the case it exists for: a reader who mistyped.
  *
- * That makes the whole pass cheaper than the one it replaces, despite
- * visiting every document for every term. Measured on the live index
- * against main: `camping bovec` 124 ms → 50 ms, `bled` 72 ms → 26 ms,
- * `camping les pins` 108 ms → 36 ms.
+ * That makes the common case much cheaper than the pass it replaces,
+ * despite visiting every document for every term. Measured on the live
+ * index against main: `camping bovec` 124 ms → 50 ms, `bled` 72 ms →
+ * 26 ms, `camping les pins` 108 ms → 36 ms.
+ *
+ * 🔴 It is NOT cheaper for the one case it exists for. When a term does
+ * need the edit distance, this second loop splits every document's text
+ * a second time, and review measured the mistyped query `bovek` getting
+ * SLOWER: 194 ms → 225 ms, about 16%. That is the trade — every query
+ * that is spelled correctly pays a third of what it used to, and a
+ * mistyped one pays a sixth more. An earlier version of this comment
+ * claimed the whole pass was cheaper, which was true only on the half
+ * of the fork that gets measured most often.
  */
 function fuzzyScore(words: string[], term: string): number {
   const allowed = tolerance(term);
@@ -332,9 +341,25 @@ export interface SearchOptions {
  * in 31.3% of the index narrows nothing, and requiring it threw away the
  * right answer: `camping bovec` could not reach "Camp Bovec", because
  * "Camp" is not "camping". So common words became preferences and rare
- * words stayed requirements. Measured on 496 region queries, the top
- * hit was in the region named 63.5% of the time before and 86.1% after,
- * with no query made worse; on 400 place queries, 89.8% → 100%.
+ * words stayed requirements.
+ *
+ * Measured on the live index (61 422 campsites, 25.09.2026), by query
+ * rather than by total — the corpus is in tests/unit/ranking-quality
+ * .spec.ts so these can be rerun:
+ *
+ *   496 region queries, top hit must BE in the region named
+ *                                   60.9% → 82.7%, 108 fixed, 0 worse
+ *   400 place queries, top hit must be near the place named
+ *                                   50.3% → 100%, 199 fixed, 0 worse
+ *
+ * 🔴 Not "no query made worse" in general — review built a wider corpus
+ * (every region with at least five campsites, 562 of them) and found
+ * one: `camping tolmin` used to answer with a campsite in Tolmin and
+ * now answers with `Camp Bovec`, 40 km away, because a shop 273 m from
+ * it is called "Kmetijska Zadruga Tolmin Trgovina Market Bovec". On
+ * that corpus the trade is 42 better against 1 worse. The cause is
+ * `nearestNamed` matching a term against any place name, which
+ * CAMP-131 documented and this change made matter more often.
  */
 export function search(
   docs: SearchDoc[],
@@ -373,14 +398,36 @@ export function search(
     scores[d] = row;
   }
 
-  // A term nothing matched properly is the one a reader may have
+  // A term no document contains exactly is the one a reader may have
   // mistyped, and only that term pays for an edit distance.
-  const needsFuzzy = ts.map((t, i) => best[i] < PREFIX && tolerance(t) > 0);
+  //
+  // 🔴 This gate and the floor below must ask the SAME question. They
+  // did not: the floor was relaxed to EXACT_WORD while this still read
+  // PREFIX, so for `kovak` the floor said "keep the near misses" and
+  // this said "do not bother computing them" — and the query returned
+  // one hit instead of six, exactly as before the fix. Two spellings of
+  // one condition is the bug; EXACT_WORD is the condition.
+  const needsFuzzy = ts.map(
+    (t, i) => best[i] !== EXACT_WORD && tolerance(t) > 0,
+  );
   if (needsFuzzy.some(Boolean)) {
     for (let d = 0; d < docs.length; d++) {
       const words = docs[d].text.split(' ');
       for (let i = 0; i < ts.length; i++) {
-        if (needsFuzzy[i]) scores[d][i] = fuzzyScore(words, ts[i]);
+        // 🔴 Fill in a blank; never overwrite a real score.
+        //
+        // This read `if (needsFuzzy[i])` and clobbered the value. It was
+        // safe only while this pass ran exclusively for terms nothing
+        // matched at all — and the moment the gate above was widened to
+        // "no EXACT match", a term could arrive here with prefix
+        // matches already scored 60, which a fuzzy 30 then erased.
+        // Measured: `kovak` returned all six hits tied on one score,
+        // so `Kovakő Camp` — the only one that really starts with the
+        // word — ranked level with five near misses instead of above
+        // them.
+        if (needsFuzzy[i] && scores[d][i] === 0) {
+          scores[d][i] = fuzzyScore(words, ts[i]);
+        }
       }
     }
   }
@@ -416,15 +463,35 @@ export function search(
   //
   // `tolerance()` allows one edit on a four-letter word, so `bleu`
   // matches `bled`. That is right when the reader mistyped and wrong
-  // when they did not: measured on the live index, `bled` returned 20
-  // hits of which 15 were French aires beside "Segré-en-Anjou Bleu",
-  // while Slovenian Bled sat above them. Once some document matches the
-  // word properly, the near misses are not competing — they are noise.
+  // when they did not: measured on the live index, `bled` matched 99
+  // documents, and of the 20 a reader is shown, 15 were not Slovenian —
+  // 10 of them French sites beside places like "Segré-en-Anjou Bleu".
+  // Once some document matches the word properly, the near misses are
+  // not competing — they are noise.
   //
-  // So each term gets a floor: if anything scored at least PREFIX, only
-  // scores at least PREFIX count for that term. A genuine typo is
-  // untouched, because then nothing scored that high and the floor is 1.
-  const floor = best.map((b) => (b >= PREFIX ? PREFIX : 1));
+  // (An earlier version of this comment said "20 hits of which 15 were
+  // French aires". Both halves were wrong and review caught it: 20 was
+  // the display limit rather than a count, and 15 was how many were not
+  // Slovenian. The French ones numbered 10, of which 4 are called
+  // "aire". The conclusion held; the evidence was sloppy.)
+  //
+  // So each term gets a floor: if some document contains the word
+  // EXACTLY, only exact words and prefixes count for that term. A
+  // genuine typo is untouched, because then nothing matched exactly and
+  // the floor is 1.
+  //
+  // 🔴 An exact word, not a prefix. Review caught this, and it was not
+  // a nicety: the floor used to rise on `best >= PREFIX`, so ONE
+  // incidental word anywhere in 61 422 documents that merely STARTS
+  // with the typo switched fuzzy matching off for that term. Measured —
+  // `kovak` returned six campsites on main including `Camp Kovač`, and
+  // one on the branch, because a Hungarian site called `Kovakő Camp`
+  // prefixes it. The suite did not notice: the test that asserts
+  // exactly this query runs against three documents, none of them
+  // `kovakő`, which is the fixture-sized blind spot this file keeps
+  // finding. A prefix is a guess about a word the reader did not
+  // finish; only an exact match proves the word exists as typed.
+  const floor = best.map((b) => (b === EXACT_WORD ? PREFIX : 1));
 
   // 🔴 And a word that narrows the answer is worth more than one that
   // does not.

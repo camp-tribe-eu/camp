@@ -63,6 +63,41 @@ function load(): SearchDoc[] | null {
 
 const docs = load();
 
+/**
+ * The 496-query corpus, in the repository rather than on a laptop.
+ *
+ * 🔴 Review's finding, and a fair one: `search.ts` cited "the 496-query
+ * region corpus (see ranking-quality.spec.ts)" and this file did not
+ * contain it. Every number in that comment was therefore unverifiable
+ * by anybody but me — the same shape of claim this project already
+ * treats as worse than no claim at all.
+ *
+ * So the corpus is built here, deterministically, from the index: one
+ * query per real region, `camping <region>`, and the answer is right
+ * only when the top hit IS IN that region. That criterion cannot be
+ * satisfied by the change itself — an earlier version accepted a hit
+ * that merely contained the word, which suppression guarantees, and so
+ * it scored 100% before and after and measured nothing.
+ */
+function regionCorpus(docs: SearchDoc[], limit = 496) {
+  const regions = [...new Set(docs.map((d) => d.region))].filter(
+    (r) => r && fold(r).split(' ').some((w) => w.length > 3),
+  );
+  // A fixed sequence, so a rerun measures the same thing.
+  let seed = 132;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const seen = new Set<string>();
+  const out: { q: string; region: string }[] = [];
+  while (out.length < limit && seen.size < regions.length) {
+    const r = regions[Math.floor(rnd() * regions.length)];
+    if (seen.has(r)) continue;
+    seen.add(r);
+    const w = fold(r).split(' ').filter((x) => x.length > 3)[0];
+    out.push({ q: `camping ${w}`, region: r });
+  }
+  return out;
+}
+
 test.describe('ranking quality, measured on the live index', () => {
   test.skip(
     docs === null,
@@ -119,5 +154,33 @@ test.describe('ranking quality, measured on the live index', () => {
         `${q}: first is ${hits[0].doc.name} [${hits[0].doc.country}]`,
       ).toBe(cc);
     }
+  });
+  test('🔴 the corpus the comments cite, run here', () => {
+    // Measured 25.09.2026 on the live index (61 422 campsites): main
+    // put the top hit in the named region for 60.9% of these, this
+    // ranking for 82.7%, with 108 queries fixed and none made worse.
+    //
+    // The floor is deliberately below the measured figure. This runs
+    // against live data that changes under it, so an exact number would
+    // be a test that fails when the world moves rather than when the
+    // code breaks; what must not happen is a slide back towards the
+    // 60.9% this card started from.
+    const corpus = regionCorpus(docs!);
+    expect(corpus.length).toBe(496);
+
+    let right = 0;
+    const wrong: string[] = [];
+    for (const t of corpus) {
+      const top = search(docs!, t.q, { limit: 1 })[0]?.doc;
+      if (top?.region === t.region) right++;
+      else if (wrong.length < 5) {
+        wrong.push(`${t.q} → ${top?.name ?? '(nothing)'} [${top?.region ?? '-'}]`);
+      }
+    }
+    const share = right / corpus.length;
+    expect(
+      share,
+      `${right}/${corpus.length} correct. Worst: ${wrong.join('; ')}`,
+    ).toBeGreaterThan(0.75);
   });
 });
