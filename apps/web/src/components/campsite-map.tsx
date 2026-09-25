@@ -803,6 +803,7 @@ export default function CampsiteMap() {
           shown={tally.shown}
           total={tally.total}
           unknownExcluded={tally.unknownExcluded}
+          dataState={dataState}
         />
       </div>
 

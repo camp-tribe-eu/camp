@@ -7,6 +7,7 @@ import {
   chunksInView,
   countInView,
   dataMessage,
+  filterCountLabel,
   overlaps,
 } from '../../src/lib/map-chunks';
 
@@ -123,4 +124,73 @@ test('a wide view explains the circles instead of pretending they are campsites'
 
 test('and a map that is simply working says nothing at all', () => {
   expect(dataMessage({ kind: 'ready' })).toBeNull();
+});
+
+// ── the count in the filter panel ─────────────────────────────────
+
+test.describe('filterCountLabel', () => {
+  const counts = { shown: 12, total: 1079, filtering: false };
+
+  test('\u{1F534} a zoomed-out map never says a number, least of all zero', () => {
+    // The whole reason this function exists. The panel printed a bold 0
+    // directly above "3,116 campsites in view" — two numbers about the
+    // same map, disagreeing, on one screen.
+    for (const filtering of [false, true]) {
+      const label = filterCountLabel(
+        { kind: 'wide', count: 3116 },
+        { ...counts, shown: 0, total: 0, filtering },
+      );
+      expect(label.value, 'a wide view has no campsite count').toBeNull();
+      expect(label.text).toMatch(/zoom in/i);
+    }
+  });
+
+  test('\u{1F534} nor does a map that failed to load', () => {
+    const label = filterCountLabel(
+      { kind: 'failed', what: 'HTTP 500' },
+      { ...counts, shown: 0, total: 0 },
+    );
+    expect(label.value).toBeNull();
+    // And it does not tell the reader to zoom in, which would not help.
+    expect(label.text).not.toMatch(/zoom in/i);
+    expect(label.text).toMatch(/did not load/i);
+  });
+
+  test('nor one that has not finished loading', () => {
+    expect(filterCountLabel({ kind: 'loading' }, counts).value).toBeNull();
+  });
+
+  test('a ready map gives the number, and says what it is of', () => {
+    expect(filterCountLabel({ kind: 'ready' }, counts)).toEqual({
+      value: 12,
+      text: ' campsites',
+    });
+    expect(
+      filterCountLabel({ kind: 'ready' }, { ...counts, filtering: true }).text,
+    ).toBe(' of 1,079 campsites');
+  });
+
+  test('a ready map with genuinely nothing shown may say zero', () => {
+    // \u{1F534} The one place a zero is honest: the data IS loaded and the
+    // filters match none of it. Suppressing it here would be the
+    // opposite mistake — hiding a true answer.
+    const label = filterCountLabel(
+      { kind: 'ready' },
+      { shown: 0, total: 1079, filtering: true },
+    );
+    expect(label.value).toBe(0);
+  });
+
+  test('every state answers — none falls through to silence', () => {
+    const states = [
+      { kind: 'ready' as const },
+      { kind: 'loading' as const },
+      { kind: 'wide' as const, count: 5 },
+      { kind: 'failed' as const, what: 'x' },
+    ];
+    for (const s of states) {
+      const label = filterCountLabel(s, counts);
+      expect(label.text.trim(), `${s.kind} says nothing`).not.toBe('');
+    }
+  });
 });

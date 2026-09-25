@@ -140,3 +140,53 @@ export function dataMessage(state: MapDataState): string | null {
       return null;
   }
 }
+
+/**
+ * What the filter panel's count says, given what the map actually knows.
+ *
+ * 🔴 It printed a bold `0` whenever no individual campsites were
+ * loaded — which is the normal state of this map, because zoomed out it
+ * draws regions and fetches no markers at all. So "0 campsites" sat
+ * directly above "3,116 campsites in view", and the two disagreed on
+ * one screen. A reader reads the bold zero and leaves.
+ *
+ * That is the CAMP-127 defect a second time: `shown` was never wrong —
+ * it is exactly the number of things drawn — but the SENTENCE built
+ * from it claimed something else. Every test was green. It was found by
+ * opening the page and reading it.
+ *
+ * 🔴 A number is returned only in `ready`, where one exists. The other
+ * three states each say what they are, because silence and zero are the
+ * two ways this panel has already misled somebody.
+ */
+export function filterCountLabel(
+  state: MapDataState,
+  counts: { shown: number; total: number; filtering: boolean },
+): { text: string; value: number | null } {
+  switch (state.kind) {
+    case 'ready':
+      return {
+        value: counts.shown,
+        text: counts.filtering
+          ? ` of ${counts.total.toLocaleString('en-GB')} campsites`
+          : ' campsites',
+      };
+    case 'loading':
+      return { value: null, text: 'Counting campsites…' };
+    case 'wide':
+      // 🔴 No number invented from the region totals. Filters apply to
+      // individual campsites, and none are loaded — a count that
+      // silently ignored the filters the reader just set would be worse
+      // than admitting it has not counted.
+      return {
+        value: null,
+        text: counts.filtering
+          ? 'Zoom in to count the campsites your filters match.'
+          : 'Zoom in to count campsites.',
+      };
+    case 'failed':
+      // 🔴 Not "0", and not silence. The message above says what failed;
+      // this says why there is no number, so the two agree.
+      return { value: null, text: 'Not counted — the campsites did not load.' };
+  }
+}
