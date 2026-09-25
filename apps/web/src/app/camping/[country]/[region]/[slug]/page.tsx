@@ -515,11 +515,20 @@ function Breadcrumbs({ spot, params }: { spot: Spot; params: Params }) {
         </li>
         <li aria-hidden="true">/</li>
         <li>
+          {/* 🔴 The country's NAME, not its code.
+              
+              The BreadcrumbList a few lines up already emits
+              `countryName(spot.country)` — so the structured data said
+              "Croatia" while the reader saw "HR" on the same page. A
+              breadcrumb that disagrees with the breadcrumb we publish is
+              the one kind of mismatch this project cannot afford, since
+              the whole plan rests on those pages being trusted. And
+              "HR" is not a word most readers can expand anyway. */}
           <Link
             href={`/camping/${params.country}`}
             className="hover:text-heading"
           >
-            {spot.country.toUpperCase()}
+            {countryName(spot.country)}
           </Link>
         </li>
         <li aria-hidden="true">/</li>
