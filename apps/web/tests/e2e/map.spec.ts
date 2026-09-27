@@ -415,12 +415,13 @@ test.describe('/map', () => {
       if (m.type() === 'error') errors.push(m.text());
     });
 
-    // The index is served immediately; the style is made to arrive
-    // after it, which is the order that used to throw.
+    // The index is served normally; the style is held back until after
+    // it has landed, which is the order that used to throw. Watched
+    // through `response` rather than by routing the index, so nothing
+    // about the index's own timing changes.
     let indexServed = false;
-    await page.route('**/data/spots/index.json', async (route) => {
-      await route.fallback();
-      indexServed = true;
+    page.on('response', (r) => {
+      if (r.url().includes('/data/spots/index.json')) indexServed = true;
     });
     await page.route(STYLE_GLOB, async (route) => {
       for (let i = 0; i < 40 && !indexServed; i++) {

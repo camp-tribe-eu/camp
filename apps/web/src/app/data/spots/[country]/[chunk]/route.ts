@@ -19,11 +19,11 @@ import {
 // median 26, covering all 61 557 — including the 135 that carry no region
 // at all, which get one chunk per country rather than disappearing.
 //
-// 🔴 CAMP-133: the body is built by `chunkBody`, not here. The index
-// records the byte length of each chunk so the map can refuse a view
-// that is too heavy, and it measures it by building the body with that
-// same function. A second copy of the shape here would make the index
-// describe a file nobody downloads.
+// 🔴 CAMP-133: the body is built by `chunkBody`, not here, and it is
+// weighed before it is served. The map refuses a view whose chunks
+// would be too heavy, and it decides that from the campsite counts in
+// the index — an upper bound on what this file weighs. This route is
+// where that bound is checked against the real thing.
 
 export const dynamic = 'force-static';
 export const dynamicParams = false;
