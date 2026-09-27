@@ -23,8 +23,10 @@ import type { SearchIndex } from '@/lib/search-chunks';
 // a shared table (format 3): 5.20 MB raw across 28 files, 1.77 MB
 // gzipped. France needs two pieces now rather than three, so `fr-3`
 // stops existing and `fr-1` grows from 7 882 campsites to 11 823 —
-// which matters to a browser holding an hour-old copy of this list,
-// and is why `unpackIndex` refuses a file of the older format outright.
+// which matters to any browser holding an older copy of this list —
+// the URL carries no content hash, so how long that copy may live is
+// whatever the host decides (see the note in [chunk]/route.ts). That is
+// why `unpackIndex` refuses a file of the older format outright.
 //
 // This file is the list of the pieces: 1.5 KiB for 28 chunks (it said
 // 5 KB, measured 1 587 bytes for 29), fetched first, and it is what

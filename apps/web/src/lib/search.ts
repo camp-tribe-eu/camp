@@ -845,31 +845,36 @@ export interface PackedIndex {
    *
    * 🔴 3 since CAMP-138 moved place names into a shared table. Version 2
    * carried `near` as `[{name, m}, …]`; version 3 carries it as
-   * `[[placeIdx, m], …]`.
+   * `[[placeIdx, m], …]`, plus the table `p` those indices point into.
    *
-   * Read a version 2 file with the version 3 reader and it does NOT
-   * fail: `row[4]` is still an array of the right length, so
-   * `e[0]`/`e[1]` on each `{name, m}` object are simply `undefined`.
-   * Measured on the live index by deleting the gate below and feeding it
-   * the real `at.json`: 868 rows out — the right count, so the table of
-   * contents' count check passes — with all 3 081 nearby places holding
-   * `{name: undefined, m: undefined}`.
+   * 🔴 A version 2 file has no `p` AT ALL — its top-level keys are
+   * `v,c,r,d` — and that decides what reading one as version 3 does.
+   * `unpackIndex` evaluates `packed.p[e[0]]`, which is
+   * `undefined[undefined]`, and throws on the first row. Measured on all
+   * 29 chunks `main`'s packer produces from the live index, fed to this
+   * reader with the gate below deleted: **29 threw, 0 rows returned**,
+   * every one `TypeError: Cannot read properties of undefined (reading
+   * 'undefined')`.
    *
-   * 🔴 And `text` does not go wrong loudly, it goes wrong QUIETLY,
-   * because `Array.join` renders `undefined` as nothing rather than as
-   * the word. The haystack loses the places instead of gaining a marker:
+   * 🔴 So this gate is NOT what stands between a reader and a quietly
+   * wrong page, and the first version of this comment said it was.
    *
-   *   "camo burgenland austria rust neusiedler see ferto spar schutzen
-   *    ruster strasse"
-   *   →  "camo burgenland austria"
+   * It claimed 868 rows came back with all 3 081 nearby places holding
+   * `{name: undefined, m: undefined}` and the haystack silently
+   * shortened. Every one of those numbers was real — and measured
+   * against a hand-written copy of this function that said
+   * `packed.p?.[e[0]]`. One optional-chaining operator, swallowing
+   * precisely the missing table that distinguishes the two formats, so
+   * the corpus and the reader were both lookalikes of the thing under
+   * test. Review caught it. The shipped reader never behaved that way,
+   * and a measurement of a reimplementation is a measurement of nothing.
    *
-   * — on all 868 of them. Searching `rust` then returns 8 campsites on
-   * the correct index and throws `TypeError: text is not iterable`
-   * inside `nearestNamed` on this one. Not a crash where it is caught,
-   * and then a crash where it is not: exactly the "wrong page" version
-   * 2's own note warned about, one format later. The reader refuses
-   * instead — see `unpackIndex`, which is where the transition is
-   * decided and why it is decided that way.
+   * What the gate is actually worth is still worth having: it turns an
+   * incidental `TypeError` from the middle of a `.map()` into a NAMED
+   * refusal that says which format arrived — which `site-search.tsx`
+   * catches and counts as a failed part, rather than letting an
+   * unlabelled type error decide how the page behaves. See
+   * `unpackIndex` for why no version 2 branch is offered beside it.
    */
   v: 3;
   c: string[];
@@ -988,19 +993,26 @@ export function unpackIndex(packed: PackedIndex): SearchDoc[] {
   //
   // 🔴 The version is the only staleness signal these URLs have.
   //
-  // Chunks are served `max-age=3600` with no content hash in the URL
-  // (see app/data/search/[chunk]/route.ts), so `/data/search/at.json`
-  // from an hour ago and the one being served now are indistinguishable
-  // to a browser — and to us. The table of contents catches a stale
-  // chunk only when the COUNT changed, which is the check in
-  // site-search.tsx. Measured on this change: 26 of the 27 countries
-  // keep both their id and their campsite count, so for 26 of them that
-  // check stays silent and the version number is the only thing left
-  // saying "this file predates the deploy". (France is the one that
-  // does not: it goes from three pieces to two, so `fr-1` grows from
-  // 7 882 rows to 11 823 and `fr-3` stops existing — the count check
-  // and a 404 cover those.) Accepting v2 would spend the one signal
-  // these URLs have, to save one hour of degraded search.
+  // 🔴 And the durable half of that is the URL, not any cache header.
+  // `/data/search/<id>.json` carries no content hash, so one build's
+  // body and the next are the same address whatever the caching policy
+  // turns out to be. The route asks for `max-age=3600` and `next start`
+  // honours it; what production does is NOT established — CAMP-90
+  // records that Cloudflare Pages never runs Next's header logic, the
+  // generated `public/_headers` sets no `Cache-Control` for these paths
+  // at all, and the host is still unsettled. So reason from "some cache
+  // may hold an old body at this address", which is true everywhere,
+  // rather than from an hour nobody has measured in production.
+  //
+  // The table of contents catches a stale chunk only when the COUNT
+  // changed, which is the check in site-search.tsx. Measured on this
+  // change: 26 of the 27 countries keep both their id and their
+  // campsite count, so for 26 of them that check stays silent and the
+  // version number is the only thing left saying "this file predates
+  // the deploy". (France is the one that does not: it goes from three
+  // pieces to two, so `fr-1` grows from 7 882 rows to 11 823 and `fr-3`
+  // stops existing — the count check and a 404 cover those.) Accepting
+  // v2 would spend that signal for a transition window we cannot size.
   //
   // 🔴 And a v2 branch here is a branch nothing writes.
   //
@@ -1011,15 +1023,25 @@ export function unpackIndex(packed: PackedIndex): SearchDoc[] {
   // purpose, in the function whose failure mode is "the wrong
   // campsite", is not a trade worth making.
   //
-  // What the reader gets instead is loud, and it is already built: the
-  // throw lands in the catch in site-search.tsx, the part is counted as
-  // failed, and `partialNotice` says how many parts could not be loaded
-  // and that every campsite in them is still reachable from the country
-  // list. One reload past the hour and it is gone.
+  // What the reader gets instead is labelled, and the handling is
+  // already built: the throw lands in the catch in site-search.tsx, the
+  // part is counted as failed, and `partialNotice` says how many parts
+  // could not be loaded and that every campsite in them is still
+  // reachable from the country list.
+  //
+  // 🔴 Say the size of that plainly: with a fully warm cache this is a
+  // DEAD search, not a degraded one. All 28 ids the new table of
+  // contents asks for existed under version 2, so every request can be
+  // answered from cache with a version 2 body — measured, 28 of 28
+  // refused, `docs` empty, and the page answers "Nothing matches" to
+  // everything, behind the notice. It recovers when the cached bodies
+  // do, and how long that takes is the open question above.
   if (packed?.v !== 3) {
-    // A cached file from before this change, or a truncated download.
-    // Returning junk would show a reader a search that silently finds
-    // nothing; an empty index at least makes the page say so.
+    // A stale cached file, a file from a future format, or a truncated
+    // download. A version 2 body would throw a bare TypeError a few
+    // lines below instead — see `PackedIndex` — and a format we have
+    // not met yet could return junk rather than throwing at all. Both
+    // are worse than one named error the caller can act on.
     throw new Error(`search index format ${packed?.v} is not supported`);
   }
   return packed.d.map((row) => {

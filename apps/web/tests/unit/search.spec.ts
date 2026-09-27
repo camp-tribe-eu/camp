@@ -539,11 +539,21 @@ test.describe('a stale chunk is refused, not read', () => {
    * A real version 2 file, written out by hand.
    *
    * 🔴 Not `packIndex(...)` with `v` overwritten. That produces version
-   * 3 bytes wearing a version 2 label, which proves nothing about the
-   * file a browser is actually holding: chunks are served
-   * `max-age=3600` with no content hash in the URL, so for an hour
-   * after this ships, `/data/search/at.json` in a cache is these bytes
-   * — `near` as `[{name, m}]`, and no `p` at all.
+   * 3 bytes wearing a version 2 label — it keeps `p`, and `p` is the
+   * entire difference between the formats, so it proves nothing about
+   * the file a browser is actually holding. These bytes are the real
+   * shape: `near` as `[{name, m}]`, and **no `p` at all**.
+   *
+   * 🔴 That distinction is not pedantry. CAMP-138's first measurement
+   * of what a stale file does was taken on exactly the wrong artefact —
+   * v3 bytes with `p` left in, read by a copy of `unpackIndex` written
+   * with `?.` — and it produced a confident, entirely false account of
+   * the failure. The fixture below was right while the prose was wrong.
+   *
+   * `/data/search/at.json` has no content hash, so some cache may serve
+   * these bytes after the deploy that stopped producing them; how long
+   * for is the host's business and is not established (see
+   * app/data/search/[chunk]/route.ts).
    */
   const staleV2 = {
     v: 2,
@@ -561,29 +571,41 @@ test.describe('a stale chunk is refused, not read', () => {
     );
   });
 
-  test('🔴 it is refused although it would otherwise read cleanly', () => {
-    // This is the whole reason the version check has to exist. The rows
-    // are well-formed: right length, right country, right region, right
-    // slugs. Reading them as version 3 loses nothing a caller could
-    // notice — `row[4]` is still an array of the right length, and
-    // `e[0]`/`e[1]` on each `{name, m}` are simply `undefined`.
+  test('🔴 without the gate it is a bare TypeError, not a refusal', () => {
+    // 🔴 This test used to claim the opposite, and the fixture above
+    // already said so: "no `p` at all". The comment sixteen lines below
+    // it asserted that a version 2 file "would otherwise read cleanly"
+    // — 868 rows, every nearby place `undefined`, the haystack quietly
+    // shortened. Nothing caught the contradiction because the only
+    // assertion was that the gate throws `/not supported/`, which it
+    // does, for an entirely different reason than the prose gave.
     //
-    // Measured on the real `at.json` by deleting the gate: 868 rows out,
-    // the count the table of contents expects, with all 3 081 nearby
-    // places holding `{name: undefined, m: undefined}` — and because
-    // `Array.join` renders `undefined` as nothing, the haystack loses
-    // the places rather than gaining a marker:
+    // What actually happens: a version 2 body has no `p`, so the reader
+    // evaluates `packed.p[e[0]]` — `undefined[undefined]` — and throws
+    // on the first row. Measured on all 29 real v2 chunks from the live
+    // index with the gate deleted: 29 threw, 0 rows returned.
     //
-    //   "camo burgenland austria rust neusiedler see ferto spar …"
-    //   →  "camo burgenland austria"
+    // So the gate does not avert a silent wrong page here. It converts
+    // an unlabelled `TypeError` into a named error naming the format,
+    // which is what site-search.tsx counts as a failed part.
     //
-    // Searching `rust` then returns 8 campsites on the correct index and
-    // throws `TypeError: text is not iterable` on this one.
-    //
-    // So the rows are not detectably broken; only `v` says so.
-    expect(staleV2.d).toHaveLength(2);
-    expect(staleV2.d.every((row) => Array.isArray(row[4]))).toBe(true);
+    // 🔴 Relabelling the same bytes `v: 3` is the probe that proves it,
+    // and it is the line whose absence let the wrong story stand.
+    expect(() => unpackIndex({ ...staleV2, v: 3 } as never)).toThrow(TypeError);
+    expect(() => unpackIndex({ ...staleV2, v: 3 } as never)).toThrow(
+      /Cannot read properties of undefined/,
+    );
+    // The gate itself answers with a sentence instead.
     expect(() => unpackIndex(staleV2 as never)).toThrow(/not supported/);
+  });
+
+  test('a version 2 body carries no place table, which is the whole difference', () => {
+    // The structural fact the test above turns on, stated on its own so
+    // that a fixture drifting into carrying `p` cannot quietly make the
+    // probe above pass for the wrong reason.
+    expect(Object.keys(staleV2).sort()).toEqual(['c', 'd', 'r', 'v']);
+    expect('p' in staleV2).toBe(false);
+    expect(staleV2.d.every((row) => Array.isArray(row[4]))).toBe(true);
   });
 
   test('🔴 the count a stale chunk reports is NOT enough to catch it', () => {

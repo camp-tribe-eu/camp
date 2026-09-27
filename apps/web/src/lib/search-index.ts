@@ -138,12 +138,30 @@ export const TOTAL_MAX_BYTES = 5_000_000;
  * on arrival — the same defect this file keeps finding elsewhere.
  *
  * With the raw ceiling at 12 MB the arithmetic is explicit: the
- * compressed one binds first only if the ratio falls below 2.4, and our
- * text compresses at 4.7. So TODAY THE RAW CEILING IS THE LIVE ONE, and
- * the compressed one is a backstop against the index ceasing to be
- * text — identifiers, hashes, coordinates at full precision. That is a
- * real way to break this, and it is the only way the compressed limit
- * speaks first. Both are tested at these defaults.
+ * compressed one binds first only if the ratio falls below 2.40. So
+ * THE RAW CEILING IS STILL THE LIVE ONE, and the compressed one is a
+ * backstop against the index ceasing to be text — identifiers, hashes,
+ * coordinates at full precision. Both are tested at these defaults.
+ *
+ * 🔴 CAMP-138 moved that margin a long way, and the sentence here used
+ * to read "our text compresses at 4.7", which is no longer true.
+ * Measured the same way on the same data, 27.09.2026:
+ *
+ *   live index @ v2   8 984 521 / 1 920 512 = 4.68   1.95x clear of 2.40
+ *   live index @ v3   5 201 286 / 1 767 272 = 2.94   1.23x clear
+ *
+ * The shared name table removes repeated text — which is precisely what
+ * gzip was already removing for nothing — so raw fell 42% and
+ * compressed fell 8%, and the ratio nearly halved. Five chunks are
+ * already at or below the crossover: mt 1.72, cy 1.91, sk 2.34,
+ * lu 2.40, si 2.42.
+ *
+ * Nothing is broken today: the aggregate still sits well above 2.40, so
+ * the raw ceiling speaks first, and both branches are still reachable
+ * in tests. But "the compressed one is a remote backstop" was an
+ * argument that rested on 4.68, and it now rests on 2.94. The next
+ * format change that trades text for structure should re-measure this
+ * line before relying on it.
  */
 
 /**
