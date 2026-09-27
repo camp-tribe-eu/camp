@@ -1,6 +1,8 @@
 import {
   AmenityValue,
+  cleanWebsite,
   mapAmenities,
+  mapContact,
   mapSpotType,
   resolveAmenity,
 } from './tag-mapping';
@@ -459,5 +461,69 @@ describe('rule.no outranks the global truthy set, and nothing else moved', () =>
     expect(
       resolveAmenity('toilets', { 'toilets:disposal': 'none' }).value,
     ).toBe(AmenityValue.NO);
+  });
+});
+
+describe('contact — CAMP-141', () => {
+  it('reads the plain tags and the contact: prefixed ones', () => {
+    expect(mapContact({ website: 'https://a.example', phone: '+386 5 388 60 00' }))
+      .toEqual({ website: 'https://a.example/', phone: '+386 5 388 60 00' });
+    expect(mapContact({ 'contact:website': 'b.example', 'contact:phone': '+43 1 2' }))
+      .toEqual({ website: 'https://b.example/', phone: '+43 1 2' });
+  });
+
+  it('prefers the plain tag when a site carries both', () => {
+    const c = mapContact({ website: 'https://plain.example', 'contact:website': 'https://prefixed.example' });
+    expect(c.website).toBe('https://plain.example/');
+  });
+
+  it('🔴 refuses a website that is not http', () => {
+    // These go into an anchor on the page and into JSON-LD that Google
+    // reads. OSM values are whatever a mapper typed.
+    for (const bad of [
+      'javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'ftp://files.example.com',
+      'not a url at all',
+      'localhost',
+      '',
+    ]) {
+      expect([bad, cleanWebsite(bad)]).toEqual([bad, undefined]);
+    }
+  });
+
+  it('gives a bare domain https, and keeps a real one intact', () => {
+    expect(cleanWebsite('www.camping.example')).toBe('https://www.camping.example/');
+    expect(cleanWebsite('http://plain.example/path')).toBe('http://plain.example/path');
+  });
+
+  it('🔴 drops a capacity it would have to guess at', () => {
+    expect(mapContact({ capacity: '120' }).capacity).toBe(120);
+    for (const bad of ['approx 120', '120-150', 'many', '0', '-5', '1.5']) {
+      expect([bad, mapContact({ capacity: bad }).capacity]).toEqual([bad, undefined]);
+    }
+  });
+
+  it('refuses an email that is a note rather than an address', () => {
+    expect(mapContact({ email: 'a@b.example' }).email).toBe('a@b.example');
+    for (const bad of ['ask at reception', 'a@b', '@b.example', 'a b@c.example']) {
+      expect([bad, mapContact({ email: bad }).email]).toEqual([bad, undefined]);
+    }
+  });
+
+  it('builds an address only from the parts that exist', () => {
+    expect(mapContact({ 'addr:city': 'Bovec' }).address).toEqual({ city: 'Bovec' });
+    expect(mapContact({ 'addr:street': 'Trg golobarskih žrtev', 'addr:housenumber': '8' }).address)
+      .toEqual({ street: 'Trg golobarskih žrtev 8' });
+    expect(mapContact({}).address).toBeUndefined();
+  });
+
+  it('strips control characters and bounds the length', () => {
+    expect(mapContact({ operator: 'Camp\u0000ing  Ltd\n' }).operator).toBe('Camp ing Ltd');
+    expect(mapContact({ operator: 'x'.repeat(300) }).operator).toHaveLength(121);
+  });
+
+  it('an untagged campsite yields an empty object, not nulls', () => {
+    expect(mapContact({})).toEqual({});
   });
 });

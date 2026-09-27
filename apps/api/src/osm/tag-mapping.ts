@@ -516,3 +516,129 @@ export function mapSpotType(tags: OsmTags): SpotTypeResolution {
     reason: 'no fee tag - defaulted to paid',
   };
 }
+
+// ---------------------------------------------------------------------------
+// Contact — CAMP-141
+// ---------------------------------------------------------------------------
+
+/**
+ * What a reader needs to actually go, and what we were throwing away.
+ *
+ * 🔴 Measured 27.09.2026 through Overpass, before writing a line of this.
+ * Of the campsites OSM holds, a contact of some kind exists for 75.4% in
+ * Slovenia (171 sites) and 79.6% in Austria (598). We imported none of
+ * it: `mapAmenities` above reads water, showers, electricity and pets,
+ * and nothing that tells a reader how to reach the place. The 10.7% of
+ * websites we did have came from DATAtourisme, which is France only.
+ *
+ *   website 61-72%   phone 40-49%   email 27-36%   addr:city 50-52%
+ *
+ * This is also the real answer to CAMP-114 ("their structured data has
+ * 34 blocks, ours has 1"): the markup was never the constraint. We emit
+ * what we can back with data, and there was no data.
+ */
+export interface SpotContact {
+  website?: string;
+  phone?: string;
+  email?: string;
+  operator?: string;
+  openingHours?: string;
+  /** Pitches, as OSM records them — a plain count. */
+  capacity?: number;
+  address?: { street?: string; city?: string; postcode?: string };
+}
+
+/** The first tag of a list that carries a non-empty value. */
+const firstTag = (tags: OsmTags, keys: string[]): string | undefined => {
+  for (const k of keys) {
+    const v = tags[k];
+    if (typeof v === 'string' && v.trim() !== '') return v.trim();
+  }
+  return undefined;
+};
+
+/**
+ * 🔴 A URL we would put in an anchor and in JSON-LD, so it is checked.
+ *
+ * OSM is open data: the value of `website` is whatever a mapper typed.
+ * Most of it is `https://…`, plenty of it is `www.example.com`, and a
+ * `javascript:` or `data:` value is a cross-site scripting hole in a
+ * page we render and in structured data Google reads. So only http and
+ * https survive, a bare domain is given https, and everything else is
+ * dropped rather than guessed at.
+ */
+export function cleanWebsite(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const v = raw.trim();
+  if (v === '') return undefined;
+  const withScheme = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+  // A host with no dot is not a domain — "localhost", or a mapper's note.
+  if (!url.hostname.includes('.')) return undefined;
+  return url.toString();
+}
+
+/** OSM writes free text here; keep it printable and bounded. */
+const cleanText = (raw: string | undefined, max: number): string | undefined => {
+  if (!raw) return undefined;
+  // eslint-disable-next-line no-control-regex
+  const v = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (v === '') return undefined;
+  return v.length > max ? `${v.slice(0, max).trim()}…` : v;
+};
+
+export function mapContact(tags: OsmTags): SpotContact {
+  const out: SpotContact = {};
+
+  const website = cleanWebsite(
+    firstTag(tags, ['website', 'contact:website', 'url', 'contact:url']),
+  );
+  if (website) out.website = website;
+
+  const phone = cleanText(firstTag(tags, ['phone', 'contact:phone', 'contact:mobile']), 40);
+  if (phone) out.phone = phone;
+
+  const email = cleanText(firstTag(tags, ['email', 'contact:email']), 120);
+  // A bare "@" test, not a full RFC one: the point is to refuse a note
+  // like "ask at reception", not to validate deliverability.
+  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) out.email = email;
+
+  const operator = cleanText(firstTag(tags, ['operator']), 120);
+  if (operator) out.operator = operator;
+
+  const openingHours = cleanText(firstTag(tags, ['opening_hours']), 200);
+  if (openingHours) out.openingHours = openingHours;
+
+  // 🔴 `capacity` is a count of pitches and is routinely mistyped. A
+  // value that is not a plain positive integer is dropped rather than
+  // coerced — "approx 120" becoming 120 is the kind of quiet invention
+  // this project does not do.
+  const capacityRaw = firstTag(tags, ['capacity']);
+  if (capacityRaw !== undefined && /^\d{1,5}$/.test(capacityRaw)) {
+    const n = Number(capacityRaw);
+    if (n > 0) out.capacity = n;
+  }
+
+  const street = cleanText(
+    [firstTag(tags, ['addr:street']), firstTag(tags, ['addr:housenumber'])]
+      .filter(Boolean)
+      .join(' ') || undefined,
+    160,
+  );
+  const city = cleanText(firstTag(tags, ['addr:city']), 120);
+  const postcode = cleanText(firstTag(tags, ['addr:postcode']), 20);
+  if (street || city || postcode) {
+    out.address = {};
+    if (street) out.address.street = street;
+    if (city) out.address.city = city;
+    if (postcode) out.address.postcode = postcode;
+  }
+
+  return out;
+}

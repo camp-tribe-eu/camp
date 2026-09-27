@@ -380,11 +380,45 @@ export function campgroundGraph(
       '@type': 'PostalAddress',
       addressCountry: spot.country.toUpperCase(),
       ...(spot.region ? { addressRegion: spot.region } : {}),
+      // 🔴 CAMP-141. A street and a town, where OpenStreetMap has them.
+      //
+      // This block used to be a country and a region slug, which is a
+      // postal address the way a postcode alone is a postal address.
+      // The reason was not the markup: we had no data. Measured on an
+      // extract, `addr:city` exists for about half of campsites.
+      ...(spot.contact.address?.street
+        ? { streetAddress: spot.contact.address.street }
+        : {}),
+      ...(spot.contact.address?.city
+        ? { addressLocality: spot.contact.address.city }
+        : {}),
+      ...(spot.contact.address?.postcode
+        ? { postalCode: spot.contact.address.postcode }
+        : {}),
     },
     // Both are true of every site in this dataset: they are public
     // campsites in OpenStreetMap, not private land.
     publicAccess: true,
   };
+
+  // 🔴 CAMP-141: emitted ONLY where the data exists.
+  //
+  // Every one of these is a field Google reads on a Campground, and
+  // every one of them was absent because we were not importing the tag
+  // — not because the graph lacked a place to put it. The rule is the
+  // same as everywhere else in this file: a field we cannot back with a
+  // source does not appear, rather than appearing empty or guessed.
+  // (`c` is already the context above — this file reads top to bottom.)
+  const reach = spot.contact;
+  if (reach.phone) node.telephone = reach.phone;
+  if (reach.email) node.email = reach.email;
+  if (reach.openingHours) node.openingHours = reach.openingHours;
+  if (reach.capacity !== undefined) {
+    node.maximumAttendeeCapacity = reach.capacity;
+  }
+  if (reach.operator) {
+    node.provider = { '@type': 'Organization', name: reach.operator };
+  }
 
   const description = contextSentence(spot);
   if (description) node.description = description;
@@ -427,7 +461,15 @@ export function campgroundGraph(
   // trusted from upstream: `sameAs: "javascript:…"` is not an XSS in a
   // JSON document, but it is a machine-readable claim that a script is
   // this campsite, and only http(s) can be true.
-  const site = text(spot.website);
+  //
+  // 🔴 CAMP-141: two sources, and DATAtourisme wins.
+  //
+  // `spot.website` is the official tourism register; `contact.website`
+  // is whatever a mapper typed in OpenStreetMap. Where both exist the
+  // register is the better claim, and where only OSM has one it is far
+  // better than nothing — measured, OSM carries a website for 61.6% of
+  // the campsites in an extract against the 10.7% we had.
+  const site = text(spot.website) ?? text(spot.contact.website);
   if (site && /^https?:\/\//i.test(site)) node.sameAs = site;
 
   // Only claimed where the data actually says so. `free` and `wild` are

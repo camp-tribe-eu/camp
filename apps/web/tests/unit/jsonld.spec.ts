@@ -42,6 +42,7 @@ const bare: Spot = {
   stars: null,
   website: null,
   sources: [],
+  contact: {},
 };
 
 /** The same site, with everything we are able to measure measured. */
@@ -351,4 +352,65 @@ test('a terrain type we do not recognise does not take the page down', () => {
   const answer = campsiteFaq(spot)[0]?.a ?? '';
   expect(answer).toContain('120 m of relief');
   expect(answer).not.toMatch(/undefined/);
+});
+
+test.describe('CAMP-141: contact reaches the structured data', () => {
+  const withContact = (contact: Spot['contact'], over: Partial<Spot> = {}) =>
+    campgroundGraph({ ...bare, contact, ...over }, '/camping/si/bovec/x', []);
+
+  test('🔴 a field with no data does not appear at all', () => {
+    // The rule this whole file runs on: an empty property is a claim we
+    // cannot back. Before CAMP-141 these were absent because we did not
+    // import the tags; they must stay absent when a campsite has none.
+    const node = withContact({});
+    for (const key of ['telephone', 'email', 'openingHours', 'maximumAttendeeCapacity', 'provider']) {
+      expect(node, key).not.toHaveProperty(key);
+    }
+    expect(node.address).toEqual({
+      '@type': 'PostalAddress',
+      addressCountry: bare.country.toUpperCase(),
+      addressRegion: bare.region,
+    });
+  });
+
+  test('phone, email, hours, capacity and operator appear when they exist', () => {
+    const node = withContact({
+      phone: '+386 5 388 60 00',
+      email: 'info@example.si',
+      openingHours: 'Mo-Su 08:00-20:00',
+      capacity: 120,
+      operator: 'Kamp Bovec d.o.o.',
+    });
+    expect(node.telephone).toBe('+386 5 388 60 00');
+    expect(node.email).toBe('info@example.si');
+    expect(node.openingHours).toBe('Mo-Su 08:00-20:00');
+    expect(node.maximumAttendeeCapacity).toBe(120);
+    expect(node.provider).toEqual({ '@type': 'Organization', name: 'Kamp Bovec d.o.o.' });
+  });
+
+  test('the address carries the street and town OSM has', () => {
+    const node = withContact({
+      address: { street: 'Trg golobarskih žrtev 8', city: 'Bovec', postcode: '5230' },
+    });
+    expect(node.address).toMatchObject({
+      streetAddress: 'Trg golobarskih žrtev 8',
+      addressLocality: 'Bovec',
+      postalCode: '5230',
+    });
+  });
+
+  test('🔴 the tourism register outranks OpenStreetMap for the website', () => {
+    // Two sources, one `sameAs`. DATAtourisme is an official register;
+    // `contact.website` is whatever a mapper typed. Where both exist the
+    // register wins — and where only OSM has one, it is used, which is
+    // the whole point: measured, OSM carries a website for 61.6% of
+    // campsites against the 10.7% we had.
+    expect(
+      withContact({ website: 'https://osm.example/' }, { website: 'https://register.example/' })
+        .sameAs,
+    ).toBe('https://register.example/');
+    expect(withContact({ website: 'https://osm.example/' }, { website: null }).sameAs)
+      .toBe('https://osm.example/');
+    expect(withContact({}, { website: null })).not.toHaveProperty('sameAs');
+  });
 });

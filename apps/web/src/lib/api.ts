@@ -232,6 +232,25 @@ export interface Spot {
   /** Official national classification, 1–5, where a source publishes one. */
   stars: number | null;
   website: string | null;
+  /**
+   * CAMP-141: how to reach the place, from OpenStreetMap.
+   *
+   * 🔴 Separate from `website` above, which DATAtourisme fills. Two
+   * sources, two fields, and the page decides which to show — rather
+   * than one field whose meaning depends on which import ran last.
+   * Every key is optional because OSM tagging is voluntary: measured,
+   * 65.9% of campsites in an extract carry something here and 34.1%
+   * carry nothing at all.
+   */
+  contact: {
+    website?: string;
+    phone?: string;
+    email?: string;
+    operator?: string;
+    openingHours?: string;
+    capacity?: number;
+    address?: { street?: string; city?: string; postcode?: string };
+  };
   /** Which source gave which field, and when it last changed it. */
   sources: SpotSource[];
 }
