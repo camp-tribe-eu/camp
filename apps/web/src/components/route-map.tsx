@@ -113,6 +113,24 @@ export default function RouteMap({ stages, spots, road }: RouteMapProps) {
         bounds: extent([...stages, ...spots]),
         fitBoundsOptions: { padding: 48, maxZoom: 11 },
         attributionControl: false,
+        // 🔴 Found by scrolling the actual page, not by any test.
+        //
+        // This map sits in the MIDDLE of a long article. With the
+        // default settings the wheel zooms the map, so scrolling down
+        // the page stops dead over the map and zooms out to the whole
+        // of western Europe instead — measured: three wheel notches
+        // took the French route from its own coastline to a view
+        // containing Switzerland, and the page never moved.
+        //
+        // /map does not have this problem because there the map IS the
+        // page. Here it is a figure inside prose, and a figure must not
+        // capture the scroll.
+        //
+        // `cooperativeGestures` is MapLibre's answer: the wheel scrolls
+        // the page, ctrl/⌘+wheel zooms the map, and touch needs two
+        // fingers to pan. It also renders its own explanatory overlay,
+        // so the behaviour is discoverable rather than mysterious.
+        cooperativeGestures: true,
       });
     } catch {
       setUnsupported(true);
@@ -121,12 +139,21 @@ export default function RouteMap({ stages, spots, road }: RouteMapProps) {
 
     map.current = m;
     m.addControl(new NavigationControl({ showCompass: false }), 'top-right');
-    // Attribution is a licence condition of both OpenFreeMap and the
-    // ODbL underneath it. Also restated in the page text, so it survives
-    // the control being collapsed on a narrow screen.
-    m.addControl(
-      new AttributionControl({ compact: true, customAttribution: source.attribution }),
-    );
+    // 🔴 No `customAttribution`, and this was a real bug caught by
+    // looking at the rendered page rather than by any test.
+    //
+    // OpenFreeMap's styles already declare their own attribution, and
+    // MapLibre APPENDS ours to it rather than replacing it — so the
+    // credit rendered twice on one line: "OpenFreeMap © OpenMapTiles ·
+    // Data from OpenStreetMap | OpenFreeMap © OpenMapTiles Data from
+    // OpenStreetMap". campsite-map.tsx carries a comment saying exactly
+    // this, and this component repeated the mistake anyway.
+    //
+    // The control shows whatever the current style claims; the paragraph
+    // below the map is our own guarantee that the credit is present even
+    // if a style ever omits it, and that it survives the control being
+    // collapsed on a narrow screen.
+    m.addControl(new AttributionControl({ compact: true }));
 
     m.on('load', () => {
       // ── the legs: straight lines, drawn as straight lines ────────────
@@ -335,6 +362,13 @@ export default function RouteMap({ stages, spots, road }: RouteMapProps) {
         <span aria-hidden="true">— — —</span> The dashed line joins the stops in
         order <strong className="font-semibold">in a straight line</strong>. It
         is not the road, and it is not the distance you will drive.
+      </p>
+      {/* 🔴 Our own attribution, in the page rather than only in the
+          map control. A licence condition should not depend on a
+          collapsible widget, or on a third-party style continuing to
+          declare its own credit. */}
+      <p className="mt-1 text-xs text-ink-2" data-boilerplate="map-attribution">
+        Map tiles: {source.attribution}.
       </p>
     </div>
   );
