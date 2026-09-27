@@ -42,6 +42,8 @@ import {
   chunksInView,
   countInView,
   dataMessage,
+  withinView,
+  type Bounds,
   type MapDataState,
   type RegionSummary,
 } from '@/lib/map-chunks';
@@ -203,6 +205,25 @@ function drawRegions(
   }
 }
 
+/**
+ * Where the map is looking, in the shape every rule in map-chunks takes.
+ *
+ * 🔴 One conversion from MapLibre's LngLatBounds, because three copies
+ * of it were already drifting: `refresh` built one object, `publishCounts`
+ * called the four getters inline for `data-bounds` and then called them
+ * again for `data-in-view`. A count and the box it is supposedly inside
+ * have to come from the same four numbers.
+ */
+function boundsOf(m: InstanceType<typeof MapLibreMap>): Bounds {
+  const b = m.getBounds();
+  return {
+    west: b.getWest(),
+    south: b.getSouth(),
+    east: b.getEast(),
+    north: b.getNorth(),
+  };
+}
+
 /** Take the region circles away once real markers are on the map. */
 function clearRegions(m: InstanceType<typeof MapLibreMap>) {
   for (const id of [REGION_COUNT, REGION_CIRCLE]) {
@@ -265,7 +286,25 @@ export default function CampsiteMap() {
       ? EMPTY_FILTERS
       : fromSearchParams(window.location.search, SPOT_TYPES, AMENITY_KEYS),
   );
-  const [tally, setTally] = useState({ shown: 0, total: 0, unknownExcluded: 0 });
+  /**
+   * Two scopes, named apart, because they answer different questions.
+   *
+   * 🔴 `shown` / `total` / `unknownExcluded` are over everything
+   * FETCHED — the map's own bookkeeping, and what the specs use as a
+   * barrier for "a chunk has arrived".
+   *
+   * 🔴 `inView*` are over the visible area, and they are what the
+   * reader is shown. CAMP-133: a denominator that only makes sense if
+   * you know how far somebody has panned is not a denominator.
+   */
+  const [tally, setTally] = useState({
+    shown: 0,
+    total: 0,
+    unknownExcluded: 0,
+    inViewShown: 0,
+    inViewTotal: 0,
+    inViewUnknownExcluded: 0,
+  });
   // CAMP-127: the table of contents, and which of its chunks are in hand.
   const index = useRef<RegionSummary[]>([]);
   const loaded = useRef<Set<string>>(new Set());
@@ -290,7 +329,10 @@ export default function CampsiteMap() {
    */
   const inFlight = useRef(0);
   /**
-   * `publishCounts`, reachable from outside the map effect.
+   * `publishDrawn`, reachable from outside the map effect.
+   *
+   * 🔴 The DRAWN numbers only — never the rendered ones, which are true
+   * only after a paint. See the two functions for why they are two.
    *
    * 🔴 The counts were published ONLY on the map's `idle` event, and
    * `data-map-state` is set when fetching stops — two different moments.
@@ -317,6 +359,8 @@ export default function CampsiteMap() {
    * Kept across calls and cleared per key on success.
    */
   const failedKeys = useRef<Map<string, string>>(new Map());
+  /** One pending "try again when the style has loaded", never a queue. */
+  const awaitingStyle = useRef(false);
   const [dataState, setDataState] = useState<MapDataState>({ kind: 'loading' });
 
   const active =
@@ -530,7 +574,29 @@ export default function CampsiteMap() {
     // every reader's browser. These two numbers say only what a person
     // looking at the screen can already see, and they are the first
     // thing worth knowing when the map misbehaves.
-    const publishCounts = () => {
+    // 🔴 CAMP-133: two groups, two moments of truth, two functions.
+    //
+    // Everything below `publishDrawn` is derived from `drawn.current` —
+    // the set this component decided to draw. It is true the instant
+    // that set changes.
+    //
+    // Everything in `publishRendered` is derived from
+    // `queryRenderedFeatures` — what MapLibre has actually put on the
+    // canvas. It is true only after a render, and clustering happens in
+    // a worker, so it is not true when the data changes.
+    //
+    // 🔴 They were one function, and I called it from `applyFilterState`
+    // so the in-view count would stop being stale. Measured: that one
+    // call wrote a correct `data-in-view` of 2 456 and a false
+    // `data-clustered-total` of 0 in the same instant, because nothing
+    // had been rendered yet. On CI that made
+    // "clusters are recounted when filtering" read a zero it was never
+    // meant to see: the poll before it is satisfied by 0 (0 ≤ anything)
+    // and the assertion after it demands more than 0.
+    //
+    // A count of what is on screen may only be written by the event
+    // that says the screen has been painted.
+    const publishRendered = () => {
       const el = container.current;
       if (!el) return;
       const rendered = (layer: string) =>
@@ -539,66 +605,13 @@ export default function CampsiteMap() {
       const clusters = rendered(CLUSTER_LAYER);
       el.dataset.visibleClusters = String(clusters.length);
       el.dataset.visiblePoints = String(points.length);
-
-      // 🔴 CAMP-127: the viewport, and how many of OUR features are in it.
+      // 🔴 And the region circles, for the same reason.
       //
-      // The map used to hold every campsite on earth, so a test could
-      // compare it against the API asking for the whole world. It now
-      // holds the regions in view, so the comparison has to be scoped —
-      // and the scope has to come from the map itself, because only the
-      // map knows where it is looking. Published together so the two can
-      // never describe different moments.
-      const b = m.getBounds();
-      el.dataset.bounds = [
-        b.getWest(),
-        b.getSouth(),
-        b.getEast(),
-        b.getNorth(),
-      ]
-        .map((n) => n.toFixed(6))
-        .join(',');
-      // 🔴 WHICH campsites, not only how many \u2014 capped, so this can
-      // never become a megabyte of DOM attribute.
-      //
-      // The spec that compares the map against the API could only say
-      // "5 against 3", which names nothing a person can go and look at.
-      // The slugs are already public: every one of them is a URL on
-      // this site, and each is drawn on screen right now.
-      const inside = drawn.current.filter((f) => {
-        const [lon, lat] = f.geometry.coordinates;
-        return (
-          lon >= b.getWest() &&
-          lon <= b.getEast() &&
-          lat >= b.getSouth() &&
-          lat <= b.getNorth()
-        );
-      });
-      // 🔴 Every campsite has a slug, including the 135 with no
-      // region and therefore no page — for those it is `path` that is
-      // null, not `slug`. An earlier comment here claimed otherwise and
-      // the spec was written to match it, so a correct map failed the
-      // comparison in any viewport holding one of them.
-      //
-      // 🔴 A sentinel, not an empty string, when there are too many
-      // to list. Empty reads as "none in view", and a spec comparing
-      // the map with the API then reported "map 0, API 125" — a
-      // frightening number that meant only that the cap had been hit.
-      el.dataset.inViewSlugs =
-        inside.length <= SLUG_LIST_CAP
-          ? inside.map((f) => f.properties.slug).join(',')
-          : '(capped)';
-
-      el.dataset.inView = String(
-        drawn.current.filter((f) => {
-          const [lon, lat] = f.geometry.coordinates;
-          return (
-            lon >= b.getWest() &&
-            lon <= b.getEast() &&
-            lat >= b.getSouth() &&
-            lat <= b.getNorth()
-          );
-        }).length,
-      );
+      // `drawRegions` is the one call that has to wait for the style,
+      // so it is the one that can be quietly skipped and never retried.
+      // Without a number for it, a test can only prove that nothing
+      // threw — not that the circles arrived.
+      el.dataset.visibleRegions = String(rendered(REGION_CIRCLE).length);
 
       // CAMP-35: how many campsites the bubbles claim to contain, plus
       // the ones drawn individually.
@@ -629,10 +642,61 @@ export default function CampsiteMap() {
         delete el.dataset.pointAt;
       }
     };
-    m.on('idle', publishCounts);
-    // 🔴 And on demand, so the numbers can be republished the moment the
-    // data changes rather than whenever the map next happens to idle.
-    publishRef.current = publishCounts;
+
+    const publishDrawn = () => {
+      const el = container.current;
+      if (!el) return;
+
+      // 🔴 CAMP-127: the viewport, and how many of OUR features are in it.
+      //
+      // The map used to hold every campsite on earth, so a test could
+      // compare it against the API asking for the whole world. It now
+      // holds the regions in view, so the comparison has to be scoped —
+      // and the scope has to come from the map itself, because only the
+      // map knows where it is looking. Published together so the two can
+      // never describe different moments.
+      const view = boundsOf(m);
+      el.dataset.bounds = [view.west, view.south, view.east, view.north]
+        .map((n) => n.toFixed(6))
+        .join(',');
+      // 🔴 WHICH campsites, not only how many \u2014 capped, so this can
+      // never become a megabyte of DOM attribute.
+      //
+      // The spec that compares the map against the API could only say
+      // "5 against 3", which names nothing a person can go and look at.
+      // The slugs are already public: every one of them is a URL on
+      // this site, and each is drawn on screen right now.
+      // 🔴 One definition of "in view", shared with the panel's count.
+      // This filter was written out by hand here — twice, in the same
+      // function, for the list and for the number — while the panel used
+      // a third rule of its own. `withinView` is now the only copy.
+      const inside = withinView(drawn.current, view);
+      // 🔴 Every campsite has a slug, including the 135 with no
+      // region and therefore no page — for those it is `path` that is
+      // null, not `slug`. An earlier comment here claimed otherwise and
+      // the spec was written to match it, so a correct map failed the
+      // comparison in any viewport holding one of them.
+      //
+      // 🔴 A sentinel, not an empty string, when there are too many
+      // to list. Empty reads as "none in view", and a spec comparing
+      // the map with the API then reported "map 0, API 125" — a
+      // frightening number that meant only that the cap had been hit.
+      el.dataset.inViewSlugs =
+        inside.length <= SLUG_LIST_CAP
+          ? inside.map((f) => f.properties.slug).join(',')
+          : '(capped)';
+
+      el.dataset.inView = String(inside.length);
+    };
+    // 🔴 `idle` is the only writer of the rendered numbers, and it
+    // writes the drawn ones too so the pair always describes one moment.
+    m.on('idle', () => {
+      publishDrawn();
+      publishRendered();
+    });
+    // 🔴 On demand, the DRAWN ones only: the moment the set we decided
+    // to draw changes, that count is true and the rendered one is not.
+    publishRef.current = publishDrawn;
 
     // 🔴 CAMP-127: the map now fetches what is in view, so moving it is
     // a data event and not only a rendering one. `moveend` rather than
@@ -707,28 +771,67 @@ export default function CampsiteMap() {
     const m = map.current;
     if (!m || index.current.length === 0) return;
 
-    const b = m.getBounds();
-    const view = {
-      west: b.getWest(),
-      south: b.getSouth(),
-      east: b.getEast(),
-      north: b.getNorth(),
+    // 🔴 Drawing the region circles waits for the style. Saying what is
+    // happening does not.
+    //
+    // `addSource` and `addLayer` run MapLibre's `_checkLoaded()` and
+    // THROW — "Style is not done loading" — and `drawRegions` calls
+    // both. The index is a local static file and the style is a remote
+    // document, so on a normal page load the index wins and this ran
+    // first: measured on a production build, every single load of /map
+    // threw `Uncaught (in promise) Error: Style is not done loading` out
+    // of `drawRegions`.
+    //
+    // It LOOKED harmless, which is the dangerous part. The `styledata`
+    // handler re-runs `refresh()`, so the circles appeared anyway — the
+    // first paint was resting on winning a race, and on a slow
+    // connection there is no reason to think we win it.
+    //
+    // 🔴 But ONLY this call is deferred, and the first version of this
+    // fix deferred the whole of `refresh`. That would have left the
+    // panel reading "Counting campsites…" for as long as a third-party
+    // style took to arrive — trading an uncaught error for the exact
+    // symptom that is currently failing CI on unrelated pull requests.
+    // Nothing else in here needs the style: `getBounds` and `getZoom`
+    // are the camera, and `getSource`/`getLayer` answer `undefined`
+    // rather than throwing.
+    //
+    // Waiting on `idle` rather than `styledata`: styledata fires for
+    // every sprite and glyph load and can fire with the style still not
+    // loaded, while `idle` means the map has nothing left in flight.
+    // One pending retry at a time, so a reader dragging the map during
+    // a slow style load does not stack up listeners.
+    const whenDrawable = (draw: () => void) => {
+      if (m.isStyleLoaded()) {
+        draw();
+        return;
+      }
+      if (awaitingStyle.current) return;
+      awaitingStyle.current = true;
+      m.once('idle', () => {
+        awaitingStyle.current = false;
+        void refreshRef.current();
+      });
     };
 
-    if (m.getZoom() < DETAIL_ZOOM) {
-      // Too wide for markers. The index already holds the counts, so
-      // this costs nothing and still answers "how many are down there".
-      setDataState({ kind: 'wide', count: countInView(index.current, view) });
-      hideMarkers(m);
-      drawRegions(m, index.current);
-      return;
-    }
+    const view = boundsOf(m);
 
-    const { keys, tooMany } = chunksInView(index.current, view);
-    if (tooMany) {
+    // Too wide, or too heavy, for markers. The index already holds the
+    // counts, so this costs nothing and still answers "how many are
+    // down there".
+    //
+    // 🔴 Too HEAVY, not too many. See VIEW_BUDGET_BYTES: the old bound
+    // counted chunks, let a 1.96 MB view through and refused one
+    // weighing 0.06 MB.
+    const detail = m.getZoom() >= DETAIL_ZOOM;
+    const { keys, tooMany } = detail
+      ? chunksInView(index.current, view)
+      : { keys: [] as string[], tooMany: true };
+
+    if (!detail || tooMany) {
       setDataState({ kind: 'wide', count: countInView(index.current, view) });
       hideMarkers(m);
-      drawRegions(m, index.current);
+      whenDrawable(() => drawRegions(m, index.current));
       return;
     }
 
@@ -752,25 +855,73 @@ export default function CampsiteMap() {
     // have produced the second copy.
     for (const key of missing) loaded.current.add(key);
 
-    for (const key of missing) {
-      inFlight.current += 1;
-      try {
-        const res = await fetch(chunkUrl(key));
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const collection = (await res.json()) as { features?: SpotFeature[] };
-        failedKeys.current.delete(key);
-        everything.current = [
-          ...everything.current,
-          ...(collection.features ?? []),
-        ];
-      } catch (err) {
-        loaded.current.delete(key);
-        failedKeys.current.set(key, (err as Error).message);
-      } finally {
-        inFlight.current -= 1;
+    // 🔴 Several at a time, in the order the keys came in.
+    //
+    // This awaited each fetch before starting the next, which is one
+    // round trip per chunk laid end to end. Measured 27.09.2026 by
+    // driving the real index over 5 520 detail-zoom windows: of the
+    // 5 212 the byte budget admits, the median needs 6 chunks, the 99th
+    // percentile 57 and the worst 127 — so a reader in a region-dense
+    // corner waited on 127 round trips, one after another, for files
+    // whose median is 6 kB. CI has already seen the end of that: a
+    // webkit run left the panel on "Counting campsites…" past a
+    // five-second assertion.
+    //
+    // 🔴 Six, and bounded rather than unleashed. Over HTTP/1.1 six is
+    // the per-host connection limit, so anything larger queues in the
+    // socket pool where we cannot see it; over HTTP/2 there is no such
+    // limit, and firing 127 requests at once would simply take the
+    // bandwidth away from the basemap tiles the reader is also waiting
+    // for. Bounded is the only shape that behaves the same on both.
+    //
+    // 🔴 The order still matters — `chunksInView` returns the centre of
+    // the screen first, and the workers take keys off the front — but
+    // `everything` is appended to by whichever finishes first, so the
+    // ARRIVAL order is no longer the request order. Nothing downstream
+    // depends on it: `applyFilters` and `withinView` both run over the
+    // whole array, and the map clusters the set rather than the
+    // sequence.
+    const CHUNK_CONCURRENCY = 6;
+    let next = 0;
+    const fetchWorker = async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= missing.length) return;
+        const key = missing[i];
+        inFlight.current += 1;
+        try {
+          const res = await fetch(chunkUrl(key));
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const collection = (await res.json()) as { features?: SpotFeature[] };
+          failedKeys.current.delete(key);
+          // 🔴 push, not a fresh array per chunk. Rebuilding
+          // `everything` on every arrival is quadratic in the number of
+          // chunks, and it also loses features appended by a concurrent
+          // refresh between the read and the write — which is precisely
+          // the class of bug the claim-every-key-up-front comment above
+          // exists for, one level down.
+          everything.current.push(...(collection.features ?? []));
+        } catch (err) {
+          loaded.current.delete(key);
+          failedKeys.current.set(key, (err as Error).message);
+        } finally {
+          inFlight.current -= 1;
+        }
       }
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(CHUNK_CONCURRENCY, missing.length) }, () =>
+        fetchWorker(),
+      ),
+    );
 
+    // 🔴 `clearRegions` calls removeLayer/removeSource, which check the
+    // style too — but it only calls them when `getLayer`/`getSource`
+    // already found something, and those do not check. Something can
+    // only be there because `drawRegions` put it there, which needs a
+    // loaded style; and `setStyle` discards it, so mid-swap there is
+    // nothing to find. So this needs no guard, and the reason is a
+    // property rather than luck.
     clearRegions(m);
     applyFilterState(filtersRef.current);
 
@@ -780,6 +931,11 @@ export default function CampsiteMap() {
       // 🔴 Republish BEFORE announcing readiness, so the numbers a
       // reader (or a test) sees alongside `ready` describe the data
       // that is now drawn.
+      //
+      // `applyFilterState` above publishes too, for its own reason —
+      // the drawn set changed. This one is about ORDER: nothing may
+      // read `ready` next to a count from before the last chunk landed.
+      // Two calls, two guarantees, and neither is safe to drop.
       publishRef.current?.();
       // 🔴 Only chunks the reader is LOOKING at count as a failure.
       //
@@ -816,12 +972,55 @@ export default function CampsiteMap() {
     const all = everything.current;
     const { shown, unknownExcluded } = applyFilters(all, state);
     drawn.current = shown;
-    setTally({ shown: shown.length, total: all.length, unknownExcluded });
 
     const source = map.current?.getSource(SOURCE_ID) as
       | GeoJSONSource
       | undefined;
+    // 🔴 The map is fed EVERYTHING that matches, not only what is on
+    // screen. Chunks are kept, so a pan inside the loaded area must not
+    // wait for a re-filter to put markers back.
     source?.setData({ type: 'FeatureCollection', features: shown });
+
+    // 🔴 CAMP-133: what the panel says is about the VISIBLE AREA.
+    //
+    // `total` used to be `all.length` — every campsite fetched so far.
+    // Chunks are deliberately never discarded, so that denominator only
+    // ever grew, and it grew with where the reader had been rather than
+    // with what was on screen. It answered no question a reader has.
+    //
+    // The visible area is a set they can see. It is also complete —
+    // every chunk overlapping the view is in hand by the time the state
+    // is `ready` — which is the argument `withinView` spells out.
+    const m = map.current;
+    const inView = m ? withinView(all, boundsOf(m)) : [];
+    const here = applyFilters(inView, state);
+    setTally({
+      shown: shown.length,
+      total: all.length,
+      unknownExcluded,
+      inViewShown: here.shown.length,
+      inViewTotal: inView.length,
+      inViewUnknownExcluded: here.unknownExcluded,
+    });
+
+    // 🔴 Republish `data-in-view` NOW, not at the map's next idle.
+    //
+    // It is derived from `drawn.current`, which this function has just
+    // replaced — so leaving it to `idle` publishes a number about the
+    // filter the reader had before they clicked.
+    //
+    // Measured, and it is why this line exists: with the panel reading
+    // the idle-published attribute, ticking "also show where this is
+    // not recorded" left `data-in-view` at 27 where the panel said 45,
+    // and the spec failed on webkit-desktop, mobile-safari, tablet and
+    // mobile-chrome while passing on chromium. A number published on an
+    // event that may not come is the CAMP-134 shape again.
+    //
+    // The cluster counts alongside it are queried from what is
+    // RENDERED, and clustering happens in a worker, so those stay
+    // behind until the map idles and republishes. That is why the specs
+    // that read them poll.
+    publishRef.current?.();
   };
 
   useEffect(() => {
@@ -961,12 +1160,14 @@ export default function CampsiteMap() {
           display mode. Here the map gets shorter and every control stays
           exactly where it was. */}
       <div className="mt-3">
+        {/* 🔴 The in-view numbers, not the fetched ones. CAMP-133: the
+            denominator a reader is given has to be a set they can see. */}
         <MapFilters
           state={filters}
           onChange={setFilters}
-          shown={tally.shown}
-          total={tally.total}
-          unknownExcluded={tally.unknownExcluded}
+          shown={tally.inViewShown}
+          total={tally.inViewTotal}
+          unknownExcluded={tally.inViewUnknownExcluded}
           dataState={dataState}
         />
       </div>
@@ -1010,9 +1211,22 @@ export default function CampsiteMap() {
         // also true before React has rendered anything.
         data-map-state={dataState.kind}
         data-active-source={active.id}
+        // 🔴 Two scopes, and each says which it is.
+        //
+        // `shown` / `total` / `unknown-excluded` are over everything
+        // FETCHED — the map's bookkeeping, and the barrier a spec uses
+        // for "a chunk has arrived".
+        //
+        // `in-view-*` are over the visible area: they are the numbers
+        // the panel prints, so a spec can check the sentence against
+        // them instead of against a set the reader cannot see.
+        // `data-in-view` itself is written by `publishDrawn`, from the
+        // same `withinView` rule, whenever the drawn set changes.
         data-shown={tally.shown}
         data-total={tally.total}
         data-unknown-excluded={tally.unknownExcluded}
+        data-in-view-total={tally.inViewTotal}
+        data-in-view-unknown-excluded={tally.inViewUnknownExcluded}
         className="h-[60vh] min-h-[360px] w-full overflow-hidden rounded-card border border-line-2"
       />
 

@@ -14,9 +14,23 @@
 // the median 26.
 //
 // Pure, so every rule below can be driven without a map, a network or a
-// browser — which is the only way to test the cases that matter: a
-// viewport crossing the antimeridian, an index that failed to load, a
-// chunk that came back empty.
+// browser — which is the only way to test the cases that matter: an index
+// that failed to load, a chunk that came back empty, a view whose chunks
+// weigh more than the reader should be asked to download.
+//
+// 🔴 What this file does NOT do: the antimeridian.
+//
+// The header used to list "a viewport crossing the antimeridian" among
+// the cases this purity lets us test. There was no handling and no test —
+// it was a promise in a comment. `overlaps` below now says plainly that
+// it reads a box as west ≤ east, and a unit test pins that reading, so
+// nobody has to find out by experiment. Measured against the live index
+// on 27.09.2026, the EU-27 data spans longitude −31.27 … 34.55, so no
+// region bbox comes within 145° of ±180° and the case cannot arise while
+// the project is EU-27 (CAMP-133).
+
+import { knownAmenities } from './map-filter';
+import type { Amenities, AmenityKey } from './api';
 
 export interface RegionSummary {
   country: string;
@@ -44,6 +58,56 @@ export const chunkKey = (r: { country: string; slug: string }): string =>
 
 export const chunkUrl = (key: string): string => `/data/spots/${key}.geojson`;
 
+/** One campsite as the API's map routes hand it over. */
+export interface ChunkMarker {
+  slug: string;
+  name: string | null;
+  type: string;
+  lat: number;
+  lon: number;
+  amenities: Partial<Amenities> | null;
+  /** 🔴 Null when the campsite has no page — see canonicalPath. */
+  path: string | null;
+}
+
+export interface ChunkFeature {
+  type: 'Feature';
+  geometry: { type: 'Point'; coordinates: [number, number] };
+  properties: {
+    slug: string;
+    name: string | null;
+    type: string;
+    /** Null rather than a broken URL. The popup renders text instead. */
+    href: string | null;
+  } & Partial<Record<AmenityKey, 'yes' | 'no'>>;
+}
+
+/**
+ * One chunk file, exactly as the browser receives it.
+ *
+ * 🔴 Here rather than inside the route, because the weight the map
+ * budgets a view by (`chunkWeight`) is a claim about THIS string, and
+ * the chunk route checks the two against each other before it serves
+ * anything. A rule and the check on it belong in one file; the route is
+ * where they would drift apart.
+ */
+export function chunkBody(markers: readonly ChunkMarker[]): string {
+  const features: ChunkFeature[] = markers.map((m) => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
+    properties: {
+      slug: m.slug,
+      name: m.name,
+      type: m.type,
+      href: m.path,
+      // Only what is known — an absent key means unknown, which is what
+      // the filters already assume. See knownAmenities.
+      ...knownAmenities(m.amenities),
+    },
+  }));
+  return JSON.stringify({ type: 'FeatureCollection', features });
+}
+
 /**
  * Below this, the map draws one circle per region instead of markers.
  *
@@ -60,6 +124,15 @@ export const DETAIL_ZOOM = 6;
  * 🔴 Touching counts. A campsite exactly on the edge of the viewport is
  * in view, and a strict comparison would blink it out of existence as the
  * reader panned — the kind of thing that looks like a data bug for weeks.
+ *
+ * 🔴 Both boxes are read as west ≤ east. A viewport wrapped across the
+ * antimeridian — MapLibre can report west 170, east −170 — is NOT
+ * handled: to these comparisons it is an inverted box, which contains
+ * nothing, so the map would go blank rather than draw the wrong place.
+ * Stated rather than handled, because handling it would be untested code
+ * for a case our data cannot produce (EU-27, longitude −31.27 … 34.55,
+ * measured 27.09.2026), and the unit test pins the reading so the limit
+ * is checked rather than remembered.
  */
 export function overlaps(
   a: Bounds,
@@ -74,21 +147,97 @@ export function overlaps(
 }
 
 /**
+ * `{"type":"FeatureCollection","features":[]}` — what a chunk weighs
+ * before it holds anything.
+ */
+export const CHUNK_ENVELOPE_BYTES = 42;
+
+/**
+ * The most one campsite may add to a chunk file, in bytes.
+ *
+ * 🔴 Measured, and then ENFORCED, which is the part that keeps it true.
+ *
+ * Measured 27.09.2026 over all 812 chunks as they are actually built
+ * (15.27 MB in total): 249 bytes per campsite at the median, 319 at the
+ * 99th percentile and 360 at the very worst — si/hrpelje-kozina, a
+ * single campsite in a 402-byte file. 400 leaves about 11% of headroom
+ * so an ordinary import does not fail the build over one long name.
+ *
+ * 🔴 And the chunk route refuses to serve a chunk heavier than this
+ * allows, so the number cannot quietly stop being true. A guess that
+ * nothing checks is how "`limit` is a bound on bytes" survived in a
+ * comment above a chunk counter for a month.
+ */
+export const BYTES_PER_CAMPSITE = 400;
+
+/** The most a region's chunk file may weigh, from its campsite count. */
+export const chunkWeight = (count: number): number =>
+  CHUNK_ENVELOPE_BYTES + BYTES_PER_CAMPSITE * count;
+
+/**
+ * The most a view may weigh before the map declines to draw it.
+ *
+ * 🔴 A number of BYTES, and every part of it is measured.
+ *
+ * What it replaces was `limit = 60`, whose comment said "a bound on
+ * bytes, not a filter" while the code counted chunks. Chunks are not the
+ * same size — 6 kB to 419 kB per file — so the count said nothing about
+ * what the reader downloads.
+ *
+ * Driving the real index over 5 520 detail-zoom windows (4.73° × 1.56°,
+ * stepped a sixth of a window, 27.09.2026):
+ *
+ *            refuses   heaviest view it ALLOWS
+ *   old       42        1.96 MB
+ *   this     308        1.21 MB
+ *
+ * The old bound let 1.96 MB through — next door to the 2.4 MB CAMP-127
+ * used to argue one world file was unviable — and refused a view
+ * weighing 0.06 MB because it happened to touch 61 small regions. It was
+ * refusing the wrong views and passing the expensive ones.
+ *
+ * 1.75 MB, and both ends of that are measured too:
+ *
+ *  · The ceiling. It is a promise that a view never downloads more than
+ *    1.75 MB, because `chunkWeight` is an upper bound rather than a
+ *    reading: the heaviest view now admitted really weighs 1.21 MB.
+ *
+ *  · The floor. A chunk is a WHOLE region, so zooming in does not make
+ *    it smaller. At the worst point in EU-27 — lon 10.196, lat 49.406,
+ *    where the Bayern (1 433), Baden-Württemberg (1 277) and Hessen
+ *    (578) boxes overlap — any view, however tight, pulls 0.92 MB of
+ *    real bytes and 1.25 MB of budget. Below that, "zoom in to see them
+ *    individually" is a promise the map could never keep anywhere in
+ *    southern Germany. 1.75 MB clears it by 1.33×, and the index route
+ *    fails the build the day that stops being true.
+ *
+ * 🔴 The cost of an upper bound rather than a reading: 308 windows
+ * refused where 51 really exceed the budget. That is the price of not
+ * fetching all 812 chunk files during the build, and the price was
+ * measured the other way round first — doing so put the index route over
+ * Next's 60-second static-generation cap and failed the build three
+ * attempts running. The reader pays it as one more zoom level in the
+ * densest parts of Benelux and the Rhineland; before this card they paid
+ * it as a 1.96 MB download.
+ */
+export const VIEW_BUDGET_BYTES = 1_750_000;
+
+/**
  * Which chunks a viewport needs, nearest the middle first.
  *
- * 🔴 Ordered, because the order is what the reader sees. Fetches finish
- * in the order they are made, so starting from the centre of the screen
- * fills in what somebody is looking at before what is at the edge.
+ * 🔴 Ordered, because the order is what the reader sees. Fetches are
+ * started in this order, so the centre of the screen fills in before the
+ * edge.
  *
- * `limit` is a bound on bytes, not a filter: crossing it means the view
- * is too wide for markers, and the caller must say so rather than draw a
- * part of the answer as if it were all of it.
+ * `budgetBytes` is a bound on bytes and is now spent in bytes: crossing
+ * it means the view is too heavy for markers, and the caller must say so
+ * rather than draw a part of the answer as if it were all of it.
  */
 export function chunksInView(
   index: readonly RegionSummary[],
   view: Bounds,
-  limit = 60,
-): { keys: string[]; tooMany: boolean } {
+  budgetBytes = VIEW_BUDGET_BYTES,
+): { keys: string[]; tooMany: boolean; bytes: number } {
   const midLon = (view.west + view.east) / 2;
   const midLat = (view.south + view.north) / 2;
   const hit = index.filter((r) => overlaps(view, r));
@@ -108,10 +257,23 @@ export function chunksInView(
   // 812 distinct keys), and one line keeps it that way. The sibling
   // defect, where the loop claimed keys one at a time and a concurrent
   // refresh grabbed a later one, WAS reachable and was measured.
-  return {
-    keys: [...new Set(hit.slice(0, limit).map(chunkKey))],
-    tooMany: hit.length > limit,
-  };
+  //
+  // 🔴 One weight per FILE, over the campsites of every row that
+  // shares its key. The reader downloads the file once, so weighing it
+  // twice would refuse a view that costs one file — and weighing only
+  // the first row would understate a file that holds both regions,
+  // which is what the chunk really contains: the API matches on every
+  // region NAME that slugifies to the key.
+  const perKey = new Map<string, number>();
+  const keys: string[] = [];
+  for (const r of hit) {
+    const key = chunkKey(r);
+    if (!perKey.has(key)) keys.push(key);
+    perKey.set(key, (perKey.get(key) ?? 0) + r.count);
+  }
+  let bytes = 0;
+  for (const count of perKey.values()) bytes += chunkWeight(count);
+  return { keys, tooMany: bytes > budgetBytes, bytes };
 }
 
 /** How many campsites the index says are in view, without fetching any. */
@@ -120,6 +282,44 @@ export function countInView(
   view: Bounds,
 ): number {
   return index.reduce((n, r) => (overlaps(view, r) ? n + r.count : n), 0);
+}
+
+/** How many bytes the chunks a view needs weigh, without fetching any. */
+export function bytesInView(
+  index: readonly RegionSummary[],
+  view: Bounds,
+): number {
+  return chunksInView(index, view, Infinity).bytes;
+}
+
+/**
+ * The campsites that are actually on screen.
+ *
+ * 🔴 The one rule for "in view", used by the panel's count and by the
+ * attributes the specs read. It was written out by hand in two places in
+ * campsite-map.tsx — twice inside the same function — and a rule with
+ * three copies is a rule waiting to disagree with itself.
+ *
+ * 🔴 And this set is COMPLETE, which is what makes it usable as a
+ * denominator. A campsite inside the view lies inside its own region's
+ * bounding box, so that box overlaps the view, so `chunksInView` asked
+ * for that chunk. Once the map reports `ready` every such chunk is in
+ * hand — so "N of M in view" is a statement about the world and not
+ * about which way the reader has been dragging. The unit test drives
+ * exactly that argument.
+ */
+export function withinView<
+  F extends { geometry: { coordinates: [number, number] } },
+>(features: readonly F[], view: Bounds): F[] {
+  return features.filter((f) => {
+    const [lon, lat] = f.geometry.coordinates;
+    return (
+      lon >= view.west &&
+      lon <= view.east &&
+      lat >= view.south &&
+      lat <= view.north
+    );
+  });
 }
 
 /**
@@ -187,6 +387,19 @@ export function dataMessage(state: MapDataState): string | null {
  * 🔴 A number is returned only in `ready`, where one exists. The other
  * three states each say what they are, because silence and zero are the
  * two ways this panel has already misled somebody.
+ *
+ * 🔴 Both numbers are about the VISIBLE AREA, and the sentence says so.
+ *
+ * The denominator used to be every campsite loaded so far — "306 of
+ * 1 308 campsites", reviewed 25.09.2026. Chunks are deliberately never
+ * discarded, so that number only ever grew, and it grew with the
+ * reader's route rather than with anything on screen. It matched
+ * neither the screen nor the database, and the heading above it said
+ * 61 422. A denominator that only makes sense if you know which way
+ * somebody has been dragging is not a denominator.
+ *
+ * "In view" is a set the reader can see and check by counting the
+ * markers, and `withinView` explains why it is complete.
  */
 export function filterCountLabel(
   state: MapDataState,
@@ -197,8 +410,8 @@ export function filterCountLabel(
       return {
         value: counts.shown,
         text: counts.filtering
-          ? ` of ${counts.total.toLocaleString('en-GB')} campsites`
-          : ' campsites',
+          ? ` of ${counts.total.toLocaleString('en-GB')} campsites in view`
+          : ' campsites in view',
       };
     case 'loading':
       return { value: null, text: 'Counting campsites…' };
@@ -219,12 +432,17 @@ export function filterCountLabel(
       //
       // And when SOME loaded, the number of those is real — saying
       // "not counted" over 848 visible campsites was its own small lie.
+      //
+      // 🔴 "that loaded", not "in view": this is the one state where the
+      // in-view set is NOT complete, because a chunk covering part of
+      // this screen is missing. The sentence has to stop claiming the
+      // area and claim only the fetch.
       return state.loaded > 0
         ? {
             value: counts.shown,
             text: counts.filtering
-              ? ` of ${counts.total.toLocaleString('en-GB')} campsites that loaded`
-              : ' campsites that loaded',
+              ? ` of ${counts.total.toLocaleString('en-GB')} campsites in view that loaded`
+              : ' campsites in view that loaded',
           }
         : { value: null, text: 'Not counted — the campsites did not load.' };
   }
