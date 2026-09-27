@@ -56,10 +56,27 @@ const FIXTURE_COUNTRIES_BBOX = '13.3,42.3,19.5,46.9';
 
 const BASE = process.env.API_BASE_URL ?? 'http://localhost:3001';
 
+/**
+ * How long one request may take before this is a hang rather than a
+ * slow answer.
+ *
+ * 🔴 `fetch` has no timeout of its own, and review caught what that
+ * costs now that the chunk sample goes out in one batch: one stalled
+ * connection among thirteen holds the probe until the workflow's own
+ * 45-minute limit, and the run then reads "the nightly hung" instead of
+ * "the API did not answer". run.sh is careful about exactly this for its
+ * own curl calls and then launched two probes that were not.
+ *
+ * The same 180 s run.sh uses, for the same reason: how fast the API is
+ * under load is not what this workflow measures.
+ */
+const REQUEST_TIMEOUT_MS = 180_000;
+
 async function api(path) {
   const token = process.env.API_BUILD_TOKEN;
   const res = await fetch(`${BASE}${path}`, {
     headers: token ? { 'x-build-token': token } : {},
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) {
     // 🔴 429 gets its own sentence. Without the build token every bulk
@@ -204,6 +221,11 @@ async function run() {
   // appended. The note would then read "✓ 1 sampled chunks each hold
   // exactly what the index promised", which is the shape of a guard
   // whose scope has quietly collapsed.
+  //
+  // 🔴 What it does NOT catch, said rather than implied: both sides come
+  // from the same constant, so lowering WANT_SAMPLES on purpose passes.
+  // It guards against the sample collapsing by accident, not against
+  // somebody deciding to compare fewer.
   note(chosen.length >= WANT_SAMPLES,
     `${chosen.length} chunks chosen to compare, wanted at least ${WANT_SAMPLES}`);
   // 🔴 Together, not one after another.

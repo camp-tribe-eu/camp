@@ -75,10 +75,16 @@ if [ "$REACH" = 7 ]; then
   echo "          to prevent, wearing the name of the fix." >&2
   exit 1
 elif [ "$REACH" = 28 ]; then
-  echo "::error::$API is listening but did not answer in 180 s." >&2
-  echo "          That is a busy machine, not a missing API. The nightly runs" >&2
-  echo "          at 02:00 UTC for exactly this reason; a run started beside a" >&2
-  echo "          full build is competing with it for the same database." >&2
+  # 🔴 28 is "timed out", not "timed out ANSWERING". A host that drops
+  # packets rather than refusing them also times out at the connect
+  # stage and lands here — so this says both, rather than confidently
+  # naming the wrong one. That confident-wrong-diagnosis is the very
+  # thing the comment above is about, and review caught it recurring
+  # inside the fix for it.
+  echo "::error::$API timed out: either nothing answered the connection" >&2
+  echo "          within 5 s, or it connected and did not reply within 180 s." >&2
+  echo "          The second is a busy machine, not a missing API — the" >&2
+  echo "          nightly runs at 02:00 UTC for exactly that reason." >&2
   exit 1
 elif [ "$REACH" != 0 ]; then
   echo "::error::$API answered, but not with success (curl exit $REACH)." >&2
@@ -90,22 +96,35 @@ fi
 # Point this at CI's fixture and every check below passes. That is not a
 # theoretical risk — it is the single most likely way this workflow stops
 # working, because pointing it at the wrong API is one wrong variable.
-SPOTS=$(curl -fsS --connect-timeout 5 -m 180 -H "x-build-token: $API_BUILD_TOKEN" "$API/spots/summary" \
-  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s).spots)))')
-# 🔴 A non-number is a failure, not a small number.
+# 🔴 A non-number is a failure, not a small number — and the check for
+# that belongs in node, where `set -e` can act on it.
 #
-# This went straight to `[ "$SPOTS" -lt 10000 ]`, and review drove what
-# that does: with SPOTS as `undefined`, `null` or empty, bash prints
+# The first version went straight to `[ "$SPOTS" -lt 10000 ]`. Review
+# drove it: with SPOTS as `undefined`, `null` or empty, bash prints
 # "integer expression expected", `[` returns 2 — and because it is an
 # `if` CONDITION, the then-branch is skipped and the run carries on.
-# `set -e` does not fire inside an `if`. The banner then reads
-# "scale-check against undefined campsites" and every probe runs against
-# whatever answered.
+# `set -e` does not fire inside an `if`.
 #
-# Reachable without anything going wrong: line above does
-# `String(JSON.parse(s).spots)`, so renaming that field, or a null,
-# yields "undefined" with node exiting 0. This is the "empty result
-# treated as success" shape, inside the gate written to stop it.
+# A `case` on digits was the first fix, and review broke that too:
+# `99999999999999999999` is all digits, passes the case, and then makes
+# `[ … -lt … ]` fail the same way. Every guard written in shell test
+# arithmetic has that edge somewhere.
+#
+# So the number is validated where numbers are: node refuses anything
+# that is not a safe non-negative integer and exits 1, which — with
+# `set -o pipefail` — fails the assignment and stops the script. The
+# `case` below stays as a second line, because a command substitution
+# that produced nothing at all is worth naming separately.
+SPOTS=$(curl -fsS --connect-timeout 5 -m 180 -H "x-build-token: $API_BUILD_TOKEN" "$API/spots/summary" \
+  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+      let n;
+      try { n = JSON.parse(s).spots; } catch { console.error("summary was not JSON"); process.exit(1); }
+      if (!Number.isSafeInteger(n) || n < 0) {
+        console.error("summary.spots is not a campsite count: " + JSON.stringify(n));
+        process.exit(1);
+      }
+      process.stdout.write(String(n));
+    })')
 case "$SPOTS" in
   ''|*[!0-9]*)
     echo "::error::$API/spots/summary gave no campsite count (got '$SPOTS')." >&2
@@ -167,8 +186,63 @@ if [ "$WITH_PAGES" = 1 ]; then
     echo "          API_BASE_URL=$API npm run build --workspace=apps/web" >&2
     exit 1
   fi
+  # 🔴 `CI=true` on both runs below, for the JSON report.
+  #
+  # playwright.config.ts only writes playwright-report/report.json when
+  # CI is set, and both guards that follow each run read that file. A
+  # local run without it would skip the guards silently — which is the
+  # very thing they are for. It also turns on `retries: 1`, so what is
+  # measured here is what CI measures.
+  REPORT=apps/web/playwright-report/report.json
+
+  # ── the ranking suite, which can only run where the real index is ──
+  #
+  # 🔴 The seventh instance of this card's defect, and the only one that
+  # is not about data VOLUME.
+  #
+  # ranking-quality.spec.ts measures the search against the live index,
+  # and it reads that index from a file whose path comes from
+  # RANKING_INDEX. CI does not set it, so on CI all five of those tests
+  # SKIP — and a skip is green. Measured 27.09.2026:
+  #
+  #   without RANKING_INDEX   295 passed,   5 skipped
+  #   with it, live index     300 passed,   0 skipped
+  #
+  # Those five have therefore never run on CI, including guards written
+  # to hold a hand-maintained lookup table in step with its expectations.
+  # This job is the one place in the repository with the real index, so
+  # it is the one place they can run for real. It fetches it rather than
+  # depending on a cached file, because a cache that has gone missing is
+  # how they came to be skipping in the first place.
+  RANK_DIR=$(mktemp -d)
+  trap 'rm -rf "$RANK_DIR"' EXIT
+  if curl -fsS --connect-timeout 5 -m 180 -H "x-build-token: $API_BUILD_TOKEN" \
+       "$API/spots/search-index" -o "$RANK_DIR/search-index.json"; then
+    step "ranking quality, against the live index" \
+      env CI=true RANKING_INDEX="$RANK_DIR/search-index.json" \
+        npx playwright test --config=apps/web/playwright.config.ts --project=unit
+    step "nothing in the ranking suite declined to run" \
+      node scripts/ci/check-skips.mjs "$REPORT" --max 0
+  else
+    # Not a skip. The whole point of this block is that a missing index
+    # must not quietly turn five tests into passes.
+    echo "::error::could not fetch the search index for the ranking suite" >&2
+    FAILED=$((FAILED + 1))
+  fi
+
   step "the map and the search, in a browser, on the built site" \
-    env SCALE=1 npx playwright test --config=apps/web/playwright.config.ts
+    env CI=true SCALE=1 npx playwright test --config=apps/web/playwright.config.ts
+
+  # 🔴 Budget zero, and that is a decision rather than a default.
+  #
+  # Every spec in tests/scale was written to FAIL rather than skip when
+  # its precondition is missing — including the WebGL check, which began
+  # life as a `test.skip` and would have turned five of six map tests
+  # into silent passes on a runner with a changed driver. Nothing in this
+  # suite has a legitimate reason to decline, so anything that does is a
+  # defect in the runner and this says so.
+  step "nothing in the scale suite declined to run" \
+    node scripts/ci/check-skips.mjs "$REPORT" --max 0
 fi
 
 if [ "$FAILED" -gt 0 ]; then

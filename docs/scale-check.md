@@ -21,6 +21,55 @@ through all six.
 Twice it was mirror-image: the test failed **because** the data was small.
 So the fixture does not merely miss defects — it invents them.
 
+### A seventh, found while this was being built
+
+Not "the fixture is too small to show it" but "the test declined to run,
+anywhere, and the job was green".
+
+`apps/web/tests/unit/ranking-quality.spec.ts` measures the search against
+the live index and reads that index from `RANKING_INDEX`. CI does not set
+it. Measured 27.09.2026:
+
+```
+npx playwright test --project=unit                    295 passed,  5 skipped
+…with RANKING_INDEX pointing at the live index        300 passed,  0 skipped
+```
+
+So five tests — including guards written to keep a hand-maintained lookup
+table in step with its expectations — have never run on CI. A skip is
+green, and the summary line says "295 passed" without mentioning them.
+
+The same shape reached **inside this card's own work**: `tests/scale`
+originally used `test.skip` when a browser had no WebGL2, which would
+have turned five of six map tests into silent passes on a runner with a
+changed driver while the runner still printed `✓ every scale check
+passed`. That is why every spec in `tests/scale` now fails rather than
+skips.
+
+Two things follow, and both are in this change:
+
+- `scripts/ci/check-skips.mjs` — the sibling of `check-flaky.mjs`. It
+  reads a Playwright report and fails on a test that did not run, naming
+  it and its reason. It counts a `fixme` too (Playwright reports that as
+  `expected` with a skipped result, so counting only `status: 'skipped'`
+  would walk past it), and it refuses a report containing no tests at
+  all, because a run that executed nothing reports zero skips.
+- the scale run **provides** the index. It fetches `/spots/search-index`
+  and runs the unit project with `RANKING_INDEX` set, then holds both
+  that run and the scale suite to a budget of **zero** skips. This job is
+  the only place in the repository with the real index, so it is the only
+  place those five can run for real.
+
+⚠️ **What is not covered, stated rather than folded in.** The gate is not
+yet on `ci.yml`'s e2e suite — only the guard's self-test is. `tests/e2e`
+has 23 `test.skip` sites, most of them of the form "this build holds no
+gone campsites" / "the fixture holds no campsite without facilities",
+which is this card's subject arriving from a third direction: tests that
+quietly stand down because the fixture lacks the case they were written
+for. Budgeting those needs a full e2e report to seed from and a decision
+per skip, which is a card of its own. Until then, CI can still go green
+over an e2e test that declined to run.
+
 This is not a gap in the tests. The tests are written well; they check
 what somebody guessed. These six are about size, and no volume of tests
 on 72 campsites reaches any of them.
@@ -36,10 +85,26 @@ meets.
 
 | stage | what it asks | idle machine | while a full build runs |
 | --- | --- | --- | --- |
-| probes | OSM tag census, then the map index against the API | ~10 s | 2 min 22 s |
-| rehearsal | every guard, driven with the broken version | ~4 s | 35 s |
+| probes | OSM tag census, then the map index against the API | ~10 s | 42 s |
+| rehearsal | every guard, driven with the broken version | ~10 s | 29 s |
 | build | `next build`, 65 435 pages | **7 min 36 s** | > 40 min |
+| ranking | the unit project against the live search index | ~20 s | 1 min 6 s |
 | browser | 9 tests, chromium, one viewport | 21–34 s | — |
+
+🔴 The contended column is **one sample each**, taken between 16:20 and
+17:20 on 27.09.2026 at load averages of 28–48. It is not stable: the map
+probe alone measured 1.1 s, 2 min 13 s and 4 min 43 s within the same
+hour, depending on what the other build was doing to the database at that
+moment. Treat it as "this can be minutes rather than seconds when the
+machine is busy", not as a figure to plan against. The idle column is the
+one the nightly meets.
+
+The rehearsal is ~3x the probes, not less, and the reason is structural:
+it runs the tag census over all three merged layers three times (inverted
+config, allowlist removed, as it stands) plus nine single-country passes —
+18 `osmium` passes against the probes' 3. An earlier version of this table
+said the rehearsal was the cheaper of the two, which stopped being
+possible the moment the census became unconditional.
 
 So a nightly with the browser stage is **about eight and a half minutes**
 on a machine that is otherwise idle. Without the build
@@ -50,8 +115,11 @@ decisions. The schedule is 02:00 UTC so the run meets an idle machine,
 and `concurrency: group: scale-check` stops two of these from queueing at
 the same database. Almost all of the contended cost is waiting on
 Postgres, not computing anything — which is also why the map probe asks
-for its twelve sample chunks at once rather than one after another
-(4 min 43 s sequential against 2 min 13 s together, both contended).
+for its twelve sample chunks at once rather than one after another: the
+sequential version took 4 min 43 s where the batched one took 2 min 13 s
+on the same contended machine. (Two samples, minutes apart. The argument
+for batching does not rest on them: thirteen requests that each wait on
+the same queue should wait on it once.)
 
 For comparison: the same build took over seven hours projected on
 24.09.2026 when the rate-limit bypass was misconfigured. The API build

@@ -278,15 +278,28 @@ test.describe('/map at 61 557 campsites', () => {
     // timeout: at the opening view NOTHING is fetched, so no amount of
     // waiting will make `data-total` move.
     //
-    // 🔴 With its own positive control. `started` is filled by the
-    // patched `window.fetch`; if chunks ever move to a worker or an XHR,
-    // or the init script fails, it is permanently empty and this
-    // assertion is true of nothing. The sample list proves the
-    // instrumentation is alive before its emptiness is believed.
+    // 🔴 With a positive control for the RIGHT mechanism.
+    //
+    // `started` is filled by the patched `window.fetch`, and the first
+    // version of this control asserted `samples.length > 0` — which
+    // proves the MutationObserver attached, a different mechanism
+    // entirely. Review pointed out that under the very failure named
+    // here (chunks moving to a worker or to XHR) `samples` stays full
+    // and `started` stays empty, so the control passed and the
+    // assertion was still true of nothing.
+    //
+    // So the patch is asked about directly: is the `fetch` this page is
+    // using ours?
+    const patched = await page.evaluate(() => String(window.fetch).includes('__scale'));
+    expect(
+      patched,
+      'window.fetch is not the patched one, so an empty fetch list proves nothing',
+    ).toBe(true);
+
     const scale = await readScale(page);
     expect(
       scale.samples.length,
-      'the instrumentation recorded nothing, so an empty fetch list proves nothing',
+      'the instrumentation recorded nothing at all',
     ).toBeGreaterThan(0);
     expect(
       scale.started,
@@ -580,8 +593,23 @@ test.describe('/map at 61 557 campsites', () => {
     expect(shownRaw, 'the map published no data-shown').not.toBeNull();
     const shown = Number(shownRaw);
     expect(Number.isFinite(shown) && shown > 0, `data-shown is ${shownRaw}`).toBe(true);
-    expect(shown, 'more is drawn than was loaded').toBeLessThanOrEqual(onPage);
-    // The panel counts what is drawn, so with no filter set the two agree.
+
+    // 🔴 Equal, not merely "no more than".
+    //
+    // `applyFilters` returns every feature untouched when no filter is
+    // set (map-filter.ts), so with no filter these two are exactly the
+    // same number. Review caught that `<=` lets `shown = 1` pass beside
+    // `total = 61 557` — and the panel would then read "1 campsites",
+    // a number on screen that no file behind it supports, which is this
+    // test's whole subject in miniature.
+    //
+    // Equality is what makes the chain hold end to end: the chunk files
+    // say N, `data-total` says N, `data-shown` says N, and the sentence
+    // a reader sees says N.
+    expect(
+      shown,
+      'the map drew a different number than it loaded, with no filter set',
+    ).toBe(onPage);
     await expect(page.getByTestId('filter-count')).toContainText(
       shown.toLocaleString('en-GB'),
     );
@@ -606,9 +634,12 @@ test.describe('/search at 61 422 campsites', () => {
     //
     // The index is 29 chunks at full scale and 1 on the fixture, so the
     // shape of the built index is the gate.
-    const index = (await (
-      await page.request.get('/data/search/index.json')
-    ).json()) as SearchIndex;
+    const indexRes = await page.request.get('/data/search/index.json');
+    expect(
+      indexRes.status(),
+      'the built search index is missing — a parse error would hide that',
+    ).toBe(200);
+    const index = (await indexRes.json()) as SearchIndex;
     const chunks = fetchOrder(index);
     expect(
       chunks.length,

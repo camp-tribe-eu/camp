@@ -407,9 +407,26 @@ const invokedDirectly =
   import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (invokedDirectly) {
-  if (process.argv.includes('--self-test')) {
-    process.exit(selfTest(process.argv) ? 0 : 1);
-  } else {
-    run(process.argv);
+  // 🔴 The message, not the stack.
+  //
+  // `run` is synchronous, so a throw escaped uncaught and Node printed
+  // twelve frames — `at census`, `at Array.map`, `at ModuleJob.run` —
+  // with the carefully written "the extracts are not there, here is how
+  // to point at them" text buried in the middle of it. The sibling
+  // script already does this; review caught that this one did not.
+  //
+  // The stack is kept behind --trace, because when the failure is a bug
+  // in this file rather than a missing extract, the frames are the
+  // whole answer.
+  try {
+    if (process.argv.includes('--self-test')) {
+      process.exit(selfTest(process.argv) ? 0 : 1);
+    } else {
+      run(process.argv);
+    }
+  } catch (e) {
+    console.error(`\n✗ ${e.message}\n`);
+    if (process.argv.includes('--trace')) console.error(e);
+    process.exit(1);
   }
 }

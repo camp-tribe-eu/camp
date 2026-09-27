@@ -59,8 +59,13 @@ on:
   # satisfying the condition below. camp-tribe-eu/camp is public, so
   # anyone may open the pull request.
   #
-  # With `labeled` alone, each run is a deliberate act on a revision a
-  # person has just looked at: re-label to re-run.
+  # With `labeled` alone, each run takes a deliberate act by somebody with
+  # write access. Stated precisely, because review found the looser
+  # version of this sentence: `labeled` fires on ANY label, so adding an
+  # unrelated one to a PR that already carries `scale` re-runs it on
+  # whatever the head is then. That is still a person with triage rights
+  # acting on purpose, which is what the security argument rests on — but
+  # it is not quite "a revision somebody has just read".
   pull_request:
     types: [labeled]
 
@@ -84,6 +89,14 @@ jobs:
     # `npm ci` has already run the fork's lifecycle scripts on the machine
     # that holds the database. The check has to come before the checkout
     # is installed, which means here.
+    #
+    # 🔴 This works because a missing context property is `null`, NOT
+    # because `||` short-circuits — GitHub evaluates the whole
+    # expression. On a schedule event
+    # `github.event.pull_request.head.repo.full_name` is null, and
+    # `null == '<string>'` compares as 0 against NaN, which is false. So
+    # the second operand is false and the first carries it. Worth knowing
+    # before leaning on short-circuiting anywhere else in these files.
     if: >-
       github.event_name != 'pull_request' ||
       (contains(github.event.pull_request.labels.*.name, 'scale') &&
@@ -145,6 +158,12 @@ jobs:
       # countries, and over the two the fixture is drawn from, must PASS.
       # If it ever stops passing there, these defects were not scale-only
       # and this whole workflow needs rethinking rather than running.
+      # 🔴 The skip guard's own logic, before anything relies on it.
+      # A run that declined to do the work reports the same green as one
+      # that did it, so the thing that notices must itself be exercised.
+      - name: The skip guard still catches a test that did not run
+        run: node scripts/ci/check-skips.mjs --self-test
+
       - name: The scale checks can still fail
         run: ./scripts/scale-check/run.sh --rehearse
 

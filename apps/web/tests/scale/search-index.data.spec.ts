@@ -196,6 +196,13 @@ test('the chunk plan is something a reader can use before it finishes', async ({
 
   // And the gzipped whole against the ceiling that governs it —
   // asserted, not merely printed, which is what it was.
+  //
+  // 🔴 Not the binding number, and worth saying so. This gzips the index
+  // as ONE blob; a reader fetches 29 separately-gzipped files, whose sum
+  // is larger and is what `checkedPlan` already throws on. So this can
+  // only speak after that guard has. It is here to print the figure and
+  // to fail loudly if the whole thing ever becomes absurd, not because
+  // it is the tighter of the two.
   const gz = gzipSync(
     Buffer.from(JSON.stringify(packIndex(toSearchDocs(rows)))),
     { level: 6 },
