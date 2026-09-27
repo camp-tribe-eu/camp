@@ -12,9 +12,24 @@ import type { Place } from '@/lib/api';
 // cached as one static document for every dead URL on the site, so
 // anything specific to the URL has to be worked out in the browser.
 //
-// The places come in as a prop, rendered into the page at build time.
-// A 404 page that fetches from the API is a 404 page that breaks
-// precisely when things are already going wrong.
+// 🔴 The places are FETCHED, from a static file on our own site, and
+// were a prop until CAMP-143 measured what that prop cost.
+//
+// The old note here said: "A 404 page that fetches from the API is a
+// 404 page that breaks precisely when things are already going wrong."
+// That rule is right and is kept — /data/places.json is not the API. It
+// is a static document built at build time from the same getPlaces(),
+// so it is there whether or not the backend is.
+//
+// What the prop cost, measured 27.09.2026 on the production build:
+// Next serialises the not-found boundary into the flight payload of
+// EVERY statically generated page, so the 27 countries and 800 regions
+// sat in all 65 435 of them — 47 919 bytes, 37% of a 126 512-byte page.
+// One file, fetched once and cached, replaces 65 435 uncacheable copies.
+//
+// 🔴 And it is fetched only when the path could possibly match. Three
+// quarters of dead URLs are not /camping/... at all, and those readers
+// should not pull 41 KB to be told nothing.
 
 interface Guess {
   country?: Place;
@@ -37,7 +52,7 @@ export function readPath(path: string, places: Place[]): Guess {
   return { country, region, missing: parts[3] ?? parts[2] };
 }
 
-export default function PathRecovery({ places }: { places: Place[] }) {
+export default function PathRecovery() {
   // 🔴 Resolved in an effect, not during render. The page is prerendered
   // on the server where there is no location, and reading it during
   // render would make the server and client markup disagree — React
@@ -45,8 +60,27 @@ export default function PathRecovery({ places }: { places: Place[] }) {
   // reader sees a flash of nothing.
   const [guess, setGuess] = useState<Guess | null>(null);
   useEffect(() => {
-    setGuess(readPath(window.location.pathname, places));
-  }, [places]);
+    const path = window.location.pathname;
+    // Nothing to recover unless the URL is shaped like a campsite one.
+    // readPath would return {} for these anyway; this just declines to
+    // pay 41 KB to find that out.
+    if (path.split('/').filter(Boolean)[0] !== 'camping') return;
+
+    let alive = true;
+    fetch('/data/places.json')
+      .then((r) => (r.ok ? (r.json() as Promise<Place[]>) : null))
+      .then((places) => {
+        // 🔴 Silence on failure, deliberately. This block is a bonus on
+        // top of a page that already works: the country hubs, the search
+        // box and the apology below are all server-rendered. A 404 that
+        // announces a second failure helps nobody.
+        if (alive && places) setGuess(readPath(path, places));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   if (!guess?.country) return null;
 

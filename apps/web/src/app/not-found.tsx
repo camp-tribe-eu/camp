@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { countryName, getCountries, getPlaces } from '@/lib/api';
+import { countryName, getCountries } from '@/lib/api';
 import PathRecovery from '@/components/path-recovery';
 
 // CAMP-73 — the 404.
@@ -20,9 +20,16 @@ import PathRecovery from '@/components/path-recovery';
 // promise this page makes is one it can keep.
 
 export default async function NotFound() {
-  // Both are already cached by the API layer, and this page is built
-  // once, so the cost is paid at build time and never again.
-  const [places, countries] = await Promise.all([getPlaces(), getCountries()]);
+  // 🔴 The country list only. The REGION list used to be awaited here
+  // too and handed to PathRecovery as a prop — and CAMP-143 measured
+  // what that cost: Next serialises this boundary into the flight
+  // payload of every statically generated page, so 27 countries and 800
+  // regions were embedded in all 65 435 of them, 47 919 bytes, 37% of a
+  // page. PathRecovery now fetches /data/places.json itself, one static
+  // file instead of 65 435 copies. The countries below stay inline:
+  // they are 27 links this page actually renders, not data for a
+  // component that may never run.
+  const countries = await getCountries();
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-12 xl:px-6">
@@ -61,7 +68,7 @@ export default async function NotFound() {
         </button>
       </form>
 
-      <PathRecovery places={places} />
+      <PathRecovery />
 
       <section className="mt-8">
         <h2 className="text-xl font-bold md:text-[25px]">Browse by country</h2>
