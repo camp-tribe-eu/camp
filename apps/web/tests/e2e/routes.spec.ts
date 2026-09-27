@@ -151,21 +151,60 @@ test.describe('a route page', () => {
     expect(errors, 'console errors on the map page').toEqual([]);
   });
 
-  test('a campsite beside a stage links to its own page', async ({ page }) => {
-    await page.goto('/routes/tuscany-hill-towns');
-    const link = page.locator('main a[href^="/camping/"]').first();
-    await expect(link).toBeVisible();
-    const href = await link.getAttribute('href');
-    expect(href, 'the campsite link has no href').toBeTruthy();
-    await link.click();
-    await expect(page).toHaveURL(new RegExp(escapeRe(href!)));
-    // 🔴 It must be a real campsite page, not the 404. The accented
-    // region slugs are the thing that breaks here — "Šibensko-Kninska"
-    // has to become "sibensko-kninska", and a second implementation of
-    // that rule in the web layer would 404 silently.
-    await expect(page.getByRole('heading', { level: 1 })).not.toContainText(
-      /not found/i,
-    );
+  // 🔴 Every campsite link on every route page has to be a real page.
+  //
+  // This is the assertion that would have caught the bug I nearly
+  // shipped: rebuilding the campsite URL in the web layer instead of
+  // using the API's `canonicalPath`. The real rule strips accents, so a
+  // naive lower-case-and-hyphenate 404s on "Šibensko-Kninska",
+  // "Pyrénées-Atlantiques", "Liepāja" and "Gyôr" — most of Croatia,
+  // Latvia, Estonia and a good deal of France, silently.
+  //
+  // 🔴 Navigated with `goto`, not by clicking, and deliberately.
+  //
+  // Clicking went through Next's client router, which in a dev server
+  // has to COMPILE the campsite route on first use — measured at ~12 s
+  // for a cold route here. The assertion timed out at 5 s and reported a
+  // dead link, which was a lie about the code and true only about the
+  // dev server. A direct navigation tests the thing that matters (the
+  // URL resolves to a real page) and is not a race against a compiler.
+  test('every campsite link on a route page resolves to a real page', async ({
+    page,
+  }) => {
+    // Croatia and Latvia are on this list on purpose: their region names
+    // carry the accents that the slug rule has to strip.
+    for (const slug of [
+      'dalmatian-coast-and-islands',
+      'baltic-coast-and-capitals',
+      'france-atlantic-coast',
+    ]) {
+      await page.goto(`/routes/${slug}`);
+      const hrefs = await page
+        .locator('main a[href^="/camping/"]')
+        .evaluateAll((els) =>
+          els.map((e) => (e as HTMLAnchorElement).getAttribute('href') ?? ''),
+        );
+      expect(hrefs.length, `${slug} links to no campsites at all`).toBeGreaterThan(0);
+
+      for (const href of hrefs.slice(0, 4)) {
+        expect(href, 'a campsite link has no href').toBeTruthy();
+        // 🔴 No empty segment. `/camping/cy//arazi` is the shape a
+        // region-less campsite produced before canonicalPath returned
+        // null for it — a double slash and a guaranteed 404.
+        expect(href, `${href} has an empty path segment`).not.toMatch(/\/\//);
+        // And no accent survived into a URL.
+        expect(href, `${href} carries a non-ASCII character`).toMatch(
+          /^[\x21-\x7e]+$/,
+        );
+
+        const res = await page.goto(href, { waitUntil: 'commit' });
+        expect(res?.status(), `${href} answered ${res?.status()}`).toBeLessThan(400);
+        await expect(
+          page.getByRole('heading', { level: 1 }),
+          `${href} rendered a not-found page`,
+        ).not.toContainText(/not found/i);
+      }
+    }
   });
 });
 
