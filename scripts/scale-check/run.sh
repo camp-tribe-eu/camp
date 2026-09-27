@@ -75,7 +75,13 @@ fi
 # workflow measures. `curl` exits 7 when it cannot connect and 28 on a
 # timeout, and the two get different sentences.
 set +e
-curl -fsS --connect-timeout 5 -m 180 "$API/spots/countries" > /dev/null 2>&1
+# 🔴 With the token, like every other call here. `/spots/countries` is not
+# in the bulk bucket, but it is still rate-limited, and a 429 under load
+# would come back as curl exit 22 and a message about "not with success" —
+# sending somebody to look at the API when the answer is "we asked too
+# often". This probe is an internal caller; it says so.
+curl -fsS --connect-timeout 5 -m 180 -H "x-build-token: $API_BUILD_TOKEN" \
+  "$API/spots/countries" > /dev/null 2>&1
 REACH=$?
 set -e
 if [ "$REACH" = 7 ]; then
