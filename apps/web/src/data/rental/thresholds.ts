@@ -40,12 +40,13 @@ export const THRESHOLDS: Threshold[] = [
     what: 'Maximum authorised mass (MAM) — the loaded weight the vehicle is type-approved for, not what it weighs empty',
     decides: [
       'Whether an ordinary category B licence covers it at all. Above 3 500 kg you need C1, which is a separate test.',
-      'Which road-charging system you are in. In Austria and Slovenia the vignette stops at 3 500 kg and heavier vehicles move to the distance-based lorry systems instead.',
+      'Which road-charging system you are in. ASFINAG sells the Austrian vignette to “cars, motorbikes and camper vans up to 3.5 tons”, and DARS sells the Slovenian e-vignette for vehicles “up to 3 500 kilograms”; above that, both countries move you into the distance-based systems built for lorries.',
+      'What winter equipment you must carry. Slovenia asks vehicles up to 3 500 kg for winter tyres on all four wheels and heavier vehicles for winter tyres on the driven wheels — the same number again, deciding something else.',
       'In several member states, a lower speed limit and different rules on which lanes you may use. The national road authority is the one to ask.',
     ],
     source: {
       name: 'Directive 2006/126/EC on driving licences, Article 4(4)',
-      url: 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A02006L0126-20220101',
+      url: 'https://eur-lex.europa.eu/eli/dir/2006/126/oj',
     },
   },
   {
@@ -60,21 +61,21 @@ export const THRESHOLDS: Threshold[] = [
     source: {
       name:
         'Regulation (EU) No 1230/2012 on masses and dimensions, Annex I (mass in running order)',
-      url: 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A02012R1230-20190101',
+      url: 'https://eur-lex.europa.eu/eli/reg/2012/1230/oj',
     },
   },
   {
     id: 'height',
-    value: '1.30 m, 1.90 m, 2.00 m, 3.00 m',
+    value: '1.30 m, 2.00 m, 3.00 m',
     what: 'Height — measured differently by different people, which is the trap',
     decides: [
-      'Italian motorway toll class is read at the FIRST AXLE, with the step at 1.30 m, so almost every camper is charged above the car rate.',
-      'Croatian toll class steps at 1.90 m of overall height, and the French one at 2.00 m.',
-      'Height barriers on city car parks and at some campsite entrances are commonly set around 2.00 m. Roof boxes, aerials and air-conditioning units are part of your height and are not on the contract.',
+      'In France the toll classes are drawn at 2 m and at 3 m: up to 2 m and 3.5 t is class 1, above 2 m is class 2 — which ASFA itself describes as where most motor caravans sit — and at 3 m or above you are in class 3 with the lorries.',
+      'In Italy the step is 1.30 m and it is measured AT THE FRONT AXLE, not at the roof. Below it is class A, above it class B, and essentially every camper is above it.',
+      'Height barriers on city car parks and at some campsite entrances are commonly set around 2 m. Roof boxes, aerials and air-conditioning units are part of your height and are not on the contract.',
     ],
     source: {
-      name: 'ASFA — French motorway toll classes',
-      url: 'https://www.autoroutes.fr/',
+      name: 'ASFA — French vehicle classification',
+      url: 'https://www.autoroutes.fr/fr/classification-des-vehicules.htm',
     },
   },
   {
@@ -82,13 +83,13 @@ export const THRESHOLDS: Threshold[] = [
     value: '6.00 m',
     what: 'Overall length, including the tow bar, the bike rack and the spare wheel',
     decides: [
-      'The Danish Great Belt and Øresund crossings price by length, with a step at 6 m — a step most low-profile motorhomes sit on the wrong side of.',
+      'The Danish Great Belt crossing prices by length: its published tariff has one rate for a car of 3–6 m and a higher one for a car over 6 m, with height entering the categories above that. A great many motorhomes sit on the wrong side of the step.',
       'Ferry fares across the Union are quoted per metre band, and a rack you added is billed the same as bodywork.',
       'Whether a pitch fits. We hold no pitch dimensions for any campsite in our database, so this is the one number on this list nothing on this site can check for you. Ring the site.',
     ],
     source: {
       name: 'Sund & Bælt — Great Belt tariffs by vehicle length',
-      url: 'https://www.storebaelt.dk/',
+      url: 'https://www.storebaelt.dk/priser-rabatter/privat/',
     },
   },
 ];

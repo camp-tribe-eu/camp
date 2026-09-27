@@ -84,8 +84,11 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
     facts: [
       {
         title: 'The motorway toll is not yours to pay',
-        body: 'Germany charges no vignette and no general motorway toll for private vehicles. The Maut is a goods-vehicle charge collected through Toll Collect, and a motor caravan registered for private use is not in it. If a rental desk offers to sell you a German road pass, something is wrong.',
-        source: { name: 'Toll Collect', url: 'https://www.toll-collect.de/' },
+        body: 'Germany sells no vignette. The German toll falls on motor vehicles over 3.5 tonnes that are intended for, or are being used for, the carriage of goods — that is the test Toll Collect publishes, and a privately hired motor caravan is neither. So there is nothing for you to buy before you join the autobahn, and if a rental desk offers to sell you a German road pass, something is wrong.',
+        source: {
+          name: 'Toll Collect — vehicles subject to toll',
+          url: 'https://www.toll-collect.de/en/toll_collect/rund_um_die_maut/mautpflichtige_fahrzeuge/mautpflichtige_fahrzeuge.html',
+        },
       },
       {
         title: 'The low-emission badge belongs to the vehicle, not to you',
@@ -118,10 +121,10 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
     facts: [
       {
         title: 'You will not be charged the car rate',
-        body: 'French motorway tolls are distance-based and priced by vehicle class, and the class is decided by height and by maximum authorised mass. A vehicle over 2 m tall leaves class 1, and one over 3.5 t leaves the light-vehicle classes altogether. On a long north-to-south run that difference is worth checking against the operator’s tariff before you commit to the motorway.',
+        body: 'French motorway tolls are distance-based and priced by class, and the class is decided by height and maximum authorised mass. Class 1 is up to 2 m and 3.5 t. Class 2 runs from 2 m to 3 m — ASFA’s own description of that class names motor caravans as most of it. At 3 m or above, or over 3.5 t, you are in class 3 with the two-axle lorries and coaches. On a long north-to-south run the gap between class 1 and class 3 is the size of a campsite week.',
         source: {
-          name: 'ASFA — the French motorway operators’ association',
-          url: 'https://www.autoroutes.fr/',
+          name: 'ASFA — French vehicle classification',
+          url: 'https://www.autoroutes.fr/fr/classification-des-vehicules.htm',
         },
       },
       {
@@ -155,10 +158,10 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
     facts: [
       {
         title: 'The toll class is measured at the first axle',
-        body: 'Italian motorway tariffs are set by class, and the light-vehicle classes are separated by the height measured at the first axle, with the step at 1.30 m. That is below the roofline of essentially every motor caravan, so the class-B rate is the one to budget for rather than the car rate quoted in most trip planners.',
+        body: 'Italian motorway tariffs are set by the number of axles and by height, and among two-axle vehicles the line is drawn at 1.30 m measured at the front axle: below it class A, above it class B. That is not the roofline, it is the bonnet — and essentially every motor caravan is above it. Budget class B rather than the car rate that trip planners quote.',
         source: {
           name: 'Autostrade per l’Italia — toll classes',
-          url: 'https://www.autostrade.it/',
+          url: 'https://www.autostrade.it/en/servizi-al-cliente/pedaggio/classi-di-pedaggio',
         },
       },
       {
@@ -200,10 +203,10 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
       },
       {
         title: 'Low-emission zones are a national obligation, run locally',
-        body: 'Spain’s 2021 climate law requires municipalities above 50 000 inhabitants to establish low-emission zones, so the number of towns with one keeps growing and the rules are written town by town. Access depends on the DGT environmental label carried by the vehicle, which is the rental company’s to tell you about.',
+        body: 'Article 14 of Spain’s 2021 climate law obliges municipalities above 50 000 inhabitants — and smaller ones where pollution limits are exceeded — to adopt mobility plans that include a low-emission zone, and a 2022 royal decree sets what those zones must contain. The consequence for a visitor is that the number of Spanish towns with restrictions keeps growing and each writes its own, while access turns on the DGT environmental label the vehicle carries. That label is the rental company’s to tell you about.',
         source: {
-          name: 'Ley 7/2021 de cambio climático — Boletín Oficial del Estado',
-          url: 'https://www.boe.es/',
+          name: 'Ley 7/2021, art. 14 — Boletín Oficial del Estado',
+          url: 'https://www.boe.es/buscar/act.php?id=BOE-A-2021-8447',
         },
       },
       {
@@ -225,19 +228,19 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
     angle:
       'Almost no tolls, low-emission zones with no sticker, and an overnight rule written separately by every municipality.',
     intro:
-      'The Netherlands is an easy country to drive a camper across and a complicated one to sleep in. There is no vignette and only two tolled crossings in the whole country, so the road cost of a week here is essentially fuel. Whether you may stay the night in a parked camper, on the other hand, is decided by each municipality in its own by-law, and neighbouring towns genuinely differ.',
+      'The Netherlands is an easy country to drive a camper across and a complicated one to sleep in. There is no vignette and only a handful of individually tolled links, so the road cost of a week here is essentially fuel. Whether you may stay the night in a parked camper, on the other hand, is decided by each municipality in its own by-law, and neighbouring towns genuinely differ.',
     facts: [
       {
-        title: 'Two tolls in the entire country',
-        body: 'Dutch motorways carry no vignette and no general charge. The exceptions are two tunnels — the Westerschelde and the Kil — which are paid individually. For a camper trip that means the road budget is fuel and, if you are crossing to the islands, a ferry.',
+        title: 'Almost no tolls — and the newest one names campers',
+        body: 'There is no Dutch vignette and no general motorway charge; a handful of individual links are tolled instead. The newest of them is worth reading even if you never use it, because it shows the pattern the rest of this section is about: the published tariff for the A24 Blankenburg link lists cars, vans, campers and motorbikes up to 3 500 kg at one rate and heavier vehicles at several times that. There are no barriers — you pay afterwards, online, against the registration.',
         source: {
-          name: 'Rijkswaterstaat (Dutch national roads authority)',
-          url: 'https://www.rijkswaterstaat.nl/',
+          name: 'Rijksoverheid — tolls on the Blankenburgverbinding and ViA15',
+          url: 'https://www.rijksoverheid.nl/onderwerpen/wegen/tijdelijke-tolheffing-blankenburgverbinding-en-via15',
         },
       },
       {
-        title: 'The low-emission zones have nothing to buy',
-        body: 'Dutch milieuzones are enforced by camera against the registration, with no sticker and nothing to display. That is convenient and it is also why you cannot tell from the windscreen whether the vehicle you have been handed is allowed in: it depends on the registration and the emission class, and the only way to know is to ask.',
+        title: 'The low-emission zones have nothing to buy and nothing to display',
+        body: 'Access to a Dutch milieuzone is decided by the vehicle’s emission class, looked up from its registration. There is no sticker to obtain and nothing in the windscreen to check, which cuts both ways: it is one less errand, and it is also why you cannot tell by looking whether the camper you have been handed may enter. The official Milieuzonecheck answers it from the number plate in a few seconds, and that is a question to settle before you plan a city stop rather than at the sign.',
         source: {
           name: 'Milieuzones.nl (Dutch government)',
           url: 'https://www.milieuzones.nl/',
@@ -266,8 +269,11 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
     facts: [
       {
         title: 'Vignette below 3.5 t, GO tolling above it',
-        body: 'ASFINAG sells the vignette for vehicles up to 3 500 kg maximum authorised mass. Above that the vignette does not apply at all and the vehicle is tolled by distance through the GO system, which needs an on-board unit obtained before you use the motorway. This is the same threshold that decides whether a category B licence covers the vehicle, which is why the plated mass is the first number to read on the contract.',
-        source: { name: 'ASFINAG', url: 'https://www.asfinag.at/' },
+        body: 'ASFINAG puts it in as many words: cars, motorbikes and camper vans up to 3.5 tonnes technically permissible maximum laden mass must display a vignette. Above that the vignette does not apply at all and the vehicle is tolled by distance through the GO system, which needs an on-board unit obtained before you use the motorway. It is the same threshold that decides whether a category B licence covers the vehicle, which is why the plated mass is the first number to read on the contract.',
+        source: {
+          name: 'ASFINAG — vignette',
+          url: 'https://www.asfinag.at/en/toll/vignette/',
+        },
       },
       {
         title: 'Some of the best roads are tolled separately',
@@ -279,10 +285,10 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
       },
       {
         title: 'Winter equipment has a season and a condition',
-        body: 'From 1 November to 15 April, a vehicle driven in wintry conditions must be on winter tyres — or, on a snow-covered road, have chains fitted to at least two driven wheels. Both halves matter: the calendar alone does not oblige you, and neither does the weather outside the window.',
+        body: 'Between 1 November and 15 April, a vehicle up to 3.5 tonnes may only be driven in wintry conditions with winter tyres on all four wheels — and the tread has to be at least 4 mm, deeper than the ordinary minimum. Both halves of the rule matter: the calendar alone does not oblige you, and neither does the weather outside the window. Wintry conditions means snow, slush or ice on the road, which in the Alps is a question about the next hour rather than the season.',
         source: {
-          name: 'oesterreich.gv.at (Austrian government portal)',
-          url: 'https://www.oesterreich.gv.at/',
+          name: 'oesterreich.gv.at — compulsory use of winter tyres',
+          url: 'https://www.oesterreich.gv.at/en/themen/mobilitaet/kfz/10/2/Seite.063100',
         },
       },
     ],
@@ -299,11 +305,11 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
       'Croatia is where the difference between a camper holiday and a campsite holiday narrows almost to nothing. The Adriatic coast is served by large commercial sites and by very little else, so a plan built around informal overnight stops will not survive contact with it. The compensations are real: since January 2023 there is neither a Schengen border check nor a currency change coming in from Slovenia or Hungary.',
     facts: [
       {
-        title: 'Height is part of the toll class',
-        body: 'Croatian motorway tolls are charged by distance, and the class boundary within the light vehicles is drawn at 1.90 m of overall height. A camper is above it. Budget the higher class for the coastal motorway rather than the car rate.',
+        title: 'The toll can be priced exactly before you leave',
+        body: 'The Croatian motorway network runs a closed toll system: you are registered at the entry plaza and pay at the exit, by distance and by vehicle category. HAC publishes the rate for every entry-and-exit pair in each of its five vehicle categories, which means the Zagreb–Split run — the one a coastal trip is built around — can be costed to the cent before you set off, in whichever category the rental company tells you the vehicle falls.',
         source: {
-          name: 'Hrvatske autoceste (HAC)',
-          url: 'https://www.hac.hr/',
+          name: 'Hrvatske autoceste (HAC) — toll rates',
+          url: 'https://www.hac.hr/en/toll/toll-rates',
         },
       },
       {
@@ -337,15 +343,18 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
     facts: [
       {
         title: 'E-vignette up to 3.5 t, DarsGo above it',
-        body: 'DARS sells an electronic vignette, tied to the registration, for vehicles up to 3 500 kg. Above that the vignette is not available and the vehicle belongs in DarsGo, the distance-based system with its own on-board unit. There is no overlap and no grace: a 3.6 t camper with a vignette is an untolled vehicle on the motorway.',
-        source: { name: 'DARS', url: 'https://www.dars.si/' },
+        body: 'DARS describes the e-vignette as a way of paying tolls for motor vehicles with a maximum technically permissible mass of up to 3 500 kilograms. Above that the vignette is not available at all and the vehicle belongs in DarsGo, the distance-based system with its own on-board unit. There is no overlap and no grace period: a 3.6-tonne camper carrying a vignette is an untolled vehicle on the motorway.',
+        source: {
+          name: 'DARS — e-vignette',
+          url: 'https://evinjeta.dars.si/',
+        },
       },
       {
         title: 'The winter season is a fixed window',
-        body: 'Slovenia sets its winter equipment requirement by calendar — from 15 November to 15 March — and applies it outside that window too whenever winter conditions are present. It is one of the stricter regimes in the Union and it applies on ordinary roads, not only on the mountain ones.',
+        body: 'Slovenia sets its winter period by calendar — 15 November to 15 March — and applies the same requirement outside it whenever winter conditions are present. For a vehicle up to 3 500 kg that means winter tyres on all four wheels, or summer tyres plus chains carried for the driven wheels, with at least 3 mm of tread. Heavier vehicles are asked for less, not more: winter tyres on the driven wheels. It is the 3.5-tonne line again, deciding a third thing.',
         source: {
-          name: 'GOV.SI (Government of Slovenia)',
-          url: 'https://www.gov.si/',
+          name: 'Slovenian Police — winter equipment provisions',
+          url: 'https://www.policija.si/eng/prevention/traffic-safety/winter-in-road-traffic-provisions-on-winter-equipment',
         },
       },
       {
@@ -370,19 +379,19 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
       'Portugal is the one country on this list where where you sleep is a national legal question rather than a municipal one. A 2021 amendment to the road code addressed motorhomes directly, restricting overnight stays outside designated areas. The other thing to settle before you drive away is the tolls: parts of the network have no booths whatsoever, and a vehicle that is not registered for electronic payment simply accrues a debt.',
     facts: [
       {
-        title: 'Overnight stays are in the road code',
-        body: 'The Código da Estrada was amended in 2021 to restrict motorhomes stopping overnight outside designated places, with protected areas treated more strictly still. Because it is national law rather than a local by-law, the answer does not change when you cross into the next municipality. ANSR publishes the current text and the enforcement position.',
+        title: 'Overnight stays are in the road code, by article number',
+        body: 'Article 50.º-A of the Código da Estrada, in the form Law 66/2021 gave it, prohibits motorhomes staying overnight in Natura 2000 sites, in protected areas and in the zones covered by the coastal management plans, except where a place is expressly authorised. Everywhere else, where no municipal rule says otherwise, a type-approved motorhome may stay overnight for at most 48 hours in the same municipality. Because this is national law and not a by-law, the answer does not change at the next town sign — which is the opposite of how the question works in the Netherlands or Spain.',
         source: {
-          name: 'Autoridade Nacional de Segurança Rodoviária (ANSR)',
-          url: 'https://www.ansr.pt/',
+          name: 'Lei n.º 66/2021 — Diário da República',
+          url: 'https://diariodarepublica.pt/dr/detalhe/lei/66-2021-170083315',
         },
       },
       {
         title: 'Some motorways cannot be paid at a booth',
         body: 'Several Portuguese motorways are electronic-only: there is nothing to stop at, the gantry reads the plate, and payment has to have been arranged in advance through a transponder or a registered card. A rental camper usually carries a device — confirm it at handover, and confirm how the charges reach you afterwards.',
         source: {
-          name: 'Portagens (official electronic tolls information)',
-          url: 'https://www.portagens.pt/',
+          name: 'Infraestruturas de Portugal — tolls',
+          url: 'https://www.infraestruturasdeportugal.pt/',
         },
       },
       {
@@ -423,11 +432,11 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
         },
       },
       {
-        title: 'Winter tyres between December and March, when conditions demand',
-        body: 'Winter tyres are required from 1 December to 31 March whenever winter road conditions prevail. In the north that is most of the period; in the south it is not, and the judgement is the driver’s. A rental contract may also set its own requirement, which binds you regardless of what the statute says.',
+        title: 'Winter tyres from December to March — unless the camper is heavy',
+        body: 'For a vehicle up to 3.5 tonnes, winter tyres or equivalent equipment are required from 1 December to 31 March whenever there are winter road conditions: snow, ice, slush or frost on any part of the road. Above 3.5 tonnes the rule is both longer and unconditional — 10 November to 10 April, whatever the weather is doing. That is the plated mass deciding your obligations for the fourth time on this site, and the judgement in the lighter case is the driver’s.',
         source: {
-          name: 'Transportstyrelsen (Swedish Transport Agency)',
-          url: 'https://www.transportstyrelsen.se/',
+          name: 'Transportstyrelsen — winter tyres',
+          url: 'https://www.transportstyrelsen.se/en/road/Vehicles/winter-tyres/',
         },
       },
     ],
@@ -439,24 +448,24 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
     code: 'dk',
     name: 'Denmark',
     angle:
-      'Bridges priced by the length of your vehicle, no winter tyre law at all, and more informal places recorded than anywhere in the Union.',
+      'Bridges priced by the length of your vehicle, a winter rule with no dates in it, and more informal places recorded than anywhere in the Union.',
     intro:
-      'Denmark is cheap to drive across and expensive to cross. There is no vignette and no motorway toll, but the two great bridges are tolled and they price by vehicle length — with a step at six metres that a great many motorhomes sit just the wrong side of. It is also the one country on this list with no statutory winter tyre requirement, which does not mean the rental contract has none.',
+      'Denmark is cheap to drive across and expensive to cross. There is no vignette and no motorway toll, but the great bridges are tolled and they price by vehicle length — with a step at six metres that a great many motorhomes sit just the wrong side of. Its winter rule is the mirror image of the ones a day’s drive south: no dates, a condition instead, and the judgement left to the driver.',
     facts: [
       {
         title: 'The bridges price by length, and six metres is the step',
-        body: 'Great Belt and Øresund tariffs are set by vehicle category, and the categories are drawn by length. Six metres is the boundary that matters for a camper, and length includes anything bolted to the back of it. Measure before you book the crossing, not after.',
+        body: 'The published Great Belt tariff has one rate for a car of 3 to 6 metres and a noticeably higher one for a car over 6 metres, with height entering the categories above that. Six metres is therefore the number that decides the crossing, and length means the whole vehicle including whatever is bolted to the back of it. Measure before you book, not at the barrier.',
         source: {
-          name: 'Sund & Bælt — Great Belt',
-          url: 'https://www.storebaelt.dk/',
+          name: 'Sund & Bælt — Great Belt prices',
+          url: 'https://www.storebaelt.dk/priser-rabatter/privat/',
         },
       },
       {
-        title: 'No winter tyre law — and that is not the whole answer',
-        body: 'Denmark imposes no general winter tyre requirement. The rental agreement may impose one anyway, and if the vehicle is being taken on to Sweden, Germany or further south, the law of the country you are in is the one that applies. A Danish handover is not a Danish-only trip.',
+        title: 'No winter calendar — a condition instead',
+        body: 'Denmark does not name dates for winter tyres. What the road traffic authority sets is a condition, in its own words: you can be fined for driving on tyres that are obviously unsuitable for the weather. That puts the judgement on the driver on the morning it snows rather than on a diary, and it is the opposite of the Slovenian and Austrian approach a day’s drive south. Rules here have been under review, so the authority’s own page is the one to read before travelling — and a rental agreement can require more than the law does.',
         source: {
-          name: 'Færdselsstyrelsen (Danish Road Traffic Authority)',
-          url: 'https://www.fstyr.dk/',
+          name: 'Færdselsstyrelsen — guidance on tyres',
+          url: 'https://www.fstyr.dk/privat/krav-til-koeretoejer/vejledning-om-daek',
         },
       },
       {
@@ -489,11 +498,11 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
         },
       },
       {
-        title: 'The M50 has nothing to stop at',
-        body: 'The toll on the M50 around Dublin is barrier-free: a camera reads the plate and the charge must be settled by 8 p.m. the following day. Unpaid, it escalates. On a rental it reaches you through the rental company, with their fee attached, so it is worth asking at handover how they handle it.',
+        title: 'The M50 has nothing to stop at, and a deadline the next evening',
+        body: 'The toll on the M50 around Dublin is barrier-free: gantry cameras read the plate, there is no cash lane, and a driver without an account must pay by 8 p.m. on the day after the journey. Miss it and the charge escalates in steps, each one considerably larger than the toll itself. On a hired camper the bill reaches you through the rental company with their own fee attached, so how they handle it is a question for the handover desk rather than for afterwards.',
         source: {
-          name: 'Transport Infrastructure Ireland (TII)',
-          url: 'https://www.tii.ie/',
+          name: 'Transport Infrastructure Ireland — M50 barrier-free tolling',
+          url: 'https://www.tii.ie/en/roads-tolling/tolling-information/toll-locations-and-charges/m50-barrier-free-tolling/',
         },
       },
       {

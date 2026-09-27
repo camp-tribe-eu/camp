@@ -106,9 +106,10 @@ export default function CamperRentalHub() {
         </h2>
         <p className="mt-3 max-w-prose text-ink-2">
           If you read one thing on this page, read this. A single number —
-          the maximum authorised mass stamped on the vehicle — decides three
-          separate things at once, and they are administered by three
+          the maximum authorised mass stamped on the vehicle — decides four
+          separate things at once, and they are administered by four
           different sets of people who will not warn you about each other.
+          We went and read each of them.
         </p>
         <ul className="mt-4 max-w-prose list-disc space-y-3 pl-5 text-ink-2">
           <li>
@@ -118,12 +119,21 @@ export default function CamperRentalHub() {
             a rental desk can arrange on the morning of the hire.
           </li>
           <li>
-            <strong className="text-ink">Your tolls.</strong> In Austria and
-            Slovenia the vignette is sold for vehicles up to 3 500 kg and
-            simply does not exist above it; heavier vehicles belong in the
-            distance-based systems built for lorries, with an on-board unit
-            obtained in advance. The same threshold recurs across central
-            Europe.
+            <strong className="text-ink">Your tolls.</strong> ASFINAG sells
+            the Austrian vignette to &ldquo;cars, motorbikes and camper vans
+            up to 3.5 tons&rdquo;; DARS sells the Slovenian e-vignette for
+            vehicles up to 3 500 kilograms. Above that neither exists and
+            the vehicle belongs in the distance-based systems built for
+            lorries, with an on-board unit obtained in advance. Even the
+            newest Dutch toll, on a four-kilometre link outside Rotterdam,
+            draws its tariff at the same line and names campers in it.
+          </li>
+          <li>
+            <strong className="text-ink">Your winter equipment.</strong>{' '}
+            Sweden asks vehicles up to 3.5 t for winter tyres from 1
+            December to 31 March when conditions demand, and heavier ones
+            from 10 November to 10 April whatever the weather. Austria and
+            Slovenia draw the same line for what has to be fitted where.
           </li>
           <li>
             <strong className="text-ink">Your payload.</strong> The mass in
@@ -137,7 +147,7 @@ export default function CamperRentalHub() {
           Sources:{' '}
           <a
             className="underline"
-            href="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A02006L0126-20220101"
+            href="https://eur-lex.europa.eu/eli/dir/2006/126/oj"
             rel="noopener noreferrer"
             target="_blank"
           >
@@ -146,15 +156,16 @@ export default function CamperRentalHub() {
           and{' '}
           <a
             className="underline"
-            href="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A02012R1230-20190101"
+            href="https://eur-lex.europa.eu/eli/reg/2012/1230/oj"
             rel="noopener noreferrer"
             target="_blank"
           >
             Regulation (EU) No 1230/2012 on masses and dimensions
           </a>
-          . Both are consolidated texts on EUR-Lex; a member state may
-          transpose details differently, and its own transport authority is
-          the last word.
+          . Both links are the European Legislation Identifier for the act
+          itself, from which EUR-Lex offers the current consolidated text. A
+          member state may transpose the detail differently, and its own
+          transport authority is the last word.
         </p>
       </section>
 

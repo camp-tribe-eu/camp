@@ -25,7 +25,7 @@ const ITEMS: Item[] = [
     why: 'Two different things are being confused here, and the difference costs money. Compulsory third-party motor insurance is valid throughout the Union by law — that is the Motor Insurance Directive, and it does not depend on your contract. Whether the rental company PERMITS you to take the vehicle across a border is a contractual matter and is often restricted. Get the permitted countries written down.',
     source: {
       name: 'Directive 2009/103/EC on motor insurance',
-      url: 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32009L0103',
+      url: 'https://eur-lex.europa.eu/eli/dir/2009/103/oj',
     },
   },
   {
@@ -53,7 +53,7 @@ const ITEMS: Item[] = [
     why: 'The single most expensive number on the document. It decides whether your licence covers the vehicle at all, which toll system you are in across much of central Europe, and how much water, gas and luggage you may legally carry. Ask for both the plated mass and the mass in running order, and subtract.',
     source: {
       name: 'Directive 2006/126/EC on driving licences',
-      url: 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A02006L0126-20220101',
+      url: 'https://eur-lex.europa.eu/eli/dir/2006/126/oj',
     },
   },
 ];
