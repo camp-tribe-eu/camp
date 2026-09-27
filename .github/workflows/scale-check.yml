@@ -159,8 +159,13 @@ jobs:
       # 🔴 `always()`, and that is the point of the step: `retries: 1`
       # means a test that fails then passes leaves the job green, so the
       # flake check has to run on a green job too.
+      #
+      # The second half of the condition is not decoration either: with
+      # the browser stage skipped there is no report, the check exits 1
+      # for want of a file, and a guard that fails when there was nothing
+      # to guard is a guard people start ignoring.
       - name: No test passed only on a retry
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.with-pages)
         run: node scripts/ci/check-flaky.mjs apps/web/playwright-report/report.json
 
       - uses: actions/upload-artifact@v7

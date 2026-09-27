@@ -128,13 +128,45 @@ async function instrument(page: Page) {
   });
 }
 
-const readScale = (page: Page) =>
-  page.evaluate(
-    () =>
-      (window as unknown as { __scale: {
-        inFlight: number; started: string[]; finished: string[]; samples: Sample[];
-      } }).__scale,
-  );
+interface Scale {
+  inFlight: number;
+  started: string[];
+  finished: string[];
+  samples: Sample[];
+}
+
+const readScale = (page: Page): Promise<Scale> =>
+  page.evaluate(() => (window as unknown as { __scale: Scale }).__scale);
+
+/**
+ * The verdict, in one place, so the check and its rehearsal cannot drift.
+ *
+ * 🔴 A `ready` published while a chunk is still coming. That is the whole
+ * defect: measured in the production build, `ready` went out with three
+ * fetches outstanding and 7 of 14 chunks in hand, and it never went back,
+ * because `loading` is only set when something is missing. The reader was
+ * told the map was complete over a third of the data.
+ */
+const dishonestSamples = (scale: Scale) =>
+  scale.samples.filter((s) => s.state === 'ready' && s.inFlight > 0);
+
+/**
+ * Hold chunk responses back, so an overlapping refresh is certain rather
+ * than lucky.
+ *
+ * 🔴 Not a trick to make a test pass — the condition this reproduces is
+ * an ordinary one. A reader on mobile data waits this long for a 600 kB
+ * chunk, and every pan while it is in the air starts the second refresh
+ * that produced the defect. On a laptop against localhost the window is
+ * a few milliseconds wide and whether the check sees it is a coin toss;
+ * a guard that depends on a race going the right way is not a guard.
+ */
+async function slowChunks(page: Page, ms: number) {
+  await page.route('**/data/spots/*/*.geojson', async (route) => {
+    await new Promise((r) => setTimeout(r, ms));
+    await route.continue();
+  });
+}
 
 /** The built index, read the way the map reads it. */
 async function builtIndex(page: Page): Promise<RegionSummary[]> {
@@ -276,6 +308,7 @@ test.describe('/map at 61 557 campsites', () => {
     // only when a second refresh overtakes a first, which needs several
     // chunks in view at once. The fixture has four regions and one chunk.
     await instrument(page);
+    await slowChunks(page, 250);
     const index = await builtIndex(page);
 
     await page.goto('/map');
@@ -344,11 +377,8 @@ test.describe('/map at 61 557 campsites', () => {
         'watches was never observed — it cannot have seen an early `ready`',
     ).toBeGreaterThan(0);
 
-    const dishonest = scale.samples.filter(
-      (s) => s.state === 'ready' && s.inFlight > 0,
-    );
     expect(
-      dishonest.map((s) => `ready with ${s.inFlight} still in flight`),
+      dishonestSamples(scale).map((s) => `ready with ${s.inFlight} still in flight`),
       'the map called itself ready while it was still downloading',
     ).toEqual([]);
 
@@ -370,6 +400,71 @@ test.describe('/map at 61 557 campsites', () => {
         'the map said ready without the chunks its own viewport needs',
       ).toEqual([]);
     }
+  });
+
+  test('🔴 …and the check that says so can still fail', async ({ page }) => {
+    // 🔴 Two steps, like every guard in this repository: prove it can
+    // still fail, THEN believe the run that says it did not.
+    //
+    // The test above is only worth its runner time if an early `ready`
+    // would actually reach it, and that is not obvious: it depends on a
+    // patched `fetch`, on a MutationObserver attaching at the right
+    // moment, and on the counter spanning the parse rather than the
+    // headers. The first version of all that recorded ZERO samples and
+    // passed — the observer never attached, and "no sample says ready
+    // while fetching" is trivially true of no samples.
+    //
+    // So this drives the broken shape end to end. The page really is
+    // downloading a chunk; the attribute really is set to `ready` over
+    // it; the verdict is computed by the same function. The only thing
+    // standing in for the defect is who wrote the attribute — the
+    // component's own path cannot be reverted from a test, and reverting
+    // it in the source is not this card's to do (four other cards own
+    // that file this week).
+    await instrument(page);
+    await slowChunks(page, 2000);
+    await builtIndex(page);
+
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await expect(map(page)).toBeVisible();
+
+    // Zoom until chunks start arriving — they will be slow.
+    for (let i = 0; i < 8; i++) {
+      const busy = await page.evaluate(
+        () => (window as unknown as { __scale: Scale }).__scale.inFlight,
+      );
+      if (busy > 0) break;
+      await zoomIn(page, 1);
+    }
+
+    const inFlightNow = await page.evaluate(() => {
+      const w = window as unknown as { __scale: Scale };
+      if (w.__scale.inFlight > 0) {
+        // The broken publication, injected: `ready`, over a download.
+        document
+          .querySelector('[data-testid="map"]')
+          ?.setAttribute('data-map-state', 'ready');
+      }
+      return w.__scale.inFlight;
+    });
+    expect(
+      inFlightNow,
+      'no chunk was in flight, so the rehearsal never posed the question',
+    ).toBeGreaterThan(0);
+    await page.waitForTimeout(200);
+
+    const scale = await readScale(page);
+    const caught = dishonestSamples(scale);
+    console.log(
+      `rehearsal: ${caught.length} dishonest sample(s) — ` +
+        caught.map((s) => `ready with ${s.inFlight} in flight`).join('; '),
+    );
+    expect(
+      caught.length,
+      'an early `ready` was published over a live download and the check ' +
+        'did not notice — so the test above proves nothing',
+    ).toBeGreaterThan(0);
   });
 
   test('🔴 the number on the page is the number in the files', async ({
