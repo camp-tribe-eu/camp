@@ -808,10 +808,13 @@ export default function CampsiteMap() {
     //
     // This awaited each fetch before starting the next, which is one
     // round trip per chunk laid end to end. Measured 27.09.2026 by
-    // driving the real index over 5 520 detail-zoom windows: the
-    // heaviest view the map will now draw needs 15 chunks, and the
-    // densest views reach 127 — 127 sequential round trips before the
-    // first marker settles, for files whose median is 6 kB.
+    // driving the real index over 5 520 detail-zoom windows: of the
+    // 5 212 the byte budget admits, the median needs 6 chunks, the 99th
+    // percentile 57 and the worst 127 — so a reader in a region-dense
+    // corner waited on 127 round trips, one after another, for files
+    // whose median is 6 kB. CI has already seen the end of that: a
+    // webkit run left the panel on "Counting campsites…" past a
+    // five-second assertion.
     //
     // 🔴 Six, and bounded rather than unleashed. Over HTTP/1.1 six is
     // the per-host connection limit, so anything larger queues in the
