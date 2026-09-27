@@ -257,15 +257,31 @@ test.describe('a route page', () => {
       for (const href of links.slice(0, 2)) {
         const res = await request.get(href);
         expect(res.status(), `${href} answered ${res.status()}`).toBeLessThan(400);
-        // A 200 is not enough on its own: Next answers a missing
-        // campsite with the prerendered 404 page, which is a 200 to a
-        // fetch. The heading is what distinguishes them.
+
+        // 🔴 Assert what must be PRESENT, never sanitise what must be
+        // absent — and CodeQL was right to fail the first version.
+        //
+        // That one pulled the <h1> out with a regex and stripped its
+        // tags with a single `.replace(/<[^>]+>/g, '')` to read the
+        // text. CodeQL flagged it high as
+        // js/incomplete-multi-character-sanitization: a one-pass strip
+        // is defeated by nesting, because removing the inner match of
+        // `<scr<script>ipt>` reassembles the outer one. Nothing is
+        // exploitable in a test that reads our own output — but this is
+        // precisely the snippet somebody copies somewhere it matters,
+        // and a sanitiser is the wrong tool for the job either way.
+        //
+        // A 200 alone is not enough: Next answers an unknown campsite
+        // with the PRERENDERED 404 page, which is a 200 to a fetch. So
+        // the question is "is this a campsite page", and a campsite page
+        // has one unambiguous positive marker that the 404 page does not
+        // — the Campground node its JSON-LD always carries (jsonld.ts
+        // emits it unconditionally). Looking for something that must be
+        // there needs no parsing and cannot be evaded.
         const html = await res.text();
-        const h1 = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1] ?? '';
-        expect(
-          h1.replace(/<[^>]+>/g, ''),
-          `${href} rendered a not-found page`,
-        ).not.toMatch(/not found/i);
+        expect(html, `${href} is not a campsite page`).toContain(
+          '"@type":"Campground"',
+        );
         checked += 1;
       }
     }
