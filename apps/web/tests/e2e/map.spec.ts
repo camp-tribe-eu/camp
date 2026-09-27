@@ -386,6 +386,70 @@ test.describe('/map', () => {
     expect(mimeErrors, 'the worker failed to load').toEqual([]);
   });
 
+  // 🔴 CAMP-133. Found by opening /map on a production build and reading
+  // the console: EVERY load threw
+  //
+  //   Uncaught (in promise) Error: Style is not done loading
+  //     at iN._checkLoaded / iN.addSource / oD.addSource
+  //
+  // out of `drawRegions`. MapLibre's `addSource` and `addLayer` call
+  // `_checkLoaded()` and throw when the style has not finished loading,
+  // and the region index is a local static file while the style is a
+  // remote document — so on a normal load the index wins the race and
+  // `refresh()` touched the style first.
+  //
+  // It LOOKED harmless: the `styledata` handler re-runs `refresh()`, so
+  // the circles appeared anyway. That is the map settling by luck.
+  //
+  // 🔴 So this test makes the race LOSE. The style is held back until
+  // after the index has been served, which is the order that used to
+  // throw, and which a slow connection produces by itself. The fix must
+  // be "refresh waits for the style", not "the style usually arrives
+  // first" — and only the delay can tell those two apart.
+  test('🔴 drawing the regions never touches a style that is still loading', async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(m.text());
+    });
+
+    // The index is served immediately; the style is made to arrive
+    // after it, which is the order that used to throw.
+    let indexServed = false;
+    await page.route('**/data/spots/index.json', async (route) => {
+      await route.fallback();
+      indexServed = true;
+    });
+    await page.route(STYLE_GLOB, async (route) => {
+      for (let i = 0; i < 40 && !indexServed; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      await new Promise((r) => setTimeout(r, 400));
+      await route.fulfill({ json: EMPTY_STYLE });
+    });
+
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await expect(map(page)).toBeVisible();
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
+
+    // The map still does its job once the style lands: it says what it
+    // is doing rather than sitting silent.
+    await expect
+      .poll(async () => map(page).getAttribute('data-map-state'), {
+        timeout: 20_000,
+      })
+      .not.toBe('loading');
+
+    expect(
+      errors.filter((e) => /Style is not done loading/i.test(e)),
+      'refresh() touched the style before it had loaded',
+    ).toEqual([]);
+    expect(errors, 'the map logged errors on a slow style').toEqual([]);
+  });
+
   test('zooming in breaks the clusters into campsites', async ({ page }) => {
     await stubStyles(page);
     // Twenty campsites within a few hundred metres of the opening

@@ -27,6 +27,24 @@ async function excluded(page: Page): Promise<number> {
 }
 
 /**
+ * The same two numbers, scoped to the visible area.
+ *
+ * 🔴 CAMP-133: these are what the PANEL prints. `data-shown` and
+ * `data-unknown-excluded` are over everything fetched, which is the
+ * map's bookkeeping and grows as the reader pans; the panel may only
+ * talk about a set the reader can see.
+ */
+async function shownInView(page: Page): Promise<number> {
+  return Number(await map(page).getAttribute('data-in-view'));
+}
+
+async function excludedInView(page: Page): Promise<number> {
+  return Number(
+    await map(page).getAttribute('data-in-view-unknown-excluded'),
+  );
+}
+
+/**
  * Wait until the map is drawing individual campsites and has finished.
  *
  * 🔴 This used to be `data-total > 0`, and both halves of that were
@@ -414,9 +432,13 @@ test.describe('/map filters', () => {
     await loaded(page);
 
     await page.getByTestId('filter-amenity-toilets').click();
-    const strict = await shown(page);
-    const hidden = await excluded(page);
-    expect(hidden).toBeGreaterThan(0);
+    // 🔴 CAMP-133: the in-view numbers, because the panel's sentence is
+    // about the visible area. Comparing the panel's text against the
+    // fetched-scope attribute would be comparing two different sets —
+    // the exact mistake the card is about, rebuilt in the test.
+    await expect.poll(() => excludedInView(page)).toBeGreaterThan(0);
+    const strict = await shownInView(page);
+    const hidden = await excludedInView(page);
 
     await expect(page.getByTestId('filter-include-unknown')).toContainText(
       String(hidden),
@@ -425,8 +447,11 @@ test.describe('/map filters', () => {
     await page.getByTestId('filter-include-unknown').locator('input').check();
     // Exactly the number it promised — not "more", which would leave the
     // sentence technically true and useless.
-    await expect.poll(() => shown(page)).toBe(strict + hidden);
+    await expect.poll(() => shownInView(page)).toBe(strict + hidden);
     // And it stops claiming to hide what it is now drawing.
+    await expect.poll(() => excludedInView(page)).toBe(0);
+    // The fetched-scope number moved too, so this is not a viewport that
+    // happened to contain nothing.
     expect(await excluded(page)).toBe(0);
   });
 
@@ -726,5 +751,93 @@ test.describe('/map filters', () => {
       await expect(count).toHaveText(/\d[\d,]*\s+campsites/);
       await expect(count).not.toHaveText(/zoom in/i);
     }
+  });
+
+  // 🔴 CAMP-133. The defect: "306 of 1 308 campsites" where 1 308 was
+  // every campsite fetched since the page opened. Chunks are never
+  // discarded, so the denominator grew as the reader dragged — the same
+  // screen said 1 308 and, after a pan out and back, 4 100. It matched
+  // neither the screen nor the database, and the heading above it said
+  // 61 422.
+  //
+  // This asserts the sentence against the two numbers the map publishes
+  // for the visible area, so "explainable" is checked rather than
+  // claimed — and then PANS and asserts it again, because panning is
+  // what used to break it.
+  test('🔴 the panel counts the visible area, and panning does not inflate it', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await zoomToDetail(page);
+
+    const count = page.getByTestId('filter-count');
+    const readPanel = async () => {
+      const text = (await count.textContent()) ?? '';
+      const numbers = [...text.matchAll(/[\d,]+/g)].map((m) =>
+        Number(m[0].replace(/,/g, '')),
+      );
+      return { text, numbers };
+    };
+
+    // Filtering, so the sentence carries BOTH numbers.
+    await page.getByTestId('filter-amenity-toilets').click();
+    await expect(count).toHaveText(/of [\d,]+ campsites in view/);
+
+    // 🔴 Polled, because `data-in-view` is published on the map's own
+    // `idle` while the panel renders from React state — two moments, one
+    // rule (`withinView`). What must be true is that they AGREE once the
+    // map has settled, not that they are written in the same tick.
+    const agrees = async () => {
+      const { numbers } = await readPanel();
+      const el = map(page);
+      return (
+        numbers.length === 2 &&
+        numbers[0] === Number(await el.getAttribute('data-in-view')) &&
+        numbers[1] === Number(await el.getAttribute('data-in-view-total'))
+      );
+    };
+    await expect
+      .poll(agrees, { timeout: 15_000 })
+      .toBe(true);
+
+    const first = await readPanel();
+    expect(first.numbers[0]).toBeLessThanOrEqual(first.numbers[1]);
+
+    // Now pan away and back. This is the move that used to inflate the
+    // denominator, because the chunks from the detour stayed loaded.
+    const box = await map(page).boundingBox();
+    if (!box) throw new Error('the map has no box to drag in');
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    for (const [dx, dy] of [
+      [-box.width / 3, 0],
+      [box.width / 3, 0],
+    ] as const) {
+      await page.mouse.move(cx, cy);
+      await page.mouse.down();
+      await page.mouse.move(cx + dx, cy + dy, { steps: 12 });
+      await page.mouse.up();
+      await expect(map(page)).toHaveAttribute('data-map-state', 'ready', {
+        timeout: 20_000,
+      });
+    }
+
+    const loadedNow = Number(await map(page).getAttribute('data-total'));
+    expect(
+      loadedNow,
+      'the detour loaded nothing, so this proves nothing — pan further',
+    ).toBeGreaterThan(0);
+
+    // 🔴 The point of the whole card. The sentence still describes the
+    // screen after the detour, rather than everything the detour
+    // happened to download.
+    await expect.poll(agrees, { timeout: 15_000 }).toBe(true);
+    const after = await readPanel();
+    expect(after.numbers[0]).toBeLessThanOrEqual(after.numbers[1]);
+    expect(
+      after.numbers[1],
+      'the denominator is the visible area, so it cannot exceed what is loaded',
+    ).toBeLessThanOrEqual(loadedNow);
   });
 });

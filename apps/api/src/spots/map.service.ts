@@ -257,7 +257,9 @@ export class MapQueryService {
       )
     )
       .map((r: Record<string, unknown>) => (r.region as string) ?? null)
-      .filter((region: string | null) => regionChunkSlug(region) === regionSlug);
+      .filter(
+        (region: string | null) => regionChunkSlug(region) === regionSlug,
+      );
 
     // 🔴 NULL is not a value `= ANY` can match, and the campsites with
     // no region at all are a chunk of their own (`_unplaced`) — 135 of
