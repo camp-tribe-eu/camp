@@ -358,18 +358,43 @@ test.describe('ranking quality, measured on the live index', () => {
       `${right}/${corpus.length} correct. Worst: ${wrong.join('; ')}`,
     ).toBeGreaterThan(0.9);
   });
-  test('🔴 the geometric corpus: the top hit is really near the place', () => {
-    // Deliberately NOT a before/after — that lives in the PR. This
-    // guards the floor: whatever the ranking does, a campsite answering
-    // `camping <town>` should usually be near that town, and "near"
-    // here means metres on the ground, not a word in a field.
+  test('🔴 the geometric floor: what search OFFERS is in the right place', () => {
+    // 🔴 Read the title carefully: this guards the candidate set, NOT
+    // the order. It was first written as a ranking guard and it was
+    // decoration — measured, it passes on main, it passes with the
+    // region key deleted, and it passes when the result list is
+    // REVERSED so the worst candidate is shown first. Anything that
+    // survives that is not testing an ordering.
+    //
+    // The reason is arithmetic rather than bad luck: for most places
+    // every document that matches at all is already within 25 km, so
+    // any permutation of the same candidates clears the bar. The 19
+    // answers this card actually moves are 0.45% of the corpus.
+    //
+    // What it DOES guard is the matching rule CAMP-132 introduced:
+    // force `required` back to every term and this drops to 64%, with
+    // 128 queries returning nothing at all. That is worth a test — a
+    // search that answers `camping <town>` with something in the wrong
+    // country is broken in a way no unit fixture would show — so it is
+    // kept, under a name that says what it is.
+    //
+    // 🔴 And the honest note this file owes its next reader: the only
+    // test here that can tell this branch from main is the region
+    // corpus above, and that one scores "is the top hit in the region
+    // the query named", which is the signal restated. The independent
+    // judge cannot see the change; the circular one can. The before and
+    // after live in the pull request, measured with this same geometry.
     const withCoords = docs as (SearchDoc & { lat?: number; lon?: number })[];
     const { places, hav } = solvePlaces(withCoords);
     expect(places.length, 'too few places resolved to measure anything')
       .toBeGreaterThan(2_000);
 
-    // Check a fixed slice, so the test stays quick and deterministic.
-    const sample = places.slice(0, 400);
+    // Spread across the whole list, not the first N. The index arrives
+    // ordered by country, so a prefix is the alphabetically-first
+    // countries — measured, `slice(0, 400)` was at/be/cy/cz/de and
+    // contained not one of the cases this card is about.
+    const step = Math.ceil(places.length / 400);
+    const sample = places.filter((_, i) => i % step === 0);
     let within25km = 0;
     const worst: string[] = [];
     for (const p of sample) {

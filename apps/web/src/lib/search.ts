@@ -601,27 +601,39 @@ export function search(
     // this comment claimed that rule could never fire. It was wrong.
     //
     // I removed the filter saying "no region is called camping", which
-    // is true and beside the point. Review measured the words that are
-    // BOTH above the 5% common threshold AND words of a region slug:
+    // is true and beside the point. Six words are BOTH above the 5%
+    // threshold and words of a region slug — as an exact word over
+    // `doc.text`, which is what `exact[]` above counts:
     //
     //   de 40.5%   la 17.0%   saint 7.6%   du 5.7%   l 5.4%   d 5.1%
     //
     // — pas-de-calais, bouches-du-rhone, la-rioja, seine-saint-denis,
     // cote-d-or, val-d-oise. 2 257 campsites, 3.7% of the index, sit in
     // such a region. Without the filter they collect a point for the
-    // word "du", and `camping du lac` stops answering with the three
-    // campsites 0-8 m from a lake called that and starts answering with
-    // Bouches-du-Rhône, 1.5 km from anything. Measured: 31 of 3 503
-    // realistic queries change.
+    // word "du", and `camping du lac` stops answering with the campsite
+    // 0 m from a lake of that name and answers with Bouches-du-Rhône,
+    // 1.5 km from anything.
+    //
+    // (A count of "31 of 3 503 queries change" stood here. It was a
+    // number I took from a review rather than measured, and a later
+    // pass put it at 34. Removed rather than corrected: a figure I did
+    // not produce is a figure I cannot defend.)
     //
     // 🔴 `!common[i]`, not `required[i]`. The two differ exactly where
     // it matters: when EVERY word of the query is common, `allCommon`
     // makes them all required again — a sensible rule for deciding what
     // must match, and the wrong one here. Measured, `camping saint`
     // then collected a point for "saint" and answered with
-    // Seine-Saint-Denis and no distance at all, in place of campsites
-    // 0 m and 11 m from places actually called Saint-something; the
-    // same for `camping seine`, 16 m → 567 m.
+    // Seine-Saint-Denis and no distance at all, in place of a campsite
+    // 0 m from a place actually called Saint-something. The two forms
+    // differ on 12 of 3 503 realistic queries, every one of them a
+    // query whose every word is common, and `!common[i]` matches main
+    // on all of them.
+    //
+    // (`camping seine` was offered here as a second example and does
+    // not belong: "seine" is 0.6% of the index, so the two forms are
+    // identical there and the 16 m → 567 m move comes from `own`
+    // existing at all. Review caught it.)
     //
     // Being required is about whether a word must appear. Being common
     // is about whether it identifies anything — and a word in 5% of the
@@ -718,14 +730,23 @@ export function search(
       // 528 km from the Piaseczno the reader meant) and the country
       // contributed 6 matches in 4 277.
       //
-      // 🔴 The price, named: this is compared BEFORE distance, so a
-      // campsite inside the region with no recorded distance to
-      // anything outranks one just outside it standing next to the
-      // town. Review measured the visible cost — the "· N m from X"
-      // line disappears from the top result on 26 of 60 queries whose
-      // answer changes. The rarity filter above removes most of that
-      // class; what remains is the genuine ambiguity between a town and
-      // the region named after it, and CAMP-140 is where it is fixed.
+      // 🔴 The price, named and measured on THIS commit: compared
+      // before distance, a campsite inside the region with no recorded
+      // distance to anything outranks one just outside it standing next
+      // to the town. The "· N m from X" line therefore disappears from
+      // the top result on 5 of the 19 answers that change across the
+      // 4 216-place geometric corpus, and on 14 of 27 across a wider
+      // corpus of multi-word queries. `brda`, `rezeknes` and `limburg`
+      // are the visible cases: the region wins and the line goes.
+      //
+      // The rarity filter above removes part of that class and not
+      // most of it — 26 of 60 before it, 14 of 27 after, and no change
+      // at all on the geometric corpus. An earlier version of this
+      // comment quoted the pre-filter number and claimed "most", two
+      // paragraphs below a sentence about exactly that mistake.
+      //
+      // What remains is the genuine ambiguity between a town and the
+      // region named after it. CAMP-140 is where it is fixed.
       if (b.own !== a.own) return b.own - a.own;
       // 🔴 `quality` is NOT a sort key, and was.
       //
