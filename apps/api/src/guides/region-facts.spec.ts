@@ -170,6 +170,33 @@ describe('the numbers and names are the ones it was given', () => {
     expect(body).not.toContain('Height above sea level');
   });
 
+  // 🔴 Kinds are counted over every subject, names over a subset. In one
+  // sentence the two totals looked like a contradiction on the page, and
+  // a reader who cannot reconcile two of our numbers has no reason to
+  // trust the rest of them.
+  it('keeps the kind count and the name count in separate sentences', () => {
+    const { body } = compose(facts());
+    expect(body).toContain('The nearest water is a lake for 7 and a river');
+    expect(body).toContain('9 of the 12 have a name recorded for theirs');
+    expect(body).toContain('nobody has named the water beside the other 3');
+  });
+
+  it('does not print a range when one measurement made it', () => {
+    const { body } = compose(
+      facts({
+        surroundings: surroundings({
+          terrain: [{ type: 'hilly', n: 1 }],
+          terrainKnown: 1,
+          elevation: { low: 254, median: 254, high: 254 },
+          elevationKnown: 1,
+        }),
+      }),
+    );
+    expect(body).toContain('recorded for exactly one of the 12, and it is');
+    expect(body).not.toContain('254 m to 254 m');
+    expect(body).toContain('recorded for exactly one of them, at 254 m');
+  });
+
   it('says plainly when no water here carries a name', () => {
     const { body } = compose(
       facts({ surroundings: surroundings({ waters: [], waterNamed: 0 }) }),

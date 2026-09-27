@@ -436,13 +436,16 @@ function waterLines(facts: RegionFacts, s: Surroundings): string[] {
   );
 
   if (s.waterNamed > 0) {
+    // 🔴 Two sentences, not one. The kinds are counted over all the
+    // subjects and the names over a subset of them; one sentence made
+    // the two totals look like a contradiction.
     out.push(
-      `${s.waterNamed} of the ${facts.subjects} ${hasHave(s.waterNamed)} a named body of water as ` +
-        `their nearest` +
-        (kinds ? `, and the nearest water is ${kinds}.` : '.') +
+      (kinds ? `The nearest water is ${kinds}. ` : '') +
+        `${s.waterNamed} of the ${facts.subjects} ${hasHave(s.waterNamed)} a ` +
+        `name recorded for theirs` +
         (unnamed > 0
-          ? ` The other ${unnamed} ${hasHave(unnamed)} water nearby that nobody has named.`
-          : ''),
+          ? `; nobody has named the water beside the other ${unnamed}.`
+          : '.'),
     );
     out.push('');
     out.push(
@@ -542,7 +545,13 @@ function groundLines(facts: RegionFacts, s: Surroundings): string[] {
     );
   }
 
-  if (s.terrainKnown > 0) {
+  if (s.terrainKnown === 1 && s.terrain.length === 1) {
+    out.push(
+      `The ground is recorded for exactly one of the ${facts.subjects}, and ` +
+        `it is ${s.terrain[0].type}. Nobody has recorded it for the other ` +
+        `${facts.subjects - 1}.`,
+    );
+  } else if (s.terrainKnown > 0) {
     const kinds = s.terrain.map((t) => `${t.n} ${t.type}`);
     out.push(
       `The ground is recorded for ${s.terrainKnown} of the ${facts.subjects}: ` +
@@ -556,10 +565,16 @@ function groundLines(facts: RegionFacts, s: Surroundings): string[] {
   }
 
   if (s.elevation && s.elevationKnown > 0) {
+    const { low, high, median } = s.elevation;
     out.push(
-      `Height above sea level is recorded for ${s.elevationKnown} of them: ` +
-        `${s.elevation.low} m to ${s.elevation.high} m, the middle one at ` +
-        `${s.elevation.median} m.`,
+      low === high
+        ? `Height above sea level is recorded for ${plural(
+            s.elevationKnown,
+            'exactly one of them',
+            `${s.elevationKnown} of them`,
+          )}, at ${low} m.`
+        : `Height above sea level is recorded for ${s.elevationKnown} of ` +
+            `them: ${low} m to ${high} m, the middle one at ${median} m.`,
     );
   }
   return out;
