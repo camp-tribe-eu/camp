@@ -6,9 +6,10 @@ import {
   type Bounds,
   type RegionSummary,
 } from '@/lib/map-chunks';
+import { fetchOrder, type SearchIndex } from '@/lib/search-chunks';
 
-// CAMP-134, defects 2, 3 and 4 of six — the three that need a browser and
-// a production build of the real data.
+// CAMP-134, defects 2, 3, 4 and the reader's half of 5 — the ones that
+// need a browser and a production build of the real data.
 //
 //   2  `loaded()` in e2e: the map opens too wide, `data-total` stays 0
 //      forever, and the helper waits 20 s for a number that is never
@@ -28,13 +29,17 @@ import {
 // with the size of the dataset. What DOES change is the four facts below,
 // and all four are about a map that no longer fits in one download.
 //
-// One browser, one viewport, four tests. Everything else stays on the
+// One browser, one viewport, six tests here and three more without a
+// browser in search-index.data.spec.ts. Everything else stays on the
 // fixture, where it is fast and where it belongs.
 
 const map = (page: Page) => page.getByTestId('map');
 
 /** The scale below which nothing in this file means anything. */
 const MIN_REGIONS = 100;
+
+/** 29 files at full scale, 1 on the fixture. */
+const MIN_SEARCH_CHUNKS = 5;
 
 interface Sample {
   t: number;
@@ -186,7 +191,25 @@ const boundsOf = (s: string): Bounds => {
   return { west, south, east, north };
 };
 
-async function skipWithoutWebGL(page: Page) {
+/**
+ * 🔴 FATAL here, where `tests/e2e` skips.
+ *
+ * `tests/e2e` runs six browser projects and headless Firefox on a runner
+ * with no GPU genuinely has no WebGL2 — skipping there is right, and the
+ * page's own fallback has its own test.
+ *
+ * This project is one browser on one machine, and a skip is green.
+ * Review pointed out where that leads: a driver change, `--disable-gpu`,
+ * or a chromium built without SwiftShader would turn five of the six map
+ * tests into silent passes, `check-flaky.mjs` ignores skips by design,
+ * and `run.sh` would still print "✓ every scale check passed". The
+ * nightly would go on reporting that the six defects are covered while
+ * testing nothing but the search page.
+ *
+ * So: on this project, no WebGL2 is a broken runner, and a broken runner
+ * is a red build.
+ */
+async function requireWebGL(page: Page) {
   const ok = await page.evaluate(() => {
     try {
       return !!document.createElement('canvas').getContext('webgl2');
@@ -194,7 +217,12 @@ async function skipWithoutWebGL(page: Page) {
       return false;
     }
   });
-  test.skip(!ok, 'no WebGL2 in this browser');
+  expect(
+    ok,
+    'no WebGL2 on this runner: the map cannot draw, so the scale map suite ' +
+      'would pass without testing anything. Fix the runner rather than ' +
+      'skipping — a skip here is green.',
+  ).toBe(true);
 }
 
 /** Click the map's own zoom control, letting each animation finish. */
@@ -223,7 +251,7 @@ test.describe('/map at 61 557 campsites', () => {
     const index = await builtIndex(page);
 
     await page.goto('/map');
-    await skipWithoutWebGL(page);
+    await requireWebGL(page);
     await expect(map(page)).toBeVisible();
 
     await expect(map(page)).toHaveAttribute('data-map-state', 'wide', {
@@ -249,7 +277,17 @@ test.describe('/map at 61 557 campsites', () => {
     // Defect 2's cause, stated as a fact rather than inferred from a
     // timeout: at the opening view NOTHING is fetched, so no amount of
     // waiting will make `data-total` move.
+    //
+    // 🔴 With its own positive control. `started` is filled by the
+    // patched `window.fetch`; if chunks ever move to a worker or an XHR,
+    // or the init script fails, it is permanently empty and this
+    // assertion is true of nothing. The sample list proves the
+    // instrumentation is alive before its emptiness is believed.
     const scale = await readScale(page);
+    expect(
+      scale.samples.length,
+      'the instrumentation recorded nothing, so an empty fetch list proves nothing',
+    ).toBeGreaterThan(0);
     expect(
       scale.started,
       'a chunk was fetched at the opening view, so the wide branch did not run',
@@ -286,7 +324,7 @@ test.describe('/map at 61 557 campsites', () => {
     await builtIndex(page);
 
     await page.goto('/map');
-    await skipWithoutWebGL(page);
+    await requireWebGL(page);
     await expect(map(page)).toBeVisible();
 
     let clicks = 0;
@@ -323,7 +361,7 @@ test.describe('/map at 61 557 campsites', () => {
     const index = await builtIndex(page);
 
     await page.goto('/map');
-    await skipWithoutWebGL(page);
+    await requireWebGL(page);
     await expect(map(page)).toBeVisible();
 
     for (let i = 0; i < 8; i++) {
@@ -443,7 +481,7 @@ test.describe('/map at 61 557 campsites', () => {
     await builtIndex(page);
 
     await page.goto('/map');
-    await skipWithoutWebGL(page);
+    await requireWebGL(page);
     await expect(map(page)).toBeVisible();
 
     // Zoom until chunks start arriving — they will be slow.
@@ -496,7 +534,7 @@ test.describe('/map at 61 557 campsites', () => {
     const byKey = new Map(index.map((r) => [chunkKey(r), r.count]));
 
     await page.goto('/map');
-    await skipWithoutWebGL(page);
+    await requireWebGL(page);
     await expect(map(page)).toBeVisible();
 
     for (let i = 0; i < 8; i++) {
@@ -535,10 +573,17 @@ test.describe('/map at 61 557 campsites', () => {
       'the map holds a different number of campsites than its own files promised',
     ).toBe(fromIndex);
 
-    const shown = Number(await map(page).getAttribute('data-shown'));
+    // 🔴 `Number(null)` is 0, and `0 <= anything` is true — so dropping
+    // `data-shown` from the component would have left this green. Assert
+    // the attribute EXISTS before comparing it.
+    const shownRaw = await map(page).getAttribute('data-shown');
+    expect(shownRaw, 'the map published no data-shown').not.toBeNull();
+    const shown = Number(shownRaw);
+    expect(Number.isFinite(shown) && shown > 0, `data-shown is ${shownRaw}`).toBe(true);
     expect(shown, 'more is drawn than was loaded').toBeLessThanOrEqual(onPage);
+    // The panel counts what is drawn, so with no filter set the two agree.
     await expect(page.getByTestId('filter-count')).toContainText(
-      onPage.toLocaleString('en-GB'),
+      shown.toLocaleString('en-GB'),
     );
   });
 });
@@ -547,9 +592,30 @@ test.describe('/search at 61 422 campsites', () => {
   test.describe.configure({ timeout: 180_000 });
 
   test('🔴 the index loads, which it did not for a month', async ({ page }) => {
-    // Defect 5 from the reader's side. The route threw at 6.9 MB against
-    // a 1.5 MB ceiling, the file was a 500, and the page said "could not
-    // be loaded" — on a fixture of 72 it was 14 KB and perfect.
+    // Defect 5 from the reader's side. The route threw — 6.9 MB against a
+    // 1.5 MB ceiling, measured 25.09.2026 — the file was a 500, and the
+    // page said "could not be loaded" for a month. On a fixture of 72 it
+    // was 14 KB and perfect.
+    // 🔴 The scale gate, which this test did not have.
+    //
+    // Every other test here refuses to run below full size, and review
+    // caught that this one did not: against a build made from CI's 72-row
+    // fixture it passes perfectly — "Bled" returns a hit, no chunk 404s,
+    // no "could not be loaded". The one test covering defect 5 from the
+    // reader's side was the card's own failure, reproduced inside the fix.
+    //
+    // The index is 29 chunks at full scale and 1 on the fixture, so the
+    // shape of the built index is the gate.
+    const index = (await (
+      await page.request.get('/data/search/index.json')
+    ).json()) as SearchIndex;
+    const chunks = fetchOrder(index);
+    expect(
+      chunks.length,
+      `the search index is ${chunks.length} file(s). This suite must run ` +
+        'against a build made from the full database.',
+    ).toBeGreaterThan(MIN_SEARCH_CHUNKS);
+
     const failures: string[] = [];
     page.on('response', (r) => {
       if (r.url().includes('/data/search/') && !r.ok()) {

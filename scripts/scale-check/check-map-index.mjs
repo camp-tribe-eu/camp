@@ -131,6 +131,20 @@ async function run() {
   note(keys.size === regions.length,
     `every region has its own address (${keys.size} of ${regions.length})`);
 
+  // 🔴 The numbers must BE numbers before they can be compared.
+  //
+  // `undefined < undefined` is false, so every comparison below is false
+  // and the box check reports "0 are not" over an index with no boxes in
+  // it at all. Rename one of these fields in the map service and the
+  // guard goes green forever — the same silent-scope failure the
+  // dependency guard had.
+  const CORNERS = ['lon', 'lat', 'minLon', 'minLat', 'maxLon', 'maxLat'];
+  const malformed = regions.filter(
+    (r) => !CORNERS.every((k) => Number.isFinite(r[k])),
+  );
+  note(malformed.length === 0,
+    `every region carries all six coordinates (${malformed.length} do not)`);
+
   const outside = regions.filter(
     (r) =>
       r.lon < r.minLon || r.lon > r.maxLon || r.lat < r.minLat || r.lat > r.maxLat,
@@ -182,13 +196,36 @@ async function run() {
 
   // A chunk that disagrees with the index is the "0 campsites" failure in
   // miniature: a number on screen that no file behind it supports.
-  const chosen = sample(regions, 12);
+  const WANT_SAMPLES = 12;
+  const chosen = sample(regions, WANT_SAMPLES);
+  // 🔴 How many were actually compared, asserted rather than assumed.
+  // `sample(regions, 0)` returns exactly one row — `Math.floor(n/0)` is
+  // Infinity, the loop never runs, and only the biggest region is
+  // appended. The note would then read "✓ 1 sampled chunks each hold
+  // exactly what the index promised", which is the shape of a guard
+  // whose scope has quietly collapsed.
+  note(chosen.length >= WANT_SAMPLES,
+    `${chosen.length} chunks chosen to compare, wanted at least ${WANT_SAMPLES}`);
+  // 🔴 Together, not one after another.
+  //
+  // Measured 27.09.2026 on a machine that was also running a full site
+  // build: one of these took about 20 s, so twelve in sequence took
+  // 4 min 43 s — against under a second on a quiet machine. The probe was
+  // not doing more work, it was queueing behind somebody else at the same
+  // database, twelve times over. Asking at once costs the API one round
+  // of the same queries and takes as long as the slowest.
+  const chunks = await Promise.all(
+    chosen.map((r) =>
+      api(
+        `/spots/map/region/${encodeURIComponent(r.country.toLowerCase())}/${encodeURIComponent(r.slug)}`,
+      ),
+    ),
+  );
+
   let mismatched = 0;
   let biggestChunkBytes = 0;
-  for (const r of chosen) {
-    const chunk = await api(
-      `/spots/map/region/${encodeURIComponent(r.country.toLowerCase())}/${encodeURIComponent(r.slug)}`,
-    );
+  for (const [i, chunk] of chunks.entries()) {
+    const r = chosen[i];
     biggestChunkBytes = Math.max(biggestChunkBytes, chunk.bytes);
     if (chunk.json.length !== r.count) {
       mismatched++;
@@ -211,13 +248,19 @@ async function run() {
 }
 
 /**
- * 🔴 The rehearsal: run the DELETED design against the live data.
+ * 🔴 The rehearsal: make the DELETED design's request against live data.
  *
  * `apps/web/src/app/data/spots.geojson/route.ts` asked for the whole
- * world at a limit of 20 000 and threw if the answer came back truncated.
- * That is exactly the request made here. It must be truncated now, and it
- * must NOT be truncated over the three countries the project had when the
- * cap was written — the same mirror as every other defect on this card.
+ * world at a limit of 20 000 and threw when the answer came back
+ * truncated. What runs here is that REQUEST and that verdict, rewritten
+ * in four lines — not the deleted route itself, which is gone. So this
+ * proves the data still trips the cap; it does not re-exercise the
+ * route's own error path, and the difference is worth stating rather
+ * than glossing.
+ *
+ * It must be truncated now, and it must NOT be truncated over the two
+ * countries CI's fixture is drawn from — the same mirror as every other
+ * defect on this card.
  */
 async function selfTest() {
   let ok = true;

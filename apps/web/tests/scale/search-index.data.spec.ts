@@ -11,7 +11,8 @@ import {
 import { fetchOrder, type SearchIndex } from '@/lib/search-chunks';
 
 // CAMP-134, defect 5 of six: the search index, 6.9 MB against a 1.5 MB
-// budget, and a search page that said "could not be loaded" for a month.
+// budget (measured 25.09.2026), and a search page that said "could not
+// be loaded" for a month.
 //
 // 🔴 WHY THIS IS NOT A UNIT TEST, AND WHY THE UNIT TESTS DO NOT COVER IT.
 //
@@ -116,6 +117,11 @@ test('🔴 the design that broke, run against the same rows', () => {
   // the card is a measurement and not a memory.
   const docs = toSearchDocs(rows);
   const oneFile = Buffer.byteLength(JSON.stringify(packIndex(docs)));
+  // 🔴 Today's number, not the card's. CAMP-129 recorded 6.9 MB on
+  // 25.09.2026, before the packer learned to derive `text` and the slug;
+  // the same one-file design over today's rows measures larger, because
+  // there are more of them. Both are true of their own day — which is
+  // why this prints what it just measured rather than quoting either.
   console.log(
     `one file, today's packer: ${(oneFile / 1e6).toFixed(2)} MB against a ` +
       `${MAX_BYTES / 1e6} MB ceiling — ${(oneFile / MAX_BYTES).toFixed(1)}x over`,
@@ -162,15 +168,44 @@ test('the chunk plan is something a reader can use before it finishes', async ({
   // Half a second on the 1 MB/s a phone on mobile data gets. Past that
   // "it loads progressively" has stopped being an answer for the FIRST
   // piece, which is the only one a reader waits for.
+  //
+  // 🔴 On its own this is nearly unfailable, and saying so is the point.
+  // `fetchOrder` sorts smallest first, so `order[0]` is by construction
+  // the smallest of 29 files — it can only fail if EVERY chunk is over
+  // half a megabyte. Review caught it asserting the sort order rather
+  // than the design.
   expect(
     first.bytes,
     'the first chunk a reader waits for is no longer small',
   ).toBeLessThan(500_000);
 
-  // And the gzipped whole, which is what the network charges.
+  // 🔴 So the assertion that can actually fail is on the LARGEST file —
+  // the one near its ceiling. Measured today: 1 393 kB against a
+  // per-file ceiling of 1 500 kB, which is 93%. That is the number worth
+  // failing on, and the number the first version of this test printed
+  // and then looked away from.
+  const largest = Math.max(...order.map((c) => c.bytes));
+  console.log(
+    `  largest built file ${(largest / 1000).toFixed(0)} kB = ` +
+      `${((100 * largest) / MAX_BYTES).toFixed(0)}% of the per-file ceiling`,
+  );
+  expect(
+    largest,
+    'a built chunk is over the per-file ceiling the planner promises',
+  ).toBeLessThanOrEqual(MAX_BYTES);
+
+  // And the gzipped whole against the ceiling that governs it —
+  // asserted, not merely printed, which is what it was.
   const gz = gzipSync(
     Buffer.from(JSON.stringify(packIndex(toSearchDocs(rows)))),
     { level: 6 },
   ).length;
-  console.log(`  whole index, gzip -6: ${(gz / 1e6).toFixed(2)} MB`);
+  console.log(
+    `  whole index, gzip -6: ${(gz / 1e6).toFixed(2)} MB = ` +
+      `${((100 * gz) / TOTAL_MAX_BYTES).toFixed(0)}% of the download ceiling`,
+  );
+  expect(
+    gz,
+    'the index is past what we are willing to make a reader download',
+  ).toBeLessThanOrEqual(TOTAL_MAX_BYTES);
 });

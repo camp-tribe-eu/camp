@@ -36,8 +36,7 @@
 // (never writes to it) and prices the export against the real census.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -58,6 +57,12 @@ const POSTGRES_MAX_COLUMNS = 1600;
  *
  * Three every time: the fid, the geometry, and the object id `-u type_id`
  * carries.
+ *
+ * 🔴 Deliberately slack, and no test pins it: against a ceiling of 1 600
+ * this term is a rounding. Changing it to 0 moves nothing — 3 381 still
+ * fires, 1 149 still passes, 4 still passes. It is here so the printed
+ * number is the number Postgres sees, not because the verdict turns on
+ * it.
  */
 const NON_TAG_COLUMNS = 3;
 
@@ -79,7 +84,17 @@ const DEFAULT_PIPELINE = 'scripts/osm-pipeline/load-context.sh';
  *    is whatever the real extracts hold.
  */
 export function exportPlan(script) {
-  const filtered = /--config=(["']?)export-\$\{?name\}?\.json\1/.test(script);
+  const configured = /--config=(["']?)export-\$\{?name\}?\.json\1/.test(script);
+
+  // 🔴 WHICH key the config writes, not merely that a config is written.
+  //
+  // Review drove this mutation and it survived: change the printf to
+  // `{"exclude_tags":[…]}` and the export emits every tag EXCEPT those
+  // four. The load dies with the 1 600-column error and a check that
+  // only looked for `--config=` reported four columns and a tick. One
+  // word, opposite meaning, guard silent.
+  const key = /printf\s+'\{"(\w+)":\s*\[%s\]\}/.exec(script)?.[1] ?? null;
+
   const tags = {};
   const body = /case\s+"\$name"\s+in([\s\S]*?)esac/.exec(script);
   if (body) {
@@ -93,7 +108,21 @@ export function exportPlan(script) {
       }
     }
   }
-  return { filtered, tags };
+
+  /**
+   * `allowlist` — only the named tags become columns.
+   * `excludelist` — everything but the named tags does.
+   * `everything` — no config, so every key in the input does.
+   */
+  const mode = !configured
+    ? 'everything'
+    : key === 'include_tags'
+      ? 'allowlist'
+      : key === 'exclude_tags'
+        ? 'excludelist'
+        : 'unknown';
+
+  return { configured, key, mode, tags };
 }
 
 /**
@@ -126,14 +155,41 @@ export function census(workDir, layer) {
   return keys;
 }
 
-/** Columns the CREATE TABLE will ask for, per layer. */
+/**
+ * Columns the CREATE TABLE will ask for, per layer.
+ *
+ * 🔴 The census runs on EVERY path, including the one that passes.
+ *
+ * It used to short-circuit: with an allowlist in place the answer is its
+ * length, so `censusOf` was never called and the extracts were never
+ * read. Review measured the consequence —
+ *
+ *   WORK_DIR=/nonexistent node scripts/scale-check/check-osm-columns.mjs
+ *   ✓ every layer fits: worst is 7 of 1600 columns    exit 0
+ *
+ * — so on the passing path this file was a grep of a shell script, and it
+ * would have gone on saying "priced against the real extracts" on a
+ * runner where the 797 MB merged layer had vanished. That is the one
+ * thing the `camptribe-data` label is a promise about, and the check that
+ * claims to verify it could not see it.
+ *
+ * It costs a few seconds and it buys the difference between a
+ * measurement and an assertion about a string.
+ */
 export function columnsPerLayer(plan, censusOf) {
   return LAYERS.map((layer) => {
-    const allowlisted = plan.filtered ? plan.tags[layer] : undefined;
-    const tagColumns = allowlisted ? allowlisted.length : censusOf(layer);
+    const keys = censusOf(layer);
+    const named = plan.tags[layer]?.length ?? 0;
+    const tagColumns =
+      plan.mode === 'allowlist' && named > 0
+        ? named
+        : plan.mode === 'excludelist'
+          ? Math.max(0, keys - named)
+          : keys;
     return {
       layer,
-      filtered: Boolean(allowlisted),
+      mode: plan.mode,
+      keys,
       tagColumns,
       columns: tagColumns + NON_TAG_COLUMNS,
     };
@@ -142,9 +198,12 @@ export function columnsPerLayer(plan, censusOf) {
 
 function report(rows) {
   for (const r of rows) {
-    const how = r.filtered
-      ? `${r.tagColumns} tags in the allowlist`
-      : `${r.tagColumns} distinct keys in the extract — NO allowlist`;
+    const how =
+      r.mode === 'allowlist' && r.tagColumns < r.keys
+        ? `${r.tagColumns} of ${r.keys} keys in the extract are allowlisted`
+        : r.mode === 'excludelist'
+          ? `${r.tagColumns} of ${r.keys} keys survive an EXCLUDE list`
+          : `${r.keys} distinct keys in the extract — nothing narrows them`;
     console.log(
       `  ${r.layer.padEnd(6)} ${String(r.columns).padStart(5)} columns  (${how})`,
     );
@@ -163,6 +222,22 @@ function run(argv) {
 
   console.log(`pipeline: ${pipeline}`);
   console.log(`extracts: ${workDir}`);
+  console.log(`export config: ${plan.key ?? 'none'} (${plan.mode})`);
+
+  // 🔴 An export config whose key we do not recognise is not a pass.
+  // `include_tags` and `exclude_tags` differ by one word and mean
+  // opposite things; a third spelling means osmium is doing something
+  // this check cannot price.
+  if (plan.mode === 'unknown') {
+    console.error(
+      `\n✗ the export writes {"${plan.key}": …}, which this check does not ` +
+        'know how to price.\nosmium\'s allowlist key is `include_tags`. Until ' +
+        'this file learns the new one,\nit cannot tell you how many columns ' +
+        'the load will ask for.\n',
+    );
+    process.exit(1);
+  }
+
   const rows = columnsPerLayer(plan, (layer) => census(workDir, layer));
   report(rows);
 
@@ -220,13 +295,26 @@ function selfTest(argv) {
     return false;
   }
 
-  const dir = mkdtempSync(join(tmpdir(), 'scale-check-'));
-  const path = join(dir, 'load-context.broken.sh');
-  writeFileSync(path, broken);
-
   const brokenPlan = exportPlan(broken);
   const realPlan = exportPlan(real);
   let ok = true;
+
+  // 🔴 The mutation review drove and this check survived: one word in the
+  // printf turns an allowlist into its opposite. Rehearsed here, because
+  // a defect found once in review and not pinned by a test comes back.
+  const inverted = exportPlan(real.replace('"include_tags"', '"exclude_tags"'));
+  const invertedRows = columnsPerLayer(inverted, (l) => census(workDir, l));
+  console.log('\nthe pipeline with include_tags turned into exclude_tags:');
+  report(invertedRows);
+  if (verdict(invertedRows).length === 0) {
+    console.error(
+      '✗ inverting the config left the check quiet. Exporting every tag BUT\n' +
+        '  four is the same 1 600-column death as exporting all of them.',
+    );
+    ok = false;
+  } else {
+    console.log('  ✓ fires');
+  }
 
   // Half one: EU-27, the real merged extracts.
   const atScale = columnsPerLayer(brokenPlan, (l) => census(workDir, l));
@@ -301,7 +389,12 @@ function unionOfKeys(workDir, countries, layer) {
 }
 
 function defaultWorkDir() {
-  return process.env.WORK_DIR ?? join(process.env.HOME ?? '', 'camptribe-osm');
+  // 🔴 `||`, not `??`. GitHub sets an unset repository variable to the
+  // EMPTY STRING, which is defined, so `??` would leave WORK_DIR as ''
+  // and `join('', 'merged.water.pbf')` would resolve against the repo
+  // root — a missing-extracts run wearing the name of a configured one.
+  // load-context.sh has always had this right with `${WORK_DIR:-…}`.
+  return process.env.WORK_DIR || join(process.env.HOME ?? '', 'camptribe-osm');
 }
 
 function argFor(argv, name) {

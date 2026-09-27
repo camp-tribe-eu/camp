@@ -45,10 +45,24 @@ on:
   # A label rather than a path filter. Paths would run this on every
   # commit to those files, which is the per-PR cost again under another
   # name; a label is a person deciding that this change is one of the ones
-  # worth the runner. The four paths worth labelling are named in
-  # docs/scale-check.md.
+  # worth the runner. The paths worth labelling are in docs/scale-check.md.
+  #
+  # 🔴 `labeled` ONLY — not `synchronize`, and that is a security line
+  # rather than a cost one.
+  #
+  # This job runs on the machine that holds the production database, 30 GB
+  # of extracts and apps/api/.env, and its second step is `npm ci` from the
+  # pull request's own lockfile. Lifecycle scripts are arbitrary code. With
+  # `synchronize` in this list, labelling a PR once would mean every
+  # subsequent push — including a force-push that replaces the reviewed
+  # commits — runs that PR's code on that machine, with the label still
+  # satisfying the condition below. camp-tribe-eu/camp is public, so
+  # anyone may open the pull request.
+  #
+  # With `labeled` alone, each run is a deliberate act on a revision a
+  # person has just looked at: re-label to re-run.
   pull_request:
-    types: [labeled, synchronize]
+    types: [labeled]
 
 # One at a time. Two runs would build into the same .next and read the
 # same database, and the second would report on a tree the first is still
@@ -63,10 +77,17 @@ permissions:
 
 jobs:
   scale:
-    # 🔴 Skipped unless the label says so, on a pull request.
+    # 🔴 Skipped unless the label says so — and unless the branch is ours.
+    #
+    # A fork PR would be refused by `run.sh` anyway, because GitHub
+    # withholds the secret from it. But that refusal happens AFTER
+    # `npm ci` has already run the fork's lifecycle scripts on the machine
+    # that holds the database. The check has to come before the checkout
+    # is installed, which means here.
     if: >-
       github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'scale')
+      (contains(github.event.pull_request.labels.*.name, 'scale') &&
+       github.event.pull_request.head.repo.full_name == github.repository)
 
     # 🔴 Self-hosted, and that IS the decision this card had to make.
     #
@@ -153,6 +174,7 @@ jobs:
         run: npm run build --workspace=apps/web
 
       - name: The map and the search, in a browser, at full scale
+        id: pages
         if: github.event_name != 'workflow_dispatch' || inputs.with-pages
         run: ./scripts/scale-check/run.sh --with-pages
 
@@ -160,12 +182,22 @@ jobs:
       # means a test that fails then passes leaves the job green, so the
       # flake check has to run on a green job too.
       #
-      # The second half of the condition is not decoration either: with
-      # the browser stage skipped there is no report, the check exits 1
-      # for want of a file, and a guard that fails when there was nothing
-      # to guard is a guard people start ignoring.
+      # 🔴 Keyed off whether the browser step RAN, not off the input.
+      #
+      # The first version tested `inputs.with-pages`, which only covers a
+      # manual run that asked to skip. Review found the other way in: a
+      # step `if:` without a status function carries an implicit
+      # `success()`, so on a NIGHTLY where the build step fails, the
+      # browser step is skipped, no report.json exists, and `always()`
+      # still ran this — which then exits 1 with "cannot read the
+      # Playwright report". A second, misleading red on top of the real
+      # one, and exactly the "fails when there was nothing to guard"
+      # failure the sentence above claimed to be avoiding.
+      #
+      # `steps.pages.conclusion` is 'success' only when the browser stage
+      # actually produced a report, whatever the reason it might not have.
       - name: No test passed only on a retry
-        if: always() && (github.event_name != 'workflow_dispatch' || inputs.with-pages)
+        if: always() && steps.pages.conclusion == 'success'
         run: node scripts/ci/check-flaky.mjs apps/web/playwright-report/report.json
 
       - uses: actions/upload-artifact@v7

@@ -20,15 +20,21 @@ const visualProject = {
   use: { ...devices['Desktop Chrome'] },
 };
 
-// 🔴 CAMP-134: the four things that are only true at 61 557 campsites.
+// 🔴 CAMP-134: the things that are only true at 61 557 campsites.
 //
-// One browser, one viewport, and NOT in the default set — for the same
-// reason the visual project is not. These tests need a build made from
-// the full database; run against CI's 72-row fixture they would not fail,
-// they would pass over nothing, which is the exact failure the card
-// exists to stop. They gate themselves on the size of the built index and
-// refuse to run below it, and the workflow that starts them is
-// .github/workflows/scale-check.yml.
+// Nine tests — six in the browser, three without one. NOT in the default
+// set, for the same reason the visual project is not: they need a build
+// made from the full database, and run against CI's 72-row fixture they
+// would not fail, they would pass over nothing, which is the exact
+// failure the card exists to stop.
+//
+// Every one of them gates itself on the size of what it is looking at —
+// the built map index above 100 regions, the search index above five
+// files, the API above 10 000 rows — and fails rather than skips below
+// it. Review caught the /search test shipping without that gate, which
+// made this very sentence false for one of the nine.
+//
+// The workflow that starts them is .github/workflows/scale-check.yml.
 //
 // Chromium only, deliberately. The defects these catch are about how much
 // data arrives and when — not about how a browser renders it. Six engines

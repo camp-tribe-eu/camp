@@ -15,7 +15,7 @@ through all six.
 | `loaded()` in e2e | map opens zoomed in, markers present | map opens too wide, `data-total` stays 0 forever |
 | the "zoomed-out map" test | honestly shows "36 campsites" → test fails | shows "zoom in" → test passes |
 | `data-map-state="ready"` | one chunk, no parallel requests | published with fetches in flight, 7 of 14 chunks |
-| the search index | 1 small file | 6.9 MB against a 1.5 MB budget |
+| the search index | 1 small file | 6.9 MB against a 1.5 MB budget (25.09.2026) |
 | the map snapshot | under the 20 000 bound | 61 521 against 20 000, the panel said "0 campsites" |
 
 Twice it was mirror-image: the test failed **because** the data was small.
@@ -27,16 +27,31 @@ on 72 campsites reaches any of them.
 
 ## What runs, and what it costs
 
-| stage | what it asks | measured |
-| --- | --- | --- |
-| rehearsal | every guard below, driven with the broken version | 7.2 s |
-| probes | OSM tag census; the map index against the API | 4.2 s |
-| build | `next build`, 65 435 pages, against the warm API | **7 min 36 s** |
-| browser | 9 tests, chromium, one viewport | 21–34 s |
+🔴 **Two columns, because one number would be a lie.** Every figure here
+was measured on 27.09.2026 on the same machine, but some of them were
+taken while a second full site build was running on it — load average 41,
+and the API on :3001 answering `/spots/countries` in **15.1 s** instead of
+0.15 s. Both conditions are real; only one of them is what the nightly
+meets.
 
-So a nightly with the browser stage is **about eight and a half minutes**,
-almost all of it the build. Without the build (`with-pages: false` on a
-manual run) it is **eleven seconds**.
+| stage | what it asks | idle machine | while a full build runs |
+| --- | --- | --- | --- |
+| probes | OSM tag census, then the map index against the API | ~10 s | 2 min 22 s |
+| rehearsal | every guard, driven with the broken version | ~4 s | 35 s |
+| build | `next build`, 65 435 pages | **7 min 36 s** | > 40 min |
+| browser | 9 tests, chromium, one viewport | 21–34 s | — |
+
+So a nightly with the browser stage is **about eight and a half minutes**
+on a machine that is otherwise idle. Without the build
+(`with-pages: false` on a manual run) it is **well under a minute**.
+
+The contended column is not an aside; it is the reason for two design
+decisions. The schedule is 02:00 UTC so the run meets an idle machine,
+and `concurrency: group: scale-check` stops two of these from queueing at
+the same database. Almost all of the contended cost is waiting on
+Postgres, not computing anything — which is also why the map probe asks
+for its twelve sample chunks at once rather than one after another
+(4 min 43 s sequential against 2 min 13 s together, both contended).
 
 For comparison: the same build took over seven hours projected on
 24.09.2026 when the rate-limit bypass was misconfigured. The API build
@@ -138,7 +153,11 @@ is the data, and it is neither fast nor cheap.
 The same shape holds for the rest. The map snapshot's 20 000 cap is
 silent over Slovenia and Croatia together (1 624 markers, measured) and
 fires over the EU (truncated at 20 000). The search index's 1.5 MB
-ceiling is at 1% over 72 rows and 6.1x over at full scale. A "realistic"
+ceiling is at 1% over 72 rows and — as one file with today's packer over
+today's 61 422 rows — 6.1x over. (The card's 6.9 MB is the 25.09.2026
+measurement, before the packer learned to derive `text` and the slug and
+before the dataset grew again; the test prints what it just measured
+rather than quoting either number.) A "realistic"
 fixture would have to be realistic in tag diversity, in campsite density
 and in country count simultaneously — which is a description of
 production.
@@ -157,9 +176,15 @@ runs the **broken versions** against the live data:
   The same broken export over three countries → 1 152 columns, passes.
   That second half is the point: the code is equally broken in both runs,
   and only the data makes it visible.
-- the deleted whole-world snapshot (`/spots/map/points?bbox=-180,-85,180,85&limit=20000`)
-  → truncated, fires. The same request over Slovenia and Croatia → 1 624
-  markers, silent.
+- the OSM export with `include_tags` turned into `exclude_tags` → 3 380
+  columns, fires. That mutation is one word and it survived the first
+  version of this check, which looked only for the presence of a config
+  file and never at which key it wrote.
+- the deleted whole-world snapshot's request
+  (`/spots/map/points?bbox=-180,-85,180,85&limit=20000`) → truncated,
+  fires. The same request over Slovenia and Croatia → 1 624 markers,
+  silent. (The request and the verdict, rewritten in four lines — the
+  deleted route itself is gone, so its own error path is not re-run.)
 
 The browser stage rehearses itself, in the suite, every run: one test
 publishes `data-map-state="ready"` over a live chunk download and requires
@@ -190,10 +215,21 @@ npm run build --workspace=apps/web        # ~7.5 min
 ./scripts/scale-check/run.sh --with-pages # probes + browser
 ```
 
-The runner refuses to start if `API_BUILD_TOKEN` is unset, if nothing
-answers at `API_BASE_URL`, or if what answers holds fewer than 10 000
-campsites. That last one is not hypothetical: pointing this at the CI
-fixture is one wrong variable away, and every check would pass.
+The runner refuses to start if `API_BUILD_TOKEN` is unset, if nothing is
+listening at `API_BASE_URL`, if what is listening does not answer in
+180 s, if the campsite count comes back as anything but a number, or if
+that number is under 10 000. Those last two are not hypothetical:
+pointing this at the CI fixture is one wrong variable away, and a
+non-numeric count used to slip through entirely — `[ "$SPOTS" -lt 10000 ]`
+on `undefined` prints an error, returns 2, and because it is an `if`
+condition the run simply carries on.
+
+The 180 s is deliberate rather than generous. It read 10 s and printed
+"no API"; measured on a machine that was also running a full build, the
+API answered correctly in 15.1 s having connected in 7 ms. A guard that
+stops the run and names the wrong cause sends somebody hunting in the
+wrong place — the same failure as the redirect guard that halted the
+EU-27 import and blamed the region name.
 
 **Never** print the token, and never commit it. `camp-tribe-eu/camp` is
 public; see `docs/ci-and-public-repo.md`. In the workflow it is
