@@ -67,6 +67,21 @@ const FAMILIES = [
     root: `${BUILD}/tools/camper-trip-cost`,
     keep: (rel) => rel.split(path.sep).length === 1,
   },
+  // 🔴 CAMP-4 / CAMP-54. The rental country pages, watched from the day
+  // they were written rather than from the day somebody noticed them —
+  // which is the lesson of the paragraph above, where twenty-seven pages
+  // sat unmeasured because the root was hard-coded to /camping.
+  //
+  // This family is the one with the strongest reason to be here. The card
+  // asked for 200–300 city pages and we published twelve country pages
+  // instead, on the argument that pages differing only by a place name are
+  // scaled content abuse and cost the whole domain. That argument is a
+  // claim about these files, and this is what turns it into a measurement.
+  {
+    name: 'camper rental by country',
+    root: `${BUILD}/camper-rental`,
+    keep: (rel) => rel.split(path.sep).length === 1,
+  },
 ];
 
 /** Deterministic sample: the same pages every run, so a rise is a change. */
