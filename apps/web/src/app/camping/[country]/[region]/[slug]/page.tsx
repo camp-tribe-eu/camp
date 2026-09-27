@@ -125,6 +125,122 @@ export async function generateMetadata(
   };
 }
 
+/**
+ * CAMP-141: the contact block.
+ *
+ * 🔴 Two websites, one link. `spot.website` comes from DATAtourisme, an
+ * official tourism register; `spot.contact.website` is whatever a mapper
+ * typed in OpenStreetMap. The register wins where both exist — the same
+ * precedence the structured data uses, decided in one place rather than
+ * twice.
+ *
+ * Every value here is open data typed by a stranger, so the URL was
+ * already checked at import (`cleanWebsite`, http and https only) and
+ * `rel="nofollow ugc"` says what it is to a crawler: user-generated,
+ * not an endorsement.
+ */
+function Contact({ spot }: { spot: Spot }) {
+  const contact = spot.contact ?? {};
+  const site = spot.website ?? contact.website ?? null;
+  const { phone, email, openingHours, operator, address } = contact;
+  const city = [address?.postcode, address?.city].filter(Boolean).join(' ');
+  const street = address?.street;
+  if (
+    !site &&
+    !phone &&
+    !email &&
+    !openingHours &&
+    !operator &&
+    !street &&
+    !city
+  ) {
+    // 🔴 `capacity` is deliberately NOT in this test.
+    //
+    // It was, and review found the result: 306 campsites rendered a
+    // section headed "Getting in touch" whose entire content was
+    // "Pitches 2", under a note about contact details that applied to
+    // nothing on it. The number of pitches is a fact about the site, not
+    // a way to reach anybody — it belongs with the other facts, below.
+    return null;
+  }
+  return (
+    <Section title="Getting in touch">
+      <dl className="mt-1 grid max-w-prose grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-[auto_1fr]">
+        {site && (
+          <>
+            <dt className="text-sm text-ink-2">Website</dt>
+            <dd className="text-sm">
+              <a
+                href={site}
+                rel="nofollow ugc noopener"
+                target="_blank"
+                className="underline underline-offset-2"
+              >
+                {site.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+              </a>
+            </dd>
+          </>
+        )}
+        {phone && (
+          <>
+            <dt className="text-sm text-ink-2">Phone</dt>
+            <dd className="text-sm">
+              {/* 🔴 One number in the href, whatever the tag holds.
+                  OSM separates several with ';' and the import now keeps
+                  only the first — this split is the second belt, because
+                  a `tel:` with two numbers glued together dials neither,
+                  and review found 157 live rows doing that. */}
+              <a
+                href={`tel:${phone.split(';')[0].replace(/[^+\d]/g, '')}`}
+                className="underline underline-offset-2"
+              >
+                {phone}
+              </a>
+            </dd>
+          </>
+        )}
+        {email && (
+          <>
+            <dt className="text-sm text-ink-2">Email</dt>
+            <dd className="text-sm">
+              <a href={`mailto:${email}`} className="underline underline-offset-2">
+                {email}
+              </a>
+            </dd>
+          </>
+        )}
+        {(street || city) && (
+          <>
+            <dt className="text-sm text-ink-2">Address</dt>
+            <dd className="text-sm text-ink-2">
+              {[street, city].filter(Boolean).join(', ')}
+            </dd>
+          </>
+        )}
+        {openingHours && (
+          <>
+            <dt className="text-sm text-ink-2">Open</dt>
+            {/* Verbatim, in OpenStreetMap's own syntax. Rewriting
+                "Mo-Su 09:00-13:00" into prose is a translation we would
+                get wrong for the seasonal and conditional forms. */}
+            <dd className="font-mono text-sm text-ink-2">{openingHours}</dd>
+          </>
+        )}
+        {operator && (
+          <>
+            <dt className="text-sm text-ink-2">Operated by</dt>
+            <dd className="text-sm text-ink-2">{operator}</dd>
+          </>
+        )}
+      </dl>
+      <p className="mt-3 max-w-prose text-xs text-ink-2">
+        Contact details come from OpenStreetMap and are only as current as
+        the last person to edit them. We have not called ahead.
+      </p>
+    </Section>
+  );
+}
+
 export default async function CampsitePage(props: { params: Promise<Params> }) {
   const params = await props.params;
   const data = await getSpot(params.country, params.region, params.slug);
@@ -228,6 +344,19 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         </figure>
       )}
 
+      {/* 🔴 CAMP-141: how to reach the place.
+          
+          This section did not exist, and neither did the data behind it.
+          Measured 27.09.2026: OpenStreetMap carries a website for 61.6%
+          of the campsites in an extract and a phone for 39.8%, and we
+          imported none of it — a reader could find a campsite here and
+          have no way to contact it.
+          
+          Shown only where something exists. A heading with nothing under
+          it tells a reader we lost their data; no heading tells them we
+          never had it, which is the truth. */}
+      <Contact spot={spot} />
+
       <NoPhotos />
 
       <Around spot={spot} />
@@ -274,6 +403,22 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
                   {formatDistance(spot.context.town.m)}
                 </span>
               </dd>
+            </>
+          )}
+          {/* 🔴 Pitches, in the unit OSM actually records.
+              
+              This used to be published as schema.org's
+              `maximumAttendeeCapacity`, which counts PEOPLE — twenty
+              pitches announced as twenty guests, understating a site
+              three- to fourfold. It is stated here instead, in its own
+              unit, where a reader can read it and no machine is told
+              something untrue. (On a camper stop OSM counts vehicle
+              places rather than tents; closer, still not identical, and
+              that is why the label says pitches and not guests.) */}
+          {spot.contact?.capacity !== undefined && (
+            <>
+              <dt className="text-ink-2">Pitches</dt>
+              <dd>{spot.contact.capacity}</dd>
             </>
           )}
           <dt className="text-ink-2">Coordinates</dt>
