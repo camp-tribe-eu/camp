@@ -329,7 +329,10 @@ export default function CampsiteMap() {
    */
   const inFlight = useRef(0);
   /**
-   * `publishCounts`, reachable from outside the map effect.
+   * `publishDrawn`, reachable from outside the map effect.
+   *
+   * 🔴 The DRAWN numbers only — never the rendered ones, which are true
+   * only after a paint. See the two functions for why they are two.
    *
    * 🔴 The counts were published ONLY on the map's `idle` event, and
    * `data-map-state` is set when fetching stops — two different moments.
@@ -571,7 +574,29 @@ export default function CampsiteMap() {
     // every reader's browser. These two numbers say only what a person
     // looking at the screen can already see, and they are the first
     // thing worth knowing when the map misbehaves.
-    const publishCounts = () => {
+    // 🔴 CAMP-133: two groups, two moments of truth, two functions.
+    //
+    // Everything below `publishDrawn` is derived from `drawn.current` —
+    // the set this component decided to draw. It is true the instant
+    // that set changes.
+    //
+    // Everything in `publishRendered` is derived from
+    // `queryRenderedFeatures` — what MapLibre has actually put on the
+    // canvas. It is true only after a render, and clustering happens in
+    // a worker, so it is not true when the data changes.
+    //
+    // 🔴 They were one function, and I called it from `applyFilterState`
+    // so the in-view count would stop being stale. Measured: that one
+    // call wrote a correct `data-in-view` of 2 456 and a false
+    // `data-clustered-total` of 0 in the same instant, because nothing
+    // had been rendered yet. On CI that made
+    // "clusters are recounted when filtering" read a zero it was never
+    // meant to see: the poll before it is satisfied by 0 (0 ≤ anything)
+    // and the assertion after it demands more than 0.
+    //
+    // A count of what is on screen may only be written by the event
+    // that says the screen has been painted.
+    const publishRendered = () => {
       const el = container.current;
       if (!el) return;
       const rendered = (layer: string) =>
@@ -580,13 +605,47 @@ export default function CampsiteMap() {
       const clusters = rendered(CLUSTER_LAYER);
       el.dataset.visibleClusters = String(clusters.length);
       el.dataset.visiblePoints = String(points.length);
-      // 🔴 CAMP-133: and the region circles, for the same reason.
+      // 🔴 And the region circles, for the same reason.
       //
       // `drawRegions` is the one call that has to wait for the style,
       // so it is the one that can be quietly skipped and never retried.
       // Without a number for it, a test can only prove that nothing
       // threw — not that the circles arrived.
       el.dataset.visibleRegions = String(rendered(REGION_CIRCLE).length);
+
+      // CAMP-35: how many campsites the bubbles claim to contain, plus
+      // the ones drawn individually.
+      //
+      // 🔴 This is what makes "the filter really re-clustered" checkable.
+      // MapLibre clusters when the SOURCE loads, so hiding a LAYER would
+      // leave every bubble still counting campsites that are no longer
+      // drawn — twelve on the circle, three when you click it. Comparing
+      // this sum against the filtered total catches exactly that, and
+      // nothing else on the page can: the numbers live in a WebGL canvas.
+      el.dataset.clusteredTotal = String(
+        clusters.reduce(
+          (sum, c) => sum + Number(c.properties?.point_count ?? 0),
+          points.length,
+        ),
+      );
+
+      // Where the first campsite currently sits on screen, in container
+      // pixels. Same reasoning as the counts: a marker's position is
+      // knowable only by asking the map, and this is what tells us
+      // whether a click landed on one.
+      const first = points[0];
+      if (first) {
+        const [lng, lat] = (first.geometry as GeoJSON.Point).coordinates;
+        const at = m.project([lng, lat]);
+        el.dataset.pointAt = `${Math.round(at.x)},${Math.round(at.y)}`;
+      } else {
+        delete el.dataset.pointAt;
+      }
+    };
+
+    const publishDrawn = () => {
+      const el = container.current;
+      if (!el) return;
 
       // 🔴 CAMP-127: the viewport, and how many of OUR features are in it.
       //
@@ -628,40 +687,16 @@ export default function CampsiteMap() {
           : '(capped)';
 
       el.dataset.inView = String(inside.length);
-
-      // CAMP-35: how many campsites the bubbles claim to contain, plus
-      // the ones drawn individually.
-      //
-      // 🔴 This is what makes "the filter really re-clustered" checkable.
-      // MapLibre clusters when the SOURCE loads, so hiding a LAYER would
-      // leave every bubble still counting campsites that are no longer
-      // drawn — twelve on the circle, three when you click it. Comparing
-      // this sum against the filtered total catches exactly that, and
-      // nothing else on the page can: the numbers live in a WebGL canvas.
-      el.dataset.clusteredTotal = String(
-        clusters.reduce(
-          (sum, c) => sum + Number(c.properties?.point_count ?? 0),
-          points.length,
-        ),
-      );
-
-      // Where the first campsite currently sits on screen, in container
-      // pixels. Same reasoning as the counts: a marker's position is
-      // knowable only by asking the map, and this is what tells us
-      // whether a click landed on one.
-      const first = points[0];
-      if (first) {
-        const [lng, lat] = (first.geometry as GeoJSON.Point).coordinates;
-        const at = m.project([lng, lat]);
-        el.dataset.pointAt = `${Math.round(at.x)},${Math.round(at.y)}`;
-      } else {
-        delete el.dataset.pointAt;
-      }
     };
-    m.on('idle', publishCounts);
-    // 🔴 And on demand, so the numbers can be republished the moment the
-    // data changes rather than whenever the map next happens to idle.
-    publishRef.current = publishCounts;
+    // 🔴 `idle` is the only writer of the rendered numbers, and it
+    // writes the drawn ones too so the pair always describes one moment.
+    m.on('idle', () => {
+      publishDrawn();
+      publishRendered();
+    });
+    // 🔴 On demand, the DRAWN ones only: the moment the set we decided
+    // to draw changes, that count is true and the rendered one is not.
+    publishRef.current = publishDrawn;
 
     // 🔴 CAMP-127: the map now fetches what is in view, so moving it is
     // a data event and not only a rendering one. `moveend` rather than
@@ -1185,8 +1220,8 @@ export default function CampsiteMap() {
         // `in-view-*` are over the visible area: they are the numbers
         // the panel prints, so a spec can check the sentence against
         // them instead of against a set the reader cannot see.
-        // `data-in-view` itself is written by `publishCounts`, from the
-        // same `withinView` rule, at the map's own idle.
+        // `data-in-view` itself is written by `publishDrawn`, from the
+        // same `withinView` rule, whenever the drawn set changes.
         data-shown={tally.shown}
         data-total={tally.total}
         data-unknown-excluded={tally.unknownExcluded}
