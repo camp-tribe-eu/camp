@@ -123,18 +123,18 @@ export const THEMES: Theme[] = [
     otherwise: 'are not tagged as caravan sites or motorhome stopovers',
     noun: 'motorhome stopovers and RV parks',
     facets: [
-      { label: 'are RV parks', predicate: `type = 'rv_park'` },
-      { label: 'are roadside stopovers', predicate: `type = 'camper_stop'` },
+      { label: 'RV parks', predicate: `type = 'rv_park'` },
+      { label: 'roadside stopovers', predicate: `type = 'camper_stop'` },
       {
-        label: 'record a grey-water point',
+        label: 'with a recorded grey-water point',
         predicate: `amenities ->> 'greyWater' = 'yes'`,
       },
       {
-        label: 'record an electrical hook-up',
+        label: 'with a recorded electrical hook-up',
         predicate: `amenities ->> 'electricity' = 'yes'`,
       },
       {
-        label: 'record drinking water',
+        label: 'with recorded drinking water',
         predicate: `amenities ->> 'water' = 'yes'`,
       },
     ],
@@ -149,13 +149,19 @@ export const THEMES: Theme[] = [
     otherwise: 'are recorded as not taking dogs',
     noun: 'recorded as taking dogs',
     facets: [
-      { label: 'record showers', predicate: `amenities ->> 'shower' = 'yes'` },
       {
-        label: 'record drinking water',
+        label: 'with recorded showers',
+        predicate: `amenities ->> 'shower' = 'yes'`,
+      },
+      {
+        label: 'with recorded drinking water',
         predicate: `amenities ->> 'water' = 'yes'`,
       },
-      { label: 'carry an official star rating', predicate: `stars IS NOT NULL` },
-      { label: 'have a website we hold', predicate: `website IS NOT NULL` },
+      {
+        label: 'with an official star rating',
+        predicate: `stars IS NOT NULL`,
+      },
+      { label: 'with a website we hold', predicate: `website IS NOT NULL` },
     ],
   },
   {
@@ -167,17 +173,17 @@ export const THEMES: Theme[] = [
     otherwise: 'carry an official rating below four stars',
     noun: 'rated four or five official stars',
     facets: [
-      { label: 'carry five stars', predicate: `stars = 5` },
-      { label: 'carry four', predicate: `stars = 4` },
+      { label: 'with five stars', predicate: `stars = 5` },
+      { label: 'with four', predicate: `stars = 4` },
       {
-        label: 'record wheelchair access',
+        label: 'with recorded wheelchair access',
         predicate: `amenities ->> 'wheelchair' = 'yes'`,
       },
       {
-        label: 'record that dogs are welcome',
+        label: 'with dogs recorded as welcome',
         predicate: `amenities ->> 'dogFriendly' = 'yes'`,
       },
-      { label: 'have a website we hold', predicate: `website IS NOT NULL` },
+      { label: 'with a website we hold', predicate: `website IS NOT NULL` },
     ],
   },
   {
@@ -190,12 +196,21 @@ export const THEMES: Theme[] = [
     noun: 'recorded as wheelchair-accessible',
     facets: [
       {
-        label: 'record step-free facilities throughout, not only access',
+        label: 'with step-free facilities recorded throughout, not only access',
         predicate: `amenities ->> 'wheelchairFull' = 'yes'`,
       },
-      { label: 'record showers', predicate: `amenities ->> 'shower' = 'yes'` },
-      { label: 'record toilets', predicate: `amenities ->> 'toilets' = 'yes'` },
-      { label: 'carry an official star rating', predicate: `stars IS NOT NULL` },
+      {
+        label: 'with recorded showers',
+        predicate: `amenities ->> 'shower' = 'yes'`,
+      },
+      {
+        label: 'with recorded toilets',
+        predicate: `amenities ->> 'toilets' = 'yes'`,
+      },
+      {
+        label: 'with an official star rating',
+        predicate: `stars IS NOT NULL`,
+      },
     ],
   },
   {
@@ -210,12 +225,18 @@ export const THEMES: Theme[] = [
     noun: 'within 500 m of a lake, river or the sea',
     facets: [
       {
-        label: 'record that dogs are welcome',
+        label: 'with dogs recorded as welcome',
         predicate: `amenities ->> 'dogFriendly' = 'yes'`,
       },
-      { label: 'record showers', predicate: `amenities ->> 'shower' = 'yes'` },
-      { label: 'carry an official star rating', predicate: `stars IS NOT NULL` },
-      { label: 'have a website we hold', predicate: `website IS NOT NULL` },
+      {
+        label: 'with recorded showers',
+        predicate: `amenities ->> 'shower' = 'yes'`,
+      },
+      {
+        label: 'with an official star rating',
+        predicate: `stars IS NOT NULL`,
+      },
+      { label: 'with a website we hold', predicate: `website IS NOT NULL` },
     ],
   },
 ];
@@ -341,6 +362,10 @@ function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many;
 }
 
+/** Agreement, because "1 have none within 5 km" reads like a bug. */
+const isAre = (n: number) => (n === 1 ? 'is' : 'are');
+const hasHave = (n: number) => (n === 1 ? 'has' : 'have');
+
 /** "a, b and c" — an Oxford-free list, because these are names. */
 function list(parts: string[]): string {
   if (parts.length <= 1) return parts[0] ?? '';
@@ -377,10 +402,10 @@ function townLines(facts: RegionFacts, s: Surroundings): string[] {
       s.townsNamed,
       'named town',
       'different named towns',
-    )}. ${d.within} of them are within ${dist(NEAR.town)} of theirs and the ` +
+    )}. ${d.within} of them ${isAre(d.within)} within ${dist(NEAR.town)} of theirs and the ` +
       `middle one is ${dist(d.median)} out` +
       (d.beyond > 0
-        ? `, while ${d.beyond} have no town of any size within ${dist(FAR.town)}.`
+        ? `, while ${d.beyond} ${hasHave(d.beyond)} no town of any size within ${dist(FAR.town)}.`
         : '.'),
   );
   if (s.towns.length > 0) {
@@ -388,6 +413,10 @@ function townLines(facts: RegionFacts, s: Surroundings): string[] {
     out.push(
       `${plural(s.towns.length, 'The town', 'The towns')} with the most of them:`,
     );
+    // 🔴 A blank line before the bullets: the reader's page renders a
+    // block that STARTS with "- " as a list, and a lead-in glued to the
+    // first item turns the whole thing back into a paragraph of dashes.
+    out.push('');
     for (const t of s.towns) {
       out.push(
         `- ${t.name} — ${t.n} ${plural(t.n, 'campsite', 'campsites')}, the closest ${dist(t.nearest)} out`,
@@ -400,35 +429,42 @@ function townLines(facts: RegionFacts, s: Surroundings): string[] {
 function waterLines(facts: RegionFacts, s: Surroundings): string[] {
   const out: string[] = [];
   const unnamed = facts.subjects - s.waterNamed;
-  const kinds = s.waterKinds
-    .map((k) => `${k.n} a ${k.kind}`)
-    .slice(0, 4)
-    .join(', ');
+  const kinds = list(
+    s.waterKinds
+      .slice(0, 4)
+      .map((k) => `${k.kind === 'sea' ? 'the sea' : `a ${k.kind}`} for ${k.n}`),
+  );
 
   if (s.waterNamed > 0) {
     out.push(
-      `${s.waterNamed} of the ${facts.subjects} have a named body of water as ` +
+      `${s.waterNamed} of the ${facts.subjects} ${hasHave(s.waterNamed)} a named body of water as ` +
         `their nearest` +
-        (kinds ? `, and by kind the nearest water is ${kinds}.` : '.') +
+        (kinds ? `, and the nearest water is ${kinds}.` : '.') +
         (unnamed > 0
-          ? ` The other ${unnamed} have water nearby that nobody has named.`
+          ? ` The other ${unnamed} ${hasHave(unnamed)} water nearby that nobody has named.`
           : ''),
     );
     out.push('');
     out.push(
       `${plural(s.waters.length, 'The water', 'The waters')} with the most of them:`,
     );
+    out.push('');
     for (const w of s.waters) {
+      // 🔴 The "how many are within walking distance" clause is dropped
+      // when it says nothing — one campsite's distance is already on the
+      // line, and "0 of them within 500 m" is noise, not a fact.
+      const walk =
+        w.walk === undefined || w.n === 1 || w.walk === 0
+          ? ''
+          : w.walk === w.n
+            ? `all of them within ${dist(NEAR.water)}, `
+            : `${w.walk} of them within ${dist(NEAR.water)}, `;
       out.push(
         `- ${w.name}${w.kind ? ` (${w.kind})` : ''} — ${w.n} ${plural(
           w.n,
           'campsite',
           'campsites',
-        )}, ${
-          w.walk === undefined
-            ? ''
-            : `${w.walk} of them within ${dist(NEAR.water)}, `
-        }the closest ${dist(w.nearest)} away`,
+        )}, ${walk}the closest ${dist(w.nearest)} away`,
       );
     }
   } else if (facts.subjects > 0) {
@@ -446,10 +482,10 @@ function waterLines(facts: RegionFacts, s: Surroundings): string[] {
       (d.within === d.known
         ? `Every one of them is within ${dist(NEAR.water)} of water and the ` +
           `middle one is ${dist(d.median)} from it`
-        : `${d.within} are within ${dist(NEAR.water)} of water, the middle ` +
+        : `${d.within} ${isAre(d.within)} within ${dist(NEAR.water)} of water, the middle ` +
           `one ${dist(d.median)} from it`) +
         (d.beyond > 0
-          ? `, and ${d.beyond} have none within ${dist(FAR.water)}.`
+          ? `, and ${d.beyond} ${hasHave(d.beyond)} none within ${dist(FAR.water)}.`
           : '.'),
     );
   }
@@ -463,20 +499,19 @@ function stationLines(facts: RegionFacts, s: Surroundings): string[] {
 
   if (s.stationsNamed > 0) {
     out.push(
-      `${d.within} of the ${facts.subjects} are within ${dist(NEAR.station)} of ` +
+      `${d.within} of the ${facts.subjects} ${isAre(d.within)} within ${dist(NEAR.station)} of ` +
         `a railway station we hold a name for — ${s.stationsNamed} ${plural(
           s.stationsNamed,
           'station in all',
           'different stations in all',
         )}. The middle campsite is ${dist(d.median)} from its nearest` +
         (d.beyond > 0
-          ? `, and ${d.beyond} have no station within ${dist(FAR.station)}.`
+          ? `, and ${d.beyond} ${hasHave(d.beyond)} no station within ${dist(FAR.station)}.`
           : '.'),
     );
     out.push('');
-    out.push(
-      `${plural(s.stations.length, 'That station', 'Those stations')}:`,
-    );
+    out.push(`${plural(s.stations.length, 'That station', 'Those stations')}:`);
+    out.push('');
     for (const st of s.stations) {
       out.push(
         `- ${st.name} — ${st.n} ${plural(st.n, 'campsite', 'campsites')}, the closest ${dist(st.nearest)} away`,
@@ -487,7 +522,7 @@ function stationLines(facts: RegionFacts, s: Surroundings): string[] {
       `None of the ${facts.subjects} is within ${dist(NEAR.station)} of a ` +
         `railway station. The middle one is ${dist(d.median)} from its nearest` +
         (d.beyond > 0
-          ? `, and ${d.beyond} have none within ${dist(FAR.station)}.`
+          ? `, and ${d.beyond} ${hasHave(d.beyond)} none within ${dist(FAR.station)}.`
           : '.'),
     );
   }
@@ -499,7 +534,7 @@ function groundLines(facts: RegionFacts, s: Surroundings): string[] {
   const d = s.shopDist;
   if (d.known > 0) {
     out.push(
-      `${d.within} have a supermarket within ${dist(NEAR.shop)} and the middle ` +
+      `${d.within} ${hasHave(d.within)} a supermarket within ${dist(NEAR.shop)} and the middle ` +
         `one is ${dist(d.median)} from the nearest shop` +
         (d.beyond > 0
           ? `, with ${d.beyond} further than ${dist(FAR.shop)} from one.`
@@ -535,7 +570,7 @@ function facetLines(facts: RegionFacts, s: Surroundings): string[] {
   const parts = s.facets.map((f) =>
     f.n === 0 ? `none ${f.label}` : `${f.n} ${f.label}`,
   );
-  return [`Of the ${facts.subjects}: ${list(parts)}.`];
+  return [`Of the ${facts.subjects} on this list: ${list(parts)}.`];
 }
 
 /**
@@ -593,6 +628,7 @@ export function compose(facts: RegionFacts): {
   if (examples.length > 0) {
     para([
       'Some of them:',
+      '',
       ...examples.map((e) => `- ${e.name}${e.detail ? ` — ${e.detail}` : ''}`),
     ]);
   }

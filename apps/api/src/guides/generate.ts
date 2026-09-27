@@ -32,12 +32,7 @@ import {
   THEMES,
   worthPublishing,
 } from './region-facts';
-import type {
-  Distances,
-  NamedPlace,
-  RegionFacts,
-  Theme,
-} from './region-facts';
+import type { Distances, NamedPlace, RegionFacts, Theme } from './region-facts';
 
 const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
@@ -414,10 +409,16 @@ async function main() {
     const bySubjects = candidates.filter((f) => f.subjects >= MIN_SUBJECTS);
     console.log(`themes          ${THEMES.length}`);
     console.log(`region/theme pairs with any data  ${candidates.length}`);
-    console.log(`  with at least ${MIN_SUBJECTS} campsites      ${bySubjects.length}`);
-    console.log(`  and at least ${MIN_NAMED_FACTS} named facts    ${wanted.size}`);
+    console.log(
+      `  with at least ${MIN_SUBJECTS} campsites      ${bySubjects.length}`,
+    );
+    console.log(
+      `  and at least ${MIN_NAMED_FACTS} named facts    ${wanted.size}`,
+    );
     console.log(`  new                             ${fresh.length}`);
-    console.log(`  already published               ${wanted.size - fresh.length}`);
+    console.log(
+      `  already published               ${wanted.size - fresh.length}`,
+    );
     console.log(`  to retire                       ${retired.length}`);
 
     if (!apply) {
