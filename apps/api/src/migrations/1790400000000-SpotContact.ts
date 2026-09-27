@@ -47,7 +47,11 @@ export class SpotContact1790400000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_camping_spots_has_contact`);
-    await queryRunner.query(`ALTER TABLE camping_spots DROP COLUMN IF EXISTS contact`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS idx_camping_spots_has_contact`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE camping_spots DROP COLUMN IF EXISTS contact`,
+    );
   }
 }

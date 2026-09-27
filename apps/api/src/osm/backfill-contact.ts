@@ -17,6 +17,11 @@
 // nothing else — no name, no location, no missing_since, no sources.
 // The weekly import fills `contact` for everyone in the ordinary way;
 // this is only so the column is not empty until then.
+// 🔴 Loaded the way `import-spots.ts` in this directory loads it. The
+// header documents `npx ts-node src/osm/backfill-contact.ts`, and
+// without this that command connected to a database named after the OS
+// user — loudly here, silently on a host where such a database exists.
+import 'dotenv/config';
 import { Client } from 'pg';
 import { mapContact, OsmTags } from './tag-mapping';
 
@@ -24,11 +29,22 @@ const DRY = process.argv.includes('--dry-run');
 
 /** The tags `mapContact` reads, and only those. */
 const TAG_COLUMNS = [
-  'website', 'contact:website', 'url', 'contact:url',
-  'phone', 'contact:phone', 'contact:mobile',
-  'email', 'contact:email',
-  'operator', 'opening_hours', 'capacity',
-  'addr:street', 'addr:housenumber', 'addr:city', 'addr:postcode',
+  'website',
+  'contact:website',
+  'url',
+  'contact:url',
+  'phone',
+  'contact:phone',
+  'contact:mobile',
+  'email',
+  'contact:email',
+  'operator',
+  'opening_hours',
+  'capacity',
+  'addr:street',
+  'addr:housenumber',
+  'addr:city',
+  'addr:postcode',
 ];
 
 async function main() {
@@ -51,15 +67,40 @@ async function main() {
       const tags: OsmTags = {};
       for (const c of TAG_COLUMNS) tags[c] = row[c] ?? undefined;
       const contact = mapContact(tags);
-      if (Object.keys(contact).length === 0) {
-        empty++;
-        continue;
-      }
-      changed++;
+      // 🔴 An empty mapping CLEARS the column; it does not skip the row.
+      //
+      // The first version did `continue` here, and review named the
+      // consequence before it bit: a campsite whose only contact was a
+      // Facebook page, or whose only address was a bare house number,
+      // keeps the old value forever once the mapping learns to reject
+      // it. Measured after tightening the rules — 3 Facebook URLs and
+      // 50 numeric "streets" survived a rerun that was supposed to
+      // remove them, because the rows they lived on now map to {} and
+      // were skipped. The import upsert writes {} in that case; so does
+      // this.
+      if (Object.keys(contact).length === 0) empty++;
+      else changed++;
       if (!DRY) {
-        // 🔴 One column. See the header.
+        // 🔴 Two columns, and the second one is the point.
+        //
+        // The first version wrote `contact` alone, and review measured
+        // the consequence: 10 637 pages gained a contact block and kept
+        // the previous import's `content_changed_at`, so <lastmod> told
+        // crawlers nothing had changed on exactly the pages this work
+        // exists to improve. Worse, it was permanent — the next import
+        // computes the same contact, the upsert's CASE sees no
+        // difference, and the date never moves.
+        //
+        // `import-spots.ts` puts `contact` in that CASE precisely
+        // because a contact block is something a reader notices
+        // (CAMP-39). A backfill that delivers the same change must say
+        // so the same way.
         await db.query(
-          `UPDATE camping_spots SET contact = $2::jsonb WHERE osm_ref = $1`,
+          `UPDATE camping_spots
+              SET contact = $2::jsonb,
+                  content_changed_at = now()
+            WHERE osm_ref = $1
+              AND contact IS DISTINCT FROM $2::jsonb`,
           [row.osm_ref, JSON.stringify(contact)],
         );
       }

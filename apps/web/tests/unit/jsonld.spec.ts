@@ -363,7 +363,7 @@ test.describe('CAMP-141: contact reaches the structured data', () => {
     // cannot back. Before CAMP-141 these were absent because we did not
     // import the tags; they must stay absent when a campsite has none.
     const node = withContact({});
-    for (const key of ['telephone', 'email', 'openingHours', 'maximumAttendeeCapacity', 'provider']) {
+    for (const key of ['telephone', 'email', 'openingHours']) {
       expect(node, key).not.toHaveProperty(key);
     }
     expect(node.address).toEqual({
@@ -373,19 +373,58 @@ test.describe('CAMP-141: contact reaches the structured data', () => {
     });
   });
 
-  test('phone, email, hours, capacity and operator appear when they exist', () => {
-    const node = withContact({
-      phone: '+386 5 388 60 00',
-      email: 'info@example.si',
-      openingHours: 'Mo-Su 08:00-20:00',
-      capacity: 120,
-      operator: 'Kamp Bovec d.o.o.',
-    });
+  test('phone and email appear when they exist', () => {
+    const node = withContact({ phone: '+386 5 388 60 00', email: 'info@example.si' });
     expect(node.telephone).toBe('+386 5 388 60 00');
     expect(node.email).toBe('info@example.si');
-    expect(node.openingHours).toBe('Mo-Su 08:00-20:00');
-    expect(node.maximumAttendeeCapacity).toBe(120);
-    expect(node.provider).toEqual({ '@type': 'Organization', name: 'Kamp Bovec d.o.o.' });
+  });
+
+  test('🔴 capacity and operator are NOT published as schema', () => {
+    // Both were, and both were wrong.
+    //
+    // `maximumAttendeeCapacity` is defined as the number of INDIVIDUALS
+    // a venue may hold; OSM's `capacity` on a campsite counts pitches,
+    // so publishing 20 pitches as 20 people understates a site three- to
+    // fourfold. `provider` is rejected outright by Google's validator on
+    // Campground (UNKNOWN_FIELD) — it belongs to Action, Service and
+    // Trip, not to a Place. Both are shown on the page instead, where
+    // they need no schema to be useful.
+    const node = withContact({ capacity: 120, operator: 'Kamp Bovec d.o.o.' });
+    expect(node).not.toHaveProperty('maximumAttendeeCapacity');
+    expect(node).not.toHaveProperty('provider');
+  });
+
+  test('🔴 opening hours cross over only where the two grammars agree', () => {
+    // OSM's syntax is a superset of schema.org's, and 93.7% of our live
+    // values are outside the overlap. Emitting them raw put a wrong fact
+    // into structured data that the validator does not check.
+    expect(withContact({ openingHours: 'Mo-Su 08:00-20:00' }).openingHours)
+      .toEqual(['Mo-Su 08:00-20:00']);
+    // 24/7 has one exact equivalent — 46% of our values are this.
+    expect(withContact({ openingHours: '24/7' }).openingHours)
+      .toEqual(['Mo-Su 00:00-23:59']);
+    // Several rules become several values.
+    expect(withContact({ openingHours: 'Mo-Fr 09:00-18:00; Sa 09:00-13:00' }).openingHours)
+      .toEqual(['Mo-Fr 09:00-18:00', 'Sa 09:00-13:00']);
+    // And what does not translate is not guessed at.
+    for (const osm of [
+      'Apr-Oct 08:00-20:00',
+      'sunrise-sunset',
+      'Mo-Su 09:00-12:00,16:30-18:30',
+      'Mo-Su 08:00-20:00; PH off',
+      'Apr 01-Oct 31',
+    ]) {
+      expect(withContact({ openingHours: osm }), osm).not.toHaveProperty('openingHours');
+    }
+  });
+
+  test('a payload with no contact at all does not throw', () => {
+    // `getSpot` is res.json() with a day of cache behind it. A web
+    // deploy ahead of the API, or one stale cached payload, used to take
+    // the page down on `spot.contact.address`.
+    const noContact = { ...bare } as Spot;
+    delete (noContact as { contact?: unknown }).contact;
+    expect(() => campgroundGraph(noContact, '/camping/si/bovec/x', [])).not.toThrow();
   });
 
   test('the address carries the street and town OSM has', () => {

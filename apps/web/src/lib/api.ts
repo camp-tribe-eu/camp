@@ -238,11 +238,23 @@ export interface Spot {
    * 🔴 Separate from `website` above, which DATAtourisme fills. Two
    * sources, two fields, and the page decides which to show — rather
    * than one field whose meaning depends on which import ran last.
-   * Every key is optional because OSM tagging is voluntary: measured,
-   * 65.9% of campsites in an extract carry something here and 34.1%
-   * carry nothing at all.
+   * 🔴 The whole object is optional, not just its keys.
+   *
+   * The column is NOT NULL DEFAULT '{}', so a current API always sends
+   * one — but `getSpot` is `res.json()` with a day of cache behind it,
+   * and a web deploy ahead of the API, or one stale cached payload, made
+   * the page throw on `spot.contact.address`. Review demonstrated it.
+   * Optional here plus `?? {}` at every use costs nothing and cannot
+   * take a page down.
+   *
+   * Every key is optional because OSM tagging is voluntary: measured
+   * over a 25 793-row extract with this same mapping, 74.7% of
+   * campsites carry something here and 25.3% carry nothing. (An earlier
+   * version of this sentence said 65.9% / 34.1%, which is the narrower
+   * count of website, phone or email only — right number, wrong
+   * question.)
    */
-  contact: {
+  contact?: {
     website?: string;
     phone?: string;
     email?: string;

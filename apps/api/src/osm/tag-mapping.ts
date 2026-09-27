@@ -567,6 +567,24 @@ const firstTag = (tags: OsmTags, keys: string[]): string | undefined => {
  * https survive, a bare domain is given https, and everything else is
  * dropped rather than guessed at.
  */
+/**
+ * 🔴 An aggregator is not the campsite's own site.
+ *
+ * `datatourisme/parse.ts` already refuses these with a written reason —
+ * "when every candidate is an aggregator we store nothing, a gap shown
+ * as a gap" — and the same rule has to hold here, or the two sources
+ * disagree about what "website" means. Review measured 28 live spots
+ * whose OSM website was a Facebook page or booking.com: rendered as
+ * "Website" and emitted as `sameAs`, which is a machine-readable claim
+ * that a Facebook page IS the campsite.
+ *
+ * Kept as a literal copy rather than an import: this module is
+ * deliberately free of the Nest runtime so the pipeline can load it
+ * alone, and reaching into the DATAtourisme parser would drag it in.
+ */
+const AGGREGATOR_HOST =
+  /(booking|reservation|resa|secureholiday|webcamp)|(^|\.)(facebook|instagram|twitter|x|tiktok|youtube|linkedin|tripadvisor|pinterest|whatsapp)\.[a-z.]+$/i;
+
 export function cleanWebsite(raw: string | undefined): string | undefined {
   if (!raw) return undefined;
   const v = raw.trim();
@@ -578,17 +596,35 @@ export function cleanWebsite(raw: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+  // 🔴 No scheme check here, and there was one.
+  //
+  // It read `if (url.protocol !== 'http:' && …) return undefined`, and
+  // review proved it unreachable: the line above gives every value
+  // without a scheme an `https://`, so `new URL` either parses it as
+  // http(s) or throws. Instrumented over 216 061 inputs — every staging
+  // value plus an adversarial set plus 200 000 fuzz strings — it was
+  // reached zero times. The protection is real and comes from the parse
+  // failing, not from a branch that cannot run, so the branch is gone
+  // and this paragraph says where the safety actually lives.
+  //
   // A host with no dot is not a domain — "localhost", or a mapper's note.
   if (!url.hostname.includes('.')) return undefined;
+  if (AGGREGATOR_HOST.test(url.hostname.replace(/^www\./, '')))
+    return undefined;
   return url.toString();
 }
 
 /** OSM writes free text here; keep it printable and bounded. */
-const cleanText = (raw: string | undefined, max: number): string | undefined => {
+const cleanText = (
+  raw: string | undefined,
+  max: number,
+): string | undefined => {
   if (!raw) return undefined;
   // eslint-disable-next-line no-control-regex
-  const v = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const v = raw
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (v === '') return undefined;
   return v.length > max ? `${v.slice(0, max).trim()}…` : v;
 };
@@ -601,8 +637,17 @@ export function mapContact(tags: OsmTags): SpotContact {
   );
   if (website) out.website = website;
 
-  const phone = cleanText(firstTag(tags, ['phone', 'contact:phone', 'contact:mobile']), 40);
-  if (phone) out.phone = phone;
+  // 🔴 OSM puts several numbers in one tag, separated by ';'.
+  //
+  // The page builds `tel:` by stripping everything but digits and '+',
+  // so "+33 4 92 57 81 77 ; +33 6 80 13 39 50" became the undialable
+  // `tel:+33492578177+33680133950` — review found 157 live phones doing
+  // exactly that. Only the first number is kept: one number that works
+  // beats two glued into a third that does not.
+  const phoneRaw = firstTag(tags, ['phone', 'contact:phone', 'contact:mobile']);
+  const phone = cleanText(phoneRaw?.split(';')[0], 40);
+  // A phone with no digit at all is a note, not a number.
+  if (phone && /\d/.test(phone)) out.phone = phone;
 
   const email = cleanText(firstTag(tags, ['email', 'contact:email']), 120);
   // A bare "@" test, not a full RFC one: the point is to refuse a note
@@ -625,12 +670,21 @@ export function mapContact(tags: OsmTags): SpotContact {
     if (n > 0) out.capacity = n;
   }
 
-  const street = cleanText(
-    [firstTag(tags, ['addr:street']), firstTag(tags, ['addr:housenumber'])]
-      .filter(Boolean)
-      .join(' ') || undefined,
-    160,
-  );
+  // 🔴 A house number with no street is not a street address.
+  //
+  // The first version joined whatever existed, so `addr:housenumber=24`
+  // alone became `streetAddress: "24"`. Review found 144 live rows like
+  // that and 242 more waiting in staging. The number is only meaningful
+  // attached to a street, so without one it is dropped.
+  const streetName = firstTag(tags, ['addr:street']);
+  const street = streetName
+    ? cleanText(
+        [streetName, firstTag(tags, ['addr:housenumber'])]
+          .filter(Boolean)
+          .join(' '),
+        160,
+      )
+    : undefined;
   const city = cleanText(firstTag(tags, ['addr:city']), 120);
   const postcode = cleanText(firstTag(tags, ['addr:postcode']), 20);
   if (street || city || postcode) {

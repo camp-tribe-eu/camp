@@ -352,6 +352,34 @@ export function faqGraph(items: FaqItem[], path: string) {
   };
 }
 
+/**
+ * OSM opening hours to schema.org's, where that is exact.
+ *
+ * Returns the strings schema.org accepts and nothing else. `24/7` has an
+ * unambiguous equivalent and is translated; anything with months,
+ * `sunrise`, `PH`, `off`, or a comma-joined pair of time ranges does
+ * not, and is dropped rather than approximated.
+ */
+export function schemaOpeningHours(raw: string | undefined): string[] {
+  if (!raw) return [];
+  const value = raw.trim();
+  if (value === '') return [];
+  if (/^24\/7$/.test(value)) return ['Mo-Su 00:00-23:59'];
+  const DAY = '(?:Mo|Tu|We|Th|Fr|Sa|Su)';
+  const RULE = new RegExp(`^${DAY}(?:-${DAY})?(?:,${DAY}(?:-${DAY})?)* \\d{2}:\\d{2}-\\d{2}:\\d{2}$`);
+  // 🔴 All of it translates, or none of it does.
+  //
+  // The first version kept the parts it understood and dropped the
+  // rest, which turns "Mo-Su 08:00-20:00; PH off" into "open every day"
+  // — a campsite that is shut on public holidays, published as open on
+  // them. Dropping a qualifier changes the meaning of what remains, so
+  // a value with any part we cannot read is not published at all. The
+  // page still shows the original, verbatim.
+  const rules = value.split(';').map((p) => p.trim()).filter(Boolean);
+  if (rules.length === 0 || !rules.every((r) => RULE.test(r))) return [];
+  return rules;
+}
+
 export function campgroundGraph(
   spot: Spot,
   path: string,
@@ -386,14 +414,14 @@ export function campgroundGraph(
       // postal address the way a postcode alone is a postal address.
       // The reason was not the markup: we had no data. Measured on an
       // extract, `addr:city` exists for about half of campsites.
-      ...(spot.contact.address?.street
-        ? { streetAddress: spot.contact.address.street }
+      ...(spot.contact?.address?.street
+        ? { streetAddress: spot.contact!.address!.street }
         : {}),
-      ...(spot.contact.address?.city
-        ? { addressLocality: spot.contact.address.city }
+      ...(spot.contact?.address?.city
+        ? { addressLocality: spot.contact!.address!.city }
         : {}),
-      ...(spot.contact.address?.postcode
-        ? { postalCode: spot.contact.address.postcode }
+      ...(spot.contact?.address?.postcode
+        ? { postalCode: spot.contact!.address!.postcode }
         : {}),
     },
     // Both are true of every site in this dataset: they are public
@@ -409,16 +437,42 @@ export function campgroundGraph(
   // same as everywhere else in this file: a field we cannot back with a
   // source does not appear, rather than appearing empty or guessed.
   // (`c` is already the context above — this file reads top to bottom.)
-  const reach = spot.contact;
+  const reach = spot.contact ?? {};
   if (reach.phone) node.telephone = reach.phone;
   if (reach.email) node.email = reach.email;
-  if (reach.openingHours) node.openingHours = reach.openingHours;
-  if (reach.capacity !== undefined) {
-    node.maximumAttendeeCapacity = reach.capacity;
-  }
-  if (reach.operator) {
-    node.provider = { '@type': 'Organization', name: reach.operator };
-  }
+
+  // 🔴 Opening hours, only where OSM's grammar and schema.org's agree.
+  //
+  // They are not the same language. OSM's is a superset: `24/7`,
+  // `Apr-Oct 08:00-20:00`, `Mo-Fr 09:00-18:00; Sa 09:00-13:00`,
+  // `sunrise-sunset`, `PH off`. schema.org wants a day or day-range and
+  // one time range per value. The first version of this emitted the raw
+  // OSM string and review measured the damage: 2 045 of 2 182 live
+  // values — 93.7% — were not schema.org syntax, and the validator does
+  // not check formats, so every one would have been ingested silently
+  // as a wrong fact.
+  //
+  // So the value is translated where the translation is exact, and
+  // omitted where it is not. The page still shows the original verbatim,
+  // labelled as OSM syntax, which is the honest place for the rest.
+  const hours = schemaOpeningHours(reach.openingHours);
+  if (hours.length > 0) node.openingHours = hours;
+
+  // 🔴 `maximumAttendeeCapacity` is NOT emitted, and it was.
+  //
+  // schema.org defines it as "the total number of individuals that may
+  // attend an event or venue" — people. OSM's `capacity` on a campsite
+  // is pitches, which this file's own mapping comment says. Publishing
+  // 20 pitches as 20 people understates a site three- to fourfold and
+  // is exactly the quiet invention the mapping refuses two lines above
+  // when it rejects "approx 120". OSM has `capacity:persons` for the
+  // other quantity and we do not import it.
+  //
+  // `provider` is not emitted either: Google's validator rejects it on
+  // Campground (UNKNOWN_FIELD), because `provider` belongs to Action,
+  // Service, Trip and their kin, not to a Place. 2 390 campsites would
+  // have carried that warning. The operator is shown on the page, where
+  // it needs no schema to be useful.
 
   const description = contextSentence(spot);
   if (description) node.description = description;
@@ -469,7 +523,7 @@ export function campgroundGraph(
   // register is the better claim, and where only OSM has one it is far
   // better than nothing — measured, OSM carries a website for 61.6% of
   // the campsites in an extract against the 10.7% we had.
-  const site = text(spot.website) ?? text(spot.contact.website);
+  const site = text(spot.website) ?? text(spot.contact?.website);
   if (site && /^https?:\/\//i.test(site)) node.sameAs = site;
 
   // Only claimed where the data actually says so. `free` and `wild` are

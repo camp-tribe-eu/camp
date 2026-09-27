@@ -29,9 +29,38 @@ describe('the weekly upsert', () => {
   });
 
   it('does refresh the fields that come from OSM', () => {
-    for (const field of ['name', 'type', 'amenities', 'location']) {
+    // 🔴 `contact` (CAMP-141) belongs here, and was missing.
+    //
+    // Review deleted `contact = EXCLUDED.contact` from the DO UPDATE and
+    // all 330 tests stayed green: the column would have been written
+    // once on insert and never refreshed, so a campsite that changed its
+    // phone number in OSM would keep the old one indefinitely. This
+    // file's header exists to prevent exactly that shape of one-line
+    // mistake, and the list it is checked against has to grow with it.
+    for (const field of ['name', 'type', 'amenities', 'contact', 'location']) {
       expect(doUpdate).toMatch(new RegExp(`\\b${field}\\s*=`));
     }
+  });
+
+  it('🔴 a changed contact counts as a change a reader would notice', () => {
+    // CAMP-39: content_changed_at drives <lastmod>. A contact block
+    // appearing on a page is exactly the kind of change a crawler should
+    // be told about — and deleting `contact` from this comparison also
+    // survived the whole suite.
+    const compare = UPSERT_SPOT_SQL.slice(
+      UPSERT_SPOT_SQL.indexOf('content_changed_at = CASE'),
+    );
+    expect(compare).toMatch(/camping_spots\.contact/);
+    expect(compare).toMatch(/EXCLUDED\.contact/);
+  });
+
+  it('🔴 declares contact among the fields this source gave us', () => {
+    // The page prints this list as "what OpenStreetMap gave us". A field
+    // we write and do not declare is an attribution that lies by
+    // omission — and dropping it from the list passed every test.
+    expect(UPSERT_SPOT_SQL).toMatch(
+      /"fields"[^)]*contact|'fields'[^)]*contact/,
+    );
   });
 
   it('clears missing_since so a returning campsite comes back', () => {

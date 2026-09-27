@@ -140,11 +140,21 @@ export async function generateMetadata(
  * not an endorsement.
  */
 function Contact({ spot }: { spot: Spot }) {
-  const site = spot.website ?? spot.contact.website ?? null;
-  const { phone, email, openingHours, operator, address } = spot.contact;
+  const contact = spot.contact ?? {};
+  const site = spot.website ?? contact.website ?? null;
+  const { phone, email, openingHours, operator, address, capacity } = contact;
   const city = [address?.postcode, address?.city].filter(Boolean).join(' ');
   const street = address?.street;
-  if (!site && !phone && !email && !openingHours && !operator && !street && !city) {
+  if (
+    !site &&
+    !phone &&
+    !email &&
+    !openingHours &&
+    !operator &&
+    !street &&
+    !city &&
+    capacity === undefined
+  ) {
     return null;
   }
   return (
@@ -169,7 +179,15 @@ function Contact({ spot }: { spot: Spot }) {
           <>
             <dt className="text-sm text-ink-2">Phone</dt>
             <dd className="text-sm">
-              <a href={`tel:${phone.replace(/[^+\d]/g, '')}`} className="underline underline-offset-2">
+              {/* 🔴 One number in the href, whatever the tag holds.
+                  OSM separates several with ';' and the import now keeps
+                  only the first — this split is the second belt, because
+                  a `tel:` with two numbers glued together dials neither,
+                  and review found 157 live rows doing that. */}
+              <a
+                href={`tel:${phone.split(';')[0].replace(/[^+\d]/g, '')}`}
+                className="underline underline-offset-2"
+              >
                 {phone}
               </a>
             </dd>
@@ -206,6 +224,18 @@ function Contact({ spot }: { spot: Spot }) {
           <>
             <dt className="text-sm text-ink-2">Operated by</dt>
             <dd className="text-sm text-ink-2">{operator}</dd>
+          </>
+        )}
+        {/* 🔴 Shown, because it is no longer in the structured data.
+            OSM's `capacity` on a campsite counts PITCHES, and the
+            schema.org property for a venue counts people — publishing
+            one as the other understates a site three- to fourfold. So
+            it is stated here in its own unit, where a reader can read
+            it, rather than asserted to a machine in the wrong one. */}
+        {capacity !== undefined && (
+          <>
+            <dt className="text-sm text-ink-2">Pitches</dt>
+            <dd className="text-sm text-ink-2">{capacity}</dd>
           </>
         )}
       </dl>
