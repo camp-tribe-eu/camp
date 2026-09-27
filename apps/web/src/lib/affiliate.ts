@@ -285,6 +285,17 @@ export function placementProblems(p: Placement): string[] {
       problems.push(`${where}: Awin needs a merchantId (awinmid)`);
     }
   }
+  // 🔴 Booking's strategy writes `aid` on to the URL ITSELF rather than on
+  // to a redirector. Point that at somebody else's site and we quietly
+  // hand a third party a parameter named after our affiliate account and
+  // track nothing — a link that works perfectly and earns nothing, which
+  // is the failure mode this whole file is arranged around.
+  if (p.network === 'booking' && url) {
+    const host = url.hostname.toLowerCase();
+    if (host !== 'booking.com' && !host.endsWith('.booking.com')) {
+      problems.push(`${where}: a Booking.com placement must point at booking.com`);
+    }
+  }
   return problems;
 }
 

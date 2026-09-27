@@ -208,6 +208,29 @@ test('a broken placement is refused rather than rendered', () => {
   });
 });
 
+test('a Booking placement pointing somewhere else is refused', () => {
+  // 🔴 `aid` is written on to the destination URL itself, so a Booking
+  // placement aimed at another host would hand a stranger a parameter
+  // named after our account and track nothing. The subdomain check has to
+  // be on the host structure, not on a substring — `booking.com.evil.test`
+  // passes a `.includes('booking.com')` test.
+  const stray: Placement = {
+    ...awin,
+    network: 'booking',
+    merchantId: undefined,
+    url: 'https://booking.com.evil.test/x',
+  };
+  expect(placementProblems(stray).join(' ')).toContain('must point at booking.com');
+
+  const good: Placement = {
+    ...awin,
+    network: 'booking',
+    merchantId: undefined,
+    url: 'https://www.booking.com/searchresults.html',
+  };
+  expect(placementProblems(good)).toEqual([]);
+});
+
 test('a valid placement has nothing to complain about', () => {
   expect(placementProblems(awin)).toEqual([]);
 });
