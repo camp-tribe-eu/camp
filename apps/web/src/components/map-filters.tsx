@@ -248,7 +248,26 @@ export default function MapFilters({
             to individual campsites, so while none are loaded there is no
             honest filtered number to give — and inventing one from the
             region totals would ignore the filters the reader just set. */}
-        <p data-testid="filter-count" className="text-ink-2">
+        {/* 🔴 CAMP-133: the sentence gets the whole row, so the controls
+            under it cannot be pushed sideways by it.
+
+            This row is [count] [checkbox] [Clear filters], and the count
+            changes width the whole time the map is settling. Measured on
+            webkit against the production build: as the sentence went
+            "Counting campsites…" → "526 of 2,459 campsites in view" →
+            "2,356 of 2,459 campsites in view", the checkbox slid from
+            x=239 to x=292 to x=304 — 65 px of travel, while a reader was
+            reaching for it. With the sentence on its own row it stays at
+            x=91 for all three. ("Clear filters" was already anchored by
+            `ml-auto`; it sat at x=1101 throughout.)
+
+            This is the rule the `Bulk` buttons below already state — a
+            control that moves is a control that gets mis-tapped — and
+            this row was the place that broke it. It is also why a
+            Playwright `check()` here can report "clicking the checkbox
+            did not change its state": the target moved out from under
+            the click between the actionability check and the event. */}
+        <p data-testid="filter-count" className="w-full text-ink-2">
           {count.value !== null && (
             <strong className="font-semibold text-heading">
               {count.value.toLocaleString('en-GB')}
