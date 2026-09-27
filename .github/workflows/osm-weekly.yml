@@ -52,29 +52,67 @@ permissions:
   contents: read
 
 env:
-  # 🔴 This must list every country we actually hold. A country missing
-  # here does NOT get its campsites marked gone — the gone rule is
-  # scoped per country and only runs when someone imports that country —
-  # which is precisely why it is easy to miss: Croatia's data would
-  # simply stop being refreshed while Slovenia kept updating, so closures
-  # and new sites never arrive and nothing anywhere looks wrong.
+  # 🔴 THE LIST IS THE EU-27, AND THAT IS NOW A RULE RATHER THAN A HABIT.
   #
-  # Order is the market order from the research, then the two we already
-  # hold. Sizes measured 23.09.2026 from Geofabrik's own headers, because
-  # the reason this used to be two countries was a guess about cost:
-  #   SI 299 MB · HR 191 MB · AT 773 MB · NL 1.3 GB · CH 521 MB
-  #   IT 2.1 GB · ES 1.4 GB · FR 4.9 GB · DE 4.6 GB
-  # 16 GB in total, but never on one runner at one time — see the matrix.
+  # A country missing here does NOT get its campsites marked gone — the
+  # gone rule is scoped per country and only runs when someone imports
+  # that country — which is precisely why it is easy to miss: a country's
+  # data would simply stop being refreshed while the others kept
+  # updating, so closures and new sites never arrive and nothing anywhere
+  # looks wrong.
+  #
+  # 🔴 Two things were wrong with the previous list, both found 24.09.2026.
+  #
+  # It held nine countries, and one of them — SWITZERLAND — is not in the
+  # European Union. The owner's decision that day was explicit: "поки вони
+  # не потрібні, ми про ЄС будуємо зараз" (CAMP-118). Every source this
+  # project depends on for safety data is an EU instrument: MeteoAlarm,
+  # Copernicus, the national access points of the ITS Directive. A country
+  # outside the Union gets campsite pages with no warnings behind them,
+  # and a silent hazard layer is worse than an absent one.
+  #
+  # And it held nine of twenty-seven. The goal is every campsite in the
+  # Union, so the list is every member state. Sizes measured from
+  # Geofabrik's own Content-Range headers on 24.09.2026, ~25 GB in total
+  # and never on one runner at one time — this is a matrix, one country
+  # per job, `fail-fast: false`, so one country's bad day costs that
+  # country only.
+  #
+  # ⚠️ `ireland-and-northern-ireland` is Geofabrik's only Irish extract
+  # and it includes part of the United Kingdom. That is the shape of the
+  # source, not a decision to leave the EU behind: the country filter at
+  # import time is what keeps non-EU rows out (CAMP-118).
+  #
+  # ⚠️ "27" is the Union as of 2026, not a constant of the universe. The
+  # day it changes, this list and the filter change together.
   DEFAULT_REGIONS: >-
-    europe/slovenia
-    europe/croatia
     europe/austria
-    europe/netherlands
-    europe/switzerland
-    europe/italy
-    europe/spain
+    europe/belgium
+    europe/bulgaria
+    europe/croatia
+    europe/cyprus
+    europe/czech-republic
+    europe/denmark
+    europe/estonia
+    europe/finland
     europe/france
     europe/germany
+    europe/greece
+    europe/hungary
+    europe/ireland-and-northern-ireland
+    europe/italy
+    europe/latvia
+    europe/lithuania
+    europe/luxembourg
+    europe/malta
+    europe/netherlands
+    europe/poland
+    europe/portugal
+    europe/romania
+    europe/slovakia
+    europe/slovenia
+    europe/spain
+    europe/sweden
 
 jobs:
   # Turn the region list into a matrix. It is its own job because a
@@ -157,19 +195,45 @@ jobs:
           SLUG="$(echo "$REGION" | tr '/' '-')"
           mkdir -p out
 
-          # -L matters: Geofabrik answers 302 and without it curl saves a
-          # 244-byte HTML redirect page instead of the extract.
-          curl -sSL --retry 3 --retry-delay 10 \
-            -o "$SLUG.osm.pbf" \
-            "https://download.geofabrik.de/$REGION-latest.osm.pbf"
-
-          # A truncated or redirected download must fail loudly here
-          # rather than quietly produce an empty extract downstream.
-          SIZE=$(stat -c%s "$SLUG.osm.pbf")
-          if [ "$SIZE" -lt 100000 ]; then
-            echo "::error::$REGION download is only $SIZE bytes — not a PBF"
+          # 🔴 Resolve -latest once, and check the redirect is still this
+          # region. An md5 proves the bytes, never which file they are:
+          # Geofabrik answers an unknown or renamed region with a 302 to
+          # its own index, HTTP 200, which `curl -f` does not refuse.
+          LATEST="https://download.geofabrik.de/$REGION-latest.osm.pbf"
+          URL=$(curl -fsSL -I --retry 3 --retry-delay 10 --max-time 60 \
+                  -o /dev/null -w '%{url_effective}' "$LATEST")
+          BASE="${REGION##*/}"
+          if ! printf '%s' "$URL" | grep -qE "/${BASE}-[0-9]{6}\.osm\.pbf$"; then
+            echo "::error::$REGION resolves to $URL — not a dated extract for '$BASE'"
             exit 1
           fi
+
+          # 🔴 The checksum, which this step did not have.
+          #
+          # The only gate here was "is it at least 100 000 bytes", and
+          # that is exactly the gate load-context.sh was reviewed for
+          # having: a truncated or spliced file of the right length walks
+          # straight through it. This job then publishes the result as a
+          # release asset the API imports, so a wrong extract does not
+          # stop at this runner — it becomes our data.
+          #
+          # -f so a 404 page cannot be read as a checksum, and the hex
+          # shape asserted so an error body cannot be one either.
+          EXPECT=$(curl -fsSL --retry 3 --retry-delay 10 --max-time 60 "$URL.md5" \
+                     | awk '{print $1}') || EXPECT=''
+          if ! printf '%s' "$EXPECT" | grep -qE '^[0-9a-f]{32}$'; then
+            echo "::error::no usable .md5 for $REGION — refusing to trust the download"
+            exit 1
+          fi
+
+          curl -sSL --retry 3 --retry-delay 10 -o "$SLUG.osm.pbf" "$URL"
+
+          GOT=$(md5sum "$SLUG.osm.pbf" | awk '{print $1}')
+          if [ "$GOT" != "$EXPECT" ]; then
+            echo "::error::$REGION checksum $GOT, expected $EXPECT — not loading it"
+            exit 1
+          fi
+          echo "  $REGION: $(stat -c%s "$SLUG.osm.pbf") bytes, checksum ok"
 
           osmium tags-filter "$SLUG.osm.pbf" \
             n/tourism=camp_site n/tourism=caravan_site \
@@ -291,10 +355,22 @@ jobs:
               echo "> whatever an earlier release holds. See the run log."
             fi
             echo
-            echo "Import with:"
+            # 🔴 The command must match what this release actually holds.
+            #
+            # These notes told the reader to run import.sh on a
+            # `<file>.osm.pbf`, and the assets below are `.geojson.gz` —
+            # the PBFs never leave the runner. Anyone following the
+            # instruction downloads an asset the command cannot open.
+            # Instructions that do not run are worse than none: they are
+            # believed first and debugged second.
+            echo "Import the whole release with:"
             echo '```'
-            echo "./scripts/osm-pipeline/import.sh <file>.osm.pbf osm_camping_staging"
-            echo "npx ts-node apps/api/src/osm/import-spots.ts <COUNTRY>"
+            echo "node scripts/osm-pipeline/import-release.mjs --tag $TAG"
+            echo '```'
+            echo
+            echo "Or one member state at a time:"
+            echo '```'
+            echo "node scripts/osm-pipeline/import-release.mjs --tag $TAG fr si"
             echo '```'
             echo
             # 🔴 ODbL requires attribution and the licence notice from

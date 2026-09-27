@@ -21,6 +21,7 @@
 import 'dotenv/config';
 import { Client } from 'pg';
 import { mapAmenities, mapSpotType, OsmTags } from './tag-mapping';
+import { isEuMemberState } from './eu';
 
 const COUNTRY = (process.argv[2] ?? '').toUpperCase();
 const TABLE = process.argv[3] ?? 'osm_camping_staging';
@@ -251,7 +252,20 @@ function slugify(name: string | null, osmRef: string): string {
 export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            (name, country, region, slug, type, amenities, location,
             osm_ref, last_seen_at, missing_since, content_changed_at, sources)
-         VALUES ($1, $2, $3, $4, $5, $6, ST_GeomFromText($7, 4326), $8, $9, NULL, $9,
+         -- 🔴 $8::text in BOTH places, not just in the JSON below.
+         --
+         -- osm_ref is character varying, so an uncast $8 here made
+         -- Postgres deduce varchar from the column and text from the
+         -- cast in jsonb_build_object, and refuse the whole statement:
+         -- "inconsistent types deduced for parameter $8 — text versus
+         -- character varying". Every OSM import failed on the first row.
+         --
+         -- It went unnoticed because the sources column (CAMP-101) added
+         -- the second use of $8 after the last import had run, and the
+         -- weekly workflow only BUILDS extracts — it does not import
+         -- them. So the break sat between two jobs that each looked
+         -- healthy. Found 24.09.2026 while importing the EU.
+         VALUES ($1, $2, $3, $4, $5, $6, ST_GeomFromText($7, 4326), $8::text, $9, NULL, $9,
                  jsonb_build_array(jsonb_build_object(
                    'id', 'osm', 'ref', $8::text,
                    'updatedAt', to_char($9::timestamptz, 'YYYY-MM-DD'),
@@ -309,6 +323,14 @@ interface StagingRow {
   admin_region: string | null;
   /** ISO-3166-1 alpha-2 of that polygon - overrides the CLI argument. */
   admin_country: string | null;
+  /**
+   * What Natural Earth actually wrote, sentinel included.
+   *
+   * Kept so the run can COUNT the points whose polygon carries no code
+   * rather than only behaving differently for them. A fallback nobody
+   * sees working is a fallback nobody can check.
+   */
+  raw_country?: string | null;
   tags: OsmTags;
 }
 
@@ -363,8 +385,43 @@ async function main(): Promise<void> {
      )
      SELECT p.id AS osm_ref,
             ST_AsText(p.pt) AS point_wkt,
-            a.name   AS admin_region,
-            a.iso_a2 AS admin_country,
+            -- 🔴 Natural Earth writes -1 where it has no ISO code, and
+            -- that is "unknown", not "not a country".
+            --
+            -- Measured 24.09.2026 on the released Cyprus extract: of 60
+            -- imported campsites, 34 fall in the polygon called Northern
+            -- Cyprus and 2 in Dhekelia, both coded -1. Read literally,
+            -- the EU filter below then throws 60% of Cyprus away as
+            -- foreign — from the extract of a member state, which is the
+            -- one place it cannot be right. (Some Natural Earth builds
+            -- use -99 for the same thing; the pattern catches both.)
+            --
+            -- 🔴 THE REGION GOES WITH IT, and that is the whole point of
+            -- doing this in one CASE rather than two.
+            --
+            -- The first version cleared only the country. Review caught
+            -- what that shipped: "region" still came from the sentinel
+            -- polygon, so 34 campsites would have been published at
+            -- /camping/cy/northern-cyprus/… with a region hub page to
+            -- match, and 2 at /camping/cy/dhekelia/… — a political
+            -- attribution nobody decided, made permanent by CAMP-87,
+            -- which forbids moving a published URL afterwards. Dhekelia
+            -- and Akrotiri are British Sovereign Base Areas, so that
+            -- second URL would also have put UK ground under "cy" in the
+            -- very commit that added the EU-27 filter.
+            --
+            -- So a point in a polygon with no ISO code keeps its place
+            -- on the map and loses only its page: country falls back to
+            -- the extract being imported, region stays NULL, and the
+            -- count is printed every run. It is the same treatment as a
+            -- point in the sea, for the same reason — we do not know,
+            -- and not knowing is not a licence to name it. What these
+            -- campsites are finally called is CAMP-125, for the owner.
+            CASE WHEN a.iso_a2 ~ '^[A-Za-z]{2}$' THEN a.name END
+              AS admin_region,
+            CASE WHEN a.iso_a2 ~ '^[A-Za-z]{2}$' THEN a.iso_a2 END
+              AS admin_country,
+            a.iso_a2 AS raw_country,
             p.*
        FROM pts p
        LEFT JOIN LATERAL (
@@ -422,6 +479,7 @@ async function main(): Promise<void> {
       point_wkt: row.point_wkt,
       admin_region: row.admin_region ?? null,
       admin_country: row.admin_country ?? null,
+      raw_country: row.raw_country ?? null,
       tags,
     };
   });
@@ -445,14 +503,72 @@ async function main(): Promise<void> {
   let fromPolygon = 0;
   /** Points whose polygon says a different country than the argument. */
   let outsideExtent = 0;
+  /** Points that resolved to a country outside the European Union. */
+  let outsideUnion = 0;
+  /**
+   * Points inside a polygon Natural Earth gives no ISO code to.
+   *
+   * 🔴 Counted because the fallback is silent by construction: the row
+   * arrives, it just arrives without a region. Without this number a
+   * change in the boundary file could re-attribute thousands of
+   * campsites and the run would print exactly what it printed before.
+   */
+  let noCountryCode = 0;
   /** Points outside every admin-1 polygon - these get no page URL. */
   let withoutRegion = 0;
 
   await db.query('BEGIN');
   try {
     for (const row of deduped) {
+      // Geometry wins over the argument. The argument only stands in where
+      // the point falls outside every polygon (open sea, a gap in the data).
+      const region = row.admin_region;
+      const country = row.admin_country ?? COUNTRY;
+      if (row.raw_country && !row.admin_country) noCountryCode++;
+
+      // 🔴 CAMP-118: the Union, and nothing else. DECIDED FIRST, on purpose.
+      //
+      // Geofabrik cuts its extracts to bounding boxes, so Slovenia's
+      // includes a strip of Bosnia and Croatia's a strip of Serbia. The
+      // line above resolves those points to their real country — which is
+      // right — and the old code then imported them anyway, merely
+      // counting them as `outsideExtent`. That is how 13 Bosnian and 2
+      // Serbian campsites ended up in a database whose stated scope is
+      // the EU, with nobody deciding anything.
+      //
+      // They are skipped here rather than filtered later, because a row
+      // that never arrives cannot be forgotten about; and the count is
+      // printed, because a filter that silently drops things is the next
+      // problem after the one it fixed.
+      //
+      // 🔴 And it stands BEFORE the slug, not after. Review caught the
+      // first version skipping the row only once the slug had already
+      // been reserved in `usedSlugs`: a Bosnian "Camping Sava" that we
+      // never import would take `camping-sava` with it, and the Slovenian
+      // one arriving later in the same run would be published as
+      // `camping-sava-2` — a permanent URL, paid for by a row that does
+      // not exist. Same reason the other counters moved down: a row we
+      // refuse is not an unnamed campsite, not a border campsite and not
+      // a region-less campsite. It is not a campsite of ours at all.
+      //
+      // ⚠️ What this cannot undo: a non-EU row imported BEFORE the filter
+      // existed still holds its slug in `usedSlugs` until drop-non-eu.mjs
+      // deletes the row, and by CAMP-87 a slug already published stays
+      // published. Measured 24.09.2026 on the 61 521 rows we hold: of
+      // 5 546 numbered slugs, 313 have a free base, and every one of
+      // those 313 is a name that ends in a digit of its own ("Aire de
+      // Nismes 1", "Camping Le Buisson 2*", "Camping nr 146"). Nothing
+      // was stolen. The fix is a lock on a door nobody has walked
+      // through yet.
+      if (!isEuMemberState(country)) {
+        outsideUnion++;
+        continue;
+      }
+
       const name = row.tags.name?.trim() || null;
       if (!name) unnamed++;
+      if (row.admin_country && row.admin_country !== COUNTRY) outsideExtent++;
+      if (!region) withoutRegion++;
 
       let slug = slugByRef.get(row.osm_ref);
       if (!slug) {
@@ -467,13 +583,6 @@ async function main(): Promise<void> {
 
       const amenities = mapAmenities(row.tags);
       const type = mapSpotType(row.tags).type;
-
-      // Geometry wins over the argument. The argument only stands in where
-      // the point falls outside every polygon (open sea, a gap in the data).
-      const region = row.admin_region;
-      const country = row.admin_country ?? COUNTRY;
-      if (row.admin_country && row.admin_country !== COUNTRY) outsideExtent++;
-      if (!region) withoutRegion++;
 
       const res = await db.query(UPSERT_SPOT_SQL, [
         name,
@@ -561,6 +670,20 @@ async function main(): Promise<void> {
     console.log(`  mapped as areas    ${fromPolygon}  (ST_PointOnSurface)`);
     console.log(
       `  outside ${COUNTRY.padEnd(2)}         ${outsideExtent}  (extent overlaps the border; country taken from geometry)`,
+    );
+    // 🔴 Said out loud every run, INCLUDING when it is zero.
+    //
+    // A filter nobody sees working is a filter somebody removes as dead
+    // code, and this one is the only thing keeping the project's stated
+    // scope true in the data. It used to print only when it fired, so
+    // the run where it stopped firing looked exactly like the run where
+    // there was nothing to catch — which is the difference between a
+    // guard and a decoration.
+    console.log(
+      `  outside the EU     ${outsideUnion}  (skipped — CAMP-118, we serve the Union)`,
+    );
+    console.log(
+      `  no ISO code        ${noCountryCode}  (polygon has none — region withheld, no page: CAMP-125)`,
     );
     if (withoutRegion) {
       console.log(

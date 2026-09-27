@@ -44,7 +44,7 @@ export default async function MapPage() {
         {...jsonLdProps(
           collectionGraph({
             name: 'Campsite map',
-            description: `${summary.spots} campsites across ${countries.length} countries, on one map.`,
+            description: `${summary.spots.toLocaleString('en-GB')} campsites across ${countries.length} countries, on one map.`,
             path: '/map',
             items: countries.map((c) => ({
               name: countryName(c.country),

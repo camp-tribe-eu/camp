@@ -89,6 +89,16 @@ jobs:
       - name: This branch has not drifted from main
         run: node scripts/ci/check-branch-drift.mjs
 
+      # CAMP-118. The project serves the European Union, and that was a
+      # sentence in CLAUDE.md until 24.09.2026, when the database turned
+      # out to hold 13 Bosnian and 2 Serbian campsites nobody had added —
+      # the OSM extracts cross borders. A rule nothing checks is a rule
+      # that has already stopped applying.
+      - name: EU-scope guard still catches a non-member
+        run: node scripts/ci/check-eu-scope.mjs --self-test
+      - name: The import list is the Union, and nothing else
+        run: node scripts/ci/check-eu-scope.mjs
+
       # CAMP-60, debt #2. The verdict logic, including the case that
       # matters most: a run that sent nothing must FAIL, not report
       # "0 errors".
@@ -361,6 +371,20 @@ jobs:
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
         run: ./scripts/osm-pipeline/backup-local.sh --self-test
+
+      # 🔴 Runs on Linux, and that is half the point.
+      #
+      # The bug this suite was written for only exists on GNU coreutils:
+      # `stat -f` there is --file-system, so it prints "? ?" and exits 0,
+      # and every extract fingerprinted the same. It was invisible on the
+      # macOS machine the script is developed on. A shell script that
+      # runs in CI and is written on a Mac needs its tests on the runner,
+      # not on the laptop.
+      #
+      # No network and no database: curl, osmium, ogr2ogr and psql are
+      # shimmed on PATH. md5sum is not \u2014 the checksum is what is on trial.
+      - name: An unverified extract can never load
+        run: ./scripts/osm-pipeline/load-context.selftest.sh
 
   e2e:
     runs-on: ubuntu-latest

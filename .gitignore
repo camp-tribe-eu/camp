@@ -38,7 +38,14 @@ bower_components
 build/Release
 
 # Dependency directories
-node_modules/
+# 🔴 No trailing slash. `node_modules/` matches DIRECTORIES only, so a
+# node_modules SYMLINK is not ignored — and on 25.09.2026 two of them were
+# committed into this public repo, pointing at absolute paths under the
+# owner's home directory. Found in review, before the branch merged.
+#
+# A worktree gets these symlinks the moment anyone links dependencies
+# instead of installing them, which is an ordinary thing to do.
+node_modules
 jspm_packages/
 
 # Snowpack dependency directory (https://snowpack.dev/)

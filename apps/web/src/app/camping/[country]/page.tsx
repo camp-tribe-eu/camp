@@ -39,7 +39,7 @@ export async function generateMetadata(
 
   return {
     title: `Campsites in ${name}`,
-    description: `${spots} campsites and motorhome parks across ${regions.length} regions of ${name}. Facilities, locations and nearby sites.`,
+    description: `${spots.toLocaleString('en-GB')} campsites and motorhome parks across ${regions.length} regions of ${name}. Facilities, locations and nearby sites.`,
     alternates: alternatesFor(`/camping/${params.country}`),
   };
 }
@@ -58,7 +58,7 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
         {...jsonLdProps(
           collectionGraph({
             name: `Campsites in ${name}`,
-            description: `${spots} campsites across ${regions.length} regions of ${name}.`,
+            description: `${spots.toLocaleString('en-GB')} campsites across ${regions.length} regions of ${name}.`,
             path: `/camping/${params.country}`,
             items: regions.map((r) => ({
               name: r.region,

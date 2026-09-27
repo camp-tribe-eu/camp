@@ -204,16 +204,49 @@ test.describe('empty states', () => {
   test('a campsite with no facilities recorded still reads as finished', async ({
     page,
   }) => {
-    const { features } = await (
-      await page.request.get('/data/spots.geojson')
-    ).json();
-    const bare = features.find(
-      (f: { properties: Record<string, string> }) =>
-        AMENITY_KEYS.every((k) => f.properties[k] === 'unknown'),
-    );
+    // \ud83d\udd34 CAMP-127 made /data/spots/index.json a table of contents,
+    // not a FeatureCollection. This spec was pointed at the new URL and
+    // not at the new SHAPE, so `features` was undefined and it died with
+    // "Cannot read properties of undefined". The campsites now live in
+    // one file per region, so it walks a few of them.
+    const regions = (await (
+      await page.request.get('/data/spots/index.json')
+    ).json()) as { country: string; slug: string; count: number }[];
+    expect(regions.length, 'the map index is empty').toBeGreaterThan(0);
+
+    let bare: { properties: Record<string, string> } | undefined;
+    // Biggest regions first: the more campsites, the likelier one of
+    // them has nothing recorded. Bounded, so a fixture where every
+    // campsite is complete skips instead of fetching 800 files.
+    const busiest = [...regions].sort((a, b) => b.count - a.count).slice(0, 8);
+    for (const r of busiest) {
+      const res = await page.request.get(
+        `/data/spots/${r.country.toLowerCase()}/${r.slug}.geojson`,
+      );
+      if (!res.ok()) continue;
+      const { features } = (await res.json()) as {
+        features: { properties: Record<string, string> }[];
+      };
+      // \ud83d\udd34 ABSENT, not the string 'unknown'.
+      //
+      // The map chunks leave an unrecorded amenity out of `properties`
+      // entirely \u2014 measured on de/bayern: 1 433 campsites, and the key
+      // 'unknown' appears zero times. So the old predicate could never
+      // match, and this test would have skipped forever while looking
+      // exactly like a test that passes.
+      //
+      // Both forms are accepted, so the spec survives the serialiser
+      // changing its mind.
+      bare = features.find((f) =>
+        AMENITY_KEYS.every(
+          (k) => f.properties[k] === undefined || f.properties[k] === 'unknown',
+        ),
+      );
+      if (bare) break;
+    }
     test.skip(!bare, 'the fixture holds no campsite without facilities');
 
-    await page.goto(bare.properties.href);
+    await page.goto(bare!.properties.href);
     await expect(page.getByRole('heading').first()).toBeVisible();
     // An absence is never rendered as a denial.
     await expect(page.getByText('No electricity')).toHaveCount(0);
@@ -233,5 +266,55 @@ test.describe('empty states', () => {
     await expect(
       page.getByRole('heading', { name: 'Keep looking' }),
     ).toBeVisible();
+  });
+
+
+  test('🔴 a page without elevation does not credit the elevation model', async ({
+    page,
+    request,
+  }) => {
+    // Attribution is a factual claim like every other on the page.
+    //
+    // "Calculated by us from OpenStreetMap geometry and the Copernicus
+    // elevation model" was printed on every campsite carrying computed
+    // surroundings — including the 9 523 measured on 25.09.2026 that
+    // have distances but no elevation at all, because Open-Meteo's free
+    // tier is exhausted (CAMP-99). Those pages credited a source that
+    // contributed nothing to them.
+    const api = process.env.API_BASE_URL ?? 'http://localhost:3001';
+    const res = await request.get(`${api}/spots/index`);
+    expect(res.ok(), 'the spot index is not served').toBe(true);
+    const spots = (await res.json()) as {
+      country: string;
+      region: string | null;
+      slug: string;
+    }[];
+
+    // Walk until we find one with surroundings but no elevation. Bounded,
+    // so a dataset where every spot has elevation skips instead of
+    // fetching thousands.
+    let checked: string | null = null;
+    for (const s of spots.slice(0, 40)) {
+      if (!s.region) continue;
+      const path = `/camping/${s.country.toLowerCase()}/${s.region}/${s.slug}`;
+      const one = await request.get(
+        `${api}/spots/${s.country.toLowerCase()}/${s.region}/${s.slug}`,
+      );
+      if (!one.ok()) continue;
+      const { spot } = (await one.json()) as {
+        spot: { context?: Record<string, unknown> };
+      };
+      const c = spot.context ?? {};
+      if (c.water === undefined) continue;
+      if (c.elevation !== undefined || c.terrain !== undefined) continue;
+      checked = path;
+      break;
+    }
+    test.skip(!checked, 'every sampled campsite has elevation');
+
+    await page.goto(checked!);
+    const facts = page.getByText(/Calculated by us from OpenStreetMap/);
+    await expect(facts).toBeVisible();
+    await expect(facts).not.toContainText(/Copernicus/i);
   });
 });

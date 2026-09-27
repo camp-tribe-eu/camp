@@ -33,13 +33,31 @@ export function slugifyRegion(region: string | null): string {
     .replace(/^-+|-+$/g, '');
 }
 
-/** The one address a campsite has. Built here, never assembled by hand. */
+/**
+ * The one address a campsite has — or null, when it has none.
+ *
+ * 🔴 Null, not a path with a hole in it.
+ *
+ * This returned `/camping/cy//arazi` for a campsite with no region: a
+ * double slash, a 404, and a link the map was already offering. Measured
+ * 24.09.2026: 135 campsites carry no region, and every one of them had a
+ * broken link on the map — 36 of those are on Cyprus, where the boundary
+ * file gives no ISO code and CAMP-125 has yet to decide what to call the
+ * area.
+ *
+ * A campsite without a region has no page, because the page URL is built
+ * from the region (CAMP-34). The location is still real and still belongs
+ * on the map; what must not happen is a link that promises a page and
+ * lands on a 404. Callers get null and have to say so.
+ */
 export function canonicalPath(
   country: string,
   region: string | null,
   slug: string,
-): string {
-  return `/camping/${country.toLowerCase()}/${slugifyRegion(region)}/${slug}`;
+): string | null {
+  const where = slugifyRegion(region);
+  if (!where || !country || !slug) return null;
+  return `/camping/${country.toLowerCase()}/${where}/${slug}`;
 }
 
 /**

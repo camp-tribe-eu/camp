@@ -26,14 +26,76 @@ async function excluded(page: Page): Promise<number> {
   return Number(await map(page).getAttribute('data-unknown-excluded'));
 }
 
-/** Wait for the collection to arrive; before that everything is zero. */
+/**
+ * Wait until the map is drawing individual campsites and has finished.
+ *
+ * 🔴 This used to be `data-total > 0`, and both halves of that were
+ * wrong once CAMP-127 landed.
+ *
+ * It is not a barrier: `data-total > 0` is the FIRST chunk, not the
+ * last. A baseline captured there photographs a half-loaded map —
+ * "clearing puts every campsite back" recorded 35 and then honestly
+ * found 69, because the rest arrived in between. It failed on four
+ * browsers for a map that was right.
+ *
+ * And on the full dataset it is never reached at all: /map opens too
+ * wide for markers, so no chunk is fetched and `data-total` stays 0.
+ * CI's fixture is small enough that every chunk in view fits, so there
+ * the map opens in detail and the same helper worked — which is why
+ * this failed in only one of the two places at a time.
+ *
+ * So: zoom in until there are markers, then wait for the fetching to
+ * stop. Clicking the real control rather than reaching into the map
+ * object, for the same reason the counts are published as attributes.
+ */
 async function loaded(page: Page) {
+  const zoomIn = page.locator('.maplibregl-ctrl-zoom-in');
+  await expect(zoomIn).toBeVisible();
+  for (let i = 0; i < 8; i++) {
+    if (Number(await map(page).getAttribute('data-total')) > 0) break;
+    await zoomIn.click();
+    // 🔴 Poll rather than sleep a flat 700 ms per click.
+    //
+    // Eight clicks at a fixed wait is 5.6 s spent before the real wait
+    // even begins, and on a loaded machine that pushed these tests past
+    // the 30 s budget — they failed on a timeout, not on an assertion.
+    // Most views need one or two clicks, and this leaves as soon as
+    // markers appear.
+    for (let w = 0; w < 8; w++) {
+      if (Number(await map(page).getAttribute('data-total')) > 0) break;
+      await page.waitForTimeout(150);
+    }
+  }
   await expect
     .poll(async () => Number(await map(page).getAttribute('data-total')), {
-      timeout: 15_000,
+      timeout: 20_000,
     })
     .toBeGreaterThan(0);
+  // `ready` now means what it says — published only when no fetch is
+  // outstanding — so this is a real barrier rather than a hope.
+  await expect(map(page)).toHaveAttribute('data-map-state', 'ready', {
+    timeout: 20_000,
+  });
 }
+
+/**
+ * Everything `loaded` does, plus the bounds the map publishes.
+ *
+ * 🔴 `publishCounts` runs on the map's `idle` event, which is a
+ * different moment from "the data finished loading" — so the state can
+ * say ready while `data-bounds` has never been written. A spec that
+ * reads the bounds waits for them to BE something, never for a message
+ * to be absent.
+ */
+async function zoomToDetail(page: Page) {
+  await loaded(page);
+  await expect
+    .poll(async () => (await map(page).getAttribute('data-bounds')) ?? '', {
+      timeout: 20_000,
+    })
+    .not.toBe('');
+}
+
 
 async function skipWithoutWebGL(page: Page) {
   const ok = await page.evaluate(() => {
@@ -47,6 +109,22 @@ async function skipWithoutWebGL(page: Page) {
 }
 
 test.describe('/map filters', () => {
+  // 🔴 90 s a test, not Playwright's default 30.
+  //
+  // Since CAMP-127 a map test is: open the page, zoom in until the map
+  // switches from region circles to markers, and wait for one file per
+  // region in view to arrive. Measured on this machine with the OSM
+  // pipeline running alongside — which is what a CI runner with six
+  // browser projects looks like — the suite took 1.5 minutes for 30
+  // tests, and several individual tests crossed 30 s and failed on the
+  // budget rather than on anything they assert.
+  //
+  // Same reasoning as the search suite's 20 s: a limit the machine can
+  // cross while working correctly turns `check-flaky.mjs` into a red
+  // `main`. This is above the worst honest measurement, and a genuinely
+  // broken map still fails in seconds with a clear message.
+  test.describe.configure({ timeout: 90_000 });
+
   test('every filter is present, at this browser and this width', async ({
     page,
   }) => {
@@ -68,6 +146,237 @@ test.describe('/map filters', () => {
         page.getByTestId(`filter-amenity-${a}`),
         `amenity filter "${a}" is missing at this width`,
       ).toBeVisible();
+    }
+  });
+
+  // ── CAMP-122: bulk controls ─────────────────────────────────────────
+  //
+  // 🔴 In the document at every width, like every other control in this
+  // panel. A bulk action behind a menu on a phone is a bulk action nobody
+  // uses, which is the same failure UST-466 taught and CAMP-35 recorded.
+  test('every group carries its own All and None, at this width', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    for (const group of ['type', 'amenity', 'access']) {
+      await expect(
+        page.getByTestId(`filter-${group}-all`),
+        `"All" missing on ${group} at this width`,
+      ).toBeVisible();
+      await expect(
+        page.getByTestId(`filter-${group}-none`),
+        `"None" missing on ${group} at this width`,
+      ).toBeVisible();
+    }
+  });
+
+  test('All ticks a whole group and None clears only that group', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await loaded(page);
+
+    // 🔴 ACCESSIBILITY FIRST, and that order is the test.
+    //
+    // The first version clicked Facilities-All first, when there was
+    // nothing accessible to destroy — and so it passed while Facilities
+    // "All" silently untucked both wheelchair filters. Review found it by
+    // reversing these two lines.
+    await page.getByTestId('filter-access-all').click();
+    for (const a of ACCESSIBILITY_KEYS) {
+      await expect(page.getByTestId(`filter-amenity-${a}`)).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    }
+    await page.getByTestId('filter-amenity-all').click();
+    for (const a of ACCESSIBILITY_KEYS) {
+      await expect(
+        page.getByTestId(`filter-amenity-${a}`),
+        `${a} was cleared by the facilities group`,
+      ).toHaveAttribute('aria-pressed', 'true');
+    }
+    for (const a of GENERAL_AMENITY_KEYS) {
+      await expect(page.getByTestId(`filter-amenity-${a}`)).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+    }
+
+    // 🔴 "None" on one group must not empty another. Accessibility is a
+    // separate question on purpose (CAMP-25), and a bulk control that
+    // quietly reached across the divider would undo that.
+    await page.getByTestId('filter-amenity-none').click();
+    for (const a of GENERAL_AMENITY_KEYS) {
+      await expect(page.getByTestId(`filter-amenity-${a}`)).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      );
+    }
+    for (const a of ACCESSIBILITY_KEYS) {
+      await expect(
+        page.getByTestId(`filter-amenity-${a}`),
+        `${a} was cleared by the facilities group`,
+      ).toHaveAttribute('aria-pressed', 'true');
+    }
+  });
+
+  // 🔴 The other direction, which no test clicked at all: Accessibility
+  // "None" must not empty the facilities either.
+  test('Accessibility None leaves the facilities alone', async ({ page }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await page.getByTestId('filter-amenity-all').click();
+    await page.getByTestId('filter-access-all').click();
+    await page.getByTestId('filter-access-none').click();
+    for (const a of GENERAL_AMENITY_KEYS) {
+      await expect(
+        page.getByTestId(`filter-amenity-${a}`),
+        `${a} was cleared by the accessibility group`,
+      ).toHaveAttribute('aria-pressed', 'true');
+    }
+    for (const a of ACCESSIBILITY_KEYS) {
+      await expect(page.getByTestId(`filter-amenity-${a}`)).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      );
+    }
+  });
+
+  // 🔴 The chip, which is how people actually clear a filter.
+  //
+  // The first fix put the reset in the bulk "None" handler only, and the
+  // test below drove that button — so it passed over a live bug reachable
+  // in three clicks. Review walked it. This drives the chip.
+  test('unticking the last amenity also clears "include unrecorded"', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await page.getByTestId('filter-amenity-toilets').click();
+    await page.getByTestId('filter-include-unknown').locator('input').check();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('unknown'))
+      .toBe('1');
+
+    await page.getByTestId('filter-amenity-toilets').click();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('unknown'))
+      .toBeNull();
+    // And it is not silently re-applied to the next thing ticked.
+    await page.getByTestId('filter-amenity-shower').click();
+    await expect(
+      page.getByTestId('filter-include-unknown').locator('input'),
+    ).not.toBeChecked();
+  });
+
+  // 🔴 The other direction: clearing one group while another still holds
+  // a selection must NOT clear the flag — there is still something for
+  // it to be unknown about. Nothing tested this, and a bare `false`
+  // survived the suite.
+  test('clearing one group keeps the flag while another still filters', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await page.getByTestId('filter-amenity-toilets').click();
+    await page.getByTestId('filter-amenity-wheelchair').click();
+    await page.getByTestId('filter-include-unknown').locator('input').check();
+
+    await page.getByTestId('filter-amenity-none').click();
+    await expect(
+      page.getByTestId('filter-include-unknown').locator('input'),
+    ).toBeChecked();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('unknown'))
+      .toBe('1');
+  });
+
+  // 🔴 A flag with no control, carried in a shareable URL.
+  test('clearing the last amenity also clears "include unrecorded"', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await page.getByTestId('filter-amenity-toilets').click();
+    await page.getByTestId('filter-include-unknown').locator('input').check();
+    // history.replaceState happens in an effect, so this is polled like
+    // the assertion below it — read synchronously it races the render.
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('unknown'))
+      .toBe('1');
+
+    await page.getByTestId('filter-amenity-none').click();
+    // Otherwise the reader is left on /map?unknown=1 with the checkbox
+    // gone (it renders only while an amenity is filtered) and "Clear
+    // filters" hidden (nothing is being filtered) — and the choice is
+    // silently re-applied to whatever they tick next.
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('unknown'))
+      .toBeNull();
+    await page.getByTestId('filter-amenity-shower').click();
+    await expect(
+      page.getByTestId('filter-include-unknown').locator('input'),
+    ).not.toBeChecked();
+  });
+
+  test('a bulk control that has nothing to do is disabled, not removed', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    // Nothing is ticked on arrival, so "None" has nothing to do.
+    await expect(page.getByTestId('filter-amenity-none')).toBeDisabled();
+    await expect(page.getByTestId('filter-amenity-all')).toBeEnabled();
+
+    await page.getByTestId('filter-amenity-all').click();
+    // 🔴 Still present, so the control under the reader's thumb does not
+    // move between one tap and the next.
+    await expect(page.getByTestId('filter-amenity-all')).toBeVisible();
+    await expect(page.getByTestId('filter-amenity-all')).toBeDisabled();
+    await expect(page.getByTestId('filter-amenity-none')).toBeEnabled();
+
+    // 🔴 The fact, not the claim. toBeDisabled() is satisfied by
+    // aria-disabled on its own, so removing the real attribute left this
+    // test green while the button was still clickable — proved by
+    // mutation in review. Both are asserted by name, and the behaviour
+    // is driven: clicking a disabled "All" must change nothing.
+    await expect(page.getByTestId('filter-amenity-all')).toHaveAttribute(
+      'disabled',
+      '',
+    );
+    await expect(page.getByTestId('filter-amenity-all')).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    // 🔴 Driven from a state where a working click WOULD change the URL.
+    //
+    // The first version forced a click on "All" when everything was
+    // already ticked, so the URL was identical whether the click landed
+    // or not — the assertion passed in both worlds and proved nothing.
+    // Review caught it. "None" here has real work to do, so if `disabled`
+    // ever stops being honoured the URL moves and this fails.
+    await page.getByTestId('filter-amenity-none').click();
+    await expect.poll(() => new URL(page.url()).searchParams.get('amenities')).toBeNull();
+    const before = page.url();
+    await page.getByTestId('filter-amenity-none').click({ force: true });
+    expect(page.url(), 'a disabled control still did something').toBe(before);
+  });
+
+  test('the bulk controls are reachable by keyboard', async ({ page }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    const all = page.getByTestId('filter-type-all');
+    await all.focus();
+    await expect(all).toBeFocused();
+    await page.keyboard.press('Enter');
+    for (const t of SPOT_TYPES) {
+      await expect(page.getByTestId(`filter-type-${t}`)).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
     }
   });
 
@@ -175,14 +484,26 @@ test.describe('/map filters', () => {
     // immediately gets the zero it held before the map ever drew.
     await expect.poll(clustered, { timeout: 15_000 }).toBeGreaterThan(0);
 
-    const before = await clustered();
-    expect(before).toBeLessThanOrEqual(await shown(page));
+    const clusteredBefore = await clustered();
+    const shownBefore = await shown(page);
+    expect(clusteredBefore).toBeLessThanOrEqual(shownBefore);
 
     await page.getByTestId('filter-amenity-toilets').click();
-    const after = await shown(page);
-    await expect.poll(() => shown(page)).toBeLessThan(before);
 
-    await expect.poll(clustered).toBeLessThanOrEqual(after);
+    // 🔴 Fewer campsites DRAWN than before — compared against the
+    // earlier DRAWN count, not against the clustered one.
+    //
+    // This asserted `shown < clusteredBefore`, which compares two
+    // different quantities: campsites drawn against campsites inside
+    // bubbles currently on screen. It passed only while `loaded()`
+    // returned after the first chunk and `shown` happened to be small.
+    // Once `loaded()` became a real barrier the map drew more, and the
+    // comparison failed on a map doing exactly the right thing —
+    // measured on CI: clustered 2, drawn 22.
+    await expect.poll(() => shown(page)).toBeLessThan(shownBefore);
+
+    const shownAfter = await shown(page);
+    await expect.poll(clustered).toBeLessThanOrEqual(shownAfter);
     // And it did not simply stop drawing: something is still clustered.
     expect(await clustered()).toBeGreaterThan(0);
   });
@@ -201,14 +522,34 @@ test.describe('/map filters', () => {
     expect(page.url()).toContain('amenities=toilets');
     expect(page.url()).toContain('types=rv_park');
 
-    const before = await shown(page);
     await page.reload();
     await loaded(page);
     await expect(page.getByTestId('filter-amenity-toilets')).toHaveAttribute(
       'aria-pressed',
       'true',
     );
-    await expect.poll(() => shown(page)).toBe(before);
+
+    // 🔴 That the filter is APPLIED, not that the number is identical.
+    //
+    // `shown` counts the filtered campsites among those LOADED, and
+    // since CAMP-127 what is loaded depends on the viewport — which the
+    // reload reaches through its own zoom sequence. Measured: 20 before,
+    // 19 after, for a map that restored the filter perfectly. The test
+    // was comparing two different viewports and calling it a bug.
+    //
+    // What the card actually claims is that a filtered map is a link:
+    // the chips come back pressed, the URL still carries the filters,
+    // and the filter is really in force — fewer campsites drawn than
+    // loaded, rather than the page merely looking filtered.
+    const after = await map(page).getAttribute('data-shown');
+    const loadedAfter = await map(page).getAttribute('data-total');
+    expect(Number(after), 'nothing is drawn after the reload').toBeGreaterThan(
+      0,
+    );
+    expect(
+      Number(after),
+      'everything is drawn, so the filter was not re-applied',
+    ).toBeLessThan(Number(loadedAfter));
   });
 
   test('clearing puts every campsite back', async ({ page }) => {
@@ -233,10 +574,19 @@ test.describe('/map filters', () => {
     page,
     request,
   }) => {
-    await page.goto('/map');
-    await skipWithoutWebGL(page);
-    await loaded(page);
-
+    // 🔴 Rewritten for CAMP-127, and the premise had to change with it.
+    //
+    // This compared the map against the API for the WHOLE WORLD, because
+    // the map read one file that held the whole world. It no longer
+    // does: the file had a cap of 20 000, the EU-27 import took the
+    // database to 61 521, and the map now fetches the regions in view.
+    //
+    // So the comparison is scoped to the viewport, which is both honest
+    // and exact — inside the view the map has fetched every chunk, so
+    // the two sets must match in BOTH directions. A subset assertion
+    // would have caught the map hiding something and missed it showing
+    // something, and the drift this test exists to catch can go either
+    // way.
     for (const query of [
       'amenities=toilets',
       'amenities=toilets,shower',
@@ -245,43 +595,136 @@ test.describe('/map filters', () => {
       'amenities=toilets&unknown=1',
     ]) {
       await page.goto(`/map?${query}`);
-      await loaded(page);
+      await skipWithoutWebGL(page);
+      // Markers only exist below DETAIL_ZOOM. Without this the map is
+      // drawing regions and there is nothing to compare.
+      await zoomToDetail(page);
 
-      // 🔴 The same limit the snapshot was built with, and the same
-      // reason. The API's default is POINT_LIMIT (2 000), a safety valve
-      // for ONE viewport; the map reads a whole-world file built with
-      // the higher cap. Asking without it compared 2 000 against 3 131
-      // and read like a filter bug — it was a question asked two
-      // different ways.
-      //
-      // 🔴 20 000, and it must stay equal to WHOLE_WORLD_LIMIT in
-      // app/data/spots.geojson/route.ts. It was 10 000 and CAMP-107 took
-      // the dataset past it, at which point this test failed on its own
-      // truncation guard below — correctly, and for a reason that had
-      // nothing to do with filtering. The number is written twice
-      // because a route file may not export it; the check below is what
-      // makes the duplication safe.
+      // What the map has drawn inside its own viewport, and the viewport
+      // itself — read together so they cannot describe two moments.
+      const drawn = await page.evaluate(() => {
+        const el = document.querySelector('[data-testid="map"]');
+        return {
+          inView: Number(el?.getAttribute('data-in-view') ?? -1),
+          shown: Number(el?.getAttribute('data-shown') ?? -1),
+          total: Number(el?.getAttribute('data-total') ?? -1),
+          box: el?.getAttribute('data-bounds') ?? '',
+          slugs: (el?.getAttribute('data-in-view-slugs') ?? '')
+            .split(',')
+            .filter(Boolean),
+        };
+      });
+      expect(drawn.box, 'the map did not publish its bounds').not.toBe('');
+
       const res = await request.get(
-        `${API}/spots/map/points?bbox=-180,-85,180,85&limit=20000&${query}`,
+        `${API}/spots/map/points?bbox=${drawn.box}&limit=20000&${query}`,
       );
       expect(res.ok(), `API refused ${query}`).toBe(true);
       const { markers, truncated } = (await res.json()) as {
-        markers: unknown[];
+        markers: { slug: string; path: string | null }[];
         truncated: boolean;
       };
+      // One viewport of markers must never hit the cap; if it does, the
+      // two sides are comparing truncated answers and calling them equal.
+      expect(truncated, `the viewport query was truncated for ${query}`).toBe(
+        false,
+      );
 
-      // 🔴 And if THAT cap is ever reached, this must fail rather than
-      // compare two truncated answers and call them equal. The build
-      // refuses the snapshot at the same point, so the two guards agree.
-      expect(
-        truncated,
-        'the whole-world query was truncated — the map can no longer be one file',
-      ).toBe(false);
+      // 🔴 Name the campsites, do not just count them.
+      //
+      // This said `Expected: 3, Received: 5` and left the next person to
+      // work out which two \u2014 across 61 422 campsites and a viewport
+      // nobody can reproduce from the message. A disagreement between
+      // our client filter and our server filter is a data-correctness
+      // bug, and the first question is always "which ones".
+      // 🔴 `slug`, not something carved out of `path`.
+      //
+      // 135 campsites have no region and therefore no page, so their
+      // `path` is null — but they all have a slug, and the map draws
+      // them. Deriving the name from `path` turned every one of them
+      // into "(no slug)" on this side while the map published the real
+      // slug, so a correct map failed the comparison in any viewport
+      // containing one (CY 36, FI 30, DK 22, SE 19, FR 7 …).
+      const apiSlugs = markers.map((m) => m.slug).sort();
+      const mapSlugs = [...drawn.slugs].sort();
+      // 🔴 The map publishes at most 200 slugs and says so with a
+      // sentinel. Comparing lists is the better assertion, but a capped
+      // viewport still has to assert SOMETHING — and silently skipping
+      // is how a test stops testing.
+      const capped = drawn.slugs.length === 1 && drawn.slugs[0] === '(capped)';
 
+      // 🔴 The whole sorted list, not a set difference.
+      //
+      // The first version compared sets, and a set difference cannot see
+      // a DUPLICATE: the map drawing one campsite twice produced two
+      // "identical" lists and a count that was one too high. Which is
+      // exactly the defect that was hiding here.
+      if (!capped) {
+        expect(
+          mapSlugs,
+          `the map and the API disagree for ${query} in bbox ${drawn.box} ` +
+            `(map ${mapSlugs.length}, API ${apiSlugs.length}, ` +
+            `shown ${drawn.shown} of ${drawn.total} loaded, ` +
+            `API said: ${apiSlugs.join(' ')})`,
+        ).toEqual(apiSlugs);
+      }
+
+      // The count is asserted either way \u2014 it is the one number the map
+      // always publishes, capped or not.
       expect(
-        await shown(page),
-        `the map and the API disagree for ${query}`,
+        drawn.inView,
+        `the map and the API disagree on the count for ${query} in bbox ` +
+          `${drawn.box}${capped ? ' (too many in view to list)' : ''}`,
       ).toBe(markers.length);
+    }
+  });
+
+  // \u{1F534} The sentence a reader meets first, on the real page.
+  //
+  // The unit tests prove filterCountLabel; this proves it is WIRED. The
+  // defect it replaces was exactly a wiring one — a correct number
+  // (`shown`, the campsites drawn) rendered into a sentence that claimed
+  // something else. /map opens zoomed out, draws regions, loads no
+  // markers, and printed a bold "0 campsites" directly above
+  // "3,116 campsites in view". Both numbers were about the same map.
+  test('a zoomed-out map never claims there are no campsites', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+
+    const count = page.getByTestId('filter-count');
+    await expect(count).toBeVisible();
+
+    // 🔴 Never a bare zero, and never empty — the two ways this line
+    // has already misled somebody. True at any zoom.
+    await expect(count).not.toHaveText(/^\s*0\s+campsites/);
+    await expect(count).not.toHaveText(/^\s*$/);
+
+    // 🔴 Then branch on what the map says it is doing, rather than
+    // assuming.
+    //
+    // The first version asserted «zoom in» unconditionally, because on
+    // the full 61 422-campsite dataset /map opens too wide for markers.
+    // CI's fixture is small enough that every chunk in view fits, so the
+    // map opens in DETAIL and the panel correctly showed "36 campsites"
+    // — and the test failed on six browsers for a map that was right.
+    // `data-map-state` exists precisely so a test need not guess.
+    const state = await page
+      .getByTestId('map')
+      .getAttribute('data-map-state');
+
+    if (state === 'wide') {
+      await expect(count).toHaveText(/zoom in/i);
+      // And what the map says about itself must agree with it.
+      await expect(page.getByRole('status')).toContainText(
+        /campsites in the regions in view/i,
+      );
+    } else {
+      // Drawing individual campsites: a real number, and no advice to
+      // zoom in, because that would not help.
+      await expect(count).toHaveText(/\d[\d,]*\s+campsites/);
+      await expect(count).not.toHaveText(/zoom in/i);
     }
   });
 });

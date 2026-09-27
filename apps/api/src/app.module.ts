@@ -14,6 +14,7 @@ import { TripStop } from './entities/trip-stop.entity';
 import { SpotsModule } from './spots/spots.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { GuidesModule } from './guides/guides.module';
+import { HealthModule } from './health/health.module';
 import { ClientError } from './entities/client-error.entity';
 import { DEFAULT_LIMIT } from './throttle';
 import { ApiThrottlerGuard } from './throttle.guard';
@@ -41,6 +42,10 @@ import { ApiThrottlerGuard } from './throttle.guard';
       synchronize: false,
     }),
     SpotsModule,
+    HealthModule,
+    // CAMP-59: the route an uptime monitor calls. Exempt from the
+    // rate limit, because a monitor polling every minute is the one
+    // caller we want hitting us constantly.
     TelemetryModule,
     GuidesModule,
   ],
