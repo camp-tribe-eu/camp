@@ -85,9 +85,16 @@ describe('🔴 the page states the gap, not only the count', () => {
     expect(body).toContain('never that the answer is no');
   });
 
-  it('keeps that promise on a page with no gap at all', () => {
-    const { body } = compose(facts({ unknown: 0 }));
-    expect(body).toContain('never because the answer is no');
+  // 🔴 Word for word, on both branches. Everything else on the page
+  // varies with the region; this sentence is the promise the page is
+  // made under, and the e2e disclosure test looks for this exact string
+  // on whichever guide the API happens to list first.
+  it('keeps that promise, in the same words, on a page with no gap', () => {
+    for (const unknown of [0, 140]) {
+      expect(compose(facts({ unknown })).body).toContain(
+        'never that the answer is no',
+      );
+    }
   });
 
   it('does not claim a gap when there is none', () => {

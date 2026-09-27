@@ -676,9 +676,14 @@ export function compose(facts: RegionFacts): {
         `${region} carry an answer to this question, and the other ` +
         `${otherN} ${theme.otherwise}.` +
         where(other) +
+        // 🔴 The same words in both branches, deliberately. Everything
+        // else on this page varies with the region; this one sentence is
+        // the promise the page is made under, and a reader who has
+        // learnt it on one page must recognise it on the next. The e2e
+        // disclosure test looks for exactly this string.
         ` We show gaps as gaps rather than guessing, so where a page of ` +
-        `ours is silent it is because nobody wrote it down — never ` +
-        `because the answer is no.`,
+        `ours is silent it is because nobody wrote it down — never that ` +
+        `the answer is no.`,
   ]);
 
   para([DISCLAIMERS[0]]);
