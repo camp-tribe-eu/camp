@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { countryName, getCountries, getSummary } from '@/lib/api';
+import { apiFetch, countryName, getCountries } from '@/lib/api';
 import MapEmbed from '@/components/map-embed';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import type { RegionSummary } from '@/lib/map-chunks';
 
 // CAMP-31 — /map.
 //
@@ -27,11 +28,41 @@ export const metadata: Metadata = {
   alternates: alternatesFor('/map'),
 };
 
+/**
+ * How many campsites this page's map actually draws.
+ *
+ * 🔴 CAMP-133: from the map's own index, not from `/spots/summary`.
+ *
+ * The page printed the summary — 61 422, measured 27.09.2026 — directly
+ * above a map that draws 61 557. The 135 in between are the campsites
+ * with no region: `/spots/summary` counts `region IS NOT NULL`, because
+ * a campsite with no region has no page (CAMP-34 builds the URL from the
+ * region), while the map keeps them because the LOCATION is real. Both
+ * queries are right; putting one above the other was not.
+ *
+ * So the sentence over the map counts what is on the map, from the same
+ * file the map reads. The country list below counts something else — the
+ * campsites that have a page to browse to — and now says so in words
+ * rather than leaving a reader to find a 135-campsite hole.
+ */
+async function campsitesOnTheMap(): Promise<number> {
+  const res = await apiFetch('/spots/map/regions', {
+    next: { revalidate: 86400 },
+  });
+  if (!res.ok) {
+    throw new Error(`Region index request failed: ${res.status}`);
+  }
+  const index = (await res.json()) as RegionSummary[];
+  return index.reduce((n, r) => n + r.count, 0);
+}
+
 export default async function MapPage() {
-  const [summary, countries] = await Promise.all([
-    getSummary(),
+  const [onTheMap, countries] = await Promise.all([
+    campsitesOnTheMap(),
     getCountries(),
   ]);
+  const browsable = countries.reduce((n, c) => n + c.spots, 0);
+  const mapOnly = onTheMap - browsable;
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
@@ -44,7 +75,11 @@ export default async function MapPage() {
         {...jsonLdProps(
           collectionGraph({
             name: 'Campsite map',
-            description: `${summary.spots.toLocaleString('en-GB')} campsites across ${countries.length} countries, on one map.`,
+            // 🔴 The count of what this markup DESCRIBES — the country
+            // list — not of what the canvas draws. The two differ by the
+            // 135 campsites with no region, and the description of a
+            // list of links has to be about the links.
+            description: `${browsable.toLocaleString('en-GB')} campsites across ${countries.length} countries, on one map.`,
             path: '/map',
             items: countries.map((c) => ({
               name: countryName(c.country),
@@ -55,8 +90,9 @@ export default async function MapPage() {
       />
       <h1 className="text-3xl font-bold md:text-[42px]">Campsite map</h1>
       <p className="mt-3 max-w-prose text-ink-2">
-        {summary.spots.toLocaleString('en-GB')} campsites and motorhome parks.
-        Each point is a real entry — nothing is placed approximately.
+        {onTheMap.toLocaleString('en-GB')} campsites and motorhome parks
+        are on this map. Each point is a real entry — nothing is placed
+        approximately.
       </p>
 
       <div className="mt-6">
@@ -75,6 +111,17 @@ export default async function MapPage() {
 
       <section className="mt-8">
         <h2 className="text-xl font-bold md:text-[25px]">Browse instead</h2>
+        {/* 🔴 The one place the two numbers on this page are reconciled.
+            The list counts campsites that HAVE a page; the map counts
+            campsites that have a location. A reader who adds the country
+            counts up and finds fewer than the map claims deserves the
+            reason in a sentence rather than a bug report. */}
+        <p className="mt-2 max-w-prose text-sm text-ink-2">
+          These pages cover the{' '}
+          {browsable.toLocaleString('en-GB')} campsites we can name a region
+          for. The other {mapOnly.toLocaleString('en-GB')} have no region
+          recorded yet, so they are on the map but have no page to browse to.
+        </p>
         <ul className="mt-3 flex flex-wrap gap-2">
           {countries.map((c) => (
             <li key={c.country}>

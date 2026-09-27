@@ -42,6 +42,8 @@ import {
   chunksInView,
   countInView,
   dataMessage,
+  withinView,
+  type Bounds,
   type MapDataState,
   type RegionSummary,
 } from '@/lib/map-chunks';
@@ -225,6 +227,25 @@ function clearRegions(m: InstanceType<typeof MapLibreMap>) {
  * The features are NOT thrown away, only un-drawn: `everything.current`
  * still holds them, so zooming back in costs no fetch.
  */
+/**
+ * Where the map is looking, in the shape every rule in map-chunks takes.
+ *
+ * 🔴 One conversion from MapLibre's LngLatBounds, because three copies
+ * of it were already drifting: `refresh` built one object, `publishCounts`
+ * called the four getters inline for `data-bounds` and then called them
+ * again for `data-in-view`. A count and the box it is supposedly inside
+ * have to come from the same four numbers.
+ */
+function boundsOf(m: InstanceType<typeof MapLibreMap>): Bounds {
+  const b = m.getBounds();
+  return {
+    west: b.getWest(),
+    south: b.getSouth(),
+    east: b.getEast(),
+    north: b.getNorth(),
+  };
+}
+
 function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
   const source = m.getSource(SOURCE_ID) as GeoJSONSource | undefined;
   source?.setData({ type: 'FeatureCollection', features: [] });
@@ -265,7 +286,25 @@ export default function CampsiteMap() {
       ? EMPTY_FILTERS
       : fromSearchParams(window.location.search, SPOT_TYPES, AMENITY_KEYS),
   );
-  const [tally, setTally] = useState({ shown: 0, total: 0, unknownExcluded: 0 });
+  /**
+   * Two scopes, named apart, because they answer different questions.
+   *
+   * 🔴 `shown` / `total` / `unknownExcluded` are over everything
+   * FETCHED — the map's own bookkeeping, and what the specs use as a
+   * barrier for "a chunk has arrived".
+   *
+   * 🔴 `inView*` are over the visible area, and they are what the
+   * reader is shown. CAMP-133: a denominator that only makes sense if
+   * you know how far somebody has panned is not a denominator.
+   */
+  const [tally, setTally] = useState({
+    shown: 0,
+    total: 0,
+    unknownExcluded: 0,
+    inViewShown: 0,
+    inViewTotal: 0,
+    inViewUnknownExcluded: 0,
+  });
   // CAMP-127: the table of contents, and which of its chunks are in hand.
   const index = useRef<RegionSummary[]>([]);
   const loaded = useRef<Set<string>>(new Set());
@@ -317,6 +356,8 @@ export default function CampsiteMap() {
    * Kept across calls and cleared per key on success.
    */
   const failedKeys = useRef<Map<string, string>>(new Map());
+  /** One pending "try again when the style has loaded", never a queue. */
+  const awaitingStyle = useRef(false);
   const [dataState, setDataState] = useState<MapDataState>({ kind: 'loading' });
 
   const active =
@@ -548,13 +589,8 @@ export default function CampsiteMap() {
       // and the scope has to come from the map itself, because only the
       // map knows where it is looking. Published together so the two can
       // never describe different moments.
-      const b = m.getBounds();
-      el.dataset.bounds = [
-        b.getWest(),
-        b.getSouth(),
-        b.getEast(),
-        b.getNorth(),
-      ]
+      const view = boundsOf(m);
+      el.dataset.bounds = [view.west, view.south, view.east, view.north]
         .map((n) => n.toFixed(6))
         .join(',');
       // 🔴 WHICH campsites, not only how many \u2014 capped, so this can
@@ -564,15 +600,11 @@ export default function CampsiteMap() {
       // "5 against 3", which names nothing a person can go and look at.
       // The slugs are already public: every one of them is a URL on
       // this site, and each is drawn on screen right now.
-      const inside = drawn.current.filter((f) => {
-        const [lon, lat] = f.geometry.coordinates;
-        return (
-          lon >= b.getWest() &&
-          lon <= b.getEast() &&
-          lat >= b.getSouth() &&
-          lat <= b.getNorth()
-        );
-      });
+      // 🔴 One definition of "in view", shared with the panel's count.
+      // This filter was written out by hand here — twice, in the same
+      // function, for the list and for the number — while the panel used
+      // a third rule of its own. `withinView` is now the only copy.
+      const inside = withinView(drawn.current, view);
       // 🔴 Every campsite has a slug, including the 135 with no
       // region and therefore no page — for those it is `path` that is
       // null, not `slug`. An earlier comment here claimed otherwise and
@@ -588,17 +620,7 @@ export default function CampsiteMap() {
           ? inside.map((f) => f.properties.slug).join(',')
           : '(capped)';
 
-      el.dataset.inView = String(
-        drawn.current.filter((f) => {
-          const [lon, lat] = f.geometry.coordinates;
-          return (
-            lon >= b.getWest() &&
-            lon <= b.getEast() &&
-            lat >= b.getSouth() &&
-            lat <= b.getNorth()
-          );
-        }).length,
-      );
+      el.dataset.inView = String(inside.length);
 
       // CAMP-35: how many campsites the bubbles claim to contain, plus
       // the ones drawn individually.
@@ -707,13 +729,40 @@ export default function CampsiteMap() {
     const m = map.current;
     if (!m || index.current.length === 0) return;
 
-    const b = m.getBounds();
-    const view = {
-      west: b.getWest(),
-      south: b.getSouth(),
-      east: b.getEast(),
-      north: b.getNorth(),
-    };
+    // 🔴 Nothing here may touch a style that has not finished loading.
+    //
+    // `addSource` and `addLayer` run MapLibre's `_checkLoaded()` and
+    // THROW — "Style is not done loading" — and `drawRegions` calls
+    // both. The index is a local static file and the style is a remote
+    // document, so on a normal page load the index wins and this ran
+    // first: measured on a production build, every single load of /map
+    // threw `Uncaught (in promise) Error: Style is not done loading` out
+    // of `drawRegions`.
+    //
+    // It LOOKED harmless, which is the dangerous part. The `styledata`
+    // handler re-runs `refresh()`, so the circles appeared anyway — the
+    // first paint was resting on winning a race, and on a slow
+    // connection there is no reason to think we win it. The file already
+    // said sources "are (re)attached on every styledata event, not once
+    // on load"; this is the path that did not honour it.
+    //
+    // Waiting on `idle` rather than `styledata`: styledata fires for
+    // every sprite and glyph load and can fire with the style still not
+    // loaded, while `idle` means the map has nothing left in flight.
+    // One pending retry at a time, so a reader dragging the map during
+    // a slow style load does not stack up listeners.
+    if (!m.isStyleLoaded()) {
+      if (!awaitingStyle.current) {
+        awaitingStyle.current = true;
+        m.once('idle', () => {
+          awaitingStyle.current = false;
+          void refreshRef.current();
+        });
+      }
+      return;
+    }
+
+    const view = boundsOf(m);
 
     if (m.getZoom() < DETAIL_ZOOM) {
       // Too wide for markers. The index already holds the counts, so
@@ -724,6 +773,9 @@ export default function CampsiteMap() {
       return;
     }
 
+    // 🔴 Too HEAVY, not too many. See VIEW_BUDGET_BYTES: the old bound
+    // counted chunks, let a 1.96 MB view through and refused a 0.41 MB
+    // one.
     const { keys, tooMany } = chunksInView(index.current, view);
     if (tooMany) {
       setDataState({ kind: 'wide', count: countInView(index.current, view) });
@@ -752,24 +804,59 @@ export default function CampsiteMap() {
     // have produced the second copy.
     for (const key of missing) loaded.current.add(key);
 
-    for (const key of missing) {
-      inFlight.current += 1;
-      try {
-        const res = await fetch(chunkUrl(key));
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const collection = (await res.json()) as { features?: SpotFeature[] };
-        failedKeys.current.delete(key);
-        everything.current = [
-          ...everything.current,
-          ...(collection.features ?? []),
-        ];
-      } catch (err) {
-        loaded.current.delete(key);
-        failedKeys.current.set(key, (err as Error).message);
-      } finally {
-        inFlight.current -= 1;
+    // 🔴 Several at a time, in the order the keys came in.
+    //
+    // This awaited each fetch before starting the next, which is one
+    // round trip per chunk laid end to end. Measured 27.09.2026 by
+    // driving the real index over 5 520 detail-zoom windows: the
+    // heaviest view the map will now draw needs 15 chunks, and the
+    // densest views reach 127 — 127 sequential round trips before the
+    // first marker settles, for files whose median is 6 kB.
+    //
+    // 🔴 Six, and the ceiling is the browser's, not ours: Chrome and
+    // Firefox allow six connections per host, so a larger number only
+    // queues in the socket pool while making the failure case noisier.
+    //
+    // 🔴 The order still matters — `chunksInView` returns the centre of
+    // the screen first, and the workers take keys off the front — but
+    // `everything` is appended to by whichever finishes first, so the
+    // ARRIVAL order is no longer the request order. Nothing downstream
+    // depends on it: `applyFilters` and `withinView` both run over the
+    // whole array, and the map clusters the set rather than the
+    // sequence.
+    const CHUNK_CONCURRENCY = 6;
+    let next = 0;
+    const fetchWorker = async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= missing.length) return;
+        const key = missing[i];
+        inFlight.current += 1;
+        try {
+          const res = await fetch(chunkUrl(key));
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const collection = (await res.json()) as { features?: SpotFeature[] };
+          failedKeys.current.delete(key);
+          // 🔴 push, not a fresh array per chunk. Rebuilding
+          // `everything` on every arrival is quadratic in the number of
+          // chunks, and it also loses features appended by a concurrent
+          // refresh between the read and the write — which is precisely
+          // the class of bug the claim-every-key-up-front comment above
+          // exists for, one level down.
+          everything.current.push(...(collection.features ?? []));
+        } catch (err) {
+          loaded.current.delete(key);
+          failedKeys.current.set(key, (err as Error).message);
+        } finally {
+          inFlight.current -= 1;
+        }
       }
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(CHUNK_CONCURRENCY, missing.length) }, () =>
+        fetchWorker(),
+      ),
+    );
 
     clearRegions(m);
     applyFilterState(filtersRef.current);
@@ -816,12 +903,37 @@ export default function CampsiteMap() {
     const all = everything.current;
     const { shown, unknownExcluded } = applyFilters(all, state);
     drawn.current = shown;
-    setTally({ shown: shown.length, total: all.length, unknownExcluded });
 
     const source = map.current?.getSource(SOURCE_ID) as
       | GeoJSONSource
       | undefined;
+    // 🔴 The map is fed EVERYTHING that matches, not only what is on
+    // screen. Chunks are kept, so a pan inside the loaded area must not
+    // wait for a re-filter to put markers back.
     source?.setData({ type: 'FeatureCollection', features: shown });
+
+    // 🔴 CAMP-133: what the panel says is about the VISIBLE AREA.
+    //
+    // `total` used to be `all.length` — every campsite fetched so far.
+    // Chunks are deliberately never discarded, so that denominator grew
+    // as the reader dragged: "306 of 1 308" on one screen and "306 of
+    // 4 100" on the same screen after panning out and back. It answered
+    // no question a reader has.
+    //
+    // The visible area is a set they can see. It is also complete —
+    // every chunk overlapping the view is in hand by the time the state
+    // is `ready` — which is the argument `withinView` spells out.
+    const m = map.current;
+    const inView = m ? withinView(all, boundsOf(m)) : [];
+    const here = applyFilters(inView, state);
+    setTally({
+      shown: shown.length,
+      total: all.length,
+      unknownExcluded,
+      inViewShown: here.shown.length,
+      inViewTotal: inView.length,
+      inViewUnknownExcluded: here.unknownExcluded,
+    });
   };
 
   useEffect(() => {
@@ -961,12 +1073,14 @@ export default function CampsiteMap() {
           display mode. Here the map gets shorter and every control stays
           exactly where it was. */}
       <div className="mt-3">
+        {/* 🔴 The in-view numbers, not the fetched ones. CAMP-133: the
+            denominator a reader is given has to be a set they can see. */}
         <MapFilters
           state={filters}
           onChange={setFilters}
-          shown={tally.shown}
-          total={tally.total}
-          unknownExcluded={tally.unknownExcluded}
+          shown={tally.inViewShown}
+          total={tally.inViewTotal}
+          unknownExcluded={tally.inViewUnknownExcluded}
           dataState={dataState}
         />
       </div>
@@ -1010,9 +1124,22 @@ export default function CampsiteMap() {
         // also true before React has rendered anything.
         data-map-state={dataState.kind}
         data-active-source={active.id}
+        // 🔴 Two scopes, and each says which it is.
+        //
+        // `shown` / `total` / `unknown-excluded` are over everything
+        // FETCHED — the map's bookkeeping, and the barrier a spec uses
+        // for "a chunk has arrived".
+        //
+        // `in-view-*` are over the visible area: they are the numbers
+        // the panel prints, so a spec can check the sentence against
+        // them instead of against a set the reader cannot see.
+        // `data-in-view` itself is written by `publishCounts`, from the
+        // same `withinView` rule, at the map's own idle.
         data-shown={tally.shown}
         data-total={tally.total}
         data-unknown-excluded={tally.unknownExcluded}
+        data-in-view-total={tally.inViewTotal}
+        data-in-view-unknown-excluded={tally.inViewUnknownExcluded}
         className="h-[60vh] min-h-[360px] w-full overflow-hidden rounded-card border border-line-2"
       />
 

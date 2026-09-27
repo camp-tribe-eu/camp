@@ -28,11 +28,20 @@ import { filterCountLabel, type MapDataState } from '@/lib/map-chunks';
 interface Props {
   state: MapFilterState;
   onChange: (next: MapFilterState) => void;
-  /** Campsites currently drawn. */
+  /**
+   * Campsites drawn INSIDE THE VIEWPORT.
+   *
+   * 🔴 All three numbers are about the visible area, and the caller has
+   * to keep them that way. CAMP-133: `total` used to be every campsite
+   * fetched so far, and because chunks are never discarded it grew as
+   * the reader panned — "306 of 1 308" became "306 of 4 100" on the
+   * same screen. Mixing a viewport numerator with a fetched denominator
+   * would put that back.
+   */
   shown: number;
-  /** Total in the dataset, for "12 of 1079". */
+  /** Campsites in the viewport before filtering, for "12 of 47 in view". */
   total: number;
-  /** Dropped only for want of data — the honesty number. */
+  /** Dropped only for want of data, in the viewport — the honesty number. */
   unknownExcluded: number;
   /**
    * What the map is doing — which decides whether a count exists at all.

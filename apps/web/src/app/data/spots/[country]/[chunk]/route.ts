@@ -1,7 +1,5 @@
 import { apiFetch } from '@/lib/api';
-import type { Amenities, AmenityKey } from '@/lib/api';
-import { knownAmenities } from '@/lib/map-filter';
-import type { RegionSummary } from '@/lib/map-chunks';
+import { chunkBody, type ChunkMarker, type RegionSummary } from '@/lib/map-chunks';
 
 // CAMP-127: one region of the map, as its own file.
 //
@@ -14,34 +12,15 @@ import type { RegionSummary } from '@/lib/map-chunks';
 // Measured 24.09.2026: 812 chunks, the largest 1 433 campsites and the
 // median 26, covering all 61 557 — including the 135 that carry no region
 // at all, which get one chunk per country rather than disappearing.
+//
+// 🔴 CAMP-133: the body is built by `chunkBody`, not here. The index
+// records the byte length of each chunk so the map can refuse a view
+// that is too heavy, and it measures it by building the body with that
+// same function. A second copy of the shape here would make the index
+// describe a file nobody downloads.
 
 export const dynamic = 'force-static';
 export const dynamicParams = false;
-
-interface Marker {
-  slug: string;
-  name: string | null;
-  country: string;
-  region: string | null;
-  type: string;
-  lat: number;
-  lon: number;
-  amenities: Amenities;
-  /** 🔴 Null when the campsite has no page — see canonicalPath. */
-  path: string | null;
-}
-
-interface Feature {
-  type: 'Feature';
-  geometry: { type: 'Point'; coordinates: [number, number] };
-  properties: {
-    slug: string;
-    name: string | null;
-    type: string;
-    /** Null rather than a broken URL. The popup renders text instead. */
-    href: string | null;
-  } & Partial<Record<AmenityKey, 'yes' | 'no'>>;
-}
 
 export async function generateStaticParams() {
   const res = await apiFetch('/spots/map/regions');
@@ -73,7 +52,7 @@ export async function GET(
   if (!res.ok) {
     throw new Error(`Chunk ${country}/${slug} failed: ${res.status}`);
   }
-  const markers = (await res.json()) as Marker[];
+  const markers = (await res.json()) as ChunkMarker[];
 
   // 🔴 A chunk the index promised must not come back empty.
   //
@@ -87,22 +66,7 @@ export async function GET(
     );
   }
 
-  const features: Feature[] = markers.map((m) => ({
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
-    properties: {
-      slug: m.slug,
-      name: m.name,
-      type: m.type,
-      href: m.path,
-      // Only what is known — an absent key means unknown, which is what
-      // the filters already assume. See knownAmenities.
-      ...knownAmenities(m.amenities),
-    },
-  }));
-
-  return new Response(
-    JSON.stringify({ type: 'FeatureCollection', features }),
-    { headers: { 'content-type': 'application/geo+json; charset=utf-8' } },
-  );
+  return new Response(chunkBody(markers), {
+    headers: { 'content-type': 'application/geo+json; charset=utf-8' },
+  });
 }
