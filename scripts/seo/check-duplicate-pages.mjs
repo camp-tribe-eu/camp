@@ -82,6 +82,26 @@ const FAMILIES = [
     root: `${BUILD}/camper-rental`,
     keep: (rel) => rel.split(path.sep).length === 1,
   },
+  // 🔴 CAMP-3 / CAMP-45. A fourth family, added WITH the pages rather
+  // than after somebody notices.
+  //
+  // The comment on the family above says the remedy was "to give each
+  // page something of its own — and not to leave the directory
+  // unwatched". Route pages are the highest-risk family this site has:
+  // the card asked for ~50, and 50 pages of "N days in <place>" built
+  // from one paragraph is the textbook scaled-content pattern. Twelve
+  // were written instead, each with its own argument.
+  //
+  // Measured on the rendered pages the day they were written: the most
+  // similar pair of the 66 sits at 8.2% and the median at 6.8%, against
+  // this guard's 80% ceiling and against campsite pages that live near
+  // it. There is a very long way to fall before this fails — which is
+  // the point of wiring it up now, while the distance is real.
+  {
+    name: 'curated routes',
+    root: `${BUILD}/routes`,
+    keep: (rel) => rel.split(path.sep).length === 1,
+  },
 ];
 
 /** Deterministic sample: the same pages every run, so a rise is a change. */
