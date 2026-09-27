@@ -182,7 +182,7 @@ export default async function RentalCountryPage({
               className="underline"
               href={`/tools/camper-trip-cost/${c.code}`}
             >
-              Work out a {c.name} trip
+              Price a trip in {c.name}
             </Link>
             .
           </p>

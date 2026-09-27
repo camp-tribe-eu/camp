@@ -40,8 +40,8 @@ export const THRESHOLDS: Threshold[] = [
     what: 'Maximum authorised mass (MAM) — the loaded weight the vehicle is type-approved for, not what it weighs empty',
     decides: [
       'Whether an ordinary category B licence covers it at all. Above 3 500 kg you need C1, which is a separate test.',
-      'Which road-charging system you are in. ASFINAG sells the Austrian vignette to “cars, motorbikes and camper vans up to 3.5 tons”, and DARS sells the Slovenian e-vignette for vehicles “up to 3 500 kilograms”; above that, both countries move you into the distance-based systems built for lorries.',
-      'What winter equipment you must carry. Slovenia asks vehicles up to 3 500 kg for winter tyres on all four wheels and heavier vehicles for winter tyres on the driven wheels — the same number again, deciding something else.',
+      'Which road-charging system you are in. Austria and Slovenia both stop selling the vignette at this line and put heavier vehicles into the distance-based systems built for lorries — see their country pages for the wording each authority uses.',
+      'What winter equipment you must carry, and for how long. Sweden asks lighter vehicles for winter tyres between 1 December and 31 March when conditions demand, and heavier ones between 10 November and 10 April whatever the weather is doing.',
       'In several member states, a lower speed limit and different rules on which lanes you may use. The national road authority is the one to ask.',
     ],
     source: {

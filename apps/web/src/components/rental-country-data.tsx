@@ -11,6 +11,7 @@ import {
   type RentalCountry,
 } from '@/lib/rental';
 import { longDate } from '@/lib/fuel';
+import { AMENITY_LABEL } from '@/lib/api';
 
 // CAMP-4 — the part of a country page that is ours.
 //
@@ -76,15 +77,29 @@ export default function RentalCountryData({
             per region, {lead.place} spread of any of the {lead.of} member
             states we hold data for.
           </>
+        ) : lead.kind === 'share' ? (
+          <>
+            Of the {count(lead.total)} campsite records we hold for{' '}
+            {country.name},{' '}
+            <strong className="text-ink" data-testid="lead-value">
+              {count(lead.value)}
+            </strong>{' '}
+            {METRIC_LABEL[lead.metric]} — {percent(lead.share)}, {lead.place}{' '}
+            share among the {lead.of} member states in our data.
+          </>
         ) : (
+          // 🔴 A count and a share are different claims and the sentence
+          // keeps them apart. Germany leads on the absolute number of RV
+          // parks, not on the proportion — Ireland wins the proportion —
+          // and "31.1%, the highest number" was a sentence that read as
+          // though it claimed both.
           <>
             <strong className="text-ink" data-testid="lead-value">
               {count(lead.value)}
             </strong>{' '}
-            of our {count(lead.total)} {country.name} records{' '}
-            {METRIC_LABEL[lead.metric]} — {percent(lead.share)}, {lead.place}{' '}
-            {lead.kind === 'share' ? 'share' : 'number'} of the {lead.of} member
-            states in our data.
+            of our {country.name} records {METRIC_LABEL[lead.metric]}:{' '}
+            {lead.place} number among the {lead.of} member states in our
+            data, and {percent(lead.share)} of everything we hold there.
           </>
         )}
       </p>
@@ -109,10 +124,16 @@ export default function RentalCountryData({
         <tbody>
           {ROWS.map((key) => (
             <tr key={key} className="border-b border-line-2 last:border-0">
-              <th scope="row" className="py-2 font-normal text-ink-2">
-                {/* Sentence case, because the label completes a sentence
-                    the column header started. */}
-                {METRIC_LABEL[key].replace(/^record /, '')}
+              {/* 🔴 `text-left` is not decoration: a `th` defaults to
+                  centred, so the row labels sat in the middle of their
+                  column while the header above them was left-aligned.
+                  Caught by looking at the page, not by a test. */}
+              <th scope="row" className="py-2 text-left font-normal text-ink-2">
+                {/* 🔴 The same words the campsite pages and the map filters
+                    use for these fields, from lib/api.ts. Two vocabularies
+                    for one amenity is how a reader ends up believing they
+                    are two different amenities. */}
+                {AMENITY_LABEL[key]}
               </th>
               <td className="py-2 text-right tabular-nums text-ink">
                 {count(row[key])}
