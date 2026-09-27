@@ -337,10 +337,26 @@ function nearestNamed(
   doc: SearchDoc,
   ts: string[],
 ): { m: number; name: string } | undefined {
+  // 🔴 The NEAREST match, as it always was.
+  //
+  // CAMP-137 briefly ranked these by how much of the place's name the
+  // query explained, so that "499 m from Tolmin" would be shown instead
+  // of "273 m from Kmetijska Zadruga Tolmin Trgovina Market Bovec".
+  // That is a real improvement to the sentence and it was reverted,
+  // because `m` is also the ordering key: choosing a better-named place
+  // means choosing a LARGER number, and review measured the damage —
+  // `camping fermo` promoted a campsite six times farther from Fermo,
+  // `camping praha` moved the answer from 7.8 km to 24.5 km, and
+  // `castellon` began showing a bigger distance to a one-edit fuzzy
+  // match than to an exact one, inverting the bands this file calls
+  // inviolable.
+  //
+  // Naming the place well and ordering by distance want two different
+  // numbers out of this function, and giving them one is what went
+  // wrong. CAMP-140 carries the split.
   let closest: { m: number; name: string } | undefined;
   for (const place of doc.near) {
-    const folded = fold(place.name);
-    const words = folded.split(' ');
+    const words = fold(place.name).split(' ');
     const named = ts.some(
       (t) =>
         words.includes(t) ||
@@ -544,11 +560,97 @@ export function search(
     if (ok) matched.push({ doc: docs[d], scores: row });
   }
 
-  const hits: SearchHit[] = matched.map(({ doc, scores }) => {
+  // 🔴 Folded once per document, not once per keystroke per document.
+  //
+  // The first version folded the region, the country name and the
+  // campsite name inside this map — three `fold()` calls, a `split` and
+  // a `Set` for every matched document, on every keystroke. Review
+  // measured 1.5-1.9x on the short prefixes that make up most of what a
+  // reader types: `cam` 73 ms → 136 ms. A region slug is already
+  // lower-case ASCII, so the fold is nearly free, but doing it 61 422
+  // times per keystroke is not.
+  const regionCache = new Map<string, Set<string>>();
+  const wordsOf = (region: string) => {
+    let w = regionCache.get(region);
+    if (w === undefined) {
+      w = new Set(fold(region).split(' ').filter(Boolean));
+      regionCache.set(region, w);
+    }
+    return w;
+  };
+
+  const hits = matched.map(({ doc, scores }) => {
+    const regionWords = wordsOf(doc.region);
     let total = 0;
     for (let i = 0; i < scores.length; i++) total += scores[i] * weight[i];
     const place = nearestNamed(doc, ts);
-    return { doc, score: total, metres: place?.m, nearest: place?.name };
+    // 🔴 The REGION, and nothing else.
+    //
+    // This counted the campsite's own name and country too, and review
+    // measured what that does: `camping piaseczno` left a campsite 41 m
+    // from Piaseczno for "Resort Piaseczno" — a different Piaseczno,
+    // 528 km away, in another region. Having the word in your own NAME
+    // is not being in the place; it is the same coincidence as a shop
+    // named after a town, one level closer in. The country is worse
+    // still: it contributed 6 of 4 277 matches and narrows nothing.
+    //
+    // A region is different in kind. It is the only one of the three
+    // that means "the campsite is inside the area the reader named".
+    //
+    // 🔴 Only words that NARROW earn a point — and the first version of
+    // this comment claimed that rule could never fire. It was wrong.
+    //
+    // I removed the filter saying "no region is called camping", which
+    // is true and beside the point. Six words are BOTH above the 5%
+    // threshold and words of a region slug — as an exact word over
+    // `doc.text`, which is what `exact[]` above counts:
+    //
+    //   de 40.5%   la 17.0%   saint 7.6%   du 5.7%   l 5.4%   d 5.1%
+    //
+    // — pas-de-calais, bouches-du-rhone, la-rioja, seine-saint-denis,
+    // cote-d-or, val-d-oise. 2 257 campsites, 3.7% of the index, sit in
+    // such a region. Without the filter they collect a point for the
+    // word "du", and `camping du lac` stops answering with the campsite
+    // 0 m from a lake of that name and answers with Bouches-du-Rhône,
+    // 1.5 km from anything.
+    //
+    // (A count of "31 of 3 503 queries change" stood here. It was a
+    // number I took from a review rather than measured, and a later
+    // pass put it at 34. Removed rather than corrected: a figure I did
+    // not produce is a figure I cannot defend.)
+    //
+    // 🔴 `!common[i]`, not `required[i]`. The two differ exactly where
+    // it matters: when EVERY word of the query is common, `allCommon`
+    // makes them all required again — a sensible rule for deciding what
+    // must match, and the wrong one here. Measured, `camping saint`
+    // then collected a point for "saint" and answered with
+    // Seine-Saint-Denis and no distance at all, in place of a campsite
+    // 0 m from a place actually called Saint-something. The two forms
+    // differ on 12 of 3 503 realistic queries, every one of them a
+    // query whose every word is common, and `!common[i]` matches main
+    // on all of them.
+    //
+    // (`camping seine` was offered here as a second example and does
+    // not belong: "seine" is 0.6% of the index, so the two forms are
+    // identical there and the 16 m → 567 m move comes from `own`
+    // existing at all. Review caught it.)
+    //
+    // Being required is about whether a word must appear. Being common
+    // is about whether it identifies anything — and a word in 5% of the
+    // index identifies no region, whatever the query around it looks
+    // like.
+    let own = 0;
+    for (let i = 0; i < ts.length; i++) {
+      if (!common[i] && regionWords.has(ts[i])) own++;
+    }
+    return {
+      doc,
+      score: total,
+      metres: place?.m,
+      nearest: place?.name,
+      // Carried only as far as the sort below, then dropped.
+      own,
+    };
   });
 
   return hits
@@ -594,13 +696,84 @@ export function search(
       // 39 real queries and 0 of 200 000 randomised hit-sets, against
       // this comparator and against the previous one. A line that
       // cannot change an outcome misleads about what protects what.
+      // 🔴 CAMP-137: being IN the place you named beats being near
+      // something whose name contains the word.
+      //
+      // Distance was the only thing separating equal scores, and it
+      // answers a different question: "how far is the nearest thing
+      // whose name contains your word". Measured on the live index,
+      // `camping tolmin` returned `Camp Bovec`, forty kilometres from
+      // Tolmin, because a shop 273 m from it is called "Kmetijska
+      // Zadruga **Tolmin** Trgovina Market Bovec" — a cooperative FROM
+      // Tolmin running a store IN Bovec. The word is there; the town is
+      // not.
+      //
+      // 🔴 The first attempt scored how much of the place's NAME the
+      // query explained, and it broke five other queries to fix this
+      // one. That measure punishes long real names: "València - La Font
+      // de Sant Lluís" IS Valencia, and it lost to "Valencia de
+      // Alcántara" in Portugal for having six words instead of three.
+      // `camping gard` went to Sweden, because *gård* is an ordinary
+      // Swedish word and "Coop Ludvika Gård" matched it exactly.
+      //
+      // What every one of those cases had in common — including Tolmin
+      // — is that the right answer was the campsite IN the region the
+      // reader named, and the wrong one merely had a neighbour with the
+      // word in its name. So that is what is compared: how many of the
+      // query's words the document matches in its own REGION, rather
+      // than through something nearby.
+      //
+      // The region alone, and this sentence used to say "region,
+      // country or name". The code was corrected and the sentence was
+      // not, which is the shape of mistake this file exists to catch:
+      // the name is the coincidence one level in (`Resort Piaseczno`,
+      // 528 km from the Piaseczno the reader meant) and the country
+      // contributed 6 matches in 4 277.
+      //
+      // 🔴 The price, named and measured on THIS commit: compared
+      // before distance, a campsite inside the region with no recorded
+      // distance to anything outranks one just outside it standing next
+      // to the town. The "· N m from X" line therefore disappears from
+      // the top result on 5 of the 19 answers that change across the
+      // 4 216-place geometric corpus, and on 14 of 27 across a wider
+      // corpus of multi-word queries. `brda`, `rezeknes` and `limburg`
+      // are the visible cases: the region wins and the line goes.
+      //
+      // The rarity filter above removes part of that class and not
+      // most of it — 26 of 60 before it, 14 of 27 after, and no change
+      // at all on the geometric corpus. An earlier version of this
+      // comment quoted the pre-filter number and claimed "most", two
+      // paragraphs below a sentence about exactly that mistake.
+      //
+      // What remains is the genuine ambiguity between a town and the
+      // region named after it. CAMP-140 is where it is fixed.
+      if (b.own !== a.own) return b.own - a.own;
+      // 🔴 `quality` is NOT a sort key, and was.
+      //
+      // Sorting on it re-created the defect it was meant to remove, one
+      // rung lower: `camping fermo` promoted a campsite 13 592 m from
+      // Fermo over one 2 263 m from "Porto San Giorgio-Fermo", because
+      // one word of one beat two words of four. It also inverts the
+      // score bands this file calls inviolable — a one-edit fuzzy match
+      // at 30 x 1/1 outranks an exact word at 100 x 2/8 — and review
+      // found `castellon` doing exactly that, showing the reader a
+      // larger distance to a weaker match.
+      //
+      // It does not survive at all: `nearestNamed` went back to main's
+      // nearest-match-wins, because `m` is both the ordering key and the
+      // number the reader is shown, and one function cannot serve both.
+      // CAMP-140 splits them. Nothing tested `quality` as a sort key,
+      // and removing it left all 287 tests green — which is how it got
+      // in.
       const am = a.metres ?? Number.POSITIVE_INFINITY;
       const bm = b.metres ?? Number.POSITIVE_INFINITY;
       if (am !== bm) return am - bm;
       // Deterministic tiebreak — the same lesson as the map's ORDER BY.
       return a.doc.path.localeCompare(b.doc.path);
     })
-    .slice(0, limit);
+    .slice(0, limit)
+    // `own` orders the list; it does not describe a result.
+    .map(({ own, ...hit }) => (void own, hit));
 }
 
 // ---------------------------------------------------------------------

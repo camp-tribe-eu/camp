@@ -680,3 +680,114 @@ test.describe('a common word is a preference, a rare word is a requirement', () 
     expect(c.score / d.score).toBeCloseTo(60 / 30, 10);
   });
 });
+
+// 🔴 CAMP-137: a word in a neighbour's name is not the same as being
+// there.
+test.describe('being in the place beats being near a name that contains it', () => {
+  test('🔴 a shop named after a town does not make a campsite near it', () => {
+    // The measured case. `Camp Bovec` is forty kilometres from Tolmin,
+    // and a shop 273 m away is called "Kmetijska Zadruga Tolmin
+    // Trgovina Market Bovec" — a cooperative FROM Tolmin running a
+    // store IN Bovec. Distance alone put it first for `camping tolmin`,
+    // ahead of campsites actually in Tolmin.
+    const far = doc({
+      name: 'Camp Bovec', path: '/camping/si/bovec/camp-bovec',
+      country: 'si', region: 'bovec',
+      near: [{ name: 'Kmetijska Zadruga Tolmin Trgovina Market Bovec', m: 273 }],
+    });
+    const right = doc({
+      name: 'Kamp Siber', path: '/camping/si/tolmin/kamp-siber',
+      country: 'si', region: 'tolmin',
+      near: [{ name: 'Tolmin', m: 499 }],
+    });
+    const hits = search([far, right], 'tolmin');
+    expect(hits.map((h) => h.doc.name)).toEqual(['Kamp Siber', 'Camp Bovec']);
+  });
+
+  test('🔴 a long, real place name is not a weak match', () => {
+    // What the first attempt got wrong, kept as a regression test.
+    //
+    // It scored how much of the place's NAME the query explained, so
+    // "València - La Font de Sant Lluís" — which IS Valencia — lost to
+    // a three-word name in another country. Measured at the time:
+    // `camping valencia` went from Spain to Portugal. The region is
+    // what decides it now, and the region is right.
+    const spain = doc({
+      name: 'Camping Park El Saler', path: '/camping/es/valencia/el-saler',
+      country: 'es', region: 'valencia',
+      near: [{ name: 'València - La Font de Sant Lluís', m: 6661 }],
+    });
+    const portugal = doc({
+      name: 'Camping Asseiceira', path: '/camping/pt/portalegre/asseiceira',
+      country: 'pt', region: 'portalegre',
+      near: [{ name: 'Valencia de Alcántara', m: 9642 }],
+    });
+    const hits = search([portugal, spain], 'valencia');
+    expect(hits[0].doc.name).toBe('Camping Park El Saler');
+  });
+
+  test('🔴 the distance shown is still from the NEAREST match — and that is a known wart', () => {
+    // Deliberately asserting the imperfect behaviour, so that fixing it
+    // is a decision rather than an accident.
+    //
+    // CAMP-137 briefly made this report "499 m from Tolmin" instead of
+    // "273 m from Kmetijska Zadruga Tolmin Trgovina Market Bovec" — a
+    // better sentence, and reverted. `m` is also the ordering key, so
+    // preferring the better-named place means preferring a LARGER
+    // number: review measured `camping fermo` promoting a campsite six
+    // times farther from Fermo, and `camping praha` moving the answer
+    // from 7.8 km to 24.5 km.
+    //
+    // Naming the place well and ordering by distance want two different
+    // numbers out of one function. CAMP-140 splits them; until then the
+    // ordering is right and the sentence is sometimes odd, which is the
+    // way round we can live with.
+    const both = doc({
+      name: 'Kamp Siber', path: '/camping/si/tolmin/kamp-siber',
+      country: 'si', region: 'tolmin',
+      near: [
+        { name: 'Kmetijska Zadruga Tolmin Trgovina Market Bovec', m: 273 },
+        { name: 'Tolmin', m: 499 },
+      ],
+    });
+    const [hit] = search([both], 'tolmin');
+    expect(hit.metres).toBe(273);
+    expect(hit.nearest).toBe('Kmetijska Zadruga Tolmin Trgovina Market Bovec');
+  });
+
+  test('🔴 the word in your own NAME does not put you in the place', () => {
+    // Review's finding, measured on the live index: counting the
+    // campsite's own name alongside its region sent `camping piaseczno`
+    // from a site 41 m from Piaseczno to "Resort Piaseczno" — a
+    // different Piaseczno, 528 km away, in another region. Having the
+    // town's name in your name is the same coincidence as a shop named
+    // after it, one level closer in.
+    const named = doc({
+      name: 'Resort Piaseczno', path: '/camping/pl/lublin/resort',
+      country: 'pl', region: 'lublin', near: [{ name: 'Piaseczno', m: 204 }],
+    });
+    const actuallyThere = doc({
+      name: 'Pole namiotowe', path: '/camping/pl/west-pomeranian/pole',
+      country: 'pl', region: 'west-pomeranian', near: [{ name: 'Piaseczno', m: 41 }],
+    });
+    const hits = search([named, actuallyThere], 'piaseczno');
+    expect(hits[0].doc.name).toBe('Pole namiotowe');
+    expect(hits[0].metres).toBe(41);
+  });
+
+  test('distance still decides between two campsites in the same region', () => {
+    // The signal only separates documents that differ in WHERE the word
+    // matched. When both are in the region, the old rule stands.
+    const near = doc({
+      name: 'Kamp Near', path: '/camping/si/tolmin/near',
+      country: 'si', region: 'tolmin', near: [{ name: 'Tolmin', m: 400 }],
+    });
+    const far = doc({
+      name: 'Kamp Far', path: '/camping/si/tolmin/far',
+      country: 'si', region: 'tolmin', near: [{ name: 'Tolmin', m: 4000 }],
+    });
+    const hits = search([far, near], 'tolmin');
+    expect(hits.map((h) => h.doc.name)).toEqual(['Kamp Near', 'Kamp Far']);
+    expect(hits.map((h) => h.metres)).toEqual([400, 4000]);
+  });
+});
