@@ -201,6 +201,22 @@ export function overlaps(
 export const VIEW_BUDGET_BYTES = 1_500_000;
 
 /**
+ * The most a single campsite has ever weighed in a chunk, measured.
+ *
+ * 🔴 Only a fallback, and only for one case: an index served from a
+ * cache that predates `bytes`. `undefined` would make the sum NaN, and
+ * `NaN > budget` is false — so a stale index would switch the safeguard
+ * off silently, which is the exact failure shape this project keeps
+ * finding. Measured 27.09.2026 across all 812 chunks: 172 B per
+ * campsite at best, 253 median, 402 at worst. The worst case is the
+ * only honest number to guess with.
+ */
+const WORST_BYTES_PER_CAMPSITE = 402;
+
+const weightOf = (r: RegionSummary): number =>
+  Number.isFinite(r.bytes) ? r.bytes : r.count * WORST_BYTES_PER_CAMPSITE;
+
+/**
  * Which chunks a viewport needs, nearest the middle first.
  *
  * 🔴 Ordered, because the order is what the reader sees. Fetches are
@@ -247,7 +263,7 @@ export function chunksInView(
     if (seen.has(key)) continue;
     seen.add(key);
     keys.push(key);
-    bytes += r.bytes;
+    bytes += weightOf(r);
   }
   return { keys, tooMany: bytes > budgetBytes, bytes };
 }

@@ -274,13 +274,16 @@ export class MapQueryService {
     // punctuation, so "Nord-Pas-de-Calais" and "Nord Pas de Calais"
     // would slugify alike. `= ANY` takes all of them, which is the same
     // set the JS filter used to keep.
+    //
+    // 🔴 `$2` is always bound, even when the array is empty, so the
+    // parameter list and the SQL can never disagree about how many
+    // placeholders there are. An empty array makes `= ANY` false for
+    // every row, which is exactly right when the only match is the
+    // region-less chunk.
     const where = unplaced
-      ? named.length > 0
-        ? '(region = ANY($2::text[]) OR region IS NULL)'
-        : 'region IS NULL'
+      ? '(region = ANY($2::text[]) OR region IS NULL)'
       : 'region = ANY($2::text[])';
-    const params: unknown[] = [country];
-    if (where.includes('$2')) params.push(named);
+    const params: unknown[] = [country, named];
 
     const rows = await this.db.query(
       `SELECT slug, name, country, region, type, amenities,

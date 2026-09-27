@@ -168,6 +168,21 @@ test('🔴 the weight is counted once per FILE, not once per region row', () => 
   expect(out.bytes).toBe(25_000);
 });
 
+test('🔴 an index with no weights does not switch the safeguard off', () => {
+  // An index served from a cache older than `bytes` would make the sum
+  // NaN, and `NaN > budget` is false — the bound would silently stop
+  // existing. It falls back to the measured worst case per campsite
+  // (402 B, 27.09.2026) instead, so it still refuses a heavy view.
+  const stale = [
+    { ...region({ slug: 'a', count: 3000 }), bytes: undefined as unknown as number },
+    { ...region({ slug: 'b', count: 3000 }), bytes: undefined as unknown as number },
+  ];
+  const out = chunksInView(stale, view());
+  expect(Number.isFinite(out.bytes)).toBe(true);
+  expect(out.bytes).toBe(6000 * 402);
+  expect(out.tooMany).toBe(true);
+});
+
 test('the budget is a real number of bytes, below what CAMP-127 called unviable', () => {
   // 🔴 A guard on the constant itself. CAMP-127 argued one world file
   // was unviable at 2.4 MB; a "budget" above that bounds nothing. And
