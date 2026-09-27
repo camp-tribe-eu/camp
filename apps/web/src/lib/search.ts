@@ -336,42 +336,39 @@ function fuzzyScore(words: string[], term: string): number {
 function nearestNamed(
   doc: SearchDoc,
   ts: string[],
-): { m: number; name: string; quality: number } | undefined {
-  let best: { m: number; name: string; quality: number } | undefined;
+): { m: number; name: string } | undefined {
+  // 🔴 The NEAREST match, as it always was.
+  //
+  // CAMP-137 briefly ranked these by how much of the place's name the
+  // query explained, so that "499 m from Tolmin" would be shown instead
+  // of "273 m from Kmetijska Zadruga Tolmin Trgovina Market Bovec".
+  // That is a real improvement to the sentence and it was reverted,
+  // because `m` is also the ordering key: choosing a better-named place
+  // means choosing a LARGER number, and review measured the damage —
+  // `camping fermo` promoted a campsite six times farther from Fermo,
+  // `camping praha` moved the answer from 7.8 km to 24.5 km, and
+  // `castellon` began showing a bigger distance to a one-edit fuzzy
+  // match than to an exact one, inverting the bands this file calls
+  // inviolable.
+  //
+  // Naming the place well and ordering by distance want two different
+  // numbers out of this function, and giving them one is what went
+  // wrong. CAMP-140 carries the split.
+  let closest: { m: number; name: string } | undefined;
   for (const place of doc.near) {
     const words = fold(place.name).split(' ');
-    // How well the query explains this NAME, not merely whether it
-    // appears in it. See the comment on `quality` below.
-    let matched = 0;
-    let band = 0;
-    for (const w of words) {
-      let hit = 0;
-      for (const t of ts) {
-        if (w === t) hit = Math.max(hit, EXACT_WORD);
-        else if (w.startsWith(t)) hit = Math.max(hit, PREFIX);
-        else if (
-          tolerance(t) > 0 &&
-          editDistance(w, t, tolerance(t)) <= tolerance(t)
-        ) {
-          hit = Math.max(hit, 30);
-        }
-      }
-      if (hit > 0) {
-        matched++;
-        band = Math.max(band, hit);
-      }
-    }
-    if (matched === 0) continue;
-    const quality = band * (matched / words.length);
-    if (
-      best === undefined ||
-      quality > best.quality ||
-      (quality === best.quality && place.m < best.m)
-    ) {
-      best = { m: place.m, name: place.name, quality };
+    const named = ts.some(
+      (t) =>
+        words.includes(t) ||
+        words.some((w) => w.startsWith(t)) ||
+        (tolerance(t) > 0 &&
+          words.some((w) => editDistance(w, t, tolerance(t)) <= tolerance(t))),
+    );
+    if (named && (closest === undefined || place.m < closest.m)) {
+      closest = { m: place.m, name: place.name };
     }
   }
-  return best;
+  return closest;
 }
 
 export interface SearchOptions {
@@ -563,19 +560,54 @@ export function search(
     if (ok) matched.push({ doc: docs[d], scores: row });
   }
 
+  // 🔴 Folded once per document, not once per keystroke per document.
+  //
+  // The first version folded the region, the country name and the
+  // campsite name inside this map — three `fold()` calls, a `split` and
+  // a `Set` for every matched document, on every keystroke. Review
+  // measured 1.5-1.9x on the short prefixes that make up most of what a
+  // reader types: `cam` 73 ms → 136 ms. A region slug is already
+  // lower-case ASCII, so the fold is nearly free, but doing it 61 422
+  // times per keystroke is not.
+  const regionCache = new Map<string, Set<string>>();
+  const wordsOf = (region: string) => {
+    let w = regionCache.get(region);
+    if (w === undefined) {
+      w = new Set(fold(region).split(' ').filter(Boolean));
+      regionCache.set(region, w);
+    }
+    return w;
+  };
+
   const hits = matched.map(({ doc, scores }) => {
+    const regionWords = wordsOf(doc.region);
     let total = 0;
     for (let i = 0; i < scores.length; i++) total += scores[i] * weight[i];
     const place = nearestNamed(doc, ts);
-    // What the campsite matches in its OWN words — its region, its
-    // country, its name — as opposed to a neighbour's.
-    const mine = new Set(
-      `${fold(doc.region)} ${fold(countryName(doc.country))} ${fold(doc.name)}`
-        .split(' ')
-        .filter(Boolean),
-    );
+    // 🔴 The REGION, and nothing else.
+    //
+    // This counted the campsite's own name and country too, and review
+    // measured what that does: `camping piaseczno` left a campsite 41 m
+    // from Piaseczno for "Resort Piaseczno" — a different Piaseczno,
+    // 528 km away, in another region. Having the word in your own NAME
+    // is not being in the place; it is the same coincidence as a shop
+    // named after a town, one level closer in. The country is worse
+    // still: it contributed 6 of 4 277 matches and narrows nothing.
+    //
+    // A region is different in kind. It is the only one of the three
+    // that means "the campsite is inside the area the reader named".
+    //
+    // 🔴 No rarity filter here, and one was written and removed.
+    //
+    // It read `if (required[i] && …)`, to stop a word that narrows
+    // nothing from earning a point. Measured, it changed nothing: with
+    // only the region counted, the words it would have excluded are
+    // never region words — no region is called "camping" — and for a
+    // one-word query the `allCommon` guard above makes every term
+    // required anyway. A condition that cannot fire is the defect this
+    // file keeps finding in itself, so it is not left in.
     let own = 0;
-    for (const t of ts) if (mine.has(t)) own++;
+    for (const t of ts) if (regionWords.has(t)) own++;
     return {
       doc,
       score: total,
@@ -583,7 +615,6 @@ export function search(
       nearest: place?.name,
       // Carried only as far as the sort below, then dropped.
       own,
-      quality: place?.quality ?? 0,
     };
   });
 
@@ -657,9 +688,21 @@ export function search(
       // query's words the document matches in its OWN region, country
       // or name, rather than through something nearby.
       if (b.own !== a.own) return b.own - a.own;
-      // Then how well the nearest named place matched, which is what
-      // separates two campsites that are both in the right region.
-      if (b.quality !== a.quality) return b.quality - a.quality;
+      // 🔴 `quality` is NOT a sort key, and was.
+      //
+      // Sorting on it re-created the defect it was meant to remove, one
+      // rung lower: `camping fermo` promoted a campsite 13 592 m from
+      // Fermo over one 2 263 m from "Porto San Giorgio-Fermo", because
+      // one word of one beat two words of four. It also inverts the
+      // score bands this file calls inviolable — a one-edit fuzzy match
+      // at 30 x 1/1 outranks an exact word at 100 x 2/8 — and review
+      // found `castellon` doing exactly that, showing the reader a
+      // larger distance to a weaker match.
+      //
+      // It survives only where it was earned: choosing WHICH nearby
+      // place to name in "499 m from Tolmin", inside `nearestNamed`.
+      // Nothing tested it as a sort key, and removing it there left all
+      // 287 tests green — which is how it got in.
       const am = a.metres ?? Number.POSITIVE_INFINITY;
       const bm = b.metres ?? Number.POSITIVE_INFINITY;
       if (am !== bm) return am - bm;
@@ -668,7 +711,7 @@ export function search(
     })
     .slice(0, limit)
     // `quality` exists to order the list, not to describe a result.
-    .map(({ own: _own, quality: _quality, ...hit }) => hit);
+    .map(({ own: _own, ...hit }) => hit);
 }
 
 // ---------------------------------------------------------------------

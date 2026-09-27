@@ -705,10 +705,13 @@ test.describe('being in the place beats being near a name that contains it', () 
   });
 
   test('🔴 a long, real place name is not a weak match', () => {
-    // What the first attempt got wrong. It scored how much of the
-    // place's NAME the query explained, so "València - La Font de Sant
-    // Lluís" — which IS Valencia — lost to a three-word name in another
-    // country. Measured: `camping valencia` went from Spain to Portugal.
+    // What the first attempt got wrong, kept as a regression test.
+    //
+    // It scored how much of the place's NAME the query explained, so
+    // "València - La Font de Sant Lluís" — which IS Valencia — lost to
+    // a three-word name in another country. Measured at the time:
+    // `camping valencia` went from Spain to Portugal. The region is
+    // what decides it now, and the region is right.
     const spain = doc({
       name: 'Camping Park El Saler', path: '/camping/es/valencia/el-saler',
       country: 'es', region: 'valencia',
@@ -723,15 +726,22 @@ test.describe('being in the place beats being near a name that contains it', () 
     expect(hits[0].doc.name).toBe('Camping Park El Saler');
   });
 
-  test('🔴 and the distance shown is FROM the town, not from the shop', () => {
-    // The other half of the same defect, and the half the ordering
-    // tests cannot see. When one campsite is near both, the sentence
-    // under it should read "499 m from Tolmin" — not "273 m from
-    // Kmetijska Zadruga Tolmin Trgovina Market Bovec", which is closer
-    // and answers a question nobody asked.
+  test('🔴 the distance shown is still from the NEAREST match — and that is a known wart', () => {
+    // Deliberately asserting the imperfect behaviour, so that fixing it
+    // is a decision rather than an accident.
     //
-    // This is what the coverage half of `quality` is for: the term is
-    // the whole of one name and one word of six in the other.
+    // CAMP-137 briefly made this report "499 m from Tolmin" instead of
+    // "273 m from Kmetijska Zadruga Tolmin Trgovina Market Bovec" — a
+    // better sentence, and reverted. `m` is also the ordering key, so
+    // preferring the better-named place means preferring a LARGER
+    // number: review measured `camping fermo` promoting a campsite six
+    // times farther from Fermo, and `camping praha` moving the answer
+    // from 7.8 km to 24.5 km.
+    //
+    // Naming the place well and ordering by distance want two different
+    // numbers out of one function. CAMP-140 splits them; until then the
+    // ordering is right and the sentence is sometimes odd, which is the
+    // way round we can live with.
     const both = doc({
       name: 'Kamp Siber', path: '/camping/si/tolmin/kamp-siber',
       country: 'si', region: 'tolmin',
@@ -741,8 +751,28 @@ test.describe('being in the place beats being near a name that contains it', () 
       ],
     });
     const [hit] = search([both], 'tolmin');
-    expect(hit.nearest).toBe('Tolmin');
-    expect(hit.metres).toBe(499);
+    expect(hit.metres).toBe(273);
+    expect(hit.nearest).toBe('Kmetijska Zadruga Tolmin Trgovina Market Bovec');
+  });
+
+  test('🔴 the word in your own NAME does not put you in the place', () => {
+    // Review's finding, measured on the live index: counting the
+    // campsite's own name alongside its region sent `camping piaseczno`
+    // from a site 41 m from Piaseczno to "Resort Piaseczno" — a
+    // different Piaseczno, 528 km away, in another region. Having the
+    // town's name in your name is the same coincidence as a shop named
+    // after it, one level closer in.
+    const named = doc({
+      name: 'Resort Piaseczno', path: '/camping/pl/lublin/resort',
+      country: 'pl', region: 'lublin', near: [{ name: 'Piaseczno', m: 204 }],
+    });
+    const actuallyThere = doc({
+      name: 'Pole namiotowe', path: '/camping/pl/west-pomeranian/pole',
+      country: 'pl', region: 'west-pomeranian', near: [{ name: 'Piaseczno', m: 41 }],
+    });
+    const hits = search([named, actuallyThere], 'piaseczno');
+    expect(hits[0].doc.name).toBe('Pole namiotowe');
+    expect(hits[0].metres).toBe(41);
   });
 
   test('distance still decides between two campsites in the same region', () => {
