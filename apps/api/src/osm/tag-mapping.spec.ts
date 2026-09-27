@@ -1,6 +1,8 @@
 import {
   AmenityValue,
+  cleanWebsite,
   mapAmenities,
+  mapContact,
   mapSpotType,
   resolveAmenity,
 } from './tag-mapping';
@@ -459,5 +461,178 @@ describe('rule.no outranks the global truthy set, and nothing else moved', () =>
     expect(
       resolveAmenity('toilets', { 'toilets:disposal': 'none' }).value,
     ).toBe(AmenityValue.NO);
+  });
+});
+
+describe('contact — CAMP-141', () => {
+  it('reads the plain tags and the contact: prefixed ones', () => {
+    expect(
+      mapContact({ website: 'https://a.example', phone: '+386 5 388 60 00' }),
+    ).toEqual({ website: 'https://a.example/', phone: '+386 5 388 60 00' });
+    expect(
+      mapContact({
+        'contact:website': 'b.example',
+        'contact:phone': '+43 1 2',
+      }),
+    ).toEqual({ website: 'https://b.example/', phone: '+43 1 2' });
+  });
+
+  it('prefers the plain tag when a site carries both', () => {
+    const c = mapContact({
+      website: 'https://plain.example',
+      'contact:website': 'https://prefixed.example',
+    });
+    expect(c.website).toBe('https://plain.example/');
+  });
+
+  it('🔴 keeps ONE phone number, because tel: cannot dial two', () => {
+    // OSM packs several numbers into one tag with ';'. The page strips
+    // everything but digits and '+' to build `tel:`, so the pair became
+    // `tel:+33492578177+33680133950`, which dials neither — 157 live
+    // rows did exactly that.
+    expect(
+      mapContact({ phone: '+33 4 92 57 81 77 ; +33 6 80 13 39 50' }).phone,
+    ).toBe('+33 4 92 57 81 77');
+    expect(mapContact({ phone: '+386 5 388 60 00' }).phone).toBe(
+      '+386 5 388 60 00',
+    );
+  });
+
+  it('refuses a phone that carries no digit at all', () => {
+    for (const bad of ['ask at reception', 'see website', '---']) {
+      expect([bad, mapContact({ phone: bad }).phone]).toEqual([bad, undefined]);
+    }
+  });
+
+  it('🔴 refuses a social network or a booking marketplace', () => {
+    // A Facebook page is not the campsite, and `sameAs` would claim it
+    // is. Measured on live data: 81 campsites pointed at one of these,
+    // the largest single host being aireparkreservation.com with 49.
+    for (const bad of [
+      'https://www.facebook.com/Fermedelhorloge/',
+      'https://www.booking.com/hotel/fr/x.html',
+      'https://www.tripadvisor.com/Hotel_Review-x',
+      'https://instagram.com/camping',
+      'https://aireparkreservation.com/spot/1',
+    ]) {
+      expect([bad, cleanWebsite(bad)]).toEqual([bad, undefined]);
+    }
+  });
+
+  it('🔴 does NOT refuse a campsite whose name contains one of those words', () => {
+    // The filter's first version tested the words as substrings of the
+    // hostname, and review found three real campsites losing their own
+    // website to it — a guard meant to protect campsites deleting
+    // campsites, silently, along with their sameAs.
+    for (const good of [
+      'https://lepresaintandre.com',
+      'https://aucarresainteloi.com',
+    ]) {
+      expect([good, cleanWebsite(good)]).toEqual([good, `${good}/`]);
+    }
+  });
+
+  it("🔴 keeps a campsite's own booking subdomain", () => {
+    // The second version matched any DNS label, which threw away
+    // reservation.fermedugueric.fr — the campsite's own booking page on
+    // its own domain. The registrable domain is what decides.
+    expect(cleanWebsite('https://reservation.fermedugueric.fr')).toBe(
+      'https://reservation.fermedugueric.fr/',
+    );
+  });
+
+  it('does not touch regional tourism portals or chains', () => {
+    // Measured: the commonest values in this field are tourism portals
+    // and campsite chains — campingcarpark.com on 476 sites,
+    // valdeloire-france.com on 45. Whether a reader would rather have a
+    // page ABOUT the campsite than nothing is a product question with
+    // numbers attached (CAMP-142), not something a regex decides quietly.
+    for (const kept of [
+      'https://valdeloire-france.com/x',
+      'https://campingcarpark.com/x',
+    ]) {
+      expect([kept, cleanWebsite(kept)]).toEqual([kept, kept]);
+    }
+  });
+
+  it('🔴 a house number with no street is not a street address', () => {
+    // `addr:housenumber=24` alone became `streetAddress: "24"` — 144
+    // live rows, and 242 more waiting in staging.
+    expect(mapContact({ 'addr:housenumber': '24' }).address).toBeUndefined();
+    expect(
+      mapContact({ 'addr:housenumber': '24', 'addr:city': 'Bovec' }).address,
+    ).toEqual({ city: 'Bovec' });
+  });
+
+  it('🔴 refuses a website that is not http', () => {
+    // These go into an anchor on the page and into JSON-LD that Google
+    // reads. OSM values are whatever a mapper typed.
+    for (const bad of [
+      'javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'ftp://files.example.com',
+      'not a url at all',
+      'localhost',
+      '',
+    ]) {
+      expect([bad, cleanWebsite(bad)]).toEqual([bad, undefined]);
+    }
+  });
+
+  it('gives a bare domain https, and keeps a real one intact', () => {
+    expect(cleanWebsite('www.camping.example')).toBe(
+      'https://www.camping.example/',
+    );
+    expect(cleanWebsite('http://plain.example/path')).toBe(
+      'http://plain.example/path',
+    );
+  });
+
+  it('🔴 drops a capacity it would have to guess at', () => {
+    expect(mapContact({ capacity: '120' }).capacity).toBe(120);
+    for (const bad of ['approx 120', '120-150', 'many', '0', '-5', '1.5']) {
+      expect([bad, mapContact({ capacity: bad }).capacity]).toEqual([
+        bad,
+        undefined,
+      ]);
+    }
+  });
+
+  it('refuses an email that is a note rather than an address', () => {
+    expect(mapContact({ email: 'a@b.example' }).email).toBe('a@b.example');
+    for (const bad of [
+      'ask at reception',
+      'a@b',
+      '@b.example',
+      'a b@c.example',
+    ]) {
+      expect([bad, mapContact({ email: bad }).email]).toEqual([bad, undefined]);
+    }
+  });
+
+  it('builds an address only from the parts that exist', () => {
+    expect(mapContact({ 'addr:city': 'Bovec' }).address).toEqual({
+      city: 'Bovec',
+    });
+    expect(
+      mapContact({
+        'addr:street': 'Trg golobarskih žrtev',
+        'addr:housenumber': '8',
+      }).address,
+    ).toEqual({ street: 'Trg golobarskih žrtev 8' });
+    expect(mapContact({}).address).toBeUndefined();
+  });
+
+  it('strips control characters and bounds the length', () => {
+    expect(mapContact({ operator: 'Camp\u0000ing  Ltd\n' }).operator).toBe(
+      'Camp ing Ltd',
+    );
+    expect(mapContact({ operator: 'x'.repeat(300) }).operator).toHaveLength(
+      121,
+    );
+  });
+
+  it('an untagged campsite yields an empty object, not nulls', () => {
+    expect(mapContact({})).toEqual({});
   });
 });

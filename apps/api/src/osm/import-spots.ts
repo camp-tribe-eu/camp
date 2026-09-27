@@ -20,7 +20,7 @@
 
 import 'dotenv/config';
 import { Client } from 'pg';
-import { mapAmenities, mapSpotType, OsmTags } from './tag-mapping';
+import { mapAmenities, mapContact, mapSpotType, OsmTags } from './tag-mapping';
 import { isEuMemberState } from './eu';
 
 const COUNTRY = (process.argv[2] ?? '').toUpperCase();
@@ -251,7 +251,8 @@ function slugify(name: string | null, osmRef: string): string {
  */
 export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            (name, country, region, slug, type, amenities, location,
-            osm_ref, last_seen_at, missing_since, content_changed_at, sources)
+            osm_ref, last_seen_at, missing_since, content_changed_at, sources,
+            contact)
          -- 🔴 $8::text in BOTH places, not just in the JSON below.
          --
          -- osm_ref is character varying, so an uncast $8 here made
@@ -269,13 +270,27 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
                  jsonb_build_array(jsonb_build_object(
                    'id', 'osm', 'ref', $8::text,
                    'updatedAt', to_char($9::timestamptz, 'YYYY-MM-DD'),
-                   'fields', '["name","location","amenities"]'::jsonb)))
+                   -- 🔴 CAMP-141 adds "contact" here, and the page prints
+                   -- this list as "what this source gave us". A field we
+                   -- write and do not declare is an attribution that lies
+                   -- by omission.
+                   'fields', '["name","location","amenities","contact"]'::jsonb)),
+                 $10)
          ON CONFLICT (osm_ref) DO UPDATE SET
            name          = EXCLUDED.name,
            country       = EXCLUDED.country,
            region        = EXCLUDED.region,
            type          = EXCLUDED.type,
            amenities     = EXCLUDED.amenities,
+           -- 🔴 CAMP-141. Safe to overwrite: this column holds only what
+           -- OSM said, and the reader-facing code merges it with the
+           -- website column DATAtourisme filled. That column itself is
+           -- NOT in this list, for the same reason owner_overrides is
+           -- not: a weekly import must not quietly outrank a better
+           -- source. (Backticks are deliberately absent here — this is
+           -- inside a template literal, and the first draft of this
+           -- comment ended the string and broke the build.)
+           contact       = EXCLUDED.contact,
            location      = EXCLUDED.location,
            last_seen_at  = EXCLUDED.last_seen_at,
            missing_since = NULL,
@@ -299,11 +314,11 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            content_changed_at = CASE
              WHEN (camping_spots.name, camping_spots.country,
                    camping_spots.region, camping_spots.type,
-                   camping_spots.amenities)
+                   camping_spots.amenities, camping_spots.contact)
                   IS DISTINCT FROM
                   (EXCLUDED.name, EXCLUDED.country,
                    EXCLUDED.region, EXCLUDED.type,
-                   EXCLUDED.amenities)
+                   EXCLUDED.amenities, EXCLUDED.contact)
                OR NOT ST_Equals(camping_spots.location, EXCLUDED.location)
              THEN EXCLUDED.last_seen_at
              ELSE camping_spots.content_changed_at
@@ -582,6 +597,7 @@ async function main(): Promise<void> {
       }
 
       const amenities = mapAmenities(row.tags);
+      const contact = mapContact(row.tags);
       const type = mapSpotType(row.tags).type;
 
       const res = await db.query(UPSERT_SPOT_SQL, [
@@ -594,6 +610,7 @@ async function main(): Promise<void> {
         row.point_wkt,
         row.osm_ref,
         startedAt,
+        JSON.stringify(contact),
       ]);
       if (res.rows[0]?.was_insert) inserted++;
       else updated++;
