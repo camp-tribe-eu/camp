@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # CAMP-134: everything that has to be asked of the FULL dataset, in order.
 #
-#   ./scripts/scale-check/run.sh               probes only  (~5 s)
+#   ./scripts/scale-check/run.sh               probes only  (~10 s)
 #   ./scripts/scale-check/run.sh --with-pages  probes + a browser pass
+#   ./scripts/scale-check/run.sh --pages-only  the browser pass alone
 #   ./scripts/scale-check/run.sh --rehearse    prove every probe can fail
 #
 # 🔴 WHY THERE IS A SEPARATE RUNNER AT ALL.
@@ -32,10 +33,19 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 WITH_PAGES=0
+# 🔴 `--pages-only` exists so the workflow does not run the probes twice.
+#
+# The workflow runs the probes in their own step (they are seconds, and a
+# failure there should be readable on its own) and then the browser stage.
+# With only `--with-pages` the second call repeated the probes — harmless,
+# but a log that runs the same check twice makes a reader wonder which one
+# counted. By hand, `--with-pages` is still the one you want.
+SKIP_PROBES=0
 REHEARSE=0
 for arg in "$@"; do
   case "$arg" in
     --with-pages) WITH_PAGES=1 ;;
+    --pages-only) WITH_PAGES=1; SKIP_PROBES=1 ;;
     --rehearse|--self-test) REHEARSE=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
@@ -164,7 +174,7 @@ if [ "$REHEARSE" = 1 ]; then
     node scripts/scale-check/check-osm-columns.mjs --self-test
   step "the map snapshot guard, rehearsed" \
     node scripts/scale-check/check-map-index.mjs --self-test
-else
+elif [ "$SKIP_PROBES" = 0 ]; then
   step "OSM context export: columns against the Postgres ceiling" \
     node scripts/scale-check/check-osm-columns.mjs
   step "the map index and its chunks" \

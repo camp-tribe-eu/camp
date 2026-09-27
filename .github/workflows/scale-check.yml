@@ -195,7 +195,8 @@ jobs:
       - name: The map and the search, in a browser, at full scale
         id: pages
         if: github.event_name != 'workflow_dispatch' || inputs.with-pages
-        run: ./scripts/scale-check/run.sh --with-pages
+        # `--pages-only`: the probes already ran in their own step above.
+        run: ./scripts/scale-check/run.sh --pages-only
 
       # 🔴 `always()`, and that is the point of the step: `retries: 1`
       # means a test that fails then passes leaves the job green, so the
