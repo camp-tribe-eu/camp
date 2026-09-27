@@ -295,9 +295,22 @@ test.describe('the packed index', () => {
     // `near`.
     packed.v = 1;
     expect(() => unpackIndex(packed as never)).toThrow(/not supported/);
+    // 🔴 CAMP-138 added version 2 to this list, which is the version a
+    // browser is holding TODAY. See the stale-file tests below for why
+    // it is refused rather than read.
+    packed.v = 2;
+    expect(() => unpackIndex(packed as never)).toThrow(/not supported/);
     packed.v = 99;
     expect(() => unpackIndex(packed as never)).toThrow(/not supported/);
     expect(() => unpackIndex(undefined as never)).toThrow(/not supported/);
+  });
+
+  test('the version written is the version the reader accepts', () => {
+    // 🔴 Bump one and not the other and every chunk is refused on the
+    // first load — a dead search, not a degraded one. This is the pair
+    // that must move together.
+    expect(packIndex(docs).v).toBe(3);
+    expect(() => unpackIndex(packIndex(docs))).not.toThrow();
   });
 
   test('searching the unpacked index finds what searching the original does', () => {
@@ -391,6 +404,211 @@ test.describe('what the packed index stops sending', () => {
       expect(search(back, q).map((h) => h.doc.path), `query "${q}"`)
         .toEqual(search(docs, q).map((h) => h.doc.path));
     }
+  });
+});
+
+// ── CAMP-138: the place names, stored once ────────────────────────────
+//
+// 🔴 Measured on the live index 27.09.2026: 207 994 nearby-place entries
+// hold 33 778 distinct names, each written 6.16 times. Storing each once
+// takes the index from 8.98 MB to 5.20 MB of JSON (−42.1%) and the heap
+// it holds from 42.2 MiB to 37.4 MiB (−11.4%).
+//
+// The saving only exists if the names really are shared, and the
+// correctness only holds if an index into the table can never point at
+// the wrong name. Neither is visible in a document that comes back
+// looking right, so both are asserted directly.
+
+test.describe('the shared place-name table', () => {
+  const near = (...ns: [string, number][]) =>
+    ns.map(([name, m]) => ({ name, m }));
+
+  const site = (slug: string, ns: [string, number][]): SearchDoc => {
+    const base = {
+      kind: 'campsite' as const,
+      path: `/camping/si/bovec/${slug}`,
+      country: 'si',
+      region: 'bovec',
+      name: `Camp ${slug}`,
+      near: near(...ns),
+    };
+    return { ...base, text: searchText(base) };
+  };
+
+  // Three campsites near the same two places, which is the shape the
+  // whole card is about: on the live index every name is used 6.16
+  // times.
+  const docs = [
+    site('a', [['Bovec', 300], ['Soča', 1200]]),
+    site('b', [['Bovec', 900], ['Soča', 150]]),
+    site('c', [['Bovec', 2400]]),
+  ];
+
+  test('a name used by several campsites is written once', () => {
+    const packed = packIndex(docs);
+    expect(packed.p).toEqual(['Bovec', 'Soča']);
+    // 🔴 The saving only exists if the name really is absent from the
+    // rows — the same check the path and the haystack already get. Five
+    // uses of two names must leave two copies in the file, not five.
+    const body = JSON.stringify(packed);
+    expect(body.split('Bovec').length - 1).toBe(1);
+    expect(body.split('Soča').length - 1).toBe(1);
+  });
+
+  test('every name and every distance comes back exactly', () => {
+    const back = unpackIndex(packIndex(docs));
+    expect(back).toEqual(docs);
+    // Spelled out as well as deep-compared, because `toEqual` on the
+    // whole document is the assertion that goes quiet when a field is
+    // dropped from both sides at once.
+    expect(back[0].near).toEqual([
+      { name: 'Bovec', m: 300 },
+      { name: 'Soča', m: 1200 },
+    ]);
+    expect(back[1].near).toEqual([
+      { name: 'Bovec', m: 900 },
+      { name: 'Soča', m: 150 },
+    ]);
+    expect(back[2].near).toEqual([{ name: 'Bovec', m: 2400 }]);
+  });
+
+  test('🔴 the same place keeps a different distance for each campsite', () => {
+    // The name is shared; the metres are not. Pairing a name with the
+    // wrong distance is the failure that survives every check built on
+    // `text`, because `m` is not in `text` at all — and `m` is both the
+    // ordering key and the number the reader is shown as «300 m from
+    // Bovec».
+    const back = unpackIndex(packIndex(docs));
+    const metres = back.map((d) => d.near.find((n) => n.name === 'Bovec')!.m);
+    expect(metres).toEqual([300, 900, 2400]);
+  });
+
+  test('🔴 two names that fold alike stay two names', () => {
+    // 1 470 of the 33 778 live place names share a folded form with
+    // another — "Spar"/"SPAR", "Nah & Frisch"/"Nah&Frisch" — across
+    // 26 781 of the 207 994 entries. The haystack cannot tell them
+    // apart, so an index that swapped them would round-trip with an
+    // identical `text` and a wrong name under the reader's eyes.
+    const pair = [
+      site('d', [['Spar', 100], ['SPAR', 200]]),
+      site('e', [['SPAR', 300]]),
+    ];
+    const packed = packIndex(pair);
+    expect(packed.p).toEqual(['Spar', 'SPAR']);
+    const back = unpackIndex(packed);
+    expect(back[0].near).toEqual([
+      { name: 'Spar', m: 100 },
+      { name: 'SPAR', m: 200 },
+    ]);
+    expect(back[1].near).toEqual([{ name: 'SPAR', m: 300 }]);
+  });
+
+  test('order within a row is preserved', () => {
+    // `nearestNamed` takes the minimum so order does not change an
+    // answer today, and the format must not be the reason that becomes
+    // untrue silently.
+    const reversed = site('f', [['Soča', 9000], ['Bovec', 10]]);
+    expect(unpackIndex(packIndex([reversed]))[0].near).toEqual([
+      { name: 'Soča', m: 9000 },
+      { name: 'Bovec', m: 10 },
+    ]);
+  });
+
+  test('searching the unpacked index finds what searching the original does', () => {
+    const back = unpackIndex(packIndex(docs));
+    for (const q of ['bovec', 'soca', 'slovenia', 'camp']) {
+      const a = search(docs, q);
+      const b = search(back, q);
+      expect(b.map((h) => h.doc.path), `query "${q}"`).toEqual(
+        a.map((h) => h.doc.path),
+      );
+      // The distance and the place shown beside each hit, not just the
+      // order — those come straight out of the table.
+      expect(b.map((h) => [h.metres, h.nearest]), `query "${q}"`).toEqual(
+        a.map((h) => [h.metres, h.nearest]),
+      );
+    }
+    expect(search(back, 'bovec').length).toBeGreaterThan(0);
+  });
+});
+
+// ── CAMP-138: a cached file from before the format changed ────────────
+
+test.describe('a stale chunk is refused, not read', () => {
+  /**
+   * A real version 2 file, written out by hand.
+   *
+   * 🔴 Not `packIndex(...)` with `v` overwritten. That produces version
+   * 3 bytes wearing a version 2 label, which proves nothing about the
+   * file a browser is actually holding: chunks are served
+   * `max-age=3600` with no content hash in the URL, so for an hour
+   * after this ships, `/data/search/at.json` in a cache is these bytes
+   * — `near` as `[{name, m}]`, and no `p` at all.
+   */
+  const staleV2 = {
+    v: 2,
+    c: ['at'],
+    r: ['burgenland'],
+    d: [
+      ['CamÖ', 0, 0, 0, [{ name: 'Rust', m: 5315 }, { name: 'Spar', m: 1964 }]],
+      ['Camping Neusiedl', 0, 0, 0, [{ name: 'Rust', m: 800 }]],
+    ],
+  };
+
+  test('🔴 the version is refused, and the message says which one', () => {
+    expect(() => unpackIndex(staleV2 as never)).toThrow(
+      /search index format 2 is not supported/,
+    );
+  });
+
+  test('🔴 it is refused although it would otherwise read cleanly', () => {
+    // This is the whole reason the version check has to exist. The rows
+    // are well-formed: right length, right country, right region, right
+    // slugs. Reading them as version 3 loses nothing a caller could
+    // notice — `row[4]` is still an array of the right length, and
+    // `e[0]`/`e[1]` on each `{name, m}` are simply `undefined`.
+    //
+    // Measured on the real `at.json` by deleting the gate: 868 rows out,
+    // the count the table of contents expects, with all 3 081 nearby
+    // places holding `{name: undefined, m: undefined}` — and because
+    // `Array.join` renders `undefined` as nothing, the haystack loses
+    // the places rather than gaining a marker:
+    //
+    //   "camo burgenland austria rust neusiedler see ferto spar …"
+    //   →  "camo burgenland austria"
+    //
+    // Searching `rust` then returns 8 campsites on the correct index and
+    // throws `TypeError: text is not iterable` on this one.
+    //
+    // So the rows are not detectably broken; only `v` says so.
+    expect(staleV2.d).toHaveLength(2);
+    expect(staleV2.d.every((row) => Array.isArray(row[4]))).toBe(true);
+    expect(() => unpackIndex(staleV2 as never)).toThrow(/not supported/);
+  });
+
+  test('🔴 the count a stale chunk reports is NOT enough to catch it', () => {
+    // site-search.tsx compares a chunk's row count against the table of
+    // contents and refuses a mismatch. Measured on this change, 26 of
+    // the 27 countries keep both their id and their campsite count, so
+    // for 26 of them that check stays silent on a stale file. This
+    // fixture is one of them: the same rows, one format older.
+    const fresh = packIndex(
+      staleV2.d.map((row) => {
+        const name = row[0] as string;
+        const base = {
+          kind: 'campsite' as const,
+          path: `/camping/at/burgenland/${slugFromName(name)}`,
+          country: 'at',
+          region: 'burgenland',
+          name,
+          near: row[4] as { name: string; m: number }[],
+        };
+        return { ...base, text: searchText(base) };
+      }),
+    );
+    expect(fresh.d).toHaveLength(staleV2.d.length);
+    // Same count, different format. Only `v` separates them.
+    expect(fresh.v).not.toBe(staleV2.v);
   });
 });
 

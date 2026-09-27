@@ -81,6 +81,18 @@ export async function GET(
       'Content-Type': 'application/json; charset=utf-8',
       // Immutable in spirit: a chunk's contents change only when the
       // import does, and then the whole site is rebuilt.
+      //
+      // 🔴 In practice it is not immutable, and there is no content
+      // hash in this URL to say so. For an hour after any deploy a
+      // browser may hand its own cached copy of this exact path to a
+      // reader. Two things catch that: the row count, which the table
+      // of contents states and site-search.tsx compares, and the format
+      // version inside the body, which `unpackIndex` refuses when it is
+      // not the one it writes. CAMP-138 measured that the count is
+      // silent for 26 of the 27 countries, so the version is the half
+      // that does the work — which is the reason it is not lenient
+      // about old formats, and the reason to think hard before
+      // lengthening this number.
       'Cache-Control': 'public, max-age=3600',
     },
   });

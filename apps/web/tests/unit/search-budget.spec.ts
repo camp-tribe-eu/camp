@@ -1,6 +1,6 @@
 import { gzipSync } from 'node:zlib';
 import { expect, test } from '@playwright/test';
-import { packIndex, type SearchDoc } from '@/lib/search';
+import { packIndex, searchText, type SearchDoc } from '@/lib/search';
 import {
   MAX_BYTES,
   RAW_MAX_BYTES,
@@ -61,19 +61,51 @@ const doc = (
 ) => ({ name: `Camping Number ${i}`, country, region: `r${i % 40}`, slug: `c${i}`, near });
 
 /**
+ * How often one place name is expected to repeat across the index.
+ *
+ * 🔴 CAMP-138. This fixture used a pool of EIGHT names, and under
+ * format 2 that was invisible: every entry was written out in full
+ * whatever it said, so eight names and fifty thousand cost the same
+ * bytes. Format 3 stores each name once, and the pool size became the
+ * single thing the fixture's size depends on — eight names across
+ * 330 000 entries is one name repeated 41 250 times, where the live
+ * index repeats each 6.16 times (207 994 entries, 33 778 names,
+ * measured 27.09.2026).
+ *
+ * So the fixture stopped crossing the ceiling it exists to cross: the
+ * raw test failed, and the honest fix is a realistic pool rather than a
+ * smaller expectation.
+ *
+ * 🔴 It also fixes a claim this file was already making and not
+ * keeping. The docstring below says these documents "compress the way
+ * our real data does: raw / gzip = 4.7". With eight names they
+ * compressed at 10.4. At 6.16 they measure 4.7 — the number that was
+ * written here all along.
+ */
+const NAME_REPEAT = 6.16;
+
+/**
  * Text-shaped documents, which compress the way our real data does.
- * Measured on the live index: raw / gzip = 4.7.
+ * Measured on the live index: raw / gzip = 4.7, and each place name
+ * used 6.16 times. Both, because format 3 is sensitive to the second.
  */
 function compressible(count: number, places: number): SearchDoc[] {
-  const names = [
+  const base = [
     'Saint-Étienne-de-Montluc', 'La Loire', 'Gare de Nantes', 'Lac de Grand-Lieu',
     'Boulangerie du Port', 'Sainte-Pazanne', 'La Sèvre Nantaise', 'Montaigu-Vendée',
   ];
+  // Real French place names with a discriminator, so the pool is the
+  // right SIZE while the strings stay the right shape for gzip.
+  const names = Array.from(
+    { length: Math.max(1, Math.round((count * places) / NAME_REPEAT)) },
+    (_, i) => `${base[i % base.length]} ${i}`,
+  );
   return toSearchDocs(
     Array.from({ length: count }, (_, i) =>
       doc(i % 2 ? 'fr' : 'de', i,
         Array.from({ length: places }, (_, k) => ({
-          name: names[(i + k) % names.length], m: 100 + ((i * 37 + k) % 9000),
+          name: names[(i * places + k) % names.length],
+          m: 100 + ((i * 37 + k) % 9000),
         }))),
     ),
   );
@@ -114,9 +146,11 @@ test.describe('the ceilings on the search index', () => {
   });
 
   test('🔴 the RAW ceiling is the one wired to raw bytes', () => {
-    // Measured: 14.5 MB of JSON, 1.4 MB gzipped. Over the 12 MB raw
-    // ceiling and comfortably under the 5 MB download one — at the
-    // SHIPPED defaults, so swapping the two makes this fail.
+    // Measured at format 3: 13.84 MB of JSON, 2.92 MB gzipped, ratio
+    // 4.7. Over the 12 MB raw ceiling and comfortably under the 5 MB
+    // download one — at the SHIPPED defaults, so swapping the two makes
+    // this fail. (It read 14.5 MB / 1.4 MB before CAMP-138, on the
+    // eight-name pool that NAME_REPEAT replaced.)
     const docs = compressible(55_000, 6);
     let message = '';
     try {
@@ -140,8 +174,14 @@ test.describe('the ceilings on the search index', () => {
     // 12 MB — the only shape that reaches this check, and the reason it
     // is not decoration. The window is narrow on purpose: with ceilings
     // of 12 MB raw and 5 MB gzipped, this check speaks first only below
-    // a ratio of 2.4, and random text measures 2.0 where our own data
-    // measures 4.7. Measured here: 11.2 MB raw, 5.6 MB gzipped.
+    // a ratio of 2.4, and random text measures 1.7 where our own data
+    // measures 4.7. Measured at format 3: 9.95 MB raw, 5.91 MB gzipped.
+    //
+    // 🔴 The shared table cannot help this fixture and that is the
+    // point: 240 000 entries hold 240 000 DISTINCT names, so format 3
+    // dedups nothing here and only adds the indices. An index that
+    // stops being text stops benefiting from this card, which is the
+    // same reason the compressed ceiling exists at all.
     const docs = random(12_000, 20);
     let message = '';
     try {
@@ -192,5 +232,92 @@ test.describe('the ceilings on the search index', () => {
     const { plan, total, sent } = checkedPlan(compressible(2_000, 4));
     expect(plan.length).toBeGreaterThan(0);
     expect(sent).toBeLessThan(total / 2);
+  });
+
+  // ── CAMP-138: the round trip covers the distances, not just the count ──
+
+  test('🔴 the round-trip check refuses a distance that does not survive', () => {
+    // 🔴 This test exists because the check it exercises was a LENGTH
+    // comparison — `a.near.length !== b.near.length` — and a length was
+    // very nearly enough while `near` was carried verbatim. Format 3
+    // stores each name as an index into a shared table, so a packing
+    // bug now produces rows of exactly the right length holding the
+    // wrong places.
+    //
+    // 🔴 The other five fields cannot cover it. `text` is built from
+    // the place NAMES, so it catches most name damage — but it is
+    // folded, and `m` is not in it in any form. A distance is both the
+    // ordering key for a place query and the number shown as «300 m
+    // from Bovec».
+    //
+    // So the probe is a distance JSON cannot carry. `Infinity` is what
+    // a geometry step produces when it divides by zero, and
+    // `JSON.stringify` turns it into `null`: the name survives, the
+    // count survives, `text` is byte-identical, and the metres come
+    // back as something else entirely. Restore the length-only check
+    // and this passes.
+    const docs = compressible(10, 2);
+    docs[3] = {
+      ...docs[3],
+      near: [{ ...docs[3].near[0], m: Number.POSITIVE_INFINITY }, docs[3].near[1]],
+    };
+    let message = '';
+    try {
+      checkedPlan(docs);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message, 'expected the round trip to refuse this').toMatch(
+      /does not round-trip at row \d+/,
+    );
+    // And it names the campsite, so a build failure points somewhere.
+    expect(message).toContain(docs[3].path);
+  });
+
+  test('🔴 the round-trip check refuses a NAME that does not survive', () => {
+    // 🔴 This test exists because the mutation matrix found its absence.
+    // Deleting the name comparison from the round-trip check — leaving
+    // it looking only at the metres — left all 300 tests green, because
+    // no fixture fed it a name that fails to round-trip. A check nothing
+    // can make fire is the defect this repository keeps finding in its
+    // own safeguards.
+    //
+    // The probe is the string-side twin of the `Infinity` one above: a
+    // value JSON cannot carry. `undefined` survives `JSON.stringify` as
+    // `null`, so the name comes back as something else while everything
+    // around it matches.
+    //
+    // 🔴 `text` has to be rebuilt after the damage, or this passes for
+    // the wrong reason. `searchText` joins the place names, and
+    // `Array.join` renders BOTH `undefined` and `null` as nothing — so
+    // with the haystack recomputed, `a.text === b.text` and the name
+    // comparison is the only line left that can notice.
+    const docs = compressible(10, 2);
+    const broken = {
+      ...docs[3],
+      near: [
+        { name: undefined as unknown as string, m: docs[3].near[0].m },
+        docs[3].near[1],
+      ],
+    };
+    docs[3] = { ...broken, text: searchText(broken) };
+
+    let message = '';
+    try {
+      checkedPlan(docs);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message, 'expected the round trip to refuse this').toMatch(
+      /does not round-trip at row \d+/,
+    );
+    expect(message).toContain(docs[3].path);
+  });
+
+  test('the same index without that damage round-trips fine', () => {
+    // 🔴 The other half of the pair. Without it, a check that threw on
+    // EVERY index would pass the two tests above and nobody would notice
+    // until the build stopped.
+    expect(() => checkedPlan(compressible(10, 2))).not.toThrow();
   });
 });

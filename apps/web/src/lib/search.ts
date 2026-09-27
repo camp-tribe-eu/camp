@@ -806,7 +806,10 @@ export function search(
 // `search()` and every type above are untouched: the packing happens on
 // write and the unpacking on read, so nothing downstream knows.
 
-/** Country codes and region names, each stored once and referenced by index. */
+/**
+ * Country codes, region names and place names: each stored once in its
+ * own table and referenced by index. See `PackedIndex`.
+ */
 /**
  * The slug a campsite's name would produce, or null when it would not.
  *
@@ -840,31 +843,100 @@ export interface PackedIndex {
   /**
    * Format version, so an old cached file cannot be read as a new one.
    *
-   * 🔴 2 since CAMP-129 dropped `text`. A version 1 file read as 2 would
-   * put the folded haystack where places-nearby belong — not a crash, a
-   * wrong page. The reader refuses instead.
+   * 🔴 3 since CAMP-138 moved place names into a shared table. Version 2
+   * carried `near` as `[{name, m}, …]`; version 3 carries it as
+   * `[[placeIdx, m], …]`.
+   *
+   * Read a version 2 file with the version 3 reader and it does NOT
+   * fail: `row[4]` is still an array of the right length, so
+   * `e[0]`/`e[1]` on each `{name, m}` object are simply `undefined`.
+   * Measured on the live index by deleting the gate below and feeding it
+   * the real `at.json`: 868 rows out — the right count, so the table of
+   * contents' count check passes — with all 3 081 nearby places holding
+   * `{name: undefined, m: undefined}`.
+   *
+   * 🔴 And `text` does not go wrong loudly, it goes wrong QUIETLY,
+   * because `Array.join` renders `undefined` as nothing rather than as
+   * the word. The haystack loses the places instead of gaining a marker:
+   *
+   *   "camo burgenland austria rust neusiedler see ferto spar schutzen
+   *    ruster strasse"
+   *   →  "camo burgenland austria"
+   *
+   * — on all 868 of them. Searching `rust` then returns 8 campsites on
+   * the correct index and throws `TypeError: text is not iterable`
+   * inside `nearestNamed` on this one. Not a crash where it is caught,
+   * and then a crash where it is not: exactly the "wrong page" version
+   * 2's own note warned about, one format later. The reader refuses
+   * instead — see `unpackIndex`, which is where the transition is
+   * decided and why it is decided that way.
    */
-  v: 2;
+  v: 3;
   c: string[];
   r: string[];
   /**
+   * Place names, each stored once.
+   *
+   * 🔴 This is the whole card. Measured on the live index 27.09.2026:
+   * 207 994 nearby-place entries hold only 33 778 distinct names, so
+   * every name was written 6.16 times on average. Storing each once and
+   * referencing it takes the index from 8 984 521 to 5 201 286 raw
+   * bytes — 8.98 MB → 5.20 MB, −42.1% — and 29 files to 28, because
+   * France now needs two pieces instead of three.
+   */
+  p: string[];
+  /**
    * `[name, countryIdx, regionIdx, slug | 0, near?]`
    *
-   * `text` is derived, and `slug` is 0 when it is exactly what the name
-   * produces — which it is for 71% of rows.
+   * `text` is derived, `slug` is 0 when it is exactly what the name
+   * produces — which it is for 71% of rows — and `near` is
+   * `[placeIdx, metres]` pairs into `p`.
    */
-  d: (string | number | { name: string; m: number }[])[][];
+  d: (string | number | [number, number][])[][];
 }
 
 export function packIndex(docs: SearchDoc[]): PackedIndex {
-  const c: string[] = [];
-  const r: string[] = [];
-  const idx = (list: string[], value: string) => {
-    const at = list.indexOf(value);
-    if (at >= 0) return at;
-    list.push(value);
-    return list.length - 1;
+  // 🔴 A Map beside each table, not `indexOf` over it.
+  //
+  // `indexOf` was fine for the two tables that existed: 27 countries and
+  // 794 regions, scanned 61 422 times. The place table is 33 778 names
+  // looked up 207 994 times, and a linear scan over it is quadratic in
+  // exactly the thing this card makes bigger. Measured on the live
+  // index, packing all 28 chunks once — which is one of the several
+  // passes a build makes:
+  //
+  //   Map       46 ms        indexOf      315 ms      6.8x
+  //
+  // and the same docs packed as ONE group, where the table reaches its
+  // full 33 778 rather than a country's worth:
+  //
+  //   Map       34 ms        indexOf    3 800 ms      112x
+  //
+  // The per-chunk number is the one we pay today and the whole-index
+  // number is what it grows into, since a chunk is capped at 1.5 MB
+  // while the table behind it is not.
+  //
+  // 🔴 The indices are identical to `indexOf`'s — both hand out
+  // positions in first-seen order — and that is asserted rather than
+  // assumed: packing 5 000 live rows both ways produces byte-identical
+  // JSON. This changes what a lookup costs, not what it answers.
+  const table = () => {
+    const list: string[] = [];
+    const at = new Map<string, number>();
+    return {
+      list,
+      idx(value: string): number {
+        const found = at.get(value);
+        if (found !== undefined) return found;
+        at.set(value, list.length);
+        list.push(value);
+        return list.length - 1;
+      },
+    };
   };
+  const c = table();
+  const r = table();
+  const p = table();
 
   const d = docs.map((doc) => {
     // 🔴 The slug is recovered from the path rather than carried
@@ -872,10 +944,10 @@ export function packIndex(docs: SearchDoc[]): PackedIndex {
     // a second source for the same string is a second thing to get
     // wrong. `/camping/<country>/<region>/<slug>` — the last segment.
     const slug = doc.path.slice(doc.path.lastIndexOf('/') + 1);
-    const row: (string | number | { name: string; m: number }[])[] = [
+    const row: (string | number | [number, number][])[] = [
       doc.name,
-      idx(c, doc.country),
-      idx(r, doc.region),
+      c.idx(doc.country),
+      r.idx(doc.region),
       // 🔴 0, not an empty string: an empty string is a legitimate slug
       // to be wrong about, and `''` beside `'0'` in a hand-read file is
       // a mistake waiting to happen. A number says "derive it"; a string
@@ -896,15 +968,55 @@ export function packIndex(docs: SearchDoc[]): PackedIndex {
     // a fresh import, a country loaded before its context — and a row
     // that ends early is what `unpackIndex` already expects. Kept as a
     // cheap invariant, not as a saving it no longer makes.
-    if (doc.near.length > 0) row.push(doc.near);
+    if (doc.near.length > 0) {
+      row.push(doc.near.map((n) => [p.idx(n.name), n.m] as [number, number]));
+    }
     return row;
   });
 
-  return { v: 2, c, r, d };
+  return { v: 3, c: c.list, r: r.list, p: p.list, d };
 }
 
 export function unpackIndex(packed: PackedIndex): SearchDoc[] {
-  if (packed?.v !== 2) {
+  // 🔴 Version 3 ONLY, and version 2 is refused along with the rest.
+  //
+  // A browser can be holding a version 2 chunk when this ships, and
+  // reading it would be easy: `v` says which format it is, so a second
+  // branch here could unpack it correctly. That is deliberately not
+  // done, for two reasons that are about this file's URLs rather than
+  // about the formats.
+  //
+  // 🔴 The version is the only staleness signal these URLs have.
+  //
+  // Chunks are served `max-age=3600` with no content hash in the URL
+  // (see app/data/search/[chunk]/route.ts), so `/data/search/at.json`
+  // from an hour ago and the one being served now are indistinguishable
+  // to a browser — and to us. The table of contents catches a stale
+  // chunk only when the COUNT changed, which is the check in
+  // site-search.tsx. Measured on this change: 26 of the 27 countries
+  // keep both their id and their campsite count, so for 26 of them that
+  // check stays silent and the version number is the only thing left
+  // saying "this file predates the deploy". (France is the one that
+  // does not: it goes from three pieces to two, so `fr-1` grows from
+  // 7 882 rows to 11 823 and `fr-3` stops existing — the count check
+  // and a 404 cover those.) Accepting v2 would spend the one signal
+  // these URLs have, to save one hour of degraded search.
+  //
+  // 🔴 And a v2 branch here is a branch nothing writes.
+  //
+  // `packIndex` emits v3, so `checkedPlan`'s per-chunk round trip — the
+  // only thing that exercises this function against real data on every
+  // build — could never reach it. An unexercised guard is the defect
+  // this repository keeps finding in its own safeguards; adding one on
+  // purpose, in the function whose failure mode is "the wrong
+  // campsite", is not a trade worth making.
+  //
+  // What the reader gets instead is loud, and it is already built: the
+  // throw lands in the catch in site-search.tsx, the part is counted as
+  // failed, and `partialNotice` says how many parts could not be loaded
+  // and that every campsite in them is still reachable from the country
+  // list. One reload past the hour and it is gone.
+  if (packed?.v !== 3) {
     // A cached file from before this change, or a truncated download.
     // Returning junk would show a reader a search that silently finds
     // nothing; an empty index at least makes the page say so.
@@ -913,7 +1025,27 @@ export function unpackIndex(packed: PackedIndex): SearchDoc[] {
   return packed.d.map((row) => {
     const country = packed.c[row[1] as number];
     const region = packed.r[row[2] as number];
-    const near = (row[4] as { name: string; m: number }[]) ?? [];
+    // 🔴 The names are SHARED, not copied. Every entry naming the same
+    // place hands back the same string, and that is where the heap
+    // saving is: measured on the live index, 42.2 MiB held → 37.4 MiB,
+    // −11.4%, because 207 994 separate strings became 33 778 referenced
+    // 207 994 times. V8 does not do this for us — 4.8 MiB across
+    // 174 216 strings is about 29 bytes each, which is a short string
+    // plus its header, so `JSON.parse` was genuinely allocating one per
+    // entry.
+    //
+    // 🔴 Nothing in the suite would notice if this stopped. Rebuilding
+    // the name here — `.slice()`, a template, anything that returns a
+    // fresh string — gives identical documents, identical searches and
+    // an identical file, and quietly gives back the heap this card was
+    // for. There is no assertion for string identity in JavaScript;
+    // what holds this is the measurement above, repeated when it
+    // changes. Said plainly rather than covered by a test that would
+    // only look like one.
+    const near = ((row[4] as [number, number][]) ?? []).map((e) => ({
+      name: packed.p[e[0]],
+      m: e[1],
+    }));
     const name = row[0] as string;
     // 0 means "the name produces it". Anything else is carried verbatim
     // because the name could not — see slugFromName.
