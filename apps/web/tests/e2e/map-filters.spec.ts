@@ -818,10 +818,19 @@ test.describe('/map filters', () => {
       await page.mouse.down();
       await page.mouse.move(cx + dx, cy + dy, { steps: 12 });
       await page.mouse.up();
-      await expect(map(page)).toHaveAttribute('data-map-state', 'ready', {
-        timeout: 20_000,
-      });
+      // 🔴 "not loading", not "ready", for the detour: the view halfway
+      // out may be too heavy for markers, and that is a legitimate
+      // state to pass through. Only the view we come back to has to be
+      // ready, and it is the one we opened with.
+      await expect
+        .poll(async () => map(page).getAttribute('data-map-state'), {
+          timeout: 20_000,
+        })
+        .not.toBe('loading');
     }
+    await expect(map(page)).toHaveAttribute('data-map-state', 'ready', {
+      timeout: 20_000,
+    });
 
     const loadedNow = Number(await map(page).getAttribute('data-total'));
     expect(
