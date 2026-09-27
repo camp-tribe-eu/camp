@@ -374,16 +374,19 @@ function nearestNamed(
   let closest: { m: number; name: string } | undefined;
   for (const place of doc.near) {
     const words = fold(place.name).split(' ');
-    // 🔴 ONE clause for the alias, not two. The first draft had
-    // `words.includes(a)` as well, in the same shape as the two lines
-    // above it — and a word that IS the alias also starts with it, so
-    // the extra clause could never change the answer. It was caught by
-    // a mutation that should have failed and did not: disabling the
-    // `includes` left the test green, because the prefix line below was
-    // doing the work all along. The same is arguably true of
-    // `words.includes(t)` on the line above, which main has always
-    // carried as a cheaper first try on strict equality; that one is
-    // left where it is rather than changed under this card.
+    // 🔴 ONE clause for the alias, not two.
+    //
+    // The first draft also had `words.includes(a)`, mirroring what the
+    // typed word gets — and a word that IS the alias also starts with
+    // it, so that clause could never change an answer. What exposed it
+    // was a mutation that should have been caught and was not:
+    // disabling the `includes` left every test green, because the
+    // prefix clause had been doing the work all along.
+    //
+    // The same is arguably true of `words.includes(t)` below, which
+    // main has always carried as a cheaper first try on strict
+    // equality. That one is left alone — it is not this card's line to
+    // change, and it costs a comparison rather than a claim.
     const named = ts.some((t, i) => {
       const a = alias[i];
       return (
