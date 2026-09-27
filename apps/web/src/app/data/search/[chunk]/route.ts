@@ -81,6 +81,28 @@ export async function GET(
       'Content-Type': 'application/json; charset=utf-8',
       // Immutable in spirit: a chunk's contents change only when the
       // import does, and then the whole site is rebuilt.
+      //
+      // 🔴 In practice it is not immutable, and there is no content
+      // hash in this URL to say so: one build's body and the next live
+      // at the same address, so some cache somewhere may hand a reader
+      // an old one.
+      //
+      // 🔴 How long is NOT something this line establishes. CAMP-90
+      // found that Cloudflare Pages serves the built files itself and
+      // never runs Next's header logic, and the generated
+      // `public/_headers` sets no `Cache-Control` for `/data/search/*`
+      // at all — so this header is what `next start` honours and what
+      // we ask for, not a measured property of production, which is
+      // still unsettled. Treat the window as unknown rather than as an
+      // hour.
+      //
+      // Two things catch a stale body: the row count, which the table
+      // of contents states and site-search.tsx compares, and the format
+      // version inside it, which `unpackIndex` refuses when it is not
+      // the one it writes. CAMP-138 measured the count silent for 26 of
+      // the 27 countries, so the version is the half that does the work
+      // — which is why it is not lenient about old formats, and why
+      // lengthening this number deserves more thought than it looks.
       'Cache-Control': 'public, max-age=3600',
     },
   });
