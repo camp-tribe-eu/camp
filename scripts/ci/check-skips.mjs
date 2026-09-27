@@ -34,6 +34,7 @@
 
 import { readFileSync } from 'node:fs';
 import { argv, exit } from 'node:process';
+import { pathToFileURL } from 'node:url';
 
 /**
  * Every test the run declined to execute.
@@ -93,6 +94,70 @@ export function countTests(report) {
   };
   for (const suite of report.suites ?? []) walk(suite);
   return n;
+}
+
+/** Every spec file the report contains, for `--require`. */
+export function filesInReport(report) {
+  const files = new Set();
+  const walk = (suite) => {
+    for (const spec of suite.specs ?? []) if (spec.file) files.add(spec.file);
+    for (const child of suite.suites ?? []) walk(child);
+  };
+  for (const suite of report.suites ?? []) walk(suite);
+  return [...files];
+}
+
+/**
+ * The decision, as a pure function.
+ *
+ * 🔴 It lives here rather than inline in the CLI because the first
+ * version's `--self-test` drove the WALKER and never the verdict, and
+ * review demonstrated two one-token mutations that survived it:
+ * `found.length > max + 1` let one skip through at a budget of zero, and
+ * `total < 0` made an empty report print "✓ every test ran". Both are
+ * this file's own subject surviving this file's own rehearsal, while the
+ * CI step calling it is titled "still catches a test that did not run" —
+ * a claim about the verdict.
+ *
+ * @returns {{ok: boolean, errors: string[]}}
+ */
+export function verdict({ total, found, max, required = [], files = [] }) {
+  const errors = [];
+
+  // 🔴 A run that executed nothing reports zero skips.
+  if (total === 0) {
+    errors.push(
+      'the report contains no tests at all. A run that executed nothing ' +
+        'reports zero skips, which is the kind of clean result this check ' +
+        'exists to disbelieve.',
+    );
+  }
+
+  // 🔴 `--require`, and this is the hole review reproduced on tape.
+  //
+  // It took the real 300-test report, deleted ranking-quality.spec.ts
+  // from it, and got: "295 tests, 0 of them skipped ✓ every test ran",
+  // exit 0. A budget of zero cannot tell "nothing declined" from
+  // "nothing was there to decline" — so a rename, a move out of testDir,
+  // a testIgnore, or a grep that stops matching takes the five tests
+  // this whole mechanism exists to run, and leaves a tick behind.
+  //
+  // Matched against the spec FILE, and it names what went missing rather
+  // than quoting a count somebody has to maintain.
+  for (const want of required) {
+    if (!files.some((f) => f.includes(want))) {
+      errors.push(
+        `no test from \`${want}\` is in this report. It was required, so ` +
+          'its absence is a failure rather than a smaller run.',
+      );
+    }
+  }
+
+  if (found.length > max) {
+    errors.push(`${found.length} test(s) did not run, against a budget of ${max}`);
+  }
+
+  return { ok: errors.length === 0, errors };
 }
 
 // ---------------------------------------------------------------------
@@ -180,66 +245,149 @@ function selfTest() {
   check('and its title carries the trail',
     skipped(deep)[0].title === 'a › b › c › buried');
 
+  // ── the VERDICT, which the first version of this file never drove ──
+  //
+  // 🔴 Everything above exercises the walker. Review demonstrated two
+  // one-token mutations that survived exactly that: `found.length > max`
+  // → `> max + 1` let one skip through at a budget of zero, and
+  // `total === 0` → `total < 0` made an empty report print a tick. Both
+  // are this file's own subject surviving this file's own rehearsal.
+  const one = [{ title: 't', project: 'unit', file: 'a.spec.ts', why: 'x' }];
+
+  check('a skip over budget is refused',
+    verdict({ total: 10, found: one, max: 0 }).ok === false);
+  check('…and exactly at budget is allowed',
+    verdict({ total: 10, found: one, max: 1 }).ok === true);
+  check('…and one past it is not',
+    verdict({ total: 10, found: [...one, ...one], max: 1 }).ok === false);
+  check('a clean run passes',
+    verdict({ total: 10, found: [], max: 0 }).ok === true);
+
+  check('🔴 an empty report is refused however clean it looks',
+    verdict({ total: 0, found: [], max: 0 }).ok === false);
+  check('…and says so in words',
+    verdict({ total: 0, found: [], max: 0 }).errors.join(' ').includes('no tests at all'));
+
+  // 🔴 The hole review reproduced: a report with 295 tests, none skipped,
+  // and the five that matter simply absent. A budget alone cannot tell
+  // "nothing declined" from "nothing was there to decline".
+  const absent = verdict({
+    total: 295,
+    found: [],
+    max: 0,
+    required: ['ranking-quality.spec.ts'],
+    files: ['search.spec.ts', 'i18n.spec.ts'],
+  });
+  check('🔴 a required file missing from the report is a failure',
+    absent.ok === false);
+  check('…and the message names the file',
+    absent.errors.join(' ').includes('ranking-quality.spec.ts'));
+  check('…while a report that contains it passes',
+    verdict({
+      total: 300, found: [], max: 0,
+      required: ['ranking-quality.spec.ts'],
+      files: ['../unit/ranking-quality.spec.ts'],
+    }).ok === true);
+  check('every required file is checked, not just the first',
+    verdict({
+      total: 300, found: [], max: 0,
+      required: ['a.spec.ts', 'b.spec.ts'],
+      files: ['a.spec.ts'],
+    }).ok === false);
+
+  check('filesInReport lists the spec files', (() => {
+    const f = filesInReport(report);
+    return f.length === 1 && f[0] === 'x.spec.ts';
+  })());
+
   console.log(failures === 0 ? '\n✓ self-test passed' : `\n✗ ${failures} failed`);
   return failures === 0;
 }
 
 // ---------------------------------------------------------------------
 
-if (argv.includes('--self-test')) {
-  exit(selfTest() ? 0 : 1);
-}
+// 🔴 Nothing below runs on import.
+//
+// `skipped`, `countTests` and `verdict` are exported so they can be
+// driven from a test, and review found that importing this file ran the
+// CLI instead: `await import(…)` printed `usage:` and exited 2. A module
+// whose exports cannot be imported has exports in name only. The sibling
+// scripts on this card already do this; this one had copied the older
+// check-flaky.mjs, which has the same gap.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
 
-const path = argv[2];
-if (!path || path.startsWith('--')) {
-  console.error('usage: check-skips.mjs <report.json> [--max N]');
-  exit(2);
-}
-const maxArg = argv.indexOf('--max');
-const max = maxArg >= 0 ? Number(argv[maxArg + 1]) : 0;
-if (!Number.isInteger(max) || max < 0) {
-  console.error(`--max must be a whole number, got ${argv[maxArg + 1]}`);
-  exit(2);
-}
+if (invokedDirectly) main();
 
-let report;
-try {
-  report = JSON.parse(readFileSync(path, 'utf8'));
-} catch (e) {
-  console.error(`✗ cannot read the Playwright report at ${path}: ${e.message}`);
-  exit(1);
-}
-
-const total = countTests(report);
-if (total === 0) {
-  console.error(
-    `✗ ${path} contains no tests at all.\n` +
-      '  A run that executed nothing reports zero skips, which is exactly the\n' +
-      '  kind of clean result this check exists to disbelieve.',
-  );
-  exit(1);
-}
-
-const found = skipped(report);
-console.log(`${total} tests, ${found.length} of them skipped (budget ${max})`);
-
-if (found.length > max) {
-  console.error(`\n✗ ${found.length} test(s) did not run:\n`);
-  for (const s of found) {
-    console.error(`   [${s.project}] ${s.title}`);
-    console.error(`       ${s.why}`);
+function main() {
+  if (argv.includes('--self-test')) {
+    exit(selfTest() ? 0 : 1);
   }
-  console.error(
-    '\nA skipped test is green, and the summary line says "passed" and a\n' +
-      'number that does not include it. If the condition is real, the fix is\n' +
-      'to give the run what it needs — not to let the suite report success\n' +
-      'over work it declined to do.\n',
-  );
+
+  const path = argv[2];
+  if (!path || path.startsWith('--')) {
+    console.error(
+      'usage: check-skips.mjs <report.json> [--max N] [--require <file substring>]…',
+    );
+    exit(2);
+  }
+
+  const maxArg = argv.indexOf('--max');
+  const max = maxArg >= 0 ? Number(argv[maxArg + 1]) : 0;
+  if (!Number.isInteger(max) || max < 0) {
+    console.error(`--max must be a whole number, got ${argv[maxArg + 1]}`);
+    exit(2);
+  }
+
+  const required = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] !== '--require') continue;
+    const want = argv[i + 1];
+    if (!want || want.startsWith('--')) {
+      console.error('--require needs a file substring');
+      exit(2);
+    }
+    required.push(want);
+  }
+
+  let report;
+  try {
+    report = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (e) {
+    console.error(`✗ cannot read the Playwright report at ${path}: ${e.message}`);
+    exit(1);
+  }
+
+  const total = countTests(report);
+  const found = skipped(report);
+  const files = filesInReport(report);
+  console.log(`${total} tests, ${found.length} of them skipped (budget ${max})`);
+
+  const { ok, errors } = verdict({ total, found, max, required, files });
+  if (ok) {
+    console.log(
+      found.length === 0
+        ? '✓ every test ran'
+        : `✓ ${found.length} skipped, within the budget`,
+    );
+    return;
+  }
+
+  console.error('');
+  for (const e of errors) console.error(`✗ ${e}`);
+  if (found.length > max) {
+    console.error('');
+    for (const s of found) {
+      console.error(`   [${s.project}] ${s.title}`);
+      console.error(`       ${s.why}`);
+    }
+    console.error(
+      '\nA skipped test is green, and the summary line says "passed" and a\n' +
+        'number that does not include it. If the condition is real, the fix is\n' +
+        'to give the run what it needs — not to let the suite report success\n' +
+        'over work it declined to do.\n',
+    );
+  }
   exit(1);
 }
-
-console.log(
-  found.length === 0
-    ? '✓ every test ran'
-    : `✓ ${found.length} skipped, within the budget`,
-);

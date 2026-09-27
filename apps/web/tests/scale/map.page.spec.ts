@@ -576,7 +576,19 @@ test.describe('/map at 61 557 campsites', () => {
     expect(fetched.length, 'no chunk was fetched at all').toBeGreaterThan(0);
 
     const fromIndex = fetched.reduce((n, k) => n + (byKey.get(k) ?? 0), 0);
-    const onPage = Number(await map(page).getAttribute('data-total'));
+
+    // 🔴 Both numbers out of ONE snapshot of the element.
+    //
+    // They were two `getAttribute` round-trips, which is two moments —
+    // and this test's whole subject is numbers that describe different
+    // moments while looking like they describe one. They come from a
+    // single `setTally`, so reading them together is both simpler and
+    // the thing the test is asserting.
+    const tally = await map(page).evaluate((el) => ({
+      total: el.getAttribute('data-total'),
+      shown: el.getAttribute('data-shown'),
+    }));
+    const onPage = Number(tally.total);
     console.log(
       `${fetched.length} chunks fetched; the index promises ${fromIndex}, ` +
         `the map holds ${onPage}`,
@@ -589,7 +601,7 @@ test.describe('/map at 61 557 campsites', () => {
     // 🔴 `Number(null)` is 0, and `0 <= anything` is true — so dropping
     // `data-shown` from the component would have left this green. Assert
     // the attribute EXISTS before comparing it.
-    const shownRaw = await map(page).getAttribute('data-shown');
+    const shownRaw = tally.shown;
     expect(shownRaw, 'the map published no data-shown').not.toBeNull();
     const shown = Number(shownRaw);
     expect(Number.isFinite(shown) && shown > 0, `data-shown is ${shownRaw}`).toBe(true);

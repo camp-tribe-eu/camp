@@ -225,7 +225,9 @@ if [ "$WITH_PAGES" = 1 ]; then
   # depending on a cached file, because a cache that has gone missing is
   # how they came to be skipping in the first place.
   RANK_DIR=$(mktemp -d)
-  trap 'rm -rf "$RANK_DIR"' EXIT
+  # EXIT INT TERM, like load-context.sh: a Ctrl-C'd run would otherwise
+  # leave a 15.7 MB copy of the live index behind.
+  trap 'rm -rf "$RANK_DIR"' EXIT INT TERM
   if curl -fsS --connect-timeout 5 -m 180 -H "x-build-token: $API_BUILD_TOKEN" \
        "$API/spots/search-index" -o "$RANK_DIR/search-index.json"; then
     # 🔴 `--grep`, and it is doing a job beyond narrowing.
@@ -240,12 +242,36 @@ if [ "$WITH_PAGES" = 1 ]; then
     # nothing (verified). So naming the describe block makes their
     # absence a failure rather than a silent pass, which is the same
     # lesson as everything else on this card.
+    #
+    # 🔴 `--require` as well as `--grep`, because they cover different
+    # holes. `--grep` makes Playwright refuse to run when the describe
+    # block is gone; `--require` makes the GUARD refuse when the file is
+    # missing from a report it was handed. Review reproduced the second
+    # one on tape: strip ranking-quality.spec.ts out of a real report and
+    # the budget reads "295 tests, 0 skipped ✓ every test ran", exit 0.
+    #
+    # 🔴 And the report is removed first. It is one shared path, written
+    # by this run and then by the scale run below; if a playwright
+    # invocation dies before writing one, the guard reads the PREVIOUS
+    # run's file and prints a tick about a suite that never ran. Deleting
+    # it turns that into "cannot read the report", which is true.
+    rm -f "$REPORT"
     step "ranking quality, against the live index" \
       env CI=true RANKING_INDEX="$RANK_DIR/search-index.json" \
         npx playwright test --config=apps/web/playwright.config.ts \
           --project=unit --grep 'ranking quality, measured on the live index'
     step "nothing in the ranking suite declined to run" \
-      node scripts/ci/check-skips.mjs "$REPORT" --max 0
+      node scripts/ci/check-skips.mjs "$REPORT" --max 0 \
+        --require ranking-quality.spec.ts
+    # 🔴 The flake guard here too, not only at the end of the workflow.
+    #
+    # That one runs once, against this same path — which by then holds
+    # the SCALE run's report, because the line below overwrites it. So a
+    # ranking test that failed and passed on a retry would leave the job
+    # green and nothing would look. These five have never run on CI at
+    # all; their first outing is precisely when a flake matters.
+    step "no ranking test passed only on a retry" \
+      node scripts/ci/check-flaky.mjs "$REPORT"
   else
     # Not a skip. The whole point of this block is that a missing index
     # must not quietly turn five tests into passes.
@@ -253,6 +279,7 @@ if [ "$WITH_PAGES" = 1 ]; then
     FAILED=$((FAILED + 1))
   fi
 
+  rm -f "$REPORT"
   step "the map and the search, in a browser, on the built site" \
     env CI=true SCALE=1 npx playwright test --config=apps/web/playwright.config.ts
 
@@ -265,7 +292,8 @@ if [ "$WITH_PAGES" = 1 ]; then
   # suite has a legitimate reason to decline, so anything that does is a
   # defect in the runner and this says so.
   step "nothing in the scale suite declined to run" \
-    node scripts/ci/check-skips.mjs "$REPORT" --max 0
+    node scripts/ci/check-skips.mjs "$REPORT" --max 0 \
+      --require map.page.spec.ts --require search-index.data.spec.ts
 fi
 
 if [ "$FAILED" -gt 0 ]; then

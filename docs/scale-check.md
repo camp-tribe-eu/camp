@@ -97,37 +97,43 @@ and the API on :3001 answering `/spots/countries` in **15.1 s** instead of
 0.15 s. Both conditions are real; only one of them is what the nightly
 meets.
 
-| stage | what it asks | idle machine | while a full build runs |
+All taken on an idle machine (load average 3), which is what the 02:00
+schedule exists to meet.
+
+| stage | what it asks | wall | CPU |
 | --- | --- | --- | --- |
-| probes | OSM tag census, then the map index against the API | ~10 s | 42 s |
-| rehearsal | every guard, driven with the broken version | ~10 s | 29 s |
-| build | `next build`, 65 435 pages | **7 min 36 s** | > 40 min |
-| ranking | 5 ranking tests against the live search index | — | 52 s |
-| browser | 9 tests, chromium, one viewport | 21–34 s | — |
+| probes | OSM tag census, then the map index against the API | 2.2 s | 8.4 s |
+| rehearsal | every guard, driven with the broken version | 5.1 s | 27.0 s |
+| ranking | 5 ranking tests against the live search index | 17 s | — |
+| browser | 9 tests, chromium, one viewport | 18 s | — |
+| whole run, no build | probes + rehearsal + ranking + browser | **40 s** | — |
+| build | `next build`, 65 435 pages | **7 min 36 s** | — |
 
-🔴 The contended column is **one sample each**, taken between 16:20 and
-17:20 on 27.09.2026 at load averages of 28–48. It is not stable: the map
-probe alone measured 1.1 s, 2 min 13 s and 4 min 43 s within the same
-hour, depending on what the other build was doing to the database at that
-moment. Treat it as "this can be minutes rather than seconds when the
-machine is busy", not as a figure to plan against. The idle column is the
-one the nightly meets.
+So a nightly with the browser stage is **about eight and a quarter
+minutes**, and the build is all but forty seconds of it. Without the
+build (`with-pages: false` on a manual run) it is **under ten seconds**.
 
-The rehearsal is ~3x the probes, not less, and the reason is structural:
-it runs the tag census over all three merged layers three times (inverted
-config, allowlist removed, as it stands) plus nine single-country passes —
-18 `osmium` passes against the probes' 3. An earlier version of this table
-said the rehearsal was the cheaper of the two, which stopped being
-possible the moment the census became unconditional.
+🔴 **Wall clock and CPU, because they disagree and only one of them is
+stable.** The rehearsal costs 3.2x the probes in CPU, which is what the
+structure predicts exactly: 18 `osmium` passes against 3, since it runs
+the census over all three merged layers three times (inverted config,
+allowlist removed, as it stands) plus nine single-country passes. In wall
+clock it is only 2.4x, because `osmium` parallelises — measured at 356%
+CPU. Reason with the CPU figure.
 
-So a nightly with the browser stage is **about eight and a half minutes**
-on a machine that is otherwise idle. Without the build
-(`with-pages: false` on a manual run) it is **well under a minute**.
+An earlier version of this table gave a contended column that showed the
+rehearsal as *cheaper* than the probes, contradicting the paragraph
+beneath it. Those were one-sample figures taken minutes apart while
+another full build ran, and they were noise: the map probe alone measured
+1.1 s, 2 min 13 s and 4 min 43 s within one hour, depending on what the
+other build was doing to the database. The build itself measured 7 min
+36 s idle and 20 min 4 s beside another build.
 
-The contended column is not an aside; it is the reason for two design
-decisions. The schedule is 02:00 UTC so the run meets an idle machine,
-and `concurrency: group: scale-check` stops two of these from queueing at
-the same database. Almost all of the contended cost is waiting on
+That spread is the real lesson about contention, and it is why the
+schedule is 02:00 UTC and why `concurrency: group: scale-check` exists.
+Do not plan against a contended number; there isn't one.
+
+Almost all of the contended cost is waiting on
 Postgres, not computing anything — which is also why the map probe asks
 for its twelve sample chunks at once rather than one after another: the
 sequential version took 4 min 43 s where the batched one took 2 min 13 s
