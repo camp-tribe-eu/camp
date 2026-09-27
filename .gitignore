@@ -195,3 +195,7 @@ CampTribe-backups/
 # public history. No CSV is tracked today (checked 24.09.2026); if one
 # ever needs to be, un-ignore that path explicitly.
 *.csv
+
+# Робочі копії паралельних агентів. 14 ГБ станом на 27.09.2026 —
+# один `git add -A` без цього рядка кладе їх у публічний репо.
+.claude/worktrees/

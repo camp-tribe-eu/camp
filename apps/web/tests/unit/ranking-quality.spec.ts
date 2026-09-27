@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { fold, search, searchText, type SearchDoc } from '@/lib/search';
+import { EXONYMS, fold, search, searchText, type SearchDoc } from '@/lib/search';
 
 // CAMP-132 — a measurement, not an opinion.
 //
@@ -409,5 +409,163 @@ test.describe('ranking quality, measured on the live index', () => {
       within25km / sample.length,
       `only ${within25km}/${sample.length} within 25 km. Worst: ${worst.join('; ')}`,
     ).toBeGreaterThan(0.8);
+  });
+
+  test('🔴 CAMP-136: an English city name lands on that city, in metres', () => {
+    // 🔴 Judged by the geometry, because everything else here is
+    // circular for this card.
+    //
+    // The region corpus scores "is the top hit in the region the query
+    // named" — and the exonym table's whole effect is to make campsites
+    // in `napoli` and `roma` match, so that corpus would applaud itself.
+    // The place corpus scores against `text`, which is the very field
+    // the alias now reaches. Both are blind here in the useful
+    // direction and flattering in the useless one.
+    //
+    // `solvePlaces` is not: it resolves each place's real coordinates
+    // from the distances four or more campsites record to it, and knows
+    // nothing of names, regions or scores. It resolves the LOCAL word —
+    // `nurnberg`, `sevilla` — and then this asks where searching the
+    // ENGLISH word puts the reader. Measured 27.09.2026 against main:
+    //
+    //   brunswick  (nothing) →   2 km      nuremberg  338 km →  22 km
+    //   dunkirk      325 km  →   2 km      ostend     757 km →   3 km
+    //   genoa        709 km  →   9 km      seville  1 408 km →   2 km
+    //   mantua       418 km  →   2 km
+    //
+    // 🔴 Only 8 of the 22 entries can be judged this way at all, and
+    // `cologne` is the eighth. The solver needs a place whose name is a
+    // single word with four or more sightings, and «München»,
+    // «Firenze», «Warszawa» never appear alone — they are always
+    // «Grafing bei München», «Firenze Rovezzano». So this is a floor
+    // under seven cities, not a report card on all twenty-two; the rest
+    // are in the pull request, measured the only way they can be.
+    const withCoords = docs as (SearchDoc & { lat?: number; lon?: number })[];
+    const { places, hav } = solvePlaces(withCoords);
+    const at = new Map(places.map((p) => [p.word, p]));
+
+    // 🔴 `cologne` is named here rather than quietly filtered out.
+    //
+    // It is the one entry whose top hit this card does NOT move: «La
+    // Cologne» is a stream in the Somme with a campsite 294 m from it,
+    // Köln's nearest is 1 688 m from «Köln-Dellbrück», the two spellings
+    // score the same and the shorter walk wins. 306 km before, 306 km
+    // after. It stays in the table because it takes `cologne` from 3
+    // hits, all French, to 21 with 18 of them in Köln — and it stays
+    // out of this assertion because freezing a defect in a test is how
+    // it stops being a defect anybody remembers.
+    const KNOWN_WRONG = new Set(['cologne']);
+
+    const judged: string[] = [];
+    const failed: string[] = [];
+    for (const [english, local] of EXONYMS) {
+      const p = at.get(local);
+      if (!p || KNOWN_WRONG.has(english)) continue;
+      const top = search(docs!, english, { limit: 1 })[0]?.doc as
+        | (SearchDoc & { lat?: number; lon?: number })
+        | undefined;
+      const km =
+        top?.lat === undefined || top.lon === undefined
+          ? Number.POSITIVE_INFINITY
+          : hav(p.lat, p.lon, top.lat, top.lon) / 1000;
+      judged.push(`${english} ${km.toFixed(0)} km`);
+      if (km > 50) {
+        failed.push(
+          `${english} → ${top?.name ?? '(nothing)'} [${top?.country ?? '-'}], ` +
+            `${km.toFixed(0)} km from ${local}`,
+        );
+      }
+    }
+
+    // 🔴 An empty loop is a failure, not a pass. If the index moves
+    // under this and no local word resolves any more, the assertion
+    // below would be vacuously true and this test would go on being
+    // green while measuring nothing.
+    expect(
+      judged.length,
+      `only ${judged.length} of ${EXONYMS.size} entries could be judged geometrically`,
+    ).toBeGreaterThanOrEqual(5);
+    expect(failed, `judged: ${judged.join(', ')}`).toEqual([]);
+  });
+
+  test('🔴 CAMP-136: the English name reaches everything the local name reaches', () => {
+    // 🔴 Recall, not ranking, and the two need separate guards.
+    //
+    // This is the card's own sentence made checkable: «naples 0
+    // campsites, napoli 37». Every campsite the local spelling finds
+    // must also be found by the English one, because the alias adds a
+    // spelling rather than choosing between them. Reordering cannot
+    // satisfy it and reordering cannot break it, which is what makes it
+    // worth having next to the geometry above.
+    //
+    // Measured 27.09.2026, what main misses of the local spelling's own
+    // answers: rome 277 of 277, venice 174 of 175, ostend 44 of 44,
+    // naples 37 of 37 — and, for five of the twenty-two, nothing at
+    // all, because main's fuzzy band already returned those documents
+    // and merely buried them. So this test is silent about `genoa`,
+    // `lisbon`, `milan`, `nuremberg` and `seville`; the geometric test
+    // above covers three of those five and the country check below the
+    // other two.
+    const missing: string[] = [];
+    for (const [english, local] of EXONYMS) {
+      const big = { limit: 1_000_000 };
+      const found = new Set(
+        search(docs!, english, big).map((h) => h.doc.path),
+      );
+      const want = search(docs!, local, big).map((h) => h.doc.path);
+      expect(want.length, `${local} finds nothing to compare against`)
+        .toBeGreaterThan(0);
+      const lost = want.filter((p) => !found.has(p));
+      if (lost.length > 0) {
+        missing.push(`${english} misses ${lost.length}/${want.length} of ${local}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  test('🔴 CAMP-136: and the first answer is in the right country', () => {
+    // 🔴 The weakest of the three guards, and the only one that reaches
+    // all of them.
+    //
+    // A country is not a signal this ranking optimises for — CAMP-131
+    // measured the country contributing 6 matches in 4 277 and took it
+    // out of the region key — so «which country did the reader land
+    // in» is close to an outside opinion. It is not geometry, and
+    // `milan` and `lisbon` are here because geometry cannot reach them:
+    // «Milano» and «Lisboa» never appear as a place name on their own,
+    // so `solvePlaces` never resolves them.
+    //
+    // On main these answer: milan → de («Zum Roten Milan», a pub in
+    // Brandenburg), lisbon → fr («Le Lison»), genoa → fr, seville → fr,
+    // bruges → fr, vienna → de, hague → fr, ostend → cz, padua → ee,
+    // munich → at, athens → be, gothenburg → pl, dunkirk → nl, warsaw
+    // and brunswick → nothing at all.
+    const EXPECTED: Record<string, string> = {
+      athens: 'gr', bruges: 'be', brunswick: 'de', dunkirk: 'fr',
+      florence: 'it', genoa: 'it', gothenburg: 'se', hague: 'nl',
+      lisbon: 'pt', mantua: 'it', milan: 'it', munich: 'de',
+      naples: 'it', nuremberg: 'de', ostend: 'be', padua: 'it',
+      rome: 'it', seville: 'es', venice: 'it', vienna: 'at',
+      warsaw: 'pl',
+    };
+    // 🔴 `cologne` is the one entry with no line here. Its top hit is
+    // and stays French — see the geometric test above for why, and the
+    // comment over the table for why the entry is kept anyway. Writing
+    // `cologne: 'fr'` would turn a defect into a requirement.
+    expect(
+      [...EXONYMS.keys()].filter((k) => !(k in EXPECTED)),
+      'an entry with no expected country — add it, or say why not',
+    ).toEqual(['cologne']);
+
+    const wrong: string[] = [];
+    for (const [english, cc] of Object.entries(EXPECTED)) {
+      const top = search(docs!, english, { limit: 1 })[0]?.doc;
+      if (top?.country !== cc) {
+        wrong.push(
+          `${english} → ${top?.name ?? '(nothing)'} [${top?.country ?? '-'}], wanted ${cc}`,
+        );
+      }
+    }
+    expect(wrong).toEqual([]);
   });
 });

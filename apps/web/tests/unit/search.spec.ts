@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   editDistance,
+  EXONYMS,
   fold,
   search,
   searchText,
@@ -1030,5 +1031,177 @@ test.describe('being in the place beats being near a name that contains it', () 
     const hits = search([far, near], 'tolmin');
     expect(hits.map((h) => h.doc.name)).toEqual(['Kamp Near', 'Kamp Far']);
     expect(hits.map((h) => h.metres)).toEqual([400, 4000]);
+  });
+});
+
+// 🔴 CAMP-136: the reader's English against an index that holds the
+// local name. The measurements that justify the table's CONTENTS are on
+// the live index and live in the pull request and in the comment above
+// the table; what is here pins the MECHANISM, on documents small enough
+// to reason about.
+test.describe('an English city name reaches the city the index spells locally', () => {
+  test('🔴 both sides of every entry are already folded', () => {
+    // A table entry with an accent in it could never match anything,
+    // because `fold()` has already run over the index and over the
+    // query by the time this table is read — and it would fail in
+    // silence. So would an entry mapping a word to itself, or a chain
+    // (`a→b`, `b→c`), which the single lookup in `search` would only
+    // half follow.
+    for (const [en, local] of EXONYMS) {
+      expect(fold(en), `key ${en} is not folded`).toBe(en);
+      expect(fold(local), `value ${local} is not folded`).toBe(local);
+      expect(en, `${en} maps to itself`).not.toBe(local);
+      expect(EXONYMS.has(local), `${local} is both a value and a key`).toBe(
+        false,
+      );
+    }
+    expect(EXONYMS.size).toBeGreaterThan(0);
+  });
+
+  test('a word with no entry is left exactly as typed', () => {
+    expect(EXONYMS.get('bovec')).toBeUndefined();
+    // And `constructor` is an ordinary English word, which an object
+    // literal would answer with the `Object` function. See the comment
+    // above the table: a Map has no prototype to fall through.
+    expect(EXONYMS.get('constructor')).toBeUndefined();
+  });
+
+  test('🔴 the English name finds the campsite, and names the local place', () => {
+    // Measured on the live index before this change: `munich` answered
+    // with a campsite in Lower Austria 1 849 m from «Steyr Münichholz»,
+    // and not one campsite in Bavaria was in the results at all,
+    // because the word "munich" is in none of them.
+    const bavaria = doc({
+      name: 'Wohnmobilstellplatz Grafing',
+      path: '/camping/de/bayern/grafing',
+      country: 'de', region: 'bayern',
+      near: [{ name: 'Grafing bei München', m: 894 }],
+    });
+    const austria = doc({
+      name: 'Camping am Fluss',
+      path: '/camping/at/niederosterreich/fluss',
+      country: 'at', region: 'niederosterreich',
+      near: [{ name: 'Steyr Münichholz', m: 1849 }],
+    });
+    const hits = search([austria, bavaria], 'munich');
+    expect(hits[0].doc.name).toBe('Wohnmobilstellplatz Grafing');
+    // 🔴 The distance line too. `m` is the ordering key for everything
+    // that scores the same, so an alias that reaches the score and not
+    // `nearestNamed` leaves the answer to the path tiebreak — and the
+    // «· N m from X» line disappears from the page.
+    expect(hits[0].metres).toBe(894);
+    expect(hits[0].nearest).toBe('Grafing bei München');
+  });
+
+  test('🔴 an alias scores as an exact word, not as something below one', () => {
+    // The rule that was tried and measured against: «the word you
+    // actually typed always wins». On the live index it leaves 5 of the
+    // 22 cities at a foreign word that merely spells the same — `milan`
+    // at a Brandenburg pub called «Zum Roten Milan», `vienna` at a
+    // hotel in North Rhine-Westphalia, `bruges` in the Gironde.
+    const typed = doc({
+      name: 'Rome', path: '/camping/fr/somme/rome',
+      country: 'fr', region: 'somme',
+    });
+    const local = doc({
+      name: 'Roma', path: '/camping/it/lazio/roma',
+      country: 'it', region: 'lazio',
+    });
+    const hits = search([typed, local], 'rome');
+    expect(hits).toHaveLength(2);
+    expect(hits[0].score).toBe(hits[1].score);
+  });
+
+  test('the word the reader typed is still searched — the alias is added, not swapped', () => {
+    // 🔴 Asserted through the near-miss band, because the obvious
+    // assertion does not fail.
+    //
+    // The first version of this only checked that the French campsite
+    // came back, and it passed under a mutation that looked the alias
+    // up INSTEAD of the typed word: `rome` then matched nothing
+    // exactly, the fuzzy pass ran, and it returned the same document at
+    // a distance of zero edits — score 40 instead of 100, same list.
+    // What that mutation really destroys is the suppression: once
+    // `rome` is in the index as itself, near misses are not computed at
+    // all, so `Romo` must not be here.
+    const french = doc({
+      name: 'Rome Camping', path: '/camping/fr/somme/rome',
+      country: 'fr', region: 'somme',
+    });
+    const nearMiss = doc({
+      name: 'Romo', path: '/camping/fr/aisne/romo',
+      country: 'fr', region: 'aisne',
+    });
+    expect(search([french, nearMiss], 'rome').map((h) => h.doc.name)).toEqual([
+      'Rome Camping',
+    ]);
+  });
+
+  test('🔴 being IN the region named is what settles a word that is both', () => {
+    // 54 campsites hold the word «rome» and every one of them is
+    // French — «Saint-Rome-de-Cernon», «Ry de Rome». Both spellings
+    // therefore score the same, and what separates them is CAMP-137's
+    // region key: Italy has a region called `roma` and the Pyrénées-
+    // Orientales do not. Without the alias reaching that comparison the
+    // French campsite wins on the shorter walk, 291 m against 1 004.
+    const french = doc({
+      name: 'La Clusa', path: '/camping/fr/pyrenees-orientales/la-clusa',
+      country: 'fr', region: 'pyrenees-orientales',
+      near: [{ name: 'Rivière de Rome', m: 291 }],
+    });
+    const italian = doc({
+      name: 'Roma Camping in Town', path: '/camping/it/roma/in-town',
+      country: 'it', region: 'roma',
+      near: [{ name: 'Roma Aurelia', m: 1004 }],
+    });
+    const hits = search([french, italian], 'rome');
+    expect(hits[0].doc.name).toBe('Roma Camping in Town');
+    expect(hits[0].metres).toBe(1004);
+  });
+
+  test('🔴 an alias switches the near-miss band off, exactly as a real exact word does', () => {
+    // `athens` is one edit from `athena`, so before this the fuzzy band
+    // answered with «Naturisme Camping Athena Helios» in Flemish
+    // Brabant. Once `athina` matches exactly the near misses are not
+    // competing with anything — they are noise — and the gate that
+    // already says so needs no change, because the alias scores
+    // EXACT_WORD.
+    const greek = doc({
+      name: 'Camping Athina', path: '/camping/gr/attiki/athina',
+      country: 'gr', region: 'attiki',
+    });
+    const belgian = doc({
+      name: 'Camping Athena', path: '/camping/be/flemish-brabant/athena',
+      country: 'be', region: 'flemish-brabant',
+    });
+    expect(search([greek, belgian], 'athens').map((h) => h.doc.name)).toEqual([
+      'Camping Athina',
+    ]);
+    // Take the Greek one away and the near miss comes back, because
+    // then nothing matches the word under either spelling.
+    expect(search([belgian], 'athens').map((h) => h.doc.name)).toEqual([
+      'Camping Athena',
+    ]);
+  });
+
+  test('the alias belongs to its own term and does not spread to the next one', () => {
+    // Two aliased words in one query still narrow each other: each term
+    // is one column, whichever of its two spellings matched.
+    const roma = doc({
+      name: 'Roma', path: '/camping/it/lazio/roma',
+      country: 'it', region: 'lazio',
+    });
+    const napoli = doc({
+      name: 'Napoli', path: '/camping/it/napoli/napoli',
+      country: 'it', region: 'napoli',
+    });
+    expect(search([roma, napoli], 'rome').map((h) => h.doc.name)).toEqual([
+      'Roma',
+    ]);
+    expect(search([roma, napoli], 'naples').map((h) => h.doc.name)).toEqual([
+      'Napoli',
+    ]);
+    // Neither document holds both cities, so the AND still empties it.
+    expect(search([roma, napoli], 'rome naples')).toHaveLength(0);
   });
 });

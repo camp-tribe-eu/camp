@@ -231,6 +231,60 @@ export class MapQueryService {
     country: string,
     regionSlug: string,
   ): Promise<SpotMarker[]> {
+    // 🔴 Two queries, and the first one is what keeps the chunk from
+    // reading the whole country.
+    //
+    // This used to select every row for the country and drop the wrong
+    // regions in JS. `slugifyRegion` is the one definition of that rule
+    // (CAMP-87: a published URL does not move) and re-implementing it in
+    // SQL would be a second copy free to drift — so the rule still runs
+    // here, in JavaScript, exactly once. It just runs over the DISTINCT
+    // region NAMES instead of over every campsite.
+    //
+    // Measured 27.09.2026 against the live index: France holds 102
+    // chunks and 23 652 campsites, so building its chunks read
+    // 102 × 23 652 = 2 412 504 rows to keep 23 652. Across all 812
+    // chunks that is 3 638 675 rows read for 61 557 campsites — 59
+    // copies of the dataset. The name list France has to scan first is
+    // 102 rows.
+    const names: (string | null)[] = (
+      await this.db.query(
+        `SELECT DISTINCT region
+           FROM camping_spots
+          WHERE missing_since IS NULL
+            AND lower(country) = lower($1)`,
+        [country],
+      )
+    )
+      .map((r: Record<string, unknown>) => (r.region as string) ?? null)
+      .filter(
+        (region: string | null) => regionChunkSlug(region) === regionSlug,
+      );
+
+    // 🔴 NULL is not a value `= ANY` can match, and the campsites with
+    // no region at all are a chunk of their own (`_unplaced`) — 135 of
+    // them, measured. Folding them into the array would have made every
+    // one of those chunks come back empty, which the web route turns
+    // into a failed build rather than a silently thinner map.
+    const named = names.filter((r): r is string => r !== null);
+    const unplaced = names.length !== named.length;
+    if (named.length === 0 && !unplaced) return [];
+
+    // 🔴 Several names can share one chunk: slugifyRegion strips
+    // punctuation, so "Nord-Pas-de-Calais" and "Nord Pas de Calais"
+    // would slugify alike. `= ANY` takes all of them, which is the same
+    // set the JS filter used to keep.
+    //
+    // 🔴 `$2` is always bound, even when the array is empty, so the
+    // parameter list and the SQL can never disagree about how many
+    // placeholders there are. An empty array makes `= ANY` false for
+    // every row, which is exactly right when the only match is the
+    // region-less chunk.
+    const where = unplaced
+      ? '(region = ANY($2::text[]) OR region IS NULL)'
+      : 'region = ANY($2::text[])';
+    const params: unknown[] = [country, named];
+
     const rows = await this.db.query(
       `SELECT slug, name, country, region, type, amenities,
               ST_Y(location::geometry) AS lat,
@@ -238,19 +292,11 @@ export class MapQueryService {
          FROM camping_spots
         WHERE missing_since IS NULL
           AND lower(country) = lower($1)
+          AND ${where}
         ORDER BY slug`,
-      [country],
+      params,
     );
-    // 🔴 The slug comparison happens here rather than in SQL because
-    // slugifyRegion is the one definition of that rule (CAMP-87: a
-    // published URL does not move), and re-implementing it in Postgres
-    // would be a second copy free to drift from the first.
-    return rows
-      .filter(
-        (r: Record<string, unknown>) =>
-          regionChunkSlug((r.region as string) ?? null) === regionSlug,
-      )
-      .map(toMarker);
+    return rows.map(toMarker);
   }
 
   async points(

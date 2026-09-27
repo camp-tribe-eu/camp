@@ -386,6 +386,94 @@ test.describe('/map', () => {
     expect(mimeErrors, 'the worker failed to load').toEqual([]);
   });
 
+  // 🔴 CAMP-133. Found by opening /map on a production build and reading
+  // the console: EVERY load threw
+  //
+  //   Uncaught (in promise) Error: Style is not done loading
+  //     at iN._checkLoaded / iN.addSource / oD.addSource
+  //
+  // out of `drawRegions`. MapLibre's `addSource` and `addLayer` call
+  // `_checkLoaded()` and throw when the style has not finished loading,
+  // and the region index is a local static file while the style is a
+  // remote document — so on a normal load the index wins the race and
+  // `refresh()` touched the style first.
+  //
+  // It LOOKED harmless: the `styledata` handler re-runs `refresh()`, so
+  // the circles appeared anyway. That is the map settling by luck.
+  //
+  // 🔴 So this test makes the race LOSE. The style is held back until
+  // after the index has been served, which is the order that used to
+  // throw, and which a slow connection produces by itself. Only the
+  // delay can tell "the drawing waits for the style" apart from "the
+  // style usually arrives first".
+  //
+  // 🔴 And it asserts the circles ARRIVE, not only that nothing threw.
+  // The fix defers one call; a deferral that is never retried would
+  // leave a blank map and a clean console, which is a worse bug than
+  // the one being fixed.
+  test('🔴 drawing the regions never touches a style that is still loading', async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(m.text());
+    });
+
+    // The index is served normally; the style is held back until after
+    // it has landed, which is the order that used to throw. Watched
+    // through `response` rather than by routing the index, so nothing
+    // about the index's own timing changes.
+    let indexServed = false;
+    page.on('response', (r) => {
+      if (r.url().includes('/data/spots/index.json')) indexServed = true;
+    });
+    await page.route(STYLE_GLOB, async (route) => {
+      for (let i = 0; i < 40 && !indexServed; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      await new Promise((r) => setTimeout(r, 400));
+      await route.fulfill({ json: EMPTY_STYLE });
+    });
+
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await expect(map(page)).toBeVisible();
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
+
+    // The map still does its job once the style lands: it says what it
+    // is doing rather than sitting silent.
+    await expect
+      .poll(async () => map(page).getAttribute('data-map-state'), {
+        timeout: 20_000,
+      })
+      .not.toBe('loading');
+
+    // 🔴 And it DREW. Either the region circles came back after the
+    // style loaded, or the map is drawing markers instead — one of the
+    // two, because a map that deferred its only draw and forgot it
+    // would satisfy every other assertion here.
+    await expect
+      .poll(
+        async () => {
+          const el = map(page);
+          return (
+            Number(await el.getAttribute('data-visible-regions')) +
+            Number(await el.getAttribute('data-visible-points')) +
+            Number(await el.getAttribute('data-visible-clusters'))
+          );
+        },
+        { timeout: 20_000, message: 'the map drew nothing once the style landed' },
+      )
+      .toBeGreaterThan(0);
+
+    expect(
+      errors.filter((e) => /Style is not done loading/i.test(e)),
+      'the drawing touched the style before it had loaded',
+    ).toEqual([]);
+    expect(errors, 'the map logged errors on a slow style').toEqual([]);
+  });
+
   test('zooming in breaks the clusters into campsites', async ({ page }) => {
     await stubStyles(page);
     // Twenty campsites within a few hundred metres of the opening

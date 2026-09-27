@@ -32,6 +32,16 @@ export interface SpotView {
   /** Official national classification, 1–5, where a source publishes one. */
   stars: number | null;
   website: string | null;
+  /** CAMP-141: how to reach the place, as OpenStreetMap records it. */
+  contact: {
+    website?: string;
+    phone?: string;
+    email?: string;
+    operator?: string;
+    openingHours?: string;
+    capacity?: number;
+    address?: { street?: string; city?: string; postcode?: string };
+  };
   /**
    * 🔴 Which source gave which field, and when it last changed it.
    *
@@ -92,6 +102,7 @@ export class SpotsService {
               ST_X(location::geometry) AS lon,
               amenities, owner_overrides, last_seen_at, missing_since,
               context, description, description_lang, stars, website,
+              contact,
               sources,
               NOT ${NOTHING_TO_SAY_SQL} AS indexable
          FROM camping_spots
@@ -543,6 +554,10 @@ function toView(row: Record<string, unknown>): SpotView {
     stars:
       row.stars === null || row.stars === undefined ? null : Number(row.stars),
     website: (row.website as string) ?? null,
+    // 🔴 The column is NOT NULL DEFAULT '{}', so this is an object or
+    // nothing went wrong. The ?? is for rows read before the migration
+    // in a half-deployed state, not for a case the schema allows.
+    contact: (row.contact as SpotView['contact']) ?? {},
     sources: (row.sources ?? []) as SpotSource[],
     // 🔴 Defaults to indexable when the column is absent, not to hidden.
     // A query that forgot to select it must not silently noindex a page

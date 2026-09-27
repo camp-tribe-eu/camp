@@ -1,7 +1,11 @@
 import { apiFetch } from '@/lib/api';
-import type { Amenities, AmenityKey } from '@/lib/api';
-import { knownAmenities } from '@/lib/map-filter';
-import type { RegionSummary } from '@/lib/map-chunks';
+import {
+  BYTES_PER_CAMPSITE,
+  chunkBody,
+  chunkWeight,
+  type ChunkMarker,
+  type RegionSummary,
+} from '@/lib/map-chunks';
 
 // CAMP-127: one region of the map, as its own file.
 //
@@ -14,34 +18,15 @@ import type { RegionSummary } from '@/lib/map-chunks';
 // Measured 24.09.2026: 812 chunks, the largest 1 433 campsites and the
 // median 26, covering all 61 557 — including the 135 that carry no region
 // at all, which get one chunk per country rather than disappearing.
+//
+// 🔴 CAMP-133: the body is built by `chunkBody`, not here, and it is
+// weighed before it is served. The map refuses a view whose chunks
+// would be too heavy, and it decides that from the campsite counts in
+// the index — an upper bound on what this file weighs. This route is
+// where that bound is checked against the real thing.
 
 export const dynamic = 'force-static';
 export const dynamicParams = false;
-
-interface Marker {
-  slug: string;
-  name: string | null;
-  country: string;
-  region: string | null;
-  type: string;
-  lat: number;
-  lon: number;
-  amenities: Amenities;
-  /** 🔴 Null when the campsite has no page — see canonicalPath. */
-  path: string | null;
-}
-
-interface Feature {
-  type: 'Feature';
-  geometry: { type: 'Point'; coordinates: [number, number] };
-  properties: {
-    slug: string;
-    name: string | null;
-    type: string;
-    /** Null rather than a broken URL. The popup renders text instead. */
-    href: string | null;
-  } & Partial<Record<AmenityKey, 'yes' | 'no'>>;
-}
 
 export async function generateStaticParams() {
   const res = await apiFetch('/spots/map/regions');
@@ -73,7 +58,7 @@ export async function GET(
   if (!res.ok) {
     throw new Error(`Chunk ${country}/${slug} failed: ${res.status}`);
   }
-  const markers = (await res.json()) as Marker[];
+  const markers = (await res.json()) as ChunkMarker[];
 
   // 🔴 A chunk the index promised must not come back empty.
   //
@@ -87,22 +72,34 @@ export async function GET(
     );
   }
 
-  const features: Feature[] = markers.map((m) => ({
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
-    properties: {
-      slug: m.slug,
-      name: m.name,
-      type: m.type,
-      href: m.path,
-      // Only what is known — an absent key means unknown, which is what
-      // the filters already assume. See knownAmenities.
-      ...knownAmenities(m.amenities),
-    },
-  }));
+  const body = chunkBody(markers);
 
-  return new Response(
-    JSON.stringify({ type: 'FeatureCollection', features }),
-    { headers: { 'content-type': 'application/geo+json; charset=utf-8' } },
-  );
+  // 🔴 CAMP-133: the safeguard's arithmetic, rehearsed on every chunk.
+  //
+  // The map decides whether a view is too heavy to draw from
+  // `chunkWeight(count)` — it has the counts in the index and not the
+  // files. That is an upper bound, and an upper bound nobody checks is
+  // a guess: the bound it replaces called itself "a bound on bytes" for
+  // a month while counting chunks.
+  //
+  // So the build refuses to emit a chunk that breaks it. Measured
+  // 27.09.2026 over all 812 chunks, the worst was 360 bytes per
+  // campsite against the 400 allowed, so this has 11% of room — and the
+  // day an import spends it, the build says so instead of the map
+  // quietly downloading more than it promised.
+  const weight = Buffer.byteLength(body);
+  if (weight > chunkWeight(markers.length)) {
+    throw new Error(
+      `Chunk ${country}/${slug} weighs ${weight} B for ${markers.length} ` +
+        `campsites — ${(weight / markers.length).toFixed(0)} B each, over the ` +
+        `${BYTES_PER_CAMPSITE} B the map budgets. VIEW_BUDGET_BYTES is spent ` +
+        'in this unit, so the map would be admitting views heavier than it ' +
+        'promises. Re-measure and raise BYTES_PER_CAMPSITE, or make the ' +
+        'chunk smaller.',
+    );
+  }
+
+  return new Response(body, {
+    headers: { 'content-type': 'application/geo+json; charset=utf-8' },
+  });
 }

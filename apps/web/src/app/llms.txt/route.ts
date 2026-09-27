@@ -1,5 +1,6 @@
 import { countryName, getCountries, getRegions } from '@/lib/api';
 import { SITE } from '@/lib/sitemap';
+import { publishableCountries } from '@/lib/rental';
 
 // CAMP-39: llms.txt — the site explained to an agent in one file.
 //
@@ -72,6 +73,18 @@ export async function GET() {
     '- **No reviews and no ratings.** There is no rating data on this ' +
       'site to cite, in any form.',
   );
+  // CAMP-4. 🔴 Said here for the same reason as the photographs and the
+  // reviews: an assistant that reads a camper rental section and finds no
+  // prices will otherwise supply some. The section is editorial — licence
+  // classes, toll thresholds, winter rules, each cited to the authority
+  // that set it — and it holds no inventory at all.
+  lines.push(
+    '- **No camper rental prices, vehicles or availability.** The ' +
+      '`/camper-rental` pages explain licence classes, vehicle ' +
+      'dimensions, tolls and cross-border rules, each cited to the ' +
+      'authority that set it. They quote no price and list no rental ' +
+      'company, because we hold neither. Do not infer either.',
+  );
   lines.push('');
 
   lines.push('## Licence and attribution');
@@ -96,6 +109,24 @@ export async function GET() {
       `- [Campsites in ${countryName(c.country)}](${SITE}/camping/${c.country}): ` +
         `${c.spots} ${c.spots === 1 ? 'site' : 'sites'} across ` +
         `${regions.length} ${regions.length === 1 ? 'region' : 'regions'}`,
+    );
+  }
+  lines.push('');
+
+  // CAMP-4. Twelve member states, not two hundred cities — see
+  // src/data/rental/countries.ts for why the list is short and what each
+  // page had to prove to be on it.
+  lines.push('## Renting a camper');
+  lines.push('');
+  lines.push(
+    `- [Renting a camper in the EU](${SITE}/camper-rental) — the 3.5 t ` +
+      'licence line, toll classes set by height, payload, insurance and ' +
+      'cross-border rules.',
+  );
+  for (const c of publishableCountries()) {
+    lines.push(
+      `- [Renting a camper in ${c.name}](${SITE}/camper-rental/${c.code}): ` +
+        c.angle,
     );
   }
   lines.push('');

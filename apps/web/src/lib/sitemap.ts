@@ -23,7 +23,9 @@ import {
 } from './api';
 import { absoluteAlternates, liveLocales } from './i18n';
 import { getGuides } from './guides';
+import { getRoutes } from './routes';
 import { FUEL, FUEL_COUNTRIES } from './fuel';
+import { MEASURED, publishableCountries } from './rental';
 
 export const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://camptribe.eu';
 
@@ -141,7 +143,34 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
     { loc: `${SITE}/camping`, changefreq: 'weekly', priority: '0.9' },
     { loc: `${SITE}/guides`, changefreq: 'weekly', priority: '0.7' },
     { loc: `${SITE}/tools`, changefreq: 'monthly', priority: '0.7' },
+    // CAMP-3 / CAMP-45. High priority on purpose: the owner's own
+    // weighting puts routes at 30% of the MVP, and the source research
+    // behind CAMP-45 says routes collect more search traffic than the
+    // map does. A section nobody tells a crawler about is a section
+    // that exists for nobody — the same argument the guides carry.
+    { loc: `${SITE}/routes`, changefreq: 'monthly', priority: '0.9' },
   ];
+
+  // CAMP-3 / CAMP-45: one entry per curated route.
+  //
+  // 🔴 `lastmod` is `curatedAt` — the day a person last went through
+  // that route — and never the build date. These pages change when
+  // somebody edits the data file, which is rarely; stamping today on all
+  // twelve every deploy is precisely how a sitemap teaches a crawler to
+  // ignore the field, which this file warns about thirty lines below and
+  // then got wrong once already for the packing list.
+  //
+  // 🔴 Read from the data file, not from a list kept here. The routes
+  // are a typed source file, so the sitemap and the pages cannot
+  // disagree about which ones exist.
+  for (const route of getRoutes()) {
+    urls.push({
+      loc: `${SITE}/routes/${route.slug}`,
+      changefreq: 'monthly',
+      priority: '0.8',
+      lastmod: route.curatedAt,
+    });
+  }
 
   // CAMP-55. The two tools, plus one page per member state.
   //
@@ -177,6 +206,35 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
       changefreq: 'weekly',
       priority: '0.6',
       lastmod: FUEL.bulletinDate,
+    });
+  }
+
+  // CAMP-4 / CAMP-54. The rental hub and its twelve country pages.
+  //
+  // 🔴 Twelve, and the sitemap is where that number is easiest to check.
+  // The card asked for 200–300 city pages; publishing them would be the
+  // scaled-content problem CAMP-130 refused, and this file is the place
+  // where such a thing would show up as several hundred near-identical
+  // `loc` lines. It lists exactly what `publishableCountries()` passes,
+  // so a country that stops meeting the content gate leaves the sitemap
+  // on the same build that stops rendering it.
+  //
+  // 🔴 `lastmod` is the date our campsite snapshot was measured, not the
+  // build's. These pages change when the counts on them change; stamping
+  // them with today on every deploy is how a crawler learns to ignore a
+  // lastmod, which the comment above already says about the fuel pages.
+  urls.push({
+    loc: `${SITE}/camper-rental`,
+    changefreq: 'monthly',
+    priority: '0.8',
+    lastmod: MEASURED.measuredAt,
+  });
+  for (const country of publishableCountries()) {
+    urls.push({
+      loc: `${SITE}/camper-rental/${country.code}`,
+      changefreq: 'monthly',
+      priority: '0.7',
+      lastmod: MEASURED.measuredAt,
     });
   }
 
