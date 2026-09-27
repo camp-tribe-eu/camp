@@ -440,6 +440,11 @@ test.describe('/map filters', () => {
     const strict = await shownInView(page);
     const hidden = await excludedInView(page);
 
+    // 🔴 The two scopes are nested, not independent: what is hidden on
+    // screen is part of what is hidden across everything fetched. If
+    // this ever inverts, one of them is counting the wrong set.
+    expect(await excluded(page)).toBeGreaterThanOrEqual(hidden);
+
     await expect(page.getByTestId('filter-include-unknown')).toContainText(
       String(hidden),
     );
@@ -450,8 +455,9 @@ test.describe('/map filters', () => {
     await expect.poll(() => shownInView(page)).toBe(strict + hidden);
     // And it stops claiming to hide what it is now drawing.
     await expect.poll(() => excludedInView(page)).toBe(0);
-    // The fetched-scope number moved too, so this is not a viewport that
-    // happened to contain nothing.
+    // And so does the fetched-scope one, which is the number this test
+    // used to drive — kept so the change of scope did not quietly drop
+    // an assertion.
     expect(await excluded(page)).toBe(0);
   });
 
