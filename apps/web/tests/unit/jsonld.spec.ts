@@ -406,6 +406,13 @@ test.describe('CAMP-141: contact reaches the structured data', () => {
     // Several rules become several values.
     expect(withContact({ openingHours: 'Mo-Fr 09:00-18:00; Sa 09:00-13:00' }).openingHours)
       .toEqual(['Mo-Fr 09:00-18:00', 'Sa 09:00-13:00']);
+    // 24:00 is the same fact as 24/7 and is written the same way.
+    expect(withContact({ openingHours: 'Mo-Su 00:00-24:00' }).openingHours)
+      .toEqual(['Mo-Su 00:00-23:59']);
+    // A clock that is not a clock is refused, not published.
+    for (const bogus of ['Mo-Su 99:99-88:88', 'Mo-Su 25:61-26:62', 'Mo-Su 24:30-25:00']) {
+      expect(withContact({ openingHours: bogus }), bogus).not.toHaveProperty('openingHours');
+    }
     // And what does not translate is not guessed at.
     for (const osm of [
       'Apr-Oct 08:00-20:00',

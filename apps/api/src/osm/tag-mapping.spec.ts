@@ -504,21 +504,55 @@ describe('contact — CAMP-141', () => {
     }
   });
 
-  it('🔴 refuses an aggregator as the campsite own site', () => {
-    // The same rule datatourisme/parse.ts already applies, with the same
-    // reason: a Facebook page is not the campsite, and `sameAs` would
-    // claim it is. Review found 28 live spots doing this.
+  it('🔴 refuses a social network or a booking marketplace', () => {
+    // A Facebook page is not the campsite, and `sameAs` would claim it
+    // is. Measured on live data: 81 campsites pointed at one of these,
+    // the largest single host being aireparkreservation.com with 49.
     for (const bad of [
       'https://www.facebook.com/Fermedelhorloge/',
       'https://www.booking.com/hotel/fr/x.html',
       'https://www.tripadvisor.com/Hotel_Review-x',
       'https://instagram.com/camping',
+      'https://aireparkreservation.com/spot/1',
     ]) {
       expect([bad, cleanWebsite(bad)]).toEqual([bad, undefined]);
     }
-    expect(cleanWebsite('https://camping-lavaurette.fr')).toBe(
-      'https://camping-lavaurette.fr/',
+  });
+
+  it('🔴 does NOT refuse a campsite whose name contains one of those words', () => {
+    // The filter's first version tested the words as substrings of the
+    // hostname, and review found three real campsites losing their own
+    // website to it — a guard meant to protect campsites deleting
+    // campsites, silently, along with their sameAs.
+    for (const good of [
+      'https://lepresaintandre.com',
+      'https://aucarresainteloi.com',
+    ]) {
+      expect([good, cleanWebsite(good)]).toEqual([good, `${good}/`]);
+    }
+  });
+
+  it("🔴 keeps a campsite's own booking subdomain", () => {
+    // The second version matched any DNS label, which threw away
+    // reservation.fermedugueric.fr — the campsite's own booking page on
+    // its own domain. The registrable domain is what decides.
+    expect(cleanWebsite('https://reservation.fermedugueric.fr')).toBe(
+      'https://reservation.fermedugueric.fr/',
     );
+  });
+
+  it('does not touch regional tourism portals or chains', () => {
+    // Measured: the commonest values in this field are tourism portals
+    // and campsite chains — campingcarpark.com on 476 sites,
+    // valdeloire-france.com on 45. Whether a reader would rather have a
+    // page ABOUT the campsite than nothing is a product question with
+    // numbers attached (CAMP-142), not something a regex decides quietly.
+    for (const kept of [
+      'https://valdeloire-france.com/x',
+      'https://campingcarpark.com/x',
+    ]) {
+      expect([kept, cleanWebsite(kept)]).toEqual([kept, kept]);
+    }
   });
 
   it('🔴 a house number with no street is not a street address', () => {

@@ -142,7 +142,7 @@ export async function generateMetadata(
 function Contact({ spot }: { spot: Spot }) {
   const contact = spot.contact ?? {};
   const site = spot.website ?? contact.website ?? null;
-  const { phone, email, openingHours, operator, address, capacity } = contact;
+  const { phone, email, openingHours, operator, address } = contact;
   const city = [address?.postcode, address?.city].filter(Boolean).join(' ');
   const street = address?.street;
   if (
@@ -152,9 +152,15 @@ function Contact({ spot }: { spot: Spot }) {
     !openingHours &&
     !operator &&
     !street &&
-    !city &&
-    capacity === undefined
+    !city
   ) {
+    // 🔴 `capacity` is deliberately NOT in this test.
+    //
+    // It was, and review found the result: 306 campsites rendered a
+    // section headed "Getting in touch" whose entire content was
+    // "Pitches 2", under a note about contact details that applied to
+    // nothing on it. The number of pitches is a fact about the site, not
+    // a way to reach anybody — it belongs with the other facts, below.
     return null;
   }
   return (
@@ -224,18 +230,6 @@ function Contact({ spot }: { spot: Spot }) {
           <>
             <dt className="text-sm text-ink-2">Operated by</dt>
             <dd className="text-sm text-ink-2">{operator}</dd>
-          </>
-        )}
-        {/* 🔴 Shown, because it is no longer in the structured data.
-            OSM's `capacity` on a campsite counts PITCHES, and the
-            schema.org property for a venue counts people — publishing
-            one as the other understates a site three- to fourfold. So
-            it is stated here in its own unit, where a reader can read
-            it, rather than asserted to a machine in the wrong one. */}
-        {capacity !== undefined && (
-          <>
-            <dt className="text-sm text-ink-2">Pitches</dt>
-            <dd className="text-sm text-ink-2">{capacity}</dd>
           </>
         )}
       </dl>
@@ -409,6 +403,22 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
                   {formatDistance(spot.context.town.m)}
                 </span>
               </dd>
+            </>
+          )}
+          {/* 🔴 Pitches, in the unit OSM actually records.
+              
+              This used to be published as schema.org's
+              `maximumAttendeeCapacity`, which counts PEOPLE — twenty
+              pitches announced as twenty guests, understating a site
+              three- to fourfold. It is stated here instead, in its own
+              unit, where a reader can read it and no machine is told
+              something untrue. (On a camper stop OSM counts vehicle
+              places rather than tents; closer, still not identical, and
+              that is why the label says pitches and not guests.) */}
+          {spot.contact?.capacity !== undefined && (
+            <>
+              <dt className="text-ink-2">Pitches</dt>
+              <dd>{spot.contact.capacity}</dd>
             </>
           )}
           <dt className="text-ink-2">Coordinates</dt>

@@ -27,6 +27,31 @@ import { mapContact, OsmTags } from './tag-mapping';
 
 const DRY = process.argv.includes('--dry-run');
 
+/**
+ * The write, as a named constant so a test can assert what it does.
+ *
+ * 🔴 This file had no tests at all, and it is the file that caused the
+ * worst defect of this card: the first version wrote `contact` alone,
+ * so 10 637 pages gained a contact block and kept the old
+ * `content_changed_at`, telling crawlers nothing had changed. Review
+ * then showed three separate mutations here — dropping the timestamp,
+ * dropping the IS DISTINCT guard, skipping empty mappings again — each
+ * re-creating a blocker and surviving all 336 tests.
+ *
+ * The upsert next door is guarded exactly this way, for exactly this
+ * reason. "A rule nobody enforces quietly stops applying" has to apply
+ * to the file that broke it, not only to the one that did not.
+ */
+export const BACKFILL_SQL = `UPDATE camping_spots
+              SET contact = $2::jsonb,
+                  -- 🔴 A contact block appearing on a page is a change a
+                  -- reader notices, so <lastmod> must say so (CAMP-39).
+                  content_changed_at = now()
+            WHERE osm_ref = $1
+              -- Idempotent: a rerun that computes the same contact must
+              -- not restamp the page.
+              AND contact IS DISTINCT FROM $2::jsonb`;
+
 /** The tags `mapContact` reads, and only those. */
 const TAG_COLUMNS = [
   'website',
@@ -95,14 +120,7 @@ async function main() {
         // because a contact block is something a reader notices
         // (CAMP-39). A backfill that delivers the same change must say
         // so the same way.
-        await db.query(
-          `UPDATE camping_spots
-              SET contact = $2::jsonb,
-                  content_changed_at = now()
-            WHERE osm_ref = $1
-              AND contact IS DISTINCT FROM $2::jsonb`,
-          [row.osm_ref, JSON.stringify(contact)],
-        );
+        await db.query(BACKFILL_SQL, [row.osm_ref, JSON.stringify(contact)]);
       }
     }
     await db.query(DRY ? 'ROLLBACK' : 'COMMIT');

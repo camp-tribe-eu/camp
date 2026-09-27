@@ -375,9 +375,36 @@ export function schemaOpeningHours(raw: string | undefined): string[] {
   // them. Dropping a qualifier changes the meaning of what remains, so
   // a value with any part we cannot read is not published at all. The
   // page still shows the original, verbatim.
-  const rules = value.split(';').map((p) => p.trim()).filter(Boolean);
+  const rules = value
+    .split(';')
+    .map((p) => p.trim())
+    .filter(Boolean);
   if (rules.length === 0 || !rules.every((r) => RULE.test(r))) return [];
-  return rules;
+
+  // 🔴 A clock that reads 99:99 is not a time, and `24:00` is a time
+  // schema.org does not use.
+  //
+  // The pattern above only checks the SHAPE — two digits, a colon, two
+  // digits — so `Mo-Su 99:99-88:88` would have been published verbatim.
+  // No campsite has one today; the guard is here because the repo's own
+  // structured-data validator does not check value formats, so a bad
+  // one would ship in silence. `24:00` is real and live on three sites,
+  // and is the same fact as `24/7`, which this function rewrites to
+  // 23:59 — so it is rewritten the same way rather than published in
+  // two different forms.
+  const out: string[] = [];
+  for (const rule of rules) {
+    let ok = true;
+    const normalised = rule.replace(/(\d{2}):(\d{2})/g, (m, h: string, mi: string) => {
+      const hours = Number(h);
+      const minutes = Number(mi);
+      if (hours > 24 || minutes > 59 || (hours === 24 && minutes > 0)) ok = false;
+      return hours === 24 ? '23:59' : m;
+    });
+    if (!ok) return [];
+    out.push(normalised);
+  }
+  return out;
 }
 
 export function campgroundGraph(

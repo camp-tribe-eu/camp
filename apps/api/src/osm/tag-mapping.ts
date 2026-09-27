@@ -582,8 +582,71 @@ const firstTag = (tags: OsmTags, keys: string[]): string | undefined => {
  * deliberately free of the Nest runtime so the pipeline can load it
  * alone, and reaching into the DATAtourisme parser would drag it in.
  */
-const AGGREGATOR_HOST =
-  /(booking|reservation|resa|secureholiday|webcamp)|(^|\.)(facebook|instagram|twitter|x|tiktok|youtube|linkedin|tripadvisor|pinterest|whatsapp)\.[a-z.]+$/i;
+/**
+ * Sites that are definitely not the campsite's own, matched on the
+ * REGISTRABLE domain only.
+ *
+ * 🔴 Two wrong versions preceded this one, in opposite directions.
+ *
+ * The first tested these words as substrings of the whole hostname, so
+ * `lepresaintandre.com` ("lep·resa·intandre") and `aucarresainteloi.com`
+ * lost their websites — a filter meant to protect campsites deleting
+ * campsites. The second matched any label, which threw away
+ * `reservation.fermedugueric.fr`: a campsite's own booking page on its
+ * own domain, which is exactly what we want to link to.
+ *
+ * So the test is the registrable domain — the label before the public
+ * suffix. `booking.com` is an aggregator; `fermedugueric.fr` is a
+ * campsite, whatever it calls its subdomains.
+ *
+ * 🔴 And the list is deliberately SHORT. Measured over the live data,
+ * the commonest values in this field are regional tourism portals
+ * (`valdeloire-france.com` 45, `tourisme-aveyron.com` 39) and campsite
+ * chains (`campingcarpark.com` 476, `capfun.com` 38) — a page ABOUT the
+ * campsite, or the group that runs it. Neither is spam, and deciding
+ * whether a reader would rather have those than nothing is a product
+ * question with numbers attached, not a regex. CAMP-142 carries it.
+ * What stays here is only what is never the campsite: a social network
+ * and a booking marketplace.
+ *
+ * The suffix handling is two labels, which is right for .com and .fr
+ * and wrong for .co.uk — where it reads "co", matches nothing, and
+ * keeps the site. Failing towards keeping a real website is the safe
+ * direction for this list.
+ */
+const AGGREGATOR_DOMAIN = new Set([
+  'facebook',
+  'instagram',
+  'twitter',
+  'tiktok',
+  'youtube',
+  'linkedin',
+  'pinterest',
+  'whatsapp',
+  'tripadvisor',
+  'booking',
+  'expedia',
+  'airbnb',
+  'hotels',
+  'secureholiday',
+  // Measured in our own data: 49 campsites pointed at this one.
+  'aireparkreservation',
+  'campercontact',
+  'park4night',
+  'pitchup',
+  'eurocampings',
+  'campingcheque',
+]);
+
+const isAggregator = (hostname: string): boolean => {
+  const labels = hostname
+    .toLowerCase()
+    .replace(/^www\./, '')
+    .split('.');
+  const registrable =
+    labels.length >= 2 ? labels[labels.length - 2] : labels[0];
+  return AGGREGATOR_DOMAIN.has(registrable);
+};
 
 export function cleanWebsite(raw: string | undefined): string | undefined {
   if (!raw) return undefined;
@@ -609,8 +672,7 @@ export function cleanWebsite(raw: string | undefined): string | undefined {
   //
   // A host with no dot is not a domain — "localhost", or a mapper's note.
   if (!url.hostname.includes('.')) return undefined;
-  if (AGGREGATOR_HOST.test(url.hostname.replace(/^www\./, '')))
-    return undefined;
+  if (isAggregator(url.hostname)) return undefined;
   return url.toString();
 }
 
