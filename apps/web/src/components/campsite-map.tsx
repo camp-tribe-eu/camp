@@ -729,7 +729,8 @@ export default function CampsiteMap() {
     const m = map.current;
     if (!m || index.current.length === 0) return;
 
-    // 🔴 Nothing here may touch a style that has not finished loading.
+    // 🔴 Drawing the region circles waits for the style. Saying what is
+    // happening does not.
     //
     // `addSource` and `addLayer` run MapLibre's `_checkLoaded()` and
     // THROW — "Style is not done loading" — and `drawRegions` calls
@@ -742,45 +743,53 @@ export default function CampsiteMap() {
     // It LOOKED harmless, which is the dangerous part. The `styledata`
     // handler re-runs `refresh()`, so the circles appeared anyway — the
     // first paint was resting on winning a race, and on a slow
-    // connection there is no reason to think we win it. The file already
-    // said sources "are (re)attached on every styledata event, not once
-    // on load"; this is the path that did not honour it.
+    // connection there is no reason to think we win it.
+    //
+    // 🔴 But ONLY this call is deferred, and the first version of this
+    // fix deferred the whole of `refresh`. That would have left the
+    // panel reading "Counting campsites…" for as long as a third-party
+    // style took to arrive — trading an uncaught error for the exact
+    // symptom that is currently failing CI on unrelated pull requests.
+    // Nothing else in here needs the style: `getBounds` and `getZoom`
+    // are the camera, and `getSource`/`getLayer` answer `undefined`
+    // rather than throwing.
     //
     // Waiting on `idle` rather than `styledata`: styledata fires for
     // every sprite and glyph load and can fire with the style still not
     // loaded, while `idle` means the map has nothing left in flight.
     // One pending retry at a time, so a reader dragging the map during
     // a slow style load does not stack up listeners.
-    if (!m.isStyleLoaded()) {
-      if (!awaitingStyle.current) {
-        awaitingStyle.current = true;
-        m.once('idle', () => {
-          awaitingStyle.current = false;
-          void refreshRef.current();
-        });
+    const whenDrawable = (draw: () => void) => {
+      if (m.isStyleLoaded()) {
+        draw();
+        return;
       }
-      return;
-    }
+      if (awaitingStyle.current) return;
+      awaitingStyle.current = true;
+      m.once('idle', () => {
+        awaitingStyle.current = false;
+        void refreshRef.current();
+      });
+    };
 
     const view = boundsOf(m);
 
-    if (m.getZoom() < DETAIL_ZOOM) {
-      // Too wide for markers. The index already holds the counts, so
-      // this costs nothing and still answers "how many are down there".
-      setDataState({ kind: 'wide', count: countInView(index.current, view) });
-      hideMarkers(m);
-      drawRegions(m, index.current);
-      return;
-    }
-
+    // Too wide, or too heavy, for markers. The index already holds the
+    // counts, so this costs nothing and still answers "how many are
+    // down there".
+    //
     // 🔴 Too HEAVY, not too many. See VIEW_BUDGET_BYTES: the old bound
     // counted chunks, let a 1.96 MB view through and refused one
     // weighing 0.06 MB.
-    const { keys, tooMany } = chunksInView(index.current, view);
-    if (tooMany) {
+    const detail = m.getZoom() >= DETAIL_ZOOM;
+    const { keys, tooMany } = detail
+      ? chunksInView(index.current, view)
+      : { keys: [] as string[], tooMany: true };
+
+    if (!detail || tooMany) {
       setDataState({ kind: 'wide', count: countInView(index.current, view) });
       hideMarkers(m);
-      drawRegions(m, index.current);
+      whenDrawable(() => drawRegions(m, index.current));
       return;
     }
 
@@ -864,6 +873,13 @@ export default function CampsiteMap() {
       ),
     );
 
+    // 🔴 `clearRegions` calls removeLayer/removeSource, which check the
+    // style too — but it only calls them when `getLayer`/`getSource`
+    // already found something, and those do not check. Something can
+    // only be there because `drawRegions` put it there, which needs a
+    // loaded style; and `setStyle` discards it, so mid-swap there is
+    // nothing to find. So this needs no guard, and the reason is a
+    // property rather than luck.
     clearRegions(m);
     applyFilterState(filtersRef.current);
 
