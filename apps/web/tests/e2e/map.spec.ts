@@ -403,9 +403,14 @@ test.describe('/map', () => {
   //
   // 🔴 So this test makes the race LOSE. The style is held back until
   // after the index has been served, which is the order that used to
-  // throw, and which a slow connection produces by itself. The fix must
-  // be "refresh waits for the style", not "the style usually arrives
-  // first" — and only the delay can tell those two apart.
+  // throw, and which a slow connection produces by itself. Only the
+  // delay can tell "the drawing waits for the style" apart from "the
+  // style usually arrives first".
+  //
+  // 🔴 And it asserts the circles ARRIVE, not only that nothing threw.
+  // The fix defers one call; a deferral that is never retried would
+  // leave a blank map and a clean console, which is a worse bug than
+  // the one being fixed.
   test('🔴 drawing the regions never touches a style that is still loading', async ({
     page,
   }) => {
@@ -444,9 +449,27 @@ test.describe('/map', () => {
       })
       .not.toBe('loading');
 
+    // 🔴 And it DREW. Either the region circles came back after the
+    // style loaded, or the map is drawing markers instead — one of the
+    // two, because a map that deferred its only draw and forgot it
+    // would satisfy every other assertion here.
+    await expect
+      .poll(
+        async () => {
+          const el = map(page);
+          return (
+            Number(await el.getAttribute('data-visible-regions')) +
+            Number(await el.getAttribute('data-visible-points')) +
+            Number(await el.getAttribute('data-visible-clusters'))
+          );
+        },
+        { timeout: 20_000, message: 'the map drew nothing once the style landed' },
+      )
+      .toBeGreaterThan(0);
+
     expect(
       errors.filter((e) => /Style is not done loading/i.test(e)),
-      'refresh() touched the style before it had loaded',
+      'the drawing touched the style before it had loaded',
     ).toEqual([]);
     expect(errors, 'the map logged errors on a slow style').toEqual([]);
   });

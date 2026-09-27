@@ -580,6 +580,13 @@ export default function CampsiteMap() {
       const clusters = rendered(CLUSTER_LAYER);
       el.dataset.visibleClusters = String(clusters.length);
       el.dataset.visiblePoints = String(points.length);
+      // 🔴 CAMP-133: and the region circles, for the same reason.
+      //
+      // `drawRegions` is the one call that has to wait for the style,
+      // so it is the one that can be quietly skipped and never retried.
+      // Without a number for it, a test can only prove that nothing
+      // threw — not that the circles arrived.
+      el.dataset.visibleRegions = String(rendered(REGION_CIRCLE).length);
 
       // 🔴 CAMP-127: the viewport, and how many of OUR features are in it.
       //
