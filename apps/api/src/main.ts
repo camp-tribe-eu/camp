@@ -44,6 +44,25 @@ async function bootstrap() {
     });
   }
 
+  // CAMP-142: say out loud whether the build may bypass the rate limit.
+  //
+  // 🔴 One line, because the absence of this line cost seven hours. The
+  // token was added to `.env` ten minutes AFTER this process last
+  // started; ConfigModule reads `.env` only at boot, so the running API
+  // had never heard of it and `isExempt()` failed closed exactly as it
+  // promises. Nothing anywhere said so — the build merely got slow, and
+  // slow was misread as a bug in the bypass rather than a stale process.
+  //
+  // The value is never printed, only whether one is configured. The
+  // build's own check (apps/web/scripts/check-build-bypass.mjs) proves
+  // the token actually WORKS; this is the line that makes the cause
+  // obvious once it does not.
+  console.log(
+    process.env.API_BUILD_TOKEN
+      ? '[throttle] build-token exemption: configured'
+      : '[throttle] build-token exemption: NOT configured — builds will be rate-limited',
+  );
+
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
