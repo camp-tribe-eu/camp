@@ -196,7 +196,23 @@ test.describe('a route page', () => {
   // What is actually invariant, and what this checks instead: whatever
   // links the page emits are well-formed and resolve, and a stage with
   // nothing near it says so rather than rendering an empty gap.
-  test('campsite links resolve, and empty stages say so', async ({ page }) => {
+  // 🔴 The campsite URLs are FETCHED, not navigated to, and that is the
+  // second thing CI taught me about this one test.
+  //
+  // The first version did up to twelve sequential `page.goto` calls —
+  // three route pages plus four campsite pages each, every one a full
+  // render. On webkit that overran the 30 s test timeout, passed on the
+  // retry, and the flaky guard failed the build for it. Correctly: a
+  // retry that goes green is what an intermittent fault looks like, and
+  // this one was a real one — the test was simply doing far too much.
+  //
+  // Nothing here needs a rendered page. The question is "does this URL
+  // resolve to a real campsite page", which an HTTP fetch answers
+  // completely and in a fraction of the time.
+  test('campsite links resolve, and empty stages say so', async ({
+    page,
+    request,
+  }) => {
     // Croatia and Latvia are on this list on purpose: their region names
     // carry the accents the slug rule has to strip.
     const slugs = [
@@ -223,7 +239,10 @@ test.describe('a route page', () => {
         `${slug}: ${stages} stages but no campsites and no "nothing nearby" notice`,
       ).toBeGreaterThan(0);
 
-      for (const href of links.slice(0, 4)) {
+      // The shape of EVERY link is checked — it costs nothing and it is
+      // where the accent bug would show. Only the first two per route
+      // are fetched.
+      for (const href of links) {
         expect(href, 'a campsite link has no href').toBeTruthy();
         // 🔴 No empty segment. `/camping/cy//arazi` is the shape a
         // region-less campsite produced before canonicalPath returned
@@ -233,13 +252,20 @@ test.describe('a route page', () => {
         expect(href, `${href} carries a non-ASCII character`).toMatch(
           /^[\x21-\x7e]+$/,
         );
+      }
 
-        const res = await page.goto(href, { waitUntil: 'commit' });
-        expect(res?.status(), `${href} answered ${res?.status()}`).toBeLessThan(400);
-        await expect(
-          page.getByRole('heading', { level: 1 }),
+      for (const href of links.slice(0, 2)) {
+        const res = await request.get(href);
+        expect(res.status(), `${href} answered ${res.status()}`).toBeLessThan(400);
+        // A 200 is not enough on its own: Next answers a missing
+        // campsite with the prerendered 404 page, which is a 200 to a
+        // fetch. The heading is what distinguishes them.
+        const html = await res.text();
+        const h1 = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1] ?? '';
+        expect(
+          h1.replace(/<[^>]+>/g, ''),
           `${href} rendered a not-found page`,
-        ).not.toContainText(/not found/i);
+        ).not.toMatch(/not found/i);
         checked += 1;
       }
     }
