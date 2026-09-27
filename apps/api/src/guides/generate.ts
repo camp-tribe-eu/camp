@@ -376,8 +376,31 @@ export async function gatherFacts(
   return out;
 }
 
+/**
+ * `--min-subjects=N`, `--min-named=N`.
+ *
+ * 🔴 The defaults are the production rule and nothing here is meant to
+ * relax it in production. They exist because the CI fixture is 72
+ * campsites across five municipalities, and its richest region carries
+ * five named facts against a gate of six — a gate sized for a 61 557-row
+ * database. Rather than shrink the gate so a fixture can clear it, CI
+ * says out loud which gate it is using. The gate itself is proved by
+ * `region-facts.spec.ts`, not by the fixture.
+ */
+function flag(name: string, fallback: number): number {
+  const arg = process.argv.find((a) => a.startsWith(`--${name}=`));
+  if (!arg) return fallback;
+  const n = Number(arg.split('=')[1]);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`--${name} wants a number, got "${arg.split('=')[1]}"`);
+  }
+  return n;
+}
+
 async function main() {
   const apply = process.argv.includes('--apply');
+  const minSubjects = flag('min-subjects', MIN_SUBJECTS);
+  const minNamed = flag('min-named', MIN_NAMED_FACTS);
   const db = new Client({ connectionString: DB_URL });
   await db.connect();
 
@@ -385,7 +408,7 @@ async function main() {
     const candidates = await gatherFacts(db, { withExamples: true });
     const wanted = new Map<string, RegionFacts>();
     for (const f of candidates) {
-      if (!worthPublishing(f)) continue;
+      if (!worthPublishing(f, minSubjects, minNamed)) continue;
       wanted.set(slugFor(f, regionSlug(f.region)), f);
     }
 
@@ -406,15 +429,18 @@ async function main() {
      */
     const retired = [...have].filter((s) => !wanted.has(s));
 
-    const bySubjects = candidates.filter((f) => f.subjects >= MIN_SUBJECTS);
+    const bySubjects = candidates.filter((f) => f.subjects >= minSubjects);
     console.log(`themes          ${THEMES.length}`);
     console.log(`region/theme pairs with any data  ${candidates.length}`);
     console.log(
-      `  with at least ${MIN_SUBJECTS} campsites      ${bySubjects.length}`,
+      `  with at least ${minSubjects} campsites      ${bySubjects.length}`,
     );
-    console.log(
-      `  and at least ${MIN_NAMED_FACTS} named facts    ${wanted.size}`,
-    );
+    console.log(`  and at least ${minNamed} named facts    ${wanted.size}`);
+    if (minSubjects !== MIN_SUBJECTS || minNamed !== MIN_NAMED_FACTS) {
+      console.log(
+        `  ⚠ not the production gate (${MIN_SUBJECTS} campsites, ${MIN_NAMED_FACTS} named facts)`,
+      );
+    }
     console.log(`  new                             ${fresh.length}`);
     console.log(
       `  already published               ${wanted.size - fresh.length}`,
