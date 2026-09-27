@@ -112,6 +112,25 @@ jobs:
       - name: Flaky-test guard still catches a retry that went green
         run: node scripts/ci/check-flaky.mjs --self-test
 
+      # 🔴 CAMP-134. The same failure one door along from the flake guard
+      # above: a test that fails then passes leaves the job green, and so
+      # does a test that never ran at all. The summary line everybody
+      # reads says "295 passed" and does not mention the 5 that skipped.
+      #
+      # Measured 27.09.2026: `--project=unit` gives 295 passed and 5
+      # skipped, all of them ranking-quality.spec.ts declining because
+      # the live search index is not cached where it looks. CI does not
+      # set RANKING_INDEX, so those five have never run here.
+      #
+      # ⚠️ Only the guard's LOGIC runs in this job. The gate itself is
+      # not yet on this workflow's e2e suite, because seeding a budget
+      # needs a full e2e report and there are 23 `test.skip` sites in
+      # tests/e2e, most of them "the fixture holds no X" — which is this
+      # card's subject from a third direction. The scale workflow enforces
+      # it at zero today; docs/scale-check.md says what is left.
+      - name: Skip guard still catches a test that did not run
+        run: node scripts/ci/check-skips.mjs --self-test
+
       # 🔴 A broken workflow file is the failure that reports nothing.
       #
       # On 21.09.2026 a step in osm-weekly.yml was given

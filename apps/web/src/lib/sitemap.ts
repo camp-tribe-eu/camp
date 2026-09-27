@@ -25,6 +25,7 @@ import { absoluteAlternates, liveLocales } from './i18n';
 import { getGuides } from './guides';
 import { getRoutes } from './routes';
 import { FUEL, FUEL_COUNTRIES } from './fuel';
+import { MEASURED, publishableCountries } from './rental';
 
 export const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://camptribe.eu';
 
@@ -205,6 +206,35 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
       changefreq: 'weekly',
       priority: '0.6',
       lastmod: FUEL.bulletinDate,
+    });
+  }
+
+  // CAMP-4 / CAMP-54. The rental hub and its twelve country pages.
+  //
+  // 🔴 Twelve, and the sitemap is where that number is easiest to check.
+  // The card asked for 200–300 city pages; publishing them would be the
+  // scaled-content problem CAMP-130 refused, and this file is the place
+  // where such a thing would show up as several hundred near-identical
+  // `loc` lines. It lists exactly what `publishableCountries()` passes,
+  // so a country that stops meeting the content gate leaves the sitemap
+  // on the same build that stops rendering it.
+  //
+  // 🔴 `lastmod` is the date our campsite snapshot was measured, not the
+  // build's. These pages change when the counts on them change; stamping
+  // them with today on every deploy is how a crawler learns to ignore a
+  // lastmod, which the comment above already says about the fuel pages.
+  urls.push({
+    loc: `${SITE}/camper-rental`,
+    changefreq: 'monthly',
+    priority: '0.8',
+    lastmod: MEASURED.measuredAt,
+  });
+  for (const country of publishableCountries()) {
+    urls.push({
+      loc: `${SITE}/camper-rental/${country.code}`,
+      changefreq: 'monthly',
+      priority: '0.7',
+      lastmod: MEASURED.measuredAt,
     });
   }
 

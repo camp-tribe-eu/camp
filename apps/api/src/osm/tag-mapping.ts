@@ -516,3 +516,245 @@ export function mapSpotType(tags: OsmTags): SpotTypeResolution {
     reason: 'no fee tag - defaulted to paid',
   };
 }
+
+// ---------------------------------------------------------------------------
+// Contact — CAMP-141
+// ---------------------------------------------------------------------------
+
+/**
+ * What a reader needs to actually go, and what we were throwing away.
+ *
+ * 🔴 Measured 27.09.2026 through Overpass, before writing a line of this.
+ * Of the campsites OSM holds, a contact of some kind exists for 75.4% in
+ * Slovenia (171 sites) and 79.6% in Austria (598). We imported none of
+ * it: `mapAmenities` above reads water, showers, electricity and pets,
+ * and nothing that tells a reader how to reach the place. The 10.7% of
+ * websites we did have came from DATAtourisme, which is France only.
+ *
+ *   website 61-72%   phone 40-49%   email 27-36%   addr:city 50-52%
+ *
+ * This is also the real answer to CAMP-114 ("their structured data has
+ * 34 blocks, ours has 1"): the markup was never the constraint. We emit
+ * what we can back with data, and there was no data.
+ */
+export interface SpotContact {
+  website?: string;
+  phone?: string;
+  email?: string;
+  operator?: string;
+  openingHours?: string;
+  /** Pitches, as OSM records them — a plain count. */
+  capacity?: number;
+  address?: { street?: string; city?: string; postcode?: string };
+}
+
+/** The first tag of a list that carries a non-empty value. */
+const firstTag = (tags: OsmTags, keys: string[]): string | undefined => {
+  for (const k of keys) {
+    const v = tags[k];
+    if (typeof v === 'string' && v.trim() !== '') return v.trim();
+  }
+  return undefined;
+};
+
+/**
+ * 🔴 A URL we would put in an anchor and in JSON-LD, so it is checked.
+ *
+ * OSM is open data: the value of `website` is whatever a mapper typed.
+ * Most of it is `https://…`, plenty of it is `www.example.com`, and a
+ * `javascript:` or `data:` value is a cross-site scripting hole in a
+ * page we render and in structured data Google reads. So only http and
+ * https survive, a bare domain is given https, and everything else is
+ * dropped rather than guessed at.
+ */
+/**
+ * 🔴 An aggregator is not the campsite's own site.
+ *
+ * `datatourisme/parse.ts` already refuses these with a written reason —
+ * "when every candidate is an aggregator we store nothing, a gap shown
+ * as a gap" — and the same rule has to hold here, or the two sources
+ * disagree about what "website" means. Review measured 28 live spots
+ * whose OSM website was a Facebook page or booking.com: rendered as
+ * "Website" and emitted as `sameAs`, which is a machine-readable claim
+ * that a Facebook page IS the campsite.
+ *
+ * Kept as a literal copy rather than an import: this module is
+ * deliberately free of the Nest runtime so the pipeline can load it
+ * alone, and reaching into the DATAtourisme parser would drag it in.
+ */
+/**
+ * Sites that are definitely not the campsite's own, matched on the
+ * REGISTRABLE domain only.
+ *
+ * 🔴 Two wrong versions preceded this one, in opposite directions.
+ *
+ * The first tested these words as substrings of the whole hostname, so
+ * `lepresaintandre.com` ("lep·resa·intandre") and `aucarresainteloi.com`
+ * lost their websites — a filter meant to protect campsites deleting
+ * campsites. The second matched any label, which threw away
+ * `reservation.fermedugueric.fr`: a campsite's own booking page on its
+ * own domain, which is exactly what we want to link to.
+ *
+ * So the test is the registrable domain — the label before the public
+ * suffix. `booking.com` is an aggregator; `fermedugueric.fr` is a
+ * campsite, whatever it calls its subdomains.
+ *
+ * 🔴 And the list is deliberately SHORT. Measured over the live data,
+ * the commonest values in this field are regional tourism portals
+ * (`valdeloire-france.com` 45, `tourisme-aveyron.com` 39) and campsite
+ * chains (`campingcarpark.com` 476, `capfun.com` 38) — a page ABOUT the
+ * campsite, or the group that runs it. Neither is spam, and deciding
+ * whether a reader would rather have those than nothing is a product
+ * question with numbers attached, not a regex. CAMP-142 carries it.
+ * What stays here is only what is never the campsite: a social network
+ * and a booking marketplace.
+ *
+ * The suffix handling is two labels, which is right for .com and .fr
+ * and wrong for .co.uk — where it reads "co", matches nothing, and
+ * keeps the site. Failing towards keeping a real website is the safe
+ * direction for this list.
+ */
+const AGGREGATOR_DOMAIN = new Set([
+  'facebook',
+  'instagram',
+  'twitter',
+  'tiktok',
+  'youtube',
+  'linkedin',
+  'pinterest',
+  'whatsapp',
+  'tripadvisor',
+  'booking',
+  'expedia',
+  'airbnb',
+  'hotels',
+  'secureholiday',
+  // Measured in our own data: 49 campsites pointed at this one.
+  'aireparkreservation',
+  'campercontact',
+  'park4night',
+  'pitchup',
+  'eurocampings',
+  'campingcheque',
+]);
+
+const isAggregator = (hostname: string): boolean => {
+  const labels = hostname
+    .toLowerCase()
+    .replace(/^www\./, '')
+    .split('.');
+  const registrable =
+    labels.length >= 2 ? labels[labels.length - 2] : labels[0];
+  return AGGREGATOR_DOMAIN.has(registrable);
+};
+
+export function cleanWebsite(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const v = raw.trim();
+  if (v === '') return undefined;
+  const withScheme = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    return undefined;
+  }
+  // 🔴 No scheme check here, and there was one.
+  //
+  // It read `if (url.protocol !== 'http:' && …) return undefined`, and
+  // review proved it unreachable: the line above gives every value
+  // without a scheme an `https://`, so `new URL` either parses it as
+  // http(s) or throws. Instrumented over 216 061 inputs — every staging
+  // value plus an adversarial set plus 200 000 fuzz strings — it was
+  // reached zero times. The protection is real and comes from the parse
+  // failing, not from a branch that cannot run, so the branch is gone
+  // and this paragraph says where the safety actually lives.
+  //
+  // A host with no dot is not a domain — "localhost", or a mapper's note.
+  if (!url.hostname.includes('.')) return undefined;
+  if (isAggregator(url.hostname)) return undefined;
+  return url.toString();
+}
+
+/** OSM writes free text here; keep it printable and bounded. */
+const cleanText = (
+  raw: string | undefined,
+  max: number,
+): string | undefined => {
+  if (!raw) return undefined;
+  // eslint-disable-next-line no-control-regex
+  const v = raw
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (v === '') return undefined;
+  return v.length > max ? `${v.slice(0, max).trim()}…` : v;
+};
+
+export function mapContact(tags: OsmTags): SpotContact {
+  const out: SpotContact = {};
+
+  const website = cleanWebsite(
+    firstTag(tags, ['website', 'contact:website', 'url', 'contact:url']),
+  );
+  if (website) out.website = website;
+
+  // 🔴 OSM puts several numbers in one tag, separated by ';'.
+  //
+  // The page builds `tel:` by stripping everything but digits and '+',
+  // so "+33 4 92 57 81 77 ; +33 6 80 13 39 50" became the undialable
+  // `tel:+33492578177+33680133950` — review found 157 live phones doing
+  // exactly that. Only the first number is kept: one number that works
+  // beats two glued into a third that does not.
+  const phoneRaw = firstTag(tags, ['phone', 'contact:phone', 'contact:mobile']);
+  const phone = cleanText(phoneRaw?.split(';')[0], 40);
+  // A phone with no digit at all is a note, not a number.
+  if (phone && /\d/.test(phone)) out.phone = phone;
+
+  const email = cleanText(firstTag(tags, ['email', 'contact:email']), 120);
+  // A bare "@" test, not a full RFC one: the point is to refuse a note
+  // like "ask at reception", not to validate deliverability.
+  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) out.email = email;
+
+  const operator = cleanText(firstTag(tags, ['operator']), 120);
+  if (operator) out.operator = operator;
+
+  const openingHours = cleanText(firstTag(tags, ['opening_hours']), 200);
+  if (openingHours) out.openingHours = openingHours;
+
+  // 🔴 `capacity` is a count of pitches and is routinely mistyped. A
+  // value that is not a plain positive integer is dropped rather than
+  // coerced — "approx 120" becoming 120 is the kind of quiet invention
+  // this project does not do.
+  const capacityRaw = firstTag(tags, ['capacity']);
+  if (capacityRaw !== undefined && /^\d{1,5}$/.test(capacityRaw)) {
+    const n = Number(capacityRaw);
+    if (n > 0) out.capacity = n;
+  }
+
+  // 🔴 A house number with no street is not a street address.
+  //
+  // The first version joined whatever existed, so `addr:housenumber=24`
+  // alone became `streetAddress: "24"`. Review found 144 live rows like
+  // that and 242 more waiting in staging. The number is only meaningful
+  // attached to a street, so without one it is dropped.
+  const streetName = firstTag(tags, ['addr:street']);
+  const street = streetName
+    ? cleanText(
+        [streetName, firstTag(tags, ['addr:housenumber'])]
+          .filter(Boolean)
+          .join(' '),
+        160,
+      )
+    : undefined;
+  const city = cleanText(firstTag(tags, ['addr:city']), 120);
+  const postcode = cleanText(firstTag(tags, ['addr:postcode']), 20);
+  if (street || city || postcode) {
+    out.address = {};
+    if (street) out.address.street = street;
+    if (city) out.address.city = city;
+    if (postcode) out.address.postcode = postcode;
+  }
+
+  return out;
+}
