@@ -23,6 +23,7 @@ import {
 } from './api';
 import { absoluteAlternates, liveLocales } from './i18n';
 import { getGuides } from './guides';
+import { getRoutes } from './routes';
 import { FUEL, FUEL_COUNTRIES } from './fuel';
 
 export const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://camptribe.eu';
@@ -141,7 +142,34 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
     { loc: `${SITE}/camping`, changefreq: 'weekly', priority: '0.9' },
     { loc: `${SITE}/guides`, changefreq: 'weekly', priority: '0.7' },
     { loc: `${SITE}/tools`, changefreq: 'monthly', priority: '0.7' },
+    // CAMP-3 / CAMP-45. High priority on purpose: the owner's own
+    // weighting puts routes at 30% of the MVP, and the source research
+    // behind CAMP-45 says routes collect more search traffic than the
+    // map does. A section nobody tells a crawler about is a section
+    // that exists for nobody — the same argument the guides carry.
+    { loc: `${SITE}/routes`, changefreq: 'monthly', priority: '0.9' },
   ];
+
+  // CAMP-3 / CAMP-45: one entry per curated route.
+  //
+  // 🔴 `lastmod` is `curatedAt` — the day a person last went through
+  // that route — and never the build date. These pages change when
+  // somebody edits the data file, which is rarely; stamping today on all
+  // twelve every deploy is precisely how a sitemap teaches a crawler to
+  // ignore the field, which this file warns about thirty lines below and
+  // then got wrong once already for the packing list.
+  //
+  // 🔴 Read from the data file, not from a list kept here. The routes
+  // are a typed source file, so the sitemap and the pages cannot
+  // disagree about which ones exist.
+  for (const route of getRoutes()) {
+    urls.push({
+      loc: `${SITE}/routes/${route.slug}`,
+      changefreq: 'monthly',
+      priority: '0.8',
+      lastmod: route.curatedAt,
+    });
+  }
 
   // CAMP-55. The two tools, plus one page per member state.
   //
