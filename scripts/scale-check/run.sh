@@ -218,9 +218,22 @@ if [ "$WITH_PAGES" = 1 ]; then
   trap 'rm -rf "$RANK_DIR"' EXIT
   if curl -fsS --connect-timeout 5 -m 180 -H "x-build-token: $API_BUILD_TOKEN" \
        "$API/spots/search-index" -o "$RANK_DIR/search-index.json"; then
+    # 🔴 `--grep`, and it is doing a job beyond narrowing.
+    #
+    # Without it this runs all 300 unit tests, of which 295 already run
+    # in ci.yml on every push — and, worse, a skip budget of zero would
+    # then PASS if the five ranking tests vanished from the report
+    # entirely: 295 tests, none skipped, tick. The guard cannot tell
+    # "nothing declined" from "nothing was there to decline".
+    #
+    # Playwright exits 1 with "No tests found" when a filter matches
+    # nothing (verified). So naming the describe block makes their
+    # absence a failure rather than a silent pass, which is the same
+    # lesson as everything else on this card.
     step "ranking quality, against the live index" \
       env CI=true RANKING_INDEX="$RANK_DIR/search-index.json" \
-        npx playwright test --config=apps/web/playwright.config.ts --project=unit
+        npx playwright test --config=apps/web/playwright.config.ts \
+          --project=unit --grep 'ranking quality, measured on the live index'
     step "nothing in the ranking suite declined to run" \
       node scripts/ci/check-skips.mjs "$REPORT" --max 0
   else

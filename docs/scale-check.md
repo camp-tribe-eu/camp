@@ -55,10 +55,24 @@ Two things follow, and both are in this change:
   would walk past it), and it refuses a report containing no tests at
   all, because a run that executed nothing reports zero skips.
 - the scale run **provides** the index. It fetches `/spots/search-index`
-  and runs the unit project with `RANKING_INDEX` set, then holds both
+  and runs those five tests with `RANKING_INDEX` set, then holds both
   that run and the scale suite to a budget of **zero** skips. This job is
   the only place in the repository with the real index, so it is the only
   place those five can run for real.
+
+  Rehearsed, both ways, on 27.09.2026:
+
+  ```
+  with the live index      5 passed, 0 skipped   → ✓ every test ran
+  with RANKING_INDEX bad   5 skipped             → ✗ 5 test(s) did not run (exit 1)
+  ```
+
+  The run is narrowed with `--grep` to the ranking describe block, and
+  that is not only about speed: with a budget of zero, a run whose five
+  tests had vanished from the report altogether would pass — 295 other
+  tests, none skipped, tick. Playwright exits 1 with "No tests found"
+  when a filter matches nothing, so naming the block makes their absence
+  a failure instead of a silent pass.
 
 ⚠️ **What is not covered, stated rather than folded in.** The gate is not
 yet on `ci.yml`'s e2e suite — only the guard's self-test is. `tests/e2e`
@@ -88,7 +102,7 @@ meets.
 | probes | OSM tag census, then the map index against the API | ~10 s | 42 s |
 | rehearsal | every guard, driven with the broken version | ~10 s | 29 s |
 | build | `next build`, 65 435 pages | **7 min 36 s** | > 40 min |
-| ranking | the unit project against the live search index | ~20 s | 1 min 6 s |
+| ranking | 5 ranking tests against the live search index | — | 52 s |
 | browser | 9 tests, chromium, one viewport | 21–34 s | — |
 
 🔴 The contended column is **one sample each**, taken between 16:20 and
