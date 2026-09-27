@@ -861,13 +861,17 @@ export interface PackedIndex {
    *
    * It claimed 868 rows came back with all 3 081 nearby places holding
    * `{name: undefined, m: undefined}` and the haystack silently
-   * shortened. Every one of those numbers was real — and measured
-   * against a hand-written copy of this function that said
-   * `packed.p?.[e[0]]`. One optional-chaining operator, swallowing
-   * precisely the missing table that distinguishes the two formats, so
-   * the corpus and the reader were both lookalikes of the thing under
-   * test. Review caught it. The shipped reader never behaved that way,
-   * and a measurement of a reimplementation is a measurement of nothing.
+   * shortened. Those numbers were produced — by a hand-written copy of
+   * this function that said `packed.p?.[e[0]]`.
+   *
+   * 🔴 The file was genuine; the READER was not. One optional-chaining
+   * operator, swallowing precisely the missing table that distinguishes
+   * the two formats, and the result was a confident, fully specific,
+   * entirely false account of the failure. Worth being exact about
+   * which half was wrong, because the lesson is narrow and useful:
+   * never measure a function by re-typing it. Import the one that
+   * ships and take away the thing you want to test — here, the gate
+   * below and nothing else.
    *
    * What the gate is actually worth is still worth having: it turns an
    * incidental `TypeError` from the middle of a `.map()` into a NAMED

@@ -545,9 +545,10 @@ test.describe('a stale chunk is refused, not read', () => {
    * shape: `near` as `[{name, m}]`, and **no `p` at all**.
    *
    * 🔴 That distinction is not pedantry. CAMP-138's first measurement
-   * of what a stale file does was taken on exactly the wrong artefact —
-   * v3 bytes with `p` left in, read by a copy of `unpackIndex` written
-   * with `?.` — and it produced a confident, entirely false account of
+   * of what a stale file does fed a genuine v2 file to a hand-written
+   * copy of `unpackIndex` that said `packed.p?.[e[0]]` — so the file
+   * was right and the READER was the lookalike, and one optional
+   * chaining operator produced a confident, entirely false account of
    * the failure. The fixture below was right while the prose was wrong.
    *
    * `/data/search/at.json` has no content hash, so some cache may serve
