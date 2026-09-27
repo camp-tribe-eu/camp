@@ -1,0 +1,21 @@
+# CAMP-134. actionlint knows GitHub's own runner labels and nothing else,
+# so a self-hosted label it has never heard of is an error — and that
+# error would land in ci.yml's "Workflow files parse and their scripts are
+# sane" step, which exists because an unparseable workflow is the failure
+# that reports nothing.
+#
+# `camptribe-data` is not a machine description. It is a promise about
+# what the machine holds:
+#
+#   - the full PostGIS database (61 557 campsites, 27 countries, 812
+#     regions — 4 379 MB measured 27.09.2026)
+#   - the OSM extracts the context loader merges, including
+#     merged.water.pbf at 797 MB, which the tag census reads whole
+#   - the API serving that database
+#
+# Anything without all three would pass the scale check over the wrong
+# data, which is the exact failure CAMP-134 was opened about. The label
+# is what stops the job landing there.
+self-hosted-runner:
+  labels:
+    - camptribe-data

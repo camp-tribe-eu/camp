@@ -108,12 +108,23 @@ async function instrument(page: Page) {
       });
       return true;
     };
-    if (!watch()) {
-      const mo = new MutationObserver(() => {
-        if (watch()) mo.disconnect();
-      });
-      mo.observe(document.documentElement, { childList: true, subtree: true });
-    }
+    // 🔴 A poll, not a MutationObserver on the document.
+    //
+    // The first version of this watched `document.documentElement` for
+    // the map to appear, and it recorded NOTHING — an init script runs
+    // before the document has a root element, so there was nothing to
+    // observe and the observer never attached. The suite went green
+    // anyway, because the assertion was "no sample says ready while
+    // fetching", and no sample says anything. A detector that cannot
+    // observe reports safety, which is the whole subject of this card
+    // reproduced inside the check for it.
+    //
+    // It is caught for good by the assertion in the spec that the sample
+    // list is non-empty and has seen a fetch in progress, and prevented
+    // here by a method that cannot depend on when it is called.
+    const timer = setInterval(() => {
+      if (watch()) clearInterval(timer);
+    }, 20);
   });
 }
 
@@ -306,13 +317,35 @@ test.describe('/map at 61 557 campsites', () => {
     await page.waitForTimeout(1500);
 
     const scale = await readScale(page);
-    const dishonest = scale.samples.filter(
-      (s) => s.state === 'ready' && s.inFlight > 0,
-    );
+    const busiest = Math.max(0, ...scale.samples.map((s) => s.inFlight));
     console.log(
       `${scale.samples.length} state changes, ${scale.started.length} chunk ` +
-        `fetches, ${Math.max(0, ...scale.samples.map((s) => s.inFlight))} the ` +
-        'most ever in flight at once',
+        `fetches, ${busiest} the most ever in flight at once`,
+    );
+
+    // 🔴 First: did the detector detect anything at all?
+    //
+    // An empty result is a failed run, not a clean one. The first version
+    // of this test recorded zero samples — its observer never attached —
+    // and passed, because "no sample says ready while fetching" is
+    // trivially true of no samples. These three lines are what stops this
+    // guard from becoming the sixth defect.
+    expect(
+      scale.samples.length,
+      'the state watcher recorded nothing, so this test would pass over any defect',
+    ).toBeGreaterThan(2);
+    expect(
+      scale.samples.some((s) => s.state === 'ready'),
+      'the map never reached ready, so nothing was actually examined',
+    ).toBe(true);
+    expect(
+      busiest,
+      'no sample ever caught a fetch in progress, so the window this test ' +
+        'watches was never observed — it cannot have seen an early `ready`',
+    ).toBeGreaterThan(0);
+
+    const dishonest = scale.samples.filter(
+      (s) => s.state === 'ready' && s.inFlight > 0,
     );
     expect(
       dishonest.map((s) => `ready with ${s.inFlight} still in flight`),
