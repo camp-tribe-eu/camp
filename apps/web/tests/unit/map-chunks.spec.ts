@@ -154,20 +154,24 @@ test('a refused view still names every chunk it would have needed', () => {
   expect(out.bytes).toBe(80 * chunkWeight(250));
 });
 
-test('🔴 the weight is counted once per FILE, not once per region row', () => {
+test('🔴 the weight is one per FILE, over everything that file holds', () => {
   // Two region names that slugify to one chunk key. The reader
-  // downloads one file, so refusing the view on twice its weight would
-  // be refusing a view that costs one file because the index lists two
-  // rows for it.
+  // downloads one file — so weighing it twice would refuse a view that
+  // costs one file, and weighing only the first row would understate
+  // it. The API matches on every name that slugifies to the key, so
+  // the file really holds both regions' campsites.
   const out = chunksInView(
     [
       region({ region: 'Nord-Pas-de-Calais', slug: 'npdc', count: 100 }),
-      region({ region: 'Nord Pas de Calais', slug: 'npdc', count: 100 }),
+      region({ region: 'Nord Pas de Calais', slug: 'npdc', count: 40 }),
     ],
     view(),
   );
   expect(out.keys).toEqual(['fr/npdc']);
-  expect(out.bytes).toBe(chunkWeight(100));
+  expect(out.bytes).toBe(chunkWeight(140));
+  // Not two envelopes, and not one region's worth.
+  expect(out.bytes).not.toBe(chunkWeight(100) + chunkWeight(40));
+  expect(out.bytes).not.toBe(chunkWeight(100));
 });
 
 test('🔴 the weight rule is the one the chunk files are measured against', () => {

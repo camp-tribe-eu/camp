@@ -258,19 +258,21 @@ export function chunksInView(
   // defect, where the loop claimed keys one at a time and a concurrent
   // refresh grabbed a later one, WAS reachable and was measured.
   //
-  // 🔴 The weight is summed over the DISTINCT keys, for the same
-  // reason: the reader downloads each file once, so counting a
-  // collided region twice would refuse a view that costs one file.
-  const seen = new Set<string>();
+  // 🔴 One weight per FILE, over the campsites of every row that
+  // shares its key. The reader downloads the file once, so weighing it
+  // twice would refuse a view that costs one file — and weighing only
+  // the first row would understate a file that holds both regions,
+  // which is what the chunk really contains: the API matches on every
+  // region NAME that slugifies to the key.
+  const perKey = new Map<string, number>();
   const keys: string[] = [];
-  let bytes = 0;
   for (const r of hit) {
     const key = chunkKey(r);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    keys.push(key);
-    bytes += chunkWeight(r.count);
+    if (!perKey.has(key)) keys.push(key);
+    perKey.set(key, (perKey.get(key) ?? 0) + r.count);
   }
+  let bytes = 0;
+  for (const count of perKey.values()) bytes += chunkWeight(count);
   return { keys, tooMany: bytes > budgetBytes, bytes };
 }
 
