@@ -336,23 +336,42 @@ function fuzzyScore(words: string[], term: string): number {
 function nearestNamed(
   doc: SearchDoc,
   ts: string[],
-): { m: number; name: string } | undefined {
-  let closest: { m: number; name: string } | undefined;
+): { m: number; name: string; quality: number } | undefined {
+  let best: { m: number; name: string; quality: number } | undefined;
   for (const place of doc.near) {
-    const folded = fold(place.name);
-    const words = folded.split(' ');
-    const named = ts.some(
-      (t) =>
-        words.includes(t) ||
-        words.some((w) => w.startsWith(t)) ||
-        (tolerance(t) > 0 &&
-          words.some((w) => editDistance(w, t, tolerance(t)) <= tolerance(t))),
-    );
-    if (named && (closest === undefined || place.m < closest.m)) {
-      closest = { m: place.m, name: place.name };
+    const words = fold(place.name).split(' ');
+    // How well the query explains this NAME, not merely whether it
+    // appears in it. See the comment on `quality` below.
+    let matched = 0;
+    let band = 0;
+    for (const w of words) {
+      let hit = 0;
+      for (const t of ts) {
+        if (w === t) hit = Math.max(hit, EXACT_WORD);
+        else if (w.startsWith(t)) hit = Math.max(hit, PREFIX);
+        else if (
+          tolerance(t) > 0 &&
+          editDistance(w, t, tolerance(t)) <= tolerance(t)
+        ) {
+          hit = Math.max(hit, 30);
+        }
+      }
+      if (hit > 0) {
+        matched++;
+        band = Math.max(band, hit);
+      }
+    }
+    if (matched === 0) continue;
+    const quality = band * (matched / words.length);
+    if (
+      best === undefined ||
+      quality > best.quality ||
+      (quality === best.quality && place.m < best.m)
+    ) {
+      best = { m: place.m, name: place.name, quality };
     }
   }
-  return closest;
+  return best;
 }
 
 export interface SearchOptions {
@@ -544,11 +563,28 @@ export function search(
     if (ok) matched.push({ doc: docs[d], scores: row });
   }
 
-  const hits: SearchHit[] = matched.map(({ doc, scores }) => {
+  const hits = matched.map(({ doc, scores }) => {
     let total = 0;
     for (let i = 0; i < scores.length; i++) total += scores[i] * weight[i];
     const place = nearestNamed(doc, ts);
-    return { doc, score: total, metres: place?.m, nearest: place?.name };
+    // What the campsite matches in its OWN words — its region, its
+    // country, its name — as opposed to a neighbour's.
+    const mine = new Set(
+      `${fold(doc.region)} ${fold(countryName(doc.country))} ${fold(doc.name)}`
+        .split(' ')
+        .filter(Boolean),
+    );
+    let own = 0;
+    for (const t of ts) if (mine.has(t)) own++;
+    return {
+      doc,
+      score: total,
+      metres: place?.m,
+      nearest: place?.name,
+      // Carried only as far as the sort below, then dropped.
+      own,
+      quality: place?.quality ?? 0,
+    };
   });
 
   return hits
@@ -594,13 +630,45 @@ export function search(
       // 39 real queries and 0 of 200 000 randomised hit-sets, against
       // this comparator and against the previous one. A line that
       // cannot change an outcome misleads about what protects what.
+      // 🔴 CAMP-137: being IN the place you named beats being near
+      // something whose name contains the word.
+      //
+      // Distance was the only thing separating equal scores, and it
+      // answers a different question: "how far is the nearest thing
+      // whose name contains your word". Measured on the live index,
+      // `camping tolmin` returned `Camp Bovec`, forty kilometres from
+      // Tolmin, because a shop 273 m from it is called "Kmetijska
+      // Zadruga **Tolmin** Trgovina Market Bovec" — a cooperative FROM
+      // Tolmin running a store IN Bovec. The word is there; the town is
+      // not.
+      //
+      // 🔴 The first attempt scored how much of the place's NAME the
+      // query explained, and it broke five other queries to fix this
+      // one. That measure punishes long real names: "València - La Font
+      // de Sant Lluís" IS Valencia, and it lost to "Valencia de
+      // Alcántara" in Portugal for having six words instead of three.
+      // `camping gard` went to Sweden, because *gård* is an ordinary
+      // Swedish word and "Coop Ludvika Gård" matched it exactly.
+      //
+      // What every one of those cases had in common — including Tolmin
+      // — is that the right answer was the campsite IN the region the
+      // reader named, and the wrong one merely had a neighbour with the
+      // word in its name. So that is what is compared: how many of the
+      // query's words the document matches in its OWN region, country
+      // or name, rather than through something nearby.
+      if (b.own !== a.own) return b.own - a.own;
+      // Then how well the nearest named place matched, which is what
+      // separates two campsites that are both in the right region.
+      if (b.quality !== a.quality) return b.quality - a.quality;
       const am = a.metres ?? Number.POSITIVE_INFINITY;
       const bm = b.metres ?? Number.POSITIVE_INFINITY;
       if (am !== bm) return am - bm;
       // Deterministic tiebreak — the same lesson as the map's ORDER BY.
       return a.doc.path.localeCompare(b.doc.path);
     })
-    .slice(0, limit);
+    .slice(0, limit)
+    // `quality` exists to order the list, not to describe a result.
+    .map(({ own: _own, quality: _quality, ...hit }) => hit);
 }
 
 // ---------------------------------------------------------------------
