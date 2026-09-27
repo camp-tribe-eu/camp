@@ -336,6 +336,7 @@ function fuzzyScore(words: string[], term: string): number {
 function nearestNamed(
   doc: SearchDoc,
   ts: string[],
+  alias: (string | undefined)[],
 ): { m: number; name: string } | undefined {
   // 🔴 The NEAREST match, as it always was.
   //
@@ -354,22 +355,245 @@ function nearestNamed(
   // Naming the place well and ordering by distance want two different
   // numbers out of this function, and giving them one is what went
   // wrong. CAMP-140 carries the split.
+  //
+  // 🔴 CAMP-136: the exonym has to reach HERE too, or the fix is half a
+  // fix. `m` is the ordering key for everything that scores the same,
+  // and after the alias every campsite around München scores the same —
+  // so without the alias in this function the top result becomes an
+  // arbitrary one of them, and the «· N m from X» line disappears with
+  // it. Measured over the 22 cities in the table below: 13 of them
+  // answer differently when the alias is kept out of here, and two of
+  // those 13 go to the wrong COUNTRY — `hague` to Austria and `bruges`
+  // back to the Gironde.
+  //
+  // The edit distance below still runs on the word the READER typed,
+  // never on the substitution. Forgiving a typo in a word we chose for
+  // them is two guesses stacked, which is what the score bands exist to
+  // prevent. Measured: allowing it changes nothing on all 22, so it
+  // buys noise and no answers.
   let closest: { m: number; name: string } | undefined;
   for (const place of doc.near) {
     const words = fold(place.name).split(' ');
-    const named = ts.some(
-      (t) =>
+    // 🔴 ONE clause for the alias, not two. The first draft had
+    // `words.includes(a)` as well, in the same shape as the two lines
+    // above it — and a word that IS the alias also starts with it, so
+    // the extra clause could never change the answer. It was caught by
+    // a mutation that should have failed and did not: disabling the
+    // `includes` left the test green, because the prefix line below was
+    // doing the work all along. The same is arguably true of
+    // `words.includes(t)` on the line above, which main has always
+    // carried as a cheaper first try on strict equality; that one is
+    // left where it is rather than changed under this card.
+    const named = ts.some((t, i) => {
+      const a = alias[i];
+      return (
         words.includes(t) ||
         words.some((w) => w.startsWith(t)) ||
+        (a !== undefined && words.some((w) => w.startsWith(a))) ||
         (tolerance(t) > 0 &&
-          words.some((w) => editDistance(w, t, tolerance(t)) <= tolerance(t))),
-    );
+          words.some((w) => editDistance(w, t, tolerance(t)) <= tolerance(t)))
+      );
+    });
     if (named && (closest === undefined || place.m < closest.m)) {
       closest = { m: place.m, name: place.name };
     }
   }
   return closest;
 }
+
+// ---------------------------------------------------------------------
+// CAMP-136: the reader types English; the index speaks the local
+// language.
+//
+// 🔴 This is a VOCABULARY problem, and no amount of weighting fixes a
+// word the index does not contain. CAMP-132 left it out saying exactly
+// that, and it was right.
+//
+// The place names come from OpenStreetMap's `name` tag, which is the
+// LOCAL name: `München`, `Warszawa`, `Lisboa`. The site is in English
+// and covers the EU-27. So a reader typing the only name they know gets
+// nothing, or gets somebody else's town. Measured on the live index
+// (61 422 campsites, 27.09.2026), `munich` answered with a campsite in
+// Lower Austria 1 849 m from «Steyr Münichholz», `naples` with one in
+// South Tyrol beside «Vilpian-Nals», `warsaw` with nothing at all.
+//
+// 🔴 The right fix is `name:en`, and we do not have it.
+//
+// `scripts/osm-pipeline/load-context.sh` keeps only `"name","place"` for
+// the place layer, so `osm_ctx_place` has no column to read it from.
+// Adding one means re-running the context pass over 27 countries —
+// hours — and this card is not that. When that import happens this
+// table should shrink to nothing, and the comment below says how to
+// tell whether it did.
+//
+// 🔴 The near-miss band is NOT a substitute, and looks like one.
+//
+// Half of these exonyms are within `tolerance()` of the local spelling,
+// so the fuzzy pass could in principle reach them. Measured, it does
+// not, for two separate reasons:
+//
+//   - it is switched OFF by a single incidental exact match. 54
+//     campsites hold the word `rome` (French: «Saint-Rome-de-Cernon»,
+//     «Ry de Rome») and one holds `milan` («Zum Roten Milan», a pub in
+//     Brandenburg). That is enough for `best[i] === EXACT_WORD`, and
+//     the 85 campsites at Roma and 17 at Milano were never scored.
+//   - when it does run it is a flat 30 for every one-edit neighbour, so
+//     the real city ties with the noise and distance picks the winner.
+//     `seville` returned a French aire 19 m from «La Seille» ahead of
+//     Sevilla; `lisbon` returned one 63 m from «Le Lison».
+//
+// So the substitution has to happen on the QUERY, before any of that.
+//
+// 🔴 An alias scores as an EXACT match, not below one, and this was
+// measured rather than argued.
+//
+// Scoring it at 90 — «the word you typed always wins» — is the safer
+// sounding rule and it fails on 5 of these 22 cities, because in each
+// one an unrelated foreign word holds the slot: `bruges` stays at a
+// French hamlet in the Gironde, `milan` at the Brandenburg pub, `rome`
+// at «Rivière de Rome», `vienna` at a hotel called «Vienna House» in
+// North Rhine-Westphalia, `hague` at a Norman «Hague». At 100 all five
+// move to the city the reader meant.
+//
+// That is also the answer to «what if the word is both a real word and
+// an alias»: BOTH spellings are searched, at equal strength, and the
+// machinery that already exists decides — the region key first
+// (CAMP-137), then metres to the place named. It lands on the right
+// city in 21 of these 22. Being in a region called `roma` is what beats
+// «Saint-Rome-de-Cernon»; being 549 m from «Venezia Porta Ovest» is
+// what beats a car park called «Venice Utility Park».
+//
+// 🔴 `cologne` is the twenty-second, and it does not reach the top.
+//
+// «La Cologne» is a stream in the Somme with a campsite 294 m from it;
+// Köln's nearest campsite is 1 688 m from «Köln-Dellbrück». Equal
+// scores, no region called either, so the shorter walk wins and the
+// French ones keep ranks 1-3. The entry still earns its place — 3 hits
+// become 21, and 18 of them are in Köln where before there were none —
+// but the top hit is unchanged and this comment is not going to pretend
+// otherwise. The 21, counted: the same 3 in France, 16 in Germany, and
+// 2 in Poland that the prefix band picks up beside a village called
+// «Kolno».
+//
+// Each line was checked on the live index. `local` is the count of
+// campsites the local spelling reaches as an exact word; `→` is the
+// country of the top hit before and after.
+//
+//   english      local          en  local   hits        top hit
+//   athens       athina          0      1     5 →    1   be → gr
+//   bruges       brugge          4      6     4 →   42   fr → be
+//   brunswick    braunschweig    0      6     0 →    6    - → de
+//   cologne      koln            3     15     3 →   21   fr → fr  🔴
+//   dunkirk      dunkerque       0      5     3 →    5   nl → fr
+//   florence     firenze         3     45     3 →   47   fr → it
+//   genoa        genova          0     39    41 →   39   fr → it
+//   gothenburg   goteborg        0      0    29 →   30   pl → se  🔴
+//   hague        haag            2      5    23 →   29   fr → nl
+//   lisbon       lisboa          0     38   141 →   38   fr → pt
+//   mantua       mantova         0     23     9 →   23   fr → it
+//   milan        milano          1     17    22 →   22   de → it
+//   munich       munchen         0      4     7 →    5   at → de
+//   naples       napoli          0     37     2 →   37   it → it  (*)
+//   nuremberg    nurnberg        0     12    23 →   12   de → de  (*)
+//   ostend       oostende        0     44     5 →   46   cz → be
+//   padua        padova          0     16     2 →   16   ee → it
+//   rome         roma           54     85    99 →  376   fr → it
+//   seville      sevilla         0     63   324 →   63   fr → es
+//   venice       venezia         1    175     1 →  175   it → it  (*)
+//   vienna       wien            1     12     1 →   18   de → at
+//   warsaw       warszawa        0      5     0 →    5    - → pl
+//
+// (*) same country, different place: `naples` moved from Nals in South
+// Tyrol to Napoli, `nuremberg` from a reservoir in Brandenburg to
+// Altdorf bei Nürnberg, `venice` from «Venice Utility Park» to a
+// campsite 549 m from Venezia.
+//
+// 🔴 `goteborg` is not a word in the index at all — zero campsites hold
+// it. ONE is called «Göteborgs Friluftsförening», and the prefix band
+// reaches it. One document is enough, because what it displaces is
+// fuzzy noise at 30: a Polish site 409 m from «Rothenburg/Oberlausitz».
+// If that campsite is ever renamed, this entry silently goes back to
+// answering with Poland — which is the general fragility of a table
+// this thin, and the reason the tests assert the CITY and not the count.
+//
+// 🔴 What is NOT here, deliberately.
+//
+//   - Cities the English name already reaches: `turin`, `prague` and
+//     `antwerp` work because the REGION slug is already English
+//     (turin 111, prague 34, antwerp 72 campsites); `ghent`, `hanover`
+//     and `cordova` work through the fuzzy band; `copenhagen` works
+//     because three campsites put the English name in their own name.
+//     Adding all seven to the table moved five of them not at all, and
+//     the other two only within their own city: `prague` swapped one
+//     campsite in the Prague region for another 470 m from
+//     «Praha-Stodůlky», `copenhagen` put a campsite 3 718 m from
+//     «København» above one called «Copenhagen Camping». Nothing
+//     changed country, so nothing was worth the row.
+//   - Archaic spellings whose modern form already works: `cracow`,
+//     `oporto`, `lyons`, `marseilles`, `rheims`, `saragossa`,
+//     `louvain`. `krakow`, `porto`, `lyon` are what people type.
+//   - `cracow` doubly so: mapping it onto `krakow` inherits a defect
+//     that is already there — `krakow` itself answers with a German
+//     lake, «Krakower See», 62 m from a campsite in Mecklenburg. Fixing
+//     that is a different card.
+//   - Regions and islands: `tuscany`/`toscana`, `bavaria`/`bayern`,
+//     `crete`/`kriti`, `majorca`/`mallorca`. The same defect, a much
+//     bigger list, and different evidence — a region name is not a
+//     point on the ground, so the geometric corpus cannot judge it.
+//   - `corfu` was tried and dropped: `kerkyra` appears in zero
+//     campsites, so the alias buys literally nothing.
+//   - Multi-word names. `the hague` returns nothing before and nothing
+//     after, because `the` is in 62 campsites — under the 5% share, so
+//     it stays a requirement and nothing satisfies both words. A
+//     one-word key cannot reach that, and it is a different defect.
+//
+// 🔴 A Map, not an object literal, and this is a precaution rather
+// than a bug report.
+//
+// `{...}[term]` falls through to Object.prototype, and `constructor` is
+// an ordinary English word that `fold()` passes through unchanged — so
+// a reader typing it would get the `Object` function back as this
+// word's "local spelling". Measured, that changes no answer today:
+// `startsWith` coerces it to "function Object() { [native code] }",
+// which matches nothing, and searching `constructor` returns the same
+// single campsite before and after. It is also the only reachable
+// name: `fold()` lower-cases everything it returns, and `toString`,
+// `valueOf` and `hasOwnProperty` all carry a capital, so no query can
+// ever spell them. A Map has no prototype to fall through, which
+// closes the class instead of the one instance of it.
+export const EXONYMS: ReadonlyMap<string, string> = new Map(
+  Object.entries({
+    athens: 'athina',
+    bruges: 'brugge',
+    brunswick: 'braunschweig',
+    cologne: 'koln',
+    dunkirk: 'dunkerque',
+    florence: 'firenze',
+    genoa: 'genova',
+    gothenburg: 'goteborg',
+    hague: 'haag',
+    lisbon: 'lisboa',
+    mantua: 'mantova',
+    milan: 'milano',
+    munich: 'munchen',
+    naples: 'napoli',
+    nuremberg: 'nurnberg',
+    ostend: 'oostende',
+    padua: 'padova',
+    rome: 'roma',
+    seville: 'sevilla',
+    venice: 'venezia',
+    vienna: 'wien',
+    warsaw: 'warszawa',
+  }),
+);
+
+// 🔴 Both sides of every entry are already folded. `münchen` on the
+// right would never match anything, because `fold()` has run over the
+// index and over the query long before this table is consulted — and it
+// would fail silently, which is the worst way for a table to be wrong.
+// The suite asserts `fold(k) === k` and `fold(v) === v` over all 22
+// rather than trusting the eye.
 
 export interface SearchOptions {
   limit?: number;
@@ -415,6 +639,18 @@ export function search(
 ): SearchHit[] {
   const ts = terms(query);
   if (ts.length === 0) return [];
+  // 🔴 CAMP-136: a parallel array, not a wider term object.
+  //
+  // Everything below already works this way — `exact`, `best`,
+  // `common`, `required`, `weight` are all one entry per term — and one
+  // more of the same shape leaves every one of those decisions counting
+  // exactly what it counted before: ONE column per word the reader
+  // typed, whichever spelling ended up matching. An object per term was
+  // tried first and it cost 8-11% on queries with no alias in them,
+  // measured against a byte-identical copy of this file running in the
+  // same process as the control: two hidden classes in the hot loop,
+  // because only some terms carry the field.
+  const alias = ts.map((t) => EXONYMS.get(t));
 
   // 🔴 The pass collects everything the ranking needs to know.
   //
@@ -437,7 +673,25 @@ export function search(
     const words = docs[d].text.split(' ');
     const row = new Array<number>(ts.length);
     for (let i = 0; i < ts.length; i++) {
-      const s = strongScore(words, ts[i]);
+      let s = strongScore(words, ts[i]);
+      // 🔴 CAMP-136, and note what is NOT here: no new band, no second
+      // column, no change to the three lines below.
+      //
+      // The alias is tried only when the typed word did not match
+      // exactly — so a word that really exists keeps its own score and
+      // pays nothing — and when it matches, it matches at EXACT_WORD.
+      // That one choice is what leaves the rest of this function alone:
+      // `exact[]` counts the term once whichever spelling found it, the
+      // near-miss gate below still reads `best[i] !== EXACT_WORD` and so
+      // still switches the edit distance off, and the rarity weighting
+      // sees a document frequency that is now true. Measured on
+      // `munich`, suppressing that edit-distance pass took the query
+      // from 160 ms to 37 ms on the live index.
+      const a = alias[i];
+      if (s !== EXACT_WORD && a !== undefined) {
+        const viaAlias = strongScore(words, a);
+        if (viaAlias > s) s = viaAlias;
+      }
       if (s === EXACT_WORD) exact[i]++;
       if (s > best[i]) best[i] = s;
       row[i] = s;
@@ -583,7 +837,7 @@ export function search(
     const regionWords = wordsOf(doc.region);
     let total = 0;
     for (let i = 0; i < scores.length; i++) total += scores[i] * weight[i];
-    const place = nearestNamed(doc, ts);
+    const place = nearestNamed(doc, ts, alias);
     // 🔴 The REGION, and nothing else.
     //
     // This counted the campsite's own name and country too, and review
@@ -639,9 +893,27 @@ export function search(
     // is about whether it identifies anything — and a word in 5% of the
     // index identifies no region, whatever the query around it looks
     // like.
+    //
+    // 🔴 CAMP-136: the alias counts as being in the region, and this is
+    // the single line that decides `rome`.
+    //
+    // Italy's region slug is `roma`, so a campsite in Rome earns the
+    // point and the 54 French campsites holding the word «Rome» —
+    // «Saint-Rome-de-Cernon», «Ry de Rome» — do not. Measured: of the
+    // 22 cities in the table, `rome` is the ONLY one this changes, and
+    // without it `rome` answers with La Clusa in the Pyrénées-
+    // Orientales exactly as it does on main. It cannot manufacture a
+    // match either — it compares against a region slug that exists, so
+    // it fires only where the reader's city really is a region.
     let own = 0;
     for (let i = 0; i < ts.length; i++) {
-      if (!common[i] && regionWords.has(ts[i])) own++;
+      const a = alias[i];
+      if (
+        !common[i] &&
+        (regionWords.has(ts[i]) || (a !== undefined && regionWords.has(a)))
+      ) {
+        own++;
+      }
     }
     return {
       doc,
