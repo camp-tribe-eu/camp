@@ -115,13 +115,20 @@ export default async function MapPage() {
             The list counts campsites that HAVE a page; the map counts
             campsites that have a location. A reader who adds the country
             counts up and finds fewer than the map claims deserves the
-            reason in a sentence rather than a bug report. */}
-        <p className="mt-2 max-w-prose text-sm text-ink-2">
-          These pages cover the{' '}
-          {browsable.toLocaleString('en-GB')} campsites we can name a region
-          for. The other {mapOnly.toLocaleString('en-GB')} have no region
-          recorded yet, so they are on the map but have no page to browse to.
-        </p>
+            reason in a sentence rather than a bug report.
+
+            🔴 And it is absent when there is nothing to reconcile. The
+            day every campsite has a region this is one number twice, and
+            "The other 0 have no region recorded" is the same kind of
+            sentence this card was opened to remove. */}
+        {mapOnly > 0 && (
+          <p className="mt-2 max-w-prose text-sm text-ink-2">
+            These pages cover the{' '}
+            {browsable.toLocaleString('en-GB')} campsites we can name a region
+            for. The other {mapOnly.toLocaleString('en-GB')} have no region
+            recorded yet, so they are on the map but have no page to browse to.
+          </p>
+        )}
         <ul className="mt-3 flex flex-wrap gap-2">
           {countries.map((c) => (
             <li key={c.country}>
