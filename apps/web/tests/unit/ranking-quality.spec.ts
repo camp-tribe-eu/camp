@@ -40,9 +40,15 @@ interface Row {
   region: string;
   slug: string;
   near: { name: string; m: number }[];
+  // 🔴 Carried through because the geometric corpus below needs them.
+  // A judge built from the same fields the ranking reads can only agree
+  // with it; coordinates are the one thing in this file that the
+  // ranking never looks at.
+  lat: number;
+  lon: number;
 }
 
-function load(): SearchDoc[] | null {
+function load(): (SearchDoc & { lat: number; lon: number })[] | null {
   if (!fs.existsSync(INDEX)) return null;
   const rows = JSON.parse(fs.readFileSync(INDEX, 'utf8')) as Row[];
   return rows.map((r) => ({
@@ -52,6 +58,8 @@ function load(): SearchDoc[] | null {
     country: r.country,
     region: r.region,
     near: r.near,
+    lat: r.lat,
+    lon: r.lon,
     text: searchText({
       name: r.name ?? '',
       region: r.region,
@@ -141,6 +149,103 @@ function placeCorpus(docs: SearchDoc[], limit = 400) {
   return shuffled(pool)
     .slice(0, limit)
     .map(([w, set]) => ({ q: `camping ${w}`, place: w, near: set }));
+}
+
+/**
+ * 🔴 The corpus that judges by GEOMETRY, because the other two cannot.
+ *
+ * Both earlier corpora were compromised, in opposite directions, and
+ * both were mine:
+ *
+ *   - the region corpus scores "is the top hit in that region", which
+ *     is the signal itself restated;
+ *   - the place corpus scores `near.has(path) || text.includes(word)`,
+ *     and `text` holds the region and the name — so it rewards the same
+ *     thing one step further round;
+ *   - an anchored distance corpus, written to replace them, anchored
+ *     each town to the campsite with the SMALLEST recorded distance to
+ *     a place of that name — which is precisely the false positive this
+ *     card removes. Its anchor for Tolmin was the shop in Bovec, so it
+ *     scored the fix as 22 km worse.
+ *
+ * This one solves each place's coordinates from the distances
+ * themselves — position is over-determined by four or more campsites
+ * reporting how far they are — and then judges every answer by how far
+ * it really is. It uses no region, no name and no text, so it cannot
+ * reward the signal.
+ *
+ * 4 216 places resolve with a residual RMS at or under 250 m (median
+ * 7 observations, median RMS 10 m). Checked against surveyed
+ * coordinates: Tolmin 11 m out, Bovec 22 m, Praha 4 m, Fermo 11 m,
+ * Grevenmacher 23 m.
+ *
+ * Measured 27.09.2026, main against this branch: 4 197 unchanged,
+ * 13 closer, 6 farther. Gains up to 684 km (leon), losses at most
+ * 82 km and mostly province-versus-city names where the answer is
+ * arguable either way.
+ */
+function solvePlaces(docs: (SearchDoc & { lat?: number; lon?: number })[]) {
+  const R = 6371000;
+  const rad = Math.PI / 180;
+  const hav = (aLat: number, aLon: number, bLat: number, bLon: number) => {
+    const dLat = (bLat - aLat) * rad;
+    const dLon = (bLon - aLon) * rad;
+    const x =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  };
+
+  const obs = new Map<string, { lat: number; lon: number; m: number }[]>();
+  for (const d of docs) {
+    if (d.lat === undefined || d.lon === undefined) continue;
+    for (const p of d.near ?? []) {
+      const words = fold(p.name).split(' ').filter(Boolean);
+      if (words.length !== 1 || words[0].length <= 3) continue;
+      const list = obs.get(words[0]) ?? [];
+      list.push({ lat: d.lat, lon: d.lon, m: p.m });
+      obs.set(words[0], list);
+    }
+  }
+
+  const out: { word: string; lat: number; lon: number }[] = [];
+  for (const [word, pts] of obs) {
+    if (pts.length < 4) continue;
+    let wsum = 0;
+    let lat = 0;
+    let lon = 0;
+    for (const p of pts) {
+      const w = 1 / (p.m + 100);
+      lat += p.lat * w;
+      lon += p.lon * w;
+      wsum += w;
+    }
+    lat /= wsum;
+    lon /= wsum;
+    const rms = (la: number, lo: number) =>
+      Math.sqrt(
+        pts.reduce((s, p) => s + (hav(la, lo, p.lat, p.lon) - p.m) ** 2, 0) /
+          pts.length,
+      );
+    let step = 0.02;
+    for (let i = 0; i < 400; i++) {
+      const base = rms(lat, lon);
+      let best = base;
+      let bl = lat;
+      let bo = lon;
+      for (const [dla, dlo] of [
+        [step, 0], [-step, 0], [0, step], [0, -step],
+        [step, step], [-step, -step], [step, -step], [-step, step],
+      ]) {
+        const v = rms(lat + dla, lon + dlo);
+        if (v < best) { best = v; bl = lat + dla; bo = lon + dlo; }
+      }
+      if (best < base) { lat = bl; lon = bo; } else { step /= 2; }
+      if (step < 1e-7) break;
+    }
+    if (rms(lat, lon) <= 250) out.push({ word, lat, lon });
+  }
+  return { places: out, hav };
 }
 
 test.describe('ranking quality, measured on the live index', () => {
@@ -252,5 +357,32 @@ test.describe('ranking quality, measured on the live index', () => {
       right / corpus.length,
       `${right}/${corpus.length} correct. Worst: ${wrong.join('; ')}`,
     ).toBeGreaterThan(0.9);
+  });
+  test('🔴 the geometric corpus: the top hit is really near the place', () => {
+    // Deliberately NOT a before/after — that lives in the PR. This
+    // guards the floor: whatever the ranking does, a campsite answering
+    // `camping <town>` should usually be near that town, and "near"
+    // here means metres on the ground, not a word in a field.
+    const withCoords = docs as (SearchDoc & { lat?: number; lon?: number })[];
+    const { places, hav } = solvePlaces(withCoords);
+    expect(places.length, 'too few places resolved to measure anything')
+      .toBeGreaterThan(2_000);
+
+    // Check a fixed slice, so the test stays quick and deterministic.
+    const sample = places.slice(0, 400);
+    let within25km = 0;
+    const worst: string[] = [];
+    for (const p of sample) {
+      const top = search(withCoords, `camping ${p.word}`, { limit: 1 })[0]
+        ?.doc as (SearchDoc & { lat?: number; lon?: number }) | undefined;
+      if (top?.lat === undefined || top.lon === undefined) continue;
+      const km = hav(p.lat, p.lon, top.lat, top.lon) / 1000;
+      if (km <= 25) within25km++;
+      else if (worst.length < 5) worst.push(`${p.word}: ${km.toFixed(0)} km`);
+    }
+    expect(
+      within25km / sample.length,
+      `only ${within25km}/${sample.length} within 25 km. Worst: ${worst.join('; ')}`,
+    ).toBeGreaterThan(0.8);
   });
 });

@@ -597,17 +597,40 @@ export function search(
     // A region is different in kind. It is the only one of the three
     // that means "the campsite is inside the area the reader named".
     //
-    // 🔴 No rarity filter here, and one was written and removed.
+    // 🔴 Only words that NARROW earn a point — and the first version of
+    // this comment claimed that rule could never fire. It was wrong.
     //
-    // It read `if (required[i] && …)`, to stop a word that narrows
-    // nothing from earning a point. Measured, it changed nothing: with
-    // only the region counted, the words it would have excluded are
-    // never region words — no region is called "camping" — and for a
-    // one-word query the `allCommon` guard above makes every term
-    // required anyway. A condition that cannot fire is the defect this
-    // file keeps finding in itself, so it is not left in.
+    // I removed the filter saying "no region is called camping", which
+    // is true and beside the point. Review measured the words that are
+    // BOTH above the 5% common threshold AND words of a region slug:
+    //
+    //   de 40.5%   la 17.0%   saint 7.6%   du 5.7%   l 5.4%   d 5.1%
+    //
+    // — pas-de-calais, bouches-du-rhone, la-rioja, seine-saint-denis,
+    // cote-d-or, val-d-oise. 2 257 campsites, 3.7% of the index, sit in
+    // such a region. Without the filter they collect a point for the
+    // word "du", and `camping du lac` stops answering with the three
+    // campsites 0-8 m from a lake called that and starts answering with
+    // Bouches-du-Rhône, 1.5 km from anything. Measured: 31 of 3 503
+    // realistic queries change.
+    //
+    // 🔴 `!common[i]`, not `required[i]`. The two differ exactly where
+    // it matters: when EVERY word of the query is common, `allCommon`
+    // makes them all required again — a sensible rule for deciding what
+    // must match, and the wrong one here. Measured, `camping saint`
+    // then collected a point for "saint" and answered with
+    // Seine-Saint-Denis and no distance at all, in place of campsites
+    // 0 m and 11 m from places actually called Saint-something; the
+    // same for `camping seine`, 16 m → 567 m.
+    //
+    // Being required is about whether a word must appear. Being common
+    // is about whether it identifies anything — and a word in 5% of the
+    // index identifies no region, whatever the query around it looks
+    // like.
     let own = 0;
-    for (const t of ts) if (regionWords.has(t)) own++;
+    for (let i = 0; i < ts.length; i++) {
+      if (!common[i] && regionWords.has(ts[i])) own++;
+    }
     return {
       doc,
       score: total,
@@ -685,8 +708,24 @@ export function search(
       // — is that the right answer was the campsite IN the region the
       // reader named, and the wrong one merely had a neighbour with the
       // word in its name. So that is what is compared: how many of the
-      // query's words the document matches in its OWN region, country
-      // or name, rather than through something nearby.
+      // query's words the document matches in its own REGION, rather
+      // than through something nearby.
+      //
+      // The region alone, and this sentence used to say "region,
+      // country or name". The code was corrected and the sentence was
+      // not, which is the shape of mistake this file exists to catch:
+      // the name is the coincidence one level in (`Resort Piaseczno`,
+      // 528 km from the Piaseczno the reader meant) and the country
+      // contributed 6 matches in 4 277.
+      //
+      // 🔴 The price, named: this is compared BEFORE distance, so a
+      // campsite inside the region with no recorded distance to
+      // anything outranks one just outside it standing next to the
+      // town. Review measured the visible cost — the "· N m from X"
+      // line disappears from the top result on 26 of 60 queries whose
+      // answer changes. The rarity filter above removes most of that
+      // class; what remains is the genuine ambiguity between a town and
+      // the region named after it, and CAMP-140 is where it is fixed.
       if (b.own !== a.own) return b.own - a.own;
       // 🔴 `quality` is NOT a sort key, and was.
       //
@@ -699,10 +738,12 @@ export function search(
       // found `castellon` doing exactly that, showing the reader a
       // larger distance to a weaker match.
       //
-      // It survives only where it was earned: choosing WHICH nearby
-      // place to name in "499 m from Tolmin", inside `nearestNamed`.
-      // Nothing tested it as a sort key, and removing it there left all
-      // 287 tests green — which is how it got in.
+      // It does not survive at all: `nearestNamed` went back to main's
+      // nearest-match-wins, because `m` is both the ordering key and the
+      // number the reader is shown, and one function cannot serve both.
+      // CAMP-140 splits them. Nothing tested `quality` as a sort key,
+      // and removing it left all 287 tests green — which is how it got
+      // in.
       const am = a.metres ?? Number.POSITIVE_INFINITY;
       const bm = b.metres ?? Number.POSITIVE_INFINITY;
       if (am !== bm) return am - bm;
@@ -710,8 +751,8 @@ export function search(
       return a.doc.path.localeCompare(b.doc.path);
     })
     .slice(0, limit)
-    // `quality` exists to order the list, not to describe a result.
-    .map(({ own: _own, ...hit }) => hit);
+    // `own` orders the list; it does not describe a result.
+    .map(({ own, ...hit }) => (void own, hit));
 }
 
 // ---------------------------------------------------------------------
