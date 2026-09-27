@@ -20,6 +20,33 @@ const visualProject = {
   use: { ...devices['Desktop Chrome'] },
 };
 
+// 🔴 CAMP-134: the things that are only true at 61 557 campsites.
+//
+// Nine tests — six in the browser, three without one. NOT in the default
+// set, for the same reason the visual project is not: they need a build
+// made from the full database, and run against CI's 72-row fixture they
+// would not fail, they would pass over nothing, which is the exact
+// failure the card exists to stop.
+//
+// Every one of them gates itself on the size of what it is looking at —
+// the built map index above 100 regions, the search index above five
+// files, the API above 10 000 rows — and fails rather than skips below
+// it. Review caught the /search test shipping without that gate, which
+// made this very sentence false for one of the nine.
+//
+// The workflow that starts them is .github/workflows/scale-check.yml.
+//
+// Chromium only, deliberately. The defects these catch are about how much
+// data arrives and when — not about how a browser renders it. Six engines
+// would multiply the slowest suite we have by six to re-answer the same
+// question. Cross-browser coverage stays in tests/e2e, on the fixture,
+// where it is fast.
+const scaleProject = {
+  name: 'scale',
+  testDir: './tests/scale',
+  use: { ...devices['Desktop Chrome'] },
+};
+
 /** Projects that never touch a page, so they never need a server. */
 const SERVERLESS_PROJECTS = new Set(['unit']);
 
@@ -72,7 +99,9 @@ export default defineConfig({
   // A hand-written `--project=…` list in package.json would have the
   // failure this repository has already been bitten by twice: a scope
   // maintained by hand that silently stops covering what it names.
-  projects: process.env.VISUAL
+  projects: process.env.SCALE
+    ? [scaleProject]
+    : process.env.VISUAL
     ? [visualProject]
     : [
     // 🔴 Pure logic, no browser and no server. The map filters decide what
