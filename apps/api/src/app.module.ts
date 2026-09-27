@@ -12,6 +12,7 @@ import { RoutePoint } from './entities/route-point.entity';
 import { Trip } from './entities/trip.entity';
 import { TripStop } from './entities/trip-stop.entity';
 import { SpotsModule } from './spots/spots.module';
+import { RoutesModule } from './routes/routes.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { GuidesModule } from './guides/guides.module';
 import { HealthModule } from './health/health.module';
@@ -42,6 +43,8 @@ import { ApiThrottlerGuard } from './throttle.guard';
       synchronize: false,
     }),
     SpotsModule,
+    // CAMP-3 / CAMP-45: campsites beside the stages of a curated route.
+    RoutesModule,
     HealthModule,
     // CAMP-59: the route an uptime monitor calls. Exempt from the
     // rate limit, because a monitor polling every minute is the one
