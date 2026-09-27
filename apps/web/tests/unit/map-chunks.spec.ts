@@ -2,11 +2,14 @@ import { expect, test } from '@playwright/test';
 import {
   type Bounds,
   type RegionSummary,
+  BYTES_PER_CAMPSITE,
+  CHUNK_ENVELOPE_BYTES,
   VIEW_BUDGET_BYTES,
   bytesInView,
   chunkBody,
   chunkKey,
   chunkUrl,
+  chunkWeight,
   chunksInView,
   countInView,
   dataMessage,
@@ -23,9 +26,6 @@ const region = (over: Partial<RegionSummary> = {}): RegionSummary => ({
   region: 'Vendée',
   slug: 'vendee',
   count: 100,
-  // The measured median chunk is 6 192 B; 25 kB stands for a middling
-  // region so the byte tests are about the rule, not about one file.
-  bytes: 25_000,
   minLon: -2,
   minLat: 46,
   maxLon: -1,
@@ -122,22 +122,23 @@ test('🔴 a view too HEAVY says so — and heaviness is measured in bytes', () 
   // CAMP-133. The bound used to be `limit = 60` on the number of
   // chunks, under a comment calling it "a bound on bytes". Chunks are
   // not the same size: measured 27.09.2026 over all 812, from 6 192 B
-  // (median) to 418 923 B (de/bayern). Two files can outweigh sixty.
+  // (median) to 418 923 B (de/bayern). Two regions can outweigh sixty.
   const twoBig = [
-    region({ slug: 'bayern', bytes: 418_923 }),
-    region({ slug: 'bw', bytes: 368_000 }),
+    region({ slug: 'bayern', count: 1433 }),
+    region({ slug: 'bw', count: 1277 }),
   ];
   const sixtySmall = Array.from({ length: 60 }, (_, i) =>
-    region({ slug: `r${i}`, bytes: 6_192 }),
+    region({ slug: `r${i}`, count: 26 }),
   );
 
-  // Sixty small ones weigh 371 kB and are fine.
-  expect(bytesInView(sixtySmall, view())).toBe(60 * 6_192);
-  expect(chunksInView(sixtySmall, view()).tooMany).toBe(false);
+  expect(bytesInView(sixtySmall, view())).toBe(60 * chunkWeight(26));
+  expect(bytesInView(twoBig, view())).toBeGreaterThan(
+    bytesInView(sixtySmall, view()),
+  );
 
-  // Two big ones weigh twice that, and the old rule waved them through.
-  expect(chunksInView(twoBig, view(), 500_000).tooMany).toBe(true);
-  expect(chunksInView(twoBig, view(), 900_000).tooMany).toBe(false);
+  // Sixty chunks of the median region pass; two German states do not.
+  expect(chunksInView(sixtySmall, view(), 1_000_000).tooMany).toBe(false);
+  expect(chunksInView(twoBig, view(), 1_000_000).tooMany).toBe(true);
 });
 
 test('a refused view still names every chunk it would have needed', () => {
@@ -145,52 +146,67 @@ test('a refused view still names every chunk it would have needed', () => {
   // `tooMany`, which is a list nobody may use — and an invitation to
   // draw 60 of 80 chunks as if that were the map.
   const index = Array.from({ length: 80 }, (_, i) =>
-    region({ slug: `r${i}`, bytes: 100_000 }),
+    region({ slug: `r${i}`, count: 250 }),
   );
   const out = chunksInView(index, view());
   expect(out.tooMany).toBe(true);
   expect(out.keys).toHaveLength(80);
-  expect(out.bytes).toBe(80 * 100_000);
+  expect(out.bytes).toBe(80 * chunkWeight(250));
 });
 
 test('🔴 the weight is counted once per FILE, not once per region row', () => {
   // Two region names that slugify to one chunk key. The reader
   // downloads one file, so refusing the view on twice its weight would
-  // be refusing a view that costs 25 kB because the index says 50.
+  // be refusing a view that costs one file because the index lists two
+  // rows for it.
   const out = chunksInView(
     [
-      region({ region: 'Nord-Pas-de-Calais', slug: 'npdc', bytes: 25_000 }),
-      region({ region: 'Nord Pas de Calais', slug: 'npdc', bytes: 25_000 }),
+      region({ region: 'Nord-Pas-de-Calais', slug: 'npdc', count: 100 }),
+      region({ region: 'Nord Pas de Calais', slug: 'npdc', count: 100 }),
     ],
     view(),
   );
   expect(out.keys).toEqual(['fr/npdc']);
-  expect(out.bytes).toBe(25_000);
+  expect(out.bytes).toBe(chunkWeight(100));
 });
 
-test('🔴 an index with no weights does not switch the safeguard off', () => {
-  // An index served from a cache older than `bytes` would make the sum
-  // NaN, and `NaN > budget` is false — the bound would silently stop
-  // existing. It falls back to the measured worst case per campsite
-  // (402 B, 27.09.2026) instead, so it still refuses a heavy view.
-  const stale = [
-    { ...region({ slug: 'a', count: 3000 }), bytes: undefined as unknown as number },
-    { ...region({ slug: 'b', count: 3000 }), bytes: undefined as unknown as number },
-  ];
-  const out = chunksInView(stale, view());
-  expect(Number.isFinite(out.bytes)).toBe(true);
-  expect(out.bytes).toBe(6000 * 402);
-  expect(out.tooMany).toBe(true);
+test('🔴 the weight rule is the one the chunk files are measured against', () => {
+  // `chunkWeight` is an UPPER bound on what a chunk file weighs, and
+  // the chunk route fails the build when a real file breaks it. Both
+  // halves have to be here: the envelope is what an empty collection
+  // costs, and the per-campsite figure is what one feature may add.
+  expect(CHUNK_ENVELOPE_BYTES).toBe(
+    Buffer.byteLength(
+      JSON.stringify({ type: 'FeatureCollection', features: [] }),
+    ),
+  );
+  expect(chunkBody([]).length).toBe(CHUNK_ENVELOPE_BYTES);
+  expect(chunkWeight(0)).toBe(CHUNK_ENVELOPE_BYTES);
+  expect(chunkWeight(10) - chunkWeight(9)).toBe(BYTES_PER_CAMPSITE);
+
+  // Measured 27.09.2026 over all 812 chunks: the worst real chunk cost
+  // 360 B per campsite (si/hrpelje-kozina, one campsite in 402 B). The
+  // bound has to be above that, and not so far above that it stops
+  // bounding anything.
+  expect(BYTES_PER_CAMPSITE).toBeGreaterThan(360);
+  expect(BYTES_PER_CAMPSITE).toBeLessThan(500);
 });
 
-test('the budget is a real number of bytes, below what CAMP-127 called unviable', () => {
+test('the budget is a real number of bytes, and it has both ends measured', () => {
   // 🔴 A guard on the constant itself. CAMP-127 argued one world file
-  // was unviable at 2.4 MB; a "budget" above that bounds nothing. And
-  // the worst single point in EU-27 pulls 0.92 MB however far the
-  // reader zooms in (whole regions do not shrink), so a budget below
-  // that would make "zoom in" a promise the map cannot keep.
-  expect(VIEW_BUDGET_BYTES).toBeGreaterThan(920_000);
+  // was unviable at 2.4 MB; a "budget" above that bounds nothing.
   expect(VIEW_BUDGET_BYTES).toBeLessThan(2_400_000);
+
+  // And the floor: at the worst point in EU-27 (lon 10.196, lat 49.406)
+  // three German states overlap — Bayern 1 433, Baden-Württemberg
+  // 1 277, Hessen 578, measured 27.09.2026 — and a chunk is a whole
+  // region however far the reader zooms. Below this the map would say
+  // "zoom in" for ever. The index route re-checks it against the live
+  // index on every build; this checks the constant can satisfy it at
+  // all.
+  const unavoidable =
+    chunkWeight(1433) + chunkWeight(1277) + chunkWeight(578);
+  expect(VIEW_BUDGET_BYTES).toBeGreaterThan(unavoidable);
 });
 
 test('an empty index asks for nothing and claims nothing', () => {

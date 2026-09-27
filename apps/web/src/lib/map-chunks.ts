@@ -37,24 +37,6 @@ export interface RegionSummary {
   region: string | null;
   slug: string;
   count: number;
-  /**
-   * How many bytes this region's chunk file weighs, uncompressed.
-   *
-   * 🔴 Measured, not modelled. The index route builds each chunk body
-   * with `chunkBody` below — the same function the chunk route serves —
-   * and records its length, so this is the number of bytes the browser
-   * will actually receive for this key.
-   *
-   * It exists because the only bound the map had was a count of chunks,
-   * and chunks are not the same size. Measured 27.09.2026 across all
-   * 812: median 6 192 B, largest 418 923 B (de/bayern), and between 172
-   * and 402 bytes per campsite. A flat "bytes per campsite" ceiling of
-   * 402 would have overstated a window's real weight by 1.38× to 2.34×
-   * (median 1.60×) — which, at a 1.5 MB budget, blocks 391 of 5 520
-   * detail-zoom windows where the true weight blocks 98. Four times as
-   * many readers told to zoom in for no reason. Hence real bytes.
-   */
-  bytes: number;
   minLon: number;
   minLat: number;
   maxLon: number;
@@ -165,56 +147,80 @@ export function overlaps(
 }
 
 /**
+ * `{"type":"FeatureCollection","features":[]}` — what a chunk weighs
+ * before it holds anything.
+ */
+export const CHUNK_ENVELOPE_BYTES = 42;
+
+/**
+ * The most one campsite may add to a chunk file, in bytes.
+ *
+ * 🔴 Measured, and then ENFORCED, which is the part that keeps it true.
+ *
+ * Measured 27.09.2026 over all 812 chunks as they are actually built
+ * (15.27 MB in total): 249 bytes per campsite at the median, 319 at the
+ * 99th percentile and 360 at the very worst — si/hrpelje-kozina, a
+ * single campsite in a 402-byte file. 400 leaves about 11% of headroom
+ * so an ordinary import does not fail the build over one long name.
+ *
+ * 🔴 And the chunk route refuses to serve a chunk heavier than this
+ * allows, so the number cannot quietly stop being true. A guess that
+ * nothing checks is how "`limit` is a bound on bytes" survived in a
+ * comment above a chunk counter for a month.
+ */
+export const BYTES_PER_CAMPSITE = 400;
+
+/** The most a region's chunk file may weigh, from its campsite count. */
+export const chunkWeight = (count: number): number =>
+  CHUNK_ENVELOPE_BYTES + BYTES_PER_CAMPSITE * count;
+
+/**
  * The most a view may weigh before the map declines to draw it.
  *
  * 🔴 A number of BYTES, and every part of it is measured.
  *
  * What it replaces was `limit = 60`, whose comment said "a bound on
  * bytes, not a filter" while the code counted chunks. Chunks are not the
- * same size — 172 to 402 bytes per campsite, and 6 kB to 419 kB per
- * file — so the count said nothing about what the reader downloads.
+ * same size — 6 kB to 419 kB per file — so the count said nothing about
+ * what the reader downloads.
+ *
  * Driving the real index over 5 520 detail-zoom windows (4.73° × 1.56°,
- * step ¼ window, 27.09.2026): only 42 windows exceeded 60 chunks, and
- * the heaviest window the old bound LET THROUGH was 15 chunks, 7 334
- * campsites, 1.96 MB — while the windows it blocked were mostly cheap
- * (the worst, 127 chunks, weighed 0.41 MB). It was blocking the wrong
- * views and passing the expensive ones.
+ * stepped a sixth of a window, 27.09.2026):
  *
- * 1.5 MB, because both ends of that are measured too:
+ *            refuses   heaviest view it ALLOWS
+ *   old       42        1.96 MB
+ *   this     308        1.21 MB
  *
- *  · The ceiling. CAMP-127 argued one world file was unviable at 2.4 MB
- *    for 9 830 markers. A bound that allows almost that much is not a
- *    bound; 1.5 MB sits well under the number this architecture was
- *    built to escape.
+ * The old bound let 1.96 MB through — next door to the 2.4 MB CAMP-127
+ * used to argue one world file was unviable — and refused a view
+ * weighing 0.06 MB because it happened to touch 61 small regions. It was
+ * refusing the wrong views and passing the expensive ones.
+ *
+ * 1.75 MB, and both ends of that are measured too:
+ *
+ *  · The ceiling. It is a promise that a view never downloads more than
+ *    1.75 MB, because `chunkWeight` is an upper bound rather than a
+ *    reading: the heaviest view now admitted really weighs 1.21 MB.
  *
  *  · The floor. A chunk is a WHOLE region, so zooming in does not make
- *    it smaller — at the worst point in EU-27 (lon 10.196, lat 49.406,
- *    where the Bayern, Baden-Württemberg and Hessen bboxes overlap) any
- *    view, however tight, pulls 0.92 MB. A budget below that would make
- *    "zoom in to see them individually" a promise the map can never
- *    keep, anywhere in southern Germany. 1.5 MB clears it by 1.6×.
+ *    it smaller. At the worst point in EU-27 — lon 10.196, lat 49.406,
+ *    where the Bayern (1 433), Baden-Württemberg (1 277) and Hessen
+ *    (578) boxes overlap — any view, however tight, pulls 0.92 MB of
+ *    real bytes and 1.25 MB of budget. Below that, "zoom in to see them
+ *    individually" is a promise the map could never keep anywhere in
+ *    southern Germany. 1.75 MB clears it by 1.33×, and the index route
+ *    fails the build the day that stops being true.
  *
- * At 1.5 MB, 98 of those 5 520 windows (1.8%) are refused — so it fires,
- * which is the point, and it fires on the dense Benelux–Rhineland views
- * that really are megabytes.
+ * 🔴 The cost of an upper bound rather than a reading: 308 windows
+ * refused where 51 really exceed the budget. That is the price of not
+ * fetching all 812 chunk files during the build, and the price was
+ * measured the other way round first — doing so put the index route over
+ * Next's 60-second static-generation cap and failed the build three
+ * attempts running. The reader pays it as one more zoom level in the
+ * densest parts of Benelux and the Rhineland; before this card they paid
+ * it as a 1.96 MB download.
  */
-export const VIEW_BUDGET_BYTES = 1_500_000;
-
-/**
- * The most a single campsite has ever weighed in a chunk, measured.
- *
- * 🔴 Only a fallback, and only for one case: an index served from a
- * cache that predates `bytes`. `undefined` would make the sum NaN, and
- * `NaN > budget` is false — so a stale index would switch the safeguard
- * off silently, which is the exact failure shape this project keeps
- * finding. Measured 27.09.2026 across all 812 chunks: 172 B per
- * campsite at best, 253 median, 402 at worst. The worst case is the
- * only honest number to guess with.
- */
-const WORST_BYTES_PER_CAMPSITE = 402;
-
-const weightOf = (r: RegionSummary): number =>
-  Number.isFinite(r.bytes) ? r.bytes : r.count * WORST_BYTES_PER_CAMPSITE;
+export const VIEW_BUDGET_BYTES = 1_750_000;
 
 /**
  * Which chunks a viewport needs, nearest the middle first.
@@ -263,7 +269,7 @@ export function chunksInView(
     if (seen.has(key)) continue;
     seen.add(key);
     keys.push(key);
-    bytes += weightOf(r);
+    bytes += chunkWeight(r.count);
   }
   return { keys, tooMany: bytes > budgetBytes, bytes };
 }

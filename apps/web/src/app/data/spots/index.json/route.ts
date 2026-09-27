@@ -1,5 +1,10 @@
 import { apiFetch } from '@/lib/api';
-import { chunkBody, type ChunkMarker, type RegionSummary } from '@/lib/map-chunks';
+import {
+  VIEW_BUDGET_BYTES,
+  chunkWeight,
+  overlaps,
+  type RegionSummary,
+} from '@/lib/map-chunks';
 
 // CAMP-127: the map's table of contents.
 //
@@ -12,10 +17,9 @@ import { chunkBody, type ChunkMarker, type RegionSummary } from '@/lib/map-chunk
 // working entirely. The file it replaced said, in its own comment, what
 // to do on that day; this is that day.
 //
-// Small on purpose: 812 rows, no geometry beyond four corners, a centre
-// and a weight. It is fetched once and answers three questions without
-// another request — what is in view, how many, and how much it would
-// cost to draw.
+// Small on purpose: 812 rows, 164 KB measured, no geometry beyond four
+// corners and a centre. It is fetched once and answers two questions
+// without another request — what is in view, and how many.
 
 export const dynamic = 'force-static';
 
@@ -24,79 +28,62 @@ export const dynamic = 'force-static';
  *
  * The index is downloaded before anything is drawn, so it sits in front
  * of every reader on every visit. 400 KB is roughly two and a half times
- * today's size: room for the map to double without a surprise, and far
+ * today's 164 KB: room for the map to double without a surprise, and far
  * enough below a megabyte that crossing it is a real signal rather than
  * noise.
  */
 const INDEX_BUDGET_BYTES = 400_000;
 
 /**
- * How many chunks to measure at once.
+ * The heaviest view the map can be asked to draw, however far in the
+ * reader zooms.
  *
- * 🔴 Bounded, not unbounded. 812 simultaneous requests against the API
- * is a self-inflicted outage on the one service the rest of the build
- * also needs; one at a time is 812 sequential round trips. Six is the
- * same shape of answer the map itself uses for fetching chunks.
+ * 🔴 CAMP-133: a rehearsal of the safeguard, not a hope about it.
+ *
+ * `VIEW_BUDGET_BYTES` refuses a view that weighs too much and tells the
+ * reader to zoom in. But a chunk is a WHOLE region, and zooming in does
+ * not make it smaller — so at a point where several large regions'
+ * bounding boxes overlap there is a floor below which no amount of
+ * zooming goes. If that floor ever rises above the budget, the map will
+ * tell a reader in southern Germany to zoom in, and keep telling them,
+ * for ever.
+ *
+ * Measured 27.09.2026: the worst point in EU-27 is lon 10.196, lat
+ * 49.406 — Bayern, Baden-Württemberg and Hessen — at 0.92 MB of real
+ * bytes and 1.25 MB of budget, against a 1.75 MB budget. 1.40× of room.
+ *
+ * Checked over the corners of every region's box, because the worst
+ * overlap always sits on one of them: a point strictly inside a set of
+ * boxes can be moved towards a corner without leaving any of them.
  */
-const MEASURE_CONCURRENCY = 6;
-
-/**
- * The byte weight of every chunk, measured by building it.
- *
- * 🔴 CAMP-133. The map's "this view is too wide" bound used to count
- * chunks and call itself a bound on bytes. Chunks range from 6 kB to
- * 419 kB (measured 27.09.2026), so the count said nothing about what a
- * reader downloads — the heaviest view it allowed weighed 1.96 MB, next
- * door to the 2.4 MB CAMP-127 called unviable. The bound is now in
- * bytes, and this is where the bytes come from: the same `chunkBody`
- * the chunk route serves, measured, not modelled.
- *
- * 🔴 It costs one extra API call per region at build time. Measured on
- * this machine after the region query stopped reading a whole country
- * per chunk (CAMP-133 again): 812 chunks in 7.7 s at this concurrency,
- * against a ~6 minute web build. The alternative — guessing the weight
- * from the campsite count — was measured too, and overstates a real
- * view by up to 2.34×, which would refuse four times as many views as
- * it should.
- */
-async function measureChunkBytes(
-  regions: readonly RegionSummary[],
-): Promise<number[]> {
-  const bytes = new Array<number>(regions.length);
-  let next = 0;
-
-  const worker = async () => {
-    for (;;) {
-      const i = next++;
-      if (i >= regions.length) return;
-      const r = regions[i];
-      const country = r.country.toLowerCase();
-      const res = await apiFetch(
-        `/spots/map/region/${encodeURIComponent(country)}/${encodeURIComponent(r.slug)}`,
-      );
-      if (!res.ok) {
-        throw new Error(`Chunk ${country}/${r.slug} failed: ${res.status}`);
+function heaviestUnavoidableView(regions: readonly RegionSummary[]): {
+  bytes: number;
+  lon: number;
+  lat: number;
+  keys: string[];
+} {
+  let worst = { bytes: 0, lon: 0, lat: 0, keys: [] as string[] };
+  for (const r of regions) {
+    for (const [lon, lat] of [
+      [r.minLon, r.minLat],
+      [r.minLon, r.maxLat],
+      [r.maxLon, r.minLat],
+      [r.maxLon, r.maxLat],
+    ] as const) {
+      const point = { west: lon, east: lon, south: lat, north: lat };
+      const hit = regions.filter((o) => overlaps(point, o));
+      const bytes = hit.reduce((n, o) => n + chunkWeight(o.count), 0);
+      if (bytes > worst.bytes) {
+        worst = {
+          bytes,
+          lon,
+          lat,
+          keys: hit.map((o) => `${o.country.toLowerCase()}/${o.slug}`),
+        };
       }
-      const markers = (await res.json()) as ChunkMarker[];
-      // 🔴 The same disagreement the chunk route refuses to serve, caught
-      // one step earlier: an index row whose chunk is empty, or whose
-      // chunk holds a different number of campsites than the index
-      // promised, means the two are out of step and every count the map
-      // shows is built on it.
-      if (markers.length !== r.count) {
-        throw new Error(
-          `Chunk ${country}/${r.slug} holds ${markers.length} campsites but ` +
-            `the index says ${r.count}. The index and the chunks are out of step.`,
-        );
-      }
-      bytes[i] = Buffer.byteLength(chunkBody(markers));
     }
-  };
-
-  await Promise.all(
-    Array.from({ length: Math.min(MEASURE_CONCURRENCY, regions.length) }, worker),
-  );
-  return bytes;
+  }
+  return worst;
 }
 
 export async function GET() {
@@ -119,10 +106,20 @@ export async function GET() {
     );
   }
 
-  const measured = await measureChunkBytes(regions);
-  const body = JSON.stringify(
-    regions.map((r, i) => ({ ...r, bytes: measured[i] })),
-  );
+  const floor = heaviestUnavoidableView(regions);
+  if (floor.bytes > VIEW_BUDGET_BYTES) {
+    throw new Error(
+      `At lon ${floor.lon.toFixed(3)}, lat ${floor.lat.toFixed(3)} the map ` +
+        `cannot draw markers at any zoom: the regions overlapping that point ` +
+        `weigh ${(floor.bytes / 1_048_576).toFixed(2)} MB against a ` +
+        `${(VIEW_BUDGET_BYTES / 1_048_576).toFixed(2)} MB budget, and a chunk ` +
+        `is a whole region however far you zoom in. Chunks there: ` +
+        `${floor.keys.join(', ')}. Split those regions or raise ` +
+        'VIEW_BUDGET_BYTES — do not ship a map that says "zoom in" for ever.',
+    );
+  }
+
+  const body = JSON.stringify(regions);
   const bytes = Buffer.byteLength(body);
   if (bytes > INDEX_BUDGET_BYTES) {
     throw new Error(

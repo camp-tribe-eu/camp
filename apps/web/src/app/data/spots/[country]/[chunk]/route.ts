@@ -1,5 +1,11 @@
 import { apiFetch } from '@/lib/api';
-import { chunkBody, type ChunkMarker, type RegionSummary } from '@/lib/map-chunks';
+import {
+  BYTES_PER_CAMPSITE,
+  chunkBody,
+  chunkWeight,
+  type ChunkMarker,
+  type RegionSummary,
+} from '@/lib/map-chunks';
 
 // CAMP-127: one region of the map, as its own file.
 //
@@ -66,7 +72,34 @@ export async function GET(
     );
   }
 
-  return new Response(chunkBody(markers), {
+  const body = chunkBody(markers);
+
+  // 🔴 CAMP-133: the safeguard's arithmetic, rehearsed on every chunk.
+  //
+  // The map decides whether a view is too heavy to draw from
+  // `chunkWeight(count)` — it has the counts in the index and not the
+  // files. That is an upper bound, and an upper bound nobody checks is
+  // a guess: the bound it replaces called itself "a bound on bytes" for
+  // a month while counting chunks.
+  //
+  // So the build refuses to emit a chunk that breaks it. Measured
+  // 27.09.2026 over all 812 chunks, the worst was 360 bytes per
+  // campsite against the 400 allowed, so this has 11% of room — and the
+  // day an import spends it, the build says so instead of the map
+  // quietly downloading more than it promised.
+  const weight = Buffer.byteLength(body);
+  if (weight > chunkWeight(markers.length)) {
+    throw new Error(
+      `Chunk ${country}/${slug} weighs ${weight} B for ${markers.length} ` +
+        `campsites — ${(weight / markers.length).toFixed(0)} B each, over the ` +
+        `${BYTES_PER_CAMPSITE} B the map budgets. VIEW_BUDGET_BYTES is spent ` +
+        'in this unit, so the map would be admitting views heavier than it ' +
+        'promises. Re-measure and raise BYTES_PER_CAMPSITE, or make the ' +
+        'chunk smaller.',
+    );
+  }
+
+  return new Response(body, {
     headers: { 'content-type': 'application/geo+json; charset=utf-8' },
   });
 }

@@ -774,8 +774,8 @@ export default function CampsiteMap() {
     }
 
     // 🔴 Too HEAVY, not too many. See VIEW_BUDGET_BYTES: the old bound
-    // counted chunks, let a 1.96 MB view through and refused a 0.41 MB
-    // one.
+    // counted chunks, let a 1.96 MB view through and refused one
+    // weighing 0.06 MB.
     const { keys, tooMany } = chunksInView(index.current, view);
     if (tooMany) {
       setDataState({ kind: 'wide', count: countInView(index.current, view) });
@@ -813,9 +813,12 @@ export default function CampsiteMap() {
     // densest views reach 127 — 127 sequential round trips before the
     // first marker settles, for files whose median is 6 kB.
     //
-    // 🔴 Six, and the ceiling is the browser's, not ours: Chrome and
-    // Firefox allow six connections per host, so a larger number only
-    // queues in the socket pool while making the failure case noisier.
+    // 🔴 Six, and bounded rather than unleashed. Over HTTP/1.1 six is
+    // the per-host connection limit, so anything larger queues in the
+    // socket pool where we cannot see it; over HTTP/2 there is no such
+    // limit, and firing 127 requests at once would simply take the
+    // bandwidth away from the basemap tiles the reader is also waiting
+    // for. Bounded is the only shape that behaves the same on both.
     //
     // 🔴 The order still matters — `chunksInView` returns the centre of
     // the screen first, and the workers take keys off the front — but
