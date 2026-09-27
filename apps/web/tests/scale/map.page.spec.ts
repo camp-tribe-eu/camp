@@ -256,11 +256,22 @@ test.describe('/map at 61 557 campsites', () => {
     ).toEqual([]);
 
     // The number the wide view does give has to be the index's own.
-    const bounds = await map(page).getAttribute('data-bounds');
-    if (bounds) {
-      const expected = countInView(index, boundsOf(bounds));
-      await expect(message).toContainText(expected.toLocaleString('en-GB'));
-    }
+    //
+    // 🔴 Waited for, not read once and skipped if absent. `publishCounts`
+    // runs on the map's `idle` event, which is a different moment from
+    // the state change above — an `if (bounds)` here would quietly drop
+    // the only assertion in this test that compares a number on screen
+    // with the file behind it.
+    await expect
+      .poll(async () => (await map(page).getAttribute('data-bounds')) ?? '', {
+        timeout: 30_000,
+        message: 'the map never published its bounds',
+      })
+      .not.toBe('');
+    const bounds = (await map(page).getAttribute('data-bounds'))!;
+    const expected = countInView(index, boundsOf(bounds));
+    expect(expected, 'the index says nothing is in view at the opening view').toBeGreaterThan(0);
+    await expect(message).toContainText(expected.toLocaleString('en-GB'));
   });
 
   test('🔴 zooming in reaches campsites, which is what the helper has to do', async ({
@@ -387,19 +398,25 @@ test.describe('/map at 61 557 campsites', () => {
     const bounds = await map(page).getAttribute('data-bounds');
     expect(bounds, 'the map published no bounds').not.toBeNull();
     const { keys, tooMany } = chunksInView(index, boundsOf(bounds!));
-    if (!tooMany) {
-      const got = new Set(
-        scale.finished.map((u) => new URL(u, 'http://x').pathname
-          .replace('/data/spots/', '')
-          .replace('.geojson', '')),
-      );
-      const missing = keys.filter((k) => !got.has(k));
-      console.log(`${keys.length} chunks in view, ${got.size} fetched`);
-      expect(
-        missing,
-        'the map said ready without the chunks its own viewport needs',
-      ).toEqual([]);
-    }
+    // 🔴 Asserted, not used as a condition. `ready` is published only on
+    // the branch that fetched chunks — the wide branch publishes `wide` —
+    // so a `tooMany` here would mean the state and the bounds describe
+    // different moments. Skipping the comparison on it would hide that,
+    // and hiding it is the failure this test is named after.
+    expect(tooMany, 'the map says ready over a view it calls too wide').toBe(false);
+    expect(keys.length, 'no chunk is in view, so there is nothing to compare').toBeGreaterThan(0);
+
+    const got = new Set(
+      scale.finished.map((u) => new URL(u, 'http://x').pathname
+        .replace('/data/spots/', '')
+        .replace('.geojson', '')),
+    );
+    const missing = keys.filter((k) => !got.has(k));
+    console.log(`${keys.length} chunks in view, ${got.size} fetched`);
+    expect(
+      missing,
+      'the map said ready without the chunks its own viewport needs',
+    ).toEqual([]);
   });
 
   test('🔴 …and the check that says so can still fail', async ({ page }) => {
