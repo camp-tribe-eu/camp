@@ -1,5 +1,6 @@
 import { expect, test } from './api-request';
 import { RENTAL_COUNTRIES } from '../../src/data/rental/countries';
+import { inProse } from '../../src/lib/rental';
 
 // CAMP-4 / CAMP-54 — the rental section as a reader meets it.
 //
@@ -71,15 +72,35 @@ test.describe('a country page', () => {
   test('every country page says something different about its own data', async ({
     request,
   }) => {
-    const leads = new Set<string>();
+    // 🔴 The set is keyed on the SENTENCE, not on the country — keying it
+    // on the code would make it unique by construction and prove nothing.
+    // Two pages whose measured paragraph reads the same are two pages with
+    // a name swapped, which is the failure this whole section is arranged
+    // to avoid.
+    const sentences = new Set<string>();
     for (const c of RENTAL_COUNTRIES) {
       const html = await (await request.get(`/camper-rental/${c.code}`)).text();
+      expect(html).toContain(`Renting a camper in ${inProse(c)}`);
       const m = /data-testid="lead-value"[^>]*>([^<]+)</.exec(html);
       expect(m, `${c.code} renders no measured lead`).not.toBeNull();
-      leads.add(`${c.code}:${m![1]}`);
-      expect(html).toContain(`Renting a camper in ${c.name}`);
+      // The whole paragraph, with the country's own name taken out of it.
+      const para = /<p[^>]*>((?:(?!<\/p>)[\s\S])*?data-testid="lead-value"[\s\S]*?)<\/p>/.exec(
+        html,
+      );
+      expect(para, `${c.code} has no measured paragraph`).not.toBeNull();
+      const normalised = para![1]
+        .replace(/<[^>]+>/g, ' ')
+        .replaceAll(inProse(c), 'COUNTRY')
+        .replaceAll(c.name, 'COUNTRY')
+        .replace(/\s+/g, ' ')
+        .trim();
+      expect(
+        sentences.has(normalised),
+        `${c.code} says the same thing as another country`,
+      ).toBe(false);
+      sentences.add(normalised);
     }
-    expect(leads.size).toBe(RENTAL_COUNTRIES.length);
+    expect(sentences.size).toBe(RENTAL_COUNTRIES.length);
   });
 
   test('sends a reader on to the campsites and the fuel prices', async ({ page }) => {

@@ -9,6 +9,7 @@ import { alternatesFor } from '@/lib/i18n';
 import { countryFuel, euros, longDate, FUEL } from '@/lib/fuel';
 import {
   count,
+  inProse,
   measuredFor,
   publishableCountries,
   rentalCountry,
@@ -57,7 +58,7 @@ export async function generateMetadata({
   const c = rentalCountry(country);
   if (!c) return {};
   return {
-    title: `Renting a camper in ${c.name}`,
+    title: `Renting a camper in ${inProse(c)}`,
     description: c.angle,
     alternates: alternatesFor(`/camper-rental/${c.code}`),
   };
@@ -95,7 +96,7 @@ export default async function RentalCountryPage({
           '@context': 'https://schema.org',
           '@type': 'WebPage',
           '@id': `${abs(path)}#page`,
-          name: `Renting a camper in ${c.name}`,
+          name: `Renting a camper in ${inProse(c)}`,
           description: c.angle,
           url: abs(path),
           inLanguage: 'en',
@@ -111,7 +112,7 @@ export default async function RentalCountryPage({
       </nav>
 
       <h1 className="mt-2 text-3xl font-bold leading-tight md:text-[42px]">
-        Renting a camper in {c.name}
+        Renting a camper in {inProse(c)}
       </h1>
 
       <p className="mt-4 max-w-prose text-ink-2">{c.intro}</p>
@@ -170,7 +171,7 @@ export default async function RentalCountryPage({
             What the driving costs
           </h2>
           <p className="mt-3 max-w-prose text-ink-2">
-            Diesel in {c.name} costs{' '}
+            Diesel in {inProse(c)} costs{' '}
             <strong className="text-ink">{euros(fuel.diesel, 3)}</strong> a
             litre in the week of {longDate(FUEL.bulletinDate)}, including
             taxes, as published by the European Commission
@@ -182,14 +183,14 @@ export default async function RentalCountryPage({
               className="underline"
               href={`/tools/camper-trip-cost/${c.code}`}
             >
-              Price a trip in {c.name}
+              Price a trip in {inProse(c)}
             </Link>
             .
           </p>
         </section>
       )}
 
-      <RentalOfferSlot offers={offers} where={c.name} />
+      <RentalOfferSlot offers={offers} where={inProse(c)} />
 
       <section
         aria-labelledby="next-heading"
@@ -204,7 +205,7 @@ export default async function RentalCountryPage({
           <Link className="underline" href="/camper-rental">
             the excess, the mileage cap, the one-way fee and the plated mass
           </Link>
-          . For {c.name} specifically, our{' '}
+          . For {inProse(c)} specifically, our{' '}
           <Link className="underline" href={`/camping/${c.code}`}>
             {count(row?.spots ?? 0)} campsite records
           </Link>{' '}

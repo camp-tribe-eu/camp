@@ -67,6 +67,18 @@ import { offersFor, placementProblems, type Offer, type Placement } from './affi
 export type { RentalCountry };
 export { RENTAL_COUNTRIES, rentalCountry };
 
+/**
+ * The country's name as a sentence wants it — "Germany", but "the
+ * Netherlands".
+ *
+ * 🔴 Used in prose only. The breadcrumb and the schema.org `Place` keep
+ * the bare `name`: "/ the Netherlands" reads wrong in a trail, and a
+ * structured-data consumer wants the country, not an English phrase.
+ */
+export function inProse(c: RentalCountry): string {
+  return c.definiteArticle ? `the ${c.name}` : c.name;
+}
+
 // ── The snapshot ────────────────────────────────────────────────────────
 
 /** The columns the snapshot carries, per member state. */

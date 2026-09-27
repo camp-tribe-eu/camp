@@ -63,7 +63,18 @@ export interface DataLead {
 export interface RentalCountry {
   /** ISO 3166-1 alpha-2, lower case — the same slug /camping uses. */
   code: string;
+  /** The bare name, for a breadcrumb and for structured data. */
   name: string;
+  /**
+   * 🔴 True where English puts an article in front of the name.
+   *
+   * One country in twelve needs it and the page reads as machine-written
+   * without it: "Renting a camper in Netherlands" was on the hub until
+   * somebody looked at the rendered page. The flag rather than a second
+   * name field, because the bare form is still what the breadcrumb and
+   * the schema.org `Place` want.
+   */
+  definiteArticle?: true;
   /** One line. What this page has that the hub does not. */
   angle: string;
   intro: string;
@@ -225,6 +236,7 @@ export const RENTAL_COUNTRIES: RentalCountry[] = [
   {
     code: 'nl',
     name: 'Netherlands',
+    definiteArticle: true,
     angle:
       'Almost no tolls, low-emission zones with no sticker, and an overnight rule written separately by every municipality.',
     intro:

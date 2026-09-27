@@ -10,6 +10,7 @@ import { longDate } from '@/lib/fuel';
 import {
   count,
   MEASURED,
+  inProse,
   publishableCountries,
   rentalOffers,
 } from '@/lib/rental';
@@ -54,7 +55,7 @@ export default function CamperRentalHub() {
               'Licence classes, vehicle dimensions, tolls, insurance and cross-border rules for hiring a camper in the European Union, with country pages for twelve member states.',
             path: '/camper-rental',
             items: countries.map((c) => ({
-              name: `Renting a camper in ${c.name}`,
+              name: `Renting a camper in ${inProse(c)}`,
               path: `/camper-rental/${c.code}`,
             })),
           }),
@@ -206,7 +207,7 @@ export default function CamperRentalHub() {
                   className="text-heading underline"
                   href={`/camper-rental/${c.code}`}
                 >
-                  Renting a camper in {c.name}
+                  Renting a camper in {inProse(c)}
                 </Link>
               </h3>
               <p className="mt-2 text-ink-2">{c.angle}</p>

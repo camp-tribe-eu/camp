@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import {
   count,
+  inProse,
   MEASURED,
   measuredFor,
   measuredLead,
@@ -59,7 +60,7 @@ export default function RentalCountryData({
       className="mt-10 rounded-card border border-line-2 bg-surface p-5"
     >
       <h2 id="our-data-heading" className="text-xl font-semibold text-heading">
-        What our own records say about {country.name}
+        What our own records say about {inProse(country)}
       </h2>
 
       <p className="mt-3 max-w-prose text-ink-2">{country.dataIntro}</p>
@@ -71,7 +72,7 @@ export default function RentalCountryData({
             <strong className="text-ink" data-testid="lead-value">
               {count(row.spots)}
             </strong>{' '}
-            campsite records for {country.name}, spread across{' '}
+            campsite records for {inProse(country)}, spread across{' '}
             {count(row.regions)} regions — an average of{' '}
             <strong className="text-ink">{lead.value.toFixed(1)}</strong> records
             per region, {lead.place} spread of any of the {lead.of} member
@@ -80,7 +81,7 @@ export default function RentalCountryData({
         ) : lead.kind === 'share' ? (
           <>
             Of the {count(lead.total)} campsite records we hold for{' '}
-            {country.name},{' '}
+            {inProse(country)},{' '}
             <strong className="text-ink" data-testid="lead-value">
               {count(lead.value)}
             </strong>{' '}
@@ -97,7 +98,7 @@ export default function RentalCountryData({
             <strong className="text-ink" data-testid="lead-value">
               {count(lead.value)}
             </strong>{' '}
-            of our {country.name} records {METRIC_LABEL[lead.metric]}:{' '}
+            of our {inProse(country)} records {METRIC_LABEL[lead.metric]}:{' '}
             {lead.place} number among the {lead.of} member states in our
             data, and {percent(lead.share)} of everything we hold there.
           </>
@@ -106,7 +107,7 @@ export default function RentalCountryData({
 
       <table className="mt-5 w-full border-collapse text-sm">
         <caption className="sr-only">
-          Campsite records for {country.name}, by what each record answers
+          Campsite records for {inProse(country)}, by what each record answers
         </caption>
         <thead>
           <tr className="border-b border-line-2 text-left text-ink-2">
