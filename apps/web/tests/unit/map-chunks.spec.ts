@@ -340,9 +340,10 @@ test.describe('filterCountLabel', () => {
 
   test('🔴 a ready map says the number IS of the visible area', () => {
     // CAMP-133. The denominator used to be every campsite fetched so
-    // far, and chunks are never discarded — so the same screen read
-    // "306 of 1 308" and later "306 of 4 100" after a pan out and back.
-    // Both sides now name the set, and it is a set the reader can see.
+    // far ("306 of 1 308 campsites", reviewed 25.09.2026), and chunks
+    // are never discarded — so it only ever grew, with the reader's
+    // route rather than with the screen. Both sides now name the set,
+    // and it is a set the reader can see.
     expect(filterCountLabel({ kind: 'ready' }, counts)).toEqual({
       value: 12,
       text: ' campsites in view',

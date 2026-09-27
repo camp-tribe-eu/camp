@@ -205,6 +205,25 @@ function drawRegions(
   }
 }
 
+/**
+ * Where the map is looking, in the shape every rule in map-chunks takes.
+ *
+ * 🔴 One conversion from MapLibre's LngLatBounds, because three copies
+ * of it were already drifting: `refresh` built one object, `publishCounts`
+ * called the four getters inline for `data-bounds` and then called them
+ * again for `data-in-view`. A count and the box it is supposedly inside
+ * have to come from the same four numbers.
+ */
+function boundsOf(m: InstanceType<typeof MapLibreMap>): Bounds {
+  const b = m.getBounds();
+  return {
+    west: b.getWest(),
+    south: b.getSouth(),
+    east: b.getEast(),
+    north: b.getNorth(),
+  };
+}
+
 /** Take the region circles away once real markers are on the map. */
 function clearRegions(m: InstanceType<typeof MapLibreMap>) {
   for (const id of [REGION_COUNT, REGION_CIRCLE]) {
@@ -227,25 +246,6 @@ function clearRegions(m: InstanceType<typeof MapLibreMap>) {
  * The features are NOT thrown away, only un-drawn: `everything.current`
  * still holds them, so zooming back in costs no fetch.
  */
-/**
- * Where the map is looking, in the shape every rule in map-chunks takes.
- *
- * 🔴 One conversion from MapLibre's LngLatBounds, because three copies
- * of it were already drifting: `refresh` built one object, `publishCounts`
- * called the four getters inline for `data-bounds` and then called them
- * again for `data-in-view`. A count and the box it is supposedly inside
- * have to come from the same four numbers.
- */
-function boundsOf(m: InstanceType<typeof MapLibreMap>): Bounds {
-  const b = m.getBounds();
-  return {
-    west: b.getWest(),
-    south: b.getSouth(),
-    east: b.getEast(),
-    north: b.getNorth(),
-  };
-}
-
 function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
   const source = m.getSource(SOURCE_ID) as GeoJSONSource | undefined;
   source?.setData({ type: 'FeatureCollection', features: [] });
@@ -918,10 +918,9 @@ export default function CampsiteMap() {
     // 🔴 CAMP-133: what the panel says is about the VISIBLE AREA.
     //
     // `total` used to be `all.length` — every campsite fetched so far.
-    // Chunks are deliberately never discarded, so that denominator grew
-    // as the reader dragged: "306 of 1 308" on one screen and "306 of
-    // 4 100" on the same screen after panning out and back. It answered
-    // no question a reader has.
+    // Chunks are deliberately never discarded, so that denominator only
+    // ever grew, and it grew with where the reader had been rather than
+    // with what was on screen. It answered no question a reader has.
     //
     // The visible area is a set they can see. It is also complete —
     // every chunk overlapping the view is in hand by the time the state

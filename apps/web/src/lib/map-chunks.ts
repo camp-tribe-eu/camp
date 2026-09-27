@@ -27,7 +27,7 @@
 // nobody has to find out by experiment. Measured against the live index
 // on 27.09.2026, the EU-27 data spans longitude −31.27 … 34.55, so no
 // region bbox comes within 145° of ±180° and the case cannot arise while
-// the project is EU-27.
+// the project is EU-27 (CAMP-133).
 
 import { knownAmenities } from './map-filter';
 import type { Amenities, AmenityKey } from './api';
@@ -85,11 +85,11 @@ export interface ChunkFeature {
 /**
  * One chunk file, exactly as the browser receives it.
  *
- * 🔴 One function, because two callers need the same bytes for
- * different reasons: the chunk route serves this string, and the index
- * route measures its length to fill `RegionSummary.bytes`. Written
- * twice, the index would be describing a file the map does not fetch —
- * and the map would be refusing views on a number about nothing.
+ * 🔴 Here rather than inside the route, because the weight the map
+ * budgets a view by (`chunkWeight`) is a claim about THIS string, and
+ * the chunk route checks the two against each other before it serves
+ * anything. A rule and the check on it belong in one file; the route is
+ * where they would drift apart.
  */
 export function chunkBody(markers: readonly ChunkMarker[]): string {
   const features: ChunkFeature[] = markers.map((m) => ({
@@ -127,12 +127,12 @@ export const DETAIL_ZOOM = 6;
  *
  * 🔴 Both boxes are read as west ≤ east. A viewport wrapped across the
  * antimeridian — MapLibre can report west 170, east −170 — is NOT
- * handled: this function would read it as the 340° the reader is not
- * looking at and answer for that instead. Stated rather than handled,
- * because handling it would be untested code for a case our data cannot
- * produce (EU-27, longitude −31.27 … 34.55, measured 27.09.2026) and the
- * test below pins the reading so the limit is checked rather than
- * remembered.
+ * handled: to these comparisons it is an inverted box, which contains
+ * nothing, so the map would go blank rather than draw the wrong place.
+ * Stated rather than handled, because handling it would be untested code
+ * for a case our data cannot produce (EU-27, longitude −31.27 … 34.55,
+ * measured 27.09.2026), and the unit test pins the reading so the limit
+ * is checked rather than remembered.
  */
 export function overlaps(
   a: Bounds,
@@ -388,13 +388,13 @@ export function dataMessage(state: MapDataState): string | null {
  *
  * 🔴 Both numbers are about the VISIBLE AREA, and the sentence says so.
  *
- * The denominator used to be every campsite loaded so far. Chunks are
- * deliberately never discarded, so that number grew as the reader
- * dragged the map: the same screen said "306 of 1 308" and, after a pan
- * out and back, "306 of 4 100". It matched neither the screen nor the
- * database — and the heading above it said 61 422. A denominator that
- * only makes sense if you know which way somebody has been dragging is
- * not a denominator.
+ * The denominator used to be every campsite loaded so far — "306 of
+ * 1 308 campsites", reviewed 25.09.2026. Chunks are deliberately never
+ * discarded, so that number only ever grew, and it grew with the
+ * reader's route rather than with anything on screen. It matched
+ * neither the screen nor the database, and the heading above it said
+ * 61 422. A denominator that only makes sense if you know which way
+ * somebody has been dragging is not a denominator.
  *
  * "In view" is a set the reader can see and check by counting the
  * markers, and `withinView` explains why it is complete.

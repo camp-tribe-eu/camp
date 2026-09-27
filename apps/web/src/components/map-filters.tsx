@@ -33,10 +33,10 @@ interface Props {
    *
    * 🔴 All three numbers are about the visible area, and the caller has
    * to keep them that way. CAMP-133: `total` used to be every campsite
-   * fetched so far, and because chunks are never discarded it grew as
-   * the reader panned — "306 of 1 308" became "306 of 4 100" on the
-   * same screen. Mixing a viewport numerator with a fetched denominator
-   * would put that back.
+   * fetched so far ("306 of 1 308 campsites", reviewed 25.09.2026), and
+   * because chunks are never discarded it only ever grew — with the
+   * reader's route, not with what was on screen. Mixing a viewport
+   * numerator with a fetched denominator would put that back.
    */
   shown: number;
   /** Campsites in the viewport before filtering, for "12 of 47 in view". */

@@ -753,12 +753,12 @@ test.describe('/map filters', () => {
     }
   });
 
-  // 🔴 CAMP-133. The defect: "306 of 1 308 campsites" where 1 308 was
-  // every campsite fetched since the page opened. Chunks are never
-  // discarded, so the denominator grew as the reader dragged — the same
-  // screen said 1 308 and, after a pan out and back, 4 100. It matched
-  // neither the screen nor the database, and the heading above it said
-  // 61 422.
+  // 🔴 CAMP-133. The defect: "306 of 1 308 campsites" (reviewed
+  // 25.09.2026) where 1 308 was every campsite fetched since the page
+  // opened. Chunks are never discarded, so the denominator only ever
+  // grew, with where the reader had been rather than with what was on
+  // screen. It matched neither the screen nor the database, and the
+  // heading above it said 61 422.
   //
   // This asserts the sentence against the two numbers the map publishes
   // for the visible area, so "explainable" is checked rather than
