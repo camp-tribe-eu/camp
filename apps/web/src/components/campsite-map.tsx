@@ -896,6 +896,11 @@ export default function CampsiteMap() {
       // 🔴 Republish BEFORE announcing readiness, so the numbers a
       // reader (or a test) sees alongside `ready` describe the data
       // that is now drawn.
+      //
+      // `applyFilterState` above publishes too, for its own reason —
+      // the drawn set changed. This one is about ORDER: nothing may
+      // read `ready` next to a count from before the last chunk landed.
+      // Two calls, two guarantees, and neither is safe to drop.
       publishRef.current?.();
       // 🔴 Only chunks the reader is LOOKING at count as a failure.
       //
@@ -962,6 +967,25 @@ export default function CampsiteMap() {
       inViewTotal: inView.length,
       inViewUnknownExcluded: here.unknownExcluded,
     });
+
+    // 🔴 Republish `data-in-view` NOW, not at the map's next idle.
+    //
+    // It is derived from `drawn.current`, which this function has just
+    // replaced — so leaving it to `idle` publishes a number about the
+    // filter the reader had before they clicked.
+    //
+    // Measured, and it is why this line exists: with the panel reading
+    // the idle-published attribute, ticking "also show where this is
+    // not recorded" left `data-in-view` at 27 where the panel said 45,
+    // and the spec failed on webkit-desktop, mobile-safari, tablet and
+    // mobile-chrome while passing on chromium. A number published on an
+    // event that may not come is the CAMP-134 shape again.
+    //
+    // The cluster counts alongside it are queried from what is
+    // RENDERED, and clustering happens in a worker, so those stay
+    // behind until the map idles and republishes. That is why the specs
+    // that read them poll.
+    publishRef.current?.();
   };
 
   useEffect(() => {
