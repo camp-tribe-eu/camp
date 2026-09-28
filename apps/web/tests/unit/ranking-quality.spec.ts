@@ -254,6 +254,88 @@ test.describe('ranking quality, measured on the live index', () => {
     `no index cached at ${INDEX} — see the comment at the top of this file`,
   );
 
+  test('🔴 CAMP-140: `camping tolmin` answers in Tolmin, and says Tolmin', () => {
+    // The card's acceptance, in one assertion.
+    //
+    // CAMP-137 got the first half: the region key put `Kamp Siber`
+    // first, in the region `tolmin`. The sentence under it went on
+    // saying «489 m from Kmetijska zadruga Tolmin» — a co-operative
+    // FROM Tolmin with a shop in Bovec, true and useless — because the
+    // ordering key and the label were one number.
+    //
+    // 🔴 Both halves, deliberately. Asserting only the label would pass
+    // if the split leaked into the sort and the right campsite stopped
+    // coming first; asserting only the region is the test that already
+    // existed and that this card did not need.
+    const [top] = search(docs!, 'camping tolmin', { limit: 1 });
+    expect(top, 'camping tolmin returns nothing').toBeDefined();
+    expect(
+      top.doc.region,
+      `top hit is ${top.doc.name} [${top.doc.region}/${top.doc.country}]`,
+    ).toBe('tolmin');
+    expect(
+      fold(top.label?.name ?? ''),
+      `labelled "${top.label?.name}", ordered on ${top.metres} m from "${top.nearest}"`,
+    ).toBe('tolmin');
+  });
+
+  test('🔴 CAMP-140: the label never reaches the ordering key', () => {
+    // 🔴 The guard that would catch the change that was reverted.
+    //
+    // `label.m` is the distance to the best-NAMED place and `metres` is
+    // the distance to the NEAREST one. The first may be any size; the
+    // second is a minimum over the same set, so it can never be the
+    // larger of the two. If a later change lets the label decide the
+    // ordering, that inequality is the first thing to break — and with
+    // it goes the page's one rule about numbers, which is that a
+    // distance is printed only when it is the one the row was sorted
+    // on (`isNearest`).
+    //
+    // Measured 28.09.2026 on the live index, main against this branch,
+    // over the 500-query geometric corpus below: every one of the 500
+    // answers identical, whole page identical on all 500 (path, metres
+    // and score for 20 rows), 23 queries over 25 km before and 23
+    // after. The label diverges from the nearest match on 268 of 4 724
+    // result lines, 5.7%.
+    const { places } = solvePlaces(docs as (SearchDoc & { lat?: number; lon?: number })[]);
+    const sample = Array.from({ length: 200 }, (_, i) =>
+      places[Math.floor((i * places.length) / 200)],
+    );
+    const wrong: string[] = [];
+    let labelled = 0;
+    let diverged = 0;
+    for (const p of sample) {
+      for (const h of search(docs!, `camping ${p.word}`, { limit: 20 })) {
+        if (h.label === undefined) {
+          // A hit with no label has no distance either: they come from
+          // the same walk over the same places.
+          if (h.metres !== undefined) wrong.push(`${p.word}: metres with no label`);
+          continue;
+        }
+        labelled++;
+        if (h.metres === undefined) {
+          wrong.push(`${p.word}: label with no metres`);
+        } else if (h.label.m < h.metres) {
+          wrong.push(
+            `${p.word}: labelled ${h.label.name} at ${h.label.m} m, nearer than the ` +
+              `${h.metres} m it was ordered on`,
+          );
+        } else if (h.label.isNearest !== (h.label.m === h.metres)) {
+          wrong.push(
+            `${p.word}: isNearest ${h.label.isNearest} with ${h.label.m} m against ${h.metres} m`,
+          );
+        }
+        if (!h.label.isNearest) diverged++;
+      }
+    }
+    // 🔴 An empty loop is a pass that measured nothing. And a branch
+    // where nothing ever diverges is a branch where this card did not
+    // ship: the whole point is that the two answers differ sometimes.
+    expect(labelled, 'no labelled hits at all').toBeGreaterThan(1_000);
+    expect(diverged, 'the label never differs from the nearest match').toBeGreaterThan(0);
+    expect(wrong.slice(0, 5)).toEqual([]);
+  });
+
   test('🔴 a two-word query is not decided by the common word', () => {
     // 🔴 What "correct" means here, and why the obvious assertion is a
     // trap.

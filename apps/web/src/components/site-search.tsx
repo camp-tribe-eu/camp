@@ -287,15 +287,72 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
                 <span className="mt-0.5 block text-xs text-ink-2">
                   {hit.doc.region.replace(/-/g, ' ')} ·{' '}
                   {countryName(hit.doc.country)}
-                  {/* 🔴 The distance is shown only when the query named a
-                      place. Printing "1.2 km" for a search like "shower"
-                      would be showing a number that answers a question
-                      nobody asked. */}
-                  {hit.metres !== undefined && (
+                  {/* 🔴 The place is shown only when the query named one.
+                      Printing "1.2 km" for a search like "shower" would
+                      be showing a number that answers a question nobody
+                      asked.
+
+                      🔴 CAMP-140: the NAME comes from the best-named
+                      match, the NUMBER only from the nearest one.
+
+                      `search()` orders this list by the distance to the
+                      nearest place whose name the query matched, and
+                      that is often not the place the reader meant: a
+                      shop 489 m from Kamp Siber is called «Kmetijska
+                      zadruga Tolmin», so `camping tolmin` used to answer
+                      «489 m from Kmetijska zadruga Tolmin» — true, and
+                      useless. The label now says Tolmin.
+
+                      🔴 When the two are different places the distance
+                      is DROPPED, not swapped — and the reason I first
+                      wrote here was wrong, so here is the measurement
+                      instead.
+
+                      The argument was "a number that contradicts the
+                      visible order is worse than no number". Measured
+                      on the live index over 500 city queries, the page
+                      ALREADY contradicts itself that way: distance is
+                      the third sort key, under the score and under
+                      CAMP-137's region key, so 317 of the 500 result
+                      pages already show a smaller number below a larger
+                      one, and 3 637 pairs of rows already name the SAME
+                      place with the bigger distance above the smaller
+                      (`rust`: 5 067 m at the top, 1 333 m two rows
+                      down). A reader cannot read this order off the
+                      numbers today and nothing here changes that.
+
+                      What survives the measurement is narrower and is
+                      the actual reason: printing the labelled place's
+                      distance would take those same-place pairs from
+                      3 637 to 4 168. Today the differing names explain
+                      such a pair — "912 m from Klagenfurt West" above
+                      "7 567 m from Klagenfurt" — and once both rows say
+                      "Klagenfurt" only the number is left to explain it,
+                      and it explains it wrongly. 531 new ones, bought
+                      with 268 numbers on 4 724 rows. Dropping the number
+                      adds none of them: this card does not get to make
+                      an existing defect 15% worse in exchange for a
+                      figure the campsite's own page already carries.
+
+                      So the rule this page keeps is: a distance is
+                      printed only when it is the distance this row was
+                      ordered by. Otherwise the reader gets the place
+                      alone — which still answers what they asked, "is
+                      this the Tolmin I meant" — and one click away is
+                      the exact number.
+
+                      "near" is the claim the data itself makes:
+                      `doc.near` is "places this campsite is near". It is
+                      loosest where the countryside is empty — median
+                      4.5 km across the rows that diverge, 42 km at the
+                      extreme. */}
+                  {hit.label !== undefined && (
                     <>
                       {' '}
-                      · {formatDistance(hit.metres)} from{' '}
-                      {hit.nearest ?? 'what you searched'}
+                      ·{' '}
+                      {hit.label.isNearest
+                        ? `${formatDistance(hit.label.m)} from ${hit.label.name}`
+                        : `near ${hit.label.name}`}
                     </>
                   )}
                 </span>
