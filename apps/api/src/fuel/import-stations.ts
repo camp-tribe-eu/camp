@@ -30,11 +30,17 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client } from 'pg';
 import {
+  FUEL_GRADES,
+  isPriceDroppable,
+  MIN_MATCH_RATE,
+  MIN_PRICES_PER_GRADE,
   MIN_STATIONS,
   parseFrance,
   parseItaly,
   parseSpain,
+  PRICE_DROP_AFTER_DAYS,
   SOURCES,
+  type FuelGrade,
   type ParseResult,
   type Rejection,
   type Station,
@@ -48,6 +54,23 @@ import {
 } from './match';
 
 const stationKey = (s: Station) => `${s.source}:${s.ref}`;
+
+/**
+ * Price rows per grade — the number the PAGE shows, as against the
+ * station count the other floors use.
+ *
+ * 🔴 `FUEL_GRADES` rather than the keys actually present, so a grade
+ * that has vanished entirely reports 0 and trips its floor, instead of
+ * being absent from the object and silently skipped by the check.
+ */
+function countByGrade(stations: Station[]): Record<FuelGrade, number> {
+  const out = Object.fromEntries(FUEL_GRADES.map((g) => [g, 0])) as Record<
+    FuelGrade,
+    number
+  >;
+  for (const s of stations) for (const p of s.prices) out[p.grade] += 1;
+  return out;
+}
 
 /**
  * 🔴 A generous timeout and ONE attempt per URL.
@@ -131,11 +154,14 @@ async function main(): Promise<void> {
   const now = new Date();
 
   const all: Station[] = [];
+  const parsed: { source: (typeof SOURCES)[number]; result: ParseResult }[] =
+    [];
 
   for (const source of SOURCES) {
     const texts = await loadSource(source.id, fromDir);
     const result = await parseSource(source.id, texts, now);
     all.push(...result.stations);
+    parsed.push({ source, result });
 
     // 🔴 The reconciliation runs whether or not anybody asked for the
     // report, and it throws. Kept + rejected must equal what the feed
@@ -149,6 +175,19 @@ async function main(): Promise<void> {
         `${source.id}: ${result.stations.length} kept + ${rejectedStations} rejected ` +
           `= ${accounted}, but the feed held ${result.feedRecords}`,
       );
+    }
+
+    // 🔴 A second reconciliation for a source whose prices live in their
+    // own file. Italy's price list was checked against nothing at all;
+    // see the note in parseItaly.
+    if (result.priceRecords) {
+      const pr = result.priceRecords;
+      const seen = pr.kept + pr.unknownStation + pr.unknownProduct;
+      if (seen !== pr.rows) {
+        throw new Error(
+          `${source.id}: price file has ${pr.rows} rows but ${seen} were accounted for`,
+        );
+      }
     }
 
     // 🔴 And a floor, because the reconciliation above passes perfectly
@@ -166,19 +205,23 @@ async function main(): Promise<void> {
       );
     }
 
-    if (report) {
-      console.log(`\n── ${source.id} (${source.country}) ──`);
-      console.log(
-        `  snapshot stamp    ${result.snapshotAt?.toISOString() ?? '(none)'}`,
-      );
-      console.log(`  feed records      ${result.feedRecords}`);
-      console.log(`  stations kept     ${result.stations.length}`);
-      console.log(`  records rejected  ${rejectedStations}`);
-      for (const [reason, n] of itemise(result.rejected)) {
-        console.log(`    ${String(n).padStart(6)}  ${reason}`);
+    // 🔴 AND A FLOOR PER GRADE. A forecourt survives losing half its
+    // prices, so the station floor above cannot see a grade disappear.
+    // Renaming Italy's `Benzina` upstream halved the price rows with
+    // every other counter unmoved. See MIN_PRICES_PER_GRADE.
+    const perGrade = countByGrade(result.stations);
+    const gradeFloors = MIN_PRICES_PER_GRADE[source.id];
+    if (gradeFloors) {
+      for (const grade of FUEL_GRADES) {
+        if (perGrade[grade] < gradeFloors[grade]) {
+          throw new Error(
+            `${source.id}: only ${perGrade[grade]} ${grade} prices, below the floor ` +
+              `of ${gradeFloors[grade]}. A grade does not halve on its own — check ` +
+              `whether the source renamed the product before lowering this number. ` +
+              `Nothing has been written.`,
+          );
+        }
       }
-      const prices = result.stations.reduce((a, s) => a + s.prices.length, 0);
-      console.log(`  price rows        ${prices}`);
     }
   }
 
@@ -244,6 +287,81 @@ async function main(): Promise<void> {
     );
     const matched = new Map(assignments.map((a) => [a.stationKey, a]));
 
+    // 🔴 THE REPORT IS PRINTED HERE, NOT IN THE PARSE LOOP, AND THAT IS
+    // THE WHOLE POINT OF MOVING IT.
+    //
+    // `--report` used to run entirely BEFORE `client.connect()`, so it
+    // structurally could not know a match count: it printed feed
+    // records, kept, rejected and price rows, and no matched line at
+    // all. The PR quoted per-country match rates and named `--report` as
+    // the way to reproduce them, and the command could not produce them.
+    // A figure nobody can re-derive from the branch is not a
+    // measurement, so the report now runs after the join.
+    for (const { source, result } of parsed) {
+      const rejectedStations = countRejectedStations(result);
+      const perGrade = countByGrade(result.stations);
+      const hit = result.stations.filter((st) =>
+        matched.has(stationKey(st)),
+      ).length;
+      const rate =
+        result.stations.length > 0 ? hit / result.stations.length : 0;
+
+      if (report) {
+        console.log(`\n── ${source.id} (${source.country}) ──`);
+        console.log(
+          `  snapshot stamp    ${result.snapshotAt?.toISOString() ?? '(none)'}`,
+        );
+        console.log(`  feed records      ${result.feedRecords}`);
+        console.log(`  stations kept     ${result.stations.length}`);
+        console.log(`  records rejected  ${rejectedStations}`);
+        for (const [reason, n] of itemise(result.rejected)) {
+          console.log(`    ${String(n).padStart(6)}  ${reason}`);
+        }
+        if (result.priceRecords) {
+          const pr = result.priceRecords;
+          console.log(`  price file rows   ${pr.rows}`);
+          console.log(`    ${String(pr.kept).padStart(6)}  plain grade, kept`);
+          console.log(
+            `    ${String(pr.unknownProduct).padStart(6)}  other product (premium blend, gas)`,
+          );
+          console.log(
+            `    ${String(pr.unknownStation).padStart(6)}  station not in the register`,
+          );
+        }
+        for (const grade of FUEL_GRADES) {
+          console.log(`  ${grade.padEnd(16)}  ${perGrade[grade]} prices`);
+        }
+        console.log(
+          `  matched           ${hit} of ${result.stations.length} ` +
+            `(${(rate * 100).toFixed(1)}%) to an osm_route_poi fuel point ` +
+            `within ${MATCH_RADIUS_M} m`,
+        );
+      }
+
+      // 🔴 THE FLOOR ON THE OTHER SIDE OF THE JOIN.
+      //
+      // `osm_route_poi` is rebuilt weekly by a DIFFERENT job (CAMP-28,
+      // with `-overwrite`), and these prices are worth nothing without
+      // it. Emptying that table and re-running this import wrote 39 216
+      // price rows, matched 0 stations and exited 0 — after which every
+      // fuel row in three countries reads "We hold no price for this
+      // station", which is exactly the failure every other floor here
+      // exists to prevent, arriving through the one door that had none.
+      //
+      // Checked inside the transaction and before the write, so a
+      // collapsed join rolls back rather than replacing a good table
+      // with an unjoinable one.
+      if (rate < MIN_MATCH_RATE) {
+        throw new Error(
+          `${source.id}: only ${hit} of ${result.stations.length} stations ` +
+            `(${(rate * 100).toFixed(1)}%) matched an osm_route_poi fuel point, ` +
+            `below the floor of ${(MIN_MATCH_RATE * 100).toFixed(0)}%. The prices ` +
+            `parsed cleanly, so look at osm_route_poi — it is rebuilt by a ` +
+            `separate weekly job and nothing here owns it. Nothing has been written.`,
+        );
+      }
+    }
+
     // 🔴 DELETE then INSERT inside the transaction, not UPSERT.
     //
     // A station that has stopped publishing must LOSE its price, not
@@ -255,9 +373,21 @@ async function main(): Promise<void> {
 
     let written = 0;
     const rows: unknown[][] = [];
+    let droppedAsExpired = 0;
     for (const s of all) {
       const m = matched.get(stationKey(s));
       for (const p of s.prices) {
+        // 🔴 The staleness rule enforced at the DATA boundary as well as
+        // at the page. `isPriceDroppable` had no caller outside its own
+        // spec — a rule stated in two places and applied in one — so a
+        // price the page will never show still sat in a public API's
+        // table waiting for a caller who does not run the web app's
+        // filter. It also returns true on an Invalid Date now, which is
+        // the direction it must fail in.
+        if (isPriceDroppable(p.measuredAt, now)) {
+          droppedAsExpired += 1;
+          continue;
+        }
         rows.push([
           s.source,
           s.ref,
@@ -302,7 +432,12 @@ async function main(): Promise<void> {
     console.log(
       `\nWrote ${written} price rows for ${all.length} stations; ` +
         `${matched.size} stations matched an osm_route_poi fuel point ` +
-        `within ${MATCH_RADIUS_M} m.`,
+        `within ${MATCH_RADIUS_M} m` +
+        (droppedAsExpired > 0
+          ? `; ${droppedAsExpired} price rows dropped as older than ` +
+            `${PRICE_DROP_AFTER_DAYS} days`
+          : '') +
+        `.`,
     );
   } catch (err) {
     await client.query('ROLLBACK');

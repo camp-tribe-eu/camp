@@ -10,6 +10,7 @@ import {
   servicesOverfetch,
 } from './route-services';
 import { DEFAULT_PER_POINT, MAX_POINTS } from './route-points';
+import { SOURCES } from '../fuel/stations';
 import {
   ACCESS_EXCLUDED,
   classifyCaseSql,
@@ -364,6 +365,29 @@ describe('the per-station price the fuel row carries', () => {
   // as a difference between the stations rather than between the plans.
   it('orders the grades the same way at every stage', () => {
     expect(FUEL_PRICE_SUBQUERY).toContain('ORDER BY f.grade');
+  });
+
+  // 🔴 THE REFUSED-COUNTRY GATE LIVES HERE, NOT ONLY IN THE RENDERER.
+  //
+  // Review found it only in the web app's `displayPrices`, which drops a
+  // price whose source has no attribution entry — protecting the route
+  // page and nothing else. The API is public: `/routes/services` would
+  // have served an Austrian row, for a country where NO CONSUMER LICENCE
+  // EXISTS, to any caller. A permission is a property of the data, so
+  // the gate belongs where the data leaves.
+  it('serves prices only from the three licensed sources', () => {
+    expect(FUEL_PRICE_SUBQUERY).toContain('f.source IN (');
+    for (const s of SOURCES) {
+      expect(FUEL_PRICE_SUBQUERY).toContain(`'${s.id}'`);
+    }
+  });
+
+  it('cannot serve a country whose licence does not exist', () => {
+    // Austria's endpoint is open, unkeyed and unthrottled, which makes
+    // it the one most likely to be added in a hurry. An HTTP 200 is not
+    // permission.
+    expect(FUEL_PRICE_SUBQUERY).not.toMatch(/e-control|spritpreis|'at-/);
+    expect(FUEL_PRICE_SUBQUERY).not.toMatch(/dgeg|holtankoljak/);
   });
 
   // The join is on the OSM ref we just picked, not on a coordinate.

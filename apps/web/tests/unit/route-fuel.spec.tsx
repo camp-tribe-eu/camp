@@ -237,6 +237,47 @@ test.describe('🔴 a station price is never shown without its date', () => {
     expect(text).toContain('25 September 2026');
   });
 
+  // 🔴 ATTRIBUTION IS A LICENCE CONDITION, AND IT HAS TO BE IN THE
+  // OUTPUT, NOT IN A VARIABLE.
+  //
+  // Review found `displayPrices` resolving `attribution` for every price
+  // and the component never reading it: the served row was the price and
+  // the date and nothing else. All three sources — datos.gob.es,
+  // Licence Ouverte 2.0, IODL 2.0 — require attribution, and the CC BY
+  // bulletin two blocks down was already getting it. These assertions
+  // read the rendered row, so a value computed and dropped cannot
+  // satisfy them.
+  test('names the ministry that published the price, on the row', () => {
+    const text = visibleText(renderStage([price()]));
+    expect(text).toContain('Ministero delle Imprese e del Made in Italy');
+  });
+
+  test('links to it, so the reader can check the number at the source', () => {
+    const html = renderStage([price()]);
+    expect(html).toContain('href="https://carburanti.mise.gov.it/ospzSearch/"');
+  });
+
+  test('attributes the Spanish and French ministries on their own rows', () => {
+    expect(
+      visibleText(renderStage([price({ source: 'es-minetur' })])),
+    ).toContain('Ministerio para la Transición Ecológica');
+    expect(
+      visibleText(renderStage([price({ source: 'fr-data-economie' })])),
+    ).toContain('Ministère de l’Économie et des Finances');
+  });
+
+  // One line per row, not per grade: a forecourt's two prices come from
+  // one ministry and naming it twice adds noise, not permission.
+  test('names the ministry once even when the row carries two grades', () => {
+    const text = visibleText(
+      renderStage([
+        price({ grade: 'diesel', product: 'Gasolio' }),
+        price({ grade: 'petrol', product: 'Benzina', price: '2.119' }),
+      ]),
+    );
+    expect(text.split('Ministero delle Imprese').length - 1).toBe(1);
+  });
+
   // 🔴 France sells 95-octane as SP95 and as E10 at different prices, and
   // 5 619 of its stations post only E10. "Petrol €2.209" would name the
   // wrong fuel at a third of French stations.
@@ -264,17 +305,45 @@ test.describe('🔴 a country average must never read as a station price', () =>
   ];
   const averages = () => visibleText(renderComponent(RouteFuelPrices, { prices: countries }));
 
-  // 🔴 MUTATION PROVEN: delete the badge `<span>` from RouteFuelPrices
-  // and this fails. It is the only thing on the page that tells a reader
-  // the figure beside "Italy" is not what the pump charges.
-  test('the averages block is badged as an average, in words', () => {
-    expect(averages()).toContain(AVERAGE_BADGE);
+  // 🔴 THE LITERAL WORDS A READER SEES, NOT THE CONSTANT THEY COME FROM.
+  //
+  // This assertion was `toContain(AVERAGE_BADGE)` against markup
+  // rendered from that same constant — so renaming
+  // `AVERAGE_BADGE = 'Country average'` to `'Pump price'` badged a
+  // national average AS A PUMP PRICE and all 22 tests still passed,
+  // this one included. The corpus shared a field with the thing it
+  // measured, which is the defect this project has now hit five times.
+  //
+  // Writing the words out means the test can only be satisfied by a page
+  // that actually says them, and a deliberate rewording has to change
+  // this line too — in a diff a reviewer reads.
+  test('the averages block is badged as an average, in the words a reader sees', () => {
+    expect(averages()).toContain('Country average');
   });
 
-  test('and says outright that it is not any listed station’s price', () => {
+  // …and the constant is what the component renders, so the two cannot
+  // drift apart silently in the other direction either.
+  test('the badge constant is those same words', () => {
+    expect(AVERAGE_BADGE).toBe('Country average');
+  });
+
+  test('and says outright that it is not any single station’s price', () => {
     const text = averages();
     expect(text).toContain('for the whole country');
-    expect(text).toContain('not for any station listed above');
+    expect(text).toContain('not the price at any single filling station');
+  });
+
+  // 🔴 NO DIRECTIONAL WORD, AND THIS IS THE TEST THAT KEEPS IT THAT WAY.
+  //
+  // The first rewrite said "not for any station listed ABOVE" while this
+  // block renders BEFORE the stage list — inverting the card's central
+  // safeguard — and the test then asserted the inverted string, locking
+  // it in. A word that has to track the order of two JSX siblings in
+  // another file is wrong as a design whichever way it points.
+  test('claims nothing about where the stations are on the page', () => {
+    const text = averages();
+    expect(text).not.toContain('listed above');
+    expect(text).not.toContain('listed below');
   });
 
   // 🔴 The old wording said "we hold no per-station prices, and we are

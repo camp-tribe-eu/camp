@@ -14,6 +14,9 @@ import {
   type RoutePoiKind,
 } from '../osm/route-poi';
 import { DEFAULT_PER_POINT, OVERFETCH } from './route-points';
+// CAMP-154: the three sources whose licences permit us to republish a
+// per-station price. A closed list, and the only one the query may serve.
+import { SOURCES } from '../fuel/stations';
 
 /** One service beside a stage, or the fact that there is none. */
 export interface RouteService {
@@ -277,6 +280,30 @@ export function buildServicesSql(kinds: RoutePoiKind[]): string {
  * two stages of the same route can list the two grades the other way
  * round — which reads as a difference between the stations.
  */
+/**
+ * 🔴 THE SOURCE WHITELIST, IN THE QUERY, NOT ONLY IN THE RENDERER.
+ *
+ * Review found the refused-country gate living solely in the web app:
+ * `displayPrices` drops a price whose `source` has no attribution entry,
+ * which protects the route page and nothing else. The API is public.
+ * `/routes/services` would have served an Austrian row — a country for
+ * which **no consumer licence exists** — to any caller, and the page's
+ * silence would have read as our having decided nothing.
+ *
+ * A permission is a property of the data, so the gate belongs where the
+ * data leaves. Literals rather than a parameter for the reason the whole
+ * of this file gives: the list is closed, it comes from `SOURCES` in
+ * fuel/stations.ts, and nothing in it is reachable from a request.
+ */
+const SOURCE_IDS = SOURCES.map((s) => {
+  // Belt and braces. Nothing here comes from a request, but this string
+  // is interpolated into SQL and this repository is public.
+  if (!/^[a-z][a-z0-9-]*$/.test(s.id)) {
+    throw new Error(`route-services: unsafe source id ${JSON.stringify(s.id)}`);
+  }
+  return `'${s.id}'`;
+}).join(', ');
+
 export const FUEL_PRICE_SUBQUERY = `(
               SELECT json_agg(json_build_object(
                        'grade', f.grade,
@@ -288,6 +315,7 @@ export const FUEL_PRICE_SUBQUERY = `(
                 FROM fuel_station_prices f
                WHERE p.kind = 'fuel'
                  AND f.osm_ref = p.osm_ref
+                 AND f.source IN (${SOURCE_IDS})
             )`;
 
 /** How many candidates each kind's index walk fetches before re-sorting. */

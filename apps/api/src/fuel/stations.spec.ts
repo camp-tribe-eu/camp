@@ -6,7 +6,10 @@ import {
   FR_COORD_SCALE,
   inCountryBounds,
   IT_SELF_SERVICE,
+  FUEL_GRADES,
   isPriceDroppable,
+  MIN_MATCH_RATE,
+  MIN_PRICES_PER_GRADE,
   MIN_STATIONS,
   isPriceStale,
   parseDmyDateTime,
@@ -195,6 +198,48 @@ describe('Spain', () => {
     const r = parseSpain(esPayload(), NOW);
     const prices = r.stations[0].prices.map((p) => p.price);
     expect(prices).not.toContain(1.299);
+  });
+
+  // 🔴 SPAIN MUST NOT INVENT A DATE, AND THIS IS THE TEST IT DID NOT
+  // HAVE.
+  //
+  // The line was `measuredAt: snapshotAt ?? now`, under a comment saying
+  // it fell back to our fetch time "rather than inventing a fresher
+  // one" — and `now` is the freshest value there is. One unparsable
+  // `Fecha` turned all 22 174 Spanish price rows into "measured today",
+  // rendered bold and current, off a file of unknown age. France refuses
+  // a dateless price and had a test named for it; Spain had neither.
+  it.each([
+    ['an ISO stamp the feed does not normally use', '2026-09-28T19:36:45'],
+    ['a zone suffix', '28/09/2026 19:36:45 CEST'],
+    ['an empty header', ''],
+    ['no header at all', undefined],
+  ])('refuses every price when Fecha is %s', (_label, fecha) => {
+    const payload = esPayload();
+    if (fecha === undefined) delete (payload as Record<string, unknown>).Fecha;
+    else (payload as Record<string, unknown>).Fecha = fecha;
+
+    const r = parseSpain(payload, NOW);
+    expect(r.stations).toHaveLength(0);
+    expect(r.rejected.map((x) => x.reason).join(' ')).toMatch(
+      /no usable snapshot date/,
+    );
+  });
+
+  // The opposite direction: a readable header stamps every price with
+  // the file's own moment, never with ours.
+  it('stamps each price with the feed’s moment, not our fetch time', () => {
+    const r = parseSpain(esPayload(), NOW);
+    for (const p of r.stations[0].prices) {
+      expect(p.measuredAt.toISOString()).toBe('2026-09-28T19:36:45.000Z');
+      expect(p.measuredAt.getTime()).not.toBe(NOW.getTime());
+    }
+  });
+
+  it('refuses a snapshot dated in the future', () => {
+    const payload = esPayload() as Record<string, unknown>;
+    payload.Fecha = '28/09/2027 19:36:45';
+    expect(parseSpain(payload, NOW).stations).toHaveLength(0);
   });
 
   it('rejects the transposed record instead of placing it off Somalia', () => {
@@ -488,6 +533,34 @@ describe('🔴 an endpoint that answers 200 with nothing in it', () => {
     }
   });
 
+  // 🔴 A STATION FLOOR CANNOT SEE A GRADE DISAPPEAR.
+  //
+  // Renaming Italy's `Benzina` to `Benzina Special` upstream left the
+  // register intact, the reconciliation balanced and the station floor
+  // satisfied — exit 0 — while every Italian forecourt lost its petrol
+  // price and the price rows halved. The page shows price rows; the
+  // guards counted stations.
+  it('floors on each grade separately, not only on stations', () => {
+    for (const s of SOURCES) {
+      const floors = MIN_PRICES_PER_GRADE[s.id];
+      expect(floors).toBeDefined();
+      for (const grade of FUEL_GRADES) {
+        expect(floors[grade]).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  // 🔴 AND A FLOOR ON THE JOIN, whose input this import does not own.
+  // `osm_route_poi` is rebuilt weekly by CAMP-28 with `-overwrite`;
+  // emptying it and re-running wrote 39 216 prices, matched 0 and exited
+  // 0, after which every fuel row in three countries reads "We hold no
+  // price for this station".
+  it('floors on the match rate, well below what the join really achieves', () => {
+    // Measured 28.09.2026: 82.7% ES, 77.9% FR, 89.9% IT.
+    expect(MIN_MATCH_RATE).toBeGreaterThan(0);
+    expect(MIN_MATCH_RATE).toBeLessThan(0.779);
+  });
+
   // Half of what each source yielded on 28.09.2026 — wide enough that
   // ordinary movement cannot trip it, tight enough that a truncation
   // cannot pass as a quiet day.
@@ -517,6 +590,17 @@ describe('how old a price may be', () => {
   it('is dropped past a month', () => {
     expect(isPriceDroppable(daysAgo(29), NOW)).toBe(false);
     expect(isPriceDroppable(daysAgo(31), NOW)).toBe(true);
+  });
+
+  // 🔴 `(NaN) > 7` is false, so the first version of these called an
+  // Invalid Date FRESH — the freshest state there is, and the one
+  // direction a date bug must never fail in. The web copy guards it with
+  // an explicit isNaN check and the two have to agree: a price the page
+  // would refuse to show is one this import must not write.
+  it('treats an unusable date as infinitely old, never as fresh', () => {
+    const bad = new Date('not a date');
+    expect(isPriceStale(bad, NOW)).toBe(true);
+    expect(isPriceDroppable(bad, NOW)).toBe(true);
   });
 
   // 🔴 The web app keeps its own copy of these two numbers, because it

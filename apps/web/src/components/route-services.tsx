@@ -153,6 +153,28 @@ function StationPrices({ prices }: { prices: DisplayPrice[] }) {
     );
   }
 
+  // 🔴 THE ATTRIBUTION IS RENDERED, NOT MERELY COMPUTED.
+  //
+  // Review found `displayPrices` resolving `attribution` for every price
+  // and this component never reading it: the served row was
+  // "Gasolio €1.849/l measured 27 September 2026" and nothing else. No
+  // ministry, no link, anywhere in the markup.
+  //
+  // That is not a presentation gap, it is a LICENCE BREACH. Attribution
+  // is a condition of all three — datos.gob.es's general conditions,
+  // Licence Ouverte 2.0 and IODL 2.0 — and `RouteFuelPrices` two blocks
+  // down already prints `FUEL.attribution` verbatim for exactly this
+  // reason on the CC BY bulletin. Publishing one source's data under its
+  // condition and another's without is not a smaller version of the same
+  // mistake; it is the mistake.
+  //
+  // One line per ROW rather than per price: a forecourt's diesel and
+  // petrol come from the same ministry, and repeating it twice would be
+  // noise without adding a permission. `Map` rather than `Set` so the
+  // order is the order the prices are in and a second source — which
+  // cannot happen today, but the type allows it — would still be named.
+  const sources = new Map(prices.map((p) => [p.attribution.href, p.attribution]));
+
   return (
     <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
       {prices.map((p) => (
@@ -182,6 +204,28 @@ function StationPrices({ prices }: { prices: DisplayPrice[] }) {
               ? `, over ${PRICE_STALE_AFTER_DAYS} days ago — it may have moved since`
               : ''}
           </span>
+        </span>
+      ))}
+      {/* 🔴 The ministry, named and linked, beside the number it
+          published. Marked boilerplate for the near-duplicate guard on
+          the same grounds as the bulletin line below: it is word for
+          word identical on every forecourt in one country, because it
+          is a permission we carry rather than a fact about this stop. */}
+      {[...sources.values()].map((s) => (
+        <span
+          key={s.href}
+          className="text-ink-3"
+          data-boilerplate="fuel-station-source"
+        >
+          Source:{' '}
+          <a
+            href={s.href}
+            rel="noopener"
+            target="_blank"
+            className="underline underline-offset-2"
+          >
+            {s.name}
+          </a>
         </span>
       ))}
     </span>
@@ -360,16 +404,29 @@ export function RouteFuelPrices({ prices }: { prices: RouteFuelPrice[] }) {
             it. It used to end "we hold no per-station prices, and we are
             not going to guess at one." We now hold them for Spain,
             France and Italy — so leaving the old wording would have the
-            page denying, in print, the prices printed a few lines
-            above it. */}
+            page denying, in print, the prices printed elsewhere on it.
+
+            🔴 AND IT CARRIES NO DIRECTIONAL WORD, WHICH IS THE SECOND
+            CORRECTION. The first rewrite said "not for any station
+            listed ABOVE" — and this block renders BEFORE the stage list
+            (page.tsx renders <RouteFuelPrices> and then the <ol> of
+            stages), so every station it was disclaiming was below it.
+            `main` said "below" and was right; the rewrite inverted the
+            card's central safeguard and a test then asserted the
+            inversion, defending it.
+
+            A word that has to track the order of two JSX siblings in a
+            different file is a latent bug whichever way it points. So it
+            now names the ROW instead of a direction — "that station's
+            own row" is true wherever either block is moved to. */}
         The national consumer average published by the European Commission for
         the week of <time dateTime={FUEL_BULLETIN_DATE}>{bulletin}</time>, taxes
-        included. It is a figure for the whole country and for that week — not
-        for any station listed above. Where we do hold the price on a particular
-        forecourt, it is printed on that station&rsquo;s own row with the day it
-        was measured and the ministry that published it; three countries publish
-        per station on terms that let us, and for the other twenty-four this
-        average is all anyone has.
+        included. It is a figure for the whole country and for that week — it is
+        not the price at any single filling station. Where we do hold the price
+        on a particular forecourt, it is shown on that station&rsquo;s own row,
+        with the day it was measured and the ministry that published it; three
+        countries publish per station on terms that let us, and for the other
+        twenty-four this average is all anyone has.
         {/* 🔴 The attribution string itself, not a paraphrase. CC BY 4.0
             is a condition on reuse, and components/fuel-price-table.tsx
             prints the same FUEL.attribution for the same reason. A

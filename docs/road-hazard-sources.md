@@ -785,6 +785,38 @@ and least visible. A unique index on `(osm_ref, grade)` makes a
 regression in the matcher a failed import rather than one forecourt
 showing another's price.
 
+**What adversarial review then found, and what it changed.** Seven
+defects, four inside the card's own rules, and the two that matter most
+here are worth recording because both were *invisible in a passing
+build*:
+
+- **The safeguard sentence pointed the wrong way.** The rewrite said the
+  country average was "not for any station listed **above**" while the
+  average block renders **before** the stage list — so every station it
+  disclaimed was below it — and a test asserted the inverted string,
+  defending the mistake. It now names the row instead of a direction
+  ("shown on that station's own row"), because a word that has to track
+  the order of two JSX siblings in another file is a latent bug
+  whichever way it points.
+- **Attribution was computed and never rendered.** `displayPrices`
+  resolved the ministry for every price and the component never read it,
+  so the served row was the price and the date and nothing else. That is
+  a **licence breach**, not a presentation gap: attribution is a
+  condition of all three sources, and the CC BY bulletin on the same
+  page was already getting it. The ministry is now named and linked on
+  the row, and the refused-country gate — which also lived only in the
+  renderer, leaving the public API free to serve an Austrian row — is
+  now a `source IN (…)` predicate in the query itself.
+
+Three guards were added for failures that all exited 0: a **per-grade
+price floor** (renaming Italy's `Benzina` upstream halved the price rows
+with every station counter unmoved), a **match-rate floor** (emptying
+`osm_route_poi`, which a *different* weekly job owns, wrote 39 216 prices
+and matched none), and a **second reconciliation for Italy's price
+file**, which had been checked against nothing at all. Spain's import
+also stopped stamping a dateless snapshot with our own fetch time — one
+unparsable `Fecha` had turned 22 174 rows into "measured today".
+
 **Austria stayed out, and there is a mechanical reason as well as a
 policy one.** The page renders only prices whose `source` has an
 attribution entry, and only three exist. Verified in a browser on the

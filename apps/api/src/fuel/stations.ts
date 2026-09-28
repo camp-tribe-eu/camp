@@ -139,6 +139,22 @@ export interface ParseResult {
    * what it measures.
    */
   feedRecords: number;
+  /**
+   * 🔴 A SECOND DENOMINATOR, for a feed whose prices live in their own
+   * file. Null when the source has only one file, so the report can tell
+   * "not applicable" from "zero".
+   *
+   * Italy publishes the register and the price list separately, and only
+   * the register was ever reconciled. See the note in `parseItaly`: a
+   * renamed grade halved the price rows while every existing counter
+   * stayed exactly where it was.
+   */
+  priceRecords: {
+    rows: number;
+    kept: number;
+    unknownStation: number;
+    unknownProduct: number;
+  } | null;
 }
 
 export interface FuelSource {
@@ -235,6 +251,51 @@ export const MIN_STATIONS: Record<string, number> = {
   'fr-data-economie': 4_000,
   'it-mimit': 10_000,
 };
+
+/**
+ * 🔴 AND A FLOOR PER GRADE, BECAUSE THE PAGE SHOWS PRICE ROWS, NOT
+ * STATIONS.
+ *
+ * `MIN_STATIONS` counts forecourts, and a forecourt survives losing half
+ * its prices. Review proved the gap by renaming Italy's `Benzina` to
+ * `Benzina Special` in the price file: stations kept 10 200, rejected 0,
+ * reconciliation balanced, station floor satisfied, **exit 0** — and
+ * price rows fell from 20 400 to 10 200, every Italian forecourt
+ * silently losing its petrol. Nothing in the run said a word.
+ *
+ * So each source floors on each grade separately. A grade vanishing
+ * upstream — a renamed product, a column dropped, a file half written —
+ * is now a failed import naming the grade, which is the only way anybody
+ * finds out before a reader does.
+ *
+ * Floors are half of what each source yielded per grade on 28.09.2026:
+ * ES 11 280 diesel / 10 891 petrol, FR 8 760 / 8 373, IT 21 102 / 21 107.
+ */
+export const MIN_PRICES_PER_GRADE: Record<string, Record<FuelGrade, number>> = {
+  'es-minetur': { diesel: 5_000, petrol: 5_000 },
+  'fr-data-economie': { diesel: 4_000, petrol: 4_000 },
+  'it-mimit': { diesel: 10_000, petrol: 10_000 },
+};
+
+/**
+ * 🔴 AND A FLOOR ON THE JOIN, WHICH DEPENDS ON A TABLE THIS IMPORT DOES
+ * NOT OWN.
+ *
+ * The prices are useless without `osm_route_poi`, and that table is
+ * rebuilt weekly by a different job (CAMP-28) with `-overwrite`. Review
+ * emptied it and re-ran: `Wrote 39 216 price rows for 19 608 stations;
+ * 0 stations matched`, **exit 0** — and every fuel row in Spain, France
+ * and Italy would then read "We hold no price for this station", which
+ * is verbatim the failure the other floors exist to prevent, arriving
+ * through the one door that had no floor on it.
+ *
+ * Expressed as a rate rather than a count because the denominator is
+ * the import's own station count, which moves. Measured 28.09.2026:
+ * 82.7% ES, 77.9% FR, 89.9% IT. Half of the lowest is the floor for all
+ * three — wide enough to survive a real week of OSM churn, narrow
+ * enough that an empty or half-loaded POI table cannot pass.
+ */
+export const MIN_MATCH_RATE = 0.35;
 
 /**
  * 🔴 The bounds a coordinate must fall inside to be believed.
@@ -451,8 +512,44 @@ export function parseSpain(payload: unknown, now: Date): ParseResult {
       // feed carries one `Fecha` for the whole file. So every Spanish
       // price is as old as the file and no older, which is an honest
       // thing to print and a different claim from France's and Italy's
-      // per-price stamps. When the header is unreadable we fall back to
-      // our own fetch time rather than inventing a fresher one.
+      // per-price stamps.
+      //
+      // 🔴 AND WHEN THAT HEADER IS UNREADABLE THE PRICE IS REFUSED.
+      //
+      // This line was `measuredAt: snapshotAt ?? now`, under a comment
+      // claiming it fell back to our fetch time "rather than inventing a
+      // fresher one". `now` IS the freshest value there is — the comment
+      // described the opposite of what the line did. One unparsable
+      // `Fecha` (an ISO stamp, a `CEST` suffix, a missing field) turned
+      // all 22 174 Spanish price rows into "measured today", rendered
+      // bold and current, from a file that might be a week old.
+      //
+      // France already refuses a dateless price and has a test named for
+      // it; there is no reason Spain's import should be the one that
+      // fabricates a date, and "every displayed price carries its
+      // measurement date" is the card's rule, not a per-country policy.
+      // A missing price says so on the page; a fabricated date cannot.
+      if (snapshotAt === null) {
+        rejected.push({
+          source: 'es-minetur',
+          ref,
+          reason: `${f.product} has no usable snapshot date in the feed header`,
+        });
+        continue;
+      }
+      // The same future check France has, for the same reason: a price
+      // dated ahead of now is the freshest thing on the page, so a clock
+      // skew or a mis-parsed field would promote the whole feed rather
+      // than demote it. One day of slack covers the feeds' own timezone,
+      // which they never state.
+      if (snapshotAt.getTime() > now.getTime() + 86_400_000) {
+        rejected.push({
+          source: 'es-minetur',
+          ref,
+          reason: `${f.product} snapshot dated in the future: ${snapshotAt.toISOString()}`,
+        });
+        continue;
+      }
       // 🔴 The three fields are named, not spread from `f`. Spreading
       // also carried `field` — the internal ministry column name — out
       // onto the wire and into the JSON the page receives. Caught by the
@@ -462,7 +559,7 @@ export function parseSpain(payload: unknown, now: Date): ParseResult {
         grade: f.grade,
         product: f.product,
         price: v,
-        measuredAt: snapshotAt ?? now,
+        measuredAt: snapshotAt,
       });
     }
     if (prices.length === 0) {
@@ -486,7 +583,13 @@ export function parseSpain(payload: unknown, now: Date): ParseResult {
     });
   }
 
-  return { stations, rejected, snapshotAt, feedRecords: list.length };
+  return {
+    stations,
+    rejected,
+    snapshotAt,
+    feedRecords: list.length,
+    priceRecords: null,
+  };
 }
 
 // ── FRANCE ──────────────────────────────────────────────────────────────
@@ -623,7 +726,13 @@ export function parseFrance(payload: unknown, now: Date): ParseResult {
     });
   }
 
-  return { stations, rejected, snapshotAt: null, feedRecords: payload.length };
+  return {
+    stations,
+    rejected,
+    snapshotAt: null,
+    feedRecords: payload.length,
+    priceRecords: null,
+  };
 }
 
 // ── ITALY ───────────────────────────────────────────────────────────────
@@ -762,13 +871,39 @@ export function parseItaly(csvs: ItalianCsvs, now: Date): ParseResult {
     Map<FuelGrade, { price: StationPrice; self: boolean }>
   >();
 
+  // 🔴 ITALY HAS TWO FILES AND THEREFORE TWO DENOMINATORS.
+  //
+  // `feedRecords` counts the register. The price file was reconciled
+  // against nothing at all, and both `continue`s below were silent — so
+  // renaming `Benzina` to `Benzina Special` upstream left the register
+  // intact, the reconciliation balanced, the station floor satisfied and
+  // exit 0, while **every Italian forecourt silently lost its petrol
+  // price**: 20 400 price rows became 10 200 with no line of output
+  // changing. A guard that counts stations cannot see a grade
+  // disappearing. These counters are what `priceRecords` reports on.
+  const priceFileCounts = {
+    rows: listino.rows.length,
+    unknownStation: 0,
+    unknownProduct: 0,
+    kept: 0,
+  };
+
   for (const row of listino.rows) {
     const ref = (row[pId] ?? '').trim();
     const station = byId.get(ref);
     // A price for a station we dropped, or for one not in the register.
-    if (!station) continue;
+    if (!station) {
+      priceFileCounts.unknownStation += 1;
+      continue;
+    }
     const spec = IT_PRODUCTS[(row[pDesc] ?? '').trim()];
-    if (!spec) continue; // A premium blend. Not an error; see IT_PRODUCTS.
+    if (!spec) {
+      // A premium blend. Not an error — see IT_PRODUCTS — but counted,
+      // because a sudden jump here is how a renamed plain grade looks.
+      priceFileCounts.unknownProduct += 1;
+      continue;
+    }
+    priceFileCounts.kept += 1;
     const v = decimal(row[pPrice]);
     if (v === null || !believablePrice(v)) {
       rejected.push({
@@ -849,6 +984,7 @@ export function parseItaly(csvs: ItalianCsvs, now: Date): ParseResult {
     rejected,
     snapshotAt: anagrafica.extractedAt,
     feedRecords: anagrafica.rows.length,
+    priceRecords: priceFileCounts,
   };
 }
 
@@ -880,8 +1016,21 @@ export const PRICE_STALE_AFTER_DAYS = 7;
  */
 export const PRICE_DROP_AFTER_DAYS = 30;
 
-export const priceAgeDays = (measuredAt: Date, now: Date): number =>
-  (now.getTime() - measuredAt.getTime()) / 86_400_000;
+/**
+ * 🔴 AN UNUSABLE DATE IS INFINITELY OLD, NOT ZERO DAYS OLD.
+ *
+ * `(NaN) > 7` is `false`, so the first version of these helpers called an
+ * Invalid Date **fresh** — the freshest state there is — which is the one
+ * direction a date bug must never fail in. It is the same inversion the
+ * web copy's `priceFreshness` guards with an explicit `Number.isNaN`
+ * check, and the two must agree: a price the page would refuse to show
+ * is a price this import should not have written.
+ */
+export const priceAgeDays = (measuredAt: Date, now: Date): number => {
+  const then = measuredAt.getTime();
+  if (Number.isNaN(then)) return Number.POSITIVE_INFINITY;
+  return (now.getTime() - then) / 86_400_000;
+};
 
 export const isPriceStale = (measuredAt: Date, now: Date): boolean =>
   priceAgeDays(measuredAt, now) > PRICE_STALE_AFTER_DAYS;
