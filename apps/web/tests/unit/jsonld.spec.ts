@@ -48,13 +48,37 @@ const bare: Spot = {
   contact: {},
 };
 
-/** The same site, with everything we are able to measure measured. */
+/**
+ * The same site, with everything we are able to hold, held.
+ *
+ * 🔴 `contact` and `sources` are populated here, and review is the
+ * reason. Every fixture in this file used to carry `contact: {}` and
+ * `sources: []`, which made the whole CAMP-141 contact surface — and
+ * this card's own `sourceLinks` — invisible to the type-evidence walk
+ * below: a type gated on `contact.phone` could be emitted on every
+ * campsite that has a phone and no fixture would ever see it.
+ * Demonstrated with an invented `Offer`, which shipped past all ten
+ * tests. The richest fixture has to actually be the richest.
+ */
 const full: Spot = {
   ...bare,
   name: 'Camping Bled',
   amenities: { ...unknownAmenities, shower: 'yes', wifi: 'no', dogFriendly: 'yes' },
   stars: 4,
   website: 'https://www.camping-bled.com/',
+  contact: {
+    phone: '+386 4 575 20 00',
+    email: 'info@camping-bled.com',
+    website: 'https://osm.example/camping-bled',
+    operator: 'Sava Turizem d.d.',
+    openingHours: '24/7',
+    capacity: 137,
+    address: { street: 'Kidričeva cesta 10c', city: 'Bled', postcode: '4260' },
+  },
+  sources: [
+    { id: 'osm', ref: 'a194007848', updatedAt: '2026-09-24', fields: ['name', 'location', 'amenities'] },
+    { id: 'datatourisme', ref: 'https://data.datatourisme.fr/13/abc', updatedAt: '2026-01-15', fields: ['stars', 'website'] },
+  ],
   context: {
     water: { m: 365, name: 'Lake Bled', kind: 'lake' },
     town: { m: 1200, name: 'Bled' },
@@ -156,7 +180,7 @@ function typesIn(value: unknown, found = new Set<string>()): Set<string> {
  */
 const FIXTURES: [string, Spot][] = [
   ['a campsite we know nothing about', bare],
-  ['everything we can measure, measured', full],
+  ['everything we can hold, held', full],
   ['no region', { ...bare, region: null }],
   ['stars only', { ...bare, stars: 3 }],
   ['one amenity only', {
@@ -165,6 +189,40 @@ const FIXTURES: [string, Spot][] = [
   }],
   ['one measurement only', { ...bare, context: { elevation: 475 } }],
   ['a free site, priced by its type', { ...bare, type: 'free' }],
+  // 🔴 The CAMP-141 contact surface, one field at a time. Without these
+  // a type gated on a phone number, an address or opening hours is
+  // emitted on thousands of pages and seen by none of these tests.
+  ['a phone and nothing else', { ...bare, contact: { phone: '+386 4 575 20 00' } }],
+  ['an email and nothing else', { ...bare, contact: { email: 'x@example.si' } }],
+  ['an address and nothing else', {
+    ...bare,
+    contact: { address: { street: 'Kidričeva cesta 10c', city: 'Bled', postcode: '4260' } },
+  }],
+  ['opening hours and nothing else', { ...bare, contact: { openingHours: '24/7' } }],
+  ['an operator and a capacity, which we publish for neither', {
+    ...bare,
+    contact: { operator: 'Sava Turizem d.d.', capacity: 137 },
+  }],
+  ['an OpenStreetMap website and nothing else', {
+    ...bare,
+    contact: { website: 'https://osm.example/x' },
+  }],
+  // And the source records, which this card turned into `sameAs`.
+  ['one OpenStreetMap source', {
+    ...bare,
+    sources: [{ id: 'osm', ref: 'n123', updatedAt: '2026-09-24', fields: ['name', 'location'] }],
+  }],
+  ['one DATAtourisme source', {
+    ...bare,
+    sources: [{ id: 'datatourisme', ref: 'https://data.datatourisme.fr/13/x', updatedAt: '2026-01-15', fields: ['name', 'location'] }],
+  }],
+  ['two sources, one of them joined by a rule', {
+    ...bare,
+    sources: [
+      { id: 'osm', ref: 'a194007848', updatedAt: '2026-09-24', fields: ['name', 'location'] },
+      { id: 'datatourisme', ref: 'https://data.datatourisme.fr/13/x', updatedAt: '2026-01-15', fields: ['stars'] },
+    ],
+  }],
 ];
 
 for (const [label, spot] of FIXTURES) {
@@ -185,11 +243,19 @@ for (const [label, spot] of FIXTURES) {
 
 test('and a type whose data IS there is actually emitted', () => {
   // 🔴 The other direction, or the table could be satisfied by emitting
-  // nothing at all. Every entry that is true of `full` must appear.
-  const emitted = typesIn(graphFor(full));
-  for (const [type, evidence] of Object.entries(TYPE_EVIDENCE)) {
-    if (evidence(full)) {
-      expect(emitted.has(type), `${type} is backed by data and missing`).toBe(true);
+  // nothing at all — and across EVERY fixture, not just the richest one.
+  // Running it on `full` alone let a table entry be true for a campsite
+  // whose type the graph never emits, which is the same lie the other
+  // way round.
+  for (const [label, spot] of FIXTURES) {
+    const emitted = typesIn(graphFor(spot));
+    for (const [type, evidence] of Object.entries(TYPE_EVIDENCE)) {
+      if (evidence(spot)) {
+        expect(
+          emitted.has(type),
+          `${label}: ${type} is backed by data and missing from the markup`,
+        ).toBe(true);
+      }
     }
   }
 });
@@ -501,13 +567,22 @@ for (const [label, website] of [
   ['a bare hostname', 'camping-bled.com'],
 ] as const) {
   test(`sameAs refuses ${label}`, () => {
-    const node = campgroundGraph({ ...full, website } as Spot, '/x') as Record<string, unknown>;
-    expect(node.sameAs).toBeUndefined();
+    // 🔴 Asserted against the LIST, not against its absence. `full` now
+    // carries a source record, so `sameAs` is legitimately non-empty —
+    // and a test that only checked "the property is missing" would have
+    // started passing for the wrong reason the day it became a list.
+    const spot = { ...full, website, contact: { ...full.contact, website } } as Spot;
+    const node = campgroundGraph(spot, '/x') as Record<string, unknown>;
+    const list = (node.sameAs ?? []) as string[];
+    expect(list).not.toContain(website);
+    for (const entry of list) {
+      expect(entry, `${label} reached sameAs`).toMatch(/^https:\/\/(www\.openstreetmap\.org|data\.datatourisme\.fr)\//);
+    }
   });
 }
 
 test('sameAs accepts the operator\'s real site', () => {
-  const node = campgroundGraph(full, '/x') as Record<string, unknown>;
+  const node = campgroundGraph({ ...full, sources: [] }, '/x') as Record<string, unknown>;
   expect(node.sameAs).toEqual(['https://www.camping-bled.com/']);
 });
 
@@ -518,7 +593,7 @@ test('the OpenStreetMap record joins the campsite in sameAs', () => {
     {
       ...full,
       sources: [
-        { id: 'osm', ref: 'n123', updatedAt: '2026-09-24', fields: ['name'] },
+        { id: 'osm', ref: 'n123', updatedAt: '2026-09-24', fields: ['name', 'location'] },
       ],
     },
     '/x',
@@ -529,26 +604,75 @@ test('the OpenStreetMap record joins the campsite in sameAs', () => {
   ]);
 });
 
+test('🔴 a record joined by a rule is attribution, not identity', () => {
+  // CAMP-144 joins a DATAtourisme record to an OSM campsite by name and
+  // distance, and `link-evidence.ts` says of its own measurement: "This
+  // does not prove the links are right." So the joined record is shown
+  // on the page with its licence and date, and is NOT published as
+  // `sameAs`. Only the source that contributed `location` is — the
+  // record this row's geometry, slug and URL actually come from.
+  const merged = {
+    ...bare,
+    sources: [
+      { id: 'osm', ref: 'n123', updatedAt: '2026-09-24', fields: ['name', 'location'] },
+      { id: 'datatourisme', ref: 'https://data.datatourisme.fr/13/x', updatedAt: '2026-01-15', fields: ['stars', 'website'] },
+    ],
+  } as Spot;
+  expect(sourceLinks(merged)).toEqual(['https://www.openstreetmap.org/node/123']);
+  // A DATAtourisme record that IS the row — 8 752 of them — still counts.
+  expect(
+    sourceLinks({
+      ...bare,
+      sources: [{ id: 'datatourisme', ref: 'https://data.datatourisme.fr/13/x', updatedAt: '2026-01-15', fields: ['name', 'location'] }],
+    } as Spot),
+  ).toEqual(['https://data.datatourisme.fr/13/x']);
+});
+
+test('a payload whose sources are not a list does not take the page down', () => {
+  // `getSpot` is res.json() with a day of cache behind it. `for…of` on
+  // an object throws, and api.ts records that a stale payload already
+  // took this page down once the same way.
+  for (const sources of [{}, null, 'osm', 42] as unknown[]) {
+    const spot = { ...bare, sources } as unknown as Spot;
+    expect(() => sourceLinks(spot), JSON.stringify(sources)).not.toThrow();
+    expect(sourceLinks(spot)).toEqual([]);
+    expect(() => campgroundGraph(spot, '/camping/si/gorenjska/x')).not.toThrow();
+  }
+});
+
 test('an area ref is decoded to the way it stands for, never guessed', () => {
   // Verified against the OpenStreetMap API on 28.09.2026: `a3018798900`
   // is way 1509399450, "Jugendzeltplatz Eschachtal", tourism=camp_site.
   const link = (ref: string) =>
     sourceLinks({
       ...bare,
-      sources: [{ id: 'osm', ref, updatedAt: '2026-09-24', fields: ['name'] }],
+      sources: [{ id: 'osm', ref, updatedAt: '2026-09-24', fields: ['name', 'location'] }],
     });
   expect(link('a3018798900')).toEqual([
     'https://www.openstreetmap.org/way/1509399450',
   ]);
-  // Odd area ids are relations. None exist in the data today; the rule
-  // is here so the day one arrives it is not published as a way.
-  expect(link('a3')).toEqual(['https://www.openstreetmap.org/relation/1']);
   expect(link('w871234')).toEqual(['https://www.openstreetmap.org/way/871234']);
+  expect(link('n123')).toEqual(['https://www.openstreetmap.org/node/123']);
   // 🔴 A shape we do not recognise produces NO link. A permalink to the
   // wrong object is a machine-readable claim that this campsite is
   // something else entirely.
-  for (const bogus of ['r5', '12345', 'node/5', '', 'a', 'a12x']) {
+  for (const bogus of ['r5', '12345', 'node/5', '', 'a', 'a12x', 'n12x']) {
     expect(link(bogus), bogus).toEqual([]);
+  }
+  // Surrounding whitespace is trimmed, as everywhere else in this file.
+  expect(link('  n1  ')).toEqual(['https://www.openstreetmap.org/node/1']);
+  // 🔴 An ODD area id is not published as a relation, although that is
+  // what libosmium's numbering would make it. `import.sh` filters `n/`
+  // and `w/` only, so a relation cannot enter this data and all 32 413
+  // of our area ids are even — an odd one is corrupt input, and the
+  // first version of this answered corrupt input with a confident
+  // permalink to an unrelated OSM object.
+  for (const odd of ['a1', 'a3', 'a4294967295']) {
+    expect(link(odd), odd).toEqual([]);
+  }
+  // Nor is an id OpenStreetMap never issues.
+  for (const zero of ['a0', 'n0', 'w0']) {
+    expect(link(zero), zero).toEqual([]);
   }
 });
 
@@ -557,7 +681,7 @@ test('the DATAtourisme record is used as it stands, if it is a URL', () => {
     sourceLinks({
       ...bare,
       sources: [
-        { id: 'datatourisme', ref, updatedAt: '2026-09-24', fields: ['stars'] },
+        { id: 'datatourisme', ref, updatedAt: '2026-09-24', fields: ['name', 'location'] },
       ],
     });
   expect(link('https://data.datatourisme.fr/13/964b537f')).toEqual([
