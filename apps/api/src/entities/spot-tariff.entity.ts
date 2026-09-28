@@ -90,7 +90,7 @@ export class SpotTariff {
    * 🔴 `numeric`, never a float. These are money.
    *
    * Both nullable and at least one is required — the importer refuses a
-   * specification with neither, which is how the 1 261 currency-only
+   * specification with neither, which is how the 1 264 currency-only
    * specifications stay out. A spec with min only is "from €18"; with
    * both, a range; with min = max, one price.
    */
