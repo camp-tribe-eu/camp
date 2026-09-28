@@ -128,6 +128,16 @@ export class SpotsController {
     return this.spots.gone();
   }
 
+  /**
+   * CAMP-144: old URLs of campsites that have been folded into another
+   * page, and where each one now lives. Declared above the `:country`
+   * routes for the same reason as `gone`.
+   */
+  @Get('links')
+  links() {
+    return this.spots.links();
+  }
+
   /** CAMP-71: countries for /camping. */
   @Get('countries')
   countries() {

@@ -6,6 +6,7 @@ import { canonicalPath, readAmenities } from './spots.service';
 import { slugifyRegion } from './canonical';
 import { filterSql, NO_FILTERS, type MapFilters } from './filters';
 import { gridFor, POINT_LIMIT, type Bbox } from './viewport';
+import { mergedNameSql, notSecondarySql } from './links';
 
 export * from './viewport';
 export * from './filters';
@@ -181,8 +182,14 @@ export class MapQueryService {
                   -- where zooming in finds nothing.
                   ST_Centroid(ST_Collect(location::geometry)) AS centre,
                   count(*)::int AS n
-             FROM camping_spots
+             FROM camping_spots s
             WHERE missing_since IS NULL
+              -- 🔴 CAMP-144. Two pins on one campsite is the second
+              -- thing the card names, after the route stop. The chunk
+              -- counts printed beside each region have to match the
+              -- markers the chunk then delivers, so the filter belongs
+              -- here as well as in regionMarkers below.
+              AND ${notSecondarySql('s')}
             -- 🔴 Region-less campsites are grouped too, not filtered out.
             --
             -- Measured 24.09.2026: 135 campsites carry no region, 36 of
@@ -250,9 +257,10 @@ export class MapQueryService {
     const names: (string | null)[] = (
       await this.db.query(
         `SELECT DISTINCT region
-           FROM camping_spots
+           FROM camping_spots s
           WHERE missing_since IS NULL
-            AND lower(country) = lower($1)`,
+            AND lower(country) = lower($1)
+            AND ${notSecondarySql('s')}`,
         [country],
       )
     )
@@ -286,12 +294,14 @@ export class MapQueryService {
     const params: unknown[] = [country, named];
 
     const rows = await this.db.query(
-      `SELECT slug, name, country, region, type, amenities,
+      `SELECT slug, ${mergedNameSql('s')} AS name,
+              country, region, type, amenities,
               ST_Y(location::geometry) AS lat,
               ST_X(location::geometry) AS lon
-         FROM camping_spots
+         FROM camping_spots s
         WHERE missing_since IS NULL
           AND lower(country) = lower($1)
+          AND ${notSecondarySql('s')}
           AND ${where}
         ORDER BY slug`,
       params,
@@ -308,11 +318,13 @@ export class MapQueryService {
     const f = filterSql(filters, box.length);
 
     const rows = await this.db.query(
-      `SELECT slug, name, country, region, type, amenities,
+      `SELECT slug, ${mergedNameSql('s')} AS name,
+              country, region, type, amenities,
               ST_Y(location::geometry) AS lat,
               ST_X(location::geometry) AS lon
-         FROM camping_spots
+         FROM camping_spots s
         WHERE missing_since IS NULL
+          AND ${notSecondarySql('s')}
           AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)${f.where}
         -- 🔴 Deterministic, because the cap below may cut the list and
         -- an unordered LIMIT would return a different subset each run.
@@ -348,8 +360,9 @@ export class MapQueryService {
   ): Promise<number> {
     if (!f.lenientWhere) return 0;
 
-    const base = `FROM camping_spots
+    const base = `FROM camping_spots s
         WHERE missing_since IS NULL
+          AND ${notSecondarySql('s')}
           AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)`;
 
     const [row] = await this.db.query(
@@ -389,11 +402,12 @@ export class MapQueryService {
               AVG(ST_Y(location::geometry)) AS lat,
               -- Only meaningful for a cell of one, and only read then.
               MIN(slug) AS slug,
-              MIN(name) AS name,
+              MIN(${mergedNameSql('s')}) AS name,
               MIN(country) AS country,
               MIN(region) AS region
-         FROM camping_spots
+         FROM camping_spots s
         WHERE missing_since IS NULL
+          AND ${notSecondarySql('s')}
           AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)${f.where}
         GROUP BY ST_SnapToGrid(location::geometry, $${box.length + f.params.length + 1}, $${box.length + f.params.length + 1})
         ORDER BY count DESC, lon, lat`,

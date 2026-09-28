@@ -33,6 +33,7 @@ import {
   worthPublishing,
 } from './region-facts';
 import type { Distances, NamedPlace, RegionFacts, Theme } from './region-facts';
+import { mergedNameSql, mergedStarsSql, notSecondarySql } from '../spots/links';
 
 const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
@@ -53,8 +54,23 @@ export const GENERATOR = 'region-facts@2';
 export const CATEGORY = 'region';
 export const LANGUAGE = 'en-GB';
 
-/** Rows live enough to count. */
-const LIVE = `region IS NOT NULL AND missing_since IS NULL`;
+/**
+ * Rows live enough to count.
+ *
+ * 🔴 CAMP-144 folded a second source's rows into the campsites they
+ * describe. A guide that says "Vaucluse has 214 campsites" is counting
+ * pages a reader can open, so it counts what this predicate allows — and
+ * because every guide query interpolates this one constant, the whole
+ * file learned the rule in a single line. That is the only reason this
+ * was cheap; the twenty queries in spots.service and map.service had to
+ * be changed one at a time.
+ *
+ * Unqualified on purpose: `camping_spots` is the only table in every
+ * statement that uses this. Adding a join to any of them means aliasing
+ * it `s` and qualifying these two columns first.
+ */
+const LIVE = `region IS NOT NULL AND missing_since IS NULL
+  AND ${notSecondarySql('camping_spots')}`;
 
 /** How many named places a page lists per kind. */
 const TOP = 5;
@@ -339,14 +355,31 @@ export async function gatherFacts(
       // 5 queries, not 1359.
       const ex = await db.query<Row>(`
         SELECT country, region, name, slug, stars, town, town_m FROM (
-          SELECT country, region, name, slug, stars::text AS stars,
+          -- 🔴 CAMP-144: both read through the link. These are the five
+          -- campsites a guide names, and "4 official stars" beside one of
+          -- them is exactly the fact only the other source holds.
+          SELECT country, region,
+                 ${mergedNameSql('camping_spots')} AS name,
+                 slug, ${mergedStarsSql('camping_spots')}::text AS stars,
                  ${named('town')} AS town, ${metres('town')}::text AS town_m,
                  row_number() OVER (
                    PARTITION BY country, region
-                   ORDER BY (stars IS NULL), stars DESC, name
+                   ORDER BY (${mergedStarsSql('camping_spots')} IS NULL),
+                            ${mergedStarsSql('camping_spots')} DESC,
+                            ${mergedNameSql('camping_spots')}
                  ) AS rn
             FROM camping_spots
-           WHERE ${LIVE} AND (${pred}) AND name IS NOT NULL
+           WHERE ${LIVE} AND (${pred})
+             -- 🔴 The merged name. The SELECT and the ORDER BY above
+             -- read through the link and this did not, so a campsite
+             -- named only by the other source was still dropped from the
+             -- examples — the exact hole the rest of this query had just
+             -- closed. notable() in spots.service already used the
+             -- merged name, so the two disagreed about the same
+             -- question. (No backticks around that name: this is inside
+             -- a template literal, and it has ended the string three
+             -- times on this card alone.)
+             AND ${mergedNameSql('camping_spots')} IS NOT NULL
         ) ranked
          WHERE rn <= 5`);
       const byRegion = new Map<string, Row[]>();
