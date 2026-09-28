@@ -16,6 +16,17 @@ import {
   straightLineMetres,
 } from '../../src/lib/route-geometry';
 import { routeTripGraph } from '../../src/lib/route-jsonld';
+import {
+  FUEL_BULLETIN_DATE,
+  routeFuelPrices,
+  SERVICE_ABSENT,
+  SERVICE_KINDS,
+  SERVICE_LABEL,
+  SERVICE_RADIUS_M,
+  SERVICE_UNNAMED,
+  serviceOf,
+  SERVICES_PER_KIND,
+} from '../../src/lib/route-services';
 
 // CAMP-3 / CAMP-45 — the rules the route library must satisfy.
 //
@@ -107,6 +118,129 @@ test('every route says where its campsite data comes from', () => {
   for (const r of CURATED_ROUTES) {
     expect(r.attribution.length, `${r.slug} has no attribution`).toBeGreaterThan(40);
   }
+});
+
+// 🔴 CAMP-113 put a SECOND kind of OpenStreetMap object on the page, and
+// the Substantial line is drawn over objects, not over campsites.
+//
+// The test above checks the campsites alone, which was the whole page
+// when it was written. A seven-stage route now also shows the nearest of
+// each of seven service kinds. At one each that is 49, for 77 objects;
+// at two each it would be 126, over our own floor, on the page that
+// prints the claim in its own footer. This is the test that fails the
+// day somebody adds an eighth kind or decides one of each looks thin.
+test('🔴 no route page can show a Substantial number of OSM objects at all', () => {
+  for (const r of CURATED_ROUTES) {
+    const campsites = r.stages.length * CAMPSITES_PER_STAGE;
+    const services = r.stages.length * SERVICE_KINDS.length * SERVICES_PER_KIND;
+    expect(
+      campsites + services,
+      `${r.slug} could show ${campsites} campsites and ${services} services, ` +
+        `${campsites + services} objects, against a Substantial line of ` +
+        `${ODBL_SUBSTANTIAL_FLOOR}`,
+    ).toBeLessThan(ODBL_SUBSTANTIAL_FLOOR);
+  }
+});
+
+// 🔴 The API refuses to answer about more stages than the ODbL floor
+// allows, and it is right to. This is the test that stops such a route
+// reaching the repository in the first place, so the refusal stays
+// theoretical — review found the previous arithmetic letting a
+// nine-stage route pass both suites and then lose its ninth stage
+// silently, with the page printing an absence about a stop nothing had
+// looked at.
+test('🔴 no route has more stages than the services endpoint will answer about', () => {
+  const perStage = CAMPSITES_PER_STAGE + SERVICE_KINDS.length;
+  const mostStages = Math.floor((ODBL_SUBSTANTIAL_FLOOR - 1) / perStage);
+  for (const r of CURATED_ROUTES) {
+    expect(
+      r.stages.length,
+      `${r.slug} has ${r.stages.length} stages; at ${perStage} objects each ` +
+        `the API will only answer about ${mostStages}`,
+    ).toBeLessThanOrEqual(mostStages);
+  }
+});
+
+// ── 🔴 CAMP-113: the mutations that survived the first version ──────────
+
+test('🔴 serviceOf returns the kind asked for, not simply the first one', () => {
+  // The mutation is `services[0]`, and with one of each kind per stage
+  // it looks right on any stage whose first service happens to be the
+  // one being asked about — which is every stage where fuel was found.
+  const group = {
+    lat: 0,
+    lon: 0,
+    services: [
+      { kind: 'water' as const, osmRef: 'n1', name: null, lat: 0, lon: 0, metres: 10, phone: null, website: null, openingHours: null },
+      { kind: 'fuel' as const, osmRef: 'n2', name: 'Shell', lat: 0, lon: 0, metres: 20, phone: null, website: null, openingHours: null },
+    ],
+  };
+  expect(serviceOf(group, 'fuel')?.osmRef).toBe('n2');
+  expect(serviceOf(group, 'water')?.osmRef).toBe('n1');
+  // A kind that is not there is null, never the nearest of another kind.
+  expect(serviceOf(group, 'dump')).toBeNull();
+  expect(serviceOf(undefined, 'fuel')).toBeNull();
+});
+
+// 🔴 The page says "within 25 km" in three places, and the API clamps
+// `radius` to its own maximum. Raise this past that ceiling and every
+// one of those sentences becomes false while the page still renders.
+// getRouteServices also compares the radius the API reports back, so
+// this is belt and braces — but the constant is where the mistake would
+// be typed.
+test('🔴 the radius the page promises is one the API will actually apply', () => {
+  const API_MAX_RADIUS_M = 60_000; // MAX_RADIUS_M in apps/api/src/routes/route-points.ts
+  const API_MIN_RADIUS_M = 1_000;
+  expect(SERVICE_RADIUS_M).toBeLessThanOrEqual(API_MAX_RADIUS_M);
+  expect(SERVICE_RADIUS_M).toBeGreaterThanOrEqual(API_MIN_RADIUS_M);
+});
+
+// ── 🔴 CAMP-113: every kind must be sayable, present or absent ───────────
+//
+// The services block renders all seven kinds at every stage whether or
+// not we hold one, which means it needs two sentences per kind. A kind
+// added with a label and no absent-line would render "undefined" on the
+// stages that have nothing — and those are the stages where the honest
+// wording matters most.
+test('🔴 every service kind can say what it is, what an unnamed one is, and that we have none', () => {
+  for (const kind of SERVICE_KINDS) {
+    expect(SERVICE_LABEL[kind], `${kind} has no label`).toBeTruthy();
+    expect(SERVICE_ABSENT[kind], `${kind} has no absent line`).toBeTruthy();
+    // "no fuel station" reads into "Our database holds ___ within 25 km".
+    expect(
+      SERVICE_ABSENT[kind].startsWith('no '),
+      `${kind}: "${SERVICE_ABSENT[kind]}" does not read into the sentence`,
+    ).toBe(true);
+    // 🔴 A noun of its own, not the label lower-cased. That shortcut
+    // produced "Unnamed charging" and would have produced "Unnamed
+    // somewhere to sleep" — and the unnamed case is the usual one for
+    // water and disposal, not an edge.
+    expect(
+      SERVICE_UNNAMED[kind].startsWith('Unnamed '),
+      `${kind} has no name for an unnamed one`,
+    ).toBe(true);
+  }
+  expect(Object.keys(SERVICE_LABEL).sort()).toEqual([...SERVICE_KINDS].sort());
+  expect(Object.keys(SERVICE_ABSENT).sort()).toEqual([...SERVICE_KINDS].sort());
+  expect(Object.keys(SERVICE_UNNAMED).sort()).toEqual([...SERVICE_KINDS].sort());
+});
+
+// 🔴 The fuel price is a NATIONAL WEEKLY AVERAGE and the page must never
+// attach it to a station. The data layer is where that is decided: this
+// asserts the prices come back keyed by country, so there is no shape in
+// which a component could hang one off a POI.
+test('🔴 fuel prices are per country, never per station', () => {
+  const route = CURATED_ROUTES.find((r) => r.countries.includes('fr'));
+  expect(route, 'no French route to check against').toBeTruthy();
+  const prices = routeFuelPrices(route!);
+  expect(prices.length).toBeGreaterThan(0);
+  for (const p of prices) {
+    expect(p.code).toMatch(/^[A-Z]{2}$/);
+    expect(p.diesel === null || p.diesel > 0).toBe(true);
+    expect(p).not.toHaveProperty('osmRef');
+  }
+  // And the week it was measured is available to print beside them.
+  expect(FUEL_BULLETIN_DATE).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 });
 
 // ── 🔴 the constraint: no invented road figures ──────────────────────────

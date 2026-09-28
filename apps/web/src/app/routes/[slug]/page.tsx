@@ -23,10 +23,18 @@ import {
   type RouteNeighbour,
 } from '@/lib/routes';
 import { TRAVELLER_LABEL } from '@/lib/route-types';
+import {
+  getRouteServices,
+  routeFuelPrices,
+  SERVICE_KINDS,
+} from '@/lib/route-services';
 import type { SpotSource } from '@/lib/sources';
 import RouteFigures from '@/components/route-figures';
 import RouteMapEmbed from '@/components/route-map-embed';
 import RouteSources from '@/components/route-sources';
+import RouteStageServices, {
+  RouteFuelPrices,
+} from '@/components/route-services';
 
 // CAMP-3 / CAMP-45 — one curated route.
 //
@@ -118,14 +126,24 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
   const route = getRoute(slug);
   if (!route) notFound();
 
-  const [neighbours, measured] = await Promise.all([
+  // CAMP-113: the services block is fetched ALONGSIDE the campsites, not
+  // after them. Both are one request for the whole page and neither
+  // needs the other, so a serial await would add the slower one's
+  // latency to every page in the build for nothing.
+  const [neighbours, measured, services] = await Promise.all([
     getRouteNeighbours(route),
     measureRoute(route),
+    getRouteServices(route),
   ]);
 
   const path = `/routes/${slug}`;
   const allSpots = neighbours.flatMap((g) => g.spots);
   const allSources: SpotSource[] = allSpots.flatMap((s) => s.sources ?? []);
+  const serviceCount = services.groups.reduce(
+    (n, g) => n + g.services.length,
+    0,
+  );
+  const fuelPrices = routeFuelPrices(route);
 
   const crumbs = [
     { name: 'CampTribe', path: '/' },
@@ -234,10 +252,17 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
               Work boundary and it is also simply useful: a reader should
               know this is a sample and not a listing. */}
           Each stop shows up to {CAMPSITES_PER_STAGE} campsites from our
-          database within {formatKm(STAGE_RADIUS_M)} of it, nearest first. That
-          is a selection, not a list of everything in the area — and the
-          distances below are straight-line, like everything else on this page.
+          database within {formatKm(STAGE_RADIUS_M)} of it, nearest first, and
+          the nearest single example of each of {SERVICE_KINDS.length} kinds of
+          service. That is a selection, not a list of everything in the area —
+          and the distances below are straight-line, like everything else on
+          this page.
         </p>
+
+        {/* CAMP-113. Route level, not station level — the Commission
+            publishes one price per country per week, and putting it
+            beside a named pump would be a claim about that pump. */}
+        <RouteFuelPrices prices={fuelPrices} />
 
         <ol className="mt-6 space-y-8">
           {route.stages.map((stage, i) => {
@@ -313,6 +338,15 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
                       </p>
                     )}
                   </div>
+
+                  {/* CAMP-113 — fuel, charging, water, a disposal point,
+                      a shop, a meal and a roof. Every kind is listed at
+                      every stage, including the ones we hold nothing
+                      for. */}
+                  <RouteStageServices
+                    group={services.groups[i]}
+                    looked={services.looked}
+                  />
                 </div>
               </li>
             );
@@ -323,6 +357,7 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
       <RouteSources
         sources={allSources}
         campsiteCount={allSpots.length}
+        serviceCount={serviceCount}
         note={route.attribution}
       />
 
