@@ -42,16 +42,111 @@ import {
 // file. Playwright compiles JSX with its own hard-coded runtime; read
 // the note at the head of that file before changing any of this.
 
-/** Everything a person would actually read. */
-const visibleText = (html: string): string =>
-  html
-    .replace(/<[^>]*class="[^"]*sr-only[^"]*"[^>]*>.*?<\/[a-z]+>/gs, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&#x27;|&#39;|&rsquo;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/&ldquo;|&rdquo;/g, '"')
-    .replace(/\s+/g, ' ')
-    .trim();
+/**
+ * 🔴 Applied until it stops changing the string, not once.
+ *
+ * `s.replace(/<[^>]*>/g, ' ')` in a single pass is the shape CodeQL
+ * calls "incomplete multi-character sanitization", and it is right:
+ * removing the tags from `<scr<span>ipt>` leaves `<script`. Nothing in
+ * this file is sanitizing anything for display — the input is our own
+ * `renderToStaticMarkup` output — but a helper that every assertion
+ * below depends on should not be the one place with a known hole in it,
+ * and running to a fixpoint costs one extra pass on a string of a few
+ * kilobytes.
+ */
+const stripTags = (html: string): string => {
+  let out = html;
+  let prev = '';
+  while (out !== prev) {
+    prev = out;
+    out = out.replace(/<[^>]*>/g, ' ');
+  }
+  return out;
+};
+
+/**
+ * 🔴 ONE pass over the string, not one pass per entity.
+ *
+ * The chained form — `.replace(/&#x27;/g, "'")` then
+ * `.replace(/&amp;/g, '&')` — double-unescapes: `&amp;#x27;`, which is
+ * a literal `&#x27;` a page wanted to SHOW, comes out as an apostrophe.
+ * CodeQL flags it as "double escaping or unescaping" and the bug is
+ * real, if harmless here. A single regex with a lookup table cannot
+ * revisit what it has already written.
+ */
+const ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  rsquo: '’',
+  lsquo: '‘',
+  ldquo: '“',
+  rdquo: '”',
+  mdash: '—',
+  ndash: '–',
+  middot: '·',
+  hellip: '…',
+};
+
+const decodeEntities = (s: string): string =>
+  s.replace(/&(#[Xx][0-9A-Fa-f]+|#\d+|[A-Za-z][A-Za-z0-9]*);/g, (whole, body: string) => {
+    if (body[0] === '#') {
+      const code =
+        body[1] === 'x' || body[1] === 'X'
+          ? Number.parseInt(body.slice(2), 16)
+          : Number.parseInt(body.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+    }
+    return ENTITIES[body] ?? whole;
+  });
+
+/**
+ * Everything a person would actually read.
+ *
+ * 🔴 `sr-only` content is removed FIRST and deliberately. A screen-reader
+ * caption is not something a sighted reader is told, so an assertion it
+ * could satisfy would be an assertion about a property the page does not
+ * visibly have — which is the exact failure `tariff-table.spec.tsx` was
+ * written after. `the helper itself is honest` below proves this works.
+ */
+const visibleText = (html: string): string => {
+  let out = html;
+  let prev = '';
+  while (out !== prev) {
+    prev = out;
+    out = out.replace(
+      /<([a-z]+)\b[^>]*\bclass="[^"]*\bsr-only\b[^"]*"[^>]*>[\s\S]*?<\/\1>/g,
+      ' ',
+    );
+  }
+  return decodeEntities(stripTags(out)).replace(/\s+/g, ' ').trim();
+};
+
+// 🔴 The helper every other assertion in this file leans on, tested.
+//
+// If it silently returned '' the "must not contain" assertions would all
+// pass over a page that said anything at all. `render-component.ts`
+// carries `rendersNothing` for the same reason.
+test.describe('the helper itself is honest', () => {
+  test('removes sr-only content and keeps the visible words', () => {
+    expect(
+      visibleText('<p>Fuel<span class="sr-only">hidden note</span> €1.849</p>'),
+    ).toBe('Fuel €1.849');
+  });
+
+  test('decodes each entity once, never twice', () => {
+    // `&amp;#x27;` is a page showing the literal text `&#x27;`.
+    expect(visibleText('<p>&amp;#x27;</p>')).toBe('&#x27;');
+    expect(visibleText('<p>R&amp;D &rsquo;26</p>')).toBe('R&D ’26');
+  });
+
+  test('strips tags even when they are nested inside one another', () => {
+    expect(visibleText('<div><b>a</b><i>b</i></div>')).toBe('a b');
+  });
+});
 
 const NOW = new Date('2026-09-28T12:00:00Z');
 const daysBefore = (n: number) =>
