@@ -52,6 +52,12 @@ async function openMap(page: Page) {
  * fortnight — so a canvas comparison against the live file would compare
  * two identical empty maps and pass for the wrong reason. A test that can
  * only pass when Italy happens to be burning is not a test of our code.
+ *
+ * 🔴 Deliberately large. At the opening zoom of 6.2 the world is 18 816 px
+ * wide, so 0.8° of longitude is about 42 px — a perimeter that size is
+ * something a click can miss, and a missed click reports "no popup",
+ * which reads as a broken feature. 1.6° across is ~84 px and the click
+ * goes to the map's exact centre.
  */
 const freshFeed = (over: Record<string, unknown> = {}) => ({
   ...FEED,
@@ -68,11 +74,11 @@ const inViewFeed = (meta: Record<string, unknown> = { ...FEED.meta, fetchedAt: d
         type: 'Polygon',
         coordinates: [
           [
-            [INITIAL_VIEW.lng - 0.4, INITIAL_VIEW.lat - 0.4],
-            [INITIAL_VIEW.lng + 0.4, INITIAL_VIEW.lat - 0.4],
-            [INITIAL_VIEW.lng + 0.4, INITIAL_VIEW.lat + 0.4],
-            [INITIAL_VIEW.lng - 0.4, INITIAL_VIEW.lat + 0.4],
-            [INITIAL_VIEW.lng - 0.4, INITIAL_VIEW.lat - 0.4],
+            [INITIAL_VIEW.lng - 0.8, INITIAL_VIEW.lat - 0.8],
+            [INITIAL_VIEW.lng + 0.8, INITIAL_VIEW.lat - 0.8],
+            [INITIAL_VIEW.lng + 0.8, INITIAL_VIEW.lat + 0.8],
+            [INITIAL_VIEW.lng - 0.8, INITIAL_VIEW.lat + 0.8],
+            [INITIAL_VIEW.lng - 0.8, INITIAL_VIEW.lat - 0.8],
           ],
         ],
       },
@@ -242,9 +248,15 @@ test.describe('the wildfire layer', () => {
     await expect(page.locator(NOTE)).toHaveAttribute('data-in-view', '1');
 
     const map = page.locator('[data-testid="map"]');
+    // 🔴 `locator.click`, not `mouse.click` at a bounding box. The map
+    // sits below the filters panel, so on a desktop viewport its box
+    // starts past the fold — the first version of this aimed at
+    // coordinates that were off-screen and reported "no popup", which
+    // reads as a broken feature rather than a badly aimed test.
+    // Playwright scrolls the element in and clicks the given offset.
     const box = await map.boundingBox();
     if (!box) throw new Error('the map has no box to click in');
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await map.click({ position: { x: box.width / 2, y: box.height / 2 } });
 
     const card = page.locator('.ct-popup');
     await expect(card).toBeVisible();
