@@ -6,6 +6,7 @@ import type { CampingSpotAmenities } from '../osm/tag-mapping';
 import type { SpotSource } from '../entities/camping-spot.entity';
 // 🔴 The caps and the coordinate parsing live in a file with no Nest
 // imports, so Jest can actually reach them. See route-points.ts.
+import { notSecondarySql } from '../spots/links';
 import {
   clamp,
   DEFAULT_PER_POINT,
@@ -158,6 +159,12 @@ export class RoutesService {
              FROM camping_spots s
             WHERE s.missing_since IS NULL
               AND s.region IS NOT NULL
+              -- 🔴 CAMP-144, and this is the dearest place a duplicate
+              -- lands. A stop offers four campsites; when two of them
+              -- are one campsite under two spellings the reader gets
+              -- half the choice the page promises. It is the symptom
+              -- that opened the card.
+              AND ${notSecondarySql('s')}
             -- The index walk. Planar order, deliberately over-fetched;
             -- the true ordering is imposed by the outer query.
             ORDER BY s.location <-> (SELECT g FROM here)

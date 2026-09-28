@@ -33,6 +33,7 @@ import {
   worthPublishing,
 } from './region-facts';
 import type { Distances, NamedPlace, RegionFacts, Theme } from './region-facts';
+import { notSecondarySql } from '../spots/links';
 
 const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
@@ -53,8 +54,23 @@ export const GENERATOR = 'region-facts@2';
 export const CATEGORY = 'region';
 export const LANGUAGE = 'en-GB';
 
-/** Rows live enough to count. */
-const LIVE = `region IS NOT NULL AND missing_since IS NULL`;
+/**
+ * Rows live enough to count.
+ *
+ * 🔴 CAMP-144 folded a second source's rows into the campsites they
+ * describe. A guide that says "Vaucluse has 214 campsites" is counting
+ * pages a reader can open, so it counts what this predicate allows — and
+ * because every guide query interpolates this one constant, the whole
+ * file learned the rule in a single line. That is the only reason this
+ * was cheap; the twenty queries in spots.service and map.service had to
+ * be changed one at a time.
+ *
+ * Unqualified on purpose: `camping_spots` is the only table in every
+ * statement that uses this. Adding a join to any of them means aliasing
+ * it `s` and qualifying these two columns first.
+ */
+const LIVE = `region IS NOT NULL AND missing_since IS NULL
+  AND ${notSecondarySql('camping_spots')}`;
 
 /** How many named places a page lists per kind. */
 const TOP = 5;
