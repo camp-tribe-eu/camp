@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
+  CEMS_NOTICE,
   FRESH_FOR_HOURS,
+  RESERVED_WORDS,
   bboxOf,
   firesInView,
   formatDay,
@@ -106,6 +108,78 @@ test('“no fresh data” is said in those words, because that is the settled wo
   ).toContain('No fresh wildfire data');
 });
 
+test('nothing this layer says uses a word the CEMS terms reserve', () => {
+  // 🔴 NOT A STYLE RULE. EFFIS and GWIS are named members of the CEMS
+  // early warning and monitoring systems, and the CEMS terms say the data
+  // "does not constitute in any way an early warning for which only
+  // national/regional institutions are authorized within their region of
+  // responsibility" (read 28.09.2026). So "warning", "danger", "risk" and
+  // "alert" are words whose authority belongs to somebody else, and using
+  // one of them against this data would be claiming that authority.
+  // 🔴 Mutation: put "fire risk" anywhere in the caveat — fails.
+  const states: WildfireState[] = [
+    { kind: 'loading' },
+    { kind: 'missing' },
+    { kind: 'stale', meta: FEED.meta as never, hoursOld: 99 },
+    { kind: 'fresh', meta: FEED.meta as never, fires: [] },
+    { kind: 'fresh', meta: FEED.meta as never, fires: [square(14, 40)] },
+  ];
+  for (const state of states) {
+    for (const inView of [null, 0, 3]) {
+      const note = wildfireNote(state, inView);
+      const said = `${note.headline} ${note.detail}`;
+      expect(said, `${state.kind}/${inView} used a reserved word: ${said}`).not.toMatch(
+        RESERVED_WORDS,
+      );
+    }
+  }
+});
+
+test('where fires are drawn, the page names whose job an official notice is', () => {
+  // 🔴 The other half of the same clause. Refusing the reserved words is
+  // not enough on its own: a reader still has to be told who does issue
+  // them, or "not a warning" reads as "nobody is watching".
+  // 🔴 Mutation: drop `meta.authorityNote` from the caveat — fails.
+  for (const inView of [null, 0, 3]) {
+    const note = wildfireNote(
+      { kind: 'fresh', meta: FEED.meta as never, fires: [square(14, 40)] },
+      inView,
+    );
+    expect(`${note.headline} ${note.detail}`).toContain(
+      'national and regional services are authorised',
+    );
+  }
+});
+
+test('the shipped credit is the one the CEMS terms dictate for modified data', () => {
+  // 🔴 "Contains modified", not "Generated using". We filtered to the
+  // EU-27, cut a window and rounded the coordinates, so the unmodified
+  // notice would be the wrong one — and a feed carrying only the CC BY
+  // line satisfies one licence while breaching the other.
+  // 🔴 Mutation: drop the CEMS_NOTICE check from readFeed — fails below.
+  const meta = (FEED as { meta: Record<string, string> }).meta;
+  expect(meta.attribution).toMatch(CEMS_NOTICE);
+  expect(meta.attribution).toContain('CC BY 4.0');
+  expect(meta.termsUrl).toContain('terms');
+  for (const bad of [
+    'Copernicus EFFIS/GWIS — CC BY 4.0',
+    'Contains modified Copernicus Emergency Management Service information [Year]',
+    'Generated using Copernicus Emergency Management Service information 2026',
+    // 🔴 The two notices, deliberately crossed. The mutation run showed
+    // why: loosening the pattern to accept either verb changed no result,
+    // because no fixture mixed them — so the half of the rule that says
+    // WHICH notice ours is was never being driven.
+    'Generated using modified Copernicus Emergency Management Service information 2026',
+    '',
+  ]) {
+    expect(
+      readFeed({ ...FEED, meta: { ...meta, attribution: bad } }),
+      `a feed credited "${bad}" was accepted`,
+    ).toBeNull();
+  }
+  expect(readFeed({ ...FEED, meta: { ...meta, authorityNote: '' } })).toBeNull();
+});
+
 test('nothing this layer says is an instruction', () => {
   // 🔴 Mirroring an official record is licensed; "do not drive there" is
   // an assertion of ours that no licence covers and no disclaimer repairs
@@ -113,7 +187,7 @@ test('nothing this layer says is an instruction', () => {
   // the text has to say so where there is something to decide about.
   // 🔴 Mutation: add "Avoid this area." to the caveat — fails on /avoid/.
   const banned =
-    /\b(do not|don't|never|avoid|evacuate|stay away|you should not|unsafe|dangerous|danger|warning|alert)\b/i;
+    /\b(do not|don't|never|avoid|evacuate|stay away|you should not|unsafe|dangerous|danger|warning|alert|risk)\b/i;
   const states: WildfireState[] = [
     { kind: 'loading' },
     { kind: 'missing' },

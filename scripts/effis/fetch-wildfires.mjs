@@ -67,6 +67,43 @@ const TYPENAME = 'ms:modis.ba.poly.season';
 const LICENCE_PAGE =
   'https://forest-fire.emergency.copernicus.eu/about-effis/data-license';
 const EFFIS_HOME = 'https://forest-fire.emergency.copernicus.eu/';
+/**
+ * 🔴 The SECOND document, and the one that decides how we are allowed to
+ * speak.
+ *
+ * CC BY 4.0 is not the whole licence. EFFIS and GWIS are named members of
+ * the CEMS early warning and monitoring systems, and the CEMS terms bind
+ * every one of them. Read 28.09.2026 (HTTP 200):
+ *
+ *   "The early warning and monitoring systems of the Copernicus EMS are
+ *    composed of the European and Global Flood Awareness Systems (CEMS
+ *    EFAS and GloFAS) … the European and Global Drought Observatories
+ *    (CEMS EDO and GDO), the European Forest Fire Information System
+ *    (EFFIS) and the Global Wildfire Information System (GWIS)"
+ *
+ *   "Data from the CEMS early warning and monitoring systems is provided
+ *    for information purposes only. This means that the data does not
+ *    constitute in any way an early warning for which only
+ *    national/regional institutions are authorized within their region of
+ *    responsibility."
+ *
+ * So "this is trip-planning context, not an evacuation signal" stopped
+ * being our editorial preference the moment CAMP-117 read this page: it
+ * is licence text. Nothing we render against an EFFIS product may call
+ * itself a warning, a danger or a risk — those are words reserved for the
+ * national services, and using them would be claiming an authority the
+ * licence explicitly denies us.
+ *
+ * And the credit is dictated, not paraphrased. For data we have changed —
+ * and we have: filtered to the EU-27, cut to a window, rounded onto a
+ * grid, renamed the fields — the terms name the notice word for word:
+ *
+ *   "Where the data of the CEMS early warning and monitoring systems has
+ *    been adapted or modified, the user shall provide the following or
+ *    similar notice: 'Contains modified Copernicus Emergency Management
+ *    Service information [Year]'"
+ */
+const CEMS_TERMS = 'https://drought.emergency.copernicus.eu/terms&conditions';
 
 /**
  * The words that must still be on the EFFIS licence page.
@@ -83,9 +120,65 @@ export const LICENCE_MARKERS = [
   'reuse is allowed, provided appropriate credit is given',
 ];
 
-/** How the credit must read wherever a perimeter is drawn. CC BY 4.0. */
-export const ATTRIBUTION =
-  'Copernicus EFFIS/GWIS — © European Union, licensed CC BY 4.0';
+/**
+ * The words that must still be in the CEMS terms.
+ *
+ * Read 28.09.2026, all four present in the served page. They are checked
+ * for the same reason as the CC BY markers, and with more at stake: if
+ * the disclaimer or the modified-data notice ever changes, every sentence
+ * this feature renders has to be re-read before we publish again.
+ */
+export const CEMS_MARKERS = [
+  'European Forest Fire Information System (EFFIS)',
+  // 🔴 Stops at "institutions" on purpose. The sentence continues
+  // "…are authorized within their region of responsibility", but the
+  // served HTML wraps a line there, so the longer string is absent from
+  // the raw page and the guard refused a licence that had not changed.
+  // Found by running it: the quotation above was checked against the
+  // stripped text, and this check reads the bytes.
+  'does not constitute in any way an early warning for which only national/regional institutions',
+  'Contains modified Copernicus Emergency Management Service information',
+];
+
+/**
+ * The credit, as the CEMS terms dictate it, plus the CC BY line.
+ *
+ * 🔴 "Contains modified", not "Generated using". The terms give two
+ * notices and they are not interchangeable: the first is for data passed
+ * on as it came, the second for data that has been "adapted or modified".
+ * Ours has been — EU-27 only, a 14-day window, coordinates rounded onto a
+ * ~110 m grid, fields renamed — so claiming the unmodified notice would
+ * be a licence breach AND a quiet lie about what the reader is looking at.
+ *
+ * 🔴 The year comes from the data, not from a constant. "[Year]" in a
+ * credit that silently says 2026 for ever is the same stale attribution
+ * this project already refuses to ship elsewhere.
+ */
+export const attributionFor = (year) => {
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    throw new Error(
+      `the CEMS notice needs a real year, got ${JSON.stringify(year)} — ` +
+        'the terms name it "[Year]" and a credit with the wrong one is not the credit they asked for',
+    );
+  }
+  return (
+    `Contains modified Copernicus Emergency Management Service information ${year} ` +
+    '— Copernicus EFFIS/GWIS, © European Union, licensed CC BY 4.0'
+  );
+};
+
+/**
+ * 🔴 Words we may not use about this data, because the licence says the
+ * authority to use them belongs to somebody else.
+ *
+ * Checked against everything this script writes, and again in
+ * `apps/web/tests/unit/wildfires.spec.ts` against everything the page
+ * renders. Not a style rule: the data "does not constitute in any way an
+ * early warning for which only national/regional institutions are
+ * authorized".
+ */
+export const FORBIDDEN_WORDS =
+  /\b(warning|warnings|danger|dangerous|risk|risks|risky|alert|alerts|evacuate|evacuation)\b/i;
 
 /**
  * 🔴 EFFIS speaks Eurostat, not ISO 3166, and it costs a whole country.
@@ -439,6 +532,20 @@ export async function collect({ now = new Date(), days = WINDOW_DAYS } = {}) {
     }
   }
 
+  // 🔴 Both documents, every run. CC BY 4.0 says we may reuse it; the
+  // CEMS terms say what we may call it and exactly how to credit it. A
+  // run that checked only the first would keep publishing a credit the
+  // second had changed, and nothing would report it.
+  const terms = await text(CEMS_TERMS);
+  for (const marker of CEMS_MARKERS) {
+    if (!terms.includes(marker)) {
+      throw new Error(
+        `REFUSING TO CONTINUE: the CEMS terms no longer contain ${JSON.stringify(marker)}. ` +
+          `Read ${CEMS_TERMS} before publishing: this page decides both our wording and our credit.`,
+      );
+    }
+  }
+
   const codes = await memberStateCodes();
   const since = windowStart(now, days);
   const euSeasonTotal = await seasonCount(codes);
@@ -484,7 +591,7 @@ export async function collect({ now = new Date(), days = WINDOW_DAYS } = {}) {
     byCountry[f.properties.country] = (byCountry[f.properties.country] ?? 0) + 1;
   }
 
-  return {
+  const out = {
     type: 'FeatureCollection',
     meta: {
       // 🔴 OUR clock, and the only one the page's freshness budget reads.
@@ -497,7 +604,17 @@ export async function collect({ now = new Date(), days = WINDOW_DAYS } = {}) {
       sourceUrl: EFFIS_HOME,
       licence: 'CC BY 4.0',
       licenceUrl: LICENCE_PAGE,
-      attribution: ATTRIBUTION,
+      termsUrl: CEMS_TERMS,
+      // 🔴 The CEMS notice for MODIFIED data, with the year of the data.
+      // Rendered next to the shapes, never held as a constant in a
+      // component — a credit nobody can see is not a credit.
+      attribution: attributionFor(now.getUTCFullYear()),
+      /**
+       * Whose job it is to tell people what to do, in our words but on
+       * their authority — and with none of the words the terms reserve.
+       */
+      authorityNote:
+        'Copernicus publishes this for information only. Only national and regional services are authorised to issue official notices for their own area.',
       layer: TYPENAME,
       windowDays: days,
       since,
@@ -513,6 +630,23 @@ export async function collect({ now = new Date(), days = WINDOW_DAYS } = {}) {
     },
     features: fires,
   };
+
+  // 🔴 The last thing the run does is read its own output for the words
+  // the licence reserves. A sentence written here travels into the page
+  // as data, so the page's own test would catch it only after it shipped;
+  // this catches it before the file is written at all. `place` comes from
+  // EFFIS and is a proper name, so only what WE wrote is checked.
+  for (const [key, value] of Object.entries(out.meta)) {
+    if (typeof value === 'string' && FORBIDDEN_WORDS.test(value)) {
+      throw new Error(
+        `REFUSING TO WRITE: meta.${key} uses a word the CEMS terms reserve for ` +
+          `national services — ${JSON.stringify(value)}. The data "does not constitute ` +
+          'in any way an early warning"; say what Copernicus recorded instead.',
+      );
+    }
+  }
+
+  return out;
 }
 
 // ---------------------------------------------------------------------
@@ -547,6 +681,47 @@ function selfTest() {
     (() => {
       const u = wfsUrl({ hits: true });
       return u.includes('resultType=hits') && !u.includes('outputformat');
+    })(),
+  );
+
+  // — the credit the CEMS terms dictate ——————————————————————————————
+  ok(
+    'the notice is the one for MODIFIED data',
+    attributionFor(2026).startsWith(
+      'Contains modified Copernicus Emergency Management Service information 2026',
+    ),
+    attributionFor(2026),
+  );
+  ok('and it still carries CC BY 4.0', attributionFor(2026).includes('CC BY 4.0'));
+  ok('a missing year is refused', throws(() => attributionFor(undefined)));
+  ok('a string year is refused', throws(() => attributionFor('2026')));
+  ok('a nonsense year is refused', throws(() => attributionFor(1026)));
+  ok(
+    '🔴 the credit itself uses none of the reserved words',
+    !FORBIDDEN_WORDS.test(attributionFor(2026)),
+  );
+
+  // — the words the licence reserves ————————————————————————————————
+  ok(
+    'the reserved words are caught wherever they appear',
+    ['a wildfire warning', 'DANGER ahead', 'fire risk is high', 'weather alerts', 'evacuate now'].every(
+      (s) => FORBIDDEN_WORDS.test(s),
+    ),
+  );
+  ok(
+    'and ordinary words that merely contain them are not',
+    // 🔴 Word boundaries, so "brisk" and "Warwick" are not licence
+    // breaches. A guard that fires on innocent text gets switched off.
+    ['a brisk walk', 'Warwickshire', 'Alerta is a place'].every(
+      (s) => !FORBIDDEN_WORDS.test(s),
+    ),
+  );
+  ok(
+    '🔴 the authority sentence we ship says whose job it is without those words',
+    (() => {
+      const s =
+        'Copernicus publishes this for information only. Only national and regional services are authorised to issue official notices for their own area.';
+      return !FORBIDDEN_WORDS.test(s) && s.includes('national and regional services');
     })(),
   );
 

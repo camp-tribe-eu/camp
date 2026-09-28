@@ -53,7 +53,12 @@ async function openMap(page: Page) {
  * two identical empty maps and pass for the wrong reason. A test that can
  * only pass when Italy happens to be burning is not a test of our code.
  */
-const inViewFeed = (meta: Record<string, unknown> = FEED.meta) => ({
+const freshFeed = (over: Record<string, unknown> = {}) => ({
+  ...FEED,
+  meta: { ...FEED.meta, fetchedAt: daysAgo(0.02), ...over },
+});
+
+const inViewFeed = (meta: Record<string, unknown> = { ...FEED.meta, fetchedAt: daysAgo(0.02) }) => ({
   type: 'FeatureCollection',
   meta,
   features: [
@@ -114,6 +119,15 @@ test.describe('the wildfire layer', () => {
   test('says what Copernicus recorded, with the date and the licence, on the page', async ({
     page,
   }) => {
+    // 🔴 The real perimeters, with our own clock moved forward.
+    //
+    // The committed file carries the moment we last ran the fetch, and
+    // the page stops drawing it 72 hours later — by design. So a test
+    // that asserted "fresh" against the file as committed would pass this
+    // week and fail on Thursday, for no reason but the calendar, and the
+    // first instinct would be to widen the budget. The CONTENT is the
+    // shipped file; only `fetchedAt` is the test's.
+    await serveFeed(page, freshFeed());
     await openMap(page);
     await settle(page);
 
@@ -144,17 +158,49 @@ test.describe('the wildfire layer', () => {
     );
     // 🔴 And it tells the reader whose decision this is.
     expect(said).toContain('your call');
+    // 🔴 The credit the CEMS terms dictate for MODIFIED data, with the
+    // year, rendered beside the shapes rather than held in a constant.
+    expect(said).toMatch(
+      /Contains modified Copernicus Emergency Management Service information \d{4}/,
+    );
+    await expect(note.getByRole('link', { name: /CEMS terms/ })).toHaveAttribute(
+      'href',
+      String(FEED.meta.termsUrl),
+    );
   });
 
-  test('nothing the page says about fire is an instruction', async ({ page }) => {
-    // Mirroring an official record is licensed. "Do not drive there" is
-    // our own assertion, which no licence covers — §2 of the hazard doc.
+  test('a feed credited only under CC BY is refused', async ({ page }) => {
+    // 🔴 Two licences meet on this layer and satisfying one is not
+    // satisfying the other. The CEMS terms name the notice word for word
+    // for data that has been "adapted or modified", and ours has been.
+    await serveFeed(
+      page,
+      freshFeed({ attribution: 'Copernicus EFFIS/GWIS — © European Union, licensed CC BY 4.0' }),
+    );
+    await openMap(page);
+    await settle(page);
+    await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'missing');
+  });
+
+  test('nothing the page says about fire is an instruction or a reserved word', async ({
+    page,
+  }) => {
+    // 🔴 Read off the RENDERED page, not off the feed. The CEMS terms
+    // bind EFFIS and GWIS by name and say the data "does not constitute
+    // in any way an early warning for which only national/regional
+    // institutions are authorized within their region of responsibility"
+    // — so "warning", "danger", "risk" and "alert" are not ours to use
+    // about it, and neither is any instruction. A check that read the
+    // JSON instead would go on passing while a component printed one.
+    await serveFeed(page, freshFeed());
     await openMap(page);
     await settle(page);
     const said = await page.locator(NOTE).innerText();
     expect(said).not.toMatch(
-      /\b(do not|don't|never|avoid|evacuate|stay away|unsafe|dangerous|danger)\b/i,
+      /\b(do not|don't|never|avoid|evacuate|stay away|unsafe|dangerous|danger|warning|risk|alert)\b/i,
     );
+    // And the other half of the clause: who DOES issue official notices.
+    expect(said).toContain('national and regional services are authorised');
   });
 
   test('a burnt area really reaches the canvas', async ({ page }) => {
@@ -183,6 +229,7 @@ test.describe('the wildfire layer', () => {
   });
 
   test('switched off, the map still refuses to read as an all-clear', async ({ page }) => {
+    await serveFeed(page, freshFeed());
     await openMap(page);
     await settle(page);
     await page.locator('[data-layer="wildfire"]').click();
@@ -200,7 +247,7 @@ test.describe('the wildfire layer', () => {
     // archive: 200 OK, well-formed, four days old. A naive health check
     // calls that green, and the map would show a four-day-old fire
     // picture as though it were current.
-    await serveFeed(page, { ...FEED, meta: { ...FEED.meta, fetchedAt: daysAgo(4) } });
+    await serveFeed(page, freshFeed({ fetchedAt: daysAgo(4) }));
     await openMap(page);
     await settle(page);
 
@@ -215,7 +262,7 @@ test.describe('the wildfire layer', () => {
 
   test('a feed from an hour ago is drawn', async ({ page }) => {
     // The other side of the boundary, so "stale" is not simply always on.
-    await serveFeed(page, { ...FEED, meta: { ...FEED.meta, fetchedAt: daysAgo(0.04) } });
+    await serveFeed(page, freshFeed());
     await openMap(page);
     await settle(page);
     await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'fresh');
@@ -246,7 +293,7 @@ test.describe('the wildfire layer', () => {
     // 🔴 Drawing somebody else's data with the credit removed is a
     // licence breach, and it is invisible until it is expensive. The page
     // refuses the feed instead, which is visible immediately.
-    await serveFeed(page, { ...FEED, meta: { ...FEED.meta, attribution: '' } });
+    await serveFeed(page, freshFeed({ attribution: '' }));
     await openMap(page);
     await settle(page);
     await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'missing');

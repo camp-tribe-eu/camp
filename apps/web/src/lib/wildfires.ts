@@ -10,14 +10,31 @@
 // states where we have nothing to draw. `wildfireNote` returns a string
 // for every input it can be given, and the test proves it by enumeration.
 //
-// 🔴 THE SECOND THING IT MUST NEVER DO IS GIVE AN INSTRUCTION.
+// 🔴 THE SECOND THING IT MUST NEVER DO IS SPEAK WITH SOMEBODY ELSE'S
+// AUTHORITY.
 //
-// docs/road-hazard-sources.md §2 draws the line and the licence draws it
-// too: mirroring what an official service published is permitted, and
-// "it is dangerous here" is a new assertion of ours that no licence
-// covers and no disclaimer repairs. Every sentence below reports what
-// Copernicus recorded, dates it, and says the decision is the driver's.
-// `tests/unit/wildfires.spec.ts` reads every sentence for imperatives.
+// This stopped being an editorial preference when CAMP-117 read the CEMS
+// terms, which bind EFFIS and GWIS by name
+// (`https://drought.emergency.copernicus.eu/terms&conditions`, read
+// 28.09.2026):
+//
+//   "Data from the CEMS early warning and monitoring systems is provided
+//    for information purposes only. This means that the data does not
+//    constitute in any way an early warning for which only
+//    national/regional institutions are authorized within their region of
+//    responsibility."
+//
+// So the words "warning", "danger", "risk" and "alert" are not ours to
+// use about this data, and neither is any instruction. Every sentence
+// below reports what Copernicus recorded, dates it, names whose job an
+// official notice is, and leaves the decision with the driver.
+// `tests/unit/wildfires.spec.ts` reads every sentence for all of it.
+//
+// 🔴 And the credit is dictated, not chosen. The same terms say that data
+// which has been "adapted or modified" — ours is: EU-27 only, a 14-day
+// window, coordinates rounded onto a ~110 m grid — must carry "Contains
+// modified Copernicus Emergency Management Service information [Year]".
+// `readFeed` refuses a feed whose attribution does not.
 //
 // 🔴 The data file is deliberately NOT imported here. This module is
 // pulled into the map, which is a client component, and a 245 KB JSON
@@ -32,7 +49,11 @@ export interface WildfireMeta {
   sourceUrl: string;
   licence: string;
   licenceUrl: string;
+  /** The CEMS terms, which govern the wording as well as the credit. */
+  termsUrl: string;
   attribution: string;
+  /** Whose job an official notice is — never ours. */
+  authorityNote: string;
   layer: string;
   windowDays: number;
   /** First day of the window, YYYY-MM-DD. */
@@ -96,6 +117,28 @@ export const WILDFIRE_URL = '/data/wildfires.json';
  */
 export const FRESH_FOR_HOURS = 72;
 
+/**
+ * The credit the CEMS terms dictate for data that has been changed, with
+ * a four-digit year in the place they write "[Year]".
+ *
+ * 🔴 The year is matched, not merely the phrase. A notice frozen at 2026
+ * is the same stale attribution the licence exists to prevent, and a
+ * pattern that accepted "[Year]" verbatim would wave it through.
+ */
+export const CEMS_NOTICE =
+  /Contains modified Copernicus Emergency Management Service information \d{4}\b/;
+
+/**
+ * 🔴 Words the CEMS terms reserve for national and regional services.
+ *
+ * Mirrored from scripts/effis/fetch-wildfires.mjs, which refuses to WRITE
+ * them; this side refuses to let them be RENDERED. Two copies on purpose:
+ * the script guards the data file and cannot see the page, and this one
+ * guards the page and cannot see the fetch. Both are driven by tests.
+ */
+export const RESERVED_WORDS =
+  /\b(warning|warnings|danger|dangerous|risk|risks|risky|alert|alerts|evacuate|evacuation)\b/i;
+
 export type WildfireState =
   /** The fetch is still in flight. Not the same as having nothing. */
   | { kind: 'loading' }
@@ -128,6 +171,14 @@ export function readFeed(input: unknown): WildfireFeed | null {
     // 🔴 A feed with no attribution is not a feed we may draw. CC BY 4.0
     // is a condition, not a credit line, and an empty string would render
     // as a blank space nobody notices.
+    return null;
+  }
+  // 🔴 And not just ANY credit: the one the CEMS terms name for modified
+  // data. A feed carrying only the CC BY line satisfies one licence and
+  // breaches the other, which is exactly the kind of breach that stays
+  // invisible until it is expensive.
+  if (!CEMS_NOTICE.test(meta.attribution)) return null;
+  if (typeof meta.authorityNote !== 'string' || meta.authorityNote.length === 0) {
     return null;
   }
   if (typeof meta.windowDays !== 'number' || !Number.isFinite(meta.windowDays)) {
@@ -219,9 +270,6 @@ export function wildfireNote(
   state: WildfireState,
   inView: number | null,
 ): WildfireNote {
-  const caveat =
-    'Copernicus maps burnt scars of roughly 30 hectares and up, a day or so behind the satellite, so this is context for planning a trip rather than a live picture — where to drive is your call.';
-
   if (state.kind === 'loading') {
     // 🔴 Said out loud, and it is not politeness. "Loading" and "we have
     // nothing" produce the same empty map, and the reader cannot tell
@@ -260,6 +308,14 @@ export function wildfireNote(
   }
 
   const { meta } = state;
+  // 🔴 What the figure is, what it is not, and whose job an official
+  // notice is. The last sentence comes out of the FEED rather than out of
+  // this file, for the same reason the credit does: it is a licence
+  // obligation, and an obligation hard-coded in a component is one nobody
+  // re-reads when the terms change.
+  const caveat =
+    'Copernicus maps burnt scars of roughly 30 hectares and up, a day or so behind the satellite, so this is context for planning a trip rather than a live picture — where to drive is your call. ' +
+    meta.authorityNote;
   const total = state.fires.length;
   const from = formatDay(meta.since);
   const to = formatInstant(meta.fetchedAt);

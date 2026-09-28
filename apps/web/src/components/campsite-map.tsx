@@ -1588,6 +1588,15 @@ export default function CampsiteMap() {
                   {fireState.meta.licence}
                 </a>
                 {' · '}
+                <a
+                  href={fireState.meta.termsUrl}
+                  className="underline"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  CEMS terms
+                </a>
+                {' · '}
                 {/* The date of the DATA, which is what the licence asks
                     for — not the date this page was built. */}
                 Read from Copernicus on{' '}
@@ -1595,6 +1604,10 @@ export default function CampsiteMap() {
                   {formatInstant(fireState.meta.fetchedAt) ?? fireState.meta.fetchedAt}
                 </time>
                 {'. '}
+                {/* 🔴 The CEMS notice for modified data, word for word as
+                    the terms write it, with the year. Rendered, because a
+                    credit nobody can see is not a credit — and carried by
+                    the feed, so it cannot go stale in a component. */}
                 {fireState.meta.attribution}
               </p>
             )}
