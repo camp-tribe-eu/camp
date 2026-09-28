@@ -370,8 +370,38 @@ export function mergeLinked(
     }
   }
 
+  /**
+   * 🔴 CAMP-147: the price list, taken whole or not at all.
+   *
+   * Not field-by-field like the rest, because a price list is one fact
+   * and half of one is a different fact. Interleaving our tariffs with
+   * theirs would print two publishers' seasons in one table under one
+   * attribution, and a reader comparing "€18 in April" with "€25 in
+   * April" would have no way to know they came from different records.
+   *
+   * 🔴 Which matters more than it looks: OpenStreetMap carries no
+   * tariffs at all, so in practice this branch is the ONLY way a price
+   * reaches a page. Measured after the import of 28.09.2026 — of the
+   * 1 200 pages that can show a price, 648 get it solely from here.
+   * Gap-filling still: if the primary ever has its own price list, its
+   * own wins.
+   */
+  const ourTariffs = Array.isArray(row.tariffs) ? row.tariffs : [];
+  const theirTariffs = Array.isArray(row.linked_tariffs)
+    ? row.linked_tariffs
+    : [];
+  const takeTheirTariffs = ourTariffs.length === 0 && theirTariffs.length > 0;
+  if (takeTheirTariffs) taken.add('tariffs');
+
   const merged = {
     ...row,
+    tariffs: takeTheirTariffs ? theirTariffs : ourTariffs,
+    // 🔴 The withheld count travels with the list it belongs to. Taking
+    // ours while showing theirs would tell the reader "8 further tariffs
+    // exist" about a record whose prices are not on the page.
+    tariffs_withheld: takeTheirTariffs
+      ? row.linked_tariffs_withheld
+      : row.tariffs_withheld,
     name: firstOf(row.name, row.linked_name, 'name').value,
     stars: firstOf(row.stars, row.linked_stars, 'stars').value,
     description: description.value,

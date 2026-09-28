@@ -25,6 +25,7 @@ import {
 import { alternatesFor } from '@/lib/i18n';
 import TravelNotice from '@/components/travel-notice';
 import SourceNote from '@/components/source-note';
+import TariffTable from '@/components/tariff-table';
 
 // CAMP-34 — the campsite page.
 //
@@ -439,6 +440,21 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           has to be visible at the moment somebody decides to drive
           here. */}
       <TravelNotice className="mt-6" />
+
+      {/* 🔴 CAMP-147: the price list, and only where there is one.
+
+          Below the travel notice, because that notice is legally
+          required to stay visible, and above the neighbours, because
+          "what does it cost" is the second question after "where is it".
+
+          The component renders nothing at all when the source publishes
+          no datable price — 60 358 of 61 558 campsites. An empty
+          "Prices" heading on every one of those would be a promise the
+          page does not keep. */}
+      <TariffTable
+        tariffs={spot.tariffs}
+        withheld={spot.tariffsWithheld ?? 0}
+      />
 
       <Section title="Weather on site">
         <p className="max-w-prose text-sm text-ink-2">

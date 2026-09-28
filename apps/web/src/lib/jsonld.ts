@@ -32,6 +32,7 @@ import {
   WATER_LABEL,
 } from './api';
 import { DEFAULT_LOCALE } from './i18n';
+import { describeTariff, groupTariffs } from './tariffs';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://camptribe.eu';
 
@@ -580,6 +581,69 @@ export function schemaOpeningHours(raw: string | undefined): string[] {
  * other. Nothing in this node describes a neighbour, so the list does
  * not belong in its signature.
  */
+/**
+ * CAMP-147: the campsite's current prices, as machine-readable offers.
+ *
+ * 🔴 CURRENT ONLY. An expired tariff stays on the page, labelled as
+ * expired, because a reader can read the label. `makesOffer` has no
+ * label: it states "this business offers this at this price", and a
+ * machine reading it has no way to know we meant "last October". So a
+ * season that has ended produces no markup at all, and `validThrough`
+ * on the ones that remain says when each stops being true.
+ *
+ * 🔴 Every offer carries its season TWICE, and both are load-bearing.
+ * `availabilityStarts`/`availabilityEnds` say when the thing can be
+ * had; `validFrom`/`validThrough` on the price say when the PRICE
+ * holds. A campsite open all year with a July rate needs both to be
+ * stated separately, and omitting `validThrough` is how a summer price
+ * gets cached as this year's answer.
+ *
+ * 🔴 Amounts stay STRINGS. `minPrice: "13.50"` is exact; `Number()` in
+ * the middle of the pipeline is the step that produced the feed's own
+ * "2.7999999523162841796875".
+ *
+ * Measured after the import of 28.09.2026: 752 campsites have at least
+ * one current tariff, a median of 4 each and 14 at the most — so there
+ * is no cap here, because there is nothing to cap.
+ */
+export function campsiteOffers(
+  spot: Spot,
+  now: Date = new Date(),
+): Record<string, unknown>[] {
+  const { current } = groupTariffs(spot.tariffs ?? [], now);
+  const out: Record<string, unknown>[] = [];
+  for (const t of current) {
+    // Belt and braces with the same rule the page renders by: no period,
+    // no markup. The API filters these out, `groupTariffs` filters them
+    // again, and a third refusal here costs one line.
+    if (!t.validFrom && !t.validUntil) continue;
+    if (t.minPrice === null && t.maxPrice === null) continue;
+
+    const price: Record<string, unknown> = {
+      '@type': 'PriceSpecification',
+      priceCurrency: t.currency,
+    };
+    if (t.minPrice !== null && t.minPrice === t.maxPrice) {
+      price.price = t.minPrice;
+    } else {
+      if (t.minPrice !== null) price.minPrice = t.minPrice;
+      if (t.maxPrice !== null) price.maxPrice = t.maxPrice;
+    }
+    if (t.validFrom) price.validFrom = t.validFrom;
+    if (t.validUntil) price.validThrough = t.validUntil;
+
+    const offer: Record<string, unknown> = {
+      '@type': 'Offer',
+      name: describeTariff(t),
+      priceSpecification: price,
+    };
+    if (t.validFrom) offer.availabilityStarts = t.validFrom;
+    if (t.validUntil) offer.availabilityEnds = t.validUntil;
+    out.push(offer);
+  }
+  return out;
+}
+
 export function campgroundGraph(spot: Spot, path: string) {
   const c = spot.context ?? {};
   const name = campsiteName(spot);
@@ -704,6 +768,24 @@ export function campgroundGraph(spot: Spot, path: string) {
       worstRating: 1,
     };
   }
+
+  // 🔴 CAMP-147: the price list, as `makesOffer` — NOT as `offers`.
+  //
+  // The card asked for `offers`, and `offers` is the next `provider`.
+  // Asked of the repository's own vocabulary index rather than assumed:
+  //
+  //     "offers" is not allowed on Campground
+  //       (valid on AggregateOffer, CreativeWork,
+  //        EducationalOccupationalProgram, Event)
+  //
+  // — the same UNKNOWN_FIELD shape as the `provider` the comment above
+  // refuses, and it would have landed on every priced campsite. What
+  // Campground does inherit, through LodgingBusiness → LocalBusiness →
+  // Organization, is `makesOffer`, which is also the truer statement:
+  // the campsite is the business making the offer, not a product
+  // carrying one.
+  const offers = campsiteOffers(spot);
+  if (offers.length) node.makesOffer = offers;
 
   // The operator's own site, where a source gave us one. `sameAs` is the
   // property for "another page that is unambiguously this same thing" —
@@ -857,6 +939,17 @@ export const TYPE_EVIDENCE: Record<string, (spot: Spot) => boolean> = {
     AMENITY_KEYS.some((k) => s.amenities?.[k] === 'yes' || s.amenities?.[k] === 'no'),
   // One per measurement we computed.
   PropertyValue: (s) => surroundingProperties(s).length > 0,
+  // CAMP-147: one per tariff whose season has not ended. 752 campsites
+  // have at least one; the other 60 806 emit neither type.
+  //
+  // 🔴 The predicate calls the same function that builds the markup, so
+  // a tariff that expires between one build and the next removes the
+  // type and its evidence in the same step. Two implementations of
+  // "does this campsite have a current price" would drift on the day a
+  // season ends, and the drift would be invisible — a type with nothing
+  // under it, which is the exact failure this table exists to prevent.
+  Offer: (s) => campsiteOffers(s).length > 0,
+  PriceSpecification: (s) => campsiteOffers(s).length > 0,
   // And the questions, which exist only where something answers them.
   FAQPage: (s) => campsiteFaq(s).length > 0,
   Question: (s) => campsiteFaq(s).length > 0,
