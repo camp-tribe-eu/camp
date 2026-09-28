@@ -497,7 +497,20 @@ function namedPlaces(
     // Fresh objects: `doc.near` belongs to the index, and a hit must not
     // hand a caller a reference into it.
     nearest: { m: closest.m, name: closest.name },
-    label: { m: best.m, name: best.name, isNearest: best === closest },
+    // 🔴 The METRES, not the place. `best === closest` was the obvious
+    // form and it is wrong on a tie: `closest` takes the first place at
+    // the minimum (strict `<`), so when two places are the same distance
+    // away and the second is the better named, the two variables hold
+    // different objects while holding the same number. Review measured
+    // it — `[{Tolminka, 500}, {Tolmin, 500}]` for `tolmin` reported
+    // `isNearest: false` at 500 m against an ordering key of 500 m — and
+    // counted 46 of the 61 422 live campsites carrying two `near` places
+    // at identical `m` ("Ourthe" and "Sy", both 133 m).
+    //
+    // What the page has to know is whether the number it would print IS
+    // the one the row was ordered by. On a tie it is, whichever object
+    // it came from, so the question is about the metres.
+    label: { m: best.m, name: best.name, isNearest: best.m === closest.m },
   };
 }
 

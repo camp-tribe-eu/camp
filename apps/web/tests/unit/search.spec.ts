@@ -1013,10 +1013,26 @@ test.describe('being in the place beats being near a name that contains it', () 
     // A single line moves them all — comparing the label's metres in
     // the sort instead of the nearest's — which is why the assertion is
     // on the ORDER and not only on the label.
+    //
+    // 🔴 `Fermo` at 20 km is not padding, and the first version of this
+    // fixture did not have it. Review mutated the sort to read `label.m`
+    // and the whole suite stayed green: with one place on the near
+    // campsite its label WAS its ordering key (2 263), the far one's
+    // label was 13 592, and 2 263 < 13 592 either way — so the fixture
+    // agreed with the mutation instead of catching it. The near
+    // campsite now has a better-named place FARTHER than anything on
+    // the far one, so label-sorting puts them the wrong way round.
+    //
+    // It matters more than the other two: CI does not set
+    // RANKING_INDEX (see .github/workflows/ci.yml), so the live-index
+    // guard against this is skipped there and this is the one that runs.
     const fermoNear = doc({
       name: 'Camping 4 Cerchi', path: '/camping/it/fermo/cerchi',
       country: 'it', region: 'fermo',
-      near: [{ name: 'Porto San Giorgio-Fermo', m: 2263 }],
+      near: [
+        { name: 'Porto San Giorgio-Fermo', m: 2263 },
+        { name: 'Fermo', m: 20_000 },
+      ],
     });
     const fermoFar = doc({
       name: 'Camping Lontano', path: '/camping/it/fermo/lontano',
@@ -1026,9 +1042,18 @@ test.describe('being in the place beats being near a name that contains it', () 
         { name: 'Fermo', m: 13_592 },
       ],
     });
-    expect(
-      search([fermoFar, fermoNear], 'camping fermo').map((h) => h.doc.name),
-    ).toEqual(['Camping 4 Cerchi', 'Camping Lontano']);
+    const fermo = search([fermoFar, fermoNear], 'camping fermo');
+    expect(fermo.map((h) => h.doc.name)).toEqual([
+      'Camping 4 Cerchi',
+      'Camping Lontano',
+    ]);
+    // The numbers that make the mutation visible: sorted on 2 263 and
+    // 13 592, labelled 20 000 and 13 592. Asserted so that a later edit
+    // cannot quietly take the inversion back out of the fixture.
+    expect(fermo.map((h) => [h.metres, h.label?.m])).toEqual([
+      [2263, 20_000],
+      [13_592, 13_592],
+    ]);
 
     // `castellon`: the one-word name is a near miss, the four-word name
     // holds the word exactly. The bands decide the label too, so the
@@ -1079,6 +1104,31 @@ test.describe('being in the place beats being near a name that contains it', () 
     expect(hit.metres).toBe(60);
     expect(hit.nearest).toBe('Tolminka');
     expect(hit.label).toEqual({ name: 'Tolmin', m: 1255, isNearest: false });
+  });
+
+  test('🔴 two places at the SAME distance: the number is still printed', () => {
+    // Review's finding, and it is about the metres rather than the
+    // place. `closest` takes the first place at the minimum, so when the
+    // better-named one is equally close but later in the list, the two
+    // are different objects holding the same number — and `isNearest`
+    // computed by identity said false, which drops from the page a
+    // distance that IS the ordering key.
+    //
+    // Not hypothetical: 46 of the 61 422 live campsites carry two `near`
+    // places at identical `m` — "Ourthe" and "Sy", both 133 m from
+    // Camping Village Sy.
+    const tied = doc({
+      name: 'Kamp Tie', path: '/camping/si/tolmin/tie',
+      country: 'si', region: 'tolmin',
+      near: [
+        { name: 'Tolminka', m: 500 },
+        { name: 'Tolmin', m: 500 },
+      ],
+    });
+    const [hit] = search([tied], 'tolmin');
+    expect(hit.metres).toBe(500);
+    expect(hit.nearest).toBe('Tolminka');
+    expect(hit.label).toEqual({ name: 'Tolmin', m: 500, isNearest: true });
   });
 
   test('🔴 two equally well-named places: the nearer one is the label', () => {
