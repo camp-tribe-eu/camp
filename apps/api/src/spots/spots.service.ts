@@ -17,6 +17,10 @@ import {
 import { tariffsSql, withheldTariffCountSql } from './tariffs';
 import type { TariffView } from './tariffs';
 export type { TariffView } from './tariffs';
+// CAMP-168: the official bathing water classification for the season.
+import { nearestBathingWaterSql } from '../bathing/nearby';
+import type { BathingWaterView } from '../bathing/nearby';
+export type { BathingWaterView } from '../bathing/nearby';
 
 // Re-exported so existing importers keep working; the rules themselves
 // live in canonical.ts, where a unit test can reach them.
@@ -84,6 +88,23 @@ export interface SpotView {
    * few and says nothing has misrepresented the price list by omission.
    */
   tariffsWithheld: number;
+  /**
+   * CAMP-168: the nearest officially designated bathing water, or null.
+   *
+   * 🔴 It carries its SEASON, always. The EEA publishes one
+   * classification per bathing season — the 2025 season was published on
+   * 02.06.2026 — and a class without its year reads as the state of the
+   * water today, which we have not measured and nobody has: the
+   * directive asks for four samples in a season. There is no shape of
+   * this object without `season` in it, so no consumer can drop the year
+   * by omission; one can only be written to hide it, and a test reads
+   * the served HTML for the year.
+   *
+   * 🔴 null means "no designated bathing water within 2 km", a fact the
+   * page states out loud. 42 953 of 61 558 campsites (69.8%) are in that
+   * case, and silence there would read as reassurance.
+   */
+  bathingWater: BathingWaterView | null;
   /**
    * CAMP-105: false when this page has nothing on it but a name.
    *
@@ -158,6 +179,13 @@ export class SpotsService {
               ${tariffsSql('linked.id')} AS linked_tariffs,
               ${withheldTariffCountSql('s.id')} AS tariffs_withheld,
               ${withheldTariffCountSql('linked.id')} AS linked_tariffs_withheld,
+              -- 🔴 CAMP-168, and read for the primary row ONLY, unlike
+              -- the tariffs. A bathing water is chosen by geography, and
+              -- linked secondary is the same campsite under another
+              -- source's name a few dozen metres away — so it would
+              -- return the same row, and "merging" two identical answers
+              -- would be a rule with nothing to decide.
+              ${nearestBathingWaterSql('s.location')} AS bathing_water,
               (NOT ${NOTHING_TO_SAY_SQL}
                OR linked.stars IS NOT NULL
                OR linked.description IS NOT NULL) AS indexable
@@ -760,6 +788,12 @@ function toView(row: Record<string, unknown>): SpotView {
     // price table, not a page with somebody else's.
     tariffs: (row.tariffs ?? []) as TariffView[],
     tariffsWithheld: Number(row.tariffs_withheld ?? 0),
+    // 🔴 CAMP-168. `?? null`, and null means exactly one thing: no
+    // designated bathing water within BATHING_RADIUS_M of this campsite.
+    // It never means "we did not look" — a query that does not select
+    // the column produces a page that says there is none nearby, which
+    // is a visible, reportable wrong answer rather than a silent one.
+    bathingWater: (row.bathing_water as BathingWaterView) ?? null,
     // 🔴 Defaults to indexable when the column is absent, not to hidden.
     // A query that forgot to select it must not silently noindex a page
     // that has plenty to say — the failure should be a page that ranks

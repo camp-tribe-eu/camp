@@ -27,6 +27,10 @@
 // would be exactly the misleading the licence forbids — and it would
 // also be a lie to the reader, who is deciding where to sleep.
 
+// CAMP-168: one id for the EEA bathing water source, shared by the
+// attribution below and by the component that renders the classification.
+import { BATHING_SOURCE_ID } from './bathing';
+
 export type SpotSource = {
   id: string;
   ref: string;
@@ -58,6 +62,27 @@ export type SourceInfo = {
    * that would claim knowledge we do not have.
    */
   dateLabel: string;
+  /**
+   * 🔴 CAMP-168: how often this source is EXPECTED to change.
+   *
+   * `continuous` — anybody may edit it any day, so a record nobody has
+   *                touched in two years is worth saying out loud.
+   *
+   * `annual`     — the publisher issues one edition a year on purpose.
+   *                A year-old record is then HEALTHY, and flagging it
+   *                would train readers to ignore the flag. The EEA
+   *                bathing water classification is the first of these:
+   *                the 2025 season was published 02.06.2026 and the next
+   *                edition is roughly a year away by design.
+   *
+   * 🔴 It replaces a string test. Staleness used to be gated on
+   * `dateLabel.startsWith('Last updated')`, which happened to give the
+   * right answer for the two sources that existed and was never a
+   * statement about cadence at all — rewording a label would have
+   * switched the flag on or off by accident. CAMP-166 generalises
+   * freshness across all sources; this field is what it should read.
+   */
+  cadence: 'continuous' | 'annual';
 };
 
 export const SOURCES: Record<string, SourceInfo> = {
@@ -71,6 +96,7 @@ export const SOURCES: Record<string, SourceInfo> = {
       'Maintained by volunteers anywhere in the world. We re-import it weekly.',
     // We know when WE last looked, never when a mapper last edited.
     dateLabel: 'Last checked against this source on',
+    cadence: 'continuous',
   },
   datatourisme: {
     id: 'datatourisme',
@@ -81,6 +107,35 @@ export const SOURCES: Record<string, SourceInfo> = {
     about:
       'France’s national tourism data platform. The records are written by regional tourist offices, which is also why the star rating is the official one.',
     dateLabel: 'Last updated by the source on',
+    cadence: 'continuous',
+  },
+  // CAMP-168. The EU's officially designated bathing waters and their
+  // classification, one edition per bathing season.
+  //
+  // 🔴 The licence link points at CC BY 4.0, and that grant is on the
+  // VERSIONED catalogue record — one per season. The parent Datahub
+  // record, which is the URL below and the one a reader lands on,
+  // returns null for every licence field; anyone checking only that page
+  // would conclude the dataset has no licence. Recorded here so the next
+  // person to verify us does not repeat the search
+  // (docs/emergency-sources.md §8).
+  [BATHING_SOURCE_ID]: {
+    id: BATHING_SOURCE_ID,
+    name: 'European Environment Agency — bathing water',
+    url:
+      'https://www.eea.europa.eu/en/datahub/datahubitem-view/' +
+      'c3858959-90da-4c1b-b9ca-492db0e514df',
+    licence: 'CC BY 4.0',
+    licenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
+    about:
+      'Reported by the member states under the EU Bathing Water Directive. ' +
+      'One classification per bathing season, from at least four samples ' +
+      'taken across that season.',
+    // 🔴 Not "last updated". The date is the day the SEASON's edition was
+    // published, which is a different fact from "somebody touched this
+    // record" — and the season it describes is the year on the page.
+    dateLabel: 'Classification for the season published on',
+    cadence: 'annual',
   },
 };
 
@@ -118,6 +173,29 @@ export function daysOld(updatedAt: string, today = new Date()): number | null {
 export function isStale(updatedAt: string, today = new Date()): boolean {
   const days = daysOld(updatedAt, today);
   return days !== null && days > STALE_AFTER_DAYS;
+}
+
+/**
+ * 🔴 CAMP-168: should a reader be told this record has gone quiet?
+ *
+ * Only where going quiet means something. A source that anybody may edit
+ * any day and has not been edited in two years is worth a sentence. A
+ * source that publishes one edition per year is doing exactly what it
+ * said it would, and an "out of date" flag on it is a false alarm we
+ * would be training people to ignore.
+ *
+ * 🔴 Both halves matter and a test mutates each: `annual` must never
+ * flag however old the record is, and `continuous` must still flag at
+ * the same 730 days it always did.
+ */
+export function shouldFlagStale(
+  source: SourceInfo | null,
+  updatedAt: string,
+  today = new Date(),
+): boolean {
+  if (!source) return false;
+  if (source.cadence === 'annual') return false;
+  return isStale(updatedAt, today);
 }
 
 /** The date as a reader reads it. Never invented when the source gave none. */

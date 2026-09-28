@@ -6,6 +6,8 @@
 
 import type { SpotSource } from './sources';
 import type { Tariff } from './tariffs';
+// CAMP-168: the official bathing water classification for a season.
+import type { BathingWater } from './bathing';
 
 export type { SpotSource };
 export type { Tariff };
@@ -282,6 +284,21 @@ export interface Spot {
    * calls forbidden.
    */
   tariffs?: Tariff[];
+  /**
+   * CAMP-168: the nearest officially designated bathing water, or null.
+   *
+   * 🔴 Optional here and `?? null` at the use, for the same reason as
+   * `contact` and `tariffs` above: `getSpot` is a cached `res.json()`
+   * and the API deploys separately. A payload written before this field
+   * existed must produce a page that says no bathing water is designated
+   * nearby — which is visible and reportable — rather than a page that
+   * throws.
+   *
+   * 🔴 `season` is REQUIRED inside it. There is no shape of this object
+   * without a year, because a class without its season is the one thing
+   * CAMP-168 exists to prevent.
+   */
+  bathingWater?: BathingWater | null;
   /**
    * How many further prices the source publishes with no season.
    *

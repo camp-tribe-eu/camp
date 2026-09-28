@@ -76,6 +76,35 @@ export const ISO_SUBDIVISION_OF: Readonly<Record<string, string>> = {
 };
 
 /**
+ * 🔴 CODES FROM A DIFFERENT CODE SYSTEM THAT NAME A MEMBER STATE.
+ *
+ * `EL` is Greece in the Eurostat/NUTS system. ISO 3166-1 leaves `EL`
+ * unassigned and calls the country `GR`, which is what
+ * eu-member-states.json holds — so `isEuMemberState('EL')` is a
+ * confident, silent **no**.
+ *
+ * 🔴 CAMP-168 measured what that costs. The EEA bathing water layer
+ * labels its countries the Eurostat way, and on 28.09.2026 **1 734 of
+ * its 22 010 EU-27 sites are Greek**. Without this entry every one of
+ * them is refused as "outside the Union", the importer exits 0, and the
+ * coverage report reads 26 of 27 countries — a shape that looks like
+ * Greece simply having no bathing waters rather than like a bug.
+ *
+ * 🔴 Kept SEPARATE from `ISO_SUBDIVISION_OF` above, and not merged with
+ * it. Åland is a subdivision of a member state; Greece is a member
+ * state under another spelling. Folding the two together would make the
+ * map's name a lie about half its contents, and the next person adding
+ * an entry would have no rule to follow.
+ *
+ * Written out, never derived — the same discipline as `ax`. A rule that
+ * guesses which foreign codes "really mean" a member state is a rule
+ * that will one day admit `UK`.
+ */
+export const NON_ISO_COUNTRY_CODE: Readonly<Record<string, string>> = {
+  el: 'gr',
+};
+
+/**
  * A country code as the member list spells it, or the code unchanged.
  *
  * 🔴 Call this BEFORE testing membership on anything sourced from
@@ -86,7 +115,7 @@ export const ISO_SUBDIVISION_OF: Readonly<Record<string, string>> = {
 export function normaliseCountry(code: string | null | undefined): string {
   if (typeof code !== 'string') return '';
   const c = code.trim().toLowerCase();
-  return ISO_SUBDIVISION_OF[c] ?? c;
+  return ISO_SUBDIVISION_OF[c] ?? NON_ISO_COUNTRY_CODE[c] ?? c;
 }
 
 /**

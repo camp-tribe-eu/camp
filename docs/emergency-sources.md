@@ -794,6 +794,35 @@ bathing waters data and coordinates: Member States authorities.*
 
 **Verdict: TAKE.**
 
+### Taken — CAMP-168, 28.09.2026
+
+Implemented in `apps/api/src/bathing/` (fetch, parse, import, the read
+query) and rendered by `apps/web/src/components/bathing-water.tsx`. Three
+things that were learned in the doing and are not in the survey above:
+
+- **The source does not speak ISO.** Greece arrives as `EL`, the
+  Eurostat code; ISO 3166-1 leaves `EL` unassigned and our member list
+  holds `gr`. A membership check without a translation refuses **1 734 of
+  the 22 010** rows, silently, and the coverage report then reads 26 of
+  27 countries. The alias lives in `apps/api/src/osm/eu.ts` as
+  `NON_ISO_COUNTRY_CODE`, kept separate from the Åland one because Åland
+  is a subdivision and Greece is a member state under another spelling.
+
+- **The radius is 2 000 m, and it is not chosen from coverage.** The
+  coverage curve has no knee — it climbs to 62% at 10 km — so choosing on
+  it always argues for the largest number. It is chosen on a different
+  field: CAMP-33 already labels every campsite's nearest water
+  sea/lake/river, from OpenStreetMap, and the EEA category either agrees
+  with that label or does not. Agreement runs 86.2% inside 500 m, 63.3%
+  in the 1.5–2 km band, and flattens near half from 2.5 km out. 2 km is
+  the last band that still carries signal. `report-coverage.ts` prints
+  the whole sweep.
+
+- **What it yields**: **18 605 of 61 558 campsites (30.2%)** have a
+  designated bathing water within 2 km — 18 082 with a class, 523 whose
+  nearest one the authorities did not classify — and all 27 member
+  states are represented.
+
 ---
 
 ## 9. EEA air quality — **TAKE**
