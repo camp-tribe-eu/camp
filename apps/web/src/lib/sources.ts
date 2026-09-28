@@ -92,6 +92,10 @@ export const FIELD_LABEL: Record<string, string> = {
   website: 'website',
   location: 'location',
   amenities: 'facilities',
+  // CAMP-147. Attribution for the price list is not optional: it is the
+  // field a reader is most likely to act on, and Licence Ouverte asks
+  // for the source and the date of what we reuse.
+  tariffs: 'prices',
 };
 
 /**

@@ -396,6 +396,24 @@ jobs:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
         run: npx ts-node src/spots/verify-links.ts
 
+      # CAMP-147. The card's own acceptance clause is "no displayed price
+      # exists without a validity period", and the only thing enforcing it
+      # in SQL is `DISPLAYABLE_TARIFF_SQL`. Until now the check that would
+      # catch it breaking ran when a human remembered to run it.
+      #
+      # 🔴 Two steps, like the filter check above: first prove the
+      # comparison can fail, then believe the run that says it passed. The
+      # self-test plants an undated tariff inside a rolled-back
+      # transaction and requires the SHIPPED read query to refuse it —
+      # which is also what makes this meaningful on a fixture database
+      # where `spot_tariffs` is empty and every invariant is trivially
+      # zero.
+      - name: Price check still catches an undated tariff
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: npx ts-node src/datatourisme/verify-prices.ts --self-test
+
       # The reconciler's default is a dry run, and this is what proves it
       # stays one: the row count before and after must be identical.
       # `links.spec.ts` asserts the same thing statically; this asserts it

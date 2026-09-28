@@ -5,8 +5,10 @@
 // it in pages would mean finding every call site the day the host changes.
 
 import type { SpotSource } from './sources';
+import type { Tariff } from './tariffs';
 
 export type { SpotSource };
+export type { Tariff };
 
 export const API_BASE =
   process.env.API_BASE_URL ?? 'http://localhost:3001';
@@ -265,6 +267,28 @@ export interface Spot {
   };
   /** Which source gave which field, and when it last changed it. */
   sources: SpotSource[];
+  /**
+   * CAMP-147: the price list — a table, never one number.
+   *
+   * 🔴 Optional, and every reader of it uses `?? []`. Same reason as
+   * `contact` above: the API and the site deploy separately and
+   * `getSpot` is a cached `res.json()`, so a payload written before this
+   * field existed must produce a page with no price table rather than a
+   * page that throws.
+   *
+   * 🔴 Every entry carries a validity period, because the API refuses to
+   * send one that does not — and `lib/tariffs.ts` refuses again on the
+   * way to the screen. Two independent locks on the one rule CAMP-147
+   * calls forbidden.
+   */
+  tariffs?: Tariff[];
+  /**
+   * How many further prices the source publishes with no season.
+   *
+   * Printed on the page. A table that quietly shows 3 of 11 tariffs has
+   * misrepresented the price list by omission.
+   */
+  tariffsWithheld?: number;
 }
 
 export interface NearbySpot {

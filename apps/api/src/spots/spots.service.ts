@@ -14,6 +14,9 @@ import {
   mergeLinked,
   notSecondarySql,
 } from './links';
+import { tariffsSql, withheldTariffCountSql } from './tariffs';
+import type { TariffView } from './tariffs';
+export type { TariffView } from './tariffs';
 
 // Re-exported so existing importers keep working; the rules themselves
 // live in canonical.ts, where a unit test can reach them.
@@ -63,6 +66,24 @@ export interface SpotView {
    * cannot say that.
    */
   sources: SpotSource[];
+  /**
+   * CAMP-147: the campsite's price list — a table, never one number.
+   *
+   * 🔴 Every entry carries its own validity period, because the API
+   * refuses to send one that does not. One campsite prices up to 83
+   * different things (bare pitch, motorhome pitch, mobile home by the
+   * week, the tourist tax, the dog), each in its own season; "from
+   * €13.50" is one of those 83 and is a lie in August.
+   */
+  tariffs: TariffView[];
+  /**
+   * How many further tariffs the source publishes with no season.
+   *
+   * 🔴 On the page, not swallowed. 5 622 of the 12 402 tariffs imported
+   * carry no period and cannot be shown; a page that prints the other
+   * few and says nothing has misrepresented the price list by omission.
+   */
+  tariffsWithheld: number;
   /**
    * CAMP-105: false when this page has nothing on it but a name.
    *
@@ -127,6 +148,16 @@ export class SpotsService {
               linked.contact AS linked_contact,
               linked.sources AS linked_sources,
               linked.owner_overrides AS linked_owner_overrides,
+              -- 🔴 CAMP-147. Read for BOTH rows, and the link is not a
+              -- nicety here: of the 1 200 pages that can show a price,
+              -- 648 get it only through their DATAtourisme secondary.
+              -- OpenStreetMap carries no tariffs at all, so reading
+              -- s.id alone would have halved the feature and the
+              -- measurement would still have looked plausible.
+              ${tariffsSql('s.id')} AS tariffs,
+              ${tariffsSql('linked.id')} AS linked_tariffs,
+              ${withheldTariffCountSql('s.id')} AS tariffs_withheld,
+              ${withheldTariffCountSql('linked.id')} AS linked_tariffs_withheld,
               (NOT ${NOTHING_TO_SAY_SQL}
                OR linked.stars IS NOT NULL
                OR linked.description IS NOT NULL) AS indexable
@@ -723,6 +754,12 @@ function toView(row: Record<string, unknown>): SpotView {
     // in a half-deployed state, not for a case the schema allows.
     contact: (row.contact as SpotView['contact']) ?? {},
     sources: (row.sources ?? []) as SpotSource[],
+    // 🔴 `?? []`, and the default is "no prices", never a partial list.
+    // Every query that does not select these columns is a query that
+    // knows nothing about prices; the failure must be a page with no
+    // price table, not a page with somebody else's.
+    tariffs: (row.tariffs ?? []) as TariffView[],
+    tariffsWithheld: Number(row.tariffs_withheld ?? 0),
     // 🔴 Defaults to indexable when the column is absent, not to hidden.
     // A query that forgot to select it must not silently noindex a page
     // that has plenty to say — the failure should be a page that ranks

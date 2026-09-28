@@ -21,6 +21,7 @@ import {
   RentalCityTranslation,
 } from './entities/rental.entity';
 import { PhotoSubmission, Review } from './entities/moderation.entity';
+import { SpotTariff } from './entities/spot-tariff.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -45,6 +46,8 @@ export const AppDataSource = new DataSource({
     RentalCityTranslation,
     PhotoSubmission,
     Review,
+    // CAMP-147: the campsite price list, one row per tariff.
+    SpotTariff,
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

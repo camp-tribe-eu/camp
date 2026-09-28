@@ -87,6 +87,49 @@ const full: Spot = {
     elevation: 475,
     terrain: { relief: 210, type: 'hilly' },
   },
+  // 🔴 CAMP-147, and it is in the RICHEST fixture on purpose — read the
+  // note above this object. `Offer` and `PriceSpecification` are gated
+  // on `spot.tariffs`, so a fixture without one would let the whole
+  // price markup ship without the type-evidence walk ever seeing it.
+  // That is the exact failure this fixture was once caught committing,
+  // with an invented `Offer`.
+  //
+  // 🔴 The season deliberately spans 2020–2099. It has to be CURRENT
+  // whenever this suite runs, and a real-looking 2026 season would turn
+  // these assertions green today and red for ever afterwards without
+  // anything having changed. The rule that an expired tariff emits no
+  // markup is asserted separately, on a fixture built to be expired.
+  tariffs: [
+    {
+      offer: 'BarePitch',
+      mode: 'Overnight',
+      policy: 'BaseRateFullRate',
+      minPrice: '18.00',
+      maxPrice: '25.00',
+      currency: 'EUR',
+      validFrom: '2020-04-01',
+      validUntil: '2099-09-26',
+      label: 'Pour une nuit avec électricité, wifi, eau',
+      labelLang: 'fr',
+      sourceUpdatedAt: '2026-08-31',
+      sourceId: 'datatourisme',
+    },
+    {
+      offer: 'TouristTax',
+      mode: 'PerPerson',
+      policy: null,
+      minPrice: '0.66',
+      maxPrice: '0.66',
+      currency: 'EUR',
+      validFrom: '2020-04-01',
+      validUntil: '2099-09-26',
+      label: null,
+      labelLang: null,
+      sourceUpdatedAt: '2026-08-31',
+      sourceId: 'datatourisme',
+    },
+  ],
+  tariffsWithheld: 3,
 };
 
 // 🔴 The build's own validator, loaded rather than re-implemented.
@@ -348,12 +391,43 @@ test('🔴 pitches are still not published as structured data', () => {
   // file refuses to encode. The number is printed on the page, labelled
   // as pitches, where a reader can weigh it.
   const withCapacity = { ...full, contact: { ...full.contact, capacity: 137 } };
-  const json = JSON.stringify(graphFor(withCapacity));
+  const graph = graphFor(withCapacity);
+  const json = JSON.stringify(graph);
   expect(json).not.toContain('maximumAttendeeCapacity');
   // Not under any other name either — the number itself must be absent,
   // and no property may be named for it.
   expect(json).not.toContain('137');
-  expect(json).not.toMatch(/pitch|capacit/i);
+
+  // 🔴 NARROWED, NOT RELAXED — CAMP-147, and the reason is worth the
+  // paragraph.
+  //
+  // This used to be `expect(json).not.toMatch(/pitch|capacit/i)` over the
+  // whole serialised graph. That is a test of the VALUES as well as the
+  // keys, and it went red the day the price list arrived, because
+  // DATAtourisme's own pricing vocabulary contains `kb:BarePitch` and
+  // `kb:CamperPitch` — "Bare pitch, per night" is the name of a tariff,
+  // published by the operator, and has nothing to do with how many
+  // pitches OpenStreetMap thinks the site has.
+  //
+  // What this test actually claims, in its own words above, is that the
+  // number is absent and that "no property may be named for it". So it
+  // now asserts exactly that, over every KEY in the graph. It still
+  // fails on `maximumAttendeeCapacity`, on `numberOfPitches`, and on any
+  // other property somebody invents for the quantity — which is the
+  // whole scar — and it no longer fails on a word appearing inside a
+  // value that is not a capacity claim.
+  const keys = new Set<string>();
+  const collect = (value: unknown): void => {
+    if (Array.isArray(value)) return value.forEach(collect);
+    if (value && typeof value === 'object') {
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        keys.add(k);
+        collect(v);
+      }
+    }
+  };
+  collect(graph);
+  expect([...keys].filter((k) => /pitch|capacit/i.test(k))).toEqual([]);
 });
 
 // ── nothing claimed without a field behind it ──────────────────────────
@@ -844,5 +918,105 @@ test.describe('CAMP-141: contact reaches the structured data', () => {
     expect(withContact({ website: 'https://osm.example/' }, { website: null }).sameAs)
       .toEqual(['https://osm.example/']);
     expect(withContact({}, { website: null })).not.toHaveProperty('sameAs');
+  });
+});
+
+// ── CAMP-147: the price list, as markup ──────────────────────────────────
+//
+// 🔴 The card asked for `offers`. `offers` is the next `provider`, and
+// the first test below is the evidence rather than the assertion.
+
+test.describe('prices in the graph', () => {
+  const priced = (tariffs: Spot['tariffs'], withheld = 0): Spot => ({
+    ...full,
+    tariffs,
+    tariffsWithheld: withheld,
+  });
+  const path = '/camping/si/gorenjska/camping-bled';
+
+  test('🔴 `offers` would have been rejected on Campground', () => {
+    // Asked of the same vocabulary index the build uses. This is why the
+    // graph emits `makesOffer`, and the test is here so that anybody
+    // "fixing" it back to `offers` meets the reason first.
+    const node = {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      '@id': 'https://camptribe.eu/x#campground',
+      name: 'Camping Bled',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'SI' },
+      geo: { '@type': 'GeoCoordinates', latitude: 46.36, longitude: 14.09 },
+      offers: [{ '@type': 'Offer', price: '18.00', priceCurrency: 'EUR' }],
+    };
+    expect(validates(node).join(' ')).toContain(
+      '"offers" is not allowed on Campground',
+    );
+  });
+
+  test('the graph emits makesOffer and never offers', () => {
+    const node = campgroundGraph(full, path) as Record<string, unknown>;
+    expect(node).toHaveProperty('makesOffer');
+    expect(node).not.toHaveProperty('offers');
+    expect(validates(node)).toEqual([]);
+  });
+
+  test('every offer states when its price stops being true', () => {
+    // 🔴 The card's rule, in the half a reader cannot see. A machine has
+    // no way to read "expired" off a label, so the date has to be in the
+    // data or the price is published as though it were permanent.
+    const node = campgroundGraph(full, path) as Record<string, unknown>;
+    const offers = node.makesOffer as Record<string, unknown>[];
+    expect(offers.length).toBeGreaterThan(0);
+    for (const offer of offers) {
+      const price = offer.priceSpecification as Record<string, unknown>;
+      expect(price.validThrough ?? price.validFrom).toBeTruthy();
+      expect(price.priceCurrency).toBe('EUR');
+    }
+  });
+
+  test('🔴 an expired tariff produces no markup at all', () => {
+    // It stays on the page, labelled as over. It does NOT go into the
+    // graph: `makesOffer` states that this business offers this at this
+    // price, and nothing in the markup can say "last October".
+    const stale = priced([
+      { ...full.tariffs![0], validFrom: '2020-04-01', validUntil: '2020-09-26' },
+    ]);
+    expect(campgroundGraph(stale, path)).not.toHaveProperty('makesOffer');
+  });
+
+  test('a campsite with no prices emits no Offer and no PriceSpecification', () => {
+    expect(campgroundGraph(bare, path)).not.toHaveProperty('makesOffer');
+    expect(campgroundGraph(priced([]), path)).not.toHaveProperty('makesOffer');
+  });
+
+  test('🔴 a tariff with no validity period is never marked up', () => {
+    const undated = priced([
+      { ...full.tariffs![0], validFrom: null, validUntil: null },
+    ]);
+    expect(campgroundGraph(undated, path)).not.toHaveProperty('makesOffer');
+  });
+
+  test('amounts stay strings, exactly as stored', () => {
+    const node = campgroundGraph(full, path) as Record<string, unknown>;
+    const first = (node.makesOffer as Record<string, unknown>[])[0];
+    const price = first.priceSpecification as Record<string, unknown>;
+    expect(price.minPrice).toBe('18.00');
+    expect(price.maxPrice).toBe('25.00');
+  });
+
+  test('a single figure is a price, not a floor', () => {
+    const node = campgroundGraph(full, path) as Record<string, unknown>;
+    const tax = (node.makesOffer as Record<string, unknown>[])[1];
+    const price = tax.priceSpecification as Record<string, unknown>;
+    expect(price.price).toBe('0.66');
+    expect(price).not.toHaveProperty('minPrice');
+  });
+
+  test('a spot whose payload predates prices does not throw', () => {
+    // Same reason as `contact`: the API and the site deploy separately.
+    const old = { ...full } as Spot;
+    delete (old as { tariffs?: unknown }).tariffs;
+    expect(() => campgroundGraph(old, path)).not.toThrow();
+    expect(campgroundGraph(old, path)).not.toHaveProperty('makesOffer');
   });
 });
