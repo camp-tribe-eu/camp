@@ -31,9 +31,22 @@ export const LAYERS = [
     status: 'live',
   },
   {
+    id: 'wildfire',
+    // 🔴 "Wildfire", not "Fire risk". We draw the burnt areas Copernicus
+    // has already mapped — a record of what happened, dated. "Risk" is a
+    // forecast, and we make none; a label that promised one would be the
+    // first assertion of ours on a layer whose whole discipline is
+    // mirroring somebody else's.
+    label: 'Wildfire',
+    description:
+      'Burnt areas mapped by Copernicus EFFIS in the last two weeks, with the date each fire was recorded.',
+    status: 'live',
+    card: 'CAMP-153',
+  },
+  {
     id: 'hazards',
     label: 'Hazards',
-    description: 'Official fire and severe-weather warnings.',
+    description: 'Official severe-weather warnings.',
     status: 'planned',
     card: 'CAMP-112',
   },
