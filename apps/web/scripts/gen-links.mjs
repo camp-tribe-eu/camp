@@ -14,9 +14,11 @@
 // willing to make.
 //
 // ⚠️ Same edge-bundle ceiling as the gone list, and this one is far
-// bigger — 2 986 pairs of paths on the first run, about 190 KB. The cap
-// below is deliberately close to that, so the day it is crossed somebody
-// reads this comment instead of debugging a deploy.
+// bigger: 2 986 pairs of paths on the first run, 288 923 bytes measured.
+// The cap below is 512 KB — about 1.8x the current size, so it leaves
+// room for CAMP-128's feed to grow the map and still stops a deploy
+// before the bundle itself is in trouble. A path is roughly 50 bytes, so
+// the cap is reached at roughly 5 300 links.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -57,7 +59,8 @@ for (const { from, to } of links) {
 // (12 KB, not the 110 KB a first guess suggested: the paths themselves
 // are almost the entire file, so the saving is small. It is taken
 // because it is free, not because it solves the ceiling — 2 986 links
-// already use 29% of the budget, and CAMP-128's feed will add more.)
+// already use 56% of the 512 KB cap this script enforces, and CAMP-128's
+// feed will add more.)
 const body = JSON.stringify(map) + '\n';
 if (Buffer.byteLength(body) > MAX_BYTES) {
   throw new Error(

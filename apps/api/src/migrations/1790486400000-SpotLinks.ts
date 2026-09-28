@@ -30,12 +30,20 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * 🔴 NOTHING IS DELETED BY THIS, AND NOTHING NEEDS TO BE.
  *
- * Measured 28.09.2026: of the pairs this links, 1 292 have one side
- * holding a fact the other lacks, and 788 would gain BOTH contact
- * details and an official star rating from being read together. The
- * OSM row has the phone number, the DATAtourisme row has the state's
- * classification. Deleting either destroys data; joining them is the
- * only operation that loses nothing.
+ * Measured 28.09.2026 against the 2 986 links this actually wrote — not
+ * against the card's 1 358, which counted a narrower rule:
+ *
+ *     one side holds a fact the other lacks        2 774
+ *     together give BOTH contact AND stars         2 121
+ *     star rating present on BOTH sides                0
+ *     star rating present on the OSM side              0
+ *
+ * The last two lines are the argument. OpenStreetMap does not carry the
+ * French classification at all, so for every one of the 2 134 links
+ * where a star rating exists, it exists on exactly one row — and that
+ * row is never the one with the phone number. Deleting either side
+ * destroys a fact nothing else holds; joining them is the only
+ * operation that loses nothing.
  *
  * 🔴 DIRECTION IS FIXED: primary = the OSM row, secondary = the other.
  *
@@ -88,9 +96,24 @@ export class SpotLinks1790486400000 implements MigrationInterface {
         ON spot_links (secondary_id) WHERE unlinked_at IS NULL
     `);
 
-    // The read side's hot question: "what else belongs to this spot?"
+    // 🔴 UNIQUE, and it was not at first — review caught that.
+    //
+    // The read side joins the linked row with LIMIT 1. With only the
+    // secondary side unique, two DATAtourisme records near one OSM
+    // campsite could each pick that campsite as their best match and
+    // both links would be written: legal SQL, and then the star rating,
+    // the description and the sitemap's lastmod on that page would be
+    // whichever row the planner happened to return. No error, and a page
+    // that can change between builds.
+    //
+    // DATAtourisme publishing a campsite and its motorhome pitch as two
+    // POIs is the ordinary way in — the importer already met that pair
+    // 21 m apart (see datatourisme/import.ts). So this is a constraint,
+    // not a comment: the second link is refused, the reconciler leaves
+    // that record for a person, and a human who wants both must say
+    // which one is the campsite.
     await queryRunner.query(`
-      CREATE INDEX IF NOT EXISTS idx_spot_links_primary_live
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_spot_links_primary_live
         ON spot_links (primary_id) WHERE unlinked_at IS NULL
     `);
 

@@ -98,6 +98,42 @@ describe('proposeLinks', () => {
     const out = proposeLinks([pair, pair], new Set());
     expect(out.link).toHaveLength(1);
   });
+
+  it('gives one campsite to one record, and the loser to a person', () => {
+    // 🔴 Grouping by the non-OSM row answers "which campsite is this
+    // record?" once per record — so two DATAtourisme rows beside one OSM
+    // campsite could each name it and BOTH links were proposed. The
+    // unique index would then reject the second halfway through a run.
+    // DATAtourisme listing a campsite and its motorhome pitch as two
+    // POIs is the ordinary way in.
+    const second = row({
+      id: 'dt-2',
+      name: 'Les 2 Rivières',
+      lon: east(120),
+    });
+    const out = proposeLinks(
+      [pair, { a: osm, b: second, metres: 120 }],
+      new Set(),
+    );
+    expect(out.link).toHaveLength(1);
+    expect(out.review).toHaveLength(1);
+    // The closer record wins, whichever order they arrived in.
+    expect(out.link[0].secondary.id).toBe('dt-1');
+    expect(out.review[0].secondary.id).toBe('dt-2');
+  });
+
+  it('picks the same winner whichever order the pairs arrive in', () => {
+    const second = row({ id: 'dt-2', name: 'Les 2 Rivières', lon: east(120) });
+    const forwards = proposeLinks(
+      [pair, { a: osm, b: second, metres: 120 }],
+      new Set(),
+    );
+    const backwards = proposeLinks(
+      [{ a: osm, b: second, metres: 120 }, pair],
+      new Set(),
+    );
+    expect(forwards.link[0].secondary.id).toBe(backwards.link[0].secondary.id);
+  });
 });
 
 describe('complements', () => {

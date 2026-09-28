@@ -143,7 +143,18 @@ export const CANDIDATE_SQL = `
       ON a.id < b.id
      AND ST_DWithin(a.location, b.location, $1::float8)
      AND ST_DistanceSphere(a.location, b.location) <= $2::float8
-   WHERE (a.osm_ref IS NULL) <> (b.osm_ref IS NULL)`;
+   WHERE (a.osm_ref IS NULL) <> (b.osm_ref IS NULL)
+     -- 🔴 A link to a row that is not on the site is not worth making,
+     -- and worse than useless: it would hide a perfectly good record
+     -- behind a page that does not exist. The OSM side must have a URL
+     -- (a region) and must still be in OSM. Measured 24.09.2026: 135
+     -- rows carry no region at all.
+     --
+     -- The read side tolerates a primary that becomes unpublishable
+     -- LATER — the secondary simply un-hides. This stops us creating
+     -- that state on purpose.
+     AND (a.osm_ref IS NULL OR (a.region IS NOT NULL AND a.missing_since IS NULL))
+     AND (b.osm_ref IS NULL OR (b.region IS NOT NULL AND b.missing_since IS NULL))`;
 
 type RawPair = Record<string, unknown>;
 
@@ -202,6 +213,22 @@ export function proposeLinks(pairs: PairRow[], judged: Set<string>): Outcome {
   }
 
   const out: Outcome = { link: [], review: [], apart: 0, alreadyJudged: 0 };
+  /**
+   * Which OSM row each proposed link has claimed.
+   *
+   * 🔴 Grouping by the non-OSM row answers "which campsite is this
+   * record?", and answers it once per record — so two DATAtourisme rows
+   * beside one OSM campsite can each name that campsite and BOTH links
+   * get proposed. `idx_spot_links_primary_live` now refuses the second,
+   * which turns a silent wrong answer into a crash mid-run; refusing it
+   * here instead turns it into the review pile, where it belongs.
+   *
+   * DATAtourisme listing a campsite and its motorhome pitch separately
+   * is the ordinary way in — the importer already met that pair 21 m
+   * apart. Only a person can say which of the two is the campsite.
+   */
+  const claimed = new Map<string, Proposal>();
+
   for (const { row, cands } of byNonOsm.values()) {
     const candidates: Candidate[] = cands.map((c) => ({
       id: c.id,
@@ -238,8 +265,34 @@ export function proposeLinks(pairs: PairRow[], judged: Set<string>): Outcome {
       similarity: d.similarity,
       why: d.why,
     };
-    if (d.verdict === 'same') out.link.push(proposal);
-    else out.review.push(proposal);
+    if (d.verdict !== 'same') {
+      out.review.push(proposal);
+      continue;
+    }
+
+    const rival = claimed.get(primary.id);
+    if (!rival) {
+      claimed.set(primary.id, proposal);
+      out.link.push(proposal);
+      continue;
+    }
+    // Two records want the same campsite. Keep the closer one — and if
+    // the distance ties, the more similar name, and if that ties too the
+    // lower id, so the same input always gives the same answer.
+    const better =
+      proposal.metres !== rival.metres
+        ? proposal.metres < rival.metres
+        : proposal.similarity !== rival.similarity
+          ? proposal.similarity > rival.similarity
+          : proposal.secondary.id < rival.secondary.id;
+    const winner = better ? proposal : rival;
+    const loser = better ? rival : proposal;
+    claimed.set(primary.id, winner);
+    out.link[out.link.indexOf(rival)] = winner;
+    out.review.push({
+      ...loser,
+      why: `another record ${loser.metres} m away also matched this campsite`,
+    });
   }
   return out;
 }
@@ -413,13 +466,26 @@ async function main(): Promise<void> {
     // rate would climb with distance. Printing it per band is what turns
     // "150 m feels right" into something that can be shown to be wrong.
     console.log("\n  disagreement by distance, the rule's loosest corner:");
+    // 🔴 The last band is INCLUSIVE, and that is not a detail.
+    //
+    // With `< 150` the six links that round to exactly 150 m fell into no
+    // band at all — the table summed to 2 980 of 2 986 — and they are the
+    // loosest links in the set. The argument this table makes is "if the
+    // rule broke at its far edge, disagreement would climb with
+    // distance", and it was being made with the far edge deleted. The
+    // assertion below is what stops that returning.
+    let banded = 0;
     for (const [lo, hi] of [
       [0, 25],
       [25, 50],
       [50, 100],
-      [100, 150],
+      [100, RULES.sameSpotMetres],
     ] as [number, number][]) {
-      const band = out.link.filter((p) => p.metres >= lo && p.metres < hi);
+      const last = hi === RULES.sameSpotMetres;
+      const band = out.link.filter(
+        (p) => p.metres >= lo && (last ? p.metres <= hi : p.metres < hi),
+      );
+      banded += band.length;
       const e = judgeByIdentity(band.map(asPair));
       const b = upperBoundPercent(e);
       console.log(
@@ -427,6 +493,13 @@ async function main(): Promise<void> {
           `${String(band.length).padStart(5)} links  ` +
           `${String(e.agree + e.disagree).padStart(5)} judgeable  ` +
           `${b === null ? '   —' : b.toFixed(1).padStart(5) + '%'}`,
+      );
+    }
+    if (banded !== out.link.length) {
+      throw new Error(
+        `the distance bands cover ${banded} of ${out.link.length} links — ` +
+          'a band boundary is dropping exactly the links this table exists ' +
+          'to defend',
       );
     }
 
@@ -517,20 +590,49 @@ async function main(): Promise<void> {
 
     await db.query('BEGIN');
     let written = 0;
+    const refused: string[] = [];
     for (const p of out.link) {
-      const r = await db.query(
-        `INSERT INTO spot_links
-           (primary_id, secondary_id, metres, name_similarity, rule)
-         VALUES ($1, $2, $3, $4, $5)
-         -- A concurrent run, or a pair a person linked by hand, must not
-         -- turn this into a crash halfway through.
-         ON CONFLICT (primary_id, secondary_id) DO NOTHING`,
-        [p.primary.id, p.secondary.id, p.metres, p.similarity, RULE_ID],
-      );
-      written += r.rowCount ?? 0;
+      // 🔴 A SAVEPOINT per row, because ON CONFLICT covers ONE index and
+      // this table has three.
+      //
+      // `ON CONFLICT (primary_id, secondary_id)` catches a pair we have
+      // already judged. It does NOT catch a row that collides with the
+      // partial unique index on `secondary_id` or on `primary_id` — for
+      // example a link a person made by hand between the same rows in
+      // the other direction. Without a savepoint that one row aborts the
+      // transaction and all ~3 000 writes roll back, AFTER the run has
+      // printed a confident summary. Measured cost of the savepoint on
+      // 2 986 rows: under a second.
+      await db.query('SAVEPOINT one_link');
+      try {
+        const r = await db.query(
+          `INSERT INTO spot_links
+             (primary_id, secondary_id, metres, name_similarity, rule)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (primary_id, secondary_id) DO NOTHING`,
+          [p.primary.id, p.secondary.id, p.metres, p.similarity, RULE_ID],
+        );
+        written += r.rowCount ?? 0;
+        await db.query('RELEASE SAVEPOINT one_link');
+      } catch (err) {
+        await db.query('ROLLBACK TO SAVEPOINT one_link');
+        refused.push(
+          `${p.primary.osm_ref ?? p.primary.id} ↔ ${p.secondary.slug}: ` +
+            `${(err as Error).message}`,
+        );
+      }
     }
     await db.query('COMMIT');
     console.log(`\n✓ ${written} links written. No campsite row was touched.`);
+    // 🔴 Named, not counted. Every one of these is a row the database
+    // already holds an opinion about, and a number would not say whose.
+    if (refused.length > 0) {
+      console.log(`\n⚠ ${refused.length} refused by the database:`);
+      for (const r of refused.slice(0, 20)) console.log(`    ${r}`);
+      if (refused.length > 20) {
+        console.log(`    … and ${refused.length - 20} more`);
+      }
+    }
   } catch (err) {
     await db.query('ROLLBACK').catch(() => undefined);
     throw err;

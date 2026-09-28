@@ -61,8 +61,16 @@ export type LinkEvidence = {
  * on the other is not two businesses disagreeing — it is one business
  * that built its site on a free host, and counting it as a disagreement
  * inflates the error rate with cases that contain no information at all.
- * Measured on the 28.09.2026 run: 31 of 436 disagreeing links had a host
- * from this list on one side.
+ *
+ * Measured against the 2 986 live links on 28.09.2026: 470 have a host
+ * from this list on at least one side — 454 on the OSM side (free
+ * mailboxes, mostly) and 52 on the other. Every one of those would
+ * otherwise have been counted as evidence about who the business is.
+ *
+ * (An earlier version of this comment said "31 of 436". Both numbers
+ * were wrong: 436 came from the website-only run before the email axis
+ * existed, and 31 was never measured at all. Review caught that 436 and
+ * the 387 stated eight lines above could not be the same measurement.)
  *
  * 🔴 What is NOT in this list, deliberately: chain operators
  * (capfun.com, yellohvillage.fr, sandaya.fr, campingcarpark.com) and

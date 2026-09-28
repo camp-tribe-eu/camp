@@ -1,3 +1,5 @@
+import { mergedStarsSql } from '../spots/links';
+
 // CAMP-66 / CAMP-130: guides assembled from what we measured, not from
 // what we think.
 //
@@ -110,6 +112,24 @@ export type Theme = {
  * not belong here however good an article it would make — that is what
  * the human-written guides are for, and they need a human.
  */
+/**
+ * The official star rating, read through the source link.
+ *
+ * 🔴 CAMP-144. OpenStreetMap does not carry the French classification at
+ * all — measured across the 2 986 linked pairs, the OSM side has a star
+ * rating 0 times. The rating lives on the DATAtourisme row, and that row
+ * is now hidden from every listing because the two are one campsite.
+ *
+ * A bare `stars` here would therefore have answered "none" for the whole
+ * of France: the `classified` theme below would have found nothing, and
+ * the "with an official star rating" facet on three other themes would
+ * have read zero everywhere. Review caught it; the dry run confirms it.
+ *
+ * The table in these statements is `camping_spots`, unaliased — adding a
+ * join to any of them means aliasing it and changing this line with it.
+ */
+const STARS = mergedStarsSql('camping_spots');
+
 export const THEMES: Theme[] = [
   {
     id: 'motorhome',
@@ -159,7 +179,7 @@ export const THEMES: Theme[] = [
       },
       {
         label: 'with an official star rating',
-        predicate: `stars IS NOT NULL`,
+        predicate: `${STARS} IS NOT NULL`,
       },
       { label: 'with a website we hold', predicate: `website IS NOT NULL` },
     ],
@@ -168,13 +188,13 @@ export const THEMES: Theme[] = [
     id: 'classified',
     title: (r) => `Four- and five-star campsites in ${r}`,
     question: 'Which campsites here carry a high official classification?',
-    predicate: `stars >= 4`,
-    recorded: `stars IS NOT NULL`,
+    predicate: `${STARS} >= 4`,
+    recorded: `${STARS} IS NOT NULL`,
     otherwise: 'carry an official rating below four stars',
     noun: 'rated four or five official stars',
     facets: [
-      { label: 'with five stars', predicate: `stars = 5` },
-      { label: 'with four', predicate: `stars = 4` },
+      { label: 'with five stars', predicate: `${STARS} = 5` },
+      { label: 'with four', predicate: `${STARS} = 4` },
       {
         label: 'with recorded wheelchair access',
         predicate: `amenities ->> 'wheelchair' = 'yes'`,
@@ -209,7 +229,7 @@ export const THEMES: Theme[] = [
       },
       {
         label: 'with an official star rating',
-        predicate: `stars IS NOT NULL`,
+        predicate: `${STARS} IS NOT NULL`,
       },
     ],
   },
@@ -234,7 +254,7 @@ export const THEMES: Theme[] = [
       },
       {
         label: 'with an official star rating',
-        predicate: `stars IS NOT NULL`,
+        predicate: `${STARS} IS NOT NULL`,
       },
       { label: 'with a website we hold', predicate: `website IS NOT NULL` },
     ],

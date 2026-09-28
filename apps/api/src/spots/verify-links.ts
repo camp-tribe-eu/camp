@@ -31,6 +31,17 @@ const INVARIANTS: { name: string; sql: string }[] = [
            WHERE l.unlinked_at IS NULL`,
   },
   {
+    // 🔴 The invariant that was missing while the comment on
+    // LINKED_SECONDARY_JOIN claimed it was checked here. Two records
+    // pointing at one campsite makes the star rating on that page depend
+    // on the query planner. The unique index prevents it; this proves
+    // the index is doing what it was added for.
+    name: 'a live primary carries at most one secondary',
+    sql: `SELECT count(*)::int AS n FROM (
+            SELECT primary_id FROM spot_links WHERE unlinked_at IS NULL
+             GROUP BY primary_id HAVING count(*) > 1) x`,
+  },
+  {
     name: 'a live secondary belongs to exactly one primary',
     sql: `SELECT count(*)::int AS n FROM (
             SELECT secondary_id FROM spot_links WHERE unlinked_at IS NULL
@@ -51,11 +62,44 @@ const INVARIANTS: { name: string; sql: string }[] = [
            WHERE primary_id = secondary_id`,
   },
   {
-    name: 'a primary is publishable — it has a region, so it has a URL',
+    // 🔴 A → B and B → A are both legal under the two partial unique
+    // indexes, and together they are a redirect loop with both rows
+    // hidden from the site. The reconciler cannot build one (the primary
+    // is always the OSM side and an OSM row is never a secondary), so
+    // this is about what a hand-written link can do.
+    name: 'no two rows are linked to each other in both directions',
+    sql: `SELECT count(*)::int AS n
+            FROM spot_links a
+            JOIN spot_links b ON b.primary_id = a.secondary_id
+                             AND b.secondary_id = a.primary_id
+                             AND b.unlinked_at IS NULL
+           WHERE a.unlinked_at IS NULL`,
+  },
+];
+
+/**
+ * Things worth saying out loud that are NOT failures.
+ *
+ * 🔴 "The primary has no region" used to be invariant 5, and it was
+ * wrong to fail on it. `isSecondarySql` now deliberately TOLERATES a
+ * primary that has become unpublishable — the secondary un-hides and
+ * becomes its own page again, which is the correct outcome and the whole
+ * point of the second commit on this branch. Failing here would have
+ * turned that correct state into a red build.
+ *
+ * The reconciler no longer CREATES such a link (its candidate query
+ * requires the primary to be publishable), so a count above zero means
+ * the world moved under an existing link, which is ordinary. It is
+ * reported because it is worth seeing, not because it is broken.
+ */
+const NOTICES: { name: string; sql: string }[] = [
+  {
+    name: 'links whose primary has since gone missing or lost its region',
     sql: `SELECT count(*)::int AS n
             FROM spot_links l
             JOIN camping_spots p ON p.id = l.primary_id
-           WHERE l.unlinked_at IS NULL AND p.region IS NULL`,
+           WHERE l.unlinked_at IS NULL
+             AND (p.region IS NULL OR p.missing_since IS NOT NULL)`,
   },
 ];
 
@@ -74,12 +118,37 @@ async function main(): Promise<void> {
       `${live.rows[0].n} live links, ${undone.rows[0].n} undone by hand\n`,
     );
 
+    // 🔴 docs/data-durability.md argues that `spot_links` need not be
+    // backed up, and the argument rests on one number: nobody has undone
+    // a link yet. The links themselves rebuild in a second; a person's
+    // "this match is wrong" does not, and losing it means the reconciler
+    // silently recreates the link they removed.
+    //
+    // A dated comment cannot notice when its own premise expires. This
+    // can, and it runs in CI already.
+    if (undone.rows[0].n > 0) {
+      console.log(
+        `⚠ ${undone.rows[0].n} link(s) carry a human decision that no ` +
+          'backup holds.\n' +
+          '  docs/data-durability.md assumed this count was 0. It is not ' +
+          'any more:\n' +
+          '  spot_links needs an export keyed on osm_ref and the source ' +
+          'URI, with a restore path and a self-test.\n',
+      );
+    }
+
     console.log('--- invariants ---');
     for (const inv of INVARIANTS) {
       const r = await db.query<{ n: number }>(inv.sql);
       const n = r.rows[0]?.n ?? 0;
       console.log(`  ${n === 0 ? '✓' : '✗'} ${inv.name}${n ? ` (${n})` : ''}`);
       if (n !== 0) failed++;
+    }
+
+    for (const notice of NOTICES) {
+      const r = await db.query<{ n: number }>(notice.sql);
+      const n = r.rows[0]?.n ?? 0;
+      console.log(`  · ${notice.name}: ${n} (their rows are visible again)`);
     }
 
     // ------------------------------------------------------------------
@@ -188,6 +257,17 @@ async function main(): Promise<void> {
            FROM camping_spots p
            JOIN camping_spots o ON o.id <> p.id
           WHERE p.osm_ref IS NOT NULL
+            -- 🔴 The partner must be a row that COULD be a secondary,
+            -- and must not already be one. Picking the first row by id
+            -- collided with the live unique index on a database that
+            -- already had links: the INSERT threw, the error escaped
+            -- past the rollback, and the script died with a Postgres
+            -- message instead of reporting a check.
+            AND o.osm_ref IS NULL
+            AND NOT EXISTS (SELECT 1 FROM spot_links x
+                             WHERE x.unlinked_at IS NULL
+                               AND (x.secondary_id = o.id
+                                 OR x.primary_id = p.id))
           ORDER BY p.id, o.id
           LIMIT 1`,
       );

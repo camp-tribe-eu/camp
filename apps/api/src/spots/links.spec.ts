@@ -98,6 +98,21 @@ describe('notSecondarySql', () => {
 });
 
 describe('LINKED_SECONDARY_JOIN', () => {
+  it('is deterministic — ORDER BY before LIMIT', () => {
+    // 🔴 A bare LIMIT 1 picks whatever the planner returns first. With
+    // two secondaries on one primary that made the star rating on a page
+    // change between builds, with no error anywhere. The unique index
+    // now prevents the second row; this keeps the query honest even if
+    // it ever does not.
+    const join = LINKED_SECONDARY_JOIN;
+    expect(join.indexOf('ORDER BY')).toBeGreaterThan(-1);
+    expect(join.indexOf('ORDER BY')).toBeLessThan(join.indexOf('LIMIT 1'));
+  });
+
+  it('selects an id, so the merge can tell "no linked row" from "no data"', () => {
+    expect(LINKED_SECONDARY_JOIN).toContain('x.id');
+  });
+
   it('never brings the other row‘s location, amenities or slug', () => {
     // The page's URL and its geometry are the primary's, always. A join
     // that offered these would let a later edit pick one up by accident.
@@ -126,6 +141,7 @@ describe('mergeLinked', () => {
     ],
   };
   const fromOther = {
+    linked_id: 'b2b2b2b2-0000-0000-0000-000000000001',
     linked_name: 'Camping 2 Rivières',
     linked_stars: 3,
     linked_description: 'Camping traditionnel…',
@@ -145,6 +161,68 @@ describe('mergeLinked', () => {
 
   it('leaves an unlinked row exactly as it found it', () => {
     expect(mergeLinked({ ...osm })).toEqual(osm);
+  });
+
+  it('merges a linked row whose own sources column is null', () => {
+    // 🔴 The sentinel used to be `linked_sources`, a plain nullable
+    // jsonb column. A secondary with no sources meant "there is no
+    // linked row", the merge was skipped in silence, and the star
+    // rating — the entire point of the card — did not reach the page.
+    const merged = mergeLinked({
+      ...osm,
+      ...fromOther,
+      linked_sources: null,
+    });
+    expect(merged.stars).toBe(3);
+    expect(merged.sources).toHaveLength(1);
+  });
+
+  it('treats an empty string from the other row as nothing', () => {
+    // 🔴 Empty was checked on our side only, so `website: ''` counted as
+    // a value: the page got '' where the UI expects null, AND the source
+    // entry kept "website" in its field list — printing "this source
+    // gave us: website" beside no website.
+    const merged = mergeLinked({
+      ...osm,
+      ...fromOther,
+      linked_website: '   ',
+      linked_name: '',
+    });
+    expect(merged.website).toBeNull();
+    expect(merged.name).toBe('Les 2 Rivières');
+    const sources = merged.sources as { id: string; fields: string[] }[];
+    expect(sources[1].fields).not.toContain('website');
+    expect(sources[1].fields).not.toContain('name');
+  });
+
+  it('does not let our empty contact value beat their real one', () => {
+    // A blank phone on our row used to win, because the KEY was present
+    // — and the "what did we take" loop did not fire either, so the loss
+    // was not even attributed.
+    const merged = mergeLinked({
+      ...osm,
+      contact: { phone: '' },
+      ...fromOther,
+      linked_contact: { phone: '+33 1 23 45 67 89' },
+    });
+    expect(merged.contact).toEqual({ phone: '+33 1 23 45 67 89' });
+    const sources = merged.sources as { id: string; fields: string[] }[];
+    expect(sources[1].fields).toContain('contact');
+  });
+
+  it('keeps our language when neither row has a description', () => {
+    // Deciding the pairing by comparing values meant that with our
+    // description '' and theirs null, the language came from the linked
+    // row for no reason.
+    const merged = mergeLinked({
+      ...osm,
+      description: '',
+      description_lang: 'sl',
+      ...fromOther,
+      linked_description: null,
+      linked_description_lang: null,
+    });
+    expect(merged.description_lang).toBe('sl');
   });
 
   it('takes the star rating the other source has and this one cannot', () => {

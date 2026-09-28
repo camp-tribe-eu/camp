@@ -76,3 +76,103 @@ BEGIN
   END IF;
   RAISE NOTICE 'CI fixture: % campsites carry a source', n;
 END $$;
+
+-- CAMP-144: one campsite that BOTH sources describe.
+--
+-- 🔴 Without this the fixture is all OpenStreetMap — 72 of 72 rows carry
+-- an osm_ref — and the two CI steps this card adds pass by finding
+-- nothing. "The reconciler wrote no rows" is true of a correct dry run
+-- and equally true of a candidate query with a typo in its join, and
+-- "every link invariant holds" is true of an empty table. That is the
+-- same shape of blind check the block above this one exists to prevent.
+--
+-- So: a DATAtourisme-style row 60 m from a real campsite, carrying the
+-- things only that source has (an official star rating, the operator's
+-- own description) and lacking the things only OSM has. Exactly the pair
+-- the card is about, which makes the dry run report a real candidate and
+-- a real proposed link, and gives the import rehearsal a partner that
+-- can legally be a secondary.
+--
+-- 🔴 Chosen by a rule and checked, never named — same discipline as the
+-- gone block. The name must contain a word the matcher will not strip as
+-- generic, or the two cores compare empty and nothing is proposed.
+DO $$
+DECLARE anchor record; n int;
+BEGIN
+  SELECT id, name, country, region, slug, location INTO anchor
+    FROM camping_spots
+   WHERE osm_ref IS NOT NULL
+     AND region IS NOT NULL
+     AND missing_since IS NULL
+     AND name IS NOT NULL
+     -- A distinguishing word of five letters or more. "Camping
+     -- Municipal" survives every fold to nothing, and a pair of empty
+     -- cores must never match.
+     AND name ~ '[A-Za-zÀ-ÿ]{5,}'
+     AND name !~* 'municipal|communal'
+   ORDER BY slug
+   LIMIT 1;
+
+  IF anchor.id IS NULL THEN
+    RAISE EXCEPTION
+      'CI fixture: no campsite is suitable as a cross-source anchor, so '
+      'the reconciler would be tested against a table it cannot match in.';
+  END IF;
+
+  INSERT INTO camping_spots
+    (name, country, region, slug, type, amenities, location,
+     description, description_lang, stars, website, sources, last_seen_at)
+  VALUES (
+    'Camping ' || anchor.name,
+    anchor.country,
+    anchor.region,
+    anchor.slug || '-dt',
+    'paid'::camping_spots_type_enum,
+    -- Empty, not "unknown" for every key: France stores a literal '{}'
+    -- and OSM stores explicit unknowns, and NOTHING_TO_SAY_SQL had to
+    -- learn the difference. The fixture should carry both shapes.
+    '{}'::jsonb,
+    -- 🔴 60 m east, measured on the spheroid rather than by adding a
+    -- degree. A fixed longitude offset is a different distance at every
+    -- latitude, and this fixture is regenerated against whatever data is
+    -- to hand — at 60°N the same offset would put the row outside the
+    -- 150 m the matcher allows and the pair would quietly stop matching.
+    ST_Project(anchor.location::geography, 60, radians(90))::geometry,
+    'Camping familial au bord de l''eau, ouvert d''avril à octobre. '
+      'Emplacements ombragés, piscine chauffée et accès direct au lac.',
+    'fr',
+    3,
+    'https://example.invalid/camping-fixture',
+    jsonb_build_array(jsonb_build_object(
+      'id', 'datatourisme',
+      'ref', 'https://data.datatourisme.fr/fixture/camp-144',
+      'updatedAt', '2026-04-24',
+      'fields', '["stars","description","name","website","location"]'::jsonb)),
+    now());
+
+  -- The pair must actually be a pair. If the anchor moved, or the
+  -- projection changed, this fails here rather than in a CI step whose
+  -- green means "found nothing".
+  --
+  -- 🔴 ST_DWithin first, exactly as the reconciler's own candidate query
+  -- does it. Without the indexed bounding-box test this is a cartesian
+  -- join: 73 rows in CI is nothing, but this file is also run by hand
+  -- against the development database, where 61 558 rows make it 3.8
+  -- billion comparisons and it never returns. Written after doing
+  -- precisely that.
+  SELECT count(*) INTO n
+    FROM camping_spots a
+    JOIN camping_spots b
+      ON a.id < b.id
+     AND ST_DWithin(a.location, b.location, 0.02)
+     AND ST_DistanceSphere(a.location, b.location) <= 400
+   WHERE (a.osm_ref IS NULL) <> (b.osm_ref IS NULL);
+
+  IF n < 1 THEN
+    RAISE EXCEPTION
+      'CI fixture: the cross-source row is not within 400 m of an OSM '
+      'row, so the reconciler has nothing to find.';
+  END IF;
+
+  RAISE NOTICE 'CI fixture: cross-source pair seeded against %', anchor.slug;
+END $$;

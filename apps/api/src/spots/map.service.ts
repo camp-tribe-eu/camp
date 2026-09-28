@@ -6,7 +6,7 @@ import { canonicalPath, readAmenities } from './spots.service';
 import { slugifyRegion } from './canonical';
 import { filterSql, NO_FILTERS, type MapFilters } from './filters';
 import { gridFor, POINT_LIMIT, type Bbox } from './viewport';
-import { notSecondarySql } from './links';
+import { mergedNameSql, notSecondarySql } from './links';
 
 export * from './viewport';
 export * from './filters';
@@ -294,7 +294,8 @@ export class MapQueryService {
     const params: unknown[] = [country, named];
 
     const rows = await this.db.query(
-      `SELECT slug, name, country, region, type, amenities,
+      `SELECT slug, ${mergedNameSql('s')} AS name,
+              country, region, type, amenities,
               ST_Y(location::geometry) AS lat,
               ST_X(location::geometry) AS lon
          FROM camping_spots s
@@ -317,7 +318,8 @@ export class MapQueryService {
     const f = filterSql(filters, box.length);
 
     const rows = await this.db.query(
-      `SELECT slug, name, country, region, type, amenities,
+      `SELECT slug, ${mergedNameSql('s')} AS name,
+              country, region, type, amenities,
               ST_Y(location::geometry) AS lat,
               ST_X(location::geometry) AS lon
          FROM camping_spots s
@@ -400,7 +402,7 @@ export class MapQueryService {
               AVG(ST_Y(location::geometry)) AS lat,
               -- Only meaningful for a cell of one, and only read then.
               MIN(slug) AS slug,
-              MIN(name) AS name,
+              MIN(${mergedNameSql('s')}) AS name,
               MIN(country) AS country,
               MIN(region) AS region
          FROM camping_spots s

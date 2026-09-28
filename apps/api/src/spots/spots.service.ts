@@ -3,7 +3,17 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { CampingSpotAmenities } from '../osm/tag-mapping';
 import { canonicalPath, readAmenities, slugifyRegion } from './canonical';
-import { LINKED_SECONDARY_JOIN, mergeLinked, notSecondarySql } from './links';
+// 🔴 `mergedStarsSql` is deliberately NOT imported here. The only place
+// this service surfaces a star rating is the detail page, which goes
+// through `mergeLinked` — a second mechanism for the same field would be
+// two answers to one question. The guides import it because their
+// queries aggregate over campsites rather than rendering one.
+import {
+  LINKED_SECONDARY_JOIN,
+  mergedNameSql,
+  mergeLinked,
+  notSecondarySql,
+} from './links';
 
 // Re-exported so existing importers keep working; the rules themselves
 // live in canonical.ts, where a unit test can reach them.
@@ -108,6 +118,7 @@ export class SpotsService {
               -- merged in SQL. Which field wins is a decision with
               -- reasons behind it (mergeLinked, below), and a reason
               -- cannot be written in a coalesce() list.
+              linked.id AS linked_id,
               linked.name AS linked_name,
               linked.stars AS linked_stars,
               linked.description AS linked_description,
@@ -207,6 +218,11 @@ export class SpotsService {
              FROM camping_spots s
             WHERE s.missing_since IS NULL
               AND s.region IS NOT NULL
+              -- 🔴 CAMP-144. Without this the campsite offered to a
+              -- reader who lands on a dead URL can be one whose own URL
+              -- now 301s somewhere else — we would answer "this one is
+              -- gone, try that one" and that one would redirect.
+              AND ${notSecondarySql('s')}
             ORDER BY s.location <-> g.location
             LIMIT 1
          ) n ON true
@@ -278,6 +294,12 @@ export class SpotsService {
           -- there is nothing to redirect from. Same rule as everywhere
           -- else: no invented paths.
           AND sec.region IS NOT NULL
+          -- 🔴 And the secondary must not be on its way to a 410 of its
+          -- own. gone() lists rows missing for 28 days; a row in both
+          -- lists would be redirected here and announced as gone there,
+          -- and the prerendered /gone page would name a campsite that is
+          -- alive on the primary's page.
+          AND sec.missing_since IS NULL
           -- 🔴 The same two conditions isSecondarySql uses, and they
           -- have to be the same two. (No backticks around that name:
           -- this comment is inside a template literal, and the repo has
@@ -390,12 +412,13 @@ export class SpotsService {
     );
 
     const items = await this.db.query(
-      `SELECT slug, name, country, region, type, amenities
+      `SELECT slug, ${mergedNameSql('s')} AS name,
+              country, region, type, amenities
          FROM camping_spots s
         WHERE lower(country) = lower($1) AND region = $2
           AND missing_since IS NULL
           AND ${notSecondarySql('s')}
-        ORDER BY (name IS NULL), name, slug
+        ORDER BY (${mergedNameSql('s')} IS NULL), ${mergedNameSql('s')}, slug
         LIMIT $3 OFFSET $4`,
       [country, region, perPage, (page - 1) * perPage],
     );
@@ -419,11 +442,15 @@ export class SpotsService {
    */
   async notable(limit = 6): Promise<SpotCard[]> {
     return this.db.query(
-      `SELECT slug, name, country, region, type, amenities, context
+      `SELECT slug, ${mergedNameSql('s')} AS name,
+              country, region, type, amenities, context
          FROM camping_spots s
         WHERE missing_since IS NULL
           AND region IS NOT NULL
-          AND name IS NOT NULL
+          -- 🔴 The merged name, not s.name. This asks "can we put this
+          -- campsite on the home page", and a campsite named only by
+          -- DATAtourisme has a name — it is printed on its own page.
+          AND ${mergedNameSql('s')} IS NOT NULL
           AND ${notSecondarySql('s')}
         ORDER BY (
           SELECT count(*) FROM jsonb_each_text(amenities)
@@ -546,7 +573,7 @@ export class SpotsService {
     }[]
   > {
     const rows = await this.db.query(
-      `SELECT name, country, region, slug,
+      `SELECT ${mergedNameSql('s')} AS name, country, region, slug,
               ST_Y(location::geometry) AS lat,
               ST_X(location::geometry) AS lon,
               context

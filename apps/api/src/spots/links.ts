@@ -75,23 +75,106 @@ export function notSecondarySql(alias: string): string {
 /**
  * The live secondary of a spot, as a LATERAL join.
  *
- * 🔴 One row at most, guaranteed by `idx_spot_links_secondary_live`
- * plus the invariant that an OSM row is never a secondary — both checked
- * by verify-links.ts against the live table rather than assumed here.
- * If that ever stops holding, `LIMIT 1` would silently pick one of two
- * sources for the stars, so the check is the thing that matters, not
- * this clause.
+ * 🔴 `ORDER BY` before `LIMIT 1`, and the review that asked for it was
+ * right twice over.
+ *
+ * The first version said "one row at most, guaranteed by the unique
+ * index plus an invariant" — and neither guaranteed it. The index was
+ * unique on `secondary_id`, not `primary_id`, and no invariant said a
+ * primary has one secondary. Two DATAtourisme records near one OSM
+ * campsite could each choose it, and then the stars on that page were
+ * whichever row the planner returned first: no error, and a page that
+ * changes between builds.
+ *
+ * `idx_spot_links_primary_live` is now UNIQUE, which makes the second
+ * row impossible rather than merely unlikely. The ORDER BY stays anyway,
+ * because a bare `LIMIT 1` is only deterministic while that index holds,
+ * and the cost of being wrong is silent.
  */
 export const LINKED_SECONDARY_JOIN = `
   LEFT JOIN LATERAL (
-    SELECT x.stars, x.description, x.description_lang, x.website,
+    SELECT x.id, x.stars, x.description, x.description_lang, x.website,
            x.name, x.contact, x.sources, x.owner_overrides,
            x.content_changed_at
       FROM spot_links l
       JOIN camping_spots x ON x.id = l.secondary_id
      WHERE l.primary_id = s.id AND l.unlinked_at IS NULL
+     ORDER BY l.created_at, x.id
      LIMIT 1
   ) linked ON true`;
+
+/**
+ * One field of a campsite, read through its link.
+ *
+ * 🔴 The detail page is not the only place a star rating belongs, and
+ * this exists because review found the hole: `mergeLinked` runs in ONE
+ * query, while `notSecondarySql` runs in twenty. So the secondary's row
+ * was hidden everywhere and merged in one place — which meant the guide
+ * theme built on `stars IS NOT NULL` would have found nothing in France
+ * at all (OSM carries no French classification: 0 of 2 986 primaries
+ * have a star rating), and a campsite named only by DATAtourisme would
+ * have gone back to being nameless in search, on the map and in its
+ * region's list while its own page showed the name.
+ *
+ * A correlated subquery rather than a join, so it can be dropped into a
+ * SELECT list, a WHERE, an ORDER BY or a predicate string without
+ * restructuring the statement around it — which is what made it possible
+ * to close this in the guide predicates at all.
+ */
+export function mergedFieldSql(alias: string, column: string): string {
+  return `coalesce(${alias}.${column}, (
+    SELECT x.${column}
+      FROM spot_links l
+      JOIN camping_spots x ON x.id = l.secondary_id
+     WHERE l.primary_id = ${alias}.id AND l.unlinked_at IS NULL
+     ORDER BY l.created_at, x.id
+     LIMIT 1))`;
+}
+
+/** The star rating this campsite has, from whichever source holds it. */
+export const mergedStarsSql = (alias: string): string =>
+  mergedFieldSql(alias, 'stars');
+
+/** The name this campsite has, from whichever source holds one. */
+export const mergedNameSql = (alias: string): string =>
+  mergedFieldSql(alias, 'name');
+
+/**
+ * The linked row's source entries, narrowed to what this page reuses.
+ *
+ * 🔴 Narrowed, and dropped entirely when it reuses nothing. A source
+ * credited for a page it contributed nothing to is not a courtesy — it
+ * tells a reader a fact came from somewhere it did not.
+ *
+ * 🔴 And a field we took that the entry never declared still has to be
+ * credited. A spec caught this: we take the other row's phone number,
+ * but its entry lists `["stars","description","name","website","location"]`
+ * because `contact` was added to the source shape later (CAMP-141) and
+ * older rows were written before it. Filtering by the declared list
+ * alone dropped the attribution for data we are visibly publishing —
+ * an under-claim, which breaks the same licence condition as an
+ * over-claim, just quietly.
+ *
+ * So: a taken field goes to the entry that declared it; a taken field
+ * nobody declared goes to the row's single source, and is left
+ * unattributed when the row has more than one, because then we do not
+ * know which of them provided it and guessing is the thing this file
+ * exists not to do.
+ */
+export function attributeTaken(
+  entries: SpotSource[],
+  taken: Set<string>,
+): SpotSource[] {
+  const declared = new Set(entries.flatMap((e) => e.fields ?? []));
+  const orphans = [...taken].filter((f) => !declared.has(f));
+  return entries
+    .map((entry, i) => {
+      const fields = (entry.fields ?? []).filter((f) => taken.has(f));
+      if (entries.length === 1 && i === 0) fields.push(...orphans);
+      return { ...entry, fields };
+    })
+    .filter((entry) => entry.fields.length > 0);
+}
 
 /**
  * CAMP-144: fold the linked row into the row that owns the page.
@@ -107,9 +190,10 @@ export const LINKED_SECONDARY_JOIN = `
  * trade a measured fact for a worse one.
  *
  * 🔴 WHAT ONLY EVER COMES FROM THE OTHER ROW, in practice: `stars`.
- * Measured on the 2 986 linked pairs — not one has a star rating on both
- * sides, because OpenStreetMap does not carry the French classification
- * at all. This is the whole reason the card forbids deleting either row.
+ * Measured across the 2 986 linked pairs — 2 134 carry a star rating,
+ * on both sides 0 times, and on the OSM side 0 times. OpenStreetMap does
+ * not carry the French classification at all. This is the whole reason
+ * the card forbids deleting either row.
  *
  * 🔴 Gap-filling, never overwriting — the same rule the DATAtourisme
  * importer states in one line, and for the same reason. If we already
@@ -125,7 +209,14 @@ export const LINKED_SECONDARY_JOIN = `
 export function mergeLinked(
   row: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (row.linked_sources === null || row.linked_sources === undefined) {
+  // 🔴 The sentinel is the joined row's id, not one of the columns being
+  // merged. It used to be `linked_sources`, which is a plain nullable
+  // jsonb column: a secondary whose `sources` was NULL would have meant
+  // "there is no linked row", the whole merge would have been skipped in
+  // silence, and the star rating that is the point of this card would
+  // simply not appear on the page. An id from the join is the only value
+  // here that answers the question actually being asked.
+  if (row.linked_id === null || row.linked_id === undefined) {
     return row;
   }
   /**
@@ -146,12 +237,32 @@ export function mergeLinked(
    * is narrowed to what was reused.
    */
   const taken = new Set<string>();
-  const firstOf = (mine: unknown, theirs: unknown, field?: string): unknown => {
-    const empty = mine === null || mine === undefined || mine === '';
-    if (empty && field && theirs !== null && theirs !== undefined) {
-      taken.add(field);
-    }
-    return empty ? theirs : mine;
+
+  /**
+   * 🔴 ONE definition of "empty", applied to BOTH sides.
+   *
+   * It used to be applied to ours only: `theirs` merely had to be
+   * non-null. So an empty string in the other row counted as a value —
+   * the page got `website: ''` where the UI expects null and has a
+   * fallback, `indexable` went true for `description: ''`, and worst of
+   * all the source entry kept `website` in its field list, printing
+   * "this source gave us: website" beside no website. That is the exact
+   * false-provenance statement the comment above forbids, produced by
+   * the code the comment is attached to.
+   */
+  const isEmpty = (v: unknown): boolean =>
+    v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+
+  /** Their value only if we have none and theirs is real. */
+  const firstOf = (
+    mine: unknown,
+    theirs: unknown,
+    field: string,
+  ): { value: unknown; fromThem: boolean } => {
+    if (!isEmpty(mine)) return { value: mine, fromThem: false };
+    if (isEmpty(theirs)) return { value: mine ?? null, fromThem: false };
+    taken.add(field);
+    return { value: theirs, fromThem: true };
   };
 
   const description = firstOf(
@@ -159,37 +270,44 @@ export function mergeLinked(
     row.linked_description,
     'description',
   );
-  const contact = {
-    ...((row.linked_contact ?? {}) as Record<string, unknown>),
-    ...((row.contact ?? {}) as Record<string, unknown>),
-  };
-  for (const key of Object.keys(
-    (row.linked_contact ?? {}) as Record<string, unknown>,
-  )) {
-    if (!(key in ((row.contact ?? {}) as Record<string, unknown>))) {
+
+  // 🔴 Key by key, and the same `isEmpty` as everywhere else. A blanket
+  // spread let our `{phone: ''}` beat their real phone number — and
+  // because the key was present, the loop that records what was taken did
+  // not fire either, so the loss was not even attributed.
+  const ourContact = (row.contact ?? {}) as Record<string, unknown>;
+  const theirContact = (row.linked_contact ?? {}) as Record<string, unknown>;
+  const contact: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(ourContact)) {
+    if (!isEmpty(v)) contact[k] = v;
+  }
+  for (const [k, v] of Object.entries(theirContact)) {
+    if (isEmpty(contact[k]) && !isEmpty(v)) {
+      contact[k] = v;
       taken.add('contact');
     }
   }
 
   const merged = {
     ...row,
-    name: firstOf(row.name, row.linked_name, 'name'),
-    stars: firstOf(row.stars, row.linked_stars, 'stars'),
-    description,
+    name: firstOf(row.name, row.linked_name, 'name').value,
+    stars: firstOf(row.stars, row.linked_stars, 'stars').value,
+    description: description.value,
     // 🔴 The language travels with the text it describes, never
     // independently. Keeping our own `description_lang` beside their
     // description would label French prose as Slovenian — and the page
-    // renders it into a `lang` attribute, so a screen reader would then
-    // read French aloud with Slovenian phonetics. Whoever's description
-    // won, their language wins with it.
-    description_lang:
-      description === row.description
-        ? row.description_lang
-        : row.linked_description_lang,
-    website: firstOf(row.website, row.linked_website, 'website'),
-    // Ours wins key by key: `contact` is OSM's phone, email and address,
-    // and the other row's is empty in every measured case — but a blanket
-    // `??` would drop ours entirely the day that stops being true.
+    // renders it into a `lang` attribute, so a screen reader would read
+    // French aloud with Slovenian phonetics.
+    //
+    // Decided by WHERE the text came from, not by comparing values.
+    // Comparing them meant that when neither row had a description, our
+    // own language was dropped for no reason, and two rows carrying the
+    // same text under different languages resolved correctly only by
+    // accident.
+    description_lang: description.fromThem
+      ? row.linked_description_lang
+      : row.description_lang,
+    website: firstOf(row.website, row.linked_website, 'website').value,
     contact,
     // 🔴 An owner's correction is never dropped, whichever row they
     // claimed. Ours wins on a conflict, because the primary is the row
@@ -202,16 +320,7 @@ export function mergeLinked(
     },
     sources: [
       ...((row.sources ?? []) as SpotSource[]),
-      // 🔴 Narrowed to what this page actually reuses, and dropped
-      // entirely when it reuses nothing. A source credited for a page it
-      // contributed nothing to is not a courtesy — it tells a reader
-      // that a fact came from somewhere it did not.
-      ...((row.linked_sources ?? []) as SpotSource[])
-        .map((entry) => ({
-          ...entry,
-          fields: (entry.fields ?? []).filter((f) => taken.has(f)),
-        }))
-        .filter((entry) => entry.fields.length > 0),
+      ...attributeTaken((row.linked_sources ?? []) as SpotSource[], taken),
     ],
   };
   return merged;

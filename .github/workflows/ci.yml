@@ -408,7 +408,7 @@ jobs:
         run: |
           before=$(psql -h localhost -U postgres -d camptribe_test -t -A \
             -c 'SELECT count(*) FROM camping_spots')
-          npx ts-node src/spots/reconcile-sources.ts
+          npx ts-node src/spots/reconcile-sources.ts | tee /tmp/dry.txt
           after=$(psql -h localhost -U postgres -d camptribe_test -t -A \
             -c 'SELECT count(*) FROM camping_spots')
           links=$(psql -h localhost -U postgres -d camptribe_test -t -A \
@@ -416,6 +416,13 @@ jobs:
           echo "campsites $before -> $after, links $links"
           test "$before" = "$after"
           test "$links" = "0"
+          # 🔴 And it must have LOOKED. Without this, a CANDIDATE_SQL
+          # that returns nothing at all — a typo in the join, a predicate
+          # that excludes everything — passes exactly like a correct one,
+          # because "wrote no rows" is true either way. The fixture has
+          # cross-source pairs precisely so this line can insist.
+          grep -qE '^[1-9][0-9]* cross-source pairs' /tmp/dry.txt \
+            || { echo "✗ the dry run found no candidate pairs at all"; exit 1; }
 
       # CAMP-103. The backup holds the only copy of what we cannot
       # download again — the computed context, which is rationed by
