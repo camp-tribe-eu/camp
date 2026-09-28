@@ -228,6 +228,37 @@ test.describe('the wildfire layer', () => {
     ).toBe(false);
   });
 
+  test('the card on a burnt area carries the credit and no reserved word', async ({
+    page,
+  }) => {
+    // 🔴 Read off the popup itself, not off the feed. This is where a
+    // reader is looking when they are deciding about one particular
+    // place, so the CEMS notice has to be here too — and a check that
+    // asserted `meta.attribution` instead would pass just as happily over
+    // a card that printed nothing at all.
+    await serveFeed(page, inViewFeed());
+    await openMap(page);
+    await settle(page);
+    await expect(page.locator(NOTE)).toHaveAttribute('data-in-view', '1');
+
+    const map = page.locator('[data-testid="map"]');
+    const box = await map.boundingBox();
+    if (!box) throw new Error('the map has no box to click in');
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+    const card = page.locator('.ct-popup');
+    await expect(card).toBeVisible();
+    const said = (await card.innerText()).replace(/\s+/g, ' ');
+    expect(said).toContain('Velebit');
+    expect(said).toMatch(/Fire recorded \d+ \w+ \d{4}/);
+    expect(said).toMatch(
+      /Contains modified Copernicus Emergency Management Service information \d{4}/,
+    );
+    expect(said).not.toMatch(
+      /\b(do not|don't|never|avoid|evacuate|unsafe|dangerous|danger|warning|risk|alert)\b/i,
+    );
+  });
+
   test('switched off, the map still refuses to read as an all-clear', async ({ page }) => {
     await serveFeed(page, freshFeed());
     await openMap(page);
