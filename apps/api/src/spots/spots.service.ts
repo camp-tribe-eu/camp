@@ -278,7 +278,19 @@ export class SpotsService {
           -- there is nothing to redirect from. Same rule as everywhere
           -- else: no invented paths.
           AND sec.region IS NOT NULL
+          -- 🔴 The same two conditions isSecondarySql uses, and they
+          -- have to be the same two. (No backticks around that name:
+          -- this comment is inside a template literal, and the repo has
+          -- broken the build this way twice already.)
+          --
+          -- If the primary has gone missing
+          -- from OSM, the secondary stops being hidden and becomes its
+          -- own page again — so redirecting to the primary would send
+          -- readers from a live page to one that is on its way to a
+          -- 410. The two rules are what keep the site and its redirects
+          -- describing the same world.
           AND pri.region IS NOT NULL
+          AND pri.missing_since IS NULL
         ORDER BY sec.country, sec.region, sec.slug`,
     );
     return rows
@@ -466,6 +478,16 @@ export class SpotsService {
               -- <lastmod> taken from the OSM row alone would tell every
               -- crawler the page has not moved since the last OSM
               -- import, which is the opposite of true.
+              --
+              -- 🔴 greatest() IGNORES NULLs — checked against this
+              -- database, not assumed: greatest('2026-01-01', NULL) is
+              -- '2026-01-01' and greatest(NULL, NULL) is NULL. That is
+              -- exactly what is wanted here (an unlinked row has no
+              -- linked date, and must keep its own), but it is the same
+              -- behaviour that made this card's own OSM-type split come
+              -- out backwards, so it is written down rather than
+              -- rediscovered. If NULL had to mean "unknown, so the
+              -- answer is unknown", this would need coalesce.
               greatest(s.content_changed_at, linked.content_changed_at)
                 AS content_changed_at,
               -- 🔴 Either side having something to say is enough. The

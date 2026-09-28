@@ -77,11 +77,23 @@ describe('notSecondarySql', () => {
     expect(notSecondarySql('foo')).not.toContain('s.id');
   });
 
-  it('hides the secondary, never the primary', () => {
-    // If this were ever inverted, every merged campsite would disappear
-    // from the site and the duplicates would be the only thing left.
-    expect(notSecondarySql('s')).toContain('secondary_id');
-    expect(notSecondarySql('s')).not.toContain('primary_id');
+  it('hides the row that is the secondary, not the one carrying it', () => {
+    // If the sides were ever swapped, every merged campsite would
+    // disappear from the site and the duplicates would be all that was
+    // left. The alias is what says which is which.
+    expect(notSecondarySql('s')).toContain('l.secondary_id = s.id');
+    expect(notSecondarySql('s')).not.toContain('l.primary_id = s.id');
+  });
+
+  it('only hides a row whose primary is itself on the site', () => {
+    // 🔴 The failure this closes: OSM drops a campsite, the weekly
+    // import stamps missing_since on the primary, every read query
+    // filters it out — and the complete DATAtourisme row stays hidden
+    // behind it. The campsite would then be on no page at all, deleted
+    // from the site by a join, which is the thing this card forbids.
+    const sql = notSecondarySql('s');
+    expect(sql).toContain('lp.missing_since IS NULL');
+    expect(sql).toContain('lp.region IS NOT NULL');
   });
 });
 

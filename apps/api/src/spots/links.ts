@@ -17,18 +17,45 @@ import type { SpotSource } from '../entities/camping-spot.entity';
 // asserts that every query which returns campsites to a reader uses it.
 
 /**
- * True when this row has been folded into another campsite.
+ * True when this row has been folded into a campsite that is ACTUALLY
+ * SHOWING it.
  *
  * 🔴 `unlinked_at IS NULL` is not decoration. A link a person has undone
  * must stop hiding the row THAT DAY, without a re-import and without a
  * deploy — that is what makes a false match reversible. The partial
  * unique index `idx_spot_links_secondary_live` covers exactly this
  * predicate, so the lookup is an index probe rather than a scan.
+ *
+ * 🔴 And the primary must itself be publishable, which is the condition
+ * this started without.
+ *
+ * A link hides one row because another one is carrying its content. The
+ * moment the primary stops being carried anywhere, that stops being
+ * true. Two ways it happens, and both are ordinary:
+ *
+ *   - OSM drops the campsite and the weekly import stamps
+ *     `missing_since`, which every read query already filters out;
+ *   - the primary has no region, so `canonicalPath` returns null and it
+ *     has no URL at all (135 rows measured on 24.09.2026).
+ *
+ * Without this clause the campsite would then be on NO page: the primary
+ * filtered out for being missing, the secondary hidden for being linked
+ * to it — and the DATAtourisme row, which is complete and which nobody
+ * said anything about, silently deleted from the site by a join. That is
+ * the exact failure this card forbids, arrived at from the other end.
+ *
+ * With it, the secondary simply becomes its own page again, which is
+ * what it was the day before the link was made. `SpotsService.links`
+ * carries the same two conditions, so the 301 withdraws in the same
+ * build rather than pointing at a page that is now a 410.
  */
 export function isSecondarySql(alias: string): string {
   return `EXISTS (SELECT 1 FROM spot_links l
+                    JOIN camping_spots lp ON lp.id = l.primary_id
                    WHERE l.secondary_id = ${alias}.id
-                     AND l.unlinked_at IS NULL)`;
+                     AND l.unlinked_at IS NULL
+                     AND lp.missing_since IS NULL
+                     AND lp.region IS NOT NULL)`;
 }
 
 /**
