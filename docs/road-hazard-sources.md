@@ -60,7 +60,7 @@ Every verdict below is argued, with its quotation, in the section named.
 
 | source | what it gives | licence verdict | coverage | latency | verdict |
 | --- | --- | --- | --- | --- | --- |
-| **MeteoAlarm** (§1) | official weather warnings: wind, ice, snow, storm | CC BY 4.0-equivalent **plus 7 conditions**, incl. a 5-minute redistribution rule | 27/27 feeds answer; 308 live warnings EU-wide when measured | must be under 5 min by licence | **TAKE** |
+| **MeteoAlarm** (§1) | official weather warnings: wind, ice, snow, storm | CC BY 4.0-equivalent **plus 7 conditions**, incl. a 5-minute redistribution rule | 27/27 feeds answer; 308 live warnings EU-wide when measured | licence demands <5 min, **but the public feed rebuilds every 30 min** (§8) | **TAKE**, and request EDR credentials |
 | **EFFIS / GWIS** (§5) | wildfire hotspots and burnt-area perimeters | CC BY 4.0, no key, no registration | EU-wide, 18 362 fires this season | 2–3 h hotspots, daily perimeters | **TAKE** |
 | **Fuel per station** (§6) | ES, FR, IT per-station prices | commercial reuse explicit in all three | ~45 000 stations | 30 min – 24 h | **TAKE 3** |
 | **Tankerkönig** (DE) (§6) | German per-station prices | CC BY 4.0 live data only | national | live | **TAKE, on-demand only** (1 req/min) |
@@ -327,6 +327,11 @@ Measured: discovery is open, data is not.
 | `/edr/v1/collections/warnings/locations/HR803` | **401 Unauthorized** |
 | `/metadata/v1` | 200 |
 | `/metadata/v1/regions` | **401 Unauthorized** |
+
+This matters more than it looks. §8 shows the open feeds rebuild only
+every 30 minutes, which is six times slower than the licence's own
+five-minute rule allows — so the gated interface is not a nicety, it is
+the only way to redistribute operationally and stay inside clause 5.
 
 The open path is the legacy one, and the provider says so itself: the
 ATOM feeds are "maintained for backward compatibility with existing
@@ -780,13 +785,51 @@ conflate:
 | feed age | when did MeteoAlarm last publish? | if older than our budget, say "no fresh data" |
 | our lag | when did *we* last succeed? | must stay under 5 minutes to satisfy the licence |
 
-A useful measured detail for the third: the feed-level `<updated>` element
-is a cheap change detector. Croatia's stayed at
-`2026-09-28T14:35:39.018280Z` across every poll from 14:58 to 15:04 — 28.5
-minutes unchanged. That is consistent with "nothing changed in Croatia in
-that window" rather than proof of a refresh interval, but it means we can
-poll frequently and cheaply, comparing one timestamp, and only re-parse
-when it moves.
+### The public feeds rebuild every 30 minutes — so they cannot meet the licence
+
+This was measured, and it overturns the obvious assumption. Polling the
+feed-level `<updated>` element once a minute for 14 minutes looked static
+at first — which is why an early draft of this document recorded it as
+"nothing changed in that window". It was wrong. Held for longer, the
+timestamps stepped:
+
+```
+15:06:40  croatia=2026-09-28T14:35:39.018280Z  spain=2026-09-28T14:35:07.096018Z
+15:07:41  croatia=2026-09-28T15:05:39.080560Z  spain=2026-09-28T15:05:08.322563Z
+```
+
+Croatia advanced by **exactly 30 minutes** (14:35:39.018 → 15:05:39.080),
+Spain by 30 minutes and 1.2 seconds. Two independent countries, stepping
+together, to the second. That is not content changing — **it is a
+half-hourly scheduled rebuild**, each country at its own fixed offset.
+One transition was observed, so the interval is measured rather than
+merely assumed, but it is a single interval and should be re-measured over
+a longer window before anything depends on the exact figure.
+
+There is propagation on top: the build stamped 15:05:39 first reached us
+at 15:07:41, roughly two minutes later.
+
+**The consequence is the important part.** Clause 5 requires that the
+delay between publication on the MeteoAlarm website and ours be "on
+average less than five minutes and never longer than ten minutes". If the
+public feed itself only republishes every 30 minutes, a warning issued at
+14:36 is not visible on it until 15:05. **No polling frequency on our side
+can close that gap — the delay is upstream of us.**
+
+So the open path is not merely inconvenient, it is **structurally
+incapable of satisfying the licence's own freshness rule**. This moves the
+EDR/MQTT credential request (card 6 below) from an optimisation to the
+only compliant route for operational redistribution, and it is the
+strongest argument in this document for making that request early.
+
+Until those credentials exist, the honest options are to show warnings
+with an explicit "as published by MeteoAlarm at HH:MM" stamp and accept
+that we are a mirror on a half-hour cadence, or not to ship the live layer
+at all. What we must not do is imply a freshness we do not have.
+
+The one silver lining: because `<updated>` moves on a schedule rather than
+on content, it is still a cheap change detector — poll it, compare one
+timestamp, and only re-parse the payload when it steps.
 
 **The failure mode to design against is not "the fetch errored".** It is
 "the fetch succeeded and returned a stale archive", which is exactly what
@@ -835,10 +878,12 @@ three make it safe, and the rest are country-by-country widening.
    is expensive.
 
 6. **Request MeteoAlarm re-user credentials** (EDR API + MQTT) from
-   `meteoalarm@geosphere.at`. This is the difference between polling 27
-   legacy endpoints the provider calls "backward compatibility" and
-   receiving a push that satisfies the five-minute rule by construction.
-   Owner step.
+   `meteoalarm@geosphere.at`. **Do this first, not last.** §8 shows the
+   public feeds rebuild only every 30 minutes, so they cannot satisfy the
+   licence's own five-minute rule at any polling frequency — the delay is
+   upstream of us. The push interface is not an optimisation here, it is
+   the only compliant route for operational redistribution. Owner step,
+   and it gates how honestly card 3 can describe itself.
 
 ### Widening, each independently shippable
 
@@ -903,7 +948,12 @@ is short. The four things most likely to have moved:
    until then it cannot.
 2. **MeteoAlarm's terms** — dated 15/03/2024 when read. The five-minute
    rule is the clause to re-read, because the whole architecture rests on
-   it.
+   it — and today the public feeds cannot meet it.
+
+2a. **The 30-minute rebuild cadence** — inferred from one observed
+   transition on two countries. Re-measure it over several hours before
+   building a freshness budget on the exact number. If it turns out to be
+   shorter, or variable, the compliance picture in §8 changes with it.
 3. **The EDR API's 401** — if it opens, or MeteoGate ships its promised
    "free access to the public", items 1 and 6 above collapse into
    something much smaller.
