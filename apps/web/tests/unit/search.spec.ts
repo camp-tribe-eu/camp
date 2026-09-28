@@ -525,8 +525,15 @@ test.describe('the shared place-name table', () => {
       );
       // The distance and the place shown beside each hit, not just the
       // order — those come straight out of the table.
-      expect(b.map((h) => [h.metres, h.nearest]), `query "${q}"`).toEqual(
-        a.map((h) => [h.metres, h.nearest]),
+      //
+      // 🔴 CAMP-140: `label` too, and it is the one that most needs
+      // saying. The ordering key survives a swapped name table — 273 is
+      // 273 whichever string it is paired with — while the label is a
+      // NAME chosen by comparing names, so a packing bug in the shared
+      // place table (CAMP-138) shows here and nowhere else in this
+      // describe.
+      expect(b.map((h) => [h.metres, h.nearest, h.label]), `query "${q}"`).toEqual(
+        a.map((h) => [h.metres, h.nearest, h.label]),
       );
     }
     expect(search(back, 'bovec').length).toBeGreaterThan(0);
