@@ -171,19 +171,33 @@ export interface SearchHit {
   doc: SearchDoc;
   score: number;
   /**
-   * Metres to the place the query named, when it named one. Present
-   * only then, and it is what the ordering uses.
+   * Metres to the NEAREST place the query named, when it named one.
+   * Present only then, and it is what the ordering uses.
    */
   metres?: number;
   /**
-   * WHICH place that was.
+   * WHICH place that was — the one `metres` measures.
    *
-   * 🔴 Shown to the reader, because the match may be fuzzy and
-   * «436 m from what you searched» was then a false sentence. Naming
-   * the place makes it true in every case and lets the reader see a
-   * wrong match instantly.
+   * 🔴 Named because the match may be fuzzy and «436 m from what you
+   * searched» was then a false sentence. Naming the place makes it true
+   * in every case and lets the reader see a wrong match instantly.
+   *
+   * 🔴 CAMP-140: no longer the name the reader is shown. That is
+   * `label` below, because the nearest place and the best-named one are
+   * not the same question — see `namedPlaces`.
    */
   nearest?: string;
+  /**
+   * What the result is LABELLED with: the place whose name the query
+   * explains best, and whether `metres` is the distance to it.
+   *
+   * 🔴 `isNearest` exists so the page can keep one invariant: a distance
+   * is printed only when it is the distance that row was ordered by.
+   * The measurement behind that choice — including the part of it that
+   * refuted my first reason for it — is in site-search.tsx, where the
+   * wording is decided.
+   */
+  label?: { name: string; m: number; isNearest: boolean };
 }
 
 /**
@@ -316,9 +330,16 @@ function fuzzyScore(words: string[], term: string): number {
 }
 
 /**
- * The nearest place a query named, and WHICH place it was.
+ * The places a query named: the NEAREST one, and the best-NAMED one.
  *
- * 🔴 The name comes back too, because the distance alone was being
+ * 🔴 CAMP-140: two answers, because they are two questions.
+ *
+ * `nearest` orders the list. `label` is the sentence under the result.
+ * CAMP-137 tried to serve both with one number and review measured what
+ * that costs — see the comment inside, kept because it is the reason
+ * this function returns a pair rather than a place.
+ *
+ * 🔴 The name comes back at all because the distance alone was being
  * shown as «436 m from what you searched» — and the match may be
  * fuzzy, so "what you searched" was sometimes a different real place.
  * Measured on the live index: 74 of 332 distances shown across 24 real
@@ -333,18 +354,23 @@ function fuzzyScore(words: string[], term: string): number {
  * world. So the place is named, and the reader can see at once when the
  * match was not what they meant.
  */
-function nearestNamed(
+function namedPlaces(
   doc: SearchDoc,
   ts: string[],
   alias: (string | undefined)[],
-): { m: number; name: string } | undefined {
-  // 🔴 The NEAREST match, as it always was.
+):
+  | {
+      nearest: { m: number; name: string };
+      label: { m: number; name: string; isNearest: boolean };
+    }
+  | undefined {
+  // 🔴 The NEAREST match still orders, exactly as it always did.
   //
   // CAMP-137 briefly ranked these by how much of the place's name the
   // query explained, so that "499 m from Tolmin" would be shown instead
   // of "273 m from Kmetijska Zadruga Tolmin Trgovina Market Bovec".
   // That is a real improvement to the sentence and it was reverted,
-  // because `m` is also the ordering key: choosing a better-named place
+  // because `m` was also the ordering key: choosing a better-named place
   // means choosing a LARGER number, and review measured the damage —
   // `camping fermo` promoted a campsite six times farther from Fermo,
   // `camping praha` moved the answer from 7.8 km to 24.5 km, and
@@ -352,9 +378,13 @@ function nearestNamed(
   // match than to an exact one, inverting the bands this file calls
   // inviolable.
   //
-  // Naming the place well and ordering by distance want two different
-  // numbers out of this function, and giving them one is what went
-  // wrong. CAMP-140 carries the split.
+  // So the better name is computed HERE and used only for the label.
+  // `closest` below is the same variable, filled by the same rule, over
+  // the same set of places — `placeHits > 0` is the old `named`
+  // predicate rewritten one level down, per word instead of per place,
+  // and the union of its four clauses is unchanged. Nothing the sort
+  // reads can move, which is why the corpus numbers in the pull request
+  // are identical rather than merely no worse.
   //
   // 🔴 CAMP-136: the exonym has to reach HERE too, or the fix is half a
   // fix. `m` is the ordering key for everything that scores the same,
@@ -365,15 +395,31 @@ function nearestNamed(
   // answer differently when the alias is kept out of here, and two of
   // those 13 go to the wrong COUNTRY — `hague` to Austria and `bruges`
   // back to the Gironde.
-  //
-  // The edit distance below still runs on the word the READER typed,
-  // never on the substitution. Forgiving a typo in a word we chose for
-  // them is two guesses stacked, which is what the score bands exist to
-  // prevent. Measured: allowing it changes nothing on all 22, so it
-  // buys noise and no answers.
-  let closest: { m: number; name: string } | undefined;
+  let closest: { name: string; m: number } | undefined;
+  // The best-named place, with the two numbers that chose it: the
+  // strongest band any of its words reached, and how many of its words
+  // the query accounts for out of how many it has.
+  let best: { name: string; m: number } | undefined;
+  let band = 0;
+  let hits = 0;
+  let of = 0;
+
   for (const place of doc.near) {
     const words = fold(place.name).split(' ');
+
+    // 🔴 The proper matches first, and the near miss only if there are
+    // none — the same suppression rule `search` applies one level up.
+    //
+    // It is not only cheaper (a query like `camping tolmin` no longer
+    // runs an edit distance for «camping» against a name that «tolmin»
+    // already matched); it is what keeps the bands intact in the
+    // LABEL. `castellon` is the case: "Castelló" is one edit away and
+    // one word long, so a rule that weighed only how much of the name
+    // the query explains would label the result with a fuzzy match in
+    // preference to the exact word in "Castellón de la Plana" — the
+    // inversion that got CAMP-137's version reverted, moved from the
+    // ordering into the sentence.
+    //
     // 🔴 ONE clause for the alias, not two.
     //
     // The first draft also had `words.includes(a)`, mirroring what the
@@ -383,25 +429,89 @@ function nearestNamed(
     // disabling the `includes` left every test green, because the
     // prefix clause had been doing the work all along.
     //
-    // The same is arguably true of `words.includes(t)` below, which
-    // main has always carried as a cheaper first try on strict
-    // equality. That one is left alone — it is not this card's line to
-    // change, and it costs a comparison rather than a claim.
-    const named = ts.some((t, i) => {
-      const a = alias[i];
-      return (
-        words.includes(t) ||
-        words.some((w) => w.startsWith(t)) ||
-        (a !== undefined && words.some((w) => w.startsWith(a))) ||
-        (tolerance(t) > 0 &&
-          words.some((w) => editDistance(w, t, tolerance(t)) <= tolerance(t)))
-      );
-    });
-    if (named && (closest === undefined || place.m < closest.m)) {
-      closest = { m: place.m, name: place.name };
+    // The same is arguably true of `w === t` below, which main has
+    // always carried as a cheaper first try on strict equality. That
+    // one is left alone — it is not this card's line to change, and it
+    // costs a comparison rather than a claim.
+    let placeBand = 0;
+    let placeHits = 0;
+    for (const w of words) {
+      let b = 0;
+      for (let i = 0; i < ts.length; i++) {
+        const a = alias[i];
+        if (w === ts[i] || (a !== undefined && w.startsWith(a))) {
+          b = EXACT_WORD;
+          break;
+        }
+        if (b === 0 && w.startsWith(ts[i])) b = PREFIX;
+      }
+      if (b > 0) {
+        placeHits++;
+        if (b > placeBand) placeBand = b;
+      }
+    }
+    if (placeHits === 0) {
+      // 🔴 The edit distance runs on the word the READER typed, never
+      // on the substitution. Forgiving a typo in a word we chose for
+      // them is two guesses stacked, which is what the score bands
+      // exist to prevent. Measured: allowing it changes nothing on all
+      // 22 exonyms, so it buys noise and no answers.
+      for (const w of words) {
+        for (const t of ts) {
+          const tol = tolerance(t);
+          if (tol > 0 && editDistance(w, t, tol) <= tol) {
+            placeHits++;
+            break;
+          }
+        }
+      }
+      if (placeHits === 0) continue;
+    }
+
+    if (closest === undefined || place.m < closest.m) closest = place;
+
+    // 🔴 The label: the strongest kind of match first, then how much of
+    // the name the query explains, then the shorter walk.
+    //
+    // "Tolmin" and "Kmetijska Zadruga Tolmin Trgovina Market Bovec"
+    // both hold the word exactly, so the second test decides: 1 word of
+    // 1 against 1 of 6. The third is what keeps this deterministic when
+    // two places are equally well named — and, because it prefers the
+    // nearer of them, it is also why the common case does not diverge
+    // from `closest` at all.
+    const cover = placeHits * of - hits * words.length;
+    if (
+      best === undefined ||
+      placeBand > band ||
+      (placeBand === band && (cover > 0 || (cover === 0 && place.m < best.m)))
+    ) {
+      best = place;
+      band = placeBand;
+      hits = placeHits;
+      of = words.length;
     }
   }
-  return closest;
+
+  if (closest === undefined || best === undefined) return undefined;
+  return {
+    // Fresh objects: `doc.near` belongs to the index, and a hit must not
+    // hand a caller a reference into it.
+    nearest: { m: closest.m, name: closest.name },
+    // 🔴 The METRES, not the place. `best === closest` was the obvious
+    // form and it is wrong on a tie: `closest` takes the first place at
+    // the minimum (strict `<`), so when two places are the same distance
+    // away and the second is the better named, the two variables hold
+    // different objects while holding the same number. Review measured
+    // it — `[{Tolminka, 500}, {Tolmin, 500}]` for `tolmin` reported
+    // `isNearest: false` at 500 m against an ordering key of 500 m — and
+    // counted 46 of the 61 422 live campsites carrying two `near` places
+    // at identical `m` ("Ourthe" and "Sy", both 133 m).
+    //
+    // What the page has to know is whether the number it would print IS
+    // the one the row was ordered by. On a tie it is, whichever object
+    // it came from, so the question is about the metres.
+    label: { m: best.m, name: best.name, isNearest: best.m === closest.m },
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -632,8 +742,12 @@ export interface SearchOptions {
  * now answers with `Camp Bovec`, 40 km away, because a shop 273 m from
  * it is called "Kmetijska Zadruga Tolmin Trgovina Market Bovec". On
  * that corpus the trade is 42 better against 1 worse. The cause is
- * `nearestNamed` matching a term against any place name, which
+ * `namedPlaces` matching a term against any place name, which
  * CAMP-131 documented and this change made matter more often.
+ *
+ * 🔴 The ORDERING of that case was fixed by the region key below.
+ * CAMP-140 fixed what was left of it — the sentence under the result,
+ * which went on naming the shop.
  */
 export function search(
   docs: SearchDoc[],
@@ -840,7 +954,7 @@ export function search(
     const regionWords = wordsOf(doc.region);
     let total = 0;
     for (let i = 0; i < scores.length; i++) total += scores[i] * weight[i];
-    const place = nearestNamed(doc, ts, alias);
+    const place = namedPlaces(doc, ts, alias);
     // 🔴 The REGION, and nothing else.
     //
     // This counted the campsite's own name and country too, and review
@@ -921,8 +1035,9 @@ export function search(
     return {
       doc,
       score: total,
-      metres: place?.m,
-      nearest: place?.name,
+      metres: place?.nearest.m,
+      nearest: place?.nearest.name,
+      label: place?.label,
       // Carried only as far as the sort below, then dropped.
       own,
     };
@@ -1021,7 +1136,13 @@ export function search(
       // paragraphs below a sentence about exactly that mistake.
       //
       // What remains is the genuine ambiguity between a town and the
-      // region named after it. CAMP-140 is where it is fixed.
+      // region named after it.
+      //
+      // 🔴 CAMP-140 did NOT fix that, and this comment said it would.
+      // That card separated the label from the ordering key; a top hit
+      // that records no distance to anything still records none, so the
+      // line still goes. It is a missing number in the data, not a
+      // wrong choice between two of them, and it needs its own card.
       if (b.own !== a.own) return b.own - a.own;
       // 🔴 `quality` is NOT a sort key, and was.
       //
@@ -1035,11 +1156,17 @@ export function search(
       // larger distance to a weaker match.
       //
       // It does not survive at all: `nearestNamed` went back to main's
-      // nearest-match-wins, because `m` is both the ordering key and the
-      // number the reader is shown, and one function cannot serve both.
-      // CAMP-140 splits them. Nothing tested `quality` as a sort key,
-      // and removing it left all 287 tests green — which is how it got
-      // in.
+      // nearest-match-wins, because `m` was both the ordering key and
+      // the number the reader is shown, and one function cannot serve
+      // both. Nothing tested `quality` as a sort key, and removing it
+      // left all 287 tests green — which is how it got in.
+      //
+      // 🔴 CAMP-140 split the two, and this line is unchanged by it. The
+      // better-named place decides the LABEL and is never compared here
+      // — that is the whole point: the measure that broke `fermo`,
+      // `praha` and `castellon` is the one that must not reach the
+      // sort. Measured on the 500-query geometric corpus, before
+      // against after: 500 identical, 0 moved.
       const am = a.metres ?? Number.POSITIVE_INFINITY;
       const bm = b.metres ?? Number.POSITIVE_INFINITY;
       if (am !== bm) return am - bm;

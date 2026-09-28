@@ -525,8 +525,15 @@ test.describe('the shared place-name table', () => {
       );
       // The distance and the place shown beside each hit, not just the
       // order — those come straight out of the table.
-      expect(b.map((h) => [h.metres, h.nearest]), `query "${q}"`).toEqual(
-        a.map((h) => [h.metres, h.nearest]),
+      //
+      // 🔴 CAMP-140: `label` too, and it is the one that most needs
+      // saying. The ordering key survives a swapped name table — 273 is
+      // 273 whichever string it is paired with — while the label is a
+      // NAME chosen by comparing names, so a packing bug in the shared
+      // place table (CAMP-138) shows here and nowhere else in this
+      // describe.
+      expect(b.map((h) => [h.metres, h.nearest, h.label]), `query "${q}"`).toEqual(
+        a.map((h) => [h.metres, h.nearest, h.label]),
       );
     }
     expect(search(back, 'bovec').length).toBeGreaterThan(0);
@@ -968,22 +975,20 @@ test.describe('being in the place beats being near a name that contains it', () 
     expect(hits[0].doc.name).toBe('Camping Park El Saler');
   });
 
-  test('🔴 the distance shown is still from the NEAREST match — and that is a known wart', () => {
-    // Deliberately asserting the imperfect behaviour, so that fixing it
-    // is a decision rather than an accident.
+  test('🔴 CAMP-140: the ORDER comes from the nearest match, the LABEL from the best-named', () => {
+    // The wart this used to assert, now split in two.
     //
-    // CAMP-137 briefly made this report "499 m from Tolmin" instead of
-    // "273 m from Kmetijska Zadruga Tolmin Trgovina Market Bovec" — a
-    // better sentence, and reverted. `m` is also the ordering key, so
-    // preferring the better-named place means preferring a LARGER
-    // number: review measured `camping fermo` promoting a campsite six
-    // times farther from Fermo, and `camping praha` moving the answer
-    // from 7.8 km to 24.5 km.
+    // CAMP-137 briefly made the whole thing report "499 m from Tolmin"
+    // instead of "273 m from Kmetijska Zadruga Tolmin Trgovina Market
+    // Bovec" — a better sentence, and reverted, because `m` was also
+    // the ordering key: preferring the better-named place meant
+    // preferring a LARGER number, and review measured `camping fermo`
+    // promoting a campsite six times farther from Fermo and `camping
+    // praha` moving the answer from 7.8 km to 24.5 km.
     //
-    // Naming the place well and ordering by distance want two different
-    // numbers out of one function. CAMP-140 splits them; until then the
-    // ordering is right and the sentence is sometimes odd, which is the
-    // way round we can live with.
+    // So both answers come out now and only one of them is sorted on.
+    // `metres`/`nearest` are what they always were, to the metre; the
+    // label is the place the reader is shown.
     const both = doc({
       name: 'Kamp Siber', path: '/camping/si/tolmin/kamp-siber',
       country: 'si', region: 'tolmin',
@@ -995,6 +1000,150 @@ test.describe('being in the place beats being near a name that contains it', () 
     const [hit] = search([both], 'tolmin');
     expect(hit.metres).toBe(273);
     expect(hit.nearest).toBe('Kmetijska Zadruga Tolmin Trgovina Market Bovec');
+    // One word of one beats one word of six.
+    expect(hit.label).toEqual({ name: 'Tolmin', m: 499, isNearest: false });
+  });
+
+  test('🔴 the better name must not reach the sort — the three queries that reverted it', () => {
+    // 🔴 The guard this card exists to keep. These are the measured
+    // failures of CAMP-137's version, as fixtures: in each one the
+    // better-NAMED place is farther away, and in each one the campsite
+    // the old ranking chose must still come first.
+    //
+    // A single line moves them all — comparing the label's metres in
+    // the sort instead of the nearest's — which is why the assertion is
+    // on the ORDER and not only on the label.
+    //
+    // 🔴 `Fermo` at 20 km is not padding, and the first version of this
+    // fixture did not have it. Review mutated the sort to read `label.m`
+    // and the whole suite stayed green: with one place on the near
+    // campsite its label WAS its ordering key (2 263), the far one's
+    // label was 13 592, and 2 263 < 13 592 either way — so the fixture
+    // agreed with the mutation instead of catching it. The near
+    // campsite now has a better-named place FARTHER than anything on
+    // the far one, so label-sorting puts them the wrong way round.
+    //
+    // It matters more than the other two: CI does not set
+    // RANKING_INDEX (see .github/workflows/ci.yml), so the live-index
+    // guard against this is skipped there and this is the one that runs.
+    const fermoNear = doc({
+      name: 'Camping 4 Cerchi', path: '/camping/it/fermo/cerchi',
+      country: 'it', region: 'fermo',
+      near: [
+        { name: 'Porto San Giorgio-Fermo', m: 2263 },
+        { name: 'Fermo', m: 20_000 },
+      ],
+    });
+    const fermoFar = doc({
+      name: 'Camping Lontano', path: '/camping/it/fermo/lontano',
+      country: 'it', region: 'fermo',
+      near: [
+        { name: 'Porto San Giorgio-Fermo', m: 13_600 },
+        { name: 'Fermo', m: 13_592 },
+      ],
+    });
+    const fermo = search([fermoFar, fermoNear], 'camping fermo');
+    expect(fermo.map((h) => h.doc.name)).toEqual([
+      'Camping 4 Cerchi',
+      'Camping Lontano',
+    ]);
+    // The numbers that make the mutation visible: sorted on 2 263 and
+    // 13 592, labelled 20 000 and 13 592. Asserted so that a later edit
+    // cannot quietly take the inversion back out of the fixture.
+    expect(fermo.map((h) => [h.metres, h.label?.m])).toEqual([
+      [2263, 20_000],
+      [13_592, 13_592],
+    ]);
+
+    // `castellon`: the one-word name is a near miss, the four-word name
+    // holds the word exactly. The bands decide the label too, so the
+    // exact word wins it — and the nearer campsite still wins the list.
+    const exact = doc({
+      name: 'Stellplatz', path: '/camping/es/castellon/stellplatz',
+      country: 'es', region: 'castellon',
+      near: [
+        { name: 'Castelló', m: 1434 },
+        { name: 'Castelló de la Plana / Castellón de la Plana', m: 2434 },
+      ],
+    });
+    const [hit] = search([exact], 'castellon');
+    expect(hit.metres).toBe(1434);
+    expect(hit.label?.name).toBe('Castelló de la Plana / Castellón de la Plana');
+    expect(hit.label?.isNearest).toBe(false);
+  });
+
+  test('🔴 when the best-named place IS the nearest, the label says so', () => {
+    // The 94.3% case, measured on the live index: the label and the
+    // ordering key are the same place, and `isNearest` is what tells
+    // the page it may print the number.
+    const plain = doc({
+      name: 'Kamp Labrca', path: '/camping/si/tolmin/labrca',
+      country: 'si', region: 'tolmin',
+      near: [{ name: 'Tolmin', m: 1255 }],
+    });
+    const [hit] = search([plain], 'tolmin');
+    expect(hit.label).toEqual({ name: 'Tolmin', m: 1255, isNearest: true });
+    expect(hit.metres).toBe(1255);
+  });
+
+  test('🔴 an exact word outranks a prefix in the label, as it does in the score', () => {
+    // The bands are the first comparison the label makes, and this is
+    // the one that shows it can override a much shorter walk: the river
+    // «Tolminka» is 60 m away and is only a prefix of what was typed,
+    // so the town 1 255 m away is what the reader is told.
+    const river = doc({
+      name: 'Kamp Reka', path: '/camping/si/tolmin/reka',
+      country: 'si', region: 'tolmin',
+      near: [
+        { name: 'Tolmin', m: 1255 },
+        { name: 'Tolminka', m: 60 },
+      ],
+    });
+    const [hit] = search([river], 'tolmin');
+    // The ordering is untouched — it is still the nearest match.
+    expect(hit.metres).toBe(60);
+    expect(hit.nearest).toBe('Tolminka');
+    expect(hit.label).toEqual({ name: 'Tolmin', m: 1255, isNearest: false });
+  });
+
+  test('🔴 two places at the SAME distance: the number is still printed', () => {
+    // Review's finding, and it is about the metres rather than the
+    // place. `closest` takes the first place at the minimum, so when the
+    // better-named one is equally close but later in the list, the two
+    // are different objects holding the same number — and `isNearest`
+    // computed by identity said false, which drops from the page a
+    // distance that IS the ordering key.
+    //
+    // Not hypothetical: 46 of the 61 422 live campsites carry two `near`
+    // places at identical `m` — "Ourthe" and "Sy", both 133 m from
+    // Camping Village Sy.
+    const tied = doc({
+      name: 'Kamp Tie', path: '/camping/si/tolmin/tie',
+      country: 'si', region: 'tolmin',
+      near: [
+        { name: 'Tolminka', m: 500 },
+        { name: 'Tolmin', m: 500 },
+      ],
+    });
+    const [hit] = search([tied], 'tolmin');
+    expect(hit.metres).toBe(500);
+    expect(hit.nearest).toBe('Tolminka');
+    expect(hit.label).toEqual({ name: 'Tolmin', m: 500, isNearest: true });
+  });
+
+  test('🔴 two equally well-named places: the nearer one is the label', () => {
+    // The tiebreak, and the reason the common case does not diverge at
+    // all — an equally good name never takes the reader farther away.
+    const twice = doc({
+      name: 'Kamp Dvakrat', path: '/camping/si/tolmin/dvakrat',
+      country: 'si', region: 'tolmin',
+      near: [
+        { name: 'Tolmin', m: 900 },
+        { name: 'Tolmin', m: 400 },
+      ],
+    });
+    const [hit] = search([twice], 'tolmin');
+    expect(hit.label).toEqual({ name: 'Tolmin', m: 400, isNearest: true });
   });
 
   test('🔴 the word in your own NAME does not put you in the place', () => {
