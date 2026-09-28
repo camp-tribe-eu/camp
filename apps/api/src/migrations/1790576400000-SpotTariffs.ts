@@ -10,10 +10,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *     campsites (@type CampingAndCaravanning)     9 590
  *     ├─ carrying an offers block                 6 962
  *     ├─ carrying schema:priceSpecification       4 360
- *     └─ carrying an actual NUMBER                3 689
- *     numeric price specifications               14 265   (median 3, max 83)
+ *     └─ carrying a price we can store            3 433
+ *     tariff lines stored                        13 122   (median 2, max 80)
  *
- * The 83 is why this is a table. One campsite prices a bare pitch, a
+ * The 80 is why this is a table. One campsite prices a bare pitch, a
  * motorhome pitch, a mobile home by the week, the tourist tax and the
  * dog, each of them in its own season, and a `price_from` column on
  * `camping_spots` could hold exactly one of those.
@@ -67,7 +67,7 @@ export class SpotTariffs1790576400000 implements MigrationInterface {
         created_at        timestamptz NOT NULL DEFAULT now(),
 
         -- 🔴 A row with no number is not a tariff, it is a currency.
-        -- 1 261 of the feed's 15 526 specifications are exactly that:
+        -- 1 264 of the feed's 15 526 specifications are exactly that:
         -- "EUR", a name, sometimes a pricing policy, and no amount
         -- anywhere. Without this constraint they would land as rows
         -- rendering "€ –" on a page. The importer already drops them;
@@ -105,8 +105,13 @@ export class SpotTariffs1790576400000 implements MigrationInterface {
     //
     // The read path never asks for a tariff without a validity period —
     // CAMP-147 forbids displaying one — so the index that serves the
-    // campsite page covers only those. 6 913 of 14 265 rows, and the
-    // other 7 352 stay out of it entirely.
+    // campsite page covers only those.
+    //
+    // 🔴 Measured on the TABLE, which is not the same population as the
+    // feed: 6 780 of the 12 402 rows imported are covered and the other
+    // 5 622 stay out of it entirely. (The feed holds 13 122 parseable
+    // lines; 720 of them belong to POIs that have no row here, and a
+    // partial index describes what was stored, not what was read.)
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS idx_spot_tariffs_displayable
         ON spot_tariffs (spot_id)

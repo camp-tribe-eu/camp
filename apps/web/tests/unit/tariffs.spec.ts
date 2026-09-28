@@ -8,6 +8,7 @@ import {
   groupTariffs,
   hasValidityPeriod,
   humaniseToken,
+  isRenderableTariff,
   modeLabel,
   offerLabel,
   tariffStatus,
@@ -69,6 +70,23 @@ test.describe('a price without a season never reaches the page', () => {
     expect(groups.current.length + groups.expired.length).toBe(1);
   });
 
+  test('a row is drawn whole or not at all', () => {
+    // 🔴 Both halves, and the period half exists only because mutation
+    // testing found it unreachable through the component: the grouping
+    // step removes anything `formatPeriod` would refuse, so deleting
+    // that check broke no test. Asserted here, where it is reachable.
+    expect(isRenderableTariff(tariff())).toBe(true);
+    // A season that matches the shape of a date and is not one.
+    expect(
+      isRenderableTariff(tariff({ validFrom: '01/04/2026', validUntil: null })),
+    ).toBe(false);
+    // A period with no amount beside it — the API refuses this, and the
+    // page is the last place that can.
+    expect(
+      isRenderableTariff(tariff({ minPrice: null, maxPrice: null })),
+    ).toBe(false);
+  });
+
   test('formatPeriod never returns an empty string', () => {
     // The component drops a row whose period will not render. If this
     // returned '' instead of null the row would render as a price with
@@ -105,9 +123,10 @@ test.describe('an expired season is said out loud', () => {
   });
 
   test('grouping keeps expired tariffs rather than hiding them', () => {
-    // 🔴 449 campsites publish nothing but expired seasons. Hiding them
-    // would make those pages identical to the ones with no price at all,
-    // and lose the one useful thing we could say to that reader.
+    // 🔴 435 of the 1 200 pages that show a price have nothing but
+    // expired seasons. Hiding them would make those pages identical to
+    // the 57 236 with no price at all, and lose the one useful thing we
+    // could say to that reader.
     const groups = groupTariffs([tariff()], november);
     expect(groups.current).toEqual([]);
     expect(groups.expired).toHaveLength(1);
@@ -215,8 +234,8 @@ test.describe('the publisher’s vocabulary, not ours', () => {
   });
 
   test('a tariff naming neither what nor how still describes itself', () => {
-    // 9 769 of 14 265 specifications name no offer at all. An empty cell
-    // in the "What" column is not an option.
+    // 9 425 of the 13 122 stored tariff lines name no offer at all. An
+    // empty cell in the "What" column is not an option.
     expect(describeTariff(tariff({ offer: null, mode: null }))).toBe('Stay');
     expect(
       describeTariff(tariff({ offer: null, mode: null, policy: 'ChildRate' })),

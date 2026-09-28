@@ -18,16 +18,28 @@
 //     ├─ carrying an offers block                  6 962
 //     ├─ carrying schema:priceSpecification        4 360
 //     ├─ carrying textPriceSpecification             407
-//     └─ carrying an actual NUMBER                 3 689
+//     └─ carrying a price WE CAN STORE             3 433
 //
-//     numeric price specifications                14 265
-//     ├─ with a validity period                    6 913
-//     └─ with none                                 7 352
+//     tariff lines stored                         13 122
+//     ├─ with a validity period                    6 890
+//     └─ with none                                 6 232
 //
-// 🔴 3 689, not 4 459. The card's 4 459 is the UNION of the campsites
-// carrying `priceSpecification` (4 360) and those carrying
-// `textPriceSpecification` (407), overlapping on 308. Two things are
-// folded into it that are not numbers:
+// 🔴 3 433, not 4 459 — and not 3 689 either. THREE counts were in
+// circulation and only one of them is the answer to the question the
+// card asks, so here are all three with what each measures:
+//
+//     4 459  campsites carrying a price BLOCK of either kind: the union
+//            of `priceSpecification` (4 360) and `textPriceSpecification`
+//            (407), overlapping on 308.
+//     3 689  campsites carrying a numeric-LOOKING value anywhere,
+//            ignoring whether it has a currency and whether the range
+//            runs the right way.
+//     3 433  campsites carrying a price THIS PARSER WILL STORE. <— the
+//            one that matches what a reader can be shown.
+//
+// The step from 3 689 to 3 433 is 256 campsites whose only figures had
+// no currency beside them or ran from a higher number to a lower one.
+// The step from 4 459 to 3 689 is two things that are not numbers:
 //
 //   - 671 campsites carry price specifications with no amount anywhere.
 //     Their specifications hold `"schema:priceCurrency": "EUR"`, a name,
@@ -36,8 +48,13 @@
 //   - the 407 prose records are prose BY DEFINITION, and the same card
 //     forbids turning them into numbers.
 //
-// So the honest count of campsites the feed states a price for is 3 689
-// of 9 590 — 38.5%, not 46%.
+// So the count of campsites we can state a price for is 3 433 of 9 590
+// — 35.8%, not 46%. Every figure above comes from one command:
+//
+//     npx ts-node src/datatourisme/import-prices.ts <feed.zip> --report
+//
+// which reconciles by construction: 13 122 stored + 2 404 dropped is
+// the 15 526 specifications the feed contains, itemised by reason.
 
 /** A JSON-LD node, as it arrives. Nothing is trusted to be a given type. */
 export type JsonLdNode = Record<string, unknown>;
@@ -86,9 +103,32 @@ export type TextPriceNote = {
  * is always itemised.
  */
 export type RejectReason =
-  'no-ref' | 'no-amount' | 'no-currency' | 'range-backwards';
+  | 'no-ref'
+  | 'no-amount'
+  | 'no-currency'
+  | 'range-backwards'
+  | 'period-backwards'
+  | 'lang-tag-too-long'
+  | 'duplicate-ref';
 
 export type RejectSink = (reason: RejectReason) => void;
+
+/**
+ * 🔴 The width of `spot_tariffs.label_lang`, repeated here on purpose.
+ *
+ * Review proved the cost of not having it: `fr-Latn-FR-x-private` is a
+ * valid BCP 47 tag, this file accepted it, and Postgres answered `value
+ * too long for type character varying(8)`. That error arrives mid-INSERT
+ * inside the import's single transaction, so ONE record with an unusual
+ * language tag rolled back all 12 402 rows and the weekly import wrote
+ * nothing at all.
+ *
+ * The parser is where a record can be dropped for one record's worth of
+ * cost. Everything below that refuses a value refuses it HERE, and the
+ * report counts it — which is the same rule `range-backwards` already
+ * stated and which was simply never applied to the other two columns.
+ */
+export const MAX_LANG_TAG = 8;
 
 export type ParsedPrices = {
   /** The POI's URI — the same `ref` the campsite import stores. */
@@ -270,9 +310,9 @@ function currencyOf(value: unknown): string | null {
  * One `schema:priceSpecification` node, or null if it states no number.
  *
  * 🔴 Returning null for a numberless specification is the point, not an
- * edge case. 1 261 of the feed's 15 526 specifications hold a currency,
+ * edge case. 1 264 of the feed's 15 526 specifications hold a currency,
  * a name and no amount at all, and they are the single largest reason
- * the card's "4 459 campsites with a real price" is really 3 689.
+ * the card's "4 459 campsites with a real price" is really 3 433.
  */
 export function parsePriceSpec(
   spec: JsonLdNode,
@@ -321,7 +361,31 @@ export function parsePriceSpec(
   }
 
   const period = asList(spec['appliesOnPeriod'])[0] as JsonLdNode | undefined;
+  const validFrom = period ? parseIsoDate(period.startDate) : null;
+  const validUntil = period ? parseIsoDate(period.endDate) : null;
+  // 🔴 A season that runs backwards, refused for the same reason a
+  // backwards price is — and this one was missed, which review proved
+  // end to end: `spot_tariffs_period_ordered` fired mid-INSERT, the
+  // single transaction rolled back, and 0 of 12 402 rows were written by
+  // a weekly import that had nothing else wrong with it.
+  //
+  // Every CHECK constraint on the table now has its twin here. A
+  // constraint is the floor under a bug, not the place to discover one:
+  // reaching it costs the whole run, refusing here costs one record.
+  if (validFrom !== null && validUntil !== null && validFrom > validUntil) {
+    reject('period-backwards');
+    return null;
+  }
+
   const label = firstLangString(spec['name']);
+  // 🔴 The label is dropped, the PRICE is not. A language tag we cannot
+  // store is a reason to lose one sentence of the operator's prose, not
+  // a reason to lose the tariff it describes — and never a reason to
+  // store the text with no language, which is the other CHECK
+  // constraint and which would have a screen reader read French aloud
+  // in English.
+  const labelFits = label !== null && label.lang.length <= MAX_LANG_TAG;
+  if (label !== null && !labelFits) reject('lang-tag-too-long');
 
   return {
     ref,
@@ -331,10 +395,10 @@ export function parsePriceSpec(
     minPrice,
     maxPrice,
     currency,
-    validFrom: period ? parseIsoDate(period.startDate) : null,
-    validUntil: period ? parseIsoDate(period.endDate) : null,
-    label: label?.text ?? null,
-    labelLang: label?.lang ?? null,
+    validFrom,
+    validUntil,
+    label: labelFits ? label.text : null,
+    labelLang: labelFits ? label.lang : null,
   };
 }
 
@@ -423,7 +487,18 @@ export function parsePrices(
       // The unique index is (spot, source, ref). Measured: a URI never
       // repeats within one campsite in the whole feed — but the importer
       // must not be the thing that discovers it stopped being true.
-      if (seenRefs.has(tariff.ref)) continue;
+      //
+      // 🔴 Counted, not dropped in silence. This file's own doctrine is
+      // that a parser which silently discards input is indistinguishable
+      // from one that reads all of it; this was the one refusal that did
+      // not obey it. Note it dedupes within ONE node — the same URI
+      // arriving on a SECOND POI that maps to the same campsite is a
+      // different problem and is handled in import-prices.ts, where the
+      // spot id is known.
+      if (seenRefs.has(tariff.ref)) {
+        reject('duplicate-ref');
+        continue;
+      }
       seenRefs.add(tariff.ref);
       tariffs.push(tariff);
     }

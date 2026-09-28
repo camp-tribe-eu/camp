@@ -22,14 +22,16 @@
 //     ├─ with an offers block                         6 962
 //     ├─ with schema:priceSpecification               4 360
 //     ├─ with textPriceSpecification (prose)            407
-//     └─ with a NUMBER                                3 689   (38.5%)
-//     numeric price specifications                   14 265
-//     └─ of those, carrying a validity period         6 913
+//     └─ with a price WE CAN STORE                    3 433   (35.8%)
+//     tariff lines stored                            13 122
+//     └─ of those, carrying a validity period         6 890
 //
 // The card said 4 459 campsites "have a REAL price". That number is the
 // union of the two price blocks, and 671 of the campsites inside it
-// carry specifications with a currency and no amount. The measured count
-// of campsites the feed states a number for is 3 689.
+// carry specifications with a currency and no amount. The count of
+// campsites we can state a price for is 3 433 — see prices.ts, which
+// sets out all three counts that were in circulation and what each one
+// measures.
 
 import 'dotenv/config';
 import { Client } from 'pg';
@@ -43,6 +45,19 @@ const DB_URL =
 
 /** Rows per INSERT. 500 × 15 columns is well inside Postgres' limits. */
 const BATCH = 500;
+
+/** Refusals that cost the whole specification. These reconcile. */
+export const DROP_REASONS: RejectReason[] = [
+  'no-ref',
+  'no-amount',
+  'no-currency',
+  'range-backwards',
+  'period-backwards',
+  'duplicate-ref',
+];
+
+/** Refusals that cost one field and keep the tariff. These do not. */
+export const DEGRADE_REASONS: RejectReason[] = ['lang-tag-too-long'];
 
 export type FeedTally = {
   objects: number;
@@ -74,6 +89,9 @@ export function emptyTally(): FeedTally {
       'no-amount': 0,
       'no-currency': 0,
       'range-backwards': 0,
+      'period-backwards': 0,
+      'lang-tag-too-long': 0,
+      'duplicate-ref': 0,
     },
   };
 }
@@ -151,10 +169,23 @@ export function printTally(t: FeedTally): void {
   // drops input silently is indistinguishable from one that reads all of
   // it, and the difference only shows up as a coverage number nobody can
   // account for later.
-  const refusedTotal = Object.values(t.refused).reduce((a, b) => a + b, 0);
-  console.log(`  specifications refused          ${refusedTotal}`);
-  for (const [reason, n] of Object.entries(t.refused)) {
-    console.log(`    ${reason.padEnd(28)}${n}`);
+  //
+  // 🔴 Split into what was DROPPED and what was merely degraded, because
+  // the first group has to reconcile and the second must not be allowed
+  // to break that reconciliation. `dropped + tariff lines` is the number
+  // of specifications in the feed; a lost language tag costs a label,
+  // not a tariff, so it is counted and kept out of that sum.
+  const dropped = DROP_REASONS.reduce((n, r) => n + t.refused[r], 0);
+  console.log(
+    `  specifications dropped          ${dropped}` +
+      `   (+ ${t.tariffs} stored = ${dropped + t.tariffs} in the feed)`,
+  );
+  for (const reason of DROP_REASONS) {
+    console.log(`    ${reason.padEnd(28)}${t.refused[reason]}`);
+  }
+  console.log(`  values degraded but kept`);
+  for (const reason of DEGRADE_REASONS) {
+    console.log(`    ${reason.padEnd(28)}${t.refused[reason]}`);
   }
   console.log('');
 }
@@ -283,7 +314,33 @@ async function main() {
     let matched = 0;
     let unmatched = 0;
     let queued = 0;
+    let collided = 0;
     let pending: Row[] = [];
+
+    /**
+     * 🔴 (spot, ref) pairs already queued in this run.
+     *
+     * Not the same guard as the one in `parsePrices`, which dedupes
+     * within a single POI. This one is about two DIFFERENT POIs that
+     * resolve to the SAME campsite row — which happens the moment a
+     * campsite carries two `datatourisme` source entries, and which the
+     * feed makes likely rather than exotic, because 1 130 specification
+     * URIs are already shared between POIs.
+     *
+     * Without it the two copies land in one INSERT and Postgres answers
+     * `21000: ON CONFLICT DO UPDATE command cannot affect row a second
+     * time` — proven on a scratch database. That aborts the transaction,
+     * so one duplicated pair costs the entire weekly import.
+     *
+     * First wins, as everywhere else in this pipeline: the rows are the
+     * same tariff by definition, and picking the first is the only rule
+     * that gives the same result on every run.
+     *
+     * Cost: one string per stored tariff — about 1.4 MB at today's
+     * 12 000 rows, against a process that already holds the archive
+     * stream open.
+     */
+    const queuedPairs = new Set<string>();
 
     for await (const node of readArchive(path)) {
       const parsed = tally(counts, node);
@@ -300,6 +357,12 @@ async function main() {
       matched++;
 
       for (const t of parsed.tariffs) {
+        const pair = `${spotId}\u0000${t.ref}`;
+        if (queuedPairs.has(pair)) {
+          collided++;
+          continue;
+        }
+        queuedPairs.add(pair);
         pending.push(toRow(spotId, t, parsed.updatedAt));
         queued++;
         if (apply && pending.length >= BATCH) {
@@ -314,6 +377,10 @@ async function main() {
     printTally(counts);
     console.log(`  priced campsites matched to a row   ${matched}`);
     console.log(`  priced campsites with no row here   ${unmatched}`);
+    console.log(
+      `  tariffs dropped as (spot, ref) duplicates   ${collided}` +
+        (collided ? '  <- two POIs on one campsite' : ''),
+    );
     console.log(
       `  tariff lines ${apply ? 'written' : 'that would be written'}   ${queued}`,
     );

@@ -11,12 +11,12 @@ import {
  *
  * 🔴 A TABLE, not a column on `camping_spots`, and the feed settles it
  * rather than taste. Measured over all 129 594 objects on 28.09.2026:
- * 14 265 numeric price specifications spread across 3 689 campsites —
- * a median of 3 per campsite and a maximum of 83. One campsite prices a
+ * 13 122 stored tariff lines spread across 3 433 campsites — a median
+ * of 2 per campsite and a maximum of 80. One campsite prices a
  * bare pitch, a motorhome pitch, a mobile home by the week, the tourist
  * tax and the dog, each in its own season.
  *
- * A single `price_from` column would have to pick one of those 83 and
+ * A single `price_from` column would have to pick one of those 80 and
  * throw the rest away. "From €13.50" is then true in April and a lie in
  * August, and the reader who arrives in August is the one who paid for
  * the lie. So the row is the tariff, and the page renders the table.
@@ -73,7 +73,7 @@ export class SpotTariff {
    * (measured); a new one next quarter must arrive as an unfamiliar
    * token the page can decline to label, not as a silent mismatch
    * against a CHECK constraint written today. Nullable, and usually
-   * null: 9 769 of the 14 265 numeric specifications name no offer.
+   * null: 9 425 of the 13 122 stored tariff lines name no offer.
    */
   @Column({ type: 'text', nullable: true })
   offer: string | null;
@@ -120,7 +120,7 @@ export class SpotTariff {
    * The season the operator priced, from `appliesOnPeriod`.
    *
    * 🔴 Nullable in the TABLE and required for DISPLAY, and the split is
-   * deliberate. 7 352 of the 14 265 numeric specifications state no
+   * deliberate. 6 232 of the 13 122 stored tariff lines state no
    * period; throwing them away at import would destroy the evidence of
    * how much of the feed is undatable, which is a thing the owner needs
    * to be able to re-measure. So they are stored and the read path

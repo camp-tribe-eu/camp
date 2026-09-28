@@ -204,9 +204,45 @@ export function displayableTariffs(tariffs: Tariff[]): Tariff[] {
   return tariffs.filter(hasValidityPeriod);
 }
 
+/**
+ * Can this tariff be drawn as a complete row?
+ *
+ * 🔴 Exported, and that is the point rather than a convenience.
+ *
+ * It lived inline in `tariff-table.tsx` as `if (!price || !period) return
+ * null`, and mutation testing showed half of it could not be observed:
+ * `displayableTariffs` already removes anything `formatPeriod` would
+ * refuse, so deleting the period half changed no test. A guard nobody
+ * can reach is a claim the tests appear to cover and do not — the same
+ * finding as the dead `n >= 0` in the API's `parseAmount`.
+ *
+ * Pulling it out here makes both halves reachable from a spec while
+ * leaving the component's behaviour identical, so the protection is kept
+ * AND proven. A price with no amount is the half that is reachable
+ * through the component; a period that will not format is the half that
+ * is reachable only here, and both now fail a test when removed.
+ */
+export function isRenderableTariff(t: Tariff): boolean {
+  return formatPrice(t) !== null && formatPeriod(t) !== null;
+}
+
 export type TariffGroups = {
-  /** In season now, or starting later. Shown first. */
+  /**
+   * In season TODAY. Nothing else.
+   *
+   * 🔴 It used to mean "not expired", which quietly included a season
+   * starting next April. Review measured the damage: 13 pages printed
+   * "1 Apr 2027 – 30 Oct 2027" under the heading "What it costs" with no
+   * marker, and `makesOffer` published it as a current offer. A price
+   * that starts in seven months is not a price today.
+   *
+   * It is also the number that reconciles: `campsiteOffers` was
+   * non-empty for 765 campsites while the comment beside it claimed 752.
+   * The 13 were these.
+   */
   current: Tariff[];
+  /** A season that has not started. Shown, and labelled as not started. */
+  upcoming: Tariff[];
   /**
    * The most recently ended season. Shown, and labelled as over.
    */
@@ -223,13 +259,14 @@ export type TariffGroups = {
  * an expired tariff to say so rather than stay silent, and hiding them
  * outright would make a campsite whose only published season is last
  * year's look identical to one that publishes no price at all. Measured
- * after the import: 448 campsites have nothing but expired seasons, so
- * this is not a rare branch.
+ * over published pages: 435 of the 1 200 that show a price have nothing
+ * but expired seasons, so this is not a rare branch.
  *
  * 🔴 But only the LAST ended season, and that came out of looking at a
  * real page rather than out of taste. Camping Le Beaulieu publishes its
- * rates week by week: 79 tariffs, 14 of them current and 65 from seasons
- * that ended in July. Rendered in full the price panel was 7 315 pixels
+ * rates week by week: 79 datable tariffs, of which 4 are in season
+ * today, 10 belong to seasons that have not started and 65 to seasons
+ * that have ended. Rendered in full the price panel was 7 315 pixels
  * tall — a metre and a half of last summer's weekly rates, below which
  * the neighbouring campsites and the attribution were unreachable.
  *
@@ -243,9 +280,16 @@ export function groupTariffs(
   now: Date = new Date(),
 ): TariffGroups {
   const shown = displayableTariffs(tariffs);
-  const current = shown.filter((t) => tariffStatus(t, now) !== 'expired');
+  // 🔴 Three buckets from one pass, and every tariff lands in exactly
+  // one. The previous version asked "is it expired?" and swept both
+  // other answers into `current`, so `tariffStatus` computed 'upcoming'
+  // and nothing on earth consumed it.
+  const current = shown.filter((t) => tariffStatus(t, now) === 'current');
+  const upcoming = shown.filter((t) => tariffStatus(t, now) === 'upcoming');
   const expired = shown.filter((t) => tariffStatus(t, now) === 'expired');
-  if (expired.length === 0) return { current, expired, olderExpired: 0 };
+  if (expired.length === 0) {
+    return { current, upcoming, expired, olderExpired: 0 };
+  }
 
   // Every expired tariff has a `validUntil` — that is what made it
   // expired — so this maximum always exists.
@@ -256,6 +300,7 @@ export function groupTariffs(
   const lastSeason = expired.filter((t) => t.validUntil === latestEnd);
   return {
     current,
+    upcoming,
     expired: lastSeason,
     olderExpired: expired.length - lastSeason.length,
   };

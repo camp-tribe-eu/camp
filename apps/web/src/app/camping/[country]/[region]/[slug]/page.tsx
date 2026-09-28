@@ -448,9 +448,9 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           "what does it cost" is the second question after "where is it".
 
           The component renders nothing at all when the source publishes
-          no datable price — 60 358 of 61 558 campsites. An empty
-          "Prices" heading on every one of those would be a promise the
-          page does not keep. */}
+          no datable price — 57 236 of the 58 436 published pages. An
+          empty "Prices" heading on every one of those would be a promise
+          the page does not keep. */}
       <TariffTable
         tariffs={spot.tariffs}
         withheld={spot.tariffsWithheld ?? 0}

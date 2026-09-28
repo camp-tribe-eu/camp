@@ -242,6 +242,62 @@ describe('parsePriceSpec', () => {
     expect(reasons).toEqual(['range-backwards']);
   });
 
+  it('🔴 refuses a season that runs backwards instead of letting the CHECK constraint stop the import', () => {
+    // Review proved this end to end: `spot_tariffs_period_ordered` fired
+    // mid-INSERT, the import's single transaction rolled back, and 0 of
+    // 12 402 rows were written. One bad record must cost one record —
+    // which is the rule `range-backwards` already stated and which was
+    // never applied to the period.
+    const reasons: RejectReason[] = [];
+    expect(
+      parsePriceSpec(
+        spec({
+          'schema:minPrice': ['18'],
+          appliesOnPeriod: [
+            {
+              '@type': ['Period'],
+              startDate: '2026-10-30',
+              endDate: '2026-04-01',
+            },
+          ],
+        }),
+        (r) => reasons.push(r),
+      ),
+    ).toBeNull();
+    expect(reasons).toEqual(['period-backwards']);
+  });
+
+  it('🔴 drops a language tag too long for the column, and KEEPS the price', () => {
+    // `fr-Latn-FR-x-private` is a valid BCP 47 tag and 20 characters of
+    // `varchar(8)`. Postgres answers "value too long" mid-INSERT and the
+    // whole weekly import writes nothing. Losing one label is the right
+    // price; losing the tariff, or storing text with no language, is not.
+    const reasons: RejectReason[] = [];
+    const t = parsePriceSpec(
+      spec({
+        'schema:minPrice': ['18'],
+        name: { 'fr-Latn-FR-x-private': ['Semaine mini'] },
+      }),
+      (r) => reasons.push(r),
+    );
+    expect(t).not.toBeNull();
+    expect(t?.minPrice).toBe(18);
+    expect(t?.label).toBeNull();
+    expect(t?.labelLang).toBeNull();
+    expect(reasons).toEqual(['lang-tag-too-long']);
+  });
+
+  it('keeps a language tag that does fit', () => {
+    const t = parsePriceSpec(
+      spec({
+        'schema:minPrice': ['18'],
+        name: { 'fr-FR': ['Semaine mini'] },
+      }),
+    );
+    expect(t?.labelLang).toBe('fr-fr');
+    expect(t?.label).toBe('Semaine mini');
+  });
+
   it('refuses an amount with no currency rather than assuming euros', () => {
     const reasons: RejectReason[] = [];
     const bare = spec({ 'schema:minPrice': ['18'] });
@@ -368,6 +424,27 @@ describe('parsePrices', () => {
       }),
     );
     expect(parsed?.tariffs.map((t) => t.ref)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('reports the duplicate it collapses, rather than dropping it silently', () => {
+    // This file's own doctrine: a parser that silently discards input is
+    // indistinguishable from one that reads all of it. This was the one
+    // refusal that did not obey it.
+    const reasons: RejectReason[] = [];
+    parsePrices(
+      campsite({
+        offers: [
+          {
+            'schema:priceSpecification': [
+              spec({ '@id': 'same', 'schema:minPrice': ['18'] }),
+              spec({ '@id': 'same', 'schema:minPrice': ['25'] }),
+            ],
+          },
+        ],
+      }),
+      (r) => reasons.push(r),
+    );
+    expect(reasons).toEqual(['duplicate-ref']);
   });
 
   it('collapses a specification URI repeated within one campsite', () => {

@@ -584,12 +584,19 @@ export function schemaOpeningHours(raw: string | undefined): string[] {
 /**
  * CAMP-147: the campsite's current prices, as machine-readable offers.
  *
- * 🔴 CURRENT ONLY. An expired tariff stays on the page, labelled as
- * expired, because a reader can read the label. `makesOffer` has no
- * label: it states "this business offers this at this price", and a
- * machine reading it has no way to know we meant "last October". So a
- * season that has ended produces no markup at all, and `validThrough`
- * on the ones that remain says when each stops being true.
+ * 🔴 IN SEASON TODAY, AND NOTHING ELSE. An expired tariff stays on the
+ * page, labelled as expired; a season that has not begun stays on the
+ * page, labelled as not begun. A reader can read a label. `makesOffer`
+ * has none: it states "this business offers this at this price", and a
+ * machine reading it has no way to know we meant "last October" or
+ * "from next April".
+ *
+ * 🔴 The second half of that was missing and review measured it: this
+ * function was non-empty for 765 campsites while the sentence below
+ * claimed 752, and the 13 in the gap were publishing a 2027 season as a
+ * current offer. `groupTariffs` now separates `upcoming` from `current`
+ * and only `current` is marked up, so the two numbers are the same
+ * number by construction rather than by coincidence.
  *
  * 🔴 Every offer carries its season TWICE, and both are load-bearing.
  * `availabilityStarts`/`availabilityEnds` say when the thing can be
@@ -602,9 +609,9 @@ export function schemaOpeningHours(raw: string | undefined): string[] {
  * the middle of the pipeline is the step that produced the feed's own
  * "2.7999999523162841796875".
  *
- * Measured after the import of 28.09.2026: 752 campsites have at least
- * one current tariff, a median of 4 each and 14 at the most — so there
- * is no cap here, because there is nothing to cap.
+ * Measured after the import of 28.09.2026: 752 published pages have at
+ * least one tariff in season today, a median of 4 each and 14 at the
+ * most — so there is no cap here, because there is nothing to cap.
  */
 export function campsiteOffers(
   spot: Spot,
@@ -939,8 +946,11 @@ export const TYPE_EVIDENCE: Record<string, (spot: Spot) => boolean> = {
     AMENITY_KEYS.some((k) => s.amenities?.[k] === 'yes' || s.amenities?.[k] === 'no'),
   // One per measurement we computed.
   PropertyValue: (s) => surroundingProperties(s).length > 0,
-  // CAMP-147: one per tariff whose season has not ended. 752 campsites
-  // have at least one; the other 60 806 emit neither type.
+  // CAMP-147: one per tariff in season TODAY. 752 of the 58 436
+  // published pages have at least one; the other 57 684 emit neither
+  // type — including the 435 whose only seasons have ended and the 13
+  // whose only season has not begun, both of which are shown to a
+  // reader with a label and are not facts a machine can be told.
   //
   // 🔴 The predicate calls the same function that builds the markup, so
   // a tariff that expires between one build and the next removes the
