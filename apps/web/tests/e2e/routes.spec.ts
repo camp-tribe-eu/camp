@@ -115,6 +115,23 @@ test.describe('a route page', () => {
         'OpenStreetMap',
       );
 
+      // 🔴 CAMP-113's narrowing, on EVERY route including the ones where
+      // we found nothing. It used to be gated on `serviceCount > 0`, so
+      // it disappeared exactly when the block was all-absent — the one
+      // moment a reader most needs to be told that the only source is
+      // OpenStreetMap and that a gap in it is not a gap in the world.
+      //
+      // 🔴 Asserted HERE rather than in a test of its own, and that is
+      // the second thing CI taught me about this file. A separate test
+      // looping `page.goto` over all twelve routes is twelve page loads
+      // inside one 30 s budget; it timed out on mobile-safari, passed on
+      // the retry, and `check-flaky.mjs` failed the build for it —
+      // correctly. This test already visits every route page, so the
+      // coverage is identical and costs nothing.
+      await expect(page.getByTestId('route-sources')).toContainText(
+        'come from OpenStreetMap alone',
+      );
+
       // 🔴 CAMP-113 — the services block, on every stage, with every
       // kind. Counted rather than sampled: a kind that stopped
       // rendering would otherwise be invisible, because the page would
@@ -215,23 +232,6 @@ test.describe('a route page', () => {
     await expect(page.getByTestId('route-sources')).toContainText(
       'no ratings and no photographs',
     );
-  });
-
-  // 🔴 That explanation used to be gated on `serviceCount > 0`, so it
-  // disappeared exactly when the block was all-absent — the one moment a
-  // reader most needs to be told that the only source is OpenStreetMap
-  // and that a gap in it is not a gap in the world. Asserted on every
-  // route, because the fixture makes most of them all-absent in CI.
-  test('…on every route, including the ones where we found nothing', async ({
-    page,
-  }) => {
-    for (const route of CURATED_ROUTES) {
-      await page.goto(`/routes/${route.slug}`);
-      await expect(
-        page.getByTestId('route-sources'),
-        `${route.slug} drops the source note`,
-      ).toContainText('come from OpenStreetMap alone');
-    }
   });
 
   // 🔴 The map has to actually mount. Tests on this project once went
