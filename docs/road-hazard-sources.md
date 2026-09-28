@@ -56,7 +56,30 @@ so the staleness has to be handled by us, on our side, every time.
 
 ## The sources table
 
-*(filled in below — see each section for the evidence behind the verdict)*
+Every verdict below is argued, with its quotation, in the section named.
+
+| source | what it gives | licence verdict | coverage | latency | verdict |
+| --- | --- | --- | --- | --- | --- |
+| **MeteoAlarm** (§1) | official weather warnings: wind, ice, snow, storm | CC BY 4.0-equivalent **plus 7 conditions**, incl. a 5-minute redistribution rule | 27/27 feeds answer; 308 live warnings EU-wide when measured | must be under 5 min by licence | **TAKE** |
+| **EFFIS / GWIS** (§5) | wildfire hotspots and burnt-area perimeters | CC BY 4.0, no key, no registration | EU-wide, 18 362 fires this season | 2–3 h hotspots, daily perimeters | **TAKE** |
+| **Fuel per station** (§6) | ES, FR, IT per-station prices | commercial reuse explicit in all three | ~45 000 stations | 30 min – 24 h | **TAKE 3** |
+| **Tankerkönig** (DE) (§6) | German per-station prices | CC BY 4.0 live data only | national | live | **TAKE, on-demand only** (1 req/min) |
+| **Cameras: Finland** (§3) | 809 roadside camera stations, stills | CC BY 4.0, *"even commercially"* | Finland | ~10 min | **TAKE** |
+| **Cameras: Estonia** (§3) | links to the latest camera images | `CC_BY` | Estonia | live links | **TAKE** after manual key approval |
+| **Open Charge Map** (§7) | EV/campervan charging points | CC BY 4.0 — **but only user-contributed records** | EU-wide | n/a | **TAKE**, with per-record attribution |
+| Cameras: AT, IE (§3) | motorway webcams | **linking itself forbidden without written consent** | — | — | **REJECT** (partner route exists) |
+| Cameras: SI, ES (§3) | traffic cameras | **non-commercial only** | — | — | **REJECT** |
+| Cameras: NL, DK (§3) | — | — | no imagery published at all | — | **nothing to take** |
+| **NAP / DATEX II** (§4) | closures, accidents, obstructions | 27 separate licences; NL best case has **none stated** | 2 of 6 sampled gave data anonymously | varies | **REJECT at launch** |
+| Fuel: AT (§6) | per-station prices, open endpoint | **no licence exists for consumers** | — | — | **REJECT** pending an email |
+| Fuel: PT, HU (§6) | per-station prices | **commercial use explicitly prohibited** | — | — | **REJECT** |
+| Fuel: BE, GR, PL (§6) | — | — | not published per station | — | **nothing to take** |
+
+Not checked, and therefore neither taken nor rejected: cameras and NAPs
+for **Germany, Czechia, France, Italy, Poland, Portugal**; Swedish
+cameras; Slovenian and Croatian fuel licences; EAFO's licence. "Not
+checked" is not "negative", and none of these should be quoted as a
+refusal later.
 
 ---
 
@@ -390,6 +413,22 @@ Worth noting against the project's habit of measuring: Digitraffic's own
 documentation describes "more than 470" road weather cameras. The API
 returned 809 stations. The docs are stale; the endpoint is the truth.
 
+### Estonia — open, but a human has to approve the key
+
+Verified on the Estonian open-data API 28.09.2026: the dataset "Images
+from road cameras" (`avaandmed.eesti.ee/api/datasets/…`, HTTP 200)
+carries `"license": "CC_BY"` on its distribution, and describes itself as
+*"web links of the most recent images of roadside road cameras"* — so
+linking to the image is the intended delivery model, not a workaround.
+
+Usefully, the same record is declared as an ITS National Access Point
+dataset (`dataStandardCl: DATEX_II`, `SRTI_DATA_TYPE:
+WEATHER_CONDITIONS`), which makes Estonia one of the few countries where
+the camera layer and the road-conditions feed are the same registration.
+
+The gate is procedural: the API key needs manual human approval, so the
+application has to be made well before the sprint that depends on it.
+
 ### Austria — the clearest "no", and it forbids even linking
 
 This one is worth quoting at length because it is the opposite of what
@@ -509,6 +548,371 @@ obtained).
 
 ---
 
+## 5. EFFIS / GWIS wildfire (Copernicus) — **TAKE**
+
+The cleanest source on this card: open licence, no key, no registration,
+and a better API than we expected.
+
+### Licence — CC BY 4.0, commercial use allowed
+
+Read 28.09.2026 at
+`https://forest-fire.emergency.copernicus.eu/about-effis/data-license`
+(HTTP 200):
+
+> Unless otherwise indicated (e.g. in individual copyright notices),
+> content owned by the EU on this website is licensed under the Creative
+> Commons Attribution 4.0 International (CC BY 4.0) licence. This means
+> that reuse is allowed, provided appropriate credit is given and changes
+> are indicated.
+
+EFFIS does run a data-request form, and the card was right to suspect an
+extra condition — but checked, it does not reach us
+(`/applications/data-and-services`, read 28.09.2026):
+
+> For any request of data which is not not available through the EFFIS
+> Web services (e.g. historic data, extracts of the fire database, or raw
+> burned area perimeters) we kindly ask you to use our DATA REQUEST FORM
+
+*(the doubled "not" is theirs)*. The form covers what the web services do
+**not** serve. The WMS and WFS layers need no request, no registration and
+no key.
+
+### The card's remembered layer count was wrong
+
+Re-measured 28.09.2026:
+`https://maps.effis.emergency.copernicus.eu/gwis?service=WMS&request=GetCapabilities&version=1.3.0`
+returned HTTP 200, 220 181 bytes — and parsing the XML gives **140 named
+layers, 84 of them queryable**, not the 266 the card carried forward.
+`gwis.globfire.finalperim` does exist, but with `queryable="0"`, so
+`GetFeatureInfo` against it returns `LayerNotDefined`. The sister `/effis`
+endpoint serves a further 67 named layers.
+
+This is exactly why the project rule says a figure is measured, not
+remembered — 266 would have survived indefinitely if nobody had counted.
+
+### It is not WMS-tiles-only: there is a per-fire GeoJSON feed
+
+The useful discovery. On the `/effis` endpoint (the `/gwis` WFS times
+out):
+
+```
+…/effis?service=WFS&version=1.1.0&request=GetFeature
+        &typename=ms:modis.ba.poly.season&outputformat=geojson
+→ HTTP 200, 132 MB, 115 s, 18 362 features
+```
+
+Per-fire attributes include `FIREDATE`, `LASTUPDATE`, `COUNTRY`,
+`PROVINCE`, `COMMUNE`, `AREA_HA`, land-cover breakdown and `PERCNA2K`
+(share inside Natura 2000). Freshness was measured rather than assumed:
+the maximum `LASTUPDATE` in the response was **2026-09-28 14:40:50** —
+the same day as the query. Top EU-27 counts this season: Italy 2 145,
+Spain 2 040, France 1 694, Portugal 1 323, Romania 666.
+
+`maxfeatures` is honoured, which matters — 132 MB is not something to
+fetch per page view.
+
+### Latency, quoted
+
+> Information on active fires is normally updated 6 times daily and made
+> available in EFFIS within 2-3 hours of the acquisition of the
+> MODIS/VIIRS images.
+
+> Daily, two full image mosaics the European territory are processed in
+> EFFIS to derive burnt area maps, every day.
+
+with the resolution limit stated as:
+
+> Burnt scars of approximately 30 hectares in size are mapped
+
+So active-fire hotspots run 2–3 hours behind satellite; burnt-area
+perimeters are daily and only catch fires above roughly 30 ha. **Neither
+is an evacuation signal**, and the UI must not imply it is. This is
+context for planning a trip, not a live emergency layer — which sits
+comfortably inside what this card promises.
+
+---
+
+## 6. Fuel prices per station — **TAKE 3, plus Germany on a leash**
+
+CAMP-55 already gives weekly per-country averages. Per-station is a
+different matter, and the honest answer is four countries, not twelve.
+
+| country | endpoint | open | commercial | verdict |
+| --- | --- | --- | --- | --- |
+| **Spain** | `sedeaplicaciones.minetur.gob.es` REST, 200, 12.2 MB, **11 498 stations**, refreshed every half hour | no key | **yes** | **TAKE** |
+| **France** | `data.economie.gouv.fr` flux instantané v2, 200, **9 807 stations** | no key | **yes** | **TAKE** |
+| **Italy** | `mimit.gov.it` CSV, 200, **23 999 stations** with coordinates, daily 08:00 | no key | **yes** | **TAKE** |
+| **Germany** | Tankerkönig, 200 with a free key | key | yes, live data only | **TAKE, on-demand only** |
+| Austria | `api.e-control.at/sprit/1.0/` 200, no key, no rate limit | yes | **no licence exists** | reject, pending an email |
+| Portugal | DGEG API 200, real per-station JSON | yes | **explicitly forbidden** | reject |
+| Slovenia | `goriva.si/api/v1/search/` 200, 551 stations | yes | unverified | hold |
+| Croatia | `webservis.mzoe-gor.hr` 200, 912 stations | yes | unverified | hold |
+| Hungary | `holtankoljak.hu` | robots.txt disallows | **no** | reject |
+| Belgium | maximum prices only | — | — | not per-station |
+| Greece | daily PDF per prefecture | — | — | not per-station |
+| Poland | 68 datasets screened, no retail price field | — | — | does not exist |
+
+The three clean licences, quoted:
+
+- **Spain**, datos.gob.es: *"Las presentes condiciones generales permiten
+  la reutilización de los documentos sometidos a ellas para fines
+  comerciales y no comerciales."*
+- **France**, Licence Ouverte 2.0: *"de l'exploiter à titre commercial"*,
+  *"à des fins commerciales ou non, dans le monde entier"*.
+- **Italy**, IODL 2.0: *"Tu puoi esercitare i diritti concessi con la
+  presente licenza in modo libero e gratuito, anche qualora la finalità da
+  Te perseguita sia di tipo commerciale."*
+
+That is roughly **45 000 stations across ES, FR and IT** on
+attribution-only terms, with no share-alike and no registration.
+
+**Germany is a rate limit, not a legal problem.** Tankerkönig's live data
+is CC BY 4.0 (*"Die Daten stehen unter der Creative-Commons-Lizenz 'CC BY
+4.0'"*), but the historical archive is BY-NC-SA and explicitly says
+*"Für kommerzielle Nutzung muss ein kostenpflichtiger Vertrag mit uns
+abgeschlossen werden."* The binding constraint is throughput: *"die
+Abfragefrequenz auf einen requet/Minute beschränkt"* (sic) plus a 25 km
+radius, and they state that mirroring attempts *"werden geblockt (und
+API-Keys deaktiviert)"*. So: on-demand lookup for a campsite the user is
+actually looking at — yes. A nightly national sweep — no, and it would
+get our key disabled. Going direct to MTS-K instead requires a
+*Zulassung* as a Verbraucher-Informationsdienst from the Bundeskartellamt,
+which is an owner step.
+
+**Austria is the instructive rejection.** `api.e-control.at` answers 200
+with no key and no rate limit, which makes it look like the easiest source
+on the list. But the only published Nutzungsbedingungen govern the
+stations *supplying* the prices — they *"regeln das Verhältnis zwischen
+dem Nutzer (Betreiber von CNG-Tankstellen) und Energie-Control Austria"*
+— and `spritpreisrechner.at/nutzungsbedingungen.html` is a 404. **An HTTP
+200 is not a licence.** Under this project's rule, no permission means no
+take, however convenient the endpoint.
+
+Portugal is the blunt one: *"gratuita, podendo ser utilizada livremente.
+É proibida a sua utilização para fins comerciais."*
+
+Slovenia and Croatia are each one email away — the data is open and the
+endpoints work; only the written permission is missing. Both endpoints
+were reverse-engineered from the sites' own JavaScript, which is another
+reason not to ship them on assumption.
+
+For the countries we reject, we keep the CAMP-55 country averages and
+**mark them visually as averages**, so the map never implies a precision
+we do not have.
+
+---
+
+## 7. Open Charge Map — **TAKE, with a real UI obligation**
+
+The suspicion in the card was share-alike. That suspicion is now out of
+date, and the actual constraint is different and more interesting.
+
+Licence, read 28.09.2026 at `https://openchargemap.org/about/terms`
+(HTTP 200, page states "updated 01/04/2022"):
+
+> Data contributed to us by our users which we then redistribute is
+> licensed under a Creative Commons Attribution 4.0 International (CC BY
+> 4.0).
+
+OCM moved off CC BY-SA — *"we are moving from the CC-BY-SA 4.0 license to
+CC-BY 4.0"* — so **there is no share-alike clause to infect our own
+database**. And OCM describing itself as *"a non-commercial, non-profit
+service"* is a statement about the organisation, not a restriction on
+data users.
+
+The real constraints, each quoted, and (a) is the one that matters:
+
+> Data imported from 3rd party Data Providers is copyright the original
+> Data Provider in each case and is not provided under the same terms as
+> the user-contributed data detailed above.
+
+**So the CC BY 4.0 covers only the user-contributed records.** This is the
+same trap as any aggregator: the licence on the tin does not cover the
+imported cargo. We must read each POI's `DataProvider` and filter, not
+bulk-assume.
+
+> Use of our API or data in an application or service requires that the
+> appropriate Data Provider attribution (including license terms) be
+> provided in a way which is visible the end user.
+
+Per-record provider name **and its licence text**, rendered where the user
+can see it — not in a buried credits page. That is a UI requirement, not a
+footnote.
+
+> You agree that we may substitute this license at any point (where
+> applicable) for an alternative Open Data license
+
+So we pin the licence we ingested under, per record, with a date.
+
+An API key is required: a live call without one returned **HTTP 403**,
+*"You must specify an API key using the key query parameter or x-api-key
+header."* Obtaining it needs a registered account, so **no payload was
+sampled** — the data shape remains unverified, and the key is an owner
+step.
+
+The credible EU alternative is worth recording: under **AFIR Article 20**
+operators must publish static charging data (updated within 24 hours) and
+dynamic availability (within one minute) to the National Access Points,
+and **DATEX II became mandatory for NAP charging submissions on
+14.04.2026**. That is first-party and legally mandated rather than
+crowd-sourced — but it is 27 endpoints again, with all the problems of
+section 4. EAFO's licence **could not be verified**.
+
+---
+
+## 8. Freshness: the constraint that shapes the build
+
+Three findings collide here, and together they decide the architecture.
+
+1. The licence requires operational redistribution "on average less than
+   five minutes and never longer than ten minutes".
+2. Both public endpoints serve expired warnings — up to 5.5 days past
+   `expires` on the JSON API, 1.7 days on ATOM.
+3. The page must never render empty when data is missing, because
+   emptiness reads as "all clear".
+
+So the pipeline needs three separate clocks, and they are easy to
+conflate:
+
+| clock | what it measures | what it must do |
+| --- | --- | --- |
+| `expires` | is this warning still in force? | drop the record — on every read, never trust the feed |
+| feed age | when did MeteoAlarm last publish? | if older than our budget, say "no fresh data" |
+| our lag | when did *we* last succeed? | must stay under 5 minutes to satisfy the licence |
+
+A useful measured detail for the third: the feed-level `<updated>` element
+is a cheap change detector. Croatia's stayed at
+`2026-09-28T14:35:39.018280Z` across every poll from 14:58 to 15:04 — 28.5
+minutes unchanged. That is consistent with "nothing changed in Croatia in
+that window" rather than proof of a refresh interval, but it means we can
+poll frequently and cheaply, comparing one timestamp, and only re-parse
+when it moves.
+
+**The failure mode to design against is not "the fetch errored".** It is
+"the fetch succeeded and returned a stale archive", which is exactly what
+these endpoints do by default. A green pipeline with 5-day-old wind
+warnings on the page is the realistic bad outcome here, and it looks
+healthy from every angle except the one that matters.
+
+---
+
 ## New cards this spawns
 
-*(see the end of the document)*
+Eleven, and the order matters: the first three are the feature, the next
+three make it safe, and the rest are country-by-country widening.
+
+### The feature
+
+1. **MeteoAlarm ingest with hard filtering.** Poll the 27 JSON country
+   feeds, drop anything whose `expires` has passed, anything with
+   `responseType: AllClear`, and anything at `awareness_level 1` (green).
+   Normalise the `awareness_type` casing. Acceptance test: feed a fixture
+   containing Poland's 28.09.2026 payload — 69 entries, all expired — and
+   the output must be zero warnings, not 69.
+
+2. **The geography join.** Ingest the 2 006-feature geocode GeoJSON,
+   resolve EMMA_ID, NUTS3, NUTS2, WARNCELLID and FIPS, and fall back to
+   the inline CAP polygon for Estonia and Sweden, which have no geocode
+   features at all. Must fail loudly on an unresolvable code rather than
+   silently dropping the warning.
+
+3. **The campsite warning panel**, carrying all six display obligations
+   from §2: issuing service, time of issue, link to meteoalarm.org, the
+   verbatim disclaimer, our "the decision is yours" line, and **"no fresh
+   data"** whenever the freshness budget is exceeded.
+
+### Making it safe
+
+4. **A staleness alarm that is not blind.** It must fire on "the fetch
+   succeeded and returned an archive", not merely on HTTP errors. The
+   measurements in §1 are its fixtures: an endpoint that returns 200 with
+   5-day-old records is the realistic failure, and a naive health check
+   calls it green.
+
+5. **A licence-obligations test.** One test per condition in clause 5,
+   asserting the attribution, the timestamp, the link and the disclaimer
+   are actually rendered — because a licence breach is invisible until it
+   is expensive.
+
+6. **Request MeteoAlarm re-user credentials** (EDR API + MQTT) from
+   `meteoalarm@geosphere.at`. This is the difference between polling 27
+   legacy endpoints the provider calls "backward compatibility" and
+   receiving a push that satisfies the five-minute rule by construction.
+   Owner step.
+
+### Widening, each independently shippable
+
+7. **EFFIS wildfire layer** from the per-fire GeoJSON WFS, with
+   `maxfeatures` — never the unbounded 132 MB response — and worded as
+   trip-planning context, not an evacuation signal.
+
+8. **Fuel per station for ES, FR, IT**, with the CAMP-55 country averages
+   kept for everyone else and visually marked as averages.
+
+9. **Tankerkönig on-demand for Germany**, one request per minute, per
+   campsite the user is actually viewing. Explicitly not a nightly sweep.
+
+10. **Camera layer for Finland and Estonia only**, labelled honestly as
+    two countries. Estonia needs its API key approved by a human, so apply
+    before the sprint that needs it.
+
+11. **Open Charge Map with per-record provider attribution**, filtering on
+    each POI's `DataProvider` rather than assuming the CC BY 4.0 reaches
+    imported records, and pinning the licence per record with a date.
+
+### Owner emails, not engineering
+
+Four sources are blocked only by a missing piece of paper, and each is one
+message: **ASFINAG** (Austrian camera partner status), **E-Control**
+(Austrian fuel licence — `office@e-control.at`), **MGRT / MZOE**
+(Slovenian and Croatian fuel), and **Rijkswaterstaat / NDW** (a licence
+for the Dutch SRTI feed, which is otherwise the best road-hazard source
+in the EU). None of them is a technical obstacle.
+
+---
+
+## What we refused, in one sentence each
+
+- **A pan-EU camera layer** — because Austria and Ireland forbid even
+  linking without written consent, Slovenia and Spain forbid commercial
+  reuse, and the Netherlands and Denmark publish no images at all; two of
+  twelve countries are usable, so the honest product is two countries.
+- **Twenty-seven NAP integrations at launch** — because a 200 at a NAP
+  root is not access, only two of six sampled yielded data to an anonymous
+  client, and the best of them states no licence at all.
+- **Austrian fuel prices** — because the endpoint is open and the licence
+  does not exist, and an HTTP 200 is not permission.
+- **Portuguese and Hungarian fuel prices** — because both say, in their own
+  words, that commercial use is prohibited.
+- **Belgian, Greek and Polish per-station fuel** — because it is not
+  published per station; there is nothing to refuse or take.
+- **Any wording of the form "it is dangerous here"** — because no licence
+  covers an assertion we generate ourselves, and no disclaimer repairs it.
+
+---
+
+## How to re-check this in six months
+
+Every claim above is a URL, a date and a quotation, so the refutation path
+is short. The four things most likely to have moved:
+
+1. **The 308 figure** — it is a single moment on 28.09.2026 and will differ
+   every hour. What should *not* change is the ratio: expect roughly half
+   the feed to be expired and most of the remainder to be green. If a
+   future measurement shows the feeds clean, the filtering can relax —
+   until then it cannot.
+2. **MeteoAlarm's terms** — dated 15/03/2024 when read. The five-minute
+   rule is the clause to re-read, because the whole architecture rests on
+   it.
+3. **The EDR API's 401** — if it opens, or MeteoGate ships its promised
+   "free access to the public", items 1 and 6 above collapse into
+   something much smaller.
+4. **`meteoalarm-legacy-atom-europe`** — it 404s today while the
+   deprecated RSS feed points at it. If it starts working, 27 polls become
+   one.
+
+Three defects at the source are worth reporting to
+`meteoalarm@geosphere.at` rather than merely working around: the broken
+pan-European ATOM feed, the Redistribution Hub's false claim that "only
+active warnings are included", and the shapefiles being served from
+personal Google Drive links.
