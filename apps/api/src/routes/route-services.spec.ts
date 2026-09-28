@@ -58,6 +58,12 @@ describe('the kinds a caller may ask for', () => {
       buildServicesSql(['fuel', "x'--"] as never),
     ).toThrow(/unknown kind/);
   });
+
+  // 🔴 `cand AS ()` is a syntax error, and it would arrive as a 500 from
+  // a route page during the build rather than as the mistake it is.
+  it('refuses to build a query for no kinds at all', () => {
+    expect(() => buildServicesSql([])).toThrow(/no kinds/);
+  });
 });
 
 describe('the SQL a stage runs', () => {

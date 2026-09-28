@@ -117,6 +117,15 @@ export function parseKinds(raw: unknown): RoutePoiKind[] {
  * list that is not in the order it claims.
  */
 export function buildServicesSql(kinds: RoutePoiKind[]): string {
+  // 🔴 An empty list is a thrown error, not an empty UNION. `parseKinds`
+  // already refuses to return one — a typo falls back to every kind
+  // rather than to nothing — but this function is exported, and
+  // `cand AS ()` is a syntax error that would surface as a 500 from a
+  // route page at build time rather than as the mistake it is.
+  if (kinds.length === 0) {
+    throw new Error('route-services: asked for no kinds at all');
+  }
+
   const blocks = kinds.map((kind) => {
     // Belt and braces: the list above is already closed, and this is the
     // line that would matter if somebody widened it.
