@@ -2,8 +2,11 @@ import { expect, test } from '@playwright/test';
 import {
   campgroundGraph,
   campsiteFaq,
+  campsitePageGraph,
   faqGraph,
+  sourceLinks,
   surroundingProperties,
+  TYPE_EVIDENCE,
 } from '../../src/lib/jsonld';
 import { AMENITY_KEYS, Amenities, Spot } from '../../src/lib/api';
 
@@ -45,13 +48,37 @@ const bare: Spot = {
   contact: {},
 };
 
-/** The same site, with everything we are able to measure measured. */
+/**
+ * The same site, with everything we are able to hold, held.
+ *
+ * 🔴 `contact` and `sources` are populated here, and review is the
+ * reason. Every fixture in this file used to carry `contact: {}` and
+ * `sources: []`, which made the whole CAMP-141 contact surface — and
+ * this card's own `sourceLinks` — invisible to the type-evidence walk
+ * below: a type gated on `contact.phone` could be emitted on every
+ * campsite that has a phone and no fixture would ever see it.
+ * Demonstrated with an invented `Offer`, which shipped past all ten
+ * tests. The richest fixture has to actually be the richest.
+ */
 const full: Spot = {
   ...bare,
   name: 'Camping Bled',
   amenities: { ...unknownAmenities, shower: 'yes', wifi: 'no', dogFriendly: 'yes' },
   stars: 4,
   website: 'https://www.camping-bled.com/',
+  contact: {
+    phone: '+386 4 575 20 00',
+    email: 'info@camping-bled.com',
+    website: 'https://osm.example/camping-bled',
+    operator: 'Sava Turizem d.d.',
+    openingHours: '24/7',
+    capacity: 137,
+    address: { street: 'Kidričeva cesta 10c', city: 'Bled', postcode: '4260' },
+  },
+  sources: [
+    { id: 'osm', ref: 'a194007848', updatedAt: '2026-09-24', fields: ['name', 'location', 'amenities'] },
+    { id: 'datatourisme', ref: 'https://data.datatourisme.fr/13/abc', updatedAt: '2026-01-15', fields: ['stars', 'website'] },
+  ],
   context: {
     water: { m: 365, name: 'Lake Bled', kind: 'lake' },
     town: { m: 1200, name: 'Bled' },
@@ -85,23 +112,254 @@ const validates = (doc: unknown) => {
 };
 
 test('the full graph validates against the real schema.org vocabulary', () => {
-  expect(validates(campgroundGraph(full, '/camping/si/gorenjska/camping-bled', []))).toEqual([]);
+  expect(validates(campgroundGraph(full, '/camping/si/gorenjska/camping-bled'))).toEqual([]);
 });
 
 test('and so does the graph of a site we know nothing about', () => {
-  expect(validates(campgroundGraph(bare, '/camping/si/gorenjska/nowhere', []))).toEqual([]);
+  expect(validates(campgroundGraph(bare, '/camping/si/gorenjska/nowhere'))).toEqual([]);
 });
 
 test('the FAQ block validates too', () => {
   const doc = faqGraph(campsiteFaq(full), '/camping/si/gorenjska/camping-bled');
   expect(doc).not.toBeNull();
-  expect(validates(doc)).toEqual([]);
+  // 🔴 Not on its own any more. Since CAMP-114 the FAQ says what it is
+  // about and which page it belongs to, by `@id`, so validating it in
+  // isolation now reports those references as dangling — correctly. The
+  // whole page is validated in the section below; here we only check
+  // that nothing else about the block is wrong.
+  expect(
+    validates(doc).filter((e) => !e.includes('referenced but no block defines it')),
+  ).toEqual([]);
+});
+
+// ── CAMP-114: no type without data, checked on the graph that ships ────
+//
+// 🔴 This is the card's verification clause, and the reason it is here
+// rather than in a comment.
+//
+// The tests below this section each name a property they expect to be
+// absent. That is a hand-written list: it catches the mistakes somebody
+// thought of, and a type added next month appears in none of them. So
+// this block works the other way round — it walks every node of every
+// block the page actually emits, and for each `@type` it finds it asks
+// `TYPE_EVIDENCE` what fact must be true first. A type with no entry
+// fails. A type whose entry is false for this campsite fails.
+
+const PATH = '/camping/si/gorenjska/camping-bled';
+const CRUMBS = [
+  { name: 'Camping', path: '/camping' },
+  { name: 'Slovenia', path: '/camping/si' },
+  { name: 'Gorenjska', path: '/camping/si/gorenjska' },
+  { name: 'Camping Bled', path: PATH },
+];
+
+const graphFor = (spot: Spot) =>
+  campsitePageGraph({ spot, path: PATH, crumbs: CRUMBS, faq: campsiteFaq(spot) });
+
+/** Every `@type` anywhere in the page's blocks, nested ones included. */
+function typesIn(value: unknown, found = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) {
+    for (const v of value) typesIn(v, found);
+    return found;
+  }
+  if (value && typeof value === 'object') {
+    const t = (value as Record<string, unknown>)['@type'];
+    if (typeof t === 'string') found.add(t);
+    else if (Array.isArray(t)) for (const x of t) found.add(String(x));
+    for (const v of Object.values(value as Record<string, unknown>)) {
+      typesIn(v, found);
+    }
+  }
+  return found;
+}
+
+/**
+ * The fixtures a type has to survive. `bare` is the honest worst case —
+ * a campsite we know nothing about but where it is — and each of the
+ * others turns exactly one fact on.
+ */
+const FIXTURES: [string, Spot][] = [
+  ['a campsite we know nothing about', bare],
+  ['everything we can hold, held', full],
+  ['no region', { ...bare, region: null }],
+  ['stars only', { ...bare, stars: 3 }],
+  ['one amenity only', {
+    ...bare,
+    amenities: { ...unknownAmenities, shower: 'yes' },
+  }],
+  ['one measurement only', { ...bare, context: { elevation: 475 } }],
+  ['a free site, priced by its type', { ...bare, type: 'free' }],
+  // 🔴 The CAMP-141 contact surface, one field at a time. Without these
+  // a type gated on a phone number, an address or opening hours is
+  // emitted on thousands of pages and seen by none of these tests.
+  ['a phone and nothing else', { ...bare, contact: { phone: '+386 4 575 20 00' } }],
+  ['an email and nothing else', { ...bare, contact: { email: 'x@example.si' } }],
+  ['an address and nothing else', {
+    ...bare,
+    contact: { address: { street: 'Kidričeva cesta 10c', city: 'Bled', postcode: '4260' } },
+  }],
+  ['opening hours and nothing else', { ...bare, contact: { openingHours: '24/7' } }],
+  ['an operator and a capacity, which we publish for neither', {
+    ...bare,
+    contact: { operator: 'Sava Turizem d.d.', capacity: 137 },
+  }],
+  ['an OpenStreetMap website and nothing else', {
+    ...bare,
+    contact: { website: 'https://osm.example/x' },
+  }],
+  // And the source records, which this card turned into `sameAs`.
+  ['one OpenStreetMap source', {
+    ...bare,
+    sources: [{ id: 'osm', ref: 'n123', updatedAt: '2026-09-24', fields: ['name', 'location'] }],
+  }],
+  ['one DATAtourisme source', {
+    ...bare,
+    sources: [{ id: 'datatourisme', ref: 'https://data.datatourisme.fr/13/x', updatedAt: '2026-01-15', fields: ['name', 'location'] }],
+  }],
+  ['two sources, one of them joined by a rule', {
+    ...bare,
+    sources: [
+      { id: 'osm', ref: 'a194007848', updatedAt: '2026-09-24', fields: ['name', 'location'] },
+      { id: 'datatourisme', ref: 'https://data.datatourisme.fr/13/x', updatedAt: '2026-01-15', fields: ['stars'] },
+    ],
+  }],
+];
+
+for (const [label, spot] of FIXTURES) {
+  test(`every type has a field behind it — ${label}`, () => {
+    for (const type of typesIn(graphFor(spot))) {
+      const evidence = TYPE_EVIDENCE[type];
+      expect(
+        evidence,
+        `${type} is emitted but TYPE_EVIDENCE does not say what backs it`,
+      ).toBeDefined();
+      expect(
+        evidence(spot),
+        `${type} is in the markup while the data behind it is not`,
+      ).toBe(true);
+    }
+  });
+}
+
+test('and a type whose data IS there is actually emitted', () => {
+  // 🔴 The other direction, or the table could be satisfied by emitting
+  // nothing at all — and across EVERY fixture, not just the richest one.
+  // Running it on `full` alone let a table entry be true for a campsite
+  // whose type the graph never emits, which is the same lie the other
+  // way round.
+  for (const [label, spot] of FIXTURES) {
+    const emitted = typesIn(graphFor(spot));
+    for (const [type, evidence] of Object.entries(TYPE_EVIDENCE)) {
+      if (evidence(spot)) {
+        expect(
+          emitted.has(type),
+          `${label}: ${type} is backed by data and missing from the markup`,
+        ).toBe(true);
+      }
+    }
+  }
+});
+
+test('the bare campsite carries no optional type at all', () => {
+  // Named explicitly, so that a change making one of these unconditional
+  // has to be argued for here rather than slipping through the loop.
+  const emitted = typesIn(graphFor(bare));
+  for (const type of [
+    'Rating',
+    'LocationFeatureSpecification',
+    'PropertyValue',
+    'FAQPage',
+    'Question',
+    'Answer',
+  ]) {
+    expect(emitted.has(type), `${type} appeared with nothing behind it`).toBe(false);
+  }
+  // And what is left is genuinely true of every row in the database.
+  expect([...emitted].sort()).toEqual([
+    'BreadcrumbList',
+    'Campground',
+    'GeoCoordinates',
+    'ListItem',
+    'Organization',
+    'Place',
+    'PostalAddress',
+    'WebPage',
+    'WebSite',
+  ]);
+});
+
+test('the page as a whole validates, blocks and cross-references', () => {
+  // 🔴 All the blocks together, the way the build sees a page. One at a
+  // time would hide the thing this most needs to catch: a reference from
+  // one block to an `@id` that no other block defines.
+  for (const [label, spot] of FIXTURES) {
+    const html = graphFor(spot)
+      .map((b) => `<script type="application/ld+json">${JSON.stringify(b)}</script>`)
+      .join('');
+    expect(validateHtml(html, label).errors, label).toEqual([]);
+  }
+});
+
+test('every @id a block points at is a block that exists', () => {
+  // 🔴 A dangling reference is a claim about a node that is not there.
+  // `mainEntity: {"@id": "…#campground"}` pointing at nothing tells an
+  // assistant the page is about something it cannot find, and neither
+  // the vocabulary check nor a screenshot would show it.
+  const blocks = graphFor(full);
+  const defined = new Set<string>();
+  const referenced = new Set<string>();
+  const walk = (v: unknown, isRefHolder = false) => {
+    if (Array.isArray(v)) return v.forEach((x) => walk(x, isRefHolder));
+    if (!v || typeof v !== 'object') return;
+    const node = v as Record<string, unknown>;
+    const id = node['@id'];
+    if (typeof id === 'string') {
+      // A node carrying only @id is a reference; one with a @type defines.
+      if (node['@type'] !== undefined) defined.add(id);
+      else referenced.add(id);
+    }
+    for (const val of Object.values(node)) walk(val);
+  };
+  walk(blocks);
+  for (const ref of referenced) {
+    expect(defined.has(ref), `${ref} is referenced but never defined`).toBe(true);
+  }
+  // And the linkage this card added is really there.
+  expect(defined.has(`https://camptribe.eu${PATH}#campground`)).toBe(true);
+  expect(defined.has(`https://camptribe.eu${PATH}#page`)).toBe(true);
+});
+
+test('the page is described as the English page that it is', () => {
+  const page = graphFor(full).find((b) => b['@type'] === 'WebPage')!;
+  expect(page.inLanguage).toBe('en');
+  expect(page.publisher).toMatchObject({ '@type': 'Organization', name: 'CampTribe' });
+  expect(page.mainEntity).toEqual({ '@id': `https://camptribe.eu${PATH}#campground` });
+});
+
+test('🔴 pitches are still not published as structured data', () => {
+  // The scar: `maximumAttendeeCapacity` counts PEOPLE and OSM's
+  // `capacity` was published into it on 3 683 campsites.
+  //
+  // 🔴 And it is not published under an honest name either. The
+  // OpenStreetMap wiki documents `capacity:pitches`, `capacity:persons`,
+  // `capacity:tents` and `capacity:caravans` for tourism=camp_site —
+  // plain `capacity`, which is the tag we import, is none of them. Which
+  // quantity a mapper meant is a guess, and a guess is exactly what this
+  // file refuses to encode. The number is printed on the page, labelled
+  // as pitches, where a reader can weigh it.
+  const withCapacity = { ...full, contact: { ...full.contact, capacity: 137 } };
+  const json = JSON.stringify(graphFor(withCapacity));
+  expect(json).not.toContain('maximumAttendeeCapacity');
+  // Not under any other name either — the number itself must be absent,
+  // and no property may be named for it.
+  expect(json).not.toContain('137');
+  expect(json).not.toMatch(/pitch|capacit/i);
 });
 
 // ── nothing claimed without a field behind it ──────────────────────────
 
 test('a site with no measurements carries no property claiming any', () => {
-  const node = campgroundGraph(bare, '/x', []) as Record<string, unknown>;
+  const node = campgroundGraph(bare, '/x') as Record<string, unknown>;
   for (const key of [
     'additionalProperty',
     'petsAllowed',
@@ -149,7 +407,6 @@ test('petsAllowed follows the recorded answer, and stays silent without one', ()
     campgroundGraph(
       { ...bare, amenities: { ...unknownAmenities, dogFriendly: v } },
       '/x',
-      [],
     ) as Record<string, unknown>;
   expect(graph('yes').petsAllowed).toBe(true);
   expect(graph('no').petsAllowed).toBe(false);
@@ -159,7 +416,7 @@ test('petsAllowed follows the recorded answer, and stays silent without one', ()
 // ── somebody else's rating, never ours ─────────────────────────────────
 
 test("the star rating is the state's classification, with its scale", () => {
-  const node = campgroundGraph(full, '/x', []) as Record<string, unknown>;
+  const node = campgroundGraph(full, '/x') as Record<string, unknown>;
   expect(node.starRating).toEqual({
     '@type': 'Rating',
     ratingValue: 4,
@@ -171,7 +428,7 @@ test("the star rating is the state's classification, with its scale", () => {
 });
 
 test('we never publish a rating of our own', () => {
-  const node = campgroundGraph(full, '/x', []) as Record<string, unknown>;
+  const node = campgroundGraph(full, '/x') as Record<string, unknown>;
   expect(node.aggregateRating).toBeUndefined();
   expect(node.reviewCount).toBeUndefined();
   expect(node.ratingValue).toBeUndefined();
@@ -251,12 +508,12 @@ test('the facilities answer counts the gaps instead of hiding them', () => {
 // isAccessibleForFree unconditionally — marking every paid campsite free
 // — survived the first version of these tests.
 test('isAccessibleForFree is claimed only where the type carries no fee', () => {
-  const free = campgroundGraph({ ...full, type: 'free' }, '/x', []) as Record<string, unknown>;
-  const wild = campgroundGraph({ ...full, type: 'wild' }, '/x', []) as Record<string, unknown>;
+  const free = campgroundGraph({ ...full, type: 'free' }, '/x') as Record<string, unknown>;
+  const wild = campgroundGraph({ ...full, type: 'wild' }, '/x') as Record<string, unknown>;
   expect(free.isAccessibleForFree).toBe(true);
   expect(wild.isAccessibleForFree).toBe(true);
   for (const type of ['paid', 'camper_stop', 'rv_park'] as const) {
-    const node = campgroundGraph({ ...full, type }, '/x', []) as Record<string, unknown>;
+    const node = campgroundGraph({ ...full, type }, '/x') as Record<string, unknown>;
     expect(node.isAccessibleForFree, `${type} was marked free`).toBeUndefined();
   }
 });
@@ -288,7 +545,7 @@ for (const [label, stars] of [
 ] as const) {
   test(`stars ${label}: neither the graph nor the FAQ claims a classification`, () => {
     const spot = { ...full, stars } as unknown as Spot;
-    const node = campgroundGraph(spot, '/x', []) as Record<string, unknown>;
+    const node = campgroundGraph(spot, '/x') as Record<string, unknown>;
     expect(node.starRating).toBeUndefined();
     const asked = campsiteFaq(spot).find((f) => f.q.includes('classification'));
     expect(asked, 'a classification was claimed without one').toBeUndefined();
@@ -296,7 +553,7 @@ for (const [label, stars] of [
 }
 
 test('a real classification still appears in both, and they agree', () => {
-  const node = campgroundGraph(full, '/x', []) as Record<string, unknown>;
+  const node = campgroundGraph(full, '/x') as Record<string, unknown>;
   const answer = campsiteFaq(full).find((f) => f.q.includes('classification'))?.a ?? '';
   expect((node.starRating as Record<string, unknown>).ratingValue).toBe(4);
   expect(answer).toContain('4 stars');
@@ -310,14 +567,143 @@ for (const [label, website] of [
   ['a bare hostname', 'camping-bled.com'],
 ] as const) {
   test(`sameAs refuses ${label}`, () => {
-    const node = campgroundGraph({ ...full, website } as Spot, '/x', []) as Record<string, unknown>;
-    expect(node.sameAs).toBeUndefined();
+    // 🔴 Asserted against the LIST, not against its absence. `full` now
+    // carries a source record, so `sameAs` is legitimately non-empty —
+    // and a test that only checked "the property is missing" would have
+    // started passing for the wrong reason the day it became a list.
+    const spot = { ...full, website, contact: { ...full.contact, website } } as Spot;
+    const node = campgroundGraph(spot, '/x') as Record<string, unknown>;
+    const list = (node.sameAs ?? []) as string[];
+    expect(list).not.toContain(website);
+    for (const entry of list) {
+      expect(entry, `${label} reached sameAs`).toMatch(/^https:\/\/(www\.openstreetmap\.org|data\.datatourisme\.fr)\//);
+    }
   });
 }
 
 test('sameAs accepts the operator\'s real site', () => {
-  const node = campgroundGraph(full, '/x', []) as Record<string, unknown>;
-  expect(node.sameAs).toBe('https://www.camping-bled.com/');
+  const node = campgroundGraph({ ...full, sources: [] }, '/x') as Record<string, unknown>;
+  expect(node.sameAs).toEqual(['https://www.camping-bled.com/']);
+});
+
+// ── CAMP-114: the source record is an identity too ─────────────────────
+
+test('the OpenStreetMap record joins the campsite in sameAs', () => {
+  const node = campgroundGraph(
+    {
+      ...full,
+      sources: [
+        { id: 'osm', ref: 'n123', updatedAt: '2026-09-24', fields: ['name', 'location'] },
+      ],
+    },
+    '/x',
+  ) as Record<string, unknown>;
+  expect(node.sameAs).toEqual([
+    'https://www.camping-bled.com/',
+    'https://www.openstreetmap.org/node/123',
+  ]);
+});
+
+test('🔴 a record joined by a rule is attribution, not identity', () => {
+  // CAMP-144 joins a DATAtourisme record to an OSM campsite by name and
+  // distance, and `link-evidence.ts` says of its own measurement: "This
+  // does not prove the links are right." So the joined record is shown
+  // on the page with its licence and date, and is NOT published as
+  // `sameAs`. Only the source that contributed `location` is — the
+  // record this row's geometry, slug and URL actually come from.
+  const merged = {
+    ...bare,
+    sources: [
+      { id: 'osm', ref: 'n123', updatedAt: '2026-09-24', fields: ['name', 'location'] },
+      { id: 'datatourisme', ref: 'https://data.datatourisme.fr/13/x', updatedAt: '2026-01-15', fields: ['stars', 'website'] },
+    ],
+  } as Spot;
+  expect(sourceLinks(merged)).toEqual(['https://www.openstreetmap.org/node/123']);
+  // A DATAtourisme record that IS the row — 8 752 of them — still counts.
+  expect(
+    sourceLinks({
+      ...bare,
+      sources: [{ id: 'datatourisme', ref: 'https://data.datatourisme.fr/13/x', updatedAt: '2026-01-15', fields: ['name', 'location'] }],
+    } as Spot),
+  ).toEqual(['https://data.datatourisme.fr/13/x']);
+});
+
+test('a payload whose sources are not a list does not take the page down', () => {
+  // `getSpot` is res.json() with a day of cache behind it. `for…of` on
+  // an object throws, and api.ts records that a stale payload already
+  // took this page down once the same way.
+  for (const sources of [{}, null, 'osm', 42] as unknown[]) {
+    const spot = { ...bare, sources } as unknown as Spot;
+    expect(() => sourceLinks(spot), JSON.stringify(sources)).not.toThrow();
+    expect(sourceLinks(spot)).toEqual([]);
+    expect(() => campgroundGraph(spot, '/camping/si/gorenjska/x')).not.toThrow();
+  }
+});
+
+test('an area ref is decoded to the way it stands for, never guessed', () => {
+  // Verified against the OpenStreetMap API on 28.09.2026: `a3018798900`
+  // is way 1509399450, "Jugendzeltplatz Eschachtal", tourism=camp_site.
+  const link = (ref: string) =>
+    sourceLinks({
+      ...bare,
+      sources: [{ id: 'osm', ref, updatedAt: '2026-09-24', fields: ['name', 'location'] }],
+    });
+  expect(link('a3018798900')).toEqual([
+    'https://www.openstreetmap.org/way/1509399450',
+  ]);
+  expect(link('w871234')).toEqual(['https://www.openstreetmap.org/way/871234']);
+  expect(link('n123')).toEqual(['https://www.openstreetmap.org/node/123']);
+  // 🔴 A shape we do not recognise produces NO link. A permalink to the
+  // wrong object is a machine-readable claim that this campsite is
+  // something else entirely.
+  for (const bogus of ['r5', '12345', 'node/5', '', 'a', 'a12x', 'n12x']) {
+    expect(link(bogus), bogus).toEqual([]);
+  }
+  // Surrounding whitespace is trimmed, as everywhere else in this file.
+  expect(link('  n1  ')).toEqual(['https://www.openstreetmap.org/node/1']);
+  // 🔴 An ODD area id is not published as a relation, although that is
+  // what libosmium's numbering would make it. `import.sh` filters `n/`
+  // and `w/` only, so a relation cannot enter this data and all 32 413
+  // of our area ids are even — an odd one is corrupt input, and the
+  // first version of this answered corrupt input with a confident
+  // permalink to an unrelated OSM object.
+  for (const odd of ['a1', 'a3', 'a4294967295']) {
+    expect(link(odd), odd).toEqual([]);
+  }
+  // Nor is an id OpenStreetMap never issues.
+  for (const zero of ['a0', 'n0', 'w0']) {
+    expect(link(zero), zero).toEqual([]);
+  }
+});
+
+test('the DATAtourisme record is used as it stands, if it is a URL', () => {
+  const link = (ref: string) =>
+    sourceLinks({
+      ...bare,
+      sources: [
+        { id: 'datatourisme', ref, updatedAt: '2026-09-24', fields: ['name', 'location'] },
+      ],
+    });
+  expect(link('https://data.datatourisme.fr/13/964b537f')).toEqual([
+    'https://data.datatourisme.fr/13/964b537f',
+  ]);
+  for (const bogus of ['javascript:alert(1)', 'data:text/html,x', '13/964b']) {
+    expect(link(bogus), bogus).toEqual([]);
+  }
+});
+
+test('a source we do not recognise contributes no identity', () => {
+  // 🔴 We can attribute a source we have never heard of (lib/sources
+  // deliberately keeps unknown ids), but we cannot state the URL of its
+  // record. Silence, not a guess at the shape of somebody else's ids.
+  expect(
+    sourceLinks({
+      ...bare,
+      sources: [
+        { id: 'inaturalist', ref: '99', updatedAt: '2026-09-24', fields: [] },
+      ],
+    }),
+  ).toEqual([]);
 });
 
 test('a null measurement is not a measurement of null', () => {
@@ -339,7 +725,7 @@ test('a null measurement is not a measurement of null', () => {
     expect(a, `"${q}" prints a null or undefined`).not.toMatch(/null|undefined/);
   }
   // And the whole graph still validates.
-  expect(validates(campgroundGraph(spot, '/x', []))).toEqual([]);
+  expect(validates(campgroundGraph(spot, '/x'))).toEqual([]);
 });
 
 test('a terrain type we do not recognise does not take the page down', () => {
@@ -356,7 +742,7 @@ test('a terrain type we do not recognise does not take the page down', () => {
 
 test.describe('CAMP-141: contact reaches the structured data', () => {
   const withContact = (contact: Spot['contact'], over: Partial<Spot> = {}) =>
-    campgroundGraph({ ...bare, contact, ...over }, '/camping/si/bovec/x', []);
+    campgroundGraph({ ...bare, contact, ...over }, '/camping/si/bovec/x');
 
   test('🔴 a field with no data does not appear at all', () => {
     // The rule this whole file runs on: an empty property is a claim we
@@ -431,7 +817,7 @@ test.describe('CAMP-141: contact reaches the structured data', () => {
     // the page down on `spot.contact.address`.
     const noContact = { ...bare } as Spot;
     delete (noContact as { contact?: unknown }).contact;
-    expect(() => campgroundGraph(noContact, '/camping/si/bovec/x', [])).not.toThrow();
+    expect(() => campgroundGraph(noContact, '/camping/si/bovec/x')).not.toThrow();
   });
 
   test('the address carries the street and town OSM has', () => {
@@ -454,9 +840,9 @@ test.describe('CAMP-141: contact reaches the structured data', () => {
     expect(
       withContact({ website: 'https://osm.example/' }, { website: 'https://register.example/' })
         .sameAs,
-    ).toBe('https://register.example/');
+    ).toEqual(['https://register.example/']);
     expect(withContact({ website: 'https://osm.example/' }, { website: null }).sameAs)
-      .toBe('https://osm.example/');
+      .toEqual(['https://osm.example/']);
     expect(withContact({}, { website: null })).not.toHaveProperty('sameAs');
   });
 });

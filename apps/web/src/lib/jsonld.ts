@@ -26,16 +26,55 @@ import {
   AMENITY_LABEL,
   countryName,
   formatDistance,
-  NearbySpot,
   Spot,
   SPOT_TYPE_LABEL,
   TERRAIN_LABEL,
   WATER_LABEL,
 } from './api';
+import { DEFAULT_LOCALE } from './i18n';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://camptribe.eu';
 
+/** The brand, as the header, the footer and every <title> already say it. */
+const SITE_NAME = 'CampTribe';
+
 export const abs = (path: string) => `${SITE}${path}`;
+
+/**
+ * The site and the publisher, addressed by `@id` so that they are one
+ * entity across every page that names them rather than a fresh copy per
+ * page. Only the campsite pages carry them today; the `@id`s are stable
+ * URLs so the hubs and the guides can join the same two nodes without
+ * anything here changing.
+ *
+ * 🔴 `name`, `url`, and nothing else. The footer also carries the legal
+ * entity behind the brand; putting it here would publish a corporate
+ * relationship into the graph of every campsite page, which is an
+ * owner's decision and not a markup one. The rule of this file cuts both
+ * ways: we do not invent facts, and we do not volunteer them either.
+ */
+const WEBSITE_ID = `${SITE}/#website`;
+const ORG_ID = `${SITE}/#organization`;
+
+// 🔴 `abs('/')`, not `SITE`. The home page already publishes a WebSite
+// under this very `@id` with `url: abs('/')` — a trailing slash. Two
+// nodes sharing an `@id` and disagreeing about `url` is one entity with
+// two addresses the moment a consumer merges them, which is what an
+// `@id` is for.
+const publisherNode = () => ({
+  '@type': 'Organization',
+  '@id': ORG_ID,
+  name: SITE_NAME,
+  url: abs('/'),
+});
+
+const websiteNode = () => ({
+  '@type': 'WebSite',
+  '@id': WEBSITE_ID,
+  name: SITE_NAME,
+  url: abs('/'),
+  publisher: { '@id': ORG_ID },
+});
 
 export interface Crumb {
   name: string;
@@ -48,11 +87,22 @@ export interface Crumb {
  * `position` must start at 1 and increase without gaps — Google drops the
  * whole list otherwise, silently. The CI validator checks it because the
  * failure mode is invisible on the page itself.
+ *
+ * `path` is optional and gives the list an `@id`. Only the campsite page
+ * needs one — it is what lets the WebPage node point at this list rather
+ * than restate it — and a page that does not pass one is unchanged.
+ *
+ * 🔴 `path !== undefined`, not a truthiness test. `webPageGraph` emits
+ * the reference to `#breadcrumb` whenever it is given a path, so an
+ * empty-string path made one side emit the reference and the other drop
+ * the `@id` — a dangling pointer produced by two functions disagreeing
+ * about what counts as "no path".
  */
-export function breadcrumbList(crumbs: Crumb[]) {
+export function breadcrumbList(crumbs: Crumb[], path?: string) {
   return {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
+    ...(path !== undefined ? { '@id': `${abs(path)}#breadcrumb` } : {}),
     itemListElement: crumbs.map((c, i) => ({
       '@type': 'ListItem',
       position: i + 1,
@@ -213,6 +263,110 @@ export function officialStars(spot: Spot): number | undefined {
   return n >= 1 && n <= 5 ? n : undefined;
 }
 
+/**
+ * CAMP-114 / CAMP-101: the record this campsite IS, as a URL.
+ *
+ * 🔴 `sameAs` means "another page that unambiguously indicates this same
+ * thing". It is an identity claim, and identity is not the same as
+ * attribution — which is the distinction this function exists to keep.
+ *
+ * Since CAMP-144 a French campsite page can carry two source records:
+ * its own, and one joined to it by a name-and-distance rule. The page
+ * shows both, with licences and dates, because it reuses fields from
+ * both. But `link-evidence.ts` says in its own words, about the very
+ * measurement that justified those joins: "🔴 This does not prove the
+ * links are right." Publishing a heuristic join as `sameAs` would take
+ * an uncertainty we have written down and hand it to other systems as a
+ * fact — the exact upgrade the rest of this file refuses.
+ *
+ * So only the source that contributed `location` is used. That is the
+ * record this row was built from: its geometry, its slug and its URL
+ * come from that one, and the other supplied borrowed fields such as
+ * stars or a website. Measured on 25 linked campsites through the live
+ * API on 28.09.2026: exactly one source per page lists `location`, never
+ * two and never none. The joined record stays where it belongs, in the
+ * attribution block a reader can weigh.
+ *
+ * DATAtourisme already stores a resolvable URI, so it is used verbatim
+ * after the scheme is checked.
+ *
+ * OpenStreetMap is stored the way `osmium export -u type_id` writes it:
+ * `n<id>` for a node, `w<id>` for a way, and `a<id>` for an AREA, which
+ * is libosmium's own numbering rather than an OSM element id — an even
+ * area id is `way_id * 2`.
+ *
+ * 🔴 That decoding is measured, not assumed. 37 of our `a…` refs were
+ * decoded and fetched from the OpenStreetMap API on 28.09.2026: 37 of 37
+ * resolved to a way carrying `tourism=camp_site` or `caravan_site` whose
+ * `name` tag equals ours, character for character.
+ *
+ * 🔴 An ODD area id is NOT published, although libosmium would call it
+ * `relation_id * 2 + 1`. `scripts/osm-pipeline/import.sh` filters `n/`
+ * and `w/` only, so no relation can enter this data at all, and all
+ * 32 413 of our area ids are in fact even. An odd one would therefore be
+ * corrupt input, and answering corrupt input with a confident permalink
+ * to an unrelated OSM object is precisely the failure this whole file is
+ * built to avoid. A ref whose shape we do not recognise produces no link.
+ */
+export function sourceLinks(spot: Spot): string[] {
+  const out: string[] = [];
+  // 🔴 Not `spot.sources ?? []`. `getSpot` is res.json() with a day of
+  // cache behind it, and a payload whose `sources` is an object rather
+  // than an array would throw "is not iterable" and take the page down —
+  // the same way a stale payload once did on `spot.contact.address`.
+  const sources = Array.isArray(spot.sources) ? spot.sources : [];
+  for (const s of sources) {
+    const ref = text(s?.ref);
+    // Identity, not attribution: see the note above.
+    if (!ref || !(s.fields ?? []).includes('location')) continue;
+    if (s.id === 'datatourisme') {
+      if (/^https?:\/\//i.test(ref)) out.push(ref);
+      continue;
+    }
+    if (s.id !== 'osm') continue;
+    const m = /^([nw])(\d+)$/.exec(ref);
+    if (m) {
+      const id = BigInt(m[2]);
+      if (id > 0n) {
+        out.push(
+          `https://www.openstreetmap.org/${m[1] === 'n' ? 'node' : 'way'}/${id}`,
+        );
+      }
+      continue;
+    }
+    const area = /^a(\d+)$/.exec(ref);
+    if (!area) continue;
+    const id = BigInt(area[1]);
+    // Even areas are ways. Odd ones cannot exist here — see above.
+    if (id > 0n && id % 2n === 0n) {
+      out.push(`https://www.openstreetmap.org/way/${id / 2n}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * What to call a campsite, in ONE place.
+ *
+ * 🔴 There were two readings and they disagreed. The Campground used
+ * `spot.name ??`, which accepts an empty string and publishes a node
+ * with `name: ""`; the WebPage used `text(spot.name) ??` and fell back.
+ * One page, two names for the same thing, and the emptier one on the
+ * node that matters.
+ *
+ * The region is checked too, because `near ${null}` prints the word
+ * "null" — the API will not serve a region-less campsite today
+ * (`WHERE s.region IS NOT NULL`), which is exactly why the fallback has
+ * to survive one, rather than rely on a guarantee made elsewhere.
+ */
+export function campsiteName(spot: Spot): string {
+  const named = text(spot.name);
+  if (named) return named;
+  const where = text(spot.region);
+  const kind = SPOT_TYPE_LABEL[spot.type] ?? 'Campsite';
+  return where ? `${kind} near ${where}` : `${kind} in ${countryName(spot.country)}`;
+}
+
 export interface FaqItem {
   q: string;
   a: string;
@@ -344,6 +498,17 @@ export function faqGraph(items: FaqItem[], path: string) {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
     '@id': `${abs(path)}#faq`,
+    // 🔴 What this FAQ is ABOUT, said in the graph rather than implied by
+    // the two blocks sharing a page. Without it an assistant reading the
+    // FAQ alone has a list of distances attached to nothing — the
+    // questions name the campsite, but a name is not an identifier.
+    about: { '@id': `${abs(path)}#campground` },
+    isPartOf: { '@id': `${abs(path)}#page` },
+    // The language the answers are actually written in. English is the
+    // only locale this site serves today (lib/i18n), so this is read
+    // from there rather than typed here — the day a second language goes
+    // live, a hard-coded 'en' would be a lie on every translated page.
+    inLanguage: DEFAULT_LOCALE,
     mainEntity: items.map((f) => ({
       '@type': 'Question',
       name: f.q,
@@ -407,13 +572,17 @@ export function schemaOpeningHours(raw: string | undefined): string[] {
   return out;
 }
 
-export function campgroundGraph(
-  spot: Spot,
-  path: string,
-  nearby: NearbySpot[],
-) {
+/**
+ * 🔴 No `nearby` parameter any more, and that is a correctness fix.
+ *
+ * It took the list of neighbouring campsites and used it to decide
+ * whether to state the region — two facts with nothing to do with each
+ * other. Nothing in this node describes a neighbour, so the list does
+ * not belong in its signature.
+ */
+export function campgroundGraph(spot: Spot, path: string) {
   const c = spot.context ?? {};
-  const name = spot.name ?? `${SPOT_TYPE_LABEL[spot.type]} near ${spot.region}`;
+  const name = campsiteName(spot);
 
   const geo: Record<string, unknown> = {
     '@type': 'GeoCoordinates',
@@ -550,8 +719,22 @@ export function campgroundGraph(
   // register is the better claim, and where only OSM has one it is far
   // better than nothing — measured, OSM carries a website for 61.6% of
   // the campsites in an extract against the 10.7% we had.
+  //
+  // 🔴 CAMP-114: and the source record itself, alongside it.
+  //
+  // `sameAs` takes a list, and the operator's own site is only one of
+  // the pages that unambiguously identify this campsite. The others are
+  // the records we built it from — see `sourceLinks`. Duplicates are
+  // dropped rather than repeated, and the whole property is omitted when
+  // nothing survives the checks, because `sameAs: []` claims a list of
+  // identities and then has none.
   const site = text(spot.website) ?? text(spot.contact?.website);
-  if (site && /^https?:\/\//i.test(site)) node.sameAs = site;
+  const identities = [
+    ...(site && /^https?:\/\//i.test(site) ? [site] : []),
+    ...sourceLinks(spot),
+  ];
+  const sameAs = [...new Set(identities)];
+  if (sameAs.length) node.sameAs = sameAs;
 
   // Only claimed where the data actually says so. `free` and `wild` are
   // the two types that carry no fee; for the rest we do not know the
@@ -564,14 +747,145 @@ export function campgroundGraph(
   // (CAMP-53), and inventing rating markup is the single fastest way to
   // earn a manual action from Google — quite apart from being a lie.
 
-  if (nearby.length) {
+  // 🔴 The region, and it used to depend on the wrong fact.
+  //
+  // This was gated on `nearby.length` — a campsite with no neighbours
+  // within range lost the statement of which region it is in, although
+  // the region is the one thing we always know and the thing the URL is
+  // built from. It is gated on the region itself now (135 of 61 558 rows
+  // have none) and carries the region hub's URL, so the containment is a
+  // link between two pages we publish rather than a loose string.
+  const region = text(spot.region);
+  if (region) {
+    // `/camping/<country>/<region>/<slug>` minus the slug — and only
+    // when the path really has that shape.
+    //
+    // 🔴 Slicing at the last `/` is right for the URLs this route
+    // serves and wrong for everything else, which is why the shape is
+    // checked rather than assumed. A trailing slash made the campsite
+    // its OWN containing place; a path with no leading slash built
+    // `https://camptribe.euab`. Neither is reachable through the route
+    // today. Both are links that resolve and are wrong, which is worse
+    // than no link — so the segments are counted instead.
+    const segments = path.split('/');
+    const shaped = path.startsWith('/') && segments.length === 5 && segments[4] !== '';
     node.containedInPlace = {
       '@type': 'Place',
-      name: `${spot.region}, ${countryName(spot.country)}`,
+      name: `${region}, ${countryName(spot.country)}`,
+      ...(shaped ? { url: abs(segments.slice(0, 4).join('/')) } : {}),
     };
   }
 
   return node;
+}
+
+/**
+ * CAMP-114: the page itself, described for the machines that read it.
+ *
+ * 🔴 This is the card's "publisher, isAccessibleForFree, inLanguage —
+ * small and free", and it is the only honest home for two of them.
+ * `publisher` belongs to CreativeWork; putting it on `Campground` is the
+ * mistake that shipped UNKNOWN_FIELD to 2 390 pages, and `inLanguage` is
+ * a CreativeWork property too. A page is a CreativeWork. A campsite is
+ * not.
+ *
+ * What it buys beyond tidiness: `mainEntity` says which of the several
+ * things described here the page is actually ABOUT. Until now a reader
+ * of the graph met a Campground, a BreadcrumbList and an FAQPage side by
+ * side with nothing tying them together.
+ *
+ * 🔴 No `dateModified`. We hold `lastSeenAt` — the day our import last
+ * still found the campsite in OpenStreetMap — and that is not the day
+ * this page changed. The honest value is `content_changed_at`, and
+ * `/spots/index` does serve it as `contentChangedAt`; the per-campsite
+ * payload this page is built from does not. Carrying it through is a
+ * card of its own, and until it is done the date stays absent rather
+ * than approximated by the one we happen to have.
+ */
+export function webPageGraph(opts: {
+  name: string;
+  path: string;
+  hasFaq: boolean;
+}) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    '@id': `${abs(opts.path)}#page`,
+    url: abs(opts.path),
+    name: opts.name,
+    inLanguage: DEFAULT_LOCALE,
+    isPartOf: websiteNode(),
+    publisher: publisherNode(),
+    breadcrumb: { '@id': `${abs(opts.path)}#breadcrumb` },
+    mainEntity: { '@id': `${abs(opts.path)}#campground` },
+    ...(opts.hasFaq ? { hasPart: { '@id': `${abs(opts.path)}#faq` } } : {}),
+  };
+}
+
+/**
+ * 🔴 Every `@type` this page is allowed to emit, and the fact that has
+ * to be true of the campsite before it may appear.
+ *
+ * This table is the card's verification clause in executable form: "a
+ * test fails if the type is present while the data is not". The test
+ * walks the graph this file actually ships, and a type that is not a key
+ * here fails it — so adding a type means declaring, here, what backs it.
+ * A comment promising the same thing is what we had, and comments do not
+ * fail builds.
+ *
+ * The unconditional entries are facts about every row in the database,
+ * not conveniences: `lat`/`lon` are NOT NULL, the country is NOT NULL,
+ * and the publisher is us.
+ */
+export const TYPE_EVIDENCE: Record<string, (spot: Spot) => boolean> = {
+  // The page, the site and the publisher: true of every page we serve.
+  WebPage: () => true,
+  WebSite: () => true,
+  Organization: () => true,
+  BreadcrumbList: () => true,
+  ListItem: () => true,
+  // Every campsite has a name-or-heading, a country and a point.
+  Campground: () => true,
+  GeoCoordinates: () => true,
+  PostalAddress: () => true,
+  // The region, which 135 of 61 558 rows do not have.
+  Place: (s) => Boolean(text(s.region)),
+  // Somebody else's classification: 4 214 campsites.
+  Rating: (s) => officialStars(s) !== undefined,
+  // One per amenity anybody has answered, in either direction.
+  LocationFeatureSpecification: (s) =>
+    AMENITY_KEYS.some((k) => s.amenities?.[k] === 'yes' || s.amenities?.[k] === 'no'),
+  // One per measurement we computed.
+  PropertyValue: (s) => surroundingProperties(s).length > 0,
+  // And the questions, which exist only where something answers them.
+  FAQPage: (s) => campsiteFaq(s).length > 0,
+  Question: (s) => campsiteFaq(s).length > 0,
+  Answer: (s) => campsiteFaq(s).length > 0,
+};
+
+/**
+ * Every JSON-LD block the campsite page emits, in one place.
+ *
+ * 🔴 One function rather than three `<script>` tags assembled in the
+ * page, because the test that enforces TYPE_EVIDENCE has to see exactly
+ * what ships. A block added straight into the JSX would be invisible to
+ * it, which is the failure this card exists to stop.
+ */
+export function campsitePageGraph(opts: {
+  spot: Spot;
+  path: string;
+  crumbs: Crumb[];
+  faq: FaqItem[];
+}): Record<string, unknown>[] {
+  const { spot, path, crumbs, faq } = opts;
+  const blocks: Record<string, unknown>[] = [
+    webPageGraph({ name: campsiteName(spot), path, hasFaq: faq.length > 0 }),
+    campgroundGraph(spot, path),
+    breadcrumbList(crumbs, path),
+  ];
+  const questions = faqGraph(faq, path);
+  if (questions) blocks.push(questions);
+  return blocks;
 }
 
 /** A hub: the page itself, plus the list of things it links to. */
