@@ -17,10 +17,8 @@ import {
   withOwnerOverrides,
 } from '@/lib/api';
 import {
-  breadcrumbList,
-  campgroundGraph,
   campsiteFaq,
-  faqGraph,
+  campsitePageGraph,
   jsonLdProps,
   officialStars,
 } from '@/lib/jsonld';
@@ -263,14 +261,17 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
-      {/* CAMP-37. Two blocks rather than one @graph: Google reads both,
-          and a breakage in one does not take the other down with it. */}
-      <script {...jsonLdProps(campgroundGraph(spot, path, data.nearby))} />
-      <script {...jsonLdProps(breadcrumbList(crumbs))} />
-      {/* CAMP-114. Emitted only when there are questions to ask — and
-          the same list is rendered below, because markup that says
-          something the page does not is a claim made only to machines. */}
-      {faq.length > 0 && <script {...jsonLdProps(faqGraph(faq, path))} />}
+      {/* CAMP-37. Separate blocks rather than one @graph: Google reads
+          them all, and a breakage in one does not take the others down
+          with it.
+
+          🔴 CAMP-114: the list comes from `campsitePageGraph` and is not
+          assembled here. A <script> added straight into this JSX would
+          be invisible to the test that enforces "no type without data
+          behind it", which is the one rule this card cannot break. */}
+      {campsitePageGraph({ spot, path, crumbs, faq }).map((doc, i) => (
+        <script key={i} {...jsonLdProps(doc)} />
+      ))}
 
       <Breadcrumbs spot={spot} params={params} />
 

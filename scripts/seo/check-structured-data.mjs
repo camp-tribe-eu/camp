@@ -252,9 +252,50 @@ function blocksIn(html) {
   return out;
 }
 
+/**
+ * 🔴 CAMP-114: an `@id` pointed at nothing.
+ *
+ * The campsite page now links its blocks together — the WebPage says
+ * `mainEntity: {"@id": "…#campground"}`, the FAQ says what it is about,
+ * and the breadcrumb is referenced rather than restated. That is what
+ * turns four unrelated blocks into one description, and it is also a new
+ * way to be wrong: rename an `@id` on one side and the reference on the
+ * other side points at a node that does not exist.
+ *
+ * Nothing shows it. The vocabulary is satisfied — `@id` is valid
+ * everywhere, and so is any string in it. The page looks identical. An
+ * assistant simply reads that this page is about something, and cannot
+ * find what.
+ *
+ * A node with a `@type` DEFINES its id; a node carrying an `@id` and
+ * nothing else REFERENCES one. Every reference must resolve within the
+ * same page.
+ */
+function checkIdReferences(blocks, label, errors) {
+  const defined = new Set();
+  const referenced = new Map();
+  const walk = (value) => {
+    if (Array.isArray(value)) return value.forEach(walk);
+    if (!value || typeof value !== 'object') return;
+    const id = value['@id'];
+    if (typeof id === 'string') {
+      if (value['@type'] !== undefined) defined.add(id);
+      else if (!referenced.has(id)) referenced.set(id, true);
+    }
+    for (const v of Object.values(value)) walk(v);
+  };
+  blocks.forEach(walk);
+  for (const id of referenced.keys()) {
+    if (!defined.has(id)) {
+      errors.push(`${label}: @id ${id} is referenced but no block defines it`);
+    }
+  }
+}
+
 export function validateHtml(html, label) {
   const errors = [];
   const blocks = blocksIn(html);
+  const parsedBlocks = [];
   blocks.forEach((raw, i) => {
     const where = blocks.length > 1 ? `${label}#${i}` : label;
     let parsed;
@@ -282,7 +323,9 @@ export function validateHtml(html, label) {
       return;
     }
     validateNode(parsed, where, errors);
+    parsedBlocks.push(parsed);
   });
+  checkIdReferences(parsedBlocks, label, errors);
   return { count: blocks.length, errors };
 }
 
@@ -552,11 +595,83 @@ if (SELF_TEST) {
       geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
       additionalProperty: [{ '@type': 'PropertyValue', name: 'Elevation' }],
     }],
+
+    // 🔴 The property that actually shipped, by name.
+    //
+    // `provider` reached 2 390 live campsite pages. It is a real
+    // schema.org property — of Action, Service, Trip and their kin — so
+    // "is it in the vocabulary" says yes; it is the type check that says
+    // no. Google's validator calls it UNKNOWN_FIELD on Campground, and
+    // re-run against validator.schema.org on 28.09.2026 it still does:
+    // 1 warning, 0 errors, which is exactly how it shipped unnoticed.
+    ['the operator, published as provider on a Campground', false, {
+      '@context': 'https://schema.org',
+      '@type': 'Campground',
+      name: 'x',
+      url: 'https://camptribe.eu/x',
+      address: { '@type': 'PostalAddress', addressCountry: 'SI' },
+      geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      provider: { '@type': 'Organization', name: 'Kamp Bovec d.o.o.' },
+    }],
+    // ⚠️ And the one this file CANNOT catch, recorded so nobody assumes
+    // it can. `maximumAttendeeCapacity` is valid on Place, so both this
+    // validator and validator.schema.org accept it in silence — measured
+    // the same day, 0 errors and 0 warnings. It published pitches as
+    // people on 3 683 campsites all the same. A vocabulary is not a
+    // meaning: that one is held out by tests/unit/jsonld.spec.ts and by
+    // not importing a number we cannot name.
+
+    // ── CAMP-114: the blocks that point at each other ─────────────────
+    ['a page whose blocks point at each other', true, [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        '@id': 'https://camptribe.eu/x#page',
+        url: 'https://camptribe.eu/x',
+        name: 'x',
+        mainEntity: { '@id': 'https://camptribe.eu/x#campground' },
+      },
+      {
+        '@context': 'https://schema.org',
+        '@type': 'Campground',
+        '@id': 'https://camptribe.eu/x#campground',
+        name: 'x',
+        url: 'https://camptribe.eu/x',
+        address: { '@type': 'PostalAddress', addressCountry: 'SI' },
+        geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      },
+    ]],
+    // 🔴 The same page with the campground's @id renamed by one word —
+    // the shape a rename takes when only one side is changed. Every
+    // other check on this page passes.
+    ['a mainEntity pointing at a block that is not there', false, [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        '@id': 'https://camptribe.eu/x#page',
+        url: 'https://camptribe.eu/x',
+        name: 'x',
+        mainEntity: { '@id': 'https://camptribe.eu/x#campground' },
+      },
+      {
+        '@context': 'https://schema.org',
+        '@type': 'Campground',
+        '@id': 'https://camptribe.eu/x#campsite',
+        name: 'x',
+        url: 'https://camptribe.eu/x',
+        address: { '@type': 'PostalAddress', addressCountry: 'SI' },
+        geo: { '@type': 'GeoCoordinates', latitude: 1, longitude: 2 },
+      },
+    ]],
   ];
 
   let failures = 0;
   for (const [name, shouldPass, doc] of cases) {
-    const html = `<script type="application/ld+json">${JSON.stringify(doc)}</script>`;
+    // An array means several blocks on one page — the only way to
+    // rehearse a cross-block rule such as the @id check.
+    const html = (Array.isArray(doc) ? doc : [doc])
+      .map((d) => `<script type="application/ld+json">${JSON.stringify(d)}</script>`)
+      .join('');
     const { errors } = validateHtml(html, name);
     const passed = errors.length === 0;
     const ok = passed === shouldPass;
