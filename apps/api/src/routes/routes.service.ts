@@ -19,8 +19,19 @@ import {
   MIN_RADIUS_M,
   OVERFETCH,
 } from './route-points';
+// CAMP-113: what a driver needs BETWEEN the campsites.
+import {
+  buildServicesSql,
+  MAX_SERVICES_TOTAL,
+  servicesOverfetch,
+  type RouteService,
+  type RouteServiceAnswer,
+  type RouteServiceGroup,
+} from './route-services';
+import { SERVICES_PER_KIND, type RoutePoiKind } from '../osm/route-poi';
 
 export * from './route-points';
+export * from './route-services';
 
 // CAMP-3 / CAMP-45: the campsites near a curated route's stages.
 //
@@ -205,5 +216,85 @@ export class RoutesService {
     }
 
     return { groups, perPoint, radiusMetres, returned };
+  }
+
+  /**
+   * CAMP-113: the nearest fuel, charger, tap, dump point, shop, meal and
+   * roof to each stage — what a driver needs between the campsites.
+   *
+   * 🔴 Scoped to OpenStreetMap alone, and that is a narrowing of the
+   * card rather than the whole of it. The card depends on CAMP-111
+   * (which sources, which licences), which is not done; OSM is already
+   * imported and already licence-cleared here. Open Charge Map, the
+   * national fuel portals and per-station prices wait for CAMP-111.
+   *
+   * 🔴 What is NOT here, and will not be until it can be: no rating, no
+   * photograph. Neither exists in open data, and taking either from
+   * Google is forbidden by its terms. Reviews arrive with CAMP-53,
+   * photographs with CAMP-52, and from nobody else's site.
+   *
+   * One query per stage, each a UNION ALL of per-kind index scans — see
+   * buildServicesSql for why the kind is a literal and what it cost to
+   * find out.
+   */
+  async services(
+    points: LatLon[],
+    kinds: RoutePoiKind[],
+    radiusRequested = DEFAULT_RADIUS_M,
+  ): Promise<RouteServiceAnswer> {
+    const pts = points.slice(0, MAX_POINTS);
+    const radiusMetres = clamp(
+      Math.trunc(radiusRequested) || DEFAULT_RADIUS_M,
+      MIN_RADIUS_M,
+      MAX_RADIUS_M,
+    );
+
+    const sql = buildServicesSql(kinds);
+    const groups: RouteServiceGroup[] = [];
+    let returned = 0;
+
+    for (const p of pts) {
+      // The same check `near()` makes, and in the same place: before the
+      // query, because truncating a finished list would still have run it.
+      if (returned >= MAX_SERVICES_TOTAL) {
+        groups.push({ lat: p.lat, lon: p.lon, services: [] });
+        continue;
+      }
+
+      const rows = await this.db.query(sql, [
+        p.lon,
+        p.lat,
+        servicesOverfetch(SERVICES_PER_KIND),
+        radiusMetres,
+      ]);
+
+      const services: RouteService[] = rows
+        .slice(0, MAX_SERVICES_TOTAL - returned)
+        .map((r: Record<string, unknown>) => ({
+          kind: r.kind as RoutePoiKind,
+          osmRef: r.osm_ref as string,
+          name: (r.name as string | null) ?? null,
+          lat: Number(r.lat),
+          lon: Number(r.lon),
+          metres: Math.round(Number(r.metres)),
+          // 🔴 `?? null`, never `?? ''`. An empty string renders as a
+          // blank cell that reads "none"; null is what the page turns
+          // into the word "unknown", which is the card's acceptance
+          // criterion and the difference between the two facts.
+          phone: (r.phone as string | null) ?? null,
+          website: (r.website as string | null) ?? null,
+          openingHours: (r.opening_hours as string | null) ?? null,
+        }));
+
+      returned += services.length;
+      groups.push({ lat: p.lat, lon: p.lon, services });
+    }
+
+    return {
+      groups,
+      radiusMetres,
+      perKind: SERVICES_PER_KIND,
+      returned,
+    };
   }
 }

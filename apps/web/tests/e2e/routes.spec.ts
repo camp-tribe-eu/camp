@@ -1,5 +1,6 @@
 import { expect, test } from './api-request';
 import { CURATED_ROUTES } from '../../src/data/routes';
+import { SERVICE_KINDS } from '../../src/lib/route-services';
 
 // CAMP-3 / CAMP-45 — the route library, on real pages.
 //
@@ -114,9 +115,88 @@ test.describe('a route page', () => {
         'OpenStreetMap',
       );
 
+      // 🔴 CAMP-113 — the services block, on every stage, with every
+      // kind. Counted rather than sampled: a kind that stopped
+      // rendering would otherwise be invisible, because the page would
+      // still look complete.
+      //
+      // 🔴 This must NOT require any service to EXIST, for the reason
+      // the campsite assertion below already learned the hard way: CI's
+      // fixture is not the production database, and a test coupled to
+      // how much data happens to be loaded fails on the honest path
+      // working correctly. What is invariant is that every stage asks
+      // about every kind and answers in words either way.
+      const blocks = page.getByTestId('stage-services');
+      await expect(blocks).toHaveCount(route.stages.length);
+      for (let i = 0; i < route.stages.length; i++) {
+        const block = blocks.nth(i);
+        for (const kind of SERVICE_KINDS) {
+          const found = block.getByTestId(`service-${kind}`);
+          const absent = block.getByTestId(`service-${kind}-absent`);
+          expect(
+            (await found.count()) + (await absent.count()),
+            `stage ${i + 1} of ${route.slug} says nothing about ${kind}`,
+          ).toBe(1);
+        }
+      }
+
       expect(errors, `console errors on /routes/${route.slug}`).toEqual([]);
     });
   }
+
+  // 🔴 CAMP-113's own acceptance, read off the rendered page rather than
+  // asserted about the code: a missing field says "unknown", and nothing
+  // on the page is a rating or somebody else's photograph.
+  test('a missing field says unknown, and no rating or photo appears', async ({
+    page,
+  }) => {
+    await page.goto('/routes/france-atlantic-coast');
+
+    const services = page.getByTestId('stage-services').first();
+    // The fixture's La Rochelle rows are chosen so that at least one of
+    // each of these is true; see ci-seed-route-poi.sql.
+    await expect(services).toContainText('unknown');
+    await expect(services).toContainText('straight line');
+    // 🔴 A typographic apostrophe, because that is what the page
+    // renders (&rsquo;). Asserting the ASCII one passes nowhere and
+    // looks like a missing paragraph rather than a missing character.
+    await expect(services).toContainText(
+      'OpenStreetMap’s own syntax, unchanged',
+    );
+
+    // 🔴 No invented rating. Nothing in this block may look like one —
+    // no stars, no "4.5", no "out of 5".
+    const text = (await services.textContent()) ?? '';
+    expect(text, 'a star crept into the services block').not.toMatch(/[★☆]/);
+    expect(text, 'a rating crept into the services block').not.toMatch(
+      /\b\d(\.\d)?\s*\/\s*5\b|\bout of 5\b|\bstars?\b/i,
+    );
+    // 🔴 No third-party photograph. There is no <img> in this block and
+    // there is not supposed to be one until CAMP-52.
+    await expect(services.locator('img')).toHaveCount(0);
+
+    // 🔴 And the fuel price is a national weekly average, said so.
+    const fuel = page.getByTestId('route-fuel-prices');
+    await expect(fuel).toBeVisible();
+    await expect(fuel).toContainText('European Commission');
+    await expect(fuel).toContainText('not for any station');
+  });
+
+  // 🔴 The narrowing, stated on the page. CAMP-113 depends on CAMP-111
+  // and CAMP-111 is not done, so this ships OSM alone — and a reader has
+  // to be able to tell that from the page, or an absent charging point
+  // reads as "there is no charging point".
+  test('the page says the services come from OpenStreetMap alone', async ({
+    page,
+  }) => {
+    await page.goto('/routes/france-atlantic-coast');
+    await expect(page.getByTestId('route-sources')).toContainText(
+      'come from OpenStreetMap alone',
+    );
+    await expect(page.getByTestId('route-sources')).toContainText(
+      'no ratings and no photographs',
+    );
+  });
 
   // 🔴 The map has to actually mount. Tests on this project once went
   // green while the map was dead, which is why this is asserted rather

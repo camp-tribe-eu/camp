@@ -26,14 +26,32 @@ import { SOURCES, formatUpdated, type SpotSource } from '@/lib/sources';
 //    a legal position nobody can read is one we would have to explain
 //    from scratch the day it is questioned.
 
+// 🔴 CAMP-113 added a second kind of OSM object to this page, and the
+// paragraph at the bottom counts objects for a living.
+//
+// The Produced Work sentence used to end "this page shows {campsiteCount}".
+// With the services block that number stopped being the number of
+// objects taken from the database — a seven-stage route showing 28
+// campsites also shows up to 49 services — and a licence note that
+// undercounts by two thirds is worse than none, because it is the
+// document we would point at if the position were ever questioned. So
+// the services are counted too, and named separately, because they come
+// from OpenStreetMap alone while the campsites do not.
+
 export default function RouteSources({
   sources,
   campsiteCount,
+  serviceCount,
   note,
 }: {
   /** Every source entry from every campsite shown on this page. */
   sources: SpotSource[];
   campsiteCount: number;
+  /**
+   * CAMP-113: how many service points (fuel, charging, water, …) the
+   * page shows. All of them OpenStreetMap, all of them ODbL.
+   */
+  serviceCount: number;
   /** The route's own sentence about where its campsite data comes from. */
   note: string;
 }) {
@@ -150,10 +168,31 @@ export default function RouteSources({
         This route — its stages, their order and everything written about them —
         is our own work. Under the Open Database License it is a Produced Work
         rather than a derivative database, so the share-alike term does not
-        apply to it. The campsites shown beside each stop are a small selection
-        made on our own criteria, never a listing of everything in the region;
-        this page shows {campsiteCount}.
+        apply to it. The campsites and services shown beside each stop are a
+        small selection made on our own criteria, never a listing of everything
+        in the region; this page shows {campsiteCount} campsites and{' '}
+        {serviceCount} service points, {campsiteCount + serviceCount} objects in
+        all.
       </p>
+
+      {serviceCount > 0 && (
+        <p
+          className="mt-3 max-w-prose text-xs leading-5 text-ink-2"
+          data-boilerplate="route-services-source"
+        >
+          {/* 🔴 CAMP-113 is deliberately scoped to one source, and saying
+              so here is the difference between a narrowing and an
+              omission. Somebody reading this page should not conclude
+              that a charging point absent from OpenStreetMap does not
+              exist. */}
+          Fuel, charging, water, disposal points, shops, places to eat and
+          places to sleep all come from OpenStreetMap alone. Other sources for
+          them — Open Charge Map, the national fuel portals — are not settled
+          yet, so what is here is what volunteers have mapped and no more. We
+          hold no ratings and no photographs of these places, and we will not
+          take either from somebody else&rsquo;s site.
+        </p>
+      )}
     </section>
   );
 }

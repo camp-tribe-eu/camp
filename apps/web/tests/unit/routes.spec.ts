@@ -16,6 +16,15 @@ import {
   straightLineMetres,
 } from '../../src/lib/route-geometry';
 import { routeTripGraph } from '../../src/lib/route-jsonld';
+import {
+  FUEL_BULLETIN_DATE,
+  routeFuelPrices,
+  SERVICE_ABSENT,
+  SERVICE_KINDS,
+  SERVICE_LABEL,
+  SERVICE_UNNAMED,
+  SERVICES_PER_KIND,
+} from '../../src/lib/route-services';
 
 // CAMP-3 / CAMP-45 — the rules the route library must satisfy.
 //
@@ -107,6 +116,76 @@ test('every route says where its campsite data comes from', () => {
   for (const r of CURATED_ROUTES) {
     expect(r.attribution.length, `${r.slug} has no attribution`).toBeGreaterThan(40);
   }
+});
+
+// 🔴 CAMP-113 put a SECOND kind of OpenStreetMap object on the page, and
+// the Substantial line is drawn over objects, not over campsites.
+//
+// The test above checks the campsites alone, which was the whole page
+// when it was written. A seven-stage route now also shows the nearest of
+// each of seven service kinds. At one each that is 49, for 77 objects;
+// at two each it would be 126, over our own floor, on the page that
+// prints the claim in its own footer. This is the test that fails the
+// day somebody adds an eighth kind or decides one of each looks thin.
+test('🔴 no route page can show a Substantial number of OSM objects at all', () => {
+  for (const r of CURATED_ROUTES) {
+    const campsites = r.stages.length * CAMPSITES_PER_STAGE;
+    const services = r.stages.length * SERVICE_KINDS.length * SERVICES_PER_KIND;
+    expect(
+      campsites + services,
+      `${r.slug} could show ${campsites} campsites and ${services} services, ` +
+        `${campsites + services} objects, against a Substantial line of ` +
+        `${ODBL_SUBSTANTIAL_FLOOR}`,
+    ).toBeLessThan(ODBL_SUBSTANTIAL_FLOOR);
+  }
+});
+
+// ── 🔴 CAMP-113: every kind must be sayable, present or absent ───────────
+//
+// The services block renders all seven kinds at every stage whether or
+// not we hold one, which means it needs two sentences per kind. A kind
+// added with a label and no absent-line would render "undefined" on the
+// stages that have nothing — and those are the stages where the honest
+// wording matters most.
+test('🔴 every service kind can say what it is, what an unnamed one is, and that we have none', () => {
+  for (const kind of SERVICE_KINDS) {
+    expect(SERVICE_LABEL[kind], `${kind} has no label`).toBeTruthy();
+    expect(SERVICE_ABSENT[kind], `${kind} has no absent line`).toBeTruthy();
+    // "no fuel station" reads into "Our database holds ___ within 25 km".
+    expect(
+      SERVICE_ABSENT[kind].startsWith('no '),
+      `${kind}: "${SERVICE_ABSENT[kind]}" does not read into the sentence`,
+    ).toBe(true);
+    // 🔴 A noun of its own, not the label lower-cased. That shortcut
+    // produced "Unnamed charging" and would have produced "Unnamed
+    // somewhere to sleep" — and the unnamed case is the usual one for
+    // water and disposal, not an edge.
+    expect(
+      SERVICE_UNNAMED[kind].startsWith('Unnamed '),
+      `${kind} has no name for an unnamed one`,
+    ).toBe(true);
+  }
+  expect(Object.keys(SERVICE_LABEL).sort()).toEqual([...SERVICE_KINDS].sort());
+  expect(Object.keys(SERVICE_ABSENT).sort()).toEqual([...SERVICE_KINDS].sort());
+  expect(Object.keys(SERVICE_UNNAMED).sort()).toEqual([...SERVICE_KINDS].sort());
+});
+
+// 🔴 The fuel price is a NATIONAL WEEKLY AVERAGE and the page must never
+// attach it to a station. The data layer is where that is decided: this
+// asserts the prices come back keyed by country, so there is no shape in
+// which a component could hang one off a POI.
+test('🔴 fuel prices are per country, never per station', () => {
+  const route = CURATED_ROUTES.find((r) => r.countries.includes('fr'));
+  expect(route, 'no French route to check against').toBeTruthy();
+  const prices = routeFuelPrices(route!);
+  expect(prices.length).toBeGreaterThan(0);
+  for (const p of prices) {
+    expect(p.code).toMatch(/^[A-Z]{2}$/);
+    expect(p.diesel === null || p.diesel > 0).toBe(true);
+    expect(p).not.toHaveProperty('osmRef');
+  }
+  // And the week it was measured is available to print beside them.
+  expect(FUEL_BULLETIN_DATE).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 });
 
 // ── 🔴 the constraint: no invented road figures ──────────────────────────

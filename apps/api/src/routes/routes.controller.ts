@@ -5,6 +5,7 @@ import {
   DEFAULT_RADIUS_M,
   parsePoints,
 } from './route-points';
+import { parseKinds } from './route-services';
 
 // CAMP-3 / CAMP-45: the one API route the curated route pages need.
 //
@@ -47,6 +48,34 @@ export class RoutesController {
     return this.routes.near(
       parsePoints(query.points),
       Number(query.perPoint) || DEFAULT_PER_POINT,
+      Number(query.radius) || DEFAULT_RADIUS_M,
+    );
+  }
+
+  /**
+   * CAMP-113: fuel, charging, water, a dump point, a shop, a meal and a
+   * roof — the nearest of each to every stage.
+   *
+   *   /routes/services?points=46.16,-1.15;45.88,-1.19&radius=25000
+   *   /routes/services?points=…&kinds=fuel,charging
+   *
+   * 🔴 The answer keeps the groups in the order the points arrived, and
+   * a stage with nothing near it gets an EMPTY group rather than being
+   * dropped — the same rule `near()` follows, for the same reason. It
+   * also OMITS a kind that has nothing within the radius rather than
+   * returning a placeholder: which kinds are missing is the page's job
+   * to say, and it says "unknown" or "none within 25 km" in words.
+   *
+   * 🔴 There is no `perKind` parameter. One of each kind is what the
+   * ODbL Produced Work position on a route page can carry — the
+   * arithmetic is in route-services.ts — and a query parameter that can
+   * widen it is a cap that the next caller does not have.
+   */
+  @Get('services')
+  services(@Query() query: Record<string, string>) {
+    return this.routes.services(
+      parsePoints(query.points),
+      parseKinds(query.kinds),
       Number(query.radius) || DEFAULT_RADIUS_M,
     );
   }
