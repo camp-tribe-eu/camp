@@ -32,6 +32,7 @@ import { Client } from 'pg';
 import {
   FUEL_GRADES,
   isPriceDroppable,
+  isPriceStale,
   MIN_MATCH_RATE,
   MIN_PRICES_PER_GRADE,
   MIN_STATIONS,
@@ -39,6 +40,7 @@ import {
   parseItaly,
   parseSpain,
   PRICE_DROP_AFTER_DAYS,
+  PRICE_STALE_AFTER_DAYS,
   SOURCES,
   type FuelGrade,
   type ParseResult,
@@ -303,6 +305,22 @@ async function main(): Promise<void> {
       const hit = result.stations.filter((st) =>
         matched.has(stationKey(st)),
       ).length;
+      // 🔴 How much of what we are about to publish is ALREADY past the
+      // staleness line the page marks at. Not a failure — a forecourt
+      // that files weekly is normal — but the number a human should see,
+      // because a source going quiet shows up here long before it trips
+      // any floor. `isPriceStale` had no caller outside its own spec,
+      // which is how a rule ends up stated in two places and applied in
+      // one.
+      let stale = 0;
+      for (const st of result.stations) {
+        for (const pr of st.prices)
+          if (isPriceStale(pr.measuredAt, now)) stale += 1;
+      }
+      const priceRows = result.stations.reduce(
+        (a, st) => a + st.prices.length,
+        0,
+      );
       const rate =
         result.stations.length > 0 ? hit / result.stations.length : 0;
 
@@ -331,6 +349,10 @@ async function main(): Promise<void> {
         for (const grade of FUEL_GRADES) {
           console.log(`  ${grade.padEnd(16)}  ${perGrade[grade]} prices`);
         }
+        console.log(
+          `  already stale     ${stale} of ${priceRows} price rows are older ` +
+            `than ${PRICE_STALE_AFTER_DAYS} days and will render marked`,
+        );
         console.log(
           `  matched           ${hit} of ${result.stations.length} ` +
             `(${(rate * 100).toFixed(1)}%) to an osm_route_poi fuel point ` +
