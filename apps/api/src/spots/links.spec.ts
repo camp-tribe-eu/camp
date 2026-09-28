@@ -1,7 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { UPSERT_SPOT_SQL } from '../osm/import-spots';
-import { LINKED_SECONDARY_JOIN, mergeLinked, notSecondarySql } from './links';
+import {
+  attributeTaken,
+  LINKED_SECONDARY_JOIN,
+  mergedNameSql,
+  mergedStarsSql,
+  mergeLinked,
+  notSecondarySql,
+  withoutTaken,
+} from './links';
 
 /**
  * 🔴 The test that protects the whole card.
@@ -126,6 +134,110 @@ describe('LINKED_SECONDARY_JOIN', () => {
   });
 });
 
+describe('mergedFieldSql', () => {
+  it('treats an empty string as absent, exactly as the JS merge does', () => {
+    // 🔴 The two merges have to agree about "empty" or one campsite gets
+    // two answers: the detail page (JS) shows the other source's name
+    // while every listing, pin and search document (SQL) shows ''. And
+    // `notable()` filters IS NOT NULL, which '' passes — a nameless card
+    // on the home page.
+    expect(mergedNameSql('s')).toContain("nullif(btrim(s.name), '')");
+    expect(mergedNameSql('s')).toContain("nullif(btrim(x.name), '')");
+  });
+
+  it('does not btrim a number', () => {
+    // A smallint has no empty string, and casting it to text and back
+    // buys nothing but a chance to be wrong.
+    expect(mergedStarsSql('s')).toContain('s.stars');
+    expect(mergedStarsSql('s')).not.toContain('btrim');
+  });
+
+  it('reads only live links, and deterministically', () => {
+    const sql = mergedStarsSql('s');
+    expect(sql).toContain('l.unlinked_at IS NULL');
+    expect(sql.indexOf('ORDER BY')).toBeLessThan(sql.indexOf('LIMIT 1'));
+  });
+});
+
+describe('attributeTaken', () => {
+  const entry = (id: string, fields: string[]) => ({
+    id,
+    ref: `ref-${id}`,
+    updatedAt: '2026-04-24',
+    fields,
+  });
+
+  it('credits a field we took that the entry never declared', () => {
+    // `contact` post-dates these rows (CAMP-141), so a DATAtourisme entry
+    // lists everything but. Filtering by the declared list alone dropped
+    // the attribution for data the page visibly prints.
+    const out = attributeTaken(
+      [entry('dt', ['stars'])],
+      new Set(['stars', 'contact']),
+    );
+    expect(out[0].fields.sort()).toEqual(['contact', 'stars']);
+  });
+
+  it('still credits an orphan when the row carries two sources', () => {
+    // 🔴 The rule used to be "only when there is exactly one entry", so
+    // the attribution vanished the day a secondary carried two — and
+    // CAMP-128 is about to add sources. The entry that contributed
+    // something is the one that gets it.
+    const out = attributeTaken(
+      [entry('dt', ['stars']), entry('other', ['location'])],
+      new Set(['stars', 'contact']),
+    );
+    const dt = out.find((e) => e.id === 'dt');
+    expect(dt?.fields.sort()).toEqual(['contact', 'stars']);
+  });
+
+  it('drops an entry that contributed nothing to this page', () => {
+    const out = attributeTaken(
+      [entry('dt', ['stars']), entry('other', ['location'])],
+      new Set(['stars']),
+    );
+    expect(out.map((e) => e.id)).toEqual(['dt']);
+  });
+
+  it('credits the only source on the row even for a field it never declared', () => {
+    // Not a hole: if the row has one source, everything on that row came
+    // from it, whatever its `fields` list happens to say.
+    const out = attributeTaken([entry('dt', ['location'])], new Set(['stars']));
+    expect(out.map((e) => e.fields)).toEqual([['stars']]);
+  });
+});
+
+describe('withoutTaken', () => {
+  it('stops our own entry claiming a field the other row supplied', () => {
+    // 🔴 The over-claim on the side nobody looked at: our website is
+    // empty, the page prints theirs, and the OSM entry still declared
+    // `website` among what it gave us.
+    const out = withoutTaken(
+      [
+        {
+          id: 'osm',
+          ref: 'a1',
+          updatedAt: '2026-09-24',
+          fields: ['name', 'location', 'website'],
+        },
+      ],
+      new Set(['website']),
+    );
+    expect(out[0].fields).toEqual(['name', 'location']);
+  });
+
+  it('keeps our entry even when nothing is left in it', () => {
+    // It is our row and the reason the page exists; its licence and date
+    // still apply to the location that is always ours.
+    const out = withoutTaken(
+      [{ id: 'osm', ref: 'a1', updatedAt: '2026-09-24', fields: ['name'] }],
+      new Set(['name']),
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].fields).toEqual([]);
+  });
+});
+
 describe('mergeLinked', () => {
   const osm = {
     slug: 'les-2-rivieres',
@@ -208,6 +320,39 @@ describe('mergeLinked', () => {
     expect(merged.contact).toEqual({ phone: '+33 1 23 45 67 89' });
     const sources = merged.sources as { id: string; fields: string[] }[];
     expect(sources[1].fields).toContain('contact');
+  });
+
+  it('normalises our own empty string to null when theirs is empty too', () => {
+    // `'' ?? null` is `''`. Only the their-side half of the empty-string
+    // fix had landed, so the page still got the value the UI cannot
+    // handle.
+    const merged = mergeLinked({
+      ...osm,
+      website: '  ',
+      ...fromOther,
+      linked_website: null,
+    });
+    expect(merged.website).toBeNull();
+  });
+
+  it('stops OUR entry claiming a field that came from theirs', () => {
+    const merged = mergeLinked({
+      ...osm,
+      website: '',
+      sources: [
+        {
+          id: 'osm',
+          ref: 'a216',
+          updatedAt: '2026-09-24',
+          fields: ['name', 'website'],
+        },
+      ],
+      ...fromOther,
+    });
+    const sources = merged.sources as { id: string; fields: string[] }[];
+    expect(sources[0].id).toBe('osm');
+    expect(sources[0].fields).not.toContain('website');
+    expect(sources[1].fields).toContain('website');
   });
 
   it('keeps our language when neither row has a description', () => {

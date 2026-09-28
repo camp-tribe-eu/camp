@@ -272,7 +272,11 @@ async function main(): Promise<void> {
           LIMIT 1`,
       );
       if (pair.rowCount === 0) {
-        console.error('  ✗ no campsite with an osm_ref — cannot rehearse');
+        console.error(
+          '  ✗ no OSM campsite with an unlinked non-OSM row beside it — ' +
+            'cannot rehearse. The partner must be a row that could legally ' +
+            'be a secondary (no osm_ref, not already linked).',
+        );
         failed++;
       } else {
         victim.rows[0] = { ...pair.rows[0], link_id: 'synthetic' };

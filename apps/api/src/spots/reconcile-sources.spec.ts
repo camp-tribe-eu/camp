@@ -122,6 +122,23 @@ describe('proposeLinks', () => {
     expect(out.review[0].secondary.id).toBe('dt-2');
   });
 
+  it('sends a record to a person when the table already claims that campsite', () => {
+    // 🔴 After the first --apply, `judged` skips the existing pair before
+    // it can claim its primary — so a second record found no rival, was
+    // proposed, and hit the unique index. The savepoint stopped the
+    // crash, but the record was reported as a database refusal instead of
+    // as a question, on every run for ever.
+    const second = row({ id: 'dt-2', name: 'Les 2 Rivières', lon: east(120) });
+    const out = proposeLinks(
+      [{ a: osm, b: second, metres: 120 }],
+      new Set(),
+      new Set(['osm-1']),
+    );
+    expect(out.link).toHaveLength(0);
+    expect(out.review).toHaveLength(1);
+    expect(out.review[0].why).toContain('already linked');
+  });
+
   it('picks the same winner whichever order the pairs arrive in', () => {
     const second = row({ id: 'dt-2', name: 'Les 2 Rivières', lon: east(120) });
     const forwards = proposeLinks(

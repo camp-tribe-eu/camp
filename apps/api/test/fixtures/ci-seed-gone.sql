@@ -105,11 +105,27 @@ BEGIN
      AND region IS NOT NULL
      AND missing_since IS NULL
      AND name IS NOT NULL
-     -- A distinguishing word of five letters or more. "Camping
-     -- Municipal" survives every fold to nothing, and a pair of empty
-     -- cores must never match.
-     AND name ~ '[A-Za-zÀ-ÿ]{5,}'
-     AND name !~* 'municipal|communal'
+     -- 🔴 A word the matcher will NOT strip as generic.
+     --
+     -- This used to be `name ~ '[A-Za-zÀ-ÿ]{5,}'`, which does not mean
+     -- what its comment claimed: "Camping" is itself seven letters and
+     -- matches it. An anchor called "Camping Village" would fold to an
+     -- empty core on both sides, `decide` would return `review`, no link
+     -- would be proposed — and every check would still pass, because
+     -- they only asked whether a PAIR existed.
+     --
+     -- ⚠️ This list is a copy of the 5+ letter entries of GENERIC in
+     -- datatourisme/match.ts. A copy can drift; the CI step that greps
+     -- for a proposed link is what notices if it does.
+     AND EXISTS (
+       SELECT 1
+         FROM regexp_split_to_table(lower(name), '[^a-zà-ÿ0-9]+') AS w
+        WHERE length(w) >= 5
+          AND w NOT IN ('camping', 'campings', 'campsite', 'caravaning',
+                        'caravanning', 'carava', 'aires', 'residence',
+                        'domaine', 'village', 'municipal', 'municipale',
+                        'communal', 'communale', 'intercommunal')
+     )
    ORDER BY slug
    LIMIT 1;
 

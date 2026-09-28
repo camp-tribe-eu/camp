@@ -154,7 +154,14 @@ export const CANDIDATE_SQL = `
      -- LATER — the secondary simply un-hides. This stops us creating
      -- that state on purpose.
      AND (a.osm_ref IS NULL OR (a.region IS NOT NULL AND a.missing_since IS NULL))
-     AND (b.osm_ref IS NULL OR (b.region IS NOT NULL AND b.missing_since IS NULL))`;
+     AND (b.osm_ref IS NULL OR (b.region IS NOT NULL AND b.missing_since IS NULL))
+   -- 🔴 Ordered, because the review pile is printed and worked through
+   -- by a person. The chosen LINKS were already stable — the tie-break
+   -- in proposeLinks is a total order, and a pairwise maximum over one
+   -- does not depend on visiting order — but the losers are appended in
+   -- whatever sequence the rows arrived, so "left for a human (first
+   -- 15)" showed a different fifteen on every run over identical data.
+   ORDER BY a.id, b.id`;
 
 type RawPair = Record<string, unknown>;
 
@@ -202,7 +209,23 @@ export type Outcome = {
  * reject the second write at 3 a.m. in the middle of a run, which is a
  * worse way to find out.
  */
-export function proposeLinks(pairs: PairRow[], judged: Set<string>): Outcome {
+export function proposeLinks(
+  pairs: PairRow[],
+  judged: Set<string>,
+  /**
+   * Primaries that a LIVE link already claims, from the table.
+   *
+   * 🔴 Without this the collision rule is blind after the first
+   * `--apply`. A pair already in `judged` is skipped before it can claim
+   * its primary, so a second record matching that same campsite finds no
+   * rival, is proposed, and the INSERT hits the unique index. The
+   * savepoint stops the crash, but the record is then reported as
+   * "refused by the database" — an error-shaped line — instead of going
+   * to the review pile the new rule says it belongs in, and it does so
+   * again on every run for ever.
+   */
+  claimedAlready: Set<string> = new Set(),
+): Outcome {
   const byNonOsm = new Map<string, { row: SpotRow; cands: SpotRow[] }>();
   for (const p of pairs) {
     const osm = p.a.osm_ref ? p.a : p.b;
@@ -267,6 +290,16 @@ export function proposeLinks(pairs: PairRow[], judged: Set<string>): Outcome {
     };
     if (d.verdict !== 'same') {
       out.review.push(proposal);
+      continue;
+    }
+
+    // A campsite the table already links to somebody else. Not an error
+    // and not a link — a question for a person.
+    if (claimedAlready.has(primary.id)) {
+      out.review.push({
+        ...proposal,
+        why: 'this campsite is already linked to another record',
+      });
       continue;
     }
 
@@ -416,7 +449,11 @@ async function main(): Promise<void> {
       `SELECT primary_id || '|' || secondary_id AS k FROM spot_links`,
     );
     const judged = new Set<string>(judgedRows.rows.map((r) => r.k));
-    const out = proposeLinks(pairs, judged);
+    const claimedRows = await db.query<{ id: string }>(
+      `SELECT primary_id AS id FROM spot_links WHERE unlinked_at IS NULL`,
+    );
+    const claimedAlready = new Set<string>(claimedRows.rows.map((r) => r.id));
+    const out = proposeLinks(pairs, judged, claimedAlready);
 
     let gains = 0;
     let both = 0;

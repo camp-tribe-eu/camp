@@ -406,6 +406,17 @@ jobs:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
           PGPASSWORD: postgres
         run: |
+          # 🔴 pipefail, and it is the whole step.
+          #
+          # GitHub runs `run:` under `bash -e`, NOT `-o pipefail`. The
+          # first version of this piped the reconciler through `tee`, so
+          # the step's status was tee's — always 0 — and every failure of
+          # the script was swallowed, INCLUDING the band-coverage throw
+          # added in the same commit. That throw fires after the
+          # "N cross-source pairs" line is printed, so the grep below
+          # would still have matched and the step would have gone green
+          # on a thrown error. A check that cannot fail is not a check.
+          set -o pipefail
           before=$(psql -h localhost -U postgres -d camptribe_test -t -A \
             -c 'SELECT count(*) FROM camping_spots')
           npx ts-node src/spots/reconcile-sources.ts | tee /tmp/dry.txt
@@ -416,13 +427,17 @@ jobs:
           echo "campsites $before -> $after, links $links"
           test "$before" = "$after"
           test "$links" = "0"
-          # 🔴 And it must have LOOKED. Without this, a CANDIDATE_SQL
-          # that returns nothing at all — a typo in the join, a predicate
-          # that excludes everything — passes exactly like a correct one,
-          # because "wrote no rows" is true either way. The fixture has
-          # cross-source pairs precisely so this line can insist.
+          # 🔴 It must have LOOKED, and it must have MATCHED. Without the
+          # first, a CANDIDATE_SQL returning nothing — a typo in the
+          # join, a predicate excluding everything — passes exactly like
+          # a correct one, because "wrote no rows" is true either way.
+          # Without the second, the fixture proves only that the query
+          # looked; the matcher could reject every pair and nothing would
+          # say so. The fixture seeds a pair built to match.
           grep -qE '^[1-9][0-9]* cross-source pairs' /tmp/dry.txt \
             || { echo "✗ the dry run found no candidate pairs at all"; exit 1; }
+          grep -qE 'link \(same name, same place\) +[1-9]' /tmp/dry.txt \
+            || { echo "✗ the dry run proposed no links from a pair built to match"; exit 1; }
 
       # CAMP-103. The backup holds the only copy of what we cannot
       # download again — the computed context, which is rationed by

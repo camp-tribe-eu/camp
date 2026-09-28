@@ -96,24 +96,20 @@ export class SpotLinks1790486400000 implements MigrationInterface {
         ON spot_links (secondary_id) WHERE unlinked_at IS NULL
     `);
 
-    // 🔴 UNIQUE, and it was not at first — review caught that.
+    // The read side's hot question: "what else belongs to this spot?"
     //
-    // The read side joins the linked row with LIMIT 1. With only the
-    // secondary side unique, two DATAtourisme records near one OSM
-    // campsite could each pick that campsite as their best match and
-    // both links would be written: legal SQL, and then the star rating,
-    // the description and the sitemap's lastmod on that page would be
-    // whichever row the planner happened to return. No error, and a page
-    // that can change between builds.
+    // 🔴 This wants to be UNIQUE, and is made so by the NEXT migration
+    // rather than here — `SpotLinkOnePerPrimary1790490000000`.
     //
-    // DATAtourisme publishing a campsite and its motorhome pitch as two
-    // POIs is the ordinary way in — the importer already met that pair
-    // 21 m apart (see datatourisme/import.ts). So this is a constraint,
-    // not a comment: the second link is refused, the reconciler leaves
-    // that record for a person, and a human who wants both must say
-    // which one is the campsite.
+    // It was changed here first, which does not work: a database that
+    // has already run this migration never runs it again, and
+    // `CREATE UNIQUE INDEX IF NOT EXISTS` on an existing non-unique
+    // index of the same name silently does nothing. The constraint would
+    // have existed only on databases built after the edit. Left as it
+    // was written so that the two migrations describe one honest
+    // sequence, which is what a migration history is for.
     await queryRunner.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_spot_links_primary_live
+      CREATE INDEX IF NOT EXISTS idx_spot_links_primary_live
         ON spot_links (primary_id) WHERE unlinked_at IS NULL
     `);
 

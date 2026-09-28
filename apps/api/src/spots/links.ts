@@ -133,9 +133,33 @@ export const LINKED_SECONDARY_JOIN = `
  * restructuring the statement around it — which is what made it possible
  * to close this in the guide predicates at all.
  */
-export function mergedFieldSql(alias: string, column: string): string {
-  return `coalesce(${alias}.${column}, (
-    SELECT x.${column}
+export function mergedFieldSql(
+  alias: string,
+  column: string,
+  kind: 'text' | 'scalar' = 'scalar',
+): string {
+  // 🔴 An empty string is absent here too, or SQL and JS disagree about
+  // the same campsite.
+  //
+  // `mergeLinked`'s `isEmpty` treats '' and whitespace as nothing;
+  // `coalesce` treats '' as a value. With a primary whose name is an
+  // empty string the detail page would show the other source's name
+  // while every listing, pin, search document and guide example showed
+  // '' — the "named on its own page, nameless in the list" symptom
+  // moved from nulls to empty strings. `notable()` is the sharp end: it
+  // filters `IS NOT NULL`, which '' passes, so a nameless card reaches
+  // the home page.
+  //
+  // Only for text columns: `stars` is a smallint and btrim would need a
+  // cast back, which buys nothing — a smallint has no empty string.
+  const mine =
+    kind === 'text'
+      ? `nullif(btrim(${alias}.${column}), '')`
+      : `${alias}.${column}`;
+  const theirs =
+    kind === 'text' ? `nullif(btrim(x.${column}), '')` : `x.${column}`;
+  return `coalesce(${mine}, (
+    SELECT ${theirs}
       FROM spot_links l
       JOIN camping_spots x ON x.id = l.secondary_id
      WHERE l.primary_id = ${alias}.id AND l.unlinked_at IS NULL
@@ -149,7 +173,7 @@ export const mergedStarsSql = (alias: string): string =>
 
 /** The name this campsite has, from whichever source holds one. */
 export const mergedNameSql = (alias: string): string =>
-  mergedFieldSql(alias, 'name');
+  mergedFieldSql(alias, 'name', 'text');
 
 /**
  * The linked row's source entries, narrowed to what this page reuses.
@@ -179,13 +203,55 @@ export function attributeTaken(
 ): SpotSource[] {
   const declared = new Set(entries.flatMap((e) => e.fields ?? []));
   const orphans = [...taken].filter((f) => !declared.has(f));
-  return entries
-    .map((entry, i) => {
-      const fields = (entry.fields ?? []).filter((f) => taken.has(f));
-      if (entries.length === 1 && i === 0) fields.push(...orphans);
-      return { ...entry, fields };
-    })
-    .filter((entry) => entry.fields.length > 0);
+  const narrowed = entries.map((entry) => ({
+    ...entry,
+    fields: (entry.fields ?? []).filter((f) => taken.has(f)),
+  }));
+
+  // 🔴 An orphan goes to the entry that already contributed something,
+  // when exactly one did; otherwise to the only entry there is. With
+  // several contributing entries it is left unattributed, because we do
+  // not know which of them supplied it.
+  //
+  // The first version keyed this on `entries.length === 1`, which made
+  // the attribution vanish the day a secondary carried two sources —
+  // silently, and CAMP-128 is about to add sources. Preferring the entry
+  // that contributed is both stabler and closer to the truth.
+  if (orphans.length > 0) {
+    const contributing = narrowed.filter((e) => e.fields.length > 0);
+    const host =
+      contributing.length === 1
+        ? contributing[0]
+        : narrowed.length === 1
+          ? narrowed[0]
+          : null;
+    if (host) host.fields = [...host.fields, ...orphans];
+  }
+  return narrowed.filter((entry) => entry.fields.length > 0);
+}
+
+/**
+ * Our own source entries, with the fields the other row supplied removed.
+ *
+ * 🔴 The over-claim on the side nobody looked at. When our `website` is
+ * empty and the page prints theirs, the OSM entry still declares
+ * `website` among the fields it gave us — so the page credits OSM for a
+ * URL that came from a French tourist office. Narrowing the secondary's
+ * list and not our own fixed half of one problem and left the other half
+ * pointing the other way.
+ *
+ * An entry is kept even when nothing is left in it: it is OUR row, it is
+ * the reason this page exists, and its licence and update date still
+ * apply to the location and the amenities that are always ours.
+ */
+export function withoutTaken(
+  entries: SpotSource[],
+  taken: Set<string>,
+): SpotSource[] {
+  return entries.map((entry) => ({
+    ...entry,
+    fields: (entry.fields ?? []).filter((f) => !taken.has(f)),
+  }));
 }
 
 /**
@@ -272,7 +338,11 @@ export function mergeLinked(
     field: string,
   ): { value: unknown; fromThem: boolean } => {
     if (!isEmpty(mine)) return { value: mine, fromThem: false };
-    if (isEmpty(theirs)) return { value: mine ?? null, fromThem: false };
+    // 🔴 null, not `mine ?? null`. `'' ?? null` is `''`, so when both
+    // sides were empty the page still received the empty string the
+    // comment above says the UI cannot handle. Only the their-side half
+    // of that fix had landed.
+    if (isEmpty(theirs)) return { value: null, fromThem: false };
     taken.add(field);
     return { value: theirs, fromThem: true };
   };
@@ -331,7 +401,7 @@ export function mergeLinked(
       ...((row.owner_overrides ?? {}) as Record<string, unknown>),
     },
     sources: [
-      ...((row.sources ?? []) as SpotSource[]),
+      ...withoutTaken((row.sources ?? []) as SpotSource[], taken),
       ...attributeTaken((row.linked_sources ?? []) as SpotSource[], taken),
     ],
   };

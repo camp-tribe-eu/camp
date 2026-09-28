@@ -369,7 +369,17 @@ export async function gatherFacts(
                             ${mergedNameSql('camping_spots')}
                  ) AS rn
             FROM camping_spots
-           WHERE ${LIVE} AND (${pred}) AND name IS NOT NULL
+           WHERE ${LIVE} AND (${pred})
+             -- 🔴 The merged name. The SELECT and the ORDER BY above
+             -- read through the link and this did not, so a campsite
+             -- named only by the other source was still dropped from the
+             -- examples — the exact hole the rest of this query had just
+             -- closed. notable() in spots.service already used the
+             -- merged name, so the two disagreed about the same
+             -- question. (No backticks around that name: this is inside
+             -- a template literal, and it has ended the string three
+             -- times on this card alone.)
+             AND ${mergedNameSql('camping_spots')} IS NOT NULL
         ) ranked
          WHERE rn <= 5`);
       const byRegion = new Map<string, Row[]>();
