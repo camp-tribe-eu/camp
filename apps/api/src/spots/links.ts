@@ -109,12 +109,24 @@ export const LINKED_SECONDARY_JOIN = `
  * 🔴 The detail page is not the only place a star rating belongs, and
  * this exists because review found the hole: `mergeLinked` runs in ONE
  * query, while `notSecondarySql` runs in twenty. So the secondary's row
- * was hidden everywhere and merged in one place — which meant the guide
- * theme built on `stars IS NOT NULL` would have found nothing in France
- * at all (OSM carries no French classification: 0 of 2 986 primaries
- * have a star rating), and a campsite named only by DATAtourisme would
- * have gone back to being nameless in search, on the map and in its
- * region's list while its own page showed the name.
+ * was hidden everywhere and merged in one place.
+ *
+ * Measured over the French rows the guides' own LIVE predicate admits —
+ * a region, not missing, not a hidden secondary:
+ *
+ *     four or five stars    699 from the row alone   1 159 through here
+ *     any star rating     2 080                      4 210
+ *
+ * OpenStreetMap carries no French classification at all (0 of the 2 986
+ * primaries has one), so the `classified` guide theme and the "with an
+ * official star rating" facet on three others would have lost 40% and
+ * 51% of what they should see.
+ *
+ * 🔴 `name` goes through here too, and that half is a guard rather than
+ * a repair: today 0 live links have a named secondary behind a nameless
+ * primary, because `decide` refuses to match an unnamed candidate
+ * however close. A hand-made link is exactly the case that would break
+ * it, which is why the read is here and not left until it happens.
  *
  * A correlated subquery rather than a join, so it can be dropped into a
  * SELECT list, a WHERE, an ORDER BY or a predicate string without
