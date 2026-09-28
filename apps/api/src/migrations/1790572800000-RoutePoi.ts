@@ -83,25 +83,32 @@ export class RoutePoi1790572800000 implements MigrationInterface {
         kind          text NOT NULL,
         name          text,
         location      geometry(Point, 4326) NOT NULL,
-        -- 🔴 CAMP-118's scope, enforced on this table too.
+        -- 🔴 CAMP-118's scope, enforced on this table too — and NOT NULL,
+        -- which is the whole lesson of this column.
         --
-        -- Lower-case ISO 3166-1 alpha-2, resolved at import by a
-        -- point-in-polygon against ne_admin1. NULLABLE, and that is not
-        -- laziness: Natural Earth's polygons are simplified, so 65 464 of
-        -- the 2.26 M rows (2.9%) fall in no polygon at all — a fuel dock
-        -- on a marina, a services area on a reclaimed spit. Those are
-        -- kept, because they came out of an EU-27 extract and "outside
-        -- every simplified coastline" is not evidence of being outside
-        -- the Union. What is dropped is a row positively inside a
-        -- NON-member's polygon: 13 009 of them, 6 320 in the United
-        -- Kingdom alone, because the Geofabrik extract for Ireland is
-        -- "ireland-and-northern-ireland" and the Alpine extracts cross
-        -- into Switzerland.
+        -- Lower-case ISO 3166-1 alpha-2, resolved at import from
+        -- ne_admin1: the containing polygon, or failing that the nearest
+        -- one. It was nullable in the first version, on the reasoning
+        -- that Natural Earth is simplified and 65 464 rows (2.9%) fall
+        -- inside no polygon at all — a fuel dock on a marina, a services
+        -- area on a reclaimed spit — so a NULL country was kept as
+        -- "coastal, not foreign".
         --
-        -- Without this the Wild Atlantic Way page could offer a driver a
-        -- charging point in a country none of our safety sources covers,
-        -- which is the failure CAMP-118 was opened for.
-        country       char(2),
+        -- That reasoning is true and the rule built on it was not. A
+        -- point 7 m outside NORTHERN CYPRUS is also inside no polygon.
+        -- Measured on the live table, the exception admitted 423 rows
+        -- that are strictly nearer to a non-member than to any member:
+        -- 169 Northern Cyprus, 126 United Kingdom, 72 Monaco, 30 Turkey,
+        -- 8 Bosnia, 6 Gibraltar, 1 Akrotiri. One of them is a KFC in
+        -- Bangor, 88 km from the Union.
+        --
+        -- So the import answers with the nearest polygon and every row
+        -- has a country. NOT NULL is what stops the exception coming
+        -- back quietly: reintroduce it and the INSERT aborts naming this
+        -- column, instead of 400-odd foreign rows appearing on route
+        -- pages in a country no EU safety instrument covers — which is
+        -- the failure CAMP-118 was opened for.
+        country       char(2) NOT NULL,
         -- 🔴 Every one of these is nullable and most of them are null.
         -- Measured on the 2 248 490 rows this table holds: opening hours
         -- on 43.5% of fuel stations and 1.5% of drinking water; a phone

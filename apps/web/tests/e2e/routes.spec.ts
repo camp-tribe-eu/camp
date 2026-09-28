@@ -130,6 +130,25 @@ test.describe('a route page', () => {
       await expect(blocks).toHaveCount(route.stages.length);
       for (let i = 0; i < route.stages.length; i++) {
         const block = blocks.nth(i);
+        // 🔴 THREE states, not two, and the third is why this assertion
+        // had to change. When the API could not be reached the page must
+        // say so once — NOT render seven "our database holds none within
+        // 25 km" lines, which is a statement about the ground made from
+        // a failed fetch. The old form asserted
+        // `found + absent === 1` per kind, which all-absent satisfies
+        // perfectly, so it was green on exactly that bug.
+        const unavailable = await block
+          .getByTestId('stage-services-unavailable')
+          .count();
+        if (unavailable > 0) {
+          for (const kind of SERVICE_KINDS) {
+            expect(
+              await block.getByTestId(`service-${kind}-absent`).count(),
+              `stage ${i + 1} of ${route.slug} claims ${kind} is absent on a stage it could not look at`,
+            ).toBe(0);
+          }
+          continue;
+        }
         for (const kind of SERVICE_KINDS) {
           const found = block.getByTestId(`service-${kind}`);
           const absent = block.getByTestId(`service-${kind}-absent`);
@@ -196,6 +215,23 @@ test.describe('a route page', () => {
     await expect(page.getByTestId('route-sources')).toContainText(
       'no ratings and no photographs',
     );
+  });
+
+  // 🔴 That explanation used to be gated on `serviceCount > 0`, so it
+  // disappeared exactly when the block was all-absent — the one moment a
+  // reader most needs to be told that the only source is OpenStreetMap
+  // and that a gap in it is not a gap in the world. Asserted on every
+  // route, because the fixture makes most of them all-absent in CI.
+  test('…on every route, including the ones where we found nothing', async ({
+    page,
+  }) => {
+    for (const route of CURATED_ROUTES) {
+      await page.goto(`/routes/${route.slug}`);
+      await expect(
+        page.getByTestId('route-sources'),
+        `${route.slug} drops the source note`,
+      ).toContainText('come from OpenStreetMap alone');
+    }
   });
 
   // 🔴 The map has to actually mount. Tests on this project once went

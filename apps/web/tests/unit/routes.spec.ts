@@ -22,7 +22,9 @@ import {
   SERVICE_ABSENT,
   SERVICE_KINDS,
   SERVICE_LABEL,
+  SERVICE_RADIUS_M,
   SERVICE_UNNAMED,
+  serviceOf,
   SERVICES_PER_KIND,
 } from '../../src/lib/route-services';
 
@@ -138,6 +140,59 @@ test('🔴 no route page can show a Substantial number of OSM objects at all', (
         `${ODBL_SUBSTANTIAL_FLOOR}`,
     ).toBeLessThan(ODBL_SUBSTANTIAL_FLOOR);
   }
+});
+
+// 🔴 The API refuses to answer about more stages than the ODbL floor
+// allows, and it is right to. This is the test that stops such a route
+// reaching the repository in the first place, so the refusal stays
+// theoretical — review found the previous arithmetic letting a
+// nine-stage route pass both suites and then lose its ninth stage
+// silently, with the page printing an absence about a stop nothing had
+// looked at.
+test('🔴 no route has more stages than the services endpoint will answer about', () => {
+  const perStage = CAMPSITES_PER_STAGE + SERVICE_KINDS.length;
+  const mostStages = Math.floor((ODBL_SUBSTANTIAL_FLOOR - 1) / perStage);
+  for (const r of CURATED_ROUTES) {
+    expect(
+      r.stages.length,
+      `${r.slug} has ${r.stages.length} stages; at ${perStage} objects each ` +
+        `the API will only answer about ${mostStages}`,
+    ).toBeLessThanOrEqual(mostStages);
+  }
+});
+
+// ── 🔴 CAMP-113: the mutations that survived the first version ──────────
+
+test('🔴 serviceOf returns the kind asked for, not simply the first one', () => {
+  // The mutation is `services[0]`, and with one of each kind per stage
+  // it looks right on any stage whose first service happens to be the
+  // one being asked about — which is every stage where fuel was found.
+  const group = {
+    lat: 0,
+    lon: 0,
+    services: [
+      { kind: 'water' as const, osmRef: 'n1', name: null, lat: 0, lon: 0, metres: 10, phone: null, website: null, openingHours: null },
+      { kind: 'fuel' as const, osmRef: 'n2', name: 'Shell', lat: 0, lon: 0, metres: 20, phone: null, website: null, openingHours: null },
+    ],
+  };
+  expect(serviceOf(group, 'fuel')?.osmRef).toBe('n2');
+  expect(serviceOf(group, 'water')?.osmRef).toBe('n1');
+  // A kind that is not there is null, never the nearest of another kind.
+  expect(serviceOf(group, 'dump')).toBeNull();
+  expect(serviceOf(undefined, 'fuel')).toBeNull();
+});
+
+// 🔴 The page says "within 25 km" in three places, and the API clamps
+// `radius` to its own maximum. Raise this past that ceiling and every
+// one of those sentences becomes false while the page still renders.
+// getRouteServices also compares the radius the API reports back, so
+// this is belt and braces — but the constant is where the mistake would
+// be typed.
+test('🔴 the radius the page promises is one the API will actually apply', () => {
+  const API_MAX_RADIUS_M = 60_000; // MAX_RADIUS_M in apps/api/src/routes/route-points.ts
+  const API_MIN_RADIUS_M = 1_000;
+  expect(SERVICE_RADIUS_M).toBeLessThanOrEqual(API_MAX_RADIUS_M);
+  expect(SERVICE_RADIUS_M).toBeGreaterThanOrEqual(API_MIN_RADIUS_M);
 });
 
 // ── 🔴 CAMP-113: every kind must be sayable, present or absent ───────────

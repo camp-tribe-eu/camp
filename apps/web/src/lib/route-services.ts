@@ -166,6 +166,28 @@ interface ServicesAnswer {
   radiusMetres: number;
   perKind: number;
   returned: number;
+  truncated?: boolean;
+}
+
+/**
+ * 🔴 THREE STATES, NOT TWO, AND THE THIRD IS THE ONE REVIEW FOUND
+ * MISSING.
+ *
+ * This used to return `StageServices[]`, with an empty `services` array
+ * per stage on any failure. `serviceOf` then returned null for every
+ * kind and the page rendered, seven times per stage, **"Our database
+ * holds no fuel station within 25 km of this stop."** On a seven-stage
+ * route that is 49 false statements about the ground, printed because a
+ * fetch failed — the exact thing the header of this file and of
+ * route-services.tsx both promise not to do. The component had no way to
+ * say "we could not look", because nothing told it.
+ *
+ * So the answer carries whether we actually looked. `looked: false`
+ * means the page says so in one line instead of inventing 49 absences.
+ */
+export interface RouteServicesResult {
+  looked: boolean;
+  groups: StageServices[];
 }
 
 /**
@@ -182,12 +204,11 @@ interface ServicesAnswer {
  */
 export async function getRouteServices(
   route: CuratedRoute,
-): Promise<StageServices[]> {
-  const empty = route.stages.map((s) => ({
-    lat: s.lat,
-    lon: s.lon,
-    services: [],
-  }));
+): Promise<RouteServicesResult> {
+  const unlooked: RouteServicesResult = {
+    looked: false,
+    groups: route.stages.map((s) => ({ lat: s.lat, lon: s.lon, services: [] })),
+  };
   const points = route.stages.map((s) => `${s.lat},${s.lon}`).join(';');
 
   try {
@@ -198,7 +219,7 @@ export async function getRouteServices(
       // often than a fuel station moves.
       { next: { revalidate: 86400 } },
     );
-    if (!res.ok) return empty;
+    if (!res.ok) return unlooked;
     const answer = (await res.json()) as ServicesAnswer;
     // 🔴 Never merged by index when the count is wrong. Pairing stage 3
     // with stage 4's fuel station is the "anchored to the wrong town"
@@ -208,15 +229,31 @@ export async function getRouteServices(
       !Array.isArray(answer?.groups) ||
       answer.groups.length !== route.stages.length
     ) {
-      return empty;
+      return unlooked;
     }
-    return answer.groups.map((g) => ({
-      lat: g.lat,
-      lon: g.lon,
-      services: Array.isArray(g.services) ? g.services : [],
-    }));
+    // 🔴 A short answer is not an empty area. The API says when its own
+    // cap stopped it; a page that printed those stages as "we hold
+    // nothing" would be describing the ground from a number in our code.
+    if (answer.truncated) return unlooked;
+    // 🔴 THE RADIUS WE ASKED FOR IS THE RADIUS WE PRINT.
+    //
+    // The page says "within 25 km" in three places. The API clamps
+    // `radius` to MAX_RADIUS_M, so raising SERVICE_RADIUS_M above that
+    // ceiling would leave every one of those sentences false while
+    // everything still rendered. The answer carries what was actually
+    // applied, so we compare rather than assume — and a mismatch is a
+    // failure to look, not something to paper over.
+    if (answer.radiusMetres !== SERVICE_RADIUS_M) return unlooked;
+    return {
+      looked: true,
+      groups: answer.groups.map((g) => ({
+        lat: g.lat,
+        lon: g.lon,
+        services: Array.isArray(g.services) ? g.services : [],
+      })),
+    };
   } catch {
-    return empty;
+    return unlooked;
   }
 }
 

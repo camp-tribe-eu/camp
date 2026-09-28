@@ -57,9 +57,19 @@
 # than assumed.
 #
 # Cost on the machine this was built on, 28.09.2026: about 9 minutes of
-# osmium over the 27 extracts, and 3 m 37 s of the point-in-polygon pass
-# that enforces the EU-27 scope. The extracts themselves are already
-# there — nothing is downloaded.
+# osmium over the 27 extracts, then about 14 minutes in
+# `load-route-poi.ts`. Nothing is downloaded — the extracts are already
+# there.
+#
+# 🔴 That 14 minutes is up from 5, and the extra is bought deliberately.
+# Resolving a country by "containing polygon, else NEAREST polygon"
+# costs a KNN lookup for the 2.9% of rows inside no polygon, and the
+# leak guard afterwards costs another 2 m 30 s. What it buys is the
+# defect those two replaced: 423 rows in Northern Cyprus, the United
+# Kingdom, Monaco, Turkey, Bosnia, Gibraltar and Akrotiri, kept by a
+# `country IS NULL` exception and invisible to a check that read the
+# same column. A weekly job is the right place to spend nine minutes on
+# being sure.
 set -euo pipefail
 
 DB_URL="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"

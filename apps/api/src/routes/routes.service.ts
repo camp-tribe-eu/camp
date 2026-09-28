@@ -22,6 +22,7 @@ import {
 // CAMP-113: what a driver needs BETWEEN the campsites.
 import {
   buildServicesSql,
+  MAX_SERVICE_POINTS,
   MAX_SERVICES_TOTAL,
   servicesOverfetch,
   type RouteService,
@@ -242,7 +243,14 @@ export class RoutesService {
     kinds: RoutePoiKind[],
     radiusRequested = DEFAULT_RADIUS_M,
   ): Promise<RouteServiceAnswer> {
-    const pts = points.slice(0, MAX_POINTS);
+    // 🔴 MAX_SERVICE_POINTS, not MAX_POINTS. A route page takes 4
+    // campsites AND 7 services per stage, so nine stages is where the
+    // ODbL floor of 100 objects actually lands — see route-services.ts.
+    // Asking about more is refused with `truncated`, so the web layer
+    // says "we could not look" rather than the page printing an absence
+    // about stops nothing examined.
+    const pts = points.slice(0, MAX_SERVICE_POINTS);
+    const truncatedPoints = points.length > MAX_SERVICE_POINTS;
     const radiusMetres = clamp(
       Math.trunc(radiusRequested) || DEFAULT_RADIUS_M,
       MIN_RADIUS_M,
@@ -252,11 +260,17 @@ export class RoutesService {
     const sql = buildServicesSql(kinds);
     const groups: RouteServiceGroup[] = [];
     let returned = 0;
+    let truncated = truncatedPoints;
 
     for (const p of pts) {
-      // The same check `near()` makes, and in the same place: before the
-      // query, because truncating a finished list would still have run it.
+      // 🔴 Unreachable by construction now — MAX_SERVICES_TOTAL is the
+      // arithmetic ceiling of an accepted request — and it SAYS SO when
+      // it happens rather than returning a short answer that reads like
+      // an absence. Review found the old cap (56) dropping whole kinds
+      // past stage 8, and the page printing "our database holds none"
+      // about stops nothing had looked at.
       if (returned >= MAX_SERVICES_TOTAL) {
+        truncated = true;
         groups.push({ lat: p.lat, lon: p.lon, services: [] });
         continue;
       }
@@ -268,8 +282,14 @@ export class RoutesService {
         radiusMetres,
       ]);
 
+      // 🔴 A partial stage is reported, not silently shortened. Slicing
+      // a stage's list mid-way is how six kinds became "our database
+      // holds none" on a page that had only asked about one.
+      const room = MAX_SERVICES_TOTAL - returned;
+      if (rows.length > room) truncated = true;
+
       const services: RouteService[] = rows
-        .slice(0, MAX_SERVICES_TOTAL - returned)
+        .slice(0, room)
         .map((r: Record<string, unknown>) => ({
           kind: r.kind as RoutePoiKind,
           osmRef: r.osm_ref as string,
@@ -295,6 +315,7 @@ export class RoutesService {
       radiusMetres,
       perKind: SERVICES_PER_KIND,
       returned,
+      truncated,
     };
   }
 }

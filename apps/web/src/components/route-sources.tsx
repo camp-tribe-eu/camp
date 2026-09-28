@@ -175,24 +175,26 @@ export default function RouteSources({
         all.
       </p>
 
-      {serviceCount > 0 && (
-        <p
-          className="mt-3 max-w-prose text-xs leading-5 text-ink-2"
-          data-boilerplate="route-services-source"
-        >
-          {/* 🔴 CAMP-113 is deliberately scoped to one source, and saying
-              so here is the difference between a narrowing and an
-              omission. Somebody reading this page should not conclude
-              that a charging point absent from OpenStreetMap does not
-              exist. */}
-          Fuel, charging, water, disposal points, shops, places to eat and
-          places to sleep all come from OpenStreetMap alone. Other sources for
-          them — Open Charge Map, the national fuel portals — are not settled
-          yet, so what is here is what volunteers have mapped and no more. We
-          hold no ratings and no photographs of these places, and we will not
-          take either from somebody else&rsquo;s site.
-        </p>
-      )}
+      {/* 🔴 NOT behind `serviceCount > 0`, and that was a real bug.
+          Gating it that way removed the explanation exactly when the
+          block is all-absent or could not be built — which is precisely
+          when a reader needs to be told that the only source is
+          OpenStreetMap and that a gap in it is not a gap in the world. */}
+      <p
+        className="mt-3 max-w-prose text-xs leading-5 text-ink-2"
+        data-boilerplate="route-services-source"
+      >
+        {/* 🔴 CAMP-113 is deliberately scoped to one source, and saying so
+            here is the difference between a narrowing and an omission.
+            Somebody reading this page should not conclude that a charging
+            point absent from OpenStreetMap does not exist. */}
+        Fuel, charging, water, disposal points, shops, places to eat and places
+        to sleep all come from OpenStreetMap alone. Other sources for them —
+        Open Charge Map, the national fuel portals — are not settled yet, so
+        what is here is what volunteers have mapped and no more. We hold no
+        ratings and no photographs of these places, and we will not take either
+        from somebody else&rsquo;s site.
+      </p>
     </section>
   );
 }

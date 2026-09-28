@@ -302,6 +302,10 @@ END $$;
 -- (La Rochelle, 46.1603/-1.1511), and between them they exercise every
 -- branch the page has.
 --
+-- All six are in France, so `country` is 'fr' — the column is NOT NULL
+-- (see the migration), because a NULL country is how 423 foreign rows
+-- reached the live table.
+--
 --   fuel       named, 24/7 hours, a website, no phone
 --   groceries  named, hours, a phone AND a website — the full row
 --   charging   named, 24/7, nothing else
@@ -318,9 +322,9 @@ END $$;
 -- Real OpenStreetMap data, so the same attribution applies here as
 -- everywhere: © OpenStreetMap contributors, ODbL.
 
-INSERT INTO osm_route_poi (osm_ref, kind, name, location, phone, website, opening_hours) VALUES ('n13570590317', 'charging', 'Arsenal', ST_GeomFromText('POINT(-1.1486001 46.1597128)', 4326), NULL, NULL, '24/7');
-INSERT INTO osm_route_poi (osm_ref, kind, name, location, phone, website, opening_hours) VALUES ('n11001119446', 'food', 'Café de la Poste', ST_GeomFromText('POINT(-1.1519074 46.1599065)', 4326), NULL, NULL, NULL);
-INSERT INTO osm_route_poi (osm_ref, kind, name, location, phone, website, opening_hours) VALUES ('w718861647', 'fuel', 'station-service Leclerc', ST_GeomFromText('POINT(-1.1668489 46.173582)', 4326), NULL, 'https://www.e.leclerc/mag/e-leclerc-lagord', '24/7');
-INSERT INTO osm_route_poi (osm_ref, kind, name, location, phone, website, opening_hours) VALUES ('n6724101564', 'groceries', 'Naturalia', ST_GeomFromText('POINT(-1.1498974 46.1625545)', 4326), '+33 5 46 37 20 53', 'https://magasins.naturalia.fr/naturalia/fr/store/france/nouvelle-aquitaine/charente-maritime/la-rochelle/la-rochelle-minage/4015', 'Mo-Sa 09:00-20:00;Su 09:00-12:45');
-INSERT INTO osm_route_poi (osm_ref, kind, name, location, phone, website, opening_hours) VALUES ('n9063556553', 'shelter', 'Hôtel François 1er', ST_GeomFromText('POINT(-1.1518096 46.1607969)', 4326), NULL, NULL, NULL);
-INSERT INTO osm_route_poi (osm_ref, kind, name, location, phone, website, opening_hours) VALUES ('n14077709953', 'water', NULL, ST_GeomFromText('POINT(-1.1511579 46.1597392)', 4326), NULL, NULL, NULL);
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n13570590317', 'charging', 'Arsenal', ST_GeomFromText('POINT(-1.1486001 46.1597128)', 4326), 'fr', NULL, NULL, '24/7');
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n11001119446', 'food', 'Café de la Poste', ST_GeomFromText('POINT(-1.1519074 46.1599065)', 4326), 'fr', NULL, NULL, NULL);
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('w718861647', 'fuel', 'station-service Leclerc', ST_GeomFromText('POINT(-1.1668489 46.173582)', 4326), 'fr', NULL, 'https://www.e.leclerc/mag/e-leclerc-lagord', '24/7');
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n6724101564', 'groceries', 'Naturalia', ST_GeomFromText('POINT(-1.1498974 46.1625545)', 4326), 'fr', '+33 5 46 37 20 53', 'https://magasins.naturalia.fr/naturalia/fr/store/france/nouvelle-aquitaine/charente-maritime/la-rochelle/la-rochelle-minage/4015', 'Mo-Sa 09:00-20:00;Su 09:00-12:45');
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n9063556553', 'shelter', 'Hôtel François 1er', ST_GeomFromText('POINT(-1.1518096 46.1607969)', 4326), 'fr', NULL, NULL, NULL);
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n14077709953', 'water', NULL, ST_GeomFromText('POINT(-1.1511579 46.1597392)', 4326), 'fr', NULL, NULL, NULL);

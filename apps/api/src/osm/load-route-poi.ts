@@ -15,92 +15,20 @@
 import 'dotenv/config';
 import { Client } from 'pg';
 import { ACCESS_EXCLUDED, classifyCaseSql, ROUTE_POI_KINDS } from './route-poi';
-import { EU_MEMBER_STATES } from './eu';
+// 🔴 The SQL lives in its own file so it can be unit-tested — a script
+// that opens a database connection on import cannot be. See the header
+// of route-poi-sql.ts for what got through while it could not.
+import {
+  countrySql,
+  EU_SQL_LIST,
+  euLeakGuardSql,
+  firstOf,
+  POINT_SQL,
+  WEBSITE_SQL,
+} from './route-poi-sql';
 
 const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
-
-/**
- * 🔴 ST_PointOnSurface, not ST_Centroid.
- *
- * 473 000 of the staged objects are polygons and 469 000 are open ways.
- * A centroid of a C-shaped building, or of a ring road services area,
- * can land outside the thing it names — which would put a fuel station
- * in the field next to it and print a distance that is wrong by more
- * than the page's own precision. PointOnSurface is guaranteed to lie on
- * the geometry.
- */
-const POINT_SQL = `ST_PointOnSurface(ST_CollectionExtract(ST_MakeValid(s.geom)))`;
-
-/**
- * 🔴 The first value only, where OSM separates several with ';'.
- *
- * The campsite page already learned this: `tel:` with two numbers glued
- * together dials neither, and 157 live rows were doing it before
- * CAMP-141 split them. Same rule, applied at import rather than at
- * render, so the column holds one number.
- */
-const firstOf = (expr: string) =>
-  `nullif(btrim(split_part(${expr}, ';', 1)), '')`;
-
-/**
- * 🔴 http and https only.
- *
- * `cleanWebsite` in import-spots.ts makes the same check for campsites
- * and for the same reason: these are URLs typed by strangers into a
- * public database, they are rendered as links, and `javascript:` is a
- * string somebody can type. A value that is not a plain web URL is
- * dropped, so the page says "unknown" instead of linking it.
- */
-const WEBSITE_SQL = `
-  CASE WHEN ${firstOf(`coalesce(s.website, s."contact:website")`)} ~* '^https?://[^\\s<>"]+$'
-       THEN ${firstOf(`coalesce(s.website, s."contact:website")`)}
-  END`;
-
-/**
- * 🔴 CAMP-118's scope, applied here rather than cleaned up afterwards.
- *
- * Geofabrik extracts are not clipped to a border. Measured on the first
- * full load, 28.09.2026: 13 009 of the 2 261 499 classified rows sat
- * positively inside a non-member's polygon — 6 320 in the United Kingdom
- * (the Irish extract is `ireland-and-northern-ireland`), 2 227 in
- * Switzerland, 2 159 in Northern Cyprus, then Serbia, Ukraine, Monaco,
- * Russia. 2 248 490 rows are left.
- *
- * `drop-non-eu.mjs` exists because exactly this happened to the campsite
- * table and nobody noticed for months: "we build for the EU only" was
- * true on paper and false in the data. A delete-afterwards script is a
- * cure; a filter at import is the prevention, and it costs 3 m 37 s of a
- * pipeline that already spends hours downloading.
- *
- * 🔴 A row in no polygon has a NULL country and must be KEPT. Natural
- * Earth is simplified and 65 464 rows (2.9%) sit just outside every
- * coastline. So the test is "NULL or a member", never "not a
- * non-member": `country NOT IN (...)` evaluates to NULL for those rows,
- * which is not true, which would silently drop every coastal point in
- * Europe.
- *
- * 🔴 The twelve polygons Natural Earth codes `-1` are INCLUDED here, and
- * the first version wrongly excluded them.
- *
- * `-1` is not "unknown, probably fine" — it is a territory whose status
- * is disputed, and the three that matter to us are Northern Cyprus and
- * the two British Sovereign Base Areas. Skipping them made 2 268 rows
- * come back with a NULL country and sail through the "NULL is coastal"
- * exception into the table. They are neither coastal nor in the Union,
- * and no EU safety instrument covers them. Letting `-1` through as the
- * country makes the EU test reject it, which is the honest answer.
- *
- * The Republic of Cyprus is unaffected: its five admin-1 rows carry a
- * real `CY`, and the ORDER BY prefers a real code wherever a disputed
- * polygon overlaps one.
- */
-const COUNTRY_SQL = `(
-  SELECT lower(a.iso_a2) FROM ne_admin1 a
-   WHERE a.geom && ${POINT_SQL} AND ST_Contains(a.geom, ${POINT_SQL})
-     AND a.iso_a2 IS NOT NULL
-   ORDER BY (a.iso_a2 = '-1')
-   LIMIT 1)`;
 
 async function main() {
   const db = new Client({ connectionString: DB_URL });
@@ -133,7 +61,7 @@ async function main() {
                 ${classifyCaseSql('s')} AS kind,
                 nullif(btrim(s.name), '') AS name,
                 ${POINT_SQL} AS location,
-                ${COUNTRY_SQL} AS country,
+                ${countrySql(POINT_SQL, '$3')} AS country,
                 ${firstOf(`coalesce(s.phone, s."contact:phone")`)} AS phone,
                 ${WEBSITE_SQL} AS website,
                 nullif(btrim(s.opening_hours), '') AS opening_hours,
@@ -150,10 +78,17 @@ async function main() {
           -- extracts can hand the same border object twice.
           ORDER BY s.id
        ) r
-        -- 🔴 CAMP-118. The IS NULL half of this is load-bearing and is
-        -- not a widening: a row in no Natural Earth polygon is coastal,
-        -- not foreign. See COUNTRY_SQL above.
-        WHERE r.country IS NULL OR r.country = ANY ($3::text[])
+        -- 🔴 CAMP-118, and NO "country IS NULL" exception.
+        --
+        -- There used to be one, reasoning that a row inside no Natural
+        -- Earth polygon is coastal rather than foreign. Measured: it
+        -- admitted 423 rows strictly nearer to a non-member than to any
+        -- member, because a point 7 m outside NORTHERN CYPRUS is also
+        -- inside no polygon. countrySql now answers with the nearest
+        -- polygon instead, so there is nothing to make an exception for
+        -- — and the column is NOT NULL, so the exception cannot come
+        -- back without the import failing loudly.
+        WHERE r.country = ANY ($3::text[])
        ON CONFLICT (osm_ref) DO UPDATE SET
             kind          = EXCLUDED.kind,
             name          = EXCLUDED.name,
@@ -163,7 +98,7 @@ async function main() {
             website       = EXCLUDED.website,
             opening_hours = EXCLUDED.opening_hours,
             last_seen_at  = EXCLUDED.last_seen_at`,
-      [runAt, ACCESS_EXCLUDED, EU_MEMBER_STATES],
+      [runAt, ACCESS_EXCLUDED, EU_SQL_LIST],
     );
 
     const gone = await db.query(
@@ -193,24 +128,55 @@ async function main() {
       );
     }
 
-    // 🔴 CAMP-118, proved rather than assumed, and inside the
-    // transaction so a scope leak rolls back instead of shipping.
+    // 🔴 CAMP-118, CHECKED AGAINST THE GEOMETRY AND NOT AGAINST THE
+    // COLUMN THE IMPORT JUST WROTE.
     //
-    // The campsite table had this exact problem for months and the rule
-    // stayed true only on paper — which is why drop-non-eu.mjs had to be
-    // written to clean up after it. The filter above is upstream of that;
-    // this is the check that the filter did what it says.
-    const outside = await db.query<{ n: string; country: string }>(
-      `SELECT country, count(*)::text AS n
-         FROM osm_route_poi
-        WHERE country IS NOT NULL AND country <> ALL ($1::text[])
-        GROUP BY country ORDER BY 2 DESC`,
-      [EU_MEMBER_STATES],
-    );
-    if (outside.rows.length > 0) {
+    // The previous check here read `country <> ALL(members)`. Against
+    // the live table it returned 0 while 423 foreign rows sat in it,
+    // because every one of them had a NULL country and `NULL <> ALL(…)`
+    // is NULL, not true. It fired for the blunt break — remove the
+    // filter, get "2 268 rows outside the EU-27" — and was blind to the
+    // only path anything actually came through. That is the same shape
+    // as the failure eu.ts records from CAMP-118: a safeguard that
+    // consults the thing it is meant to check.
+    //
+    // This one drives out from the non-member polygons and compares
+    // distances itself, so it does not care what `country` says. It was
+    // rehearsed against the live table BEFORE the fix and reported 423,
+    // naming Northern Cyprus, the United Kingdom, Monaco, Turkey,
+    // Bosnia, Gibraltar and Akrotiri.
+    const leaked = await db.query<{
+      osm_ref: string;
+      name: string | null;
+      admin: string;
+      foreign_m: string;
+      member_m: string;
+    }>(euLeakGuardSql('$1'), [EU_SQL_LIST]);
+    // (the guard deliberately does not select `country` — see its header)
+    if (leaked.rows.length > 0) {
       throw new Error(
-        `rows outside the EU-27 reached the table: ` +
-          outside.rows.map((r) => `${r.country}=${r.n}`).join(', '),
+        `rows nearer a non-member than the Union reached the table: ` +
+          leaked.rows
+            .map(
+              (r) =>
+                `${r.osm_ref} (${r.name ?? 'unnamed'}) ${r.foreign_m} m from ` +
+                `${r.admin}, ${r.member_m} m from the Union`,
+            )
+            .join('; '),
+      );
+    }
+
+    // 🔴 And the cheap half, kept as well as the geometric one: a NULL
+    // country. The column is NOT NULL so this cannot happen — which is
+    // exactly why it is asserted, because the day somebody makes it
+    // nullable again to "handle coastal points" this is the line that
+    // says what that costs.
+    const nulls = await db.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM osm_route_poi WHERE country IS NULL`,
+    );
+    if (Number(nulls.rows[0].n) > 0) {
+      throw new Error(
+        `${nulls.rows[0].n} rows have no country — the NULL exception is back`,
       );
     }
 

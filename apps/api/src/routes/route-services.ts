@@ -10,9 +10,10 @@
 import {
   isRoutePoiKind,
   ROUTE_POI_KINDS,
+  SERVICES_PER_KIND,
   type RoutePoiKind,
 } from '../osm/route-poi';
-import { OVERFETCH } from './route-points';
+import { DEFAULT_PER_POINT, OVERFETCH } from './route-points';
 
 /** One service beside a stage, or the fact that there is none. */
 export interface RouteService {
@@ -71,20 +72,62 @@ export interface RouteServiceAnswer {
   radiusMetres: number;
   perKind: number;
   returned: number;
+  /**
+   * 🔴 True when the total cap stopped this answer short.
+   *
+   * It exists because an absent service and an unasked-about service
+   * render as the same sentence unless somebody says otherwise, and that
+   * sentence is "our database holds none within 25 km" — a statement
+   * about the ground. Review found the page printing it 49 times from a
+   * failed API call. The cap can no longer bind (see MAX_SERVICES_TOTAL)
+   * but the flag is on the wire so that a future change to either number
+   * cannot reintroduce a silent short answer.
+   */
+  truncated: boolean;
 }
 
 /**
- * 🔴 The per-page ceiling, and it is the ODbL position rather than a
- * layout choice.
- *
- * lib/routes.ts sets our own floor for "Substantial" at 100 objects and
- * the longest published route already shows 28 campsites across its 7
- * stages. Seven kinds at one each adds 49, for 77. At two each it would
- * be 126 — past our own line, on the page whose licence note claims the
- * opposite. There is a test that fails if a route or a kind is added
- * that would push a page over it.
+ * Our own floor for "Substantial" under ODbL, mirroring
+ * `ODBL_SUBSTANTIAL_FLOOR` in the web app's lib/routes.ts.
  */
-export const MAX_SERVICES_TOTAL = 56;
+export const ODBL_SUBSTANTIAL_FLOOR = 100;
+
+/**
+ * 🔴 HOW MANY STAGES A PAGE MAY ASK ABOUT, DERIVED RATHER THAN CHOSEN.
+ *
+ * This is the constraint the old numbers were hiding. A route page shows
+ * `DEFAULT_PER_POINT` campsites AND one of each service kind per stage,
+ * so it takes 4 + 7 = 11 objects from the database per stage. The ODbL
+ * Produced Work position rests on staying under 100 of them, which makes
+ * NINE stages the real ceiling — not the 12 the points parser allows and
+ * not the 7 the current library happens to have.
+ *
+ * Review found the gap exactly here: the services cap was 56 against an
+ * askable 84, so a nine-stage route satisfied the API spec (which
+ * compared against a hard-coded 7) and the web spec (36 + 63 = 99 < 100)
+ * and then silently lost its ninth stage — printing "our database holds
+ * no hotel, motel, hostel or guest house within 25 km of this stop"
+ * about a stop nothing had looked at.
+ *
+ * Deriving it means the day somebody adds an eighth kind, this number
+ * drops to 8 on its own and the tests that depend on it say so.
+ */
+export const MAX_SERVICE_POINTS = Math.floor(
+  (ODBL_SUBSTANTIAL_FLOOR - 1) / (DEFAULT_PER_POINT + ROUTE_POI_KINDS.length),
+);
+
+/**
+ * 🔴 The total cap, set so that it CANNOT bind on a request the API has
+ * already accepted.
+ *
+ * It was 56 against an askable 84. Now it is exactly what
+ * `MAX_SERVICE_POINTS` stages of every kind comes to, so a short answer
+ * is impossible rather than merely unlikely — and when a caller asks
+ * about more stages than that, the answer says `truncated` instead of
+ * quietly returning fewer.
+ */
+export const MAX_SERVICES_TOTAL =
+  MAX_SERVICE_POINTS * ROUTE_POI_KINDS.length * SERVICES_PER_KIND;
 
 /**
  * The kinds a caller asked for, narrowed to ones we actually hold.

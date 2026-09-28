@@ -139,7 +139,10 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
   const path = `/routes/${slug}`;
   const allSpots = neighbours.flatMap((g) => g.spots);
   const allSources: SpotSource[] = allSpots.flatMap((s) => s.sources ?? []);
-  const serviceCount = services.reduce((n, g) => n + g.services.length, 0);
+  const serviceCount = services.groups.reduce(
+    (n, g) => n + g.services.length,
+    0,
+  );
   const fuelPrices = routeFuelPrices(route);
 
   const crumbs = [
@@ -340,7 +343,10 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
                       a shop, a meal and a roof. Every kind is listed at
                       every stage, including the ones we hold nothing
                       for. */}
-                  <RouteStageServices group={services[i]} />
+                  <RouteStageServices
+                    group={services.groups[i]}
+                    looked={services.looked}
+                  />
                 </div>
               </li>
             );

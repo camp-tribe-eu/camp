@@ -245,9 +245,40 @@ export function RouteFuelPrices({ prices }: { prices: RouteFuelPrice[] }) {
 
 export default function RouteStageServices({
   group,
+  looked,
 }: {
   group: StageServices | undefined;
+  /**
+   * 🔴 Whether we actually asked. See RouteServicesResult — without this
+   * the block rendered seven "our database holds none within 25 km"
+   * lines per stage whenever the API call failed, which on a seven-stage
+   * route is 49 false statements about the ground.
+   */
+  looked: boolean;
 }) {
+  if (!looked) {
+    return (
+      <div className="mt-4" data-testid="stage-services">
+        <h4 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+          Between here and the next stop
+        </h4>
+        {/* 🔴 "We could not look" — which is a fact about US, and is a
+            different statement from "there is nothing here", which is a
+            fact about the ground that we would have no basis for. The
+            rest of the page is unaffected: the stages, the campsites and
+            the reasons are all still there. */}
+        <p
+          className="mt-2 max-w-prose text-sm leading-6 text-ink-3"
+          data-testid="stage-services-unavailable"
+        >
+          We could not reach our own database when this page was built, so
+          there is nothing to show here. That is a fault of ours, not a
+          statement that this stop has no fuel, water or shops.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-4" data-testid="stage-services">
       <h4 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">

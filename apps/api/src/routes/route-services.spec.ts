@@ -2,11 +2,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   buildServicesSql,
+  MAX_SERVICE_POINTS,
   MAX_SERVICES_TOTAL,
+  ODBL_SUBSTANTIAL_FLOOR,
   parseKinds,
   servicesOverfetch,
 } from './route-services';
-import { MAX_POINTS } from './route-points';
+import { DEFAULT_PER_POINT, MAX_POINTS } from './route-points';
 import {
   ACCESS_EXCLUDED,
   classifyCaseSql,
@@ -66,13 +68,40 @@ describe('the kinds a caller may ask for', () => {
   });
 });
 
+// 🔴 Every test below was written against a MUTATION and shown to turn
+// red on it. Review demonstrated four that the first version of this
+// file let through green — `LIMIT $3 → LIMIT 1`, `ORDER BY kind, metres
+// → kind, osm_ref`, deleting `WHERE metres <= $4`, and labelling every
+// block 'fuel'. A SQL builder is exactly the kind of code where a test
+// that merely calls the function proves nothing.
 describe('the SQL a stage runs', () => {
   const sql = buildServicesSql([...ROUTE_POI_KINDS]);
+  // One block per kind, split on the UNION the builder joins them with.
+  const blocks = sql
+    .slice(sql.indexOf('cand AS ('), sql.indexOf('measured AS ('))
+    .split('UNION ALL');
 
   it('names every kind as a literal, so each block can use its index', () => {
     for (const kind of ROUTE_POI_KINDS) {
       expect(sql).toContain(`WHERE r.kind = '${kind}'`);
     }
+  });
+
+  // 🔴 MUTATION: label every block 'fuel'. Each block's own label and
+  // its WHERE must agree, or a charging point is served up as fuel.
+  it('labels each block with the kind that block actually selects', () => {
+    expect(blocks).toHaveLength(ROUTE_POI_KINDS.length);
+    for (const block of blocks) {
+      const label = /SELECT '([a-z]+)'::text AS kind/.exec(block)?.[1];
+      const where = /WHERE r\.kind = '([a-z]+)'/.exec(block)?.[1];
+      expect(label).toBeTruthy();
+      expect(label).toBe(where);
+    }
+    // …and between them they cover every kind exactly once.
+    const labels = blocks.map(
+      (b) => /SELECT '([a-z]+)'::text AS kind/.exec(b)?.[1],
+    );
+    expect(labels.sort()).toEqual([...ROUTE_POI_KINDS].sort());
   });
 
   it('orders by the KNN operator, which is what the GiST index answers', () => {
@@ -83,16 +112,36 @@ describe('the SQL a stage runs', () => {
     expect(sql).not.toMatch(/ST_DWithin/i);
   });
 
-  it('asks for one of each kind and no more', () => {
-    expect(SERVICES_PER_KIND).toBe(1);
-    // 🔴 Overfetched before re-sorting: `<->` orders by planar degrees
-    // because that is what the index holds, and a degree of longitude is
-    // 111 km at the equator against 55 km at Uppsala. The page prints
-    // the metres, so a planar order would visibly not be in order.
+  // 🔴 MUTATION: `LIMIT $3` → `LIMIT 1`. That deletes the overfetch this
+  // file's own comment spends a paragraph defending, and the symptom is
+  // a list printed out of the order it claims — at Nordic latitudes,
+  // where a degree of longitude is half what it is at the equator.
+  it('every block takes the overfetch parameter, not a fixed one', () => {
+    for (const block of blocks) {
+      expect(block).toContain('LIMIT $3');
+      expect(block).not.toMatch(/LIMIT \d/);
+    }
     expect(servicesOverfetch(SERVICES_PER_KIND)).toBeGreaterThan(
       SERVICES_PER_KIND,
     );
+  });
+
+  // 🔴 MUTATION: `ORDER BY kind, metres` → `kind, osm_ref`. Still one row
+  // per kind, still plausible, and no longer the nearest one.
+  it('picks the NEAREST of each kind, not an arbitrary one', () => {
     expect(sql).toContain('DISTINCT ON (kind)');
+    expect(sql).toMatch(/ORDER BY kind, metres\s*$/);
+  });
+
+  // 🔴 MUTATION: delete `WHERE metres <= $4`. The radius disappears and
+  // the page's own "within 25 km" sentence becomes false — the nearest
+  // dump station in Lapland is 300 km away and would be printed.
+  it('applies the radius the caller asked for', () => {
+    expect(sql).toContain('WHERE metres <= $4');
+  });
+
+  it('asks for one of each kind and no more', () => {
+    expect(SERVICES_PER_KIND).toBe(1);
   });
 });
 
@@ -104,25 +153,64 @@ describe('the SQL a stage runs', () => {
 // them on the longest route. This is the test that fails the day
 // somebody adds an eighth kind or raises SERVICES_PER_KIND to 2.
 describe('🔴 the caps that keep a route page a Produced Work', () => {
-  const LONGEST_ROUTE_STAGES = 7;
-  const CAMPSITES_ON_THAT_PAGE = 28;
-
-  it('one page cannot reach 100 objects', () => {
-    const services =
-      LONGEST_ROUTE_STAGES * ROUTE_POI_KINDS.length * SERVICES_PER_KIND;
-    expect(services + CAMPSITES_ON_THAT_PAGE).toBeLessThan(100);
+  // 🔴 The API's OWN ceiling, not today's longest route.
+  //
+  // This said `LONGEST_ROUTE_STAGES = 7`, which is a fact about the
+  // twelve routes in the repository rather than about what the endpoint
+  // will answer. A nine-stage route passed this spec and the web one and
+  // then silently lost its ninth stage to the total cap. The per-route
+  // arithmetic belongs in the web suite, which can see the real routes;
+  // what belongs here is the worst case the API itself permits.
+  it('the worst page the API permits cannot reach the Substantial floor', () => {
+    // 🔴 Per STAGE, because that is how a page grows: 4 campsites plus
+    // one of each service kind. The old form multiplied a hard-coded 7
+    // stages and so never noticed that the real ceiling is nine.
+    const perStage = DEFAULT_PER_POINT + ROUTE_POI_KINDS.length;
+    expect(MAX_SERVICE_POINTS * perStage).toBeLessThan(ODBL_SUBSTANTIAL_FLOOR);
   });
 
-  // The API accepts up to MAX_POINTS stages, which is more than any
-  // published route has. A crafted request asking for all twelve would
-  // otherwise assemble 12 x 7 = 84 objects from one call.
-  it('the server-side cap binds before a crafted request could', () => {
-    const askable = MAX_POINTS * ROUTE_POI_KINDS.length * SERVICES_PER_KIND;
-    expect(MAX_SERVICES_TOTAL).toBeLessThan(askable);
-    // …and it must not bind on a real page, or the last stage of the
-    // longest route would silently lose its services.
-    expect(MAX_SERVICES_TOTAL).toBeGreaterThanOrEqual(
-      LONGEST_ROUTE_STAGES * ROUTE_POI_KINDS.length * SERVICES_PER_KIND,
+  // …and it is the LARGEST number that satisfies that, so the cap is
+  // derived rather than picked conservatively and forgotten.
+  it('allows as many stages as the floor actually permits', () => {
+    const perStage = DEFAULT_PER_POINT + ROUTE_POI_KINDS.length;
+    expect((MAX_SERVICE_POINTS + 1) * perStage).toBeGreaterThanOrEqual(
+      ODBL_SUBSTANTIAL_FLOOR,
+    );
+  });
+
+  // 🔴 The points parser will hand us up to MAX_POINTS. The services
+  // endpoint must cap tighter than that, or the ODbL arithmetic above is
+  // about a number nothing enforces.
+  it('caps stages tighter than the points parser does', () => {
+    expect(MAX_SERVICE_POINTS).toBeLessThan(MAX_POINTS);
+  });
+
+  // 🔴 THE CAP MUST NOT BE ABLE TO BIND ON AN ACCEPTED REQUEST.
+  //
+  // It was 56 against an askable 84, and past stage 8 it dropped whole
+  // kinds — alphabetically last, so shelter and water first — leaving
+  // the page to print "our database holds no hotel… within 25 km" about
+  // stops nothing had looked at. The old test asserted the opposite of
+  // this and passed, because it compared against a hard-coded
+  // LONGEST_ROUTE_STAGES = 7 rather than against the API's own ceiling:
+  // a nine-stage route satisfied both this spec and the web one (36 + 63
+  // = 99 < 100) and then tripped the cap at stage 9.
+  it('cannot truncate a request the API has already accepted', () => {
+    const askable =
+      MAX_SERVICE_POINTS * ROUTE_POI_KINDS.length * SERVICES_PER_KIND;
+    expect(MAX_SERVICES_TOTAL).toBeGreaterThanOrEqual(askable);
+  });
+
+  // …while still staying inside the floor the licence note claims.
+  it('still cannot assemble a Substantial extract', () => {
+    expect(MAX_SERVICES_TOTAL).toBeLessThan(ODBL_SUBSTANTIAL_FLOOR);
+  });
+
+  // The number is derived from the two caps rather than typed, so it
+  // cannot drift away from them.
+  it('is the arithmetic ceiling, not a number somebody chose', () => {
+    expect(MAX_SERVICES_TOTAL).toBe(
+      MAX_SERVICE_POINTS * ROUTE_POI_KINDS.length * SERVICES_PER_KIND,
     );
   });
 });
