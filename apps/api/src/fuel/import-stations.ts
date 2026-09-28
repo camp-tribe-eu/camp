@@ -30,6 +30,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client } from 'pg';
 import {
+  MIN_STATIONS,
   parseFrance,
   parseItaly,
   parseSpain,
@@ -147,6 +148,21 @@ async function main(): Promise<void> {
       throw new Error(
         `${source.id}: ${result.stations.length} kept + ${rejectedStations} rejected ` +
           `= ${accounted}, but the feed held ${result.feedRecords}`,
+      );
+    }
+
+    // 🔴 And a floor, because the reconciliation above passes perfectly
+    // on an EMPTY feed: 0 kept + 0 rejected = 0 records. This import
+    // replaces the whole table, so a ministry serving a truncated file
+    // would delete a country's prices and exit 0, and every page in
+    // that country would say we hold no price. See MIN_STATIONS.
+    const floor = MIN_STATIONS[source.id] ?? 0;
+    if (result.stations.length < floor) {
+      throw new Error(
+        `${source.id}: only ${result.stations.length} stations, below the floor of ` +
+          `${floor}. The endpoint answered, so this is a truncated or empty ` +
+          `payload rather than an outage — nothing has been written. ` +
+          `Check the feed before lowering this number.`,
       );
     }
 

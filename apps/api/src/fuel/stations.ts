@@ -207,6 +207,36 @@ export const sourceById = (id: string): FuelSource | undefined =>
   SOURCES.find((s) => s.id === id);
 
 /**
+ * 🔴 THE FEWEST STATIONS A SOURCE MAY YIELD BEFORE THE RUN IS A FAILURE.
+ *
+ * This exists because the import REPLACES the whole table — a station
+ * that has stopped publishing must lose its price rather than keep last
+ * week's for ever — and that makes "HTTP 200 with almost nothing in it"
+ * the dangerous answer rather than a harmless one. A ministry serving a
+ * truncated file, an empty CSV behind a banner row, or a JSON payload
+ * with an empty list would all reconcile perfectly (0 kept + 0 rejected
+ * = 0 records), pass every check in this file, delete a country's
+ * prices and exit 0. The page would then tell every reader in that
+ * country that we hold no price for their forecourt — a statement about
+ * us that reads as a statement about the ground.
+ *
+ * It is the same failure §4 of `docs/road-hazard-sources.md` demands an
+ * alarm for: "the fetch succeeded and returned an archive", which a
+ * naive health check calls green.
+ *
+ * The floors are HALF of what each source yielded on 28.09.2026
+ * (11 309 / 8 885 / 21 189), rounded down to a round number. Half is
+ * wide enough that no plausible day-to-day movement trips it — the
+ * feeds vary by tens, not thousands — and tight enough that a
+ * truncation or an outage cannot pass as a quiet day.
+ */
+export const MIN_STATIONS: Record<string, number> = {
+  'es-minetur': 5_000,
+  'fr-data-economie': 4_000,
+  'it-mimit': 10_000,
+};
+
+/**
  * 🔴 The bounds a coordinate must fall inside to be believed.
  *
  * Not a nicety. A station at (0, 0) or with its latitude and longitude

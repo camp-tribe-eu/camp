@@ -7,6 +7,7 @@ import {
   inCountryBounds,
   IT_SELF_SERVICE,
   isPriceDroppable,
+  MIN_STATIONS,
   isPriceStale,
   parseDmyDateTime,
   parseFrance,
@@ -453,6 +454,52 @@ describe('🔴 the countries this import may not reach', () => {
     for (const s of SOURCES) {
       expect(s.licence).toMatch(/commercial reuse permitted/);
       expect(s.attribution.length).toBeGreaterThan(10);
+    }
+  });
+});
+
+// ── THE FLOOR UNDER AN EMPTY FEED ───────────────────────────────────────
+
+describe('🔴 an endpoint that answers 200 with nothing in it', () => {
+  // 🔴 The reconciliation passes PERFECTLY on an empty feed — 0 kept +
+  // 0 rejected = 0 records — and the import replaces the whole table.
+  // So without a floor, a ministry serving a truncated file deletes a
+  // country's prices and exits 0, and every page in that country says
+  // we hold no price for the forecourt. That is a statement about us
+  // that reads as a statement about the ground, and it is the failure
+  // §4 of docs/road-hazard-sources.md demands an alarm for.
+  it('reconciles perfectly, which is exactly why a floor is needed', () => {
+    const empty = parseSpain(
+      { Fecha: '28/09/2026 19:36:45', ListaEESSPrecio: [] },
+      NOW,
+    );
+    expect(empty.stations).toHaveLength(0);
+    expect(empty.rejected).toHaveLength(0);
+    expect(empty.feedRecords).toBe(0);
+    // Nothing above this line can tell the difference from a good run.
+    expect(empty.stations.length + empty.rejected.length).toBe(
+      empty.feedRecords,
+    );
+  });
+
+  it('has a floor for every source that can be imported', () => {
+    for (const s of SOURCES) {
+      expect(MIN_STATIONS[s.id]).toBeGreaterThan(0);
+    }
+  });
+
+  // Half of what each source yielded on 28.09.2026 — wide enough that
+  // ordinary movement cannot trip it, tight enough that a truncation
+  // cannot pass as a quiet day.
+  it('sets each floor below what the source really yields, and far above zero', () => {
+    const measured = {
+      'es-minetur': 11_309,
+      'fr-data-economie': 8_885,
+      'it-mimit': 21_189,
+    };
+    for (const [id, yielded] of Object.entries(measured)) {
+      expect(MIN_STATIONS[id]).toBeLessThan(yielded);
+      expect(MIN_STATIONS[id]).toBeGreaterThan(yielded / 4);
     }
   });
 });
