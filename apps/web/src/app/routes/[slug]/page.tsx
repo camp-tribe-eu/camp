@@ -145,6 +145,15 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
   );
   const fuelPrices = routeFuelPrices(route);
 
+  // CAMP-154: the moment every station price on this page is dated
+  // against. 🔴 Read ONCE, here, and passed down — not called inside the
+  // components. The site is a static export, so this is the build's
+  // clock, and a component that read it for itself would date two
+  // stages of the same page against two different instants. It is also
+  // what makes `route-fuel.spec.tsx` able to test the staleness wording
+  // at all.
+  const builtAt = new Date();
+
   const crumbs = [
     { name: 'CampTribe', path: '/' },
     { name: 'Routes', path: '/routes' },
@@ -346,6 +355,7 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
                   <RouteStageServices
                     group={services.groups[i]}
                     looked={services.looked}
+                    now={builtAt}
                   />
                 </div>
               </li>

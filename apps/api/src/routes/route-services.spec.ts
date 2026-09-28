@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   buildServicesSql,
+  FUEL_PRICE_SUBQUERY,
   MAX_SERVICE_POINTS,
   MAX_SERVICES_TOTAL,
   ODBL_SUBSTANTIAL_FLOOR,
@@ -128,9 +129,18 @@ describe('the SQL a stage runs', () => {
 
   // 🔴 MUTATION: `ORDER BY kind, metres` → `kind, osm_ref`. Still one row
   // per kind, still plausible, and no longer the nearest one.
+  //
+  // 🔴 The anchor used to be `\s*$` — this ORDER BY was the last thing
+  // in the query. CAMP-154 wrapped the selection in a `picked` CTE so a
+  // price could be attached to the chosen row, and that moved it off
+  // the end. Re-anchoring on the CTE keeps the assertion about the
+  // thing it was always about (the DISTINCT ON and its ORDER BY are the
+  // same statement, so the nearest wins) rather than about where the
+  // string happens to stop.
   it('picks the NEAREST of each kind, not an arbitrary one', () => {
-    expect(sql).toContain('DISTINCT ON (kind)');
-    expect(sql).toMatch(/ORDER BY kind, metres\s*$/);
+    const picked = sql.slice(sql.indexOf('picked AS ('));
+    expect(picked).toContain('DISTINCT ON (kind)');
+    expect(picked).toMatch(/ORDER BY kind, metres\s*\)/);
   });
 
   // 🔴 MUTATION: delete `WHERE metres <= $4`. The radius disappears and
@@ -307,5 +317,89 @@ describe('every kind has the index its query needs', () => {
       (m) => m[1],
     );
     expect(kinds).toEqual([...ROUTE_POI_KINDS]);
+  });
+});
+
+// ── CAMP-154: THE PRICE ON THE FUEL ROW ─────────────────────────────────
+//
+// 🔴 Three things are asserted, and each of them is a way the query
+// could keep working while telling a reader something false.
+
+describe('the per-station price the fuel row carries', () => {
+  const sql = buildServicesSql([...ROUTE_POI_KINDS]);
+
+  // 🔴 MUTATION PROVEN: delete `WHERE p.kind = 'fuel'` from
+  // FUEL_PRICE_SUBQUERY and this fails. Without it every kind probes
+  // fuel_station_prices — six index lookups per stage that exist to
+  // return nothing, on a table where one plausible-looking lookup has
+  // already cost this project 9 699 ms.
+  it('looks up a price for the fuel row and no other kind', () => {
+    expect(FUEL_PRICE_SUBQUERY).toContain("p.kind = 'fuel'");
+    expect(sql).toContain('AS prices');
+  });
+
+  // 🔴 MUTATION PROVEN: change `f.price_eur::text` to `f.price_eur` and
+  // this fails. `json_build_object` on a numeric emits an unquoted JSON
+  // number; `JSON.parse` turns it into a float; the page then prints
+  // whatever the float says. The column is numeric(6,3) precisely so
+  // that nothing between the ministry and the reader has an opinion
+  // about the third decimal.
+  it('sends the price as text, never as a JSON number', () => {
+    expect(FUEL_PRICE_SUBQUERY).toContain("'price', f.price_eur::text");
+    expect(FUEL_PRICE_SUBQUERY).not.toMatch(/'price',\s*f\.price_eur\s*[,)]/);
+  });
+
+  // 🔴 "Every displayed price carries its measurement date and its
+  // source." The page cannot print what the query does not send, so the
+  // obligation is enforced at the point the data leaves the database.
+  it('cannot send a price without its date and its source', () => {
+    expect(FUEL_PRICE_SUBQUERY).toContain("'measuredAt', f.measured_at");
+    expect(FUEL_PRICE_SUBQUERY).toContain("'source', f.source");
+    expect(FUEL_PRICE_SUBQUERY).toContain("'product', f.product");
+  });
+
+  // 🔴 MUTATION PROVEN: drop `ORDER BY f.grade` and this fails. Without
+  // it the order is whatever the index returns, so two stages of one
+  // route can list diesel and petrol the other way round — which reads
+  // as a difference between the stations rather than between the plans.
+  it('orders the grades the same way at every stage', () => {
+    expect(FUEL_PRICE_SUBQUERY).toContain('ORDER BY f.grade');
+  });
+
+  // The join is on the OSM ref we just picked, not on a coordinate.
+  // Matching is decided once at import time — see fuel/match.ts — and a
+  // spatial join here would redo it per page with a different rule.
+  it('joins on the OpenStreetMap ref, not on geometry', () => {
+    expect(FUEL_PRICE_SUBQUERY).toContain('f.osm_ref = p.osm_ref');
+    expect(FUEL_PRICE_SUBQUERY).not.toContain('ST_Distance');
+  });
+});
+
+// 🔴 The unique index is the invariant that makes a broken matcher a
+// FAILED IMPORT rather than a wrong number on a forecourt. Asserted
+// against the migration text, because it is the migration that has to
+// carry it into every database.
+describe('one OSM fuel point cannot carry two stations’ prices', () => {
+  it('the migration declares the unique index that enforces it', () => {
+    const migration = readFileSync(
+      join(__dirname, '../migrations/1790662800000-FuelStationPrices.ts'),
+      'utf8',
+    );
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS uq_fuel_station_prices_osm_grade',
+    );
+    expect(migration).toContain('ON fuel_station_prices (osm_ref, grade)');
+    expect(migration).toContain('WHERE osm_ref IS NOT NULL');
+  });
+
+  // 🔴 A coverage figure computed from a table that cannot hold the
+  // misses is not a measurement. `osm_ref` must stay nullable, so an
+  // unmatched station is a row that exists and can be counted.
+  it('keeps osm_ref nullable so the unmatched stations are countable', () => {
+    const migration = readFileSync(
+      join(__dirname, '../migrations/1790662800000-FuelStationPrices.ts'),
+      'utf8',
+    );
+    expect(migration).not.toMatch(/osm_ref\s+text\s+NOT NULL/);
   });
 });
