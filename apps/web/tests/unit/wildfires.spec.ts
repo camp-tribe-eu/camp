@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
   CEMS_NOTICE,
+  readFire,
   FRESH_FOR_HOURS,
   RESERVED_WORDS,
   bboxOf,
@@ -75,6 +76,175 @@ test('every state the layer can be in produces words, never an empty element', (
       expect(note.headline.trim().length, `${state.kind}/${inView} said nothing`).toBeGreaterThan(20);
       expect(note.detail.trim().length, `${state.kind}/${inView} gave no detail`).toBeGreaterThan(20);
     }
+  }
+});
+
+test('🔴 the six states say six different things, and each dies on its own', () => {
+  // 🔴 THE DEFECT THIS REPLACES. Three of the six branches were
+  // interchangeable: replacing `loading` with the `missing` text verbatim
+  // left 25/25 green, and so did gutting `stale` of its age, its "we last
+  // read Copernicus EFFIS successfully" and its 72-hour budget. Every
+  // earlier assertion was on the phrase they SHARE. So each state now has
+  // a sentence only it can produce, and they are asserted as a set —
+  // `map-chunks.spec.ts` has asserted `dataMessage({kind:'loading'})`
+  // against /Loading/ all along, which is why this was a miss, not a
+  // choice.
+  const meta = FEED.meta as never;
+  const said = (state: WildfireState, inView: number | null = null) => {
+    const note = wildfireNote(state, inView);
+    return `${note.headline} ${note.detail}`;
+  };
+
+  const loading = said({ kind: 'loading' });
+  const missing = said({ kind: 'missing' });
+  const stale = said({ kind: 'stale', meta, hoursOld: 96 });
+  const none = said({ kind: 'fresh', meta, fires: [] });
+  const noneHere = said({ kind: 'fresh', meta, fires: [square(14, 40)] }, 0);
+  const some = said({ kind: 'fresh', meta, fires: [square(14, 40), square(15, 41)] }, 2);
+
+  // Each one's own words, absent from every other state.
+  expect(loading).toContain('Loading the Copernicus EFFIS wildfire layer');
+  expect(loading).toContain('still fetching');
+  expect(missing).toContain('we could not load the Copernicus EFFIS layer');
+  expect(stale).toContain('We last read Copernicus EFFIS successfully');
+  expect(stale).toContain(`${FRESH_FOR_HOURS}-hour budget`);
+  expect(stale).toContain('96 hours');
+  expect(none).toContain('recorded no burnt areas across the EU-27');
+  expect(noneHere).toContain('is in this view');
+  expect(noneHere).toContain('none was recorded here');
+  expect(some).toMatch(/2 are in this view/);
+
+  expect(loading).not.toContain('No fresh wildfire data');
+
+  // 🔴 AND EACH MARKER APPEARS IN EXACTLY ONE STATE.
+  //
+  // "no two are the same string" was not enough on its own: the mutation
+  // run showed the stale HEADLINE could be replaced by the missing one
+  // and everything stayed green, because the two details still differed —
+  // leaving a reader told in one sentence that we could not load the
+  // layer and in the next when we last loaded it. So every state's own
+  // phrase is asserted present in it and ABSENT from the other five.
+  const states: [string, string, string][] = [
+    ['loading', loading, 'Loading the Copernicus EFFIS wildfire layer'],
+    ['missing', missing, 'could not load the Copernicus EFFIS layer'],
+    ['stale', stale, 'We last read Copernicus EFFIS successfully'],
+    ['none recorded', none, 'recorded no burnt areas across the EU-27'],
+    ['none in view', noneHere, 'None of the'],
+    ['some in view', some, 'are in this view'],
+  ];
+  for (const [name, text, marker] of states) {
+    expect(text, `${name} lost its own words`).toContain(marker);
+    for (const [other, otherText] of states) {
+      if (other === name) continue;
+      expect(
+        otherText,
+        `${other} borrowed ${name}'s words: "${marker}"`,
+      ).not.toContain(marker);
+    }
+  }
+});
+
+test('a clock ahead of us is described as a wrong clock, not as an age', () => {
+  // 🔴 `Math.round(Math.abs(hoursOld))` printed a `fetchedAt` four hours
+  // in the future as "4 hours ago" — a confident sentence about a clock
+  // that is wrong. Review found it.
+  // 🔴 Mutation: restore Math.abs and drop the `ahead` branch — fails.
+  const ahead = wildfireNote({ kind: 'stale', meta: FEED.meta as never, hoursOld: -4 }, null);
+  expect(`${ahead.headline} ${ahead.detail}`).toContain('in the future');
+  expect(`${ahead.headline} ${ahead.detail}`).not.toContain('4 hours ago');
+  const behind = wildfireNote({ kind: 'stale', meta: FEED.meta as never, hoursOld: 96 }, null);
+  expect(`${behind.headline} ${behind.detail}`).toContain('96 hours ago');
+  expect(`${behind.headline} ${behind.detail}`).not.toContain('in the future');
+});
+
+test('🔴 a feed that speaks with a national service’s authority is refused', () => {
+  // 🔴 THE GATE THAT WAS NOT A GATE. `RESERVED_WORDS` was defined,
+  // unit-tested against itself, and applied to nothing: `authorityNote`
+  // and `attribution` are rendered verbatim, so a feed saying this went
+  // straight onto the page. Review proved it with a scratch feed; the old
+  // reserved-word test could not, because it only ever fed the function
+  // the committed metadata.
+  const meta = FEED.meta as Record<string, unknown>;
+  const hostile =
+    'This is an official fire danger warning: extreme risk, evacuate the area immediately.';
+  expect(RESERVED_WORDS.test(hostile)).toBe(true);
+  expect(readFeed({ ...FEED, meta: { ...meta, authorityNote: hostile } })).toBeNull();
+  expect(
+    readFeed({
+      ...FEED,
+      meta: {
+        ...meta,
+        attribution: `${String(meta.attribution)} — severe weather warning`,
+      },
+    }),
+  ).toBeNull();
+  // …and it reaches the sentence a reader sees, not an exception.
+  const state = wildfireState({ ...FEED, meta: { ...meta, authorityNote: hostile } }, NOW);
+  expect(state.kind).toBe('missing');
+  expect(wildfireNote(state, null).headline).toContain('No fresh wildfire data');
+});
+
+test('🔴 a place name we may not print costs the name, never the fire', () => {
+  // `place` is EFFIS's proper noun, so the fetch script deliberately does
+  // not refuse it — but it is rendered on the popup, under our voice.
+  // Dropping the perimeter would lose a real fire; dropping the label
+  // loses nothing, because the card falls back to "Burnt area in XX".
+  // 🔴 Mutation: delete the RESERVED_WORDS test in readFire — fails.
+  const fire = readFire({
+    type: 'Feature',
+    geometry: { type: 'Polygon', coordinates: [[[10, 45], [11, 45], [11, 46], [10, 45]]] },
+    properties: { id: '1', date: '2026-09-20', country: 'IT', place: 'Alert Ridge', hectares: 5 },
+  });
+  expect(fire, 'the fire itself was thrown away').not.toBeNull();
+  expect(fire!.properties.place).toBe('');
+  expect(fire!.properties.hectares).toBe(5);
+  // An ordinary name survives untouched.
+  expect(
+    readFire({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [[[10, 45], [11, 45], [11, 46], [10, 45]]] },
+      properties: { id: '2', date: '2026-09-20', country: 'PT', place: 'Portel', hectares: 5 },
+    })!.properties.place,
+  ).toBe('Portel');
+});
+
+test('🔴 one unusable feature costs one feature, and never the render', () => {
+  // 🔴 readFeed checked that `features` WAS an array and nothing about
+  // what was in it, which made its own opening comment false:
+  // `features: [null]` reached `fresh`, and `firesInView` then threw
+  // "Cannot read properties of null (reading 'geometry')" out of a React
+  // effect — the unmount this function exists to prevent, landing on a
+  // blank map instead of on "No fresh wildfire data". Review found it.
+  const good = {
+    type: 'Feature',
+    geometry: { type: 'Polygon', coordinates: [[[10, 45], [11, 45], [11, 46], [10, 45]]] },
+    properties: { id: 'ok', date: '2026-09-20', country: 'IT', place: 'Enna', hectares: 63 },
+  };
+  const rubbish = [
+    null,
+    undefined,
+    42,
+    'feature',
+    {},
+    { type: 'Feature' },
+    { type: 'Feature', geometry: null, properties: good.properties },
+    { type: 'Feature', geometry: { type: 'Point', coordinates: [10, 45] }, properties: good.properties },
+    { type: 'Feature', geometry: { type: 'Polygon', coordinates: [] }, properties: good.properties },
+    { ...good, properties: { ...good.properties, date: undefined } },
+    { ...good, properties: { ...good.properties, hectares: 'lots' } },
+    { ...good, properties: null },
+  ];
+  const feed = readFeed({ ...FEED, features: [...rubbish, good] });
+  expect(feed).not.toBeNull();
+  expect(feed!.features).toHaveLength(1);
+  expect(feed!.features[0].properties.id).toBe('ok');
+  // 🔴 And the thing that actually crashed: it must not any more.
+  expect(() =>
+    firesInView(feed!.features, { west: -20, south: 30, east: 40, north: 60 }),
+  ).not.toThrow();
+  // Every one of them alone, so no single row carries the whole case.
+  for (const bad of rubbish) {
+    expect(readFire(bad), `${JSON.stringify(bad)} was accepted`).toBeNull();
   }
 });
 

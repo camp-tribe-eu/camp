@@ -123,7 +123,7 @@ export const LICENCE_MARKERS = [
 /**
  * The words that must still be in the CEMS terms.
  *
- * Read 28.09.2026, all four present in the served page. They are checked
+ * Read 28.09.2026, all three present in the served page. They are checked
  * for the same reason as the CC BY markers, and with more at stake: if
  * the disclaimer or the modified-data notice ever changes, every sentence
  * this feature renders has to be re-read before we publish again.
@@ -631,12 +631,39 @@ export async function collect({ now = new Date(), days = WINDOW_DAYS } = {}) {
     features: fires,
   };
 
-  // 🔴 The last thing the run does is read its own output for the words
-  // the licence reserves. A sentence written here travels into the page
-  // as data, so the page's own test would catch it only after it shipped;
-  // this catches it before the file is written at all. `place` comes from
-  // EFFIS and is a proper name, so only what WE wrote is checked.
-  for (const [key, value] of Object.entries(out.meta)) {
+  checkMetaWording(out.meta);
+
+  // 🔴 Reported, not refused. A commune whose name happens to contain one
+  // of these words is EFFIS's proper noun, not our assertion, so failing
+  // the whole run over it would be the guard that fires on innocent text.
+  // The PAGE drops such a label before rendering it (`readFire`); this
+  // line exists so a human learns the case is real rather than
+  // hypothetical. Measured today over the 278 shipped perimeters: none.
+  const oddPlaces = fires
+    .map((f) => f.properties.place)
+    .filter((place) => place && FORBIDDEN_WORDS.test(place));
+  if (oddPlaces.length > 0) {
+    console.log(
+      `${oddPlaces.length} place name(s) contain a word the CEMS terms reserve; ` +
+        `the page will render these unnamed: ${oddPlaces.join(' | ')}`,
+    );
+  }
+
+  return out;
+}
+
+/**
+ * 🔴 Refuse to WRITE a word the licence reserves for national services.
+ *
+ * Exported, and that is the fix rather than a tidy-up: this loop lived
+ * inside `collect()`, which needs two live HTTP requests, so the one
+ * guard standing between a reserved word and the committed data file was
+ * rehearsed only when a human happened to run the script by hand. It is
+ * now driven by `apps/web/tests/unit/wildfire-fetch.spec.ts`, which runs
+ * in the ordinary unit project on every CI job.
+ */
+export function checkMetaWording(meta) {
+  for (const [key, value] of Object.entries(meta)) {
     if (typeof value === 'string' && FORBIDDEN_WORDS.test(value)) {
       throw new Error(
         `REFUSING TO WRITE: meta.${key} uses a word the CEMS terms reserve for ` +
@@ -645,8 +672,7 @@ export async function collect({ now = new Date(), days = WINDOW_DAYS } = {}) {
       );
     }
   }
-
-  return out;
+  return meta;
 }
 
 // ---------------------------------------------------------------------

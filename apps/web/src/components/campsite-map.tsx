@@ -99,6 +99,8 @@ const POINT_LAYER = 'campsite-points';
 const FIRE_SOURCE = 'wildfires';
 const FIRE_FILL = 'wildfire-areas';
 const FIRE_LINE = 'wildfire-outlines';
+/** Invisible, and the only thing a reader can realistically hit. */
+const FIRE_HIT = 'wildfire-hit';
 
 // 🔴 Tell MapLibre where its worker really is.
 //
@@ -313,8 +315,37 @@ function attachFires(m: InstanceType<typeof MapLibreMap>) {
       source: FIRE_SOURCE,
       paint: {
         'line-color': '#8A4B2A',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.5, 10, 2.5],
+        // 🔴 Wide enough at low zoom to BE the mark, because the fill is
+        // not one. Measured over the shipped 278 perimeters: at z6.2 the
+        // median is 0.31 px across and 276 of 278 are under 3 px, so what
+        // a reader sees on the opening view is this outline and nothing
+        // else. It narrows as the real shape grows past it.
+        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 3, 10, 2.5, 14, 2],
         'line-opacity': 0.95,
+      },
+    });
+  }
+  // 🔴 THE LAYER A READER CAN ACTUALLY CLICK.
+  //
+  // Click and cursor used to be bound to FIRE_FILL alone, and the numbers
+  // say what that meant: at the zoom /map opens at, the median burnt area
+  // is a third of a pixel wide and 276 of 278 are under three. The e2e
+  // could not see it because its fixture was an 84 px square clicked dead
+  // centre — the test was sized around the defect.
+  //
+  // So: a transparent line, wide enough to hit with a mouse or a thumb,
+  // tapering once the perimeter itself is big enough to aim at. Invisible
+  // but queryable — MapLibre hit-tests what is rendered, and a fully
+  // transparent line still is.
+  if (!m.getLayer(FIRE_HIT)) {
+    m.addLayer({
+      id: FIRE_HIT,
+      type: 'line',
+      source: FIRE_SOURCE,
+      paint: {
+        'line-color': '#000000',
+        'line-opacity': 0,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 16, 10, 12, 14, 8],
       },
     });
   }
@@ -886,10 +917,18 @@ export default function CampsiteMap() {
       drawFiresRef.current();
     });
 
+    // 🔴 The fire FIRST, and that order is the whole point.
+    //
+    // MapLibre fires every layer-scoped click handler whose features are
+    // under the cursor, so a campsite standing inside a burnt area fires
+    // both. Whichever handler runs LAST owns `popup.current`, and the
+    // campsite is what the reader aimed at — it is the marker drawn on
+    // top. Registering the fire first makes the popup follow the drawing
+    // order instead of the registration order.
+    m.on('click', FIRE_HIT, onFireClick);
     m.on('click', CLUSTER_LAYER, onClusterClick);
     m.on('click', POINT_LAYER, onPointClick);
-    m.on('click', FIRE_FILL, onFireClick);
-    for (const layer of [CLUSTER_LAYER, POINT_LAYER, FIRE_FILL]) {
+    for (const layer of [CLUSTER_LAYER, POINT_LAYER, FIRE_HIT]) {
       m.on('mouseenter', layer, pointer);
       m.on('mouseleave', layer, noPointer);
     }
@@ -1192,10 +1231,11 @@ export default function CampsiteMap() {
         // perimeters, `drawFires` decides whether they go on the map.
         const feed = readFeed(body);
         fires.current = feed ? feed.features : [];
-        if (state.kind !== 'loading') {
-          attributionRef.current =
-            state.kind === 'missing' ? '' : state.meta.attribution;
-        }
+        // 🔴 Straight from the feed that survived validation. The guard
+        // that used to stand here — `state.kind !== 'loading'` — could
+        // never be false: `wildfireState` returns `loading` for nothing at
+        // all, and a line that cannot fail misleads about what guards what.
+        attributionRef.current = feed ? feed.meta.attribution : '';
         setFireState(state);
       })
       .catch(() => {

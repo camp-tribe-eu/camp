@@ -64,7 +64,11 @@ const freshFeed = (over: Record<string, unknown> = {}) => ({
   meta: { ...FEED.meta, fetchedAt: daysAgo(0.02), ...over },
 });
 
-const inViewFeed = (meta: Record<string, unknown> = { ...FEED.meta, fetchedAt: daysAgo(0.02) }) => ({
+const inViewFeed = (
+  meta: Record<string, unknown> = { ...FEED.meta, fetchedAt: daysAgo(0.02) },
+  half = 0.8,
+  place = 'Velebit',
+) => ({
   type: 'FeatureCollection',
   meta,
   features: [
@@ -74,11 +78,11 @@ const inViewFeed = (meta: Record<string, unknown> = { ...FEED.meta, fetchedAt: d
         type: 'Polygon',
         coordinates: [
           [
-            [INITIAL_VIEW.lng - 0.8, INITIAL_VIEW.lat - 0.8],
-            [INITIAL_VIEW.lng + 0.8, INITIAL_VIEW.lat - 0.8],
-            [INITIAL_VIEW.lng + 0.8, INITIAL_VIEW.lat + 0.8],
-            [INITIAL_VIEW.lng - 0.8, INITIAL_VIEW.lat + 0.8],
-            [INITIAL_VIEW.lng - 0.8, INITIAL_VIEW.lat - 0.8],
+            [INITIAL_VIEW.lng - half, INITIAL_VIEW.lat - half],
+            [INITIAL_VIEW.lng + half, INITIAL_VIEW.lat - half],
+            [INITIAL_VIEW.lng + half, INITIAL_VIEW.lat + half],
+            [INITIAL_VIEW.lng - half, INITIAL_VIEW.lat + half],
+            [INITIAL_VIEW.lng - half, INITIAL_VIEW.lat - half],
           ],
         ],
       },
@@ -86,7 +90,7 @@ const inViewFeed = (meta: Record<string, unknown> = { ...FEED.meta, fetchedAt: d
         id: 'test-1',
         date: '2026-09-20',
         country: 'HR',
-        place: 'Velebit',
+        place,
         hectares: 4200,
       },
     },
@@ -220,6 +224,12 @@ test.describe('the wildfire layer', () => {
     await openMap(page);
     await settle(page);
     await expect(page.locator(NOTE)).toHaveAttribute('data-in-view', '1');
+    // 🔴 The WORDS, not only the attribute. Both the unit spec and this
+    // one asserted `data-in-view`, so the "N are in this view" clause was
+    // deletable from the headline with everything green.
+    expect((await page.locator(NOTE).innerText()).replace(/\s+/g, ' ')).toContain(
+      '1 is in this view',
+    );
     const map = page.locator('[data-testid="map"]');
     const on = await map.screenshot();
 
@@ -269,6 +279,140 @@ test.describe('the wildfire layer', () => {
     expect(said).not.toMatch(
       /\b(do not|don't|never|avoid|evacuate|unsafe|dangerous|danger|warning|risk|alert)\b/i,
     );
+  });
+
+  test('🔴 the loading sentence is on the page, not merely a state name', async ({ page }) => {
+    // 🔴 THE DEFECT THIS REPLACES. `settle()` waited for
+    // `data-state !== 'loading'` and nothing ever read the loading words,
+    // so replacing that whole branch with the `missing` text left the
+    // suite green. An empty map while a fetch is in flight and an empty
+    // map because the fetch failed are the same picture; only the
+    // sentence tells them apart, so the sentence has to be asserted.
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route('**/data/wildfires.json', async (route) => {
+      await held;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(freshFeed()),
+      });
+    });
+
+    await openMap(page);
+    const note = page.locator(NOTE);
+    await expect(note).toHaveAttribute('data-state', 'loading');
+    const waiting = (await note.innerText()).replace(/\s+/g, ' ');
+    expect(waiting).toContain('Loading the Copernicus EFFIS wildfire layer');
+    expect(waiting).toContain('still fetching');
+    // 🔴 And it does not borrow the failure's words while it is merely slow.
+    expect(waiting).not.toContain('No fresh wildfire data');
+    expect(waiting).not.toContain('could not load');
+
+    release();
+    await expect(note).toHaveAttribute('data-state', 'fresh');
+  });
+
+  test('🔴 a reader can click a perimeter the size the data actually holds', async ({
+    page,
+  }) => {
+    // 🔴 THE DEFECT THIS REPLACES. Click and cursor were bound to the
+    // FILL, and measured over the shipped 278 perimeters the median is
+    // 0.31 px wide at the zoom /map opens at, with 276 of 278 under 3 px.
+    // The old test hid that behind an 84 px fixture clicked dead centre —
+    // the fixture was sized around the defect.
+    //
+    // This one is the real median: 0.006° across, about a third of a
+    // pixel. If the invisible hit line is removed, nothing is clickable
+    // and this test is the only thing that says so.
+    await serveFeed(page, inViewFeed(undefined, 0.003));
+    await openMap(page);
+    await settle(page);
+    await expect(page.locator(NOTE)).toHaveAttribute('data-in-view', '1');
+
+    const map = page.locator('[data-testid="map"]');
+    const box = await map.boundingBox();
+    if (!box) throw new Error('the map has no box to click in');
+    // The map's own centre, where the fixture sits.
+    await map.hover({ position: { x: box.width / 2, y: box.height / 2 } });
+    await expect(page.locator('canvas.maplibregl-canvas')).toHaveCSS('cursor', 'pointer');
+    await map.click({ position: { x: box.width / 2, y: box.height / 2 } });
+
+    const card = page.locator('.ct-popup');
+    await expect(card).toBeVisible();
+    expect(await card.innerText()).toContain('Fire recorded');
+  });
+
+  test('🔴 a place name we may not print is not on the card', async ({ page }) => {
+    // 🔴 THE DEFECT THIS REPLACES. The old version asserted that the card
+    // carried no reserved word while feeding it `place: 'Velebit'` — a
+    // string the test itself wrote. The corpus and the claim shared a
+    // field, which is the same defect the badge review found before this
+    // one. Now the fixture carries exactly what the claim is about.
+    await serveFeed(
+      page,
+      inViewFeed(undefined, 0.5, 'Danger Ridge, Alert Province'),
+    );
+    await openMap(page);
+    await settle(page);
+
+    const map = page.locator('[data-testid="map"]');
+    const box = await map.boundingBox();
+    if (!box) throw new Error('the map has no box to click in');
+    await map.click({ position: { x: box.width / 2, y: box.height / 2 } });
+
+    const card = page.locator('.ct-popup');
+    await expect(card).toBeVisible();
+    const said = (await card.innerText()).replace(/\s+/g, ' ');
+    // The fire is still there, named the honest way.
+    expect(said).toContain('Burnt area in HR');
+    expect(said).toContain('Fire recorded');
+    expect(said).toMatch(
+      /Contains modified Copernicus Emergency Management Service information \d{4}/,
+    );
+    // 🔴 And the words the CEMS terms reserve are nowhere on it.
+    expect(said).not.toMatch(/\b(danger|alert|warning|risk)\b/i);
+  });
+
+  test('🔴 a feed that speaks with a national service’s authority is refused', async ({
+    page,
+  }) => {
+    // The sentence comes out of the feed and is rendered verbatim, so a
+    // pipeline writing this would have put it on the page under our
+    // voice. Asserted on the RENDERING, because that is where it lands.
+    await serveFeed(
+      page,
+      freshFeed({
+        authorityNote:
+          'This is an official fire danger warning: extreme risk, evacuate the area immediately.',
+      }),
+    );
+    await openMap(page);
+    await settle(page);
+    const note = page.locator(NOTE);
+    await expect(note).toHaveAttribute('data-state', 'missing');
+    const said = await note.innerText();
+    expect(said).toContain('No fresh wildfire data');
+    expect(said).not.toMatch(/\b(danger|evacuate|risk|warning)\b/i);
+  });
+
+  test('🔴 one unusable record does not take the map down', async ({ page }) => {
+    // `features: [null]` used to reach `fresh` and then throw
+    // "Cannot read properties of null" out of a React effect — a blank
+    // map instead of a sentence. The good record must survive alongside.
+    const real = inViewFeed(undefined, 0.5);
+    await serveFeed(page, {
+      ...real,
+      features: [null, { type: 'Feature', geometry: null, properties: {} }, ...real.features],
+    });
+    await openMap(page);
+    await settle(page);
+    await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'fresh');
+    await expect(page.locator(NOTE)).toHaveAttribute('data-in-view', '1');
+    // The page is alive: the country list under the map still rendered.
+    await expect(page.getByRole('heading', { name: 'Browse instead' })).toBeVisible();
   });
 
   test('switched off, the map still refuses to read as an all-clear', async ({ page }) => {

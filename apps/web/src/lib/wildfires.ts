@@ -158,6 +158,50 @@ export type WildfireState =
  * learned this the expensive way: one absent field blanked every campsite
  * page.
  */
+/**
+ * One feature from the file, or null if we cannot draw it.
+ *
+ * 🔴 ONE BAD RECORD COSTS ONE RECORD. `readFeed` used to wave the feature
+ * array straight through after checking only that it WAS an array, which
+ * made its own opening comment false: `features: [null]` reached `fresh`,
+ * and `firesInView` then threw "Cannot read properties of null (reading
+ * 'geometry')" out of an effect — the React unmount this function exists
+ * to prevent, landing the reader on a blank map instead of on "No fresh
+ * wildfire data". Review found it.
+ *
+ * 🔴 A name we may not print costs the NAME, not the fire. `place` comes
+ * from EFFIS and is a proper name, so the script does not gate it — but
+ * it is rendered on the popup, and a commune called something the CEMS
+ * terms reserve would put that word on our page under our voice. Dropping
+ * the perimeter over it would lose a real fire; dropping the label loses
+ * nothing a reader needs, because `fireCard` already falls back to
+ * "Burnt area in XX".
+ */
+export function readFire(input: unknown): WildfireFeature | null {
+  if (!input || typeof input !== 'object') return null;
+  const f = input as Partial<WildfireFeature>;
+  const g = f.geometry as { type?: unknown; coordinates?: unknown } | undefined;
+  if (!g || typeof g !== 'object') return null;
+  if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') return null;
+  if (!Array.isArray(g.coordinates) || g.coordinates.length === 0) return null;
+  const p = f.properties as Partial<WildfireProperties> | undefined;
+  if (!p || typeof p !== 'object') return null;
+  if (typeof p.date !== 'string' || typeof p.country !== 'string') return null;
+  if (typeof p.hectares !== 'number' || !Number.isFinite(p.hectares)) return null;
+  const place = typeof p.place === 'string' ? p.place : '';
+  return {
+    type: 'Feature',
+    geometry: f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon,
+    properties: {
+      id: typeof p.id === 'string' ? p.id : '',
+      date: p.date,
+      country: p.country,
+      place: RESERVED_WORDS.test(place) ? '' : place,
+      hectares: p.hectares,
+    },
+  };
+}
+
 export function readFeed(input: unknown): WildfireFeed | null {
   if (!input || typeof input !== 'object') return null;
   const feed = input as Partial<WildfireFeed>;
@@ -184,7 +228,28 @@ export function readFeed(input: unknown): WildfireFeed | null {
   if (typeof meta.windowDays !== 'number' || !Number.isFinite(meta.windowDays)) {
     return null;
   }
-  return feed as WildfireFeed;
+  // 🔴 THE GATE THAT WAS NOT A GATE.
+  //
+  // `RESERVED_WORDS` existed, was unit-tested against itself, and was
+  // never once applied to anything at runtime — the claim "the script
+  // refuses to write them, the page refuses to render them" was half
+  // true. `authorityNote` and `attribution` are rendered VERBATIM, so a
+  // feed saying "official fire danger warning: extreme risk, evacuate"
+  // went straight onto the page. Review proved it with a scratch feed.
+  //
+  // Refusing the whole feed rather than stripping the sentence, because
+  // unlike a place name these are OUR words: a pipeline writing them is
+  // broken in a way somebody has to look at, and "No fresh wildfire data"
+  // is the honest thing to show while they do.
+  if (RESERVED_WORDS.test(meta.authorityNote)) return null;
+  if (RESERVED_WORDS.test(meta.attribution)) return null;
+
+  const fires: WildfireFeature[] = [];
+  for (const raw of feed.features) {
+    const fire = readFire(raw);
+    if (fire) fires.push(fire);
+  }
+  return { ...(feed as WildfireFeed), features: fires };
 }
 
 export function hoursSince(iso: string, now: Date): number {
@@ -294,15 +359,23 @@ export function wildfireNote(
 
   if (state.kind === 'stale') {
     const when = formatInstant(state.meta.fetchedAt);
+    // 🔴 A timestamp from the future is not an age, and `Math.abs` turned
+    // one into "4 hours ago" — a confident sentence about a clock that is
+    // wrong. Said as what it is instead, because the reader's question is
+    // "can I trust this", and "our copy is dated ahead of now" answers it.
+    const ahead = state.hoursOld < 0;
     const age = Number.isFinite(state.hoursOld)
       ? `${Math.round(Math.abs(state.hoursOld))} hours`
       : 'an unknown time';
+    const clock = ahead
+      ? `is dated ${age} in the future, which means a clock somewhere is wrong`
+      : `was ${age} ago, past our ${FRESH_FOR_HOURS}-hour budget`;
     return {
       tone: 'gap',
       headline: 'No fresh wildfire data.',
       detail:
-        `We last read Copernicus EFFIS successfully ${when ? `on ${when}, ` : ''}` +
-        `${age} ago, past our ${FRESH_FOR_HOURS}-hour budget, so the perimeters are off the map rather than sitting there looking current. ` +
+        `We last read Copernicus EFFIS successfully ${when ? `on ${when}, and that ` : ''}` +
+        `${clock}, so the perimeters are off the map rather than sitting there looking current. ` +
         'Nothing is drawn, and that is a gap in what we hold, not a statement that nothing has burnt.',
     };
   }
