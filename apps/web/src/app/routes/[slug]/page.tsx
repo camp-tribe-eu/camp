@@ -1,12 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import {
-  countryName,
-  formatDistance,
-  SPOT_TYPE_LABEL,
-  type Spot,
-} from '@/lib/api';
+import { countryName, SPOT_TYPE_LABEL, type Spot } from '@/lib/api';
 import { alternatesFor } from '@/lib/i18n';
 import { breadcrumbList, jsonLdProps } from '@/lib/jsonld';
 import { routeTripGraph } from '@/lib/route-jsonld';
@@ -20,7 +15,6 @@ import {
   measureRoute,
   STAGE_RADIUS_M,
   STRAIGHT_LINE_LABEL,
-  type RouteNeighbour,
 } from '@/lib/routes';
 import { TRAVELLER_LABEL } from '@/lib/route-types';
 import {
@@ -29,6 +23,7 @@ import {
   SERVICE_KINDS,
 } from '@/lib/route-services';
 import type { SpotSource } from '@/lib/sources';
+import RouteCampsites from '@/components/route-campsites';
 import RouteFigures from '@/components/route-figures';
 import RouteMapEmbed from '@/components/route-map-embed';
 import RouteSources from '@/components/route-sources';
@@ -90,37 +85,6 @@ export async function generateMetadata(props: {
   };
 }
 
-/** One campsite in the list beside a stage. */
-function SpotLink({ spot }: { spot: RouteNeighbour }) {
-  const label = SPOT_TYPE_LABEL[spot.type as Spot['type']] ?? 'Campsite';
-  // 🔴 26% of campsites in OpenStreetMap carry no name at all. Saying so
-  // is the honest rendering; inventing one is not, and dropping them
-  // would remove a quarter of the map.
-  const name = spot.name ?? `Unnamed ${label.toLowerCase()}`;
-
-  return (
-    <li className="flex flex-wrap items-baseline gap-x-2 text-sm leading-6">
-      {/* 🔴 A campsite with no region has no page (canonicalPath returns
-          null). It is still shown — it is a real place near this stop —
-          but it is NOT linked, because a link that promises a page and
-          lands on a 404 is worse than no link. */}
-      {spot.path ? (
-        <Link href={spot.path} className="font-semibold text-heading underline">
-          {name}
-        </Link>
-      ) : (
-        <span className="font-semibold text-heading">{name}</span>
-      )}
-      <span className="text-ink-2">
-        {label} ·{' '}
-        <span>
-          {formatDistance(spot.metres)} away {STRAIGHT_LINE_LABEL}
-        </span>
-      </span>
-    </li>
-  );
-}
-
 export default async function RoutePage(props: { params: Promise<Params> }) {
   const { slug } = await props.params;
   const route = getRoute(slug);
@@ -137,7 +101,7 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
   ]);
 
   const path = `/routes/${slug}`;
-  const allSpots = neighbours.flatMap((g) => g.spots);
+  const allSpots = neighbours.groups.flatMap((g) => g.spots);
   const allSources: SpotSource[] = allSpots.flatMap((s) => s.sources ?? []);
   const serviceCount = services.groups.reduce(
     (n, g) => n + g.services.length,
@@ -275,8 +239,6 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
 
         <ol className="mt-6 space-y-8">
           {route.stages.map((stage, i) => {
-            const group = neighbours[i];
-            const spots = group?.spots ?? [];
             const legFrom = i > 0 ? measured.legs[i - 1] : null;
 
             return (
@@ -321,32 +283,14 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
                     </ul>
                   )}
 
-                  <div className="mt-4">
-                    <h4 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
-                      Campsites near this stop
-                    </h4>
-                    {spots.length > 0 ? (
-                      <ul className="mt-2 space-y-1">
-                        {spots.map((s) => (
-                          <SpotLink key={s.slug} spot={s} />
-                        ))}
-                      </ul>
-                    ) : (
-                      // 🔴 An empty stage is stated, never hidden. "We
-                      // have nothing within 25 km" is a real and useful
-                      // fact — and it is a different statement from
-                      // "there is nothing here", which we cannot make.
-                      <p
-                        className="mt-2 max-w-prose text-sm text-ink-2"
-                        data-testid="stage-no-campsites"
-                      >
-                        Our database holds no campsite within{' '}
-                        {formatKm(STAGE_RADIUS_M)} of this stop. That is a gap
-                        in what has been recorded, not a statement that nothing
-                        is there.
-                      </p>
-                    )}
-                  </div>
+                  {/* CAMP-160: three states — the list, "we looked and hold
+                      none", and "we could not look". The last two are
+                      different statements and must never share a
+                      sentence. See components/route-campsites.tsx. */}
+                  <RouteCampsites
+                    group={neighbours.groups[i]}
+                    looked={neighbours.looked}
+                  />
 
                   {/* CAMP-113 — fuel, charging, water, a disposal point,
                       a shop, a meal and a roof. Every kind is listed at

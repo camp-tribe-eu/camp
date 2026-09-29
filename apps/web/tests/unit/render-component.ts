@@ -58,9 +58,16 @@ function wrapType(fn: (props: unknown) => unknown): (p: unknown) => ReactNode {
   return wrapper;
 }
 
+/**
+ * Component types `renderAsyncComponent` was told to leave out. Empty
+ * except for the duration of one such call.
+ */
+let omitted: ReadonlySet<unknown> = new Set();
+
 function toReact(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(toReact);
   if (!isPwNode(node)) return node;
+  if (omitted.has(node.type)) return null;
 
   const { children, ...rest } = (node.props ?? {}) as Record<string, unknown>;
   const kids =
@@ -97,6 +104,38 @@ export function renderComponent<P>(
   props: P,
 ): string {
   return renderToStaticMarkup(toReact(Component(props)) as ReactElement);
+}
+
+/**
+ * CAMP-160: an ASYNC server component — a Next page — rendered to the
+ * HTML a reader is served.
+ *
+ * 🔴 Awaited first, then converted, so the page's own data fetching runs
+ * for real (against whatever `fetch` the test has swapped in). This is
+ * what lets a spec assert on the page's OUTPUT rather than on the
+ * pieces it is assembled from: a component and a data function can each
+ * be correct while the page hands the one the wrong flag from the other.
+ *
+ * `omit` names component types to render as nothing. It exists for one
+ * reason: a client-only island (the route map, `next/dynamic` with
+ * `ssr: false`) builds its loading fallback with real React from inside
+ * Next, which hands this bridge a Playwright node it cannot reach. The
+ * island renders no text a reader could be told anything from, so it is
+ * left out rather than made to work; everything else on the page is
+ * rendered as served.
+ */
+export async function renderAsyncComponent<P>(
+  Component: (props: P) => Promise<unknown>,
+  props: P,
+  options: { omit?: unknown[] } = {},
+): Promise<string> {
+  const tree = await Component(props);
+  omitted = new Set(options.omit ?? []);
+  try {
+    return renderToStaticMarkup(toReact(tree) as ReactElement);
+  } finally {
+    omitted = new Set();
+  }
 }
 
 /**

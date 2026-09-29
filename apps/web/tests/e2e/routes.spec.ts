@@ -371,19 +371,53 @@ test.describe('a route page', () => {
     for (const slug of slugs) {
       await page.goto(`/routes/${slug}`);
 
-      // Every stage either lists campsites or states the gap. Silence is
-      // the failure: it would mean the fetch failed and nobody said so.
-      const stages = await page.getByRole('heading', { level: 4 }).count();
-      const empties = await page.getByTestId('stage-no-campsites').count();
+      // 🔴 CAMP-160: EVERY STOP IS IN EXACTLY ONE OF THREE STATES.
+      //
+      // It lists campsites, or it says our database holds none within
+      // 25 km (we looked), or it says we could not look. This used to
+      // assert `links + empties > 0` under the comment "silence is the
+      // failure: it would mean the fetch failed and nobody said so" —
+      // which had it backwards. A failed fetch was NOT silent: it printed
+      // "Our database holds no campsite within 25 km of this stop" under
+      // every stop, and this assertion counted that sentence as proof the
+      // page was working. A dead API passed it.
+      //
+      // What THIS test can and cannot see: it cannot tell a dead API from
+      // an empty area — from outside the page they are different
+      // sentences only if the page knows which it is, and that is what
+      // tests/unit/route-neighbours.spec.tsx drives, with the fetch
+      // swapped. Here each stop is counted on its own, so a stop that
+      // says nothing, or says two things, or says "could not look" and
+      // "holds none" at once, fails.
+      const route = CURATED_ROUTES.find((r) => r.slug === slug)!;
+      const blocks = page.getByTestId('stage-campsites');
+      await expect(blocks, `${slug}: a stop has no campsite block`).toHaveCount(
+        route.stages.length,
+      );
+      for (let i = 0; i < route.stages.length; i++) {
+        const block = blocks.nth(i);
+        const listed = await block.locator('ul > li').count();
+        const empty = await block.getByTestId('stage-no-campsites').count();
+        const unavailable = await block
+          .getByTestId('stage-campsites-unavailable')
+          .count();
+        expect(
+          (listed > 0 ? 1 : 0) + empty + unavailable,
+          `${slug} stop ${i + 1}: must list campsites, say our database holds none, or say we could not look — exactly one`,
+        ).toBe(1);
+        const said = (await block.textContent()) ?? '';
+        if (unavailable > 0) {
+          expect(
+            said,
+            `${slug} stop ${i + 1} could not look yet claims an absence`,
+          ).not.toContain('holds no campsite');
+        }
+      }
       const links = await page
         .locator('main a[href^="/camping/"]')
         .evaluateAll((els) =>
           els.map((e) => (e as HTMLAnchorElement).getAttribute('href') ?? ''),
         );
-      expect(
-        links.length + empties,
-        `${slug}: ${stages} stages but no campsites and no "nothing nearby" notice`,
-      ).toBeGreaterThan(0);
 
       // The shape of EVERY link is checked — it costs nothing and it is
       // where the accent bug would show. Only the first two per route
