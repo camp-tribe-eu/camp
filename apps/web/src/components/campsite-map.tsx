@@ -1109,6 +1109,21 @@ export default function CampsiteMap() {
     if (!detail || tooMany) {
       setDataState({ kind: 'wide', count: countInView(index.current, view) });
       hideMarkers(m);
+      // 🔴 CAMP-169: this branch publishes too, and says the truth.
+      //
+      // It returned without publishing, unlike the detail branch below,
+      // so `data-bounds` and `data-in-view` stayed those of the PREVIOUS
+      // view until the map next idled — while the effect on
+      // [tally, dataState] had already written `still`. That made the
+      // comment on `data-camera` false in exactly the branch a full
+      // database opens in.
+      //
+      // And "drawn in view" is nothing here: the markers were just taken
+      // off the map, so the drawn set is emptied first. Left alone it held
+      // whatever the last detail view had drawn, and this call would have
+      // published those as being in a view that shows region circles.
+      drawn.current = [];
+      publishRef.current?.();
       whenDrawable(() => drawRegions(m, index.current));
       return;
     }
@@ -1620,7 +1635,12 @@ export default function CampsiteMap() {
         // element too, but it is written by the map's own events and not
         // from here — see the `movestart` handler and the effect on
         // [tally, dataState]. `ready` says nothing is being fetched; only
-        // `still` says the numbers below describe a view that has stopped.
+        // `still` says the camera has stopped AND that what `refresh`
+        // publishes for the view it stopped on is in the DOM: the drawn
+        // numbers (`data-bounds`, `data-in-view`) in both of its branches,
+        // and the tally in the detail one. The wide branch has no tally to
+        // give — the panel says "zoom in" there — so `data-in-view-total`
+        // and `data-shown` keep whatever the last detail view left.
         data-active-source={active.id}
         // 🔴 Two scopes, and each says which it is.
         //

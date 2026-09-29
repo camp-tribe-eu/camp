@@ -219,6 +219,34 @@ async function publishedView(page: Page) {
   });
 }
 
+/**
+ * Freeze the page's animation frames for `ms`, then let them run.
+ *
+ * 🔴 Removes the clock from a race instead of hoping the runner is slow.
+ * MapLibre eases on animation frames, so while they are held a zoom that
+ * has been started (`movestart` fires at once) cannot end: the camera says
+ * `moving` and the state says whatever it said before, for exactly `ms`.
+ * That is the stale reading a careless helper acts on, made to last as long
+ * as the test wants rather than as long as the machine happens to take.
+ *
+ * Only the page's own `window` is wrapped. Playwright measures a click's
+ * stability in its own world, which keeps the real function.
+ */
+async function holdFrames(page: Page, ms: number) {
+  await page.evaluate((ms) => {
+    const real = window.requestAnimationFrame.bind(window);
+    const queued: FrameRequestCallback[] = [];
+    window.requestAnimationFrame = (cb) => {
+      queued.push(cb);
+      return -1;
+    };
+    setTimeout(() => {
+      window.requestAnimationFrame = real;
+      for (const cb of queued.splice(0)) real(cb);
+    }, ms);
+  }, ms);
+}
+
 /** What the map had published, and what the camera said, at one write. */
 interface CameraStep {
   camera: string;
@@ -894,6 +922,23 @@ test.describe('/map filters', () => {
     await page.goto('/map');
     await skipWithoutWebGL(page);
     await loaded(page);
+    const detail = await publishedView(page);
+
+    // 🔴 Keep the map from idling after the zoom-out, so that the only thing
+    // that can have published the wide view when `still` is written is the
+    // wide branch itself. `idle` publishes the drawn numbers too, and it
+    // fires in the same frame as `moveend` or a few after it — in WebKit and
+    // Firefox, mostly before the effect writes `still` — so with the basemap
+    // answering at its usual speed a wide branch that forgot to publish was
+    // covered for by `idle` in 41 of 60 runs. Measured, the missing publish
+    // failed this test in chromium 10 of 10, mobile-chrome 6, webkit 2,
+    // firefox 1, mobile-safari 0 and tablet 0. A map is not idle while its
+    // tiles are outstanding, so holding them for 3 s puts `idle` after
+    // everything the recorder reads at `still`.
+    await page.route('**/*.pbf', async (route) => {
+      await new Promise((r) => setTimeout(r, 3_000));
+      await route.continue();
+    });
 
     await page.locator('.maplibregl-ctrl-zoom-out').click();
     await expect
@@ -913,6 +958,42 @@ test.describe('/map filters', () => {
       .toMatch(/^wide/);
     await atRest(page);
 
+    // 🔴 The wide branch says `still` too, so what it published has to be
+    // true when it does. It used to return without publishing, and the
+    // bounds and the in-view count stayed those of an earlier view until
+    // the map next idled — after `still` had been written.
+    //
+    // The recorder read the published view in the same task as that write.
+    // The view read after `idle` — which the held tiles kept until now, and
+    // which shows itself by counting no markers on screen, `idle` being the
+    // only writer of that — is the settled one. They must be the same. (Not compared with the detail view's
+    // bounds: mid-zoom refreshes had already moved them, so "different
+    // from before" is true of a wide branch that published nothing.)
+    expect((await pulse(page)).state).toBe('wide');
+    const wideSteps = await cameraSteps(page);
+    await expect
+      .poll(
+        async () =>
+          `${await map(page).getAttribute('data-visible-points')}/${await map(page).getAttribute('data-visible-clusters')}`,
+        {
+          timeout: 20_000,
+          message:
+            'the map never idled in the wide view: the markers it drew in ' +
+            'detail are still counted as on screen',
+        },
+      )
+      .toBe('0/0');
+    const settled = await publishedView(page);
+    expect(
+      settled.bounds,
+      'the wide view still carries the bounds of the detail view it replaced',
+    ).not.toBe(detail.bounds);
+    expect(
+      wideSteps[wideSteps.length - 1].view,
+      'the map said still before it had published the wide view',
+    ).toEqual(settled);
+    await page.unroute('**/*.pbf');
+
     // Every WRITE of `moving`, not every change to it. Each `movestart`
     // writes it once, and a second click that lands in the middle of the
     // first ease restarts the movement without a `still` in between — so
@@ -922,6 +1003,14 @@ test.describe('/map filters', () => {
       (await cameraLog(page)).filter((c) => c === 'moving').length;
     const before = await movements();
 
+    // 🔴 The helper's own click starts a zoom that cannot end for 2.5 s.
+    // For that long the state reads `wide` — the state from BEFORE the
+    // click — and a helper that trusted it would click again. With the
+    // frames running normally that read is stale for about 500 ms and a
+    // runner that stalls past it lets the careless helper through: the
+    // mutant that decides on the stale read survived 4 runs in 30 this
+    // way. Held, it is stale for as long as the test says, on any machine.
+    await holdFrames(page, 2_500);
     await loaded(page);
 
     expect(
@@ -1213,21 +1302,52 @@ test.describe('/map filters', () => {
     // map opens in DETAIL and the panel correctly showed "36 campsites"
     // — and the test failed on six browsers for a map that was right.
     // `data-map-state` exists precisely so a test need not guess.
+    //
+    // 🔴 CAMP-169. But it has to have decided. The map begins in `loading`
+    // and this read came straight after `goto`, so which branch ran was a
+    // race between the page and the assertion — and the `wide` branch, the
+    // one the full database takes, ran only when the race happened to be
+    // lost the other way. `atRest` waits for `wide`, `ready` or `failed`.
+    await atRest(page);
     const state = await page
       .getByTestId('map')
       .getAttribute('data-map-state');
 
-    if (state === 'wide') {
+    const assertWide = async () => {
       await expect(count).toHaveText(/zoom in/i);
       // And what the map says about itself must agree with it.
-      await expect(page.getByRole('status')).toContainText(
+      //
+      // 🔴 By test id, not `getByRole('status')`. CAMP-153 put a second
+      // `role="status"` on this page (the wildfire note), so the role
+      // resolves to two elements and this assertion — which nothing ran,
+      // because the fixture never reaches the `wide` branch — would have
+      // thrown a strict-mode violation the first time anyone did. It did,
+      // on all six projects, the first time this branch was made to run.
+      await expect(page.getByTestId('map-data-state')).toContainText(
         /campsites in the regions in view/i,
       );
+    };
+
+    if (state === 'wide') {
+      await assertWide();
     } else {
       // Drawing individual campsites: a real number, and no advice to
       // zoom in, because that would not help.
       await expect(count).toHaveText(/\d[\d,]*\s+campsites/);
       await expect(count).not.toHaveText(/zoom in/i);
+
+      // 🔴 CAMP-169. And the branch this fixture never takes, made to run:
+      // the title of this test is about a map that is ZOOMED OUT, and on
+      // the fixture that half was never exercised — it was an `if` nobody
+      // reached. One click out is below DETAIL_ZOOM on every screen size.
+      await page.locator('.maplibregl-ctrl-zoom-out').click();
+      await atRest(page);
+      await expect(page.getByTestId('map')).toHaveAttribute(
+        'data-map-state',
+        'wide',
+      );
+      await assertWide();
+      await expect(count).not.toHaveText(/^\s*0\s+campsites/);
     }
   });
 
@@ -1245,6 +1365,7 @@ test.describe('/map filters', () => {
   test('🔴 the panel counts the visible area, and panning does not inflate it', async ({
     page,
   }) => {
+    await recordCamera(page);
     await page.goto('/map');
     await skipWithoutWebGL(page);
     await zoomToDetail(page);
@@ -1284,47 +1405,96 @@ test.describe('/map filters', () => {
 
     // Now pan away and back. This is the move that used to inflate the
     // denominator, because the chunks from the detour stayed loaded.
+    //
+    // 🔴 CAMP-169. This drag panned NOTHING in five projects out of six.
+    // The map sits below the filter panel, so at 1280×720 its centre is
+    // at y=738 — off the screen — and on the two phones at 920 and 972.
+    // A mouse press there reaches no element: measured, 0 `movestart`, the
+    // bounds unchanged, `data-camera` still `still`. Every assertion after
+    // it was then about a map nobody had touched, and it was green. Only
+    // the tablet (centre at 893 of 1024) ever moved the map.
+    //
+    // The line that fixes it was already in the test at "a map held
+    // mid-drag": scroll the map into view BEFORE reading where it is.
+    await map(page).scrollIntoViewIfNeeded();
     const box = await map(page).boundingBox();
     if (!box) throw new Error('the map has no box to drag in');
     const cx = box.x + box.width / 2;
     const cy = box.y + box.height / 2;
+
+    const movestarts = async () =>
+      (await cameraLog(page)).filter((c) => c === 'moving').length;
+    const opening = await publishedView(page);
+    let heldButUnseen = 0;
     for (const [dx, dy] of [
       [-box.width / 3, 0],
       [box.width / 3, 0],
     ] as const) {
+      const before = await movestarts();
       await page.mouse.move(cx, cy);
       await page.mouse.down();
       await page.mouse.move(cx + dx, cy + dy, { steps: 12 });
       await page.mouse.up();
-      // 🔴 "not loading", not "ready", for the detour: the view halfway
-      // out may be too heavy for markers, and that is a legitimate
-      // state to pass through. Only the view we come back to has to be
-      // ready, and it is the one we opened with.
+
+      // 🔴 The drag has to have REACHED the map, and this is what says so:
+      // the map's own `movestart`, which a press on nothing never fires.
+      // Without it a drag that misses is indistinguishable from one that
+      // hit — which is the whole of this defect. MapLibre applies a drag
+      // on the next frame, so this is polled, not read.
       await expect
-        .poll(async () => map(page).getAttribute('data-map-state'), {
-          timeout: 20_000,
+        .poll(movestarts, {
+          message:
+            'the drag never reached the map (no movestart) — the mouse ' +
+            `pressed at y=${Math.round(cy)} in a ${page.viewportSize()?.height}px window`,
         })
-        .not.toBe('loading');
+        .toBeGreaterThan(before);
+
+      // "at rest", not "ready": the view halfway out may be too heavy for
+      // markers, and that is a legitimate state to pass through. This
+      // also waits out the inertia that carries a fast drag on.
+      await atRest(page);
+      await expect.poll(agrees, { timeout: 15_000 }).toBe(true);
+
+      const here = await readPanel();
+      const fetched = Number(await map(page).getAttribute('data-total'));
+      expect(
+        here.numbers[0],
+        'the shown count cannot exceed the count in view',
+      ).toBeLessThanOrEqual(here.numbers[1]);
+      expect(
+        here.numbers[1],
+        'the denominator is the visible area, so it cannot exceed what is loaded',
+      ).toBeLessThanOrEqual(fetched);
+      heldButUnseen = Math.max(heldButUnseen, fetched - here.numbers[1]);
     }
+
+    // 🔴 The map really moved: its published box is not the opening one.
+    // (`movestart` says a drag began; this says it went somewhere.)
+    expect(
+      (await publishedView(page)).bounds,
+      'the map is where it started, so nothing was panned',
+    ).not.toBe(opening.bounds);
+
+    // 🔴 What the detour has to leave behind for this test to mean
+    // anything: campsites the map HOLDS and the reader cannot SEE. Only
+    // then does "the denominator is the visible count" differ from "the
+    // denominator is everything fetched" — the CAMP-133 defect — and only
+    // then can the sentence be told apart from the bug.
+    //
+    // This replaces `expect(loadedNow).toBeGreaterThan(0)` — "the detour
+    // loaded nothing, so this proves nothing". `loaded()` had already
+    // waited for `data-total > 0`, and `data-total` never falls, so it was
+    // true before the drag and could not fail after one.
+    expect(
+      heldButUnseen,
+      'the sentence\'s denominator was never smaller than everything fetched, ' +
+        'though the detour leaves campsites held out of view: either the ' +
+        'panel counts everything fetched (the CAMP-133 defect) or the ' +
+        'fixture no longer leaves any out of view',
+    ).toBeGreaterThan(0);
+
     await expect(map(page)).toHaveAttribute('data-map-state', 'ready', {
       timeout: 20_000,
     });
-
-    const loadedNow = Number(await map(page).getAttribute('data-total'));
-    expect(
-      loadedNow,
-      'the detour loaded nothing, so this proves nothing — pan further',
-    ).toBeGreaterThan(0);
-
-    // 🔴 The point of the whole card. The sentence still describes the
-    // screen after the detour, rather than everything the detour
-    // happened to download.
-    await expect.poll(agrees, { timeout: 15_000 }).toBe(true);
-    const after = await readPanel();
-    expect(after.numbers[0]).toBeLessThanOrEqual(after.numbers[1]);
-    expect(
-      after.numbers[1],
-      'the denominator is the visible area, so it cannot exceed what is loaded',
-    ).toBeLessThanOrEqual(loadedNow);
   });
 });
