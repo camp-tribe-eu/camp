@@ -182,7 +182,15 @@ jobs:
       # Every other guard in this file has a step like this one; a
       # safeguard nobody has watched fail is a safeguard nobody has. It
       # touches no network and no database.
+      #
+      # `!cancelled()`, so it runs even when an earlier step has failed. It
+      # is independent of them, and on 29.09.2026 that mattered: a new
+      # advisory turned "No new dependency advisories" red, every step
+      # after it was SKIPPED, and this one was skipped with them (run
+      # 36536509099) — a guard that runs "unattended" only while everything
+      # else is green is not the guard the step claims to be.
       - name: Wildfire fetch guards still refuse what they must
+        if: ${{ !cancelled() }}
         run: node scripts/effis/fetch-wildfires.mjs --self-test
 
   web:
