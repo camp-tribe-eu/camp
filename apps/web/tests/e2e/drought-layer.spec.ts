@@ -519,6 +519,39 @@ test.describe('the picture', () => {
     expect(wrong.slice(0, 5), `${wrong.length} of ${spots.length} pixels were the wrong colour`).toEqual([]);
   });
 
+  test('🔴 switching the basemap does not take the picture with it', async ({ page, browserName }) => {
+    test.skip(cameraUnreliable(browserName), 'WebKit on Linux cannot photograph a canvas — see wildfire-layer.spec.ts');
+    // `setStyle` discards every source and layer, so the picture has to be put
+    // back on each `styledata` — the same defect the fire layer's history
+    // records ("the layer silently emptied itself the first time a reader
+    // changed the basemap"), and one that leaves the panel saying "drawn on
+    // the map" over a map that is not.
+    // 🔴 Mutation: delete the `attachDrought(...)` call from `attach` in
+    // campsite-map.tsx — this fails, on the flag and on the pixels.
+    await page.clock.setFixedTime(clockAt(27));
+    await serveDrought(page, shippedAt(27, {}, uniform(3)));
+    await stubSpots(page, []);
+    await openMap(page);
+    await settle(page);
+    const map = page.locator(MAP);
+    await expect(map).toHaveAttribute('data-drought-drawn', '1');
+
+    const other = page.locator('[data-source]:not([aria-pressed="true"])').first();
+    const id = await other.getAttribute('data-source');
+    await other.click();
+    await expect(map).toHaveAttribute('data-active-source', id!);
+    await page.waitForTimeout(1500);
+    await expect(map).toHaveAttribute('data-drought-drawn', '1');
+    await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'fresh');
+    const on = await map.screenshot();
+
+    await page.locator('[data-layer="drought"]').click();
+    await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'off');
+    await page.waitForTimeout(1500);
+    const off = await map.screenshot();
+    expect(Buffer.compare(on, off) === 0, 'after a basemap change the drought layer was on and drew nothing').toBe(false);
+  });
+
   test('a stale period leaves nothing on the canvas', async ({ page, browserName }) => {
     test.skip(cameraUnreliable(browserName), 'WebKit on Linux cannot photograph a canvas — see wildfire-layer.spec.ts');
     // The words say the layer is off; this proves it. Photographed against the

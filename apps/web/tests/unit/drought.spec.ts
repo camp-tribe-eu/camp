@@ -196,6 +196,21 @@ test.describe('a dekad is fresh for 40 days and not a day more', () => {
     expect(said).not.toMatch(/-\d+ days|3 days ago/);
   });
 
+  test('the last minute before a period begins is "in the future" too', () => {
+    // 🔴 The one case only the negative age can catch. A read may be dated up
+    // to a minute ahead of the browser's clock (skew), so `clockBehind` does
+    // not fire — and a browser 30 s before the first instant of the period,
+    // holding a file read at that instant, would otherwise print "That period
+    // began -1 days ago". Every larger gap is also caught by `clockBehind`,
+    // which is why the test above cannot tell this arm from it.
+    // 🔴 Mutation: delete `!(daysOld >= 0)` — this fails, and nothing else does.
+    const raw = feedAt(27, { fetchedAt: new Date(START).toISOString() });
+    const state = droughtState(raw, new Date(START - 30_000));
+    expect(state.kind).toBe('stale');
+    expect(state).toMatchObject({ daysOld: -1 });
+    expect(visibleText(renderComponent(DroughtPanel, { state, on: true, picked: null }))).not.toMatch(/-1 days?/);
+  });
+
   test('a read dated ahead of the clock is stale too', () => {
     // Our OWN timestamp in the future is a wrong clock somewhere, and a
     // guard that only looked at the dekad would not see it.
@@ -354,7 +369,8 @@ test.describe('the grid: one bad row costs one row, and none costs the layer', (
     for (const over of [
       { width: 0 },
       { height: 2.5 },
-      { width: 4_000, height: 4_000 },
+      // 16 million cells, every row well-formed: only the size cap refuses it.
+      { width: 4_000, height: 4_000, rows: Array.from({ length: 4_000 }, () => '0:4000') },
       { cellsPerDegree: 0 },
       { cellsPerDegree: 24.5 },
       { west: 200 },

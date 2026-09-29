@@ -126,6 +126,11 @@ test.describe('the available range comes from a deliberate out-of-range request'
       JSON.stringify({ code: 'PRODUCT_NOT_FOUND' }),
       JSON.stringify({ code: 'DATE_OUT_OF_RANGE' }),
       JSON.stringify({ code: 'DATE_OUT_OF_RANGE', details: {} }),
+      // A different error that HAPPENS to carry a range. Without this row the
+      // `code` check is a line that cannot fail: the shape check behind it
+      // rejects every other body in this list anyway.
+      JSON.stringify({ code: 'PRODUCT_NOT_FOUND', details: { available_range: '2012-01-01 - 2026-09-11' } }),
+      JSON.stringify({ details: { available_range: '2012-01-01 - 2026-09-11' } }),
       outOfRange('2012-01-01'),
       outOfRange('2012-01-01 – 2026-09-11'),
       outOfRange('2026-09-11 - 2012-01-01'),
