@@ -17,6 +17,8 @@ import {
   isFresh,
   readAirQuality,
   readAtLabel,
+  type AirPollutant,
+  type AirPollutantReading,
   type AirState,
 } from '../../src/lib/air-quality';
 import { formatDistance } from '../../src/lib/api';
@@ -65,8 +67,13 @@ const STATION = {
   metres: 3200,
 };
 
-const P = (pollutant: string, band: number, value: number, modelled = false) => ({
-  pollutant,
+const P = (
+  pollutant: string,
+  band: number,
+  value: number,
+  modelled = false,
+): AirPollutantReading => ({
+  pollutant: pollutant as AirPollutant,
   band,
   value,
   modelled,
@@ -405,7 +412,7 @@ test.describe('display requirement 3: a station missing from the current hour sa
 
   test('no data at all says so, in its own words', () => {
     expect(said({ kind: 'none' })).toContain(
-      'No air-quality data for this location: no monitoring station lies within 20 km and the EEA’s modelled index does not cover this spot.',
+      'No air-quality data for this location: no monitoring station lies within 15 km and the EEA’s modelled index does not cover this spot.',
     );
     expect(said('garbage')).toContain('The air-quality data for this location could not be read.');
   });
@@ -572,10 +579,27 @@ test.describe('what else the page says', () => {
 });
 
 test.describe('the hour is printed the same way on the server and in the browser', () => {
-  test('in UTC, by hand', () => {
+  // 🔴 Run under a time zone that is NOT UTC, on purpose. CI's runner is
+  // UTC, so a label built from local time would pass there and fail on a
+  // reader's laptop — as a hydration mismatch, on every page, in
+  // production only. Auckland is +12 or +13 depending on the date, so
+  // both a wrong hour and a wrong DAY show.
+  const saved = process.env.TZ;
+  test.beforeAll(() => {
+    process.env.TZ = 'Pacific/Auckland';
+  });
+  test.afterAll(() => {
+    if (saved === undefined) delete process.env.TZ;
+    else process.env.TZ = saved;
+  });
+
+  test('in UTC, by hand, whatever the machine’s zone is', () => {
+    expect(new Date('2026-09-29T17:00:00.000Z').getHours()).not.toBe(17);
     expect(hourLabel('2026-09-29T17:00:00.000Z')).toBe('17:00 UTC, 29 September 2026');
     expect(hourLabel('2026-01-02T00:00:00Z')).toBe('00:00 UTC, 2 January 2026');
+    expect(hourLabel('2026-12-31T23:00:00Z')).toBe('23:00 UTC, 31 December 2026');
     expect(readAtLabel('2026-09-29T19:05:00.000Z')).toBe('29 September 2026, 19:05 UTC');
+    expect(readAtLabel('2026-12-31T23:59:00Z')).toBe('31 December 2026, 23:59 UTC');
   });
 });
 

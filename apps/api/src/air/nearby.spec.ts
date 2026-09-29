@@ -132,7 +132,7 @@ describe('AIR_RADIUS_M', () => {
   // 🔴 The number the measurement in source.ts argues for. If somebody
   // moves it, the comment stops describing the code and this is the
   // thing that says so.
-  it('is 20 km', () => {
-    expect(AIR_RADIUS_M).toBe(20_000);
+  it('is 15 km', () => {
+    expect(AIR_RADIUS_M).toBe(15_000);
   });
 });

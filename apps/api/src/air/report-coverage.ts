@@ -103,7 +103,11 @@ async function main() {
          WHERE s.missing_since IS NULL`)
     ).rows.map((r) => ({
       id: r.id as string,
-      country: r.country as string,
+      // 🔴 Lower case, like the stations' column. camping_spots spells a
+      // country `HR` and air_quality_stations `hr`; compared as they were
+      // stored, every country read "0 stations" — the very shape this
+      // table exists to expose, produced by the table itself.
+      country: (r.country as string).toLowerCase(),
       lon: Number(r.lon),
       lat: Number(r.lat),
       d: Number(r.d),
@@ -159,7 +163,7 @@ async function main() {
     let tot = { n: 0, station: 0, model: 0, none: 0 };
     for (const [c, v] of [...byCountry].sort()) {
       console.log(
-        `  ${c.padEnd(7)}  ${String(v.n).padStart(9)}  ${String(stationsBy.get(c) ?? 0).padStart(8)}  ${pct(v.station, v.n).padStart(6)}%  ${pct(v.model, v.n).padStart(5)}%  ${pct(v.none, v.n).padStart(5)}%`,
+        `  ${c.toUpperCase().padEnd(7)}  ${String(v.n).padStart(9)}  ${String(stationsBy.get(c) ?? 0).padStart(8)}  ${pct(v.station, v.n).padStart(6)}%  ${pct(v.model, v.n).padStart(5)}%  ${pct(v.none, v.n).padStart(5)}%`,
       );
       tot = {
         n: tot.n + v.n,
@@ -238,9 +242,20 @@ async function proxy(near: Near[], now: Date) {
 
   const win = await rasterWindow();
   const current = hourStart(now);
-  const hours = [-42, -34, -26, -18, -10, -1]
-    .map((h) => current + h * 3_600_000)
-    .filter((t) => t >= win.start && t <= win.end);
+  // `--hours 2026-09-28T06,2026-09-28T14,…` (UTC) replays the examination
+  // on hours of your choosing; the default is six spread over the past
+  // window, so a rerun on another day uses other hours by itself.
+  const hoursArg = process.argv.indexOf('--hours');
+  const hours = (
+    hoursArg >= 0
+      ? process.argv[hoursArg + 1]
+          .split(',')
+          .map((h) => Date.parse(`${h}:00:00Z`))
+      : [-42, -34, -26, -18, -10, -1].map((h) => current + h * 3_600_000)
+  ).filter((t) => Number.isFinite(t) && t >= win.start && t <= win.end);
+  if (hoursArg >= 0 && hours.length === 0) {
+    throw new Error('none of the --hours is inside the raster window');
+  }
 
   console.log(
     `\n4. does the model at the STATION stand in for the model at the campsite?`,

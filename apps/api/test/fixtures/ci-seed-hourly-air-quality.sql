@@ -9,7 +9,7 @@
 -- every timestamp in it would be a fortnight old by the time CI reads it,
 -- so every page would render "no fresh data" and the tests for a fresh
 -- reading would have no subject; and the states the page must render —
--- a silent station, a model that has aged out, a station 20.5 km away —
+-- a silent station, a model that has aged out, a station 15.5 km away —
 -- are not states a sample of the real table reliably contains. So these
 -- rows are DESIGNED, positioned relative to the campsites that are in the
 -- fixture, and every time in them is relative to now(), which is when
@@ -32,8 +32,8 @@
 -- the campsite the gone block marks). The seven stations go beside the
 -- first seven live campsites, in slug order, that are more than 60 km
 -- from every earlier pick. 60 km is not arbitrary: a station is placed
--- at most 20.5 km from its campsite and the radius is 20 km, so two
--- picks 60 km apart cannot see each other's station (39.5 km > 20 km).
+-- at most 15.5 km from its campsite and the radius is 15 km, so two
+-- picks 60 km apart cannot see each other's station (44.5 km > 15 km).
 -- If the fixture ever holds fewer than seven such campsites this block
 -- raises, and CI stops at the seed instead of building a site that
 -- quietly cannot exercise a state.
@@ -44,16 +44,16 @@
 --                                  level, PM10 reported, 2 h old   Moderate
 --   3        8.0 km   background   NO READING                      no fresh data
 --   4        6.1 km   industrial   a reading 30 h old              no fresh data
---   5       19.5 km   background   PM2.5 + PM10, reported, 1 h     reported, Good
+--   5       14.5 km   background   PM2.5 + PM10, reported, 1 h     reported, Good
 --                                                                  (INSIDE the radius)
---   6       20.5 km   background   PM10 + NO2, reported, 2 h       NOT SHOWN: the campsite
+--   6       15.5 km   background   PM10 + NO2, reported, 2 h       NOT SHOWN: the campsite
 --                                                                  gets the model instead
 --                                                                  (OUTSIDE the radius)
 --   7        4.0 km   industrial   NO2 + O3 only, reported, 1 h    reported, and says the
 --                                                                  index has no particulates
 --
 -- Then the 1 km model, for the campsite beside station 6 and for the
--- first two other campsites (slug order) with no station within 20 km:
+-- first two other campsites (slug order) with no station within 15 km:
 --
 --   beside station 6   Moderate (level 3), this hour      modelled estimate
 --   first of the two   Good (level 1), this hour          modelled estimate
@@ -72,15 +72,15 @@ DECLARE
   m             int := 0;
   hr            timestamptz := date_trunc('hour', now());
   pick6         uuid;
-  radius_m      constant int := 20000;
-  offset_m      int[]  := ARRAY[3200, 5400, 8000, 6100, 19500, 20500, 4000];
+  radius_m      constant int := 15000;
+  offset_m      int[]  := ARRAY[3200, 5400, 8000, 6100, 14500, 15500, 4000];
   names         text[] := ARRAY[
     'CI fixture station 1 (reported)',
     'CI fixture station 2 (partly modelled)',
     'CI fixture station 3 (silent)',
     'CI fixture station 4 (stale)',
-    'CI fixture station 5 (19.5 km)',
-    'CI fixture station 6 (20.5 km)',
+    'CI fixture station 5 (14.5 km)',
+    'CI fixture station 6 (15.5 km)',
     'CI fixture station 7 (no particulate matter)'];
   kinds         text[] := ARRAY['background', 'traffic', 'background', 'industrial', 'background', 'background', 'industrial'];
   hours_ago     int[]  := ARRAY[2, 2, NULL, 30, 1, 2, 1];
@@ -134,7 +134,7 @@ BEGIN
                     'the air quality states cannot all be exercised', n;
   END IF;
 
-  -- The model: beside station 6 first, so that "20.5 km is outside the
+  -- The model: beside station 6 first, so that "15.5 km is outside the
   -- radius" has a page that shows what happens instead.
   INSERT INTO air_quality_modelled (spot_id, hour, band, read_at)
   VALUES (pick6, hr, 3, now());
@@ -161,7 +161,7 @@ BEGIN
   END LOOP;
 
   IF m < 2 THEN
-    RAISE EXCEPTION 'CAMP-164 fixture: only % campsites with no station within 20 km, need 2 — '
+    RAISE EXCEPTION 'CAMP-164 fixture: only % campsites with no station within 15 km, need 2 — '
                     'the model states cannot all be exercised', m;
   END IF;
 END

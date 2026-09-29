@@ -109,28 +109,42 @@ export const AIR_CADENCE = 'hourly' as const;
  *
  * Not the 2–3 h docs/emergency-sources.md §12 guessed, and the
  * measurement is why. A station's NEWEST hour is never a measurement:
- * in a random sample of 240 of the 3 206 EU-27 stations that had an
- * index value in the 19:00 UTC map file (read 29.09.2026 19:35 UTC),
- * the newest slot was fully gap-filled by the model in 240 of 240.
- * Reports arrive late. The newest hour in which at least one pollutant
- * was REPORTED lay this many whole hours before the current one:
+ * `report-lag.ts` in this directory, run 29.09.2026 20:07 UTC on 240
+ * stations drawn at random (seed 11) from the 3 187 that had an index
+ * value in the current hour's map file, found the slot of the current
+ * hour fully gap-filled by the model in 240 of 240. Reports arrive late.
  *
- *      1 h    20        5 h     3       14 h    2
- *      2 h   134        6 h     1       19 h    4
- *      3 h    41        7 h     4      20–253 h  17
- *      4 h    13   ← budget    10 h    1
+ * Across ALL 4 018 stations at the import that came with this card
+ * (`import.ts`, 29.09.2026 20:38 UTC, no sampling), the newest hour in
+ * which at least one pollutant was REPORTED lay this many whole hours
+ * before the current one:
  *
- * So 195 of 240 (81.3%) were within 3 h and 208 (86.7%) within 4 h; then
- * a thin tail out to 253 h — the silent stations, not slow ones. Four
- * hours keeps the body of the distribution and stops where the tail
- * starts. A 3 h budget would have called the 13 of 240 that reported
- * with a four-hour lag "no fresh data", and they are not silent.
+ *      1 h   1 005        5 h      39       7–24 h        109  (~6 an hour)
+ *      2 h   1 676        6 h      26       over 24 h     245
+ *      3 h     338                          no file at all 514
+ *      4 h      66   <- budget
  *
- * ⚠️ One hour of one day, and the sample differs on every rerun (the
- * set of stations in the map file changes hourly). It is a constant in
- * ONE place because it will need re-measuring across a day;
- * `report-lag.ts` in this directory prints this table and is what to
- * rerun.
+ * So 3 085 of the 3 504 stations that hold a reading (88.0%) are within
+ * 4 h; 3 019 (86.2%) are within 3 h and 3 150 (89.9%) within 6 h. The
+ * 240-station sample gave 226 (94.2%) within 4 h — it draws only from
+ * stations that already have a value in the map file, which are the ones
+ * that report more promptly. The split moves with the minute of the hour
+ * (the EEA rebuilds its files between :33 and :56): an import fifteen
+ * minutes later, at 20:53, had 1 433 stations at 1 h instead of 1 005 —
+ * and 3 096 of 3 504 (88.4%) within 4 h, the same share.
+ *
+ * 🔴 THERE IS NO GAP IN THAT TAIL, and this constant does not pretend
+ * there is: it thins from 338 (3 h) to 66, 39, 26 and then about six an
+ * hour. Four hours is the last hour that still holds 1% or more of the
+ * roster (66 stations, 1.6%; the next holds 39, 0.97%). A 3 h budget
+ * would call those 66 — who report with a four-hour lag, and are not
+ * silent — "no fresh data"; a 6 h budget would add 65 more that are
+ * reporting, but late. It is a judgement placed at the point where the
+ * distribution stops being the body and becomes the tail.
+ *
+ * ⚠️ One hour of one day, and the population changes every hour. It is a
+ * constant in ONE place because it will need re-measuring across a day;
+ * `report-lag.ts` and the tally the import prints are what to rerun.
  *
  * The 1 km model has no reporting lag (it is computed for every hour, past
  * and forecast), so its age is the age of OUR last read of it, and the
@@ -141,58 +155,84 @@ export const AIR_FRESH_FOR_HOURS = 4;
 /**
  * 🔴 HOW FAR A STATION MAY BE AND STILL BE THIS CAMPSITE'S.
  *
- * Measured 29.09.2026 over all 61 557 campsites against all 4 018 EU-27
- * stations (nearest by geography distance, no sampling; the SQL is in
- * report-coverage.ts):
+ * Measured 29.09.2026 20:38 UTC with `report-coverage.ts` in this
+ * directory — all 61 557 live campsites against all 4 018 EU-27
+ * stations, nearest by geography distance, no sampling:
  *
- *      1 km      624    1.0%       15 km   22 273   36.2%
- *      2 km    1 755    2.9%       20 km   31 368   51.0%   <- chosen
+ *      1 km      624    1.0%       15 km   22 273   36.2%   <- chosen
+ *      2 km    1 755    2.9%       20 km   31 368   51.0%
  *      5 km    5 355    8.7%       25 km   39 104   63.5%
  *     10 km   12 913   21.0%       50 km   56 695   92.1%
  *
  * 🔴 That curve cannot choose the radius — it has no knee, and choosing
  * on "coverage" always argues for the biggest number. The radius is
- * examined on a DIFFERENT FIELD from the one it judges: the 1 km
- * modelled raster. It is downscaled CAMS and does not assimilate the
- * stations (the viewer's About text: "the downscaled CAMS model is used
- * for every hour"), so it shares no field with a station reading. For
- * 15 000 campsites (1 500 in each 5 km band out to 50 km) at six hours
- * spread over two days, how often is the modelled band AT THE CAMPSITE
- * the same as the modelled band AT ITS NEAREST STATION?
+ * examined on a DIFFERENT FIELD from the one it judges: the 1 km modelled
+ * raster. It is downscaled CAMS and does not assimilate the stations (the
+ * viewer's About text: "the downscaled CAMS model is used for every
+ * hour"), so it shares no field with a station reading. For 15 000
+ * campsites (1 500 in each 5 km band out to 50 km) at six hours: how
+ * often is the modelled level AT THE CAMPSITE the same as the modelled
+ * level AT ITS NEAREST STATION?
  *
- *      band      pairs   agree    pairs where either ≥ level 3   agree there
- *      0–5 km    8 838   91.4%             1 941                    69.7%
- *      5–10      8 862   88.5%             2 030                    61.3%
- *      10–15     8 874   88.0%             1 887                    57.8%
- *      15–20     8 850   87.4%             1 686                    53.3%
- *      20–25     8 886   86.3%             1 569                    53.3%
- *      25–30     8 886   85.4%             1 374                    48.3%
- *      30–50   35 256   85–87%           ~3 700                   48–57%
- *      shuffled campsite/station pairs (chance): 66.0%
+ * Three runs, all `report-coverage.ts --proxy` — seeds 5 and 6 on the
+ * hours 28.09 02·10·18 and 29.09 02·10·19 UTC, and seed 5 again on the
+ * hours 28.09 06·14·22 and 29.09 06·14·19 (`--hours`). ~8 850 pairs a
+ * band. Chance — the same station levels dealt to the wrong campsites —
+ * is 69.9%, 70.5% and 66.1%.
  *
- * What that supports, and what it does not:
+ *                  all pairs, agree              either end level 3+, agree there
+ *      band       seed 5   seed 6   hours B      seed 5   seed 6   hours B
+ *      0–5 km      92.6     92.3     90.8         68.3     66.7     68.1
+ *      5–10        90.6     90.3     89.2         60.1     58.3     62.8
+ *      10–15       90.3     90.0     88.1         57.2     57.0     56.8  <- last band kept
+ *      15–20       88.7     88.7     86.8         49.3     46.6     52.1
+ *      20–25       88.2     89.0     86.6         49.8     49.2     52.7
+ *      25–30       86.6     87.4     85.7         46.4     46.0     49.2
+ *      30–35       86.2     86.4     86.8         47.1     44.6     50.5
+ *      35–40       84.2     84.4     85.5         37.1     37.0     49.7
+ *      40–45       85.0     85.3     86.5         38.8     38.7     56.0
+ *      45–50       85.3     85.3     86.0         36.1     37.4     49.7
  *
- *   - The decline in the cases that matter (either end at level 3 or
- *     worse) runs out in the 15–20 km band and is flat, within the
- *     noise of ~1 000 pairs a band, from there to 50 km. 20 km is the
- *     last band in which distance still costs anything. It is a
- *     judgement placed where the decline stops, on the cautious side,
- *     not a distance the data imposes.
- *   - It does NOT say a station 40 km away is representative: the model
- *     is smooth (its native grid is coarser than the 1 km it is served
- *     on), so it agrees with itself at 85% across 50 km, 19 points above
- *     chance. It bounds how far a station could be trusted; it does not
- *     say a station is a good stand-in inside that bound.
- *   - It is a property of the MODEL's smoothness and says nothing about
- *     street-level air. Traffic stations agree least (84.1% against
- *     87.6% background, 88.0% industrial) and the page names the
- *     station type beside its distance for that reason.
+ * 🔴 What that supports, and what it does not:
+ *
+ *   - The right-hand column is the one that matters — the cases where
+ *     either end is level 3 (Moderate) or worse, about 500 to 2 000
+ *     pairs a band. In all three runs the 10–15 km band sits at 56.8–57.2% and
+ *     the 15–20 km band 5 to 10 points lower, 46.6–52.1%: the FIRST STEP
+ *     DOWN is at 15 km, and the 10–15 km band is where the three runs
+ *     agree most closely. 15 km is the last band before the step.
+ *   - Past 20 km the runs stop agreeing with each other: from 35 km the
+ *     hours that were used decide the answer (37% in two runs, 50–56% in
+ *     the third), because which hours held an episode decides which
+ *     campsites are "interesting". No claim is made about anything beyond
+ *     the step.
+ *   - It is a judgement placed on the cautious side, not a distance the
+ *     data impose: the all-pairs column has no knee at all, it falls a
+ *     point or two per 5 km and is 84–87% from 35 km on, 14–21 points above
+ *     chance — the MODEL is smooth (its native grid is coarser than the
+ *     1 km it is served on), so it agrees with itself across 50 km. It
+ *     bounds how far a station could be trusted; it does not say a station
+ *     is a good stand-in inside that bound.
+ *   - It says nothing about street-level air. Traffic stations agree least
+ *     (84.1–85.6% against 87.8–88.5% background) and the page names the
+ *     station kind beside its distance for that reason.
+ *
+ * 🔴 WHAT A LARGER RADIUS COSTS, measured at the import of 29.09.2026
+ * 20:53 UTC (four-hour budget): a campsite that has a station within
+ * reach gets that station's answer, and it is "no fresh data" when the
+ * station is silent — even though the model has a value for the
+ * campsite. At 20 km that was 4 928 of 61 557 pages (8.0%); at the 15 km
+ * chosen it is 3 525 (5.7%): 1 827 whose station holds no reading and
+ * 1 698 whose reading was too old. A smaller radius sends more pages to
+ * the model instead of to a shrug; the brief's split (station where there is one, model where
+ * there is none) is kept, and a "model as well, under the shrug" line is
+ * one file in `airState` and one query in the import — see the PR.
  *
  * 🔴 The distance is RENDERED. A radius the reader cannot see is a
- * radius they cannot disagree with; "18.4 km from this campsite" is a
+ * radius they cannot disagree with; "12.4 km from this campsite" is a
  * fact they can check against the map on the same page.
  */
-export const AIR_RADIUS_M = 20_000;
+export const AIR_RADIUS_M = 15_000;
 
 /**
  * 🔴 EVERY country code this endpoint emits, enumerated — not the ones

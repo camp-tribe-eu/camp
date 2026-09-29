@@ -26,9 +26,10 @@
 // "no fresh data" on its own; a dead pipeline therefore looks like a dead
 // pipeline rather than like last Tuesday's air. What it costs to run, so
 // that whoever schedules it decides with the number: one roster
-// (1.8 MB), up to 4 018 station files (about 60 KB each, ≈190 MB in all,
-// 6 at a time) and ~60 raster requests for the ~30 000 campsites with no
-// station within AIR_RADIUS_M.
+// (1.8 MB); 4 018 station files, of which 3 504 answer (about 66 KB each —
+// 230.6 MB downloaded in the run of 29.09.2026 20:53 UTC) and 514 answer
+// 404; six at a time; and 79 raster requests for the 39 284 campsites
+// with no station within AIR_RADIUS_M. Two minutes four seconds end to end.
 
 import 'dotenv/config';
 import { Client } from 'pg';

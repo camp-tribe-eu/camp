@@ -56,17 +56,28 @@ describe('sentenceIsOn', () => {
   });
 
   // The EEA's own page keeps a sentence about running means in an HTML
-  // comment. Text in the file is not text on the page.
-  it('does not count text inside a comment, a script or a style', () => {
-    for (const wrap of [
-      '<!-- X -->',
-      '<script>var s = "X";</script>',
-      '<style>/* X */</style>',
-    ]) {
-      expect(
-        sentenceIsOn(wrap.replace('X', AIR_ATTRIBUTION), AIR_ATTRIBUTION),
-      ).toBe(false);
-    }
+  // comment. Text in the file is not text on the page. Each wrapper has a
+  // `>` INSIDE it, before the sentence: without one, the generic tag
+  // stripper would swallow a whole comment as if it were a single tag and
+  // the special-casing of comments, scripts and styles would go untested.
+  it('does not count text inside a comment', () => {
+    const html = `<!-- see a > b: ${AIR_ATTRIBUTION} -->`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  it('does not count text inside a script', () => {
+    const html = `<script>if (a > b) { var s = "${AIR_ATTRIBUTION}"; }</script>`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  it('does not count text inside a style', () => {
+    const html = `<style>a > b { content: "${AIR_ATTRIBUTION}"; }</style>`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  it('still counts the sentence when a comment sits beside it', () => {
+    const html = `<!-- a > b --><p>${AIR_ATTRIBUTION}</p>`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(true);
   });
 });
 

@@ -240,8 +240,9 @@ function flag(v: unknown): boolean | null {
  *
  * 🔴 A pollutant counts only where the source gave it an index above
  * zero. `modelled_SO2: 1` sits beside `aqi_SO2: 0.0` and `val_SO2: null`
- * in half the files: the flag defaults to 1 when there is nothing to
- * flag, so counting it would make every such station look partly modelled
+ * — 190 of 240 sampled files (79.2%) contain such a slot, 6.6% of their
+ * pollutant-slots: the flag defaults to 1 when there is nothing to flag,
+ * so counting it would make almost every station look partly modelled
  * over a pollutant that was never there.
  *
  * 🔴 The headline index must be its culprit's own index. That holds in

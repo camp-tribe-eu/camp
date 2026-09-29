@@ -345,7 +345,8 @@ describe('pickStationReading', () => {
   });
 
   // 🔴 `modelled_SO2: 1` sits beside `aqi_SO2: 0.0` and `val_SO2: null`
-  // in half the files: the flag is 1 when there is nothing to flag.
+  // in 79.2% of the files sampled: the flag is 1 when there is nothing
+  // to flag.
   // Counting it would make a station that reported every pollutant it
   // measures look partly modelled over one it never had.
   it('does not count a pollutant with no index as modelled', () => {

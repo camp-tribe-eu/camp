@@ -103,8 +103,8 @@ const S1 = 'CI fixture station 1 (reported)';
 const S2 = 'CI fixture station 2 (partly modelled)';
 const S3 = 'CI fixture station 3 (silent)';
 const S4 = 'CI fixture station 4 (stale)';
-const S5 = 'CI fixture station 5 (19.5 km)';
-const S6 = 'CI fixture station 6 (20.5 km)';
+const S5 = 'CI fixture station 5 (14.5 km)';
+const S6 = 'CI fixture station 6 (15.5 km)';
 const S7 = 'CI fixture station 7 (no particulate matter)';
 
 test.describe('the fixture has a subject for every state — or this suite proves nothing', () => {
@@ -311,7 +311,7 @@ test.describe('display requirement 3: a station missing from the current hour sa
     expect(none.length).toBeGreaterThan(5);
     for (const p of none) {
       expect(p.text, p.path).toContain(
-        'No air-quality data for this location: no monitoring station lies within 20 km and the EEA’s modelled index does not cover this spot.',
+        'No air-quality data for this location: no monitoring station lies within 15 km and the EEA’s modelled index does not cover this spot.',
       );
       expect(p.text, p.path).not.toContain('Read from the EEA on');
     }
@@ -337,33 +337,33 @@ test.describe('display requirement 3: a station missing from the current hour sa
 // ---------------------------------------------------------------------
 
 test.describe('the radius', () => {
-  // 🔴 Independent of the code under test: 20 is typed here, and the
+  // 🔴 Independent of the code under test: 15 is typed here, and the
   // distances are read back from what the page prints.
-  test('no page names a station more than 20 km away', () => {
+  test('no page names a station more than 15 km away', () => {
     let seen = 0;
     for (const p of pages) {
       for (const m of p.text.matchAll(/(\d+(?:\.\d)?) (km|m) (?:from this campsite|away)/g)) {
         seen += 1;
         const km = m[2] === 'km' ? Number(m[1]) : Number(m[1]) / 1000;
-        expect(km, `${p.path}: ${m[0]}`).toBeLessThanOrEqual(20);
+        expect(km, `${p.path}: ${m[0]}`).toBeLessThanOrEqual(15);
       }
     }
     expect(seen, 'no distance was printed anywhere').toBeGreaterThan(20);
   });
 
-  test('a station 19.5 km away is inside it, and shown', () => {
-    expect(named(S5).some((p) => p.text.includes('background station, 19.5 km from this campsite'))).toBe(true);
-    const p = named(S5).find((x) => x.text.includes('19.5 km'))!;
+  test('a station 14.5 km away is inside it, and shown', () => {
+    expect(named(S5).some((p) => p.text.includes('background station, 14.5 km from this campsite'))).toBe(true);
+    const p = named(S5).find((x) => x.text.includes('14.5 km'))!;
     expect(p.state).toBe('reported');
     expect(p.text).toContain('Good (level 1 of 6)');
   });
 
-  // The other side of the same edge. Station 6 is 20.5 km from its
-  // campsite; if the radius were 25 km it would be named at 20.5 km.
-  test('a station 20.5 km away is outside it, and the campsite gets the model instead', () => {
+  // The other side of the same edge. Station 6 is 15.5 km from its
+  // campsite; if the radius were 20 km it would be named at 15.5 km.
+  test('a station 15.5 km away is outside it, and the campsite gets the model instead', () => {
     for (const p of named(S6)) {
-      const m = /CI fixture station 6 \(20\.5 km\) \(?[^,]*, (\d+(?:\.\d)?) km/.exec(p.text);
-      if (m) expect(Number(m[1]), p.path).toBeLessThanOrEqual(20);
+      const m = /CI fixture station 6 \(15\.5 km\) \(?[^,]*, (\d+(?:\.\d)?) km/.exec(p.text);
+      if (m) expect(Number(m[1]), p.path).toBeLessThanOrEqual(15);
     }
     // The seed put the Moderate model value on exactly that campsite.
     const beside = inState('modelled').filter((p) => p.text.includes('Moderate (level 3 of 6)'));
@@ -388,7 +388,7 @@ test.describe('the radius', () => {
 
 test.describe('the attribution the licence requires', () => {
   // 🔴 In EVERY state, including the two that hold no value: "no station
-  // lies within 20 km" is a claim made on the EEA's roster.
+  // lies within 15 km" is a claim made on the EEA's roster.
   test('every page names the EEA, its licence and the EEA’s own sentence', () => {
     for (const p of pages) {
       expect(p.text, p.path).toContain('European Environment Agency');
@@ -442,6 +442,24 @@ test.describe('the attribution the licence requires', () => {
     }
     for (const p of [...inState('reported'), ...inState('mixed')]) {
       expect(p.section, p.path).toMatch(/data-boilerplate="air-wording"[^>]*>As reported to the EEA/);
+      for (const label of ['Nearest station', 'Basis', 'Pollutants']) {
+        expect(p.section, `${p.path}: ${label}`).toMatch(
+          new RegExp(`data-boilerplate="air-label"[^>]*>\\s*${label}\\s*</dt>`),
+        );
+      }
+    }
+    // The states whose whole text is one constant sentence are the ones
+    // that made CAMP-168's guard red; each carries its marker.
+    for (const p of pages) {
+      expect(p.section, p.path).toMatch(/data-boilerplate="air-heading"[^>]*>Air quality<\/h2>/);
+    }
+    for (const p of inState('no-data')) {
+      expect(p.section, p.path).toMatch(/data-boilerplate="air-no-data"[^>]*>No air-quality data for this location/);
+    }
+    for (const p of inState('no-fresh-data')) {
+      expect(p.section, p.path).toMatch(/data-boilerplate="air-no-fresh-data"[^>]*>No fresh data\.<\/strong>/);
+      // …and the sentence that says WHICH station, WHICH hour, is not.
+      expect(p.section, p.path).not.toMatch(/data-boilerplate="[^"]*"[^>]*>[^<]*(?:has not reported|is from)/);
     }
   });
 });

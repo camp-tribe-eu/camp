@@ -41,7 +41,7 @@ export const AIR_SOURCE_ID = 'eea-air-quality';
 export const AIR_FRESH_FOR_HOURS = 4;
 
 /** The radius the API applied, mirrored for the sentence that states it. */
-export const AIR_RADIUS_M = 20_000;
+export const AIR_RADIUS_M = 15_000;
 
 /**
  * 🔴 HOW OFTEN THIS SOURCE IS EXPECTED TO CHANGE — declared, and the

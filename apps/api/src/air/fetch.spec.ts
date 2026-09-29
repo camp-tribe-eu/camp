@@ -53,15 +53,17 @@ const fake = (h: Handler) => h as unknown as typeof fetch;
 
 describe('newestRosterFile', () => {
   // 🔴 The index lists the files out of order, and the viewer's
-  // "sort the names and pop" would work until 2100. By number.
-  it('picks the largest number, not the last entry', () => {
+  // "sort the names and pop" would work until 2100. By number — and the
+  // newest is neither first nor last here, so neither "take the first"
+  // nor "take the last" can pass (the real index happens to end with it).
+  it('picks the largest number, not the first or the last entry', () => {
     expect(
       newestRosterFile({
         contents: [
           'raw_stations.json.26091800',
+          'raw_stations.json.26092500',
           'raw_stations.json.26091100',
           'raw_stations.json.26090400',
-          'raw_stations.json.26092500',
         ],
       }),
     ).toBe('raw_stations.json.26092500');
@@ -286,6 +288,18 @@ describe('rasterWindow', () => {
         fake(() => res({ error: { message: 'Service not found' } })),
       ),
     ).rejects.toThrow(/Service not found/);
+  });
+
+  // The extent must be exactly two numbers: a service that answers with
+  // something else is not the index raster, and `end` would be undefined.
+  it('refuses a time extent that is not a pair of numbers', async () => {
+    for (const te of [[1790553600000], [1, 2, 3], ['a', 'b'], [null, null]]) {
+      await expect(
+        rasterWindow(
+          fake(() => res({ ...good, timeInfo: { timeExtent: te } })),
+        ),
+      ).rejects.toThrow(/no time extent/);
+    }
   });
 
   it('refuses a raster that is not levels 1–6', async () => {
