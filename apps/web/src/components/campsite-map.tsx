@@ -47,6 +47,23 @@ import {
   type MapDataState,
   type RegionSummary,
 } from '@/lib/map-chunks';
+import {
+  DEFAULT_LAYERS,
+  LAYERS,
+  toggleLayer,
+  type LayerId,
+} from '@/lib/map-layers';
+import {
+  WILDFIRE_URL,
+  firesInView,
+  formatDay,
+  formatInstant,
+  readFeed,
+  wildfireNote,
+  wildfireState,
+  type WildfireFeature,
+  type WildfireState,
+} from '@/lib/wildfires';
 
 /** One campsite in the collection the map draws. */
 interface SpotFeature {
@@ -78,6 +95,15 @@ const REGION_COUNT = 'campsite-region-count';
 const CLUSTER_LAYER = 'campsite-clusters';
 const COUNT_LAYER = 'campsite-cluster-count';
 const POINT_LAYER = 'campsite-points';
+// CAMP-153: the Copernicus burnt-area perimeters.
+const FIRE_SOURCE = 'wildfires';
+const FIRE_FILL = 'wildfire-areas';
+const FIRE_LINE = 'wildfire-outlines';
+/** Invisible, and the only thing a reader can realistically hit. */
+const FIRE_HIT = 'wildfire-hit';
+/** Everything under the pointer that means "a burnt area": the inside of a
+ * big perimeter and the halo around a small one. */
+const FIRE_CLICK_LAYERS = [FIRE_FILL, FIRE_HIT];
 
 // 🔴 Tell MapLibre where its worker really is.
 //
@@ -251,6 +277,141 @@ function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
   source?.setData({ type: 'FeatureCollection', features: [] });
 }
 
+/**
+ * CAMP-153: the burnt areas, as shapes rather than as a picture.
+ *
+ * 🔴 Two layers, not one. A filled polygon alone disappears at the zoom
+ * most readers use: the median burnt area in the measured fortnight is
+ * 12 ha, which is under a pixel across Europe. The outline carries a
+ * minimum width, so a small fire is still a visible mark in the right
+ * place — and the fill, when you zoom in, is the real perimeter.
+ *
+ * 🔴 Underneath the campsites, always. The question this layer answers is
+ * "is there a fire near the place I am going", and the place has to stay
+ * visible for the question to make sense.
+ */
+function attachFires(m: InstanceType<typeof MapLibreMap>) {
+  if (!m.getSource(FIRE_SOURCE)) {
+    m.addSource(FIRE_SOURCE, {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+      // 🔴 NO SIMPLIFICATION, and this is what half of the layer hung on.
+      //
+      // The GeoJSON source runs every shape through geojson-vt, whose
+      // default tolerance (0.375) DROPS any polygon smaller than the
+      // tolerance at the tile's zoom. Measured 29.09.2026 on the real map
+      // with the shipped 278 perimeters, asking MapLibre itself which
+      // features it holds: at the opening zoom 138 of 278 were in no tile
+      // at all — no fill, no outline, no hit line, nothing to click, and
+      // the sentence under the map still counting them. The layer looked
+      // like a sparse fortnight when it was half a fortnight. The largest
+      // one dropped was 0.011° across, so this is not only the specks.
+      //
+      // At tolerance 0 nothing is dropped or simplified: 278 of 278 were
+      // clickable at the opening zoom afterwards (same measurement). The
+      // shapes are already rounded onto a ~110 m grid by the fetch script,
+      // so there is little left to simplify; the whole file is 251 KB.
+      tolerance: 0,
+    });
+  }
+  if (!m.getLayer(FIRE_FILL)) {
+    m.addLayer({
+      id: FIRE_FILL,
+      type: 'fill',
+      source: FIRE_SOURCE,
+      paint: {
+        // Burnt ground, not alarm red: the campsite markers are already
+        // #C83D28, and two reds on one map is a reader guessing which is
+        // which. This one reads as scorched earth and stays distinct.
+        'fill-color': '#5B3A29',
+        'fill-opacity': 0.55,
+      },
+    });
+  }
+  if (!m.getLayer(FIRE_LINE)) {
+    m.addLayer({
+      id: FIRE_LINE,
+      type: 'line',
+      source: FIRE_SOURCE,
+      paint: {
+        'line-color': '#8A4B2A',
+        // 🔴 Wide enough at low zoom to BE the mark, because the fill is
+        // not one. Measured over the shipped 278 perimeters (512 px tiles,
+        // as MapLibre draws them): at z6.2 the median is 0.7 px across and
+        // 254 of 278 are under 3 px, so what a reader sees on the opening
+        // view is this outline and nothing else. It narrows as the real
+        // shape grows past it. (An earlier comment here said 0.31 px: it
+        // had assumed 256 px tiles and was half the truth.)
+        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 3, 10, 2.5, 14, 2],
+        'line-opacity': 0.95,
+      },
+    });
+  }
+  // 🔴 THE LAYER A READER CAN ACTUALLY CLICK.
+  //
+  // Click and cursor used to be bound to FIRE_FILL alone, and the numbers
+  // say what that meant: at the zoom /map opens at, the median burnt area
+  // is 0.7 px wide, 254 of 278 are under three and the largest is 8 px.
+  // The e2e could not see it because its fixture was an 84 px square
+  // clicked dead centre — the test was sized around the defect.
+  //
+  // So: a transparent line, wide enough to hit with a mouse or a thumb,
+  // tapering once the perimeter itself is big enough to aim at. Invisible
+  // but queryable — MapLibre hit-tests what is rendered, and a fully
+  // transparent line still is.
+  if (!m.getLayer(FIRE_HIT)) {
+    m.addLayer({
+      id: FIRE_HIT,
+      type: 'line',
+      source: FIRE_SOURCE,
+      paint: {
+        'line-color': '#000000',
+        'line-opacity': 0,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 16, 10, 12, 14, 8],
+      },
+    });
+  }
+}
+
+/**
+ * The card shown when a burnt area is clicked.
+ *
+ * 🔴 Every sentence here is a report with a date on it, and none of them
+ * is an instruction. "A fire was recorded here on 14 September" is
+ * Copernicus's statement, which CC BY 4.0 lets us mirror with credit;
+ * "do not drive here" would be ours, and no licence covers it and no
+ * disclaimer repairs it (docs/road-hazard-sources.md §2).
+ *
+ * 🔴 DOM, not HTML, for the same reason as markerCard: place names come
+ * from somebody else's database and are untrusted input.
+ */
+function fireCard(p: WildfireFeature['properties'], attribution: string): HTMLElement {
+  const root = document.createElement('div');
+  root.className = 'ct-popup';
+
+  const title = document.createElement('strong');
+  title.className = 'ct-popup-title';
+  // Never invented: EFFIS leaves the commune blank on some records, and
+  // "Unknown place" would be a claim of its own.
+  title.textContent = p.place || `Burnt area in ${p.country}`;
+  root.append(title);
+
+  const when = document.createElement('p');
+  when.className = 'ct-popup-kind';
+  const day = formatDay(p.date);
+  when.textContent = day
+    ? `Fire recorded ${day} — about ${p.hectares.toLocaleString('en-GB')} ha burnt`
+    : `About ${p.hectares.toLocaleString('en-GB')} ha burnt`;
+  root.append(when);
+
+  const who = document.createElement('p');
+  who.className = 'ct-popup-empty';
+  who.textContent = attribution;
+  root.append(who);
+
+  return root;
+}
+
 export default function CampsiteMap() {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<InstanceType<typeof MapLibreMap> | null>(null);
@@ -363,8 +524,43 @@ export default function CampsiteMap() {
   const awaitingStyle = useRef(false);
   const [dataState, setDataState] = useState<MapDataState>({ kind: 'loading' });
 
+  // CAMP-153. The fire layer's three pieces of state, kept apart on
+  // purpose: what arrived, which layers the reader has on, and how many
+  // of the fires fall inside what they are looking at.
+  //
+  // 🔴 `loading`, not `missing`, until the fetch has actually answered.
+  // The two produce the same empty map and the reader cannot tell them
+  // apart, so the sentence under the map has to.
+  const [fireState, setFireState] = useState<WildfireState>({ kind: 'loading' });
+  const fires = useRef<WildfireFeature[]>([]);
+  const [firesHere, setFiresHere] = useState<number | null>(null);
+  /**
+   * The credit, as the feed itself spells it, for the popup.
+   *
+   * 🔴 A ref and not a constant in this file. CC BY 4.0 asks for credit to
+   * whoever the data came from, and a string hard-coded here would keep
+   * saying "Copernicus EFFIS" on the day the pipeline starts writing
+   * something else — a licence breach that no test of ours would see,
+   * because it would be testing the same constant. It travels with the
+   * data, and `readFeed` refuses a feed that carries none.
+   */
+  const attributionRef = useRef('');
+  /**
+   * Which datasets are drawn.
+   *
+   * 🔴 Local state, deliberately not in the query string. The filters own
+   * the URL through `toSearchParams`, which REPLACES it wholesale on every
+   * tick of a checkbox — a `layers=` parameter written beside it would be
+   * erased by the next filter change, and a shared link would silently
+   * open with different layers from the one that was sent. Joining the two
+   * is CAMP-122's job and it is not this card's to do badly.
+   */
+  const [layers, setLayers] = useState<LayerId[]>(() => DEFAULT_LAYERS());
+  const firesOn = layers.includes('wildfire' as LayerId);
+
   const active =
     MAP_SOURCES.find((s) => s.id === sourceId) ?? MAP_SOURCES[0];
+  const fireNote = wildfireNote(fireState, firesHere);
 
   // Created once. Changing the style afterwards goes through setStyle,
   // because re-creating the map would throw away the reader's position.
@@ -416,6 +612,12 @@ export default function CampsiteMap() {
     // Without this the points vanish the first time someone switches,
     // which looks like the data broke rather than the style changing.
     const attach = () => {
+      // 🔴 First, so every campsite marker sits on top of every perimeter.
+      // Also here rather than in its own effect because setStyle discards
+      // sources and layers wholesale — the fire layer has to be restored
+      // on each styledata exactly like the campsites, and the region
+      // circles are in this file's history as the thing that was forgotten.
+      attachFires(m);
       if (!m.getSource(SOURCE_ID)) {
         m.addSource(SOURCE_ID, {
           type: 'geojson',
@@ -508,6 +710,11 @@ export default function CampsiteMap() {
       // for, and costs no fetch — every chunk it needs is already in
       // `loaded`.
       void refreshRef.current();
+      // 🔴 And the perimeters. `attachFires` re-creates the source empty,
+      // so without this the fire layer silently emptied itself the first
+      // time a reader changed the basemap — an empty fire layer being the
+      // one thing this card exists to prevent.
+      drawFiresRef.current();
     });
 
     // Clicking a cluster opens it, rather than doing nothing — the most
@@ -518,6 +725,11 @@ export default function CampsiteMap() {
     }) => {
       const feature = e.features?.[0];
       if (!feature) return;
+      // A cluster standing inside a burnt area fires the fire card first
+      // (see the registration order below). Opening the cluster is what the
+      // reader asked for, so the card must not be left hanging where the
+      // map used to be.
+      popup.current?.remove();
       const source = m.getSource(SOURCE_ID) as GeoJSONSource | undefined;
       if (!source) return;
       const clusterId = feature.properties?.cluster_id as number;
@@ -547,6 +759,28 @@ export default function CampsiteMap() {
         // as the characters it is, with no escaping function to get
         // subtly wrong.
         .setDOMContent(markerCard(feature.properties as unknown as SpotProperties))
+        .addTo(m);
+    };
+
+    // CAMP-153. Clicking a burnt area says what Copernicus recorded and
+    // when, with the credit the licence requires on the card itself —
+    // not only under the map, because this is where a reader is looking
+    // when they are deciding about one particular place.
+    const onFireClick = (e: {
+      features?: MapGeoJSONFeature[];
+      lngLat: { lng: number; lat: number };
+    }) => {
+      const feature = e.features?.[0];
+      if (!feature) return;
+      popup.current?.remove();
+      popup.current = new Popup({ offset: 12, maxWidth: '260px' })
+        .setLngLat([e.lngLat.lng, e.lngLat.lat])
+        .setDOMContent(
+          fireCard(
+            feature.properties as unknown as WildfireFeature['properties'],
+            attributionRef.current,
+          ),
+        )
         .addTo(m);
     };
 
@@ -703,11 +937,35 @@ export default function CampsiteMap() {
     // `move`: one fetch when the reader stops, not sixty while they drag.
     m.on('moveend', () => {
       void refreshRef.current();
+      // 🔴 The fire sentence counts what is in THIS view, so it is only
+      // true until the reader moves. Recomputed here rather than left to
+      // go quietly wrong — "none of them is in this view" said over a
+      // view that now holds four is the same class of lie as an empty map.
+      drawFiresRef.current();
     });
 
+    // 🔴 The fire FIRST, and that order is the whole point.
+    //
+    // MapLibre fires every layer-scoped click handler whose features are
+    // under the cursor, so a campsite standing inside a burnt area fires
+    // both. Whichever handler runs LAST owns `popup.current`, and the
+    // campsite is what the reader aimed at — it is the marker drawn on
+    // top. Registering the fire first makes the popup follow the drawing
+    // order instead of the registration order.
+    //
+    // 🔴 BOTH fire layers, by design and not by accident. `FIRE_HIT` is the
+    // wide invisible line that makes a 0.7 px perimeter something a thumb
+    // can find; `FIRE_FILL` is the inside of a perimeter big enough to have
+    // one. Binding only the line (the first repair of the "unclickable
+    // layer" defect) fixed the small fires and broke the large ones — a
+    // click in the middle of a 4 200 ha burnt area found nothing — and the
+    // e2e that clicks dead centre failed on every engine. One registration
+    // with both ids, so a click on the outline of a big perimeter (which
+    // hits the line AND the fill) opens one card, not two.
+    m.on('click', FIRE_CLICK_LAYERS, onFireClick);
     m.on('click', CLUSTER_LAYER, onClusterClick);
     m.on('click', POINT_LAYER, onPointClick);
-    for (const layer of [CLUSTER_LAYER, POINT_LAYER]) {
+    for (const layer of [CLUSTER_LAYER, POINT_LAYER, ...FIRE_CLICK_LAYERS]) {
       m.on('mouseenter', layer, pointer);
       m.on('mouseleave', layer, noPointer);
     }
@@ -961,6 +1219,80 @@ export default function CampsiteMap() {
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
 
+  /**
+   * CAMP-153: put the perimeters we hold on the map, and say how many of
+   * them the reader can see.
+   *
+   * 🔴 One function for both, because the shapes on the canvas and the
+   * number in the sentence under it must describe the same moment. This
+   * file's own history is the argument: the counts were published on
+   * `idle` while the state was published when fetching stopped, and a
+   * reader — and a spec — got numbers from two different instants.
+   *
+   * 🔴 Switching the layer off empties the SOURCE rather than hiding the
+   * layer, so the count and the canvas cannot disagree either.
+   */
+  const drawFires = () => {
+    const m = map.current;
+    if (!m) return;
+    const source = m.getSource(FIRE_SOURCE) as GeoJSONSource | undefined;
+    if (!source) return;
+    const shown = firesOn && fireState.kind === 'fresh' ? fires.current : [];
+    source.setData({
+      type: 'FeatureCollection',
+      features: shown as unknown as GeoJSON.Feature[],
+    });
+    setFiresHere(firesOn ? firesInView(shown, boundsOf(m)) : null);
+  };
+  const drawFiresRef = useRef(drawFires);
+  drawFiresRef.current = drawFires;
+
+  // The perimeters, once. 🔴 Every outcome sets a state that SAYS
+  // something: a network failure, a 404 from a bad deploy and a file that
+  // is not the shape we wrote all land on `missing`, which renders "no
+  // fresh data" rather than an empty map with no explanation.
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(WILDFIRE_URL)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((body: unknown) => {
+        if (cancelled) return;
+        const state = wildfireState(body, new Date());
+        // 🔴 WHAT ARRIVED, not what we are allowed to draw. These were the
+        // same line — `state.kind === 'fresh' ? state.fires : []` — and
+        // the mutation run showed what that cost: with the freshness test
+        // ALSO here, deleting the one in `drawFires` changed nothing,
+        // because a stale feed had already been emptied on the way in. So
+        // the test that claims "a stale feed draws nothing" was passing
+        // over a deleted guard. One decision, in one place: this holds the
+        // perimeters, `drawFires` decides whether they go on the map.
+        const feed = readFeed(body);
+        fires.current = feed ? feed.features : [];
+        // 🔴 Straight from the feed that survived validation. The guard
+        // that used to stand here — `state.kind !== 'loading'` — could
+        // never be false: `wildfireState` returns `loading` for nothing at
+        // all, and a line that cannot fail misleads about what guards what.
+        attributionRef.current = feed ? feed.meta.attribution : '';
+        setFireState(state);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          fires.current = [];
+          setFireState({ kind: 'missing' });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Whatever changed — the data arriving, the reader switching the layer
+  // off — the canvas and the sentence are rebuilt together.
+  useEffect(() => {
+    drawFiresRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fireState, firesOn]);
+
   // 🔴 Read through a ref inside the fetch above: that effect runs once,
   // and closing over `filters` would pin it to whatever was set on the
   // first render — so a link opened with filters already in its query
@@ -1111,7 +1443,48 @@ export default function CampsiteMap() {
 
   return (
     <div>
+      {/* CAMP-122's registry, finally load-bearing: only layers marked
+          live are offered, so a switch is never a promise.
+
+          🔴 And the campsites are deliberately NOT given a switch here.
+          Un-drawing them is not one line: the chunk pipeline, the "N
+          campsites in view" panel and the wide-view region circles all
+          describe that dataset, and a switch that greyed the button while
+          61 557 markers stayed on the map would be precisely the promise
+          this registry exists to prevent. The filters panel below already
+          empties the campsites through its TYPE "None" control. Giving
+          them a real switch means a new data state in map-chunks.ts and a
+          sentence for it, which is CAMP-122's work and not this card's to
+          do badly. */}
       <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-2">
+          Layers
+        </span>
+        <div role="group" aria-label="Layers" className="flex flex-wrap gap-1.5">
+          {LAYERS.filter((l) => l.status === 'live' && l.id !== 'campsites').map((l) => {
+            const on = layers.includes(l.id as LayerId);
+            return (
+              <button
+                key={l.id}
+                type="button"
+                onClick={() => setLayers((now) => toggleLayer(now, l.id))}
+                aria-pressed={on}
+                title={l.description}
+                data-layer={l.id}
+                className={`inline-flex h-8 items-center rounded-sm border px-3 text-sm transition-colors ${
+                  on
+                    ? 'border-line-blue bg-accent-surface font-semibold text-heading'
+                    : 'border-line-2 bg-surface text-ink-2 hover:border-line-blue'
+                }`}
+              >
+                {l.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-2">
           Map style
         </span>
@@ -1229,6 +1602,95 @@ export default function CampsiteMap() {
         data-in-view-unknown-excluded={tally.inViewUnknownExcluded}
         className="h-[60vh] min-h-[360px] w-full overflow-hidden rounded-card border border-line-2"
       />
+
+      {/* 🔴 CAMP-153. The fire layer always says something, and that is
+          the whole point of it.
+
+          An empty map reads as "all clear". Here that misreading is the
+          risk the card exists to remove: a reader who sees no perimeter
+          near a campsite in Calabria concludes there is no fire, when
+          what happened may be that our last read of Copernicus failed
+          three days ago. So every state — loading, missing, stale, none
+          recorded, none in view, some in view — has its own sentence, and
+          none of them is ever an empty element.
+
+          🔴 And the credit is HERE, next to the shapes, not in a footer
+          constant nobody checks. CC BY 4.0 asks for attribution to the
+          source with the data's date; both are rendered, and both come
+          out of the feed rather than out of this file, so a pipeline that
+          started writing something else could not keep saying Copernicus. */}
+      <div
+        role="status"
+        data-testid="wildfire-note"
+        data-state={firesOn ? fireState.kind : 'off'}
+        data-in-view={firesHere === null ? '' : String(firesHere)}
+        className={
+          'mt-2 rounded border p-3 text-sm ' +
+          (!firesOn
+            ? 'border-line-2 bg-surface text-ink-2'
+            : fireNote.tone === 'gap'
+            ? 'border-warn/40 bg-warn/5 text-ink-2'
+            : 'border-line-2 bg-surface text-ink-2')
+        }
+      >
+        {!firesOn ? (
+          // Switched off by the reader, and said out loud all the same:
+          // an empty map with a control they may have hit by accident is
+          // still an empty map.
+          <p>
+            The wildfire layer is switched off, so no burnt areas are drawn —
+            that is this control, not an all-clear.
+          </p>
+        ) : (
+          <>
+            <p className="font-semibold text-heading">{fireNote.headline}</p>
+            <p className="mt-1">{fireNote.detail}</p>
+            {fireState.kind === 'fresh' && (
+              <p className="mt-1">
+                <a
+                  href={fireState.meta.sourceUrl}
+                  className="underline"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  {fireState.meta.source}
+                </a>
+                {' · '}
+                <a
+                  href={fireState.meta.licenceUrl}
+                  className="underline"
+                  rel="license noopener noreferrer"
+                  target="_blank"
+                >
+                  {fireState.meta.licence}
+                </a>
+                {' · '}
+                <a
+                  href={fireState.meta.termsUrl}
+                  className="underline"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  CEMS terms
+                </a>
+                {' · '}
+                {/* The date of the DATA, which is what the licence asks
+                    for — not the date this page was built. */}
+                Read from Copernicus on{' '}
+                <time dateTime={fireState.meta.fetchedAt}>
+                  {formatInstant(fireState.meta.fetchedAt) ?? fireState.meta.fetchedAt}
+                </time>
+                {'. '}
+                {/* 🔴 The CEMS notice for modified data, word for word as
+                    the terms write it, with the year. Rendered, because a
+                    credit nobody can see is not a credit — and carried by
+                    the feed, so it cannot go stale in a component. */}
+                {fireState.meta.attribution}
+              </p>
+            )}
+          </>
+        )}
+      </div>
 
       <p className="mt-2 text-xs text-ink-2">{active.attribution}</p>
     </div>

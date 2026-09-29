@@ -164,6 +164,35 @@ jobs:
       - name: Silence watchdog still catches a job that stopped
         run: node scripts/ci/check-schedule.mjs --self-test
 
+      # 🔴 CAMP-153. The wildfire fetch script carries a self-test of its
+      # own — the `maxfeatures` throw that stands between us and a 132 MB
+      # response, the 2 000-feature ceiling, both licence-marker checks and
+      # the refusal to WRITE a word the CEMS terms reserve — and until this
+      # line it ran only when a human typed the command. Nothing imported
+      # the script and no job invoked it.
+      #
+      # ⚠️ And running it was not enough. Measured 29.09.2026, the old
+      # self-test covered the `maxfeatures` throw and none of the other
+      # four: deleting the ceiling, either marker loop or the write-refusal
+      # left it at 49/49, because those guards live inside `collect()` and
+      # `collect()` needed two live HTTP requests. It now takes its network
+      # as an argument and the self-test runs the real thing against a
+      # world it controls, so each of the four is watched failing here.
+      #
+      # Every other guard in this file has a step like this one; a
+      # safeguard nobody has watched fail is a safeguard nobody has. It
+      # touches no network and no database.
+      #
+      # `!cancelled()`, so it runs even when an earlier step has failed. It
+      # is independent of them, and on 29.09.2026 that mattered: a new
+      # advisory turned "No new dependency advisories" red, every step
+      # after it was SKIPPED, and this one was skipped with them (run
+      # 36536509099) — a guard that runs "unattended" only while everything
+      # else is green is not the guard the step claims to be.
+      - name: Wildfire fetch guards still refuse what they must
+        if: ${{ !cancelled() }}
+        run: node scripts/effis/fetch-wildfires.mjs --self-test
+
   web:
     runs-on: ubuntu-latest
     services:
