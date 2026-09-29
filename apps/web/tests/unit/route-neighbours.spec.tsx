@@ -224,9 +224,13 @@ test.describe('getRouteNeighbours says whether it looked', () => {
     );
   });
 
+  // 🔴 The body here is a VALID one. An error body would be refused by the
+  // group-count guard instead, and this test would pass with `!res.ok`
+  // deleted — measured 29.09.2026: removing that line left 614/614 green.
+  // A status check is only tested by a response that nothing else rejects.
   test('🔴 a 500 is "we could not look", not "there is nothing there"', async () => {
     await withFetch(
-      () => json({ error: 'boom' }, 500),
+      () => json(nearBody(), 500),
       async () => {
         const r = await getRouteNeighbours(route);
         expect(r.looked).toBe(false);
@@ -270,6 +274,20 @@ test.describe('getRouteNeighbours says whether it looked', () => {
     );
   });
 
+  // 🔴 Both sides, not one. The guard is `!==`, so a body with MORE groups
+  // than stages must be refused too — otherwise the extra one is read as a
+  // stage that does not exist.
+  test('🔴 more groups than stages is also "we could not look"', async () => {
+    await withFetch(
+      () => json(nearBody([...emptyGroups(), ...emptyGroups().slice(0, 1)])),
+      async () => {
+        const r = await getRouteNeighbours(route);
+        expect(r.looked).toBe(false);
+        expect(r.groups).toHaveLength(stages);
+      },
+    );
+  });
+
   // 🔴 A group we cannot read is not an empty group.
   test('🔴 a group with no readable list of campsites is "we could not look"', async () => {
     const body = nearBody();
@@ -289,6 +307,18 @@ test.describe('getRouteNeighbours says whether it looked', () => {
   test('🔴 a radius the API did not apply is "we could not look"', async () => {
     await withFetch(
       () => json({ ...nearBody(), radiusMetres: 60_000 }),
+      async () => {
+        expect((await getRouteNeighbours(route)).looked).toBe(false);
+      },
+    );
+  });
+
+  // 🔴 And the other direction, which is the dangerous one. A radius clamped
+  // DOWN means we looked at less ground than the sentence claims, and the
+  // page would print "within 25 km" over a narrower search with nothing red.
+  test('🔴 a radius clamped DOWN is "we could not look" too', async () => {
+    await withFetch(
+      () => json({ ...nearBody(), radiusMetres: 10_000 }),
       async () => {
         expect((await getRouteNeighbours(route)).looked).toBe(false);
       },
