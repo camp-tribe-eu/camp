@@ -594,6 +594,9 @@ export default function CampsiteMap() {
       return;
     }
     map.current = m;
+    // The camera has not moved yet. Written here so the attribute is never
+    // simply absent — see `data-camera` below for what it promises.
+    container.current.dataset.camera = 'still';
 
     m.addControl(new NavigationControl({ showCompass: false }));
     // 🔴 No customAttribution here. OpenFreeMap's styles already declare
@@ -930,6 +933,24 @@ export default function CampsiteMap() {
     // 🔴 On demand, the DRAWN ones only: the moment the set we decided
     // to draw changes, that count is true and the rendered one is not.
     publishRef.current = publishDrawn;
+
+    // 🔴 CAMP-169: say that the camera is moving THE INSTANT it starts.
+    //
+    // Every number published on this container describes the view at the
+    // last time it was computed, and that is recomputed at `moveend`. For
+    // the length of an ease — about 500 ms after a click on the zoom
+    // control — the counts and the bounds belong to the view the reader
+    // has just left, and `data-map-state` says `ready` all the while,
+    // because it is about FETCHES and nothing is being fetched.
+    //
+    // Written straight to the DOM and synchronously, not through React
+    // state: a state write would commit a task later, and a spec that
+    // clicked the control and read the attribute at once would see the
+    // `still` of the moment before the click. The `still` that answers it
+    // is written after a commit — see the effect on `[tally, dataState]`.
+    m.on('movestart', () => {
+      if (container.current) container.current.dataset.camera = 'moving';
+    });
 
     // 🔴 CAMP-127: the map now fetches what is in view, so moving it is
     // a data event and not only a rendering one. `moveend` rather than
@@ -1367,6 +1388,31 @@ export default function CampsiteMap() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
+  // 🔴 CAMP-169: `still` is written AFTER the commit that follows the stop.
+  //
+  // Not at `moveend`, not at `idle`. Both fire before the numbers for the
+  // resting view have reached the DOM: `moveend` starts `refresh`, whose
+  // tally is a React state and lands in a later task, and `idle` can fire
+  // in the very frame that ends the ease — ahead of that tally. A `still`
+  // written there would tell a spec the map had settled while
+  // `data-in-view-total` and `data-map-state` still described the view it
+  // had just left, which is the defect this attribute exists to prevent.
+  //
+  // Every stop is followed by a commit of one of these two states: the
+  // wide branch of `refresh` sets `dataState`, the detail branch sets
+  // `tally` (and `dataState` when chunks are missing). So this runs after
+  // every stop, and it runs after the DOM carries what `refresh` decided.
+  //
+  // `isMoving()` because a commit can land mid-ease — a filter ticked
+  // during the zoom re-tallies — and that commit must not claim rest. A
+  // spec that ticks a filter while the map is still easing is the case
+  // this was written against.
+  useEffect(() => {
+    const m = map.current;
+    const el = container.current;
+    if (m && el && !m.isMoving()) el.dataset.camera = 'still';
+  }, [tally, dataState]);
+
   // Switching sources.
   useEffect(() => {
     const m = map.current;
@@ -1570,6 +1616,11 @@ export default function CampsiteMap() {
         // status line would have the same hole the search had: absent is
         // also true before React has rendered anything.
         data-map-state={dataState.kind}
+        // 🔴 CAMP-169: `data-camera` ('moving' | 'still') lives on this
+        // element too, but it is written by the map's own events and not
+        // from here — see the `movestart` handler and the effect on
+        // [tally, dataState]. `ready` says nothing is being fetched; only
+        // `still` says the numbers below describe a view that has stopped.
         data-active-source={active.id}
         // 🔴 Two scopes, and each says which it is.
         //

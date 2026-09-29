@@ -4,6 +4,13 @@ import {
   GENERAL_AMENITY_KEYS,
   SPOT_TYPES,
 } from '@/lib/api';
+import {
+  DETAIL_ZOOM,
+  VIEW_BUDGET_BYTES,
+  chunkWeight,
+  type RegionSummary,
+} from '@/lib/map-chunks';
+import { INITIAL_VIEW } from '@/lib/map-sources';
 
 // CAMP-35 / CAMP-25 — the map filters, in every browser and at every width.
 //
@@ -45,7 +52,69 @@ async function excludedInView(page: Page): Promise<number> {
 }
 
 /**
- * Wait until the map is drawing individual campsites and has finished.
+ * What the map says about itself, read in ONE task.
+ *
+ * Three `getAttribute` calls are three round trips, and the map moves
+ * between them; one `evaluate` reads three attributes of one instant.
+ */
+async function pulse(page: Page) {
+  return page.evaluate(() => {
+    const el = document.querySelector('[data-testid="map"]');
+    return {
+      state: el?.getAttribute('data-map-state') ?? '',
+      camera: el?.getAttribute('data-camera') ?? '',
+      total: Number(el?.getAttribute('data-total') ?? 0),
+    };
+  });
+}
+
+/**
+ * Wait until the map has decided what it is looking at, and is looking
+ * at it.
+ *
+ * 🔴 CAMP-169. `data-map-state` answers "is anything being FETCHED", and
+ * that is not the question a spec that reads counts needs answered. The
+ * counts and the bounds describe the view at the last moment they were
+ * computed, which is `moveend`; for the length of an ease — about 500 ms
+ * after a click on the zoom control — they belong to the view the reader
+ * has just left, and the state says `ready` throughout.
+ *
+ * Measured 29.09.2026, on webkit-desktop against a production build built
+ * from the CI fixture, 60 runs of "says how many it is hiding" at four
+ * workers with no retries: 17 failed on one pass and 7 on the next. The
+ * failures read `Expected: 21..40, Received: 20`, and `Expected: 40,
+ * Received: 20` — the number in the card — was three of the 17.
+ *
+ * On the second pass the spec asked the map, at the instant it read
+ * `strict` and `hidden`, whether the camera was moving: 8 runs read a
+ * moving camera and 7 of them failed; 52 read a still one and none did.
+ * The opening view holds 40 with toilets ticked (13 recorded + 27 not),
+ * the view one zoom level in holds 20, and 40 to 20 is what one level
+ * does to a fixture piled around the centre. Nothing was lost and nothing
+ * was dropped; the spec asked a moving map a question that has only one
+ * answer at rest.
+ *
+ * `decided` is "not `loading`": the map begins in `loading` and leaves it
+ * for `wide`, `ready` or `failed`. `still` is `data-camera`, written by
+ * the map itself once the numbers for the resting view are in the DOM.
+ */
+async function atRest(page: Page, timeout = 20_000) {
+  await expect
+    .poll(
+      async () => {
+        const p = await pulse(page);
+        return p.camera === 'still' && p.state !== 'loading'
+          ? 'at rest'
+          : `state=${p.state || '(none)'} camera=${p.camera || '(none)'}`;
+      },
+      { timeout, message: 'the map never came to rest' },
+    )
+    .toBe('at rest');
+}
+
+/**
+ * Wait until the map is drawing individual campsites, has finished, and
+ * has stopped moving.
  *
  * 🔴 This used to be `data-total > 0`, and both halves of that were
  * wrong once CAMP-127 landed.
@@ -65,35 +134,50 @@ async function excludedInView(page: Page): Promise<number> {
  * So: zoom in until there are markers, then wait for the fetching to
  * stop. Clicking the real control rather than reaching into the map
  * object, for the same reason the counts are published as attributes.
+ *
+ * 🔴 CAMP-169. "Zoom in until there are markers" was decided by
+ * `data-total === 0`, which cannot tell "too wide for markers" from "the
+ * chunks have not arrived yet". On the fixture, which opens in detail,
+ * a slow first fetch made the helper zoom a map that needed no zooming —
+ * and that one click did two kinds of damage.
+ *
+ * It started an ease the spec then read through (see `atRest`). And it
+ * changed WHAT was fetched: a chunk is requested when its region overlaps
+ * the view at the moment of the refresh, so a camera that has already
+ * moved in asks for fewer regions than one that has not. "Step-free
+ * access is a strictly smaller answer than any access" failed in one of
+ * 95 whole-file runs on webkit, `Expected: < 8, Received: 8`, because the
+ * region holding the fixture's one `wheelchair=limited` campsite was never
+ * fetched. Two tests, one cause, and the second was found only because the
+ * first was measured properly.
+ *
+ * So it now waits for the map to decide (`atRest`) and clicks only when
+ * the answer is `wide`. Each click is followed by another wait, because
+ * the state read mid-ease is still the one from before the click.
  */
 async function loaded(page: Page) {
   const zoomIn = page.locator('.maplibregl-ctrl-zoom-in');
   await expect(zoomIn).toBeVisible();
   for (let i = 0; i < 8; i++) {
-    if (Number(await map(page).getAttribute('data-total')) > 0) break;
+    await atRest(page);
+    if ((await pulse(page)).state !== 'wide') break;
     await zoomIn.click();
-    // 🔴 Poll rather than sleep a flat 700 ms per click.
-    //
-    // Eight clicks at a fixed wait is 5.6 s spent before the real wait
-    // even begins, and on a loaded machine that pushed these tests past
-    // the 30 s budget — they failed on a timeout, not on an assertion.
-    // Most views need one or two clicks, and this leaves as soon as
-    // markers appear.
-    for (let w = 0; w < 8; w++) {
-      if (Number(await map(page).getAttribute('data-total')) > 0) break;
-      await page.waitForTimeout(150);
-    }
   }
-  await expect
-    .poll(async () => Number(await map(page).getAttribute('data-total')), {
-      timeout: 20_000,
-    })
-    .toBeGreaterThan(0);
   // `ready` now means what it says — published only when no fetch is
-  // outstanding — so this is a real barrier rather than a hope.
-  await expect(map(page)).toHaveAttribute('data-map-state', 'ready', {
-    timeout: 20_000,
-  });
+  // outstanding. The camera needs no second look here: the last thing the
+  // loop did was `atRest`, and nothing has touched the map since. One
+  // reading of state and total, so neither is seen after the other moved.
+  await expect
+    .poll(
+      async () => {
+        const p = await pulse(page);
+        return p.state === 'ready' && p.total > 0
+          ? 'loaded'
+          : `state=${p.state || '(none)'} camera=${p.camera || '(none)'} total=${p.total}`;
+      },
+      { timeout: 20_000, message: 'the map never finished loading' },
+    )
+    .toBe('loaded');
 }
 
 /**
@@ -114,6 +198,112 @@ async function zoomToDetail(page: Page) {
     .not.toBe('');
 }
 
+
+/**
+ * Everything the map publishes about the view, read in one task, so the
+ * numbers and the box they are numbers of belong to one moment.
+ */
+async function publishedView(page: Page) {
+  return page.evaluate(() => {
+    const el = document.querySelector('[data-testid="map"]');
+    const n = (a: string) => Number(el?.getAttribute(a));
+    return {
+      bounds: el?.getAttribute('data-bounds') ?? '',
+      inView: n('data-in-view'),
+      inViewTotal: n('data-in-view-total'),
+      excluded: n('data-in-view-unknown-excluded'),
+      shown: n('data-shown'),
+      total: n('data-total'),
+      state: el?.getAttribute('data-map-state') ?? '',
+    };
+  });
+}
+
+/** What the map had published, and what the camera said, at one write. */
+interface CameraStep {
+  camera: string;
+  view: Awaited<ReturnType<typeof publishedView>> | null;
+}
+
+/**
+ * Every value `data-camera` takes, in order, from the moment the map
+ * element exists — each with the numbers the map had published at that
+ * moment.
+ *
+ * 🔴 Recorded, not sampled. The value that matters lasts about 500 ms, and
+ * a poll can step straight over it — an assertion about a transient that
+ * it may not see would pass or fail by the speed of the machine, which is
+ * the very thing this file is being repaired for. A MutationObserver sees
+ * every write, and `oldValue` keeps the ones a single batch would merge.
+ *
+ * 🔴 And the numbers are read INSIDE the observer, in the same task as the
+ * write. `still` is a promise about them — "what is published now is what
+ * you will see when nothing moves" — and a spec that reads them a moment
+ * later cannot tell a `still` that was true from one that was written
+ * ahead of them and got lucky.
+ */
+async function recordCamera(page: Page) {
+  await page.addInitScript(() => {
+    const log: unknown[] = [];
+    (window as unknown as { __camera: unknown[] }).__camera = log;
+    const view = () => {
+      const el = document.querySelector('[data-testid="map"]');
+      const n = (a: string) => Number(el?.getAttribute(a));
+      return {
+        bounds: el?.getAttribute('data-bounds') ?? '',
+        inView: n('data-in-view'),
+        inViewTotal: n('data-in-view-total'),
+        excluded: n('data-in-view-unknown-excluded'),
+        shown: n('data-shown'),
+        total: n('data-total'),
+        state: el?.getAttribute('data-map-state') ?? '',
+      };
+    };
+    const watch = () => {
+      const el = document.querySelector('[data-testid="map"]');
+      if (!el) return false;
+      log.push({ camera: el.getAttribute('data-camera') ?? '', view: view() });
+      new MutationObserver((records) => {
+        records.forEach((_, i) => {
+          // A batch merges writes; the value each one left is the next
+          // record's `oldValue`, and the last one's is the current value.
+          // The numbers can only be read as they are NOW, so they are
+          // recorded on the last write of a batch and left off the others.
+          const last = i + 1 === records.length;
+          log.push({
+            camera:
+              (last
+                ? el.getAttribute('data-camera')
+                : records[i + 1].oldValue) ?? '',
+            view: last ? view() : null,
+          });
+        });
+      }).observe(el, {
+        attributes: true,
+        attributeFilter: ['data-camera'],
+        attributeOldValue: true,
+      });
+      return true;
+    };
+    if (!watch()) {
+      const finder = new MutationObserver(() => {
+        if (watch()) finder.disconnect();
+      });
+      finder.observe(document, { childList: true, subtree: true });
+    }
+  });
+}
+
+async function cameraSteps(page: Page): Promise<CameraStep[]> {
+  return page.evaluate(
+    () => (window as unknown as { __camera?: CameraStep[] }).__camera ?? [],
+  );
+}
+
+/** Just the words, for a message and for "did it ever say moving". */
+async function cameraLog(page: Page): Promise<string[]> {
+  return (await cameraSteps(page)).map((s) => s.camera);
+}
 
 async function skipWithoutWebGL(page: Page) {
   const ok = await page.evaluate(() => {
@@ -459,6 +649,288 @@ test.describe('/map filters', () => {
     // used to drive — kept so the change of scope did not quietly drop
     // an assertion.
     expect(await excluded(page)).toBe(0);
+  });
+
+  // 🔴 CAMP-169. The test above failed on webkit in about one run in four,
+  // and the reason was in the helper it stands on, not in it: `ready` said
+  // "nothing is being fetched" while the camera was still easing, and the
+  // spec read the counts off the view the ease was leaving.
+  //
+  // This is that mistake made on purpose, so that it fails EVERY time
+  // rather than one time in four. It clicks the zoom control and, before
+  // the ease can have ended, ticks a filter — which re-tallies and commits,
+  // which is the event a barrier built on "the state is ready" mistook for
+  // rest. Then it asks the barrier for rest, and checks that nothing moves
+  // afterwards.
+  test('🔴 a map that is still easing does not say it is at rest, even when a filter is ticked mid-zoom', async ({
+    page,
+  }) => {
+    await recordCamera(page);
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await loaded(page);
+    const opening = await publishedView(page);
+
+    // 🔴 Both clicks in ONE task, straight on the elements. Two Playwright
+    // clicks are two round trips with actionability checks between them,
+    // and on a fast engine the 500 ms ease was over before the second one
+    // landed — the test then never had a moving camera to ask about, and
+    // a barrier that ignored the camera passed it in two browsers of six.
+    // Found by breaking the barrier and counting which browsers noticed.
+    await page.evaluate(() => {
+      const zoomIn = document.querySelector('.maplibregl-ctrl-zoom-in');
+      const toilets = document.querySelector(
+        '[data-testid="filter-amenity-toilets"]',
+      );
+      (zoomIn as HTMLElement).click();
+      (toilets as HTMLElement).click();
+    });
+
+    await atRest(page);
+    const resting = await publishedView(page);
+    expect(
+      resting.bounds,
+      'the view did not change: the zoom never happened, or the map called ' +
+        'itself at rest before it had moved',
+    ).not.toBe(opening.bounds);
+
+    // 🔴 A wait, and a deliberate one: this is the VERIFICATION of the
+    // barrier, not the barrier. It is longer than any ease, and what it
+    // asserts is that the map had nothing left to do when it said so.
+    await page.waitForTimeout(1_200);
+    expect(
+      await publishedView(page),
+      'the map said it was at rest, and then it moved',
+    ).toEqual(resting);
+
+    // Said out loud, in order: it began moving, and it ended still. A map
+    // that never says `moving` cannot be told apart from a page that never
+    // had a camera.
+    const steps = await cameraSteps(page);
+    const log = steps.map((s) => s.camera);
+    expect(log, `data-camera went ${JSON.stringify(log)}`).toContain('moving');
+    expect(log[log.length - 1]).toBe('still');
+
+    // 🔴 And the `still` was written AFTER the numbers arrived. The
+    // recorder read the published view in the same task as that write; if
+    // `still` had been written at `moveend`, ahead of the commit that
+    // carries the tally, the view read there would be the one the ease had
+    // just left, and it would differ from the resting one.
+    expect(
+      steps[steps.length - 1].view,
+      'the map said still before the numbers for the resting view were published',
+    ).toEqual(resting);
+
+    // And what the reader was promised is what they get, on the view they
+    // are looking at.
+    expect(
+      resting.excluded,
+      'nothing is hidden in this view, so there is nothing to promise',
+    ).toBeGreaterThan(0);
+    await expect(page.getByTestId('filter-include-unknown')).toContainText(
+      String(resting.excluded),
+    );
+    await page.getByTestId('filter-include-unknown').locator('input').check();
+    await expect
+      .poll(() => shownInView(page))
+      .toBe(resting.inView + resting.excluded);
+  });
+
+  // 🔴 CAMP-169. The same promise, held to it with no clock in the way.
+  //
+  // The ease in the test above lasts 500 ms, so it can only be caught
+  // moving by a spec that is quick enough — and a mutant that ignores the
+  // camera survived one run in thirty of them, on a phone profile, because
+  // the runner stalled. A drag lasts as long as the mouse button is down.
+  // Held for a second and a half, "is it moving" has the same answer on any
+  // machine, and so does "does the barrier refuse".
+  test('🔴 a map held mid-drag says it is moving for as long as it is held, and the barrier refuses to pass', async ({
+    page,
+  }) => {
+    await recordCamera(page);
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await loaded(page);
+
+    // 🔴 Scrolled into view BEFORE the coordinates are read. The map sits
+    // below the filter panel, and on a 720 px desktop viewport its centre is
+    // at y=738 — off the screen, where a mouse press reaches nothing. The
+    // first version of this test dragged there and asserted, sincerely, that
+    // the camera was moving; it was not, because nothing had been touched.
+    await map(page).scrollIntoViewIfNeeded();
+    const box = await map(page).boundingBox();
+    if (!box) throw new Error('the map has no box to drag in');
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    // Past MapLibre's 3 px drag threshold, so the drag has really begun.
+    await page.mouse.move(cx + 40, cy, { steps: 8 });
+
+    // MapLibre applies a drag on the next animation frame, so `movestart`
+    // — and with it `moving` — comes a frame after the mouse does. Waited
+    // for rather than assumed: the first version read the attribute at
+    // once and found `still` in about half of the webkit runs, correctly,
+    // because the map had not yet been told it was moving.
+    await expect
+      .poll(async () => (await pulse(page)).camera)
+      .toBe('moving');
+
+    // A filter ticked mid-drag re-tallies and commits. Straight on the
+    // element: a Playwright click would move the mouse and end the drag.
+    await page.evaluate(() => {
+      (
+        document.querySelector(
+          '[data-testid="filter-amenity-toilets"]',
+        ) as HTMLElement
+      ).click();
+    });
+
+    await expect(
+      atRest(page, 1_500),
+      'the barrier let a map through while the reader was still dragging it',
+    ).rejects.toThrow();
+    expect((await pulse(page)).camera).toBe('moving');
+
+    await page.mouse.up();
+    await atRest(page);
+
+    const resting = await publishedView(page);
+    await page.waitForTimeout(1_200);
+    expect(
+      await publishedView(page),
+      'the map said it was at rest, and then it moved',
+    ).toEqual(resting);
+
+    const steps = await cameraSteps(page);
+    const log = steps.map((x) => x.camera);
+    expect(log, `data-camera went ${JSON.stringify(log)}`).toContain('moving');
+    expect(log[log.length - 1]).toBe('still');
+    expect(
+      steps[steps.length - 1].view,
+      'the map said still before the numbers for the resting view were published',
+    ).toEqual(resting);
+
+    expect(
+      resting.excluded,
+      'nothing is hidden in this view, so there is nothing to promise',
+    ).toBeGreaterThan(0);
+    await expect(page.getByTestId('filter-include-unknown')).toContainText(
+      String(resting.excluded),
+    );
+    await page.getByTestId('filter-include-unknown').locator('input').check();
+    await expect
+      .poll(() => shownInView(page))
+      .toBe(resting.inView + resting.excluded);
+  });
+
+  // 🔴 CAMP-169, the other half. A helper that zooms a map which needed no
+  // zooming has already decided what the test will see: the camera moves,
+  // and fewer regions are fetched than at the opening view. That is how
+  // "step-free access is a strictly smaller answer" failed once in 95
+  // whole-file webkit runs — the region holding the fixture's only
+  // `wheelchair=limited` campsite was never asked for.
+  //
+  // Every chunk here takes 1.5 s, longer than the 1.2 s the old helper
+  // waited before concluding the map was too wide, so the old logic clicks
+  // on every machine instead of only on the slow ones.
+  test('🔴 the helper leaves the camera alone when the map opens in detail, however slowly its chunks arrive', async ({
+    page,
+  }) => {
+    let delayed = 0;
+    await page.route('**/data/spots/*/*.geojson', async (route) => {
+      delayed += 1;
+      await new Promise((r) => setTimeout(r, 1_500));
+      await route.continue();
+    });
+    // 🔴 Whether this database opens in detail is decided from the INDEX,
+    // before the page is opened — not by waiting for the map to say so.
+    // The first version waited (`atRest`, then skip if `wide`), and in
+    // doing so did the helper's job for it: by the time `loaded` ran the
+    // chunks had arrived, it had nothing to decide, and the old blind-click
+    // helper passed this test as happily as the new one. Found by putting
+    // the old helper back and watching this stay green.
+    //
+    // If the whole index weighs less than one view may, no view can be too
+    // heavy, and the map opens at a zoom that draws markers.
+    const index = (await (
+      await page.request.get('/data/spots/index.json')
+    ).json()) as RegionSummary[];
+    const wholeIndex = index.reduce((n, r) => n + chunkWeight(r.count), 0);
+    test.skip(
+      wholeIndex > VIEW_BUDGET_BYTES || INITIAL_VIEW.zoom < DETAIL_ZOOM,
+      'this database is too big for the map to open in detail, so the camera has to move — the fixture is what this is about',
+    );
+
+    await recordCamera(page);
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+
+    await loaded(page);
+    expect(delayed, 'no chunk was slowed, so this proved nothing').toBeGreaterThan(0);
+    const log = await cameraLog(page);
+    expect(
+      log,
+      `the helper moved a map that needed no moving: data-camera went ${JSON.stringify(log)}`,
+    ).not.toContain('moving');
+  });
+
+  // 🔴 CAMP-169. The branch of `loaded` that CI's fixture never takes.
+  //
+  // The fixture opens in detail, so every other test in this file walks
+  // straight past the loop that zooms a map which is too wide for markers
+  // — and that loop was rewritten by this card. On the full database it is
+  // the only path there is. Untested, a mistake in it is found by the next
+  // person to run the suite against real data.
+  //
+  // "Too wide" is made here by zooming OUT below DETAIL_ZOOM, not by
+  // inflating the index: whether a view is too heavy depends on how large
+  // the screen is, and this has to mean the same on a phone and on a
+  // desktop. From the opening zoom one click out is 5.2, which is wide.
+  test('🔴 the helper zooms a map that is too wide, once, and returns only when it is loaded', async ({
+    page,
+  }) => {
+    await recordCamera(page);
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await loaded(page);
+
+    await page.locator('.maplibregl-ctrl-zoom-out').click();
+    await expect
+      .poll(
+        async () => {
+          const p = await pulse(page);
+          return `${p.state} (camera ${p.camera})`;
+        },
+        {
+          // 20 s like every other wait on this map. The ease is 500 ms, and
+          // the one failure this test showed (1 in 70, on mobile-chrome)
+          // was the default 5 s poll expiring with `ready` still standing.
+          timeout: 20_000,
+          message: 'one zoom out did not make the map too wide for markers',
+        },
+      )
+      .toMatch(/^wide/);
+    await atRest(page);
+
+    // Every WRITE of `moving`, not every change to it. Each `movestart`
+    // writes it once, and a second click that lands in the middle of the
+    // first ease restarts the movement without a `still` in between — so
+    // counting only changes saw one movement where the helper had made two.
+    // Found by making the helper do exactly that and watching this pass.
+    const movements = async () =>
+      (await cameraLog(page)).filter((c) => c === 'moving').length;
+    const before = await movements();
+
+    await loaded(page);
+
+    expect(
+      (await movements()) - before,
+      'a map one zoom level short of markers needs exactly one click',
+    ).toBe(1);
+    const now = await pulse(page);
+    expect(now).toMatchObject({ state: 'ready', camera: 'still' });
+    expect(now.total).toBeGreaterThan(0);
   });
 
   // 🔴 CAMP-25's whole argument, checked end to end. `wheelchair=limited`
