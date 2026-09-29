@@ -276,46 +276,36 @@ const daysAgo = (n: number) =>
  * 🔴 WebKit on Linux cannot photograph a WebGL canvas reliably, and the
  * three pixel tests below therefore do not run there.
  *
- * Two failures, both seen on the CI runner, both about the camera and not
- * about the map:
+ * Seen on the CI runner, and about the camera, not about the map: the tests
+ * photograph the map, click the layer off, wait, and photograph it again,
+ * and in WebKit on Linux the two images came back byte-identical — while
+ * the trace of the same run shows, frame by frame, the burnt area
+ * disappearing from the page the moment the button was clicked, and the
+ * failure screenshot taken 1.5 s AFTER the click still shows it. A second
+ * photograph of the canvas was the first.
  *
- *  1. The first version photographed the map, clicked the layer off,
- *     waited, and photographed it again. The two images came back
- *     byte-identical — while the trace of the same run shows, frame by
- *     frame, the burnt area disappearing from the page the moment the
- *     button was clicked, and the failure screenshot taken 1.5 s AFTER the
- *     click still shows it. A second photograph of the canvas was the first.
- *  2. So each image was moved to a page of its own (`mapImageOf`), where it
- *     is the only picture that canvas is asked for. That fixed two of three
- *     WebKit projects and left the third intermittent: "a burnt area really
- *     reaches the canvas" saw two identical images on its first attempt and
- *     two different ones on the retry (CI run 36538864122), which the flaky
- *     guard rightly refuses to call green.
+ * Two repairs were tried and are recorded so nobody tries them again:
  *
- * Retrying the photograph until it agrees would be the guard's own failure
- * mode. The skip is narrow instead: Chromium runs all three on the runner,
- * WebKit runs all three on a Mac, and WebKit on Linux still runs every
- * check that reads the page — the click and popup tests hit-test what the
- * renderer holds, so a layer that was not drawn there would fail them.
+ *  - Each image from a page of its own. It fixed two of three WebKit
+ *    projects and left the third intermittent (a first attempt with two
+ *    identical images, a retry with two different ones — CI run
+ *    36538864122, which the flaky guard rightly refused to call green), and
+ *    it broke Chromium: two SEPARATE loads of the same map are not
+ *    pixel-identical on the runner ("a stale feed leaves nothing on the
+ *    canvas" saw Received 1, then -1 — run 36541411530), most likely
+ *    because the campsite chunks arrive in a different order and cluster
+ *    slightly differently. A comparison that can only be trusted within one
+ *    page must stay within one page.
+ *  - Retrying the photograph until it agrees is the failure mode
+ *    check-flaky.mjs exists to stop.
+ *
+ * So the skip is narrow: Chromium runs all three on the runner, WebKit runs
+ * all three on a Mac, and WebKit on Linux still runs every check that reads
+ * the page — the click and popup tests hit-test what the renderer holds, so
+ * a layer that was not drawn there would fail them.
  */
 const cameraUnreliable = (browserName: string) =>
   browserName === 'webkit' && process.platform === 'linux';
-
-/**
- * The map, photographed on a page of its own that has seen only `feed`, so
- * that "with" and "without" are never two shots of one canvas.
- */
-async function mapImageOf(page: Page, feed: unknown): Promise<Buffer> {
-  const other = await page.context().newPage();
-  try {
-    await serveFeed(other, feed);
-    await openMap(other);
-    await settle(other);
-    return await other.locator('[data-testid="map"]').screenshot();
-  } finally {
-    await other.close();
-  }
-}
 
 test.describe('the wildfire layer', () => {
   test('says what Copernicus recorded, with the date and the licence, on the page', async ({
@@ -423,28 +413,6 @@ test.describe('the wildfire layer', () => {
     expect((await page.locator(NOTE).innerText()).replace(/\s+/g, ' ')).toContain(
       '1 is in this view',
     );
-    const on = await page.locator('[data-testid="map"]').screenshot();
-    // The same view and the same campsites, from a page whose feed holds no
-    // fire at all. Only the burnt area can differ between the two.
-    const without = await mapImageOf(page, feedOf([]));
-
-    expect(
-      Buffer.compare(on, without) === 0,
-      'the map looked identical with and without a burnt area in view — nothing was drawn',
-    ).toBe(false);
-  });
-
-  test('switching the layer off takes the burnt area off the canvas', async ({
-    page,
-    browserName,
-  }) => {
-    // 🔴 SKIPPED where the picture cannot be trusted, and only there — in
-    // WebKit on Linux a second photograph of a canvas is the first one.
-    // Chromium on the runner, and WebKit on a Mac, run this for real.
-    test.skip(cameraUnreliable(browserName), 'WebKit on Linux cannot photograph a canvas — see cameraUnreliable');
-    await serveFeed(page, inViewFeed());
-    await openMap(page);
-    await settle(page);
     const map = page.locator('[data-testid="map"]');
     const on = await map.screenshot();
 
@@ -455,7 +423,7 @@ test.describe('the wildfire layer', () => {
 
     expect(
       Buffer.compare(on, off) === 0,
-      'the map looked identical with the layer switched on and off — the switch does nothing',
+      'the map looked identical with the wildfire layer on and off — nothing was drawn',
     ).toBe(false);
   });
 
@@ -795,14 +763,19 @@ test.describe('the wildfire layer', () => {
   test('a stale feed leaves nothing on the canvas', async ({ page, browserName }) => {
     test.skip(cameraUnreliable(browserName), 'WebKit on Linux cannot photograph a canvas — see cameraUnreliable');
     // 🔴 The words say the layer is off; this proves it. Photographed
-    // against a page whose feed holds no fire at all — if a stale feed still
-    // painted perimeters, these two would differ.
+    // against the same page with the layer switched off by hand — if a
+    // stale feed still painted perimeters, these two would differ.
     await serveFeed(page, inViewFeed({ ...FEED.meta, fetchedAt: daysAgo(9) }));
     await openMap(page);
     await settle(page);
     await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'stale');
-    const stale = await page.locator('[data-testid="map"]').screenshot();
-    const off = await mapImageOf(page, feedOf([]));
+    const map = page.locator('[data-testid="map"]');
+    const stale = await map.screenshot();
+
+    await page.locator('[data-layer="wildfire"]').click();
+    await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'off');
+    await page.waitForTimeout(1500);
+    const off = await map.screenshot();
 
     // 🔴 This one is only as good as its control: two blank frames are
     // equal too. The control is the test named "a burnt area really
