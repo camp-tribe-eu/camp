@@ -3,6 +3,7 @@
   "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
+  "globalSetup": "<rootDir>/require-node-24.cjs",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   }

@@ -192,8 +192,25 @@ describe('🔴 the build token lifts the limit — the bypass that cost seven ho
   });
 });
 
-describe('🔴 two buckets per caller, not one per route', () => {
-  it('the three whole-dataset routes share one bulk bucket', async () => {
+// 🔴 What this block does NOT say. It covers the three routes that
+// BULK_ROUTES lists (`spots/map/points`, `spots/search-index`, `spots/index`)
+// and nothing else — it is not "every route with the bulk limit".
+//
+// `/spots/map/regions` is decorated `@Throttle(BULK)` (limit 6) but is absent
+// from BULK_ROUTES, so `generateKey` files it under `ordinary`: it gets the
+// bulk NUMBER in the ordinary BUCKET. Measured through this suite's own
+// application: six calls to `/spots/countries` all answer 200, and the next
+// call to `/spots/map/regions` answers 429. That is a pre-existing defect in
+// throttle.ts / spots.controller.ts, found while writing this file, carded
+// separately and deliberately NOT asserted here in either direction — a test
+// that passes today's behaviour would fix the bug in place, and one that
+// demands the tidy behaviour would be red on main's own code.
+//
+// The pure suite's "every bulk route actually carries the bulk limit" reads
+// the decorators, and the list of routes it iterates is BULK_ROUTES: the same
+// list, so it cannot see this either.
+describe('🔴 two buckets per caller, not one per route — for the routes BULK_ROUTES lists', () => {
+  it('the three routes BULK_ROUTES lists share one bulk bucket', async () => {
     await boot();
     // Two on each route is six in all — the limit — if they share.
     // If the library's per-handler key were back, each route would have
