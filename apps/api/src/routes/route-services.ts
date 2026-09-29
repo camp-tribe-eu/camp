@@ -14,6 +14,9 @@ import {
   type RoutePoiKind,
 } from '../osm/route-poi';
 import { DEFAULT_PER_POINT, OVERFETCH } from './route-points';
+// CAMP-154: the three sources whose licences permit us to republish a
+// per-station price. A closed list, and the only one the query may serve.
+import { SOURCES } from '../fuel/stations';
 
 /** One service beside a stage, or the fact that there is none. */
 export interface RouteService {
@@ -58,6 +61,49 @@ export interface RouteService {
    * what it is, and let the reader read it.
    */
   openingHours: string | null;
+  /**
+   * CAMP-154 — the price of a litre ON THIS FORECOURT, or absent.
+   *
+   * 🔴 Only ever present on `kind: 'fuel'`, and absent far more often
+   * than not. Measured 28.09.2026 against the live route POI layer:
+   * we hold a price for 58.2% of Spain's 16 063 OSM fuel points, 42.9%
+   * of France's 16 110 and 68.5% of Italy's 27 811 — and for none at
+   * all in the other 24 member states, because only these three publish
+   * per station on terms that permit commercial reuse (§6).
+   *
+   * 🔴 This is NOT the CAMP-55 country average, and the page must never
+   * let it read as one or vice versa. The average is a national figure
+   * for a week; this is one forecourt at one moment, and it carries
+   * `measuredAt` and `source` so the page can say which it is showing.
+   */
+  prices?: RouteFuelStationPrice[];
+}
+
+/** One grade's price on one forecourt. */
+export interface RouteFuelStationPrice {
+  grade: 'diesel' | 'petrol';
+  /**
+   * 🔴 The source's own product name — `Gazole`, `Gasóleo A`, `SP95`,
+   * `E10`, `Benzina (servito)`. France sells 95-octane petrol as both
+   * SP95 and E10 at different prices and 5 619 of its stations post only
+   * E10, so the page prints this rather than the word "petrol" alone.
+   */
+  product: string;
+  /**
+   * 🔴 A STRING, and deliberately not a number.
+   *
+   * The column is `numeric(6,3)` because these are money — the argument
+   * spot_tariffs makes, where the upstream feed literally contained
+   * `"2.7999999523162841796875"` for €2.80. Sending it as a float
+   * would put the defect back in on the wire, in JSON, on the way to a
+   * page whose whole job is to print the figure exactly as published.
+   * Nothing between here and the reader converts it.
+   */
+  price: string;
+  /** ISO 8601. When the SOURCE says the price was set, never our fetch. */
+  measuredAt: string;
+  /** `es-minetur` | `fr-data-economie` | `it-mimit`. */
+  source: string;
 }
 
 export interface RouteServiceGroup {
@@ -195,12 +241,82 @@ export function buildServicesSql(kinds: RoutePoiKind[]): string {
                    ST_Distance(c.location::geography,
                                (SELECT g FROM here)::geography) AS metres
               FROM cand c
+          ),
+          picked AS (
+            SELECT DISTINCT ON (kind) *
+              FROM measured
+             WHERE metres <= $4
+             ORDER BY kind, metres
           )
-          SELECT DISTINCT ON (kind) *
-            FROM measured
-           WHERE metres <= $4
-           ORDER BY kind, metres`;
+          SELECT p.*, ${FUEL_PRICE_SUBQUERY} AS prices
+            FROM picked p
+           ORDER BY p.kind`;
 }
+
+/**
+ * CAMP-154 — the price of a litre on the fuel point we just picked.
+ *
+ * 🔴 A correlated subquery on the FINAL row, not a join in `cand`.
+ *
+ * `cand` holds `$3 × 7` candidates per stage before the nearest of each
+ * kind is chosen; joining prices there would look them up for every
+ * candidate we are about to discard. Here it runs once per stage, for
+ * one row.
+ *
+ * 🔴 `p.kind = 'fuel'` short-circuits it for the other six kinds. A café
+ * has no row in `fuel_station_prices` so the result would be null
+ * anyway — but "would be null anyway" is six index probes per stage
+ * that exist only to return nothing, and this project has already paid
+ * 9 699 ms for one plausible-looking lookup on this table.
+ *
+ * 🔴 `price_eur::text`. The column is `numeric(6,3)`; `json_build_object`
+ * on a numeric emits an unquoted JSON number, which `JSON.parse` turns
+ * into a float on the other side and hands to a page that must print
+ * what the ministry published. `::text` keeps `1.849` as `"1.849"` all
+ * the way to the reader.
+ *
+ * 🔴 ORDER BY grade, so diesel precedes petrol on every forecourt in
+ * every country. Without it the order is whatever the index returns and
+ * two stages of the same route can list the two grades the other way
+ * round — which reads as a difference between the stations.
+ */
+/**
+ * 🔴 THE SOURCE WHITELIST, IN THE QUERY, NOT ONLY IN THE RENDERER.
+ *
+ * Review found the refused-country gate living solely in the web app:
+ * `displayPrices` drops a price whose `source` has no attribution entry,
+ * which protects the route page and nothing else. The API is public.
+ * `/routes/services` would have served an Austrian row — a country for
+ * which **no consumer licence exists** — to any caller, and the page's
+ * silence would have read as our having decided nothing.
+ *
+ * A permission is a property of the data, so the gate belongs where the
+ * data leaves. Literals rather than a parameter for the reason the whole
+ * of this file gives: the list is closed, it comes from `SOURCES` in
+ * fuel/stations.ts, and nothing in it is reachable from a request.
+ */
+const SOURCE_IDS = SOURCES.map((s) => {
+  // Belt and braces. Nothing here comes from a request, but this string
+  // is interpolated into SQL and this repository is public.
+  if (!/^[a-z][a-z0-9-]*$/.test(s.id)) {
+    throw new Error(`route-services: unsafe source id ${JSON.stringify(s.id)}`);
+  }
+  return `'${s.id}'`;
+}).join(', ');
+
+export const FUEL_PRICE_SUBQUERY = `(
+              SELECT json_agg(json_build_object(
+                       'grade', f.grade,
+                       'product', f.product,
+                       'price', f.price_eur::text,
+                       'measuredAt', f.measured_at,
+                       'source', f.source
+                     ) ORDER BY f.grade)
+                FROM fuel_station_prices f
+               WHERE p.kind = 'fuel'
+                 AND f.osm_ref = p.osm_ref
+                 AND f.source IN (${SOURCE_IDS})
+            )`;
 
 /** How many candidates each kind's index walk fetches before re-sorting. */
 export const servicesOverfetch = (perKind: number) => perKind * OVERFETCH;
