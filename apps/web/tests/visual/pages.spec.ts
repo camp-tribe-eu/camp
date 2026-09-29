@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 // Debt #3 (CAMP-60): catch the regressions no functional test can see.
@@ -59,6 +61,62 @@ async function masks(page: Page) {
   ];
 }
 
+/**
+ * 🔴 CAMP-153. Pin the wildfire note so /map's baseline is about LAYOUT.
+ *
+ * The note under the map says something different in every state, and the
+ * state is a function of the calendar: `wildfires.json` carries the
+ * moment it was last fetched, and the page stops calling it fresh 72
+ * hours later. A baseline recorded while it was fresh therefore fails on
+ * the fourth day for no reason but the date — and on a data refresh, for
+ * the words in the file. Both are correct behaviour that a screenshot
+ * cannot tell from a regression, and a suite that goes red by itself is
+ * a suite people delete.
+ *
+ * So the clock is fixed and the feed is ours: two small fires in Portugal
+ * (the map opens over Croatia, so the note says none is in view) and the
+ * shipped `meta` — credit, authority note, licence links — with only the
+ * two dates moved. What the baseline guards is how that note sits on the
+ * page. What the note SAYS in each state is asserted, on the page, by
+ * tests/e2e/wildfire-layer.spec.ts.
+ */
+async function pinFireLayer(page: Page) {
+  const shipped = JSON.parse(
+    readFileSync(join(__dirname, '..', '..', 'src', 'data', 'wildfires.json'), 'utf8'),
+  ) as { meta: Record<string, unknown> };
+  const fire = (lng: number, lat: number, id: string) => ({
+    type: 'Feature',
+    geometry: {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [lng, lat],
+          [lng + 0.05, lat],
+          [lng + 0.05, lat + 0.05],
+          [lng, lat + 0.05],
+          [lng, lat],
+        ],
+      ],
+    },
+    properties: { id, date: '2026-09-20', country: 'PT', place: 'Portel', hectares: 60 },
+  });
+  await page.clock.setFixedTime(new Date('2026-09-28T12:00:00Z'));
+  await page.route('**/data/wildfires.json', (route) =>
+    route.fulfill({
+      json: {
+        type: 'FeatureCollection',
+        meta: {
+          ...shipped.meta,
+          fetchedAt: '2026-09-28T11:00:00.000Z',
+          since: '2026-09-14',
+          windowDays: 14,
+        },
+        features: [fire(-8, 39, 'v-1'), fire(-7.5, 39.5, 'v-2')],
+      },
+    }),
+  );
+}
+
 async function settle(page: Page) {
   // Fonts decide layout. A screenshot taken before they load captures
   // the fallback metrics and differs from every later run.
@@ -74,6 +132,7 @@ for (const viewport of VIEWPORTS) {
 
     for (const subject of PAGES) {
       test(`${subject.name} looks the way it did`, async ({ page }) => {
+        if (subject.name === 'map') await pinFireLayer(page);
         await page.goto(subject.path);
         await settle(page);
 
