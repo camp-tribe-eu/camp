@@ -387,7 +387,15 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # 🔴 24, unlike every other job here, and only because of Jest.
+          # CAMP-159: Nest 12 is ESM-only, and Jest 30 can require() an ES
+          # module only on Node >= 24.9. On 22 the same commit was red —
+          # every spec that imports @nestjs/* died with "Must use import to
+          # load ES Module" — while it was green on a Node 24 laptop. The API
+          # itself is not affected: build-site starts it on Node 22 in the
+          # jobs below, and the bypass probe runs there. apps/api/test/
+          # require-node-24.cjs says the same thing out loud to a developer.
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run build --workspace=apps/api
