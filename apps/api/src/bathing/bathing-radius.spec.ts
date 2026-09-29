@@ -13,10 +13,13 @@ import { BATHING_RADIUS_M } from './nearby';
 // incomplete fixture, which is the failure CAMP-168 built the three-state
 // tests to avoid.
 //
-// This reads the SQL FILE, not a description of it, strips its comments so
-// a number in prose cannot satisfy it, and compares the one ST_DWithin
-// that selects bathing waters with the constant the page uses. Checked by
-// changing either number.
+// The number is a psql variable (`\set bathing_radius_m`), so it is written
+// once and the distance test reads it. This reads the SQL FILE, not a
+// description of it, strips its comments so a number in prose cannot satisfy
+// it, compares that one variable with the constant the page uses, and checks
+// that the only distance test in the file reads the variable rather than a
+// number of its own. Checked by changing either number and by adding a
+// second one.
 
 const SELECT = readFileSync(
   join(__dirname, '../../test/fixtures/_select.sql'),
@@ -27,17 +30,27 @@ const code = SELECT.replace(/--[^\n]*/g, '');
 
 describe('the fixture select for bathing waters', () => {
   const radii = [
-    ...code.matchAll(
-      /ST_DWithin\(\s*b\.location\s*,\s*s\.location::geography\s*,\s*(\d+)\s*\)/g,
-    ),
+    ...code.matchAll(/^\\set\s+bathing_radius_m\s+(\d+)\s*$/gm),
   ].map((m) => Number(m[1]));
 
-  it('selects by distance exactly once, so there is one number to compare', () => {
+  it('sets the radius in exactly one place', () => {
     expect(radii).toHaveLength(1);
   });
 
   it('uses the radius the campsite page uses', () => {
     expect(radii[0]).toBe(BATHING_RADIUS_M);
+  });
+
+  // Not "some distance test reads the variable": the ONLY one does, so a
+  // literal added beside it (a second radius the page has never heard of)
+  // cannot slip in.
+  it('has one distance test, and it reads that variable', () => {
+    const tests = [...code.matchAll(/ST_DWithin\(([^)]*)\)/g)].map((m) =>
+      m[1].replace(/\s+/g, ' ').trim(),
+    );
+    expect(tests).toEqual([
+      'b.location, s.location::geography, :bathing_radius_m',
+    ]);
   });
 
   // Not a copy of the page's rule, a guard on the copy: the page reads only

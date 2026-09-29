@@ -175,8 +175,11 @@ FROM fixture_spots ORDER BY region, slug;
 --
 -- Three things here are copies of what the page itself does, and each is
 -- the way the fixture could quietly stop matching it:
---   * 2000 is BATHING_RADIUS_M in src/bathing/nearby.ts. bathing-radius.spec.ts
---     compares the two, so a change of radius cannot leave this behind.
+--   * bathing_radius_m below is BATHING_RADIUS_M in src/bathing/nearby.ts.
+--     bathing-radius.spec.ts compares the two, so a change of radius cannot
+--     leave this behind. It is a psql variable so that the number is
+--     written once: the distance test and the header line printed into
+--     ci-seed.sql both read it.
 --   * Only the newest season of each source, as nearestBathingWaterSql
 --     reads it. An older season in the fixture would be a row no page can
 --     show and no test can tell is there.
@@ -185,8 +188,9 @@ FROM fixture_spots ORDER BY region, slug;
 -- The header line below is printed into ci-seed.sql so the attribution the
 -- rows need travels with them. No apostrophes in it: \echo would read one
 -- as the start of a quoted string.
+\set bathing_radius_m 2000
 \echo
-\echo -- CAMP-168: the EU designated bathing waters within 2 km of a campsite above.
+\echo -- CAMP-168: the EU designated bathing waters within :bathing_radius_m m of a campsite above.
 \echo -- Real EEA data. Attribution, verbatim from the service copyrightText:
 \echo -- EEA, Bathing waters data and coordinates: Member states authorities. CC BY 4.0.
 SELECT 'INSERT INTO bathing_waters (source_id, ref, name, country, category, season, status, profile_url, location) VALUES ('
@@ -199,5 +203,5 @@ FROM bathing_waters b
 WHERE b.season = (SELECT max(m.season) FROM bathing_waters m WHERE m.source_id = b.source_id)
   AND EXISTS (
     SELECT 1 FROM fixture_spots s
-     WHERE ST_DWithin(b.location, s.location::geography, 2000))
+     WHERE ST_DWithin(b.location, s.location::geography, :bathing_radius_m))
 ORDER BY b.country, b.ref;
