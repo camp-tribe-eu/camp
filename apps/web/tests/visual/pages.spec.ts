@@ -117,6 +117,41 @@ async function pinFireLayer(page: Page) {
   );
 }
 
+/**
+ * 🔴 CAMP-163. Pin the drought note for the same reason, and by the same
+ * means: it says a different thing in every state, and the state is a
+ * function of the calendar — `drought.json` names a dekad, and the page
+ * stops calling it fresh 40 days after it began. A baseline recorded while
+ * it was fresh would fail on the 41st day, and on every data refresh.
+ *
+ * The clock is the one `pinFireLayer` fixed (28.09.2026, which is 17 days
+ * after the 11th), and the file is the shipped one with ONLY the two dates
+ * moved onto that clock — the period, its credit's year and the read time.
+ * The grid is the shipped grid: the canvas is masked, so its content cannot
+ * change what is guarded here, which is how the note sits on the page. What
+ * the note SAYS in each state is asserted, on the page, by
+ * tests/e2e/drought-layer.spec.ts.
+ */
+async function pinDroughtLayer(page: Page) {
+  const shipped = JSON.parse(
+    readFileSync(join(__dirname, '..', '..', 'src', 'data', 'drought.json'), 'utf8'),
+  ) as { meta: Record<string, string>; grid: unknown };
+  await page.route('**/data/drought.json', (route) =>
+    route.fulfill({
+      json: {
+        meta: {
+          ...shipped.meta,
+          dekad: '2026-09-11',
+          fetchedAt: '2026-09-28T11:00:00.000Z',
+          // The credit carries the year of the DATA, and the page checks it.
+          attribution: shipped.meta.attribution.replace(/information \d{4}/, 'information 2026'),
+        },
+        grid: shipped.grid,
+      },
+    }),
+  );
+}
+
 async function settle(page: Page) {
   // Fonts decide layout. A screenshot taken before they load captures
   // the fallback metrics and differs from every later run.
@@ -132,7 +167,10 @@ for (const viewport of VIEWPORTS) {
 
     for (const subject of PAGES) {
       test(`${subject.name} looks the way it did`, async ({ page }) => {
-        if (subject.name === 'map') await pinFireLayer(page);
+        if (subject.name === 'map') {
+          await pinFireLayer(page);
+          await pinDroughtLayer(page);
+        }
         await page.goto(subject.path);
         await settle(page);
 

@@ -292,17 +292,30 @@ function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
 
 /** The drought grid as a picture, ready for MapLibre. */
 interface DroughtImage {
-  url: string;
+  canvas: HTMLCanvasElement;
   coordinates: DroughtOverlay['coordinates'];
 }
 
 /**
- * CAMP-163: paint the grid onto a canvas and hand MapLibre the picture.
+ * CAMP-163: paint the grid onto a canvas and hand MapLibre the canvas.
  *
  * 🔴 Built from the SAME grid the panel samples, once per arrival, so the
  * colour under a campsite marker and the class the panel reports come from
  * one array (`paintOverlay` says why the picture is resampled into
- * mercator). `img-src` allows `data:`, so no new origin is needed.
+ * mercator).
+ *
+ * 🔴 A CANVAS SOURCE, NOT AN IMAGE SOURCE WITH A `data:` URL — and this is
+ * a measured defect, not a preference. The first version turned the canvas
+ * into a data URL and gave that to an `image` source. On the production
+ * build MapLibre loads an image source with `fetch()`, so the Content
+ * Security Policy's `connect-src 'self' https://tiles.openfreemap.org`
+ * refused it ("Refused to connect because it violates the document's
+ * Content Security Policy"), the layer never drew, and nothing but one
+ * console line said so. The unit tests could not have seen it — it needs
+ * the header a real server sends. `img-src` allows `data:` and `connect-src`
+ * does not, and widening `connect-src` to let a fetch read a string we made
+ * ourselves would be the wrong repair. A canvas source reads the canvas
+ * directly and makes no request at all.
  */
 function buildDroughtImage(grid: CdiGrid): DroughtImage | null {
   const overlay = paintOverlay(grid);
@@ -316,7 +329,7 @@ function buildDroughtImage(grid: CdiGrid): DroughtImage | null {
     0,
     0,
   );
-  return { url: canvas.toDataURL('image/png'), coordinates: overlay.coordinates };
+  return { canvas, coordinates: overlay.coordinates };
 }
 
 /**
@@ -340,9 +353,12 @@ function attachDrought(
   if (!image) return;
   if (!m.getSource(DROUGHT_SOURCE)) {
     m.addSource(DROUGHT_SOURCE, {
-      type: 'image',
-      url: image.url,
+      type: 'canvas',
+      canvas: image.canvas,
       coordinates: image.coordinates,
+      // Static: read once. The default re-uploads a 1 824 × 3 696 texture
+      // on every frame.
+      animate: false,
     });
   }
   if (!m.getLayer(DROUGHT_LAYER)) {
@@ -361,6 +377,40 @@ function attachDrought(
     // change fires `styledata` again.
     m.setLayoutProperty(DROUGHT_LAYER, 'visibility', visible ? 'visible' : 'none');
   }
+}
+
+/**
+ * CAMP-163: `attachDrought`, for a caller that cannot know whether the
+ * style has loaded.
+ *
+ * 🔴 NOT gated on `isStyleLoaded()`. That answers "is anything still being
+ * fetched" — it is false while vector tiles or a GeoJSON source are
+ * loading, which on a busy map is most of the first seconds — and gating on
+ * it meant the first arrival of the data could be skipped with no later
+ * event to retry it. What `addSource` actually needs is the style DOCUMENT
+ * to have loaded, and it says so by throwing; that one message is the only
+ * thing swallowed, because `styledata` fires when the document arrives and
+ * `attach` then draws what was skipped.
+ */
+function tryAttachDrought(
+  m: InstanceType<typeof MapLibreMap>,
+  image: DroughtImage | null,
+  visible: boolean,
+) {
+  try {
+    attachDrought(m, image, visible);
+  } catch (e) {
+    if (!(e instanceof Error) || !/not done loading/i.test(e.message)) throw e;
+  }
+}
+
+/** Is the drought picture on the map, and showing, right now? Asked of the map, not remembered. */
+function droughtIsDrawn(m: InstanceType<typeof MapLibreMap> | null): boolean {
+  return (
+    !!m &&
+    !!m.getLayer(DROUGHT_LAYER) &&
+    m.getLayoutProperty(DROUGHT_LAYER, 'visibility') === 'visible'
+  );
 }
 
 /**
@@ -733,6 +783,10 @@ export default function CampsiteMap() {
       // campsites. It is restored here for the same reason: setStyle
       // discards it with everything else.
       attachDrought(m, droughtImage.current, droughtShown.current);
+      // 🔴 Said again here, because this is the moment a picture that had to
+      // wait for the style actually goes on the map — `drawDrought` ran
+      // earlier and reported what was true then.
+      if (container.current) container.current.dataset.droughtDrawn = droughtIsDrawn(m) ? '1' : '0';
       attachFires(m);
       if (!m.getSource(SOURCE_ID)) {
         m.addSource(SOURCE_ID, {
@@ -1468,13 +1522,26 @@ export default function CampsiteMap() {
     const shown = droughtOn && droughtStateNow.kind === 'fresh';
     droughtShown.current = shown;
     if (shown && !droughtImage.current && droughtStateNow.kind === 'fresh') {
-      droughtImage.current = buildDroughtImage(droughtStateNow.grid);
+      let built: DroughtImage | null = null;
+      try {
+        built = buildDroughtImage(droughtStateNow.grid);
+      } catch {
+        built = null; // a canvas this size that the browser will not give us
+      }
+      if (!built) {
+        // 🔴 A panel that says "drawn on the map" over a map it could not
+        // draw on is the blank that reads as an all-clear. `missing` is the
+        // honest state for "we hold it and cannot show it": nothing is drawn
+        // and the sentence says so.
+        droughtShown.current = false;
+        if (el) el.dataset.droughtDrawn = '0';
+        setDroughtStateNow({ kind: 'missing' });
+        return;
+      }
+      droughtImage.current = built;
     }
-    if (m && m.isStyleLoaded()) attachDrought(m, droughtImage.current, shown);
-    if (el) {
-      el.dataset.droughtDrawn =
-        shown && droughtImage.current && m?.getLayer(DROUGHT_LAYER) ? '1' : '0';
-    }
+    if (m) tryAttachDrought(m, droughtImage.current, shown);
+    if (el) el.dataset.droughtDrawn = droughtIsDrawn(m) ? '1' : '0';
   };
   const drawDroughtRef = useRef(drawDrought);
   drawDroughtRef.current = drawDrought;
