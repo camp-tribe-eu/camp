@@ -36,6 +36,8 @@ import {
   type SpotProperties as FilterProperties,
 } from '@/lib/map-filter';
 import MapFilters from './map-filters';
+import { LayerChip } from './layer-chip';
+import { WildfirePanel } from './wildfire-panel';
 import {
   DETAIL_ZOOM,
   chunkUrl,
@@ -57,9 +59,7 @@ import {
   WILDFIRE_URL,
   firesInView,
   formatDay,
-  formatInstant,
   readFeed,
-  wildfireNote,
   wildfireState,
   type WildfireFeature,
   type WildfireState,
@@ -560,7 +560,6 @@ export default function CampsiteMap() {
 
   const active =
     MAP_SOURCES.find((s) => s.id === sourceId) ?? MAP_SOURCES[0];
-  const fireNote = wildfireNote(fireState, firesHere);
 
   // Created once. Changing the style afterwards goes through setStyle,
   // because re-creating the map would throw away the reader's position.
@@ -1461,26 +1460,14 @@ export default function CampsiteMap() {
           Layers
         </span>
         <div role="group" aria-label="Layers" className="flex flex-wrap gap-1.5">
-          {LAYERS.filter((l) => l.status === 'live' && l.id !== 'campsites').map((l) => {
-            const on = layers.includes(l.id as LayerId);
-            return (
-              <button
-                key={l.id}
-                type="button"
-                onClick={() => setLayers((now) => toggleLayer(now, l.id))}
-                aria-pressed={on}
-                title={l.description}
-                data-layer={l.id}
-                className={`inline-flex h-8 items-center rounded-sm border px-3 text-sm transition-colors ${
-                  on
-                    ? 'border-line-blue bg-accent-surface font-semibold text-heading'
-                    : 'border-line-2 bg-surface text-ink-2 hover:border-line-blue'
-                }`}
-              >
-                {l.label}
-              </button>
-            );
-          })}
+          {LAYERS.filter((l) => l.status === 'live' && l.id !== 'campsites').map((l) => (
+            <LayerChip
+              key={l.id}
+              layer={l}
+              on={layers.includes(l.id as LayerId)}
+              onToggle={() => setLayers((now) => toggleLayer(now, l.id))}
+            />
+          ))}
         </div>
       </div>
 
@@ -1603,94 +1590,11 @@ export default function CampsiteMap() {
         className="h-[60vh] min-h-[360px] w-full overflow-hidden rounded-card border border-line-2"
       />
 
-      {/* 🔴 CAMP-153. The fire layer always says something, and that is
-          the whole point of it.
-
-          An empty map reads as "all clear". Here that misreading is the
-          risk the card exists to remove: a reader who sees no perimeter
-          near a campsite in Calabria concludes there is no fire, when
-          what happened may be that our last read of Copernicus failed
-          three days ago. So every state — loading, missing, stale, none
-          recorded, none in view, some in view — has its own sentence, and
-          none of them is ever an empty element.
-
-          🔴 And the credit is HERE, next to the shapes, not in a footer
-          constant nobody checks. CC BY 4.0 asks for attribution to the
-          source with the data's date; both are rendered, and both come
-          out of the feed rather than out of this file, so a pipeline that
-          started writing something else could not keep saying Copernicus. */}
-      <div
-        role="status"
-        data-testid="wildfire-note"
-        data-state={firesOn ? fireState.kind : 'off'}
-        data-in-view={firesHere === null ? '' : String(firesHere)}
-        className={
-          'mt-2 rounded border p-3 text-sm ' +
-          (!firesOn
-            ? 'border-line-2 bg-surface text-ink-2'
-            : fireNote.tone === 'gap'
-            ? 'border-warn/40 bg-warn/5 text-ink-2'
-            : 'border-line-2 bg-surface text-ink-2')
-        }
-      >
-        {!firesOn ? (
-          // Switched off by the reader, and said out loud all the same:
-          // an empty map with a control they may have hit by accident is
-          // still an empty map.
-          <p>
-            The wildfire layer is switched off, so no burnt areas are drawn —
-            that is this control, not an all-clear.
-          </p>
-        ) : (
-          <>
-            <p className="font-semibold text-heading">{fireNote.headline}</p>
-            <p className="mt-1">{fireNote.detail}</p>
-            {fireState.kind === 'fresh' && (
-              <p className="mt-1">
-                <a
-                  href={fireState.meta.sourceUrl}
-                  className="underline"
-                  rel="noopener noreferrer"
-                  target="_blank"
-                >
-                  {fireState.meta.source}
-                </a>
-                {' · '}
-                <a
-                  href={fireState.meta.licenceUrl}
-                  className="underline"
-                  rel="license noopener noreferrer"
-                  target="_blank"
-                >
-                  {fireState.meta.licence}
-                </a>
-                {' · '}
-                <a
-                  href={fireState.meta.termsUrl}
-                  className="underline"
-                  rel="noopener noreferrer"
-                  target="_blank"
-                >
-                  CEMS terms
-                </a>
-                {' · '}
-                {/* The date of the DATA, which is what the licence asks
-                    for — not the date this page was built. */}
-                Read from Copernicus on{' '}
-                <time dateTime={fireState.meta.fetchedAt}>
-                  {formatInstant(fireState.meta.fetchedAt) ?? fireState.meta.fetchedAt}
-                </time>
-                {'. '}
-                {/* 🔴 The CEMS notice for modified data, word for word as
-                    the terms write it, with the year. Rendered, because a
-                    credit nobody can see is not a credit — and carried by
-                    the feed, so it cannot go stale in a component. */}
-                {fireState.meta.attribution}
-              </p>
-            )}
-          </>
-        )}
-      </div>
+      {/* CAMP-153, CAMP-162. The fire layer always says something — see
+          the component for why, and why it is a component: the words
+          beside Copernicus data are a licence matter, and a check can
+          only read them if the panel can be rendered on its own. */}
+      <WildfirePanel state={fireState} on={firesOn} inView={firesHere} />
 
       <p className="mt-2 text-xs text-ink-2">{active.attribution}</p>
     </div>
