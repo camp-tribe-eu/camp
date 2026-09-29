@@ -458,13 +458,21 @@ function bathingSection(html: string): string {
 }
 
 function stripTags(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&#x27;|&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return (
+    html
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&#x27;|&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+      // 🔴 `&amp;` LAST. Unescaping it before the other entities turns
+      // the literal text "&amp;nbsp;" into "&nbsp;" and then into a
+      // space — a double unescape, which is what CodeQL's
+      // js/double-escaping flagged here (red on this PR from its first
+      // push). Nothing in the served section contains that string today;
+      // the order is what makes it stay true.
+      .replace(/&amp;/g, '&')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
 }
 
 /**
