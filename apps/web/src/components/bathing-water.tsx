@@ -116,6 +116,7 @@ export default function BathingWaterNote({
             className="underline"
             rel="noopener noreferrer"
             target="_blank"
+            data-boilerplate="source"
           >
             {source.name}
           </a>
@@ -138,7 +139,14 @@ export default function BathingWaterNote({
                 and the licence makes acknowledgement a condition of
                 reuse. The season is appended only where there is one to
                 name. */}
-            {BATHING_ATTRIBUTION}
+            {/* 🔴 Boilerplate for the near-duplicate guard: word-for-word
+                the same on every page, a promise about all of them
+                rather than a statement about one. The season stays
+                OUTSIDE the marked span — it is the part that is only
+                there when there is a classification. */}
+            <span data-boilerplate="bathing-attribution">
+              {BATHING_ATTRIBUTION}
+            </span>
             {bathingWater ? ` ${seasonLabel(bathingWater.season)}.` : ''}
           </span>
         </p>
@@ -199,8 +207,24 @@ function Classification({ bw }: { bw: BathingWater }) {
           for the 2025 bathing season" here too — on a record whose class
           is "Not classified", two lines above. Every string was true on
           its own and every test was green; it was visible only by
-          opening the page. */}
-      <p className="mt-2 max-w-prose text-sm leading-6 text-ink-2">
+          opening the page.
+
+          🔴 `data-boilerplate`, and the reason is a red CI job. This
+          paragraph is word-for-word the same on every page that has a
+          designated bathing water, so it is a promise about all of them
+          and not a statement about one. Left in the comparison it took
+          hr/zadarska/autocamp-punta and autocamp-tabor — two pages that
+          already sat at 79.6% WITHOUT this section — to 81.9%, above the
+          guard's 80% line (scripts/seo/check-duplicate-pages.mjs, the
+          `web` job; red on this PR from its first push). Only text that
+          is identical on every page it appears on may carry the marker:
+          what varies with the subject (the name, the class, the
+          distance, the sentence that says whether it was classified)
+          stays in the comparison, because that is what the guard is for. */}
+      <p
+        className="mt-2 max-w-prose text-sm leading-6 text-ink-2"
+        data-boilerplate="bathing-season-context"
+      >
         {seasonContextSentence(bw.season)}
       </p>
     </>

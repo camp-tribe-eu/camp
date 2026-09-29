@@ -377,6 +377,46 @@ test.describe('the attribution the licence requires', () => {
     );
   });
 
+  // 🔴 The text that is identical on every page is marked as boilerplate
+  // for scripts/seo/check-duplicate-pages.mjs, and this is asserted on
+  // the served HTML because the guard only fails on a fixture pair that
+  // happens to sit at its edge: hr/zadarska/autocamp-punta and
+  // autocamp-tabor were at 79.6% without this section and 81.9% with it,
+  // and the `web` job was red on this PR from its first push. Without the
+  // markers nothing would say so until the next pair crossed the line.
+  test('marks the text that is identical on every page as boilerplate', async ({
+    request,
+  }) => {
+    for (const path of [fx.classified.path, fx.unclassified.path]) {
+      const section = bathingSection(await (await request.get(path)).text());
+      expect(section, path).toMatch(
+        /data-boilerplate="bathing-season-context"[^>]*>These classifications describe/,
+      );
+      expect(section, path).toMatch(
+        new RegExp(
+          `data-boilerplate="bathing-attribution">${escapeRegExp(BATHING_ATTRIBUTION)}</span>`,
+        ),
+      );
+    }
+    const none = bathingSection(await (await request.get(fx.none.path)).text());
+    expect(none).toMatch(
+      new RegExp(
+        `data-boilerplate="bathing-attribution">${escapeRegExp(BATHING_ATTRIBUTION)}</span>`,
+      ),
+    );
+    // …and what varies with the subject is NOT marked: the classification
+    // sentence, the name and the distance stay in the comparison.
+    const classified = bathingSection(
+      await (await request.get(fx.classified.path)).text(),
+    );
+    expect(classified).not.toMatch(
+      /data-boilerplate="[^"]*"[^>]*>Classified by the national authorities/,
+    );
+    expect(classified).not.toMatch(
+      /data-boilerplate="[^"]*"[^>]*>[^<]*from this campsite/,
+    );
+  });
+
   // The other half: where there is no classification there is no season
   // to name, and the attribution says nothing about one.
   test('names no season where there is no bathing water', async ({
@@ -441,13 +481,28 @@ function expectNoBrokenYear(text: string, where: string): void {
   );
 }
 
-/** The text inside the attribution span, tags removed. */
+/**
+ * The text inside the attribution span, tags removed.
+ *
+ * Depth-aware, because the span holds a `data-boilerplate` span of its
+ * own: a regex up to the first `</span>` would stop after the constant
+ * and never see the season that follows it.
+ */
 function attributionText(section: string): string {
-  const m = /<span data-testid="bathing-attribution">([\s\S]*?)<\/span>/.exec(
-    section,
-  );
-  expect(m, 'no attribution span in the served HTML').not.toBeNull();
-  return stripTags(m![1]);
+  const open = '<span data-testid="bathing-attribution">';
+  const start = section.indexOf(open);
+  expect(start, 'no attribution span in the served HTML').toBeGreaterThan(-1);
+  let depth = 1;
+  let i = start + open.length;
+  for (const m of section.slice(i).matchAll(/<(\/?)span\b[^>]*>/g)) {
+    depth += m[1] ? -1 : 1;
+    if (depth === 0) return stripTags(section.slice(i, i + m.index!));
+  }
+  throw new Error('the attribution span is never closed in the served HTML');
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function escapeHtml(s: string): string {
