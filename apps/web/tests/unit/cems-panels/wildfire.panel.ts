@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { WildfirePanel } from '@/components/wildfire-panel';
 import { wildfireState } from '@/lib/wildfires';
 import { renderComponent } from '../render-component';
-import { LICENCE_NOTICE_MODIFIED, type CemsPanel, type CemsScenario } from '../cems-panel';
+import type { CemsPanel, CemsScenario } from '../cems-panel';
 
 // CAMP-162 — the EFFIS wildfire layer (CAMP-153), declared as a CEMS panel.
 //
@@ -65,7 +65,10 @@ const panel: CemsPanel = {
   // EFFIS recorded no burnt areas across the EU-27 …".
   dataMarker: /Copernicus EFFIS recorded[^.]*EU-27|areas Copernicus EFFIS recorded across the EU-27/,
 
-  credits: [LICENCE_NOTICE_MODIFIED, /CC BY 4\.0/],
+  // The licence's notice for data we have filtered, cut and rounded — the
+  // spec supplies the pattern; the panel only says which one it owes.
+  notice: 'modified',
+  alsoCredits: [/CC BY 4\.0/],
 
   scenarios: () => [
     {

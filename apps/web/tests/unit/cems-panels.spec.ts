@@ -1,14 +1,21 @@
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { LayerChip } from '@/components/layer-chip';
 import { CEMS_NOTICE, RESERVED_WORDS } from '@/lib/cems';
 import { LAYERS } from '@/lib/map-layers';
 import * as wildfires from '@/lib/wildfires';
 import {
+  CARD_WORDS,
   FORBIDDEN_WORDS,
+  LICENCE_NOTICE_GENERATED,
   LICENCE_NOTICE_MODIFIED,
+  NOTICES,
   creditProblems,
   discoverPanels,
+  requiredCredits,
   wordProblems,
+  type CemsPanel,
 } from './cems-panel';
 import { renderComponent } from './render-component';
 import { everythingSaid, visibleText } from './rendered-text';
@@ -60,6 +67,17 @@ import { everythingSaid, visibleText } from './rendered-text';
 // blind in the same edit that blinded the gate. The two are asserted equal
 // below instead, so they can only change together, in view.
 //
+// The word list exists in THREE places — `RESERVED_WORDS` in
+// `src/lib/cems.ts` (canonical), `FORBIDDEN_WORDS` in
+// `scripts/effis/fetch-wildfires.mjs` (a script cannot import TypeScript)
+// and this check's own copy — and below they are asserted to be the same
+// string and each word is driven through all three. And the credit a panel
+// owes is not something the panel file chooses: it says WHICH of the
+// licence's two notices it owes (`notice`), the pattern comes from
+// `cems-panel.ts`, and the file can only add to it. A panel file that could
+// supply the list of credits it is measured against could switch the check
+// off in the file that supplies the evidence.
+//
 // ── HOW A NEW CEMS SOURCE IS ADDED (EDO drought, GFM floods, …) ──────────
 //
 //   1. Make its panel a component that renders on its own: props in, JSX
@@ -77,6 +95,16 @@ import { everythingSaid, visibleText } from './rendered-text';
 //      in — the gaps as well as the data, because a stray word hides in
 //      "no fresh data" as easily as in a figure — and build each from the
 //      RAW feed through the reader the browser uses, never from a string.
+//      Say which licence notice it owes with `notice`.
+//
+//      ⚠️ THE PANEL FILE DECIDES WHAT IS EXAMINED. This spec proves that
+//      what a file lists is checked; it cannot prove the file lists
+//      everything. Two things are yours to keep: every state the panel can
+//      be in, and one hostile-feed scenario for each string the panel
+//      prints out of the feed (`hostile(...)` in wildfire.panel.ts).
+//      Delete those four and the suite stays green while the gate that
+//      stands between a feed and the page goes unmeasured — measured, not
+//      guessed.
 //   4. Nothing else is edited. This file finds `*.panel.ts` by itself, so
 //      two cards adding a source cannot collide on a shared list, and a
 //      new file cannot be left out of one.
@@ -88,11 +116,32 @@ import { everythingSaid, visibleText } from './rendered-text';
 // description names a CEMS product without the tag fails below, and so does
 // a tagged live layer that has no panel file.
 //
-// ⚠️ WHAT THIS DOES NOT COVER. The card a reader gets by clicking a burnt
-// area is built with `document.createElement` inside MapLibre's popup,
-// which needs a browser; `wildfire-layer.spec.ts` ("the card on a burnt
-// area carries the credit and no reserved word") reads it there. And the
-// site is English. A second language would need its own words here.
+// ⚠️ WHAT THIS DOES NOT COVER — READ THIS BEFORE BELIEVING IT COVERS MORE.
+//
+// THE REGISTRY IS THE ONLY THING BETWEEN A CEMS PRODUCT AND AN UNGATED
+// PAGE. This reads the panels and the switches that are REGISTERED here,
+// and nothing else. A component or a route page that shows CEMS data and is
+// not registered is not read at all: there are 33 components in
+// `src/components` and 20 route pages under `src/app` at the time of
+// writing (`ls src/components/*.tsx | wc -l`, `find src/app -name page.tsx
+// | wc -l`), and a new `drought-panel.tsx` saying "severe drought risk"
+// would pass this whole file. Registration is PROMPTED, not forced: a live
+// map layer tagged `terms: 'cems'` with no panel file fails, and a live
+// layer whose own description names a CEMS product without the tag fails.
+// But the prompt only exists for MAP LAYERS, only knows the products by the
+// names in the regex below, and is only as honest as the author's tag — a
+// live layer described as "Drought indicator" with no tag is not noticed.
+// It is a real limit and this card does not close it.
+//
+// Also outside it: the card a reader gets by clicking a burnt area is built
+// with `document.createElement` inside MapLibre's popup, which needs a
+// browser; `wildfire-layer.spec.ts` ("the card on a burnt area carries the
+// credit and no reserved word") reads it there, with regexes of its own.
+// The reader of HTML knows the hiding idioms this codebase uses (Tailwind
+// `hidden`/`sr-only`/`invisible`/`opacity-0`, the `hidden` attribute,
+// inline `display:none`/`visibility:hidden`/`opacity:0`/`font-size:0`); CSS
+// under a name of its own in a stylesheet it cannot see. And the site is
+// English: a second language would need its own words here.
 //
 // 🔴 Every test below was mutation-proved. The mutation that makes it fail
 // is written next to it.
@@ -106,8 +155,11 @@ const CEMS_LAYERS = LAYERS.filter((l) => l.status === 'live' && 'terms' in l && 
 test.describe('the panels of CEMS-sourced layers', () => {
   // 🔴 One bad file costs one file: a panel that throws while loading is
   // failed here BY NAME, and every other panel is still read below.
-  // Mutation: put `throw new Error('x')` at the top of a *.panel.ts — only
-  // this test, for that file, fails.
+  // Mutation: put `throw new Error('x')` at the top of an ADDED *.panel.ts —
+  // only this test, for that file, fails. Put it in the ONLY panel file,
+  // wildfire.panel.ts, and three fail: this one, "at least one panel was
+  // found" and "every live CEMS layer has a panel file" — measured, and
+  // right, because the layer then has no panel that reads it.
   for (const f of discovered) {
     if ('error' in f) {
       test(`🔴 [${f.file}] loads as a CemsPanel`, () => {
@@ -145,6 +197,11 @@ test.describe('the panels of CEMS-sourced layers', () => {
       // declared `showsData: false` then shows data, and this fails, which
       // is what stops a state escaping the credit check by being declared
       // a gap.
+      // The panel's own declaration is checked, not trusted: a `notice`
+      // that is not one of the licence's two, or a `dataMarker` that is not
+      // a pattern, is an error and not a panel with nothing required.
+      requiredCredits(panel);
+      expect(panel.dataMarker, `${tag} dataMarker is not a RegExp`).toBeInstanceOf(RegExp);
       const scenarios = panel.scenarios();
       expect(scenarios.some((s) => s.showsData), `${tag} declares no state that shows data`).toBe(true);
       expect(scenarios.some((s) => !s.showsData), `${tag} declares no gap state`).toBe(true);
@@ -163,11 +220,17 @@ test.describe('the panels of CEMS-sourced layers', () => {
       // wildfire-panel.tsx — fails. The "uses no reserved word" test does
       // not: the panel still says the same figure, without the credit.
       // 🔴 Mutation: hide it — wrap the attribution in
-      // `<span className="sr-only">` — fails too, because a credit only a
-      // screen reader is given is not on the page.
+      // `<span className="sr-only">`, or `hidden`, or `md:hidden`, or
+      // `style="visibility:hidden"` — fails too, because a credit that is
+      // not visible is not on the page.
+      // 🔴 Mutation: in wildfire.panel.ts set `alsoCredits: []` (or delete
+      // the line) AND delete the attribution — still fails. The notice is
+      // the licence's, supplied by `requiredCredits`, and the panel file
+      // can only add to it. On the first review that pair was green.
+      const owed = requiredCredits(panel);
       for (const s of panel.scenarios().filter((x) => x.showsData)) {
         expect.soft(
-          creditProblems(s.html, panel.credits),
+          creditProblems(s.html, owed),
           `${tag} / ${s.name} shows data with no credit. It reads: "${visibleText(s.html)}"`,
         ).toEqual([]);
       }
@@ -266,9 +329,36 @@ test.describe('the registry and the panels agree', () => {
   });
 });
 
-// ── the licence's words, in the gate and in the check ────────────────────
+// ── the licence's words: one list in three places ────────────────────────
 
-test.describe('the gate and the check agree on what the licence says', () => {
+const SCRIPT = join(__dirname, '..', '..', '..', '..', 'scripts', 'effis', 'fetch-wildfires.mjs');
+
+/**
+ * A REAL dynamic import, written so the transpiler cannot rewrite it —
+ * `wildfire-fetch.spec.ts` explains why. Evaluating the script does nothing:
+ * no fetch, no write.
+ */
+const load = new Function('u', 'return import(u)') as (
+  u: string,
+) => Promise<{ FORBIDDEN_WORDS: RegExp }>;
+
+/**
+ * Every form the list is meant to refuse, written out by hand and NOT
+ * derived from any of the three regexes — so weakening all three the same
+ * way still fails here.
+ */
+const FORMS = [
+  'warning', 'warnings',
+  'danger', 'dangers', 'dangerous', 'dangerously',
+  'risk', 'risks', 'risky', 'riskier', 'riskiest', 'risked', 'risking',
+  'alert', 'alerts', 'alerted', 'alerting',
+  'evacuate', 'evacuates', 'evacuated', 'evacuating', 'evacuation', 'evacuations',
+];
+
+/** Words that merely look like them, and are somebody's name or another word. */
+const LOOKALIKES = ['brisk', 'Warwickshire', 'Alerta', 'Dangerfield', 'Risko'];
+
+test.describe('the gate, the script and the check are one list', () => {
   test('🔴 the feed gate demands the same notice this check does', () => {
     // 🔴 Mutation: loosen CEMS_NOTICE in src/lib/cems.ts to
     // /Contains modified/ — fails. The rendered-page check uses its own
@@ -276,24 +366,56 @@ test.describe('the gate and the check agree on what the licence says', () => {
     // weakened, each looking fine to the other.
     expect(CEMS_NOTICE.source).toBe(LICENCE_NOTICE_MODIFIED.source);
     expect(CEMS_NOTICE.flags).toBe(LICENCE_NOTICE_MODIFIED.flags);
+    expect(NOTICES.modified).toBe(LICENCE_NOTICE_MODIFIED);
+    expect(NOTICES.generated).toBe(LICENCE_NOTICE_GENERATED);
   });
 
-  test('🔴 the feed gate refuses each of the four words', () => {
-    // 🔴 Mutation: delete `risk|` from RESERVED_WORDS — fails on "risk".
-    //
-    // The gate is whole-word and this check is anchored at the start of
-    // the word, so the check is the stricter of the two: "dangers" is not
-    // on the gate's list and would be caught by the check on a rendered
-    // page. That is the direction to be wrong in, and it is written down
-    // here rather than "fixed" because widening the gate also widens what
-    // `readFire` blanks out of a place name.
-    for (const { word } of FORBIDDEN_WORDS) {
-      expect(RESERVED_WORDS.test(word), `the gate would let "${word}" through`).toBe(true);
-      expect(RESERVED_WORDS.test(word.toUpperCase()), `the gate would let "${word.toUpperCase()}" through`).toBe(
-        true,
-      );
+  test('🔴 the gate, the fetch script and the check have the same list', async () => {
+    // 🔴 Mutation: add or drop ANY word in one of the three — fails, and the
+    // message names which two you forgot. Before CAMP-162 they had drifted:
+    // "evacuate" and "evacuation" were in the gate and the script and not in
+    // the check, so a component could say either and ship. The canonical
+    // copy is RESERVED_WORDS in src/lib/cems.ts.
+    const script = (await load(pathToFileURL(SCRIPT).href)).FORBIDDEN_WORDS;
+    expect(script.source, 'scripts/effis/fetch-wildfires.mjs has drifted from src/lib/cems.ts').toBe(
+      RESERVED_WORDS.source,
+    );
+    expect(FORBIDDEN_WORDS.source, 'tests/unit/cems-panel.ts has drifted from src/lib/cems.ts').toBe(
+      RESERVED_WORDS.source,
+    );
+    expect(script.flags).toBe(RESERVED_WORDS.flags);
+    expect(FORBIDDEN_WORDS.flags).toBe(RESERVED_WORDS.flags);
+  });
+
+  test('🔴 each form is refused by all three, in either case', async () => {
+    // Driven from a hand-written list, not from a regex, so a list weakened
+    // everywhere identically is still seen. Mutation: delete `risk|` from
+    // all three at once — fails on every risk form.
+    const script = (await load(pathToFileURL(SCRIPT).href)).FORBIDDEN_WORDS;
+    for (const word of FORMS) {
+      for (const form of [word, word.toUpperCase(), `${word[0].toUpperCase()}${word.slice(1)}`]) {
+        expect(RESERVED_WORDS.test(form), `the gate lets "${form}" through`).toBe(true);
+        expect(script.test(form), `the fetch script lets "${form}" through`).toBe(true);
+        expect(wordProblems(`<p>a ${form} b</p>`), `the page check lets "${form}" through`).toHaveLength(1);
+      }
     }
-    expect(FORBIDDEN_WORDS.map((f) => f.word)).toEqual(['warning', 'danger', 'risk', 'alert']);
+  });
+
+  test('a lookalike is refused by none of them', async () => {
+    // A list that refused "Alerta", a commune, would be the false alarm
+    // that teaches people to switch it off.
+    const script = (await load(pathToFileURL(SCRIPT).href)).FORBIDDEN_WORDS;
+    for (const word of LOOKALIKES) {
+      expect(RESERVED_WORDS.test(word), `the gate refuses "${word}"`).toBe(false);
+      expect(script.test(word), `the fetch script refuses "${word}"`).toBe(false);
+      expect(wordProblems(`<p>${word}</p>`), `the page check flags "${word}"`).toEqual([]);
+    }
+  });
+
+  test('the four words on the card are all on the list', () => {
+    // 🔴 Mutation: drop one from CARD_WORDS or from FORMS — fails.
+    expect([...CARD_WORDS]).toEqual(['warning', 'danger', 'risk', 'alert']);
+    for (const word of CARD_WORDS) expect(FORMS).toContain(word);
   });
 
   test('wildfires.ts re-exports the licence constants rather than keeping copies', () => {
@@ -324,6 +446,70 @@ test.describe('the reader of HTML is honest', () => {
     // visible, and a credit hidden that way would then count as shown.
     expect(visibleText('<div hidden=""><div>a</div><p>b</p></div><p>c</p>')).toBe('c');
     expect(visibleText('<div class="x sr-only"><ul><li>a</li></ul><p>b</p></div><p>c</p>')).toBe('c');
+  });
+
+  test('🔴 knows every way this codebase hides something, at any breakpoint', () => {
+    // 🔴 Mutation: delete an entry of HIDING_UTILITIES, or the style regex's
+    // `visibility` arm — the matching row fails. On the first review a credit
+    // in `class="hidden"`, `md:hidden` or `visibility:hidden` was read as
+    // visible and the suite stayed green.
+    const hidden = [
+      '<span class="hidden">SECRET</span>',
+      '<span class="text-sm hidden">SECRET</span>',
+      '<span class="md:hidden">SECRET</span>',
+      '<span class="max-md:hidden">SECRET</span>',
+      '<span class="sm:max-md:hidden">SECRET</span>',
+      '<span class="!hidden">SECRET</span>',
+      '<span class="md:!hidden">SECRET</span>',
+      '<span class="invisible">SECRET</span>',
+      '<span class="opacity-0">SECRET</span>',
+      '<span class="collapse">SECRET</span>',
+      '<span class="sr-only">SECRET</span>',
+      '<span style="visibility:hidden">SECRET</span>',
+      '<span style="visibility: collapse">SECRET</span>',
+      '<span style="opacity:0">SECRET</span>',
+      '<span style="font-size:0">SECRET</span>',
+      '<span style="display : none">SECRET</span>',
+      '<span hidden="">SECRET</span>',
+      '<script>SECRET</script>',
+      '<style>SECRET</style>',
+      '<template>SECRET</template>',
+      '<div class="hidden"><p><b>SECRET</b></p></div>',
+    ];
+    for (const html of hidden) {
+      expect(visibleText(`<p>shown ${html} end</p>`), html).toBe('shown end');
+    }
+  });
+
+  test('does not hide what merely has the word in its name', () => {
+    // A check that hid `overflow-hidden` would refuse every panel with a
+    // rounded corner, and be argued out of the suite.
+    const visible = [
+      '<span class="overflow-hidden">SEEN</span>',
+      '<span class="text-hidden">SEEN</span>',
+      '<span class="opacity-50">SEEN</span>',
+      '<span class="not-hidden">SEEN</span>',
+      '<span style="opacity:0.5">SEEN</span>',
+      '<span style="font-size:0.9rem">SEEN</span>',
+      '<span style="display:block">SEEN</span>',
+      '<span data-class="hidden" data-hidden="true">SEEN</span>',
+      '<span title="a hidden thing">SEEN</span>',
+    ];
+    for (const html of visible) {
+      expect(visibleText(`<p>x ${html} y</p>`), html).toBe('x SEEN y');
+    }
+  });
+
+  test('🔴 inline elements join what is either side of them, block elements do not', () => {
+    // 🔴 Mutation: drop `span` or `wbr` from INLINE, or make glueInline
+    // always false — the first rows fail. Reviewed as measured: `Fire
+    // <span>Ris</span><span>k</span>` read as "Fire Ris k".
+    expect(visibleText('<p>Fire <span>Ris</span><span>k</span> level</p>')).toBe('Fire Risk level');
+    expect(visibleText('<p>Dan<wbr>ger</p>')).toBe('Danger');
+    expect(visibleText('<p><strong>Alert</strong>s</p>')).toBe('Alerts');
+    expect(visibleText('<p>a</p><p>b</p>')).toBe('a b');
+    expect(visibleText('<p>a<br>b</p>')).toBe('a b');
+    expect(visibleText('<ul><li>a</li><li>b</li></ul>')).toBe('a b');
   });
 
   test('does not mistake the words "a hidden thing" in a value for the attribute', () => {
@@ -394,6 +580,58 @@ test.describe('the credit check is honest', () => {
     expect(creditProblems(page(`<a title="${NOTICE}" href="/x">source</a>`), CREDITS)).toHaveLength(1);
   });
 
+  test('🔴 a credit hidden the way this codebase hides things is no credit', () => {
+    // The pair that was green on the first review: the attribution wrapped
+    // in a class that display:nones it.
+    for (const html of [
+      `<span class="hidden">${NOTICE}</span>`,
+      `<span class="md:hidden">${NOTICE}</span>`,
+      `<span class="invisible">${NOTICE}</span>`,
+      `<span style="visibility:hidden">${NOTICE}</span>`,
+      `<span style="opacity:0">${NOTICE}</span>`,
+      `<script>${NOTICE}</script>`,
+    ]) {
+      expect(creditProblems(page(html), CREDITS), html).toHaveLength(1);
+    }
+  });
+
+  test('🔴 a panel file cannot lower the credit it owes', () => {
+    // 🔴 Mutation: make requiredCredits return `panel.alsoCredits ?? []` —
+    // the first three fail. On the first review `credits: []` in the panel
+    // file, with the attribution deleted from the component, left all 27
+    // tests green; `[/./]` was green too.
+    const base: CemsPanel = {
+      source: 'stand-in',
+      notice: 'modified',
+      dataMarker: /x/,
+      scenarios: () => [],
+    };
+    const bare = page('<p>Nothing of the sort.</p>');
+    for (const alsoCredits of [undefined, [], [/./], [/Figure/]]) {
+      const owed = requiredCredits({ ...base, alsoCredits });
+      expect(owed[0], 'the licence notice is not first').toBe(LICENCE_NOTICE_MODIFIED);
+      expect(creditProblems(bare, owed), `alsoCredits=${String(alsoCredits)} let a bare page through`).not.toEqual([]);
+    }
+    // …and what a panel adds is added.
+    expect(requiredCredits({ ...base, alsoCredits: [/CC BY/] })).toHaveLength(2);
+    expect(requiredCredits({ ...base, notice: 'generated' })[0]).toBe(LICENCE_NOTICE_GENERATED);
+    // A panel that does not say which notice it owes is an error, never
+    // "nothing required".
+    for (const notice of [undefined, null, '', 'none', 'Modified']) {
+      expect(() => requiredCredits({ ...base, notice: notice as never }), String(notice)).toThrow(/must declare notice/);
+    }
+  });
+
+  test('the two notices are not interchangeable', () => {
+    // A panel showing modified data must not be satisfied by the other one.
+    expect(creditProblems(page(`<p>${NOTICE}</p>`), [LICENCE_NOTICE_GENERATED])).toHaveLength(1);
+    expect(
+      creditProblems(page(`<p>${NOTICE.replace('Contains modified', 'Generated using')}</p>`), [
+        LICENCE_NOTICE_MODIFIED,
+      ]),
+    ).toHaveLength(1);
+  });
+
   test('reports each missing credit separately', () => {
     expect(creditProblems(page(`<p>${NOTICE}</p>`), [LICENCE_NOTICE_MODIFIED, /CC BY 4\.0/])).toHaveLength(1);
   });
@@ -424,6 +662,22 @@ test.describe('the words check is honest', () => {
     expect(wordProblems('<button aria-label="alert me">x</button>')).toHaveLength(1);
     expect(wordProblems('<a title="Official warnings" href="/x">x</a>')).toHaveLength(1);
     expect(wordProblems('<img alt="danger sign"/>')).toHaveLength(1);
+  });
+
+  test('🔴 finds a word split across sibling elements, as a reader would read it', () => {
+    // 🔴 Mutation: read only the spaced view in everythingSaid — the first
+    // three fail. Measured on the first review: `Fire <span>Ris</span>
+    // <span>k</span> level` read as "Fire Ris k level" and was not caught.
+    for (const html of [
+      '<p>Fire <span>Ris</span><span>k</span> level</p>',
+      '<p>Dan<wbr>ger</p>',
+      '<p><strong>Alert</strong>s</p>',
+      '<p>War<!-- -->ning</p>',
+      '<p><b>Fire</b><i>risk</i></p>',
+      '<p>evacu<span>ation</span></p>',
+    ]) {
+      expect(wordProblems(html), html).not.toEqual([]);
+    }
   });
 
   test('🔴 does not fire on markup that is not a sentence', () => {

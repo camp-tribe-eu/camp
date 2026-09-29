@@ -50,14 +50,22 @@ export const CEMS_NOTICE =
  * within their region of responsibility". Using one of these against the
  * data is claiming an authority the licence explicitly denies us.
  *
- * Mirrored from scripts/effis/fetch-wildfires.mjs, which refuses to WRITE
- * them; this side refuses to let them be RENDERED. Two copies on purpose:
- * the script guards the data file and cannot see the page, and this one
- * guards the page and cannot see the fetch. Both are driven by tests.
+ * 🔴 THIS IS THE CANONICAL LIST, one of three copies of it.
  *
- * 🔴 This is the list the GATES use. The spec that proves the rendered
- * panels are clean keeps its own, written out from the card, so that a
- * gate weakened here cannot also blind the thing that would notice.
+ * `scripts/effis/fetch-wildfires.mjs` refuses to WRITE them and cannot
+ * import TypeScript, so it keeps a literal; this side refuses to let them
+ * be RENDERED; and `tests/unit/cems-panel.ts` keeps a third, which is what
+ * the rendered panels are MEASURED against — written out separately so
+ * that a gate weakened here cannot also blind the thing that would notice.
+ * `tests/unit/cems-panels.spec.ts` asserts that all three have the same
+ * `source`, so they can only change together, in view, and it drives each
+ * word below through the gate and through the check.
+ *
+ * Whole words, with the inflections written out: "brisk", "Warwickshire"
+ * and "Alerta" (a commune) are not the words, and a list that refused
+ * them would be the false alarm that teaches people to switch it off.
+ * Before CAMP-162 the three had drifted apart — "evacuation" was refused
+ * here and was not caught on the rendered page.
  */
 export const RESERVED_WORDS =
-  /\b(warning|warnings|danger|dangerous|risk|risks|risky|alert|alerts|evacuate|evacuation)\b/i;
+  /\b(warning(?:s)?|danger(?:s|ous|ously)?|risk(?:s|y|ier|iest|ed|ing)?|alert(?:s|ed|ing)?|evacuat(?:e|es|ed|ing|ion|ions))\b/i;

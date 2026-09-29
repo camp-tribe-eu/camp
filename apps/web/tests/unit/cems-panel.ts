@@ -7,28 +7,38 @@ import { everythingSaid, visibleText } from './rendered-text';
 // what is in the panel files is one source's way of showing it.
 
 /**
- * The credit the CEMS terms dictate for data that has been ADAPTED OR
- * MODIFIED, written out from the licence.
+ * The two notices the CEMS terms dictate, written out from the licence.
  *
  * `https://drought.emergency.copernicus.eu/terms&conditions`, read
  * 28.09.2026: "Where the data of the CEMS early warning and monitoring
  * systems has been adapted or modified, the user shall provide the
  * following or similar notice: 'Contains modified Copernicus Emergency
- * Management Service information [Year]'".
+ * Management Service information [Year]'" — and, for data passed on as it
+ * came, 'Generated using Copernicus Emergency Management Service
+ * information [Year]' (docs/emergency-sources.md §3).
  *
  * 🔴 DELIBERATELY NOT IMPORTED FROM `src/lib/cems.ts`. That constant is
- * what the feed GATE uses; this one is what the RENDERED PAGE is measured
+ * what the feed GATE uses; these are what the RENDERED PAGE is measured
  * against. Were they one binding, weakening the gate (say to `/Contains/`)
  * would weaken the check in the same edit and both would go on agreeing.
  * The spec asserts the two are equal instead, so they can only be changed
  * together, on purpose, in view.
- *
- * Data passed on untouched takes "Generated using …" instead
- * (docs/emergency-sources.md §3). A panel showing data of that kind says
- * so in its own `credits`.
  */
 export const LICENCE_NOTICE_MODIFIED =
   /Contains modified Copernicus Emergency Management Service information \d{4}\b/;
+export const LICENCE_NOTICE_GENERATED =
+  /Generated using Copernicus Emergency Management Service information \d{4}\b/;
+
+/**
+ * Which notice a panel owes, by whether the data on it has been changed.
+ * Every layer we have filtered to the EU-27, cut to a window, rounded or
+ * re-coloured is `modified`; `generated` is for data shown exactly as
+ * published, and a panel that claims it should be able to say why.
+ */
+export const NOTICES = {
+  modified: LICENCE_NOTICE_MODIFIED,
+  generated: LICENCE_NOTICE_GENERATED,
+} as const;
 
 /**
  * The words the CEMS terms leave to national and regional institutions:
@@ -36,17 +46,27 @@ export const LICENCE_NOTICE_MODIFIED =
  * only national/regional institutions are authorized within their region
  * of responsibility".
  *
- * 🔴 Written out from the card, not imported from `RESERVED_WORDS`, for
- * the reason above. And anchored at the START of the word only, so
- * "warnings", "dangerous", "risky" and "alerts" are all caught while
- * "brisk" and "Warwickshire" are not.
+ * 🔴 THIS IS THE CHECK'S OWN COPY of a list of which `RESERVED_WORDS` in
+ * `src/lib/cems.ts` is the canonical one and `FORBIDDEN_WORDS` in
+ * `scripts/effis/fetch-wildfires.mjs` the third. Written out here rather
+ * than imported for the reason above, and the spec asserts all three have
+ * the same `source` — so it is one list in three places that can only move
+ * together, and it is driven word by word through the gate and through
+ * this check.
+ *
+ * Before CAMP-162 they were not one list: the gate and the script refused
+ * "evacuate" and "evacuation", this check did not, and a component could
+ * have said either and shipped. Whole words with the inflections written
+ * out — "brisk", "Warwickshire" and "Alerta" (a commune) are not the words.
+ * A form that is not written out (say "warned") is not caught anywhere;
+ * adding one means adding it to all three, and the spec says which two you
+ * forgot.
  */
-export const FORBIDDEN_WORDS: readonly { word: string; pattern: RegExp }[] = [
-  { word: 'warning', pattern: /\bwarning/i },
-  { word: 'danger', pattern: /\bdanger/i },
-  { word: 'risk', pattern: /\brisk/i },
-  { word: 'alert', pattern: /\balert/i },
-];
+export const FORBIDDEN_WORDS =
+  /\b(warning(?:s)?|danger(?:s|ous|ously)?|risk(?:s|y|ier|iest|ed|ing)?|alert(?:s|ed|ing)?|evacuat(?:e|es|ed|ing|ion|ions))\b/i;
+
+/** The four words the card names. The list above is these plus their forms and "evacuate". */
+export const CARD_WORDS = ['warning', 'danger', 'risk', 'alert'] as const;
 
 /** One state a panel can be in, rendered the way the page renders it. */
 export interface CemsScenario {
@@ -87,8 +107,20 @@ export interface CemsPanel {
    * the state it was meant to examine never appeared.
    */
   dataMarker: RegExp;
-  /** What must be readable beside the data. Usually the notice, plus the CC BY line. */
-  credits: readonly RegExp[];
+  /**
+   * Which of the licence's two notices this panel owes. The spec supplies
+   * the notice itself, from `NOTICES`; the panel only says which.
+   *
+   * 🔴 It is deliberately NOT a list of patterns the panel picks. A panel
+   * file that supplied its own `credits` could switch the check off with
+   * `credits: []`, or `[/./]`, in the very file that supplies the evidence —
+   * measured on the first review of this card, with the attribution deleted
+   * from the component and all 27 tests green. Now the check the panel is
+   * held to is the licence's, and the panel can only ADD to it.
+   */
+  notice: keyof typeof NOTICES;
+  /** Anything else that must be readable beside the data, on top of the notice: the CC BY line. */
+  alsoCredits?: readonly RegExp[];
   /** Every state, gaps included — the gaps are where a stray word hides. */
   scenarios(): CemsScenario[];
 }
@@ -104,13 +136,15 @@ const around = (text: string, at: number): string =>
  */
 export function wordProblems(html: string): string[] {
   const found: string[] = [];
+  const every = new RegExp(FORBIDDEN_WORDS.source, 'gi');
   for (const said of everythingSaid(html)) {
-    for (const { word, pattern } of FORBIDDEN_WORDS) {
-      const hit = pattern.exec(said);
-      if (hit) found.push(`"${word}" in ${around(said, hit.index)}`);
+    for (const hit of said.matchAll(every)) {
+      found.push(`"${hit[0]}" in ${around(said, hit.index ?? 0)}`);
     }
   }
-  return found;
+  // `everythingSaid` gives two readings of the same text; a word on which
+  // they agree is one finding, not two.
+  return [...new Set(found)];
 }
 
 /**
@@ -131,6 +165,23 @@ export function creditProblems(html: string, credits: readonly RegExp[]): string
   return credits
     .filter((credit) => !credit.test(seen))
     .map((credit) => `no visible text matches ${credit}`);
+}
+
+/**
+ * What a panel must show beside its data: the licence's notice, chosen by
+ * `panel.notice`, and whatever the panel asks for on top.
+ *
+ * 🔴 The notice comes from THIS file. A panel with no valid `notice` is an
+ * error, not a panel with nothing required.
+ */
+export function requiredCredits(panel: CemsPanel): RegExp[] {
+  const notice = NOTICES[panel.notice as keyof typeof NOTICES] as RegExp | undefined;
+  if (!(notice instanceof RegExp)) {
+    throw new Error(
+      `"${panel.source}" must declare notice: 'modified' | 'generated', got ${JSON.stringify(panel.notice)}`,
+    );
+  }
+  return [notice, ...(panel.alsoCredits ?? [])];
 }
 
 /**

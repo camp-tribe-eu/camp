@@ -26,6 +26,18 @@ const VOID = new Set([
 ]);
 
 /**
+ * Elements that flow inside a line of text. Their tags join what is either
+ * side of them WITHOUT a space, because that is what a reader sees:
+ * `Ris<span>k</span>` is "Risk", and so is `Dan<wbr>ger`. Every other tag
+ * is a boundary and gets a space.
+ */
+const INLINE = new Set([
+  'a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'data', 'del', 'dfn', 'em',
+  'font', 'i', 'ins', 'kbd', 'label', 'mark', 'q', 's', 'samp', 'small', 'span',
+  'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr',
+]);
+
+/**
  * One token: a comment, a tag with its attributes (quoted values may
  * contain `>`), a run of text, or a stray `<`.
  */
@@ -70,21 +82,52 @@ export const decodeEntities = (s: string): string =>
   });
 
 /**
+ * Elements whose content is not text a reader is given, whatever their
+ * attributes say.
+ */
+const NOT_TEXT = new Set(['script', 'style', 'template']);
+
+/**
+ * The Tailwind utilities that take an element off the screen or make it
+ * unreadable. Matched on the utility itself, so `md:hidden`, `max-md:hidden`
+ * and `!hidden` count, and `overflow-hidden` and `text-hidden` do not.
+ *
+ * 🔴 Hidden at ANY breakpoint is hidden. `md:hidden` is visible on a phone
+ * and gone on a laptop, and a credit that disappears at one width is not a
+ * credit the licence can be said to have been given. Conservative on
+ * purpose: it can refuse a panel that is visible on the screens that
+ * matter, and a refusal is cheap to argue with.
+ */
+const HIDING_UTILITIES = new Set(['sr-only', 'hidden', 'invisible', 'collapse', 'opacity-0']);
+
+/**
  * Is this element one a reader is not shown?
  *
- * Three ways HTML keeps something in the page without showing it:
- * Tailwind's `sr-only` (screen readers only), the `hidden` attribute, and
- * an inline `display:none`. A credit that survives only in one of them is
- * not a credit anyone was given.
+ * The ways HTML keeps something in the page without showing it, as they are
+ * actually written in this codebase: Tailwind classes (`sr-only` is in seven
+ * components, `hidden` in more), the `hidden` attribute, and inline
+ * `display:none`, `visibility:hidden`, `opacity:0` or `font-size:0`. A
+ * credit that survives only in one of them is not a credit anyone was given.
+ *
+ * ⚠️ A list of idioms, not a renderer. CSS that lives in a stylesheet under
+ * a name of its own cannot be judged from markup, and nothing here pretends
+ * otherwise; the browser test for the popup reads what a browser really
+ * shows.
  */
-const isHidden = (attributes: string): boolean => {
+const isHidden = (name: string, attributes: string): boolean => {
+  if (NOT_TEXT.has(name)) return true;
   // The bare `hidden` attribute is looked for with every quoted value
   // blanked first, or `title="a hidden thing"` would hide its element.
   const names = attributes.replace(/"[^"]*"|'[^']*'/g, '""');
-  return (
-    /\bclass="[^"]*\bsr-only\b/.test(attributes) ||
-    /(?:^|\s)hidden(?:=""|=hidden|\s|\/|$)/.test(names) ||
-    /\bstyle="[^"]*display:\s*none/i.test(attributes)
+  if (/(?:^|\s)hidden(?:=""|=hidden|\s|\/|$)/.test(names)) return true;
+  const cls = /(?:^|\s)class="([^"]*)"/.exec(attributes)?.[1] ?? '';
+  const classHides = cls
+    .split(/\s+/)
+    .some((token) => HIDING_UTILITIES.has(token.replace(/^.*:/, '').replace(/^!/, '')));
+  if (classHides) return true;
+  const style = /(?:^|\s)style="([^"]*)"/.exec(attributes)?.[1] ?? '';
+  return /display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|opacity\s*:\s*0(?![.\d])|font-size\s*:\s*0(?![.\d])/i.test(
+    style,
   );
 };
 
@@ -98,7 +141,7 @@ interface Reading {
 const SPOKEN_ATTRIBUTES =
   /(?:^|\s)(?:aria-label|aria-description|aria-roledescription|title|alt)="([^"]*)"/g;
 
-function read(html: string, dropHidden: boolean): Reading {
+function read(html: string, dropHidden: boolean, glueInline: boolean): Reading {
   const open: { name: string; hidden: boolean }[] = [];
   let hiddenDepth = 0;
   const text: string[] = [];
@@ -122,16 +165,16 @@ function read(html: string, dropHidden: boolean): Reading {
       if (i >= 0) {
         while (open.length > i) if (open.pop()!.hidden) hiddenDepth--;
       }
-      text.push(' ');
+      text.push(glueInline && INLINE.has(name) ? '' : ' ');
       continue;
     }
 
-    const hidden = isHidden(attrs);
+    const hidden = isHidden(name, attrs);
     const suppressed = dropHidden && (hiddenDepth > 0 || hidden);
     if (!suppressed) {
       for (const a of attrs.matchAll(SPOKEN_ATTRIBUTES)) attributes.push(decodeEntities(a[1]));
     }
-    text.push(' ');
+    text.push(glueInline && INLINE.has(name) ? '' : ' ');
     const selfClosing = VOID.has(name) || /\/\s*$/.test(attrs);
     if (!selfClosing) {
       open.push({ name, hidden });
@@ -149,7 +192,7 @@ function read(html: string, dropHidden: boolean): Reading {
  * could satisfy would be an assertion about a property the page does not
  * visibly have.
  */
-export const visibleText = (html: string): string => read(html, true).text;
+export const visibleText = (html: string): string => read(html, true, true).text;
 
 /**
  * Everything a reader OR a screen reader is told, as separate strings:
@@ -169,6 +212,11 @@ export const visibleText = (html: string): string => read(html, true).text;
  * people to switch it off.
  */
 export const everythingSaid = (html: string): string[] => {
-  const { text, attributes } = read(html, false);
-  return [text, ...attributes];
+  // Two readings of the same text: tags of inline elements joined without a
+  // space (what a reader sees: `Ris<span>k</span>` is "Risk") and every tag
+  // as a space (what two adjacent elements say: `<b>Fire</b><i>risk</i>`).
+  // A word has to escape both to escape.
+  const joined = read(html, false, true);
+  const spaced = read(html, false, false);
+  return [joined.text, spaced.text, ...joined.attributes];
 };
