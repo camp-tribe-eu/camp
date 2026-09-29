@@ -139,6 +139,25 @@ export const CEMS_NOTICE =
 export const RESERVED_WORDS =
   /\b(warning|warnings|danger|dangerous|risk|risks|risky|alert|alerts|evacuate|evacuation)\b/i;
 
+/**
+ * 🔴 The feed's strings that reach the reader's eyes, as text. Kept beside
+ * `RESERVED_WORDS` because they are the same list seen from two sides:
+ * the note under the map prints these, and `readFeed` gates exactly these.
+ */
+export const RENDERED_META = [
+  'source',
+  'licence',
+  'attribution',
+  'authorityNote',
+] as const satisfies readonly (keyof WildfireMeta)[];
+
+/** …and the ones it turns into links. */
+export const RENDERED_LINKS = [
+  'sourceUrl',
+  'licenceUrl',
+  'termsUrl',
+] as const satisfies readonly (keyof WildfireMeta)[];
+
 export type WildfireState =
   /** The fetch is still in flight. Not the same as having nothing. */
   | { kind: 'loading' }
@@ -148,16 +167,6 @@ export type WildfireState =
   | { kind: 'stale'; meta: WildfireMeta; hoursOld: number }
   | { kind: 'fresh'; meta: WildfireMeta; fires: WildfireFeature[] };
 
-/**
- * Is this the file we wrote, or something else?
- *
- * 🔴 Tolerant on the way in and strict about what it admits. A deploy
- * where the data file is half-written, or served as an HTML error page by
- * a CDN, must reach `missing` — which SAYS SO — rather than throw inside
- * a React render and take the map down with it. The campsite source note
- * learned this the expensive way: one absent field blanked every campsite
- * page.
- */
 /**
  * One feature from the file, or null if we cannot draw it.
  *
@@ -176,6 +185,16 @@ export type WildfireState =
  * the perimeter over it would lose a real fire; dropping the label loses
  * nothing a reader needs, because `fireCard` already falls back to
  * "Burnt area in XX".
+ *
+ * 🔴 EVERY FIELD THE POPUP PRINTS IS CHECKED HERE, not only the one a
+ * review happened to name. The card prints `place` and, when `place` is
+ * empty, `country` — so `country` is a place a word can arrive by too,
+ * and "Burnt area in DANGER" is a sentence under our voice. It must be
+ * two capital letters or the record is not one we can label honestly.
+ *
+ * 🔴 And the geometry must be numbers on Earth, not merely a non-empty
+ * array. `coordinates: [[["a", "b"]]]` passes an array test, draws
+ * nothing, and reads to `firesInView` as a box of ±Infinity.
  */
 export function readFire(input: unknown): WildfireFeature | null {
   if (!input || typeof input !== 'object') return null;
@@ -187,9 +206,10 @@ export function readFire(input: unknown): WildfireFeature | null {
   const p = f.properties as Partial<WildfireProperties> | undefined;
   if (!p || typeof p !== 'object') return null;
   if (typeof p.date !== 'string' || typeof p.country !== 'string') return null;
+  if (!/^[A-Z]{2}$/.test(p.country)) return null;
   if (typeof p.hectares !== 'number' || !Number.isFinite(p.hectares)) return null;
   const place = typeof p.place === 'string' ? p.place : '';
-  return {
+  const fire: WildfireFeature = {
     type: 'Feature',
     geometry: f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon,
     properties: {
@@ -200,8 +220,29 @@ export function readFire(input: unknown): WildfireFeature | null {
       hectares: p.hectares,
     },
   };
+  const [west, south, east, north] = bboxOf(fire);
+  const onEarth =
+    Number.isFinite(west) &&
+    Number.isFinite(south) &&
+    Number.isFinite(east) &&
+    Number.isFinite(north) &&
+    west >= -180 &&
+    east <= 180 &&
+    south >= -90 &&
+    north <= 90;
+  return onEarth ? fire : null;
 }
 
+/**
+ * Is this the file we wrote, or something else?
+ *
+ * 🔴 Tolerant on the way in and strict about what it admits. A deploy
+ * where the data file is half-written, or served as an HTML error page by
+ * a CDN, must reach `missing` — which SAYS SO — rather than throw inside
+ * a React render and take the map down with it. The campsite source note
+ * learned this the expensive way: one absent field blanked every campsite
+ * page.
+ */
 export function readFeed(input: unknown): WildfireFeed | null {
   if (!input || typeof input !== 'object') return null;
   const feed = input as Partial<WildfireFeed>;
@@ -241,14 +282,39 @@ export function readFeed(input: unknown): WildfireFeed | null {
   // unlike a place name these are OUR words: a pipeline writing them is
   // broken in a way somebody has to look at, and "No fresh wildfire data"
   // is the honest thing to show while they do.
-  if (RESERVED_WORDS.test(meta.authorityNote)) return null;
-  if (RESERVED_WORDS.test(meta.attribution)) return null;
+  //
+  // 🔴 EVERY string the note prints, not the two the review named. `source`
+  // and `licence` are the visible text of two links in that note, so a
+  // feed whose `source` read "Fire danger service" put a reserved word on
+  // the page just as surely as `authorityNote` did — and an empty one
+  // rendered an empty link. The list is the note's own, in
+  // campsite-map.tsx; a string added there belongs here.
+  for (const key of RENDERED_META) {
+    const value = meta[key];
+    if (typeof value !== 'string' || value.trim().length === 0) return null;
+    if (RESERVED_WORDS.test(value)) return null;
+  }
+  // 🔴 And an address that becomes an `href` must be one we would link to.
+  // The file is ours, so this is not a defence against an attacker — it is
+  // the same rule as everywhere else here: a pipeline that writes
+  // something else is broken, and the page says so instead of linking it.
+  for (const key of RENDERED_LINKS) {
+    const value = meta[key];
+    if (typeof value !== 'string' || !/^https:\/\/\S+$/.test(value)) return null;
+  }
 
   const fires: WildfireFeature[] = [];
   for (const raw of feed.features) {
     const fire = readFire(raw);
     if (fire) fires.push(fire);
   }
+  // 🔴 Records were supplied and NONE could be read. That is not "no fires
+  // were recorded" — `total === 0` would then say exactly that, over a
+  // file full of records we could not understand: the empty map that reads
+  // as an all-clear, produced by a schema change instead of by the world.
+  // A file that holds nothing at all (`features: []`) is a different and
+  // legitimate thing and stays `fresh`.
+  if (feed.features.length > 0 && fires.length === 0) return null;
   return { ...(feed as WildfireFeed), features: fires };
 }
 

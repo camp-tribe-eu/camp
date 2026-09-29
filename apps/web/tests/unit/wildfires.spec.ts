@@ -116,6 +116,19 @@ test('🔴 the six states say six different things, and each dies on its own', (
 
   expect(loading).not.toContain('No fresh wildfire data');
 
+  // 🔴 The tone is part of the state too. It decides whether the box under
+  // the map is drawn as a gap (warm border) or as ordinary information,
+  // and a gap drawn as ordinary is the empty map again in a quieter voice.
+  // Mutation: return 'quiet' from the `total === 0` branch — fails here.
+  const tone = (state: WildfireState, inView: number | null = null) =>
+    wildfireNote(state, inView).tone;
+  expect(tone({ kind: 'loading' })).toBe('gap');
+  expect(tone({ kind: 'missing' })).toBe('gap');
+  expect(tone({ kind: 'stale', meta, hoursOld: 96 })).toBe('gap');
+  expect(tone({ kind: 'fresh', meta, fires: [] })).toBe('gap');
+  expect(tone({ kind: 'fresh', meta, fires: [square(14, 40)] }, 0)).toBe('quiet');
+  expect(tone({ kind: 'fresh', meta, fires: [square(14, 40)] }, 1)).toBe('quiet');
+
   // 🔴 AND EACH MARKER APPEARS IN EXACTLY ONE STATE.
   //
   // "no two are the same string" was not enough on its own: the mutation
@@ -184,6 +197,62 @@ test('🔴 a feed that speaks with a national service’s authority is refused',
   expect(wildfireNote(state, null).headline).toContain('No fresh wildfire data');
 });
 
+test('🔴 every string the note prints is gated, not only the two the review named', () => {
+  // 🔴 The gate above was applied to `authorityNote` and `attribution`,
+  // and the note under the map also prints `source` and `licence` as the
+  // visible text of two links. A feed whose `source` said "Fire danger
+  // service" therefore went straight to the page. The field list here is
+  // written out by hand on purpose: derived from the code it would shrink
+  // whenever the code did, and the test would follow it down.
+  // 🔴 Mutation: remove 'source' or 'licence' from RENDERED_META — fails on
+  // that field's row.
+  const meta = FEED.meta as Record<string, unknown>;
+  for (const field of ['source', 'licence', 'attribution', 'authorityNote']) {
+    const value = String(meta[field]);
+    // Appended, so `attribution` keeps the CEMS notice it must carry and
+    // the ONLY thing wrong with the feed is the word.
+    for (const word of ['danger', 'a severe weather warning', 'alerts', 'evacuation']) {
+      expect(
+        readFeed({ ...FEED, meta: { ...meta, [field]: `${value} — ${word}` } }),
+        `${field} carrying "${word}" was accepted`,
+      ).toBeNull();
+    }
+    // An empty one renders an empty link (or, for the note, nothing).
+    expect(
+      readFeed({ ...FEED, meta: { ...meta, [field]: '  ' } }),
+      `a blank ${field} was accepted`,
+    ).toBeNull();
+    expect(
+      readFeed({ ...FEED, meta: { ...meta, [field]: undefined } }),
+      `a missing ${field} was accepted`,
+    ).toBeNull();
+  }
+  // The control: the shipped strings themselves are fine, so the rows
+  // above fail for the word and for nothing else.
+  expect(readFeed(FEED)).not.toBeNull();
+});
+
+test('🔴 an address that becomes a link must be https', () => {
+  // 🔴 Mutation: delete the RENDERED_LINKS loop — fails on every row.
+  const meta = FEED.meta as Record<string, unknown>;
+  for (const field of ['sourceUrl', 'licenceUrl', 'termsUrl']) {
+    for (const bad of [
+      'javascript:alert(1)',
+      'http://example.org/',
+      '//example.org/',
+      '',
+      'https://',
+      'https:// spaced',
+    ]) {
+      expect(
+        readFeed({ ...FEED, meta: { ...meta, [field]: bad } }),
+        `${field}=${JSON.stringify(bad)} was accepted`,
+      ).toBeNull();
+    }
+    expect(readFeed({ ...FEED, meta: { ...meta, [field]: undefined } })).toBeNull();
+  }
+});
+
 test('🔴 a place name we may not print costs the name, never the fire', () => {
   // `place` is EFFIS's proper noun, so the fetch script deliberately does
   // not refuse it — but it is rendered on the popup, under our voice.
@@ -233,6 +302,17 @@ test('🔴 one unusable feature costs one feature, and never the render', () => 
     { ...good, properties: { ...good.properties, date: undefined } },
     { ...good, properties: { ...good.properties, hectares: 'lots' } },
     { ...good, properties: null },
+    // 🔴 Found by asking what ELSE the card prints: with no `place` it
+    // prints `country`, so "Burnt area in DANGER" was one field away.
+    { ...good, properties: { ...good.properties, country: 'DANGER' } },
+    { ...good, properties: { ...good.properties, country: 'it' } },
+    { ...good, properties: { ...good.properties, country: '' } },
+    // 🔴 An array is not yet a shape. These all passed "non-empty array".
+    { ...good, geometry: { type: 'Polygon', coordinates: [[['a', 'b']]] } },
+    { ...good, geometry: { type: 'Polygon', coordinates: [[[Number.NaN, 45]]] } },
+    { ...good, geometry: { type: 'Polygon', coordinates: [[[1e9, 45], [1e9, 46], [1e9 + 1, 46]]] } },
+    { ...good, geometry: { type: 'Polygon', coordinates: [[[10, 95], [11, 95], [11, 96]]] } },
+    { ...good, geometry: { type: 'Polygon', coordinates: [[]] } },
   ];
   const feed = readFeed({ ...FEED, features: [...rubbish, good] });
   expect(feed).not.toBeNull();
@@ -246,6 +326,19 @@ test('🔴 one unusable feature costs one feature, and never the render', () => 
   for (const bad of rubbish) {
     expect(readFire(bad), `${JSON.stringify(bad)} was accepted`).toBeNull();
   }
+
+  // 🔴 A file whose records are ALL unreadable is not "no fires": `total ===
+  // 0` would print "recorded no burnt areas" over it, the all-clear this
+  // layer exists to refuse, produced by a schema change instead of the
+  // world. It is `missing`, and says so.
+  // Mutation: delete the `fires.length === 0` line in readFeed — fails.
+  expect(readFeed({ ...FEED, features: [null] })).toBeNull();
+  expect(readFeed({ ...FEED, features: rubbish })).toBeNull();
+  expect(wildfireState({ ...FEED, features: [null] }, NOW).kind).toBe('missing');
+  // …while a file that genuinely holds nothing is a legitimate feed.
+  const empty = readFeed({ ...FEED, features: [] });
+  expect(empty).not.toBeNull();
+  expect(empty!.features).toHaveLength(0);
 });
 
 test('a state with nothing drawn never lets the reader read it as an all-clear', () => {

@@ -101,6 +101,9 @@ const FIRE_FILL = 'wildfire-areas';
 const FIRE_LINE = 'wildfire-outlines';
 /** Invisible, and the only thing a reader can realistically hit. */
 const FIRE_HIT = 'wildfire-hit';
+/** Everything under the pointer that means "a burnt area": the inside of a
+ * big perimeter and the halo around a small one. */
+const FIRE_CLICK_LAYERS = [FIRE_FILL, FIRE_HIT];
 
 // 🔴 Tell MapLibre where its worker really is.
 //
@@ -292,6 +295,23 @@ function attachFires(m: InstanceType<typeof MapLibreMap>) {
     m.addSource(FIRE_SOURCE, {
       type: 'geojson',
       data: { type: 'FeatureCollection', features: [] },
+      // 🔴 NO SIMPLIFICATION, and this is what half of the layer hung on.
+      //
+      // The GeoJSON source runs every shape through geojson-vt, whose
+      // default tolerance (0.375) DROPS any polygon smaller than the
+      // tolerance at the tile's zoom. Measured 29.09.2026 on the real map
+      // with the shipped 278 perimeters, asking MapLibre itself which
+      // features it holds: at the opening zoom 138 of 278 were in no tile
+      // at all — no fill, no outline, no hit line, nothing to click, and
+      // the sentence under the map still counting them. The layer looked
+      // like a sparse fortnight when it was half a fortnight. The largest
+      // one dropped was 0.011° across, so this is not only the specks.
+      //
+      // At tolerance 0 nothing is dropped or simplified: 278 of 278 were
+      // clickable at the opening zoom afterwards (same measurement). The
+      // shapes are already rounded onto a ~110 m grid by the fetch script,
+      // so there is little left to simplify; the whole file is 251 KB.
+      tolerance: 0,
     });
   }
   if (!m.getLayer(FIRE_FILL)) {
@@ -316,10 +336,12 @@ function attachFires(m: InstanceType<typeof MapLibreMap>) {
       paint: {
         'line-color': '#8A4B2A',
         // 🔴 Wide enough at low zoom to BE the mark, because the fill is
-        // not one. Measured over the shipped 278 perimeters: at z6.2 the
-        // median is 0.31 px across and 276 of 278 are under 3 px, so what
-        // a reader sees on the opening view is this outline and nothing
-        // else. It narrows as the real shape grows past it.
+        // not one. Measured over the shipped 278 perimeters (512 px tiles,
+        // as MapLibre draws them): at z6.2 the median is 0.7 px across and
+        // 254 of 278 are under 3 px, so what a reader sees on the opening
+        // view is this outline and nothing else. It narrows as the real
+        // shape grows past it. (An earlier comment here said 0.31 px: it
+        // had assumed 256 px tiles and was half the truth.)
         'line-width': ['interpolate', ['linear'], ['zoom'], 4, 3, 10, 2.5, 14, 2],
         'line-opacity': 0.95,
       },
@@ -329,9 +351,9 @@ function attachFires(m: InstanceType<typeof MapLibreMap>) {
   //
   // Click and cursor used to be bound to FIRE_FILL alone, and the numbers
   // say what that meant: at the zoom /map opens at, the median burnt area
-  // is a third of a pixel wide and 276 of 278 are under three. The e2e
-  // could not see it because its fixture was an 84 px square clicked dead
-  // centre — the test was sized around the defect.
+  // is 0.7 px wide, 254 of 278 are under three and the largest is 8 px.
+  // The e2e could not see it because its fixture was an 84 px square
+  // clicked dead centre — the test was sized around the defect.
   //
   // So: a transparent line, wide enough to hit with a mouse or a thumb,
   // tapering once the perimeter itself is big enough to aim at. Invisible
@@ -703,6 +725,11 @@ export default function CampsiteMap() {
     }) => {
       const feature = e.features?.[0];
       if (!feature) return;
+      // A cluster standing inside a burnt area fires the fire card first
+      // (see the registration order below). Opening the cluster is what the
+      // reader asked for, so the card must not be left hanging where the
+      // map used to be.
+      popup.current?.remove();
       const source = m.getSource(SOURCE_ID) as GeoJSONSource | undefined;
       if (!source) return;
       const clusterId = feature.properties?.cluster_id as number;
@@ -925,10 +952,20 @@ export default function CampsiteMap() {
     // campsite is what the reader aimed at — it is the marker drawn on
     // top. Registering the fire first makes the popup follow the drawing
     // order instead of the registration order.
-    m.on('click', FIRE_HIT, onFireClick);
+    //
+    // 🔴 BOTH fire layers, by design and not by accident. `FIRE_HIT` is the
+    // wide invisible line that makes a 0.7 px perimeter something a thumb
+    // can find; `FIRE_FILL` is the inside of a perimeter big enough to have
+    // one. Binding only the line (the first repair of the "unclickable
+    // layer" defect) fixed the small fires and broke the large ones — a
+    // click in the middle of a 4 200 ha burnt area found nothing — and the
+    // e2e that clicks dead centre failed on every engine. One registration
+    // with both ids, so a click on the outline of a big perimeter (which
+    // hits the line AND the fill) opens one card, not two.
+    m.on('click', FIRE_CLICK_LAYERS, onFireClick);
     m.on('click', CLUSTER_LAYER, onClusterClick);
     m.on('click', POINT_LAYER, onPointClick);
-    for (const layer of [CLUSTER_LAYER, POINT_LAYER, FIRE_HIT]) {
+    for (const layer of [CLUSTER_LAYER, POINT_LAYER, ...FIRE_CLICK_LAYERS]) {
       m.on('mouseenter', layer, pointer);
       m.on('mouseleave', layer, noPointer);
     }
