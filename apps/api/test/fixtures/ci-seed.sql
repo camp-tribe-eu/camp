@@ -346,8 +346,9 @@ INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, websit
 --
 -- Real EEA data, read 28.09.2026 from
 -- BathingWater_Dyna_WM_2025/MapServer/3, so the attribution applies here
--- as on the page: EEA, bathing waters data and coordinates: Member States
--- authorities. CC BY 4.0. 2025 bathing season.
+-- as on the page, verbatim from the service's copyrightText: EEA, Bathing
+-- waters data and coordinates: Member states authorities. CC BY 4.0.
+-- 2025 bathing season.
 INSERT INTO bathing_waters
   (source_id, ref, name, country, category, season, status,
    profile_url, location) VALUES

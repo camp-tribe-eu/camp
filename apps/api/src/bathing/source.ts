@@ -52,10 +52,18 @@ export const BATHING_SOURCE_ID = 'eea-bathing-water';
 
 /**
  * 🔴 Attribution text, from the service's own `copyrightText` field —
- * not composed by us.
+ * not composed by us. It lives on the SERVICE, not on layer 3 (the layer's
+ * own `copyrightText` is empty), and the previous version of this comment
+ * gave a command (`<layer>/../..?f=json`) that the server answers with
+ * `{"error":{"code":400,"message":"Invalid URL"}}`. Run 29.09.2026:
  *
- *   curl -s '<BATHING_LAYER_URL>/../..?f=json' | jq -r .copyrightText
+ *   curl -s 'https://water.discomap.eea.europa.eu/arcgis/rest/services/BathingWater/BathingWater_Dyna_WM_2025/MapServer?f=json' | jq -r .copyrightText
  *   EEA, Bathing waters data and coordinates: Member states authorities.
+ *
+ * The web renders its own copy of this string
+ * (apps/web/src/lib/bathing.ts) and a unit test asserts the two are
+ * equal, so a retyped spelling on either side fails a test instead of a
+ * licence audit.
  *
  * The EEA legal notice makes acknowledgement a condition of reuse, and
  * adds one more that is easy to read past: the reuse must not distort

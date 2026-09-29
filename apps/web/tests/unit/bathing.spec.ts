@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
 import {
   allCopy,
+  BATHING_ATTRIBUTION,
   BATHING_RADIUS_M,
+  BATHING_SEASON,
   BATHING_FRESHNESS,
   BATHING_SOURCE_ID,
   BATHING_STATUS_LABEL,
@@ -18,6 +20,10 @@ import {
 import { findForbiddenWords, FORBIDDEN_WORDS } from '../../src/lib/wording';
 import { shouldFlagStale, SOURCES } from '../../src/lib/sources';
 import { BATHING_RADIUS_M as API_RADIUS_M } from '../../../api/src/bathing/nearby';
+import {
+  BATHING_ATTRIBUTION as API_ATTRIBUTION,
+  BATHING_SEASON as API_SEASON,
+} from '../../../api/src/bathing/source';
 
 // CAMP-168 — the rules about what this page may say, checked against the
 // strings themselves. The same rules are checked again in
@@ -81,6 +87,20 @@ test.describe('the season is never dropped', () => {
     expect(seasonSentence(bw())).toMatch(/Classified by the national authorities/);
   });
 
+  // 🔴 THE OTHER DIRECTION. The test above asserts only that an
+  // unclassified site is not described as classified. Nothing asserted
+  // that a classified site is not described as unclassified — so the
+  // component could print `notClassifiedSentence` for every record and
+  // every classified page would say "Excellent" and, two lines below,
+  // that the authorities published no classification.
+  test('a classified site is never also described as unclassified', () => {
+    const w = bw();
+    for (const s of [seasonSentence(w), seasonContextSentence(w.season)]) {
+      expect(s, s).not.toMatch(/no classification/i);
+      expect(s, s).not.toMatch(/not classified/i);
+    }
+  });
+
   // 🔴 No clock. A sentence that changes with the date rewrites 18 605
   // statically built pages every midnight and tells crawlers the content
   // moved when it did not.
@@ -134,6 +154,36 @@ test.describe('the wording gate (CAMP-162)', () => {
   });
 });
 
+// 🔴 `isClassified` decides which of two contradictory sentences a page
+// prints, and until this block nothing pinned its TRUE side: the suite
+// asserted `isClassified(notClassified) === false` and stopped, so
+// `isClassified = () => false` left all 22 unit tests green — and, at
+// the page level, made every classified page say "no classification".
+test.describe('which records count as classified', () => {
+  for (const status of ['excellent', 'good', 'sufficient', 'poor']) {
+    test(`${status} is classified, and has a label`, () => {
+      const w = bw({ status });
+      expect(isClassified(w)).toBe(true);
+      expect(statusLabel(w)).toBe(status[0].toUpperCase() + status.slice(1));
+    });
+  }
+
+  test('the four classes are exactly the labels we can print', () => {
+    expect(Object.keys(BATHING_STATUS_LABEL).sort()).toEqual([
+      'excellent',
+      'good',
+      'poor',
+      'sufficient',
+    ]);
+  });
+
+  test('not_classified is not, and has no label to print', () => {
+    const w = bw({ status: 'not_classified' });
+    expect(isClassified(w)).toBe(false);
+    expect(statusLabel(w)).toBeNull();
+  });
+});
+
 test.describe('nothing renders empty', () => {
   test('an unclassified site says so in words', () => {
     const w = bw({ status: 'not_classified' });
@@ -155,6 +205,36 @@ test.describe('nothing renders empty', () => {
   test('an unknown category still produces a word', () => {
     expect(categoryLabel('Nonsense')).toBe('bathing water');
     expect(categoryLabel('Lake')).toBe('lake');
+  });
+});
+
+// 🔴 THE YEAR, and the words the licence asks for, are pinned to a second
+// copy that another file owns. A test whose expected value comes from the
+// same constant the code renders agrees with any edit to it — so these
+// compare the web's copy to the API's, and to the literal the service
+// itself serves.
+test.describe('the constants the page renders are the ones the importer wrote', () => {
+  test('the season the page pins is the season the importer writes', () => {
+    expect(BATHING_SEASON).toBe(API_SEASON);
+    expect(seasonLabel(BATHING_SEASON)).toBe('2025 bathing season');
+  });
+
+  test('the attribution is the one the API holds', () => {
+    expect(BATHING_ATTRIBUTION).toBe(API_ATTRIBUTION);
+  });
+
+  // Read from the service's own `copyrightText` on 29.09.2026:
+  //   curl -s '…/BathingWater_Dyna_WM_2025/MapServer?f=json' | jq -r .copyrightText
+  // — capital B in "Bathing", lower-case s in "Member states". It is a
+  // licence condition, so a retyped spelling is a defect.
+  test('the attribution is verbatim, capitals and all', () => {
+    expect(BATHING_ATTRIBUTION).toBe(
+      'EEA, Bathing waters data and coordinates: Member states authorities.',
+    );
+  });
+
+  test('the attribution passes the wording gate', () => {
+    expect(findForbiddenWords(BATHING_ATTRIBUTION)).toEqual([]);
   });
 });
 

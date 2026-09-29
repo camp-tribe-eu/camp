@@ -19,6 +19,13 @@ import 'dotenv/config';
 import { Client } from 'pg';
 import { BATHING_SEASON } from './source';
 import { BATHING_RADIUS_M } from './nearby';
+import {
+  BAND_M,
+  reconcile,
+  STRATA,
+  summarise,
+  type CountRow,
+} from './agreement';
 
 const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
@@ -43,10 +50,18 @@ async function main() {
 
     // One KNN per campsite, then bucket by radius — so the sweep is one
     // pass over the table rather than eight.
+    //
+    // 🔴 `MATERIALIZED` is what makes that sentence true. Without it
+    // Postgres inlines the CTE, and `m` is then computed again for every
+    // (campsite, radius) pair and for each of its two references —
+    // `EXPLAIN` shows two SubPlans under a nested loop with the eight
+    // radii, about a million KNN scans instead of 61 558. The numbers
+    // are the same either way; the run was not, and on a loaded machine
+    // it did not finish in sixteen minutes.
     console.log('nearest bathing water, by radius');
     const rows = (
       await db.query(
-        `WITH nearest AS (
+        `WITH nearest AS MATERIALIZED (
            SELECT s.id,
                   (SELECT ST_Distance(s.location, b.location)
                      FROM bathing_waters b
@@ -110,41 +125,118 @@ async function main() {
     // before this dataset arrived. If the nearest bathing water is the
     // water beside the campsite, its EEA category agrees with that
     // label. Nothing in the comparison is derived from the distance.
-    console.log("\ndoes the nearest bathing water agree with CAMP-33's");
-    console.log('computed water KIND, by distance band?');
-    const bands = (
+    //
+    // 🔴 The rows come out of SQL as (band, kind, category, n) and
+    // NOTHING ELSE is decided there. Which category agrees with which
+    // kind, the standardisation, the cumulative column and the check
+    // against the sweep above all live in agreement.ts, where a test
+    // does the arithmetic by hand and compares.
+    //
+    // 🔴 Distances are the UNROUNDED geography metres, bands are
+    // (lo, hi], and the sweep above is `<= r`. That is what makes the
+    // cumulative column here reproduce the sweep's counts exactly — the
+    // earlier version rounded the distance and bucketed half-open, which
+    // put a campsite at 500.3 m in the first band and one at exactly
+    // 5 000 m in a band called 5 500.
+    const bandRows: CountRow[] = (
       await db.query(
-        `WITH n AS (
-           SELECT s.context->'water'->>'kind' AS ctx_kind,
-                  (SELECT round(ST_Distance(s.location, b.location))
-                     FROM bathing_waters b WHERE b.season = $1
-                    ORDER BY s.location <-> b.location, b.ref LIMIT 1) AS m,
-                  (SELECT b.category
-                     FROM bathing_waters b WHERE b.season = $1
-                    ORDER BY s.location <-> b.location, b.ref LIMIT 1) AS cat
-             FROM camping_spots s
-         ), j AS (
-           SELECT m, CASE
-                  WHEN ctx_kind = 'sea'                 THEN cat IN ('Coastal','Transitional')
-                  WHEN ctx_kind IN ('lake','reservoir') THEN cat = 'Lake'
-                  WHEN ctx_kind = 'river'               THEN cat IN ('River','Transitional')
-                  ELSE NULL END AS agrees
-             FROM n WHERE m IS NOT NULL
-         )
-         SELECT (width_bucket(m, 0, 5000, 10) * 500)::int AS band,
-                count(*)::int AS n,
-                round(100.0 * count(*) FILTER (WHERE agrees) / count(*), 1) AS pct
-           FROM j WHERE m <= 5000 GROUP BY 1 ORDER BY 1`,
-        [BATHING_SEASON],
+        `SELECT (greatest(ceil(nb.m / $2::float8), 1) * $2::float8)::int AS band,
+                s.context->'water'->>'kind' AS kind,
+                nb.category,
+                count(*)::int AS n
+           FROM camping_spots s
+           CROSS JOIN LATERAL (
+                  SELECT ST_Distance(s.location, b.location) AS m,
+                         b.category
+                    FROM bathing_waters b
+                   WHERE b.season = $1
+                   ORDER BY s.location <-> b.location, b.ref
+                   LIMIT 1) nb
+          WHERE nb.m <= $3::float8
+          GROUP BY 1, 2, 3
+          ORDER BY 1, 2, 3`,
+        [BATHING_SEASON, BAND_M, RADII[RADII.length - 1]],
       )
-    ).rows;
-    for (const r of bands) {
-      const mark =
-        Number(r.band) === BATHING_RADIUS_M ? '  <- chosen radius' : '';
+    ).rows.map((r) => ({ ...r, band: Number(r.band), n: Number(r.n) }));
+
+    const { weights, lines } = summarise(bandRows);
+
+    console.log("\ndoes the nearest bathing water agree with CAMP-33's");
+    console.log('computed water KIND, by distance?\n');
+    console.log(
+      '  band   = campsites whose nearest bathing water lies in that band ALONE',
+    );
+    console.log(
+      '  within = EVERY campsite up to and including it: the sweep above, again',
+    );
+    console.log(
+      '  sea/lake/river = agreement inside that kind, and its share of the band',
+    );
+    console.log(
+      '  std    = those three rates re-weighted to the 0-500 m mix, so that the',
+    );
+    console.log('           mix cannot move the curve');
+    console.log(
+      '  chance = what std would read if the category of the nearest bathing',
+    );
+    console.log(
+      "           water were unrelated to the campsite's water kind\n",
+    );
+    console.log(
+      '  weights (0-500 m mix)  ' +
+        STRATA.map((k) => `${k} ${(100 * weights[k]).toFixed(1)}%`).join('  '),
+    );
+    console.log(
+      `\n  ${'band (m)'.padEnd(11)}${'n'.padStart(6)}  ${'raw'.padStart(6)}  |` +
+        STRATA.map((k) => k.padStart(16)).join('') +
+        '  |  ' +
+        'std'.padStart(6) +
+        'chance'.padStart(8) +
+        '  |  ' +
+        'within (m)'.padEnd(12) +
+        'n'.padStart(7) +
+        'agree'.padStart(8),
+    );
+    const pct = (v: number | null): string =>
+      v === null ? '   n/a' : `${v.toFixed(1)}%`.padStart(6);
+    for (const l of lines) {
+      const mark = l.to === BATHING_RADIUS_M ? '  <- chosen radius' : '';
       console.log(
-        `  up to ${String(r.band).padStart(5)} m   ${String(r.n).padStart(6)}   ` +
-          `${String(r.pct).padStart(5)}% agree${mark}`,
+        `  ${`${l.from}-${l.to}`.padEnd(11)}${String(l.n).padStart(6)}  ${pct(l.pct)}  |` +
+          STRATA.map((k) =>
+            `${pct(l.strata[k].pct)} (${(100 * l.strata[k].share).toFixed(1).padStart(4)}%)`.padStart(
+              16,
+            ),
+          ).join('') +
+          `  |  ${pct(l.standardised)}${pct(l.chance).padStart(8)}  |  ` +
+          `${`0-${l.to}`.padEnd(12)}${String(l.cumulative.n).padStart(7)}${pct(l.cumulative.pct).padStart(8)}` +
+          mark,
       );
+    }
+    const excluded = lines.reduce((t, l) => t + l.excluded, 0);
+    console.log(
+      `\n  campsites whose water kind is none of sea/lake/reservoir/river: ${excluded}` +
+        ' (counted, not treated as a disagreement)',
+    );
+
+    // 🔴 The two tables above come from different queries. If a label or
+    // an edge convention were wrong they would disagree at some radius —
+    // so say whether they do, and fail the run if they do.
+    const check = reconcile(
+      lines,
+      rows.map((r) => ({ radius: Number(r.radius), within: Number(r.within) })),
+    );
+    if (check.mismatches.length === 0 && check.compared > 0) {
+      console.log(
+        `  cumulative counts reproduce the radius sweep at all ${check.compared} radii that are a band edge`,
+      );
+    } else {
+      console.error(
+        `  THE BAND TABLE DOES NOT RECONCILE WITH THE SWEEP ` +
+          `(${check.compared} radii compared): ` +
+          JSON.stringify(check.mismatches),
+      );
+      process.exitCode = 1;
     }
 
     // 🔴 Countries with campsites but no match, printed by name. A

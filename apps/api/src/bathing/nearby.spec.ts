@@ -6,6 +6,9 @@ import { BATHING_SOURCE_ID } from './source';
 // against the SQL text. Every assertion here was checked by deleting the
 // clause it names and watching this file go red.
 
+/** The SQL with its whitespace collapsed, so layout is not asserted. */
+const flat = (sql: string): string => sql.replace(/\s+/g, ' ');
+
 describe('nearestBathingWaterSql', () => {
   const sql = nearestBathingWaterSql('s.location');
 
@@ -38,10 +41,20 @@ describe('nearestBathingWaterSql', () => {
   // Next June's import must be picked up without a deploy, and a table
   // holding two seasons mid-import must still yield one row per campsite.
   it('reads the newest season present rather than a hard-coded year', () => {
-    expect(sql).toContain(
-      'b.season = (SELECT max(season) FROM bathing_waters)',
-    );
+    expect(flat(sql)).toContain('b.season = ( SELECT max(m.season)');
     expect(sql).not.toMatch(/b\.season = \d{4}/);
+  });
+
+  // 🔴 The newest season OF THIS SOURCE. The subquery used to read the
+  // whole table: a second publisher with a higher season would have made
+  // `b.season = max(...)` match no EEA row at all, and every campsite
+  // page would have said "no bathing water within 2 km" — a confident,
+  // silent, wrong answer on every page, with nothing in the table today
+  // to show it.
+  it('takes the newest season of this source, not of the whole table', () => {
+    expect(flat(sql)).toContain(
+      `SELECT max(m.season) FROM bathing_waters m WHERE m.source_id = '${BATHING_SOURCE_ID}')`,
+    );
   });
 
   it('reads only this source', () => {

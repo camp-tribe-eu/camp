@@ -1,4 +1,5 @@
 import {
+  BATHING_ATTRIBUTION,
   BATHING_RADIUS_M,
   BATHING_SOURCE_ID,
   categoryLabel,
@@ -130,11 +131,14 @@ export default function BathingWaterNote({
           </a>
           {' · '}
           <span data-testid="bathing-attribution">
-            {/* Verbatim from the map service's own `copyrightText`, not
-                composed by us. The season is appended only where there
-                is one to name. */}
-            EEA, bathing waters data and coordinates: Member States
-            authorities.
+            {/* 🔴 The CONSTANT, not a retyped sentence. This block used to
+                hard-code "…bathing waters … Member States authorities."
+                under a comment saying "verbatim" — the service's own
+                text is "Bathing waters … Member states authorities.",
+                and the licence makes acknowledgement a condition of
+                reuse. The season is appended only where there is one to
+                name. */}
+            {BATHING_ATTRIBUTION}
             {bathingWater ? ` ${seasonLabel(bathingWater.season)}.` : ''}
           </span>
         </p>

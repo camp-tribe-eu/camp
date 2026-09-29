@@ -11,9 +11,26 @@
 //
 // So every sentence this file produces names the SEASON and the YEAR,
 // and the type system does not offer a way to render a class without
-// one: `season` is required on the view, required in the API's SQL and
-// NOT NULL in the column. Dropping the year would take three deliberate
-// edits and a test that reads the served HTML still fails.
+// one: `season` is required on the view and in the API's SQL.
+//
+// 🔴 What actually stops a page printing "null bathing season", stated
+// as what is checked rather than what is hoped:
+//
+//   - the column is `int NOT NULL` with a CHECK on the range — pinned by
+//     api/src/bathing/migration.spec.ts, which runs the real migration
+//     against a recording query runner;
+//   - the served payload carries a four-digit season on every bathing
+//     water in the fixture, and it is BATHING_SEASON — asserted in
+//     tests/e2e/bathing-water.spec.ts against the constant below, NOT
+//     against the field the page was built from. An earlier version
+//     built every expected string from the payload, so a payload with
+//     `season: null` rendered "null bathing season" and the assertions
+//     agreed with it;
+//   - the same spec reads the HEADING, the classification <dt>, both
+//     sentences and the attribution out of the served HTML.
+//
+// The `row.bathing_water as BathingWaterView` cast in the API is still
+// unchecked at runtime. That is what the two bullets above stand in for.
 
 import { FORBIDDEN_WORDS } from './wording';
 
@@ -60,10 +77,43 @@ export const BATHING_FRESHNESS = {
   publishedAbout: 'usually in June of the following year',
 };
 
-/** The published season. Exported so the copy and the tests share one year. */
+/**
+ * The published season. Exported so the copy and the tests share one year.
+ *
+ * 🔴 This is what the end-to-end spec pins the rendered year to. It is
+ * deliberately NOT read from the payload the page was built from: a test
+ * whose expected year comes from the field it is checking agrees with any
+ * value at all, including `null`. A unit test asserts it equals the
+ * constant the importer writes (api/src/bathing/source.ts), so the two
+ * cannot be bumped apart — and when the 2026 season arrives, the fixture
+ * rows in ci-seed.sql say 2025 and the spec goes red until they are
+ * regenerated, which is the coupling wanted.
+ */
 export const BATHING_SEASON = 2025;
 
 export const BATHING_SOURCE_ID = 'eea-bathing-water';
+
+/**
+ * 🔴 The attribution the EEA asks for, VERBATIM — including the capital B
+ * in "Bathing" and the lower-case s in "Member states".
+ *
+ * It is the map service's own `copyrightText`, read 29.09.2026:
+ *
+ *   curl -s 'https://water.discomap.eea.europa.eu/arcgis/rest/services/BathingWater/BathingWater_Dyna_WM_2025/MapServer?f=json' | jq -r .copyrightText
+ *   EEA, Bathing waters data and coordinates: Member states authorities.
+ *
+ * The EEA legal notice makes acknowledgement a condition of reuse, so
+ * this is a licence condition rather than a style choice. An earlier
+ * version of this section hard-coded a retyped "…bathing waters … Member
+ * States authorities." under a comment that said "verbatim", while this
+ * exact constant existed in the API and was never used by the web — and
+ * the spec asserted the retyped spelling, so it agreed with the copy.
+ *
+ * The component RENDERS this constant and the spec asserts against it;
+ * a unit test asserts it equals the API's copy and the literal above.
+ */
+export const BATHING_ATTRIBUTION =
+  'EEA, Bathing waters data and coordinates: Member states authorities.';
 
 /**
  * 🔴 The class names, as the Bathing Water Directive names them.
