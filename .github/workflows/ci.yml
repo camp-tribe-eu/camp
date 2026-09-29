@@ -218,6 +218,28 @@ jobs:
         working-directory: apps/web
         run: npx playwright test --project=unit tests/unit/cems-panels.spec.ts --reporter=list
 
+      # 🔴 CAMP-172. regenerate.sh rebuilt ci-seed.sql from a list of
+      # sources kept by hand, and bathing_waters (43 rows, appended to the
+      # fixture by hand) was in none of them: the next regeneration would
+      # have deleted the table and every check would still have passed,
+      # because a page with no bathing water nearby is a correct page. The
+      # tool now refuses to write a fixture with fewer tables or fewer
+      # rows than the one it replaces.
+      #
+      # Two steps, because there are two things to prove. The first is the
+      # comparison itself (what counts as a row, what counts as shrunk, the
+      # per-table escape hatch). The second is the wiring around it —
+      # that regenerate.sh still calls the comparison, calls it before it
+      # overwrites the fixture, and lets psql fail loudly — driven with a
+      # psql shim and the REAL _select.sql, so deleting the bathing select
+      # from it turns this red. Neither touches a database.
+      - name: Fixture guard still refuses a smaller fixture
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/check-fixture-not-shrunk.mjs --self-test
+      - name: Regenerating the fixture still refuses to lose a table
+        if: ${{ !cancelled() }}
+        run: ./apps/api/test/fixtures/regenerate.selftest.sh
+
   web:
     runs-on: ubuntu-latest
     services:
@@ -418,6 +440,26 @@ jobs:
             -f apps/api/test/fixtures/ci-seed.sql
           echo "campsites: $(psql -h localhost -U postgres -d camptribe_test -t -A \
             -c 'SELECT count(*) FROM camping_spots')"
+
+      # 🔴 CAMP-172. The seeded database IS the fixture, so this asks it
+      # the question the fixture's regenerator would be asked in a year:
+      # run the real _select.sql against it, append the real ci-seed-*.sql
+      # files, and fail if any table ci-seed.sql seeds has no statement
+      # left that produces it.
+      #
+      # It is here rather than only in a script somebody runs by hand
+      # because the failure is discovered by whoever regenerates NEXT, weeks
+      # after the card that appended a table to ci-seed.sql and forgot to
+      # tell the generator. Here it is red the same day.
+      #
+      # Tables only, not rows: a database loaded from the fixture
+      # legitimately selects fewer campsites than it holds (the campsite
+      # marked gone is excluded by definition). The local run, against the
+      # development database, is the one that compares row counts.
+      - name: Every table the fixture seeds is still produced by its generator
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: ./apps/api/test/fixtures/regenerate.sh --check
 
       # Two steps again: first prove the comparison can fail, then believe
       # the run that says the generator and hand-written SQL agree.
