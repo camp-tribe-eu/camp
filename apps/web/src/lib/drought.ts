@@ -274,6 +274,9 @@ export type CdiSample =
  * so nothing here names one.
  */
 export function classOfValue(value: number): CdiCell {
+  // A cell is a byte. Anything that is not a whole number is not one, and
+  // must not be rounded into the class it happens to sit between.
+  if (!Number.isInteger(value)) return { kind: 'unreadable' };
   if (value === 0) return { kind: 'none' };
   if (value >= 1 && value <= 3) return { kind: 'drought', level: value as 1 | 2 | 3 };
   if (value >= 4 && value <= MAX_KNOWN_VALUE) return { kind: 'recovery' };
@@ -544,21 +547,27 @@ export function droughtNote(state: DroughtState, pick: DroughtPick | null): Drou
 
   if (state.kind === 'stale') {
     const began = formatDay(state.meta.dekad);
+    const gap = 'Nothing is drawn, and that is a gap in what we hold, not a statement that no drought has been recorded.';
     // 🔴 A period dated ahead of the clock is not an age. Said as what it
     // is, because the reader's question is "can I trust this".
-    const when =
-      state.daysOld < 0
-        ? 'is dated in the future, which means a clock somewhere is wrong'
-        : Number.isFinite(state.daysOld)
-        ? `${days(state.daysOld)} ago, past our ${FRESH_FOR_DAYS}-day budget for this indicator`
-        : 'at an unknown time';
+    if (state.daysOld < 0) {
+      return {
+        tone: 'gap',
+        headline: 'No fresh drought data.',
+        detail:
+          `The newest ten-day period we hold is dated ${began ?? 'with a date we cannot read'}, which is in the future — ` +
+          `a clock somewhere is wrong, so the map is off rather than showing a period we cannot place. ${gap}`,
+      };
+    }
+    const when = Number.isFinite(state.daysOld)
+      ? `${days(state.daysOld)} ago, past our ${FRESH_FOR_DAYS}-day budget for this indicator`
+      : 'at a time we cannot read';
     return {
       tone: 'gap',
       headline: 'No fresh drought data.',
       detail:
         `The newest ten-day period we hold began ${began ? `on ${began}` : 'on a date we cannot read'}, ${when}, ` +
-        'so the map is off rather than showing an old period as the current one. ' +
-        'Nothing is drawn, and that is a gap in what we hold, not a statement that no drought has been recorded.',
+        `so the map is off rather than showing an old period as the current one. ${gap}`,
     };
   }
 
