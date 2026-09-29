@@ -328,3 +328,113 @@ INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, websit
 INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n6724101564', 'groceries', 'Naturalia', ST_GeomFromText('POINT(-1.1498974 46.1625545)', 4326), 'fr', '+33 5 46 37 20 53', 'https://magasins.naturalia.fr/naturalia/fr/store/france/nouvelle-aquitaine/charente-maritime/la-rochelle/la-rochelle-minage/4015', 'Mo-Sa 09:00-20:00;Su 09:00-12:45');
 INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n9063556553', 'shelter', 'Hôtel François 1er', ST_GeomFromText('POINT(-1.1518096 46.1607969)', 4326), 'fr', NULL, NULL, NULL);
 INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n14077709953', 'water', NULL, ST_GeomFromText('POINT(-1.1511579 46.1597392)', 4326), 'fr', NULL, NULL, NULL);
+
+
+-- CAMP-168: the EU's designated bathing waters, for the campsites above.
+--
+-- 🔴 EVERY bathing water within 2 km of ANY campsite in this fixture, not
+-- a hand-picked few. A partial slice would make some of these campsites
+-- render "no designated bathing water within 2 km" when the real data
+-- says otherwise — and the end-to-end test that asserts that emptiness
+-- would then be asserting an artefact of the fixture rather than a
+-- behaviour of the page.
+--
+-- What that gives the suite, which is what tests/e2e/bathing-water.spec.ts
+-- gates itself on: campsites with a classified bathing water (Excellent
+-- and Good), campsites whose nearest one the authorities did not classify,
+-- and inland campsites with none within 2 km. Three states, all rendered.
+--
+-- Real EEA data, read 28.09.2026 from
+-- BathingWater_Dyna_WM_2025/MapServer/3, so the attribution applies here
+-- as on the page, verbatim from the service's copyrightText: EEA, Bathing
+-- waters data and coordinates: Member states authorities. CC BY 4.0.
+-- 2025 bathing season.
+INSERT INTO bathing_waters
+  (source_id, ref, name, country, category, season, status,
+   profile_url, location) VALUES
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4074', 'Primorje', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4074',
+   ST_GeomFromText('POINT(15.44222 43.94833)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4076', 'Soline', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4076',
+   ST_GeomFromText('POINT(15.45018 43.92946)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4080', 'Jaz', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4080',
+   ST_GeomFromText('POINT(15.16389 44.225)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4081', 'Zaton H.R. 2', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4081',
+   ST_GeomFromText('POINT(15.16321 44.22992)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4089', 'Uvala Rovanjska', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4089',
+   ST_GeomFromText('POINT(15.53639 44.25083)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4098', 'Punta Rožica', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4098',
+   ST_GeomFromText('POINT(15.28139 44.06528)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4106', 'Sveti Nikola', 'hr', 'Transitional', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4106',
+   ST_GeomFromText('POINT(15.54639 44.19)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4109', 'Punta', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4109',
+   ST_GeomFromText('POINT(15.50056 43.90722)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4111', 'Uvala Dugovača', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4111',
+   ST_GeomFromText('POINT(15.53361 43.89083)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4118', 'Obalni Dio', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4118',
+   ST_GeomFromText('POINT(15.32611 43.99139)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4122', 'Uvala Jasenica', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4122',
+   ST_GeomFromText('POINT(15.38639 43.95194)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4125', 'Studenac', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4125',
+   ST_GeomFromText('POINT(15.42583 43.91889)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4137', 'Sveti Jerolim', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4137',
+   ST_GeomFromText('POINT(15.10556 44.13361)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4143', 'Uvala Loznica', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4143',
+   ST_GeomFromText('POINT(15.12611 44.25368)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4168', 'Uvala Duboka Krušćica', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4168',
+   ST_GeomFromText('POINT(15.31267 44.35281)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4175', 'Morovička', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4175',
+   ST_GeomFromText('POINT(15.40417 43.96944)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6215', 'Kaštelina', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6215',
+   ST_GeomFromText('POINT(14.75557 44.82474)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6216', 'Livačina', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6216',
+   ST_GeomFromText('POINT(14.74971 44.82263)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6217', 'Rajska plaža - sredina', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6217',
+   ST_GeomFromText('POINT(14.7416 44.81976)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6218', 'Rajska plaža - kraj', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6218',
+   ST_GeomFromText('POINT(14.74512 44.82171)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6219', 'Rajska plaža - početak', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6219',
+   ST_GeomFromText('POINT(14.7401 44.81899)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6240', 'Uvala Zastolac', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6240',
+   ST_GeomFromText('POINT(14.75511 44.83274)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6313', 'Gornja Supetarska Draga - sredina', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6313',
+   ST_GeomFromText('POINT(14.71593 44.81171)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-1035', 'Hotel Osmine', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=1035',
+   ST_GeomFromText('POINT(17.86969 42.77917)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-1126', 'Hotel Admiral', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=1126',
+   ST_GeomFromText('POINT(17.8883 42.78676)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-2078', 'Hotel Medena', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=2078',
+   ST_GeomFromText('POINT(16.21119 43.51093)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-2079', 'Ak. Vranjica Belvedere', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=2079',
+   ST_GeomFromText('POINT(16.19192 43.50825)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-2080', 'Seget Vranjica', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=2080',
+   ST_GeomFromText('POINT(16.1778 43.51274)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-2147', 'Apartmani Medena', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=2147',
+   ST_GeomFromText('POINT(16.20552 43.51003)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4075', 'Dražica', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4075',
+   ST_GeomFromText('POINT(15.44583 43.93278)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4077', 'Kumenat', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4077',
+   ST_GeomFromText('POINT(15.45889 43.92222)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4082', 'Zaton H.R. 1', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4082',
+   ST_GeomFromText('POINT(15.16083 44.23194)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4090', 'Obalni potez Jasenice', 'hr', 'Transitional', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4090',
+   ST_GeomFromText('POINT(15.54222 44.21889)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4107', 'Pilatuša Madona', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4107',
+   ST_GeomFromText('POINT(15.48675 43.9143)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4163', 'Mulo Parića (Rt Pisak)', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4163',
+   ST_GeomFromText('POINT(15.47667 44.27466)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4173', 'Iza Banja', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4173',
+   ST_GeomFromText('POINT(15.42722 43.95944)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4189', 'Pliša', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4189',
+   ST_GeomFromText('POINT(15.16333 44.21917)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4198', 'Bošana', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4198',
+   ST_GeomFromText('POINT(15.44349 43.94556)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4202', 'Hotel Alan', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4202',
+   ST_GeomFromText('POINT(15.44828 44.2846)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4204', 'Janice', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4204',
+   ST_GeomFromText('POINT(15.51223 43.90493)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4212', 'ispod apartmanskog naselja', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4212',
+   ST_GeomFromText('POINT(15.42017 43.96289)', 4326)::geography),
+  ('eea-bathing-water', 'SI00B5500600K10010', 'KOPALNO OBMOČJE SOČA PRI ČEZSOČI', 'si', 'River', 2025, 'excellent', 'https://www.gov.si/assets/ministrstva/MOP/Dokumenti/Voda/profili_kopalnih_voda/profil_KV_44_soca_pri_cezsoci.pdf',
+   ST_GeomFromText('POINT(13.5536 46.3248)', 4326)::geography),
+  ('eea-bathing-water', 'SI00B5504600K09010', 'KOPALNO OBMOČJE NADIŽA', 'si', 'River', 2025, 'good', 'https://www.gov.si/assets/ministrstva/MOP/Dokumenti/Voda/profili_kopalnih_voda/profil_KV_43_nadiza.pdf',
+   ST_GeomFromText('POINT(13.4572 46.2418)', 4326)::geography);

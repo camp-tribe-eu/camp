@@ -18,6 +18,7 @@ import { GuidesModule } from './guides/guides.module';
 import { HealthModule } from './health/health.module';
 import { ClientError } from './entities/client-error.entity';
 import { SpotTariff } from './entities/spot-tariff.entity';
+import { BathingWater } from './entities/bathing-water.entity';
 import { DEFAULT_LIMIT } from './throttle';
 import { ApiThrottlerGuard } from './throttle.guard';
 
@@ -41,6 +42,7 @@ import { ApiThrottlerGuard } from './throttle.guard';
         TripStop,
         ClientError,
         SpotTariff,
+        BathingWater,
       ],
       synchronize: false,
     }),

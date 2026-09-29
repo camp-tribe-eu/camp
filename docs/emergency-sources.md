@@ -794,6 +794,45 @@ bathing waters data and coordinates: Member States authorities.*
 
 **Verdict: TAKE.**
 
+### Taken — CAMP-168, 28.09.2026
+
+Implemented in `apps/api/src/bathing/` (fetch, parse, import, the read
+query) and rendered by `apps/web/src/components/bathing-water.tsx`. Three
+things that were learned in the doing and are not in the survey above:
+
+- **The source does not speak ISO.** Greece arrives as `EL`, the
+  Eurostat code; ISO 3166-1 leaves `EL` unassigned and our member list
+  holds `gr`. A membership check without a translation refuses **1 734 of
+  the 22 010** rows, silently, and the coverage report then reads 26 of
+  27 countries. The alias lives in `apps/api/src/osm/eu.ts` as
+  `NON_ISO_COUNTRY_CODE`, kept separate from the Åland one because Åland
+  is a subdivision and Greece is a member state under another spelling.
+
+- **The radius is 2 000 m, and it is not chosen from coverage.** The
+  coverage curve has no knee — it climbs to 62% at 10 km — so choosing on
+  it always argues for the largest number. It is examined on a different
+  field: CAMP-33 already labels every campsite's nearest water
+  sea/lake/river, from OpenStreetMap, and the EEA category either agrees
+  with that label or does not. **The raw curve is confounded**, and this
+  paragraph used to read it as if it were not: agreement falls from 86.3%
+  (0–500 m) through 63.3% (1.5–2 km) to 47.2% (4.5–5 km), but over the
+  same bands the coastal share of the campsites falls from 45.7% to 7.5%
+  and the river share rises from 20.0% to 54.3%, and rivers agree far
+  less often than the sea does at any distance. Re-weighted to the
+  0–500 m mix the curve reads 86.3% → 73.1% by the 1.5–2 km band and is
+  then flat — 71–74% to 5 km, against 35–38% if the categories were
+  unrelated. So the data show where the decline **ends**, not a distance
+  beyond which the water is unrelated: kind agreement cannot say where
+  "near" stops, and 2 000 m is a judgement placed where the decline stops.
+  The figures, the per-kind table and the reasoning are in
+  `apps/api/src/bathing/nearby.ts`; `report-coverage.ts` reprints all of
+  it, and fails if its band table does not reproduce its own radius sweep.
+
+- **What it yields**: **18 605 of 61 558 campsites (30.2%)** have a
+  designated bathing water within 2 km — 18 082 with a class, 523 whose
+  nearest one the authorities did not classify — and all 27 member
+  states are represented.
+
 ---
 
 ## 9. EEA air quality — **TAKE**

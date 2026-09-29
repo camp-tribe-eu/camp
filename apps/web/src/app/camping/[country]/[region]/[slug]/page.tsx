@@ -26,6 +26,7 @@ import { alternatesFor } from '@/lib/i18n';
 import TravelNotice from '@/components/travel-notice';
 import SourceNote from '@/components/source-note';
 import TariffTable from '@/components/tariff-table';
+import BathingWaterNote from '@/components/bathing-water';
 
 // CAMP-34 — the campsite page.
 //
@@ -455,6 +456,23 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         tariffs={spot.tariffs}
         withheld={spot.tariffsWithheld ?? 0}
       />
+
+      {/* 🔴 CAMP-168: the official bathing water classification.
+
+          Directly under the price list and above the weather, because
+          it belongs with the surroundings block further up — the
+          campsite's distance to water is already printed there, and this
+          is the official classification of that water, for a stated
+          season.
+
+          🔴 UNCONDITIONAL, unlike TariffTable above. The component
+          decides what to say, and one of the three things it can say is
+          that no designated bathing water lies within 2 km — which is
+          the case on 42 953 of 61 558 campsites. Rendering nothing there
+          would let an absence read as reassurance, and would make a
+          campsite whose bathing water failed to import indistinguishable
+          from one that genuinely has none. */}
+      <BathingWaterNote bathingWater={spot.bathingWater} />
 
       <Section title="Weather on site">
         <p className="max-w-prose text-sm text-ink-2">

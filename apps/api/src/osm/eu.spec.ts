@@ -2,6 +2,7 @@ import {
   EU_MEMBER_STATES,
   EU_MEMBER_STATES_AND_SUBDIVISIONS,
   ISO_SUBDIVISION_OF,
+  NON_ISO_COUNTRY_CODE,
   isEuMemberState,
   normaliseCountry,
 } from './eu';
@@ -92,5 +93,62 @@ describe('subdivision codes that are still a member state', () => {
     expect(EU_MEMBER_STATES_AND_SUBDIVISIONS).toHaveLength(
       EU_MEMBER_STATES.length + Object.keys(ISO_SUBDIVISION_OF).length,
     );
+  });
+});
+
+// 🔴 CAMP-168. A THIRD source, a third dialect, and this time it is not a
+// subdivision — it is a member state spelled in another code system.
+//
+// The EEA labels its countries the Eurostat way, so Greece arrives as
+// `EL`. ISO 3166-1 leaves `EL` unassigned and this repository's list
+// holds `gr`, so the membership check said no — to 1 734 of the 22 010
+// EU-27 bathing waters, measured 28.09.2026, silently and with exit 0.
+describe('country codes from other code systems', () => {
+  it('resolves the Eurostat code for Greece', () => {
+    expect(normaliseCountry('EL')).toBe('gr');
+    expect(normaliseCountry('el')).toBe('gr');
+    expect(isEuMemberState('EL')).toBe(true);
+  });
+
+  it('leaves the ISO code for Greece alone', () => {
+    expect(normaliseCountry('GR')).toBe('gr');
+    expect(isEuMemberState('GR')).toBe(true);
+  });
+
+  it('is exactly one alias, not a table somebody grew', () => {
+    expect(Object.keys(NON_ISO_COUNTRY_CODE)).toEqual(['el']);
+  });
+
+  it('every alias resolves to a real member state', () => {
+    for (const [from, to] of Object.entries(NON_ISO_COUNTRY_CODE)) {
+      expect(EU_MEMBER_STATES).toContain(to);
+      expect(EU_MEMBER_STATES).not.toContain(from);
+    }
+  });
+
+  // 🔴 `UK` is the other famous Eurostat spelling and it is NOT here,
+  // because the United Kingdom is not a member state. An alias table is
+  // a translation of names, never a widening of the list.
+  it.each(['uk', 'gb', 'ch', 'no'])('still refuses %s', (code) => {
+    expect(isEuMemberState(code)).toBe(false);
+  });
+
+  // 🔴 The two alias tables stay separate and disjoint. Åland is a
+  // subdivision of a member state; Greece is a member state under
+  // another spelling. Merging them would make either name a lie about
+  // half its contents.
+  it('does not overlap the subdivision table', () => {
+    for (const k of Object.keys(NON_ISO_COUNTRY_CODE)) {
+      expect(ISO_SUBDIVISION_OF).not.toHaveProperty(k);
+    }
+  });
+
+  // 🔴 And it stays OUT of the SQL list, deliberately. That list exists
+  // for Natural Earth, which emits subdivision codes and never `EL`;
+  // the bathing water importer normalises in TypeScript long before any
+  // SQL sees a country. Adding `el` there would change route-POI
+  // behaviour on no evidence at all.
+  it('is not in the SQL membership list', () => {
+    expect(EU_MEMBER_STATES_AND_SUBDIVISIONS).not.toContain('el');
   });
 });
