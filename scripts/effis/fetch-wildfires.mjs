@@ -176,9 +176,18 @@ export const attributionFor = (year) => {
  * renders. Not a style rule: the data "does not constitute in any way an
  * early warning for which only national/regional institutions are
  * authorized".
+ *
+ * 🔴 CAMP-162: ONE OF THREE COPIES OF ONE LIST, and this is not the
+ * canonical one — `RESERVED_WORDS` in `apps/web/src/lib/cems.ts` is. This
+ * file cannot import TypeScript, so it keeps a literal, and
+ * `apps/web/tests/unit/cems-panels.spec.ts` asserts its `source` is
+ * character for character the canonical one's (and the CHECK's own copy,
+ * in `tests/unit/cems-panel.ts`, the same). Change one and that test names
+ * the other two. Before CAMP-162 the three had drifted: "evacuation" was
+ * refused here and by the gate and was not caught by the page check.
  */
 export const FORBIDDEN_WORDS =
-  /\b(warning|warnings|danger|dangerous|risk|risks|risky|alert|alerts|evacuate|evacuation)\b/i;
+  /\b(warning(?:s)?|danger(?:s|ous|ously)?|risk(?:s|y|ier|iest|ed|ing)?|alert(?:s|ed|ing)?|evacuat(?:e|es|ed|ing|ion|ions))\b/i;
 
 /**
  * 🔴 EFFIS speaks Eurostat, not ISO 3166, and it costs a whole country.

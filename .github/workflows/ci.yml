@@ -193,6 +193,31 @@ jobs:
         if: ${{ !cancelled() }}
         run: node scripts/effis/fetch-wildfires.mjs --self-test
 
+      # 🔴 CAMP-162. The CEMS terms — which govern EFAS, GloFAS, GFM, EDO,
+      # GDO, EFFIS and GWIS together — say the data "does not constitute in
+      # any way an early warning for which only national/regional
+      # institutions are authorized", and dictate the credit for data we
+      # have modified. This renders the panel of every CEMS-sourced layer
+      # exactly as the page does and reads the HTML: the credit must be
+      # visible beside the data, and "warning", "danger", "risk" and
+      # "alert" must be nowhere in it.
+      #
+      # It is bound to the SOURCE and not to a file on purpose. A grep over
+      # the repository would go red on `map-layers.ts`, where "warnings"
+      # is the correct name of the planned MeteoAlarm layer, and a check
+      # that cries wolf gets silenced. Adding a source is adding one
+      # `tests/unit/cems-panels/*.panel.ts`; the spec's header says how.
+      #
+      # The same spec also runs inside the e2e job's `unit` project. It is
+      # here as well, on its own, because a named step that fails says
+      # WHICH promise broke, and because this job needs no database, no
+      # build and no browser — the spec renders components, it opens
+      # nothing. `!cancelled()` for the reason the step above gives.
+      - name: CEMS panels still carry their credit and none of the four words
+        if: ${{ !cancelled() }}
+        working-directory: apps/web
+        run: npx playwright test --project=unit tests/unit/cems-panels.spec.ts --reporter=list
+
       # 🔴 CAMP-172. regenerate.sh rebuilt ci-seed.sql from a list of
       # sources kept by hand, and bathing_waters (43 rows, appended to the
       # fixture by hand) was in none of them: the next regeneration would

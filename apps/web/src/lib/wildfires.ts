@@ -42,6 +42,8 @@
 // reader ever switches the layer on. It is served as a file instead —
 // app/data/wildfires.json/route.ts — and fetched.
 
+import { CEMS_NOTICE, RESERVED_WORDS } from './cems';
+
 export interface WildfireMeta {
   /** When WE last succeeded against EFFIS. ISO instant. */
   fetchedAt: string;
@@ -117,27 +119,12 @@ export const WILDFIRE_URL = '/data/wildfires.json';
  */
 export const FRESH_FOR_HOURS = 72;
 
-/**
- * The credit the CEMS terms dictate for data that has been changed, with
- * a four-digit year in the place they write "[Year]".
- *
- * 🔴 The year is matched, not merely the phrase. A notice frozen at 2026
- * is the same stale attribution the licence exists to prevent, and a
- * pattern that accepted "[Year]" verbatim would wave it through.
- */
-export const CEMS_NOTICE =
-  /Contains modified Copernicus Emergency Management Service information \d{4}\b/;
-
-/**
- * 🔴 Words the CEMS terms reserve for national and regional services.
- *
- * Mirrored from scripts/effis/fetch-wildfires.mjs, which refuses to WRITE
- * them; this side refuses to let them be RENDERED. Two copies on purpose:
- * the script guards the data file and cannot see the page, and this one
- * guards the page and cannot see the fetch. Both are driven by tests.
- */
-export const RESERVED_WORDS =
-  /\b(warning|warnings|danger|dangerous|risk|risks|risky|alert|alerts|evacuate|evacuation)\b/i;
+// CAMP-162: the licence's two constants — the notice a modified-data layer
+// must carry and the words it may not use — moved to ./cems, because every
+// CEMS layer is bound by them and only one of them is about fire. They are
+// re-exported under the same names so that nothing importing them from
+// here had to change.
+export { CEMS_NOTICE, RESERVED_WORDS };
 
 /**
  * 🔴 The feed's strings that reach the reader's eyes, as text. Kept beside
