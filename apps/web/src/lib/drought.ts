@@ -194,7 +194,17 @@ function decodeRow(row: unknown, width: number, out: Uint8Array, offset: number)
     const value = run.charCodeAt(0) - 48;
     if (value < 0 || value > 9) return false;
     const count = Number(run.slice(2));
-    if (!Number.isInteger(count) || count <= 0 || at + count > width) return false;
+    // 🔴 No `at + count > width` bound here, and that is measured, not an
+    // omission: a run that overruns the row is refused by the sum check
+    // below, its row is then filled with UNRECOGNISED, and `readGrid` visits
+    // every later row, which rewrites its own slice — so what an overrun
+    // wrote into its neighbours never survives. `TypedArray.fill` clamps at
+    // the end of the array, so the last row cannot write past it either.
+    // Rows overrunning by 3, by 50 and by 10⁹ left 0 of 2 188 800 cells
+    // different and took no longer; a bound that changes nothing is a line
+    // that misleads about what guards what. The tests that hold this are the
+    // overrunning rows in "a row that will not decode costs that row".
+    if (!Number.isInteger(count) || count <= 0) return false;
     out.fill(value > MAX_KNOWN_VALUE ? UNRECOGNISED : value, offset + at, offset + at + count);
     at += count;
   }
@@ -340,8 +350,31 @@ export function colourOfValue(value: number): [number, number, number] | null {
 const mercatorY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
 const latOfMercatorY = (y: number) => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * (180 / Math.PI);
 
-/** How many output rows per source cell, at the grid's shortest cells. */
-export const OVERLAY_ROWS_PER_CELL = 2;
+/**
+ * How many output rows per source cell, at the grid's shortest cells.
+ *
+ * 🔴 ONE, and it is the smallest whole number that is safe — measured on the
+ * shipped 1 824 × 1 200 grid (its geometry is the service's, and does not
+ * move with the data):
+ *
+ *     rows/cell   output rows   source rows skipped   buffer
+ *         2          3 695              0             25.7 MiB
+ *         1          1 848              0             12.9 MiB
+ *         0.98       1 811              1             12.6 MiB
+ *         0.9        1 663             15             11.6 MiB
+ *
+ * A source row is skipped once the picture has fewer than 1 816 rows, so 1
+ * keeps a margin of 32 rows over the cliff and 2 buys nothing but a buffer
+ * twice the size — and the same factor again in the GPU texture, on a
+ * phone. It used to be 2, on the belief that finer rows were more accurate;
+ * the accuracy is bounded by half an output row either way (below), and
+ * nothing measured a difference.
+ *
+ * Held from BOTH sides in tests/unit/drought.spec.ts: a value under 1 makes
+ * "no source row is skipped" fail (0.9 skips 15), and one over about 1.05
+ * makes "the picture fits its memory budget" fail (2 is 25.7 MiB).
+ */
+export const OVERLAY_ROWS_PER_CELL = 1;
 
 export interface DroughtOverlay {
   width: number;
@@ -363,11 +396,12 @@ export interface DroughtOverlay {
  * degrees away. So each output row is one latitude in mercator space and
  * takes its colour from the source row that latitude falls in.
  *
- * Two output rows per source cell at the southern edge, where cells are
- * shortest in mercator space, so the picture never skips a source row.
- * The class UNDER a campsite marker is the one the panel reports, to the
- * accuracy of one output row (about 1.5 km); the panel reads the grid
- * itself and is the source of truth.
+ * One output row per source cell at the southern edge, where cells are
+ * shortest in mercator space (`OVERLAY_ROWS_PER_CELL` says why one is
+ * enough), so the picture never skips a source row. The class UNDER a
+ * campsite marker is the one the panel reports, to within half an output
+ * row — 0.8 km at 71°N to 2 km at 35°N, the EU-27's northern and southern
+ * edges; the panel reads the grid itself and is the source of truth.
  */
 export function paintOverlay(grid: CdiGrid): DroughtOverlay {
   const cpd = grid.cellsPerDegree;

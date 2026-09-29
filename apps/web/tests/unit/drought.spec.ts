@@ -350,6 +350,31 @@ test.describe('the grid: one bad row costs one row, and none costs the layer', (
     }
   });
 
+  test('🔴 a row that overruns its width cannot leak into a neighbour, wherever it sits', () => {
+    // `decodeRow` no longer bounds a run by the row's width (measured: the
+    // bound changed nothing — see the comment there). What keeps an overrun
+    // inside its own row is that every later row rewrites its own slice, and
+    // the neighbours here are NOT zeros, so a leaked value would show: the
+    // earlier test's neighbour was all 0, exactly what an overrun of 0s
+    // writes, and could not have told.
+    // 🔴 Mutation: decode the rows from the last to the first (`for (let r =
+    // height - 1; r >= 0; r--)` in `readGrid`) — a row's overrun then lands on
+    // a row that has already been read, and this fails.
+    for (const run of ['3:5', '3:8', '3:1000000000', '1:2,3:40', '3:4,3:1']) {
+      const g = readGrid({ ...TINY, rows: ['1:4', run, '2:4'] })!;
+      expect(g, run).not.toBeNull();
+      expect(Array.from(g.cells.slice(0, 4)), `${run}: the row before`).toEqual([1, 1, 1, 1]);
+      expect(Array.from(g.cells.slice(4, 8)), `${run}: the row itself`).toEqual([9, 9, 9, 9]);
+      expect(Array.from(g.cells.slice(8, 12)), `${run}: the row after`).toEqual([2, 2, 2, 2]);
+      expect(g.unreadable, run).toBe(4);
+    }
+    // and on the LAST row, where there is nothing after it to absorb the write
+    const last = readGrid({ ...TINY, rows: ['1:4', '2:4', '3:1000000000'] })!;
+    expect(last.cells.length).toBe(12);
+    expect(Array.from(last.cells.slice(0, 8))).toEqual([1, 1, 1, 1, 2, 2, 2, 2]);
+    expect(Array.from(last.cells.slice(8, 12))).toEqual([9, 9, 9, 9]);
+  });
+
   test('🔴 a value nobody has explained costs that cell, not the row', () => {
     // A value of 7, 8 or 9 in a run is read, marked, and counted.
     // 🔴 Mutation: drop the `> MAX_KNOWN_VALUE` mapping — 7 reads as a class.
@@ -522,7 +547,11 @@ test.describe('the picture is the grid, in mercator', () => {
   });
 
   test('no source row is skipped, so a thin class band cannot vanish from the picture', () => {
-    // 🔴 Mutation: halve the output height — rows are skipped and this fails.
+    // 🔴 Mutation: OVERLAY_ROWS_PER_CELL = 0.9 — 1 663 output rows, 15 source
+    // rows skipped, this fails (0.98 skips 1). Measured on this grid; the
+    // cliff is at 1 816 rows and the shipped 1 848 clears it by 32.
+    // Raising the constant never fails this test — more rows keep every row
+    // — which is why the sibling below holds it from the other side.
     const yTop = yOfLat(grid.north);
     const yBottom = yOfLat(grid.north - grid.height / grid.cellsPerDegree);
     const used = new Set<number>();
@@ -531,6 +560,20 @@ test.describe('the picture is the grid, in mercator', () => {
       used.add(Math.floor((grid.north - latOfY(y)) * grid.cellsPerDegree));
     }
     expect(used.size).toBe(grid.height);
+  });
+
+  test('🔴 the picture fits its memory budget: the constant is held from ABOVE as well', () => {
+    // The buffer is width × output rows × 4 bytes, and the same factor again
+    // as a GPU texture on a phone. At 2 rows per cell it was 25.7 MiB for a
+    // picture with 0 rows more to show than the 12.9 MiB one, and nothing
+    // failed. 14 MiB clears today's 12.9 and 13.5 (1.05 rows per cell) and
+    // refuses 15.4 (1.2), 19.3 (1.5) and 25.7 (2).
+    // 🔴 Mutation: OVERLAY_ROWS_PER_CELL = 2 — 25.7 MiB, this fails; = 1.2
+    // fails too. With the sibling above, the constant is pinned between
+    // about 0.98 and 1.1, and anything outside that is a red test.
+    expect(overlay.data.byteLength).toBeLessThan(14 * 1048576);
+    expect(overlay.height).toBeGreaterThanOrEqual(1816); // the cliff, measured
+    expect(overlay.data.length).toBe(grid.width * overlay.height * 4);
   });
 
   test('the corners are the grid\'s corners, north first', () => {
@@ -655,6 +698,63 @@ test.describe('what the panel says about a campsite, read off the page', () => {
     const html = renderComponent(DroughtPanel, { state: droughtState(feedAt(27), clock(27)), on: false, picked: null });
     expect(html).toContain('data-state="off"');
     expect(visibleText(html)).toContain('that is this control, not an all-clear');
+  });
+});
+
+// ── the tint: the one mark that says "a gap, not an answer" ──────────────
+
+test.describe('the amber tint is on exactly the states that are gaps, read off the page', () => {
+  /** The panel's own opening tag — its attributes and its classes — and nothing inside it. */
+  const rootTag = (html: string) => /^<div[^>]*>/.exec(html)![0];
+  const gapTint = /border-warn\/40/;
+  const at = (col: number, row: number, name: string | null = 'Camping A'): DroughtPick => ({ name, ...mid(col, row) });
+  const render = (state: ReturnType<typeof droughtState>, picked: DroughtPick | null, on = true) =>
+    renderComponent(DroughtPanel, { state, on, picked });
+  const fresh = (grid: unknown = TINY) => droughtState(feedAt(27, {}, grid), clock(27));
+  const broken = { ...TINY, rows: [TINY.rows[0], 'garbage', TINY.rows[2]] };
+
+  // Every state and every kind of pick the panel can be in, with the tone it
+  // must carry. Written out here by hand and not derived from `droughtNote`.
+  const cases: [string, string, () => string][] = [
+    ['loading', 'gap', () => render({ kind: 'loading' }, null)],
+    ['missing', 'gap', () => render({ kind: 'missing' }, null)],
+    ['stale, past the budget', 'gap', () => render(droughtState(feedAt(60), clock(60)), null)],
+    ['dated in the future', 'gap', () => render(droughtState(feedAt(-3, { fetchedAt: new Date(START + DAY).toISOString() }), clock(-3)), null)],
+    ['fresh, nothing picked', 'quiet', () => render(fresh(), null)],
+    ['a campsite in drought class 1', 'quiet', () => render(fresh(), at(1, 0))],
+    ['a campsite in drought class 3', 'quiet', () => render(fresh(), at(3, 0))],
+    ['a campsite in a recovery class', 'quiet', () => render(fresh(), at(0, 1))],
+    ['a campsite where the raster holds no class', 'gap', () => render(fresh(), at(0, 0))],
+    ['a campsite outside the grid', 'gap', () => render(fresh(), { name: 'Camping A', lat: 0, lon: 0 })],
+    ['a campsite in a row we could not read', 'gap', () => render(fresh(broken), at(1, 1))],
+    ['a campsite with no usable coordinates', 'gap', () => render(fresh(), { name: 'Camping A', lat: Number.NaN, lon: 10 })],
+    ['switched off by the reader', 'off', () => render(fresh(), null, false)],
+  ];
+
+  for (const [name, tone, html] of cases) {
+    test(`🔴 ${name} carries tone "${tone}", and the amber border iff it is a gap`, () => {
+      // 🔴 Mutation: replace every `tone: 'gap'` in lib/drought.ts with
+      // `'quiet'` — every "gap" row fails, and it is the ONLY thing that does
+      // (measured: the whole suite was green before this test existed).
+      // Mutation: `note.tone === 'gap'` → `=== 'quiet'` in drought-panel.tsx —
+      // every row fails on the border, not the attribute. Mutation: emit a
+      // constant for `data-tone` — the rows of the other tone fail.
+      const tag = rootTag(html());
+      expect(tag, name).toContain(`data-tone="${tone}"`);
+      expect(gapTint.test(tag), `${name}: the amber border must be there iff the tone is gap`).toBe(tone === 'gap');
+    });
+  }
+
+  test('the attribute and the sentence agree: a gap says it is not an answer, a quiet one gives one', () => {
+    // Read off the same HTML, so a tone and a sentence cannot drift apart
+    // unseen — "records no drought class" being tinted as a quiet answer is
+    // the case that matters.
+    const none = render(fresh(), at(0, 0));
+    expect(rootTag(none)).toContain('data-tone="gap"');
+    expect(visibleText(none)).toContain('not the same as being told the area is free of drought');
+    const answer = render(fresh(), at(2, 0));
+    expect(rootTag(answer)).toContain('data-tone="quiet"');
+    expect(visibleText(answer)).toContain('records drought class 2 of 3');
   });
 });
 

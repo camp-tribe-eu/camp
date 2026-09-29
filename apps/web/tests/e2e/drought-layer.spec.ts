@@ -157,6 +157,23 @@ async function settle(page: Page) {
 
 const said = async (page: Page) => (await page.locator(NOTE).innerText()).replace(/\s+/g, ' ');
 
+/**
+ * 🔴 The tint is the one mark that says "a gap in what we hold, not an answer",
+ * and it was read by no test: every `tone: 'gap'` could become `'quiet'` with
+ * the suite green. Asserted on the real element: the attribute, and the
+ * amber border class the browser paints from it.
+ *
+ * 🔴 Mutation: replace every `tone: 'gap'` in lib/drought.ts with `'quiet'` —
+ * every gap row here fails. Mutation: `note.tone === 'gap'` →
+ * `note.tone === 'quiet'` in drought-panel.tsx — the class assertions fail.
+ */
+async function expectTone(page: Page, tone: 'gap' | 'quiet' | 'off') {
+  const note = page.locator(NOTE);
+  await expect(note).toHaveAttribute('data-tone', tone);
+  if (tone === 'gap') await expect(note).toHaveClass(/border-warn/);
+  else await expect(note).not.toHaveClass(/border-warn/);
+}
+
 /** The four words the CEMS terms reserve, and the instructions no service of ours may give. */
 const RESERVED = /\b(warning|danger|dangerous|risk|risky|alert|evacuate|evacuation|do not|don't|avoid|unsafe|stay away)s?\b/i;
 
@@ -177,6 +194,7 @@ test.describe('the drought layer', () => {
     await expect(note).toHaveAttribute('data-state', 'fresh');
     await expect(note).toHaveAttribute('data-dekad', SHIPPED.meta.dekad);
     await expect(note).toHaveAttribute('data-days-old', '27');
+    await expectTone(page, 'quiet');
     const text = await said(page);
 
     expect(text).toContain(`Combined Drought Indicator for ${periodLabel(SHIPPED.meta.dekad)}`);
@@ -243,6 +261,7 @@ test.describe('the drought layer', () => {
     await settle(page);
     const note = page.locator(NOTE);
     await expect(note).toHaveAttribute('data-state', 'stale');
+    await expectTone(page, 'gap');
     const text = await said(page);
     expect(text).toContain('No fresh drought data');
     expect(text).toContain('began on');
@@ -271,6 +290,7 @@ test.describe('the drought layer', () => {
     await openMap(page);
     const note = page.locator(NOTE);
     await expect(note).toHaveAttribute('data-state', 'loading');
+    await expectTone(page, 'gap');
     const waiting = await said(page);
     expect(waiting).toContain('Loading the Copernicus EDO drought layer');
     expect(waiting).toContain('still fetching');
@@ -296,6 +316,7 @@ test.describe('the drought layer', () => {
       await openMap(page);
       await settle(page);
       await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'missing');
+      await expectTone(page, 'gap');
       const text = await said(page);
       expect(text).toContain('No fresh drought data');
       expect(text).toContain('could not load the Copernicus EDO layer');
@@ -312,6 +333,7 @@ test.describe('the drought layer', () => {
     await settle(page);
     await page.locator('[data-layer="drought"]').click();
     await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'off');
+    await expectTone(page, 'off');
     const off = await said(page);
     expect(off).toContain('switched off');
     expect(off).toContain('not an all-clear');
@@ -382,6 +404,7 @@ test.describe('the class at the campsite, in the panel', () => {
     await pick(page, 'Fixture campsite 0');
     const note = page.locator(NOTE);
     await expect(note).toHaveAttribute('data-sample', 'drought');
+    await expectTone(page, 'quiet');
     const text = await said(page);
     expect(text).toContain('At Fixture campsite 0');
     expect(text).toContain('records drought class 2 of 3');
@@ -391,6 +414,7 @@ test.describe('the class at the campsite, in the panel', () => {
     await page.locator('.maplibregl-popup-close-button').dispatchEvent('click');
     await expect(page.locator('.maplibregl-popup-content')).toHaveCount(0);
     await expect(note).toHaveAttribute('data-sample', '');
+    await expectTone(page, 'quiet');
     expect(await said(page)).toContain('Select a campsite');
   });
 
@@ -401,6 +425,9 @@ test.describe('the class at the campsite, in the panel', () => {
     await serveDrought(page, shippedAt(27, {}, uniform(0)));
     await pick(page, 'Camping Valletta');
     await expect(page.locator(NOTE)).toHaveAttribute('data-sample', 'none');
+    // 🔴 The Malta case is a GAP, and this is the mark that says so: without it
+    // "records no drought class" reads as the calm answer it is not.
+    await expectTone(page, 'gap');
     const text = await said(page);
     expect(text).toContain('At Camping Valletta');
     expect(text).toContain('records no drought class');
@@ -415,6 +442,7 @@ test.describe('the class at the campsite, in the panel', () => {
     await serveDrought(page, shippedAt(27, {}, uniform(3)));
     await pick(page, 'Camping Danger Bay Alert');
     await expect(page.locator(NOTE)).toHaveAttribute('data-sample', 'drought');
+    await expectTone(page, 'quiet');
     const text = await said(page);
     expect(text).toContain('At this campsite,');
     expect(text).toContain('records drought class 3 of 3');

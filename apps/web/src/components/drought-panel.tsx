@@ -53,6 +53,15 @@ export function DroughtPanel({
       role="status"
       data-testid="drought-note"
       data-state={on ? state.kind : 'off'}
+      // 🔴 THE TINT IS A CLAIM, AND THIS IS WHAT MAKES IT READABLE. `gap`
+      // is the one visual mark that says "this is a hole in what we hold,
+      // not an answer" — the amber border below — and it was consumed here
+      // and read by no test: every `tone: 'gap'` in the lib could become
+      // `'quiet'` with the suite green. It is now a data attribute, asserted
+      // for every state and every kind of pick, in the unit spec off this
+      // HTML and in the browser. `off` is its own value: a layer the reader
+      // switched off is their control, not a gap.
+      data-tone={on ? note.tone : 'off'}
       data-dekad={on && state.kind === 'fresh' ? state.meta.dekad : ''}
       data-days-old={on && (state.kind === 'fresh' || state.kind === 'stale') ? String(state.daysOld) : ''}
       data-sample={on && sample ? sample.kind : ''}

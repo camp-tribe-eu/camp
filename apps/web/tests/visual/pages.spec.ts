@@ -124,9 +124,13 @@ async function pinFireLayer(page: Page) {
  * stops calling it fresh 40 days after it began. A baseline recorded while
  * it was fresh would fail on the 41st day, and on every data refresh.
  *
- * The clock is the one `pinFireLayer` fixed (28.09.2026, which is 17 days
- * after the 11th), and the file is the shipped one with ONLY the two dates
- * moved onto that clock — the period, its credit's year and the read time.
+ * The clock is fixed HERE, to 28.09.2026 (17 days after the 11th), and not
+ * borrowed from `pinFireLayer`, which happens to fix the same instant: if
+ * that pin were ever removed or reordered this one would keep working until
+ * 21.10.2026 — the 41st day after the 11th — and then fail for no reason but
+ * the calendar, which is the failure both functions exist to prevent. The
+ * file is the shipped one with ONLY the two dates moved onto that clock —
+ * the period, its credit's year and the read time.
  * The grid is the shipped grid: the canvas is masked, so its content cannot
  * change what is guarded here, which is how the note sits on the page. What
  * the note SAYS in each state is asserted, on the page, by
@@ -136,6 +140,7 @@ async function pinDroughtLayer(page: Page) {
   const shipped = JSON.parse(
     readFileSync(join(__dirname, '..', '..', 'src', 'data', 'drought.json'), 'utf8'),
   ) as { meta: Record<string, string>; grid: unknown };
+  await page.clock.setFixedTime(new Date('2026-09-28T12:00:00Z'));
   await page.route('**/data/drought.json', (route) =>
     route.fulfill({
       json: {
