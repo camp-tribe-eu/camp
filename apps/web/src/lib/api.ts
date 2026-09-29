@@ -8,6 +8,8 @@ import type { SpotSource } from './sources';
 import type { Tariff } from './tariffs';
 // CAMP-168: the official bathing water classification for a season.
 import type { BathingWater } from './bathing';
+// CAMP-164: what the EEA air quality index holds for a campsite.
+import type { AirQualityFacts } from './air-quality';
 
 export type { SpotSource };
 export type { Tariff };
@@ -299,6 +301,21 @@ export interface Spot {
    * CAMP-168 exists to prevent.
    */
   bathingWater?: BathingWater | null;
+  /**
+   * CAMP-164: the nearest EEA air quality station's latest reported hour,
+   * the 1 km modelled index where no station is near, or `none`.
+   *
+   * 🔴 Optional, for the same reason as `bathingWater` above: `getSpot` is
+   * a cached `res.json()` and the API deploys separately, so a payload
+   * written before this field existed must produce a page that says we
+   * hold no air-quality data here rather than one that throws.
+   *
+   * 🔴 FACTS, not a verdict: nothing in it says whether a reading is still
+   * fresh. The page decides that against a clock (lib/air-quality.ts), and
+   * `AirQualityNote` takes it as `unknown` and checks it — this type is a
+   * promise, `readAirQuality` is the check.
+   */
+  airQuality?: AirQualityFacts | null;
   /**
    * How many further prices the source publishes with no season.
    *
