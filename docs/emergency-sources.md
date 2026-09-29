@@ -90,7 +90,7 @@ Every verdict is argued, with its quotation, in the section named.
 | source | what it gives | licence verdict | coverage measured | latency measured | resolution | verdict |
 | --- | --- | --- | --- | --- | --- | --- |
 | **CEMS GFM** (§3) | observed flood extent from Sentinel-1 SAR | CEMS terms: reproduction, distribution, communication to the public; complemented by the Commission's CC BY 4.0 notice — but the grant names EFAS & GloFAS and reaches GFM by definition, not by name | 3 495 items over the EU box in 10 days; 180 today | **1 h 50 min** acquisition → product, measured on today's newest item | 20 m pixel | **TAKE**, with one email outstanding |
-| **EDO / GDO** (§4) | drought: CDI, soil-moisture and precipitation anomalies | same CEMS terms; WMS declares `no fees`, `no constraints` | 26 of 27 countries carried a classified CDI pixel; Malta none | newest CDI dekad **2026-09-01** — 27 days | ~4.6 km grid, no point query | **TAKE**, drought is slow enough to survive it |
+| **EDO / GDO** (§4) | drought: CDI, soil-moisture and precipitation anomalies | same CEMS terms; WMS declares `no fees`, `no constraints` | 26 of 27 countries carried a classified CDI pixel; Malta none | newest CDI dekad **2026-09-01** — 27 days (28.09); **2026-09-11** a day later, see CAMP-163 in §4 | ~4.6 km grid, no point query | **TAKE**, drought is slow enough to survive it |
 | **EEA air quality** (§9) | European Air Quality Index, per station and per point | CC BY 4.0, commercial use explicit in the EEA legal notice | 4 018 EU-27 stations on the roster, **3 213 reporting in one sampled hour**, 27/27 countries | station file **≈53 min** old when read | station, plus a 1 km modelled raster | **TAKE** |
 | **EEA bathing water** (§8) | official quality class for every EU bathing site | CC BY 4.0 on the versioned record, commercial use explicit | **22 010 sites, 27/27 countries, 100% with coordinates** | **annual**; 2025 season published 02.06.2026 | point | **TAKE**, labelled as a season's classification, never as today's water |
 | **EMSC** (§5) | earthquakes, Europe-wide, near real time | datasets CC BY 4.0 — **but the database is carved out and commercial reproduction needs prior written permission** | 3 825 events in 30 days in the bbox, of which **63.3% Turkey** | one live push observed at **189 s** (n=1) | epicentre point | **NEEDS A LAWYER**, narrowly |
@@ -516,6 +516,112 @@ UI implies an absence of drought rather than an absence of data.
 **Verdict: TAKE**, on the WCS GeoTIFF sampled by us, with the available
 range read from an out-of-range probe every run, the two stale layers
 excluded by name, and the dekad shown to the reader.
+
+### Taken — CAMP-163, 29.09.2026, and what re-measuring found
+
+Built as `scripts/edo/fetch-drought.mjs` (fetch, committed output
+`apps/web/src/data/drought.json`), `apps/web/src/lib/drought.ts`, the panel
+`apps/web/src/components/drought-panel.tsx`, and a `drought` entry in
+`map-layers.ts` tagged `terms: 'cems'` with its
+`tests/unit/cems-panels/drought.panel.ts`. Everything below was measured
+that evening (19:32–20:20 UTC) and none of it is quoted from the pages above.
+
+**The range had already moved.** The probe (`TIME=2099-01-01` against the
+WCS, which answers HTTP 422 `DATE_OUT_OF_RANGE`) said `2012-01-01 -
+2026-09-11`, and `TIME=2026-09-11` returned a 2 190 894-byte GeoTIFF, where
+the numbers above were read the day before as `2026-09-01`. The newest
+period began 18 days earlier, not 27. `TIME=2026-09-21` is refused with the
+same error. That is what reading the range from a probe on every run is for.
+
+**The four documented faults, re-checked, and the numbers that changed.**
+
+| claim | measured 29.09.2026 |
+| --- | --- |
+| `smand`, `cdinx` stop in 2024 | WCS probe: `smand` ends `2024-07-01`, `cdinx` ends `2024-01-01`. Confirmed. |
+| Low-Flow Index returns nothing | `lfinx_300_sms` GetMap: HTTP 200, 374 bytes, **0 of 2 188 800 pixels** with any alpha. Confirmed (the 120 bytes recorded above is for a request whose size it does not give; this one was the full grid). |
+| `queryable="1"` without GetFeatureInfo | `cdiad`, `spaST`, `rdria` GetFeatureInfo: HTTP 400 `Invalid request type`. Confirmed. |
+| WCS answers only at the incantation | With `map=DO_WCS` and `VERSION=2.0.0` it works. `VERSION=2.0.0` **without** the map parameter is HTTP **500** with an HTML page, not the 502 recorded above. `VERSION=2.0.1` is HTTP **200** with the 37 bytes `ERROR: SERVICE VERSION  must be 2.0.0` — an error with a success status, which a status check would take for a raster. WCS GetCapabilities with `map=DO_WCS` is HTTP 502 `MAPSERVER_UPSTREAM_ERROR`. |
+
+**Six more faults, found while reading the file.**
+
+1. **The strips are not in row order.** In both GeoTIFFs (2026-09-01 and
+   2026-09-11) `StripOffsets` puts the first five strips — rows 0–19 — at
+   the end of the file. A reader that reads strips one after another from
+   the lowest offset rotates the map by 20 rows, about 92 km, and every
+   campsite gets another place's value. `readGeoTiff` follows the offsets.
+2. **The 2026-09-11 file has no CRS.** 16 directory entries and no
+   GeoKeyDirectory; the 2026-09-01 file has 19 and says EPSG:4326. The grid
+   is therefore never taken from the file's declaration of its projection:
+   size, upper-left corner and cell are read and checked against the grid
+   the page samples with (1 824 × 1 200 cells, corner 25°W 72°N, 1/24° — about
+   4.6 km north to south), and a raster that moved is refused.
+3. **The legend graphic is one image for three layers.** `cdiad`, `cdirc`
+   and `cdinx` return byte-identical 1 402-byte PNGs ("Low / Medium / High"),
+   not the CDI's classes; `DescribeCoverage` gives the unit as `W.m-2.Sr-1`
+   and no nil value; `GetMetadata` (the layer's `MetadataURL`) is HTTP 400.
+   Nothing machine-readable says what a value means.
+4. **So the meaning of a value was read off the service's own rendering.**
+   Same request, same date, raster against `GetMap`: `cdiad` paints exactly
+   values 1–3 (60 621 of 61 462 value-1 cells yellow, 193 795 of 195 222
+   value-2 cells orange, 36 541 of 36 844 value-3 cells red) and leaves 4–6
+   transparent; `cdirc` paints 0 white and 4–6 in three other colours. The
+   layer abstracts name three primary drought classes, ranked, and three
+   recovery classes. Which recovery class is which is not established, so the
+   page names none.
+5. **The source's own class names are reserved words.** The CDI calls its
+   primary classes Watch, **Warning** and **Alert**. Printed beside the data
+   they are exactly what the CEMS terms bar, so the page says "drought class
+   2 of 3" and nothing else.
+6. **WCS `cdirc` is the same raster as `cdiad`.** Byte-identical
+   (`md5 cf0b761e…` for 2026-09-11): the recovery classes are in the one
+   coverage, and only the WMS styling differs.
+
+**The value 0 is still not separated, and the page does not pretend it is.**
+The raster stores "no drought class" and "outside the area Copernicus
+computes" as one number, so a 0 is reported as "records no drought class …
+not the same as being told the area is free of drought". One way out exists
+and was not taken: the WMS `cdirc` rendering paints in-domain "no drought"
+white and out-of-domain transparent. Over the 14 566 campsites that stand on
+a 0, it says 11 481 white, 3 081 transparent and 4 something else — which
+would put 12 of Malta's 14 in-domain. It is a colour convention of a
+styling, in a service whose documentation has been wrong six ways, so it is
+a follow-up card and not part of this one.
+
+**Coverage, measured on our own campsites rather than on a grid of
+interior points.** 61 557 campsites, cell under each, GDAL-checked below:
+
+```
+                    2026-09-01   2026-09-11
+classified cell         46 588       46 949   (76.3%)   values 1–6
+value 0                 14 927       14 566
+outside the grid            42           42   all Portuguese (the Azores)
+countries with ≥ 1 classified campsite   25 of 27       25 of 27
+countries with none                  LT, MT         LT, MT
+```
+
+That is 25 of 27, not the 26 of 27 measured above: the interior-grid
+method found a few Lithuanian pixels, and none of Lithuania's 349
+campsites stands on one. Malta: 0 of 14. By country, 2026-09-11: HU, SK,
+LU 100%; NL, AT, BE, SI 96–98%; FR 88.9%, DE 86.1%, CZ 86.8%; IE 79.8%,
+RO 77.1%, DK 72.2%, BG 69.2%, HR 63.1%, ES 59.9%, IT 55.9%, SE 49.7%, PL
+39.4%, GR 33.1%, FI 11.2%, PT 3.9%, LV 1.9%, CY 1.7%, EE 0.2%, LT 0%, MT 0%.
+
+**Checked against GDAL.** The sampler was run over all 61 557 campsites on
+the committed file and gave the counts above (41 020 drought, 5 929
+recovery, 14 566 none, 42 outside); 1 051 of them — every 61st plus the 42
+outside — were compared with `gdallocationinfo -valonly -geoloc` on the
+downloaded GeoTIFF: **0 disagreements**. The tests use a 336 × 216 crop of
+the real raster, written by an independent program with the service's
+layout (strips out of order, no CRS) and read by GDAL, whose pixels and 144
+sampled points are the oracle (`apps/web/tests/unit/fixtures/`). GDAL clamps
+a point lying exactly on the far edge of a file into the last cell; a
+raster's cells are half-open and the page says "outside". Two of the 144
+points sit there, and the test names them.
+
+**What the page says about age.** A period is fresh for up to 40 days from
+its first day (this document's §12: "up to 30 days … more than ~40 days and
+a dekad was skipped"). 27 days is fresh and the panel says so in words; 41
+is "No fresh drought data" and draws nothing.
 
 ---
 

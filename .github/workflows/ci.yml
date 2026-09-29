@@ -193,6 +193,23 @@ jobs:
         if: ${{ !cancelled() }}
         run: node scripts/effis/fetch-wildfires.mjs --self-test
 
+      # 🔴 CAMP-163. The same for the EDO drought script, whose source
+      # documents itself wrongly — four ways recorded by CAMP-117, six more
+      # found by CAMP-163 (docs/emergency-sources.md §4).
+      # Its self-test watches the guards that answer them fail, with no
+      # network: no request can be built for `smand`, `cdinx` or the
+      # Low-Flow Index; the available range is read from a 2099 probe and
+      # GetCapabilities is never asked; a period older than 40 days is
+      # refused whatever the layer is called; the GeoTIFF's strips are read
+      # in the order the file says, not the order it stores them; a raster
+      # that moved off the grid the page samples with is refused; and a
+      # reserved word cannot be written.
+      #
+      # `!cancelled()` for the reason the step above gives.
+      - name: EDO drought fetch guards still refuse what they must
+        if: ${{ !cancelled() }}
+        run: node scripts/edo/fetch-drought.mjs --self-test
+
       # 🔴 CAMP-162. The CEMS terms — which govern EFAS, GloFAS, GFM, EDO,
       # GDO, EFFIS and GWIS together — say the data "does not constitute in
       # any way an early warning for which only national/regional

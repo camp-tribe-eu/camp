@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { INITIAL_VIEW } from '@/lib/map-sources';
 
@@ -318,6 +319,28 @@ test.describe('the drought layer', () => {
     await page.locator('[data-layer="drought"]').click();
     await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'fresh');
     await expect(page.locator(MAP)).toHaveAttribute('data-drought-drawn', '1');
+  });
+
+  test('the note and its legend have no serious accessibility violation, in either state a reader meets it', async ({ page }) => {
+    // Read from the rendered note, on its real background: the legend text and
+    // the credit are ordinary text in the site's own greys, and a contrast or
+    // labelling failure there would be invisible to every check above.
+    await page.clock.setFixedTime(clockAt(27));
+    await serveDrought(page, shippedAt(27));
+    await openMap(page);
+    await settle(page);
+    for (const state of ['fresh', 'off']) {
+      if (state === 'off') {
+        await page.locator('[data-layer="drought"]').click();
+      }
+      await expect(page.locator(NOTE)).toHaveAttribute('data-state', state);
+      const results = await new AxeBuilder({ page }).include(NOTE).withTags(['wcag2a', 'wcag2aa']).analyze();
+      const blocking = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+      expect(
+        blocking.map((v) => `[${v.impact}] ${v.id}: ${v.help} (${v.nodes.length} node(s))`),
+        `accessibility violations in the ${state} note`,
+      ).toEqual([]);
+    }
   });
 
   test('the switch says none of the four words, in its label or its tooltip', async ({ page }) => {

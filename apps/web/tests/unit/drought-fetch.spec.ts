@@ -249,6 +249,16 @@ test.describe('collect() reads the range from the service and refuses an old per
     await expect(mod.collect({ now: NOW, io: world({ status: 404 }).io })).rejects.toThrow(/answered HTTP 404[\s\S]*PRODUCT_NOT_FOUND/);
   });
 
+  test('🔴 a 200 whose body is an error message is not a raster', async () => {
+    // Measured 29.09.2026: `VERSION=2.0.1` answers HTTP 200 with the 37 bytes
+    // "ERROR: SERVICE VERSION  must be 2.0.0". A check on the status alone
+    // would take that for a GeoTIFF; the reader is what refuses it, and says
+    // what it got. 🔴 Mutation: skip the TIFF magic check — this fails.
+    const tiff = text('ERROR: SERVICE VERSION  must be 2.0.0');
+    await expect(mod.collect({ now: NOW, io: world({ tiff }).io })).rejects.toThrow(/not a TIFF: no byte-order mark|not a TIFF: 37 bytes/);
+    await expect(mod.collect({ now: NOW, io: world({ tiff: text('<html>Server Error 500</html>'.repeat(3)) }).io })).rejects.toThrow(/not a TIFF/);
+  });
+
   test('🔴 the CEMS terms are re-read, and losing any of the three markers stops the run', async () => {
     // 🔴 Mutation: delete the `requireMarkers` call — every row fails.
     for (const marker of mod.CEMS_MARKERS) {
