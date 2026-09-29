@@ -38,6 +38,7 @@ import {
 import MapFilters from './map-filters';
 import { LayerChip } from './layer-chip';
 import { WildfirePanel } from './wildfire-panel';
+import { DroughtPanel } from './drought-panel';
 import {
   DETAIL_ZOOM,
   chunkUrl,
@@ -55,6 +56,15 @@ import {
   toggleLayer,
   type LayerId,
 } from '@/lib/map-layers';
+import {
+  DROUGHT_URL,
+  droughtState as readDroughtState,
+  paintOverlay,
+  type CdiGrid,
+  type DroughtOverlay,
+  type DroughtPick,
+  type DroughtState,
+} from '@/lib/drought';
 import {
   WILDFIRE_URL,
   firesInView,
@@ -95,6 +105,9 @@ const REGION_COUNT = 'campsite-region-count';
 const CLUSTER_LAYER = 'campsite-clusters';
 const COUNT_LAYER = 'campsite-cluster-count';
 const POINT_LAYER = 'campsite-points';
+// CAMP-163: the Copernicus EDO drought grid, laid under everything else.
+const DROUGHT_SOURCE = 'drought-cdi';
+const DROUGHT_LAYER = 'drought-cdi-overlay';
 // CAMP-153: the Copernicus burnt-area perimeters.
 const FIRE_SOURCE = 'wildfires';
 const FIRE_FILL = 'wildfire-areas';
@@ -275,6 +288,79 @@ function clearRegions(m: InstanceType<typeof MapLibreMap>) {
 function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
   const source = m.getSource(SOURCE_ID) as GeoJSONSource | undefined;
   source?.setData({ type: 'FeatureCollection', features: [] });
+}
+
+/** The drought grid as a picture, ready for MapLibre. */
+interface DroughtImage {
+  url: string;
+  coordinates: DroughtOverlay['coordinates'];
+}
+
+/**
+ * CAMP-163: paint the grid onto a canvas and hand MapLibre the picture.
+ *
+ * 🔴 Built from the SAME grid the panel samples, once per arrival, so the
+ * colour under a campsite marker and the class the panel reports come from
+ * one array (`paintOverlay` says why the picture is resampled into
+ * mercator). `img-src` allows `data:`, so no new origin is needed.
+ */
+function buildDroughtImage(grid: CdiGrid): DroughtImage | null {
+  const overlay = paintOverlay(grid);
+  const canvas = document.createElement('canvas');
+  canvas.width = overlay.width;
+  canvas.height = overlay.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.putImageData(
+    new ImageData(overlay.data as unknown as Uint8ClampedArray<ArrayBuffer>, overlay.width, overlay.height),
+    0,
+    0,
+  );
+  return { url: canvas.toDataURL('image/png'), coordinates: overlay.coordinates };
+}
+
+/**
+ * CAMP-163: the drought picture, under the perimeters and the campsites.
+ *
+ * 🔴 Idempotent, and called both from `attach` (which runs on every
+ * styledata, because setStyle drops every source and layer) and from
+ * `drawDrought` (when the data arrives after the style did). Added BEFORE
+ * the fire layers when they exist, so a burnt area is never hidden under a
+ * colour wash, and nothing here can sit on top of a campsite: the question
+ * this layer answers is about the place, and the place has to stay visible.
+ *
+ * Nearest-neighbour resampling: a 4.6 km cell is drawn as the block it is.
+ * Smoothing it would invent a gradient that Copernicus did not publish.
+ */
+function attachDrought(
+  m: InstanceType<typeof MapLibreMap>,
+  image: DroughtImage | null,
+  visible: boolean,
+) {
+  if (!image) return;
+  if (!m.getSource(DROUGHT_SOURCE)) {
+    m.addSource(DROUGHT_SOURCE, {
+      type: 'image',
+      url: image.url,
+      coordinates: image.coordinates,
+    });
+  }
+  if (!m.getLayer(DROUGHT_LAYER)) {
+    m.addLayer(
+      {
+        id: DROUGHT_LAYER,
+        type: 'raster',
+        source: DROUGHT_SOURCE,
+        layout: { visibility: visible ? 'visible' : 'none' },
+        paint: { 'raster-opacity': 0.6, 'raster-resampling': 'nearest', 'raster-fade-duration': 0 },
+      },
+      m.getLayer(FIRE_FILL) ? FIRE_FILL : undefined,
+    );
+  } else if ((m.getLayoutProperty(DROUGHT_LAYER, 'visibility') === 'visible') !== visible) {
+    // Only on a real change: this runs from `styledata`, and a style
+    // change fires `styledata` again.
+    m.setLayoutProperty(DROUGHT_LAYER, 'visibility', visible ? 'visible' : 'none');
+  }
 }
 
 /**
@@ -558,6 +644,30 @@ export default function CampsiteMap() {
   const [layers, setLayers] = useState<LayerId[]>(() => DEFAULT_LAYERS());
   const firesOn = layers.includes('wildfire' as LayerId);
 
+  // CAMP-163. The drought layer's state, kept apart in the same way: what
+  // arrived, whether the reader has it on, and which campsite they picked.
+  //
+  // 🔴 `loading` until the file has actually answered, for the reason the
+  // fire layer's is: "still fetching" and "we hold nothing" draw the same
+  // empty map, and the sentence under it has to tell them apart.
+  const droughtOn = layers.includes('drought' as LayerId);
+  const [droughtStateNow, setDroughtStateNow] = useState<DroughtState>({ kind: 'loading' });
+  /**
+   * The campsite whose location the panel reports the class for, or null.
+   *
+   * 🔴 Set by the same click that opens the popup, and cleared when that
+   * popup closes for any reason. The class is printed in the PANEL and not
+   * in the popup on purpose: the popup is DOM built inside MapLibre, which
+   * `tests/unit/cems-panels.spec.ts` cannot read, and the words beside CEMS
+   * data must be text that it can.
+   */
+  const [picked, setPicked] = useState<DroughtPick | null>(null);
+  const droughtImage = useRef<DroughtImage | null>(null);
+  /** Whether the picture should be showing — read by `attach`, which runs on every styledata. */
+  const droughtShown = useRef(false);
+  const droughtAsked = useRef(false);
+  const mounted = useRef(true);
+
   const active =
     MAP_SOURCES.find((s) => s.id === sourceId) ?? MAP_SOURCES[0];
 
@@ -619,6 +729,10 @@ export default function CampsiteMap() {
       // sources and layers wholesale — the fire layer has to be restored
       // on each styledata exactly like the campsites, and the region
       // circles are in this file's history as the thing that was forgotten.
+      // 🔴 The drought picture below the perimeters, and both below the
+      // campsites. It is restored here for the same reason: setStyle
+      // discards it with everything else.
+      attachDrought(m, droughtImage.current, droughtShown.current);
       attachFires(m);
       if (!m.getSource(SOURCE_ID)) {
         m.addSource(SOURCE_ID, {
@@ -762,6 +876,13 @@ export default function CampsiteMap() {
         // subtly wrong.
         .setDOMContent(markerCard(feature.properties as unknown as SpotProperties))
         .addTo(m);
+      // CAMP-163. The drought panel reports the class at THIS campsite, and
+      // stops when the card is closed. `remove()` above closes the previous
+      // card, whose handler clears the pick; this sets the new one after it,
+      // and React keeps the last write.
+      const name = (feature.properties as { name?: unknown } | null)?.name;
+      setPicked({ name: typeof name === 'string' ? name : null, lat, lon: lng });
+      popup.current.on('close', () => setPicked(null));
     };
 
     // CAMP-153. Clicking a burnt area says what Copernicus recorded and
@@ -1328,6 +1449,65 @@ export default function CampsiteMap() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fireState, firesOn]);
 
+  /**
+   * CAMP-163: put the drought picture on the map, or take it off.
+   *
+   * 🔴 ONE DECISION, IN ONE PLACE: `shown`. The picture is built only for
+   * a state that is `fresh`, so a period past its budget draws nothing —
+   * and that is decided here, not by an earlier filter on the way in that
+   * would make this one a line that cannot fail (the fire layer's own
+   * history says what that costs).
+   *
+   * 🔴 `data-drought-drawn` says whether a picture is on the map right
+   * now, for the same reason `data-in-view` exists: the drawing lives in a
+   * WebGL canvas that nothing else about the page can read.
+   */
+  const drawDrought = () => {
+    const m = map.current;
+    const el = container.current;
+    const shown = droughtOn && droughtStateNow.kind === 'fresh';
+    droughtShown.current = shown;
+    if (shown && !droughtImage.current && droughtStateNow.kind === 'fresh') {
+      droughtImage.current = buildDroughtImage(droughtStateNow.grid);
+    }
+    if (m && m.isStyleLoaded()) attachDrought(m, droughtImage.current, shown);
+    if (el) {
+      el.dataset.droughtDrawn =
+        shown && droughtImage.current && m?.getLayer(DROUGHT_LAYER) ? '1' : '0';
+    }
+  };
+  const drawDroughtRef = useRef(drawDrought);
+  drawDroughtRef.current = drawDrought;
+
+  // The grid, once, and only when the layer is first switched on: 335 KB
+  // is not something to spend on a reader who turns the layer off.
+  // 🔴 Every outcome sets a state that SAYS something — a network failure,
+  // a 404 from a bad deploy and a file that is not the shape we wrote all
+  // land on `missing`, which renders "no fresh data" and never a blank.
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!droughtOn || droughtAsked.current) return;
+    droughtAsked.current = true;
+    void fetch(DROUGHT_URL)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((body: unknown) => {
+        if (mounted.current) setDroughtStateNow(readDroughtState(body, new Date()));
+      })
+      .catch(() => {
+        if (mounted.current) setDroughtStateNow({ kind: 'missing' });
+      });
+  }, [droughtOn]);
+
+  useEffect(() => {
+    drawDroughtRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [droughtStateNow, droughtOn]);
+
   // 🔴 Read through a ref inside the fetch above: that effect runs once,
   // and closing over `filters` would pin it to whatever was set on the
   // first render — so a link opened with filters already in its query
@@ -1666,6 +1846,11 @@ export default function CampsiteMap() {
           beside Copernicus data are a licence matter, and a check can
           only read them if the panel can be rendered on its own. */}
       <WildfirePanel state={fireState} on={firesOn} inView={firesHere} />
+
+      {/* CAMP-163, CAMP-162. The drought layer's own note, under the fire
+          one. It says the period, calls its age normal, credits Copernicus
+          beside the data, and reports the class at the campsite picked. */}
+      <DroughtPanel state={droughtStateNow} on={droughtOn} picked={picked} />
 
       <p className="mt-2 text-xs text-ink-2">{active.attribution}</p>
     </div>
