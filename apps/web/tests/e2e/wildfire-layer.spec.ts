@@ -273,19 +273,37 @@ const daysAgo = (n: number) =>
   new Date(Date.now() - n * 86_400_000).toISOString();
 
 /**
- * The map, photographed on a page of its own that has seen only `feed`.
+ * 🔴 WebKit on Linux cannot photograph a WebGL canvas reliably, and the
+ * three pixel tests below therefore do not run there.
  *
- * 🔴 WHY EVERY COMPARISON HERE USES TWO PAGES INSTEAD OF ONE PAGE TWICE.
+ * Two failures, both seen on the CI runner, both about the camera and not
+ * about the map:
  *
- * The first version photographed the map, clicked the layer off, waited,
- * and photographed it again. On the CI runner's WebKit (Linux) the two
- * images came back byte-identical — while the trace of the same run shows,
- * frame by frame, the burnt area disappearing from the page the moment the
- * button was clicked, and the failure screenshot taken 1.5 s AFTER the
- * click still shows it. A WebGL canvas photographed a second time in that
- * engine is the first photograph again. So "on" and "off" are never two
- * shots of one canvas: each comes from a fresh page, and each is the
- * first and only picture that page's canvas is asked for.
+ *  1. The first version photographed the map, clicked the layer off,
+ *     waited, and photographed it again. The two images came back
+ *     byte-identical — while the trace of the same run shows, frame by
+ *     frame, the burnt area disappearing from the page the moment the
+ *     button was clicked, and the failure screenshot taken 1.5 s AFTER the
+ *     click still shows it. A second photograph of the canvas was the first.
+ *  2. So each image was moved to a page of its own (`mapImageOf`), where it
+ *     is the only picture that canvas is asked for. That fixed two of three
+ *     WebKit projects and left the third intermittent: "a burnt area really
+ *     reaches the canvas" saw two identical images on its first attempt and
+ *     two different ones on the retry (CI run 36538864122), which the flaky
+ *     guard rightly refuses to call green.
+ *
+ * Retrying the photograph until it agrees would be the guard's own failure
+ * mode. The skip is narrow instead: Chromium runs all three on the runner,
+ * WebKit runs all three on a Mac, and WebKit on Linux still runs every
+ * check that reads the page — the click and popup tests hit-test what the
+ * renderer holds, so a layer that was not drawn there would fail them.
+ */
+const cameraUnreliable = (browserName: string) =>
+  browserName === 'webkit' && process.platform === 'linux';
+
+/**
+ * The map, photographed on a page of its own that has seen only `feed`, so
+ * that "with" and "without" are never two shots of one canvas.
  */
 async function mapImageOf(page: Page, feed: unknown): Promise<Buffer> {
   const other = await page.context().newPage();
@@ -387,7 +405,8 @@ test.describe('the wildfire layer', () => {
     expect(said).toContain('national and regional services are authorised');
   });
 
-  test('a burnt area really reaches the canvas', async ({ page }) => {
+  test('a burnt area really reaches the canvas', async ({ page, browserName }) => {
+    test.skip(cameraUnreliable(browserName), 'WebKit on Linux cannot photograph a canvas — see cameraUnreliable');
     // 🔴 The pixels, not the row count. Every other check here reads
     // text, and text would go on passing if the source were never given
     // its data — which is exactly the failure this project has recorded
@@ -419,16 +438,10 @@ test.describe('the wildfire layer', () => {
     page,
     browserName,
   }) => {
-    // 🔴 SKIPPED where the picture cannot be trusted, and only there. In
-    // WebKit on Linux a second photograph of a WebGL canvas returns the
-    // first (see `mapImageOf`), so "on, then off" reads as "no change"
-    // however well the layer switches. The page really does change there —
-    // the run's trace shows it — it is the camera that cannot see. Chromium
-    // and Firefox on the runner, and WebKit on a Mac, run this for real.
-    test.skip(
-      browserName === 'webkit' && process.platform === 'linux',
-      'WebKit on Linux re-serves the first canvas photograph — see mapImageOf',
-    );
+    // 🔴 SKIPPED where the picture cannot be trusted, and only there — in
+    // WebKit on Linux a second photograph of a canvas is the first one.
+    // Chromium on the runner, and WebKit on a Mac, run this for real.
+    test.skip(cameraUnreliable(browserName), 'WebKit on Linux cannot photograph a canvas — see cameraUnreliable');
     await serveFeed(page, inViewFeed());
     await openMap(page);
     await settle(page);
@@ -779,7 +792,8 @@ test.describe('the wildfire layer', () => {
     await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'missing');
   });
 
-  test('a stale feed leaves nothing on the canvas', async ({ page }) => {
+  test('a stale feed leaves nothing on the canvas', async ({ page, browserName }) => {
+    test.skip(cameraUnreliable(browserName), 'WebKit on Linux cannot photograph a canvas — see cameraUnreliable');
     // 🔴 The words say the layer is off; this proves it. Photographed
     // against a page whose feed holds no fire at all — if a stale feed still
     // painted perimeters, these two would differ.
