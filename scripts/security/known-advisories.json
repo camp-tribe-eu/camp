@@ -12,6 +12,12 @@
       "title": "Multer vulnerable to Denial of Service via incomplete cleanup of aborted uploads",
       "why": "Arrives with @nestjs/platform-express. No endpoint parses multipart, so nothing reaches the parser. ⚠️ This stops being true the day photo uploads ship (CAMP-86) — revisit then."
     },
+    "GHSA-3pph-fpjx-jg34": {
+      "severity": "moderate",
+      "package": "multer",
+      "title": "multer vulnerable to Denial of Service via orphaned disk writes on aborted uploads",
+      "why": "Published 29.09.2026; the eighth multer advisory of this shape. Arrives with @nestjs/platform-express. Verified on the day rather than inherited from the entries above: grepped apps/api/src for multipart, FileInterceptor, FilesInterceptor, @UploadedFile, multer and diskStorage — zero hits, and the API declares exactly one body-taking route (client-errors.controller.ts:36, @Post, JSON). Nothing reaches the parser, and an orphaned disk write needs an upload to abort. On the fix: patched in 2.4.0, we hold 2.3.0, and an npm overrides entry is silently ignored in this tree — the same behaviour this file already records for tar. Measured 29.09.2026: adding \"multer\": \"^2.4.0\" to root overrides and re-resolving with --package-lock-only --prefer-online left the lock at 2.3.0 and produced no lockfile diff at all. So the real fix rides with @nestjs/platform-express, i.e. CAMP-159. ⚠️ REVISIT THE DAY PHOTO UPLOADS SHIP (CAMP-86): it stops being unreachable then, and the platform upgrade becomes a blocker rather than a deferral."
+    },
     "GHSA-3v7f-55p6-f55p": {
       "severity": "moderate",
       "package": "picomatch",
