@@ -23,6 +23,10 @@ import {
 import { PhotoSubmission, Review } from './entities/moderation.entity';
 import { SpotTariff } from './entities/spot-tariff.entity';
 import { BathingWater } from './entities/bathing-water.entity';
+import {
+  AirQualityModelled,
+  AirQualityStation,
+} from './entities/air-quality.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -51,6 +55,9 @@ export const AppDataSource = new DataSource({
     SpotTariff,
     // CAMP-168: the EU's designated bathing waters, one row per season.
     BathingWater,
+    // CAMP-164: the EEA air quality stations and the 1 km modelled index.
+    AirQualityStation,
+    AirQualityModelled,
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
