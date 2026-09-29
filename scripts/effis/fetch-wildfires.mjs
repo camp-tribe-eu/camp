@@ -489,6 +489,59 @@ async function text(url) {
   return res.text();
 }
 
+/**
+ * 🔴 The only two places this script touches the network, as one object.
+ *
+ * `collect()` used to call `fetch` directly, which meant every guard inside
+ * it — the licence markers, the CEMS markers, the 2 000 ceiling, the
+ * refusal to write a reserved word — could be exercised only against
+ * Copernicus itself. `--self-test` therefore rehearsed none of them, and
+ * measured 29.09.2026: deleting any of the four left it at 49/49. Handing
+ * the network in as `io` lets the self-test run the REAL `collect()`
+ * against a world it controls, so each guard is watched failing on every
+ * run instead of being trusted.
+ */
+export const REAL_IO = {
+  /** A document, as text — the licence page, the CEMS terms, a hits count. */
+  text,
+  /** The fire window: the WFS response body. */
+  async windowText(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText} for the fire window`);
+    return res.text();
+  },
+};
+
+/** Throws `messageFor(marker)` for the first marker `body` does not carry. */
+export function requireMarkers(body, markers, messageFor) {
+  for (const marker of markers) {
+    if (!body.includes(marker)) throw new Error(messageFor(marker));
+  }
+}
+
+/**
+ * A response at the ceiling is a response that may have been cut off.
+ * Exported so the self-test can drive the boundary itself: one under
+ * passes, the ceiling throws.
+ */
+export function requireUnderCeiling(count, ceiling = MAX_FEATURES) {
+  if (count >= ceiling) {
+    throw new Error(
+      `the response came back at the ${ceiling} ceiling, so it may be truncated. ` +
+        'A fire layer missing its tail is worse than no layer — raise MAX_FEATURES ' +
+        'deliberately, or narrow the window, and re-measure.',
+    );
+  }
+}
+
+/**
+ * Whose job an official notice is, in our words and on their authority —
+ * with none of the words the CEMS terms reserve. A constant so that a
+ * test can hand `collect()` a different one and watch it be refused.
+ */
+export const AUTHORITY_NOTE =
+  'Copernicus publishes this for information only. Only national and regional services are authorised to issue official notices for their own area.';
+
 export async function memberStateCodes() {
   const raw = JSON.parse(await readFile(MEMBER_STATES, 'utf8'));
   const members = Object.keys(raw.members);
@@ -512,8 +565,8 @@ export async function memberStateCodes() {
 }
 
 /** How many fires the whole season holds inside the EU-27. No features. */
-export async function seasonCount(codes) {
-  const body = await text(wfsUrl({ hits: true, filter: wrap(euFilter(codes)) }));
+export async function seasonCount(codes, io = REAL_IO) {
+  const body = await io.text(wfsUrl({ hits: true, filter: wrap(euFilter(codes)) }));
   const m = /numberOfFeatures="(\d+)"/.exec(body);
   if (!m) {
     throw new Error(`no numberOfFeatures in the hits response: ${body.slice(0, 300)}`);
@@ -521,43 +574,44 @@ export async function seasonCount(codes) {
   return Number(m[1]);
 }
 
-export async function collect({ now = new Date(), days = WINDOW_DAYS } = {}) {
-  const licence = await text(LICENCE_PAGE);
-  for (const marker of LICENCE_MARKERS) {
-    if (!licence.includes(marker)) {
-      throw new Error(
-        `REFUSING TO CONTINUE: the EFFIS licence page no longer contains ${JSON.stringify(marker)}. ` +
-          `Read ${LICENCE_PAGE} before publishing anything derived from this data.`,
-      );
-    }
-  }
+export async function collect({
+  now = new Date(),
+  days = WINDOW_DAYS,
+  io = REAL_IO,
+  authorityNote = AUTHORITY_NOTE,
+} = {}) {
+  const licence = await io.text(LICENCE_PAGE);
+  requireMarkers(
+    licence,
+    LICENCE_MARKERS,
+    (marker) =>
+      `REFUSING TO CONTINUE: the EFFIS licence page no longer contains ${JSON.stringify(marker)}. ` +
+      `Read ${LICENCE_PAGE} before publishing anything derived from this data.`,
+  );
 
   // 🔴 Both documents, every run. CC BY 4.0 says we may reuse it; the
   // CEMS terms say what we may call it and exactly how to credit it. A
   // run that checked only the first would keep publishing a credit the
   // second had changed, and nothing would report it.
-  const terms = await text(CEMS_TERMS);
-  for (const marker of CEMS_MARKERS) {
-    if (!terms.includes(marker)) {
-      throw new Error(
-        `REFUSING TO CONTINUE: the CEMS terms no longer contain ${JSON.stringify(marker)}. ` +
-          `Read ${CEMS_TERMS} before publishing: this page decides both our wording and our credit.`,
-      );
-    }
-  }
+  const terms = await io.text(CEMS_TERMS);
+  requireMarkers(
+    terms,
+    CEMS_MARKERS,
+    (marker) =>
+      `REFUSING TO CONTINUE: the CEMS terms no longer contain ${JSON.stringify(marker)}. ` +
+      `Read ${CEMS_TERMS} before publishing: this page decides both our wording and our credit.`,
+  );
 
   const codes = await memberStateCodes();
   const since = windowStart(now, days);
-  const euSeasonTotal = await seasonCount(codes);
+  const euSeasonTotal = await seasonCount(codes, io);
 
   const url = wfsUrl({
     maxfeatures: MAX_FEATURES,
     filter: sinceFilter(codes, since),
   });
   const started = Date.now();
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for the fire window`);
-  const raw = await res.text();
+  const raw = await io.windowText(url);
   const took = Date.now() - started;
 
   let parsed;
@@ -570,13 +624,7 @@ export async function collect({ now = new Date(), days = WINDOW_DAYS } = {}) {
   if (!Array.isArray(parsed.features)) {
     throw new Error('the window response carries no feature array');
   }
-  if (parsed.features.length >= MAX_FEATURES) {
-    throw new Error(
-      `the response came back at the ${MAX_FEATURES} ceiling, so it may be truncated. ` +
-        'A fire layer missing its tail is worse than no layer — raise MAX_FEATURES ' +
-        'deliberately, or narrow the window, and re-measure.',
-    );
-  }
+  requireUnderCeiling(parsed.features.length);
 
   const fires = [];
   const rejected = [];
@@ -613,8 +661,7 @@ export async function collect({ now = new Date(), days = WINDOW_DAYS } = {}) {
        * Whose job it is to tell people what to do, in our words but on
        * their authority — and with none of the words the terms reserve.
        */
-      authorityNote:
-        'Copernicus publishes this for information only. Only national and regional services are authorised to issue official notices for their own area.',
+      authorityNote,
       layer: TYPENAME,
       windowDays: days,
       since,
@@ -679,7 +726,7 @@ export function checkMetaWording(meta) {
 // Self-test: every rule above, on fixtures, with no network
 // ---------------------------------------------------------------------
 
-function selfTest() {
+async function selfTest() {
   const checks = [];
   const ok = (name, cond, detail = '') =>
     checks.push({ name, pass: Boolean(cond), detail: String(detail) });
@@ -857,6 +904,89 @@ function selfTest() {
     })(),
   );
 
+  // — collect() itself, against a world we control ————————————————————
+  //
+  // 🔴 Everything above tests helpers. The guards that stand between
+  // Copernicus and the committed file live INSIDE collect(), which used to
+  // need two live HTTP requests to run at all, so none of them was ever
+  // watched failing: measured 29.09.2026, deleting the licence-marker
+  // loop, the CEMS-marker loop, the 2 000 ceiling or the write-refusal
+  // left this self-test at 49/49. These run the real collect() with its
+  // network replaced, one guard at a time.
+  const NOW = new Date('2026-09-28T18:00:00Z');
+  const world = ({
+    licence = LICENCE_MARKERS.join(' | '),
+    terms = CEMS_MARKERS.join(' | '),
+    features = [good()],
+    windowBody,
+  } = {}) => ({
+    text: async (url) =>
+      url === LICENCE_PAGE
+        ? licence
+        : url === CEMS_TERMS
+          ? terms
+          : '<wfs:FeatureCollection numberOfFeatures="8946"/>',
+    windowText: async () =>
+      windowBody ?? JSON.stringify({ type: 'FeatureCollection', features }),
+  });
+  const outcome = async (io, extra = {}) => {
+    const log = console.log;
+    console.log = () => {}; // the odd-place notice is not a check's business
+    try {
+      return { out: await collect({ now: NOW, io, ...extra }) };
+    } catch (e) {
+      return { error: String(e?.message ?? e) };
+    } finally {
+      console.log = log;
+    }
+  };
+
+  const happy = await outcome(world());
+  ok('collect() on a sound world writes one fire and the modified-data credit',
+    happy.out?.meta.kept === 1 &&
+      happy.out.meta.attribution.startsWith('Contains modified Copernicus Emergency Management Service information 2026'),
+    happy.error ?? '');
+
+  for (const marker of LICENCE_MARKERS) {
+    const r = await outcome(world({ licence: LICENCE_MARKERS.filter((m) => m !== marker).join(' | ') }));
+    ok(
+      `🔴 the run stops when the licence page loses “${marker.slice(0, 32)}…”`,
+      /REFUSING TO CONTINUE: the EFFIS licence page/.test(r.error ?? ''),
+      r.error?.slice(0, 60) ?? 'it carried on',
+    );
+  }
+  for (const marker of CEMS_MARKERS) {
+    const r = await outcome(world({ terms: CEMS_MARKERS.filter((m) => m !== marker).join(' | ') }));
+    ok(
+      `🔴 the run stops when the CEMS terms lose “${marker.slice(0, 32)}…”`,
+      /REFUSING TO CONTINUE: the CEMS terms/.test(r.error ?? ''),
+      r.error?.slice(0, 60) ?? 'it carried on',
+    );
+  }
+
+  const full = (n) => Array.from({ length: n }, (_, i) => good({ id: String(i) }));
+  const atCeiling = await outcome(world({ features: full(MAX_FEATURES) }));
+  ok('🔴 a response AT the ceiling is refused as possibly truncated', /ceiling/.test(atCeiling.error ?? ''), atCeiling.error?.slice(0, 60) ?? 'it carried on');
+  const underCeiling = await outcome(world({ features: full(MAX_FEATURES - 1) }));
+  ok('…and one under it is not', underCeiling.out?.meta.kept === MAX_FEATURES - 1, underCeiling.error ?? '');
+  ok('the ceiling helper agrees at its boundary',
+    throws(() => requireUnderCeiling(5, 5)) && !throws(() => requireUnderCeiling(4, 5)));
+
+  const notJson = await outcome(world({ windowBody: '<ServiceException/>' }));
+  ok('an XML error in place of the window is refused', /not JSON/.test(notJson.error ?? ''));
+
+  const hostile = await outcome(world(), {
+    authorityNote: 'This is an official fire danger warning: evacuate the area immediately.',
+  });
+  ok('🔴 the run REFUSES TO WRITE a reserved word, through collect() and not only the helper',
+    /REFUSING TO WRITE: meta\.authorityNote/.test(hostile.error ?? ''),
+    hostile.error?.slice(0, 60) ?? 'it wrote it');
+  ok('the note we ship passes that same gate',
+    !FORBIDDEN_WORDS.test(AUTHORITY_NOTE) && happy.out?.meta.authorityNote === AUTHORITY_NOTE);
+  ok('checkMetaWording refuses a reserved word in any meta string',
+    throws(() => checkMetaWording({ anything: 'severe weather warning' })) &&
+      !throws(() => checkMetaWording({ anything: 'a plain sentence' })));
+
   for (const c of checks) {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
   }
@@ -876,7 +1006,7 @@ const invokedDirectly =
 if (!invokedDirectly) {
   // Imported for its functions. Do nothing.
 } else if (process.argv.slice(2).includes('--self-test')) {
-  process.exit(selfTest() ? 0 : 1);
+  process.exit((await selfTest()) ? 0 : 1);
 } else {
   const args = process.argv.slice(2);
   const daysArg = args.find((a) => a.startsWith('--days='));

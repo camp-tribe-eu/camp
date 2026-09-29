@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test';
 //
 // 🔴 WHY THIS FILE EXISTS, AND IT IS NOT DUPLICATION.
 //
-// `scripts/effis/fetch-wildfires.mjs --self-test` drives 49 checks, and
+// `scripts/effis/fetch-wildfires.mjs --self-test` drives 49 checks (63 since collect() itself was put under test), and
 // every one of them was rehearsed only when a human typed the command.
 // Nothing imported the script and no job invoked it, so the 2 000-feature
 // ceiling, the `maxfeatures` throw that stands between us and a 132 MB
@@ -17,10 +17,15 @@ import { expect, test } from '@playwright/test';
 // check-flaky, check-skips — has a step in CI. A safeguard nobody has
 // watched fail is a safeguard nobody has.
 //
-// 🔴 The step is here rather than in `.github/workflows/ci.yml` because
-// that file belongs to another card in flight. The unit project already
-// runs on every job, needs no network and no database, and this file
-// fails in milliseconds on a pull request.
+// 🔴 It is in BOTH places, and neither is redundant. `ci.yml` (job
+// `security`, step "Wildfire fetch guards still refuse what they must")
+// runs `--self-test` on its own, cheaply, first — the same shape as every
+// guard beside it. This file runs in the unit project on every e2e job and
+// drives what `--self-test` cannot reach from outside: the exported
+// functions one by one, with the boundary values the self-test does not name.
+// An earlier version of this comment said the step lived here because
+// `ci.yml` "belongs to another card in flight"; no open pull request
+// touches `.github`, and the claim only made the guard easier to skip.
 
 const SCRIPT = join(
   __dirname,
@@ -54,7 +59,7 @@ test.beforeAll(async () => {
   mod = await load(pathToFileURL(SCRIPT).href);
 });
 
-test('🔴 the script’s own 49 checks run here, not only when somebody types the command', () => {
+test('🔴 the script’s own self-test runs here, not only when somebody types the command', () => {
   // The whole point of the file. `--self-test` touches no network and no
   // filesystem, so CI can run it as-is; a non-zero exit throws here and
   // the output names which check failed.
