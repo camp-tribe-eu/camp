@@ -21,6 +21,11 @@ export type { TariffView } from './tariffs';
 import { nearestBathingWaterSql } from '../bathing/nearby';
 import type { BathingWaterView } from '../bathing/nearby';
 export type { BathingWaterView } from '../bathing/nearby';
+// CAMP-164: the EEA air quality index — facts only, freshness is decided
+// where it is shown.
+import { airQualitySql } from '../air/nearby';
+import type { AirQualityFacts } from '../air/nearby';
+export type { AirQualityFacts } from '../air/nearby';
 
 // Re-exported so existing importers keep working; the rules themselves
 // live in canonical.ts, where a unit test can reach them.
@@ -106,6 +111,22 @@ export interface SpotView {
    */
   bathingWater: BathingWaterView | null;
   /**
+   * CAMP-164: what we hold about the air here — the nearest station's
+   * latest reported hour, the 1 km modelled index where no station is
+   * near, or an explicit `none`.
+   *
+   * 🔴 FACTS, NOT A VERDICT: there is no clock in the query, so nothing
+   * here says whether a reading is still fresh. The page decides that
+   * against the reader's clock (apps/web/src/lib/air-quality.ts) — a
+   * statically built page outlives the import that fed it.
+   *
+   * 🔴 `reading.basis` is `reported` or `mixed`, never `modelled`: a
+   * station row cannot hold an hour that is entirely a model estimate
+   * (the column refuses it), and the pure model is the `modelled` kind,
+   * a different branch that the page labels as a model.
+   */
+  airQuality: AirQualityFacts;
+  /**
    * CAMP-105: false when this page has nothing on it but a name.
    *
    * Decided in SQL (NOTHING_TO_SAY_SQL) so the page and the sitemap
@@ -186,6 +207,10 @@ export class SpotsService {
               -- return the same row, and "merging" two identical answers
               -- would be a rule with nothing to decide.
               ${nearestBathingWaterSql('s.location')} AS bathing_water,
+              -- 🔴 CAMP-164, primary row only, for the reason above: air
+              -- is chosen by geography, and the linked secondary would
+              -- return the same station.
+              ${airQualitySql('s.location', 's.id')} AS air_quality,
               (NOT ${NOTHING_TO_SAY_SQL}
                OR linked.stars IS NOT NULL
                OR linked.description IS NOT NULL) AS indexable
@@ -794,6 +819,11 @@ function toView(row: Record<string, unknown>): SpotView {
     // the column produces a page that says there is none nearby, which
     // is a visible, reportable wrong answer rather than a silent one.
     bathingWater: (row.bathing_water as BathingWaterView) ?? null,
+    // 🔴 CAMP-164. `?? { kind: 'none' }` says "we hold no station and no
+    // model value for this place", which is true of any query that did
+    // not select the column — and visible on the page as a sentence, not
+    // as a section that quietly vanished.
+    airQuality: (row.air_quality as AirQualityFacts) ?? { kind: 'none' },
     // 🔴 Defaults to indexable when the column is absent, not to hidden.
     // A query that forgot to select it must not silently noindex a page
     // that has plenty to say — the failure should be a page that ranks

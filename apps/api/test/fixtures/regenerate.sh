@@ -46,6 +46,19 @@
 #                            source attribution the seeded rows need,
 #                            because migrations run BEFORE the seed in CI
 #                            and the backfill therefore never sees them.
+#     ci-seed-hourly-air-quality.sql
+#                            seven synthetic air quality stations and three
+#                            1 km model values (CAMP-164), DESIGNED beside
+#                            the campsites in the fixture with every time
+#                            relative to now(). The states the page must
+#                            render — a silent station, a model that has
+#                            aged out, a station 20.5 km away — are not
+#                            ones a sample of the real table reliably
+#                            holds, and every real timestamp would be a
+#                            fortnight old by the time CI read it. It sorts
+#                            AFTER ci-seed-gone.sql on purpose: that file
+#                            marks a campsite as dropped, and this one must
+#                            not pick it.
 #     ci-seed-route-poi.sql  six route-service points CHOSEN next to a real
 #                            route stage. The development database holds
 #                            2 248 490 of them, so they cannot be sampled;

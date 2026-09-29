@@ -30,6 +30,8 @@
 // CAMP-168: one id for the EEA bathing water source, shared by the
 // attribution below and by the component that renders the classification.
 import { BATHING_SOURCE_ID } from './bathing';
+// CAMP-164: the same for the EEA air quality index.
+import { AIR_SOURCE_ID } from './air-quality';
 
 export type SpotSource = {
   id: string;
@@ -81,8 +83,20 @@ export type SourceInfo = {
    * statement about cadence at all — rewording a label would have
    * switched the flag on or off by accident. CAMP-166 generalises
    * freshness across all sources; this field is what it should read.
+   *
+   * 🔴 CAMP-164 added the third value, and it is the mirror image of
+   * `annual`:
+   *
+   * `hourly`     — the EEA air quality index. A reading a few hours old is
+   *                past its budget (AIR_FRESH_FOR_HOURS, lib/air-quality.ts)
+   *                and the page says "no fresh data"; a reading two YEARS
+   *                old is far past it. The 730-day flag below is about
+   *                records nobody edits and must not be what decides this
+   *                one, so `shouldFlagStale` never fires for it — the
+   *                decision is per record, in `airState`, against the
+   *                reader's clock.
    */
-  cadence: 'continuous' | 'annual';
+  cadence: 'continuous' | 'annual' | 'hourly';
 };
 
 export const SOURCES: Record<string, SourceInfo> = {
@@ -136,6 +150,32 @@ export const SOURCES: Record<string, SourceInfo> = {
     // record" — and the season it describes is the year on the page.
     dateLabel: 'Classification for the season published on',
     cadence: 'annual',
+  },
+  // CAMP-164. The EEA's European Air Quality Index: an hourly index per
+  // monitoring station, from data the member states report to the EEA,
+  // plus a 1 km model for places with no station nearby.
+  //
+  // 🔴 The licence link is CC BY 4.0, which docs/emergency-sources.md §9
+  // reads from the EEA catalogue for the concentrations download service
+  // ("License CC-BY 4.0 … Copyright holder: European Environment Agency
+  // (EEA)") and from the site-wide legal notice, which makes acknowledgement
+  // of the EEA a condition of reuse. The index itself has no catalogue
+  // record and its viewer prints no licence; nothing on it says otherwise.
+  // Recorded here so the next person to verify us does not repeat the search.
+  [AIR_SOURCE_ID]: {
+    id: AIR_SOURCE_ID,
+    name: 'European Environment Agency — European Air Quality Index',
+    url: 'https://airindex.eea.europa.eu/AQI/index.html',
+    licence: 'CC BY 4.0',
+    licenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
+    about:
+      'An hourly index per monitoring station, from concentrations the member ' +
+      'states report to the EEA, and a 1 km model for places with no station nearby.',
+    // 🔴 Two dates on the page and this is the second: the HOUR the value
+    // describes is printed beside the value; this one is when we read the
+    // EEA's file.
+    dateLabel: 'Read from the EEA on',
+    cadence: 'hourly',
   },
 };
 
@@ -194,7 +234,10 @@ export function shouldFlagStale(
   today = new Date(),
 ): boolean {
   if (!source) return false;
-  if (source.cadence === 'annual') return false;
+  // 🔴 Neither an annual nor an hourly source is judged by a 730-day rule.
+  // Annual: a year-old edition is healthy. Hourly: two years is absurdly
+  // late, and the reading was already "no fresh data" after four hours.
+  if (source.cadence === 'annual' || source.cadence === 'hourly') return false;
   return isStale(updatedAt, today);
 }
 

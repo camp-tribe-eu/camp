@@ -928,6 +928,152 @@ revised this year.
 flag honoured, the "as reported, not verified" wording, and silence
 rendered as silence.
 
+### Taken — CAMP-164, 29.09.2026
+
+Implemented in `apps/api/src/air/` (fetch, parse, import, the read query,
+three reports) and rendered by `apps/web/src/components/air-quality.tsx`.
+What was learned in the doing, and is not in the survey above. Every
+number is from a run on 29.09.2026 with the command in brackets.
+
+- **Where the data is.** Read out of the viewer's own scripts
+  (`https://airindex.eea.europa.eu/AQI/script/data.js` and `init.js`),
+  not from a catalogue. A public blob store,
+  `dis2datalake.blob.core.windows.net/airquality-derivated/AQI-noRunningMeans/`,
+  holds `content/index.json` (four weekly roster files),
+  `content/raw_stations.json.<yymmddNN>` (4 643 stations, 1.8 MB),
+  `map/<hour>.json` (one index per station for one hour) and
+  `current/<station>.json` — about 305 hourly slots per station, from
+  eleven days back to 39 hours ahead, each carrying `aqi_<pollutant>`,
+  `val_<pollutant>` and **`modelled_<pollutant>`**. The 1 km index is an
+  ArcGIS ImageServer,
+  `air.discomap.eea.europa.eu/arcgis/rest/services/AQMobile_2025/MOSAIC_GLOBAL_AQI/ImageServer`,
+  levels 1–6, with a time window of 2026-09-28T00Z to 2026-10-01T12Z. The
+  folder name says `noRunningMeans`, and it means it: these indices are
+  built from *hourly* concentrations; the About text's sentence about
+  24-hour running means is inside an HTML comment in the viewer's markup.
+  The `AQMobile_2025` year is a trap of the same kind as the bathing
+  water's: `AQMobile` (no year) still exists, and `…/AQMobile_2026?f=json`
+  answers HTTP 200 with an empty service list.
+
+- **A station's newest hour is never a measurement.** In 240 of 240
+  stations drawn at random the slot of the current hour was entirely
+  gap-filled by the model [`report-lag.ts`, 20:07 UTC]. Reports arrive
+  late: across all 4 018 stations the newest hour in which *at least one
+  pollutant was reported* lay 1 h back for 1 005, 2 h for 1 676, 3 h for
+  338, 4 h for 66, and further back or nowhere for the rest — 514 have no
+  file at all [`import.ts`, 20:38 UTC]. So the page shows that hour, and
+  never the newest one; a station whose every recent hour is a model
+  estimate has **no reading**, and the column that would hold one refuses
+  it (`reading_basis IN ('reported','mixed')`). This is the card's first
+  display requirement, and it is a property of the data before it is a
+  property of the wording: taking the newest slot would have filed a model
+  output under a station's name and printed "as reported to the EEA" over
+  it on every station in Europe.
+
+- **The budget is four hours, not the 2–3 §12 guessed.** 3 085 of the
+  3 504 stations that hold a reading (88.0%) are within 4 h, 3 019 within
+  3 h; the tail has no gap, so four hours is the last hour that still holds
+  1% of the roster and is stated as a judgement (`AIR_FRESH_FOR_HOURS` in
+  `source.ts`, with the table). One station in five is silent — 922 of
+  4 018 (22.9%) were not within it at the second import [20:53 UTC] — and
+  each of them renders "no fresh data".
+
+- **Three traps in the files.** `aqi: 0` is *no data*, not the best air
+  there is. `modelled_SO2: 1` sits beside `aqi_SO2: 0` and `val_SO2: null`
+  — 190 of 240 sampled files (79.2%) contain such a slot, 6.6% of all
+  their pollutant-slots — because the flag is 1 when there is nothing to
+  flag, so counting it makes almost every station look partly modelled. And the headline
+  index equals its culprit's own index in 74 649 of 74 649 slots read, so
+  a slot where it does not is a file we have misunderstood and is skipped.
+
+- **`getSamples` silently ignores every point past the first 1 000.**
+  1 000, 1 001, 2 000 and 3 000 random points over Europe each returned
+  the same 496 samples, the largest `locationId` was 999 every time, and
+  there was no error and no `exceededTransferLimit`. A dropped point looks
+  exactly like a point outside the model. Batches are 499 points plus a
+  sentinel (Lake Balaton) sent last; if the sentinel's sample does not
+  come back the whole call throws.
+
+- **The source does not speak ISO — except that this one does.** This
+  roster spells Greece `GR` (58 stations), not `EL`; the bathing water
+  layer of the same agency spells it `EL`. Nothing relies on which: every
+  prefix goes through `normaliseCountry`. The roster carries no country
+  field — the country is the first two characters of the code — and its
+  **40 prefixes were enumerated, not assumed**: 27 EU (4 018 stations)
+  and 13 outside the Union (AD AL BA CH GE IS ME MK NO RS TR UA XK, 625
+  stations) [`import.ts`]. A prefix in neither list is a third outcome:
+  the importer prints it, refuses those stations, writes everything else
+  and exits 3 — "everything not in this list" is asked on every run, and
+  today it returns 0. `air_quality_stations.country` is also a CHECK
+  against the 27, so the database refuses what a parser let through.
+
+- **The radius is 15 km, and it is a judgement.** The coverage curve has
+  no knee (36.2% of campsites within 15 km, 51.0% within 20, 92.1%
+  within 50). It is examined on a different field, the 1 km model, which
+  does not assimilate the stations: how often the modelled level at a
+  campsite equals the modelled level at its nearest station, 15 000
+  campsites, six hours, three runs [`report-coverage.ts --proxy`].
+  Agreement in the cases that matter (either end level 3 or worse) falls
+  from 66.7–68.3% (0–5 km) to 56.8–57.2% (10–15 km) and then 5–10 points
+  further in the 15–20 km band, in all three runs; from 35 km the answer
+  depends on which hours were used, and nothing is claimed there. The
+  model is smooth — 84–87% agreement across 50 km, 14–21 points above
+  chance — so this bounds how far a station could be trusted and does not
+  say a station is a good stand-in. What a bigger radius costs is on the
+  page: a campsite whose station is silent says "no fresh data" although
+  the model has a value for it — 3 525 of 61 557 pages (5.7%) at 15 km,
+  4 928 (8.0%) at 20 km.
+
+- **What it yields, over all 61 557 live campsites** [`report-coverage.ts`,
+  `import.ts`, 20:53 UTC]: a station within 15 km on 22 273 (36.2%), of
+  which 18 748 hold a reading inside the budget and 3 525 say "no fresh
+  data"; the 1 km model on 38 618 (62.7%); neither on 666 (1.1%): the
+  raster returns no value at their point. By country IT 115, DK 107,
+  DE 79, PL 54, GR 52, FR 46, ES 36, PT 31 (the Azores among them),
+  HR 28, EE 27 …; their coordinates are coastlines and islands. Why the
+  raster is empty there was not investigated. All 27 member states have
+  stations and campsites; no country sits at zero.
+
+- **Licence and attribution — two things §9 could not see, and one it did
+  not look for.**
+  1. There is no `copyrightText` to take the attribution from. It is `''`
+     on all five image services; the blob store carries no metadata; the
+     viewer prints base-map credits and nothing else; and the catalogue
+     has no record for the index (title searches for "air quality index",
+     "European Air Quality Index" and "up-to-date air quality" return
+     nothing). The page prints the one sentence the viewer says about who
+     made it — it names DG ENV and the EEA, as §9 requires — and
+     `verify-attribution.ts` fails if it ever leaves the viewer page.
+  2. **The catalogue disagrees with itself about the inputs.** Record
+     `fe809728-9cec-41c0-a9be-3a8f04600974` ("Air Quality download service
+     for verified and Up To Date data, 2013-now", changed 2026-09-25):
+     "License CC-BY 4.0 … Copyright holder: European Environment Agency
+     (EEA)." Record `908fbf25-7769-49f5-a4c6-e54b265e44e7` ("Near real time
+     measurements of the concentration of air pollutants for the current
+     year", changed 2025-10-09): access constraint `restricted`, and "Use
+     by external users is possible under conditions. Please contact the
+     data point of contact referenced in this metadata record." The index
+     is built from the up-to-date data. Nothing says which applies to the
+     index; the TAKE verdict above rests on the site-wide legal notice
+     ("EEA materials are published under the CC-BY license"). This wants
+     one email to the EEA or a lawyer's read, not more engineering.
+  3. The modelled values, and the gap-filling inside a station reading,
+     are derived from CAMS — the Copernicus *Atmosphere* Monitoring
+     Service, not CEMS, so neither the CEMS credit nor CAMP-162's wording
+     gate applies. Whether Copernicus's own credit line binds a re-user of
+     the EEA's downscaled product was not checked.
+
+- **Not done, and what each costs.** The refresh is not scheduled: one run
+  is 230.6 MB down (3 504 station files of about 66 KB, six at a time)
+  and two minutes four seconds, so every two hours fits the four-hour
+  budget and costs about 2.8 GB a day of the EEA's bandwidth (12 × 231 MB). A page whose data stops
+  coming says "no fresh data" by itself. The lag was measured on one
+  evening; rerun `report-lag.ts` across a day before trusting four hours.
+  A campsite beside a silent station gets no model line under the
+  "no fresh data" (5.7% of pages); showing one is a change in `airState`
+  and one query in the import. The EEA's health advice for each level is
+  not reproduced, on purpose.
+
 ---
 
 ## 10. River water levels — **REFUSE as a pan-EU layer**
@@ -1160,7 +1306,8 @@ other than an engineer.
    the 1 km modelled raster for points with no nearby station. Render the
    `modelled_*` flag differently from a measurement, use the wording "as
    reported to the EEA, not formally verified", and show "no fresh data"
-   for a station missing from the current hour.
+   for a station missing from the current hour. **Done in CAMP-164 —
+   see "Taken — CAMP-164" under §9.**
 
 ### Making it safe
 
