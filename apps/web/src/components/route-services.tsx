@@ -1,15 +1,20 @@
 import { formatDistance } from '@/lib/api';
 import { formatKm, STRAIGHT_LINE_LABEL } from '@/lib/routes';
 import {
+  AVERAGE_BADGE,
+  displayPrices,
   FUEL_ATTRIBUTION,
   FUEL_BULLETIN_DATE,
   FUEL_SOURCE,
+  NO_STATION_PRICE,
+  PRICE_STALE_AFTER_DAYS,
   SERVICE_ABSENT,
   SERVICE_KINDS,
   SERVICE_LABEL,
   SERVICE_RADIUS_M,
   SERVICE_UNNAMED,
   serviceOf,
+  type DisplayPrice,
   type RouteFuelPrice,
   type RouteServicePoint,
   type ServiceKind,
@@ -95,12 +100,147 @@ function Phone({ value }: { value: string | null }) {
   );
 }
 
+/** "26 September 2026" — the same long form the rest of the site uses. */
+const longDay = (iso: string): string => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+};
+
+/**
+ * CAMP-154 — the price of a litre on THIS forecourt.
+ *
+ * 🔴 THE THREE THINGS THAT MAKE THIS DIFFERENT FROM THE BLOCK BELOW,
+ * AND WHY EACH IS ON THE PAGE RATHER THAN IN A COMMENT.
+ *
+ * 1. **The date.** Not decoration — measured 28.09.2026, only 3 350 of
+ *    France's 8 760 diesel prices were under a day old, 1 193 were
+ *    eight to thirty days old, and the two grades on one Bologna
+ *    forecourt were filed a day apart. A fuel price with no date is a
+ *    rumour, and this one is the source's own stamp, never our fetch.
+ *
+ * 2. **The product name, as the source publishes it.** France sells
+ *    95-octane as SP95 and as E10 at different prices, and 5 619 of its
+ *    stations post only E10. "Petrol €2.21" would be the wrong fuel at
+ *    a third of French stations; "E10 €2.209" is what is in the tank.
+ *
+ * 3. **The source.** Named beside the number, with a link, because a
+ *    reader who thinks the price is wrong should be one click from the
+ *    ministry that published it. It is also the licence condition on
+ *    all three feeds.
+ *
+ * 🔴 AND THE ONE THING THAT MUST NOT HAPPEN HERE: no country average
+ * ever renders inside this component. The average lives in
+ * `RouteFuelPrices`, at route level, under a badge that says so. There
+ * is no code path from one to the other — different props, different
+ * types — which is the only reliable way to keep the two apart.
+ */
+function StationPrices({ prices }: { prices: DisplayPrice[] }) {
+  // 🔴 The absent case is a SENTENCE, never a blank. This rule has been
+  // broken twice in this codebase and caught both times, and here the
+  // blank would be the most misleading of all: an empty space beside a
+  // pump on a page whose whole promise is the price beside the pump.
+  if (prices.length === 0) {
+    return (
+      <span className="text-ink-3" data-testid="station-price-absent">
+        {NO_STATION_PRICE}
+      </span>
+    );
+  }
+
+  // 🔴 THE ATTRIBUTION IS RENDERED, NOT MERELY COMPUTED.
+  //
+  // Review found `displayPrices` resolving `attribution` for every price
+  // and this component never reading it: the served row was
+  // "Gasolio €1.849/l measured 27 September 2026" and nothing else. No
+  // ministry, no link, anywhere in the markup.
+  //
+  // That is not a presentation gap, it is a LICENCE BREACH. Attribution
+  // is a condition of all three — datos.gob.es's general conditions,
+  // Licence Ouverte 2.0 and IODL 2.0 — and `RouteFuelPrices` two blocks
+  // down already prints `FUEL.attribution` verbatim for exactly this
+  // reason on the CC BY bulletin. Publishing one source's data under its
+  // condition and another's without is not a smaller version of the same
+  // mistake; it is the mistake.
+  //
+  // One line per ROW rather than per price: a forecourt's diesel and
+  // petrol come from the same ministry, and repeating it twice would be
+  // noise without adding a permission. `Map` rather than `Set` so the
+  // order is the order the prices are in and a second source — which
+  // cannot happen today, but the type allows it — would still be named.
+  const sources = new Map(prices.map((p) => [p.attribution.href, p.attribution]));
+
+  return (
+    <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+      {prices.map((p) => (
+        <span
+          key={`${p.grade}-${p.product}`}
+          data-testid={`station-price-${p.grade}`}
+          data-price-state={p.state}
+          className={
+            p.state === 'stale'
+              ? 'text-ink-3'
+              : 'font-semibold text-heading'
+          }
+        >
+          {/* The source's own product name, not the word "petrol". */}
+          {p.product}{' '}
+          <span className="tabular-nums">€{p.price}</span>
+          {'/l '}
+          <span className="font-normal text-ink-3">
+            {/* 🔴 The date is inside the same element as the price, so
+                no layout change can separate a number from its stamp.
+                A stale one says so in words as well: "on 3 September"
+                alone leaves the reader to do the arithmetic, and the
+                whole point of the threshold is that we do it for them. */}
+            {p.state === 'stale' ? 'last reported ' : 'measured '}
+            <time dateTime={p.measuredAt}>{longDay(p.measuredAt)}</time>
+            {p.state === 'stale'
+              ? `, over ${PRICE_STALE_AFTER_DAYS} days ago — it may have moved since`
+              : ''}
+          </span>
+        </span>
+      ))}
+      {/* 🔴 The ministry, named and linked, beside the number it
+          published. Marked boilerplate for the near-duplicate guard on
+          the same grounds as the bulletin line below: it is word for
+          word identical on every forecourt in one country, because it
+          is a permission we carry rather than a fact about this stop. */}
+      {[...sources.values()].map((s) => (
+        <span
+          key={s.href}
+          className="text-ink-3"
+          data-boilerplate="fuel-station-source"
+        >
+          Source:{' '}
+          <a
+            href={s.href}
+            rel="noopener"
+            target="_blank"
+            className="underline underline-offset-2"
+          >
+            {s.name}
+          </a>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function ServiceRow({
   kind,
   point,
+  now,
 }: {
   kind: ServiceKind;
   point: RouteServicePoint | null;
+  /** 🔴 Passed in, never `new Date()` here. See `priceFreshness`. */
+  now: Date;
 }) {
   const label = SERVICE_LABEL[kind];
 
@@ -148,6 +288,22 @@ function ServiceRow({
               anywhere on this site. */}
           {formatDistance(point.metres)} away {STRAIGHT_LINE_LABEL}
         </span>
+        {/* 🔴 CAMP-154: only on the fuel row, and on EVERY fuel row.
+            Gating it on `point.prices` being present would make the
+            absent case invisible — 41.8% of the fuel points we show in
+            Spain, France and Italy have no price, and 100% of those in
+            the other 24 member states, and all of them must say so
+            rather than look like a row that forgot something. */}
+        {kind === 'fuel' ? (
+          <div className="mt-0.5 text-xs" data-testid="station-price">
+            {/* 🔴 `now` is spent HERE, in `displayPrices`, not inside the
+                component. What reaches StationPrices has already been
+                filtered and classified against the build's clock, so
+                the renderer cannot reach a different verdict from the
+                one the filter reached. */}
+            <StationPrices prices={displayPrices(point, now)} />
+          </div>
+        ) : null}
         <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs">
           <Hours value={point.openingHours} />
           <Phone value={point.phone} />
@@ -170,20 +326,30 @@ function ServiceRow({
 }
 
 /**
- * This week's pump prices for the countries the route crosses.
+ * This week's NATIONAL AVERAGES for the countries the route crosses.
  *
- * 🔴 WHY THIS IS NOT BESIDE THE FUEL STATION.
+ * 🔴 WHY THIS IS NOT BESIDE THE FUEL STATION — AND WHY IT NOW WEARS A
+ * BADGE SAYING SO.
  *
- * It is the one number on this page that is genuinely ours and genuinely
- * better than park4night's — the European Commission's Weekly Oil
- * Bulletin, already imported by CAMP-55 — and it is a NATIONAL AVERAGE
- * FOR A WEEK. Printed next to "Diskonttank, 614 m" it would read as what
- * that pump charges, which we do not know, cannot know from open data,
- * and would be believed about. So it sits at route level, against the
- * country, with the Thursday it was published and where it came from.
+ * It is the European Commission's Weekly Oil Bulletin (CAMP-55), and it
+ * is a NATIONAL AVERAGE FOR A WEEK. Printed next to "Diskonttank,
+ * 614 m" it would read as what that pump charges. So it sits at route
+ * level, against the country, with the Thursday it was published.
  *
- * That is the distinction lib/fuel.ts is built around: measured on one
- * side, assumed on the other, never blurred.
+ * That placement was the whole defence until CAMP-154, and placement is
+ * not enough any more. Since that card, some fuel rows DO carry a real
+ * per-station price — three countries' worth — so the same page now
+ * shows two kinds of number that look alike, and a reader who scrolled
+ * past the station price and landed here has no positional cue left.
+ * Hence `AVERAGE_BADGE`, printed where it cannot be missed, and a
+ * prose line that names the difference outright.
+ *
+ * 🔴 The badge is a CONSTANT shared with the spec, and the spec asserts
+ * it against the RENDERED HTML with tags stripped — not against a
+ * class name, not against an `sr-only` caption. A check must not assert
+ * a property it cannot see, and this project has already shipped a
+ * price panel whose every visible marker had been deleted while 457
+ * tests stayed green.
  */
 export function RouteFuelPrices({ prices }: { prices: RouteFuelPrice[] }) {
   if (prices.length === 0) return null;
@@ -200,6 +366,16 @@ export function RouteFuelPrices({ prices }: { prices: RouteFuelPrice[] }) {
     >
       <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
         What a litre costs on this route
+        {/* 🔴 The badge, in the heading, before any number is read.
+            Not a footnote under the list: a reader who takes the first
+            figure as a pump price has already been misled by the time a
+            footnote could correct them. */}
+        <span
+          className="ml-2 rounded-full border border-line-2 bg-surface px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-normal text-ink-2"
+          data-testid="country-average-badge"
+        >
+          {AVERAGE_BADGE}
+        </span>
       </h3>
       <ul className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
         {prices.map((c) => (
@@ -223,11 +399,34 @@ export function RouteFuelPrices({ prices }: { prices: RouteFuelPrice[] }) {
         className="mt-2 max-w-prose text-xs leading-5 text-ink-3"
         data-boilerplate="fuel-bulletin"
       >
+        {/* 🔴 THIS SENTENCE WAS FALSE THE MOMENT CAMP-154 MERGED, and
+            correcting it is part of the card rather than tidying after
+            it. It used to end "we hold no per-station prices, and we are
+            not going to guess at one." We now hold them for Spain,
+            France and Italy — so leaving the old wording would have the
+            page denying, in print, the prices printed elsewhere on it.
+
+            🔴 AND IT CARRIES NO DIRECTIONAL WORD, WHICH IS THE SECOND
+            CORRECTION. The first rewrite said "not for any station
+            listed ABOVE" — and this block renders BEFORE the stage list
+            (page.tsx renders <RouteFuelPrices> and then the <ol> of
+            stages), so every station it was disclaiming was below it.
+            `main` said "below" and was right; the rewrite inverted the
+            card's central safeguard and a test then asserted the
+            inversion, defending it.
+
+            A word that has to track the order of two JSX siblings in a
+            different file is a latent bug whichever way it points. So it
+            now names the ROW instead of a direction — "that station's
+            own row" is true wherever either block is moved to. */}
         The national consumer average published by the European Commission for
         the week of <time dateTime={FUEL_BULLETIN_DATE}>{bulletin}</time>, taxes
-        included. It is a figure for the whole country, not for any station
-        listed below — we hold no per-station prices, and we are not going to
-        guess at one.
+        included. It is a figure for the whole country and for that week — it is
+        not the price at any single filling station. Where we do hold the price
+        on a particular forecourt, it is shown on that station&rsquo;s own row,
+        with the day it was measured and the ministry that published it; three
+        countries publish per station on terms that let us, and for the other
+        twenty-four this average is all anyone has.
         {/* 🔴 The attribution string itself, not a paraphrase. CC BY 4.0
             is a condition on reuse, and components/fuel-price-table.tsx
             prints the same FUEL.attribution for the same reason. A
@@ -246,8 +445,17 @@ export function RouteFuelPrices({ prices }: { prices: RouteFuelPrice[] }) {
 export default function RouteStageServices({
   group,
   looked,
+  now,
 }: {
   group: StageServices | undefined;
+  /**
+   * 🔴 The build's clock, passed in from the page. Every station price
+   * on one route page is dated against the SAME instant; a component
+   * calling `new Date()` for itself would date two stages differently
+   * and could show one as fresh and its neighbour as stale on the same
+   * second. It is also what makes the staleness wording testable.
+   */
+  now: Date;
   /**
    * 🔴 Whether we actually asked. See RouteServicesResult — without this
    * the block rendered seven "our database holds none within 25 km"
@@ -286,7 +494,12 @@ export default function RouteStageServices({
       </h4>
       <dl className="mt-1">
         {SERVICE_KINDS.map((kind) => (
-          <ServiceRow key={kind} kind={kind} point={serviceOf(group, kind)} />
+          <ServiceRow
+            key={kind}
+            kind={kind}
+            point={serviceOf(group, kind)}
+            now={now}
+          />
         ))}
       </dl>
       {/* 🔴 The selection rule on the page, as the campsite list states

@@ -153,6 +153,12 @@ export interface RouteServicePoint {
   website: string | null;
   /** OSM's own syntax, verbatim. See the note in ServiceHours. */
   openingHours: string | null;
+  /**
+   * CAMP-154 — the price of a litre ON THIS FORECOURT. Absent far more
+   * often than present, and only ever on `kind: 'fuel'`. See the block
+   * at the foot of this file.
+   */
+  prices?: RouteFuelStationPrice[];
 }
 
 export interface StageServices {
@@ -325,3 +331,176 @@ export const FUEL_SOURCE = FUEL.source;
  * stale.
  */
 export const FUEL_ATTRIBUTION = FUEL.attribution;
+
+// ── CAMP-154: THE PRICE OF A LITRE ON ONE FORECOURT ─────────────────────
+//
+// 🔴 THE LINE THIS WHOLE SECTION DEFENDS.
+//
+// Everything above this comment is about a NATIONAL AVERAGE FOR A WEEK
+// (CAMP-55). Everything below is about ONE FORECOURT AT ONE MOMENT.
+// They are different claims, they are wrong in different directions,
+// and a reader who mistakes one for the other has been misled by us.
+//
+// The averages do not go away — they are still the only fuel figure we
+// have for 24 of the 27 member states — but from this card on they are
+// labelled ON THE PAGE as averages. `AVERAGE_BADGE` is the word that
+// does it, and `route-fuel.spec.tsx` asserts a reader can see it.
+//
+// 🔴 WHERE THE STATION PRICES COME FROM, AND WHERE THEY DO NOT.
+//
+// Three countries publish per station on terms that permit commercial
+// reuse; `docs/road-hazard-sources.md` §6 holds the quotations. Austria
+// is NOT among them — its endpoint answers 200 with no key and no rate
+// limit, and no consumer licence exists for it at all. Portugal and
+// Hungary forbid commercial use in their own words. Belgium, Greece and
+// Poland do not publish per station. None of them can reach this page:
+// the only source ids that render are the three in `SOURCE_ATTRIBUTION`,
+// and a price arriving from anything else is dropped rather than shown
+// with a shrug.
+
+/** One grade's price on one forecourt, as the API sends it. */
+export interface RouteFuelStationPrice {
+  grade: 'diesel' | 'petrol';
+  /** The source's own product name — `Gazole`, `SP95`, `Gasolio`… */
+  product: string;
+  /**
+   * 🔴 A STRING, all the way from `numeric(6,3)` to the page.
+   *
+   * Never parsed into a float. `spot_tariffs` records what happens when
+   * money meets a 32-bit float: the DATAtourisme feed contains
+   * `"2.7999999523162841796875"` for €2.80 because somebody upstream
+   * did exactly that. The ministry published `1.849`; the reader sees
+   * `1.849`; nothing in between has an opinion.
+   */
+  price: string;
+  /** ISO 8601 — when the SOURCE says the price was set. */
+  measuredAt: string;
+  source: string;
+}
+
+/**
+ * 🔴 The three sources, and the closed list that keeps the rest out.
+ *
+ * A price whose `source` is not a key here is DROPPED, not rendered
+ * with a shrug. That is the mechanical half of "refused countries must
+ * not creep in": if an import ever wrote an Austrian row, the page
+ * would still not print it, because there would be no attribution to
+ * print beside it — and a price we cannot attribute is not something
+ * this site publishes.
+ */
+export const SOURCE_ATTRIBUTION: Record<string, { name: string; href: string }> = {
+  'es-minetur': {
+    name: 'Ministerio para la Transición Ecológica y el Reto Demográfico',
+    href: 'https://geoportalgasolineras.es/',
+  },
+  'fr-data-economie': {
+    name: 'Ministère de l’Économie et des Finances',
+    href: 'https://www.prix-carburants.gouv.fr/',
+  },
+  'it-mimit': {
+    name: 'Ministero delle Imprese e del Made in Italy',
+    href: 'https://carburanti.mise.gov.it/ospzSearch/',
+  },
+};
+
+/**
+ * 🔴 These two numbers are `PRICE_STALE_AFTER_DAYS` and
+ * `PRICE_DROP_AFTER_DAYS` in `apps/api/src/fuel/stations.ts`, and
+ * `route-fuel.spec.tsx` reads that file off disk and fails if they have
+ * drifted apart.
+ *
+ * Two copies of a staleness rule is one copy that will be wrong, and it
+ * fails in the worst direction: the importer keeping a price the page
+ * believes it has already discarded.
+ *
+ * Seven days, because the feeds refresh between every thirty minutes
+ * and once a day — a price a week old is a forecourt that has stopped
+ * filing, not a slow refresh. Thirty days, because past that the number
+ * is history, and printing it beside a date does not repair it: the
+ * number is what gets read.
+ */
+export const PRICE_STALE_AFTER_DAYS = 7;
+export const PRICE_DROP_AFTER_DAYS = 30;
+
+export type PriceFreshness = 'fresh' | 'stale' | 'expired';
+
+/**
+ * How old a price is, and therefore how the page may present it.
+ *
+ * 🔴 Takes `now` rather than reading the clock, for the reason
+ * `lib/fuel.ts:ageInDays` gives: a function that reads the clock cannot
+ * be tested, and this one guards a published claim. The site is a
+ * static export, so "now" at render time is the build — which is
+ * precisely the moment the reader needs told.
+ */
+export function priceFreshness(
+  measuredAt: string,
+  now: Date,
+): { state: PriceFreshness; days: number } {
+  const then = Date.parse(measuredAt);
+  // 🔴 An unparsable date is `expired`, never `fresh`. The one direction
+  // a date bug must not fail in is "treat an unknown age as current".
+  if (Number.isNaN(then)) {
+    return { state: 'expired', days: Number.POSITIVE_INFINITY };
+  }
+  const days = (now.getTime() - then) / 86_400_000;
+  if (days > PRICE_DROP_AFTER_DAYS) return { state: 'expired', days };
+  if (days > PRICE_STALE_AFTER_DAYS) return { state: 'stale', days };
+  return { state: 'fresh', days };
+}
+
+export interface DisplayPrice extends RouteFuelStationPrice {
+  state: Exclude<PriceFreshness, 'expired'>;
+  days: number;
+  attribution: { name: string; href: string };
+}
+
+/**
+ * The prices a fuel row may actually print, in the order it prints them.
+ *
+ * 🔴 Returns an EMPTY ARRAY rather than null when everything is filtered
+ * out, and the component turns that into a sentence. "Never render
+ * empty when data is missing" has been broken twice in this codebase
+ * and caught both times; the shape that makes a third time hard is one
+ * where the absent case is a value the renderer must handle, not the
+ * absence of a value it can forget.
+ */
+export function displayPrices(
+  point: RouteServicePoint | null,
+  now: Date,
+): DisplayPrice[] {
+  if (!point?.prices) return [];
+  const out: DisplayPrice[] = [];
+  for (const p of point.prices) {
+    const attribution = SOURCE_ATTRIBUTION[p.source];
+    if (!attribution) continue;
+    // 🔴 The shape is checked, not assumed. A number here rather than a
+    // string means something between the column and this line converted
+    // it, which is the defect this whole chain is built to prevent — so
+    // it is dropped and the row says we have no price, rather than
+    // printing `1.8489999771118164`.
+    if (typeof p.price !== 'string' || !/^\d+(?:\.\d+)?$/.test(p.price)) continue;
+    const { state, days } = priceFreshness(p.measuredAt, now);
+    if (state === 'expired') continue;
+    out.push({ ...p, state, days, attribution });
+  }
+  // Diesel first. The API orders it; this orders it again, because two
+  // stages of one route listing the grades the other way round reads as
+  // a difference between the stations rather than between the queries.
+  return out.sort((a, b) =>
+    a.grade === b.grade ? 0 : a.grade === 'diesel' ? -1 : 1,
+  );
+}
+
+/**
+ * 🔴 THE WORD THAT KEEPS A COUNTRY AVERAGE FROM READING AS A PUMP PRICE.
+ *
+ * A constant so the badge on the route block and the assertion in the
+ * spec print the same string. A second wording would be a second thing
+ * to keep right, and this is the one piece of text on the page the card
+ * names as a hard requirement.
+ */
+export const AVERAGE_BADGE = 'Country average';
+
+/** What a fuel row says when we hold no usable price for that forecourt. */
+export const NO_STATION_PRICE = 'We hold no price for this station';

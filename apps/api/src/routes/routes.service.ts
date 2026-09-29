@@ -25,6 +25,7 @@ import {
   MAX_SERVICE_POINTS,
   MAX_SERVICES_TOTAL,
   servicesOverfetch,
+  type RouteFuelStationPrice,
   type RouteService,
   type RouteServiceAnswer,
   type RouteServiceGroup,
@@ -304,6 +305,14 @@ export class RoutesService {
           phone: (r.phone as string | null) ?? null,
           website: (r.website as string | null) ?? null,
           openingHours: (r.opening_hours as string | null) ?? null,
+          // CAMP-154. `json_agg` over no rows is SQL NULL, not `[]`, so
+          // the overwhelming majority of fuel points and every non-fuel
+          // kind arrive here as null — which is the honest shape: the
+          // key is simply absent, and the page then says we hold no
+          // price rather than rendering an empty space beside a pump.
+          ...(Array.isArray(r.prices) && r.prices.length > 0
+            ? { prices: r.prices as RouteFuelStationPrice[] }
+            : {}),
         }));
 
       returned += services.length;

@@ -705,6 +705,126 @@ For the countries we reject, we keep the CAMP-55 country averages and
 **mark them visually as averages**, so the map never implies a precision
 we do not have.
 
+### What CAMP-154 found when it went to build this
+
+Shipped 28.09.2026. The licences above were not re-derived; the
+endpoints, the payloads and the join were measured, and four things
+differ from what this section anticipated.
+
+**1. The Spanish path in the table above does not answer.** The host is
+right and the path is one letter out. `PrecioCarburantes` returns
+**404**; the service is at **`PreciosCarburantes`**, plural:
+
+    https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/
+
+With that spelling it answers **200, 12 221 919 bytes in 16.7 s** —
+the 12.2 MB this section recorded. `/ServiciosRESTCarburantes/` itself
+answers 403, so the application was always there. The URL is now a
+constant in `apps/api/src/fuel/stations.ts` rather than something each
+caller retypes. Note also that the ministry's own catalogue has moved
+to `sede.serviciosmin.gob.es`; the old host 302s to a 404.
+
+**2. What the three feeds actually yielded**, anonymous GET, no key of
+any kind on any of them — verified rather than assumed, because this
+repository is public and has leaked a token before:
+
+| | feed records | stations kept | price rows | matched to an `osm_route_poi` fuel point |
+| --- | --- | --- | --- | --- |
+| Spain | 11 496 | **11 309** | 22 163 | **9 352 (82.7%)** |
+| France | 9 804 | **8 885** | 17 133 | **6 917 (77.9%)** |
+| Italy | 23 998 | **21 189** | 42 209 | **19 049 (89.9%)** |
+| | **45 298** | **41 383** | **81 505** | **35 318 (85.3%)** |
+
+Read the other way — the way the page reads — we now hold a price for
+**58.2%** of Spain's 16 063 OSM fuel points, **42.9%** of France's
+16 110 and **68.5%** of Italy's 27 811. Every run reconciles: kept plus
+rejected equals the feed's own count, itemised by reason, and the
+importer throws if it does not.
+
+**3. The measurement date has to be per price, not per feed.** This
+section treats freshness as a property of a source; it is a property of
+a record. France's 8 760 diesel prices: 3 350 under a day old, 2 119 at
+four to seven days, 1 193 at eight to thirty, **101 between one month
+and one year**. Italy files a separate `dtComu` per grade, so one
+Bologna forecourt's diesel and petrol were filed a day apart. Spain is
+the exception — one `Fecha` for the whole snapshot, so every Spanish
+price is exactly as old as the file. A page that stamped all of these
+"fetched today" would be false on thousands of forecourts, so each
+price carries its own source timestamp, is marked when over 7 days old
+and is not shown at all past 30.
+
+**4. Three traps in the payloads, each of which produces a plausible
+wrong number rather than an error:**
+
+- **Spain publishes at least one transposed coordinate.** IDEESS 16268
+  in Tui, Pontevedra files `"Latitud": "-8,659472"` and
+  `"Longitud (WGS84)": "42,037472"` — its own position written
+  backwards, which would place it 42° east of the Horn of Africa. Three
+  more Spanish and 116 Italian stations sit at (0, 0). A per-country
+  bounding box rejects all of them.
+- **France's petrol is two different fuels.** 6 799 stations post an
+  `E10` price and 2 754 an `SP95` one, overlapping on 1 180 — so
+  **5 619 stations have no SP95 at all**. Anything that folded them
+  into one "petrol" figure would print E10's price under SP95's name at
+  a third of the country. We store and print the source's own product
+  name.
+- **Italy's price file uses 59 `descCarburante` values**, 57 of them
+  premium brands — `Blue Diesel` (5 685 rows), `HVOlution` (2 433),
+  `Supreme Diesel` (1 592). A substring rule on `/diesel|gasolio/`
+  sweeps them into the pump price. Only the exact strings `Gasolio` and
+  `Benzina` are taken. Italy also files self-service and served prices
+  separately (51 203 against 41 681); we prefer self-service and label
+  the served one `(servito)`.
+
+**The join is one-to-one inside 150 m**, and the radius is measured
+rather than chosen: median gap 8.5 m, p90 56 m, p99 129 m, with only
+250 of 35 318 matches in the last 15 m band. Widening to 300 m would
+add 2 175 matches — all of them at the distance where the next station
+down the road lives, which is where a wrong match is both most likely
+and least visible. A unique index on `(osm_ref, grade)` makes a
+regression in the matcher a failed import rather than one forecourt
+showing another's price.
+
+**What adversarial review then found, and what it changed.** Seven
+defects, four inside the card's own rules, and the two that matter most
+here are worth recording because both were *invisible in a passing
+build*:
+
+- **The safeguard sentence pointed the wrong way.** The rewrite said the
+  country average was "not for any station listed **above**" while the
+  average block renders **before** the stage list — so every station it
+  disclaimed was below it — and a test asserted the inverted string,
+  defending the mistake. It now names the row instead of a direction
+  ("shown on that station's own row"), because a word that has to track
+  the order of two JSX siblings in another file is a latent bug
+  whichever way it points.
+- **Attribution was computed and never rendered.** `displayPrices`
+  resolved the ministry for every price and the component never read it,
+  so the served row was the price and the date and nothing else. That is
+  a **licence breach**, not a presentation gap: attribution is a
+  condition of all three sources, and the CC BY bulletin on the same
+  page was already getting it. The ministry is now named and linked on
+  the row, and the refused-country gate — which also lived only in the
+  renderer, leaving the public API free to serve an Austrian row — is
+  now a `source IN (…)` predicate in the query itself.
+
+Three guards were added for failures that all exited 0: a **per-grade
+price floor** (renaming Italy's `Benzina` upstream halved the price rows
+with every station counter unmoved), a **match-rate floor** (emptying
+`osm_route_poi`, which a *different* weekly job owns, wrote 39 216 prices
+and matched none), and a **second reconciliation for Italy's price
+file**, which had been checked against nothing at all. Spain's import
+also stopped stamping a dateless snapshot with our own fetch time — one
+unparsable `Fecha` had turned 22 174 rows into "measured today".
+
+**Austria stayed out, and there is a mechanical reason as well as a
+policy one.** The page renders only prices whose `source` has an
+attribution entry, and only three exist. Verified in a browser on the
+Dolomites-and-Tyrol route, which crosses both countries: the Austrian
+station *Diskonttank* renders "We hold no price for this station" while
+the Italian *Agip* 75 m off the next stage shows `Gasolio €2.445/l`
+with the day it was measured.
+
 ---
 
 ## 7. Open Charge Map — **TAKE, with a real UI obligation**
@@ -893,6 +1013,10 @@ three make it safe, and the rest are country-by-country widening.
 
 8. **Fuel per station for ES, FR, IT**, with the CAMP-55 country averages
    kept for everyone else and visually marked as averages.
+   **Done — CAMP-154, 28.09.2026.** 41 383 stations, 81 505 price rows,
+   35 318 of them joined to an `osm_route_poi` fuel point. See the
+   measurements at the end of §6, including the one-letter error in the
+   Spanish path recorded above.
 
 9. **Tankerkönig on-demand for Germany**, one request per minute, per
    campsite the user is actually viewing. Explicitly not a nightly sweep.
