@@ -211,11 +211,41 @@ test.describe('a route page', () => {
     // there is not supposed to be one until CAMP-52.
     await expect(services.locator('img')).toHaveCount(0);
 
-    // 🔴 And the fuel price is a national weekly average, said so.
+    // 🔴 AND THE FUEL FIGURE IS A NATIONAL WEEKLY AVERAGE, SAID SO TWICE.
+    //
+    // CAMP-154 put real per-station prices on this same page, so this
+    // block is no longer the only number on it that looks like a price,
+    // and placement alone stopped distinguishing it. Two independent
+    // carriers of the same meaning, because one of them is a sentence
+    // somebody will one day reword:
+    //
+    //   - the badge, which a reader meets before any figure;
+    //   - the clause that says outright what the figure is not.
+    //
+    // 🔴 ASSERTED ON THE MEANING, NOT ON A FRAGMENT OF A SENTENCE.
+    //
+    // This used to assert the substring 'not for any station', and it
+    // broke when that sentence was CORRECTED — it had said the average
+    // was "not for any station listed ABOVE" while this block renders
+    // BEFORE the stages, which inverted the card's central safeguard.
+    // A fragment is not the claim. The claim is that a country average
+    // can never be read as the price on a forecourt, and these two
+    // assertions are what a reader would have to lose for that to
+    // become possible.
     const fuel = page.getByTestId('route-fuel-prices');
     await expect(fuel).toBeVisible();
     await expect(fuel).toContainText('European Commission');
-    await expect(fuel).toContainText('not for any station');
+    await expect(fuel).toContainText('Country average');
+    await expect(fuel).toContainText(
+      'not the price at any single filling station',
+    );
+    // 🔴 And no directional word at all, which is what went wrong: both
+    // "above" and "below" have to track the order of two JSX siblings
+    // in another file, so neither belongs in the prose.
+    const fuelText = (await fuel.textContent()) ?? '';
+    expect(fuelText, 'a directional word came back').not.toMatch(
+      /listed (above|below)/,
+    );
   });
 
   // 🔴 The narrowing, stated on the page. CAMP-113 depends on CAMP-111
