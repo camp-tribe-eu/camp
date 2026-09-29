@@ -97,17 +97,31 @@ import { everythingSaid, visibleText } from './rendered-text';
 // 🔴 Every test below was mutation-proved. The mutation that makes it fail
 // is written next to it.
 
-const found = discoverPanels();
+const discovered = discoverPanels();
+const found = discovered.flatMap((f) => ('panel' in f ? [f] : []));
 const CEMS_LAYERS = LAYERS.filter((l) => l.status === 'live' && 'terms' in l && l.terms === 'cems');
 
 // ── the panels ───────────────────────────────────────────────────────────
 
 test.describe('the panels of CEMS-sourced layers', () => {
+  // 🔴 One bad file costs one file: a panel that throws while loading is
+  // failed here BY NAME, and every other panel is still read below.
+  // Mutation: put `throw new Error('x')` at the top of a *.panel.ts — only
+  // this test, for that file, fails.
+  for (const f of discovered) {
+    if ('error' in f) {
+      test(`🔴 [${f.file}] loads as a CemsPanel`, () => {
+        throw new Error(`${f.file} did not load: ${f.error}`);
+      });
+    }
+  }
+
   test('🔴 at least one panel was found, and every file yielded one', () => {
     // 🔴 Mutation: rename wildfire.panel.ts to wildfire.ts — fails. With no
     // panel file every test below is a loop over nothing, and a loop over
     // nothing passes.
-    expect(found.map((f) => f.file)).toContain('wildfire.panel.ts');
+    expect(discovered.map((f) => f.file)).toContain('wildfire.panel.ts');
+    expect(found.length, 'no panel file loaded').toBeGreaterThan(0);
     for (const { file, panel } of found) {
       expect(panel.scenarios().length, `${file} declares no scenarios`).toBeGreaterThan(0);
     }
@@ -136,8 +150,8 @@ test.describe('the panels of CEMS-sourced layers', () => {
       expect(scenarios.some((s) => !s.showsData), `${tag} declares no gap state`).toBe(true);
       for (const s of scenarios) {
         const seen = visibleText(s.html);
-        expect(seen.length, `${tag} / ${s.name} rendered almost nothing: "${seen}"`).toBeGreaterThan(20);
-        expect(
+        expect.soft(seen.length, `${tag} / ${s.name} rendered almost nothing: "${seen}"`).toBeGreaterThan(20);
+        expect.soft(
           panel.dataMarker.test(seen),
           `${tag} / ${s.name}: declared showsData=${s.showsData} but the page says: "${seen}"`,
         ).toBe(s.showsData);
@@ -152,7 +166,7 @@ test.describe('the panels of CEMS-sourced layers', () => {
       // `<span className="sr-only">` — fails too, because a credit only a
       // screen reader is given is not on the page.
       for (const s of panel.scenarios().filter((x) => x.showsData)) {
-        expect(
+        expect.soft(
           creditProblems(s.html, panel.credits),
           `${tag} / ${s.name} shows data with no credit. It reads: "${visibleText(s.html)}"`,
         ).toEqual([]);
@@ -168,7 +182,7 @@ test.describe('the panels of CEMS-sourced layers', () => {
       // and this fails, so the gate is being measured by what it lets
       // through, not by a unit test of itself.
       for (const s of panel.scenarios()) {
-        expect(wordProblems(s.html), `${tag} / ${s.name} uses a word the CEMS terms reserve`).toEqual([]);
+        expect.soft(wordProblems(s.html), `${tag} / ${s.name} uses a word the CEMS terms reserve`).toEqual([]);
       }
     });
   }

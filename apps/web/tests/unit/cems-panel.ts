@@ -141,18 +141,30 @@ export function creditProblems(html: string, credits: readonly RegExp[]): string
  * array, and a new file cannot be forgotten in a list that lives elsewhere.
  * The spec fails if the directory yields nothing, or a file yields no
  * panel, so "found nothing" is never a pass.
+ *
+ * 🔴 ONE BAD FILE COSTS ONE FILE. A panel that throws while loading is
+ * returned as an `error` rather than thrown, so the spec can fail that one
+ * file by name and go on reading the others; thrown here, it would take
+ * the whole spec down at collection and every other source would go
+ * unchecked for as long as it took somebody to find the typo.
  */
-export function discoverPanels(): { file: string; panel: CemsPanel }[] {
+export type FoundPanel = { file: string; panel: CemsPanel } | { file: string; error: string };
+
+export function discoverPanels(): FoundPanel[] {
   const dir = join(__dirname, 'cems-panels');
   return readdirSync(dir)
     .filter((f) => f.endsWith('.panel.ts'))
     .sort()
-    .map((file) => {
-      // A dynamic require, and on purpose: it is what makes "add a file"
-      // the whole procedure. Playwright compiles the `.ts` on the way in.
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const mod = require(join(dir, file)) as { default?: CemsPanel };
-      if (!mod.default) throw new Error(`${file} must export a CemsPanel as its default`);
-      return { file, panel: mod.default };
+    .map((file): FoundPanel => {
+      try {
+        // A dynamic require, and on purpose: it is what makes "add a file"
+        // the whole procedure. Playwright compiles the `.ts` on the way in.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const mod = require(join(dir, file)) as { default?: CemsPanel };
+        if (!mod.default) throw new Error(`${file} must export a CemsPanel as its default`);
+        return { file, panel: mod.default };
+      } catch (e) {
+        return { file, error: e instanceof Error ? e.message : String(e) };
+      }
     });
 }

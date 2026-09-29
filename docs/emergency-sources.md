@@ -52,6 +52,17 @@ either. The data is an **observation or a model output**, and the word
 *warning* belongs to someone else. Everything below is written against
 that sentence.
 
+**Where it is enforced (CAMP-162).** Not by a grep for the words: the
+planned MeteoAlarm layer says "warnings" in `map-layers.ts`, correctly,
+and no CEMS term touches it. The rule is bound to the *source* — text
+rendered beside data from a CEMS product must not contain "warning",
+"danger", "risk" or "alert", and must carry the modified-data credit — so
+`apps/web/tests/unit/cems-panels.spec.ts` renders the panel of every
+CEMS-sourced layer and reads the HTML. A new CEMS layer (EDO, GFM) is one
+`tests/unit/cems-panels/<source>.panel.ts` file; the header of the spec
+says how, and it fails a layer tagged `terms: 'cems'` in `map-layers.ts`
+that has no such file.
+
 ## What this card does not promise
 
 **We do not become an emergency service, and now we can point at the
