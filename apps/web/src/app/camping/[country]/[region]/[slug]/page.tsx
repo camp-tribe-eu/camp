@@ -27,6 +27,7 @@ import TravelNotice from '@/components/travel-notice';
 import SourceNote from '@/components/source-note';
 import TariffTable from '@/components/tariff-table';
 import BathingWaterNote from '@/components/bathing-water';
+import AirQualityNote from '@/components/air-quality';
 
 // CAMP-34 — the campsite page.
 //
@@ -473,6 +474,27 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           campsite whose bathing water failed to import indistinguishable
           from one that genuinely has none. */}
       <BathingWaterNote bathingWater={spot.bathingWater} />
+
+      {/* 🔴 CAMP-164: what the EEA's air quality index says here.
+
+          Between the bathing water and the weather, because it is the
+          same kind of statement — an official index, dated, about the
+          surroundings — and sits where a reader deciding whether to
+          make camp is already looking at conditions.
+
+          🔴 UNCONDITIONAL, like the bathing water. The component decides
+          what to say, and one of the things it says is "no fresh data":
+          one station in five is silent in any given hour, and a section
+          that vanished for those would read as clean air.
+
+          🔴 `renderedAt` is the clock of the first render — the build,
+          on the server; the browser replaces it with its own on mount,
+          and a reading that has aged past four hours turns into "no
+          fresh data" on a page nobody has rebuilt. */}
+      <AirQualityNote
+        airQuality={spot.airQuality}
+        renderedAt={new Date().toISOString()}
+      />
 
       <Section title="Weather on site">
         <p className="max-w-prose text-sm text-ink-2">
