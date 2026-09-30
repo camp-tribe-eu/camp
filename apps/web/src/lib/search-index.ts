@@ -85,31 +85,47 @@ export const MAX_BYTES = 1_500_000;
  * is a representative number, not a bound. A host on gzip -1 would send
  * 18% more than this counts.
  *
- * 🔴 The index was not re-packed, and the first version of this comment
- * gave the wrong reason.
+ * 🔴 The index was not re-packed HERE, and the first version of this
+ * comment gave the wrong reason.
  *
  * It said a shared table for the repeated place names "saves 42% of the
  * raw bytes and 3% of the compressed ones", and dismissed it on the 3%.
  * Review caught the currency error: this file's whole argument is that
  * RAW bytes are the binding cost, and then the one option that halves
- * the binding number was priced in compressed bytes. Measured properly,
- * end to end:
+ * the binding number was priced in compressed bytes. It was left to
+ * CAMP-138, because a format migration (v2 → v3) has its own failure
+ * mode — a search that returns the wrong campsite — and bundling that
+ * into a fix to the guard is how a change stops being reviewable.
  *
- *   raw            8.98 MB  →  5.20 MB   −42%
- *   gzip -6        1.92 MB  →  1.76 MB    −8%
- *   parse+unpack    199 ms  →   171 ms   −14%
- *   heap held      42.2 MiB →  35.2 MiB  −17%
+ * 🔴 CAMP-138 did it, and re-measured rather than quoting. Two of the
+ * four numbers this comment predicted did not hold (27.09.2026, live
+ * index, 61 422 campsites, same laptop for both sides):
  *
- * So it is a real improvement and a much smaller one than −42% sounds,
- * because the browser's cost is in materialising 61 422 objects, not in
- * counting bytes. That is worth knowing on its own: raw size is a proxy
- * for that cost WITHIN this format and not across formats.
+ *                     predicted here        measured on the change
+ *   raw            8.98 → 5.20 MB  −42%   8.98 → 5.20 MB   −42.1%  ✓
+ *   gzip -6        1.92 → 1.76 MB   −8%   1.92 → 1.77 MB    −8.0%  ✓
+ *   parse+unpack    199 →  171 ms  −14%    250 →  232 ms      −7%  ✗
+ *   heap held      42.2 → 35.2 MiB −17%   42.2 → 37.4 MiB  −11.4%  ✗
  *
- * It is not done here because it is a format migration (v2 → v3) with
- * its own round-trip risk and its own failure mode — a search that
- * returns the wrong campsite — and bundling that into a fix to the
- * guard is how a change stops being reviewable. CAMP-138 carries it,
- * with these numbers.
+ * The bytes came out exactly; the two costs that matter most came out
+ * roughly half as good. The reason is visible once the time is split:
+ *
+ *   JSON.parse      30.6 ms  →  16.9 ms   −45%
+ *   unpackIndex    215.8 ms  → 217.2 ms      0%
+ *
+ * Parsing really does fall with the bytes. It is 12% of the total.
+ * `unpackIndex` is the other 88%, and what it spends its time on is
+ * `searchText` folding 61 422 haystacks — which this format change does
+ * not touch, and which the shared table cannot touch, because the
+ * strings still have to be folded once each however few times they were
+ * sent. The heap is short of −17% for the same kind of reason: the
+ * 207 994 `{name, m}` objects survive the change, only their names are
+ * now shared.
+ *
+ * So the sentence above stands and is worth keeping in sharper form:
+ * raw size is a proxy for the browser's cost WITHIN a format and not
+ * across formats, and this card is the measurement that proves it.
+ * −42% of the file bought −7% of the time.
  */
 export const TOTAL_MAX_BYTES = 5_000_000;
 
@@ -122,12 +138,30 @@ export const TOTAL_MAX_BYTES = 5_000_000;
  * on arrival — the same defect this file keeps finding elsewhere.
  *
  * With the raw ceiling at 12 MB the arithmetic is explicit: the
- * compressed one binds first only if the ratio falls below 2.4, and our
- * text compresses at 4.7. So TODAY THE RAW CEILING IS THE LIVE ONE, and
- * the compressed one is a backstop against the index ceasing to be
- * text — identifiers, hashes, coordinates at full precision. That is a
- * real way to break this, and it is the only way the compressed limit
- * speaks first. Both are tested at these defaults.
+ * compressed one binds first only if the ratio falls below 2.40. So
+ * THE RAW CEILING IS STILL THE LIVE ONE, and the compressed one is a
+ * backstop against the index ceasing to be text — identifiers, hashes,
+ * coordinates at full precision. Both are tested at these defaults.
+ *
+ * 🔴 CAMP-138 moved that margin a long way, and the sentence here used
+ * to read "our text compresses at 4.7", which is no longer true.
+ * Measured the same way on the same data, 27.09.2026:
+ *
+ *   live index @ v2   8 984 521 / 1 920 512 = 4.68   1.95x clear of 2.40
+ *   live index @ v3   5 201 286 / 1 767 272 = 2.94   1.23x clear
+ *
+ * The shared name table removes repeated text — which is precisely what
+ * gzip was already removing for nothing — so raw fell 42% and
+ * compressed fell 8%, and the ratio nearly halved. Five chunks are
+ * already at or below the crossover: mt 1.72, cy 1.91, sk 2.34,
+ * lu 2.40, si 2.42.
+ *
+ * Nothing is broken today: the aggregate still sits well above 2.40, so
+ * the raw ceiling speaks first, and both branches are still reachable
+ * in tests. But "the compressed one is a remote backstop" was an
+ * argument that rested on 4.68, and it now rests on 2.94. The next
+ * format change that trades text for structure should re-measure this
+ * line before relying on it.
  */
 
 /**
@@ -135,17 +169,25 @@ export const TOTAL_MAX_BYTES = 5_000_000;
  * different number.
  *
  * Compressed bytes are what the network charges. Raw bytes are what the
- * browser charges, and measured on the live index (8.98 MB, 61 422
- * campsites, a fast laptop):
+ * browser charges, and measured on the live index (5.20 MB in format 3,
+ * 61 422 campsites, a fast laptop, 27.09.2026):
  *
- *   JSON.parse of every chunk         31 ms
- *   unpackIndex on top of it         181 ms   ← the real parse cost
- *   heap held by the index          42.2 MiB
+ *   JSON.parse of every chunk       16.9 ms   (was 30.6 at format 2)
+ *   unpackIndex on top of it       217.2 ms   ← the real parse cost
+ *   heap held by the index          37.4 MiB  (was 42.2)
  *   search() per keystroke        29 - 80 ms
  *
  * A mid-range phone is roughly four times slower, so today's index
- * already costs it about 0.8 s of parsing and up to 0.3 s per
- * keystroke. This is the binding constraint, not the download.
+ * still costs it about 0.9 s of parsing and up to 0.3 s per keystroke.
+ * This is the binding constraint, not the download.
+ *
+ * (The unpack figure stood at 181 ms and CAMP-138 could not reproduce
+ * it: the same format-2 code path measures 215.8 ms here, five runs,
+ * 2 ms spread. Same shape, different machine — the absolute
+ * milliseconds in this file are comparable to each other and not to
+ * another laptop's, which `search.ts` already says about the edit
+ * distance. Both columns above were measured in the same session so
+ * the comparison between them holds.)
  *
  * (The heap figure was first written as 21.3 MiB from a single
  * garbage collection, which is noise, not a measurement — settling the
@@ -159,7 +201,7 @@ export const TOTAL_MAX_BYTES = 5_000_000;
  * ~400 ms of unpacking on a laptop and over 1.5 s on a phone, which is
  * not a ceiling, it is a hope.
  *
- * 12 MB is 1.34x today's 8.98 MB — and the first draft of this line
+ * 12 MB was 1.34x the 8.98 MB index — and the first draft of this line
  * said "1.4x", which only comes out if you divide decimal MB by MiB,
  * the very mix-up the message formatter below exists to stop. It is
  * where the phone cost stops being tolerable
@@ -167,6 +209,26 @@ export const TOTAL_MAX_BYTES = 5_000_000;
  * to start the conversation CAMP-67 names — a search service the
  * browser queries instead of a file it keeps — while there is still
  * room to have it.
+ *
+ * 🔴 CAMP-138 left the number at 12 MB and made it mean LESS. Naming
+ * that, because it is the honest cost of this card.
+ *
+ * The ceiling caps raw bytes in order to cap what the browser pays.
+ * Format 3 cut the bytes by 42% and the browser's cost by 7%, so a byte
+ * now buys considerably more parsing than it did. 12 MB is 2.31x
+ * today's 5.20 MB instead of 1.34x today's 8.98 MB, and on the flat
+ * assumption that unpacking scales with rows, reaching it would mean
+ * roughly 540 ms of parse+unpack on this laptop where reaching it
+ * before meant roughly 330 ms. That is arithmetic over two measured
+ * points, not a measurement — nobody has built an index that size —
+ * and it is stated rather than quietly enjoyed, because "we got 2.31x
+ * of headroom" is the sentence a reader would otherwise take away.
+ *
+ * It is deliberately not re-cut here. Choosing the number that caps
+ * ~330 ms in format 3 needs its own measurement of where a phone stops
+ * being tolerable, which is the work CAMP-67 names and not a line to
+ * change in passing on a packing card. What CAMP-138 owes the next
+ * person is this paragraph, not a quietly lowered constant.
  */
 export const RAW_MAX_BYTES = 12_000_000;
 
@@ -221,6 +283,38 @@ export const sizeOfGroup = (group: readonly SearchDoc[]): number =>
   Buffer.byteLength(JSON.stringify(packIndex([...group])));
 
 /**
+ * Nearby places, compared name for name and metre for metre.
+ *
+ * 🔴 CAMP-138. This was `a.near.length !== b.near.length`, and a length
+ * was nearly enough while `near` was carried verbatim: the only way to
+ * corrupt a name was to corrupt the JSON. Version 3 stores every name as
+ * an INDEX into a shared table, so an off-by-one in that table produces
+ * rows of exactly the right length holding entirely the wrong places —
+ * which is the failure this whole check exists for.
+ *
+ * 🔴 And `text` does not cover it, which is the part worth writing down,
+ * because `text` IS built from these names and it is tempting to think
+ * the line above already catches everything.
+ *
+ * It catches most of it and not all, in two specific ways. `text` is
+ * FOLDED, so any two names that fold alike are interchangeable to it:
+ * measured on the live index 27.09.2026, 33 778 distinct place names
+ * reduce to 32 653 folded forms, leaving 1 470 names in 345 collision
+ * groups — "Spar"/"SPAR", "Nah & Frisch"/"Nah&Frisch"/"nah & frisch" —
+ * which between them appear in 26 781 of the 207 994 entries, 12.9%.
+ * And `m` is not in `text` in any form at all, while it is both the
+ * ordering key for a place query and the number the reader is shown as
+ * «436 m from X». Swapping two distances is invisible to every other
+ * field this loop compares.
+ */
+const nearDiffers = (
+  a: readonly { name: string; m: number }[],
+  b: readonly { name: string; m: number }[],
+): boolean =>
+  a.length !== b.length ||
+  a.some((n, j) => n.name !== b[j].name || n.m !== b[j].m);
+
+/**
  * The plan, and every check that must pass before any of it ships.
  *
  * 🔴 One function, called by both routes, so the table of contents and
@@ -269,7 +363,7 @@ export function checkedPlan(
         a.text !== b.text ||
         a.country !== b.country ||
         a.region !== b.region ||
-        a.near.length !== b.near.length
+        nearDiffers(a.near, b.near)
       ) {
         throw new Error(
           `chunk ${chunk.id} does not round-trip at row ${i} (${b.path})`,
@@ -308,9 +402,9 @@ export function checkedPlan(
         `past the ${mb(rawMax)} a browser should have to parse and hold.\n` +
         `This is not the download — that is ${mb(sent)} compressed, and fine.\n` +
         `It is what the browser pays: parsing it, holding it, and walking it\n` +
-        `on every keystroke. Measured at 8.98 MB: 181 ms to unpack, 42 MB of\n` +
-        `heap, up to 80 ms a keystroke on a laptop — four times that on a\n` +
-        `phone. This is the point CAMP-67 names: move the search to a real\n` +
+        `on every keystroke. Measured at 5.20 MB: 234 ms to parse and unpack,\n` +
+        `37 MiB of heap, up to 80 ms a keystroke on a laptop — four times that\n` +
+        `on a phone. This is the point CAMP-67 names: move the search to a real\n` +
         `search service and have the browser query it.`,
     );
   }

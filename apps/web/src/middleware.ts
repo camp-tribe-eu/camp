@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import GONE_PATHS from '@/generated/gone-paths.json';
+import SPOT_REDIRECTS from '@/generated/spot-redirects.json';
 
 // CAMP-73 — 410 Gone for campsites OpenStreetMap has dropped.
 //
@@ -22,10 +23,39 @@ import GONE_PATHS from '@/generated/gone-paths.json';
 
 const GONE = new Set(GONE_PATHS as string[]);
 
+// CAMP-144 — 301 for a campsite that is now shown on another page.
+//
+// 🔴 Two sources described one campsite and we published both. The rows
+// are still there and neither was deleted: the other page carries the
+// contacts from one and the official star rating from the other, so this
+// URL's content did not disappear, it moved. 301 is the only status that
+// says that — a 404 would discard whatever the URL had earned, and the
+// 410 above would tell a crawler a business that is open has closed.
+//
+// 🔴 Checked BEFORE the gone list, not after. A campsite cannot honestly
+// be both, but if a bug ever put one in both lists, "it moved here" is
+// the answer that loses nothing, and "it is gone for ever" is the one
+// that cannot be taken back out of an index.
+const REDIRECTS = new Map<string, string>(
+  Object.entries(SPOT_REDIRECTS as Record<string, string>),
+);
+
 export function middleware(request: NextRequest) {
   // Trailing slashes and casing both reach us from old links and from
   // crawlers, and neither should decide whether a URL is gone.
   const pathname = request.nextUrl.pathname.replace(/\/+$/, '').toLowerCase();
+
+  const moved = REDIRECTS.get(pathname);
+  if (moved) {
+    // 🔴 The query string is carried across. A reader arriving from a
+    // shared link with `?from=map` should land where they were going
+    // with what they were carrying; dropping it is a silent data loss
+    // that only shows up as a broken referrer report weeks later.
+    const target = new URL(moved, request.nextUrl.origin);
+    target.search = request.nextUrl.search;
+    return NextResponse.redirect(target, 301);
+  }
+
   if (!GONE.has(pathname)) return NextResponse.next();
 
   return serveGone(request);

@@ -168,3 +168,273 @@ BEGIN
   END IF;
   RAISE NOTICE 'CI fixture: % campsites carry a source', n;
 END $$;
+
+-- CAMP-144: one campsite that BOTH sources describe.
+--
+-- 🔴 Without this the fixture is all OpenStreetMap — 72 of 72 rows carry
+-- an osm_ref — and the two CI steps this card adds pass by finding
+-- nothing. "The reconciler wrote no rows" is true of a correct dry run
+-- and equally true of a candidate query with a typo in its join, and
+-- "every link invariant holds" is true of an empty table. That is the
+-- same shape of blind check the block above this one exists to prevent.
+--
+-- So: a DATAtourisme-style row 60 m from a real campsite, carrying the
+-- things only that source has (an official star rating, the operator's
+-- own description) and lacking the things only OSM has. Exactly the pair
+-- the card is about, which makes the dry run report a real candidate and
+-- a real proposed link, and gives the import rehearsal a partner that
+-- can legally be a secondary.
+--
+-- 🔴 Chosen by a rule and checked, never named — same discipline as the
+-- gone block. The name must contain a word the matcher will not strip as
+-- generic, or the two cores compare empty and nothing is proposed.
+DO $$
+DECLARE anchor record; n int;
+BEGIN
+  SELECT id, name, country, region, slug, location INTO anchor
+    FROM camping_spots
+   WHERE osm_ref IS NOT NULL
+     AND region IS NOT NULL
+     AND missing_since IS NULL
+     AND name IS NOT NULL
+     -- 🔴 A word the matcher will NOT strip as generic.
+     --
+     -- This used to be `name ~ '[A-Za-zÀ-ÿ]{5,}'`, which does not mean
+     -- what its comment claimed: "Camping" is itself seven letters and
+     -- matches it. An anchor called "Camping Village" would fold to an
+     -- empty core on both sides, `decide` would return `review`, no link
+     -- would be proposed — and every check would still pass, because
+     -- they only asked whether a PAIR existed.
+     --
+     -- ⚠️ This list is a copy of the 5+ letter entries of GENERIC in
+     -- datatourisme/match.ts. A copy can drift; the CI step that greps
+     -- for a proposed link is what notices if it does.
+     AND EXISTS (
+       SELECT 1
+         FROM regexp_split_to_table(lower(name), '[^a-zà-ÿ0-9]+') AS w
+        WHERE length(w) >= 5
+          AND w NOT IN ('camping', 'campings', 'campsite', 'caravaning',
+                        'caravanning', 'carava', 'aires', 'residence',
+                        'domaine', 'village', 'municipal', 'municipale',
+                        'communal', 'communale', 'intercommunal')
+     )
+   ORDER BY slug
+   LIMIT 1;
+
+  IF anchor.id IS NULL THEN
+    RAISE EXCEPTION
+      'CI fixture: no campsite is suitable as a cross-source anchor, so '
+      'the reconciler would be tested against a table it cannot match in.';
+  END IF;
+
+  INSERT INTO camping_spots
+    (name, country, region, slug, type, amenities, location,
+     description, description_lang, stars, website, sources, last_seen_at)
+  VALUES (
+    'Camping ' || anchor.name,
+    anchor.country,
+    anchor.region,
+    anchor.slug || '-dt',
+    'paid'::camping_spots_type_enum,
+    -- Empty, not "unknown" for every key: France stores a literal '{}'
+    -- and OSM stores explicit unknowns, and NOTHING_TO_SAY_SQL had to
+    -- learn the difference. The fixture should carry both shapes.
+    '{}'::jsonb,
+    -- 🔴 60 m east, measured on the spheroid rather than by adding a
+    -- degree. A fixed longitude offset is a different distance at every
+    -- latitude, and this fixture is regenerated against whatever data is
+    -- to hand — at 60°N the same offset would put the row outside the
+    -- 150 m the matcher allows and the pair would quietly stop matching.
+    ST_Project(anchor.location::geography, 60, radians(90))::geometry,
+    'Camping familial au bord de l''eau, ouvert d''avril à octobre. '
+      'Emplacements ombragés, piscine chauffée et accès direct au lac.',
+    'fr',
+    3,
+    'https://example.invalid/camping-fixture',
+    jsonb_build_array(jsonb_build_object(
+      'id', 'datatourisme',
+      'ref', 'https://data.datatourisme.fr/fixture/camp-144',
+      'updatedAt', '2026-04-24',
+      'fields', '["stars","description","name","website","location"]'::jsonb)),
+    now());
+
+  -- The pair must actually be a pair. If the anchor moved, or the
+  -- projection changed, this fails here rather than in a CI step whose
+  -- green means "found nothing".
+  --
+  -- 🔴 ST_DWithin first, exactly as the reconciler's own candidate query
+  -- does it. Without the indexed bounding-box test this is a cartesian
+  -- join: 73 rows in CI is nothing, but this file is also run by hand
+  -- against the development database, where 61 558 rows make it 3.8
+  -- billion comparisons and it never returns. Written after doing
+  -- precisely that.
+  SELECT count(*) INTO n
+    FROM camping_spots a
+    JOIN camping_spots b
+      ON a.id < b.id
+     AND ST_DWithin(a.location, b.location, 0.02)
+     AND ST_DistanceSphere(a.location, b.location) <= 400
+   WHERE (a.osm_ref IS NULL) <> (b.osm_ref IS NULL);
+
+  IF n < 1 THEN
+    RAISE EXCEPTION
+      'CI fixture: the cross-source row is not within 400 m of an OSM '
+      'row, so the reconciler has nothing to find.';
+  END IF;
+
+  RAISE NOTICE 'CI fixture: cross-source pair seeded against %', anchor.slug;
+END $$;
+-- CAMP-113: route services for the CI fixture.
+--
+-- 🔴 A SEPARATE FILE, APPENDED BY regenerate.sh, AND NOT PART OF
+-- _select.sql.
+--
+-- ci-seed.sql is regenerated from whatever the dev database holds, and
+-- the dev database holds 2.26 million of these. Selecting them the way
+-- the campsites are selected would either dump the table into the
+-- fixture or, with a LIMIT, pick rows that are nowhere near a route
+-- stage — and a fixture whose rows are nowhere near a stage makes the
+-- services block render "we hold none" seven times on every page, which
+-- is a PASSING test over nothing. That is the CAMP-134 failure exactly.
+--
+-- So these six are chosen, not sampled: they are the real nearest
+-- objects to the first stage of the France Atlantic Coast route
+-- (La Rochelle, 46.1603/-1.1511), and between them they exercise every
+-- branch the page has.
+--
+-- All six are in France, so `country` is 'fr' — the column is NOT NULL
+-- (see the migration), because a NULL country is how 423 foreign rows
+-- reached the live table.
+--
+--   fuel       named, 24/7 hours, a website, no phone
+--   groceries  named, hours, a phone AND a website — the full row
+--   charging   named, 24/7, nothing else
+--   food       named and NOTHING else — three "unknown" labels in a row
+--   shelter    named, nothing else
+--   water      UNNAMED — the "Unnamed drinking water" path, which is the
+--              usual case in the real data (65 of 67 published stages)
+--
+-- 🔴 And `dump` is deliberately ABSENT, so that every route page in CI
+-- renders the "our database holds no chemical-toilet disposal point
+-- within 25 km" line. That branch is 16 of the 67 real stages and it is
+-- the one a refactor would quietly drop.
+--
+-- Real OpenStreetMap data, so the same attribution applies here as
+-- everywhere: © OpenStreetMap contributors, ODbL.
+
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n13570590317', 'charging', 'Arsenal', ST_GeomFromText('POINT(-1.1486001 46.1597128)', 4326), 'fr', NULL, NULL, '24/7');
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n11001119446', 'food', 'Café de la Poste', ST_GeomFromText('POINT(-1.1519074 46.1599065)', 4326), 'fr', NULL, NULL, NULL);
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('w718861647', 'fuel', 'station-service Leclerc', ST_GeomFromText('POINT(-1.1668489 46.173582)', 4326), 'fr', NULL, 'https://www.e.leclerc/mag/e-leclerc-lagord', '24/7');
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n6724101564', 'groceries', 'Naturalia', ST_GeomFromText('POINT(-1.1498974 46.1625545)', 4326), 'fr', '+33 5 46 37 20 53', 'https://magasins.naturalia.fr/naturalia/fr/store/france/nouvelle-aquitaine/charente-maritime/la-rochelle/la-rochelle-minage/4015', 'Mo-Sa 09:00-20:00;Su 09:00-12:45');
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n9063556553', 'shelter', 'Hôtel François 1er', ST_GeomFromText('POINT(-1.1518096 46.1607969)', 4326), 'fr', NULL, NULL, NULL);
+INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, phone, website, opening_hours) VALUES ('n14077709953', 'water', NULL, ST_GeomFromText('POINT(-1.1511579 46.1597392)', 4326), 'fr', NULL, NULL, NULL);
+
+
+-- CAMP-168: the EU's designated bathing waters, for the campsites above.
+--
+-- 🔴 EVERY bathing water within 2 km of ANY campsite in this fixture, not
+-- a hand-picked few. A partial slice would make some of these campsites
+-- render "no designated bathing water within 2 km" when the real data
+-- says otherwise — and the end-to-end test that asserts that emptiness
+-- would then be asserting an artefact of the fixture rather than a
+-- behaviour of the page.
+--
+-- What that gives the suite, which is what tests/e2e/bathing-water.spec.ts
+-- gates itself on: campsites with a classified bathing water (Excellent
+-- and Good), campsites whose nearest one the authorities did not classify,
+-- and inland campsites with none within 2 km. Three states, all rendered.
+--
+-- Real EEA data, read 28.09.2026 from
+-- BathingWater_Dyna_WM_2025/MapServer/3, so the attribution applies here
+-- as on the page, verbatim from the service's copyrightText: EEA, Bathing
+-- waters data and coordinates: Member states authorities. CC BY 4.0.
+-- 2025 bathing season.
+INSERT INTO bathing_waters
+  (source_id, ref, name, country, category, season, status,
+   profile_url, location) VALUES
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4074', 'Primorje', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4074',
+   ST_GeomFromText('POINT(15.44222 43.94833)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4076', 'Soline', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4076',
+   ST_GeomFromText('POINT(15.45018 43.92946)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4080', 'Jaz', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4080',
+   ST_GeomFromText('POINT(15.16389 44.225)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4081', 'Zaton H.R. 2', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4081',
+   ST_GeomFromText('POINT(15.16321 44.22992)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4089', 'Uvala Rovanjska', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4089',
+   ST_GeomFromText('POINT(15.53639 44.25083)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4098', 'Punta Rožica', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4098',
+   ST_GeomFromText('POINT(15.28139 44.06528)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4106', 'Sveti Nikola', 'hr', 'Transitional', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4106',
+   ST_GeomFromText('POINT(15.54639 44.19)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4109', 'Punta', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4109',
+   ST_GeomFromText('POINT(15.50056 43.90722)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4111', 'Uvala Dugovača', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4111',
+   ST_GeomFromText('POINT(15.53361 43.89083)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4118', 'Obalni Dio', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4118',
+   ST_GeomFromText('POINT(15.32611 43.99139)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4122', 'Uvala Jasenica', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4122',
+   ST_GeomFromText('POINT(15.38639 43.95194)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4125', 'Studenac', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4125',
+   ST_GeomFromText('POINT(15.42583 43.91889)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4137', 'Sveti Jerolim', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4137',
+   ST_GeomFromText('POINT(15.10556 44.13361)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4143', 'Uvala Loznica', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4143',
+   ST_GeomFromText('POINT(15.12611 44.25368)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4168', 'Uvala Duboka Krušćica', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4168',
+   ST_GeomFromText('POINT(15.31267 44.35281)', 4326)::geography),
+  ('eea-bathing-water', 'HRBW1-COAST-HR4-4175', 'Morovička', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4175',
+   ST_GeomFromText('POINT(15.40417 43.96944)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6215', 'Kaštelina', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6215',
+   ST_GeomFromText('POINT(14.75557 44.82474)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6216', 'Livačina', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6216',
+   ST_GeomFromText('POINT(14.74971 44.82263)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6217', 'Rajska plaža - sredina', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6217',
+   ST_GeomFromText('POINT(14.7416 44.81976)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6218', 'Rajska plaža - kraj', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6218',
+   ST_GeomFromText('POINT(14.74512 44.82171)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6219', 'Rajska plaža - početak', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6219',
+   ST_GeomFromText('POINT(14.7401 44.81899)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6240', 'Uvala Zastolac', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6240',
+   ST_GeomFromText('POINT(14.75511 44.83274)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR3-6313', 'Gornja Supetarska Draga - sredina', 'hr', 'Coastal', 2025, 'not_classified', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=6313',
+   ST_GeomFromText('POINT(14.71593 44.81171)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-1035', 'Hotel Osmine', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=1035',
+   ST_GeomFromText('POINT(17.86969 42.77917)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-1126', 'Hotel Admiral', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=1126',
+   ST_GeomFromText('POINT(17.8883 42.78676)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-2078', 'Hotel Medena', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=2078',
+   ST_GeomFromText('POINT(16.21119 43.51093)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-2079', 'Ak. Vranjica Belvedere', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=2079',
+   ST_GeomFromText('POINT(16.19192 43.50825)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-2080', 'Seget Vranjica', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=2080',
+   ST_GeomFromText('POINT(16.1778 43.51274)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-2147', 'Apartmani Medena', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=2147',
+   ST_GeomFromText('POINT(16.20552 43.51003)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4075', 'Dražica', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4075',
+   ST_GeomFromText('POINT(15.44583 43.93278)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4077', 'Kumenat', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4077',
+   ST_GeomFromText('POINT(15.45889 43.92222)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4082', 'Zaton H.R. 1', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4082',
+   ST_GeomFromText('POINT(15.16083 44.23194)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4090', 'Obalni potez Jasenice', 'hr', 'Transitional', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4090',
+   ST_GeomFromText('POINT(15.54222 44.21889)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4107', 'Pilatuša Madona', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4107',
+   ST_GeomFromText('POINT(15.48675 43.9143)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4163', 'Mulo Parića (Rt Pisak)', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4163',
+   ST_GeomFromText('POINT(15.47667 44.27466)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4173', 'Iza Banja', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4173',
+   ST_GeomFromText('POINT(15.42722 43.95944)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4189', 'Pliša', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4189',
+   ST_GeomFromText('POINT(15.16333 44.21917)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4198', 'Bošana', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4198',
+   ST_GeomFromText('POINT(15.44349 43.94556)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4202', 'Hotel Alan', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4202',
+   ST_GeomFromText('POINT(15.44828 44.2846)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4204', 'Janice', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4204',
+   ST_GeomFromText('POINT(15.51223 43.90493)', 4326)::geography),
+  ('eea-bathing-water', 'HRBWC-COAST-HR4-4212', 'ispod apartmanskog naselja', 'hr', 'Coastal', 2025, 'excellent', 'https://vrtlac.izor.hr/ords/kakvoca/profil_plaze_url?p_jezik=eng&plok=4212',
+   ST_GeomFromText('POINT(15.42017 43.96289)', 4326)::geography),
+  ('eea-bathing-water', 'SI00B5500600K10010', 'KOPALNO OBMOČJE SOČA PRI ČEZSOČI', 'si', 'River', 2025, 'excellent', 'https://www.gov.si/assets/ministrstva/MOP/Dokumenti/Voda/profili_kopalnih_voda/profil_KV_44_soca_pri_cezsoci.pdf',
+   ST_GeomFromText('POINT(13.5536 46.3248)', 4326)::geography),
+  ('eea-bathing-water', 'SI00B5504600K09010', 'KOPALNO OBMOČJE NADIŽA', 'si', 'River', 2025, 'good', 'https://www.gov.si/assets/ministrstva/MOP/Dokumenti/Voda/profili_kopalnih_voda/profil_KV_43_nadiza.pdf',
+   ST_GeomFromText('POINT(13.4572 46.2418)', 4326)::geography);

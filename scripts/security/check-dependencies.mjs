@@ -39,6 +39,15 @@
 // that cannot be satisfied produces a permanently red build, which is the
 // same as no build check at all.
 //
+// 🔴 Narrowed by CAMP-159, because "ignored" is only half of it. An
+// override binds when npm places a node from scratch and never touches a
+// node the lockfile already holds: re-resolving the existing lock is a
+// byte-identical no-op, and a resolve without the lock honours it — it
+// forced multer ~2.3.0 onto a platform-express that pins 2.4.0. So an
+// override that contradicts the real dependency does nothing today and
+// undoes the fix on the day the lockfile is regenerated. Move the real
+// dependency; do not leave the override behind it.
+//
 // So a critical may sit in the baseline only with an explicit
 // `acceptedUntil` date. Past that date it fails again, and somebody has
 // to look at it and either fix it or re-argue the case. The decision

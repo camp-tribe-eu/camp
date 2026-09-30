@@ -3,6 +3,24 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { CampingSpotAmenities } from '../osm/tag-mapping';
 import { canonicalPath, readAmenities, slugifyRegion } from './canonical';
+// 🔴 `mergedStarsSql` is deliberately NOT imported here. The only place
+// this service surfaces a star rating is the detail page, which goes
+// through `mergeLinked` — a second mechanism for the same field would be
+// two answers to one question. The guides import it because their
+// queries aggregate over campsites rather than rendering one.
+import {
+  LINKED_SECONDARY_JOIN,
+  mergedNameSql,
+  mergeLinked,
+  notSecondarySql,
+} from './links';
+import { tariffsSql, withheldTariffCountSql } from './tariffs';
+import type { TariffView } from './tariffs';
+export type { TariffView } from './tariffs';
+// CAMP-168: the official bathing water classification for the season.
+import { nearestBathingWaterSql } from '../bathing/nearby';
+import type { BathingWaterView } from '../bathing/nearby';
+export type { BathingWaterView } from '../bathing/nearby';
 
 // Re-exported so existing importers keep working; the rules themselves
 // live in canonical.ts, where a unit test can reach them.
@@ -32,6 +50,16 @@ export interface SpotView {
   /** Official national classification, 1–5, where a source publishes one. */
   stars: number | null;
   website: string | null;
+  /** CAMP-141: how to reach the place, as OpenStreetMap records it. */
+  contact: {
+    website?: string;
+    phone?: string;
+    email?: string;
+    operator?: string;
+    openingHours?: string;
+    capacity?: number;
+    address?: { street?: string; city?: string; postcode?: string };
+  };
   /**
    * 🔴 Which source gave which field, and when it last changed it.
    *
@@ -42,6 +70,41 @@ export interface SpotView {
    * cannot say that.
    */
   sources: SpotSource[];
+  /**
+   * CAMP-147: the campsite's price list — a table, never one number.
+   *
+   * 🔴 Every entry carries its own validity period, because the API
+   * refuses to send one that does not. One campsite prices up to 83
+   * different things (bare pitch, motorhome pitch, mobile home by the
+   * week, the tourist tax, the dog), each in its own season; "from
+   * €13.50" is one of those 83 and is a lie in August.
+   */
+  tariffs: TariffView[];
+  /**
+   * How many further tariffs the source publishes with no season.
+   *
+   * 🔴 On the page, not swallowed. 5 622 of the 12 402 tariffs imported
+   * carry no period and cannot be shown; a page that prints the other
+   * few and says nothing has misrepresented the price list by omission.
+   */
+  tariffsWithheld: number;
+  /**
+   * CAMP-168: the nearest officially designated bathing water, or null.
+   *
+   * 🔴 It carries its SEASON, always. The EEA publishes one
+   * classification per bathing season — the 2025 season was published on
+   * 02.06.2026 — and a class without its year reads as the state of the
+   * water today, which we have not measured and nobody has: the
+   * directive asks for four samples in a season. There is no shape of
+   * this object without `season` in it, so no consumer can drop the year
+   * by omission; one can only be written to hide it, and a test reads
+   * the served HTML for the year.
+   *
+   * 🔴 null means "no designated bathing water within 2 km", a fact the
+   * page states out loud. 42 953 of 61 558 campsites (69.8%) are in that
+   * case, and silence there would read as reassurance.
+   */
+  bathingWater: BathingWaterView | null;
   /**
    * CAMP-105: false when this page has nothing on it but a name.
    *
@@ -87,15 +150,47 @@ export class SpotsService {
     slug: string,
   ): Promise<SpotView> {
     const rows = await this.db.query(
-      `SELECT slug, name, country, region, type,
-              ST_Y(location::geometry) AS lat,
-              ST_X(location::geometry) AS lon,
-              amenities, owner_overrides, last_seen_at, missing_since,
-              context, description, description_lang, stars, website,
-              sources,
-              NOT ${NOTHING_TO_SAY_SQL} AS indexable
-         FROM camping_spots
-        WHERE slug = $1
+      `SELECT s.slug, s.name, s.country, s.region, s.type,
+              ST_Y(s.location::geometry) AS lat,
+              ST_X(s.location::geometry) AS lon,
+              s.amenities, s.owner_overrides, s.last_seen_at, s.missing_since,
+              s.context, s.description, s.description_lang, s.stars,
+              s.website, s.contact, s.sources,
+              -- 🔴 CAMP-144. The other source's row, joined in — not
+              -- merged in SQL. Which field wins is a decision with
+              -- reasons behind it (mergeLinked, below), and a reason
+              -- cannot be written in a coalesce() list.
+              linked.id AS linked_id,
+              linked.name AS linked_name,
+              linked.stars AS linked_stars,
+              linked.description AS linked_description,
+              linked.description_lang AS linked_description_lang,
+              linked.website AS linked_website,
+              linked.contact AS linked_contact,
+              linked.sources AS linked_sources,
+              linked.owner_overrides AS linked_owner_overrides,
+              -- 🔴 CAMP-147. Read for BOTH rows, and the link is not a
+              -- nicety here: of the 1 200 pages that can show a price,
+              -- 648 get it only through their DATAtourisme secondary.
+              -- OpenStreetMap carries no tariffs at all, so reading
+              -- s.id alone would have halved the feature and the
+              -- measurement would still have looked plausible.
+              ${tariffsSql('s.id')} AS tariffs,
+              ${tariffsSql('linked.id')} AS linked_tariffs,
+              ${withheldTariffCountSql('s.id')} AS tariffs_withheld,
+              ${withheldTariffCountSql('linked.id')} AS linked_tariffs_withheld,
+              -- 🔴 CAMP-168, and read for the primary row ONLY, unlike
+              -- the tariffs. A bathing water is chosen by geography, and
+              -- linked secondary is the same campsite under another
+              -- source's name a few dozen metres away — so it would
+              -- return the same row, and "merging" two identical answers
+              -- would be a rule with nothing to decide.
+              ${nearestBathingWaterSql('s.location')} AS bathing_water,
+              (NOT ${NOTHING_TO_SAY_SQL}
+               OR linked.stars IS NOT NULL
+               OR linked.description IS NOT NULL) AS indexable
+         FROM camping_spots s${LINKED_SECONDARY_JOIN}
+        WHERE s.slug = $1
         LIMIT 1`,
       [slug],
     );
@@ -115,7 +210,7 @@ export class SpotsService {
       });
     }
 
-    return toView(row);
+    return toView(mergeLinked(row));
   }
 
   /**
@@ -135,6 +230,9 @@ export class SpotsService {
         WHERE s.slug <> $1
           AND s.region IS NOT NULL
           AND s.missing_since IS NULL
+          -- Otherwise "nearby campsites" opens with the same campsite the
+          -- reader is already looking at, 49 m away under another name.
+          AND ${notSecondarySql('s')}
         ORDER BY s.location <-> (SELECT location FROM me)
         LIMIT $2`,
       [slug, limit],
@@ -179,6 +277,11 @@ export class SpotsService {
              FROM camping_spots s
             WHERE s.missing_since IS NULL
               AND s.region IS NOT NULL
+              -- 🔴 CAMP-144. Without this the campsite offered to a
+              -- reader who lands on a dead URL can be one whose own URL
+              -- now 301s somewhere else — we would answer "this one is
+              -- gone, try that one" and that one would redirect.
+              AND ${notSecondarySql('s')}
             ORDER BY s.location <-> g.location
             LIMIT 1
          ) n ON true
@@ -214,6 +317,82 @@ export class SpotsService {
     }));
   }
 
+  /**
+   * CAMP-144: URLs that were a page of their own until the two rows were
+   * linked, and the page that now carries their content.
+   *
+   * 🔴 A 301, not a 410 and not a 404 — and the difference is the whole
+   * reason this endpoint exists rather than nothing.
+   *
+   * The campsite has not gone away. Its stars, its description and its
+   * name are on the other page, which is why linking rather than
+   * deleting was the requirement. A 404 would throw away whatever that
+   * URL had earned and strand anybody who bookmarked it; a 410 would
+   * tell a crawler the campsite no longer exists, which is a lie about a
+   * business that is open. 301 says the true thing: this campsite is
+   * over there now.
+   *
+   * 🔴 And it is the one case where a redirect is honest. CAMP-73
+   * deliberately refuses to redirect a closed campsite to its nearest
+   * neighbour, because "nearest" is a guess. This is not a guess about
+   * proximity — it is the assertion the link already makes, that the two
+   * rows are one campsite, and if that assertion is wrong the right fix
+   * is to undo the link, which withdraws this redirect with it.
+   */
+  async links(): Promise<{ from: string; to: string }[]> {
+    const rows = await this.db.query(
+      `SELECT sec.country  AS from_country, sec.region  AS from_region,
+              sec.slug     AS from_slug,
+              pri.country  AS to_country,  pri.region  AS to_region,
+              pri.slug     AS to_slug
+         FROM spot_links l
+         JOIN camping_spots sec ON sec.id = l.secondary_id
+         JOIN camping_spots pri ON pri.id = l.primary_id
+        WHERE l.unlinked_at IS NULL
+          -- A row that never had a region never had a URL either, so
+          -- there is nothing to redirect from. Same rule as everywhere
+          -- else: no invented paths.
+          AND sec.region IS NOT NULL
+          -- 🔴 And the secondary must not be on its way to a 410 of its
+          -- own. gone() lists rows missing for 28 days; a row in both
+          -- lists would be redirected here and announced as gone there,
+          -- and the prerendered /gone page would name a campsite that is
+          -- alive on the primary's page.
+          AND sec.missing_since IS NULL
+          -- 🔴 The same two conditions isSecondarySql uses, and they
+          -- have to be the same two. (No backticks around that name:
+          -- this comment is inside a template literal, and the repo has
+          -- broken the build this way twice already.)
+          --
+          -- If the primary has gone missing
+          -- from OSM, the secondary stops being hidden and becomes its
+          -- own page again — so redirecting to the primary would send
+          -- readers from a live page to one that is on its way to a
+          -- 410. The two rules are what keep the site and its redirects
+          -- describing the same world.
+          AND pri.region IS NOT NULL
+          AND pri.missing_since IS NULL
+        ORDER BY sec.country, sec.region, sec.slug`,
+    );
+    return rows
+      .map((r: Record<string, unknown>) => ({
+        from: canonicalPath(
+          r.from_country as string,
+          r.from_region as string,
+          r.from_slug as string,
+        ),
+        to: canonicalPath(
+          r.to_country as string,
+          r.to_region as string,
+          r.to_slug as string,
+        ),
+      }))
+      .filter(
+        (r: { from: string | null; to: string | null }) =>
+          r.from !== null && r.to !== null && r.from !== r.to,
+      );
+  }
+
   /** Countries we actually hold data for, for /camping. */
   async countries(): Promise<
     { country: string; spots: number; regions: number }[]
@@ -222,8 +401,13 @@ export class SpotsService {
       `SELECT lower(country) AS country,
               count(*)::int AS spots,
               count(DISTINCT region)::int AS regions
-         FROM camping_spots
+         FROM camping_spots s
         WHERE region IS NOT NULL AND missing_since IS NULL
+          -- 🔴 CAMP-144. "61 557 campsites" counted rows, and 2 986 of
+          -- those rows were a second copy of a campsite already counted.
+          -- The number on the home page and in every comparison with a
+          -- competitor is this one.
+          AND ${notSecondarySql('s')}
         GROUP BY 1 ORDER BY 2 DESC`,
     );
     return rows;
@@ -240,9 +424,10 @@ export class SpotsService {
   > {
     const rows = await this.db.query(
       `SELECT region, count(*)::int AS spots
-         FROM camping_spots
+         FROM camping_spots s
         WHERE lower(country) = lower($1)
           AND region IS NOT NULL AND missing_since IS NULL
+          AND ${notSecondarySql('s')}
         GROUP BY 1 ORDER BY 2 DESC, 1`,
       [country],
     );
@@ -278,18 +463,21 @@ export class SpotsService {
     if (!region) return { region: null, total: 0, items: [] };
 
     const [{ total }] = await this.db.query(
-      `SELECT count(*)::int AS total FROM camping_spots
+      `SELECT count(*)::int AS total FROM camping_spots s
         WHERE lower(country) = lower($1) AND region = $2
-          AND missing_since IS NULL`,
+          AND missing_since IS NULL
+          AND ${notSecondarySql('s')}`,
       [country, region],
     );
 
     const items = await this.db.query(
-      `SELECT slug, name, country, region, type, amenities
-         FROM camping_spots
+      `SELECT slug, ${mergedNameSql('s')} AS name,
+              country, region, type, amenities
+         FROM camping_spots s
         WHERE lower(country) = lower($1) AND region = $2
           AND missing_since IS NULL
-        ORDER BY (name IS NULL), name, slug
+          AND ${notSecondarySql('s')}
+        ORDER BY (${mergedNameSql('s')} IS NULL), ${mergedNameSql('s')}, slug
         LIMIT $3 OFFSET $4`,
       [country, region, perPage, (page - 1) * perPage],
     );
@@ -313,11 +501,16 @@ export class SpotsService {
    */
   async notable(limit = 6): Promise<SpotCard[]> {
     return this.db.query(
-      `SELECT slug, name, country, region, type, amenities, context
-         FROM camping_spots
+      `SELECT slug, ${mergedNameSql('s')} AS name,
+              country, region, type, amenities, context
+         FROM camping_spots s
         WHERE missing_since IS NULL
           AND region IS NOT NULL
-          AND name IS NOT NULL
+          -- 🔴 The merged name, not s.name. This asks "can we put this
+          -- campsite on the home page", and a campsite named only by
+          -- DATAtourisme has a name — it is printed on its own page.
+          AND ${mergedNameSql('s')} IS NOT NULL
+          AND ${notSecondarySql('s')}
         ORDER BY (
           SELECT count(*) FROM jsonb_each_text(amenities)
            WHERE value <> 'unknown'
@@ -340,8 +533,9 @@ export class SpotsService {
       `SELECT count(*)::int AS spots,
               count(DISTINCT country)::int AS countries,
               count(DISTINCT (country, region))::int AS regions
-         FROM camping_spots
-        WHERE missing_since IS NULL AND region IS NOT NULL`,
+         FROM camping_spots s
+        WHERE missing_since IS NULL AND region IS NOT NULL
+          AND ${notSecondarySql('s')}`,
     );
     return row;
   }
@@ -363,11 +557,39 @@ export class SpotsService {
     }[]
   > {
     const rows = await this.db.query(
-      `SELECT country, region, slug, last_seen_at, content_changed_at,
-              NOT ${NOTHING_TO_SAY_SQL} AS indexable
-         FROM camping_spots
-        WHERE region IS NOT NULL AND missing_since IS NULL
-        ORDER BY country, region, slug`,
+      `SELECT s.country, s.region, s.slug, s.last_seen_at,
+              -- 🔴 The later of the two, because the page now shows both
+              -- rows. A star rating that arrived in the DATAtourisme row
+              -- yesterday changed what this URL says yesterday; a
+              -- <lastmod> taken from the OSM row alone would tell every
+              -- crawler the page has not moved since the last OSM
+              -- import, which is the opposite of true.
+              --
+              -- 🔴 greatest() IGNORES NULLs — checked against this
+              -- database, not assumed: greatest('2026-01-01', NULL) is
+              -- '2026-01-01' and greatest(NULL, NULL) is NULL. That is
+              -- exactly what is wanted here (an unlinked row has no
+              -- linked date, and must keep its own), but it is the same
+              -- behaviour that made this card's own OSM-type split come
+              -- out backwards, so it is written down rather than
+              -- rediscovered. If NULL had to mean "unknown, so the
+              -- answer is unknown", this would need coalesce.
+              greatest(s.content_changed_at, linked.content_changed_at)
+                AS content_changed_at,
+              -- 🔴 Either side having something to say is enough. The
+              -- merged page carries both, so judging it by the primary
+              -- alone would noindex a page that now has stars and a
+              -- description on it.
+              (NOT ${NOTHING_TO_SAY_SQL}
+               OR linked.stars IS NOT NULL
+               OR linked.description IS NOT NULL) AS indexable
+         FROM camping_spots s${LINKED_SECONDARY_JOIN}
+        WHERE s.region IS NOT NULL AND s.missing_since IS NULL
+          -- 🔴 CAMP-144. This is the line that stops the second page
+          -- existing at all: the static site generates exactly the URLs
+          -- this returns.
+          AND ${notSecondarySql('s')}
+        ORDER BY s.country, s.region, s.slug`,
     );
     return rows.map((r: Record<string, unknown>) => ({
       country: String(r.country).toLowerCase(),
@@ -410,12 +632,13 @@ export class SpotsService {
     }[]
   > {
     const rows = await this.db.query(
-      `SELECT name, country, region, slug,
+      `SELECT ${mergedNameSql('s')} AS name, country, region, slug,
               ST_Y(location::geometry) AS lat,
               ST_X(location::geometry) AS lon,
               context
-         FROM camping_spots
+         FROM camping_spots s
         WHERE region IS NOT NULL AND missing_since IS NULL
+          AND ${notSecondarySql('s')}
         ORDER BY country, region, slug`,
     );
 
@@ -499,6 +722,17 @@ export const REGION_INDEX_THRESHOLD = 3;
  * this question about ten thousand pages at once and the page asks it
  * about one, and two implementations of the same rule drift.
  */
+/**
+ * 🔴 Every column here is qualified `s.`, so the table MUST be aliased
+ * `s` wherever this is interpolated.
+ *
+ * It was unqualified until CAMP-144, which was fine while the only table
+ * in the statement was `camping_spots`. The moment the linked row joined
+ * in — and it carries `stars` and `description` too, by definition —
+ * Postgres answers "column reference is ambiguous" and the query dies.
+ * Unqualified would have been worse than an error if it had resolved: it
+ * would have silently asked the question about the wrong row.
+ */
 export const NOTHING_TO_SAY_SQL = `(
   -- 🔴 "No amenity is KNOWN", not "the object is empty".
   --
@@ -513,12 +747,12 @@ export const NOTHING_TO_SAY_SQL = `(
   -- The French rows happen to store a literal '{}', which is why the
   -- mistake produced a plausible number instead of an obvious one.
   NOT jsonb_path_exists(
-    coalesce(amenities, '{}'::jsonb),
+    coalesce(s.amenities, '{}'::jsonb),
     '$.* ? (@ == "yes" || @ == "no")'
   )
-  AND (context IS NULL OR context = '{}'::jsonb)
-  AND description IS NULL
-  AND stars IS NULL
+  AND (s.context IS NULL OR s.context = '{}'::jsonb)
+  AND s.description IS NULL
+  AND s.stars IS NULL
 )`;
 
 /** Region names carry diacritics and spaces; URLs must not. */
@@ -543,7 +777,23 @@ function toView(row: Record<string, unknown>): SpotView {
     stars:
       row.stars === null || row.stars === undefined ? null : Number(row.stars),
     website: (row.website as string) ?? null,
+    // 🔴 The column is NOT NULL DEFAULT '{}', so this is an object or
+    // nothing went wrong. The ?? is for rows read before the migration
+    // in a half-deployed state, not for a case the schema allows.
+    contact: (row.contact as SpotView['contact']) ?? {},
     sources: (row.sources ?? []) as SpotSource[],
+    // 🔴 `?? []`, and the default is "no prices", never a partial list.
+    // Every query that does not select these columns is a query that
+    // knows nothing about prices; the failure must be a page with no
+    // price table, not a page with somebody else's.
+    tariffs: (row.tariffs ?? []) as TariffView[],
+    tariffsWithheld: Number(row.tariffs_withheld ?? 0),
+    // 🔴 CAMP-168. `?? null`, and null means exactly one thing: no
+    // designated bathing water within BATHING_RADIUS_M of this campsite.
+    // It never means "we did not look" — a query that does not select
+    // the column produces a page that says there is none nearby, which
+    // is a visible, reportable wrong answer rather than a silent one.
+    bathingWater: (row.bathing_water as BathingWaterView) ?? null,
     // 🔴 Defaults to indexable when the column is absent, not to hidden.
     // A query that forgot to select it must not silently noindex a page
     // that has plenty to say — the failure should be a page that ranks

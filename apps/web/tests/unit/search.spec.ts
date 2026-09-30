@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   editDistance,
+  EXONYMS,
   fold,
   search,
   searchText,
@@ -295,9 +296,22 @@ test.describe('the packed index', () => {
     // `near`.
     packed.v = 1;
     expect(() => unpackIndex(packed as never)).toThrow(/not supported/);
+    // 🔴 CAMP-138 added version 2 to this list, which is the version a
+    // browser is holding TODAY. See the stale-file tests below for why
+    // it is refused rather than read.
+    packed.v = 2;
+    expect(() => unpackIndex(packed as never)).toThrow(/not supported/);
     packed.v = 99;
     expect(() => unpackIndex(packed as never)).toThrow(/not supported/);
     expect(() => unpackIndex(undefined as never)).toThrow(/not supported/);
+  });
+
+  test('the version written is the version the reader accepts', () => {
+    // 🔴 Bump one and not the other and every chunk is refused on the
+    // first load — a dead search, not a degraded one. This is the pair
+    // that must move together.
+    expect(packIndex(docs).v).toBe(3);
+    expect(() => unpackIndex(packIndex(docs))).not.toThrow();
   });
 
   test('searching the unpacked index finds what searching the original does', () => {
@@ -391,6 +405,241 @@ test.describe('what the packed index stops sending', () => {
       expect(search(back, q).map((h) => h.doc.path), `query "${q}"`)
         .toEqual(search(docs, q).map((h) => h.doc.path));
     }
+  });
+});
+
+// ── CAMP-138: the place names, stored once ────────────────────────────
+//
+// 🔴 Measured on the live index 27.09.2026: 207 994 nearby-place entries
+// hold 33 778 distinct names, each written 6.16 times. Storing each once
+// takes the index from 8.98 MB to 5.20 MB of JSON (−42.1%) and the heap
+// it holds from 42.2 MiB to 37.4 MiB (−11.4%).
+//
+// The saving only exists if the names really are shared, and the
+// correctness only holds if an index into the table can never point at
+// the wrong name. Neither is visible in a document that comes back
+// looking right, so both are asserted directly.
+
+test.describe('the shared place-name table', () => {
+  const near = (...ns: [string, number][]) =>
+    ns.map(([name, m]) => ({ name, m }));
+
+  const site = (slug: string, ns: [string, number][]): SearchDoc => {
+    const base = {
+      kind: 'campsite' as const,
+      path: `/camping/si/bovec/${slug}`,
+      country: 'si',
+      region: 'bovec',
+      name: `Camp ${slug}`,
+      near: near(...ns),
+    };
+    return { ...base, text: searchText(base) };
+  };
+
+  // Three campsites near the same two places, which is the shape the
+  // whole card is about: on the live index every name is used 6.16
+  // times.
+  const docs = [
+    site('a', [['Bovec', 300], ['Soča', 1200]]),
+    site('b', [['Bovec', 900], ['Soča', 150]]),
+    site('c', [['Bovec', 2400]]),
+  ];
+
+  test('a name used by several campsites is written once', () => {
+    const packed = packIndex(docs);
+    expect(packed.p).toEqual(['Bovec', 'Soča']);
+    // 🔴 The saving only exists if the name really is absent from the
+    // rows — the same check the path and the haystack already get. Five
+    // uses of two names must leave two copies in the file, not five.
+    const body = JSON.stringify(packed);
+    expect(body.split('Bovec').length - 1).toBe(1);
+    expect(body.split('Soča').length - 1).toBe(1);
+  });
+
+  test('every name and every distance comes back exactly', () => {
+    const back = unpackIndex(packIndex(docs));
+    expect(back).toEqual(docs);
+    // Spelled out as well as deep-compared, because `toEqual` on the
+    // whole document is the assertion that goes quiet when a field is
+    // dropped from both sides at once.
+    expect(back[0].near).toEqual([
+      { name: 'Bovec', m: 300 },
+      { name: 'Soča', m: 1200 },
+    ]);
+    expect(back[1].near).toEqual([
+      { name: 'Bovec', m: 900 },
+      { name: 'Soča', m: 150 },
+    ]);
+    expect(back[2].near).toEqual([{ name: 'Bovec', m: 2400 }]);
+  });
+
+  test('🔴 the same place keeps a different distance for each campsite', () => {
+    // The name is shared; the metres are not. Pairing a name with the
+    // wrong distance is the failure that survives every check built on
+    // `text`, because `m` is not in `text` at all — and `m` is both the
+    // ordering key and the number the reader is shown as «300 m from
+    // Bovec».
+    const back = unpackIndex(packIndex(docs));
+    const metres = back.map((d) => d.near.find((n) => n.name === 'Bovec')!.m);
+    expect(metres).toEqual([300, 900, 2400]);
+  });
+
+  test('🔴 two names that fold alike stay two names', () => {
+    // 1 470 of the 33 778 live place names share a folded form with
+    // another — "Spar"/"SPAR", "Nah & Frisch"/"Nah&Frisch" — across
+    // 26 781 of the 207 994 entries. The haystack cannot tell them
+    // apart, so an index that swapped them would round-trip with an
+    // identical `text` and a wrong name under the reader's eyes.
+    const pair = [
+      site('d', [['Spar', 100], ['SPAR', 200]]),
+      site('e', [['SPAR', 300]]),
+    ];
+    const packed = packIndex(pair);
+    expect(packed.p).toEqual(['Spar', 'SPAR']);
+    const back = unpackIndex(packed);
+    expect(back[0].near).toEqual([
+      { name: 'Spar', m: 100 },
+      { name: 'SPAR', m: 200 },
+    ]);
+    expect(back[1].near).toEqual([{ name: 'SPAR', m: 300 }]);
+  });
+
+  test('order within a row is preserved', () => {
+    // `nearestNamed` takes the minimum so order does not change an
+    // answer today, and the format must not be the reason that becomes
+    // untrue silently.
+    const reversed = site('f', [['Soča', 9000], ['Bovec', 10]]);
+    expect(unpackIndex(packIndex([reversed]))[0].near).toEqual([
+      { name: 'Soča', m: 9000 },
+      { name: 'Bovec', m: 10 },
+    ]);
+  });
+
+  test('searching the unpacked index finds what searching the original does', () => {
+    const back = unpackIndex(packIndex(docs));
+    for (const q of ['bovec', 'soca', 'slovenia', 'camp']) {
+      const a = search(docs, q);
+      const b = search(back, q);
+      expect(b.map((h) => h.doc.path), `query "${q}"`).toEqual(
+        a.map((h) => h.doc.path),
+      );
+      // The distance and the place shown beside each hit, not just the
+      // order — those come straight out of the table.
+      //
+      // 🔴 CAMP-140: `label` too, and it is the one that most needs
+      // saying. The ordering key survives a swapped name table — 273 is
+      // 273 whichever string it is paired with — while the label is a
+      // NAME chosen by comparing names, so a packing bug in the shared
+      // place table (CAMP-138) shows here and nowhere else in this
+      // describe.
+      expect(b.map((h) => [h.metres, h.nearest, h.label]), `query "${q}"`).toEqual(
+        a.map((h) => [h.metres, h.nearest, h.label]),
+      );
+    }
+    expect(search(back, 'bovec').length).toBeGreaterThan(0);
+  });
+});
+
+// ── CAMP-138: a cached file from before the format changed ────────────
+
+test.describe('a stale chunk is refused, not read', () => {
+  /**
+   * A real version 2 file, written out by hand.
+   *
+   * 🔴 Not `packIndex(...)` with `v` overwritten. That produces version
+   * 3 bytes wearing a version 2 label — it keeps `p`, and `p` is the
+   * entire difference between the formats, so it proves nothing about
+   * the file a browser is actually holding. These bytes are the real
+   * shape: `near` as `[{name, m}]`, and **no `p` at all**.
+   *
+   * 🔴 That distinction is not pedantry. CAMP-138's first measurement
+   * of what a stale file does fed a genuine v2 file to a hand-written
+   * copy of `unpackIndex` that said `packed.p?.[e[0]]` — so the file
+   * was right and the READER was the lookalike, and one optional
+   * chaining operator produced a confident, entirely false account of
+   * the failure. The fixture below was right while the prose was wrong.
+   *
+   * `/data/search/at.json` has no content hash, so some cache may serve
+   * these bytes after the deploy that stopped producing them; how long
+   * for is the host's business and is not established (see
+   * app/data/search/[chunk]/route.ts).
+   */
+  const staleV2 = {
+    v: 2,
+    c: ['at'],
+    r: ['burgenland'],
+    d: [
+      ['CamÖ', 0, 0, 0, [{ name: 'Rust', m: 5315 }, { name: 'Spar', m: 1964 }]],
+      ['Camping Neusiedl', 0, 0, 0, [{ name: 'Rust', m: 800 }]],
+    ],
+  };
+
+  test('🔴 the version is refused, and the message says which one', () => {
+    expect(() => unpackIndex(staleV2 as never)).toThrow(
+      /search index format 2 is not supported/,
+    );
+  });
+
+  test('🔴 without the gate it is a bare TypeError, not a refusal', () => {
+    // 🔴 This test used to claim the opposite, and the fixture above
+    // already said so: "no `p` at all". The comment sixteen lines below
+    // it asserted that a version 2 file "would otherwise read cleanly"
+    // — 868 rows, every nearby place `undefined`, the haystack quietly
+    // shortened. Nothing caught the contradiction because the only
+    // assertion was that the gate throws `/not supported/`, which it
+    // does, for an entirely different reason than the prose gave.
+    //
+    // What actually happens: a version 2 body has no `p`, so the reader
+    // evaluates `packed.p[e[0]]` — `undefined[undefined]` — and throws
+    // on the first row. Measured on all 29 real v2 chunks from the live
+    // index with the gate deleted: 29 threw, 0 rows returned.
+    //
+    // So the gate does not avert a silent wrong page here. It converts
+    // an unlabelled `TypeError` into a named error naming the format,
+    // which is what site-search.tsx counts as a failed part.
+    //
+    // 🔴 Relabelling the same bytes `v: 3` is the probe that proves it,
+    // and it is the line whose absence let the wrong story stand.
+    expect(() => unpackIndex({ ...staleV2, v: 3 } as never)).toThrow(TypeError);
+    expect(() => unpackIndex({ ...staleV2, v: 3 } as never)).toThrow(
+      /Cannot read properties of undefined/,
+    );
+    // The gate itself answers with a sentence instead.
+    expect(() => unpackIndex(staleV2 as never)).toThrow(/not supported/);
+  });
+
+  test('a version 2 body carries no place table, which is the whole difference', () => {
+    // The structural fact the test above turns on, stated on its own so
+    // that a fixture drifting into carrying `p` cannot quietly make the
+    // probe above pass for the wrong reason.
+    expect(Object.keys(staleV2).sort()).toEqual(['c', 'd', 'r', 'v']);
+    expect('p' in staleV2).toBe(false);
+    expect(staleV2.d.every((row) => Array.isArray(row[4]))).toBe(true);
+  });
+
+  test('🔴 the count a stale chunk reports is NOT enough to catch it', () => {
+    // site-search.tsx compares a chunk's row count against the table of
+    // contents and refuses a mismatch. Measured on this change, 26 of
+    // the 27 countries keep both their id and their campsite count, so
+    // for 26 of them that check stays silent on a stale file. This
+    // fixture is one of them: the same rows, one format older.
+    const fresh = packIndex(
+      staleV2.d.map((row) => {
+        const name = row[0] as string;
+        const base = {
+          kind: 'campsite' as const,
+          path: `/camping/at/burgenland/${slugFromName(name)}`,
+          country: 'at',
+          region: 'burgenland',
+          name,
+          near: row[4] as { name: string; m: number }[],
+        };
+        return { ...base, text: searchText(base) };
+      }),
+    );
+    expect(fresh.d).toHaveLength(staleV2.d.length);
+    // Same count, different format. Only `v` separates them.
+    expect(fresh.v).not.toBe(staleV2.v);
   });
 });
 
@@ -678,5 +927,430 @@ test.describe('a common word is a preference, a rare word is a requirement', () 
     ];
     const [c, d] = search(near, 'kovak');
     expect(c.score / d.score).toBeCloseTo(60 / 30, 10);
+  });
+});
+
+// 🔴 CAMP-137: a word in a neighbour's name is not the same as being
+// there.
+test.describe('being in the place beats being near a name that contains it', () => {
+  test('🔴 a shop named after a town does not make a campsite near it', () => {
+    // The measured case. `Camp Bovec` is forty kilometres from Tolmin,
+    // and a shop 273 m away is called "Kmetijska Zadruga Tolmin
+    // Trgovina Market Bovec" — a cooperative FROM Tolmin running a
+    // store IN Bovec. Distance alone put it first for `camping tolmin`,
+    // ahead of campsites actually in Tolmin.
+    const far = doc({
+      name: 'Camp Bovec', path: '/camping/si/bovec/camp-bovec',
+      country: 'si', region: 'bovec',
+      near: [{ name: 'Kmetijska Zadruga Tolmin Trgovina Market Bovec', m: 273 }],
+    });
+    const right = doc({
+      name: 'Kamp Siber', path: '/camping/si/tolmin/kamp-siber',
+      country: 'si', region: 'tolmin',
+      near: [{ name: 'Tolmin', m: 499 }],
+    });
+    const hits = search([far, right], 'tolmin');
+    expect(hits.map((h) => h.doc.name)).toEqual(['Kamp Siber', 'Camp Bovec']);
+  });
+
+  test('🔴 a long, real place name is not a weak match', () => {
+    // What the first attempt got wrong, kept as a regression test.
+    //
+    // It scored how much of the place's NAME the query explained, so
+    // "València - La Font de Sant Lluís" — which IS Valencia — lost to
+    // a three-word name in another country. Measured at the time:
+    // `camping valencia` went from Spain to Portugal. The region is
+    // what decides it now, and the region is right.
+    const spain = doc({
+      name: 'Camping Park El Saler', path: '/camping/es/valencia/el-saler',
+      country: 'es', region: 'valencia',
+      near: [{ name: 'València - La Font de Sant Lluís', m: 6661 }],
+    });
+    const portugal = doc({
+      name: 'Camping Asseiceira', path: '/camping/pt/portalegre/asseiceira',
+      country: 'pt', region: 'portalegre',
+      near: [{ name: 'Valencia de Alcántara', m: 9642 }],
+    });
+    const hits = search([portugal, spain], 'valencia');
+    expect(hits[0].doc.name).toBe('Camping Park El Saler');
+  });
+
+  test('🔴 CAMP-140: the ORDER comes from the nearest match, the LABEL from the best-named', () => {
+    // The wart this used to assert, now split in two.
+    //
+    // CAMP-137 briefly made the whole thing report "499 m from Tolmin"
+    // instead of "273 m from Kmetijska Zadruga Tolmin Trgovina Market
+    // Bovec" — a better sentence, and reverted, because `m` was also
+    // the ordering key: preferring the better-named place meant
+    // preferring a LARGER number, and review measured `camping fermo`
+    // promoting a campsite six times farther from Fermo and `camping
+    // praha` moving the answer from 7.8 km to 24.5 km.
+    //
+    // So both answers come out now and only one of them is sorted on.
+    // `metres`/`nearest` are what they always were, to the metre; the
+    // label is the place the reader is shown.
+    const both = doc({
+      name: 'Kamp Siber', path: '/camping/si/tolmin/kamp-siber',
+      country: 'si', region: 'tolmin',
+      near: [
+        { name: 'Kmetijska Zadruga Tolmin Trgovina Market Bovec', m: 273 },
+        { name: 'Tolmin', m: 499 },
+      ],
+    });
+    const [hit] = search([both], 'tolmin');
+    expect(hit.metres).toBe(273);
+    expect(hit.nearest).toBe('Kmetijska Zadruga Tolmin Trgovina Market Bovec');
+    // One word of one beats one word of six.
+    expect(hit.label).toEqual({ name: 'Tolmin', m: 499, isNearest: false });
+  });
+
+  test('🔴 the better name must not reach the sort — the three queries that reverted it', () => {
+    // 🔴 The guard this card exists to keep. These are the measured
+    // failures of CAMP-137's version, as fixtures: in each one the
+    // better-NAMED place is farther away, and in each one the campsite
+    // the old ranking chose must still come first.
+    //
+    // A single line moves them all — comparing the label's metres in
+    // the sort instead of the nearest's — which is why the assertion is
+    // on the ORDER and not only on the label.
+    //
+    // 🔴 `Fermo` at 20 km is not padding, and the first version of this
+    // fixture did not have it. Review mutated the sort to read `label.m`
+    // and the whole suite stayed green: with one place on the near
+    // campsite its label WAS its ordering key (2 263), the far one's
+    // label was 13 592, and 2 263 < 13 592 either way — so the fixture
+    // agreed with the mutation instead of catching it. The near
+    // campsite now has a better-named place FARTHER than anything on
+    // the far one, so label-sorting puts them the wrong way round.
+    //
+    // It matters more than the other two: CI does not set
+    // RANKING_INDEX (see .github/workflows/ci.yml), so the live-index
+    // guard against this is skipped there and this is the one that runs.
+    const fermoNear = doc({
+      name: 'Camping 4 Cerchi', path: '/camping/it/fermo/cerchi',
+      country: 'it', region: 'fermo',
+      near: [
+        { name: 'Porto San Giorgio-Fermo', m: 2263 },
+        { name: 'Fermo', m: 20_000 },
+      ],
+    });
+    const fermoFar = doc({
+      name: 'Camping Lontano', path: '/camping/it/fermo/lontano',
+      country: 'it', region: 'fermo',
+      near: [
+        { name: 'Porto San Giorgio-Fermo', m: 13_600 },
+        { name: 'Fermo', m: 13_592 },
+      ],
+    });
+    const fermo = search([fermoFar, fermoNear], 'camping fermo');
+    expect(fermo.map((h) => h.doc.name)).toEqual([
+      'Camping 4 Cerchi',
+      'Camping Lontano',
+    ]);
+    // The numbers that make the mutation visible: sorted on 2 263 and
+    // 13 592, labelled 20 000 and 13 592. Asserted so that a later edit
+    // cannot quietly take the inversion back out of the fixture.
+    expect(fermo.map((h) => [h.metres, h.label?.m])).toEqual([
+      [2263, 20_000],
+      [13_592, 13_592],
+    ]);
+
+    // `castellon`: the one-word name is a near miss, the four-word name
+    // holds the word exactly. The bands decide the label too, so the
+    // exact word wins it — and the nearer campsite still wins the list.
+    const exact = doc({
+      name: 'Stellplatz', path: '/camping/es/castellon/stellplatz',
+      country: 'es', region: 'castellon',
+      near: [
+        { name: 'Castelló', m: 1434 },
+        { name: 'Castelló de la Plana / Castellón de la Plana', m: 2434 },
+      ],
+    });
+    const [hit] = search([exact], 'castellon');
+    expect(hit.metres).toBe(1434);
+    expect(hit.label?.name).toBe('Castelló de la Plana / Castellón de la Plana');
+    expect(hit.label?.isNearest).toBe(false);
+  });
+
+  test('🔴 when the best-named place IS the nearest, the label says so', () => {
+    // The 94.3% case, measured on the live index: the label and the
+    // ordering key are the same place, and `isNearest` is what tells
+    // the page it may print the number.
+    const plain = doc({
+      name: 'Kamp Labrca', path: '/camping/si/tolmin/labrca',
+      country: 'si', region: 'tolmin',
+      near: [{ name: 'Tolmin', m: 1255 }],
+    });
+    const [hit] = search([plain], 'tolmin');
+    expect(hit.label).toEqual({ name: 'Tolmin', m: 1255, isNearest: true });
+    expect(hit.metres).toBe(1255);
+  });
+
+  test('🔴 an exact word outranks a prefix in the label, as it does in the score', () => {
+    // The bands are the first comparison the label makes, and this is
+    // the one that shows it can override a much shorter walk: the river
+    // «Tolminka» is 60 m away and is only a prefix of what was typed,
+    // so the town 1 255 m away is what the reader is told.
+    const river = doc({
+      name: 'Kamp Reka', path: '/camping/si/tolmin/reka',
+      country: 'si', region: 'tolmin',
+      near: [
+        { name: 'Tolmin', m: 1255 },
+        { name: 'Tolminka', m: 60 },
+      ],
+    });
+    const [hit] = search([river], 'tolmin');
+    // The ordering is untouched — it is still the nearest match.
+    expect(hit.metres).toBe(60);
+    expect(hit.nearest).toBe('Tolminka');
+    expect(hit.label).toEqual({ name: 'Tolmin', m: 1255, isNearest: false });
+  });
+
+  test('🔴 two places at the SAME distance: the number is still printed', () => {
+    // Review's finding, and it is about the metres rather than the
+    // place. `closest` takes the first place at the minimum, so when the
+    // better-named one is equally close but later in the list, the two
+    // are different objects holding the same number — and `isNearest`
+    // computed by identity said false, which drops from the page a
+    // distance that IS the ordering key.
+    //
+    // Not hypothetical: 46 of the 61 422 live campsites carry two `near`
+    // places at identical `m` — "Ourthe" and "Sy", both 133 m from
+    // Camping Village Sy.
+    const tied = doc({
+      name: 'Kamp Tie', path: '/camping/si/tolmin/tie',
+      country: 'si', region: 'tolmin',
+      near: [
+        { name: 'Tolminka', m: 500 },
+        { name: 'Tolmin', m: 500 },
+      ],
+    });
+    const [hit] = search([tied], 'tolmin');
+    expect(hit.metres).toBe(500);
+    expect(hit.nearest).toBe('Tolminka');
+    expect(hit.label).toEqual({ name: 'Tolmin', m: 500, isNearest: true });
+  });
+
+  test('🔴 two equally well-named places: the nearer one is the label', () => {
+    // The tiebreak, and the reason the common case does not diverge at
+    // all — an equally good name never takes the reader farther away.
+    const twice = doc({
+      name: 'Kamp Dvakrat', path: '/camping/si/tolmin/dvakrat',
+      country: 'si', region: 'tolmin',
+      near: [
+        { name: 'Tolmin', m: 900 },
+        { name: 'Tolmin', m: 400 },
+      ],
+    });
+    const [hit] = search([twice], 'tolmin');
+    expect(hit.label).toEqual({ name: 'Tolmin', m: 400, isNearest: true });
+  });
+
+  test('🔴 the word in your own NAME does not put you in the place', () => {
+    // Review's finding, measured on the live index: counting the
+    // campsite's own name alongside its region sent `camping piaseczno`
+    // from a site 41 m from Piaseczno to "Resort Piaseczno" — a
+    // different Piaseczno, 528 km away, in another region. Having the
+    // town's name in your name is the same coincidence as a shop named
+    // after it, one level closer in.
+    const named = doc({
+      name: 'Resort Piaseczno', path: '/camping/pl/lublin/resort',
+      country: 'pl', region: 'lublin', near: [{ name: 'Piaseczno', m: 204 }],
+    });
+    const actuallyThere = doc({
+      name: 'Pole namiotowe', path: '/camping/pl/west-pomeranian/pole',
+      country: 'pl', region: 'west-pomeranian', near: [{ name: 'Piaseczno', m: 41 }],
+    });
+    const hits = search([named, actuallyThere], 'piaseczno');
+    expect(hits[0].doc.name).toBe('Pole namiotowe');
+    expect(hits[0].metres).toBe(41);
+  });
+
+  test('distance still decides between two campsites in the same region', () => {
+    // The signal only separates documents that differ in WHERE the word
+    // matched. When both are in the region, the old rule stands.
+    const near = doc({
+      name: 'Kamp Near', path: '/camping/si/tolmin/near',
+      country: 'si', region: 'tolmin', near: [{ name: 'Tolmin', m: 400 }],
+    });
+    const far = doc({
+      name: 'Kamp Far', path: '/camping/si/tolmin/far',
+      country: 'si', region: 'tolmin', near: [{ name: 'Tolmin', m: 4000 }],
+    });
+    const hits = search([far, near], 'tolmin');
+    expect(hits.map((h) => h.doc.name)).toEqual(['Kamp Near', 'Kamp Far']);
+    expect(hits.map((h) => h.metres)).toEqual([400, 4000]);
+  });
+});
+
+// 🔴 CAMP-136: the reader's English against an index that holds the
+// local name. The measurements that justify the table's CONTENTS are on
+// the live index and live in the pull request and in the comment above
+// the table; what is here pins the MECHANISM, on documents small enough
+// to reason about.
+test.describe('an English city name reaches the city the index spells locally', () => {
+  test('🔴 both sides of every entry are already folded', () => {
+    // A table entry with an accent in it could never match anything,
+    // because `fold()` has already run over the index and over the
+    // query by the time this table is read — and it would fail in
+    // silence. So would an entry mapping a word to itself, or a chain
+    // (`a→b`, `b→c`), which the single lookup in `search` would only
+    // half follow.
+    for (const [en, local] of EXONYMS) {
+      expect(fold(en), `key ${en} is not folded`).toBe(en);
+      expect(fold(local), `value ${local} is not folded`).toBe(local);
+      expect(en, `${en} maps to itself`).not.toBe(local);
+      expect(EXONYMS.has(local), `${local} is both a value and a key`).toBe(
+        false,
+      );
+    }
+    expect(EXONYMS.size).toBeGreaterThan(0);
+  });
+
+  test('a word with no entry is left exactly as typed', () => {
+    expect(EXONYMS.get('bovec')).toBeUndefined();
+    // And `constructor` is an ordinary English word, which an object
+    // literal would answer with the `Object` function. See the comment
+    // above the table: a Map has no prototype to fall through.
+    expect(EXONYMS.get('constructor')).toBeUndefined();
+  });
+
+  test('🔴 the English name finds the campsite, and names the local place', () => {
+    // Measured on the live index before this change: `munich` answered
+    // with a campsite in Lower Austria 1 849 m from «Steyr Münichholz»,
+    // and not one campsite in Bavaria was in the results at all,
+    // because the word "munich" is in none of them.
+    const bavaria = doc({
+      name: 'Wohnmobilstellplatz Grafing',
+      path: '/camping/de/bayern/grafing',
+      country: 'de', region: 'bayern',
+      near: [{ name: 'Grafing bei München', m: 894 }],
+    });
+    const austria = doc({
+      name: 'Camping am Fluss',
+      path: '/camping/at/niederosterreich/fluss',
+      country: 'at', region: 'niederosterreich',
+      near: [{ name: 'Steyr Münichholz', m: 1849 }],
+    });
+    const hits = search([austria, bavaria], 'munich');
+    expect(hits[0].doc.name).toBe('Wohnmobilstellplatz Grafing');
+    // 🔴 The distance line too. `m` is the ordering key for everything
+    // that scores the same, so an alias that reaches the score and not
+    // `nearestNamed` leaves the answer to the path tiebreak — and the
+    // «· N m from X» line disappears from the page.
+    expect(hits[0].metres).toBe(894);
+    expect(hits[0].nearest).toBe('Grafing bei München');
+  });
+
+  test('🔴 an alias scores as an exact word, not as something below one', () => {
+    // The rule that was tried and measured against: «the word you
+    // actually typed always wins». On the live index it leaves 5 of the
+    // 22 cities at a foreign word that merely spells the same — `milan`
+    // at a Brandenburg pub called «Zum Roten Milan», `vienna` at a
+    // hotel in North Rhine-Westphalia, `bruges` in the Gironde.
+    const typed = doc({
+      name: 'Rome', path: '/camping/fr/somme/rome',
+      country: 'fr', region: 'somme',
+    });
+    const local = doc({
+      name: 'Roma', path: '/camping/it/lazio/roma',
+      country: 'it', region: 'lazio',
+    });
+    const hits = search([typed, local], 'rome');
+    expect(hits).toHaveLength(2);
+    expect(hits[0].score).toBe(hits[1].score);
+  });
+
+  test('the word the reader typed is still searched — the alias is added, not swapped', () => {
+    // 🔴 Asserted through the near-miss band, because the obvious
+    // assertion does not fail.
+    //
+    // The first version of this only checked that the French campsite
+    // came back, and it passed under a mutation that looked the alias
+    // up INSTEAD of the typed word: `rome` then matched nothing
+    // exactly, the fuzzy pass ran, and it returned the same document at
+    // a distance of zero edits — score 40 instead of 100, same list.
+    // What that mutation really destroys is the suppression: once
+    // `rome` is in the index as itself, near misses are not computed at
+    // all, so `Romo` must not be here.
+    const french = doc({
+      name: 'Rome Camping', path: '/camping/fr/somme/rome',
+      country: 'fr', region: 'somme',
+    });
+    const nearMiss = doc({
+      name: 'Romo', path: '/camping/fr/aisne/romo',
+      country: 'fr', region: 'aisne',
+    });
+    expect(search([french, nearMiss], 'rome').map((h) => h.doc.name)).toEqual([
+      'Rome Camping',
+    ]);
+  });
+
+  test('🔴 being IN the region named is what settles a word that is both', () => {
+    // 54 campsites hold the word «rome» and every one of them is
+    // French — «Saint-Rome-de-Cernon», «Ry de Rome». Both spellings
+    // therefore score the same, and what separates them is CAMP-137's
+    // region key: Italy has a region called `roma` and the Pyrénées-
+    // Orientales do not. Without the alias reaching that comparison the
+    // French campsite wins on the shorter walk, 291 m against 1 004.
+    const french = doc({
+      name: 'La Clusa', path: '/camping/fr/pyrenees-orientales/la-clusa',
+      country: 'fr', region: 'pyrenees-orientales',
+      near: [{ name: 'Rivière de Rome', m: 291 }],
+    });
+    const italian = doc({
+      name: 'Roma Camping in Town', path: '/camping/it/roma/in-town',
+      country: 'it', region: 'roma',
+      near: [{ name: 'Roma Aurelia', m: 1004 }],
+    });
+    const hits = search([french, italian], 'rome');
+    expect(hits[0].doc.name).toBe('Roma Camping in Town');
+    expect(hits[0].metres).toBe(1004);
+  });
+
+  test('🔴 an alias switches the near-miss band off, exactly as a real exact word does', () => {
+    // `athens` is one edit from `athena`, so before this the fuzzy band
+    // answered with «Naturisme Camping Athena Helios» in Flemish
+    // Brabant. Once `athina` matches exactly the near misses are not
+    // competing with anything — they are noise — and the gate that
+    // already says so needs no change, because the alias scores
+    // EXACT_WORD.
+    const greek = doc({
+      name: 'Camping Athina', path: '/camping/gr/attiki/athina',
+      country: 'gr', region: 'attiki',
+    });
+    const belgian = doc({
+      name: 'Camping Athena', path: '/camping/be/flemish-brabant/athena',
+      country: 'be', region: 'flemish-brabant',
+    });
+    expect(search([greek, belgian], 'athens').map((h) => h.doc.name)).toEqual([
+      'Camping Athina',
+    ]);
+    // Take the Greek one away and the near miss comes back, because
+    // then nothing matches the word under either spelling.
+    expect(search([belgian], 'athens').map((h) => h.doc.name)).toEqual([
+      'Camping Athena',
+    ]);
+  });
+
+  test('the alias belongs to its own term and does not spread to the next one', () => {
+    // Two aliased words in one query still narrow each other: each term
+    // is one column, whichever of its two spellings matched.
+    const roma = doc({
+      name: 'Roma', path: '/camping/it/lazio/roma',
+      country: 'it', region: 'lazio',
+    });
+    const napoli = doc({
+      name: 'Napoli', path: '/camping/it/napoli/napoli',
+      country: 'it', region: 'napoli',
+    });
+    expect(search([roma, napoli], 'rome').map((h) => h.doc.name)).toEqual([
+      'Roma',
+    ]);
+    expect(search([roma, napoli], 'naples').map((h) => h.doc.name)).toEqual([
+      'Napoli',
+    ]);
+    // Neither document holds both cities, so the AND still empties it.
+    expect(search([roma, napoli], 'rome naples')).toHaveLength(0);
   });
 });

@@ -2,7 +2,7 @@ import {
   describeSources,
   FIELD_LABEL,
   formatUpdated,
-  isStale,
+  shouldFlagStale,
   type SpotSource,
 } from '@/lib/sources';
 
@@ -54,7 +54,7 @@ export default function SourceNote({
       <ul className="mt-3 space-y-3">
         {described.map(({ id, source, entry }) => {
           const when = formatUpdated(entry.updatedAt);
-          const stale = isStale(entry.updatedAt);
+          const stale = shouldFlagStale(source, entry.updatedAt);
           const gave = entry.fields
             .map((f) => FIELD_LABEL[f] ?? f)
             .join(', ');
@@ -115,7 +115,15 @@ export default function SourceNote({
                     {/* 🔴 Only where the date means "the source changed
                         it". For OpenStreetMap the date is when we last
                         looked, and "nobody has updated this" would be a
-                        claim about mappers we cannot make. */}
+                        claim about mappers we cannot make.
+
+                        🔴 CAMP-168 moved the cadence half of this test
+                        out of `dateLabel.startsWith('Last updated')` and
+                        into `SourceInfo.cadence`, which is a statement
+                        about the source rather than about the wording of
+                        a label. An annual publication is never stale for
+                        being a year old, and rewording a label must not
+                        silently switch the flag. */}
                     {stale && source?.dateLabel.startsWith('Last updated') && (
                       <strong className="font-semibold text-heading">
                         {' '}

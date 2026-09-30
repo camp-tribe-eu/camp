@@ -171,19 +171,33 @@ export interface SearchHit {
   doc: SearchDoc;
   score: number;
   /**
-   * Metres to the place the query named, when it named one. Present
-   * only then, and it is what the ordering uses.
+   * Metres to the NEAREST place the query named, when it named one.
+   * Present only then, and it is what the ordering uses.
    */
   metres?: number;
   /**
-   * WHICH place that was.
+   * WHICH place that was — the one `metres` measures.
    *
-   * 🔴 Shown to the reader, because the match may be fuzzy and
-   * «436 m from what you searched» was then a false sentence. Naming
-   * the place makes it true in every case and lets the reader see a
-   * wrong match instantly.
+   * 🔴 Named because the match may be fuzzy and «436 m from what you
+   * searched» was then a false sentence. Naming the place makes it true
+   * in every case and lets the reader see a wrong match instantly.
+   *
+   * 🔴 CAMP-140: no longer the name the reader is shown. That is
+   * `label` below, because the nearest place and the best-named one are
+   * not the same question — see `namedPlaces`.
    */
   nearest?: string;
+  /**
+   * What the result is LABELLED with: the place whose name the query
+   * explains best, and whether `metres` is the distance to it.
+   *
+   * 🔴 `isNearest` exists so the page can keep one invariant: a distance
+   * is printed only when it is the distance that row was ordered by.
+   * The measurement behind that choice — including the part of it that
+   * refuted my first reason for it — is in site-search.tsx, where the
+   * wording is decided.
+   */
+  label?: { name: string; m: number; isNearest: boolean };
 }
 
 /**
@@ -316,9 +330,16 @@ function fuzzyScore(words: string[], term: string): number {
 }
 
 /**
- * The nearest place a query named, and WHICH place it was.
+ * The places a query named: the NEAREST one, and the best-NAMED one.
  *
- * 🔴 The name comes back too, because the distance alone was being
+ * 🔴 CAMP-140: two answers, because they are two questions.
+ *
+ * `nearest` orders the list. `label` is the sentence under the result.
+ * CAMP-137 tried to serve both with one number and review measured what
+ * that costs — see the comment inside, kept because it is the reason
+ * this function returns a pair rather than a place.
+ *
+ * 🔴 The name comes back at all because the distance alone was being
  * shown as «436 m from what you searched» — and the match may be
  * fuzzy, so "what you searched" was sometimes a different real place.
  * Measured on the live index: 74 of 332 distances shown across 24 real
@@ -333,27 +354,359 @@ function fuzzyScore(words: string[], term: string): number {
  * world. So the place is named, and the reader can see at once when the
  * match was not what they meant.
  */
-function nearestNamed(
+function namedPlaces(
   doc: SearchDoc,
   ts: string[],
-): { m: number; name: string } | undefined {
-  let closest: { m: number; name: string } | undefined;
+  alias: (string | undefined)[],
+):
+  | {
+      nearest: { m: number; name: string };
+      label: { m: number; name: string; isNearest: boolean };
+    }
+  | undefined {
+  // 🔴 The NEAREST match still orders, exactly as it always did.
+  //
+  // CAMP-137 briefly ranked these by how much of the place's name the
+  // query explained, so that "499 m from Tolmin" would be shown instead
+  // of "273 m from Kmetijska Zadruga Tolmin Trgovina Market Bovec".
+  // That is a real improvement to the sentence and it was reverted,
+  // because `m` was also the ordering key: choosing a better-named place
+  // means choosing a LARGER number, and review measured the damage —
+  // `camping fermo` promoted a campsite six times farther from Fermo,
+  // `camping praha` moved the answer from 7.8 km to 24.5 km, and
+  // `castellon` began showing a bigger distance to a one-edit fuzzy
+  // match than to an exact one, inverting the bands this file calls
+  // inviolable.
+  //
+  // So the better name is computed HERE and used only for the label.
+  // `closest` below is the same variable, filled by the same rule, over
+  // the same set of places — `placeHits > 0` is the old `named`
+  // predicate rewritten one level down, per word instead of per place,
+  // and the union of its four clauses is unchanged. Nothing the sort
+  // reads can move, which is why the corpus numbers in the pull request
+  // are identical rather than merely no worse.
+  //
+  // 🔴 CAMP-136: the exonym has to reach HERE too, or the fix is half a
+  // fix. `m` is the ordering key for everything that scores the same,
+  // and after the alias every campsite around München scores the same —
+  // so without the alias in this function the top result becomes an
+  // arbitrary one of them, and the «· N m from X» line disappears with
+  // it. Measured over the 22 cities in the table below: 13 of them
+  // answer differently when the alias is kept out of here, and two of
+  // those 13 go to the wrong COUNTRY — `hague` to Austria and `bruges`
+  // back to the Gironde.
+  let closest: { name: string; m: number } | undefined;
+  // The best-named place, with the two numbers that chose it: the
+  // strongest band any of its words reached, and how many of its words
+  // the query accounts for out of how many it has.
+  let best: { name: string; m: number } | undefined;
+  let band = 0;
+  let hits = 0;
+  let of = 0;
+
   for (const place of doc.near) {
-    const folded = fold(place.name);
-    const words = folded.split(' ');
-    const named = ts.some(
-      (t) =>
-        words.includes(t) ||
-        words.some((w) => w.startsWith(t)) ||
-        (tolerance(t) > 0 &&
-          words.some((w) => editDistance(w, t, tolerance(t)) <= tolerance(t))),
-    );
-    if (named && (closest === undefined || place.m < closest.m)) {
-      closest = { m: place.m, name: place.name };
+    const words = fold(place.name).split(' ');
+
+    // 🔴 The proper matches first, and the near miss only if there are
+    // none — the same suppression rule `search` applies one level up.
+    //
+    // It is not only cheaper (a query like `camping tolmin` no longer
+    // runs an edit distance for «camping» against a name that «tolmin»
+    // already matched); it is what keeps the bands intact in the
+    // LABEL. `castellon` is the case: "Castelló" is one edit away and
+    // one word long, so a rule that weighed only how much of the name
+    // the query explains would label the result with a fuzzy match in
+    // preference to the exact word in "Castellón de la Plana" — the
+    // inversion that got CAMP-137's version reverted, moved from the
+    // ordering into the sentence.
+    //
+    // 🔴 ONE clause for the alias, not two.
+    //
+    // The first draft also had `words.includes(a)`, mirroring what the
+    // typed word gets — and a word that IS the alias also starts with
+    // it, so that clause could never change an answer. What exposed it
+    // was a mutation that should have been caught and was not:
+    // disabling the `includes` left every test green, because the
+    // prefix clause had been doing the work all along.
+    //
+    // The same is arguably true of `w === t` below, which main has
+    // always carried as a cheaper first try on strict equality. That
+    // one is left alone — it is not this card's line to change, and it
+    // costs a comparison rather than a claim.
+    let placeBand = 0;
+    let placeHits = 0;
+    for (const w of words) {
+      let b = 0;
+      for (let i = 0; i < ts.length; i++) {
+        const a = alias[i];
+        if (w === ts[i] || (a !== undefined && w.startsWith(a))) {
+          b = EXACT_WORD;
+          break;
+        }
+        if (b === 0 && w.startsWith(ts[i])) b = PREFIX;
+      }
+      if (b > 0) {
+        placeHits++;
+        if (b > placeBand) placeBand = b;
+      }
+    }
+    if (placeHits === 0) {
+      // 🔴 The edit distance runs on the word the READER typed, never
+      // on the substitution. Forgiving a typo in a word we chose for
+      // them is two guesses stacked, which is what the score bands
+      // exist to prevent. Measured: allowing it changes nothing on all
+      // 22 exonyms, so it buys noise and no answers.
+      for (const w of words) {
+        for (const t of ts) {
+          const tol = tolerance(t);
+          if (tol > 0 && editDistance(w, t, tol) <= tol) {
+            placeHits++;
+            break;
+          }
+        }
+      }
+      if (placeHits === 0) continue;
+    }
+
+    if (closest === undefined || place.m < closest.m) closest = place;
+
+    // 🔴 The label: the strongest kind of match first, then how much of
+    // the name the query explains, then the shorter walk.
+    //
+    // "Tolmin" and "Kmetijska Zadruga Tolmin Trgovina Market Bovec"
+    // both hold the word exactly, so the second test decides: 1 word of
+    // 1 against 1 of 6. The third is what keeps this deterministic when
+    // two places are equally well named — and, because it prefers the
+    // nearer of them, it is also why the common case does not diverge
+    // from `closest` at all.
+    const cover = placeHits * of - hits * words.length;
+    if (
+      best === undefined ||
+      placeBand > band ||
+      (placeBand === band && (cover > 0 || (cover === 0 && place.m < best.m)))
+    ) {
+      best = place;
+      band = placeBand;
+      hits = placeHits;
+      of = words.length;
     }
   }
-  return closest;
+
+  if (closest === undefined || best === undefined) return undefined;
+  return {
+    // Fresh objects: `doc.near` belongs to the index, and a hit must not
+    // hand a caller a reference into it.
+    nearest: { m: closest.m, name: closest.name },
+    // 🔴 The METRES, not the place. `best === closest` was the obvious
+    // form and it is wrong on a tie: `closest` takes the first place at
+    // the minimum (strict `<`), so when two places are the same distance
+    // away and the second is the better named, the two variables hold
+    // different objects while holding the same number. Review measured
+    // it — `[{Tolminka, 500}, {Tolmin, 500}]` for `tolmin` reported
+    // `isNearest: false` at 500 m against an ordering key of 500 m — and
+    // counted 46 of the 61 422 live campsites carrying two `near` places
+    // at identical `m` ("Ourthe" and "Sy", both 133 m).
+    //
+    // What the page has to know is whether the number it would print IS
+    // the one the row was ordered by. On a tie it is, whichever object
+    // it came from, so the question is about the metres.
+    label: { m: best.m, name: best.name, isNearest: best.m === closest.m },
+  };
 }
+
+// ---------------------------------------------------------------------
+// CAMP-136: the reader types English; the index speaks the local
+// language.
+//
+// 🔴 This is a VOCABULARY problem, and no amount of weighting fixes a
+// word the index does not contain. CAMP-132 left it out saying exactly
+// that, and it was right.
+//
+// The place names come from OpenStreetMap's `name` tag, which is the
+// LOCAL name: `München`, `Warszawa`, `Lisboa`. The site is in English
+// and covers the EU-27. So a reader typing the only name they know gets
+// nothing, or gets somebody else's town. Measured on the live index
+// (61 422 campsites, 27.09.2026), `munich` answered with a campsite in
+// Lower Austria 1 849 m from «Steyr Münichholz», `naples` with one in
+// South Tyrol beside «Vilpian-Nals», `warsaw` with nothing at all.
+//
+// 🔴 The right fix is `name:en`, and we do not have it.
+//
+// `scripts/osm-pipeline/load-context.sh` keeps only `"name","place"` for
+// the place layer, so `osm_ctx_place` has no column to read it from.
+// Adding one means re-running the context pass over 27 countries —
+// hours — and this card is not that. When that import happens this
+// table should shrink to nothing, and the comment below says how to
+// tell whether it did.
+//
+// 🔴 The near-miss band is NOT a substitute, and looks like one.
+//
+// Half of these exonyms are within `tolerance()` of the local spelling,
+// so the fuzzy pass could in principle reach them. Measured, it does
+// not, for two separate reasons:
+//
+//   - it is switched OFF by a single incidental exact match. 54
+//     campsites hold the word `rome` (French: «Saint-Rome-de-Cernon»,
+//     «Ry de Rome») and one holds `milan` («Zum Roten Milan», a pub in
+//     Brandenburg). That is enough for `best[i] === EXACT_WORD`, and
+//     the 85 campsites at Roma and 17 at Milano were never scored.
+//   - when it does run it is a flat 30 for every one-edit neighbour, so
+//     the real city ties with the noise and distance picks the winner.
+//     `seville` returned a French aire 19 m from «La Seille» ahead of
+//     Sevilla; `lisbon` returned one 63 m from «Le Lison».
+//
+// So the substitution has to happen on the QUERY, before any of that.
+//
+// 🔴 An alias scores as an EXACT match, not below one, and this was
+// measured rather than argued.
+//
+// Scoring it at 90 — «the word you typed always wins» — is the safer
+// sounding rule and it fails on 5 of these 22 cities, because in each
+// one an unrelated foreign word holds the slot: `bruges` stays at a
+// French hamlet in the Gironde, `milan` at the Brandenburg pub, `rome`
+// at «Rivière de Rome», `vienna` at a hotel called «Vienna House» in
+// North Rhine-Westphalia, `hague` at a Norman «Hague». At 100 all five
+// move to the city the reader meant.
+//
+// That is also the answer to «what if the word is both a real word and
+// an alias»: BOTH spellings are searched, at equal strength, and the
+// machinery that already exists decides — the region key first
+// (CAMP-137), then metres to the place named. It lands on the right
+// city in 21 of these 22. Being in a region called `roma` is what beats
+// «Saint-Rome-de-Cernon»; being 549 m from «Venezia Porta Ovest» is
+// what beats a car park called «Venice Utility Park».
+//
+// 🔴 `cologne` is the twenty-second, and it does not reach the top.
+//
+// «La Cologne» is a stream in the Somme with a campsite 294 m from it;
+// Köln's nearest campsite is 1 688 m from «Köln-Dellbrück». Equal
+// scores, no region called either, so the shorter walk wins and the
+// French ones keep ranks 1-3. The entry still earns its place — 3 hits
+// become 21, and 18 of them are in Köln where before there were none —
+// but the top hit is unchanged and this comment is not going to pretend
+// otherwise. The 21, counted: the same 3 in France, 16 in Germany, and
+// 2 in Poland that the prefix band picks up beside a village called
+// «Kolno».
+//
+// Each line was checked on the live index. `local` is the count of
+// campsites the local spelling reaches as an exact word; `→` is the
+// country of the top hit before and after.
+//
+//   english      local          en  local   hits        top hit
+//   athens       athina          0      1     5 →    1   be → gr
+//   bruges       brugge          4      6     4 →   42   fr → be
+//   brunswick    braunschweig    0      6     0 →    6    - → de
+//   cologne      koln            3     15     3 →   21   fr → fr  🔴
+//   dunkirk      dunkerque       0      5     3 →    5   nl → fr
+//   florence     firenze         3     45     3 →   47   fr → it
+//   genoa        genova          0     39    41 →   39   fr → it
+//   gothenburg   goteborg        0      0    29 →   30   pl → se  🔴
+//   hague        haag            2      5    23 →   29   fr → nl
+//   lisbon       lisboa          0     38   141 →   38   fr → pt
+//   mantua       mantova         0     23     9 →   23   fr → it
+//   milan        milano          1     17    22 →   22   de → it
+//   munich       munchen         0      4     7 →    5   at → de
+//   naples       napoli          0     37     2 →   37   it → it  (*)
+//   nuremberg    nurnberg        0     12    23 →   12   de → de  (*)
+//   ostend       oostende        0     44     5 →   46   cz → be
+//   padua        padova          0     16     2 →   16   ee → it
+//   rome         roma           54     85    99 →  376   fr → it
+//   seville      sevilla         0     63   324 →   63   fr → es
+//   venice       venezia         1    175     1 →  175   it → it  (*)
+//   vienna       wien            1     12     1 →   18   de → at
+//   warsaw       warszawa        0      5     0 →    5    - → pl
+//
+// (*) same country, different place: `naples` moved from Nals in South
+// Tyrol to Napoli, `nuremberg` from a reservoir in Brandenburg to
+// Altdorf bei Nürnberg, `venice` from «Venice Utility Park» to a
+// campsite 549 m from Venezia.
+//
+// 🔴 `goteborg` is not a word in the index at all — zero campsites hold
+// it. ONE is called «Göteborgs Friluftsförening», and the prefix band
+// reaches it. One document is enough, because what it displaces is
+// fuzzy noise at 30: a Polish site 409 m from «Rothenburg/Oberlausitz».
+// If that campsite is ever renamed, this entry silently goes back to
+// answering with Poland — which is the general fragility of a table
+// this thin, and the reason the tests assert the CITY and not the count.
+//
+// 🔴 What is NOT here, deliberately.
+//
+//   - Cities the English name already reaches: `turin`, `prague` and
+//     `antwerp` work because the REGION slug is already English
+//     (turin 111, prague 34, antwerp 72 campsites); `ghent`, `hanover`
+//     and `cordova` work through the fuzzy band; `copenhagen` works
+//     because three campsites put the English name in their own name.
+//     Adding all seven to the table moved five of them not at all, and
+//     the other two only within their own city: `prague` swapped one
+//     campsite in the Prague region for another 470 m from
+//     «Praha-Stodůlky», `copenhagen` put a campsite 3 718 m from
+//     «København» above one called «Copenhagen Camping». Nothing
+//     changed country, so nothing was worth the row.
+//   - Archaic spellings whose modern form already works: `cracow`,
+//     `oporto`, `lyons`, `marseilles`, `rheims`, `saragossa`,
+//     `louvain`. `krakow`, `porto`, `lyon` are what people type.
+//   - `cracow` doubly so: mapping it onto `krakow` inherits a defect
+//     that is already there — `krakow` itself answers with a German
+//     lake, «Krakower See», 62 m from a campsite in Mecklenburg. Fixing
+//     that is a different card.
+//   - Regions and islands: `tuscany`/`toscana`, `bavaria`/`bayern`,
+//     `crete`/`kriti`, `majorca`/`mallorca`. The same defect, a much
+//     bigger list, and different evidence — a region name is not a
+//     point on the ground, so the geometric corpus cannot judge it.
+//   - `corfu` was tried and dropped: `kerkyra` appears in zero
+//     campsites, so the alias buys literally nothing.
+//   - Multi-word names. `the hague` returns nothing before and nothing
+//     after, because `the` is in 62 campsites — under the 5% share, so
+//     it stays a requirement and nothing satisfies both words. A
+//     one-word key cannot reach that, and it is a different defect.
+//
+// 🔴 A Map, not an object literal, and this is a precaution rather
+// than a bug report.
+//
+// `{...}[term]` falls through to Object.prototype, and `constructor` is
+// an ordinary English word that `fold()` passes through unchanged — so
+// a reader typing it would get the `Object` function back as this
+// word's "local spelling". Measured, that changes no answer today:
+// `startsWith` coerces it to "function Object() { [native code] }",
+// which matches nothing, and searching `constructor` returns the same
+// single campsite before and after. It is also the only reachable
+// name: `fold()` lower-cases everything it returns, and `toString`,
+// `valueOf` and `hasOwnProperty` all carry a capital, so no query can
+// ever spell them. A Map has no prototype to fall through, which
+// closes the class instead of the one instance of it.
+export const EXONYMS: ReadonlyMap<string, string> = new Map(
+  Object.entries({
+    athens: 'athina',
+    bruges: 'brugge',
+    brunswick: 'braunschweig',
+    cologne: 'koln',
+    dunkirk: 'dunkerque',
+    florence: 'firenze',
+    genoa: 'genova',
+    gothenburg: 'goteborg',
+    hague: 'haag',
+    lisbon: 'lisboa',
+    mantua: 'mantova',
+    milan: 'milano',
+    munich: 'munchen',
+    naples: 'napoli',
+    nuremberg: 'nurnberg',
+    ostend: 'oostende',
+    padua: 'padova',
+    rome: 'roma',
+    seville: 'sevilla',
+    venice: 'venezia',
+    vienna: 'wien',
+    warsaw: 'warszawa',
+  }),
+);
+
+// 🔴 Both sides of every entry are already folded. `münchen` on the
+// right would never match anything, because `fold()` has run over the
+// index and over the query long before this table is consulted — and it
+// would fail silently, which is the worst way for a table to be wrong.
+// The suite asserts `fold(k) === k` and `fold(v) === v` over all 22
+// rather than trusting the eye.
 
 export interface SearchOptions {
   limit?: number;
@@ -389,8 +742,12 @@ export interface SearchOptions {
  * now answers with `Camp Bovec`, 40 km away, because a shop 273 m from
  * it is called "Kmetijska Zadruga Tolmin Trgovina Market Bovec". On
  * that corpus the trade is 42 better against 1 worse. The cause is
- * `nearestNamed` matching a term against any place name, which
+ * `namedPlaces` matching a term against any place name, which
  * CAMP-131 documented and this change made matter more often.
+ *
+ * 🔴 The ORDERING of that case was fixed by the region key below.
+ * CAMP-140 fixed what was left of it — the sentence under the result,
+ * which went on naming the shop.
  */
 export function search(
   docs: SearchDoc[],
@@ -399,6 +756,18 @@ export function search(
 ): SearchHit[] {
   const ts = terms(query);
   if (ts.length === 0) return [];
+  // 🔴 CAMP-136: a parallel array, not a wider term object.
+  //
+  // Everything below already works this way — `exact`, `best`,
+  // `common`, `required`, `weight` are all one entry per term — and one
+  // more of the same shape leaves every one of those decisions counting
+  // exactly what it counted before: ONE column per word the reader
+  // typed, whichever spelling ended up matching. An object per term was
+  // tried first and it cost 8-11% on queries with no alias in them,
+  // measured against a byte-identical copy of this file running in the
+  // same process as the control: two hidden classes in the hot loop,
+  // because only some terms carry the field.
+  const alias = ts.map((t) => EXONYMS.get(t));
 
   // 🔴 The pass collects everything the ranking needs to know.
   //
@@ -421,7 +790,25 @@ export function search(
     const words = docs[d].text.split(' ');
     const row = new Array<number>(ts.length);
     for (let i = 0; i < ts.length; i++) {
-      const s = strongScore(words, ts[i]);
+      let s = strongScore(words, ts[i]);
+      // 🔴 CAMP-136, and note what is NOT here: no new band, no second
+      // column, no change to the three lines below.
+      //
+      // The alias is tried only when the typed word did not match
+      // exactly — so a word that really exists keeps its own score and
+      // pays nothing — and when it matches, it matches at EXACT_WORD.
+      // That one choice is what leaves the rest of this function alone:
+      // `exact[]` counts the term once whichever spelling found it, the
+      // near-miss gate below still reads `best[i] !== EXACT_WORD` and so
+      // still switches the edit distance off, and the rarity weighting
+      // sees a document frequency that is now true. Measured on
+      // `munich`, suppressing that edit-distance pass took the query
+      // from 160 ms to 37 ms on the live index.
+      const a = alias[i];
+      if (s !== EXACT_WORD && a !== undefined) {
+        const viaAlias = strongScore(words, a);
+        if (viaAlias > s) s = viaAlias;
+      }
       if (s === EXACT_WORD) exact[i]++;
       if (s > best[i]) best[i] = s;
       row[i] = s;
@@ -544,11 +931,116 @@ export function search(
     if (ok) matched.push({ doc: docs[d], scores: row });
   }
 
-  const hits: SearchHit[] = matched.map(({ doc, scores }) => {
+  // 🔴 Folded once per document, not once per keystroke per document.
+  //
+  // The first version folded the region, the country name and the
+  // campsite name inside this map — three `fold()` calls, a `split` and
+  // a `Set` for every matched document, on every keystroke. Review
+  // measured 1.5-1.9x on the short prefixes that make up most of what a
+  // reader types: `cam` 73 ms → 136 ms. A region slug is already
+  // lower-case ASCII, so the fold is nearly free, but doing it 61 422
+  // times per keystroke is not.
+  const regionCache = new Map<string, Set<string>>();
+  const wordsOf = (region: string) => {
+    let w = regionCache.get(region);
+    if (w === undefined) {
+      w = new Set(fold(region).split(' ').filter(Boolean));
+      regionCache.set(region, w);
+    }
+    return w;
+  };
+
+  const hits = matched.map(({ doc, scores }) => {
+    const regionWords = wordsOf(doc.region);
     let total = 0;
     for (let i = 0; i < scores.length; i++) total += scores[i] * weight[i];
-    const place = nearestNamed(doc, ts);
-    return { doc, score: total, metres: place?.m, nearest: place?.name };
+    const place = namedPlaces(doc, ts, alias);
+    // 🔴 The REGION, and nothing else.
+    //
+    // This counted the campsite's own name and country too, and review
+    // measured what that does: `camping piaseczno` left a campsite 41 m
+    // from Piaseczno for "Resort Piaseczno" — a different Piaseczno,
+    // 528 km away, in another region. Having the word in your own NAME
+    // is not being in the place; it is the same coincidence as a shop
+    // named after a town, one level closer in. The country is worse
+    // still: it contributed 6 of 4 277 matches and narrows nothing.
+    //
+    // A region is different in kind. It is the only one of the three
+    // that means "the campsite is inside the area the reader named".
+    //
+    // 🔴 Only words that NARROW earn a point — and the first version of
+    // this comment claimed that rule could never fire. It was wrong.
+    //
+    // I removed the filter saying "no region is called camping", which
+    // is true and beside the point. Six words are BOTH above the 5%
+    // threshold and words of a region slug — as an exact word over
+    // `doc.text`, which is what `exact[]` above counts:
+    //
+    //   de 40.5%   la 17.0%   saint 7.6%   du 5.7%   l 5.4%   d 5.1%
+    //
+    // — pas-de-calais, bouches-du-rhone, la-rioja, seine-saint-denis,
+    // cote-d-or, val-d-oise. 2 257 campsites, 3.7% of the index, sit in
+    // such a region. Without the filter they collect a point for the
+    // word "du", and `camping du lac` stops answering with the campsite
+    // 0 m from a lake of that name and answers with Bouches-du-Rhône,
+    // 1.5 km from anything.
+    //
+    // (A count of "31 of 3 503 queries change" stood here. It was a
+    // number I took from a review rather than measured, and a later
+    // pass put it at 34. Removed rather than corrected: a figure I did
+    // not produce is a figure I cannot defend.)
+    //
+    // 🔴 `!common[i]`, not `required[i]`. The two differ exactly where
+    // it matters: when EVERY word of the query is common, `allCommon`
+    // makes them all required again — a sensible rule for deciding what
+    // must match, and the wrong one here. Measured, `camping saint`
+    // then collected a point for "saint" and answered with
+    // Seine-Saint-Denis and no distance at all, in place of a campsite
+    // 0 m from a place actually called Saint-something. The two forms
+    // differ on 12 of 3 503 realistic queries, every one of them a
+    // query whose every word is common, and `!common[i]` matches main
+    // on all of them.
+    //
+    // (`camping seine` was offered here as a second example and does
+    // not belong: "seine" is 0.6% of the index, so the two forms are
+    // identical there and the 16 m → 567 m move comes from `own`
+    // existing at all. Review caught it.)
+    //
+    // Being required is about whether a word must appear. Being common
+    // is about whether it identifies anything — and a word in 5% of the
+    // index identifies no region, whatever the query around it looks
+    // like.
+    //
+    // 🔴 CAMP-136: the alias counts as being in the region, and this is
+    // the single line that decides `rome`.
+    //
+    // Italy's region slug is `roma`, so a campsite in Rome earns the
+    // point and the 54 French campsites holding the word «Rome» —
+    // «Saint-Rome-de-Cernon», «Ry de Rome» — do not. Measured: of the
+    // 22 cities in the table, `rome` is the ONLY one this changes, and
+    // without it `rome` answers with La Clusa in the Pyrénées-
+    // Orientales exactly as it does on main. It cannot manufacture a
+    // match either — it compares against a region slug that exists, so
+    // it fires only where the reader's city really is a region.
+    let own = 0;
+    for (let i = 0; i < ts.length; i++) {
+      const a = alias[i];
+      if (
+        !common[i] &&
+        (regionWords.has(ts[i]) || (a !== undefined && regionWords.has(a)))
+      ) {
+        own++;
+      }
+    }
+    return {
+      doc,
+      score: total,
+      metres: place?.nearest.m,
+      nearest: place?.nearest.name,
+      label: place?.label,
+      // Carried only as far as the sort below, then dropped.
+      own,
+    };
   });
 
   return hits
@@ -594,13 +1086,96 @@ export function search(
       // 39 real queries and 0 of 200 000 randomised hit-sets, against
       // this comparator and against the previous one. A line that
       // cannot change an outcome misleads about what protects what.
+      // 🔴 CAMP-137: being IN the place you named beats being near
+      // something whose name contains the word.
+      //
+      // Distance was the only thing separating equal scores, and it
+      // answers a different question: "how far is the nearest thing
+      // whose name contains your word". Measured on the live index,
+      // `camping tolmin` returned `Camp Bovec`, forty kilometres from
+      // Tolmin, because a shop 273 m from it is called "Kmetijska
+      // Zadruga **Tolmin** Trgovina Market Bovec" — a cooperative FROM
+      // Tolmin running a store IN Bovec. The word is there; the town is
+      // not.
+      //
+      // 🔴 The first attempt scored how much of the place's NAME the
+      // query explained, and it broke five other queries to fix this
+      // one. That measure punishes long real names: "València - La Font
+      // de Sant Lluís" IS Valencia, and it lost to "Valencia de
+      // Alcántara" in Portugal for having six words instead of three.
+      // `camping gard` went to Sweden, because *gård* is an ordinary
+      // Swedish word and "Coop Ludvika Gård" matched it exactly.
+      //
+      // What every one of those cases had in common — including Tolmin
+      // — is that the right answer was the campsite IN the region the
+      // reader named, and the wrong one merely had a neighbour with the
+      // word in its name. So that is what is compared: how many of the
+      // query's words the document matches in its own REGION, rather
+      // than through something nearby.
+      //
+      // The region alone, and this sentence used to say "region,
+      // country or name". The code was corrected and the sentence was
+      // not, which is the shape of mistake this file exists to catch:
+      // the name is the coincidence one level in (`Resort Piaseczno`,
+      // 528 km from the Piaseczno the reader meant) and the country
+      // contributed 6 matches in 4 277.
+      //
+      // 🔴 The price, named and measured on THIS commit: compared
+      // before distance, a campsite inside the region with no recorded
+      // distance to anything outranks one just outside it standing next
+      // to the town. The "· N m from X" line therefore disappears from
+      // the top result on 5 of the 19 answers that change across the
+      // 4 216-place geometric corpus, and on 14 of 27 across a wider
+      // corpus of multi-word queries. `brda`, `rezeknes` and `limburg`
+      // are the visible cases: the region wins and the line goes.
+      //
+      // The rarity filter above removes part of that class and not
+      // most of it — 26 of 60 before it, 14 of 27 after, and no change
+      // at all on the geometric corpus. An earlier version of this
+      // comment quoted the pre-filter number and claimed "most", two
+      // paragraphs below a sentence about exactly that mistake.
+      //
+      // What remains is the genuine ambiguity between a town and the
+      // region named after it.
+      //
+      // 🔴 CAMP-140 did NOT fix that, and this comment said it would.
+      // That card separated the label from the ordering key; a top hit
+      // that records no distance to anything still records none, so the
+      // line still goes. It is a missing number in the data, not a
+      // wrong choice between two of them, and it needs its own card.
+      if (b.own !== a.own) return b.own - a.own;
+      // 🔴 `quality` is NOT a sort key, and was.
+      //
+      // Sorting on it re-created the defect it was meant to remove, one
+      // rung lower: `camping fermo` promoted a campsite 13 592 m from
+      // Fermo over one 2 263 m from "Porto San Giorgio-Fermo", because
+      // one word of one beat two words of four. It also inverts the
+      // score bands this file calls inviolable — a one-edit fuzzy match
+      // at 30 x 1/1 outranks an exact word at 100 x 2/8 — and review
+      // found `castellon` doing exactly that, showing the reader a
+      // larger distance to a weaker match.
+      //
+      // It does not survive at all: `nearestNamed` went back to main's
+      // nearest-match-wins, because `m` was both the ordering key and
+      // the number the reader is shown, and one function cannot serve
+      // both. Nothing tested `quality` as a sort key, and removing it
+      // left all 287 tests green — which is how it got in.
+      //
+      // 🔴 CAMP-140 split the two, and this line is unchanged by it. The
+      // better-named place decides the LABEL and is never compared here
+      // — that is the whole point: the measure that broke `fermo`,
+      // `praha` and `castellon` is the one that must not reach the
+      // sort. Measured on the 500-query geometric corpus, before
+      // against after: 500 identical, 0 moved.
       const am = a.metres ?? Number.POSITIVE_INFINITY;
       const bm = b.metres ?? Number.POSITIVE_INFINITY;
       if (am !== bm) return am - bm;
       // Deterministic tiebreak — the same lesson as the map's ORDER BY.
       return a.doc.path.localeCompare(b.doc.path);
     })
-    .slice(0, limit);
+    .slice(0, limit)
+    // `own` orders the list; it does not describe a result.
+    .map(({ own, ...hit }) => (void own, hit));
 }
 
 // ---------------------------------------------------------------------
@@ -633,7 +1208,10 @@ export function search(
 // `search()` and every type above are untouched: the packing happens on
 // write and the unpacking on read, so nothing downstream knows.
 
-/** Country codes and region names, each stored once and referenced by index. */
+/**
+ * Country codes, region names and place names: each stored once in its
+ * own table and referenced by index. See `PackedIndex`.
+ */
 /**
  * The slug a campsite's name would produce, or null when it would not.
  *
@@ -667,31 +1245,109 @@ export interface PackedIndex {
   /**
    * Format version, so an old cached file cannot be read as a new one.
    *
-   * 🔴 2 since CAMP-129 dropped `text`. A version 1 file read as 2 would
-   * put the folded haystack where places-nearby belong — not a crash, a
-   * wrong page. The reader refuses instead.
+   * 🔴 3 since CAMP-138 moved place names into a shared table. Version 2
+   * carried `near` as `[{name, m}, …]`; version 3 carries it as
+   * `[[placeIdx, m], …]`, plus the table `p` those indices point into.
+   *
+   * 🔴 A version 2 file has no `p` AT ALL — its top-level keys are
+   * `v,c,r,d` — and that decides what reading one as version 3 does.
+   * `unpackIndex` evaluates `packed.p[e[0]]`, which is
+   * `undefined[undefined]`, and throws on the first row. Measured on all
+   * 29 chunks `main`'s packer produces from the live index, fed to this
+   * reader with the gate below deleted: **29 threw, 0 rows returned**,
+   * every one `TypeError: Cannot read properties of undefined (reading
+   * 'undefined')`.
+   *
+   * 🔴 So this gate is NOT what stands between a reader and a quietly
+   * wrong page, and the first version of this comment said it was.
+   *
+   * It claimed 868 rows came back with all 3 081 nearby places holding
+   * `{name: undefined, m: undefined}` and the haystack silently
+   * shortened. Those numbers were produced — by a hand-written copy of
+   * this function that said `packed.p?.[e[0]]`.
+   *
+   * 🔴 The file was genuine; the READER was not. One optional-chaining
+   * operator, swallowing precisely the missing table that distinguishes
+   * the two formats, and the result was a confident, fully specific,
+   * entirely false account of the failure. Worth being exact about
+   * which half was wrong, because the lesson is narrow and useful:
+   * never measure a function by re-typing it. Import the one that
+   * ships and take away the thing you want to test — here, the gate
+   * below and nothing else.
+   *
+   * What the gate is actually worth is still worth having: it turns an
+   * incidental `TypeError` from the middle of a `.map()` into a NAMED
+   * refusal that says which format arrived — which `site-search.tsx`
+   * catches and counts as a failed part, rather than letting an
+   * unlabelled type error decide how the page behaves. See
+   * `unpackIndex` for why no version 2 branch is offered beside it.
    */
-  v: 2;
+  v: 3;
   c: string[];
   r: string[];
   /**
+   * Place names, each stored once.
+   *
+   * 🔴 This is the whole card. Measured on the live index 27.09.2026:
+   * 207 994 nearby-place entries hold only 33 778 distinct names, so
+   * every name was written 6.16 times on average. Storing each once and
+   * referencing it takes the index from 8 984 521 to 5 201 286 raw
+   * bytes — 8.98 MB → 5.20 MB, −42.1% — and 29 files to 28, because
+   * France now needs two pieces instead of three.
+   */
+  p: string[];
+  /**
    * `[name, countryIdx, regionIdx, slug | 0, near?]`
    *
-   * `text` is derived, and `slug` is 0 when it is exactly what the name
-   * produces — which it is for 71% of rows.
+   * `text` is derived, `slug` is 0 when it is exactly what the name
+   * produces — which it is for 71% of rows — and `near` is
+   * `[placeIdx, metres]` pairs into `p`.
    */
-  d: (string | number | { name: string; m: number }[])[][];
+  d: (string | number | [number, number][])[][];
 }
 
 export function packIndex(docs: SearchDoc[]): PackedIndex {
-  const c: string[] = [];
-  const r: string[] = [];
-  const idx = (list: string[], value: string) => {
-    const at = list.indexOf(value);
-    if (at >= 0) return at;
-    list.push(value);
-    return list.length - 1;
+  // 🔴 A Map beside each table, not `indexOf` over it.
+  //
+  // `indexOf` was fine for the two tables that existed: 27 countries and
+  // 794 regions, scanned 61 422 times. The place table is 33 778 names
+  // looked up 207 994 times, and a linear scan over it is quadratic in
+  // exactly the thing this card makes bigger. Measured on the live
+  // index, packing all 28 chunks once — which is one of the several
+  // passes a build makes:
+  //
+  //   Map       46 ms        indexOf      315 ms      6.8x
+  //
+  // and the same docs packed as ONE group, where the table reaches its
+  // full 33 778 rather than a country's worth:
+  //
+  //   Map       34 ms        indexOf    3 800 ms      112x
+  //
+  // The per-chunk number is the one we pay today and the whole-index
+  // number is what it grows into, since a chunk is capped at 1.5 MB
+  // while the table behind it is not.
+  //
+  // 🔴 The indices are identical to `indexOf`'s — both hand out
+  // positions in first-seen order — and that is asserted rather than
+  // assumed: packing 5 000 live rows both ways produces byte-identical
+  // JSON. This changes what a lookup costs, not what it answers.
+  const table = () => {
+    const list: string[] = [];
+    const at = new Map<string, number>();
+    return {
+      list,
+      idx(value: string): number {
+        const found = at.get(value);
+        if (found !== undefined) return found;
+        at.set(value, list.length);
+        list.push(value);
+        return list.length - 1;
+      },
+    };
   };
+  const c = table();
+  const r = table();
+  const p = table();
 
   const d = docs.map((doc) => {
     // 🔴 The slug is recovered from the path rather than carried
@@ -699,10 +1355,10 @@ export function packIndex(docs: SearchDoc[]): PackedIndex {
     // a second source for the same string is a second thing to get
     // wrong. `/camping/<country>/<region>/<slug>` — the last segment.
     const slug = doc.path.slice(doc.path.lastIndexOf('/') + 1);
-    const row: (string | number | { name: string; m: number }[])[] = [
+    const row: (string | number | [number, number][])[] = [
       doc.name,
-      idx(c, doc.country),
-      idx(r, doc.region),
+      c.idx(doc.country),
+      r.idx(doc.region),
       // 🔴 0, not an empty string: an empty string is a legitimate slug
       // to be wrong about, and `''` beside `'0'` in a hand-read file is
       // a mistake waiting to happen. A number says "derive it"; a string
@@ -723,24 +1379,101 @@ export function packIndex(docs: SearchDoc[]): PackedIndex {
     // a fresh import, a country loaded before its context — and a row
     // that ends early is what `unpackIndex` already expects. Kept as a
     // cheap invariant, not as a saving it no longer makes.
-    if (doc.near.length > 0) row.push(doc.near);
+    if (doc.near.length > 0) {
+      row.push(doc.near.map((n) => [p.idx(n.name), n.m] as [number, number]));
+    }
     return row;
   });
 
-  return { v: 2, c, r, d };
+  return { v: 3, c: c.list, r: r.list, p: p.list, d };
 }
 
 export function unpackIndex(packed: PackedIndex): SearchDoc[] {
-  if (packed?.v !== 2) {
-    // A cached file from before this change, or a truncated download.
-    // Returning junk would show a reader a search that silently finds
-    // nothing; an empty index at least makes the page say so.
+  // 🔴 Version 3 ONLY, and version 2 is refused along with the rest.
+  //
+  // A browser can be holding a version 2 chunk when this ships, and
+  // reading it would be easy: `v` says which format it is, so a second
+  // branch here could unpack it correctly. That is deliberately not
+  // done, for two reasons that are about this file's URLs rather than
+  // about the formats.
+  //
+  // 🔴 The version is the only staleness signal these URLs have.
+  //
+  // 🔴 And the durable half of that is the URL, not any cache header.
+  // `/data/search/<id>.json` carries no content hash, so one build's
+  // body and the next are the same address whatever the caching policy
+  // turns out to be. The route asks for `max-age=3600` and `next start`
+  // honours it; what production does is NOT established — CAMP-90
+  // records that Cloudflare Pages never runs Next's header logic, the
+  // generated `public/_headers` sets no `Cache-Control` for these paths
+  // at all, and the host is still unsettled. So reason from "some cache
+  // may hold an old body at this address", which is true everywhere,
+  // rather than from an hour nobody has measured in production.
+  //
+  // The table of contents catches a stale chunk only when the COUNT
+  // changed, which is the check in site-search.tsx. Measured on this
+  // change: 26 of the 27 countries keep both their id and their
+  // campsite count, so for 26 of them that check stays silent and the
+  // version number is the only thing left saying "this file predates
+  // the deploy". (France is the one that does not: it goes from three
+  // pieces to two, so `fr-1` grows from 7 882 rows to 11 823 and `fr-3`
+  // stops existing — the count check and a 404 cover those.) Accepting
+  // v2 would spend that signal for a transition window we cannot size.
+  //
+  // 🔴 And a v2 branch here is a branch nothing writes.
+  //
+  // `packIndex` emits v3, so `checkedPlan`'s per-chunk round trip — the
+  // only thing that exercises this function against real data on every
+  // build — could never reach it. An unexercised guard is the defect
+  // this repository keeps finding in its own safeguards; adding one on
+  // purpose, in the function whose failure mode is "the wrong
+  // campsite", is not a trade worth making.
+  //
+  // What the reader gets instead is labelled, and the handling is
+  // already built: the throw lands in the catch in site-search.tsx, the
+  // part is counted as failed, and `partialNotice` says how many parts
+  // could not be loaded and that every campsite in them is still
+  // reachable from the country list.
+  //
+  // 🔴 Say the size of that plainly: with a fully warm cache this is a
+  // DEAD search, not a degraded one. All 28 ids the new table of
+  // contents asks for existed under version 2, so every request can be
+  // answered from cache with a version 2 body — measured, 28 of 28
+  // refused, `docs` empty, and the page answers "Nothing matches" to
+  // everything, behind the notice. It recovers when the cached bodies
+  // do, and how long that takes is the open question above.
+  if (packed?.v !== 3) {
+    // A stale cached file, a file from a future format, or a truncated
+    // download. A version 2 body would throw a bare TypeError a few
+    // lines below instead — see `PackedIndex` — and a format we have
+    // not met yet could return junk rather than throwing at all. Both
+    // are worse than one named error the caller can act on.
     throw new Error(`search index format ${packed?.v} is not supported`);
   }
   return packed.d.map((row) => {
     const country = packed.c[row[1] as number];
     const region = packed.r[row[2] as number];
-    const near = (row[4] as { name: string; m: number }[]) ?? [];
+    // 🔴 The names are SHARED, not copied. Every entry naming the same
+    // place hands back the same string, and that is where the heap
+    // saving is: measured on the live index, 42.2 MiB held → 37.4 MiB,
+    // −11.4%, because 207 994 separate strings became 33 778 referenced
+    // 207 994 times. V8 does not do this for us — 4.8 MiB across
+    // 174 216 strings is about 29 bytes each, which is a short string
+    // plus its header, so `JSON.parse` was genuinely allocating one per
+    // entry.
+    //
+    // 🔴 Nothing in the suite would notice if this stopped. Rebuilding
+    // the name here — `.slice()`, a template, anything that returns a
+    // fresh string — gives identical documents, identical searches and
+    // an identical file, and quietly gives back the heap this card was
+    // for. There is no assertion for string identity in JavaScript;
+    // what holds this is the measurement above, repeated when it
+    // changes. Said plainly rather than covered by a test that would
+    // only look like one.
+    const near = ((row[4] as [number, number][]) ?? []).map((e) => ({
+      name: packed.p[e[0]],
+      m: e[1],
+    }));
     const name = row[0] as string;
     // 0 means "the name produces it". Anything else is carried verbatim
     // because the name could not — see slugFromName.

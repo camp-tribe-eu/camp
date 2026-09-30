@@ -5,8 +5,12 @@
 // it in pages would mean finding every call site the day the host changes.
 
 import type { SpotSource } from './sources';
+import type { Tariff } from './tariffs';
+// CAMP-168: the official bathing water classification for a season.
+import type { BathingWater } from './bathing';
 
 export type { SpotSource };
+export type { Tariff };
 
 export const API_BASE =
   process.env.API_BASE_URL ?? 'http://localhost:3001';
@@ -232,8 +236,76 @@ export interface Spot {
   /** Official national classification, 1–5, where a source publishes one. */
   stars: number | null;
   website: string | null;
+  /**
+   * CAMP-141: how to reach the place, from OpenStreetMap.
+   *
+   * 🔴 Separate from `website` above, which DATAtourisme fills. Two
+   * sources, two fields, and the page decides which to show — rather
+   * than one field whose meaning depends on which import ran last.
+   * 🔴 The whole object is optional, not just its keys.
+   *
+   * The column is NOT NULL DEFAULT '{}', so a current API always sends
+   * one — but `getSpot` is `res.json()` with a day of cache behind it,
+   * and a web deploy ahead of the API, or one stale cached payload, made
+   * the page throw on `spot.contact.address`. Review demonstrated it.
+   * Optional here plus `?? {}` at every use costs nothing and cannot
+   * take a page down.
+   *
+   * Every key is optional because OSM tagging is voluntary: measured
+   * over a 25 793-row extract with this same mapping, 74.7% of
+   * campsites carry something here and 25.3% carry nothing. (An earlier
+   * version of this sentence said 65.9% / 34.1%, which is the narrower
+   * count of website, phone or email only — right number, wrong
+   * question.)
+   */
+  contact?: {
+    website?: string;
+    phone?: string;
+    email?: string;
+    operator?: string;
+    openingHours?: string;
+    capacity?: number;
+    address?: { street?: string; city?: string; postcode?: string };
+  };
   /** Which source gave which field, and when it last changed it. */
   sources: SpotSource[];
+  /**
+   * CAMP-147: the price list — a table, never one number.
+   *
+   * 🔴 Optional, and every reader of it uses `?? []`. Same reason as
+   * `contact` above: the API and the site deploy separately and
+   * `getSpot` is a cached `res.json()`, so a payload written before this
+   * field existed must produce a page with no price table rather than a
+   * page that throws.
+   *
+   * 🔴 Every entry carries a validity period, because the API refuses to
+   * send one that does not — and `lib/tariffs.ts` refuses again on the
+   * way to the screen. Two independent locks on the one rule CAMP-147
+   * calls forbidden.
+   */
+  tariffs?: Tariff[];
+  /**
+   * CAMP-168: the nearest officially designated bathing water, or null.
+   *
+   * 🔴 Optional here and `?? null` at the use, for the same reason as
+   * `contact` and `tariffs` above: `getSpot` is a cached `res.json()`
+   * and the API deploys separately. A payload written before this field
+   * existed must produce a page that says no bathing water is designated
+   * nearby — which is visible and reportable — rather than a page that
+   * throws.
+   *
+   * 🔴 `season` is REQUIRED inside it. There is no shape of this object
+   * without a year, because a class without its season is the one thing
+   * CAMP-168 exists to prevent.
+   */
+  bathingWater?: BathingWater | null;
+  /**
+   * How many further prices the source publishes with no season.
+   *
+   * Printed on the page. A table that quietly shows 3 of 11 tariffs has
+   * misrepresented the price list by omission.
+   */
+  tariffsWithheld?: number;
 }
 
 export interface NearbySpot {

@@ -9,5 +9,10 @@
     "dev:api": "npm run start:dev --workspace=apps/api",
     "build:web": "npm run build --workspace=apps/web",
     "build:api": "npm run build --workspace=apps/api"
+  },
+  "overrides": {
+    "qs": "^6.16.0",
+    "lodash": "^4.18.0",
+    "postcss": "^8.5.23"
   }
 }

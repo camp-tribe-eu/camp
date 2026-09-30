@@ -31,9 +31,23 @@ export const LAYERS = [
     status: 'live',
   },
   {
+    id: 'wildfire',
+    // 🔴 "Wildfire", not "Fire risk". We draw the burnt areas Copernicus
+    // has already mapped — a record of what happened, dated. "Risk" is a
+    // forecast, and we make none; a label that promised one would be the
+    // first assertion of ours on a layer whose whole discipline is
+    // mirroring somebody else's.
+    label: 'Wildfire',
+    description:
+      'Burnt areas mapped by Copernicus EFFIS in the last two weeks, with the date each fire was recorded.',
+    status: 'live',
+    card: 'CAMP-153',
+    terms: 'cems',
+  },
+  {
     id: 'hazards',
     label: 'Hazards',
-    description: 'Official fire and severe-weather warnings.',
+    description: 'Official severe-weather warnings.',
     status: 'planned',
     card: 'CAMP-112',
   },
@@ -64,6 +78,23 @@ export const LAYERS = [
   description: string;
   status: 'live' | 'planned';
   card?: string;
+  /**
+   * 🔴 CAMP-162. Whose licence the data is under, when that licence
+   * governs what we may SAY beside it. `'cems'` — Copernicus Emergency
+   * Management Service (EFAS, GloFAS, GFM, EDO, GDO, EFFIS, GWIS) — bars
+   * "warning", "danger", "risk" and "alert" from text rendered beside the
+   * data and requires the modified-data credit next to it.
+   *
+   * It is the SOURCE that carries the rule, not the file: the planned
+   * `hazards` entry below says "warnings" and is right to, because that
+   * is what a meteorological service publishes and no CEMS term touches
+   * it. So a layer either carries this tag and gets its rendered panel
+   * read by `tests/unit/cems-panels.spec.ts`, or it does not and is not
+   * read at all. The spec also fails a LIVE layer whose own description
+   * names a CEMS product but has no tag, so leaving it off is not a way
+   * to escape the check.
+   */
+  terms?: 'cems';
 }[];
 
 export type LayerId = (typeof LAYERS)[number]['id'];

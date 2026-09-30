@@ -71,6 +71,28 @@ export const WATCHED = [
     since: '2026-09-24',
     why: 'nobody is checking that the backups can be restored: they keep being written, they keep looking fine, and whether they can be read back is unknown until the day it is the only copy',
   },
+  {
+    // CAMP-134. 🔴 This one is watched harder than the others, because it
+    // is the only job in the repository that runs on a machine we own.
+    //
+    // ci.yml lives on GitHub's runners: it is either green, red, or
+    // visibly broken. The scale check runs on the machine that holds the
+    // database and the OSM extracts, and that machine can be asleep, off,
+    // or simply have no runner process — in which case the workflow does
+    // not fail, it queues, and a queued run is indistinguishable from a
+    // healthy repository at a glance.
+    //
+    // The thing it stops being able to see is precisely the class of
+    // defect it was built for: six of eighteen on 25.09.2026, every one
+    // of them green on the fixture. So silence here puts us back exactly
+    // where the card found us, with the added cost of believing we are
+    // covered.
+    workflow: 'scale-check.yml',
+    everyDays: 1,
+    graceDays: 1,
+    since: '2026-09-27',
+    why: 'nothing is asking the questions that only have answers on 61 557 campsites: the six defects of 25.09.2026 were all green on the fixture, and a scale check that has quietly stopped leaves us there while looking covered',
+  },
 ];
 
 /**

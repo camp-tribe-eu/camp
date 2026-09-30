@@ -22,6 +22,34 @@ stops working**, and the answer is not the same for every table.
 | **`reviews`, `photo_submissions`** | **the public** | **gone** |
 | **`guides`, `routes`** | **our writing** | **gone** |
 | **`missing_since`, `content_changed_at`** | **accumulated history** | every campsite looks new today, which resets the "gone" logic and every sitemap date at once |
+| `spot_links` (the 2 986 links) | recomputed by `reconcile-sources.ts` | minutes — rerun it |
+| **`spot_links.unlinked_at` (a person's "this match is wrong")** | **typed by a human** | **gone — and the reconciler would relink the pair** |
+
+### `spot_links` is not in the backup, on purpose
+
+CAMP-144 joins the row OpenStreetMap wrote to the row DATAtourisme wrote
+for the same campsite. The links themselves are cheap: `reconcile-sources.ts`
+rebuilds all 2 986 in under a second from the rows it finds.
+
+What is not cheap is a person having decided a link was **wrong**, which
+is recorded as `unlinked_at`. That is the same category as
+`owner_overrides` — judgement with no upstream source — and it is worse
+than merely lost, because the reconciler skips a pair it has already
+judged, so losing the row means the next run silently recreates the link
+the person removed.
+
+🔴 It is still not in `TABLES`, and adding it there would be worse than
+leaving it out. Every row in it is a pair of `camping_spots.id` uuids,
+and the spots backup carries `osm_ref`, not `id` — a rebuilt database
+gives every campsite a fresh uuid. Restored into it, those links would
+hit a foreign key and fail, and a backup that cannot be restored is a
+folder. Backing this up properly means exporting it against stable
+identities (`osm_ref` on one side, the DATAtourisme URI on the other) and
+resolving them on the way back in — a restore path of its own, which
+needs its own self-test.
+
+Today there are **0** undone links, so nothing is at risk yet. The day
+somebody undoes the first one, this becomes real.
 
 ### Why `context` is the expensive one
 

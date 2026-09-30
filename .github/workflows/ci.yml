@@ -112,6 +112,25 @@ jobs:
       - name: Flaky-test guard still catches a retry that went green
         run: node scripts/ci/check-flaky.mjs --self-test
 
+      # 🔴 CAMP-134. The same failure one door along from the flake guard
+      # above: a test that fails then passes leaves the job green, and so
+      # does a test that never ran at all. The summary line everybody
+      # reads says "295 passed" and does not mention the 5 that skipped.
+      #
+      # Measured 27.09.2026: `--project=unit` gives 295 passed and 5
+      # skipped, all of them ranking-quality.spec.ts declining because
+      # the live search index is not cached where it looks. CI does not
+      # set RANKING_INDEX, so those five have never run here.
+      #
+      # ⚠️ Only the guard's LOGIC runs in this job. The gate itself is
+      # not yet on this workflow's e2e suite, because seeding a budget
+      # needs a full e2e report and there are 23 `test.skip` sites in
+      # tests/e2e, most of them "the fixture holds no X" — which is this
+      # card's subject from a third direction. The scale workflow enforces
+      # it at zero today; docs/scale-check.md says what is left.
+      - name: Skip guard still catches a test that did not run
+        run: node scripts/ci/check-skips.mjs --self-test
+
       # 🔴 A broken workflow file is the failure that reports nothing.
       #
       # On 21.09.2026 a step in osm-weekly.yml was given
@@ -144,6 +163,82 @@ jobs:
       # the check that is tested are the same file.
       - name: Silence watchdog still catches a job that stopped
         run: node scripts/ci/check-schedule.mjs --self-test
+
+      # 🔴 CAMP-153. The wildfire fetch script carries a self-test of its
+      # own — the `maxfeatures` throw that stands between us and a 132 MB
+      # response, the 2 000-feature ceiling, both licence-marker checks and
+      # the refusal to WRITE a word the CEMS terms reserve — and until this
+      # line it ran only when a human typed the command. Nothing imported
+      # the script and no job invoked it.
+      #
+      # ⚠️ And running it was not enough. Measured 29.09.2026, the old
+      # self-test covered the `maxfeatures` throw and none of the other
+      # four: deleting the ceiling, either marker loop or the write-refusal
+      # left it at 49/49, because those guards live inside `collect()` and
+      # `collect()` needed two live HTTP requests. It now takes its network
+      # as an argument and the self-test runs the real thing against a
+      # world it controls, so each of the four is watched failing here.
+      #
+      # Every other guard in this file has a step like this one; a
+      # safeguard nobody has watched fail is a safeguard nobody has. It
+      # touches no network and no database.
+      #
+      # `!cancelled()`, so it runs even when an earlier step has failed. It
+      # is independent of them, and on 29.09.2026 that mattered: a new
+      # advisory turned "No new dependency advisories" red, every step
+      # after it was SKIPPED, and this one was skipped with them (run
+      # 36536509099) — a guard that runs "unattended" only while everything
+      # else is green is not the guard the step claims to be.
+      - name: Wildfire fetch guards still refuse what they must
+        if: ${{ !cancelled() }}
+        run: node scripts/effis/fetch-wildfires.mjs --self-test
+
+      # 🔴 CAMP-162. The CEMS terms — which govern EFAS, GloFAS, GFM, EDO,
+      # GDO, EFFIS and GWIS together — say the data "does not constitute in
+      # any way an early warning for which only national/regional
+      # institutions are authorized", and dictate the credit for data we
+      # have modified. This renders the panel of every CEMS-sourced layer
+      # exactly as the page does and reads the HTML: the credit must be
+      # visible beside the data, and "warning", "danger", "risk" and
+      # "alert" must be nowhere in it.
+      #
+      # It is bound to the SOURCE and not to a file on purpose. A grep over
+      # the repository would go red on `map-layers.ts`, where "warnings"
+      # is the correct name of the planned MeteoAlarm layer, and a check
+      # that cries wolf gets silenced. Adding a source is adding one
+      # `tests/unit/cems-panels/*.panel.ts`; the spec's header says how.
+      #
+      # The same spec also runs inside the e2e job's `unit` project. It is
+      # here as well, on its own, because a named step that fails says
+      # WHICH promise broke, and because this job needs no database, no
+      # build and no browser — the spec renders components, it opens
+      # nothing. `!cancelled()` for the reason the step above gives.
+      - name: CEMS panels still carry their credit and none of the four words
+        if: ${{ !cancelled() }}
+        working-directory: apps/web
+        run: npx playwright test --project=unit tests/unit/cems-panels.spec.ts --reporter=list
+
+      # 🔴 CAMP-172. regenerate.sh rebuilt ci-seed.sql from a list of
+      # sources kept by hand, and bathing_waters (43 rows, appended to the
+      # fixture by hand) was in none of them: the next regeneration would
+      # have deleted the table and every check would still have passed,
+      # because a page with no bathing water nearby is a correct page. The
+      # tool now refuses to write a fixture with fewer tables or fewer
+      # rows than the one it replaces.
+      #
+      # Two steps, because there are two things to prove. The first is the
+      # comparison itself (what counts as a row, what counts as shrunk, the
+      # per-table escape hatch). The second is the wiring around it —
+      # that regenerate.sh still calls the comparison, calls it before it
+      # overwrites the fixture, and lets psql fail loudly — driven with a
+      # psql shim and the REAL _select.sql, so deleting the bathing select
+      # from it turns this red. Neither touches a database.
+      - name: Fixture guard still refuses a smaller fixture
+        if: ${{ !cancelled() }}
+        run: node scripts/ci/check-fixture-not-shrunk.mjs --self-test
+      - name: Regenerating the fixture still refuses to lose a table
+        if: ${{ !cancelled() }}
+        run: ./apps/api/test/fixtures/regenerate.selftest.sh
 
   web:
     runs-on: ubuntu-latest
@@ -292,7 +387,15 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # 🔴 24, unlike every other job here, and only because of Jest.
+          # CAMP-159: Nest 12 is ESM-only, and Jest 30 can require() an ES
+          # module only on Node >= 24.9. On 22 the same commit was red —
+          # every spec that imports @nestjs/* died with "Must use import to
+          # load ES Module" — while it was green on a Node 24 laptop. The API
+          # itself is not affected: build-site starts it on Node 22 in the
+          # jobs below, and the bypass probe runs there. apps/api/test/
+          # require-node-24.cjs says the same thing out loud to a developer.
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run build --workspace=apps/api
@@ -346,6 +449,26 @@ jobs:
           echo "campsites: $(psql -h localhost -U postgres -d camptribe_test -t -A \
             -c 'SELECT count(*) FROM camping_spots')"
 
+      # 🔴 CAMP-172. The seeded database IS the fixture, so this asks it
+      # the question the fixture's regenerator would be asked in a year:
+      # run the real _select.sql against it, append the real ci-seed-*.sql
+      # files, and fail if any table ci-seed.sql seeds has no statement
+      # left that produces it.
+      #
+      # It is here rather than only in a script somebody runs by hand
+      # because the failure is discovered by whoever regenerates NEXT, weeks
+      # after the card that appended a table to ci-seed.sql and forgot to
+      # tell the generator. Here it is red the same day.
+      #
+      # Tables only, not rows: a database loaded from the fixture
+      # legitimately selects fewer campsites than it holds (the campsite
+      # marked gone is excluded by definition). The local run, against the
+      # development database, is the one that compares row counts.
+      - name: Every table the fixture seeds is still produced by its generator
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: ./apps/api/test/fixtures/regenerate.sh --check
+
       # Two steps again: first prove the comparison can fail, then believe
       # the run that says the generator and hand-written SQL agree.
       - name: Filter check still catches a mismatch
@@ -359,6 +482,84 @@ jobs:
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
         run: npx ts-node src/spots/verify-filters.ts
+
+      # CAMP-144. Two sources describe one campsite and we publish one
+      # page; the join between the two rows lives in `spot_links`, which
+      # no importer writes to. The requirement that made this card hard
+      # is that the link must survive the weekly OSM import — so this
+      # does not inspect the upsert's text, it RUNS the import against a
+      # linked row and rolls it back.
+      #
+      # 🔴 It is not blind on a fresh fixture. `spot_links` is empty
+      # here, and rather than skipping, the script creates a link inside
+      # the transaction it is about to roll back — proven by hiding all
+      # 2 986 real links and watching it take that path.
+      - name: A source link survives the weekly import, and its invariants hold
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: npx ts-node src/spots/verify-links.ts
+
+      # CAMP-147. The card's own acceptance clause is "no displayed price
+      # exists without a validity period", and the only thing enforcing it
+      # in SQL is `DISPLAYABLE_TARIFF_SQL`. Until now the check that would
+      # catch it breaking ran when a human remembered to run it.
+      #
+      # 🔴 Two steps, like the filter check above: first prove the
+      # comparison can fail, then believe the run that says it passed. The
+      # self-test plants an undated tariff inside a rolled-back
+      # transaction and requires the SHIPPED read query to refuse it —
+      # which is also what makes this meaningful on a fixture database
+      # where `spot_tariffs` is empty and every invariant is trivially
+      # zero.
+      - name: Price check still catches an undated tariff
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: npx ts-node src/datatourisme/verify-prices.ts --self-test
+
+      # The reconciler's default is a dry run, and this is what proves it
+      # stays one: the row count before and after must be identical.
+      # `links.spec.ts` asserts the same thing statically; this asserts it
+      # against a database, which is the half a regex cannot see.
+      - name: The reconciler writes nothing without --apply
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+          PGPASSWORD: postgres
+        run: |
+          # 🔴 pipefail, and it is the whole step.
+          #
+          # GitHub runs `run:` under `bash -e`, NOT `-o pipefail`. The
+          # first version of this piped the reconciler through `tee`, so
+          # the step's status was tee's — always 0 — and every failure of
+          # the script was swallowed, INCLUDING the band-coverage throw
+          # added in the same commit. That throw fires after the
+          # "N cross-source pairs" line is printed, so the grep below
+          # would still have matched and the step would have gone green
+          # on a thrown error. A check that cannot fail is not a check.
+          set -o pipefail
+          before=$(psql -h localhost -U postgres -d camptribe_test -t -A \
+            -c 'SELECT count(*) FROM camping_spots')
+          npx ts-node src/spots/reconcile-sources.ts | tee /tmp/dry.txt
+          after=$(psql -h localhost -U postgres -d camptribe_test -t -A \
+            -c 'SELECT count(*) FROM camping_spots')
+          links=$(psql -h localhost -U postgres -d camptribe_test -t -A \
+            -c 'SELECT count(*) FROM spot_links')
+          echo "campsites $before -> $after, links $links"
+          test "$before" = "$after"
+          test "$links" = "0"
+          # 🔴 It must have LOOKED, and it must have MATCHED. Without the
+          # first, a CANDIDATE_SQL returning nothing — a typo in the
+          # join, a predicate excluding everything — passes exactly like
+          # a correct one, because "wrote no rows" is true either way.
+          # Without the second, the fixture proves only that the query
+          # looked; the matcher could reject every pair and nothing would
+          # say so. The fixture seeds a pair built to match.
+          grep -qE '^[1-9][0-9]* cross-source pairs' /tmp/dry.txt \
+            || { echo "✗ the dry run found no candidate pairs at all"; exit 1; }
+          grep -qE 'link \(same name, same place\) +[1-9]' /tmp/dry.txt \
+            || { echo "✗ the dry run proposed no links from a pair built to match"; exit 1; }
 
       # CAMP-103. The backup holds the only copy of what we cannot
       # download again — the computed context, which is rationed by
