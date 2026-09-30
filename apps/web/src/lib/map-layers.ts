@@ -45,6 +45,22 @@ export const LAYERS = [
     terms: 'cems',
   },
   {
+    id: 'drought',
+    // 🔴 CAMP-163. "Drought", not "Drought risk" or "Drought alert": EDO
+    // is a CEMS product, so the licence applies, and the CDI's own class
+    // names are two of the four words it reserves. It is the source that
+    // carries the rule, hence the tag below — without it, the spec that
+    // reads every CEMS panel never sees this layer. CAMP-174 built exactly
+    // that, a drought panel saying "severe drought risk", and the suite
+    // stayed green.
+    label: 'Drought',
+    description:
+      'The Copernicus EDO Combined Drought Indicator for its newest ten-day period, read at each campsite you select.',
+    status: 'live',
+    card: 'CAMP-163',
+    terms: 'cems',
+  },
+  {
     id: 'hazards',
     label: 'Hazards',
     description: 'Official severe-weather warnings.',
