@@ -83,10 +83,30 @@
   --shadow-card: var(--shadow);
 
   /* Measured from the live theme, not Tailwind's defaults (md/lg/xl are
-     768/1024/1280 out of the box, and 1024 is not one of our steps). */
-  --breakpoint-md: 768px;
-  --breakpoint-lg: 992px;
-  --breakpoint-xl: 1200px;
+     48/64/80rem out of the box, and 64rem is not one of our steps).
+
+     🔴 In rem, and the unit is not cosmetic — it decides the CASCADE.
+
+     Tailwind v4 emits one @media block per breakpoint and orders them by
+     value, so that `lg:` lands after `sm:` and wins where both match. It
+     sorts px against px and rem against rem; it does not convert between
+     them. We keep v4's own `sm` (40rem) and `2xl` (96rem), so writing
+     ours in px split the list in two and emitted:
+
+       768px → 992px → 1200px → 40rem → 96rem
+
+     `sm` last. At 1280px wide both `sm:grid-cols-2` and `lg:grid-cols-3`
+     matched, `sm` came later in the file, and every three-column grid on
+     the site quietly became two — home, /camping, country, region and
+     campsite pages alike. Measured 01.10.2026: computed
+     `grid-template-columns: 560px 560px` where it should have been three
+     tracks. No error, no warning, and the phone screenshots were
+     pixel-identical, so only the desktop baselines showed it.
+
+     48/62/75rem are the same 768/992/1200px at the 16px root we ship. */
+  --breakpoint-md: 48rem;
+  --breakpoint-lg: 62rem;
+  --breakpoint-xl: 75rem;
 
   --container-wrap: 1180px;
   --container-prose: 61ch;
