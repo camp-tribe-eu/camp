@@ -140,6 +140,26 @@ export class FuelStationPrices1790662801000 implements MigrationInterface {
     await queryRunner.query(
       `DELETE FROM migrations WHERE name = 'FuelStationPrices1790662800000'`,
     );
+
+    // ⚠️ ONE CONSEQUENCE OF THE RENAME, stated because it is a trap and
+    // not because it is likely. Renaming an applied migration makes
+    // TypeORM run it again, and the fresh row lands on the highest `id`.
+    // `getLatestExecutedMigration` (MigrationExecutor.js:466) picks
+    // `[0]` from a list ordered by `id DESC` — by insertion order, NOT by
+    // timestamp — so on a database that was already fully migrated when
+    // this landed, `migration:revert` would revert THIS migration rather
+    // than the genuinely newest one, and `down()` drops the table.
+    //
+    // Measured on the one database this could affect, 04.10.2026:
+    // `fuel_station_prices` holds 0 rows, and `AirQuality1790749200000`
+    // was still pending, so it landed after this and holds the highest
+    // id (22 against 21). Nothing to lose there today.
+    //
+    // It also heals itself: the next migration to run takes the highest
+    // id back. And the repository has no `migration:revert` script — the
+    // command exists only if an operator types it. That is the whole
+    // residual, and it is written here rather than left to be
+    // rediscovered at the worst moment.
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
