@@ -1118,15 +1118,49 @@ export default function CampsiteMap() {
     // a slow style load does not stack up listeners.
     const whenDrawable = (draw: () => void) => {
       if (m.isStyleLoaded()) {
-        draw();
+        // 🔴 And a throw here used to vanish. `refresh` is async and is
+        // called from event handlers as a floating promise, so an
+        // exception out of `drawRegions` left no layer, no message and
+        // no failed test — only a map missing its circles. Said out
+        // loud on the element, where a test and a person can see it.
+        try {
+          draw();
+        } catch (err) {
+          const el = container.current;
+          if (el) el.dataset.regionError = (err as Error).message.slice(0, 120);
+        }
         return;
       }
       if (awaitingStyle.current) return;
       awaitingStyle.current = true;
-      m.once('idle', () => {
+
+      // 🔴 `once('idle')` IS THE BUG, and CI finally proved it rather
+      // than suggesting it: after ten zoom-outs the map reached the
+      // wide view and `data-region-layer` read `off` — the layer was
+      // never added at all, on chromium and on webkit.
+      //
+      // MapLibre fires `idle` on the TRANSITION to idle. This deferral
+      // is registered at the end of a `moveend`, which is exactly when
+      // the map is settling, so the event can be spent before the
+      // listener exists. `once` then waits for a transition that will
+      // not come again while nothing moves, the flag above stays true
+      // for ever, and every later call returns immediately. The circles
+      // never arrive and nothing says so.
+      //
+      // So: a listener that stays until it succeeds, on both events
+      // that can mean "the style is ready", plus one immediate attempt
+      // for the case where it became ready between the check above and
+      // these registrations.
+      const attempt = () => {
+        if (!m.isStyleLoaded()) return;
+        m.off('idle', attempt);
+        m.off('styledata', attempt);
         awaitingStyle.current = false;
         void refreshRef.current();
-      });
+      };
+      m.on('idle', attempt);
+      m.on('styledata', attempt);
+      queueMicrotask(attempt);
     };
 
     const view = boundsOf(m);

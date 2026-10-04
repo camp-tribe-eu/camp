@@ -461,6 +461,12 @@ test.describe('/map', () => {
       })
       .toBe('on');
 
+    // 🔴 And if drawing threw, say what it said. `refresh` is async and
+    // floats, so an exception out of `drawRegions` leaves no layer and
+    // no message; without this the failure above would be the only
+    // symptom of two quite different causes.
+    expect(await map(page).getAttribute('data-region-error')).toBeNull();
+
     await expect
       .poll(() => attr('data-visible-regions'), {
         timeout: 20_000,
