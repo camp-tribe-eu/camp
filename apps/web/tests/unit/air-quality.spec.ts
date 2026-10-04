@@ -718,6 +718,28 @@ test.describe('every cadence is judged by its own budget, not exempted', () => {
     expect(shouldFlagStale(SOURCES.datatourisme, '2026-01-01', new Date('2026-09-29'))).toBe(false);
   });
 
+  // 🔴 The day boundary itself, written as hours either side of it.
+  //
+  // `HOURLY_DEAD_AFTER_DAYS` is the number this card is about, and
+  // nothing held it: review set it to 730 and all 726 tests stayed
+  // green — meaning hourly could quietly fall back to the two-year
+  // rule it was split out of, and the card would read as done.
+  //
+  // The hours are literal rather than derived from the constant. A
+  // test that takes its boundary from the value under test agrees with
+  // whatever that value becomes.
+  test('an hourly source is dead a day after its last reading, not before', () => {
+    const read = Date.parse('2026-09-28T00:00:00Z');
+    const after = (h: number) =>
+      shouldFlagStale(
+        SOURCES[AIR_SOURCE_ID],
+        new Date(read).toISOString(),
+        new Date(read + h * 3_600_000),
+      );
+    expect(after(23), '23 hours').toBe(false);
+    expect(after(25), '25 hours').toBe(true);
+  });
+
   test('names the EEA, CC BY 4.0 and the date it was read', () => {
     const s = SOURCES[AIR_SOURCE_ID];
     expect(s.name).toContain('European Environment Agency');

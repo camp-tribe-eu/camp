@@ -217,6 +217,22 @@ export const ANNUAL_HEALTHY_DAYS = 365;
 /** §12: stale for an annual source means "no new season by July". */
 export const JULY = 6;
 
+/**
+ * Past this, an annual source is late in a way the season cannot
+ * explain, and the month stops mattering.
+ *
+ * 🔴 This exists because the seasonal rule alone WAS the exemption,
+ * rewritten. "Over a year old AND it is July or later" reads healthy
+ * every January through June — so a bathing-water edition ten years
+ * stale was reported as fine for half of each year, and a test in this
+ * repo stated that outcome as the intended rule, in those words,
+ * passing because all four of its dates fell in June.
+ *
+ * Two missed editions is not a question about when the season
+ * publishes. It is a dead source, in March as much as in August.
+ */
+export const ANNUAL_LATE_DAYS = 2 * ANNUAL_HEALTHY_DAYS;
+
 export function daysOld(updatedAt: string, today = new Date()): number | null {
   const then = new Date(updatedAt);
   if (Number.isNaN(then.getTime())) return null;
@@ -273,7 +289,11 @@ export function shouldFlagStale(
     // year-old edition is fine in March and a question in August —
     // which is why this reads the month and not only the age.
     case 'annual':
-      return days > ANNUAL_HEALTHY_DAYS && today.getMonth() >= JULY;
+      // One edition late is a question only once the season has had
+      // time to arrive.
+      if (days > ANNUAL_HEALTHY_DAYS && today.getMonth() >= JULY) return true;
+      // Two editions late is not a seasonal question at all.
+      return days > ANNUAL_LATE_DAYS;
 
     default:
       return isStale(updatedAt, today);

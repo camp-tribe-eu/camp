@@ -255,16 +255,59 @@ test.describe('an annual source is not stale for being a year old', () => {
     expect(BATHING_FRESHNESS.ageIsNormal).toBe(true);
   });
 
-  // 🔴 Four years on, an annual publication is still doing what it said
-  // it would. A flag here would train readers to ignore the flag.
-  test('never flags an annual source, however old the edition', () => {
-    for (const years of [1, 2, 4, 10]) {
-      const published = new Date(2026, 5, 2);
-      const today = new Date(2026 + years, 5, 2);
+  // 🔴 This test used to read "never flags an annual source, however
+  // old the edition", and looped over 1, 2, 4 and 10 years expecting
+  // `false` every time. It passed — and it passed for a reason that
+  // was not the one written above it: every date in it was the 2nd of
+  // June, month 5, and the rule only consults the age once the month
+  // is July or later. So the loop proved nothing about age and quietly
+  // stated the exemption CAMP-166 exists to remove.
+  //
+  // What is actually true: one edition late is forgivable until the
+  // season has had its chance. Ten years late is not an edition
+  // schedule, it is a dead feed — and saying otherwise in March is the
+  // flag training readers to ignore it.
+  test('an annual source a single edition behind is left alone until July', () => {
+    const published = new Date(2026, 5, 2);
+    for (const month of [0, 3, 5]) {
       expect(
-        shouldFlagStale(eea, published.toISOString(), today),
-        `${years}y`,
+        shouldFlagStale(eea, published.toISOString(), new Date(2027, month, 2)),
+        `13 months old, month ${month}`,
       ).toBe(false);
+    }
+  });
+
+  // 🔴 The month is written out as 6, not imported as `JULY`. A test
+  // that takes its boundary from the constant it is checking moves
+  // whenever the constant moves, and reports green from the far side
+  // of the change — §12 could slide to August with nothing to show for
+  // it.
+  test('and is flagged once July arrives with no new edition', () => {
+    const published = new Date(2026, 5, 2);
+    expect(
+      shouldFlagStale(eea, published.toISOString(), new Date(2027, 6, 2)),
+    ).toBe(true);
+  });
+
+  // 🔴 The age half of the seasonal rule, which nothing pinned: drop
+  // `days > ANNUAL_HEALTHY_DAYS` and every other test here still
+  // passes, while a three-day-old edition starts being called stale
+  // for no reason but the calendar.
+  test('a new edition is not stale merely because the month is August', () => {
+    const published = new Date(2026, 7, 1);
+    expect(
+      shouldFlagStale(eea, published.toISOString(), new Date(2026, 7, 4)),
+    ).toBe(false);
+  });
+
+  // 🔴 The half the old loop claimed to cover and did not.
+  test('an annual source two editions behind is flagged in any month', () => {
+    const published = new Date(2016, 5, 2);
+    for (const month of [0, 2, 5, 11]) {
+      expect(
+        shouldFlagStale(eea, published.toISOString(), new Date(2026, month, 2)),
+        `10y old, month ${month}`,
+      ).toBe(true);
     }
   });
 
