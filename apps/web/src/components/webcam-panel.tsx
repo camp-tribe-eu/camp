@@ -82,11 +82,13 @@ export function WebcamPanel({
   now: Date;
 }) {
   const cams = showable(webcams, now);
-  const why = absence(webcams);
+  const why = absence(webcams, now);
 
-  // 🔴 NOTHING AT ALL when we have not imported the catalogue. Every
-  // other branch of this panel makes a claim, and we have nothing to
-  // claim yet — see `absence` in lib/webcams.ts.
+  // 🔴 NOTHING AT ALL when there is nothing we can honestly say: the
+  // catalogue is not imported, or the only rows near here are ones we
+  // cannot use. Every other branch of this panel makes a claim, and
+  // those two states have no claim to make — see `absence` in
+  // lib/webcams.ts.
   if (why === 'unknown') return null;
 
   return (

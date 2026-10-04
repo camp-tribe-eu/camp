@@ -556,7 +556,16 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
 
           Measured (CAMP-189): 88% of campsites have a camera within
           25 km, median 8, and the median frame is 8 minutes old. The
-          other 12% get a sentence, not a blank space. */}
+          other 12% get a sentence, not a blank space.
+
+          🔴 AND TODAY IT IS NONE OF THEM, because the catalogue has not
+          been imported — `scripts/windy/fetch-webcams.mjs` has not run
+          against the real database, so the table is empty and this
+          renders nothing at all. That is deliberate: `[]` and "we have
+          not looked" are different facts, and the sentence above is a
+          claim about COVERAGE which we have not earned yet. The
+          paragraph describes the shipped behaviour once the import has
+          run; until then the honest page has no webcam section. */}
       <WebcamNote webcams={spot.webcams} renderedAt={new Date().toISOString()} />
 
       <Section title="Weather on site">

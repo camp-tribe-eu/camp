@@ -247,27 +247,44 @@ test.describe('campsite page', () => {
 // adds the next panel, which is exactly the person who would edit it
 // wrongly.
 test.describe('the page says what its subjects are (CAMP-190)', () => {
+  /**
+   * The page's outline, read as the browser builds it.
+   *
+   * 🔴 `sectionHeading` IS THE FIRST HEADING OF A DIRECT CHILD OF
+   * `<main>`, and the version before this asked a different question
+   * that happened to give the right answer twice.
+   *
+   * It asked `h.closest('section, article')?.parentElement === main`,
+   * which is true of EVERY descendant heading, not just a section's
+   * own. Review proved both halves of the damage in chromium: a
+   * legitimate `<h3>` subheading inside a top-level section was
+   * reported as `wrong` — so the next panel with a subheading turns CI
+   * red for markup that is correct — while a panel wrapped in a layout
+   * `<div>` rather than a `<section>` escaped entirely, which is the
+   * exact defect the rule exists to catch.
+   *
+   * A child of `<main>` is a subject of the page whatever element it
+   * is; the heading that NAMES it is its first one, and that is the one
+   * that must be an h2. Everything below it is free to be deeper.
+   */
   const outline = async (page: import('@playwright/test').Page) =>
-    page.$$eval('main h1, main h2, main h3, main h4, main h5, main h6', (hs) =>
-      hs.map((h) => ({
+    page.evaluate(() => {
+      const main = document.querySelector('main');
+      const SEL = 'h1, h2, h3, h4, h5, h6';
+      const all = [...(main?.querySelectorAll(SEL) ?? [])];
+      // The first heading inside each direct child of <main>, which is
+      // that child's own name.
+      const firstOfChild = new Set<Element>();
+      for (const child of [...(main?.children ?? [])]) {
+        const first = child.matches(SEL) ? child : child.querySelector(SEL);
+        if (first) firstOfChild.add(first);
+      }
+      return all.map((h) => ({
         level: Number(h.tagName[1]),
         text: (h.textContent ?? '').trim().slice(0, 60),
-        // A heading inside a NESTED section is allowed to be deeper;
-        // one whose section is a child of <main> is a subject of the
-        // page.
-        //
-        // 🔴 And a heading in no section at all counts too, as long as
-        // it is not the page's h1. Without that clause a panel dropped
-        // straight into <main> — no <section> wrapper, which is a
-        // perfectly ordinary thing to write — would be invisible to a
-        // rule whose whole name is about sections of <main>. Measured
-        // on the live page: the h1 is the only heading that sits
-        // outside a section today.
-        topLevel:
-          h.closest('section, article')?.parentElement?.tagName === 'MAIN' ||
-          (!h.closest('section, article') && h.tagName !== 'H1'),
-      })),
-    );
+        sectionHeading: firstOfChild.has(h),
+      }));
+    });
 
   for (const which of ['rich', 'empty'] as const) {
     test(`🔴 no heading level is skipped on a ${which} campsite`, async ({ page }) => {
@@ -285,8 +302,18 @@ test.describe('the page says what its subjects are (CAMP-190)', () => {
 
     test(`🔴 every section of <main> is an h2 on a ${which} campsite`, async ({ page }) => {
       await page.goto(fx[which]);
-      const wrong = (await outline(page))
-        .filter((h) => h.topLevel && h.level !== 2)
+      const hs = await outline(page);
+      // 🔴 Exactly one h1, named rather than exempted. The old rule
+      // excluded anything called H1, so a SECOND h1 dropped into
+      // <main> was invisible to it — and h2 → h1 is not a "skip"
+      // either, so nothing else looked.
+      expect(
+        hs.filter((h) => h.level === 1).map((h) => h.text),
+        'a page has exactly one h1',
+      ).toHaveLength(1);
+
+      const wrong = hs
+        .filter((h) => h.sectionHeading && h.level !== 2 && h.level !== 1)
         .map((h) => `h${h.level} "${h.text}"`);
       expect(
         wrong,

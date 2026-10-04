@@ -339,7 +339,7 @@ test.describe('an empty panel says which kind of empty it is', () => {
     const stale = text(renderComponent(WebcamPanel, { webcams: REAL, now: STALE_CLOCK }));
     // The rows are still there. Only our reading of them is old.
     expect(showable(REAL, STALE_CLOCK), 'the clock is not late enough to hide them').toHaveLength(0);
-    expect(absence(REAL)).toBe('stale');
+    expect(absence(REAL, STALE_CLOCK)).toBe('stale');
 
     expect(
       stale,
@@ -351,10 +351,50 @@ test.describe('an empty panel says which kind of empty it is', () => {
 
   test('…and a campsite with no camera at all still says exactly that', () => {
     const out = text(renderComponent(WebcamPanel, { webcams: [], now: NOW }));
-    expect(absence([])).toBe('none');
+    expect(absence([], NOW)).toBe('none');
     expect(out).toContain('No public webcam within 25 km');
     expect(out, 'nothing was listed, so there is no reading of ours to be old')
       .not.toContain('our last reading');
+  });
+
+  // 🔴 AND A FOURTH, WHICH I DID NOT SEE UNTIL REVIEW COUNTED THEM.
+  //
+  // `absence()` used to read the RAW list while the panel rendered
+  // `showable()`. So rows dropped for anything other than age — an
+  // `http://` link we may not use, a camera that has never reported at
+  // all — came out as "none of them has reported for more than a day.
+  // That is how old our last reading of them is", which is untrue in
+  // both directions: there is no reading of ours to be old, and the
+  // network is not to blame either.
+  //
+  // Only `stale` entitles the page to talk about the age of what we
+  // hold. Everything else means we have nothing honest to say, and the
+  // panel says nothing.
+  test('🔴 rows we cannot use are not reported as rows that went quiet', () => {
+    const neverReported = [cam({ lastFrameAt: null }), cam({ ref: 'b', lastFrameAt: null })];
+    expect(showable(neverReported, NOW)).toHaveLength(0);
+    expect(
+      absence(neverReported, NOW),
+      'a camera that never reported is being called one whose reading is old',
+    ).toBe('unknown');
+    expect(rendersNothing(WebcamPanel, { webcams: neverReported, now: NOW })).toBe(true);
+
+    // The same for a link the terms do not let us use.
+    const badLink = [cam({ detailUrl: 'http://windy.com/webcams/1690466401' })];
+    expect(showable(badLink, NOW)).toHaveLength(0);
+    expect(absence(badLink, NOW)).toBe('unknown');
+
+    // And a genuinely old camera still gets the sentence that is true
+    // of it, so the branch above has not swallowed the real case.
+    expect(absence(REAL, STALE_CLOCK)).toBe('stale');
+    expect(
+      text(renderComponent(WebcamPanel, { webcams: REAL, now: STALE_CLOCK })),
+    ).toContain('none of them has reported');
+
+    // A mixture is not an absence at all: one usable camera means cards.
+    const mixed = [cam({ lastFrameAt: null }), cam({ ref: 'c' })];
+    expect(absence(mixed, NOW), 'one usable camera should mean the panel is not empty').toBeNull();
+    expect(showable(mixed, NOW)).toHaveLength(1);
   });
 
   // 🔴 AND THE THIRD EMPTY, WHICH WAS LIVE ON EVERY PAGE IN EUROPE.
@@ -376,7 +416,7 @@ test.describe('an empty panel says which kind of empty it is', () => {
   // without a camera, not about us without data.
   test('🔴 a catalogue we have not imported makes NO claim about coverage', () => {
     for (const notLooked of [null, undefined]) {
-      expect(absence(notLooked)).toBe('unknown');
+      expect(absence(notLooked, NOW)).toBe('unknown');
       expect(
         rendersNothing(WebcamPanel, { webcams: notLooked, now: NOW }),
         'the panel spoke about a camera network it has not read',
