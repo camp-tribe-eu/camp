@@ -386,6 +386,77 @@ test.describe('/map', () => {
     expect(mimeErrors, 'the worker failed to load').toEqual([]);
   });
 
+  // 🔴 CAMP-175. Zooming OUT again, which is the half nothing asserted.
+  //
+  // `clearRegions` removes the circle layer the moment real markers go
+  // on the map, and the zoom-out branch puts it back through
+  // `whenDrawable(() => drawRegions(…))` — deferred until the style is
+  // ready. Nothing proved the second half ever happens: the only test
+  // that mentions the circles adds them to points and clusters and asks
+  // for a sum above zero, so a region count of 0 passes on the strength
+  // of the markers. The card saw exactly that 0 and could not tell
+  // whether it meant "broken", "the fixture has no regions" or
+  // "intended".
+  //
+  // This asserts the one reading that distinguishes them: after a zoom
+  // in and back out, the circles are on the canvas AND counted. If it
+  // goes red, the deferred redraw is being skipped and never retried —
+  // which is the defect the card suspected.
+  test('zooming back out brings the region circles back, counted', async ({
+    page,
+  }) => {
+    await stubStyles(page);
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await expect(map(page)).toBeVisible();
+
+    const attr = async (name: string) =>
+      Number(await map(page).getAttribute(name));
+
+    // In far enough that the markers replaced the circles.
+    const zoomIn = page.locator('.maplibregl-ctrl-zoom-in');
+    await expect(zoomIn).toBeVisible();
+    for (let i = 0; i < 8; i++) {
+      if ((await attr('data-total')) > 0) break;
+      await zoomIn.click();
+      for (let w = 0; w < 8; w++) {
+        if ((await attr('data-total')) > 0) break;
+        await page.waitForTimeout(150);
+      }
+    }
+    await expect
+      .poll(() => attr('data-visible-clusters'), {
+        timeout: 20_000,
+        message: 'never reached the zoom where markers are drawn',
+      })
+      .toBeGreaterThan(0);
+
+    // 🔴 And the circles really did go away, so the assertion below
+    // cannot be satisfied by a layer that was simply never removed.
+    await expect
+      .poll(() => attr('data-visible-regions'), {
+        timeout: 20_000,
+        message: 'the region circles were still counted among the markers',
+      })
+      .toBe(0);
+
+    const zoomOut = page.locator('.maplibregl-ctrl-zoom-out');
+    await expect(zoomOut).toBeVisible();
+    for (let i = 0; i < 10; i++) {
+      await zoomOut.click();
+      await page.waitForTimeout(150);
+    }
+
+    await expect
+      .poll(() => attr('data-visible-regions'), {
+        timeout: 20_000,
+        message:
+          'zoomed back out and no region circle was counted — the deferred ' +
+          'redraw was skipped and never retried',
+      })
+      .toBeGreaterThan(0);
+  });
+
   // 🔴 CAMP-133. Found by opening /map on a production build and reading
   // the console: EVERY load threw
   //
