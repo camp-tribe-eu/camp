@@ -168,7 +168,7 @@ function HowItWorks() {
       <ol className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-3">
         {steps.map((s, i) => (
           <li key={s.title}>
-            <span className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-2">
+            <span className="text-xs font-semibold uppercase tracking-widest text-ink-2">
               Step {i + 1}
             </span>
             <h3 className="mt-1 text-base font-semibold">{s.title}</h3>
