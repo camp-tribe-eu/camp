@@ -272,7 +272,8 @@ describe('🔴 the decorator and the bucket list agree', () => {
     const out: string[] = [];
     // The decorator sits directly above the route it applies to, so the
     // pair is what we look for — not either half on its own.
-    const re = /@Throttle\(\s*BULK\s*\)\s*(?:\/\/[^\n]*\n\s*)*@Get\(\s*'([^']*)'\s*\)/g;
+    const re =
+      /@Throttle\(\s*BULK\s*\)\s*(?:\/\/[^\n]*\n\s*)*@Get\(\s*'([^']*)'\s*\)/g;
     for (const m of source.matchAll(re)) {
       out.push([prefix, m[1]].filter(Boolean).join('/'));
     }
