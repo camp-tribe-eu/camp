@@ -117,6 +117,7 @@ if [ "$CHECK" = 1 ]; then GUARD_ARGS+=("--tables-only"); fi
 # which is what macOS ships and what this is developed on.
 node "$GUARD" "$OUT" "$CANDIDATE" ${GUARD_ARGS[@]+"${GUARD_ARGS[@]}"}
 
+
 if [ "$CHECK" = 1 ]; then
   echo "regenerate.sh --check: every table the fixture seeds is still produced; nothing written"
   exit 0
@@ -126,3 +127,15 @@ fi
 # check has passed, so this is the only step that touches the fixture.
 cp "$CANDIDATE" "$OUT"
 echo "ci-seed.sql written"
+# 🔴 CAMP-173. The guard above counts ROWS. It cannot see that a
+# regeneration lost Slovenia, kept one id out of 72, and left nothing for
+# the gone block to mark — all of which happened, and all of which passed
+# "not smaller".
+#
+# scripts/ci/check-fixture-shape.mjs asks the other question, and CI runs
+# it on every pull request. It is deliberately NOT run here: this script's
+# own self-test drives it with a psql shim whose rows have one column, and
+# bending the shape check to accept that would be bending the only check
+# that would have caught the bad fixture. The gate is the commit, not the
+# write — a regenerated fixture that lost a subject cannot merge.
+echo "run: node scripts/ci/check-fixture-shape.mjs   # before committing it"
