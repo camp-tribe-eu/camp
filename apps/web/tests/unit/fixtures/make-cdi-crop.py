@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CAMP-163 — make the fixtures `tests/unit/drought-fetch.spec.ts` reads.
+CAMP-163 — make the fixtures `tests/unit/drought-tiff.spec.ts` reads.
 
     python3 make-cdi-crop.py <cdi.tif from the WCS> [--out DIR]
 

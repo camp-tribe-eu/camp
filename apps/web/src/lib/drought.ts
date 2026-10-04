@@ -31,15 +31,19 @@ import { CEMS_NOTICE, RESERVED_WORDS } from './cems';
 // and your campsite is fine" into silence, and silence on a hazard panel
 // reads as bad news.
 
-/** How old a dekad may be before it is no longer simply "the newest one". */
-export const DEKAD_HEALTHY_DAYS = 30;
-
 /**
  * Past this, a dekad has been skipped.
  *
- * 🔴 Both numbers are the product's own cadence, not a feeling: dekads
- * are ten days apart, so one missed publication is unremarkable and two
- * is the thing a reader deserves to be told about.
+ * 🔴 The product's own cadence, not a feeling: dekads are ten days
+ * apart, so one missed publication is unremarkable and two is the thing
+ * a reader deserves to be told about.
+ *
+ * 🔴 There was a `DEKAD_HEALTHY_DAYS = 30` beside this, exported, with
+ * its own rationale and a test asserting it equalled 30. Nothing read
+ * it. Review found it, and it is gone rather than given a use: every
+ * branch of `droughtNote` already prints `asOf`, the dekad's own date,
+ * so a reader always has the age of the reading and a second threshold
+ * would have been a number in search of a question.
  */
 export const DEKAD_SKIPPED_DAYS = 40;
 

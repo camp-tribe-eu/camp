@@ -342,7 +342,7 @@ export function parseGeoTiff(buf) {
  * agree by construction and prove only that they agree. The real
  * product stores its strips out of byte order and carries no
  * GeoKeyDirectory; a fixture written by the reader's author has neither
- * quirk. `tests/unit/drought-fetch.spec.ts` drives this against a crop
+ * quirk. `tests/unit/drought-tiff.spec.ts` drives this against a crop
  * of the real raster whose expected values are GDAL's.
  */
 export function readGeoTiff(buf) {
@@ -446,6 +446,24 @@ export function sampleAt(win, px, lon, lat) {
  */
 export const SATURATION_TAIL = 5;
 
+/**
+ * How much of the cropped grid may be inside the study domain.
+ *
+ * The shipped file sits at 46.7% (531 948 of 1 137 920). These bounds
+ * are wide on purpose: they are not a measurement of Europe, they are
+ * the range outside which the rasters cannot be what we think they are.
+ */
+export const DOMAIN_SHARE = { min: 0.2, max: 0.8 };
+
+/**
+ * 🔴 ONLY the self-test passes this, and only for fixtures that are two
+ * pixels of a synthetic grid. The share rule is a statement about how
+ * much of THIS crop is European land; it has nothing to say about a
+ * 1 137 920-pixel window with three pixels set, which is what the
+ * saturation cases are. The production call site passes neither.
+ */
+export const ANY_SHARE = { min: 0, max: 1 };
+
 export function maskBits(width, height) {
   return Buffer.alloc(Math.ceil((width * height) / 8));
 }
@@ -475,7 +493,7 @@ export function foldIntoMask(bits, px) {
  *
  * `rasters` is an iterable of cropped pixel buffers, oldest first.
  */
-export function buildMask(rasters, win, tail = SATURATION_TAIL) {
+export function buildMask(rasters, win, tail = SATURATION_TAIL, share = DOMAIN_SHARE) {
   const bits = maskBits(win.width, win.height);
   const growth = [];
   for (const px of rasters) {
@@ -500,7 +518,40 @@ export function buildMask(rasters, win, tail = SATURATION_TAIL) {
         '"no drought" from the reader.',
     );
   }
-  return { bits, growth, set: growth.reduce((a, b) => a + b, 0) };
+  const set = growth.reduce((a, b) => a + b, 0);
+
+  // 🔴 SATURATION IS NECESSARY AND NOWHERE NEAR SUFFICIENT.
+  //
+  // Review handed this six all-zero rasters. Every one added 0 pixels,
+  // so the tail was perfectly flat, the function returned happily with
+  // `set = 0` — and `readingAt` then answered "outside the area this
+  // indicator covers" for every campsite in the EU. That is exactly the
+  // silence the mask exists to prevent, produced by the check meant to
+  // prevent it.
+  //
+  // The other end is as bad: one raster whose nodata is not 0 marks all
+  // 1 137 920 pixels, and the Atlantic becomes land we have readings
+  // for.
+  //
+  // So the mask is bounded on both sides. The figures are the shipped
+  // file's own: 531 948 of 1 137 920 pixels, 46.7%. Europe's land
+  // fraction inside this crop cannot plausibly fall below a fifth or
+  // rise above four fifths, and either would mean the rasters are not
+  // what we think they are rather than that the continent moved.
+  const total = win.width * win.height;
+  const covered = total > 0 ? set / total : 0;
+  if (covered < share.min || covered > share.max) {
+    throw new Error(
+      `the domain mask covers ${set} of ${total} pixels (${(covered * 100).toFixed(1)}%), ` +
+        `outside the plausible ${(share.min * 100).toFixed(0)}–${(share.max * 100).toFixed(0)}% ` +
+        'for land in this crop. Below it, every campsite reads as "not covered" ' +
+        'and the panel goes silent everywhere; above it, the sea reads as land. ' +
+        'Neither is a saturation problem, which is why the flat tail above did ' +
+        'not catch it — check the nodata value and the band before trusting this.',
+    );
+  }
+
+  return { bits, growth, set };
 }
 
 /**
@@ -792,14 +843,40 @@ export function selfTest() {
   const quiet = Array.from({ length: SATURATION_TAIL + 1 }, () => pxs([[0, 0]]));
   ok(
     'buildMask refuses a mask that is still growing',
-    threw(() => buildMask([pxs([[1, 2]]), ...Array.from({ length: SATURATION_TAIL }, (_x, i) => pxs([[i + 2, 2]]))], win), /has not saturated/),
+    threw(() => buildMask([pxs([[1, 2]]), ...Array.from({ length: SATURATION_TAIL }, (_x, i) => pxs([[i + 2, 2]]))], win, SATURATION_TAIL, ANY_SHARE), /has not saturated/),
   );
   ok(
     '…and refuses too few dekads to judge saturation at all',
-    threw(() => buildMask([pxs([[1, 2]])], win), /cannot show saturation/),
+    threw(() => buildMask([pxs([[1, 2]])], win, SATURATION_TAIL, ANY_SHARE), /cannot show saturation/),
   );
-  const settled = buildMask([pxs([[5, 3]]), ...quiet], win);
+  const settled = buildMask([pxs([[5, 3]]), ...quiet], win, SATURATION_TAIL, ANY_SHARE);
   ok('…and accepts one whose tail added nothing', settled.set === 1);
+
+  // 🔴 SATURATION IS NOT ENOUGH, and review proved it with six all-zero
+  // rasters: a perfectly flat tail, `set = 0`, and every campsite in the
+  // EU reading "not covered". These drive the bound that catches it, on
+  // the real defaults.
+  ok(
+    '🔴 buildMask refuses an EMPTY domain however flat its tail',
+    threw(
+      () => buildMask(Array.from({ length: SATURATION_TAIL + 1 }, () => pxs([])), win),
+      /covers 0 of .* outside the plausible/,
+    ),
+  );
+  ok(
+    '🔴 …and refuses one where the sea has become land',
+    threw(
+      () => buildMask([Buffer.alloc(win.width * win.height, 1), ...quiet], win),
+      /outside the plausible/,
+    ),
+  );
+  {
+    // Exactly the shipped file's share, 46.7%, accepted.
+    const half = Buffer.alloc(win.width * win.height);
+    for (let i = 0; i < Math.round(win.width * win.height * 0.467); i++) half[i] = 2;
+    const real = buildMask([half, ...quiet], win);
+    ok('…and accepts the share the shipped file actually has', real.set === Math.round(win.width * win.height * 0.467));
+  }
 
   // --- the three readings, kept apart
   const grid = pxs([[5, 3], [6, 0]]);
@@ -809,7 +886,7 @@ export function selfTest() {
   ok('a classified pixel reports its stage', inDrought.known && inDrought.value === 3);
   const outside = readingAt(win, grid, settled.bits, lonOf(6), latOf(6));
   ok('🔴 a pixel the indicator never covers says so', !outside.known);
-  const settled2 = buildMask([pxs([[5, 3], [6, 1]]), ...quiet], win);
+  const settled2 = buildMask([pxs([[5, 3], [6, 1]]), ...quiet], win, SATURATION_TAIL, ANY_SHARE);
   const noDrought = readingAt(win, grid, settled2.bits, lonOf(6), latOf(6));
   ok(
     '🔴 …while a covered pixel reading 0 says there is NO DROUGHT, not "no data"',

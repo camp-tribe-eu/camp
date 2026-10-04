@@ -3,7 +3,6 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
-  DEKAD_HEALTHY_DAYS,
   DEKAD_SKIPPED_DAYS,
   dekadAgeDays,
   droughtNote,
@@ -33,7 +32,6 @@ const state = (days = 12, file: unknown = FILE, domain: unknown = DOMAIN) =>
 
 test.describe('the ten-day budget', () => {
   test('the two budgets are the cadence, written out', () => {
-    expect(DEKAD_HEALTHY_DAYS).toBe(30);
     expect(DEKAD_SKIPPED_DAYS).toBe(40);
   });
 

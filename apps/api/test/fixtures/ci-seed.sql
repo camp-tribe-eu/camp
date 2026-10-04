@@ -80,9 +80,12 @@ INSERT INTO camping_spots (id, name, country, region, slug, type, amenities, loc
 --
 -- So this row — a real OSM campsite in Šibensko-Kninska whose name is
 -- literally "3" and whose every amenity is unknown — keeps `'{}'` where
--- the other 71 carry their measured surroundings. It is the textbook
--- "nothing but a name", and it is the only row in this file that is
--- thinner than production.
+-- the other 70 carry their measured surroundings. It is the textbook
+-- "nothing but a name", and it is the only LIVE row in this file that
+-- is thinner than production. `kamp-vinia` is empty too, but the DO
+-- block above marks it gone, so it never reaches a page; review caught
+-- this sentence saying "the only row" and "the other 71", both wrong
+-- by one.
 --
 -- 🔴 Its slug sorts BEFORE `kamp-vinia`, which matters: the DO block
 -- above picks the gone campsite with `ORDER BY slug DESC LIMIT 1` over

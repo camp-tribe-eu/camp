@@ -36,9 +36,29 @@ import type { SpotContext, TerrainType, WaterKind } from './api';
 // leaves one string, the pages differ by digits alone, which is what the
 // duplicate guard is entitled to call one page.
 //
-// Measured on eight real Zadarska campsites — the region whose pages
-// were failing at up to 83.9% — these paragraphs are 4.2% alike at the
-// median and 23.1% at the worst.
+// 🔴 MEASURED, AND THE FIRST MEASUREMENT WAS OF MY OWN ARRAY.
+//
+// This used to claim "4.2% alike at the median and 23.1% at the worst,
+// on eight real Zadarska campsites". The eight were typed into the
+// spec, six of them with round invented figures and no shop name, and
+// the sentence was true only of them. Review ran the same rule over
+// `apps/api/test/fixtures/ci-seed.sql` and found 34 of its 70
+// context-bearing rows rendering a paragraph byte-identical to
+// another's once the digits were stripped.
+//
+// On the seed itself, after the shop's name, the station at every
+// distance and the relief bands were added (30 Zadarska rows, 435
+// pairs): median 4.1%, p90 17.6%, and ONE pair of 435 above the
+// guard's 80% line. Across all 70 rows, 2 415 pairs: median 1.3%, p90
+// 11.7%, one pair over 80%.
+//
+// 🔴 AND SIXTEEN ROWS STILL SHARE A SHAPE, which is not a bug here.
+// Four of them are campsites on one beach outside Obrovac with the same
+// town, the same shop and the same station, differing by metres. What
+// we measured about them IS the same, and a sentence invented to part
+// them would be the one thing this file forbids. They are named in
+// `setting.spec.ts`, and the second half of CAMP-199 — noindex — is
+// what covers them.
 //
 // 🔴 AND NOTHING HERE IS INVENTED. Every clause is a restatement of a
 // figure we measured. Where a name appears it is OpenStreetMap's, passed
@@ -147,23 +167,78 @@ export function townClause(town: SpotContext['town']): string | null {
  * The shop sentence — and it is the one a camper checks before arriving,
  * because a site with no shop within reach changes what you pack.
  */
+/**
+ * The food shop.
+ *
+ * 🔴 WITH ITS NAME, which this threw away until review counted the cost.
+ *
+ * `townClause` and `stationClause` both pass the source's name through;
+ * this one did not, and the name is the one field here that separates
+ * neighbours. Three campsites outside Bovec sit within 500 m of a shop
+ * each — and they are Mercator, Mercator and "Kmetijska Zadruga Tolmin
+ * Trgovina Market Bovec". Said, that is two different pages; unsaid, it
+ * is "there is a food shop within walking distance" three times.
+ *
+ * It is OpenStreetMap's word, passed through unchanged, exactly like a
+ * town's. Nothing is invented and no adjective is added.
+ */
 export function shopClause(shop: SpotContext['supermarket']): string | null {
   if (!shop || !Number.isFinite(shop.m)) return null;
   const d = distance(shop.m);
-  if (shop.m < WALKABLE_M) return `there is a food shop within walking distance, ${d}`;
-  if (shop.m < 8000) return `the nearest food shop is ${d} away`;
-  return `stock up before you arrive: the nearest food shop is ${d} off`;
+  const name = shop.name;
+  if (shop.m < WALKABLE_M) {
+    return name
+      ? `${name} is a walk away, ${d}, for food`
+      : `there is a food shop within walking distance, ${d}`;
+  }
+  if (shop.m < 8000) {
+    return name ? `the nearest food shop is ${name}, ${d} away` : `the nearest food shop is ${d} away`;
+  }
+  return name
+    ? `stock up before you arrive: the nearest food shop is ${name}, ${d} off`
+    : `stock up before you arrive: the nearest food shop is ${d} off`;
 }
 
-/** Only where a station is near enough to be a way of arriving. */
+/**
+ * How you arrive, or that you cannot arrive that way.
+ *
+ * 🔴 THE 15 km CUT USED TO SILENCE THIS ENTIRELY, and that was the
+ * single biggest cause of the mail-merge review found.
+ *
+ * On the Croatian coast the stations are 18–50 km out, so this returned
+ * null for exactly the pages that had least else to say: water, town,
+ * shop, three numbers, nothing more. Measured on the CI fixture, 34 of
+ * 70 rows rendered a paragraph that was byte-identical to another's once
+ * the digits were stripped, and every one of those rows had a station
+ * the reader was never told about.
+ *
+ * "There is no station near enough to use, the closest is Ploče, 48 km
+ * off" is not padding. It is the answer to "can I get there without a
+ * car", it is measured, and the name is OpenStreetMap's. The earlier
+ * rule — "a station 50 km away is true and useless" — was right about
+ * one page and wrong about the set: a fact that distinguishes one
+ * campsite from its neighbour is the opposite of useless here.
+ */
 export function stationClause(station: SpotContext['station']): string | null {
-  if (!station || !Number.isFinite(station.m) || station.m > 15_000) return null;
+  if (!station || !Number.isFinite(station.m)) return null;
   const d = distance(station.m);
   const name = station.name;
   if (station.m < 2000) {
     return name ? `${name} station is ${d} away, so you can arrive by train` : `a railway station is ${d} away`;
   }
-  return name ? `the nearest railway station is ${name}, ${d} off` : `the nearest railway station is ${d} off`;
+  if (station.m <= 15_000) {
+    return name ? `the nearest railway station is ${name}, ${d} off` : `the nearest railway station is ${d} off`;
+  }
+  // 🔴 Past a taxi ride, the honest sentence changes its subject: it
+  // stops being "how to arrive" and becomes "you will need a car".
+  if (station.m <= 40_000) {
+    return name
+      ? `the railway does not come close — ${name} is the nearest station, ${d} off`
+      : `the railway does not come close: the nearest station is ${d} off`;
+  }
+  return name
+    ? `you will want a car here: the nearest railway station, ${name}, is ${d} away`
+    : `you will want a car here: the nearest railway station is ${d} away`;
 }
 
 const TERRAIN_WORD: Record<TerrainType, string> = {
@@ -197,7 +272,33 @@ export function groundClause(ctx: SpotContext): string | null {
     return word ? `the ground is barely above the sea here, and ${word}` : 'the ground is barely above the sea here';
   }
   if (hasE && word) {
-    return `the land around is ${word}, ${Math.round(e as number)} m above the sea`;
+    // 🔴 THE RELIEF, which this measured and then threw away.
+    //
+    // `terrain.type` is one of four words, so every campsite in an
+    // alpine valley said "the land around is mountainous, 44N m above
+    // the sea" and differed by three digits. The relief is the figure
+    // behind that word — the height between the lowest and highest
+    // point within a kilometre — and it is what tells an open valley
+    // floor from the bottom of a gorge: measured in this fixture,
+    // neighbours 400 m apart carry 656 and 920.
+    //
+    // Three bands, because the difference between 268 and 281 is noise
+    // and the difference between 281 and 920 is the view out of the
+    // tent. The number itself is not printed: it is a derived range, and
+    // printing it would claim a precision the eight-point ring does not
+    // have.
+    const relief = t && Number.isFinite(t.relief) ? (t.relief as number) : null;
+    const height = Math.round(e as number);
+    if (relief !== null && relief >= 700) {
+      return `the walls of the valley rise over 700 m around it, and the floor lies ${height} m above the sea`;
+    }
+    if (relief !== null && relief >= 400) {
+      return `the land climbs a few hundred metres on either side, from ${height} m above the sea`;
+    }
+    if (relief !== null && relief < 120) {
+      return `the ground is open and ${word.replace('mountainous', 'level')}, ${height} m above the sea`;
+    }
+    return `the land around is ${word}, ${height} m above the sea`;
   }
   if (hasE) return `the ground lies ${Math.round(e as number)} m above the sea`;
   return `the land around is ${word}`;
@@ -261,9 +362,23 @@ function notability(ctx: SpotContext): { key: string; score: number; text: strin
   const sh = ctx.supermarket;
   push('shop', sh && Number.isFinite(sh.m) ? (sh.m > 8000 ? 80 : sh.m < 1000 ? 60 : 35) : 0, shopClause(sh));
 
-  // A station close enough to arrive by is rare and therefore worth
-  // saying; `stationClause` already returns null when it is not.
-  push('station', 65, stationClause(ctx.station));
+  // 🔴 Scored like everything else: the EXTREMES are notable, the
+  // middle is not. A station you can walk to is rare and leads; a
+  // station 50 km off is the reason you need a car and is worth saying;
+  // one 20 minutes away by road is ordinary and goes last.
+  const st = ctx.station;
+  push(
+    'station',
+    // 🔴 FAR IS NOT NOTABLE, and I got this wrong on the first try.
+    // Scoring "no station near" at 72 put it top on every Croatian
+    // coastal page at once: four of six Zadar openers became "You will
+    // want a car here". Having no railway is what those campsites have
+    // in COMMON, which is the definition of not notable — the same
+    // mistake the water score was written to avoid. A station you can
+    // WALK to is the rare one.
+    st && Number.isFinite(st.m) ? (st.m < 2000 ? 88 : st.m <= 15_000 ? 48 : 25) : 0,
+    stationClause(st),
+  );
 
   return out.filter((x) => x.score > 0).sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
 }
