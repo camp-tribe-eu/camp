@@ -1225,15 +1225,29 @@ export default function CampsiteMap() {
       // when the map is settling, so the transition can be spent before
       // the listener exists — and `once` then waits for one that never
       // comes again while nothing moves.
+      //
+      // 🔴 AND IT RE-ASKS THE BRANCH RATHER THAN REPLAYING `draw`.
+      //
+      // `draw` was built by the wide branch of ONE refresh. The reader
+      // can zoom in while we are waiting for the style, and a version
+      // of this that simply called `draw()` later would put the region
+      // circles on top of the markers — a decision from a view that no
+      // longer exists. I wrote that version, and `map-filters.spec.ts`
+      // caught it: with the map back in the wide view it still counted
+      // markers on screen.
+      //
+      // So the retry re-enters `refresh`, exactly as the first version
+      // of this deferral did. The fresh call picks its own branch and
+      // calls `whenDrawable` again with a `draw` that belongs to the
+      // view the map is in now; `awaitingStyle` is cleared first, so
+      // that call is free to register a new wait if the style is still
+      // not ready.
       const attempt = () => {
-        const outcome = tryDraw();
-        if (outcome === 'wait') {
-          say();
-          return;
-        }
         m.off('idle', attempt);
         m.off('styledata', attempt);
-        settle();
+        awaitingStyle.current = false;
+        say();
+        void refreshRef.current();
       };
       m.on('idle', attempt);
       m.on('styledata', attempt);
