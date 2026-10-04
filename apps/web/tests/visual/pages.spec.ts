@@ -23,6 +23,25 @@ import { expect, test, type Page } from '@playwright/test';
 //    what makes screenshotting a data-driven site possible at all — and
 //    it is why these must not be pointed at a live database.
 //
+//    🔴 READ THAT NARROWLY. It means the same ON ONE BUILD. It does not
+//    mean the numbers cannot move, and CAMP-182 is what happens when it
+//    is read as though it did: the headline went 71 → 72 and Croatia
+//    36 → 37 between two runs, and the suite stayed green, because the
+//    only record of the numbers was a PNG and
+//    `--update-snapshots` had rewritten it from the very thing it was
+//    meant to judge.
+//
+//    Measured afterwards: nothing here is non-deterministic. The count
+//    path (`countries()`) touches no clock, and every `LIMIT` in the
+//    fixture carries an `ORDER BY`. What moved was the fixture itself —
+//    ci-seed.sql changed on 29.09 (CAMP-168) and the two baselines
+//    straddle that commit.
+//
+//    So the numbers now also live in scripts/ci/check-fixture-counts.mjs,
+//    computed from the seed file and compared against a written-down
+//    expectation. A change to them has to be an edit somebody makes on
+//    purpose, not a side effect of a flag.
+//
 // 3. The map canvas is masked. Tiles come from a third party over the
 //    network; a screenshot including them would fail on their bad day
 //    rather than on our bad change. Masking the canvas still guards
