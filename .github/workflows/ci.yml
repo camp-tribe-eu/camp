@@ -142,6 +142,16 @@ jobs:
       - name: No two migrations share a timestamp
         run: node scripts/ci/check-migration-stamps.mjs
 
+      # 🔴 The numbers on the home page live in a PNG, and a PNG is
+      # rewritten by `--update-snapshots` to agree with whatever the code
+      # now does. CAMP-182: the headline went 71 → 72 unnoticed. These
+      # two steps put the same numbers in a file a human has to edit.
+      - name: Fixture-count guard still catches a moved number
+        run: node scripts/ci/check-fixture-counts.mjs --self-test
+
+      - name: The fixture still adds up to what the pages claim
+        run: node scripts/ci/check-fixture-counts.mjs
+
       # 🔴 A broken workflow file is the failure that reports nothing.
       #
       # On 21.09.2026 a step in osm-weekly.yml was given
