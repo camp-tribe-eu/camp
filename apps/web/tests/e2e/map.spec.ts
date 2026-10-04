@@ -448,12 +448,25 @@ test.describe('/map', () => {
 
     expect(await untilWide(), 'the map never reached a view too wide for markers').toBe(true);
 
+    // 🔴 Which of the two failures is it? `data-region-layer` says
+    // whether `drawRegions` ever ran; `data-visible-regions` says
+    // whether anything was painted. A message that cannot tell them
+    // apart sends the next person looking in the wrong half of the file.
+    await expect
+      .poll(async () => await map(page).getAttribute('data-region-layer'), {
+        timeout: 20_000,
+        message:
+          'the map reached the wide view and the region layer was never added — ' +
+          'the deferred drawRegions was skipped and never retried',
+      })
+      .toBe('on');
+
     await expect
       .poll(() => attr('data-visible-regions'), {
         timeout: 20_000,
         message:
-          'the map says it is in the wide view and no region circle was drawn — ' +
-          'so this test has no subject and the assertions below prove nothing',
+          'the region layer exists but nothing is painted from it — the circles ' +
+          'were drawn somewhere the reader is not looking',
       })
       .toBeGreaterThan(0);
 

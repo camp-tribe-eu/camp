@@ -870,6 +870,20 @@ export default function CampsiteMap() {
       // Without a number for it, a test can only prove that nothing
       // threw — not that the circles arrived.
       el.dataset.visibleRegions = String(rendered(REGION_CIRCLE).length);
+      // 🔴 DRAWN is not the same question as RENDERED, and CAMP-175 turns
+      // on telling them apart.
+      //
+      // `visibleRegions` counts features MapLibre has painted. Zero can
+      // mean two completely different things: `drawRegions` never ran —
+      // deferred behind `whenDrawable` and never retried — or it ran,
+      // added the layer, and the features are simply not on screen.
+      // Those have different fixes, and from a test that sees only the
+      // count they are the same failure.
+      //
+      // So the layer's existence is published beside the count. It costs
+      // one `getLayer` per idle and it is the difference between a
+      // diagnosis and a guess.
+      el.dataset.regionLayer = m.getLayer(REGION_CIRCLE) ? 'on' : 'off';
 
       // CAMP-35: how many campsites the bubbles claim to contain, plus
       // the ones drawn individually.
