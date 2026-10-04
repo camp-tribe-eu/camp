@@ -227,6 +227,8 @@ export interface Spot {
    */
   indexable?: boolean;
   context: SpotContext;
+  /** CAMP-190: the nearest webcams, with our distance. Never an image. */
+  webcams?: import('./webcams').Webcam[];
   /**
    * CAMP-101. The operator's own words, in their own language — carried
    * verbatim and rendered with `lang`. We never translate them: a machine

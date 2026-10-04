@@ -66,7 +66,20 @@ const csp = [
   // stylesheet but Next also inlines critical CSS.
   "style-src 'self' 'unsafe-inline'",
   // blob: and data: are MapLibre's sprites, glyph atlases and canvas.
-  "img-src 'self' data: blob:",
+  // 🔴 CAMP-190: Windy's image CDN, and nothing else third-party.
+  //
+  // The webcam panel shows frames served from imgproxy.windy.com — their
+  // terms require the image to come from their URL, so proxying it
+  // through our own origin is not an option even if we wanted the
+  // bandwidth. Without this line every frame is blocked and the panel
+  // ships three broken images: review served this exact policy and the
+  // browser said "Loading the image … violates … img-src 'self' data:
+  // blob:. The action has been blocked." Twenty unit tests passed over
+  // it, because a rendered string is not a browser.
+  //
+  // One host, named. Not `https:`, which would let any future component
+  // pull pictures from anywhere.
+  "img-src 'self' data: blob: https://imgproxy.windy.com",
   "font-src 'self'",
   // 🔴 blob: is not optional here. MapLibre creates its tile-parsing
   // worker from a blob URL when it cannot use a same-origin module

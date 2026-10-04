@@ -20,10 +20,15 @@
 // run of five words in order is a much better sign of one template with
 // a substitution.
 
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { visibleHtmlText, shingles, jaccard, selfTest, nestedMarks } from './page-text.mjs';
+
+// 🔴 `--self-test` needs no build and no database, so CI can run it on
+// every push: the stripping rule decides what this guard is allowed to
+// ignore, and a hole in it goes GREEN rather than red.
+if (process.argv.includes('--self-test')) process.exit(selfTest() ? 1 : 0);
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -111,172 +116,30 @@ function seeded(n) {
   return () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * n;
 }
 
-/**
- * Remove every element carrying `data-boilerplate`, with everything
- * inside it, however deeply nested.
- *
- * Walks the tag stream counting opens and closes of the same name, so a
- * block that contains links, <time>, or another element of its own kind
- * is removed whole.
- */
-export function stripBoilerplate(html) {
-  const OPEN = /<([a-z]+)([^>]*)>/gi;
-  let out = '';
-  let at = 0;
-  OPEN.lastIndex = 0;
-  for (let m = OPEN.exec(html); m; m = OPEN.exec(html)) {
-    if (!/\sdata-boilerplate=/i.test(m[2])) continue;
-    const name = m[1].toLowerCase();
-    // Self-closing or void: nothing inside to remove.
-    if (m[2].trimEnd().endsWith('/')) {
-      out += html.slice(at, m.index) + ' ';
-      at = OPEN.lastIndex;
-      continue;
-    }
-    const TAG = new RegExp(`<(/?)${name}\\b[^>]*>`, 'gi');
-    TAG.lastIndex = OPEN.lastIndex;
-    let depth = 1;
-    let end = html.length;
-    for (let t = TAG.exec(html); t; t = TAG.exec(html)) {
-      depth += t[1] ? -1 : 1;
-      if (depth === 0) {
-        end = TAG.lastIndex;
-        break;
-      }
-    }
-    out += html.slice(at, m.index) + ' ';
-    at = end;
-    OPEN.lastIndex = end;
-  }
-  return out + html.slice(at);
-}
-
-export function visibleText(file) {
-  let html = readFileSync(file, 'utf8');
-  const main = /<main[^>]*>([\s\S]*?)<\/main>/.exec(html);
-  html = main ? main[1] : html;
-  return stripBoilerplate(html)
-    // 🔴 Blocks that are identical on every page by construction are
-    // stripped before comparing.
-    //
-    // The attribution block (CAMP-101) and the travel notice (CAMP-56)
-    // are word-for-word the same everywhere, because both are promises
-    // we make about every campsite rather than statements about one.
-    // Counting them inflates every pair's similarity equally: adding the
-    // attribution block pushed hr/zadarska/autocamp-tabor and
-    // autocamp-punta from below the line to 80.7%, which is a true
-    // measurement of the wrong thing.
-    //
-    // The rule for adding `data-boilerplate` is strict: the block must be
-    // identical on every page it appears on. Anything that varies with
-    // the subject stays in the comparison, because that is exactly what
-    // the guard is for.
-    // 🔴 BALANCED, not lazy-to-the-first-close. The old pattern was
-    // `[\s\S]*?<\/[a-z]+>`, which stops at the FIRST closing tag — so a
-    // boilerplate block containing a link or a <time> had only its first
-    // fragment removed and the rest of its words went on being compared
-    // as if they were about the campsite.
-    //
-    // Measured 04.10.2026: a credit paragraph holding two <a> and a
-    // <time> kept "· CDI v4.1.1 · CEMS terms · Read on 4 October 2026.
-    // Contains modified Copernicus…" in the comparison. Every existing
-    // `data-boilerplate` block with a nested element was under-stripped
-    // the same way, which inflated every pair in the same direction.
-    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&[a-z]+;|&#\d+;/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
-const shingles = (text, n = 5) => {
-  const w = text.split(' ');
-  const out = new Set();
-  for (let i = 0; i + n <= w.length; i++) out.add(w.slice(i, i + n).join(' '));
-  return out;
-};
-
-const jaccard = (a, b) => {
-  let shared = 0;
-  for (const s of a) if (b.has(s)) shared++;
-  return shared / (a.size + b.size - shared);
-};
-
-/**
- * Prove the stripper bites. No build, no filesystem.
- *
- * 🔴 This file had no rehearsal at all, and that is how the lazy pattern
- * survived: it was only ever exercised against real pages, where a
- * partially-stripped block still LOOKS like it was handled.
- */
-function selfTest() {
-  let rc = 0;
-  const bad = (m) => {
-    console.error(`✗ REHEARSAL FAILED: ${m}`);
-    rc = 1;
-  };
-  const gone = (html, ...words) => {
-    const out = stripBoilerplate(html);
-    for (const w of words) if (out.includes(w)) bad(`"${w}" survived: ${out}`);
-    return out;
-  };
-
-  gone('<p data-boilerplate="x">plain</p>', 'plain');
-
-  // 🔴 The case the old pattern got wrong, and the reason this exists.
-  gone(
-    '<p data-boilerplate="c"><a href="#">Source</a> · v4 · <time>4 October</time>. Contains modified.</p>',
-    'Source', 'v4', '4 October', 'Contains modified',
-  );
-
-  // Nested element of the SAME name must not end the block early.
-  gone('<div data-boilerplate="n">a<div>b</div>c</div>', 'a', 'b', 'c');
-
-  // What is NOT boilerplate must survive, untouched.
-  const kept = stripBoilerplate('<p>keep me</p><p data-boilerplate="x">drop me</p><p>and me</p>');
-  if (!kept.includes('keep me') || !kept.includes('and me')) bad(`real content was removed: ${kept}`);
-  if (kept.includes('drop me')) bad('boilerplate survived beside real content');
-
-  // An unclosed block removes to the end rather than silently keeping it.
-  gone('<p data-boilerplate="x">never closed', 'never closed');
-
-  // A page with no boilerplate comes back unchanged.
-  const plain = '<p>one</p><p>two</p>';
-  if (stripBoilerplate(plain) !== plain) bad('a page with no boilerplate was altered');
-
-  // 🔴 And the attribute must be the attribute, not a word in the text.
-  const lookalike = '<p>we use data-boilerplate= in our markup</p>';
-  if (!stripBoilerplate(lookalike).includes('we use')) bad('a mention of the attribute removed real text');
-
-  if (rc === 0) {
-    console.log(
-      '✓ rehearsal: a boilerplate block is removed whole — with its links,\n' +
-        '  its <time>, and a nested element of its own name — while content\n' +
-        '  beside it is untouched and a page without any is unchanged.',
+function visibleText(file) {
+  const html = readFileSync(file, 'utf8');
+  // 🔴 ASKED ON THE BUILT PAGE, WHICH IS THE ONLY PLACE A WRAPPER EXISTS.
+  //
+  // `data-boilerplate` on an element that contains another marked one
+  // removes everything between them from the comparison. A unit test
+  // that renders one component cannot see a mark added in `page.tsx`
+  // around it — review found exactly that gap — but this file reads the
+  // page as served, wrappers and all.
+  //
+  // It fails the run rather than warning: the symptom of the mistake is
+  // a guard that goes green, so nothing quieter would ever be noticed.
+  for (const { outer, inner } of nestedMarks(html)) {
+    nestingProblems.push(
+      `${path.relative(BUILD, file)}: data-boilerplate="${outer}" contains ` +
+        `data-boilerplate="${inner}" — everything between them is being ` +
+        'dropped from the duplicate comparison, including whatever varies',
     );
   }
-  return rc;
+  return visibleHtmlText(html);
 }
 
-const invokedDirectly = (() => {
-  if (process.argv[1] === undefined) return false;
-  try {
-    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
-
-if (!invokedDirectly) {
-  // imported for its functions
-} else if (args.includes('--self-test')) {
-  process.exit(selfTest());
-} else {
-  await main();
-}
-
-async function main() {
+/** Collected while reading, reported once, and they fail the run. */
+const nestingProblems = [];
 
 let failed = 0;
 let analysed = 0;
@@ -352,6 +215,16 @@ for (const family of FAMILIES) {
   }
 }
 
+if (nestingProblems.length > 0) {
+  console.error(`\n✗ ${nestingProblems.length} nested \`data-boilerplate\` block(s):\n`);
+  for (const p of nestingProblems.slice(0, 20)) console.error(`   ${p}`);
+  console.error(
+    '\n  Unwrap one of them. A mark may cover a block that is word for word\n' +
+      '  the same on every page — never a container holding one.',
+  );
+  process.exit(1);
+}
+
 if (failed > 0) {
   console.error(
     '\nThese pages differ by little more than a substituted value.\n' +
@@ -361,4 +234,3 @@ if (failed > 0) {
 }
 
 console.log(`\n✓ ${analysed} generated pages, no pair above ${(MAX_SIMILARITY * 100).toFixed(1)}%`);
-}

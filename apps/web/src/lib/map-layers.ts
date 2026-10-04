@@ -45,6 +45,22 @@ export const LAYERS = [
     terms: 'cems',
   },
   {
+    id: 'webcams',
+    // 🔴 "Webcams", not "Live webcams". We show the most recent DAYLIGHT
+    // frame, which after sunset is hours old — measured: the current
+    // frame of the Bovec camera at 18:10 UTC was a flat grey rectangle.
+    // "Live" would be a promise the picture cannot keep for half of
+    // every day.
+    label: 'Webcams',
+    description:
+      'Public webcams near campsites, through Windy. The most recent daylight view from each, with how far it is from the site.',
+    // 🔴 `planned`, not `live`: the panel on the campsite page is built
+    // and tested, the drawing on the map is not. Saying `live` here would
+    // put a chip on the map that turns nothing on — CAMP-190 continues.
+    status: 'planned',
+    card: 'CAMP-190',
+  },
+  {
     id: 'hazards',
     label: 'Hazards',
     description: 'Official severe-weather warnings.',

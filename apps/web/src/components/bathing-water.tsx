@@ -220,7 +220,16 @@ function Classification({ bw }: { bw: BathingWater }) {
           is identical on every page it appears on may carry the marker:
           what varies with the subject (the name, the class, the
           distance, the sentence that says whether it was classified)
-          stays in the comparison, because that is what the guard is for. */}
+          stays in the comparison, because that is what the guard is for.
+
+          🔴 AND YES, IT INTERPOLATES A VALUE — `${season}` — which looks
+          like exactly the thing the rule forbids. It is safe, and not by
+          luck: the read query pins every record to
+          `max(season)` for the one source
+          (`apps/api/src/bathing/nearby.ts`, asserted in `nearby.spec.ts`),
+          so every page in a build carries the same year. Review raised
+          this and it is written down here rather than re-derived: if that
+          subquery ever becomes per-record, this marker has to go. */}
       <p
         className="mt-2 max-w-prose text-sm leading-6 text-ink-2"
         data-boilerplate="bathing-season-context"
