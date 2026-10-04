@@ -478,25 +478,42 @@ test.describe('/map', () => {
     // The last one is what CI actually reported, and the previous run
     // could not say so: `data-region-layer` was written only on `idle`,
     // and the deferred draw finishes on a map that has stopped moving.
+    // 🔴 ONE STRING, NOT AN OBJECT, and that is not a style choice.
+    //
+    // The previous attempt returned `{layer, state, err, styleLoaded,
+    // awaiting}` and asserted `toMatchObject({layer: 'on'})`. Playwright
+    // diffs only the keys the matcher names, so CI printed
+    //
+    //     - "layer": "on"
+    //     + "layer": "off"
+    //
+    // and silently dropped the four fields that exist to say WHICH
+    // failure this is. A diagnostic the reporter does not print is a
+    // diagnostic that was never written. Compared whole, every field is
+    // in the diff.
     await expect
-      .poll(async () => {
-        const el = map(page);
-        return {
-          layer: await el.getAttribute('data-region-layer'),
-          state: await el.getAttribute('data-map-state'),
-          err: await el.getAttribute('data-region-error'),
-          styleLoaded: await el.getAttribute('data-style-loaded'),
-          awaiting: await el.getAttribute('data-awaiting-style'),
-        };
-      }, {
-        timeout: 20_000,
-        message:
-          'the map reached the wide view and the region layer was never added — ' +
-          'read styleLoaded and awaiting below: "no"/* is a style that never ' +
-          'arrived, "yes"/"yes" is a retry that never fired, "yes"/"no" is a ' +
-          'draw nobody published',
-      })
-      .toMatchObject({ layer: 'on' });
+      .poll(
+        async () => {
+          const el = map(page);
+          const read = async (n: string) => (await el.getAttribute(n)) ?? 'unset';
+          return (
+            `layer=${await read('data-region-layer')} ` +
+            `style-loaded=${await read('data-style-loaded')} ` +
+            `awaiting-style=${await read('data-awaiting-style')} ` +
+            `state=${await read('data-map-state')} ` +
+            `error=${await read('data-region-error')}`
+          );
+        },
+        {
+          timeout: 20_000,
+          message:
+            'the map reached the wide view and the region layer was never added. ' +
+            'style-loaded=no  → the style never arrived; ' +
+            'style-loaded=yes awaiting-style=yes → the retry was registered and never fired; ' +
+            'style-loaded=yes awaiting-style=no  → the draw ran and nobody published it',
+        },
+      )
+      .toMatch(/^layer=on /);
 
     await expect
       .poll(() => attr('data-visible-regions'), {
