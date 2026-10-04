@@ -141,6 +141,18 @@ jobs:
       - name: The fixture still holds what the tests stand on
         run: node scripts/ci/check-fixture-shape.mjs
 
+      # 🔴 CAMP-186. ODbL §4.6 lets us answer a recipient with a
+      # description of our alterations instead of the derived database
+      # itself, and legal/database is that description. A field the code
+      # computes and the page does not name is a hole in it — and the
+      # failure is silent: the field renders, nothing breaks, and we are
+      # outside the licence.
+      - name: Derived-field guard still catches an undescribed field
+        run: node scripts/ci/check-derived-fields.mjs --self-test
+
+      - name: Every derived field is described where ODbL §4.6 requires
+        run: node scripts/ci/check-derived-fields.mjs
+
       # 🔴 CAMP-183. The import script unpacks releases without a shell,
       # and its own rehearsal proves the rule still bites. That rehearsal
       # was written and then run NOWHERE — not here, not in package.json
