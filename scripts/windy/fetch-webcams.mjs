@@ -80,6 +80,26 @@ export function nearbyParam(lat, lon, km) {
 export const MAX_RADIUS_KM = 250;
 export const MIN_RADIUS_KM = 25;
 
+/**
+ * 🔴 PACING, and it is not politeness alone.
+ *
+ * The first dry run over six Austrian regions took `HTTP 429
+ * ThrottlerException` on the sixth. Unpaced, a full pass over 812
+ * regions would hammer them for twelve minutes — which is the shape of
+ * behaviour their terms name as grounds to cut us off, whatever the
+ * row counts say.
+ *
+ * 600 ms between requests is well inside any sane limit and still
+ * finishes 812 regions in about eight minutes. A 429 anyway is waited
+ * out rather than retried immediately, because retrying into a closed
+ * door is how a rate limit becomes a ban.
+ */
+export const PAUSE_MS = 600;
+export const RATE_LIMIT_BACKOFF_MS = 15_000;
+export const RATE_LIMIT_TRIES = 4;
+
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /** Free tier, measured: `limit > 50` is refused outright. */
 export const PAGE_LIMIT = 50;
 
@@ -229,14 +249,22 @@ export function readWebcam(input) {
 }
 
 /** Every page of one region's query, stopping at the tier's own ceiling. */
-export async function fetchRegion(nearby, fetchImpl, key) {
+export async function fetchRegion(nearby, fetchImpl, key, pause = sleep) {
   const out = [];
   let total = null;
   let truncated = false;
   for (let offset = 0; offset <= MAX_OFFSET; offset += PAGE_LIMIT) {
-    const res = await fetchImpl(listUrl(nearby, offset), {
-      headers: { 'x-windy-api-key': key },
-    });
+    let res = null;
+    for (let attempt = 1; attempt <= RATE_LIMIT_TRIES; attempt++) {
+      if (offset > 0 || attempt > 1) await pause(PAUSE_MS);
+      res = await fetchImpl(listUrl(nearby, offset), {
+        headers: { 'x-windy-api-key': key },
+      });
+      // 🔴 Wait it out, do not retry straight into it. A tight retry on
+      // a rate limit is how a throttle becomes a ban.
+      if (res.status !== 429) break;
+      if (attempt < RATE_LIMIT_TRIES) await pause(RATE_LIMIT_BACKOFF_MS * attempt);
+    }
     if (!res.ok) {
       const body = await res.text();
       throw new Error(`${safeUrl(listUrl(nearby, offset))} → HTTP ${res.status}: ${body.slice(0, 160)}`);
@@ -259,7 +287,7 @@ export async function fetchRegion(nearby, fetchImpl, key) {
 }
 
 /** Prove the rules bite. No network, no database. */
-export function selfTest() {
+export async function selfTest() {
   let rc = 0;
   const ok = (name, cond, extra = '') => {
     if (cond) console.log(`ok   ${name}`);
@@ -332,6 +360,47 @@ export function selfTest() {
   ok('a missing provider url is null, not a guess', readWebcam({ ...full, urls: { detail: full.urls.detail } })?.providerUrl === null);
   ok('an unparseable timestamp is null, not now()', readWebcam({ ...full, lastUpdatedOn: 'soon' })?.lastFrameAt === null);
 
+  // --- pacing, which the first real dry run proved was missing
+  let slept = [];
+  const fakePause = async (ms) => {
+    slept.push(ms);
+  };
+  let calls = 0;
+  const limiter = async () => {
+    calls += 1;
+    // First call is refused as rate-limited, second succeeds.
+    if (calls === 1) return { ok: false, status: 429, text: async () => 'ThrottlerException' };
+    return { ok: true, status: 200, json: async () => ({ total: 1, webcams: [] }) };
+  };
+  await fetchRegion('46,13,25', limiter, 'k', fakePause);
+  ok('🔴 a 429 is waited out, not retried straight into', slept.some((ms) => ms >= RATE_LIMIT_BACKOFF_MS), JSON.stringify(slept));
+  ok('…and the request is made again after the wait', calls === 2, `calls=${calls}`);
+
+  slept = [];
+  calls = 0;
+  const always429 = async () => {
+    calls += 1;
+    return { ok: false, status: 429, text: async () => 'no' };
+  };
+  let gaveUp = false;
+  try {
+    await fetchRegion('46,13,25', always429, 'k', fakePause);
+  } catch (e) {
+    gaveUp = /HTTP 429/.test(e.message);
+  }
+  ok('…and it gives up rather than hammering for ever', gaveUp);
+  // 🔴 Count the REQUESTS, not the pauses. An earlier version of this
+  // counted sleeps, so raising the loop bound to 99 while leaving the
+  // sleep condition alone produced ninety-nine requests with three
+  // pauses — unbounded hammering that the test called bounded.
+  ok(
+    '…after a bounded number of REQUESTS, not merely of pauses',
+    calls === RATE_LIMIT_TRIES,
+    `made ${calls} requests, expected ${RATE_LIMIT_TRIES}`,
+  );
+
+  ok('the pause between requests is real', PAUSE_MS >= 500);
+
   console.log(rc === 0 ? '\nall self-tests passed' : '\nSELF-TEST FAILED');
   return rc;
 }
@@ -346,7 +415,7 @@ const invokedDirectly = (() => {
 })();
 
 if (invokedDirectly && process.argv.includes('--self-test')) {
-  process.exit(selfTest());
+  process.exit(await selfTest());
 }
 
 /**
@@ -393,4 +462,117 @@ export function upsertSql(rows) {
          fetched_at = now()`,
     params,
   };
+}
+
+// ── running it ──────────────────────────────────────────────────────────
+
+const DB = process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
+const REGIONS_URL = process.env.CAMPTRIBE_API ?? 'http://localhost:3001';
+
+/**
+ * 🔴 The key comes from the environment and is never written anywhere.
+ *
+ * The repository is public and a key in a log is a key in the world. It
+ * is read here, passed in a header, and `safeUrl` keeps it out of every
+ * message this file can produce.
+ */
+function apiKey() {
+  const k = process.env.WINDY_WEBCAMS_API_KEY;
+  if (!k) {
+    throw new Error(
+      'WINDY_WEBCAMS_API_KEY is not set. It lives in apps/api/.env, which is\n' +
+        'gitignored. Never paste it into a command line — the shell keeps a history.',
+    );
+  }
+  return k;
+}
+
+async function main(argv) {
+  const dryRun = argv.includes('--dry-run');
+  const limitArg = argv.find((a) => a.startsWith('--limit='));
+  const only = limitArg ? Number(limitArg.slice('--limit='.length)) : null;
+  if (limitArg && (!Number.isInteger(only) || only <= 0)) {
+    throw new Error(`--limit wants a positive integer, got ${limitArg}`);
+  }
+
+  const res = await fetch(`${REGIONS_URL}/spots/map/regions`);
+  if (!res.ok) {
+    throw new Error(
+      `the region index answered HTTP ${res.status}. This import walks OUR regions,\n` +
+        'not Windy\'s catalogue, so without it there is nothing to ask about.',
+    );
+  }
+  const regions = await res.json();
+  if (!Array.isArray(regions) || regions.length === 0) {
+    // 🔴 An empty index is a broken API, not a continent with no regions.
+    // Treating it as "nothing to do" would exit 0 over a no-op.
+    throw new Error('the region index is empty — refusing to report success over nothing');
+  }
+
+  const queries = regionQueries(only ? regions.slice(0, only) : regions);
+  console.log(`${queries.length} regions, one request each (never one per campsite)`);
+
+  const key = apiKey();
+  const { default: pg } = await import('pg');
+  const client = dryRun ? null : new pg.Client({ connectionString: DB });
+  if (client) await client.connect();
+
+  let seen = 0;
+  let kept = 0;
+  const truncated = [];
+  const failed = [];
+
+  for (const [i, q] of queries.entries()) {
+    if (i > 0) await sleep(PAUSE_MS);
+    let page;
+    try {
+      page = await fetchRegion(q.nearby, fetch, key);
+    } catch (err) {
+      // 🔴 One region's failure is one region, not the run. But it is
+      // COUNTED and printed at the end: a quiet skip would turn a broken
+      // half of Europe into a smaller number nobody questions.
+      failed.push(`${q.key}: ${(err && err.message) || err}`);
+      continue;
+    }
+    seen += page.rows.length;
+    if (page.truncated) truncated.push(`${q.key} (${page.total})`);
+    const rows = page.rows.map(readWebcam).filter(Boolean);
+    kept += rows.length;
+    if (client) {
+      const sql = upsertSql(rows);
+      if (sql) await client.query(sql.text, sql.params);
+    }
+    if ((i + 1) % 25 === 0 || i + 1 === queries.length) {
+      console.log(`  ${i + 1}/${queries.length} regions · ${seen} seen · ${kept} kept`);
+    }
+  }
+
+  if (client) {
+    const { rows } = await client.query(
+      'SELECT count(*)::int AS n, count(DISTINCT country)::int AS countries FROM webcams',
+    );
+    console.log(`\nstored: ${rows[0].n} cameras across ${rows[0].countries} countries`);
+    await client.end();
+  } else {
+    console.log('\n--dry-run: nothing written');
+  }
+
+  if (truncated.length) {
+    // 🔴 Said out loud. The free tier stops at 1 050 rows per query, so a
+    // region with more has been seen in part. A count that looked whole
+    // would be the quiet kind of wrong.
+    console.log(
+      `\n⚠️ ${truncated.length} region(s) hit the free tier's 1 050-row ceiling and were ` +
+        `seen only in part:\n   ${truncated.slice(0, 10).join('\n   ')}`,
+    );
+  }
+  if (failed.length) {
+    console.error(`\n✗ ${failed.length} region(s) failed:\n   ${failed.slice(0, 10).join('\n   ')}`);
+    return 1;
+  }
+  return 0;
+}
+
+if (invokedDirectly && !process.argv.includes('--self-test')) {
+  process.exit(await main(process.argv.slice(2)));
 }
