@@ -77,7 +77,7 @@ describe('reading a number that may be written either way', () => {
   it('is not where the full-precision float artefact is stopped', () => {
     expect(decimal('2.7999999523162841796875')).not.toBe(2.8);
     const migration = readFileSync(
-      join(__dirname, '..', 'migrations', '1790662800000-FuelStationPrices.ts'),
+      join(__dirname, '..', 'migrations', '1790662801000-FuelStationPrices.ts'),
       'utf8',
     );
     expect(migration).toContain('price_eur     numeric(6,3) NOT NULL');
