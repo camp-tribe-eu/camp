@@ -594,6 +594,21 @@ test.describe('/map', () => {
     // Circles on the canvas and a map still calling itself busy is a
     // state the assertion above cannot tell from success, which is why
     // it is asserted separately rather than folded into it.
+    //
+    // 🔴 `wide`, NOT `ready`, and the first version of this asserted
+    // `ready` — a state the map correctly cannot be in here.
+    //
+    // `MapDataState` has four kinds (map-chunks.ts:335): `loading`,
+    // `ready`, `wide` and `failed`. `ready` is the DETAIL branch's
+    // terminal state; the wide branch's is `wide`, which is exactly the
+    // view these last twelve clicks drove the map back into. CI said
+    // `Expected "ready" / Received "wide"` and it was right: the map had
+    // announced it finished, in the only word that is true of this view.
+    //
+    // What this test is actually for is the silence — `loading` for
+    // ever behind drawn circles — so that is what it refuses, in both
+    // words that mean "settled", and `failed` is refused too rather
+    // than passing as not-loading.
     await expect
       .poll(async () => map(page).getAttribute('data-map-state'), {
         timeout: 20_000,
@@ -601,7 +616,7 @@ test.describe('/map', () => {
           'the circles came back but the map never announced it finished — ' +
           'the last refresh standing was silenced',
       })
-      .toBe('ready');
+      .toMatch(/^(wide|ready)$/);
   });
 
   // 🔴 CAMP-133. Found by opening /map on a production build and reading
