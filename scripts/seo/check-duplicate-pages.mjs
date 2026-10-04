@@ -23,7 +23,7 @@
 import { readFileSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
 import path from 'node:path';
-import { visibleHtmlText, shingles, jaccard, selfTest } from './page-text.mjs';
+import { visibleHtmlText, shingles, jaccard, selfTest, nestedMarks } from './page-text.mjs';
 
 // 🔴 `--self-test` needs no build and no database, so CI can run it on
 // every push: the stripping rule decides what this guard is allowed to
@@ -117,8 +117,29 @@ function seeded(n) {
 }
 
 function visibleText(file) {
-  return visibleHtmlText(readFileSync(file, 'utf8'));
+  const html = readFileSync(file, 'utf8');
+  // 🔴 ASKED ON THE BUILT PAGE, WHICH IS THE ONLY PLACE A WRAPPER EXISTS.
+  //
+  // `data-boilerplate` on an element that contains another marked one
+  // removes everything between them from the comparison. A unit test
+  // that renders one component cannot see a mark added in `page.tsx`
+  // around it — review found exactly that gap — but this file reads the
+  // page as served, wrappers and all.
+  //
+  // It fails the run rather than warning: the symptom of the mistake is
+  // a guard that goes green, so nothing quieter would ever be noticed.
+  for (const { outer, inner } of nestedMarks(html)) {
+    nestingProblems.push(
+      `${path.relative(BUILD, file)}: data-boilerplate="${outer}" contains ` +
+        `data-boilerplate="${inner}" — everything between them is being ` +
+        'dropped from the duplicate comparison, including whatever varies',
+    );
+  }
+  return visibleHtmlText(html);
 }
+
+/** Collected while reading, reported once, and they fail the run. */
+const nestingProblems = [];
 
 let failed = 0;
 let analysed = 0;
@@ -192,6 +213,16 @@ for (const family of FAMILIES) {
     }
     failed++;
   }
+}
+
+if (nestingProblems.length > 0) {
+  console.error(`\n✗ ${nestingProblems.length} nested \`data-boilerplate\` block(s):\n`);
+  for (const p of nestingProblems.slice(0, 20)) console.error(`   ${p}`);
+  console.error(
+    '\n  Unwrap one of them. A mark may cover a block that is word for word\n' +
+      '  the same on every page — never a container holding one.',
+  );
+  process.exit(1);
 }
 
 if (failed > 0) {

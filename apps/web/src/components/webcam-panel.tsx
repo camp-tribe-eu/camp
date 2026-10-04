@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import {
   WINDY_CREDIT,
+  absence,
   direction,
   distance,
   frameUrl,
@@ -115,10 +116,26 @@ export function WebcamPanel({
       </h3>
 
       {cams.length === 0 ? (
-        <p className="mt-2" data-boilerplate="webcam-none">
-          No public webcam within {distance(WEBCAM_RADIUS_M)} of this campsite. That is
-          what the camera network covers, not a statement about the place.
-        </p>
+        // 🔴 TWO SENTENCES, BECAUSE THE PANEL IS EMPTY FOR TWO REASONS —
+        // see `absence` in lib/webcams.ts. The first blames nobody; the
+        // second blames US, which is the honest half and the one this
+        // panel used to get wrong on every page 25 hours after an
+        // import.
+        //
+        // Both carry `data-boilerplate`: each is word for word the same
+        // on every page that is in that state, which is the rule.
+        absence(webcams, now) === 'stale' ? (
+          <p className="mt-2" data-boilerplate="webcam-stale">
+            We have cameras listed near this campsite, but none of them has
+            reported for more than a day. That is how old our last reading of
+            them is, not a statement about the place.
+          </p>
+        ) : (
+          <p className="mt-2" data-boilerplate="webcam-none">
+            No public webcam within {distance(WEBCAM_RADIUS_M)} of this campsite. That is
+            what the camera network covers, not a statement about the place.
+          </p>
+        )
       ) : (
         <>
           <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

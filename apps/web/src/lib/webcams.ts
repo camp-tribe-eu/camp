@@ -63,9 +63,18 @@ export const WINDY_CREDIT = 'Webcams provided by windy.com';
 
 export const WEBCAM_RADIUS_M = 25_000;
 
-/** 1 234 m → "1.2 km". Straight-line, and the component says so once. */
+/**
+ * 1 234 m → "1.2 km". Straight-line, and the component says so once.
+ *
+ * 🔴 A FLOOR AT 50 m, because the rounding produced "0 m away".
+ * Measured by review: 0, 12 and 24 metres all printed `0 m`, and "0 m
+ * away" reads as a camera pointed at the pitch — the one claim this
+ * panel exists to never make. Under the first rounding step the honest
+ * sentence is a bound, not a figure.
+ */
 export function distance(m: number): string {
   if (!Number.isFinite(m) || m < 0) return '';
+  if (m < 25) return 'under 50 m';
   if (m < 1000) return `${Math.round(m / 50) * 50} m`;
   if (m < 10_000) return `${(m / 1000).toFixed(1).replace(/\.0$/, '')} km`;
   return `${Math.round(m / 1000)} km`;
@@ -159,6 +168,38 @@ export function usable(cam: Webcam, now: Date): boolean {
 export function showable(cams: Webcam[] | null | undefined, now: Date): Webcam[] {
   if (!Array.isArray(cams)) return [];
   return cams.filter((c) => usable(c, now)).sort((a, b) => a.metres - b.metres || a.ref.localeCompare(b.ref));
+}
+
+/**
+ * 🔴 WHY THE PANEL IS EMPTY, WHICH IS TWO DIFFERENT FACTS.
+ *
+ * Review measured this and it is the worst thing that was in here: the
+ * page is built once and read for days, `usable()` is evaluated against
+ * the READER's clock, and `CAMERA_DEAD_AFTER_MINUTES` is one day. So 25
+ * hours after an import every campsite page in Europe fell to the empty
+ * branch and said
+ *
+ *   "No public webcam within 25 km of this campsite. That is what the
+ *    camera network covers, not a statement about the place."
+ *
+ * — which blames the camera network for OUR stale import, and is simply
+ * untrue of a place that has four cameras. Every test passed because
+ * every test handed it a `now` near the fixture timestamps.
+ *
+ * The two facts live in different places and always did:
+ *
+ *   `none`   the query returned no row. A fact about COVERAGE, settled
+ *            at build time and still true next week — 12% of campsites
+ *            (CAMP-189), Lithuania at every sampled site.
+ *   `stale`  rows exist and every one of them is older than a day. A
+ *            fact about OUR last reading, and the sentence must say so.
+ *
+ * A page may not blame the world for a gap of its own making.
+ */
+export type WebcamAbsence = 'none' | 'stale';
+
+export function absence(cams: Webcam[] | null | undefined, now: Date): WebcamAbsence {
+  return Array.isArray(cams) && cams.length > 0 ? 'stale' : 'none';
 }
 
 /** "last reported 12 minutes ago" — about the camera, never the picture. */

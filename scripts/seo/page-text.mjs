@@ -76,6 +76,35 @@ export function boilerplateBlocks(html) {
   return eachMarked(html).blocks;
 }
 
+/**
+ * Marks that sit INSIDE another mark, which the rule does not allow.
+ *
+ * 🔴 THE ONE EDIT THAT COULD DELETE A WHOLE PANEL FROM THIS GUARD.
+ *
+ * `stripBoilerplate` removes a marked element with everything in it. So
+ * a `data-boilerplate` put on a wrapper — a `<section>` in a page, a
+ * layout component — takes every per-page fact inside it out of the
+ * comparison, and the guard goes GREEN over pages it never read.
+ *
+ * Review found the hole from the other side: `boilerplate.spec.ts`
+ * renders ONE component, so a mark added in `page.tsx` around that
+ * component is invisible to it. The built pages are where such a
+ * wrapper actually exists, which is where this is asked.
+ *
+ * Two constant blocks nested in one another would be harmless and are
+ * still refused, because the cost of saying "unwrap one of them" is a
+ * line of JSX and the cost of the other mistake is the guard.
+ */
+export function nestedMarks(html) {
+  const out = [];
+  for (const block of eachMarked(html).blocks) {
+    for (const inner of eachMarked(block.text).blocks) {
+      out.push({ outer: block.name, inner: inner.name });
+    }
+  }
+  return out;
+}
+
 function eachMarked(html) {
   const MARKED = /<([a-z][a-z0-9]*)(\s[^>]*?)?\sdata-boilerplate\s*=[^>]*?(\/?)>/i;
   const blocks = [];
@@ -175,6 +204,13 @@ export function selfTest() {
     ['the attribute name must be exact', '<p data-boilerplate-ish="x">KEEP</p>', '<p data-boilerplate-ish="x">KEEP</p>'],
   ];
 
+  const nested = [
+    ['a wrapper mark around another is reported', '<div data-boilerplate="wrap"><p data-boilerplate="in">a</p>REAL</div>', 1],
+    ['two marks side by side are not nesting', '<p data-boilerplate="a">A</p><p data-boilerplate="b">B</p>', 0],
+    ['an unmarked wrapper is not nesting', '<div><p data-boilerplate="a">A</p></div>', 0],
+    ['nesting two deep is reported for each pair', '<div data-boilerplate="o"><div data-boilerplate="m"><p data-boilerplate="i">x</p></div></div>', 1],
+  ];
+
   let failures = 0;
   for (const [name, html, want] of cases) {
     const got = flat(html);
@@ -185,6 +221,20 @@ export function selfTest() {
       console.log(`✗ ${name}\n   want ${JSON.stringify(want)}\n   got  ${JSON.stringify(got)}`);
     }
   }
-  console.log(failures ? `\n✗ ${failures} self-test failure(s)` : `\n✓ ${cases.length} self-test cases passed`);
+  for (const [name, html, want] of nested) {
+    const got = nestedMarks(html).length;
+    if (got === want) {
+      console.log(`✓ ${name}`);
+    } else {
+      failures++;
+      console.log(`✗ ${name}\n   want ${want} nested mark(s), got ${got}`);
+    }
+  }
+
+  console.log(
+    failures
+      ? `\n✗ ${failures} self-test failure(s)`
+      : `\n✓ ${cases.length + nested.length} self-test cases passed`,
+  );
   return failures;
 }

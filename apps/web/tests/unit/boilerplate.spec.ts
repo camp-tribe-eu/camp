@@ -46,6 +46,8 @@ function markedBlocks(html: string): string[] {
 }
 
 const NOW = new Date('2026-10-04T19:35:00.000Z');
+/** The same page, read a day and an hour after it was built. */
+const LATER = new Date('2026-10-05T20:35:00.000Z');
 
 // Two campsites' worth of rows, as the query returns them. Different
 // cameras, different places, different distances, different ages.
@@ -102,8 +104,19 @@ test.describe('what `data-boilerplate` is allowed to hide', () => {
   // does; the words inside each one may not.
   test('every mark carries exactly one text, across different campsites', () => {
     const texts = new Map<string, Set<string>>();
-    for (const webcams of [SET_A, SET_B, [SET_A[1]], [SET_B[0]], [], null]) {
-      for (const block of markedBlocks(renderComponent(WebcamPanel, { webcams, now: NOW }))) {
+    const cases: [Webcam[] | null, Date][] = [
+      [SET_A, NOW],
+      [SET_B, NOW],
+      [[SET_A[1]], NOW],
+      [[SET_B[0]], NOW],
+      [[], NOW],
+      [null, NOW],
+      // 🔴 And the stale branch, which only appears on a clock the
+      // fixtures do not sit next to. See `webcams.spec.ts`.
+      [SET_A, LATER],
+    ];
+    for (const [webcams, when] of cases) {
+      for (const block of markedBlocks(renderComponent(WebcamPanel, { webcams, now: when }))) {
         const [name, text] = [block.slice(0, block.indexOf('::')), block.slice(block.indexOf('::') + 2)];
         if (!texts.has(name)) texts.set(name, new Set());
         texts.get(name)!.add(text);
@@ -116,6 +129,7 @@ test.describe('what `data-boilerplate` is allowed to hide', () => {
       'webcam-heading',
       'webcam-none',
       'webcam-operator',
+      'webcam-stale',
     ]);
 
     for (const [name, variants] of texts) {

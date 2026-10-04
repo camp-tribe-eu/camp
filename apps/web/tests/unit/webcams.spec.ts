@@ -5,6 +5,7 @@ import { WebcamPanel } from '@/components/webcam-panel';
 import { RESERVED_WORDS } from '@/lib/cems';
 import {
   CAMERA_DEAD_AFTER_MINUTES,
+  absence,
   WINDY_CREDIT,
   WEBCAM_RADIUS_M,
   direction,
@@ -213,6 +214,14 @@ test.describe('the panel never claims the camera shows the campsite', () => {
     const t = text(renderComponent(WebcamPanel, { webcams: REAL, now: NOW }));
     expect(t).toContain('450 m away');
     expect(t).toContain('600 m away');
+    // 🔴 And the floor. `Math.round(m / 50) * 50` printed "0 m away" for
+    // anything under 25 m — review measured 0, 12 and 24 all giving
+    // `0 m`. "0 m away" reads as a camera pointed at the pitch, which is
+    // the one thing this panel may never say.
+    expect(distance(0)).toBe('under 50 m');
+    expect(distance(12)).toBe('under 50 m');
+    expect(distance(24)).toBe('under 50 m');
+    expect(distance(25), 'the first rounded step must still round').toBe('50 m');
     expect(t).toContain('a camera is not a view of the site itself');
   });
 
@@ -220,9 +229,21 @@ test.describe('the panel never claims the camera shows the campsite', () => {
   // none at any sampled site. A blank space there reads as a broken
   // page, so the absence gets a sentence — and one that does not imply
   // anything about the place.
-  // 🔴 One radius, not two. The empty-state sentence used to hardcode
-  // 25 km while the query took its radius from `nearby.ts`, so changing
-  // the search would have left the page saying the old number.
+  // 🔴 TWO RADII, AND THIS TEST CANNOT TELL THEM APART — said plainly,
+  // because the comment that used to stand here claimed the opposite.
+  //
+  // `WEBCAM_RADIUS_M` is declared in `apps/web/src/lib/webcams.ts` AND
+  // in `apps/api/src/webcams/nearby.ts`, where the SQL uses it. Review
+  // set the API's to 10 000: all 756 unit tests stayed green while the
+  // page went on printing "within 25 km". It could not be otherwise —
+  // the expectation below is built from the same constant the component
+  // renders, so it only ever agrees with itself.
+  //
+  // What this test IS for: the sentence quotes the constant rather than
+  // a typed-in "25 km". That the two constants agree is checked where
+  // both files can be read at once —
+  // `scripts/ci/check-webcam-radius.mjs`, which fails on exactly the
+  // edit review made.
   test('the sentence quotes the radius the query actually uses', () => {
     expect(WEBCAM_RADIUS_M).toBe(25_000);
     const t = text(renderComponent(WebcamPanel, { webcams: [], now: NOW }));
@@ -286,6 +307,53 @@ test.describe('the words beside the pictures', () => {
     for (const phrase of ['Webcams nearby', 'away', 'The most recent daylight view', WINDY_CREDIT]) {
       expect(t).toContain(phrase);
       expect(RESERVED_WORDS.test(phrase)).toBe(false);
+    }
+  });
+});
+
+// CAMP-190 — the panel is empty for TWO reasons and may only say the
+// true one.
+//
+// 🔴 Found by review, and it was false on every page in Europe.
+//
+// These pages are built once and read for days; `usable()` is judged on
+// the READER's clock and `CAMERA_DEAD_AFTER_MINUTES` is one day. So 25
+// hours after an import, every campsite fell to the empty branch and
+// told the reader "No public webcam within 25 km of this campsite" —
+// blaming the camera network for our own stale import, over a place
+// with four working cameras.
+//
+// Every test passed, because every test handed the panel a `now` sitting
+// beside its fixture timestamps. These two do not.
+test.describe('an empty panel says which kind of empty it is', () => {
+  /** A day and an hour after the frames in REAL. */
+  const STALE_CLOCK = new Date(NOW.getTime() + (CAMERA_DEAD_AFTER_MINUTES + 60) * 60_000);
+
+  test('🔴 cameras that have gone quiet do not become "no camera here"', () => {
+    const fresh = text(renderComponent(WebcamPanel, { webcams: REAL, now: NOW }));
+    expect(fresh, 'the fixture is already stale — this test proves nothing')
+      .not.toContain('No public webcam');
+
+    const stale = text(renderComponent(WebcamPanel, { webcams: REAL, now: STALE_CLOCK }));
+    // The rows are still there. Only our reading of them is old.
+    expect(showable(REAL, STALE_CLOCK), 'the clock is not late enough to hide them').toHaveLength(0);
+    expect(absence(REAL, STALE_CLOCK)).toBe('stale');
+
+    expect(
+      stale,
+      'a campsite with three listed cameras is being told the network does not cover it',
+    ).not.toContain('No public webcam');
+    expect(stale).toContain('none of them has reported for more than a day');
+    expect(stale, 'the sentence must name whose reading is old').toContain('our last reading');
+  });
+
+  test('…and a campsite with no camera at all still says exactly that', () => {
+    for (const nothing of [[], null, undefined]) {
+      const out = text(renderComponent(WebcamPanel, { webcams: nothing, now: NOW }));
+      expect(absence(nothing, NOW)).toBe('none');
+      expect(out).toContain('No public webcam within 25 km');
+      expect(out, 'nothing was listed, so there is no reading of ours to be old')
+        .not.toContain('our last reading');
     }
   });
 });
