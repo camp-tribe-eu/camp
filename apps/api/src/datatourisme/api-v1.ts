@@ -28,9 +28,19 @@
 // builds the query from `prices.ts` vocabulary gets an empty answer and
 // concludes the API has no prices. It has them; `fields=*` returns 21
 // fields and the tariffs are inside.
+//
+// 🔴 AND THE TRAP BEHIND THAT ONE. Having the right KEYS is not having
+// the right SHAPES. Review of the first version of this file found that
+// every French tariff lost the operator's own wording, silently, while
+// its price survived — so nothing looked broken. The API writes language
+// maps as `{"@fr": "Forfait…"}` and `firstLangString` only accepts
+// `{"fr": ["Forfait…"]}`; measured, `'@fr'` fails its tag pattern and
+// returns null. `textPriceSpecification` — 407 records of operator prose
+// — went to zero the same way. `langMap` below is that fix, and the
+// round-trip tests assert the WORDS arrive, not just the numbers.
 
 import { createHash } from 'node:crypto';
-import type { JsonLdNode } from './prices';
+import { isCampsiteNode, type JsonLdNode } from './prices';
 
 /** The catalogue endpoint. */
 export const CATALOG_URL = 'https://api.datatourisme.fr/v1/catalog';
@@ -60,54 +70,66 @@ export const CATALOG_FIELDS = '*';
  */
 export const CATALOG_PAGE_SIZE = 50;
 
+/**
+ * A ceiling on the walk, so a bad cursor cannot spin forever.
+ *
+ * 9 438 campsites at 50 a page is 189 pages. A thousand leaves room for
+ * the catalogue to quadruple and is still a bound.
+ */
+export const MAX_CATALOG_PAGES = 1000;
+
 /** One page as the API returns it. */
 export interface CatalogPage {
   objects: Record<string, unknown>[];
   meta: { total: number; page: number; page_size: number; next?: string };
 }
 
-/**
- * A stable identity for one tariff line.
- *
- * 🔴 WE MINT THIS. The API does not.
- *
- * Measured on 20 live campsites: 35 `priceSpecification` nodes, and
- * **none** of them carries `@id`, `id`, `uri`, `uuid` or `identifier`.
- * The feed gives every tariff an `@id`, `prices.ts` uses it as the ref
- * AND as the duplicate key, and it rejects a tariff without one
- * (`reject('no-ref')`). Fed the API's shape untouched, we would drop
- * every tariff in France and the tests would show nothing wrong, because
- * the loss is a rejection, not a crash.
- *
- * So the ref is content-addressed: the same tariff text at the same
- * campsite yields the same ref on every refresh, and two genuinely
- * different lines under one campsite cannot collide. It is NOT a
- * DATAtourisme identifier and must never be shown or exported as one —
- * hence the `camptribe:` marker, which makes that obvious in a database
- * row as well as here.
- */
-export function tariffRef(
-  poiUri: string,
-  spec: Record<string, unknown>,
-): string {
-  const canonical = JSON.stringify([
-    poiUri,
-    spec.name ?? null,
-    spec.minPrice ?? null,
-    spec.maxPrice ?? null,
-    spec.priceCurrency ?? null,
-    spec.appliesOnPeriod ?? null,
-    spec.hasPricingOffer ?? null,
-    spec.hasPricingMode ?? null,
-  ]);
-  const digest = createHash('sha256').update(canonical).digest('hex');
-  return `camptribe:${poiUri}#${digest.slice(0, 16)}`;
-}
-
 /** JSON-LD writes single values and arrays interchangeably; so does the API. */
 function asList(value: unknown): unknown[] {
   if (value === null || value === undefined) return [];
   return Array.isArray(value) ? value : [value];
+}
+
+/**
+ * JSON-LD keywords, which look like language tags and are not.
+ *
+ * `@id` is two letters and would sail through an `[A-Za-z]{2,3}` test, so
+ * the pattern alone is not enough — an object holding `@id` must never be
+ * mistaken for a language map and rewritten.
+ */
+const JSONLD_KEYWORDS = new Set([
+  '@id',
+  '@type',
+  '@value',
+  '@language',
+  '@context',
+  '@graph',
+  '@list',
+  '@set',
+  '@none',
+]);
+
+const LANG_TAG = /^@([A-Za-z]{2,3}(?:-[A-Za-z0-9]+)*)$/;
+
+/**
+ * `{"@fr": "Forfait"}` as `{"fr": ["Forfait"]}`, which is the only shape
+ * `firstLangString` accepts.
+ *
+ * Returns the value untouched unless EVERY key is a language tag and none
+ * is a JSON-LD keyword — a half-match is more likely our misreading than
+ * a language map, and quietly rewriting it would be the same class of
+ * mistake this function exists to undo.
+ */
+export function langMap(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return value;
+  if (entries.some(([k]) => JSONLD_KEYWORDS.has(k) || !LANG_TAG.test(k))) {
+    return value;
+  }
+  const out: Record<string, unknown[]> = {};
+  for (const [k, v] of entries) out[LANG_TAG.exec(k)![1]] = asList(v);
+  return out;
 }
 
 /**
@@ -133,21 +155,123 @@ function vocabNode(value: unknown): unknown[] {
   });
 }
 
+/** The bare token out of either shape, sorted, for the identity below. */
+function tokenOf(value: unknown): string[] {
+  return asList(value)
+    .map((v) => {
+      if (typeof v === 'string') return v.replace(/^kb:/, '');
+      if (v && typeof v === 'object') {
+        const o = v as Record<string, unknown>;
+        const t = typeof o.key === 'string' ? o.key : o['@id'];
+        if (typeof t === 'string') return t.replace(/^kb:/, '');
+      }
+      return null;
+    })
+    .filter((t): t is string => !!t)
+    .sort();
+}
+
+/** JSON with every object's keys in a fixed order, at every depth. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const o = value as Record<string, unknown>;
+    const body = Object.keys(o)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`)
+      .join(',');
+    return `{${body}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/**
+ * A stable identity for one tariff line.
+ *
+ * 🔴 WE MINT THIS. The API does not.
+ *
+ * Measured on 20 live campsites: 35 `priceSpecification` nodes, and
+ * **none** of them carries `@id`, `id`, `uri`, `uuid` or `identifier`.
+ * The feed gives every tariff an `@id`, `prices.ts` uses it as the ref
+ * AND as the duplicate key, and it rejects a tariff without one
+ * (`reject('no-ref')`). Fed the API's shape untouched, we would drop
+ * every tariff in France and the tests would show nothing wrong, because
+ * the loss is a rejection, not a crash.
+ *
+ * 🔴 TWO WAYS THE FIRST VERSION GOT THIS WRONG, both found in review and
+ * both reproduced before being fixed:
+ *
+ * 1. It hashed `JSON.stringify` of the raw nodes, so the ref moved when
+ *    the API returned the same data with its keys in another order
+ *    (`{startDate,endDate}` against `{endDate,startDate}`), and moved
+ *    again when a vocabulary node merely gained a translation. A ref that
+ *    drifts is worse than no ref: `import-prices.ts` upserts without
+ *    deleting, so the page ends up printing one tariff twice.
+ * 2. It left `price` and `hasEligiblePolicy` out of the hash although
+ *    `prices.ts` reads both — so a €12 line and a €30 line at one
+ *    campsite COLLIDED, and the second was discarded as a duplicate.
+ *
+ * So the identity is built from normalised, order-independent parts: the
+ * vocabulary TOKENS rather than their labels, every priced field the
+ * parser reads, and the French name, which is the source language here
+ * and does not churn when another translation is added.
+ *
+ * It is NOT a DATAtourisme identifier and must never be shown or exported
+ * as one — hence the `camptribe:` marker, which makes that obvious in a
+ * database row as well as here.
+ */
+export function tariffRef(
+  poiUri: string,
+  spec: Record<string, unknown>,
+): string {
+  const name = langMap(spec.name);
+  const fr =
+    name && typeof name === 'object' && !Array.isArray(name)
+      ? ((name as Record<string, unknown>).fr ?? null)
+      : null;
+  const digest = createHash('sha256')
+    .update(
+      canonical({
+        poi: poiUri,
+        // Only the French wording. Other translations arrive and leave
+        // over time and none of them changes which tariff this is.
+        name: fr,
+        minPrice: asList(spec.minPrice),
+        maxPrice: asList(spec.maxPrice),
+        price: asList(spec.price),
+        currency: spec.priceCurrency ?? null,
+        period: asList(spec.appliesOnPeriod),
+        offer: tokenOf(spec.hasPricingOffer),
+        mode: tokenOf(spec.hasPricingMode),
+        policy: tokenOf(spec.hasEligiblePolicy),
+      }),
+    )
+    .digest('hex');
+  return `camptribe:${poiUri}#${digest.slice(0, 16)}`;
+}
+
 /**
  * One API object as the shape `prices.ts` already consumes.
  *
  * The leaf vocabulary did not change — `hasPricingOffer`,
  * `textPriceSpecification`, `minPrice`, `maxPrice` are all still there.
- * What changed is depth and prefixes, so this is a re-nesting rather
- * than a new parser, and `prices.ts` stays untouched:
+ * What changed is depth, prefixes and the language-map spelling, so this
+ * is a re-nesting rather than a new parser, and `prices.ts` stays
+ * untouched:
  *
- *     API                                    feed / prices.ts
- *     type                                   @type
- *     uri                                    @id
- *     offers[].priceSpecification[]          offers[]['schema:priceSpecification'][]
- *     …minPrice / …maxPrice                  schema:minPrice / schema:maxPrice
- *     …hasPricingOffer[].key                 hasPricingOffer[]['@id']
- *     (nothing)                              @id on each tariff — minted above
+ *     API                                 feed / prices.ts
+ *     type                                @type
+ *     uri                                 @id
+ *     offers[].priceSpecification[]       offers[]['schema:priceSpecification']
+ *     …minPrice / maxPrice / price        schema:minPrice / maxPrice / price
+ *     …priceCurrency                      schema:priceCurrency
+ *     …hasPricingOffer[].key              hasPricingOffer[]['@id']
+ *     {"@fr": "x"}                        {"fr": ["x"]}
+ *     (nothing)                           @id on each tariff — minted above
+ *
+ * `textPriceSpecification` sits on the OFFER in both — measured, not
+ * assumed: one occurrence on an offer and none on a specification across
+ * the live sample.
  *
  * `lastUpdate` and `lastUpdateDatatourisme` carry the same names on both
  * sides and are passed through: Licence Ouverte 2.0 requires the date of
@@ -168,21 +292,23 @@ export function toFeedNode(obj: Record<string, unknown>): JsonLdNode | null {
         // 🔴 Every `schema:` key the parser reads, and the list is
         // exhaustive on purpose. Prefixing only the two obvious ones
         // (min and max) made `parsePriceSpec` answer `no-currency` and
-        // return null — the tariff vanished with no error anywhere, which
-        // is exactly the quiet loss this module exists to prevent. The
-        // list comes from grepping prices.ts for `spec['schema:…']`, not
-        // from memory; if that file grows a key, this breaks loudly in
-        // the round-trip test below rather than dropping rows.
+        // return null — the tariff vanished with no error anywhere.
         'schema:minPrice': asList(s.minPrice),
         'schema:maxPrice': asList(s.maxPrice),
         'schema:price': asList(s.price),
         'schema:priceCurrency': s.priceCurrency,
+        name: langMap(s.name),
+        additionalInformation: langMap(s.additionalInformation),
         hasPricingOffer: vocabNode(s.hasPricingOffer),
         hasPricingMode: vocabNode(s.hasPricingMode),
         hasEligiblePolicy: vocabNode(s.hasEligiblePolicy),
       };
     });
-    return { ...o, 'schema:priceSpecification': specs };
+    return {
+      ...o,
+      'schema:priceSpecification': specs,
+      textPriceSpecification: langMap(o.textPriceSpecification),
+    };
   });
 
   return {
@@ -217,14 +343,31 @@ export async function* catalogNodes(
   fetchImpl: typeof fetch = fetch,
 ): AsyncGenerator<JsonLdNode> {
   let url: string | undefined = catalogUrl();
-  let seen = 0;
+  let campsites = 0;
   let pages = 0;
+  // 🔴 A cursor that points at its own page is a loop with no exit, and
+  // review produced one: `meta.next` echoing the current URL ran 2 001
+  // requests before being killed by hand. The server decides where we go
+  // next, so the bound has to live on this side.
+  const visited = new Set<string>();
 
   while (url) {
+    if (visited.has(url)) {
+      throw new Error(
+        `DATAtourisme catalogue sent us back to a page we already read, after ${pages} page(s) — refusing to loop`,
+      );
+    }
+    visited.add(url);
+    if (pages >= MAX_CATALOG_PAGES) {
+      throw new Error(
+        `DATAtourisme catalogue went past ${MAX_CATALOG_PAGES} pages — refusing to keep walking`,
+      );
+    }
+
     const res = await fetchImpl(url, { headers: { 'x-api-key': apiKey } });
     if (!res.ok) {
       throw new Error(
-        `DATAtourisme catalogue answered HTTP ${res.status} on page ${pages + 1} after ${seen} objects`,
+        `DATAtourisme catalogue answered HTTP ${res.status} on page ${pages + 1} after ${campsites} campsites`,
       );
     }
     const page = (await res.json()) as CatalogPage;
@@ -232,21 +375,26 @@ export async function* catalogNodes(
 
     for (const obj of page.objects ?? []) {
       const node = toFeedNode(obj);
-      if (node) {
-        seen += 1;
-        yield node;
-      }
+      if (!node) continue;
+      // 🔴 Count CAMPSITES, not objects. The first version counted
+      // anything carrying a `uri`, so a renamed ontology class — 50
+      // objects typed `CampingAndCaravanningSite` — walked straight
+      // through, yielded 50 nodes that `isCampsiteNode` then rejected,
+      // and raised nothing at all. The guard below promised to catch
+      // exactly that while measuring the wrong thing.
+      if (isCampsiteNode(node)) campsites += 1;
+      yield node;
     }
 
     url = page.meta?.next;
   }
 
-  if (seen === 0) {
-    // 🔴 Zero objects is a failure, not an empty catalogue. Measured
-    // today: 9 438 campsites. A run that walks the cursor and returns
-    // nothing has hit a changed filter, a revoked key or a renamed type,
-    // and the one thing it must not do is let an importer write that
-    // emptiness over what we already hold.
+  if (campsites === 0) {
+    // 🔴 Zero is a failure, not an empty catalogue. Measured today:
+    // 9 438 campsites. A run that walks the cursor and finds none has hit
+    // a changed filter, a revoked key or a renamed type, and the one
+    // thing it must not do is let an importer write that emptiness over
+    // what we already hold.
     throw new Error(
       `DATAtourisme catalogue returned no campsites across ${pages} page(s) — refusing to report an empty import`,
     );
