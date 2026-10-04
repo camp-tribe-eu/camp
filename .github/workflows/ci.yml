@@ -131,6 +131,15 @@ jobs:
       - name: Skip guard still catches a test that did not run
         run: node scripts/ci/check-skips.mjs --self-test
 
+      # 🔴 CAMP-183. The import script unpacks releases without a shell,
+      # and its own rehearsal proves the rule still bites. That rehearsal
+      # was written and then run NOWHERE — not here, not in package.json
+      # — so the mutation that "turned it red" only ever did so by hand.
+      # This file says it two screens up: a rule nothing checks is a rule
+      # that has already stopped applying.
+      - name: The OSM import spawns no shell, and still says so
+        run: node scripts/osm-pipeline/import-release.mjs --self-test
+
       # 🔴 CAMP-174. The CEMS language rule is enforced on panels the
       # suite can FIND, and it found them through hand-written
       # descriptors. Review built a drought panel and a /drought page
@@ -153,6 +162,16 @@ jobs:
 
       - name: No two migrations share a timestamp
         run: node scripts/ci/check-migration-stamps.mjs
+
+      # 🔴 The numbers on the home page live in a PNG, and a PNG is
+      # rewritten by `--update-snapshots` to agree with whatever the code
+      # now does. CAMP-182: the headline went 71 → 72 unnoticed. These
+      # two steps put the same numbers in a file a human has to edit.
+      - name: Fixture-count guard still catches a moved number
+        run: node scripts/ci/check-fixture-counts.mjs --self-test
+
+      - name: The fixture still adds up to what the pages claim
+        run: node scripts/ci/check-fixture-counts.mjs
 
       # 🔴 A broken workflow file is the failure that reports nothing.
       #
