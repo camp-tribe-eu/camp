@@ -192,25 +192,25 @@ describe('🔴 the build token lifts the limit — the bypass that cost seven ho
   });
 });
 
-// 🔴 What this block does NOT say. It covers the three routes that
-// BULK_ROUTES lists (`spots/map/points`, `spots/search-index`, `spots/index`)
-// and nothing else — it is not "every route with the bulk limit".
+// 🔴 What this block does NOT say. It covers the routes BULK_ROUTES
+// lists and nothing else. That used not to be the same set as "every
+// route with the bulk limit", which is the next paragraph.
 //
-// `/spots/map/regions` is decorated `@Throttle(BULK)` (limit 6) but is absent
-// from BULK_ROUTES, so `generateKey` files it under `ordinary`: it gets the
-// bulk NUMBER in the ordinary BUCKET. Measured through this suite's own
-// application: six calls to `/spots/countries` all answer 200, and the next
-// call to `/spots/map/regions` answers 429. That is a pre-existing defect in
-// throttle.ts / spots.controller.ts, found while writing this file, carded
-// separately and deliberately NOT asserted here in either direction — a test
-// that passes today's behaviour would fix the bug in place, and one that
-// demands the tidy behaviour would be red on main's own code.
+// 🔴 WAS A LIVE DEFECT WHEN THIS FILE WAS WRITTEN, FIXED IN CAMP-176.
 //
-// The pure suite's "every bulk route actually carries the bulk limit" reads
-// the decorators, and the list of routes it iterates is BULK_ROUTES: the same
-// list, so it cannot see this either.
+// `/spots/map/regions` carried `@Throttle(BULK)` (limit 6) and was absent
+// from BULK_ROUTES, so `generateKey` filed it under `ordinary`: the bulk
+// NUMBER in the ordinary BUCKET. Measured through this suite's own
+// application — six calls to `/spots/countries` all answered 200, and the
+// next call to `/spots/map/regions` answered 429.
+//
+// This file deliberately asserted neither behaviour at the time, which was
+// right: a test written to today's behaviour fixes a bug in place. The
+// route is now in BULK_ROUTES and `throttle.spec.ts` reads the controllers
+// and fails if a decorator and the list ever disagree again, in either
+// direction.
 describe('🔴 two buckets per caller, not one per route — for the routes BULK_ROUTES lists', () => {
-  it('the three routes BULK_ROUTES lists share one bulk bucket', async () => {
+  it('every route BULK_ROUTES lists shares one bulk bucket', async () => {
     await boot();
     // Two on each route is six in all — the limit — if they share.
     // If the library's per-handler key were back, each route would have

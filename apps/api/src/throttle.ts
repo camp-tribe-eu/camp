@@ -57,6 +57,17 @@ export const BULK_LIMIT = { ttl: MINUTE, limit: 6 };
  */
 export const BULK_ROUTES = [
   'spots/map/points',
+  // 🔴 CAMP-176. This was decorated `@Throttle(BULK)` and absent here,
+  // so it carried the heavy NUMBER while sharing the ordinary BUCKET.
+  // Measured against the running API: six calls to `/spots/countries`
+  // — three words of JSON each — and the next `/spots/map/regions`
+  // answered 429, without that route having been called once.
+  //
+  // The decorator and this list are two statements about one route, and
+  // nothing compared them. `throttle.spec.ts` now reads the controller
+  // and fails if they disagree in either direction; this entry is the
+  // one that disagreement was hiding.
+  'spots/map/regions',
   'spots/search-index',
   'spots/index',
 ] as const;
