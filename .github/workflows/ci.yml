@@ -131,6 +131,16 @@ jobs:
       - name: Skip guard still catches a test that did not run
         run: node scripts/ci/check-skips.mjs --self-test
 
+      # 🔴 CAMP-173. check-fixture-not-shrunk.mjs counts rows; a
+      # regeneration passed it at 73 → 90 campsites and produced a
+      # fixture with no Slovenia, one surviving id out of 72, and a load
+      # that died on the gone block. A count is not a shape.
+      - name: Fixture-shape guard still catches a missing subject
+        run: node scripts/ci/check-fixture-shape.mjs --self-test
+
+      - name: The fixture still holds what the tests stand on
+        run: node scripts/ci/check-fixture-shape.mjs
+
       # 🔴 CAMP-186. ODbL §4.6 lets us answer a recipient with a
       # description of our alterations instead of the derived database
       # itself, and legal/database is that description. A field the code
