@@ -50,8 +50,18 @@ export function pageText(html: string): string {
       //
       // `\b` keeps it honest in the other direction: `</scriptfoo>` is not a
       // close tag and must not be swallowed.
-      .replace(/<script[\s\S]*?<\/script\b[^>]*>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style\b[^>]*>/gi, ' ')
+      //
+      // 🔴 `|$` is the third shape, and it was live on main until the
+      // retroactive review of #85 (CAMP-194) found it. Both earlier patches
+      // required a closing tag, so a script that never closes — truncated
+      // response, `</script` cut off at EOF — was left whole, its body
+      // stayed in the text, and `sentenceIsOn` reported our attribution
+      // "present" on a page where a reader sees nothing. A browser treats
+      // everything after an unclosed `<script>` as script content; so do we.
+      // Measured on the three shapes: without `|$` the sentence was visible
+      // to the checker (`true`) and invisible to the reader.
+      .replace(/<script[\s\S]*?(?:<\/script\b[^>]*>|$)/gi, ' ')
+      .replace(/<style[\s\S]*?(?:<\/style\b[^>]*>|$)/gi, ' ')
       .replace(/<!--[\s\S]*?-->/g, ' ')
       .replace(/<[^>]*>/g, ' ')
       .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, body: string) => {
@@ -92,7 +102,16 @@ export function sentenceIsOn(html: string, sentence: string): boolean {
  */
 async function check(url: string, sentence: string, what: string) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url} answered HTTP ${res.status}`);
+  // 🔴 Return, do not throw. These two calls sit in one array literal, so a
+  // throw here skips the other check entirely — and the two fail for
+  // different reasons and need different answers. A dead viewer page used
+  // to hide the permission verdict, including the "quote case #309009, do
+  // not ship" line below. An unreachable page is still a failure: `false`
+  // reaches `ok.every(Boolean)` and the script exits 1.
+  if (!res.ok) {
+    console.error(`✗ ${url} answered HTTP ${res.status} — ${what} unread`);
+    return false;
+  }
   if (sentenceIsOn(await res.text(), sentence)) {
     console.log(`✓ ${what} is on ${url}, word for word`);
     return true;

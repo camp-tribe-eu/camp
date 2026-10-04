@@ -502,8 +502,7 @@ test.describe('the attribution the licence requires', () => {
 
   test('the sentence is marked as boilerplate; the date, which varies, is not', () => {
     const html = render(stationFacts(READING));
-    // 🔴 Both constants, one text node. `{A} {B}` would render with a
-    // <!-- --> between them and this assertion is what would catch it.
+    // Both constants sit inside one boilerplate span, in order.
     expect(html).toContain(
       'data-boilerplate="air-attribution">' +
         AIR_ATTRIBUTION +
@@ -511,7 +510,19 @@ test.describe('the attribution the licence requires', () => {
         AIR_SOURCE_CREDIT +
         '</span>',
     );
-    expect(html).not.toContain('<!-- -->');
+    // 🔴 The "one text node" rule is NOT tested here, and this file used to
+    // claim it was — an `expect(html).not.toContain('<!-- -->')` with a
+    // comment saying it would catch `{A} {B}`. It cannot. This harness
+    // renders with `renderToStaticMarkup` (render-component.ts:7), which
+    // emits no separator comments at all: both forms come out byte for
+    // byte identical, so the assertion was vacuous for every component in
+    // this file, and the `toContain` above passes under the mutation too.
+    //
+    // The rule is real and it is guarded — by the e2e against served HTML
+    // (tests/e2e/air-quality.spec.ts:449), which runs under
+    // `renderToString` and sees `ATTRIBUTION.<!-- --> <!-- -->Source:…`.
+    // That job is in CI (ci.yml:620). Found by the retroactive review of
+    // #85, CAMP-194.
     expect(html).not.toMatch(/data-boilerplate="[^"]*"[^>]*>[^<]*Read from the EEA/);
   });
 });

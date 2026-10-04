@@ -94,11 +94,38 @@ describe('sentenceIsOn', () => {
     expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
   });
 
-  // And the other direction: `</scriptfoo>` is NOT a close tag, so the text
-  // after it is real page text and must still be found.
-  it('still reads text that follows a non-tag like </scriptfoo>', () => {
-    const html = `<p>${AIR_ATTRIBUTION}</p>`;
-    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(true);
+  // And the other direction. `</scriptfoo>` is NOT a close tag, so it does
+  // not end the element: everything up to the real `</script>` is script
+  // body, both copies of the sentence included.
+  //
+  // 🔴 This fixture is the entire reason `\b` is in the regex, and until
+  // CAMP-194 the test carrying this name used `<p>${AIR_ATTRIBUTION}</p>` —
+  // no `</scriptfoo>` anywhere in it. All 14 cases here stayed green with
+  // `\b` deleted from both regexes, so the guard was untested. Delete `\b`
+  // now and this case must go red: the mutant stops at `</script`, leaves
+  // `foo>` plus the second sentence as page text, and answers true.
+  it('treats </scriptfoo> as script body, not as a close tag', () => {
+    const html = `<script>var s = "${AIR_ATTRIBUTION}";</scriptfoo>${AIR_ATTRIBUTION}</script>`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  // 🔴 CAMP-194, and the worst direction a safeguard can fail in. Both
+  // earlier patches demanded a closing tag, so a script that never closes
+  // kept its body in the searched text: the checker answered "attribution
+  // present" for a page on which a reader sees nothing at all.
+  it('does not count text inside a script that is never closed', () => {
+    const html = `<script>var s = "${AIR_ATTRIBUTION}";`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  it('does not count text inside a script whose </script is cut off at EOF', () => {
+    const html = `<script>var s = "${AIR_ATTRIBUTION}";</script`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  it('does not count text inside a style that is never closed', () => {
+    const html = `<style>a { content: "${AIR_ATTRIBUTION}"; }`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
   });
 
   it('does not count text inside a style closed as </style >', () => {
