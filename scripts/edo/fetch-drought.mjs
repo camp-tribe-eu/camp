@@ -363,6 +363,14 @@ export function cropWindow(grid = GRID, crop = CROP) {
 }
 
 export function cropPixels(px, grid, win) {
+  // 🔴 Takes the PIXELS, not the object `readGeoTiff` returns. Passing
+  // the object used to throw "px.copy is not a function" three frames
+  // deep; say which argument is wrong, here, where the caller is.
+  if (!Buffer.isBuffer(px)) {
+    throw new TypeError(
+      `cropPixels wants the pixel buffer, got ${px && typeof px === 'object' ? 'the readGeoTiff object — pass its .px' : typeof px}`,
+    );
+  }
   const out = Buffer.allocUnsafe(win.width * win.height);
   for (let r = 0; r < win.height; r++) {
     px.copy(out, r * win.width, (win.row0 + r) * grid.width + win.col0, (win.row0 + r) * grid.width + win.col0 + win.width);
@@ -379,4 +387,435 @@ export function sampleAt(win, px, lon, lat) {
   const row = Math.floor((win.lat0 - lat) / win.pixel);
   if (col < 0 || col >= win.width || row < 0 || row >= win.height) return null;
   return px[row * win.width + col];
+}
+
+/**
+ * The study-domain mask: which pixels the CDI algorithm actually answers
+ * about.
+ *
+ * 🔴 WHY THIS EXISTS AT ALL, and it is the heart of the card.
+ *
+ * The factsheet says the algorithm "assigns each pixel **in the study
+ * domain** to one of the seven classes", and class 0 is "Normal
+ * conditions (No drought)" — a real answer, not a gap. Outside the study
+ * domain the raster carries 0 too, as fill. So a single raster cannot
+ * tell "we measured, and this place is fine" from "we do not cover this
+ * place", and those two sentences are not interchangeable on a page
+ * somebody plans a trip from.
+ *
+ * `docs/emergency-sources.md` §4 left this open in writing: "value 0 in
+ * this raster conflates 'no drought class here' with 'outside the
+ * computed domain', and we did not separate them … Not checked".
+ *
+ * The provider publishes `ne_10m_ocean_mask` in GetCapabilities, which
+ * would have answered it exactly. It returns HTTP 400 PRODUCT_NOT_FOUND.
+ *
+ * So it is measured: a pixel the algorithm has EVER classified as
+ * anything but 0, in any dekad of the archive, is inside the domain.
+ *
+ * 🔴 AND THE MEASUREMENT PROVES ITSELF SATURATED.
+ *
+ * Too few dekads and a stretch of land that simply never had a dry spell
+ * reads as "we do not cover this place" — understating what we know. So
+ * `buildMask` does not accept a number of dekads chosen by whoever ran
+ * it: it requires that the last `SATURATION_TAIL` dekads added NOTHING.
+ * Measured 04.10.2026 over 29 dekads spanning 2012–2026: growth stops
+ * dead after the tenth, and the final six added exactly 0 pixels each.
+ */
+export const SATURATION_TAIL = 5;
+
+export function maskBits(width, height) {
+  return Buffer.alloc(Math.ceil((width * height) / 8));
+}
+
+export const maskGet = (bits, i) => (bits[i >> 3] >> (i & 7)) & 1;
+export const maskSet = (bits, i) => {
+  bits[i >> 3] |= 1 << (i & 7);
+};
+
+/**
+ * Fold one dekad's cropped pixels into the mask. Returns how many pixels
+ * this dekad ADDED — the number the saturation rule reads.
+ */
+export function foldIntoMask(bits, px) {
+  let added = 0;
+  for (let i = 0; i < px.length; i++) {
+    if (px[i] !== 0 && !maskGet(bits, i)) {
+      maskSet(bits, i);
+      added += 1;
+    }
+  }
+  return added;
+}
+
+/**
+ * Build the mask, and refuse to return one that has not stopped growing.
+ *
+ * `rasters` is an iterable of cropped pixel buffers, oldest first.
+ */
+export function buildMask(rasters, win, tail = SATURATION_TAIL) {
+  const bits = maskBits(win.width, win.height);
+  const growth = [];
+  for (const px of rasters) {
+    if (px.length !== win.width * win.height) {
+      throw new Error(`a dekad is ${px.length} bytes, expected ${win.width * win.height}`);
+    }
+    growth.push(foldIntoMask(bits, px));
+  }
+  if (growth.length <= tail) {
+    throw new Error(
+      `${growth.length} dekads cannot show saturation: the rule needs more ` +
+        `than ${tail}, so that the last ${tail} can be seen to add nothing.`,
+    );
+  }
+  const last = growth.slice(-tail);
+  const stillGrowing = last.reduce((a, b) => a + b, 0);
+  if (stillGrowing > 0) {
+    throw new Error(
+      `the domain mask has not saturated: the last ${tail} dekads still added ` +
+        `${last.join(', ')} pixels. Feed it more dekads. An unsaturated mask ` +
+        'calls dry-but-ordinary land "not covered", which hides a true ' +
+        '"no drought" from the reader.',
+    );
+  }
+  return { bits, growth, set: growth.reduce((a, b) => a + b, 0) };
+}
+
+/**
+ * What the page says about one campsite.
+ *
+ * 🔴 Three outcomes, and keeping them apart is the whole point:
+ *   - off the cropped grid, or outside the study domain → we do not know
+ *   - class 0 → measured, and there is no drought here
+ *   - class 1..6 → the stage, in our words
+ */
+export function readingAt(win, px, bits, lon, lat) {
+  const col = Math.floor((lon - win.lon0) / win.pixel);
+  const row = Math.floor((win.lat0 - lat) / win.pixel);
+  if (col < 0 || col >= win.width || row < 0 || row >= win.height) {
+    return { known: false, why: 'outside the area this indicator covers' };
+  }
+  const i = row * win.width + col;
+  if (!maskGet(bits, i)) {
+    return { known: false, why: 'outside the area this indicator covers' };
+  }
+  const value = px[i];
+  const cls = CLASSES.find((c) => c.value === value);
+  if (!cls) return { known: false, why: 'the indicator returned a class we do not know' };
+  return { known: true, value, label: cls.label, detail: cls.detail };
+}
+
+/**
+ * 🔴 Dekads are the 1st, 11th and 21st. Nothing else is one, and a date
+ * that is not one would be silently served as its neighbour.
+ */
+export function isDekad(date) {
+  return /^\d{4}-\d{2}-(01|11|21)$/.test(String(date));
+}
+
+/**
+ * Dekads from across the archive, oldest first, for the mask.
+ *
+ * 🔴 SPREAD ON PURPOSE, not the most recent N. Drought is regional and
+ * seasonal: ten consecutive dekads of one wet autumn would leave half of
+ * Europe looking like it is not covered. These walk the years and the
+ * seasons, and `buildMask` still refuses the result unless the tail
+ * added nothing — so the spread is an argument, and the saturation check
+ * is the proof.
+ */
+export function maskDekads(firstYear, lastYear) {
+  const out = [];
+  const months = ['01', '03', '05', '07', '09', '11'];
+  for (let y = firstYear; y <= lastYear; y++) {
+    const m = months[(y - firstYear) % months.length];
+    out.push(`${y}-${m}-01`, `${y}-${m}-21`);
+  }
+  return out;
+}
+
+async function getCoverage(time, fetchImpl = fetch) {
+  const res = await fetchImpl(coverageUrl(COVERAGE, time));
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`GetCoverage ${time} → HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  return cropPixels(readGeoTiff(buf).px, GRID, cropWindow());
+}
+
+export function buildOutput({ dekad, range, win, px, today }) {
+  const age = dekadAgeDays(dekad, today);
+  const out = {
+    meta: {
+      source: 'Copernicus Emergency Management Service, European Drought Observatory',
+      indicator: 'Combined Drought Indicator (CDI) v4.1.1',
+      coverage: COVERAGE,
+      dekad,
+      dekadAgeDays: age,
+      availableRange: range,
+      fetchedAt: today.toISOString(),
+      attribution: ATTRIBUTION(today.getUTCFullYear()),
+      // 🔴 Said here, once, so no page has to decide it for itself: this
+      // is a ten-day product and three weeks old is its normal state.
+      cadenceNote:
+        'The CDI is published once every ten days. A reading two or three weeks ' +
+        'old is the newest there is, not a stale one.',
+      grid: { width: win.width, height: win.height, lon0: win.lon0, lat0: win.lat0, pixel: win.pixel },
+      classes: CLASSES.map(({ value, label, detail }) => ({ value, label, detail })),
+    },
+    cdi: encode(px),
+  };
+  checkWording(out);
+  return out;
+}
+
+export function buildDomainFile({ win, built, dekads, today }) {
+  const out = {
+    meta: {
+      note:
+        'Which pixels the indicator answers about at all. Built once from ' +
+        'dekads spread across the archive, because the published ocean mask ' +
+        'this would have come from is advertised and not served.',
+      builtAt: today.toISOString(),
+      dekads,
+      growth: built.growth,
+      inDomain: built.set,
+      ofPixels: win.width * win.height,
+      grid: { width: win.width, height: win.height, lon0: win.lon0, lat0: win.lat0, pixel: win.pixel },
+    },
+    domain: encode(built.bits),
+  };
+  checkWording(out);
+  return out;
+}
+
+/** Prove the gates bite. Nothing here touches the network. */
+export function selfTest() {
+  let rc = 0;
+  const ok = (name, cond, extra = '') => {
+    if (cond) console.log(`ok   ${name}`);
+    else {
+      console.error(`FAIL ${name} ${extra}`);
+      rc = 1;
+    }
+  };
+  const threw = (fn, re) => {
+    try {
+      fn();
+      return false;
+    } catch (e) {
+      return re.test(e.message);
+    }
+  };
+
+  // --- the range comes from the error body, and only from there
+  ok(
+    'parseRange reads the available range out of a DATE_OUT_OF_RANGE body',
+    JSON.stringify(
+      parseRange('{"code":"DATE_OUT_OF_RANGE","details":{"available_range":"2012-01-01 - 2026-09-11"}}'),
+    ) === '{"first":"2012-01-01","last":"2026-09-11"}',
+  );
+  ok('…and reports nothing rather than a guess when the body is not that', parseRange('<html>') === null);
+  ok('…including a body that has a range of the wrong shape', parseRange('{"details":{"available_range":"soon"}}') === null);
+
+  // --- a URL can only be built for a date
+  ok('coverageUrl refuses a non-date TIME', threw(() => coverageUrl(COVERAGE, '2026-09'), /non-date TIME/));
+  ok('coverageUrl names exactly one coverage', coverageUrl(COVERAGE, '2026-09-11').includes('coverageID=cdiad'));
+  ok(
+    '…and carries the incantation the service answers to',
+    /map=DO_WCS/.test(coverageUrl(COVERAGE, '2026-09-11')) &&
+      /VERSION=2\.0\.0/.test(coverageUrl(COVERAGE, '2026-09-11')),
+  );
+
+  // --- dekads
+  ok('a dekad is the 1st, 11th or 21st', isDekad('2026-09-01') && isDekad('2026-09-11') && isDekad('2026-09-21'));
+  ok('…and nothing else is', !isDekad('2026-09-05') && !isDekad('2026-09-30'));
+  ok('age is whole days', dekadAgeDays('2026-09-11', new Date('2026-10-04T23:30:00Z')) === 23);
+  ok(
+    '…and does not move with the hour of the run',
+    dekadAgeDays('2026-09-11', new Date('2026-10-04T00:30:00Z')) ===
+      dekadAgeDays('2026-09-11', new Date('2026-10-04T23:30:00Z')),
+  );
+
+  // --- the grid check
+  const tiff = (over = {}) => {
+    const g = { width: GRID.width, height: GRID.height, lon0: GRID.lon0, lat0: GRID.lat0, pixel: GRID.pixel, ...over };
+    const px = Buffer.alloc(g.width * g.height);
+    // One IFD, seven entries, tags ascending, then the two geo arrays,
+    // then the pixels. Offsets are computed rather than guessed: an
+    // earlier draft laid the geo tags out by hand and fed this check a
+    // raster whose origin read (0, 0) — which the check then correctly
+    // refused, for the wrong reason.
+    const COUNT = 7;
+    const ifdAt = 8;
+    const ifdLen = 2 + COUNT * 12 + 4;
+    const scaleAt = ifdAt + ifdLen;
+    const tieAt = scaleAt + 3 * 8;
+    const pxAt = tieAt + 6 * 8;
+
+    const entries = [
+      [256, 4, 1, g.width],
+      [257, 4, 1, g.height],
+      [258, 3, 1, 8],
+      [273, 4, 1, pxAt],
+      [279, 4, 1, px.length],
+      [33550, 12, 3, scaleAt],
+      [33922, 12, 6, tieAt],
+    ];
+    const ifd = Buffer.alloc(ifdLen);
+    ifd.writeUInt16LE(COUNT, 0);
+    entries.forEach(([tag, type, count, value], i) => {
+      const o = 2 + i * 12;
+      ifd.writeUInt16LE(tag, o);
+      ifd.writeUInt16LE(type, o + 2);
+      ifd.writeUInt32LE(count, o + 4);
+      // 🔴 A SHORT that fits inline lives in the FIRST two bytes of the
+      // value field, not the last. Writing it as a UInt32 happens to
+      // work little-endian and would not big-endian; written as what it
+      // is, so the fixture cannot teach the reader a wrong habit.
+      if (type === 3) ifd.writeUInt16LE(value, o + 8);
+      else ifd.writeUInt32LE(value, o + 8);
+    });
+
+    const scale = Buffer.alloc(3 * 8);
+    scale.writeDoubleLE(g.pixel, 0);
+    scale.writeDoubleLE(g.pixel, 8);
+    const tie = Buffer.alloc(6 * 8);
+    tie.writeDoubleLE(g.lon0, 3 * 8);
+    tie.writeDoubleLE(g.lat0, 4 * 8);
+
+    const head = Buffer.alloc(8);
+    head.write('II', 0, 'ascii');
+    head.writeUInt16LE(42, 2);
+    head.writeUInt32LE(ifdAt, 4);
+    return Buffer.concat([head, ifd, scale, tie, px]);
+  };
+
+  ok('readGeoTiff accepts the grid the factsheet describes', readGeoTiff(tiff()).width === GRID.width);
+  for (const [what, over] of [
+    ['width', { width: GRID.width - 1 }],
+    ['height', { height: GRID.height + 1 }],
+    ['origin', { lon0: -24 }],
+    ['resolution', { pixel: 1 / 12 }],
+  ]) {
+    ok(`…and refuses a raster whose ${what} moved`, threw(() => readGeoTiff(tiff(over)), /the CDI grid moved/));
+  }
+
+  // --- the crop and the sampler agree with each other
+  const win = cropWindow();
+  ok('the crop sits on whole pixels of the source grid', Number.isInteger(win.col0) && Number.isInteger(win.row0));
+  ok(
+    '…and its own origin is the source origin plus those pixels',
+    Math.abs(win.lon0 - (GRID.lon0 + win.col0 * GRID.pixel)) < 1e-12,
+  );
+  ok('cropPixels says which argument is wrong', threw(() => cropPixels({ px: Buffer.alloc(1) }, GRID, win), /pass its \.px/));
+
+  // --- the domain mask, which is the card's whole point
+  const pxs = (vals) => {
+    const b = Buffer.alloc(win.width * win.height);
+    for (const [i, v] of vals) b[i] = v;
+    return b;
+  };
+  const quiet = Array.from({ length: SATURATION_TAIL + 1 }, () => pxs([[0, 0]]));
+  ok(
+    'buildMask refuses a mask that is still growing',
+    threw(() => buildMask([pxs([[1, 2]]), ...Array.from({ length: SATURATION_TAIL }, (_x, i) => pxs([[i + 2, 2]]))], win), /has not saturated/),
+  );
+  ok(
+    '…and refuses too few dekads to judge saturation at all',
+    threw(() => buildMask([pxs([[1, 2]])], win), /cannot show saturation/),
+  );
+  const settled = buildMask([pxs([[5, 3]]), ...quiet], win);
+  ok('…and accepts one whose tail added nothing', settled.set === 1);
+
+  // --- the three readings, kept apart
+  const grid = pxs([[5, 3], [6, 0]]);
+  const lonOf = (i) => win.lon0 + (i % win.width) * win.pixel + win.pixel / 2;
+  const latOf = (i) => win.lat0 - Math.floor(i / win.width) * win.pixel - win.pixel / 2;
+  const inDrought = readingAt(win, grid, settled.bits, lonOf(5), latOf(5));
+  ok('a classified pixel reports its stage', inDrought.known && inDrought.value === 3);
+  const outside = readingAt(win, grid, settled.bits, lonOf(6), latOf(6));
+  ok('🔴 a pixel the indicator never covers says so', !outside.known);
+  const settled2 = buildMask([pxs([[5, 3], [6, 1]]), ...quiet], win);
+  const noDrought = readingAt(win, grid, settled2.bits, lonOf(6), latOf(6));
+  ok(
+    '🔴 …while a covered pixel reading 0 says there is NO DROUGHT, not "no data"',
+    noDrought.known && noDrought.value === 0 && /no drought/.test(noDrought.label),
+    JSON.stringify(noDrought),
+  );
+  ok('off the cropped grid is not known either', !readingAt(win, grid, settled.bits, 60, 40).known);
+
+  // --- the language gate
+  ok('checkWording lets our own labels through', !threw(() => checkWording(CLASSES.map((c) => ({ label: c.label, detail: c.detail }))), /./));
+  for (const c of CLASSES) {
+    if (!FORBIDDEN_WORDS.test(c.official)) continue;
+    ok(
+      `🔴 the official name "${c.official}" cannot reach the output`,
+      threw(() => checkWording({ label: c.official }), /REFUSING TO WRITE/),
+    );
+  }
+  ok('…and it looks inside arrays and nested objects', threw(() => checkWording({ a: [{ b: 'severe risk' }] }), /output\.a\[0\]\.b/));
+  ok('…and the attribution itself is clean', !FORBIDDEN_WORDS.test(ATTRIBUTION(2026)));
+
+  // --- the spread of dekads for the mask
+  const ds = maskDekads(2012, 2026);
+  ok('mask dekads are all real dekads', ds.every(isDekad));
+  ok('…and span every year of the archive', new Set(ds.map((d) => d.slice(0, 4))).size === 15);
+  ok('…across more than one season', new Set(ds.map((d) => d.slice(5, 7))).size > 1);
+
+  console.log(rc === 0 ? '\nall self-tests passed' : '\nSELF-TEST FAILED');
+  return rc;
+}
+
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
+  const args = process.argv.slice(2);
+  if (args.includes('--self-test')) {
+    process.exit(selfTest());
+  } else {
+    const today = new Date();
+    const range = await probeRange();
+    console.log(`available range (from the out-of-range probe): ${range.first} … ${range.last}`);
+    if (!isDekad(range.last)) throw new Error(`the newest date is not a dekad: ${range.last}`);
+    console.log(`newest dekad ${range.last} is ${dekadAgeDays(range.last, today)} days old`);
+    if (args.includes('--probe')) process.exit(0);
+
+    const win = cropWindow();
+    const px = await getCoverage(range.last);
+    const out = buildOutput({ dekad: range.last, range, win, px, today });
+    console.log(`cdi grid ${win.width}x${win.height}, ${out.cdi.length} bytes encoded`);
+
+    if (args.includes('--rebuild-mask')) {
+      const dekads = maskDekads(Number(range.first.slice(0, 4)), Number(range.last.slice(0, 4)))
+        .filter((d) => d <= range.last);
+      const rasters = [];
+      for (const d of dekads) {
+        rasters.push(await getCoverage(d));
+        process.stdout.write(`\rmask: ${rasters.length}/${dekads.length} dekads`);
+      }
+      process.stdout.write('\n');
+      const built = buildMask(rasters, win);
+      console.log(`domain: ${built.set} pixels; last dekads added ${built.growth.slice(-SATURATION_TAIL).join(', ')}`);
+      const domainFile = buildDomainFile({ win, built, dekads, today });
+      if (!args.includes('--dry-run')) {
+        await writeFile(join(dirname(OUT), 'drought-domain.json'), `${JSON.stringify(domainFile)}\n`, 'utf8');
+        console.log('wrote drought-domain.json');
+      }
+    }
+
+    if (args.includes('--dry-run')) {
+      console.log('--dry-run: nothing written');
+    } else {
+      await writeFile(OUT, `${JSON.stringify(out)}\n`, 'utf8');
+      console.log(`wrote ${OUT}`);
+    }
+  }
 }
