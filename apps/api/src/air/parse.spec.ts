@@ -8,10 +8,21 @@ import {
   type StationRejectReason,
 } from './parse';
 
-// CAMP-164. Every test here fails if the line it covers is removed —
-// checked by mutation, one at a time, and the mutations are named in the
-// pull request. A test that passes over a deleted guard is the failure
-// this repository has now found five times.
+// CAMP-164, corrected by CAMP-195. This header used to assert that every
+// test here fails if the line it covers is removed. 🔴 It was not true:
+// eight lines could be deleted with all 59 tests still green, including
+// both halves of the headline-disagreement check and both band bounds.
+//
+// The cause was redundancy, not sloppiness. Two guards that reject the
+// same bad input pin each other, so deleting either alone changes
+// nothing, and the one test that tripped both at once could not tell
+// them apart. A test that cannot distinguish two guards is a test of
+// neither.
+//
+// What is true now, and is the standard for anything added here: each
+// guard has an input that reaches IT ALONE, and deleting that guard
+// reddens EXACTLY ONE test. Two reds means the input is not isolating.
+// Zero means there is no test. Mutations are named in the pull request.
 
 /** A roster row exactly as the roster carries one. Overridden per test. */
 function row(over: Partial<RosterRow> = {}): RosterRow {
