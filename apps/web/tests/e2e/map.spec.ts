@@ -524,21 +524,41 @@ test.describe('/map', () => {
       })
       .toBeGreaterThan(0);
 
-    // In far enough that the markers replaced the circles.
+    // 🔴 BACK IN, DRIVEN BY WHAT THE MAP SAYS — the same rule this test
+    // already states for the way out, and did not follow on the way in.
+    //
+    // It was eight clicks with a break on `data-total > 0`. Two things
+    // wrong with that, and together they are why this half had never
+    // once run: `untilWide` above may spend TWELVE zoom-outs, and eight
+    // clicks cannot undo twelve; and `data-total` is about chunks
+    // having loaded, which in the wide branch never happens, so the
+    // break never fires and the loop just runs out.
+    //
+    // `data-map-state` leaves `wide` exactly when the detail branch
+    // runs, which is the branch that draws markers. That is the
+    // question, so that is what is asked — with room to undo however
+    // far out we went.
     const zoomIn = page.locator('.maplibregl-ctrl-zoom-in');
     await expect(zoomIn).toBeVisible();
-    for (let i = 0; i < 8; i++) {
-      if ((await attr('data-total')) > 0) break;
-      await zoomIn.click();
-      for (let w = 0; w < 8; w++) {
-        if ((await attr('data-total')) > 0) break;
-        await page.waitForTimeout(150);
+    const untilDetail = async () => {
+      for (let i = 0; i < 16; i++) {
+        if ((await map(page).getAttribute('data-map-state')) !== 'wide') return true;
+        await zoomIn.click();
+        await page.waitForTimeout(350);
       }
-    }
+      return (await map(page).getAttribute('data-map-state')) !== 'wide';
+    };
+    expect(
+      await untilDetail(),
+      'the map never came back to a view close enough for markers',
+    ).toBe(true);
+
     await expect
       .poll(() => attr('data-visible-clusters'), {
         timeout: 20_000,
-        message: 'never reached the zoom where markers are drawn',
+        message:
+          'the map says it is in the detail branch, but nothing clustered — ' +
+          'either no campsite is in this view or the markers were not drawn',
       })
       .toBeGreaterThan(0);
 
