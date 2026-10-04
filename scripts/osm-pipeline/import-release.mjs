@@ -30,6 +30,7 @@
 // country's campsites to the other's argument.
 
 import { execFileSync } from 'node:child_process';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -262,6 +263,19 @@ function assetSizes(tag) {
   return sizes;
 }
 
+/**
+ * Decompress a downloaded .gz beside itself, in-process.
+ *
+ * 🔴 Named, exported and tested because of what it replaced: a
+ * `sh -c` whose command was built by pasting the two paths into a
+ * string. See the note at the call site. Keeping it a function means
+ * the self-test can hand it a path no shell would survive.
+ */
+export function unpackGz(gz, json) {
+  writeFileSync(json, gunzipSync(readFileSync(gz)));
+  return json;
+}
+
 const run = (cmd, argv, opts = {}) =>
   execFileSync(cmd, argv, { encoding: 'utf8', stdio: 'pipe', ...opts });
 
@@ -411,6 +425,114 @@ function selfTest() {
   ok('--tag with a value is read', readOpt(['--tag', 'osm-2026-09-24'], 'tag') === 'osm-2026-09-24');
   ok('an absent flag still falls back', readOpt(['fr'], 'tag', 'latest') === 'latest');
 
+  // ── CAMP-183: unpacking goes through no shell ──
+  //
+  // 🔴 The second case is the whole point and it is not decoration. The
+  // old line was `sh -c "gzip -dc '<gz>' > '<json>'"`. A single quote in
+  // a path ENDS the quoted run there, and everything after it is read as
+  // shell — the quotes that look like protection are the hole. Hand that
+  // version this filename and the command breaks apart; hand it to zlib
+  // and it is just a name. The first case keeps the plain path honest,
+  // so this pair cannot pass by doing nothing at all.
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'camptribe-unpack-'));
+    const body = '{"type":"FeatureCollection","features":[]}';
+    const roundTrip = (name) => {
+      const gz = join(dir, `${name}.gz`);
+      writeFileSync(gz, gzipSync(Buffer.from(body)));
+      const out = unpackGz(gz, gz.replace(/\.gz$/, ''));
+      return readFileSync(out, 'utf8');
+    };
+    ok('a .gz unpacks to its bytes', roundTrip('europe-malta.geojson') === body);
+    ok("a path holding a quote, a space and a semicolon unpacks all the same",
+      roundTrip("it's here; rm -rf .geojson") === body);
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // And the shell itself is gone: nothing in this file may build a
+  // command out of an interpolated string again. `execFileSync` with an
+  // argument array never reaches a shell, which is why every other call
+  // here was already safe.
+  //
+  // 🔴 Comments are stripped first, and the first version of this check
+  // FAILED without that — it matched the note at the call site, which
+  // quotes the very line it is warning about. A guard that cannot tell
+  // code from prose about code reports the warning as the crime.
+  // 🔴 KEYED TO THE SHAPE, not to one spelling, and the first version
+  // was not. It forbade the literal `run('sh'` and nothing else, so
+  // review walked through it six different ways, each leaving 46/46
+  // green: `execFileSync('sh', …)` straight past the `run` wrapper
+  // (execFileSync is already imported, so that is the likeliest future
+  // edit of all), `run('bash', …)`, `run('/bin/sh', …)`, backticks, a
+  // shell name held in a variable, and `{ shell: true }` in the options.
+  //
+  // Three of those are now caught by name, and `shell: true` by its own
+  // rule. The one that remains is a shell name reached through a
+  // VARIABLE — a regex cannot follow that, and saying so here is better
+  // than implying a completeness this does not have. What it does
+  // guarantee: nobody writes a shell into this file by accident.
+  const sourceOf = (text) =>
+    text
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      // Trailing comments too. Stripping only line-leading ones let
+      // `unpackGz(gz, json); // was: run('sh', …)` fail the check — the
+      // very false alarm this stripping exists to prevent.
+      .replace(/(^|[^:'"\\])\/\/[^\n]*/g, '$1 ');
+
+  const SHELL_CALL =
+    /(?:execFileSync|execFile|spawnSync|spawn|run)\s*\(\s*['"`](?:\/(?:usr\/)?bin\/)?(?:sh|bash|zsh|dash|ksh)['"`]/;
+  // 🔴 The rehearsal's own fixtures are not the code under the rule.
+  // They are strings that LOOK like shell calls, on purpose, and a whole
+  // file scan reports them — which is how this check failed the moment
+  // it was broadened.
+  //
+  // The first repair sliced the file at `function selfTest(` and kept
+  // what was above. That was WORSE than the problem: selfTest is defined
+  // before main() in this file, so the slice threw away the call site
+  // itself, and every bypass — including simply putting `run('sh', …)`
+  // back — passed 50/50. A guard that reads the wrong half of the file
+  // is a guard that reads nothing.
+  //
+  // So the fixtures say where they are. Everything between the two
+  // markers is removed and the rest of the file, main() included, is
+  // scanned. If a marker is ever deleted the pair no longer matches and
+  // the check below says so rather than quietly widening.
+  // 🔴 A REGEX, not a string constant, and NOTHING BELOW MAY SPELL THE
+  // MARKER OUT. Twice already this file has been bitten by prose that
+  // looks like code, and the marker is the sharpest case yet:
+  //
+  //   - as `const OPEN = '…'` the marker text appears twice, so the
+  //     "exactly one region" check counted its own constant and failed;
+  //   - written out in a sentence like this one, the region begins at
+  //     the SENTENCE and swallows everything down to the closing marker
+  //     — including the rule it is supposed to protect. Deleting the
+  //     real marker then changed nothing and the rehearsal stayed green.
+  //
+  // In a regex literal the same characters are escaped, so the plain
+  // text exists exactly once: at the fixtures themselves.
+  const whole = readFileSync(new URL(import.meta.url), 'utf8');
+  const REGION = /\/\* fixtures-not-code \*\/[\s\S]*?\/\* end-fixtures-not-code \*\//g;
+  const regions = whole.match(REGION) ?? [];
+  ok('the fixtures are marked exactly once', regions.length === 1,
+    `${regions.length} region(s)`);
+  const source = sourceOf(whole.replace(REGION, ' '));
+
+  ok('no shell is spawned anywhere in this file', !SHELL_CALL.test(source));
+  ok('nothing asks a child process for a shell', !/\bshell\s*:\s*true/.test(source));
+  // `execSync` IS a shell, always, whatever it is handed.
+  ok('execSync is not used', !/\bexecSync\s*\(/.test(source));
+  // And the stripping must not blind the check: a trailing comment is
+  // removed, a shell call on the same line is not.
+  /* fixtures-not-code */
+  ok('a shell call survives a trailing comment on its line',
+    SHELL_CALL.test(sourceOf(`run('sh', ['-c', 'x']); // note`)));
+  ok('a trailing comment mentioning a shell call does not trip it',
+    !SHELL_CALL.test(sourceOf(`unpackGz(gz, json); // was: run('sh', ['-c', 'x'])`)));
+  ok('each shell name the rule lists is actually matched',
+    ['sh', 'bash', 'zsh', 'dash', 'ksh', '/bin/sh', '/usr/bin/bash']
+      .every((s) => SHELL_CALL.test(`run('${s}', [])`)));
+  /* end-fixtures-not-code */
+
   for (const c of checks) {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
   }
@@ -456,7 +578,25 @@ async function main() {
         run('gh', ['release', 'download', tag, '-R', REPO, '-p', asset, '-D', work, '--clobber']);
         const gz = join(work, asset);
         const json = gz.replace(/\.gz$/, '');
-        run('sh', ['-c', `gzip -dc '${gz}' > '${json}'`]);
+        // 🔴 NO SHELL. This was `run('sh', ['-c', `gzip -dc '${gz}' >
+        // '${json}'`])`, and it was the one command here built by
+        // pasting strings together — CodeQL's js/indirect-command-line-
+        // injection, CAMP-183. The single quotes look like protection
+        // and are not: one `'` anywhere in a path ends the quoted run
+        // and the rest is read as shell.
+        //
+        // Nothing reachable supplies that character today — the paths
+        // come from a temp directory we make and from assetFor(), which
+        // is built from a two-letter country code. That is an argument
+        // about today's inputs, not about the code, and the point of
+        // fixing it is to stop having to make that argument. zlib
+        // decompresses in-process: no shell exists to inject into, and
+        // the rule has nothing left to flag.
+        //
+        // Every other call in this file already passes its arguments as
+        // an ARRAY to execFileSync, which never goes through a shell.
+        // This was the single exception.
+        unpackGz(gz, json);
 
         // 🔴 Before ogr2ogr sees it. See stripBlankKeys.
         const collection = JSON.parse(readFileSync(json, 'utf8'));
