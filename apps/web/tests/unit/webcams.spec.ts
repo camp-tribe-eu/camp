@@ -63,7 +63,15 @@ test.describe('what the terms require of every frame we show', () => {
     // ask the question the licence asks.
     for (const c of REAL) {
       const anchor = new RegExp(
-        `<a[^>]*href="${c.detailUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>(?:(?!</a>)[\s\S])*?<img[^>]*src="[^"]*${c.ref}[^"]*"`,
+        // 🔴 `[\\s\\S]`, DOUBLED. This is a template literal, so a single
+        // `[\s\S]` is handed to RegExp as `[sS]` — a class of two letters.
+        // The quantifier is lazy, so it matched zero characters and the
+        // test passed on today's markup by luck, never once asking the
+        // `(?!</a>)` question it exists to ask. CodeQL named it; it is
+        // the same collapse that made the `webcams_title_sayable` CHECK
+        // constraint inert, and a licence test that cannot fail is worth
+        // exactly nothing.
+        `<a[^>]*href="${c.detailUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>(?:(?!</a>)[\\s\\S])*?<img[^>]*src="[^"]*${c.ref}[^"]*"`,
       );
       expect(anchor.test(html), `the frame for ${c.ref} is not inside its link`).toBe(true);
     }

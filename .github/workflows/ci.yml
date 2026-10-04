@@ -341,6 +341,14 @@ jobs:
       # generation — so it is checked on the built output, here, and it
       # fails the build rather than being noticed six months later by a
       # ranking drop.
+      # 🔴 The stripping rule FIRST, and before the build, because it
+      # decides what the guard below is allowed to ignore. A hole in it
+      # does not go red — it goes green over text nobody compared. The
+      # version this replaced could not match `</h2>`, so a marked
+      # heading swallowed the paragraph after it.
+      - name: The boilerplate rule itself
+        run: node scripts/seo/check-duplicate-pages.mjs --self-test
+
       - name: No near-duplicate generated pages
         run: node scripts/seo/check-duplicate-pages.mjs
 

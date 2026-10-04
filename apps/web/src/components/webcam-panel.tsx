@@ -89,15 +89,33 @@ export function WebcamPanel({
       aria-labelledby="webcams-heading"
       className="mt-4 rounded border border-line-2 bg-surface p-3 text-sm text-ink-2"
     >
+      {/* 🔴 `data-boilerplate` from here down on everything that does not
+          move with the campsite — the rule `scripts/seo/check-duplicate-pages.mjs`
+          states: a block earns the mark only if it is identical on every
+          page it appears on.
+
+          This panel added ~24 words to the median campsite page and 1.2
+          points to every pair, which pushed hr/zadarska/autocamp-punta ↔
+          autocamp-tabor from 79.6% to 80.8% and turned the guard red.
+          Almost all of those words are these: a heading, a caption
+          repeated three times, and a link label. They are the template,
+          not a statement about either campsite, and counting them
+          measures the wrong thing — the guard's comment says so, naming
+          this very pair.
+
+          What is NOT marked: the camera's name, its distance, the
+          direction it looks and when it last reported. Those vary with
+          the subject, which is exactly what the guard exists to read. */}
       <h3
         id="webcams-heading"
+        data-boilerplate="webcam-heading"
         className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2"
       >
         Webcams nearby
       </h3>
 
       {cams.length === 0 ? (
-        <p className="mt-2">
+        <p className="mt-2" data-boilerplate="webcam-none">
           No public webcam within {distance(WEBCAM_RADIUS_M)} of this campsite. That is
           what the camera network covers, not a statement about the place.
         </p>
@@ -147,7 +165,9 @@ export function WebcamPanel({
                       without a time. The API gives a timestamp for the
                       camera, not for this frame, so putting a clock on
                       the picture would be inventing one. */}
-                  <p className="mt-0.5 text-xs">The most recent daylight view.</p>
+                  <p className="mt-0.5 text-xs" data-boilerplate="webcam-frame-note">
+                    The most recent daylight view.
+                  </p>
                   {cam.providerUrl && (
                     <p className="mt-0.5 text-xs">
                       {/* They do not ask for this. The camera is the
@@ -157,6 +177,7 @@ export function WebcamPanel({
                         href={cam.providerUrl}
                         rel="noopener noreferrer"
                         target="_blank"
+                        data-boilerplate="webcam-operator"
                         className="underline"
                       >
                         operator&rsquo;s own site
