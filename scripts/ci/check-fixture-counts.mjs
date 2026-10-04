@@ -23,7 +23,7 @@
 // in the card is dead by construction; what moved the number was the
 // code between the two runs, unnoticed.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
@@ -97,16 +97,31 @@ export function literal(v) {
 /** Every `INSERT INTO camping_spots` in the seed, as objects. */
 export function readSpots(sql) {
   const rows = [];
+  const unreadable = [];
   const re =
     /INSERT INTO camping_spots\s*\(([^)]*)\)\s*VALUES\s*\(([\s\S]*?)\);\s*$/gm;
   for (const m of sql.matchAll(re)) {
     const cols = m[1].split(',').map((c) => c.trim());
     const vals = splitTuple(m[2]);
-    if (cols.length !== vals.length) continue;
+    if (cols.length !== vals.length) {
+      // 🔴 Loud, not `continue`. This silently swallowed the DO block's
+      // computed twin — the regex DOES match it (13 columns, 17 values
+      // of `anchor.*`) — so `rows: 73` was right by accident while the
+      // tally underneath was built from 72. A parser that drops what it
+      // cannot read, quietly, is how a wrong number looks like a right
+      // one. Everything reached through `anchor.` is the twin and is
+      // counted separately below; anything else is a row we have
+      // misread and has to say so.
+      if (!/\banchor\./.test(m[2])) {
+        unreadable.push(`${cols.length} columns, ${vals.length} values`);
+      }
+      continue;
+    }
     const row = {};
     cols.forEach((c, i) => (row[c] = literal(vals[i])));
     rows.push(row);
   }
+  rows.unreadable = unreadable;
   return rows;
 }
 
@@ -130,8 +145,20 @@ export function goneSlug(rows) {
     }
     return toilets === 'unknown' && (r.context ?? '{}') === '{}';
   });
-  return eligible.map((r) => r.slug).sort().at(-1) ?? null;
+  return [...eligible].sort(bySlug).at(-1)?.slug ?? null;
 }
+
+/**
+ * One ordering for both `ORDER BY slug`, and it is code-unit.
+ *
+ * 🔴 These were two different comparators — `.sort()` on strings in one
+ * place and `localeCompare` in the other — for two identical SQL
+ * clauses. Harmless on today's data (review ordered all 73 slugs under
+ * C, macOS en_US.UTF-8 and ICU: zero inversions) but inconsistent by
+ * construction, and a pair like `adria-z` / `adriaa` would split them.
+ * Postgres is asked for one order, so this asks for one too.
+ */
+const bySlug = (a, b) => (String(a.slug) < String(b.slug) ? -1 : String(a.slug) > String(b.slug) ? 1 : 0);
 
 /** Words too generic to tell two campsites apart, as the fixture lists them. */
 const GENERIC = new Set([
@@ -163,7 +190,7 @@ export function anchorRow(rows) {
       .split(/[^a-zà-ÿ0-9]+/)
       .some((w) => w.length >= 5 && !GENERIC.has(w));
   });
-  return eligible.sort((a, b) => String(a.slug).localeCompare(String(b.slug)))[0] ?? null;
+  return [...eligible].sort(bySlug)[0] ?? null;
 }
 
 /** What `countries()` would count, computed from the file alone. */
@@ -191,6 +218,10 @@ export function tally(sql) {
   }
 
   return {
+    // Rows the parser matched but could not read. Carried out rather
+    // than skipped: a count built from fewer rows than the file holds
+    // is wrong in the quietest possible way.
+    unreadable: rows.unreadable ?? [],
     rows: rows.length + (twin ? 1 : 0),
     gone,
     twin,
@@ -286,6 +317,94 @@ function selfTest() {
     bad(`a twin appeared although the fixture builds none (${noTwin.visibleSpots})`);
   }
 
+  // 🔴 THREE RULES THAT NOTHING ABOVE REACHES, found by review: deleting
+  // the `osm_ref` filter, loosening the five-letter rule, or dropping
+  // the region test in `goneSlug` each left the rehearsal AND the real
+  // check green, because the inputs above never varied those fields. A
+  // rule no input distinguishes is a rule no test has.
+  const full = (slug, country, name, toilets, osmRef, region) =>
+    `INSERT INTO camping_spots (id, name, country, region, slug, amenities, location, missing_since, context, osm_ref) VALUES ` +
+    `('i', ${name === null ? 'NULL' : `'${name}'`}, '${country}', ${region === null ? 'NULL' : `'${region}'`}, '${slug}', ` +
+    `'{"toilets": "${toilets}"}'::jsonb, ST_GeomFromText('POINT(1 2)', 4326), NULL, '{}'::jsonb, ` +
+    `${osmRef === null ? 'NULL' : `'${osmRef}'`});`;
+
+  const marker = `\n-- anchor.slug || '-dt'\n`;
+
+  // Only an OSM row may anchor. 'aaa' sorts first and is well named, but
+  // has no osm_ref, so the twin must be built on 'bbb'.
+  const noOsm = tally(
+    [
+      full('aaa', 'HR', 'Lakeside', 'yes', null, 'Zagreb'),
+      full('bbb', 'SI', 'Riverside', 'yes', 'n1', 'Bovec'),
+      full('zzz', 'HR', 'Camping', 'unknown', 'n2', 'Zagreb'),
+    ].join('\n') + marker,
+  );
+  if (noOsm.twin !== 'bbb-dt') bad(`a row without osm_ref anchored the twin (${noOsm.twin})`);
+
+  // Five letters, not four. 'Lido' is the only non-generic word on
+  // 'aaa' and it is four long, so 'bbb' anchors.
+  const shortWord = tally(
+    [
+      full('aaa', 'HR', 'Lido', 'yes', 'n1', 'Zagreb'),
+      full('bbb', 'SI', 'Riverside', 'yes', 'n2', 'Bovec'),
+      full('zzz', 'HR', 'Camping', 'unknown', 'n3', 'Zagreb'),
+    ].join('\n') + marker,
+  );
+  if (shortWord.twin !== 'bbb-dt') {
+    bad(`a four-letter name anchored the twin (${shortWord.twin})`);
+  }
+
+  // The gone block only ever marks a row that HAS a region. 'zzz' sorts
+  // highest and is otherwise eligible, but its region is NULL.
+  const noRegion = tally(
+    [
+      full('aaa', 'HR', 'Lakeside', 'unknown', 'n1', 'Zagreb'),
+      full('zzz', 'HR', 'Lakeside', 'unknown', 'n2', null),
+    ].join('\n'),
+  );
+  if (noRegion.gone !== 'aaa') bad(`a region-less row was marked gone (${noRegion.gone})`);
+
+  // 🔴 The anchor is the LOWEST slug, and until this case there was only
+  // ever one eligible row, so first and last were the same thing and the
+  // direction was untested.
+  const twoAnchors = tally(
+    [
+      full('aaa', 'HR', 'Lakeside', 'yes', 'n1', 'Zagreb'),
+      full('bbb', 'SI', 'Riverside', 'yes', 'n2', 'Bovec'),
+      full('zzz', 'HR', 'Camping', 'unknown', 'n3', 'Zagreb'),
+    ].join('\n') + marker,
+  );
+  if (twoAnchors.twin !== 'aaa-dt') {
+    bad(`the anchor was not the lowest slug (${twoAnchors.twin})`);
+  }
+
+  // 🔴 And the `context` half of the same rule, which the case above
+  // does not reach either: the fixture leaves rows with COMPUTED
+  // surroundings alone, because other blocks put them there on purpose.
+  // 'zzz' sorts highest and is otherwise eligible; its context is not
+  // empty, so 'aaa' is marked instead.
+  const withContext =
+    full('aaa', 'HR', 'Lakeside', 'unknown', 'n1', 'Zagreb') +
+    '\n' +
+    full('zzz', 'HR', 'Lakeside', 'unknown', 'n2', 'Zagreb').replace(
+      `'{}'::jsonb, 'n2'`,
+      `'{"town": {"name": "Zagreb"}}'::jsonb, 'n2'`,
+    );
+  const ctx = tally(withContext);
+  if (ctx.gone !== 'aaa') {
+    bad(`a row with computed surroundings was marked gone (${ctx.gone})`);
+  }
+
+  // A row the parser matches but cannot read must be reported, not
+  // skipped: that silent skip is how the twin went missing.
+  const broken = tally(
+    `INSERT INTO camping_spots (id, name, country) VALUES ('i', 'n');`,
+  );
+  if (broken.unreadable.length !== 1) bad('an unreadable row was swallowed');
+  if (compare({ visibleSpots: 0, byCountry: {} }, broken).length === 0) {
+    bad('an unreadable row did not reach the verdict');
+  }
+
   // 🔴 And the gate itself, not only the arithmetic. A check whose
   // comparison is wired loosely reports a changed number as success —
   // the same hole the migration-stamp guard had.
@@ -319,6 +438,9 @@ function selfTest() {
 /** Differences between what we expect and what the fixture says. */
 export function compare(expected, actual) {
   const out = [];
+  for (const u of actual.unreadable ?? []) {
+    out.push(`a camping_spots row could not be read (${u}) — the count is built from fewer rows than the file holds`);
+  }
   if (expected.visibleSpots !== actual.visibleSpots) {
     out.push(`total: expected ${expected.visibleSpots}, fixture says ${actual.visibleSpots}`);
   }
@@ -337,9 +459,20 @@ export function compare(expected, actual) {
 // gate the moment a test imported `splitTuple`, printed a verdict and
 // called `process.exit` — a file that cannot be read by its own tests is
 // a file whose parts cannot be tested apart from its conclusion.
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+// 🔴 `realpathSync`, because `import.meta.url` is already resolved and
+// `process.argv[1]` is not. Run through a symlink the two never match,
+// the script decides it was imported, and exits 0 having printed nothing
+// and checked nothing — a guard that passes by not running. Review
+// reproduced it from /tmp. CI uses a relative path and does not hit it,
+// which is exactly why it would have sat here.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
 if (!invokedDirectly) {
   // imported for its functions
