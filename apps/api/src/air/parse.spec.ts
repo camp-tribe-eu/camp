@@ -398,6 +398,76 @@ describe('pickStationReading', () => {
     });
   });
 
+  // 🔴 CAMP-195. The test above trips BOTH halves of that condition at
+  // once, so neither half was pinned: deleting either one on its own left
+  // 59/59 green, and the file header above claims the opposite. The four
+  // cases below each trip exactly one guard, so each mutation reddens
+  // exactly one test.
+
+  // Only the `worst` half: the headline agrees with its named culprit, but
+  // a louder pollutant sits in the same slot. Deleting the `worst` line
+  // stores this as band 2 while NO2 stands at band 3 — the page would show
+  // a calmer level than the data carries.
+  it('refuses a slot whose headline is quieter than its worst pollutant', () => {
+    const bad = slot(
+      { PM10: { aqi: 2.2, val: 23 }, NO2: { aqi: 3.0, val: 40 } },
+      { culprit: 'PM10', aqi: 2.2 },
+    );
+    expect(pickStationReading({ [key(2)]: bad }, NOW)).toEqual({
+      reading: null,
+      malformedSlots: 1,
+    });
+  });
+
+  // Only the culprit half: the headline equals the worst index, but the
+  // pollutant the file NAMES carries a different one. We would print a
+  // true level beside the wrong cause.
+  it('refuses a slot whose named culprit does not carry the headline', () => {
+    const bad = slot(
+      { PM10: { aqi: 2.2, val: 23 }, NO2: { aqi: 3.0, val: 40 } },
+      { culprit: 'PM10' },
+    );
+    expect(pickStationReading({ [key(2)]: bad }, NOW)).toEqual({
+      reading: null,
+      malformedSlots: 1,
+    });
+  });
+
+  // 🔴 The two band guards — one per pollutant at parse.ts:274, one on the
+  // headline at parse.ts:298 — are REDUNDANT for an obvious input, and
+  // that is why neither was pinned. `slot({ PM10: { aqi: 7.5 } })` is
+  // refused by whichever of the two is left standing, so deleting either
+  // one alone kept 63/63 green. A test that cannot tell them apart is not
+  // a test of either. The two below each reach exactly one.
+
+  // Reaches parse.ts:274 only: a pollutant lands in band 0 while the
+  // headline, set by a different pollutant, stays inside the range — so
+  // the headline guard never looks at it.
+  it('refuses a slot where one pollutant falls below the first band', () => {
+    const bad = slot({
+      PM10: { aqi: 0.5, val: 3 },
+      NO2: { aqi: 3.0, val: 40 },
+    });
+    expect(pickStationReading({ [key(2)]: bad }, NOW)).toEqual({
+      reading: null,
+      malformedSlots: 1,
+    });
+  });
+
+  // Reaches parse.ts:298 only, through the gap SAME_INDEX leaves: every
+  // pollutant is a legal band 6, and the headline is within the 1e-6
+  // tolerance of the worst — yet its own floor is 7. Narrow, and the only
+  // input that separates the headline guard from the per-pollutant one.
+  // The highest index across 56 150 live values is 6.3338, so this is a
+  // file we have misread, not an hour to publish.
+  it('refuses a headline whose floor leaves the range its pollutants kept', () => {
+    const bad = slot({ PM10: { aqi: 6.9999995, val: 99 } }, { aqi: 7 });
+    expect(pickStationReading({ [key(2)]: bad }, NOW)).toEqual({
+      reading: null,
+      malformedSlots: 1,
+    });
+  });
+
   it('refuses a slot whose culprit is not one of its pollutants', () => {
     const bad = slot(REPORTED, { culprit: 'O3' });
     expect(pickStationReading({ [key(2)]: bad }, NOW).malformedSlots).toBe(1);

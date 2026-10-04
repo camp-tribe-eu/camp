@@ -102,13 +102,21 @@ describe('the fixture seed for air quality', () => {
 
   // 🔴 SORTS AFTER ci-seed-gone.sql, because that file marks a campsite as
   // dropped and this one must not pick it.
+  //
+  // 🔴 Until CAMP-195 this test built a hardcoded array of three names,
+  // already in sorted order, and asserted that sorting it changed nothing.
+  // It read neither regenerate.sh nor the directory, so it could not fail:
+  // reversing the append order in regenerate.sh left 9/9 green, and so did
+  // deleting ci-seed-gone.sql outright. It now reads the artefact CI
+  // actually loads and compares real offsets inside it.
   it('is appended after the file that marks a campsite as gone', () => {
-    const files = [
-      'ci-seed-gone.sql',
-      'ci-seed-hourly-air-quality.sql',
-      'ci-seed-route-poi.sql',
-    ];
-    expect([...files].sort()).toEqual(files);
+    const built = readFileSync(join(DIR, 'ci-seed.sql'), 'utf8');
+    const gone = readFileSync(join(DIR, 'ci-seed-gone.sql'), 'utf8');
+    const goneAt = built.indexOf(gone);
+    const airAt = built.indexOf(SEED);
+    expect(goneAt).toBeGreaterThanOrEqual(0);
+    expect(airAt).toBeGreaterThanOrEqual(0);
+    expect(airAt).toBeGreaterThan(goneAt);
   });
 
   // ci-seed.sql is what CI actually loads, and regenerate.sh builds it by

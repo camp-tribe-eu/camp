@@ -57,10 +57,21 @@ describe('airQualitySql', () => {
   // model value.
   it('does not skip a station that has no reading', () => {
     const stationPart = one.slice(0, one.indexOf("'kind', 'modelled'"));
-    expect(stationPart).not.toMatch(
-      /reading_hour IS NOT NULL\s*(?:ORDER|AND|\))/,
-    );
-    expect(stationPart).not.toContain('WHERE st.reading');
+    // 🔴 Keyed to the EFFECT, not to one column name. Until CAMP-195 this
+    // named `reading_hour` and `WHERE st.reading` literally, so the very
+    // same mutation written against a sibling column — `AND
+    // st.reading_basis IS NOT NULL` — passed 13/13 green while the 33
+    // campsites around the silent fixture station went from
+    // "No fresh data." to "No air-quality data". Any reading column will
+    // do it, so forbid the shape, not the spelling.
+    //
+    // `IS NULL` inside the CASE below is the honest use and must survive;
+    // only `IS NOT NULL` turns a silent station into a missed row.
+    expect(stationPart).not.toMatch(/\breading_\w+\s+IS\s+NOT\s+NULL/i);
+    // The real net under this one is the e2e against served HTML
+    // (apps/web/tests/e2e/air-quality.spec.ts:256, `silent.length > 5`),
+    // which counts silent stations on real pages and cannot be fooled by
+    // a rename. This test exists to fail first and say why.
     expect(stationPart).toContain(
       "'reading', CASE WHEN st.reading_hour IS NULL THEN NULL",
     );
