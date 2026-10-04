@@ -20,9 +20,15 @@ import {
 // neither.
 //
 // What is true now, and is the standard for anything added here: each
-// guard has an input that reaches IT ALONE, and deleting that guard
-// reddens EXACTLY ONE test. Two reds means the input is not isolating.
-// Zero means there is no test. Mutations are named in the pull request.
+// guard has an input that REACHES IT ALONE — one that no other guard
+// would reject — so deleting that guard turns the suite red. Zero reds
+// is the failure, and it is the one that hid here for eight lines.
+//
+// 🔴 Not "exactly one red". An earlier draft of this paragraph said so
+// and it is wrong: several tests walking the same path is coverage, not
+// a fault. The property that matters is about the GUARDS being
+// distinguishable, not about counting tests. Mutations are named in the
+// pull request, one at a time.
 
 /** A roster row exactly as the roster carries one. Overridden per test. */
 function row(over: Partial<RosterRow> = {}): RosterRow {
