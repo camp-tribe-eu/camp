@@ -275,7 +275,7 @@ export function dekadAgeDays(dekad, today) {
  * or a resolution change upstream would keep every byte valid and move
  * every answer somewhere else on the map. That must be loud.
  */
-export function readGeoTiff(buf) {
+export function parseGeoTiff(buf) {
   const d = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
   const little = d[0] === 0x49 && d[1] === 0x49;
   if (!little && !(d[0] === 0x4d && d[1] === 0x4d)) throw new Error('not a TIFF');
@@ -323,13 +323,31 @@ export function readGeoTiff(buf) {
     throw new Error(`pixel data is ${px.length} bytes, expected ${width * height}`);
   }
 
-  const got = {
+  return {
     width,
     height,
     lon0: tie ? tie[3] : NaN,
     lat0: tie ? tie[4] : NaN,
     pixel: scale ? scale[0] : NaN,
+    px,
   };
+}
+
+/**
+ * The same read, plus the assertion that it is the grid we expect.
+ *
+ * 🔴 Kept APART from the parsing so the parser can be driven by a file
+ * this repository did not write. `--self-test` builds its GeoTIFFs with
+ * a writer that sits in this very file, so the writer and the reader
+ * agree by construction and prove only that they agree. The real
+ * product stores its strips out of byte order and carries no
+ * GeoKeyDirectory; a fixture written by the reader's author has neither
+ * quirk. `tests/unit/drought-fetch.spec.ts` drives this against a crop
+ * of the real raster whose expected values are GDAL's.
+ */
+export function readGeoTiff(buf) {
+  const got = parseGeoTiff(buf);
+  const { width, height } = got;
   const near = (a, b) => Math.abs(a - b) < 1e-6;
   if (
     got.width !== GRID.width ||
@@ -346,7 +364,7 @@ export function readGeoTiff(buf) {
         'answer about the wrong place rather than fail.',
     );
   }
-  return { ...got, px };
+  return got;
 }
 
 /** The crop window, in whole pixels, as integers the decoder can reproduce. */
