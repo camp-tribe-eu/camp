@@ -1,3 +1,4 @@
+import { BATHING_SOURCE_ID } from '@/lib/bathing';
 import { expect, test } from '@playwright/test';
 import { AirQualityPanel } from '../../src/components/air-quality';
 import {
@@ -666,16 +667,55 @@ test.describe('the web and the API agree', () => {
   });
 });
 
-test.describe('the source registry treats an hourly source as neither stale nor healthy-when-old', () => {
-  // 🔴 The 730-day flag is about records nobody edits. It must never be
-  // what decides an hourly one.
-  test('the two-year flag never fires for the air quality index', () => {
-    const src = SOURCES[AIR_SOURCE_ID];
-    expect(shouldFlagStale(src, '2019-01-01', new Date('2026-09-29'))).toBe(false);
+test.describe('every cadence is judged by its own budget, not exempted', () => {
+  // 🔴 CAMP-166. This block used to assert the opposite — that the flag
+  // "never fires" for an hourly source — and that was the defect, not
+  // the rule. Exempting a cadence removes the false alarm and the alarm
+  // together: an hourly feed dead for seven years read as healthy.
+  //
+  // The budgets come from docs/emergency-sources.md §12, and both
+  // directions are asserted for each, because a test that proves only
+  // "it stays quiet" is how the silence got there in the first place.
+
+  test('an hourly source an hour old is healthy', () => {
+    const hourAgo = new Date('2026-09-29T11:00:00Z').toISOString();
+    expect(
+      shouldFlagStale(SOURCES[AIR_SOURCE_ID], hourAgo, new Date('2026-09-29T12:00:00Z')),
+    ).toBe(false);
   });
 
-  test('and still fires for a continuous source at the same age', () => {
+  test('🔴 and an hourly source that has not moved in seven YEARS is not', () => {
+    expect(
+      shouldFlagStale(SOURCES[AIR_SOURCE_ID], '2019-01-01', new Date('2026-09-29')),
+    ).toBe(true);
+  });
+
+  // §12: an annual source is healthy up to 12 months, and stale means
+  // "no new season by July". So the same record is fine in spring and a
+  // question in late summer — the month is part of the rule.
+  // 🔴 The SAME record, past twelve months in both cases, on either side
+  // of July. An earlier draft used a record under a year old, so the age
+  // test answered first and the month was never reached — deleting the
+  // month condition left this green. The two dates below differ in
+  // nothing else.
+  test('an annual source past twelve months is quiet before the new season', () => {
+    expect(
+      shouldFlagStale(SOURCES[BATHING_SOURCE_ID], '2025-01-01', new Date('2026-03-01')),
+    ).toBe(false);
+  });
+
+  test('🔴 and the same record is flagged once July has passed without one', () => {
+    expect(
+      shouldFlagStale(SOURCES[BATHING_SOURCE_ID], '2025-01-01', new Date('2026-08-01')),
+    ).toBe(true);
+  });
+
+  test('a continuous source still fires at the two-year mark', () => {
     expect(shouldFlagStale(SOURCES.datatourisme, '2019-01-01', new Date('2026-09-29'))).toBe(true);
+  });
+
+  test('and a continuous source inside it does not', () => {
+    expect(shouldFlagStale(SOURCES.datatourisme, '2026-01-01', new Date('2026-09-29'))).toBe(false);
   });
 
   test('names the EEA, CC BY 4.0 and the date it was read', () => {

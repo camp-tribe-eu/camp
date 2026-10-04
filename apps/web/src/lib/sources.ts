@@ -204,6 +204,19 @@ export const FIELD_LABEL: Record<string, string> = {
  */
 export const STALE_AFTER_DAYS = 730;
 
+/**
+ * An hourly source that has not moved in this long is a stopped
+ * pipeline, not a quiet hour. §12: "more than 2–3 h, or the station
+ * drops off the hourly file" — a whole day is far past either.
+ */
+export const HOURLY_DEAD_AFTER_DAYS = 1;
+
+/** §12: an annual source is healthy "up to 12 months". */
+export const ANNUAL_HEALTHY_DAYS = 365;
+
+/** §12: stale for an annual source means "no new season by July". */
+export const JULY = 6;
+
 export function daysOld(updatedAt: string, today = new Date()): number | null {
   const then = new Date(updatedAt);
   if (Number.isNaN(then.getTime())) return null;
@@ -216,17 +229,26 @@ export function isStale(updatedAt: string, today = new Date()): boolean {
 }
 
 /**
- * 🔴 CAMP-168: should a reader be told this record has gone quiet?
+ * 🔴 CAMP-166: a budget per source, not an exemption.
  *
- * Only where going quiet means something. A source that anybody may edit
- * any day and has not been edited in two years is worth a sentence. A
- * source that publishes one edition per year is doing exactly what it
- * said it would, and an "out of date" flag on it is a false alarm we
- * would be training people to ignore.
+ * `docs/emergency-sources.md` §12 is the table these numbers come from,
+ * and its point is that **here, old is often correct**:
  *
- * 🔴 Both halves matter and a test mutates each: `annual` must never
- * flag however old the record is, and `continuous` must still flag at
- * the same 730 days it always did.
+ *     EEA air quality   ~1 h healthy; the viewer itself defaults to 3 h
+ *     EEA bathing water up to 12 months; stale is "no new season by July"
+ *     EDO CDI           up to 30 days — it is a dekadal product
+ *     GFM flood extent  hours after a pass, and passes are days apart
+ *
+ * The previous version answered this by EXEMPTING the slow cadences
+ * from the 730-day rule — `if (annual || hourly) return false`. That
+ * removes the false alarm and the alarm together: an hourly feed dead
+ * for a year and an annual edition five years old were both reported as
+ * perfectly healthy, which is the second of the two failure modes §12
+ * names. Exempting is not budgeting.
+ *
+ * 🔴 Both directions are the test, and a test that proves one of them
+ * does not count. A year-old bathing-water classification must stay
+ * quiet; the same record in its third summer must not.
  */
 export function shouldFlagStale(
   source: SourceInfo | null,
@@ -234,11 +256,28 @@ export function shouldFlagStale(
   today = new Date(),
 ): boolean {
   if (!source) return false;
-  // 🔴 Neither an annual nor an hourly source is judged by a 730-day rule.
-  // Annual: a year-old edition is healthy. Hourly: two years is absurdly
-  // late, and the reading was already "no fresh data" after four hours.
-  if (source.cadence === 'annual' || source.cadence === 'hourly') return false;
-  return isStale(updatedAt, today);
+  const days = daysOld(updatedAt, today);
+  if (days === null) return false;
+
+  switch (source.cadence) {
+    // An hourly feed that has not moved in a DAY is not slow, it is
+    // dead. The reading itself is already called "no fresh data" after
+    // AIR_FRESH_FOR_HOURS; this is the record behind it, and the
+    // distance between four hours and a day is deliberate — one is a
+    // quiet station, the other is a stopped pipeline.
+    case 'hourly':
+      return days >= HOURLY_DEAD_AFTER_DAYS;
+
+    // 🔴 Twelve months is healthy, and the season is what makes the
+    // thirteenth suspicious. §12: "no new season by July". So a
+    // year-old edition is fine in March and a question in August —
+    // which is why this reads the month and not only the age.
+    case 'annual':
+      return days > ANNUAL_HEALTHY_DAYS && today.getMonth() >= JULY;
+
+    default:
+      return isStale(updatedAt, today);
+  }
 }
 
 /** The date as a reader reads it. Never invented when the source gave none. */
