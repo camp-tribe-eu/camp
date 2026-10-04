@@ -209,6 +209,67 @@ test.describe('campsite page', () => {
   });
 });
 
+// CAMP-190 — the heading outline, which is how a page states its
+// subjects.
+//
+// 🔴 WRITTEN AFTER SHIPPING THE DEFECT IT CATCHES, and the defect was
+// invisible to all 758 unit tests.
+//
+// The webcam panel went out with an `h3`. It is a direct child of
+// `<main>`, a sibling of "Bathing water", "Air quality" and "Weather on
+// site" — every one of them an `h2` — so the outline read
+//
+//     h2 Air quality → h3 Webcams nearby → h2 Weather on site
+//
+// and the cameras became a subsection of the air quality. A unit test
+// rendering the component alone cannot see that: the defect exists only
+// in the assembled page, between components. Review had already said
+// nothing renders this page; this is where that gets paid.
+//
+// It is deliberately a rule about the OUTLINE, not a list of the
+// headings we have today. A list would have to be edited by whoever
+// adds the next panel, which is exactly the person who would edit it
+// wrongly.
+test.describe('the page says what its subjects are (CAMP-190)', () => {
+  const outline = async (page: import('@playwright/test').Page) =>
+    page.$$eval('main h1, main h2, main h3, main h4, main h5, main h6', (hs) =>
+      hs.map((h) => ({
+        level: Number(h.tagName[1]),
+        text: (h.textContent ?? '').trim().slice(0, 60),
+        // A heading inside another section is allowed to be deeper; one
+        // whose section is a child of <main> is a subject of the page.
+        topLevel: h.closest('section, article')?.parentElement?.tagName === 'MAIN',
+      })),
+    );
+
+  for (const which of ['rich', 'empty'] as const) {
+    test(`🔴 no heading level is skipped on a ${which} campsite`, async ({ page }) => {
+      await page.goto(fx[which]);
+      const hs = await outline(page);
+      expect(hs.length, 'the page has no headings at all').toBeGreaterThan(3);
+      expect(hs[0]?.level, 'the page does not start at h1').toBe(1);
+
+      const skips = hs
+        .map((h, i) => ({ ...h, prev: hs[i - 1] }))
+        .filter((h) => h.prev && h.level > h.prev.level + 1)
+        .map((h) => `h${h.prev!.level} "${h.prev!.text}" → h${h.level} "${h.text}"`);
+      expect(skips, 'a reader and a crawler both read this as nesting').toEqual([]);
+    });
+
+    test(`🔴 every section of <main> is an h2 on a ${which} campsite`, async ({ page }) => {
+      await page.goto(fx[which]);
+      const wrong = (await outline(page))
+        .filter((h) => h.topLevel && h.level !== 2)
+        .map((h) => `h${h.level} "${h.text}"`);
+      expect(
+        wrong,
+        'a section of the page that is not an h2 reads as part of the one above it — ' +
+          'which is how the webcam panel became a subsection of the air quality',
+      ).toEqual([]);
+    });
+  }
+});
+
 test.describe('what is around it (CAMP-33)', () => {
   test('🔴 states the surroundings as a sentence, not a table of numbers', async ({
     page,
