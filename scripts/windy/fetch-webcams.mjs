@@ -348,3 +348,49 @@ const invokedDirectly = (() => {
 if (invokedDirectly && process.argv.includes('--self-test')) {
   process.exit(selfTest());
 }
+
+/**
+ * Store a batch. Upsert by (provider, ref) so a re-run refreshes rather
+ * than duplicating, and `fetched_at` moves so staleness is visible.
+ */
+export function upsertSql(rows) {
+  if (rows.length === 0) return null;
+  // 🔴 Nine placeholders per row for the row's own columns, then one
+  // more each for `last_frame_at` in a second block at the end.
+  //
+  // Two blocks rather than ten-per-row because the timestamps are
+  // appended as a group below; keeping the arithmetic in one place is
+  // what stops a parameter landing in the wrong column, which Postgres
+  // would accept wherever the types happen to agree.
+  const PER_ROW = 9;
+  const tsBase = rows.length * PER_ROW;
+  const values = rows
+    .map((_r, i) => {
+      const b = i * PER_ROW;
+      return (
+        `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5}::text[],` +
+        `ST_SetSRID(ST_MakePoint($${b + 6},$${b + 7}),4326)::geography,` +
+        `$${b + 8},$${b + 9},$${tsBase + i + 1},now())`
+      );
+    })
+    .join(',');
+  const params = rows.flatMap((r) => [
+    r.provider, r.ref, r.title, r.country, r.categories, r.lon, r.lat, r.detailUrl, r.providerUrl,
+  ]);
+  params.push(...rows.map((r) => r.lastFrameAt));
+  return {
+    text:
+      `INSERT INTO webcams (provider, ref, title, country, categories, location, detail_url, provider_url, last_frame_at, fetched_at)
+       VALUES ${values}
+       ON CONFLICT (provider, ref) DO UPDATE SET
+         title = EXCLUDED.title,
+         country = EXCLUDED.country,
+         categories = EXCLUDED.categories,
+         location = EXCLUDED.location,
+         detail_url = EXCLUDED.detail_url,
+         provider_url = EXCLUDED.provider_url,
+         last_frame_at = EXCLUDED.last_frame_at,
+         fetched_at = now()`,
+    params,
+  };
+}
