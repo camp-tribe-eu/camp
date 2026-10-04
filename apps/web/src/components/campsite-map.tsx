@@ -1145,65 +1145,95 @@ export default function CampsiteMap() {
     };
     publishRegionLayerRef.current = publishRegionLayer;
 
+    /**
+     * Draw now if the style will allow it, and keep trying if not.
+     *
+     * 🔴 IT NO LONGER ASKS `isStyleLoaded()`, AND THAT WAS THE BUG —
+     * read out of MapLibre's own source, not guessed:
+     *
+     *   `addSource`/`addLayer` call `_checkLoaded()`, which throws
+     *   "Style is not done loading." on `!style._loaded` ALONE
+     *   (maplibre-gl-dev.mjs:15007).
+     *
+     *   `map.isStyleLoaded()` is `style.loaded()`, which is that AND
+     *   `Object.keys(this._updatedSources).length === 0` AND every tile
+     *   manager loaded AND `imageManager.isLoaded()` (:14960).
+     *
+     * So the gate was strictly stronger than the operation it guarded.
+     * A map whose sprite never arrives, or whose GeoJSON source is
+     * being updated — which is what the campsite layer does on every
+     * pan — reports false for ever, `awaitingStyle` stays true, and the
+     * circles are never drawn. CI said precisely that, once the
+     * diagnosis was printable:
+     *
+     *   layer=off style-loaded=no awaiting-style=yes state=wide error=unset
+     *
+     * A condition standing in for an operation drifts from it. This
+     * performs the operation and reads the answer: the only thing that
+     * knows whether the style is ready is the style.
+     */
     const whenDrawable = (draw: () => void) => {
-      // 🔴 Said out loud so a failure can name its own branch. Without
-      // these, `layer: "off"` has three causes that look identical from
-      // the outside: the style never loaded, the retry was registered
-      // and never fired, or the draw ran and nobody published it.
       const say = () => {
         const el = container.current;
         if (!el) return;
+        // Kept for the diagnosis, no longer a gate: the pair
+        // `style-loaded=no awaiting-style=yes` is how the old gate's
+        // failure reads, and it has to stay legible if it returns.
         el.dataset.styleLoaded = m.isStyleLoaded() ? 'yes' : 'no';
         el.dataset.awaitingStyle = awaitingStyle.current ? 'yes' : 'no';
       };
-      say();
 
-      if (m.isStyleLoaded()) {
-        // 🔴 And a throw here used to vanish. `refresh` is async and is
-        // called from event handlers as a floating promise, so an
-        // exception out of `drawRegions` left no layer, no message and
-        // no failed test — only a map missing its circles. Said out
-        // loud on the element, where a test and a person can see it.
+      /** Drew it, or said why not. Only a half-loaded style is retried. */
+      const tryDraw = (): 'drawn' | 'wait' | 'failed' => {
+        const el = container.current;
         try {
           draw();
+          if (el) delete el.dataset.regionError;
+          return 'drawn';
         } catch (err) {
-          const el = container.current;
-          if (el) el.dataset.regionError = (err as Error).message.slice(0, 120);
+          const message = (err as Error)?.message ?? String(err);
+          // 🔴 Anything that is NOT the style still loading is a real
+          // failure and is said out loud. `refresh` is async and runs
+          // as a floating promise, so such an exception otherwise left
+          // no layer, no message and no failed test — only a map
+          // missing its circles.
+          if (/not done loading/i.test(message)) return 'wait';
+          if (el) el.dataset.regionError = message.slice(0, 120);
+          return 'failed';
         }
-        // 🔴 After the draw, success or not: the attribute has to
-        // describe the map as it now is, and a throw halfway through
-        // `drawRegions` can leave the source added and the layer not.
+      };
+
+      const settle = () => {
+        awaitingStyle.current = false;
         publishRegionLayer();
         say();
+      };
+
+      const first = tryDraw();
+      if (first !== 'wait') {
+        settle();
         return;
       }
+
+      say();
       if (awaitingStyle.current) return;
       awaitingStyle.current = true;
 
-      // 🔴 `once('idle')` IS THE BUG, and CI finally proved it rather
-      // than suggesting it: after ten zoom-outs the map reached the
-      // wide view and `data-region-layer` read `off` — the layer was
-      // never added at all, on chromium and on webkit.
-      //
-      // MapLibre fires `idle` on the TRANSITION to idle. This deferral
-      // is registered at the end of a `moveend`, which is exactly when
-      // the map is settling, so the event can be spent before the
-      // listener exists. `once` then waits for a transition that will
-      // not come again while nothing moves, the flag above stays true
-      // for ever, and every later call returns immediately. The circles
-      // never arrive and nothing says so.
-      //
-      // So: a listener that stays until it succeeds, on both events
-      // that can mean "the style is ready", plus one immediate attempt
-      // for the case where it became ready between the check above and
-      // these registrations.
+      // 🔴 A listener that STAYS until it resolves, on both events that
+      // can mean the style moved. `once('idle')` was the earlier bug:
+      // this is registered at the end of a `moveend`, which is exactly
+      // when the map is settling, so the transition can be spent before
+      // the listener exists — and `once` then waits for one that never
+      // comes again while nothing moves.
       const attempt = () => {
-        say();
-        if (!m.isStyleLoaded()) return;
+        const outcome = tryDraw();
+        if (outcome === 'wait') {
+          say();
+          return;
+        }
         m.off('idle', attempt);
         m.off('styledata', attempt);
-        awaitingStyle.current = false;
-        void refreshRef.current();
+        settle();
       };
       m.on('idle', attempt);
       m.on('styledata', attempt);
