@@ -403,3 +403,30 @@ a.ct-popup-title:hover {
   font-weight: 600;
   color: var(--btn);
 }
+
+/* 🔴 `max-w-prose` is a STATIC utility in Tailwind v4, and `--container-prose`
+   above does not reach it.
+
+   In v3 `theme.extend.maxWidth.prose` overrode the default and our measure was
+   61ch. In v4 the `--container-*` namespace feeds `max-w-wrap` but NOT
+   `max-w-prose`: the core prints `max-width: 65ch` and the variable is dropped
+   by tree-shaking entirely. Compiled with tailwindcss 4.3.3 against this very
+   file, 01.10.2026:
+
+     .max-w-prose { max-width: 65ch }            ← core, ignores the token
+     .max-w-wrap  { max-width: var(--container-wrap) }
+     --container-prose                            0 occurrences in the output
+
+   Nothing fails. The measure just gets 6.6% wider on all 105 `max-w-prose`
+   in src, and the only visible trace is prose rewrapping a word earlier.
+
+   ⚠️ `@utility max-w-prose` does NOT fix it — v4 merges it into the core rule
+   and prints `max-width: 65ch` last, so the core still wins (measured). A
+   plain rule in `@layer utilities` is emitted AFTER the core one at equal
+   specificity, which is what actually takes effect — and it also keeps the
+   variable alive, so the token above stops being dead. */
+@layer utilities {
+  .max-w-prose {
+    max-width: var(--container-prose);
+  }
+}
