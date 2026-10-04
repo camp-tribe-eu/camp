@@ -10,12 +10,24 @@
     // and writes NOTHING — while exiting 0.
     //
     // The result is an empty dist, a silent success, and `nest start`
-    // dying on MODULE_NOT_FOUND. Measured 04.10.2026: `npx nest build`
-    // printed no output, exited 0, created no dist at all, twice in a row.
+    // dying on MODULE_NOT_FOUND.
     //
-    // Off costs a few seconds on 98 files and removes a failure that looks
-    // exactly like success. scripts/ci/check-api-build-emits.sh rehearses
-    // it so it cannot come back.
+    // 🔴 WHERE THAT WAS MEASURED, because the first version of this
+    // comment stated it as a fact about the project and it is a fact
+    // about one toolchain. Observed on 04.10.2026 with @nestjs/cli
+    // 10.4.9 and typescript 5.7.2 — the versions a drifted working copy
+    // had installed. On the versions package-lock.json pins, 12.0.5 and
+    // 6.0.3, which is what `npm ci` and therefore CI install, review
+    // could NOT reproduce it: both passes emitted all 33 files. The
+    // variable is the Nest CLI, not tsc.
+    //
+    // Kept off anyway, and the reason is cost, not fear: review measured
+    // both builds at about 1.8 s either way across 107 non-spec files in
+    // apps/api/src, so the flag buys nothing here, while leaving it on
+    // reinstates a failure that looks exactly like success the moment
+    // anyone's CLI slips back. scripts/ci/check-api-build-emits.sh does
+    // not depend on the bug reproducing: its `--self-test` rehearses the
+    // ASSERTION, so it stays meaningful whatever Nest does next.
     "incremental": false
   },
   "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]

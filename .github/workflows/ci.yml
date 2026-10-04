@@ -410,6 +410,17 @@ jobs:
       #
       # Measured 04.10.2026: with incremental on, pass 1 emitted and
       # pass 2 was empty. This step is that experiment, kept.
+      # 🔴 The rehearsal runs FIRST, and it is not ceremony. Review of
+      # this very guard found it green on the failure it was written for:
+      # the bug was measured on a working copy a major version behind
+      # package-lock.json, and does not reproduce on the toolchain this
+      # job installs. A guard nobody has seen fail is a claim.
+      #
+      # This step proves the assertion still bites — it checks the check,
+      # not the compiler, so it keeps working when Nest changes again.
+      - name: Build-emits guard still catches an empty dist
+        run: ./scripts/ci/check-api-build-emits.sh --self-test
+
       - run: ./scripts/ci/check-api-build-emits.sh
 
       # 🔴 The API was never linted in CI — only the web app was. Ten
