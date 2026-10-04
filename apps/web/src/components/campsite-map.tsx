@@ -490,6 +490,21 @@ export default function CampsiteMap() {
    */
   const inFlight = useRef(0);
   /**
+   * Which `refresh()` is the current one.
+   *
+   * 🔴 CAMP-175. `refresh` awaits the network in its detail branch and
+   * then calls `clearRegions(m)`. Zoom out while that is in flight and
+   * the WIDE branch draws the region circles first, the stale detail
+   * branch wakes up afterwards and removes them — and nothing redraws,
+   * so the map ends up showing neither markers nor circles and
+   * `data-visible-regions` sits at 0. Measured in CI on all five
+   * engines before this counter existed.
+   *
+   * Bumped at every entry; a call whose token no longer matches has
+   * been overtaken and must not touch the map.
+   */
+  const generation = useRef(0);
+  /**
    * `publishDrawn`, reachable from outside the map effect.
    *
    * 🔴 The DRAWN numbers only — never the rendered ones, which are true
@@ -1046,6 +1061,7 @@ export default function CampsiteMap() {
    * much of Europe one person looks at in a sitting.
    */
   const refresh = async () => {
+    const mine = ++generation.current;
     const m = map.current;
     if (!m || index.current.length === 0) return;
 
@@ -1215,6 +1231,11 @@ export default function CampsiteMap() {
     // loaded style; and `setStyle` discards it, so mid-swap there is
     // nothing to find. So this needs no guard, and the reason is a
     // property rather than luck.
+    // 🔴 Overtaken while we were waiting on the network? Then the map
+    // belongs to a later call, and everything below would be undoing
+    // its work — `clearRegions` most of all. See `generation`.
+    if (mine !== generation.current) return;
+
     clearRegions(m);
     applyFilterState(filtersRef.current);
 
