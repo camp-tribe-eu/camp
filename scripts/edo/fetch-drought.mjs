@@ -52,7 +52,7 @@
 // on the day the service changed shape. This runs by hand, writes a
 // file, and a person reads the diff.
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { gzipSync, gunzipSync } from 'node:zlib';
@@ -75,6 +75,10 @@ export const COVERAGE = 'cdiad';
 
 /** Deliberately outside any plausible range, to make the server tell us the real one. */
 export const PROBE_DATE = '2030-01-01';
+
+/** A sixty-request rebuild meets a blip. Retry, then say which dekad. */
+export const ATTEMPTS = 3;
+export const RETRY_PAUSE_MS = 2000;
 
 /**
  * The CDI grid, as the factsheet states it and as every raster we have
@@ -518,29 +522,72 @@ export function isDekad(date) {
  *
  * 🔴 SPREAD ON PURPOSE, not the most recent N. Drought is regional and
  * seasonal: ten consecutive dekads of one wet autumn would leave half of
- * Europe looking like it is not covered. These walk the years and the
- * seasons, and `buildMask` still refuses the result unless the tail
- * added nothing — so the spread is an argument, and the saturation check
- * is the proof.
+ * Europe looking like it is not covered.
+ *
+ * 🔴 EVERY YEAR GETS EVERY SEASON, and the first draft did not. It gave
+ * each year ONE month from a rotating list, so summer — when most of
+ * Europe carries a class at all — appeared in a third of the years. The
+ * real run refused the result: the last five dekads still added 1 618,
+ * 127, 105, 1 077 and 0 pixels. That refusal is the check doing its job,
+ * and it is the reason this function is shaped the way it is rather than
+ * the way it was.
+ *
+ * The spread is an argument; `buildMask`'s saturation rule is the proof.
  */
+export const MASK_MONTHS = ['02', '05', '08', '11'];
+
 export function maskDekads(firstYear, lastYear) {
   const out = [];
-  const months = ['01', '03', '05', '07', '09', '11'];
   for (let y = firstYear; y <= lastYear; y++) {
-    const m = months[(y - firstYear) % months.length];
-    out.push(`${y}-${m}-01`, `${y}-${m}-21`);
+    for (const m of MASK_MONTHS) out.push(`${y}-${m}-11`);
   }
   return out;
 }
 
-async function getCoverage(time, fetchImpl = fetch) {
-  const res = await fetchImpl(coverageUrl(COVERAGE, time));
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`GetCoverage ${time} → HTTP ${res.status}: ${body.slice(0, 200)}`);
+/**
+ * 🔴 A rebuild that is refused must not cost the download again.
+ *
+ * `buildMask` can reject a whole run on its last dekad, and it should:
+ * the alternative is shipping a mask that hides good news. But re-reading
+ * sixty 2 MB rasters from a public service to add four more is rude, so
+ * a run may keep them. The cache is keyed by dekad and the files are
+ * verified by `readGeoTiff` on the way back in, exactly like a fresh one.
+ */
+async function getCoverage(time, fetchImpl = fetch, cacheDir = null) {
+  const cached = cacheDir ? join(cacheDir, `${COVERAGE}-${time}.tif`) : null;
+  if (cached) {
+    try {
+      return cropPixels(readGeoTiff(await readFile(cached)).px, GRID, cropWindow());
+    } catch {
+      // Unreadable or half-written: fetch it again rather than trust it.
+    }
   }
-  const buf = Buffer.from(await res.arrayBuffer());
-  return cropPixels(readGeoTiff(buf).px, GRID, cropWindow());
+  // 🔴 A rebuild is sixty requests, so a blip is not an exception, it is
+  // Tuesday. One dekad came back HTTP 200 with a body that was not a
+  // TIFF; the same dekad fetched cleanly a minute later. Without this,
+  // the whole rebuild died three frames deep on "not a TIFF" and never
+  // said WHICH dekad or what had arrived instead.
+  let last = null;
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    const res = await fetchImpl(coverageUrl(COVERAGE, time));
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!res.ok) {
+      last = `HTTP ${res.status}: ${buf.toString('utf8', 0, 200)}`;
+    } else {
+      try {
+        const px = cropPixels(readGeoTiff(buf).px, GRID, cropWindow());
+        if (cached) await writeFile(cached, buf);
+        return px;
+      } catch (err) {
+        // Say what actually arrived. A JSON error served as HTTP 200
+        // reads as gibberish otherwise.
+        const head = buf.toString('utf8', 0, 120).replace(/[^\x20-\x7e]/g, '.');
+        last = `${err.message} (${buf.length} bytes, starts "${head}")`;
+      }
+    }
+    if (attempt < ATTEMPTS) await new Promise((r) => setTimeout(r, attempt * RETRY_PAUSE_MS));
+  }
+  throw new Error(`GetCoverage ${time} failed ${ATTEMPTS} times. Last: ${last}`);
 }
 
 export function buildOutput({ dekad, range, win, px, today }) {
@@ -796,12 +843,14 @@ if (invokedDirectly) {
     if (args.includes('--rebuild-mask')) {
       const dekads = maskDekads(Number(range.first.slice(0, 4)), Number(range.last.slice(0, 4)))
         .filter((d) => d <= range.last);
+      const cacheArg = args.find((a) => a.startsWith('--cache='));
+      const cacheDir = cacheArg ? cacheArg.slice('--cache='.length) : null;
+      if (cacheDir) await mkdir(cacheDir, { recursive: true });
       const rasters = [];
       for (const d of dekads) {
-        rasters.push(await getCoverage(d));
-        process.stdout.write(`\rmask: ${rasters.length}/${dekads.length} dekads`);
+        rasters.push(await getCoverage(d, fetch, cacheDir));
+        console.log(`mask: ${rasters.length}/${dekads.length} dekads (${d})`);
       }
-      process.stdout.write('\n');
       const built = buildMask(rasters, win);
       console.log(`domain: ${built.set} pixels; last dekads added ${built.growth.slice(-SATURATION_TAIL).join(', ')}`);
       const domainFile = buildDomainFile({ win, built, dekads, today });
