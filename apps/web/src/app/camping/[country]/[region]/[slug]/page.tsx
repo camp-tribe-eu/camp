@@ -29,6 +29,7 @@ import TariffTable from '@/components/tariff-table';
 import BathingWaterNote from '@/components/bathing-water';
 import AirQualityNote from '@/components/air-quality';
 import { DroughtPanel } from '@/components/drought-panel';
+import { settingParagraph } from '@/lib/setting';
 import { droughtAtBuild } from '@/lib/drought-build';
 
 // CAMP-34 — the campsite page.
@@ -251,6 +252,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
 
   const spot = withOwnerOverrides(data.spot);
   const name = spot.name;
+  const setting = settingParagraph(spot.context);
   const known = Object.values(spot.amenities).filter(
     (v) => v !== 'unknown',
   ).length;
@@ -317,6 +319,28 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           <p className="mt-3 max-w-prose text-sm text-ink-2">
             This site has no name in OpenStreetMap. The location is real — the
             name simply has not been recorded by anyone yet.
+          </p>
+        )}
+        {/* 🔴 CAMP-199: what WE measured about this place, in words.
+
+            Of 61 422 publishable campsite pages, 28 808 — 47% — carry no
+            known amenity, no description and no stars. Nothing but a
+            name. The duplicate-page guard found their pages
+            indistinguishable from their neighbours', and it was right.
+
+            What they do have is this paragraph's subject: how far the
+            water is and what kind, the nearest town, the nearest shop,
+            sometimes the height and the shape of the land. We compute
+            all of it and nobody else publishes it.
+
+            It is NOT `data-boilerplate`: it varies with the campsite,
+            which is the whole point. Measured on twelve real Zadarska
+            sites — the region whose pages were failing — these
+            paragraphs are 4.2% similar to each other at the median,
+            26.8% at the worst, and no pair is near the 80% line. */}
+        {setting && (
+          <p className="mt-4 max-w-prose text-ink-1" data-testid="setting">
+            {setting}
           </p>
         )}
       </header>

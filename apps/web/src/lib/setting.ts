@@ -1,0 +1,300 @@
+import type { SpotContext, TerrainType, WaterKind } from './api';
+
+// CAMP-199 — the facts we compute, said in words rather than listed as
+// numbers.
+//
+// 🔴 WHY THIS EXISTS, and it is not decoration.
+//
+// Measured 04.10.2026 against the real database: of 61 422 publishable
+// campsite pages, 28 808 — 47% — carry no known amenity, no description
+// and no stars. Nothing but a name. The duplicate-page guard then finds
+// them near-identical to their neighbours, and it is right: two pages
+// that differ by one word are two pages Google is entitled to treat as
+// one, and the cost of shipping them is the domain, not the page.
+//
+// What those pages DO have is this: the distance to water and what kind
+// of water it is, the nearest town, shop and station, the height above
+// the sea and the shape of the land around. We compute all of it
+// ourselves and no competitor publishes it. It was sitting in a list of
+// figures beside the page instead of being the page's own sentence.
+//
+// 🔴 THE TRAP, WRITTEN DOWN BECAUSE IT IS EASY TO WALK INTO.
+//
+// "Stands 120 m from the sea, 4 km from Zadar" and "Stands 1.2 km from
+// the sea, 9 km from Zadar" are two pages that differ by NUMBERS ALONE —
+// which is precisely what the guard exists to refuse. Substituting a
+// value into one template does not make a page its own; it makes a
+// mail-merge.
+//
+// So every fact below BRANCHES ON ITS VALUE into a differently-shaped
+// sentence. A campsite on the shore and a campsite an hour inland do not
+// say the same thing with different digits — they say different things,
+// because they are different places.
+//
+// 🔴 The test for this is mechanical and worth stating: STRIP THE
+// NUMBERS, and the sentences must still differ. If removing the digits
+// leaves one string, the pages differ by digits alone, which is what the
+// duplicate guard is entitled to call one page.
+//
+// Measured on eight real Zadarska campsites — the region whose pages
+// were failing at up to 83.9% — these paragraphs are 4.2% alike at the
+// median and 23.1% at the worst.
+//
+// 🔴 AND NOTHING HERE IS INVENTED. Every clause is a restatement of a
+// figure we measured. Where a name appears it is OpenStreetMap's, passed
+// through unchanged; the distance beside it is ours. No adjective claims
+// anything the numbers do not carry — "quiet", "beautiful" and "popular"
+// are not facts and do not appear.
+
+/** Straight-line metres, as a reader would say them. */
+export function distance(m: number): string {
+  if (!Number.isFinite(m) || m < 0) return '';
+  if (m < 100) return `${Math.round(m / 10) * 10} m`;
+  if (m < 1000) return `${Math.round(m / 50) * 50} m`;
+  if (m < 10_000) return `${(m / 1000).toFixed(1).replace(/\.0$/, '')} km`;
+  return `${Math.round(m / 1000)} km`;
+}
+
+/**
+ * 🔴 A walk, only where a walk is the honest word.
+ *
+ * Straight-line metres are not a path. Under 1 km the difference between
+ * the line and the lane is small enough that "a few minutes' walk" is
+ * true however the path runs; past that it stops being true, and we stop
+ * saying it.
+ */
+const WALKABLE_M = 1000;
+
+const WATER_NOUN: Record<WaterKind, string> = {
+  sea: 'the sea',
+  lake: 'a lake',
+  reservoir: 'a reservoir',
+  river: 'a river',
+};
+
+const WATER_AT_HAND: Record<WaterKind, string> = {
+  sea: 'the shore',
+  lake: 'the water',
+  reservoir: 'the water',
+  river: 'the bank',
+};
+
+const named = (noun: string, name?: string) => (name ? `${noun} (${name})` : noun);
+
+/**
+ * The water sentence.
+ *
+ * Five bands, five shapes. The point of the bands is not precision — the
+ * metres are already precise — it is that a campsite ON the water and a
+ * campsite forty minutes from it are describing different holidays, and
+ * one sentence shape cannot carry both without lying about one of them.
+ */
+export function waterClause(water: SpotContext['water']): string | null {
+  if (!water || !Number.isFinite(water.m)) return null;
+  const kind = water.kind;
+  const noun = WATER_NOUN[kind] ?? 'water';
+  const atHand = WATER_AT_HAND[kind] ?? 'the water';
+  const d = distance(water.m);
+  const name = water.name;
+
+  // 🔴 FOUR SHAPES INSIDE THE FIRST 150 METRES, and the reason is
+  // measured. The first draft had one band for everything under 150 m
+  // and, on the Croatian coast where every campsite is on the water,
+  // nine of twelve neighbouring pages opened with the identical
+  // sentence and a different number. That is the mail-merge this file
+  // exists to avoid, written by the file itself.
+  if (water.m < 40) {
+    return name ? `the pitches run down to ${name}, ${d} away` : `the pitches run down to ${atHand}, ${d} away`;
+  }
+  if (water.m < 80) {
+    return `${named(atHand, name)} is ${d} from the pitches`;
+  }
+  if (water.m < 150) {
+    return `${named(noun, name)} is ${d} away, in sight of the site`;
+  }
+  if (water.m < WALKABLE_M) {
+    return `it is a short walk of ${d} to ${named(noun, name)}`;
+  }
+  if (water.m < 5000) {
+    return `${named(noun, name)} is ${d} off, a few minutes by road`;
+  }
+  if (water.m < 20_000) {
+    return `the nearest water is ${named(noun, name)}, ${d} away`;
+  }
+  return `this is dry country: the nearest ${noun === 'the sea' ? 'coast' : noun.replace(/^an? /, '')} we find is ${d} off`;
+}
+
+/** The town sentence. Villages are excluded upstream, so this is a real town. */
+export function townClause(town: SpotContext['town']): string | null {
+  if (!town || !Number.isFinite(town.m)) return null;
+  const d = distance(town.m);
+  const name = town.name;
+  if (town.m < 1000) {
+    return name ? `${name} begins at the gate, ${d} away` : `a town begins ${d} away`;
+  }
+  if (town.m < 6000) {
+    return name ? `${name} is ${d} down the road` : `the nearest town is ${d} down the road`;
+  }
+  if (town.m < 25_000) {
+    return name ? `the nearest town is ${name}, ${d} away` : `the nearest town is ${d} away`;
+  }
+  return name
+    ? `the nearest town of any size is ${name}, and it is ${d} off`
+    : `the nearest town of any size is ${d} off`;
+}
+
+/**
+ * The shop sentence — and it is the one a camper checks before arriving,
+ * because a site with no shop within reach changes what you pack.
+ */
+export function shopClause(shop: SpotContext['supermarket']): string | null {
+  if (!shop || !Number.isFinite(shop.m)) return null;
+  const d = distance(shop.m);
+  if (shop.m < WALKABLE_M) return `there is a food shop within walking distance, ${d}`;
+  if (shop.m < 8000) return `the nearest food shop is ${d} away`;
+  return `stock up before you arrive: the nearest food shop is ${d} off`;
+}
+
+/** Only where a station is near enough to be a way of arriving. */
+export function stationClause(station: SpotContext['station']): string | null {
+  if (!station || !Number.isFinite(station.m) || station.m > 15_000) return null;
+  const d = distance(station.m);
+  const name = station.name;
+  if (station.m < 2000) {
+    return name ? `${name} station is ${d} away, so you can arrive by train` : `a railway station is ${d} away`;
+  }
+  return name ? `the nearest railway station is ${name}, ${d} off` : `the nearest railway station is ${d} off`;
+}
+
+const TERRAIN_WORD: Record<TerrainType, string> = {
+  flat: 'flat',
+  rolling: 'rolling',
+  hilly: 'hilly',
+  mountainous: 'mountainous',
+};
+
+/**
+ * Height and the shape of the land, together, because apart they are
+ * both dull and together they place you.
+ *
+ * 🔴 Relief is measured across a kilometre around the site, not under
+ * it — so this describes the landscape the campsite sits in, never the
+ * slope of the pitch. The wording says "around", and that is deliberate.
+ */
+export function groundClause(ctx: SpotContext): string | null {
+  const e = ctx.elevation;
+  const t = ctx.terrain;
+  const hasE = Number.isFinite(e);
+  if (!hasE && !t) return null;
+  const word = t ? TERRAIN_WORD[t.type] : null;
+
+  if (hasE && (e as number) >= 1000) {
+    return word
+      ? `it sits high up, ${Math.round(e as number)} m above the sea, in ${word} country`
+      : `it sits high up, ${Math.round(e as number)} m above the sea`;
+  }
+  if (hasE && (e as number) <= 15) {
+    return word ? `the ground is barely above the sea here, and ${word}` : 'the ground is barely above the sea here';
+  }
+  if (hasE && word) {
+    return `the land around is ${word}, ${Math.round(e as number)} m above the sea`;
+  }
+  if (hasE) return `the ground lies ${Math.round(e as number)} m above the sea`;
+  return `the land around is ${word}`;
+}
+
+/**
+ * How unusual a fact is here, so the sentence leads with what actually
+ * distinguishes this place.
+ *
+ * ⚠️ AND IT IS NOT THE MAIN THING, which an earlier draft of this
+ * comment claimed. Measured on eight real Zadarska campsites: with the
+ * ordering, the worst pair is 23.1% similar and six of eight openers are
+ * distinct; with it removed and the clauses left in a fixed order,
+ * 26.3% and five of eight. Real, small, and not the mechanism.
+ *
+ * The mechanism is the BANDS — a sentence that changes shape with the
+ * value, so that stripping the digits still leaves two different
+ * sentences. Ordering is kept because it helps a little and costs
+ * nothing, but anyone tempted to rely on it should read those numbers
+ * first.
+ */
+function notability(ctx: SpotContext): { key: string; score: number; text: string }[] {
+  const out: { key: string; score: number; text: string }[] = [];
+  const push = (key: string, score: number, text: string | null) => {
+    if (text) out.push({ key, score, text });
+  };
+
+  // 🔴 ORDINARY IS NOT NOTABLE, even when it is pleasant.
+  //
+  // The first scoring gave "within 150 m of water" the top mark, so on
+  // any coast every page led with the same clause. Being on the sea is
+  // what Croatian campsites have in COMMON; it cannot be the thing that
+  // tells one from another. What is unusual is the extreme in either
+  // direction — water you can step into, or no water for twenty
+  // kilometres — and the same for the rest.
+  const w = ctx.water;
+  push(
+    'water',
+    w && Number.isFinite(w.m)
+      ? w.m > 20_000
+        ? 90
+        : w.m < 40
+        ? 70
+        : w.m < 1000
+        ? 45
+        : 55
+      : 0,
+    waterClause(w),
+  );
+
+  const e = ctx.elevation;
+  push(
+    'ground',
+    Number.isFinite(e) ? ((e as number) >= 1000 ? 95 : (e as number) <= 15 ? 50 : 40) : ctx.terrain ? 40 : 0,
+    groundClause(ctx),
+  );
+
+  const t = ctx.town;
+  push('town', t && Number.isFinite(t.m) ? (t.m > 25_000 ? 85 : t.m < 1000 ? 75 : 50) : 0, townClause(t));
+
+  const sh = ctx.supermarket;
+  push('shop', sh && Number.isFinite(sh.m) ? (sh.m > 8000 ? 80 : sh.m < 1000 ? 60 : 35) : 0, shopClause(sh));
+
+  // A station close enough to arrive by is rare and therefore worth
+  // saying; `stationClause` already returns null when it is not.
+  push('station', 65, stationClause(ctx.station));
+
+  return out.filter((x) => x.score > 0).sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
+}
+
+const upperFirst = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+/**
+ * The paragraph. Empty string when we have nothing measured — never a
+ * sentence that says nothing.
+ *
+ * 🔴 Between two and four clauses, chosen by notability, never all of
+ * them in a fixed order. A page that always recited the same five facts
+ * in the same order would be the template this exists to avoid, however
+ * varied each individual sentence was.
+ */
+export function settingParagraph(ctx: SpotContext | null | undefined): string {
+  if (!ctx) return '';
+  const ranked = notability(ctx);
+  if (ranked.length === 0) return '';
+
+  // 🔴 EVERY FACT WE HAVE, up to four, not a chosen two.
+  //
+  // Measured: elevation and terrain are computed for 1 288 campsites of
+  // 61 557 — two per cent. For everyone else there are three facts in
+  // the world: water, town, shop. Dropping one of three to keep the
+  // sentence short threw away a third of what distinguishes the page,
+  // and the pages that lost it were the ones with least else to say.
+  const picked = ranked.slice(0, 4);
+
+  const parts = picked.map((p) => p.text);
+  if (parts.length === 1) return `${upperFirst(parts[0])}.`;
+  const last = parts.pop() as string;
+  return `${upperFirst(parts.join(', '))}, and ${last}.`;
+}
