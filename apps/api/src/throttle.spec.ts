@@ -246,3 +246,63 @@ describe('🔴 every bulk route actually carries the bulk limit', () => {
     expect(BULK_ROUTES.length).toBeGreaterThan(0);
   });
 });
+
+// 🔴 CAMP-176. THE DECORATOR AND THE LIST ARE TWO STATEMENTS ABOUT ONE
+// ROUTE, AND NOTHING COMPARED THEM.
+//
+// `@Throttle(BULK)` sets the NUMBER the library enforces; `BULK_ROUTES`
+// decides which BUCKET the request is counted in. `/spots/map/regions`
+// had the first and not the second, so it carried a six-a-minute limit
+// while sharing the ordinary counter — measured against the running API,
+// six calls to `/spots/countries` were enough to make the next
+// `/spots/map/regions` answer 429, without that route being called at
+// all.
+//
+// A list kept by hand beside a decorator drifts. This reads the
+// controller and compares, so the next one cannot.
+describe('🔴 the decorator and the bucket list agree', () => {
+  const source = readFileSync(
+    join(__dirname, 'spots', 'spots.controller.ts'),
+    'utf8',
+  );
+
+  /** Every path whose handler carries `@Throttle(BULK)`, read from the file. */
+  const decorated = (() => {
+    const prefix = /@Controller\(\s*'([^']+)'\s*\)/.exec(source)?.[1] ?? '';
+    const out: string[] = [];
+    // The decorator sits directly above the route it applies to, so the
+    // pair is what we look for — not either half on its own.
+    const re = /@Throttle\(\s*BULK\s*\)\s*(?:\/\/[^\n]*\n\s*)*@Get\(\s*'([^']*)'\s*\)/g;
+    for (const m of source.matchAll(re)) {
+      out.push([prefix, m[1]].filter(Boolean).join('/'));
+    }
+    return out.sort();
+  })();
+
+  // 🔴 An empty reading passes every comparison below. If the decorator
+  // is ever spelled differently, this is what says so instead of
+  // quietly agreeing that there are no bulk routes at all.
+  it('the controller really was read', () => {
+    expect(decorated.length).toBeGreaterThan(0);
+    expect(source).toContain('@Controller(');
+  });
+
+  // 🔴 The offenders are collected and asserted as a LIST, so the
+  // failure names every route at once instead of stopping at the first.
+  // A disagreement like this arrives when several routes are added
+  // together, and being told about one of four is how the next three
+  // survive the fix.
+  it('every route the controller marks heavy is in the heavy bucket', () => {
+    const decoratedNotBucketed = decorated.filter(
+      (p) => !(BULK_ROUTES as readonly string[]).includes(p),
+    );
+    expect(decoratedNotBucketed).toEqual([]);
+  });
+
+  it('and nothing is in the heavy bucket without the decorator', () => {
+    const bucketedNotDecorated = (BULK_ROUTES as readonly string[]).filter(
+      (p) => !decorated.includes(p),
+    );
+    expect(bucketedNotDecorated).toEqual([]);
+  });
+});
