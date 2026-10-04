@@ -310,6 +310,15 @@ jobs:
       - name: No near-duplicate generated pages
         run: node scripts/seo/check-duplicate-pages.mjs
 
+      # 🔴 CAMP-163. The stripper this guard depends on had no rehearsal,
+      # and that is how it shipped a pattern that stopped at the first
+      # closing tag: a `data-boilerplate` block holding a link kept most
+      # of its words in the comparison, inflating every pair in the same
+      # direction. A guard whose own mechanism nothing exercises is a
+      # guard measuring something nobody has checked.
+      - name: The boilerplate stripper removes a block whole
+        run: node scripts/seo/check-duplicate-pages.mjs --self-test
+
       # CAMP-66. Article 50(2) of the EU AI Act, in force 02.08.2026:
       # machine-made text has to be marked as machine-made. Thirty-six
       # guide pages are generated, nobody re-reads them, and a template

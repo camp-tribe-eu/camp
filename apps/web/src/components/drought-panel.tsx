@@ -63,7 +63,20 @@ export function DroughtPanel({
       <p className="mt-1">{note.detail}</p>
 
       {state.kind !== 'missing' && (
-        <p className="mt-2">
+        // 🔴 `data-boilerplate`: word for word the same on every page it
+        // appears on, because the dekad and the cadence are facts about
+        // the PRODUCT, not about this campsite. The duplicate-content
+        // guard strips blocks like this before comparing pages, and the
+        // rule for claiming it is strict — anything that varies with the
+        // subject stays in the comparison. The two sentences above this
+        // one do vary, and they stay.
+        //
+        // Measured: without this, adding the panel took
+        // hr/zadarska/autocamp-punta ↔ autocamp-tabor to 83.1%, past the
+        // 80% ceiling. That pair is the guard's own canary — its comment
+        // records the attribution block doing the same thing to the same
+        // two campsites.
+        <p className="mt-2" data-boilerplate="drought-cadence">
           {/* 🔴 The dekad, always. This indicator is published every ten
               days and the reading is as old as its dekad; a panel that
               hid that would be presenting a three-week-old measurement
@@ -80,7 +93,9 @@ export function DroughtPanel({
       )}
 
       {state.kind === 'current' && (
-        <p className="mt-2 text-xs">
+        // Identical everywhere too: the credit is the licence's, not the
+        // campsite's.
+        <p className="mt-2 text-xs" data-boilerplate="drought-credit">
           <a
             href={state.meta.sourceUrl}
             className="underline"

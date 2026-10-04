@@ -20,8 +20,9 @@
 // run of five words in order is a much better sign of one template with
 // a substitution.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const args = process.argv.slice(2);
@@ -110,11 +111,51 @@ function seeded(n) {
   return () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * n;
 }
 
-function visibleText(file) {
+/**
+ * Remove every element carrying `data-boilerplate`, with everything
+ * inside it, however deeply nested.
+ *
+ * Walks the tag stream counting opens and closes of the same name, so a
+ * block that contains links, <time>, or another element of its own kind
+ * is removed whole.
+ */
+export function stripBoilerplate(html) {
+  const OPEN = /<([a-z]+)([^>]*)>/gi;
+  let out = '';
+  let at = 0;
+  OPEN.lastIndex = 0;
+  for (let m = OPEN.exec(html); m; m = OPEN.exec(html)) {
+    if (!/\sdata-boilerplate=/i.test(m[2])) continue;
+    const name = m[1].toLowerCase();
+    // Self-closing or void: nothing inside to remove.
+    if (m[2].trimEnd().endsWith('/')) {
+      out += html.slice(at, m.index) + ' ';
+      at = OPEN.lastIndex;
+      continue;
+    }
+    const TAG = new RegExp(`<(/?)${name}\\b[^>]*>`, 'gi');
+    TAG.lastIndex = OPEN.lastIndex;
+    let depth = 1;
+    let end = html.length;
+    for (let t = TAG.exec(html); t; t = TAG.exec(html)) {
+      depth += t[1] ? -1 : 1;
+      if (depth === 0) {
+        end = TAG.lastIndex;
+        break;
+      }
+    }
+    out += html.slice(at, m.index) + ' ';
+    at = end;
+    OPEN.lastIndex = end;
+  }
+  return out + html.slice(at);
+}
+
+export function visibleText(file) {
   let html = readFileSync(file, 'utf8');
   const main = /<main[^>]*>([\s\S]*?)<\/main>/.exec(html);
   html = main ? main[1] : html;
-  return html
+  return stripBoilerplate(html)
     // 🔴 Blocks that are identical on every page by construction are
     // stripped before comparing.
     //
@@ -130,7 +171,17 @@ function visibleText(file) {
     // identical on every page it appears on. Anything that varies with
     // the subject stays in the comparison, because that is exactly what
     // the guard is for.
-    .replace(/<[a-z]+[^>]*\sdata-boilerplate=[^>]*>[\s\S]*?<\/[a-z]+>/gi, ' ')
+    // 🔴 BALANCED, not lazy-to-the-first-close. The old pattern was
+    // `[\s\S]*?<\/[a-z]+>`, which stops at the FIRST closing tag — so a
+    // boilerplate block containing a link or a <time> had only its first
+    // fragment removed and the rest of its words went on being compared
+    // as if they were about the campsite.
+    //
+    // Measured 04.10.2026: a credit paragraph holding two <a> and a
+    // <time> kept "· CDI v4.1.1 · CEMS terms · Read on 4 October 2026.
+    // Contains modified Copernicus…" in the comparison. Every existing
+    // `data-boilerplate` block with a nested element was under-stripped
+    // the same way, which inflated every pair in the same direction.
     .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&[a-z]+;|&#\d+;/gi, ' ')
@@ -151,6 +202,81 @@ const jaccard = (a, b) => {
   for (const s of a) if (b.has(s)) shared++;
   return shared / (a.size + b.size - shared);
 };
+
+/**
+ * Prove the stripper bites. No build, no filesystem.
+ *
+ * 🔴 This file had no rehearsal at all, and that is how the lazy pattern
+ * survived: it was only ever exercised against real pages, where a
+ * partially-stripped block still LOOKS like it was handled.
+ */
+function selfTest() {
+  let rc = 0;
+  const bad = (m) => {
+    console.error(`✗ REHEARSAL FAILED: ${m}`);
+    rc = 1;
+  };
+  const gone = (html, ...words) => {
+    const out = stripBoilerplate(html);
+    for (const w of words) if (out.includes(w)) bad(`"${w}" survived: ${out}`);
+    return out;
+  };
+
+  gone('<p data-boilerplate="x">plain</p>', 'plain');
+
+  // 🔴 The case the old pattern got wrong, and the reason this exists.
+  gone(
+    '<p data-boilerplate="c"><a href="#">Source</a> · v4 · <time>4 October</time>. Contains modified.</p>',
+    'Source', 'v4', '4 October', 'Contains modified',
+  );
+
+  // Nested element of the SAME name must not end the block early.
+  gone('<div data-boilerplate="n">a<div>b</div>c</div>', 'a', 'b', 'c');
+
+  // What is NOT boilerplate must survive, untouched.
+  const kept = stripBoilerplate('<p>keep me</p><p data-boilerplate="x">drop me</p><p>and me</p>');
+  if (!kept.includes('keep me') || !kept.includes('and me')) bad(`real content was removed: ${kept}`);
+  if (kept.includes('drop me')) bad('boilerplate survived beside real content');
+
+  // An unclosed block removes to the end rather than silently keeping it.
+  gone('<p data-boilerplate="x">never closed', 'never closed');
+
+  // A page with no boilerplate comes back unchanged.
+  const plain = '<p>one</p><p>two</p>';
+  if (stripBoilerplate(plain) !== plain) bad('a page with no boilerplate was altered');
+
+  // 🔴 And the attribute must be the attribute, not a word in the text.
+  const lookalike = '<p>we use data-boilerplate= in our markup</p>';
+  if (!stripBoilerplate(lookalike).includes('we use')) bad('a mention of the attribute removed real text');
+
+  if (rc === 0) {
+    console.log(
+      '✓ rehearsal: a boilerplate block is removed whole — with its links,\n' +
+        '  its <time>, and a nested element of its own name — while content\n' +
+        '  beside it is untouched and a page without any is unchanged.',
+    );
+  }
+  return rc;
+}
+
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (!invokedDirectly) {
+  // imported for its functions
+} else if (args.includes('--self-test')) {
+  process.exit(selfTest());
+} else {
+  await main();
+}
+
+async function main() {
 
 let failed = 0;
 let analysed = 0;
@@ -235,3 +361,4 @@ if (failed > 0) {
 }
 
 console.log(`\n✓ ${analysed} generated pages, no pair above ${(MAX_SIMILARITY * 100).toFixed(1)}%`);
+}
