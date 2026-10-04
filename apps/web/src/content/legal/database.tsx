@@ -148,6 +148,16 @@ export default function Database() {
       </P>
 
       <P>
+        <B>Those matched records are inside the derived database, not
+        beside it.</B> A campsite we took from another open source and then
+        compared against OpenStreetMap to remove a duplicate is a campsite
+        of the same kind as the OpenStreetMap ones, and the comparison is
+        what ties the two together. The description above, and the offer at
+        the foot of this page, cover them as well — not only the records
+        that came from OpenStreetMap to begin with.
+      </P>
+
+      <P>
         The sources, their licences and what each contributes are listed on
         the <A href="/legal/attribution">attribution page</A>. Every figure
         drawn from them carries the date it was read.
