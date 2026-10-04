@@ -144,6 +144,47 @@ export function goneTarget(present) {
     .sort((a, b) => String(b.slug).localeCompare(String(a.slug)))[0];
 }
 
+/**
+ * The row that must stay THIN after the gone block has taken its own.
+ *
+ * 🔴 TWO TESTS WANT AN EMPTY CONTEXT AND THEY ARE NOT THE SAME ROW.
+ *
+ * `goneTarget` above takes the highest such slug and the loader marks it
+ * `missing_since`, which removes it from `/spots/index` entirely. So a
+ * fixture with exactly ONE empty-context row has a gone subject and no
+ * thin one, and `sitemap.spec.ts` fails with "no campsite carries
+ * nothing — the rule has no subject".
+ *
+ * That is precisely what happened: filling the 36 missing contexts for
+ * CAMP-199 left `kamp-vinia` as the only candidate, and it is the gone
+ * row. The two fixtures collided and the e2e job was the first thing to
+ * notice. This says so here instead, before a build.
+ */
+export function thinTarget(present) {
+  const gone = goneTarget(present);
+  return present
+    .filter(
+      (r) =>
+        r.slug !== gone?.slug &&
+        (r.context ?? '{}') === '{}' &&
+        !hasKnownAmenity(r) &&
+        !r.description &&
+        !r.stars,
+    )
+    .sort((a, b) => String(a.slug).localeCompare(String(b.slug)))[0];
+}
+
+/** `NOTHING_TO_SAY_SQL`'s first clause: any amenity answered yes or no. */
+function hasKnownAmenity(row) {
+  try {
+    return Object.values(JSON.parse(row.amenities ?? '{}')).some(
+      (v) => v === 'yes' || v === 'no',
+    );
+  } catch {
+    return false;
+  }
+}
+
 const toilets = (row) => {
   try {
     return JSON.parse(row.amenities ?? '{}').toilets ?? 'unknown';
@@ -230,6 +271,22 @@ export function shapeProblems(rows, perPage = 24) {
       `only ${withContext} of ${live.length} campsites carry a computed context — ` +
         'in production every one does, so anything built from those figures is ' +
         'untested here (CAMP-199)',
+    );
+  }
+
+  // 🔴 CAMP-105's subject, which the gone block must not have eaten.
+  // See `thinTarget`: both want an empty context, and the loader hides
+  // the gone one from the index.
+  // `present`, not `live`: `thinTarget` removes the gone row itself, and
+  // handing it a list the gone row has already left would make it drop a
+  // second one.
+  if (thinTarget(present) === undefined) {
+    problems.push(
+      'no LIVE campsite carries nothing but a name — `sitemap.spec.ts` ' +
+        'will fail with "the rule has no subject". Production has none ' +
+        'either (0 of 58 436 on 04.10.2026), so this fixture is the only ' +
+        'place the noindex branch is reachable: leave one row with an ' +
+        'empty context, and give it a slug sorting below the gone row',
     );
   }
 
@@ -350,8 +407,18 @@ function selfTest() {
     spot('no-at', 'AT', 'Side', 'no'),
     spot('thin-at', 'AT', 'Lonely'),
     // The one the loader will mark gone: empty context by definition,
-    // because that is what the DO block selects on.
+    // because that is what the DO block selects on. Its slug is the
+    // HIGHEST in the file, which is how the DO block finds it.
     spot('zzz-doomed', 'AT', 'Doomed', 'unknown', '{}'),
+    // 🔴 And the one that stays thin AFTER the gone row is taken —
+    // `sitemap.spec.ts`'s subject. Two rows, not one, because the
+    // loader hides the gone row from `/spots/index`. Its slug sorts
+    // below `zzz-doomed` so it cannot steal the gone role.
+    //
+    // It shares `Side` with the yes/no rows rather than taking a region
+    // of its own, so that "no region of one" still has exactly one
+    // subject and one break still reports one problem.
+    spot('aaa-thin', 'AT', 'Side', 'unknown', '{}'),
     spot('si-a', 'SI', 'Bovec'),
     spot('si-b', 'SI', 'Bovec'),
     spot('hr-a', 'HR', 'Zagreb'),
@@ -405,10 +472,30 @@ function selfTest() {
     // Every row already has computed context, so the DO block finds no
     // candidate. Nothing else moves: the countries, the big region and
     // both toilets answers are untouched.
+    //
+    // 🔴 TWO PROBLEMS HERE, AND THAT IS THE TRUTH, NOT A LEAKY
+    // MUTATION. Every thin row is gone-eligible by construction — thin
+    // requires no yes/no amenity, which forces `toilets = "unknown"`,
+    // which is the gone block's own predicate. So a fixture with no
+    // gone candidate cannot have a thin one either, and no edit to this
+    // line can separate them. The rehearsal says so rather than
+    // pretending one problem.
     [
       'nothing eligible for the gone block',
       (r) => r.map((x) => ({ ...x, context: '{"at":{}}' })),
       /marked 0/,
+      2,
+    ],
+    // 🔴 And the other direction, which DOES isolate: leave the gone
+    // candidate alone and fill only the thin row's context. The gone
+    // block still has `zzz-doomed`, every country and amenity is
+    // untouched, and the only thing missing is `sitemap.spec.ts`'s
+    // subject — the exact state `ci-seed.sql` was in when the e2e job
+    // reported "the rule has no subject".
+    [
+      'the gone row is the only empty context left',
+      (r) => r.map((x) => (x.slug === 'aaa-thin' ? { ...x, context: '{"at":{}}' } : x)),
+      /carries nothing but a name/,
     ],
     // 🔴 CAMP-199, and it isolates: the doomed row keeps its empty
     // context so the gone block still has its one candidate, while
@@ -421,15 +508,21 @@ function selfTest() {
     ],
   ];
 
-  for (const [name, breakIt, expected] of breaks) {
+  for (const [name, breakIt, expected, alsoExpect = 1] of breaks) {
     const found = shapeProblems(breakIt(whole()), PER_PAGE);
     if (!found.some((p) => expected.test(p))) {
       bad(`"${name}" was not reported (got: ${found.join('; ') || 'nothing'})`);
     }
     // 🔴 One break, one problem. A break that knocks over three subjects
     // proves only that SOMETHING is checked.
-    if (found.length !== 1) {
-      bad(`"${name}" reported ${found.length} problems, not 1: ${found.join('; ')}`);
+    //
+    // The count is a FOURTH element on the break, never a range and
+    // never "at least": a case may say 2 only where the two subjects
+    // cannot be separated by any edit, and it has to say which number
+    // it means. Loosening this to `>= 1` would make every leak invisible
+    // again, which is the whole reason the check is here.
+    if (found.length !== alsoExpect) {
+      bad(`"${name}" reported ${found.length} problems, not ${alsoExpect}: ${found.join('; ')}`);
     }
   }
 
@@ -453,7 +546,9 @@ function selfTest() {
 
   if (rc === 0) {
     console.log(
-      '✓ rehearsal: a complete fixture passes; each of the eight subjects\n' +
+      // Counted, not retyped — the same rule as the page size below.
+      // The old line said "eight" while the list held ten.
+      `✓ rehearsal: a complete fixture passes; each of the ${breaks.length} subjects\n` +
         '  is reported BY ITSELF when it goes missing — including Croatia,\n' +
         '  which nothing broke before — a region holding exactly one page\n' +
         '  fails rather than passing, the row the loader marks gone is not\n' +
