@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   BULK_LIMIT,
@@ -222,26 +222,18 @@ describe('what is exempt', () => {
 // inherit the generous default, and nothing will fail — until the
 // traffic bill. So the list of routes that MUST carry it is data, and
 // this reads the controller to check the decorator is actually there.
+// 🔴 CAMP-176 FOLDED TWO READINGS OF THE SAME FILE INTO ONE.
+//
+// This block used to re-read `spots.controller.ts` with its own regex,
+// which demanded `@Throttle(BULK)` on the line directly ABOVE `@Get`.
+// Nest does not care about that order and no formatter enforces it, so
+// writing the two the other way round turned this red while the route
+// was perfectly well decorated — a test that fails on correct code
+// teaches people to edit the test.
+//
+// The parse now lives in one place, below, and reads every controller.
+// What remains here is the half that parse cannot assert about itself.
 describe('🔴 every bulk route actually carries the bulk limit', () => {
-  const controller = readFileSync(
-    join(__dirname, 'spots', 'spots.controller.ts'),
-    'utf8',
-  );
-
-  it.each([...BULK_ROUTES])('%s is decorated', (route) => {
-    const handler = route.replace(/^spots\//, '');
-    const pattern = new RegExp(
-      `@Throttle\\(BULK\\)\\s*\\n\\s*@Get\\('${handler.replace('/', '\\/')}'\\)`,
-    );
-    // The message is built into the compared value, because jest's
-    // expect takes no message argument — and "expected false to be true"
-    // would tell whoever hits this nothing about what to do.
-    const found = pattern.test(controller)
-      ? 'decorated'
-      : `@Get('${handler}') has no @Throttle(BULK) above it`;
-    expect(found).toBe('decorated');
-  });
-
   it('and the list is not empty, or this suite proves nothing', () => {
     expect(BULK_ROUTES.length).toBeGreaterThan(0);
   });
@@ -261,39 +253,105 @@ describe('🔴 every bulk route actually carries the bulk limit', () => {
 // A list kept by hand beside a decorator drifts. This reads the
 // controller and compares, so the next one cannot.
 describe('🔴 the decorator and the bucket list agree', () => {
-  const source = readFileSync(
-    join(__dirname, 'spots', 'spots.controller.ts'),
-    'utf8',
-  );
+  /**
+   * Every controller, not one of them.
+   *
+   * 🔴 The first version read `spots.controller.ts` alone. Review put a
+   * `@Throttle(BULK)` on a route in `routes.controller.ts` and this
+   * suite stayed green — and the other direction was worse: adding a
+   * legitimately heavy route from another controller to BULK_ROUTES
+   * turned the suite RED although everything was right. A check that is
+   * blind outwards and blocks growth inwards is not a check, it is a
+   * fence around one file.
+   */
+  const controllers = (function find(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory()
+        ? find(join(dir, e.name))
+        : e.name.endsWith('.controller.ts')
+          ? [join(dir, e.name)]
+          : [],
+    );
+  })(__dirname);
 
-  /** Every path whose handler carries `@Throttle(BULK)`, read from the file. */
-  const decorated = (() => {
-    const prefix = /@Controller\(\s*'([^']+)'\s*\)/.exec(source)?.[1] ?? '';
-    const out: string[] = [];
-    // The decorator sits directly above the route it applies to, so the
-    // pair is what we look for — not either half on its own.
-    const re =
-      /@Throttle\(\s*BULK\s*\)\s*(?:\/\/[^\n]*\n\s*)*@Get\(\s*'([^']*)'\s*\)/g;
-    for (const m of source.matchAll(re)) {
-      out.push([prefix, m[1]].filter(Boolean).join('/'));
-    }
-    return out.sort();
-  })();
+  /**
+   * The paths whose handler carries a bulk throttle, read by PAIRING
+   * decorators with the route they sit above.
+   *
+   * 🔴 One regex spanning both decorators was wrong in four ways review
+   * demonstrated, each leaving the suite green while the route stayed in
+   * the ordinary bucket: the decorators written in the other order (Nest
+   * does not care, and no formatter reorders them), double quotes, a
+   * BLOCK comment between them, and `@Throttle({ default: BULK_LIMIT })`
+   * — which is Nest's own canonical spelling.
+   *
+   * So: strip comments, walk the lines, and collect the decorators that
+   * belong to each route whichever order they appear in.
+   */
+  const decorated = controllers
+    .flatMap((file) => {
+      const source = readFileSync(file, 'utf8').replace(
+        /\/\*[\s\S]*?\*\//g,
+        '',
+      );
+      const prefixes = [
+        ...source.matchAll(
+          /@Controller\(\s*(?:\[([^\]]*)\]|['"`]([^'"`]*)['"`])?\s*\)/g,
+        ),
+      ].flatMap((m) =>
+        m[1]
+          ? [...m[1].matchAll(/['"`]([^'"`]*)['"`]/g)].map((q) => q[1])
+          : [m[2] ?? ''],
+      );
+      const prefix = prefixes[0] ?? '';
+
+      const ROUTE =
+        /^\s*@(?:Get|Post|Put|Patch|Delete|All)\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/;
+      const THROTTLE_BULK = /^\s*@Throttle\(.*\bBULK(?:_LIMIT)?\b/;
+
+      const out: string[] = [];
+      let pending: string[] = [];
+      for (const raw of source.split('\n')) {
+        const line = raw.replace(/\/\/.*$/, '');
+        if (/^\s*$/.test(line)) continue;
+        const route = ROUTE.exec(line);
+        if (route) {
+          // The throttle may sit above the route OR below it; both are
+          // collected, because Nest applies them the same way.
+          if (pending.some((d) => THROTTLE_BULK.test(d))) {
+            out.push([prefix, route[1] ?? ''].filter(Boolean).join('/'));
+          }
+          pending = [line];
+          continue;
+        }
+        if (/^\s*@/.test(line)) {
+          pending.push(line);
+          // A throttle written UNDER its route decorator belongs to it.
+          if (THROTTLE_BULK.test(line)) {
+            const prev = pending.find((d) => ROUTE.test(d));
+            const m = prev ? ROUTE.exec(prev) : null;
+            if (m) out.push([prefix, m[1] ?? ''].filter(Boolean).join('/'));
+          }
+          continue;
+        }
+        pending = [];
+      }
+      return out;
+    })
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .sort();
 
   // 🔴 An empty reading passes every comparison below. If the decorator
   // is ever spelled differently, this is what says so instead of
   // quietly agreeing that there are no bulk routes at all.
-  it('the controller really was read', () => {
+  it('the controllers really were read', () => {
+    expect(controllers.length).toBeGreaterThan(0);
     expect(decorated.length).toBeGreaterThan(0);
-    expect(source).toContain('@Controller(');
   });
 
   // 🔴 The offenders are collected and asserted as a LIST, so the
   // failure names every route at once instead of stopping at the first.
-  // A disagreement like this arrives when several routes are added
-  // together, and being told about one of four is how the next three
-  // survive the fix.
-  it('every route the controller marks heavy is in the heavy bucket', () => {
+  it('every route a controller marks heavy is in the heavy bucket', () => {
     const decoratedNotBucketed = decorated.filter(
       (p) => !(BULK_ROUTES as readonly string[]).includes(p),
     );
