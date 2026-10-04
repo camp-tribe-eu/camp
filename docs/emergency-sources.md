@@ -513,6 +513,70 @@ mean "no drought there in early September 2026", which is plausible, or
 may mean a gap. **Not checked** — and it needs to be settled before any
 UI implies an absence of drought rather than an absence of data.
 
+### Settled 04.10.2026 (CAMP-163), and the answer was not what this said
+
+Two things, and the first changes what value 0 MEANS.
+
+**Value 0 is a measurement, not a gap.** The EDO factsheet for CDI
+v4.1.1 (`/data/factsheets/factsheet_combinedDroughtIndicator_v4.pdf`),
+Table 1, gives all seven levels, and the first of them is:
+
+| value | level | interpretation |
+| --- | --- | --- |
+| 0 | No drought | "Normal conditions (No drought)" |
+| 1 | Watch | precipitation deficit |
+| 2 | *Warning* | soil moisture deficit |
+| 3 | *Alert* | vegetation growth below normal |
+| 4 | Recovery | conditions returned to normal after an episode |
+| 5 | Temporary Soil Moisture recovery | above threshold, episode not closed |
+| 6 | Temporary vegetation recovery | above threshold, episode not closed |
+
+So "the low numbers for the Baltics" above are not low coverage; they
+are mostly a reading of **no drought**, which is the good news this
+layer exists to be able to give. The factsheet also supplies the reason
+the conflation is real: the algorithm classifies "each pixel **in the
+study domain**", and outside it the raster still carries 0 as fill.
+
+🔴 Levels 2 and 3 are literally "Warning" and "Alert". Both are in
+`RESERVED_WORDS`, so the official names may never reach a page; our
+labels are built from the interpretation column instead.
+
+**The domain was measured.** `ne_10m_ocean_mask` is advertised in
+GetCapabilities and would have been the provider's own land/water
+boundary; GetMap on it returns HTTP 400 `PRODUCT_NOT_FOUND`. So: a pixel
+the algorithm has ever classified as anything but 0, in any dekad, is
+inside the domain. Built from 59 dekads spanning 2012–2026, four seasons
+a year, it covers 531 948 pixels of the EU-27 crop — and the last five
+dekads added **0, 0, 0, 0, 0**, which is what makes it a measurement
+rather than a hope. `scripts/edo/fetch-drought.mjs` refuses to write a
+mask whose tail is still growing, because an unsaturated one calls
+ordinary dry land "not covered" and hides a true "no drought".
+
+**Malta is inside the domain.** The 0% in the table above is one
+dekad's classification, not coverage: Malta carried a class in three of
+the seven dekads first sampled. A UI that printed "no data" for Malta
+would be making a false statement about a real place.
+
+### Two more ways the documentation is wrong (5 and 6)
+
+5. **`cdirc` and `cdiad` are the same raster.** They are published as
+   separate products — "No Drought and Recovery CDI v.4" and "Combined
+   Drought Indicator (CDI) v4.1" — with separate legend URLs. Fetched
+   for 2026-09-11 and compared pixel by pixel: **0 differing pixels of
+   2 188 800**, and a byte-identical legend PNG. There is no second
+   layer to fetch.
+6. **`ne_10m_ocean_mask` is advertised and not served.** In
+   GetCapabilities, HTTP 400 `PRODUCT_NOT_FOUND` on GetMap. Same shape
+   as the Low-Flow Index in (3).
+
+### And the available range had already moved
+
+This section records the newest dekad as **2026-09-01** (28.09.2026).
+Probed again on 04.10.2026: `available_range` is **2012-01-01 -
+2026-09-11**. Six days, one dekad. The number in a document is a
+reading, not a fact — which is why the script asks on every run and
+nothing here is hard-coded.
+
 **Verdict: TAKE**, on the WCS GeoTIFF sampled by us, with the available
 range read from an out-of-range probe every run, the two stale layers
 excluded by name, and the dekad shown to the reader.

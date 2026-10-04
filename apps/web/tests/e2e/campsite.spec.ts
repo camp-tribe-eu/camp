@@ -92,7 +92,7 @@ async function resolveFixtures(request: APIRequestContext): Promise<Fixtures> {
   // the loose condition now has electricity "unknown", and the test read
   // as a rendering bug. 83 campsites meet the strict one, measured
   // 24.09.2026, so asking for it costs nothing and removes the luck.
-  const richCandidate = markers.find(
+  const richCandidates = markers.filter(
     (m) =>
       m.name &&
       withNear.has(m.slug) &&
@@ -101,18 +101,34 @@ async function resolveFixtures(request: APIRequestContext): Promise<Fixtures> {
   );
   const emptyCandidate = markers.find((m) => !m.name && known(m.amenities) === 0);
 
-  if (richCandidate) {
+  // 🔴 THE NAMED WATER IS PART OF THE SEARCH, NOT A TEST APPLIED AFTER IT.
+  //
+  // This used to `find` ONE candidate and then ask whether that one
+  // happened to have a named body of water. It is the same luck this
+  // file already warns about two comments up — "holding for as long as
+  // the data did not move" — and the data moved again: of the 21 fixture
+  // campsites with a name and electricity, the first several sit on the
+  // Soča, whose rivers carry no name in our context. One row's silence
+  // then read as "there is no such campsite in the database".
+  //
+  // So every candidate is tried, in order, until one qualifies. Bounded,
+  // because the list is the fixture's and the loop stops at the first
+  // hit; and honest, because the requirement is unchanged — a campsite
+  // with a name, surroundings, two known amenities, electricity and a
+  // NAMED body of water.
+  for (const candidate of richCandidates) {
     const { spot } = await (
       await request.get(
-        `${API_BASE}/spots/${richCandidate.country}/${richCandidate.region}/${richCandidate.slug}?nearby=0`,
+        `${API_BASE}/spots/${candidate.country}/${candidate.region}/${candidate.slug}?nearby=0`,
       )
     ).json();
     // Confirmed on the record the page actually renders, not inferred
     // from the list: `near` says something is close, the page needs a
     // named body of water.
     if (spot.context?.water?.name) {
-      rich = richCandidate.path;
+      rich = candidate.path;
       richWater = spot.context.water;
+      break;
     }
   }
   if (emptyCandidate) {
