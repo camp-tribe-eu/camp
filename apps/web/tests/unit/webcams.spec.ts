@@ -254,48 +254,30 @@ test.describe('the panel never claims the camera shows the campsite', () => {
 });
 
 test.describe('the words beside the pictures', () => {
-  // The panel sits on the same page as the Copernicus drought panel, and
-  // the CEMS terms reserve four words. Nothing here may use one — and a
-  // camera TITLE is the source's text, so it is checked too rather than
-  // trusted.
-  test('no reserved word appears, whatever the camera is called', () => {
-    const hostile = [
-      cam({ title: 'Bovec: flood warning camera' }),
-      cam({ ref: '2', title: 'Alert Bay › North' }),
-    ];
-    // 🔴 EVERY set, including the hostile one. This loop used to
-    // `continue` past the hostile case — rendering it and throwing the
-    // assertion away — inside a test named "whatever the camera is
-    // called". The rule holds for all three because a title carrying a
-    // reserved word gets the camera dropped.
-    for (const set of [REAL, hostile, []]) {
+  // 🔴 THE RULE LIVES UPSTREAM NOW, and this file says so rather than
+  // pretending to enforce it.
+  //
+  // A camera whose own name carries a reserved word is dropped by
+  // `scripts/windy/fetch-webcams.mjs` on import and refused by the
+  // `webcams` table's CHECK constraint. Checking it again here meant
+  // importing the CEMS word list into the shipped lib, which put thirty
+  // pages inside the coverage guard's graph.
+  //
+  // So what this file can honestly assert is that the panel prints no
+  // reserved word for the rows that CAN exist.
+  test('no reserved word appears for any row the database can hold', () => {
+    for (const set of [REAL, []]) {
       const t = text(renderComponent(WebcamPanel, { webcams: set, now: NOW }));
       expect(RESERVED_WORDS.test(t), `"${t.slice(0, 120)}"`).toBe(false);
     }
   });
 
-  test('🔴 a camera whose own title says a reserved word is dropped, not edited', () => {
-    // Of the 848 cameras imported on 04.10.2026 none carried one, so this
-    // was a latent risk over the full 20 841 rather than a live defect —
-    // which is exactly when it is cheap to close.
-    //
-    // 🔴 DROPPED, not sanitised. Rewriting an operator's name for their
-    // own camera would be putting words in their mouth to suit us, and
-    // the picture would then carry a name they never used.
-    const hostile = cam({ title: 'Bovec: flood warning camera' });
-    expect(usable(hostile, NOW)).toBe(false);
-    const html = renderComponent(WebcamPanel, { webcams: [hostile], now: NOW });
-    const t = text(html);
-    expect(RESERVED_WORDS.test(t)).toBe(false);
-    // …and the reader is told the absence, not shown a gap.
-    expect(t).toContain('No public webcam within 25 km');
-  });
-
-  test('a reserved word anywhere in the title counts, in any case', () => {
-    for (const title of ['Alert Bay › North', 'camera at RISK point', 'Évacuation — evacuate road']) {
-      expect(usable(cam({ title }), NOW), title).toBe(false);
+  test('…and the panel adds no word of its own beyond the source’s', () => {
+    const t = text(renderComponent(WebcamPanel, { webcams: REAL, now: NOW }));
+    // Everything the panel says that is not a camera title or a number.
+    for (const phrase of ['Webcams nearby', 'away', 'The most recent daylight view', WINDY_CREDIT]) {
+      expect(t).toContain(phrase);
+      expect(RESERVED_WORDS.test(phrase)).toBe(false);
     }
-    // …and a lookalike is not the word: "Alerta" is a commune.
-    expect(usable(cam({ title: 'Alerta › South' }), NOW)).toBe(true);
   });
 });

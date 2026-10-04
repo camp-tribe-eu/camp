@@ -29,8 +29,6 @@
 //   · never the image without a link back to Windy's page for it, which
 //     is their condition for showing it at all.
 
-import { RESERVED_WORDS } from './cems';
-
 export interface Webcam {
   ref: string;
   title: string;
@@ -126,28 +124,28 @@ export function reportedMinutesAgo(lastFrameAt: string | null, now: Date): numbe
 export const CAMERA_DEAD_AFTER_MINUTES = 24 * 60;
 
 /**
- * 🔴 A camera whose NAME says a word the CEMS terms reserve.
+ * 🔴 THE RESERVED-WORD RULE IS NOT HERE, AND THAT IS DELIBERATE.
  *
- * The title is the operator's text, not ours — but it lands on our page,
- * under our voice, beside Copernicus drought data. The terms say that
- * data "does not constitute in any way an early warning", and a card
- * reading "flood warning camera" next to it is exactly the claim they
- * deny us.
+ * A camera whose own name says "warning", "danger", "risk" or "alert"
+ * may not appear beside Copernicus data — but the place to stop it is
+ * where the row ENTERS, not where it is drawn:
  *
- * Measured 04.10.2026 across the 848 cameras imported: **none** carried
- * one. So this is a latent risk over the full 20 841, not a live defect
- * — which is precisely when it is cheap to close.
+ *   · `scripts/windy/fetch-webcams.mjs` drops it on import;
+ *   · the `webcams` table REFUSES it with a CHECK constraint.
  *
- * The camera is dropped rather than its title edited. Rewriting somebody
- * else's name for their camera would be putting words in their mouth to
- * suit us, and we would be shipping a picture labelled with a name its
- * operator never used.
+ * An earlier version checked it here, importing `RESERVED_WORDS` from
+ * `@/lib/cems`. That one import put this file — and therefore every
+ * page that reaches it — inside the CEMS coverage guard's graph: it
+ * flagged thirty-odd files as "showing CEMS data and nothing checks the
+ * words on them". The guard was right about the graph and wrong about
+ * the risk, which is a sign the import was in the wrong place rather
+ * than that the guard needed an exemption.
+ *
+ * A row that cannot exist needs no filter at render time.
  */
-export const titleIsSayable = (title: string): boolean => !RESERVED_WORDS.test(title);
-
 export function usable(cam: Webcam, now: Date): boolean {
   if (!cam.detailUrl?.startsWith('https://')) return false;
-  if (typeof cam.title !== 'string' || !titleIsSayable(cam.title)) return false;
+  if (typeof cam.title !== 'string' || !cam.title) return false;
   if (!Number.isFinite(cam.metres) || cam.metres < 0) return false;
   const mins = reportedMinutesAgo(cam.lastFrameAt, now);
   // 🔴 No time at all is NOT a pass. The catalogue gives one for every

@@ -70,6 +70,32 @@ export class Webcams1790835600000 implements MigrationInterface {
         -- is what keeps that true after the next schema change there.
         CONSTRAINT webcams_country_iso CHECK (country ~ '^[A-Z]{2}$'),
 
+        -- 🔴 A camera whose own NAME says a word the CEMS terms reserve
+        -- cannot be stored, because it would be printed beside
+        -- Copernicus drought data under our voice.
+        --
+        -- Here rather than in the page: a row that cannot exist needs no
+        -- filter at render time, and putting the check in the web lib
+        -- meant importing the CEMS word list into it — which dragged
+        -- thirty-odd pages into the coverage guard's graph.
+        --
+        -- The same list as apps/web/src/lib/cems.ts, written as a
+        -- Postgres pattern, with the backslashes DOUBLED.
+        --
+        -- 🔴 This is a JS template literal, in which a lone backslash-m
+        -- is not an escape and collapses to a plain m. The first version
+        -- shipped exactly that: the constraint stored a pattern with no
+        -- word boundary at all, matched nothing, and the table happily
+        -- accepted "flood warning cam". Proved by reading
+        -- pg_get_constraintdef back from the server, which is the only
+        -- way to know what it actually holds.
+        --
+        -- Whole words: "Alerta" is a commune and
+        -- "brisk" is a word.
+        CONSTRAINT webcams_title_sayable CHECK (
+          title !~* '\\m(warning|warnings|danger|dangers|dangerous|dangerously|risk|risks|risky|riskier|riskiest|risked|risking|alert|alerts|alerted|alerting|evacuate|evacuates|evacuated|evacuating|evacuation|evacuations)\\M'
+        ),
+
         CONSTRAINT webcams_detail_url_https CHECK (detail_url LIKE 'https://%'),
         CONSTRAINT webcams_provider_url_https
           CHECK (provider_url IS NULL OR provider_url LIKE 'https://%')

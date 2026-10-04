@@ -41,6 +41,17 @@ export const API = 'https://api.windy.com/webcams/api/v3/webcams';
 export const PROVIDER = 'windy';
 
 /**
+ * 🔴 Not the canonical list. `RESERVED_WORDS` in apps/web/src/lib/cems.ts
+ * is, and a script cannot import TypeScript — the same split, and the
+ * same reason, as scripts/effis/fetch-wildfires.mjs.
+ *
+ * `cems-panels.spec.ts` discovers every script holding a copy and
+ * refuses any that has drifted, so this cannot quietly fall behind.
+ */
+export const FORBIDDEN_WORDS =
+  /\b(warning(?:s)?|danger(?:s|ous|ously)?|risk(?:s|y|ier|iest|ed|ing)?|alert(?:s|ed|ing)?|evacuat(?:e|es|ed|ing|ion|ions))\b/i;
+
+/**
  * 🔴 The ONE query shape that works, and a typo here does not fail — it
  * returns the planet.
  *
@@ -226,6 +237,11 @@ export function readWebcam(input) {
   if (typeof id !== 'number' && typeof id !== 'string') return null;
   const title = typeof input.title === 'string' ? input.title.trim() : '';
   if (!title) return null;
+  // 🔴 A name we may not print beside Copernicus data. Dropped, not
+  // edited: rewriting an operator's own name for their camera would be
+  // putting words in their mouth, and the picture would carry a name
+  // they never used. The table refuses such a row too.
+  if (FORBIDDEN_WORDS.test(title)) return null;
   if (input.status && input.status !== 'active') return null;
 
   const loc = input.location;
@@ -399,6 +415,10 @@ export async function selfTest() {
   // query included traffic, city, village and building — none of which
   // the card's deny list named. A new category Windy invents tomorrow is
   // excluded by default, which is the safe direction beside a campsite.
+  // 🔴 The rule moved here from the web lib, so the test moved with it.
+  ok('🔴 a camera whose own name says a reserved word is dropped', readWebcam({ ...full, title: 'Bovec: flood warning camera' }) === null);
+  ok('…in any case and any inflection', readWebcam({ ...full, title: 'ALERT Bay webcam' }) === null && readWebcam({ ...full, title: 'camera at risky point' }) === null);
+  ok('…but a lookalike is not the word — "Alerta" is a commune', readWebcam({ ...full, title: 'Alerta › South' })?.title === 'Alerta › South');
   ok('a camera in no useful category is dropped', readWebcam({ ...full, categories: [{ id: 'airport' }] }) === null);
   ok('…and a useful one among useless ones is kept', readWebcam({ ...full, categories: [{ id: 'airport' }, { id: 'beach' }] })?.categories.join() === 'beach');
   ok('a missing provider url is null, not a guess', readWebcam({ ...full, urls: { detail: full.urls.detail } })?.providerUrl === null);
