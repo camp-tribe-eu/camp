@@ -86,7 +86,10 @@ export interface CatalogPage {
  * hence the `camptribe:` marker, which makes that obvious in a database
  * row as well as here.
  */
-export function tariffRef(poiUri: string, spec: Record<string, unknown>): string {
+export function tariffRef(
+  poiUri: string,
+  spec: Record<string, unknown>,
+): string {
   const canonical = JSON.stringify([
     poiUri,
     spec.name ?? null,

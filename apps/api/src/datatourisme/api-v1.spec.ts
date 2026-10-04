@@ -19,7 +19,8 @@ import { isCampsiteNode, parsePrices } from './prices';
 // the feed; `priceSpecification` really carries no identifier of any
 // kind, which is the whole reason `tariffRef` exists.
 
-const URI = 'https://data.datatourisme.fr/13/2c29c0aa-bb2f-3dac-9f93-76f39f06bbc5';
+const URI =
+  'https://data.datatourisme.fr/13/2c29c0aa-bb2f-3dac-9f93-76f39f06bbc5';
 
 const SPEC = {
   priceCurrency: 'EUR',
@@ -27,7 +28,9 @@ const SPEC = {
   maxPrice: [40],
   name: { '@fr': 'Forfait 1 à 2 personnes et électricité - 1 nuitée' },
   appliesOnPeriod: [{ startDate: '2026-05-07', endDate: '2026-09-26' }],
-  hasPricingOffer: [{ label: { '@en': 'Pitch', '@fr': 'Emplacement' }, key: 'BarePitch' }],
+  hasPricingOffer: [
+    { label: { '@en': 'Pitch', '@fr': 'Emplacement' }, key: 'BarePitch' },
+  ],
 };
 
 const API_OBJECT = {
@@ -41,7 +44,10 @@ const API_OBJECT = {
 
 const page = (objects: unknown[], next?: string) => ({
   ok: true,
-  json: async () => ({ objects, meta: { total: 1, page: 1, page_size: 1, next } }),
+  json: async () => ({
+    objects,
+    meta: { total: 1, page: 1, page_size: 1, next },
+  }),
 });
 
 describe('translating an API object into the shape prices.ts reads', () => {
@@ -122,7 +128,8 @@ describe('walking the catalogue', () => {
   it('follows the cursor verbatim instead of rebuilding the query', () => {
     // The cursor is opaque and signed. Rebuilt from parts it stops being
     // the cursor the server handed us.
-    const cursor = 'https://api.datatourisme.fr/v1/catalog?page_size=50&crs=DcHJ';
+    const cursor =
+      'https://api.datatourisme.fr/v1/catalog?page_size=50&crs=DcHJ';
     expect(catalogUrl(cursor)).toBe(cursor);
   });
 
@@ -133,7 +140,10 @@ describe('walking the catalogue', () => {
     ];
     let i = 0;
     const out = [];
-    for await (const n of catalogNodes('k', (async () => pages[i++]) as never)) {
+    for await (const n of catalogNodes(
+      'k',
+      (async () => pages[i++]) as never,
+    )) {
       out.push(n['@id']);
     }
     expect(out).toEqual([URI, `${URI}-2`]);
@@ -148,7 +158,10 @@ describe('walking the catalogue', () => {
     ];
     let i = 0;
     const out = [];
-    for await (const n of catalogNodes('k', (async () => pages[i++]) as never)) {
+    for await (const n of catalogNodes(
+      'k',
+      (async () => pages[i++]) as never,
+    )) {
       out.push(n['@id']);
     }
     expect(out).toEqual([URI]);
@@ -160,7 +173,12 @@ describe('walking the catalogue', () => {
   // empty success to write over what we hold.
   it('refuses to report an empty catalogue as a result', async () => {
     const run = async () => {
-      for await (const _ of catalogNodes('k', (async () => page([])) as never));
+      const out = [];
+      for await (const n of catalogNodes('k', (async () =>
+        page([])) as never)) {
+        out.push(n);
+      }
+      return out;
     };
     await expect(run()).rejects.toThrow(/no campsites/);
   });
@@ -168,7 +186,11 @@ describe('walking the catalogue', () => {
   it('stops on an HTTP error instead of returning a short catalogue', async () => {
     const bad = { ok: false, status: 429, json: async () => ({}) };
     const run = async () => {
-      for await (const _ of catalogNodes('k', (async () => bad) as never));
+      const out = [];
+      for await (const n of catalogNodes('k', (async () => bad) as never)) {
+        out.push(n);
+      }
+      return out;
     };
     await expect(run()).rejects.toThrow(/HTTP 429/);
   });
