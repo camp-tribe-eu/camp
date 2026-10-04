@@ -413,6 +413,26 @@ test.describe('/map', () => {
     const attr = async (name: string) =>
       Number(await map(page).getAttribute(name));
 
+    // 🔴 FIRST: the circles are there to begin with.
+    //
+    // Everything below asks whether they come BACK. If they were never
+    // drawn — an empty region index, a style that renders no circle
+    // layer, a `drawRegions` that threw into a floating promise — then
+    // "0 after zooming out" is the only answer this test could ever
+    // give, and it would read as the defect the card suspected while
+    // actually meaning the subject does not exist.
+    //
+    // /map opens below DETAIL_ZOOM, so the wide branch runs on the
+    // first refresh and the circles are the whole of what is drawn.
+    await expect
+      .poll(() => attr('data-visible-regions'), {
+        timeout: 20_000,
+        message:
+          'no region circle was ever drawn, not even on the first wide view — ' +
+          'so this test has no subject and the assertions below prove nothing',
+      })
+      .toBeGreaterThan(0);
+
     // In far enough that the markers replaced the circles.
     const zoomIn = page.locator('.maplibregl-ctrl-zoom-in');
     await expect(zoomIn).toBeVisible();
