@@ -466,6 +466,18 @@ test.describe('/map', () => {
       })
       .toBeNull();
 
+    // 🔴 EVERY PIECE OF THE DIAGNOSIS IN THE SAME OBJECT, because
+    // `layer: "off"` on its own has three causes that look identical:
+    //
+    //   styleLoaded="no"                    the style never arrived
+    //   styleLoaded="yes" awaiting="yes"    the retry was registered and
+    //                                       never fired
+    //   styleLoaded="yes" awaiting="no"     the draw ran and nothing
+    //                                       published it
+    //
+    // The last one is what CI actually reported, and the previous run
+    // could not say so: `data-region-layer` was written only on `idle`,
+    // and the deferred draw finishes on a map that has stopped moving.
     await expect
       .poll(async () => {
         const el = map(page);
@@ -473,12 +485,16 @@ test.describe('/map', () => {
           layer: await el.getAttribute('data-region-layer'),
           state: await el.getAttribute('data-map-state'),
           err: await el.getAttribute('data-region-error'),
+          styleLoaded: await el.getAttribute('data-style-loaded'),
+          awaiting: await el.getAttribute('data-awaiting-style'),
         };
       }, {
         timeout: 20_000,
         message:
           'the map reached the wide view and the region layer was never added — ' +
-          'the deferred drawRegions was skipped and never retried',
+          'read styleLoaded and awaiting below: "no"/* is a style that never ' +
+          'arrived, "yes"/"yes" is a retry that never fired, "yes"/"no" is a ' +
+          'draw nobody published',
       })
       .toMatchObject({ layer: 'on' });
 

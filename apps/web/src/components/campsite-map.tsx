@@ -544,6 +544,11 @@ export default function CampsiteMap() {
   const failedKeys = useRef<Map<string, string>>(new Map());
   /** One pending "try again when the style has loaded", never a queue. */
   const awaitingStyle = useRef(false);
+  /**
+   * Says whether the region layer is on the map, written the moment it
+   * changes rather than at the next `idle`. See `publishRegionLayer`.
+   */
+  const publishRegionLayerRef = useRef<(() => void) | null>(null);
   const [dataState, setDataState] = useState<MapDataState>({ kind: 'loading' });
 
   // CAMP-153. The fire layer's three pieces of state, kept apart on
@@ -1116,7 +1121,43 @@ export default function CampsiteMap() {
     // loaded, while `idle` means the map has nothing left in flight.
     // One pending retry at a time, so a reader dragging the map during
     // a slow style load does not stack up listeners.
+    /**
+     * Say whether the region layer is on the map, the instant it changes.
+     *
+     * 🔴 SEPARATE FROM `publishRendered`, AND THAT IS THE POINT.
+     *
+     * `data-region-layer` had exactly one writer, `publishRendered`, and
+     * that runs only on `idle`. So the deferred path could finish
+     * correctly — style arrives, `attempt` fires, `drawRegions` adds the
+     * layer — and leave the attribute reading `off` until something else
+     * moved the map. Nothing does: the reader has stopped zooming and
+     * the test is polling a still map. CI reported `layer: "off"` with
+     * `data-region-error` null, which is this exact state and not the
+     * missing draw it reads as.
+     *
+     * The EXISTENCE of a layer is knowable the moment it is added;
+     * `data-visible-regions` is a count of pixels and still belongs to
+     * `idle` alone, which is why these are two attributes and not one.
+     */
+    const publishRegionLayer = () => {
+      const el = container.current;
+      if (el) el.dataset.regionLayer = m.getLayer(REGION_CIRCLE) ? 'on' : 'off';
+    };
+    publishRegionLayerRef.current = publishRegionLayer;
+
     const whenDrawable = (draw: () => void) => {
+      // 🔴 Said out loud so a failure can name its own branch. Without
+      // these, `layer: "off"` has three causes that look identical from
+      // the outside: the style never loaded, the retry was registered
+      // and never fired, or the draw ran and nobody published it.
+      const say = () => {
+        const el = container.current;
+        if (!el) return;
+        el.dataset.styleLoaded = m.isStyleLoaded() ? 'yes' : 'no';
+        el.dataset.awaitingStyle = awaitingStyle.current ? 'yes' : 'no';
+      };
+      say();
+
       if (m.isStyleLoaded()) {
         // 🔴 And a throw here used to vanish. `refresh` is async and is
         // called from event handlers as a floating promise, so an
@@ -1129,6 +1170,11 @@ export default function CampsiteMap() {
           const el = container.current;
           if (el) el.dataset.regionError = (err as Error).message.slice(0, 120);
         }
+        // 🔴 After the draw, success or not: the attribute has to
+        // describe the map as it now is, and a throw halfway through
+        // `drawRegions` can leave the source added and the layer not.
+        publishRegionLayer();
+        say();
         return;
       }
       if (awaitingStyle.current) return;
@@ -1152,6 +1198,7 @@ export default function CampsiteMap() {
       // for the case where it became ready between the check above and
       // these registrations.
       const attempt = () => {
+        say();
         if (!m.isStyleLoaded()) return;
         m.off('idle', attempt);
         m.off('styledata', attempt);
@@ -1308,7 +1355,15 @@ export default function CampsiteMap() {
     // statement than "nobody overtook me": an overtaken call either
     // sees work still in flight and stays quiet, or is the one left to
     // speak.
-    if (mine === generation.current) clearRegions(m);
+    if (mine === generation.current) {
+      clearRegions(m);
+      // 🔴 The removal is announced for the same reason the addition is:
+      // `data-region-layer` must describe the map as it is, not as the
+      // last `idle` found it. Taking the circles away and leaving the
+      // attribute reading `on` is the same lie in the other direction,
+      // and the zoom-back-in half of CAMP-175's test asks exactly that.
+      publishRegionLayerRef.current?.();
+    }
 
     applyFilterState(filtersRef.current);
 
