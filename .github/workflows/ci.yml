@@ -162,6 +162,18 @@ jobs:
       - name: The OSM import spawns no shell, and still says so
         run: node scripts/osm-pipeline/import-release.mjs --self-test
 
+      # 🔴 CAMP-174. The CEMS language rule is enforced on panels the
+      # suite can FIND, and it found them through hand-written
+      # descriptors. Review built a drought panel and a /drought page
+      # reading Copernicus EDO and printing "risk" and "Danger", changed
+      # nothing else, and 653 of 653 tests stayed green. This asks where
+      # a file gets its data instead of whether somebody registered it.
+      - name: CEMS coverage guard still catches an unregistered panel
+        run: node scripts/ci/check-cems-coverage.mjs --self-test
+
+      - name: Everything showing CEMS data is inside the language guard
+        run: node scripts/ci/check-cems-coverage.mjs
+
       # 🔴 The timestamp is the only thing TypeORM orders migrations by,
       # so two migrations sharing one are ordered by directory read order
       # — which differs between macOS and this runner. It cost nothing

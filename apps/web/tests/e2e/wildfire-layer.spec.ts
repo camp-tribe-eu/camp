@@ -1,3 +1,4 @@
+import { RESERVED_WORDS } from '@/lib/cems';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
@@ -629,8 +630,15 @@ test.describe('the wildfire layer', () => {
     expect(said).toMatch(
       /Contains modified Copernicus Emergency Management Service information \d{4}/,
     );
-    // 🔴 And the words the CEMS terms reserve are nowhere on it.
-    expect(said).not.toMatch(/\b(danger|alert|warning|risk)\b/i);
+    // 🔴 And the words the CEMS terms reserve are nowhere on it —
+    // measured against the CANON, not a copy of it.
+    //
+    // This used to carry its own `/\b(danger|alert|warning|risk)\b/i`,
+    // which is four stems with no forms: "Evacuate" and "dangerous"
+    // walked straight through the one assertion standing between a
+    // licence breach and the page. A second, weaker spelling of a rule
+    // is the rule nobody notices has stopped applying.
+    expect(said).not.toMatch(RESERVED_WORDS);
   });
 
   test('🔴 a feed that speaks with a national service’s authority is refused', async ({
