@@ -413,22 +413,46 @@ test.describe('/map', () => {
     const attr = async (name: string) =>
       Number(await map(page).getAttribute(name));
 
-    // 🔴 FIRST: the circles are there to begin with.
+    // 🔴 FIRST: prove the circles exist at all.
     //
-    // Everything below asks whether they come BACK. If they were never
-    // drawn — an empty region index, a style that renders no circle
-    // layer, a `drawRegions` that threw into a floating promise — then
-    // "0 after zooming out" is the only answer this test could ever
-    // give, and it would read as the defect the card suspected while
-    // actually meaning the subject does not exist.
+    // Everything below asks whether they come BACK. If they are never
+    // drawn — an empty region index, a `drawRegions` that threw into a
+    // floating promise — then "0 after zooming out" is the only answer
+    // this test could give, and it would read as the defect the card
+    // suspected while actually meaning the subject does not exist.
     //
-    // /map opens below DETAIL_ZOOM, so the wide branch runs on the
-    // first refresh and the circles are the whole of what is drawn.
+    // 🔴 And it cannot be asserted on the page as it opens. INITIAL_VIEW
+    // is zoom 6.2 and DETAIL_ZOOM is 6, so /map opens in the DETAIL
+    // branch: no circles, correctly. An earlier draft of this test
+    // asserted them on the first view and went red on chromium and
+    // webkit for exactly that reason — the premise was wrong, not the
+    // map.
+    //
+    // 🔴 So the zoom is driven by what the map SAYS, not by a count of
+    // clicks. `data-map-state` reads `wide` only when the wide branch
+    // has run, which is the branch that draws the circles. Counting
+    // clicks was the other half of the same mistake: this file's own
+    // `zoomIn` helper waits 350 ms because "a click that lands
+    // mid-animation is dropped", and the zoom-out loop below used to
+    // fire ten clicks 150 ms apart and simply assume it had arrived.
+    const zoomOut = page.locator('.maplibregl-ctrl-zoom-out');
+    await expect(zoomOut).toBeVisible();
+    const untilWide = async () => {
+      for (let i = 0; i < 12; i++) {
+        if ((await map(page).getAttribute('data-map-state')) === 'wide') return true;
+        await zoomOut.click();
+        await page.waitForTimeout(350);
+      }
+      return (await map(page).getAttribute('data-map-state')) === 'wide';
+    };
+
+    expect(await untilWide(), 'the map never reached a view too wide for markers').toBe(true);
+
     await expect
       .poll(() => attr('data-visible-regions'), {
         timeout: 20_000,
         message:
-          'no region circle was ever drawn, not even on the first wide view — ' +
+          'the map says it is in the wide view and no region circle was drawn — ' +
           'so this test has no subject and the assertions below prove nothing',
       })
       .toBeGreaterThan(0);
@@ -460,12 +484,9 @@ test.describe('/map', () => {
       })
       .toBe(0);
 
-    const zoomOut = page.locator('.maplibregl-ctrl-zoom-out');
-    await expect(zoomOut).toBeVisible();
-    for (let i = 0; i < 10; i++) {
-      await zoomOut.click();
-      await page.waitForTimeout(150);
-    }
+    // Back out, again driven by what the map says rather than by a
+    // count of clicks.
+    expect(await untilWide(), 'the map never returned to a view too wide for markers').toBe(true);
 
     await expect
       .poll(() => attr('data-visible-regions'), {
@@ -476,12 +497,12 @@ test.describe('/map', () => {
       })
       .toBeGreaterThan(0);
 
-    // 🔴 And the map must SAY it finished. Ten zoom-out clicks in a row
-    // is exactly the interleaving that overtakes a refresh mid-flight,
-    // so this is where a staleness guard with too wide a reach shows
-    // up: review built one, and every overtaken call skipped the
+    // 🔴 And the map must SAY it finished. A run of zoom-out clicks is
+    // exactly the interleaving that overtakes a refresh mid-flight, so
+    // this is where a staleness guard with too wide a reach shows up:
+    // review built one, and every overtaken call skipped the
     // announcement as well as the undo, leaving `data-map-state` on
-    // `loading` forever with the circles drawn behind it.
+    // `loading` for ever with the circles drawn behind it.
     //
     // Circles on the canvas and a map still calling itself busy is a
     // state the assertion above cannot tell from success, which is why
