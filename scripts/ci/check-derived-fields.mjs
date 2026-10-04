@@ -38,17 +38,37 @@ const PAGE_FILE = join(ROOT, 'apps', 'web', 'src', 'content', 'legal', 'database
  * demand prose about things no reader of the page has ever seen.
  */
 export function declaredFields(source) {
-  const start = source.indexOf('export interface SpotContext {');
+  // 🔴 COMMENTS GO FIRST, AND THE ORDER IS THE WHOLE BUG.
+  //
+  // This used to find the end of the interface with
+  // `source.indexOf('\n}', start)` and strip comments afterwards. A
+  // JSDoc containing a `}` at column zero therefore ENDED the interface
+  // early. Review put one after `water`, added two real fields, and the
+  // guard read 1 field out of 9 and printed "✓ all 1 derived fields are
+  // described" — green, with eight fields undisclosed.
+  //
+  // Stripping first means a brace inside a comment cannot be the brace
+  // that closes the body.
+  const stripped = source
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
+
+  const start = stripped.indexOf('export interface SpotContext {');
   if (start < 0) return [];
-  const end = source.indexOf('\n}', start);
+  const end = stripped.indexOf('\n}', start);
   if (end < 0) return [];
-  const body = source
-    .slice(start, end)
-    // Comments describe the field; they must not BE the field.
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/\/\/[^\n]*/g, ' ');
+  const body = stripped.slice(start, end);
+
   const out = [];
-  for (const m of body.matchAll(/^\s{2}([A-Za-z_][\w]*)\??\s*:/gm)) out.push(m[1]);
+  // 🔴 A field is not always a bare word. Review got `readonly fuel?:`,
+  // `"fuel"?:` and a name alone on its line past the old pattern, each
+  // of which is a field TypeScript declares and this did not see.
+  //
+  // `readonly` is a modifier, not a name; a quoted key is still a key;
+  // and the colon may sit on the next line. Each of those is a real
+  // declaration that would otherwise never need a word on the page.
+  const FIELD = /^ {2}(?:readonly\s+)?(?:\[?["']?)([A-Za-z_$][\w$]*)["']?\]?\s*\??\s*:/gm;
+  for (const m of body.matchAll(FIELD)) out.push(m[1]);
   return [...new Set(out)];
 }
 
@@ -64,8 +84,91 @@ export function declaredFields(source) {
  * A field is disclosed when it is LISTED, not when its name happens to
  * occur. `<B>name</B>` is the shape the list uses.
  */
+/**
+ * 🔴 The page as a READER sees it, not as the file is written.
+ *
+ * This tested the file's bytes. Review deleted the whole `<li>` that
+ * describes `station` and left `<B>station</B>` inside a `//` comment:
+ * rc=0, "✓ all 7", and not one word about `station` anywhere a reader
+ * could reach it. That is the same defect this guard was built to catch
+ * — a disclosure that exists only where nobody looks — moved up one
+ * level into the guard itself.
+ *
+ * So comments are removed before the match, exactly as `declaredFields`
+ * removes them from the type.
+ */
+export function renderedPage(page) {
+  return page
+    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/[^\n]*$/gm, ' ');
+}
+
 export function namedInPage(field, page) {
-  return new RegExp(`<B>${field}</B>`).test(page);
+  return new RegExp(`<B>${field}</B>`).test(renderedPage(page));
+}
+
+/**
+ * A SECOND reader of the same interface, written to share as little as
+ * possible with the first.
+ *
+ * 🔴 WHY TWO. Every one of the three holes review found was an UNDER-read
+ * — the guard saw fewer fields than TypeScript declares and said "✓ all
+ * 1 derived fields are described" over a file with nine. An under-read
+ * cannot be caught by anything downstream, because the comparison it
+ * feeds is then simply smaller. Nothing anywhere pinned the count
+ * against the real file.
+ *
+ * Pinning a number would work and would rot: it becomes a third place to
+ * edit, and the first person in a hurry edits it to whatever the guard
+ * just printed.
+ *
+ * So instead: find the body by COUNTING BRACES rather than looking for
+ * `\n}`, and take names with a different pattern. The two disagree
+ * exactly when one of them is wrong, and `run` refuses to proceed on a
+ * disagreement. Neither is the authority; the agreement is.
+ */
+export function declaredFieldsCrude(source) {
+  const stripped = source
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
+  const marker = 'export interface SpotContext {';
+  const at = stripped.indexOf(marker);
+  if (at < 0) return [];
+  let depth = 0;
+  let end = -1;
+  for (let i = at + marker.length - 1; i < stripped.length; i++) {
+    if (stripped[i] === '{') depth += 1;
+    else if (stripped[i] === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  if (end < 0) return [];
+  const body = stripped.slice(at + marker.length, end);
+
+  // Walk it as text at nesting depth 0, which is where the interface's
+  // own members live — a nested object type's keys are not our fields.
+  const out = [];
+  let level = 0;
+  let line = '';
+  for (const ch of body) {
+    if (ch === '\n') {
+      if (level === 0) {
+        const m = /^\s*(?:readonly\s+)?["'[]?([A-Za-z_$][\w$]*)["'\]]?\s*\??\s*:/.exec(line);
+        if (m) out.push(m[1]);
+      }
+      line = '';
+      continue;
+    }
+    if (level === 0) line += ch;
+    if (ch === '{' || ch === '(' || ch === '[') level += 1;
+    if (ch === '}' || ch === ')' || ch === ']') level -= 1;
+  }
+  return [...new Set(out)];
 }
 
 export function missingFrom(fields, page) {
@@ -74,6 +177,23 @@ export function missingFrom(fields, page) {
 
 function run(typeSrc, pageSrc, log = console) {
   const fields = declaredFields(typeSrc);
+
+  // 🔴 Two readers, and the agreement is the authority. See
+  // `declaredFieldsCrude`: every hole review found was an under-read,
+  // and an under-read is invisible to every comparison downstream.
+  const crude = declaredFieldsCrude(typeSrc);
+  const only = (a, b) => a.filter((f) => !b.includes(f));
+  if (only(fields, crude).length > 0 || only(crude, fields).length > 0) {
+    log.error(
+      '✗ The two readings of SpotContext disagree, so neither can be trusted:\n' +
+        `  the main reader saw:  ${fields.join(', ') || '(nothing)'}\n` +
+        `  the second reader saw: ${crude.join(', ') || '(nothing)'}\n` +
+        '\n  One of them is missing a field. A field this guard cannot see is\n' +
+        '  a field it will never ask the page to describe, and the ✓ it would\n' +
+        '  print is over a §4.6 hole.',
+    );
+    return 1;
+  }
 
   // 🔴 An empty reading passes any comparison below. If the interface is
   // ever renamed, this is what says so rather than quietly agreeing that
@@ -143,6 +263,100 @@ export interface Other { notAField?: string; }
     if (run(type, holed, quiet) !== 1) bad(`a page missing "${drop}" was accepted`);
   }
 
+  // 🔴 THE THREE SHAPES THE REHEARSAL DID NOT HAVE.
+  //
+  // Its fixture was a simpler file than the real one — single-line JSDoc
+  // only, no `readonly`, no brace inside a comment — so all three holes
+  // review found passed it. Each is now a fixture, because a rehearsal
+  // that only exercises the easy shape proves the easy shape.
+  const braceInComment = `
+export interface SpotContext {
+  /**
+   * Shaped like
+}
+   * which used to end this interface right here.
+   */
+  water?: NearestWater;
+  elevation?: number;
+  at?: { lat: number; lon: number };
+}
+`;
+  const afterBrace = declaredFields(braceInComment);
+  if (afterBrace.join(',') !== 'water,elevation,at') {
+    bad(`a "}" inside a comment cut the interface short: read ${JSON.stringify(afterBrace)}`);
+  }
+  if (run(braceInComment, full, quiet) !== 0) bad('a complete page was rejected after a brace in a comment');
+
+  const modifiers = `
+export interface SpotContext {
+  readonly water?: NearestWater;
+  "elevation"?: number;
+  at?: { lat: number; lon: number };
+}
+`;
+  const withModifiers = declaredFields(modifiers);
+  if (withModifiers.join(',') !== 'water,elevation,at') {
+    bad(`a modifier or a quoted key hid a field: read ${JSON.stringify(withModifiers)}`);
+  }
+
+  // 🔴 And a field named ONLY in a comment is not described. Review
+  // deleted the whole entry for `station` and left `<B>station</B>` in a
+  // `//` comment; the guard said ✓ over a page that told a reader
+  // nothing.
+  for (const commented of [
+    '<B>water</B> <B>elevation</B> {/* <B>at</B> — elsewhere */}',
+    '<B>water</B> <B>elevation</B>\n// <B>at</B>\n',
+    '<B>water</B> <B>elevation</B> /* <B>at</B> */',
+  ]) {
+    if (run(type, commented, quiet) !== 1) {
+      bad(`a field named only inside a comment was accepted: ${commented}`);
+    }
+  }
+
+  // 🔴 The two readers must agree, and must be seen to disagree when one
+  // is wrong. `extra` is a field only a correct reader finds.
+  const extra = `
+export interface SpotContext {
+  water?: NearestWater;
+  elevation?: number;
+  at?: { lat: number; lon: number };
+  nested?: { a: { b: number } };
+}
+`;
+  const a = declaredFields(extra);
+  const b = declaredFieldsCrude(extra);
+  if (a.join(',') !== b.join(',')) {
+    bad(`the two readers disagree on a file they should both read: ${a} vs ${b}`);
+  }
+  if (!a.includes('nested') || a.includes('b')) {
+    bad(`a nested object type was read wrong: ${JSON.stringify(a)}`);
+  }
+
+  // 🔴 And the agreement must be LOAD-BEARING, not decorative.
+  //
+  // Here the two readers really do disagree: a nested object type whose
+  // closing brace sits at column zero ends the body for the reader that
+  // looks for "\n}", and does not for the one that counts braces. The
+  // first therefore never sees `at`. Neither reading is trustworthy once
+  // they differ, and `run` must refuse rather than pick one.
+  const disagree = `
+export interface SpotContext {
+  water?: NearestWater;
+  nested?: {
+a: number;
+}
+  at?: { lat: number; lon: number };
+}
+`;
+  const main = declaredFields(disagree);
+  const second = declaredFieldsCrude(disagree);
+  if (main.join(',') === second.join(',')) {
+    bad(`the disagreement fixture no longer makes them disagree: both read ${main}`);
+  }
+  if (run(disagree, '<B>water</B> <B>nested</B> <B>at</B>', quiet) !== 1) {
+    bad('two readings that disagree were not refused');
+  }
+
   // The anti-emptiness guard, which every comparison above depends on.
   if (run('export interface Something {}', full, quiet) !== 1) {
     bad('a renamed interface was treated as "no derived fields"');
@@ -153,7 +367,10 @@ export interface Other { notAField?: string; }
       '✓ rehearsal: fields are read from SpotContext alone — not from a\n' +
         '  neighbouring interface, a function or a comment — a complete page\n' +
         '  passes, each missing field is reported, and a renamed interface\n' +
-        '  fails instead of reading as "nothing is derived".',
+        '  fails instead of reading as "nothing is derived".\n' +
+        '  And the three shapes that got past it: a "}" inside a JSDoc, a\n' +
+        '  `readonly` or quoted key, and a field named only in a comment on\n' +
+        '  the page. Two independent readers of the type must agree.',
     );
   }
   return rc;

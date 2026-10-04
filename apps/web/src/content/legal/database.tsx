@@ -81,11 +81,19 @@ export default function Database() {
       <H2 id="computed">What we compute, and how</H2>
 
       <P>
-        None of the following is in OpenStreetMap. Each is calculated by us
-        from open data and stored alongside the record. The coordinates
-        each was computed at are stored with them, so a campsite that moves
-        in a later import can be recognised as needing recomputation rather
-        than silently keeping numbers about its old location.
+        Each of the following is calculated by us and stored alongside the
+        record. The coordinates each was computed at are stored with them,
+        so a campsite that moves in a later import can be recognised as
+        needing recomputation rather than silently keeping numbers about
+        its old location.
+      </P>
+
+      <P>
+        <B>The distances are ours; several of the names are not.</B> Where
+        an entry below names a nearby lake, town, shop or station, that
+        name is read from OpenStreetMap and passed on unchanged — it is
+        their Content, under their licence, and only the measurement
+        between it and the campsite is our derivation.
       </P>
 
       <UL>
@@ -128,13 +136,56 @@ export default function Database() {
         </li>
       </UL>
 
-      <H3>Names</H3>
+      <H3>Which country and region a campsite is in</H3>
+
+      <P>
+        <B>This is ours too, and it decides the web address.</B>{' '}
+        OpenStreetMap campsites do not carry a usable country or region
+        tag — on a sample of 448 Slovenian campsites, not one had an
+        administrative tag we could use — and the country a national
+        extract is named after is wrong at the borders, because each
+        extract carries a strip of its neighbours.
+      </P>
+
+      <P>
+        So we compute both from the position: the campsite’s point is
+        tested against the{' '}
+        <A href="https://www.naturalearthdata.com/">Natural Earth</A>{' '}
+        1:10m administrative boundaries, and it takes the country and
+        region of the polygon that contains it. For a campsite mapped as
+        an area rather than a point we use a point guaranteed to lie on
+        the area itself, not its average, which for a ring-shaped or
+        concave site can fall outside it.
+      </P>
+
+      <P>
+        Where a point falls inside no polygon at all, it takes the{' '}
+        <B>nearest</B> one, within a fixed limit. This is not a rarity: on
+        the first Croatian import 367 campsites of 778 fell outside every
+        polygon, because a 1:10m coastline smooths away the shores and
+        small islands that Croatian campsites sit on. Every one was within
+        3.85 km of a Croatian polygon and the average was 593 m. Past the
+        limit, the campsite keeps no region and gets no page at all,
+        rather than being assigned a county by a guess.
+      </P>
+
+      <H3>Names and web addresses</H3>
 
       <P>
         Where a campsite has no name in OpenStreetMap, we do not invent
         one: the record is shown by its object reference. Where it has a
-        name, we normalise whitespace and case for sorting and for the web
-        address, and show the operator’s own spelling on the page.
+        name, we show the operator’s own spelling on the page.
+      </P>
+
+      <P>
+        The web address is derived from the name: reduced to Latin letters
+        and hyphens, and where that leaves nothing usable, built from the
+        OpenStreetMap object reference instead. Where two campsites in one
+        region would take the same address, the later one is given a
+        numeric suffix. <B>An address is assigned once and then frozen</B>
+        — if the campsite is renamed in OpenStreetMap later, the page keeps
+        the address it was first published under, because a link that has
+        been given out should not stop working.
       </P>
 
       <H2 id="joined">What we join in from elsewhere</H2>
@@ -142,9 +193,35 @@ export default function Database() {
       <P>
         Some records are matched against other open datasets, and the match
         is a derivation of ours rather than a statement by either source.
-        Where two records describe one campsite, one of them is shown and
-        the other is hidden from listings — it is never deleted, and the
-        data read through the link is credited to the source it came from.
+        Where two records from <B>different</B> sources describe one
+        campsite, one of them is shown and the other is hidden from
+        listings — it is not deleted, and the data read through the link is
+        credited to the source it came from.
+      </P>
+
+      <P>
+        <B>Duplicates inside OpenStreetMap itself are treated differently,
+        and more bluntly.</B> The same campsite is often mapped twice
+        there, once as a point and once as an area. At import, two records
+        close enough to be the same place are merged into one and only the
+        survivor is stored: within 200 metres when they carry the same
+        name, within 50 metres when neither has one, and the mapped area
+        wins over the single point. The record that loses is not kept.
+        That is a real alteration to the data we took, which is why it is
+        written here rather than left to be inferred from the counts.
+      </P>
+
+      <P>
+        The distance from a campsite to the bathing water and to the air
+        quality station nearest to it is also ours: it is measured by us
+        between their published positions and rounded to the metre.
+      </P>
+
+      <P>
+        Each campsite record also carries whether we consider its region
+        large enough to publish an index page for, and whether a price
+        list we hold is withheld from display. Both are decisions of ours
+        about presentation, not facts any source stated.
       </P>
 
       <P>

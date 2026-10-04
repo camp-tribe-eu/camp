@@ -53,7 +53,14 @@ export default function Attribution() {
         <br />
         <br />
         Those conditions bind us exactly as they bind you, and neither of us
-        can set them aside in terms of use. The{' '}
+        can set them aside in terms of use.{' '}
+        {/* 🔴 The §4.6 offer is useless if the page that states the
+            obligation does not point at it. This page said share-alike
+            applies and left the reader to find, unaided, the page that
+            discharges it. */}
+        <A href="/legal/database">How this database is made</A> is the
+        description of our own alterations that §4.6 entitles you to, and
+        it says how to ask for the data itself instead. The{' '}
         <A href="https://opendatacommons.org/licenses/odbl/1-0/">
           licence text
         </A>{' '}
