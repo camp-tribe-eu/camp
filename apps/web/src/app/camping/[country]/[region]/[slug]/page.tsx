@@ -335,10 +335,22 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
             all of it and nobody else publishes it.
 
             It is NOT `data-boilerplate`: it varies with the campsite,
-            which is the whole point. Measured on twelve real Zadarska
-            sites — the region whose pages were failing — these
-            paragraphs are 4.2% similar to each other at the median,
-            26.8% at the worst, and no pair is near the 80% line. */}
+            which is the whole point.
+
+            🔴 AND THE NUMBERS THAT STOOD HERE WERE MEASURED ON AN ARRAY
+            I TYPED. "Twelve real Zadarska sites … 4.2% at the median,
+            26.8% at the worst, and no pair is near the 80% line" was a
+            third author-chosen corpus, and the last clause was simply
+            false. On the seed the build actually uses — 30 Zadarska
+            rows, 435 pairs — it is 4.1% at the median, 17.6% at p90,
+            and ONE pair at 100%: autocamp-pisak and autokemp-marin,
+            four campsites on one beach outside Obrovac sharing a town,
+            a shop and a station.
+
+            The live figures live in `lib/setting.ts` and are enforced by
+            `tests/unit/setting.spec.ts` against that seed. They are not
+            repeated here, because two copies of a measurement drift and
+            this copy is how the stale one survived its own retraction. */}
         {setting && (
           <p className="mt-4 max-w-prose text-ink-1" data-testid="setting">
             {setting}

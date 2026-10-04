@@ -302,10 +302,37 @@ test.describe('the real fixture, not a corpus I chose', () => {
   // The second half of CAMP-199 — noindex for what still reads as a
   // duplicate — is what covers them, and the owner has the open
   // question on the card.
+  // 🔴 EACH ENTRY BELOW HAS BEEN OPENED AND CHECKED, which the list's
+  // first version had not been: `camping-nadiza, kamp-lebanc` sat here
+  // as "inseparable" while their stations differed by name and by two
+  // kilometres, and the clause was simply being dropped by a cut at
+  // four facts. Review found it. A named list is only honest while
+  // every name on it has been looked at, so adding one is a piece of
+  // work, not a way of going green.
+  // 🔴 TWO KINDS OF ENTRY, AND THE LIST HAS TO SAY WHICH.
+  //
+  // Its first version called all seven "campsites whose every measured
+  // fact falls in the same band". Review checked and that was false for
+  // one of them, which is the exact failure a named list invites: it
+  // reads as a verdict and it was only ever an observation.
+  //
+  //   SAME PLACE — nothing measured differs beyond noise. Two pitches
+  //   at the mouth of one canyon, a shared river, town, shop and
+  //   station. No honest sentence parts them, and the second half of
+  //   CAMP-199 (noindex) is what covers them.
+  //
+  //   SEPARABLE, NOT SEPARATED — a fact does differ, and the sentence
+  //   does not carry it. `camping-nadiza` and `kamp-lebanc` have
+  //   different stations (Kanal 22 235 m, Plave 24 105 m) and the cut
+  //   at four facts drops that clause. Taking five was measured and is
+  //   worse: it removes this collision, pushes a genuinely identical
+  //   pair over the guard's 80% line, and reads as a run-on. So it
+  //   stays, named for what it is rather than excused.
   const KNOWN_ALIKE = [
-    'autocamp-katinka, autocamp-maslenica',
+    // same place
     'autocamp-marko, autocamp-vesna',
-    'autocamp-pisak, autocamp-tamaris, autokamp-paron-sime, autokemp-marin',
+    'autocamp-pisak, autokamp-paron-sime, autokemp-marin',
+    // separable, not separated — see above
     'camping-nadiza, kamp-lebanc',
     'glamping-virje, spot-a702234012',
     'kajak-camp-toni, spot-n258331635',
@@ -343,5 +370,76 @@ test.describe('the real fixture, not a corpus I chose', () => {
     expect(shared, `${shared} of ${rows.length} rows share a shape`).toBeLessThanOrEqual(
       Math.floor(rows.length * 0.25),
     );
+  });
+});
+
+// CAMP-199 — the same questions, asked of five countries the seed has not
+// got.
+//
+// 🔴 A CORPUS THAT CANNOT CONTAIN THE FAILURE CANNOT REPORT IT.
+//
+// Everything above runs on `ci-seed.sql`: Slovenia and Croatia, alpine
+// valleys and one coast. Review asked whether scoring a walkable station
+// at 88 would make "X station is N away, so you can arrive by train" the
+// opener on nearly every page in the flat, rail-dense north — and said
+// plainly that this fixture could not answer. It was right: the seed has
+// no such country in it.
+//
+// `fixtures/eu-spread.json` is 70 real campsites read from the
+// production API, 14 each from NL, BE, DK, DE and FR, taken in index
+// order rather than chosen. Measured on it: 57 distinct openers of 70, a
+// station leads on 17, median similarity 2.7%, worst pair 50%, and NO
+// pair near the guard's line. The suspicion does not hold — and it took
+// a corpus nobody here wrote to say so.
+test.describe('five countries the seed does not reach', () => {
+  const spread = JSON.parse(
+    readFileSync(join(__dirname, 'fixtures', 'eu-spread.json'), 'utf8'),
+  ) as { rows: { c: string; slug: string; ctx: SpotContext }[] };
+
+  const paragraphs = spread.rows
+    .map((r) => ({ ...r, p: settingParagraph(r.ctx) }))
+    .filter((r) => r.p);
+
+  test('the sample is what it says it is', () => {
+    expect(paragraphs.length, 'the sample lost its rows').toBeGreaterThanOrEqual(60);
+    expect(new Set(spread.rows.map((r) => r.c)).size, 'fewer countries than it claims').toBe(5);
+  });
+
+  test('🔴 no single clause becomes the opener of the flat north', () => {
+    const opener = (p: string) => p.split(',')[0];
+    const counts = new Map<string, number>();
+    for (const r of paragraphs) {
+      const kind = /station|railway|arrive by train/.test(opener(r.p))
+        ? 'station'
+        : /food shop|for food|walk away/.test(opener(r.p))
+          ? 'shop'
+          : /sea|lake|river|reservoir|water|shore|pitches run/.test(opener(r.p))
+            ? 'water'
+            : /above the sea|ground|land/.test(opener(r.p))
+              ? 'ground'
+              : 'town';
+      counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    }
+    const worst = Math.max(...counts.values()) / paragraphs.length;
+    expect(
+      worst,
+      `openers by kind: ${JSON.stringify(Object.fromEntries(counts))}`,
+    ).toBeLessThan(0.5);
+  });
+
+  test('…and two of them do not read as one page', () => {
+    const texts = paragraphs.map((r) => r.p);
+    const sims: number[] = [];
+    for (let i = 0; i < texts.length; i++) {
+      for (let j = i + 1; j < texts.length; j++) sims.push(similarity(texts[i], texts[j]));
+    }
+    sims.sort((a, b) => a - b);
+    const at = (q: number) => sims[Math.min(sims.length - 1, Math.floor(sims.length * q))];
+    expect(at(0.5), `median ${(at(0.5) * 100).toFixed(1)}%`).toBeLessThan(0.06);
+    // 🔴 The guard's own line, on a corpus nobody here wrote.
+    expect(
+      sims.filter((s) => s > 0.8).length,
+      `${sims.filter((s) => s > 0.8).length} pair(s) over 80%`,
+    ).toBe(0);
   });
 });

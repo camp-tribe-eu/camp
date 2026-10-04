@@ -36,30 +36,37 @@ import type { SpotContext, TerrainType, WaterKind } from './api';
 // leaves one string, the pages differ by digits alone, which is what the
 // duplicate guard is entitled to call one page.
 //
-// 🔴 MEASURED, AND THE FIRST MEASUREMENT WAS OF MY OWN ARRAY.
+// 🔴 MEASURED, AND THE FIRST TWO MEASUREMENTS WERE OF MY OWN ARRAYS.
 //
-// This used to claim "4.2% alike at the median and 23.1% at the worst,
-// on eight real Zadarska campsites". The eight were typed into the
-// spec, six of them with round invented figures and no shop name, and
-// the sentence was true only of them. Review ran the same rule over
+// This claimed "4.2% alike at the median and 23.1% at the worst, on
+// eight real Zadarska campsites". The eight were typed into the spec,
+// six with round invented figures and no shop name, and the sentence
+// was true only of them. A second copy of the claim sat in `page.tsx`
+// on twelve such rows and added "no pair is near the 80% line", which
+// was simply false. Review ran the rule over
 // `apps/api/test/fixtures/ci-seed.sql` and found 34 of its 70
 // context-bearing rows rendering a paragraph byte-identical to
 // another's once the digits were stripped.
 //
-// On the seed itself, after the shop's name, the station at every
-// distance and the relief bands were added (30 Zadarska rows, 435
-// pairs): median 4.1%, p90 17.6%, and ONE pair of 435 above the
-// guard's 80% line. Across all 70 rows, 2 415 pairs: median 1.3%, p90
-// 11.7%, one pair over 80%.
+// On the seed the build uses, 70 rows and 2 415 pairs: **median 1.2%,
+// p90 13.0%, and ONE pair over the guard's 80% line** — autocamp-pisak
+// and autokemp-marin, identical. Of the 30 Zadarska rows: median 3.9%,
+// p90 17.4%, 15 distinct openers.
 //
-// 🔴 AND SIXTEEN ROWS STILL SHARE A SHAPE, which is not a bug here.
-// Four of them are campsites on one beach outside Obrovac with the same
-// town, the same shop and the same station, differing by metres. What
-// we measured about them IS the same, and a sentence invented to part
-// them would be the one thing this file forbids. They are named in
-// `setting.spec.ts`, and the second half of CAMP-199 — noindex — is
-// what covers them.
+// 🔴 And on a corpus nobody here wrote — 70 real campsites from NL, BE,
+// DK, DE and FR read from the production API
+// (`tests/unit/fixtures/eu-spread.json`): 57 distinct openers of 70,
+// median 2.7%, worst pair 50%, no pair near the line. The paragraph
+// does better away from the Croatian coast, which is where the hard
+// cases were.
 //
+// 🔴 SIX GROUPS, 13 ROWS, STILL SHARE A SHAPE, and that is not all one
+// thing. Some are the same place — pitches at the mouth of one canyon
+// sharing a river, a town, a shop and a station — and no honest
+// sentence parts them; the noindex half of CAMP-199 is what covers
+// those. One is separable and not separated, and it is named as such.
+// They are listed in `setting.spec.ts`, each checked by opening it.
+
 // 🔴 AND NOTHING HERE IS INVENTED. Every clause is a restatement of a
 // figure we measured. Where a name appears it is OpenStreetMap's, passed
 // through unchanged; the distance beside it is ours. No adjective claims
@@ -155,8 +162,28 @@ export function townClause(town: SpotContext['town']): string | null {
   if (town.m < 6000) {
     return name ? `${name} is ${d} down the road` : `the nearest town is ${d} down the road`;
   }
-  if (town.m < 25_000) {
+  // 🔴 A BAND AT 15 km, because that is where the answer to "can we pop
+  // out for dinner" changes. Under it a town is an evening; over it, it
+  // is an outing you plan.
+  //
+  // It was one band from 6 to 25 km, and two campsites outside Obrovac
+  // — one at 12 km and one at 21 km — came out with the same sentence
+  // and a different number. I had written both into `KNOWN_ALIKE` as
+  // pages we cannot tell apart; a difference of nine kilometres to the
+  // only town is not nothing, and saying it is was the lazy half of
+  // that claim.
+  if (town.m < 15_000) {
     return name ? `the nearest town is ${name}, ${d} away` : `the nearest town is ${d} away`;
+  }
+  if (town.m < 25_000) {
+    // 🔴 A DIFFERENT SHAPE, NOT A LONGER ONE. The first version of this
+    // band read "the nearest town, Obrovac, is 21 km away — far enough
+    // to be an outing", and measuring it showed why that is the wrong
+    // instinct: a longer clause is more words two neighbours SHARE.
+    // `autocamp-marko` and `autocamp-vesna`, 40 m apart on the same
+    // river, went from 79% to 80.8% — over the duplicate guard's line —
+    // because I had given them a longer sentence to have in common.
+    return name ? `${name} is the nearest town, ${d} off` : `the nearest town is ${d} off`;
   }
   return name
     ? `the nearest town of any size is ${name}, and it is ${d} off`
@@ -272,31 +299,39 @@ export function groundClause(ctx: SpotContext): string | null {
     return word ? `the ground is barely above the sea here, and ${word}` : 'the ground is barely above the sea here';
   }
   if (hasE && word) {
-    // 🔴 THE RELIEF, which this measured and then threw away.
+    // 🔴 THE RELIEF, which this measured and then threw away — AND
+    // WHICH SAYS LESS THAN THE FIRST WORDING CLAIMED.
     //
-    // `terrain.type` is one of four words, so every campsite in an
-    // alpine valley said "the land around is mountainous, 44N m above
-    // the sea" and differed by three digits. The relief is the figure
-    // behind that word — the height between the lowest and highest
-    // point within a kilometre — and it is what tells an open valley
-    // floor from the bottom of a gorge: measured in this fixture,
-    // neighbours 400 m apart carry 656 and 920.
+    // `relief = max − min` over an eight-point ring at a kilometre, the
+    // site's own height included (compute-context.ts:553). That is a
+    // RANGE. It carries no direction and no shape.
     //
-    // Three bands, because the difference between 268 and 281 is noise
-    // and the difference between 281 and 920 is the view out of the
-    // tent. The number itself is not printed: it is a derived range, and
-    // printing it would claim a precision the eight-point ring does not
-    // have.
+    // The first version of this printed "the walls of the valley rise
+    // over 700 m around it, and the floor lies 950 m above the sea".
+    // Review put in a site sitting at the ring's HIGH point and got
+    // exactly that sentence — a summit published as a valley floor. The
+    // 400-band said "the land climbs a few hundred metres on either
+    // side", which asserts a symmetry a max−min cannot establish. Both
+    // broke this file's own first rule, in the clause added to defend
+    // it.
+    //
+    // So the wording now says the range and nothing else: how much
+    // height there is within a kilometre. Three bands, because the
+    // difference between 268 and 281 is noise and the difference
+    // between 281 and 920 is what you see out of the tent. The number
+    // itself is not printed — the eight-point ring does not support
+    // that precision — and no word places the campsite inside the
+    // range.
     const relief = t && Number.isFinite(t.relief) ? (t.relief as number) : null;
     const height = Math.round(e as number);
     if (relief !== null && relief >= 700) {
-      return `the walls of the valley rise over 700 m around it, and the floor lies ${height} m above the sea`;
+      return `the ground within a kilometre rises and falls by more than 700 m, and the site itself is ${height} m above the sea`;
     }
     if (relief !== null && relief >= 400) {
-      return `the land climbs a few hundred metres on either side, from ${height} m above the sea`;
+      return `there are a few hundred metres of height within a kilometre of it, and the site is ${height} m above the sea`;
     }
     if (relief !== null && relief < 120) {
-      return `the ground is open and ${word.replace('mountainous', 'level')}, ${height} m above the sea`;
+      return `the ground barely changes height for a kilometre around, ${height} m above the sea`;
     }
     return `the land around is ${word}, ${height} m above the sea`;
   }
@@ -406,8 +441,28 @@ export function settingParagraph(ctx: SpotContext | null | undefined): string {
   // the world: water, town, shop. Dropping one of three to keep the
   // sentence short threw away a third of what distinguishes the page,
   // and the pages that lost it were the ones with least else to say.
+  // 🔴 FOUR, AND I TRIED FIVE AND MEASURED IT WORSE.
+  //
+  // Review was right that `camping-nadiza` and `kamp-lebanc` are not
+  // inseparable — their stations differ, Kanal at 22 235 m and Plave at
+  // 24 105 m — and that the cut at four drops that clause. So I took
+  // five and measured the whole seed again:
+  //
+  //                        shapes shared   pairs over 80%   median
+  //     four clauses          16 of 70            1          1.3%
+  //     five clauses          14 of 70            2          3.2%
+  //
+  // The fifth clause is more words, and more words two neighbours share.
+  // It removed one shape-collision and pushed `autocamp-marko` /
+  // `autocamp-vesna` — two campsites 40 m apart at the mouth of the same
+  // canyon — from 79% to 80.8%, over the line the duplicate-page guard
+  // actually enforces. It also reads as a run-on: five comma-spliced
+  // clauses is a list, not a sentence.
+  //
+  // So: four. `camping-nadiza` / `kamp-lebanc` stay alike, and they are
+  // listed in `setting.spec.ts` as SEPARABLE-BUT-NOT-SEPARATED rather
+  // than as the same place, because that is what they are.
   const picked = ranked.slice(0, 4);
-
   const parts = picked.map((p) => p.text);
   if (parts.length === 1) return `${upperFirst(parts[0])}.`;
   const last = parts.pop() as string;
