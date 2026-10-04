@@ -406,7 +406,7 @@ describe('the per-station price the fuel row carries', () => {
 describe('one OSM fuel point cannot carry two stations’ prices', () => {
   it('the migration declares the unique index that enforces it', () => {
     const migration = readFileSync(
-      join(__dirname, '../migrations/1790662800000-FuelStationPrices.ts'),
+      join(__dirname, '../migrations/1790662801000-FuelStationPrices.ts'),
       'utf8',
     );
     expect(migration).toContain(
@@ -421,7 +421,7 @@ describe('one OSM fuel point cannot carry two stations’ prices', () => {
   // unmatched station is a row that exists and can be counted.
   it('keeps osm_ref nullable so the unmatched stations are countable', () => {
     const migration = readFileSync(
-      join(__dirname, '../migrations/1790662800000-FuelStationPrices.ts'),
+      join(__dirname, '../migrations/1790662801000-FuelStationPrices.ts'),
       'utf8',
     );
     expect(migration).not.toMatch(/osm_ref\s+text\s+NOT NULL/);

@@ -59,8 +59,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * NOT NULL` because the unmatched rows are many and are all equally
  * null.
  */
-export class FuelStationPrices1790662800000 implements MigrationInterface {
-  name = 'FuelStationPrices1790662800000';
+export class FuelStationPrices1790662801000 implements MigrationInterface {
+  name = 'FuelStationPrices1790662801000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
@@ -122,6 +122,44 @@ export class FuelStationPrices1790662800000 implements MigrationInterface {
       CREATE INDEX IF NOT EXISTS idx_fuel_station_prices_country
         ON fuel_station_prices (country, grade)
     `);
+
+    // 🔴 CAMP-179. This migration used to carry `1790662800000`, the same
+    // stamp as BathingWaters, and the stamp is the ONLY thing TypeORM
+    // orders migrations by. Two rows with one sort key are ordered by
+    // whatever order the directory was read in — which differs between
+    // macOS and the Linux runner. Nothing broke while the two tables
+    // stayed independent; the day a third migration puts a foreign key
+    // between them it would break on one machine and not the other.
+    //
+    // Renaming is safe only because every statement above is
+    // `IF NOT EXISTS`: on a database that already ran the old name,
+    // TypeORM sees the new name as pending and runs this again, to no
+    // effect. What it would leave behind is a row for a migration that
+    // no longer exists, so the row goes too. On a fresh database this
+    // matches nothing and costs nothing.
+    await queryRunner.query(
+      `DELETE FROM migrations WHERE name = 'FuelStationPrices1790662800000'`,
+    );
+
+    // ⚠️ ONE CONSEQUENCE OF THE RENAME, stated because it is a trap and
+    // not because it is likely. Renaming an applied migration makes
+    // TypeORM run it again, and the fresh row lands on the highest `id`.
+    // `getLatestExecutedMigration` (MigrationExecutor.js:466) picks
+    // `[0]` from a list ordered by `id DESC` — by insertion order, NOT by
+    // timestamp — so on a database that was already fully migrated when
+    // this landed, `migration:revert` would revert THIS migration rather
+    // than the genuinely newest one, and `down()` drops the table.
+    //
+    // Measured on the one database this could affect, 04.10.2026:
+    // `fuel_station_prices` holds 0 rows, and `AirQuality1790749200000`
+    // was still pending, so it landed after this and holds the highest
+    // id (22 against 21). Nothing to lose there today.
+    //
+    // It also heals itself: the next migration to run takes the highest
+    // id back. And the repository has no `migration:revert` script — the
+    // command exists only if an operator types it. That is the whole
+    // residual, and it is written here rather than left to be
+    // rediscovered at the worst moment.
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
