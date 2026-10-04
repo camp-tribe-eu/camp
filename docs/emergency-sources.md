@@ -93,8 +93,8 @@ Every verdict is argued, with its quotation, in the section named.
 | **EDO / GDO** (§4) | drought: CDI, soil-moisture and precipitation anomalies | same CEMS terms; WMS declares `no fees`, `no constraints` | 26 of 27 countries carried a classified CDI pixel; Malta none | newest CDI dekad **2026-09-01** — 27 days | ~4.6 km grid, no point query | **TAKE**, drought is slow enough to survive it |
 | **EEA air quality** (§9) | European Air Quality Index, per station and per point | CC BY 4.0, commercial use explicit in the EEA legal notice | 4 018 EU-27 stations on the roster, **3 213 reporting in one sampled hour**, 27/27 countries | station file **≈53 min** old when read | station, plus a 1 km modelled raster | **TAKE** |
 | **EEA bathing water** (§8) | official quality class for every EU bathing site | CC BY 4.0 on the versioned record, commercial use explicit | **22 010 sites, 27/27 countries, 100% with coordinates** | **annual**; 2025 season published 02.06.2026 | point | **TAKE**, labelled as a season's classification, never as today's water |
-| **EMSC** (§5) | earthquakes, Europe-wide, near real time | datasets CC BY 4.0 — **but the database is carved out and commercial reproduction needs prior written permission** | 3 825 events in 30 days in the bbox, of which **63.3% Turkey** | one live push observed at **189 s** (n=1) | epicentre point | **NEEDS A LAWYER**, narrowly |
-| **ECDC** (§11) | communicable-disease surveillance | CC BY 4.0, commercial use explicit — the licence is not the problem | 28 country names, **no ISO or NUTS code** | newest week in the data **2026-W37**, 15 days | country only | **NEEDS A LAWYER** |
+| **EMSC** (§5) | earthquakes, Europe-wide, near real time | **CC BY 4.0, stated on each service we would use**; the carve-out covers the site and the database as infrastructure, not the data they distribute | 3 825 events in 30 days in the bbox, of which **63.3% Turkey** | one live push observed at **189 s** (n=1) | epicentre point | **TAKE**, with one design rule |
+| **ECDC** (§11) | communicable-disease surveillance | CC BY 4.0, commercial use explicit — the licence is not the problem | 28 country names, **no ISO or NUTS code** | newest week in the data **2026-W37**, 15 days | country only | **NOT TAKEN** — and the lawyer question only exists if we ever do |
 | **EFAS** (§1) | European flood forecasts and notifications | CEMS-FLOODS licence is fine; **access is not** | — | open route stops at **2026-08-24**, 35 days | 1 arcmin | **REFUSE** |
 | **GloFAS** (§2) | global river-discharge forecasts | same licence, and it is open | current to **2026-09-28** | daily | ~0.05° | **REFUSE at launch** — it is discharge, not a warning, and the gap between the two is ours to fill illegally |
 | **ERCC** (§6) | EU civil-protection daily products | not reached | — | — | — | **REFUSE** — one undocumented endpoint, PDF payload |
@@ -613,13 +613,54 @@ should interpret ourselves on a Friday afternoon.
 Attribution, if we proceed: `Credit: EMSC-CSEM SeismicPortal,
 https://www.seismicportal.eu`.
 
-**Verdict: NEEDS A LAWYER, narrowly.** Not "is earthquake data allowed" —
-that part is CC BY 4.0 and settled. The single question for counsel is
-whether the ingest we actually want (a rolling window of recent events,
-filtered to the EU, kept only while current) is *reasonable use of
-excerpts* or *reproduction of the database in substantial part*. It is a
-cheap question with a yes/no answer, and one email to EMSC-CSEM asking for
-written permission may make it moot.
+### 🔴 Re-read 04.10.2026: the per-service documentation settles it
+
+The verdict above used to be **NEEDS A LAWYER**. It was reached from the
+general terms page alone — and that page itself says where to look next:
+
+> Refer to **the documentation for each web service** for further details.
+
+We had not followed that sentence. Doing so, on the two interfaces we
+would actually use:
+
+**FDSN Event web service** (`seismicportal.eu/fdsn-wsevent.html`, read
+04.10.2026):
+
+> The data provided by this service is distributed under the Creative
+> Commons Attribution 4.0 International (CC BY 4.0) license.
+
+**Websocket / standing order** (`seismicportal.eu/realtime.html`, same
+day):
+
+> Data received via the websocket protocol is distributed under the
+> CC BY 4.0 license.
+
+Flat statements, no carve-out, no volume threshold, on the exact channels
+we would consume. And the general terms defer to them by their own words.
+
+Re-read with that, the carve-out reads as what it says it is: the
+**website, the data services and the databases *themselves*** — the
+infrastructure — are not CC BY 4.0, so nobody may clone SeismicPortal.
+The data those services distribute is CC BY 4.0, and that is the thing we
+take.
+
+**Verdict: TAKE**, with one design rule and one honest residual.
+
+🔴 **The design rule.** We consume events and show them; we do not rebuild
+their catalogue as a product of our own. Concretely: a rolling window of
+recent events, filtered to the EU, kept only while current, with
+attribution on every view. Not a mirror, not an archive, not a
+general-purpose earthquake API of our own.
+
+⚠️ **The residual, named rather than hidden.** The carve-out sentence
+still exists, and "in substantial part" has EU case law behind it. If we
+ever drift from the rule above — long retention, bulk re-export, our own
+query API over their events — the question comes back, and then it is a
+lawyer's. The rule is what keeps it away, so it belongs in the card that
+builds the layer, not only here.
+
+Attribution we will print, their own wording: `Credit: EMSC-CSEM
+SeismicPortal, https://www.seismicportal.eu`.
 
 ---
 
@@ -980,7 +1021,27 @@ their station counts are large.
 
 ---
 
-## 11. ECDC and disease — **NEEDS A LAWYER**
+## 11. ECDC and disease — **NOT TAKEN**
+
+> 🔴 **Re-read 04.10.2026.** The heading used to say NEEDS A LAWYER, and
+> that was misleading in a specific way: it put a question on the owner's
+> lawyer list for a feature **that does not exist and may never**.
+>
+> Measured, not recalled: `grep -rli "ecdc|communicable|disease"` across
+> `apps/` and `scripts/` returns **nothing**. We show no disease data
+> anywhere. Not a line.
+>
+> The analysis below stays, because it is correct and it is what the
+> decision rests on. But its conclusion belongs where it can act: this is
+> a **precondition on a feature**, not an open risk. The regulatory
+> question — whether software that tells a traveller a place is unsafe
+> engages the Medical Device Regulation — turns on **the wording we would
+> choose**, and a lawyer cannot answer it until that wording exists.
+>
+> So: nothing to ask, nothing to fix, nothing on anyone's list. If we ever
+> build it, the question comes back with the proposed wording attached,
+> and then it is worth an hour of counsel.
+
 
 The card was right to flag this as the most dangerous item, and the
 research changed *why*. The expectation was that the licence would block
