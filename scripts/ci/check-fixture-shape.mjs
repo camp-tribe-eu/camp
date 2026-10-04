@@ -210,6 +210,29 @@ export function shapeProblems(rows, perPage = 24) {
     }
   }
 
+  // 🔴 CAMP-199. The fixture must carry the surroundings we compute,
+  // because the pages that need them most are the ones it was missing
+  // them on.
+  //
+  // Measured 04.10.2026: in production, 61 557 campsites of 61 557 have
+  // a computed context. In this fixture, 37 of 73 rows had `'{}'` — and
+  // all ten of the Zadarska campsites failing the duplicate-page guard
+  // were among them. So the paragraph built from those figures rendered
+  // EMPTY on exactly the pages it was written to rescue, the guard's
+  // verdict did not move by a decimal, and the whole change looked
+  // ineffective when it had simply never run.
+  //
+  // A fixture that lacks a field every real row has is not a smaller
+  // sample. It is a different site.
+  const withContext = live.filter((r) => (r.context ?? '{}') !== '{}').length;
+  if (withContext * 2 < live.length) {
+    problems.push(
+      `only ${withContext} of ${live.length} campsites carry a computed context — ` +
+        'in production every one does, so anything built from those figures is ' +
+        'untested here (CAMP-199)',
+    );
+  }
+
   // Zero candidates is the load error the card quotes: "marked 0".
   if (doomed === undefined) {
     problems.push('nothing is eligible for the gone block — loading will die with "expected to mark exactly one campsite gone, marked 0"');
@@ -290,7 +313,10 @@ function selfTest() {
   const quiet = { log: () => {}, error: () => {} };
   const PER_PAGE = 24;
 
-  const spot = (slug, country, region, toiletsValue = 'unknown', context = '{}') => ({
+  // 🔴 Context defaults to a real value now, not '{}': the new subject
+  // below requires most rows to carry one, and a rehearsal whose own
+  // baseline failed it would report the wrong thing everywhere.
+  const spot = (slug, country, region, toiletsValue = 'unknown', context = '{"at":{"lat":1,"lon":1}}') => ({
     slug,
     country,
     region,
@@ -323,7 +349,9 @@ function selfTest() {
     spot('yes-at', 'AT', 'Side', 'yes'),
     spot('no-at', 'AT', 'Side', 'no'),
     spot('thin-at', 'AT', 'Lonely'),
-    spot('zzz-doomed', 'AT', 'Doomed'),
+    // The one the loader will mark gone: empty context by definition,
+    // because that is what the DO block selects on.
+    spot('zzz-doomed', 'AT', 'Doomed', 'unknown', '{}'),
     spot('si-a', 'SI', 'Bovec'),
     spot('si-b', 'SI', 'Bovec'),
     spot('hr-a', 'HR', 'Zagreb'),
@@ -381,6 +409,15 @@ function selfTest() {
       'nothing eligible for the gone block',
       (r) => r.map((x) => ({ ...x, context: '{"at":{}}' })),
       /marked 0/,
+    ],
+    // 🔴 CAMP-199, and it isolates: the doomed row keeps its empty
+    // context so the gone block still has its one candidate, while
+    // everything else loses the surroundings. Only the context subject
+    // may fire.
+    [
+      'the fixture lost its computed surroundings',
+      (r) => r.map((x) => (x.slug === 'zzz-doomed' ? x : { ...x, context: '{}' })),
+      /computed context/,
     ],
   ];
 
