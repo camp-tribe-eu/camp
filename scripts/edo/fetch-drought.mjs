@@ -595,6 +595,14 @@ export function buildOutput({ dekad, range, win, px, today }) {
   const out = {
     meta: {
       source: 'Copernicus Emergency Management Service, European Drought Observatory',
+      sourceUrl: 'https://drought.emergency.copernicus.eu/',
+      // 🔴 The CEMS terms, and NOT a licence name. EFFIS carries CC BY
+      // 4.0 and says so; the EDO WMS declares "no fees" and "no
+      // constraints" and points at these terms instead
+      // (docs/emergency-sources.md §4). Printing "CC BY 4.0" here
+      // because the neighbouring panel does would be citing a grant
+      // nobody has shown us.
+      termsUrl: 'https://drought.emergency.copernicus.eu/terms&conditions',
       indicator: 'Combined Drought Indicator (CDI) v4.1.1',
       coverage: COVERAGE,
       dekad,
