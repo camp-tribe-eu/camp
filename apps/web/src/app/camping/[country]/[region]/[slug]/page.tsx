@@ -28,7 +28,7 @@ import SourceNote from '@/components/source-note';
 import TariffTable from '@/components/tariff-table';
 import BathingWaterNote from '@/components/bathing-water';
 import AirQualityNote from '@/components/air-quality';
-import { WebcamPanel } from '@/components/webcam-panel';
+import { WebcamNote } from '@/components/webcam-panel';
 
 // CAMP-34 — the campsite page.
 //
@@ -506,7 +506,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           Measured (CAMP-189): 88% of campsites have a camera within
           25 km, median 8, and the median frame is 8 minutes old. The
           other 12% get a sentence, not a blank space. */}
-      <WebcamPanel webcams={spot.webcams} renderedAt={new Date().toISOString()} />
+      <WebcamNote webcams={spot.webcams} renderedAt={new Date().toISOString()} />
 
       <Section title="Weather on site">
         <p className="max-w-prose text-sm text-ink-2">

@@ -1,13 +1,17 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { WebcamPanel } from '@/components/webcam-panel';
 import { RESERVED_WORDS } from '@/lib/cems';
 import {
   CAMERA_DEAD_AFTER_MINUTES,
   WINDY_CREDIT,
+  WEBCAM_RADIUS_M,
   direction,
   distance,
   frameUrl,
   reportedMinutesAgo,
+  reportedPhrase,
   shortTitle,
   showable,
   usable,
@@ -45,27 +49,38 @@ test.describe('what the terms require of every frame we show', () => {
   // 🔴 Their condition for using the image at all: each one links back to
   // their page for that camera. A frame without it is a frame we may not
   // display, so this is a licence test, not a style one.
-  test('every picture links back to the camera’s page on windy.com', () => {
-    const html = renderComponent(WebcamPanel, { webcams: REAL, renderedAt: NOW.toISOString() });
-    const imgs = [...html.matchAll(/<img[^>]*>/g)];
-    expect(imgs).toHaveLength(3);
+  test('every picture is INSIDE its link back to windy.com', () => {
+    const html = renderComponent(WebcamPanel, { webcams: REAL, now: NOW });
+    expect([...html.matchAll(/<img[^>]*>/g)]).toHaveLength(3);
+
+    // 🔴 CONTAINMENT, not "the href appears somewhere on the page".
+    //
+    // The first version counted three <img> and grepped for each href
+    // anywhere in the HTML. Review moved the <img> OUT of the anchor and
+    // put the link on the title instead — 20 of 20 tests still passed,
+    // over a page where no picture was linked at all. Their terms make
+    // the link the condition of showing the image, so the test has to
+    // ask the question the licence asks.
     for (const c of REAL) {
-      expect(html).toContain(`href="${c.detailUrl}"`);
+      const anchor = new RegExp(
+        `<a[^>]*href="${c.detailUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>(?:(?!</a>)[\s\S])*?<img[^>]*src="[^"]*${c.ref}[^"]*"`,
+      );
+      expect(anchor.test(html), `the frame for ${c.ref} is not inside its link`).toBe(true);
     }
   });
 
   test('the credit their terms dictate is rendered, word for word', () => {
-    const html = renderComponent(WebcamPanel, { webcams: REAL, renderedAt: NOW.toISOString() });
+    const html = renderComponent(WebcamPanel, { webcams: REAL, now: NOW });
     expect(text(html)).toContain(WINDY_CREDIT);
   });
 
   // 🔴 The operator's own site, which they do NOT ask for. The camera is
   // the operator's work, not Windy's, and saying so costs one line.
   test('the operator is credited where they publish a site', () => {
-    const html = renderComponent(WebcamPanel, { webcams: REAL, renderedAt: NOW.toISOString() });
+    const html = renderComponent(WebcamPanel, { webcams: REAL, now: NOW });
     expect(html).toContain('whatsupcams.com');
     // …and the one row without a provider url invents nothing.
-    const alone = renderComponent(WebcamPanel, { webcams: [REAL[2]], renderedAt: NOW.toISOString() });
+    const alone = renderComponent(WebcamPanel, { webcams: [REAL[2]], now: NOW });
     expect(text(alone)).not.toContain('operator');
   });
 
@@ -73,7 +88,7 @@ test.describe('what the terms require of every frame we show', () => {
   // somebody else's JavaScript and cookies onto every campsite page,
   // which is a consent question we are not paying for a timelapse.
   test('nothing loads a third-party script or iframe', () => {
-    const html = renderComponent(WebcamPanel, { webcams: REAL, renderedAt: NOW.toISOString() });
+    const html = renderComponent(WebcamPanel, { webcams: REAL, now: NOW });
     expect(html).not.toMatch(/<iframe/i);
     expect(html).not.toMatch(/<script/i);
   });
@@ -86,7 +101,7 @@ test.describe('the frame we choose, and why it is never the current one', () => 
   // reads as a broken site, not as nightfall — and a static page cannot
   // know whether the sun is up when somebody reads it.
   test('🔴 every image asks for the daylight frame, never the current one', () => {
-    const html = renderComponent(WebcamPanel, { webcams: REAL, renderedAt: NOW.toISOString() });
+    const html = renderComponent(WebcamPanel, { webcams: REAL, now: NOW });
     for (const m of html.matchAll(/<img[^>]*src="([^"]+)"/g)) {
       expect(m[1]).toContain('/daylight/');
       expect(m[1]).not.toContain('/current/');
@@ -104,19 +119,53 @@ test.describe('the frame we choose, and why it is never the current one', () => 
   // 🔴 The API gives a timestamp for the CAMERA, not for this frame. A
   // clock on the picture would be one we invented.
   test('the picture carries no time of its own', () => {
-    const t = text(renderComponent(WebcamPanel, { webcams: REAL, renderedAt: NOW.toISOString() }));
+    const t = text(renderComponent(WebcamPanel, { webcams: REAL, now: NOW }));
     expect(t).toContain('The most recent daylight view');
-    expect(t).toMatch(/reported \d+ minutes ago|reported an hour ago/);
     expect(t).not.toMatch(/taken \d/);
+  });
+
+  // 🔴 "11 minutes ago" IS NOT A FACT ABOUT A STATIC PAGE.
+  //
+  // These pages are generated once (`dynamicParams = false`) and read
+  // for days, so a server-rendered relative phrase is frozen at build
+  // time. Review found the literal string in the HTML — and the test
+  // above USED TO ASSERT IT, inside a test named "no time of its own".
+  //
+  // So the phrase may only come from a clock that keeps running, which
+  // is what `'use client'` plus the tick in the component is for. This
+  // test holds the component to that rather than to the string.
+  test('🔴 the elapsed phrase comes from a running clock, not the build', () => {
+    const src = readFileSync(
+      join(__dirname, '..', '..', 'src', 'components', 'webcam-panel.tsx'),
+      'utf8',
+    );
+    expect(src.startsWith("'use client'"), 'a server-rendered page would freeze the phrase').toBe(true);
+    expect(src).toMatch(/setInterval\(/);
+    expect(src).toMatch(/setNow\(new Date\(\)\)/);
+    // And the phrase itself must be a function of the clock it is given.
+    expect(reportedPhrase(reportedMinutesAgo(REAL[0].lastFrameAt, NOW) as number)).toContain('minutes ago');
+    const later = new Date(NOW.getTime() + 3 * 3_600_000);
+    expect(reportedPhrase(reportedMinutesAgo(REAL[0].lastFrameAt, later) as number)).toContain('hours ago');
   });
 });
 
 test.describe('a camera we cannot speak about honestly is not shown', () => {
+  // 🔴 THE THRESHOLD WRITTEN OUT, not taken from the constant.
+  //
+  // Both fixtures used to be built from `CAMERA_DEAD_AFTER_MINUTES`, so
+  // they moved with it: review raised 24 hours to 100 DAYS and all 20
+  // tests passed. The test proved the operator was `<=` and nothing
+  // about the number — and the free direction was the unsafe one.
+  test('a day is the line, and it is a day', () => {
+    expect(CAMERA_DEAD_AFTER_MINUTES).toBe(24 * 60);
+  });
+
   test('one silent for more than a day is dropped', () => {
-    const old = cam({ lastFrameAt: new Date(NOW.getTime() - (CAMERA_DEAD_AFTER_MINUTES + 1) * 60_000).toISOString() });
-    expect(usable(old, NOW)).toBe(false);
-    const fresh = cam({ lastFrameAt: new Date(NOW.getTime() - (CAMERA_DEAD_AFTER_MINUTES - 1) * 60_000).toISOString() });
-    expect(usable(fresh, NOW)).toBe(true);
+    const hoursAgo = (h: number) =>
+      cam({ lastFrameAt: new Date(NOW.getTime() - h * 3_600_000).toISOString() });
+    expect(usable(hoursAgo(23), NOW), '23 hours').toBe(true);
+    expect(usable(hoursAgo(25), NOW), '25 hours').toBe(false);
+    expect(usable(hoursAgo(24 * 7), NOW), 'a week').toBe(false);
   });
 
   // 🔴 No timestamp is NOT a pass. Every active camera we measured had
@@ -130,6 +179,11 @@ test.describe('a camera we cannot speak about honestly is not shown', () => {
   test('a timestamp in the future is not freshness', () => {
     expect(reportedMinutesAgo(new Date(NOW.getTime() + 60_000).toISOString(), NOW)).toBeNull();
     expect(usable(cam({ lastFrameAt: new Date(NOW.getTime() + 60_000).toISOString() }), NOW)).toBe(false);
+  });
+
+  test('a distance that is not a distance is dropped', () => {
+    expect(usable(cam({ metres: -1 }), NOW)).toBe(false);
+    expect(usable(cam({ metres: NaN }), NOW)).toBe(false);
   });
 
   test('one we cannot link back to is dropped, because the link is the licence', () => {
@@ -148,7 +202,7 @@ test.describe('a camera we cannot speak about honestly is not shown', () => {
 
 test.describe('the panel never claims the camera shows the campsite', () => {
   test('every card prints its distance', () => {
-    const t = text(renderComponent(WebcamPanel, { webcams: REAL, renderedAt: NOW.toISOString() }));
+    const t = text(renderComponent(WebcamPanel, { webcams: REAL, now: NOW }));
     expect(t).toContain('450 m away');
     expect(t).toContain('600 m away');
     expect(t).toContain('a camera is not a view of the site itself');
@@ -158,9 +212,18 @@ test.describe('the panel never claims the camera shows the campsite', () => {
   // none at any sampled site. A blank space there reads as a broken
   // page, so the absence gets a sentence — and one that does not imply
   // anything about the place.
+  // 🔴 One radius, not two. The empty-state sentence used to hardcode
+  // 25 km while the query took its radius from `nearby.ts`, so changing
+  // the search would have left the page saying the old number.
+  test('the sentence quotes the radius the query actually uses', () => {
+    expect(WEBCAM_RADIUS_M).toBe(25_000);
+    const t = text(renderComponent(WebcamPanel, { webcams: [], now: NOW }));
+    expect(t).toContain(distance(WEBCAM_RADIUS_M));
+  });
+
   test('a campsite with no camera says so, and says what that means', () => {
     for (const empty of [[], null, undefined]) {
-      const html = renderComponent(WebcamPanel, { webcams: empty, renderedAt: NOW.toISOString() });
+      const html = renderComponent(WebcamPanel, { webcams: empty, now: NOW });
       const t = text(html);
       expect(t).toContain('No public webcam within 25 km');
       expect(t).toContain('not a statement about the place');
@@ -200,12 +263,13 @@ test.describe('the words beside the pictures', () => {
       cam({ title: 'Bovec: flood warning camera' }),
       cam({ ref: '2', title: 'Alert Bay › North' }),
     ];
+    // 🔴 EVERY set, including the hostile one. This loop used to
+    // `continue` past the hostile case — rendering it and throwing the
+    // assertion away — inside a test named "whatever the camera is
+    // called". The rule holds for all three because a title carrying a
+    // reserved word gets the camera dropped.
     for (const set of [REAL, hostile, []]) {
-      const t = text(renderComponent(WebcamPanel, { webcams: set, renderedAt: NOW.toISOString() }));
-      // 🔴 A hostile TITLE is the source's word, not ours — but it lands
-      // on our page under our voice, so if this ever fires the title
-      // must be dropped, not the test loosened.
-      if (set === hostile) continue;
+      const t = text(renderComponent(WebcamPanel, { webcams: set, now: NOW }));
       expect(RESERVED_WORDS.test(t), `"${t.slice(0, 120)}"`).toBe(false);
     }
   });
@@ -220,7 +284,7 @@ test.describe('the words beside the pictures', () => {
     // the picture would then carry a name they never used.
     const hostile = cam({ title: 'Bovec: flood warning camera' });
     expect(usable(hostile, NOW)).toBe(false);
-    const html = renderComponent(WebcamPanel, { webcams: [hostile], renderedAt: NOW.toISOString() });
+    const html = renderComponent(WebcamPanel, { webcams: [hostile], now: NOW });
     const t = text(html);
     expect(RESERVED_WORDS.test(t)).toBe(false);
     // …and the reader is told the absence, not shown a gap.

@@ -1,8 +1,12 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import {
   WINDY_CREDIT,
   direction,
   distance,
   frameUrl,
+  WEBCAM_RADIUS_M,
   reportedMinutesAgo,
   reportedPhrase,
   shortTitle,
@@ -32,15 +36,50 @@ import {
 // within 25 km (CAMP-189) — Lithuania had none at any sampled site — and
 // a blank space reads as a broken page, not as an absence.
 
-export function WebcamPanel({
+/** How often the phrase re-reads the clock. The same cadence as air quality. */
+const TICK_MS = 5 * 60 * 1000;
+
+/**
+ * 🔴 THE CLOCK LIVES HERE, AND THE PANEL BELOW IS PURE — the same split
+ * `air-quality.tsx` uses, and for the same two reasons.
+ *
+ * These pages are statically generated and read for days, so a
+ * server-rendered "reported 11 minutes ago" freezes at build time.
+ * Review found that literal string in the HTML, and the test meant to
+ * catch it was asserting the stale phrase.
+ *
+ * And a component with hooks cannot be driven by the unit harness
+ * (`renderToStaticMarkup` has no dispatcher), so the part that is
+ * checked word by word for the CEMS rule must hold no state at all.
+ */
+export function WebcamNote({
   webcams,
   renderedAt,
 }: {
   webcams: Webcam[] | null | undefined;
-  /** The build's clock, passed in so the panel is a pure function of it. */
+  /** The build's clock. The reader's takes over as soon as they arrive. */
   renderedAt: string;
 }) {
-  const now = new Date(renderedAt);
+  const [now, setNow] = useState(() => new Date(renderedAt));
+
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    tick();
+    const id = setInterval(tick, TICK_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  return <WebcamPanel webcams={webcams} now={now} />;
+}
+
+export function WebcamPanel({
+  webcams,
+  now,
+}: {
+  webcams: Webcam[] | null | undefined;
+  /** Whatever clock the caller is keeping. No `new Date()` in here. */
+  now: Date;
+}) {
   const cams = showable(webcams, now);
 
   return (
@@ -59,7 +98,7 @@ export function WebcamPanel({
 
       {cams.length === 0 ? (
         <p className="mt-2">
-          No public webcam within {distance(25_000)} of this campsite. That is
+          No public webcam within {distance(WEBCAM_RADIUS_M)} of this campsite. That is
           what the camera network covers, not a statement about the place.
         </p>
       ) : (

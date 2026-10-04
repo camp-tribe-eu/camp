@@ -15,7 +15,7 @@
 //
 // Either is a material breach and grounds to cut us off. So:
 //
-//   · One request per REGION, not per campsite. We have 812 regions and
+//   · One request per REGION, not per campsite. We have 811 regions and
 //     65 435 campsites; the per-campsite walk is 65 435 requests and is
 //     exactly the "continuous scanning" they name. `regionQueries`
 //     refuses to build more than one query per region.
@@ -90,7 +90,7 @@ export const MIN_RADIUS_KM = 25;
  * row counts say.
  *
  * 600 ms between requests is well inside any sane limit and still
- * finishes 812 regions in about eight minutes. A 429 anyway is waited
+ * finishes 811 regions in about eight minutes. A 429 anyway is waited
  * out rather than retried immediately, because retrying into a closed
  * door is how a rate limit becomes a ban.
  */
@@ -153,10 +153,31 @@ export function radiusForRegion(r) {
  * produce two for the same region.
  *
  * 🔴 This is where "not per campsite" is made mechanical rather than
- * remembered. 812 queries at roughly a second is twelve minutes; 65 435
+ * remembered. 811 queries at roughly a second is twelve minutes; 65 435
  * is fourteen and a half hours and is the thing they cut people off for.
  */
+export const MAX_REGION_QUERIES = 1500;
+
 export function regionQueries(regions) {
+  // 🔴 A CEILING, not only a duplicate check.
+  //
+  // The header above claimed this made "one request per region"
+  // mechanical. It did not: review fed it 65 435 campsite-shaped objects
+  // and got 65 435 queries back without a murmur, because distinct keys
+  // are distinct. The only thing keeping the run honest was that
+  // `main()` happens to read the region index.
+  //
+  // We hold 811 regions. 1 500 is room for the EU to grow and still far
+  // below anything that could be called a walk of the campsite table —
+  // which is the thing their terms name as grounds to cut us off.
+  if (regions.length > MAX_REGION_QUERIES) {
+    throw new Error(
+      `refusing ${regions.length} queries: this walks REGIONS (we hold about 811), ` +
+        `not campsites. More than ${MAX_REGION_QUERIES} means something is feeding ` +
+        'this the wrong table, and a walk of the campsite table is the "continuous ' +
+        'scanning" the Windy terms name as a material breach.',
+    );
+  }
   const seen = new Set();
   const out = [];
   for (const r of regions) {
@@ -256,7 +277,14 @@ export async function fetchRegion(nearby, fetchImpl, key, pause = sleep) {
   for (let offset = 0; offset <= MAX_OFFSET; offset += PAGE_LIMIT) {
     let res = null;
     for (let attempt = 1; attempt <= RATE_LIMIT_TRIES; attempt++) {
-      if (offset > 0 || attempt > 1) await pause(PAUSE_MS);
+      // 🔴 EVERY request, including the first page of a region.
+      //
+      // This used to skip the pause when `offset === 0 && attempt === 1`
+      // — and review measured that a typical region is ONE page, so the
+      // pause never ran at all inside `fetchRegion`. The whole defence
+      // for 811 regions rested on a line in `main()` that no test
+      // touched.
+      await pause(PAUSE_MS);
       res = await fetchImpl(listUrl(nearby, offset), {
         headers: { 'x-windy-api-key': key },
       });
@@ -310,6 +338,15 @@ export async function selfTest() {
   ok('…refuses a string where a number belongs', threw(() => nearbyParam('46.33', 13.55, 25), /finite lat/));
   ok('…refuses a point off the Earth', threw(() => nearbyParam(91, 0, 25), /off the Earth/));
   ok('…refuses a radius of zero or past the cap', threw(() => nearbyParam(46, 13, 0), /radius/) && threw(() => nearbyParam(46, 13, 9999), /radius/));
+  // 🔴 THE MEASURED NUMBERS, WRITTEN OUT. The ceiling test used to build
+  // its fixture from `MAX_OFFSET`, so raising it 1 000 → 10 000 left the
+  // self-test green while a run would issue 201 requests per region and
+  // pull 10 050 rows — the "continuous scanning" the header forbids.
+  // Both numbers were measured against the free tier: `limit > 50` and
+  // `offset > 1000` are refused outright.
+  ok('the free tier page size is the measured 50', PAGE_LIMIT === 50, String(PAGE_LIMIT));
+  ok('the free tier offset ceiling is the measured 1000', MAX_OFFSET === 1000, String(MAX_OFFSET));
+  ok('listUrl refuses an offset past 1000, written out', threw(() => listUrl('46,13,25', 1001), /offset must be/));
   ok('listUrl refuses a malformed nearby', threw(() => listUrl('46.33,13.55'), /malformed nearby/));
   ok('…refuses an offset past the tier ceiling', threw(() => listUrl('46,13,25', MAX_OFFSET + 1), /offset must be/));
   // 🔴 The field we must never request, because a field never asked for
@@ -322,6 +359,13 @@ export async function selfTest() {
   ok(
     '🔴 …and a second query for the same region is refused',
     threw(() => regionQueries([region('a'), region('a')]), /one request per region/),
+  );
+  ok(
+    '🔴 …and so is a list the size of the campsite table',
+    threw(
+      () => regionQueries(Array.from({ length: MAX_REGION_QUERIES + 1 }, (_x, i) => region(`r${i}`))),
+      /continuous scanning/,
+    ),
   );
 
   // --- the radius follows the region, not a constant
@@ -399,7 +443,41 @@ export async function selfTest() {
     `made ${calls} requests, expected ${RATE_LIMIT_TRIES}`,
   );
 
-  ok('the pause between requests is real', PAUSE_MS >= 500);
+  // 🔴 The pause must be AWAITED, not merely declared. The old test
+  // asserted `PAUSE_MS >= 500` — a statement about a constant that
+  // survived deleting every `await pause(...)` in the file.
+  slept = [];
+  calls = 0;
+  const onePage = async () => {
+    calls += 1;
+    return { ok: true, status: 200, json: async () => ({ total: 1, webcams: [{}] }) };
+  };
+  await fetchRegion('46,13,25', onePage, 'k', fakePause);
+  ok(
+    '🔴 a single-page region still pauses — which is the common case',
+    calls === 1 && slept.filter((ms) => ms === PAUSE_MS).length === 1,
+    `calls=${calls} pauses=${JSON.stringify(slept)}`,
+  );
+  ok('the pause between requests is a real interval', PAUSE_MS >= 500);
+
+  // 🔴 Truncation is REPORTED, not silently swallowed. The headline
+  // claim — "the script says so rather than returning a smaller number"
+  // — had no test at all, and `truncated = false` survived every run.
+  let served = 0;
+  const manyPages = async () => {
+    served += 1;
+    // Always a full page, so paging runs to the ceiling.
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ total: 5000, webcams: Array.from({ length: PAGE_LIMIT }, () => ({})) }),
+    };
+  };
+  const big = await fetchRegion('46,13,25', manyPages, 'k', fakePause);
+  ok('🔴 a region past the tier ceiling is reported as truncated', big.truncated === true);
+  ok('…and it stops at the ceiling rather than paging for ever', served <= MAX_OFFSET / PAGE_LIMIT + 1, `served=${served}`);
+  const small = await fetchRegion('46,13,25', onePage, 'k', fakePause);
+  ok('…while a region that fits is not called truncated', small.truncated === false);
 
   console.log(rc === 0 ? '\nall self-tests passed' : '\nSELF-TEST FAILED');
   return rc;
