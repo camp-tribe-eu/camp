@@ -131,6 +131,15 @@ jobs:
       - name: Skip guard still catches a test that did not run
         run: node scripts/ci/check-skips.mjs --self-test
 
+      # 🔴 CAMP-183. The import script unpacks releases without a shell,
+      # and its own rehearsal proves the rule still bites. That rehearsal
+      # was written and then run NOWHERE — not here, not in package.json
+      # — so the mutation that "turned it red" only ever did so by hand.
+      # This file says it two screens up: a rule nothing checks is a rule
+      # that has already stopped applying.
+      - name: The OSM import spawns no shell, and still says so
+        run: node scripts/osm-pipeline/import-release.mjs --self-test
+
       # 🔴 The timestamp is the only thing TypeORM orders migrations by,
       # so two migrations sharing one are ordered by directory read order
       # — which differs between macOS and this runner. It cost nothing

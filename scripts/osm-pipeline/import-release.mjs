@@ -458,12 +458,80 @@ function selfTest() {
   // FAILED without that — it matched the note at the call site, which
   // quotes the very line it is warning about. A guard that cannot tell
   // code from prose about code reports the warning as the crime.
-  ok('no sh -c anywhere in this file',
-    !/run\(\s*['"]sh['"]/.test(
-      readFileSync(new URL(import.meta.url), 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, ' ')
-        .replace(/^[ \t]*\/\/[^\n]*/gm, ' '),
-    ));
+  // 🔴 KEYED TO THE SHAPE, not to one spelling, and the first version
+  // was not. It forbade the literal `run('sh'` and nothing else, so
+  // review walked through it six different ways, each leaving 46/46
+  // green: `execFileSync('sh', …)` straight past the `run` wrapper
+  // (execFileSync is already imported, so that is the likeliest future
+  // edit of all), `run('bash', …)`, `run('/bin/sh', …)`, backticks, a
+  // shell name held in a variable, and `{ shell: true }` in the options.
+  //
+  // Three of those are now caught by name, and `shell: true` by its own
+  // rule. The one that remains is a shell name reached through a
+  // VARIABLE — a regex cannot follow that, and saying so here is better
+  // than implying a completeness this does not have. What it does
+  // guarantee: nobody writes a shell into this file by accident.
+  const sourceOf = (text) =>
+    text
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      // Trailing comments too. Stripping only line-leading ones let
+      // `unpackGz(gz, json); // was: run('sh', …)` fail the check — the
+      // very false alarm this stripping exists to prevent.
+      .replace(/(^|[^:'"\\])\/\/[^\n]*/g, '$1 ');
+
+  const SHELL_CALL =
+    /(?:execFileSync|execFile|spawnSync|spawn|run)\s*\(\s*['"`](?:\/(?:usr\/)?bin\/)?(?:sh|bash|zsh|dash|ksh)['"`]/;
+  // 🔴 The rehearsal's own fixtures are not the code under the rule.
+  // They are strings that LOOK like shell calls, on purpose, and a whole
+  // file scan reports them — which is how this check failed the moment
+  // it was broadened.
+  //
+  // The first repair sliced the file at `function selfTest(` and kept
+  // what was above. That was WORSE than the problem: selfTest is defined
+  // before main() in this file, so the slice threw away the call site
+  // itself, and every bypass — including simply putting `run('sh', …)`
+  // back — passed 50/50. A guard that reads the wrong half of the file
+  // is a guard that reads nothing.
+  //
+  // So the fixtures say where they are. Everything between the two
+  // markers is removed and the rest of the file, main() included, is
+  // scanned. If a marker is ever deleted the pair no longer matches and
+  // the check below says so rather than quietly widening.
+  // 🔴 A REGEX, not a string constant, and NOTHING BELOW MAY SPELL THE
+  // MARKER OUT. Twice already this file has been bitten by prose that
+  // looks like code, and the marker is the sharpest case yet:
+  //
+  //   - as `const OPEN = '…'` the marker text appears twice, so the
+  //     "exactly one region" check counted its own constant and failed;
+  //   - written out in a sentence like this one, the region begins at
+  //     the SENTENCE and swallows everything down to the closing marker
+  //     — including the rule it is supposed to protect. Deleting the
+  //     real marker then changed nothing and the rehearsal stayed green.
+  //
+  // In a regex literal the same characters are escaped, so the plain
+  // text exists exactly once: at the fixtures themselves.
+  const whole = readFileSync(new URL(import.meta.url), 'utf8');
+  const REGION = /\/\* fixtures-not-code \*\/[\s\S]*?\/\* end-fixtures-not-code \*\//g;
+  const regions = whole.match(REGION) ?? [];
+  ok('the fixtures are marked exactly once', regions.length === 1,
+    `${regions.length} region(s)`);
+  const source = sourceOf(whole.replace(REGION, ' '));
+
+  ok('no shell is spawned anywhere in this file', !SHELL_CALL.test(source));
+  ok('nothing asks a child process for a shell', !/\bshell\s*:\s*true/.test(source));
+  // `execSync` IS a shell, always, whatever it is handed.
+  ok('execSync is not used', !/\bexecSync\s*\(/.test(source));
+  // And the stripping must not blind the check: a trailing comment is
+  // removed, a shell call on the same line is not.
+  /* fixtures-not-code */
+  ok('a shell call survives a trailing comment on its line',
+    SHELL_CALL.test(sourceOf(`run('sh', ['-c', 'x']); // note`)));
+  ok('a trailing comment mentioning a shell call does not trip it',
+    !SHELL_CALL.test(sourceOf(`unpackGz(gz, json); // was: run('sh', ['-c', 'x'])`)));
+  ok('each shell name the rule lists is actually matched',
+    ['sh', 'bash', 'zsh', 'dash', 'ksh', '/bin/sh', '/usr/bin/bash']
+      .every((s) => SHELL_CALL.test(`run('${s}', [])`)));
+  /* end-fixtures-not-code */
 
   for (const c of checks) {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
