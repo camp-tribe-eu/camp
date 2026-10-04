@@ -398,7 +398,19 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build --workspace=apps/api
+
+      # 🔴 CAMP-192: build TWICE and check it actually wrote files.
+      #
+      # One build proves nothing. With `incremental` on and nest-cli's
+      # `deleteOutDir: true`, the SECOND build wipes dist, reads the
+      # .tsbuildinfo, decides there is nothing to emit, and exits 0
+      # having produced an empty dist. A green build with no output is
+      # the worst shape a failure can take — everything downstream reads
+      # it as success, and `nest start` dies on MODULE_NOT_FOUND.
+      #
+      # Measured 04.10.2026: with incremental on, pass 1 emitted and
+      # pass 2 was empty. This step is that experiment, kept.
+      - run: ./scripts/ci/check-api-build-emits.sh
 
       # 🔴 The API was never linted in CI — only the web app was. Ten
       # formatting errors from CAMP-35 sat on main for a day and were

@@ -1,7 +1,22 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "rootDir": "./src"
+    "rootDir": "./src",
+    // 🔴 OFF, and it is not a performance oversight.
+    //
+    // nest-cli.json sets `deleteOutDir: true`, so every build wipes dist/
+    // first. With `incremental` on, tsc then reads
+    // tsconfig.build.tsbuildinfo, concludes every file is already emitted,
+    // and writes NOTHING — while exiting 0.
+    //
+    // The result is an empty dist, a silent success, and `nest start`
+    // dying on MODULE_NOT_FOUND. Measured 04.10.2026: `npx nest build`
+    // printed no output, exited 0, created no dist at all, twice in a row.
+    //
+    // Off costs a few seconds on 98 files and removes a failure that looks
+    // exactly like success. scripts/ci/check-api-build-emits.sh rehearses
+    // it so it cannot come back.
+    "incremental": false
   },
   "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
 }
