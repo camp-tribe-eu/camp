@@ -60,9 +60,28 @@ export function pageText(html: string): string {
       // everything after an unclosed `<script>` as script content; so do we.
       // Measured on the three shapes: without `|$` the sentence was visible
       // to the checker (`true`) and invisible to the reader.
+      //
+      // 🔴 COMMENTS COME OUT FIRST, and the order is load-bearing. `|$`
+      // above means an unclosed `<script` swallows everything after it,
+      // and a commented-out tag —
+      //   `<!-- <script src="/old/analytics.js"> dropped 2024 -->`
+      // — is exactly that: a `<script` with no `</script>`. Stripped in
+      // the other order it ate the rest of the document, attribution
+      // included, and the checker reported our credit missing from a page
+      // that plainly shows it. Measured: `✗ the attribution is NOT on …`,
+      // exit 1, on a page where a reader sees it.
+      //
+      // KNOWN RESIDUAL, stated rather than hidden: `<script` inside an
+      // ATTRIBUTE value (`<div data-tpl="<script>">`) still opens a
+      // swallow, because knowing it is an attribute means parsing, not
+      // matching. The direction is the safe one — a false NEGATIVE, so a
+      // red run and a re-read, never a silent green that ships data we
+      // have no permission to show. Measured on both live pages today
+      // (viewer 27 `<script` / 27 `</script`, legal notice 8 / 8): both
+      // orders yield identical text, so nothing is triggered now.
+      .replace(/<!--[\s\S]*?-->/g, ' ')
       .replace(/<script[\s\S]*?(?:<\/script\b[^>]*>|$)/gi, ' ')
       .replace(/<style[\s\S]*?(?:<\/style\b[^>]*>|$)/gi, ' ')
-      .replace(/<!--[\s\S]*?-->/g, ' ')
       .replace(/<[^>]*>/g, ' ')
       .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, body: string) => {
         if (body[0] === '#') {
@@ -101,7 +120,22 @@ export function sentenceIsOn(html: string, sentence: string): boolean {
  * case #309009, before the next build ships the data.
  */
 async function check(url: string, sentence: string, what: string) {
-  const res = await fetch(url);
+  // 🔴 The try/catch is the point, not decoration. `!res.ok` below only
+  // covers a page that ANSWERED. The dead viewer page this function's
+  // comment describes — ECONNREFUSED, DNS, TLS, timeout — throws out of
+  // `fetch` itself, and the first version of this fix left that throw
+  // alone: the run died with `TypeError: fetch failed` and the permission
+  // verdict, including the "quote case #309009, do not ship" line, was
+  // never printed. Measured against a closed port.
+  let res: Response;
+  let body: string;
+  try {
+    res = await fetch(url);
+    body = res.ok ? await res.text() : '';
+  } catch (err) {
+    console.error(`✗ ${url} could not be read — ${what} unread:\n  ${err}`);
+    return false;
+  }
   // 🔴 Return, do not throw. These two calls sit in one array literal, so a
   // throw here skips the other check entirely — and the two fail for
   // different reasons and need different answers. A dead viewer page used
@@ -112,7 +146,7 @@ async function check(url: string, sentence: string, what: string) {
     console.error(`✗ ${url} answered HTTP ${res.status} — ${what} unread`);
     return false;
   }
-  if (sentenceIsOn(await res.text(), sentence)) {
+  if (sentenceIsOn(body, sentence)) {
     console.log(`✓ ${what} is on ${url}, word for word`);
     return true;
   }

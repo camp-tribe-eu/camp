@@ -128,6 +128,27 @@ describe('sentenceIsOn', () => {
     expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
   });
 
+  // 🔴 THE OTHER DIRECTION, and it was missing. Every script and style
+  // case above asserts `false`, so a filter that simply ate the document
+  // from the first `<script` onwards — `/<script[\s\S]*/gi` — passed all
+  // of them. Review of this very PR caught it: 17/17 green on a mutant
+  // that swallows the page. These two assert `true` and redden it.
+
+  // A commented-out tag is a `<script` with no `</script>`, so `|$` makes
+  // it swallow the rest of the document — unless comments come out first.
+  // Measured before the order was fixed: the checker reported our credit
+  // missing from a page that plainly shows it, and the answer to that is
+  // a letter to the EEA nobody needed to write.
+  it('reads a page whose only <script is inside a comment', () => {
+    const html = `<!-- <script src="/old/analytics.js"> dropped 2024 -->\n<p>${AIR_ATTRIBUTION}</p>`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(true);
+  });
+
+  it('reads the text that follows a script which did close', () => {
+    const html = `<script>var x = 1;</script><p>${AIR_ATTRIBUTION}</p>`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(true);
+  });
+
   it('does not count text inside a style closed as </style >', () => {
     const html = `<style>a > b { content: "${AIR_ATTRIBUTION}"; }</style >`;
     expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
