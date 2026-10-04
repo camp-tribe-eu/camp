@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { AirQualityPanel } from '../../src/components/air-quality';
 import {
   AIR_ATTRIBUTION,
+  AIR_SOURCE_CREDIT,
   AIR_BAND_LABELS,
   AIR_FRESH_FOR_HOURS,
   AIR_FRESHNESS,
@@ -26,6 +27,7 @@ import { shouldFlagStale, SOURCES } from '../../src/lib/sources';
 import { findForbiddenWords } from '../../src/lib/wording';
 import {
   AIR_ATTRIBUTION as API_ATTRIBUTION,
+  AIR_SOURCE_CREDIT as API_SOURCE_CREDIT,
   AIR_BAND_LABELS as API_BAND_LABELS,
   AIR_CADENCE as API_CADENCE,
   AIR_FRESH_FOR_HOURS as API_FRESH_FOR_HOURS,
@@ -500,7 +502,16 @@ test.describe('the attribution the licence requires', () => {
 
   test('the sentence is marked as boilerplate; the date, which varies, is not', () => {
     const html = render(stationFacts(READING));
-    expect(html).toContain('data-boilerplate="air-attribution">' + AIR_ATTRIBUTION + '</span>');
+    // 🔴 Both constants, one text node. `{A} {B}` would render with a
+    // <!-- --> between them and this assertion is what would catch it.
+    expect(html).toContain(
+      'data-boilerplate="air-attribution">' +
+        AIR_ATTRIBUTION +
+        ' ' +
+        AIR_SOURCE_CREDIT +
+        '</span>',
+    );
+    expect(html).not.toContain('<!-- -->');
     expect(html).not.toMatch(/data-boilerplate="[^"]*"[^>]*>[^<]*Read from the EEA/);
   });
 });
@@ -618,6 +629,7 @@ test.describe('the web and the API agree', () => {
   // 🔴 The attribution, verbatim in both places and against the literal.
   test('on the attribution, word for word', () => {
     expect(AIR_ATTRIBUTION).toBe(API_ATTRIBUTION);
+    expect(AIR_SOURCE_CREDIT).toBe(API_SOURCE_CREDIT);
     expect(AIR_ATTRIBUTION).toBe(
       'The European Air Quality Index was developed jointly by the European Commission’s Directorate General for Environment and the European Environment Agency to inform citizens and public authorities about the recent air quality status across Europe.',
     );

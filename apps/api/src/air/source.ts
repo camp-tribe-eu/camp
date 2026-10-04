@@ -377,3 +377,57 @@ export const AIR_ATTRIBUTION =
   'European Commission’s Directorate General for Environment and the ' +
   'European Environment Agency to inform citizens and public ' +
   'authorities about the recent air quality status across Europe.';
+
+/**
+ * 🔴 The source credit the EEA's legal notice actually asks for.
+ *
+ * `AIR_ATTRIBUTION` above is the EEA's own sentence about who DEVELOPED
+ * the index. True, theirs, and verifiable against their page — but it is
+ * not an acknowledgement of source, and that is what the terms require:
+ *
+ *   "for commercial or non-commercial purposes, provided that the EEA is
+ *    always acknowledged as the original source of the material"
+ *     — eea.europa.eu/en/legal-notice, Copyright notice, read 01.10.2026
+ *
+ * So the page prints both: their sentence, then this credit. One says
+ * what the index is, the other says where we got it.
+ *
+ * 🔴 The authority for taking this source at all is an EEA reply to a
+ * written enquiry, case **#309009**, received 01.10.2026:
+ *
+ *   "The standard EEA's copyright legal notice applies to the EU Air
+ *    quality index that you are interested in."
+ *
+ * That answers the contradiction recorded in CAMP-177: the `restricted`
+ * catalogue record 908fbf25 governs the near-real-time measurements
+ * under the index, NOT the index, and the index has no record of its own
+ * because it does not need one.
+ *
+ * 🔴 ©Esri is a CONDITION WITH A TRIGGER, not an exemption. The same
+ * reply says:
+ *
+ *   "Should you reproduce the EU Air quality index map, please mention
+ *    ©Esri in addition to the EEA acknowledgement."
+ *
+ * We do not reproduce their map: we read the value for one point and
+ * draw it ourselves. The day any of their rasters appears as a visible
+ * layer, ©Esri goes next to this credit — see docs/emergency-sources.md
+ * §9, which carries the same rule where a reader of the docs will find
+ * it.
+ */
+export const AIR_SOURCE_CREDIT =
+  'Source: European Environment Agency (EEA).';
+
+/**
+ * Where the permission above lives, and the words that carry it.
+ *
+ * 🔴 These two are what `verify-attribution.ts` watches. The viewer
+ * sentence proves our quotation is still theirs; THIS proves we are
+ * still allowed to quote it at all. A check that only watched the first
+ * would go on passing for years after the grant was withdrawn.
+ */
+export const EEA_LEGAL_NOTICE_URL = 'https://www.eea.europa.eu/en/legal-notice';
+
+export const EEA_REUSE_SENTENCE =
+  'for commercial or non-commercial purposes, provided that the EEA is ' +
+  'always acknowledged as the original source of the material';

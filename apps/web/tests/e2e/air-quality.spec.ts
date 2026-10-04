@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from './api-request';
 import { API_BASE } from '@/lib/api';
-import { AIR_ATTRIBUTION } from '@/lib/air-quality';
+import { AIR_ATTRIBUTION, AIR_SOURCE_CREDIT } from '@/lib/air-quality';
 import { findForbiddenWords } from '@/lib/wording';
 import { everythingSaid, visibleText } from '../unit/rendered-text';
 
@@ -409,6 +409,19 @@ test.describe('the attribution the licence requires', () => {
     for (const p of pages) expect(p.text, p.path).toContain(literal);
   });
 
+  // 🔴 The source credit is OURS, so no page of theirs can confirm it.
+  // What can: the words the EEA's own terms use. "acknowledged as the
+  // original source" is the obligation; a credit that does not name the
+  // EEA as the source does not discharge it, and the sentence above —
+  // which only says who DEVELOPED the index — is exactly such a credit.
+  // That is why there are two constants and not one.
+  test('the source credit names the EEA as the source, on every page', () => {
+    const literal = 'Source: European Environment Agency (EEA).';
+    expect(AIR_SOURCE_CREDIT).toBe(literal);
+    expect(AIR_SOURCE_CREDIT).toContain('Source:');
+    for (const p of pages) expect(p.text, p.path).toContain(literal);
+  });
+
   // The date is where a reader sees how old what they are looking at is.
   test('every page that holds a value says when the EEA’s file was read, and it is today', () => {
     const now = Date.now();
@@ -433,7 +446,9 @@ test.describe('the attribution the licence requires', () => {
   // edge — CAMP-168 shipped red for exactly that reason.
   test('marks the text that is identical on every page as boilerplate — and not the text that varies', () => {
     for (const p of pages) {
-      expect(p.section, p.path).toContain(`data-boilerplate="air-attribution">${AIR_ATTRIBUTION}</span>`);
+      expect(p.section, p.path).toContain(
+        `data-boilerplate="air-attribution">${AIR_ATTRIBUTION} ${AIR_SOURCE_CREDIT}</span>`,
+      );
       // What varies is NOT marked.
       expect(p.section, p.path).not.toMatch(/data-boilerplate="[^"]*"[^>]*>[^<]*Read from the EEA/);
       expect(p.section, p.path).not.toMatch(

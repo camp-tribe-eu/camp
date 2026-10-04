@@ -1,4 +1,5 @@
-// CAMP-164: is our attribution still the EEA's own sentence?
+// CAMP-164: is our attribution still the EEA's own sentence — and are we
+// still allowed to print it?
 //
 //   npx ts-node src/air/verify-attribution.ts
 //
@@ -14,7 +15,12 @@
 // taken from the viewer's own text; this is what proves it is still
 // there, and still spelled the way we print it.
 
-import { AIR_ATTRIBUTION, AIR_VIEWER_URL } from './source';
+import {
+  AIR_ATTRIBUTION,
+  AIR_VIEWER_URL,
+  EEA_LEGAL_NOTICE_URL,
+  EEA_REUSE_SENTENCE,
+} from './source';
 
 const ENTITIES: Record<string, string> = {
   amp: '&',
@@ -53,17 +59,54 @@ export function sentenceIsOn(html: string, sentence: string): boolean {
   return pageText(html).includes(sentence.replace(/\s+/g, ' ').trim());
 }
 
-async function main() {
-  const res = await fetch(AIR_VIEWER_URL);
-  if (!res.ok) throw new Error(`${AIR_VIEWER_URL} answered HTTP ${res.status}`);
-  const html = await res.text();
-  if (sentenceIsOn(html, AIR_ATTRIBUTION)) {
-    console.log(`✓ the attribution is on ${AIR_VIEWER_URL}, word for word`);
-    return;
+/**
+ * 🔴 Two questions, and only one of them was ever asked here.
+ *
+ *   1. Is the sentence we print still THEIRS, word for word?
+ *   2. Are we still ALLOWED to print it?
+ *
+ * Until 01.10.2026 this script asked only the first. The second looked
+ * settled, so nothing watched it — and a permission nobody watches is a
+ * permission that can be withdrawn in silence. The EEA could reword the
+ * Copyright notice tomorrow and every check here would stay green.
+ *
+ * So the grant is now a string we hold (`EEA_REUSE_SENTENCE`) and read
+ * back from the page it came from. If that sentence leaves the legal
+ * notice, this fails and says what to do: ask the EEA again, quoting
+ * case #309009, before the next build ships the data.
+ */
+async function check(url: string, sentence: string, what: string) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url} answered HTTP ${res.status}`);
+  if (sentenceIsOn(await res.text(), sentence)) {
+    console.log(`✓ ${what} is on ${url}, word for word`);
+    return true;
   }
-  console.error(
-    `✗ the attribution is NOT on ${AIR_VIEWER_URL}:\n  ${AIR_ATTRIBUTION}`,
-  );
+  console.error(`✗ ${what} is NOT on ${url}:\n  ${sentence}`);
+  return false;
+}
+
+async function main() {
+  // 🔴 Both run before either verdict. Stopping at the first failure
+  // would hide the second, and these two fail for different reasons and
+  // need different answers.
+  const ok = [
+    await check(AIR_VIEWER_URL, AIR_ATTRIBUTION, 'the attribution'),
+    await check(
+      EEA_LEGAL_NOTICE_URL,
+      EEA_REUSE_SENTENCE,
+      'the re-use permission',
+    ),
+  ];
+  if (ok.every(Boolean)) return;
+  if (!ok[1]) {
+    console.error(
+      '\n🔴 The permission we rely on is no longer on the page we took it\n' +
+        '   from. Do not ship air quality data until the EEA confirms the\n' +
+        '   terms again — quote case #309009, which is the reply that let\n' +
+        '   us publish this in the first place.',
+    );
+  }
   process.exit(1);
 }
 

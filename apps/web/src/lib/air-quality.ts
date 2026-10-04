@@ -74,6 +74,25 @@ export const AIR_ATTRIBUTION =
   'European Environment Agency to inform citizens and public ' +
   'authorities about the recent air quality status across Europe.';
 
+/**
+ * 🔴 The credit the EEA's terms actually ask for, printed after theirs.
+ *
+ * `AIR_ATTRIBUTION` is the EEA's sentence about who DEVELOPED the index.
+ * It is true and it is theirs, but it never names a source — and the
+ * terms ask for exactly that:
+ *
+ *   "for commercial or non-commercial purposes, provided that the EEA is
+ *    always acknowledged as the original source of the material"
+ *     — eea.europa.eu/en/legal-notice, Copyright notice, read 01.10.2026
+ *
+ * Confirmed for this index in writing by the EEA Enquiry Service, case
+ * #309009, 01.10.2026. The API holds the same two constants and a unit
+ * test asserts both pairs are equal; api/src/air/verify-attribution.ts
+ * reads BOTH live pages — the sentence, and the permission to use it.
+ */
+export const AIR_SOURCE_CREDIT =
+  'Source: European Environment Agency (EEA).';
+
 /** The six levels, as the EEA's viewer names them. Level 1 to 6. */
 export const AIR_BAND_LABELS: readonly string[] = [
   'Good',

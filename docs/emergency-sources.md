@@ -924,9 +924,106 @@ dataset as covering "2013 to 2022" while the catalogue titles the same
 service "2013-now". Three reporting years out of date, in a document
 revised this year.
 
+### 🔴 Answered in writing — EEA Enquiry Service, case #309009, 01.10.2026
+
+The survey above reached **TAKE** by inference, and CAMP-177 then stopped
+the merge because the inference had a hole: the catalogue record the index
+is built from (`908fbf25-…`) says access is `restricted`, the neighbouring
+record says CC-BY 4.0, and the index itself has no record at all. We asked
+the EEA rather than pick the reading we liked. They replied in a day.
+
+**1. Which record governs the index — none of them.**
+
+> The standard EEA's copyright legal notice applies to the EU Air quality
+> index that you are interested in.
+
+The `restricted` record governs the near-real-time measurements *under*
+the index, not the index. The index has no catalogue record because it
+does not need one: the site-wide notice carries it.
+
+**2. Commercial re-use is granted, and the obligation is to name the
+source.** From [the legal notice](https://www.eea.europa.eu/en/legal-notice),
+*Copyright notice*, read 01.10.2026:
+
+> ... may be re-used without prior permission, free of charge, for
+> commercial or non-commercial purposes, provided that the EEA is always
+> acknowledged as the original source of the material and that the
+> original meaning or message of the content is not distorted. Such
+> acknowledgment must be included in each copy of the material.
+
+and from the reply:
+
+> EEA reports, graphs and data can generally be re-used and reproduced for
+> both non-commercial and commercial purposes provided that the EEA is
+> clearly acknowledged as the source ...
+
+🔴 **No verbatim credit string exists.** We asked for one; they did not
+give one, and `copyrightText` is empty on all five image services. So the
+page prints two sentences and the distinction matters: `AIR_ATTRIBUTION`
+is the EEA's own sentence about who **developed** the index — true, theirs,
+checkable against their page — and `AIR_SOURCE_CREDIT`
+(`Source: European Environment Agency (EEA).`) is the acknowledgement the
+terms actually require. The first alone never says the word *source* and
+does not discharge the obligation.
+
+**3. ©Esri is a condition with a trigger, not an exemption.**
+
+> Should you reproduce the EU Air quality index map, please mention ©Esri
+> in addition to the EEA acknowledgement.
+
+We do not reproduce their map: we read the value for one point and draw it
+in our own markup. **The day any EEA raster appears as a visible layer on
+our map — including as a basemap overlay or a tile source — `©Esri` goes
+next to the EEA credit, in the same span.** Whoever adds that layer owns
+this sentence.
+
+**4. CAMS needs no separate credit, while we show the EEA's product.**
+
+> If you intend on displaying the EEA AQI as supplied by the EEA, rather
+> than separately extracting and redistributing the underlying CAMS data,
+> a separate CAMS credit may not be necessary.
+
+We display the index as the EEA supplies it, including its gap-filled
+values. If we ever pull CAMS directly, [their licence](https://ads.atmosphere.copernicus.eu/licences/licence-to-use-copernicus-products)
+requires, verbatim:
+
+> Generated using Copernicus Atmosphere Monitoring Service information
+> [Year]
+
+for unmodified products, `Contains modified Copernicus Atmosphere
+Monitoring Service information [Year]` for modified ones, and a statement
+that neither the European Commission nor ECMWF is responsible for any use
+made of the information.
+
+### 🔴 The EEA catalogue pattern: an empty parent record is not an absent licence
+
+Twice out of two, the grant was not on the record the link points at.
+
+| record | what it says |
+| --- | --- |
+| `778ef9f5` — air quality **download service** | no constraint fields at all |
+| `fe809728` — the **dataset** under it | `License CC-BY 4.0 (...). Copyright holder: European Environment Agency (EEA).` |
+| bathing water, **parent** Datahub record (§8) | every licence field `null` |
+| bathing water, **versioned** record | CC BY 4.0 |
+
+Anyone checking us who opens only the page we link would conclude the data
+has no licence. So would we, if we stopped there — and on the first pass of
+§8 we nearly did.
+
+**How to look**, rather than trusting the Datahub page:
+
+```
+https://sdi.eea.europa.eu/catalogue/datahub/api/records/<uuid>/formatters/xsl-view?language=eng&approved=true
+```
+
+That view prints *Resource constraints → Use constraints → Other
+constraints*, which is where the licence actually lives. The Datahub item
+page renders none of it.
+
 **Verdict: TAKE**, on the index (not the concentrations), with the modelled
-flag honoured, the "as reported, not verified" wording, and silence
-rendered as silence.
+flag honoured, the "as reported, not verified" wording, silence rendered as
+silence, and **both** credits printed — the EEA's sentence and the source
+acknowledgement their terms require.
 
 ### Taken — CAMP-164, 29.09.2026
 

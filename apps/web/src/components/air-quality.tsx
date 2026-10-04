@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import {
   AIR_ATTRIBUTION,
+  AIR_SOURCE_CREDIT,
   AIR_SOURCE_ID,
   airState,
   formatKm,
@@ -207,12 +208,22 @@ export function AirQualityPanel({
           </a>
           {' · '}
           <span data-testid="air-attribution">
-            {/* The CONSTANT, not a retyped sentence — see AIR_ATTRIBUTION.
+            {/* TWO constants, not a retyped sentence — AIR_ATTRIBUTION is
+                the EEA's own sentence about the index, AIR_SOURCE_CREDIT is
+                the acknowledgement of source their terms require. Both
+                inside the marked span, because both are boilerplate.
                 Word-for-word the same on every page, so the near-duplicate
                 guard excludes it; the date stays OUTSIDE the marked span,
                 because it is the part that is only there when there is a
                 reading. */}
-            <span data-boilerplate="air-attribution">{AIR_ATTRIBUTION}</span>
+            {/* 🔴 ONE template literal, not `{A} {B}`. Two adjacent
+                expressions are two text nodes, and the server renderer
+                separates those with a <!-- --> comment — which would sit
+                inside the attribution a reader is meant to be able to
+                copy, and would break the markup the e2e asserts. */}
+            <span data-boilerplate="air-attribution">
+              {`${AIR_ATTRIBUTION} ${AIR_SOURCE_CREDIT}`}
+            </span>
             {readAt && (
               <>
                 {' '}

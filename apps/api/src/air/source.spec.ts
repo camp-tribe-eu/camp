@@ -1,6 +1,8 @@
 import { isEuMemberState } from '../osm/eu';
 import {
   AIR_ATTRIBUTION,
+  AIR_SOURCE_CREDIT,
+  EEA_REUSE_SENTENCE,
   AIR_BAND_LABELS,
   AIR_BASES,
   AIR_BLOB_BASE,
@@ -130,5 +132,16 @@ describe('the attribution', () => {
   it('names both bodies', () => {
     expect(AIR_ATTRIBUTION).toContain('European Commission');
     expect(AIR_ATTRIBUTION).toContain('European Environment Agency');
+  });
+
+  // 🔴 CAMP-177, EEA Enquiry Service case #309009, 01.10.2026. Their terms
+  // ask to be "acknowledged as the original source", and the sentence
+  // above never says the word source — it says who developed the index.
+  // These two assertions are what stop the credit quietly collapsing back
+  // into one string that satisfies neither obligation.
+  test('the source credit names the EEA as the SOURCE, and is not the viewer sentence', () => {
+    expect(AIR_SOURCE_CREDIT).toBe('Source: European Environment Agency (EEA).');
+    expect(AIR_SOURCE_CREDIT).not.toBe(AIR_ATTRIBUTION);
+    expect(EEA_REUSE_SENTENCE).toContain('acknowledged as the original source');
   });
 });
