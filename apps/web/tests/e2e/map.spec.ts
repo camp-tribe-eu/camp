@@ -455,6 +455,25 @@ test.describe('/map', () => {
           'redraw was skipped and never retried',
       })
       .toBeGreaterThan(0);
+
+    // 🔴 And the map must SAY it finished. Ten zoom-out clicks in a row
+    // is exactly the interleaving that overtakes a refresh mid-flight,
+    // so this is where a staleness guard with too wide a reach shows
+    // up: review built one, and every overtaken call skipped the
+    // announcement as well as the undo, leaving `data-map-state` on
+    // `loading` forever with the circles drawn behind it.
+    //
+    // Circles on the canvas and a map still calling itself busy is a
+    // state the assertion above cannot tell from success, which is why
+    // it is asserted separately rather than folded into it.
+    await expect
+      .poll(async () => map(page).getAttribute('data-map-state'), {
+        timeout: 20_000,
+        message:
+          'the circles came back but the map never announced it finished — ' +
+          'the last refresh standing was silenced',
+      })
+      .toBe('ready');
   });
 
   // 🔴 CAMP-133. Found by opening /map on a production build and reading

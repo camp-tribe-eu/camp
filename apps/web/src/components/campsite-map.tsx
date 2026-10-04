@@ -497,8 +497,15 @@ export default function CampsiteMap() {
    * the WIDE branch draws the region circles first, the stale detail
    * branch wakes up afterwards and removes them — and nothing redraws,
    * so the map ends up showing neither markers nor circles and
-   * `data-visible-regions` sits at 0. Measured in CI on all five
-   * engines before this counter existed.
+   * `data-visible-regions` sits at 0.
+   *
+   * 🔴 An earlier draft of this comment said "measured in CI on all
+   * five engines". There is no such number to point at:
+   * `playwright.config.ts` declares six browser projects over three
+   * engines — chromium, firefox and webkit — so "five engines" is
+   * neither the projects nor the engines, and the run it referred to
+   * cannot be named. The claim is gone rather than rounded; what the
+   * behaviour rests on is the test below it, not a remembered figure.
    *
    * Bumped at every entry; a call whose token no longer matches has
    * been overtaken and must not touch the map.
@@ -1232,11 +1239,29 @@ export default function CampsiteMap() {
     // nothing to find. So this needs no guard, and the reason is a
     // property rather than luck.
     // 🔴 Overtaken while we were waiting on the network? Then the map
-    // belongs to a later call, and everything below would be undoing
-    // its work — `clearRegions` most of all. See `generation`.
-    if (mine !== generation.current) return;
+    // belongs to a later call, and THIS ONE CALL would undo its work.
+    // See `generation`.
+    //
+    // 🔴 The guard covers `clearRegions` and nothing else, and the
+    // narrowness is the whole point. Review measured the wide version —
+    // a bare `return` here — by lifting this function into Node and
+    // interleaving two `moveend`s: every overtaken call also skipped
+    // the block below, so the LAST refresh standing announced nothing
+    // and `dataState` stayed `loading` for good, with the chunk it had
+    // just fetched sitting in `everything.current` undrawn. Only the
+    // next pan or filter change cleared it.
+    //
+    // The two lines after it are safe to run twice by construction:
+    // `applyFilterState` reads `everything.current` and
+    // `filtersRef.current` — the shared, newest state, never this
+    // call's — and it touches the campsite source, while `clearRegions`
+    // touches the REGION layers. And `inFlight.current === 0` below is
+    // already the "last one standing" test, which is a stronger
+    // statement than "nobody overtook me": an overtaken call either
+    // sees work still in flight and stays quiet, or is the one left to
+    // speak.
+    if (mine === generation.current) clearRegions(m);
 
-    clearRegions(m);
     applyFilterState(filtersRef.current);
 
     // 🔴 Only the LAST refresh standing may say the map is ready.
