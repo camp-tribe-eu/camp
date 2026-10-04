@@ -20,7 +20,9 @@ describe('nearbyWebcamsSql', () => {
   const sql = nearbyWebcamsSql('s.location');
 
   it('searches the radius the page prints', () => {
-    expect(sql).toContain(`ST_DWithin(s.location, c.location, ${WEBCAM_RADIUS_M})`);
+    expect(sql).toContain(
+      `ST_DWithin(s.location, c.location, ${WEBCAM_RADIUS_M})`,
+    );
     // The number the campsite page renders lives in apps/web and is tied
     // to this one by scripts/ci/check-webcam-radius.mjs, which is where
     // both files can be read at once.
@@ -97,8 +99,12 @@ describe('nearbyWebcamsSql', () => {
 
     it('and accepts the honest values either side of the defaults', () => {
       expect(() => nearbyWebcamsSql('s.location', 1, 1)).not.toThrow();
-      expect(nearbyWebcamsSql('s.location', 5_000, 2)).toContain('c.location, 5000');
-      expect(flat(nearbyWebcamsSql('s.location', 5_000, 2))).toContain('LIMIT 2');
+      expect(nearbyWebcamsSql('s.location', 5_000, 2)).toContain(
+        'c.location, 5000',
+      );
+      expect(flat(nearbyWebcamsSql('s.location', 5_000, 2))).toContain(
+        'LIMIT 2',
+      );
     });
   });
 });
