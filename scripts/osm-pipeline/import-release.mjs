@@ -30,6 +30,7 @@
 // country's campsites to the other's argument.
 
 import { execFileSync } from 'node:child_process';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -262,6 +263,19 @@ function assetSizes(tag) {
   return sizes;
 }
 
+/**
+ * Decompress a downloaded .gz beside itself, in-process.
+ *
+ * 🔴 Named, exported and tested because of what it replaced: a
+ * `sh -c` whose command was built by pasting the two paths into a
+ * string. See the note at the call site. Keeping it a function means
+ * the self-test can hand it a path no shell would survive.
+ */
+export function unpackGz(gz, json) {
+  writeFileSync(json, gunzipSync(readFileSync(gz)));
+  return json;
+}
+
 const run = (cmd, argv, opts = {}) =>
   execFileSync(cmd, argv, { encoding: 'utf8', stdio: 'pipe', ...opts });
 
@@ -411,6 +425,46 @@ function selfTest() {
   ok('--tag with a value is read', readOpt(['--tag', 'osm-2026-09-24'], 'tag') === 'osm-2026-09-24');
   ok('an absent flag still falls back', readOpt(['fr'], 'tag', 'latest') === 'latest');
 
+  // ── CAMP-183: unpacking goes through no shell ──
+  //
+  // 🔴 The second case is the whole point and it is not decoration. The
+  // old line was `sh -c "gzip -dc '<gz>' > '<json>'"`. A single quote in
+  // a path ENDS the quoted run there, and everything after it is read as
+  // shell — the quotes that look like protection are the hole. Hand that
+  // version this filename and the command breaks apart; hand it to zlib
+  // and it is just a name. The first case keeps the plain path honest,
+  // so this pair cannot pass by doing nothing at all.
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'camptribe-unpack-'));
+    const body = '{"type":"FeatureCollection","features":[]}';
+    const roundTrip = (name) => {
+      const gz = join(dir, `${name}.gz`);
+      writeFileSync(gz, gzipSync(Buffer.from(body)));
+      const out = unpackGz(gz, gz.replace(/\.gz$/, ''));
+      return readFileSync(out, 'utf8');
+    };
+    ok('a .gz unpacks to its bytes', roundTrip('europe-malta.geojson') === body);
+    ok("a path holding a quote, a space and a semicolon unpacks all the same",
+      roundTrip("it's here; rm -rf .geojson") === body);
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // And the shell itself is gone: nothing in this file may build a
+  // command out of an interpolated string again. `execFileSync` with an
+  // argument array never reaches a shell, which is why every other call
+  // here was already safe.
+  //
+  // 🔴 Comments are stripped first, and the first version of this check
+  // FAILED without that — it matched the note at the call site, which
+  // quotes the very line it is warning about. A guard that cannot tell
+  // code from prose about code reports the warning as the crime.
+  ok('no sh -c anywhere in this file',
+    !/run\(\s*['"]sh['"]/.test(
+      readFileSync(new URL(import.meta.url), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/^[ \t]*\/\/[^\n]*/gm, ' '),
+    ));
+
   for (const c of checks) {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
   }
@@ -456,7 +510,25 @@ async function main() {
         run('gh', ['release', 'download', tag, '-R', REPO, '-p', asset, '-D', work, '--clobber']);
         const gz = join(work, asset);
         const json = gz.replace(/\.gz$/, '');
-        run('sh', ['-c', `gzip -dc '${gz}' > '${json}'`]);
+        // 🔴 NO SHELL. This was `run('sh', ['-c', `gzip -dc '${gz}' >
+        // '${json}'`])`, and it was the one command here built by
+        // pasting strings together — CodeQL's js/indirect-command-line-
+        // injection, CAMP-183. The single quotes look like protection
+        // and are not: one `'` anywhere in a path ends the quoted run
+        // and the rest is read as shell.
+        //
+        // Nothing reachable supplies that character today — the paths
+        // come from a temp directory we make and from assetFor(), which
+        // is built from a two-letter country code. That is an argument
+        // about today's inputs, not about the code, and the point of
+        // fixing it is to stop having to make that argument. zlib
+        // decompresses in-process: no shell exists to inject into, and
+        // the rule has nothing left to flag.
+        //
+        // Every other call in this file already passes its arguments as
+        // an ARRAY to execFileSync, which never goes through a shell.
+        // This was the single exception.
+        unpackGz(gz, json);
 
         // 🔴 Before ogr2ogr sees it. See stripBlankKeys.
         const collection = JSON.parse(readFileSync(json, 'utf8'));
