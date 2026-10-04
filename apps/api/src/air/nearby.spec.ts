@@ -57,10 +57,43 @@ describe('airQualitySql', () => {
   // model value.
   it('does not skip a station that has no reading', () => {
     const stationPart = one.slice(0, one.indexOf("'kind', 'modelled'"));
-    expect(stationPart).not.toMatch(
-      /reading_hour IS NOT NULL\s*(?:ORDER|AND|\))/,
-    );
+    // 🔴 Keyed to the EFFECT, not to one column name. Until CAMP-195 this
+    // named `reading_hour` and `WHERE st.reading` literally, so the very
+    // same mutation written against a sibling column — `AND
+    // st.reading_basis IS NOT NULL` — passed 13/13 green while the 33
+    // campsites around the silent fixture station went from
+    // "No fresh data." to "No air-quality data". Any reading column will
+    // do it, so the column name is the wrong thing to name.
+    //
+    // 🔴 But four spellings is still four spellings, not "the shape" —
+    // the first version of this comment claimed the latter and was wrong.
+    // SQL has more ways to drop a NULL row than a list can hold. The
+    // honest statement: the four below are the forms we have actually
+    // seen or been bitten by, this test exists to fail FIRST and name the
+    // rule, and the net that cannot be out-spelled is the e2e against
+    // served HTML — apps/web/tests/e2e/air-quality.spec.ts:254, which
+    // counts silent stations on real pages (`silent.length > 5`) and runs
+    // ungated in ci.yml:590.
+    //
+    // `IS NULL` inside the CASE below is the honest use and must survive.
+    expect(stationPart).not.toMatch(/\breading_\w+\s+IS\s+NOT\s+NULL/i);
+    // 🔴 `IS NOT NULL` is one spelling of the ban, not the ban. Review of
+    // this PR caught the first version DROPPING the line below while
+    // claiming to generalise it — and `WHERE st.reading_hour >
+    // '1970-01-01'` filters the silent station out just as thoroughly
+    // without ever writing `IS NOT NULL`. Measured: main caught it, the
+    // generalised-but-narrower version did not. Station 3 in the fixture
+    // has `hours_ago NULL`, so `NULL > …` is unknown, the row drops, and
+    // the campsite falls through to the model.
     expect(stationPart).not.toContain('WHERE st.reading');
+    expect(stationPart).not.toMatch(/\bNOT\s+st\.reading_\w+\s+IS\s+NULL/i);
+    expect(stationPart).not.toMatch(
+      /\bst\.reading_\w+\s*(?:>=|<=|<>|!=|>|<|=)/i,
+    );
+    // The real net under this one is the e2e against served HTML
+    // (apps/web/tests/e2e/air-quality.spec.ts:256, `silent.length > 5`),
+    // which counts silent stations on real pages and cannot be fooled by
+    // a rename. This test exists to fail first and say why.
     expect(stationPart).toContain(
       "'reading', CASE WHEN st.reading_hour IS NULL THEN NULL",
     );
