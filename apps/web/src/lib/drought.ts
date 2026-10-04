@@ -59,6 +59,8 @@ export interface DroughtGrid {
 
 export interface DroughtMeta {
   source: string;
+  sourceUrl: string;
+  termsUrl: string;
   indicator: string;
   coverage: string;
   dekad: string;
@@ -117,7 +119,7 @@ export function readMeta(input: unknown): DroughtMeta | null {
   if (!input || typeof input !== 'object') return null;
   const m = (input as { meta?: unknown }).meta as Partial<DroughtMeta> | undefined;
   if (!m || typeof m !== 'object') return null;
-  for (const key of ['source', 'indicator', 'coverage', 'dekad', 'fetchedAt', 'attribution', 'cadenceNote'] as const) {
+  for (const key of ['source', 'sourceUrl', 'termsUrl', 'indicator', 'coverage', 'dekad', 'fetchedAt', 'attribution', 'cadenceNote'] as const) {
     if (typeof m[key] !== 'string' || !m[key]) return null;
   }
   // 🔴 The credit is a CONDITION of using this data, with the year in it.
@@ -135,8 +137,16 @@ export function readMeta(input: unknown): DroughtMeta | null {
     if (!k.label || !k.detail) return null;
     classes.push({ value: k.value as number, label: k.label, detail: k.detail });
   }
+  // 🔴 Links are rendered as hrefs. A file that carried `javascript:` or
+  // a bare word here would put it in an anchor on 65 000 pages.
+  for (const key of ['sourceUrl', 'termsUrl'] as const) {
+    if (!/^https:\/\//.test(m[key] as string)) return null;
+  }
+
   const meta: DroughtMeta = {
     source: m.source as string,
+    sourceUrl: m.sourceUrl as string,
+    termsUrl: m.termsUrl as string,
     indicator: m.indicator as string,
     coverage: m.coverage as string,
     dekad: m.dekad as string,

@@ -28,6 +28,8 @@ import SourceNote from '@/components/source-note';
 import TariffTable from '@/components/tariff-table';
 import BathingWaterNote from '@/components/bathing-water';
 import AirQualityNote from '@/components/air-quality';
+import { DroughtPanel } from '@/components/drought-panel';
+import { droughtAtBuild } from '@/lib/drought-build';
 
 // CAMP-34 — the campsite page.
 //
@@ -495,6 +497,19 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         airQuality={spot.airQuality}
         renderedAt={new Date().toISOString()}
       />
+
+      {/* 🔴 CAMP-163: what the Copernicus drought indicator measured here.
+
+          Beside the weather, because it is the slow half of the same
+          question — the forecast says what the sky will do this week,
+          this says what the ground has been doing for a month.
+
+          The reading is sampled HERE, at build time, out of a 1 280 × 889
+          grid that never reaches the browser. And it is printed even when
+          the answer is "no drought": that is a measurement about this
+          campsite in this ten-day period, and leaving the space blank
+          would turn it into "nobody knows". */}
+      <DroughtPanel state={droughtAtBuild()} lat={spot.lat} lon={spot.lon} />
 
       <Section title="Weather on site">
         <p className="max-w-prose text-sm text-ink-2">
