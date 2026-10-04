@@ -452,20 +452,35 @@ test.describe('/map', () => {
     // whether `drawRegions` ever ran; `data-visible-regions` says
     // whether anything was painted. A message that cannot tell them
     // apart sends the next person looking in the wrong half of the file.
+    // 🔴 THE THROWN ERROR FIRST, because it is the cheaper diagnosis.
+    //
+    // `refresh` is async and floats, so an exception out of
+    // `drawRegions` leaves no layer and no message. Asked AFTER the
+    // layer poll, this line never runs on the failure it exists to
+    // explain — the poll fails first and takes the run with it, which
+    // is exactly what happened on the previous attempt.
     await expect
-      .poll(async () => await map(page).getAttribute('data-region-layer'), {
+      .poll(async () => await map(page).getAttribute('data-region-error'), {
+        timeout: 5_000,
+        message: 'drawRegions threw and the exception was swallowed by a floating promise',
+      })
+      .toBeNull();
+
+    await expect
+      .poll(async () => {
+        const el = map(page);
+        return {
+          layer: await el.getAttribute('data-region-layer'),
+          state: await el.getAttribute('data-map-state'),
+          err: await el.getAttribute('data-region-error'),
+        };
+      }, {
         timeout: 20_000,
         message:
           'the map reached the wide view and the region layer was never added — ' +
           'the deferred drawRegions was skipped and never retried',
       })
-      .toBe('on');
-
-    // 🔴 And if drawing threw, say what it said. `refresh` is async and
-    // floats, so an exception out of `drawRegions` leaves no layer and
-    // no message; without this the failure above would be the only
-    // symptom of two quite different causes.
-    expect(await map(page).getAttribute('data-region-error')).toBeNull();
+      .toMatchObject({ layer: 'on' });
 
     await expect
       .poll(() => attr('data-visible-regions'), {
