@@ -925,10 +925,24 @@ export default function CampsiteMap() {
     // campsite is what the reader aimed at — it is the marker drawn on
     // top. Registering the fire first makes the popup follow the drawing
     // order instead of the registration order.
-    m.on('click', FIRE_HIT, onFireClick);
+    // 🔴 BOTH fire layers, and the pair is the point.
+    //
+    // The outline alone is not enough: bind only the hit line and the
+    // inside of a large burnt area stops responding, which is what the
+    // first version of this fix did — two browser tests that click the
+    // middle of a wide perimeter went red, and they were right to. The
+    // fill alone is not enough either, for the reason the hit line
+    // exists: at the opening zoom the median perimeter is 0.31 px wide.
+    // A reader has to be able to hit the shape when it is big and the
+    // mark when it is not.
+    for (const layer of [FIRE_FILL, FIRE_HIT]) {
+      m.on('click', layer, onFireClick);
+      m.on('mouseenter', layer, pointer);
+      m.on('mouseleave', layer, noPointer);
+    }
     m.on('click', CLUSTER_LAYER, onClusterClick);
     m.on('click', POINT_LAYER, onPointClick);
-    for (const layer of [CLUSTER_LAYER, POINT_LAYER, FIRE_HIT]) {
+    for (const layer of [CLUSTER_LAYER, POINT_LAYER]) {
       m.on('mouseenter', layer, pointer);
       m.on('mouseleave', layer, noPointer);
     }
