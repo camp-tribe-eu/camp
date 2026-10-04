@@ -131,6 +131,17 @@ jobs:
       - name: Skip guard still catches a test that did not run
         run: node scripts/ci/check-skips.mjs --self-test
 
+      # 🔴 The timestamp is the only thing TypeORM orders migrations by,
+      # so two migrations sharing one are ordered by directory read order
+      # — which differs between macOS and this runner. It cost nothing
+      # the day it happened only because the two tables never referenced
+      # each other. CAMP-179.
+      - name: Migration stamp guard still catches a collision
+        run: node scripts/ci/check-migration-stamps.mjs --self-test
+
+      - name: No two migrations share a timestamp
+        run: node scripts/ci/check-migration-stamps.mjs
+
       # 🔴 A broken workflow file is the failure that reports nothing.
       #
       # On 21.09.2026 a step in osm-weekly.yml was given

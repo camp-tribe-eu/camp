@@ -59,8 +59,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * NOT NULL` because the unmatched rows are many and are all equally
  * null.
  */
-export class FuelStationPrices1790662800000 implements MigrationInterface {
-  name = 'FuelStationPrices1790662800000';
+export class FuelStationPrices1790662801000 implements MigrationInterface {
+  name = 'FuelStationPrices1790662801000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
@@ -122,6 +122,24 @@ export class FuelStationPrices1790662800000 implements MigrationInterface {
       CREATE INDEX IF NOT EXISTS idx_fuel_station_prices_country
         ON fuel_station_prices (country, grade)
     `);
+
+    // 🔴 CAMP-179. This migration used to carry `1790662800000`, the same
+    // stamp as BathingWaters, and the stamp is the ONLY thing TypeORM
+    // orders migrations by. Two rows with one sort key are ordered by
+    // whatever order the directory was read in — which differs between
+    // macOS and the Linux runner. Nothing broke while the two tables
+    // stayed independent; the day a third migration puts a foreign key
+    // between them it would break on one machine and not the other.
+    //
+    // Renaming is safe only because every statement above is
+    // `IF NOT EXISTS`: on a database that already ran the old name,
+    // TypeORM sees the new name as pending and runs this again, to no
+    // effect. What it would leave behind is a row for a migration that
+    // no longer exists, so the row goes too. On a fresh database this
+    // matches nothing and costs nothing.
+    await queryRunner.query(
+      `DELETE FROM migrations WHERE name = 'FuelStationPrices1790662800000'`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
