@@ -236,9 +236,20 @@ test.describe('the page says what its subjects are (CAMP-190)', () => {
       hs.map((h) => ({
         level: Number(h.tagName[1]),
         text: (h.textContent ?? '').trim().slice(0, 60),
-        // A heading inside another section is allowed to be deeper; one
-        // whose section is a child of <main> is a subject of the page.
-        topLevel: h.closest('section, article')?.parentElement?.tagName === 'MAIN',
+        // A heading inside a NESTED section is allowed to be deeper;
+        // one whose section is a child of <main> is a subject of the
+        // page.
+        //
+        // 🔴 And a heading in no section at all counts too, as long as
+        // it is not the page's h1. Without that clause a panel dropped
+        // straight into <main> — no <section> wrapper, which is a
+        // perfectly ordinary thing to write — would be invisible to a
+        // rule whose whole name is about sections of <main>. Measured
+        // on the live page: the h1 is the only heading that sits
+        // outside a section today.
+        topLevel:
+          h.closest('section, article')?.parentElement?.tagName === 'MAIN' ||
+          (!h.closest('section, article') && h.tagName !== 'H1'),
       })),
     );
 
