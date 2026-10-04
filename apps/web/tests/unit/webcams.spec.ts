@@ -18,7 +18,7 @@ import {
   usable,
   type Webcam,
 } from '@/lib/webcams';
-import { renderComponent } from './render-component';
+import { renderComponent, rendersNothing } from './render-component';
 
 // CAMP-190 — the rules that keep the pictures honest and the terms kept.
 //
@@ -250,14 +250,16 @@ test.describe('the panel never claims the camera shows the campsite', () => {
     expect(t).toContain(distance(WEBCAM_RADIUS_M));
   });
 
+  // 🔴 `[]` ONLY. `null` and `undefined` mean we have not imported the
+  // catalogue, and this test used to loop over all three — which is how
+  // the claim ended up on every page before the import had run. See
+  // "a catalogue we have not imported" below.
   test('a campsite with no camera says so, and says what that means', () => {
-    for (const empty of [[], null, undefined]) {
-      const html = renderComponent(WebcamPanel, { webcams: empty, now: NOW });
-      const t = text(html);
-      expect(t).toContain('No public webcam within 25 km');
-      expect(t).toContain('not a statement about the place');
-      expect(html).not.toMatch(/<img/);
-    }
+    const html = renderComponent(WebcamPanel, { webcams: [], now: NOW });
+    const t = text(html);
+    expect(t).toContain('No public webcam within 25 km');
+    expect(t).toContain('not a statement about the place');
+    expect(html).not.toMatch(/<img/);
   });
 
   test('the direction comes from the source’s own title, or not at all', () => {
@@ -337,7 +339,7 @@ test.describe('an empty panel says which kind of empty it is', () => {
     const stale = text(renderComponent(WebcamPanel, { webcams: REAL, now: STALE_CLOCK }));
     // The rows are still there. Only our reading of them is old.
     expect(showable(REAL, STALE_CLOCK), 'the clock is not late enough to hide them').toHaveLength(0);
-    expect(absence(REAL, STALE_CLOCK)).toBe('stale');
+    expect(absence(REAL)).toBe('stale');
 
     expect(
       stale,
@@ -348,12 +350,40 @@ test.describe('an empty panel says which kind of empty it is', () => {
   });
 
   test('…and a campsite with no camera at all still says exactly that', () => {
-    for (const nothing of [[], null, undefined]) {
-      const out = text(renderComponent(WebcamPanel, { webcams: nothing, now: NOW }));
-      expect(absence(nothing, NOW)).toBe('none');
-      expect(out).toContain('No public webcam within 25 km');
-      expect(out, 'nothing was listed, so there is no reading of ours to be old')
-        .not.toContain('our last reading');
+    const out = text(renderComponent(WebcamPanel, { webcams: [], now: NOW }));
+    expect(absence([])).toBe('none');
+    expect(out).toContain('No public webcam within 25 km');
+    expect(out, 'nothing was listed, so there is no reading of ours to be old')
+      .not.toContain('our last reading');
+  });
+
+  // 🔴 AND THE THIRD EMPTY, WHICH WAS LIVE ON EVERY PAGE IN EUROPE.
+  //
+  // `[]` used to mean both "we looked and there is nothing within
+  // 25 km" and "we have not imported the catalogue". The webcam table is
+  // empty until `scripts/windy/fetch-webcams.mjs` runs — measured on the
+  // live API on 05.10.2026 — so every campsite was told
+  //
+  //   "No public webcam within 25 km of this campsite. That is what the
+  //    camera network covers, not a statement about the place."
+  //
+  // over a continent where 88% of campsites have one (CAMP-189). It is
+  // a claim about COVERAGE, made before we had looked.
+  //
+  // The API now answers `null` until the import has run, and the panel
+  // says nothing at all. Saying nothing is not the failure the "never
+  // empty" rule was written against: that rule is about campsites
+  // without a camera, not about us without data.
+  test('🔴 a catalogue we have not imported makes NO claim about coverage', () => {
+    for (const notLooked of [null, undefined]) {
+      expect(absence(notLooked)).toBe('unknown');
+      expect(
+        rendersNothing(WebcamPanel, { webcams: notLooked, now: NOW }),
+        'the panel spoke about a camera network it has not read',
+      ).toBe(true);
     }
+    // And the distinction is real on the other side: an imported
+    // catalogue that found nothing still says so.
+    expect(rendersNothing(WebcamPanel, { webcams: [], now: NOW })).toBe(false);
   });
 });

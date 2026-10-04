@@ -196,10 +196,29 @@ export function showable(cams: Webcam[] | null | undefined, now: Date): Webcam[]
  *
  * A page may not blame the world for a gap of its own making.
  */
-export type WebcamAbsence = 'none' | 'stale';
+export type WebcamAbsence = 'unknown' | 'none' | 'stale';
 
-export function absence(cams: Webcam[] | null | undefined, now: Date): WebcamAbsence {
-  return Array.isArray(cams) && cams.length > 0 ? 'stale' : 'none';
+export function absence(cams: Webcam[] | null | undefined): WebcamAbsence {
+  // 🔴 `null` IS NOT `[]`, and conflating them put a false sentence on
+  // every page in Europe.
+  //
+  // The API answers `null` until `scripts/windy/fetch-webcams.mjs` has
+  // imported the catalogue, and `[]` once it has and found nothing
+  // within the radius. Measured on the live API, 05.10.2026: the table
+  // is empty, so every campsite came back `[]` and read
+  //
+  //   "No public webcam within 25 km of this campsite. That is what the
+  //    camera network covers, not a statement about the place."
+  //
+  // — over a continent where 88% of campsites have a camera within
+  // 25 km (CAMP-189). The sentence is a claim about COVERAGE and we had
+  // not looked.
+  //
+  // `unknown` renders nothing. The panel's rule that it is never empty
+  // is about campsites without a camera; it was never a licence to
+  // speak when we have no data at all.
+  if (!Array.isArray(cams)) return 'unknown';
+  return cams.length > 0 ? 'stale' : 'none';
 }
 
 /** "last reported 12 minutes ago" — about the camera, never the picture. */

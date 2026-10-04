@@ -82,6 +82,12 @@ export function WebcamPanel({
   now: Date;
 }) {
   const cams = showable(webcams, now);
+  const why = absence(webcams);
+
+  // 🔴 NOTHING AT ALL when we have not imported the catalogue. Every
+  // other branch of this panel makes a claim, and we have nothing to
+  // claim yet — see `absence` in lib/webcams.ts.
+  if (why === 'unknown') return null;
 
   return (
     <section
@@ -144,7 +150,7 @@ export function WebcamPanel({
         //
         // Both carry `data-boilerplate`: each is word for word the same
         // on every page that is in that state, which is the rule.
-        absence(webcams, now) === 'stale' ? (
+        why === 'stale' ? (
           <p className="mt-2" data-boilerplate="webcam-stale">
             We have cameras listed near this campsite, but none of them has
             reported for more than a day. That is how old our last reading of
