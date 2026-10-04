@@ -415,8 +415,7 @@ export const AIR_ATTRIBUTION =
  * §9, which carries the same rule where a reader of the docs will find
  * it.
  */
-export const AIR_SOURCE_CREDIT =
-  'Source: European Environment Agency (EEA).';
+export const AIR_SOURCE_CREDIT = 'Source: European Environment Agency (EEA).';
 
 /**
  * Where the permission above lives, and the words that carry it.

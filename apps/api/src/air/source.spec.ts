@@ -140,7 +140,9 @@ describe('the attribution', () => {
   // These two assertions are what stop the credit quietly collapsing back
   // into one string that satisfies neither obligation.
   test('the source credit names the EEA as the SOURCE, and is not the viewer sentence', () => {
-    expect(AIR_SOURCE_CREDIT).toBe('Source: European Environment Agency (EEA).');
+    expect(AIR_SOURCE_CREDIT).toBe(
+      'Source: European Environment Agency (EEA).',
+    );
     expect(AIR_SOURCE_CREDIT).not.toBe(AIR_ATTRIBUTION);
     expect(EEA_REUSE_SENTENCE).toContain('acknowledged as the original source');
   });
