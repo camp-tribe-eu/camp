@@ -584,16 +584,31 @@ test.describe('/map', () => {
       })
       .toBeGreaterThan(0);
 
-    // 🔴 And the map must SAY it finished. A run of zoom-out clicks is
-    // exactly the interleaving that overtakes a refresh mid-flight, so
-    // this is where a staleness guard with too wide a reach shows up:
-    // review built one, and every overtaken call skipped the
-    // announcement as well as the undo, leaving `data-map-state` on
-    // `loading` for ever with the circles drawn behind it.
+    // 🔴 AND THEY STAY. `expect.poll` stops at the first satisfying
+    // sample, so circles drawn and then taken away again pass it — and
+    // that is precisely CAMP-175's own stated symptom: a stale detail
+    // refresh waking up afterwards and calling `clearRegions`.
+    // `data-visible-regions` is republished on every `idle`, so the drop
+    // would land after the poll had already gone green, and the test
+    // would report success over the defect it is named for.
+    await page.waitForTimeout(1_200);
+    expect(
+      await attr('data-visible-regions'),
+      'the circles appeared and were then taken away — a stale refresh cleared them',
+    ).toBeGreaterThan(0);
+
+    // 🔴 THIS CANNOT FAIL FOR THE REASON IT USED TO CLAIM, and review
+    // said so. The paragraph here described catching "`loading` for
+    // ever with the circles drawn behind it" — but `untilWide()` above
+    // returns true only by READING `data-map-state === "wide"`, and its
+    // own `expect(...).toBe(true)` has already run, so that failure
+    // ends the test long before this line.
     //
-    // Circles on the canvas and a map still calling itself busy is a
-    // state the assertion above cannot tell from success, which is why
-    // it is asserted separately rather than folded into it.
+    // What it does catch is a REVERT: the map settling, the circles
+    // being counted, and the state then going back to busy — which is
+    // what an overtaken refresh announcing on behalf of a view it no
+    // longer owns looks like from outside. A narrower claim than the
+    // one that stood here, and the true one.
     //
     // 🔴 `wide`, NOT `ready`, and the first version of this asserted
     // `ready` — a state the map correctly cannot be in here.
@@ -613,8 +628,8 @@ test.describe('/map', () => {
       .poll(async () => map(page).getAttribute('data-map-state'), {
         timeout: 20_000,
         message:
-          'the circles came back but the map never announced it finished — ' +
-          'the last refresh standing was silenced',
+          'the map went back to calling itself busy after the circles were ' +
+          'counted — a refresh announced for a view it no longer owns',
       })
       .toMatch(/^(wide|ready)$/);
   });

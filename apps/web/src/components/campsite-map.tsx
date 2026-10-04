@@ -49,6 +49,7 @@ import {
   type MapDataState,
   type RegionSummary,
 } from '@/lib/map-chunks';
+import { retryOnEvent } from '@/lib/retry-on-event';
 import {
   DEFAULT_LAYERS,
   LAYERS,
@@ -542,8 +543,18 @@ export default function CampsiteMap() {
    * Kept across calls and cleared per key on success.
    */
   const failedKeys = useRef<Map<string, string>>(new Map());
-  /** One pending "try again when the style has loaded", never a queue. */
-  const awaitingStyle = useRef(false);
+  /**
+   * The one pending "try again when the style has loaded", as the
+   * function that cancels it — never a bare boolean.
+   *
+   * 🔴 A flag and a listener are two facts, and they drifted. `settle()`
+   * cleared `awaitingStyle` on ANY successful draw, including one from a
+   * different refresh than the one that had registered the wait; the
+   * listener stayed registered, and the next call was free to add a
+   * second pair. Holding the canceller means clearing the wait and
+   * removing the listener are the same act.
+   */
+  const awaitingStyle = useRef<(() => void) | null>(null);
   /**
    * Says whether the region layer is on the map, written the moment it
    * changes rather than at the next `idle`. See `publishRegionLayer`.
@@ -1204,7 +1215,10 @@ export default function CampsiteMap() {
       };
 
       const settle = () => {
-        awaitingStyle.current = false;
+        // Cancels whatever wait is outstanding, whoever registered it:
+        // a draw that has succeeded makes every pending retry pointless.
+        awaitingStyle.current?.();
+        awaitingStyle.current = null;
         publishRegionLayer();
         say();
       };
@@ -1217,7 +1231,6 @@ export default function CampsiteMap() {
 
       say();
       if (awaitingStyle.current) return;
-      awaitingStyle.current = true;
 
       // 🔴 A listener that STAYS until it resolves, on both events that
       // can mean the style moved. `once('idle')` was the earlier bug:
@@ -1242,16 +1255,21 @@ export default function CampsiteMap() {
       // view the map is in now; `awaitingStyle` is cleared first, so
       // that call is free to register a new wait if the style is still
       // not ready.
+      // 🔴 AND IT IS SCHEDULED ON AN EVENT, NEVER FROM HERE. See
+      // `lib/retry-on-event.ts`: the version of this line that read
+      // `queueMicrotask(attempt)` froze the tab outright — the retry
+      // re-enters `refresh`, which queues another microtask, and
+      // microtasks queued inside a microtask drain in the same
+      // checkpoint, so the style's own callback can never run. Measured
+      // at 200 001 re-entries without yielding. Every map spec stayed
+      // green, because they stub the style and never take this path.
       const attempt = () => {
-        m.off('idle', attempt);
-        m.off('styledata', attempt);
-        awaitingStyle.current = false;
+        awaitingStyle.current?.();
+        awaitingStyle.current = null;
         say();
         void refreshRef.current();
       };
-      m.on('idle', attempt);
-      m.on('styledata', attempt);
-      queueMicrotask(attempt);
+      awaitingStyle.current = retryOnEvent(m, attempt);
     };
 
     const view = boundsOf(m);
