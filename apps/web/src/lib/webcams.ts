@@ -1,0 +1,173 @@
+// CAMP-190 — what the page may say about a webcam, and what it may not.
+//
+// 🔴 WE SHOW THE DAYLIGHT FRAME, AND THAT IS A MEASUREMENT, NOT A TASTE.
+//
+// Windy serves two frames per camera: `current` and `daylight`. Looked at
+// on 04.10.2026 at 18:10 UTC, the Bovec camera's `current` preview was
+// 1 233 bytes and, opened, a FLAT GREY RECTANGLE — not even a dark
+// picture, just grey. Its `daylight` frame, 6 752 bytes, was the valley
+// and the mountain.
+//
+// A grey rectangle on a campsite page is worse than no picture: the
+// reader concludes our site is broken, not that the sun has set.
+//
+// File size cannot be the test — measured across 24 cameras, it flagged
+// only 2, because a noisy dark frame compresses larger than a flat one.
+// And "is the sun up there now" cannot be computed either: these pages
+// are built once and read for days, so the build has no idea what time
+// it will be when somebody looks.
+//
+// So: always `daylight`. During the day it IS the current frame; at
+// night it is the last lit one. And we never put a time on it, because
+// the API gives no timestamp for that frame — only for the camera.
+//
+// 🔴 WHAT THE PAGE MAY NOT SAY.
+//
+//   · never that the camera shows the campsite — at 25 km it is the next
+//     valley, and `metres` is rendered for exactly that reason;
+//   · never a time for the picture, only for the camera's last report;
+//   · never the image without a link back to Windy's page for it, which
+//     is their condition for showing it at all.
+
+import { RESERVED_WORDS } from './cems';
+
+export interface Webcam {
+  ref: string;
+  title: string;
+  categories: string[];
+  detailUrl: string;
+  providerUrl: string | null;
+  lastFrameAt: string | null;
+  metres: number;
+}
+
+/**
+ * 🔴 Built from the camera's id, which is the one thing about this URL
+ * we are sure of.
+ *
+ * The API returns image URLs in its payload and the tariff page says
+ * "Image url validity is limited to 15 minutes". The URLs it returns
+ * carry no token and answered fine, so the 15 minutes may be about a
+ * different tier or a different form — we could not prove either way.
+ *
+ * What we do know: these pages are static and live for days, so a URL
+ * that expires in fifteen minutes would be a broken image on every page
+ * within the hour. The id-addressed form has answered every time we
+ * asked, which is the only form that can work for a built page at all.
+ * If it ever stops, the image breaks and the caption beside it still
+ * reads true — which is why the caption never depends on the picture.
+ */
+export const frameUrl = (ref: string, size: 'thumbnail' | 'preview' = 'preview'): string =>
+  `https://imgproxy.windy.com/_/${size}/plain/daylight/${encodeURIComponent(ref)}/original.jpg?v=2`;
+
+/** The credit Windy's terms require, word for word. */
+export const WINDY_CREDIT = 'Webcams provided by windy.com';
+
+export const WEBCAM_RADIUS_M = 25_000;
+
+/** 1 234 m → "1.2 km". Straight-line, and the component says so once. */
+export function distance(m: number): string {
+  if (!Number.isFinite(m) || m < 0) return '';
+  if (m < 1000) return `${Math.round(m / 50) * 50} m`;
+  if (m < 10_000) return `${(m / 1000).toFixed(1).replace(/\.0$/, '')} km`;
+  return `${Math.round(m / 1000)} km`;
+}
+
+/**
+ * The direction, where the camera's own title carries one.
+ *
+ * Windy writes titles like `Saint-Medard-d'Aunis › West: La Plaine`. The
+ * part after `›` is the view direction, and it is the source's word, not
+ * ours — so it is passed through and never translated or inferred.
+ */
+export function direction(title: string): string | null {
+  const m = /›\s*([A-Za-z-]+)\s*(?::|$)/.exec(title);
+  if (!m) return null;
+  const word = m[1].toLowerCase();
+  return /^(north|south|east|west|north-east|north-west|south-east|south-west)$/.test(word)
+    ? word
+    : null;
+}
+
+/**
+ * The camera's name without the `Place › Direction:` scaffolding, so the
+ * caption reads as a place rather than as a database row.
+ */
+export function shortTitle(title: string): string {
+  const afterColon = title.includes(':') ? title.slice(title.indexOf(':') + 1) : title;
+  const cleaned = afterColon.replace(/›[^:]*/g, '').trim();
+  return (cleaned || title.split('›')[0] || title).trim();
+}
+
+/**
+ * How old the CAMERA's last report is, in whole minutes — never about
+ * the picture on screen.
+ *
+ * Returns null when the catalogue gave no time, or gave one in the
+ * future: a clock that read "-4 minutes" would otherwise print as fresh
+ * for ever.
+ */
+export function reportedMinutesAgo(lastFrameAt: string | null, now: Date): number | null {
+  if (!lastFrameAt) return null;
+  const t = Date.parse(lastFrameAt);
+  if (Number.isNaN(t)) return null;
+  const mins = Math.floor((now.getTime() - t) / 60_000);
+  return mins >= 0 ? mins : null;
+}
+
+/**
+ * Past this, we do not show the camera at all.
+ *
+ * 🔴 Measured (CAMP-189, 327 cameras): the median frame is 8 minutes
+ * old, 92% are under an hour and 100% under a day. A camera silent for
+ * more than a day is not slow, it is off — and a picture from it would
+ * be presented beside a live-looking caption.
+ */
+export const CAMERA_DEAD_AFTER_MINUTES = 24 * 60;
+
+/**
+ * 🔴 A camera whose NAME says a word the CEMS terms reserve.
+ *
+ * The title is the operator's text, not ours — but it lands on our page,
+ * under our voice, beside Copernicus drought data. The terms say that
+ * data "does not constitute in any way an early warning", and a card
+ * reading "flood warning camera" next to it is exactly the claim they
+ * deny us.
+ *
+ * Measured 04.10.2026 across the 848 cameras imported: **none** carried
+ * one. So this is a latent risk over the full 20 841, not a live defect
+ * — which is precisely when it is cheap to close.
+ *
+ * The camera is dropped rather than its title edited. Rewriting somebody
+ * else's name for their camera would be putting words in their mouth to
+ * suit us, and we would be shipping a picture labelled with a name its
+ * operator never used.
+ */
+export const titleIsSayable = (title: string): boolean => !RESERVED_WORDS.test(title);
+
+export function usable(cam: Webcam, now: Date): boolean {
+  if (!cam.detailUrl?.startsWith('https://')) return false;
+  if (typeof cam.title !== 'string' || !titleIsSayable(cam.title)) return false;
+  if (!Number.isFinite(cam.metres) || cam.metres < 0) return false;
+  const mins = reportedMinutesAgo(cam.lastFrameAt, now);
+  // 🔴 No time at all is NOT a pass. The catalogue gives one for every
+  // active camera we measured; a row without it is a row we cannot say
+  // anything honest about.
+  if (mins === null) return false;
+  return mins <= CAMERA_DEAD_AFTER_MINUTES;
+}
+
+/** The ones we will show, nearest first, already filtered. */
+export function showable(cams: Webcam[] | null | undefined, now: Date): Webcam[] {
+  if (!Array.isArray(cams)) return [];
+  return cams.filter((c) => usable(c, now)).sort((a, b) => a.metres - b.metres || a.ref.localeCompare(b.ref));
+}
+
+/** "last reported 12 minutes ago" — about the camera, never the picture. */
+export function reportedPhrase(mins: number): string {
+  if (mins < 1) return 'reported in the last minute';
+  if (mins === 1) return 'reported a minute ago';
+  if (mins < 60) return `reported ${mins} minutes ago`;
+  const hours = Math.round(mins / 60);
+  return hours === 1 ? 'reported an hour ago' : `reported ${hours} hours ago`;
+}

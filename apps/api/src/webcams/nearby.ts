@@ -77,3 +77,16 @@ export function nearbyWebcamsSql(
       ) w
   )`;
 }
+
+/** One camera as the page receives it. No image, by construction. */
+export interface WebcamView {
+  ref: string;
+  title: string;
+  categories: string[];
+  detailUrl: string;
+  providerUrl: string | null;
+  /** When the camera last reported, per the catalogue at our last read. */
+  lastFrameAt: string | null;
+  /** Straight-line metres from the campsite, measured by us. */
+  metres: number;
+}
