@@ -35,23 +35,32 @@ const ENTITIES: Record<string, string> = {
 
 /** The words of a page as a reader meets them: tags removed, entities decoded, whitespace collapsed. */
 export function pageText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, body: string) => {
-      if (body[0] === '#') {
-        const code =
-          body[1].toLowerCase() === 'x'
-            ? parseInt(body.slice(2), 16)
-            : parseInt(body.slice(1), 10);
-        return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
-      }
-      return ENTITIES[body.toLowerCase()] ?? whole;
-    })
-    .replace(/\s+/g, ' ')
-    .trim();
+  return (
+    html
+      // 🔴 `\s*` before the `>`, and it is not pedantry.
+      //
+      // CodeQL (js/bad-tag-filter, high) caught `</script>` written without
+      // it: browsers close the element on `</script >` too, so a page with a
+      // space there kept its script body in the text we search. The check
+      // below asserts our sentence is NOT found inside a script — which it
+      // would have been, silently, on such a page.
+      .replace(/<script[\s\S]*?<\/script\s*>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style\s*>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, body: string) => {
+        if (body[0] === '#') {
+          const code =
+            body[1].toLowerCase() === 'x'
+              ? parseInt(body.slice(2), 16)
+              : parseInt(body.slice(1), 10);
+          return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+        }
+        return ENTITIES[body.toLowerCase()] ?? whole;
+      })
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
 }
 
 /** Is `sentence` on the page, once both are read the way a reader reads them? */

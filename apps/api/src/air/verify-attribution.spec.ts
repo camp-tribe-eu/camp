@@ -70,8 +70,24 @@ describe('sentenceIsOn', () => {
     expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
   });
 
+  // 🔴 CodeQL js/bad-tag-filter, high, raised on PR #85: the closing tag was
+  // written `</script>` with no room for whitespace, and a browser closes the
+  // element on `</script >` just the same. On such a page the script body
+  // stayed in the text we search, and the test above would have passed for a
+  // reason that has nothing to do with the filter. Mutate the `\s*` back out
+  // of pageText and this goes red; the test above does not.
+  it('does not count text inside a script closed as </script >', () => {
+    const html = `<script>if (a > b) { var s = "${AIR_ATTRIBUTION}"; }</script >`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
   it('does not count text inside a style', () => {
     const html = `<style>a > b { content: "${AIR_ATTRIBUTION}"; }</style>`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  it('does not count text inside a style closed as </style >', () => {
+    const html = `<style>a > b { content: "${AIR_ATTRIBUTION}"; }</style >`;
     expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
   });
 
