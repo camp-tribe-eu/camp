@@ -80,6 +80,27 @@ export const COVERED_ELSEWHERE = new Map([
     'app/data/wildfires.json/route.ts',
     'serves the feed as JSON and renders no text at all; its words are the source’s own, checked where they are displayed',
   ],
+  // 🔴 CAMP-163. The campsite page reaches CEMS data only by mounting
+  // <DroughtPanel>, and every word that panel can print is driven
+  // through the real component by tests/unit/cems-panels/drought.panel.ts
+  // — twelve states, including the ones where a hostile file tries to
+  // put a reserved word on the page.
+  //
+  // The page's own prose beside it is not unchecked either: the setting
+  // paragraph is generated, so tests/unit/setting.spec.ts drives every
+  // shape it can produce through RESERVED_WORDS rather than trusting
+  // that nobody will write one.
+  //
+  // ⚠️ This entry is the dangerous kind and the file says so two screens
+  // up: an exemption is how coverage disappears quietly. It is honest
+  // only while the page renders no CEMS text of its own. The moment it
+  // prints a drought word outside the panel, this line becomes a lie and
+  // nothing here will notice — so that is a thing to check when editing
+  // the page, not a thing to assume.
+  [
+    'app/camping/[country]/[region]/[slug]/page.tsx',
+    'mounts <DroughtPanel>, whose every state is checked by cems-panels/drought.panel.ts; its own generated prose is checked by setting.spec.ts',
+  ],
 ]);
 
 /** Every file under a directory, recursively. */

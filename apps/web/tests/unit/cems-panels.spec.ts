@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
@@ -331,7 +332,36 @@ test.describe('the registry and the panels agree', () => {
 
 // ── the licence's words: one list in three places ────────────────────────
 
-const SCRIPT = join(__dirname, '..', '..', '..', '..', 'scripts', 'effis', 'fetch-wildfires.mjs');
+/**
+ * Every fetch script that keeps its own copy of the word list.
+ *
+ * 🔴 DISCOVERED, NOT NAMED. This was one hard-coded path to
+ * `scripts/effis/fetch-wildfires.mjs`. CAMP-163 then added
+ * `scripts/edo/fetch-drought.mjs` with a fourth copy of the list, and
+ * nothing anywhere compared it — a list maintained by hand beside a copy
+ * nothing checks is the exact defect this file exists to prevent, and it
+ * reappeared the first time a second CEMS source arrived.
+ *
+ * Scripts cannot import TypeScript, so the copies are unavoidable. What
+ * is avoidable is a copy no test has heard of.
+ */
+const SCRIPTS_DIR = join(__dirname, '..', '..', '..', '..', 'scripts');
+
+function fetchScriptsWithWordList(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...fetchScriptsWithWordList(full));
+      continue;
+    }
+    if (!entry.name.endsWith('.mjs')) continue;
+    if (/export const FORBIDDEN_WORDS\b/.test(readFileSync(full, 'utf8'))) out.push(full);
+  }
+  return out;
+}
+
+const SCRIPTS = fetchScriptsWithWordList(SCRIPTS_DIR);
 
 /**
  * A REAL dynamic import, written so the transpiler cannot rewrite it —
@@ -370,20 +400,30 @@ test.describe('the gate, the script and the check are one list', () => {
     expect(NOTICES.generated).toBe(LICENCE_NOTICE_GENERATED);
   });
 
-  test('🔴 the gate, the fetch script and the check have the same list', async () => {
+  test('🔴 every copy of the list is found, not just the one named here', () => {
+    // 🔴 An empty discovery passes every loop below without running once.
+    // The wildfire and drought scripts both keep a copy today; if this
+    // ever reads fewer than two, the search is broken rather than the
+    // repository tidy.
+    expect(SCRIPTS.length, 'no fetch script with a word list was found').toBeGreaterThanOrEqual(2);
+    expect(SCRIPTS.some((f) => f.endsWith('fetch-wildfires.mjs'))).toBe(true);
+    expect(SCRIPTS.some((f) => f.endsWith('fetch-drought.mjs'))).toBe(true);
+  });
+
+  test('🔴 the gate, every fetch script and the check have the same list', async () => {
     // 🔴 Mutation: add or drop ANY word in one of the three — fails, and the
     // message names which two you forgot. Before CAMP-162 they had drifted:
     // "evacuate" and "evacuation" were in the gate and the script and not in
     // the check, so a component could say either and ship. The canonical
     // copy is RESERVED_WORDS in src/lib/cems.ts.
-    const script = (await load(pathToFileURL(SCRIPT).href)).FORBIDDEN_WORDS;
-    expect(script.source, 'scripts/effis/fetch-wildfires.mjs has drifted from src/lib/cems.ts').toBe(
-      RESERVED_WORDS.source,
-    );
+    for (const file of SCRIPTS) {
+      const script = (await load(pathToFileURL(file).href)).FORBIDDEN_WORDS;
+      expect(script.source, `${file} has drifted from src/lib/cems.ts`).toBe(RESERVED_WORDS.source);
+      expect(script.flags, `${file} has drifted from src/lib/cems.ts`).toBe(RESERVED_WORDS.flags);
+    }
     expect(FORBIDDEN_WORDS.source, 'tests/unit/cems-panel.ts has drifted from src/lib/cems.ts').toBe(
       RESERVED_WORDS.source,
     );
-    expect(script.flags).toBe(RESERVED_WORDS.flags);
     expect(FORBIDDEN_WORDS.flags).toBe(RESERVED_WORDS.flags);
   });
 
@@ -391,11 +431,15 @@ test.describe('the gate, the script and the check are one list', () => {
     // Driven from a hand-written list, not from a regex, so a list weakened
     // everywhere identically is still seen. Mutation: delete `risk|` from
     // all three at once — fails on every risk form.
-    const script = (await load(pathToFileURL(SCRIPT).href)).FORBIDDEN_WORDS;
+    const scripts = await Promise.all(
+      SCRIPTS.map(async (f) => [f, (await load(pathToFileURL(f).href)).FORBIDDEN_WORDS] as const),
+    );
     for (const word of FORMS) {
       for (const form of [word, word.toUpperCase(), `${word[0].toUpperCase()}${word.slice(1)}`]) {
         expect(RESERVED_WORDS.test(form), `the gate lets "${form}" through`).toBe(true);
-        expect(script.test(form), `the fetch script lets "${form}" through`).toBe(true);
+        for (const [f, script] of scripts) {
+          expect(script.test(form), `${f} lets "${form}" through`).toBe(true);
+        }
         expect(wordProblems(`<p>a ${form} b</p>`), `the page check lets "${form}" through`).toHaveLength(1);
       }
     }
@@ -404,10 +448,14 @@ test.describe('the gate, the script and the check are one list', () => {
   test('a lookalike is refused by none of them', async () => {
     // A list that refused "Alerta", a commune, would be the false alarm
     // that teaches people to switch it off.
-    const script = (await load(pathToFileURL(SCRIPT).href)).FORBIDDEN_WORDS;
+    const scripts = await Promise.all(
+      SCRIPTS.map(async (f) => [f, (await load(pathToFileURL(f).href)).FORBIDDEN_WORDS] as const),
+    );
     for (const word of LOOKALIKES) {
       expect(RESERVED_WORDS.test(word), `the gate refuses "${word}"`).toBe(false);
-      expect(script.test(word), `the fetch script refuses "${word}"`).toBe(false);
+      for (const [f, script] of scripts) {
+        expect(script.test(word), `${f} refuses "${word}"`).toBe(false);
+      }
       expect(wordProblems(`<p>${word}</p>`), `the page check flags "${word}"`).toEqual([]);
     }
   });
