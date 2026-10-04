@@ -62,8 +62,14 @@ test.describe('security headers', () => {
     expect(csp, 'MapLibre builds its parser worker from a blob').toContain(
       "worker-src 'self' blob:",
     );
-    expect(csp, 'sprites and glyph atlases are data:/blob:').toContain(
-      "img-src 'self' data: blob:",
+    expect(csp, 'sprites and glyph atlases are data:/blob:').toMatch(
+      /img-src 'self' data: blob:/,
+    );
+    // 🔴 CAMP-190. Without this the webcam panel ships three broken
+    // images and every unit test still passes, because a rendered
+    // string is not a browser.
+    expect(csp, 'webcam frames come from Windy’s CDN by their terms').toContain(
+      'https://imgproxy.windy.com',
     );
     expect(csp, 'the tile origin must be reachable').toMatch(
       /connect-src [^;]*tiles\.openfreemap\.org/,

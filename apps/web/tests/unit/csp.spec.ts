@@ -101,6 +101,11 @@ test('the CSP still says the things the map needs', () => {
   const d = directives(PROD_CSP);
   expect(d.get('worker-src')).toContain('blob:');
   expect(d.get('img-src')).toContain('blob:');
+  // 🔴 CAMP-190: the one third-party image host we allow, named rather
+  // than a blanket `https:`. Review proved its absence blocks every
+  // webcam frame in a real browser while 20 unit tests stay green.
+  expect(d.get('img-src')).toContain('https://imgproxy.windy.com');
+  expect(d.get('img-src'), 'never a blanket https: for images').not.toContain('https:');
   expect(d.get('object-src')).toEqual(["'none'"]);
   expect(d.get('frame-ancestors')).toEqual(["'none'"]);
 });
