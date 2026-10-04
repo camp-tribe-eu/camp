@@ -94,10 +94,58 @@ describe('sentenceIsOn', () => {
     expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
   });
 
-  // And the other direction: `</scriptfoo>` is NOT a close tag, so the text
-  // after it is real page text and must still be found.
-  it('still reads text that follows a non-tag like </scriptfoo>', () => {
-    const html = `<p>${AIR_ATTRIBUTION}</p>`;
+  // And the other direction. `</scriptfoo>` is NOT a close tag, so it does
+  // not end the element: everything up to the real `</script>` is script
+  // body, both copies of the sentence included.
+  //
+  // 🔴 This fixture is the entire reason `\b` is in the regex, and until
+  // CAMP-194 the test carrying this name used `<p>${AIR_ATTRIBUTION}</p>` —
+  // no `</scriptfoo>` anywhere in it. All 14 cases here stayed green with
+  // `\b` deleted from both regexes, so the guard was untested. Delete `\b`
+  // now and this case must go red: the mutant stops at `</script`, leaves
+  // `foo>` plus the second sentence as page text, and answers true.
+  it('treats </scriptfoo> as script body, not as a close tag', () => {
+    const html = `<script>var s = "${AIR_ATTRIBUTION}";</scriptfoo>${AIR_ATTRIBUTION}</script>`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  // 🔴 CAMP-194, and the worst direction a safeguard can fail in. Both
+  // earlier patches demanded a closing tag, so a script that never closes
+  // kept its body in the searched text: the checker answered "attribution
+  // present" for a page on which a reader sees nothing at all.
+  it('does not count text inside a script that is never closed', () => {
+    const html = `<script>var s = "${AIR_ATTRIBUTION}";`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  it('does not count text inside a script whose </script is cut off at EOF', () => {
+    const html = `<script>var s = "${AIR_ATTRIBUTION}";</script`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  it('does not count text inside a style that is never closed', () => {
+    const html = `<style>a { content: "${AIR_ATTRIBUTION}"; }`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  // 🔴 THE OTHER DIRECTION, and it was missing. Every script and style
+  // case above asserts `false`, so a filter that simply ate the document
+  // from the first `<script` onwards — `/<script[\s\S]*/gi` — passed all
+  // of them. Review of this very PR caught it: 17/17 green on a mutant
+  // that swallows the page. These two assert `true` and redden it.
+
+  // A commented-out tag is a `<script` with no `</script>`, so `|$` makes
+  // it swallow the rest of the document — unless comments come out first.
+  // Measured before the order was fixed: the checker reported our credit
+  // missing from a page that plainly shows it, and the answer to that is
+  // a letter to the EEA nobody needed to write.
+  it('reads a page whose only <script is inside a comment', () => {
+    const html = `<!-- <script src="/old/analytics.js"> dropped 2024 -->\n<p>${AIR_ATTRIBUTION}</p>`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(true);
+  });
+
+  it('reads the text that follows a script which did close', () => {
+    const html = `<script>var x = 1;</script><p>${AIR_ATTRIBUTION}</p>`;
     expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(true);
   });
 
