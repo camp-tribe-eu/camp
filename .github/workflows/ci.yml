@@ -131,6 +131,28 @@ jobs:
       - name: Skip guard still catches a test that did not run
         run: node scripts/ci/check-skips.mjs --self-test
 
+      # 🔴 CAMP-173. check-fixture-not-shrunk.mjs counts rows; a
+      # regeneration passed it at 73 → 90 campsites and produced a
+      # fixture with no Slovenia, one surviving id out of 72, and a load
+      # that died on the gone block. A count is not a shape.
+      - name: Fixture-shape guard still catches a missing subject
+        run: node scripts/ci/check-fixture-shape.mjs --self-test
+
+      - name: The fixture still holds what the tests stand on
+        run: node scripts/ci/check-fixture-shape.mjs
+
+      # 🔴 CAMP-186. ODbL §4.6 lets us answer a recipient with a
+      # description of our alterations instead of the derived database
+      # itself, and legal/database is that description. A field the code
+      # computes and the page does not name is a hole in it — and the
+      # failure is silent: the field renders, nothing breaks, and we are
+      # outside the licence.
+      - name: Derived-field guard still catches an undescribed field
+        run: node scripts/ci/check-derived-fields.mjs --self-test
+
+      - name: Every derived field is described where ODbL §4.6 requires
+        run: node scripts/ci/check-derived-fields.mjs
+
       # 🔴 CAMP-183. The import script unpacks releases without a shell,
       # and its own rehearsal proves the rule still bites. That rehearsal
       # was written and then run NOWHERE — not here, not in package.json

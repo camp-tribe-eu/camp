@@ -113,6 +113,19 @@ export const LEGAL_PAGES: LegalPage[] = [
     effectiveFrom: '2026-09-23',
   },
   {
+    // CAMP-186. ODbL §4.6 lets us answer with the DESCRIPTION of our
+    // alterations instead of the derived database itself. This is that
+    // description, and it sits next to attribution because a reader
+    // asking "where is this from" and one asking "what did you do to it"
+    // are one step apart.
+    slug: 'database',
+    title: 'How this database is made',
+    summary:
+      'What we take from OpenStreetMap, what we compute ourselves, what we join in, and what we leave out.',
+    version: '1.0',
+    effectiveFrom: '2026-10-04',
+  },
+  {
     slug: 'notice',
     title: 'Legal notice',
     summary: 'Who operates this site and how to reach a human.',

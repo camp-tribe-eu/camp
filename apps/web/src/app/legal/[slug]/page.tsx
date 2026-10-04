@@ -9,6 +9,7 @@ import Privacy from '@/content/legal/privacy';
 import Cookies from '@/content/legal/cookies';
 import Disclaimer from '@/content/legal/disclaimer';
 import Attribution from '@/content/legal/attribution';
+import Database from '@/content/legal/database';
 import Notice from '@/content/legal/notice';
 
 // CAMP-56 — the legal pages.
@@ -31,6 +32,7 @@ const BODIES: Record<string, () => React.JSX.Element> = {
   cookies: Cookies,
   disclaimer: Disclaimer,
   attribution: Attribution,
+  database: Database,
   notice: Notice,
 };
 
