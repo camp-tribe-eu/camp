@@ -37,15 +37,21 @@ const ENTITIES: Record<string, string> = {
 export function pageText(html: string): string {
   return (
     html
-      // 🔴 `\s*` before the `>`, and it is not pedantry.
+      // 🔴 `\b[^>]*>` after the tag name, and it is not pedantry.
       //
       // CodeQL (js/bad-tag-filter, high) caught `</script>` written without
-      // it: browsers close the element on `</script >` too, so a page with a
-      // space there kept its script body in the text we search. The check
-      // below asserts our sentence is NOT found inside a script — which it
-      // would have been, silently, on such a page.
-      .replace(/<script[\s\S]*?<\/script\s*>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style\s*>/gi, ' ')
+      // it. Twice: the first fix allowed only whitespace, and CodeQL came
+      // back with `</script\t\n bar>`. An HTML parser closes the element on
+      // `</script` followed by ANYTHING up to the `>` — whitespace, a slash,
+      // even junk. Anything narrower leaves a page shape on which the script
+      // body stays in the text we search, and the check below — which
+      // asserts our sentence is NOT inside a script — would pass for the
+      // wrong reason.
+      //
+      // `\b` keeps it honest in the other direction: `</scriptfoo>` is not a
+      // close tag and must not be swallowed.
+      .replace(/<script[\s\S]*?<\/script\b[^>]*>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style\b[^>]*>/gi, ' ')
       .replace(/<!--[\s\S]*?-->/g, ' ')
       .replace(/<[^>]*>/g, ' ')
       .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, body: string) => {

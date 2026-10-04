@@ -86,6 +86,21 @@ describe('sentenceIsOn', () => {
     expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
   });
 
+  // 🔴 CodeQL came back a second time with `</script\t\n bar>`: an HTML
+  // parser closes the element on `</script` followed by anything up to the
+  // `>`, not only whitespace. This is that shape.
+  it('does not count text inside a script closed as </script\\t\\n bar>', () => {
+    const html = `<script>var s = "${AIR_ATTRIBUTION}";</script\t\n bar>`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
+  });
+
+  // And the other direction: `</scriptfoo>` is NOT a close tag, so the text
+  // after it is real page text and must still be found.
+  it('still reads text that follows a non-tag like </scriptfoo>', () => {
+    const html = `<p>${AIR_ATTRIBUTION}</p>`;
+    expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(true);
+  });
+
   it('does not count text inside a style closed as </style >', () => {
     const html = `<style>a > b { content: "${AIR_ATTRIBUTION}"; }</style >`;
     expect(sentenceIsOn(html, AIR_ATTRIBUTION)).toBe(false);
