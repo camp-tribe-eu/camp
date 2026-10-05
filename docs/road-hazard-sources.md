@@ -270,9 +270,18 @@ We take the **JSON API** and we filter it hard.
 >
 > **Six schemes.** CAMP-149 named `NUTS2` from its own 27-country
 > measurement and I had dismissed it from a sample of eleven; it was
-> right and I was not. Seven member states carry no area code at all —
-> Estonia, Luxembourg, Malta, Romania, Slovakia, Slovenia, Sweden — not
-> one, as the second version said.
+> right and I was not.
+>
+> **And then I over-counted the other way.** "Seven member states carry
+> no area code" was the fourth generalisation in this paragraph's
+> history, and it is wrong in both directions. Measured on all 27 feeds
+> (2026-10-05), three states code nothing: Estonia (154 areas, 0 coded),
+> Slovenia (8 / 0), Sweden (22 / 0). Four of the seven I named —
+> Luxembourg, Malta, Romania, Slovakia — answer `{"warnings":[]}`,
+> fifteen bytes holding no alert at all. That is an absence of data, not
+> an absence of codes, and nothing about their geography is measurable
+> from it. The same count missed Latvia, which codes 14 of its 508
+> areas — partial, and the case hardest to see.
 >
 > 🔴 **The lesson is not about MeteoAlarm.** Three times in one day I
 > replaced a generalisation with a narrower one drawn from a slightly

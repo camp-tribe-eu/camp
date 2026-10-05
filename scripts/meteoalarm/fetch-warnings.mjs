@@ -28,27 +28,36 @@
 // `expires` has passed, anything answering `AllClear`, and anything at
 // awareness level 1 — green is the absence of a warning, not a warning.
 //
-// 🔴 AND THE CARD'S REASON FOR CHOOSING THIS API IS WRONG — AS WAS MY
-// FIRST CORRECTION OF IT.
+// 🔴 AND THE CARD'S REASON FOR CHOOSING THIS API IS WRONG — AS WERE MY
+// FIRST TWO CORRECTIONS OF IT.
 //
 // CAMP-148 said the JSON API is taken "because only it carries the NUTS
 // codes we need". I measured four countries, found `EMMA_ID` in all of
 // them, and wrote "there is no NUTS code anywhere in it". Review
-// measured ELEVEN and that is false too — I had corrected a
-// generalisation with a generalisation, from a sample one country
-// wider:
+// measured ELEVEN: also false. I then wrote "four schemes" from those
+// eleven — correcting a generalisation with a generalisation, twice,
+// each time from a sample one country wider.
 //
-//   EMMA_ID      22 194   most countries
-//   WARNCELLID    5 608   Germany, alongside EMMA_ID
-//   NUTS3         2 554   France — and France has NO EmMA_ID at all
-//   FIPS            393   Ireland — likewise none
+// All 27 feeds, 2026-10-05:
 //
-// So there are four schemes, they differ by country, and some warnings
-// (Slovenia) carry no code at all. That makes CAMP-149 harder than
-// either version of this paragraph claimed, and it is the reason this
-// script keeps whatever the source gives — every `SCHEME:VALUE` pair,
-// the free-text `areaDesc`, and any polygon — rather than reaching for
-// the one scheme we expected.
+//   EMMA_ID      26 404   16 countries
+//   NUTS3         7 090   France, Bulgaria
+//   WARNCELLID    5 672   Germany, alongside EMMA_ID
+//   NUTS2           566   Belgium (alongside EMMA_ID), Hungary
+//   FIPS            393   Ireland — and Ireland has no EMMA_ID at all
+//   CISORP            6   Czechia, alongside EMMA_ID
+//
+// Six schemes, several countries carrying two at once, and three member
+// states — Estonia, Slovenia, Sweden — putting no code on any area.
+// Latvia codes 14 of its 508. That makes CAMP-149 harder than any
+// version of this paragraph claimed, and it is why this script keeps
+// whatever the source gives — every `SCHEME:VALUE` pair, the free-text
+// `areaDesc`, and any polygon — rather than reaching for the one scheme
+// we expected.
+//
+// These counts are a snapshot of a live archive and will drift. They
+// carry a date for that reason: a number in a comment is a measurement
+// or it is a decoration.
 
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -104,7 +113,7 @@ export function areasOf(info) {
   }));
 }
 
-export const DROPPED = ['expired', 'notYet', 'allClear', 'green', 'unusable', 'duplicate'];
+export const DROPPED = ['expired', 'allClear', 'green', 'unusable', 'duplicate'];
 
 /**
  * One reason, or null when the block is a warning we may show.
@@ -118,30 +127,36 @@ export function dropReason(alert, info, now) {
   if (!Number.isFinite(expires)) return 'unusable';
   if (expires <= now.getTime()) return 'expired';
 
-  // 🔴 "CURRENT" MEANS PUBLISHED AND NOT EXPIRED — and my first attempt
-  // at this silenced six countries.
+  // 🔴 THERE IS NO "NOT YET PUBLISHED" TEST, AND THIS LINE HAS NOW BEEN
+  // WRONG THREE TIMES.
   //
-  // I added a check that dropped every warning whose `onset` is in the
-  // future, to stop a Croatian storm 58 hours out reading as in force.
-  // Review measured what it actually killed across 13 feeds: 528
-  // dropped, of which **496 had `effective` already in the past** —
-  // published, in force, and forecasting a hazard for later today. Only
-  // 23 were more than 48 hours out. Croatia went 110 → 0, Hungary
-  // 490 → 0, Ireland 18 → 0, Slovenia 8 → 0.
+  // First I dropped every warning whose `onset` was in the future, so a
+  // storm 58 hours out would not read as in force. That silenced four
+  // countries outright — Croatia 110 → 0, Hungary 490 → 0, Ireland
+  // 18 → 0, Slovenia 8 → 0 — because 496 of the 528 blocks it killed
+  // had already been published and were forecasting later the same day.
   //
-  // A forecast warning IS the product. "There will be ice tonight" is
-  // the sentence a driver needs before they set off, not after.
+  // So I moved the test to `effective`. Review measured that too: 128
+  // blocks across five countries, every one with `alert.sent` in the
+  // past. Sweden kept 2 of 22. Estonia kept 6 of 80 — Estonia omits
+  // `effective` entirely (892 blocks do), so the fallback landed back
+  // on `onset`: the original bug wearing the fix's name. And in SMHI,
+  // Italy, France and Bulgaria `effective` EQUALS `onset` on 679
+  // blocks. It is when the hazard starts, not when the notice issued.
   //
-  // So the test is PUBLICATION, not start: a warning counts while the
-  // issuing service has released it (`effective`) and it has not
-  // expired. The `onset` is carried so the page can say when it begins
-  // — which is the honest way to show a storm 58 hours out, rather than
-  // hiding it or pretending it is already blowing.
-  const effective = info?.effective ? Date.parse(info.effective) : Number.NaN;
-  const published = Number.isFinite(effective)
-    ? effective
-    : (info?.onset ? Date.parse(info.onset) : Number.NaN);
-  if (Number.isFinite(published) && published > now.getTime()) return 'notYet';
+  // The publication field is `alert.sent` — present on 6 669 of 6 669
+  // blocks. But a `sent` in the future cannot mean "unpublished": it is
+  // the issuing time of the message already in our hands. The only 18
+  // such blocks measured are Bulgaria's, all exactly 72 minutes ahead.
+  // That is a clock, not an embargo.
+  //
+  // A filter with no demonstrated true positive and three demonstrated
+  // classes of false positive is not a filter. It is gone. `onset` and
+  // `effective` ride through to the page so it can say when a hazard
+  // begins — the actual requirement behind all three attempts — and a
+  // `sent` ahead of now is COUNTED in `meta.publishedAhead` rather than
+  // dropped, so a genuine future-dating would surface instead of
+  // passing in silence.
 
   const response = [alert?.responseType, info?.responseType].flat().filter(Boolean).map(String);
   if (response.some((r) => r.toLowerCase() === 'allclear')) return 'allClear';
@@ -172,6 +187,16 @@ export function warningsFrom(payload, country, now) {
   const counts = Object.fromEntries(DROPPED.map((d) => [d, 0]));
   const kept = [];
   let seen = 0;
+  // 🔴 Counted, never dropped. See the note in `dropReason`.
+  let publishedAhead = 0;
+  // 🔴 THE SHAPE WE DEPEND ON, NOT THE WEATHER IT REPORTS.
+  // `awareness(…).code` of `null` falls into the `green` branch, so a
+  // renamed upstream parameter does not announce itself as broken — it
+  // declares the whole continent calm. Measured on all 27 feeds: 6 669
+  // of 6 669 blocks across the 23 countries that serve any carry a
+  // readable level. A country where NONE does has stopped being
+  // understood, and that is independent of how quiet its sky is.
+  let unreadable = 0;
 
   // 🔴 ONE ROW PER ALERT AND AREA, NOT PER LANGUAGE.
   //
@@ -194,6 +219,9 @@ export function warningsFrom(payload, country, now) {
     const alert = entry?.alert;
     for (const info of alert?.info ?? []) {
       seen += 1;
+      const sentAt = alert?.sent ? Date.parse(alert.sent) : Number.NaN;
+      if (Number.isFinite(sentAt) && sentAt > now.getTime()) publishedAhead += 1;
+      if (awareness(paramOf(info, 'awareness_level')).code === null) unreadable += 1;
       const why = dropReason(alert, info, now);
       if (why) {
         counts[why] += 1;
@@ -263,7 +291,7 @@ export function warningsFrom(payload, country, now) {
     }
   }
   kept.push(...byKey.values());
-  return { country, seen, kept, counts };
+  return { country, seen, kept, counts, publishedAhead, unreadable };
 }
 
 // ---------------------------------------------------------------- self-test
@@ -544,15 +572,53 @@ function selfTest() {
     ok('two areas of one alert stay two warnings', warningsFrom(twoAreas, 'x', NOW).kept.length === 2);
   }
 
-  // 🔴 A WARNING THAT HAS NOT STARTED IS NOT CURRENT. 336 of 986 kept
-  // rows had a future `onset`, one of them 58 hours out.
+  // 🔴 A PUBLISHED WARNING IS CURRENT WHENEVER IT STARTS. Three versions
+  // of this test asserted the opposite; see `dropReason`. Each case
+  // below is one of the live shapes that a start-time filter killed.
   {
     const future = warningsFrom(feed([block({ onset: '2026-10-07T00:00:00Z' })]), 'x', NOW);
-    ok('a warning that starts in two days is not current', future.kept.length === 0 && future.counts.notYet === 1);
+    ok('a warning that starts in two days is still current', future.kept.length === 1);
+    ok('…and its onset rides through, so the page can say when', future.kept[0]?.onset === '2026-10-07T00:00:00Z');
+    // Estonia's shape: no `effective` at all. The second version of the
+    // filter fell back onto `onset` here and kept 6 of 80.
+    const noEffective = warningsFrom(
+      feed([block({ onset: '2026-10-07T00:00:00Z', effective: undefined })]),
+      'x',
+      NOW,
+    );
+    ok('…and a missing `effective` does not reinstate the start-time test', noEffective.kept.length === 1);
+    // SMHI's shape: `effective` EQUALS `onset`, both ahead. Sweden kept
+    // 2 of 22 on this one.
+    const effectiveAhead = warningsFrom(
+      feed([block({ onset: '2026-10-07T00:00:00Z', effective: '2026-10-07T00:00:00Z' })]),
+      'x',
+      NOW,
+    );
+    ok('…nor does an `effective` equal to a future `onset`', effectiveAhead.kept.length === 1);
     const started = warningsFrom(feed([block({ onset: '2026-10-05T11:59:59Z' })]), 'x', NOW);
-    ok('…and one that started a second ago is', started.kept.length === 1);
+    ok('…and one that started a second ago is kept too', started.kept.length === 1);
     const noOnset = warningsFrom(feed([block({ onset: undefined, effective: undefined })]), 'x', NOW);
     ok('…and no onset at all does not drop it', noOnset.kept.length === 1);
+  }
+
+  // 🔴 Bulgaria's clock runs 72 minutes ahead on all 18 of its blocks.
+  // That is surfaced, never dropped.
+  {
+    const ahead = warningsFrom(feed([block()], { sent: '2026-10-05T13:12:00Z' }), 'x', NOW);
+    ok('a `sent` in the future is kept', ahead.kept.length === 1);
+    ok('…and counted, so a real embargo would surface', ahead.publishedAhead === 1);
+    const behind = warningsFrom(feed([block()], { sent: '2026-10-05T11:00:00Z' }), 'x', NOW);
+    ok('…while a `sent` in the past counts for nothing', behind.publishedAhead === 0);
+  }
+
+  // 🔴 The shape guard. An unreadable level is scored `green`, so this
+  // is the one failure that publishes itself as good news.
+  {
+    const renamed = warningsFrom(feed([block({ parameter: [{ valueName: 'awareness_lvl', value: '3; orange; Severe' }] })]), 'x', NOW);
+    ok('a renamed awareness parameter leaves the block unreadable', renamed.unreadable === 1 && renamed.seen === 1);
+    ok('…and it is scored green, which is why counting it matters', renamed.counts.green === 1);
+    const fine = warningsFrom(feed([block()]), 'x', NOW);
+    ok('…while a readable level counts as readable', fine.unreadable === 0);
   }
 
   // 🔴 The three filter branches no mutation touched.
@@ -563,6 +629,34 @@ function selfTest() {
     ok('a block with neither event nor headline is unusable', noText.counts.unusable === 1);
     const lower = warningsFrom(feed([block({ responseType: 'allclear' })]), 'x', NOW);
     ok('an all-clear in lower case is still an all-clear', lower.counts.allClear === 1);
+  }
+
+  // 🔴 A debugging flag must never be able to publish.
+  {
+    const threw = (argv) => { try { runPlan(argv); return false; } catch { return true; } };
+    ok('`--country=` with no value is refused, not run', threw(['node', 'x', '--country=']));
+    ok('`--country` bare is refused too', threw(['node', 'x', '--country']));
+    const one = runPlan(['node', 'x', '--country=croatia']);
+    ok('…a named country runs only that country', one.countries.length === 1 && one.countries[0] === 'croatia');
+    ok('…and never writes', one.dryRun === true);
+    const full = runPlan(['node', 'x']);
+    ok('a plain run asks all 27 and may write', full.countries.length === 27 && full.dryRun === false);
+    ok('`--dry-run` alone asks all 27 and may not', runPlan(['node', 'x', '--dry-run']).dryRun === true);
+  }
+
+  // 🔴 Nine countries keep nothing today and are healthy; a country
+  // whose every block is unreadable is not.
+  {
+    const blind = blindCountries([
+      { country: 'quiet', seen: 878, unreadable: 0 },
+      { country: 'empty', seen: 0, unreadable: 0 },
+      { country: 'broken', seen: 148, unreadable: 148 },
+      { country: 'partly', seen: 10, unreadable: 9 },
+    ]);
+    ok('a country that keeps nothing but reads fine is not blind', !blind.includes('quiet'));
+    ok('…a country that served nothing is not blind either', !blind.includes('empty'));
+    ok('…one malformed block among ten is not blindness', !blind.includes('partly'));
+    ok('…but a country we cannot read at all is', blind.length === 1 && blind[0] === 'broken');
   }
 
   ok('every member state is listed exactly once', new Set(COUNTRIES).size === 27);
@@ -577,22 +671,56 @@ function selfTest() {
 // -------------------------------------------------------------------- main
 
 const PAUSE_MS = 400;
+/**
+ * What a command line asks for. Pure, because the bug it replaces was a
+ * decision — `--country=` with an empty value ran all 27 countries AND
+ * wrote the file — and a decision that lives only inside `main` cannot
+ * be tested.
+ */
+export function runPlan(argv) {
+  const flag = argv.find((a) => a === '--country' || a.startsWith('--country='));
+  const only = flag?.startsWith('--country=') ? flag.slice('--country='.length) : undefined;
+  if (flag && !only) throw new Error('--country= needs a country, e.g. --country=croatia');
+  return {
+    countries: only ? [only] : COUNTRIES,
+    // Which of the two refusals to write this was, for the log.
+    only: only ?? null,
+    // ⚠️ `Boolean(flag)` and `Boolean(only)` are identical HERE, and a
+    // mutation proved it: the throw above means a flag without a value
+    // never reaches this line, so no test can tell the two apart. It is
+    // written as presence because that is the rule the throw enforces —
+    // a partial read may be inspected, it may not become the published
+    // answer — and a later reader who removes the throw must not
+    // silently get the old bug back.
+    dryRun: argv.includes('--dry-run') || Boolean(flag),
+  };
+}
+
+/** Countries that served blocks of which NONE carried a readable level. */
+export function blindCountries(results) {
+  return results.filter((r) => r.seen > 0 && r.unreadable === r.seen).map((r) => r.country);
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
-  const only = process.argv.find((a) => a.startsWith('--country='))?.split('=')[1];
-  const countries = only ? [only] : COUNTRIES;
+  // 🔴 `--country=` WITH NOTHING AFTER THE EQUALS WAS A FULL RUN THAT
+  // WROTE THE FILE — falsy twice over, so the list fell back to all 27
+  // and the dry run fell back to false. A typo in a debugging flag
+  // published a document. The decision is `runPlan`, which is testable.
+  const { countries, dryRun, only } = runPlan(process.argv);
   // 🔴 ONE COUNTRY NEVER WRITES THE FILE. `--country=croatia` produced a
   // document shaped like a full-Europe run, with `meta.silent: []` —
   // nothing in it recorded that twenty-six countries were never asked.
   // A partial read may be inspected; it may not become the published
   // answer.
-  const dryRun = process.argv.includes('--dry-run') || Boolean(only);
   const now = new Date();
   const all = [];
   const totals = Object.fromEntries(DROPPED.map((d) => [d, 0]));
   let seen = 0;
+  let publishedAhead = 0;
   const silent = [];
+  const shapes = [];
 
   for (const country of countries) {
     await sleep(PAUSE_MS);
@@ -611,6 +739,8 @@ async function main() {
     }
     const out = warningsFrom(payload, country, now);
     seen += out.seen;
+    publishedAhead += out.publishedAhead;
+    shapes.push(out);
     for (const d of DROPPED) totals[d] += out.counts[d];
     all.push(...out.kept);
     console.log(
@@ -651,6 +781,30 @@ async function main() {
   // seen, 0 kept, 0 silent — every transport guard satisfied, and the
   // file written saying the continent is calm. The guards asked whether
   // we could REACH the feeds, never whether we understood them.
+  // 🔴 AND THE GUARD BELOW IS REALLY A QUESTION ABOUT SPAIN.
+  //
+  // `kept === 0` across all of Europe sounds continental, but Spain
+  // alone supplies 402 of the 580 warnings kept today — 69%. Twenty-six
+  // countries could stop parsing and this guard would stay silent on
+  // Spain's strength alone. Review proved exactly that: 26 countries
+  // forced to zero, `seen` 6 669, `kept` 201, not a word.
+  //
+  // It cannot be fixed by lowering a threshold, because keeping nothing
+  // IS normal for a country: nine of the 27 are at zero right now —
+  // Poland 878 → 0, the Netherlands 1 038 → 0, Hungary 490 → 0 — all of
+  // it real expiry and real green. Weather decides what we KEEP.
+  //
+  // So the guard asks about the shape instead, which weather does not
+  // touch: a country that serves blocks none of which carry a readable
+  // awareness level is a country we have stopped understanding.
+  const blind = blindCountries(shapes);
+  if (blind.length) {
+    throw new Error(
+      `${blind.join(', ')} served blocks and not one carried a readable ` +
+        'awareness level — the feed changed shape, and an unreadable level ' +
+        'is counted as green, so this would have published as "calm"',
+    );
+  }
   if (seen > 0 && all.length === 0) {
     throw new Error(
       `${seen} blocks were read across ${countries.length - silent.length} ` +
@@ -675,6 +829,9 @@ async function main() {
       kept: all.length,
       dropped: totals,
       silent,
+      // 🔴 Surfaced, not filtered: see `dropReason`. Today every one of
+      // these is Bulgaria, 72 minutes ahead on a clock.
+      publishedAhead,
       note:
         'The feed is an archive with live warnings in it. Expired, all-clear ' +
         'and green (level 1) records are dropped on every read — the Hub says ' +
