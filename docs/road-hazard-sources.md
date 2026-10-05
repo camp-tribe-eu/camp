@@ -249,8 +249,28 @@ directions, and neither is a superset:
 | Poland | 69, all expired | 69, all expired |
 | Ireland | 68 | 212 |
 
-We take the **JSON API**, because only it carries the NUTS codes we need
-to join a warning to a campsite, and we filter it hard.
+We take the **JSON API** and we filter it hard.
+
+> 🔴 **Correction, 05.10.2026.** This paragraph used to end "because only
+> it carries the NUTS codes we need to join a warning to a campsite".
+> That is wrong, and CAMP-148 measured it against the live API while
+> implementing the fetch:
+>
+> | country | info blocks | geocode scheme |
+> | --- | --- | --- |
+> | Poland | 878 | `EMMA_ID` on all 878 |
+> | Croatia | 110 | `EMMA_ID` |
+> | Slovenia | 8 | **none at all** |
+> | Austria | 0 | — |
+>
+> There is no NUTS code anywhere in it. The areas carry EMMA ids, which
+> are MeteoAlarm's own regions, and some warnings carry no code of any
+> kind — only a free-text `areaDesc`. So the JSON API is still the right
+> choice (the ATOM feed carries no area codes at all), but the reason
+> written here was invented rather than measured, and joining a warning
+> to a campsite is harder than this sentence implied. That join is
+> CAMP-149; the fetch keeps the area name and any polygon the source
+> gives, so nothing is thrown away before we know how to use it.
 
 ### Joining a warning to a campsite is a real piece of work
 
