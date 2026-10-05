@@ -146,6 +146,11 @@ jobs:
       - name: MeteoAlarm filtering
         if: ${{ !cancelled() }}
         run: node scripts/meteoalarm/fetch-warnings.mjs --self-test
+      # CAMP-149. Which geometry source answers which scheme, the NUTS
+      # vintage, and the Irish splits — all pure, no network.
+      - name: Warning area resolution
+        if: ${{ !cancelled() }}
+        run: node scripts/meteoalarm/resolve-areas.mjs --self-test
 
       - name: The fixture still holds what the tests stand on
         run: node scripts/ci/check-fixture-shape.mjs
