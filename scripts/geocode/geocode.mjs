@@ -38,7 +38,24 @@
 // request per second and calls periodic app requests bulk geocoding.
 
 /** What a provider must look like. Nothing here talks to a network. */
-export const PROVIDER_SHAPE = ['name', 'dailyLimit', 'perSecond', 'attribution', 'lookup'];
+/**
+ * What a provider must look like. Nothing here talks to a network.
+ *
+ * 🔴 THIS WAS A LIST OF NAMES CHECKED WITH `!== undefined`, and that let
+ * three things through. `attribution: ''` passed, so an answer reached
+ * the caller with an EMPTY licence line — and that line is a condition
+ * of LocationIQ's free tier, not decoration. `lookup: 'yes'` passed too,
+ * and died at call time with a TypeError instead of at construction.
+ * And the one test guarding it used a fixture missing EVERY field, so
+ * it only ever pinned whichever was checked first: dropping any of the
+ * other three from the list survived.
+ */
+export const PROVIDER_SHAPE = {
+  name: (v) => typeof v === 'string' && v.trim() !== '',
+  dailyLimit: (v) => Number.isInteger(v) && v > 0,
+  attribution: (v) => typeof v === 'string' && v.trim() !== '',
+  lookup: (v) => typeof v === 'function',
+};
 
 /**
  * A key that two spellings of one place agree on.
@@ -50,15 +67,54 @@ export const PROVIDER_SHAPE = ['name', 'dailyLimit', 'perSecond', 'attribution',
  * in three different shapes.
  */
 export function cacheKey(query, country) {
-  const text = String(query ?? '')
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/[‘’ʼ]/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
+  const text = foldCase(query);
   if (!text) throw new Error('an empty query has no answer to cache');
   const where = String(country ?? '').trim().toLowerCase();
-  return where ? `${where}|${text}` : text;
+  // 🔴 The separator is escaped on both sides, or `cacheKey('fr|Paris')`
+  // and `cacheKey('Paris', 'fr')` are one key for two different asks.
+  return `${where.replace(/\|/g, '%7C')}|${text.replace(/\|/g, '%7C')}`;
+}
+
+/**
+ * One place, however it was typed — but only where the DIFFERENCE IS CASE.
+ *
+ * 🔴 WHERE THIS DRAWS THE LINE, AND WHY. Review found five pairs the
+ * first version split: `Straße`/`STRASSE`, `İzmir`/`izmir`,
+ * `Malmö`/`Malmo`, a trailing full stop, and Greek `ΟΔΟΣ`/`οδός`. Four
+ * of those are CASE — German uppercase ß is SS, Turkish dotted İ
+ * lowercases to `i` plus a combining dot, Greek final sigma is a
+ * positional form of the same letter — and `toLowerCase` alone handles
+ * none of them.
+ *
+ * ⚠️ `ΟΔΟΣ`/`οδός` STAYS SPLIT, and that is a decision. Greek
+ * orthography drops the tonos in uppercase, so those two really are one
+ * word — but stripping the tonos generally would merge `πότε` ("when")
+ * with `ποτέ` ("never"), which are different words. One extra provider
+ * call against a wrong answer is not a close contest.
+ *
+ * `Malmö`/`Malmo` is NOT case. It is a different spelling, one letter
+ * short, and folding it would mean two genuinely different places could
+ * share a cache row and the second would be served the first's
+ * coordinates. A split costs one extra provider call; a collision
+ * serves a wrong answer, and this cache exists under a geocoder whose
+ * whole job is being right about where something is. So accents stay.
+ */
+export function foldCase(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    // German sharp s: its uppercase IS "SS", so the two spellings are
+    // one word in two cases.
+    .replace(/\u00df|\u1e9e/g, 'ss')
+    // Greek final sigma is the same letter in a word-final position.
+    .replace(/\u03c2/g, '\u03c3')
+    .toLowerCase()
+    // Turkish dotted capital İ lowercases to "i" + COMBINING DOT ABOVE.
+    .replace(/i\u0307/g, 'i')
+    .replace(/[\u2018\u2019\u02bc]/g, "'")
+    .replace(/\s+/g, ' ')
+    // A trailing full stop or comma is punctuation, not a place.
+    .replace(/^[\s.,;:]+|[\s.,;:]+$/g, '')
+    .trim();
 }
 
 /** A day boundary in UTC, so a quota resets when the provider says. */
@@ -71,8 +127,11 @@ export const dayOf = (when) => new Date(when).toISOString().slice(0, 10);
  * bookkeeping: the provider tells us afterwards, by refusing.
  */
 export function createLedger(initial = {}) {
-  const spent = new Map(Object.entries(initial));
-  const refused = new Map();
+  // Accepts either shape: the old `{key: n}` and the one `snapshot()`
+  // now writes. A ledger restored from the old shape has no refusals to
+  // restore, which is exactly the bug — so it is read, not refused.
+  const spent = new Map(Object.entries(initial.spent ?? initial));
+  const refused = new Map((initial.refused ?? []).map((k) => [k, true]));
   return {
     spentOn(name, day) {
       return spent.get(`${day}|${name}`) ?? 0;
@@ -96,8 +155,15 @@ export function createLedger(initial = {}) {
       }
       return null;
     },
+    /**
+     * 🔴 THIS USED TO EMIT `spent` ALONE, so the only persistence path
+     * silently forgot every refusal: a provider that told us to stop
+     * was asked again the same UTC day after any restart. The refusal is
+     * the MORE important half — it is the provider's own word, where the
+     * count is only our bookkeeping.
+     */
     snapshot() {
-      return Object.fromEntries(spent);
+      return { spent: Object.fromEntries(spent), refused: [...refused.keys()] };
     },
   };
 }
@@ -124,21 +190,47 @@ export function createGeocoder({ providers, cache, ledger = createLedger(), now 
     throw new Error('a geocoder with no provider can only ever answer from cache');
   }
   for (const p of providers) {
-    for (const field of PROVIDER_SHAPE) {
-      if (p?.[field] === undefined) throw new Error(`provider ${p?.name ?? '?'} has no ${field}`);
+    for (const [field, valid] of Object.entries(PROVIDER_SHAPE)) {
+      if (!valid(p?.[field])) {
+        throw new Error(`provider ${typeof p?.name === 'string' ? p.name : '?'} has no usable ${field}`);
+      }
     }
   }
 
+  // 🔴 ONE FLIGHT PER KEY. Without this both of the card's criteria fail
+  // the moment anything runs in parallel, and the first caller is a
+  // batch over 87 505 campsites. Measured before the fix:
+  // `Promise.all` of 8 identical queries asked the provider EIGHT times,
+  // and a daily limit of 2 let TEN parallel queries through — because
+  // the cache read and the quota check both happen before an `await`,
+  // so every caller passes them before any caller has finished.
+  const inFlight = new Map();
+
   return {
     ledger,
-    async geocode(query, { country } = {}) {
+    geocode(query, { country } = {}) {
       const key = cacheKey(query, country);
+      const running = inFlight.get(key);
+      if (running) return running;
+      const flight = this.lookUp(key, query, country).finally(() => inFlight.delete(key));
+      inFlight.set(key, flight);
+      return flight;
+    },
+    async lookUp(key, query, country) {
 
       // 🔴 CACHE FIRST, ALWAYS — before the quota, before the clock. A
       // stored answer costs nothing and must keep working on a day when
       // every provider has refused us.
       const hit = await cache.get(key);
-      if (hit) return { ...hit, from: 'cache' };
+      if (hit) {
+        // 🔴 A row stored before `attribution` existed would hand one
+        // back as `undefined`, which is the same empty licence line by
+        // another route. An answer we cannot attribute is not an answer.
+        if (typeof hit.attribution !== 'string' || hit.attribution.trim() === '') {
+          throw new Error(`cached answer for "${key}" carries no attribution — refusing to serve it`);
+        }
+        return { ...hit, from: 'cache' };
+      }
 
       const day = dayOf(now());
       const reasons = [];
@@ -148,6 +240,12 @@ export function createGeocoder({ providers, cache, ledger = createLedger(), now 
           reasons.push(`${provider.name}: ${why}`);
           continue;
         }
+        // 🔴 CHARGED BEFORE THE CALL, NOT AFTER. Charging afterwards
+        // meant ten parallel queries all read the same spent count and
+        // all passed a limit of two. It is also the truer accounting:
+        // the request leaves us whether or not an answer comes back,
+        // and the provider counts it either way.
+        ledger.charge(provider.name, day);
         let answer;
         try {
           answer = await provider.lookup(query, { country });
@@ -161,7 +259,6 @@ export function createGeocoder({ providers, cache, ledger = createLedger(), now 
           }
           throw err;
         }
-        ledger.charge(provider.name, day);
         if (!answer) {
           reasons.push(`${provider.name}: knows no such place`);
           continue;
@@ -225,7 +322,25 @@ async function selfTest() {
     ok('an empty query is refused rather than cached as nothing', threw);
   }
 
-  ok('a day is a UTC date', dayOf(Date.UTC(2026, 9, 5, 23, 59)) === '2026-10-05');
+  // 🔴 Case folding is not `toLowerCase`.
+  ok('German sharp s folds with its uppercase SS', cacheKey('Straße', 'de') === cacheKey('STRASSE', 'de'));
+  ok('…Turkish dotted İ folds to i', cacheKey('İzmir', 'tr') === cacheKey('izmir', 'tr'));
+  ok('…and a trailing full stop is punctuation, not a place',
+    cacheKey('Camping X.', 'si') === cacheKey('Camping X', 'si'));
+  ok('…a leading comma too', cacheKey(', Camping X', 'si') === cacheKey('Camping X', 'si'));
+  // The deliberate splits: spelling is not case.
+  ok('an accent is a spelling difference, so it stays a different key',
+    cacheKey('Malmö', 'se') !== cacheKey('Malmo', 'se'));
+  ok('…and Greek tonos stays too, because stripping it merges real words',
+    cacheKey('ΟΔΟΣ', 'gr') !== cacheKey('οδός', 'gr'));
+  // 🔴 The separator must not be forgeable from either side.
+  ok('a pipe in the query cannot forge a country',
+    cacheKey('fr|Paris') !== cacheKey('Paris', 'fr'));
+  ok('…nor one in the country', cacheKey('x', 'a|b') !== cacheKey('b|x', 'a'));
+  ok('NFKC is load-bearing: two spellings of one accent are one key',
+    cacheKey('N\u00eemes', 'fr') === cacheKey('Ni\u0302mes', 'fr'));
+
+    ok('a day is a UTC date', dayOf(Date.UTC(2026, 9, 5, 23, 59)) === '2026-10-05');
   ok('…and the next hour is the next day', dayOf(Date.UTC(2026, 9, 6, 0, 1)) === '2026-10-06');
 
   // A provider that counts how often it was actually asked.
@@ -295,6 +410,79 @@ async function selfTest() {
     const third = await g.geocode('three');
     ok('a provider is dropped once its daily limit is spent', third.from === 'beta', third.from);
     ok('…after exactly its allowance, not one fewer', a.asked === 2, String(a.asked));
+  }
+
+  // 🔴 BOTH CRITERIA FAILED UNDER PARALLEL USE, and the first caller is
+  // a batch over 87 505 campsites.
+  {
+    const slow = (name, answer, dailyLimit = 10) => {
+      const p = {
+        name, dailyLimit, perSecond: 5, attribution: `© ${name}`, asked: 0,
+        async lookup() {
+          p.asked += 1;
+          await new Promise((r) => setTimeout(r, 5));
+          return answer;
+        },
+      };
+      return p;
+    };
+    const a = slow('alpha', { lat: 1, lon: 2 });
+    const g = createGeocoder({ providers: [a], cache: memoryCache(), now: () => Date.UTC(2026, 9, 5) });
+    const eight = await Promise.all(Array.from({ length: 8 }, () => g.geocode('Camping Bela Krajina', { country: 'si' })));
+    ok('🔴 eight identical queries at once ask the provider ONCE', a.asked === 1, `asked ${a.asked}`);
+    ok('…and every caller gets the same answer', eight.every((r) => r.lat === 1));
+
+    const b = slow('beta', { lat: 3, lon: 4 }, 2);
+    const c = slow('gamma', { lat: 5, lon: 6 });
+    const g2 = createGeocoder({ providers: [b, c], cache: memoryCache(), now: () => Date.UTC(2026, 9, 5) });
+    await Promise.all(Array.from({ length: 10 }, (_, i) => g2.geocode(`place ${i}`)));
+    ok('🔴 a daily limit of two is not overrun by ten parallel queries', b.asked === 2, `asked ${b.asked}`);
+    ok('…and the rest went to the next provider', c.asked === 8, `asked ${c.asked}`);
+  }
+
+  // 🔴 The ledger's only persistence path dropped every refusal.
+  {
+    const l = createLedger();
+    l.refuse('alpha', '2026-10-05');
+    l.charge('beta', '2026-10-05');
+    const back = createLedger(l.snapshot());
+    ok('a refusal survives a snapshot and a restart', back.hasRefused('alpha', '2026-10-05'));
+    ok('…and so does the count', back.spentOn('beta', '2026-10-05') === 1);
+    ok('…so the refused provider is still blocked after the restart',
+      back.blocked({ name: 'alpha', dailyLimit: 10 }, '2026-10-05') !== null);
+    // 🔴 The suite proved refusals are REMEMBERED; this proves they are
+    // also FORGOTTEN, which keying by name alone would break.
+    ok('…but not on the next day', back.hasRefused('alpha', '2026-10-06') === false);
+  }
+
+  // 🔴 The shape check used one fixture missing every field, so it only
+  // ever pinned whichever was tested first.
+  {
+    const whole = { name: 'p', dailyLimit: 5, perSecond: 1, attribution: '© p', lookup: () => null };
+    const refused = (over) => {
+      try {
+        createGeocoder({ providers: [{ ...whole, ...over }], cache: memoryCache() });
+        return false;
+      } catch { return true; }
+    };
+    ok('a provider with no name is refused', refused({ name: '' }));
+    ok('…with no daily limit is refused', refused({ dailyLimit: 0 }));
+    ok('…with an EMPTY attribution is refused, because that is a licence line',
+      refused({ attribution: '  ' }));
+    ok('…with a lookup that is not a function is refused at construction',
+      refused({ lookup: 'yes' }));
+    ok('…while a complete one is accepted', !refused({}));
+  }
+
+  // 🔴 A cache row written before attribution existed must not pass one
+  // through as undefined.
+  {
+    const a = { name: 'alpha', dailyLimit: 5, perSecond: 1, attribution: '© a', lookup: async () => ({ lat: 1, lon: 1 }) };
+    const stale = memoryCache({ 'si|old place': { lat: 1, lon: 2, provider: 'alpha' } });
+    const g = createGeocoder({ providers: [a], cache: stale, now: () => Date.UTC(2026, 9, 5) });
+    let threw = null;
+    try { await g.geocode('Old place', { country: 'si' }); } catch (e) { threw = e; }
+    ok('an unattributed cache row is refused, not served', /attribution/.test(threw?.message ?? ''), String(threw));
   }
 
   // 🔴 A cached answer must survive a day when nobody will talk to us.
