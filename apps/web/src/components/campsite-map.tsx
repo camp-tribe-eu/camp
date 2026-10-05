@@ -273,9 +273,29 @@ function clearRegions(m: InstanceType<typeof MapLibreMap>) {
  * The features are NOT thrown away, only un-drawn: `everything.current`
  * still holds them, so zooming back in costs no fetch.
  */
-function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
+/**
+ * How many campsite features we last put into the source.
+ *
+ * 🔴 WHAT WE PUT THERE, not what MapLibre holds. Reading the source's
+ * private `_data` would be reading their internals; this is our own
+ * statement, written by the only three places that call `setData` on
+ * this source, and it is what lets a failure say which of two things
+ * went wrong — see `publishRendered`.
+ */
+let sourceFeatures = 0;
+
+export function setCampsiteFeatures(
+  m: InstanceType<typeof MapLibreMap>,
+  features: GeoJSON.Feature[],
+): void {
   const source = m.getSource(SOURCE_ID) as GeoJSONSource | undefined;
-  source?.setData({ type: 'FeatureCollection', features: [] });
+  if (!source) return;
+  source.setData({ type: 'FeatureCollection', features });
+  sourceFeatures = features.length;
+}
+
+function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
+  setCampsiteFeatures(m, []);
 }
 
 /**
@@ -900,6 +920,18 @@ export default function CampsiteMap() {
       // one `getLayer` per idle and it is the difference between a
       // diagnosis and a guess.
       el.dataset.regionLayer = m.getLayer(REGION_CIRCLE) ? 'on' : 'off';
+
+      // 🔴 WHAT THE SOURCE HOLDS, beside what the screen shows — and the
+      // two are different questions that have looked identical for three
+      // CI rounds.
+      //
+      // `map-filters.spec.ts:918` keeps reading 2 points and 3 clusters
+      // in a view where `hideMarkers` has emptied the campsite source.
+      // That has exactly two causes and no test can tell them apart:
+      // the source was never emptied (or was refilled), or it was
+      // emptied and nothing republished the counts afterwards. Guessing
+      // between them has cost three runs, which is two more than asking.
+      el.dataset.sourceFeatures = String(sourceFeatures);
 
       // CAMP-35: how many campsites the bubbles claim to contain, plus
       // the ones drawn individually.
@@ -1563,13 +1595,10 @@ export default function CampsiteMap() {
     const { shown, unknownExcluded } = applyFilters(all, state);
     drawn.current = shown;
 
-    const source = map.current?.getSource(SOURCE_ID) as
-      | GeoJSONSource
-      | undefined;
     // 🔴 The map is fed EVERYTHING that matches, not only what is on
     // screen. Chunks are kept, so a pan inside the loaded area must not
     // wait for a re-filter to put markers back.
-    source?.setData({ type: 'FeatureCollection', features: shown });
+    if (map.current) setCampsiteFeatures(map.current, shown);
 
     // 🔴 CAMP-133: what the panel says is about the VISIBLE AREA.
     //

@@ -974,7 +974,12 @@ test.describe('/map filters', () => {
     await expect
       .poll(
         async () =>
-          `${await map(page).getAttribute('data-visible-points')}/${await map(page).getAttribute('data-visible-clusters')}`,
+          // 🔴 The source's own count travels with the rendered one, so
+          // a failure says WHICH of the two it is: `src=0` with points
+          // on screen is a stale publish; `src=N` is a source that was
+          // never emptied. Three runs were spent guessing between them.
+          `${await map(page).getAttribute('data-visible-points')}/${await map(page).getAttribute('data-visible-clusters')}` +
+            ` (src=${await map(page).getAttribute('data-source-features')})`,
         {
           timeout: 20_000,
           message:
@@ -982,7 +987,7 @@ test.describe('/map filters', () => {
             'detail are still counted as on screen',
         },
       )
-      .toBe('0/0');
+      .toBe('0/0 (src=0)');
     const settled = await publishedView(page);
     expect(
       settled.bounds,
