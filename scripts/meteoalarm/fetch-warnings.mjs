@@ -348,6 +348,14 @@ function selfTest() {
     warnings: [{ alert: { identifier: 'X', ...alertOver, info: infos } }],
   });
 
+  // 🔴 Review found this filter removable with a green suite.
+  ok('a geocode with no value is not a code',
+    areasOf({ area: [{ areaDesc: 'A', geocode: [{ valueName: 'EMMA_ID' }] }] })[0].codes.length === 0);
+  ok('…nor is one with no scheme',
+    areasOf({ area: [{ areaDesc: 'A', geocode: [{ value: 'X1' }] }] })[0].codes.length === 0);
+  ok('…while a complete one is',
+    areasOf({ area: [{ areaDesc: 'A', geocode: [{ valueName: 'EMMA_ID', value: 'X1' }] }] })[0].codes.join() === 'EMMA_ID:X1');
+
   ok('`"3; orange; Severe"` is a level of 3, not a string', awareness('3; orange; Severe').code === 3);
   ok('…and its label survives', awareness('4; Fog').label === 'Fog');
   ok('a value that is not that shape yields null, not NaN', awareness('Fog').code === null);
@@ -682,8 +690,54 @@ function selfTest() {
     }
     ok('row.areas carries the area name', row?.areas?.[0]?.name === 'AREA');
     ok('…and its code, scheme first', row?.areas?.[0]?.codes?.join() === 'SCHEME:CODE');
+    // 🔴 The key-set guard below was top-level only: review added a
+    // field to every area entry and the suite stayed green.
+    ok('an area entry has exactly the fields this test names',
+      Object.keys(row?.areas?.[0] ?? {}).sort().join() === 'circle,codes,name,polygon',
+      Object.keys(row?.areas?.[0] ?? {}).sort().join());
     // Anything added to the row later must be added here too, or this
     // fails — which is the point.
+    // 🔴 AND THE SECOND HALF, WHICH THE FIRST VERSION LACKED. Giving
+    // every field a value means the right-hand side of a `??` is never
+    // reached, so a fallback ADDED later survives: review proved
+    // `headline: info.headline ?? info.event` passes 123/123 while
+    // changing 6 of 413 published rows on the live feeds — 147 of 5 154
+    // blocks carry no headline. Swaps were caught; borrowing was not.
+    // Each field is now also removed in turn and must read `null`.
+    const source = {
+      headline: 'HEADLINE',
+      description: 'DESCRIPTION',
+      instruction: 'INSTRUCTION',
+      onset: '2026-10-05T18:00:00Z',
+      effective: '2026-10-05T09:00:00Z',
+      senderName: 'SENDER-NAME',
+      language: 'LANGUAGE',
+    };
+    for (const field of Object.keys(source)) {
+      const row = Object.fromEntries(Object.entries(source).filter(([k]) => k !== field));
+      const got = warningsFrom(
+        feed([{ ...block(), ...row, [field]: undefined }], { sender: 'ALERT-SENDER' }),
+        'x',
+        NOW,
+      ).kept[0];
+      const seen = field === 'senderName' ? got?.sender : got?.[field];
+      ok(`a missing ${field} reads null, never borrowed from a neighbour`, seen === null, JSON.stringify(seen));
+    }
+    // The alert-level sender is absent in its own case, since the loop
+    // above only removes fields from the `info` block.
+    const noAlertSender = warningsFrom(feed([block({ senderName: 'NAME' })]), 'x', NOW).kept[0];
+    ok('a missing alert sender reads null, never borrowed from senderName',
+      noAlertSender?.senderId === null, JSON.stringify(noAlertSender?.senderId));
+    ok('…while the readable name is still reported', noAlertSender?.sender === 'NAME');
+
+    // `event` is the one deliberate fallback: `dropReason` admits a block
+    // that has a headline and no event, so the row must still say what
+    // the hazard is. That makes it reachable, and it is tested.
+    const headlineOnly = warningsFrom(feed([block({ event: undefined })]), 'x', NOW).kept[0];
+    ok('an event-less block takes its event from the headline', headlineOnly?.event === 'Fog warning');
+    ok('…and a block with neither is dropped, not published blank',
+      warningsFrom(feed([block({ event: undefined, headline: undefined })]), 'x', NOW).counts.unusable === 1);
+
     ok('the row has exactly the fields this test names',
       Object.keys(row ?? {}).sort().join() === ['id', 'areas', ...Object.keys(expected)].sort().join(),
       Object.keys(row ?? {}).sort().join());
@@ -969,6 +1023,16 @@ export function census(payloads) {
  * their own — 6 < 7 and 6 < 7 — while twelve of twenty-seven
  * contributed nothing and the file was written. A country missing is
  * missing however it went.
+ *
+ * ⚠️ THE HEADROOM IS DELIBERATE AND IT IS TIGHT. Four countries answer
+ * empty every day, so this leaves room for two transport failures of 27
+ * before a run refuses to publish at all. Review asked whether three
+ * flaky feeds is a legitimate day. The answer here is to ask each feed
+ * twice (see the fetch loop) rather than to raise the number, because
+ * raising it reinstates exactly the hole this function was written for:
+ * six erroring plus six empty cleared two separate thresholds and
+ * published anyway. Refusing to publish is recoverable; publishing a
+ * third of Europe as calm is not.
  */
 export function tooMuchMissing(silent, quiet, asked) {
   return silent.length + quiet.length >= Math.ceil(asked / 4);
@@ -1020,16 +1084,30 @@ async function main() {
 
   for (const country of countries) {
     await sleep(PAUSE_MS);
+    // 🔴 ASKED TWICE BEFORE BEING CALLED SILENT. Review pointed out that
+    // four countries answer empty every single day, so the combined
+    // loss guard leaves room for only two transport failures before the
+    // whole run aborts — and there was no retry at all. Loosening the
+    // guard would reinstate the hole it was written for; a flaky feed
+    // is better answered by asking again. A second attempt costs one
+    // pause and only happens when the first fails.
     let payload;
-    try {
-      const res = await fetch(feedUrl(country));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      payload = await res.json();
-    } catch (err) {
+    let lastError;
+    for (let attempt = 0; attempt < 2 && payload === undefined; attempt += 1) {
+      if (attempt > 0) await sleep(PAUSE_MS * 2);
+      try {
+        const res = await fetch(feedUrl(country));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        payload = await res.json();
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (payload === undefined) {
       // 🔴 One country failing is not the run failing, but it is not
       // silence either: a country that answers nothing and a country
       // that errors must not look the same in the output.
-      console.log(`  ${country}: ${String(err.message).slice(0, 60)}`);
+      console.log(`  ${country}: ${String(lastError?.message).slice(0, 60)} (asked twice)`);
       silent.push(country);
       continue;
     }
