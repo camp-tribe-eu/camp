@@ -34,6 +34,8 @@
 // thing that would report it is the thing that stopped.
 
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 const DAY_MS = 86_400_000;
 
@@ -92,6 +94,24 @@ export const WATCHED = [
     graceDays: 1,
     since: '2026-09-27',
     why: 'nothing is asking the questions that only have answers on 61 557 campsites: the six defects of 25.09.2026 were all green on the fixture, and a scale check that has quietly stopped leaves us there while looking covered',
+  },
+  {
+    // 🔴 CAMP-149. This one watches a NOMENCLATURE, which is the slowest
+    // and quietest thing we depend on.
+    //
+    // The warning join resolves codes against geometry pinned to the
+    // NUTS 2013 vintage, because that is what the feed uses — measured:
+    // against the current file, 8 of France's 82 codes resolve. When
+    // Europe revises the nomenclature again, nothing errors. Coverage
+    // simply falls, those warnings stop appearing on campsite pages,
+    // and the only thing that would have noticed is this weekly run.
+    //
+    // So a job that watches for silence must not itself go silent.
+    workflow: 'warning-geography.yml',
+    everyDays: 7,
+    graceDays: 2,
+    since: '2026-10-05',
+    why: 'the warning join is measured against a pinned NUTS vintage and three outside sources; when a nomenclature moves, coverage falls quietly and warnings stop reaching campsite pages with nothing to say so',
   },
 ];
 
@@ -422,6 +442,28 @@ for (const w of WATCHED) {
   try {
     runsByWorkflow[w.workflow] = fetchRuns(w.workflow);
   } catch (err) {
+    // 🔴 "NOT LANDED YET" IS NOT "GONE QUIET", and the guard could not
+    // tell them apart.
+    //
+    // A scheduled workflow is registered here in the same pull request
+    // that adds it — the only moment the registration can be reviewed
+    // beside the job it watches. But GitHub answers 404 for a workflow
+    // that is not on the DEFAULT branch yet, so the guard failed every
+    // such pull request, and the way round that is to register the job
+    // afterwards. That is how jobs end up unwatched.
+    //
+    // A 404 for a workflow whose file exists in this checkout means one
+    // thing: it is on its way in. Anything else — API down, token wrong
+    // — still fails, because then we genuinely do not know.
+    const notLandedYet =
+      /HTTP 404/.test(String(err.message)) &&
+      existsSync(join('.github', 'workflows', w.workflow));
+    if (notLandedYet) {
+      console.log(
+        `· ${w.workflow}: not on the default branch yet — registered here, watched once merged`,
+      );
+      continue;
+    }
     // 🔴 A guard that cannot run must fail, not pass. If the API is
     // unreachable we do not know whether the job is quiet, and "we do
     // not know" is not "everything is fine".
