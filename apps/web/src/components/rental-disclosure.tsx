@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Link from "next/link";
 
 // CAMP-4 — the commercial disclosure, in the template rather than in the
 // footer, and on every page of this section from its first day.
@@ -36,31 +36,31 @@ export default function RentalDisclosure({ offers }: { offers: number }) {
         How this page is paid for
       </h2>
       {offers > 0 ? (
-        <p className="mt-2 max-w-prose text-sm leading-6 text-ink-2">
+        <p className="mt-2 max-w-prose text-sm leading-6 text-ink">
           <strong className="text-heading">
             Some links on this page are affiliate links.
-          </strong>{' '}
+          </strong>{" "}
           If you book through one, the provider may pay us a commission. It
           costs you nothing, it does not change the price, and it does not
           change anything else on this page — commission buys no place in our
           listings and no sentence in our writing. Every such link is marked
-          before you click it.{' '}
+          before you click it.{" "}
           <Link href="/legal/terms#links" className="underline">
             How this works
           </Link>
           .
         </p>
       ) : (
-        <p className="mt-2 max-w-prose text-sm leading-6 text-ink-2">
+        <p className="mt-2 max-w-prose text-sm leading-6 text-ink">
           <strong className="text-heading">
             There are no affiliate links on this page yet.
-          </strong>{' '}
-          Camper rental commission is how this site is meant to pay for
-          itself, and we would rather say so than let you find out. We have
-          no rental partner at the moment, so there is nothing here earning
-          us anything — and nothing on this page has been written to make an
-          offer look good. When that changes, every commission link will be
-          marked as one before you click it.{' '}
+          </strong>{" "}
+          Camper rental commission is how this site is meant to pay for itself,
+          and we would rather say so than let you find out. We have no rental
+          partner at the moment, so there is nothing here earning us anything —
+          and nothing on this page has been written to make an offer look good.
+          When that changes, every commission link will be marked as one before
+          you click it.{" "}
           <Link href="/legal/terms#links" className="underline">
             How this works
           </Link>

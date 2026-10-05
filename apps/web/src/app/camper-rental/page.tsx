@@ -1,19 +1,19 @@
-import type { Metadata } from 'next';
-import Link from 'next/link';
-import RentalChecklist from '@/components/rental-checklist';
-import RentalDisclosure from '@/components/rental-disclosure';
-import RentalOfferSlot from '@/components/rental-offer-slot';
-import { RentalShapes, RentalThresholds } from '@/components/rental-thresholds';
-import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
-import { alternatesFor } from '@/lib/i18n';
-import { longDate } from '@/lib/fuel';
+import type { Metadata } from "next";
+import Link from "next/link";
+import RentalChecklist from "@/components/rental-checklist";
+import RentalDisclosure from "@/components/rental-disclosure";
+import RentalOfferSlot from "@/components/rental-offer-slot";
+import { RentalShapes, RentalThresholds } from "@/components/rental-thresholds";
+import { abs, collectionGraph, jsonLdProps } from "@/lib/jsonld";
+import { alternatesFor } from "@/lib/i18n";
+import { longDate } from "@/lib/fuel";
 import {
   count,
   MEASURED,
   inProse,
   publishableCountries,
   rentalOffers,
-} from '@/lib/rental';
+} from "@/lib/rental";
 
 // CAMP-4 / CAMP-54 — the camper rental landing page.
 //
@@ -34,26 +34,82 @@ import {
 // that decide the bill. That is also the part that does not go stale and
 // does not need a partner's cooperation to write.
 
+/**
+ * The five questions the mockup asks, answered only from what this
+ * repository already holds.
+ *
+ * 🔴 WHY THE MARKUP IS HERE AT ALL, since it will not earn a star.
+ * Google withdrew FAQ rich results for almost every site in 2023, and
+ * `08-rental.html` says so in as many words. This is not for the snippet
+ * — it is for the readers who are actually our traffic: crawlers and
+ * assistants, which quote a structured answer and cannot quote a
+ * paragraph they had to infer. Anyone tempted to delete this block
+ * because "the stars never came" should read this sentence first.
+ *
+ * 🔴 Every answer is lifted from data in this repo with its source
+ * attached — THRESHOLDS, SHAPES and the hire checklist — rather than
+ * written fresh. FAQPage markup on invented answers is the fastest way
+ * to teach an assistant to quote us wrongly, and it is the one mistake
+ * here that would be repeated at scale rather than seen once.
+ */
+function faq() {
+  return [
+    {
+      q: "Is an ordinary category B licence enough to hire a motorhome?",
+      a: "Up to a maximum authorised mass of 3 500 kg, yes. Above it you need C1, which is a separate test — not an endorsement you can arrange at the counter. The figure that matters is the plated MAM on the contract, meaning the loaded weight the vehicle is approved for, not what it weighs empty. The line is drawn by Directive 2006/126/EC on driving licences, Article 4(4).",
+    },
+    {
+      q: "What if it is a caravan rather than a motorhome?",
+      a: "Then the licence question is about the combination, not about either vehicle. A B licence tows a trailer up to 750 kg outright; heavier combinations depend on the total and may require the code 96 training or a BE licence. The same directive sets the arithmetic.",
+    },
+    {
+      q: "Why are there no prices on this page?",
+      a: "Because we hold none. We link to the companies that rent campers rather than mirroring their prices: a number copied here is stale the week after, and a stale price presented as current is misleading under the Unfair Commercial Practices Directive rather than merely unhelpful. The same rule is why our trip cost calculator prices fuel from the European Commission bulletin, dated, and asks you for the campsite fee.",
+    },
+    {
+      q: "How does CampTribe make money from this?",
+      a: "The intention is commission on bookings made through partner links. Today there are no partner links on this site at all — the affiliate applications are open and unanswered — so this page earns nothing. When that changes, the disclosure sits beside the link rather than in the footer, and what is paid for will never be the order things appear in.",
+    },
+    {
+      q: "What most often costs more than expected at the counter?",
+      a: "Four things, in roughly that order: the insurance excess, which the headline damage waiver rarely takes to zero and which commonly excludes the roof, the awning, the tyres and the underside; one-way fees, quoted after the rest of the booking is agreed; a mileage cap that looked generous for one country and is not for a loop through four; and camera-enforced charges — Italian limited traffic zones, the Dublin M50, Swedish congestion tax — which reach the rental company as registered keeper and are passed on with an administration fee.",
+    },
+  ];
+}
+
 export const metadata: Metadata = {
-  title: 'Renting a camper in the EU',
+  title: "Renting a camper in the EU",
   description:
-    'What a camper hire in the European Union actually commits you to: the 3.5 tonne licence line, toll classes set by height, payload, cross-border rules and the questions that decide the bill. No prices, because we hold none.',
-  alternates: alternatesFor('/camper-rental'),
+    "What a camper hire in the European Union actually commits you to: the 3.5 tonne licence line, toll classes set by height, payload, cross-border rules and the questions that decide the bill. No prices, because we hold none.",
+  alternates: alternatesFor("/camper-rental"),
 };
 
 export default function CamperRentalHub() {
   const countries = publishableCountries();
-  const offers = rentalOffers('hub');
+  const offers = rentalOffers("hub");
+  const questions = faq();
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
       <script
+        {...jsonLdProps({
+          "@context": "https://schema.org",
+          "@type": "FAQPage",
+          "@id": `${abs("/camper-rental")}#faq`,
+          mainEntity: questions.map((f) => ({
+            "@type": "Question",
+            name: f.q,
+            acceptedAnswer: { "@type": "Answer", text: f.a },
+          })),
+        })}
+      />
+      <script
         {...jsonLdProps(
           collectionGraph({
-            name: 'Renting a camper in the EU',
+            name: "Renting a camper in the EU",
             description:
-              'Licence classes, vehicle dimensions, tolls, insurance and cross-border rules for hiring a camper in the European Union, with country pages for twelve member states.',
-            path: '/camper-rental',
+              "Licence classes, vehicle dimensions, tolls, insurance and cross-border rules for hiring a camper in the European Union, with country pages for twelve member states.",
+            path: "/camper-rental",
             items: countries.map((c) => ({
               name: `Renting a camper in ${inProse(c)}`,
               path: `/camper-rental/${c.code}`,
@@ -67,25 +123,25 @@ export default function CamperRentalHub() {
       </h1>
 
       <p className="mt-4 max-w-prose text-ink-2">
-        This page is about the things that are decided before you drive
-        away: which licence covers the vehicle, what it is allowed to weigh
-        once loaded, what it costs to take on a motorway, and what the
-        contract has quietly made your problem. Those answers differ across
-        the twenty-seven member states and they are not collected anywhere
-        in one piece, which is the only reason this page exists.
+        This page is about the things that are decided before you drive away:
+        which licence covers the vehicle, what it is allowed to weigh once
+        loaded, what it costs to take on a motorway, and what the contract has
+        quietly made your problem. Those answers differ across the twenty-seven
+        member states and they are not collected anywhere in one piece, which is
+        the only reason this page exists.
       </p>
 
       <p className="mt-4 max-w-prose text-ink-2">
         <strong className="text-ink">
           There are no prices and no vehicles here.
-        </strong>{' '}
-        We hold no rental inventory, we have no partner, and we are not
-        going to invent a fleet to look busier than we are. Every number on
-        these pages is either a count of our own{' '}
-        {count(MEASURED.total.spots)} campsite records — measured on{' '}
+        </strong>{" "}
+        We hold no rental inventory, we have no partner, and we are not going to
+        invent a fleet to look busier than we are. Every number on these pages
+        is either a count of our own {count(MEASURED.total.spots)} campsite
+        records — measured on{" "}
         <time dateTime={MEASURED.measuredAt}>
           {longDate(MEASURED.measuredAt)}
-        </time>{' '}
+        </time>{" "}
         — or a limit somebody with the authority to set it wrote down, cited
         where it appears.
       </p>
@@ -99,53 +155,50 @@ export default function CamperRentalHub() {
         aria-labelledby="mass-line-heading"
         className="mt-12 rounded-card border border-line-blue bg-accent-surface p-6"
       >
-        <h2
-          id="mass-line-heading"
-          className="text-2xl font-bold text-heading"
-        >
+        <h2 id="mass-line-heading" className="text-2xl font-bold text-heading">
           Almost everything changes at 3 500 kg
         </h2>
         <p className="mt-3 max-w-prose text-ink-2">
-          If you read one thing on this page, read this. A single number —
-          the maximum authorised mass stamped on the vehicle — decides four
-          separate things at once, and they are administered by four
-          different sets of people who will not warn you about each other.
-          We went and read each of them.
+          If you read one thing on this page, read this. A single number — the
+          maximum authorised mass stamped on the vehicle — decides four separate
+          things at once, and they are administered by four different sets of
+          people who will not warn you about each other. We went and read each
+          of them.
         </p>
         <ul className="mt-4 max-w-prose list-disc space-y-3 pl-5 text-ink-2">
           <li>
             <strong className="text-ink">Your licence.</strong> Category B
-            covers motor vehicles up to 3 500 kg. Above that you need C1,
-            which is a separate medical and a separate test — not something
-            a rental desk can arrange on the morning of the hire.
+            covers motor vehicles up to 3 500 kg. Above that you need C1, which
+            is a separate medical and a separate test — not something a rental
+            desk can arrange on the morning of the hire.
           </li>
           <li>
-            <strong className="text-ink">Your tolls.</strong> ASFINAG sells
-            the Austrian vignette to &ldquo;cars, motorbikes and camper vans
-            up to 3.5 tons&rdquo;; DARS sells the Slovenian e-vignette for
-            vehicles up to 3 500 kilograms. Above that neither exists and
-            the vehicle belongs in the distance-based systems built for
-            lorries, with an on-board unit obtained in advance. Even the
-            newest Dutch toll, on a four-kilometre link outside Rotterdam,
-            draws its tariff at the same line and names campers in it.
+            <strong className="text-ink">Your tolls.</strong> ASFINAG sells the
+            Austrian vignette to &ldquo;cars, motorbikes and camper vans up to
+            3.5 tons&rdquo;; DARS sells the Slovenian e-vignette for vehicles up
+            to 3 500 kilograms. Above that neither exists and the vehicle
+            belongs in the distance-based systems built for lorries, with an
+            on-board unit obtained in advance. Even the newest Dutch toll, on a
+            four-kilometre link outside Rotterdam, draws its tariff at the same
+            line and names campers in it.
           </li>
           <li>
-            <strong className="text-ink">Your winter equipment.</strong>{' '}
-            Sweden asks vehicles up to 3.5 t for winter tyres from 1
-            December to 31 March when conditions demand, and heavier ones
-            from 10 November to 10 April whatever the weather. Austria and
-            Slovenia draw the same line for what has to be fitted where.
+            <strong className="text-ink">Your winter equipment.</strong> Sweden
+            asks vehicles up to 3.5 t for winter tyres from 1 December to 31
+            March when conditions demand, and heavier ones from 10 November to
+            10 April whatever the weather. Austria and Slovenia draw the same
+            line for what has to be fitted where.
           </li>
           <li>
             <strong className="text-ink">Your payload.</strong> The mass in
-            running order of a motor caravan already counts a 75 kg driver
-            and a nearly full fuel tank. What is left between that and 3 500
-            kg is everything else you intend to carry — and fresh water
-            weighs a kilogram a litre, so a full tank can be a third of it.
+            running order of a motor caravan already counts a 75 kg driver and a
+            nearly full fuel tank. What is left between that and 3 500 kg is
+            everything else you intend to carry — and fresh water weighs a
+            kilogram a litre, so a full tank can be a third of it.
           </li>
         </ul>
         <p className="mt-4 max-w-prose text-sm leading-6 text-ink-2">
-          Sources:{' '}
+          Sources:{" "}
           <a
             className="underline"
             href="https://eur-lex.europa.eu/eli/dir/2006/126/oj"
@@ -153,8 +206,8 @@ export default function CamperRentalHub() {
             target="_blank"
           >
             Directive 2006/126/EC on driving licences, Article 4(4)
-          </a>{' '}
-          and{' '}
+          </a>{" "}
+          and{" "}
           <a
             className="underline"
             href="https://eur-lex.europa.eu/eli/reg/2012/1230/oj"
@@ -187,13 +240,12 @@ export default function CamperRentalHub() {
               the same argument CAMP-130 made against publishing 951
               templated guides. A reader is entitled to know whether they
               are looking at a considered list or a generated one. */}
-          Not two hundred city pages. A page is here because there are
-          things true of that country and not of its neighbour — a toll
-          system, a winter rule, a law about where you may sleep — and
-          because our own campsite records say something about it that they
-          do not say about anywhere else. Countries where we could not meet
-          both tests do not have a page, and would rather not have a thin
-          one.
+          Not two hundred city pages. A page is here because there are things
+          true of that country and not of its neighbour — a toll system, a
+          winter rule, a law about where you may sleep — and because our own
+          campsite records say something about it that they do not say about
+          anywhere else. Countries where we could not meet both tests do not
+          have a page, and would rather not have a thin one.
         </p>
 
         <ul className="mt-6 grid gap-4 md:grid-cols-2">
@@ -226,24 +278,44 @@ export default function CamperRentalHub() {
           What this section does not have yet, and why
         </h2>
         <p className="mt-3 max-w-prose text-ink-2">
-          No prices, no availability, no vehicle listings and no partners.
-          The affiliate applications are open and unanswered, and until they
-          are answered there is nothing to show — so the slot above stays
-          empty rather than being filled with something that looks like an
-          offer.
+          No prices, no availability, no vehicle listings and no partners. The
+          affiliate applications are open and unanswered, and until they are
+          answered there is nothing to show — so the slot above stays empty
+          rather than being filled with something that looks like an offer.
         </p>
         <p className="mt-3 max-w-prose text-ink-2">
           When there are partners, they will arrive as plain links in this
           writing, not as a synchronised feed of somebody else&rsquo;s
           inventory. That is an architecture decision rather than a stage:
-          mirroring a partner&rsquo;s prices means publishing numbers that
-          are stale the week after, and it is the same reason{' '}
+          mirroring a partner&rsquo;s prices means publishing numbers that are
+          stale the week after, and it is the same reason{" "}
           <Link className="underline" href="/tools/camper-trip-cost">
             the trip cost calculator
-          </Link>{' '}
-          prices fuel from the European Commission and asks you for the
-          campsite fee.
+          </Link>{" "}
+          prices fuel from the European Commission and asks you for the campsite
+          fee.
         </p>
+      </section>
+
+      <section
+        aria-labelledby="faq-heading"
+        className="mt-12 border-t border-line-2 pt-8"
+      >
+        <h2 id="faq-heading" className="text-xl font-semibold text-heading">
+          Questions people ask before they book
+        </h2>
+        {/* 🔴 <dl>, not a details/summary accordion. A closed <details> is
+            text a crawler reads but a reader has to hunt for, and the
+            whole point of this block is that the answer is THERE — in the
+            HTML, on first paint, without JavaScript. */}
+        <dl className="mt-4 max-w-prose">
+          {questions.map((f) => (
+            <div key={f.q} className="mt-5 first:mt-0">
+              <dt className="font-semibold text-ink">{f.q}</dt>
+              <dd className="mt-1 text-ink-2">{f.a}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
     </main>
   );
