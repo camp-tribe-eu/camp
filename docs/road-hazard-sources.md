@@ -251,26 +251,30 @@ directions, and neither is a superset:
 
 We take the **JSON API** and we filter it hard.
 
-> 🔴 **Correction, 05.10.2026.** This paragraph used to end "because only
-> it carries the NUTS codes we need to join a warning to a campsite".
-> That is wrong, and CAMP-148 measured it against the live API while
-> implementing the fetch:
+> 🔴 **Correction, 05.10.2026 — and the first correction was wrong too.**
 >
-> | country | info blocks | geocode scheme |
+> This paragraph used to end "because only it carries the NUTS codes we
+> need to join a warning to a campsite". I measured four countries,
+> found `EMMA_ID` in all of them, and replaced it with "there is no NUTS
+> code anywhere in it". Review measured **eleven** and that is false as
+> well: I had corrected a generalisation with a generalisation, drawn
+> from a sample one country wider.
+>
+> | scheme | blocks | where |
 > | --- | --- | --- |
-> | Poland | 878 | `EMMA_ID` on all 878 |
-> | Croatia | 110 | `EMMA_ID` |
-> | Slovenia | 8 | **none at all** |
-> | Austria | 0 | — |
+> | `EMMA_ID` | 22 194 | most member states |
+> | `WARNCELLID` | 5 608 | Germany, alongside `EMMA_ID` |
+> | `NUTS3` | 2 554 | France — which carries **no** `EMMA_ID` at all |
+> | `FIPS` | 393 | Ireland — likewise none |
+> | *(none)* | — | Slovenia: eight blocks with only `areaDesc` |
 >
-> There is no NUTS code anywhere in it. The areas carry EMMA ids, which
-> are MeteoAlarm's own regions, and some warnings carry no code of any
-> kind — only a free-text `areaDesc`. So the JSON API is still the right
-> choice (the ATOM feed carries no area codes at all), but the reason
-> written here was invented rather than measured, and joining a warning
-> to a campsite is harder than this sentence implied. That join is
-> CAMP-149; the fetch keeps the area name and any polygon the source
-> gives, so nothing is thrown away before we know how to use it.
+> So: four schemes, differing by country, and some warnings with no code
+> at all. The JSON API is still the right choice — the ATOM feed carries
+> no area codes whatsoever — but the reason written here twice was
+> invented both times, and joining a warning to a campsite is harder
+> than either version implied. That join is CAMP-149. The fetch keeps
+> every `SCHEME:VALUE` pair, the free-text `areaDesc` and any polygon,
+> precisely because we do not yet know which of them we will need.
 
 ### Joining a warning to a campsite is a real piece of work
 

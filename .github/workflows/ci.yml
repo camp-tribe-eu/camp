@@ -138,6 +138,15 @@ jobs:
       - name: Fixture-shape guard still catches a missing subject
         run: node scripts/ci/check-fixture-shape.mjs --self-test
 
+      # CAMP-148. The feed is an archive with live warnings in it, and
+      # the provider says the opposite in writing. Pure: no network, no
+      # database, no build — so it belongs here and not behind the site
+      # build, where it was first put and where a build failure would
+      # skip it entirely.
+      - name: MeteoAlarm filtering
+        if: ${{ !cancelled() }}
+        run: node scripts/meteoalarm/fetch-warnings.mjs --self-test
+
       - name: The fixture still holds what the tests stand on
         run: node scripts/ci/check-fixture-shape.mjs
 
@@ -347,11 +356,6 @@ jobs:
       # it does not go red, it goes green over text nobody compared. The
       # version this replaced could not match `</h2>`, so a marked
       # heading swallowed the paragraph after it.
-      # CAMP-148. The feed is an archive with live warnings in it, and the
-      # provider says the opposite in writing. No network needed.
-      - name: MeteoAlarm filtering
-        run: node scripts/meteoalarm/fetch-warnings.mjs --self-test
-
       - name: The boilerplate rule itself
         run: node scripts/seo/check-duplicate-pages.mjs --self-test
 

@@ -19,21 +19,31 @@
 // `expires` has passed, anything answering `AllClear`, and anything at
 // awareness level 1 — green is the absence of a warning, not a warning.
 //
-// 🔴 AND THE CARD'S REASON FOR CHOOSING THIS API IS WRONG.
+// 🔴 AND THE CARD'S REASON FOR CHOOSING THIS API IS WRONG — AS WAS MY
+// FIRST CORRECTION OF IT.
 //
-// CAMP-148 and `docs/road-hazard-sources.md` §1 both say the JSON API is
-// taken "because only it carries the NUTS codes we need to attach a
-// warning to a campsite". Measured above: every geocode in all four
-// countries is `EMMA_ID`, not NUTS — 878 of 878 in Poland — and
-// Slovenia's eight blocks carry no geocode at all. So the codes are
-// EMMA ids, some warnings have no code of any kind, and attaching them
-// to a campsite is a harder problem than the card assumed. That is
-// CAMP-149's subject; what this script must do is keep what the source
-// actually gives, including the bare `areaDesc`, rather than throw away
-// a warning because it is not shaped the way we expected.
+// CAMP-148 said the JSON API is taken "because only it carries the NUTS
+// codes we need". I measured four countries, found `EMMA_ID` in all of
+// them, and wrote "there is no NUTS code anywhere in it". Review
+// measured ELEVEN and that is false too — I had corrected a
+// generalisation with a generalisation, from a sample one country
+// wider:
+//
+//   EMMA_ID      22 194   most countries
+//   WARNCELLID    5 608   Germany, alongside EMMA_ID
+//   NUTS3         2 554   France — and France has NO EmMA_ID at all
+//   FIPS            393   Ireland — likewise none
+//
+// So there are four schemes, they differ by country, and some warnings
+// (Slovenia) carry no code at all. That makes CAMP-149 harder than
+// either version of this paragraph claimed, and it is the reason this
+// script keeps whatever the source gives — every `SCHEME:VALUE` pair,
+// the free-text `areaDesc`, and any polygon — rather than reaching for
+// the one scheme we expected.
 
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -85,7 +95,7 @@ export function areasOf(info) {
   }));
 }
 
-export const DROPPED = ['expired', 'allClear', 'green', 'unusable'];
+export const DROPPED = ['expired', 'notYet', 'allClear', 'green', 'unusable', 'duplicate'];
 
 /**
  * One reason, or null when the block is a warning we may show.
@@ -99,12 +109,36 @@ export function dropReason(alert, info, now) {
   if (!Number.isFinite(expires)) return 'unusable';
   if (expires <= now.getTime()) return 'expired';
 
+  // 🔴 "CURRENT" MEANS STARTED, NOT MERELY UNEXPIRED, and the first
+  // version of this file only checked the far end.
+  //
+  // Measured by review across 11 feeds: 336 of 986 kept warnings had an
+  // `onset` in the FUTURE, 130 of them more than a day out — a Croatian
+  // wind warning beginning in 58 hours was being shown as in force. The
+  // argument in the header against yesterday's warning applies exactly
+  // as well to tomorrow's: both are untrue of now, and `onset` was
+  // being carried and never read.
+  const onset = info?.onset ? Date.parse(info.onset) : Number.NaN;
+  if (Number.isFinite(onset) && onset > now.getTime()) return 'notYet';
+
   const response = [alert?.responseType, info?.responseType].flat().filter(Boolean).map(String);
   if (response.some((r) => r.toLowerCase() === 'allclear')) return 'allClear';
 
   const level = awareness(paramOf(info, 'awareness_level')).code;
   // 🔴 Level 1 is green: "no particular awareness required". It is the
   // absence of a warning, and 60 of Croatia's 110 blocks were this.
+  //
+  // ⚠️ `level === null ||` is written out although JS does not need it:
+  // `null <= 1` is already true, because `null` coerces to 0. Review
+  // listed this clause as untested, and it is — deleting it keeps every
+  // assertion green, because the two forms are behaviourally identical.
+  // That is not a hole in the test; no test can distinguish them.
+  //
+  // It stays because the coercion is a trap, not a feature: a reader
+  // who deletes it will be right, and a reader who later changes `<=`
+  // to a comparison that does NOT coerce will be wrong and will have
+  // had no warning. The explicit clause says what the code means
+  // without depending on a rule nobody should have to remember.
   if (level === null || level <= 1) return 'green';
 
   if (!info?.event && !info?.headline) return 'unusable';
@@ -117,6 +151,23 @@ export function warningsFrom(payload, country, now) {
   const kept = [];
   let seen = 0;
 
+  // 🔴 ONE ROW PER ALERT AND AREA, NOT PER LANGUAGE.
+  //
+  // An alert carries one `info` block per language it is published in,
+  // and the first version of this kept every one of them. Measured by
+  // review across 11 feeds: 994 rows for 470 distinct alerts — 53%
+  // repeats. Poland's advertised "528 kept" was 264 warnings in pl-PL
+  // and en-GB; Germany ships each alert eight times.
+  //
+  // We take the English block where there is one, because that is the
+  // language this site is written in, and otherwise the first one the
+  // source gives — never a guess and never a translation of ours.
+  const byKey = new Map();
+  const preferEnglish = (a, b) => {
+    const en = (x) => /^en/i.test(String(x?.language ?? ''));
+    return en(a) && !en(b);
+  };
+
   for (const entry of payload?.warnings ?? []) {
     const alert = entry?.alert;
     for (const info of alert?.info ?? []) {
@@ -128,8 +179,21 @@ export function warningsFrom(payload, country, now) {
       }
       const level = awareness(paramOf(info, 'awareness_level'));
       const type = awareness(paramOf(info, 'awareness_type'));
-      kept.push({
-        id: `${alert.identifier}#${kept.length}`,
+      const areas = areasOf(info);
+      // 🔴 AN IDENTITY, NOT A POSITION. This was
+      // `${identifier}#${kept.length}` — an index into whatever
+      // survived the filter. Review stepped `now` across a single
+      // expiry on the live Poland feed and 876 of 876 survivors were
+      // renumbered, so every id changed between two runs minutes
+      // apart. Anything downstream that upserts or dedups by id would
+      // see a wholly new set each time.
+      //
+      // The alert's own identifier plus the areas it is about is
+      // stable across runs and distinguishes the one case where a
+      // single alert carries several areas.
+      const key = `${alert.identifier}|${areas.map((a) => a.codes.join('+') || a.name).join('|')}`;
+      const row = {
+        id: key,
         country,
         event: info.event ?? info.headline,
         headline: info.headline ?? null,
@@ -142,12 +206,24 @@ export function warningsFrom(payload, country, now) {
         // not translate it and we do not add one of our own.
         type: type.label,
         typeCode: type.code,
-        areas: areasOf(info),
+        areas,
         sender: info.senderName ?? alert.sender ?? null,
         language: info.language ?? null,
-      });
+      };
+      const held = byKey.get(key);
+      if (!held) {
+        byKey.set(key, row);
+      } else {
+        // 🔴 Counted on EVERY repeat, whichever of the two we keep. The
+        // first version incremented only when the newcomer lost, so an
+        // English block arriving after a Polish one was replaced
+        // silently and the number said no duplicates existed.
+        counts.duplicate += 1;
+        if (preferEnglish(row, held)) byKey.set(key, row);
+      }
     }
   }
+  kept.push(...byKey.values());
   return { country, seen, kept, counts };
 }
 
@@ -168,7 +244,13 @@ function selfTest() {
     headline: 'Fog warning',
     expires: '2026-10-06T00:00:00Z',
     parameter: [
-      { valueName: 'awareness_level', value: '3; Orange' },
+      // 🔴 Real shapes, measured on the live feed. `awareness_level`
+      // carries THREE fields — `"2; yellow; Moderate"` 2 953 times,
+      // `"1; green; Minor"` 763 — and the comment above once claimed it
+      // had the same two-field shape as `awareness_type`. Only `.code`
+      // is read, so nothing shipped wrong, but the fixture was a shape
+      // the source never sends.
+      { valueName: 'awareness_level', value: '3; orange; Severe' },
       { valueName: 'awareness_type', value: '4; Fog' },
     ],
     area: [{ areaDesc: 'Coast', geocode: [{ valueName: 'EMMA_ID', value: 'PL803' }] }],
@@ -178,7 +260,7 @@ function selfTest() {
     warnings: [{ alert: { identifier: 'X', ...alertOver, info: infos } }],
   });
 
-  ok('`"3; Orange"` is a level of 3, not a string', awareness('3; Orange').code === 3);
+  ok('`"3; orange; Severe"` is a level of 3, not a string', awareness('3; orange; Severe').code === 3);
   ok('…and its label survives', awareness('4; Fog').label === 'Fog');
   ok('a value that is not that shape yields null, not NaN', awareness('Fog').code === null);
   ok('and a missing value does not throw', awareness(undefined).code === null);
@@ -255,6 +337,128 @@ function selfTest() {
   ok('the level is the number, not the string', kept.level === 3);
   ok('the area code carries its scheme', kept.areas[0].codes[0] === 'EMMA_ID:PL803');
 
+  // 🔴 THE PAYLOAD, NOT ONLY THE FILTER — and this half did not exist.
+  //
+  // Review changed eleven single lines and every assertion stayed
+  // green: `event: null`, a hardcoded `country`, a constant `id`, and
+  // `expires`/`headline`/`description`/`instruction`/`onset`/`sender`/
+  // `language`/`circle` all forced to null. `event: null` alone would
+  // ship every warning on the site without its text, with CI green.
+  //
+  // So every field a page could read is now asserted to come from the
+  // source, by a value that appears nowhere else.
+  {
+    const full = block({
+      event: 'EVT',
+      headline: 'HEAD',
+      description: 'DESC',
+      instruction: 'INST',
+      onset: '2026-10-05T11:00:00Z',
+      expires: '2026-10-06T00:00:00Z',
+      senderName: 'SENDER',
+      language: 'en-GB',
+      area: [
+        {
+          areaDesc: 'AREA',
+          geocode: [{ valueName: 'NUTS3', value: 'FR712' }],
+          polygon: 'POLY',
+          circle: 'CIRC',
+        },
+      ],
+    });
+    const w = warningsFrom(feed([full], { identifier: 'ID1' }), 'france', NOW).kept[0];
+    const carried = {
+      event: w?.event,
+      headline: w?.headline,
+      description: w?.description,
+      instruction: w?.instruction,
+      onset: w?.onset,
+      expires: w?.expires,
+      sender: w?.sender,
+      language: w?.language,
+      country: w?.country,
+      level: w?.level,
+      type: w?.type,
+      areaName: w?.areas?.[0]?.name,
+      areaCode: w?.areas?.[0]?.codes?.[0],
+      polygon: w?.areas?.[0]?.polygon,
+      circle: w?.areas?.[0]?.circle,
+    };
+    const want = {
+      event: 'EVT',
+      headline: 'HEAD',
+      description: 'DESC',
+      instruction: 'INST',
+      onset: '2026-10-05T11:00:00Z',
+      expires: '2026-10-06T00:00:00Z',
+      sender: 'SENDER',
+      language: 'en-GB',
+      country: 'france',
+      level: 3,
+      type: 'Fog',
+      areaName: 'AREA',
+      areaCode: 'NUTS3:FR712',
+      polygon: 'POLY',
+      circle: 'CIRC',
+    };
+    for (const [field, expected] of Object.entries(want)) {
+      ok(
+        `the payload carries ${field} from the source`,
+        carried[field] === expected,
+        `got ${JSON.stringify(carried[field])}, want ${JSON.stringify(expected)}`,
+      );
+    }
+    ok('the id is the alert identifier and its areas, not a position',
+      w?.id === 'ID1|NUTS3:FR712', String(w?.id));
+  }
+
+  // 🔴 ONE ROW PER ALERT AND AREA, not per language. 53% of what the
+  // first version kept were the same warnings in another language.
+  {
+    const two = feed(
+      [
+        block({ language: 'pl-PL', event: 'Mgła' }),
+        block({ language: 'en-GB', event: 'Fog' }),
+      ],
+      { identifier: 'SAME' },
+    );
+    const out = warningsFrom(two, 'poland', NOW);
+    ok('the same alert in two languages is one warning', out.kept.length === 1, JSON.stringify(out.counts));
+    ok('…and the English text is the one kept', out.kept[0].event === 'Fog', out.kept[0].event);
+    ok('…and the repeat is counted, not silently dropped', out.counts.duplicate === 1);
+    // Two AREAS of one alert are two warnings, which is the case this
+    // must not over-merge.
+    const twoAreas = feed(
+      [
+        block({ area: [{ areaDesc: 'North', geocode: [{ valueName: 'EMMA_ID', value: 'A' }] }] }),
+        block({ area: [{ areaDesc: 'South', geocode: [{ valueName: 'EMMA_ID', value: 'B' }] }] }),
+      ],
+      { identifier: 'SAME' },
+    );
+    ok('two areas of one alert stay two warnings', warningsFrom(twoAreas, 'x', NOW).kept.length === 2);
+  }
+
+  // 🔴 A WARNING THAT HAS NOT STARTED IS NOT CURRENT. 336 of 986 kept
+  // rows had a future `onset`, one of them 58 hours out.
+  {
+    const future = warningsFrom(feed([block({ onset: '2026-10-07T00:00:00Z' })]), 'x', NOW);
+    ok('a warning that starts in two days is not current', future.kept.length === 0 && future.counts.notYet === 1);
+    const started = warningsFrom(feed([block({ onset: '2026-10-05T11:59:59Z' })]), 'x', NOW);
+    ok('…and one that started a second ago is', started.kept.length === 1);
+    const noOnset = warningsFrom(feed([block({ onset: undefined, effective: undefined })]), 'x', NOW);
+    ok('…and no onset at all does not drop it', noOnset.kept.length === 1);
+  }
+
+  // 🔴 The three filter branches no mutation touched.
+  {
+    const noLevel = warningsFrom(feed([block({ parameter: [] })]), 'x', NOW);
+    ok('a block with no awareness level is not a warning', noLevel.kept.length === 0 && noLevel.counts.green === 1);
+    const noText = warningsFrom(feed([block({ event: undefined, headline: undefined })]), 'x', NOW);
+    ok('a block with neither event nor headline is unusable', noText.counts.unusable === 1);
+    const lower = warningsFrom(feed([block({ responseType: 'allclear' })]), 'x', NOW);
+    ok('an all-clear in lower case is still an all-clear', lower.counts.allClear === 1);
+  }
+
   ok('every member state is listed exactly once', new Set(COUNTRIES).size === 27);
   ok('the url is built from the country', feedUrl('poland').endsWith('/feeds-poland'));
 
@@ -312,7 +516,30 @@ async function main() {
   // 🔴 Refuses to write a file that says Europe is calm because the
   // filter broke. Every country failing, or nothing at all surviving
   // across 27 states, is far more likely to be us than the weather.
-  if (silent.length === countries.length) throw new Error('no country answered');
+  // 🔴 A PARTIAL FAILURE MUST NOT PUBLISH "EUROPE IS CALM".
+  //
+  // The first version refused only when EVERY country failed or nothing
+  // at all was seen. Review walked through the hole: 26 countries
+  // erroring plus one answering with 148 blocks that are all expired
+  // satisfies both conditions, and the file is written with an empty
+  // warning list. The site would then say nowhere in Europe has a
+  // warning, on the strength of one country.
+  //
+  // A quarter of the union unreachable is us, not the weather; and a
+  // run that kept nothing while anything failed cannot tell an empty
+  // Europe from a broken fetch.
+  const QUARTER = Math.ceil(countries.length / 4);
+  if (silent.length >= QUARTER) {
+    throw new Error(
+      `${silent.length} of ${countries.length} countries did not answer (${silent.join(', ')})`,
+    );
+  }
+  if (all.length === 0 && silent.length > 0) {
+    throw new Error(
+      'nothing was kept and ' +
+        `${silent.length} country(ies) failed — an empty Europe and a broken fetch look the same`,
+    );
+  }
   if (seen === 0) throw new Error('every feed was empty — that is a fetch failure, not a quiet day');
 
   const doc = {
@@ -339,4 +566,16 @@ async function main() {
   console.log(`wrote ${OUT}`);
 }
 
-await main();
+// 🔴 ONLY WHEN RUN, NEVER WHEN IMPORTED.
+//
+// This was a bare `await main()` after seven `export`s. Review did
+// `await import('./fetch-warnings.mjs')` and it performed real network
+// fetches; without `--dry-run` in argv — and no test runner supplies
+// one — it would fetch 27 countries and overwrite
+// `apps/web/src/data/warnings.json`, which is tracked. A module that
+// cannot be imported without side effects cannot be unit-tested at all.
+const RUN_DIRECTLY =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (RUN_DIRECTLY) await main();
