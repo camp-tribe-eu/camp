@@ -17,6 +17,21 @@
 // build is 138.6 GB; the directories for the zooms we care about are a
 // few tens of megabytes.
 //
+// MEASURED, 2026-10-05, against build.protomaps.com/20261004.pmtiles
+// (138.2 GB, zooms 0..15) — reproduce with the commands above:
+//
+//   EU-27, maxzoom 12   5.56 GB   485 067 addressed, 288 347 distinct
+//   EU-27, maxzoom 6    0.01 GB       157 addressed,     147 distinct
+//
+// The card estimated "z12 ≈ 5.5-7 GB". The measurement lands at the very
+// bottom of that range, which is the answer that matters: 5.56 GB fits
+// inside R2's free 10 GB, so the storage bill at maxzoom 12 is nothing.
+// Reading the directories to find that out cost 10.5 MB and 68 seconds.
+//
+// A tile checked end to end, 12/2200/1343 (Berlin): 138 584 bytes over
+// the wire, 198 436 after gunzip, first byte 0x1a — a real vector tile,
+// not a 206 full of the wrong bytes.
+//
 // Tile CONTENTS are deduplicated — the planet has 1 431 655 765
 // addressed tiles but only 136 218 068 distinct contents — so bytes are
 // counted per distinct (offset, length), never per address. Counting
@@ -234,6 +249,66 @@ export async function measure(url, { bbox, maxzoom, onProgress }) {
   return { header, bytes, addressed, distinct: seen.size, perZoom, directoryBytes, leavesRead };
 }
 
+/**
+ * Fetches ONE tile by `z/x/y` and says whether it is a usable tile.
+ *
+ * 🔴 CAMP-29's other acceptance criterion: "a range request to the file
+ * returns a VALID tile". Valid is not the same as present — a 206 with
+ * the wrong bytes looks identical to a good one until a map tries to
+ * draw it. So this follows the directory tree to the tile, reads only
+ * its bytes, and checks that what comes back gunzips into something
+ * whose first field is a Mapbox Vector Tile layer.
+ */
+export async function fetchTile(url, z, x, y) {
+  const header = readHeader(await range(url, 0, 127));
+  const want = zxyToTileId(z, x, y);
+  let dir = await range(url, header.rootOffset, header.rootLength);
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    const entries = readDirectory(maybeGunzip(dir, header.internalCompression));
+    // The entry that covers `want`: the last one starting at or before it.
+    let found = null;
+    for (const e of entries) {
+      if (e.tileId > want) break;
+      found = e;
+    }
+    if (!found) return { found: false, why: 'no entry covers that tile' };
+    if (found.runLength === 0) {
+      dir = await range(url, header.leafOffset + found.offset, found.length);
+      continue;
+    }
+    if (want >= found.tileId + found.runLength) return { found: false, why: 'tile is a gap in the run' };
+    const body = await range(url, header.tileDataOffset + found.offset, found.length);
+    const raw = maybeGunzip(body, header.tileCompression);
+    // An MVT is a protobuf whose layers are field 3, wire type 2 → 0x1a.
+    return {
+      found: true,
+      compressedBytes: body.length,
+      bytes: raw.length,
+      looksLikeMvt: raw.length > 0 && raw[0] === 0x1a,
+    };
+  }
+  return { found: false, why: 'directory nesting deeper than four levels' };
+}
+
+/** `[z, x, y]` → tile id, the inverse of `tileIdToZxy`. */
+export function zxyToTileId(z, x, y) {
+  let acc = firstIdOfZoom(z);
+  const n = 2 ** z;
+  let rx;
+  let ry;
+  let d = 0;
+  let px = x;
+  let py = y;
+  for (let s = n / 2; s > 0; s = Math.floor(s / 2)) {
+    rx = (px & s) > 0 ? 1 : 0;
+    ry = (py & s) > 0 ? 1 : 0;
+    d += s * s * ((3 * rx) ^ ry);
+    [px, py] = rotate(n, px, py, rx, ry);
+  }
+  return acc + d;
+}
+
 // --------------------------------------------------------------- self-test
 
 function selfTest() {
@@ -245,6 +320,21 @@ function selfTest() {
       console.log(`x    ${name}${detail ? `  ${detail}` : ''}`);
     }
   };
+
+  // The two directions of the curve must agree, or a tile fetched by
+  // z/x/y lands on a different tile than the measure counted.
+  {
+    let mismatch = null;
+    for (let z = 0; z <= 6 && !mismatch; z += 1) {
+      for (let x = 0; x < 2 ** z && !mismatch; x += 1) {
+        for (let y = 0; y < 2 ** z && !mismatch; y += 1) {
+          const back = tileIdToZxy(zxyToTileId(z, x, y)).join();
+          if (back !== `${z},${x},${y}`) mismatch = `${z}/${x}/${y} → ${back}`;
+        }
+      }
+    }
+    ok('z/x/y → id → z/x/y is the same tile, every tile to zoom 6', !mismatch, mismatch ?? '');
+  }
 
   ok('a varint under 128 is one byte', varint(Buffer.from([0x7f]), 0)[0] === 127);
   ok('…and 128 takes two', varint(Buffer.from([0x80, 0x01]), 0)[0] === 128);
@@ -315,6 +405,21 @@ const valueOf = (argv, name) =>
 
 async function main() {
   const url = valueOf(process.argv, 'url') ?? PLANET;
+
+  const one = valueOf(process.argv, 'tile');
+  if (one) {
+    const [z, x, y] = one.split('/').map(Number);
+    const t = await fetchTile(url, z, x, y);
+    console.log(`tile ${z}/${x}/${y} of ${url}`);
+    if (!t.found) {
+      console.log(`  NOT FOUND: ${t.why}`);
+      process.exit(1);
+    }
+    console.log(`  ${t.compressedBytes} bytes on the wire, ${t.bytes} after gunzip`);
+    console.log(`  looks like a vector tile: ${t.looksLikeMvt ? 'yes' : 'NO'}`);
+    process.exit(t.looksLikeMvt ? 0 : 1);
+  }
+
   const maxzoom = Number(valueOf(process.argv, 'maxzoom') ?? 12);
   const raw = valueOf(process.argv, 'bbox');
   const bbox = raw
