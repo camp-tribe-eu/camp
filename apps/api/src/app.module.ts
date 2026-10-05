@@ -10,11 +10,14 @@ import { CampingSpot } from './entities/camping-spot.entity';
 import { Route } from './entities/route.entity';
 import { RoutePoint } from './entities/route-point.entity';
 import { Trip } from './entities/trip.entity';
+import { Session } from './entities/session.entity';
 import { TripStop } from './entities/trip-stop.entity';
 import { SpotsModule } from './spots/spots.module';
 import { RoutesModule } from './routes/routes.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { GuidesModule } from './guides/guides.module';
+import { AuthModule } from './auth/auth.module';
+import { TripsModule } from './trips/trips.module';
 import { HealthModule } from './health/health.module';
 import { ClientError } from './entities/client-error.entity';
 import { SpotTariff } from './entities/spot-tariff.entity';
@@ -44,6 +47,7 @@ import { ApiThrottlerGuard } from './throttle.guard';
         RoutePoint,
         Trip,
         TripStop,
+        Session,
         ClientError,
         SpotTariff,
         BathingWater,
@@ -61,6 +65,10 @@ import { ApiThrottlerGuard } from './throttle.guard';
     // caller we want hitting us constantly.
     TelemetryModule,
     GuidesModule,
+    // CAMP-50: sessions, and the first routes whose answer depends on
+    // who is asking.
+    AuthModule,
+    TripsModule,
   ],
   controllers: [AppController],
   providers: [
