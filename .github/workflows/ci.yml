@@ -255,7 +255,13 @@ jobs:
       - name: …and the live styles still do
         run: node scripts/ci/check-map-assets.mjs
 
-      # 🔴 CAMP-222. The map's five type colours were chosen BY
+      # 🔴 CAMP-222. --experimental-strip-types because the check IMPORTS
+      # the palette module rather than parsing it: review showed a regex
+      # over the source accepted `#FC3`, `rgb(...)` and an 8-digit hex
+      # unmeasured, and the only way not to miss a notation is not to
+      # parse one. The flag is a no-op on Node 24 and supported from 22.6.
+      #
+      # 🔴 CAMP-222. The map's type colours were chosen BY
       # MEASUREMENT: the headline theme colours were rejected because
       # Success reaches 2.91 and Brand 1.55 against the marker's white
       # stroke, under the 3.0 WCAG 1.4.11 asks of a non-text graphic.
@@ -264,10 +270,10 @@ jobs:
       # nothing fails, and the map stops being readable for exactly the
       # people who needed the contrast.
       - name: The map palette check still rejects an illegible colour
-        run: node scripts/ci/check-map-palette.mjs --self-test
+        run: node --experimental-strip-types scripts/ci/check-map-palette.mjs --self-test
 
       - name: …and every type colour is still legible and distinct
-        run: node scripts/ci/check-map-palette.mjs
+        run: node --experimental-strip-types scripts/ci/check-map-palette.mjs
 
       # 🔴 CAMP-153. The wildfire fetch script carries a self-test of its
       # own — the `maxfeatures` throw that stands between us and a 132 MB

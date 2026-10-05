@@ -14,6 +14,21 @@
  * system is **Error**. Every campsite on the map was painted in the
  * colour the system reserves for something being wrong.
  *
+ * 🔴 THE STROKE IS DARK, AND THAT IS THE LOAD-BEARING PART.
+ *
+ * The first version measured each fill against a WHITE stroke and
+ * stopped there. Review called that the most favourable number
+ * available rather than a conservative one, and it was right: white has
+ * ~1.09 contrast against the map's paper, so on land the ring is
+ * invisible and the fill is doing the work alone. Measured against real
+ * basemap colours, FOUR of the five fills fell below 3:1 — `camper_stop`
+ * reached 1.81 over water.
+ *
+ * A dark stroke fixes it at the source. `#181D26` has 9.67:1 against the
+ * worst of paper, landuse, forest and water, so the marker is a visible
+ * shape everywhere regardless of its fill, and the fill is then free to
+ * do the only job left to it: telling the five kinds apart.
+ *
  * 🔴 WHAT THE MEASUREMENT RULED OUT. The first candidates were the
  * headline theme colours — Success `#4BA883`, Brand `#FFC83C`, Active
  * `#7C92B7`. Against the marker's white stroke, which is the ADJACENT
@@ -39,17 +54,20 @@ export const TYPE_COLOUR: Record<string, string> = {
   // restricted or illegal across most of the EU, and the colour that
   // makes a reader pause is the honest one here.
   wild: "#D5412A",
-  // Heading navy: formal infrastructure, the most built-up of the five.
-  rv_park: "#343D50",
-  // Active blue-grey: a stop, not a stay.
-  camper_stop: "#7C92B7",
+  // Pale blue: formal infrastructure. Was heading navy until review
+  // measured it at 1.55 against the new dark stroke — a dark dot inside
+  // a dark ring is one shape, not two.
+  rv_park: "#C9D3E4",
+  // Light yellow — a tint, NOT the brand #FFC83C, which the design
+  // system reserves for the emblem. A stop, not a stay.
+  camper_stop: "#FFD36B",
 };
 
 /** Drawn for a type we have no colour for, so a new kind is visible rather than invisible. */
-export const UNKNOWN_COLOUR = "#5A5A5A";
+export const UNKNOWN_COLOUR = "#6E7889";
 
 /** The stroke every marker carries. It is the colour the fills are measured against. */
-export const MARKER_STROKE = "#FFFFFF";
+export const MARKER_STROKE = "#181D26";
 
 /** `['match', ['get','type'], 'free', '#3A8266', …, UNKNOWN]` for a paint property. */
 export const typeColourExpression = (): unknown[] => [
@@ -89,7 +107,20 @@ export function dominantColourExpression(): unknown[] {
   for (const t of types) {
     const others = types.filter((o) => o !== t);
     branches.push(
-      ["all", ...others.map((o) => [">=", ["get", t], ["get", o]])],
+      [
+        "all",
+        // 🔴 `> 0` FIRST, and review found what its absence cost. Without
+        // it, a cluster holding none of any known type satisfies
+        // `0 >= 0` for every comparison and takes the FIRST branch —
+        // measured over all 1024 count vectors, that is the one input
+        // where this expression and `dominantType` disagreed: MapLibre
+        // answered free, the TypeScript answered null. Worse, it made
+        // UNKNOWN_COLOUR unreachable in the cluster layer — a fallback
+        // that cannot fire is not a fallback, and a cluster of a kind we
+        // have no colour for would have been drawn as "free".
+        [">", ["get", t], 0],
+        ...others.map((o) => [">=", ["get", t], ["get", o]]),
+      ],
       TYPE_COLOUR[t],
     );
   }

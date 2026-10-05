@@ -1,44 +1,78 @@
 #!/usr/bin/env node
 /**
- * The map's type colours must stay legible, and that is measured here.
+ * The map's colours must stay legible, and that is measured here.
  *
- * 🔴 WHY THIS IS A CI CHECK AND NOT A COMMENT. The palette was chosen by
- * measurement — the headline theme colours were rejected because Success
- * reaches 2.91 and Brand 1.55 against the marker's white stroke, under
- * the 3.0 WCAG 1.4.11 asks of a non-text graphic. A number that decided
- * something and is then never checked again is a number that drifts: the
- * next person picks a nicer green, nothing fails, and the map quietly
- * stops being readable for the people who needed the contrast.
+ * 🔴 WHAT THE FIRST VERSION OF THIS FILE GOT WRONG, all three found by
+ * review rather than by CI:
  *
- * 🔴 It reads the SOURCE FILE rather than importing it. The palette lives
- * in TypeScript and this is a plain script, but that is not the reason —
- * reading the text means a colour written anywhere in that object is
- * caught, including one added without touching this file.
+ * 1. IT PARSED THE SOURCE WITH A REGEX that only matched a six-digit hex
+ *    in quotes. `#FC3`, `rgb(255, 200, 60)` and `#FFC83CFF` are all
+ *    accepted by MapLibre and all slipped through unmeasured — review
+ *    put the rejected brand yellow back in three notations and this
+ *    script said "all >= 3:1" each time. It now IMPORTS the module, so
+ *    there is no notation to miss, and rejects any value that is not a
+ *    plain six-digit hex rather than silently skipping it.
+ *
+ * 2. IT MEASURED FIVE OF THE SIX FILLS THE MAP DRAWS. `UNKNOWN_COLOUR`
+ *    is painted by the point layer and was not in the measured set; its
+ *    ΔE to the old `rv_park` was 17.9 against this file's own floor of
+ *    25. The line "5 colours, all fine" was true of what it measured
+ *    and not of the map.
+ *
+ * 3. IT MEASURED AGAINST THE MOST FAVOURABLE BACKGROUND. Contrast was
+ *    taken against the stroke alone, which was white — and white has
+ *    ~1.09 against the map's paper, so on land the ring is invisible and
+ *    the fill carries the marker by itself. Against real basemap
+ *    colours four of five fills were under 3:1, one at 1.81 over water.
+ *    The stroke is now dark and BOTH are measured.
+ *
+ * 🔴 And the twin implementations are compared here, exhaustively,
+ * because the comment claiming they agree was the only thing asserting
+ * it. Review found the one input out of 1024 where they did not.
  */
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const SOURCE = join(HERE, '..', '..', 'apps/web/src/lib/map-palette.ts');
+import { expression } from '@maplibre/maplibre-gl-style-spec';
+import {
+  MARKER_STROKE,
+  TYPE_COLOUR,
+  UNKNOWN_COLOUR,
+  dominantColourExpression,
+  dominantType,
+} from '../../apps/web/src/lib/map-palette.ts';
 
 /** WCAG 1.4.11: a non-text graphic needs 3:1 against the colour beside it. */
 export const MIN_CONTRAST = 3;
-/** Below this two fills read as the same colour on a 7px dot. */
+/** Below this, two fills read as one colour on a 7px dot. */
 export const MIN_DELTA_E = 25;
+
+/**
+ * What the marker actually sits on.
+ *
+ * Typical values for the light OpenFreeMap styles this site serves
+ * (liberty, bright, positron — all three are light; there is no dark
+ * basemap). Water is the hard one: it is the lightest large surface and
+ * the one a coastal campsite is drawn beside.
+ */
+export const BASEMAP = {
+  paper: '#F8F4F0',
+  landuse: '#E8E0D8',
+  forest: '#C8E0B0',
+  water: '#A0C8F0',
+};
+
+const HEX = /^#[0-9A-Fa-f]{6}$/;
 
 const channel = (hex, i) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
 const linear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 
-export function luminance(hex) {
+export const luminance = (hex) => {
   const [r, g, b] = [0, 1, 2].map((i) => linear(channel(hex, i)));
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
+};
 
-export function contrast(a, b) {
+export const contrast = (a, b) => {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
-}
+};
 
 function lab(hex) {
   const [r, g, b] = [0, 1, 2].map((i) => linear(channel(hex, i)));
@@ -50,84 +84,151 @@ function lab(hex) {
   return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }
 
-export function deltaE(a, b) {
+export const deltaE = (a, b) => {
   const [la, lb] = [lab(a), lab(b)];
   return Math.hypot(la[0] - lb[0], la[1] - lb[1], la[2] - lb[2]);
-}
+};
 
-/**
- * The colours the source file actually declares.
- *
- * 🔴 Throws when it finds nothing. A parser that silently returns an
- * empty set turns this whole check into a green light — the exact shape
- * of failure the project has been bitten by before.
- */
-export function paletteFrom(source) {
-  const block = source.match(
-    /export const TYPE_COLOUR[^=]*=\s*\{([\s\S]*?)\n\};/
-  );
-  if (!block) throw new Error('TYPE_COLOUR not found — the check read nothing');
-  const entries = [...block[1].matchAll(/(\w+):\s*['"](#[0-9A-Fa-f]{6})['"]/g)].map(
-    (m) => [m[1], m[2]]
-  );
-  if (entries.length === 0)
-    throw new Error('TYPE_COLOUR is empty — the check read nothing');
-  const stroke = source.match(/MARKER_STROKE\s*=\s*['"](#[0-9A-Fa-f]{6})['"]/);
-  if (!stroke) throw new Error('MARKER_STROKE not found');
-  return { entries, stroke: stroke[1] };
-}
+/** Every fill the map can paint — including the one for a kind we have no colour for. */
+export const everyFill = (types = TYPE_COLOUR, unknown = UNKNOWN_COLOUR) => [
+  ...Object.entries(types),
+  ['«unknown»', unknown],
+];
 
-export function problems({ entries, stroke }) {
+/** Can this marker be seen on that background — by its fill, or by its ring? */
+const visibility = (fill, stroke, bg) =>
+  Math.max(contrast(fill, bg), contrast(stroke, bg));
+
+export function problems(fills, stroke, backgrounds = BASEMAP) {
   const out = [];
-  for (const [name, hex] of entries) {
-    const c = contrast(hex, stroke);
-    if (c < MIN_CONTRAST)
-      out.push(`${name} ${hex}: ${c.toFixed(2)} against ${stroke}, needs ${MIN_CONTRAST}`);
+
+  // 🔴 A value we cannot measure is a failure, never a skip. This is the
+  // line that `rgb(255, 200, 60)` walked past in the first version.
+  if (!HEX.test(stroke)) out.push(`stroke ${stroke} is not a six-digit hex`);
+  for (const [name, hex] of fills)
+    if (!HEX.test(hex)) out.push(`${name} ${hex} is not a six-digit hex`);
+  if (out.length) return out;
+
+  for (const [name, hex] of fills) {
+    const sep = contrast(hex, stroke);
+    if (sep < MIN_CONTRAST)
+      out.push(
+        `${name} ${hex}: ${sep.toFixed(2)} against its own stroke ${stroke}, needs ${MIN_CONTRAST}`
+      );
+    for (const [where, bg] of Object.entries(backgrounds)) {
+      const seen = visibility(hex, stroke, bg);
+      if (seen < MIN_CONTRAST)
+        out.push(
+          `${name} ${hex} on ${where} ${bg}: ${seen.toFixed(2)}, needs ${MIN_CONTRAST}`
+        );
+    }
   }
-  for (let i = 0; i < entries.length; i++)
-    for (let j = i + 1; j < entries.length; j++) {
-      const d = deltaE(entries[i][1], entries[j][1]);
+
+  for (let i = 0; i < fills.length; i++)
+    for (let j = i + 1; j < fills.length; j++) {
+      const d = deltaE(fills[i][1], fills[j][1]);
       if (d < MIN_DELTA_E)
         out.push(
-          `${entries[i][0]} and ${entries[j][0]} read alike: ΔE ${d.toFixed(1)}, needs ${MIN_DELTA_E}`
+          `${fills[i][0]} and ${fills[j][0]} read alike: ΔE ${d.toFixed(1)}, needs ${MIN_DELTA_E}`
         );
     }
   return out;
 }
 
-/** 🔴 Rehearsed, not trusted: prove the check still fails on a bad palette. */
-function selfTest() {
-  const faint = { entries: [['x', '#FFE81B']], stroke: '#FFFFFF' };
-  const alike = {
-    entries: [['a', '#D5412A'], ['b', '#C83D28']],
-    stroke: '#FFFFFF',
-  };
-  const fails = [];
-  if (problems(faint).length === 0) fails.push('a 1.25:1 fill was accepted');
-  if (problems(alike).length === 0) fails.push('two colours at ΔE 4.8 were accepted');
-  try {
-    paletteFrom('nothing here');
-    fails.push('an unreadable source was accepted');
-  } catch {
-    /* expected */
+/**
+ * The MapLibre expression and the TypeScript twin must answer the same
+ * thing for every cluster that can exist.
+ *
+ * 🔴 Driven through MapLibre's OWN evaluator, not a re-implementation.
+ * A check that re-implements the thing it is checking agrees with
+ * itself.
+ */
+export function twinsDisagree(types = Object.keys(TYPE_COLOUR), max = 3) {
+  const compiled = expression.createExpression(dominantColourExpression(), {
+    type: 'color',
+    'property-type': 'data-driven',
+    expression: { interpolated: false, parameters: ['feature'] },
+  });
+  if (compiled.result !== 'success')
+    return [`the cluster expression does not compile: ${compiled.value?.[0]?.message ?? '?'}`];
+
+  const bad = [];
+  const total = (max + 1) ** types.length;
+  for (let n = 0; n < total; n++) {
+    const counts = {};
+    let rest = n;
+    for (const t of types) {
+      counts[t] = rest % (max + 1);
+      rest = Math.floor(rest / (max + 1));
+    }
+    // 🔴 String(), not the r/g/b fields. This evaluator hands back a
+    // colour as a plain hex string, and reading `.r` off it gave NaN —
+    // which rendered as "#NANNANNAN" and made EVERY vector look like a
+    // disagreement. A comparison that fails on all 1024 inputs is not a
+    // strict check, it is a broken one, and it would have hidden the
+    // real single-input defect this function exists to catch.
+    const asHex = String(
+      compiled.value.evaluate({ zoom: 0 }, { properties: counts })
+    ).toUpperCase();
+    const t = dominantType(counts);
+    const expected = (t ? TYPE_COLOUR[t] : UNKNOWN_COLOUR).toUpperCase();
+    if (asHex !== expected)
+      bad.push(`${JSON.stringify(counts)}: map ${asHex}, TypeScript ${expected}`);
+    if (bad.length > 3) break;
   }
+  return bad;
+}
+
+/** 🔴 Rehearsed, not trusted. Each case is one the real check must still refuse. */
+function selfTest() {
+  const fails = [];
+  const dark = '#181D26';
+  if (problems([['x', '#FFC83C']], '#FFFFFF').length === 0)
+    fails.push('a 1.55:1 fill against a white stroke was accepted');
+  // The notations that walked past the old regex.
+  for (const bad of ['#FC3', 'rgb(255, 200, 60)', '#FFC83CFF', 'gold'])
+    if (problems([['x', bad]], dark).length === 0)
+      fails.push(`the unmeasurable value ${bad} was accepted`);
+  if (problems([['a', '#D5412A'], ['b', '#C83D28']], dark).length === 0)
+    fails.push('two colours at ΔE 4.8 were accepted');
+  // A fill that passes against its stroke but vanishes on water.
+  if (problems([['x', '#7C92B7']], '#FFFFFF', { water: '#A0C8F0' }).length === 0)
+    fails.push('a fill invisible over water was accepted');
   if (fails.length) {
     console.error('SELF-TEST FAILED:\n  ' + fails.join('\n  '));
     process.exit(1);
   }
-  console.log('self-test ok: the check still rejects a faint fill, a lookalike pair and an unreadable source');
+  console.log(
+    'self-test ok: still refuses a faint fill, four unmeasurable notations, a lookalike pair and a marker lost over water'
+  );
 }
 
 if (process.argv.includes('--self-test')) {
   selfTest();
 } else {
-  const palette = paletteFrom(readFileSync(SOURCE, 'utf8'));
-  const found = problems(palette);
-  for (const [name, hex] of palette.entries)
-    console.log(`  ${name.padEnd(12)} ${hex}  ${contrast(hex, palette.stroke).toFixed(2)}:1`);
-  if (found.length) {
-    console.error('\nmap palette is not legible:\n  ' + found.join('\n  '));
+  const fills = everyFill();
+  const found = problems(fills, MARKER_STROKE);
+  for (const [name, hex] of fills) {
+    const seen = Math.min(
+      ...Object.values(BASEMAP).map((bg) => visibility(hex, MARKER_STROKE, bg))
+    );
+    console.log(
+      `  ${name.padEnd(12)} ${hex}  stroke ${contrast(hex, MARKER_STROKE).toFixed(2)}:1   worst basemap ${seen.toFixed(2)}:1`
+    );
+  }
+  const split = twinsDisagree();
+  if (found.length || split.length) {
+    if (found.length) console.error('\nmap palette is not legible:\n  ' + found.join('\n  '));
+    if (split.length)
+      console.error(
+        '\nthe cluster expression and dominantType disagree:\n  ' + split.join('\n  ')
+      );
     process.exit(1);
   }
-  console.log(`\n${palette.entries.length} colours, all >= ${MIN_CONTRAST}:1 against ${palette.stroke} and >= ΔE ${MIN_DELTA_E} apart`);
+  console.log(
+    `\n${fills.length} fills, all >= ${MIN_CONTRAST}:1 against stroke ${MARKER_STROKE} and on every basemap colour, all >= ΔE ${MIN_DELTA_E} apart.`
+  );
+  console.log(
+    `the cluster expression agrees with dominantType on all ${4 ** Object.keys(TYPE_COLOUR).length} count vectors`
+  );
 }
