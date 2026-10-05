@@ -100,6 +100,10 @@ export function awareness(value) {
 const paramOf = (info, name) =>
   (info?.parameter ?? []).find((p) => String(p?.valueName).toLowerCase() === name)?.value;
 
+/** A CAP shape field, which may be absent, one string, or several. */
+export const shapesOf = (v) =>
+  (Array.isArray(v) ? v : [v]).filter((x) => typeof x === 'string' && x.trim() !== '');
+
 /** Every geocode on an area, as `SCHEME:VALUE`, plus the free-text name. */
 export function areasOf(info) {
   return (info?.area ?? []).map((a) => ({
@@ -107,11 +111,19 @@ export function areasOf(info) {
     codes: (a?.geocode ?? [])
       .filter((g) => g?.valueName && g?.value)
       .map((g) => `${g.valueName}:${g.value}`),
-    // 🔴 Kept when the source gives it. Slovenia's warnings carry no
-    // geocode at all, so a shape is the only thing that could place
-    // them — throwing it away here would make that unrecoverable later.
-    polygon: typeof a?.polygon === 'string' ? a.polygon : null,
-    circle: typeof a?.circle === 'string' ? a.circle : null,
+    // 🔴 AND THIS LINE WAS THROWING AWAY THE THING ITS OWN COMMENT SAID
+    // IT WAS SAVING. It read `typeof a?.polygon === 'string' ? … : null`,
+    // and CAP lets `<polygon>` repeat, so the feed sends an ARRAY. Every
+    // one of Estonia's 192 areas carries a shape and `areasOf` returned
+    // null for all 192 — in the one country where a shape is the only
+    // thing that could place a warning, because it sends no geocode at
+    // all. Slovenia and Sweden are in the same position.
+    //
+    // Always a list, never a bare string: one polygon and three are the
+    // same kind of answer, and a caller that forgets to check which it
+    // got would otherwise place a warning over the wrong ring.
+    polygons: shapesOf(a?.polygon),
+    circles: shapesOf(a?.circle),
   }));
 }
 
@@ -258,7 +270,12 @@ export function warningsFrom(payload, country, now) {
       // the same number in every language, and the shape where there is
       // one — never a word a translator chose.
       const areaKey = areas
-        .map((a, i) => a.codes.join('+') || a.polygon || a.circle || `#${i}`)
+        // 🔴 The shape half of this key read `.polygon`/`.circle`, renamed
+        // in this same commit, so it was always `undefined` and every
+        // shape-only area fell through to its POSITION. Nothing is lost
+        // today only because `alert.identifier` happens to be unique;
+        // two alerts sharing one would have collided into a single row.
+        .map((a, i) => a.codes.join('+') || a.polygons.join('+') || a.circles.join('+') || `#${i}`)
         .join('|');
       const key = `${alert.identifier}|${areaKey}`;
       const row = {
@@ -361,6 +378,25 @@ function selfTest() {
     })),
   });
 
+  // 🔴 CAP LETS `<polygon>` REPEAT, SO THE FEED SENDS AN ARRAY — and the
+  // old `typeof === 'string'` test returned null for every one of
+  // Estonia's 192 areas, in the one country that sends no geocode at
+  // all and where the shape is the only way to place a warning.
+  {
+    ok('a shape sent as an array survives',
+      areasOf({ area: [{ areaDesc: 'A', polygon: ['58.6,25.7 58.7,25.8'] }] })[0].polygons.length === 1);
+    ok('…a shape sent as a bare string survives too',
+      areasOf({ area: [{ areaDesc: 'A', polygon: '58.6,25.7' }] })[0].polygons.join() === '58.6,25.7');
+    ok('…several rings are all kept',
+      areasOf({ area: [{ areaDesc: 'A', polygon: ['a', 'b', 'c'] }] })[0].polygons.length === 3);
+    ok('…an absent shape is an empty list, not null',
+      areasOf({ area: [{ areaDesc: 'A' }] })[0].polygons.length === 0);
+    ok('…and an empty string is not a shape',
+      areasOf({ area: [{ areaDesc: 'A', polygon: ['', '  '] }] })[0].polygons.length === 0);
+    ok('circles follow the same rule',
+      areasOf({ area: [{ areaDesc: 'A', circle: ['58.6,25.7 10'] }] })[0].circles.length === 1);
+  }
+
   // 🔴 Review found this filter removable with a green suite.
   ok('a geocode with no value is not a code',
     areasOf({ area: [{ areaDesc: 'A', geocode: [{ valueName: 'EMMA_ID' }] }] })[0].codes.length === 0);
@@ -457,7 +493,11 @@ function selfTest() {
     'x',
     NOW,
   );
-  ok('…and a polygon is kept when the source gives one', shaped.kept[0].areas[0].polygon !== null);
+  // 🔴 THIS READ `.polygon`, THE KEY THIS COMMIT RENAMED. `undefined !==
+  // null` is true, so the one assertion named for keeping a polygon
+  // could not fail — it passed for an area with no shape at all.
+  ok('…and a polygon is kept when the source gives one',
+    shaped.kept[0].areas[0].polygons.length === 1, JSON.stringify(shaped.kept[0].areas[0].polygons));
 
   const kept = warningsFrom(feed([block()]), 'poland', NOW).kept[0];
   ok('the hazard keeps the source’s own word', kept.type === 'Fog' && kept.typeCode === 4);
@@ -508,8 +548,8 @@ function selfTest() {
       type: w?.type,
       areaName: w?.areas?.[0]?.name,
       areaCode: w?.areas?.[0]?.codes?.[0],
-      polygon: w?.areas?.[0]?.polygon,
-      circle: w?.areas?.[0]?.circle,
+      polygon: w?.areas?.[0]?.polygons?.join('|'),
+      circle: w?.areas?.[0]?.circles?.join('|'),
     };
     const want = {
       event: 'EVT',
@@ -724,7 +764,7 @@ function selfTest() {
     // 🔴 The key-set guard below was top-level only: review added a
     // field to every area entry and the suite stayed green.
     ok('an area entry has exactly the fields this test names',
-      Object.keys(row?.areas?.[0] ?? {}).sort().join() === 'circle,codes,name,polygon',
+      Object.keys(row?.areas?.[0] ?? {}).sort().join() === 'circles,codes,name,polygons',
       Object.keys(row?.areas?.[0] ?? {}).sort().join());
     // Anything added to the row later must be added here too, or this
     // fails — which is the point.
@@ -799,6 +839,34 @@ function selfTest() {
     ok('onset is the onset when both are given', both.kept[0]?.onset === '2026-10-05T18:00:00Z');
     ok('…and effective is the effective', both.kept[0]?.effective === '2026-10-05T09:00:00Z');
     ok('…so the two can never be swapped unseen', both.kept[0]?.onset !== both.kept[0]?.effective);
+  }
+
+  // 🔴 TWO ALERTS SHARING AN IDENTIFIER, TOLD APART ONLY BY THEIR SHAPE.
+  // The dedup key's shape half read the pre-rename `.polygon`, so it was
+  // always `undefined` and every shape-only area fell back to its
+  // POSITION in the list. Nothing is lost today only because
+  // `alert.identifier` happens to be unique in every feed — which is a
+  // property of the data, not of our code.
+  {
+    const ring = (n) => `${n}.1,25.1 ${n}.2,25.2 ${n}.3,25.3 ${n}.1,25.1`;
+    const sameId = {
+      warnings: [
+        { alert: { identifier: 'SAME', info: [block({ area: [{ areaDesc: 'North', polygon: [ring(58)] }] })] } },
+        { alert: { identifier: 'SAME', info: [block({ area: [{ areaDesc: 'South', polygon: [ring(59)] }] })] } },
+      ],
+    };
+    const out = warningsFrom(sameId, 'estonia', NOW);
+    ok('two shapes under one identifier stay two warnings', out.kept.length === 2, JSON.stringify(out.counts));
+    ok('…and neither is counted as a duplicate', out.counts.duplicate === 0);
+    const sameShape = {
+      warnings: [
+        { alert: { identifier: 'SAME', info: [block({ area: [{ areaDesc: 'North', polygon: [ring(58)] }] })] } },
+        { alert: { identifier: 'SAME', info: [block({ area: [{ areaDesc: 'North again', polygon: [ring(58)] }] })] } },
+      ],
+    };
+    const merged = warningsFrom(sameShape, 'estonia', NOW);
+    ok('…while the SAME shape under one identifier is one warning', merged.kept.length === 1);
+    ok('…counted as the duplicate it is', merged.counts.duplicate === 1);
   }
 
   // 🔴 Bulgaria's clock runs 72 minutes ahead on all 18 of its blocks.
