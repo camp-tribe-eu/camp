@@ -77,6 +77,13 @@ export function isHostOrSubdomain(host, base) {
   if (host === base) return true;
   const a = host.split('.');
   const b = base.split('.');
+  // ⚠️ PROVABLY REDUNDANT, AND A MUTATION PROVED IT: deleting this line
+  // keeps every assertion green. A join of `k` labels carries `k - 1`
+  // dots, so a suffix shorter than `base` can never equal it, and
+  // `slice` with a negative start simply takes from the end. It stays
+  // because the next reader will change the slice, not re-derive the
+  // dot-counting argument — and because the cost of the line is nothing
+  // against an allowlist bypass.
   if (a.length <= b.length) return false;
   return a.slice(a.length - b.length).join('.') === base;
 }
@@ -126,6 +133,12 @@ function selfTest() {
     !isHostOrSubdomain('nota.example', 'a.example'));
   ok('…nor one that only contains it', !isHostOrSubdomain('a.example.evil.test', 'a.example'));
   ok('…nor a shorter host', !isHostOrSubdomain('example', 'a.example'));
+  // 🔴 A mutation removed the type guard and stayed green: nothing fed
+  // this anything but a string, so the guard guarded nothing provable.
+  ok('…a missing host is not a match', !isHostOrSubdomain(null, 'a.example'));
+  ok('…a missing base is not a match', !isHostOrSubdomain('a.example', null));
+  ok('…and neither is an object pretending to be a host',
+    !isHostOrSubdomain({ toString: () => 'a.example' }, 'a.example'));
 
   ok('the host we use today passes', verdict('tiles.openfreemap.org') === null);
   ok('…a subdomain of it passes too', verdict('eu.tiles.openfreemap.org') === null);
