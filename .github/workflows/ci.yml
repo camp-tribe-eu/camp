@@ -347,6 +347,11 @@ jobs:
       # it does not go red, it goes green over text nobody compared. The
       # version this replaced could not match `</h2>`, so a marked
       # heading swallowed the paragraph after it.
+      # CAMP-148. The feed is an archive with live warnings in it, and the
+      # provider says the opposite in writing. No network needed.
+      - name: MeteoAlarm filtering
+        run: node scripts/meteoalarm/fetch-warnings.mjs --self-test
+
       - name: The boilerplate rule itself
         run: node scripts/seo/check-duplicate-pages.mjs --self-test
 
