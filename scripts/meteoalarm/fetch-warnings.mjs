@@ -38,10 +38,10 @@
 // eleven — correcting a generalisation with a generalisation, twice,
 // each time from a sample one country wider.
 //
-// All 27 feeds, 2026-10-05:
+// All 27 feeds, 2026-10-05T08:17Z — reproduce with `--census`:
 //
-//   EMMA_ID      26 404   16 countries
-//   NUTS3         7 090   France, Bulgaria
+//   EMMA_ID      26 686   16 countries
+//   NUTS3         7 594   France, Bulgaria
 //   WARNCELLID    5 672   Germany, alongside EMMA_ID
 //   NUTS2           566   Belgium (alongside EMMA_ID), Hungary
 //   FIPS            393   Ireland — and Ireland has no EMMA_ID at all
@@ -55,9 +55,11 @@
 // `areaDesc`, and any polygon — rather than reaching for the one scheme
 // we expected.
 //
-// These counts are a snapshot of a live archive and will drift. They
-// carry a date for that reason: a number in a comment is a measurement
-// or it is a decoration.
+// 🔴 THESE COUNTS DRIFT, AND THAT IS WHY `--census` EXISTS. Review and I
+// disagreed on NUTS3 by 504 and neither of us was wrong: we had measured
+// snapshots 22 minutes apart. EMMA_ID moved 26 404 → 26 686 within the
+// hour. Re-run the command rather than trusting the figures above; a
+// number in a comment is a measurement or it is a decoration.
 
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -266,7 +268,16 @@ export function warningsFrom(payload, country, now) {
         headline: info.headline ?? null,
         description: info.description ?? null,
         instruction: info.instruction ?? null,
-        onset: info.onset ?? info.effective ?? null,
+        // 🔴 TWO FIELDS, NOT A FALLBACK. This was `onset ?? effective`,
+        // and review mutated it to `effective ?? onset`: the self-test
+        // stayed green while 5 100 of 6 691 live blocks changed their
+        // published start — Croatia by 5h43m. No fixture had both
+        // present and different, so the suite could not tell apart the
+        // two fields this script spent three attempts distinguishing.
+        // The fallback was dead anyway: 0 blocks carry `effective`
+        // without `onset`. Each is now reported as what it is.
+        onset: info.onset ?? null,
+        effective: info.effective ?? null,
         expires: info.expires,
         level: level.code,
         // 🔴 The source's own word for the hazard, passed through. We do
@@ -517,8 +528,10 @@ function selfTest() {
       w?.areas?.[0]?.codes?.length === 2, JSON.stringify(w?.areas?.[0]?.codes));
     ok('…and both schemes survive side by side',
       w?.areas?.[0]?.codes?.join(',') === 'WARNCELLID:111,EMMA_ID:DE222');
-    ok('🔴 onset falls back to `effective` when the source gives no onset',
-      w?.onset === '2026-10-05T09:00:00Z', String(w?.onset));
+    ok('🔴 an absent onset is null, never borrowed from `effective`',
+      w?.onset === null, String(w?.onset));
+    ok('…and `effective` is reported as itself',
+      w?.effective === '2026-10-05T09:00:00Z', String(w?.effective));
     ok('🔴 the sender falls back to the alert when the info has none',
       w?.sender === 'ALERT-SENDER', String(w?.sender));
     ok('the id lists every area, so two alerts over different ground differ',
@@ -601,6 +614,20 @@ function selfTest() {
     ok('…and no onset at all does not drop it', noOnset.kept.length === 1);
   }
 
+  // 🔴 BOTH PRESENT AND DIFFERENT — the case no fixture had. Swapping
+  // `onset` and `effective` left the whole suite green while it moved
+  // the published start on 5 100 of 6 691 live blocks.
+  {
+    const both = warningsFrom(
+      feed([block({ onset: '2026-10-05T18:00:00Z', effective: '2026-10-05T09:00:00Z' })]),
+      'x',
+      NOW,
+    );
+    ok('onset is the onset when both are given', both.kept[0]?.onset === '2026-10-05T18:00:00Z');
+    ok('…and effective is the effective', both.kept[0]?.effective === '2026-10-05T09:00:00Z');
+    ok('…so the two can never be swapped unseen', both.kept[0]?.onset !== both.kept[0]?.effective);
+  }
+
   // 🔴 Bulgaria's clock runs 72 minutes ahead on all 18 of its blocks.
   // That is surfaced, never dropped.
   {
@@ -644,6 +671,50 @@ function selfTest() {
     ok('`--dry-run` alone asks all 27 and may not', runPlan(['node', 'x', '--dry-run']).dryRun === true);
   }
 
+  // 🔴 A typo in a flag may not publish.
+  {
+    const threw = (argv) => { try { runPlan(argv); return false; } catch { return true; } };
+    ok('`--dry-run=true` is a dry run, not a full write', runPlan(['n', 'x', '--dry-run=true']).dryRun === true);
+    ok('`--dry-run` bare is too', runPlan(['n', 'x', '--dry-run']).dryRun === true);
+    ok('`--dryrun` is refused, not run', threw(['n', 'x', '--dryrun']));
+    ok('`--selftest` is refused, not run', threw(['n', 'x', '--selftest']));
+    ok('…and `--self-test=1` is recognised by the entry point', hasFlag(['n', 'x', '--self-test=1'], 'self-test'));
+    ok('…while `--selftest` is not', !hasFlag(['n', 'x', '--selftest'], 'self-test'));
+  }
+
+  // 🔴 A 200 with an empty array is its own answer: not an error, not
+  // silence, and invisible to every other guard.
+  {
+    const quiet = quietCountries([
+      { country: 'empty', seen: 0, kept: [] },
+      { country: 'busy', seen: 148, kept: [] },
+    ]);
+    ok('a country that answered with nothing is quiet', quiet.length === 1 && quiet[0] === 'empty');
+    ok('…and one that served blocks is not, even keeping none', !quiet.includes('busy'));
+  }
+
+  // 🔴 The header table is a command now, not a hand-copied number.
+  {
+    const c = census({
+      // Two occurrences, deliberately: with one, `count = 1` and
+      // `count += 1` are the same number and the mutation lives.
+      a: feed([
+        block({
+          area: [
+            { areaDesc: 'N', geocode: [{ valueName: 'EMMA_ID', value: 'A1' }] },
+            { areaDesc: 'E', geocode: [{ valueName: 'EMMA_ID', value: 'A2' }] },
+          ],
+        }),
+      ]),
+      b: feed([block({ area: [{ areaDesc: 'S', geocode: [] }] })]),
+      c: { warnings: [] },
+    });
+    ok('the census counts every occurrence, not the first', c.schemes.EMMA_ID?.count === 2);
+    ok('…and names the country it came from', c.schemes.EMMA_ID?.countries.join() === 'a');
+    ok('…lists a country whose areas carry no code', c.uncoded.join() === 'b');
+    ok('…and separates one that served no area at all', c.quiet.join() === 'c');
+  }
+
   // 🔴 Nine countries keep nothing today and are healthy; a country
   // whose every block is unreadable is not.
   {
@@ -672,15 +743,38 @@ function selfTest() {
 
 const PAUSE_MS = 400;
 /**
+ * A flag, however it is written. `--dry-run` and `--dry-run=true` are the
+ * same request.
+ *
+ * 🔴 `--dry-run=true` USED TO RUN ALL 27 COUNTRIES AND WRITE THE FILE.
+ * The commit that taught `--country` to accept both spellings left its
+ * sibling on a bare `includes('--dry-run')`, in a section titled "a
+ * debugging flag must never be able to publish". `--self-test=1` missed
+ * the same way and fell through into a live run.
+ */
+export const KNOWN_FLAGS = ['dry-run', 'country', 'self-test', 'census'];
+
+export const hasFlag = (argv, name) =>
+  argv.some((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+
+/**
  * What a command line asks for. Pure, because the bug it replaces was a
  * decision — `--country=` with an empty value ran all 27 countries AND
  * wrote the file — and a decision that lives only inside `main` cannot
  * be tested.
  */
 export function runPlan(argv) {
+  // 🔴 AN UNKNOWN FLAG IS A REFUSAL, NOT A FULL RUN. `--dryrun` and
+  // `--selftest` are not this script's flags, and both used to mean "do
+  // everything and write the file". A typo may not publish.
+  const unknown = argv
+    .slice(2)
+    .filter((a) => a.startsWith('--') && !KNOWN_FLAGS.some((k) => a === `--${k}` || a.startsWith(`--${k}=`)));
+  if (unknown.length) throw new Error(`unknown flag(s): ${unknown.join(', ')}`);
   const flag = argv.find((a) => a === '--country' || a.startsWith('--country='));
   const only = flag?.startsWith('--country=') ? flag.slice('--country='.length) : undefined;
   if (flag && !only) throw new Error('--country= needs a country, e.g. --country=croatia');
+  const dryRun = hasFlag(argv, 'dry-run') || Boolean(flag);
   return {
     countries: only ? [only] : COUNTRIES,
     // Which of the two refusals to write this was, for the log.
@@ -692,8 +786,75 @@ export function runPlan(argv) {
     // a partial read may be inspected, it may not become the published
     // answer — and a later reader who removes the throw must not
     // silently get the old bug back.
-    dryRun: argv.includes('--dry-run') || Boolean(flag),
+    dryRun,
   };
+}
+
+/**
+ * The scheme census, over payloads already in hand.
+ *
+ * 🔴 BECAUSE THE NUMBERS IN THIS FILE'S HEADER HAVE BEEN WRONG FOUR
+ * TIMES. The last pair disagreed with review by 504 — and neither was a
+ * mistake: the feed moved 504 NUTS3 occurrences in 22 minutes, and we
+ * had measured different snapshots of a live archive. A hand-copied
+ * number rots. This makes the table a command instead.
+ */
+export function census(payloads) {
+  const schemes = {};
+  const where = {};
+  const areas = {};
+  for (const [country, payload] of Object.entries(payloads)) {
+    for (const entry of payload?.warnings ?? []) {
+      for (const info of entry?.alert?.info ?? []) {
+        for (const area of areasOf(info)) {
+          areas[country] ??= { total: 0, coded: 0 };
+          areas[country].total += 1;
+          if (area.codes.length) areas[country].coded += 1;
+          for (const code of area.codes) {
+            const scheme = code.slice(0, code.indexOf(':'));
+            schemes[scheme] = (schemes[scheme] ?? 0) + 1;
+            (where[scheme] ??= new Set()).add(country);
+          }
+        }
+      }
+    }
+  }
+  return {
+    schemes: Object.fromEntries(
+      Object.entries(schemes)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => [k, { count: v, countries: [...where[k]].sort() }]),
+    ),
+    uncoded: Object.entries(areas)
+      .filter(([, a]) => a.coded === 0)
+      .map(([c]) => c)
+      .sort(),
+    partial: Object.entries(areas)
+      .filter(([, a]) => a.coded > 0 && a.coded < a.total)
+      .map(([c, a]) => `${c} ${a.coded}/${a.total}`)
+      .sort(),
+    quiet: Object.keys(payloads)
+      .filter((c) => !areas[c])
+      .sort(),
+  };
+}
+
+/**
+ * Countries that ANSWERED and served nothing at all.
+ *
+ * 🔴 THE HOLE THE SHAPE GUARD BELOW DID NOT CLOSE. Review drove 26 feeds
+ * returning `{"warnings":[]}` — the exact 15-byte body Luxembourg,
+ * Malta, Romania and Slovakia serve today — with Spain alone real: no
+ * country errored, so `silent` was empty; none served a block, so
+ * `blind` (which needs `seen > 0`) was empty; Spain's 200 warnings kept
+ * the yield guard quiet. The file was written, shape-identical to a
+ * healthy run, with 26 states and a third of Europe's warnings gone.
+ *
+ * A 200 carrying an empty array is not an error and not silence. It is
+ * its own answer, and it has to be counted as one.
+ */
+export function quietCountries(results) {
+  return results.filter((r) => r.seen === 0).map((r) => r.country);
 }
 
 /** Countries that served blocks of which NONE carried a readable level. */
@@ -797,6 +958,16 @@ async function main() {
   // So the guard asks about the shape instead, which weather does not
   // touch: a country that serves blocks none of which carry a readable
   // awareness level is a country we have stopped understanding.
+  // 🔴 Four states answer empty every day. A quarter of the union doing
+  // it is the same kind of claim as a quarter being unreachable, and is
+  // judged by the same measure.
+  const quiet = quietCountries(shapes);
+  if (quiet.length >= QUARTER) {
+    throw new Error(
+      `${quiet.length} of ${countries.length} countries answered with no warnings at all ` +
+        `(${quiet.join(', ')}) — four do that daily, a quarter of the union does not`,
+    );
+  }
   const blind = blindCountries(shapes);
   if (blind.length) {
     throw new Error(
@@ -832,6 +1003,10 @@ async function main() {
       // 🔴 Surfaced, not filtered: see `dropReason`. Today every one of
       // these is Bulgaria, 72 minutes ahead on a clock.
       publishedAhead,
+      // 🔴 Written because the failure above was INVISIBLE in the output:
+      // a run missing 26 countries produced a document indistinguishable
+      // from a full one. A reader must be able to see who answered.
+      perCountry: shapes.map((r) => ({ country: r.country, seen: r.seen, kept: r.kept.length })),
       note:
         'The feed is an archive with live warnings in it. Expired, all-clear ' +
         'and green (level 1) records are dropped on every read — the Hub says ' +
@@ -853,7 +1028,8 @@ async function main() {
 // `await import('./fetch-warnings.mjs')` and it performed real network
 // fetches; without `--dry-run` in argv — and no test runner supplies
 // one — it would fetch 27 countries and overwrite
-// `apps/web/src/data/warnings.json`, which is tracked. A module that
+// `apps/web/src/data/warnings.json`, which is NOT tracked and is built
+// by this script. A module that
 // cannot be imported without side effects cannot be unit-tested at all.
 const RUN_DIRECTLY =
   process.argv[1] !== undefined &&
@@ -863,7 +1039,30 @@ const RUN_DIRECTLY =
 // it, so importing this module with `--self-test` anywhere in argv ran
 // the suite and called `process.exit` — a module that can kill its
 // importer is not importable.
+/** `--census`: re-measure the table in this file's header. Never writes. */
+async function runCensus() {
+  const payloads = {};
+  for (const country of COUNTRIES) {
+    await sleep(PAUSE_MS);
+    try {
+      const res = await fetch(feedUrl(country));
+      payloads[country] = await res.json();
+    } catch (err) {
+      console.log(`  ${country}: ${String(err.message).slice(0, 60)}`);
+    }
+  }
+  const c = census(payloads);
+  console.log(`\ngeocode schemes, ${new Date().toISOString()}`);
+  for (const [scheme, { count, countries }] of Object.entries(c.schemes)) {
+    console.log(`  ${scheme.padEnd(12)} ${String(count).padStart(6)}   ${countries.join(', ')}`);
+  }
+  console.log(`\nno code on any area: ${c.uncoded.join(', ') || '—'}`);
+  console.log(`partly coded:        ${c.partial.join(', ') || '—'}`);
+  console.log(`served no area:      ${c.quiet.join(', ') || '—'}`);
+}
+
 if (RUN_DIRECTLY) {
-  if (process.argv.includes('--self-test')) process.exit(selfTest() ? 1 : 0);
-  await main();
+  if (hasFlag(process.argv, 'self-test')) process.exit(selfTest() ? 1 : 0);
+  if (hasFlag(process.argv, 'census')) await runCensus();
+  else await main();
 }

@@ -283,6 +283,11 @@ We take the **JSON API** and we filter it hard.
 > from it. The same count missed Latvia, which codes 14 of its 508
 > areas — partial, and the case hardest to see.
 >
+> Every figure here is reproducible with
+> `node scripts/meteoalarm/fetch-warnings.mjs --census`, which never
+> writes. Run it rather than trusting the numbers: the feed is live, and
+> two measurements 22 minutes apart differed by 504 NUTS3 occurrences.
+>
 > 🔴 **The lesson is not about MeteoAlarm.** Three times in one day I
 > replaced a generalisation with a narrower one drawn from a slightly
 > wider sample, and each felt like a correction. A refutation is a claim
