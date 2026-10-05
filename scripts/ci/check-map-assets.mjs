@@ -59,12 +59,34 @@ export function hostOf(template) {
   }
 }
 
+/**
+ * Is `host` the same host as `base`, or a subdomain of it?
+ *
+ * 🔴 THIS WAS `host.endsWith('.' + base)` AND CODEQL WAS RIGHT TO FAIL
+ * IT (`js/incomplete-url-substring-sanitization`, high). Comparing hosts
+ * by substring is how allowlist bypasses get written: the leading dot
+ * makes the naive form correct only by accident of spelling, and one
+ * edit away from `endsWith(base)`, where `nottiles.openfreemap.org`
+ * would sail through. In a function whose whole job is deciding what we
+ * are allowed to load, "correct by accident" is not good enough.
+ *
+ * Labels are compared as labels. No substring operation is left.
+ */
+export function isHostOrSubdomain(host, base) {
+  if (typeof host !== 'string' || typeof base !== 'string') return false;
+  if (host === base) return true;
+  const a = host.split('.');
+  const b = base.split('.');
+  if (a.length <= b.length) return false;
+  return a.slice(a.length - b.length).join('.') === base;
+}
+
 /** Why this asset is not acceptable, or null when it is. */
 export function verdict(host, { allowed = ALLOWED, forbidden = FORBIDDEN } = {}) {
   if (host === null) return null;
-  const hit = Object.keys(forbidden).find((h) => host === h || host.endsWith(`.${h}`));
+  const hit = Object.keys(forbidden).find((h) => isHostOrSubdomain(host, h));
   if (hit) return forbidden[hit];
-  if (allowed.some((h) => host === h || host.endsWith(`.${h}`))) return null;
+  if (allowed.some((h) => isHostOrSubdomain(host, h))) return null;
   // 🔴 Unknown is NOT acceptable. An allowlist that quietly passes what
   // it has not seen is a list of examples, not a rule — and the whole
   // failure this guards against is an asset host nobody looked at.
@@ -95,6 +117,15 @@ function selfTest() {
   ok('…placeholders do not break the parse',
     hostOf('https://x.example/{a}/{b}/{c}.pbf') === 'x.example');
   ok('…and a relative url is ours, so it has no host', hostOf('/fonts/{range}.pbf') === null);
+
+  ok('a host is itself', isHostOrSubdomain('a.example', 'a.example'));
+  ok('…a subdomain belongs to it', isHostOrSubdomain('x.a.example', 'a.example'));
+  ok('…a deep subdomain too', isHostOrSubdomain('x.y.a.example', 'a.example'));
+  // 🔴 The bypass a substring check invites.
+  ok('…but a host that merely ENDS with the name does not',
+    !isHostOrSubdomain('nota.example', 'a.example'));
+  ok('…nor one that only contains it', !isHostOrSubdomain('a.example.evil.test', 'a.example'));
+  ok('…nor a shorter host', !isHostOrSubdomain('example', 'a.example'));
 
   ok('the host we use today passes', verdict('tiles.openfreemap.org') === null);
   ok('…a subdomain of it passes too', verdict('eu.tiles.openfreemap.org') === null);
