@@ -28,7 +28,13 @@ const scryptAsync = promisify(scrypt) as (
  * scrypt is in Node's core. These are those exact parameters, named so
  * that raising them later is a one-line change with a visible history.
  */
-export const SCRYPT = Object.freeze({ N: 2 ** 17, r: 8, p: 1, keyLen: 32, saltLen: 16 });
+export const SCRYPT = Object.freeze({
+  N: 2 ** 17,
+  r: 8,
+  p: 1,
+  keyLen: 32,
+  saltLen: 16,
+});
 
 // 128 * N * r bytes, plus headroom. Node's default of 32 MiB is far
 // below what these parameters need, and the failure is a thrown error
@@ -44,7 +50,10 @@ export const FORMAT = 'scrypt';
  * the cost is raised, or raising it logs every existing user out — which
  * is how work factors end up never being raised at all.
  */
-export async function hashPassword(plain: string, params = SCRYPT): Promise<string> {
+export async function hashPassword(
+  plain: string,
+  params = SCRYPT,
+): Promise<string> {
   if (typeof plain !== 'string' || plain.length === 0) {
     throw new Error('a password must be a non-empty string');
   }
@@ -55,11 +64,21 @@ export async function hashPassword(plain: string, params = SCRYPT): Promise<stri
     p: params.p,
     maxmem: MAX_MEM,
   });
-  return [FORMAT, params.N, params.r, params.p, salt.toString('base64'), key.toString('base64')].join('$');
+  return [
+    FORMAT,
+    params.N,
+    params.r,
+    params.p,
+    salt.toString('base64'),
+    key.toString('base64'),
+  ].join('$');
 }
 
 /** True when `plain` made `stored`. Never throws on a malformed hash. */
-export async function verifyPassword(plain: string, stored: string): Promise<boolean> {
+export async function verifyPassword(
+  plain: string,
+  stored: string,
+): Promise<boolean> {
   if (typeof plain !== 'string' || typeof stored !== 'string') return false;
   const parts = stored.split('$');
   if (parts.length !== 6 || parts[0] !== FORMAT) return false;
@@ -67,7 +86,8 @@ export async function verifyPassword(plain: string, stored: string): Promise<boo
   const N = Number(n);
   const rr = Number(r);
   const pp = Number(p);
-  if (!Number.isInteger(N) || !Number.isInteger(rr) || !Number.isInteger(pp)) return false;
+  if (!Number.isInteger(N) || !Number.isInteger(rr) || !Number.isInteger(pp))
+    return false;
   // 🔴 A BOUNDS CHECK STOOD HERE AND IT GUARDED NOTHING. It read
   // `N < 2**14 || N > 2**20 || …`, meant against a row claiming an
   // absurd cost — but `maxmem` below already refuses anything that large
@@ -91,7 +111,10 @@ export async function verifyPassword(plain: string, stored: string): Promise<boo
   let actual;
   try {
     actual = await scryptAsync(plain.normalize('NFKC'), salt, expected.length, {
-      N, r: rr, p: pp, maxmem: MAX_MEM,
+      N,
+      r: rr,
+      p: pp,
+      maxmem: MAX_MEM,
     });
   } catch {
     return false;

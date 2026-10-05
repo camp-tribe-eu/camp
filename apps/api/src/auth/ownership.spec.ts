@@ -45,7 +45,9 @@ describe('ownership', () => {
   });
 
   it('…but an unrelated role grants nothing', () => {
-    expect(denyReason({ id: 'user-a', roles: ['owner'] }, theirs)).toBe('not-yours');
+    expect(denyReason({ id: 'user-a', roles: ['owner'] }, theirs)).toBe(
+      'not-yours',
+    );
   });
 
   it('…and an anonymous caller cannot hold one', () => {

@@ -37,13 +37,23 @@ export const holds = (viewer: Viewer, role: string): boolean =>
  * signed in (401, and signing in might help) from signed in but not
  * yours (403, and it never will).
  */
-export function denyReason(viewer: Viewer, resource: Owned): 'anonymous' | 'not-yours' | 'missing' | null {
-  if (!viewer || typeof viewer.id !== 'string' || viewer.id === '') return 'anonymous';
+export function denyReason(
+  viewer: Viewer,
+  resource: Owned,
+): 'anonymous' | 'not-yours' | 'missing' | null {
+  if (!viewer || typeof viewer.id !== 'string' || viewer.id === '')
+    return 'anonymous';
   // 🔴 A missing resource answers the same as someone else's. Telling an
   // attacker "404" for ids that do not exist and "403" for ids that do
   // turns the endpoint into a directory of which ids are real.
-  if (!resource || typeof resource.userId !== 'string' || resource.userId === '') return 'missing';
-  if (resource.userId !== viewer.id && !holds(viewer, ADMIN)) return 'not-yours';
+  if (
+    !resource ||
+    typeof resource.userId !== 'string' ||
+    resource.userId === ''
+  )
+    return 'missing';
+  if (resource.userId !== viewer.id && !holds(viewer, ADMIN))
+    return 'not-yours';
   return null;
 }
 

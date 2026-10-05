@@ -1,4 +1,10 @@
-import { FORMAT, SCRYPT, hashPassword, needsRehash, verifyPassword } from './password';
+import {
+  FORMAT,
+  SCRYPT,
+  hashPassword,
+  needsRehash,
+  verifyPassword,
+} from './password';
 
 // CAMP-50 — password storage. OWASP: "If Argon2id is not available, use
 // scrypt with a minimum CPU/memory cost parameter of (2^17), a minimum
@@ -15,12 +21,16 @@ describe('password', () => {
 
   it('verifies the password it was made from', async () => {
     const stored = await hashPassword('correct horse battery staple');
-    expect(await verifyPassword('correct horse battery staple', stored)).toBe(true);
+    expect(await verifyPassword('correct horse battery staple', stored)).toBe(
+      true,
+    );
   });
 
   it('…and refuses any other', async () => {
     const stored = await hashPassword('correct horse battery staple');
-    expect(await verifyPassword('correct horse battery stapl', stored)).toBe(false);
+    expect(await verifyPassword('correct horse battery stapl', stored)).toBe(
+      false,
+    );
     expect(await verifyPassword('', stored)).toBe(false);
   });
 
@@ -74,9 +84,15 @@ describe('password', () => {
   // 🔴 A row claiming an absurd cost must answer false, not hang or
   // throw. `maxmem` is what refuses it — see the note in the source.
   it('refuses a hash claiming an impossible cost, without throwing', async () => {
-    expect(await verifyPassword('x', 'scrypt$1073741824$8$1$c2FsdA==$a2V5')).toBe(false);
-    expect(await verifyPassword('x', 'scrypt$131072$32$16$c2FsdA==$a2V5')).toBe(false);
-    expect(await verifyPassword('x', 'scrypt$1024$8$1$c2FsdA==$a2V5')).toBe(false);
+    expect(
+      await verifyPassword('x', 'scrypt$1073741824$8$1$c2FsdA==$a2V5'),
+    ).toBe(false);
+    expect(await verifyPassword('x', 'scrypt$131072$32$16$c2FsdA==$a2V5')).toBe(
+      false,
+    );
+    expect(await verifyPassword('x', 'scrypt$1024$8$1$c2FsdA==$a2V5')).toBe(
+      false,
+    );
   });
 
   // The same password typed on two keyboards is the same password.
