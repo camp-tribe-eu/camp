@@ -82,13 +82,21 @@ export function WebcamPanel({
   now: Date;
 }) {
   const cams = showable(webcams, now);
+  const why = absence(webcams, now);
+
+  // 🔴 NOTHING AT ALL when there is nothing we can honestly say: the
+  // catalogue is not imported, or the only rows near here are ones we
+  // cannot use. Every other branch of this panel makes a claim, and
+  // those two states have no claim to make — see `absence` in
+  // lib/webcams.ts.
+  if (why === 'unknown') return null;
 
   return (
     <section
       data-testid="webcam-note"
       data-count={String(cams.length)}
       aria-labelledby="webcams-heading"
-      className="mt-4 rounded border border-line-2 bg-surface p-3 text-sm text-ink-2"
+      className="mt-8"
     >
       {/* 🔴 `data-boilerplate` from here down on everything that does not
           move with the campsite — the rule `scripts/seo/check-duplicate-pages.mjs`
@@ -107,14 +115,34 @@ export function WebcamPanel({
           What is NOT marked: the camera's name, its distance, the
           direction it looks and when it last reported. Those vary with
           the subject, which is exactly what the guard exists to read. */}
-      <h3
+      {/* 🔴 AN h2, AND THE PREVIOUS h3 WAS A DEFECT NO TEST COULD SEE.
+          Found by opening the page — CAMP-190's own acceptance criterion,
+          which I skipped before merging.
+
+          This section is a direct child of <main>, a sibling of "Bathing
+          water", "Air quality" and "Weather on site", all of which are
+          h2. An h3 here made the document outline read
+
+            … h2 Air quality → h3 Webcams nearby → h2 Weather on site
+
+          so the webcams were a SUBSECTION OF THE AIR QUALITY, which they
+          are not. On a site whose entire acquisition is organic search,
+          the heading outline is how a page states its subjects — and a
+          screen reader is told the same wrong thing.
+
+          It looked worse than it read: a small uppercase label inside a
+          bordered box beneath the air-quality card, which is a footnote
+          attached to that card rather than a subject of its own. */}
+      <h2
         id="webcams-heading"
         data-boilerplate="webcam-heading"
-        className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2"
+        className="text-xl font-bold md:text-[25px]"
       >
         Webcams nearby
-      </h3>
+      </h2>
 
+      {/* The card, matching the two panels above it. */}
+      <div className="mt-3 rounded-card border border-line-2 bg-surface-2 p-4 text-sm text-ink-2">
       {cams.length === 0 ? (
         // 🔴 TWO SENTENCES, BECAUSE THE PANEL IS EMPTY FOR TWO REASONS —
         // see `absence` in lib/webcams.ts. The first blames nobody; the
@@ -124,7 +152,7 @@ export function WebcamPanel({
         //
         // Both carry `data-boilerplate`: each is word for word the same
         // on every page that is in that state, which is the rule.
-        absence(webcams, now) === 'stale' ? (
+        why === 'stale' ? (
           <p className="mt-2" data-boilerplate="webcam-stale">
             We have cameras listed near this campsite, but none of them has
             reported for more than a day. That is how old our last reading of
@@ -214,6 +242,7 @@ export function WebcamPanel({
           </p>
         </>
       )}
+      </div>
     </section>
   );
 }

@@ -1,0 +1,34 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "start:dev",
+        "--workspace=apps/api"
+      ],
+      "port": 3001
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--workspace=apps/web"
+      ],
+      "port": 3000
+    }
+  ],
+  "_": [
+    "How the two dev servers start, so that opening the site is one call and not a",
+    "set-up task. Three defects shipped this week were invisible to 814 unit tests",
+    "and obvious within ten seconds of opening a page: two panels with the wrong",
+    "heading level, and a sentence claiming no webcam exists within 25 km on every",
+    "campsite in Europe because the catalogue had not been imported.",
+    "",
+    "api must be up before web: the pages are built from it."
+  ]
+}

@@ -18,7 +18,7 @@ import {
   usable,
   type Webcam,
 } from '@/lib/webcams';
-import { renderComponent } from './render-component';
+import { renderComponent, rendersNothing } from './render-component';
 
 // CAMP-190 — the rules that keep the pictures honest and the terms kept.
 //
@@ -250,14 +250,16 @@ test.describe('the panel never claims the camera shows the campsite', () => {
     expect(t).toContain(distance(WEBCAM_RADIUS_M));
   });
 
+  // 🔴 `[]` ONLY. `null` and `undefined` mean we have not imported the
+  // catalogue, and this test used to loop over all three — which is how
+  // the claim ended up on every page before the import had run. See
+  // "a catalogue we have not imported" below.
   test('a campsite with no camera says so, and says what that means', () => {
-    for (const empty of [[], null, undefined]) {
-      const html = renderComponent(WebcamPanel, { webcams: empty, now: NOW });
-      const t = text(html);
-      expect(t).toContain('No public webcam within 25 km');
-      expect(t).toContain('not a statement about the place');
-      expect(html).not.toMatch(/<img/);
-    }
+    const html = renderComponent(WebcamPanel, { webcams: [], now: NOW });
+    const t = text(html);
+    expect(t).toContain('No public webcam within 25 km');
+    expect(t).toContain('not a statement about the place');
+    expect(html).not.toMatch(/<img/);
   });
 
   test('the direction comes from the source’s own title, or not at all', () => {
@@ -348,12 +350,80 @@ test.describe('an empty panel says which kind of empty it is', () => {
   });
 
   test('…and a campsite with no camera at all still says exactly that', () => {
-    for (const nothing of [[], null, undefined]) {
-      const out = text(renderComponent(WebcamPanel, { webcams: nothing, now: NOW }));
-      expect(absence(nothing, NOW)).toBe('none');
-      expect(out).toContain('No public webcam within 25 km');
-      expect(out, 'nothing was listed, so there is no reading of ours to be old')
-        .not.toContain('our last reading');
+    const out = text(renderComponent(WebcamPanel, { webcams: [], now: NOW }));
+    expect(absence([], NOW)).toBe('none');
+    expect(out).toContain('No public webcam within 25 km');
+    expect(out, 'nothing was listed, so there is no reading of ours to be old')
+      .not.toContain('our last reading');
+  });
+
+  // 🔴 AND A FOURTH, WHICH I DID NOT SEE UNTIL REVIEW COUNTED THEM.
+  //
+  // `absence()` used to read the RAW list while the panel rendered
+  // `showable()`. So rows dropped for anything other than age — an
+  // `http://` link we may not use, a camera that has never reported at
+  // all — came out as "none of them has reported for more than a day.
+  // That is how old our last reading of them is", which is untrue in
+  // both directions: there is no reading of ours to be old, and the
+  // network is not to blame either.
+  //
+  // Only `stale` entitles the page to talk about the age of what we
+  // hold. Everything else means we have nothing honest to say, and the
+  // panel says nothing.
+  test('🔴 rows we cannot use are not reported as rows that went quiet', () => {
+    const neverReported = [cam({ lastFrameAt: null }), cam({ ref: 'b', lastFrameAt: null })];
+    expect(showable(neverReported, NOW)).toHaveLength(0);
+    expect(
+      absence(neverReported, NOW),
+      'a camera that never reported is being called one whose reading is old',
+    ).toBe('unknown');
+    expect(rendersNothing(WebcamPanel, { webcams: neverReported, now: NOW })).toBe(true);
+
+    // The same for a link the terms do not let us use.
+    const badLink = [cam({ detailUrl: 'http://windy.com/webcams/1690466401' })];
+    expect(showable(badLink, NOW)).toHaveLength(0);
+    expect(absence(badLink, NOW)).toBe('unknown');
+
+    // And a genuinely old camera still gets the sentence that is true
+    // of it, so the branch above has not swallowed the real case.
+    expect(absence(REAL, STALE_CLOCK)).toBe('stale');
+    expect(
+      text(renderComponent(WebcamPanel, { webcams: REAL, now: STALE_CLOCK })),
+    ).toContain('none of them has reported');
+
+    // A mixture is not an absence at all: one usable camera means cards.
+    const mixed = [cam({ lastFrameAt: null }), cam({ ref: 'c' })];
+    expect(absence(mixed, NOW), 'one usable camera should mean the panel is not empty').toBeNull();
+    expect(showable(mixed, NOW)).toHaveLength(1);
+  });
+
+  // 🔴 AND THE THIRD EMPTY, WHICH WAS LIVE ON EVERY PAGE IN EUROPE.
+  //
+  // `[]` used to mean both "we looked and there is nothing within
+  // 25 km" and "we have not imported the catalogue". The webcam table is
+  // empty until `scripts/windy/fetch-webcams.mjs` runs — measured on the
+  // live API on 05.10.2026 — so every campsite was told
+  //
+  //   "No public webcam within 25 km of this campsite. That is what the
+  //    camera network covers, not a statement about the place."
+  //
+  // over a continent where 88% of campsites have one (CAMP-189). It is
+  // a claim about COVERAGE, made before we had looked.
+  //
+  // The API now answers `null` until the import has run, and the panel
+  // says nothing at all. Saying nothing is not the failure the "never
+  // empty" rule was written against: that rule is about campsites
+  // without a camera, not about us without data.
+  test('🔴 a catalogue we have not imported makes NO claim about coverage', () => {
+    for (const notLooked of [null, undefined]) {
+      expect(absence(notLooked, NOW)).toBe('unknown');
+      expect(
+        rendersNothing(WebcamPanel, { webcams: notLooked, now: NOW }),
+        'the panel spoke about a camera network it has not read',
+      ).toBe(true);
     }
+    // And the distinction is real on the other side: an imported
+    // catalogue that found nothing still says so.
+    expect(rendersNothing(WebcamPanel, { webcams: [], now: NOW })).toBe(false);
   });
 });

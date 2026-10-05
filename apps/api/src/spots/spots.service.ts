@@ -139,7 +139,23 @@ export interface SpotView {
    * 25 km a camera is the next valley, and a page that implied it shows
    * the campsite would be inventing.
    */
-  webcams: WebcamView[];
+  /**
+   * 🔴 `null` MEANS WE HAVE NOT LOOKED, and `[]` means we looked and
+   * found nothing. They are not the same sentence on the page.
+   *
+   * The catalogue is imported by `scripts/windy/fetch-webcams.mjs`, and
+   * until it has run the table is empty — so every campsite in Europe
+   * came back `[]` and the panel printed "No public webcam within 25 km
+   * of this campsite. That is what the camera network covers", which
+   * blames the camera network for an import we have not done. Measured
+   * on the live API on 05.10.2026: the table is empty and 100% of pages
+   * carried that sentence, over a continent where 88% of campsites have
+   * a camera within 25 km (CAMP-189).
+   *
+   * Same defect as the stale-frame one review found, arriving from the
+   * other end of the same hole: an empty array had two meanings.
+   */
+  webcams: WebcamView[] | null;
   /**
    * CAMP-105: false when this page has nothing on it but a name.
    *
@@ -230,6 +246,10 @@ export class SpotsService {
               -- linked secondary is the same campsite a few dozen metres
               -- away, so it would return the same cameras.
               ${nearbyWebcamsSql('s.location')} AS webcams,
+              -- 🔴 Has the catalogue been imported AT ALL? One cheap
+              -- EXISTS, and it is what lets the page tell "no camera
+              -- near this campsite" from "no cameras anywhere yet".
+              EXISTS (SELECT 1 FROM webcams LIMIT 1) AS webcams_imported,
               (NOT ${NOTHING_TO_SAY_SQL}
                OR linked.stars IS NOT NULL
                OR linked.description IS NOT NULL) AS indexable
@@ -843,7 +863,14 @@ function toView(row: Record<string, unknown>): SpotView {
     // not select the column — and visible on the page as a sentence, not
     // as a section that quietly vanished.
     airQuality: (row.air_quality as AirQualityFacts) ?? { kind: 'none' },
-    webcams: Array.isArray(row.webcams) ? (row.webcams as WebcamView[]) : [],
+    // 🔴 `webcams_imported` decides between the two empties. A query
+    // that did not select it leaves the column undefined, and the page
+    // then says nothing about cameras rather than making a claim — the
+    // safe direction, as with `airQuality` above.
+    webcams:
+      row.webcams_imported === true && Array.isArray(row.webcams)
+        ? (row.webcams as WebcamView[])
+        : null,
     // 🔴 Defaults to indexable when the column is absent, not to hidden.
     // A query that forgot to select it must not silently noindex a page
     // that has plenty to say — the failure should be a page that ranks
