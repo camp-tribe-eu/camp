@@ -177,17 +177,25 @@ function selfTest() {
   {
     const tpl = "const OFM = 'https://tiles.openfreemap.org';\n  style: `${OFM}/styles/liberty`,";
     const built = urlsIn(tpl);
+    // 🔴 `has`, not `built.includes(...)`. CodeQL reads `.includes` with
+    // a URL literal as a URL substring check — `js/incomplete-url-
+    // substring-sanitization`, high — even when the receiver is an array
+    // of strings. It is a false positive HERE, and the pattern it warns
+    // about is real everywhere else, so the assertion is written as the
+    // exact-element match it always meant.
+    const has = (list, url) => list.some((u) => u === url);
     ok('a template style url is reassembled from its base',
-      built.includes('https://tiles.openfreemap.org/styles/liberty'), JSON.stringify(built));
+      has(built, 'https://tiles.openfreemap.org/styles/liberty'), JSON.stringify(built));
     ok('…and the base itself is still listed',
-      built.includes('https://tiles.openfreemap.org'));
+      has(built, 'https://tiles.openfreemap.org'));
   }
 
   {
     const src = "const OFM = 'https://tiles.openfreemap.org';\n  style: `${OFM}/styles/liberty`,\n  other: \"https://x.github.io/a\"";
     const found = urlsIn(src);
+    const has = (list, url) => list.some((u) => u === url);
     ok('urls are read out of the source text',
-      found.includes('https://tiles.openfreemap.org') && found.includes('https://x.github.io/a'),
+      has(found, 'https://tiles.openfreemap.org') && has(found, 'https://x.github.io/a'),
       JSON.stringify(found));
     ok('…a quote does not come along for the ride', found.every((u) => !/['"`]/.test(u)), JSON.stringify(found));
     ok('…and a file with no url at all is a failure, not a pass', urlsIn('nothing here').length === 0);
