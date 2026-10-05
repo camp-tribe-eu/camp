@@ -270,7 +270,12 @@ export function warningsFrom(payload, country, now) {
       // the same number in every language, and the shape where there is
       // one — never a word a translator chose.
       const areaKey = areas
-        .map((a, i) => a.codes.join('+') || a.polygon || a.circle || `#${i}`)
+        // 🔴 The shape half of this key read `.polygon`/`.circle`, renamed
+        // in this same commit, so it was always `undefined` and every
+        // shape-only area fell through to its POSITION. Nothing is lost
+        // today only because `alert.identifier` happens to be unique;
+        // two alerts sharing one would have collided into a single row.
+        .map((a, i) => a.codes.join('+') || a.polygons.join('+') || a.circles.join('+') || `#${i}`)
         .join('|');
       const key = `${alert.identifier}|${areaKey}`;
       const row = {
@@ -488,7 +493,11 @@ function selfTest() {
     'x',
     NOW,
   );
-  ok('…and a polygon is kept when the source gives one', shaped.kept[0].areas[0].polygon !== null);
+  // 🔴 THIS READ `.polygon`, THE KEY THIS COMMIT RENAMED. `undefined !==
+  // null` is true, so the one assertion named for keeping a polygon
+  // could not fail — it passed for an area with no shape at all.
+  ok('…and a polygon is kept when the source gives one',
+    shaped.kept[0].areas[0].polygons.length === 1, JSON.stringify(shaped.kept[0].areas[0].polygons));
 
   const kept = warningsFrom(feed([block()]), 'poland', NOW).kept[0];
   ok('the hazard keeps the source’s own word', kept.type === 'Fog' && kept.typeCode === 4);
@@ -830,6 +839,34 @@ function selfTest() {
     ok('onset is the onset when both are given', both.kept[0]?.onset === '2026-10-05T18:00:00Z');
     ok('…and effective is the effective', both.kept[0]?.effective === '2026-10-05T09:00:00Z');
     ok('…so the two can never be swapped unseen', both.kept[0]?.onset !== both.kept[0]?.effective);
+  }
+
+  // 🔴 TWO ALERTS SHARING AN IDENTIFIER, TOLD APART ONLY BY THEIR SHAPE.
+  // The dedup key's shape half read the pre-rename `.polygon`, so it was
+  // always `undefined` and every shape-only area fell back to its
+  // POSITION in the list. Nothing is lost today only because
+  // `alert.identifier` happens to be unique in every feed — which is a
+  // property of the data, not of our code.
+  {
+    const ring = (n) => `${n}.1,25.1 ${n}.2,25.2 ${n}.3,25.3 ${n}.1,25.1`;
+    const sameId = {
+      warnings: [
+        { alert: { identifier: 'SAME', info: [block({ area: [{ areaDesc: 'North', polygon: [ring(58)] }] })] } },
+        { alert: { identifier: 'SAME', info: [block({ area: [{ areaDesc: 'South', polygon: [ring(59)] }] })] } },
+      ],
+    };
+    const out = warningsFrom(sameId, 'estonia', NOW);
+    ok('two shapes under one identifier stay two warnings', out.kept.length === 2, JSON.stringify(out.counts));
+    ok('…and neither is counted as a duplicate', out.counts.duplicate === 0);
+    const sameShape = {
+      warnings: [
+        { alert: { identifier: 'SAME', info: [block({ area: [{ areaDesc: 'North', polygon: [ring(58)] }] })] } },
+        { alert: { identifier: 'SAME', info: [block({ area: [{ areaDesc: 'North again', polygon: [ring(58)] }] })] } },
+      ],
+    };
+    const merged = warningsFrom(sameShape, 'estonia', NOW);
+    ok('…while the SAME shape under one identifier is one warning', merged.kept.length === 1);
+    ok('…counted as the duplicate it is', merged.counts.duplicate === 1);
   }
 
   // 🔴 Bulgaria's clock runs 72 minutes ahead on all 18 of its blocks.

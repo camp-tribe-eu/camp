@@ -243,7 +243,56 @@ export function ringFrom(cap) {
   const first = ring[0];
   const last = ring[ring.length - 1];
   if (first[0] !== last[0] || first[1] !== last[1]) ring.push([first[0], first[1]]);
-  return ring;
+  // 🔴 RFC 7946 §3.1.6 WANTS EXTERIOR RINGS COUNTER-CLOCKWISE, and the
+  // source does not care: of the 67 rings Estonia, Slovenia and Sweden
+  // send live, 43 run clockwise and 24 the other way. MapLibre and
+  // Leaflet tolerate either; PostGIS geography and any winding-number
+  // point-in-polygon read a clockwise exterior as the whole Earth MINUS
+  // the county — a warning that applies everywhere except where it was
+  // issued. Nothing consumes these yet, which is exactly why this is
+  // the moment to normalise them rather than leave a trap.
+  return isCounterClockwise(ring) ? ring : ring.reverse();
+}
+
+/** Twice the signed area of a ring in `[lon, lat]`; positive is CCW. */
+export function signedArea(ring) {
+  let sum = 0;
+  for (let i = 0; i < ring.length - 1; i += 1) {
+    sum += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+  }
+  return sum;
+}
+
+export const isCounterClockwise = (ring) => signedArea(ring) > 0;
+
+/**
+ * A CAP circle string → a centre and a radius.
+ *
+ * 🔴 THE CIRCLE BRANCH VALIDATED NOTHING AND CONVERTED NOTHING. Review
+ * measured `resolveArea({codes: [], circles: ['total nonsense']})`
+ * returning `{by: 'circle', circles: ['total nonsense']}` with no throw,
+ * while byte-identical rubbish on the POLYGON branch threw. Its only
+ * test asserted `by === 'circle'` and nothing about the content, so it
+ * was green for any input at all — and `--join` counted such an area as
+ * successfully placed.
+ *
+ * Worse for the one thing this card is about: the `lat,lon` → `[lon,
+ * lat]` conversion was applied to rings only, so a consumer reading both
+ * the same way would put the circle in the Indian Ocean. CAP writes
+ * `lat,lon radius` with the radius in kilometres.
+ */
+export function circleFrom(cap) {
+  const [point, radius, ...rest] = String(cap).trim().split(/\s+/);
+  if (rest.length > 0) throw new Error(`"${cap}" has more than a point and a radius`);
+  const [lat, lon] = String(point ?? '').split(',').map(Number);
+  const km = Number(radius);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    throw new Error(`"${point}" is not a CAP lat,lon pair`);
+  }
+  if (lat < -90 || lat > 90) throw new Error(`latitude ${lat} is out of range`);
+  if (lon < -180 || lon > 180) throw new Error(`longitude ${lon} is out of range`);
+  if (!Number.isFinite(km) || km < 0) throw new Error(`"${radius}" is not a radius in km`);
+  return { centre: [lon, lat], radiusKm: km };
 }
 
 /**
@@ -274,14 +323,18 @@ export function resolveArea(area, geometry) {
         if (found.every(settles)) return { by: 'code', scheme: c.scheme, features: found.flat() };
       }
     }
+    // ⚠️ "not in its source" and "we carry no source for that scheme" are
+    // different problems with different fixes, and `plans()` already
+    // says which. Throwing one message for both sent the reader looking
+    // for a missing row in a file we never downloaded.
+    const why = candidates[0].why ?? 'not one of them is in its source';
     throw new Error(
-      `${where} carries ${codes.join(', ')} and not one of them is in its source — ` +
-        'refusing to drop the warning silently',
+      `${where} carries ${codes.join(', ')} — ${why}; refusing to drop the warning silently`,
     );
   }
 
   if (polygons.length > 0) return { by: 'polygon', rings: polygons.map(ringFrom) };
-  if (circles.length > 0) return { by: 'circle', circles: [...circles] };
+  if (circles.length > 0) return { by: 'circle', circles: circles.map(circleFrom) };
   throw new Error(`${where} has neither a code nor a shape — there is no way to place it`);
 }
 
@@ -769,6 +822,44 @@ function selfTest() {
     ok('…while a European swap passes this check, which is why order is tested',
       !threw(() => ringFrom('25.7,58.6 25.8,58.7 25.9,58.8 25.7,58.6')));
     ok('rubbish is refused', threw(() => ringFrom('x,y a,b c,d e,f')));
+  }
+
+  // 🔴 The circle branch used to accept literally anything.
+  {
+    const threw = (f) => { try { f(); return false; } catch { return true; } };
+    const c = circleFrom('58.6791,25.7338 12.5');
+    ok('a circle centre comes back as [lon, lat], like a ring',
+      c.centre[0] === 25.7338 && c.centre[1] === 58.6791, JSON.stringify(c.centre));
+    ok('…and the radius is kilometres', c.radiusKm === 12.5);
+    ok('rubbish is refused, as it already was for a polygon',
+      threw(() => circleFrom('total nonsense')));
+    ok('…a latitude of 999 is refused', threw(() => circleFrom('999,999 10')));
+    ok('…a missing radius is refused', threw(() => circleFrom('58.6,25.7')));
+    ok('…a negative radius is refused', threw(() => circleFrom('58.6,25.7 -1')));
+    ok('…and a third field is refused', threw(() => circleFrom('58.6,25.7 10 extra')));
+    const placed = resolveArea({ name: 'X', codes: [], circles: ['58.6,25.7 10'] }, {});
+    ok('a placed circle is converted, not passed through raw',
+      placed.circles[0].centre[0] === 25.7 && placed.circles[0].radiusKm === 10,
+      JSON.stringify(placed.circles[0]));
+    ok('…and an area whose circle is rubbish throws rather than being "placed"',
+      threw(() => resolveArea({ name: 'X', codes: [], circles: ['nonsense'] }, {})));
+  }
+
+  // 🔴 RFC 7946 wants exterior rings counter-clockwise; the source sends
+  // 43 clockwise and 24 counter-clockwise.
+  {
+    // A unit square written clockwise in [lon, lat].
+    const cw = '0,0 1,0 1,1 0,1 0,0';
+    const ccw = '0,0 0,1 1,1 1,0 0,0';
+    ok('a clockwise ring is turned around', isCounterClockwise(ringFrom(cw)), JSON.stringify(ringFrom(cw)));
+    ok('…and one already counter-clockwise is left alone', isCounterClockwise(ringFrom(ccw)));
+    ok('…both describe the same corners', 
+      new Set(ringFrom(cw).map(String)).size === new Set(ringFrom(ccw).map(String)).size);
+    ok('the signed area of a square is its area, twice, with a sign',
+      signedArea([[0, 0], [0, 1], [1, 1], [1, 0], [0, 0]]) === -2
+        || signedArea([[0, 0], [0, 1], [1, 1], [1, 0], [0, 0]]) === 2,
+      String(signedArea([[0, 0], [0, 1], [1, 1], [1, 0], [0, 0]])));
+    ok('…and it is zero for a degenerate ring', signedArea([[0, 0], [1, 1], [0, 0]]) === 0);
   }
 
   // 🔴 An unresolvable code must THROW, not quietly become a shape.
