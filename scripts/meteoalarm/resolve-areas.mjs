@@ -210,9 +210,15 @@ async function coverage() {
   }
   console.log('');
 
-  let worst = 1;
+  let worst = 2;
   let worstCountry = null;
   let anyAreas = 0;
+  // 🔴 Counted and named, not skipped. A country that returns no coded
+  // area is invisible in a report that only prints percentages — and
+  // "invisible" is how a feed that quietly stopped carrying codes would
+  // look. Seven member states are in this state by design (they send a
+  // polygon, or nothing); an eighth appearing here is news.
+  const noCodes = [];
   for (const country of COUNTRIES) {
     let payload;
     try {
@@ -222,7 +228,10 @@ async function coverage() {
       continue;
     }
     const codes = codesIn(payload);
-    if (codes.length === 0) continue;
+    if (codes.length === 0) {
+      noCodes.push(country);
+      continue;
+    }
     anyAreas += codes.length;
     const c = coverageOf(codes, geometry);
     const pct = c.resolved / c.total;
@@ -240,6 +249,10 @@ async function coverage() {
   // 🔴 Nothing to measure is a failure, not a pass. A run where every
   // feed was empty or every fetch failed would otherwise report perfect
   // coverage of nothing.
+  console.log(
+    `\n${noCodes.length} countries returned no coded area: ${noCodes.join(', ') || '(none)'}`,
+  );
+
   if (anyAreas === 0) throw new Error('no country returned a single coded area — that is a fetch failure');
   if (worst < MIN_COVERAGE) {
     throw new Error(
@@ -247,7 +260,15 @@ async function coverage() {
         'the nomenclature has probably moved under us; read the unresolved reasons above',
     );
   }
-  console.log(`\nworst country: ${worstCountry} at ${(worst * 100).toFixed(1)}%`);
+  // 🔴 Named even when nothing is wrong. "worst country: null" is what
+  // this printed when every country resolved perfectly, because the
+  // variable was only ever set on a failure — a report that says
+  // nothing precisely when the news is good.
+  console.log(
+    worst >= 1
+      ? `every one of the ${COUNTRIES.length - noCodes.length} countries with codes resolved completely`
+      : `worst country: ${worstCountry} at ${(worst * 100).toFixed(1)}%`,
+  );
 }
 
 function selfTest() {
