@@ -36,10 +36,33 @@ export const SCRYPT = Object.freeze({
   saltLen: 16,
 });
 
+/** The shape of a cost setting, so a test can vary one field. */
+export type ScryptParams = {
+  N: number;
+  r: number;
+  p: number;
+  keyLen: number;
+  saltLen: number;
+};
+
 // 128 * N * r bytes, plus headroom. Node's default of 32 MiB is far
 // below what these parameters need, and the failure is a thrown error
 // rather than a weaker hash — but only if we ask for enough.
 const MAX_MEM = 192 * 1024 * 1024;
+
+/**
+ * The floors a stored hash must clear, and the one ceiling it must not
+ * pass. Anyone who can write `password_hash` would otherwise choose our
+ * CPU bill — or hand us a one-byte key, which is not a hash at all.
+ */
+export const MIN = Object.freeze({
+  N: 2 ** 14,
+  r: 1,
+  p: 1,
+  saltLen: 8,
+  keyLen: 16,
+});
+export const MAX = Object.freeze({ N: 2 ** 20, r: 32, p: 16 });
 
 /** The stored form: every parameter travels with the hash. */
 export const FORMAT = 'scrypt';
@@ -52,7 +75,7 @@ export const FORMAT = 'scrypt';
  */
 export async function hashPassword(
   plain: string,
-  params = SCRYPT,
+  params: ScryptParams = SCRYPT,
 ): Promise<string> {
   if (typeof plain !== 'string' || plain.length === 0) {
     throw new Error('a password must be a non-empty string');
@@ -88,17 +111,39 @@ export async function verifyPassword(
   const pp = Number(p);
   if (!Number.isInteger(N) || !Number.isInteger(rr) || !Number.isInteger(pp))
     return false;
-  // 🔴 A BOUNDS CHECK STOOD HERE AND IT GUARDED NOTHING. It read
-  // `N < 2**14 || N > 2**20 || …`, meant against a row claiming an
-  // absurd cost — but `maxmem` below already refuses anything that large
-  // before a byte is allocated, and a cost that is too SMALL just
-  // produces a wrong key, which is `false` by the same path as any wrong
-  // password. A mutation deleting the whole line kept every assertion
-  // green, because there was nothing left for it to do.
+  // 🔴 I DELETED THIS GUARD CALLING IT REDUNDANT AND MY REASONING WAS
+  // WRONG IN THE ONE DIMENSION THAT MATTERED.
   //
-  // It is gone rather than documented: the identical pattern in
-  // `check-map-assets.mjs` shadowed its own test, and a line that cannot
-  // change an outcome can still change which mutations survive.
+  // I argued `maxmem` already refuses anything too costly. It does not.
+  // `maxmem` caps `128 · r · (N + p)` — a SUM — while scrypt's work is
+  // `N · r · p` — a PRODUCT. Raising `p` buys time without buying
+  // memory, so the memory ceiling never sees it.
+  //
+  // Measured here: `scrypt$32768$2$8192$…` returned false after **104
+  // seconds**, 473× one honest hash, using 10 MiB — five per cent of the
+  // 192 MiB ceiling. At the ceiling p ≈ 753 000, about two and a half
+  // HOURS inside one request. And `r` and `p` were never bounded in any
+  // revision, so "maxmem already refuses it" was not a simplification,
+  // it was false.
+  // 🔴 ONLY `p`, AND ONLY AN UPPER BOUND. Working out which of the three
+  // actually needs guarding took a mutation run that kept three of them
+  // alive:
+  //
+  //   `r` is bounded by `maxmem` already — it appears LINEARLY in
+  //   `128 · r · (N + p)`, so a large r runs out of memory before it
+  //   runs out of time. At the ceiling r ≈ 91 buys 1.4× the work.
+  //
+  //   `N` must have NO floor, and a floor would be a bug: an old hash
+  //   stored under weaker parameters has to keep verifying, which is the
+  //   whole reason the parameters travel with the hash. A floor here
+  //   would sign out exactly the users the design protects.
+  //
+  //   `p` escapes. It sits beside N in the memory sum where N dominates,
+  //   so it costs almost no memory and multiplies the work. Measured:
+  //   `p = 8192` took 104 SECONDS on 10 MiB — five per cent of the
+  //   ceiling. At the ceiling p ≈ 753 000, about two and a half hours.
+  if (pp < 1 || pp > MAX.p) return false;
+
   let salt;
   let expected;
   try {
@@ -107,7 +152,12 @@ export async function verifyPassword(
   } catch {
     return false;
   }
-  if (salt.length === 0 || expected.length === 0) return false;
+  // 🔴 THE BYPASS. This read `length === 0`, and the key length comes
+  // from `expected.length` — so a row claiming a ONE-BYTE key made
+  // scrypt produce one byte, and one byte collides once in 256.
+  // Measured: `scrypt$2$1$1$c2FsdA==$AA` accepted 1 of 256 arbitrary
+  // passwords. A short key is not a weak hash, it is no hash.
+  if (salt.length < MIN.saltLen || expected.length < MIN.keyLen) return false;
   let actual;
   try {
     actual = await scryptAsync(plain.normalize('NFKC'), salt, expected.length, {
@@ -125,8 +175,28 @@ export async function verifyPassword(
 }
 
 /** Whether a stored hash was made with weaker parameters than we now use. */
-export function needsRehash(stored: string, params = SCRYPT): boolean {
+export function needsRehash(
+  stored: string,
+  params: ScryptParams = SCRYPT,
+): boolean {
+  // 🔴 ITS DEFAULT ANSWER TO GARBAGE WAS "NO". `NaN < N` is false, so
+  // `scrypt$x$y$1$a$b` reported healthy — and so did a row with a
+  // one-byte salt and a one-byte key, which is the forged row above. A
+  // row we cannot read is a row to replace, not a row to trust.
+  //
+  // It also ignored `p`, so the first time `p` is raised every existing
+  // row would have reported "fine" and never been upgraded.
   const parts = String(stored).split('$');
   if (parts.length !== 6 || parts[0] !== FORMAT) return true;
-  return Number(parts[1]) < params.N || Number(parts[2]) < params.r;
+  const [, n, r, p, saltB64, keyB64] = parts;
+  const N = Number(n);
+  const rr = Number(r);
+  const pp = Number(p);
+  if (!Number.isInteger(N) || !Number.isInteger(rr) || !Number.isInteger(pp))
+    return true;
+  if (N < params.N || rr < params.r || pp < params.p) return true;
+  return (
+    Buffer.from(saltB64, 'base64').length < MIN.saltLen ||
+    Buffer.from(keyB64, 'base64').length < MIN.keyLen
+  );
 }

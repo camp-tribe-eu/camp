@@ -1,5 +1,7 @@
 import {
   FORMAT,
+  MAX,
+  MIN,
   SCRYPT,
   hashPassword,
   needsRehash,
@@ -79,6 +81,114 @@ describe('password', () => {
     ['scrypt$131072$8$1$c2FsdA==$', 'no key'],
   ])('answers false for a stored value with %s', async (stored) => {
     expect(await verifyPassword('anything', stored)).toBe(false);
+  });
+
+  // 🔴 EACH OF THESE ISOLATES ONE GUARD. The first version did not:
+  // the bypass case used N=2, which the cost bound now rejects BEFORE
+  // the length check runs, and the denial-of-service case carried a
+  // 5-byte salt, which the salt check rejects before scrypt is called.
+  // Four mutations survived on guards shadowing each other — the same
+  // failure as `check-map-assets.mjs`, one file later.
+  const okSalt = Buffer.from('saltsalt').toString('base64'); // 8 bytes
+  const okKey = Buffer.alloc(32, 7).toString('base64'); // 32 bytes
+  const row = (n: number, r: number, pp: number, salt = okSalt, key = okKey) =>
+    `scrypt$${n}$${r}$${pp}$${salt}$${key}`;
+
+  // Everything valid except the KEY, which is one byte. One byte
+  // collides once in 256: measured, 1 of 256 arbitrary passwords.
+  it('🔴 refuses a hash whose key is too short to be a hash', async () => {
+    const shortKey = Buffer.alloc(1, 0).toString('base64');
+    let accepted = 0;
+    for (let i = 0; i < 64; i += 1) {
+      if (
+        await verifyPassword(
+          `nothing-${i}`,
+          row(SCRYPT.N, SCRYPT.r, SCRYPT.p, okSalt, shortKey),
+        )
+      ) {
+        accepted += 1;
+      }
+    }
+    expect(accepted).toBe(0);
+  });
+
+  // Everything valid except the SALT.
+  it('…and one whose salt is too short', async () => {
+    const shortSalt = Buffer.alloc(2, 0).toString('base64');
+    expect(
+      await verifyPassword(
+        'x',
+        row(SCRYPT.N, SCRYPT.r, SCRYPT.p, shortSalt, okKey),
+      ),
+    ).toBe(false);
+  });
+
+  it('…while a real hash has both at full length', async () => {
+    const [, , , , salt, key] = (await hashPassword('x')).split('$');
+    expect(Buffer.from(salt, 'base64').length).toBe(SCRYPT.saltLen);
+    expect(Buffer.from(key, 'base64').length).toBe(SCRYPT.keyLen);
+  });
+
+  // 🔴 `maxmem` caps `128·r·(N+p)`, a SUM; the work is `N·r·p`, a
+  // PRODUCT. Raising `p` buys time without buying memory. Measured
+  // before the bound: 104 SECONDS for one call, using 5% of maxmem.
+  // Everything here is valid except `p`.
+  it('🔴 refuses a parallelism that buys time without buying memory, fast', async () => {
+    const started = Date.now();
+    expect(await verifyPassword('x', row(2 ** 15, 2, 8192))).toBe(false);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  // 🔴 A LOW `N` MUST STILL VERIFY. A floor here would sign out exactly
+  // the users that storing the parameters is meant to protect.
+  it('a hash made with a far weaker cost still verifies', async () => {
+    const weak = { ...SCRYPT, N: 2 ** 13 };
+    const stored = await hashPassword('old password', weak);
+    expect(await verifyPassword('old password', stored)).toBe(true);
+    expect(needsRehash(stored)).toBe(true);
+  });
+
+  it('…and the parallelism we write is inside the ceiling', () => {
+    expect(SCRYPT.p).toBeLessThanOrEqual(MAX.p);
+  });
+
+  // 🔴 `NaN < N` is false, so garbage used to report "healthy".
+  it('🔴 needsRehash says yes to a row it cannot read', () => {
+    expect(needsRehash('scrypt$x$y$1$a$b')).toBe(true);
+    expect(needsRehash('scrypt$131072$8$1$AA$AA')).toBe(true);
+    expect(needsRehash('')).toBe(true);
+    expect(needsRehash('bcrypt$131072$8$1$c2FsdA==$a2V5')).toBe(true);
+  });
+
+  it('…and notices a raised parallelism, not only a raised N', async () => {
+    const stored = await hashPassword('x');
+    expect(needsRehash(stored, { ...SCRYPT, p: SCRYPT.p + 1 })).toBe(true);
+    expect(needsRehash(stored, { ...SCRYPT, r: SCRYPT.r + 1 })).toBe(true);
+  });
+
+  // 🔴 A one-byte salt would make the "two hashes differ" test fail only
+  // about one run in 256 — a flaky guard reading as green.
+  it('salts with the full length, not merely with something', async () => {
+    const [, , , , salt] = (await hashPassword('x')).split('$');
+    expect(Buffer.from(salt, 'base64').length).toBe(SCRYPT.saltLen);
+  });
+
+  it('a stored value with the wrong number of fields is refused either way', async () => {
+    expect(
+      await verifyPassword(
+        'x',
+        `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${okSalt}`,
+      ),
+    ).toBe(false);
+    // 🔴 Seven fields whose first six are a hash that WOULD verify:
+    // `parts.length < 6` lets it through and the trailing field is
+    // silently ignored. Anything less than a real hash here leaves the
+    // mutation alive, because a wrong password answers false anyway.
+    const real = await hashPassword('the real password');
+    expect(await verifyPassword('the real password', real)).toBe(true);
+    expect(await verifyPassword('the real password', `${real}$extra`)).toBe(
+      false,
+    );
   });
 
   // 🔴 A row claiming an absurd cost must answer false, not hang or

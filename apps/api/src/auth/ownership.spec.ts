@@ -62,4 +62,33 @@ describe('ownership', () => {
   it('does not match a role by prefix', () => {
     expect(holds({ id: 'x', roles: ['administrator'] }, ADMIN)).toBe(false);
   });
+
+  // 🔴 A resource whose `userId` lives on the PROTOTYPE must not pass.
+  // `Object.create({userId})` answers the plain read, and a polluted
+  // `Object.prototype` would turn every 403 into 200-plus-data.
+  it('🔴 refuses a userId that comes from the prototype chain', () => {
+    expect(statusFor(denyReason(me, Object.create({ userId: 'user-a' })))).toBe(
+      403,
+    );
+  });
+
+  it('…while an own property of the same name is read normally', () => {
+    expect(denyReason(me, JSON.parse('{"userId":"user-a"}'))).toBeNull();
+  });
+
+  it('…and a JSON __proto__ payload is still a miss', () => {
+    expect(
+      denyReason(me, JSON.parse('{"__proto__":{"userId":"user-a"}}')),
+    ).toBe('missing');
+  });
+
+  // The two type guards no mutation reached.
+  it('a non-string userId is not an owner, however it compares', () => {
+    expect(denyReason(me, { userId: 1 as never })).toBe('missing');
+    expect(denyReason(me, { userId: ['user-a'] as never })).toBe('missing');
+  });
+
+  it('a non-string viewer id is anonymous', () => {
+    expect(denyReason({ id: 1 as never }, mine)).toBe('anonymous');
+  });
 });

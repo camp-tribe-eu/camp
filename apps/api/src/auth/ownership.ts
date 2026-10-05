@@ -46,8 +46,15 @@ export function denyReason(
   // 🔴 A missing resource answers the same as someone else's. Telling an
   // attacker "404" for ids that do not exist and "403" for ids that do
   // turns the endpoint into a directory of which ids are real.
+  // 🔴 `Object.hasOwn`, not a plain read: `Object.create({userId: 'x'})`
+  // answers from the PROTOTYPE, and a polluted `Object.prototype` would
+  // turn every "missing" 403 into 200-plus-data — exactly the
+  // enumeration leak this file exists to prevent.
   if (
     !resource ||
+    // `Object.hasOwn` needs lib es2022; this is the same test and
+    // changes no compiler setting for one line.
+    !Object.prototype.hasOwnProperty.call(resource, 'userId') ||
     typeof resource.userId !== 'string' ||
     resource.userId === ''
   )
