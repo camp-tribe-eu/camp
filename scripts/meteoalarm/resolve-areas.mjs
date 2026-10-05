@@ -212,6 +212,128 @@ export function plans(codes) {
 export const plan = (codes) => plans(codes)[0];
 
 
+// ------------------------------------------------------- placing one area
+
+/**
+ * A CAP polygon string → a GeoJSON ring.
+ *
+ * 🔴 CAP WRITES `lat,lon`; GEOJSON WANTS `[lon, lat]`. Swapping them
+ * silently puts an Estonian warning in the Indian Ocean — 58,25 is
+ * Jarva county, 25,58 is open water off Somalia — and nothing throws,
+ * because both readings are valid coordinates. The test below uses a
+ * point whose two readings are on different continents, so a swap
+ * cannot pass unnoticed.
+ */
+export function ringFrom(cap) {
+  const ring = String(cap)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((pair) => {
+      const [lat, lon] = pair.split(',').map(Number);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        throw new Error(`"${pair}" is not a CAP lat,lon pair`);
+      }
+      if (lat < -90 || lat > 90) {
+        throw new Error(`latitude ${lat} is out of range — are lat and lon swapped?`);
+      }
+      return [lon, lat];
+    });
+  if (ring.length < 4) throw new Error(`a ring needs at least four points, got ${ring.length}`);
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) ring.push([first[0], first[1]]);
+  return ring;
+}
+
+/**
+ * Where one warning area is — or a loud failure.
+ *
+ * 🔴 CAMP-149: "fail LOUDLY on an unrecognised code, rather than quietly
+ * dropping the warning. A silently lost ice warning is exactly the case
+ * this card exists for." So a code we cannot resolve throws, naming the
+ * code and the area; it does NOT quietly fall through to a shape.
+ *
+ * The shape is for areas carrying NO code at all — Estonia, Slovenia and
+ * Sweden send 192, 8 and 22 such areas and not one geocode between them.
+ * For those the polygon is the only thing there is.
+ */
+export function resolveArea(area, geometry) {
+  const codes = area?.codes ?? [];
+  const polygons = area?.polygons ?? [];
+  const circles = area?.circles ?? [];
+  const where = area?.name ? `"${area.name}"` : 'an unnamed area';
+
+  if (codes.length > 0) {
+    const candidates = plans(codes);
+    if (candidates[0].scheme) {
+      for (const c of candidates) {
+        const found = c.places.map((pl) =>
+          pl.values.flatMap((v) => lookup(geometry[c.scheme] ?? [], c.scheme, v, pl.idField).matches),
+        );
+        if (found.every(settles)) return { by: 'code', scheme: c.scheme, features: found.flat() };
+      }
+    }
+    throw new Error(
+      `${where} carries ${codes.join(', ')} and not one of them is in its source — ` +
+        'refusing to drop the warning silently',
+    );
+  }
+
+  if (polygons.length > 0) return { by: 'polygon', rings: polygons.map(ringFrom) };
+  if (circles.length > 0) return { by: 'circle', circles: [...circles] };
+  throw new Error(`${where} has neither a code nor a shape — there is no way to place it`);
+}
+
+/**
+ * Places every area of every live warning, or dies naming the one it
+ * could not place. This is CAMP-149's acceptance criterion end to end.
+ */
+async function join() {
+  const { COUNTRIES, feedUrl, warningsFrom } = await import('./fetch-warnings.mjs');
+  const geometry = {};
+  for (const [scheme, src] of Object.entries(SOURCES)) {
+    const doc = await cached(`${src.id}.json`, src.url);
+    geometry[scheme] = doc.features ?? [];
+  }
+  const now = new Date();
+  const tally = { code: 0, polygon: 0, circle: 0 };
+  const byCountry = {};
+  for (const country of COUNTRIES) {
+    let payload;
+    try {
+      payload = await (await fetch(feedUrl(country))).json();
+    } catch (err) {
+      console.log(`  ${country.padEnd(12)} feed unreadable: ${String(err.message).slice(0, 40)}`);
+      continue;
+    }
+    const { kept } = warningsFrom(payload, country, now);
+    const seen = { code: 0, polygon: 0, circle: 0 };
+    for (const w of kept) {
+      for (const area of w.areas) {
+        // 🔴 No try/catch. A warning we cannot place must stop the run,
+        // which is the whole point of the card.
+        const placed = resolveArea(area, geometry);
+        seen[placed.by] += 1;
+        tally[placed.by] += 1;
+      }
+    }
+    if (kept.length) {
+      byCountry[country] = seen;
+      console.log(
+        `  ${country.padEnd(12)} ${String(kept.length).padStart(4)} warnings  ` +
+          `code ${String(seen.code).padStart(4)}  polygon ${String(seen.polygon).padStart(4)}  circle ${seen.circle}`,
+      );
+    }
+  }
+  console.log(`\nplaced by code ${tally.code}, by polygon ${tally.polygon}, by circle ${tally.circle}`);
+  const shaped = Object.entries(byCountry).filter(([, v]) => v.polygon > 0).map(([c]) => c);
+  console.log(`countries placed by shape: ${shaped.join(', ') || '(none)'}`);
+  if (tally.code + tally.polygon + tally.circle === 0) {
+    throw new Error('nothing was placed at all — that is a failure, not an empty Europe');
+  }
+}
+
 // ------------------------------------------------------------- coverage
 //
 // 🔴 EVERY NUMBER IN THE HEADER IS A DATE, NOT A FACT.
@@ -619,6 +741,60 @@ function selfTest() {
     ok('…nor is a fully coded country', !servesNoCode(['FIPS:EI01']));
   }
 
+  // 🔴 CAP says lat,lon. GeoJSON says [lon, lat].
+  {
+    const estonia = '58.6791,25.7338 58.6831,25.7703 58.7729,25.8801 58.6791,25.7338';
+    const ring = ringFrom(estonia);
+    ok('a ring comes back as [lon, lat], not [lat, lon]',
+      ring[0][0] === 25.7338 && ring[0][1] === 58.6791, JSON.stringify(ring[0]));
+    // 58,25 is Jarva county; 25,58 is open water in the Indian Ocean.
+    // Both are valid coordinates, so only this check separates them.
+    ok('…so the first point is in Estonia, not off Somalia',
+      ring[0][1] > 50 && ring[0][0] < 40);
+    ok('…every point is converted, not just the first',
+      ring.every(([lon, lat]) => lat > 50 && lon < 40), JSON.stringify(ring));
+    ok('a ring that already closes is not closed twice', ring.length === 4, String(ring.length));
+    const open = ringFrom('58.1,25.1 58.2,25.2 58.3,25.3 58.4,25.4');
+    ok('…and one that does not close is closed', open.length === 5
+      && open[0][0] === open[4][0] && open[0][1] === open[4][1]);
+    const threw = (f) => { try { f(); return false; } catch { return true; } };
+    ok('three points are not a ring', threw(() => ringFrom('58.1,25.1 58.2,25.2 58.3,25.3')));
+    // ⚠️ The range check catches a swap only when the longitude is past
+    // 90 — Vladivostok at 43,132 swaps to an impossible latitude of 132.
+    // It does NOT catch a European swap: Jarva county's 58,25 swaps to
+    // 25,58 and both are legal latitudes. That is why the order test
+    // above is the real guard and this one is only a backstop.
+    ok('a latitude past 90 is refused, which is one kind of swap',
+      threw(() => ringFrom('132.1,43.1 132.2,43.2 132.3,43.3 132.1,43.1')));
+    ok('…while a European swap passes this check, which is why order is tested',
+      !threw(() => ringFrom('25.7,58.6 25.8,58.7 25.9,58.8 25.7,58.6')));
+    ok('rubbish is refused', threw(() => ringFrom('x,y a,b c,d e,f')));
+  }
+
+  // 🔴 An unresolvable code must THROW, not quietly become a shape.
+  {
+    const geom = { NUTS3: [{ properties: { NUTS_ID: 'HR031' } }] };
+    const threw = (f) => { try { f(); return false; } catch { return true; } };
+    const byCode = resolveArea({ name: 'Primorsko-goranska', codes: ['NUTS3:HR031'] }, geom);
+    ok('an area with a live code is placed by the code', byCode.by === 'code' && byCode.features.length === 1);
+    ok('a dead code throws, naming the area',
+      threw(() => resolveArea({ name: 'Nowhere', codes: ['NUTS3:ZZ999'] }, geom)));
+    ok('…and it STILL throws when a shape is sitting right there',
+      threw(() => resolveArea(
+        { name: 'Nowhere', codes: ['NUTS3:ZZ999'], polygons: ['58.1,25.1 58.2,25.2 58.3,25.3 58.1,25.1'] },
+        geom,
+      )));
+    const byShape = resolveArea(
+      { name: 'Jarva county', codes: [], polygons: ['58.1,25.1 58.2,25.2 58.3,25.3 58.1,25.1'] },
+      geom,
+    );
+    ok('an area with NO code is placed by its polygon', byShape.by === 'polygon' && byShape.rings.length === 1);
+    ok('…a circle serves when there is no polygon either',
+      resolveArea({ name: 'X', codes: [], circles: ['58.1,25.1 10'] }, geom).by === 'circle');
+    ok('…and an area with neither throws rather than vanishing',
+      threw(() => resolveArea({ name: 'X', codes: [] }, geom)));
+  }
+
   // 🔴 One country in 27 is not a measurement of Europe.
   {
     ok('twenty measured of 27 is enough', !tooFewMeasured(20, 27));
@@ -638,7 +814,19 @@ import { pathToFileURL } from 'node:url';
 const RUN_DIRECTLY =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
+// 🔴 `--self-test=1` used to miss a bare `includes` and fall through
+// into a live run. The same defect was measured and fixed in
+// fetch-warnings.mjs; it was here too.
+const KNOWN_FLAGS = ['self-test', 'coverage', 'join'];
+const hasFlag = (argv, name) =>
+  argv.some((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+
 if (RUN_DIRECTLY) {
-  if (process.argv.includes('--self-test')) process.exit(selfTest() ? 1 : 0);
-  if (process.argv.includes('--coverage')) await coverage();
+  const unknown = process.argv
+    .slice(2)
+    .filter((a) => !KNOWN_FLAGS.some((k) => a === `--${k}` || a.startsWith(`--${k}=`)));
+  if (unknown.length) throw new Error(`unknown argument(s): ${unknown.join(', ')}`);
+  if (hasFlag(process.argv, 'self-test')) process.exit(selfTest() ? 1 : 0);
+  if (hasFlag(process.argv, 'coverage')) await coverage();
+  if (hasFlag(process.argv, 'join')) await join();
 }
