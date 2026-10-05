@@ -10,7 +10,13 @@ import {
 import { User } from './user.entity';
 import { TripStop } from './trip-stop.entity';
 
-// A user-planned trip, output of AI Trip Planner (CAMP-6) or manually assembled
+// A user-planned trip, output of the Trip Planner (CAMP-6) or manually
+// assembled.
+//
+// 🔴 "Trip Planner", never "AI Trip Planner" — the owner's decision, and a
+// UCPD one: calling a deterministic algorithm AI misleads about a main
+// characteristic of the product. The word was here in a comment, which is
+// how it reaches a heading later. 05-planner.html states the rule.
 @Entity('trips')
 export class Trip {
   @PrimaryGeneratedColumn('uuid')
