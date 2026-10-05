@@ -641,9 +641,21 @@ INSERT INTO bathing_waters
    ST_GeomFromText('POINT(13.5536 46.3248)', 4326)::geography),
   ('eea-bathing-water', 'SI00B5504600K09010', 'KOPALNO OBMOČJE NADIŽA', 'si', 'River', 2025, 'good', 'https://www.gov.si/assets/ministrstva/MOP/Dokumenti/Voda/profili_kopalnih_voda/profil_KV_43_nadiza.pdf',
    ST_GeomFromText('POINT(13.4572 46.2418)', 4326)::geography);
-
--- 🔴 WEBCAMS, AND WITHOUT THEM THE GUARD ABOVE THEM IS BLIND.
+-- CAMP-190: webcams for the CI fixture.
 --
+-- 🔴 A SEPARATE FILE, APPENDED BY regenerate.sh, AND NOT PART OF
+-- `_select.sql` — because these rows are not drawn from the production
+-- database. The webcam catalogue is imported by
+-- `scripts/windy/fetch-webcams.mjs` and the table is empty until it has
+-- run, so a regeneration would produce nothing and the fixture would
+-- lose the panel entirely.
+--
+-- I first appended this block to `ci-seed.sql` by hand, which is exactly
+-- what the `--check` guard exists to refuse: the generated file would
+-- then hold a table the generator cannot produce, and the next
+-- regeneration would silently drop it. CI caught it — the failing step
+-- was "Every table the fixture seeds is still produced by its
+-- generator", not the `pgPass` noise I chased twice.
 -- `spots.service.ts` answers `webcams: null` while this table is empty —
 -- "we have not imported the catalogue" — and the panel then renders
 -- NOTHING, which is the honest thing to do on a site that has not
