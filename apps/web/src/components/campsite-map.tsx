@@ -1030,8 +1030,23 @@ export default function CampsiteMap() {
     // `sourcedata` with `isSourceLoaded` is the event that says the data
     // behind those pixels has actually changed, which is exactly when
     // the count of painted features can differ from the last one.
+    // 🔴 AND IT MUST BE CHEAP, because `sourcedata` is a frequent event.
+    //
+    // The first version called `publishRendered` — and therefore
+    // `queryRenderedFeatures` — on every one of them. CI stopped
+    // reporting a wrong number and started TIMING OUT on four browsers:
+    // an expensive read on a hot event is its own kind of wrong answer.
+    //
+    // So the handler does nothing unless what we put in the source has
+    // actually changed since the last time we published. That is one
+    // integer comparison per event, and it fires exactly on the
+    // transition this exists for — the moment `hideMarkers` empties the
+    // source, or a chunk fills it.
+    let publishedFor = -1;
     m.on('sourcedata', (e) => {
       if (e.sourceId !== SOURCE_ID || !e.isSourceLoaded) return;
+      if (sourceFeatures === publishedFor) return;
+      publishedFor = sourceFeatures;
       publishDrawn();
       publishRendered();
     });
