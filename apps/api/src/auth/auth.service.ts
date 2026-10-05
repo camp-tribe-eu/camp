@@ -16,7 +16,25 @@ export class AuthService {
   constructor(
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(Session) private readonly sessions: Repository<Session>,
-  ) {}
+  ) {
+    // 🔴 Start minting the decoy now, without awaiting it.
+    //
+    // Review measured the hole in the lazy version: the FIRST
+    // unknown-address sign-in in a process cost 340.8 ms against 173 ms
+    // for a known address with a wrong password, because that one
+    // request paid for minting the decoy AND then verifying against it.
+    // One request per worker, but "an unknown address costs the same" was
+    // simply not true for it — and the whole point of the decoy is that
+    // sentence.
+    //
+    // Nest builds this at boot, so the hash is almost always ready
+    // before the first request; a request that does arrive first awaits
+    // the same promise and pays only what is left of it, never a second
+    // hash. Fire-and-forget, with the rejection swallowed: a failure
+    // here must not take the process down, and `signIn` will surface it
+    // as a refusal.
+    void decoyHash().catch(() => undefined);
+  }
 
   /**
    * Sign in, or null.

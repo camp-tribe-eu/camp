@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { Trip } from '../entities/trip.entity';
@@ -121,5 +122,91 @@ describe('TripsService.mine', () => {
     expect((repo.find as jest.Mock).mock.calls[0][0].where).toEqual({
       userId: OWNER,
     });
+  });
+});
+
+/**
+ * 🔴 Found by adversarial review, measured against a real Postgres:
+ * `GET /trips/not-a-uuid` was a **500** — for a stranger AND for an
+ * anonymous caller — because the query ran before anything was checked
+ * and the driver answered `invalid input syntax for type uuid`.
+ *
+ * Two separate faults in one line of ordering: unauthenticated input
+ * reached SQL at 120 requests a minute per IP for free, and a malformed
+ * id crashed instead of being refused.
+ */
+describe('🔴 nothing unauthenticated or malformed reaches the database', () => {
+  it('refuses an anonymous caller without querying at all', async () => {
+    const repo = repoOf(theTrip);
+    await expect(
+      new TripsService(repo).forViewer(null, TRIP_ID),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(repo.findOne).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed id without querying at all', async () => {
+    const repo = repoOf(theTrip);
+    await expect(
+      new TripsService(repo).forViewer({ id: OWNER }, 'not-a-uuid'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(repo.findOne).not.toHaveBeenCalled();
+  });
+
+  // Same shape of refusal as a missing trip: an id that cannot name a
+  // row is a row the caller does not have, and the difference must not
+  // be readable.
+  it('answers a malformed id exactly as it answers a missing one', async () => {
+    const malformed = await threw(
+      new TripsService(repoOf(theTrip)).forViewer({ id: OWNER }, 'not-a-uuid'),
+    );
+    const missing = await threw(
+      new TripsService(repoOf(null)).forViewer({ id: OWNER }, TRIP_ID),
+    );
+    expect([malformed.constructor.name, malformed.message]).toEqual([
+      missing.constructor.name,
+      missing.message,
+    ]);
+  });
+
+  it('still accepts a well-formed id in upper case', async () => {
+    const repo = repoOf(theTrip);
+    await new TripsService(repo).forViewer(
+      { id: OWNER },
+      TRIP_ID.toUpperCase(),
+    );
+    expect(repo.findOne).toHaveBeenCalled();
+  });
+});
+
+/**
+ * 🔴 THE SEVENTH MUTATION, which my own six missed.
+ *
+ * `trips.controller.ts` says the order of its two routes is
+ * "load-bearing, not style" — and nothing enforced it. Review swapped
+ * `@Get(':id')` above `@Get('mine')`: every test here stayed green and
+ * lint stayed clean, while `GET /trips/mine` answered 403 and `mine()`
+ * was never called, because Express matched `mine` as an id.
+ *
+ * The gap was that every test in this file drives the SERVICE and none
+ * of them knows the controller exists. This reads the declaration order
+ * — the exact property the comment claims and the mutation flips.
+ */
+describe('🔴 /trips/mine is declared before /trips/:id', () => {
+  const source = readFileSync(`${__dirname}/trips.controller.ts`, 'utf8')
+    // Comments mention both routes; only the decorators count.
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  const order = [...source.matchAll(/@Get\(\s*['"`]([^'"`]*)['"`]\s*\)/g)].map(
+    (m) => m[1],
+  );
+
+  it('finds both routes, so the check is reading what it thinks', () => {
+    expect(order).toContain('mine');
+    expect(order).toContain(':id');
+  });
+
+  it('puts the literal route first, where Express will reach it', () => {
+    expect(order.indexOf('mine')).toBeLessThan(order.indexOf(':id'));
   });
 });

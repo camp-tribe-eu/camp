@@ -2,12 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { normalizeIp } from '@nestjs/throttler/dist/ip';
-import {
-  BUILD_TOKEN_HEADER,
-  clientKey,
-  isBulkPath,
-  isExempt,
-} from './throttle';
+import { BUILD_TOKEN_HEADER, clientKey, bucketOf, isExempt } from './throttle';
 
 /**
  * CAMP-69: the throttler, told who the caller is and who is exempt.
@@ -52,7 +47,7 @@ export class ApiThrottlerGuard extends ThrottlerGuard {
   }
 
   /**
-   * 🔴 Two buckets per caller, not one per route.
+   * 🔴 Three buckets per caller, not one per route.
    *
    * `suffix` is already the tracker string from getTracker. The base
    * implementation prepends the controller and handler names, which is a
@@ -67,7 +62,7 @@ export class ApiThrottlerGuard extends ThrottlerGuard {
   ): string {
     const req = context.switchToHttp().getRequest<Record<string, unknown>>();
     const path = ((req.path ?? req.url) as string) ?? '';
-    return `${name}:${isBulkPath(path) ? 'bulk' : 'ordinary'}:${suffix}`;
+    return `${name}:${bucketOf(path)}:${suffix}`;
   }
 
   protected async shouldSkip(context: ExecutionContext): Promise<boolean> {

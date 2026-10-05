@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { Repository } from 'typeorm';
+import { DEFAULT_LIMIT, LOGIN_LIMIT, bucketOf } from '../throttle';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
 import { AuthService } from './auth.service';
@@ -165,23 +165,51 @@ describe('signOut', () => {
 });
 
 /**
- * 🔴 CAMP-176's lesson, applied to the login limit.
+ * 🔴 CAMP-176's lesson, applied to the login limit — and my first
+ * attempt at this test WAS the bug.
  *
- * The number lives in throttle.ts and the decorator lives in the
- * controller, and nothing compares the two. That exact gap let
- * `/spots/map/regions` carry a bulk NUMBER in the ordinary BUCKET for
- * weeks. Here the failure would be quieter still: without the decorator
- * the route silently inherits 120 a minute, which is a password-guessing
- * budget, and every test of the login logic stays green.
+ * I wrote `expect(/@Throttle\(\s*LOGIN\s*\)/.test(source)).toBe(true)`:
+ * a regex over the controller's own text, citing CAMP-176 while
+ * repeating it. It confirmed the decorator was TYPED and could not
+ * confirm the decorator MEANT anything — a safeguard that agrees with
+ * itself, on exactly the line that was broken.
+ *
+ * What was broken: `@Throttle(LOGIN)` set the number to ten, while
+ * `generateKey` still filed `/auth/login` under `ordinary`. Review
+ * measured it — ten `GET /spots/countries`, then the FIRST EVER
+ * `POST /auth/login` answered 429 without `signIn` being called. Anyone
+ * who read ten pages in a minute could not sign in.
+ *
+ * So this now asserts the BUCKET, which is the thing that was wrong.
  */
-describe('🔴 the login route still carries its own limit', () => {
-  const source = readFileSync(`${__dirname}/auth.controller.ts`, 'utf8');
-
-  it('declares @Throttle on the login handler', () => {
-    expect(/@Throttle\(\s*LOGIN\s*\)/.test(source)).toBe(true);
+describe('🔴 the login route is counted in its own bucket', () => {
+  it('does not share a counter with ordinary browsing', () => {
+    expect(bucketOf('/auth/login')).not.toBe(bucketOf('/spots/countries'));
   });
 
-  it('builds that limit from LOGIN_LIMIT, not a number written twice', () => {
-    expect(source).toContain('LOGIN_LIMIT');
+  it('files sign-in under login', () => {
+    expect(bucketOf('/auth/login')).toBe('login');
+  });
+
+  it('leaves ordinary reading where it was', () => {
+    expect(bucketOf('/spots/countries')).toBe('ordinary');
+  });
+
+  it('does not steal the bulk routes', () => {
+    expect(bucketOf('/spots/index')).toBe('bulk');
+  });
+
+  // The router is case-insensitive and tolerates a trailing slash, so
+  // the bucket must be too — the same hole isBulkPath already had.
+  it.each(['/auth/login/', '/AUTH/LOGIN', '/auth/login?next=/map'])(
+    'files %s under login as well',
+    (path) => {
+      expect(bucketOf(path)).toBe('login');
+    },
+  );
+
+  // The number still has to be the small one.
+  it('carries a limit far below the ordinary one', () => {
+    expect(LOGIN_LIMIT.limit).toBeLessThan(DEFAULT_LIMIT.limit / 4);
   });
 });
