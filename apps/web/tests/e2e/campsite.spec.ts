@@ -188,8 +188,36 @@ test.describe('campsite page', () => {
     await expect(
       page.getByText(/don’t publish pictures we haven’t verified/i),
     ).toBeVisible();
-    // If an <img> ever appears here without a verified source, this fails.
-    await expect(page.locator('main img')).toHaveCount(0);
+    // 🔴 NO PICTURE OF THE CAMPSITE — which is not the same as no <img>.
+    //
+    // This read `expect(page.locator('main img')).toHaveCount(0)`, and
+    // that was right while the only image a campsite page could carry
+    // was a photograph of the campsite. CAMP-190 added webcam frames,
+    // and once the CI fixture gained cameras this went red at 2.
+    //
+    // A webcam frame is a different object with its own rules: it is
+    // somebody else's live view of somewhere NEAR here, it carries its
+    // distance, it links back to Windy as their terms require, and the
+    // panel is forbidden from claiming it shows the campsite. Counting
+    // it as stock photography would be wrong; so would letting this
+    // test be relaxed to "some images are fine".
+    //
+    // So the question stays exactly as strict, and only becomes
+    // precise: every image must be one we can account for. Today that
+    // is the webcam panel and nothing else. An <img> anywhere else on
+    // this page is the failure this test was written for.
+    // 🔴 Counted, not selected with `:not(<complex>)`. That is CSS
+    // Selectors Level 4 and the suite runs on five engines including
+    // WebKit; a selector that silently matches nothing there would make
+    // this test pass by finding no strays rather than by there being
+    // none — the exact failure mode this file keeps catching elsewhere.
+    const allImages = await page.locator('main img').count();
+    const inPanel = await page.locator('[data-testid="webcam-note"] img').count();
+    expect(
+      allImages - inPanel,
+      `an image outside the webcam panel is a picture of the campsite we did not ` +
+        `verify (main img ${allImages}, webcam frames ${inPanel})`,
+    ).toBe(0);
     await expect(page.getByRole('link', { name: /add your photos/i })).toBeVisible();
   });
 
