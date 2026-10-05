@@ -285,7 +285,17 @@ export function warningsFrom(payload, country, now) {
         type: type.label,
         typeCode: type.code,
         areas,
-        sender: info.senderName ?? alert.sender ?? null,
+        // 🔴 THE SAME DEFECT AS `onset`, ONE LINE DOWN, AND I DID NOT
+        // LOOK. Review swapped this to `alert.sender ?? info.senderName`
+        // with the suite green: no fixture carried both. On the live
+        // feeds 4 602 of 4 602 blocks carry both AND THEY DIFFER ON
+        // EVERY ONE — Croatia's name is "DHMZ Državni hidrometeorološki
+        // zavod" while the alert's sender is "https://meteo.hr" — so
+        // 400 of 400 published warnings would have changed hands. They
+        // are two different things in CAP: a readable name and the
+        // issuing identifier. Each is reported as itself.
+        sender: info.senderName ?? null,
+        senderId: alert.sender ?? null,
         language: info.language ?? null,
       };
       const held = byKey.get(key);
@@ -532,8 +542,10 @@ function selfTest() {
       w?.onset === null, String(w?.onset));
     ok('…and `effective` is reported as itself',
       w?.effective === '2026-10-05T09:00:00Z', String(w?.effective));
-    ok('🔴 the sender falls back to the alert when the info has none',
-      w?.sender === 'ALERT-SENDER', String(w?.sender));
+    ok('🔴 an absent senderName is null, never borrowed from the alert',
+      w?.sender === null, String(w?.sender));
+    ok('…and the alert-level sender is reported as itself',
+      w?.senderId === 'ALERT-SENDER', String(w?.senderId));
     ok('the id lists every area, so two alerts over different ground differ',
       w?.id === 'M|WARNCELLID:111+EMMA_ID:DE222|EMMA_ID:DE333|EMMA_ID:DE444', String(w?.id));
   }
@@ -614,6 +626,82 @@ function selfTest() {
     ok('…and no onset at all does not drop it', noOnset.kept.length === 1);
   }
 
+  // 🔴 EVERY FIELD AT ONCE, BECAUSE FIXING THEM ONE AT A TIME FAILED.
+  //
+  // Review found `onset ?? effective` swappable with a green suite. I
+  // fixed that line and did not look at the next one, so review found
+  // `senderName ?? alert.sender` — the same defect, one row down, 4 602
+  // of 4 602 live blocks carrying both. Two rounds, two instances, one
+  // class. This gives every source field a value only it can have, so
+  // any swap, alias or silent drop anywhere in the row fails here
+  // rather than waiting for someone to measure the live feed.
+  {
+    const row = warningsFrom(
+      feed(
+        [
+          {
+            event: 'EVENT',
+            headline: 'HEADLINE',
+            description: 'DESCRIPTION',
+            instruction: 'INSTRUCTION',
+            onset: '2026-10-05T18:00:00Z',
+            effective: '2026-10-05T09:00:00Z',
+            expires: '2026-10-06T00:00:00Z',
+            senderName: 'SENDER-NAME',
+            language: 'LANGUAGE',
+            parameter: [
+              { valueName: 'awareness_level', value: '3; orange; LEVEL-LABEL' },
+              { valueName: 'awareness_type', value: '4; TYPE-LABEL' },
+            ],
+            area: [{ areaDesc: 'AREA', geocode: [{ valueName: 'SCHEME', value: 'CODE' }] }],
+          },
+        ],
+        { sender: 'ALERT-SENDER' },
+      ),
+      'COUNTRY',
+      NOW,
+    ).kept[0];
+    const expected = {
+      country: 'COUNTRY',
+      event: 'EVENT',
+      headline: 'HEADLINE',
+      description: 'DESCRIPTION',
+      instruction: 'INSTRUCTION',
+      onset: '2026-10-05T18:00:00Z',
+      effective: '2026-10-05T09:00:00Z',
+      expires: '2026-10-06T00:00:00Z',
+      level: 3,
+      type: 'TYPE-LABEL',
+      typeCode: 4,
+      sender: 'SENDER-NAME',
+      senderId: 'ALERT-SENDER',
+      language: 'LANGUAGE',
+    };
+    for (const [field, want] of Object.entries(expected)) {
+      ok(`row.${field} is ${JSON.stringify(want)} and nothing else`, row?.[field] === want, JSON.stringify(row?.[field]));
+    }
+    ok('row.areas carries the area name', row?.areas?.[0]?.name === 'AREA');
+    ok('…and its code, scheme first', row?.areas?.[0]?.codes?.join() === 'SCHEME:CODE');
+    // Anything added to the row later must be added here too, or this
+    // fails — which is the point.
+    ok('the row has exactly the fields this test names',
+      Object.keys(row ?? {}).sort().join() === ['id', 'areas', ...Object.keys(expected)].sort().join(),
+      Object.keys(row ?? {}).sort().join());
+  }
+
+  // 🔴 THE SAME CASE FOR THE SENDER, which had the same hole one line
+  // below and 4 602 of 4 602 live blocks carrying both.
+  {
+    const w = warningsFrom(
+      feed([block({ senderName: 'DHMZ' })], { sender: 'https://meteo.hr' }),
+      'x',
+      NOW,
+    ).kept[0];
+    ok('the readable name is the sender', w?.sender === 'DHMZ');
+    ok('…and the issuing identifier is its own field', w?.senderId === 'https://meteo.hr');
+    ok('…so the two can never be swapped unseen', w?.sender !== w?.senderId);
+  }
+
   // 🔴 BOTH PRESENT AND DIFFERENT — the case no fixture had. Swapping
   // `onset` and `effective` left the whole suite green while it moved
   // the published start on 5 100 of 6 691 live blocks.
@@ -678,8 +766,22 @@ function selfTest() {
     ok('`--dry-run` bare is too', runPlan(['n', 'x', '--dry-run']).dryRun === true);
     ok('`--dryrun` is refused, not run', threw(['n', 'x', '--dryrun']));
     ok('`--selftest` is refused, not run', threw(['n', 'x', '--selftest']));
+    ok('`-dry-run` with one dash is refused', threw(['n', 'x', '-dry-run']));
+    ok('…and a bare `dry-run` with none is too', threw(['n', 'x', 'dry-run']));
     ok('…and `--self-test=1` is recognised by the entry point', hasFlag(['n', 'x', '--self-test=1'], 'self-test'));
     ok('…while `--selftest` is not', !hasFlag(['n', 'x', '--selftest'], 'self-test'));
+  }
+
+  // 🔴 Six erroring plus six empty is twelve lost, and each half clears
+  // the threshold alone.
+  {
+    const n = (k) => Array.from({ length: k }, (_, i) => `c${i}`);
+    ok('six silent and six empty of 27 is too much missing', tooMuchMissing(n(6), n(6), 27));
+    ok('…while six silent alone is not', !tooMuchMissing(n(6), [], 27));
+    ok('…and six empty alone is not', !tooMuchMissing([], n(6), 27));
+    ok('today — four answer empty, none fail — publishes', !tooMuchMissing([], n(4), 27));
+    ok('a quarter exactly is already too much', tooMuchMissing(n(7), [], 27));
+    ok('…and one country asked, failing, is too', tooMuchMissing(n(1), [], 1));
   }
 
   // 🔴 A 200 with an empty array is its own answer: not an error, not
@@ -707,12 +809,27 @@ function selfTest() {
         }),
       ]),
       b: feed([block({ area: [{ areaDesc: 'S', geocode: [] }] })]),
+      // Partly coded: one area with a code, two without. Nothing
+      // asserted `partial` before, so the counters behind "Latvia codes
+      // 14 of its 508" could be wrong while `--census` read confidently.
+      d: feed([
+        block({
+          area: [
+            { areaDesc: 'A', geocode: [{ valueName: 'NUTS3', value: 'X1' }] },
+            { areaDesc: 'B', geocode: [] },
+            { areaDesc: 'C', geocode: [] },
+          ],
+        }),
+      ]),
       c: { warnings: [] },
     });
     ok('the census counts every occurrence, not the first', c.schemes.EMMA_ID?.count === 2);
     ok('…and names the country it came from', c.schemes.EMMA_ID?.countries.join() === 'a');
     ok('…lists a country whose areas carry no code', c.uncoded.join() === 'b');
     ok('…and separates one that served no area at all', c.quiet.join() === 'c');
+    ok('…reports a partly coded country as coded/total', c.partial.join() === 'd 1/3');
+    ok('…and a partly coded country is neither uncoded nor quiet',
+      !c.uncoded.includes('d') && !c.quiet.includes('d'));
   }
 
   // 🔴 Nine countries keep nothing today and are healthy; a country
@@ -767,10 +884,15 @@ export function runPlan(argv) {
   // 🔴 AN UNKNOWN FLAG IS A REFUSAL, NOT A FULL RUN. `--dryrun` and
   // `--selftest` are not this script's flags, and both used to mean "do
   // everything and write the file". A typo may not publish.
+  // The test above this was titled "a typo in a flag may not publish"
+  // and then only inspected tokens beginning with `--`, so `-dry-run`
+  // and a bare `dry-run` both ran all 27 countries and WROTE THE FILE.
+  // This script takes no positional arguments, so anything that is not
+  // a known flag is a typo.
   const unknown = argv
     .slice(2)
-    .filter((a) => a.startsWith('--') && !KNOWN_FLAGS.some((k) => a === `--${k}` || a.startsWith(`--${k}=`)));
-  if (unknown.length) throw new Error(`unknown flag(s): ${unknown.join(', ')}`);
+    .filter((a) => !KNOWN_FLAGS.some((k) => a === `--${k}` || a.startsWith(`--${k}=`)));
+  if (unknown.length) throw new Error(`unknown argument(s): ${unknown.join(', ')}`);
   const flag = argv.find((a) => a === '--country' || a.startsWith('--country='));
   const only = flag?.startsWith('--country=') ? flag.slice('--country='.length) : undefined;
   if (flag && !only) throw new Error('--country= needs a country, e.g. --country=croatia');
@@ -837,6 +959,19 @@ export function census(payloads) {
       .filter((c) => !areas[c])
       .sort(),
   };
+}
+
+/**
+ * Whether too much of the union is missing to publish an answer.
+ *
+ * 🔴 THE TWO LOSSES WERE JUDGED SEPARATELY AND THAT WAS THE HOLE. Six
+ * countries erroring and six answering empty cleared both thresholds on
+ * their own — 6 < 7 and 6 < 7 — while twelve of twenty-seven
+ * contributed nothing and the file was written. A country missing is
+ * missing however it went.
+ */
+export function tooMuchMissing(silent, quiet, asked) {
+  return silent.length + quiet.length >= Math.ceil(asked / 4);
 }
 
 /**
@@ -961,11 +1096,21 @@ async function main() {
   // 🔴 Four states answer empty every day. A quarter of the union doing
   // it is the same kind of claim as a quarter being unreachable, and is
   // judged by the same measure.
+  // 🔴 AND THE TWO LOSSES MUST BE COUNTED TOGETHER. Measured by review
+  // on a stubbed fetch: 6 countries erroring plus 6 answering empty
+  // plus 15 healthy satisfied BOTH thresholds separately — 6 < 7 and
+  // 6 < 7 — and the file was written with 12 of 27 contributing
+  // nothing. A country missing from the answer is missing whether it
+  // refused to speak or had nothing to say, so they are judged as one
+  // number. Four answer empty every day; a quarter of the union, by any
+  // combination of the two, is us.
   const quiet = quietCountries(shapes);
-  if (quiet.length >= QUARTER) {
+  const missing = silent.length + quiet.length;
+  if (tooMuchMissing(silent, quiet, countries.length)) {
     throw new Error(
-      `${quiet.length} of ${countries.length} countries answered with no warnings at all ` +
-        `(${quiet.join(', ')}) — four do that daily, a quarter of the union does not`,
+      `${missing} of ${countries.length} countries contributed nothing — ` +
+        `${silent.length} did not answer (${silent.join(', ') || '—'}) and ` +
+        `${quiet.length} answered with no warnings at all (${quiet.join(', ') || '—'})`,
     );
   }
   const blind = blindCountries(shapes);
