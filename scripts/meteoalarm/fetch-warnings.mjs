@@ -403,6 +403,25 @@ function selfTest() {
   // 🔴 The boundary, named: expiring exactly now is expired.
   const edge = warningsFrom(feed([block({ expires: NOW.toISOString() })]), 'x', NOW);
   ok('a warning expiring at this instant is over', edge.counts.expired === 1);
+  // 🔴 THE CARD'S OWN ACCEPTANCE CRITERION, WHICH THE SUITE DID NOT HAVE.
+  // CAMP-148: "a fixture with the Polish payload of 28.09.2026 — 69
+  // records, every one expired. The output must be ZERO warnings, not
+  // 69. A test that does not catch this is worse than no test." The
+  // boundary case above tests ONE record; a whole feed of them is a
+  // different claim, and it is the one the card made. Measured on the
+  // live feed that day: all 69 of Poland's records were 31 hours past
+  // their expiry.
+  {
+    const allExpired = feed(
+      Array.from({ length: 69 }, (_, i) =>
+        block({ expires: '2026-09-27T12:00:00Z', event: `Wind ${i}` }),
+      ),
+    );
+    const out = warningsFrom(allExpired, 'poland', NOW);
+    ok('a feed of 69 expired records yields zero warnings, not 69', out.kept.length === 0);
+    ok('…and all 69 are counted as expired, not silently lost',
+      out.counts.expired === 69 && out.seen === 69);
+  }
   const live = warningsFrom(feed([block({ expires: '2026-10-05T12:00:01Z' })]), 'x', NOW);
   ok('…and one second later it is not', live.kept.length === 1);
 
@@ -826,6 +845,14 @@ function selfTest() {
     ok('…while `--selftest` is not', !hasFlag(['n', 'x', '--selftest'], 'self-test'));
   }
 
+  // 🔴 Keeping nothing means something different for one country.
+  {
+    ok('a full run that kept nothing from 6 669 blocks is broken', yieldLooksBroken(null, 6669, 0));
+    ok('…but one country keeping nothing is an ordinary day', !yieldLooksBroken('poland', 878, 0));
+    ok('…and a full run that kept something is fine', !yieldLooksBroken(null, 6669, 1));
+    ok('…as is a full run that saw nothing at all', !yieldLooksBroken(null, 0, 0));
+  }
+
   // 🔴 Six erroring plus six empty is twelve lost, and each half clears
   // the threshold alone.
   {
@@ -1016,6 +1043,15 @@ export function census(payloads) {
 }
 
 /**
+ * Whether keeping nothing is us rather than the weather.
+ *
+ * Only a FULL run can make that claim. For one country, keeping nothing
+ * is ordinary — nine of 27 are at zero on a normal day, and Poland went
+ * from 878 expired with nothing kept to 141 kept inside a day.
+ */
+export const yieldLooksBroken = (only, seen, kept) => !only && seen > 0 && kept === 0;
+
+/**
  * Whether too much of the union is missing to publish an answer.
  *
  * 🔴 THE TWO LOSSES WERE JUDGED SEPARATELY AND THAT WAS THE HOLE. Six
@@ -1199,7 +1235,12 @@ async function main() {
         'is counted as green, so this would have published as "calm"',
     );
   }
-  if (seen > 0 && all.length === 0) {
+  // ⚠️ Full runs only. Keeping nothing is ORDINARY for one country —
+  // nine of the 27 are at zero on a normal day, and Poland went from
+  // 878 expired and nothing kept to 141 kept within a day. Asking
+  // `--country=poland` and being told the parser is broken would be a
+  // false alarm, and false alarms are how guards stop being read.
+  if (yieldLooksBroken(only, seen, all.length)) {
     throw new Error(
       `${seen} blocks were read across ${countries.length - silent.length} ` +
         'countries and NONE survived the filter — that is a parsing failure, ' +
