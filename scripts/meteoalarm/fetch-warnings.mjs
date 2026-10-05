@@ -347,6 +347,19 @@ function selfTest() {
   const feed = (infos, alertOver = {}) => ({
     warnings: [{ alert: { identifier: 'X', ...alertOver, info: infos } }],
   });
+  // 🔴 EVERY FIXTURE IN THIS SUITE HAD EXACTLY ONE ALERT, and review
+  // proved what that hid: `.slice(0, 1)` on the outer loop over
+  // `payload.warnings` passed all 144 assertions while costing Poland
+  // 1 158 of its 1 160 blocks — 99.8% of the feed, with no guard firing
+  // (seen > 0, so nothing looks quiet or blind; kept > 0, so the yield
+  // guard is satisfied) and the file written. A feed is a list of
+  // ALERTS, each with its own list of language blocks, and the suite
+  // only ever exercised the inner list.
+  const alerts = (list) => ({
+    warnings: list.map((infos, i) => ({
+      alert: { identifier: `A${i}`, info: Array.isArray(infos) ? infos : [infos] },
+    })),
+  });
 
   // 🔴 Review found this filter removable with a green suite.
   ok('a geocode with no value is not a code',
@@ -364,7 +377,15 @@ function selfTest() {
   // 🔴 THE CARD'S OWN CRITERION: a payload where every record has
   // expired must produce ZERO warnings, not the record count. This is
   // the Polish shape measured on 28.09.2026 — 69 records, all expired.
-  const polish = feed(
+  //
+  // ⚠️ AND IT USED TO PROVE SOMETHING WEAKER THAN IT CLAIMED. The 69
+  // records were 69 language blocks of ONE alert, all sharing identifier
+  // and area — so they collapsed to a single key, and review measured
+  // that disabling the expiry filter entirely still gave `kept = 1,
+  // duplicate = 68`. The assertion named "not 69" was really proving
+  // "not more than one", and dedup was holding it up. Sixty-nine
+  // separate alerts is the shape the card measured.
+  const polish = alerts(
     Array.from({ length: 69 }, () => block({ expires: '2026-10-04T05:00:00Z' })),
   );
   const out = warningsFrom(polish, 'poland', NOW);
@@ -374,6 +395,16 @@ function selfTest() {
     JSON.stringify(out.counts),
   );
   ok('…and the count says so out loud', out.seen === 69);
+  ok('…and not one of them was merely deduplicated', out.counts.duplicate === 0);
+  // The same 69, unexpired: every one survives, so the zero above is the
+  // filter's doing and nothing else.
+  const alive = warningsFrom(
+    alerts(Array.from({ length: 69 }, () => block())),
+    'poland',
+    NOW,
+  );
+  ok('…while 69 live records produce 69 warnings', alive.kept.length === 69);
+  ok('…which is how we know the zero came from the filter', alive.counts.expired === 0);
 
   const green = warningsFrom(
     feed([block({ parameter: [{ valueName: 'awareness_level', value: '1; Minor' }] })]),
@@ -826,6 +857,14 @@ function selfTest() {
     ok('…while `--selftest` is not', !hasFlag(['n', 'x', '--selftest'], 'self-test'));
   }
 
+  // 🔴 Keeping nothing means something different for one country.
+  {
+    ok('a full run that kept nothing from 6 669 blocks is broken', yieldLooksBroken({ only: null, seen: 6669, kept: 0 }));
+    ok('…but one country keeping nothing is an ordinary day', !yieldLooksBroken({ only: 'poland', seen: 878, kept: 0 }));
+    ok('…and a full run that kept something is fine', !yieldLooksBroken({ only: null, seen: 6669, kept: 1 }));
+    ok('…as is a full run that saw nothing at all', !yieldLooksBroken({ only: null, seen: 0, kept: 0 }));
+  }
+
   // 🔴 Six erroring plus six empty is twelve lost, and each half clears
   // the threshold alone.
   {
@@ -1016,6 +1055,18 @@ export function census(payloads) {
 }
 
 /**
+ * Whether keeping nothing is us rather than the weather.
+ *
+ * Only a FULL run can make that claim. For one country, keeping nothing
+ * is ordinary — nine of 27 are at zero on a normal day, and Poland went
+ * from 878 expired with nothing kept to 141 kept inside a day.
+ */
+// ⚠️ Named, not positional. Review swapped `seen` and `kept` at the call
+// site and all 144 assertions passed — three unlabelled numbers in a row
+// is a mis-wiring waiting to happen, and nothing covers `main`.
+export const yieldLooksBroken = ({ only, seen, kept }) => !only && seen > 0 && kept === 0;
+
+/**
  * Whether too much of the union is missing to publish an answer.
  *
  * 🔴 THE TWO LOSSES WERE JUDGED SEPARATELY AND THAT WAS THE HOLE. Six
@@ -1199,7 +1250,12 @@ async function main() {
         'is counted as green, so this would have published as "calm"',
     );
   }
-  if (seen > 0 && all.length === 0) {
+  // ⚠️ Full runs only. Keeping nothing is ORDINARY for one country —
+  // nine of the 27 are at zero on a normal day, and Poland went from
+  // 878 expired and nothing kept to 141 kept within a day. Asking
+  // `--country=poland` and being told the parser is broken would be a
+  // false alarm, and false alarms are how guards stop being read.
+  if (yieldLooksBroken({ only, seen, kept: all.length })) {
     throw new Error(
       `${seen} blocks were read across ${countries.length - silent.length} ` +
         'countries and NONE survived the filter — that is a parsing failure, ' +
