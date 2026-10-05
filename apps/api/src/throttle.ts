@@ -48,6 +48,28 @@ export const DEFAULT_LIMIT = { ttl: MINUTE, limit: 120 };
 export const BULK_LIMIT = { ttl: MINUTE, limit: 6 };
 
 /**
+ * 🔴 Sign-in, which is a different question again — and the only route
+ * where the DEFAULT limit is itself the vulnerability.
+ *
+ * At 120 a minute the ordinary limit lets one caller try **120 passwords
+ * a minute** against one account, which is not a rate limit on a login
+ * form, it is a budget for an online guessing attack. CAMP-50's card
+ * asks for a limit here by name.
+ *
+ * Ten a minute is far more than a human needs — someone mistyping their
+ * own password tries three or four times — and it turns 172 800 guesses
+ * a day into 14 400.
+ *
+ * 🔴 WHAT THIS DOES NOT DO, said plainly so nobody reads it as more than
+ * it is: the bucket is keyed by CALLER, so it slows one source hammering
+ * one account. It does nothing against credential stuffing from a
+ * botnet, where each address tries one password once. That needs
+ * per-ACCOUNT counting and breach-list checks, which are not in this
+ * card. The scrypt cost in password.ts is what stands behind this.
+ */
+export const LOGIN_LIMIT = { ttl: MINUTE, limit: 10 };
+
+/**
  * Routes that carry the bulk limit, by controller path.
  *
  * Exported as data so the test can assert the list rather than trusting
