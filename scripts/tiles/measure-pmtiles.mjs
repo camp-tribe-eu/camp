@@ -20,13 +20,17 @@
 // MEASURED, 2026-10-05, against build.protomaps.com/20261004.pmtiles
 // (138.2 GB, zooms 0..15) — reproduce with the commands above:
 //
-//   EU-27, maxzoom 12   5.56 GB   485 067 addressed, 288 347 distinct
-//   EU-27, maxzoom 6    0.01 GB       157 addressed,     147 distinct
+//   EU-27, maxzoom 6     0.01 GB        157 addressed,       147 distinct
+//   EU-27, maxzoom 12    5.56 GB    485 067 addressed,   288 347 distinct
+//   EU-27, maxzoom 13   11.13 GB  1 935 763 addressed, 1 086 648 distinct
 //
-// The card estimated "z12 ≈ 5.5-7 GB". The measurement lands at the very
-// bottom of that range, which is the answer that matters: 5.56 GB fits
-// inside R2's free 10 GB, so the storage bill at maxzoom 12 is nothing.
-// Reading the directories to find that out cost 10.5 MB and 68 seconds.
+// 🔴 THE FREE TIER RUNS OUT BETWEEN ZOOM 12 AND ZOOM 13. The card
+// estimated "z12 ≈ 5.5-7 GB" and asked where the line is. It is here:
+// 5.56 GB fits inside R2's free 10 GB and 11.13 GB does not, so zoom 12
+// is the deepest Europe that costs nothing, and one zoom further
+// doubles the archive. That is a sharper answer than the card asked
+// for, and it took 10.5 MB of directory reads at z12 (68 s) and 234 s
+// at z13 — no tile data at all.
 //
 // A tile checked end to end, 12/2200/1343 (Berlin): 138 584 bytes over
 // the wire, 198 436 after gunzip, first byte 0x1a — a real vector tile,
