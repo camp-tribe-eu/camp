@@ -1263,10 +1263,22 @@ export default function CampsiteMap() {
       // checkpoint, so the style's own callback can never run. Measured
       // at 200 001 re-entries without yielding. Every map spec stayed
       // green, because they stub the style and never take this path.
+      // 🔴 AND IT BELONGS TO THIS REFRESH ONLY. `mine` is the generation
+      // stamped at the top of this call; if a later refresh has started
+      // since, this wait was asked for by a view that no longer exists
+      // and must not drag the map back through another `refresh`.
+      //
+      // Without this the retry outlives its view and perturbs the next
+      // one: CI went from clean to `1 flaky` on
+      // `map-filters.spec.ts:918`, which polled for twenty seconds and
+      // kept reading 2 points and 3 clusters in a view that should have
+      // had none. #110, the same suite without this change, reported no
+      // flaky tests at all.
       const attempt = () => {
         awaitingStyle.current?.();
         awaitingStyle.current = null;
         say();
+        if (mine !== generation.current) return;
         void refreshRef.current();
       };
       awaitingStyle.current = retryOnEvent(m, attempt);
