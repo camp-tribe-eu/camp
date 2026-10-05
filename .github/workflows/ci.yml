@@ -242,6 +242,19 @@ jobs:
       - name: Silence watchdog still catches a job that stopped
         run: node scripts/ci/check-schedule.mjs --self-test
 
+      # 🔴 CAMP-30. Fonts and sprites are NOT inside a PMTiles archive; a
+      # style names them by URL, and the obvious one points at GitHub
+      # Pages, whose terms forbid "an online business, e-commerce site".
+      # Nothing would break — we would simply be in breach, and the first
+      # anyone heard of it would be a takedown. The trap arms itself the
+      # day we adopt a style of our own, which is the day nobody will be
+      # looking at this.
+      - name: Map fonts and sprites come from a host we may use
+        run: node scripts/ci/check-map-assets.mjs --self-test
+
+      - name: …and the live styles still do
+        run: node scripts/ci/check-map-assets.mjs
+
       # 🔴 CAMP-153. The wildfire fetch script carries a self-test of its
       # own — the `maxfeatures` throw that stands between us and a 132 MB
       # response, the 2 000-feature ceiling, both licence-marker checks and
