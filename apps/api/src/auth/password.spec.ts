@@ -1,7 +1,6 @@
 import {
   FORMAT,
   MAX,
-  MIN,
   SCRYPT,
   hashPassword,
   needsRehash,
