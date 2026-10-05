@@ -235,11 +235,71 @@ export function sizesFromAssets(assets) {
   return sizes;
 }
 
+/**
+ * The argv for `gh release view`, with the tag where it cannot be read
+ * as a flag.
+ *
+ * 🔴 CAMP-201. CodeQL flagged this file for "indirect command line
+ * injection" on 24.09 and the alert sat for eleven days, red on every
+ * branch — which is how a repository teaches itself to stop reading
+ * alerts.
+ *
+ * Most of what it suspected is not there: `execFileSync` spawns no
+ * shell, so a `;` or a `|` in an argument stays an argument, and the
+ * executable at every call site is a literal. But one narrower thing
+ * IS, and it is measured rather than argued. Against the real `gh`:
+ *
+ *   gh release view -R camp-tribe-eu/camp --json tagName --version
+ *     → unknown flag: --version
+ *   gh release view -R camp-tribe-eu/camp --json tagName -- --version
+ *     → release not found
+ *
+ * The tag reaches here from `--tag` on the command line or from
+ * `gh release list`, i.e. from whoever can name a release. A tag
+ * beginning with `-` turns into a flag and the command does something
+ * nobody chose. `--` ends flag parsing, so everything after it is a
+ * positional whatever it looks like.
+ */
+export function releaseViewArgv(tag, repo = REPO) {
+  return ['release', 'view', '-R', repo, '--json', 'assets', '--', tag];
+}
+
+/**
+ * The argv for `gh release download`.
+ *
+ * 🔴 The TAG is positional and goes after `--`, which is the protection
+ * that matters and is measured: without it, `gh release download
+ * --version …` answers `unknown flag`.
+ *
+ * ⚠️ The pattern is passed as `--pattern=<value>` as hardening, NOT
+ * because the separated form is unsafe. An earlier version of this
+ * comment claimed "a separated value starting with `-` is ambiguous";
+ * review measured the opposite on the real binary — `gh release
+ * download -p --badflagxyz …` consumes the value and reaches
+ * `release not found`, while the same unknown flag with no `-p` to eat
+ * it errors. The glued form removes a question nobody has to ask; the
+ * reason written here before was invented.
+ */
+export function releaseDownloadArgv(tag, asset, dir, repo = REPO) {
+  return [
+    'release',
+    'download',
+    '-R',
+    repo,
+    `--pattern=${asset}`,
+    '-D',
+    dir,
+    '--clobber',
+    '--',
+    tag,
+  ];
+}
+
 function assetSizes(tag) {
   let assets;
   try {
     assets = JSON.parse(
-      run('gh', ['release', 'view', tag, '-R', REPO, '--json', 'assets']),
+      run('gh', releaseViewArgv(tag)),
     ).assets ?? [];
   } catch (err) {
     console.log(
@@ -518,6 +578,76 @@ function selfTest() {
   const source = sourceOf(whole.replace(REGION, ' '));
 
   ok('no shell is spawned anywhere in this file', !SHELL_CALL.test(source));
+
+  // 🔴 CAMP-201 — a tag that looks like a flag.
+  //
+  // Measured against the real `gh` before this was written:
+  //   …--json tagName --version   → unknown flag: --version
+  //   …--json tagName -- --version → release not found
+  // So the fix is `--`, and these cases hold it in place. Each one fails
+  // if the separator is removed, which is the only way this can regress.
+  for (const hostile of ['--version', '-R', '--repo=evil/repo', '-']) {
+    const view = releaseViewArgv(hostile, 'owner/repo');
+    const sep = view.indexOf('--');
+    ok(
+      `release view: a tag named "${hostile}" sits after the \`--\` separator`,
+      sep !== -1 && view.indexOf(hostile, sep) > sep && view.lastIndexOf(hostile) > sep,
+      JSON.stringify(view),
+    );
+    ok(
+      `release view: nothing but the tag follows \`--\` for "${hostile}"`,
+      view.length === sep + 2,
+      JSON.stringify(view),
+    );
+
+    const dl = releaseDownloadArgv(hostile, hostile, '/tmp/work', 'owner/repo');
+    const dsep = dl.indexOf('--');
+    ok(
+      `release download: a tag named "${hostile}" sits after the separator`,
+      dsep !== -1 && dl[dsep + 1] === hostile && dl.length === dsep + 2,
+      JSON.stringify(dl),
+    );
+    // 🔴 The pattern is a flag VALUE, which `--` does not protect. The
+    // `--pattern=<value>` form is what makes it unambiguous, so assert
+    // the form rather than the position.
+    ok(
+      `release download: an asset named "${hostile}" is glued to its flag`,
+      dl.includes(`--pattern=${hostile}`),
+      JSON.stringify(dl),
+    );
+    // 🔴 THE WHOLE ARRAY, and its absence was a hole review walked
+    // straight through. The cases above only look to the RIGHT of the
+    // separator, so putting the old unprotected tag back at the front —
+    // `['release','download',tag,'-R',repo,…,'--',tag]` — left 69/69
+    // green while `gh` answered `unknown flag: --version`. Deleting
+    // `-D dir` or `-R repo` was green too, which would download into
+    // the working tree or read whatever remote the cwd points at.
+    ok(
+      `release download: the command is exactly what we meant for "${hostile}"`,
+      JSON.stringify(dl) ===
+        JSON.stringify([
+          'release',
+          'download',
+          '-R',
+          'owner/repo',
+          `--pattern=${hostile}`,
+          '-D',
+          '/tmp/work',
+          '--clobber',
+          '--',
+          hostile,
+        ]),
+      JSON.stringify(dl),
+    );
+  }
+
+  // And the ordinary case still reads as it always did.
+  ok(
+    'a normal tag produces the same command as before, plus the separator',
+    JSON.stringify(releaseViewArgv('v2026-10-01', 'owner/repo')) ===
+      JSON.stringify(['release', 'view', '-R', 'owner/repo', '--json', 'assets', '--', 'v2026-10-01']),
+    JSON.stringify(releaseViewArgv('v2026-10-01', 'owner/repo')),
+  );
   ok('nothing asks a child process for a shell', !/\bshell\s*:\s*true/.test(source));
   // `execSync` IS a shell, always, whatever it is handed.
   ok('execSync is not used', !/\bexecSync\s*\(/.test(source));
@@ -566,7 +696,18 @@ async function main() {
   );
   console.log(`${countries.length} member state(s), smallest first\n`);
 
-  const work = mkdtempSync(join(tmpdir(), 'camptribe-release-'));
+  // 🔴 ABSOLUTE, because `TMPDIR` is an environment variable and
+  // `ogr2ogr` has no `--` convention at all — measured:
+  // `ogr2ogr … -- file` answers `ERROR 1: Unknown argument: --`.
+  //
+  // With `TMPDIR=-evil` this path begins with a dash and is handed to
+  // ogr2ogr as a bare positional, which reads it as a flag. The `--`
+  // separator that protects the `gh` calls cannot help here, so the
+  // path itself must be unambiguous: `resolve()` always returns one
+  // starting with `/`. Review found this; the CodeQL text said
+  // "depends on an unsanitized environment variable" twice and the
+  // first version of this change had only looked at the argv order.
+  const work = resolve(mkdtempSync(join(tmpdir(), 'camptribe-release-')));
   let done = 0;
   const failures = [];
 
@@ -575,7 +716,7 @@ async function main() {
       const asset = assetFor(code);
       process.stdout.write(`${code.toUpperCase()}  ${asset} … `);
       try {
-        run('gh', ['release', 'download', tag, '-R', REPO, '-p', asset, '-D', work, '--clobber']);
+        run('gh', releaseDownloadArgv(tag, asset, work));
         const gz = join(work, asset);
         const json = gz.replace(/\.gz$/, '');
         // 🔴 NO SHELL. This was `run('sh', ['-c', `gzip -dc '${gz}' >

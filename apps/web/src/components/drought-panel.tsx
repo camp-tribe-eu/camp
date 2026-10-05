@@ -46,20 +46,31 @@ export function DroughtPanel({
       data-state={state.kind}
       data-tone={note.tone}
       aria-labelledby="drought-heading"
-      className={
-        'mt-4 rounded border p-3 text-sm ' +
-        (note.tone === 'gap'
-          ? 'border-line-2 bg-surface-2 text-ink-2'
-          : 'border-line-2 bg-surface text-ink-2')
-      }
+      className="mt-8"
     >
-      <h3
+      {/* 🔴 An h2, like every other section of <main>. It shipped as an
+          h3, exactly as the webcam panel did, and for the same reason:
+          the component looks right rendered alone, and the outline is
+          only wrong once the page is assembled. Opening a Maltese
+          campsite showed both at once —
+          `["h3 \"Drought\"", "h3 \"Webcams nearby\""]` — which is the
+          rule in `campsite.spec.ts` doing its job on a real page before
+          CI got the chance. */}
+      <h2
         id="drought-heading"
-        className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2"
+        className="text-xl font-bold md:text-[25px]"
       >
         Drought
-      </h3>
-      <p className="mt-2 font-semibold text-heading">{note.headline}</p>
+      </h2>
+      <div
+        className={
+          'mt-3 rounded-card border p-4 text-sm ' +
+          (note.tone === 'gap'
+            ? 'border-line-2 bg-surface-2 text-ink-2'
+            : 'border-line-2 bg-surface-2 text-ink-2')
+        }
+      >
+      <p className="font-semibold text-heading">{note.headline}</p>
       <p className="mt-1">{note.detail}</p>
 
       {state.kind !== 'missing' && (
@@ -130,6 +141,7 @@ export function DroughtPanel({
           {state.meta.attribution}
         </p>
       )}
+      </div>
     </section>
   );
 }

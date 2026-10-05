@@ -152,16 +152,37 @@ export const CAMERA_DEAD_AFTER_MINUTES = 24 * 60;
  *
  * A row that cannot exist needs no filter at render time.
  */
-export function usable(cam: Webcam, now: Date): boolean {
-  if (!cam.detailUrl?.startsWith('https://')) return false;
-  if (typeof cam.title !== 'string' || !cam.title) return false;
-  if (!Number.isFinite(cam.metres) || cam.metres < 0) return false;
+export type WebcamVerdict = 'ok' | 'stale' | 'unusable';
+
+/**
+ * Why a row can or cannot be shown — the REASON, not just a boolean.
+ *
+ * 🔴 A boolean here is what let the panel print a false sentence.
+ * `absence()` used to count the RAW list while the panel rendered the
+ * filtered one, so three cameras dropped for a bad url or a missing
+ * timestamp came out as "none of them has reported for more than a
+ * day" — which is untrue of a row that never reported at all, and
+ * untrue of one whose link we simply cannot use. Review found it.
+ *
+ * `stale` is the only reason that entitles the page to talk about the
+ * age of our reading. Anything else means we hold nothing we can say
+ * something honest about, and the page says nothing.
+ */
+export function verdict(cam: Webcam, now: Date): WebcamVerdict {
+  if (!cam.detailUrl?.startsWith('https://')) return 'unusable';
+  if (typeof cam.title !== 'string' || !cam.title) return 'unusable';
+  if (!Number.isFinite(cam.metres) || cam.metres < 0) return 'unusable';
   const mins = reportedMinutesAgo(cam.lastFrameAt, now);
-  // 🔴 No time at all is NOT a pass. The catalogue gives one for every
-  // active camera we measured; a row without it is a row we cannot say
-  // anything honest about.
-  if (mins === null) return false;
-  return mins <= CAMERA_DEAD_AFTER_MINUTES;
+  // 🔴 No time at all is NOT a pass, and it is NOT staleness either.
+  // The catalogue gives one for every active camera we measured; a row
+  // without it is a row we cannot say anything honest about, including
+  // how old it is.
+  if (mins === null) return 'unusable';
+  return mins <= CAMERA_DEAD_AFTER_MINUTES ? 'ok' : 'stale';
+}
+
+export function usable(cam: Webcam, now: Date): boolean {
+  return verdict(cam, now) === 'ok';
 }
 
 /** The ones we will show, nearest first, already filtered. */
@@ -196,10 +217,46 @@ export function showable(cams: Webcam[] | null | undefined, now: Date): Webcam[]
  *
  * A page may not blame the world for a gap of its own making.
  */
-export type WebcamAbsence = 'none' | 'stale';
+export type WebcamAbsence = 'unknown' | 'none' | 'stale';
 
-export function absence(cams: Webcam[] | null | undefined, now: Date): WebcamAbsence {
-  return Array.isArray(cams) && cams.length > 0 ? 'stale' : 'none';
+/**
+ * Why the panel is empty — or `null`, meaning it is not.
+ *
+ * 🔴 `null` IS AN ANSWER, not an omission. The first version of this
+ * returned a `WebcamAbsence` unconditionally, so a campsite with three
+ * perfectly good cameras came back `'unknown'` (nothing was stale) and
+ * the panel returned early with nothing at all. A function that gives a
+ * wrong answer when asked at the wrong moment is a trap; this one can
+ * only be misread by ignoring the `null`.
+ */
+export function absence(cams: Webcam[] | null | undefined, now: Date): WebcamAbsence | null {
+  // 🔴 `null` IS NOT `[]`, and conflating them put a false sentence on
+  // every page in Europe.
+  //
+  // The API answers `null` until `scripts/windy/fetch-webcams.mjs` has
+  // imported the catalogue, and `[]` once it has and found nothing
+  // within the radius. Measured on the live API, 05.10.2026: the table
+  // is empty, so every campsite came back `[]` and read
+  //
+  //   "No public webcam within 25 km of this campsite. That is what the
+  //    camera network covers, not a statement about the place."
+  //
+  // — over a continent where 88% of campsites have a camera within
+  // 25 km (CAMP-189). The sentence is a claim about COVERAGE and we had
+  // not looked.
+  //
+  // `unknown` renders nothing. The panel's rule that it is never empty
+  // is about campsites without a camera; it was never a licence to
+  // speak when we have no data at all.
+  if (!Array.isArray(cams)) return 'unknown';
+  if (cams.length === 0) return 'none';
+  // Something is showable: the panel has cards and is not absent.
+  if (cams.some((c) => verdict(c, now) === 'ok')) return null;
+  // 🔴 ASKED OF THE SAME ROWS THE PANEL DRAWS, with the same clock.
+  // Only rows dropped for AGE entitle the page to say our reading is
+  // old; a row we cannot use at all is a row we do not really hold, and
+  // claiming either coverage or staleness over it would be inventing.
+  return cams.some((c) => verdict(c, now) === 'stale') ? 'stale' : 'unknown';
 }
 
 /** "last reported 12 minutes ago" — about the camera, never the picture. */
