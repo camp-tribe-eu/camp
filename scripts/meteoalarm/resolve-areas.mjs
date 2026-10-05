@@ -95,8 +95,30 @@ export function lookup(features, scheme, value, idField) {
   return { matches: features.filter((f) => f?.properties?.[field] === value), why: null };
 }
 
-/** The codes to look up for one area, after redundancy and the splits. */
-export function plan(codes) {
+/**
+ * EVERY way we could look one area up, best first.
+ *
+ * 🔴 THE FIRST VERSION TOOK THE FIRST USABLE SCHEME AND GAVE UP ON IT.
+ * Croatia's coverage fell to 50% and the guard said "the nomenclature
+ * has probably moved under us". Half right, and I misread it twice:
+ * first I blamed the six marine zones — HR801–HR806, the bura warnings
+ * DHMZ issues for the Adriatic channels — and excluded them. Measured
+ * against the actual geometry file, those six ARE in it and resolve
+ * perfectly. The six that fail are the COUNTIES: the feed codes them
+ * HR018, HR019, HR023, HR025, HR027, HR028 while MeteoAlarm's own
+ * geocode file (2026-07-31) knows only HR001–HR008. EMMA_ID really has
+ * moved for Croatia.
+ *
+ * But each of those counties also carries a NUTS3 code, and all six —
+ * HR031 to HR036 — are in NUTS 2013. The data to place them was sitting
+ * on the same area the whole time; we committed to one scheme before
+ * knowing whether it would answer.
+ *
+ * So an area is resolvable when ANY of its schemes resolves. That is
+ * also why `SOURCES` order matters: it is a preference, not a claim that
+ * the first one works.
+ */
+export function plans(codes) {
   const parsed = codes
     .map((c) => {
       const at = String(c).indexOf(':');
@@ -104,27 +126,28 @@ export function plan(codes) {
     })
     .filter(Boolean);
 
-  if (parsed.length === 0) return { scheme: null, values: [], why: 'the area carries no code' };
+  if (parsed.length === 0) return [{ scheme: null, values: [], why: 'the area carries no code' }];
 
-  // 🔴 Prefer a scheme we have geometry for. A German area carries both
-  // WARNCELLID and EMMA_ID; taking the first listed would send us
-  // looking for a source we deliberately do not have.
-  const usable = parsed.find((p) => SOURCES[p.scheme]);
-  if (!usable) {
+  const usable = parsed.filter((p) => SOURCES[p.scheme]);
+  if (usable.length === 0) {
     const schemes = [...new Set(parsed.map((p) => p.scheme))].join(', ');
-    return { scheme: null, values: [], why: `no resolvable scheme among: ${schemes}` };
+    return [{ scheme: null, values: [], why: `no resolvable scheme among: ${schemes}` }];
   }
 
-  if (usable.scheme === 'FIPS') {
-    if (FIPS_SPLIT[usable.value]) {
-      return { scheme: 'FIPS', values: FIPS_SPLIT[usable.value], why: null, split: usable.value };
+  return usable.map((u) => {
+    if (u.scheme === 'FIPS') {
+      if (FIPS_SPLIT[u.value]) return { scheme: 'FIPS', values: FIPS_SPLIT[u.value], why: null, split: u.value };
+      if (FIPS_BY_ISO[u.value]) {
+        return { scheme: 'FIPS', values: [FIPS_BY_ISO[u.value]], idField: 'iso_3166_2', why: null };
+      }
     }
-    if (FIPS_BY_ISO[usable.value]) {
-      return { scheme: 'FIPS', values: [FIPS_BY_ISO[usable.value]], idField: 'iso_3166_2', why: null };
-    }
-  }
-  return { scheme: usable.scheme, values: [usable.value], why: null };
+    return { scheme: u.scheme, values: [u.value], why: null };
+  });
 }
+
+/** The preferred way to look one area up. Kept for callers wanting one. */
+export const plan = (codes) => plans(codes)[0];
+
 
 // ------------------------------------------------------------- coverage
 //
@@ -180,18 +203,31 @@ export function coverageOf(areaCodes, geometry) {
   let resolved = 0;
   const unresolved = new Map();
   for (const joined of areaCodes) {
-    const p = plan(joined.split('||'));
-    if (!p.scheme) {
-      unresolved.set(p.why, (unresolved.get(p.why) ?? 0) + 1);
+    const candidates = plans(joined.split('||'));
+    if (!candidates[0].scheme) {
+      unresolved.set(candidates[0].why, (unresolved.get(candidates[0].why) ?? 0) + 1);
       continue;
     }
-    const features = geometry[p.scheme] ?? [];
-    const hits = p.values.map((v) => lookup(features, p.scheme, v, p.idField).matches);
-    if (hits.every((h) => h.length === 1)) resolved += 1;
-    else if (hits.some((h) => h.length > 1)) {
-      unresolved.set('ambiguous code', (unresolved.get('ambiguous code') ?? 0) + 1);
-    } else {
-      unresolved.set(`${p.scheme} code not in its source`, (unresolved.get(`${p.scheme} code not in its source`) ?? 0) + 1);
+    // 🔴 EVERY scheme, not the first. An area that carries a dead
+    // EMMA_ID and a live NUTS3 is placeable, and the first version
+    // called it a coverage failure.
+    let ambiguous = false;
+    let hit = false;
+    for (const p of candidates) {
+      const features = geometry[p.scheme] ?? [];
+      const found = p.values.map((v) => lookup(features, p.scheme, v, p.idField).matches);
+      if (found.every((h) => h.length === 1)) {
+        hit = true;
+        break;
+      }
+      if (found.some((h) => h.length > 1)) ambiguous = true;
+    }
+    if (hit) resolved += 1;
+    else if (ambiguous) unresolved.set('ambiguous code', (unresolved.get('ambiguous code') ?? 0) + 1);
+    else {
+      const schemes = candidates.map((p) => p.scheme).join('/');
+      const why = `no source holds the code (tried ${schemes})`;
+      unresolved.set(why, (unresolved.get(why) ?? 0) + 1);
     }
   }
   return { total: areaCodes.length, resolved, unresolved: [...unresolved.entries()] };
@@ -324,6 +360,32 @@ function selfTest() {
 
   ok('the redundant schemes are named, not inferred',
     REDUNDANT.includes('WARNCELLID') && REDUNDANT.includes('CISORP'));
+  // 🔴 Croatia, measured: the feed's EMMA_ID (HR018) is not in
+  // MeteoAlarm's own geocode file, which knows HR001–HR008; the NUTS3
+  // on the SAME area (HR031) is in NUTS 2013. One dead code must not
+  // condemn an area that carries a live one.
+  {
+    const geom = {
+      EMMA_ID: [{ properties: { code: 'HR001' } }],
+      NUTS3: [{ properties: { NUTS_ID: 'HR031' } }],
+    };
+    ok('both schemes are offered, not just the first',
+      plans(['EMMA_ID:HR018', 'NUTS3:HR031']).map((p) => p.scheme).join() === 'EMMA_ID,NUTS3');
+    ok('…and `plan` still answers with the preferred one',
+      plan(['EMMA_ID:HR018', 'NUTS3:HR031']).scheme === 'EMMA_ID');
+    const rescued = coverageOf(['EMMA_ID:HR018||NUTS3:HR031'], geom);
+    ok('a dead EMMA_ID beside a live NUTS3 still resolves', rescued.resolved === 1 && rescued.total === 1);
+    const firstWorks = coverageOf(['EMMA_ID:HR001||NUTS3:HR999'], geom);
+    ok('…and the preferred scheme answering is enough on its own', firstWorks.resolved === 1);
+    const bothDead = coverageOf(['EMMA_ID:HR018||NUTS3:HR999'], geom);
+    ok('…while two dead codes are a failure', bothDead.resolved === 0);
+    ok('…that names every scheme it tried',
+      bothDead.unresolved[0][0] === 'no source holds the code (tried EMMA_ID/NUTS3)',
+      bothDead.unresolved[0][0]);
+    const marineStillCounts = coverageOf(['EMMA_ID:HR001'], geom);
+    ok('a sea zone that IS in the source resolves like anything else', marineStillCounts.resolved === 1);
+  }
+
   ok('every source has a url and an id field',
     Object.values(SOURCES).every((s) => s.url && s.idField && s.id));
 
