@@ -17,20 +17,40 @@
 // build is 138.6 GB; the directories for the zooms we care about are a
 // few tens of megabytes.
 //
-// MEASURED, 2026-10-05, against build.protomaps.com/20261004.pmtiles
-// (138.2 GB, zooms 0..15) — reproduce with the commands above:
+// 🔴 THE FIRST VERSION OF THIS HEADER DREW A CONCLUSION ITS OWN
+// MEASUREMENT DOES NOT SUPPORT, AND I AM RETRACTING IT.
 //
-//   EU-27, maxzoom 6     0.01 GB        157 addressed,       147 distinct
-//   EU-27, maxzoom 12    5.56 GB    485 067 addressed,   288 347 distinct
-//   EU-27, maxzoom 13   11.13 GB  1 935 763 addressed, 1 086 648 distinct
+// It said: EU-27 at z12 is 5.56 GB and at z13 is 11.13 GB, therefore the
+// free 10 GB tier runs out between the two, therefore z12 is the deepest
+// Europe that costs nothing. The numbers were right for the box that was
+// measured. The box was not the EU-27.
 //
-// 🔴 THE FREE TIER RUNS OUT BETWEEN ZOOM 12 AND ZOOM 13. The card
-// estimated "z12 ≈ 5.5-7 GB" and asked where the line is. It is here:
-// 5.56 GB fits inside R2's free 10 GB and 11.13 GB does not, so zoom 12
-// is the deepest Europe that costs nothing, and one zoom further
-// doubles the archive. That is a sharper answer than the card asked
-// for, and it took 10.5 MB of directory reads at z12 (68 s) and 234 s
-// at z13 — no tile data at all.
+// A rectangle over Europe holds a great deal that is not the union.
+// Review measured inside it at z13: Great Britain 0.607 GB, Switzerland
+// 0.261, the western Balkans 0.234, Ukraine and Belarus 0.238, southwest
+// Norway 0.127, Anatolia 0.091, the Maghreb 0.061 — **1.62 GB that no
+// member state is paying for, and that is a LOWER bound**: most of
+// Norway, European Turkey, Moldova and the rest of the Balkans were not
+// probed at all. 11.13 − 1.62 = at most 9.51 GB, which is UNDER ten.
+//
+// So the honest statement is the opposite of the one I made: **z13 may
+// well fit inside the free tier, and this tool cannot say whether it
+// does.** A rectangle cannot answer the question; only a per-member-
+// state measurement can, and that is its own piece of work.
+//
+// What the tool does say, and the box it says it about:
+//
+//   box = `CROP` from scripts/edo/fetch-drought.mjs
+//         (-18.5, 34.5) … (34.8, 71.5), which contains all 27 members
+//         AND a good deal besides
+//
+//   maxzoom 6     — see `--maxzoom=6`
+//   maxzoom 12    — comfortably inside the free tier even before
+//                   subtracting the non-member land
+//   maxzoom 13    — the figure whose margin the overshoot swallows
+//
+// Run `--maxzoom=<n>` for the current numbers rather than trusting any
+// figure written here: the planet build is rebuilt daily and these move.
 //
 // A tile checked end to end, 12/2200/1343 (Berlin): 138 584 bytes over
 // the wire, 198 436 after gunzip, first byte 0x1a — a real vector tile,
@@ -46,9 +66,35 @@ import { gunzipSync } from 'node:zlib';
 
 const PLANET = 'https://build.protomaps.com/20261004.pmtiles';
 
-// The EU-27 bounding box this project works in (CAMP-124), with the
-// Canaries and Madeira left out exactly as `CROP.south` does elsewhere.
-export const EU = { west: -10.6, south: 34.5, east: 31.6, north: 71.2 };
+// 🔴 THIS IS A RECTANGLE, NOT THE EU-27, AND THE DIFFERENCE DECIDES THE
+// BILL. The first version called itself "the EU-27 bounding box this
+// project works in (CAMP-124)" and was none of those things: its
+// `east: 31.6` put CYPRUS — a member state — entirely outside (Cyprus
+// spans 32.27–34.60 °E), and of its four numbers only `south` matched
+// anything in the repo. The project's actual box is
+// `scripts/edo/fetch-drought.mjs` `CROP`, and this now uses it.
+//
+// Even so, a rectangle over Europe contains a great deal that is not
+// the EU-27. Review measured inside the old box at z13: Great Britain
+// 0.607 GB, Switzerland 0.261, the western Balkans 0.234, Ukraine and
+// Belarus 0.238, southwest Norway 0.127, Anatolia 0.091, the Maghreb
+// 0.061 — **1.62 GB of non-member land, and that is a lower bound**,
+// since most of Norway, European Turkey, Moldova and the rest were not
+// probed. Any figure this tool prints for `EU` is an OVER-estimate of
+// the EU-27, and by enough to move a conclusion. See the header.
+export const EU = Object.freeze({ west: -18.5, south: 34.5, east: 34.8, north: 71.5 });
+
+/** A bounding box that cannot be measured, or null when it is fine. */
+export function bboxProblem(b) {
+  for (const k of ['west', 'south', 'east', 'north']) {
+    if (!Number.isFinite(b?.[k])) return `${k} is not a number`;
+  }
+  if (b.west >= b.east) return `west (${b.west}) is not west of east (${b.east})`;
+  if (b.south >= b.north) return `south (${b.south}) is not south of north (${b.north})`;
+  if (b.south < -85 || b.north > 85) return 'latitudes outside ±85 are not in Web Mercator';
+  if (b.west < -180 || b.east > 180) return 'longitudes outside ±180';
+  return null;
+}
 
 // ---------------------------------------------------------------- header
 
@@ -133,7 +179,11 @@ export function readDirectory(buf) {
 // ------------------------------------------------------------ hilbert ids
 
 /** The first tile id of zoom `z` (= how many tiles live below it). */
-export const firstIdOfZoom = (z) => ((4 ** z - 1) / 3) | 0;
+// 🔴 `| 0` TRUNCATED TO INT32 AND LIED ABOVE ZOOM 15, returning the same
+// 1 431 655 765 for every z ≥ 16 — so `--maxzoom=16` would have measured
+// z15 under the wrong label. Harmless on a z0..15 archive, which is
+// exactly why it would have survived until it was not.
+export const firstIdOfZoom = (z) => Math.trunc((4 ** z - 1) / 3);
 
 function rotate(n, x, y, rx, ry) {
   if (ry === 0) {
@@ -208,8 +258,16 @@ const maybeGunzip = (buf, compression) => (compression === 2 ? gunzipSync(buf) :
  * Walks the directory tree and totals the distinct bytes inside `bbox`
  * at zooms up to `maxzoom`.
  */
-export async function measure(url, { bbox, maxzoom, onProgress }) {
-  const header = readHeader(await range(url, 0, 127));
+export async function measure(url, { bbox, maxzoom, onProgress, read }) {
+  // 🔴 THE WALK HAD NO TEST AT ALL, and review proved what that hid:
+  // moving `limit` down a zoom, counting bytes per address instead of
+  // per body, `>=` to `>`, `<=` to `<` in the bbox — five mutations,
+  // every one green. The reader is injectable so the walk can be driven
+  // over a handful of bytes built in the self-test, with no network.
+  const at = read ?? ((start, length) => range(url, start, length));
+  const problem = bboxProblem(bbox);
+  if (problem) throw new Error(`bbox: ${problem}`);
+  const header = readHeader(await at(0, 127));
   const limit = firstIdOfZoom(maxzoom + 1);
 
   const seen = new Set();
@@ -227,7 +285,7 @@ export async function measure(url, { bbox, maxzoom, onProgress }) {
         directoryBytes += e.length;
         leavesRead += 1;
         if (onProgress && leavesRead % 25 === 0) onProgress({ leavesRead, bytes, addressed });
-        const child = await range(url, header.leafOffset + e.offset, e.length);
+        const child = await at(header.leafOffset + e.offset, e.length);
         if ((await walk(child)) === 'done') return 'done';
         continue;
       }
@@ -249,7 +307,14 @@ export async function measure(url, { bbox, maxzoom, onProgress }) {
     return 'more';
   };
 
-  await walk(await range(url, header.rootOffset, header.rootLength));
+  await walk(await at(header.rootOffset, header.rootLength));
+  // 🔴 A measurement of nothing is not a measurement. `--bbox=1,2,3` and
+  // a transposed box both printed "SIZE 0.00 GB" and exited 0 — the
+  // degenerate answer being "free" is the worst possible failure for a
+  // tool whose whole job is deciding whether something fits.
+  if (addressed === 0) {
+    throw new Error('no tile in the archive falls inside that box — nothing was measured');
+  }
   return { header, bytes, addressed, distinct: seen.size, perZoom, directoryBytes, leavesRead };
 }
 
@@ -315,7 +380,7 @@ export function zxyToTileId(z, x, y) {
 
 // --------------------------------------------------------------- self-test
 
-function selfTest() {
+async function selfTest() {
   let bad = 0;
   const ok = (name, cond, detail = '') => {
     if (cond) console.log(`ok   ${name}`);
@@ -324,6 +389,50 @@ function selfTest() {
       console.log(`x    ${name}${detail ? `  ${detail}` : ''}`);
     }
   };
+
+  // 🔴 A ROUND TRIP PROVES NOTHING ABOUT THE CURVE. `rotate()` is shared
+  // by both directions, so an error in it cancels out: review mutated
+  // `if (rx === 1) return [n-1-y, n-1-x]` to `return [y, x]` and every
+  // one of the 26 checks stayed green while 4 004 of 5 461 absolute
+  // mappings to zoom 6 became wrong, and Berlin landed in the Pacific.
+  // `--tile`'s "looks like a vector tile" cannot catch it either: every
+  // tile in the archive gunzips to a first byte of 0x1a.
+  //
+  // So the curve is pinned to fixed values and to a property of its own.
+  {
+    const at = (id) => tileIdToZxy(id).slice(1).join(',');
+    ok('zoom 1 runs 0,0 → 0,1 → 1,1 → 1,0, which is the Hilbert order',
+      [1, 2, 3, 4].map(at).join(' ') === '0,0 0,1 1,1 1,0',
+      [1, 2, 3, 4].map(at).join(' '));
+    // All sixteen tiles of zoom 2, which is a fingerprint no other
+    // ordering matches.
+    ok('…and zoom 2 follows the curve through all sixteen',
+      Array.from({ length: 16 }, (_, i) => at(5 + i)).join(' ')
+        === '0,0 1,0 1,1 0,1 0,2 0,3 1,3 1,2 2,2 2,3 3,3 3,2 3,1 2,1 2,0 3,0',
+      Array.from({ length: 16 }, (_, i) => at(5 + i)).join(' '));
+    ok('Berlin 12/2200/1343 is tile 19 866 004', zxyToTileId(12, 2200, 1343) === 19866004);
+
+    // 🔴 THE PROPERTY THAT A BROKEN `rotate` CANNOT FAKE: consecutive
+    // ids are neighbouring tiles. That is what makes it a Hilbert curve
+    // rather than any other numbering, and it does not care whether the
+    // two directions agree with each other.
+    let jump = null;
+    for (let z = 1; z <= 7 && !jump; z += 1) {
+      const first = firstIdOfZoom(z);
+      const last = firstIdOfZoom(z + 1) - 1;
+      let [, px, py] = tileIdToZxy(first);
+      for (let id = first + 1; id <= last; id += 1) {
+        const [, x, y] = tileIdToZxy(id);
+        if (Math.abs(x - px) + Math.abs(y - py) !== 1) {
+          jump = `z${z} id ${id}: ${px},${py} → ${x},${y}`;
+          break;
+        }
+        px = x;
+        py = y;
+      }
+    }
+    ok('every step along the curve moves to a neighbouring tile, to zoom 7', !jump, jump ?? '');
+  }
 
   // The two directions of the curve must agree, or a tile fetched by
   // z/x/y lands on a different tile than the measure counted.
@@ -366,6 +475,16 @@ function selfTest() {
     ok('zoom 4 covers all 256 of its tiles exactly once', ids.size === 256, String(ids.size));
   }
 
+  ok('a box with west east of east is refused',
+    /not west of/.test(bboxProblem({ west: 31.6, south: 34.5, east: -10.6, north: 71.2 }) ?? ''));
+  ok('…a box with a missing side is refused',
+    /not a number/.test(bboxProblem({ west: 1, south: 2, east: 3 }) ?? ''));
+  ok('…a box beyond Mercator is refused', bboxProblem({ west: -1, south: -89, east: 1, north: 89 }) !== null);
+  ok('…and the one we measure is fine', bboxProblem(EU) === null, bboxProblem(EU) ?? '');
+  // 🔴 Cyprus is a member state and the first version of this box put it
+  // outside; `east: 34.8` is the project's own eastern edge.
+  ok('Cyprus is inside the box', EU.east > 34.6 && EU.south < 34.6);
+
   ok('Greenwich at zoom 1 is the right-hand column', lonToX(0.1, 1) === 1);
   ok('…and the equator is the bottom row', latToY(-0.1, 1) === 1);
   {
@@ -394,6 +513,91 @@ function selfTest() {
     ok('…lengths survive', e[0].length === 10 && e[1].length === 20);
     ok('…an offset is stored plus one, so 101 on the wire is 100', e[0].offset === 100, String(e[0].offset));
     ok('…and a zero offset means "after the previous entry"', e[1].offset === 110, String(e[1].offset));
+  }
+
+  // 🔴 THE WALK, DRIVEN OVER BYTES BUILT HERE. Five mutations in this
+  // code used to survive because nothing exercised it at all.
+  {
+    const putVarint = (out, v) => {
+      let n = v;
+      while (n >= 0x80) {
+        out.push((n & 0x7f) | 0x80);
+        n = Math.floor(n / 128);
+      }
+      out.push(n);
+    };
+    const serialize = (entries) => {
+      const out = [];
+      putVarint(out, entries.length);
+      let last = 0;
+      for (const e of entries) {
+        putVarint(out, e.tileId - last);
+        last = e.tileId;
+      }
+      for (const e of entries) putVarint(out, e.runLength);
+      for (const e of entries) putVarint(out, e.length);
+      for (const [i, e] of entries.entries()) {
+        const prev = entries[i - 1];
+        const contiguous = i > 0 && e.offset === prev.offset + prev.length;
+        putVarint(out, contiguous ? 0 : e.offset + 1);
+      }
+      return Buffer.from(out);
+    };
+    const archive = (entries) => {
+      const dir = serialize(entries);
+      const header = Buffer.alloc(127);
+      header.write('PMTiles', 0);
+      header[7] = 3;
+      header.writeBigUInt64LE(127n, 8); // root offset
+      header.writeBigUInt64LE(BigInt(dir.length), 16);
+      header.writeBigUInt64LE(0n, 40); // leaf offset
+      header[96] = 1; // clustered
+      header[97] = 1; // internal compression: none
+      header[98] = 1;
+      header[99] = 1;
+      header[101] = 15;
+      const buf = Buffer.concat([header, dir]);
+      return (start, length) => Promise.resolve(buf.subarray(start, start + length));
+    };
+
+    // Zoom 2 ids 5..8 are (0,0) (1,0) (1,1) (0,1); id 21 is zoom 3.
+    // 5 and 6 share a body, so four addresses are three bodies.
+    const read = archive([
+      { tileId: 5, runLength: 1, length: 100, offset: 0 },
+      { tileId: 6, runLength: 1, length: 100, offset: 0 },
+      { tileId: 7, runLength: 1, length: 200, offset: 100 },
+      { tileId: 8, runLength: 1, length: 300, offset: 300 },
+      { tileId: 21, runLength: 1, length: 999, offset: 600 },
+    ]);
+    const world = { west: -179, south: 1, east: 179, north: 84 };
+
+    const all = await measure(null, { bbox: world, maxzoom: 2, read });
+    ok('the walk counts every address in the box', all.addressed === 4, String(all.addressed));
+    ok('…and only the distinct bodies', all.distinct === 3, String(all.distinct));
+    ok('…so bytes are 100 + 200 + 300, not 700', all.bytes === 600, String(all.bytes));
+    ok('…and the zoom above the limit is left out', (all.perZoom[3] ?? 0) === 0, JSON.stringify(all.perZoom));
+
+    const deeper = await measure(null, { bbox: world, maxzoom: 3, read });
+    ok('raising the limit by one zoom lets that tile in', deeper.addressed === 5, String(deeper.addressed));
+    ok('…and adds its bytes', deeper.bytes === 1599, String(deeper.bytes));
+
+    // Only x = 0 at zoom 2, which is ids 5 and 8.
+    const west = await measure(null, { bbox: { west: -179, south: 1, east: -91, north: 84 }, maxzoom: 2, read });
+    ok('a narrower box keeps only the tiles inside it', west.addressed === 2, String(west.addressed));
+    ok('…and counts only their bytes', west.bytes === 400, String(west.bytes));
+
+    const threw = async (b) => {
+      try {
+        await measure(null, { bbox: b, maxzoom: 2, read });
+        return false;
+      } catch {
+        return true;
+      }
+    };
+    ok('a box containing no tile is a failure, not "0.00 GB, free"',
+      await threw({ west: 100, south: 1, east: 170, north: 84 }));
+    ok('…a transposed box is refused outright', await threw({ west: 179, south: 1, east: -179, north: 84 }));
+    ok('…and a box missing a side too', await threw({ west: 1, south: 2, east: 3 }));
   }
 
   console.log(bad ? `\nx ${bad} self-test failure(s)` : '\nself-test passed');
@@ -455,6 +659,6 @@ async function main() {
 const RUN_DIRECTLY =
   process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
 if (RUN_DIRECTLY) {
-  if (hasFlag(process.argv, 'self-test')) process.exit(selfTest() ? 1 : 0);
+  if (hasFlag(process.argv, 'self-test')) process.exit((await selfTest()) ? 1 : 0);
   else await main();
 }
