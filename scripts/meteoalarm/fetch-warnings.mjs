@@ -7,12 +7,21 @@
 // own documentation says otherwise. The Redistribution Hub states, word
 // for word, "Therefore, only active warnings are included".
 //
-// Measured against the live JSON API on 05.10.2026:
+// Measured against the live JSON API on 05.10.2026, with the filter as
+// it stands now:
 //
-//   Poland      878 info blocks, 350 expired (40%),  0 green, 528 kept
-//   Croatia     110 info blocks,  42 expired (38%), 60 green,   8 kept
-//   Slovenia      8 info blocks,   0 expired,        0 green,   8 kept
-//   Austria       0 info blocks
+//   Poland     878 blocks →  264   350 expired, 264 language repeats
+//   Germany    688 blocks →   10   608 expired,  70 repeats (8 languages)
+//   Croatia    110 blocks →    4    42 expired,  60 green
+//   Slovenia     8 blocks →    4     8 blocks are 4 alerts in 2 languages
+//   Hungary    490 blocks →    0   294 expired, 196 green — honestly none
+//
+// 🔴 EVERY NUMBER IN THIS BLOCK HAS BEEN WRONG ONCE. The first version
+// advertised Poland 528 and Croatia 8, which were the counts before
+// duplicates were removed; they stayed in the comment after the code
+// changed under them. A table that is not re-measured with the code it
+// describes is a claim, and this file's whole subject is claims that
+// were not re-measured.
 //
 // Believing that sentence means showing a driver yesterday's wind
 // warning as current. So we drop, on EVERY read: anything whose
@@ -109,17 +118,30 @@ export function dropReason(alert, info, now) {
   if (!Number.isFinite(expires)) return 'unusable';
   if (expires <= now.getTime()) return 'expired';
 
-  // 🔴 "CURRENT" MEANS STARTED, NOT MERELY UNEXPIRED, and the first
-  // version of this file only checked the far end.
+  // 🔴 "CURRENT" MEANS PUBLISHED AND NOT EXPIRED — and my first attempt
+  // at this silenced six countries.
   //
-  // Measured by review across 11 feeds: 336 of 986 kept warnings had an
-  // `onset` in the FUTURE, 130 of them more than a day out — a Croatian
-  // wind warning beginning in 58 hours was being shown as in force. The
-  // argument in the header against yesterday's warning applies exactly
-  // as well to tomorrow's: both are untrue of now, and `onset` was
-  // being carried and never read.
-  const onset = info?.onset ? Date.parse(info.onset) : Number.NaN;
-  if (Number.isFinite(onset) && onset > now.getTime()) return 'notYet';
+  // I added a check that dropped every warning whose `onset` is in the
+  // future, to stop a Croatian storm 58 hours out reading as in force.
+  // Review measured what it actually killed across 13 feeds: 528
+  // dropped, of which **496 had `effective` already in the past** —
+  // published, in force, and forecasting a hazard for later today. Only
+  // 23 were more than 48 hours out. Croatia went 110 → 0, Hungary
+  // 490 → 0, Ireland 18 → 0, Slovenia 8 → 0.
+  //
+  // A forecast warning IS the product. "There will be ice tonight" is
+  // the sentence a driver needs before they set off, not after.
+  //
+  // So the test is PUBLICATION, not start: a warning counts while the
+  // issuing service has released it (`effective`) and it has not
+  // expired. The `onset` is carried so the page can say when it begins
+  // — which is the honest way to show a storm 58 hours out, rather than
+  // hiding it or pretending it is already blowing.
+  const effective = info?.effective ? Date.parse(info.effective) : Number.NaN;
+  const published = Number.isFinite(effective)
+    ? effective
+    : (info?.onset ? Date.parse(info.onset) : Number.NaN);
+  if (Number.isFinite(published) && published > now.getTime()) return 'notYet';
 
   const response = [alert?.responseType, info?.responseType].flat().filter(Boolean).map(String);
   if (response.some((r) => r.toLowerCase() === 'allclear')) return 'allClear';
@@ -191,7 +213,24 @@ export function warningsFrom(payload, country, now) {
       // The alert's own identifier plus the areas it is about is
       // stable across runs and distinguishes the one case where a
       // single alert carries several areas.
-      const key = `${alert.identifier}|${areas.map((a) => a.codes.join('+') || a.name).join('|')}`;
+      // 🔴 THE KEY MUST NOT CONTAIN A TRANSLATED STRING.
+      //
+      // It fell back to `a.name`, which is `areaDesc` — and `areaDesc`
+      // is in the language of the block. So in exactly the countries
+      // that send no geocode, the same alert produced two different
+      // keys and two rows: Estonia 32 of 32 alerts doubled, Slovenia 4
+      // of 4, and `counts.duplicate` reported ZERO, because the
+      // duplicates never collided. One Slovenian alert came out as both
+      // `…|Slovenija / jugozahod` and `…|Slovenia / South-West`.
+      //
+      // The counter certifying a failure is worse than the failure. So
+      // the fallback is the area's POSITION within the alert, which is
+      // the same number in every language, and the shape where there is
+      // one — never a word a translator chose.
+      const areaKey = areas
+        .map((a, i) => a.codes.join('+') || a.polygon || a.circle || `#${i}`)
+        .join('|');
+      const key = `${alert.identifier}|${areaKey}`;
       const row = {
         id: key,
         country,
@@ -412,6 +451,73 @@ function selfTest() {
       w?.id === 'ID1|NUTS3:FR712', String(w?.id));
   }
 
+  // 🔴 MORE THAN ONE OF EVERYTHING, because every fixture above has
+  // exactly one area carrying exactly one code — and four mutations
+  // walked through that gap with the suite green:
+  //
+  //   `.slice(0, 1)` on areas    → 60 of 80 live areas lost
+  //   `.slice(0, 1)` on geocodes → 724 codes lost, including ALL 666
+  //                                German WARNCELLIDs — the very scheme
+  //                                this file's doc correction is about
+  //   dropping `?? info.effective`
+  //   dropping `?? alert.sender`
+  //
+  // Measured live: 1 012 blocks carry more than one area, the largest
+  // 169 of them.
+  {
+    const many = block({
+      onset: undefined,
+      effective: '2026-10-05T09:00:00Z',
+      senderName: undefined,
+      area: [
+        {
+          areaDesc: 'First',
+          geocode: [
+            { valueName: 'WARNCELLID', value: '111' },
+            { valueName: 'EMMA_ID', value: 'DE222' },
+          ],
+        },
+        { areaDesc: 'Second', geocode: [{ valueName: 'EMMA_ID', value: 'DE333' }] },
+        { areaDesc: 'Third', geocode: [{ valueName: 'EMMA_ID', value: 'DE444' }] },
+      ],
+    });
+    const w = warningsFrom(feed([many], { identifier: 'M', sender: 'ALERT-SENDER' }), 'germany', NOW)
+      .kept[0];
+    ok('every area of a warning is carried, not just the first', w?.areas?.length === 3,
+      JSON.stringify(w?.areas?.map((a) => a.name)));
+    ok('every geocode of an area is carried, not just the first',
+      w?.areas?.[0]?.codes?.length === 2, JSON.stringify(w?.areas?.[0]?.codes));
+    ok('…and both schemes survive side by side',
+      w?.areas?.[0]?.codes?.join(',') === 'WARNCELLID:111,EMMA_ID:DE222');
+    ok('🔴 onset falls back to `effective` when the source gives no onset',
+      w?.onset === '2026-10-05T09:00:00Z', String(w?.onset));
+    ok('🔴 the sender falls back to the alert when the info has none',
+      w?.sender === 'ALERT-SENDER', String(w?.sender));
+    ok('the id lists every area, so two alerts over different ground differ',
+      w?.id === 'M|WARNCELLID:111+EMMA_ID:DE222|EMMA_ID:DE333|EMMA_ID:DE444', String(w?.id));
+  }
+
+  // 🔴 THE DEDUP KEY MUST NOT CONTAIN A TRANSLATED WORD. Where there is
+  // no geocode, the fallback used to be `areaDesc` — which differs by
+  // language, so Estonia's 32 alerts all became 64 rows and the
+  // duplicate counter said zero.
+  {
+    const sl = feed(
+      [
+        block({ language: 'sl-SI', area: [{ areaDesc: 'Slovenija / jugozahod' }] }),
+        block({ language: 'en-GB', area: [{ areaDesc: 'Slovenia / South-West' }] }),
+      ],
+      { identifier: 'SI-1' },
+    );
+    const out = warningsFrom(sl, 'slovenia', NOW);
+    ok('🔴 the same alert in two languages with NO geocode is one warning',
+      out.kept.length === 1, JSON.stringify(out.kept.map((k) => k.id)));
+    ok('…and the counter sees the repeat it used to be blind to',
+      out.counts.duplicate === 1, JSON.stringify(out.counts));
+    ok('…and the key holds no translated word',
+      !/Slovenija|South-West/.test(String(out.kept[0]?.id)), String(out.kept[0]?.id));
+  }
+
   // 🔴 ONE ROW PER ALERT AND AREA, not per language. 53% of what the
   // first version kept were the same warnings in another language.
   {
@@ -466,7 +572,7 @@ function selfTest() {
   return bad;
 }
 
-if (process.argv.includes('--self-test')) process.exit(selfTest() ? 1 : 0);
+
 
 // -------------------------------------------------------------------- main
 
@@ -476,6 +582,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function main() {
   const only = process.argv.find((a) => a.startsWith('--country='))?.split('=')[1];
   const countries = only ? [only] : COUNTRIES;
+  // 🔴 ONE COUNTRY NEVER WRITES THE FILE. `--country=croatia` produced a
+  // document shaped like a full-Europe run, with `meta.silent: []` —
+  // nothing in it recorded that twenty-six countries were never asked.
+  // A partial read may be inspected; it may not become the published
+  // answer.
+  const dryRun = process.argv.includes('--dry-run') || Boolean(only);
   const now = new Date();
   const all = [];
   const totals = Object.fromEntries(DROPPED.map((d) => [d, 0]));
@@ -534,6 +646,18 @@ async function main() {
       `${silent.length} of ${countries.length} countries did not answer (${silent.join(', ')})`,
     );
   }
+  // 🔴 A RUN THAT KEEPS NOTHING FROM A FULL EUROPE IS US, NOT THE
+  // WEATHER. Review renamed one upstream parameter and got 6 573 blocks
+  // seen, 0 kept, 0 silent — every transport guard satisfied, and the
+  // file written saying the continent is calm. The guards asked whether
+  // we could REACH the feeds, never whether we understood them.
+  if (seen > 0 && all.length === 0) {
+    throw new Error(
+      `${seen} blocks were read across ${countries.length - silent.length} ` +
+        'countries and NONE survived the filter — that is a parsing failure, ' +
+        'not a calm continent',
+    );
+  }
   if (all.length === 0 && silent.length > 0) {
     throw new Error(
       'nothing was kept and ' +
@@ -558,8 +682,8 @@ async function main() {
     },
     warnings: all,
   };
-  if (process.argv.includes('--dry-run')) {
-    console.log('(dry run — nothing written)');
+  if (dryRun) {
+    console.log(only ? `(one country — nothing written)` : '(dry run — nothing written)');
     return;
   }
   await writeFile(OUT, `${JSON.stringify(doc)}\n`, 'utf8');
@@ -578,4 +702,11 @@ const RUN_DIRECTLY =
   process.argv[1] !== undefined &&
   import.meta.url === pathToFileURL(process.argv[1]).href;
 
-if (RUN_DIRECTLY) await main();
+// 🔴 BOTH entry points below the guard. `--self-test` used to sit above
+// it, so importing this module with `--self-test` anywhere in argv ran
+// the suite and called `process.exit` — a module that can kill its
+// importer is not importable.
+if (RUN_DIRECTLY) {
+  if (process.argv.includes('--self-test')) process.exit(selfTest() ? 1 : 0);
+  await main();
+}

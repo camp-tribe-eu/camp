@@ -251,30 +251,41 @@ directions, and neither is a superset:
 
 We take the **JSON API** and we filter it hard.
 
-> 🔴 **Correction, 05.10.2026 — and the first correction was wrong too.**
+> 🔴 **Correction, 05.10.2026 — the third attempt at this paragraph.**
 >
-> This paragraph used to end "because only it carries the NUTS codes we
-> need to join a warning to a campsite". I measured four countries,
-> found `EMMA_ID` in all of them, and replaced it with "there is no NUTS
-> code anywhere in it". Review measured **eleven** and that is false as
-> well: I had corrected a generalisation with a generalisation, drawn
-> from a sample one country wider.
+> It first said the JSON API is taken "because only it carries the NUTS
+> codes we need". I measured four countries and replaced that with
+> "there is no NUTS code anywhere in it". Review measured eleven and
+> that was false too, so I wrote "four schemes". Review then took a
+> census of **all 27 feeds** — and four is wrong as well:
 >
-> | scheme | blocks | where |
+> | scheme | geocodes | where |
 > | --- | --- | --- |
-> | `EMMA_ID` | 22 194 | most member states |
-> | `WARNCELLID` | 5 608 | Germany, alongside `EMMA_ID` |
-> | `NUTS3` | 2 554 | France — which carries **no** `EMMA_ID` at all |
-> | `FIPS` | 393 | Ireland — likewise none |
-> | *(none)* | — | Slovenia: eight blocks with only `areaDesc` |
+> | `EMMA_ID` | 26 318 | most member states |
+> | `NUTS3` | 6 586 | France and Bulgaria |
+> | `WARNCELLID` | 5 672 | Germany, alongside `EMMA_ID` |
+> | `NUTS2` | 566 | Belgium and Hungary |
+> | `FIPS` | 393 | Ireland |
+> | `CISORP` | 6 | Czechia |
 >
-> So: four schemes, differing by country, and some warnings with no code
-> at all. The JSON API is still the right choice — the ATOM feed carries
-> no area codes whatsoever — but the reason written here twice was
-> invented both times, and joining a warning to a campsite is harder
-> than either version implied. That join is CAMP-149. The fetch keeps
+> **Six schemes.** CAMP-149 named `NUTS2` from its own 27-country
+> measurement and I had dismissed it from a sample of eleven; it was
+> right and I was not. Seven member states carry no area code at all —
+> Estonia, Luxembourg, Malta, Romania, Slovakia, Slovenia, Sweden — not
+> one, as the second version said.
+>
+> 🔴 **The lesson is not about MeteoAlarm.** Three times in one day I
+> replaced a generalisation with a narrower one drawn from a slightly
+> wider sample, and each felt like a correction. A refutation is a claim
+> too. Write the census or write the sample size; do not write "nowhere"
+> from eleven of twenty-seven.
+>
+> What stands: the JSON API is the one to take, and the fetch keeps
 > every `SCHEME:VALUE` pair, the free-text `areaDesc` and any polygon,
-> precisely because we do not yet know which of them we will need.
+> because we do not yet know which we will need. Resolving them is
+> CAMP-149, and it needs one geometry source per scheme — the
+> MeteoAlarm geocode file answers `EMMA_ID` only, all 2 006 of its
+> features.
 
 ### Joining a warning to a campsite is a real piece of work
 
