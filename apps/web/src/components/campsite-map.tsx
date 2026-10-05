@@ -1014,6 +1014,27 @@ export default function CampsiteMap() {
       publishDrawn();
       publishRendered();
     });
+
+    // 🔴 AND AGAIN WHEN A SOURCE HAS FINISHED CHANGING, because `idle`
+    // alone published numbers from the frame before.
+    //
+    // Three CI rounds were spent guessing at this one. The diagnostic
+    // that settled it printed `0/3 (src=0)` and `2/3 (src=0)`: the
+    // campsite source was EMPTY — `hideMarkers` had done its work — and
+    // `queryRenderedFeatures` was still answering with markers. So the
+    // counts were not wrong about the source; they were taken before the
+    // map had repainted, and no later `idle` came to correct them. The
+    // test then polled a still map for twenty seconds and read the same
+    // stale pair every time.
+    //
+    // `sourcedata` with `isSourceLoaded` is the event that says the data
+    // behind those pixels has actually changed, which is exactly when
+    // the count of painted features can differ from the last one.
+    m.on('sourcedata', (e) => {
+      if (e.sourceId !== SOURCE_ID || !e.isSourceLoaded) return;
+      publishDrawn();
+      publishRendered();
+    });
     // 🔴 On demand, the DRAWN ones only: the moment the set we decided
     // to draw changes, that count is true and the rendered one is not.
     publishRef.current = publishDrawn;
