@@ -100,6 +100,10 @@ export function awareness(value) {
 const paramOf = (info, name) =>
   (info?.parameter ?? []).find((p) => String(p?.valueName).toLowerCase() === name)?.value;
 
+/** A CAP shape field, which may be absent, one string, or several. */
+export const shapesOf = (v) =>
+  (Array.isArray(v) ? v : [v]).filter((x) => typeof x === 'string' && x.trim() !== '');
+
 /** Every geocode on an area, as `SCHEME:VALUE`, plus the free-text name. */
 export function areasOf(info) {
   return (info?.area ?? []).map((a) => ({
@@ -107,11 +111,19 @@ export function areasOf(info) {
     codes: (a?.geocode ?? [])
       .filter((g) => g?.valueName && g?.value)
       .map((g) => `${g.valueName}:${g.value}`),
-    // 🔴 Kept when the source gives it. Slovenia's warnings carry no
-    // geocode at all, so a shape is the only thing that could place
-    // them — throwing it away here would make that unrecoverable later.
-    polygon: typeof a?.polygon === 'string' ? a.polygon : null,
-    circle: typeof a?.circle === 'string' ? a.circle : null,
+    // 🔴 AND THIS LINE WAS THROWING AWAY THE THING ITS OWN COMMENT SAID
+    // IT WAS SAVING. It read `typeof a?.polygon === 'string' ? … : null`,
+    // and CAP lets `<polygon>` repeat, so the feed sends an ARRAY. Every
+    // one of Estonia's 192 areas carries a shape and `areasOf` returned
+    // null for all 192 — in the one country where a shape is the only
+    // thing that could place a warning, because it sends no geocode at
+    // all. Slovenia and Sweden are in the same position.
+    //
+    // Always a list, never a bare string: one polygon and three are the
+    // same kind of answer, and a caller that forgets to check which it
+    // got would otherwise place a warning over the wrong ring.
+    polygons: shapesOf(a?.polygon),
+    circles: shapesOf(a?.circle),
   }));
 }
 
@@ -361,6 +373,25 @@ function selfTest() {
     })),
   });
 
+  // 🔴 CAP LETS `<polygon>` REPEAT, SO THE FEED SENDS AN ARRAY — and the
+  // old `typeof === 'string'` test returned null for every one of
+  // Estonia's 192 areas, in the one country that sends no geocode at
+  // all and where the shape is the only way to place a warning.
+  {
+    ok('a shape sent as an array survives',
+      areasOf({ area: [{ areaDesc: 'A', polygon: ['58.6,25.7 58.7,25.8'] }] })[0].polygons.length === 1);
+    ok('…a shape sent as a bare string survives too',
+      areasOf({ area: [{ areaDesc: 'A', polygon: '58.6,25.7' }] })[0].polygons.join() === '58.6,25.7');
+    ok('…several rings are all kept',
+      areasOf({ area: [{ areaDesc: 'A', polygon: ['a', 'b', 'c'] }] })[0].polygons.length === 3);
+    ok('…an absent shape is an empty list, not null',
+      areasOf({ area: [{ areaDesc: 'A' }] })[0].polygons.length === 0);
+    ok('…and an empty string is not a shape',
+      areasOf({ area: [{ areaDesc: 'A', polygon: ['', '  '] }] })[0].polygons.length === 0);
+    ok('circles follow the same rule',
+      areasOf({ area: [{ areaDesc: 'A', circle: ['58.6,25.7 10'] }] })[0].circles.length === 1);
+  }
+
   // 🔴 Review found this filter removable with a green suite.
   ok('a geocode with no value is not a code',
     areasOf({ area: [{ areaDesc: 'A', geocode: [{ valueName: 'EMMA_ID' }] }] })[0].codes.length === 0);
@@ -508,8 +539,8 @@ function selfTest() {
       type: w?.type,
       areaName: w?.areas?.[0]?.name,
       areaCode: w?.areas?.[0]?.codes?.[0],
-      polygon: w?.areas?.[0]?.polygon,
-      circle: w?.areas?.[0]?.circle,
+      polygon: w?.areas?.[0]?.polygons?.join('|'),
+      circle: w?.areas?.[0]?.circles?.join('|'),
     };
     const want = {
       event: 'EVT',
@@ -724,7 +755,7 @@ function selfTest() {
     // 🔴 The key-set guard below was top-level only: review added a
     // field to every area entry and the suite stayed green.
     ok('an area entry has exactly the fields this test names',
-      Object.keys(row?.areas?.[0] ?? {}).sort().join() === 'circle,codes,name,polygon',
+      Object.keys(row?.areas?.[0] ?? {}).sort().join() === 'circles,codes,name,polygons',
       Object.keys(row?.areas?.[0] ?? {}).sort().join());
     // Anything added to the row later must be added here too, or this
     // fails — which is the point.
