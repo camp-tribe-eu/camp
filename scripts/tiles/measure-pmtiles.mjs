@@ -44,10 +44,14 @@
 //         (-18.5, 34.5) … (34.8, 71.5), which contains all 27 members
 //         AND a good deal besides
 //
-//   maxzoom 6     — see `--maxzoom=6`
-//   maxzoom 12    — comfortably inside the free tier even before
-//                   subtracting the non-member land
-//   maxzoom 13    — the figure whose margin the overshoot swallows
+//   maxzoom 12     5.84 GB    620 532 addressed,   323 722 distinct
+//   maxzoom 13    11.63 GB  2 476 422 addressed, 1 220 072 distinct
+//
+// z12 is comfortably inside the free ten even before the non-member land
+// is taken out, so that answer is safe in the only direction that
+// matters. z13 is 11.63 GB against an overshoot measured at ≥1.62 GB on
+// a SMALLER box than this one — 11.63 − 1.62 = 10.01, which is the line
+// itself. It cannot be called either way from a rectangle.
 //
 // Run `--maxzoom=<n>` for the current numbers rather than trusting any
 // figure written here: the planet build is rebuilt daily and these move.
