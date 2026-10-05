@@ -57,8 +57,11 @@ export const SOURCES = {
   },
 };
 
-/** Schemes that always travel beside one we can resolve. */
-export const REDUNDANT = ['WARNCELLID', 'CISORP'];
+// 🔴 `REDUNDANT = ['WARNCELLID', 'CISORP']` stood here and nothing read
+// it: `plans` keeps a scheme when `SOURCES` has geometry for it, which
+// already excludes those two. Its only test asserted the constant
+// against itself — green forever, proving nothing. Removed rather than
+// left as documentation that looks like code.
 
 /**
  * Irish codes the source split after MeteoAlarm's list was made.
@@ -69,22 +72,46 @@ export const REDUNDANT = ['WARNCELLID', 'CISORP'];
  * rather than guessed at join time.
  */
 export const FIPS_SPLIT = {
+  // Dublin into four, Tipperary into two: genuinely DIFFERENT places,
+  // each one feature.
   EI07: ['EI33', 'EI34', 'EI35', 'EI39'],
   EI26: ['EI38', 'EI40'],
-  EI27: ['EI32', 'EI41'],
 };
 
-/** Monaghan carries no `fips` in Natural Earth; its geometry is there. */
-export const FIPS_BY_ISO = { EI22: 'IE-MN' };
+/**
+ * Codes resolved by ISO subdivision instead of `fips`.
+ *
+ * 🔴 `EI27` WAS LISTED AS A SPLIT AND IT IS NOT ONE. It was
+ * `['EI32', 'EI41']`, and review measured that `EI32` sits on BOTH
+ * Waterford and Cork in Natural Earth — so `EI27` resolved to nothing,
+ * reported as an ambiguous code, while `EI27` is live in Ireland's feed
+ * right now. It was also the only entry in that table with no test of
+ * its own: the suite checked `EI07` by value and `EI26` by length, so
+ * correcting `EI27` to anything at all left it green.
+ *
+ * Waterford is in the source TWICE — `EI32` and `EI41`, both carrying
+ * `IE-WD`. That is one place in two pieces, not two places, and naming
+ * either `fips` would be a guess about which piece is meant. The ISO
+ * code names the place and takes both.
+ */
+export const FIPS_BY_ISO = { EI22: 'IE-MN', EI27: 'IE-WD' };
+
+
 
 /**
  * 🔴 `fips` IS NOT UNIQUE IN NATURAL EARTH, so a naive join is WRONG
  * rather than incomplete.
  *
- * Measured: `EI32` is on BOTH Cork and Waterford; `EI16`/`EI37` are
- * both Limerick; `EI10`/`EI36` both Galway. "Find the first feature
+ * Measured on all 34 Irish features: `EI32` is on BOTH Waterford and
+ * Cork, and that is the ONLY duplicated code. "Find the first feature
  * with this fips" would put a Waterford storm warning over County Cork
  * — a warning shown for the wrong place, which is worse than none.
+ *
+ * ⚠️ This paragraph used to name `EI16`/`EI37` and `EI10`/`EI36` as the
+ * same trap. They are not: those are two codes that each match exactly
+ * one feature, both happening to be called Limerick and Galway. Two
+ * names for one county is not an ambiguous lookup, and listing them
+ * here made the real case look ordinary.
  *
  * So a lookup returns EVERY match and the caller must refuse an
  * ambiguous one rather than pick.
@@ -118,6 +145,36 @@ export function lookup(features, scheme, value, idField) {
  * also why `SOURCES` order matters: it is a preference, not a claim that
  * the first one works.
  */
+/** One place, as one scheme names it — after the Irish splits. */
+export function placeFor(scheme, value) {
+  if (scheme === 'FIPS') {
+    if (FIPS_SPLIT[value]) return { values: FIPS_SPLIT[value], split: value };
+    if (FIPS_BY_ISO[value]) return { values: [FIPS_BY_ISO[value]], idField: 'iso_3166_2' };
+  }
+  return { values: [value] };
+}
+
+/**
+ * Whether a set of matched features is ONE place.
+ *
+ * 🔴 ONE FEATURE IS NOT THE ONLY HONEST ANSWER. Waterford is in Natural
+ * Earth twice — `EI32` and `EI41`, both carrying `IE-WD` — because the
+ * county is mapped in two pieces. Refusing that as ambiguous loses a
+ * real county; accepting any multiple would accept `EI32`, which also
+ * sits on Cork. Several features are one place when they agree on the
+ * ISO subdivision they belong to, and `EI32` fails that test because
+ * Waterford says `IE-WD` and Cork says `IE-CO`.
+ *
+ * Sources without `iso_3166_2` (NUTS, EMMA_ID) cannot satisfy this, so
+ * for them exactly one match remains the only answer.
+ */
+export function settles(matches) {
+  if (matches.length === 1) return true;
+  if (matches.length === 0) return false;
+  const isos = new Set(matches.map((f) => f?.properties?.iso_3166_2 ?? null));
+  return isos.size === 1 && !isos.has(null);
+}
+
 export function plans(codes) {
   const parsed = codes
     .map((c) => {
@@ -126,23 +183,29 @@ export function plans(codes) {
     })
     .filter(Boolean);
 
-  if (parsed.length === 0) return [{ scheme: null, values: [], why: 'the area carries no code' }];
+  if (parsed.length === 0) return [{ scheme: null, places: [], why: 'the area carries no code' }];
 
   const usable = parsed.filter((p) => SOURCES[p.scheme]);
   if (usable.length === 0) {
     const schemes = [...new Set(parsed.map((p) => p.scheme))].join(', ');
-    return [{ scheme: null, values: [], why: `no resolvable scheme among: ${schemes}` }];
+    return [{ scheme: null, places: [], why: `no resolvable scheme among: ${schemes}` }];
   }
 
-  return usable.map((u) => {
-    if (u.scheme === 'FIPS') {
-      if (FIPS_SPLIT[u.value]) return { scheme: 'FIPS', values: FIPS_SPLIT[u.value], why: null, split: u.value };
-      if (FIPS_BY_ISO[u.value]) {
-        return { scheme: 'FIPS', values: [FIPS_BY_ISO[u.value]], idField: 'iso_3166_2', why: null };
-      }
-    }
-    return { scheme: u.scheme, values: [u.value], why: null };
-  });
+  // 🔴 ORDERED BY `SOURCES`, NOT BY THE FEED. The comment above claimed
+  // this was a preference and it was not: `plans` returned whatever
+  // order the source listed its geocodes in, and the test that said
+  // otherwise passed only because its fixture happened to list EMMA_ID
+  // first. The fixture was the answer.
+  const order = Object.keys(SOURCES);
+  const names = [...new Set(usable.map((p) => p.scheme))].sort(
+    (a, b) => order.indexOf(a) - order.indexOf(b),
+  );
+
+  return names.map((scheme) => ({
+    scheme,
+    places: usable.filter((p) => p.scheme === scheme).map((p) => placeFor(scheme, p.value)),
+    why: null,
+  }));
 }
 
 /** The preferred way to look one area up. Kept for callers wanting one. */
@@ -185,53 +248,108 @@ async function cached(name, url) {
 /** Distinct `SCHEME:VALUE` codes a feed carries, by country. */
 export function codesIn(payload) {
   const out = new Set();
+  let uncoded = 0;
   for (const w of payload?.warnings ?? []) {
     for (const info of w.alert?.info ?? []) {
       for (const area of info.area ?? []) {
         const codes = (area.geocode ?? [])
           .filter((g) => g?.valueName && g?.value)
           .map((g) => `${g.valueName}:${g.value}`);
+        // 🔴 AN AREA WITH NO CODE USED TO VANISH, which RAISED coverage:
+        // four areas in, three uncoded, and the measure reported 1 of 1.
+        // Losing the codes we need made the number look better.
         if (codes.length) out.add(codes.join('||'));
+        else uncoded += 1;
       }
     }
   }
-  return [...out];
+  return [...out, ...Array.from({ length: uncoded }, () => '')];
 }
 
 /** What fraction of a country's areas we can put on a map, and why not. */
 export function coverageOf(areaCodes, geometry) {
   let resolved = 0;
+  let total = 0;
+  let uncoded = 0;
   const unresolved = new Map();
+  const note = (why, n) => unresolved.set(why, (unresolved.get(why) ?? 0) + n);
+
   for (const joined of areaCodes) {
-    const candidates = plans(joined.split('||'));
+    const candidates = plans(joined ? joined.split('||') : []);
     if (!candidates[0].scheme) {
-      unresolved.set(candidates[0].why, (unresolved.get(candidates[0].why) ?? 0) + 1);
+      // 🔴 AN AREA WITH NO CODE IS NOT A FAILED JOIN — and counting it
+      // as one was my own over-correction. Review was right that
+      // dropping these silently let a feed LOSING its codes look like
+      // improving coverage; my first fix put them in the denominator
+      // and took Latvia from 100% to 0.8%, Estonia, Slovenia and Sweden
+      // to zero. Those countries send a polygon instead of a code: a
+      // different way to place a warning, not a broken one.
+      //
+      // So they are counted and named, outside the ratio. A feed that
+      // quietly stops carrying codes shows up as a number that moves,
+      // and a country appearing in that list for the first time is news
+      // — the same shape as the no-codes list, for the same reason.
+      if (candidates[0].why === 'the area carries no code') uncoded += 1;
+      else {
+        total += 1;
+        note(candidates[0].why, 1);
+      }
       continue;
     }
-    // 🔴 EVERY scheme, not the first. An area that carries a dead
-    // EMMA_ID and a live NUTS3 is placeable, and the first version
-    // called it a coverage failure.
-    let ambiguous = false;
-    let hit = false;
-    for (const p of candidates) {
-      const features = geometry[p.scheme] ?? [];
-      const found = p.values.map((v) => lookup(features, p.scheme, v, p.idField).matches);
-      if (found.every((h) => h.length === 1)) {
-        hit = true;
-        break;
+
+    // 🔴 CODES OF ONE SCHEME ARE DIFFERENT PLACES; DIFFERENT SCHEMES ARE
+    // THE SAME PLACES UNDER DIFFERENT NAMES. The first version joined
+    // every code on an area with `||` and treated them all as
+    // alternatives for one place. That is right for Croatia, whose
+    // county carries a dead EMMA_ID beside a live NUTS3 — and wrong for
+    // Ireland, which puts TWENTY-SIX counties in a single CAP `<area>`.
+    // Review measured the consequence: Ireland reported 2/2 = 100%
+    // where the counties themselves are 25/26, and
+    // `FIPS:EI01||FIPS:ZZ99||FIPS:ZZ98` resolved completely — one live
+    // code laundering any number of dead ones, ambiguity included.
+    let best = null;
+    for (const c of candidates) {
+      const features = geometry[c.scheme] ?? [];
+      let hit = 0;
+      let ambiguous = 0;
+      for (const place of c.places) {
+        const found = place.values.map((v) => lookup(features, c.scheme, v, place.idField).matches);
+        if (found.every(settles)) hit += 1;
+        else if (found.some((m) => m.length > 1)) ambiguous += 1;
       }
-      if (found.some((h) => h.length > 1)) ambiguous = true;
+      if (!best || hit > best.hit) best = { hit, ambiguous, size: c.places.length };
     }
-    if (hit) resolved += 1;
-    else if (ambiguous) unresolved.set('ambiguous code', (unresolved.get('ambiguous code') ?? 0) + 1);
-    else {
-      const schemes = candidates.map((p) => p.scheme).join('/');
-      const why = `no source holds the code (tried ${schemes})`;
-      unresolved.set(why, (unresolved.get(why) ?? 0) + 1);
+
+    total += best.size;
+    resolved += best.hit;
+    const missed = best.size - best.hit;
+    if (missed > 0) {
+      const tried = candidates.map((c) => c.scheme).join('/');
+      note(best.ambiguous > 0 ? 'ambiguous code' : `no source holds the code (tried ${tried})`, missed);
     }
   }
-  return { total: areaCodes.length, resolved, unresolved: [...unresolved.entries()] };
+
+  return { total, resolved, uncoded, unresolved: [...unresolved.entries()] };
 }
+
+/**
+ * Too little of the union measured to call the result a coverage figure.
+ *
+ * Seven member states carry no code by design, so the floor sits below
+ * that: two thirds of the union must have been read AND coded.
+ */
+/**
+ * A country that placed no code on anything it sent.
+ *
+ * 🔴 This used to be `codes.length === 0`, which stopped being true the
+ * moment uncoded areas started being counted: a country sending 154
+ * areas and no codes became a country measured at 0%, printing `NaN%`.
+ * The test that would have caught it did not exist — a mutation back to
+ * the old form stayed green.
+ */
+export const servesNoCode = (codes) => codes.every((c) => c === '');
+
+export const tooFewMeasured = (measured, asked) => measured < Math.ceil((asked * 2) / 3);
 
 /** Below this, the join has stopped working and somebody must look. */
 export const MIN_COVERAGE = 0.95;
@@ -255,16 +373,27 @@ async function coverage() {
   // look. Seven member states are in this state by design (they send a
   // polygon, or nothing); an eighth appearing here is news.
   const noCodes = [];
+  // Countries that code SOME of their areas. A name appearing here for
+  // the first time means a feed started dropping codes.
+  const partlyCoded = [];
+  // 🔴 AND AN UNREADABLE FEED USED TO LAND IN NEITHER LIST. Review drove
+  // 26 feeds throwing with only Poland answering: the run exited 0,
+  // printed "0 countries returned no coded area: (none)" and declared
+  // "every one of the 27 countries with codes resolved completely" —
+  // because the count was `COUNTRIES.length - noCodes.length`, which
+  // counts countries that were never successfully asked.
+  const unreadable = [];
   for (const country of COUNTRIES) {
     let payload;
     try {
       payload = await (await fetch(feedUrl(country))).json();
     } catch (err) {
       console.log(`  ${country.padEnd(12)} feed unreadable: ${String(err.message).slice(0, 40)}`);
+      unreadable.push(country);
       continue;
     }
     const codes = codesIn(payload);
-    if (codes.length === 0) {
+    if (servesNoCode(codes)) {
       noCodes.push(country);
       continue;
     }
@@ -275,7 +404,11 @@ async function coverage() {
       worst = pct;
       worstCountry = country;
     }
-    const why = c.unresolved.map(([k, n]) => `${n} ${k}`).join(', ');
+    if (c.uncoded > 0) partlyCoded.push(`${country} ${c.uncoded}/${c.uncoded + c.total}`);
+    const why = [
+      ...c.unresolved.map(([k, n]) => `${n} ${k}`),
+      ...(c.uncoded ? [`${c.uncoded} area(s) carry no code`] : []),
+    ].join(', ');
     console.log(
       `  ${country.padEnd(12)} ${String(c.resolved).padStart(5)}/${String(c.total).padEnd(5)} ` +
         `${(pct * 100).toFixed(1).padStart(5)}%${why ? `   ${why}` : ''}`,
@@ -285,11 +418,25 @@ async function coverage() {
   // 🔴 Nothing to measure is a failure, not a pass. A run where every
   // feed was empty or every fetch failed would otherwise report perfect
   // coverage of nothing.
+  const measured = COUNTRIES.length - noCodes.length - unreadable.length;
   console.log(
     `\n${noCodes.length} countries returned no coded area: ${noCodes.join(', ') || '(none)'}`,
   );
+  if (unreadable.length) {
+    console.log(`${unreadable.length} feeds were unreadable: ${unreadable.join(', ')}`);
+  }
+  console.log(`partly coded: ${partlyCoded.join(', ') || '(none)'}`);
 
   if (anyAreas === 0) throw new Error('no country returned a single coded area — that is a fetch failure');
+  // A measure of one country in 27 is not a measure of Europe, and the
+  // threshold below would pass it without this.
+  if (tooFewMeasured(measured, COUNTRIES.length)) {
+    throw new Error(
+      `only ${measured} of ${COUNTRIES.length} countries were measured ` +
+        `(${unreadable.length} unreadable, ${noCodes.length} with no codes) — ` +
+        'that is not a measurement of Europe',
+    );
+  }
   if (worst < MIN_COVERAGE) {
     throw new Error(
       `${worstCountry} resolves ${(worst * 100).toFixed(1)}% of its areas, below ${MIN_COVERAGE * 100}% — ` +
@@ -317,28 +464,41 @@ function selfTest() {
     }
   };
 
-  ok('a plain EMMA_ID resolves to itself', plan(['EMMA_ID:PL803']).values[0] === 'PL803');
+  ok('a plain EMMA_ID resolves to itself', plan(['EMMA_ID:PL803']).places[0].values[0] === 'PL803');
 
   const de = plan(['WARNCELLID:109176000', 'EMMA_ID:DE303']);
   ok('a German area is resolved by its EMMA_ID, not its WARNCELLID',
-    de.scheme === 'EMMA_ID' && de.values[0] === 'DE303', JSON.stringify(de));
+    de.scheme === 'EMMA_ID' && de.places[0].values[0] === 'DE303', JSON.stringify(de));
   ok('...whichever order the source lists them in',
     plan(['EMMA_ID:DE303', 'WARNCELLID:109176000']).scheme === 'EMMA_ID');
   ok('...and the same for Czechia CISORP',
     plan(['CISORP:5102', 'EMMA_ID:CZ05102']).scheme === 'EMMA_ID');
 
   ok('NUTS3 is kept as NUTS3', plan(['NUTS3:FR712']).scheme === 'NUTS3');
+  // 🔴 The preference is `SOURCES` order, NOT the order the feed lists
+  // its geocodes in. The old test for this passed only because its
+  // fixture happened to put the expected scheme first.
+  ok('the preferred scheme wins however the feed orders them',
+    plan(['NUTS3:HR031', 'EMMA_ID:HR018']).scheme === 'EMMA_ID',
+    plans(['NUTS3:HR031', 'EMMA_ID:HR018']).map((c) => c.scheme).join());
+  ok('…and both are still offered, preferred first',
+    plans(['NUTS3:HR031', 'EMMA_ID:HR018']).map((c) => c.scheme).join() === 'EMMA_ID,NUTS3');
   ok('NUTS2 is a different source from NUTS3',
     SOURCES.NUTS2.url !== SOURCES.NUTS3.url && /LEVL_2/.test(SOURCES.NUTS2.url));
   ok('the NUTS source is pinned to the 2013 vintage',
     /_2013_/.test(SOURCES.NUTS3.url) && /_2013_/.test(SOURCES.NUTS2.url), SOURCES.NUTS3.url);
 
   ok('Dublin legacy code expands to the four counties it became',
-    plan(['FIPS:EI07']).values.join(',') === 'EI33,EI34,EI35,EI39');
-  ok('...Tipperary to its two ridings', plan(['FIPS:EI26']).values.length === 2);
+    plan(['FIPS:EI07']).places[0].values.join(',') === 'EI33,EI34,EI35,EI39');
+  ok('...Tipperary to its two ridings', plan(['FIPS:EI26']).places[0].values.join(',') === 'EI38,EI40');
   ok('...and Monaghan is matched by ISO, because its fips field is empty',
-    plan(['FIPS:EI22']).idField === 'iso_3166_2');
-  ok('an ordinary Irish county is not expanded', plan(['FIPS:EI06']).values.join(',') === 'EI06');
+    plan(['FIPS:EI22']).places[0].idField === 'iso_3166_2');
+  // 🔴 EI27 was listed as a split onto EI32, which sits on Cork as well
+  // as Waterford. It is one county in two pieces, taken by ISO.
+  ok('...and Waterford too, because EI32 is also Cork',
+    plan(['FIPS:EI27']).places[0].idField === 'iso_3166_2'
+      && plan(['FIPS:EI27']).places[0].values.join(',') === 'IE-WD');
+  ok('an ordinary Irish county is not expanded', plan(['FIPS:EI06']).places[0].values.join(',') === 'EI06');
 
   ok('an area with no code says so', plan([]).why === 'the area carries no code');
   ok('a code with no source names the scheme rather than vanishing',
@@ -358,8 +518,6 @@ function selfTest() {
   ok('...and an unknown code returns none, not a guess',
     lookup(features, 'FIPS', 'EI99').matches.length === 0);
 
-  ok('the redundant schemes are named, not inferred',
-    REDUNDANT.includes('WARNCELLID') && REDUNDANT.includes('CISORP'));
   // 🔴 Croatia, measured: the feed's EMMA_ID (HR018) is not in
   // MeteoAlarm's own geocode file, which knows HR001–HR008; the NUTS3
   // on the SAME area (HR031) is in NUTS 2013. One dead code must not
@@ -384,6 +542,89 @@ function selfTest() {
       bothDead.unresolved[0][0]);
     const marineStillCounts = coverageOf(['EMMA_ID:HR001'], geom);
     ok('a sea zone that IS in the source resolves like anything else', marineStillCounts.resolved === 1);
+  }
+
+  // 🔴 IRELAND PUTS 26 COUNTIES IN ONE CAP `<area>` (measured on the
+  // live feed today). One live code must not launder the dead ones.
+  {
+    const geom = { FIPS: [{ properties: { fips: 'EI01', iso_3166_2: 'IE-CW' } }] };
+    const one = coverageOf(['FIPS:EI01'], geom);
+    ok('one county, one place', one.total === 1 && one.resolved === 1);
+    const laundered = coverageOf(['FIPS:EI01||FIPS:ZZ99||FIPS:ZZ98'], geom);
+    ok('three codes of ONE scheme are three places, not three names for one',
+      laundered.total === 3, JSON.stringify(laundered));
+    ok('…so a live code cannot carry two dead ones', laundered.resolved === 1);
+    ok('…and the two misses are reported', laundered.unresolved[0][1] === 2);
+  }
+
+  // 🔴 Two codes of DIFFERENT schemes remain two names for one place —
+  // the Croatian case that this rule must not break.
+  {
+    const geom = {
+      EMMA_ID: [{ properties: { code: 'HR001' } }],
+      NUTS3: [{ properties: { NUTS_ID: 'HR031' } }],
+    };
+    const c = coverageOf(['EMMA_ID:HR018||NUTS3:HR031'], geom);
+    ok('a dead EMMA_ID beside a live NUTS3 is still one place, resolved',
+      c.total === 1 && c.resolved === 1, JSON.stringify(c));
+  }
+
+  // 🔴 Waterford is in the source twice under one ISO; Cork shares its
+  // fips. The first is one place, the second is a wrong answer.
+  {
+    const waterford = [
+      { properties: { fips: 'EI32', iso_3166_2: 'IE-WD' } },
+      { properties: { fips: 'EI41', iso_3166_2: 'IE-WD' } },
+    ];
+    ok('two features of one ISO subdivision are one place', settles(waterford));
+    ok('…but two different subdivisions are not',
+      !settles([{ properties: { fips: 'EI32', iso_3166_2: 'IE-WD' } },
+                { properties: { fips: 'EI32', iso_3166_2: 'IE-CO' } }]));
+    ok('…and features with no ISO at all need exactly one',
+      !settles([{ properties: { code: 'A' } }, { properties: { code: 'A' } }]));
+    const geom = { FIPS: [...waterford, { properties: { fips: 'EI32', iso_3166_2: 'IE-CO' } }] };
+    const amb = coverageOf(['FIPS:EI32'], geom);
+    ok('a code on two different counties is ambiguous, not missing',
+      amb.resolved === 0 && amb.unresolved[0][0] === 'ambiguous code', JSON.stringify(amb.unresolved));
+    const byIso = coverageOf(['FIPS:EI27'], geom);
+    ok('…while EI27 resolves to Waterford by ISO, both pieces', byIso.resolved === 1);
+  }
+
+  // 🔴 Losing the codes we need used to RAISE the measure.
+  {
+    const payload = { warnings: [{ alert: { info: [{ area: [
+      { areaDesc: 'A', geocode: [{ valueName: 'FIPS', value: 'EI01' }] },
+      { areaDesc: 'B', geocode: [] },
+      { areaDesc: 'C' },
+    ] }] } }] };
+    const codes = codesIn(payload);
+    ok('an area with no code still counts', codes.length === 3, JSON.stringify(codes));
+    const geom = { FIPS: [{ properties: { fips: 'EI01', iso_3166_2: 'IE-CW' } }] };
+    const c = coverageOf(codes, geom);
+    ok('…counted outside the ratio, not as a failed join',
+      c.total === 1 && c.resolved === 1 && c.uncoded === 2, JSON.stringify(c));
+    ok('…so a country that sends polygons is not reported as broken',
+      c.resolved / c.total === 1);
+    ok('…but the number is there to be watched', c.uncoded === 2);
+    const allCoded = coverageOf(['FIPS:EI01'], geom);
+    ok('…and a fully coded country reports none', allCoded.uncoded === 0);
+  }
+
+  // 🔴 Estonia sends 154 areas and codes none of them. That is "no
+  // coded area", not "0% coverage".
+  {
+    ok('a country that sent nothing serves no code', servesNoCode([]));
+    ok('…and one whose every area is uncoded does too', servesNoCode(['', '', '']));
+    ok('…but one coded area among many is not nothing', !servesNoCode(['FIPS:EI01', '', '']));
+    ok('…nor is a fully coded country', !servesNoCode(['FIPS:EI01']));
+  }
+
+  // 🔴 One country in 27 is not a measurement of Europe.
+  {
+    ok('twenty measured of 27 is enough', !tooFewMeasured(20, 27));
+    ok('…eighteen is the floor and still passes', !tooFewMeasured(18, 27));
+    ok('…seventeen is not', tooFewMeasured(17, 27));
+    ok('…and one country answering is certainly not', tooFewMeasured(1, 27));
   }
 
   ok('every source has a url and an id field',
