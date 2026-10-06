@@ -8,6 +8,8 @@ import {
   BATHING_SOURCE_ID,
   BATHING_STATUS_LABEL,
   categoryLabel,
+  editionMayBeBehind,
+  editionPublishedAt,
   isClassified,
   noBathingWaterSentence,
   notClassifiedSentence,
@@ -18,7 +20,10 @@ import {
   type BathingWater,
 } from '../../src/lib/bathing';
 import { findForbiddenWords, FORBIDDEN_WORDS } from '../../src/lib/wording';
-import { shouldFlagStale, SOURCES } from '../../src/lib/sources';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { AIR_SOURCE_ID, shouldFlagStale, SOURCES } from '../../src/lib/sources';
+import { RESERVED_WORDS } from '../../src/lib/cems';
 import { BATHING_RADIUS_M as API_RADIUS_M } from '../../../api/src/bathing/nearby';
 import {
   BATHING_ATTRIBUTION as API_ATTRIBUTION,
@@ -346,5 +351,140 @@ test.describe('the attribution the licence asks for', () => {
   test('its date label does not claim somebody updated a record', () => {
     expect(eea.dateLabel).not.toContain('Last updated');
     expect(eea.dateLabel).toContain('season');
+  });
+});
+
+// ---------------------------------------------------------------------
+// CAMP-198: the rule, actually connected to a sentence a reader meets.
+// ---------------------------------------------------------------------
+
+test.describe('the page stops claiming our newest edition is the newest there is', () => {
+  // 🔴 WHAT WAS WRONG WAS NOT THE MISSING FLAG. It was the sentence the
+  // missing flag was supposed to qualify: "The 2025 season is the most
+  // recent one published" — said about OUR newest record, with nothing
+  // anywhere comparing it to the EEA's. An import two editions behind
+  // printed that on every campsite with a designated bathing water, and
+  // printed it with no hedge at all.
+  //
+  // The dates below are the two publications `BATHING_FRESHNESS` records:
+  // the 2025 season appeared 02.06.2026 and the 2024 season 19.06.2025,
+  // so the edition for season N arrives in June of N+1.
+
+  test('the anchor is the June the edition itself appeared', () => {
+    expect(editionPublishedAt(2025)).toBe('2026-06-01T00:00:00.000Z');
+    expect(editionPublishedAt(2024)).toBe('2025-06-01T00:00:00.000Z');
+  });
+
+  // 🔴 EVERY CLOCK BELOW IS YEARS FROM TODAY, and review is why. The
+  // first version used `new Date(2026, 9, 6)` — the real current date —
+  // so `editionMayBeBehind(season, today)` could ignore its argument
+  // entirely and read `new Date()` instead with all 44 tests green. A
+  // test whose fixture coincides with the ambient clock is not testing
+  // the clock; it is also a test that turns red next month for a reason
+  // nobody will recognise.
+  const OCT = (y: number) => new Date(Date.UTC(y, 9, 6));
+  const MAR = (y: number) => new Date(Date.UTC(y, 2, 6));
+
+  test('🔴 holding the current edition is not behind', () => {
+    // October 2031, holding 2030: the 2031 season will not be published
+    // until June 2032. Nothing is late.
+    expect(editionMayBeBehind(2030, OCT(2031))).toBe(false);
+  });
+
+  test('🔴 holding last year’s edition after July IS behind', () => {
+    // October 2031, holding 2029: the 2030 edition appeared in June 2031
+    // and we do not have it.
+    expect(editionMayBeBehind(2029, OCT(2031))).toBe(true);
+  });
+
+  test('…and is not called behind before the new edition is due', () => {
+    // March 2031, holding 2029: the 2030 edition does not exist yet.
+    // Flagging here would be the false alarm that teaches readers to
+    // ignore the flag.
+    expect(editionMayBeBehind(2029, MAR(2031))).toBe(false);
+  });
+
+  test('🔴 the sentence makes the "most recent published" claim ONLY when it may', () => {
+    const CLAIM = 'is the most recent one published';
+    expect(seasonContextSentence(2030, OCT(2031))).toContain(CLAIM);
+    // 🔴 The case that was false on the page for half a year at a time.
+    expect(seasonContextSentence(2029, OCT(2031))).not.toContain(CLAIM);
+  });
+
+  test('…and says what it does know instead of going quiet', () => {
+    const behind = seasonContextSentence(2029, OCT(2031));
+    expect(behind).toContain('the most recent one we hold');
+    // 🔴 It names the overdue season and its June outright. The first
+    // version reused `publishedAbout` — "usually in June of the
+    // following year" — which points at the year after the season we
+    // HOLD, not the year the missing edition was due.
+    expect(behind).toContain('the 2030 season was due in June 2031');
+    // Both branches keep the opening, which is the part about what a
+    // seasonal classification IS and is true either way.
+    expect(behind).toContain('describe a whole bathing season rather than a particular day');
+  });
+
+  test('🔴 neither branch uses a word the CEMS terms reserve', () => {
+    // `RESERVED_WORDS` — warning/danger/risk/alert/evacuate. The new
+    // sentence is about an import being late, and saying it in those
+    // words would borrow the vocabulary of an emergency service.
+    for (const s of [
+      seasonContextSentence(2030, OCT(2031)),
+      seasonContextSentence(2029, OCT(2031)),
+    ]) {
+      expect(RESERVED_WORDS.test(s), s).toBe(false);
+    }
+  });
+
+  test('🔴 …and neither branch escapes the FORBIDDEN_WORDS list', () => {
+    // `allCopy` is what `findForbiddenWords` is run over, and it used to
+    // call `seasonContextSentence` with the default clock — so only one
+    // of its two branches was ever read. Review put "so the water may be
+    // unsafe" in the other and 862 tests passed.
+    const bw = { season: 2029 } as BathingWater;
+    const copy = allCopy(bw);
+    expect(copy.some((c) => c.includes('is the most recent one published'))).toBe(true);
+    expect(copy.some((c) => c.includes('the most recent one we hold'))).toBe(true);
+    expect(findForbiddenWords(copy.join(' '))).toEqual([]);
+  });
+
+  test('🔴 `sources.ts` imports nothing from the modules it is keyed by', () => {
+    // 🔴 THE RUNTIME CHECK BELOW COVERS ONE IMPORT ORDER — THE ONE THIS
+    // FILE'S OWN STATIC IMPORTS HAPPEN TO PRODUCE. Review proved it:
+    // putting `AIR_SOURCE_ID` back in `air-quality.ts` and importing it
+    // up into `sources.ts` left all 860 tests green, while a probe that
+    // loaded `air-quality` first produced
+    //
+    //     ["osm","datatourisme","eea-bathing-water","undefined"]
+    //
+    // The same mutation on the bathing id WAS caught, because this
+    // file's first import is `@/lib/bathing`. So the guard was shaped by
+    // the order of its own imports rather than by the invariant.
+    //
+    // The invariant is structural and does not depend on who loads
+    // first: this module may not import from a module that imports it.
+    const src = readFileSync(join(__dirname, '../../src/lib/sources.ts'), 'utf8');
+    const offending = [...src.matchAll(/^\s*import[^;]*from\s+'\.\/([^']+)'/gm)].map(
+      (m) => m[1],
+    );
+    expect(
+      offending,
+      '`sources.ts` builds SOURCES from keys it declares; importing one of ' +
+        'them back closes a cycle, and a cycle through an object literal ' +
+        'fails by writing the string "undefined" as a key, silently',
+    ).toEqual([]);
+  });
+
+  test('🔴 the two source ids survive being imported in either order', () => {
+    // CAMP-198's own fix created this: `bathing.ts` needed
+    // `shouldFlagStale` from `sources.ts`, which needed the id back, and
+    // `Object.keys(SOURCES)` came out as
+    // ["osm","datatourisme","undefined","eea-air-quality"] when bathing
+    // loaded first. The bathing source then vanished from the registry,
+    // `shouldFlagStale` was handed null and answered false — a freshness
+    // check that cannot fire, which is the defect this card removes.
+    expect(Object.keys(SOURCES)).not.toContain('undefined');
+    expect(SOURCES[BATHING_SOURCE_ID]?.cadence).toBe('annual');
+    expect(SOURCES[AIR_SOURCE_ID]?.cadence).toBe('hourly');
   });
 });
