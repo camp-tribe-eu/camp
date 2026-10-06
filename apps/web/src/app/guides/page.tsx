@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { countryName } from '@/lib/api';
 import { byCountry, byTopic, TOPICS, unparsed } from '@/lib/guide-facets';
 import { getGuides } from '@/lib/guides';
-import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
+import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 
 // CAMP-66 — the guides index. CAMP-210 — the catalogue it had to become.
@@ -148,9 +148,6 @@ export default async function GuidesIndex() {
           )}
         </>
       )}
-      <script
-        {...jsonLdProps(breadcrumbList([{ name: 'Guides', path: '/guides' }]))}
-      />
     </main>
   );
 }

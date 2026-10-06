@@ -33,17 +33,50 @@ test.describe('the section the header points at', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Guides');
   });
 
-  test('the index lists the guides the API publishes', async ({ page, request }) => {
+  // 🔴 THE PROPERTY, NOT THE LAYOUT. This asserted that `/guides` links
+  // every guide by title, which was true while the index was a flat
+  // list and stopped being true when 1 268 guides made a flat list
+  // useless (CAMP-210). The thing worth protecting was never "all on one
+  // page" — it is that a guide the API publishes is a guide somebody can
+  // reach. So the test walks the catalogue the way a reader does.
+  test('every published guide is reachable from the index', async ({
+    page,
+    request,
+  }) => {
     const list = await guides(request);
     expect(list.length, 'no guides are published').toBeGreaterThan(0);
 
     await page.goto('/guides');
-    for (const g of list.slice(0, 5)) {
-      await expect(
-        page.getByRole('link', { name: g.title }),
-        `${g.slug} is missing from the index`,
-      ).toBeVisible();
+    const facets = await page
+      .getByRole('link')
+      .evaluateAll((links) =>
+        links
+          .map((l) => (l as HTMLAnchorElement).getAttribute('href') ?? '')
+          .filter((h) => h.startsWith('/guides/country/')),
+      );
+    expect(facets.length, 'the index links no country pages').toBeGreaterThan(0);
+
+    // Collect what the facet pages link, then compare against the API.
+    const reachable = new Set<string>();
+    for (const href of [...new Set(facets)]) {
+      await page.goto(href);
+      const hrefs = await page
+        .getByRole('link')
+        .evaluateAll((links) =>
+          links
+            .map((l) => (l as HTMLAnchorElement).getAttribute('href') ?? '')
+            .filter((h) => /^\/guides\/[^/]+$/.test(h)),
+        );
+      for (const h of hrefs) reachable.add(h.replace('/guides/', ''));
     }
+
+    const unreachable = list
+      .map((g) => g.slug)
+      .filter((slug) => !reachable.has(slug));
+    expect(
+      unreachable,
+      'these guides are published and no catalogue page links them',
+    ).toEqual([]);
   });
 
   test('every guide in the index is reachable', async ({ page, request }) => {
