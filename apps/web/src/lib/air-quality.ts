@@ -29,7 +29,11 @@
 // rebuilt. The API sends facts with no verdict in them; a function that
 // reads the clock cannot be tested, and this one guards a published claim.
 
-export const AIR_SOURCE_ID = 'eea-air-quality';
+import { AIR_SOURCE_ID, HOURLY_DEAD_AFTER_DAYS, shouldFlagStale } from './sources';
+
+// Declared in `sources.ts`, where it is the key of `SOURCES`. See the
+// comment beside the declaration for the cycle this avoids.
+export { AIR_SOURCE_ID };
 
 /**
  * How old a reading may be and still be shown, in whole hours before the
@@ -49,7 +53,14 @@ export const AIR_RADIUS_M = 15_000;
  * value is healthy; this one is hourly and a value a few hours old is not.
  * The 730-day "nobody has updated this in over two years" flag in
  * lib/sources.ts is about a different kind of record and must never be
- * what decides this one (`shouldFlagStale` refuses to run on it).
+ * what decides this one.
+ *
+ * 🔴 THIS COMMENT USED TO END "(`shouldFlagStale` refuses to run on it)",
+ * which was true until CAMP-166 and false after it. That card replaced
+ * the exemption with a budget: the function now has an `hourly` branch
+ * and this object is what selects it. A comment describing the old
+ * behaviour is worse than none, because it tells the next reader not to
+ * look.
  */
 export const AIR_FRESHNESS = {
   cadence: 'hourly' as const,
@@ -169,6 +180,24 @@ export type AirState =
       station: AirStationFacts | null;
       /** The last hour we hold, if any. */
       lastHour: string | null;
+      /**
+       * When WE last read the EEA's file, if the payload said. A
+       * different fact from `lastHour`, which is the hour the value
+       * describes.
+       */
+      readAt: string | null;
+      /**
+       * 🔴 CAMP-198: whether our own collection has stopped, as opposed
+       * to the air being quietly unmeasured for a few hours.
+       *
+       * `shouldFlagStale` has had the rule for this since CAMP-166 —
+       * `HOURLY_DEAD_AFTER_DAYS`, an hourly source that has not moved in
+       * a whole day — and nothing in the application called it. Decided
+       * here rather than in the sentence, because this module already
+       * owns the clock and a second place that reads `new Date()` is a
+       * second place that can disagree with the first.
+       */
+      ourFeedStalled: boolean;
     }
   | { state: 'no-data'; reason: 'nothing-covers' | 'unreadable' };
 
@@ -322,6 +351,19 @@ export function isFresh(age: number): boolean {
  * What to tell the reader. Total: every input, including garbage,
  * produces exactly one state, and none of them is "render nothing".
  */
+/**
+ * 🔴 CAMP-198: our own collection, judged by the rule that already
+ * existed for it.
+ *
+ * `shouldFlagStale` with `AIR_FRESHNESS` is the hourly branch —
+ * `HOURLY_DEAD_AFTER_DAYS`, one whole day. The distance from
+ * `AIR_FRESH_FOR_HOURS` (four) is deliberate and is the whole point:
+ * four hours without a value is a quiet station, a day without one is a
+ * pipeline that has stopped, and the reader is owed the difference.
+ */
+const feedStalled = (readAt: string | null, now: Date): boolean =>
+  readAt !== null && shouldFlagStale(AIR_FRESHNESS, readAt, now);
+
 export function airState(input: unknown, now: Date): AirState {
   const facts = readAirQuality(input);
   if (facts === null) return { state: 'no-data', reason: 'unreadable' };
@@ -336,6 +378,8 @@ export function airState(input: unknown, now: Date): AirState {
         reason: 'model-stale',
         station: null,
         lastHour: facts.modelled.hour,
+        readAt: facts.modelled.readAt,
+        ourFeedStalled: feedStalled(facts.modelled.readAt, now),
       };
     }
     return { state: 'modelled', ...facts.modelled, ageHours: age };
@@ -345,7 +389,18 @@ export function airState(input: unknown, now: Date): AirState {
   // page to the model — see airQualitySql.
   const { station, reading } = facts;
   if (!reading) {
-    return { state: 'no-fresh-data', reason: 'station-silent', station, lastHour: null };
+    // 🔴 No reading means no `readAt` either, so there is nothing here
+    // to judge our own collection by. `false` is therefore "we cannot
+    // say", NOT "our feed is healthy" — and the sentence for this branch
+    // says so in words rather than implying one of the two.
+    return {
+      state: 'no-fresh-data',
+      reason: 'station-silent',
+      station,
+      lastHour: null,
+      readAt: null,
+      ourFeedStalled: false,
+    };
   }
   const age = ageHours(reading.hour, now);
   if (!isFresh(age)) {
@@ -354,6 +409,8 @@ export function airState(input: unknown, now: Date): AirState {
       reason: 'station-stale',
       station,
       lastHour: reading.hour,
+      readAt: reading.readAt,
+      ourFeedStalled: feedStalled(reading.readAt, now),
     };
   }
   return { state: reading.basis, station, reading, ageHours: age };
@@ -442,10 +499,19 @@ export function modelledPointWording(radiusM: number = AIR_RADIUS_M): string {
 export const NO_FRESH_DATA = 'No fresh data.';
 
 export function noFreshDataSentence(s: Extract<AirState, { state: 'no-fresh-data' }>): string {
+  // 🔴 Said FIRST, and in every branch that can know it. When our own
+  // collection has stopped, the age of the value is a symptom and the
+  // stopped collection is the fact — and a sentence about the station
+  // would be describing something we have not looked at for a day.
+  const ours = s.ourFeedStalled
+    ? ` Our own copy of the EEA’s file is over ${HOURLY_DEAD_AFTER_DAYS} day old, ` +
+      `so this is our collection having stopped rather than a quiet hour.`
+    : '';
+
   if (s.reason === 'model-stale') {
     return (
       `Our last read of the EEA’s modelled index for this location is from ` +
-      `${hourLabel(s.lastHour!)}, more than ${AIR_FRESH_FOR_HOURS} hours ago.`
+      `${hourLabel(s.lastHour!)}, more than ${AIR_FRESH_FOR_HOURS} hours ago.${ours}`
     );
   }
   const st = s.station!;
@@ -453,12 +519,25 @@ export function noFreshDataSentence(s: Extract<AirState, { state: 'no-fresh-data
   if (s.reason === 'station-stale') {
     return (
       `The last reading we hold for the nearest station, ${who}, is from ` +
-      `${hourLabel(s.lastHour!)}, more than ${AIR_FRESH_FOR_HOURS} hours ago.`
+      `${hourLabel(s.lastHour!)}, more than ${AIR_FRESH_FOR_HOURS} hours ago.${ours}`
     );
   }
+  // 🔴 CAMP-198: THIS SENTENCE USED TO CLAIM SOMETHING IT CANNOT KNOW.
+  //
+  // It read "has not reported to the EEA recently, and we hold no
+  // reported hour for it" — a statement about the STATION, made from the
+  // absence of a row on our side. If our own collection stopped a week
+  // ago the station may have been reporting the whole time, and we would
+  // have told the reader otherwise. This branch is also the one case
+  // where no `readAt` reaches us at all, so we cannot even check: the
+  // payload carries a read time only alongside a reading.
+  //
+  // So it now says what we hold and names both explanations instead of
+  // picking the one that happens to blame somebody else.
   return (
-    `The nearest station, ${who}, has not reported to the EEA recently, ` +
-    `and we hold no reported hour for it.`
+    `We hold no reported hour for the nearest station, ${who}. That can mean ` +
+    `the station is quiet or that our own collection did not bring one, and ` +
+    `this page cannot tell which.`
   );
 }
 

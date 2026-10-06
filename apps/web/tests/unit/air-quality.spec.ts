@@ -394,8 +394,20 @@ test.describe('display requirement 3: a station missing from the current hour sa
     const text = said(stationFacts(null));
     expect(text).toContain('No fresh data.');
     expect(text).toContain('Berlin Neukölln (background station, 3.2 km away)');
-    expect(text).toContain('has not reported to the EEA recently');
+    expect(text).toContain('We hold no reported hour for the nearest station');
     expect(text).not.toContain('Fair');
+  });
+
+  test('🔴 …and it does NOT blame the station for what we cannot see', () => {
+    // CAMP-198. This branch used to say the station "has not reported to
+    // the EEA recently" — a statement about the station, inferred from
+    // the absence of a row on OUR side. If our own collection stopped a
+    // week ago the station may have reported throughout, and we would
+    // have told the reader the opposite. It is also the one branch that
+    // receives no `readAt`, so we cannot even check which it is.
+    const text = said(stationFacts(null));
+    expect(text).not.toContain('has not reported');
+    expect(text).toContain('this page cannot tell which');
   });
 
   test('a reading that has aged past the budget says it, with the hour and the budget', () => {

@@ -33,6 +33,7 @@
 // unchecked at runtime. That is what the two bullets above stand in for.
 
 import { FORBIDDEN_WORDS } from './wording';
+import { BATHING_SOURCE_ID, shouldFlagStale } from './sources';
 
 /** One officially designated bathing water, as the API sends it. */
 export interface BathingWater {
@@ -91,7 +92,10 @@ export const BATHING_FRESHNESS = {
  */
 export const BATHING_SEASON = 2025;
 
-export const BATHING_SOURCE_ID = 'eea-bathing-water';
+// Declared in `sources.ts`, where it is the key of `SOURCES`, and
+// re-exported here so every existing importer is unaffected. See the
+// comment beside the declaration for the cycle this avoids.
+export { BATHING_SOURCE_ID };
 
 /**
  * 🔴 The attribution the EEA asks for, VERBATIM — including the capital B
@@ -210,13 +214,72 @@ export function notClassifiedSentence(bw: BathingWater): string {
  * 🔴 It carries the year too. Every sentence in this section names the
  * season, including the one whose subject is the calendar.
  */
-export function seasonContextSentence(season: number): string {
+export function seasonContextSentence(season: number, today = new Date()): string {
+  const opening =
+    'These classifications describe a whole bathing season rather than a ' +
+    'particular day. ';
+
+  // 🔴 CAMP-198: THE OLD SENTENCE WAS AN ASSERTION, NOT A CHECK.
+  //
+  // It said "The 2025 season is the most recent one published" — about
+  // OUR newest record, with nothing anywhere verifying that it is also
+  // the EEA's newest. An import two editions behind therefore printed a
+  // false statement on every campsite with a designated bathing water,
+  // and printed it confidently. `shouldFlagStale` had the rule for
+  // exactly this since CAMP-166 and nothing called it.
+  //
+  // So the claim is now made only when the rule says we may still make
+  // it, and the other branch says what we actually know: this is the
+  // newest WE hold.
+  if (!editionMayBeBehind(season, today)) {
+    return (
+      `${opening}The ${season} season is the most recent one published; ` +
+      `the next is published ${BATHING_FRESHNESS.publishedAbout}.`
+    );
+  }
   return (
-    `These classifications describe a whole bathing season rather than a ` +
-    `particular day. The ${season} season is the most recent one published; ` +
-    `the next is published ${BATHING_FRESHNESS.publishedAbout}.`
+    `${opening}The ${season} season is the most recent one we hold. A newer ` +
+    `edition was due ${BATHING_FRESHNESS.publishedAbout}, so there may be ` +
+    `one we have not imported yet.`
   );
 }
+
+/**
+ * The day the edition for `season` was itself published.
+ *
+ * 🔴 MEASURED, NOT ASSUMED, and this is the only honest anchor available:
+ * a `BathingWater` carries a season YEAR and no date at all, so any
+ * freshness rule that wants days has to be given one. `BATHING_FRESHNESS`
+ * records the two publications we have observed — the 2025 season on
+ * 02.06.2026 and the 2024 season on 19.06.2025 — so the edition for
+ * season N appears in June of N+1. The EEA promises no date; its
+ * catalogue's `maintenanceAndUpdateFrequency` is null. We use the first
+ * of June because it is the earliest either observation fell on, which
+ * makes the rule flag no sooner than the evidence allows.
+ */
+export const editionPublishedAt = (season: number): string =>
+  `${season + 1}-06-01T00:00:00.000Z`;
+
+/**
+ * Whether a newer edition than `season` has probably been published.
+ *
+ * 🔴 ONE RULE, NOT A SECOND ONE WRITTEN HERE. This hands the measured
+ * date to `shouldFlagStale`, which CAMP-166 built and proved with five
+ * mutations; writing a season-shaped rule beside it would be two rules
+ * that agree until the day they do not.
+ *
+ * 🔴 AND IT HAS A KNOWN GAP, written down rather than discovered later.
+ * The rule reads "over a year old AND it is July or later", with a
+ * second branch at two years. Anchored in June, a holding exactly two
+ * editions behind crosses 365 days in June of N+2 (flagged from that
+ * July) but does not reach 730 until June of N+3 — so between January
+ * and May of N+3 it reads healthy again. Three editions behind is past
+ * 730 at every month and always flagged. Closing that gap means
+ * changing `shouldFlagStale` itself, which is a decision about every
+ * annual source and not one to take inside a bathing-water helper.
+ */
+export const editionMayBeBehind = (season: number, today = new Date()): boolean =>
+  shouldFlagStale(BATHING_FRESHNESS, editionPublishedAt(season), today);
 
 /**
  * What the page says when there is no designated bathing water in range.
