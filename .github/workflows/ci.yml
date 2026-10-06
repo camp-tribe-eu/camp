@@ -199,6 +199,22 @@ jobs:
       - name: No two migrations share a timestamp
         run: node scripts/ci/check-migration-stamps.mjs
 
+      # 🔴 CAMP-202. `osm/backfill-contact.ts` called `main()` at the
+      # bottom with no `require.main` guard, and its spec imports one
+      # constant from it. That import opened a Postgres client, ran
+      # 14 954 UPDATEs and COMMITted them; the connection then outlived
+      # Jest's teardown, `pg` could not `require('pgpass')` any more, and
+      # the job exited non-zero with 1007 tests green.
+      #
+      # 15 of the 20 scripts that open a connection already had the
+      # guard. The convention was real and nothing checked it, so five
+      # files quietly did not follow it.
+      - name: Entry-point guard still tells guarded from unguarded
+        run: node scripts/ci/check-script-entrypoints.mjs --self-test
+
+      - name: No script runs itself when a test imports it
+        run: node scripts/ci/check-script-entrypoints.mjs
+
       # 🔴 The numbers on the home page live in a PNG, and a PNG is
       # rewritten by `--update-snapshots` to agree with whatever the code
       # now does. CAMP-182: the headline went 71 → 72 unnoticed. These

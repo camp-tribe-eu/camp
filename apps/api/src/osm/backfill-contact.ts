@@ -52,8 +52,16 @@ export const BACKFILL_SQL = `UPDATE camping_spots
               -- not restamp the page.
               AND contact IS DISTINCT FROM $2::jsonb`;
 
-/** The tags `mapContact` reads, and only those. */
-const TAG_COLUMNS = [
+/**
+ * The tags `mapContact` reads, and only those.
+ *
+ * Exported for the same reason as BACKFILL_SQL: it is a contract with
+ * the staging table, and a measurement that rebuilds it by hand measures
+ * its own typing. One did — a probe that dropped `operator`,
+ * `opening_hours` and `capacity` reported 5 937 rows differing where the
+ * real list reports what it reports.
+ */
+export const TAG_COLUMNS = [
   'website',
   'contact:website',
   'url',
@@ -144,8 +152,20 @@ async function main() {
   await db.end();
 }
 
-main().catch((e) => {
-  // eslint-disable-next-line no-console
-  console.error(e);
-  process.exit(1);
-});
+// 🔴 Guarded, because a spec that imports anything from this file would
+// otherwise RUN it. `backfill-contact.spec.ts` imports BACKFILL_SQL, and
+// that single import opened a Postgres client, ran 14 954 UPDATEs and
+// COMMITted them — against whatever DATABASE_URL happened to point at.
+// It changed nothing only because the backfill is idempotent.
+//
+// The connection also outlived Jest: the server answered the SASL
+// handshake after the module registry was gone, `pg` could no longer
+// `require('pgpass')`, and the process exited non-zero with 1007 tests
+// green. A red job that means nothing teaches us to stop reading CI.
+if (require.main === module) {
+  main().catch((e) => {
+    // eslint-disable-next-line no-console
+    console.error(e);
+    process.exit(1);
+  });
+}
