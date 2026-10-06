@@ -22,6 +22,7 @@
 // which is why this is a safeguard rather than an obstacle.
 
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { EU, GEOFABRIK } from '../ci/check-eu-scope.mjs';
 
 const DB = process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
@@ -162,62 +163,82 @@ function selfTest() {
   return failed === 0;
 }
 
-if (process.argv.includes('--self-test')) {
+// 🔴 GUARDED (CAMP-202). Everything below used to run at module level,
+// and `psql(`DELETE FROM camping_spots WHERE slug IN (…)`)` was part of
+// it. This file also EXPORTS `listProblems` and `classify`, which is
+// exactly the invitation a spec accepts — and importing one of them
+// would have deleted rows.
+//
+// That is the CAMP-202 shape with a DELETE instead of an UPDATE. The
+// neighbour `import-release.mjs` already had this guard; this file did
+// not, and nothing said so until a check was written for it.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (!invokedDirectly) {
+  // imported for listProblems/classify — do nothing
+} else if (process.argv.includes('--self-test')) {
   process.exit(selfTest() ? 0 : 1);
+} else {
+  main();
 }
 
-const eu = EU;
-assertPlausible(eu, GEOFABRIK);
+function main() {
+  const eu = EU;
+  assertPlausible(eu, GEOFABRIK);
 
-const raw = psql(`
-  SELECT slug, lower(country) AS country,
-         (context <> '{}'::jsonb) AS has_context,
-         (owner_overrides <> '{}'::jsonb) AS has_overrides
-    FROM camping_spots
-   WHERE lower(country) <> ALL (ARRAY[${eu.map((c) => `'${c}'`).join(',')}])
-   ORDER BY country, slug`);
+  const raw = psql(`
+    SELECT slug, lower(country) AS country,
+           (context <> '{}'::jsonb) AS has_context,
+           (owner_overrides <> '{}'::jsonb) AS has_overrides
+      FROM camping_spots
+     WHERE lower(country) <> ALL (ARRAY[${eu.map((c) => `'${c}'`).join(',')}])
+     ORDER BY country, slug`);
 
-const rows = raw
-  ? raw.split('\n').map((line) => {
-      const [slug, country, has_context, has_overrides] = line.split('|');
-      return { slug, country, has_context, has_overrides };
-    })
-  : [];
+  const rows = raw
+    ? raw.split('\n').map((line) => {
+        const [slug, country, has_context, has_overrides] = line.split('|');
+        return { slug, country, has_context, has_overrides };
+      })
+    : [];
 
-const { removable, keep } = classify(rows, eu);
+  const { removable, keep } = classify(rows, eu);
 
-console.log(`outside the European Union: ${rows.length} campsites`);
-for (const r of rows) {
-  const why = keep.includes(r) ? '  KEPT — carries computed data' : '';
-  console.log(`  ${r.country}  ${r.slug}${why}`);
-}
+  console.log(`outside the European Union: ${rows.length} campsites`);
+  for (const r of rows) {
+    const why = keep.includes(r) ? '  KEPT — carries computed data' : '';
+    console.log(`  ${r.country}  ${r.slug}${why}`);
+  }
 
-if (keep.length > 0) {
-  console.log(
-    `\n⚠️ ${keep.length} row(s) hold computed surroundings or owner corrections.\n` +
-      '   Those are not rebuildable from OpenStreetMap, so this script will not\n' +
-      '   remove them. Decide about them by hand.',
+  if (keep.length > 0) {
+    console.log(
+      `\n⚠️ ${keep.length} row(s) hold computed surroundings or owner corrections.\n` +
+        '   Those are not rebuildable from OpenStreetMap, so this script will not\n' +
+        '   remove them. Decide about them by hand.',
+    );
+  }
+
+  if (removable.length === 0) {
+    console.log('\n✓ nothing to remove');
+    process.exit(0);
+  }
+
+  if (!APPLY) {
+    console.log(`\n${removable.length} row(s) would be removed. Re-run with --apply to do it.`);
+    process.exit(0);
+  }
+
+  const slugs = removable.map((r) => `'${r.slug.replace(/'/g, "''")}'`).join(',');
+  psql(`DELETE FROM camping_spots WHERE slug IN (${slugs})`);
+  const left = Number(
+    psql(`SELECT count(*) FROM camping_spots
+           WHERE lower(country) <> ALL (ARRAY[${eu.map((c) => `'${c}'`).join(',')}])`),
   );
-}
+  console.log(`\n✓ removed ${removable.length}; ${left} non-EU rows remain (kept or new)`);
+  if (left !== keep.length) {
+    console.error('✗ the count after deleting does not match what was kept');
+    process.exit(1);
+  }
 
-if (removable.length === 0) {
-  console.log('\n✓ nothing to remove');
-  process.exit(0);
-}
-
-if (!APPLY) {
-  console.log(`\n${removable.length} row(s) would be removed. Re-run with --apply to do it.`);
-  process.exit(0);
-}
-
-const slugs = removable.map((r) => `'${r.slug.replace(/'/g, "''")}'`).join(',');
-psql(`DELETE FROM camping_spots WHERE slug IN (${slugs})`);
-const left = Number(
-  psql(`SELECT count(*) FROM camping_spots
-         WHERE lower(country) <> ALL (ARRAY[${eu.map((c) => `'${c}'`).join(',')}])`),
-);
-console.log(`\n✓ removed ${removable.length}; ${left} non-EU rows remain (kept or new)`);
-if (left !== keep.length) {
-  console.error('✗ the count after deleting does not match what was kept');
-  process.exit(1);
 }

@@ -45,175 +45,181 @@
 // not, and nothing anywhere said so. A convention nobody checks is a
 // convention that holds until the next file.
 
+import ts from 'typescript';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { argv, exit } from 'node:process';
 import { join, relative } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-const ROOTS = ['apps/api/src', 'scripts/osm-pipeline'];
+// 🔴 EVERY ROOT THAT HOLDS A SCRIPT, and both module systems.
+//
+// The first version listed `apps/api/src` and `scripts/osm-pipeline`, and
+// review measured what the second one contributed: ZERO files. `walk()`
+// matched `.ts`/`.mts`, and that directory holds two `.mjs` and seven
+// `.sh`. The root was decoration, and the summary line ("128 files") hid
+// it by reporting one total. One of the files it was not reading,
+// `scripts/osm-pipeline/drop-non-eu.mjs`, runs an unguarded
+// `DELETE FROM camping_spots` at module level and exports two functions
+// that invite a spec to import them.
+//
+// Three specs in this repository already import from `scripts/`, so the
+// path "a spec reaches a script" is not hypothetical here.
+const ROOTS = ['apps/api/src', 'apps/web/src', 'apps/web/scripts', 'scripts'];
 
-/**
- * Strip strings, template literals, regex literals and comments, keeping
- * line structure intact.
- *
- * 🔴 Not cosmetic. Without it `console.log('main()')` is a top-level
- * call, `// main()` in a comment is a top-level call, and a `{` inside a
- * string throws the brace depth off for the rest of the file — which
- * would make the scanner miss real findings rather than merely invent
- * false ones.
- */
-export function blank(source) {
-  let out = '';
-  let i = 0;
-  // What we are inside of: null, or one of ' " ` // /* /
-  let mode = null;
-  // The last token that was not whitespace, used to tell a regex literal
-  // from a division: `a / b` versus `split(/x/)`.
-  let prev = '';
-
-  while (i < source.length) {
-    const c = source[i];
-    const next = source[i + 1];
-
-    if (mode === null) {
-      if (c === '/' && next === '/') { mode = '//'; out += '  '; i += 2; continue; }
-      if (c === '/' && next === '*') { mode = '/*'; out += '  '; i += 2; continue; }
-      if (c === "'" || c === '"' || c === '`') { mode = c; out += ' '; i++; continue; }
-      // A regex can only start where a value can start.
-      if (c === '/' && /[=(,:;[!&|?{}+\-*%~^]|^$|return|typeof|case/.test(prev)) {
-        mode = '/'; out += ' '; i++; continue;
-      }
-      out += c;
-      if (!/\s/.test(c)) prev = /[\w$]/.test(c) ? prev.replace(/[^\w$]*$/, '') + c : c;
-      i++;
-      continue;
-    }
-
-    // Inside something. Newlines are always kept so line numbers hold.
-    if (c === '\n') {
-      out += '\n';
-      if (mode === '//') mode = null;
-      // An unterminated regex or quote cannot span a line; treat the
-      // newline as the end rather than swallowing the rest of the file.
-      else if (mode === "'" || mode === '"' || mode === '/') mode = null;
-      i++;
-      continue;
-    }
-    if (c === '\\') { out += '  '; i += 2; continue; }
-    if (mode === '/*' && c === '*' && next === '/') { mode = null; out += '  '; i += 2; continue; }
-    if (mode === '//' || mode === '/*') { out += ' '; i++; continue; }
-    if (c === mode) { mode = null; out += ' '; i++; continue; }
-    out += ' ';
-    i++;
+/** Files this root holds, before any entry-point question is asked. */
+function walk(dir, out = []) {
+  for (const entry of readdirSync(dir)) {
+    if (entry === 'node_modules' || entry === '.next') continue;
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) walk(path, out);
+    else if (isReadable(entry)) out.push(path);
   }
   return out;
 }
 
-/** Names this file declares as a function or an arrow const. */
-export function declaredFunctions(blanked) {
-  const names = new Set();
-  const patterns = [
-    /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm,
-    /^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(/gm,
-  ];
-  for (const re of patterns) {
-    for (const m of blanked.matchAll(re)) names.add(m[1]);
-  }
-  return names;
-}
+/** A test file: never an entry point, but very much an importER. */
+const isSpec = (file) => /\.(spec|test)\.[cm]?[jt]sx?$/.test(file);
+
+
+/** Files whose contents this check can parse at all. */
+export const isReadable = (f) => /\.(ts|tsx|mts|cts|mjs|cjs|js|jsx)$/.test(f);
 
 /**
- * Top-level statements that call a function this file declares.
+ * Statements at module level that DO something when the file is imported.
  *
- * Depth is counted on braces only. `if (require.main === module) { … }`
- * puts its body at depth 1, which is exactly how a guarded script is
- * told apart from an unguarded one — without relying on indentation,
- * which `scripts/` has no formatter to guarantee.
+ * 🔴 PARSED, NOT SCANNED. The first version counted brace depth over a
+ * string with comments and literals blanked out, and matched a call
+ * against a list of names the file declared. Review walked past it eight
+ * ways — `const main = async function () {}`, a top-level async IIFE,
+ * `new Runner().go()`, a missing semicolon, `let main = async () => {}`,
+ * a backslash at the end of a line comment, `if (x) main()` — each one
+ * reproduced on a file that opened Postgres and ran an UPDATE while the
+ * check reported `exit 0`.
  *
- * 🔴 A call is a STATEMENT only when the previous meaningful character
- * was `;` or `}`, or there was none. Matching per line instead found
- * three calls that are nothing of the sort — the body of a one-line
- * arrow const wrapped onto the next line:
+ * That is not a list of bugs to fix one at a time; it is a hand-written
+ * parser losing to the language. TypeScript's own parser is already a
+ * dependency, and it knows what a statement is.
  *
- *   export const mergedStarsSql = (alias: string): string =>
- *     mergedFieldSql(alias, 'stars');          // ← not a statement
- *
- * A guard that cries wolf on `spots/links.ts` gets switched off, and
- * then it is not guarding the thing it was written for either.
+ * The rule is now simpler and stronger: at module level, an EXPRESSION
+ * statement is work. Declarations are not, imports are not, and a block
+ * guarded by `require.main === module` is not.
  */
-export function unguardedCalls(source) {
-  const blanked = blank(source);
-  const names = declaredFunctions(blanked);
-  const found = [];
-  let depth = 0;
-  let line = 1;
-  let last = ''; // previous non-whitespace character
-  let i = 0;
+export function unguardedCalls(source, fileName = 'file.ts') {
+  const sf = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    /\.(tsx|jsx)$/.test(fileName) ? ts.ScriptKind.TSX : undefined,
+  );
 
-  while (i < blanked.length) {
-    const c = blanked[i];
-    if (c === '\n') { line++; i++; continue; }
-    if (/\s/.test(c)) { i++; continue; }
-
-    if (c === '{') { depth++; last = c; i++; continue; }
-    if (c === '}') { depth--; last = c; i++; continue; }
-
-    // A new statement can only begin after the previous one ended.
-    const atStatementStart = depth === 0 && (last === '' || last === ';' || last === '}');
-    if (atStatementStart && /[A-Za-z_$]/.test(c)) {
-      const rest = blanked.slice(i);
-      const m = rest.match(/^(?:(?:void|await)\s+)?([A-Za-z_$][\w$]*)\s*\(/);
-      if (m && names.has(m[1])) found.push({ line, name: m[1] });
+  // Names assigned `require.main === module` (or the ESM equivalent), so
+  // `if (RUN_DIRECTLY) { … }` reads as the guard it is.
+  const guardNames = new Set();
+  for (const st of sf.statements) {
+    if (!ts.isVariableStatement(st)) continue;
+    for (const d of st.declarationList.declarations) {
+      if (d.initializer && /require\.main|import\.meta/.test(d.initializer.getText(sf))) {
+        guardNames.add(d.name.getText(sf));
+      }
     }
-
-    last = c;
-    i++;
   }
+  const isGuard = (expr) => {
+    const text = expr.getText(sf);
+    if (/require\.main|import\.meta/.test(text)) return true;
+    return [...guardNames].some((n) => new RegExp(`\\b${n}\\b`).test(text));
+  };
+
+  const found = [];
+  const at = (node) => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+  const body = (node) => (node && ts.isBlock(node) ? node.statements : node ? [node] : []);
+
+  const visit = (statements) => {
+    for (const st of statements) {
+      if (ts.isExpressionStatement(st)) {
+        // `'use strict'` and friends are directives, not work.
+        if (ts.isStringLiteral(st.expression)) continue;
+        found.push({ line: at(st), name: st.expression.getText(sf).split('\n')[0].slice(0, 60) });
+      } else if (ts.isIfStatement(st)) {
+        // 🔴 A guarded block is the whole point and is left alone. A
+        // top-level `if` that is NOT the guard does not make its body any
+        // less module-level, so we keep looking inside it.
+        if (isGuard(st.expression)) continue;
+        visit(body(st.thenStatement));
+        visit(body(st.elseStatement));
+      } else if (ts.isBlock(st)) {
+        visit(st.statements);
+      } else if (ts.isTryStatement(st)) {
+        visit(st.tryBlock.statements);
+        if (st.catchClause) visit(st.catchClause.block.statements);
+        if (st.finallyBlock) visit(st.finallyBlock.statements);
+      } else if (ts.isExportAssignment(st) && ts.isCallExpression(st.expression)) {
+        // `export default main();` runs too.
+        found.push({ line: at(st), name: st.expression.getText(sf).slice(0, 60) });
+      }
+      // Everything else at module level is a declaration, an import or an
+      // export of one: it defines, it does not do.
+    }
+  };
+  visit(sf.statements);
   return found;
 }
-
-/**
- * The one file whose entire job is to be the process entry point.
- *
- * 🔴 Exempt, but CONDITIONALLY. `require.main === module` is not
- * reliably true for a Nest entry point — it depends on how the process
- * was started (`nest start`, `node dist/main`, a wrapper) — and a guard
- * that is false at runtime does not make the API safer, it stops it
- * booting. So this file keeps its bare call.
- *
- * The exemption rests on one fact: nothing imports it. The moment
- * something does, the fact is gone and the exemption with it — which is
- * why `importers()` below checks it on every run rather than trusting
- * the comment. An exemption nobody rechecks is how CAMP-202 happened in
- * the first place.
- */
-const ENTRY_POINTS = new Set(['apps/api/src/main.ts']);
 
 /**
  * Files that import `target`, by its module path without the extension.
  *
- * 🔴 All four specifier forms, because the first version matched only
- * `from '…'` and the rehearsal walked straight through it: adding
+ * 🔴 PARSED, NOT GREPPED, and this file is the proof of why. The regex
+ * version searched raw text, so the IMPORT_FORMS cases below — which are
+ * strings CONTAINING `import './main';` — made this very check look like
+ * an importer of `apps/api/src/main.ts`, and `main.ts` was reported as a
+ * defect. A specifier inside a string literal is data; only the parser
+ * can tell the difference.
+ *
+ * All four forms are covered, because the first version matched only
+ * `from '…'` and the rehearsal walked through it: adding
  * `import './main';` to app.module.ts left this check green. A bare
- * side-effect import is exactly the form that would run an entry point,
- * so missing it defeated the whole exemption.
+ * side-effect import is exactly the form that would run an entry point.
  */
+export function specifiersIn(source, fileName = 'file.ts') {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true,
+    /\.(tsx|jsx)$/.test(fileName) ? ts.ScriptKind.TSX : undefined);
+  const out = [];
+  const text = (node) => (node && ts.isStringLiteral(node) ? node.text : null);
+  const walkNode = (node) => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      const spec = text(node.moduleSpecifier);
+      if (spec) out.push(spec);
+    } else if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const isRequire = ts.isIdentifier(callee) && callee.text === 'require';
+      const isDynamic = callee.kind === ts.SyntaxKind.ImportKeyword;
+      if (isRequire || isDynamic) {
+        const spec = text(node.arguments[0]);
+        if (spec) out.push(spec);
+      }
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      const spec = text(node.argument.literal);
+      if (spec) out.push(spec);
+    }
+    ts.forEachChild(node, walkNode);
+  };
+  ts.forEachChild(sf, walkNode);
+  return out;
+}
+
 export function importers(files, target, read = (f) => readFileSync(f, 'utf8')) {
-  const base = target.replace(/\.ts$/, '').split('/').pop();
-  const SPECIFIER = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*['"]([^'"]+)['"]/g;
+  const base = target.replace(/\.[cm]?[jt]sx?$/, '').split('/').pop();
   const found = [];
   for (const file of files) {
     if (file === target) continue;
-    for (const [, spec] of read(file).matchAll(SPECIFIER)) {
-      if (spec.replace(/\.(ts|js|mjs)$/, '').split('/').pop() === base) {
-        found.push(file);
-        break;
-      }
-    }
+    const hit = specifiersIn(read(file), file).some(
+      (spec) => spec.replace(/\.[cm]?[jt]sx?$/, '').split('/').pop() === base,
+    );
+    if (hit) found.push(file);
   }
   return found;
 }
 
-/** The forms a module can be pulled in by, as cases rather than a claim. */
 const IMPORT_FORMS = [
   ['a named import is seen', "import { x } from './main';", true],
   ['a bare side-effect import is seen', "import './main';", true],
@@ -225,14 +231,6 @@ const IMPORT_FORMS = [
   ['a longer name ending in it is not', "import './remain';", false],
 ];
 
-function walk(dir, out = []) {
-  for (const entry of readdirSync(dir)) {
-    const path = join(dir, entry);
-    if (statSync(path).isDirectory()) walk(path, out);
-    else if (/\.(ts|mts)$/.test(entry) && !/\.(spec|test|d)\.ts$/.test(entry)) out.push(path);
-  }
-  return out;
-}
 
 const SELF_TEST = [
   ['a guarded script passes', `
@@ -282,10 +280,14 @@ if (require.main === module) { main(); }
 const main = async () => {};
 main();
 `, 1],
-  ['calling an imported function is not our business', `
+  // 🔴 MY OWN EXPECTATION WAS WRONG HERE, and only a real parser showed
+  // it. `bootstrap()` runs when this file is imported no matter where
+  // `bootstrap` was declared — "not ours" described the old scanner's
+  // blind spot, not anything about the hazard.
+  ['calling an imported function runs on import too', `
 import { bootstrap } from './nest';
 bootstrap();
-`, 0],
+`, 1],
   ['a brace inside a regex literal does not break it', `
 async function main() {}
 const re = /[{]/;
@@ -304,81 +306,312 @@ function priceAgeDays(a, b) { return 1; }
 export const isPriceStale = (measuredAt: Date, now: Date): boolean =>
   priceAgeDays(measuredAt, now) > 30;
 `, 0],
-  ['an argument wrapped onto its own line is not a statement', `
+  // Wrong for the same reason: the WRAPPING is not a statement, but
+  // `register(…)` is, and it runs. One finding, not two — the inner call
+  // is part of it.
+  ['a wrapped call is one statement, and it still runs', `
 function helper() {}
 register(
   helper(),
 );
-`, 0],
+`, 1],
   ['a call after a closing brace IS a statement', `
 async function main() {}
 main();
 `, 1],
+  // 🔴 EIGHT WAYS PAST THE FIRST VERSION, every one of them found by
+  // adversarial review and every one reproduced on a real file that
+  // opened Postgres and ran an UPDATE while the check said exit 0.
+  // They are cases here before they were fixed, so the fix is measured
+  // rather than asserted.
+  ['const NAME = async function () {} is an entry point', `
+const main = async function () {};
+main();
+`, 1],
+  ['const NAME = function () {} too', `
+const main = function () {};
+main();
+`, 1],
+  ['let NAME = async () => {} too', `
+let main = async () => {};
+main();
+`, 1],
+  ['a top-level async IIFE runs on import', `
+(async () => {
+  await work();
+})();
+`, 1],
+  ['a bare IIFE does too', `
+(function () {
+  work();
+})();
+`, 1],
+  ['a missing semicolon does not hide the next statement', `
+async function main() {}
+const x = 1
+main();
+`, 1],
+  ['a method call on a fresh object runs too', `
+class Runner { go() {} }
+new Runner().go();
+`, 1],
+  ['a backslash ending a line comment does not swallow the next line', `
+async function main() {}
+// a trailing backslash \\
+main();
+`, 1],
+  ['a call as the body of a one-line if still runs', `
+async function main() {}
+if (process.env.X) main();
+`, 1],
+];
+
+
+/**
+ * Does this file's module-level code reach a database?
+ *
+ * 🔴 A SECOND, STRICTER RULE, and the reason it exists is in
+ * `scripts/osm-pipeline/drop-non-eu.mjs`: unguarded at module level, it
+ * runs `DELETE FROM camping_spots WHERE slug IN (…)` and exports two
+ * functions a spec would plausibly want. Nothing imports it today, so
+ * the import rule below would let it pass.
+ *
+ * That is the wrong answer for this file. The import rule fires on the
+ * commit that ADDS the import — and the test job can run before the
+ * check job. "CI went red after the rows were gone" is not a guard. So a
+ * file that can write to a database guards its module-level work whether
+ * or not anything imports it: being unimportable is a fact about today,
+ * being destructive is a fact about the file.
+ *
+ * 🔴 Asked of the AST, not of the text. The text version matched the SQL
+ * inside `check-fixture-not-shrunk.mjs`'s own assertions and the
+ * `new Client()` inside this file's own self-test fixtures — two files
+ * that touch no database at all.
+ */
+export function touchesDatabase(source, fileName = 'file.ts') {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true,
+    /\.(tsx|jsx)$/.test(fileName) ? ts.ScriptKind.TSX : undefined);
+  const CLIENTS = new Set(['Client', 'Pool', 'DataSource']);
+  let found = false;
+  const walkNode = (node) => {
+    if (found) return;
+    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && CLIENTS.has(node.expression.text)) {
+      found = true;
+      return;
+    }
+    // A helper that shells out to psql, which is how the .mjs pipeline
+    // scripts talk to Postgres.
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'psql') {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, walkNode);
+  };
+  ts.forEachChild(sf, walkNode);
+  return found;
+}
+
+/**
+ * Can this file's module-level code reach outside the process?
+ *
+ * 🔴 THE NARROWING THAT MAKES THE IMPORT RULE USABLE. Without it the
+ * check reported three files that are doing exactly the right thing:
+ * `campsite-map.tsx` and `route-map.tsx` call `setWorkerUrl(…)` at module
+ * level because MapLibre needs it before any map exists, and
+ * `map-sources.ts` pushes one entry onto an array behind an env check.
+ * All three are in-memory, idempotent, and imported on purpose.
+ *
+ * A guard that calls those defects gets switched off, and then it is not
+ * guarding `backfill-contact.ts` either. CAMP-202 was not about assigning
+ * a variable at module level; it was about a database, a process and a
+ * network socket. So the import rule asks for evidence that the file can
+ * reach one.
+ */
+const OUTSIDE = new Set([
+  'pg', 'typeorm', 'mysql2', 'sqlite3', 'ioredis', 'redis',
+  'fs', 'node:fs', 'fs/promises', 'node:fs/promises',
+  'child_process', 'node:child_process',
+  'http', 'node:http', 'https', 'node:https', 'net', 'node:net',
+  'node:dns', 'dns', 'undici', 'node-fetch',
+  '@nestjs/core', 'nodemailer',
+]);
+
+export function reachesOutside(source, fileName = 'file.ts') {
+  if (specifiersIn(source, fileName).some((spec) => OUTSIDE.has(spec))) return true;
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true,
+    /\.(tsx|jsx)$/.test(fileName) ? ts.ScriptKind.TSX : undefined);
+  let found = false;
+  const walkNode = (node) => {
+    if (found) return;
+    if (
+      ts.isCallExpression(node) &&
+      /^(process\.exit|execSync|spawnSync|execFileSync)$/.test(node.expression.getText(sf))
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, walkNode);
+  };
+  ts.forEachChild(sf, walkNode);
+  return found;
+}
+
+/**
+ * What to say about one file, as a pure decision.
+ *
+ * 🔴 PURE AND TESTED, because review found that the 24 cases this file
+ * was proud of all exercised the PARSER and none of them touched the
+ * file-selection or exemption layer — which is exactly where two of the
+ * three blocking defects lived. Density of tests around one layer hid
+ * zero coverage of the next.
+ */
+export function verdict({ file, work, importedBy, database, external }) {
+  if (work.length === 0) return null;
+  if (database) {
+    return {
+      file,
+      line: work[0].line,
+      why:
+        `${work[0].name} runs when this file is imported, and this file can ` +
+        'write to a database. Wrap module-level work in ' +
+        '`if (require.main === module) { … }` (or the `import.meta.url` ' +
+        'equivalent in an .mjs). A file that deletes rows does not get to ' +
+        'rely on nobody importing it yet.',
+    };
+  }
+  if (importedBy.length > 0 && external) {
+    return {
+      file,
+      line: work[0].line,
+      why:
+        `${work[0].name} runs when this file is imported, and ` +
+        `${importedBy.length} file${importedBy.length === 1 ? '' : 's'} ` +
+        `import${importedBy.length === 1 ? 's' : ''} it: ` +
+        `${importedBy.slice(0, 4).join(', ')}` +
+        `${importedBy.length > 4 ? ', …' : ''}. In CAMP-202 that meant one ` +
+        'spec importing one SQL constant ran a COMMITted 14 954-row ' +
+        'migration, and the job went red with 1007 tests green.',
+    };
+  }
+  // Nothing imports it, it cannot write: it is an entry point doing its job.
+  return null;
+}
+
+const DECISIONS = [
+  ['a quiet file is fine however many import it',
+    { file: 'a.ts', work: [], importedBy: ['b.ts', 'c.ts'], database: true, external: true }, false],
+  ['an entry point nothing imports is fine',
+    { file: 'main.ts', work: [{ line: 9, name: 'bootstrap()' }], importedBy: [], database: false, external: true }, false],
+  ['…but not once something imports it',
+    { file: 'main.ts', work: [{ line: 9, name: 'bootstrap()' }], importedBy: ['main.spec.ts'], database: false, external: true }, true],
+  ['a database file is caught even when nothing imports it',
+    { file: 'drop.mjs', work: [{ line: 7, name: 'psql(…)' }], importedBy: [], database: true, external: true }, true],
+  ['the CAMP-202 shape itself',
+    { file: 'backfill-contact.ts', work: [{ line: 147, name: 'main()' }], importedBy: ['backfill-contact.spec.ts'], database: true, external: true }, true],
+  ['in-memory module-level work is not a finding, however imported',
+    { file: 'map-sources.ts', work: [{ line: 79, name: 'MAP_SOURCES.push({' }],
+      importedBy: ['a.tsx', 'b.tsx'], database: false, external: false }, false],
+  ['…but the same file reaching outside is',
+    { file: 'map-sources.ts', work: [{ line: 79, name: 'writeFileSync(…)' }],
+      importedBy: ['a.tsx'], database: false, external: true }, true],
 ];
 
 if (argv.includes('--self-test')) {
   let failed = 0;
+  const say = (ok, what, detail) => {
+    if (!ok) failed++;
+    console.log(`${ok ? '✓' : '✗'} ${what}${detail}`);
+  };
+
   for (const [what, text, expected] of IMPORT_FORMS) {
     const got = importers(['a.ts'], 'apps/api/src/main.ts', () => text).length === 1;
-    const ok = got === expected;
-    if (!ok) failed++;
-    console.log(`${ok ? '✓' : '✗'} ${what} (expected ${expected}, got ${got})`);
+    say(got === expected, what, ` (expected ${expected}, got ${got})`);
   }
   for (const [what, source, expected] of SELF_TEST) {
     const got = unguardedCalls(source).length;
-    const ok = got === expected;
-    if (!ok) failed++;
-    console.log(`${ok ? '✓' : '✗'} ${what} (expected ${expected}, got ${got})`);
+    say(got === expected, what, ` (expected ${expected}, got ${got})`);
   }
+  for (const [what, input, expected] of DECISIONS) {
+    const got = verdict(input) !== null;
+    say(got === expected, what, ` (expected ${expected}, got ${got})`);
+  }
+  // 🔴 The file-selection layer, which had no coverage at all. Both of
+  // these were real: `walk` matched only .ts/.mts, so a whole root
+  // contributed zero files; and specs were filtered out of the list the
+  // exemption check searched, so the one class of file that caused
+  // CAMP-202 was the one it could not see.
+  const SELECTION = [
+    ['an .mjs is a file we read', isReadable('drop-non-eu.mjs'), true],
+    ['so is a .cjs', isReadable('x.cjs'), true],
+    ['and a .tsx', isReadable('page.tsx'), true],
+    ['a .sh is not', isReadable('run.sh'), false],
+    ['a .spec.ts is not a subject', isSpec('a.spec.ts'), true],
+    ['nor an .mjs test', isSpec('a.test.mjs'), true],
+    ['an ordinary file is', isSpec('a.ts'), false],
+  ];
+  for (const [what, got, expected] of SELECTION) {
+    say(got === expected, what, ` (expected ${expected}, got ${got})`);
+  }
+
+  const total = IMPORT_FORMS.length + SELF_TEST.length + DECISIONS.length + SELECTION.length;
   console.log(
     failed
-      ? `\n::error::self-test failed on ${failed} of ${SELF_TEST.length + IMPORT_FORMS.length} cases`
-      : `\n✓ self-test passed: ${SELF_TEST.length + IMPORT_FORMS.length} cases, guarded and unguarded both recognised`,
+      ? `\n::error::self-test failed on ${failed} of ${total} cases`
+      : `\n✓ self-test passed: ${total} cases across the parser, the ` +
+        'decision and the file selection',
   );
   exit(failed ? 1 : 0);
 }
 
-let bad = 0;
-let scanned = 0;
-for (const root of ROOTS) {
-  let files;
-  try {
-    files = walk(root);
-  } catch {
-    continue; // a root that does not exist in this checkout is not a failure
-  }
-  for (const file of files) {
-    scanned++;
-    const hits = unguardedCalls(readFileSync(file, 'utf8'));
-    if (hits.length && ENTRY_POINTS.has(file)) {
-      const who = importers(files, file);
-      if (who.length === 0) continue; // the exemption still holds
-      console.error(
-        `::error file=${file}::this file is exempt only while nothing ` +
-          `imports it, and ${who.length} file${who.length === 1 ? '' : 's'} ` +
-          `now do${who.length === 1 ? 'es' : ''}: ${who.join(', ')}. ` +
-          'Either drop the import or guard the call.',
-      );
-      bad += hits.length;
+// 🔴 Guarded like everything it polices. Review found this file killed
+// the probe process that imported it: it exports four functions AND
+// scanned and called `exit()` at module level — the very shape it
+// refuses in others, in the one directory it does not scan.
+if (import.meta.url === pathToFileURL(argv[1] ?? '').href) {
+  let bad = 0;
+  const counted = [];
+  const all = [];
+  for (const root of ROOTS) {
+    let files;
+    try {
+      files = walk(root);
+    } catch {
+      // 🔴 Said out loud. A root that silently contributes nothing is how
+      // `scripts/osm-pipeline` sat in this list reading zero files.
+      console.error(`::error::ROOTS names ${root}, which does not exist here`);
+      bad++;
       continue;
     }
-    for (const hit of hits) {
-      bad++;
-      console.error(
-        `::error file=${relative('.', file)},line=${hit.line}::` +
-          `${hit.name}() runs when this file is imported. ` +
-          'Wrap it in `if (require.main === module) { … }` — a spec that ' +
-          'imports anything from here would otherwise run it, and in ' +
-          'CAMP-202 that meant a COMMITted 14 954-row migration and a red ' +
-          'job with 1007 tests green.',
-      );
-    }
+    counted.push(`${root}: ${files.length}`);
+    all.push(...files);
   }
-}
 
-console.log(
-  bad
-    ? `\n✗ ${bad} top-level call${bad === 1 ? '' : 's'} in ${scanned} files run on import`
-    : `✓ ${scanned} files: nothing runs itself when imported`,
-);
-exit(bad ? 1 : 0);
+  const subjects = all.filter((f) => !isSpec(f));
+  for (const file of subjects) {
+    const source = readFileSync(file, 'utf8');
+    const work = unguardedCalls(source, file);
+    if (work.length === 0) continue;
+    // 🔴 Searched over EVERY file, specs included. Searching the subject
+    // list meant a `main.spec.ts` importing `./main` was invisible — the
+    // exact class of file CAMP-202 was about.
+    const found = verdict({
+      file,
+      work,
+      importedBy: importers(all, file),
+      database: touchesDatabase(source, file),
+      external: reachesOutside(source, file),
+    });
+    if (!found) continue;
+    bad++;
+    console.error(`::error file=${relative('.', found.file)},line=${found.line}::${found.why}`);
+  }
+
+  console.log(counted.join('  |  '));
+  console.log(
+    bad
+      ? `\n✗ ${bad} file${bad === 1 ? ' does' : 's do'} work when imported`
+      : `✓ ${subjects.length} files (of ${all.length} read): nothing does ` +
+        'work that anything can import',
+  );
+  exit(bad ? 1 : 0);
+}
