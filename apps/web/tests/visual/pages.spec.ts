@@ -145,19 +145,133 @@ async function settle(page: Page) {
   await page.waitForLoadState('networkidle').catch(() => {});
 }
 
+
+/**
+ * The size of a PNG, from its header. CAMP-197.
+ *
+ * 🔴 Needed because the number that matters is a RATIO, and the only
+ * exact figure Playwright hands back is a pixel COUNT. Dividing one by
+ * the other needs the baseline's own dimensions, so they are read from
+ * the file that the comparison was made against — not from the viewport,
+ * which is the height of the window and not of a full-page shot.
+ */
+function pngSize(file: string): { width: number; height: number } {
+  const head = readFileSync(file).subarray(16, 24);
+  return { width: head.readUInt32BE(0), height: head.readUInt32BE(4) };
+}
+
+/**
+ * How much of the tolerance this screenshot actually spent. CAMP-197.
+ *
+ * 🔴 WHY THIS EXISTS. `maxDiffPixelRatio` does not forgive noise — it
+ * ACCUMULATES. A baseline can sit at 70% of the budget for a year and
+ * the job stays green, so a real change hides inside the allowance until
+ * some unrelated edit pushes the same file over the line. That is how a
+ * "Tools" menu item lived in a baseline unseen: CAMP-55 re-shot seven of
+ * eight baselines, the eighth spent ~2033 pixels of a 2225 budget, and
+ * nothing said a word until CAMP-186 added one footer link.
+ *
+ * 🔴 IT READS THE PIXEL COUNT, NOT THE RATIO PLAYWRIGHT PRINTS, and the
+ * first version of this got that wrong. `coreBundle.js` computes the
+ * displayed ratio as `Math.ceil(count / area * 100) / 100` — rounded UP
+ * to the nearest hundredth. Against a budget of 0.002 that is useless:
+ * every non-zero difference, however small, prints as "0.01". The first
+ * run duly reported two files at "500% of the budget", which meant only
+ * "not byte-identical" and nothing more.
+ *
+ * The count beside it is exact, so the ratio is computed here from the
+ * baseline's own dimensions.
+ *
+ * Returns null when the images are identical, and a distinct shape when
+ * the message cannot be read. 🔴 "Spent nothing" and "could not tell"
+ * must never look alike.
+ */
+async function budgetSpent(
+  page: Page,
+  name: string,
+  baseline: string,
+  options: Record<string, unknown>,
+): Promise<{ pixels: number; ratio: number } | { unreadable: string } | null> {
+  try {
+    await expect(page).toHaveScreenshot(name, {
+      ...options,
+      maxDiffPixels: 0,
+      timeout: 15_000,
+    });
+    return null; // identical
+  } catch (e) {
+    const text = e instanceof Error ? e.message : String(e);
+    const m = text.match(/(\d+) pixels \(ratio/);
+    if (!m) return { unreadable: text.split('\n')[0].slice(0, 160) };
+    const pixels = Number(m[1]);
+    const { width, height } = pngSize(baseline);
+    return { pixels, ratio: pixels / (width * height) };
+  }
+}
+
+/** The blocking tolerance, named once so the report can speak in fractions of it. */
+const BUDGET = 0.002;
+
+/**
+ * The share of that budget a baseline may spend before this suite says so.
+ *
+ * 🔴 CHOSEN FROM MEASUREMENT, NOT BEFORE IT. The first run of the report
+ * above produced, on CI, for the eight baselines:
+ *
+ *     six files   0 px        no pixel differs (see the caveat below)
+ *     not-found-phone   271 px     39.7% of budget
+ *     countries-phone   479 px     72.8% of budget
+ *
+ * That distribution decides the number by itself. The comment on BUDGET
+ * reasons about antialiasing varying "by a pixel or two between runs" —
+ * on this runner six of eight files report zero differing pixels, so
+ * there is no noise floor to clear in these units.
+ *
+ * 🔴 "ZERO PIXELS" IS NOT "BYTE FOR BYTE", and the first version of this
+ * comment said it was. `maxDiffPixels: 0` still runs pixelmatch at its
+ * default per-pixel `threshold: 0.2`; it counts pixels that differ ENOUGH,
+ * not pixels that differ. Review measured the size of that gap on the real
+ * `countries-phone-linux.png`: shifting every channel of the whole page by
+ * −48/255 is still reported as zero differing pixels, and ±8 of jitter
+ * across 304 413 of its 329 160 pixels likewise.
+ *
+ * Two things follow, and only one of them is a problem.
+ *
+ * The number 0.25 is unharmed: this probe and the blocking threshold use
+ * the same comparator, so "72.8% of the budget" compares like with like,
+ * which is the only claim it makes.
+ *
+ * The blind spot is real and belongs in writing: a change that moves many
+ * pixels a little — a colour token that stopped resolving, a background
+ * that shifted a shade — is invisible to this gate AND to the blocking
+ * threshold it reports against. Neither was ever going to catch it. What
+ * catches that is check-design-tokens.mjs and check-map-palette.mjs, which
+ * read the values rather than the rendering.
+ *
+ * The two files that are not zero are not noise: the
+ * countries baseline still reads "71 campsites" and "Croatia 36" where
+ * the site now says 72 and 37, which is the CAMP-182 fixture change that
+ * slid in under the allowance.
+ *
+ * A quarter of the budget sits far above a measured floor of nothing and
+ * far below the smallest real drift seen, 39.7%. If a future runner does
+ * show antialiasing noise, the report prints the number, so the next
+ * person moves this with evidence rather than by feel.
+ */
+const DRIFT_AT = 0.25;
+
 for (const viewport of VIEWPORTS) {
   test.describe(`${viewport.name}`, () => {
     test.use({ viewport: { width: viewport.width, height: viewport.height } });
 
     for (const subject of PAGES) {
-      test(`${subject.name} looks the way it did`, async ({ page }) => {
+      test(`${subject.name} looks the way it did`, async ({ page }, testInfo) => {
         if (subject.name === 'map') await pinFireLayer(page);
         await page.goto(subject.path);
         await settle(page);
 
-        await expect(page).toHaveScreenshot(
-          `${subject.name}-${viewport.name}.png`,
-          {
+        const shot = `${subject.name}-${viewport.name}.png`;
+        await expect(page).toHaveScreenshot(shot, {
             fullPage: true,
             animations: 'disabled',
             // Caret blink is a one-pixel diff that fails a run at random.
@@ -168,9 +282,73 @@ for (const viewport of VIEWPORTS) {
             // machine; zero tolerance means a red build every few days,
             // and a suite that cries wolf gets deleted. 0.2% of the page
             // is far below any real layout change and far above noise.
-            maxDiffPixelRatio: 0.002,
+            //
+            // 🔴 But it ACCUMULATES — see budgetSpent below, and CAMP-197
+            // for the menu item that lived inside this allowance unseen.
+            maxDiffPixelRatio: BUDGET,
+        });
+
+        // CAMP-197, measuring step. Reports only — the threshold that
+        // turns this red is chosen from these numbers, not before them.
+        const spent = await budgetSpent(
+          page,
+          shot,
+          testInfo.snapshotPath(shot),
+          {
+            fullPage: true,
+            animations: 'disabled',
+            caret: 'hide',
+            mask: await masks(page),
           },
         );
+        const says =
+          spent === null
+            ? 'identical to the baseline'
+            : 'unreadable' in spent
+              ? `COULD NOT MEASURE — ${spent.unreadable}`
+              : `${spent.pixels} px, ${(spent.ratio * 100).toFixed(4)}% of the page, ` +
+                `${((spent.ratio / BUDGET) * 100).toFixed(1)}% of the budget`;
+        console.log(`visual-budget\t${shot}\t${says}`);
+
+        // 🔴 FAIL CLOSED. This branch used to fall through to the gate
+        // below, which asks `'ratio' in spent` — so a probe that could
+        // not read Playwright's message left the test GREEN, and the
+        // only trace was the console line above, which nothing greps.
+        //
+        // An adversarial review measured it on an isolated project
+        // against this repo's own playwright@1.63.0: the same 191 px
+        // drift gives `GATE FIRED → 1 failed` with the current regex and
+        // `COULD NOT MEASURE → 1 passed` the moment the wording moves.
+        // The regex is a dependency on a private message format, so it
+        // WILL move; what must not happen is that it moves us to green.
+        if (spent !== null && 'unreadable' in spent) {
+          throw new Error(
+            `${shot}: the budget probe could not read how much this page ` +
+              `differs, so nothing here knows whether it drifted.\n` +
+              `Playwright said: ${spent.unreadable}\n` +
+              `The probe reads the pixel count out of the failure message ` +
+              `with /(\\d+) pixels \\(ratio/. If that wording changed, fix ` +
+              `the pattern in budgetSpent() — do not delete this check.`,
+          );
+        }
+
+        // 🔴 The gate the card asks for. A difference that never reaches
+        // the blocking tolerance is invisible for as long as it stays
+        // there — and the tolerance does not care WHAT it is swallowing.
+        // A menu item hid in it for weeks; the same room would hold a
+        // broken heading, a moved price or a wrong number.
+        if (spent !== null && 'ratio' in spent && spent.ratio > BUDGET * DRIFT_AT) {
+          throw new Error(
+            `${shot} has drifted from its baseline: ${spent.pixels} px, ` +
+              `${((spent.ratio / BUDGET) * 100).toFixed(1)}% of the tolerance ` +
+              `(the line is ${DRIFT_AT * 100}%).\n` +
+              `This is under the blocking threshold, which is exactly why it ` +
+              `needs saying: it would otherwise sit here unseen.\n` +
+              `🔴 LOOK at the diff in the visual-diff artifact before doing ` +
+              `anything. Re-shooting the baseline is how the last one got in — ` +
+              `it is the right answer only once you can say what changed and why.`,
+          );
+        }
       });
     }
   });

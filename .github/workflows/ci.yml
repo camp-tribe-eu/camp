@@ -882,6 +882,16 @@ jobs:
       - name: Nothing looks different
         if: inputs.update-visual-baselines != true
         run: npm run test:visual --workspace=apps/web
+
+      # 🔴 CAMP-197. `retries: 1` applies to this project too, so a visual
+      # test can fail and then pass while the job stays green — and the
+      # e2e job was the only one that read the report for it. This PR adds
+      # a second full-page capture per test, which is new flake surface in
+      # exactly the job that had no guard. Runs on failure too, because a
+      # red job can still be hiding a retried test behind the red one.
+      - name: A visual test that was retried did not pass quietly
+        if: always() && inputs.update-visual-baselines != true
+        run: node scripts/ci/check-flaky.mjs apps/web/playwright-report/report.json
         env:
           CI: true
 
