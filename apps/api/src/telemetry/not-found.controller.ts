@@ -1,6 +1,15 @@
-import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Headers,
+  HttpCode,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { BULK_LIMIT } from '../throttle';
+import { BUILD_TOKEN_HEADER, BULK_LIMIT } from '../throttle';
 import { NotFoundService, REPORT_DAYS } from './not-found.service';
 
 const BULK = { default: BULK_LIMIT };
@@ -20,7 +29,25 @@ export class NotFoundController {
    */
   @Post()
   @HttpCode(202)
-  async record(@Body() body: Record<string, unknown>) {
+  async record(
+    @Body() body: Record<string, unknown>,
+    @Headers(BUILD_TOKEN_HEADER) token?: string,
+  ) {
+    // 🔴 NOT A PUBLIC BEACON, and that is the difference from the
+    // client-errors endpoint next door. That one must accept reports
+    // from browsers, so it defends itself with a per-caller bucket.
+    // This one is only ever called by our own server, which already
+    // holds the build token — so the honest protection is to require it
+    // rather than to rate-limit strangers who have no business here.
+    //
+    // Without it, anyone could fill the table with invented dead paths,
+    // and the report's whole value is that its top entries tell us where
+    // to point a 301. A poisoned report is worse than an empty one.
+    //
+    // 🔴 Fails CLOSED: no token configured means nobody gets in, not
+    // everybody. `undefined === undefined` must never be a way through.
+    const expected = process.env.API_BUILD_TOKEN;
+    if (!expected || token !== expected) throw new ForbiddenException();
     await this.service.record(body?.path, body?.referrer);
   }
 

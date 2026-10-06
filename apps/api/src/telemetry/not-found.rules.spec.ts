@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { LIMITS, cleanPath, cleanReferrer, toRow } from './not-found.rules';
 
 describe('cleanReferrer', () => {
@@ -138,5 +139,37 @@ describe('🔴 a row cannot identify anybody', () => {
   it('cannot smuggle one through our own query either', () => {
     const row = toRow('/x?session=abc123', null);
     expect(JSON.stringify(row)).not.toContain('abc123');
+  });
+});
+
+/**
+ * 🔴 The endpoint is closed, and that is asserted rather than intended.
+ *
+ * Unlike the client-errors beacon next door, nothing in a browser has
+ * any business writing here — only our own server does, and it already
+ * holds the build token. A public writer could fill the table with
+ * invented dead paths, and this report's whole value is that its top
+ * entries say where to point a 301. A poisoned report is worse than an
+ * empty one.
+ *
+ * This reads the controller, because the guard is three lines that
+ * nothing else would notice the loss of.
+ */
+describe('🔴 the record endpoint demands the build token', () => {
+  const source = readFileSync(`${__dirname}/not-found.controller.ts`, 'utf8');
+
+  it('checks the header against API_BUILD_TOKEN', () => {
+    expect(source).toContain('process.env.API_BUILD_TOKEN');
+    expect(source).toMatch(/token\s*!==\s*expected/);
+  });
+
+  // 🔴 Fails closed. `undefined === undefined` must never be a way in,
+  // and an unconfigured deployment must be shut rather than open.
+  it('refuses everybody when no token is configured', () => {
+    expect(source).toMatch(/!expected\s*\|\|/);
+  });
+
+  it('refuses rather than silently accepting', () => {
+    expect(source).toContain('ForbiddenException');
   });
 });
