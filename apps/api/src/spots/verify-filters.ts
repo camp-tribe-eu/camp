@@ -219,4 +219,7 @@ async function main(): Promise<void> {
   console.log('\n✓ every filter combination matches a direct SQL query');
 }
 
-void main();
+// Guarded like every other script here: an import must not run it.
+if (require.main === module) {
+  void main();
+}

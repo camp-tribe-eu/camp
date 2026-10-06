@@ -204,7 +204,10 @@ async function main(): Promise<void> {
   await client.end();
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exitCode = 1;
-});
+// Guarded like every other script here: an import must not run it.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  });
+}

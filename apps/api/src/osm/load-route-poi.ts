@@ -195,7 +195,12 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(`::error::${err instanceof Error ? err.message : String(err)}`);
-  process.exit(1);
-});
+// Guarded like every other script here: an import must not run it.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(
+      `::error::${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  });
+}
