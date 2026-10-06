@@ -26,6 +26,7 @@ import {
 import { formatDistance } from '../../src/lib/api';
 import { shouldFlagStale, SOURCES } from '../../src/lib/sources';
 import { findForbiddenWords } from '../../src/lib/wording';
+import { RESERVED_WORDS } from '../../src/lib/cems';
 import {
   AIR_ATTRIBUTION as API_ATTRIBUTION,
   AIR_SOURCE_CREDIT as API_SOURCE_CREDIT,
@@ -758,5 +759,62 @@ test.describe('every cadence is judged by its own budget, not exempted', () => {
     expect(s.licence).toBe('CC BY 4.0');
     expect(s.licenceUrl).toBe('https://creativecommons.org/licenses/by/4.0/');
     expect(s.dateLabel).toBe('Read from the EEA on');
+  });
+});
+
+// ---------------------------------------------------------------------
+// CAMP-198: our own collection, told apart from a quiet station.
+// ---------------------------------------------------------------------
+
+test.describe('a stopped pipeline and a quiet hour do not read the same', () => {
+  // 🔴 `shouldFlagStale` has had an `hourly` branch since CAMP-166 —
+  // `HOURLY_DEAD_AFTER_DAYS`, one whole day — and nothing in the
+  // application called it. The panel's own budget is four hours, which
+  // answers "is this value current". It cannot answer "are we still
+  // collecting", and those have different remedies: one is the weather,
+  // the other is us.
+
+  const readDaysAgo = (d: number) =>
+    new Date(Date.parse(hourAgo(0)) - d * 86_400_000).toISOString();
+
+  test('a reading hours old is stale, and our collection is not blamed', () => {
+    const s = airState(
+      stationFacts({ ...READING, hour: hourAgo(9), readAt: hourAgo(9) }),
+      NOW,
+    );
+    expect(s.state).toBe('no-fresh-data');
+    expect(s.state === 'no-fresh-data' && s.ourFeedStalled).toBe(false);
+    expect(said(stationFacts({ ...READING, hour: hourAgo(9), readAt: hourAgo(9) }))).not.toContain(
+      'our collection having stopped',
+    );
+  });
+
+  test('🔴 a reading a DAY old is our collection, and the page says so', () => {
+    const facts = stationFacts({ ...READING, hour: readDaysAgo(2), readAt: readDaysAgo(2) });
+    const s = airState(facts, NOW);
+    expect(s.state === 'no-fresh-data' && s.ourFeedStalled).toBe(true);
+    expect(said(facts)).toContain('our collection having stopped');
+  });
+
+  test('…and the same holds for the modelled index', () => {
+    const facts = { kind: 'modelled', modelled: { hour: readDaysAgo(3), band: 2, readAt: readDaysAgo(3) } };
+    const s = airState(facts, NOW);
+    expect(s.state === 'no-fresh-data' && s.ourFeedStalled).toBe(true);
+    expect(said(facts)).toContain('our collection having stopped');
+  });
+
+  test('🔴 a silent station is NOT reported as our collection failing either', () => {
+    // This branch receives no `readAt` at all, so we cannot tell which it
+    // is — and `false` here means "cannot say", which is why the sentence
+    // for it names both possibilities rather than picking one.
+    const s = airState(stationFacts(null), NOW);
+    expect(s.state === 'no-fresh-data' && s.ourFeedStalled).toBe(false);
+    expect(s.state === 'no-fresh-data' && s.readAt).toBe(null);
+    expect(said(stationFacts(null))).not.toContain('our collection having stopped');
+  });
+
+  test('🔴 the clause uses no word the CEMS terms reserve', () => {
+    const facts = stationFacts({ ...READING, hour: readDaysAgo(2), readAt: readDaysAgo(2) });
+    expect(RESERVED_WORDS.test(said(facts)), said(facts)).toBe(false);
   });
 });
