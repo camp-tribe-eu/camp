@@ -49,7 +49,7 @@ import {
   type MapDataState,
   type RegionSummary,
 } from '@/lib/map-chunks';
-import { retryOnEvent } from '@/lib/retry-on-event';
+import { askStyleWait, retryOnEvent } from '@/lib/retry-on-event';
 import {
   DEFAULT_LAYERS,
   LAYERS,
@@ -1298,7 +1298,6 @@ export default function CampsiteMap() {
       }
 
       say();
-      if (awaitingStyle.current) return;
 
       // 🔴 A listener that STAYS until it resolves, on both events that
       // can mean the style moved. `once('idle')` was the earlier bug:
@@ -1342,14 +1341,18 @@ export default function CampsiteMap() {
       // kept reading 2 points and 3 clusters in a view that should have
       // had none. #110, the same suite without this change, reported no
       // flaky tests at all.
-      const attempt = () => {
-        awaitingStyle.current?.();
-        awaitingStyle.current = null;
-        say();
-        if (mine !== generation.current) return;
-        void refreshRef.current();
-      };
-      awaitingStyle.current = retryOnEvent(m, attempt);
+      // 🔴 REPLACES any outstanding wait rather than riding on it. See
+      // `askStyleWait` for the lost wake-up that the earlier
+      // `if (awaitingStyle.current) return;` produced, and for the
+      // measurement that found it.
+      askStyleWait(
+        awaitingStyle,
+        (fire) => retryOnEvent(m, fire),
+        mine,
+        () => generation.current,
+        say,
+        () => void refreshRef.current(),
+      );
     };
 
     const view = boundsOf(m);

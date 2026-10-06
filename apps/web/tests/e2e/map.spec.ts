@@ -472,8 +472,9 @@ test.describe('/map', () => {
     //   styleLoaded="no"                    the style never arrived
     //   styleLoaded="yes" awaiting="yes"    the retry was registered and
     //                                       never fired
-    //   styleLoaded="yes" awaiting="no"     the draw ran and nothing
-    //                                       published it
+    //   styleLoaded="yes" awaiting="no"     EITHER the draw ran and
+    //                                       nothing published it, OR no
+    //                                       draw was ever scheduled
     //
     // The last one is what CI actually reported, and the previous run
     // could not say so: `data-region-layer` was written only on `idle`,
@@ -510,7 +511,12 @@ test.describe('/map', () => {
             'the map reached the wide view and the region layer was never added. ' +
             'style-loaded=no  → the style never arrived; ' +
             'style-loaded=yes awaiting-style=yes → the retry was registered and never fired; ' +
-            'style-loaded=yes awaiting-style=no  → the draw ran and nobody published it',
+            'style-loaded=yes awaiting-style=no  → ambiguous, and both halves ' +
+            'are real: either the draw ran and nobody published it, or nothing ' +
+            'was ever waiting. 🔴 Review measured the second half on this very ' +
+            'branch — a lost wake-up left draws=0 listeners=0 awaiting=no, which ' +
+            'reads IDENTICALLY to a publish that was skipped. Check ' +
+            'retry-on-event.spec.ts before looking at publishRegionLayer.',
         },
       )
       .toMatch(/^layer=on /);

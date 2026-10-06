@@ -65,3 +65,60 @@ export function retryOnEvent(map: RetryTarget, attempt: () => void): () => void 
   for (const event of RETRY_EVENTS) map.on(event, attempt);
   return off;
 }
+
+/** A mutable holder for the one outstanding wait. `useRef` fits it as is. */
+export interface WaitSlot {
+  current: (() => void) | null;
+}
+
+/**
+ * Register a wait on behalf of `generation`, REPLACING any outstanding one.
+ *
+ * 🔴 THE WORD THAT MATTERS IS "REPLACING". The first version of this
+ * read, at the call site:
+ *
+ *     if (awaitingStyle.current) return;   // someone is already waiting
+ *
+ * — a later refresh that also needed to wait registered nothing and rode
+ * on the earlier one. That is a lost wake-up, and an adversarial review
+ * measured it on this exact code:
+ *
+ *   refresh A asks (generation 1), the style is not ready
+ *   refresh B starts (generation 2), also not ready, rides on A
+ *   the event fires: A's wait removes its own listener, then finds
+ *     `1 !== 2` and returns
+ *   → no listener, no pending refresh, and no event can rescue it
+ *
+ * Measured in Node against the real code: control (one refresh, late
+ * style) draws once; the race (a second `moveend` while the style is
+ * loading) ends at `draws=0 listeners=0` and stays there through two
+ * more `idle` and `styledata`. Two "zoom out" clicks 350 ms apart reach
+ * it — the tempo the suite's own test uses.
+ *
+ * The generation check stays: `refresh` can yield between stamping its
+ * generation and reaching here, so an event CAN still find a wait whose
+ * view is gone. It was added to stop a stale retry dragging the map back
+ * through a refresh (`map-filters.spec.ts:918` went flaky without it).
+ * What it must not do is be the ONLY thing standing between a wait and
+ * nothing, which is what piggybacking made it.
+ */
+export function askStyleWait(
+  slot: WaitSlot,
+  listen: (fire: () => void) => () => void,
+  generation: number,
+  currentGeneration: () => number,
+  onFire: () => void,
+  wake: () => void,
+): void {
+  // Whatever was outstanding was asked for by a view that has moved on.
+  slot.current?.();
+  slot.current = null;
+
+  slot.current = listen(() => {
+    slot.current?.();
+    slot.current = null;
+    onFire();
+    if (generation !== currentGeneration()) return;
+    wake();
+  });
+}
