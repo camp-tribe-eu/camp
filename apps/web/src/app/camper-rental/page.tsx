@@ -4,9 +4,10 @@ import RentalChecklist from '@/components/rental-checklist';
 import RentalDisclosure from '@/components/rental-disclosure';
 import RentalOfferSlot from '@/components/rental-offer-slot';
 import { RentalShapes, RentalThresholds } from '@/components/rental-thresholds';
-import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
+import { abs, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import { longDate } from '@/lib/fuel';
+import { SHAPES, THRESHOLDS } from '@/data/rental/thresholds';
 import {
   count,
   MEASURED,
@@ -34,6 +35,72 @@ import {
 // that decide the bill. That is also the part that does not go stale and
 // does not need a partner's cooperation to write.
 
+/**
+ * The five questions the mockup asks.
+ *
+ * 🔴 WHY THE MARKUP IS HERE AT ALL, since it will not earn a star.
+ * Google withdrew FAQ rich results for almost every site in 2023, and
+ * `08-rental.html` says so in as many words. This is not for the snippet
+ * — it is for the readers who are actually our traffic: crawlers and
+ * assistants, which quote a structured answer and cannot quote a
+ * paragraph they had to infer. Anyone tempted to delete this block
+ * because "the stars never came" should read this sentence first.
+ *
+ * 🔴 THE NUMBERS ARE READ FROM THE DATA, NOT TYPED HERE, and review is
+ * the reason. The first version copied "3 500 kg" and the caravan
+ * sentence as prose. Changing `thresholds.ts` to 4 250 kg then left the
+ * page showing 4 250 in the threshold table and 3 500 in the FAQ — with
+ * 815 unit tests green, because nothing tied the two together. A wrong
+ * number inside FAQPage markup is the one mistake here that gets quoted
+ * back at scale rather than seen once.
+ *
+ * The caravan answer is `why` verbatim from SHAPES rather than a
+ * paraphrase of it, for the same reason.
+ */
+function faq() {
+  const mass = THRESHOLDS.find((t) => t.id === 'mass');
+  const caravan = SHAPES.find((s) => s.id === 'caravan');
+  // 🔴 Loudly, not silently. An answer built from `undefined` would read
+  // as a confident sentence with a hole in it, in machine-readable form.
+  if (!mass || !caravan) throw new Error('rental FAQ: the data it quotes is missing');
+
+  return [
+    {
+      q: 'Is an ordinary category B licence enough to hire a motorhome?',
+      a: `Up to a maximum authorised mass of ${mass.value}, yes. Above it you need C1, which is a separate test — not an endorsement you can arrange at the counter. The figure that matters is the plated MAM on the contract: ${mass.what.replace(/^Maximum authorised mass \(MAM\) — /, '')}. The line is drawn by ${mass.source.name}.`,
+    },
+    {
+      q: 'What if it is a caravan rather than a motorhome?',
+      a: `Then the licence question is about the combination, not about either vehicle. ${caravan.why}`,
+    },
+    {
+      q: 'Why are there no prices on this page?',
+      // 🔴 No legal citation here, and that is deliberate. The first
+      // version said a stale price is "misleading under the Unfair
+      // Commercial Practices Directive" — but the two places this
+      // repository cites that directive are both about Article 7(2),
+      // a misleading OMISSION as to commercial intent. Stretching the
+      // same directive to cover price is a different article, and I did
+      // not name it. An unsourced legal claim inside FAQPage markup is
+      // exactly what an assistant repeats without the hedge. The
+      // practical reason is true on its own and needs no citation.
+      a: 'Because we hold none. We link to the companies that rent campers rather than mirroring their prices: a number copied here is stale the week after, and a figure that is wrong is worse than a figure that is absent. The same reasoning is why our trip cost calculator prices fuel from the European Commission bulletin, dated, and asks you for the campsite fee.',
+    },
+    {
+      q: 'How does CampTribe make money from this?',
+      a: 'The intention is commission on bookings made through partner links. Today there are no partner links on this site at all — the affiliate applications are open and unanswered — so this page earns nothing. When that changes, the disclosure sits beside the link rather than in the footer, and what is paid for will never be the order things appear in.',
+    },
+    {
+      q: 'What most often costs more than expected at the counter?',
+      // 🔴 "usually with an administration fee", not "with": the hire
+      // checklist hedges it and so does this. And no claimed ordering —
+      // the first version said "in roughly that order", which the
+      // checklist does not establish and nothing here measures.
+      a: 'Four things. The insurance excess, which the headline damage waiver rarely takes to zero and which commonly excludes the roof, the awning, the tyres and the underside. One-way fees, quoted after the rest of the booking is agreed. A mileage cap that looked generous for one country and is not for a loop through four. And camera-enforced charges — Italian limited traffic zones, the Dublin M50, Swedish congestion tax — which reach the rental company as registered keeper and are passed on, usually with an administration fee.',
+    },
+  ];
+}
+
 export const metadata: Metadata = {
   title: 'Renting a camper in the EU',
   description:
@@ -44,9 +111,22 @@ export const metadata: Metadata = {
 export default function CamperRentalHub() {
   const countries = publishableCountries();
   const offers = rentalOffers('hub');
+  const questions = faq();
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
+      <script
+        {...jsonLdProps({
+          '@context': 'https://schema.org',
+          '@type': 'FAQPage',
+          '@id': `${abs('/camper-rental')}#faq`,
+          mainEntity: questions.map((f) => ({
+            '@type': 'Question',
+            name: f.q,
+            acceptedAnswer: { '@type': 'Answer', text: f.a },
+          })),
+        })}
+      />
       <script
         {...jsonLdProps(
           collectionGraph({
@@ -244,6 +324,27 @@ export default function CamperRentalHub() {
           prices fuel from the European Commission and asks you for the
           campsite fee.
         </p>
+      </section>
+
+      <section
+        aria-labelledby="faq-heading"
+        className="mt-12 border-t border-line-2 pt-8"
+      >
+        <h2 id="faq-heading" className="text-xl font-semibold text-heading">
+          Questions people ask before they book
+        </h2>
+        {/* 🔴 <dl>, not a details/summary accordion. A closed <details> is
+            text a crawler reads but a reader has to hunt for, and the
+            point of this block is that the answer is THERE — in the HTML,
+            on first paint, without JavaScript. */}
+        <dl className="mt-4 max-w-prose">
+          {questions.map((f) => (
+            <div key={f.q} className="mt-5 first:mt-0">
+              <dt className="font-semibold text-ink">{f.q}</dt>
+              <dd className="mt-1 text-ink-2">{f.a}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
     </main>
   );

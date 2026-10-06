@@ -36,7 +36,7 @@ export default function RentalDisclosure({ offers }: { offers: number }) {
         How this page is paid for
       </h2>
       {offers > 0 ? (
-        <p className="mt-2 max-w-prose text-sm leading-6 text-ink-2">
+        <p className="mt-2 max-w-prose text-sm leading-6 text-ink">
           <strong className="text-heading">
             Some links on this page are affiliate links.
           </strong>{' '}
@@ -51,7 +51,7 @@ export default function RentalDisclosure({ offers }: { offers: number }) {
           .
         </p>
       ) : (
-        <p className="mt-2 max-w-prose text-sm leading-6 text-ink-2">
+        <p className="mt-2 max-w-prose text-sm leading-6 text-ink">
           <strong className="text-heading">
             There are no affiliate links on this page yet.
           </strong>{' '}

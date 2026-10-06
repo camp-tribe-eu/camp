@@ -274,6 +274,16 @@ jobs:
 
       - name: …and every type colour is still legible and distinct
         run: node --experimental-strip-types scripts/ci/check-map-palette.mjs
+      # 🔴 CAMP-217. Twelve design tokens had quietly failed to arrive and
+      # nothing noticed for months, because nothing compared. The site had
+      # ONE transition speed where the design has four, no secondary
+      # button at all, and no state-label colours — each of which reads as
+      # a styling choice rather than a missing line.
+      - name: The design-token check still catches a missing token
+        run: node scripts/ci/check-design-tokens.mjs --self-test
+
+      - name: …and globals.css still matches the design system
+        run: node scripts/ci/check-design-tokens.mjs
 
       # 🔴 CAMP-153. The wildfire fetch script carries a self-test of its
       # own — the `maxfeatures` throw that stands between us and a 132 MB
