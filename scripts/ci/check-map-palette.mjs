@@ -47,16 +47,42 @@ export const MIN_DELTA_E = 25;
 /**
  * What the marker actually sits on.
  *
- * Typical values for the light OpenFreeMap styles this site serves
- * (liberty, bright, positron — all three are light; there is no dark
- * basemap). Water is the hard one: it is the lightest large surface and
- * the one a coastal campsite is drawn beside.
+ * 🔴 THE DESIGN'S OWN VALUES, not my estimates of them. The first version
+ * of this file guessed at typical OpenFreeMap colours — and `_base.css`
+ * in the mockups had been carrying `--map-land`, `--map-green`,
+ * `--map-water`, `--map-road` and `--map-road-2` all along. I had read
+ * `00-design-system.html` and concluded the design said nothing about
+ * the map; it says it in the other file.
+ *
+ * Measuring against the real values is kinder than my guesses were:
+ * worst visibility 11.23:1 rather than the 9.00 the estimates gave.
+ *
+ * 🔴 `_base.css` ALSO defines a dark set, and against it this palette
+ * fails — the dark stroke reaches 1.30 on dark land, and three fills
+ * drop to about 2.1. That is not a defect today: all three basemap
+ * styles this site serves are light, which is why the dark set is not
+ * in this object. It is a trap for whoever adds a dark basemap, so it is
+ * written down rather than left to be discovered.
  */
 export const BASEMAP = {
-  paper: '#F8F4F0',
-  landuse: '#E8E0D8',
-  forest: '#C8E0B0',
-  water: '#A0C8F0',
+  land: '#EAE7E1',
+  green: '#D7E3CE',
+  water: '#BFD6E4',
+  road: '#FFFFFF',
+  roadCasing: '#F3D9A4',
+};
+
+/**
+ * The dark basemap the mockups define and this site does not serve.
+ * Exported so the day somebody adds one, the check has the numbers
+ * ready and this palette has to be re-decided rather than assumed.
+ */
+export const BASEMAP_DARK = {
+  land: '#2B3140',
+  green: '#2C3B35',
+  water: '#233444',
+  road: '#3C4457',
+  roadCasing: '#4A4433',
 };
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
