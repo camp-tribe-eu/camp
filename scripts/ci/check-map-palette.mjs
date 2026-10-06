@@ -32,7 +32,9 @@
  */
 import { expression } from '@maplibre/maplibre-gl-style-spec';
 import {
+  LINE_GUESS,
   MARKER_STROKE,
+  ROUTE_LINE,
   TYPE_COLOUR,
   UNKNOWN_COLOUR,
   dominantColourExpression,
@@ -218,6 +220,14 @@ function selfTest() {
   if (problems([['a', '#D5412A'], ['b', '#C83D28']], dark).length === 0)
     fails.push('two colours at ΔE 4.8 were accepted');
   // A fill that passes against its stroke but vanishes on water.
+  // 🔴 A line measured the way a marker is measured passes; measured
+  // against the map it crosses, it does not. That gap is CAMP-237.
+  if (lineProblems({ L: '#8A93A6' }).length === 0)
+    fail('a line at 2.05:1 against water was accepted');
+  if (lineProblems({ L: '#343D50' }).length !== 0)
+    fail('a line at 7.23:1 against its worst surface was refused');
+  if (lineProblems({ A: '#C83D28', B: '#D5412A' }).length === 0)
+    fail('two lines ΔE 8 apart were accepted as distinguishable');
   if (problems([['x', '#7C92B7']], '#FFFFFF', { water: '#A0C8F0' }).length === 0)
     fails.push('a fill invisible over water was accepted');
   if (fails.length) {
@@ -227,6 +237,46 @@ function selfTest() {
   console.log(
     'self-test ok: still refuses a faint fill, four unmeasurable notations, a lookalike pair and a marker lost over water'
   );
+}
+
+/**
+ * The two lines on the route map, which have no stroke to hide behind.
+ *
+ * 🔴 A DIFFERENT TEST FROM THE MARKERS, and that is the point (CAMP-237).
+ * A marker is a fill inside `MARKER_STROKE`, so it needs 3:1 against the
+ * stroke and the stroke carries it against the map. A 2-pixel line sits
+ * directly on land, water, forest and road, so the LINE itself has to
+ * clear 3:1 against every one of them.
+ *
+ * Measuring a line the way a marker is measured is how `#8A93A6` lived
+ * here: beside a white casing it would have looked fine, and against the
+ * water it actually crosses it read 2.05.
+ */
+export function lineProblems(lines = { ROUTE_LINE, LINE_GUESS }, backgrounds = BASEMAP) {
+  const out = [];
+  for (const [name, hex] of Object.entries(lines)) {
+    for (const [surface, bg] of Object.entries(backgrounds)) {
+      const r = contrast(hex, bg);
+      if (r < MIN_CONTRAST) {
+        out.push(
+          `${name} ${hex} is ${r.toFixed(2)}:1 on ${surface} ${bg} — a line has no ` +
+            `outline, so it must clear ${MIN_CONTRAST}:1 against the map itself`
+        );
+      }
+    }
+  }
+  const names = Object.keys(lines);
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      const d = deltaE(lines[names[i]], lines[names[j]]);
+      if (d < MIN_DELTA_E) {
+        out.push(
+          `${names[i]} and ${names[j]} are ΔE ${d.toFixed(1)} apart, under ${MIN_DELTA_E}`
+        );
+      }
+    }
+  }
+  return out;
 }
 
 if (process.argv.includes('--self-test')) {
@@ -242,8 +292,14 @@ if (process.argv.includes('--self-test')) {
       `  ${name.padEnd(12)} ${hex}  stroke ${contrast(hex, MARKER_STROKE).toFixed(2)}:1   worst basemap ${seen.toFixed(2)}:1`
     );
   }
+  const lines = lineProblems();
+  for (const [name, hex] of Object.entries({ ROUTE_LINE, LINE_GUESS })) {
+    const worst = Math.min(...Object.values(BASEMAP).map((bg) => contrast(hex, bg)));
+    console.log(`  ${name.padEnd(12)} ${hex}  worst basemap ${worst.toFixed(2)}:1  (no stroke)`);
+  }
   const split = twinsDisagree();
-  if (found.length || split.length) {
+  if (lines.length) console.error('\nroute lines are not legible:\n  ' + lines.join('\n  '));
+  if (found.length || split.length || lines.length) {
     if (found.length) console.error('\nmap palette is not legible:\n  ' + found.join('\n  '));
     if (split.length)
       console.error(
