@@ -49,9 +49,12 @@ test.describe('the guide slug corpus', () => {
 
   test('…and the topics in the data are exactly the topics we declare', () => {
     const seen = new Set(parsed(SLUGS).map((g) => g.facets.topic));
-    // Both directions. A topic in the data we do not declare is an
-    // unreachable group; a topic we declare that the data never produces
-    // is a heading over nothing.
+    // 🔴 This catches one direction: a topic we DECLARE that the data
+    // never produces — a heading over nothing. The other direction, a
+    // topic in the data we never declared, is caught by the parse test
+    // above, because an undeclared topic makes its slug unparseable.
+    // Review measured it: adding such a slug to the corpus leaves THIS
+    // test green and reddens that one. The comment used to claim both.
     expect([...seen].sort()).toEqual(Object.keys(TOPICS).sort());
   });
 

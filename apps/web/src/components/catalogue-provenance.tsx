@@ -7,14 +7,11 @@ import {
 
 // CAMP-210 — a catalogue of machine-written pages is machine-written.
 //
-// 🔴 CI CAUGHT THIS, NOT ME. `check-guide-disclosure.mjs` reads every
-// built page under `/guides` and refuses one that does not say how it
-// was made. The new facet pages failed it on the first run:
+// 🔴 CI CAUGHT THE FIRST HALF, NOT ME. `check-guide-disclosure.mjs` reads
+// every built page under `/guides` and refuses one that does not say how
+// it was made. The new facet pages failed it on the first run.
 //
-//   ✗ hr: the page does not say how it was made
-//   ✗ si: … ✗ accessible: … ✗ motorhome: … ✗ water: …
-//
-// My first instinct was that the guard's scope is articles and these are
+// My instinct was that the guard's scope is articles and these are
 // indexes — the hub at `/guides` is skipped for exactly that reason, and
 // skipping these too would have been one line. That instinct was wrong.
 // The hub lists titles; a facet page lists titles AND the summary under
@@ -22,34 +19,72 @@ import {
 // campsites. A page made of machine-written prose is machine-written
 // however it was assembled.
 //
-// So the disclosure is real rather than a marker added to pass a check:
-// it names the programs that produced what is on THIS page, read from
-// the guides listed on it, not a constant typed here.
+// 🔴 AND REVIEW CAUGHT THE SECOND HALF: the first version of this
+// component printed a FALSE statement. The label was derived from the
+// data and the prose was not — it was the `data-generated` sentence,
+// hard-coded, ending "nothing here is … a sentence a model invented".
+// Rendered on a page holding one `ai-generated` guide it read:
+//
+//   Written by a machine … Nothing here is … a sentence a model invented.
+//
+// Both halves on one line, the second one false. The mirror case was as
+// bad: one human-written guide among machine ones and the block claimed
+// "every title and summary … a program wrote the sentence" directly
+// above a card labelled "Written by a person".
+//
+// So the prose is now counted, not asserted. It says what is on the page
+// because it is built from what is on the page.
 
 /** The strongest disclosure among what this page actually lists. */
-function strongest(guides: readonly Guide[]): GuideProvenance | null {
-  // Order matters: a page carrying one machine-written summary discloses
-  // as machine-written, even if everything else on it was written by a
-  // person. The weaker claim would be true of most of the page and false
-  // of the part that needs saying.
+function strongest(kinds: Set<GuideProvenance>): GuideProvenance | null {
+  // 🔴 Order matters: a page carrying one machine-written summary
+  // discloses as machine-written, even if everything else on it was
+  // written by a person. The weaker claim would be true of most of the
+  // page and false of the part that needs saying.
   const order: GuideProvenance[] = [
     'ai-generated',
     'ai-assisted',
     'data-generated',
     'human',
   ];
-  const present = new Set(guides.map((g) => g.provenance));
-  return order.find((p) => present.has(p)) ?? null;
+  return order.find((p) => kinds.has(p)) ?? null;
 }
 
+const plural = (n: number, one: string, many: string) =>
+  `${n.toLocaleString('en-GB')} ${n === 1 ? one : many}`;
+
 export function CatalogueProvenance({ guides }: { guides: readonly Guide[] }) {
-  const provenance = strongest(guides);
+  if (guides.length === 0) return null;
+
+  const counts = new Map<GuideProvenance, number>();
+  for (const g of guides) counts.set(g.provenance, (counts.get(g.provenance) ?? 0) + 1);
+  const provenance = strongest(new Set(counts.keys()));
   if (!provenance) return null;
 
-  const label = PROVENANCE_LABEL[provenance];
   const programs = [
     ...new Set(guides.map((g) => g.generator).filter((g): g is string => !!g)),
   ].sort();
+
+  // One clause per kind actually present, in the order the labels declare
+  // their seriousness. A kind with no guides contributes no sentence.
+  const SENTENCE: Record<GuideProvenance, (n: number) => string> = {
+    'ai-generated': (n) =>
+      `${plural(n, 'was', 'were')} written by a language model and checked by a person`,
+    'ai-assisted': (n) =>
+      `${plural(n, 'was', 'were')} written by a person with help from a language model`,
+    'data-generated': (n) =>
+      `${plural(n, 'was', 'were')} written by a program that counted what our records hold`,
+    human: (n) => `${plural(n, 'was', 'were')} written by a person`,
+  };
+  const order: GuideProvenance[] = [
+    'ai-generated',
+    'ai-assisted',
+    'data-generated',
+    'human',
+  ];
+  const clauses = order
+    .filter((p) => (counts.get(p) ?? 0) > 0)
+    .map((p) => SENTENCE[p](counts.get(p) as number));
 
   return (
     // 🔴 Before the listing, like the one on an article is before its
@@ -60,11 +95,13 @@ export function CatalogueProvenance({ guides }: { guides: readonly Guide[] }) {
       className="mt-5 rounded-card border border-line-2 bg-surface-2 p-4 text-sm leading-6 text-ink-2"
     >
       <strong className="font-semibold text-heading">
-        {label?.short ?? provenance}
+        {PROVENANCE_LABEL[provenance]?.short ?? provenance}
       </strong>{' '}
-      Every title and summary on this page was produced the same way as the
-      page it links to: a program counted what our records hold and wrote the
-      sentence.{' '}
+      Of the titles and summaries on this page,{' '}
+      {clauses.length === 1
+        ? clauses[0]
+        : `${clauses.slice(0, -1).join(', ')} and ${clauses[clauses.length - 1]}`}
+      .{' '}
       {needsAiDisclosure(provenance) && programs.length > 0 && (
         <>
           {programs.length === 1 ? 'The program is ' : 'The programs are '}
@@ -77,7 +114,12 @@ export function CatalogueProvenance({ guides }: { guides: readonly Guide[] }) {
           .{' '}
         </>
       )}
-      Nothing here is an opinion, an estimate or a sentence a model invented.
+      {/* 🔴 Only when it is true of everything here. This sentence was
+          printed unconditionally and is false the moment one guide on the
+          page came from a model. */}
+      {counts.size === 1 && counts.has('data-generated') && (
+        <>Nothing here is an opinion, an estimate or a sentence a model invented.</>
+      )}
     </aside>
   );
 }
