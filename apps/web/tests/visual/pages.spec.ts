@@ -218,14 +218,37 @@ const BUDGET = 0.002;
  * 🔴 CHOSEN FROM MEASUREMENT, NOT BEFORE IT. The first run of the report
  * above produced, on CI, for the eight baselines:
  *
- *     six files   0 px        identical, byte for byte
+ *     six files   0 px        no pixel differs (see the caveat below)
  *     not-found-phone   271 px     39.7% of budget
  *     countries-phone   479 px     72.8% of budget
  *
  * That distribution decides the number by itself. The comment on BUDGET
  * reasons about antialiasing varying "by a pixel or two between runs" —
- * on this runner it varies by ZERO across six of eight files, so there is
- * no noise floor to clear. The two that are not zero are not noise: the
+ * on this runner six of eight files report zero differing pixels, so
+ * there is no noise floor to clear in these units.
+ *
+ * 🔴 "ZERO PIXELS" IS NOT "BYTE FOR BYTE", and the first version of this
+ * comment said it was. `maxDiffPixels: 0` still runs pixelmatch at its
+ * default per-pixel `threshold: 0.2`; it counts pixels that differ ENOUGH,
+ * not pixels that differ. Review measured the size of that gap on the real
+ * `countries-phone-linux.png`: shifting every channel of the whole page by
+ * −48/255 is still reported as zero differing pixels, and ±8 of jitter
+ * across 304 413 of its 329 160 pixels likewise.
+ *
+ * Two things follow, and only one of them is a problem.
+ *
+ * The number 0.25 is unharmed: this probe and the blocking threshold use
+ * the same comparator, so "72.8% of the budget" compares like with like,
+ * which is the only claim it makes.
+ *
+ * The blind spot is real and belongs in writing: a change that moves many
+ * pixels a little — a colour token that stopped resolving, a background
+ * that shifted a shade — is invisible to this gate AND to the blocking
+ * threshold it reports against. Neither was ever going to catch it. What
+ * catches that is check-design-tokens.mjs and check-map-palette.mjs, which
+ * read the values rather than the rendering.
+ *
+ * The two files that are not zero are not noise: the
  * countries baseline still reads "71 campsites" and "Croatia 36" where
  * the site now says 72 and 37, which is the CAMP-182 fixture change that
  * slid in under the allowance.
@@ -286,6 +309,28 @@ for (const viewport of VIEWPORTS) {
               : `${spent.pixels} px, ${(spent.ratio * 100).toFixed(4)}% of the page, ` +
                 `${((spent.ratio / BUDGET) * 100).toFixed(1)}% of the budget`;
         console.log(`visual-budget\t${shot}\t${says}`);
+
+        // 🔴 FAIL CLOSED. This branch used to fall through to the gate
+        // below, which asks `'ratio' in spent` — so a probe that could
+        // not read Playwright's message left the test GREEN, and the
+        // only trace was the console line above, which nothing greps.
+        //
+        // An adversarial review measured it on an isolated project
+        // against this repo's own playwright@1.63.0: the same 191 px
+        // drift gives `GATE FIRED → 1 failed` with the current regex and
+        // `COULD NOT MEASURE → 1 passed` the moment the wording moves.
+        // The regex is a dependency on a private message format, so it
+        // WILL move; what must not happen is that it moves us to green.
+        if (spent !== null && 'unreadable' in spent) {
+          throw new Error(
+            `${shot}: the budget probe could not read how much this page ` +
+              `differs, so nothing here knows whether it drifted.\n` +
+              `Playwright said: ${spent.unreadable}\n` +
+              `The probe reads the pixel count out of the failure message ` +
+              `with /(\\d+) pixels \\(ratio/. If that wording changed, fix ` +
+              `the pattern in budgetSpent() — do not delete this check.`,
+          );
+        }
 
         // 🔴 The gate the card asks for. A difference that never reaches
         // the blocking tolerance is invisible for as long as it stays
