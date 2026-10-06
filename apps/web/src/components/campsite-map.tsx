@@ -104,6 +104,8 @@ const REGION_CIRCLE = 'campsite-region-circles';
 /** CAMP-221. The national orthophoto, when one covers what is on screen. */
 const SATELLITE_SOURCE = 'satellite-ortho';
 const SATELLITE_LAYER = 'satellite-ortho-raster';
+/** Ties the disabled button to the sentence that says why it is off. */
+const SATELLITE_WHY_ID = 'satellite-unavailable-reason';
 const REGION_COUNT = 'campsite-region-count';
 const CLUSTER_LAYER = 'campsite-clusters';
 const COUNT_LAYER = 'campsite-cluster-count';
@@ -1976,27 +1978,37 @@ export default function CampsiteMap() {
               licence — so outside Spain and France there is no imagery
               to show, and an empty photo layer reads as "no campsites
               here" rather than "no photographs here". */}
+          {/* 🔴 `aria-disabled`, NOT `disabled`. A disabled button leaves
+              the tab order, so a reader using a keyboard never finds out
+              the control exists — and the `title` that explains why it is
+              off is unreachable without a pointer. This stays focusable,
+              does nothing when pressed, and points at the sentence below
+              with `aria-describedby`, so the reason is read out with the
+              button rather than hidden behind a hover. */}
           <button
             type="button"
-            onClick={() => setSatelliteOn((on) => !on)}
-            aria-pressed={satelliteOn}
-            disabled={satelliteFor(countriesInView) === null}
-            data-source="satellite"
-            title={
-              satelliteFor(countriesInView)?.provider ??
-              whySatelliteUnavailable(countriesInView)
+            onClick={() => {
+              if (satelliteFor(countriesInView)) setSatelliteOn((on) => !on);
+            }}
+            aria-pressed={satelliteOn && satelliteFor(countriesInView) !== null}
+            aria-disabled={satelliteFor(countriesInView) === null}
+            aria-describedby={
+              satelliteFor(countriesInView) === null ? SATELLITE_WHY_ID : undefined
             }
-            className={`inline-flex h-8 items-center rounded-sm border px-3 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-              satelliteOn && satelliteFor(countriesInView)
-                ? 'border-line-blue bg-accent-surface font-semibold text-heading'
-                : 'border-line-2 bg-surface text-ink-2 enabled:hover:border-line-blue'
+            data-source="satellite"
+            className={`inline-flex h-8 items-center rounded-sm border px-3 text-sm transition-colors ${
+              satelliteFor(countriesInView) === null
+                ? 'cursor-not-allowed border-line-2 bg-surface text-ink-2 opacity-50'
+                : satelliteOn
+                  ? 'border-line-blue bg-accent-surface font-semibold text-heading'
+                  : 'border-line-2 bg-surface text-ink-2 hover:border-line-blue'
             }`}
           >
             Satellite
           </button>
         </div>
         {satelliteFor(countriesInView) === null && (
-          <p className="w-full text-xs text-ink-2">
+          <p id={SATELLITE_WHY_ID} className="w-full text-xs text-ink-2">
             {whySatelliteUnavailable(countriesInView)}
           </p>
         )}
