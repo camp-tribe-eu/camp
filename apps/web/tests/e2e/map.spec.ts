@@ -386,6 +386,260 @@ test.describe('/map', () => {
     expect(mimeErrors, 'the worker failed to load').toEqual([]);
   });
 
+  // 🔴 CAMP-175. Zooming OUT again, which is the half nothing asserted.
+  //
+  // `clearRegions` removes the circle layer the moment real markers go
+  // on the map, and the zoom-out branch puts it back through
+  // `whenDrawable(() => drawRegions(…))` — deferred until the style is
+  // ready. Nothing proved the second half ever happens: the only test
+  // that mentions the circles adds them to points and clusters and asks
+  // for a sum above zero, so a region count of 0 passes on the strength
+  // of the markers. The card saw exactly that 0 and could not tell
+  // whether it meant "broken", "the fixture has no regions" or
+  // "intended".
+  //
+  // This asserts the one reading that distinguishes them: after a zoom
+  // in and back out, the circles are on the canvas AND counted. If it
+  // goes red, the deferred redraw is being skipped and never retried —
+  // which is the defect the card suspected.
+  test('zooming back out brings the region circles back, counted', async ({
+    page,
+  }) => {
+    await stubStyles(page);
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    await expect(map(page)).toBeVisible();
+
+    const attr = async (name: string) =>
+      Number(await map(page).getAttribute(name));
+
+    // 🔴 FIRST: prove the circles exist at all.
+    //
+    // Everything below asks whether they come BACK. If they are never
+    // drawn — an empty region index, a `drawRegions` that threw into a
+    // floating promise — then "0 after zooming out" is the only answer
+    // this test could give, and it would read as the defect the card
+    // suspected while actually meaning the subject does not exist.
+    //
+    // 🔴 And it cannot be asserted on the page as it opens. INITIAL_VIEW
+    // is zoom 6.2 and DETAIL_ZOOM is 6, so /map opens in the DETAIL
+    // branch: no circles, correctly. An earlier draft of this test
+    // asserted them on the first view and went red on chromium and
+    // webkit for exactly that reason — the premise was wrong, not the
+    // map.
+    //
+    // 🔴 So the zoom is driven by what the map SAYS, not by a count of
+    // clicks. `data-map-state` reads `wide` only when the wide branch
+    // has run, which is the branch that draws the circles. Counting
+    // clicks was the other half of the same mistake: this file's own
+    // `zoomIn` helper waits 350 ms because "a click that lands
+    // mid-animation is dropped", and the zoom-out loop below used to
+    // fire ten clicks 150 ms apart and simply assume it had arrived.
+    const zoomOut = page.locator('.maplibregl-ctrl-zoom-out');
+    await expect(zoomOut).toBeVisible();
+    const untilWide = async () => {
+      for (let i = 0; i < 12; i++) {
+        if ((await map(page).getAttribute('data-map-state')) === 'wide') return true;
+        await zoomOut.click();
+        await page.waitForTimeout(350);
+      }
+      return (await map(page).getAttribute('data-map-state')) === 'wide';
+    };
+
+    expect(await untilWide(), 'the map never reached a view too wide for markers').toBe(true);
+
+    // 🔴 Which of the two failures is it? `data-region-layer` says
+    // whether `drawRegions` ever ran; `data-visible-regions` says
+    // whether anything was painted. A message that cannot tell them
+    // apart sends the next person looking in the wrong half of the file.
+    // 🔴 THE THROWN ERROR FIRST, because it is the cheaper diagnosis.
+    //
+    // `refresh` is async and floats, so an exception out of
+    // `drawRegions` leaves no layer and no message. Asked AFTER the
+    // layer poll, this line never runs on the failure it exists to
+    // explain — the poll fails first and takes the run with it, which
+    // is exactly what happened on the previous attempt.
+    await expect
+      .poll(async () => await map(page).getAttribute('data-region-error'), {
+        timeout: 5_000,
+        message: 'drawRegions threw and the exception was swallowed by a floating promise',
+      })
+      .toBeNull();
+
+    // 🔴 EVERY PIECE OF THE DIAGNOSIS IN THE SAME OBJECT, because
+    // `layer: "off"` on its own has three causes that look identical:
+    //
+    //   styleLoaded="no"                    the style never arrived
+    //   styleLoaded="yes" awaiting="yes"    the retry was registered and
+    //                                       never fired
+    //   styleLoaded="yes" awaiting="no"     EITHER the draw ran and
+    //                                       nothing published it, OR no
+    //                                       draw was ever scheduled
+    //
+    // The last one is what CI actually reported, and the previous run
+    // could not say so: `data-region-layer` was written only on `idle`,
+    // and the deferred draw finishes on a map that has stopped moving.
+    // 🔴 ONE STRING, NOT AN OBJECT, and that is not a style choice.
+    //
+    // The previous attempt returned `{layer, state, err, styleLoaded,
+    // awaiting}` and asserted `toMatchObject({layer: 'on'})`. Playwright
+    // diffs only the keys the matcher names, so CI printed
+    //
+    //     - "layer": "on"
+    //     + "layer": "off"
+    //
+    // and silently dropped the four fields that exist to say WHICH
+    // failure this is. A diagnostic the reporter does not print is a
+    // diagnostic that was never written. Compared whole, every field is
+    // in the diff.
+    await expect
+      .poll(
+        async () => {
+          const el = map(page);
+          const read = async (n: string) => (await el.getAttribute(n)) ?? 'unset';
+          return (
+            `layer=${await read('data-region-layer')} ` +
+            `style-loaded=${await read('data-style-loaded')} ` +
+            `awaiting-style=${await read('data-awaiting-style')} ` +
+            `state=${await read('data-map-state')} ` +
+            `error=${await read('data-region-error')}`
+          );
+        },
+        {
+          timeout: 20_000,
+          message:
+            'the map reached the wide view and the region layer was never added. ' +
+            'style-loaded=no  → the style never arrived; ' +
+            'style-loaded=yes awaiting-style=yes → the retry was registered and never fired; ' +
+            'style-loaded=yes awaiting-style=no  → ambiguous, and both halves ' +
+            'are real: either the draw ran and nobody published it, or nothing ' +
+            'was ever waiting. 🔴 Review measured the second half on this very ' +
+            'branch — a lost wake-up left draws=0 listeners=0 awaiting=no, which ' +
+            'reads IDENTICALLY to a publish that was skipped. Check ' +
+            'retry-on-event.spec.ts before looking at publishRegionLayer.',
+        },
+      )
+      .toMatch(/^layer=on /);
+
+    await expect
+      .poll(() => attr('data-visible-regions'), {
+        timeout: 20_000,
+        message:
+          'the region layer exists but nothing is painted from it — the circles ' +
+          'were drawn somewhere the reader is not looking',
+      })
+      .toBeGreaterThan(0);
+
+    // 🔴 BACK IN, DRIVEN BY WHAT THE MAP SAYS — the same rule this test
+    // already states for the way out, and did not follow on the way in.
+    //
+    // It was eight clicks with a break on `data-total > 0`. Two things
+    // wrong with that, and together they are why this half had never
+    // once run: `untilWide` above may spend TWELVE zoom-outs, and eight
+    // clicks cannot undo twelve; and `data-total` is about chunks
+    // having loaded, which in the wide branch never happens, so the
+    // break never fires and the loop just runs out.
+    //
+    // `data-map-state` leaves `wide` exactly when the detail branch
+    // runs, which is the branch that draws markers. That is the
+    // question, so that is what is asked — with room to undo however
+    // far out we went.
+    const zoomIn = page.locator('.maplibregl-ctrl-zoom-in');
+    await expect(zoomIn).toBeVisible();
+    const untilDetail = async () => {
+      for (let i = 0; i < 16; i++) {
+        if ((await map(page).getAttribute('data-map-state')) !== 'wide') return true;
+        await zoomIn.click();
+        await page.waitForTimeout(350);
+      }
+      return (await map(page).getAttribute('data-map-state')) !== 'wide';
+    };
+    expect(
+      await untilDetail(),
+      'the map never came back to a view close enough for markers',
+    ).toBe(true);
+
+    await expect
+      .poll(() => attr('data-visible-clusters'), {
+        timeout: 20_000,
+        message:
+          'the map says it is in the detail branch, but nothing clustered — ' +
+          'either no campsite is in this view or the markers were not drawn',
+      })
+      .toBeGreaterThan(0);
+
+    // 🔴 And the circles really did go away, so the assertion below
+    // cannot be satisfied by a layer that was simply never removed.
+    await expect
+      .poll(() => attr('data-visible-regions'), {
+        timeout: 20_000,
+        message: 'the region circles were still counted among the markers',
+      })
+      .toBe(0);
+
+    // Back out, again driven by what the map says rather than by a
+    // count of clicks.
+    expect(await untilWide(), 'the map never returned to a view too wide for markers').toBe(true);
+
+    await expect
+      .poll(() => attr('data-visible-regions'), {
+        timeout: 20_000,
+        message:
+          'zoomed back out and no region circle was counted — the deferred ' +
+          'redraw was skipped and never retried',
+      })
+      .toBeGreaterThan(0);
+
+    // 🔴 AND THEY STAY. `expect.poll` stops at the first satisfying
+    // sample, so circles drawn and then taken away again pass it — and
+    // that is precisely CAMP-175's own stated symptom: a stale detail
+    // refresh waking up afterwards and calling `clearRegions`.
+    // `data-visible-regions` is republished on every `idle`, so the drop
+    // would land after the poll had already gone green, and the test
+    // would report success over the defect it is named for.
+    await page.waitForTimeout(1_200);
+    expect(
+      await attr('data-visible-regions'),
+      'the circles appeared and were then taken away — a stale refresh cleared them',
+    ).toBeGreaterThan(0);
+
+    // 🔴 THIS CANNOT FAIL FOR THE REASON IT USED TO CLAIM, and review
+    // said so. The paragraph here described catching "`loading` for
+    // ever with the circles drawn behind it" — but `untilWide()` above
+    // returns true only by READING `data-map-state === "wide"`, and its
+    // own `expect(...).toBe(true)` has already run, so that failure
+    // ends the test long before this line.
+    //
+    // What it does catch is a REVERT: the map settling, the circles
+    // being counted, and the state then going back to busy — which is
+    // what an overtaken refresh announcing on behalf of a view it no
+    // longer owns looks like from outside. A narrower claim than the
+    // one that stood here, and the true one.
+    //
+    // 🔴 `wide`, NOT `ready`, and the first version of this asserted
+    // `ready` — a state the map correctly cannot be in here.
+    //
+    // `MapDataState` has four kinds (map-chunks.ts:335): `loading`,
+    // `ready`, `wide` and `failed`. `ready` is the DETAIL branch's
+    // terminal state; the wide branch's is `wide`, which is exactly the
+    // view these last twelve clicks drove the map back into. CI said
+    // `Expected "ready" / Received "wide"` and it was right: the map had
+    // announced it finished, in the only word that is true of this view.
+    //
+    // What this test is actually for is the silence — `loading` for
+    // ever behind drawn circles — so that is what it refuses, in both
+    // words that mean "settled", and `failed` is refused too rather
+    // than passing as not-loading.
+    await expect
+      .poll(async () => map(page).getAttribute('data-map-state'), {
+        timeout: 20_000,
+        message:
+          'the map went back to calling itself busy after the circles were ' +
+          'counted — a refresh announced for a view it no longer owns',
+      })
+      .toMatch(/^(wide|ready)$/);
+  });
+
   // 🔴 CAMP-133. Found by opening /map on a production build and reading
   // the console: EVERY load threw
   //

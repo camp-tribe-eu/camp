@@ -56,6 +56,7 @@ import {
   type MapDataState,
   type RegionSummary,
 } from '@/lib/map-chunks';
+import { askStyleWait, retryOnEvent } from '@/lib/retry-on-event';
 import {
   DEFAULT_LAYERS,
   LAYERS,
@@ -279,9 +280,29 @@ function clearRegions(m: InstanceType<typeof MapLibreMap>) {
  * The features are NOT thrown away, only un-drawn: `everything.current`
  * still holds them, so zooming back in costs no fetch.
  */
-function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
+/**
+ * How many campsite features we last put into the source.
+ *
+ * 🔴 WHAT WE PUT THERE, not what MapLibre holds. Reading the source's
+ * private `_data` would be reading their internals; this is our own
+ * statement, written by the only three places that call `setData` on
+ * this source, and it is what lets a failure say which of two things
+ * went wrong — see `publishRendered`.
+ */
+let sourceFeatures = 0;
+
+export function setCampsiteFeatures(
+  m: InstanceType<typeof MapLibreMap>,
+  features: GeoJSON.Feature[],
+): void {
   const source = m.getSource(SOURCE_ID) as GeoJSONSource | undefined;
-  source?.setData({ type: 'FeatureCollection', features: [] });
+  if (!source) return;
+  source.setData({ type: 'FeatureCollection', features });
+  sourceFeatures = features.length;
+}
+
+function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
+  setCampsiteFeatures(m, []);
 }
 
 /**
@@ -497,6 +518,28 @@ export default function CampsiteMap() {
    */
   const inFlight = useRef(0);
   /**
+   * Which `refresh()` is the current one.
+   *
+   * 🔴 CAMP-175. `refresh` awaits the network in its detail branch and
+   * then calls `clearRegions(m)`. Zoom out while that is in flight and
+   * the WIDE branch draws the region circles first, the stale detail
+   * branch wakes up afterwards and removes them — and nothing redraws,
+   * so the map ends up showing neither markers nor circles and
+   * `data-visible-regions` sits at 0.
+   *
+   * 🔴 An earlier draft of this comment said "measured in CI on all
+   * five engines". There is no such number to point at:
+   * `playwright.config.ts` declares six browser projects over three
+   * engines — chromium, firefox and webkit — so "five engines" is
+   * neither the projects nor the engines, and the run it referred to
+   * cannot be named. The claim is gone rather than rounded; what the
+   * behaviour rests on is the test below it, not a remembered figure.
+   *
+   * Bumped at every entry; a call whose token no longer matches has
+   * been overtaken and must not touch the map.
+   */
+  const generation = useRef(0);
+  /**
    * `publishDrawn`, reachable from outside the map effect.
    *
    * 🔴 The DRAWN numbers only — never the rendered ones, which are true
@@ -527,8 +570,23 @@ export default function CampsiteMap() {
    * Kept across calls and cleared per key on success.
    */
   const failedKeys = useRef<Map<string, string>>(new Map());
-  /** One pending "try again when the style has loaded", never a queue. */
-  const awaitingStyle = useRef(false);
+  /**
+   * The one pending "try again when the style has loaded", as the
+   * function that cancels it — never a bare boolean.
+   *
+   * 🔴 A flag and a listener are two facts, and they drifted. `settle()`
+   * cleared `awaitingStyle` on ANY successful draw, including one from a
+   * different refresh than the one that had registered the wait; the
+   * listener stayed registered, and the next call was free to add a
+   * second pair. Holding the canceller means clearing the wait and
+   * removing the listener are the same act.
+   */
+  const awaitingStyle = useRef<(() => void) | null>(null);
+  /**
+   * Says whether the region layer is on the map, written the moment it
+   * changes rather than at the next `idle`. See `publishRegionLayer`.
+   */
+  const publishRegionLayerRef = useRef<(() => void) | null>(null);
   const [dataState, setDataState] = useState<MapDataState>({ kind: 'loading' });
 
   // CAMP-153. The fire layer's three pieces of state, kept apart on
@@ -864,6 +922,32 @@ export default function CampsiteMap() {
       // Without a number for it, a test can only prove that nothing
       // threw — not that the circles arrived.
       el.dataset.visibleRegions = String(rendered(REGION_CIRCLE).length);
+      // 🔴 DRAWN is not the same question as RENDERED, and CAMP-175 turns
+      // on telling them apart.
+      //
+      // `visibleRegions` counts features MapLibre has painted. Zero can
+      // mean two completely different things: `drawRegions` never ran —
+      // deferred behind `whenDrawable` and never retried — or it ran,
+      // added the layer, and the features are simply not on screen.
+      // Those have different fixes, and from a test that sees only the
+      // count they are the same failure.
+      //
+      // So the layer's existence is published beside the count. It costs
+      // one `getLayer` per idle and it is the difference between a
+      // diagnosis and a guess.
+      el.dataset.regionLayer = m.getLayer(REGION_CIRCLE) ? 'on' : 'off';
+
+      // 🔴 WHAT THE SOURCE HOLDS, beside what the screen shows — and the
+      // two are different questions that have looked identical for three
+      // CI rounds.
+      //
+      // `map-filters.spec.ts:918` keeps reading 2 points and 3 clusters
+      // in a view where `hideMarkers` has emptied the campsite source.
+      // That has exactly two causes and no test can tell them apart:
+      // the source was never emptied (or was refilled), or it was
+      // emptied and nothing republished the counts afterwards. Guessing
+      // between them has cost three runs, which is two more than asking.
+      el.dataset.sourceFeatures = String(sourceFeatures);
 
       // CAMP-35: how many campsites the bubbles claim to contain, plus
       // the ones drawn individually.
@@ -943,6 +1027,42 @@ export default function CampsiteMap() {
     // 🔴 `idle` is the only writer of the rendered numbers, and it
     // writes the drawn ones too so the pair always describes one moment.
     m.on('idle', () => {
+      publishDrawn();
+      publishRendered();
+    });
+
+    // 🔴 AND AGAIN WHEN A SOURCE HAS FINISHED CHANGING, because `idle`
+    // alone published numbers from the frame before.
+    //
+    // Three CI rounds were spent guessing at this one. The diagnostic
+    // that settled it printed `0/3 (src=0)` and `2/3 (src=0)`: the
+    // campsite source was EMPTY — `hideMarkers` had done its work — and
+    // `queryRenderedFeatures` was still answering with markers. So the
+    // counts were not wrong about the source; they were taken before the
+    // map had repainted, and no later `idle` came to correct them. The
+    // test then polled a still map for twenty seconds and read the same
+    // stale pair every time.
+    //
+    // `sourcedata` with `isSourceLoaded` is the event that says the data
+    // behind those pixels has actually changed, which is exactly when
+    // the count of painted features can differ from the last one.
+    // 🔴 AND IT MUST BE CHEAP, because `sourcedata` is a frequent event.
+    //
+    // The first version called `publishRendered` — and therefore
+    // `queryRenderedFeatures` — on every one of them. CI stopped
+    // reporting a wrong number and started TIMING OUT on four browsers:
+    // an expensive read on a hot event is its own kind of wrong answer.
+    //
+    // So the handler does nothing unless what we put in the source has
+    // actually changed since the last time we published. That is one
+    // integer comparison per event, and it fires exactly on the
+    // transition this exists for — the moment `hideMarkers` empties the
+    // source, or a chunk fills it.
+    let publishedFor = -1;
+    m.on('sourcedata', (e) => {
+      if (e.sourceId !== SOURCE_ID || !e.isSourceLoaded) return;
+      if (sourceFeatures === publishedFor) return;
+      publishedFor = sourceFeatures;
       publishDrawn();
       publishRendered();
     });
@@ -1062,6 +1182,7 @@ export default function CampsiteMap() {
    * much of Europe one person looks at in a sitting.
    */
   const refresh = async () => {
+    const mine = ++generation.current;
     const m = map.current;
     if (!m || index.current.length === 0) return;
 
@@ -1095,17 +1216,159 @@ export default function CampsiteMap() {
     // loaded, while `idle` means the map has nothing left in flight.
     // One pending retry at a time, so a reader dragging the map during
     // a slow style load does not stack up listeners.
+    /**
+     * Say whether the region layer is on the map, the instant it changes.
+     *
+     * 🔴 SEPARATE FROM `publishRendered`, AND THAT IS THE POINT.
+     *
+     * `data-region-layer` had exactly one writer, `publishRendered`, and
+     * that runs only on `idle`. So the deferred path could finish
+     * correctly — style arrives, `attempt` fires, `drawRegions` adds the
+     * layer — and leave the attribute reading `off` until something else
+     * moved the map. Nothing does: the reader has stopped zooming and
+     * the test is polling a still map. CI reported `layer: "off"` with
+     * `data-region-error` null, which is this exact state and not the
+     * missing draw it reads as.
+     *
+     * The EXISTENCE of a layer is knowable the moment it is added;
+     * `data-visible-regions` is a count of pixels and still belongs to
+     * `idle` alone, which is why these are two attributes and not one.
+     */
+    const publishRegionLayer = () => {
+      const el = container.current;
+      if (el) el.dataset.regionLayer = m.getLayer(REGION_CIRCLE) ? 'on' : 'off';
+    };
+    publishRegionLayerRef.current = publishRegionLayer;
+
+    /**
+     * Draw now if the style will allow it, and keep trying if not.
+     *
+     * 🔴 IT NO LONGER ASKS `isStyleLoaded()`, AND THAT WAS THE BUG —
+     * read out of MapLibre's own source, not guessed:
+     *
+     *   `addSource`/`addLayer` call `_checkLoaded()`, which throws
+     *   "Style is not done loading." on `!style._loaded` ALONE
+     *   (maplibre-gl-dev.mjs:15007).
+     *
+     *   `map.isStyleLoaded()` is `style.loaded()`, which is that AND
+     *   `Object.keys(this._updatedSources).length === 0` AND every tile
+     *   manager loaded AND `imageManager.isLoaded()` (:14960).
+     *
+     * So the gate was strictly stronger than the operation it guarded.
+     * A map whose sprite never arrives, or whose GeoJSON source is
+     * being updated — which is what the campsite layer does on every
+     * pan — reports false for ever, `awaitingStyle` stays true, and the
+     * circles are never drawn. CI said precisely that, once the
+     * diagnosis was printable:
+     *
+     *   layer=off style-loaded=no awaiting-style=yes state=wide error=unset
+     *
+     * A condition standing in for an operation drifts from it. This
+     * performs the operation and reads the answer: the only thing that
+     * knows whether the style is ready is the style.
+     */
     const whenDrawable = (draw: () => void) => {
-      if (m.isStyleLoaded()) {
-        draw();
+      const say = () => {
+        const el = container.current;
+        if (!el) return;
+        // Kept for the diagnosis, no longer a gate: the pair
+        // `style-loaded=no awaiting-style=yes` is how the old gate's
+        // failure reads, and it has to stay legible if it returns.
+        el.dataset.styleLoaded = m.isStyleLoaded() ? 'yes' : 'no';
+        el.dataset.awaitingStyle = awaitingStyle.current ? 'yes' : 'no';
+      };
+
+      /** Drew it, or said why not. Only a half-loaded style is retried. */
+      const tryDraw = (): 'drawn' | 'wait' | 'failed' => {
+        const el = container.current;
+        try {
+          draw();
+          if (el) delete el.dataset.regionError;
+          return 'drawn';
+        } catch (err) {
+          const message = (err as Error)?.message ?? String(err);
+          // 🔴 Anything that is NOT the style still loading is a real
+          // failure and is said out loud. `refresh` is async and runs
+          // as a floating promise, so such an exception otherwise left
+          // no layer, no message and no failed test — only a map
+          // missing its circles.
+          if (/not done loading/i.test(message)) return 'wait';
+          if (el) el.dataset.regionError = message.slice(0, 120);
+          return 'failed';
+        }
+      };
+
+      const settle = () => {
+        // Cancels whatever wait is outstanding, whoever registered it:
+        // a draw that has succeeded makes every pending retry pointless.
+        awaitingStyle.current?.();
+        awaitingStyle.current = null;
+        publishRegionLayer();
+        say();
+      };
+
+      const first = tryDraw();
+      if (first !== 'wait') {
+        settle();
         return;
       }
-      if (awaitingStyle.current) return;
-      awaitingStyle.current = true;
-      m.once('idle', () => {
-        awaitingStyle.current = false;
-        void refreshRef.current();
-      });
+
+      say();
+
+      // 🔴 A listener that STAYS until it resolves, on both events that
+      // can mean the style moved. `once('idle')` was the earlier bug:
+      // this is registered at the end of a `moveend`, which is exactly
+      // when the map is settling, so the transition can be spent before
+      // the listener exists — and `once` then waits for one that never
+      // comes again while nothing moves.
+      //
+      // 🔴 AND IT RE-ASKS THE BRANCH RATHER THAN REPLAYING `draw`.
+      //
+      // `draw` was built by the wide branch of ONE refresh. The reader
+      // can zoom in while we are waiting for the style, and a version
+      // of this that simply called `draw()` later would put the region
+      // circles on top of the markers — a decision from a view that no
+      // longer exists. I wrote that version, and `map-filters.spec.ts`
+      // caught it: with the map back in the wide view it still counted
+      // markers on screen.
+      //
+      // So the retry re-enters `refresh`, exactly as the first version
+      // of this deferral did. The fresh call picks its own branch and
+      // calls `whenDrawable` again with a `draw` that belongs to the
+      // view the map is in now; `awaitingStyle` is cleared first, so
+      // that call is free to register a new wait if the style is still
+      // not ready.
+      // 🔴 AND IT IS SCHEDULED ON AN EVENT, NEVER FROM HERE. See
+      // `lib/retry-on-event.ts`: the version of this line that read
+      // `queueMicrotask(attempt)` froze the tab outright — the retry
+      // re-enters `refresh`, which queues another microtask, and
+      // microtasks queued inside a microtask drain in the same
+      // checkpoint, so the style's own callback can never run. Measured
+      // at 200 001 re-entries without yielding. Every map spec stayed
+      // green, because they stub the style and never take this path.
+      // 🔴 AND IT BELONGS TO THIS REFRESH ONLY. `mine` is the generation
+      // stamped at the top of this call; if a later refresh has started
+      // since, this wait was asked for by a view that no longer exists
+      // and must not drag the map back through another `refresh`.
+      //
+      // Without this the retry outlives its view and perturbs the next
+      // one: CI went from clean to `1 flaky` on
+      // `map-filters.spec.ts:918`, which polled for twenty seconds and
+      // kept reading 2 points and 3 clusters in a view that should have
+      // had none. #110, the same suite without this change, reported no
+      // flaky tests at all.
+      // 🔴 REPLACES any outstanding wait rather than riding on it. See
+      // `askStyleWait` for the lost wake-up that the earlier
+      // `if (awaitingStyle.current) return;` produced, and for the
+      // measurement that found it.
+      askStyleWait(
+        awaitingStyle,
+        (fire) => retryOnEvent(m, fire),
+        mine,
+        () => generation.current,
+        say,
+        () => void refreshRef.current(),
+      );
     };
 
     const view = boundsOf(m);
@@ -1231,7 +1494,38 @@ export default function CampsiteMap() {
     // loaded style; and `setStyle` discards it, so mid-swap there is
     // nothing to find. So this needs no guard, and the reason is a
     // property rather than luck.
-    clearRegions(m);
+    // 🔴 Overtaken while we were waiting on the network? Then the map
+    // belongs to a later call, and THIS ONE CALL would undo its work.
+    // See `generation`.
+    //
+    // 🔴 The guard covers `clearRegions` and nothing else, and the
+    // narrowness is the whole point. Review measured the wide version —
+    // a bare `return` here — by lifting this function into Node and
+    // interleaving two `moveend`s: every overtaken call also skipped
+    // the block below, so the LAST refresh standing announced nothing
+    // and `dataState` stayed `loading` for good, with the chunk it had
+    // just fetched sitting in `everything.current` undrawn. Only the
+    // next pan or filter change cleared it.
+    //
+    // The two lines after it are safe to run twice by construction:
+    // `applyFilterState` reads `everything.current` and
+    // `filtersRef.current` — the shared, newest state, never this
+    // call's — and it touches the campsite source, while `clearRegions`
+    // touches the REGION layers. And `inFlight.current === 0` below is
+    // already the "last one standing" test, which is a stronger
+    // statement than "nobody overtook me": an overtaken call either
+    // sees work still in flight and stays quiet, or is the one left to
+    // speak.
+    if (mine === generation.current) {
+      clearRegions(m);
+      // 🔴 The removal is announced for the same reason the addition is:
+      // `data-region-layer` must describe the map as it is, not as the
+      // last `idle` found it. Taking the circles away and leaving the
+      // attribute reading `on` is the same lie in the other direction,
+      // and the zoom-back-in half of CAMP-175's test asks exactly that.
+      publishRegionLayerRef.current?.();
+    }
+
     applyFilterState(filtersRef.current);
 
     // 🔴 Only the LAST refresh standing may say the map is ready.
@@ -1356,13 +1650,10 @@ export default function CampsiteMap() {
     const { shown, unknownExcluded } = applyFilters(all, state);
     drawn.current = shown;
 
-    const source = map.current?.getSource(SOURCE_ID) as
-      | GeoJSONSource
-      | undefined;
     // 🔴 The map is fed EVERYTHING that matches, not only what is on
     // screen. Chunks are kept, so a pan inside the loaded area must not
     // wait for a re-filter to put markers back.
-    source?.setData({ type: 'FeatureCollection', features: shown });
+    if (map.current) setCampsiteFeatures(map.current, shown);
 
     // 🔴 CAMP-133: what the panel says is about the VISIBLE AREA.
     //

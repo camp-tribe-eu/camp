@@ -935,8 +935,28 @@ test.describe('/map filters', () => {
     // firefox 1, mobile-safari 0 and tablet 0. A map is not idle while its
     // tiles are outstanding, so holding them for 3 s puts `idle` after
     // everything the recorder reads at `still`.
+    //
+    // 🔴 HELD BY A FLAG, NOT RELEASED BY `unroute`. This test spent five
+    // rounds of CI being blamed on the component, and the failure was
+    // never an assertion: it was
+    //
+    //     Error: route.continue: Route is already handled!
+    //
+    // thrown from THIS handler, caused by the `page.unroute(…)` below.
+    // Playwright force-continues a parked route when its handler is
+    // removed, and the sleeping handler's own `route.continue()` then
+    // throws into whatever test is running.
+    //
+    // It only showed once something made the gate below fall faster
+    // than three seconds, so the `unroute` started landing while
+    // requests were still parked. That is a landmine under any future
+    // change, not a property of the change that trod on it.
+    //
+    // A flag the handler reads has no such edge: the route is never
+    // removed, so nothing can be force-continued underneath it.
+    let holdTiles = true;
     await page.route('**/*.pbf', async (route) => {
-      await new Promise((r) => setTimeout(r, 3_000));
+      if (holdTiles) await new Promise((r) => setTimeout(r, 3_000));
       await route.continue();
     });
 
@@ -965,8 +985,15 @@ test.describe('/map filters', () => {
     //
     // The recorder read the published view in the same task as that write.
     // The view read after `idle` — which the held tiles kept until now, and
-    // which shows itself by counting no markers on screen, `idle` being the
-    // only writer of that — is the settled one. They must be the same. (Not compared with the detail view's
+    // which shows itself by counting no markers on screen — is the
+    // settled one.
+    //
+    // ⚠️ `idle` is NO LONGER the only writer of those counts. CAMP-175
+    // added a second on `sourcedata`, because `idle` alone published
+    // numbers from the frame before: the campsite source was empty and
+    // `queryRenderedFeatures` still answered with markers. This
+    // paragraph used to lean on that sole-writer property, and leaning
+    // on it is what made `unroute` above look safe. They must be the same. (Not compared with the detail view's
     // bounds: mid-zoom refreshes had already moved them, so "different
     // from before" is true of a wide branch that published nothing.)
     expect((await pulse(page)).state).toBe('wide');
@@ -974,7 +1001,12 @@ test.describe('/map filters', () => {
     await expect
       .poll(
         async () =>
-          `${await map(page).getAttribute('data-visible-points')}/${await map(page).getAttribute('data-visible-clusters')}`,
+          // 🔴 The source's own count travels with the rendered one, so
+          // a failure says WHICH of the two it is: `src=0` with points
+          // on screen is a stale publish; `src=N` is a source that was
+          // never emptied. Three runs were spent guessing between them.
+          `${await map(page).getAttribute('data-visible-points')}/${await map(page).getAttribute('data-visible-clusters')}` +
+            ` (src=${await map(page).getAttribute('data-source-features')})`,
         {
           timeout: 20_000,
           message:
@@ -982,7 +1014,7 @@ test.describe('/map filters', () => {
             'detail are still counted as on screen',
         },
       )
-      .toBe('0/0');
+      .toBe('0/0 (src=0)');
     const settled = await publishedView(page);
     expect(
       settled.bounds,
@@ -992,7 +1024,9 @@ test.describe('/map filters', () => {
       wideSteps[wideSteps.length - 1].view,
       'the map said still before it had published the wide view',
     ).toEqual(settled);
-    await page.unroute('**/*.pbf');
+    // Stop holding; the handler stays registered, so no route in flight
+    // is ever force-continued out from under it. See the flag above.
+    holdTiles = false;
 
     // Every WRITE of `moving`, not every change to it. Each `movestart`
     // writes it once, and a second click that lands in the middle of the
