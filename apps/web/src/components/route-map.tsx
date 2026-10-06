@@ -1,5 +1,6 @@
 'use client';
 
+import { LINE_GUESS, MARKER_STROKE, ROUTE_LINE } from '@/lib/map-palette';
 import { useEffect, useRef, useState } from 'react';
 // 🔴 Named imports. maplibre-gl 6 is ESM-only and dropped its default
 // export, so `import maplibregl from 'maplibre-gl'` typechecks and then
@@ -175,11 +176,38 @@ export default function RouteMap({ stages, spots, road }: RouteMapProps) {
           source: LEG_SOURCE,
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            'line-color': '#8A93A6',
+            // 🔴 MEASURED AGAINST THE MAP IT CROSSES, not picked (CAMP-237).
+            //
+            // This was `#8A93A6`, which is in no part of the design
+            // system and reads **2.05:1 against the basemap's water** —
+            // under the 3:1 that WCAG 1.4.11 asks of a non-text element.
+            // And this is the line that actually draws: the road line
+            // below never runs, because `road` is undefined until a
+            // routing provider is configured. The failing line was the
+            // live one.
+            //
+            // `--heading` measured against all five `--map-*` colours:
+            // land 10.46, green 9.74, water 7.23, road 12.91, casing
+            // 8.86 — worst 7.23. And ΔE 79.5 from `--route`, so the
+            // guess and the road are not two shades of one thing.
+            //
+            // A line has no stroke to hide behind, which is why it is
+            // measured against the map rather than against a casing the
+            // way the campsite markers are (CAMP-222).
+            'line-color': LINE_GUESS,
             'line-width': 2,
             // 🔴 The dash pattern IS the honesty. Solid means road.
             'line-dasharray': [1.5, 2],
-            'line-opacity': road ? 0 : 0.9,
+            // 🔴 Full opacity. The 0.9 that was here was never measured:
+            // `lineProblems` compared the solid colour, and blended at
+            // 0.9 over liberty's water the real figure is 4.72 rather
+            // than 5.79. It passed either way, so this is margin rather
+            // than a defect — but an unmeasured number in a guarded file
+            // is the thing this project keeps writing cards about.
+            //
+            // The 0 is not styling: it is how this layer hides when a
+            // real road exists, so the expression stays.
+            'line-opacity': road ? 0 : 1,
           },
         });
       }
@@ -199,13 +227,50 @@ export default function RouteMap({ stages, spots, road }: RouteMapProps) {
             geometry: { type: 'LineString', coordinates: road },
           },
         });
+        // 🔴 A CASING UNDER THE LINE, and it is what makes the design's
+        // own colour usable. Measured against the tiles we actually
+        // serve — not the `--map-*` tokens, which this repository already
+        // files under "not ours" — `--route` reads **2.69:1 on liberty's
+        // water**, under the 3:1 of WCAG 1.4.11. Without a casing the
+        // only way out would have been to overrule the designer.
+        //
+        // With one, the burden moves to where it can be met: the casing
+        // clears every served basemap colour at 8.99:1, and `--route`
+        // only has to separate from the casing, which it does at 3.34.
+        // It is the same shape the campsite markers use (CAMP-222), and
+        // it is what every map does with a route.
+        m.addLayer(
+          {
+            id: 'route-road-casing',
+            type: 'line',
+            source: ROAD_SOURCE,
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': MARKER_STROKE, 'line-width': 7 },
+          },
+          'route-leg-line',
+        );
         m.addLayer(
           {
             id: 'route-road-line',
             type: 'line',
             source: ROAD_SOURCE,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': '#2F6FDB', 'line-width': 4, 'line-opacity': 0.9 },
+            // 🔴 `--route`, which is what the design said all along, and
+            // it measures BETTER than the `#2F6FDB` that was here: 3.36
+            // against water where the blue gave 3.16, and it is a colour
+            // the system actually defines. Worst of the five: water 3.36.
+            //
+            // ⚠️ It is also `--warn`. Nothing on this map draws an error
+            // state, so no frame shows both; if one is ever added here,
+            // that is the moment to look again.
+            paint: {
+              'line-color': ROUTE_LINE,
+              'line-width': 4,
+              // Full opacity: the casing below is what carries this line
+              // against the map, and blending the colour into the casing
+              // only narrows the 3.34:1 that separates them.
+              'line-opacity': 1,
+            },
           },
           'route-leg-line',
         );
@@ -236,7 +301,16 @@ export default function RouteMap({ stages, spots, road }: RouteMapProps) {
           'circle-radius': 5,
           'circle-color': '#4BA883',
           'circle-stroke-width': 1.5,
-          'circle-stroke-color': '#FFFFFF',
+          // 🔴 The stroke was `#FFFFFF`, which is **1.00:1 against the
+          // basemap's roads** — the same white, exactly. On land it is
+          // 1.23. So the outline added nothing, and the dot was carried
+          // by its fill alone, which measures 1.93 against water.
+          //
+          // The campsite markers settled this in CAMP-222: the outline
+          // carries visibility against the map (11.23:1 at its worst),
+          // and the fill only has to separate from the outline. `#4BA883`
+          // against this stroke is 5.82.
+          'circle-stroke-color': MARKER_STROKE,
         },
       });
 

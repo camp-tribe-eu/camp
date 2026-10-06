@@ -138,3 +138,38 @@ export function dominantType(counts: Record<string, number>): string | null {
   }
   return null;
 }
+
+/**
+ * The route line, and the dashed line that admits we do not know the road.
+ *
+ * 🔴 BOTH MEASURED AGAINST THE BASEMAP THEY CROSS (CAMP-237), because a
+ * line has no outline to hide behind. The campsite markers can rely on
+ * `MARKER_STROKE` carrying them at 11.23:1 and only need 3:1 against it;
+ * a 2-pixel line sits directly on land, water, forest and road.
+ *
+ * What was here before:
+ *
+ *   `#2F6FDB` on the road line — a blue in no part of the design system,
+ *   worst 3.16 against water. It also never draws: `road` is undefined
+ *   until a routing provider is configured.
+ *
+ *   `#8A93A6` on the dashed leg line — also in no part of the system,
+ *   worst **2.05 against water**, under the 3:1 of WCAG 1.4.11. That is
+ *   the line that DOES draw today, so the failing colour was the live
+ *   one and the blue the card was named after was the dead one.
+ *
+ * Measured against the design's own `--map-*` values, worst of five:
+ *
+ *   ROUTE_LINE  #C83D28   water 3.36   (the old blue gave 3.16)
+ *   LINE_GUESS  #343D50   water 7.23
+ *
+ * ΔE between them is 79.5, far past the 25 this project uses, so "the
+ * road we found" and "a straight line between stops" cannot be read as
+ * two shades of one thing. The dash pattern says it too, which is WCAG
+ * 1.4.1: colour is never the only channel.
+ *
+ * ⚠️ `ROUTE_LINE` is also `--warn`. Nothing on this map draws an error
+ * state, so no frame shows both. If one is ever added, look again.
+ */
+export const ROUTE_LINE = "#C83D28";
+export const LINE_GUESS = "#343D50";
