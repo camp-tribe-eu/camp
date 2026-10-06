@@ -57,6 +57,7 @@ import {
   type RegionSummary,
 } from '@/lib/map-chunks';
 import { askStyleWait, retryOnEvent } from '@/lib/retry-on-event';
+import { satelliteFor, whySatelliteUnavailable } from '@/lib/satellite-sources';
 import {
   DEFAULT_LAYERS,
   LAYERS,
@@ -99,6 +100,10 @@ const INDEX_URL = '/data/spots/index.json';
 const SOURCE_ID = 'campsites';
 const REGION_SOURCE = 'campsite-regions';
 const REGION_CIRCLE = 'campsite-region-circles';
+
+/** CAMP-221. The national orthophoto, when one covers what is on screen. */
+const SATELLITE_SOURCE = 'satellite-ortho';
+const SATELLITE_LAYER = 'satellite-ortho-raster';
 const REGION_COUNT = 'campsite-region-count';
 const CLUSTER_LAYER = 'campsite-clusters';
 const COUNT_LAYER = 'campsite-cluster-count';
@@ -445,6 +450,13 @@ export default function CampsiteMap() {
   const map = useRef<InstanceType<typeof MapLibreMap> | null>(null);
   const popup = useRef<InstanceType<typeof Popup> | null>(null);
   const [sourceId, setSourceId] = useState(DEFAULT_SOURCE_ID);
+  // CAMP-221. Which countries the view is actually over, taken from the
+  // chunk keys the map already loads (`country/region`), so the satellite
+  // layer is offered by country without a new request or invented
+  // geometry. Empty while the map is zoomed out: there are no chunks, and
+  // nobody reads orthophotos at continent zoom.
+  const [countriesInView, setCountriesInView] = useState<string[]>([]);
+  const [satelliteOn, setSatelliteOn] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [unsupported, setUnsupported] = useState(false);
   const tried = useRef<Set<string>>(new Set());
@@ -1385,6 +1397,16 @@ export default function CampsiteMap() {
       ? chunksInView(index.current, view)
       : { keys: [] as string[], tooMany: true };
 
+    // CAMP-221. The chunk key is `country/region`, so the countries on
+    // screen are already known here — no extra request, and no bounding
+    // box of my own invention. Empty when the view is too wide for
+    // chunks, which is also when a satellite layer would be useless.
+    setCountriesInView(
+      detail && !tooMany
+        ? [...new Set(keys.map((k) => k.split('/')[0]))].sort()
+        : [],
+    );
+
     if (!detail || tooMany) {
       setDataState({ kind: 'wide', count: countInView(index.current, view) });
       hideMarkers(m);
@@ -1749,6 +1771,90 @@ export default function CampsiteMap() {
     m.setStyle(target.style);
   }, [sourceId]);
 
+  // CAMP-221 — the satellite layer, added over the basemap and under
+  // everything we draw.
+  //
+  // 🔴 A RASTER LAYER, NOT A STYLE SWAP. `setStyle` discards every source
+  // and layer we added — this file says so in four places — so swapping
+  // the whole style for orthophotos would drop the campsites, the
+  // clusters and the fire polygons and make them all reload. The photo
+  // goes underneath instead, and nothing else moves.
+  //
+  // 🔴 ATTRIBUTION IS THE SOURCE'S OWN FIELD. MapLibre renders
+  // `attribution` from the raster source in the control it already
+  // shows, so the string cannot be forgotten by a later edit to the
+  // markup: remove the layer and the credit goes with it, keep the layer
+  // and the credit is there. The strings are read verbatim from each
+  // service — see `satellite-sources.json`.
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const source = satelliteOn ? satelliteFor(countriesInView) : null;
+
+    const drop = () => {
+      if (m.getLayer(SATELLITE_LAYER)) m.removeLayer(SATELLITE_LAYER);
+      if (m.getSource(SATELLITE_SOURCE)) m.removeSource(SATELLITE_SOURCE);
+    };
+
+    if (!source) {
+      drop();
+      return;
+    }
+
+    // 🔴 NOT GATED ON `isStyleLoaded()`, and this file already knew why.
+    // The comment above `whenDrawable` records it: that predicate reports
+    // false FOR EVER on a map whose GeoJSON source is being updated —
+    // which is what the campsite layer does on every pan. I used it as a
+    // gate anyway and measured the result: the effect ran with the right
+    // source, `styleLoaded` was false, and the network made zero requests
+    // to the tile service. A condition standing in for an operation
+    // drifts from it; this performs the operation and reads the answer.
+    const apply = () => {
+      if (m.getSource(SATELLITE_SOURCE)) return true;
+      try {
+        m.addSource(SATELLITE_SOURCE, {
+          type: 'raster',
+          tiles: [source.tiles],
+          tileSize: 256,
+          maxzoom: source.maxzoom,
+          attribution: source.attribution,
+        });
+        // Under our own first layer, so markers and circles stay on top.
+        const below = m.getLayer(REGION_CIRCLE) ? REGION_CIRCLE : undefined;
+        m.addLayer(
+          { id: SATELLITE_LAYER, type: 'raster', source: SATELLITE_SOURCE },
+          below,
+        );
+        return true;
+      } catch (err) {
+        // Only "the style is still loading" is worth another go. Anything
+        // else is a real failure and retrying would hide it.
+        const message = (err as Error)?.message ?? String(err);
+        if (/not done loading|style is not done/i.test(message)) {
+          drop();
+          return false;
+        }
+        throw err;
+      }
+    };
+
+    // 🔴 IT WAITS INSTEAD OF GIVING UP, and the first version did not —
+    // it read `if (!m.isStyleLoaded()) return;` and nothing woke it, so
+    // on a map whose style was still loading the layer was never added.
+    // Measured: the button turned on, `aria-pressed` went true, and the
+    // network made **zero** requests to the tile service.
+    //
+    // That is the same shape as the lost wake-up in CAMP-175, written by
+    // me hours after fixing it there. `retryOnEvent` is the mechanism
+    // that card left behind, already tested, so this uses it rather than
+    // inventing a second one.
+    if (apply()) return;
+    const stop = retryOnEvent(m, () => {
+      if (apply()) stop();
+    });
+    return stop;
+  }, [satelliteOn, countriesInView, sourceId]);
+
   // 🔴 The fallback the card asks for. A style that 404s or times out
   // leaves MapLibre showing an empty grey rectangle with no explanation,
   // which reads as "the site is broken" rather than "one supplier is
@@ -1860,7 +1966,40 @@ export default function CampsiteMap() {
               {s.label}
             </button>
           ))}
+
+          {/* CAMP-221 — Satellite, beside the cartographic styles because
+              that is what the mockup's three are: Map · Satellite ·
+              Terrain, one switcher.
+
+              🔴 DISABLED WITH A REASON, never a grey rectangle. Coverage
+              is national — Esri, Bing and Google are closed to us by
+              licence — so outside Spain and France there is no imagery
+              to show, and an empty photo layer reads as "no campsites
+              here" rather than "no photographs here". */}
+          <button
+            type="button"
+            onClick={() => setSatelliteOn((on) => !on)}
+            aria-pressed={satelliteOn}
+            disabled={satelliteFor(countriesInView) === null}
+            data-source="satellite"
+            title={
+              satelliteFor(countriesInView)?.provider ??
+              whySatelliteUnavailable(countriesInView)
+            }
+            className={`inline-flex h-8 items-center rounded-sm border px-3 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              satelliteOn && satelliteFor(countriesInView)
+                ? 'border-line-blue bg-accent-surface font-semibold text-heading'
+                : 'border-line-2 bg-surface text-ink-2 enabled:hover:border-line-blue'
+            }`}
+          >
+            Satellite
+          </button>
         </div>
+        {satelliteFor(countriesInView) === null && (
+          <p className="w-full text-xs text-ink-2">
+            {whySatelliteUnavailable(countriesInView)}
+          </p>
+        )}
       </div>
 
       {failed && (

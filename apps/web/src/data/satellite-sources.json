@@ -1,0 +1,72 @@
+{
+ "_": [
+  "National orthophoto services, one per country, read from the services",
+  "themselves on 06.10.2026.",
+  "",
+  "🔴 WHY THIS FILE IS DATA AND NOT CODE. Every field below was read from a",
+  "primary source and every one carries the URL it was read from and the",
+  "date. The mockup for 03-map.html settled the policy — 'Esri, Bing and",
+  "Google are closed to us by licence; orthophotos come from national open",
+  "sources' — but a policy is not a licence. 'Open' is a word; CC BY 4.0",
+  "with a named attribution string is a term.",
+  "",
+  "🔴 AND A SERVICE SAYING 'none' IS NOT A LICENCE EITHER. PDOK's WMTS",
+  "declares ows:Fees none and ows:AccessConstraints none, which means the",
+  "service put nothing in those fields — not that the imagery is free of",
+  "conditions. That is why the Netherlands is listed under `notYet` with",
+  "what is missing, rather than switched on.",
+  "`providerShort` is the name the provider credits itself by, which is not",
+  "always the first words of its legal name: IGN France signs its data \"IGN\",",
+  "not \"Institut national de l'information géographique et forestière\". The",
+  "check requires the attribution to contain it, so a credit that names",
+  "nobody cannot pass.",
+  "",
+  "",
+  "Refresh by re-reading each `readFrom` URL. A licence that nobody can",
+  "reproduce from a link is a licence we are quoting from memory."
+ ],
+ "takenAt": "2026-10-06",
+ "sources": [
+  {
+   "id": "sat-es",
+   "country": "es",
+   "label": "Satellite",
+   "provider": "Instituto Geográfico Nacional / IDEE",
+   "licence": "CC BY 4.0",
+   "licenceVerbatim": "CC BY 4.0 scne.es",
+   "attribution": "Orthophoto © Instituto Geográfico Nacional de España (PNOA), CC BY 4.0 scne.es",
+   "readFrom": "https://www.ign.es/wmts/pnoa-ma?request=GetCapabilities&service=WMTS",
+   "readField": "ows:AccessConstraints (ows:Fees said \"No se aplican condiciones\")",
+   "caveat": "The service's own abstract says part of the coverage is not IGN's: \"Ortoimagen Melilla: Pléiades Neo © Airbus DS (2022)\". Melilla is outside what this layer is offered for, and if it ever is, that tile carries Airbus terms, not CC BY.",
+   "tiles": "https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&tilematrixset=GoogleMapsCompatible&TileMatrix={z}&TileRow={y}&TileCol={x}&format=image/jpeg",
+   "maxzoom": 19,
+   "verifiedTile": "z14/8347/6168 → HTTP 200, image/jpeg, 1652 B",
+   "providerShort": "Instituto Geográfico Nacional"
+  },
+  {
+   "id": "sat-fr",
+   "country": "fr",
+   "label": "Satellite",
+   "provider": "Institut national de l'information géographique et forestière (IGN)",
+   "licence": "Licence Ouverte / Open License",
+   "licenceVerbatim": "Licence Ouverte / Open License (compatible ODC-BY, CC-BY 2.0)",
+   "attribution": "Orthophoto © IGN (BD ORTHO®), Licence Ouverte / Open License",
+   "readFrom": "https://data.geopf.fr/csw?REQUEST=GetRecordById&SERVICE=CSW&VERSION=2.0.2&OUTPUTSCHEMA=http://standards.iso.org/iso/19115/-3/mdb/2.0&elementSetName=full&ID=IGNF_BD-ORTHO",
+   "readField": "mco:otherConstraints on the BD ORTHO dataset record, which the service's ows:AccessConstraints points to via https://cartes.gouv.fr/cgu",
+   "caveat": "The WMTS layer declares a worldwide bounding box (-180 -80 to 180 80) although the imagery is French only, so the declared extent cannot be used to decide coverage. Coverage is decided by country here instead.",
+   "tiles": "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=HR.ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg",
+   "maxzoom": 19,
+   "verifiedTile": "z14/8302/5745 → HTTP 200, image/jpeg, 12928 B",
+   "providerShort": "IGN"
+  }
+ ],
+ "notYet": [
+  {
+   "country": "nl",
+   "provider": "PDOK — Landelijke Voorziening Beeldmateriaal",
+   "whatIsKnown": "The WMTS at https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0 serves layer Actueel_orthoHR and declares ows:Fees \"none\" and ows:AccessConstraints \"none\".",
+   "whyNotEnabled": "Neither field is a licence. PDOK's own copyright page names CC-BY-4.0 for specific datasets (BRT Achtergrondkaart, Bestuurlijke Grenzen, TOPraster, TOPNL) and says the terms for every other dataset live in its Nationaal Georegister metadata record, 'determined by the data provider themselves'. That record — uuid bc9b2d88-9d6b-46c9-ad0e-23f0b7da657c — answered with an HTML login page rather than the XML, so the licence and the required bronvermelding were not read from a primary source. Secondary sources say CC BY 4.0 with attribution to Samenwerkingsverband Beeldmateriaal, which is probably right and is not good enough to publish on.",
+   "howToClose": "Fetch the NGR record as XML (the API path, not the UI path) or ask BeheerPDOK@kadaster.nl, and quote mco:otherConstraints the way the Spanish and French entries do."
+  }
+ ]
+}
