@@ -212,6 +212,31 @@ async function budgetSpent(
 /** The blocking tolerance, named once so the report can speak in fractions of it. */
 const BUDGET = 0.002;
 
+/**
+ * The share of that budget a baseline may spend before this suite says so.
+ *
+ * 🔴 CHOSEN FROM MEASUREMENT, NOT BEFORE IT. The first run of the report
+ * above produced, on CI, for the eight baselines:
+ *
+ *     six files   0 px        identical, byte for byte
+ *     not-found-phone   271 px     39.7% of budget
+ *     countries-phone   479 px     72.8% of budget
+ *
+ * That distribution decides the number by itself. The comment on BUDGET
+ * reasons about antialiasing varying "by a pixel or two between runs" —
+ * on this runner it varies by ZERO across six of eight files, so there is
+ * no noise floor to clear. The two that are not zero are not noise: the
+ * countries baseline still reads "71 campsites" and "Croatia 36" where
+ * the site now says 72 and 37, which is the CAMP-182 fixture change that
+ * slid in under the allowance.
+ *
+ * A quarter of the budget sits far above a measured floor of nothing and
+ * far below the smallest real drift seen, 39.7%. If a future runner does
+ * show antialiasing noise, the report prints the number, so the next
+ * person moves this with evidence rather than by feel.
+ */
+const DRIFT_AT = 0.25;
+
 for (const viewport of VIEWPORTS) {
   test.describe(`${viewport.name}`, () => {
     test.use({ viewport: { width: viewport.width, height: viewport.height } });
@@ -261,6 +286,24 @@ for (const viewport of VIEWPORTS) {
               : `${spent.pixels} px, ${(spent.ratio * 100).toFixed(4)}% of the page, ` +
                 `${((spent.ratio / BUDGET) * 100).toFixed(1)}% of the budget`;
         console.log(`visual-budget\t${shot}\t${says}`);
+
+        // 🔴 The gate the card asks for. A difference that never reaches
+        // the blocking tolerance is invisible for as long as it stays
+        // there — and the tolerance does not care WHAT it is swallowing.
+        // A menu item hid in it for weeks; the same room would hold a
+        // broken heading, a moved price or a wrong number.
+        if (spent !== null && 'ratio' in spent && spent.ratio > BUDGET * DRIFT_AT) {
+          throw new Error(
+            `${shot} has drifted from its baseline: ${spent.pixels} px, ` +
+              `${((spent.ratio / BUDGET) * 100).toFixed(1)}% of the tolerance ` +
+              `(the line is ${DRIFT_AT * 100}%).\n` +
+              `This is under the blocking threshold, which is exactly why it ` +
+              `needs saying: it would otherwise sit here unseen.\n` +
+              `🔴 LOOK at the diff in the visual-diff artifact before doing ` +
+              `anything. Re-shooting the baseline is how the last one got in — ` +
+              `it is the right answer only once you can say what changed and why.`,
+          );
+        }
       });
     }
   });
