@@ -28,6 +28,10 @@ import SourceNote from '@/components/source-note';
 import TariffTable from '@/components/tariff-table';
 import BathingWaterNote from '@/components/bathing-water';
 import AirQualityNote from '@/components/air-quality';
+import { DroughtPanel } from '@/components/drought-panel';
+import { settingParagraph } from '@/lib/setting';
+import { droughtAtBuild } from '@/lib/drought-build';
+import { WebcamNote } from '@/components/webcam-panel';
 
 // CAMP-34 — the campsite page.
 //
@@ -249,6 +253,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
 
   const spot = withOwnerOverrides(data.spot);
   const name = spot.name;
+  const setting = settingParagraph(spot.context);
   const known = Object.values(spot.amenities).filter(
     (v) => v !== 'unknown',
   ).length;
@@ -315,6 +320,40 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           <p className="mt-3 max-w-prose text-sm text-ink-2">
             This site has no name in OpenStreetMap. The location is real — the
             name simply has not been recorded by anyone yet.
+          </p>
+        )}
+        {/* 🔴 CAMP-199: what WE measured about this place, in words.
+
+            Of 61 422 publishable campsite pages, 28 808 — 47% — carry no
+            known amenity, no description and no stars. Nothing but a
+            name. The duplicate-page guard found their pages
+            indistinguishable from their neighbours', and it was right.
+
+            What they do have is this paragraph's subject: how far the
+            water is and what kind, the nearest town, the nearest shop,
+            sometimes the height and the shape of the land. We compute
+            all of it and nobody else publishes it.
+
+            It is NOT `data-boilerplate`: it varies with the campsite,
+            which is the whole point.
+
+            🔴 AND THE NUMBERS THAT STOOD HERE WERE MEASURED ON AN ARRAY
+            I TYPED. "Twelve real Zadarska sites … 4.2% at the median,
+            26.8% at the worst, and no pair is near the 80% line" was a
+            third author-chosen corpus, and the last clause was simply
+            false. On the seed the build actually uses — 30 Zadarska
+            rows, 435 pairs — it is 4.1% at the median, 17.6% at p90,
+            and ONE pair at 100%: autocamp-pisak and autokemp-marin,
+            four campsites on one beach outside Obrovac sharing a town,
+            a shop and a station.
+
+            The live figures live in `lib/setting.ts` and are enforced by
+            `tests/unit/setting.spec.ts` against that seed. They are not
+            repeated here, because two copies of a measurement drift and
+            this copy is how the stale one survived its own retraction. */}
+        {setting && (
+          <p className="mt-4 max-w-prose text-ink-1" data-testid="setting">
+            {setting}
           </p>
         )}
       </header>
@@ -495,6 +534,39 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         airQuality={spot.airQuality}
         renderedAt={new Date().toISOString()}
       />
+
+      {/* 🔴 CAMP-163: what the Copernicus drought indicator measured here.
+
+          Beside the weather, because it is the slow half of the same
+          question — the forecast says what the sky will do this week,
+          this says what the ground has been doing for a month.
+
+          The reading is sampled HERE, at build time, out of a 1 280 × 889
+          grid that never reaches the browser. And it is printed even when
+          the answer is "no drought": that is a measurement about this
+          campsite in this ten-day period, and leaving the space blank
+          would turn it into "nobody knows". */}
+      <DroughtPanel state={droughtAtBuild()} lat={spot.lat} lon={spot.lon} />
+
+      {/* 🔴 CAMP-190: what a camera near here is looking at.
+
+          Beside the drought and the weather because it answers the same
+          question from the other end — those say what the ground and
+          the sky have been doing, this shows it.
+
+          Measured (CAMP-189): 88% of campsites have a camera within
+          25 km, median 8, and the median frame is 8 minutes old. The
+          other 12% get a sentence, not a blank space.
+
+          🔴 AND TODAY IT IS NONE OF THEM, because the catalogue has not
+          been imported — `scripts/windy/fetch-webcams.mjs` has not run
+          against the real database, so the table is empty and this
+          renders nothing at all. That is deliberate: `[]` and "we have
+          not looked" are different facts, and the sentence above is a
+          claim about COVERAGE which we have not earned yet. The
+          paragraph describes the shipped behaviour once the import has
+          run; until then the honest page has no webcam section. */}
+      <WebcamNote webcams={spot.webcams} renderedAt={new Date().toISOString()} />
 
       <Section title="Weather on site">
         <p className="max-w-prose text-sm text-ink-2">

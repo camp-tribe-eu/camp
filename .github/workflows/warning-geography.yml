@@ -1,0 +1,79 @@
+name: Warning geography still resolves
+
+# CAMP-149: the codes in a weather warning are a nomenclature, and
+# nomenclatures move.
+#
+# 🔴 WHY THIS IS A SCHEDULE AND NOT A CI STEP.
+#
+# Everything the join relies on was measured on 05.10.2026 against the
+# live feeds, and every one of those measurements is a date rather than
+# a fact:
+#
+#   · the feed uses the NUTS **2013** vintage. France renumbered in
+#     2016, so `FR712` means Ain in the old list and nothing in the new
+#     one — against the current file, 8 of France's 82 codes resolve.
+#   · Germany and Czechia send `WARNCELLID` and `CISORP` alongside
+#     `EMMA_ID`, never instead. That is what lets us carry no geometry
+#     for either; the day one area arrives with only a WARNCELLID, it
+#     stops being true.
+#   · Natural Earth answers Ireland, with four legacy county codes
+#     expanded by a table written out in `resolve-areas.mjs`.
+#
+# When any of that moves, the join does not break loudly. It resolves
+# fewer codes, those warnings quietly stop appearing on campsite pages,
+# and nobody is told. A silently lost warning about ice is the exact
+# failure the card exists to prevent.
+#
+# 🔴 So this measures coverage against the LIVE feeds and fails below
+# 95%. It cannot be a per-pull-request step: it downloads ~90 MB of
+# geometry and asks 27 feeds, which is rude to do on every push and
+# slow enough to make people stop reading CI.
+
+on:
+  schedule:
+    # 06:00 UTC on Mondays. Weekly is the right cadence for something
+    # that changes with a European nomenclature revision, and Monday
+    # morning means a human sees it at the start of a week rather than
+    # at the end of one.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+  # 🔴 And on any change to the resolution rules themselves. The table
+  # of Irish splits, the pinned NUTS vintage and the list of redundant
+  # schemes are all claims about the world; editing them without
+  # re-measuring is how a wrong claim gets in.
+  pull_request:
+    paths:
+      - 'scripts/meteoalarm/resolve-areas.mjs'
+      - '.github/workflows/warning-geography.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    # Downloading ~90 MB and asking 27 feeds; generous, but bounded so a
+    # hanging source cannot hold a runner all day.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # 🔴 The rules first, offline. If the table itself is wrong there
+      # is no point asking the feeds, and this says so in a second.
+      - name: The resolution rules
+        run: node scripts/meteoalarm/resolve-areas.mjs --self-test
+
+      # 🔴 The geometry is cached between runs because it changes with a
+      # nomenclature revision, not with the weather. The feeds are
+      # always asked live — they are the half that moves.
+      - name: Cache the geometry sources
+        uses: actions/cache@v4
+        with:
+          path: /tmp/camp-149-cache
+          key: camp-149-geometry-v1
+
+      - name: Coverage against the live feeds
+        run: node scripts/meteoalarm/resolve-areas.mjs --coverage

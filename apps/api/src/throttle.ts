@@ -48,6 +48,73 @@ export const DEFAULT_LIMIT = { ttl: MINUTE, limit: 120 };
 export const BULK_LIMIT = { ttl: MINUTE, limit: 6 };
 
 /**
+ * 🔴 Sign-in, which is a different question again — and the only route
+ * where the DEFAULT limit is itself the vulnerability.
+ *
+ * At 120 a minute the ordinary limit lets one caller try **120 passwords
+ * a minute** against one account, which is not a rate limit on a login
+ * form, it is a budget for an online guessing attack. CAMP-50's card
+ * asks for a limit here by name.
+ *
+ * Ten a minute is far more than a human needs — someone mistyping their
+ * own password tries three or four times — and it turns 172 800 guesses
+ * a day into 14 400.
+ *
+ * 🔴 WHAT THIS DOES NOT DO, said plainly so nobody reads it as more than
+ * it is: the bucket is keyed by CALLER, so it slows one source hammering
+ * one account. It does nothing against credential stuffing from a
+ * botnet, where each address tries one password once. That needs
+ * per-ACCOUNT counting and breach-list checks, which are not in this
+ * card. The scrypt cost in password.ts is what stands behind this.
+ */
+export const LOGIN_LIMIT = { ttl: MINUTE, limit: 10 };
+
+/**
+ * Routes counted in the LOGIN bucket.
+ *
+ * 🔴 CAMP-176 happened again here, and review caught it: `@Throttle(LOGIN)`
+ * set the NUMBER to ten while `generateKey` still filed the request under
+ * `ordinary`, so the ten was spent by ORDINARY BROWSING. Measured by the
+ * reviewer: ten `GET /spots/countries` (all 200), then the FIRST EVER
+ * `POST /auth/login` answered 429 without `signIn` being called once.
+ * Anyone who read ten pages in a minute could not sign in at all.
+ *
+ * The number and the bucket are two statements about one route, and the
+ * test I wrote to prevent exactly this — a regex checking the decorator
+ * was typed in the controller — confirmed the spelling and nothing else.
+ * `throttle.spec.ts` now asserts the KEY instead.
+ */
+export const LOGIN_ROUTES = ['auth/login'] as const;
+
+/** Is this the sign-in route? Normalised like isBulkPath, and for the same reasons. */
+export function isLoginPath(path: string): boolean {
+  const clean = path
+    .split('?')[0]
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
+  return LOGIN_ROUTES.some((r) => clean === r);
+}
+
+/**
+ * Which counter this request is spent from.
+ *
+ * 🔴 ONE function, exported, so the three buckets are a fact a test can
+ * read rather than a ternary buried in a Nest guard. The bug review
+ * found was precisely that the limit and the bucket were decided in two
+ * different files and nothing compared them.
+ *
+ * Order matters: a route is checked against the narrow lists first, and
+ * `ordinary` is what is left. A new expensive route that nobody adds to
+ * a list therefore lands in the ordinary bucket — generous, but never
+ * silently sharing a scarce counter with something else.
+ */
+export function bucketOf(path: string): 'bulk' | 'login' | 'ordinary' {
+  if (isBulkPath(path)) return 'bulk';
+  if (isLoginPath(path)) return 'login';
+  return 'ordinary';
+}
+
+/**
  * Routes that carry the bulk limit, by controller path.
  *
  * Exported as data so the test can assert the list rather than trusting
@@ -57,8 +124,25 @@ export const BULK_LIMIT = { ttl: MINUTE, limit: 6 };
  */
 export const BULK_ROUTES = [
   'spots/map/points',
+  // 🔴 CAMP-176. This was decorated `@Throttle(BULK)` and absent here,
+  // so it carried the heavy NUMBER while sharing the ordinary BUCKET.
+  // Measured against the running API: six calls to `/spots/countries`
+  // — three words of JSON each — and the next `/spots/map/regions`
+  // answered 429, without that route having been called once.
+  //
+  // The decorator and this list are two statements about one route, and
+  // nothing compared them. `throttle.spec.ts` now reads the controller
+  // and fails if they disagree in either direction; this entry is the
+  // one that disagreement was hiding.
+  'spots/map/regions',
   'spots/search-index',
   'spots/index',
+  // 🔴 CAMP-235. Caught by this very check on the first run: the route
+  // carried @Throttle(BULK) and was absent here, which is precisely the
+  // CAMP-176 defect — the heavy NUMBER in the ordinary BUCKET. The
+  // report is a grouped scan over a window, read by a person once a
+  // week, not something a reader hits.
+  'not-found/worst',
 ] as const;
 
 /**

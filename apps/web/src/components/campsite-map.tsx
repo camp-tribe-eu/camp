@@ -36,6 +36,13 @@ import {
   type SpotProperties as FilterProperties,
 } from '@/lib/map-filter';
 import MapFilters from './map-filters';
+import {
+  MARKER_STROKE,
+  TYPE_COLOUR,
+  clusterCounts,
+  dominantColourExpression,
+  typeColourExpression,
+} from '@/lib/map-palette';
 import { LayerChip } from './layer-chip';
 import { WildfirePanel } from './wildfire-panel';
 import {
@@ -689,6 +696,9 @@ export default function CampsiteMap() {
           // CAMP-32. Clustering happens in the worker, over the whole
           // set, so the browser only ever draws what is on screen.
           cluster: true,
+          // CAMP-222: one counter per type, accumulated in the worker,
+          // so a cluster arrives already knowing what it is made of.
+          clusterProperties: clusterCounts() as never,
           // Above this zoom the reader is looking at one area and wants
           // the individual sites, not a bubble.
           clusterMaxZoom: 11,
@@ -703,7 +713,10 @@ export default function CampsiteMap() {
           source: SOURCE_ID,
           filter: ['has', 'point_count'],
           paint: {
-            'circle-color': '#404B62',
+            // CAMP-222. The number says how many; the colour says which
+            // kind there are more of. One flat colour turned the country
+            // view into identical grey circles.
+            'circle-color': dominantColourExpression() as never,
             'circle-opacity': 0.9,
             // Size by how many sites are inside, so the shape of the
             // data is visible before anything is clicked.
@@ -717,7 +730,7 @@ export default function CampsiteMap() {
               26,
             ],
             'circle-stroke-width': 2,
-            'circle-stroke-color': '#FFFFFF',
+            'circle-stroke-color': MARKER_STROKE,
           },
         });
       }
@@ -746,9 +759,12 @@ export default function CampsiteMap() {
           filter: ['!', ['has', 'point_count']],
           paint: {
             'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 4, 12, 7],
-            'circle-color': '#C83D28',
+            // 🔴 CAMP-222. This was `#C83D28`, which the design system
+            // calls **Error** — every campsite on the map was painted in
+            // the colour reserved for something being wrong.
+            'circle-color': typeColourExpression() as never,
             'circle-stroke-width': 1.5,
-            'circle-stroke-color': '#FFFFFF',
+            'circle-stroke-color': MARKER_STROKE,
           },
         });
       }
@@ -1951,6 +1967,40 @@ export default function CampsiteMap() {
         data-in-view-unknown-excluded={tally.inViewUnknownExcluded}
         className="h-[60vh] min-h-[360px] w-full overflow-hidden rounded-card border border-line-2"
       />
+
+      {/* 🔴 CAMP-222. Colour is never the only channel (WCAG 1.4.1).
+          Five fills nobody can decode are decoration; this is what turns
+          them into information, and it works for a reader who cannot
+          tell any of them apart.
+
+          Below the map, not floating over it — the same reason the
+          filters are a sibling and not an overlay (CAMP-35 / UST-466):
+          a panel over the canvas has to shrink or hide on a phone, and
+          a legend that hides is a legend that is not there.
+
+          🔴 It lists TYPE_COLOUR and deliberately not UNKNOWN_COLOUR.
+          Review asked why the grey is undecoded: because it is drawn
+          only for a kind we have no colour for, and all five kinds OSM
+          gives us are mapped — so a swatch for it would explain
+          something the map cannot currently show. A new kind added to
+          TYPE_COLOUR appears here on its own; a kind that reaches the
+          grey is a signal to map it, not to caption it. */}
+      <ul
+        data-testid="map-legend"
+        aria-label="What the marker colours mean"
+        className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-ink-2"
+      >
+        {Object.entries(TYPE_COLOUR).map(([kind, colour]) => (
+          <li key={kind} className="flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className="inline-block h-3 w-3 shrink-0 rounded-full border-2"
+              style={{ backgroundColor: colour, borderColor: MARKER_STROKE }}
+            />
+            {TYPE_LABEL[kind] ?? kind}
+          </li>
+        ))}
+      </ul>
 
       {/* CAMP-153, CAMP-162. The fire layer always says something — see
           the component for why, and why it is a component: the words

@@ -92,7 +92,7 @@ async function resolveFixtures(request: APIRequestContext): Promise<Fixtures> {
   // the loose condition now has electricity "unknown", and the test read
   // as a rendering bug. 83 campsites meet the strict one, measured
   // 24.09.2026, so asking for it costs nothing and removes the luck.
-  const richCandidate = markers.find(
+  const richCandidates = markers.filter(
     (m) =>
       m.name &&
       withNear.has(m.slug) &&
@@ -101,18 +101,34 @@ async function resolveFixtures(request: APIRequestContext): Promise<Fixtures> {
   );
   const emptyCandidate = markers.find((m) => !m.name && known(m.amenities) === 0);
 
-  if (richCandidate) {
+  // 🔴 THE NAMED WATER IS PART OF THE SEARCH, NOT A TEST APPLIED AFTER IT.
+  //
+  // This used to `find` ONE candidate and then ask whether that one
+  // happened to have a named body of water. It is the same luck this
+  // file already warns about two comments up — "holding for as long as
+  // the data did not move" — and the data moved again: of the 21 fixture
+  // campsites with a name and electricity, the first several sit on the
+  // Soča, whose rivers carry no name in our context. One row's silence
+  // then read as "there is no such campsite in the database".
+  //
+  // So every candidate is tried, in order, until one qualifies. Bounded,
+  // because the list is the fixture's and the loop stops at the first
+  // hit; and honest, because the requirement is unchanged — a campsite
+  // with a name, surroundings, two known amenities, electricity and a
+  // NAMED body of water.
+  for (const candidate of richCandidates) {
     const { spot } = await (
       await request.get(
-        `${API_BASE}/spots/${richCandidate.country}/${richCandidate.region}/${richCandidate.slug}?nearby=0`,
+        `${API_BASE}/spots/${candidate.country}/${candidate.region}/${candidate.slug}?nearby=0`,
       )
     ).json();
     // Confirmed on the record the page actually renders, not inferred
     // from the list: `near` says something is close, the page needs a
     // named body of water.
     if (spot.context?.water?.name) {
-      rich = richCandidate.path;
+      rich = candidate.path;
       richWater = spot.context.water;
+      break;
     }
   }
   if (emptyCandidate) {
@@ -172,8 +188,36 @@ test.describe('campsite page', () => {
     await expect(
       page.getByText(/don’t publish pictures we haven’t verified/i),
     ).toBeVisible();
-    // If an <img> ever appears here without a verified source, this fails.
-    await expect(page.locator('main img')).toHaveCount(0);
+    // 🔴 NO PICTURE OF THE CAMPSITE — which is not the same as no <img>.
+    //
+    // This read `expect(page.locator('main img')).toHaveCount(0)`, and
+    // that was right while the only image a campsite page could carry
+    // was a photograph of the campsite. CAMP-190 added webcam frames,
+    // and once the CI fixture gained cameras this went red at 2.
+    //
+    // A webcam frame is a different object with its own rules: it is
+    // somebody else's live view of somewhere NEAR here, it carries its
+    // distance, it links back to Windy as their terms require, and the
+    // panel is forbidden from claiming it shows the campsite. Counting
+    // it as stock photography would be wrong; so would letting this
+    // test be relaxed to "some images are fine".
+    //
+    // So the question stays exactly as strict, and only becomes
+    // precise: every image must be one we can account for. Today that
+    // is the webcam panel and nothing else. An <img> anywhere else on
+    // this page is the failure this test was written for.
+    // 🔴 Counted, not selected with `:not(<complex>)`. That is CSS
+    // Selectors Level 4 and the suite runs on five engines including
+    // WebKit; a selector that silently matches nothing there would make
+    // this test pass by finding no strays rather than by there being
+    // none — the exact failure mode this file keeps catching elsewhere.
+    const allImages = await page.locator('main img').count();
+    const inPanel = await page.locator('[data-testid="webcam-note"] img').count();
+    expect(
+      allImages - inPanel,
+      `an image outside the webcam panel is a picture of the campsite we did not ` +
+        `verify (main img ${allImages}, webcam frames ${inPanel})`,
+    ).toBe(0);
     await expect(page.getByRole('link', { name: /add your photos/i })).toBeVisible();
   });
 
@@ -207,6 +251,105 @@ test.describe('campsite page', () => {
       .analyze();
     expect(results.violations).toEqual([]);
   });
+});
+
+// CAMP-190 — the heading outline, which is how a page states its
+// subjects.
+//
+// 🔴 WRITTEN AFTER SHIPPING THE DEFECT IT CATCHES, and the defect was
+// invisible to all 758 unit tests.
+//
+// The webcam panel went out with an `h3`. It is a direct child of
+// `<main>`, a sibling of "Bathing water", "Air quality" and "Weather on
+// site" — every one of them an `h2` — so the outline read
+//
+//     h2 Air quality → h3 Webcams nearby → h2 Weather on site
+//
+// and the cameras became a subsection of the air quality. A unit test
+// rendering the component alone cannot see that: the defect exists only
+// in the assembled page, between components. Review had already said
+// nothing renders this page; this is where that gets paid.
+//
+// It is deliberately a rule about the OUTLINE, not a list of the
+// headings we have today. A list would have to be edited by whoever
+// adds the next panel, which is exactly the person who would edit it
+// wrongly.
+test.describe('the page says what its subjects are (CAMP-190)', () => {
+  /**
+   * The page's outline, read as the browser builds it.
+   *
+   * 🔴 `sectionHeading` IS THE FIRST HEADING OF A DIRECT CHILD OF
+   * `<main>`, and the version before this asked a different question
+   * that happened to give the right answer twice.
+   *
+   * It asked `h.closest('section, article')?.parentElement === main`,
+   * which is true of EVERY descendant heading, not just a section's
+   * own. Review proved both halves of the damage in chromium: a
+   * legitimate `<h3>` subheading inside a top-level section was
+   * reported as `wrong` — so the next panel with a subheading turns CI
+   * red for markup that is correct — while a panel wrapped in a layout
+   * `<div>` rather than a `<section>` escaped entirely, which is the
+   * exact defect the rule exists to catch.
+   *
+   * A child of `<main>` is a subject of the page whatever element it
+   * is; the heading that NAMES it is its first one, and that is the one
+   * that must be an h2. Everything below it is free to be deeper.
+   */
+  const outline = async (page: import('@playwright/test').Page) =>
+    page.evaluate(() => {
+      const main = document.querySelector('main');
+      const SEL = 'h1, h2, h3, h4, h5, h6';
+      const all = [...(main?.querySelectorAll(SEL) ?? [])];
+      // The first heading inside each direct child of <main>, which is
+      // that child's own name.
+      const firstOfChild = new Set<Element>();
+      for (const child of [...(main?.children ?? [])]) {
+        const first = child.matches(SEL) ? child : child.querySelector(SEL);
+        if (first) firstOfChild.add(first);
+      }
+      return all.map((h) => ({
+        level: Number(h.tagName[1]),
+        text: (h.textContent ?? '').trim().slice(0, 60),
+        sectionHeading: firstOfChild.has(h),
+      }));
+    });
+
+  for (const which of ['rich', 'empty'] as const) {
+    test(`🔴 no heading level is skipped on a ${which} campsite`, async ({ page }) => {
+      await page.goto(fx[which]);
+      const hs = await outline(page);
+      expect(hs.length, 'the page has no headings at all').toBeGreaterThan(3);
+      expect(hs[0]?.level, 'the page does not start at h1').toBe(1);
+
+      const skips = hs
+        .map((h, i) => ({ ...h, prev: hs[i - 1] }))
+        .filter((h) => h.prev && h.level > h.prev.level + 1)
+        .map((h) => `h${h.prev!.level} "${h.prev!.text}" → h${h.level} "${h.text}"`);
+      expect(skips, 'a reader and a crawler both read this as nesting').toEqual([]);
+    });
+
+    test(`🔴 every section of <main> is an h2 on a ${which} campsite`, async ({ page }) => {
+      await page.goto(fx[which]);
+      const hs = await outline(page);
+      // 🔴 Exactly one h1, named rather than exempted. The old rule
+      // excluded anything called H1, so a SECOND h1 dropped into
+      // <main> was invisible to it — and h2 → h1 is not a "skip"
+      // either, so nothing else looked.
+      expect(
+        hs.filter((h) => h.level === 1).map((h) => h.text),
+        'a page has exactly one h1',
+      ).toHaveLength(1);
+
+      const wrong = hs
+        .filter((h) => h.sectionHeading && h.level !== 2 && h.level !== 1)
+        .map((h) => `h${h.level} "${h.text}"`);
+      expect(
+        wrong,
+        'a section of the page that is not an h2 reads as part of the one above it — ' +
+          'which is how the webcam panel became a subsection of the air quality',
+      ).toEqual([]);
+    });
+  }
 });
 
 test.describe('what is around it (CAMP-33)', () => {

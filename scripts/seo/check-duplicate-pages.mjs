@@ -23,6 +23,12 @@
 import { readFileSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
 import path from 'node:path';
+import { visibleHtmlText, shingles, jaccard, selfTest, nestedMarks } from './page-text.mjs';
+
+// 🔴 `--self-test` needs no build and no database, so CI can run it on
+// every push: the stripping rule decides what this guard is allowed to
+// ignore, and a hole in it goes GREEN rather than red.
+if (process.argv.includes('--self-test')) process.exit(selfTest() ? 1 : 0);
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -111,46 +117,29 @@ function seeded(n) {
 }
 
 function visibleText(file) {
-  let html = readFileSync(file, 'utf8');
-  const main = /<main[^>]*>([\s\S]*?)<\/main>/.exec(html);
-  html = main ? main[1] : html;
-  return html
-    // 🔴 Blocks that are identical on every page by construction are
-    // stripped before comparing.
-    //
-    // The attribution block (CAMP-101) and the travel notice (CAMP-56)
-    // are word-for-word the same everywhere, because both are promises
-    // we make about every campsite rather than statements about one.
-    // Counting them inflates every pair's similarity equally: adding the
-    // attribution block pushed hr/zadarska/autocamp-tabor and
-    // autocamp-punta from below the line to 80.7%, which is a true
-    // measurement of the wrong thing.
-    //
-    // The rule for adding `data-boilerplate` is strict: the block must be
-    // identical on every page it appears on. Anything that varies with
-    // the subject stays in the comparison, because that is exactly what
-    // the guard is for.
-    .replace(/<[a-z]+[^>]*\sdata-boilerplate=[^>]*>[\s\S]*?<\/[a-z]+>/gi, ' ')
-    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&[a-z]+;|&#\d+;/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+  const html = readFileSync(file, 'utf8');
+  // 🔴 ASKED ON THE BUILT PAGE, WHICH IS THE ONLY PLACE A WRAPPER EXISTS.
+  //
+  // `data-boilerplate` on an element that contains another marked one
+  // removes everything between them from the comparison. A unit test
+  // that renders one component cannot see a mark added in `page.tsx`
+  // around it — review found exactly that gap — but this file reads the
+  // page as served, wrappers and all.
+  //
+  // It fails the run rather than warning: the symptom of the mistake is
+  // a guard that goes green, so nothing quieter would ever be noticed.
+  for (const { outer, inner } of nestedMarks(html)) {
+    nestingProblems.push(
+      `${path.relative(BUILD, file)}: data-boilerplate="${outer}" contains ` +
+        `data-boilerplate="${inner}" — everything between them is being ` +
+        'dropped from the duplicate comparison, including whatever varies',
+    );
+  }
+  return visibleHtmlText(html);
 }
 
-const shingles = (text, n = 5) => {
-  const w = text.split(' ');
-  const out = new Set();
-  for (let i = 0; i + n <= w.length; i++) out.add(w.slice(i, i + n).join(' '));
-  return out;
-};
-
-const jaccard = (a, b) => {
-  let shared = 0;
-  for (const s of a) if (b.has(s)) shared++;
-  return shared / (a.size + b.size - shared);
-};
+/** Collected while reading, reported once, and they fail the run. */
+const nestingProblems = [];
 
 let failed = 0;
 let analysed = 0;
@@ -224,6 +213,16 @@ for (const family of FAMILIES) {
     }
     failed++;
   }
+}
+
+if (nestingProblems.length > 0) {
+  console.error(`\n✗ ${nestingProblems.length} nested \`data-boilerplate\` block(s):\n`);
+  for (const p of nestingProblems.slice(0, 20)) console.error(`   ${p}`);
+  console.error(
+    '\n  Unwrap one of them. A mark may cover a block that is word for word\n' +
+      '  the same on every page — never a container holding one.',
+  );
+  process.exit(1);
 }
 
 if (failed > 0) {

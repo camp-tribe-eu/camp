@@ -249,8 +249,57 @@ directions, and neither is a superset:
 | Poland | 69, all expired | 69, all expired |
 | Ireland | 68 | 212 |
 
-We take the **JSON API**, because only it carries the NUTS codes we need
-to join a warning to a campsite, and we filter it hard.
+We take the **JSON API** and we filter it hard.
+
+> 🔴 **Correction, 05.10.2026 — the third attempt at this paragraph.**
+>
+> It first said the JSON API is taken "because only it carries the NUTS
+> codes we need". I measured four countries and replaced that with
+> "there is no NUTS code anywhere in it". Review measured eleven and
+> that was false too, so I wrote "four schemes". Review then took a
+> census of **all 27 feeds** — and four is wrong as well:
+>
+> | scheme | geocodes | where |
+> | --- | --- | --- |
+> | `EMMA_ID` | 26 318 | most member states |
+> | `NUTS3` | 6 586 | France and Bulgaria |
+> | `WARNCELLID` | 5 672 | Germany, alongside `EMMA_ID` |
+> | `NUTS2` | 566 | Belgium and Hungary |
+> | `FIPS` | 393 | Ireland |
+> | `CISORP` | 6 | Czechia |
+>
+> **Six schemes.** CAMP-149 named `NUTS2` from its own 27-country
+> measurement and I had dismissed it from a sample of eleven; it was
+> right and I was not.
+>
+> **And then I over-counted the other way.** "Seven member states carry
+> no area code" was the fourth generalisation in this paragraph's
+> history, and it is wrong in both directions. Measured on all 27 feeds
+> (2026-10-05), three states code nothing: Estonia (154 areas, 0 coded),
+> Slovenia (8 / 0), Sweden (22 / 0). Four of the seven I named —
+> Luxembourg, Malta, Romania, Slovakia — answer `{"warnings":[]}`,
+> fifteen bytes holding no alert at all. That is an absence of data, not
+> an absence of codes, and nothing about their geography is measurable
+> from it. The same count missed Latvia, which codes 14 of its 508
+> areas — partial, and the case hardest to see.
+>
+> Every figure here is reproducible with
+> `node scripts/meteoalarm/fetch-warnings.mjs --census`, which never
+> writes. Run it rather than trusting the numbers: the feed is live, and
+> two measurements 22 minutes apart differed by 504 NUTS3 occurrences.
+>
+> 🔴 **The lesson is not about MeteoAlarm.** Three times in one day I
+> replaced a generalisation with a narrower one drawn from a slightly
+> wider sample, and each felt like a correction. A refutation is a claim
+> too. Write the census or write the sample size; do not write "nowhere"
+> from eleven of twenty-seven.
+>
+> What stands: the JSON API is the one to take, and the fetch keeps
+> every `SCHEME:VALUE` pair, the free-text `areaDesc` and any polygon,
+> because we do not yet know which we will need. Resolving them is
+> CAMP-149, and it needs one geometry source per scheme — the
+> MeteoAlarm geocode file answers `EMMA_ID` only, all 2 006 of its
+> features.
 
 ### Joining a warning to a campsite is a real piece of work
 

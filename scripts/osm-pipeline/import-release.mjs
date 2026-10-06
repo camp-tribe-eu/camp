@@ -30,6 +30,7 @@
 // country's campsites to the other's argument.
 
 import { execFileSync } from 'node:child_process';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -234,11 +235,71 @@ export function sizesFromAssets(assets) {
   return sizes;
 }
 
+/**
+ * The argv for `gh release view`, with the tag where it cannot be read
+ * as a flag.
+ *
+ * 🔴 CAMP-201. CodeQL flagged this file for "indirect command line
+ * injection" on 24.09 and the alert sat for eleven days, red on every
+ * branch — which is how a repository teaches itself to stop reading
+ * alerts.
+ *
+ * Most of what it suspected is not there: `execFileSync` spawns no
+ * shell, so a `;` or a `|` in an argument stays an argument, and the
+ * executable at every call site is a literal. But one narrower thing
+ * IS, and it is measured rather than argued. Against the real `gh`:
+ *
+ *   gh release view -R camp-tribe-eu/camp --json tagName --version
+ *     → unknown flag: --version
+ *   gh release view -R camp-tribe-eu/camp --json tagName -- --version
+ *     → release not found
+ *
+ * The tag reaches here from `--tag` on the command line or from
+ * `gh release list`, i.e. from whoever can name a release. A tag
+ * beginning with `-` turns into a flag and the command does something
+ * nobody chose. `--` ends flag parsing, so everything after it is a
+ * positional whatever it looks like.
+ */
+export function releaseViewArgv(tag, repo = REPO) {
+  return ['release', 'view', '-R', repo, '--json', 'assets', '--', tag];
+}
+
+/**
+ * The argv for `gh release download`.
+ *
+ * 🔴 The TAG is positional and goes after `--`, which is the protection
+ * that matters and is measured: without it, `gh release download
+ * --version …` answers `unknown flag`.
+ *
+ * ⚠️ The pattern is passed as `--pattern=<value>` as hardening, NOT
+ * because the separated form is unsafe. An earlier version of this
+ * comment claimed "a separated value starting with `-` is ambiguous";
+ * review measured the opposite on the real binary — `gh release
+ * download -p --badflagxyz …` consumes the value and reaches
+ * `release not found`, while the same unknown flag with no `-p` to eat
+ * it errors. The glued form removes a question nobody has to ask; the
+ * reason written here before was invented.
+ */
+export function releaseDownloadArgv(tag, asset, dir, repo = REPO) {
+  return [
+    'release',
+    'download',
+    '-R',
+    repo,
+    `--pattern=${asset}`,
+    '-D',
+    dir,
+    '--clobber',
+    '--',
+    tag,
+  ];
+}
+
 function assetSizes(tag) {
   let assets;
   try {
     assets = JSON.parse(
-      run('gh', ['release', 'view', tag, '-R', REPO, '--json', 'assets']),
+      run('gh', releaseViewArgv(tag)),
     ).assets ?? [];
   } catch (err) {
     console.log(
@@ -260,6 +321,19 @@ function assetSizes(tag) {
     );
   }
   return sizes;
+}
+
+/**
+ * Decompress a downloaded .gz beside itself, in-process.
+ *
+ * 🔴 Named, exported and tested because of what it replaced: a
+ * `sh -c` whose command was built by pasting the two paths into a
+ * string. See the note at the call site. Keeping it a function means
+ * the self-test can hand it a path no shell would survive.
+ */
+export function unpackGz(gz, json) {
+  writeFileSync(json, gunzipSync(readFileSync(gz)));
+  return json;
 }
 
 const run = (cmd, argv, opts = {}) =>
@@ -411,6 +485,184 @@ function selfTest() {
   ok('--tag with a value is read', readOpt(['--tag', 'osm-2026-09-24'], 'tag') === 'osm-2026-09-24');
   ok('an absent flag still falls back', readOpt(['fr'], 'tag', 'latest') === 'latest');
 
+  // ── CAMP-183: unpacking goes through no shell ──
+  //
+  // 🔴 The second case is the whole point and it is not decoration. The
+  // old line was `sh -c "gzip -dc '<gz>' > '<json>'"`. A single quote in
+  // a path ENDS the quoted run there, and everything after it is read as
+  // shell — the quotes that look like protection are the hole. Hand that
+  // version this filename and the command breaks apart; hand it to zlib
+  // and it is just a name. The first case keeps the plain path honest,
+  // so this pair cannot pass by doing nothing at all.
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'camptribe-unpack-'));
+    const body = '{"type":"FeatureCollection","features":[]}';
+    const roundTrip = (name) => {
+      const gz = join(dir, `${name}.gz`);
+      writeFileSync(gz, gzipSync(Buffer.from(body)));
+      const out = unpackGz(gz, gz.replace(/\.gz$/, ''));
+      return readFileSync(out, 'utf8');
+    };
+    ok('a .gz unpacks to its bytes', roundTrip('europe-malta.geojson') === body);
+    ok("a path holding a quote, a space and a semicolon unpacks all the same",
+      roundTrip("it's here; rm -rf .geojson") === body);
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // And the shell itself is gone: nothing in this file may build a
+  // command out of an interpolated string again. `execFileSync` with an
+  // argument array never reaches a shell, which is why every other call
+  // here was already safe.
+  //
+  // 🔴 Comments are stripped first, and the first version of this check
+  // FAILED without that — it matched the note at the call site, which
+  // quotes the very line it is warning about. A guard that cannot tell
+  // code from prose about code reports the warning as the crime.
+  // 🔴 KEYED TO THE SHAPE, not to one spelling, and the first version
+  // was not. It forbade the literal `run('sh'` and nothing else, so
+  // review walked through it six different ways, each leaving 46/46
+  // green: `execFileSync('sh', …)` straight past the `run` wrapper
+  // (execFileSync is already imported, so that is the likeliest future
+  // edit of all), `run('bash', …)`, `run('/bin/sh', …)`, backticks, a
+  // shell name held in a variable, and `{ shell: true }` in the options.
+  //
+  // Three of those are now caught by name, and `shell: true` by its own
+  // rule. The one that remains is a shell name reached through a
+  // VARIABLE — a regex cannot follow that, and saying so here is better
+  // than implying a completeness this does not have. What it does
+  // guarantee: nobody writes a shell into this file by accident.
+  const sourceOf = (text) =>
+    text
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      // Trailing comments too. Stripping only line-leading ones let
+      // `unpackGz(gz, json); // was: run('sh', …)` fail the check — the
+      // very false alarm this stripping exists to prevent.
+      .replace(/(^|[^:'"\\])\/\/[^\n]*/g, '$1 ');
+
+  const SHELL_CALL =
+    /(?:execFileSync|execFile|spawnSync|spawn|run)\s*\(\s*['"`](?:\/(?:usr\/)?bin\/)?(?:sh|bash|zsh|dash|ksh)['"`]/;
+  // 🔴 The rehearsal's own fixtures are not the code under the rule.
+  // They are strings that LOOK like shell calls, on purpose, and a whole
+  // file scan reports them — which is how this check failed the moment
+  // it was broadened.
+  //
+  // The first repair sliced the file at `function selfTest(` and kept
+  // what was above. That was WORSE than the problem: selfTest is defined
+  // before main() in this file, so the slice threw away the call site
+  // itself, and every bypass — including simply putting `run('sh', …)`
+  // back — passed 50/50. A guard that reads the wrong half of the file
+  // is a guard that reads nothing.
+  //
+  // So the fixtures say where they are. Everything between the two
+  // markers is removed and the rest of the file, main() included, is
+  // scanned. If a marker is ever deleted the pair no longer matches and
+  // the check below says so rather than quietly widening.
+  // 🔴 A REGEX, not a string constant, and NOTHING BELOW MAY SPELL THE
+  // MARKER OUT. Twice already this file has been bitten by prose that
+  // looks like code, and the marker is the sharpest case yet:
+  //
+  //   - as `const OPEN = '…'` the marker text appears twice, so the
+  //     "exactly one region" check counted its own constant and failed;
+  //   - written out in a sentence like this one, the region begins at
+  //     the SENTENCE and swallows everything down to the closing marker
+  //     — including the rule it is supposed to protect. Deleting the
+  //     real marker then changed nothing and the rehearsal stayed green.
+  //
+  // In a regex literal the same characters are escaped, so the plain
+  // text exists exactly once: at the fixtures themselves.
+  const whole = readFileSync(new URL(import.meta.url), 'utf8');
+  const REGION = /\/\* fixtures-not-code \*\/[\s\S]*?\/\* end-fixtures-not-code \*\//g;
+  const regions = whole.match(REGION) ?? [];
+  ok('the fixtures are marked exactly once', regions.length === 1,
+    `${regions.length} region(s)`);
+  const source = sourceOf(whole.replace(REGION, ' '));
+
+  ok('no shell is spawned anywhere in this file', !SHELL_CALL.test(source));
+
+  // 🔴 CAMP-201 — a tag that looks like a flag.
+  //
+  // Measured against the real `gh` before this was written:
+  //   …--json tagName --version   → unknown flag: --version
+  //   …--json tagName -- --version → release not found
+  // So the fix is `--`, and these cases hold it in place. Each one fails
+  // if the separator is removed, which is the only way this can regress.
+  for (const hostile of ['--version', '-R', '--repo=evil/repo', '-']) {
+    const view = releaseViewArgv(hostile, 'owner/repo');
+    const sep = view.indexOf('--');
+    ok(
+      `release view: a tag named "${hostile}" sits after the \`--\` separator`,
+      sep !== -1 && view.indexOf(hostile, sep) > sep && view.lastIndexOf(hostile) > sep,
+      JSON.stringify(view),
+    );
+    ok(
+      `release view: nothing but the tag follows \`--\` for "${hostile}"`,
+      view.length === sep + 2,
+      JSON.stringify(view),
+    );
+
+    const dl = releaseDownloadArgv(hostile, hostile, '/tmp/work', 'owner/repo');
+    const dsep = dl.indexOf('--');
+    ok(
+      `release download: a tag named "${hostile}" sits after the separator`,
+      dsep !== -1 && dl[dsep + 1] === hostile && dl.length === dsep + 2,
+      JSON.stringify(dl),
+    );
+    // 🔴 The pattern is a flag VALUE, which `--` does not protect. The
+    // `--pattern=<value>` form is what makes it unambiguous, so assert
+    // the form rather than the position.
+    ok(
+      `release download: an asset named "${hostile}" is glued to its flag`,
+      dl.includes(`--pattern=${hostile}`),
+      JSON.stringify(dl),
+    );
+    // 🔴 THE WHOLE ARRAY, and its absence was a hole review walked
+    // straight through. The cases above only look to the RIGHT of the
+    // separator, so putting the old unprotected tag back at the front —
+    // `['release','download',tag,'-R',repo,…,'--',tag]` — left 69/69
+    // green while `gh` answered `unknown flag: --version`. Deleting
+    // `-D dir` or `-R repo` was green too, which would download into
+    // the working tree or read whatever remote the cwd points at.
+    ok(
+      `release download: the command is exactly what we meant for "${hostile}"`,
+      JSON.stringify(dl) ===
+        JSON.stringify([
+          'release',
+          'download',
+          '-R',
+          'owner/repo',
+          `--pattern=${hostile}`,
+          '-D',
+          '/tmp/work',
+          '--clobber',
+          '--',
+          hostile,
+        ]),
+      JSON.stringify(dl),
+    );
+  }
+
+  // And the ordinary case still reads as it always did.
+  ok(
+    'a normal tag produces the same command as before, plus the separator',
+    JSON.stringify(releaseViewArgv('v2026-10-01', 'owner/repo')) ===
+      JSON.stringify(['release', 'view', '-R', 'owner/repo', '--json', 'assets', '--', 'v2026-10-01']),
+    JSON.stringify(releaseViewArgv('v2026-10-01', 'owner/repo')),
+  );
+  ok('nothing asks a child process for a shell', !/\bshell\s*:\s*true/.test(source));
+  // `execSync` IS a shell, always, whatever it is handed.
+  ok('execSync is not used', !/\bexecSync\s*\(/.test(source));
+  // And the stripping must not blind the check: a trailing comment is
+  // removed, a shell call on the same line is not.
+  /* fixtures-not-code */
+  ok('a shell call survives a trailing comment on its line',
+    SHELL_CALL.test(sourceOf(`run('sh', ['-c', 'x']); // note`)));
+  ok('a trailing comment mentioning a shell call does not trip it',
+    !SHELL_CALL.test(sourceOf(`unpackGz(gz, json); // was: run('sh', ['-c', 'x'])`)));
+  ok('each shell name the rule lists is actually matched',
+    ['sh', 'bash', 'zsh', 'dash', 'ksh', '/bin/sh', '/usr/bin/bash']
+      .every((s) => SHELL_CALL.test(`run('${s}', [])`)));
+  /* end-fixtures-not-code */
+
   for (const c of checks) {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
   }
@@ -444,7 +696,18 @@ async function main() {
   );
   console.log(`${countries.length} member state(s), smallest first\n`);
 
-  const work = mkdtempSync(join(tmpdir(), 'camptribe-release-'));
+  // 🔴 ABSOLUTE, because `TMPDIR` is an environment variable and
+  // `ogr2ogr` has no `--` convention at all — measured:
+  // `ogr2ogr … -- file` answers `ERROR 1: Unknown argument: --`.
+  //
+  // With `TMPDIR=-evil` this path begins with a dash and is handed to
+  // ogr2ogr as a bare positional, which reads it as a flag. The `--`
+  // separator that protects the `gh` calls cannot help here, so the
+  // path itself must be unambiguous: `resolve()` always returns one
+  // starting with `/`. Review found this; the CodeQL text said
+  // "depends on an unsanitized environment variable" twice and the
+  // first version of this change had only looked at the argv order.
+  const work = resolve(mkdtempSync(join(tmpdir(), 'camptribe-release-')));
   let done = 0;
   const failures = [];
 
@@ -453,10 +716,28 @@ async function main() {
       const asset = assetFor(code);
       process.stdout.write(`${code.toUpperCase()}  ${asset} … `);
       try {
-        run('gh', ['release', 'download', tag, '-R', REPO, '-p', asset, '-D', work, '--clobber']);
+        run('gh', releaseDownloadArgv(tag, asset, work));
         const gz = join(work, asset);
         const json = gz.replace(/\.gz$/, '');
-        run('sh', ['-c', `gzip -dc '${gz}' > '${json}'`]);
+        // 🔴 NO SHELL. This was `run('sh', ['-c', `gzip -dc '${gz}' >
+        // '${json}'`])`, and it was the one command here built by
+        // pasting strings together — CodeQL's js/indirect-command-line-
+        // injection, CAMP-183. The single quotes look like protection
+        // and are not: one `'` anywhere in a path ends the quoted run
+        // and the rest is read as shell.
+        //
+        // Nothing reachable supplies that character today — the paths
+        // come from a temp directory we make and from assetFor(), which
+        // is built from a two-letter country code. That is an argument
+        // about today's inputs, not about the code, and the point of
+        // fixing it is to stop having to make that argument. zlib
+        // decompresses in-process: no shell exists to inject into, and
+        // the rule has nothing left to flag.
+        //
+        // Every other call in this file already passes its arguments as
+        // an ARRAY to execFileSync, which never goes through a shell.
+        // This was the single exception.
+        unpackGz(gz, json);
 
         // 🔴 Before ogr2ogr sees it. See stripBlankKeys.
         const collection = JSON.parse(readFileSync(json, 'utf8'));

@@ -1,0 +1,1877 @@
+{
+ "_": [
+  "CAMP-199 — 70 real campsites from five member states the CI seed does not reach.",
+  "",
+  "WHY THIS FILE EXISTS. apps/api/test/fixtures/ci-seed.sql is Slovenia and",
+  "Croatia: alpine valleys and one coast. Review asked whether the station",
+  "clause would dominate every page in a flat, rail-dense country, and the",
+  "seed could not answer — it has no such country in it. A corpus that",
+  "cannot contain the failure cannot report it.",
+  "",
+  "PROVENANCE. Read from the production API on 05.10.2026, 14 campsites",
+  "each from NL, BE, DK, DE and FR, taken in index order rather than",
+  "chosen: nobody picked these to make a number look good. Only the",
+  "computed `context` is kept — no names, no owners, nothing about a",
+  "person.",
+  "",
+  "It is a SAMPLE, not a census, and it is here to answer questions about",
+  "breadth. The thresholds the build enforces are measured on the seed."
+ ],
+ "measuredOn": "2026-10-05",
+ "source": "production API /spots/index then /spots/{country}/{region}/{slug}",
+ "rows": [
+  {
+   "c": "be",
+   "slug": "aire-campint-car-barelstraat-bornem",
+   "ctx": {
+    "at": {
+     "lat": 51.0920751,
+     "lon": 4.235427715492451
+    },
+    "town": {
+     "m": 370,
+     "name": "Bornem"
+    },
+    "water": {
+     "m": 1544,
+     "kind": "river"
+    },
+    "station": {
+     "m": 875,
+     "name": "Bornem"
+    },
+    "supermarket": {
+     "m": 309,
+     "name": "Colruyt"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "baalse-hei",
+   "ctx": {
+    "at": {
+     "lat": 51.3589903,
+     "lon": 4.962965918318491
+    },
+    "town": {
+     "m": 2675,
+     "name": "Ravels"
+    },
+    "water": {
+     "m": 459,
+     "kind": "river"
+    },
+    "station": {
+     "m": 4380,
+     "name": "Turnhout"
+    },
+    "supermarket": {
+     "m": 2854,
+     "name": "Bio-Planet"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "baalse-hei-2",
+   "ctx": {
+    "at": {
+     "lat": 51.3605709,
+     "lon": 4.9602877
+    },
+    "town": {
+     "m": 2751,
+     "name": "Ravels"
+    },
+    "water": {
+     "m": 493,
+     "kind": "river"
+    },
+    "station": {
+     "m": 4474,
+     "name": "Turnhout"
+    },
+    "supermarket": {
+     "m": 3021,
+     "name": "Bio-Planet"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "berkenstrand",
+   "ctx": {
+    "at": {
+     "lat": 51.2744512,
+     "lon": 5.131335374702217
+    },
+    "town": {
+     "m": 4142,
+     "name": "Dessel"
+    },
+    "water": {
+     "m": 1140,
+     "kind": "river"
+    },
+    "station": {
+     "m": 9403,
+     "name": "Mol"
+    },
+    "supermarket": {
+     "m": 996,
+     "name": "Supra Retie"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "bivak-catico",
+   "ctx": {
+    "at": {
+     "lat": 51.2506845,
+     "lon": 5.1432144
+    },
+    "town": {
+     "m": 2484,
+     "name": "Dessel"
+    },
+    "water": {
+     "m": 2241,
+     "kind": "lake",
+     "name": "Oude Zandput"
+    },
+    "station": {
+     "m": 6979,
+     "name": "Mol"
+    },
+    "supermarket": {
+     "m": 2666,
+     "name": "Supra Retie"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "bivakzone-arcadia",
+   "ctx": {
+    "at": {
+     "lat": 51.0036932,
+     "lon": 4.5423328
+    },
+    "town": {
+     "m": 2444,
+     "name": "Bonheiden"
+    },
+    "water": {
+     "m": 85,
+     "kind": "river"
+    },
+    "station": {
+     "m": 751,
+     "name": "Hever"
+    },
+    "supermarket": {
+     "m": 1725,
+     "name": "Welcome Asia Aziatische Supermarket"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "bivakzone-wortel-kolonie",
+   "ctx": {
+    "at": {
+     "lat": 51.4039026,
+     "lon": 4.818465148266668
+    },
+    "town": {
+     "m": 3962,
+     "name": "Hoogstraten"
+    },
+    "water": {
+     "m": 2762,
+     "kind": "river",
+     "name": "Mark"
+    },
+    "station": {
+     "m": 12270,
+     "name": "Turnhout"
+    },
+    "supermarket": {
+     "m": 2963,
+     "name": "Lidl"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "blokhut-cardon",
+   "ctx": {
+    "at": {
+     "lat": 51.2430754,
+     "lon": 4.7471513
+    },
+    "town": {
+     "m": 3965,
+     "name": "Zoersel"
+    },
+    "water": {
+     "m": 3582,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 8613,
+     "name": "Bouwel"
+    },
+    "supermarket": {
+     "m": 3198,
+     "name": "Okay"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "brasserie-3ri4en",
+   "ctx": {
+    "at": {
+     "lat": 51.0745419,
+     "lon": 4.4218936
+    },
+    "town": {
+     "m": 549,
+     "name": "Rumst"
+    },
+    "water": {
+     "m": 82,
+     "kind": "river"
+    },
+    "station": {
+     "m": 4677,
+     "name": "Boom"
+    },
+    "supermarket": {
+     "m": 674,
+     "name": "Jumbo Rumst"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "breebos-kavels-ter-heide",
+   "ctx": {
+    "at": {
+     "lat": 51.3464022,
+     "lon": 4.810674040532024
+    },
+    "town": {
+     "m": 3661,
+     "name": "Rijkevorsel"
+    },
+    "water": {
+     "m": 4965,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 9249,
+     "name": "Turnhout"
+    },
+    "supermarket": {
+     "m": 230,
+     "name": "Albert Heijn"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "breebos-verblijfpark",
+   "ctx": {
+    "at": {
+     "lat": 51.34532645,
+     "lon": 4.812074605214969
+    },
+    "town": {
+     "m": 4249,
+     "name": "Beerse"
+    },
+    "water": {
+     "m": 4824,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 9122,
+     "name": "Turnhout"
+    },
+    "supermarket": {
+     "m": 375,
+     "name": "ALDI"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "breebos-verblijfpark-2",
+   "ctx": {
+    "at": {
+     "lat": 51.344078,
+     "lon": 4.8073792
+    },
+    "town": {
+     "m": 3476,
+     "name": "Rijkevorsel"
+    },
+    "water": {
+     "m": 4786,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 9402,
+     "name": "Turnhout"
+    },
+    "supermarket": {
+     "m": 418,
+     "name": "Jumbo"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "campergastverblijf-t-kakelhof",
+   "ctx": {
+    "at": {
+     "lat": 51.4796128,
+     "lon": 4.7410872
+    },
+    "town": {
+     "m": 5659,
+     "name": "Zundert"
+    },
+    "water": {
+     "m": 857,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 13135,
+     "name": "Breda"
+    },
+    "supermarket": {
+     "m": 4022,
+     "name": "Carrefour"
+    }
+   }
+  },
+  {
+   "c": "be",
+   "slug": "camperpark-vogelzang-antwerpen",
+   "ctx": {
+    "at": {
+     "lat": 51.1902124,
+     "lon": 4.401304861505434
+    },
+    "town": {
+     "m": 2293,
+     "name": "Wilrijk"
+    },
+    "water": {
+     "m": 1254,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 1087,
+     "name": "Antwerpen-Zuid"
+    },
+    "supermarket": {
+     "m": 642,
+     "name": "Albert Heijn"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "5-taler-camping-langental",
+   "ctx": {
+    "at": {
+     "lat": 48.6347389,
+     "lon": 9.841081224708802
+    },
+    "town": {
+     "m": 1361,
+     "name": "Geislingen an der Steige"
+    },
+    "water": {
+     "m": 1910,
+     "kind": "river",
+     "name": "Fils"
+    },
+    "station": {
+     "m": 1711,
+     "name": "Geislingen (Steige)"
+    },
+    "supermarket": {
+     "m": 548,
+     "name": "Gebauer's EDEKA"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "72",
+   "ctx": {
+    "at": {
+     "lat": 47.711342900000005,
+     "lon": 7.548335108464301
+    },
+    "town": {
+     "m": 11641,
+     "name": "Neuenburg am Rhein"
+    },
+    "water": {
+     "m": 924,
+     "kind": "river"
+    },
+    "station": {
+     "m": 1279,
+     "name": "Rheinweiler"
+    },
+    "supermarket": {
+     "m": 2123,
+     "name": "Rewe"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "adventure-world-albtal-arena",
+   "ctx": {
+    "at": {
+     "lat": 48.79150275,
+     "lon": 8.427981778524924
+    },
+    "town": {
+     "m": 1129,
+     "name": "Bad Herrenalb"
+    },
+    "water": {
+     "m": 948,
+     "kind": "river",
+     "name": "Alb"
+    },
+    "station": {
+     "m": 1445,
+     "name": "Bad Herrenalb"
+    },
+    "supermarket": {
+     "m": 2160,
+     "name": "PENNY"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "aichstruter-stausee",
+   "ctx": {
+    "at": {
+     "lat": 48.9003878,
+     "lon": 9.6386578
+    },
+    "town": {
+     "m": 2846,
+     "name": "Welzheim"
+    },
+    "water": {
+     "m": 3393,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 3045,
+     "name": "Welzheim"
+    },
+    "supermarket": {
+     "m": 2769,
+     "name": "NORMA"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "alb-camping",
+   "ctx": {
+    "at": {
+     "lat": 48.5110399,
+     "lon": 9.606203848939373
+    },
+    "town": {
+     "m": 5869,
+     "name": "Wiesensteig"
+    },
+    "water": {
+     "m": 4928,
+     "kind": "lake"
+    },
+    "station": {
+     "m": 10022,
+     "name": "Merklingen – Schwäbische Alb"
+    },
+    "supermarket": {
+     "m": 5806,
+     "name": "Tante-M"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "allmend-1",
+   "ctx": {
+    "at": {
+     "lat": 47.7023068,
+     "lon": 9.2700597258817
+    },
+    "town": {
+     "m": 764,
+     "name": "Meersburg"
+    },
+    "water": {
+     "m": 835,
+     "kind": "lake",
+     "name": "Bodensee"
+    },
+    "station": {
+     "m": 4176,
+     "name": "Uhldingen-Mühlhofen"
+    },
+    "supermarket": {
+     "m": 266,
+     "name": "Norma"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "allmend-2",
+   "ctx": {
+    "at": {
+     "lat": 47.7017254,
+     "lon": 9.272062496428571
+    },
+    "town": {
+     "m": 686,
+     "name": "Meersburg"
+    },
+    "water": {
+     "m": 888,
+     "kind": "lake",
+     "name": "Bodensee"
+    },
+    "station": {
+     "m": 4295,
+     "name": "Uhldingen-Mühlhofen"
+    },
+    "supermarket": {
+     "m": 400,
+     "name": "Norma"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "almruhe",
+   "ctx": {
+    "at": {
+     "lat": 48.41137615,
+     "lon": 8.536151247498076
+    },
+    "town": {
+     "m": 6635,
+     "name": "Dornstetten"
+    },
+    "water": {
+     "m": 3521,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 4787,
+     "name": "Schopfloch (bei Freudenstadt)"
+    },
+    "supermarket": {
+     "m": 3906,
+     "name": "Netto Marken-Discount"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "am-bahnhof-zollhaus",
+   "ctx": {
+    "at": {
+     "lat": 47.8373069,
+     "lon": 8.5574076
+    },
+    "town": {
+     "m": 1774,
+     "name": "Blumberg"
+    },
+    "water": {
+     "m": 3861,
+     "kind": "river",
+     "name": "Wutach"
+    },
+    "station": {
+     "m": 128,
+     "name": "Blumberg-Zollhaus"
+    },
+    "supermarket": {
+     "m": 993,
+     "name": "Lidl"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "am-freibad-lauffen",
+   "ctx": {
+    "at": {
+     "lat": 49.0694659,
+     "lon": 9.1635566820902
+    },
+    "town": {
+     "m": 1192,
+     "name": "Lauffen am Neckar"
+    },
+    "water": {
+     "m": 48,
+     "kind": "river"
+    },
+    "station": {
+     "m": 1489,
+     "name": "Lauffen (Neckar)"
+    },
+    "supermarket": {
+     "m": 1081,
+     "name": "ECHT! BIO-MARKT Lauffen"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "am-kandelhohenweg-und-am-schwarzwaldhof",
+   "ctx": {
+    "at": {
+     "lat": 48.1732903,
+     "lon": 7.9641321
+    },
+    "town": {
+     "m": 8826,
+     "name": "Waldkirch"
+    },
+    "water": {
+     "m": 5080,
+     "kind": "river",
+     "name": "Schutter"
+    },
+    "station": {
+     "m": 6274,
+     "name": "Bleibach"
+    },
+    "supermarket": {
+     "m": 5778,
+     "name": "Penny"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "am-kitzberg",
+   "ctx": {
+    "at": {
+     "lat": 49.490512550000005,
+     "lon": 9.813565990057082
+    },
+    "town": {
+     "m": 2927,
+     "name": "Bad Mergentheim"
+    },
+    "water": {
+     "m": 16,
+     "kind": "river"
+    },
+    "station": {
+     "m": 324,
+     "name": "Igersheim"
+    },
+    "supermarket": {
+     "m": 566,
+     "name": "Kaufland"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "am-kurpark-bad-buchau",
+   "ctx": {
+    "at": {
+     "lat": 48.0688034,
+     "lon": 9.606428134929331
+    },
+    "town": {
+     "m": 435,
+     "name": "Bad Buchau"
+    },
+    "water": {
+     "m": 156,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 9536,
+     "name": "Bad Schussenried"
+    },
+    "supermarket": {
+     "m": 636,
+     "name": "Rewe"
+    }
+   }
+  },
+  {
+   "c": "de",
+   "slug": "am-minigolfplatz-hausern",
+   "ctx": {
+    "at": {
+     "lat": 47.75254305,
+     "lon": 8.173872029365418
+    },
+    "town": {
+     "m": 3295,
+     "name": "St. Blasien"
+    },
+    "water": {
+     "m": 765,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 5796,
+     "name": "Seebrugg"
+    },
+    "supermarket": {
+     "m": 430,
+     "name": "Aldi Süd"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "aakirkeby-camping",
+   "ctx": {
+    "at": {
+     "lat": 55.0619554,
+     "lon": 14.923404880417912
+    },
+    "town": {
+     "m": 14493,
+     "name": "Rønne"
+    },
+    "water": {
+     "m": 177,
+     "kind": "lake"
+    },
+    "station": {
+     "m": 65690,
+     "name": "Simrishamn"
+    },
+    "supermarket": {
+     "m": 994,
+     "name": "Spar"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "aremyr",
+   "ctx": {
+    "at": {
+     "lat": 55.124435,
+     "lon": 14.9024218
+    },
+    "town": {
+     "m": 12834,
+     "name": "Rønne"
+    },
+    "water": {
+     "m": 676,
+     "kind": "lake",
+     "name": "Pølsekedlen"
+    },
+    "station": {
+     "m": 59200,
+     "name": "Simrishamn"
+    },
+    "supermarket": {
+     "m": 6019,
+     "name": "Netto"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "arres-centret",
+   "ctx": {
+    "at": {
+     "lat": 55.9726361,
+     "lon": 12.064579276040245
+    },
+    "town": {
+     "m": 2945,
+     "name": "Frederiksværk"
+    },
+    "water": {
+     "m": 128,
+     "kind": "lake",
+     "name": "Arresø"
+    },
+    "station": {
+     "m": 3464,
+     "name": "Lille Kregme"
+    },
+    "supermarket": {
+     "m": 2945,
+     "name": "Netto"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "asevang",
+   "ctx": {
+    "at": {
+     "lat": 55.7849663,
+     "lon": 12.407792740761689
+    },
+    "town": {
+     "m": 1545,
+     "name": "Værløse"
+    },
+    "water": {
+     "m": 8,
+     "kind": "lake",
+     "name": "Furesø"
+    },
+    "station": {
+     "m": 2199,
+     "name": "Hareskov"
+    },
+    "supermarket": {
+     "m": 2854,
+     "name": "Rema 1000"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "badhus",
+   "ctx": {
+    "at": {
+     "lat": 55.8040952,
+     "lon": 12.377895976737683
+    },
+    "town": {
+     "m": 825,
+     "name": "Farum"
+    },
+    "water": {
+     "m": 66,
+     "kind": "lake",
+     "name": "Farum Sø"
+    },
+    "station": {
+     "m": 930,
+     "name": "Farum"
+    },
+    "supermarket": {
+     "m": 1095,
+     "name": "Kvickly"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "bakkehus",
+   "ctx": {
+    "at": {
+     "lat": 55.9960165,
+     "lon": 12.2844664
+    },
+    "town": {
+     "m": 7633,
+     "name": "Hillerød"
+    },
+    "water": {
+     "m": 1630,
+     "kind": "lake"
+    },
+    "station": {
+     "m": 187,
+     "name": "Kagerup"
+    },
+    "supermarket": {
+     "m": 5219,
+     "name": "Rema 1000"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "balka-strand",
+   "ctx": {
+    "at": {
+     "lat": 55.0395664,
+     "lon": 15.109029687428848
+    },
+    "town": {
+     "m": 26590,
+     "name": "Rønne"
+    },
+    "water": {
+     "m": 60,
+     "kind": "sea"
+    },
+    "station": {
+     "m": 74759,
+     "name": "Simrishamn"
+    },
+    "supermarket": {
+     "m": 1754,
+     "name": "Dagli'Brugsen"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "balplads-vindas-mose",
+   "ctx": {
+    "at": {
+     "lat": 55.9668151,
+     "lon": 11.8719457
+    },
+    "town": {
+     "m": 1274,
+     "name": "Hundested"
+    },
+    "water": {
+     "m": 391,
+     "kind": "lake"
+    },
+    "station": {
+     "m": 738,
+     "name": "Vibehus"
+    },
+    "supermarket": {
+     "m": 830,
+     "name": "Netto Butiksvej Hundested"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "balpladsen",
+   "ctx": {
+    "at": {
+     "lat": 55.7585916,
+     "lon": 12.3732306
+    },
+    "town": {
+     "m": 2827,
+     "name": "Værløse"
+    },
+    "water": {
+     "m": 315,
+     "kind": "lake",
+     "name": "Skrivermose"
+    },
+    "station": {
+     "m": 2658,
+     "name": "Værløse"
+    },
+    "supermarket": {
+     "m": 910,
+     "name": "Netto"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "bassebo-primitive-teltplads",
+   "ctx": {
+    "at": {
+     "lat": 54.9943229,
+     "lon": 15.0450451
+    },
+    "town": {
+     "m": 24625,
+     "name": "Rønne"
+    },
+    "water": {
+     "m": 22,
+     "kind": "sea"
+    },
+    "station": {
+     "m": 76286,
+     "name": "Simrishamn"
+    },
+    "supermarket": {
+     "m": 5336,
+     "name": "Dagli'Brugsen"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "bendstrup-camping",
+   "ctx": {
+    "at": {
+     "lat": 55.9669297,
+     "lon": 12.25446030086478
+    },
+    "town": {
+     "m": 5363,
+     "name": "Hillerød"
+    },
+    "water": {
+     "m": 382,
+     "kind": "lake",
+     "name": "Strødam Engsø"
+    },
+    "station": {
+     "m": 4784,
+     "name": "Duemose"
+    },
+    "supermarket": {
+     "m": 1906,
+     "name": "Rema 1000"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "bolandshus",
+   "ctx": {
+    "at": {
+     "lat": 56.0201934,
+     "lon": 12.3100397
+    },
+    "town": {
+     "m": 10204,
+     "name": "Hillerød"
+    },
+    "water": {
+     "m": 843,
+     "kind": "lake",
+     "name": "Gantekrogssø"
+    },
+    "station": {
+     "m": 1244,
+     "name": "Mårum"
+    },
+    "supermarket": {
+     "m": 4003,
+     "name": "Rema 1000 Esbønderup"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "bomvej",
+   "ctx": {
+    "at": {
+     "lat": 55.9759523,
+     "lon": 12.2959651
+    },
+    "town": {
+     "m": 5315,
+     "name": "Hillerød"
+    },
+    "water": {
+     "m": 854,
+     "kind": "lake",
+     "name": "Store Gribsø"
+    },
+    "station": {
+     "m": 1315,
+     "name": "Gribsø"
+    },
+    "supermarket": {
+     "m": 3928,
+     "name": "Netto"
+    }
+   }
+  },
+  {
+   "c": "dk",
+   "slug": "bornholms-familie-camping-dueodde",
+   "ctx": {
+    "at": {
+     "lat": 55.002429449999994,
+     "lon": 15.095989186062052
+    },
+    "town": {
+     "m": 27160,
+     "name": "Rønne"
+    },
+    "water": {
+     "m": 161,
+     "kind": "sea"
+    },
+    "station": {
+     "m": 101098,
+     "name": "Niechorze"
+    },
+    "supermarket": {
+     "m": 2586,
+     "name": "Dagli'Brugsen"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-camping-car-chavannes-sur-suran",
+   "ctx": {
+    "at": {
+     "lat": 46.2643949,
+     "lon": 5.4288138
+    },
+    "town": {
+     "m": 17044,
+     "name": "Bourg-en-Bresse"
+    },
+    "water": {
+     "m": 40,
+     "kind": "river"
+    },
+    "station": {
+     "m": 4937,
+     "name": "Simandre-sur-Suran"
+    },
+    "supermarket": {
+     "m": 11101,
+     "name": "Intermarché Super"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-camping-car-izernore",
+   "ctx": {
+    "at": {
+     "lat": 46.218595699999995,
+     "lon": 5.550215073466047
+    },
+    "town": {
+     "m": 9209,
+     "name": "Oyonnax"
+    },
+    "water": {
+     "m": 426,
+     "kind": "river",
+     "name": "L'Oignin"
+    },
+    "station": {
+     "m": 4052,
+     "name": "Nurieux"
+    },
+    "supermarket": {
+     "m": 5488,
+     "name": "Carrefour Market"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-camping-car-le-grand-ronjon",
+   "ctx": {
+    "at": {
+     "lat": 46.4308694,
+     "lon": 5.2216668
+    },
+    "town": {
+     "m": 22041,
+     "name": "Louhans-Châteaurenaud"
+    },
+    "water": {
+     "m": 1497,
+     "kind": "river",
+     "name": "Le Sevron"
+    },
+    "station": {
+     "m": 8649,
+     "name": "Saint-Amour"
+    },
+    "supermarket": {
+     "m": 9409,
+     "name": "Super U"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-camping-car-park-de-mezeriat",
+   "ctx": {
+    "at": {
+     "lat": 46.23369665,
+     "lon": 5.040348166987291
+    },
+    "town": {
+     "m": 14247,
+     "name": "Châtillon-sur-Chalaronne"
+    },
+    "water": {
+     "m": 247,
+     "kind": "river",
+     "name": "La Veyle"
+    },
+    "station": {
+     "m": 503,
+     "name": "Mézériat"
+    },
+    "supermarket": {
+     "m": 2745,
+     "name": "Netto"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-camping-car-park-de-saint-vulbas",
+   "ctx": {
+    "at": {
+     "lat": 45.83218995,
+     "lon": 5.292119494384122
+    },
+    "town": {
+     "m": 14975,
+     "name": "Ambérieu-en-Bugey"
+    },
+    "water": {
+     "m": 191,
+     "kind": "river"
+    },
+    "station": {
+     "m": 9127,
+     "name": "Porcieu - Pont de Sault-Brénaz"
+    },
+    "supermarket": {
+     "m": 7530,
+     "name": "Lidl"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-camping-car-park-du-port-de-virignin",
+   "ctx": {
+    "at": {
+     "lat": 45.7244843,
+     "lon": 5.703822423569482
+    },
+    "town": {
+     "m": 4260,
+     "name": "Belley"
+    },
+    "water": {
+     "m": 79,
+     "kind": "lake",
+     "name": "Port de Virignin"
+    },
+    "station": {
+     "m": 14295,
+     "name": "Virieu-le-Grand - Belley"
+    },
+    "supermarket": {
+     "m": 3498,
+     "name": "Leader Price"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-camping-car-park-villefranche-sur-saone-beaujolais",
+   "ctx": {
+    "at": {
+     "lat": 45.970752700000006,
+     "lon": 4.751829849331525
+    },
+    "town": {
+     "m": 2622,
+     "name": "Villefranche-sur-Saône"
+    },
+    "water": {
+     "m": 69,
+     "kind": "river",
+     "name": "La Saône"
+    },
+    "station": {
+     "m": 2914,
+     "name": "Anse Plage"
+    },
+    "supermarket": {
+     "m": 1191,
+     "name": "Lidl"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-camping-car-saint-andre-sur-vieux-jonc",
+   "ctx": {
+    "at": {
+     "lat": 46.1529443,
+     "lon": 5.151993133656563
+    },
+    "town": {
+     "m": 8089,
+     "name": "Bourg-en-Bresse"
+    },
+    "water": {
+     "m": 958,
+     "kind": "river",
+     "name": "Le Vieux Jonc"
+    },
+    "station": {
+     "m": 2759,
+     "name": "Servas - Lent"
+    },
+    "supermarket": {
+     "m": 3882,
+     "name": "Biocoop"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-d-accueil-pour-camping-cars-le-caveau-bugiste",
+   "ctx": {
+    "at": {
+     "lat": 45.8137648,
+     "lon": 5.722774797566702
+    },
+    "town": {
+     "m": 6544,
+     "name": "Belley"
+    },
+    "water": {
+     "m": 1899,
+     "kind": "river",
+     "name": "Le Séran"
+    },
+    "station": {
+     "m": 5428,
+     "name": "Culoz"
+    },
+    "supermarket": {
+     "m": 4764,
+     "name": "Intermarché Super"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-de-camping-car-d-illiat",
+   "ctx": {
+    "at": {
+     "lat": 46.18509315,
+     "lon": 4.888101182322517
+    },
+    "town": {
+     "m": 9016,
+     "name": "Châtillon-sur-Chalaronne"
+    },
+    "water": {
+     "m": 4066,
+     "kind": "river",
+     "name": "La Chalaronne"
+    },
+    "station": {
+     "m": 9212,
+     "name": "Pont-de-Veyle"
+    },
+    "supermarket": {
+     "m": 5368,
+     "name": "U Express"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-de-camping-car-de-chatillon-sur-chalaronne",
+   "ctx": {
+    "at": {
+     "lat": 46.115123249999996,
+     "lon": 4.960756632794187
+    },
+    "town": {
+     "m": 576,
+     "name": "Châtillon-sur-Chalaronne"
+    },
+    "water": {
+     "m": 84,
+     "kind": "river",
+     "name": "La Chalaronne"
+    },
+    "station": {
+     "m": 12693,
+     "name": "Vonnas"
+    },
+    "supermarket": {
+     "m": 329,
+     "name": "Intermarché Super"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-de-camping-car-de-pont-de-vaux",
+   "ctx": {
+    "at": {
+     "lat": 46.4367164,
+     "lon": 4.932694815219373
+    },
+    "town": {
+     "m": 13986,
+     "name": "Tournus"
+    },
+    "water": {
+     "m": 125,
+     "kind": "river",
+     "name": "La Reyssouze"
+    },
+    "station": {
+     "m": 4058,
+     "name": "Fleurville - Pont-de-Vaux"
+    },
+    "supermarket": {
+     "m": 519,
+     "name": "Carrefour Contact"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-de-camping-car-de-seyssel-ain",
+   "ctx": {
+    "at": {
+     "lat": 45.951503200000005,
+     "lon": 5.83348820444265
+    },
+    "town": {
+     "m": 12625,
+     "name": "Rumilly"
+    },
+    "water": {
+     "m": 28,
+     "kind": "river"
+    },
+    "station": {
+     "m": 1295,
+     "name": "Seyssel - Corbonod"
+    },
+    "supermarket": {
+     "m": 1434,
+     "name": "Carrefour Market"
+    }
+   }
+  },
+  {
+   "c": "fr",
+   "slug": "aire-de-camping-car-feilluns",
+   "ctx": {
+    "at": {
+     "lat": 46.3351318,
+     "lon": 4.8892855
+    },
+    "town": {
+     "m": 5616,
+     "name": "Mâcon"
+    },
+    "water": {
+     "m": 1595,
+     "kind": "river"
+    },
+    "station": {
+     "m": 6427,
+     "name": "Senozan"
+    },
+    "supermarket": {
+     "m": 151,
+     "name": "Intermarché Contact"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "achter-t-koeienpad",
+   "ctx": {
+    "at": {
+     "lat": 52.63316265,
+     "lon": 6.422511969648461
+    },
+    "town": {
+     "m": 4488,
+     "name": "Dedemsvaart"
+    },
+    "water": {
+     "m": 4836,
+     "kind": "lake",
+     "name": "Kotermeerstal"
+    },
+    "station": {
+     "m": 11676,
+     "name": "Hoogeveen"
+    },
+    "supermarket": {
+     "m": 4407,
+     "name": "PLUS"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "alberthoeve",
+   "ctx": {
+    "at": {
+     "lat": 52.913123150000004,
+     "lon": 6.279864032906216
+    },
+    "town": {
+     "m": 8501,
+     "name": "Oosterwolde"
+    },
+    "water": {
+     "m": 2835,
+     "kind": "lake",
+     "name": "Spartelvijver"
+    },
+    "station": {
+     "m": 17474,
+     "name": "Steenwijk"
+    },
+    "supermarket": {
+     "m": 7095,
+     "name": "PLUS"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "alinghoek",
+   "ctx": {
+    "at": {
+     "lat": 52.9554101,
+     "lon": 6.797247239471356
+    },
+    "town": {
+     "m": 3516,
+     "name": "Borger"
+    },
+    "water": {
+     "m": 2145,
+     "kind": "river",
+     "name": "Voorste Diepje"
+    },
+    "station": {
+     "m": 11489,
+     "name": "Bareveld"
+    },
+    "supermarket": {
+     "m": 3521,
+     "name": "ALDI"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "appelo-s-farm",
+   "ctx": {
+    "at": {
+     "lat": 53.035881849999996,
+     "lon": 6.608830630084894
+    },
+    "town": {
+     "m": 5567,
+     "name": "Assen"
+    },
+    "water": {
+     "m": 857,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 5470,
+     "name": "Assen"
+    },
+    "supermarket": {
+     "m": 2560,
+     "name": "Jumbo"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "arendshof-camping",
+   "ctx": {
+    "at": {
+     "lat": 52.64849015,
+     "lon": 6.773096621545808
+    },
+    "town": {
+     "m": 2609,
+     "name": "Coevorden"
+    },
+    "water": {
+     "m": 183,
+     "kind": "river",
+     "name": "Grenzaa"
+    },
+    "station": {
+     "m": 2822,
+     "name": "Laarwald"
+    },
+    "supermarket": {
+     "m": 2842,
+     "name": "Foodstore"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "beilerhorst",
+   "ctx": {
+    "at": {
+     "lat": 52.84329065,
+     "lon": 6.508782165762806
+    },
+    "town": {
+     "m": 1997,
+     "name": "Beilen"
+    },
+    "water": {
+     "m": 5679,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 1559,
+     "name": "Beilen"
+    },
+    "supermarket": {
+     "m": 1717,
+     "name": "Jumbo"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "berka",
+   "ctx": {
+    "at": {
+     "lat": 52.77731385,
+     "lon": 6.412550320429517
+    },
+    "town": {
+     "m": 7659,
+     "name": "Hoogeveen"
+    },
+    "water": {
+     "m": 247,
+     "kind": "river"
+    },
+    "station": {
+     "m": 6357,
+     "name": "Hoogeveen"
+    },
+    "supermarket": {
+     "m": 2734,
+     "name": "Boon's Dagmarkt"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "bij-het-ven",
+   "ctx": {
+    "at": {
+     "lat": 52.87846195,
+     "lon": 6.188582725276882
+    },
+    "town": {
+     "m": 10891,
+     "name": "Steenwijk"
+    },
+    "water": {
+     "m": 6065,
+     "kind": "river",
+     "name": "De Lende"
+    },
+    "station": {
+     "m": 10862,
+     "name": "Steenwijk"
+    },
+    "supermarket": {
+     "m": 2813,
+     "name": "PLUS Simonides"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "boerdam",
+   "ctx": {
+    "at": {
+     "lat": 52.7997243,
+     "lon": 6.290209123832597
+    },
+    "town": {
+     "m": 13336,
+     "name": "Meppel"
+    },
+    "water": {
+     "m": 5971,
+     "kind": "river"
+    },
+    "station": {
+     "m": 13520,
+     "name": "Meppel"
+    },
+    "supermarket": {
+     "m": 6371,
+     "name": "PLUS"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "boerderijcamping-beekdal",
+   "ctx": {
+    "at": {
+     "lat": 52.92352305,
+     "lon": 6.74380720392614
+    },
+    "town": {
+     "m": 3145,
+     "name": "Borger"
+    },
+    "water": {
+     "m": 8546,
+     "kind": "lake",
+     "name": "Hillig Meer"
+    },
+    "station": {
+     "m": 16141,
+     "name": "Bareveld"
+    },
+    "supermarket": {
+     "m": 3107,
+     "name": "Nettorama"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "boerderijcamping-doortenshof",
+   "ctx": {
+    "at": {
+     "lat": 52.8337345,
+     "lon": 6.384382747784238
+    },
+    "town": {
+     "m": 9149,
+     "name": "Beilen"
+    },
+    "water": {
+     "m": 6264,
+     "kind": "river"
+    },
+    "station": {
+     "m": 12654,
+     "name": "Hoogeveen"
+    },
+    "supermarket": {
+     "m": 862,
+     "name": "ALDI"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "boerderijcamping-het-amerveld",
+   "ctx": {
+    "at": {
+     "lat": 52.9412023,
+     "lon": 6.604500989050894
+    },
+    "town": {
+     "m": 6700,
+     "name": "Assen"
+    },
+    "water": {
+     "m": 1207,
+     "kind": "reservoir"
+    },
+    "station": {
+     "m": 6106,
+     "name": "Assen"
+    },
+    "supermarket": {
+     "m": 5503,
+     "name": "Albert Heijn"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "boerderijcamping-liebe",
+   "ctx": {
+    "at": {
+     "lat": 52.9992264,
+     "lon": 6.683755523259304
+    },
+    "town": {
+     "m": 5396,
+     "name": "Gieten"
+    },
+    "water": {
+     "m": 1295,
+     "kind": "river"
+    },
+    "station": {
+     "m": 7594,
+     "name": "Assen"
+    },
+    "supermarket": {
+     "m": 3552,
+     "name": "Noordermarkt"
+    }
+   }
+  },
+  {
+   "c": "nl",
+   "slug": "boerderijcamping-roeloomskamp",
+   "ctx": {
+    "at": {
+     "lat": 52.90678165,
+     "lon": 6.695143483512256
+    },
+    "town": {
+     "m": 6700,
+     "name": "Borger"
+    },
+    "water": {
+     "m": 5538,
+     "kind": "river",
+     "name": "Amerdiep"
+    },
+    "station": {
+     "m": 12643,
+     "name": "Assen"
+    },
+    "supermarket": {
+     "m": 4033,
+     "name": "Super de Beer"
+    }
+   }
+  }
+ ]
+}

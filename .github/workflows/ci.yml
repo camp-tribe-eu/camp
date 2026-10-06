@@ -131,6 +131,63 @@ jobs:
       - name: Skip guard still catches a test that did not run
         run: node scripts/ci/check-skips.mjs --self-test
 
+      # 🔴 CAMP-173. check-fixture-not-shrunk.mjs counts rows; a
+      # regeneration passed it at 73 → 90 campsites and produced a
+      # fixture with no Slovenia, one surviving id out of 72, and a load
+      # that died on the gone block. A count is not a shape.
+      - name: Fixture-shape guard still catches a missing subject
+        run: node scripts/ci/check-fixture-shape.mjs --self-test
+
+      # CAMP-148. The feed is an archive with live warnings in it, and
+      # the provider says the opposite in writing. Pure: no network, no
+      # database, no build — so it belongs here and not behind the site
+      # build, where it was first put and where a build failure would
+      # skip it entirely.
+      - name: MeteoAlarm filtering
+        if: ${{ !cancelled() }}
+        run: node scripts/meteoalarm/fetch-warnings.mjs --self-test
+      # CAMP-149. Which geometry source answers which scheme, the NUTS
+      # vintage, and the Irish splits — all pure, no network.
+      - name: Warning area resolution
+        if: ${{ !cancelled() }}
+        run: node scripts/meteoalarm/resolve-areas.mjs --self-test
+
+      - name: The fixture still holds what the tests stand on
+        run: node scripts/ci/check-fixture-shape.mjs
+
+      # 🔴 CAMP-186. ODbL §4.6 lets us answer a recipient with a
+      # description of our alterations instead of the derived database
+      # itself, and legal/database is that description. A field the code
+      # computes and the page does not name is a hole in it — and the
+      # failure is silent: the field renders, nothing breaks, and we are
+      # outside the licence.
+      - name: Derived-field guard still catches an undescribed field
+        run: node scripts/ci/check-derived-fields.mjs --self-test
+
+      - name: Every derived field is described where ODbL §4.6 requires
+        run: node scripts/ci/check-derived-fields.mjs
+
+      # 🔴 CAMP-183. The import script unpacks releases without a shell,
+      # and its own rehearsal proves the rule still bites. That rehearsal
+      # was written and then run NOWHERE — not here, not in package.json
+      # — so the mutation that "turned it red" only ever did so by hand.
+      # This file says it two screens up: a rule nothing checks is a rule
+      # that has already stopped applying.
+      - name: The OSM import spawns no shell, and still says so
+        run: node scripts/osm-pipeline/import-release.mjs --self-test
+
+      # 🔴 CAMP-174. The CEMS language rule is enforced on panels the
+      # suite can FIND, and it found them through hand-written
+      # descriptors. Review built a drought panel and a /drought page
+      # reading Copernicus EDO and printing "risk" and "Danger", changed
+      # nothing else, and 653 of 653 tests stayed green. This asks where
+      # a file gets its data instead of whether somebody registered it.
+      - name: CEMS coverage guard still catches an unregistered panel
+        run: node scripts/ci/check-cems-coverage.mjs --self-test
+
+      - name: Everything showing CEMS data is inside the language guard
+        run: node scripts/ci/check-cems-coverage.mjs
+
       # 🔴 The timestamp is the only thing TypeORM orders migrations by,
       # so two migrations sharing one are ordered by directory read order
       # — which differs between macOS and this runner. It cost nothing
@@ -141,6 +198,16 @@ jobs:
 
       - name: No two migrations share a timestamp
         run: node scripts/ci/check-migration-stamps.mjs
+
+      # 🔴 The numbers on the home page live in a PNG, and a PNG is
+      # rewritten by `--update-snapshots` to agree with whatever the code
+      # now does. CAMP-182: the headline went 71 → 72 unnoticed. These
+      # two steps put the same numbers in a file a human has to edit.
+      - name: Fixture-count guard still catches a moved number
+        run: node scripts/ci/check-fixture-counts.mjs --self-test
+
+      - name: The fixture still adds up to what the pages claim
+        run: node scripts/ci/check-fixture-counts.mjs
 
       # 🔴 A broken workflow file is the failure that reports nothing.
       #
@@ -174,6 +241,49 @@ jobs:
       # the check that is tested are the same file.
       - name: Silence watchdog still catches a job that stopped
         run: node scripts/ci/check-schedule.mjs --self-test
+
+      # 🔴 CAMP-30. Fonts and sprites are NOT inside a PMTiles archive; a
+      # style names them by URL, and the obvious one points at GitHub
+      # Pages, whose terms forbid "an online business, e-commerce site".
+      # Nothing would break — we would simply be in breach, and the first
+      # anyone heard of it would be a takedown. The trap arms itself the
+      # day we adopt a style of our own, which is the day nobody will be
+      # looking at this.
+      - name: Map fonts and sprites come from a host we may use
+        run: node scripts/ci/check-map-assets.mjs --self-test
+
+      - name: …and the live styles still do
+        run: node scripts/ci/check-map-assets.mjs
+
+      # 🔴 CAMP-222. --experimental-strip-types because the check IMPORTS
+      # the palette module rather than parsing it: review showed a regex
+      # over the source accepted `#FC3`, `rgb(...)` and an 8-digit hex
+      # unmeasured, and the only way not to miss a notation is not to
+      # parse one. The flag is a no-op on Node 24 and supported from 22.6.
+      #
+      # 🔴 CAMP-222. The map's type colours were chosen BY
+      # MEASUREMENT: the headline theme colours were rejected because
+      # Success reaches 2.91 and Brand 1.55 against the marker's white
+      # stroke, under the 3.0 WCAG 1.4.11 asks of a non-text graphic.
+      # A number that decided something and is then never checked is a
+      # number that drifts — the next person picks a nicer green,
+      # nothing fails, and the map stops being readable for exactly the
+      # people who needed the contrast.
+      - name: The map palette check still rejects an illegible colour
+        run: node --experimental-strip-types scripts/ci/check-map-palette.mjs --self-test
+
+      - name: …and every type colour is still legible and distinct
+        run: node --experimental-strip-types scripts/ci/check-map-palette.mjs
+      # 🔴 CAMP-217. Twelve design tokens had quietly failed to arrive and
+      # nothing noticed for months, because nothing compared. The site had
+      # ONE transition speed where the design has four, no secondary
+      # button at all, and no state-label colours — each of which reads as
+      # a styling choice rather than a missing line.
+      - name: The design-token check still catches a missing token
+        run: node scripts/ci/check-design-tokens.mjs --self-test
+
+      - name: …and globals.css still matches the design system
+        run: node scripts/ci/check-design-tokens.mjs
 
       # 🔴 CAMP-153. The wildfire fetch script carries a self-test of its
       # own — the `maxfeatures` throw that stands between us and a 132 MB
@@ -288,8 +398,31 @@ jobs:
       # generation — so it is checked on the built output, here, and it
       # fails the build rather than being noticed six months later by a
       # ranking drop.
+      # 🔴 The stripping rule BEFORE the guard that depends on it — not
+      # before the build, which this job has already done by here. It
+      # decides what the guard below is allowed to ignore, and a hole in
+      # it does not go red, it goes green over text nobody compared. The
+      # version this replaced could not match `</h2>`, so a marked
+      # heading swallowed the paragraph after it.
+      - name: The boilerplate rule itself
+        run: node scripts/seo/check-duplicate-pages.mjs --self-test
+
+      # CAMP-190. The campsite page prints a radius the API owns, and the
+      # two were declared separately. No build or database needed.
+      - name: One webcam radius, not two
+        run: node scripts/ci/check-webcam-radius.mjs --self-test && node scripts/ci/check-webcam-radius.mjs
+
       - name: No near-duplicate generated pages
         run: node scripts/seo/check-duplicate-pages.mjs
+
+      # 🔴 CAMP-163. The stripper this guard depends on had no rehearsal,
+      # and that is how it shipped a pattern that stopped at the first
+      # closing tag: a `data-boilerplate` block holding a link kept most
+      # of its words in the comparison, inflating every pair in the same
+      # direction. A guard whose own mechanism nothing exercises is a
+      # guard measuring something nobody has checked.
+      - name: The boilerplate stripper removes a block whole
+        run: node scripts/seo/check-duplicate-pages.mjs --self-test
 
       # CAMP-66. Article 50(2) of the EU AI Act, in force 02.08.2026:
       # machine-made text has to be marked as machine-made. Thirty-six

@@ -227,6 +227,13 @@ export interface Spot {
    */
   indexable?: boolean;
   context: SpotContext;
+  /** CAMP-190: the nearest webcams, with our distance. Never an image. */
+  // 🔴 `null` means the catalogue has not been imported — NOT "no camera
+  // near here", which is `[]`. The two print different sentences and
+  // conflating them put a false claim about coverage on every page in
+  // Europe; keeping the `null` in the type is what stops a future
+  // `spot.webcams ?? []` putting it back.
+  webcams?: import('./webcams').Webcam[] | null;
   /**
    * CAMP-101. The operator's own words, in their own language — carried
    * verbatim and rendered with `lang`. We never translate them: a machine
