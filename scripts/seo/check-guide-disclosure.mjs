@@ -22,6 +22,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { argv, exit } from 'node:process';
+import { pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const BUILD = path.join(ROOT, 'apps/web/.next/server/app/guides');
@@ -132,11 +133,36 @@ function selfTest() {
   exit(failures ? 1 : 0);
 }
 
-if (argv.includes('--self-test')) selfTest();
+
 
 // ---------------------------------------------------------------------
 
-if (!existsSync(BUILD)) {
+// 🔴 GUARDED (CAMP-202, applied here by CAMP-210). This file exports
+// `evaluate`, which is the only honest way to ask "would the guard pass
+// this page?" without building 65 435 of them — and importing it used to
+// run the whole scan and `exit(1)` with "the guides section built no
+// pages", because a dev machine has no build directory.
+//
+// `check-script-entrypoints.mjs` allowed that, correctly: its rule is
+// that a file may run itself only while nothing imports it. The moment
+// something did, the rule was due to fire. It fired on me.
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (!invokedDirectly) {
+  // imported for `evaluate` — do nothing
+} else {
+  main();
+}
+
+function main() {
+  if (argv.includes('--self-test')) {
+    selfTest();
+    return;
+  }
+
+  if (!existsSync(BUILD)) {
   // 🔴 No guides directory means the section was not built. That is a
   // fact worth reporting, not a pass: the header links to /guides.
   console.error(`✗ no built guides at ${BUILD} — was the site built?`);
@@ -175,3 +201,4 @@ console.error(
     'may not be published.',
 );
 exit(1);
+}

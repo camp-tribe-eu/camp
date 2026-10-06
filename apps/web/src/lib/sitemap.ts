@@ -22,6 +22,7 @@ import {
   type SpotIndexEntry,
 } from './api';
 import { absoluteAlternates, liveLocales } from './i18n';
+import { byCountry, byTopic } from './guide-facets';
 import { getGuides } from './guides';
 import { getRoutes } from './routes';
 import { FUEL, FUEL_COUNTRIES } from './fuel';
@@ -251,6 +252,30 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
       changefreq: 'monthly',
       priority: '0.6',
       lastmod: guide.factsCheckedAt ?? guide.publishedAt ?? undefined,
+    });
+  }
+
+  // CAMP-210. The two facets that make 1 256 guides reachable in two
+  // clicks, and therefore the pages a crawler needs in order to walk
+  // them. They are hubs, not articles: higher priority than a single
+  // guide, because a crawler that fetches one of these finds hundreds.
+  //
+  // 🔴 Derived from the same function the pages use, so a facet that
+  // exists on the site and not in the sitemap cannot happen — which is
+  // exactly what this section looked like before this card.
+  const guides = await getGuides();
+  for (const { country } of byCountry(guides)) {
+    urls.push({
+      loc: `${SITE}/guides/country/${country}`,
+      changefreq: 'weekly',
+      priority: '0.7',
+    });
+  }
+  for (const { topic } of byTopic(guides)) {
+    urls.push({
+      loc: `${SITE}/guides/topic/${topic}`,
+      changefreq: 'weekly',
+      priority: '0.7',
     });
   }
 

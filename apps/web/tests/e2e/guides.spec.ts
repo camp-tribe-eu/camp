@@ -33,17 +33,64 @@ test.describe('the section the header points at', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Guides');
   });
 
-  test('the index lists the guides the API publishes', async ({ page, request }) => {
+  // 🔴 THE PROPERTY, NOT THE LAYOUT. This asserted that `/guides` links
+  // every guide by title, which was true while the index was a flat list
+  // and stopped being true when 1 268 guides made a flat list useless
+  // (CAMP-210). The thing worth protecting was never "all on one page" —
+  // it is that a guide the API publishes is a guide somebody can reach.
+  //
+  // 🔴 AND THE FIRST REWRITE WALKED HALF THE CATALOGUE. It followed only
+  // `/guides/country/*`, so review could empty all five topic pages —
+  // measured, `/guides/topic/water` rendering zero links — and this test
+  // stayed green while the hub advertised "466 regions" over nothing.
+  // Every facet the hub offers is walked now, and each one has to carry
+  // guides rather than merely exist.
+  test('every published guide is reachable from the index', async ({
+    page,
+    request,
+  }) => {
     const list = await guides(request);
     expect(list.length, 'no guides are published').toBeGreaterThan(0);
 
+    const hrefsOn = async (pattern: RegExp) =>
+      page
+        .getByRole('link')
+        .evaluateAll(
+          (links, source) =>
+            links
+              .map((l) => (l as HTMLAnchorElement).getAttribute('href') ?? '')
+              .filter((h) => new RegExp(source).test(h)),
+          pattern.source,
+        );
+
     await page.goto('/guides');
-    for (const g of list.slice(0, 5)) {
-      await expect(
-        page.getByRole('link', { name: g.title }),
-        `${g.slug} is missing from the index`,
-      ).toBeVisible();
+    const facets = [...new Set(await hrefsOn(/^\/guides\/(country|topic)\//))];
+    expect(facets.length, 'the index links no facet pages').toBeGreaterThan(0);
+
+    // 🔴 A guide the parser cannot file is linked from the hub itself, in
+    // "Not filed anywhere". Counting those here is what stops this test
+    // and that block contradicting each other: review found the two
+    // guards disagreeing, so a deliberate choice read as a product bug.
+    const reachable = new Set(
+      (await hrefsOn(/^\/guides\/[^/]+$/)).map((h) => h.replace('/guides/', '')),
+    );
+
+    const empty: string[] = [];
+    for (const href of facets) {
+      await page.goto(href);
+      const found = await hrefsOn(/^\/guides\/[^/]+$/);
+      if (found.length === 0) empty.push(href);
+      for (const h of found) reachable.add(h.replace('/guides/', ''));
     }
+    expect(empty, 'the index offers these facets and they list nothing').toEqual([]);
+
+    const unreachable = list
+      .map((g) => g.slug)
+      .filter((slug) => !reachable.has(slug));
+    expect(
+      unreachable,
+      'these guides are published and no catalogue page links them',
+    ).toEqual([]);
   });
 
   test('every guide in the index is reachable', async ({ page, request }) => {
