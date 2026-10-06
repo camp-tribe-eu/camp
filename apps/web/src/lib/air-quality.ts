@@ -503,9 +503,18 @@ export function noFreshDataSentence(s: Extract<AirState, { state: 'no-fresh-data
   // collection has stopped, the age of the value is a symptom and the
   // stopped collection is the fact — and a sentence about the station
   // would be describing something we have not looked at for a day.
+  // 🔴 ABOUT THIS STATION'S FILE, NOT ABOUT THE FEED. Review read the
+  // importer: `apps/api/src/air/import.ts` leaves `read_at` untouched
+  // when ONE station's file fails to download (`action: 'keep'`), and
+  // writes `read_at = now` for every station it did reach, cleared ones
+  // included. So a stale `read_at` on one station is entirely compatible
+  // with a healthy importer, and the first version of this clause said
+  // "our collection having stopped" — a claim about every other station
+  // on the site, made from one row.
   const ours = s.ourFeedStalled
-    ? ` Our own copy of the EEA’s file is over ${HOURLY_DEAD_AFTER_DAYS} day old, ` +
-      `so this is our collection having stopped rather than a quiet hour.`
+    ? ` Our last read of this station’s file is over ${HOURLY_DEAD_AFTER_DAYS} ` +
+      `day old, so what has stopped is our collection for it rather than the ` +
+      `hour being quiet.`
     : '';
 
   if (s.reason === 'model-stale') {
@@ -528,9 +537,15 @@ export function noFreshDataSentence(s: Extract<AirState, { state: 'no-fresh-data
   // reported hour for it" — a statement about the STATION, made from the
   // absence of a row on our side. If our own collection stopped a week
   // ago the station may have been reporting the whole time, and we would
-  // have told the reader otherwise. This branch is also the one case
-  // where no `readAt` reaches us at all, so we cannot even check: the
-  // payload carries a read time only alongside a reading.
+  // have told the reader otherwise.
+  //
+  // 🔴 AND THE DATA TO TELL THEM APART EXISTS — WE DROP IT. Review read
+  // the query: `air_quality_stations.read_at` is written for cleared
+  // stations too (`import.ts`, the UPDATE that nulls every reading
+  // column sets `read_at` alongside), and `apps/api/src/air/nearby.ts`
+  // puts `readAt` INSIDE the `reading` object, which is null in exactly
+  // this branch. So "we cannot check" is our own payload shape, not a
+  // property of the source. CAMP-243 moves the field out.
   //
   // So it now says what we hold and names both explanations instead of
   // picking the one that happens to blame somebody else.

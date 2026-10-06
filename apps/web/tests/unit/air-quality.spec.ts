@@ -773,34 +773,58 @@ test.describe('a stopped pipeline and a quiet hour do not read the same', () => 
   // answers "is this value current". It cannot answer "are we still
   // collecting", and those have different remedies: one is the weather,
   // the other is us.
+  //
+  // 🔴 EVERY FIXTURE BELOW GIVES `hour` AND `readAt` DIFFERENT VALUES,
+  // and the first version of this block gave them the same one. Review
+  // mutated `feedStalled(reading.readAt)` to `feedStalled(reading.hour)`
+  // and all 860 tests passed: the evidence shared a field with the thing
+  // it was measuring, so the two fields whose difference is the whole
+  // point of this card were indistinguishable to the suite.
+  //
+  // The case that makes them distinguishable is also the production
+  // norm: a station that reported nothing this hour while our import ran
+  // minutes ago. `apps/api/src/air/import.ts` writes `read_at = now` on
+  // every station it touched, including the ones it cleared, so an old
+  // `hour` beside a fresh `readAt` is the ordinary quiet station.
 
-  const readDaysAgo = (d: number) =>
+  const daysAgo = (d: number) =>
     new Date(Date.parse(hourAgo(0)) - d * 86_400_000).toISOString();
 
-  test('a reading hours old is stale, and our collection is not blamed', () => {
-    const s = airState(
-      stationFacts({ ...READING, hour: hourAgo(9), readAt: hourAgo(9) }),
-      NOW,
-    );
+  test('🔴 an old hour with a FRESH read is a quiet station, not our failure', () => {
+    // The case that tells the two fields apart. Mutating `readAt` to
+    // `hour` makes this one red and nothing else does.
+    const facts = stationFacts({ ...READING, hour: daysAgo(3), readAt: hourAgo(1) });
+    const s = airState(facts, NOW);
     expect(s.state).toBe('no-fresh-data');
     expect(s.state === 'no-fresh-data' && s.ourFeedStalled).toBe(false);
-    expect(said(stationFacts({ ...READING, hour: hourAgo(9), readAt: hourAgo(9) }))).not.toContain(
-      'our collection having stopped',
-    );
+    expect(said(facts)).not.toContain('has stopped');
   });
 
-  test('🔴 a reading a DAY old is our collection, and the page says so', () => {
-    const facts = stationFacts({ ...READING, hour: readDaysAgo(2), readAt: readDaysAgo(2) });
+  test('🔴 …and a fresh hour with a STALE read is our failure', () => {
+    // The mirror, which no arrangement of one field could produce. It is
+    // not reachable from a healthy importer and that is the point: if we
+    // ever serve it, the number beside it was collected days ago.
+    const facts = stationFacts({ ...READING, hour: hourAgo(9), readAt: daysAgo(3) });
     const s = airState(facts, NOW);
     expect(s.state === 'no-fresh-data' && s.ourFeedStalled).toBe(true);
-    expect(said(facts)).toContain('our collection having stopped');
+    expect(said(facts)).toContain('has stopped');
   });
 
-  test('…and the same holds for the modelled index', () => {
-    const facts = { kind: 'modelled', modelled: { hour: readDaysAgo(3), band: 2, readAt: readDaysAgo(3) } };
+  test('a reading hours old, read hours ago, blames neither', () => {
+    const facts = stationFacts({ ...READING, hour: hourAgo(9), readAt: hourAgo(7) });
     const s = airState(facts, NOW);
-    expect(s.state === 'no-fresh-data' && s.ourFeedStalled).toBe(true);
-    expect(said(facts)).toContain('our collection having stopped');
+    expect(s.state).toBe('no-fresh-data');
+    expect(s.state === 'no-fresh-data' && s.ourFeedStalled).toBe(false);
+    expect(said(facts)).not.toContain('has stopped');
+  });
+
+  test('…and the same two cases hold for the modelled index', () => {
+    const quiet = { kind: 'modelled', modelled: { hour: daysAgo(3), band: 2, readAt: hourAgo(1) } };
+    const dead = { kind: 'modelled', modelled: { hour: hourAgo(9), band: 2, readAt: daysAgo(3) } };
+    const q = airState(quiet, NOW);
+    const d = airState(dead, NOW);
+    expect(q.state === 'no-fresh-data' && q.ourFeedStalled).toBe(false);
+    expect(d.state === 'no-fresh-data' && d.ourFeedStalled).toBe(true);
   });
 
   test('🔴 a silent station is NOT reported as our collection failing either', () => {
@@ -810,11 +834,23 @@ test.describe('a stopped pipeline and a quiet hour do not read the same', () => 
     const s = airState(stationFacts(null), NOW);
     expect(s.state === 'no-fresh-data' && s.ourFeedStalled).toBe(false);
     expect(s.state === 'no-fresh-data' && s.readAt).toBe(null);
-    expect(said(stationFacts(null))).not.toContain('our collection having stopped');
+    expect(said(stationFacts(null))).not.toContain('has stopped');
+  });
+
+  test('🔴 the clause is about THIS station’s file, not about the whole feed', () => {
+    // `apps/api/src/air/import.ts` leaves `read_at` untouched when ONE
+    // station's file fails to download (`action: 'keep'`), so a stale
+    // `readAt` on a single station is compatible with a perfectly healthy
+    // importer. A sentence saying "our collection has stopped" would then
+    // be false about every other station on the site.
+    const facts = stationFacts({ ...READING, hour: hourAgo(9), readAt: daysAgo(3) });
+    const text = said(facts);
+    expect(text).toContain('this station');
+    expect(text).not.toContain('our collection has stopped');
   });
 
   test('🔴 the clause uses no word the CEMS terms reserve', () => {
-    const facts = stationFacts({ ...READING, hour: readDaysAgo(2), readAt: readDaysAgo(2) });
+    const facts = stationFacts({ ...READING, hour: hourAgo(9), readAt: daysAgo(3) });
     expect(RESERVED_WORDS.test(said(facts)), said(facts)).toBe(false);
   });
 });

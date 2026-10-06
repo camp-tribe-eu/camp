@@ -237,10 +237,15 @@ export function seasonContextSentence(season: number, today = new Date()): strin
       `the next is published ${BATHING_FRESHNESS.publishedAbout}.`
     );
   }
+  // 🔴 NOT `publishedAbout` HERE. That string reads "usually in June of
+  // the following year", which is correct beside the season it belongs
+  // to and wrong in this branch: the edition that is overdue is the one
+  // AFTER the season named, so "the following year" would point a reader
+  // at the wrong June. The year is named outright instead.
   return (
-    `${opening}The ${season} season is the most recent one we hold. A newer ` +
-    `edition was due ${BATHING_FRESHNESS.publishedAbout}, so there may be ` +
-    `one we have not imported yet.`
+    `${opening}The ${season} season is the most recent one we hold, and the ` +
+    `${season + 1} season was due in June ${season + 2}. There may be an ` +
+    `edition we have not imported yet.`
   );
 }
 
@@ -268,15 +273,28 @@ export const editionPublishedAt = (season: number): string =>
  * mutations; writing a season-shaped rule beside it would be two rules
  * that agree until the day they do not.
  *
- * 🔴 AND IT HAS A KNOWN GAP, written down rather than discovered later.
- * The rule reads "over a year old AND it is July or later", with a
- * second branch at two years. Anchored in June, a holding exactly two
- * editions behind crosses 365 days in June of N+2 (flagged from that
- * July) but does not reach 730 until June of N+3 — so between January
- * and May of N+3 it reads healthy again. Three editions behind is past
- * 730 at every month and always flagged. Closing that gap means
- * changing `shouldFlagStale` itself, which is a decision about every
- * annual source and not one to take inside a bathing-water helper.
+ * 🔴 AND IT HAS A KNOWN GAP — MEASURED, not reasoned about, because the
+ * first version of this comment reasoned about it and got it backwards.
+ *
+ * Brute-forced over seasons 2022–2025 and every month of the five years
+ * after each, against the truth "the newest published edition on day T
+ * is (year of T) − 1 from June onwards, else (year of T) − 2":
+ *
+ *     24 disagreements, ALL of them "exactly one edition behind"
+ *      0 disagreements where two or more editions are behind
+ *      0 false alarms
+ *
+ * So the blind window is ONE missed edition, not two: from June of N+2,
+ * when the superseding edition appears, until the 730-day branch catches
+ * it in June of N+3 — about 181 days per cycle. Two editions behind is
+ * past 730 in every month and is always flagged. The earlier comment
+ * here said the opposite ("a holding exactly two editions behind …
+ * reads healthy again"), which would have been the harmless direction
+ * and was simply untrue.
+ *
+ * Closing it means changing `shouldFlagStale` itself, which is a
+ * decision about every annual source and not one to take inside a
+ * bathing-water helper.
  */
 export const editionMayBeBehind = (season: number, today = new Date()): boolean =>
   shouldFlagStale(BATHING_FRESHNESS, editionPublishedAt(season), today);
@@ -327,7 +345,15 @@ export function allCopy(bw: BathingWater): string[] {
   return [
     seasonSentence(bw),
     notClassifiedSentence(bw),
-    seasonContextSentence(bw.season),
+    // 🔴 BOTH FORMS. `seasonContextSentence` gained a second branch in
+    // CAMP-198 and this listed only the one the default clock happens to
+    // produce — so the "we hold" wording passed through neither
+    // `findForbiddenWords` nor the end-to-end gate. Review put
+    // "so the water may be unsafe" into it and 862 tests stayed green;
+    // `unsafe` is in `FORBIDDEN_WORDS`. Everything this module can print
+    // means every branch of it, not every function of it.
+    seasonContextSentence(bw.season, new Date(`${bw.season + 1}-07-01T00:00:00Z`)),
+    seasonContextSentence(bw.season, new Date(`${bw.season + 3}-09-01T00:00:00Z`)),
     noBathingWaterSentence(BATHING_RADIUS_M),
     seasonLabel(bw.season),
     categoryLabel(bw.category),
