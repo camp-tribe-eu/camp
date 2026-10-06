@@ -137,6 +137,12 @@ export const BULK_ROUTES = [
   'spots/map/regions',
   'spots/search-index',
   'spots/index',
+  // 🔴 CAMP-235. Caught by this very check on the first run: the route
+  // carried @Throttle(BULK) and was absent here, which is precisely the
+  // CAMP-176 defect — the heavy NUMBER in the ordinary BUCKET. The
+  // report is a grouped scan over a window, read by a person once a
+  // week, not something a reader hits.
+  'not-found/worst',
 ] as const;
 
 /**

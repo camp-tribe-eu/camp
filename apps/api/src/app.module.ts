@@ -20,6 +20,7 @@ import { AuthModule } from './auth/auth.module';
 import { TripsModule } from './trips/trips.module';
 import { HealthModule } from './health/health.module';
 import { ClientError } from './entities/client-error.entity';
+import { NotFoundHit } from './entities/not-found-hit.entity';
 import { SpotTariff } from './entities/spot-tariff.entity';
 import { BathingWater } from './entities/bathing-water.entity';
 import {
@@ -49,6 +50,7 @@ import { ApiThrottlerGuard } from './throttle.guard';
         TripStop,
         Session,
         ClientError,
+        NotFoundHit,
         SpotTariff,
         BathingWater,
         AirQualityStation,
