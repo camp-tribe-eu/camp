@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { countryName } from '@/lib/api';
 import { byTopic, isTopic, TOPICS } from '@/lib/guide-facets';
+import { CatalogueProvenance } from '@/components/catalogue-provenance';
 import { getGuides, PROVENANCE_LABEL } from '@/lib/guides';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
@@ -98,6 +99,8 @@ export default async function GuidesByTopic(props: {
       <h1 className="mt-4 text-3xl font-bold leading-tight md:text-[42px]">
         {TOPICS[topic]}
       </h1>
+
+      <CatalogueProvenance guides={entry.guides} />
       <p className="mt-3 max-w-prose text-ink-2">
         {entry.guides.length.toLocaleString('en-GB')} regions across{' '}
         {groups.length} countries. Each one counts what our records hold, and
