@@ -67,14 +67,22 @@ export class AuthService {
     // seen it, because no test writes an empty hash.
     //
     // So the question asked here is not "is it there" but "is it a hash
-    // we could have written". Anything else — empty, truncated,
-    // hand-edited, written by a tool that did not know the format —
-    // falls to the decoy and costs exactly what a miss costs.
+    // we could have written AND that scrypt can evaluate at our cost".
     //
-    // The database refuses the same shape (users_password_hash_shape),
-    // and `password.spec.ts` asserts the two use the same pattern. Two
-    // independent refusals, because each is worth having precisely when
-    // the other was bypassed.
+    // 🔴 THE FIRST VERSION ASKED ONLY THE FIRST HALF, and review measured
+    // the gap: `scrypt$1$1$1$<16B>$<32B>` is perfectly shaped, so the
+    // decoy was skipped, and Node throws on a non-power-of-two N before
+    // scrypt does any work — 0.1 ms against an honest 202.7 ms. The same
+    // 1 700× answer, through a different gate. `p = 16`, which
+    // `verifyPassword` permits, went the other way: 3 495 ms, a 17×
+    // amplifier. Looking like a hash is not the same as being one this
+    // process can spend an honest 200 ms on.
+    //
+    // The database asks the same two questions in its own constraints
+    // (`users_password_hash_shape`, `users_password_hash_workable`), and
+    // both are built from the constants this module exports, so they
+    // cannot drift. Two independent refusals, because each is worth
+    // having precisely when the other was bypassed.
     const stored = user?.passwordHash;
     const hash = looksLikeStoredHash(stored) ? stored : await decoyHash();
     const ok = await verifyPassword(password, hash);

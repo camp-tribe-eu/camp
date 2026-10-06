@@ -3,9 +3,12 @@ import { readFileSync } from 'node:fs';
 import {
   FORMAT,
   MAX,
+  MAX_MEM,
   MIN,
   SCRYPT,
   hashPassword,
+  WORK_CEILING,
+  isWorkable,
   looksLikeStoredHash,
   needsRehash,
   verifyPassword,
@@ -238,12 +241,18 @@ describe('the stored-hash shape is one pattern, not two', () => {
   // refusing what the code still believes it refuses. The constraint is
   // worth having precisely when the code was bypassed, so a constraint
   // that has drifted is worse than none — it reads as cover.
-  it('the migration interpolates the constant rather than copying it', () => {
+  it('the migration interpolates the constants rather than copying them', () => {
     const source = readFileSync(MIGRATION, 'utf8');
-    expect(source).toContain("import { STORED_SHAPE } from '../auth/password'");
+    expect(source).toContain(
+      "import { MAX_MEM, STORED_SHAPE, WORK_CEILING } from '../auth/password'",
+    );
     expect(source).toContain("CHECK (password_hash ~ '${STORED_SHAPE}')");
-    // And no second copy of the pattern hiding anywhere in the file.
+    expect(source).toContain('<= ${MAX_MEM}');
+    expect(source).toContain('<= ${WORK_CEILING}');
+    // And no second copy of either hiding anywhere in the file.
     expect(source).not.toContain('^scrypt');
+    expect(source).not.toContain(String(MAX_MEM));
+    expect(source).not.toContain(String(WORK_CEILING));
   });
 
   it('every hash this module makes satisfies the shape', async () => {
@@ -307,5 +316,77 @@ describe('the stored-hash shape is one pattern, not two', () => {
     expect(looksLikeStoredHash(real)).toBe(true);
     expect(looksLikeStoredHash(`${real}\n`)).toBe(false);
     expect(looksLikeStoredHash(`${real}\nDROP TABLE users`)).toBe(false);
+  });
+});
+
+// CAMP-223, second round — the half I shipped without.
+//
+// 🔴 Closing `''` moved the gate; it did not close the oracle. Review
+// measured four values that pass the SHAPE and still refuse instantly,
+// because Node throws on the parameters before scrypt does any work:
+//
+//   honest hash                      202.7 ms
+//   scrypt$1$1$1$…   N not 2^k         0.1 ms   ← 2 000×
+//   N = 2^30         past Node         0.3 ms
+//   N = 2^20, r = 32 past maxmem       0.0 ms
+//   N = 2^20, r = 1  N < 2^16r         0.0 ms
+//   p = 16 (MAX.p)                  3 495.3 ms  ← 17× the other way
+//
+// The timing cases live in `auth.spec.ts`, where they are measured end
+// to end. These pin the decision itself, which is cheap enough to cover
+// exhaustively.
+describe('parameters scrypt can actually evaluate', () => {
+  it('accepts everything hashPassword can produce', async () => {
+    for (const params of [
+      SCRYPT,
+      {
+        N: MIN.N,
+        r: MIN.r,
+        p: MIN.p,
+        saltLen: MIN.saltLen,
+        keyLen: MIN.keyLen,
+      },
+      { ...SCRYPT, N: 2 ** 15 },
+      { ...SCRYPT, r: 4 },
+    ]) {
+      const stored = await hashPassword('x', params);
+      expect(looksLikeStoredHash(stored)).toBe(true);
+    }
+  });
+
+  // 🔴 NO FLOOR. A hash made under weaker parameters has to keep
+  // verifying — `verifyPassword` says why, and a floor here would sign
+  // out exactly the users the design protects. It is a ceiling only.
+  it('accepts parameters weaker than the ones we ship today', () => {
+    expect(isWorkable(2 ** 10, 1, 1)).toBe(true);
+    expect(isWorkable(2, 1, 1)).toBe(true);
+  });
+
+  it.each([
+    ['N of 1', 1, 1, 1],
+    ['N of 0', 0, 1, 1],
+    ['N that is not a power of two', 131071, 8, 1],
+    ['N past what Node accepts', 2 ** 30, 8, 1],
+    ['N past the N < 2^16r rule', 2 ** 20, 1, 1],
+    // 🔴 ISOLATED TO ONE RULE. The first version of this case used
+    // r = 32, which the work ceiling also refuses — so removing the
+    // memory check left every test green, and a mutation run said so.
+    // At r = 2 the shape is a power of two, inside N < 2^16r and inside
+    // the work ceiling: `128 · r · (N + p)` is the only thing that
+    // refuses it.
+    ['N and r past the memory ceiling, and nothing else', 2 ** 20, 2, 1],
+    ['N and r past both the memory and work ceilings', 2 ** 20, 32, 1],
+    ['r of 0', 2 ** 17, 0, 1],
+    ['p of 0', 2 ** 17, 8, 0],
+    ['p at MAX.p, which costs 17× an honest verify', 2 ** 17, 8, 16],
+    ['a fractional N', 2 ** 17 + 0.5, 8, 1],
+  ])('refuses %s', (_what, N, r, p) => {
+    expect(isWorkable(N as number, r as number, p as number)).toBe(false);
+  });
+
+  it('the ceiling moves with the cost we ship, rather than being a number', () => {
+    expect(WORK_CEILING).toBe(SCRYPT.N * SCRYPT.r * SCRYPT.p * 4);
+    // Our own hash sits comfortably inside it, which is the point of 4×.
+    expect(SCRYPT.N * SCRYPT.r * SCRYPT.p).toBeLessThan(WORK_CEILING);
   });
 });

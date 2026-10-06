@@ -48,7 +48,7 @@ export type ScryptParams = {
 // 128 * N * r bytes, plus headroom. Node's default of 32 MiB is far
 // below what these parameters need, and the failure is a thrown error
 // rather than a weaker hash — but only if we ask for enough.
-const MAX_MEM = 192 * 1024 * 1024;
+export const MAX_MEM = 192 * 1024 * 1024;
 
 /**
  * The floors a stored hash must clear, and the one ceiling it must not
@@ -106,7 +106,69 @@ export const STORED_SHAPE =
  * run out of order, or by a future code path that forgets.
  */
 export function looksLikeStoredHash(value: unknown): value is string {
-  return typeof value === 'string' && new RegExp(STORED_SHAPE).test(value);
+  if (typeof value !== 'string') return false;
+  if (!new RegExp(STORED_SHAPE).test(value)) return false;
+  const [, n, r, p] = value.split('$');
+  return isWorkable(Number(n), Number(r), Number(p));
+}
+
+/**
+ * The most work a stored hash may ask for.
+ *
+ * 🔴 RELATIVE TO WHAT WE SHIP, so raising the cost moves it along. Four
+ * times leaves room for a parameter change that has not reached this
+ * constant yet, and refuses `p = 16` — allowed by `verifyPassword`'s
+ * ceiling and measured at **3 495 ms against an honest 203 ms**, a 17×
+ * amplifier for anyone who can write one row.
+ *
+ * 🔴 A CEILING, NEVER A FLOOR. `verifyPassword` documents why, and the
+ * reasoning holds here: a hash stored under weaker parameters has to
+ * keep verifying, or raising the work factor signs out exactly the users
+ * the design protects. A weak-but-genuine row does verify faster, and
+ * that is inherent — but producing one needs write access to the table,
+ * which is a different attacker from the one this module is about.
+ */
+export const WORK_CEILING = SCRYPT.N * SCRYPT.r * SCRYPT.p * 4;
+
+/**
+ * Can scrypt actually evaluate these parameters, at a cost like ours?
+ *
+ * 🔴 THIS IS THE SECOND HALF OF THE ORACLE, AND I SHIPPED THE FIRST HALF
+ * WITHOUT IT. CAMP-223 closed `''`, which never looked like a hash. An
+ * adversarial review asked the question I had not: what LOOKS like a
+ * hash and still refuses instantly? Measured on this machine:
+ *
+ *   honest hash                        202.7 ms
+ *   scrypt$1$1$1$…      N not 2^k        0.1 ms   ← 2 000×
+ *   N = 2^30            past Node        0.3 ms
+ *   N = 2^20, r = 32    past maxmem      0.0 ms
+ *   N = 2^20, r = 1     N < 2^16r        0.0 ms
+ *
+ * All four passed the shape. Node throws before scrypt does any work,
+ * `verifyPassword` catches it and returns false, and the answer comes
+ * back in a fifth of a millisecond — the same 1 700× order as the bug
+ * this card was opened for. Checking that a hash looks like ours is not
+ * checking that it can be evaluated, and the gap between those two was
+ * the whole defect.
+ *
+ * The conditions are Node's own, not invented here: N a power of two
+ * above 1, N below 2^(128·r/8), and the memory product inside `maxmem`.
+ * Anything `hashPassword` produced satisfies all of them — it would have
+ * thrown otherwise — so refusing them signs nobody out.
+ */
+export function isWorkable(N: number, r: number, p: number): boolean {
+  if (!Number.isInteger(N) || !Number.isInteger(r) || !Number.isInteger(p))
+    return false;
+  if (N <= 1 || r < 1 || p < 1) return false;
+  // A power of two, which is scrypt's own requirement on N.
+  if ((N & (N - 1)) !== 0) return false;
+  // Node: N must be less than 2^(128 · r / 8). Compared in logs so the
+  // shift never overflows for a large r.
+  if (Math.log2(N) >= 16 * r) return false;
+  // Node sizes the buffer at 128 · r · (N + p) and refuses past maxmem.
+  if (128 * r * (N + p) > MAX_MEM) return false;
+  // And the cost itself, which is a product rather than a sum.
+  return N * r * p <= WORK_CEILING;
 }
 
 /**

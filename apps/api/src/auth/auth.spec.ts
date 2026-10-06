@@ -240,7 +240,40 @@ describe('a stored value that is not a hash costs what a miss costs', () => {
 
   // Each of these reached `verifyPassword` directly before the fix, and
   // each is refused there while parsing — which is to say, instantly.
+  const b64 = (n: number) => Buffer.alloc(n, 7).toString('base64');
+
   const SHAPES: [string, string][] = [
+    // 🔴 THE SECOND ROUND, AND IT IS THE SAME DEFECT ONE DOOR ALONG.
+    //
+    // Every case below the divider is shape-INVALID, so all six only ever
+    // exercised the decoy branch. Review asked the question I had not:
+    // what passes the shape and STILL refuses instantly? Measured here:
+    //
+    //   honest hash                      202.7 ms
+    //   scrypt$1$1$1$…    (N not 2^k)      0.1 ms    ← 2000×
+    //   N = 2^30          (over Node's)    0.3 ms
+    //   N = 2^20, r = 32  (over maxmem)    0.0 ms
+    //   N = 2^20, r = 1   (N < 2^16r)      0.0 ms
+    //   p = 16 = MAX.p                  3495.3 ms    ← 17× the other way
+    //
+    // The shape said yes to all five. Checking that a hash LOOKS like
+    // ours is not the same as checking that scrypt can evaluate it, and
+    // the gap between those two is exactly the oracle CAMP-223 is about.
+    ['N that is not a power of two', `scrypt$1$1$1$${b64(16)}$${b64(32)}`],
+    [
+      'N past what Node will accept',
+      `scrypt$1073741824$8$1$${b64(16)}$${b64(32)}`,
+    ],
+    [
+      'N and r past the memory ceiling',
+      `scrypt$1048576$32$1$${b64(16)}$${b64(32)}`,
+    ],
+    ['N past the N < 2^16r rule', `scrypt$1048576$1$1$${b64(16)}$${b64(32)}`],
+    [
+      'work far past what we ever wrote',
+      `scrypt$131072$8$16$${b64(16)}$${b64(32)}`,
+    ],
+    // ── shapes that never looked like ours in the first place ──
     ['empty', ''],
     ['the format name alone', 'scrypt'],
     ['too few fields', 'scrypt$131072$8$1'],
