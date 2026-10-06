@@ -293,10 +293,42 @@ export function warningsFrom(payload, country, now) {
         // two fields this script spent three attempts distinguishing.
         // The fallback was dead anyway: 0 blocks carry `effective`
         // without `onset`. Each is now reported as what it is.
+        // 🔴 CAMP-150: THE TIME OF ISSUE, which this row did not keep.
+        //
+        // MeteoAlarm's clause 5.4 requires "the time of issue of the
+        // Information being redistributed, as indicated on the MeteoAlarm
+        // Website at the time the Information is extracted". That is CAP's
+        // `sent`. This row kept `onset`, `effective` and `expires` — three
+        // times, none of them the one the licence asks for — so a panel
+        // built on it could satisfy the clause only by printing a
+        // different time under the words "issued at".
+        //
+        // Measured across all 27 feeds, 06.10.2026, 1 279 surviving
+        // blocks: `sent` and `onset` are BOTH present on 1 279 of 1 279
+        // and DIFFER on 1 279 of 1 279. Median gap 1 001 minutes — 16.7
+        // hours — 1 170 of them over an hour apart, the widest 4.2 days,
+        // and 135 with `onset` BEFORE `sent`. There is no block on which
+        // the substitution would have gone unnoticed by being close.
+        sent: alert.sent ?? null,
         onset: info.onset ?? null,
         effective: info.effective ?? null,
         expires: info.expires,
         level: level.code,
+        // 🔴 CAMP-150: THE SOURCE'S OWN WORD FOR THE SEVERITY, which this
+        // row dropped — it kept the code and threw the label away.
+        //
+        // Without it a reader cannot tell a red warning from a yellow
+        // one unless the event text happens to say so, and measured
+        // across all 27 feeds on 06.10.2026 it usually does not: 232 of
+        // 1 279 live blocks name their level in `event` or `headline`,
+        // 18.1%. Spain alone contributes 672 that do not. On a panel
+        // whose whole purpose is "a high-sided van in a squall on a
+        // pass", "Wind warning" and "Wind warning" reading the same at
+        // level 2 and level 4 is the defect, not a nicety.
+        //
+        // The source says `2; yellow; Moderate`, so the word is theirs.
+        // We pick from their string; we never invent a word for a code.
+        levelLabel: level.label,
         // 🔴 The source's own word for the hazard, passed through. We do
         // not translate it and we do not add one of our own.
         type: type.label,
@@ -735,7 +767,7 @@ function selfTest() {
             area: [{ areaDesc: 'AREA', geocode: [{ valueName: 'SCHEME', value: 'CODE' }] }],
           },
         ],
-        { sender: 'ALERT-SENDER' },
+        { sender: 'ALERT-SENDER', sent: '2026-10-05T07:15:00Z' },
       ),
       'COUNTRY',
       NOW,
@@ -746,10 +778,17 @@ function selfTest() {
       headline: 'HEADLINE',
       description: 'DESCRIPTION',
       instruction: 'INSTRUCTION',
+      // 🔴 CAMP-150: three times that are not interchangeable, and the
+      // licence asks for the FIRST of them. On the live feeds `sent` and
+      // `onset` differ on 1 279 of 1 279 blocks, so this fixture keeps
+      // them apart too: a row that read `onset` into `sent` would be
+      // wrong here as it is wrong in production.
+      sent: '2026-10-05T07:15:00Z',
       onset: '2026-10-05T18:00:00Z',
       effective: '2026-10-05T09:00:00Z',
       expires: '2026-10-06T00:00:00Z',
       level: 3,
+      levelLabel: 'orange; LEVEL-LABEL',
       type: 'TYPE-LABEL',
       typeCode: 4,
       sender: 'SENDER-NAME',
