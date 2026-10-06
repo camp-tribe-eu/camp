@@ -84,25 +84,200 @@ const isSpec = (file) => /\.(spec|test)\.[cm]?[jt]sx?$/.test(file);
 /** Files whose contents this check can parse at all. */
 export const isReadable = (f) => /\.(ts|tsx|mts|cts|mjs|cjs|js|jsx)$/.test(f);
 
+/** Names a module-level `const` can bind that mean "we were run, not imported". */
+function guardNames(sf) {
+  const names = new Set();
+  for (const st of sf.statements) {
+    if (!ts.isVariableStatement(st)) continue;
+    for (const d of st.declarationList.declarations) {
+      if (d.initializer && bindsGuard(d.initializer, sf, names) === 'guard') {
+        names.add(d.name.getText(sf));
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * What a declaration's initializer binds, looking INSIDE it.
+ *
+ * 🔴 `scripts/windy/fetch-webcams.mjs:506` wraps the comparison in an
+ * IIFE with a try/catch, so asking whether the initializer IS a guard
+ * expression said no and the file's two real guards stopped counting.
+ * Asking whether it CONTAINS one — and contains no inverted one — reads
+ * that form correctly while still refusing the poisoning case, because
+ * `fileURLToPath(import.meta.url)` contains no comparison at all.
+ */
+function bindsGuard(node, sf, names) {
+  let guard = 0;
+  let anti = 0;
+  const walkNode = (n) => {
+    const kind = ts.isBinaryExpression(n) ? isGuardExpression(n, sf, names) : 'other';
+    if (kind === 'guard') guard++;
+    else if (kind === 'anti') anti++;
+    ts.forEachChild(n, walkNode);
+  };
+  walkNode(node);
+  if (guard > 0 && anti === 0) return 'guard';
+  if (anti > 0 && guard === 0) return 'anti';
+  return 'other';
+}
+
+/**
+ * Is this condition true only when run directly, only when imported, or
+ * neither?
+ *
+ * 🔴 POLARITY, AND IT WAS MISSING. The first version asked whether the
+ * text mentioned `require.main` or `import.meta` — so
+ * `if (require.main !== module) { … }` read as a guard, when it is the
+ * exact opposite: review measured it running ON IMPORT and NOT on a
+ * direct run. The repository already carries the inverted form at
+ * `scripts/osm-pipeline/import-release.mjs:678`, with an empty body
+ * today; one line is the whole distance.
+ *
+ * 🔴 AND IT POISONED ON SUBSTRINGS. Any top-level name whose initializer
+ * merely CONTAINED `import.meta` became a guard name, matched by regex
+ * inside any `if`. So `const here = fileURLToPath(import.meta.url)` made
+ * `if (here) { psql('DELETE FROM camping_spots') }` invisible. Seven
+ * files in the scanned roots have exactly that premise. A guard name now
+ * has to be bound to a guard EXPRESSION, and it is matched as an
+ * identifier, not as text.
+ */
+function isGuardExpression(node, sf, names) {
+  if (ts.isParenthesizedExpression(node)) return isGuardExpression(node.expression, sf, names);
+
+  if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
+    const inner = isGuardExpression(node.operand, sf, names);
+    return inner === 'guard' ? 'anti' : inner === 'anti' ? 'guard' : 'other';
+  }
+
+  if (ts.isIdentifier(node)) return names.has(node.text) ? 'guard' : 'other';
+
+  if (ts.isBinaryExpression(node)) {
+    const op = node.operatorToken.kind;
+    const left = node.left.getText(sf);
+    const right = node.right.getText(sf);
+    const pair = `${left}|${right}`;
+    const isCjs = /\brequire\.main\b/.test(pair) && /\bmodule\b/.test(pair);
+    const isEsm = /\bimport\.meta\.url\b/.test(pair);
+    if (isCjs || isEsm) {
+      if (op === ts.SyntaxKind.EqualsEqualsEqualsToken || op === ts.SyntaxKind.EqualsEqualsToken)
+        return 'guard';
+      if (op === ts.SyntaxKind.ExclamationEqualsEqualsToken || op === ts.SyntaxKind.ExclamationEqualsToken)
+        return 'anti';
+    }
+    // `process.argv[1] !== undefined && import.meta.url === …` — the form
+    // `import-release.mjs` uses. A conjunction is a guard when a conjunct is.
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+      const a = isGuardExpression(node.left, sf, names);
+      const b = isGuardExpression(node.right, sf, names);
+      if (a === 'guard' || b === 'guard') return 'guard';
+      if (a === 'anti' || b === 'anti') return 'anti';
+    }
+  }
+  return 'other';
+}
+
+/** Things whose construction or call reaches a resource, not just memory. */
+const OPENS = new Set([
+  'fetch', 'psql', 'createPool', 'knex', 'drizzle', 'getRepository',
+  'execSync', 'spawnSync', 'execFileSync', 'createConnection', 'connect',
+]);
+const RESOURCE_CLASSES = new Set(['Client', 'Pool', 'DataSource']);
+
+/** A function being DEFINED is not a function being called. */
+const isFunctionLike = (n) =>
+  ts.isArrowFunction(n) || ts.isFunctionExpression(n) ||
+  ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n) ||
+  ts.isClassDeclaration(n) || ts.isClassExpression(n);
+
+/**
+ * Does evaluating this expression open something?
+ *
+ * 🔴 WHY DECLARATIONS COUNT NOW. `verdict()` returns early when there is
+ * no work, and a `VariableStatement` was never work — so
+ * `const pool = new Pool(…)` at module level, which is literally the
+ * shape this card is named after, never reached the database rule at
+ * all. Review reproduced it: a file with `new Pool`, an exporting spec
+ * and module-level queries passed with exit 0.
+ *
+ * A top-level `await` counts for the same reason: in ESM it is work the
+ * import performs, and three files in the scanned roots do
+ * `const res = await fetch(…)` at module level — the network, on import.
+ */
+function opensSomething(node, sf, resourceNames) {
+  // The initializer itself being a function is the commonest case:
+  // `const psql = (sql) => execFileSync(…)` defines a helper.
+  if (isFunctionLike(node)) return false;
+  let found = false;
+  const walkNode = (n) => {
+    if (found) return;
+    // 🔴 `const psql = (sql) => execFileSync('psql', …)` is a definition.
+    // Walking into it called three helper declarations work —
+    // `check-restore.mjs:163`, `drop-non-eu.mjs:103` — none of which runs
+    // anything until something calls them, which is the module-level
+    // statement this check is actually looking for.
+    if (n !== node && isFunctionLike(n)) return;
+    if (ts.isAwaitExpression(n)) { found = true; return; }
+    // 🔴 CONSTRUCTION IS CONFIGURATION. `new DataSource({…})` does not
+    // connect — TypeORM connects on `.initialize()` — and
+    // `apps/api/src/data-source.ts:31` is exactly that line, exported for
+    // the CLI to initialise later. `new Pool()` likewise waits for a
+    // query. What opens a connection is a CALL, and in the shape review
+    // reproduced (`const pool = new Pool(); for (…) pool.query(…)`) the
+    // queries are module-level statements, caught on their own.
+    if (ts.isCallExpression(n)) {
+      const text = n.expression.getText(sf);
+      const last = text.split('.').pop();
+      if (OPENS.has(text) || OPENS.has(last) || resourceNames.has(text)) { found = true; return; }
+    }
+    ts.forEachChild(n, walkNode);
+  };
+  walkNode(node);
+  return found;
+}
+
+/** Local names bound to a resource class by an import, aliases included. */
+function resourceAliases(sf) {
+  const names = new Set();
+  for (const st of sf.statements) {
+    if (!ts.isImportDeclaration(st) || !st.importClause) continue;
+    const from = ts.isStringLiteral(st.moduleSpecifier) ? st.moduleSpecifier.text : '';
+    if (!/^(pg|typeorm|mysql2|knex|drizzle-orm|pg-promise)/.test(from)) continue;
+    const named = st.importClause.namedBindings;
+    if (named && ts.isNamedImports(named)) {
+      for (const el of named.elements) {
+        const original = (el.propertyName ?? el.name).text;
+        if (RESOURCE_CLASSES.has(original)) names.add(el.name.text);
+      }
+    }
+    // `import * as pg from 'pg'` — the namespace itself, so `new pg.Client()`
+    // is caught by the `.split('.').pop()` above.
+    if (st.importClause.name) names.add(st.importClause.name.text);
+  }
+  return names;
+}
+
 /**
  * Statements at module level that DO something when the file is imported.
  *
  * 🔴 PARSED, NOT SCANNED. The first version counted brace depth over a
  * string with comments and literals blanked out, and matched a call
- * against a list of names the file declared. Review walked past it eight
+ * against a list of names the file declared. Review walked past it nine
  * ways — `const main = async function () {}`, a top-level async IIFE,
- * `new Runner().go()`, a missing semicolon, `let main = async () => {}`,
- * a backslash at the end of a line comment, `if (x) main()` — each one
- * reproduced on a file that opened Postgres and ran an UPDATE while the
- * check reported `exit 0`.
+ * `new Runner().go()`, a missing semicolon, a backslash ending a line
+ * comment, `if (x) main()` — each reproduced on a file that opened
+ * Postgres and ran an UPDATE while the check reported `exit 0`.
  *
  * That is not a list of bugs to fix one at a time; it is a hand-written
  * parser losing to the language. TypeScript's own parser is already a
  * dependency, and it knows what a statement is.
  *
- * The rule is now simpler and stronger: at module level, an EXPRESSION
- * statement is work. Declarations are not, imports are not, and a block
- * guarded by `require.main === module` is not.
+ * The rule: at module level an EXPRESSION statement is work, and so is a
+ * declaration whose initializer opens something. Declarations that only
+ * compute are not. A block whose condition means "we were run directly"
+ * is not — but the ELSE of such a block is, and the THEN of its inverse
+ * is.
  */
 export function unguardedCalls(source, fileName = 'file.ts') {
   const sf = ts.createSourceFile(
@@ -113,52 +288,57 @@ export function unguardedCalls(source, fileName = 'file.ts') {
     /\.(tsx|jsx)$/.test(fileName) ? ts.ScriptKind.TSX : undefined,
   );
 
-  // Names assigned `require.main === module` (or the ESM equivalent), so
-  // `if (RUN_DIRECTLY) { … }` reads as the guard it is.
-  const guardNames = new Set();
-  for (const st of sf.statements) {
-    if (!ts.isVariableStatement(st)) continue;
-    for (const d of st.declarationList.declarations) {
-      if (d.initializer && /require\.main|import\.meta/.test(d.initializer.getText(sf))) {
-        guardNames.add(d.name.getText(sf));
-      }
-    }
-  }
-  const isGuard = (expr) => {
-    const text = expr.getText(sf);
-    if (/require\.main|import\.meta/.test(text)) return true;
-    return [...guardNames].some((n) => new RegExp(`\\b${n}\\b`).test(text));
-  };
-
+  const names = guardNames(sf);
+  const resources = resourceAliases(sf);
   const found = [];
   const at = (node) => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+  const label = (node) => node.getText(sf).split('\n')[0].slice(0, 60);
   const body = (node) => (node && ts.isBlock(node) ? node.statements : node ? [node] : []);
 
   const visit = (statements) => {
     for (const st of statements) {
       if (ts.isExpressionStatement(st)) {
-        // `'use strict'` and friends are directives, not work.
-        if (ts.isStringLiteral(st.expression)) continue;
-        found.push({ line: at(st), name: st.expression.getText(sf).split('\n')[0].slice(0, 60) });
+        if (ts.isStringLiteral(st.expression)) continue; // 'use strict'
+        found.push({ line: at(st), name: label(st.expression) });
+      } else if (ts.isVariableStatement(st)) {
+        for (const d of st.declarationList.declarations) {
+          if (d.initializer && opensSomething(d.initializer, sf, resources)) {
+            found.push({ line: at(d), name: label(d) });
+          }
+        }
       } else if (ts.isIfStatement(st)) {
-        // 🔴 A guarded block is the whole point and is left alone. A
-        // top-level `if` that is NOT the guard does not make its body any
-        // less module-level, so we keep looking inside it.
-        if (isGuard(st.expression)) continue;
-        visit(body(st.thenStatement));
-        visit(body(st.elseStatement));
-      } else if (ts.isBlock(st)) {
-        visit(st.statements);
+        const kind = isGuardExpression(st.expression, sf, names);
+        if (kind !== 'guard') visit(body(st.thenStatement));
+        if (kind !== 'anti') visit(body(st.elseStatement));
+      } else if (ts.isBlock(st) || ts.isLabeledStatement(st)) {
+        visit(ts.isBlock(st) ? st.statements : body(st.statement));
       } else if (ts.isTryStatement(st)) {
         visit(st.tryBlock.statements);
         if (st.catchClause) visit(st.catchClause.block.statements);
         if (st.finallyBlock) visit(st.finallyBlock.statements);
+      } else if (
+        ts.isForStatement(st) || ts.isForOfStatement(st) ||
+        ts.isForInStatement(st) || ts.isWhileStatement(st) || ts.isDoStatement(st)
+      ) {
+        visit(body(st.statement));
+      } else if (ts.isSwitchStatement(st)) {
+        for (const clause of st.caseBlock.clauses) visit(clause.statements);
+      } else if (ts.isClassDeclaration(st)) {
+        // `static y = run()` and a static block both run at module load.
+        for (const member of st.members) {
+          if (ts.isPropertyDeclaration(member) &&
+              member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) &&
+              member.initializer && !ts.isLiteralExpression(member.initializer) &&
+              (ts.isCallExpression(member.initializer) || ts.isNewExpression(member.initializer) ||
+               ts.isAwaitExpression(member.initializer))) {
+            found.push({ line: at(member), name: label(member) });
+          }
+          if (ts.isClassStaticBlockDeclaration(member)) visit(member.body.statements);
+        }
       } else if (ts.isExportAssignment(st) && ts.isCallExpression(st.expression)) {
-        // `export default main();` runs too.
-        found.push({ line: at(st), name: st.expression.getText(sf).slice(0, 60) });
+        found.push({ line: at(st), name: label(st.expression) });
       }
-      // Everything else at module level is a declaration, an import or an
-      // export of one: it defines, it does not do.
+      // Everything else at module level defines; it does not do.
     }
   };
   visit(sf.statements);
@@ -319,6 +499,103 @@ register(
 async function main() {}
 main();
 `, 1],
+  // 🔴 THE SECOND REVIEW PASS. The AST rewrite caught all nine of the
+  // first round's bypasses and three more walked past it. Each is here
+  // as a case before it was fixed, and each was reproduced on a file
+  // that opened a resource while the check reported exit 0.
+  // 🔴 MY OWN EXPECTATION WAS WRONG ON THE FIRST TRY. I wrote this
+  // expecting `new Pool(…)` alone to count. It should not: construction
+  // is configuration — pg connects on a query, TypeORM on `.initialize()`
+  // — and `apps/api/src/data-source.ts:31` is exactly that line, exported
+  // so the CLI can initialise it later. Calling it a defect would have
+  // made the check cry wolf on correct code.
+  ['constructing a client is configuration, not work', `
+import { Pool } from 'pg';
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const SQL = 'UPDATE camping_spots SET contact = $1';
+`, 0],
+  // …and the shape review actually reproduced, where the queries run.
+  ['…but querying with it at module level is', `
+import { Pool } from 'pg';
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const SQL = 'UPDATE camping_spots SET contact = $1';
+for (const ref of ['a', 'b']) { pool.query(SQL, [ref]); }
+`, 1],
+  ['a helper that WOULD call out is only a definition', `
+import { execFileSync } from 'node:child_process';
+export const psql = (sql) => execFileSync('psql', ['-c', sql], { encoding: 'utf8' });
+`, 0],
+  ['a fetch inside a component is not module-level work', `
+import { useEffect } from 'react';
+setWorkerUrl('/w.mjs');
+export function Map() {
+  useEffect(() => { void fetch('/api/spots').then((r) => r.json()); }, []);
+  return null;
+}
+`, 1],
+  ['a guard bound through an IIFE still reads as a guard', `
+import { pathToFileURL } from 'node:url';
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try { return import.meta.url === pathToFileURL(process.argv[1]).href; } catch { return false; }
+})();
+async function main() {}
+if (invokedDirectly) { main(); }
+`, 0],
+  ['so is a top-level await in a declaration', `
+const res = await fetch('https://example.test/data.json');
+export const DATA = await res.json();
+`, 2],
+  ['…but an ordinary computed constant is not', `
+function compute() { return 1; }
+export const X = compute();
+const Y = [1, 2, 3].map((n) => n * 2);
+`, 0],
+  ['an INVERTED guard is not a guard — its body runs on import', `
+async function main() {}
+if (require.main !== module) { main(); }
+`, 1],
+  ['nor is the negated form of a guard name', `
+const direct = require.main === module;
+async function main() {}
+if (!direct) { main(); }
+`, 1],
+  ['and the ELSE of a real guard runs on import', `
+async function main() {}
+async function other() {}
+if (require.main === module) { main(); } else { other(); }
+`, 1],
+  ['the THEN of an inverted guard runs, its else does not', `
+async function onImport() {}
+async function onRun() {}
+if (require.main !== module) { onImport(); } else { onRun(); }
+`, 1],
+  ['a name that merely MENTIONS import.meta is not a guard', `
+import { fileURLToPath } from 'node:url';
+const here = fileURLToPath(import.meta.url);
+function psql(q) { return q; }
+if (here) { psql('DELETE FROM camping_spots'); }
+`, 1],
+  ['…and the real ESM guard still is one', `
+import { pathToFileURL } from 'node:url';
+const direct = import.meta.url === pathToFileURL(process.argv[1]).href;
+async function main() {}
+if (direct) { main(); }
+`, 0],
+  ['a loop at module level is visited', `
+async function go(x) {}
+for (const x of [1, 2]) { go(x); }
+`, 1],
+  ['so is a while, a switch and a label', `
+async function go() {}
+while (false) { go(); }
+switch (1) { case 1: go(); }
+outer: { go(); }
+`, 3],
+  ['a static class field runs when the module loads', `
+function run() { return 1; }
+export class X { static y = run(); }
+`, 1],
   // 🔴 EIGHT WAYS PAST THE FIRST VERSION, every one of them found by
   // adversarial review and every one reproduced on a real file that
   // opened Postgres and ran an UPDATE while the check said exit 0.
@@ -391,19 +668,26 @@ if (process.env.X) main();
 export function touchesDatabase(source, fileName = 'file.ts') {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true,
     /\.(tsx|jsx)$/.test(fileName) ? ts.ScriptKind.TSX : undefined);
-  const CLIENTS = new Set(['Client', 'Pool', 'DataSource']);
+  // 🔴 Aliases and namespaces, because the first version compared a bare
+  // identifier: `new pg.Client()`, `import { Client as PgClient }`,
+  // `createPool()`, `knex()`, `drizzle()`, `getRepository()` and
+  // `AppDataSource.initialize()` all walked past it.
+  const aliases = resourceAliases(sf);
+  const FACTORIES = new Set([
+    'psql', 'createPool', 'createConnection', 'knex', 'drizzle',
+    'getRepository', 'initialize',
+  ]);
   let found = false;
   const walkNode = (node) => {
     if (found) return;
-    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && CLIENTS.has(node.expression.text)) {
-      found = true;
-      return;
+    if (ts.isNewExpression(node)) {
+      const last = node.expression.getText(sf).split('.').pop();
+      if (RESOURCE_CLASSES.has(last) || aliases.has(last)) { found = true; return; }
     }
-    // A helper that shells out to psql, which is how the .mjs pipeline
-    // scripts talk to Postgres.
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'psql') {
-      found = true;
-      return;
+    if (ts.isCallExpression(node)) {
+      const text = node.expression.getText(sf);
+      const last = text.split('.').pop();
+      if (FACTORIES.has(text) || FACTORIES.has(last) || aliases.has(text)) { found = true; return; }
     }
     ts.forEachChild(node, walkNode);
   };
@@ -428,24 +712,44 @@ export function touchesDatabase(source, fileName = 'file.ts') {
  * reach one.
  */
 const OUTSIDE = new Set([
-  'pg', 'typeorm', 'mysql2', 'sqlite3', 'ioredis', 'redis',
+  'pg', 'pg-promise', 'typeorm', 'mysql2', 'sqlite3', 'ioredis', 'redis',
+  'knex', 'drizzle-orm', 'mongodb', 'mongoose',
   'fs', 'node:fs', 'fs/promises', 'node:fs/promises',
   'child_process', 'node:child_process',
   'http', 'node:http', 'https', 'node:https', 'net', 'node:net',
-  'node:dns', 'dns', 'undici', 'node-fetch',
+  'tls', 'node:tls', 'dgram', 'node:dgram', 'dns', 'node:dns',
+  'worker_threads', 'node:worker_threads',
+  'undici', 'node-fetch', 'axios', 'got',
   '@nestjs/core', 'nodemailer',
 ]);
+/** Prefixes, for families like the AWS SDK. */
+const OUTSIDE_PREFIXES = ['@aws-sdk/', '@google-cloud/', '@azure/'];
 
 export function reachesOutside(source, fileName = 'file.ts') {
-  if (specifiersIn(source, fileName).some((spec) => OUTSIDE.has(spec))) return true;
+  const specs = specifiersIn(source, fileName);
+  if (specs.some((spec) => OUTSIDE.has(spec))) return true;
+  if (specs.some((spec) => OUTSIDE_PREFIXES.some((p) => spec.startsWith(p)))) return true;
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true,
     /\.(tsx|jsx)$/.test(fileName) ? ts.ScriptKind.TSX : undefined);
   let found = false;
   const walkNode = (node) => {
     if (found) return;
+    // 🔴 Not inside a function body. `campsite-map.tsx` calls `fetch`
+    // where it belongs — in a component — and counting that made the
+    // whole file "external", which turned its one legitimate module-level
+    // line (`setWorkerUrl`, which MapLibre requires before any map
+    // exists) into a defect. What matters is whether the module-level
+    // code reaches out, not whether the file contains the word.
+    if (node !== sf && isFunctionLike(node)) return;
+    // 🔴 `fetch` IS THE LIVE ONE. It is a global, so no import names it,
+    // and the first version's call list did not either. Three files in
+    // the scanned roots do `const res = await fetch(…)` at module level —
+    // `apps/web/scripts/gen-gone.mjs`, `gen-links.mjs` and
+    // `scripts/seo/build-schema-index.mjs`. The network, on import,
+    // invisible twice over: once as a declaration, once as "not external".
     if (
       ts.isCallExpression(node) &&
-      /^(process\.exit|execSync|spawnSync|execFileSync)$/.test(node.expression.getText(sf))
+      /^(process\.exit|execSync|spawnSync|execFileSync|fetch)$/.test(node.expression.getText(sf))
     ) {
       found = true;
       return;
