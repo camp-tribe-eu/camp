@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { countryName, getCountries } from '@/lib/api';
 import PathRecovery from '@/components/path-recovery';
-import { reportNotFound } from '@/lib/report-not-found';
 
 // CAMP-73 — the 404.
 //
@@ -21,12 +20,6 @@ import { reportNotFound } from '@/lib/report-not-found';
 // promise this page makes is one it can keep.
 
 export default async function NotFound() {
-  // 🔴 CAMP-235. Awaited, not fired and forgotten: an unawaited promise
-  // in a server render is one the runtime may kill when the response is
-  // sent, and a log that works on a laptop and not in production is
-  // worse than none. It never throws and never blocks — see the file.
-  await reportNotFound();
-
   // 🔴 The country list only. The REGION list used to be awaited here
   // too and handed to PathRecovery as a prop — and CAMP-143 measured
   // what that cost: Next serialises this boundary into the flight

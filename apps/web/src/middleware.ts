@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import GONE_PATHS from '@/generated/gone-paths.json';
-import { PATH_HEADER } from '@/lib/path-header';
 import SPOT_REDIRECTS from '@/generated/spot-redirects.json';
 
 // CAMP-73 — 410 Gone for campsites OpenStreetMap has dropped.
@@ -23,7 +22,6 @@ import SPOT_REDIRECTS from '@/generated/spot-redirects.json';
 // still remembers.
 
 const GONE = new Set(GONE_PATHS as string[]);
-
 
 // CAMP-144 — 301 for a campsite that is now shown on another page.
 //
@@ -58,21 +56,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(target, 301);
   }
 
-  if (!GONE.has(pathname)) {
-    // 🔴 CAMP-235. The request carries its own path onward, because a
-    // server component cannot otherwise learn it: `headers()` has no
-    // public pathname, and the alternative was guessing at Next's
-    // internal `x-invoke-path`, which is not an API and not a promise.
-    //
-    // Only campsite URLs, because that is all this matcher sees — and
-    // that is the case the 404 report is for: slugs are rebuilt by the
-    // weekly import, and guides and routes are editorial and stable.
-    // A 404 elsewhere goes unlogged, deliberately, rather than widening
-    // this matcher to every asset and sitemap request.
-    const onward = new Headers(request.headers);
-    onward.set(PATH_HEADER, request.nextUrl.pathname);
-    return NextResponse.next({ request: { headers: onward } });
-  }
+  if (!GONE.has(pathname)) return NextResponse.next();
 
   return serveGone(request);
 }
