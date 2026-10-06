@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
-import { hashPassword, verifyPassword } from './password';
+import { hashPassword, looksLikeStoredHash, verifyPassword } from './password';
 import { Viewer } from './ownership';
 import { expiryFrom, isExpired, newToken, tokenHash } from './session';
 
@@ -56,7 +56,27 @@ export class AuthService {
     now: Date = new Date(),
   ): Promise<SignedIn | null> {
     const user = await this.users.findOne({ where: { email } });
-    const hash = user?.passwordHash ?? (await decoyHash());
+    // 🔴 `??` WAS NOT ENOUGH, AND THE GAP WAS 1 700× (CAMP-223).
+    //
+    // It catches `null` and `undefined`. It does not catch `''`, and a
+    // row with an empty `password_hash` went straight into
+    // `verifyPassword('')`, which refuses while parsing the format —
+    // 0.1 ms against the 173 ms an honest verify costs. Every sentence
+    // this method's comment makes about "an unknown address costs the
+    // same" would have been false for that row, and no test would have
+    // seen it, because no test writes an empty hash.
+    //
+    // So the question asked here is not "is it there" but "is it a hash
+    // we could have written". Anything else — empty, truncated,
+    // hand-edited, written by a tool that did not know the format —
+    // falls to the decoy and costs exactly what a miss costs.
+    //
+    // The database refuses the same shape (users_password_hash_shape),
+    // and `password.spec.ts` asserts the two use the same pattern. Two
+    // independent refusals, because each is worth having precisely when
+    // the other was bypassed.
+    const stored = user?.passwordHash;
+    const hash = looksLikeStoredHash(stored) ? stored : await decoyHash();
     const ok = await verifyPassword(password, hash);
     if (!ok || !user) return null;
 

@@ -1,8 +1,12 @@
+import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import {
   FORMAT,
   MAX,
+  MIN,
   SCRYPT,
   hashPassword,
+  looksLikeStoredHash,
   needsRehash,
   verifyPassword,
 } from './password';
@@ -218,5 +222,90 @@ describe('password', () => {
   it('…and a password that differs by more than spelling still fails', async () => {
     const stored = await hashPassword('passé');
     expect(await verifyPassword('passe', stored)).toBe(false);
+  });
+});
+
+// CAMP-223 — the database and this module must refuse the same shape.
+describe('the stored-hash shape is one pattern, not two', () => {
+  const MIGRATION = join(
+    __dirname,
+    '../migrations/1791100000000-PasswordHashShape.ts',
+  );
+
+  // 🔴 The failure this prevents is silent and one-directional: someone
+  // "tidies" the migration by pasting the regex in as a literal, the
+  // pattern here is later tightened, and the database quietly stops
+  // refusing what the code still believes it refuses. The constraint is
+  // worth having precisely when the code was bypassed, so a constraint
+  // that has drifted is worse than none — it reads as cover.
+  it('the migration interpolates the constant rather than copying it', () => {
+    const source = readFileSync(MIGRATION, 'utf8');
+    expect(source).toContain("import { STORED_SHAPE } from '../auth/password'");
+    expect(source).toContain("CHECK (password_hash ~ '${STORED_SHAPE}')");
+    // And no second copy of the pattern hiding anywhere in the file.
+    expect(source).not.toContain('^scrypt');
+  });
+
+  it('every hash this module makes satisfies the shape', async () => {
+    for (const params of [
+      SCRYPT,
+      {
+        ...SCRYPT,
+        N: MIN.N,
+        r: MIN.r,
+        p: MIN.p,
+        saltLen: MIN.saltLen,
+        keyLen: MIN.keyLen,
+      },
+    ]) {
+      expect(looksLikeStoredHash(await hashPassword('x', params))).toBe(true);
+    }
+  });
+
+  it.each([
+    ['empty', ''],
+    ['the format name alone', 'scrypt'],
+    ['too few fields', 'scrypt$131072$8$1'],
+    ['N of zero', 'scrypt$0$8$1$AAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAA=='],
+    [
+      'a leading zero in N',
+      'scrypt$016384$8$1$AAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAA==',
+    ],
+    [
+      'a salt below MIN.saltLen',
+      'scrypt$131072$8$1$AA==$AAAAAAAAAAAAAAAAAAAAAA==',
+    ],
+    ['a key below MIN.keyLen', 'scrypt$131072$8$1$AAAAAAAAAAA=$AA=='],
+    [
+      'another algorithm',
+      'bcrypt$131072$8$1$AAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAA==',
+    ],
+    [
+      'a seventh field',
+      'scrypt$131072$8$1$AAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAA==$x',
+    ],
+    [
+      'leading whitespace',
+      ' scrypt$131072$8$1$AAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAA==',
+    ],
+    [
+      'non-base64 in the salt',
+      'scrypt$131072$8$1$AAAA!AAAAAA=$AAAAAAAAAAAAAAAAAAAAAA==',
+    ],
+  ])('%s is refused', (_what, value) => {
+    expect(looksLikeStoredHash(value)).toBe(false);
+  });
+
+  // 🔴 A newline is its own case because POSIX regex engines differ on
+  // what `$` means. Measured in this project's Postgres: it is end of
+  // STRING, so a trailing newline is refused there too — but JavaScript's
+  // `$` without the `m` flag behaves the same way only because the flag
+  // is absent, and someone adding `m` later would open exactly this.
+  it('a trailing newline does not slip past the anchor', () => {
+    const real =
+      'scrypt$131072$8$1$1p9NrNR97KnftFn2mmawjA==$f/Kq2ubnqjqgwRQ//zrtX5sQsSxiCXJSCuWRWZwTHlg=';
+    expect(looksLikeStoredHash(real)).toBe(true);
+    expect(looksLikeStoredHash(`${real}\n`)).toBe(false);
+    expect(looksLikeStoredHash(`${real}\nDROP TABLE users`)).toBe(false);
   });
 });

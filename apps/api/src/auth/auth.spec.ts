@@ -3,7 +3,7 @@ import { DEFAULT_LIMIT, LOGIN_LIMIT, bucketOf } from '../throttle';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
 import { AuthService } from './auth.service';
-import { hashPassword } from './password';
+import { hashPassword, looksLikeStoredHash } from './password';
 import { expiryFrom, tokenHash } from './session';
 
 const USER_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -211,5 +211,77 @@ describe('🔴 the login route is counted in its own bucket', () => {
   // The number still has to be the small one.
   it('carries a limit far below the ordinary one', () => {
     expect(LOGIN_LIMIT.limit).toBeLessThan(DEFAULT_LIMIT.limit / 4);
+  });
+});
+
+// CAMP-223 — a stored hash that is not a hash must cost what a miss costs.
+//
+// 🔴 FOUND BY REVIEW, NOT BY A TEST, and the reason no test found it is
+// the reason this one is written the way it is: `??` catches `null` and
+// `undefined`, so every test that writes a hash writes a real one, and
+// the gap only exists for a value no test produces. Review measured it
+// at 0.1 ms against 173 ms — a 1 700× answer to "does this account
+// exist", readable from any network.
+//
+// The database now refuses to store such a row at all
+// (`users_password_hash_shape`), so this exercises the second refusal:
+// the one in `signIn`, which has to hold when the database was bypassed.
+describe('a stored value that is not a hash costs what a miss costs', () => {
+  /** Milliseconds for one signIn, measured not guessed. */
+  async function took(user: User | null): Promise<number> {
+    const service = new AuthService(usersOf(user), sessionsOf(null));
+    const started = process.hrtime.bigint();
+    await service.signIn('a@example.com', 'whatever the password is');
+    return Number(process.hrtime.bigint() - started) / 1e6;
+  }
+
+  const broken = (hash: string) =>
+    ({ id: USER_ID, email: 'a@example.com', passwordHash: hash }) as User;
+
+  // Each of these reached `verifyPassword` directly before the fix, and
+  // each is refused there while parsing — which is to say, instantly.
+  const SHAPES: [string, string][] = [
+    ['empty', ''],
+    ['the format name alone', 'scrypt'],
+    ['too few fields', 'scrypt$131072$8$1'],
+    [
+      'a salt too short to be ours',
+      'scrypt$131072$8$1$AA==$AAAAAAAAAAAAAAAAAAAAAA==',
+    ],
+    ['a key too short to be ours', 'scrypt$131072$8$1$AAAAAAAAAAA=$AA=='],
+    [
+      'another algorithm',
+      'bcrypt$131072$8$1$AAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAA==',
+    ],
+  ];
+
+  // 🔴 The whole run is one measurement, not one per case: scrypt costs
+  // ~200 ms and six of those plus a baseline is most of a minute.
+  jest.setTimeout(60_000);
+
+  it.each(SHAPES)(
+    '%s is not faster than an unknown address',
+    async (_what, hash) => {
+      // The baseline is measured in the same process, on the same run, so
+      // a slow machine moves both numbers together. A ratio against a
+      // hard-coded millisecond count would be a test of the runner.
+      const miss = await took(null);
+      const withBrokenRow = await took(broken(hash));
+
+      // 🔴 The card's own bar: "no more than twice". Stated as a ratio
+      // because the absolute number is the machine's, not the code's.
+      expect(withBrokenRow).toBeGreaterThan(miss / 2);
+      expect(withBrokenRow).toBeLessThan(miss * 2);
+    },
+  );
+
+  it('…and the old `??` really was the gap, not a theory', () => {
+    // Pinned as an assertion rather than a sentence in a comment: `??`
+    // passes an empty string through, and that single fact is the whole
+    // defect. If JavaScript ever changed this, the comment above would
+    // quietly become wrong.
+    const empty = '';
+    expect(empty ?? 'decoy').toBe('');
+    expect(looksLikeStoredHash(empty)).toBe(false);
   });
 });

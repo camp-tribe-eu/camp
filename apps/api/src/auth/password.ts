@@ -68,6 +68,48 @@ export const MAX = Object.freeze({ N: 2 ** 20, r: 32, p: 16 });
 export const FORMAT = 'scrypt';
 
 /**
+ * The shape of a stored hash, as one string both this module and the
+ * database enforce.
+ *
+ * 🔴 WHY A SHAPE CHECK EXISTS AT ALL (CAMP-223). `signIn` substitutes a
+ * decoy hash with `??`, which catches `null` and `undefined` — and not
+ * `''`. A row with `password_hash = ''` therefore skipped the decoy and
+ * went straight into `verifyPassword('')`, which refuses while parsing:
+ * **0.1 ms against 173 ms**, measured by review. A 1 700× difference is
+ * not a statistical hint, it is a plain answer to "does this account
+ * exist", readable from any network.
+ *
+ * No such row exists today. It is closed now because closing it later
+ * means noticing it first, and nothing would.
+ *
+ * 🔴 THE PARAMETERS ARE NOT BOUNDED HERE, deliberately. `verifyPassword`
+ * documents why `N` must have no floor: a hash stored under weaker
+ * parameters has to keep verifying, or raising the work factor signs out
+ * exactly the users the design protects. This checks structure, not cost.
+ * The cost bound that does matter — an upper bound on `p` — lives in
+ * `verifyPassword`, where it can refuse without rejecting old rows.
+ *
+ * Salt and key lengths are floored at `MIN.saltLen` (8 bytes → 11 base64
+ * characters plus padding) and `MIN.keyLen` (16 → 22), so a hash of a
+ * believable shape but no strength cannot be stored either.
+ */
+export const STORED_SHAPE =
+  '^scrypt\\$[1-9][0-9]*\\$[1-9][0-9]*\\$[1-9][0-9]*\\$' +
+  '[A-Za-z0-9+/]{11,}={0,2}\\$[A-Za-z0-9+/]{22,}={0,2}$';
+
+/**
+ * Does this look like something we stored?
+ *
+ * Belt and braces with the database CHECK of the same name: the two must
+ * refuse independently, because the whole value of either is that it
+ * holds when the other was bypassed — by a direct `psql`, by a migration
+ * run out of order, or by a future code path that forgets.
+ */
+export function looksLikeStoredHash(value: unknown): value is string {
+  return typeof value === 'string' && new RegExp(STORED_SHAPE).test(value);
+}
+
+/**
  * 🔴 THE PARAMETERS ARE STORED WITH THE HASH, not read from the constant
  * above at verify time. A hash made last year must keep verifying after
  * the cost is raised, or raising it logs every existing user out — which
