@@ -232,16 +232,72 @@
     --btn: #404b62;
     --btn-hover: #2f384a;
     --btn-ink: #ffffff;
+    /* The second button. Until CAMP-217 only the solid one existed, which
+     * meant the system had no way to offer a secondary action at all. */
+    --btn-soft: #f8f8f9;
+
+    /* 🔴 State labels, and WHICH STATE EACH ONE IS — the card refused to
+     * let these be ported as five anonymous colours.
+     *
+     * The mockup's "Мітки стану" row answers it, though only one of the
+     * five is written there as a var(): the other four are inline hex on
+     * the same six chips. Matching them up:
+     *
+     *   --lb-base       "Free"               yellow, BLACK text
+     *   --lb-primary    "Verified"           white text
+     *   --lb-secondary  "New"                white text
+     *   --lb-sale       "Closing"            white text
+     *   --lb-out        "Closed for season"  --ink-2 text
+     *
+     * The sixth chip, "Available", uses --accent-surface and needs no
+     * token of its own.
+     *
+     * 🔴 "sale" and "out" are retail words for states that are not retail
+     * — a campsite closing for the winter is not a clearance. The names
+     * are kept because the design system owns them; the meanings are
+     * written here so nobody has to guess again.
+     *
+     * Text contrast measured before porting, all six combinations at or
+     * above 4.5:1 for 11px bold: 16.81, 4.60, 4.64, 4.55, 6.16 light and
+     * 5.05 dark. */
+    --lb-base: #ffe81b;
+    --lb-primary: #3a8266;
+    --lb-secondary: #ad6200;
+    --lb-sale: #d5412a;
+    --lb-out: #f2f2f2;
 
     --r: 16px;
     --r-sm: 12px;
     --r-xs: 8px;
     --r-xxs: 6px;
 
+    /* 🔴 Four speeds, not one. CAMP-217: only --t-short came across, so
+     * everything on the site moved at the same rate — a button's answer
+     * to a press and a panel sliding open are not the same event, and
+     * giving them one duration makes one of them wrong. The mockup
+     * separates them: a press answers in --t-micro, an ordinary change
+     * takes --t-short, a block appearing takes --t-base, and a long
+     * movement takes --t-long. */
+    --t-micro: 0.1s;
     --t-short: 0.2s;
+    --t-base: 0.4s;
+    --t-long: 0.7s;
     --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
     --shadow:
       0 1px 2px rgba(52, 61, 80, 0.05), 0 8px 24px -16px rgba(52, 61, 80, 0.35);
+    /* The deeper shadow, for things that sit ON something: a popup, a
+     * menu, a map card. --shadow is for a block in the page flow. */
+    --shadow-pop:
+      0 2px 6px rgba(52, 61, 80, 0.08), 0 18px 44px -20px rgba(52, 61, 80, 0.5);
+    /* A chip reversed out of the background — the mockups use it for the
+     * screen label on a design sheet. */
+    --rev: #6e7889;
+    /* The drawn route line. 🔴 Not in use yet: route-map.tsx draws
+     * #2F6FDB today, which is nothing in this system. Carried as its own
+     * divergence rather than changed here — a line colour has to be
+     * measured against the basemap it crosses, and that is not a token
+     * question. */
+    --route: #c83d28;
 
     --font-sans-stack:
       'Archivo', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
@@ -267,8 +323,15 @@
       --amber: #ffd36b;
       --btn: #4c5a76;
       --btn-hover: #5c6c8c;
+      /* Only these two differ by theme; the label hues are the same in both. */
+      --btn-soft: #2a3243;
+      --lb-out: #2a3243;
       --shadow:
         0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -16px rgba(0, 0, 0, 0.8);
+      --shadow-pop:
+        0 2px 6px rgba(0, 0, 0, 0.5), 0 18px 44px -20px rgba(0, 0, 0, 0.9);
+      --rev: #8894a6;
+      --route: #e4715c;
     }
   }
 
@@ -289,7 +352,14 @@
     --amber: #ffd36b;
     --btn: #4c5a76;
     --btn-hover: #5c6c8c;
+    /* Only these two differ by theme; the label hues are the same in both. */
+    --btn-soft: #2a3243;
+    --lb-out: #2a3243;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -16px rgba(0, 0, 0, 0.8);
+    --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.5),
+      0 18px 44px -20px rgba(0, 0, 0, 0.9);
+    --rev: #8894a6;
+    --route: #e4715c;
   }
 
   body {
