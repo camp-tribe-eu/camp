@@ -147,6 +147,20 @@ async function settle(page: Page) {
 
 
 /**
+ * The size of a PNG, from its header. CAMP-197.
+ *
+ * 🔴 Needed because the number that matters is a RATIO, and the only
+ * exact figure Playwright hands back is a pixel COUNT. Dividing one by
+ * the other needs the baseline's own dimensions, so they are read from
+ * the file that the comparison was made against — not from the viewport,
+ * which is the height of the window and not of a full-page shot.
+ */
+function pngSize(file: string): { width: number; height: number } {
+  const head = readFileSync(file).subarray(16, 24);
+  return { width: head.readUInt32BE(0), height: head.readUInt32BE(4) };
+}
+
+/**
  * How much of the tolerance this screenshot actually spent. CAMP-197.
  *
  * 🔴 WHY THIS EXISTS. `maxDiffPixelRatio` does not forgive noise — it
@@ -157,34 +171,41 @@ async function settle(page: Page) {
  * eight baselines, the eighth spent ~2033 pixels of a 2225 budget, and
  * nothing said a word until CAMP-186 added one footer link.
  *
- * 🔴 The number comes out of Playwright's OWN comparator, not a
- * re-implementation of it. Comparing at zero tolerance always fails on
- * antialiasing, and the failure message carries the exact ratio — so the
- * probe asks the thing that decides, rather than a second opinion that
- * could disagree with it.
+ * 🔴 IT READS THE PIXEL COUNT, NOT THE RATIO PLAYWRIGHT PRINTS, and the
+ * first version of this got that wrong. `coreBundle.js` computes the
+ * displayed ratio as `Math.ceil(count / area * 100) / 100` — rounded UP
+ * to the nearest hundredth. Against a budget of 0.002 that is useless:
+ * every non-zero difference, however small, prints as "0.01". The first
+ * run duly reported two files at "500% of the budget", which meant only
+ * "not byte-identical" and nothing more.
  *
- * Returns null when the comparison is pixel-perfect, and when the
- * message cannot be parsed. 🔴 Those two are reported differently by the
- * caller: "spent nothing" and "could not tell" must never look alike.
+ * The count beside it is exact, so the ratio is computed here from the
+ * baseline's own dimensions.
+ *
+ * Returns null when the images are identical, and a distinct shape when
+ * the message cannot be read. 🔴 "Spent nothing" and "could not tell"
+ * must never look alike.
  */
 async function budgetSpent(
   page: Page,
   name: string,
+  baseline: string,
   options: Record<string, unknown>,
-): Promise<{ ratio: number } | { unreadable: string } | null> {
+): Promise<{ pixels: number; ratio: number } | { unreadable: string } | null> {
   try {
     await expect(page).toHaveScreenshot(name, {
       ...options,
-      maxDiffPixelRatio: 0,
       maxDiffPixels: 0,
       timeout: 15_000,
     });
     return null; // identical
   } catch (e) {
     const text = e instanceof Error ? e.message : String(e);
-    const m = text.match(/ratio ([\d.]+) of all image pixels/);
+    const m = text.match(/(\d+) pixels \(ratio/);
     if (!m) return { unreadable: text.split('\n')[0].slice(0, 160) };
-    return { ratio: Number(m[1]) };
+    const pixels = Number(m[1]);
+    const { width, height } = pngSize(baseline);
+    return { pixels, ratio: pixels / (width * height) };
   }
 }
 
@@ -196,7 +217,7 @@ for (const viewport of VIEWPORTS) {
     test.use({ viewport: { width: viewport.width, height: viewport.height } });
 
     for (const subject of PAGES) {
-      test(`${subject.name} looks the way it did`, async ({ page }) => {
+      test(`${subject.name} looks the way it did`, async ({ page }, testInfo) => {
         if (subject.name === 'map') await pinFireLayer(page);
         await page.goto(subject.path);
         await settle(page);
@@ -221,18 +242,23 @@ for (const viewport of VIEWPORTS) {
 
         // CAMP-197, measuring step. Reports only — the threshold that
         // turns this red is chosen from these numbers, not before them.
-        const spent = await budgetSpent(page, shot, {
-          fullPage: true,
-          animations: 'disabled',
-          caret: 'hide',
-          mask: await masks(page),
-        });
+        const spent = await budgetSpent(
+          page,
+          shot,
+          testInfo.snapshotPath(shot),
+          {
+            fullPage: true,
+            animations: 'disabled',
+            caret: 'hide',
+            mask: await masks(page),
+          },
+        );
         const says =
           spent === null
             ? 'identical to the baseline'
             : 'unreadable' in spent
               ? `COULD NOT MEASURE — ${spent.unreadable}`
-              : `${(spent.ratio * 100).toFixed(4)}% of the page, ` +
+              : `${spent.pixels} px, ${(spent.ratio * 100).toFixed(4)}% of the page, ` +
                 `${((spent.ratio / BUDGET) * 100).toFixed(1)}% of the budget`;
         console.log(`visual-budget\t${shot}\t${says}`);
       });
