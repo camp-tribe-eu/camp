@@ -108,6 +108,27 @@ const FAMILIES = [
     root: `${BUILD}/routes`,
     keep: (rel) => rel.split(path.sep).length === 1,
   },
+  // 🔴 CAMP-210. Twenty-six country pages and five topic pages, written
+  // the same afternoon they are being watched — the lesson of the
+  // paragraph above, where a family was wired up only after somebody
+  // noticed it.
+  //
+  // These are the pages most at risk in the whole site: every one of
+  // them is the same heading, the same two sentences and a list, and the
+  // ONLY thing that makes them different pages is the list. If the lists
+  // ever shrink — a facet with four guides on it — the wrapper becomes
+  // most of the page and these become twenty-six copies. That is the
+  // shape this guard exists to refuse, and I would rather it tells me
+  // than that I assert they are fine.
+  {
+    name: 'guide catalogue facets',
+    root: `${BUILD}/guides`,
+    // The facet pages only: the articles under /guides/<slug> are a
+    // different shape, and the hub is one page with nothing to pair.
+    keep: (rel) =>
+      rel.split(path.sep).length === 2 &&
+      (rel.startsWith(`country${path.sep}`) || rel.startsWith(`topic${path.sep}`)),
+  },
 ];
 
 /** Deterministic sample: the same pages every run, so a rise is a change. */
