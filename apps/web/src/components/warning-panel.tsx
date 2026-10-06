@@ -69,11 +69,11 @@ export function WarningPanel({
                   {/* The source's own words for the hazard, untranslated. */}
                   {w.event ?? w.headline ?? w.type}
                 </p>
-                {/* 🔴 The severity, as a WORD. Only 18.1% of live warnings
-                    name their level in the text above, so without this a
-                    red warning and a yellow one read identically — and a
-                    colour alone would fail WCAG 1.4.1 for the readers who
-                    cannot use it. The word is the service's own. */}
+                {/* 🔴 The severity, as a WORD. Only 32.6% of published
+                    warnings name their level in the text above, so without
+                    this a red warning and a yellow one read identically —
+                    and a colour alone would fail WCAG 1.4.1 for the readers
+                    who cannot use it. The word is the service's own. */}
                 {levelWord(w) && (
                   <p data-testid="warning-level" className="mt-1 text-sm text-ink-2">
                     Level {w.level} of 4, which {w.sender ?? 'the issuing service'}{' '}
@@ -116,7 +116,16 @@ export function WarningPanel({
       {/* ---- the four things the licence requires, on every state ---- */}
       <p className="mt-3 text-sm leading-6 text-ink-2">
         {/* Clauses 5.2 and 5.3: who issued what is above. */}
-        <span data-testid="warnings-credit">Source: {creditLine(state)}</span>
+        {/* 🔴 The NAME is the element, not "Source: " plus the name, and
+            review is why. The credit test read the whole panel's text, and
+            the severity line below each warning prints the service's name
+            too ("Level 2 of 4, which DHMZ … calls yellow"). So deleting
+            the credit entirely left all twenty tests green: a line added
+            later, for a different reason, had quietly satisfied a guard
+            that mutation had proved three commits earlier. A guard stays
+            proved only until something else prints the same string. */}
+        Source:{' '}
+        <span data-testid="warnings-credit">{creditLine(state)}</span>
         {', via '}
         {/* Clause 5.5: the link itself, not a brand name that happens to
             be a link — the clause names the URL. */}

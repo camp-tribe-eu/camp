@@ -187,7 +187,19 @@ export function warningState(
   const fetchedAt = feed?.meta?.fetchedAt ?? null;
   const ageMinutes = ageInMinutes(fetchedAt, now);
 
-  if (!feed || !Array.isArray(feed.warnings) || fetchedAt === null || ageMinutes === null) {
+  // 🔴 A `fetchedAt` in the FUTURE is not a fresh read, it is a clock we
+  // cannot reason about — and it used to fall through to the stale
+  // branch, which then had no age to print and said "read some time ago".
+  // Review found that phrase was neither measured by any test nor
+  // declared anywhere. A read we cannot place in time is a read that did
+  // not arrive, and this says so.
+  if (
+    !feed ||
+    !Array.isArray(feed.warnings) ||
+    fetchedAt === null ||
+    ageMinutes === null ||
+    ageMinutes < 0
+  ) {
     return { kind: 'no-fresh-data', reason: 'nothing-arrived', fetchedAt, ageMinutes };
   }
   if (!isFresh(fetchedAt, now)) {
@@ -225,9 +237,9 @@ export function creditLine(state: WarningState): string {
  *
  * 🔴 `sent`, NEVER `onset`. CAP's `onset` is when the hazard is expected
  * to begin; `sent` is when the service issued the warning, and the clause
- * asks for the second. Measured across all 27 feeds on 06.10.2026, 1 279
- * live blocks: both fields present on every one, DIFFERENT on every one,
- * median gap 1 001 minutes — sixteen and a half hours — and up to 4.2
+ * asks for the second. Measured across all 27 feeds on 06.10.2026, on the
+ * 610 published rows: both fields present on every one, DIFFERENT on
+ * every one, median gap 1 028 minutes — seventeen hours — and up to 4.2
  * days. Printing `onset` under the words "issued at" would therefore be
  * wrong on every warning we have ever served, by most of a day.
  */
@@ -261,7 +273,7 @@ export function noFreshDataSentence(
   switch (s.reason) {
     case 'stale':
       return (
-        `The last official warnings we hold were read ${age ?? 'some time'} ago, ` +
+        `The last official warnings we hold were read ${age} ago, ` +
         `past the ${FRESH_FOR_MINUTES} minutes this feed may be redistributed within. ` +
         `This is not a statement that conditions are calm.`
       );
@@ -305,9 +317,9 @@ export const WARNING_WORDS = (w: Warning): readonly string[] =>
  * feeds, and normalising it would be us editing a warning.
  *
  * It is shown because without it a reader cannot tell a red warning from
- * a yellow one: only 18.1% of live blocks (232 of 1 279, measured
- * 06.10.2026) name their level in the event text, and Spain alone
- * accounts for 672 that do not.
+ * a yellow one: only 32.6% of published rows (199 of 610, measured
+ * 06.10.2026 after language de-duplication) name their level in the event
+ * text, so 411 of them do not.
  */
 export function levelWord(w: Warning): string | null {
   const label = w.levelLabel;

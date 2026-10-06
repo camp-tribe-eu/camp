@@ -303,12 +303,21 @@ export function warningsFrom(payload, country, now) {
         // built on it could satisfy the clause only by printing a
         // different time under the words "issued at".
         //
-        // Measured across all 27 feeds, 06.10.2026, 1 279 surviving
-        // blocks: `sent` and `onset` are BOTH present on 1 279 of 1 279
-        // and DIFFER on 1 279 of 1 279. Median gap 1 001 minutes — 16.7
-        // hours — 1 170 of them over an hour apart, the widest 4.2 days,
-        // and 135 with `onset` BEFORE `sent`. There is no block on which
-        // the substitution would have gone unnoticed by being close.
+        // Measured across all 27 feeds, 06.10.2026, on the 610 rows this
+        // function actually PUBLISHES — after the language de-duplication
+        // below, because a denominator that counts one alert eight times
+        // is a denominator about translations: `sent` and `onset` are
+        // both present on 610 of 610 and DIFFER on 610 of 610. Median gap
+        // 1 028 minutes — 17.1 hours — 561 of them over an hour apart,
+        // the widest 4.2 days, and 53 with `onset` BEFORE `sent`. There
+        // is no row on which the substitution would have gone unnoticed
+        // by being close.
+        //
+        // 🔴 THE FIRST VERSION OF THIS BLOCK SAID 1 279, 1 001 AND 135.
+        // Those came from counting language blocks before the dedup two
+        // screens down — the same mistake this file's own header records
+        // against an earlier table. Review caught it; the direction was
+        // harmless and the number was still wrong.
         sent: alert.sent ?? null,
         onset: info.onset ?? null,
         effective: info.effective ?? null,
@@ -319,9 +328,11 @@ export function warningsFrom(payload, country, now) {
         //
         // Without it a reader cannot tell a red warning from a yellow
         // one unless the event text happens to say so, and measured
-        // across all 27 feeds on 06.10.2026 it usually does not: 232 of
-        // 1 279 live blocks name their level in `event` or `headline`,
-        // 18.1%. Spain alone contributes 672 that do not. On a panel
+        // across all 27 feeds on 06.10.2026 it usually does not: 199 of
+        // the 610 PUBLISHED rows name their level in `event` or
+        // `headline`, 32.6% — so 411 do not. (Counted before the language
+        // dedup this read 18.1%, which flattered the argument by counting
+        // the same alert once per language.) On a panel
         // whose whole purpose is "a high-sided van in a squall on a
         // pass", "Wind warning" and "Wind warning" reading the same at
         // level 2 and level 4 is the defect, not a nicety.
@@ -565,8 +576,14 @@ function selfTest() {
         },
       ],
     });
-    const w = warningsFrom(feed([full], { identifier: 'ID1' }), 'france', NOW).kept[0];
+    const w = warningsFrom(
+      feed([full], { identifier: 'ID1', sent: '2026-10-05T04:30:00Z' }),
+      'france',
+      NOW,
+    ).kept[0];
     const carried = {
+      sent: w?.sent,
+      levelLabel: w?.levelLabel,
       event: w?.event,
       headline: w?.headline,
       description: w?.description,
@@ -584,6 +601,12 @@ function selfTest() {
       circle: w?.areas?.[0]?.circles?.join('|'),
     };
     const want = {
+      // 🔴 CAMP-150. Both of these were added to the row and this
+      // enumerator did not learn them, so the swap guard below covered
+      // every field except the two newest — which is exactly when a
+      // guard is least useful.
+      sent: '2026-10-05T04:30:00Z',
+      levelLabel: 'orange; Severe',
       event: 'EVT',
       headline: 'HEAD',
       description: 'DESC',
@@ -780,7 +803,7 @@ function selfTest() {
       instruction: 'INSTRUCTION',
       // 🔴 CAMP-150: three times that are not interchangeable, and the
       // licence asks for the FIRST of them. On the live feeds `sent` and
-      // `onset` differ on 1 279 of 1 279 blocks, so this fixture keeps
+      // `onset` differ on 610 of 610 published rows, so this fixture keeps
       // them apart too: a row that read `onset` into `sent` would be
       // wrong here as it is wrong in production.
       sent: '2026-10-05T07:15:00Z',
@@ -833,6 +856,40 @@ function selfTest() {
       const seen = field === 'senderName' ? got?.sender : got?.[field];
       ok(`a missing ${field} reads null, never borrowed from a neighbour`, seen === null, JSON.stringify(seen));
     }
+    // 🔴 `sent` LIVES ON THE ALERT, so the loop above — which only
+    // removes `info` fields — could never reach it. Review mutated it to
+    // `alert.sent ?? info.onset ?? null`, the self-test stayed green, and
+    // on a live snapshot all 610 published rows then printed a borrowed
+    // `onset` under the word "Issued": the precise defect CAMP-150 was
+    // written against, reintroduced with the suite passing.
+    //
+    // So it gets its own case, with `onset` present and different, which
+    // is the only arrangement in which borrowing is visible.
+    const noSent = warningsFrom(
+      feed([block({ onset: '2026-10-05T18:00:00Z' })]),
+      'x',
+      NOW,
+    ).kept[0];
+    ok('a missing alert sent reads null, never borrowed from onset',
+      noSent?.sent === null, JSON.stringify(noSent?.sent));
+    ok('…while onset is still reported as itself',
+      noSent?.onset === '2026-10-05T18:00:00Z');
+
+    // 🔴 And the same for the level's word, whose only neighbour is the
+    // TYPE's word — the other half of the same `awareness(…)` shape.
+    const bareLevel = warningsFrom(
+      feed([block({ parameter: [
+        { valueName: 'awareness_level', value: '3' },
+        { valueName: 'awareness_type', value: '4; Fog' },
+      ] })]),
+      'x',
+      NOW,
+    ).kept[0];
+    ok('a level with no word reads null, never borrowed from the type',
+      bareLevel?.levelLabel === null, JSON.stringify(bareLevel?.levelLabel));
+    ok('…while the level itself is still read', bareLevel?.level === 3);
+    ok('…and the type keeps its own word', bareLevel?.type === 'Fog');
+
     // The alert-level sender is absent in its own case, since the loop
     // above only removes fields from the `info` block.
     const noAlertSender = warningsFrom(feed([block({ senderName: 'NAME' })]), 'x', NOW).kept[0];

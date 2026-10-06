@@ -39,8 +39,10 @@ export type Warning = {
    * `awareness_level` after the code, e.g. `yellow; Moderate`.
    *
    * 🔴 Kept because the level is otherwise invisible to a reader: only
-   * 232 of 1 279 live blocks name it in `event` or `headline` — 18.1%,
-   * measured across all 27 feeds on 06.10.2026. The casing is the
+   * 199 of the 610 published rows name it in `event` or `headline` —
+   * 32.6%, measured across all 27 feeds on 06.10.2026, counted after the
+   * language de-duplication so the denominator is rows a reader can
+   * actually meet. The casing is the
    * source's own and varies between feeds (`yellow` and `Yellow` both
    * occur); it is passed through rather than tidied, because tidying
    * somebody else's warning is editing it.

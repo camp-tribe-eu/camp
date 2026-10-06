@@ -8,9 +8,10 @@ import {
   warningState,
   type Warning,
   type WarningFeed,
+  type WarningState,
 } from '@/lib/warnings';
 import { renderComponent } from './render-component';
-import { visibleText } from './rendered-text';
+import { everythingSaid, visibleText } from './rendered-text';
 import {
   AGGREGATOR_CREDIT,
   DISCLAIMER_VERBATIM,
@@ -33,6 +34,9 @@ import {
 const NOW = new Date('2026-10-06T12:00:00Z');
 const fresh = (minutesAgo: number) =>
   new Date(NOW.getTime() - minutesAgo * 60_000).toISOString();
+/** A read stamped in the future: a clock we cannot reason about. */
+const ahead = (minutes: number) =>
+  new Date(NOW.getTime() + minutes * 60_000).toISOString();
 
 const warning = (over: Partial<Warning> = {}): Warning => ({
   id: 'alert-1|HR803',
@@ -67,6 +71,31 @@ const render = (state: Parameters<typeof WarningPanel>[0]['state']) =>
 const shown = (state: Parameters<typeof WarningPanel>[0]['state']) =>
   visibleText(render(state));
 
+/**
+ * 🔴 EVERYTHING the panel says, including what it says in a `title` or an
+ * `aria-label`. `rendered-text.ts` says in its own header that this is
+ * what the attribution side of a check needs, and `cems-panels.spec.ts`
+ * uses it for exactly this; the first version of this file imported only
+ * `visibleText`, so a sentence of ours parked in `title=` passed. The
+ * repository already knew.
+ */
+const everything = (state: Parameters<typeof WarningPanel>[0]['state']) =>
+  everythingSaid(render(state)).join(' ');
+
+/**
+ * 🔴 The credit ALONE, read from its own element.
+ *
+ * Reading the whole panel's text for the service's name was satisfied by
+ * the severity line, which prints the same name for a different reason —
+ * so the credit could be deleted outright with every test green.
+ */
+const creditShown = (state: Parameters<typeof WarningPanel>[0]['state']) => {
+  const m = render(state).match(
+    /data-testid="warnings-credit"[^>]*>([\s\S]*?)<\/span>/,
+  );
+  return m ? visibleText(m[1]) : '';
+};
+
 /** The three states a reader can be shown, so no test can forget one. */
 const EVERY_STATE = () => {
   const one = warning();
@@ -90,19 +119,27 @@ test.describe('the licence text and the panel cannot drift apart', () => {
 test.describe('the four things the licence requires are on the page', () => {
   test('clause 5.3 — one country names the service that issued it', () => {
     const w = warning();
-    const text = shown(warningState(feed(fresh(1), [w]), [w], NOW));
-    expect(text).toContain('DHMZ – Croatian Meteorological and Hydrological Service');
+    const credit = creditShown(warningState(feed(fresh(1), [w]), [w], NOW));
+    expect(credit).toContain('DHMZ – Croatian Meteorological and Hydrological Service');
     // 🔴 And NOT the aggregator, which is the credit for the other case.
     // Reaching for it when one country is on screen uses the clause that
     // does not apply.
-    expect(text).not.toContain(AGGREGATOR_CREDIT);
+    expect(credit).not.toContain(AGGREGATOR_CREDIT);
+  });
+
+  test('🔴 …and the credit is an element of its own, which can go missing', () => {
+    // The guard above used to read the whole panel. The severity line
+    // prints the service's name too, so an empty credit passed.
+    const w = warning();
+    expect(creditShown(warningState(feed(fresh(1), [w]), [w], NOW)).trim()).not.toBe('');
   });
 
   test('clause 5.2 — more than one country names EUMETNET – MeteoAlarm', () => {
     const hr = warning();
     const si = warning({ id: 'alert-2|SI', country: 'slovenia', sender: 'ARSO' });
-    const text = shown(warningState(feed(fresh(1), [hr, si]), [hr, si], NOW));
-    expect(text).toContain(AGGREGATOR_CREDIT);
+    expect(creditShown(warningState(feed(fresh(1), [hr, si]), [hr, si], NOW))).toContain(
+      AGGREGATOR_CREDIT,
+    );
   });
 
   test('…and one country with two services names both, not the aggregator', () => {
@@ -111,16 +148,19 @@ test.describe('the four things the licence requires are on the page', () => {
     // multi-country clause on a single country.
     const a = warning({ id: 'a', country: 'belgium', sender: 'RMI' });
     const b = warning({ id: 'b', country: 'belgium', sender: 'KMI' });
-    const text = shown(warningState(feed(fresh(1), [a, b]), [a, b], NOW));
-    expect(text).toContain('RMI');
-    expect(text).toContain('KMI');
-    expect(text).not.toContain(AGGREGATOR_CREDIT);
+    // 🔴 Read from the credit element, not the panel: both names appear
+    // in the severity lines as well, so the whole-panel read passed even
+    // when the credit named only the first of the two.
+    const credit = creditShown(warningState(feed(fresh(1), [a, b]), [a, b], NOW));
+    expect(credit).toContain('RMI');
+    expect(credit).toContain('KMI');
+    expect(credit).not.toContain(AGGREGATOR_CREDIT);
   });
 
   test('🔴 clause 5.4 — the time shown is the time of ISSUE, not the onset', () => {
     // Measured on all 27 feeds 06.10.2026: `sent` and `onset` are both
-    // present on 1 279 of 1 279 live blocks and differ on 1 279 of 1 279,
-    // median 16.7 hours apart. This fixture keeps them a day apart so the
+    // present on 610 of 610 published rows and differ on 610 of 610,
+    // median 17.1 hours apart. This fixture keeps them a day apart so the
     // substitution cannot pass by being close.
     const w = warning({ sent: '2026-10-05T18:30:00Z', onset: '2026-10-06T22:01:01Z' });
     const text = shown(warningState(feed(fresh(1), [w]), [w], NOW));
@@ -162,10 +202,10 @@ test.describe('the four things the licence requires are on the page', () => {
 
 test.describe('the severity is readable, and it is the service’s word', () => {
   test('🔴 a level 2 and a level 4 warning do not read the same', () => {
-    // Measured on all 27 feeds 06.10.2026: only 232 of 1 279 live blocks
-    // (18.1%) name their level in `event` or `headline`. Spain alone
-    // sends 672 that do not. So on four warnings in five, this line is
-    // the only thing between "yellow" and "red".
+    // Measured on all 27 feeds 06.10.2026: only 199 of the 610 published
+    // rows (32.6%) name their level in `event` or `headline`. So on two
+    // warnings in three, this line is the only thing between "yellow"
+    // and "red".
     const yellow = warning({ event: 'Wind warning', level: 2, levelLabel: 'yellow; Moderate' });
     const red = warning({ event: 'Wind warning', level: 4, levelLabel: 'red; Extreme' });
     const a = shown(warningState(feed(fresh(1), [yellow]), [yellow], NOW));
@@ -247,6 +287,28 @@ test.describe('a warning we may not attribute is withheld — and said to be', (
     expect(text).toContain('does not name the service that issued it');
   });
 
+  test('🔴 …and a MIXED set withholds the whole panel, not just the one', () => {
+    // Review's mutation: `showable.length < applicable.length` weakened to
+    // `showable.length === 0 && applicable.length > 0` passed every test,
+    // because both existing cases supplied exactly ONE warning and it was
+    // the unattributable one. With a set of two, the weakened rule drops
+    // the nameless warning in silence and draws an ordinary panel around
+    // the other — a live warning removed with nothing said.
+    const named = warning({ id: 'named' });
+    const nameless = warning({ id: 'nameless', sender: null });
+    const state = warningState(
+      feed(fresh(1), [named, nameless]),
+      [named, nameless],
+      NOW,
+    );
+    expect(state.kind).toBe('no-fresh-data');
+    const text = shown(state);
+    expect(text).toContain('does not name the service that issued it');
+    // And the one we COULD show is not shown either, because showing it
+    // under a panel that has dropped another reads as completeness.
+    expect(text).not.toContain('Issued');
+  });
+
   test('…the same holds for a warning with no time of issue', () => {
     // Without `sent` there is no clause 5.4 element to print, so the
     // warning cannot be redistributed either.
@@ -256,42 +318,95 @@ test.describe('a warning we may not attribute is withheld — and said to be', (
 });
 
 test.describe('nothing on this panel is a phrase we wrote about the weather', () => {
-  test('🔴 every word is either the source’s or declared chrome', () => {
-    // Sentinels nothing could print by accident.
-    const w = warning({
-      event: 'ZZEVENTZZ',
+  // 🔴 EVERY STATE, AND EVERYTHING SAID. Two things review proved about
+  // the first version of this guard:
+  //
+  //   it rendered only two of the six states, and the one it skipped —
+  //   `no-fresh-data` — is the ONLY state whose text is entirely our own
+  //   prose. A sentence reading "Conditions on mountain passes are
+  //   dangerous tonight" inserted there passed all twenty tests.
+  //
+  //   it read `visibleText`, so the same sentence parked in a `title=`
+  //   attribute also passed. `rendered-text.ts` exports `everythingSaid`
+  //   for exactly this and `cems-panels.spec.ts` already used it.
+  //
+  // A guard that covers a third of the thing it guards is the kind that
+  // reads green for the state nobody looked at.
+  const SENTINELS = {
+    event: 'ZZEVENTZZ',
+    area: 'ZZAREAZZ',
+    sender: 'ZZSENDERZZ',
+    level: 'ZZLEVELZZ',
+    issued: '2026-10-05 18:30 UTC',
+    read: '2026-10-06 11:59 UTC',
+    ages: ['1 minute', '2 minutes', '11 minutes', '2 hours', '0 minutes'],
+  };
+
+  const sentinelWarning = (over: Partial<Warning> = {}) =>
+    warning({
+      event: SENTINELS.event,
+      headline: null,
       type: 'ZZTYPEZZ',
-      levelLabel: 'ZZLEVELZZ; ZZSEVERITYZZ',
-      areas: [{ name: 'ZZAREAZZ', codes: [], polygons: [], circles: [] }],
-      sender: 'ZZSENDERZZ',
+      levelLabel: `${SENTINELS.level}; ZZSEVERITYZZ`,
+      areas: [{ name: SENTINELS.area, codes: [], polygons: [], circles: [] }],
+      sender: SENTINELS.sender,
+      ...over,
     });
-    let left = shown(warningState(feed(fresh(1), [w]), [w], NOW));
+
+  const leftover = (html: string) => {
+    let left = html;
     for (const allowed of [
       ...PANEL_CHROME,
-      'ZZEVENTZZ',
-      'ZZAREAZZ',
-      'ZZSENDERZZ',
-      'ZZLEVELZZ',
-      '2026-10-05 18:30 UTC',
+      SENTINELS.event,
+      SENTINELS.area,
+      SENTINELS.sender,
+      SENTINELS.level,
+      SENTINELS.issued,
+      SENTINELS.read,
+      ...SENTINELS.ages,
     ]) {
       left = left.split(allowed).join(' ');
     }
     // Punctuation and spacing are what a layout leaves behind; words are
     // what somebody decided to say.
-    const words = left.match(/[A-Za-z]{2,}/g) ?? [];
-    expect(
-      words,
-      'the panel printed words that are neither the source’s nor declared in ' +
-        'PANEL_CHROME — if this is a sentence we are allowed to publish, add it ' +
-        'there, which is the moment to ask whether we are',
-    ).toEqual([]);
-  });
+    return left.match(/[A-Za-z]{2,}/g) ?? [];
+  };
 
-  test('…and the same holds for the state with no warning in it', () => {
-    let left = shown(warningState(feed(fresh(1), []), [], NOW));
-    for (const allowed of [...PANEL_CHROME, '2026-10-06 11:59 UTC']) {
-      left = left.split(allowed).join(' ');
-    }
-    expect(left.match(/[A-Za-z]{2,}/g) ?? []).toEqual([]);
+  const WHY =
+    'the panel said words that are neither the source’s nor declared in ' +
+    'PANEL_CHROME — if this is a sentence we are allowed to publish, add it ' +
+    'there, which is the moment to ask whether we are';
+
+  const one = sentinelWarning();
+  const unattributable = sentinelWarning({ sender: null });
+
+  const EVERY: Record<string, WarningState> = {
+    warnings: warningState(feed(fresh(1), [one]), [one], NOW),
+    'two countries': (() => {
+      const b = sentinelWarning({ id: 'b', country: 'slovenia' });
+      return warningState(feed(fresh(1), [one, b]), [one, b], NOW);
+    })(),
+    clear: warningState(feed(fresh(1), []), [], NOW),
+    stale: warningState(feed(fresh(FRESH_FOR_MINUTES + 1), []), [], NOW),
+    'nothing arrived': warningState(null, [], NOW),
+    'clock ahead': warningState(feed(ahead(5), []), [], NOW),
+    unattributable: warningState(
+      feed(fresh(1), [unattributable]),
+      [unattributable],
+      NOW,
+    ),
+  };
+
+  for (const [kind, state] of Object.entries(EVERY)) {
+    test(`🔴 ${kind}: every word is either the source’s or declared chrome`, () => {
+      expect(leftover(everything(state)), `${kind}: ${WHY}`).toEqual([]);
+    });
+  }
+
+  test('🔴 …and the reading covers attributes, not only visible text', () => {
+    // The control: this is what review inserted to prove the old guard
+    // was blind. `everythingSaid` must see a `title` the same way.
+    const html = '<section title="Conditions here are dangerous tonight.">x</section>';
+    expect(everythingSaid(html).join(' ')).toContain('dangerous tonight');
   });
 });
