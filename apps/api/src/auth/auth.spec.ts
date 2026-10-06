@@ -3,7 +3,7 @@ import { DEFAULT_LIMIT, LOGIN_LIMIT, bucketOf } from '../throttle';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
 import { AuthService } from './auth.service';
-import { hashPassword } from './password';
+import { hashPassword, looksLikeStoredHash } from './password';
 import { expiryFrom, tokenHash } from './session';
 
 const USER_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -211,5 +211,127 @@ describe('🔴 the login route is counted in its own bucket', () => {
   // The number still has to be the small one.
   it('carries a limit far below the ordinary one', () => {
     expect(LOGIN_LIMIT.limit).toBeLessThan(DEFAULT_LIMIT.limit / 4);
+  });
+});
+
+// CAMP-223 — a stored hash that is not a hash must cost what a miss costs.
+//
+// 🔴 FOUND BY REVIEW, NOT BY A TEST, and the reason no test found it is
+// the reason this one is written the way it is: `??` catches `null` and
+// `undefined`, so every test that writes a hash writes a real one, and
+// the gap only exists for a value no test produces. Review measured it
+// at 0.1 ms against 173 ms — a 1 700× answer to "does this account
+// exist", readable from any network.
+//
+// The database now refuses to store such a row at all
+// (`users_password_hash_shape`), so this exercises the second refusal:
+// the one in `signIn`, which has to hold when the database was bypassed.
+describe('a stored value that is not a hash costs what a miss costs', () => {
+  /** Milliseconds for one signIn, measured not guessed. */
+  async function took(user: User | null): Promise<number> {
+    const service = new AuthService(usersOf(user), sessionsOf(null));
+    const started = process.hrtime.bigint();
+    await service.signIn('a@example.com', 'whatever the password is');
+    return Number(process.hrtime.bigint() - started) / 1e6;
+  }
+
+  const broken = (hash: string) =>
+    ({ id: USER_ID, email: 'a@example.com', passwordHash: hash }) as User;
+
+  // Each of these reached `verifyPassword` directly before the fix, and
+  // each is refused there while parsing — which is to say, instantly.
+  const b64 = (n: number) => Buffer.alloc(n, 7).toString('base64');
+
+  const SHAPES: [string, string][] = [
+    // 🔴 THE SECOND ROUND, AND IT IS THE SAME DEFECT ONE DOOR ALONG.
+    //
+    // Every case below the divider is shape-INVALID, so all six only ever
+    // exercised the decoy branch. Review asked the question I had not:
+    // what passes the shape and STILL refuses instantly? Measured here:
+    //
+    //   honest hash                      202.7 ms
+    //   scrypt$1$1$1$…    (N not 2^k)      0.1 ms    ← 2000×
+    //   N = 2^30          (over Node's)    0.3 ms
+    //   N = 2^20, r = 32  (over maxmem)    0.0 ms
+    //   N = 2^20, r = 1   (N < 2^16r)      0.0 ms
+    //   p = 16 = MAX.p                  3495.3 ms    ← 17× the other way
+    //
+    // The shape said yes to all five. Checking that a hash LOOKS like
+    // ours is not the same as checking that scrypt can evaluate it, and
+    // the gap between those two is exactly the oracle CAMP-223 is about.
+    ['N that is not a power of two', `scrypt$1$1$1$${b64(16)}$${b64(32)}`],
+    [
+      'N past what Node will accept',
+      `scrypt$1073741824$8$1$${b64(16)}$${b64(32)}`,
+    ],
+    [
+      'N and r past the memory ceiling',
+      `scrypt$1048576$32$1$${b64(16)}$${b64(32)}`,
+    ],
+    ['N past the N < 2^16r rule', `scrypt$1048576$1$1$${b64(16)}$${b64(32)}`],
+    // ── shapes that never looked like ours in the first place ──
+    ['empty', ''],
+    ['the format name alone', 'scrypt'],
+    ['too few fields', 'scrypt$131072$8$1'],
+    [
+      'a salt too short to be ours',
+      'scrypt$131072$8$1$AA==$AAAAAAAAAAAAAAAAAAAAAA==',
+    ],
+    ['a key too short to be ours', 'scrypt$131072$8$1$AAAAAAAAAAA=$AA=='],
+    [
+      'another algorithm',
+      'bcrypt$131072$8$1$AAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAA==',
+    ],
+  ];
+
+  // 🔴 The whole run is one measurement, not one per case: scrypt costs
+  // ~200 ms and six of those plus a baseline is most of a minute.
+  jest.setTimeout(60_000);
+
+  it.each(SHAPES)(
+    '%s is not faster than an unknown address',
+    async (_what, hash) => {
+      // The baseline is measured in the same process, on the same run, so
+      // a slow machine moves both numbers together. A ratio against a
+      // hard-coded millisecond count would be a test of the runner.
+      const miss = await took(null);
+      const withBrokenRow = await took(broken(hash));
+
+      // 🔴 The card's own bar: "no more than twice". Stated as a ratio
+      // because the absolute number is the machine's, not the code's.
+      expect(withBrokenRow).toBeGreaterThan(miss / 2);
+      expect(withBrokenRow).toBeLessThan(miss * 2);
+    },
+  );
+
+  // 🔴 THE RESIDUAL, NAMED RATHER THAN HIDDEN. `p = 16` is inside what
+  // `verifyPassword` permits and inside what `hashPassword` can make, so
+  // a row carrying it is refused by nothing — and it costs about 17× an
+  // honest verify. That is deliberate after review:
+  //
+  //   the ceiling that used to refuse it SIGNED REAL USERS OUT (p = 5, 8
+  //   and 16 all hash, verify, and were refused), inverted into a floor
+  //   if SCRYPT were ever lowered, and drifted from the database the
+  //   moment the migration was applied.
+  //
+  // Writing such a row needs write access to `password_hash`, and anyone
+  // with that can store a hash of a password they know and sign in as
+  // whoever they like. A CPU amplifier is not the marginal risk there.
+  it('a costly-but-legal hash is SLOWER, not faster — the opposite of an oracle', async () => {
+    const miss = await took(null);
+    const costly = await took(
+      broken(`scrypt$131072$8$16$${b64(16)}$${b64(32)}`),
+    );
+    expect(costly).toBeGreaterThan(miss);
+  }, 60_000);
+
+  it('…and the old `??` really was the gap, not a theory', () => {
+    // Pinned as an assertion rather than a sentence in a comment: `??`
+    // passes an empty string through, and that single fact is the whole
+    // defect. If JavaScript ever changed this, the comment above would
+    // quietly become wrong.
+    const empty = '';
+    expect(empty ?? 'decoy').toBe('');
+    expect(looksLikeStoredHash(empty)).toBe(false);
   });
 });

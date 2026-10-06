@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
-import { hashPassword, verifyPassword } from './password';
+import { hashPassword, looksLikeStoredHash, verifyPassword } from './password';
 import { Viewer } from './ownership';
 import { expiryFrom, isExpired, newToken, tokenHash } from './session';
 
@@ -56,7 +56,35 @@ export class AuthService {
     now: Date = new Date(),
   ): Promise<SignedIn | null> {
     const user = await this.users.findOne({ where: { email } });
-    const hash = user?.passwordHash ?? (await decoyHash());
+    // 🔴 `??` WAS NOT ENOUGH, AND THE GAP WAS 1 700× (CAMP-223).
+    //
+    // It catches `null` and `undefined`. It does not catch `''`, and a
+    // row with an empty `password_hash` went straight into
+    // `verifyPassword('')`, which refuses while parsing the format —
+    // 0.1 ms against the 173 ms an honest verify costs. Every sentence
+    // this method's comment makes about "an unknown address costs the
+    // same" would have been false for that row, and no test would have
+    // seen it, because no test writes an empty hash.
+    //
+    // So the question asked here is not "is it there" but "is it a hash
+    // we could have written AND that scrypt can evaluate at our cost".
+    //
+    // 🔴 THE FIRST VERSION ASKED ONLY THE FIRST HALF, and review measured
+    // the gap: `scrypt$1$1$1$<16B>$<32B>` is perfectly shaped, so the
+    // decoy was skipped, and Node throws on a non-power-of-two N before
+    // scrypt does any work — 0.1 ms against an honest 202.7 ms. The same
+    // 1 700× answer, through a different gate. `p = 16`, which
+    // `verifyPassword` permits, went the other way: 3 495 ms, a 17×
+    // amplifier. Looking like a hash is not the same as being one this
+    // process can spend an honest 200 ms on.
+    //
+    // The database asks the same two questions in its own constraints
+    // (`users_password_hash_shape`, `users_password_hash_workable`), and
+    // both are built from the constants this module exports, so they
+    // cannot drift. Two independent refusals, because each is worth
+    // having precisely when the other was bypassed.
+    const stored = user?.passwordHash;
+    const hash = looksLikeStoredHash(stored) ? stored : await decoyHash();
     const ok = await verifyPassword(password, hash);
     if (!ok || !user) return null;
 
