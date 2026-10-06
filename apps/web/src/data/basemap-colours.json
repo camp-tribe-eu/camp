@@ -1,0 +1,65 @@
+{
+ "_": [
+  "The colours the basemaps WE SERVE actually paint, read from the styles",
+  "themselves on 06.10.2026:",
+  "",
+  "  curl https://tiles.openfreemap.org/styles/{liberty,positron,bright}",
+  "",
+  "🔴 WHY THIS FILE EXISTS. check-map-palette.mjs measured against the",
+  "design's --map-* tokens, and the repository already said those are not",
+  "our tiles: check-design-tokens.mjs lists every --map-* in NOT_OURS with",
+  "the reason 'we serve hosted styles and do not recolour them (CAMP-236)'.",
+  "So the guard was measuring a map nobody is served. Measured against the",
+  "real liberty — the DEFAULT, MAP_SOURCES[0] — the route colour read 2.69",
+  "where the token said 3.36.",
+  "",
+  "`styles` is the same data in #RRGGBB, because the contrast functions in",
+  "check-map-palette.mjs parse that one notation and they were verified",
+  "independently during review. `asServed` keeps the original notation so",
+  "a reader can diff this against the live style without converting.",
+  "",
+  "Refresh with the same command when a style is added or OpenFreeMap",
+  "restyles. A number here that nobody can reproduce is worse than none."
+ ],
+ "takenAt": "2026-10-06",
+ "source": "https://tiles.openfreemap.org/styles/",
+ "default": "liberty",
+ "styles": {
+  "liberty": {
+   "land": "#F8F4F0",
+   "green": "#D8E8C8",
+   "water": "#9EBDFF",
+   "road": "#FFFFFF",
+   "trunk": "#FFEEAA"
+  },
+  "positron": {
+   "land": "#F2F3F0",
+   "green": "#E6E9E5",
+   "water": "#C2C8CA"
+  },
+  "bright": {
+   "land": "#F8F4F0",
+   "green": "#D8E8C8",
+   "water": "#AECFE2"
+  }
+ },
+ "asServed": {
+  "liberty": {
+   "land": "#f8f4f0",
+   "green": "#d8e8c8",
+   "water": "rgb(158,189,255)",
+   "road": "#ffffff",
+   "trunk": "#ffeeaa"
+  },
+  "positron": {
+   "land": "rgb(242,243,240)",
+   "green": "rgb(230,233,229)",
+   "water": "rgb(194,200,202)"
+  },
+  "bright": {
+   "land": "#f8f4f0",
+   "green": "#d8e8c8",
+   "water": "#AECFE2"
+  }
+ }
+}

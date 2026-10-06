@@ -198,7 +198,16 @@ export default function RouteMap({ stages, spots, road }: RouteMapProps) {
             'line-width': 2,
             // 🔴 The dash pattern IS the honesty. Solid means road.
             'line-dasharray': [1.5, 2],
-            'line-opacity': road ? 0 : 0.9,
+            // 🔴 Full opacity. The 0.9 that was here was never measured:
+            // `lineProblems` compared the solid colour, and blended at
+            // 0.9 over liberty's water the real figure is 4.72 rather
+            // than 5.79. It passed either way, so this is margin rather
+            // than a defect — but an unmeasured number in a guarded file
+            // is the thing this project keeps writing cards about.
+            //
+            // The 0 is not styling: it is how this layer hides when a
+            // real road exists, so the expression stays.
+            'line-opacity': road ? 0 : 1,
           },
         });
       }
@@ -218,6 +227,28 @@ export default function RouteMap({ stages, spots, road }: RouteMapProps) {
             geometry: { type: 'LineString', coordinates: road },
           },
         });
+        // 🔴 A CASING UNDER THE LINE, and it is what makes the design's
+        // own colour usable. Measured against the tiles we actually
+        // serve — not the `--map-*` tokens, which this repository already
+        // files under "not ours" — `--route` reads **2.69:1 on liberty's
+        // water**, under the 3:1 of WCAG 1.4.11. Without a casing the
+        // only way out would have been to overrule the designer.
+        //
+        // With one, the burden moves to where it can be met: the casing
+        // clears every served basemap colour at 8.99:1, and `--route`
+        // only has to separate from the casing, which it does at 3.34.
+        // It is the same shape the campsite markers use (CAMP-222), and
+        // it is what every map does with a route.
+        m.addLayer(
+          {
+            id: 'route-road-casing',
+            type: 'line',
+            source: ROAD_SOURCE,
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': MARKER_STROKE, 'line-width': 7 },
+          },
+          'route-leg-line',
+        );
         m.addLayer(
           {
             id: 'route-road-line',
@@ -235,7 +266,10 @@ export default function RouteMap({ stages, spots, road }: RouteMapProps) {
             paint: {
               'line-color': ROUTE_LINE,
               'line-width': 4,
-              'line-opacity': 0.9,
+              // Full opacity: the casing below is what carries this line
+              // against the map, and blending the colour into the casing
+              // only narrows the 3.34:1 that separates them.
+              'line-opacity': 1,
             },
           },
           'route-leg-line',
