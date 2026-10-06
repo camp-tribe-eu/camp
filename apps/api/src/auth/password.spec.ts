@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { scryptSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import {
   FORMAT,
@@ -7,7 +8,6 @@ import {
   MIN,
   SCRYPT,
   hashPassword,
-  WORK_CEILING,
   isWorkable,
   looksLikeStoredHash,
   needsRehash,
@@ -244,15 +244,13 @@ describe('the stored-hash shape is one pattern, not two', () => {
   it('the migration interpolates the constants rather than copying them', () => {
     const source = readFileSync(MIGRATION, 'utf8');
     expect(source).toContain(
-      "import { MAX_MEM, STORED_SHAPE, WORK_CEILING } from '../auth/password'",
+      "import { MAX_MEM, STORED_SHAPE } from '../auth/password'",
     );
     expect(source).toContain("CHECK (password_hash ~ '${STORED_SHAPE}')");
     expect(source).toContain('<= ${MAX_MEM}');
-    expect(source).toContain('<= ${WORK_CEILING}');
     // And no second copy of either hiding anywhere in the file.
     expect(source).not.toContain('^scrypt');
     expect(source).not.toContain(String(MAX_MEM));
-    expect(source).not.toContain(String(WORK_CEILING));
   });
 
   it('every hash this module makes satisfies the shape', async () => {
@@ -336,21 +334,87 @@ describe('the stored-hash shape is one pattern, not two', () => {
 // to end. These pin the decision itself, which is cheap enough to cover
 // exhaustively.
 describe('parameters scrypt can actually evaluate', () => {
-  it('accepts everything hashPassword can produce', async () => {
-    for (const params of [
-      SCRYPT,
-      {
-        N: MIN.N,
-        r: MIN.r,
-        p: MIN.p,
-        saltLen: MIN.saltLen,
-        keyLen: MIN.keyLen,
-      },
-      { ...SCRYPT, N: 2 ** 15 },
-      { ...SCRYPT, r: 4 },
+  // 🔴 THE NAME WAS RIGHT AND THE FIXTURE WAS NOT. This said "accepts
+  // everything hashPassword can produce" while trying four parameter
+  // sets I had written down, and review found what those four missed:
+  // `{...SCRYPT, p: 5}` hashes fine, verifies fine, and the check
+  // refused it — a silent, permanent lockout for that account.
+  //
+  // A claim about EVERYTHING is tested over a grid. Node is the only
+  // authority on what it will evaluate, so the grid asks Node: anything
+  // `hashPassword` did not throw on must pass `isWorkable`.
+  it('🔴 accepts everything hashPassword can produce — a grid, not a list', async () => {
+    const lockedOut: string[] = [];
+    for (const N of [2 ** 10, 2 ** 12, 2 ** 14, 2 ** 16]) {
+      for (const r of [1, 2, 8]) {
+        for (const p of [1, 2, 3, 5, 8, 16, 32]) {
+          let made: string;
+          try {
+            made = await hashPassword('x', { ...SCRYPT, N, r, p });
+          } catch {
+            continue; // Node refused these parameters; so may we.
+          }
+          // Node made it and can read it back. Refusing it here would
+          // send this account to the decoy for ever.
+          if (!looksLikeStoredHash(made))
+            lockedOut.push(`N=${N} r=${r} p=${p}`);
+        }
+      }
+    }
+    // Each entry is a parameter set that hashes, verifies, and is
+    // refused — in other words, an account that can never sign in.
+    expect(lockedOut).toEqual([]);
+  }, 180_000);
+
+  // 🔴 THE BOUNDARY IS ASKED OF NODE, FROM THE CHEAP SIDE. I first wrote
+  // this with numbers typed from the review report and got one wrong —
+  // I carried an r = 1 pair onto an r = 2 case. A boundary test whose
+  // expected value I typed is a test of my typing.
+  //
+  // The first fix binary-searched Node for the largest acceptable `p`,
+  // which was honest and unusably slow: Node REFUSES invalid parameters
+  // synchronously and for free, but ACCEPTING them means computing, and
+  // the accepted points near this boundary are millions of work units
+  // each. The suite ran for minutes.
+  //
+  // So it asks only the free side. For each (N, r) it takes the largest
+  // `p` this module would allow and requires Node to refuse `p + 1` and
+  // `p + 2` — and requires `isWorkable` to refuse them too. That is
+  // exactly where the missing `+ 2` showed: without it this module
+  // allowed two values past Node, and both of them answered in a tenth
+  // of a millisecond against an honest 203.
+  //
+  // The accepted side is covered by the grid above, which is the
+  // property that actually matters: nothing hashPassword can make is
+  // refused here.
+  it('…and stops exactly where Node stops', () => {
+    const nodeRefuses = (N: number, r: number, p: number) => {
+      try {
+        scryptSync('x', 's', 16, { N, r, p, maxmem: MAX_MEM });
+        return false;
+      } catch {
+        return true;
+      }
+    };
+
+    for (const [N, r] of [
+      [2, 1],
+      [2, 2],
+      [4, 1],
     ]) {
-      const stored = await hashPassword('x', params);
-      expect(looksLikeStoredHash(stored)).toBe(true);
+      const pMax = Math.floor(MAX_MEM / (128 * r)) - N - 2;
+      for (const over of [1, 2]) {
+        const where = `N=${N} r=${r} p=${pMax + over}`;
+        expect([where, nodeRefuses(N, r, pMax + over)]).toEqual([where, true]);
+        expect([where, isWorkable(N, r, pMax + over)]).toEqual([where, false]);
+      }
+      // And the last value this module allows is one Node does not
+      // refuse — measured by hand on 06.10.2026 at 1 572 860, 786 428
+      // and 1 572 858, which is why `pMax` is computed and not typed.
+      expect([`N=${N} r=${r}`, isWorkable(N, r, pMax)]).toEqual([
+        `N=${N} r=${r}`,
+        true,
+      ]);
     }
   });
 
@@ -378,15 +442,15 @@ describe('parameters scrypt can actually evaluate', () => {
     ['N and r past both the memory and work ceilings', 2 ** 20, 32, 1],
     ['r of 0', 2 ** 17, 0, 1],
     ['p of 0', 2 ** 17, 8, 0],
-    ['p at MAX.p, which costs 17× an honest verify', 2 ** 17, 8, 16],
     ['a fractional N', 2 ** 17 + 0.5, 8, 1],
   ])('refuses %s', (_what, N, r, p) => {
     expect(isWorkable(N as number, r as number, p as number)).toBe(false);
   });
 
-  it('the ceiling moves with the cost we ship, rather than being a number', () => {
-    expect(WORK_CEILING).toBe(SCRYPT.N * SCRYPT.r * SCRYPT.p * 4);
-    // Our own hash sits comfortably inside it, which is the point of 4×.
-    expect(SCRYPT.N * SCRYPT.r * SCRYPT.p).toBeLessThan(WORK_CEILING);
-  });
+  // 🔴 WHAT USED TO BE HERE WAS A TAUTOLOGY, and review named it:
+  // `expect(WORK_CEILING).toBe(SCRYPT.N * SCRYPT.r * SCRYPT.p * 4)`
+  // restated the line that defined the constant, so it could not fail
+  // for ANY value of SCRYPT — including the value that locked every
+  // existing user out. The constant is gone; what replaces it is the
+  // grid above, which asks Node rather than restating me.
 });

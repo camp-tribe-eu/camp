@@ -269,10 +269,6 @@ describe('a stored value that is not a hash costs what a miss costs', () => {
       `scrypt$1048576$32$1$${b64(16)}$${b64(32)}`,
     ],
     ['N past the N < 2^16r rule', `scrypt$1048576$1$1$${b64(16)}$${b64(32)}`],
-    [
-      'work far past what we ever wrote',
-      `scrypt$131072$8$16$${b64(16)}$${b64(32)}`,
-    ],
     // ── shapes that never looked like ours in the first place ──
     ['empty', ''],
     ['the format name alone', 'scrypt'],
@@ -307,6 +303,27 @@ describe('a stored value that is not a hash costs what a miss costs', () => {
       expect(withBrokenRow).toBeLessThan(miss * 2);
     },
   );
+
+  // 🔴 THE RESIDUAL, NAMED RATHER THAN HIDDEN. `p = 16` is inside what
+  // `verifyPassword` permits and inside what `hashPassword` can make, so
+  // a row carrying it is refused by nothing — and it costs about 17× an
+  // honest verify. That is deliberate after review:
+  //
+  //   the ceiling that used to refuse it SIGNED REAL USERS OUT (p = 5, 8
+  //   and 16 all hash, verify, and were refused), inverted into a floor
+  //   if SCRYPT were ever lowered, and drifted from the database the
+  //   moment the migration was applied.
+  //
+  // Writing such a row needs write access to `password_hash`, and anyone
+  // with that can store a hash of a password they know and sign in as
+  // whoever they like. A CPU amplifier is not the marginal risk there.
+  it('a costly-but-legal hash is SLOWER, not faster — the opposite of an oracle', async () => {
+    const miss = await took(null);
+    const costly = await took(
+      broken(`scrypt$131072$8$16$${b64(16)}$${b64(32)}`),
+    );
+    expect(costly).toBeGreaterThan(miss);
+  }, 60_000);
 
   it('…and the old `??` really was the gap, not a theory', () => {
     // Pinned as an assertion rather than a sentence in a comment: `??`

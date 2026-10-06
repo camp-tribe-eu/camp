@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MAX_MEM, STORED_SHAPE, WORK_CEILING } from '../auth/password';
+import { MAX_MEM, STORED_SHAPE } from '../auth/password';
 
 /**
  * CAMP-223 — an empty `password_hash` would be a 1 700× existence oracle.
@@ -40,7 +40,9 @@ import { MAX_MEM, STORED_SHAPE, WORK_CEILING } from '../auth/password';
  *
  * So the constraint now asks the same four questions `isWorkable` asks,
  * in SQL: a power of two above 1, below 2^(128·r/8), inside the memory
- * ceiling, and a cost product no larger than `WORK_CEILING`.
+ * ceiling. No cost ceiling: there was one, and review measured it
+ * signing real users out — see `isWorkable` for the three failures that
+ * bought one narrow gain.
  *
  * 🔴 A CEILING, NEVER A FLOOR. `verifyPassword` documents why, and it
  * holds here: a hash stored under weaker parameters has to keep
@@ -59,8 +61,8 @@ export class PasswordHashShape1791100000000 implements MigrationInterface {
     //
     // Interpolated, not parameterised: a CHECK expression is DDL, and
     // `STORED_SHAPE` is a frozen constant in our own source, never user
-    // input. The spec asserts the constraint the database ended up with
-    // is character-for-character this string.
+    // input. (What the spec actually checks is stated at the top of this
+    // file: it reads this FILE. Nothing in CI queries Postgres.)
     await queryRunner.query(`
       ALTER TABLE users
         ADD CONSTRAINT users_password_hash_shape
@@ -82,18 +84,32 @@ export class PasswordHashShape1791100000000 implements MigrationInterface {
           (split_part(password_hash, '$', 2))::bigint > 1
           AND ((split_part(password_hash, '$', 2))::bigint
                & ((split_part(password_hash, '$', 2))::bigint - 1)) = 0
+          -- 🔴 A ceiling on the digits BEFORE any arithmetic. Review fed
+          -- this an N of 2^61 — a real power of two that least(16*r, 62)
+          -- lets through — and Postgres answered "bigint out of range"
+          -- from inside the memory product, while JavaScript answered a
+          -- clean false. The row was refused either way, so it was never
+          -- a hole; but a caller got a driver error instead of a
+          -- constraint name, and a guard that reports the wrong thing is
+          -- read wrong.
+          --
+          -- The memory rule below already caps r*(N+p) at 1572864, so
+          -- nothing legitimate comes near ten digits.
+          AND length(split_part(password_hash, '$', 2)) <= 10
+          AND length(split_part(password_hash, '$', 3)) <= 10
+          AND length(split_part(password_hash, '$', 4)) <= 10
           -- N < 2^(128·r/8), Node's rule. Capped at 62 so the shift in
           -- the comparison cannot overflow for a large r.
           AND (split_part(password_hash, '$', 2))::bigint
               < (2::bigint ^ least(16 * (split_part(password_hash, '$', 3))::bigint, 62))
-          -- 128 · r · (N + p), the buffer Node sizes, inside maxmem.
+          -- 🔴 128 * r * (N + p + 2), which is the buffer Node actually
+          -- sizes. This read (N + p) and left a band Node refuses: at
+          -- N=2, r=1, p=1572862 the row passed both this constraint and
+          -- the code, and answered in 0.130 ms against an honest 203.
           AND 128 * (split_part(password_hash, '$', 3))::bigint
                   * ((split_part(password_hash, '$', 2))::bigint
-                     + (split_part(password_hash, '$', 4))::bigint) <= ${MAX_MEM}
-          -- And the cost itself, which is a product, not a sum.
-          AND (split_part(password_hash, '$', 2))::bigint
-              * (split_part(password_hash, '$', 3))::bigint
-              * (split_part(password_hash, '$', 4))::bigint <= ${WORK_CEILING}
+                     + (split_part(password_hash, '$', 4))::bigint
+                     + 2) <= ${MAX_MEM}
         )
     `);
   }

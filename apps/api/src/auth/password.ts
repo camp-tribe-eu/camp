@@ -113,25 +113,7 @@ export function looksLikeStoredHash(value: unknown): value is string {
 }
 
 /**
- * The most work a stored hash may ask for.
- *
- * 🔴 RELATIVE TO WHAT WE SHIP, so raising the cost moves it along. Four
- * times leaves room for a parameter change that has not reached this
- * constant yet, and refuses `p = 16` — allowed by `verifyPassword`'s
- * ceiling and measured at **3 495 ms against an honest 203 ms**, a 17×
- * amplifier for anyone who can write one row.
- *
- * 🔴 A CEILING, NEVER A FLOOR. `verifyPassword` documents why, and the
- * reasoning holds here: a hash stored under weaker parameters has to
- * keep verifying, or raising the work factor signs out exactly the users
- * the design protects. A weak-but-genuine row does verify faster, and
- * that is inherent — but producing one needs write access to the table,
- * which is a different attacker from the one this module is about.
- */
-export const WORK_CEILING = SCRYPT.N * SCRYPT.r * SCRYPT.p * 4;
-
-/**
- * Can scrypt actually evaluate these parameters, at a cost like ours?
+ * Can scrypt actually evaluate these parameters?
  *
  * 🔴 THIS IS THE SECOND HALF OF THE ORACLE, AND I SHIPPED THE FIRST HALF
  * WITHOUT IT. CAMP-223 closed `''`, which never looked like a hash. An
@@ -151,10 +133,38 @@ export const WORK_CEILING = SCRYPT.N * SCRYPT.r * SCRYPT.p * 4;
  * checking that it can be evaluated, and the gap between those two was
  * the whole defect.
  *
- * The conditions are Node's own, not invented here: N a power of two
- * above 1, N below 2^(128·r/8), and the memory product inside `maxmem`.
- * Anything `hashPassword` produced satisfies all of them — it would have
- * thrown otherwise — so refusing them signs nobody out.
+ * 🔴 THE CONDITIONS ARE NODE'S OWN, AND ONLY NODE'S. That is the whole
+ * safety property: anything `hashPassword` produced satisfies them — it
+ * would have thrown otherwise — so refusing them can never sign anybody
+ * out. `password.spec.ts` asserts that over a grid rather than over four
+ * parameter sets I happened to write down.
+ *
+ * 🔴 AND THERE IS NO COST CEILING HERE ANY MORE. There was one —
+ * `WORK_CEILING = SCRYPT.N · r · p · 4` — meant to stop `p = 16` costing
+ * 3 495 ms against an honest 203. Review measured what it cost instead,
+ * and it was three separate failures against one narrow gain:
+ *
+ *   · it SIGNED PEOPLE OUT. `hashPassword({…SCRYPT, p: 5})` works,
+ *     `verifyPassword` returns true for the right password, and the
+ *     ceiling refused the hash — so that account falls to the decoy and
+ *     can never sign in again, silently and for ever. Measured at p = 5,
+ *     8 and 16.
+ *   · it INVERTED INTO A FLOOR. Lower `SCRYPT.N` to `MIN.N` — a value
+ *     already in this file — and the ceiling drops below the work of
+ *     every hash written yesterday. Every existing user, locked out.
+ *   · it DRIFTED. Once the migration is applied the database holds the
+ *     NUMBER, not the constant, so changing `SCRYPT` moves the ceiling
+ *     in the code and leaves Postgres a version behind.
+ *
+ * Against that: 17× becomes 3.9×, and a row at the ceiling still costs
+ * 685 ms against 174. Both figures assume an attacker who can WRITE
+ * `password_hash` — and anyone who can do that can simply store a hash
+ * of a password they know and sign in as whoever they like. The CPU
+ * amplifier is not the marginal risk; `MAX.p` in `verifyPassword`,
+ * chosen by its own measurement, is where that bound belongs.
+ *
+ * A guard with three false behaviours and one narrow true one is deleted,
+ * not tuned.
  */
 export function isWorkable(N: number, r: number, p: number): boolean {
   if (!Number.isInteger(N) || !Number.isInteger(r) || !Number.isInteger(p))
@@ -165,10 +175,12 @@ export function isWorkable(N: number, r: number, p: number): boolean {
   // Node: N must be less than 2^(128 · r / 8). Compared in logs so the
   // shift never overflows for a large r.
   if (Math.log2(N) >= 16 * r) return false;
-  // Node sizes the buffer at 128 · r · (N + p) and refuses past maxmem.
-  if (128 * r * (N + p) > MAX_MEM) return false;
-  // And the cost itself, which is a product rather than a sum.
-  return N * r * p <= WORK_CEILING;
+  // 🔴 Node sizes the buffer at `128 · r · (N + p + 2)`, and the `+ 2`
+  // is not decoration. Without it this read `(N + p)` and let through a
+  // band Node refuses: review measured `scrypt$2$1$1572862$…` passing
+  // the shape and answering in **0.130 ms** against an honest 203 — the
+  // oracle again, two off. The boundary is exact and tested at it.
+  return 128 * r * (N + p + 2) <= MAX_MEM;
 }
 
 /**
