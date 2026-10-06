@@ -145,6 +145,52 @@ async function settle(page: Page) {
   await page.waitForLoadState('networkidle').catch(() => {});
 }
 
+
+/**
+ * How much of the tolerance this screenshot actually spent. CAMP-197.
+ *
+ * 🔴 WHY THIS EXISTS. `maxDiffPixelRatio` does not forgive noise — it
+ * ACCUMULATES. A baseline can sit at 70% of the budget for a year and
+ * the job stays green, so a real change hides inside the allowance until
+ * some unrelated edit pushes the same file over the line. That is how a
+ * "Tools" menu item lived in a baseline unseen: CAMP-55 re-shot seven of
+ * eight baselines, the eighth spent ~2033 pixels of a 2225 budget, and
+ * nothing said a word until CAMP-186 added one footer link.
+ *
+ * 🔴 The number comes out of Playwright's OWN comparator, not a
+ * re-implementation of it. Comparing at zero tolerance always fails on
+ * antialiasing, and the failure message carries the exact ratio — so the
+ * probe asks the thing that decides, rather than a second opinion that
+ * could disagree with it.
+ *
+ * Returns null when the comparison is pixel-perfect, and when the
+ * message cannot be parsed. 🔴 Those two are reported differently by the
+ * caller: "spent nothing" and "could not tell" must never look alike.
+ */
+async function budgetSpent(
+  page: Page,
+  name: string,
+  options: Record<string, unknown>,
+): Promise<{ ratio: number } | { unreadable: string } | null> {
+  try {
+    await expect(page).toHaveScreenshot(name, {
+      ...options,
+      maxDiffPixelRatio: 0,
+      maxDiffPixels: 0,
+      timeout: 15_000,
+    });
+    return null; // identical
+  } catch (e) {
+    const text = e instanceof Error ? e.message : String(e);
+    const m = text.match(/ratio ([\d.]+) of all image pixels/);
+    if (!m) return { unreadable: text.split('\n')[0].slice(0, 160) };
+    return { ratio: Number(m[1]) };
+  }
+}
+
+/** The blocking tolerance, named once so the report can speak in fractions of it. */
+const BUDGET = 0.002;
+
 for (const viewport of VIEWPORTS) {
   test.describe(`${viewport.name}`, () => {
     test.use({ viewport: { width: viewport.width, height: viewport.height } });
@@ -155,9 +201,8 @@ for (const viewport of VIEWPORTS) {
         await page.goto(subject.path);
         await settle(page);
 
-        await expect(page).toHaveScreenshot(
-          `${subject.name}-${viewport.name}.png`,
-          {
+        const shot = `${subject.name}-${viewport.name}.png`;
+        await expect(page).toHaveScreenshot(shot, {
             fullPage: true,
             animations: 'disabled',
             // Caret blink is a one-pixel diff that fails a run at random.
@@ -168,9 +213,28 @@ for (const viewport of VIEWPORTS) {
             // machine; zero tolerance means a red build every few days,
             // and a suite that cries wolf gets deleted. 0.2% of the page
             // is far below any real layout change and far above noise.
-            maxDiffPixelRatio: 0.002,
-          },
-        );
+            //
+            // 🔴 But it ACCUMULATES — see budgetSpent below, and CAMP-197
+            // for the menu item that lived inside this allowance unseen.
+            maxDiffPixelRatio: BUDGET,
+        });
+
+        // CAMP-197, measuring step. Reports only — the threshold that
+        // turns this red is chosen from these numbers, not before them.
+        const spent = await budgetSpent(page, shot, {
+          fullPage: true,
+          animations: 'disabled',
+          caret: 'hide',
+          mask: await masks(page),
+        });
+        const says =
+          spent === null
+            ? 'identical to the baseline'
+            : 'unreadable' in spent
+              ? `COULD NOT MEASURE — ${spent.unreadable}`
+              : `${(spent.ratio * 100).toFixed(4)}% of the page, ` +
+                `${((spent.ratio / BUDGET) * 100).toFixed(1)}% of the budget`;
+        console.log(`visual-budget\t${shot}\t${says}`);
       });
     }
   });
