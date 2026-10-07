@@ -215,6 +215,19 @@ jobs:
       - name: No script runs itself when a test imports it
         run: node scripts/ci/check-script-entrypoints.mjs
 
+      # 🔴 CAMP-221. The satellite base layer serves somebody else's
+      # photographs. The mockup settled the policy — Esri, Bing and Google
+      # are closed to us, orthophotos come from national open sources —
+      # and a policy is not a licence. Each source has to name the licence
+      # word for word, the credit shown to the reader, and the URL both
+      # were read from, because a licence nobody can reproduce from a link
+      # is one we are quoting from memory.
+      - name: Satellite licence guard still refuses an unlicensed tile
+        run: node scripts/ci/check-satellite-licences.mjs --self-test
+
+      - name: Every satellite source names its licence and its credit
+        run: node scripts/ci/check-satellite-licences.mjs
+
       # 🔴 The numbers on the home page live in a PNG, and a PNG is
       # rewritten by `--update-snapshots` to agree with whatever the code
       # now does. CAMP-182: the headline went 71 → 72 unnoticed. These

@@ -13,6 +13,8 @@
 // map requests is a CSP that silently blanks the map — and it would look
 // exactly like a tile provider being down.
 
+import SATELLITE from '../src/data/satellite-sources.json' with { type: 'json' };
+
 const OFM = process.env.NEXT_PUBLIC_TILES_URL ?? 'https://tiles.openfreemap.org';
 const SELF_TILES = process.env.NEXT_PUBLIC_SELF_TILES_URL ?? '';
 const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
@@ -28,7 +30,27 @@ const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
 // with no error endpoint has no wider policy than before.
 const ERROR_ENDPOINT = process.env.NEXT_PUBLIC_ERROR_ENDPOINT ?? '';
 
-const connectOrigins = [OFM, SELF_TILES, API, ERROR_ENDPOINT]
+// 🔴 CAMP-221. The satellite base layer fetches tiles from a national
+// orthophoto service, and the browser refuses what this policy does not
+// name. Measured on a dev run with the layer switched on:
+//
+//   Connecting to 'https://data.geopf.fr/wmts?…' violates the following
+//   Content Security Policy directive: "connect-src 'self'
+//   https://tiles.openfreemap.org". The action has been blocked.
+//
+// The button turned on, the attribution appeared, the raster source was
+// added — and not one pixel arrived. Every unit test passed over it,
+// because a rendered string is not a browser; the same sentence this
+// file already carries about the webcam frames.
+//
+// 🔴 Read from the source list rather than written out here, so adding a
+// country widens the policy by exactly that country's origin and by
+// nothing else. A hand-kept copy would drift the first time a source is
+// added, and it would drift in the direction of a blocked layer nobody
+// can explain.
+const SATELLITE_ORIGINS = SATELLITE.sources.map((s) => s.tiles);
+
+const connectOrigins = [OFM, SELF_TILES, API, ERROR_ENDPOINT, ...SATELLITE_ORIGINS]
   .filter(Boolean)
   .map((u) => {
     try {
