@@ -73,11 +73,22 @@ if [ "\$head" = 1 ]; then
     redirect-other-region)
       printf 'HTTP/1.1 200 OK\r\ncontent-length: $(wc -c < "$GOOD")\r\n\r\n\n%s\n' \\
         "https://example.invalid/europe/elsewhere-260925.osm.pbf" ;;
+    # Дзеркало, яке ЗБЕРІГАЄ датоване імʼя. Інший хост — не проблема:
+    # особу файлу доводить імʼя, а цілість — md5.
     mirror)
       printf 'HTTP/1.1 200 OK\r\ncontent-length: $(wc -c < "$GOOD")\r\n\r\n\n%s\n' \\
+        "https://mirror.invalid/pub/osm/\$(basename "\$url")" ;;
+    # Дзеркало, яке ПЕРЕЙМЕНОВУЄ на -latest. Саме це вбило імпорт на
+    # Німеччині, і саме це більше не приймається.
+    mirror-latest)
+      printf 'HTTP/1.1 200 OK\r\ncontent-length: $(wc -c < "$GOOD")\r\n\r\n\n%s\n' \\
         "https://mirror.invalid/pub/osm/\$region-latest.osm.pbf" ;;
+    # 🔴 Віддзеркалює РІВНО те імʼя, яке попросили. Раніше тут стояла
+    # зашита дата 260925, бо скрипт питав `-latest` і дата приходила
+    # від сервера. Тепер дату обирає скрипт, і шим, що завжди віддає
+    # одну й ту саму, перевіряв би не той контракт.
     *) printf 'HTTP/1.1 200 OK\r\ncontent-length: $(wc -c < "$GOOD")\r\n\r\n\n%s\n' \\
-        "https://example.invalid/europe/\$region-260925.osm.pbf" ;;
+        "https://example.invalid/europe/\$(basename "\$url")" ;;
   esac
   exit 0
 fi
@@ -280,12 +291,25 @@ else
   fail "a redirect to the index was accepted; rc=$rc: $out"
 fi
 
-# A mirror keeps `-latest` in the filename, and that is legitimate.
+# 🔴 ЦЕЙ ВИПАДОК ЗМІНИВ ЗНАК (CAMP-267).
+#
+# Раніше тут стояло «дзеркало зберігає -latest, і це законно» — бо
+# скрипт просив `-latest` і мусив якось жити з відповіддю. Тепер він
+# просить датоване імʼя, тому перевіряються дві різні речі:
+# інший ХОСТ із тим самим імʼям — законний, а перейменування на
+# `-latest` — ні.
 SHIM_MODE=mirror out=$(run m); rc=$?
 if [ $rc -eq 0 ] && grep -q 'checksum ok' <<<"$out"; then
-  pass "a mirror that keeps -latest in the name is accepted"
+  pass "a mirror that keeps the dated name is accepted — identity is the name, not the host"
 else
-  fail "a legitimate mirror redirect was refused; rc=$rc: $out"
+  fail "a mirror keeping the dated name was refused; rc=$rc: $out"
+fi
+
+SHIM_MODE=mirror-latest out=$(run m); rc=$?
+if [ "$rc" != 0 ]; then
+  pass "a mirror that renames to -latest is refused — this is the Germany outage"
+else
+  fail "a mirror dropped the date and it was accepted; rc=$rc: $out"
 fi
 
 SHIM_MODE=redirect-other-region out=$(run i); rc=$?

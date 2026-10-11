@@ -201,65 +201,34 @@ for REGION in "${REGIONS[@]}"; do
   # extract is fetched again.
   STAMP="$SLUG.verified-md5"
 
-  LATEST="https://download.geofabrik.de/$REGION-latest.osm.pbf"
-
-  # 🔴 Resolve `-latest` ONCE, and use the dated URL for everything.
+  # 🔴 ONE script, shared with .github/workflows/osm-weekly.yml.
   #
-  # `-latest` is a 302 to a dated file, so the download, the size and the
-  # md5 were three independent requests that could each land on a
-  # different version. A re-cut between them failed a perfectly whole
-  # file and then reported "that is not a transfer problem", which is a
-  # confident wrong diagnosis.
-  # 🔴 --retry here too. This request and the .md5 one below are
-  # small, but there are two of them per region and they run BEFORE the
-  # skip check \u2014 so a fully cached 27-region run still makes 54 of them.
-  # Without a retry, one blink of the network ends the whole run, and
-  # the message it ends with blames Geofabrik.
-  HEAD_OUT=$(curl -fsSL -I --retry 3 --retry-delay 5 --max-time 60 \
-               -w '\n%{url_effective}\n' "$LATEST") || {
-    echo "::error::could not reach Geofabrik for $REGION" >&2
+  # This block used to resolve `<region>-latest.osm.pbf` and accept the
+  # redirect if the final name was EITHER dated or `-latest`. The
+  # `-latest` half was added on 25.09.2026 because Germany redirects to
+  # a mirror that serves only `-latest` — and it made this script
+  # download a file whose date it cannot name.
+  #
+  # The workflow hit the same wall and fixed it the other way: it
+  # demanded a date, so the weekly import died on Germany for 13 days.
+  # Two copies of one rule, repaired in opposite directions, neither
+  # file aware it had a twin.
+  #
+  # The relaxation was the wrong direction. The dated file exists on the
+  # main host for every EU-27 region, Germany included — measured
+  # 11.10.2026 — so asking for the name we want is strictly stronger
+  # than following a redirect and hoping.
+  RESOLVED=$("$(dirname "$0")/geofabrik-url.sh" "$REGION")
+  read -r URL YMD AGE <<< "$RESOLVED"
+
+  # Size still comes from a HEAD, because the resolver's job is identity
+  # and nothing else. One extra request per region, against a run that
+  # already makes two.
+  REMOTE_SIZE=$(curl -fsSL -I --retry 3 --retry-delay 5 --max-time 60 "$URL" |
+    awk 'tolower($1)=="content-length:"{n=$2} END{gsub(/\r/,"",n); print n+0}') || {
+    echo "::error::could not read the size of $URL" >&2
     exit 1
   }
-  URL=$(printf '%s' "$HEAD_OUT" | tail -1)
-  REMOTE_SIZE=$(printf '%s' "$HEAD_OUT" |
-    awk 'tolower($1)=="content-length:"{n=$2} END{gsub(/\r/,"",n); print n+0}')
-
-  # 🔴 The redirect has to still be the region we asked for.
-  #
-  # An md5 proves INTEGRITY, never IDENTITY: it says "these bytes are
-  # the bytes published at this URL", and says nothing about the URL
-  # being the one we wanted. Geofabrik answers an unknown or renamed
-  # region with a 302 to its site index \u2014 measured: europe/atlantis,
-  # europe/holland and europe/england all land on
-  # https://download.geofabrik.de/ with HTTP 200, so `curl -f` does not
-  # fail and the run dies later blaming a missing .md5. A redirect onto
-  # a DIFFERENT extract would be worse: it would download, verify and
-  # load another country's data under a \u2713.
-  # 🔴 The file must still be NAMED for the region we asked for — and
-  # that is all we may require.
-  #
-  # The first version demanded a dated name, `<region>-YYYYMMDD.osm.pbf`,
-  # because that is what the main host redirects to. Germany does not:
-  # it redirects to a mirror,
-  #
-  #   https://ftp5.gwdg.de/pub/misc/openstreetmap/…/germany-latest.osm.pbf
-  #
-  # which keeps `-latest`. So the guard stopped the EU-27 run dead on a
-  # perfectly good URL, and said the region name was wrong when it was
-  # not. Measured 25.09.2026, on the run this was written for.
-  #
-  # Both forms are accepted, and the protection is unchanged: what this
-  # exists to catch is a redirect that lands somewhere else entirely —
-  # europe/atlantis and europe/holland both answer 200 at the site root
-  # (measured), whose basename matches neither form.
-  REGION_BASE="${REGION##*/}"
-  if ! printf '%s' "$URL" |
-       grep -qE "/${REGION_BASE}-(latest|[0-9]{6})\.osm\.pbf$"; then
-    echo "::error::$REGION resolves to $URL" >&2
-    echo "          That is not an extract named for '$REGION_BASE'. Either the" >&2
-    echo "          region name is wrong or Geofabrik has moved it." >&2
-    exit 1
-  fi
 
   # 🔴 -f, so an HTTP error page cannot become the expected checksum.
   # Without it a 404 body — "<html><head><title>404…" — is a non-empty

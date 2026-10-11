@@ -202,18 +202,26 @@ jobs:
           SLUG="$(echo "$REGION" | tr '/' '-')"
           mkdir -p out
 
-          # 🔴 Resolve -latest once, and check the redirect is still this
-          # region. An md5 proves the bytes, never which file they are:
-          # Geofabrik answers an unknown or renamed region with a 302 to
-          # its own index, HTTP 200, which `curl -f` does not refuse.
-          LATEST="https://download.geofabrik.de/$REGION-latest.osm.pbf"
-          URL=$(curl -fsSL -I --retry 3 --retry-delay 10 --max-time 60 \
-                  -o /dev/null -w '%{url_effective}' "$LATEST")
-          BASE="${REGION##*/}"
-          if ! printf '%s' "$URL" | grep -qE "/${BASE}-[0-9]{6}\.osm\.pbf$"; then
-            echo "::error::$REGION resolves to $URL — not a dated extract for '$BASE'"
-            exit 1
-          fi
+          # 🔴 ONE script, shared with scripts/osm-pipeline/load-context.sh.
+          #
+          # This step used to follow `<region>-latest.osm.pbf` and insist
+          # the redirect landed on a dated file. The insisting is right —
+          # an md5 proves the bytes, never WHICH file they are. What was
+          # wrong is that -latest does not always land on a dated file:
+          # Geofabrik balances its largest extracts onto mirrors, and a
+          # mirror serves only `-latest`. The weekly import died on
+          # Germany and stayed dead 13 days.
+          #
+          # load-context.sh hit the SAME wall on 25.09.2026 and fixed it
+          # the opposite way — by accepting `-latest`. Two copies of one
+          # rule, repaired in opposite directions, neither aware of the
+          # other. See geofabrik-url.sh for what that cost.
+          # Підстановка, а не process substitution: під `set -e` падіння
+          # скрипта має зупинити крок тут, а не перетворитись на порожній
+          # `read`, який ще треба вгадати.
+          RESOLVED=$(scripts/osm-pipeline/geofabrik-url.sh "$REGION")
+          read -r URL YMD AGE <<< "$RESOLVED"
+          echo "  $REGION: $YMD (D-$AGE)"
 
           # 🔴 The checksum, which this step did not have.
           #
@@ -277,7 +285,11 @@ jobs:
           gzip -9 "out/$SLUG.geojson"
           # The publish job sums these rather than decompressing nine
           # files to count what this job already knows.
-          echo "$REGION $COUNT" > "out/$SLUG.count"
+          # 🔴 The extract's OWN date, not the build date. Review found
+          # the release claiming "built from Geofabrik's daily exports on
+          # <today>" while the file could be up to a week older, and the
+          # real date existed nowhere but one line of job log.
+          echo "$REGION $COUNT $YMD" > "out/$SLUG.count"
           echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
           ls -lh out/
 
@@ -353,17 +365,23 @@ jobs:
           TAG="osm-$(date -u +%Y-%m-%d)"
 
           {
-            echo "Campsite extract built from Geofabrik's daily OpenStreetMap exports on $(date -u +%Y-%m-%d)."
+            # 🔴 The build date is NOT the data date, and saying so was a
+            # lie waiting to happen: a region's extract can be several
+            # days older than this run. Each row now carries the date of
+            # the file it was actually built from.
+            echo "Campsite extract built on $(date -u +%Y-%m-%d) from Geofabrik's OpenStreetMap exports."
+            echo "Each region shows the date of the extract it was built from — they are not all the same day."
             echo
-            echo "| region | campsites |"
-            echo "| --- | --- |"
-            sort out/*.count | awk '{printf "| %s | %s |\n", $1, $2}'
+            echo "| region | campsites | extract |"
+            echo "| --- | --- | --- |"
+            sort out/*.count | awk '{printf "| %s | %s | 20%s-%s-%s |\n", $1, $2, substr($3,1,2), substr($3,3,2), substr($3,5,2)}'
             echo
             echo "**$TOTAL campsites across $GOT of $PLANNED regions.**"
             if [ "$COMPLETE" = 'partial' ]; then
               echo
               echo "> ⚠️ Incomplete: $((PLANNED - GOT)) region(s) failed to build."
-              echo "> The regions listed above are fresh; the missing ones keep"
+              echo "> The regions listed above carry the extract date they were"
+              echo "> built from; the missing ones keep"
               echo "> whatever an earlier release holds. See the run log."
             fi
             echo
