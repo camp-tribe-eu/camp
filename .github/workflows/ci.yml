@@ -45,10 +45,51 @@ env:
   CI_ERROR_ENDPOINT: http://localhost:3001/client-errors
 
 jobs:
-  # Runs first and needs nothing: no database, no build, no browsers. A
-  # leaked credential or a new advisory should be visible in under a
-  # minute, not after the slowest job on the board.
+  # 🔴 ONE RUN PER COMMIT (CAMP-269).
+  #
+  # `ci.yml` listens to both `push: ['**']` and `pull_request`, so a
+  # branch with an open PR is built TWICE on the same commit. Measured
+  # over the last 100 runs (06–11.10.2026): 58 unique commits, 40 of
+  # them built twice, 777 wasted minutes in five days. The e2e job alone
+  # is 23 minutes, so a merge waits for a duplicate of a suite that has
+  # already passed.
+  #
+  # Both triggers are kept, because each answers a different question
+  # and the repository has been bitten by dropping either:
+  #
+  #   · `pull_request` builds the MERGE of the branch with current main —
+  #     that is what actually ships.
+  #   · `push: ['**']` exists because CAMP-34…CAMP-39 added CI steps that
+  #     never ran: the work sat on a branch with no PR.
+  #
+  # So instead of dropping a trigger, the push run steps aside when the
+  # commit already has a pull request — which is exactly when the better
+  # of the two runs exists.
+  #
+  # 🔴 FAIL-SAFE IS "RUN". If the API cannot be asked, this says yes.
+  # A gate that goes quiet on error would stop CI without failing, which
+  # is the silent shape this repository keeps finding in its guards.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+      # 🔴 Рішення живе в scripts/ci/should-build.sh, а не тут: інлайн
+      # у YAML неможливо прогнати, а в нього сім випадків, серед яких
+      # три різні поломки, що всі мусять дати «будуємо».
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          r=$(scripts/ci/should-build.sh '${{ github.event_name }}' '${{ github.repository }}' '${{ github.sha }}')
+          echo "run=$r" >> "$GITHUB_OUTPUT"
+          echo "::notice::${{ github.event_name }} на ${{ github.sha }} → build=$r"
+
   security:
+    needs: gate
+    if: needs.gate.outputs.run == 'yes'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -407,6 +448,8 @@ jobs:
         run: ./apps/api/test/fixtures/regenerate.selftest.sh
 
   web:
+    needs: gate
+    if: needs.gate.outputs.run == 'yes'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -519,6 +562,8 @@ jobs:
   # that the switch flips, and it runs on every commit rather than being
   # discovered on launch day.
   public-build:
+    needs: gate
+    if: needs.gate.outputs.run == 'yes'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -558,6 +603,8 @@ jobs:
         run: node scripts/seo/check-sitemap.mjs --mode public
 
   api:
+    needs: gate
+    if: needs.gate.outputs.run == 'yes'
     runs-on: ubuntu-latest
     # CAMP-32 gave this job a database. The query plan for the map's
     # viewport query is part of the card's acceptance, and a plan can
@@ -808,7 +855,15 @@ jobs:
       - name: Which Geofabrik file we are allowed to take
         run: ./scripts/osm-pipeline/geofabrik-url.selftest.sh
 
+      # 🔴 CAMP-269. Сім випадків, із них три — різні поломки, і всі
+      # мусять дати «будуємо». Ворота, що мовчки кажуть «ні», зупиняють
+      # CI не падаючи.
+      - name: Whether a run should build at all
+        run: ./scripts/ci/should-build.sh --self-test
+
   e2e:
+    needs: gate
+    if: needs.gate.outputs.run == 'yes'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -905,6 +960,8 @@ jobs:
   # "8 of 5 facilities recorded" on the home page, a real defect that
   # none of the 642 other tests could see.
   visual:
+    needs: gate
+    if: needs.gate.outputs.run == 'yes'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -977,6 +1034,8 @@ jobs:
           retention-days: 7
 
   lighthouse:
+    needs: gate
+    if: needs.gate.outputs.run == 'yes'
     runs-on: ubuntu-latest
     services:
       postgres:
