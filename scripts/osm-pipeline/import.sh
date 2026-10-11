@@ -34,33 +34,18 @@ trap 'rm -rf "$WORKDIR"' EXIT
 FILTERED="$WORKDIR/filtered.osm.pbf"
 GEOJSON="$WORKDIR/features.geojson"
 
-echo "==> 1/3 osmium tags-filter (camp_site + caravan_site, nodes+ways)"
-osmium tags-filter "$PBF_PATH" \
-  n/tourism=camp_site n/tourism=caravan_site \
-  w/tourism=camp_site w/tourism=caravan_site \
-  -o "$FILTERED" --overwrite
-
-echo "==> 2/3 osmium export -> GeoJSON (with stable OSM id)"
-# 🔴 -u type_id is not optional (CAMP-28).
-#
-# Without it the export carries no OSM identifier at all: ogr2ogr then
-# invents `ogc_fid`, a row counter that changes between runs. Upserting on
-# that is impossible, so every weekly import would duplicate the entire
-# dataset instead of updating it.
-#
-# `type_id` emits values like `n2601234` / `w871234` - the type prefix
-# matters because a node and a way can share the same number.
-osmium export "$FILTERED" -o "$GEOJSON" --overwrite -f geojson -u type_id
+echo "==> 1/2 extract campsites (shared with osm-weekly.yml)"
+# 🔴 ONE script, called from here AND from the workflow that builds the
+# published release. It used to be two copies, and when the duplicate /
+# stray-node bug was fixed, it was fixed in the copy that does not ship.
+# See extract-campsites.sh for what that cost.
+"$(dirname "$0")/extract-campsites.sh" "$PBF_PATH" "$GEOJSON"
 
 FEATURE_COUNT="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['features']))" "$GEOJSON")"
-echo "    features found: $FEATURE_COUNT"
+echo "    campsites found: $FEATURE_COUNT"
 
-if [ "$FEATURE_COUNT" -eq 0 ]; then
-  echo "No camping/caravan features in this extract - nothing to import."
-  exit 0
-fi
 
-echo "==> 3/3 ogr2ogr -> PostGIS ($TABLE)"
+echo "==> 2/2 ogr2ogr -> PostGIS ($TABLE)"
 ogr2ogr -f "PostgreSQL" "PG:$DB_URL" "$GEOJSON" \
   -nln "$TABLE" -overwrite -lco GEOMETRY_NAME=geom -t_srs EPSG:4326
 

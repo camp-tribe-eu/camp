@@ -70,7 +70,12 @@ export const EXCEPTIONS = {
  * ever go up on purpose; lowering one is a deliberate edit that says in
  * its commit message which job went away.
  */
-export const AT_LEAST = { jobs: 18, nodeSteps: 11 };
+// 🔴 Піднято 11 → 12 разом із цією карткою: `osm-weekly.yml:extract`
+// отримав свій `setup-node`, бо тепер запускає нормалізатор. Заміряно на
+// дереві злиття: 18 джобів, 12 node-кроків. Не підняти означало б лишити
+// підлогу на один крок нижче за дійсність — тобто мовчазне зникнення
+// рівно цього кроку підлога б пропустила.
+export const AT_LEAST = { jobs: 18, nodeSteps: 12 };
 
 /** Does this step run Node, directly or through npm? */
 function runsNode(step) {

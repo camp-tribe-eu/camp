@@ -180,6 +180,13 @@ jobs:
       matrix:
         region: ${{ fromJson(needs.plan.outputs.regions) }}
     steps:
+      - uses: actions/checkout@v7
+      # 🔴 The extract now runs normalise-export.mjs, so this job needs a
+      # Node — and node-version-file rather than a literal, because it
+      # cannot drift from .nvmrc (CAMP-178).
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
       - name: Install osmium and GDAL
         run: |
           sudo apt-get update -qq
@@ -235,16 +242,21 @@ jobs:
           fi
           echo "  $REGION: $(stat -c%s "$SLUG.osm.pbf") bytes, checksum ok"
 
-          osmium tags-filter "$SLUG.osm.pbf" \
-            n/tourism=camp_site n/tourism=caravan_site \
-            w/tourism=camp_site w/tourism=caravan_site \
-            -o "$SLUG.filtered.osm.pbf" --overwrite
-
-          # -u type_id is not optional: it is the only stable key the
-          # import can upsert on. Without it every weekly run would
-          # duplicate the whole dataset instead of updating it.
-          osmium export "$SLUG.filtered.osm.pbf" \
-            -o "out/$SLUG.geojson" --overwrite -f geojson -u type_id
+          # 🔴 ONE script, shared with scripts/osm-pipeline/import.sh.
+          #
+          # This step used to carry its own copy of the filter and the
+          # export, and the copy is what ships: this workflow builds the
+          # published data release, while import.sh is what somebody runs
+          # by hand. So when CAMP-253 fixed the duplicate-and-stray-node
+          # bug in import.sh, it fixed the half that does not ship —
+          # review reproduced the untouched path here on Austria and got
+          # exactly the state the fix claimed to have removed: 1 493
+          # features, 116 gates and flagpoles, 603 duplicate copies.
+          #
+          # Two copies of a rule is one rule and one decoration, and
+          # nothing in either file says which is which.
+          scripts/osm-pipeline/extract-campsites.sh \
+            "$SLUG.osm.pbf" "out/$SLUG.geojson"
 
           # France is 4.9 GB and the runner has about 14 GB free. Nothing
           # downstream needs the PBF, so it goes before anything else can
