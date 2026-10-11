@@ -9,10 +9,12 @@ import { canonicalPath, readAmenities, slugifyRegion } from './canonical';
 // two answers to one question. The guides import it because their
 // queries aggregate over campsites rather than rendering one.
 import {
+  GONE_LIST_SQL,
   LINKED_SECONDARY_JOIN,
   mergedNameSql,
   mergeLinked,
   notSecondarySql,
+  REDIRECT_LIST_SQL,
 } from './links';
 import { tariffsSql, withheldTariffCountSql } from './tariffs';
 import type { TariffView } from './tariffs';
@@ -327,33 +329,7 @@ export class SpotsService {
       nearest: { path: string; name: string | null; metres: number } | null;
     }[]
   > {
-    const rows = await this.db.query(
-      `SELECT g.slug, g.name, g.country, g.region, g.missing_since,
-              n.slug AS n_slug, n.name AS n_name,
-              n.country AS n_country, n.region AS n_region,
-              round(ST_Distance(g.location::geography,
-                                n.location::geography)) AS n_metres
-         FROM camping_spots g
-         -- 🔴 LATERAL, so the nearest live campsite is found per row with
-         -- the GiST index (<->) rather than by joining every pair.
-         LEFT JOIN LATERAL (
-           SELECT s.slug, s.name, s.country, s.region, s.location
-             FROM camping_spots s
-            WHERE s.missing_since IS NULL
-              AND s.region IS NOT NULL
-              -- 🔴 CAMP-144. Without this the campsite offered to a
-              -- reader who lands on a dead URL can be one whose own URL
-              -- now 301s somewhere else — we would answer "this one is
-              -- gone, try that one" and that one would redirect.
-              AND ${notSecondarySql('s')}
-            ORDER BY s.location <-> g.location
-            LIMIT 1
-         ) n ON true
-        WHERE g.missing_since IS NOT NULL
-          AND g.missing_since < now() - interval '28 days'
-          AND g.region IS NOT NULL
-        ORDER BY g.country, g.region, g.slug`,
-    );
+    const rows = await this.db.query(GONE_LIST_SQL);
 
     return rows.map((r: Record<string, unknown>) => ({
       path: canonicalPath(
@@ -402,42 +378,14 @@ export class SpotsService {
    * proximity — it is the assertion the link already makes, that the two
    * rows are one campsite, and if that assertion is wrong the right fix
    * is to undo the link, which withdraws this redirect with it.
+   *
+   * 🔴 CAMP-279: which row redirects is decided by which one is
+   * published, not by which one is the secondary. The pair is defined
+   * once, in REDIRECT_PAIRS_SQL, and `gone()` subtracts the same rows —
+   * so a URL cannot be told to redirect here and announced dead there.
    */
   async links(): Promise<{ from: string; to: string }[]> {
-    const rows = await this.db.query(
-      `SELECT sec.country  AS from_country, sec.region  AS from_region,
-              sec.slug     AS from_slug,
-              pri.country  AS to_country,  pri.region  AS to_region,
-              pri.slug     AS to_slug
-         FROM spot_links l
-         JOIN camping_spots sec ON sec.id = l.secondary_id
-         JOIN camping_spots pri ON pri.id = l.primary_id
-        WHERE l.unlinked_at IS NULL
-          -- A row that never had a region never had a URL either, so
-          -- there is nothing to redirect from. Same rule as everywhere
-          -- else: no invented paths.
-          AND sec.region IS NOT NULL
-          -- 🔴 And the secondary must not be on its way to a 410 of its
-          -- own. gone() lists rows missing for 28 days; a row in both
-          -- lists would be redirected here and announced as gone there,
-          -- and the prerendered /gone page would name a campsite that is
-          -- alive on the primary's page.
-          AND sec.missing_since IS NULL
-          -- 🔴 The same two conditions isSecondarySql uses, and they
-          -- have to be the same two. (No backticks around that name:
-          -- this comment is inside a template literal, and the repo has
-          -- broken the build this way twice already.)
-          --
-          -- If the primary has gone missing
-          -- from OSM, the secondary stops being hidden and becomes its
-          -- own page again — so redirecting to the primary would send
-          -- readers from a live page to one that is on its way to a
-          -- 410. The two rules are what keep the site and its redirects
-          -- describing the same world.
-          AND pri.region IS NOT NULL
-          AND pri.missing_since IS NULL
-        ORDER BY sec.country, sec.region, sec.slug`,
-    );
+    const rows = await this.db.query(REDIRECT_LIST_SQL);
     return rows
       .map((r: Record<string, unknown>) => ({
         from: canonicalPath(

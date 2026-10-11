@@ -16,7 +16,14 @@
 import 'dotenv/config';
 import { Client } from 'pg';
 import { UPSERT_SPOT_SQL } from '../osm/import-spots';
+import { canonicalPath } from './canonical';
 import { judgeByIdentity, upperBoundPercent } from './link-evidence';
+import {
+  GONE_LIST_SQL,
+  isSecondarySql,
+  REDIRECT_LIST_SQL,
+  RESOLVED_REDIRECTS_SQL,
+} from './links';
 
 const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
@@ -55,6 +62,34 @@ const INVARIANTS: { name: string; sql: string }[] = [
             JOIN camping_spots s ON s.id = l.secondary_id
            WHERE l.unlinked_at IS NULL
              AND NOT (p.osm_ref IS NOT NULL AND s.osm_ref IS NULL)`,
+  },
+  {
+    // 🔴 CAMP-279. A redirect is a statement about two pages: this one
+    // has none, that one carries it. Both halves have to be true, and
+    // the failure modes are opposite — a redirect away from a page that
+    // still exists deletes it from the site, a redirect towards a page
+    // that does not exist sends readers and crawlers into a 404.
+    name: 'every redirect leaves a row with no page and lands on one with a page',
+    sql: `SELECT count(*)::int AS n
+            FROM (${RESOLVED_REDIRECTS_SQL}) rp
+            JOIN camping_spots f ON f.id = rp.from_id
+            JOIN camping_spots t ON t.id = rp.to_id
+           WHERE NOT (f.missing_since IS NOT NULL
+                      OR f.region IS NULL
+                      OR ${isSecondarySql('f')})
+              OR t.missing_since IS NOT NULL
+              OR t.region IS NULL
+              OR ${isSecondarySql('t')}`,
+  },
+  {
+    // 🔴 Two redirects in a row lose the first one: a crawler follows
+    // A → B, finds B redirecting to C, and the shortest path it records
+    // is not the one we published. The existing invariants make a chain
+    // impossible one link at a time; this says it about the answer.
+    name: 'no redirect points at a row that is itself redirected',
+    sql: `SELECT count(*)::int AS n
+            FROM (${RESOLVED_REDIRECTS_SQL}) a
+            JOIN (${RESOLVED_REDIRECTS_SQL}) b ON b.from_id = a.to_id`,
   },
   {
     name: 'no link joins a row to itself',
@@ -189,6 +224,297 @@ async function main(): Promise<void> {
         ? '  → nothing could be judged: no upper bound can be stated'
         : `  → upper bound on the wrong-link rate ${bound.toFixed(1)}%`,
     );
+
+    // ------------------------------------------------------------------
+    // CAMP-279: the two generated lists, read from the queries the API
+    // actually serves.
+    //
+    // 🔴 One URL must never be in both. `middleware.ts` reads a redirect
+    // map and a gone map built from these two endpoints; a path in both
+    // means the site answers 301 or 410 depending on which file the
+    // middleware consults first, and the prerendered /gone page names a
+    // campsite that is open on another page.
+    console.log('\n--- the two lists the site is built from ---');
+    const bothLists = async (): Promise<{
+      redirects: Map<string, string>;
+      gone: Set<string>;
+      overlap: string[];
+    }> => {
+      const r = await db.query<{
+        from_country: string;
+        from_region: string | null;
+        from_slug: string;
+        to_country: string;
+        to_region: string | null;
+        to_slug: string;
+      }>(REDIRECT_LIST_SQL);
+      const g = await db.query<{
+        country: string;
+        region: string | null;
+        slug: string;
+      }>(GONE_LIST_SQL);
+      const redirects = new Map<string, string>();
+      for (const row of r.rows) {
+        const from = canonicalPath(
+          row.from_country,
+          row.from_region,
+          row.from_slug,
+        );
+        const to = canonicalPath(row.to_country, row.to_region, row.to_slug);
+        if (from && to && from !== to) redirects.set(from, to);
+      }
+      const gone = new Set<string>();
+      for (const row of g.rows) {
+        const p = canonicalPath(row.country, row.region, row.slug);
+        if (p) gone.add(p);
+      }
+      return {
+        redirects,
+        gone,
+        overlap: [...redirects.keys()].filter((p) => gone.has(p)),
+      };
+    };
+
+    const lists = await bothLists();
+    console.log(
+      `  ${lists.redirects.size} redirected, ${lists.gone.size} announced gone`,
+    );
+    console.log(
+      `  ${lists.overlap.length === 0 ? '✓' : '✗'} no path is in both lists`,
+    );
+    if (lists.overlap.length > 0) {
+      failed++;
+      for (const p of lists.overlap.slice(0, 5)) console.error(`      ${p}`);
+    }
+
+    // ------------------------------------------------------------------
+    // 🔴 CAMP-279 REHEARSAL, AND THE REASON IT EXISTS.
+    //
+    // Everything above this line was zero before the fix as well — not
+    // because the fault was absent, but because it takes 28 days to
+    // become visible. Six pairs entered the state on 12.10.2026, when
+    // the import dropped their OSM primary while the secondary carried
+    // on holding the campsite's page. On 09.11 `gone()` would have
+    // answered 410 at the address that had been the canonical one,
+    // about six campsites that are open.
+    //
+    // A check that cannot see the fault it was written for is the blind
+    // alarm this file argues against two hundred lines up. So the state
+    // is PLANTED here and the shipped queries are read back — and then
+    // the link is undone and the same query is read again, because a
+    // check that only ever passes has not been shown to be a check.
+    console.log('\n--- rehearsal: OSM drops the primary, 29 days pass ---');
+    const pairRow = await db.query<{
+      link_id: string | null;
+      pid: string;
+      sid: string;
+    }>(
+      `SELECT l.id AS link_id, l.primary_id AS pid, l.secondary_id AS sid
+         FROM spot_links l
+        WHERE l.unlinked_at IS NULL
+        ORDER BY l.created_at
+        LIMIT 1`,
+    );
+    let plantLink = false;
+    if (pairRow.rowCount === 0) {
+      // Same shape as the import rehearsal below: on a fresh database
+      // `spot_links` is empty, and skipping would prove nothing.
+      const made = await db.query<{ pid: string; sid: string }>(
+        `SELECT p.id AS pid, o.id AS sid
+           FROM camping_spots p
+           JOIN camping_spots o ON o.id <> p.id
+          WHERE p.osm_ref IS NOT NULL
+            AND o.osm_ref IS NULL
+            AND NOT EXISTS (SELECT 1 FROM spot_links x
+                             WHERE x.unlinked_at IS NULL
+                               AND (x.secondary_id = o.id
+                                 OR x.primary_id = p.id))
+          ORDER BY p.id, o.id
+          LIMIT 1`,
+      );
+      if (made.rowCount === 0) {
+        console.error(
+          '  ✗ no OSM row with an unlinked non-OSM row beside it — cannot ' +
+            'rehearse the redirect.',
+        );
+        failed++;
+      } else {
+        pairRow.rows[0] = { link_id: null, ...made.rows[0] };
+        pairRow.rowCount = 1;
+        plantLink = true;
+      }
+    }
+
+    if (pairRow.rowCount === 1) {
+      const { pid, sid } = pairRow.rows[0];
+      await db.query('BEGIN');
+      try {
+        if (plantLink) {
+          await db.query(
+            `INSERT INTO spot_links
+               (primary_id, secondary_id, metres, name_similarity, rule)
+             VALUES ($1, $2, 0, 1, 'rehearsal')`,
+            [pid, sid],
+          );
+        }
+        // 🔴 Both rows are given a region inside the transaction rather
+        // than being looked for among rows that already have one. A URL
+        // needs a region, and a fixture that happened to have none would
+        // turn this proof into a silent skip.
+        await db.query(
+          `UPDATE camping_spots SET region = coalesce(region, 'Rehearsal')
+            WHERE id = ANY($1::uuid[])`,
+          [[pid, sid]],
+        );
+        // The week OSM drops the primary, plus the four imports that
+        // `gone()` waits for.
+        await db.query(
+          `UPDATE camping_spots SET missing_since = now() - interval '29 days'
+            WHERE id = $1`,
+          [pid],
+        );
+        const path = async (id: string): Promise<string | null> => {
+          const r = await db.query<{
+            country: string;
+            region: string | null;
+            slug: string;
+          }>(`SELECT country, region, slug FROM camping_spots WHERE id = $1`, [
+            id,
+          ]);
+          const row = r.rows[0];
+          return row ? canonicalPath(row.country, row.region, row.slug) : null;
+        };
+        const pPath = await path(pid);
+        const sPath = await path(sid);
+        const after = await bothLists();
+
+        const redirected =
+          pPath !== null && after.redirects.get(pPath) === sPath;
+        const notBuried = pPath !== null && !after.gone.has(pPath);
+        const secondaryKept = sPath !== null && !after.gone.has(sPath);
+        console.log(
+          `  ${redirected ? '✓' : '✗'} the dropped row redirects to the one holding the campsite`,
+        );
+        console.log(
+          `  ${notBuried ? '✓' : '✗'} and is NOT announced gone, 29 days or not`,
+        );
+        console.log(
+          `  ${secondaryKept ? '✓' : '✗'} the row that kept the campsite is not announced gone either`,
+        );
+        console.log(
+          `  ${after.overlap.length === 0 ? '✓' : '✗'} the two lists still do not overlap`,
+        );
+        if (!redirected || !notBuried || !secondaryKept || after.overlap.length)
+          failed++;
+
+        // 🔴 Now prove the exclusion was caused by the link and not by
+        // something else about this row. Undo the link and the same
+        // query must bury it.
+        await db.query(
+          `UPDATE spot_links SET unlinked_at = now(), unlinked_reason = 'rehearsal'
+            WHERE unlinked_at IS NULL AND primary_id = $1 AND secondary_id = $2`,
+          [pid, sid],
+        );
+        const undone = await bothLists();
+        const buriedOnceUnlinked = pPath !== null && undone.gone.has(pPath);
+        console.log(
+          `  ${buriedOnceUnlinked ? '✓' : '✗'} with the link undone the same query DOES announce it gone`,
+        );
+        if (!buriedOnceUnlinked) failed++;
+      } finally {
+        await db.query('ROLLBACK');
+      }
+      console.log('  (rolled back — the database is exactly as it was)');
+    }
+
+    // ------------------------------------------------------------------
+    // 🔴 CAMP-279 REHEARSAL II: a chain, built on purpose.
+    //
+    // Seven existed on 12.10.2026 and none of them was planned: CAMP-274
+    // folded an OSM area into the way it came from, and that way was
+    // already carrying a DATAtourisme record. Nothing forbids the shape,
+    // so the redirect list has to answer it — and a check for it that
+    // runs only where the shape happens to exist is not a check.
+    console.log('\n--- rehearsal: three rows in a chain, c → b → a ---');
+    const trio = await db.query<{ a: string; b: string; c: string }>(
+      `SELECT x.id AS a, y.id AS b, z.id AS c
+         FROM camping_spots x, camping_spots y, camping_spots z
+        WHERE x.id < y.id AND y.id < z.id
+          AND NOT EXISTS (SELECT 1 FROM spot_links l
+                           WHERE l.unlinked_at IS NULL
+                             AND l.primary_id   IN (x.id, y.id, z.id)
+                             AND l.secondary_id IN (x.id, y.id, z.id))
+          AND NOT EXISTS (SELECT 1 FROM spot_links l
+                           WHERE l.unlinked_at IS NULL
+                             AND (l.secondary_id IN (x.id, y.id, z.id)
+                               OR l.primary_id   IN (y.id, z.id)))
+        ORDER BY x.id, y.id, z.id
+        LIMIT 1`,
+    );
+    if (trio.rowCount === 0) {
+      console.error('  ✗ no three unlinked rows to build a chain from');
+      failed++;
+    } else {
+      const { a, b, c } = trio.rows[0];
+      await db.query('BEGIN');
+      try {
+        await db.query(
+          `UPDATE camping_spots SET region = coalesce(region, 'Rehearsal'),
+                                    missing_since = NULL
+            WHERE id = ANY($1::uuid[])`,
+          [[a, b, c]],
+        );
+        for (const [pri, sec] of [
+          [a, b],
+          [b, c],
+        ]) {
+          await db.query(
+            `INSERT INTO spot_links
+               (primary_id, secondary_id, metres, name_similarity, rule)
+             VALUES ($1, $2, 0, 1, 'rehearsal-chain')`,
+            [pri, sec],
+          );
+        }
+        const pathOf = async (id: string): Promise<string | null> => {
+          const r = await db.query<{
+            country: string;
+            region: string | null;
+            slug: string;
+          }>(`SELECT country, region, slug FROM camping_spots WHERE id = $1`, [
+            id,
+          ]);
+          const row = r.rows[0];
+          return row ? canonicalPath(row.country, row.region, row.slug) : null;
+        };
+        // One client, one query at a time — pg deprecates overlapping
+        // queries on the same connection and this is inside a
+        // transaction, where interleaving would be worse than noisy.
+        const pa = await pathOf(a);
+        const pb = await pathOf(b);
+        const pc = await pathOf(c);
+        const chained = await bothLists();
+        const bGoesToA = pb !== null && chained.redirects.get(pb) === pa;
+        // 🔴 The whole point: c must be sent to a in one hop, not to b,
+        // which is itself redirected.
+        const cGoesToA = pc !== null && chained.redirects.get(pc) === pa;
+        const cNotToB = pc !== null && chained.redirects.get(pc) !== pb;
+        const noneLandOnB =
+          pb === null || ![...chained.redirects.values()].includes(pb);
+        console.log(
+          `  ${bGoesToA ? '✓' : '✗'} the middle row redirects to the top`,
+        );
+        console.log(
+          `  ${cGoesToA && cNotToB ? '✓' : '✗'} the bottom row redirects to the TOP, not to the middle`,
+        );
+        console.log(
+          `  ${noneLandOnB ? '✓' : '✗'} nothing is sent to a row that redirects onwards`,
+        );
+        if (!bGoesToA || !cGoesToA || !cNotToB || !noneLandOnB) failed++;
+      } finally {
+        await db.query('ROLLBACK');
+      }
+      console.log('  (rolled back — the database is exactly as it was)');
+    }
 
     // ------------------------------------------------------------------
     // 🔴 THE PROOF THAT MATTERS: rehearse the weekly import.
