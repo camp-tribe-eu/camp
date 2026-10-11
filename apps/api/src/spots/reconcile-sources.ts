@@ -46,6 +46,7 @@ import 'dotenv/config';
 import { Client } from 'pg';
 import { decide, RULES } from '../datatourisme/match';
 import type { Candidate } from '../datatourisme/match';
+import { readFileSync, writeFileSync } from 'node:fs';
 import {
   identityDomains,
   judgeByIdentity,
@@ -56,7 +57,12 @@ const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
 
 /** How this run's rule is recorded on every link it writes. */
-export const RULE_ID = `decide@${RULES.sameSpotMetres}m/${RULES.confidentSimilarity}`;
+// 🔴 Імʼя правила несе ОБИДВІ стелі, бо від CAMP-277 їх дві. Старі
+// рядки в `spot_links` лишаються зі своїм записаним іменем — саме
+// для того воно там і зберігається, щоб було видно, хто чим звʼязав.
+export const RULE_ID =
+  `decide@${RULES.sameSpotMetres}m/${RULES.confidentSimilarity}` +
+  `+ident@${RULES.identicalNameMetres}m/${RULES.identicalSimilarity}`;
 
 /**
  * The degrees to pre-filter by before the exact metric test.
@@ -511,14 +517,21 @@ async function main(): Promise<void> {
     // rule broke at its far edge, disagreement would climb with
     // distance", and it was being made with the far edge deleted. The
     // assertion below is what stops that returning.
+    // 🔴 Смуги доведено до `identicalNameMetres`, бо від CAMP-277 стель
+    // дві. Перший прогін із розширеним правилом упав саме тут — 625 із
+    // 629 зв'язків не потрапили в жодну смугу, і перевірка покриття
+    // нижче сказала це вголос замість того, щоб надрукувати таблицю про
+    // чотири зв'язки й виглядати переконливо.
     let banded = 0;
     for (const [lo, hi] of [
       [0, 25],
       [25, 50],
       [50, 100],
       [100, RULES.sameSpotMetres],
+      [RULES.sameSpotMetres, 200],
+      [200, RULES.identicalNameMetres],
     ] as [number, number][]) {
-      const last = hi === RULES.sameSpotMetres;
+      const last = hi === RULES.identicalNameMetres;
       const band = out.link.filter(
         (p) => p.metres >= lo && (last ? p.metres <= hi : p.metres < hi),
       );
@@ -677,6 +690,26 @@ async function main(): Promise<void> {
       }
     }
 
+    // 🔴 CAMP-277: ПЕРЕДБАЧЕННЯ У ФАЙЛ, щоб бойовий прогін можна було
+    // звірити з сухим ПОЕЛЕМЕНТНО, а не за підсумковим числом.
+    //
+    // Збіг двох чисел нічого не доводить: 629 написаних зв'язків і 629
+    // передбачених можуть бути різними 629. Тому пишеться повний
+    // відсортований перелік пар, і `--apply --predict <той самий файл>`
+    // відмовляється вважати прогін успішним, якщо множини розійшлись.
+    const predictAt = process.argv.indexOf('--predict');
+    const predictFile = predictAt >= 0 ? process.argv[predictAt + 1] : null;
+    const fingerprint = (p: Proposal) =>
+      `${p.primary.id}|${p.secondary.id}|${Math.round(p.metres)}|${p.similarity}`;
+    const predicted = out.link.map(fingerprint).sort();
+
+    if (predictFile && !apply) {
+      writeFileSync(predictFile, JSON.stringify(predicted, null, 0));
+      console.log(
+        `\n  передбачення записано: ${predicted.length} пар → ${predictFile}`,
+      );
+    }
+
     if (!apply) {
       console.log('\n(dry run — nothing written. Add --apply to write.)');
       return;
@@ -718,6 +751,40 @@ async function main(): Promise<void> {
     }
     await db.query('COMMIT');
     console.log(`\n✓ ${written} links written. No campsite row was touched.`);
+
+    // 🔴 ЗВІРКА З ПЕРЕДБАЧЕННЯМ, ПОЕЛЕМЕНТНО.
+    //
+    // Не «629 там і 629 тут», а та сама множина пар. Два однакові числа
+    // можуть описувати два різні набори, і тоді прогін виглядає вдалим
+    // рівно тому, що його перевіряли підсумком.
+    if (predictFile) {
+      const fromFile: string[] = JSON.parse(readFileSync(predictFile, 'utf8'));
+      const live = await db.query<{ f: string }>(
+        `SELECT primary_id || '|' || secondary_id || '|' ||
+                round(metres)::text || '|' || name_similarity::text AS f
+           FROM spot_links WHERE rule = $1 AND unlinked_at IS NULL`,
+        [RULE_ID],
+      );
+      const actual = new Set<string>(live.rows.map((r) => String(r.f)));
+      const expected = new Set(fromFile);
+      const missing = [...expected].filter((f) => !actual.has(f));
+      const extra = [...actual].filter((f) => !expected.has(f));
+      if (missing.length === 0 && extra.length === 0) {
+        console.log(
+          `\n✓ звірено з передбаченням: ${expected.size} пар, збіг повний`,
+        );
+      } else {
+        console.log(
+          `\n::error::передбачення й факт розійшлись — ` +
+            `${missing.length} передбачених не записані, ` +
+            `${extra.length} записаних не передбачені`,
+        );
+        for (const f of [...missing.slice(0, 5), ...extra.slice(0, 5)]) {
+          console.log(`    ${f}`);
+        }
+        process.exitCode = 1;
+      }
+    }
     // 🔴 Named, not counted. Every one of these is a row the database
     // already holds an opinion about, and a number would not say whose.
     if (refused.length > 0) {
