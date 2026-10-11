@@ -1,4 +1,4 @@
-import SATELLITE from '@/data/satellite-sources.json';
+import SATELLITE from "@/data/satellite-sources.json";
 
 // CAMP-221 — the satellite base layer, one national source at a time.
 //
@@ -20,7 +20,10 @@ import SATELLITE from '@/data/satellite-sources.json';
 // Measured on 06.10.2026, from the services themselves:
 //
 //   ES  ows:AccessConstraints  "CC BY 4.0 scne.es",  Fees "No se aplican
-//       condiciones". Tile z14/8347/6168 → 200, image/jpeg.
+//       condiciones". Tile z14/8013/6180 (Madrid) → 200, image/jpeg, 18883 B.
+//       🔴 The control tile used to be z14/8347/6168 — open Mediterranean,
+//       200 and 1652 B of black. It proved the service answers, not that it
+//       serves photographs. Re-measured on land 11.10.2026.
 //   FR  the service points at cartes.gouv.fr/cgu, the CGU point at the
 //       dataset record, and the record says "Licence Ouverte / Open
 //       License (compatible ODC-BY, CC-BY 2.0)". Tile → 200, image/jpeg.
@@ -35,9 +38,21 @@ export interface SatelliteSource {
   provider: string;
   licence: string;
   licenceVerbatim: string;
+  /**
+   * The name this provider credits itself by — "IGN", not the legal name
+   * that begins "Institut national de l'information géographique…".
+   *
+   * 🔴 Declared here because the guard requires it and the data carries
+   * it, while this interface did not: a field three places depend on and
+   * one place describes is a field that drifts. Found when the new unit
+   * test touched it and TypeScript said it does not exist.
+   */
+  providerShort: string;
   attribution: string;
   readFrom: string;
   readField: string;
+  /** The tile we actually fetched, with its answer, so the claim is checkable. */
+  verifiedTile?: string;
   caveat?: string;
   tiles: string;
   maxzoom: number;
@@ -61,36 +76,91 @@ export const SATELLITE_NOT_YET = SATELLITE.notYet;
  * The countries come from the features the map has already drawn, so
  * this needs no new request and no invented geometry.
  */
-export function satelliteFor(countries: readonly string[]): SatelliteSource | null {
+export function satelliteFor(
+  countries: readonly string[],
+): SatelliteSource | null {
   const seen = new Set(countries.map((c) => c.toLowerCase()));
-  // 🔴 Offered only when EVERY country on screen is covered. A view
-  // straddling the Pyrenees would otherwise show France in photographs
-  // and Spain as nothing, which is the grey field the card forbids: a
-  // reader reads an empty half as "no campsites here", not as "no
-  // imagery here".
   if (seen.size === 0) return null;
-  const covered = SATELLITE_SOURCES.filter((s) => seen.has(s.country));
-  if (covered.length !== seen.size) return null;
-  // One source at a time: two national services cannot be stacked into
-  // one raster layer, and the first is the one the view is mostly in.
-  return covered[0] ?? null;
+  // 🔴 ONE COUNTRY, FULL STOP — and the first version of this said so in
+  // a comment while doing the opposite. It filtered SATELLITE_SOURCES by
+  // the countries on screen and returned `covered[0]`, calling it "the
+  // one the view is mostly in". There is no "mostly" here: `covered` is
+  // in the order of the DATA FILE, so a view holding France and Spain
+  // returned whichever entry was typed first.
+  //
+  // What that shipped, measured on the live services 11.10.2026:
+  //
+  //   ES service over a FRENCH tile  z14/8302/5745 → HTTP 200, 1561 B
+  //   ES service over Madrid         z14/8013/6180 → HTTP 200, 18883 B
+  //   FR service over Madrid                       → HTTP 404
+  //
+  // Both 256×256. The 1561-byte one is a flat green-brown fill, not a
+  // photograph — I opened it. So driving Spain → France with the layer on
+  // showed that fill CREDITED TO "© IGN España". Crediting a national
+  // mapping agency with an image it never served is worse than showing
+  // nothing, and CC BY makes it a licence problem as well as a lie.
+  //
+  // Two national rasters cannot be stacked into one layer, so a view that
+  // crosses a border gets no imagery and a sentence saying why.
+  if (seen.size > 1) return null;
+  const [only] = [...seen];
+  return SATELLITE_SOURCES.find((s) => s.country === only) ?? null;
+}
+
+/**
+ * The MapLibre raster spec for a source.
+ *
+ * 🔴 IT LIVES HERE SO THE CREDIT CANNOT BE WRITTEN BY HAND. The guard
+ * used to prove the component carried the attribution by grepping the
+ * .tsx for `attribution: source.attribution` — and a commented-out line
+ * still matches a grep. Building the spec in one tested function means
+ * the component has nowhere to put a credit of its own.
+ */
+export function rasterSourceSpec(source: SatelliteSource) {
+  return {
+    type: "raster" as const,
+    tiles: [source.tiles],
+    tileSize: 256,
+    maxzoom: source.maxzoom,
+    attribution: source.attribution,
+  };
 }
 
 /** Why satellite is unavailable here, in words a reader can act on. */
 export function whySatelliteUnavailable(countries: readonly string[]): string {
   const seen = [...new Set(countries.map((c) => c.toLowerCase()))];
-  if (seen.length === 0) return 'Zoom in far enough to show one country.';
-  const missing = seen.filter(
-    (c) => !SATELLITE_SOURCES.some((s) => s.country === c),
-  );
-  if (missing.length === 0) {
-    return 'This view crosses a border. Satellite imagery comes from one national service at a time.';
+  if (seen.length === 0) return "Zoom in far enough to show one country.";
+  if (seen.length > 1) {
+    return (
+      "This view crosses a border. Satellite imagery comes from one " +
+      "national service at a time, and one service does not photograph " +
+      "its neighbour — so we show none rather than one country's imagery " +
+      "over another country's ground."
+    );
+  }
+  const [only] = seen;
+  if (SATELLITE_SOURCES.some((s) => s.country === only)) {
+    return "Satellite imagery is available here.";
+  }
+  // 🔴 "WE LOOKED AND THERE IS NONE" AND "WE HAVE NOT LOOKED" ARE
+  // DIFFERENT SENTENCES, and the first version printed the first one for
+  // both. It said "No open orthophoto service we can use covers HR, SI
+  // yet" for every country without a source — twenty-five of them — when
+  // exactly one country had actually been researched. Claiming a negative
+  // result nobody measured is the same fault this repository keeps
+  // finding in its own guards, moved to the page.
+  const researched = SATELLITE_NOT_YET.find((n) => n.country === only);
+  if (researched) {
+    return (
+      `No orthophoto service we can use covers ${only.toUpperCase()} yet. ` +
+      `${researched.whyNotEnabled} ` +
+      "Esri, Bing and Google are closed to us by licence, so this layer is " +
+      "national or it is nothing."
+    );
   }
   return (
-    `No open orthophoto service we can use covers ${missing
-      .map((c) => c.toUpperCase())
-      .join(', ')} yet. ` +
-    'Esri, Bing and Google are closed to us by licence, so this layer is ' +
-    'national or it is nothing.'
+    `We have not yet looked for an open orthophoto service in ${only.toUpperCase()}. ` +
+    "Esri, Bing and Google are closed to us by licence, so this layer is " +
+    "national or it is nothing."
   );
 }
