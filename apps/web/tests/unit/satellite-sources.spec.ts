@@ -68,6 +68,28 @@ test("a border view says why, and the sentence is reachable", () => {
   expect(satelliteFor([ES, FR])).toBeNull();
 });
 
+// 🔴 THE CASE THE CI FIXTURE ACTUALLY IS, and the one my first rewrite got
+// wrong. The map fixture shows Croatia and Slovenia — two countries, neither
+// covered. Saying "this view crosses a border" is true and useless: it
+// implies that zooming into one of them would show photographs. The reason
+// is that we have no imagery for either.
+test("two uncovered countries are told the real reason, not the border one", () => {
+  const why = whySatelliteUnavailable(["hr", "si"]);
+  expect(why).not.toContain("crosses a border");
+  expect(why).toContain("HR");
+  expect(why).toContain("SI");
+});
+
+test("a covered pair IS told it crosses a border", () => {
+  expect(whySatelliteUnavailable([ES, FR])).toContain("crosses a border");
+});
+
+test("a mixed pair names the uncovered one, not the covered one", () => {
+  const why = whySatelliteUnavailable([ES, "pl"]);
+  expect(why).not.toContain("crosses a border");
+  expect(why).toContain("PL");
+});
+
 test("no countries on screen is not an error, it is a zoom level", () => {
   expect(satelliteFor([])).toBeNull();
   expect(whySatelliteUnavailable([])).toContain("Zoom in");

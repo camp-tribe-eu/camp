@@ -130,7 +130,19 @@ export function rasterSourceSpec(source: SatelliteSource) {
 export function whySatelliteUnavailable(countries: readonly string[]): string {
   const seen = [...new Set(countries.map((c) => c.toLowerCase()))];
   if (seen.length === 0) return "Zoom in far enough to show one country.";
-  if (seen.length > 1) {
+  // 🔴 ORDER MATTERS, AND I HAD IT WRONG. This asked "more than one
+  // country?" before "do we have imagery for them?", so the CI fixture —
+  // Croatia and Slovenia, neither of which we cover — was told "this view
+  // crosses a border". True, and not the reason: it implies that zooming
+  // into one of them would show photographs. It would not.
+  //
+  // Caught by reading the visual diff before regenerating the baseline,
+  // which is what this repository's own rule asks for and exactly why the
+  // rule exists.
+  const missing = seen.filter(
+    (c) => !SATELLITE_SOURCES.some((s) => s.country === c),
+  );
+  if (missing.length === 0 && seen.length > 1) {
     return (
       "This view crosses a border. Satellite imagery comes from one " +
       "national service at a time, and one service does not photograph " +
@@ -138,7 +150,33 @@ export function whySatelliteUnavailable(countries: readonly string[]): string {
       "over another country's ground."
     );
   }
-  const [only] = seen;
+  if (missing.length > 1) {
+    const named = (list: string[]) =>
+      list.map((c) => c.toUpperCase()).join(", ");
+    const researched = missing.filter((c) =>
+      SATELLITE_NOT_YET.some((n) => n.country === c),
+    );
+    const unlooked = missing.filter(
+      (c) => !SATELLITE_NOT_YET.some((n) => n.country === c),
+    );
+    const parts: string[] = [];
+    if (researched.length) {
+      parts.push(
+        `No orthophoto service we can use covers ${named(researched)} yet.`,
+      );
+    }
+    if (unlooked.length) {
+      parts.push(
+        `We have not yet looked for an open orthophoto service in ${named(unlooked)}.`,
+      );
+    }
+    return (
+      parts.join(" ") +
+      " Esri, Bing and Google are closed to us by licence, so this layer is " +
+      "national or it is nothing."
+    );
+  }
+  const [only] = missing.length === 1 ? missing : seen;
   if (SATELLITE_SOURCES.some((s) => s.country === only)) {
     return "Satellite imagery is available here.";
   }
