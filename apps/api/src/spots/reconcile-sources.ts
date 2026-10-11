@@ -46,6 +46,7 @@ import 'dotenv/config';
 import { Client } from 'pg';
 import { decide, RULES } from '../datatourisme/match';
 import type { Candidate } from '../datatourisme/match';
+import { readFileSync, writeFileSync } from 'node:fs';
 import {
   identityDomains,
   judgeByIdentity,
@@ -689,6 +690,24 @@ async function main(): Promise<void> {
       }
     }
 
+    // 🔴 CAMP-277: ПЕРЕДБАЧЕННЯ У ФАЙЛ, щоб бойовий прогін можна було
+    // звірити з сухим ПОЕЛЕМЕНТНО, а не за підсумковим числом.
+    //
+    // Збіг двох чисел нічого не доводить: 629 написаних зв'язків і 629
+    // передбачених можуть бути різними 629. Тому пишеться повний
+    // відсортований перелік пар, і `--apply --predict <той самий файл>`
+    // відмовляється вважати прогін успішним, якщо множини розійшлись.
+    const predictAt = process.argv.indexOf('--predict');
+    const predictFile = predictAt >= 0 ? process.argv[predictAt + 1] : null;
+    const fingerprint = (p: Proposal) =>
+      `${p.primary.id}|${p.secondary.id}|${Math.round(p.metres)}|${p.similarity}`;
+    const predicted = out.link.map(fingerprint).sort();
+
+    if (predictFile && !apply) {
+      writeFileSync(predictFile, JSON.stringify(predicted, null, 0));
+      console.log(`\n  передбачення записано: ${predicted.length} пар → ${predictFile}`);
+    }
+
     if (!apply) {
       console.log('\n(dry run — nothing written. Add --apply to write.)');
       return;
@@ -730,6 +749,40 @@ async function main(): Promise<void> {
     }
     await db.query('COMMIT');
     console.log(`\n✓ ${written} links written. No campsite row was touched.`);
+
+    // 🔴 ЗВІРКА З ПЕРЕДБАЧЕННЯМ, ПОЕЛЕМЕНТНО.
+    //
+    // Не «629 там і 629 тут», а та сама множина пар. Два однакові числа
+    // можуть описувати два різні набори, і тоді прогін виглядає вдалим
+    // рівно тому, що його перевіряли підсумком.
+    if (predictFile) {
+      const fromFile: string[] = JSON.parse(readFileSync(predictFile, 'utf8'));
+      const live = await db.query<{ f: string }>(
+        `SELECT primary_id || '|' || secondary_id || '|' ||
+                round(metres)::text || '|' || name_similarity::text AS f
+           FROM spot_links WHERE rule = $1 AND unlinked_at IS NULL`,
+        [RULE_ID],
+      );
+      const actual = new Set<string>(live.rows.map((r) => String(r.f)));
+      const expected = new Set(fromFile);
+      const missing = [...expected].filter((f) => !actual.has(f));
+      const extra = [...actual].filter((f) => !expected.has(f));
+      if (missing.length === 0 && extra.length === 0) {
+        console.log(
+          `\n✓ звірено з передбаченням: ${expected.size} пар, збіг повний`,
+        );
+      } else {
+        console.log(
+          `\n::error::передбачення й факт розійшлись — ` +
+            `${missing.length} передбачених не записані, ` +
+            `${extra.length} записаних не передбачені`,
+        );
+        for (const f of [...missing.slice(0, 5), ...extra.slice(0, 5)]) {
+          console.log(`    ${f}`);
+        }
+        process.exitCode = 1;
+      }
+    }
     // 🔴 Named, not counted. Every one of these is a row the database
     // already holds an opinion about, and a number would not say whose.
     if (refused.length > 0) {
