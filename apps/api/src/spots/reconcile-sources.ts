@@ -56,7 +56,12 @@ const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
 
 /** How this run's rule is recorded on every link it writes. */
-export const RULE_ID = `decide@${RULES.sameSpotMetres}m/${RULES.confidentSimilarity}`;
+// 🔴 Імʼя правила несе ОБИДВІ стелі, бо від CAMP-277 їх дві. Старі
+// рядки в `spot_links` лишаються зі своїм записаним іменем — саме
+// для того воно там і зберігається, щоб було видно, хто чим звʼязав.
+export const RULE_ID =
+  `decide@${RULES.sameSpotMetres}m/${RULES.confidentSimilarity}` +
+  `+ident@${RULES.identicalNameMetres}m/${RULES.identicalSimilarity}`;
 
 /**
  * The degrees to pre-filter by before the exact metric test.
@@ -511,14 +516,21 @@ async function main(): Promise<void> {
     // rule broke at its far edge, disagreement would climb with
     // distance", and it was being made with the far edge deleted. The
     // assertion below is what stops that returning.
+    // 🔴 Смуги доведено до `identicalNameMetres`, бо від CAMP-277 стель
+    // дві. Перший прогін із розширеним правилом упав саме тут — 625 із
+    // 629 зв'язків не потрапили в жодну смугу, і перевірка покриття
+    // нижче сказала це вголос замість того, щоб надрукувати таблицю про
+    // чотири зв'язки й виглядати переконливо.
     let banded = 0;
     for (const [lo, hi] of [
       [0, 25],
       [25, 50],
       [50, 100],
       [100, RULES.sameSpotMetres],
+      [RULES.sameSpotMetres, 200],
+      [200, RULES.identicalNameMetres],
     ] as [number, number][]) {
-      const last = hi === RULES.sameSpotMetres;
+      const last = hi === RULES.identicalNameMetres;
       const band = out.link.filter(
         (p) => p.metres >= lo && (last ? p.metres <= hi : p.metres < hi),
       );

@@ -215,6 +215,35 @@ export const RULES = {
   confidentSimilarity: 0.85,
   /** Below this the names are simply different. */
   weakSimilarity: 0.6,
+
+  /**
+   * An IDENTICAL name reaches further than a merely similar one.
+   *
+   * 🔴 WHY A SECOND DISTANCE AT ALL (CAMP-277).
+   *
+   * `sameSpotMetres` was chosen against data where both sides are
+   * POINTS. DATAtourisme publishes a postal address; OSM maps a campsite
+   * as a POLYGON, and what we store is one point inside it. For a large
+   * site the entrance and the centre are hundreds of metres apart by
+   * construction — measured on the French extract, the offset between a
+   * polygon's first vertex and its centre reached 1 384 m.
+   *
+   * 🔴 AND IT IS NOT INTUITION. Measured 11.10.2026 on the live table,
+   * over the pairs the rule DECLINED, by the independent signal
+   * (two sources naming different website domains):
+   *
+   *     150–200 m   335 pairs   253 judgeable   15.4%
+   *     200–300 m   292 pairs   209 judgeable   14.8%
+   *     300–400 m   109 pairs    71 judgeable   29.6%
+   *     control: existing links at 0–25 m               21.2%
+   *
+   * Up to 300 m the identical-name pairs are CLEANER than the links we
+   * already trust. Past 300 m they are not — on 71 judgeable pairs,
+   * which is small enough that the jump may be noise, and that is a
+   * reason to leave the band to a human rather than a finding about it.
+   */
+  identicalSimilarity: 0.99,
+  identicalNameMetres: 300,
 };
 
 /**
@@ -272,6 +301,19 @@ export function decide(
 
   if (sim >= rules.confidentSimilarity && metres <= rules.sameSpotMetres) {
     return { ...shared, verdict: 'same', why: 'same name, same place' };
+  }
+  // 🔴 Identical names, within one campsite's span. See the measurement
+  // on `identicalNameMetres` — this branch exists because of a number,
+  // and the number is in RULES where the next reader will find it.
+  if (
+    sim >= rules.identicalSimilarity &&
+    metres <= rules.identicalNameMetres
+  ) {
+    return {
+      ...shared,
+      verdict: 'same',
+      why: `identical name, ${Math.round(metres)} m apart`,
+    };
   }
   if (sim >= rules.confidentSimilarity) {
     return {

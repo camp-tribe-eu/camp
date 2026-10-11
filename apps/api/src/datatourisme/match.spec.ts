@@ -4,6 +4,7 @@ import {
   editDistance,
   fold,
   metresApart,
+  RULES,
   similarity,
 } from './match';
 
@@ -84,6 +85,61 @@ describe('🔴 what must be merged', () => {
       { id: 'osm-1', name: 'Camping les Genets', ...at(43.1201, 6.18) },
     ]);
     expect(d.verdict).toBe('same');
+  });
+});
+
+describe('🔴 CAMP-277: an identical name reaches further than a similar one', () => {
+  // 0.0018° of latitude ≈ 200 m; 0.0032° ≈ 355 m. Checked against
+  // metresApart in the assertions themselves, so a change in the
+  // distance maths cannot quietly move what these cases mean.
+  const base = at(43.12, 6.18);
+
+  it('the same name 200 m away is one campsite, not two', () => {
+    const far = at(43.1218, 6.18);
+    expect(metresApart(base, far)).toBeGreaterThan(RULES.sameSpotMetres);
+    expect(metresApart(base, far)).toBeLessThan(RULES.identicalNameMetres);
+    const d = decide({ name: 'Camping Maya', ...base }, [
+      { id: 'osm-1', name: 'Camping Maya', ...far },
+    ]);
+    expect(d.verdict).toBe('same');
+    expect(d.why).toMatch(/identical name/);
+  });
+
+  it('🔴 past the identical-name ceiling it goes back to a human', () => {
+    const tooFar = at(43.1232, 6.18);
+    expect(metresApart(base, tooFar)).toBeGreaterThan(RULES.identicalNameMetres);
+    const d = decide({ name: 'Camping Maya', ...base }, [
+      { id: 'osm-1', name: 'Camping Maya', ...tooFar },
+    ]);
+    expect(d.verdict).toBe('review');
+  });
+
+  it('🔴 merely SIMILAR names do not get the longer reach', () => {
+    // The whole point of the second ceiling is that it applies to
+    // identical names only. A 0.85-similar pair at 200 m must still be
+    // a review, exactly as before this rule existed.
+    const far = at(43.1218, 6.18);
+    // 🔴 Схожість названа числом, а не вгадана за виглядом назв. Перша
+    // редакція брала «Camping Les Pins» ~ «Camping Les Pins du Lac» і
+    // вважала це «схожим» — насправді 0.500, тобто пара падала у «new»
+    // і тест перевіряв не те, що в його назві.
+    const a = 'Camping Bellevue';
+    const b = 'Camping Bellevu';
+    expect(similarity(coreName(a), coreName(b))).toBeGreaterThanOrEqual(
+      RULES.confidentSimilarity,
+    );
+    expect(similarity(coreName(a), coreName(b))).toBeLessThan(
+      RULES.identicalSimilarity,
+    );
+    const d = decide({ name: a, ...base }, [{ id: 'osm-1', name: b, ...far }]);
+    expect(d.verdict).toBe('review');
+  });
+
+  it('an unnamed candidate is still never merged, however identical the rest', () => {
+    const d = decide({ name: 'Camping Maya', ...base }, [
+      { id: 'osm-1', name: '', ...at(43.1218, 6.18) },
+    ]);
+    expect(d.verdict).not.toBe('same');
   });
 });
 
