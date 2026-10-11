@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 // 🔴 Named imports: maplibre-gl 6 is ESM-only and dropped the default
 // export, so `import maplibregl from 'maplibre-gl'` compiles under
 // TypeScript and then fails at bundle time with "does not contain a
@@ -13,20 +13,20 @@ import {
   setWorkerUrl,
   type GeoJSONSource,
   type MapGeoJSONFeature,
-} from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+} from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 import {
   DEFAULT_SOURCE_ID,
   INITIAL_VIEW,
   MAP_SOURCES,
   type MapSource,
-} from '@/lib/map-sources';
+} from "@/lib/map-sources";
 import {
   AMENITY_KEYS,
   AMENITY_LABEL,
   SPOT_TYPES,
   type AmenityKey,
-} from '@/lib/api';
+} from "@/lib/api";
 import {
   applyFilters,
   EMPTY_FILTERS,
@@ -34,17 +34,17 @@ import {
   toSearchParams,
   type MapFilterState,
   type SpotProperties as FilterProperties,
-} from '@/lib/map-filter';
-import MapFilters from './map-filters';
+} from "@/lib/map-filter";
+import MapFilters from "./map-filters";
 import {
   MARKER_STROKE,
   TYPE_COLOUR,
   clusterCounts,
   dominantColourExpression,
   typeColourExpression,
-} from '@/lib/map-palette';
-import { LayerChip } from './layer-chip';
-import { WildfirePanel } from './wildfire-panel';
+} from "@/lib/map-palette";
+import { LayerChip } from "./layer-chip";
+import { WildfirePanel } from "./wildfire-panel";
 import {
   DETAIL_ZOOM,
   chunkUrl,
@@ -55,14 +55,19 @@ import {
   type Bounds,
   type MapDataState,
   type RegionSummary,
-} from '@/lib/map-chunks';
-import { askStyleWait, retryOnEvent } from '@/lib/retry-on-event';
+} from "@/lib/map-chunks";
+import { askStyleWait, retryOnEvent } from "@/lib/retry-on-event";
+import {
+  satelliteFor,
+  whySatelliteUnavailable,
+  rasterSourceSpec,
+} from "@/lib/satellite-sources";
 import {
   DEFAULT_LAYERS,
   LAYERS,
   toggleLayer,
   type LayerId,
-} from '@/lib/map-layers';
+} from "@/lib/map-layers";
 import {
   WILDFIRE_URL,
   firesInView,
@@ -71,12 +76,12 @@ import {
   wildfireState,
   type WildfireFeature,
   type WildfireState,
-} from '@/lib/wildfires';
+} from "@/lib/wildfires";
 
 /** One campsite in the collection the map draws. */
 interface SpotFeature {
-  type: 'Feature';
-  geometry: { type: 'Point'; coordinates: [number, number] };
+  type: "Feature";
+  geometry: { type: "Point"; coordinates: [number, number] };
   properties: FilterProperties;
 }
 
@@ -95,20 +100,28 @@ interface SpotFeature {
 //   4. a marker says what we actually know about a campsite, and never
 //      more than that.
 
-const INDEX_URL = '/data/spots/index.json';
-const SOURCE_ID = 'campsites';
-const REGION_SOURCE = 'campsite-regions';
-const REGION_CIRCLE = 'campsite-region-circles';
-const REGION_COUNT = 'campsite-region-count';
-const CLUSTER_LAYER = 'campsite-clusters';
-const COUNT_LAYER = 'campsite-cluster-count';
-const POINT_LAYER = 'campsite-points';
+const INDEX_URL = "/data/spots/index.json";
+const SOURCE_ID = "campsites";
+const REGION_SOURCE = "campsite-regions";
+const REGION_CIRCLE = "campsite-region-circles";
+
+/** CAMP-221. The national orthophoto, when one covers what is on screen. */
+const SATELLITE_SOURCE = "satellite-ortho";
+// Which source id is actually on the map right now — see `apply()`.
+// A boolean would not have caught the bug it exists for.
+const SATELLITE_LAYER = "satellite-ortho-raster";
+/** Ties the disabled button to the sentence that says why it is off. */
+const SATELLITE_WHY_ID = "satellite-unavailable-reason";
+const REGION_COUNT = "campsite-region-count";
+const CLUSTER_LAYER = "campsite-clusters";
+const COUNT_LAYER = "campsite-cluster-count";
+const POINT_LAYER = "campsite-points";
 // CAMP-153: the Copernicus burnt-area perimeters.
-const FIRE_SOURCE = 'wildfires';
-const FIRE_FILL = 'wildfire-areas';
-const FIRE_LINE = 'wildfire-outlines';
+const FIRE_SOURCE = "wildfires";
+const FIRE_FILL = "wildfire-areas";
+const FIRE_LINE = "wildfire-outlines";
 /** Invisible, and the only thing a reader can realistically hit. */
-const FIRE_HIT = 'wildfire-hit';
+const FIRE_HIT = "wildfire-hit";
 /** Everything under the pointer that means "a burnt area": the inside of a
  * big perimeter and the halo around a small one. */
 const FIRE_CLICK_LAYERS = [FIRE_FILL, FIRE_HIT];
@@ -129,7 +142,7 @@ const FIRE_CLICK_LAYERS = [FIRE_FILL, FIRE_HIT];
 // scripts/copy-maplibre-worker.mjs puts the worker and its one dependency
 // in public/maplibre/ at build time; this points the library at them.
 // Module scope, so it runs before any map is constructed.
-setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
+setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 /**
  * 🔴 The one font every source in MAP_SOURCES serves.
@@ -141,7 +154,7 @@ setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
  * a console warning, not an error. Any new entry in MAP_SOURCES has to
  * be checked against this.
  */
-const CLUSTER_FONT = ['Noto Sans Bold'];
+const CLUSTER_FONT = ["Noto Sans Bold"];
 
 /** What a campsite feature carries. Flat, because cluster leaves are flat. */
 type SpotProperties = {
@@ -158,11 +171,11 @@ type SpotProperties = {
  * page to get wrong and the hardest for a reader to check.
  */
 const TYPE_LABEL: Record<string, string> = {
-  free: 'Free',
-  paid: 'Charges a fee',
-  wild: 'Wild camping',
-  camper_stop: 'Camper stop, free',
-  rv_park: 'Motorhome park',
+  free: "Free",
+  paid: "Charges a fee",
+  wild: "Wild camping",
+  camper_stop: "Camper stop, free",
+  rv_park: "Motorhome park",
 };
 
 /**
@@ -182,10 +195,10 @@ function drawRegions(
   regions: readonly RegionSummary[],
 ) {
   const data: GeoJSON.FeatureCollection = {
-    type: 'FeatureCollection',
+    type: "FeatureCollection",
     features: regions.map((r) => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [r.lon, r.lat] },
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [r.lon, r.lat] },
       properties: { count: r.count, label: String(r.count) },
     })),
   };
@@ -194,27 +207,27 @@ function drawRegions(
   if (existing) {
     existing.setData(data);
   } else {
-    m.addSource(REGION_SOURCE, { type: 'geojson', data });
+    m.addSource(REGION_SOURCE, { type: "geojson", data });
   }
 
   if (!m.getLayer(REGION_CIRCLE)) {
     m.addLayer({
       id: REGION_CIRCLE,
-      type: 'circle',
+      type: "circle",
       source: REGION_SOURCE,
       paint: {
-        'circle-color': '#404B62',
-        'circle-opacity': 0.85,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': '#0B0F17',
+        "circle-color": "#404B62",
+        "circle-opacity": 0.85,
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#0B0F17",
         // Area in proportion to the count, so a region with four times
         // as many looks twice as wide — the honest encoding. Clamped,
         // because Bayern's 1 433 against a median of 26 would otherwise
         // swallow half the continent.
-        'circle-radius': [
-          'interpolate',
-          ['linear'],
-          ['sqrt', ['get', 'count']],
+        "circle-radius": [
+          "interpolate",
+          ["linear"],
+          ["sqrt", ["get", "count"]],
           1,
           6,
           38,
@@ -226,15 +239,15 @@ function drawRegions(
   if (!m.getLayer(REGION_COUNT)) {
     m.addLayer({
       id: REGION_COUNT,
-      type: 'symbol',
+      type: "symbol",
       source: REGION_SOURCE,
       layout: {
-        'text-field': ['get', 'label'],
-        'text-font': CLUSTER_FONT,
-        'text-size': 11,
-        'text-allow-overlap': false,
+        "text-field": ["get", "label"],
+        "text-font": CLUSTER_FONT,
+        "text-size": 11,
+        "text-allow-overlap": false,
       },
-      paint: { 'text-color': '#FFFFFF' },
+      paint: { "text-color": "#FFFFFF" },
     });
   }
 }
@@ -297,7 +310,7 @@ export function setCampsiteFeatures(
 ): void {
   const source = m.getSource(SOURCE_ID) as GeoJSONSource | undefined;
   if (!source) return;
-  source.setData({ type: 'FeatureCollection', features });
+  source.setData({ type: "FeatureCollection", features });
   sourceFeatures = features.length;
 }
 
@@ -321,8 +334,8 @@ function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
 function attachFires(m: InstanceType<typeof MapLibreMap>) {
   if (!m.getSource(FIRE_SOURCE)) {
     m.addSource(FIRE_SOURCE, {
-      type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] },
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
       // 🔴 NO SIMPLIFICATION, and this is what half of the layer hung on.
       //
       // The GeoJSON source runs every shape through geojson-vt, whose
@@ -345,24 +358,24 @@ function attachFires(m: InstanceType<typeof MapLibreMap>) {
   if (!m.getLayer(FIRE_FILL)) {
     m.addLayer({
       id: FIRE_FILL,
-      type: 'fill',
+      type: "fill",
       source: FIRE_SOURCE,
       paint: {
         // Burnt ground, not alarm red: the campsite markers are already
         // #C83D28, and two reds on one map is a reader guessing which is
         // which. This one reads as scorched earth and stays distinct.
-        'fill-color': '#5B3A29',
-        'fill-opacity': 0.55,
+        "fill-color": "#5B3A29",
+        "fill-opacity": 0.55,
       },
     });
   }
   if (!m.getLayer(FIRE_LINE)) {
     m.addLayer({
       id: FIRE_LINE,
-      type: 'line',
+      type: "line",
       source: FIRE_SOURCE,
       paint: {
-        'line-color': '#8A4B2A',
+        "line-color": "#8A4B2A",
         // 🔴 Wide enough at low zoom to BE the mark, because the fill is
         // not one. Measured over the shipped 278 perimeters (512 px tiles,
         // as MapLibre draws them): at z6.2 the median is 0.7 px across and
@@ -370,8 +383,18 @@ function attachFires(m: InstanceType<typeof MapLibreMap>) {
         // view is this outline and nothing else. It narrows as the real
         // shape grows past it. (An earlier comment here said 0.31 px: it
         // had assumed 256 px tiles and was half the truth.)
-        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 3, 10, 2.5, 14, 2],
-        'line-opacity': 0.95,
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          4,
+          3,
+          10,
+          2.5,
+          14,
+          2,
+        ],
+        "line-opacity": 0.95,
       },
     });
   }
@@ -390,12 +413,22 @@ function attachFires(m: InstanceType<typeof MapLibreMap>) {
   if (!m.getLayer(FIRE_HIT)) {
     m.addLayer({
       id: FIRE_HIT,
-      type: 'line',
+      type: "line",
       source: FIRE_SOURCE,
       paint: {
-        'line-color': '#000000',
-        'line-opacity': 0,
-        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 16, 10, 12, 14, 8],
+        "line-color": "#000000",
+        "line-opacity": 0,
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          4,
+          16,
+          10,
+          12,
+          14,
+          8,
+        ],
       },
     });
   }
@@ -413,27 +446,30 @@ function attachFires(m: InstanceType<typeof MapLibreMap>) {
  * 🔴 DOM, not HTML, for the same reason as markerCard: place names come
  * from somebody else's database and are untrusted input.
  */
-function fireCard(p: WildfireFeature['properties'], attribution: string): HTMLElement {
-  const root = document.createElement('div');
-  root.className = 'ct-popup';
+function fireCard(
+  p: WildfireFeature["properties"],
+  attribution: string,
+): HTMLElement {
+  const root = document.createElement("div");
+  root.className = "ct-popup";
 
-  const title = document.createElement('strong');
-  title.className = 'ct-popup-title';
+  const title = document.createElement("strong");
+  title.className = "ct-popup-title";
   // Never invented: EFFIS leaves the commune blank on some records, and
   // "Unknown place" would be a claim of its own.
   title.textContent = p.place || `Burnt area in ${p.country}`;
   root.append(title);
 
-  const when = document.createElement('p');
-  when.className = 'ct-popup-kind';
+  const when = document.createElement("p");
+  when.className = "ct-popup-kind";
   const day = formatDay(p.date);
   when.textContent = day
-    ? `Fire recorded ${day} — about ${p.hectares.toLocaleString('en-GB')} ha burnt`
-    : `About ${p.hectares.toLocaleString('en-GB')} ha burnt`;
+    ? `Fire recorded ${day} — about ${p.hectares.toLocaleString("en-GB")} ha burnt`
+    : `About ${p.hectares.toLocaleString("en-GB")} ha burnt`;
   root.append(when);
 
-  const who = document.createElement('p');
-  who.className = 'ct-popup-empty';
+  const who = document.createElement("p");
+  who.className = "ct-popup-empty";
   who.textContent = attribution;
   root.append(who);
 
@@ -445,6 +481,13 @@ export default function CampsiteMap() {
   const map = useRef<InstanceType<typeof MapLibreMap> | null>(null);
   const popup = useRef<InstanceType<typeof Popup> | null>(null);
   const [sourceId, setSourceId] = useState(DEFAULT_SOURCE_ID);
+  // CAMP-221. Which countries the view is actually over, taken from the
+  // chunk keys the map already loads (`country/region`), so the satellite
+  // layer is offered by country without a new request or invented
+  // geometry. Empty while the map is zoomed out: there are no chunks, and
+  // nobody reads orthophotos at continent zoom.
+  const [countriesInView, setCountriesInView] = useState<string[]>([]);
+  const [satelliteOn, setSatelliteOn] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [unsupported, setUnsupported] = useState(false);
   const tried = useRef<Set<string>>(new Set());
@@ -471,7 +514,7 @@ export default function CampsiteMap() {
   // map-embed.tsx with `ssr: false`, so there is no server pass — the
   // guard is there for the day somebody changes that.
   const [filters, setFilters] = useState<MapFilterState>(() =>
-    typeof window === 'undefined'
+    typeof window === "undefined"
       ? EMPTY_FILTERS
       : fromSearchParams(window.location.search, SPOT_TYPES, AMENITY_KEYS),
   );
@@ -587,7 +630,7 @@ export default function CampsiteMap() {
    * changes rather than at the next `idle`. See `publishRegionLayer`.
    */
   const publishRegionLayerRef = useRef<(() => void) | null>(null);
-  const [dataState, setDataState] = useState<MapDataState>({ kind: 'loading' });
+  const [dataState, setDataState] = useState<MapDataState>({ kind: "loading" });
 
   // CAMP-153. The fire layer's three pieces of state, kept apart on
   // purpose: what arrived, which layers the reader has on, and how many
@@ -596,7 +639,9 @@ export default function CampsiteMap() {
   // 🔴 `loading`, not `missing`, until the fetch has actually answered.
   // The two produce the same empty map and the reader cannot tell them
   // apart, so the sentence under the map has to.
-  const [fireState, setFireState] = useState<WildfireState>({ kind: 'loading' });
+  const [fireState, setFireState] = useState<WildfireState>({
+    kind: "loading",
+  });
   const fires = useRef<WildfireFeature[]>([]);
   const [firesHere, setFiresHere] = useState<number | null>(null);
   /**
@@ -609,7 +654,7 @@ export default function CampsiteMap() {
    * because it would be testing the same constant. It travels with the
    * data, and `readFeed` refuses a feed that carries none.
    */
-  const attributionRef = useRef('');
+  const attributionRef = useRef("");
   /**
    * Which datasets are drawn.
    *
@@ -621,10 +666,15 @@ export default function CampsiteMap() {
    * is CAMP-122's job and it is not this card's to do badly.
    */
   const [layers, setLayers] = useState<LayerId[]>(() => DEFAULT_LAYERS());
-  const firesOn = layers.includes('wildfire' as LayerId);
+  const firesOn = layers.includes("wildfire" as LayerId);
 
-  const active =
-    MAP_SOURCES.find((s) => s.id === sourceId) ?? MAP_SOURCES[0];
+  // One call, not five. The JSX below used to ask `satelliteFor()`
+  // separately for the click, aria-pressed, aria-disabled, the class
+  // and the notice — five chances for them to disagree about the same
+  // frame, and the credit added on 11.10.2026 would have been a sixth.
+  const satelliteSource = satelliteFor(countriesInView);
+
+  const active = MAP_SOURCES.find((s) => s.id === sourceId) ?? MAP_SOURCES[0];
 
   // Created once. Changing the style afterwards goes through setStyle,
   // because re-creating the map would throw away the reader's position.
@@ -661,7 +711,7 @@ export default function CampsiteMap() {
     map.current = m;
     // The camera has not moved yet. Written here so the attribute is never
     // simply absent — see `data-camera` below for what it promises.
-    container.current.dataset.camera = 'still';
+    container.current.dataset.camera = "still";
 
     m.addControl(new NavigationControl({ showCompass: false }));
     // 🔴 No customAttribution here. OpenFreeMap's styles already declare
@@ -687,12 +737,12 @@ export default function CampsiteMap() {
       attachFires(m);
       if (!m.getSource(SOURCE_ID)) {
         m.addSource(SOURCE_ID, {
-          type: 'geojson',
+          type: "geojson",
           // 🔴 Whatever is currently drawn, not the URL. setStyle drops
           // every source, so this runs again on each style change — and
           // reading the ref means switching the basemap keeps the
           // reader's filters instead of silently restoring all 1079.
-          data: { type: 'FeatureCollection', features: drawn.current },
+          data: { type: "FeatureCollection", features: drawn.current },
           // CAMP-32. Clustering happens in the worker, over the whole
           // set, so the browser only ever draws what is on screen.
           cluster: true,
@@ -709,28 +759,28 @@ export default function CampsiteMap() {
       if (!m.getLayer(CLUSTER_LAYER)) {
         m.addLayer({
           id: CLUSTER_LAYER,
-          type: 'circle',
+          type: "circle",
           source: SOURCE_ID,
-          filter: ['has', 'point_count'],
+          filter: ["has", "point_count"],
           paint: {
             // CAMP-222. The number says how many; the colour says which
             // kind there are more of. One flat colour turned the country
             // view into identical grey circles.
-            'circle-color': dominantColourExpression() as never,
-            'circle-opacity': 0.9,
+            "circle-color": dominantColourExpression() as never,
+            "circle-opacity": 0.9,
             // Size by how many sites are inside, so the shape of the
             // data is visible before anything is clicked.
-            'circle-radius': [
-              'step',
-              ['get', 'point_count'],
+            "circle-radius": [
+              "step",
+              ["get", "point_count"],
               15,
               10,
               20,
               50,
               26,
             ],
-            'circle-stroke-width': 2,
-            'circle-stroke-color': MARKER_STROKE,
+            "circle-stroke-width": 2,
+            "circle-stroke-color": MARKER_STROKE,
           },
         });
       }
@@ -738,38 +788,38 @@ export default function CampsiteMap() {
       if (!m.getLayer(COUNT_LAYER)) {
         m.addLayer({
           id: COUNT_LAYER,
-          type: 'symbol',
+          type: "symbol",
           source: SOURCE_ID,
-          filter: ['has', 'point_count'],
+          filter: ["has", "point_count"],
           layout: {
-            'text-field': ['get', 'point_count_abbreviated'],
-            'text-font': CLUSTER_FONT,
-            'text-size': 12,
-            'text-allow-overlap': true,
+            "text-field": ["get", "point_count_abbreviated"],
+            "text-font": CLUSTER_FONT,
+            "text-size": 12,
+            "text-allow-overlap": true,
           },
-          paint: { 'text-color': '#FFFFFF' },
+          paint: { "text-color": "#FFFFFF" },
         });
       }
 
       if (!m.getLayer(POINT_LAYER)) {
         m.addLayer({
           id: POINT_LAYER,
-          type: 'circle',
+          type: "circle",
           source: SOURCE_ID,
-          filter: ['!', ['has', 'point_count']],
+          filter: ["!", ["has", "point_count"]],
           paint: {
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 4, 12, 7],
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 4, 12, 7],
             // 🔴 CAMP-222. This was `#C83D28`, which the design system
             // calls **Error** — every campsite on the map was painted in
             // the colour reserved for something being wrong.
-            'circle-color': typeColourExpression() as never,
-            'circle-stroke-width': 1.5,
-            'circle-stroke-color': MARKER_STROKE,
+            "circle-color": typeColourExpression() as never,
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": MARKER_STROKE,
           },
         });
       }
     };
-    m.on('styledata', () => {
+    m.on("styledata", () => {
       attach();
       // 🔴 The region circles have to come back too.
       //
@@ -815,7 +865,10 @@ export default function CampsiteMap() {
         m.easeTo({ center: [lng, lat], zoom });
       } catch {
         // A cluster id from a stale tile: zooming a little still helps.
-        m.easeTo({ center: [e.lngLat.lng, e.lngLat.lat], zoom: m.getZoom() + 2 });
+        m.easeTo({
+          center: [e.lngLat.lng, e.lngLat.lat],
+          zoom: m.getZoom() + 2,
+        });
       }
     };
 
@@ -827,14 +880,16 @@ export default function CampsiteMap() {
       if (!feature) return;
       popup.current?.remove();
       const [lng, lat] = (feature.geometry as GeoJSON.Point).coordinates;
-      popup.current = new Popup({ offset: 12, maxWidth: '260px' })
+      popup.current = new Popup({ offset: 12, maxWidth: "260px" })
         .setLngLat([lng, lat])
         // 🔴 DOM, not HTML. Campsite names come from OpenStreetMap,
         // which anyone may edit, so a name is untrusted input. Building
         // the card out of text nodes makes an injected `<script>` render
         // as the characters it is, with no escaping function to get
         // subtly wrong.
-        .setDOMContent(markerCard(feature.properties as unknown as SpotProperties))
+        .setDOMContent(
+          markerCard(feature.properties as unknown as SpotProperties),
+        )
         .addTo(m);
     };
 
@@ -849,11 +904,11 @@ export default function CampsiteMap() {
       const feature = e.features?.[0];
       if (!feature) return;
       popup.current?.remove();
-      popup.current = new Popup({ offset: 12, maxWidth: '260px' })
+      popup.current = new Popup({ offset: 12, maxWidth: "260px" })
         .setLngLat([e.lngLat.lng, e.lngLat.lat])
         .setDOMContent(
           fireCard(
-            feature.properties as unknown as WildfireFeature['properties'],
+            feature.properties as unknown as WildfireFeature["properties"],
             attributionRef.current,
           ),
         )
@@ -861,20 +916,20 @@ export default function CampsiteMap() {
     };
 
     const pointer = () => {
-      m.getCanvas().style.cursor = 'pointer';
+      m.getCanvas().style.cursor = "pointer";
     };
     const noPointer = () => {
-      m.getCanvas().style.cursor = '';
+      m.getCanvas().style.cursor = "";
     };
 
     // How many campsite slugs may be published for the tests to read.
-  //
-  // 🔴 A cap, because this is a DOM attribute on every reader's page,
-  // not a debug channel. 200 slugs is about 5 KB; the whole of France in
-  // view would be megabytes.
-  const SLUG_LIST_CAP = 200;
+    //
+    // 🔴 A cap, because this is a DOM attribute on every reader's page,
+    // not a debug channel. 200 slugs is about 5 KB; the whole of France in
+    // view would be megabytes.
+    const SLUG_LIST_CAP = 200;
 
-  // 🔴 What is actually drawn right now, published on the container.
+    // 🔴 What is actually drawn right now, published on the container.
     //
     // Whether the map clusters is the criterion of this card, and it is
     // invisible to every ordinary assertion: the campsites live in a
@@ -935,7 +990,7 @@ export default function CampsiteMap() {
       // So the layer's existence is published beside the count. It costs
       // one `getLayer` per idle and it is the difference between a
       // diagnosis and a guess.
-      el.dataset.regionLayer = m.getLayer(REGION_CIRCLE) ? 'on' : 'off';
+      el.dataset.regionLayer = m.getLayer(REGION_CIRCLE) ? "on" : "off";
 
       // 🔴 WHAT THE SOURCE HOLDS, beside what the screen shows — and the
       // two are different questions that have looked identical for three
@@ -994,7 +1049,7 @@ export default function CampsiteMap() {
       const view = boundsOf(m);
       el.dataset.bounds = [view.west, view.south, view.east, view.north]
         .map((n) => n.toFixed(6))
-        .join(',');
+        .join(",");
       // 🔴 WHICH campsites, not only how many \u2014 capped, so this can
       // never become a megabyte of DOM attribute.
       //
@@ -1019,14 +1074,14 @@ export default function CampsiteMap() {
       // frightening number that meant only that the cap had been hit.
       el.dataset.inViewSlugs =
         inside.length <= SLUG_LIST_CAP
-          ? inside.map((f) => f.properties.slug).join(',')
-          : '(capped)';
+          ? inside.map((f) => f.properties.slug).join(",")
+          : "(capped)";
 
       el.dataset.inView = String(inside.length);
     };
     // 🔴 `idle` is the only writer of the rendered numbers, and it
     // writes the drawn ones too so the pair always describes one moment.
-    m.on('idle', () => {
+    m.on("idle", () => {
       publishDrawn();
       publishRendered();
     });
@@ -1059,7 +1114,7 @@ export default function CampsiteMap() {
     // transition this exists for — the moment `hideMarkers` empties the
     // source, or a chunk fills it.
     let publishedFor = -1;
-    m.on('sourcedata', (e) => {
+    m.on("sourcedata", (e) => {
       if (e.sourceId !== SOURCE_ID || !e.isSourceLoaded) return;
       if (sourceFeatures === publishedFor) return;
       publishedFor = sourceFeatures;
@@ -1084,14 +1139,14 @@ export default function CampsiteMap() {
     // clicked the control and read the attribute at once would see the
     // `still` of the moment before the click. The `still` that answers it
     // is written after a commit — see the effect on `[tally, dataState]`.
-    m.on('movestart', () => {
-      if (container.current) container.current.dataset.camera = 'moving';
+    m.on("movestart", () => {
+      if (container.current) container.current.dataset.camera = "moving";
     });
 
     // 🔴 CAMP-127: the map now fetches what is in view, so moving it is
     // a data event and not only a rendering one. `moveend` rather than
     // `move`: one fetch when the reader stops, not sixty while they drag.
-    m.on('moveend', () => {
+    m.on("moveend", () => {
       void refreshRef.current();
       // 🔴 The fire sentence counts what is in THIS view, so it is only
       // true until the reader moves. Recomputed here rather than left to
@@ -1118,12 +1173,12 @@ export default function CampsiteMap() {
     // e2e that clicks dead centre failed on every engine. One registration
     // with both ids, so a click on the outline of a big perimeter (which
     // hits the line AND the fill) opens one card, not two.
-    m.on('click', FIRE_CLICK_LAYERS, onFireClick);
-    m.on('click', CLUSTER_LAYER, onClusterClick);
-    m.on('click', POINT_LAYER, onPointClick);
+    m.on("click", FIRE_CLICK_LAYERS, onFireClick);
+    m.on("click", CLUSTER_LAYER, onClusterClick);
+    m.on("click", POINT_LAYER, onPointClick);
     for (const layer of [CLUSTER_LAYER, POINT_LAYER, ...FIRE_CLICK_LAYERS]) {
-      m.on('mouseenter', layer, pointer);
-      m.on('mouseleave', layer, noPointer);
+      m.on("mouseenter", layer, pointer);
+      m.on("mouseleave", layer, noPointer);
     }
 
     return () => {
@@ -1158,7 +1213,11 @@ export default function CampsiteMap() {
         if (cancelled) return;
         if (!Array.isArray(regions) || regions.length === 0) {
           // 🔴 An empty index is a broken build, not an empty continent.
-          setDataState({ kind: 'failed', what: 'the index is empty', loaded: 0 });
+          setDataState({
+            kind: "failed",
+            what: "the index is empty",
+            loaded: 0,
+          });
           return;
         }
         index.current = regions;
@@ -1166,7 +1225,7 @@ export default function CampsiteMap() {
       })
       .catch((err: Error) => {
         if (!cancelled)
-          setDataState({ kind: 'failed', what: err.message, loaded: 0 });
+          setDataState({ kind: "failed", what: err.message, loaded: 0 });
       });
     return () => {
       cancelled = true;
@@ -1236,7 +1295,7 @@ export default function CampsiteMap() {
      */
     const publishRegionLayer = () => {
       const el = container.current;
-      if (el) el.dataset.regionLayer = m.getLayer(REGION_CIRCLE) ? 'on' : 'off';
+      if (el) el.dataset.regionLayer = m.getLayer(REGION_CIRCLE) ? "on" : "off";
     };
     publishRegionLayerRef.current = publishRegionLayer;
 
@@ -1274,17 +1333,17 @@ export default function CampsiteMap() {
         // Kept for the diagnosis, no longer a gate: the pair
         // `style-loaded=no awaiting-style=yes` is how the old gate's
         // failure reads, and it has to stay legible if it returns.
-        el.dataset.styleLoaded = m.isStyleLoaded() ? 'yes' : 'no';
-        el.dataset.awaitingStyle = awaitingStyle.current ? 'yes' : 'no';
+        el.dataset.styleLoaded = m.isStyleLoaded() ? "yes" : "no";
+        el.dataset.awaitingStyle = awaitingStyle.current ? "yes" : "no";
       };
 
       /** Drew it, or said why not. Only a half-loaded style is retried. */
-      const tryDraw = (): 'drawn' | 'wait' | 'failed' => {
+      const tryDraw = (): "drawn" | "wait" | "failed" => {
         const el = container.current;
         try {
           draw();
           if (el) delete el.dataset.regionError;
-          return 'drawn';
+          return "drawn";
         } catch (err) {
           const message = (err as Error)?.message ?? String(err);
           // 🔴 Anything that is NOT the style still loading is a real
@@ -1292,9 +1351,9 @@ export default function CampsiteMap() {
           // as a floating promise, so such an exception otherwise left
           // no layer, no message and no failed test — only a map
           // missing its circles.
-          if (/not done loading/i.test(message)) return 'wait';
+          if (/not done loading/i.test(message)) return "wait";
           if (el) el.dataset.regionError = message.slice(0, 120);
-          return 'failed';
+          return "failed";
         }
       };
 
@@ -1308,7 +1367,7 @@ export default function CampsiteMap() {
       };
 
       const first = tryDraw();
-      if (first !== 'wait') {
+      if (first !== "wait") {
         settle();
         return;
       }
@@ -1385,8 +1444,18 @@ export default function CampsiteMap() {
       ? chunksInView(index.current, view)
       : { keys: [] as string[], tooMany: true };
 
+    // CAMP-221. The chunk key is `country/region`, so the countries on
+    // screen are already known here — no extra request, and no bounding
+    // box of my own invention. Empty when the view is too wide for
+    // chunks, which is also when a satellite layer would be useless.
+    setCountriesInView(
+      detail && !tooMany
+        ? [...new Set(keys.map((k) => k.split("/")[0]))].sort()
+        : [],
+    );
+
     if (!detail || tooMany) {
-      setDataState({ kind: 'wide', count: countInView(index.current, view) });
+      setDataState({ kind: "wide", count: countInView(index.current, view) });
       hideMarkers(m);
       // 🔴 CAMP-169: this branch publishes too, and says the truth.
       //
@@ -1408,7 +1477,7 @@ export default function CampsiteMap() {
     }
 
     const missing = keys.filter((k) => !loaded.current.has(k));
-    if (missing.length > 0) setDataState({ kind: 'loading' });
+    if (missing.length > 0) setDataState({ kind: "loading" });
 
     // 🔴 EVERY key is claimed before the first await, not each one
     // when its turn comes.
@@ -1550,11 +1619,11 @@ export default function CampsiteMap() {
       setDataState(
         stillWrong.length > 0
           ? {
-              kind: 'failed',
+              kind: "failed",
               what: `${stillWrong[0]}: ${failedKeys.current.get(stillWrong[0])}`,
               loaded: everything.current.length,
             }
-          : { kind: 'ready' },
+          : { kind: "ready" },
       );
     }
   };
@@ -1582,9 +1651,9 @@ export default function CampsiteMap() {
     if (!m) return;
     const source = m.getSource(FIRE_SOURCE) as GeoJSONSource | undefined;
     if (!source) return;
-    const shown = firesOn && fireState.kind === 'fresh' ? fires.current : [];
+    const shown = firesOn && fireState.kind === "fresh" ? fires.current : [];
     source.setData({
-      type: 'FeatureCollection',
+      type: "FeatureCollection",
       features: shown as unknown as GeoJSON.Feature[],
     });
     setFiresHere(firesOn ? firesInView(shown, boundsOf(m)) : null);
@@ -1599,7 +1668,9 @@ export default function CampsiteMap() {
   useEffect(() => {
     let cancelled = false;
     void fetch(WILDFIRE_URL)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((r) =>
+        r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)),
+      )
       .then((body: unknown) => {
         if (cancelled) return;
         const state = wildfireState(body, new Date());
@@ -1617,13 +1688,13 @@ export default function CampsiteMap() {
         // that used to stand here — `state.kind !== 'loading'` — could
         // never be false: `wildfireState` returns `loading` for nothing at
         // all, and a line that cannot fail misleads about what guards what.
-        attributionRef.current = feed ? feed.meta.attribution : '';
+        attributionRef.current = feed ? feed.meta.attribution : "";
         setFireState(state);
       })
       .catch(() => {
         if (!cancelled) {
           fires.current = [];
-          setFireState({ kind: 'missing' });
+          setFireState({ kind: "missing" });
         }
       });
     return () => {
@@ -1705,8 +1776,10 @@ export default function CampsiteMap() {
     // and tear down the map on every tick of a checkbox — the reader
     // would lose their position mid-filter.
     const qs = toSearchParams(filters);
-    const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
-    window.history.replaceState(null, '', url);
+    const url = qs
+      ? `${window.location.pathname}?${qs}`
+      : window.location.pathname;
+    window.history.replaceState(null, "", url);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
@@ -1732,7 +1805,7 @@ export default function CampsiteMap() {
   useEffect(() => {
     const m = map.current;
     const el = container.current;
-    if (m && el && !m.isMoving()) el.dataset.camera = 'still';
+    if (m && el && !m.isMoving()) el.dataset.camera = "still";
   }, [tally, dataState]);
 
   // Switching sources.
@@ -1748,6 +1821,100 @@ export default function CampsiteMap() {
     applied.current = target.style;
     m.setStyle(target.style);
   }, [sourceId]);
+
+  // CAMP-221 — the satellite layer, added over the basemap and under
+  // everything we draw.
+  //
+  // 🔴 A RASTER LAYER, NOT A STYLE SWAP. `setStyle` discards every source
+  // and layer we added — this file says so in four places — so swapping
+  // the whole style for orthophotos would drop the campsites, the
+  // clusters and the fire polygons and make them all reload. The photo
+  // goes underneath instead, and nothing else moves.
+  //
+  // 🔴 ATTRIBUTION IS THE SOURCE'S OWN FIELD. MapLibre renders
+  // `attribution` from the raster source in the control it already
+  // shows, so the string cannot be forgotten by a later edit to the
+  // markup: remove the layer and the credit goes with it, keep the layer
+  // and the credit is there. The strings are read verbatim from each
+  // service — see `satellite-sources.json`.
+  const appliedSatellite = useRef<string | null>(null);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const source = satelliteOn ? satelliteFor(countriesInView) : null;
+
+    const drop = () => {
+      if (m.getLayer(SATELLITE_LAYER)) m.removeLayer(SATELLITE_LAYER);
+      if (m.getSource(SATELLITE_SOURCE)) m.removeSource(SATELLITE_SOURCE);
+      appliedSatellite.current = null;
+    };
+
+    if (!source) {
+      drop();
+      return;
+    }
+
+    // 🔴 NOT GATED ON `isStyleLoaded()`, and this file already knew why.
+    // The comment above `whenDrawable` records it: that predicate reports
+    // false FOR EVER on a map whose GeoJSON source is being updated —
+    // which is what the campsite layer does on every pan. I used it as a
+    // gate anyway and measured the result: the effect ran with the right
+    // source, `styleLoaded` was false, and the network made zero requests
+    // to the tile service. A condition standing in for an operation
+    // drifts from it; this performs the operation and reads the answer.
+    const apply = () => {
+      // 🔴 WHOSE SOURCE, NOT WHETHER A SOURCE. This read
+      // `if (m.getSource(SATELLITE_SOURCE)) return true;` — the id is the
+      // same string for every country, so once Spain's tiles were on the
+      // map, panning into France found "a source" and left them there.
+      // Measured on the live services 11.10.2026: the Spanish WMTS
+      // answers a French tile with HTTP 200 and 1561 bytes of flat fill,
+      // so the reader saw that fill under the credit "© IGN España".
+      // `drop()` could not save it either: it only ran when there was no
+      // source to offer at all.
+      if (m.getSource(SATELLITE_SOURCE)) {
+        if (appliedSatellite.current === source.id) return true;
+        drop();
+      }
+      try {
+        m.addSource(SATELLITE_SOURCE, rasterSourceSpec(source));
+        // Under our own first layer, so markers and circles stay on top.
+        const below = m.getLayer(REGION_CIRCLE) ? REGION_CIRCLE : undefined;
+        m.addLayer(
+          { id: SATELLITE_LAYER, type: "raster", source: SATELLITE_SOURCE },
+          below,
+        );
+        appliedSatellite.current = source.id;
+        return true;
+      } catch (err) {
+        // Only "the style is still loading" is worth another go. Anything
+        // else is a real failure and retrying would hide it.
+        const message = (err as Error)?.message ?? String(err);
+        if (/not done loading|style is not done/i.test(message)) {
+          drop();
+          return false;
+        }
+        throw err;
+      }
+    };
+
+    // 🔴 IT WAITS INSTEAD OF GIVING UP, and the first version did not —
+    // it read `if (!m.isStyleLoaded()) return;` and nothing woke it, so
+    // on a map whose style was still loading the layer was never added.
+    // Measured: the button turned on, `aria-pressed` went true, and the
+    // network made **zero** requests to the tile service.
+    //
+    // That is the same shape as the lost wake-up in CAMP-175, written by
+    // me hours after fixing it there. `retryOnEvent` is the mechanism
+    // that card left behind, already tested, so this uses it rather than
+    // inventing a second one.
+    if (apply()) return;
+    const stop = retryOnEvent(m, () => {
+      if (apply()) stop();
+    });
+    return stop;
+  }, [satelliteOn, countriesInView, sourceId]);
 
   // 🔴 The fallback the card asks for. A style that 404s or times out
   // leaves MapLibre showing an empty grey rectangle with no explanation,
@@ -1780,13 +1947,13 @@ export default function CampsiteMap() {
       // becomes an infinite switching loop instead of one clear message.
       tried.current.add(current.id);
       const next = MAP_SOURCES.find((s) => !tried.current.has(s.id));
-      setFailed(next ? current.provider : 'all');
+      setFailed(next ? current.provider : "all");
       if (next) setSourceId(next.id);
     };
 
-    m.on('error', onError);
+    m.on("error", onError);
     return () => {
-      m.off('error', onError);
+      m.off("error", onError);
     };
   }, [sourceId]);
 
@@ -1801,9 +1968,9 @@ export default function CampsiteMap() {
         data-testid="map-unsupported"
         className="rounded-card border border-line-2 bg-surface p-4 text-sm text-ink-2"
       >
-        This browser cannot display the interactive map — it needs WebGL,
-        which is switched off or unavailable here. Every campsite is still
-        reachable from the country list below.
+        This browser cannot display the interactive map — it needs WebGL, which
+        is switched off or unavailable here. Every campsite is still reachable
+        from the country list below.
       </p>
     );
   }
@@ -1827,8 +1994,14 @@ export default function CampsiteMap() {
         <span className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-2">
           Layers
         </span>
-        <div role="group" aria-label="Layers" className="flex flex-wrap gap-1.5">
-          {LAYERS.filter((l) => l.status === 'live' && l.id !== 'campsites').map((l) => (
+        <div
+          role="group"
+          aria-label="Layers"
+          className="flex flex-wrap gap-1.5"
+        >
+          {LAYERS.filter(
+            (l) => l.status === "live" && l.id !== "campsites",
+          ).map((l) => (
             <LayerChip
               key={l.id}
               layer={l}
@@ -1843,7 +2016,11 @@ export default function CampsiteMap() {
         <span className="text-xs font-semibold uppercase tracking-widest text-ink-2">
           Map style
         </span>
-        <div role="group" aria-label="Map style" className="flex flex-wrap gap-1.5">
+        <div
+          role="group"
+          aria-label="Map style"
+          className="flex flex-wrap gap-1.5"
+        >
           {MAP_SOURCES.map((s: MapSource) => (
             <button
               key={s.id}
@@ -1853,14 +2030,57 @@ export default function CampsiteMap() {
               data-source={s.id}
               className={`inline-flex h-8 items-center rounded-sm border px-3 text-sm transition-colors ${
                 s.id === sourceId
-                  ? 'border-line-blue bg-accent-surface font-semibold text-heading'
-                  : 'border-line-2 bg-surface text-ink-2 hover:border-line-blue'
+                  ? "border-line-blue bg-accent-surface font-semibold text-heading"
+                  : "border-line-2 bg-surface text-ink-2 hover:border-line-blue"
               }`}
             >
               {s.label}
             </button>
           ))}
+
+          {/* CAMP-221 — Satellite, beside the cartographic styles because
+              that is what the mockup's three are: Map · Satellite ·
+              Terrain, one switcher.
+
+              🔴 DISABLED WITH A REASON, never a grey rectangle. Coverage
+              is national — Esri, Bing and Google are closed to us by
+              licence — so outside Spain and France there is no imagery
+              to show, and an empty photo layer reads as "no campsites
+              here" rather than "no photographs here". */}
+          {/* 🔴 `aria-disabled`, NOT `disabled`. A disabled button leaves
+              the tab order, so a reader using a keyboard never finds out
+              the control exists — and the `title` that explains why it is
+              off is unreachable without a pointer. This stays focusable,
+              does nothing when pressed, and points at the sentence below
+              with `aria-describedby`, so the reason is read out with the
+              button rather than hidden behind a hover. */}
+          <button
+            type="button"
+            onClick={() => {
+              if (satelliteSource) setSatelliteOn((on) => !on);
+            }}
+            aria-pressed={satelliteOn && satelliteSource !== null}
+            aria-disabled={satelliteSource === null}
+            aria-describedby={
+              satelliteSource === null ? SATELLITE_WHY_ID : undefined
+            }
+            data-source="satellite"
+            className={`inline-flex h-8 items-center rounded-sm border px-3 text-sm transition-colors ${
+              satelliteSource === null
+                ? "cursor-not-allowed border-line-2 bg-surface text-ink-2 opacity-50"
+                : satelliteOn
+                  ? "border-line-blue bg-accent-surface font-semibold text-heading"
+                  : "border-line-2 bg-surface text-ink-2 hover:border-line-blue"
+            }`}
+          >
+            Satellite
+          </button>
         </div>
+        {satelliteSource === null && (
+          <p id={SATELLITE_WHY_ID} className="w-full text-xs text-ink-2">
+            {whySatelliteUnavailable(countriesInView)}
+          </p>
+        )}
       </div>
 
       {failed && (
@@ -1869,7 +2089,7 @@ export default function CampsiteMap() {
           data-testid="map-fallback"
           className="mt-3 rounded border border-warn/40 bg-warn/5 p-3 text-sm text-ink-2"
         >
-          {failed === 'all' ? (
+          {failed === "all" ? (
             <>
               The map could not be loaded from any of our sources. Every
               campsite is still reachable from the country list below.
@@ -1915,10 +2135,10 @@ export default function CampsiteMap() {
           data-testid="map-data-state"
           data-kind={dataState.kind}
           className={
-            'mt-3 rounded border p-3 text-sm ' +
-            (dataState.kind === 'failed'
-              ? 'border-warn/40 bg-warn/5 text-ink-2'
-              : 'border-line-2 bg-surface text-ink-2')
+            "mt-3 rounded border p-3 text-sm " +
+            (dataState.kind === "failed"
+              ? "border-warn/40 bg-warn/5 text-ink-2"
+              : "border-line-2 bg-surface text-ink-2")
           }
         >
           {dataMessage(dataState)}
@@ -2008,7 +2228,24 @@ export default function CampsiteMap() {
           only read them if the panel can be rendered on its own. */}
       <WildfirePanel state={fireState} on={firesOn} inView={firesHere} />
 
-      <p className="mt-2 text-xs text-ink-2">{active.attribution}</p>
+      {/* 🔴 THE SATELLITE CREDIT HAS TO LIVE HERE TOO, not only in
+          MapLibre's own control. That control is built with
+          `compact: true`, and `_updateCompactMinimize` strips
+          `maplibregl-compact-show` on the map's `drag` event — so the
+          credit is behind an ⓘ the moment a reader pans, which is the
+          first thing anybody does. For CC BY and for the Licence Ouverte
+          the credit is a condition, not a courtesy, and a condition met
+          only until someone touches the map is not met.
+
+          Printed from the source record, never written here: see
+          `rasterSourceSpec` and the guard that refuses a credit the
+          component composes itself. */}
+      <p className="mt-2 text-xs text-ink-2" data-testid="map-attribution">
+        {active.attribution}
+        {satelliteOn && satelliteSource
+          ? ` · ${satelliteSource.attribution}`
+          : ""}
+      </p>
     </div>
   );
 }
@@ -2026,37 +2263,37 @@ export default function CampsiteMap() {
  * negative.
  */
 function markerCard(p: SpotProperties): HTMLElement {
-  const root = document.createElement('div');
-  root.className = 'ct-popup';
+  const root = document.createElement("div");
+  root.className = "ct-popup";
 
-  const title = document.createElement(p.href ? 'a' : 'strong');
-  title.textContent = p.name || 'Unnamed campsite';
-  title.className = 'ct-popup-title';
+  const title = document.createElement(p.href ? "a" : "strong");
+  title.textContent = p.name || "Unnamed campsite";
+  title.className = "ct-popup-title";
   if (p.href && title instanceof HTMLAnchorElement) title.href = p.href;
   root.append(title);
 
   const kind = TYPE_LABEL[p.type];
   if (kind) {
-    const el = document.createElement('p');
-    el.className = 'ct-popup-kind';
+    const el = document.createElement("p");
+    el.className = "ct-popup-kind";
     el.textContent = kind;
     root.append(el);
   }
 
-  const yes = AMENITY_KEYS.filter((key) => p[key] === 'yes');
-  const no = AMENITY_KEYS.filter((key) => p[key] === 'no');
+  const yes = AMENITY_KEYS.filter((key) => p[key] === "yes");
+  const no = AMENITY_KEYS.filter((key) => p[key] === "no");
 
   if (yes.length || no.length) {
-    const list = document.createElement('ul');
-    list.className = 'ct-popup-amenities';
+    const list = document.createElement("ul");
+    list.className = "ct-popup-amenities";
     for (const key of yes) {
-      const li = document.createElement('li');
+      const li = document.createElement("li");
       li.textContent = AMENITY_LABEL[key];
       list.append(li);
     }
     for (const key of no) {
-      const li = document.createElement('li');
-      li.className = 'is-no';
+      const li = document.createElement("li");
+      li.className = "is-no";
       li.textContent = `No ${AMENITY_LABEL[key].toLowerCase()}`;
       list.append(li);
     }
@@ -2064,17 +2301,17 @@ function markerCard(p: SpotProperties): HTMLElement {
   } else {
     // Every amenity unknown. Saying so is the honest state, and it is
     // also true of a large share of OSM campsites.
-    const el = document.createElement('p');
-    el.className = 'ct-popup-empty';
-    el.textContent = 'Facilities are not recorded for this site yet.';
+    const el = document.createElement("p");
+    el.className = "ct-popup-empty";
+    el.textContent = "Facilities are not recorded for this site yet.";
     root.append(el);
   }
 
   if (p.href) {
-    const more = document.createElement('a');
+    const more = document.createElement("a");
     more.href = p.href;
-    more.className = 'ct-popup-link';
-    more.textContent = 'Open campsite page';
+    more.className = "ct-popup-link";
+    more.textContent = "Open campsite page";
     root.append(more);
   }
 
