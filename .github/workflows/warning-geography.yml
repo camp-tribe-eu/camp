@@ -59,7 +59,13 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          # 🔴 22, like .nvmrc — and it was 24 here until 11.10.2026
+          # for no reason anyone could point at. CAMP-178: this job
+          # runs two plain scripts that use nothing newer than Node 18;
+          # the 24 was inherited from the file this was copied from.
+          # scripts/ci/check-node-versions.mjs now refuses a version
+          # that is neither the default nor an exception with a reason.
+          node-version: 22
 
       # 🔴 The rules first, offline. If the table itself is wrong there
       # is no point asking the feeds, and this says so in a second.

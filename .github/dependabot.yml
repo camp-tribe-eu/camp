@@ -76,6 +76,27 @@ updates:
         update-types: ['version-update:semver-major']
       - dependency-name: eslint-config-next
         update-types: ['version-update:semver-major']
+      # 🔴 Додано 11.10.2026 (CAMP-178), поки TypeScript 7 ще не вийшов —
+      # і він уже встиг відкрити PR #89, у якому CI не запустився ЖОДНОГО
+      # разу. «Перевірок немає» в інтерфейсі виглядає як «нічого не
+      # впало», і саме тому той PR простояв десять днів із позначкою
+      # «CLEAN» у нашій же картці.
+      #
+      # Мажор TypeScript це не оновлення рядка, а міграція: `typescript-eslint`
+      # і `ts-jest` мають власні межі підтримуваних версій, і до них ми
+      # впремося першими. Той самий урок, що з NestJS 10 → 12 у #29, який
+      # простояв пʼять днів, поки ламався в одному рядку маніфеста.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      # 🔴 @types/node мусить іти за РАНТАЙМОМ, а не за календарем.
+      #
+      # PR #90 підняв 22.20.4 → 26.4.1, тоді як .nvmrc і дев'ять джоб із
+      # десяти стоять на Node 22. Типи на чотири мажори попереду рантайму
+      # не ламають збірку — вони роблять гірше: дозволяють писати код
+      # проти API, яких у рантаймі немає, і помилка знаходиться не в CI, а
+      # в продакшені. Піднімати це разом із .nvmrc, не окремо.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
 
   # 🔴 The workflows themselves. A pinned action is a dependency like any
   # other, it runs with write access to this repository, and nothing else

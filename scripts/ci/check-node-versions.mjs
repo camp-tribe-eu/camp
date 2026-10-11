@@ -1,0 +1,399 @@
+#!/usr/bin/env node
+// Every job that runs Node says which Node, and it is the one in `.nvmrc`.
+//
+//   node scripts/ci/check-node-versions.mjs
+//   node scripts/ci/check-node-versions.mjs --self-test
+//
+// 🔴 WHY THIS EXISTS (CAMP-178). After CAMP-159 the `api` job moved to
+// Node 24 — Nest 12 is ESM-only and Jest 30 can `require()` an ES module
+// only on 24.9 — while `.nvmrc` and the other jobs stayed on 22. That
+// divergence is fine. What is not fine is that it was SILENT: nothing
+// could tell a reader whether a `node-version:` was a decision or a
+// copy-paste. And it had already spread: `warning-geography.yml` ran on
+// 24 for no reason anyone could point at, running two plain scripts that
+// use nothing newer than Node 18.
+//
+// 🔴 AND WHY IT IS WRITTEN TWICE. The first version read the workflows
+// with regular expressions. Adversarial review put fourteen mutations on
+// the real files and NINE went green:
+//
+//   `  e2e:  # browser suite`   — a trailing comment after a job key made
+//       the reader miss the job, so `node-version: 24` under it was
+//       attributed to the PREVIOUS job and silently inherited that job's
+//       exception. The run printed the Nest/Jest reason twice and exited 0.
+//   `node-version: 25  # fine`  — a trailing comment after the value made
+//       the line vanish from the scan entirely.
+//   `${{ matrix.node }}`, `node-version-file:`, `lts/*` — all vanished.
+//   A `setup-node` moved into `.github/actions/build-site/action.yml` —
+//       never looked at; five jobs use it.
+//   A job with NO `setup-node` at all — never noticed, and two such jobs
+//       existed on the commit that added this guard, so its own summary
+//       line was false the day it was written.
+//
+// The lesson is not "write a better regular expression". It is that a
+// guard which has to understand a file format must use a parser for that
+// format, and must REFUSE what it cannot understand rather than skip it.
+// Anything unrecognised below is an error, never a silent pass.
+
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { argv, exit } from 'node:process';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import yaml from 'js-yaml';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
+const WORKFLOWS = join(ROOT, '.github/workflows');
+const ACTIONS = join(ROOT, '.github/actions');
+
+/**
+ * Jobs allowed a Node other than `.nvmrc`, and why.
+ *
+ * The reason says what breaks without it, not what the version is.
+ */
+export const EXCEPTIONS = {
+  'ci.yml:api': {
+    version: '24',
+    why:
+      'Nest 12 is ESM-only and Jest 30 can require() an ES module only on ' +
+      'Node >= 24.9 (CAMP-159). On 22 every spec importing @nestjs/* died ' +
+      'with "Must use import to load ES Module". The API itself still runs ' +
+      'on 22 in the jobs that start it.',
+  },
+};
+
+/**
+ * 🔴 The floor that catches a reader which quietly matches less.
+ *
+ * `found.length === 0` was the first version of this and it was useless:
+ * the realistic failure is ten entries becoming nine, not ten becoming
+ * zero, and nine printed the same cheerful summary. These numbers only
+ * ever go up on purpose; lowering one is a deliberate edit that says in
+ * its commit message which job went away.
+ */
+export const AT_LEAST = { jobs: 18, nodeSteps: 11 };
+
+/** Does this step run Node, directly or through npm? */
+function runsNode(step) {
+  const run = String(step?.run ?? '');
+  return /(^|[\s;&|(])(node|npm|npx|yarn|pnpm)[\s]/.test(run);
+}
+
+function setupNodeOf(step) {
+  const uses = String(step?.uses ?? '');
+  if (!/^actions\/setup-node@/.test(uses)) return null;
+  return step.with ?? {};
+}
+
+/**
+ * Every job in every workflow, plus every composite action, flattened to
+ * what this guard needs. Throws on a file it cannot parse — a workflow
+ * that stops parsing must be loud.
+ */
+export function readJobs(files, actions = {}) {
+  const jobs = [];
+  // A composite action can carry its own setup-node, and five of our jobs
+  // reach Node through one. Reviewed mutation: moving a bad version into
+  // `.github/actions/build-site/action.yml` was invisible before this.
+  const actionNode = {};
+  for (const [name, text] of Object.entries(actions)) {
+    const doc = yaml.load(text) ?? {};
+    const steps = doc?.runs?.steps ?? [];
+    const found = steps.map(setupNodeOf).filter(Boolean);
+    if (found.length) actionNode[name] = found;
+  }
+
+  for (const [file, text] of Object.entries(files)) {
+    const doc = yaml.load(text) ?? {};
+    const theJobs = doc.jobs ?? {};
+    if (Object.keys(theJobs).length === 0) {
+      jobs.push({ file, job: '(none)', empty: true });
+      continue;
+    }
+    for (const [job, body] of Object.entries(theJobs)) {
+      const steps = body?.steps ?? [];
+      const direct = steps.map(setupNodeOf).filter(Boolean);
+      const viaAction = steps.flatMap((s) => {
+        const u = String(s?.uses ?? '');
+        const local = u.startsWith('./.github/actions/') ? u.split('/').pop() : null;
+        return local && actionNode[local] ? actionNode[local] : [];
+      });
+      jobs.push({
+        file,
+        job,
+        setups: [...direct, ...viaAction],
+        needsNode: steps.some(runsNode),
+      });
+    }
+  }
+  return jobs;
+}
+
+export function problems(nvmrc, jobs, exceptions = EXCEPTIONS, atLeast = AT_LEAST) {
+  const out = [];
+  const want = String(nvmrc).trim();
+  if (!/^[0-9]+$/.test(want)) {
+    out.push(`.nvmrc says "${nvmrc}", which is not a major version`);
+    return out;
+  }
+
+  const real = jobs.filter((j) => !j.empty);
+  const nodeSteps = real.reduce((n, j) => n + j.setups.length, 0);
+  if (real.length < atLeast.jobs) {
+    out.push(
+      `only ${real.length} jobs parsed, and at least ${atLeast.jobs} were expected — ` +
+        'the reader is matching less than it used to, which is the failure this ' +
+        'floor exists for',
+    );
+  }
+  if (nodeSteps < atLeast.nodeSteps) {
+    out.push(
+      `only ${nodeSteps} setup-node steps parsed, and at least ${atLeast.nodeSteps} ` +
+        'were expected — same reason',
+    );
+  }
+  for (const j of jobs.filter((x) => x.empty)) {
+    out.push(`${j.file} parsed to no jobs at all — a workflow or a broken reader`);
+  }
+
+  const used = new Set();
+  for (const j of real) {
+    const key = `${j.file}:${j.job}`;
+
+    // 🔴 A job that runs node with no setup-node takes whatever the
+    // runner happens to ship. Two such jobs existed when this guard was
+    // first written, and it said "every job runs Node 22" anyway.
+    if (j.needsNode && j.setups.length === 0) {
+      out.push(
+        `${key} runs node/npm but never sets a version up — it takes whatever ` +
+          "the runner ships, which nobody here chose and nobody is told when it changes",
+      );
+      continue;
+    }
+
+    for (const w of j.setups) {
+      const file = w['node-version-file'];
+      const version = w['node-version'];
+
+      if (file !== undefined) {
+        // The best form: it cannot drift from .nvmrc because it IS .nvmrc.
+        if (String(file).trim() !== '.nvmrc') {
+          out.push(`${key} reads its version from "${file}", not .nvmrc`);
+        }
+        continue;
+      }
+      if (version === undefined) {
+        out.push(`${key} uses setup-node with neither node-version nor node-version-file`);
+        continue;
+      }
+      const v = String(version).trim();
+      // 🔴 REFUSE WHAT WE CANNOT RESOLVE. An expression or an alias is not
+      // wrong — it is unreadable here, and the first version of this guard
+      // skipped such lines silently, which is how `${{ matrix.node }}`
+      // would have slipped a second version in unnoticed.
+      if (!/^[0-9]+$/.test(v)) {
+        out.push(
+          `${key} asks for Node "${v}", which this guard cannot resolve to a ` +
+            'major (an expression, an alias or a minor). Use a plain major or ' +
+            'node-version-file: .nvmrc',
+        );
+        continue;
+      }
+      if (v === want) continue;
+
+      const allowed = exceptions[key];
+      if (!allowed) {
+        out.push(
+          `${key} runs Node ${v}, not ${want} from .nvmrc, and nothing says why — ` +
+            'add it to EXCEPTIONS with a reason, or use node-version-file: .nvmrc',
+        );
+        continue;
+      }
+      if (allowed.version !== v) {
+        out.push(`${key} is allowed Node ${allowed.version} but asks for ${v}`);
+      }
+      used.add(key);
+    }
+  }
+
+  // 🔴 A reason that outlives its cause is worse than no reason.
+  for (const key of Object.keys(exceptions)) {
+    if (!used.has(key)) {
+      out.push(
+        `EXCEPTIONS has "${key}", but no job by that name asks for a non-default ` +
+          'Node any more — delete it, or the next reader believes a stale reason',
+      );
+    }
+  }
+  return out;
+}
+
+const J = (file, job, extra = {}) => ({ file, job, setups: [], needsNode: false, ...extra });
+const NV = (v) => ({ 'node-version': v });
+/** Eighteen quiet jobs — the floor — so a case adds only the thing it is about. */
+const filler = () => Array.from({ length: 18 }, (_, i) => J('f.yml', `j${i}`, { setups: [NV('22')] }));
+
+const SELF_TEST = [
+  ['a job on the default version passes', '22', filler(), {}, 0],
+  [
+    '🔴 an undeclared different version is refused',
+    '22',
+    [...filler(), J('a.yml', 'x', { setups: [NV('24')] })],
+    {},
+    1,
+  ],
+  [
+    'a declared exception passes',
+    '22',
+    [...filler(), J('a.yml', 'x', { setups: [NV('24')] })],
+    { 'a.yml:x': { version: '24', why: 'because' } },
+    0,
+  ],
+  [
+    '🔴 a stale exception is refused',
+    '22',
+    filler(),
+    { 'a.yml:x': { version: '24', why: 'stale' } },
+    1,
+  ],
+  [
+    '🔴 MUTATION D2: an expression is refused, not skipped',
+    '22',
+    [...filler(), J('a.yml', 'x', { setups: [NV('${{ matrix.node }}')] })],
+    {},
+    1,
+  ],
+  [
+    '🔴 MUTATION D2: an alias like lts/* is refused, not skipped',
+    '22',
+    [...filler(), J('a.yml', 'x', { setups: [NV('lts/*')] })],
+    {},
+    1,
+  ],
+  [
+    '🔴 MUTATION D5: a job running node with no setup-node is refused',
+    '22',
+    [...filler(), J('a.yml', 'x', { needsNode: true })],
+    {},
+    1,
+  ],
+  [
+    'a job that does NOT run node needs no setup-node',
+    '22',
+    [...filler(), J('a.yml', 'x')],
+    {},
+    0,
+  ],
+  ['node-version-file: .nvmrc passes', '22', [...filler(), J('a.yml', 'x', { setups: [{ 'node-version-file': '.nvmrc' }] })], {}, 0],
+  [
+    '🔴 node-version-file pointing elsewhere is refused',
+    '22',
+    [...filler(), J('a.yml', 'x', { setups: [{ 'node-version-file': '.other' }] })],
+    {},
+    1,
+  ],
+  [
+    '🔴 MUTATION D3: losing jobs is refused, not just losing all of them',
+    '22',
+    filler().slice(0, 17),
+    {},
+    1,
+  ],
+  ['🔴 a file that parses to no jobs is refused', '22', [...filler(), { file: 'a.yml', job: '(none)', empty: true }], {}, 1],
+];
+
+if (argv.includes('--self-test')) {
+  let failed = 0;
+  for (const [what, nvmrc, jobs, exc, expected] of SELF_TEST) {
+    const got = problems(nvmrc, jobs, exc, { jobs: 18, nodeSteps: 0 }).length;
+    const ok = got === expected;
+    if (!ok) failed++;
+    console.log(`${ok ? '✓' : '✗'} ${what} (expected ${expected}, got ${got})`);
+  }
+
+  // 🔴 And the reader, on the exact shapes that beat the regular
+  // expression it replaced. Without these the cases above prove only
+  // that the comparison works, on data this file invented.
+  const parsed = readJobs(
+    {
+      'x.yml': [
+        'jobs:',
+        '  build:  # a trailing comment, which beat the old reader',
+        '    steps:',
+        '      - uses: actions/setup-node@v7',
+        '        with:',
+        '          node-version: 24  # and one here, which also beat it',
+        '  "quoted":',
+        '    steps:',
+        '      - run: npm ci',
+        '      - uses: ./.github/actions/build-site',
+      ].join('\n'),
+    },
+    {
+      'build-site': ['runs:', '  steps:', '    - uses: actions/setup-node@v7', '      with:', '        node-version: 22'].join('\n'),
+    },
+  );
+  const checks = [
+    [parsed.length === 2, 'two jobs found'],
+    [parsed[0].job === 'build' && parsed[0].setups[0]?.['node-version'] === 24, 'a trailing comment after the job key does not hide the job'],
+    [parsed[1].job === 'quoted', 'a quoted job name is read as its name'],
+    [parsed[1].needsNode === true, 'a job running npm is seen to need Node'],
+    [parsed[1].setups[0]?.['node-version'] === 22, 'a setup-node inside a composite action counts for the job that uses it'],
+  ];
+  for (const [ok, what] of checks) {
+    if (!ok) failed++;
+    console.log(`${ok ? '✓' : '✗'} reader: ${what}`);
+  }
+
+  console.log(
+    failed
+      ? `\n::error::self-test failed on ${failed} cases`
+      : `\n✓ self-test passed: ${SELF_TEST.length + checks.length} cases`,
+  );
+  exit(failed ? 1 : 0);
+}
+
+const RUN_DIRECTLY = argv[1] && fileURLToPath(import.meta.url) === resolve(argv[1]);
+if (RUN_DIRECTLY) {
+  const nvmrc = readFileSync(join(ROOT, '.nvmrc'), 'utf8');
+  const files = {};
+  for (const name of readdirSync(WORKFLOWS)) {
+    if (/\.ya?ml$/.test(name)) files[name] = readFileSync(join(WORKFLOWS, name), 'utf8');
+  }
+  const actions = {};
+  if (existsSync(ACTIONS)) {
+    for (const dir of readdirSync(ACTIONS)) {
+      for (const n of ['action.yml', 'action.yaml']) {
+        const p = join(ACTIONS, dir, n);
+        if (existsSync(p)) actions[dir] = readFileSync(p, 'utf8');
+      }
+    }
+  }
+
+  const jobs = readJobs(files, actions);
+  const found = problems(nvmrc, jobs);
+
+  const want = nvmrc.trim();
+  const real = jobs.filter((j) => !j.empty);
+  console.log(`  .nvmrc says Node ${want}`);
+  console.log(
+    `  ${real.length} jobs across ${Object.keys(files).length} workflows and ` +
+      `${Object.keys(actions).length} composite action(s)`,
+  );
+  for (const j of real) {
+    for (const w of j.setups) {
+      const v = w['node-version-file'] ? `file ${w['node-version-file']}` : String(w['node-version']);
+      if (v === want || w['node-version-file']) continue;
+      const why = EXCEPTIONS[`${j.file}:${j.job}`]?.why;
+      console.log(`  ${j.file} job "${j.job}" → Node ${v}${why ? ` — ${why.slice(0, 70)}…` : ''}`);
+    }
+  }
+
+  if (found.length) {
+    console.error('\n✗ Node versions are not accounted for:\n  ' + found.join('\n  '));
+    exit(1);
+  }
+  console.log(
+    `\n✓ every job that runs Node asks for ${want}, or is one of the ` +
+      `${Object.keys(EXCEPTIONS).length} exception(s) listed here with a reason`,
+  );
+}
