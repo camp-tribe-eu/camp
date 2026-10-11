@@ -4,7 +4,7 @@ import { pickedProjects, serverlessRun } from '@/lib/cli-args';
 // 🔴 The parser that decides whether Playwright starts a web server.
 //
 // Its first version read only the argument after `--project`, so
-// `--project unit tablet` looked like a unit-only run and 177 browser
+// `--project unit visual` looked like a unit-only run and 177 browser
 // tests ran against nothing. It lived in the config file, which is
 // exactly why nobody could test it.
 
@@ -22,17 +22,17 @@ test.describe('pickedProjects', () => {
 
   test('🔴 --project is variadic: a b c all count', () => {
     // The regression. Playwright declares `--project <project-name...>`,
-    // and `--project unit tablet` really does select both.
-    expect(pickedProjects(argv('--project unit tablet'))).toEqual([
+    // and `--project unit visual` really does select both.
+    expect(pickedProjects(argv('--project unit visual'))).toEqual([
       'unit',
-      'tablet',
+      'visual',
     ]);
   });
 
   test('repeated flags accumulate', () => {
-    expect(pickedProjects(argv('--project=unit --project=tablet'))).toEqual([
+    expect(pickedProjects(argv('--project=unit --project=visual'))).toEqual([
       'unit',
-      'tablet',
+      'visual',
     ]);
   });
 
@@ -56,9 +56,9 @@ test.describe('serverlessRun', () => {
 
   test('🔴 one browser project among them and the server starts', () => {
     for (const cmd of [
-      '--project unit tablet',
-      '--project=unit --project=tablet',
-      '--project tablet',
+      '--project unit visual',
+      '--project=unit --project=visual',
+      '--project webkit-desktop',
       '--project unit chromium-desktop',
     ]) {
       expect(serverlessRun(argv(cmd), SERVERLESS), cmd).toBe(false);
