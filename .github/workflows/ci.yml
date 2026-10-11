@@ -799,6 +799,15 @@ jobs:
       - name: An unverified extract can never load
         run: ./scripts/osm-pipeline/load-context.selftest.sh
 
+      # 🔴 CAMP-267. Thirteen of these cases exist because review showed
+      # four different failures — a 404, a dead network, a redirect onto
+      # the site index and an empty reply — producing one identical
+      # sentence. A guard that names a cause it did not check is the
+      # fault this repository keeps finding, and it is only caught by
+      # running the stub against it.
+      - name: Which Geofabrik file we are allowed to take
+        run: ./scripts/osm-pipeline/geofabrik-url.selftest.sh
+
   e2e:
     runs-on: ubuntu-latest
     services:

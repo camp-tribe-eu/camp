@@ -202,65 +202,26 @@ jobs:
           SLUG="$(echo "$REGION" | tr '/' '-')"
           mkdir -p out
 
-          # 🔴 ASK FOR A DATED NAME. DO NOT FOLLOW -latest (CAMP-267).
+          # 🔴 ONE script, shared with scripts/osm-pipeline/load-context.sh.
           #
-          # This used to resolve `<region>-latest.osm.pbf` and then insist
+          # This step used to follow `<region>-latest.osm.pbf` and insist
           # the redirect landed on a dated file. The insisting is right —
-          # an md5 proves the bytes, never WHICH file they are, and
-          # Geofabrik answers an unknown or renamed region with a 302 to
-          # its own index under HTTP 200, which `curl -f` does not refuse.
+          # an md5 proves the bytes, never WHICH file they are. What was
+          # wrong is that -latest does not always land on a dated file:
+          # Geofabrik balances its largest extracts onto mirrors, and a
+          # mirror serves only `-latest`. The weekly import died on
+          # Germany and stayed dead 13 days.
           #
-          # What was wrong is the assumption that -latest always lands on
-          # a dated file. Geofabrik load-balances its largest extracts
-          # onto mirrors, and a mirror has a flat layout that serves only
-          # `-latest`:
-          #
-          #   germany -latest → ftp5.gwdg.de/pub/misc/openstreetmap/
-          #                     download.geofabrik.de/germany-latest.osm.pbf
-          #
-          # No date in that name, so the check refused it, and the whole
-          # weekly import died on one country out of 27. Measured
-          # 11.10.2026 across all 27: exactly ONE goes to a mirror today,
-          # and the other 26 do not — which is precisely why this is not
-          # a Germany special case. Tomorrow it can be France.
-          #
-          # So we build the dated name ourselves and never ask -latest.
-          # Measured the same day: 24 countries were at D-3 and three
-          # (DE, PL, SK) at D-2, so the newest dated file is country-
-          # specific and no shared date exists even among neighbours.
-          #
-          # 🔴 The window is 7 days, not the 4 the measurement would
-          # allow. Four is a hair above the measured 3, so one slow week
-          # at Geofabrik turns this fix back into the outage. Seven keeps
-          # the loudness: if a week back holds nothing, that IS broken,
-          # and data older than a week is not data we want anyway — it is
-          # the same bar check-schedule.mjs uses (8 days).
-          BASE="${REGION##*/}"
-          URL=''
-          for d in $(seq 0 7); do
-            YMD=$(date -u -d "-$d day" +%y%m%d)
-            CAND="https://download.geofabrik.de/$REGION-$YMD.osm.pbf"
-            # -I so nothing is downloaded while probing, and the EFFECTIVE
-            # url is read back: a 302 to the index would answer 200 here
-            # too, and only the final name tells us what we actually got.
-            # -s without -S: a miss is EXPECTED here (yesterday's file
-            # usually does not exist yet), and `curl -S` would print
-            # "curl: (22) ... 404" for every one of them — 27 countries
-            # times three misses is 81 alarming lines in a log that is
-            # working perfectly. The one failure worth shouting about is
-            # the empty window below, and it shouts.
-            FINAL=$(curl -fsL -I --retry 2 --retry-delay 5 --max-time 45 \
-                      -o /dev/null -w '%{url_effective}' "$CAND") || continue
-            if printf '%s' "$FINAL" | grep -qE "/${BASE}-${YMD}\.osm\.pbf$"; then
-              URL="$CAND"
-              echo "  $REGION: $YMD (D-$d)"
-              break
-            fi
-          done
-          if [ -z "$URL" ]; then
-            echo "::error::$REGION has no dated extract in the last 8 days (tried ${BASE}-YYMMDD back to D-7) — Geofabrik layout or the region name has changed"
-            exit 1
-          fi
+          # load-context.sh hit the SAME wall on 25.09.2026 and fixed it
+          # the opposite way — by accepting `-latest`. Two copies of one
+          # rule, repaired in opposite directions, neither aware of the
+          # other. See geofabrik-url.sh for what that cost.
+          # Підстановка, а не process substitution: під `set -e` падіння
+          # скрипта має зупинити крок тут, а не перетворитись на порожній
+          # `read`, який ще треба вгадати.
+          RESOLVED=$(scripts/osm-pipeline/geofabrik-url.sh "$REGION")
+          read -r URL YMD AGE <<< "$RESOLVED"
+          echo "  $REGION: $YMD (D-$AGE)"
 
           # 🔴 The checksum, which this step did not have.
           #
@@ -324,7 +285,11 @@ jobs:
           gzip -9 "out/$SLUG.geojson"
           # The publish job sums these rather than decompressing nine
           # files to count what this job already knows.
-          echo "$REGION $COUNT" > "out/$SLUG.count"
+          # 🔴 The extract's OWN date, not the build date. Review found
+          # the release claiming "built from Geofabrik's daily exports on
+          # <today>" while the file could be up to a week older, and the
+          # real date existed nowhere but one line of job log.
+          echo "$REGION $COUNT $YMD" > "out/$SLUG.count"
           echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
           ls -lh out/
 
@@ -400,17 +365,23 @@ jobs:
           TAG="osm-$(date -u +%Y-%m-%d)"
 
           {
-            echo "Campsite extract built from Geofabrik's daily OpenStreetMap exports on $(date -u +%Y-%m-%d)."
+            # 🔴 The build date is NOT the data date, and saying so was a
+            # lie waiting to happen: a region's extract can be several
+            # days older than this run. Each row now carries the date of
+            # the file it was actually built from.
+            echo "Campsite extract built on $(date -u +%Y-%m-%d) from Geofabrik's OpenStreetMap exports."
+            echo "Each region shows the date of the extract it was built from — they are not all the same day."
             echo
-            echo "| region | campsites |"
-            echo "| --- | --- |"
-            sort out/*.count | awk '{printf "| %s | %s |\n", $1, $2}'
+            echo "| region | campsites | extract |"
+            echo "| --- | --- | --- |"
+            sort out/*.count | awk '{printf "| %s | %s | 20%s-%s-%s |\n", $1, $2, substr($3,1,2), substr($3,3,2), substr($3,5,2)}'
             echo
             echo "**$TOTAL campsites across $GOT of $PLANNED regions.**"
             if [ "$COMPLETE" = 'partial' ]; then
               echo
               echo "> ⚠️ Incomplete: $((PLANNED - GOT)) region(s) failed to build."
-              echo "> The regions listed above are fresh; the missing ones keep"
+              echo "> The regions listed above carry the extract date they were"
+              echo "> built from; the missing ones keep"
               echo "> whatever an earlier release holds. See the run log."
             fi
             echo
