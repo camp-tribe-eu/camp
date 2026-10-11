@@ -33,7 +33,7 @@ import { execFileSync } from 'node:child_process';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { EU, GEOFABRIK } from '../ci/check-eu-scope.mjs';
 
@@ -658,6 +658,18 @@ function selfTest() {
     SHELL_CALL.test(sourceOf(`run('sh', ['-c', 'x']); // note`)));
   ok('a trailing comment mentioning a shell call does not trip it',
     !SHELL_CALL.test(sourceOf(`unpackGz(gz, json); // was: run('sh', ['-c', 'x'])`)));
+  // 🔴 ЄДИНИЙ ВИПАДОК, ЩО ДОВОДИТЬ «СКРИПТ СТАРТУЄ».
+  //
+  // Решта 73 перевіряють помічники. Вони всі були зелені тиждень, поки
+  // скрипт падав першим рядком main() через невизначений `resolve`.
+  // Цей викликає рядок, який падав, і прибирає за собою.
+  ok('the work directory can actually be made (main() starts)', (() => {
+    const d = makeWorkDir();
+    const absolute = d.startsWith('/');
+    rmSync(d, { recursive: true, force: true });
+    return absolute;
+  })());
+
   ok('each shell name the rule lists is actually matched',
     ['sh', 'bash', 'zsh', 'dash', 'ksh', '/bin/sh', '/usr/bin/bash']
       .every((s) => SHELL_CALL.test(`run('${s}', [])`)));
@@ -681,6 +693,26 @@ if (!invokedDirectly) {
   process.exit(selfTest() ? 0 : 1);
 } else {
   await main();
+}
+
+/**
+ * Тимчасова тека для одного прогону, абсолютним шляхом.
+ *
+ * 🔴 ВИНЕСЕНО З main() РІВНО ТОМУ, ЩО ЦЕЙ РЯДОК БУВ ЗЛАМАНИЙ ТИЖДЕНЬ.
+ *
+ * Коміт 141c57f (05.10.2026) додав виклик `resolve()` і не додав імпорт.
+ * Скрипт падав першим же рядком роботи — `ReferenceError: resolve is not
+ * defined` — тобто жодного релізу не можна було завантажити з того дня.
+ *
+ * А `--self-test` увесь цей час друкував **73/73 passed**, бо перевіряв
+ * помічники й ЖОДНОГО разу не заходив у main(). Сімдесят три зелені
+ * твердження про скрипт, який не стартує.
+ *
+ * Тому рядок тепер живе у функції, яку самоперевірка справді викликає:
+ * щоб «воно запускається» було перевіреним, а не припущеним.
+ */
+export function makeWorkDir() {
+  return resolve(mkdtempSync(join(tmpdir(), 'camptribe-release-')));
 }
 
 async function main() {
@@ -707,7 +739,7 @@ async function main() {
   // starting with `/`. Review found this; the CodeQL text said
   // "depends on an unsanitized environment variable" twice and the
   // first version of this change had only looked at the argv order.
-  const work = resolve(mkdtempSync(join(tmpdir(), 'camptribe-release-')));
+  const work = makeWorkDir();
   let done = 0;
   const failures = [];
 
