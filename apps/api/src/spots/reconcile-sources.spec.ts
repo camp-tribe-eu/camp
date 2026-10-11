@@ -50,10 +50,24 @@ describe('proposeLinks', () => {
   });
 
   it('leaves a pair the matcher is unsure about for a person', () => {
-    const far = { ...other, lon: east(250) };
-    const out = proposeLinks([{ a: osm, b: far, metres: 250 }], new Set());
+    // 🔴 350 м, а не 250: від CAMP-277 однакова назва тягнеться до 300 м,
+    // і 250 тепер — звʼязок, а не непевність. Намір тесту («непевне йде
+    // людині») лишився; змінилась межа, за якою починається непевність,
+    // і фікстура переїхала за неї, а не тест переписався під код.
+    const far = { ...other, lon: east(350) };
+    const out = proposeLinks([{ a: osm, b: far, metres: 350 }], new Set());
     expect(out.link).toHaveLength(0);
     expect(out.review).toHaveLength(1);
+  });
+
+  it('🔴 CAMP-277: та сама назва за 250 м — це один кемпінг', () => {
+    // Те, чим 250 м стало. Тримається поряд із випадком вище навмисно:
+    // разом вони показують межу з обох боків, і зсув стелі зламає один
+    // із двох, а не пройде непоміченим.
+    const far = { ...other, lon: east(250) };
+    const out = proposeLinks([{ a: osm, b: far, metres: 250 }], new Set());
+    expect(out.link).toHaveLength(1);
+    expect(out.review).toHaveLength(0);
   });
 
   it('keeps two differently named campsites apart', () => {
