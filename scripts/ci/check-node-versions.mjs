@@ -37,7 +37,7 @@
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { argv, exit } from 'node:process';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 
@@ -75,58 +75,122 @@ export const EXCEPTIONS = {
 // дереві злиття: 18 джобів, 12 node-кроків. Не підняти означало б лишити
 // підлогу на один крок нижче за дійсність — тобто мовчазне зникнення
 // рівно цього кроку підлога б пропустила.
-export const AT_LEAST = { jobs: 18, nodeSteps: 12 };
+export const AT_LEAST = { jobs: 18, nodeSteps: 12, scripts: 50 };
 
 const NODE_WORD = /(^|[\s;&|(])(node|npm|npx|yarn|pnpm)[\s]/;
 
 /**
- * Repo scripts a `run:` block invokes, as written.
+ * A shell line broken into the commands it actually runs.
  *
- * 🔴 WHY THIS EXISTS (CAMP-271). The guard used to read only the text of
- * `run:`, and printed "every job that runs Node asks for 22" about jobs
- * it had never examined. `osm-weekly.yml`'s extract step says
+ * 🔴 WHY A SCANNER AND NOT A CLEVERER REGULAR EXPRESSION (CAMP-271).
  *
- *     run: scripts/osm-pipeline/extract-campsites.sh "$SLUG.osm.pbf" …
+ * The first version of this matched a script path only in "command
+ * position" — start of line or after a separator, optionally through an
+ * interpreter. Review enumerated 27 real invocation forms and found 17
+ * of them silent, including the most ordinary one there is:
  *
- * and the word `node` is not in it — it is on line 54 of that script.
- * Removing that job's setup-node was caught only by the step-count
- * floor, which is arithmetic, not the check this file exists for. A NEW
- * such job would raise the count instead of lowering it, and the floor
- * would never see it.
+ *     "scripts/osm-pipeline/do.sh" "$SLUG"
+ *
+ * — a quoted path, which is the style of the rest of these workflows.
+ * A guard written against a NEW job that fails on the most normal way
+ * of writing that job is not a guard.
+ *
+ * So: split on separators, drop quoting, and look at every segment.
+ * The only segments excluded are the ones that provably print rather
+ * than run.
  */
-const SCRIPT_AT_COMMAND = new RegExp(
-  // start of line, or after a shell separator …
-  String.raw`(?:^|[;&|(]|&&|\|\|)\s*` +
-    // … optionally through an interpreter …
-    String.raw`(?:(?:ba)?sh|node|npx)?\s*` +
-    // … then the path, ending at a boundary.
-    String.raw`((?:\./)?scripts/[A-Za-z0-9._/-]+\.(?:sh|mjs|cjs|js))(?=$|[\s;&|)])`,
-);
+const segments = (line) => {
+  // 🔴 A CHARACTER SCANNER, BECAUSE SPLITTING ON `&&` IS WRONG INSIDE
+  // QUOTES. The split version broke on the very line it was written to
+  // excuse:
+  //
+  //     echo "    cd apps/api && npx ts-node src/x.ts"
+  //
+  // which became two segments, the second of them `npx ts-node …`, and
+  // a printed usage note was read as a command. Quote state is the only
+  // thing that tells a separator from a character inside a string, so
+  // it has to be tracked rather than assumed away.
+  const out = [];
+  let buf = '';
+  let quote = '';
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (quote) {
+      if (c === quote) quote = '';
+      else buf += c;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      continue;
+    }
+    if (c === ';' || c === '|' || c === '&') {
+      out.push(buf);
+      buf = '';
+      continue;
+    }
+    buf += c;
+  }
+  out.push(buf);
+  return out.map((seg) => seg.trim()).filter(Boolean);
+};
 
 /**
- * Repo scripts a `run:` block INVOKES. Position matters.
+ * Does this segment print instead of running?
  *
- * 🔴 THE FIRST VERSION OF THIS MATCHED ANY MENTION, and the guard
- * immediately accused `osm-weekly.yml:publish`, whose step is
+ * 🔴 The one exclusion, and it is narrow on purpose. It exists because
+ * `osm-weekly.yml:publish` is two lines of
  *
  *     echo "node scripts/osm-pipeline/import-release.mjs --tag $TAG"
  *
- * — two lines of printed INSTRUCTIONS for a human, running nothing. The
- * original word-boundary regex was right to ignore them: the character
- * before `node` is a quote. So a mention is not a call, and the fix for
- * one blind spot must not open a false alarm next to it.
+ * — instructions for a human. Everything else counts: a mention we
+ * cannot classify is treated as a call, because that error is loud and
+ * the opposite one is silent.
  */
-const scriptRefs = (run) =>
-  String(run)
+const isPrinting = (seg) => /^(echo|printf|cat)\b/.test(seg);
+
+/** Strip comments, so a usage note is never read as an invocation. */
+const uncomment = (text) =>
+  String(text)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .split('\n')
-    .flatMap((line) => {
-      const m = line.match(SCRIPT_AT_COMMAND);
-      return m ? [m[1]] : [];
-    });
+    .map((l) => l.replace(/(^|\s)(#|\/\/).*$/, '$1'))
+    .join('\n');
+
+/**
+ * Every command segment in a block of shell, comments and printed
+ * instructions removed.
+ */
+const commands = (text) =>
+  uncomment(text)
+    .split('\n')
+    .flatMap(segments)
+    .filter((seg) => !isPrinting(seg));
+
+/** Repo scripts a `run:` block invokes. */
+const SCRIPT_PATH = /(?:\.\/)?scripts\/[A-Za-z0-9._\/-]+\.(?:sh|mjs|cjs|js)/g;
+const scriptRefs = (run) =>
+  commands(run).flatMap((seg) => seg.match(SCRIPT_PATH) ?? []);
+
+/**
+ * Does this text run Node, directly or through npm?
+ *
+ * The same rule is used on a `run:` block and on the body of a script
+ * it calls, so "a mention is not a call" means the same thing in both
+ * places. Review found it meant two different things: `run:` was
+ * careful, and the script body matched a usage comment.
+ */
+const runsNodeText = (text) => commands(text).some((seg) => NODE_WORD.test(` ${seg} `));
 
 /**
  * Does this step run Node — directly, through npm, or through a repo
  * script that does?
+ *
+ * 🔴 ONE LEVEL, AND THAT IS A LIMIT, NOT AN OVERSIGHT. A script that
+ * calls another script which runs Node is NOT seen. Following further
+ * needs a resolver for relative paths and `cd`, and a guard that half
+ * resolves them would be the quiet kind of wrong. The limit is written
+ * here so the next person reads it instead of discovering it.
  *
  * 🔴 A SCRIPT WE CANNOT READ COUNTS AS "YES". Guessing "no" is how a
  * guard goes quiet about the thing it guards; guessing "yes" at worst
@@ -135,12 +199,12 @@ const scriptRefs = (run) =>
  */
 function runsNode(step, scripts = {}) {
   const run = String(step?.run ?? '');
-  if (NODE_WORD.test(run)) return true;
+  if (runsNodeText(run)) return true;
   for (const ref of scriptRefs(run)) {
     const key = ref.replace(/^\.\//, '');
     const text = scripts[key];
     if (text === undefined) return true;
-    if (NODE_WORD.test(text)) return true;
+    if (runsNodeText(text)) return true;
   }
   return false;
 }
@@ -195,8 +259,23 @@ export function readJobs(files, actions = {}, scripts = {}) {
   return jobs;
 }
 
-export function problems(nvmrc, jobs, exceptions = EXCEPTIONS, atLeast = AT_LEAST) {
+export function problems(nvmrc, jobs, exceptions = EXCEPTIONS, atLeast = AT_LEAST, scripts) {
   const out = [];
+  // 🔴 The scripts map is EVIDENCE, and evidence that quietly becomes
+  // empty is worse than no evidence: every `run:` that calls a script
+  // would then be judged on the text of the call alone, which is the
+  // blind spot this file was changed to close. Only checked when a map
+  // is handed in, so the self-test can reason about jobs alone.
+  if (scripts !== undefined && atLeast.scripts !== undefined) {
+    const n = Object.keys(scripts).length;
+    if (n < atLeast.scripts) {
+      out.push(
+        `only ${n} repo scripts were read, and at least ${atLeast.scripts} were expected — ` +
+          'the reader cannot follow a `run:` into a script it never loaded, and would ' +
+          'report every such job as fine',
+      );
+    }
+  }
   const want = String(nvmrc).trim();
   if (!/^[0-9]+$/.test(want)) {
     out.push(`.nvmrc says "${nvmrc}", which is not a major version`);
@@ -409,12 +488,31 @@ if (argv.includes('--self-test')) {
   // 🔴 CAMP-271: a job reaches Node through a shell script, and the
   // reader has to follow it. Each case below is the difference between
   // "we checked" and "we printed a ✓".
+  // Блоковий скаляр, а не інлайн: інакше `run: "scripts/x.sh" "$S"` це
+  // невалідний YAML, і стенд падав би на формі, яку сам перевіряє.
   const viaScript = (run, scripts) =>
-    readJobs({ 'w.yml': ['jobs:', '  j:', '    steps:', `      - run: ${run}`].join('\n') }, {}, scripts)[0];
+    readJobs(
+      {
+        'w.yml': ['jobs:', '  j:', '    steps:', '      - run: |', ...String(run).split('\n').map((l) => `          ${l}`)].join(
+          '\n',
+        ),
+      },
+      {},
+      scripts,
+    )[0];
 
   const SH = 'scripts/x/do.sh';
+  const MJS = 'scripts/x/tool.mjs';
   const shellRunsNode = ['#!/usr/bin/env bash', 'node "$HERE/thing.mjs" "$1"'].join('\n');
   const shellPure = ['#!/usr/bin/env bash', 'osmium cat "$1" | grep -c foo'].join('\n');
+  // 🔴 A script whose only mention of node is a usage note. Review found
+  // `load-context.sh` flagged for exactly this: a comment and an echo.
+  const shellMentions = [
+    '#!/usr/bin/env bash',
+    '#   cd apps/api && npx ts-node src/x.ts   <- how a human runs it',
+    'echo "    cd apps/api && npx ts-node src/x.ts"',
+    'psql "$DB" -c "select 1"',
+  ].join('\n');
 
   checks.push(
     [viaScript(`${SH} a b`, { [SH]: shellRunsNode }).needsNode === true,
@@ -423,13 +521,40 @@ if (argv.includes('--self-test')) {
       'a shell script that does NOT run node does not drag setup-node in'],
     [viaScript(`${SH} a b`, {}).needsNode === true,
       '🔴 a script we cannot read counts as Node — refusing beats guessing quietly'],
-    // 🔴 The false alarm this very change caused on first run.
     [viaScript(`echo "node ${SH} --tag x"`, { [SH]: shellRunsNode }).needsNode === false,
       'a script MENTIONED inside an echo is printed instructions, not a call'],
-    [viaScript(`./${SH}`, { [SH]: shellRunsNode }).needsNode === true,
-      'a leading ./ is the same invocation'],
+    // 🔴 THE FORM REVIEW FOUND SILENT, and it is the ordinary one.
+    [viaScript(`"${SH}" "$SLUG"`, { [SH]: shellRunsNode }).needsNode === true,
+      'a QUOTED path is an invocation — the style the rest of these workflows use'],
+    [viaScript(`bash -c '${SH} a'`, { [SH]: shellRunsNode }).needsNode === true,
+      'bash -c hides nothing'],
+    [viaScript(`env FOO=1 ${SH}`, { [SH]: shellRunsNode }).needsNode === true,
+      'a command prefixed by env is still a call'],
+    [viaScript(`xargs ${SH}`, { [SH]: shellRunsNode }).needsNode === true,
+      'xargs is not a disguise'],
+    // 🔴 NOT self-confirming: the script is present under the normalised
+    // key and does NOT run node, so a broken `./` strip makes the lookup
+    // miss, the unreadable rule fires, and this case goes red.
+    [viaScript(`./${SH}`, { [SH]: shellPure }).needsNode === false,
+      'a leading ./ resolves to the same key — and the lookup really happens'],
     [viaScript(`cd out && ${SH}`, { [SH]: shellRunsNode }).needsNode === true,
       'a script after && is still at command position'],
+    // 🔴 .mjs/.cjs/.js were in the pattern and in nothing else: review
+    // narrowed it to .sh and all cases stayed green.
+    [viaScript(`node ${MJS}`, { [MJS]: 'console.log(1)' }).needsNode === true,
+      'a .mjs invoked through node needs Node, obviously'],
+    [viaScript(`${MJS} --flag`, { [MJS]: 'import x from "y";' }).needsNode === false,
+      'a .mjs run by shebang that does not shell out to node does not need setup-node'],
+    [viaScript(`${MJS} --flag`, {}).needsNode === true,
+      'an unreadable .mjs counts as Node too — the extension list is live'],
+    // 🔴 A mention inside the SCRIPT is not a call either. The rule has
+    // to mean the same thing in both places, and review found it did not.
+    [viaScript(`${SH} a`, { [SH]: shellMentions }).needsNode === false,
+      'a usage comment and an echo inside a script are not invocations'],
+    [viaScript(`yarn build`, {}).needsNode === true,
+      'yarn still counts'],
+    [viaScript(`pnpm run x`, {}).needsNode === true,
+      'pnpm still counts'],
   );
 
   for (const [ok, what] of checks) {
@@ -466,18 +591,26 @@ if (RUN_DIRECTLY) {
   // (CAMP-271). Read here and passed in, because readJobs stays a pure
   // function of its inputs — the self-test hands it invented scripts
   // rather than needing files on disk.
+  // 🔴 From ROOT, not from the working directory. Review ran this from
+  // `scripts/ci` and the map came back EMPTY — fifty-seven scripts
+  // unread — and the guard still printed ✓, because `problems()` with
+  // no scripts simply has less to object to. A source of evidence that
+  // can silently become empty is the failure this whole file is about.
+  const SCRIPTS = join(ROOT, 'scripts');
   const scripts = {};
   const walk = (dir) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, e.name);
       if (e.isDirectory()) walk(full);
-      else if (/\.(sh|mjs|cjs|js)$/.test(e.name)) scripts[full] = readFileSync(full, 'utf8');
+      else if (/\.(sh|mjs|cjs|js)$/.test(e.name)) {
+        scripts[relative(ROOT, full)] = readFileSync(full, 'utf8');
+      }
     }
   };
-  if (existsSync('scripts')) walk('scripts');
+  if (existsSync(SCRIPTS)) walk(SCRIPTS);
 
   const jobs = readJobs(files, actions, scripts);
-  const found = problems(nvmrc, jobs);
+  const found = problems(nvmrc, jobs, EXCEPTIONS, AT_LEAST, scripts);
 
   const want = nvmrc.trim();
   const real = jobs.filter((j) => !j.empty);
