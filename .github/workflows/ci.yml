@@ -176,6 +176,14 @@ jobs:
       - name: The OSM import spawns no shell, and still says so
         run: node scripts/osm-pipeline/import-release.mjs --self-test
 
+      # 🔴 CAMP-253. Seven of the eight mutations review put on this file
+      # are caught by its self-test and by nothing else — and the
+      # self-test was not wired here when the file was written, so all
+      # seven would have shipped green. A guard nothing runs is a comment
+      # with an exit code.
+      - name: A gate inside a campsite is still not a campsite
+        run: node scripts/osm-pipeline/normalise-export.mjs --self-test
+
       # 🔴 CAMP-174. The CEMS language rule is enforced on panels the
       # suite can FIND, and it found them through hand-written
       # descriptors. Review built a drought panel and a /drought page

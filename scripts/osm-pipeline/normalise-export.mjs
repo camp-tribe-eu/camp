@@ -42,11 +42,27 @@ import { resolve } from 'node:path';
 export const WANTED = ['camp_site', 'caravan_site'];
 
 /**
- * libosmium's area id back to the object it was built from.
+ * The identity an area and its line share — for GROUPING only.
  *
  * 🔴 `a` → `w` is NOT a string substitution, and assuming it was cost me
  * an hour: areas are numbered `way × 2` and `relation × 2 + 1`, so
  * `a132953274` is way 66476637, not way 132953274.
+ *
+ * 🔴 AND IT IS NOT WHAT WE STORE. The first version of this wrote the
+ * canonical form into `osm_ref`, which would have been better data and a
+ * much worse day. Review measured what it costs: `camping_spots` holds
+ * **32 413** rows keyed `a…` today, and both the upsert
+ * (`import-spots.ts` ON CONFLICT (osm_ref)) and the slug lookup
+ * (`slugByRef`) are keyed on that string. Re-keying them means no
+ * conflict, no slug hit, a new row, a new slug and a new
+ * `/camping/<country>/<region>/<slug>` — while the old row goes unseen
+ * and is stamped `missing_since`, which serves 410. That is ~34 500
+ * published URLs moved in one run, against the rule that says a URL we
+ * published is forever (CAMP-87).
+ *
+ * So this is the grouping key, and the feature keeps the id it arrived
+ * with. Canonical refs are worth having and they need a migration that
+ * rewrites the column IN PLACE, where the row — and its slug — survives.
  */
 export function canonicalId(id) {
   const s = String(id ?? '');
@@ -74,17 +90,33 @@ export function normalise(features) {
       notOurs += 1;
       continue;
     }
-    const id = canonicalId(f.id);
-    const seen = kept.get(id);
+    // Grouped by the object, emitted with the id it came with.
+    const key = canonicalId(f.id);
+    const seen = kept.get(key);
     if (!seen) {
-      kept.set(id, { ...f, id });
+      kept.set(key, f);
       continue;
     }
     collapsed += 1;
-    if (rank(f) > rank(seen)) kept.set(id, { ...f, id });
+    if (rank(f) > rank(seen)) kept.set(key, f);
   }
 
   return { features: [...kept.values()], notOurs, collapsed };
+}
+
+/**
+ * Is a result safe to load, or did the filter eat everything?
+ *
+ * 🔴 Lifted out of the runtime block on review. It used to live inline
+ * under `if (RUN_DIRECTLY)`, where no test could reach it — and the
+ * mutation proved it: changing that `if` to `if (false)` left the
+ * self-test at 14/14 green. A safeguard nothing exercises is a comment.
+ */
+export function verdict(before, kept) {
+  if (before > 0 && kept === 0) {
+    return 'every feature was discarded — the tag test is wrong, not the data';
+  }
+  return null;
 }
 
 const SELF_TEST = () => {
@@ -105,7 +137,9 @@ const SELF_TEST = () => {
   // 🔴 THE DUPLICATE THIS FILE EXISTS FOR.
   const pair = normalise([camp('w123', 'LineString'), camp('a246', 'Polygon')]);
   t('a line and its area collapse to one', pair.features.length === 1, JSON.stringify(pair.features.map((f) => f.id)));
-  t('…keeping the id of the real object', pair.features[0].id === 'w123', pair.features[0].id);
+  // 🔴 The id is NOT rewritten: 32 413 live rows are keyed `a…`, and the
+  // upsert and the slug lookup both use that string. See canonicalId.
+  t('…keeping the id it arrived with, not a rewritten one', pair.features[0].id === 'a246', pair.features[0].id);
   t('…and the polygon, not the line', pair.features[0].geometry.type === 'Polygon', pair.features[0].geometry.type);
   t('…counted, so a run can say how many', pair.collapsed === 1, String(pair.collapsed));
 
@@ -131,6 +165,13 @@ const SELF_TEST = () => {
   // a caller that only checks the exit code.
   const empty = normalise([]);
   t('an empty input gives an empty result, not a crash', empty.features.length === 0);
+  t('…and an empty input is not itself an error', verdict(0, 0) === null);
+
+  // 🔴 THE SAFEGUARD ITSELF, which nothing tested until review mutated it
+  // to `if (false)` and watched 14/14 stay green.
+  t('discarding every feature of a non-empty input is refused', verdict(1684, 0) !== null, String(verdict(1684, 0)));
+  t('keeping some is not refused', verdict(1684, 796) === null);
+  t('keeping exactly one is not refused', verdict(1, 1) === null);
 
   let failed = 0;
   for (const [what, cond, detail] of ok) {
@@ -159,9 +200,9 @@ if (RUN_DIRECTLY) {
   console.log(`    duplicate copies  ${String(collapsed).padStart(7)}  (a closed way arriving as line AND area)`);
   console.log(`    kept              ${String(features.length).padStart(7)}`);
 
-  // 🔴 Everything thrown away is a failure, not a filter that worked.
-  if (before > 0 && features.length === 0) {
-    console.error('::error::every feature was discarded — the tag test is wrong, not the data');
+  const bad = verdict(before, features.length);
+  if (bad) {
+    console.error(`::error::${bad}`);
     exit(1);
   }
   writeFileSync(outPath, JSON.stringify({ type: 'FeatureCollection', features }));
