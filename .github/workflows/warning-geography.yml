@@ -76,7 +76,7 @@ jobs:
       # nomenclature revision, not with the weather. The feeds are
       # always asked live — they are the half that moves.
       - name: Cache the geometry sources
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /tmp/camp-149-cache
           key: camp-149-geometry-v1
