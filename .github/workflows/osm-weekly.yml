@@ -295,7 +295,7 @@ jobs:
       # gave Dependabot in its cooldown: let a major release be looked at
       # by other people for a fortnight first. Dependabot will offer v8
       # when its own cooldown expires.
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: extract-*
           merge-multiple: true
