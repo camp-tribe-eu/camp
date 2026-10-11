@@ -447,6 +447,10 @@ export function coverageOf(areaCodes, geometry) {
   let total = 0;
   let uncoded = 0;
   const unresolved = new Map();
+  // 🔴 The codes themselves, not only how many. A count says something
+  // broke; a name says what, and only a name can be compared against a
+  // list of gaps we already know about.
+  const missingCodes = [];
   const note = (why, n) => unresolved.set(why, (unresolved.get(why) ?? 0) + n);
 
   for (const joined of areaCodes) {
@@ -487,12 +491,23 @@ export function coverageOf(areaCodes, geometry) {
       const features = geometry[c.scheme] ?? [];
       let hit = 0;
       let ambiguous = 0;
+      // 🔴 NAME THEM, DO NOT ONLY COUNT THEM. This loop used to report
+      // "1 no source holds the code" and nothing else, so the only way
+      // to learn WHICH area had gone was to reimplement the lookup by
+      // hand. A count tells you something broke; a name tells you what,
+      // and the difference is an afternoon. The same lesson as the six
+      // "unresolved" countries that turned out not to be what the
+      // summary line implied.
+      const missing = [];
       for (const place of c.places) {
         const found = place.values.map((v) => lookup(features, c.scheme, v, place.idField).matches);
         if (found.every(settles)) hit += 1;
-        else if (found.some((m) => m.length > 1)) ambiguous += 1;
+        else {
+          if (found.some((m) => m.length > 1)) ambiguous += 1;
+          missing.push(place.values.join('+'));
+        }
       }
-      if (!best || hit > best.hit) best = { hit, ambiguous, size: c.places.length };
+      if (!best || hit > best.hit) best = { hit, ambiguous, size: c.places.length, missing };
     }
 
     total += best.size;
@@ -500,11 +515,19 @@ export function coverageOf(areaCodes, geometry) {
     const missed = best.size - best.hit;
     if (missed > 0) {
       const tried = candidates.map((c) => c.scheme).join('/');
-      note(best.ambiguous > 0 ? 'ambiguous code' : `no source holds the code (tried ${tried})`, missed);
+      missingCodes.push(...best.missing);
+      const which = best.missing.slice(0, 6).join(', ');
+      const more = best.missing.length > 6 ? ` +${best.missing.length - 6} more` : '';
+      note(
+        best.ambiguous > 0
+          ? `ambiguous code: ${which}${more}`
+          : `no source holds the code (tried ${tried}): ${which}${more}`,
+        missed,
+      );
     }
   }
 
-  return { total, resolved, uncoded, unresolved: [...unresolved.entries()] };
+  return { total, resolved, uncoded, unresolved: [...unresolved.entries()], missingCodes };
 }
 
 /**
@@ -528,6 +551,35 @@ export const tooFewMeasured = (measured, asked) => measured < Math.ceil((asked *
 
 /** Below this, the join has stopped working and somebody must look. */
 export const MIN_COVERAGE = 0.95;
+
+/**
+ * Areas we already know we cannot resolve, by name, with the reason.
+ *
+ * 🔴 WHY A LIST AND NOT A LOWER THRESHOLD. Croatia sends fourteen areas.
+ * One of them unresolved is 7.1%, which trips a 95% floor — while one of
+ * Spain's 233 is 0.4%, which does not. A flat percentage therefore says
+ * "the nomenclature moved" for a single Croatian county and stays quiet
+ * if Spain loses five. Lowering the floor to make Croatia green would
+ * legalise exactly what the guard was written against.
+ *
+ * So the failure condition is a NAME that is new, not a number that
+ * moved. A gap listed here is accepted with its reason; anything else
+ * fails even at 99%. And an entry that stops appearing is also a failure:
+ * it means the gap closed upstream and the note is now a lie.
+ */
+export const KNOWN_GAPS = {
+  croatia: {
+    codes: ['HR014'],
+    why:
+      'DHMZ sends HR014 in its CAP feed. Measured 11.10.2026: it is in ' +
+      "neither MeteoAlarm's own published geocode list — the newest is " +
+      'MeteoAlarm_Geocodes_2026_07_31.json, whose Croatian codes are ' +
+      'HR001-HR008 and HR801-HR806 — nor NUTS 2013 level 3, which has ' +
+      'HR031-HR037, HR041-HR049 and HR04A-HR04E. So the feed and the list ' +
+      'that is supposed to describe it disagree, and the disagreement is ' +
+      'upstream of us. Question queued for MeteoAlarm (CAMP-263).',
+  },
+};
 
 async function coverage() {
   const { COUNTRIES, feedUrl } = await import('./fetch-warnings.mjs');
@@ -558,6 +610,10 @@ async function coverage() {
   // because the count was `COUNTRIES.length - noCodes.length`, which
   // counts countries that were never successfully asked.
   const unreadable = [];
+  /** Unresolved codes nobody has written down yet. */
+  const newGaps = [];
+  /** Gaps we wrote down that have since closed — the note is now a lie. */
+  const closedGaps = [];
   for (const country of COUNTRIES) {
     let payload;
     try {
@@ -580,6 +636,16 @@ async function coverage() {
       worstCountry = country;
     }
     if (c.uncoded > 0) partlyCoded.push(`${country} ${c.uncoded}/${c.uncoded + c.total}`);
+    // 🔴 A gap we have never seen before is the news; a gap we wrote down
+    // is not. Compared by NAME, so a country can lose a different area
+    // while its percentage stays identical and this still says so.
+    const known = KNOWN_GAPS[country]?.codes ?? [];
+    for (const code of c.missingCodes) {
+      if (!known.includes(code)) newGaps.push(`${country}:${code}`);
+    }
+    for (const code of known) {
+      if (!c.missingCodes.includes(code)) closedGaps.push(`${country}:${code}`);
+    }
     const why = [
       ...c.unresolved.map(([k, n]) => `${n} ${k}`),
       ...(c.uncoded ? [`${c.uncoded} area(s) carry no code`] : []),
@@ -612,10 +678,35 @@ async function coverage() {
         'that is not a measurement of Europe',
     );
   }
-  if (worst < MIN_COVERAGE) {
+  // 🔴 A NAME THAT IS NEW, NOT A NUMBER THAT MOVED. See KNOWN_GAPS for
+  // why: one of Croatia's fourteen areas is 7.1% and trips a 95% floor,
+  // while five of Spain's 233 is 2.1% and does not.
+  if (newGaps.length) {
     throw new Error(
-      `${worstCountry} resolves ${(worst * 100).toFixed(1)}% of its areas, below ${MIN_COVERAGE * 100}% — ` +
-        'the nomenclature has probably moved under us; read the unresolved reasons above',
+      `${newGaps.length} area(s) nobody has written down could not be resolved: ` +
+        `${newGaps.join(', ')} — either the nomenclature moved under us, or this ` +
+        'is a gap to record in KNOWN_GAPS with the reason and the date',
+    );
+  }
+  if (closedGaps.length) {
+    throw new Error(
+      `KNOWN_GAPS still lists ${closedGaps.join(', ')}, but ${
+        closedGaps.length === 1 ? 'it resolves' : 'they resolve'
+      } now — delete the entry, or the next reader believes a note that stopped being true`,
+    );
+  }
+  if (worst < MIN_COVERAGE) {
+    // Still here as the coarse net: a country collapsing wholesale shows
+    // up as a percentage long before anyone reads a list of names.
+    const excused = KNOWN_GAPS[worstCountry]?.codes?.length ?? 0;
+    if (!excused) {
+      throw new Error(
+        `${worstCountry} resolves ${(worst * 100).toFixed(1)}% of its areas, below ${MIN_COVERAGE * 100}% — ` +
+          'the nomenclature has probably moved under us; read the unresolved reasons above',
+      );
+    }
+    console.log(
+      `  (${worstCountry} is under ${MIN_COVERAGE * 100}% because of ${excused} recorded gap(s), not a new one)`,
     );
   }
   // 🔴 Named even when nothing is wrong. "worst country: null" is what
@@ -712,8 +803,11 @@ function selfTest() {
     ok('…and the preferred scheme answering is enough on its own', firstWorks.resolved === 1);
     const bothDead = coverageOf(['EMMA_ID:HR018||NUTS3:HR999'], geom);
     ok('…while two dead codes are a failure', bothDead.resolved === 0);
-    ok('…that names every scheme it tried',
-      bothDead.unresolved[0][0] === 'no source holds the code (tried EMMA_ID/NUTS3)',
+    // 🔴 The message carries the CODES now, not only the schemes. Asserting
+    // the prefix rather than the whole string would let the names rot off
+    // silently, so this checks both halves.
+    ok('…that names every scheme it tried, and the code that failed',
+      bothDead.unresolved[0][0] === 'no source holds the code (tried EMMA_ID/NUTS3): HR018',
       bothDead.unresolved[0][0]);
     const marineStillCounts = coverageOf(['EMMA_ID:HR001'], geom);
     ok('a sea zone that IS in the source resolves like anything else', marineStillCounts.resolved === 1);
@@ -760,7 +854,7 @@ function selfTest() {
     const geom = { FIPS: [...waterford, { properties: { fips: 'EI32', iso_3166_2: 'IE-CO' } }] };
     const amb = coverageOf(['FIPS:EI32'], geom);
     ok('a code on two different counties is ambiguous, not missing',
-      amb.resolved === 0 && amb.unresolved[0][0] === 'ambiguous code', JSON.stringify(amb.unresolved));
+      amb.resolved === 0 && amb.unresolved[0][0] === 'ambiguous code: EI32', JSON.stringify(amb.unresolved));
     const byIso = coverageOf(['FIPS:EI27'], geom);
     ok('…while EI27 resolves to Waterford by ISO, both pieces', byIso.resolved === 1);
   }
