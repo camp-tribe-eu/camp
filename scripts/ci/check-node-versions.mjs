@@ -77,10 +77,72 @@ export const EXCEPTIONS = {
 // рівно цього кроку підлога б пропустила.
 export const AT_LEAST = { jobs: 18, nodeSteps: 12 };
 
-/** Does this step run Node, directly or through npm? */
-function runsNode(step) {
+const NODE_WORD = /(^|[\s;&|(])(node|npm|npx|yarn|pnpm)[\s]/;
+
+/**
+ * Repo scripts a `run:` block invokes, as written.
+ *
+ * 🔴 WHY THIS EXISTS (CAMP-271). The guard used to read only the text of
+ * `run:`, and printed "every job that runs Node asks for 22" about jobs
+ * it had never examined. `osm-weekly.yml`'s extract step says
+ *
+ *     run: scripts/osm-pipeline/extract-campsites.sh "$SLUG.osm.pbf" …
+ *
+ * and the word `node` is not in it — it is on line 54 of that script.
+ * Removing that job's setup-node was caught only by the step-count
+ * floor, which is arithmetic, not the check this file exists for. A NEW
+ * such job would raise the count instead of lowering it, and the floor
+ * would never see it.
+ */
+const SCRIPT_AT_COMMAND = new RegExp(
+  // start of line, or after a shell separator …
+  String.raw`(?:^|[;&|(]|&&|\|\|)\s*` +
+    // … optionally through an interpreter …
+    String.raw`(?:(?:ba)?sh|node|npx)?\s*` +
+    // … then the path, ending at a boundary.
+    String.raw`((?:\./)?scripts/[A-Za-z0-9._/-]+\.(?:sh|mjs|cjs|js))(?=$|[\s;&|)])`,
+);
+
+/**
+ * Repo scripts a `run:` block INVOKES. Position matters.
+ *
+ * 🔴 THE FIRST VERSION OF THIS MATCHED ANY MENTION, and the guard
+ * immediately accused `osm-weekly.yml:publish`, whose step is
+ *
+ *     echo "node scripts/osm-pipeline/import-release.mjs --tag $TAG"
+ *
+ * — two lines of printed INSTRUCTIONS for a human, running nothing. The
+ * original word-boundary regex was right to ignore them: the character
+ * before `node` is a quote. So a mention is not a call, and the fix for
+ * one blind spot must not open a false alarm next to it.
+ */
+const scriptRefs = (run) =>
+  String(run)
+    .split('\n')
+    .flatMap((line) => {
+      const m = line.match(SCRIPT_AT_COMMAND);
+      return m ? [m[1]] : [];
+    });
+
+/**
+ * Does this step run Node — directly, through npm, or through a repo
+ * script that does?
+ *
+ * 🔴 A SCRIPT WE CANNOT READ COUNTS AS "YES". Guessing "no" is how a
+ * guard goes quiet about the thing it guards; guessing "yes" at worst
+ * demands a setup-node that was not strictly needed, and says so out
+ * loud. Only one of those two failures is silent.
+ */
+function runsNode(step, scripts = {}) {
   const run = String(step?.run ?? '');
-  return /(^|[\s;&|(])(node|npm|npx|yarn|pnpm)[\s]/.test(run);
+  if (NODE_WORD.test(run)) return true;
+  for (const ref of scriptRefs(run)) {
+    const key = ref.replace(/^\.\//, '');
+    const text = scripts[key];
+    if (text === undefined) return true;
+    if (NODE_WORD.test(text)) return true;
+  }
+  return false;
 }
 
 function setupNodeOf(step) {
@@ -94,7 +156,7 @@ function setupNodeOf(step) {
  * what this guard needs. Throws on a file it cannot parse — a workflow
  * that stops parsing must be loud.
  */
-export function readJobs(files, actions = {}) {
+export function readJobs(files, actions = {}, scripts = {}) {
   const jobs = [];
   // A composite action can carry its own setup-node, and five of our jobs
   // reach Node through one. Reviewed mutation: moving a bad version into
@@ -126,7 +188,7 @@ export function readJobs(files, actions = {}) {
         file,
         job,
         setups: [...direct, ...viaAction],
-        needsNode: steps.some(runsNode),
+        needsNode: steps.some((st) => runsNode(st, scripts)),
       });
     }
   }
@@ -344,6 +406,32 @@ if (argv.includes('--self-test')) {
     [parsed[1].needsNode === true, 'a job running npm is seen to need Node'],
     [parsed[1].setups[0]?.['node-version'] === 22, 'a setup-node inside a composite action counts for the job that uses it'],
   ];
+  // 🔴 CAMP-271: a job reaches Node through a shell script, and the
+  // reader has to follow it. Each case below is the difference between
+  // "we checked" and "we printed a ✓".
+  const viaScript = (run, scripts) =>
+    readJobs({ 'w.yml': ['jobs:', '  j:', '    steps:', `      - run: ${run}`].join('\n') }, {}, scripts)[0];
+
+  const SH = 'scripts/x/do.sh';
+  const shellRunsNode = ['#!/usr/bin/env bash', 'node "$HERE/thing.mjs" "$1"'].join('\n');
+  const shellPure = ['#!/usr/bin/env bash', 'osmium cat "$1" | grep -c foo'].join('\n');
+
+  checks.push(
+    [viaScript(`${SH} a b`, { [SH]: shellRunsNode }).needsNode === true,
+      'a job calling a shell script that runs node is seen to need Node'],
+    [viaScript(`${SH} a b`, { [SH]: shellPure }).needsNode === false,
+      'a shell script that does NOT run node does not drag setup-node in'],
+    [viaScript(`${SH} a b`, {}).needsNode === true,
+      '🔴 a script we cannot read counts as Node — refusing beats guessing quietly'],
+    // 🔴 The false alarm this very change caused on first run.
+    [viaScript(`echo "node ${SH} --tag x"`, { [SH]: shellRunsNode }).needsNode === false,
+      'a script MENTIONED inside an echo is printed instructions, not a call'],
+    [viaScript(`./${SH}`, { [SH]: shellRunsNode }).needsNode === true,
+      'a leading ./ is the same invocation'],
+    [viaScript(`cd out && ${SH}`, { [SH]: shellRunsNode }).needsNode === true,
+      'a script after && is still at command position'],
+  );
+
   for (const [ok, what] of checks) {
     if (!ok) failed++;
     console.log(`${ok ? '✓' : '✗'} reader: ${what}`);
@@ -374,7 +462,21 @@ if (RUN_DIRECTLY) {
     }
   }
 
-  const jobs = readJobs(files, actions);
+  // 🔴 Every repo script, so a `run:` that calls one can be followed
+  // (CAMP-271). Read here and passed in, because readJobs stays a pure
+  // function of its inputs — the self-test hands it invented scripts
+  // rather than needing files on disk.
+  const scripts = {};
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (/\.(sh|mjs|cjs|js)$/.test(e.name)) scripts[full] = readFileSync(full, 'utf8');
+    }
+  };
+  if (existsSync('scripts')) walk('scripts');
+
+  const jobs = readJobs(files, actions, scripts);
   const found = problems(nvmrc, jobs);
 
   const want = nvmrc.trim();
