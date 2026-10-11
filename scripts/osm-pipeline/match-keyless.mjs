@@ -90,7 +90,15 @@ const SELF_TEST = [
     [{ osm_ref: 'w7', name: 'X', metres: null }], 'alone'],
 ];
 
-if (argv.includes('--self-test')) {
+// 🔴 Усе, що нижче, — лише коли файл ЗАПУЩЕНО, а не імпортовано.
+//
+// Перша редакція тримала самоперевірку на рівні модуля, і
+// `check-script-entrypoints.mjs` це завалив — слушно: той, хто
+// імпортує `classify`, не має отримати ані прогін тестів, ані `exit()`
+// лише тому, що в argv випадково трапився прапорець.
+const isMain = import.meta.url === pathToFileURL(argv[1] ?? '').href;
+
+if (isMain && argv.includes('--self-test')) {
   let failed = 0;
   for (const [what, row, cands, want] of SELF_TEST) {
     const got = classify(row, cands).kind;
@@ -102,7 +110,7 @@ if (argv.includes('--self-test')) {
   exit(failed ? 1 : 0);
 }
 
-if (import.meta.url === pathToFileURL(argv[1] ?? '').href) {
+if (isMain) {
   const DB = env.DATABASE_URL;
   if (!DB) {
     console.error('::error::DATABASE_URL не задано');
