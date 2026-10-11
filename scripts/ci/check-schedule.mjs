@@ -204,7 +204,7 @@ export function evaluate(watched, runsByWorkflow, now) {
     } else {
       notes.push({
         workflow: w.workflow,
-        text: `last succeeded ${days < 1 ? 'today' : `${Math.floor(days)}d ago`} (allowed ${maxDays}d)`,
+        text: `last scheduled run succeeded ${days < 1 ? 'today' : `${Math.floor(days)}d ago`} (allowed ${maxDays}d)`,
       });
     }
   }
@@ -219,7 +219,19 @@ export function describe(p) {
       ? `\`${p.workflow}\` has never run on schedule.`
       : p.kind === 'never-succeeded'
         ? `\`${p.workflow}\` has run but has never succeeded.`
-        : `\`${p.workflow}\` last succeeded ${p.days} days ago (allowed ${p.maxDays}).`;
+        : // 🔴 «last SCHEDULED run», а не «last succeeded».
+          //
+          // Цей файл навмисно рахує лише прогони з подією `schedule` —
+          // причина в коментарі до `fetchRuns`, і вона заміряна. Але
+          // повідомлення про це мовчало, і 11.10.2026 воно сказало
+          // «osm-weekly.yml last succeeded 13 days ago» того самого дня,
+          // коли воркфлоу успішно відпрацював вручну по всіх 27 країнах.
+          //
+          // Тривога правильна: крон справді не спрацьовував 13 днів. Але
+          // читач за цим рядком іде шукати зламаний імпорт, якого немає.
+          // Запобіжник мусить називати те, що він виміряв, а не те, що
+          // звучить тривожніше.
+          `\`${p.workflow}\` last scheduled run succeeded ${p.days} days ago (allowed ${p.maxDays}).`;
   return `${head}\n\nWhile this is quiet: ${p.why}.`;
 }
 
@@ -373,7 +385,7 @@ function selfTest() {
     'a healthy workflow still says when it last ran',
     evaluate(one, { w: [{ conclusion: 'success', createdAt: ago(3) }] }, now)
       .notes[0].text,
-    'last succeeded 3d ago (allowed 8d)',
+    'last scheduled run succeeded 3d ago (allowed 8d)',
   );
 
   // — the real configuration is sane ——————————————————————————
