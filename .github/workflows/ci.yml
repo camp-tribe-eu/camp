@@ -44,6 +44,26 @@ env:
   # symptom would be a CSP mismatch that looks like a security regression.
   CI_ERROR_ENDPOINT: http://localhost:3001/client-errors
 
+# 🔴 ДРУГА ПОЛОВИНА ДЕДУПЛІКАЦІЇ (CAMP-269), І ВОНА ПОТРІБНА САМЕ ТОМУ,
+# ЩО ВОРОТА НЕ ВСЕМОГУТНІ.
+#
+# Заміряно на цьому ж PR: push-прогін створено о 18:00:32, а pull request
+# з'явився о 18:00:48 — через ШІСТНАДЦЯТЬ секунд. Коли ворота питали
+# «чи є відкритий PR», його ще не існувало, тож вони чесно відповіли
+# «будуємо». Для PR з одного коміта — а такі тут більшість — ворота не
+# заощаджують нічого.
+#
+# Спільна група для обох подій це закриває: `head_ref` для pull_request
+# це назва гілки, `ref_name` для push — вона ж, тож обидва прогони
+# потрапляють в одну групу, і пізніший (а це завжди pull_request)
+# скасовує ранішій.
+#
+# 🔴 Але НЕ на гілці за замовчуванням. Там скасування означало б коміт
+# у main, який ніхто не добудував — рівно та діра, яку лагодить цей PR.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
+
 jobs:
   # 🔴 ONE RUN PER COMMIT (CAMP-269).
   #
