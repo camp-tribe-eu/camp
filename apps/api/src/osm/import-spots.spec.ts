@@ -1,4 +1,4 @@
-import { dedupe, UPSERT_SPOT_SQL } from './import-spots';
+import { dedupe, MARK_GONE_SQL, UPSERT_SPOT_SQL } from './import-spots';
 
 // CAMP-28. The upsert is the whole card, and its two most important
 // properties are things it must NOT do. Both are one careless line away,
@@ -66,6 +66,40 @@ describe('the weekly upsert', () => {
   it('clears missing_since so a returning campsite comes back', () => {
     // A site deleted in OSM by mistake usually reappears within a week.
     expect(doUpdate).toMatch(/missing_since\s*=\s*NULL/);
+  });
+});
+
+describe('🔴 MARK_GONE_SQL: a folded twin is not a missing campsite (CAMP-274)', () => {
+  it('still stamps rows this import did not see', () => {
+    // Чого воно не перестало робити. Без цього рядка решта тестів
+    // пройшла б і на запиті, який не позначає нічого взагалі.
+    expect(MARK_GONE_SQL).toMatch(/SET\s+missing_since\s*=\s*\$1/);
+    expect(MARK_GONE_SQL).toMatch(/missing_since\s+IS\s+NULL/);
+    expect(MARK_GONE_SQL).toMatch(/last_seen_at/);
+  });
+
+  it('skips a row that is a live secondary of a link', () => {
+    expect(MARK_GONE_SQL).toMatch(/NOT\s+EXISTS/);
+    expect(MARK_GONE_SQL).toMatch(/spot_links/);
+    expect(MARK_GONE_SQL).toMatch(/l\.secondary_id\s*=\s*camping_spots\.id/);
+    expect(MARK_GONE_SQL).toMatch(/l\.unlinked_at\s+IS\s+NULL/);
+  });
+
+  it('🔴 asks about the PRIMARY too — a pair that really vanished must still be stamped', () => {
+    // Якби умова питала лише «чи я вторинний», закритий кемпінг, чия
+    // пара теж зникла, назавжди лишився б із живою сторінкою. Саме цей
+    // join відрізняє «наш нормалізатор прибрав близнюка» від «кемпінгу
+    // більше немає».
+    expect(MARK_GONE_SQL).toMatch(
+      /JOIN\s+camping_spots\s+pri\s+ON\s+pri\.id\s*=\s*l\.primary_id/,
+    );
+    expect(MARK_GONE_SQL).toMatch(/pri\.missing_since\s+IS\s+NULL/);
+  });
+
+  it('does not touch rows without an osm_ref', () => {
+    // Рядки DATAtourisme не приходять із жодного екстракту OSM, тож
+    // «не бачив цього разу» про них не означає нічого.
+    expect(MARK_GONE_SQL).toMatch(/osm_ref\s+IS\s+NOT\s+NULL/);
   });
 });
 

@@ -249,6 +249,50 @@ function slugify(name: string | null, osmRef: string): string {
  * a site, the second would erase the campsite owner's corrections once a
  * week. Both are easy to add by accident and invisible once added.
  */
+/**
+ * Stamp the first disappearance of a campsite this import did not see.
+ *
+ * 🔴 A FOLDED TWIN IS NOT A MISSING CAMPSITE (CAMP-274).
+ *
+ * `osmium export` hands back a closed way TWICE — once as the line and
+ * once as the area — and CAMP-253's normaliser collapses the pair,
+ * keeping ONE identifier. So the other identifier stops appearing in
+ * every later extract BY OUR OWN DESIGN.
+ *
+ * 844 such twins live in the table and 828 of them are now folded into
+ * their partner through `spot_links`. Without the clause below, the next
+ * import would read "not in the extract" as "gone from OSM" and stamp
+ * them — measured on France: 2 287 rows would be marked, and among them
+ *
+ *   · 155 are folded secondaries. The redirect that sends a reader to
+ *     the surviving page is built only for secondaries with
+ *     missing_since IS NULL, so stamping them turns 155 working 301s
+ *     into 410s — "this page is gone" about a campsite that is open.
+ *   · 12 are primaries of a live link. When a primary goes missing the
+ *     secondary stops being hidden, so twelve duplicate pages come back.
+ *
+ * 🔴 The clause asks about the PRIMARY, not just about being linked.
+ * If the partner is itself gone, both really have disappeared and both
+ * should be stamped — otherwise a closed campsite would keep one live
+ * page forever, which is the opposite failure.
+ */
+export const MARK_GONE_SQL = `UPDATE camping_spots
+    SET missing_since = $1
+  WHERE country = $2
+    AND osm_ref IS NOT NULL
+    AND (last_seen_at IS NULL
+         OR last_seen_at < $1::timestamptz - ($3 || ' hours')::interval)
+    AND missing_since IS NULL
+    AND NOT EXISTS (
+      SELECT 1
+        FROM spot_links l
+        JOIN camping_spots pri ON pri.id = l.primary_id
+       WHERE l.secondary_id = camping_spots.id
+         AND l.unlinked_at IS NULL
+         AND pri.missing_since IS NULL
+    )
+  RETURNING osm_ref`;
+
 export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            (name, country, region, slug, type, amenities, location,
             osm_ref, last_seen_at, missing_since, content_changed_at, sources,
@@ -639,17 +683,11 @@ async function main(): Promise<void> {
     // window is generous on purpose: the gone rule already waits four
     // weeks, so nothing is lost by being slow to suspect.
     const CYCLE_HOURS = 24;
-    const gone = await db.query(
-      `UPDATE camping_spots
-          SET missing_since = $1
-        WHERE country = $2
-          AND osm_ref IS NOT NULL
-          AND (last_seen_at IS NULL
-               OR last_seen_at < $1::timestamptz - ($3 || ' hours')::interval)
-          AND missing_since IS NULL
-        RETURNING osm_ref`,
-      [startedAt, COUNTRY, CYCLE_HOURS],
-    );
+    const gone = await db.query(MARK_GONE_SQL, [
+      startedAt,
+      COUNTRY,
+      CYCLE_HOURS,
+    ]);
 
     await db.query('COMMIT');
 
