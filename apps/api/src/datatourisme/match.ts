@@ -305,10 +305,7 @@ export function decide(
   // 🔴 Identical names, within one campsite's span. See the measurement
   // on `identicalNameMetres` — this branch exists because of a number,
   // and the number is in RULES where the next reader will find it.
-  if (
-    sim >= rules.identicalSimilarity &&
-    metres <= rules.identicalNameMetres
-  ) {
+  if (sim >= rules.identicalSimilarity && metres <= rules.identicalNameMetres) {
     return {
       ...shared,
       verdict: 'same',

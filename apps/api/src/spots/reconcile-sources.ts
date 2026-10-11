@@ -705,7 +705,9 @@ async function main(): Promise<void> {
 
     if (predictFile && !apply) {
       writeFileSync(predictFile, JSON.stringify(predicted, null, 0));
-      console.log(`\n  передбачення записано: ${predicted.length} пар → ${predictFile}`);
+      console.log(
+        `\n  передбачення записано: ${predicted.length} пар → ${predictFile}`,
+      );
     }
 
     if (!apply) {

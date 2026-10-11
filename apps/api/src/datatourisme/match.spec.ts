@@ -107,7 +107,9 @@ describe('🔴 CAMP-277: an identical name reaches further than a similar one', 
 
   it('🔴 past the identical-name ceiling it goes back to a human', () => {
     const tooFar = at(43.1232, 6.18);
-    expect(metresApart(base, tooFar)).toBeGreaterThan(RULES.identicalNameMetres);
+    expect(metresApart(base, tooFar)).toBeGreaterThan(
+      RULES.identicalNameMetres,
+    );
     const d = decide({ name: 'Camping Maya', ...base }, [
       { id: 'osm-1', name: 'Camping Maya', ...tooFar },
     ]);
