@@ -202,16 +202,63 @@ jobs:
           SLUG="$(echo "$REGION" | tr '/' '-')"
           mkdir -p out
 
-          # 🔴 Resolve -latest once, and check the redirect is still this
-          # region. An md5 proves the bytes, never which file they are:
+          # 🔴 ASK FOR A DATED NAME. DO NOT FOLLOW -latest (CAMP-267).
+          #
+          # This used to resolve `<region>-latest.osm.pbf` and then insist
+          # the redirect landed on a dated file. The insisting is right —
+          # an md5 proves the bytes, never WHICH file they are, and
           # Geofabrik answers an unknown or renamed region with a 302 to
-          # its own index, HTTP 200, which `curl -f` does not refuse.
-          LATEST="https://download.geofabrik.de/$REGION-latest.osm.pbf"
-          URL=$(curl -fsSL -I --retry 3 --retry-delay 10 --max-time 60 \
-                  -o /dev/null -w '%{url_effective}' "$LATEST")
+          # its own index under HTTP 200, which `curl -f` does not refuse.
+          #
+          # What was wrong is the assumption that -latest always lands on
+          # a dated file. Geofabrik load-balances its largest extracts
+          # onto mirrors, and a mirror has a flat layout that serves only
+          # `-latest`:
+          #
+          #   germany -latest → ftp5.gwdg.de/pub/misc/openstreetmap/
+          #                     download.geofabrik.de/germany-latest.osm.pbf
+          #
+          # No date in that name, so the check refused it, and the whole
+          # weekly import died on one country out of 27. Measured
+          # 11.10.2026 across all 27: exactly ONE goes to a mirror today,
+          # and the other 26 do not — which is precisely why this is not
+          # a Germany special case. Tomorrow it can be France.
+          #
+          # So we build the dated name ourselves and never ask -latest.
+          # Measured the same day: 24 countries were at D-3 and three
+          # (DE, PL, SK) at D-2, so the newest dated file is country-
+          # specific and no shared date exists even among neighbours.
+          #
+          # 🔴 The window is 7 days, not the 4 the measurement would
+          # allow. Four is a hair above the measured 3, so one slow week
+          # at Geofabrik turns this fix back into the outage. Seven keeps
+          # the loudness: if a week back holds nothing, that IS broken,
+          # and data older than a week is not data we want anyway — it is
+          # the same bar check-schedule.mjs uses (8 days).
           BASE="${REGION##*/}"
-          if ! printf '%s' "$URL" | grep -qE "/${BASE}-[0-9]{6}\.osm\.pbf$"; then
-            echo "::error::$REGION resolves to $URL — not a dated extract for '$BASE'"
+          URL=''
+          for d in $(seq 0 7); do
+            YMD=$(date -u -d "-$d day" +%y%m%d)
+            CAND="https://download.geofabrik.de/$REGION-$YMD.osm.pbf"
+            # -I so nothing is downloaded while probing, and the EFFECTIVE
+            # url is read back: a 302 to the index would answer 200 here
+            # too, and only the final name tells us what we actually got.
+            # -s without -S: a miss is EXPECTED here (yesterday's file
+            # usually does not exist yet), and `curl -S` would print
+            # "curl: (22) ... 404" for every one of them — 27 countries
+            # times three misses is 81 alarming lines in a log that is
+            # working perfectly. The one failure worth shouting about is
+            # the empty window below, and it shouts.
+            FINAL=$(curl -fsL -I --retry 2 --retry-delay 5 --max-time 45 \
+                      -o /dev/null -w '%{url_effective}' "$CAND") || continue
+            if printf '%s' "$FINAL" | grep -qE "/${BASE}-${YMD}\.osm\.pbf$"; then
+              URL="$CAND"
+              echo "  $REGION: $YMD (D-$d)"
+              break
+            fi
+          done
+          if [ -z "$URL" ]; then
+            echo "::error::$REGION has no dated extract in the last 8 days (tried ${BASE}-YYMMDD back to D-7) — Geofabrik layout or the region name has changed"
             exit 1
           fi
 
