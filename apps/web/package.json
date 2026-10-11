@@ -15,7 +15,7 @@
     "test:visual": "VISUAL=1 playwright test"
   },
   "dependencies": {
-    "maplibre-gl": "^6.10.0",
+    "maplibre-gl": "^6.11.2",
     "next": "15.5.27",
     "react": "^18",
     "react-dom": "^18"
@@ -29,7 +29,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^8",
-    "eslint-config-next": "15.5.25",
+    "eslint-config-next": "15.5.27",
     "postcss": "^8",
     "tailwindcss": "^4.3.3",
     "typescript": "^5"
