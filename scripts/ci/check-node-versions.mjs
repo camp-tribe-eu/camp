@@ -75,7 +75,7 @@ export const EXCEPTIONS = {
 // дереві злиття: 18 джобів, 12 node-кроків. Не підняти означало б лишити
 // підлогу на один крок нижче за дійсність — тобто мовчазне зникнення
 // рівно цього кроку підлога б пропустила.
-export const AT_LEAST = { jobs: 18, nodeSteps: 12, scripts: 50 };
+export const AT_LEAST = { jobs: 19, nodeSteps: 12, scripts: 50 };
 
 const NODE_WORD = /(^|[\s;&|(])(node|npm|npx|yarn|pnpm)[\s]/;
 
