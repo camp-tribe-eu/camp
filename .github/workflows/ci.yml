@@ -98,6 +98,14 @@ jobs:
         run: node scripts/ci/check-eu-scope.mjs --self-test
       - name: The import list is the Union, and nothing else
         run: node scripts/ci/check-eu-scope.mjs
+      # 🔴 CAMP-178. A job running a Node nobody chose is how a version
+      # skew becomes permanent: `warning-geography` sat on 24 for weeks
+      # because it was copied from a file that needed 24, and nothing in
+      # the repository could tell the two apart.
+      - name: Node-version guard still catches an unexplained version
+        run: node scripts/ci/check-node-versions.mjs --self-test
+      - name: Every job runs .nvmrc's Node, or says why not
+        run: node scripts/ci/check-node-versions.mjs
 
       # CAMP-60, debt #2. The verdict logic, including the case that
       # matters most: a run that sent nothing must FAIL, not report
