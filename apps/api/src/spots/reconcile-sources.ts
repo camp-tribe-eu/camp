@@ -547,6 +547,63 @@ async function main(): Promise<void> {
         `${boundReview === null ? 'nothing judgeable' : boundReview.toFixed(1) + '%'})`,
     );
 
+    // 🔴 CAMP-277: THE ONE BAND THE RULE WAS NEVER MEASURED IN.
+    //
+    // `sameSpotMetres` is 150, and that ceiling was chosen against data
+    // where both sides are POINTS. DATAtourisme publishes a postal
+    // address; OSM maps a campsite as a POLYGON, and what we store for
+    // it is a single point inside that polygon. For a large site the
+    // entrance and the centre are hundreds of metres apart by
+    // construction — measured 11.10.2026 on the French extract, the
+    // offset between a polygon's first vertex and its centre reached
+    // 1 384 m.
+    //
+    // So the pairs this rule declines for distance alone, while the
+    // names are IDENTICAL, are exactly where the ceiling may be wrong
+    // rather than the pair. Printing the same independent measure for
+    // them is what turns "200 m is surely fine for a polygon" into
+    // something that can be shown to be wrong.
+    //
+    // 🔴 Read it against the control line above, not on its own. ~20% is
+    // the rate at which ONE French campsite publishes two domains, not
+    // an error rate.
+    const IDENTICAL = 0.99;
+    const identical = out.review.filter((p) => p.similarity >= IDENTICAL);
+    console.log(
+      `\n  declined with IDENTICAL names (sim ≥ ${IDENTICAL}), by distance:`,
+    );
+    let coveredIdentical = 0;
+    for (const [lo, hi] of [
+      [0, RULES.sameSpotMetres],
+      [RULES.sameSpotMetres, 200],
+      [200, 300],
+      [300, RULES.maxMetres],
+    ] as [number, number][]) {
+      const last = hi === RULES.maxMetres;
+      const band = identical.filter(
+        (p) => p.metres >= lo && (last ? p.metres <= hi : p.metres < hi),
+      );
+      coveredIdentical += band.length;
+      const e = judgeByIdentity(band.map(asPair));
+      const b = upperBoundPercent(e);
+      console.log(
+        `    ${String(lo).padStart(3)}–${String(hi).padStart(3)} m  ` +
+          `${String(band.length).padStart(5)} pairs  ` +
+          `${String(e.agree + e.disagree).padStart(5)} judgeable  ` +
+          `${b === null ? '   —' : b.toFixed(1).padStart(5) + '%'}`,
+      );
+    }
+    // 🔴 The same assertion the link table carries, for the same reason:
+    // a band boundary that silently drops the loosest pairs would delete
+    // exactly the evidence this table exists to provide.
+    if (coveredIdentical !== identical.length) {
+      throw new Error(
+        `the identical-name bands cover ${coveredIdentical} of ` +
+          `${identical.length} declined pairs — a band boundary is dropping ` +
+          'the pairs this table exists to judge',
+      );
+    }
+
     const sameSource = await db.query(SAME_SOURCE_CANDIDATE_SQL, [
       BOX_DEGREES,
       RULES.maxMetres,
