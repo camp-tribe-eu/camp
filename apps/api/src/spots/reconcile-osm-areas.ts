@@ -68,7 +68,15 @@ const SELF_TEST: [string, string | null, string | null][] = [
   ['🔴 дробове не приймаємо мовчки', sourceOfArea('a12.5'), null],
 ];
 
-if (process.argv.includes('--self-test')) {
+// 🔴 Усе нижче — лише коли файл ЗАПУЩЕНО, а не імпортовано.
+//
+// check-script-entrypoints.mjs завалив на цьому CI, і це вже ДРУГИЙ раз
+// за добу: та сама помилка була в match-keyless.mjs кілька годин тому.
+// Той, хто імпортує sourceOfArea, не має отримати ані прогін тестів,
+// ані process.exit() лише тому, що в argv випадково трапився прапорець.
+const isMain = require.main === module;
+
+if (isMain && process.argv.includes('--self-test')) {
   let failed = 0;
   for (const [what, got, want] of SELF_TEST) {
     const ok = got === want;
@@ -247,7 +255,7 @@ async function main(): Promise<void> {
   }
 }
 
-if (require.main === module) {
+if (isMain) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);
