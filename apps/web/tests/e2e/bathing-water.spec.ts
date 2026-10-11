@@ -140,9 +140,30 @@ test.describe('the season is in the served HTML', () => {
     );
     expect(stripTags(section)).toContain('whole bathing season');
     expect(stripTags(section)).toContain('rather than a particular day');
-    // The sentence about the calendar names the year too.
-    expect(stripTags(section)).toContain(
-      `The ${BATHING_SEASON} season is the most recent one published`,
+    // 🔴 CAMP-198: WHICH of the two sentences is correct depends on the
+    // calendar, so this asks the calendar rather than pinning one.
+    //
+    // The page claims "the most recent one published" only while no
+    // newer edition is due. The oracle is computed here from the
+    // measured rhythm — season N appears in June of N+1, so the edition
+    // after the one we ship is due in June of BATHING_SEASON + 2 — and
+    // NOT from `editionMayBeBehind`, which is the thing under test.
+    //
+    // When this flips it is not a bug in the page: it is the fixture
+    // having aged past a real edition, and the message says so.
+    const nextEditionDue = new Date(Date.UTC(BATHING_SEASON + 2, 5, 1));
+    const weAreBehind = Date.now() >= nextEditionDue.getTime();
+    expect(
+      stripTags(section),
+      weAreBehind
+        ? `the ${BATHING_SEASON + 1} season was due in June ${BATHING_SEASON + 2} ` +
+          'and that date has passed, so the page must stop claiming ours is the ' +
+          'newest published — refresh the bathing fixture'
+        : 'no newer edition is due yet, so the page may still make the claim',
+    ).toContain(
+      weAreBehind
+        ? `The ${BATHING_SEASON} season is the most recent one we hold`
+        : `The ${BATHING_SEASON} season is the most recent one published`,
     );
     expectNoBrokenYear(stripTags(section), fx.classified.path);
   });

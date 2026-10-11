@@ -29,9 +29,7 @@
 
 // CAMP-168: one id for the EEA bathing water source, shared by the
 // attribution below and by the component that renders the classification.
-import { BATHING_SOURCE_ID } from './bathing';
 // CAMP-164: the same for the EEA air quality index.
-import { AIR_SOURCE_ID } from './air-quality';
 
 export type SpotSource = {
   id: string;
@@ -98,6 +96,32 @@ export type SourceInfo = {
    */
   cadence: 'continuous' | 'annual' | 'hourly';
 };
+
+/**
+ * 🔴 CAMP-198: THE TWO IDs LIVE HERE, where they are the keys of
+ * `SOURCES`, and their modules re-export them.
+ *
+ * They used to be declared in `bathing.ts` and `air-quality.ts` and
+ * imported up into this file. That was one-way until those two modules
+ * needed `shouldFlagStale` — the rule that decides whether their data has
+ * gone stale — at which point the import became a cycle, and a cycle
+ * through an object literal does not fail loudly. It fails like this:
+ *
+ *     import('@/lib/bathing') then import('@/lib/sources')
+ *     Object.keys(SOURCES) → ["osm","datatourisme","undefined","eea-air-quality"]
+ *
+ * `bathing.ts` runs first, reaches its import of this file, this file
+ * builds `SOURCES` before `BATHING_SOURCE_ID` has been assigned, and the
+ * computed key is the string "undefined". The bathing source is then
+ * absent from the registry, so `shouldFlagStale` is handed `null` and
+ * answers `false` — a freshness check that cannot fire, which is the
+ * exact failure CAMP-198 exists to remove, recreated by the fix for it.
+ *
+ * Whichever module is imported first now, this one has no imports of its
+ * own and is complete before either body runs.
+ */
+export const BATHING_SOURCE_ID = 'eea-bathing-water';
+export const AIR_SOURCE_ID = 'eea-air-quality';
 
 export const SOURCES: Record<string, SourceInfo> = {
   osm: {
@@ -266,8 +290,15 @@ export function isStale(updatedAt: string, today = new Date()): boolean {
  * does not count. A year-old bathing-water classification must stay
  * quiet; the same record in its third summer must not.
  */
+// 🔴 `Pick<…, 'cadence'>`, not `SourceInfo`, and CAMP-198 is why. The
+// rule reads ONE field, and demanding the whole record forced
+// `bathing.ts` to import the `SOURCES` object to call it — closing a
+// cycle, since `SOURCES` is keyed by a constant that lives in
+// `bathing.ts`. A cycle through an initialised object is the kind that
+// works until module order changes. Every existing caller passes a
+// `SourceInfo` and is unaffected.
 export function shouldFlagStale(
-  source: SourceInfo | null,
+  source: Pick<SourceInfo, 'cadence'> | null,
   updatedAt: string,
   today = new Date(),
 ): boolean {

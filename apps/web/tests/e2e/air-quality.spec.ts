@@ -257,7 +257,14 @@ test.describe('display requirement 3: a station missing from the current hour sa
     for (const p of silent) {
       expect(p.state, p.path).toBe('no-fresh-data');
       expect(p.text, p.path).toContain('No fresh data.');
-      expect(p.text, p.path).toContain('has not reported to the EEA recently');
+      // 🔴 CAMP-198: this used to assert "has not reported to the EEA
+      // recently" — a claim about the STATION, inferred from the absence
+      // of a row on our side. This branch is the one that receives no
+      // `readAt` at all, so we cannot tell a quiet station from our own
+      // collection having stopped, and the page now says exactly that.
+      expect(p.text, p.path).toContain('We hold no reported hour for the nearest station');
+      expect(p.text, p.path).toContain('this page cannot tell which');
+      expect(p.text, p.path).not.toContain('has not reported');
       expect(p.text, p.path).toMatch(/CI fixture station 3 \(silent\) \(background station, \d+(?:\.\d)? (?:km|m) away\)/);
       // Not a word about the air: no level, no basis, no reading.
       expect(p.text, p.path).not.toMatch(/\(level \d of 6\)|Reported by the station|As reported/);
@@ -320,7 +327,7 @@ test.describe('display requirement 3: a station missing from the current hour sa
   test('three different reasons, three different sentences, one phrase', () => {
     const whys = new Set(
       inState('no-fresh-data').map((p) =>
-        p.text.includes('has not reported to the EEA recently')
+        p.text.includes('this page cannot tell which')
           ? 'silent'
           : p.text.includes('is from') && p.text.includes('nearest station')
             ? 'stale-station'
@@ -592,7 +599,9 @@ test.describe('in a browser', () => {
     await page.clock.install({ time: new Date(Date.now() + 60 * 3_600_000) });
     await page.goto(silent);
     await expect(page.locator('[data-testid="air-quality"]')).toHaveAttribute('data-state', 'no-fresh-data');
-    await expect(page.locator('[data-testid="air-quality"]')).toContainText('has not reported to the EEA recently');
+    await expect(page.locator('[data-testid="air-quality"]')).toContainText(
+      'We hold no reported hour for the nearest station',
+    );
   });
 
   // The served HTML is the page without JavaScript.
