@@ -26,7 +26,9 @@
 // makes the fact loud afterwards: the job goes red, the names are
 // printed, and somebody decides whether it was the world or the code.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 import { argv, exit } from 'node:process';
 
 /**
@@ -68,7 +70,9 @@ export function flaky(report) {
 
 function selfTest() {
   let failures = 0;
+  let cases = 0;
   const check = (name, got, want) => {
+    cases++;
     const ok = JSON.stringify(got) === JSON.stringify(want);
     if (!ok) {
       console.error(`  ✗ ${name}\n      got  ${JSON.stringify(got)}\n      want ${JSON.stringify(want)}`);
@@ -137,43 +141,78 @@ function selfTest() {
     suites: [{ title: 'a', suites: [{ title: 'b', suites: [{ title: 'c', specs: [spec('t', 'flaky', [{ status: 'failed' }, { status: 'passed' }])] }] }] }],
   })[0].title, 'a › b › c › t');
 
-  console.log(failures ? `\n✗ ${failures} self-test failure(s)` : '\n✓ self-test passed');
+  // 🔴 CAMP-286: counted, and named after this file. "✓ self-test
+  // passed" is a line five scripts in this repository printed, so a CI
+  // step grepping for it could be satisfied by somebody else's run; and
+  // a case that stopped being reached prints what a passing case prints.
+  const EXPECTED_CASES = 10;
+  if (cases !== EXPECTED_CASES) {
+    console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+    failures++;
+  }
+  console.log(
+    failures
+      ? `\n✗ check-flaky self-test: ${failures} failure(s)`
+      : `\n✓ check-flaky self-test: ${cases} cases`,
+  );
   exit(failures ? 1 : 0);
 }
 
-if (argv.includes('--self-test')) selfTest();
+// 🔴 CAMP-286: the house guard, written out rather than called, because
+// check-script-entrypoints.mjs recognises a guard by READING this
+// comparison. `realpathSync` on the argv side because Node resolves
+// `import.meta.url` through the real path and leaves argv[1] as written:
+// a symlink otherwise makes the two never match, the self-test silently
+// does not run, and the CI step is green with no output.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
-const path = argv[2];
-if (!path) {
-  console.error('usage: check-flaky.mjs <playwright report.json>');
+if (invokedDirectly) main();
+
+function main() {
+  const action = chooseAction(argv.slice(2), ['--self-test'], 'check-flaky.mjs', {
+    positional: 1,
+  });
+  if (action.has('--self-test')) selfTest();
+
+  const path = argv[2];
+  if (!path) {
+    console.error('usage: check-flaky.mjs <playwright report.json>');
+    exit(1);
+  }
+
+  let report;
+  try {
+    report = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (err) {
+    // 🔴 A guard that cannot read its input must fail. A missing report
+    // means the run did not finish, or the reporter was switched off —
+    // neither of which is "no flakes".
+    console.error(`✗ cannot read the Playwright report at ${path}: ${err.message}`);
+    exit(1);
+  }
+
+  const found = flaky(report);
+  if (found.length === 0) {
+    console.log('✓ no test needed a retry');
+    exit(0);
+  }
+
+  console.error(`✗ ${found.length} test(s) passed only on a retry:\n`);
+  for (const f of found) {
+    console.error(`  ${f.title}`);
+    console.error(`    project: ${f.project}, attempts: ${f.attempts}`);
+    console.error(`    first failure: ${f.failedWith}\n`);
+  }
+  console.error(
+    'A retry that goes green is the shape a real fault takes when it is\n' +
+      'intermittent. Read the first failure before dismissing it as noise.',
+  );
   exit(1);
 }
-
-let report;
-try {
-  report = JSON.parse(readFileSync(path, 'utf8'));
-} catch (err) {
-  // 🔴 A guard that cannot read its input must fail. A missing report
-  // means the run did not finish, or the reporter was switched off —
-  // neither of which is "no flakes".
-  console.error(`✗ cannot read the Playwright report at ${path}: ${err.message}`);
-  exit(1);
-}
-
-const found = flaky(report);
-if (found.length === 0) {
-  console.log('✓ no test needed a retry');
-  exit(0);
-}
-
-console.error(`✗ ${found.length} test(s) passed only on a retry:\n`);
-for (const f of found) {
-  console.error(`  ${f.title}`);
-  console.error(`    project: ${f.project}, attempts: ${f.attempts}`);
-  console.error(`    first failure: ${f.failedWith}\n`);
-}
-console.error(
-  'A retry that goes green is the shape a real fault takes when it is\n' +
-    'intermittent. Read the first failure before dismissing it as noise.',
-);
-exit(1);

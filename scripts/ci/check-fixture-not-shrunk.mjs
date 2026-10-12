@@ -67,11 +67,17 @@
 // the rest: anything it cannot count throws, because "cannot count" that
 // reads as "zero" is how a guard becomes a no-op.
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // ── reading SQL, just far enough to count what it inserts ──────────────
 
@@ -508,7 +514,9 @@ function run(argv) {
 
 function selfTest() {
   let failures = 0;
+  let cases = 0;
   const check = (name, got, want) => {
+    cases++;
     const ok = JSON.stringify(got) === JSON.stringify(want);
     if (!ok) {
       console.error(
@@ -763,16 +771,51 @@ function selfTest() {
     rmSync(box, { recursive: true, force: true });
   }
 
-  console.log(failures ? `\n✗ ${failures} self-test failure(s)` : '\n✓ self-test passed');
+  // 🔴 CAMP-286: counted, and named after this file. "✓ self-test
+  // passed" is a line five scripts in this repository printed, so a CI
+  // step grepping for it could be satisfied by somebody else's run; and
+  // a case that stopped being reached prints what a passing case prints.
+  const EXPECTED_CASES = 53;
+  if (cases !== EXPECTED_CASES) {
+    console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+    failures++;
+  }
+  console.log(
+    failures
+      ? `\n✗ check-fixture-not-shrunk self-test: ${failures} failure(s)`
+      : `\n✓ check-fixture-not-shrunk self-test: ${cases} cases`,
+  );
   return failures === 0;
 }
 
-// 🔴 No "am I the main module?" test around this. The sibling guards have
-// one so other files can import from them, and here it did exactly the
-// wrong thing: `import.meta.url` is a real path and `process.argv[1]` is
-// not, so under a symlinked directory (macOS /tmp is one) the two differ,
-// the check reads "imported", and the guard exits 0 having compared
-// nothing. Found by regenerate.selftest.sh, whose stdout assertion saw a
-// pass with no output. Nothing imports this file; it always runs.
+// 🔴 THE GUARD IS BACK, AND THIS TIME IT RESOLVES THE REAL PATH.
+//
+// The note that stood here said a guard "did exactly the wrong thing":
+// `import.meta.url` is a real path and `process.argv[1]` is not, so
+// under a symlinked directory (macOS /tmp is one) the two differed, the
+// check read "imported", and it exited 0 having compared nothing —
+// found by regenerate.selftest.sh, whose stdout assertion saw a pass
+// with no output. That diagnosis was right and the conclusion was half
+// of one: the fix is `realpathSync` on the argv side, not removing the
+// guard. Without any guard, `--selftest` — one letter — fell through to
+// `run([])`, which prints a usage line and returns 2. That route was
+// already shut here, by accident rather than by design — which is why
+// this file does NOT call `chooseAction` like its siblings. `run()`
+// already refuses an unknown option, with exit code 2, and its own
+// self-test asserts that code. Replacing it with the shared rule
+// changed 2 into 1 and the self-test said so (CAMP-286). A file with a
+// stricter contract of its own keeps it; the symlink is what was open
+// here, and `realpathSync` is what closes it.
 const argv = process.argv.slice(2);
-process.exit(argv.includes('--self-test') ? (selfTest() ? 0 : 1) : run(argv));
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
+  process.exit(argv.includes('--self-test') ? (selfTest() ? 0 : 1) : run(argv));
+}

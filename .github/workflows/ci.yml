@@ -228,7 +228,12 @@ jobs:
       # for a whole run and was found only by reading the log by hand.
       # This guard's own self-test is driven by that exact report shape.
       - name: Flaky-test guard still catches a retry that went green
-        run: node scripts/ci/check-flaky.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        run: |
+          set -o pipefail
+          node scripts/ci/check-flaky.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-flaky self-test:'
 
       # 🔴 CAMP-134. The same failure one door along from the flake guard
       # above: a test that fails then passes leaves the job green, and so
@@ -426,7 +431,12 @@ jobs:
       # day we adopt a style of our own, which is the day nobody will be
       # looking at this.
       - name: Map fonts and sprites come from a host we may use
-        run: node scripts/ci/check-map-assets.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        run: |
+          set -o pipefail
+          node scripts/ci/check-map-assets.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-map-assets self-test:'
 
       - name: …and the live styles still do
         run: node scripts/ci/check-map-assets.mjs
@@ -532,7 +542,12 @@ jobs:
       # from it turns this red. Neither touches a database.
       - name: Fixture guard still refuses a smaller fixture
         if: ${{ !cancelled() }}
-        run: node scripts/ci/check-fixture-not-shrunk.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        run: |
+          set -o pipefail
+          node scripts/ci/check-fixture-not-shrunk.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-fixture-not-shrunk self-test:'
       - name: Regenerating the fixture still refuses to lose a table
         if: ${{ !cancelled() }}
         run: ./apps/api/test/fixtures/regenerate.selftest.sh
@@ -588,7 +603,13 @@ jobs:
       # CAMP-190. The campsite page prints a radius the API owns, and the
       # two were declared separately. No build or database needed.
       - name: One webcam radius, not two
-        run: node scripts/ci/check-webcam-radius.mjs --self-test && node scripts/ci/check-webcam-radius.mjs
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        run: |
+          set -o pipefail
+          node scripts/ci/check-webcam-radius.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-webcam-radius self-test:'
+          node scripts/ci/check-webcam-radius.mjs
 
       - name: No near-duplicate generated pages
         run: node scripts/seo/check-duplicate-pages.mjs
@@ -612,7 +633,12 @@ jobs:
       # one that hides which machine — a gate nobody has tried to break
       # is a comment.
       - name: Disclosure gate still refuses an unmarked generated page
-        run: node scripts/seo/check-guide-disclosure.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        run: |
+          set -o pipefail
+          node scripts/seo/check-guide-disclosure.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-guide-disclosure self-test:'
       - name: Every guide says how it was made
         run: node scripts/seo/check-guide-disclosure.mjs
 
@@ -685,7 +711,12 @@ jobs:
       # refuses an unreviewed public build, then run it. Without the
       # first, a gate that has quietly stopped gating reports safety.
       - name: Legal gate still refuses an unreviewed public build
-        run: node scripts/seo/check-legal-review.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        run: |
+          set -o pipefail
+          node scripts/seo/check-legal-review.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-legal-review self-test:'
       - name: Legal pages are reviewed, or the debt is still in date
         run: node scripts/seo/check-legal-review.mjs --expect public
 

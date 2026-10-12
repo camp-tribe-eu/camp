@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 //
 // Where the map's fonts and sprites actually come from.
 //
@@ -135,7 +138,9 @@ export function problemsIn(style, label) {
 
 function selfTest() {
   let bad = 0;
+  let cases = 0;
   const ok = (name, cond, detail = '') => {
+    cases += 1;
     if (cond) console.log(`ok   ${name}`);
     else {
       bad += 1;
@@ -265,7 +270,17 @@ function selfTest() {
     ok('…and a file with no url at all is a failure, not a pass', urlsIn('nothing here').length === 0);
   }
 
-  console.log(bad ? `\nx ${bad} self-test failure(s)` : '\nself-test passed');
+  // 🔴 CAMP-286: counted, and named after this file.
+  const EXPECTED_CASES = 42;
+  if (cases !== EXPECTED_CASES) {
+    console.log(`x    ${cases} cases ran, expected ${EXPECTED_CASES}`);
+    bad += 1;
+  }
+  console.log(
+    bad
+      ? `\nx check-map-assets self-test: ${bad} failure(s)`
+      : `\n✓ check-map-assets self-test: ${cases} cases`,
+  );
   return bad > 0;
 }
 
@@ -392,11 +407,24 @@ async function main() {
   console.log('\nevery font and sprite comes from a host whose terms we have read');
 }
 
-const RUN_DIRECTLY =
-  process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
-if (RUN_DIRECTLY) {
-  if (process.argv.some((a) => a === '--self-test' || a.startsWith('--self-test='))) {
-    process.exit(selfTest() ? 1 : 0);
+// 🔴 CAMP-286. The old comparison built a URL by string concatenation —
+// `new URL(\`file://${process.argv[1]}\`)` — which resolves no symlink
+// and mangles any path holding a space or a `#`. Node resolves
+// `import.meta.url` through the REAL path, so through a symlink the two
+// never matched, the self-test silently did not run, and the step was
+// green with no output. Written out rather than called because
+// check-script-entrypoints.mjs recognises a guard by reading it.
+const RUN_DIRECTLY = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
   }
+})();
+
+if (RUN_DIRECTLY) {
+  const action = chooseAction(process.argv.slice(2), ['--self-test'], 'check-map-assets.mjs');
+  if (action.has('--self-test')) process.exit(selfTest() ? 1 : 0);
   await main();
 }

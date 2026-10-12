@@ -27,7 +27,9 @@
 // closes again until the new text is reviewed too — which is the honest
 // behaviour, because a lawyer read version 1.0, not "the terms".
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 import path from 'node:path';
 import { argv, exit } from 'node:process';
 
@@ -134,7 +136,9 @@ export function evaluate(mode, versions, record, today = new Date()) {
 
 function selfTest() {
   let failures = 0;
+  let cases = 0;
   const check = (name, got, want) => {
+    cases++;
     const ok = JSON.stringify(got) === JSON.stringify(want);
     if (!ok) {
       console.error(`  ✗ ${name}\n      got  ${JSON.stringify(got)}\n      want ${JSON.stringify(want)}`);
@@ -251,72 +255,104 @@ function selfTest() {
     { terms: null },
   );
 
-  console.log(failures ? `\n✗ ${failures} self-test failure(s)` : '\n✓ self-test passed');
+  // 🔴 CAMP-286: counted, and named after this file. "✓ self-test
+  // passed" is a line five scripts in this repository printed, so a CI
+  // step grepping for it could be satisfied by somebody else's run; and
+  // a case that stopped being reached prints what a passing case prints.
+  const EXPECTED_CASES = 15;
+  if (cases !== EXPECTED_CASES) {
+    console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+    failures++;
+  }
+  console.log(
+    failures
+      ? `\n✗ check-legal-review self-test: ${failures} failure(s)`
+      : `\n✓ check-legal-review self-test: ${cases} cases`,
+  );
   exit(failures ? 1 : 0);
 }
 
-if (argv.includes('--self-test')) selfTest();
+// 🔴 CAMP-286: the house guard, written out rather than called, because
+// check-script-entrypoints.mjs recognises a guard by READING this
+// comparison. `realpathSync` on the argv side because Node resolves
+// `import.meta.url` through the real path and leaves argv[1] as written.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) main();
 
 // ---------------------------------------------------------------------
 
-const modeArg = argv.indexOf('--expect');
-const mode = modeArg >= 0 ? argv[modeArg + 1] : 'closed';
+function main() {
+  const action = chooseAction(argv.slice(2), ['--self-test', '--expect'],
+    'check-legal-review.mjs', { takesValue: ['--expect'] });
+  if (action.has('--self-test')) selfTest();
 
-let pages;
-try {
-  pages = Object.fromEntries(
-    readdirSync(BUILD)
-      .filter((f) => f.endsWith('.html'))
-      .map((f) => [f.replace(/\.html$/, ''), readFileSync(path.join(BUILD, f), 'utf8')]),
-  );
-} catch (err) {
-  console.error(`✗ cannot read the built legal pages at ${BUILD}: ${err.message}`);
-  exit(1);
-}
+  const modeArg = argv.indexOf('--expect');
+  const mode = modeArg >= 0 ? argv[modeArg + 1] : 'closed';
 
-let record;
-try {
-  record = JSON.parse(readFileSync(RECORD, 'utf8'));
-} catch (err) {
-  console.error(`✗ cannot read ${RECORD}: ${err.message}`);
-  exit(1);
-}
+  let pages;
+  try {
+    pages = Object.fromEntries(
+      readdirSync(BUILD)
+        .filter((f) => f.endsWith('.html'))
+        .map((f) => [f.replace(/\.html$/, ''), readFileSync(path.join(BUILD, f), 'utf8')]),
+    );
+  } catch (err) {
+    console.error(`✗ cannot read the built legal pages at ${BUILD}: ${err.message}`);
+    exit(1);
+  }
 
-const versions = versionsFrom(pages);
-const { ok, problems, warnings, slugs } = evaluate(mode, versions, record);
+  let record;
+  try {
+    record = JSON.parse(readFileSync(RECORD, 'utf8'));
+  } catch (err) {
+    console.error(`✗ cannot read ${RECORD}: ${err.message}`);
+    exit(1);
+  }
 
-for (const slug of slugs) {
-  const reviewed = record.pages?.[slug];
-  console.log(
-    `  /legal/${slug.padEnd(12)} version ${versions[slug] ?? '—'}  ${
-      reviewed === versions[slug] ? 'reviewed' : 'not reviewed'
-    }`,
-  );
-}
+  const versions = versionsFrom(pages);
+  const { ok, problems, warnings, slugs } = evaluate(mode, versions, record);
 
-for (const w of warnings) console.error(`⚠ ${w}`);
-if (warnings.length > 0) {
+  for (const slug of slugs) {
+    const reviewed = record.pages?.[slug];
+    console.log(
+      `  /legal/${slug.padEnd(12)} version ${versions[slug] ?? '—'}  ${
+        reviewed === versions[slug] ? 'reviewed' : 'not reviewed'
+      }`,
+    );
+  }
+
+  for (const w of warnings) console.error(`⚠ ${w}`);
+  if (warnings.length > 0) {
+    console.error(
+      `\n⚠ Acknowledged until ${record.acknowledgedUntil} — after that this fails.`,
+    );
+  }
+
+  if (ok) {
+    console.log(
+      mode === 'public'
+        ? warnings.length > 0
+          ? '\n✓ build allowed — but on an acknowledgement, not a review'
+          : '\n✓ every legal page in this build has been reviewed'
+        : '\n✓ legal pages state their versions (a closed build is not gated on review)',
+    );
+    exit(0);
+  }
+
+  console.error('');
+  for (const p of problems) console.error(`✗ ${p}`);
   console.error(
-    `\n⚠ Acknowledged until ${record.acknowledgedUntil} — after that this fails.`,
+    '\nThis build claims to be public. Record the review in\n' +
+      'scripts/seo/legal-review.json once a Belgian lawyer has read these\n' +
+      'exact versions — owner debt #4.',
   );
+  exit(1);
 }
-
-if (ok) {
-  console.log(
-    mode === 'public'
-      ? warnings.length > 0
-        ? '\n✓ build allowed — but on an acknowledgement, not a review'
-        : '\n✓ every legal page in this build has been reviewed'
-      : '\n✓ legal pages state their versions (a closed build is not gated on review)',
-  );
-  exit(0);
-}
-
-console.error('');
-for (const p of problems) console.error(`✗ ${p}`);
-console.error(
-  '\nThis build claims to be public. Record the review in\n' +
-    'scripts/seo/legal-review.json once a Belgian lawyer has read these\n' +
-    'exact versions — owner debt #4.',
-);
-exit(1);

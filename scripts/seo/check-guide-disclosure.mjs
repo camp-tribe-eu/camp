@@ -19,7 +19,8 @@
 // the question is what a reader is served, and the only honest answer to
 // that is the file we serve.
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, realpathSync } from 'node:fs';
+import { chooseAction } from '../lib/entrypoint.mjs';
 import path from 'node:path';
 import { argv, exit } from 'node:process';
 import { pathToFileURL } from 'node:url';
@@ -81,7 +82,9 @@ export function evaluate(slug, html) {
 
 function selfTest() {
   let failures = 0;
+  let cases = 0;
   const check = (name, got, want) => {
+    cases++;
     const ok = JSON.stringify(got) === JSON.stringify(want);
     if (!ok) {
       console.error(`  ✗ ${name}\n      got  ${JSON.stringify(got)}\n      want ${JSON.stringify(want)}`);
@@ -129,7 +132,20 @@ function selfTest() {
     [],
   );
 
-  console.log(failures ? `\n✗ ${failures} self-test failure(s)` : '\n✓ self-test passed');
+  // 🔴 CAMP-286: counted, and named after this file. "✓ self-test
+  // passed" is a line five scripts in this repository printed, so a CI
+  // step grepping for it could be satisfied by somebody else's run; and
+  // a case that stopped being reached prints what a passing case prints.
+  const EXPECTED_CASES = 5;
+  if (cases !== EXPECTED_CASES) {
+    console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+    failures++;
+  }
+  console.log(
+    failures
+      ? `\n✗ check-guide-disclosure self-test: ${failures} failure(s)`
+      : `\n✓ check-guide-disclosure self-test: ${cases} cases`,
+  );
   exit(failures ? 1 : 0);
 }
 
@@ -146,9 +162,19 @@ function selfTest() {
 // `check-script-entrypoints.mjs` allowed that, correctly: its rule is
 // that a file may run itself only while nothing imports it. The moment
 // something did, the rule was due to fire. It fired on me.
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+//
+// 🔴 CAMP-286 ADDED `realpathSync`. Node resolves `import.meta.url`
+// through the real path and leaves argv[1] as written, so through a
+// symlink the two never matched: the self-test silently did not run and
+// the step was green with no output at all.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
 if (!invokedDirectly) {
   // imported for `evaluate` — do nothing
@@ -157,7 +183,9 @@ if (!invokedDirectly) {
 }
 
 function main() {
-  if (argv.includes('--self-test')) {
+  // 🔴 CAMP-286. `--selftest` used to fall through to the real scan.
+  const action = chooseAction(argv.slice(2), ['--self-test'], 'check-guide-disclosure.mjs');
+  if (action.has('--self-test')) {
     selfTest();
     return;
   }

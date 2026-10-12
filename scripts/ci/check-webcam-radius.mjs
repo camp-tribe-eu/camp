@@ -21,7 +21,9 @@
 // `apps/api` is a Nest service; neither imports the other, by design.
 // So the two literals are compared here, where a mismatch is red.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 const SOURCES = [
   { file: 'apps/api/src/webcams/nearby.ts', role: 'the radius the SQL searches' },
@@ -39,7 +41,9 @@ export function radiusIn(source, file = '<string>') {
 
 function selfTest() {
   let failures = 0;
+  let cases = 0;
   const ok = (name, fn) => {
+    cases += 1;
     try {
       fn();
       console.log(`✓ ${name}`);
@@ -76,11 +80,36 @@ function selfTest() {
     if (a === b) throw new Error('the comparison cannot tell 25 000 from 10 000');
   });
 
-  console.log(failures ? `\n✗ ${failures} self-test failure(s)` : '\n✓ self-test passed');
+  // 🔴 CAMP-286: counted, and named after this file.
+  const EXPECTED_CASES = 7;
+  if (cases !== EXPECTED_CASES) {
+    console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+    failures++;
+  }
+  console.log(
+    failures
+      ? `\n✗ check-webcam-radius self-test: ${failures} failure(s)`
+      : `\n✓ check-webcam-radius self-test: ${cases} cases`,
+  );
   return failures;
 }
 
-if (process.argv.includes('--self-test')) process.exit(selfTest() ? 1 : 0);
+// 🔴 CAMP-286: the house guard, written out rather than called, because
+// check-script-entrypoints.mjs recognises a guard by READING it.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) main();
+
+function main() {
+const action = chooseAction(process.argv.slice(2), ['--self-test'], 'check-webcam-radius.mjs');
+if (action.has('--self-test')) process.exit(selfTest() ? 1 : 0);
 
 const found = SOURCES.map((s) => ({ ...s, m: radiusIn(readFileSync(s.file, 'utf8'), s.file) }));
 const distinct = new Set(found.map((f) => f.m));
@@ -95,3 +124,4 @@ if (distinct.size !== 1) {
   process.exit(1);
 }
 console.log(`✓ the webcam radius agrees in ${found.length} files: ${[...distinct][0]} m`);
+}
