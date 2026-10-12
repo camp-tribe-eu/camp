@@ -7,6 +7,7 @@ import {
   normalisePath,
   publicOrigin,
   redirectFor,
+  route,
 } from '../../src/middleware';
 
 // CAMP-294 — редирект, який на живому сервері вів на localhost:3000.
@@ -109,7 +110,7 @@ test('middleware redirects a path that IS in the map, using the forwarded host',
   const req = new NextRequest(new URL(`${FROM}?from=map`, 'http://localhost:3000'), {
     headers: proxied(),
   });
-  const res = middleware(req, MOVED) as NextResponse;
+  const res = route(req, MOVED, new Set()) as NextResponse;
 
   expect(res.status).toBe(301);
   expect(res.headers.get('location')).toBe(`${PUBLIC}${TO}?from=map`);
@@ -121,7 +122,7 @@ test('the 410 branch normalises the path too', () => {
   // перевіряємо САМЕ РІШЕННЯ про маршрут — чи пішли ми в неї.
   const gone = new Set(['/camping/at/burgenland/spot-gone']);
   const go = (path: string) =>
-    middleware(
+    route(
       new NextRequest(new URL(path, 'http://localhost:3000'), { headers: proxied() }),
       new Map(),
       gone,
@@ -149,4 +150,24 @@ test('normalisePath strips trailing slashes and lowers case, and nothing else', 
   expect(normalisePath('/camping/at/x///')).toBe('/camping/at/x');
   // 🔴 Внутрішні скісні не чіпаються: шлях — це не рядок для прибирання.
   expect(normalisePath('/camping//at/x')).toBe('/camping//at/x');
+});
+
+test('🔴 middleware keeps the signature Next calls it with', () => {
+  // Я вже зробив цю помилку: дав `middleware` параметри для фікстур —
+  // `middleware(request, redirects = REDIRECTS, gone = GONE)` — і CI
+  // упав на КОЖНОМУ запиті з `TypeError: d.get is not a function`, бо
+  // Next кличе `middleware(request, event)` і `NextFetchEvent` прилітав
+  // замість мапи. Сайт віддавав би 500 на все.
+  //
+  // Тут викликається рівно так, як це робить Next: з другим аргументом.
+  const req = new NextRequest(new URL('/camping/pl/nowhere/x', 'http://localhost:3000'), {
+    headers: proxied(),
+  });
+
+  const asNextCallsIt = middleware as unknown as (r: NextRequest, e: unknown) => unknown;
+  expect(() => asNextCallsIt(req, { waitUntil: () => {} })).not.toThrow();
+
+  // І підпис мусить лишатись одномісним: зайвий параметр — це той самий
+  // дефект, що й був.
+  expect(middleware.length).toBe(1);
 });

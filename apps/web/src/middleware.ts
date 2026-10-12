@@ -130,10 +130,21 @@ export function redirectFor(
   return NextResponse.redirect(target, 301);
 }
 
-export function middleware(
+// 🔴 УВЕСЬ МАРШРУТИЗАТОР ЖИВЕ ТУТ, а не в `middleware`, і це не стиль.
+//
+// Спершу я дав `middleware` додаткові параметри для фікстур:
+// `middleware(request, redirects = REDIRECTS, gone = GONE)`. CI впав на
+// кожному запиті з `TypeError: d.get is not a function`, бо **Next кличе
+// `middleware(request, event)`** — другим аргументом іде `NextFetchEvent`,
+// і він прилітав замість мапи. Тобто сайт віддавав би 500 на все.
+//
+// Угода виклику фреймворку — частина контракту, і підпис `middleware`
+// належить Next, а не нам. Тож фікстури приймає `route`, а `middleware`
+// лишається рівно таким, яким його кличуть.
+export function route(
   request: NextRequest,
-  redirects: ReadonlyMap<string, string> = REDIRECTS,
-  gone: ReadonlySet<string> = GONE,
+  redirects: ReadonlyMap<string, string>,
+  gone: ReadonlySet<string>,
 ) {
   const origin = publicOrigin(request.headers, request.nextUrl.origin);
 
@@ -150,6 +161,10 @@ export function middleware(
   }
 
   return serveGone(request);
+}
+
+export function middleware(request: NextRequest) {
+  return route(request, REDIRECTS, GONE);
 }
 
 async function serveGone(request: NextRequest) {
