@@ -362,7 +362,14 @@ function run(file, log = console, apiSrc = undefined) {
   return 0;
 }
 
-// Prove each assertion can fail. Nothing here reads the real fixture.
+// Prove each assertion can fail.
+//
+// 🔴 Майже нічого тут не читає справжню фікстуру — ВИНЯТОК один, і він
+// названий: пара `run(SEED, …)` нижче. Раніше цей коментар казав
+// «Nothing here reads the real fixture», і це було неправдою, через яку
+// випадок про розмір сторінки роками проходив, не випробувавши свою
+// гілку. Якщо додаєш сюди ще одне читання SEED — або дай йому контроль,
+// або перепиши цей рядок.
 function selfTest() {
   let rc = 0;
   const bad = (m) => {
@@ -557,9 +564,24 @@ function selfTest() {
     regionPerPage('const SOMETHING_ELSE = 24;') !== null,
     'a missing REGION_PER_PAGE did not read as missing',
   );
+  // 🔴 CAMP-286, знайдено рецензією PR #188. ЦЕЙ ВИПАДОК ПРОХОДИВ ІЗ
+  // НЕПРАВИЛЬНОЇ ПРИЧИНИ, і сам по собі нічого не доводив.
+  //
+  // `run()` віддає 1 із ЧОТИРЬОХ ранніх виходів: файл не читається,
+  // жодного рядка, забагато нерозібраних, і аж потім `perPage === null`.
+  // Твердження нижче бачить лише число 1 — тож зникла б фікстура, і воно
+  // так само «проходило» б, уже не випробувавши гілку, заради якої існує.
+  //
+  // Контроль ізолює гілку: ТОЙ САМИЙ файл із оголошеним розміром
+  // сторінки мусить дати 0. Якщо фікстура зламана з будь-якої іншої
+  // причини, падає контроль, а не мовчки «проходить» твердження.
   failIf(
     run(SEED, quiet, 'nothing here declares a page size') !== 1,
     'an unreadable page size was treated as "no pagination rule"',
+  );
+  failIf(
+    run(SEED, quiet, `export const REGION_PER_PAGE = ${PER_PAGE};`) !== 0,
+    'the control failed: the fixture is unusable for a reason other than the page size, so the case above proved nothing',
   );
 
   // A parser that has fallen behind the fixture must say so, not ✓ over
@@ -573,7 +595,7 @@ function selfTest() {
 
   // 🔴 A literal, never `cases.length` — deriving the expectation from the
   // thing it checks makes the comparison true by construction.
-  const EXPECTED_CASES = 29;
+  const EXPECTED_CASES = 30;
   if (cases.length !== EXPECTED_CASES) {
     console.error(
       `✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`,
