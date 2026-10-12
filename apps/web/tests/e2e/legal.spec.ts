@@ -93,6 +93,80 @@ test.describe('cookie consent', () => {
     ).toBeLessThan(0.2);
   });
 
+  // 🔴 CAMP-264. Банер `fixed bottom-0` накриває низ екрана, і
+  // компенсації не існувало ніде.
+  //
+  // Картка описувала симптом як «лічильник мапи під банером». Замір
+  // 12.10.2026 на 390×844 показав, що це НЕ так: лічильник стоїть на
+  // 756 просто тому, що над ним 756 px вмісту, і жодний відступ знизу
+  // його не підніме. Відступ `body` додає місце в КІНЦІ документа.
+  //
+  // А справжня біда виявилась гіршою. Прокрутивши в самий низ, за
+  // банером лишались СХОВАНИМИ п'ять елементів футера:
+  //
+  //     Data and attribution        ← атрибуція OSM, вимога ODbL
+  //     How this database is made
+  //     Legal notice                ← юридична сторінка
+  //     Cookie settings             ← налаштування cookie
+  //     hello@camptribe.eu
+  //
+  // Тобто з телефона були недосяжні ліцензійна атрибуція, юридична
+  // сторінка і керування згодою — поки читач не відповість на банер.
+  // Після відступу: сховано 0.
+  test('🔴 nothing stays hidden behind the banner at the bottom of a page', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/legal/privacy');
+    await expect(page.getByTestId('cookie-banner')).toBeVisible();
+
+    const hidden = await page.evaluate(() => {
+      const banner = document.querySelector('[data-testid="cookie-banner"]')!;
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      const top = banner.getBoundingClientRect().top;
+      return [...document.querySelectorAll('body *')]
+        .filter(
+          (e) =>
+            !banner.contains(e) &&
+            e.children.length === 0 &&
+            (e.textContent || '').trim(),
+        )
+        .map((e) => ({
+          text: (e.textContent || '').trim().slice(0, 30),
+          bottom: e.getBoundingClientRect().bottom,
+        }))
+        .filter((x) => x.bottom > top && x.bottom <= window.innerHeight + 2)
+        .map((x) => x.text);
+    });
+
+    expect(hidden, `за банером сховано: ${hidden.join(', ')}`).toEqual([]);
+  });
+
+  // 🔴 Відступ мусить ЗНИКНУТИ після відповіді, інакше внизу назавжди
+  // лишиться порожня смуга заввишки з банер.
+  test('🔴 the offset is the measured banner height, and it goes away', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/legal/privacy');
+
+    const banner = (await page.getByTestId('cookie-banner').boundingBox())!;
+    const padded = await page.evaluate(() =>
+      parseFloat(getComputedStyle(document.body).paddingBottom),
+    );
+    // Висота береться заміром, не константою — тож відступ дорівнює їй.
+    expect(Math.abs(padded - banner.height)).toBeLessThan(2);
+
+    await page.getByRole('button', { name: /reject/i }).click();
+    await expect(page.getByTestId('cookie-banner')).toBeHidden();
+
+    expect(
+      await page.evaluate(() =>
+        parseFloat(getComputedStyle(document.body).paddingBottom),
+      ),
+    ).toBe(0);
+  });
+
   test('the banner blocks nothing — the site works without answering', async ({
     page,
   }) => {
