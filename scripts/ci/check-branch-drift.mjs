@@ -30,6 +30,9 @@
 //   node scripts/ci/check-branch-drift.mjs --self-test
 
 import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 /**
  * A card's worth of work is a handful of commits. Past this, the branch
@@ -75,7 +78,7 @@ export function verdict({ branch, ahead, behind }) {
   return { ok, message: lines.join('\n') };
 }
 
-if (process.argv.includes('--self-test')) {
+function selfTest() {
   // 🔴 A guard nobody has watched fail is not a guard.
   const cases = [
     [{ branch: 'main', ahead: 999, behind: 0 }, true, 'main is never the problem'],
@@ -92,41 +95,79 @@ if (process.argv.includes('--self-test')) {
     if (!pass) failures++;
     console.log(`${pass ? '✓' : '✗'} ${why} (${input.ahead} ahead) → ${got ? 'allowed' : 'blocked'}`);
   }
+  // 🔴 The count is asserted and the line names this file: a case that
+  // stopped being reached prints what a passing case prints, and a
+  // generic "✓ self-test passed" is a line four other scripts also emit.
+  const EXPECTED_CASES = 6;
+  if (cases.length !== EXPECTED_CASES) {
+    console.log(`✗ ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
+    failures++;
+  }
   console.log(
     failures
-      ? `\n✗ ${failures} case(s) behaved wrongly`
-      : '\n✓ self-test passed: the limit blocks what it should and allows what it should',
+      ? `\n✗ check-branch-drift self-test: ${failures} case(s) behaved wrongly`
+      : `\n✓ check-branch-drift self-test: ${cases.length} cases over the ` +
+          'drift limit, which blocks what it should and allows what it should',
   );
   process.exit(failures ? 1 : 0);
 }
 
-let branch;
-try {
-  // In Actions the checkout is detached, so the ref comes from the
-  // environment; locally it comes from git.
-  branch =
-    process.env.GITHUB_HEAD_REF ||
-    (process.env.GITHUB_REF_NAME ?? '') ||
-    run(['rev-parse', '--abbrev-ref', 'HEAD']);
-} catch {
-  console.log('not a git checkout — nothing to check');
-  process.exit(0);
+function checkDrift() {
+  let branch;
+  try {
+    // In Actions the checkout is detached, so the ref comes from the
+    // environment; locally it comes from git.
+    branch =
+      process.env.GITHUB_HEAD_REF ||
+      (process.env.GITHUB_REF_NAME ?? '') ||
+      run(['rev-parse', '--abbrev-ref', 'HEAD']);
+  } catch {
+    console.log('not a git checkout — nothing to check');
+    process.exit(0);
+  }
+
+  let ahead = 0;
+  let behind = 0;
+  try {
+    run(['fetch', 'origin', 'main', '--depth=200']);
+    const counts = run(['rev-list', '--left-right', '--count', `origin/main...HEAD`]);
+    [behind, ahead] = counts.split(/\s+/).map(Number);
+  } catch (err) {
+    // 🔴 Say so rather than pass. A check that cannot run has not run,
+    // and reporting success would be the same lie as any other green
+    // tick over an unexecuted test.
+    console.error(`✗ could not compare against origin/main: ${err.message}`);
+    process.exit(1);
+  }
+
+  const { ok, message } = verdict({ branch, ahead, behind });
+  console.log(message);
+  process.exit(ok ? 0 : 1);
 }
 
-let ahead = 0;
-let behind = 0;
-try {
-  run(['fetch', 'origin', 'main', '--depth=200']);
-  const counts = run(['rev-list', '--left-right', '--count', `origin/main...HEAD`]);
-  [behind, ahead] = counts.split(/\s+/).map(Number);
-} catch (err) {
-  // 🔴 Say so rather than pass. A check that cannot run has not run,
-  // and reporting success would be the same lie as any other green
-  // tick over an unexecuted test.
-  console.error(`✗ could not compare against origin/main: ${err.message}`);
-  process.exit(1);
-}
+// 🔴 Guarded, and the flag is checked by name (CAMP-285).
+//
+// `node scripts/ci/check-branch-drift.mjs --selftest` used to print "on
+// main — nothing to compare" and exit 0: one letter turned the step
+// that proves the limit bites into a step that proves nothing at all,
+// and on main it did not even reach the real check. The comparison is
+// written out rather than called because check-script-entrypoints.mjs
+// recognises a guard by reading it.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
-const { ok, message } = verdict({ branch, ahead, behind });
-console.log(message);
-process.exit(ok ? 0 : 1);
+if (invokedDirectly) {
+  const action = chooseAction(
+    process.argv.slice(2),
+    ['--self-test'],
+    'check-branch-drift.mjs',
+  );
+  if (action.has('--self-test')) selfTest();
+  else checkDrift();
+}

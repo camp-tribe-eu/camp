@@ -20,9 +20,10 @@
 // itself; this runs after the commit exists. Both, not either.
 
 import { execFileSync } from 'node:child_process';
-import { closeSync, fstatSync, openSync, readFileSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -103,7 +104,7 @@ function scanText(text, label, findings) {
   }
 }
 
-if (process.argv.includes('--self-test')) {
+function selfTest() {
   const planted = [
     // AWS keys are AKIA plus exactly 16 characters. The first version
     // of this line had 17 and the self-test failed — which is the
@@ -149,58 +150,108 @@ if (process.argv.includes('--self-test')) {
       ok = false;
     }
   }
+  // 🔴 The counts are asserted, and this file was the one the review
+  // caught without them. Delete a planted secret and the step prints
+  // "7 planted secrets caught" and exits 0 — a scanner with one fewer
+  // thing to catch reads exactly like a scanner that caught everything.
+  const EXPECTED_PLANTED = 8;
+  const EXPECTED_BENIGN = 8;
+  if (planted.length !== EXPECTED_PLANTED || benign.length !== EXPECTED_BENIGN) {
+    console.error(
+      `✗ ${planted.length} planted and ${benign.length} benign lines, ` +
+        `expected ${EXPECTED_PLANTED} and ${EXPECTED_BENIGN}. A case that ` +
+        'stopped being rehearsed prints what a passing case prints.',
+    );
+    ok = false;
+  }
+  // 🔴 The line a CI step greps for, and it names this file. Two
+  // scripts printing "✓ self-test passed" can satisfy each other's grep;
+  // a basename cannot, because the filesystem already made it unique.
   console.log(
     ok
-      ? '✓ self-test passed: every planted secret is caught and nothing benign is'
-      : '\n✗ self-test FAILED — the scanner is not scanning',
+      ? `✓ check-secrets self-test: ${planted.length} planted secrets caught, ` +
+          `${benign.length} benign lines left alone`
+      : '\n✗ check-secrets self-test FAILED — the scanner is not scanning',
   );
   process.exit(ok ? 0 : 1);
 }
 
-const findings = [];
-let scanned = 0;
-for (const rel of tracked()) {
-  if (ALLOW_PATHS.some((re) => re.test(rel))) continue;
-  const abs = path.join(ROOT, rel);
+function scan() {
+  const findings = [];
+  let scanned = 0;
+  for (const rel of tracked()) {
+    if (ALLOW_PATHS.some((re) => re.test(rel))) continue;
+    const abs = path.join(ROOT, rel);
 
-  // 🔴 One file descriptor, opened once, then measured and read through
-  // that same descriptor.
-  //
-  // The first version called statSync(path) and then readFileSync(path):
-  // two lookups of the same name, with a gap in between. CodeQL flagged
-  // it as a file-system race, and it is right — whatever the second call
-  // opens need not be what the first one measured. In a scanner whose
-  // whole job is to decide whether a file is safe, checking one file and
-  // reading another is precisely the wrong failure.
-  let fd;
-  let text;
+    // 🔴 One file descriptor, opened once, then measured and read through
+    // that same descriptor.
+    //
+    // The first version called statSync(path) and then readFileSync(path):
+    // two lookups of the same name, with a gap in between. CodeQL flagged
+    // it as a file-system race, and it is right — whatever the second call
+    // opens need not be what the first one measured. In a scanner whose
+    // whole job is to decide whether a file is safe, checking one file and
+    // reading another is precisely the wrong failure.
+    let fd;
+    let text;
+    try {
+      fd = openSync(abs, 'r');
+      const st = fstatSync(fd);
+      // Binaries and large data files are not where a token hides, and
+      // reading them costs more than it finds.
+      if (!st.isFile() || st.size > 2 * 1024 * 1024) continue;
+      text = readFileSync(fd, 'utf8');
+    } catch {
+      continue;
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+    if (text.includes('\0')) continue;
+    scanned++;
+    scanText(text, rel, findings);
+  }
+
+  console.log(`scanned ${scanned} tracked files`);
+  if (findings.length) {
+    console.error(`\n🔴 ${findings.length} possible secret(s):`);
+    for (const f of findings) {
+      console.error(`   ${f.label}:${f.line}  ${f.rule}  ${f.preview}`);
+    }
+    console.error(
+      '\nIf one of these is real: rotate it FIRST, then remove it. A secret in\n' +
+        'a public repository is public from the moment it is pushed.',
+    );
+    process.exit(1);
+  }
+  console.log('✓ no secrets in tracked files');
+}
+
+// 🔴 Guarded, and the flag is checked by name.
+//
+// Before CAMP-285 both blocks above ran at module level, so
+// `--selftest` — one letter short — simply fell through to the scan,
+// printed "✓ no secrets in tracked files", and exited 0. The step called
+// "the secret scanner still bites" was green without the scanner ever
+// having been bitten. `chooseAction` refuses the flag it does not know.
+//
+// The comparison is written out rather than called because
+// check-script-entrypoints.mjs recognises a guard by reading it; see
+// scripts/lib/entrypoint.mjs for why that matters here.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
   try {
-    fd = openSync(abs, 'r');
-    const st = fstatSync(fd);
-    // Binaries and large data files are not where a token hides, and
-    // reading them costs more than it finds.
-    if (!st.isFile() || st.size > 2 * 1024 * 1024) continue;
-    text = readFileSync(fd, 'utf8');
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
   } catch {
-    continue;
-  } finally {
-    if (fd !== undefined) closeSync(fd);
+    return false;
   }
-  if (text.includes('\0')) continue;
-  scanned++;
-  scanText(text, rel, findings);
-}
+})();
 
-console.log(`scanned ${scanned} tracked files`);
-if (findings.length) {
-  console.error(`\n🔴 ${findings.length} possible secret(s):`);
-  for (const f of findings) {
-    console.error(`   ${f.label}:${f.line}  ${f.rule}  ${f.preview}`);
-  }
-  console.error(
-    '\nIf one of these is real: rotate it FIRST, then remove it. A secret in\n' +
-      'a public repository is public from the moment it is pushed.',
+if (invokedDirectly) {
+  const action = chooseAction(
+    process.argv.slice(2),
+    ['--self-test'],
+    'check-secrets.mjs',
   );
-  process.exit(1);
+  if (action.has('--self-test')) selfTest();
+  else scan();
 }
-console.log('✓ no secrets in tracked files');

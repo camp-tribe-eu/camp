@@ -54,10 +54,18 @@
 // stays out loud; it just stops being a decision we take every morning.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, readdirSync, rmSync, mkdtempSync } from 'node:fs';
+import {
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  rmSync,
+  mkdtempSync,
+  realpathSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
@@ -234,7 +242,9 @@ export function evaluate(found, baseline, today) {
 
 function selfTest() {
   let failures = 0;
+  let cases = 0;
   const check = (name, got, want) => {
+    cases++;
     const ok = JSON.stringify(got) === JSON.stringify(want);
     if (!ok) {
       console.error(`  ✗ ${name}\n      got  ${JSON.stringify(got)}\n      want ${JSON.stringify(want)}`);
@@ -384,72 +394,110 @@ function selfTest() {
     ['fixed upstream, drop from the baseline: A'],
   );
 
-  console.log(failures ? `\n✗ ${failures} self-test failure(s)` : '\n✓ self-test passed');
+  // 🔴 The count is asserted, because a case that stopped being reached
+  // prints exactly what a case that passed prints: nothing.
+  const EXPECTED_CASES = 13;
+  if (cases !== EXPECTED_CASES) {
+    console.error(`  ✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+    failures++;
+  }
+  // 🔴 Named after this file. "✓ self-test passed" is a line four other
+  // scripts also print, so a CI step grepping for it could be satisfied
+  // by somebody else's self-test.
+  console.log(
+    failures
+      ? `\n✗ check-dependencies self-test: ${failures} failure(s)`
+      : `\n✓ check-dependencies self-test: ${cases} cases over the advisory rules`,
+  );
   process.exit(failures ? 1 : 0);
 }
 
 // ---------------------------------------------------------------------
 
-if (process.argv.includes('--self-test')) selfTest();
+function run(action) {
+  const WORKSPACES = discoverWorkspaces(ROOT, readJson, (d) => readdirSync(d));
 
-const WORKSPACES = discoverWorkspaces(ROOT, readJson, (d) => readdirSync(d));
+  const found = {};
+  for (const ws of WORKSPACES) found[ws] = advisoriesFor(ws);
 
-const found = {};
-for (const ws of WORKSPACES) found[ws] = advisoriesFor(ws);
-
-if (process.argv.includes('--update')) {
-  const previous = readJson(BASELINE) ?? {};
-  const baseline = {};
-  for (const ws of WORKSPACES) {
-    baseline[ws] = Object.fromEntries(
-      [...found[ws]].sort().map(([id, v]) => [
-        id,
-        {
-          severity: v.severity,
-          package: v.package,
-          title: v.title,
-          // Keep a reason somebody already wrote; only ask about the new ones.
-          why: previous[ws]?.[id]?.why ?? 'REVIEW ME — say why this is accepted, or fix it',
-          ...(previous[ws]?.[id]?.acceptedUntil
-            ? { acceptedUntil: previous[ws][id].acceptedUntil }
-            : {}),
-        },
-      ]),
-    );
+  if (action.has('--update')) {
+    const previous = readJson(BASELINE) ?? {};
+    const baseline = {};
+    for (const ws of WORKSPACES) {
+      baseline[ws] = Object.fromEntries(
+        [...found[ws]].sort().map(([id, v]) => [
+          id,
+          {
+            severity: v.severity,
+            package: v.package,
+            title: v.title,
+            // Keep a reason somebody already wrote; only ask about the new ones.
+            why: previous[ws]?.[id]?.why ?? 'REVIEW ME — say why this is accepted, or fix it',
+            ...(previous[ws]?.[id]?.acceptedUntil
+              ? { acceptedUntil: previous[ws][id].acceptedUntil }
+              : {}),
+          },
+        ]),
+      );
+    }
+    writeFileSync(BASELINE, JSON.stringify(baseline, null, 2) + '\n');
+    console.log(`baseline written: ${BASELINE}`);
+    console.log('🔴 Every entry needs a real "why" before this is committed.');
+    process.exit(0);
   }
-  writeFileSync(BASELINE, JSON.stringify(baseline, null, 2) + '\n');
-  console.log(`baseline written: ${BASELINE}`);
-  console.log('🔴 Every entry needs a real "why" before this is committed.');
-  process.exit(0);
+
+  const baseline = readJson(BASELINE);
+  if (!baseline) {
+    console.error(
+      `No baseline at ${BASELINE}. Run with --update and write a reason for ` +
+        'each entry. A check with nothing to compare against is not a check.',
+    );
+    process.exit(1);
+  }
+
+  const { problems, notes } = evaluate(found, baseline, new Date());
+
+  for (const ws of WORKSPACES) {
+    const counts = {};
+    for (const [, v] of found[ws]) counts[v.severity] = (counts[v.severity] ?? 0) + 1;
+    console.log(
+      `${ws}: ${found[ws].size} advisories ` +
+        `(${Object.entries(counts).map(([s, n]) => `${s}:${n}`).join(', ') || 'none'})`,
+    );
+    for (const n of notes.filter((n) => n.ws === ws)) console.log(`  · ${n.text}`);
+    for (const p of problems.filter((p) => p.ws === ws)) console.error(`  🔴 ${p.text}`);
+  }
+
+  if (problems.length) {
+    console.error(
+      '\n✗ A dependency advisory appeared that nobody has looked at.\n' +
+        '  Fix it, or run --update and write down why it is accepted.',
+    );
+    process.exit(1);
+  }
+  console.log('\n✓ no new dependency advisories');
 }
 
-const baseline = readJson(BASELINE);
-if (!baseline) {
-  console.error(
-    `No baseline at ${BASELINE}. Run with --update and write a reason for ` +
-      'each entry. A check with nothing to compare against is not a check.',
+// 🔴 Guarded, and the flag is checked by name (CAMP-285). Before this,
+// `--selftest` fell through to the real check and printed "✓ no new
+// dependency advisories" — a green step for a self-test that never ran.
+// The comparison is written out rather than called because
+// check-script-entrypoints.mjs recognises a guard by reading it.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
+  const action = chooseAction(
+    process.argv.slice(2),
+    ['--self-test', '--update'],
+    'check-dependencies.mjs',
   );
-  process.exit(1);
+  if (action.has('--self-test')) selfTest();
+  else run(action);
 }
-
-const { problems, notes } = evaluate(found, baseline, new Date());
-
-for (const ws of WORKSPACES) {
-  const counts = {};
-  for (const [, v] of found[ws]) counts[v.severity] = (counts[v.severity] ?? 0) + 1;
-  console.log(
-    `${ws}: ${found[ws].size} advisories ` +
-      `(${Object.entries(counts).map(([s, n]) => `${s}:${n}`).join(', ') || 'none'})`,
-  );
-  for (const n of notes.filter((n) => n.ws === ws)) console.log(`  · ${n.text}`);
-  for (const p of problems.filter((p) => p.ws === ws)) console.error(`  🔴 ${p.text}`);
-}
-
-if (problems.length) {
-  console.error(
-    '\n✗ A dependency advisory appeared that nobody has looked at.\n' +
-      '  Fix it, or run --update and write down why it is accepted.',
-  );
-  process.exit(1);
-}
-console.log('\n✓ no new dependency advisories');
