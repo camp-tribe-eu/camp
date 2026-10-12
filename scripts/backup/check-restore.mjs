@@ -31,14 +31,24 @@
 // nobody what it was guarding.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback = null) => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
+
+/** Every flag this script acts on; anything else is a typo, not a shrug. */
+const ALL_FLAGS = [
+  '--self-test',
+  '--budget',
+  '--manifest',
+  '--started',
+  '--expect-context',
+];
 
 const DB = process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
 
@@ -291,7 +301,20 @@ function selfTest() {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
   }
   const failed = checks.filter((c) => !c.pass).length;
-  console.log(`\n${checks.length - failed}/${checks.length} passed`);
+  // 🔴 CAMP-286. The count is asserted, because a case that stopped
+  // being reached prints what a passing case prints; and the line names
+  // this file, because the CI step greps for it and "N/N passed" is a
+  // sentence several scripts print.
+  const EXPECTED_CASES = 24;
+  if (checks.length !== EXPECTED_CASES) {
+    console.log(`FAIL ${checks.length} cases ran, expected ${EXPECTED_CASES}`);
+    return false;
+  }
+  console.log(
+    failed
+      ? `\n✗ check-restore self-test: ${failed} of ${checks.length} cases failed`
+      : `\n✓ check-restore self-test: ${checks.length} cases over the restore gate`,
+  );
   return failed === 0;
 }
 
@@ -302,16 +325,27 @@ function selfTest() {
 // importing the module printed a usage line and called process.exit(2).
 // Exactly the same mistake as scripts/fuel/fetch-fuel-prices.mjs, found
 // by the same kind of review, one day apart.
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+// 🔴 CAMP-286: the house guard, written out rather than called, because
+// check-script-entrypoints.mjs recognises a guard by READING this
+// comparison. `realpathSync` on the argv side because Node resolves
+// `import.meta.url` through the real path and leaves argv[1] as written:
+// without it a symlink makes the two never match, the self-test silently
+// does not run, and the CI step is green with no output.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
-if (!invokedDirectly) {
-  // Imported for its functions.
-} else if (args.includes('--self-test')) {
-  process.exit(selfTest() ? 0 : 1);
-} else {
-  runCli();
+if (invokedDirectly) {
+  const action = chooseAction(args, ALL_FLAGS, 'check-restore.mjs', {
+    takesValue: ['--budget', '--manifest', '--started', '--expect-context'],
+  });
+  if (action.has('--self-test')) process.exit(selfTest() ? 0 : 1);
+  else runCli();
 }
 
 function runCli() {

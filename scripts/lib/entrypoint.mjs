@@ -95,11 +95,15 @@ export function flagName(token) {
  * @param {string[]} argv   usually `process.argv.slice(2)`
  * @param {string[]} known  every flag this script acts on
  * @param {string} who      the script's own name, for the message
- * @param {string[]} takesValue  flags followed by a value, e.g. --predict
+ * @param {object} [shape]
+ * @param {string[]} [shape.takesValue]  flags followed by a value, e.g. --predict
+ * @param {number} [shape.positional]    how many bare words this script takes
  * @returns {Set<string>} the known flags actually present
- * @throws when anything in argv is not a known flag or its value
+ * @throws when anything in argv is not a known flag, its value, or an
+ *   expected positional
  */
-export function chooseAction(argv, known, who, takesValue = []) {
+export function chooseAction(argv, known, who, shape = {}) {
+  const { takesValue = [], positional = 0 } = shape;
   const seen = [];
   const stray = [];
   for (let i = 0; i < argv.length; i++) {
@@ -124,10 +128,11 @@ export function chooseAction(argv, known, who, takesValue = []) {
         'self-test never ran (CAMP-285).',
     );
   }
-  if (stray.length > 0) {
+  if (stray.length > positional) {
     throw new Error(
       `${who}: unexpected argument ${stray.map((t) => JSON.stringify(t)).join(', ')}. ` +
-        `This script knows ${known.join(', ') || '(no flags)'} and takes nothing else. ` +
+        `This script knows ${known.join(', ') || '(no flags)'} and takes ` +
+        `${positional === 0 ? 'nothing else' : `${positional} other argument(s)`}. ` +
         'A dash lost to a copy-paste, or an em dash, reads as a word and ' +
         'used to be ignored in silence (CAMP-285).',
     );
@@ -169,8 +174,17 @@ const CASES = [
     try { chooseAction(['--predic=f.json'], ['--predict'], 'x'); return false; } catch { return true; }
   }],
   ['a declared flag swallows its value', () => {
-    const got = chooseAction(['--predict', 'f.json'], ['--predict'], 'x', ['--predict']);
+    const got = chooseAction(['--predict', 'f.json'], ['--predict'], 'x', { takesValue: ['--predict'] });
     return got.size === 1 && got.has('--predict');
+  }],
+  ['a declared positional is allowed', () =>
+    chooseAction(['report.json', '--max', '3'], ['--max'], 'x',
+      { takesValue: ['--max'], positional: 1 }).has('--max')],
+  ['🔴 one more positional than declared is refused', () => {
+    try {
+      chooseAction(['a.json', 'b.json'], [], 'x', { positional: 1 });
+      return false;
+    } catch (e) { return e.message.includes('unexpected argument'); }
   }],
   ['🔴 a bare word is refused — the script takes none', () => {
     try { chooseAction(['--predict', 'f.json'], ['--predict'], 'x'); return false; }
@@ -197,7 +211,7 @@ const CASES = [
 
 // 🔴 The count is asserted, because a case that stops being reached
 // looks exactly like a case that passed.
-const EXPECTED_CASES = 19;
+const EXPECTED_CASES = 21;
 
 function selfTest() {
   let failed = 0;

@@ -722,7 +722,9 @@ async function coverage() {
 
 function selfTest() {
   let bad = 0;
+  let cases = 0;
   const ok = (name, cond, detail = '') => {
+    cases += 1;
     if (cond) console.log(`ok   ${name}`);
     else {
       bad += 1;
@@ -991,27 +993,53 @@ function selfTest() {
   ok('every source has a url and an id field',
     Object.values(SOURCES).every((s) => s.url && s.idField && s.id));
 
-  console.log(bad ? `\nx ${bad} self-test failure(s)` : `\nself-test passed`);
+  // 🔴 CAMP-286. The count is asserted — a case that stopped being
+  // reached prints what a passing case prints — and the line names this
+  // file, because the CI step greps for it and a bare "self-test passed"
+  // is a line several scripts print.
+  const EXPECTED_CASES = 80;
+  if (cases !== EXPECTED_CASES) {
+    console.log(`x    ${cases} cases ran, expected ${EXPECTED_CASES}`);
+    bad += 1;
+  }
+  console.log(
+    bad
+      ? `\nx resolve-areas self-test: ${bad} failure(s)`
+      : `\n✓ resolve-areas self-test: ${cases} cases over the area resolver`,
+  );
   return bad;
 }
 
 import { pathToFileURL } from 'node:url';
-const RUN_DIRECTLY =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+import { realpathSync } from 'node:fs';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 // 🔴 `--self-test=1` used to miss a bare `includes` and fall through
 // into a live run. The same defect was measured and fixed in
-// fetch-warnings.mjs; it was here too.
-const KNOWN_FLAGS = ['self-test', 'coverage', 'join'];
-const hasFlag = (argv, name) =>
-  argv.some((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+// fetch-warnings.mjs; it was here too. The flag rule now lives in
+// scripts/lib/entrypoint.mjs, which reads `--flag=value` by name and
+// refuses a stray word as well as an unknown flag.
+//
+// 🔴 CAMP-286 ADDED `realpathSync`. Node resolves `import.meta.url`
+// through the real path and leaves argv[1] as written, so running this
+// file through a symlink made the two never match: the self-test
+// silently did not run and the step was green with no output. Inside an
+// IIFE with try/catch because realpathSync in the condition runs on
+// every import and throws ENOENT when argv[1] is not a file.
+const RUN_DIRECTLY = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+const KNOWN_FLAGS = ['--self-test', '--coverage', '--join'];
 
 if (RUN_DIRECTLY) {
-  const unknown = process.argv
-    .slice(2)
-    .filter((a) => !KNOWN_FLAGS.some((k) => a === `--${k}` || a.startsWith(`--${k}=`)));
-  if (unknown.length) throw new Error(`unknown argument(s): ${unknown.join(', ')}`);
-  if (hasFlag(process.argv, 'self-test')) process.exit(selfTest() ? 1 : 0);
-  if (hasFlag(process.argv, 'coverage')) await coverage();
-  if (hasFlag(process.argv, 'join')) await join();
+  const action = chooseAction(process.argv.slice(2), KNOWN_FLAGS, 'resolve-areas.mjs');
+  if (action.has('--self-test')) process.exit(selfTest() ? 1 : 0);
+  if (action.has('--coverage')) await coverage();
+  if (action.has('--join')) await join();
 }

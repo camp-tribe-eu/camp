@@ -173,7 +173,14 @@ jobs:
       # A run that declined to do the work reports the same green as one
       # that did it, so the thing that notices must itself be exercised.
       - name: The skip guard still catches a test that did not run
-        run: node scripts/ci/check-skips.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output.
+      # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
+      # so a failing node on the left of a pipe is invisible. The grepped
+      # line names its own script, so no other self-test can satisfy it.
+        run: |
+          set -o pipefail
+          node scripts/ci/check-skips.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-skips self-test:'
 
       - name: The scale checks can still fail
         run: ./scripts/scale-check/run.sh --rehearse

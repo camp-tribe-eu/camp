@@ -1,7 +1,6 @@
 {
   "_comment": "CAMP-285. Steps that run a --self-test without reading its output. A renamed flag, an inverted entry guard or a symlink makes each of these green while nothing runs. The list may shrink and never grow: regenerate with `node scripts/ci/check-selftest-steps.mjs --update` only after a step has been locked.",
   "unlocked": [
-    ".github/workflows/backup-verify.yml :: Prove the checker works",
     ".github/workflows/ci.yml :: A gate inside a campsite is still not a campsite",
     ".github/workflows/ci.yml :: Build-emits guard still catches an empty dist",
     ".github/workflows/ci.yml :: CEMS coverage guard still catches an unregistered panel",
@@ -24,8 +23,6 @@
     ".github/workflows/ci.yml :: Query-plan check still catches a missing index",
     ".github/workflows/ci.yml :: Restoring a backup cannot destroy newer work",
     ".github/workflows/ci.yml :: Satellite licence guard still refuses an unlicensed tile",
-    ".github/workflows/ci.yml :: Silence watchdog still catches a job that stopped",
-    ".github/workflows/ci.yml :: Skip guard still catches a test that did not run",
     ".github/workflows/ci.yml :: Structured-data validator still catches breakage",
     ".github/workflows/ci.yml :: The OSM import spawns no shell, and still says so",
     ".github/workflows/ci.yml :: The boilerplate rule itself",
@@ -33,11 +30,7 @@
     ".github/workflows/ci.yml :: The design-token check still catches a missing token",
     ".github/workflows/ci.yml :: The fold script's twin arithmetic still agrees with itself",
     ".github/workflows/ci.yml :: The map palette check still rejects an illegible colour",
-    ".github/workflows/ci.yml :: Warning area resolution",
     ".github/workflows/ci.yml :: Whether a run should build at all",
-    ".github/workflows/ci.yml :: Wildfire fetch guards still refuse what they must",
-    ".github/workflows/scale-check.yml :: The skip guard still catches a test that did not run",
-    ".github/workflows/warning-geography.yml :: The resolution rules",
-    ".github/workflows/watchdog.yml :: Prove the check works"
+    ".github/workflows/ci.yml :: Wildfire fetch guards still refuse what they must"
   ]
 }
