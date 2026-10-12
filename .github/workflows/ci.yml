@@ -122,8 +122,15 @@ jobs:
       # 🔴 The repo is public and the owner has had a leak before. Two
       # steps, as everywhere: first prove the scanner still catches a
       # planted secret, then believe the run that says the tree is clean.
+      # 🔴 CAMP-285: the step reads the self-test's own output.
+      # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
+      # so a failing node on the left of a pipe is invisible. The grepped
+      # line names its own script, so no other self-test can satisfy it.
       - name: Secret scanner still catches a planted secret
-        run: node scripts/security/check-secrets.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/security/check-secrets.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-secrets self-test:'
       - name: No secrets in tracked files
         run: node scripts/security/check-secrets.mjs
 
@@ -136,8 +143,15 @@ jobs:
       # advisories" over 40 it could not see, one of them critical. The
       # first case it now asserts is exactly that: a workspace added later
       # must be discovered.
+      # 🔴 CAMP-285: the step reads the self-test's own output.
+      # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
+      # so a failing node on the left of a pipe is invisible. The grepped
+      # line names its own script, so no other self-test can satisfy it.
       - name: Dependency guard still sees every workspace
-        run: node scripts/security/check-dependencies.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/security/check-dependencies.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-dependencies self-test:'
       - name: No new dependency advisories
         run: node scripts/security/check-dependencies.mjs
 
@@ -145,8 +159,15 @@ jobs:
       # feature branch. On 22.09.2026 one carried 28 commits for days,
       # during which CodeQL and Dependabot reported on main and therefore
       # on none of it. docs/git-workflow.md has the whole account.
+      # 🔴 CAMP-285: the step reads the self-test's own output.
+      # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
+      # so a failing node on the left of a pipe is invisible. The grepped
+      # line names its own script, so no other self-test can satisfy it.
       - name: Branch-drift guard still catches a stale branch
-        run: node scripts/ci/check-branch-drift.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/ci/check-branch-drift.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-branch-drift self-test:'
       - name: This branch has not drifted from main
         run: node scripts/ci/check-branch-drift.mjs
 
@@ -155,8 +176,36 @@ jobs:
       # out to hold 13 Bosnian and 2 Serbian campsites nobody had added —
       # the OSM extracts cross borders. A rule nothing checks is a rule
       # that has already stopped applying.
+      # 🔴 CAMP-285: the step reads the self-test's own output.
+      # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
+      # so a failing node on the left of a pipe is invisible. The grepped
+      # line names its own script, so no other self-test can satisfy it.
       - name: EU-scope guard still catches a non-member
-        run: node scripts/ci/check-eu-scope.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/ci/check-eu-scope.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-eu-scope self-test:'
+
+      # The shared rule those four now use: a flag the script does not
+      # know is an error, not a shrug.
+      - name: The flag rule the self-tests share still refuses a typo
+        run: |
+          set -o pipefail
+          node scripts/lib/entrypoint.mjs --self-test | tee /dev/stderr \
+            | grep -q 'entrypoint self-test:'
+
+      # 🔴 And the thing that makes the other 38 happen. A step converted
+      # by hand and a step nobody has got to yet look identical from the
+      # outside; this one keeps the list of the unconverted, refuses a
+      # new self-test step that reads nothing, and refuses two steps that
+      # grep for the same line.
+      - name: Self-test steps still read their own output
+        run: |
+          set -o pipefail
+          node scripts/ci/check-selftest-steps.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-selftest-steps self-test:'
+      - name: The list of unlocked self-test steps has not grown
+        run: node scripts/ci/check-selftest-steps.mjs
       - name: The import list is the Union, and nothing else
         run: node scripts/ci/check-eu-scope.mjs
       # 🔴 CAMP-178. A job running a Node nobody chose is how a version

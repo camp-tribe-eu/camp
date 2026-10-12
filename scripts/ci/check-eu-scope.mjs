@@ -33,6 +33,8 @@
 
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 /**
  * The Union and its extracts, from the one machine-readable file.
@@ -159,7 +161,19 @@ function selfTest() {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
   }
   const failed = checks.filter((c) => !c.pass).length;
-  console.log(`\n${checks.length - failed}/${checks.length} passed`);
+  // 🔴 The count is asserted, and the line names this file. "20/20
+  // passed" is a sentence several scripts could print, and a CI step
+  // that greps for it could be satisfied by somebody else's self-test.
+  const EXPECTED_CASES = 19;
+  if (checks.length !== EXPECTED_CASES) {
+    console.log(`FAIL ${checks.length} cases ran, expected ${EXPECTED_CASES}`);
+    return false;
+  }
+  console.log(
+    failed
+      ? `\n✗ check-eu-scope self-test: ${failed} of ${checks.length} cases failed`
+      : `\n✓ check-eu-scope self-test: ${checks.length} cases over the member-state list`,
+  );
   return failed === 0;
 }
 
@@ -168,16 +182,38 @@ function selfTest() {
 // without this guard, importing it would run the whole check and exit.
 // Same mistake as the fuel script and the restore gate, avoided in
 // advance this time.
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+//
+// 🔴 CAMP-285 ADDED `realpathSync`, AND IT WAS NOT DECORATION. Node
+// resolves `import.meta.url` through the real path and leaves
+// `process.argv[1]` exactly as written, so running this file through a
+// symlink made the two sides never match: the self-test silently did not
+// run, the step printed nothing, and it was green. Reproduced on
+// 12.10.2026 — no mutation needed, just a link.
+//
+// Inside an IIFE with try/catch because realpathSync in the condition
+// itself runs on every import and throws ENOENT when argv[1] is not a
+// file — and this module IS imported, by import-release.mjs and
+// drop-non-eu.mjs.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
-if (!invokedDirectly) {
-  // Imported for EU / GEOFABRIK.
-} else if (process.argv.includes('--self-test')) {
-  process.exit(selfTest() ? 0 : 1);
-} else {
-  runCheck();
+if (invokedDirectly) {
+  // 🔴 `--selftest` used to fall through to the real check and print
+  // "✓ all 27 member states, and nothing else". Green step, self-test
+  // never run.
+  const action = chooseAction(
+    process.argv.slice(2),
+    ['--self-test'],
+    'check-eu-scope.mjs',
+  );
+  if (action.has('--self-test')) process.exit(selfTest() ? 0 : 1);
+  else runCheck();
 }
 
 function runCheck() {
