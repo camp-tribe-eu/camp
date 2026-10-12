@@ -2,6 +2,46 @@ import { NextResponse, type NextRequest } from 'next/server';
 import GONE_PATHS from '@/generated/gone-paths.json';
 import SPOT_REDIRECTS from '@/generated/spot-redirects.json';
 
+// 🔴 CAMP-284: NOTHING IN THIS REPOSITORY DEPLOYS THIS FILE.
+//
+// Measured on 12.10.2026, after a `next build` of this app:
+//
+//     .next/server/middleware-manifest.json   1 entry, matcher ^/.*$
+//     .next/server/middleware.js              1 575 362 B   (378 222 gz)
+//     .next/server/edge-runtime-webpack.js       44 654 B     (8 601 gz)
+//     src/generated/spot-redirects.json       4 455 rules, 420 858 B
+//
+// So the build DOES emit an edge function over every path. What is
+// missing is everything that would run it:
+//
+//   * `next.config.mjs` has no `output: 'export'`, so the build leaves
+//     `.next/` and no `out/` — there is no directory of static files to
+//     upload to Pages in the first place;
+//   * there is no `@cloudflare/next-on-pages`, no wrangler config and
+//     no `pages:build` script anywhere in the repository;
+//   * no workflow deploys anything: `grep -rl 'deploy\|wrangler\|cloudflare'
+//     .github/workflows/` is empty.
+//
+// Cloudflare's own Next.js guide (fetched 12.10.2026) points Pages at
+// static exports and says full-stack features "including server-side
+// rendering, React Server Components, Server Actions, route handlers,
+// and middleware" belong on Workers. The neighbouring comment in
+// scripts/security-headers.mjs — "Cloudflare Pages serves the built
+// files and never runs Next's headers()" — is the same observation from
+// the other side.
+//
+// 🔴 AND `_redirects` CANNOT HOLD THIS. Cloudflare documents the Pages
+// `_redirects` file as "limited to 2,000 static redirects and 100
+// dynamic redirects, for a combined total of 2,100", with no support
+// for 404 or 410. We have 4 455 redirects — 2.1× the ceiling — and the
+// 410 list has no expression in that format at all.
+//
+// This file is therefore correct and unreachable until somebody decides
+// where the site runs. That decision costs money and an account, so it
+// is the owner's; the numbers above are what it should be decided with.
+// Until then, every 301 and every 410 written here is a promise the
+// project has not yet been able to keep.
+
 // CAMP-73 — 410 Gone for campsites OpenStreetMap has dropped.
 //
 // 🔴 Why this needs middleware at all. Every campsite page is
