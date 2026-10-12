@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   CONSENT_KEY,
@@ -29,6 +29,7 @@ import {
 // who already answered, and it would flash on every navigation.
 
 export default function CookieConsent() {
+  const bannerRef = useRef<HTMLDivElement>(null);
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -55,6 +56,33 @@ export default function CookieConsent() {
     };
   }, []);
 
+  // 🔴 CAMP-264. Банер `fixed bottom-0` накриває низ першого екрана, і
+  // компенсації не існувало ніде. Заміряно 12.10.2026 на 390×844:
+  // банер 121 px (723–844), а лічильник мапи «898» стояв на 758 —
+  // ТОБТО ПОВНІСТЮ ПІД НИМ. Плюс обрізані дві кнопки фільтрів.
+  //
+  // Висота береться ЗАМІРОМ, не константою: банер переноситься
+  // по-різному на різних ширинах і мовах, а текст у ньому колись
+  // змінять. Константа тут — це той самий дефект через півроку.
+  //
+  // Прибирається у cleanup, інакше після відповіді внизу назавжди
+  // лишиться порожня смуга заввишки з банер.
+  useEffect(() => {
+    const el = bannerRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const apply = () => {
+      root.style.setProperty('--consent-h', `${el.offsetHeight}px`);
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--consent-h');
+    };
+  }, [show]);
+
   if (!show) return null;
 
   const answer = (choice: ConsentChoice) => {
@@ -64,6 +92,7 @@ export default function CookieConsent() {
 
   return (
     <div
+      ref={bannerRef}
       // `dialog` without `modal`: it is announced, and it does not trap
       // the reader or block what is behind it.
       role="dialog"
