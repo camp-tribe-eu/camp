@@ -129,24 +129,29 @@ if (disagree.length) {
 }
 
 // 🔴 CAMP-211. Один підрахунок на перевірку й на підсумок.
-// Два окремі вирази тут означали б, що надрукований рядок може
-// розійтися з вироком — а надрукований підсумок це підпис, не перевірка.
+//
+// 🔴 `allUrls` holds `{ url, from }`, not strings. The first version of
+// this mapped the OBJECT through `new URL(...)`, which throws, and the
+// catch turned every section into '' — a guard that could never fire,
+// passing because it saw nothing. So: no `catch` that swallows the
+// shape. A URL that does not parse is an error here, because every one
+// of them has already been checked as absolute https above.
+//
+// 🔴 `null` is the ROOT PAGE, named rather than filtered for truth.
+// `.filter(Boolean)` here was a mutation that survived the whole
+// rehearsal: dropping it put '' in the set, and the old substring test
+// asked `llms.includes('/')`, which every URL in the file satisfies.
+// An empty section was therefore "named" by construction. Below it
+// cannot be: '' is not a path segment any link produces.
 const sections = [
   ...new Set(
     allUrls
-      // 🔴 `allUrls` holds `{ url, from }`, not strings. The first
-      // version of this mapped the OBJECT through `new URL(...)`, which
-      // throws, and the catch turned every section into '' — a guard
-      // that could never fire, passing because it saw nothing. Caught
-      // by reading the loop that fills this array rather than by any
-      // test, so: no `catch` that swallows the shape. A URL that does
-      // not parse is an error here, because every one of them has
-      // already been checked as absolute https above.
-      .map(({ url }) => new URL(url).pathname.split('/')[1] ?? '')
-      .filter(Boolean),
+      .map(({ url }) => new URL(url).pathname.split('/').filter((x) => x !== '')[0] ?? null)
+      .filter((x) => x !== null),
   ),
 ].sort();
 let unlisted = [];
+let sectionsChecked = false;
 
 // ── llms.txt ─────────────────────────────────────────────────────────────
 const llms =
@@ -178,7 +183,30 @@ if (!llms) {
   // `SpecialAnnouncement` (31 July 2025) and narrowed `FAQPage` to
   // government and health sites, so the rich results that markup aimed
   // at are gone — while assistants still read this file.
-  unlisted = sections.filter((x) => !llms.includes(`/${x}`));
+  // 🔴 ЗВІРЯЄМО З ПОСИЛАННЯМИ, ЯКІ ФАЙЛ СПРАВДІ ДАЄ — не підрядком.
+  //
+  // `llms.includes(`/${x}`)` було ХИБНИМ ПРОХОДЖЕННЯМ, і рецензія це
+  // показала випадком: розділ `/camper/...` у мапі «названий», бо в
+  // файлі стоїть `/camper-rental`. Так само мовчки пройшли б `/camp`,
+  // `/guide`, `/route`, `/tool` — тобто рівно ті назви, які ми й
+  // заводимо. Підрядок відповідає на інше питання, ніж тут поставлене.
+  //
+  // Тому: беремо перший сегмент КОЖНОГО посилання у файлі й порівнюємо
+  // множини. Згадка в прозі без посилання не рахується — агент ходить
+  // по посиланнях, а не по прикметниках.
+  const named = new Set(
+    [...llms.matchAll(/\]\((https?:\/\/[^)\s]+)\)/g)]
+      .map((m) => {
+        try {
+          return new URL(m[1]).pathname.split('/').filter((x) => x !== '')[0] ?? '';
+        } catch {
+          return '';
+        }
+      })
+      .filter(Boolean),
+  );
+  unlisted = sections.filter((x) => !named.has(x));
+  sectionsChecked = true;
   if (unlisted.length) {
     errors.push(
       `llms.txt never mentions ${unlisted.length} of ${sections.length} ` +
@@ -193,9 +221,15 @@ console.log(`urls            ${allUrls.length}`);
 console.log(`distinct dates  ${lastmods.size}`);
 console.log(`noindex in map  ${noindexed}`);
 console.log(`llms.txt        ${llms ? `${llms.split('\n').length} lines` : 'MISSING'}`);
+// 🔴 Рядок не сміє ЗВІТУВАТИ про перевірку, якої не було. Рецензія
+// показала: `unlisted` оголошено вище блоку, тож без зібраного
+// llms.txt друкувалось «MISSING» і «5 of 5 named» поруч — підпис під
+// перевіркою, яка не виконалась.
 console.log(
-  `llms sections   ${sections.length - unlisted.length} of ${sections.length} named` +
-    (unlisted.length ? ` — missing: ${unlisted.join(', ')}` : ''),
+  sectionsChecked
+    ? `llms sections   ${sections.length - unlisted.length} of ${sections.length} named` +
+        (unlisted.length ? ` — missing: ${unlisted.join(', ')}` : '')
+    : `llms sections   not checked — ${sections.length} in sitemap, llms.txt absent`,
 );
 
 if (lastmods.size === 1 && allUrls.length > 50) {
