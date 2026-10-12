@@ -164,6 +164,9 @@ async function main() {
   const db = new Client({ connectionString: url });
   await db.connect();
   let failed = false;
+  // 🔴 CAMP-286. Three query plans are examined; a rehearsal that
+  // stopped being reached printed exactly what a passing one printed.
+  let examined = 0;
 
   try {
     await seed(db);
@@ -194,6 +197,7 @@ async function main() {
     );
 
     // ---- 1. The viewport query, at the window size that asks for points.
+    examined++;
     const region = await explain(db, POINTS_SQL, [...REGION_BBOX]);
     const usesIndex = region.indexes.length > 0;
     console.log('points() over a region-sized viewport');
@@ -232,6 +236,7 @@ async function main() {
     // So the argument for clustering at low zoom was never CPU. It is
     // that no capped list of points can answer a continent-wide
     // question, however cheaply it returns.
+    examined++;
     const wide = await explain(db, POINTS_SQL, [...CONTINENT_BBOX]);
     const total = (
       await db.query(
@@ -250,6 +255,7 @@ async function main() {
     );
 
     const grid = (CONTINENT_BBOX[2] - CONTINENT_BBOX[0]) / 8;
+    examined++;
     const clusters = await explain(db, CLUSTERS_SQL, [...CONTINENT_BBOX, grid]);
     console.log('clusters() over the same viewport');
     console.log(`  cells     ${clusters.rows}`);
@@ -275,10 +281,22 @@ async function main() {
     await db.end();
   }
 
+  // 🔴 The count is asserted on BOTH paths: a self-test that examined
+  // one plan instead of three would "fail when it should" for the wrong
+  // reason and still print a tick.
+  const EXPECTED_PLANS = 3;
+  if (examined !== EXPECTED_PLANS) {
+    console.error(
+      `\n✗ ${examined} query plans examined, expected ${EXPECTED_PLANS}`,
+    );
+    process.exit(1);
+  }
+
   if (process.argv.includes('--self-test')) {
     if (failed) {
       console.log(
-        '\n✓ Self-test passed: the check does still fail when it should.',
+        `\n✓ explain-map-queries self-test: ${examined} plans, and the check ` +
+          'does still fail when it should.',
       );
       process.exit(0);
     }
@@ -293,8 +311,21 @@ async function main() {
 }
 
 // Guarded like every other script here: an import must not run it.
+//
+// 🔴 CAMP-286: and an unknown flag is refused BEFORE `main()` runs.
+// `--selftest` used to fall through to the live benchmark, which
+// CREATES and DROPS a schema in the database it is pointed at.
 if (require.main === module) {
-  main().catch((err) => {
+  void (async () => {
+    const { chooseAction } =
+      await import('../../../../scripts/lib/entrypoint.mjs');
+    chooseAction(
+      process.argv.slice(2),
+      ['--self-test'],
+      'explain-map-queries.ts',
+    );
+    await main();
+  })().catch((err) => {
     console.error(err);
     process.exit(1);
   });

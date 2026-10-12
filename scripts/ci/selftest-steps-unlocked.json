@@ -3,11 +3,7 @@
   "unlocked": [
     ".github/workflows/ci.yml :: CEMS coverage guard still catches an unregistered panel",
     ".github/workflows/ci.yml :: Derived-field guard still catches an undescribed field",
-    ".github/workflows/ci.yml :: Filter check still catches a mismatch",
     ".github/workflows/ci.yml :: Fixture-count guard still catches a moved number",
-    ".github/workflows/ci.yml :: Fixture-shape guard still catches a missing subject",
-    ".github/workflows/ci.yml :: Price check still catches an undated tariff",
-    ".github/workflows/ci.yml :: Query-plan check still catches a missing index",
-    ".github/workflows/ci.yml :: The fold script's twin arithmetic still agrees with itself"
+    ".github/workflows/ci.yml :: Fixture-shape guard still catches a missing subject"
   ]
 }

@@ -504,21 +504,49 @@ function selfTest(): void {
       bad++;
     }
   }
+  // 🔴 CAMP-286. The count is asserted and the line names this file.
+  // "7/7 twin cases" is a sentence, not a lock: a case deleted from the
+  // list above prints "6/6" and passes, and a CI step grepping for a
+  // generic phrase can be satisfied by another script's output.
+  const EXPECTED_CASES = 7;
+  if (cases.length !== EXPECTED_CASES) {
+    console.error(`  ✗ ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
+    bad++;
+  }
   console.log(
     bad === 0
-      ? `✓ ${cases.length}/${cases.length} twin cases`
-      : `✗ ${bad} of ${cases.length} twin cases failed`,
+      ? `✓ fold-three-row-campsites self-test: ${cases.length} twin cases`
+      : `✗ fold-three-row-campsites self-test: ${bad} of ${cases.length} failed`,
   );
   if (bad > 0) process.exit(1);
 }
 
 if (require.main === module) {
-  if (process.argv.includes('--self-test')) {
-    selfTest();
-  } else {
-    main().catch((err) => {
-      console.error(err);
-      process.exit(1);
-    });
-  }
+  // 🔴 CAMP-286: a flag this script does not know is an error, not a
+  // shrug. `--selftest` — one letter — used to fall through to `main()`,
+  // which opens Postgres and, with `--apply`, folds rows.
+  //
+  // 🔴 AND THE CHECK IS AWAITED BEFORE ANYTHING ELSE STARTS. The first
+  // version fired the import in a floating promise beside the dispatch,
+  // so `main()` opened a connection while the refusal was still
+  // resolving: the process did exit 1, but only after the work had
+  // begun. A guard that races the thing it guards is not a guard.
+  //
+  // The rule lives in an ESM module and this file is compiled to
+  // CommonJS by ts-node, hence the dynamic import.
+  void (async () => {
+    const { chooseAction } =
+      await import('../../../../scripts/lib/entrypoint.mjs');
+    chooseAction(
+      process.argv.slice(2),
+      ['--self-test', '--apply', '--predict'],
+      'fold-three-row-campsites.ts',
+      { takesValue: ['--predict'] },
+    );
+    if (process.argv.includes('--self-test')) selfTest();
+    else await main();
+  })().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }

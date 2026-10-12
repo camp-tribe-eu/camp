@@ -165,7 +165,17 @@ const MUST_BE_ZERO: { name: string; sql: string }[] = [
  *
  * Everything happens inside a transaction that is rolled back.
  */
+/**
+ * How many rehearsals this function performs.
+ *
+ * 🔴 CAMP-286. Both halves print a line and neither was counted, so a
+ * rehearsal deleted from the middle printed one tick instead of two and
+ * the run still said "self-test passed". The count is asserted below.
+ */
+const EXPECTED_REHEARSALS = 2;
+
 async function selfTest(db: Client): Promise<boolean> {
+  let rehearsed = 0;
   const spot = (await db.query(`SELECT id FROM camping_spots LIMIT 1`)).rows[0];
   if (!spot) {
     console.error('  ✗ self-test: no campsites at all, so nothing to plant on');
@@ -211,6 +221,7 @@ async function selfTest(db: Client): Promise<boolean> {
       );
       return false;
     }
+    rehearsed++;
     console.log('  ✓ self-test: a dated tariff is served');
 
     // 2. An UNDATED tariff must NOT come back. This is the card's
@@ -233,7 +244,14 @@ async function selfTest(db: Client): Promise<boolean> {
       );
       return false;
     }
+    rehearsed++;
     console.log('  ✓ self-test: an undated tariff is refused by the read path');
+    if (rehearsed !== EXPECTED_REHEARSALS) {
+      console.error(
+        `  ✗ self-test: ${rehearsed} rehearsals ran, expected ${EXPECTED_REHEARSALS}`,
+      );
+      return false;
+    }
     return true;
   } finally {
     await db.query('ROLLBACK');
@@ -265,7 +283,11 @@ async function main() {
         console.error('\n✗ self-test failed');
         process.exit(1);
       }
-      console.log('\n✓ self-test passed');
+      // 🔴 The line names this file: a CI step grepping for a generic
+      // "self-test passed" can be satisfied by another script's output.
+      console.log(
+        '\n✓ verify-prices self-test: 2 rehearsals over the tariff read path',
+      );
       return;
     }
 
@@ -391,7 +413,15 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch((err) => {
+  // 🔴 CAMP-286: an unknown flag is an error, and the check is AWAITED
+  // before `main()` opens a connection. `--selftest` used to fall
+  // through to the full invariant run against the live database.
+  void (async () => {
+    const { chooseAction } =
+      await import('../../../../scripts/lib/entrypoint.mjs');
+    chooseAction(process.argv.slice(2), ['--self-test'], 'verify-prices.ts');
+    await main();
+  })().catch((err) => {
     console.error(err);
     process.exit(1);
   });
