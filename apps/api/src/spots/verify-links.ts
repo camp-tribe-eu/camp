@@ -68,21 +68,27 @@ const INVARIANTS: { name: string; sql: string }[] = [
     // because a campsite really can be three rows: an OSM area, the way
     // it was exported from, and a DATAtourisme record. 23 are.
     //
-    // What is NOT allowed is a primary accumulating rows of the same
-    // kind. One OSM twin and one outside record is the model; two
-    // outside records on one campsite would mean the matcher merged two
-    // different businesses, which is the failure this whole area exists
-    // to prevent. So the ceiling moved from "one" to "one of each",
-    // which is a sentence about the model rather than a number.
-    name: 'a primary carries at most one OSM twin and one non-OSM secondary',
+    // What is NOT allowed is a primary accumulating OUTSIDE records.
+    // Two DATAtourisme rows on one campsite would mean the matcher
+    // merged two different businesses, which is the failure this whole
+    // area exists to prevent.
+    //
+    // 🔴 It says nothing about a second OSM secondary, and the silence
+    // is deliberate rather than an oversight. A first draft also
+    // counted those, and a mutation deleting that half passed every
+    // check — because it is unreachable: a second OSM secondary would
+    // have to be a row that is not the primary's twin, which the next
+    // invariant already refuses, and two links to the SAME twin are
+    // impossible under the live unique index on secondary_id. A clause
+    // no input can reach is not a guard, it is a sentence.
+    name: 'a primary carries at most one non-OSM secondary',
     sql: `SELECT count(*)::int AS n FROM (
             SELECT l.primary_id
               FROM spot_links l
               JOIN camping_spots s ON s.id = l.secondary_id
              WHERE l.unlinked_at IS NULL
              GROUP BY l.primary_id
-            HAVING count(*) FILTER (WHERE s.osm_ref IS NULL) > 1
-                OR count(*) FILTER (WHERE s.osm_ref IS NOT NULL) > 1) x`,
+            HAVING count(*) FILTER (WHERE s.osm_ref IS NULL) > 1) x`,
   },
   {
     name: 'a live secondary belongs to exactly one primary',
@@ -317,32 +323,61 @@ async function main(): Promise<void> {
     // broke one of them and the 7 chains that broke the other lived only
     // in the database nobody ran this against.
     //
-    // So each invariant now gets its violation PLANTED, in a transaction
-    // that is rolled back, and is required to catch it. An invariant
-    // that cannot be made to fail here is not a check; it is a sentence.
+    // So the invariants that describe the LINK MODEL — the four below —
+    // get their violation PLANTED, in a transaction that is rolled back,
+    // and are required to catch it. An invariant that cannot be made to
+    // fail here is not a check; it is a sentence.
+    //
+    // 🔴 Four of the ten, not all ten, and the number is said out loud
+    // rather than implied. The redirect invariants are held by the
+    // rehearsals further down, which plant chains, cycles and dropped
+    // primaries; 'a live secondary belongs to exactly one primary',
+    // 'no link joins a row to itself' and 'no two rows are linked both
+    // ways' are held by database constraints and have none here.
     console.log('\n--- each invariant, shown failing on a planted row ---');
-    const spares = await db.query<{
-      osm_a: string;
-      osm_b: string;
-      plain_c: string;
-      plain_d: string;
-    }>(
-      `WITH free AS (
-         SELECT s.id, s.osm_ref
-           FROM camping_spots s
-          WHERE NOT EXISTS (SELECT 1 FROM spot_links l
-                             WHERE l.unlinked_at IS NULL
-                               AND (l.primary_id = s.id OR l.secondary_id = s.id)))
-       SELECT (SELECT id FROM free WHERE osm_ref ~ '^a[0-9]+$' ORDER BY id LIMIT 1) AS osm_a,
-              (SELECT id FROM free WHERE osm_ref ~ '^n[0-9]+$' ORDER BY id LIMIT 1) AS osm_b,
-              (SELECT id FROM free WHERE osm_ref IS NULL ORDER BY id LIMIT 1) AS plain_c,
-              (SELECT id FROM free WHERE osm_ref IS NULL ORDER BY id DESC LIMIT 1) AS plain_d`,
+    // 🔴 The rows are MADE, not found.
+    //
+    // The first version looked for unlinked rows in the database, and on
+    // the CI fixture — which holds exactly ONE row with no osm_ref — two
+    // of the four traps planted a link from a row to itself. Three
+    // checks then failed on constraint violations instead of on what
+    // they were asking, and CI went red for a reason that had nothing to
+    // do with the invariants.
+    //
+    // A rehearsal that depends on what happens to be in the database
+    // passes or fails by accident. These clone one real row four times
+    // inside the transaction, so the shapes exist wherever this runs.
+    const seed = await db.query<{ id: string }>(
+      `SELECT id FROM camping_spots ORDER BY id LIMIT 1`,
     );
-    const sp = spares.rows[0];
-    if (!sp || !sp.osm_a || !sp.osm_b || !sp.plain_c || !sp.plain_d) {
-      console.error('  ✗ not enough unlinked rows to plant the violations');
+    const seedId = seed.rows[0]?.id ?? null;
+    if (seedId === null) {
+      console.error('  ✗ no campsite at all to clone a trap row from');
       failed++;
     } else {
+      const clone = async (
+        slug: string,
+        osmRef: string | null,
+      ): Promise<string> => {
+        await db.query(`DROP TABLE IF EXISTS trap_src`);
+        await db.query(
+          `CREATE TEMP TABLE trap_src AS
+             SELECT * FROM camping_spots WHERE id = $1`,
+          [seedId],
+        );
+        await db.query(
+          `UPDATE trap_src
+              SET id = uuid_generate_v4(), slug = $1, osm_ref = $2,
+                  missing_since = NULL,
+                  region = coalesce(region, 'Trap')`,
+          [slug, osmRef],
+        );
+        const r = await db.query<{ id: string }>(
+          `INSERT INTO camping_spots SELECT * FROM trap_src RETURNING id`,
+        );
+        return r.rows[0].id;
+      };
+
       const link = (pri: string, sec: string) =>
         db.query(
           `INSERT INTO spot_links (primary_id, secondary_id, metres,
@@ -350,34 +385,62 @@ async function main(): Promise<void> {
            VALUES ($1, $2, 0, 1, 'trap')`,
           [pri, sec],
         );
-      // 🔴 `osm_b` is an `n…` node, so it can never be the twin of an
-      // `a…` area: libosmium's numbering only ever produces `w…` or
-      // `r…`. The violation is therefore guaranteed by arithmetic rather
-      // than by hoping two refs do not happen to pair up.
-      const traps: { invariant: string; plant: () => Promise<unknown> }[] = [
+
+      // 🔴 'a2' pairs with 'w1' by libosmium's rule, and 'r7' is a
+      // RELATION twin — the odd branch of that arithmetic, which has no
+      // row anywhere in the database (0 of 54 279 refs start with r) and
+      // therefore had no test at all until this line. A mutation that
+      // swapped it for 'w' passed every check.
+      const traps: {
+        invariant: string;
+        plant: () => Promise<unknown>;
+      }[] = [
         {
           invariant:
             "every secondary is a non-OSM row or the primary's own OSM twin",
-          plant: () => link(sp.osm_a, sp.osm_b),
+          plant: async () => {
+            const area = await clone('trap-area-even', 'a2');
+            const stranger = await clone('trap-not-twin', 'w999000001');
+            await link(area, stranger);
+          },
         },
         {
           invariant:
-            'a primary carries at most one OSM twin and one non-OSM secondary',
+            "every secondary is a non-OSM row or the primary's own OSM twin",
           plant: async () => {
-            await link(sp.osm_a, sp.plain_c);
-            await link(sp.osm_a, sp.plain_d);
+            // The odd branch: 'a15' pairs with 'r7', not 'w7'.
+            const area = await clone('trap-area-odd', 'a15');
+            const wrongKind = await clone('trap-w7', 'w7');
+            await link(area, wrongKind);
+          },
+        },
+        {
+          invariant: 'a primary carries at most one non-OSM secondary',
+          plant: async () => {
+            const area = await clone('trap-area-two', 'a4');
+            const one = await clone('trap-plain-1', null);
+            const two = await clone('trap-plain-2', null);
+            await link(area, one);
+            await link(area, two);
           },
         },
         {
           invariant: 'every primary is an OSM row',
-          plant: () => link(sp.plain_c, sp.plain_d),
+          plant: async () => {
+            const plain = await clone('trap-plain-pri', null);
+            const other = await clone('trap-plain-sec', null);
+            await link(plain, other);
+          },
         },
         {
           invariant:
             'a live link never points at a row that is itself a live secondary',
           plant: async () => {
-            await link(sp.osm_a, sp.plain_c);
-            await link(sp.plain_c, sp.plain_d);
+            const area = await clone('trap-chain-top', 'a6');
+            const twin = await clone('trap-chain-mid', 'w3');
+            const plain = await clone('trap-chain-low', null);
+            await link(area, twin);
+            await link(twin, plain);
           },
         },
       ];

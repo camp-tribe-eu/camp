@@ -212,10 +212,13 @@ export const RESOLVED_REDIRECTS_SQL = `
  * whichever row the planner returned first: no error, and a page that
  * changes between builds.
  *
- * `idx_spot_links_primary_live` is now UNIQUE, which makes the second
- * row impossible rather than merely unlikely. The ORDER BY stays anyway,
- * because a bare `LIMIT 1` is only deterministic while that index holds,
- * and the cost of being wrong is silent.
+ * 🔴 CAMP-281 dropped that uniqueness, so the second row is possible
+ * again and deliberately so: a campsite can be an OSM area, the way it
+ * was exported from, and an outside record. What keeps the answer
+ * deterministic now is not the absence of a second row but the TOTAL
+ * order `(created_at, id)` that every reader shares, and a rehearsal
+ * that plants two secondaries and checks the opposite insert order
+ * gives the same answer.
  */
 /**
  * CAMP-280: every live secondary of this campsite, as an ordered array.

@@ -1,4 +1,8 @@
-import { complements, proposeLinks } from './reconcile-sources';
+import {
+  CLAIMED_BY_OUTSIDE_RECORD_SQL,
+  complements,
+  proposeLinks,
+} from './reconcile-sources';
 import type { PairRow, SpotRow } from './reconcile-sources';
 
 function row(over: Partial<SpotRow> & { id: string }): SpotRow {
@@ -191,5 +195,26 @@ describe('complements', () => {
     const c = complements(make({}, {}));
     expect(c.gains).toBe(false);
     expect(c.bothContactAndStars).toBe(false);
+  });
+});
+
+/**
+ * CAMP-281. The behaviour lives in how the SET is built, not in
+ * `proposeLinks`, so this holds the text. The reason it is worth holding
+ * at all: with the old query every OSM area carrying its own twin was
+ * declared "already linked", and the shape the link invariants call
+ * legal could never be created.
+ */
+describe('CLAIMED_BY_OUTSIDE_RECORD_SQL', () => {
+  it('counts only secondaries that are NOT OSM rows', () => {
+    expect(CLAIMED_BY_OUTSIDE_RECORD_SQL).toContain('s.osm_ref IS NULL');
+    expect(CLAIMED_BY_OUTSIDE_RECORD_SQL).toContain('l.unlinked_at IS NULL');
+  });
+
+  it('🔴 does not claim a primary merely for having a link', () => {
+    // The old query was exactly this and nothing else.
+    expect(CLAIMED_BY_OUTSIDE_RECORD_SQL).not.toMatch(
+      /SELECT\s+primary_id\s+AS\s+id\s+FROM\s+spot_links\s+WHERE\s+unlinked_at\s+IS\s+NULL\s*$/,
+    );
   });
 });

@@ -110,13 +110,32 @@ const CHAINS_SQL = `
 const STAMPED_FOR_WANT_OF_A_LINK_SQL = `
   SELECT t.id AS row_id, t.osm_ref AS ref, a.osm_ref AS area_ref,
          coalesce(t.name, '(unnamed)') AS name
-    FROM spot_links l
-    JOIN camping_spots a ON a.id = l.primary_id
-    JOIN camping_spots t ON t.id = l.secondary_id
-   WHERE l.unlinked_at IS NULL
-     AND a.osm_ref ~ '^a[0-9]+$'
+    FROM camping_spots a
+    JOIN camping_spots t ON t.osm_ref = CASE
+           WHEN (substring(a.osm_ref from 2))::bigint % 2 = 0
+           THEN 'w' || ((substring(a.osm_ref from 2))::bigint / 2)
+           ELSE 'r' || (((substring(a.osm_ref from 2))::bigint - 1) / 2) END
+   WHERE a.osm_ref ~ '^a[0-9]+$'
      AND t.missing_since IS NOT NULL
      AND a.missing_since IS NULL
+     -- 🔴 The twin is taken whether or not the link exists YET.
+     --
+     -- The first version joined through spot_links, so a stamp could
+     -- only be seen once its link was already there. But the link is
+     -- made by this same run: the dry run then showed 23 operations, the
+     -- apply made them, and 16 more appeared out of nowhere afterwards —
+     -- a plan that is not a fixed point, so no dry run ever predicted
+     -- the whole change and the prediction file had to be generated from
+     -- the already-changed database to agree with it. Self-confirming,
+     -- which is exactly what the comment further down forbids.
+     --
+     -- Asking the question about the TWIN rather than about the link
+     -- makes the three kinds of work independent, and one dry run
+     -- describes the whole run.
+     AND NOT EXISTS (SELECT 1 FROM spot_links o
+                      WHERE o.unlinked_at IS NULL
+                        AND o.secondary_id = t.id
+                        AND o.primary_id <> a.id)
    ORDER BY t.osm_ref`;
 
 export async function plan(db: Client): Promise<Fold[]> {
@@ -168,6 +187,39 @@ export async function plan(db: Client): Promise<Fold[]> {
     folds.push({ kind: 'unmark', row: r.row_id, ref: r.ref, name: r.name });
   }
   return folds;
+}
+
+/**
+ * Write the plan. Caller owns the transaction, so a probe can apply it
+ * inside one it means to roll back.
+ */
+export async function applyFolds(db: Client, folds: Fold[]): Promise<void> {
+  for (const f of folds) {
+    if (f.kind === 'link') {
+      await db.query(
+        `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                 name_similarity, rule)
+         SELECT $1, $2,
+                round(ST_Distance(a.location::geography,
+                                  t.location::geography)),
+                1, 'osm-area-id'
+           FROM camping_spots a, camping_spots t
+          WHERE a.id = $1 AND t.id = $2`,
+        [f.primary, f.secondary],
+      );
+    } else if (f.kind === 'repoint') {
+      await db.query(
+        `UPDATE spot_links SET primary_id = $2
+          WHERE id = $1 AND unlinked_at IS NULL`,
+        [f.link, f.to],
+      );
+    } else {
+      await db.query(
+        `UPDATE camping_spots SET missing_since = NULL WHERE id = $1`,
+        [f.row],
+      );
+    }
+  }
 }
 
 async function main(): Promise<void> {
@@ -231,32 +283,7 @@ async function main(): Promise<void> {
 
     await db.query('BEGIN');
     try {
-      for (const f of folds) {
-        if (f.kind === 'link') {
-          await db.query(
-            `INSERT INTO spot_links (primary_id, secondary_id, metres,
-                                     name_similarity, rule)
-             SELECT $1, $2,
-                    round(ST_Distance(a.location::geography,
-                                      t.location::geography)),
-                    1, 'osm-area-id'
-               FROM camping_spots a, camping_spots t
-              WHERE a.id = $1 AND t.id = $2`,
-            [f.primary, f.secondary],
-          );
-        } else if (f.kind === 'repoint') {
-          await db.query(
-            `UPDATE spot_links SET primary_id = $2
-              WHERE id = $1 AND unlinked_at IS NULL`,
-            [f.link, f.to],
-          );
-        } else {
-          await db.query(
-            `UPDATE camping_spots SET missing_since = NULL WHERE id = $1`,
-            [f.row],
-          );
-        }
-      }
+      await applyFolds(db, folds);
       await db.query('COMMIT');
     } catch (err) {
       await db.query('ROLLBACK');
