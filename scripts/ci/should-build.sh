@@ -97,8 +97,16 @@ STUB
   t 'порожня відповідь → будуємо' yes push ''
   echo
   # 🔴 CAMP-286: the line names this file, so the CI step that greps it
-  # cannot be satisfied by some other script printing the same sentence.
-  if [ "$fail" -eq 0 ]; then echo "✓ should-build self-test: $pass cases"; else echo "::error::$fail of $((pass+fail)) failed"; exit 1; fi
+  # cannot be satisfied by some other script printing the same sentence —
+  # and the COUNT is asserted, not merely printed. Review stubbed `t()`
+  # to a no-op: every case stopped running, and this line said
+  # "✓ should-build self-test: 0 cases" with the step exiting 0. A number
+  # nobody compares is a label.
+  if [ "$pass" -ne 11 ] || [ "$fail" -ne 0 ]; then
+    echo "::error::$pass passed and $fail failed, expected 11 and 0"
+    exit 1
+  fi
+  echo "✓ should-build self-test: $pass cases"
   exit 0
 fi
 

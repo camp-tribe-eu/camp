@@ -57,20 +57,28 @@ self_test() {
   mkdir -p "$tmp/empty" "$tmp/full"
   : > "$tmp/full/main.js"
 
-  cases=$((cases + 1))
-  if assert_emitted "$tmp/empty" "rehearsal" >/dev/null 2>&1; then
-    echo "✗ REHEARSAL FAILED: the check passed on a dist with no main.js."
-    echo "  This guard cannot see the failure it exists for."
-    rc=1
-  fi
+  # 🔴 ONE CALL COUNTS AND ASSERTS. The first version put
+  # `cases=$((cases + 1))` on its own line beside each `if`, and review
+  # deleted the `if` while leaving the increment: the rehearsal stopped
+  # running and the count still said 2. A counter a mutation can separate
+  # from its assertion is not a counter (CAMP-286).
+  rehearse() {  # rehearse <dist> <wanted rc> <what went wrong>
+    cases=$((cases + 1))
+    # 🔴 `|| got=$?`, because this file runs under `set -e`: a bare call
+    # that returns non-zero kills the script, and the rehearsal whose
+    # whole point is a FAILING assertion would never reach its verdict.
+    local got=0
+    assert_emitted "$1" "rehearsal" >/dev/null 2>&1 || got=$?
+    if [ "$got" -ne "$2" ]; then
+      echo "✗ REHEARSAL FAILED: $3 (exit $got, expected $2)"
+      rc=1
+    fi
+  }
 
+  rehearse "$tmp/empty" 1 "the check passed on a dist with no main.js — this guard cannot see the failure it exists for"
   # And the other direction, so the rehearsal cannot be satisfied by an
   # assertion that simply always fails.
-  cases=$((cases + 1))
-  if ! assert_emitted "$tmp/full" "rehearsal" >/dev/null 2>&1; then
-    echo "✗ REHEARSAL FAILED: the check rejected a dist that holds main.js."
-    rc=1
-  fi
+  rehearse "$tmp/full" 0 "the check rejected a dist that holds main.js"
 
   rm -rf "$tmp"
   # 🔴 CAMP-286: the count is asserted, because a rehearsal that stopped
