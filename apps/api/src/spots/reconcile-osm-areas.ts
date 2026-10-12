@@ -33,6 +33,7 @@
 // пар безіменні з обох боків, 292 мають однакову назву, різних назв
 // немає жодної.
 
+import 'dotenv/config';
 import { Client } from 'pg';
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -119,21 +120,25 @@ async function main(): Promise<void> {
                   AND ((l.primary_id = a.id AND l.secondary_id = b.id)
                     OR (l.primary_id = b.id AND l.secondary_id = a.id))
              ) AS linked,
-             -- 🔴 ОДИН ВТОРИННИЙ НА ПЕРВИННОГО, і це не наша вигадка:
-             -- idx_spot_links_primary_live це UNIQUE (primary_id)
-             -- WHERE unlinked_at IS NULL, тобто площа, яка вже склала в
-             -- себе рядок DATAtourisme, не може скласти ще й свою лінію.
+             -- 🔴 БІЛЬШЕ НЕ БЛОКУЄ, і історія варта рядка.
              --
+             -- Колись idx_spot_links_primary_live був UNIQUE (primary_id)
+             -- WHERE unlinked_at IS NULL, тож площа, яка вже склала в
+             -- себе рядок DATAtourisme, не могла скласти ще й свою лінію.
              -- Перший прогін цього не врахував: передбачення обіцяло
-             -- 844, база прийняла 828, і звірка це спіймала. Краще
-             -- передбачати відмову, ніж пояснювати її потім — інакше
-             -- «сухий прогін точно передбачає бойовий» перестає бути
-             -- правдою, а на ній тримається весь цей механізм.
+             -- 844, база прийняла 828, і звірка це спіймала.
+             --
+             -- CAMP-281 зняв унікальність, бо кемпінг справді буває
+             -- трьома рядками, а детермінізм тепер тримає повний порядок
+             -- у linkedSecondariesJoin, а не заборона другого рядка.
+             -- Отже це поле лишається як ЗВЕДЕННЯ — видно, що площа вже
+             -- щось несе, — але воно більше не відмова.
              --
              -- 🔴 І жодних бектиків у цьому коментарі: він усередині
              -- шаблонного рядка. Сусідній reconcile-sources.ts попереджає
              -- про це прямо, бо репозиторій уже ламав так збірку двічі.
-             -- Я зламав утретє.
+             -- Я зламав утретє, а потім і вчетверте.
+             --
              EXISTS (
                SELECT 1 FROM spot_links l2
                 WHERE l2.unlinked_at IS NULL AND l2.primary_id = a.id
@@ -154,17 +159,15 @@ async function main(): Promise<void> {
     `);
 
     const linked = rows.filter((r) => r.linked);
-    const blocked = rows.filter(
-      (r) => !r.linked && (r.primary_taken || r.secondary_taken),
-    );
-    const todo = rows.filter(
-      (r) => !r.linked && !r.primary_taken && !r.secondary_taken,
-    );
+    // Відмовляє тільки вторинний бік: idx_spot_links_secondary_live
+    // лишився UNIQUE, бо рядок не може бути складеним двічі.
+    const blocked = rows.filter((r) => !r.linked && r.secondary_taken);
+    const todo = rows.filter((r) => !r.linked && !r.secondary_taken);
     console.log(`  пар «площа ↔ лінія»: ${rows.length}`);
     console.log(`  уже зв'язані:        ${linked.length}`);
     console.log(`  до зв'язування:      ${todo.length}`);
     console.log(
-      `  🔴 заблоковані «один вторинний на первинного»: ${blocked.length}`,
+      `  🔴 заблоковані (рядок уже складений деінде): ${blocked.length}`,
     );
     for (const r of blocked.slice(0, 20)) {
       console.log(`      ${r.aref} ↔ ${r.bref}`);
