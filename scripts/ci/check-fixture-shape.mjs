@@ -31,6 +31,8 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { chooseAction } from '../lib/entrypoint.mjs';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
 const SEED = join(ROOT, 'apps', 'api', 'test', 'fixtures', 'ci-seed.sql');
@@ -360,12 +362,29 @@ function run(file, log = console, apiSrc = undefined) {
   return 0;
 }
 
-// Prove each assertion can fail. Nothing here reads the real fixture.
+// Prove each assertion can fail.
+//
+// 🔴 Майже нічого тут не читає справжню фікстуру — ВИНЯТОК один, і він
+// названий: пара `run(SEED, …)` нижче. Раніше цей коментар казав
+// «Nothing here reads the real fixture», і це було неправдою, через яку
+// випадок про розмір сторінки роками проходив, не випробувавши свою
+// гілку. Якщо додаєш сюди ще одне читання SEED — або дай йому контроль,
+// або перепиши цей рядок.
 function selfTest() {
   let rc = 0;
   const bad = (m) => {
     console.error(`✗ REHEARSAL FAILED: ${m}`);
     rc = 1;
+  };
+  // 🔴 CAMP-286. Every assertion registers HERE, as it runs. A case that
+  // stopped executing prints exactly what a case that passed prints, so
+  // the count of cases that ACTUALLY RAN is the only thing that separates
+  // them. The `breaks` loop contributes two per entry for that reason: a
+  // shortened table is a case that stopped running.
+  const cases = [];
+  const failIf = (cond, m) => {
+    cases.push(m);
+    if (cond) bad(m);
   };
   const quiet = { log: () => {}, error: () => {} };
   const PER_PAGE = 24;
@@ -426,17 +445,24 @@ function selfTest() {
   ];
 
   const first = shapeProblems(whole(), PER_PAGE);
-  if (first.length !== 0) bad(`a complete fixture was reported broken: ${first.join('; ')}`);
+  failIf(
+    first.length !== 0,
+    `a complete fixture was reported broken: ${first.join('; ')}`,
+  );
 
   // 🔴 The load simulation, asserted rather than assumed: `zzz-doomed`
   // is the row the DO block picks, and `Doomed` must therefore not
   // count as the region of exactly one.
   const picked = goneTarget(whole().filter((r) => r.region && r.missing_since === null));
-  if (picked?.slug !== 'zzz-doomed') bad(`gone target is ${picked?.slug}, not zzz-doomed`);
+  failIf(
+    picked?.slug !== 'zzz-doomed',
+    `gone target is ${picked?.slug}, not zzz-doomed`,
+  );
   const onlyDoomedIsThin = whole().filter((r) => r.slug !== 'thin-at');
-  if (!shapeProblems(onlyDoomedIsThin, PER_PAGE).some((p) => /exactly 1/.test(p))) {
-    bad('a region of one that the loader empties was accepted as the subject');
-  }
+  failIf(
+    !shapeProblems(onlyDoomedIsThin, PER_PAGE).some((p) => /exactly 1/.test(p)),
+    'a region of one that the loader empties was accepted as the subject',
+  );
 
   const breaks = [
     ['Slovenia gone', (r) => r.filter((x) => x.country !== 'SI'), /no SI campsites/],
@@ -510,9 +536,10 @@ function selfTest() {
 
   for (const [name, breakIt, expected, alsoExpect = 1] of breaks) {
     const found = shapeProblems(breakIt(whole()), PER_PAGE);
-    if (!found.some((p) => expected.test(p))) {
-      bad(`"${name}" was not reported (got: ${found.join('; ') || 'nothing'})`);
-    }
+    failIf(
+      !found.some((p) => expected.test(p)),
+      `"${name}" was not reported (got: ${found.join('; ') || 'nothing'})`,
+    );
     // 🔴 One break, one problem. A break that knocks over three subjects
     // proves only that SOMETHING is checked.
     //
@@ -521,28 +548,68 @@ function selfTest() {
     // cannot be separated by any edit, and it has to say which number
     // it means. Loosening this to `>= 1` would make every leak invisible
     // again, which is the whole reason the check is here.
-    if (found.length !== alsoExpect) {
-      bad(`"${name}" reported ${found.length} problems, not ${alsoExpect}: ${found.join('; ')}`);
-    }
+    failIf(
+      found.length !== alsoExpect,
+      `"${name}" reported ${found.length} problems, not ${alsoExpect}: ${found.join('; ')}`,
+    );
   }
 
   // The page size is READ, not retyped: a guard that carries its own
   // copy of 24 drifts away from the paginator in silence.
-  if (regionPerPage('export const REGION_PER_PAGE = 31;') !== 31) {
-    bad('REGION_PER_PAGE was not read from source');
-  }
-  if (regionPerPage('const SOMETHING_ELSE = 24;') !== null) {
-    bad('a missing REGION_PER_PAGE did not read as missing');
-  }
-  if (run(SEED, quiet, 'nothing here declares a page size') !== 1) {
-    bad('an unreadable page size was treated as "no pagination rule"');
-  }
+  failIf(
+    regionPerPage('export const REGION_PER_PAGE = 31;') !== 31,
+    'REGION_PER_PAGE was not read from source',
+  );
+  failIf(
+    regionPerPage('const SOMETHING_ELSE = 24;') !== null,
+    'a missing REGION_PER_PAGE did not read as missing',
+  );
+  // 🔴 CAMP-286, знайдено рецензією PR #188. ЦЕЙ ВИПАДОК ПРОХОДИВ ІЗ
+  // НЕПРАВИЛЬНОЇ ПРИЧИНИ, і сам по собі нічого не доводив.
+  //
+  // `run()` віддає 1 із ЧОТИРЬОХ ранніх виходів: файл не читається,
+  // жодного рядка, забагато нерозібраних, і аж потім `perPage === null`.
+  // Твердження нижче бачить лише число 1 — тож зникла б фікстура, і воно
+  // так само «проходило» б, уже не випробувавши гілку, заради якої існує.
+  //
+  // Контроль ізолює гілку: ТОЙ САМИЙ файл із оголошеним розміром
+  // сторінки мусить дати 0. Якщо фікстура зламана з будь-якої іншої
+  // причини, падає контроль, а не мовчки «проходить» твердження.
+  failIf(
+    run(SEED, quiet, 'nothing here declares a page size') !== 1,
+    'an unreadable page size was treated as "no pagination rule"',
+  );
+  failIf(
+    run(SEED, quiet, `export const REGION_PER_PAGE = ${PER_PAGE};`) !== 0,
+    'the control failed: the fixture is unusable for a reason other than the page size, so the case above proved nothing',
+  );
 
   // A parser that has fallen behind the fixture must say so, not ✓ over
   // what it still manages to read.
   const twoBroken = 'INSERT INTO camping_spots (a, b) VALUES (1);\n'.repeat(2);
   const parsed = readSpots(twoBroken);
-  if (parsed.skipped.length !== 2) bad(`skipped ${parsed.skipped.length} rows, expected 2`);
+  failIf(
+    parsed.skipped.length !== 2,
+    `skipped ${parsed.skipped.length} rows, expected 2`,
+  );
+
+  // 🔴 A literal, never `cases.length` — deriving the expectation from the
+  // thing it checks makes the comparison true by construction.
+  const EXPECTED_CASES = 30;
+  if (cases.length !== EXPECTED_CASES) {
+    console.error(
+      `✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`,
+    );
+    rc = 1;
+  }
+
+  // 🔴 The line names this file, so a CI step grepping for it cannot be
+  // satisfied by somebody else's self-test.
+  console.log(
+    rc === 0
+      ? `✓ check-fixture-shape self-test: ${cases.length} cases over the fixture's shape`
+      : `✗ check-fixture-shape self-test: ${cases.length} cases, at least one failed`,
+  );
 
   if (rc === 0) {
     console.log(
@@ -570,9 +637,18 @@ const invokedDirectly = (() => {
 
 if (!invokedDirectly) {
   // imported for its functions
-} else if (process.argv.includes('--self-test')) {
-  process.exit(selfTest());
 } else {
+  // 🔴 CAMP-286. `includes('--self-test')` meant a typo — `--selftest` —
+  // fell through to the real check over the committed fixture, which
+  // passes. Green step, rehearsal never run. One positional argument is
+  // allowed (the .sql file); an unknown flag is an error, not a shrug.
+  const action = chooseAction(
+    process.argv.slice(2),
+    ['--self-test'],
+    'check-fixture-shape.mjs',
+    { positional: 1 },
+  );
+  if (action.has('--self-test')) process.exit(selfTest());
   // 🔴 The old form was `process.argv.find(a => a.endsWith('.sql'))`
   // with a fallback to the committed fixture. Hand it a path without a
   // `.sql` suffix and it checked the fixture instead and printed ✓ —
@@ -582,10 +658,7 @@ if (!invokedDirectly) {
   //
   // So: any argument that is not a flag IS the file, suffix or no
   // suffix, and an unreadable one is an error rather than a fallback.
+  // `chooseAction({ positional: 1 })` has already refused a second file.
   const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-  if (args.length > 1) {
-    console.error(`✗ one file at a time, got ${args.length}: ${args.join(' ')}`);
-    process.exit(1);
-  }
   process.exit(run(args[0] ?? SEED));
 }

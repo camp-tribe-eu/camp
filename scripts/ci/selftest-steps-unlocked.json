@@ -1,9 +1,4 @@
 {
   "_comment": "CAMP-285. Steps that run a --self-test without reading its output. A renamed flag, an inverted entry guard or a symlink makes each of these green while nothing runs. The list may shrink and never grow: regenerate with `node scripts/ci/check-selftest-steps.mjs --update` only after a step has been locked.",
-  "unlocked": [
-    ".github/workflows/ci.yml :: CEMS coverage guard still catches an unregistered panel",
-    ".github/workflows/ci.yml :: Derived-field guard still catches an undescribed field",
-    ".github/workflows/ci.yml :: Fixture-count guard still catches a moved number",
-    ".github/workflows/ci.yml :: Fixture-shape guard still catches a missing subject"
-  ]
+  "unlocked": []
 }

@@ -25,6 +25,8 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { chooseAction } from '../lib/entrypoint.mjs';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
 const TYPE_FILE = join(ROOT, 'apps', 'api', 'src', 'osm', 'spot-context.ts');
@@ -232,6 +234,17 @@ function selfTest() {
     console.error(`✗ REHEARSAL FAILED: ${m}`);
     rc = 1;
   };
+  // 🔴 CAMP-286. Every assertion registers HERE, as it runs — not where it
+  // is written. A case that stopped executing prints exactly what a case
+  // that passed prints, so the only thing that tells them apart is how
+  // many actually ran. The two loops below contribute one case per
+  // iteration for the same reason: a shortened fixture list is a case
+  // that stopped running.
+  const cases = [];
+  const failIf = (cond, m) => {
+    cases.push(m);
+    if (cond) bad(m);
+  };
   const quiet = { log: () => {}, error: () => {} };
 
   const type = `
@@ -246,21 +259,25 @@ export interface Other { notAField?: string; }
 `;
 
   const fields = declaredFields(type);
-  if (fields.join(',') !== 'water,elevation,at') {
-    bad(`read ${JSON.stringify(fields)}, not water,elevation,at`);
-  }
+  failIf(
+    fields.join(',') !== 'water,elevation,at',
+    `read ${JSON.stringify(fields)}, not water,elevation,at`,
+  );
   // 🔴 Only SpotContext. A neighbouring interface is not our disclosure.
-  if (fields.includes('notAField')) bad('a field from another interface was read');
-  if (fields.includes('helper')) bad('a function was read as a field');
+  failIf(fields.includes('notAField'), 'a field from another interface was read');
+  failIf(fields.includes('helper'), 'a function was read as a field');
   // And a word that appears only in a comment is not a field.
-  if (fields.includes('decoy')) bad('a word from a comment was read as a field');
+  failIf(fields.includes('decoy'), 'a word from a comment was read as a field');
 
   const full = '<B>water</B> <B>elevation</B> <B>at</B>';
-  if (run(type, full, quiet) !== 0) bad('a complete page was rejected');
+  failIf(run(type, full, quiet) !== 0, 'a complete page was rejected');
 
   for (const drop of ['water', 'elevation', 'at']) {
     const holed = full.replace(`<B>${drop}</B>`, '');
-    if (run(type, holed, quiet) !== 1) bad(`a page missing "${drop}" was accepted`);
+    failIf(
+      run(type, holed, quiet) !== 1,
+      `a page missing "${drop}" was accepted`,
+    );
   }
 
   // 🔴 THE THREE SHAPES THE REHEARSAL DID NOT HAVE.
@@ -282,10 +299,14 @@ export interface SpotContext {
 }
 `;
   const afterBrace = declaredFields(braceInComment);
-  if (afterBrace.join(',') !== 'water,elevation,at') {
-    bad(`a "}" inside a comment cut the interface short: read ${JSON.stringify(afterBrace)}`);
-  }
-  if (run(braceInComment, full, quiet) !== 0) bad('a complete page was rejected after a brace in a comment');
+  failIf(
+    afterBrace.join(',') !== 'water,elevation,at',
+    `a "}" inside a comment cut the interface short: read ${JSON.stringify(afterBrace)}`,
+  );
+  failIf(
+    run(braceInComment, full, quiet) !== 0,
+    'a complete page was rejected after a brace in a comment',
+  );
 
   const modifiers = `
 export interface SpotContext {
@@ -295,9 +316,10 @@ export interface SpotContext {
 }
 `;
   const withModifiers = declaredFields(modifiers);
-  if (withModifiers.join(',') !== 'water,elevation,at') {
-    bad(`a modifier or a quoted key hid a field: read ${JSON.stringify(withModifiers)}`);
-  }
+  failIf(
+    withModifiers.join(',') !== 'water,elevation,at',
+    `a modifier or a quoted key hid a field: read ${JSON.stringify(withModifiers)}`,
+  );
 
   // 🔴 And a field named ONLY in a comment is not described. Review
   // deleted the whole entry for `station` and left `<B>station</B>` in a
@@ -308,9 +330,10 @@ export interface SpotContext {
     '<B>water</B> <B>elevation</B>\n// <B>at</B>\n',
     '<B>water</B> <B>elevation</B> /* <B>at</B> */',
   ]) {
-    if (run(type, commented, quiet) !== 1) {
-      bad(`a field named only inside a comment was accepted: ${commented}`);
-    }
+    failIf(
+      run(type, commented, quiet) !== 1,
+      `a field named only inside a comment was accepted: ${commented}`,
+    );
   }
 
   // 🔴 The two readers must agree, and must be seen to disagree when one
@@ -325,12 +348,14 @@ export interface SpotContext {
 `;
   const a = declaredFields(extra);
   const b = declaredFieldsCrude(extra);
-  if (a.join(',') !== b.join(',')) {
-    bad(`the two readers disagree on a file they should both read: ${a} vs ${b}`);
-  }
-  if (!a.includes('nested') || a.includes('b')) {
-    bad(`a nested object type was read wrong: ${JSON.stringify(a)}`);
-  }
+  failIf(
+    a.join(',') !== b.join(','),
+    `the two readers disagree on a file they should both read: ${a} vs ${b}`,
+  );
+  failIf(
+    !a.includes('nested') || a.includes('b'),
+    `a nested object type was read wrong: ${JSON.stringify(a)}`,
+  );
 
   // 🔴 And the agreement must be LOAD-BEARING, not decorative.
   //
@@ -350,17 +375,40 @@ a: number;
 `;
   const main = declaredFields(disagree);
   const second = declaredFieldsCrude(disagree);
-  if (main.join(',') === second.join(',')) {
-    bad(`the disagreement fixture no longer makes them disagree: both read ${main}`);
-  }
-  if (run(disagree, '<B>water</B> <B>nested</B> <B>at</B>', quiet) !== 1) {
-    bad('two readings that disagree were not refused');
-  }
+  failIf(
+    main.join(',') === second.join(','),
+    `the disagreement fixture no longer makes them disagree: both read ${main}`,
+  );
+  failIf(
+    run(disagree, '<B>water</B> <B>nested</B> <B>at</B>', quiet) !== 1,
+    'two readings that disagree were not refused',
+  );
 
   // The anti-emptiness guard, which every comparison above depends on.
-  if (run('export interface Something {}', full, quiet) !== 1) {
-    bad('a renamed interface was treated as "no derived fields"');
+  failIf(
+    run('export interface Something {}', full, quiet) !== 1,
+    'a renamed interface was treated as "no derived fields"',
+  );
+
+  // 🔴 A literal, never `cases.length`. Deriving the expectation from the
+  // thing it checks makes the comparison true by construction — the exact
+  // defect this count exists to catch.
+  const EXPECTED_CASES = 19;
+  if (cases.length !== EXPECTED_CASES) {
+    console.error(
+      `✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`,
+    );
+    rc = 1;
   }
+
+  // 🔴 The line names this file. "19 cases passed" is a sentence several
+  // scripts could print, and a CI step grepping for it could be satisfied
+  // by somebody else's self-test.
+  console.log(
+    rc === 0
+      ? `✓ check-derived-fields self-test: ${cases.length} cases over the derived-field disclosure`
+      : `✗ check-derived-fields self-test: ${cases.length} cases, at least one failed`,
+  );
 
   if (rc === 0) {
     console.log(
@@ -387,8 +435,18 @@ const invokedDirectly = (() => {
 
 if (!invokedDirectly) {
   // imported for its functions
-} else if (process.argv.includes('--self-test')) {
-  process.exit(selfTest());
 } else {
-  process.exit(run(readFileSync(TYPE_FILE, 'utf8'), readFileSync(PAGE_FILE, 'utf8')));
+  // 🔴 CAMP-286. `includes('--self-test')` meant a typo — `--selftest` —
+  // fell through to the real check, which passes. Green step, rehearsal
+  // never run. An unknown flag is an error, not a shrug.
+  const action = chooseAction(
+    process.argv.slice(2),
+    ['--self-test'],
+    'check-derived-fields.mjs',
+  );
+  if (action.has('--self-test')) process.exit(selfTest());
+  else
+    process.exit(
+      run(readFileSync(TYPE_FILE, 'utf8'), readFileSync(PAGE_FILE, 'utf8')),
+    );
 }

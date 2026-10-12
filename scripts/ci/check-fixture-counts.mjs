@@ -31,6 +31,7 @@ import { fileURLToPath } from 'node:url';
 // read the SAME rows this guard counts. Re-exported, because callers of
 // this file already import them from here.
 import { splitTuple, literal, readSpots } from '../seed-rows.mjs';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 export { splitTuple, literal, readSpots };
 
@@ -160,6 +161,13 @@ function selfTest() {
     console.error(`✗ REHEARSAL FAILED: ${m}`);
     rc = 1;
   };
+  // 🔴 CAMP-286. Every assertion registers HERE, as it runs — a case that
+  // stopped executing prints exactly what a case that passed prints.
+  const cases = [];
+  const failIf = (cond, m) => {
+    cases.push(m);
+    if (cond) bad(m);
+  };
 
   const cols =
     'id, name, country, region, slug, amenities, location, missing_since, context';
@@ -174,10 +182,10 @@ function selfTest() {
   const tricky = splitTuple(
     `'a', '{"x": 1, "y": 2}'::jsonb, ST_GeomFromText('POINT(1 2)', 4326), NULL`,
   );
-  if (tricky.length !== 4) bad(`a tuple split into ${tricky.length}, not 4`);
-  if (literal(tricky[1]) !== '{"x": 1, "y": 2}') bad('json literal mangled');
-  if (literal(tricky[3]) !== null) bad('NULL not read as null');
-  if (literal("'it''s'") !== "it's") bad('a doubled quote is a character');
+  failIf(tricky.length !== 4, `a tuple split into ${tricky.length}, not 4`);
+  failIf(literal(tricky[1]) !== '{"x": 1, "y": 2}', 'json literal mangled');
+  failIf(literal(tricky[3]) !== null, 'NULL not read as null');
+  failIf(literal("'it''s'") !== "it's", 'a doubled quote is a character');
 
   const sql = [
     row('aaa', 'HR', 'Zagreb', null),
@@ -189,12 +197,13 @@ function selfTest() {
   ].join('\n');
 
   const t = tally(sql);
-  if (t.rows !== 5) bad(`read ${t.rows} rows, not 5`);
-  if (t.gone !== 'zzz') bad(`marked ${t.gone} gone, not the highest slug`);
-  if (t.visibleSpots !== 2) bad(`counted ${t.visibleSpots}, not 2`);
-  if (JSON.stringify(t.byCountry) !== '{"hr":2}') {
-    bad(`by country was ${JSON.stringify(t.byCountry)}, not {"hr":2}`);
-  }
+  failIf(t.rows !== 5, `read ${t.rows} rows, not 5`);
+  failIf(t.gone !== 'zzz', `marked ${t.gone} gone, not the highest slug`);
+  failIf(t.visibleSpots !== 2, `counted ${t.visibleSpots}, not 2`);
+  failIf(
+    JSON.stringify(t.byCountry) !== '{"hr":2}',
+    `by country was ${JSON.stringify(t.byCountry)}, not {"hr":2}`,
+  );
 
   // 🔴 The twin, which a literal-only parser does not see at all. Add
   // the DO block's marker and the count must rise by one, in the
@@ -229,16 +238,17 @@ function selfTest() {
   ].join('\n');
 
   const tw = tally(`${three}\n-- the block's marker: anchor.slug || '-dt'\n`);
-  if (tw.gone !== 'aaa') bad(`marked ${tw.gone} gone, not the only eligible row`);
-  if (tw.twin !== 'bbb-dt') bad(`twin was ${tw.twin}, not built on the eligible anchor`);
-  if (tw.visibleSpots !== 3) bad(`with a twin the count was ${tw.visibleSpots}, not 3`);
-  if (tw.byCountry.si !== 2) bad('the twin was not counted in its anchor’s country');
+  failIf(tw.gone !== 'aaa', `marked ${tw.gone} gone, not the only eligible row`);
+  failIf(tw.twin !== 'bbb-dt', `twin was ${tw.twin}, not built on the eligible anchor`);
+  failIf(tw.visibleSpots !== 3, `with a twin the count was ${tw.visibleSpots}, not 3`);
+  failIf(tw.byCountry.si !== 2, 'the twin was not counted in its anchor’s country');
 
   // And without the block's marker there is no twin at all.
   const noTwin = tally(three);
-  if (noTwin.twin !== null || noTwin.visibleSpots !== 2) {
-    bad(`a twin appeared although the fixture builds none (${noTwin.visibleSpots})`);
-  }
+  failIf(
+    noTwin.twin !== null || noTwin.visibleSpots !== 2,
+    `a twin appeared although the fixture builds none (${noTwin.visibleSpots})`,
+  );
 
   // 🔴 THREE RULES THAT NOTHING ABOVE REACHES, found by review: deleting
   // the `osm_ref` filter, loosening the five-letter rule, or dropping
@@ -262,7 +272,7 @@ function selfTest() {
       full('zzz', 'HR', 'Camping', 'unknown', 'n2', 'Zagreb'),
     ].join('\n') + marker,
   );
-  if (noOsm.twin !== 'bbb-dt') bad(`a row without osm_ref anchored the twin (${noOsm.twin})`);
+  failIf(noOsm.twin !== 'bbb-dt', `a row without osm_ref anchored the twin (${noOsm.twin})`);
 
   // Five letters, not four. 'Lido' is the only non-generic word on
   // 'aaa' and it is four long, so 'bbb' anchors.
@@ -273,9 +283,10 @@ function selfTest() {
       full('zzz', 'HR', 'Camping', 'unknown', 'n3', 'Zagreb'),
     ].join('\n') + marker,
   );
-  if (shortWord.twin !== 'bbb-dt') {
-    bad(`a four-letter name anchored the twin (${shortWord.twin})`);
-  }
+  failIf(
+    shortWord.twin !== 'bbb-dt',
+    `a four-letter name anchored the twin (${shortWord.twin})`,
+  );
 
   // The gone block only ever marks a row that HAS a region. 'zzz' sorts
   // highest and is otherwise eligible, but its region is NULL.
@@ -285,7 +296,7 @@ function selfTest() {
       full('zzz', 'HR', 'Lakeside', 'unknown', 'n2', null),
     ].join('\n'),
   );
-  if (noRegion.gone !== 'aaa') bad(`a region-less row was marked gone (${noRegion.gone})`);
+  failIf(noRegion.gone !== 'aaa', `a region-less row was marked gone (${noRegion.gone})`);
 
   // 🔴 The anchor is the LOWEST slug, and until this case there was only
   // ever one eligible row, so first and last were the same thing and the
@@ -297,9 +308,10 @@ function selfTest() {
       full('zzz', 'HR', 'Camping', 'unknown', 'n3', 'Zagreb'),
     ].join('\n') + marker,
   );
-  if (twoAnchors.twin !== 'aaa-dt') {
-    bad(`the anchor was not the lowest slug (${twoAnchors.twin})`);
-  }
+  failIf(
+    twoAnchors.twin !== 'aaa-dt',
+    `the anchor was not the lowest slug (${twoAnchors.twin})`,
+  );
 
   // 🔴 And the `context` half of the same rule, which the case above
   // does not reach either: the fixture leaves rows with COMPUTED
@@ -314,39 +326,69 @@ function selfTest() {
       `'{"town": {"name": "Zagreb"}}'::jsonb, 'n2'`,
     );
   const ctx = tally(withContext);
-  if (ctx.gone !== 'aaa') {
-    bad(`a row with computed surroundings was marked gone (${ctx.gone})`);
-  }
+  failIf(
+    ctx.gone !== 'aaa',
+    `a row with computed surroundings was marked gone (${ctx.gone})`,
+  );
 
   // A row the parser matches but cannot read must be reported, not
   // skipped: that silent skip is how the twin went missing.
   const broken = tally(
     `INSERT INTO camping_spots (id, name, country) VALUES ('i', 'n');`,
   );
-  if (broken.unreadable.length !== 1) bad('an unreadable row was swallowed');
-  if (compare({ visibleSpots: 0, byCountry: {} }, broken).length === 0) {
-    bad('an unreadable row did not reach the verdict');
-  }
+  failIf(broken.unreadable.length !== 1, 'an unreadable row was swallowed');
+  failIf(
+    compare({ visibleSpots: 0, byCountry: {} }, broken).length === 0,
+    'an unreadable row did not reach the verdict',
+  );
 
   // 🔴 And the gate itself, not only the arithmetic. A check whose
   // comparison is wired loosely reports a changed number as success —
   // the same hole the migration-stamp guard had.
-  if (compare({ visibleSpots: 2, byCountry: { hr: 2 } },
-    { visibleSpots: 3, byCountry: { hr: 2 } }).length === 0) {
-    bad('a changed total was accepted');
+  failIf(
+    compare(
+      { visibleSpots: 2, byCountry: { hr: 2 } },
+      { visibleSpots: 3, byCountry: { hr: 2 } },
+    ).length === 0,
+    'a changed total was accepted',
+  );
+  failIf(
+    compare(
+      { visibleSpots: 2, byCountry: { hr: 2 } },
+      { visibleSpots: 2, byCountry: { hr: 1 } },
+    ).length === 0,
+    'a changed country count was accepted',
+  );
+  failIf(
+    compare(
+      { visibleSpots: 2, byCountry: { hr: 2 } },
+      { visibleSpots: 2, byCountry: { hr: 2, si: 1 } },
+    ).length === 0,
+    'a country that appeared out of nowhere was accepted',
+  );
+  failIf(
+    compare(
+      { visibleSpots: 2, byCountry: { hr: 2 } },
+      { visibleSpots: 2, byCountry: { hr: 2 } },
+    ).length !== 0,
+    'an unchanged tally was reported as a difference',
+  );
+
+  // 🔴 A literal, never `cases.length`.
+  const EXPECTED_CASES = 24;
+  if (cases.length !== EXPECTED_CASES) {
+    console.error(
+      `✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`,
+    );
+    rc = 1;
   }
-  if (compare({ visibleSpots: 2, byCountry: { hr: 2 } },
-    { visibleSpots: 2, byCountry: { hr: 1 } }).length === 0) {
-    bad('a changed country count was accepted');
-  }
-  if (compare({ visibleSpots: 2, byCountry: { hr: 2 } },
-    { visibleSpots: 2, byCountry: { hr: 2, si: 1 } }).length === 0) {
-    bad('a country that appeared out of nowhere was accepted');
-  }
-  if (compare({ visibleSpots: 2, byCountry: { hr: 2 } },
-    { visibleSpots: 2, byCountry: { hr: 2 } }).length !== 0) {
-    bad('an unchanged tally was reported as a difference');
-  }
+
+  // 🔴 The line names this file.
+  console.log(
+    rc === 0
+      ? `✓ check-fixture-counts self-test: ${cases.length} cases over the fixture tally`
+      : `✗ check-fixture-counts self-test: ${cases.length} cases, at least one failed`,
+  );
 
   if (rc === 0) {
     console.log(
@@ -399,17 +441,26 @@ const invokedDirectly = (() => {
 
 if (!invokedDirectly) {
   // imported for its functions
-} else if (process.argv.includes('--self-test')) {
-  process.exit(selfTest());
 } else {
-  main();
+  // 🔴 CAMP-286. `includes('--self-test')` meant a typo fell through to
+  // the real check, which passes. Green step, rehearsal never run.
+  const action = chooseAction(
+    process.argv.slice(2),
+    ['--self-test', '--print'],
+    'check-fixture-counts.mjs',
+  );
+  if (action.has('--self-test')) process.exit(selfTest());
+  else main(action.has('--print'));
 }
 
-function main() {
+function main(print = false) {
 const actual = tally(readFileSync(SEED, 'utf8'));
 const diffs = compare(EXPECTED, actual);
 
-if (process.argv.includes('--print')) {
+// 🔴 Read from the parsed action, not from `process.argv` a second time:
+// two readers of one flag drift apart, and the reader that matters is the
+// one `chooseAction` already validated.
+if (print) {
   console.log(JSON.stringify(actual, null, 2));
   process.exit(0);
 }
