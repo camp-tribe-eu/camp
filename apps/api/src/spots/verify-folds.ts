@@ -381,6 +381,59 @@ async function main(): Promise<void> {
     } finally {
       await db.query('ROLLBACK');
     }
+
+    // ------------------------------------------------------------------
+    console.log('\n--- a second outside record is refused, not stacked ---');
+    // 🔴 The last form a review found silent, and it turned a GREEN
+    // database red in one run: the area legitimately carries its own
+    // outside record, the twin carries another one level down, and the
+    // flattening step moved the second one up. Two records on one
+    // campsite is either a duplicate in their data or two different
+    // businesses, and this script may not decide which — that is what
+    // the invariant says, and the script was breaking it while printing
+    // "0 outstanding".
+    await db.query('BEGIN');
+    try {
+      const area = await clone(db, seed, 'fold-a-8', 'a300000060', false);
+      const twin = await clone(db, seed, 'fold-w-8', 'w150000030', false);
+      const mine = await clone(db, seed, 'fold-dt-6', null, false);
+      const theirs = await clone(db, seed, 'fold-dt-7', null, false);
+      for (const [pri, sec] of [
+        [area, mine],
+        [twin, theirs],
+      ]) {
+        await db.query(
+          `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                   name_similarity, rule)
+           VALUES ($1, $2, 0, 1, 'fold-rehearsal')`,
+          [pri, sec],
+        );
+      }
+      const p = await plan(db);
+      await applyFolds(db, p);
+      const ceiling = await db.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM (
+           SELECT l.primary_id
+             FROM spot_links l
+             JOIN camping_spots s ON s.id = l.secondary_id
+            WHERE l.unlinked_at IS NULL
+            GROUP BY l.primary_id
+           HAVING count(*) FILTER (WHERE s.osm_ref IS NULL) > 1) x`,
+      );
+      const kept = (ceiling.rows[0]?.n ?? 0) === 0;
+      const skips = await skipped(db);
+      const named = skips.some((sk) =>
+        sk.why.includes('a question for a person'),
+      );
+      console.log(
+        `  ${kept ? '✓' : '✗'} applying the plan leaves the one-record ceiling intact`,
+      );
+      console.log(`  ${named ? '✓' : '✗'} and the refusal is named`);
+      if (!kept) failed++;
+      if (!named) failed++;
+    } finally {
+      await db.query('ROLLBACK');
+    }
   } finally {
     await db.end();
   }

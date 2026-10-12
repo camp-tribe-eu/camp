@@ -137,6 +137,20 @@ const CHAINS_SQL = `
                       WHERE h.primary_id = top.id
                         AND h.secondary_id = mid.id
                         AND h.unlinked_at IS NOT NULL)
+     -- 🔴 And never give an area a SECOND outside record.
+     --
+     -- The invariant says one: two records describing one campsite is
+     -- either a duplicate in their data or two different businesses,
+     -- and this script may not decide which. Moving a record up from
+     -- the twin onto an area that already carries its own would do
+     -- exactly that, silently, and a review built the row: one run
+     -- turned a green database into "at most one non-OSM secondary = 1"
+     -- while printing "0 outstanding".
+     AND NOT EXISTS (SELECT 1 FROM spot_links own
+                      JOIN camping_spots mine ON mine.id = own.secondary_id
+                     WHERE own.primary_id = top.id
+                       AND own.unlinked_at IS NULL
+                       AND mine.osm_ref IS NULL)
    ORDER BY top.osm_ref`;
 
 /**
@@ -273,7 +287,29 @@ export async function skipped(
      WHERE top.osm_ref ~ '^a[0-9]+$'
        AND EXISTS (SELECT 1 FROM spot_links q
                     WHERE q.primary_id = top.id
-                      AND q.secondary_id = below.secondary_id)`);
+                      AND q.secondary_id = below.secondary_id)
+     UNION
+    -- 🔴 The fourth refusal: the area already carries its own outside
+    -- record, so the one under its twin has nowhere legal to go. Moving
+    -- it would give one campsite two records, which the model forbids
+    -- precisely because this script cannot tell a duplicate from two
+    -- different businesses.
+    SELECT DISTINCT coalesce(top.name, '(unnamed)') AS name,
+           'its chain stays: this campsite already carries an outside ' ||
+           'record, and a second one is a question for a person' AS why
+      FROM camping_spots top
+      JOIN camping_spots mid ON mid.osm_ref = CASE
+             WHEN (substring(top.osm_ref from 2))::bigint % 2 = 0
+             THEN 'w' || ((substring(top.osm_ref from 2))::bigint / 2)
+             ELSE 'r' || (((substring(top.osm_ref from 2))::bigint - 1) / 2) END
+      JOIN spot_links below ON below.primary_id = mid.id
+                           AND below.unlinked_at IS NULL
+     WHERE top.osm_ref ~ '^a[0-9]+$'
+       AND EXISTS (SELECT 1 FROM spot_links own
+                    JOIN camping_spots mine ON mine.id = own.secondary_id
+                   WHERE own.primary_id = top.id
+                     AND own.unlinked_at IS NULL
+                     AND mine.osm_ref IS NULL)`);
   return r.rows;
 }
 
