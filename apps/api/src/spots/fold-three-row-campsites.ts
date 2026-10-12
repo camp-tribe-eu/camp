@@ -397,7 +397,6 @@ export async function applyFolds(db: Client, folds: Fold[]): Promise<void> {
 
 async function main(): Promise<void> {
   const apply = process.argv.includes('--apply');
-  const predictAt = process.argv.indexOf('--predict');
   const db = new Client({ connectionString: DB_URL });
   await db.connect();
   try {
@@ -422,8 +421,19 @@ async function main(): Promise<void> {
     // never written on an apply. The first version wrote it both times,
     // so the apply compared the plan against a file it had just produced
     // from that same plan: a check that cannot disagree with itself.
-    const predictFile =
-      predictAt > -1 ? (process.argv[predictAt + 1] ?? null) : null;
+    // 🔴 `flagValue`, not `indexOf`, and this is the one script in the
+    // group that WRITES to the database.
+    //
+    // `chooseAction` accepts `--predict=plan.txt`; `indexOf` returned
+    // -1 for it, so `predictFile` was null and `--apply
+    // --predict=plan.txt` folded campsite rows with the prediction
+    // cross-check silently switched off. The docblock of `flagValue` in
+    // scripts/lib/entrypoint.mjs describes this exact case, and it was
+    // not applied here (CAMP-286).
+    const { flagValue } =
+      await import('../../../../scripts/lib/entrypoint.mjs');
+    const predictFile: string | null =
+      flagValue(process.argv.slice(2), '--predict') ?? null;
     const skips = await skipped(db);
     if (skips.length > 0) {
       console.log(`\n${skips.length} left alone on purpose:`);

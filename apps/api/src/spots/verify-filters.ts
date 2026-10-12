@@ -146,6 +146,7 @@ async function main(): Promise<void> {
 
   let failed = 0;
   let ran = 0;
+  let rehearsed = 0;
 
   try {
     for (const c of CASES) {
@@ -205,6 +206,7 @@ async function main(): Promise<void> {
         failed++;
       } else {
         console.log('  ✓ self-test: a deliberate mismatch is detected');
+        rehearsed++;
       }
     }
   } finally {
@@ -232,9 +234,31 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  console.log(
-    `\n✓ verify-filters self-test: ${ran} filter combinations match a direct SQL query`,
-  );
+
+  // 🔴 THE NAMED LINE BELONGS TO THE SELF-TEST, AND ONLY TO IT.
+  //
+  // The first version printed it on both paths, so the CI step's lock
+  // was satisfied by an ordinary run: review dropped `--self-test` from
+  // the step and it still exited 0, while the one rehearsal that proves
+  // a mismatch is visible had never run. A lock a plain run can open is
+  // not a lock (CAMP-286).
+  if (selfTest) {
+    const EXPECTED_REHEARSALS = 1;
+    if (rehearsed !== EXPECTED_REHEARSALS) {
+      console.error(
+        `\n✗ ${rehearsed} rehearsals ran, expected ${EXPECTED_REHEARSALS}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    console.log(
+      `\n✓ verify-filters self-test: ${ran} filter combinations match a ` +
+        `direct SQL query, and ${rehearsed} planted mismatch is still seen`,
+    );
+    return;
+  }
+
+  console.log('\n✓ every filter combination matches a direct SQL query');
 }
 
 // Guarded like every other script here: an import must not run it.
