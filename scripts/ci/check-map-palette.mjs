@@ -30,9 +30,10 @@
  * because the comment claiming they agree was the only thing asserting
  * it. Review found the one input out of 1024 where they did not.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 import { expression } from '@maplibre/maplibre-gl-style-spec';
 import SERVED from '../../apps/web/src/data/basemap-colours.json' with { type: 'json' };
 import {
@@ -343,13 +344,19 @@ export function literalLineColours(source) {
 /** 🔴 Rehearsed, not trusted. Each case is one the real check must still refuse. */
 function selfTest() {
   const fails = [];
+  let cases = 0;
   const dark = '#181D26';
+  cases++;
   if (problems([['x', '#FFC83C']], '#FFFFFF').length === 0)
     fails.push('a 1.55:1 fill against a white stroke was accepted');
   // The notations that walked past the old regex.
   for (const bad of ['#FC3', 'rgb(255, 200, 60)', '#FFC83CFF', 'gold'])
-    if (problems([['x', bad]], dark).length === 0)
+    // 🔴 Counted INSIDE the loop. The first version counted the `if`
+    // statements it could see at one indent and missed these four
+    // entirely, which is how "13 cases" survived beside 15 assertions.
+    if (cases++, problems([['x', bad]], dark).length === 0)
       fails.push(`the unmeasurable value ${bad} was accepted`);
+  cases++;
   if (problems([['a', '#D5412A'], ['b', '#C83D28']], dark).length === 0)
     fails.push('two colours at ΔE 4.8 were accepted');
   // A fill that passes against its stroke but vanishes on water.
@@ -358,11 +365,14 @@ function selfTest() {
   // on a ReferenceError, so it named the wrong thing, and a guard that
   // reports the wrong thing is read wrong. Review found it.
   const bare = (hex) => ({ L: { colour: hex, casing: null, opacity: 1 } });
+  cases++;
   if (lineProblems(bare('#8A93A6')).length === 0)
     fails.push('an uncased line at 1.56:1 over liberty water was accepted');
+  cases++;
   if (lineProblems(bare('#343D50')).length !== 0)
     fails.push('an uncased line at 5.79:1 over its worst surface was refused');
   // 🔴 ΔE 4.8, not 8 — the old text said 8 and the pair is 4.8.
+  cases++;
   if (
     lineProblems({
       A: { colour: '#C83D28', casing: null, opacity: 1 },
@@ -370,33 +380,65 @@ function selfTest() {
     }).length === 0
   )
     fails.push('two lines ΔE 4.8 apart were accepted as distinguishable');
+  cases++;
   if (lineProblems({ L: { colour: '#C83D28', casing: '#D5412A', opacity: 1 } }).length === 0)
     fails.push('a line ΔE 4.8 from its own casing was accepted');
+  cases++;
   if (lineProblems({ L: { colour: '#C83D28', casing: '#FFFFFF', opacity: 1 } }).length === 0)
     fails.push('a casing invisible on a white road was accepted');
+  cases++;
   if (lineProblems({ L: { colour: '#343D50', casing: null, opacity: 0.15 } }).length === 0)
     fails.push('a line at opacity 0.15 was measured as if it were solid');
   // 🔴 The mutation review used. Without this the palette can be perfect
   // and the map can ignore it.
+  cases++;
   if (literalLineColours(`'line-color': '#8A93A6',`).length === 0)
     fails.push('a hex line colour written into the component was accepted');
+  cases++;
   if (literalLineColours(`'line-color': ROUTE_LINE,`).length !== 0)
     fails.push('an imported line colour was reported as a literal');
+  cases++;
   if (problems([['x', '#7C92B7']], '#FFFFFF', { water: '#A0C8F0' }).length === 0)
     fails.push('a fill invisible over water was accepted');
+  // 🔴 CAMP-286: counted, because "13 cases" was prose. An assertion
+  // that stopped being reached printed exactly what a passing one
+  // printed, and the sentence below went on claiming thirteen.
+  const EXPECTED_CASES = 15;
+  if (cases !== EXPECTED_CASES) {
+    fails.push(`${cases} assertions ran, expected ${EXPECTED_CASES}`);
+  }
   if (fails.length) {
     console.error('SELF-TEST FAILED:\n  ' + fails.join('\n  '));
     process.exit(1);
   }
+  console.log(`\n✓ check-map-palette self-test: ${cases} cases`);
   console.log(
-    'self-test ok: 13 cases — a faint fill, four unmeasurable notations, a\n' +
+    // 🔴 The sentence said "13 cases" and 15 assertions ran: four of
+    // them live inside a loop and were never in anyone's count. The
+    // number now comes from the counter, and the list stays prose.
+    `self-test ok: ${cases} cases — a faint fill, four unmeasurable notations, a\n` +
       'lookalike pair, a marker lost over water, an uncased line too close to\n' +
       'the map, a line too close to its own casing, a casing lost on a road, a\n' +
       'line whose opacity was ignored, and a colour the component wrote itself'
   );
 }
 
-if (process.argv.includes('--self-test')) {
+// 🔴 CAMP-286: the house guard, written out rather than called, because
+// check-script-entrypoints.mjs recognises a guard by READING it.
+// `realpathSync` on the argv side: Node resolves `import.meta.url`
+// through the real path and leaves argv[1] as written.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
+  const action = chooseAction(process.argv.slice(2), ['--self-test'], 'check-map-palette.mjs');
+  if (action.has('--self-test')) {
   selfTest();
 } else {
   const fills = everyFill();
@@ -443,4 +485,5 @@ if (process.argv.includes('--self-test')) {
   console.log(
     `the cluster expression agrees with dominantType on all ${4 ** Object.keys(TYPE_COLOUR).length} count vectors`
   );
+}
 }

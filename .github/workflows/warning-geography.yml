@@ -77,7 +77,7 @@ jobs:
         run: |
           set -o pipefail
           node scripts/meteoalarm/resolve-areas.mjs --self-test | tee /dev/stderr \
-            | grep -q 'resolve-areas self-test:'
+            | grep -c 'resolve-areas self-test:' >/dev/null
 
       # 🔴 The geometry is cached between runs because it changes with a
       # nomenclature revision, not with the weather. The feeds are

@@ -180,7 +180,7 @@ jobs:
         run: |
           set -o pipefail
           node scripts/ci/check-skips.mjs --self-test | tee /dev/stderr \
-            | grep -q 'check-skips self-test:'
+            | grep -c 'check-skips self-test:' >/dev/null
 
       - name: The scale checks can still fail
         run: ./scripts/scale-check/run.sh --rehearse

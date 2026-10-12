@@ -231,10 +231,19 @@ export function selfTest() {
     }
   }
 
+  // 🔴 CAMP-286: the total is ASSERTED, not merely printed. A case that
+  // stopped being reached prints what a passing case prints, and the
+  // number beside it moves along with the defect.
+  const total = cases.length + nested.length;
+  const EXPECTED_CASES = 15;
+  if (total !== EXPECTED_CASES) {
+    failures++;
+    console.log(`✗ ${total} cases ran, expected ${EXPECTED_CASES}`);
+  }
   console.log(
     failures
       ? `\n✗ ${failures} self-test failure(s)`
-      : `\n✓ ${cases.length + nested.length} self-test cases passed`,
+      : `\n✓ ${total} self-test cases passed`,
   );
   return failures;
 }
