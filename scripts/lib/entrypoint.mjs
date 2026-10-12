@@ -98,12 +98,14 @@ export function flagName(token) {
  * @param {object} [shape]
  * @param {string[]} [shape.takesValue]  flags followed by a value, e.g. --predict
  * @param {number} [shape.positional]    how many bare words this script takes
+ * @param {Object<string,string[]>} [shape.values]  the only values a flag
+ *   may carry, by flag name
  * @returns {Set<string>} the known flags actually present
  * @throws when anything in argv is not a known flag, its value, or an
  *   expected positional
  */
 export function chooseAction(argv, known, who, shape = {}) {
-  const { takesValue = [], positional = 0 } = shape;
+  const { takesValue = [], positional = 0, values = {} } = shape;
   const seen = [];
   const stray = [];
   for (let i = 0; i < argv.length; i++) {
@@ -116,7 +118,25 @@ export function chooseAction(argv, known, who, shape = {}) {
     seen.push(name);
     // `--predict out.json` — the next token belongs to the flag, not to
     // this list. `--predict=out.json` carries its own value already.
-    if (takesValue.includes(name) && !token.includes('=')) i++;
+    if (takesValue.includes(name)) {
+      const inline = token.includes('=');
+      const given = inline ? token.slice(token.indexOf('=') + 1) : argv[i + 1];
+      if (!inline) i++;
+      // 🔴 THE VALUE, NOT ONLY THE NAME. Review found the whole point of
+      // this card alive one layer down: `check-legal-review --expect
+      // publi` — one letter — passed the flag check, fell through to the
+      // `closed` branch, and printed a ✓ for a gate it had not applied.
+      // A flag whose value decides which gate runs must have that value
+      // checked, or the typo simply moves house.
+      const allowed = values[name];
+      if (allowed && !allowed.includes(given)) {
+        throw new Error(
+          `${who}: ${name} does not take ${JSON.stringify(given ?? null)}. ` +
+            `It takes ${allowed.join(' or ')}. A value nobody recognises used ` +
+            'to pick the default branch in silence (CAMP-286).',
+        );
+      }
+    }
   }
   const unknown = seen.filter((flag) => !known.includes(flag));
   if (unknown.length > 0) {
@@ -180,6 +200,33 @@ const CASES = [
   ['a declared positional is allowed', () =>
     chooseAction(['report.json', '--max', '3'], ['--max'], 'x',
       { takesValue: ['--max'], positional: 1 }).has('--max')],
+  ['🔴 an unrecognised value for a flag is refused', () => {
+    try {
+      chooseAction(['--expect', 'publi'], ['--expect'], 'x',
+        { takesValue: ['--expect'], values: { '--expect': ['public', 'closed'] } });
+      return false;
+    } catch (e) { return e.message.includes('does not take "publi"'); }
+  }],
+  ['…and a recognised one is not', () =>
+    chooseAction(['--expect', 'public'], ['--expect'], 'x',
+      { takesValue: ['--expect'], values: { '--expect': ['public', 'closed'] } }).has('--expect')],
+  ['the `--flag=value` spelling is checked the same way', () => {
+    try {
+      chooseAction(['--expect=Public'], ['--expect'], 'x',
+        { takesValue: ['--expect'], values: { '--expect': ['public', 'closed'] } });
+      return false;
+    } catch { return true; }
+  }],
+  ['🔴 a flag that takes a value and is given none is refused', () => {
+    try {
+      chooseAction(['--expect'], ['--expect'], 'x',
+        { takesValue: ['--expect'], values: { '--expect': ['public', 'closed'] } });
+      return false;
+    } catch { return true; }
+  }],
+  ['a flag with no declared values takes anything', () =>
+    chooseAction(['--predict', 'f.json'], ['--predict'], 'x',
+      { takesValue: ['--predict'] }).has('--predict')],
   ['🔴 one more positional than declared is refused', () => {
     try {
       chooseAction(['a.json', 'b.json'], [], 'x', { positional: 1 });
@@ -211,7 +258,7 @@ const CASES = [
 
 // 🔴 The count is asserted, because a case that stops being reached
 // looks exactly like a case that passed.
-const EXPECTED_CASES = 21;
+const EXPECTED_CASES = 26;
 
 function selfTest() {
   let failed = 0;

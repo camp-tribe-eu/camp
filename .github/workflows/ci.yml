@@ -227,9 +227,9 @@ jobs:
       # leaves the job green. On 23.09.2026 that hid a real design fault
       # for a whole run and was found only by reading the log by hand.
       # This guard's own self-test is driven by that exact report shape.
-      - name: Flaky-test guard still catches a retry that went green
       # 🔴 CAMP-285/286: the step reads the self-test's own output, under
       # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: Flaky-test guard still catches a retry that went green
         run: |
           set -o pipefail
           node scripts/ci/check-flaky.mjs --self-test | tee /dev/stderr \
@@ -251,11 +251,11 @@ jobs:
       # tests/e2e, most of them "the fixture holds no X" — which is this
       # card's subject from a third direction. The scale workflow enforces
       # it at zero today; docs/scale-check.md says what is left.
-      - name: Skip guard still catches a test that did not run
       # 🔴 CAMP-285/286: the step reads the self-test's own output.
       # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
       # so a failing node on the left of a pipe is invisible. The grepped
       # line names its own script, so no other self-test can satisfy it.
+      - name: Skip guard still catches a test that did not run
         run: |
           set -o pipefail
           node scripts/ci/check-skips.mjs --self-test | tee /dev/stderr \
@@ -413,11 +413,11 @@ jobs:
 
       # The silence watchdog's own logic. The check that runs daily and
       # the check that is tested are the same file.
-      - name: Silence watchdog still catches a job that stopped
       # 🔴 CAMP-285/286: the step reads the self-test's own output.
       # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
       # so a failing node on the left of a pipe is invisible. The grepped
       # line names its own script, so no other self-test can satisfy it.
+      - name: Silence watchdog still catches a job that stopped
         run: |
           set -o pipefail
           node scripts/ci/check-schedule.mjs --self-test | tee /dev/stderr \
@@ -430,9 +430,9 @@ jobs:
       # anyone heard of it would be a takedown. The trap arms itself the
       # day we adopt a style of our own, which is the day nobody will be
       # looking at this.
-      - name: Map fonts and sprites come from a host we may use
       # 🔴 CAMP-285/286: the step reads the self-test's own output, under
       # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: Map fonts and sprites come from a host we may use
         run: |
           set -o pipefail
           node scripts/ci/check-map-assets.mjs --self-test | tee /dev/stderr \
@@ -602,9 +602,9 @@ jobs:
 
       # CAMP-190. The campsite page prints a radius the API owns, and the
       # two were declared separately. No build or database needed.
-      - name: One webcam radius, not two
       # 🔴 CAMP-285/286: the step reads the self-test's own output, under
       # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: One webcam radius, not two
         run: |
           set -o pipefail
           node scripts/ci/check-webcam-radius.mjs --self-test | tee /dev/stderr \
@@ -632,9 +632,9 @@ jobs:
       # page with no provenance, one that never mentions a machine and
       # one that hides which machine — a gate nobody has tried to break
       # is a comment.
-      - name: Disclosure gate still refuses an unmarked generated page
       # 🔴 CAMP-285/286: the step reads the self-test's own output, under
       # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: Disclosure gate still refuses an unmarked generated page
         run: |
           set -o pipefail
           node scripts/seo/check-guide-disclosure.mjs --self-test | tee /dev/stderr \
@@ -710,9 +710,9 @@ jobs:
       # 🔴 Two steps, as with every guard here: first prove it still
       # refuses an unreviewed public build, then run it. Without the
       # first, a gate that has quietly stopped gating reports safety.
-      - name: Legal gate still refuses an unreviewed public build
       # 🔴 CAMP-285/286: the step reads the self-test's own output, under
       # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: Legal gate still refuses an unreviewed public build
         run: |
           set -o pipefail
           node scripts/seo/check-legal-review.mjs --self-test | tee /dev/stderr \

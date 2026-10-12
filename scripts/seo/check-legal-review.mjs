@@ -290,8 +290,18 @@ if (invokedDirectly) main();
 // ---------------------------------------------------------------------
 
 function main() {
+  // 🔴 `--expect` DECIDES WHICH GATE RUNS, so its value is checked.
+  // Review measured `--expect publi` — one letter — passing the flag
+  // check, falling through to the `closed` branch and printing
+  // "✓ legal pages state their versions (a closed build is not gated on
+  // review)" with exit 0, on a tree where no legal page had been
+  // reviewed at all. The typo had simply moved from the flag's name to
+  // its value.
   const action = chooseAction(argv.slice(2), ['--self-test', '--expect'],
-    'check-legal-review.mjs', { takesValue: ['--expect'] });
+    'check-legal-review.mjs', {
+      takesValue: ['--expect'],
+      values: { '--expect': ['public', 'closed'] },
+    });
   if (action.has('--self-test')) selfTest();
 
   const modeArg = argv.indexOf('--expect');
