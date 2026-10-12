@@ -80,40 +80,62 @@ const REDIRECTS = new Map<string, string>(
   Object.entries(SPOT_REDIRECTS as Record<string, string>),
 );
 
+// 🔴 CAMP-294. Нормалізація і побудова відповіді винесені СЮДИ, щоб їх
+// можна було перевірити зі СВОЄЮ мапою.
+//
+// Перша версія тесту кликала `middleware()` і спиралась на згенерований
+// `spot-redirects.json`. Локально там 4 455 пар, у CI — нуль, бо CI
+// збирає фікстуру з 72 кемпінгів, де ніщо нікуди не переїжджало. Тест
+// падав у CI й проходив локально, і винен був не код, а припущення, що
+// продакшн-дані є всюди.
+export function normalisePath(pathname: string): string {
+  // Кінцеві скісні й регістр приходять зі старих посилань і від роботів,
+  // і жодне з двох не має вирішувати, чи адреса переїхала.
+  return pathname.replace(/\/+$/, '').toLowerCase();
+}
+
+export function redirectFor(
+  pathname: string,
+  search: string,
+  redirects: ReadonlyMap<string, string> = REDIRECTS,
+): NextResponse | null {
+  const moved = redirects.get(normalisePath(pathname));
+  if (!moved) return null;
+
+  // 🔴 ВІДНОСНИЙ `Location`, і це виправлення, а не стиль.
+  //
+  // Тут стояло `new URL(moved, request.nextUrl.origin)`. За зворотним
+  // проксі `nextUrl.origin` — адреса, на якій слухає сам Next, а не
+  // адреса сайту. На першій же викладці всі 4 455 редиректів віддали
+  // `Location: https://localhost:3000/...`, тобто вели в нікуди.
+  //
+  // Заміряно, що проксі ні до чого: запит ПРЯМО в Next із
+  // `Host: camptribe.eu` віддавав те саме. Next бере із заголовків лише
+  // схему, хост — ні.
+  //
+  // Відносний `Location` дозволений RFC 7231, браузер резолвить його
+  // відносно запиту — тож він правильний за будь-яким проксі, портом і
+  // способом розгортання. Ця функція НЕ БАЧИТЬ запиту взагалі, тож
+  // підставити туди адресу сервера більше нізвідки.
+  //
+  // 🔴 Рядок запиту переноситься: читач, що прийшов за посиланням із
+  // `?from=map`, має дістатись туди, куди йшов, із тим, що ніс.
+  return new NextResponse(null, {
+    status: 301,
+    headers: { Location: `${moved}${search}` },
+  });
+}
+
 export function middleware(request: NextRequest) {
-  // Trailing slashes and casing both reach us from old links and from
-  // crawlers, and neither should decide whether a URL is gone.
-  const pathname = request.nextUrl.pathname.replace(/\/+$/, '').toLowerCase();
+  const redirect = redirectFor(
+    request.nextUrl.pathname,
+    request.nextUrl.search,
+  );
+  if (redirect) return redirect;
 
-  const moved = REDIRECTS.get(pathname);
-  if (moved) {
-    // 🔴 The query string is carried across. A reader arriving from a
-    // shared link with `?from=map` should land where they were going
-    // with what they were carrying; dropping it is a silent data loss
-    // that only shows up as a broken referrer report weeks later.
-    // 🔴 CAMP-294. ВІДНОСНИЙ `Location`, і це не стиль, а виправлення.
-    //
-    // Тут стояло `new URL(moved, request.nextUrl.origin)`. За зворотним
-    // проксі `nextUrl.origin` — це адреса, на якій слухає сам Next, а не
-    // адреса сайту. На першій же викладці всі 4 455 редиректів віддали
-    // `Location: https://localhost:3000/...`, тобто вели в нікуди.
-    //
-    // Заміряно, що проксі тут ні до чого: запит ПРЯМО в Next із
-    // `Host: camptribe.eu` віддавав те саме. Next бере із заголовків лише
-    // схему, хост — ні.
-    //
-    // Відносний `Location` дозволений RFC 7231 і резолвиться браузером
-    // відносно запиту, тож він правильний за будь-яким проксі, на будь-
-    // якому порту і за будь-якого способу розгортання. `NextResponse
-    // .redirect()` вимагає абсолютної адреси, тому відповідь будується
-    // вручну.
-    return new NextResponse(null, {
-      status: 301,
-      headers: { Location: `${moved}${request.nextUrl.search}` },
-    });
+  if (!GONE.has(normalisePath(request.nextUrl.pathname))) {
+    return NextResponse.next();
   }
-
-  if (!GONE.has(pathname)) return NextResponse.next();
 
   return serveGone(request);
 }
