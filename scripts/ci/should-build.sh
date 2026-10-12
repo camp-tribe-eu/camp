@@ -96,8 +96,22 @@ STUB
   t 'gh упав → будуємо' yes push dead
   t 'порожня відповідь → будуємо' yes push ''
   echo
-  if [ "$fail" -eq 0 ]; then echo "✓ self-test passed: $pass cases"; else echo "::error::$fail of $((pass+fail)) failed"; exit 1; fi
+  # 🔴 CAMP-286: the line names this file, so the CI step that greps it
+  # cannot be satisfied by some other script printing the same sentence.
+  if [ "$fail" -eq 0 ]; then echo "✓ should-build self-test: $pass cases"; else echo "::error::$fail of $((pass+fail)) failed"; exit 1; fi
   exit 0
 fi
+
+# 🔴 CAMP-286: a flag this script does not know is an error with a name
+# on it. `--selftest` used to reach `decide` as the EVENT, and the run
+# died on `${2:?repository}` — non-zero, but for the wrong reason and
+# with a message about a repository nobody was missing.
+case "${1:-}" in
+  -*)
+    echo "::error::should-build.sh: unknown flag '$1'. It takes --self-test," >&2
+    echo "  or the five positional arguments event/repo/sha/head/base." >&2
+    exit 2
+    ;;
+esac
 
 decide "${1:?event}" "${2:?repository}" "${3:?sha}" "${4:-}" "${5:-}"

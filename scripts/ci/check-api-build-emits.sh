@@ -52,11 +52,12 @@ assert_emitted() {
 # removes the whole question — after that, presence IS emission, and the
 # stale-artefact hole closes with it.
 self_test() {
-  local tmp rc=0
+  local tmp rc=0 cases=0
   tmp="$(mktemp -d)"
   mkdir -p "$tmp/empty" "$tmp/full"
   : > "$tmp/full/main.js"
 
+  cases=$((cases + 1))
   if assert_emitted "$tmp/empty" "rehearsal" >/dev/null 2>&1; then
     echo "✗ REHEARSAL FAILED: the check passed on a dist with no main.js."
     echo "  This guard cannot see the failure it exists for."
@@ -65,22 +66,44 @@ self_test() {
 
   # And the other direction, so the rehearsal cannot be satisfied by an
   # assertion that simply always fails.
+  cases=$((cases + 1))
   if ! assert_emitted "$tmp/full" "rehearsal" >/dev/null 2>&1; then
     echo "✗ REHEARSAL FAILED: the check rejected a dist that holds main.js."
     rc=1
   fi
 
   rm -rf "$tmp"
+  # 🔴 CAMP-286: the count is asserted, because a rehearsal that stopped
+  # being reached prints what a passing one prints — nothing.
+  if [ "$cases" -ne 2 ]; then
+    echo "✗ $cases rehearsals ran, expected 2"
+    rc=1
+  fi
   if [ "$rc" -eq 0 ]; then
     echo "✓ rehearsal: the check fails on an empty dist and passes on a full one."
+    # 🔴 And a line that names THIS file, for the CI step to read back.
+    echo "✓ check-api-build-emits self-test: $cases cases"
   fi
   return "$rc"
 }
 
-if [ "${1:-}" = "--self-test" ]; then
-  self_test
-  exit $?
-fi
+# 🔴 CAMP-286: an argument this script does not know is an error.
+#
+# `--selftest` — one letter — used to fall straight through to the two
+# real `npx nest build` passes below, so the step named "the build-emits
+# guard still catches an empty dist" spent four minutes building and went
+# green without the guard ever having been rehearsed.
+case "${1:-}" in
+  --self-test) self_test; exit $? ;;
+  '') ;;
+  *)
+    echo "::error::check-api-build-emits.sh: unknown argument '$1'." >&2
+    echo "  This script takes --self-test, or nothing at all. An" >&2
+    echo "  unrecognised flag used to mean 'quietly do the real build'" >&2
+    echo "  (CAMP-286)." >&2
+    exit 2
+    ;;
+esac
 
 cd "$(dirname "$0")/../../apps/api"
 

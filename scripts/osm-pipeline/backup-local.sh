@@ -479,6 +479,14 @@ END $$;
 SQL
   say ""
   say "✓ the restore rules hold"
+  # 🔴 CAMP-286: a line that names THIS file, for the CI step to read
+  # back. "self-test passed" is printed by the SQL block above and by
+  # several other scripts; a grep for it is a lock another key opens.
+  #
+  # 🔴 AND ON STDOUT, not through `say`, which prints to stderr (line
+  # 103). The CI lock pipes stdout; a named line on stderr is a line the
+  # step cannot read, and the lock would have been green over nothing.
+  printf '%s\n' "✓ backup-local self-test: the restore rules still bite"
 }
 
 # --------------------------------------------------------------------
