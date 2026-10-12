@@ -730,3 +730,95 @@ describe('mergeAllLinked', () => {
     expect(merged.tariffs_withheld).toBe(3);
   });
 });
+
+/**
+ * CAMP-283: `contact` is the one field both rows can fill at once, and
+ * the attribution model is flat.
+ *
+ * 🔴 The page prints the source list verbatim as "what this source gave
+ * us". Before this, our phone number was shown beside a line saying we
+ * had no contact details from OpenStreetMap — so a reader wanting to
+ * correct it was pointed at the wrong source. The over-claim this file
+ * already guards against, pointing the other way.
+ */
+describe('CAMP-283: credit for a field both rows filled', () => {
+  const base = { linked_id: 'dt', tariffs: [], linked_tariffs: [] };
+  const osm = (fields: string[]) => [{ id: 'osm', ref: 'w1', fields }];
+  const dt = (fields: string[]) => [{ id: 'dt', ref: 'D1', fields }];
+  const credited = (row: Record<string, unknown>, id: string) =>
+    (mergeLinked(row).sources as { id: string; fields: string[] }[]).find(
+      (e) => e.id === id,
+    )?.fields;
+
+  it('🔴 both keep it when both supplied a key', () => {
+    const row = {
+      ...base,
+      contact: { phone: '+33 OWN' },
+      sources: osm(['name', 'contact', 'location']),
+      linked_contact: { email: 'hello@dt.test' },
+      linked_sources: dt(['contact']),
+    };
+    expect(mergeLinked(row).contact).toEqual({
+      phone: '+33 OWN',
+      email: 'hello@dt.test',
+    });
+    expect(credited(row, 'osm')).toContain('contact');
+    expect(credited(row, 'dt')).toEqual(['contact']);
+  });
+
+  it('🔴 we do NOT claim it when we supplied nothing', () => {
+    // Fixing an under-claim must not invent an over-claim.
+    const row = {
+      ...base,
+      contact: {},
+      sources: osm(['name', 'contact', 'location']),
+      linked_contact: { email: 'hello@dt.test' },
+      linked_sources: dt(['contact']),
+    };
+    expect(credited(row, 'osm')).toEqual(['name', 'location']);
+    expect(credited(row, 'dt')).toEqual(['contact']);
+  });
+
+  it('when both offer the SAME key, ours wins and theirs claims nothing', () => {
+    const row = {
+      ...base,
+      contact: { phone: '+33 OWN' },
+      sources: osm(['contact']),
+      linked_contact: { phone: '+33 THEIRS' },
+      linked_sources: dt(['contact']),
+    };
+    expect(mergeLinked(row).contact).toEqual({ phone: '+33 OWN' });
+    expect(credited(row, 'osm')).toEqual(['contact']);
+    // Nothing of theirs was reused, so the entry is dropped entirely.
+    expect(credited(row, 'dt')).toBeUndefined();
+  });
+
+  it('🔴 an empty string of ours is not a contribution', () => {
+    // The same definition of empty as everywhere else: `{phone: ''}` is
+    // no phone number, so claiming `contact` on its strength would be
+    // the over-claim again, dressed as the fix for the under-claim.
+    const row = {
+      ...base,
+      contact: { phone: '  ' },
+      sources: osm(['contact']),
+      linked_contact: { phone: '+33 THEIRS' },
+      linked_sources: dt(['contact']),
+    };
+    expect(mergeLinked(row).contact).toEqual({ phone: '+33 THEIRS' });
+    expect(credited(row, 'osm')).toEqual([]);
+    expect(credited(row, 'dt')).toEqual(['contact']);
+  });
+
+  it('a field that is not composite is still ours or theirs, never both', () => {
+    const row = {
+      ...base,
+      website: null,
+      contact: {},
+      sources: osm(['website', 'location']),
+      linked_website: 'https://dt.test',
+      linked_sources: dt(['website']),
+    };
+    expect(credited(row, 'osm')).toEqual(['location']);
+    expect(credited(row, 'dt')).toEqual(['website']);
+  });
+});
