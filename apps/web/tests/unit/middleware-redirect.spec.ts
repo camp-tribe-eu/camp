@@ -44,6 +44,17 @@ test('Location is absolute and points at the public host, not the listen address
   expect(res.headers.get('location')).not.toContain('localhost');
 });
 
+// 🔴 ЧОМУ ТУТ `NextURL`, А НЕ ВИКЛИК `adapter()`.
+//
+// Рецензія радила провести `middleware` крізь справжній `adapter()`.
+// Спробував — він тягне внутрішні async-сховища Next
+// (`work-async-storage`, `request-store`), яких поза рантаймом Next не
+// існує, і падає ще на імпорті. Тест, що не запускається, гірший за
+// його відсутність.
+//
+// Тому б'ємо рівно в той рядок, який кидав: `adapter.js:319` робить
+// `new NextURL(redirect, {опції})`. Нижче — той самий виклик із тими
+// самими опціями, і заміряно, що відносний `Location` валить 6 тестів.
 test("🔴 the Location survives Next's adapter — a relative one throws there", () => {
   // Саме ця перевірка зупинила б попередню редакцію. `adapter()` робить
   // `new NextURL(location, {опції})` без бази; відносна адреса кидає.
