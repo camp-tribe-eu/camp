@@ -141,7 +141,13 @@ export function readSpots(sql) {
 }
 
 /**
- * The row `ci-seed.sql`'s final DO block will mark gone at load time.
+ * The row the gone DO block in `ci-seed.sql` (line 146) marks at load.
+ *
+ * 🔴 Not "the final DO block", which is what this said until a review
+ * checked it: the LAST block in that file seeds webcams (line 717), and
+ * an air-quality block sits between them. A docstring pointing at the
+ * wrong block sends the next reader to confirm this mirror against
+ * something it does not mirror.
  *
  * Mirrors it exactly: a region, no explicit toilets answer, no computed
  * context, `ORDER BY slug DESC LIMIT 1`. `undefined` means the block
@@ -475,8 +481,12 @@ function selfTest() {
   //
   // Рецензія заміряла, що всі три переживають мутацію. Перша моя спроба
   // це полагодити перевіряла `run(...) !== 1` — і мутації ПЕРЕЖИЛИ ЇЇ
-  // теж, бо `run` віддає 1 із ЧОТИРЬОХ місць: файл без рядків падає
+  // теж, бо `run` віддає 1 із ПʼЯТИ місць: файл без рядків падає
   // далі на `shapeProblems`, і код виходу однаковий.
+  //
+  // 🔴 І «ЧОТИРЬОХ» тут теж було неправдою — місць пʼять, а
+  // непокритим лишився саме пʼятий, головний: вирок про форму.
+  // Див. випадок `no-si.sql` нижче.
   //
   // Та сама пастка, яку ця картка й закриває: код «1» не каже, ЧОМУ.
   // Тому перехоплюємо повідомлення й питаємо причину поіменно.
@@ -487,47 +497,107 @@ function selfTest() {
     // можна лишити балакучою й віддати 0, і сторож пропустить зниклу
     // фікстуру мовчки. Лише код мало теж: `run` віддає 1 із чотирьох
     // місць. Доводить тільки пара.
-    const said = (file) => {
+    const said = (file, src = api) => {
       const lines = [];
       const code = run(
         file,
         { log: () => {}, error: (m) => lines.push(String(m)) },
-        api,
+        src,
       );
       return { code, text: lines.join('\n') };
     };
-    const refused = (file, reason) => {
-      const r = said(file);
+    const refused = (file, reason, src = api) => {
+      const r = said(file, src);
       return r.code === 1 && reason.test(r.text);
     };
 
-    failIf(
-      !refused(join(tmp, 'there-is-no-such-file.sql'), /cannot read/),
-      'an unreadable file was not refused BY NAME',
-    );
+    try {
 
-    const empty = join(tmp, 'empty.sql');
-    writeFileSync(empty, '-- no INSERT here at all\n');
-    failIf(
-      !refused(empty, /holds no camping_spots rows/),
-      'a file with no rows was not refused BY NAME',
-    );
+      failIf(
+        !refused(join(tmp, 'there-is-no-such-file.sql'), /cannot read/),
+        'an unreadable file was not refused BY NAME',
+      );
 
-    // Два нерозбірні рядки плюс один справний, щоб спрацював саме поріг
-    // `skipped > 1`, а не «жодного рядка».
-    const broken = join(tmp, 'two-broken.sql');
-    writeFileSync(
-      broken,
-      "INSERT INTO camping_spots (slug, country, region, missing_since, amenities, context) " +
-        "VALUES ('ok', 'SI', 'Bled', NULL, '{}', '{}');\n" +
-        'INSERT INTO camping_spots (a, b) VALUES (1);\n'.repeat(2),
-    );
-    failIf(
-      !refused(broken, /could not be parsed/),
-      'two unparseable rows were not refused BY NAME',
-    );
+      const empty = join(tmp, 'empty.sql');
+      writeFileSync(empty, '-- no INSERT here at all\n');
+      failIf(
+        !refused(empty, /holds no camping_spots rows/),
+        'a file with no rows was not refused BY NAME',
+      );
 
-    rmSync(tmp, { recursive: true, force: true });
+      // Два нерозбірні рядки плюс один справний, щоб спрацював саме поріг
+      // `skipped > 1`, а не «жодного рядка».
+      const broken = join(tmp, 'two-broken.sql');
+      writeFileSync(
+        broken,
+        "INSERT INTO camping_spots (slug, country, region, missing_since, amenities, context) " +
+          "VALUES ('ok', 'SI', 'Bled', NULL, '{}', '{}');\n" +
+          'INSERT INTO camping_spots (a, b) VALUES (1);\n'.repeat(2),
+      );
+      failIf(
+        !refused(broken, /could not be parsed/),
+        'two unparseable rows were not refused BY NAME',
+      );
+
+      // 🔴 CAMP-293, рецензія PR #193. ПʼЯТИЙ ВИХІД `run()` — ГОЛОВНИЙ,
+      // І ВІН НЕ МАВ ЖОДНОГО ВИПАДКУ.
+      //
+      // Заміряно: `if (problems.length > 0)` → `if (false)` ПЕРЕЖИВАЛА всі
+      // 42 випадки И справжній прогін. Один рядок вимикав увесь сенс
+      // файлу, а сторож друкував ✓ і код 0.
+      //
+      // Чотири випадки вище міряють РАННІ виходи — вони спрацьовують ДО
+      // `shapeProblems`. Жоден не доходив до вироку про форму, тому
+      // вирок можна було видалити безкарно.
+      //
+      // Файл нижче розбирається бездоганно: рядки є, нерозібраних нема,
+      // розмір сторінки читається. Єдине, що з ним не так, — форма.
+      const asSql = (rows) =>
+        rows
+          .map(
+            (r) =>
+              'INSERT INTO camping_spots (slug, country, region, missing_since, amenities, context) ' +
+              `VALUES ('${r.slug}', '${r.country}', '${r.region}', NULL, '${r.amenities}', '${r.context}');`,
+          )
+          .join('\n') + '\n';
+
+      const wholeSql = join(tmp, 'whole.sql');
+      writeFileSync(wholeSql, asSql(whole()));
+
+      // Контроль ПЕРШИЙ. Без нього випадок нижче лишався б зеленим і
+      // тоді, коли файл не проходить із якоїсь зовсім іншої причини.
+      failIf(
+        said(wholeSql).code !== 0,
+        `the control failed: a complete fixture written to disk did not pass (${said(wholeSql).text || 'no reason given'}), so the shape verdict below proves nothing`,
+      );
+
+      const noSi = join(tmp, 'no-si.sql');
+      writeFileSync(noSi, asSql(whole().filter((r) => r.country !== 'SI')));
+      failIf(
+        !refused(noSi, /no SI campsites/),
+        'a file that parses cleanly and is broken only in SHAPE was not refused — the verdict branch has no case',
+      );
+
+      // 🔴 CAMP-293, рецензія. РОЗМІР СТОРІНКИ ПРОЧИТАНО ≠ ПЕРЕДАНО.
+      //
+      // `const problems = shapeProblems(rows, perPage)` → `…, 24)`
+      // ПЕРЕЖИВАЛА: випадки `regionPerPage(...)` доводять читача, а не
+      // передачу. Підніми `REGION_PER_PAGE` до 31 — сторож і далі мірив би
+      // 24, мовчки сертифікуючи фікстуру, через яку пагінатор пропускає
+      // сам себе.
+      //
+      // Тут оголошений розмір такий, якого не перевищує жоден регіон, і
+      // причина мусить назвати САМЕ ЙОГО — число мало пройти наскрізь.
+      failIf(
+        !refused(wholeSql, /more than 999/, 'export const REGION_PER_PAGE = 999;'),
+        'the page size was read but never passed to the shape check',
+      );
+
+    } finally {
+      // 🔴 У `finally`: на шляху з винятком попередня редакція
+      // лишала каталог у $TMPDIR назавжди.
+      rmSync(tmp, { recursive: true, force: true });
+    }
   }
 
   // 🔴 CAMP-293. ПОРІГ КВОРУМУ КОНТЕКСТУ, А НЕ ЛИШЕ НУЛЬ.
@@ -566,6 +636,25 @@ function selfTest() {
   failIf(
     quorumFired(10, 10),
     'every row having context tripped the quorum rule',
+  );
+
+  // 🔴 CAMP-293, рецензія PR #193. РІВНІСТЬ НЕ ДОСЯГАЛАСЬ ЖОДНИМ
+  // ВИПАДКОМ, ТОЖ `<` НЕ ВІДРІЗНЯВСЯ ВІД `<=`.
+  //
+  // Випадок `quorumFired(5, 10)` вище МІРЯЄ НЕ ТЕ, ЩО КАЖЕ: gone-блок
+  // зʼїдає один рядок, тож живих там 9, а не 10 (заміряно:
+  // `live.length=9, withContext*2=10`). Рівності немає в жодному з
+  // трьох, і мутація `<` → `<=` переживала все.
+  //
+  // `(5, 11)` дає рівно десять живих і рівно пʼять із контекстом:
+  // половина мусить ПРОЙТИ. `(4, 11)` — на одну менше — мусить впасти.
+  failIf(
+    quorumFired(5, 11),
+    'exactly half the live rows carrying context tripped the quorum rule, but half is the floor, not a failure',
+  );
+  failIf(
+    !quorumFired(4, 11),
+    'one row below half did not trip the quorum rule',
   );
 
   // 🔴 CAMP-293. ЧОТИРИ КЛАУЗУЛИ `thinTarget`, КОЖНА ОКРЕМО.
@@ -609,6 +698,13 @@ function selfTest() {
     ['stars', { stars: 3 }],
     ['an explicit "yes"', { amenities: '{"toilets": "yes"}' }],
     ['an explicit "no"', { amenities: '{"showers": "no"}' }],
+    // 🔴 CAMP-293, рецензія PR #193. `hasKnownAmenity` бере `.some`, і
+    // мутація на `.every` переживала все, бо жоден рядок самотесту не
+    // мав відповіданої зручності ПОРУЧ із невідповіданою. SQL каже
+    // `jsonb_path_exists '$.* ? (@ == "yes" || @ == "no")'` — це `some`.
+    // Заміряно рецензією: на справжній фікстурі `.every` розходиться з
+    // SQL на 34 рядках із 72.
+    ['one answered amenity among unanswered', { amenities: '{"toilets": "unknown", "showers": "yes"}' }],
     ['computed context', { context: '{"at":{"lat":1,"lon":1}}' }],
   ]) {
     failIf(
@@ -616,6 +712,28 @@ function selfTest() {
       `a row with ${label} was picked as thin`,
     );
   }
+
+  // 🔴 CAMP-293, рецензія PR #193. ТРИ ДЗЕРКАЛА SQL БЕЗ ЖОДНОГО
+  // ВИПАДКУ. Усі три мутації переживали весь прогін, і кожна тихо
+  // розсинхронізувала б цей файл із `ci-seed.sql:146`.
+  failIf(
+    goneTarget([
+      thinBase(),
+      { ...thinGone, slug: 'zzz-answered', amenities: '{"toilets": "yes"}' },
+    ])?.slug !== 'aaa-candidate',
+    'a row with an explicit toilets answer was picked for the gone block — the DO block selects on unanswered',
+  );
+  failIf(
+    goneTarget([
+      { ...thinGone, slug: 'zzz-no-toilets-key', amenities: '{"showers": "no"}' },
+    ])?.slug !== 'zzz-no-toilets-key',
+    'a row whose amenities never mention toilets was not read as unanswered',
+  );
+  failIf(
+    thinTarget([thinBase({ amenities: 'not json at all' }), thinGone])?.slug !==
+      'aaa-candidate',
+    'a row with unreadable amenities was not read as having none answered',
+  );
 
   const breaks = [
     ['Slovenia gone', (r) => r.filter((x) => x.country !== 'SI'), /no SI campsites/],
@@ -720,8 +838,8 @@ function selfTest() {
   // 🔴 CAMP-286, знайдено рецензією PR #188. ЦЕЙ ВИПАДОК ПРОХОДИВ ІЗ
   // НЕПРАВИЛЬНОЇ ПРИЧИНИ, і сам по собі нічого не доводив.
   //
-  // `run()` віддає 1 із ЧОТИРЬОХ ранніх виходів: файл не читається,
-  // жодного рядка, забагато нерозібраних, і аж потім `perPage === null`.
+  // `run()` віддає 1 із ПʼЯТИ місць: файл не читається, жодного рядка,
+  // забагато нерозібраних, `perPage === null`, і вирок про форму.
   // Твердження нижче бачить лише число 1 — тож зникла б фікстура, і воно
   // так само «проходило» б, уже не випробувавши гілку, заради якої існує.
   //
@@ -748,7 +866,7 @@ function selfTest() {
 
   // 🔴 A literal, never `cases.length` — deriving the expectation from the
   // thing it checks makes the comparison true by construction.
-  const EXPECTED_CASES = 42;
+  const EXPECTED_CASES = 51;
   if (cases.length !== EXPECTED_CASES) {
     console.error(
       `✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`,
