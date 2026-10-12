@@ -246,3 +246,35 @@ test('a code that is not a string does not throw the panel away', () => {
     'w1',
   ]);
 });
+
+// 🔴 ТРЕТІЙ СЛОВНИК, І ВІН ВИРІШУЄ ОБЛАСТЬ ПРОЄКТУ.
+//
+// Перевірка вище звіряє мапу з тим, що просить ФЕТЧЕР. Ця звіряє її з
+// тим, які країни ми взагалі обслуговуємо — `eu-member-states.json`,
+// єдине машиночитне місце, де лежить область (CAMP-118), і те саме
+// джерело читають `check-eu-scope.mjs` та `drop-non-eu.mjs`.
+//
+// Без неї нова держава-член зʼявилась би в базі й у фіді, а в мапі ні —
+// і її кемпінги мовчки чули б «спокійно». Саме так помер перший варіант
+// цієї гілки, тільки на іншій парі словників.
+test('🔴 the map covers exactly the member states the project serves', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const raw = readFileSync(
+    join(process.cwd(), '..', 'api', 'src', 'osm', 'eu-member-states.json'),
+    'utf8',
+  );
+  const members = (JSON.parse(raw) as { members: Record<string, string> }).members;
+
+  // Файл, якого не прочитали, дав би порожній перелік і зелену
+  // перевірку ні над чим.
+  expect(Object.keys(members).length).toBe(27);
+
+  const scope = new Set(Object.keys(members).map((c) => c.toUpperCase()));
+  const mapped = new Set(Object.keys(FEED_COUNTRY));
+
+  expect([...scope].filter((c) => !mapped.has(c)).sort()).toEqual([]);
+  // Єдиний ключ поза областю — `AX`: субдивізія Фінляндії, 19 кемпінгів
+  // у базі, власного фіду не має.
+  expect([...mapped].filter((c) => !scope.has(c)).sort()).toEqual(['AX']);
+});
