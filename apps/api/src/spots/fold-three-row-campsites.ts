@@ -79,6 +79,20 @@ const UNFOLDED_TWINS_SQL = `
      -- refusal would be right.
      AND NOT EXISTS (SELECT 1 FROM spot_links l
                       WHERE l.unlinked_at IS NULL AND l.secondary_id = t.id)
+     -- 🔴 And never make a chain this run cannot then flatten.
+     --
+     -- If the twin carries an outside record, folding the twin creates
+     -- area → twin → record, and the flattening step moves that record
+     -- up. But it refuses to move it when the pair (area, record)
+     -- already carries a decision somebody made by hand — so the chain
+     -- would be made and left, breaking an invariant for good while the
+     -- script printed "0 outstanding". A review built exactly that row.
+     AND NOT EXISTS (
+           SELECT 1 FROM spot_links below
+            WHERE below.primary_id = t.id AND below.unlinked_at IS NULL
+              AND EXISTS (SELECT 1 FROM spot_links q
+                           WHERE q.primary_id = a.id
+                             AND q.secondary_id = below.secondary_id))
    ORDER BY a.osm_ref`;
 
 const CHAINS_SQL = `
@@ -114,6 +128,15 @@ const CHAINS_SQL = `
      AND NOT EXISTS (SELECT 1 FROM spot_links q
                       WHERE q.primary_id = top.id
                         AND q.secondary_id = below.secondary_id)
+     -- 🔴 And it must honour the same human decision the other two
+     -- queries honour. This one did not: with the area↔twin link taken
+     -- apart by hand, the outside record was still moved onto the area
+     -- the person had just separated it from. Three queries, one rule,
+     -- and it was written in two of them.
+     AND NOT EXISTS (SELECT 1 FROM spot_links h
+                      WHERE h.primary_id = top.id
+                        AND h.secondary_id = mid.id
+                        AND h.unlinked_at IS NOT NULL)
    ORDER BY top.osm_ref`;
 
 /**
@@ -170,6 +193,55 @@ const STAMPED_FOR_WANT_OF_A_LINK_SQL = `
                       WHERE u.primary_id = a.id AND u.secondary_id = t.id
                         AND u.unlinked_at IS NOT NULL)
    ORDER BY t.osm_ref`;
+
+/**
+ * Work this run deliberately will NOT do, and why.
+ *
+ * 🔴 Silence here is the failure mode. The script refuses a fold that
+ * would leave a chain nobody can flatten — the right call — but the
+ * first version refused it without a word, printed "0 outstanding", and
+ * the next person would have had to rediscover the reasoning from an
+ * empty output.
+ */
+export async function skipped(
+  db: Client,
+): Promise<{ name: string; why: string }[]> {
+  const r = await db.query<{ name: string; why: string }>(`
+    SELECT coalesce(a.name, '(unnamed)') AS name,
+           'folding its twin would make a chain that cannot be flattened: ' ||
+           'the pair (area, outside record) carries a decision somebody ' ||
+           'made by hand' AS why
+      FROM camping_spots a
+      JOIN camping_spots t ON t.osm_ref = CASE
+             WHEN (substring(a.osm_ref from 2))::bigint % 2 = 0
+             THEN 'w' || ((substring(a.osm_ref from 2))::bigint / 2)
+             ELSE 'r' || (((substring(a.osm_ref from 2))::bigint - 1) / 2) END
+     WHERE a.osm_ref ~ '^a[0-9]+$'
+       AND NOT EXISTS (SELECT 1 FROM spot_links l
+                        WHERE l.primary_id = a.id AND l.secondary_id = t.id)
+       AND EXISTS (
+             SELECT 1 FROM spot_links below
+              WHERE below.primary_id = t.id AND below.unlinked_at IS NULL
+                AND EXISTS (SELECT 1 FROM spot_links q
+                             WHERE q.primary_id = a.id
+                               AND q.secondary_id = below.secondary_id))
+     UNION ALL
+    SELECT coalesce(top.name, '(unnamed)') AS name,
+           'its chain is left alone: somebody took the area and its twin ' ||
+           'apart by hand' AS why
+      FROM camping_spots top
+      JOIN camping_spots mid ON mid.osm_ref = CASE
+             WHEN (substring(top.osm_ref from 2))::bigint % 2 = 0
+             THEN 'w' || ((substring(top.osm_ref from 2))::bigint / 2)
+             ELSE 'r' || (((substring(top.osm_ref from 2))::bigint - 1) / 2) END
+      JOIN spot_links below ON below.primary_id = mid.id
+                           AND below.unlinked_at IS NULL
+     WHERE top.osm_ref ~ '^a[0-9]+$'
+       AND EXISTS (SELECT 1 FROM spot_links h
+                    WHERE h.primary_id = top.id AND h.secondary_id = mid.id
+                      AND h.unlinked_at IS NOT NULL)`);
+  return r.rows;
+}
 
 export async function plan(db: Client): Promise<Fold[]> {
   const folds: Fold[] = [];
@@ -230,14 +302,19 @@ export async function applyFolds(db: Client, folds: Fold[]): Promise<void> {
   // 🔴 Refuse to write outside a transaction. The comment above says the
   // caller owns it; a comment is not a guarantee, and half of this
   // applied is a database in the state this card calls dangerous.
-  const inTx = await db.query<{ tx: string | null }>(
-    `SELECT pg_current_xact_id_if_assigned()::text AS tx`,
-  );
-  if (inTx.rows[0]?.tx === null) {
-    throw new Error(
-      'applyFolds must run inside a transaction: no transaction id is assigned',
-    );
-  }
+  //
+  // 🔴 SAVEPOINT, not pg_current_xact_id_if_assigned(). The first guard
+  // asked for a transaction ID — and Postgres assigns one only once the
+  // transaction has WRITTEN something. The real path is plan() (all
+  // reads), then BEGIN, then this: no writes yet, no id, so the guard
+  // threw on every single --apply. It passed every rehearsal because
+  // each of those clones rows first, which assigns the id. The one
+  // shape that broke it was the one no rehearsal built.
+  //
+  // SAVEPOINT answers the question actually being asked: outside a
+  // transaction block Postgres raises 25P01, inside one it is free.
+  await db.query('SAVEPOINT fold_in_transaction');
+  await db.query('RELEASE SAVEPOINT fold_in_transaction');
   for (const f of folds) {
     if (f.kind === 'link') {
       await db.query(
@@ -295,6 +372,11 @@ async function main(): Promise<void> {
     // from that same plan: a check that cannot disagree with itself.
     const predictFile =
       predictAt > -1 ? (process.argv[predictAt + 1] ?? null) : null;
+    const skips = await skipped(db);
+    if (skips.length > 0) {
+      console.log(`\n${skips.length} left alone on purpose:`);
+      for (const sk of skips) console.log(`  — ${sk.name}: ${sk.why}`);
+    }
     if (predictFile && !apply) {
       writeFileSync(predictFile, folds.map(foldKey).sort().join('\n') + '\n');
       console.log(`\nprediction written: ${folds.length} line(s)`);

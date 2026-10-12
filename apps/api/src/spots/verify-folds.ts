@@ -29,7 +29,7 @@
 
 import 'dotenv/config';
 import { Client } from 'pg';
-import { applyFolds, plan } from './fold-three-row-campsites';
+import { applyFolds, plan, skipped } from './fold-three-row-campsites';
 import { CLAIMED_BY_OUTSIDE_RECORD_SQL } from './reconcile-sources';
 
 const DB_URL =
@@ -205,6 +205,120 @@ async function main(): Promise<void> {
       const takenNow = claimedOnOutside.rows.some((r) => r.id === area);
       console.log(`  ${takenNow ? '✓' : '✗'} but an outside record does`);
       if (!takenNow) failed++;
+    } finally {
+      await db.query('ROLLBACK');
+    }
+
+    // ------------------------------------------------------------------
+    console.log('\n--- applyFolds refuses to write outside a transaction ---');
+    // 🔴 THE SHAPE NO REHEARSAL BUILT.
+    //
+    // The first guard asked for a transaction id, which Postgres assigns
+    // only once something has been WRITTEN. The real path is plan() —
+    // all reads — then BEGIN, then applyFolds: no writes yet, no id, so
+    // every --apply threw. Every rehearsal passed, because each of them
+    // clones rows first. So the empty transaction is now built on
+    // purpose, and so is the no-transaction case.
+    {
+      let threwOutside = false;
+      try {
+        await applyFolds(db, []);
+      } catch {
+        threwOutside = true;
+      }
+      console.log(
+        `  ${threwOutside ? '✓' : '✗'} outside a transaction it throws`,
+      );
+      if (!threwOutside) failed++;
+
+      await db.query('BEGIN');
+      let threwInside = false;
+      try {
+        await applyFolds(db, []);
+      } catch (err) {
+        threwInside = true;
+        console.error(`      ${String(err)}`);
+      } finally {
+        await db.query('ROLLBACK');
+      }
+      console.log(
+        `  ${!threwInside ? '✓' : '✗'} inside one that has written nothing yet, it does not`,
+      );
+      if (threwInside) failed++;
+    }
+
+    // ------------------------------------------------------------------
+    console.log(
+      '\n--- a fold that would strand a chain is refused, out loud ---',
+    );
+    await db.query('BEGIN');
+    try {
+      const area = await clone(db, seed, 'fold-a-5', 'a300000010', false);
+      const twin = await clone(db, seed, 'fold-w-5', 'w150000005', false);
+      const outside = await clone(db, seed, 'fold-dt-3', null, false);
+      // The twin already carries the outside record...
+      await db.query(
+        `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                 name_similarity, rule)
+         VALUES ($1, $2, 0, 1, 'fold-rehearsal')`,
+        [twin, outside],
+      );
+      // ...and somebody has already decided the area and that record are
+      // NOT the same campsite. Folding the twin would make a chain the
+      // flattening step may not undo.
+      await db.query(
+        `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                 name_similarity, rule, unlinked_at,
+                                 unlinked_reason)
+         VALUES ($1, $2, 0, 1, 'fold-rehearsal', now(), 'different sites')`,
+        [area, outside],
+      );
+      const p = await plan(db);
+      const wouldLink = p.some(
+        (f) => f.kind === 'link' && f.secondary === twin,
+      );
+      console.log(`  ${!wouldLink ? '✓' : '✗'} the fold is not proposed`);
+      if (wouldLink) failed++;
+      const skips = await skipped(db);
+      const named = skips.some((sk) => sk.why.includes('cannot be flattened'));
+      console.log(
+        `  ${named ? '✓' : '✗'} and the run says so instead of staying silent`,
+      );
+      if (!named) failed++;
+    } finally {
+      await db.query('ROLLBACK');
+    }
+
+    // ------------------------------------------------------------------
+    console.log('\n--- a chain under a hand-separated pair is left alone ---');
+    await db.query('BEGIN');
+    try {
+      const area = await clone(db, seed, 'fold-a-6', 'a300000012', false);
+      const twin = await clone(db, seed, 'fold-w-6', 'w150000006', false);
+      const outside = await clone(db, seed, 'fold-dt-4', null, false);
+      await db.query(
+        `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                 name_similarity, rule)
+         VALUES ($1, $2, 0, 1, 'fold-rehearsal')`,
+        [twin, outside],
+      );
+      await db.query(
+        `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                 name_similarity, rule, unlinked_at,
+                                 unlinked_reason)
+         VALUES ($1, $2, 0, 1, 'fold-rehearsal', now(), 'different sites')`,
+        [area, twin],
+      );
+      const p = await plan(db);
+      const wouldMove = p.some((f) => f.kind === 'repoint' && f.to === area);
+      console.log(
+        `  ${!wouldMove ? '✓' : '✗'} the outside record is not moved onto the area`,
+      );
+      if (wouldMove) failed++;
+      const skips = await skipped(db);
+      const named = skips.some((sk) => sk.why.includes('apart by hand'));
+      console.log(`  ${named ? '✓' : '✗'} and that is reported too`);
+      if (!named) failed++;
     } finally {
       await db.query('ROLLBACK');
     }
