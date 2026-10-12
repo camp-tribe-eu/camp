@@ -91,9 +91,26 @@ export function middleware(request: NextRequest) {
     // shared link with `?from=map` should land where they were going
     // with what they were carrying; dropping it is a silent data loss
     // that only shows up as a broken referrer report weeks later.
-    const target = new URL(moved, request.nextUrl.origin);
-    target.search = request.nextUrl.search;
-    return NextResponse.redirect(target, 301);
+    // 🔴 CAMP-294. ВІДНОСНИЙ `Location`, і це не стиль, а виправлення.
+    //
+    // Тут стояло `new URL(moved, request.nextUrl.origin)`. За зворотним
+    // проксі `nextUrl.origin` — це адреса, на якій слухає сам Next, а не
+    // адреса сайту. На першій же викладці всі 4 455 редиректів віддали
+    // `Location: https://localhost:3000/...`, тобто вели в нікуди.
+    //
+    // Заміряно, що проксі тут ні до чого: запит ПРЯМО в Next із
+    // `Host: camptribe.eu` віддавав те саме. Next бере із заголовків лише
+    // схему, хост — ні.
+    //
+    // Відносний `Location` дозволений RFC 7231 і резолвиться браузером
+    // відносно запиту, тож він правильний за будь-яким проксі, на будь-
+    // якому порту і за будь-якого способу розгортання. `NextResponse
+    // .redirect()` вимагає абсолютної адреси, тому відповідь будується
+    // вручну.
+    return new NextResponse(null, {
+      status: 301,
+      headers: { Location: `${moved}${request.nextUrl.search}` },
+    });
   }
 
   if (!GONE.has(pathname)) return NextResponse.next();
