@@ -14,13 +14,37 @@
 // willing to make.
 //
 // ⚠️ Same edge-bundle ceiling as the gone list, and this one is far
-// bigger: 2 986 pairs of paths on the first run, 288 923 bytes measured.
-// The cap below is 512 KB — about 1.8x the current size, so it leaves
-// room for CAMP-128's feed to grow the map and still stops a deploy
-// before the bundle itself is in trouble. A path is roughly 50 bytes, so
-// the cap is reached at roughly 5 300 links.
+// bigger. The cap below is 512 KB and stops a deploy before the bundle
+// itself is in trouble.
+//
+// 🔴 MEASURED, WITH THE DATE, because the number here was wrong for
+// months. It said "2 986 links already use 56% of the cap", which was
+// true on the first run and nowhere near true afterwards:
+//
+//     first run              2 986 pairs   288 923 bytes   55.1%
+//     12.10.2026, morning    4 439 pairs   419 354 bytes   80.0%
+//     12.10.2026, after      4 455 pairs   420 858 bytes   80.3%
+//     CAMP-281 folded 16
+//
+// A path is roughly 95 bytes once both sides are counted, so the room
+// left was about 1 100 more pairs. One ordinary run of the reconciler
+// has added more than that: CAMP-274 made 1 457 links in one pass.
+//
+// 🔴 Two entries on one day, and that is the point rather than an
+// oversight: a number written into a comment starts going stale the
+// moment it is written, and this one drifted 1 504 bytes between two
+// commits of the same card. So the live figure is printed on EVERY
+// build and warned about from 75%; the table above is history, kept to
+// show the slope, not a claim about today.
+//
+// (420 858 is the size of the generated file on disk, read with wc -c.
+// An earlier commit said 420 864 — which was this script's own rounded
+// "411.0 KB" multiplied back by 1024. Reading a tool's printout instead
+// of the thing it printed about is how the first wrong number in this
+// comment was born too.)
 
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { enforceEdgeBudget } from './edge-budget.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -58,17 +82,11 @@ for (const { from, to } of links) {
 //
 // (12 KB, not the 110 KB a first guess suggested: the paths themselves
 // are almost the entire file, so the saving is small. It is taken
-// because it is free, not because it solves the ceiling — 2 986 links
-// already use 56% of the 512 KB cap this script enforces, and CAMP-128's
-// feed will add more.)
+// because it is free, not because it solves the ceiling — see the
+// measured share at the top of this file, which is where that number
+// now lives so there is one of it.)
 const body = JSON.stringify(map) + '\n';
-if (Buffer.byteLength(body) > MAX_BYTES) {
-  throw new Error(
-    `The redirect map is ${Math.round(Buffer.byteLength(body) / 1024)} KB. ` +
-      'It is bundled into the edge middleware and has outgrown that — ' +
-      'move it to a KV lookup.',
-  );
-}
+enforceEdgeBudget('redirect map', body, MAX_BYTES);
 
 mkdirSync(out, { recursive: true });
 writeFileSync(path.join(out, 'spot-redirects.json'), body);

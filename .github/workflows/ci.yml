@@ -800,6 +800,41 @@ jobs:
         working-directory: apps/api
         run: npx ts-node src/spots/fold-three-row-campsites.ts --self-test
 
+      # CAMP-282. The redirect map reached 80% of its edge budget with
+      # nobody told, while the comment beside the cap still quoted 56%
+      # from the first run. A ceiling that only speaks when it is hit is
+      # not a budget — the message arrives in a red build, which is the
+      # worst moment to choose between raising the cap and moving the
+      # file out of the bundle.
+      #
+      # 🔴 Both boundaries are rehearsed rather than waited for: 75%
+      # warns, over 100% throws, and the size is printed either way.
+      # 🔴 The output is GREPPED, not merely produced.
+      #
+      # A review showed this step passing three ways while nothing ran:
+      # the entry-point guard inverted, the flag renamed, and — with no
+      # mutation at all — the script reached through a symlink, which
+      # Node resolves on one side and not the other. "Did not start" and
+      # "all seven passed" printed the same thing: nothing, exit 0.
+      #
+      # The script now refuses to exit quietly in all three cases. This
+      # line is the second lock, and it is the one that does not depend
+      # on the script being right about itself.
+      - name: The edge budget still warns before it refuses
+        working-directory: apps/web
+        run: |
+          # 🔴 pipefail, and without it this line was worse than useless.
+          #
+          # GitHub runs a step as `bash -e {0}` with NO pipefail, so the
+          # exit code of a pipeline is the LAST command's — the grep's.
+          # A review forced the summary line to claim success while nine
+          # checks failed: node printed nine ✗ and exited 1, grep matched
+          # the lying line, and the step went green. The grep closes
+          # "did not start"; this closes "started and failed".
+          set -o pipefail
+          node scripts/edge-budget.mjs --self-test | tee /dev/stderr \
+            | grep -q 'edge-budget boundaries, messages read'
+
       # CAMP-147. The card's own acceptance clause is "no displayed price
       # exists without a validity period", and the only thing enforcing it
       # in SQL is `DISPLAYABLE_TARIFF_SQL`. Until now the check that would

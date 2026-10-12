@@ -15,6 +15,7 @@
 // letting a deploy fail for a reason nobody will connect to this.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { enforceEdgeBudget } from './edge-budget.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -45,13 +46,7 @@ const body = JSON.stringify(paths, null, 2) + '\n';
 // the same question at different times. The page now reads what this
 // script wrote, in the same run that produced the middleware's list.
 
-if (Buffer.byteLength(body) > MAX_BYTES) {
-  throw new Error(
-    `The gone list is ${Math.round(Buffer.byteLength(body) / 1024)} KB. ` +
-      'It is bundled into the edge middleware and has outgrown that — ' +
-      'move it to a KV lookup.',
-  );
-}
+enforceEdgeBudget('gone list', body, MAX_BYTES);
 
 mkdirSync(out, { recursive: true });
 // Only the paths for the middleware: it is bundled for the edge and has
