@@ -809,6 +809,48 @@ describe('CAMP-283: credit for a field both rows filled', () => {
     expect(credited(row, 'dt')).toEqual(['contact']);
   });
 
+  it('🔴 survives the fold over several secondaries, which is the path the site uses', () => {
+    // The five tests above call `mergeLinked`. Nothing in production
+    // does: `SpotsService.findBySlug` calls `mergeAllLinked`, which
+    // folds it. A review mutated the fold to strip `contact` from our
+    // entry at the end — restoring this very bug — and all of them
+    // stayed green, because the fold's own fixtures gave the primary no
+    // source entries to narrow.
+    const merged = mergeAllLinked({
+      name: 'Camping Les Pins',
+      contact: { phone: '+33 OWN' },
+      sources: [{ id: 'osm', ref: 'w1', fields: ['name', 'contact'] }],
+      tariffs: [],
+      tariffs_withheld: 0,
+      linked_rows: [
+        {
+          linked_id: 'a',
+          linked_contact: { email: 'first@dt.test' },
+          linked_sources: [{ id: 'dt-a', ref: 'A', fields: ['contact'] }],
+          linked_tariffs: [],
+          linked_tariffs_withheld: 0,
+        },
+        {
+          linked_id: 'b',
+          linked_contact: { fax: '+33 FAX' },
+          linked_sources: [{ id: 'dt-b', ref: 'B', fields: ['contact'] }],
+          linked_tariffs: [],
+          linked_tariffs_withheld: 0,
+        },
+      ],
+    });
+    expect(merged.contact).toEqual({
+      phone: '+33 OWN',
+      email: 'first@dt.test',
+      fax: '+33 FAX',
+    });
+    const sources = merged.sources as { id: string; fields: string[] }[];
+    // All three gave contact details, so all three say so.
+    expect(sources.find((e) => e.id === 'osm')?.fields).toContain('contact');
+    expect(sources.find((e) => e.id === 'dt-a')?.fields).toEqual(['contact']);
+    expect(sources.find((e) => e.id === 'dt-b')?.fields).toEqual(['contact']);
+  });
+
   it('a field that is not composite is still ours or theirs, never both', () => {
     const row = {
       ...base,

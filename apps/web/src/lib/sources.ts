@@ -211,6 +211,11 @@ export const FIELD_LABEL: Record<string, string> = {
   website: 'website',
   location: 'location',
   amenities: 'facilities',
+  // CAMP-283. Without this the line read "name, location, facilities,
+  // contact" — one raw field name among four human phrases, on the one
+  // line the licences ask us to be exact on. The API has always been
+  // able to credit this field; only the label was missing.
+  contact: 'contact details',
   // CAMP-147. Attribution for the price list is not optional: it is the
   // field a reader is most likely to act on, and Licence Ouverte asks
   // for the source and the date of what we reuse.

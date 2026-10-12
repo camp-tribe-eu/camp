@@ -450,6 +450,19 @@ export function attributeTaken(
  * above, pointing the other way: a reader who wants to correct the phone
  * number is told to go to the wrong source, and the licence asks us to
  * be exact about precisely this.
+ *
+ * 🔴 NO PAGE IS IN THAT STATE TODAY, and saying so is part of the fix.
+ *
+ * Measured 12.10.2026: 82 live pairs carry contact details on both
+ * sides, and in 0 of them does the secondary hold a key the primary
+ * lacks — all 82 are an OSM area beside the way it was exported from,
+ * with byte-identical contacts. DATAtourisme writes no contact at all,
+ * so `taken` never receives `contact` and this changes nothing that is
+ * published right now.
+ *
+ * It is still worth having: the shape arrives the day any source starts
+ * supplying contact details the OSM row lacks, and by then the wrong
+ * attribution would be on the page rather than in a reproduction.
  */
 export function withoutTaken(
   entries: SpotSource[],
