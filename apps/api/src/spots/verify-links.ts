@@ -33,6 +33,21 @@ import {
 const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
 
+/**
+ * The OSM ref of the primary's own twin, or NULL when it is not an area.
+ *
+ * 🔴 libosmium numbers an area as `way × 2` and a relation as
+ * `relation × 2 + 1`, which is why the parity of the number decides
+ * which prefix comes back. Same arithmetic as `sourceOfArea`, written in
+ * SQL because an invariant that has to pull every row into Node to check
+ * it is an invariant nobody will run.
+ */
+const OWN_TWIN_REF_SQL = `CASE WHEN p.osm_ref ~ '^a[0-9]+$' THEN
+             CASE WHEN (substring(p.osm_ref from 2))::bigint % 2 = 0
+                  THEN 'w' || ((substring(p.osm_ref from 2))::bigint / 2)
+                  ELSE 'r' || (((substring(p.osm_ref from 2))::bigint - 1) / 2)
+             END END`;
+
 const INVARIANTS: { name: string; sql: string }[] = [
   {
     name: 'a live link never points at a row that is itself a live secondary',
@@ -43,15 +58,37 @@ const INVARIANTS: { name: string; sql: string }[] = [
            WHERE l.unlinked_at IS NULL`,
   },
   {
-    // 🔴 The invariant that was missing while the comment on
-    // LINKED_SECONDARY_JOIN claimed it was checked here. Two records
-    // pointing at one campsite makes the star rating on that page depend
-    // on the query planner. The unique index prevents it; this proves
-    // the index is doing what it was added for.
-    name: 'a live primary carries at most one secondary',
+    // 🔴 THIS REPLACED 'a live primary carries at most one secondary',
+    // and the replacement is the point.
+    //
+    // That invariant existed because two secondaries made the star
+    // rating depend on the query planner. CAMP-280 fixed the planner
+    // dependence a different way — a total order plus a fold proven by
+    // rehearsal — and CAMP-281 then allowed the second secondary,
+    // because a campsite really can be three rows: an OSM area, the way
+    // it was exported from, and a DATAtourisme record. 23 are.
+    //
+    // What is NOT allowed is a primary accumulating OUTSIDE records.
+    // Two DATAtourisme rows on one campsite would mean the matcher
+    // merged two different businesses, which is the failure this whole
+    // area exists to prevent.
+    //
+    // 🔴 It says nothing about a second OSM secondary, and the silence
+    // is deliberate rather than an oversight. A first draft also
+    // counted those, and a mutation deleting that half passed every
+    // check — because it is unreachable: a second OSM secondary would
+    // have to be a row that is not the primary's twin, which the next
+    // invariant already refuses, and two links to the SAME twin are
+    // impossible under the live unique index on secondary_id. A clause
+    // no input can reach is not a guard, it is a sentence.
+    name: 'a primary carries at most one non-OSM secondary',
     sql: `SELECT count(*)::int AS n FROM (
-            SELECT primary_id FROM spot_links WHERE unlinked_at IS NULL
-             GROUP BY primary_id HAVING count(*) > 1) x`,
+            SELECT l.primary_id
+              FROM spot_links l
+              JOIN camping_spots s ON s.id = l.secondary_id
+             WHERE l.unlinked_at IS NULL
+             GROUP BY l.primary_id
+            HAVING count(*) FILTER (WHERE s.osm_ref IS NULL) > 1) x`,
   },
   {
     name: 'a live secondary belongs to exactly one primary',
@@ -60,23 +97,39 @@ const INVARIANTS: { name: string; sql: string }[] = [
              GROUP BY secondary_id HAVING count(*) > 1) x`,
   },
   {
-    // 🔴 RED ON PRODUCTION SINCE CAMP-274, AND LEFT RED ON PURPOSE.
+    // 🔴 REWORDED BY CAMP-281, AND NARROWED RATHER THAN LOOSENED.
     //
-    // 828 links now join two OSM rows, because an area and the way it
-    // was exported from are one campsite recorded twice. The shape is
-    // legitimate; this sentence is the one that has expired. It is not
-    // reworded here, because the same 7 of those links form chains
-    // whose bottom row — a DATAtourisme record — is no longer merged
-    // onto any page, and that IS a fault. Rewording the invariant
-    // without fixing the merge would delete the only thing still
-    // pointing at it. CAMP-281 does both.
-    name: 'every link joins one OSM row to one non-OSM row',
+    // It used to say "one OSM row to one non-OSM row", and 828 links
+    // broke it the day CAMP-274 folded each OSM area into the way it
+    // was exported from. Those two rows ARE one campsite, so the data
+    // was right and the sentence had expired.
+    //
+    // The temptation was to allow any OSM-to-OSM link. That would have
+    // been the loosening that deletes the guard: it would permit
+    // merging two genuinely different campsites, which is the one
+    // mistake this whole area exists to prevent. So the second case is
+    // stated exactly — the secondary must be the primary's OWN twin,
+    // computed from the primary's ref by libosmium's rule
+    // (area = way × 2, area = relation × 2 + 1), the same arithmetic as
+    // `sourceOfArea`.
+    name: "every secondary is a non-OSM row or the primary's own OSM twin",
     sql: `SELECT count(*)::int AS n
             FROM spot_links l
             JOIN camping_spots p ON p.id = l.primary_id
             JOIN camping_spots s ON s.id = l.secondary_id
            WHERE l.unlinked_at IS NULL
-             AND NOT (p.osm_ref IS NOT NULL AND s.osm_ref IS NULL)`,
+             AND p.osm_ref IS NOT NULL
+             AND s.osm_ref IS NOT NULL
+             AND s.osm_ref IS DISTINCT FROM (${OWN_TWIN_REF_SQL})`,
+  },
+  {
+    // The other half of the sentence above, kept separate so a failure
+    // names which half broke.
+    name: 'every primary is an OSM row',
+    sql: `SELECT count(*)::int AS n
+            FROM spot_links l
+            JOIN camping_spots p ON p.id = l.primary_id
+           WHERE l.unlinked_at IS NULL AND p.osm_ref IS NULL`,
   },
   {
     // 🔴 CAMP-279. A redirect is a statement about two pages: this one
@@ -261,6 +314,163 @@ async function main(): Promise<void> {
     );
 
     // ------------------------------------------------------------------
+    // 🔴 CAMP-281: PROVE EACH INVARIANT CAN FAIL.
+    //
+    // This is the fault that let two of them sit broken for days. CI
+    // runs this script against the fixture database, where `spot_links`
+    // is EMPTY — so every invariant about links is trivially zero there,
+    // and the build goes green having asked nothing. The 828 links that
+    // broke one of them and the 7 chains that broke the other lived only
+    // in the database nobody ran this against.
+    //
+    // So the invariants that describe the LINK MODEL — the four below —
+    // get their violation PLANTED, in a transaction that is rolled back,
+    // and are required to catch it. An invariant that cannot be made to
+    // fail here is not a check; it is a sentence.
+    //
+    // 🔴 Four of the ten, not all ten, and the number is said out loud
+    // rather than implied. The redirect invariants are held by the
+    // rehearsals further down, which plant chains, cycles and dropped
+    // primaries; 'a live secondary belongs to exactly one primary',
+    // 'no link joins a row to itself' and 'no two rows are linked both
+    // ways' are held by database constraints and have none here.
+    console.log('\n--- each invariant, shown failing on a planted row ---');
+    // 🔴 The rows are MADE, not found.
+    //
+    // The first version looked for unlinked rows in the database, and on
+    // the CI fixture — which holds exactly ONE row with no osm_ref — two
+    // of the four traps planted a link from a row to itself. Three
+    // checks then failed on constraint violations instead of on what
+    // they were asking, and CI went red for a reason that had nothing to
+    // do with the invariants.
+    //
+    // A rehearsal that depends on what happens to be in the database
+    // passes or fails by accident. These clone one real row four times
+    // inside the transaction, so the shapes exist wherever this runs.
+    const seed = await db.query<{ id: string }>(
+      `SELECT id FROM camping_spots ORDER BY id LIMIT 1`,
+    );
+    const seedId = seed.rows[0]?.id ?? null;
+    if (seedId === null) {
+      console.error('  ✗ no campsite at all to clone a trap row from');
+      failed++;
+    } else {
+      const clone = async (
+        slug: string,
+        osmRef: string | null,
+      ): Promise<string> => {
+        await db.query(`DROP TABLE IF EXISTS trap_src`);
+        await db.query(
+          `CREATE TEMP TABLE trap_src AS
+             SELECT * FROM camping_spots WHERE id = $1`,
+          [seedId],
+        );
+        await db.query(
+          `UPDATE trap_src
+              SET id = uuid_generate_v4(), slug = $1, osm_ref = $2,
+                  missing_since = NULL,
+                  region = coalesce(region, 'Trap')`,
+          [slug, osmRef],
+        );
+        const r = await db.query<{ id: string }>(
+          `INSERT INTO camping_spots SELECT * FROM trap_src RETURNING id`,
+        );
+        return r.rows[0].id;
+      };
+
+      const link = (pri: string, sec: string) =>
+        db.query(
+          `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                   name_similarity, rule)
+           VALUES ($1, $2, 0, 1, 'trap')`,
+          [pri, sec],
+        );
+
+      // 🔴 'a2' pairs with 'w1' by libosmium's rule, and 'r7' is a
+      // RELATION twin — the odd branch of that arithmetic, which has no
+      // row anywhere in the database (0 of 54 279 refs start with r) and
+      // therefore had no test at all until this line. A mutation that
+      // swapped it for 'w' passed every check.
+      const traps: {
+        invariant: string;
+        plant: () => Promise<unknown>;
+      }[] = [
+        {
+          invariant:
+            "every secondary is a non-OSM row or the primary's own OSM twin",
+          plant: async () => {
+            const area = await clone('trap-area-even', 'a2');
+            const stranger = await clone('trap-not-twin', 'w999000001');
+            await link(area, stranger);
+          },
+        },
+        {
+          invariant:
+            "every secondary is a non-OSM row or the primary's own OSM twin",
+          plant: async () => {
+            // The odd branch: 'a15' pairs with 'r7', not 'w7'.
+            const area = await clone('trap-area-odd', 'a15');
+            const wrongKind = await clone('trap-w7', 'w7');
+            await link(area, wrongKind);
+          },
+        },
+        {
+          invariant: 'a primary carries at most one non-OSM secondary',
+          plant: async () => {
+            const area = await clone('trap-area-two', 'a4');
+            const one = await clone('trap-plain-1', null);
+            const two = await clone('trap-plain-2', null);
+            await link(area, one);
+            await link(area, two);
+          },
+        },
+        {
+          invariant: 'every primary is an OSM row',
+          plant: async () => {
+            const plain = await clone('trap-plain-pri', null);
+            const other = await clone('trap-plain-sec', null);
+            await link(plain, other);
+          },
+        },
+        {
+          invariant:
+            'a live link never points at a row that is itself a live secondary',
+          plant: async () => {
+            const area = await clone('trap-chain-top', 'a6');
+            const twin = await clone('trap-chain-mid', 'w3');
+            const plain = await clone('trap-chain-low', null);
+            await link(area, twin);
+            await link(twin, plain);
+          },
+        },
+      ];
+
+      for (const trap of traps) {
+        const inv = INVARIANTS.find((i) => i.name === trap.invariant);
+        if (!inv) {
+          console.error(`  ✗ no invariant named "${trap.invariant}"`);
+          failed++;
+          continue;
+        }
+        await db.query('BEGIN');
+        try {
+          const before = await db.query<{ n: number }>(inv.sql);
+          await trap.plant();
+          const after = await db.query<{ n: number }>(inv.sql);
+          const caught = (after.rows[0]?.n ?? 0) > (before.rows[0]?.n ?? 0);
+          console.log(`  ${caught ? '✓' : '✗'} ${trap.invariant}`);
+          if (!caught) failed++;
+        } catch (err) {
+          console.error(`  ✗ ${trap.invariant}: ${String(err)}`);
+          failed++;
+        } finally {
+          await db.query('ROLLBACK');
+        }
+      }
+      console.log('  (every one rolled back)');
+    }
+
+    // ------------------------------------------------------------------
     // CAMP-279: the two generated lists, read from the queries the API
     // actually serves.
     //
@@ -359,10 +569,28 @@ async function main(): Promise<void> {
       pid: string;
       sid: string;
     }>(
+      // 🔴 EXACTLY ONE live secondary, and a TOTAL order on the pick.
+      //
+      // Both halves of that sentence were learned the hard way on
+      // 12.10.2026. `ORDER BY l.created_at` alone ties — thousands of
+      // links are written in one batch and share the timestamp — so this
+      // query returned a different pair on every run, and the rehearsal
+      // was testing whichever campsite the planner felt like. The id
+      // breaks the tie, the same way the merge's own order does.
+      //
+      // And since CAMP-281 a primary may carry TWO secondaries. Stamping
+      // such a primary missing makes two redirect candidates out of one
+      // row, and undoing one link leaves the other live — so both of
+      // this rehearsal's assertions would be about a shape it was not
+      // written for. That shape is real and deliberate; it is simply a
+      // different rehearsal.
       `SELECT l.id AS link_id, l.primary_id AS pid, l.secondary_id AS sid
          FROM spot_links l
         WHERE l.unlinked_at IS NULL
-        ORDER BY l.created_at
+          AND (SELECT count(*) FROM spot_links o
+                WHERE o.primary_id = l.primary_id
+                  AND o.unlinked_at IS NULL) = 1
+        ORDER BY l.created_at, l.id
         LIMIT 1`,
     );
     let plantLink = false;

@@ -215,6 +215,29 @@ export type Outcome = {
  * reject the second write at 3 a.m. in the middle of a run, which is a
  * worse way to find out.
  */
+/**
+ * CAMP-281: the primaries that are spoken for — those already carrying
+ * an OUTSIDE record, not those carrying anything at all.
+ *
+ * 🔴 It used to be every primary with any live link, and that was right
+ * while a primary could hold only one secondary. It is wrong now: 821
+ * OSM areas carry nothing but their own twin, the way the same campsite
+ * was exported from, and under the old reading every one of them was
+ * reported as "already linked to another record" and sent to review.
+ * The shape the invariants now call legal — one twin plus one outside
+ * record — could never be created by the only writer that makes them.
+ *
+ * 🔴 It changes nothing today, and that is said rather than glossed:
+ * the proposal count is 68 with the old query and 68 with this one,
+ * measured 12.10.2026. The rule was wrong before its consequence
+ * arrived, which is the only time it is cheap to fix.
+ */
+export const CLAIMED_BY_OUTSIDE_RECORD_SQL = `
+  SELECT l.primary_id AS id
+    FROM spot_links l
+    JOIN camping_spots s ON s.id = l.secondary_id
+   WHERE l.unlinked_at IS NULL AND s.osm_ref IS NULL`;
+
 export function proposeLinks(
   pairs: PairRow[],
   judged: Set<string>,
@@ -299,8 +322,12 @@ export function proposeLinks(
       continue;
     }
 
-    // A campsite the table already links to somebody else. Not an error
-    // and not a link — a question for a person.
+    // A campsite that already carries an OUTSIDE record. Not an error
+    // and not a link — a question for a person, because two tourist
+    // offices describing one campsite is either a duplicate in their
+    // data or two different businesses, and this code may not guess
+    // which. Its own OSM twin does not count: that is one campsite
+    // recorded twice by one source, which is what the link model is for.
     if (claimedAlready.has(primary.id)) {
       out.review.push({
         ...proposal,
@@ -456,7 +483,7 @@ async function main(): Promise<void> {
     );
     const judged = new Set<string>(judgedRows.rows.map((r) => r.k));
     const claimedRows = await db.query<{ id: string }>(
-      `SELECT primary_id AS id FROM spot_links WHERE unlinked_at IS NULL`,
+      CLAIMED_BY_OUTSIDE_RECORD_SQL,
     );
     const claimedAlready = new Set<string>(claimedRows.rows.map((r) => r.id));
     const out = proposeLinks(pairs, judged, claimedAlready);

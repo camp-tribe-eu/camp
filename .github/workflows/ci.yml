@@ -779,6 +779,27 @@ jobs:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
         run: npx ts-node src/spots/verify-links.ts
 
+      # CAMP-281. The step above asks whether the link TABLE is sane;
+      # this one asks whether the program that changes it behaves. The
+      # two want opposite fixtures, which is why they are two scripts:
+      # the invariants want the real database, and these build the shapes
+      # they need, so they prove the same thing on an empty fixture as on
+      # production.
+      #
+      # 🔴 It exists because the plan was twice not a fixed point — one
+      # dry run did not describe the whole change, and the apply then
+      # reported work nobody had been shown. Both times the only thing
+      # that caught it was somebody rewinding the database by hand.
+      - name: The fold script plans the whole change in one dry run
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: npx ts-node src/spots/verify-folds.ts
+
+      - name: The fold script's twin arithmetic still agrees with itself
+        working-directory: apps/api
+        run: npx ts-node src/spots/fold-three-row-campsites.ts --self-test
+
       # CAMP-147. The card's own acceptance clause is "no displayed price
       # exists without a validity period", and the only thing enforcing it
       # in SQL is `DISPLAYABLE_TARIFF_SQL`. Until now the check that would
