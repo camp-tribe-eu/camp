@@ -19,8 +19,9 @@
  * mockups'; snapshotting them would turn a decision into a failure every
  * time CI runs.
  */
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readFileSync, realpathSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -100,18 +101,28 @@ export function problems(design, live, skip = NOT_OURS) {
 
 function selfTest() {
   const fails = [];
+  // 🔴 CAMP-286: assertions are counted, because one that stopped being
+  // reached prints exactly what a passing one prints — nothing.
+  let cases = 0;
+  const made = () => { cases += 1; };
+  made();
   if (problems({ '--x': '#fff' }, {}).length === 0)
     fails.push('a missing token was accepted');
+  made();
   if (problems({ '--x': '#fff' }, { '--x': '#000' }).length === 0)
     fails.push('a changed value was accepted');
+  made();
   if (problems({ '--x': '#fff' }, { '--x': '#FFF' }).length !== 0)
     fails.push('case alone was reported as a difference');
+  made();
   if (problems({ '--t': '.2s' }, { '--t': '0.2s' }).length !== 0)
     fails.push('a prettier-normalised number was reported as a difference');
+  made();
   if (problems({ '--map-land': '#eee' }, {}).length !== 0)
     fails.push('a deliberately-skipped token was reported as missing');
   for (const broken of ['', 'body { color: red }', ':root { }'])
     try {
+      made();
       rootBlock(broken);
       fails.push(`an unreadable stylesheet was accepted: ${JSON.stringify(broken)}`);
     } catch {
@@ -124,9 +135,33 @@ function selfTest() {
   console.log(
     'self-test ok: still catches a missing token, a changed value, and an unreadable stylesheet; still ignores case, zero-padding and the documented skips'
   );
+  // 🔴 CAMP-286: a line that names this file, for the CI step to grep,
+  // and a count that an unreached assertion moves.
+  const EXPECTED_CASES = 8;
+  if (cases !== EXPECTED_CASES) {
+    console.error(`SELF-TEST FAILED: ${cases} assertions ran, expected ${EXPECTED_CASES}`);
+    process.exit(1);
+  }
+  console.log(`\n✓ check-design-tokens self-test: ${cases} cases`);
 }
 
-if (process.argv.includes('--self-test')) {
+// 🔴 CAMP-286: the house guard, written out rather than called, because
+// check-script-entrypoints.mjs recognises a guard by READING it.
+// `realpathSync` on the argv side: Node resolves `import.meta.url`
+// through the real path and leaves argv[1] as written, so through a
+// symlink the two never match and the self-test silently does not run.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
+  const action = chooseAction(process.argv.slice(2), ['--self-test'], 'check-design-tokens.mjs');
+  if (action.has('--self-test')) {
   selfTest();
 } else {
   const snap = JSON.parse(
@@ -147,4 +182,5 @@ if (process.argv.includes('--self-test')) {
   console.log(
     `${checked} design tokens present and equal; ${Object.keys(NOT_OURS).length} deliberately not carried, each with a reason.`
   );
+}
 }

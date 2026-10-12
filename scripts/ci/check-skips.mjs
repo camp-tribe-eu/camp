@@ -35,7 +35,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { argv, exit } from 'node:process';
 import { pathToFileURL } from 'node:url';
-import { chooseAction } from '../lib/entrypoint.mjs';
+import { chooseAction, flagValue, flagValues } from '../lib/entrypoint.mjs';
 
 /**
  * Every test the run declined to execute.
@@ -368,22 +368,23 @@ function main() {
     exit(2);
   }
 
-  const maxArg = argv.indexOf('--max');
-  const max = maxArg >= 0 ? Number(argv[maxArg + 1]) : 0;
+  // 🔴 `flagValue`/`flagValues`, not `indexOf`. `--max=0` is a spelling
+  // chooseAction accepts, and `indexOf` read it as absent — a budget of
+  // zero silently became a budget of zero by accident rather than by
+  // request, and `--max=3` would have become zero too (CAMP-286).
+  const maxRaw = flagValue(argv.slice(2), '--max');
+  const max = maxRaw === undefined ? 0 : Number(maxRaw);
   if (!Number.isInteger(max) || max < 0) {
-    console.error(`--max must be a whole number, got ${argv[maxArg + 1]}`);
+    console.error(`--max must be a whole number, got ${maxRaw}`);
     exit(2);
   }
 
-  const required = [];
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] !== '--require') continue;
-    const want = argv[i + 1];
+  const required = flagValues(argv.slice(2), '--require');
+  for (const want of required) {
     if (!want || want.startsWith('--')) {
       console.error('--require needs a file substring');
       exit(2);
     }
-    required.push(want);
   }
 
   let report;

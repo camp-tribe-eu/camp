@@ -33,13 +33,14 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { chooseAction } from '../lib/entrypoint.mjs';
+import { chooseAction, flagValue } from '../lib/entrypoint.mjs';
 
 const args = process.argv.slice(2);
-const opt = (name, fallback = null) => {
-  const i = args.indexOf(`--${name}`);
-  return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
-};
+// 🔴 `flagValue`, not `indexOf`. `--manifest=<path>` is a spelling
+// chooseAction accepts, and this read it as absent — the restore gate
+// would then look for a manifest it was handed and say it had none
+// (CAMP-286).
+const opt = (name, fallback = null) => flagValue(args, `--${name}`) || fallback;
 
 /** Every flag this script acts on; anything else is a typo, not a shrug. */
 const ALL_FLAGS = [

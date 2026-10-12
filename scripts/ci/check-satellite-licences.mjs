@@ -29,10 +29,11 @@
 // is the same lesson as CAMP-237, where the palette was measured and the
 // component ignored it.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { argv, exit } from 'node:process';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const DATA = join(ROOT, 'apps/web/src/data/satellite-sources.json');
@@ -383,9 +384,34 @@ const SELF_TEST = [
   ['no sources at all is refused', { sources: [], notYet: [] }, 1],
 ];
 
-if (argv.includes('--self-test')) {
+// 🔴 CAMP-286 REPLACED `resolve(argv[1])` WITH `realpathSync`. Node
+// resolves `import.meta.url` through the REAL path, while `resolve()`
+// only makes argv[1] absolute — it follows no symlink. Through a link
+// the two never matched, the self-test silently did not run, and the CI
+// step was green with no output. Written out rather than called because
+// check-script-entrypoints.mjs recognises a guard by READING it.
+const RUN_DIRECTLY = (() => {
+  if (argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (RUN_DIRECTLY) chooseAction(argv.slice(2), ['--self-test'], 'check-satellite-licences.mjs');
+
+if (RUN_DIRECTLY && argv.includes('--self-test')) {
   let failed = 0;
+  // 🔴 COUNTED, NOT ADDED UP. The summary said
+  // `${SELF_TEST.length + 6}`, and the 6 was a literal: review deleted
+  // one of the six cases below and the line still printed "21 cases",
+  // exit 0, with the CI grep satisfied. In the one file whose comment
+  // says "each case below is a mutation that WENT GREEN before
+  // 11.10.2026" (CAMP-286).
+  let cases = 0;
   for (const [what, data, expected] of SELF_TEST) {
+    cases++;
     const got = problems(data, null).length;
     const ok = got === expected;
     if (!ok) failed++;
@@ -416,6 +442,7 @@ if (argv.includes('--self-test')) {
     ],
   ];
   for (const [what, src, expected] of componentCases) {
+    cases++;
     const got = problems({ sources: [] }, src).filter((p) => p.includes('campsite-map.tsx')).length;
     const ok = got === expected;
     if (!ok) failed++;
@@ -424,19 +451,26 @@ if (argv.includes('--self-test')) {
 
   // 🔴 And the stripper itself, because a stripper that removes nothing
   // would make the case above pass for the wrong reason.
+  cases++;
   if (stripComments('// gone\nkept').trim() !== 'kept') {
     failed++;
     console.log('✗ stripComments does not remove a line comment');
   } else console.log('✓ stripComments removes a line comment');
+  cases++;
   if (!stripComments('const u = "https://a//b";').includes('https://a//b')) {
     failed++;
     console.log('✗ stripComments ate a URL inside a string');
   } else console.log('✓ stripComments leaves a URL inside a string alone');
 
+  const EXPECTED_CASES = 21;
+  if (cases !== EXPECTED_CASES) {
+    failed++;
+    console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+  }
   console.log(
     failed
       ? `\n::error::self-test failed on ${failed} cases`
-      : `\n✓ self-test passed: ${SELF_TEST.length + 6} cases`,
+      : `\n✓ check-satellite-licences self-test: ${cases} cases`,
   );
   exit(failed ? 1 : 0);
 }
@@ -445,11 +479,7 @@ if (argv.includes('--self-test')) {
 // real data as a side effect of `import`, so a test that wanted to reuse
 // `problems()` or `stripComments()` got a process exit instead — the same
 // shape as CAMP-202, where a spec file committed a migration on import.
-const RUN_DIRECTLY =
-  argv[1] && fileURLToPath(import.meta.url) === resolve(argv[1]);
-if (!RUN_DIRECTLY) {
-  // nothing to do; the exports above are the point
-} else {
+if (RUN_DIRECTLY) {
 const data = JSON.parse(readFileSync(DATA, 'utf8'));
 const found = problems(data, readFileSync(MAP, 'utf8'));
 

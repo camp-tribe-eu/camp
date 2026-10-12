@@ -27,12 +27,13 @@
 // stamps disagree is itself reported: that disagreement is how the blind
 // spot opens in the first place.
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { chooseAction, flagValue } from '../lib/entrypoint.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DIR = join(HERE, '..', '..', 'apps', 'api', 'src', 'migrations');
@@ -134,6 +135,7 @@ function selfTest() {
   const root = mkdtempSync(join(tmpdir(), 'migstamp-'));
   const self = fileURLToPath(import.meta.url);
   let rc = 0;
+  let cases = 0;
 
   const scenario = (name, files) => {
     const dir = join(root, name);
@@ -151,6 +153,7 @@ function selfTest() {
   };
 
   const expect = (label, actual, wanted) => {
+    cases += 1;
     if (actual !== wanted) {
       console.error(
         `✗ REHEARSAL FAILED: ${label} exited ${actual}, expected ${wanted}.`,
@@ -215,19 +218,49 @@ function selfTest() {
     0,
   );
 
+  // 🔴 CAMP-286: counted, because a scenario that stopped being
+  // rehearsed prints exactly what a passing one prints — nothing.
+  const EXPECTED_CASES = 6;
+  if (cases !== EXPECTED_CASES) {
+    console.error(`✗ ${cases} scenarios ran, expected ${EXPECTED_CASES}`);
+    rc = 1;
+  }
   if (rc === 0) {
     console.log(
       '✓ rehearsal: the check exits 1 on a collision — including one the\n' +
         '  file names hide — on a drifted stamp and on a missing one, and\n' +
         '  exits 0 on a clean directory.',
     );
+    console.log(`\n✓ check-migration-stamps self-test: ${cases} scenarios`);
   }
   return rc;
 }
 
-if (process.argv.includes('--self-test')) {
-  process.exit(selfTest());
-}
+// 🔴 CAMP-286: the house guard, written out rather than called, because
+// check-script-entrypoints.mjs recognises a guard by READING it.
+// `realpathSync` on the argv side: Node resolves `import.meta.url`
+// through the real path and leaves argv[1] as written, so through a
+// symlink the two never match and the self-test silently does not run.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
-const dirFlag = process.argv.indexOf('--dir');
-process.exit(run(dirFlag > -1 ? process.argv[dirFlag + 1] : DEFAULT_DIR));
+if (invokedDirectly) {
+  const action = chooseAction(
+    process.argv.slice(2),
+    ['--self-test', '--dir'],
+    'check-migration-stamps.mjs',
+    { takesValue: ['--dir'] },
+  );
+  if (action.has('--self-test')) process.exit(selfTest());
+  // 🔴 `flagValue`, not `indexOf`. Review measured `--dir=<path>` —
+  // a spelling chooseAction accepts — being read as absent, so the check
+  // scanned DEFAULT_DIR and printed ✓ over a directory it never looked
+  // at (CAMP-286).
+  process.exit(run(flagValue(process.argv.slice(2), '--dir') ?? DEFAULT_DIR));
+}

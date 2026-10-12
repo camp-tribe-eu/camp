@@ -46,10 +46,11 @@
 // convention that holds until the next file.
 
 import ts from 'typescript';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, realpathSync } from 'node:fs';
 import { argv, exit } from 'node:process';
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 // 🔴 EVERY ROOT THAT HOLDS A SCRIPT, and both module systems.
 //
@@ -820,7 +821,33 @@ const DECISIONS = [
       importedBy: ['a.tsx'], database: false, external: true }, true],
 ];
 
-if (argv.includes('--self-test')) {
+// 🔴 Guarded like everything it polices. Review found this file killed
+// the probe process that imported it: it exports four functions AND
+// scanned and called `exit()` at module level — the very shape it
+// refuses in others, in the one directory it does not scan.
+//
+// 🔴 CAMP-286 ADDED `realpathSync`, and moved the self-test under the
+// guard. Node resolves `import.meta.url` through the real path and left
+// argv[1] as written, so through a symlink the two never matched: the
+// self-test silently did not run and the step was green with no output.
+// And the dispatch below sat OUTSIDE the guard, so importing this module
+// from a process that happened to carry `--self-test` ran the whole
+// self-test and exited — in the one file whose job is refusing exactly
+// that shape.
+const invokedDirectly = (() => {
+  if (argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
+  chooseAction(argv.slice(2), ['--self-test'], 'check-script-entrypoints.mjs');
+}
+
+if (invokedDirectly && argv.includes('--self-test')) {
   let failed = 0;
   const say = (ok, what, detail) => {
     if (!ok) failed++;
@@ -858,20 +885,23 @@ if (argv.includes('--self-test')) {
   }
 
   const total = IMPORT_FORMS.length + SELF_TEST.length + DECISIONS.length + SELECTION.length;
+  // 🔴 ASSERTED, not merely printed. Review deleted one case and the
+  // line said "62 cases" instead of 63 — exit 0, grep satisfied.
+  const EXPECTED_CASES = 63;
+  if (total !== EXPECTED_CASES) {
+    failed++;
+    console.log(`✗ ${total} cases ran, expected ${EXPECTED_CASES}`);
+  }
   console.log(
     failed
       ? `\n::error::self-test failed on ${failed} of ${total} cases`
-      : `\n✓ self-test passed: ${total} cases across the parser, the ` +
-        'decision and the file selection',
+      : `\n✓ check-script-entrypoints self-test: ${total} cases across the ` +
+        'parser, the decision and the file selection',
   );
   exit(failed ? 1 : 0);
 }
 
-// 🔴 Guarded like everything it polices. Review found this file killed
-// the probe process that imported it: it exports four functions AND
-// scanned and called `exit()` at module level — the very shape it
-// refuses in others, in the one directory it does not scan.
-if (import.meta.url === pathToFileURL(argv[1] ?? '').href) {
+if (invokedDirectly) {
   let bad = 0;
   const counted = [];
   const all = [];
