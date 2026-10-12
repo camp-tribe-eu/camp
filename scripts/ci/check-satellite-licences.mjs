@@ -403,7 +403,15 @@ if (RUN_DIRECTLY) chooseAction(argv.slice(2), ['--self-test'], 'check-satellite-
 
 if (RUN_DIRECTLY && argv.includes('--self-test')) {
   let failed = 0;
+  // 🔴 COUNTED, NOT ADDED UP. The summary said
+  // `${SELF_TEST.length + 6}`, and the 6 was a literal: review deleted
+  // one of the six cases below and the line still printed "21 cases",
+  // exit 0, with the CI grep satisfied. In the one file whose comment
+  // says "each case below is a mutation that WENT GREEN before
+  // 11.10.2026" (CAMP-286).
+  let cases = 0;
   for (const [what, data, expected] of SELF_TEST) {
+    cases++;
     const got = problems(data, null).length;
     const ok = got === expected;
     if (!ok) failed++;
@@ -434,6 +442,7 @@ if (RUN_DIRECTLY && argv.includes('--self-test')) {
     ],
   ];
   for (const [what, src, expected] of componentCases) {
+    cases++;
     const got = problems({ sources: [] }, src).filter((p) => p.includes('campsite-map.tsx')).length;
     const ok = got === expected;
     if (!ok) failed++;
@@ -442,19 +451,26 @@ if (RUN_DIRECTLY && argv.includes('--self-test')) {
 
   // 🔴 And the stripper itself, because a stripper that removes nothing
   // would make the case above pass for the wrong reason.
+  cases++;
   if (stripComments('// gone\nkept').trim() !== 'kept') {
     failed++;
     console.log('✗ stripComments does not remove a line comment');
   } else console.log('✓ stripComments removes a line comment');
+  cases++;
   if (!stripComments('const u = "https://a//b";').includes('https://a//b')) {
     failed++;
     console.log('✗ stripComments ate a URL inside a string');
   } else console.log('✓ stripComments leaves a URL inside a string alone');
 
+  const EXPECTED_CASES = 21;
+  if (cases !== EXPECTED_CASES) {
+    failed++;
+    console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+  }
   console.log(
     failed
       ? `\n::error::self-test failed on ${failed} cases`
-      : `\n✓ check-satellite-licences self-test: ${SELF_TEST.length + 6} cases`,
+      : `\n✓ check-satellite-licences self-test: ${cases} cases`,
   );
   exit(failed ? 1 : 0);
 }

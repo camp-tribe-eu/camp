@@ -580,10 +580,19 @@ if (RUN_DIRECTLY && argv.includes('--self-test')) {
     console.log(`${ok ? '✓' : '✗'} reader: ${what}`);
   }
 
+  // 🔴 ASSERTED, not merely printed. Review deleted one case and the
+  // line said "32 cases" instead of 33 — exit 0, grep satisfied. A
+  // number nobody compares is a label (CAMP-286).
+  const total = SELF_TEST.length + checks.length;
+  const EXPECTED_CASES = 33;
+  if (total !== EXPECTED_CASES) {
+    failed++;
+    console.log(`✗ ${total} cases ran, expected ${EXPECTED_CASES}`);
+  }
   console.log(
     failed
       ? `\n::error::self-test failed on ${failed} cases`
-      : `\n✓ check-node-versions self-test: ${SELF_TEST.length + checks.length} cases`,
+      : `\n✓ check-node-versions self-test: ${total} cases`,
   );
   exit(failed ? 1 : 0);
 }

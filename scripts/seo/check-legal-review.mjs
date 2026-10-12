@@ -29,7 +29,7 @@
 
 import { readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { chooseAction } from '../lib/entrypoint.mjs';
+import { chooseAction, flagValue } from '../lib/entrypoint.mjs';
 import path from 'node:path';
 import { argv, exit } from 'node:process';
 
@@ -304,8 +304,10 @@ function main() {
     });
   if (action.has('--self-test')) selfTest();
 
-  const modeArg = argv.indexOf('--expect');
-  const mode = modeArg >= 0 ? argv[modeArg + 1] : 'closed';
+  // 🔴 `flagValue`, not `indexOf`: `--expect=public` is a spelling
+  // chooseAction accepts, and `indexOf` read it as absent — which meant
+  // the PUBLIC gate silently became the closed one (CAMP-286).
+  const mode = flagValue(argv.slice(2), '--expect') ?? 'closed';
 
   let pages;
   try {

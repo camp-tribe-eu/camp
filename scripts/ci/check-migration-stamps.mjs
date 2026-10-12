@@ -33,7 +33,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { chooseAction } from '../lib/entrypoint.mjs';
+import { chooseAction, flagValue } from '../lib/entrypoint.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DIR = join(HERE, '..', '..', 'apps', 'api', 'src', 'migrations');
@@ -258,6 +258,9 @@ if (invokedDirectly) {
     { takesValue: ['--dir'] },
   );
   if (action.has('--self-test')) process.exit(selfTest());
-  const dirFlag = process.argv.indexOf('--dir');
-  process.exit(run(dirFlag > -1 ? process.argv[dirFlag + 1] : DEFAULT_DIR));
+  // 🔴 `flagValue`, not `indexOf`. Review measured `--dir=<path>` —
+  // a spelling chooseAction accepts — being read as absent, so the check
+  // scanned DEFAULT_DIR and printed ✓ over a directory it never looked
+  // at (CAMP-286).
+  process.exit(run(flagValue(process.argv.slice(2), '--dir') ?? DEFAULT_DIR));
 }

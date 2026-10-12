@@ -80,6 +80,41 @@ export function flagName(token) {
 }
 
 /**
+ * The value a flag carries, in EITHER spelling.
+ *
+ * 🔴 BOTH SPELLINGS, AND THAT WAS A REAL DEFECT. `chooseAction` accepts
+ * `--dir=/tmp/x` — it has a case saying so — while every caller read the
+ * value back with `argv.indexOf('--dir')`, which only ever finds the
+ * space-separated form. Measured on a directory with a deliberate stamp
+ * collision: `--dir <path>` exited 1 and named the collision;
+ * `--dir=<path>` printed "✓ 21 migrations, every class stamp distinct"
+ * and exited 0, having scanned the default directory instead. A
+ * recognised spelling that quietly takes the default branch is this
+ * card's whole subject, one layer down (CAMP-286).
+ *
+ * Returns `undefined` when the flag is absent.
+ */
+export function flagValue(argv, name) {
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (token === name) return argv[i + 1];
+    if (token.startsWith(`${name}=`)) return token.slice(name.length + 1);
+  }
+  return undefined;
+}
+
+/** Every value a repeatable flag carries, in either spelling. */
+export function flagValues(argv, name) {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (token === name) out.push(argv[i + 1]);
+    else if (token.startsWith(`${name}=`)) out.push(token.slice(name.length + 1));
+  }
+  return out.filter((v) => v !== undefined);
+}
+
+/**
  * Which of the actions this script knows were asked for — and a refusal
  * for anything else.
  *
@@ -128,6 +163,13 @@ export function chooseAction(argv, known, who, shape = {}) {
       // `closed` branch, and printed a ✓ for a gate it had not applied.
       // A flag whose value decides which gate runs must have that value
       // checked, or the typo simply moves house.
+      // 🔴 A flag declared to take a value and given none is an error,
+      // whether or not its values are enumerated: `--dir` at the end of
+      // the line used to reach `readdirSync(undefined)` and die with a
+      // stack trace instead of a sentence.
+      if (given === undefined) {
+        throw new Error(`${who}: ${name} takes a value and was given none.`);
+      }
       const allowed = values[name];
       if (allowed && !allowed.includes(given)) {
         throw new Error(
@@ -200,6 +242,21 @@ const CASES = [
   ['a declared positional is allowed', () =>
     chooseAction(['report.json', '--max', '3'], ['--max'], 'x',
       { takesValue: ['--max'], positional: 1 }).has('--max')],
+  ['🔴 flagValue reads the `=` spelling, not only the spaced one', () =>
+    flagValue(['--dir=/tmp/x'], '--dir') === '/tmp/x' &&
+    flagValue(['--dir', '/tmp/x'], '--dir') === '/tmp/x'],
+  ['flagValue is undefined when the flag is absent', () =>
+    flagValue(['--other', 'x'], '--dir') === undefined],
+  ['flagValue does not match a longer flag that starts the same', () =>
+    flagValue(['--directory=/tmp'], '--dir') === undefined],
+  ['flagValues collects a repeated flag in both spellings', () =>
+    flagValues(['--require', 'a', '--require=b'], '--require').join(',') === 'a,b'],
+  ['🔴 a flag that takes a value and gets none is refused even with no list', () => {
+    try {
+      chooseAction(['--dir'], ['--dir'], 'x', { takesValue: ['--dir'] });
+      return false;
+    } catch (e) { return e.message.includes('takes a value and was given none'); }
+  }],
   ['🔴 an unrecognised value for a flag is refused', () => {
     try {
       chooseAction(['--expect', 'publi'], ['--expect'], 'x',
@@ -258,7 +315,7 @@ const CASES = [
 
 // 🔴 The count is asserted, because a case that stops being reached
 // looks exactly like a case that passed.
-const EXPECTED_CASES = 26;
+const EXPECTED_CASES = 31;
 
 function selfTest() {
   let failed = 0;

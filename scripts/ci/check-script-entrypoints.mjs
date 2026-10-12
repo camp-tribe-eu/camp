@@ -885,6 +885,13 @@ if (invokedDirectly && argv.includes('--self-test')) {
   }
 
   const total = IMPORT_FORMS.length + SELF_TEST.length + DECISIONS.length + SELECTION.length;
+  // 🔴 ASSERTED, not merely printed. Review deleted one case and the
+  // line said "62 cases" instead of 63 — exit 0, grep satisfied.
+  const EXPECTED_CASES = 63;
+  if (total !== EXPECTED_CASES) {
+    failed++;
+    console.log(`✗ ${total} cases ran, expected ${EXPECTED_CASES}`);
+  }
   console.log(
     failed
       ? `\n::error::self-test failed on ${failed} of ${total} cases`
