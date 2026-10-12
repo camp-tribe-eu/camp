@@ -33,10 +33,10 @@
 // one its real OSM identifier back, so `w871234` in our table is a thing
 // a person can open on openstreetmap.org.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { argv, exit } from 'node:process';
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 /** The tags that make a feature one of ours. */
 export const WANTED = ['camp_site', 'caravan_site'];
@@ -178,14 +178,44 @@ const SELF_TEST = () => {
     if (!cond) failed++;
     console.log(`${cond ? '✓' : '✗'} ${what}${cond ? '' : `  → ${detail}`}`);
   }
-  console.log(failed ? `\n::error::self-test failed on ${failed} cases` : `\n✓ self-test passed: ${ok.length} cases`);
+  // 🔴 CAMP-286: counted and named after this file.
+  const EXPECTED_CASES = 18;
+  if (ok.length !== EXPECTED_CASES) {
+    failed += 1;
+    console.log(`✗ ${ok.length} cases ran, expected ${EXPECTED_CASES}`);
+  }
+  console.log(
+    failed
+      ? `\n::error::normalise-export self-test failed on ${failed} cases`
+      : `\n✓ normalise-export self-test: ${ok.length} cases`,
+  );
   return failed;
 };
 
-if (argv.includes('--self-test')) exit(SELF_TEST() ? 1 : 0);
+// 🔴 CAMP-286: BOTH entry points below the guard, and the guard resolves
+// the real path.
+//
+// `--self-test` sat ABOVE the guard, so importing this module from a
+// process whose argv happened to carry it ran the whole suite and called
+// `exit()` — the very shape the comment above warns about. And
+// `resolve()` only makes argv[1] absolute; it follows no symlink, while
+// Node resolves `import.meta.url` through one, so through a link the
+// guard said "imported" and nothing ran at all.
+const RUN_DIRECTLY = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
-const RUN_DIRECTLY = argv[1] && fileURLToPath(import.meta.url) === resolve(argv[1]);
 if (RUN_DIRECTLY) {
+  const action = chooseAction(argv.slice(2), ['--self-test'], 'normalise-export.mjs', {
+    positional: 2,
+  });
+  if (action.has('--self-test')) exit(SELF_TEST() ? 1 : 0);
+
   const [, , inPath, outPath] = argv;
   if (!inPath || !outPath) {
     console.error('usage: normalise-export.mjs <in.geojson> <out.geojson>');

@@ -225,8 +225,13 @@ jobs:
       # CAMP-60, debt #2. The verdict logic, including the case that
       # matters most: a run that sent nothing must FAIL, not report
       # "0 errors".
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
       - name: Load-test verdict still fails a bad run
-        run: node scripts/load/load-test.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/load/load-test.mjs --self-test | tee /dev/stderr \
+            | grep -c 'load-test self-test:' >/dev/null
 
       # 🔴 CAMP-60. `retries: 1` means a test that fails then passes
       # leaves the job green. On 23.09.2026 that hid a real design fault
@@ -280,7 +285,12 @@ jobs:
       # skip it entirely.
       - name: MeteoAlarm filtering
         if: ${{ !cancelled() }}
-        run: node scripts/meteoalarm/fetch-warnings.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        run: |
+          set -o pipefail
+          node scripts/meteoalarm/fetch-warnings.mjs --self-test | tee /dev/stderr \
+            | grep -c 'fetch-warnings self-test:' >/dev/null
       # CAMP-149. Which geometry source answers which scheme, the NUTS
       # vintage, and the Irish splits — all pure, no network.
       - name: Warning area resolution
@@ -315,16 +325,26 @@ jobs:
       # — so the mutation that "turned it red" only ever did so by hand.
       # This file says it two screens up: a rule nothing checks is a rule
       # that has already stopped applying.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
       - name: The OSM import spawns no shell, and still says so
-        run: node scripts/osm-pipeline/import-release.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/osm-pipeline/import-release.mjs --self-test | tee /dev/stderr \
+            | grep -c 'import-release self-test:' >/dev/null
 
       # 🔴 CAMP-253. Seven of the eight mutations review put on this file
       # are caught by its self-test and by nothing else — and the
       # self-test was not wired here when the file was written, so all
       # seven would have shipped green. A guard nothing runs is a comment
       # with an exit code.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
       - name: A gate inside a campsite is still not a campsite
-        run: node scripts/osm-pipeline/normalise-export.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/osm-pipeline/normalise-export.mjs --self-test | tee /dev/stderr \
+            | grep -c 'normalise-export self-test:' >/dev/null
 
       # 🔴 CAMP-174. The CEMS language rule is enforced on panels the
       # suite can FIND, and it found them through hand-written
@@ -528,7 +548,12 @@ jobs:
       # else is green is not the guard the step claims to be.
       - name: Wildfire fetch guards still refuse what they must
         if: ${{ !cancelled() }}
-        run: node scripts/effis/fetch-wildfires.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        run: |
+          set -o pipefail
+          node scripts/effis/fetch-wildfires.mjs --self-test | tee /dev/stderr \
+            | grep -c 'fetch-wildfires self-test:' >/dev/null
 
       # 🔴 CAMP-162. The CEMS terms — which govern EFAS, GloFAS, GFM, EDO,
       # GDO, EFFIS and GWIS together — say the data "does not constitute in

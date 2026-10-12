@@ -1,21 +1,16 @@
 {
   "_comment": "CAMP-285. Steps that run a --self-test without reading its output. A renamed flag, an inverted entry guard or a symlink makes each of these green while nothing runs. The list may shrink and never grow: regenerate with `node scripts/ci/check-selftest-steps.mjs --update` only after a step has been locked.",
   "unlocked": [
-    ".github/workflows/ci.yml :: A gate inside a campsite is still not a campsite",
     ".github/workflows/ci.yml :: Build-emits guard still catches an empty dist",
     ".github/workflows/ci.yml :: CEMS coverage guard still catches an unregistered panel",
     ".github/workflows/ci.yml :: Derived-field guard still catches an undescribed field",
     ".github/workflows/ci.yml :: Filter check still catches a mismatch",
     ".github/workflows/ci.yml :: Fixture-count guard still catches a moved number",
     ".github/workflows/ci.yml :: Fixture-shape guard still catches a missing subject",
-    ".github/workflows/ci.yml :: Load-test verdict still fails a bad run",
-    ".github/workflows/ci.yml :: MeteoAlarm filtering",
     ".github/workflows/ci.yml :: Price check still catches an undated tariff",
     ".github/workflows/ci.yml :: Query-plan check still catches a missing index",
     ".github/workflows/ci.yml :: Restoring a backup cannot destroy newer work",
-    ".github/workflows/ci.yml :: The OSM import spawns no shell, and still says so",
     ".github/workflows/ci.yml :: The fold script's twin arithmetic still agrees with itself",
-    ".github/workflows/ci.yml :: Whether a run should build at all",
-    ".github/workflows/ci.yml :: Wildfire fetch guards still refuse what they must"
+    ".github/workflows/ci.yml :: Whether a run should build at all"
   ]
 }

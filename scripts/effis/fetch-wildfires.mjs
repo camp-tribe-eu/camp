@@ -46,6 +46,8 @@
 // says "no fresh data" once that is older than its budget.
 
 import { readFile, writeFile } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
+import { chooseAction, flagValue } from '../lib/entrypoint.mjs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -999,8 +1001,26 @@ async function selfTest() {
   for (const c of checks) {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
   }
-  const failed = checks.filter((c) => !c.pass).length;
-  console.log(`\n${checks.length - failed}/${checks.length} passed`);
+  // 🔴 `let`, not `const`. The count guard below did `failed += 1` on a
+  // constant, so a wrong EXPECTED_CASES threw
+  // `TypeError: Assignment to constant variable` instead of printing the
+  // sentence it was written to print. The step still went red — by
+  // accident, through a crash — and the guard itself had never been
+  // rehearsed (CAMP-286).
+  let failed = checks.filter((c) => !c.pass).length;
+  // 🔴 CAMP-286: counted and named. "63/63 passed" is a sentence
+  // several scripts print, and a case that stopped being reached prints
+  // what a passing case prints.
+  const EXPECTED_CASES = 63;
+  if (checks.length !== EXPECTED_CASES) {
+    failed += 1;
+    console.log(`✗ ${checks.length} cases ran, expected ${EXPECTED_CASES}`);
+  }
+  console.log(
+    failed
+      ? `\n✗ fetch-wildfires self-test: ${failed} of ${checks.length} failed`
+      : `\n✓ fetch-wildfires self-test: ${checks.length} cases`,
+  );
   return failed === 0;
 }
 
@@ -1008,18 +1028,35 @@ async function selfTest() {
 // import. The functions are exported to be tested, and on this project an
 // import that fetched and rewrote a committed data file has already
 // happened once (see scripts/fuel/fetch-fuel-prices.mjs).
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+//
+// 🔴 CAMP-286 ADDED `realpathSync`: Node resolves `import.meta.url`
+// through the real path and leaves argv[1] as written, so through a
+// symlink the two never matched and the self-test silently did not run.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
-if (!invokedDirectly) {
-  // Imported for its functions. Do nothing.
-} else if (process.argv.slice(2).includes('--self-test')) {
+if (invokedDirectly) {
+  const args = process.argv.slice(2);
+  // 🔴 CAMP-286. `--selftest` used to fall through to a LIVE fetch of
+  // EFFIS and a rewrite of the committed data file. One letter.
+  const action = chooseAction(args, ['--self-test', '--days'], 'fetch-wildfires.mjs', {
+    takesValue: ['--days'],
+  });
+  if (action.has('--self-test')) {
   process.exit((await selfTest()) ? 0 : 1);
 } else {
-  const args = process.argv.slice(2);
-  const daysArg = args.find((a) => a.startsWith('--days='));
-  const days = daysArg ? Number(daysArg.slice('--days='.length)) : WINDOW_DAYS;
+  // 🔴 BOTH SPELLINGS. `takesValue: ['--days']` lets chooseAction accept
+  // `--days 7` with a space, while this read only `--days=7`: the
+  // spaced form was accepted and then silently ignored, and the fetch
+  // ran over the default window instead (CAMP-286).
+  const daysArg = flagValue(args, '--days');
+  const days = daysArg === undefined ? WINDOW_DAYS : Number(daysArg);
   if (!Number.isInteger(days) || days <= 0 || days > 366) {
     throw new Error(`--days must be a whole number of days in 1..366, got ${daysArg}`);
   }
@@ -1045,4 +1082,5 @@ if (!invokedDirectly) {
     await writeFile(OUT, `${JSON.stringify(data)}\n`, 'utf8');
     console.log(`wrote ${OUT}`);
   }
+}
 }

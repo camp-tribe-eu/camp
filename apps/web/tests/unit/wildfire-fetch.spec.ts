@@ -68,7 +68,13 @@ test('🔴 the script’s own self-test runs here, not only when somebody types 
     timeout: 60_000,
   });
   expect(out).not.toContain('FAIL');
-  expect(out).toMatch(/(\d+)\/\1 passed/);
+  // 🔴 The line names the script, and CAMP-286 is why. It used to read
+  // `/(\d+)\/\1 passed/` — a shape that "63/63 passed" satisfies and so
+  // does any other script printing the same thing. The CI step that
+  // greps this output greps for the named line, so this test and that
+  // step now hold the SAME string; before, each could have been
+  // satisfied by somebody else's output.
+  expect(out).toMatch(/✓ fetch-wildfires self-test: (\d+) cases/);
 });
 
 test('an unbounded WFS request cannot be built', () => {
