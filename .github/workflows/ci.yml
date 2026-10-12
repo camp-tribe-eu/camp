@@ -800,6 +800,19 @@ jobs:
         working-directory: apps/api
         run: npx ts-node src/spots/fold-three-row-campsites.ts --self-test
 
+      # CAMP-282. The redirect map reached 80% of its edge budget with
+      # nobody told, while the comment beside the cap still quoted 56%
+      # from the first run. A ceiling that only speaks when it is hit is
+      # not a budget — the message arrives in a red build, which is the
+      # worst moment to choose between raising the cap and moving the
+      # file out of the bundle.
+      #
+      # 🔴 Both boundaries are rehearsed rather than waited for: 75%
+      # warns, over 100% throws, and the size is printed either way.
+      - name: The edge budget still warns before it refuses
+        working-directory: apps/web
+        run: node scripts/edge-budget.mjs --self-test
+
       # CAMP-147. The card's own acceptance clause is "no displayed price
       # exists without a validity period", and the only thing enforcing it
       # in SQL is `DISPLAYABLE_TARIFF_SQL`. Until now the check that would
