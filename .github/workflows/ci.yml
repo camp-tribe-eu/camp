@@ -276,7 +276,15 @@ jobs:
       # fixture with no Slovenia, one surviving id out of 72, and a load
       # that died on the gone block. A count is not a shape.
       - name: Fixture-shape guard still catches a missing subject
-        run: node scripts/ci/check-fixture-shape.mjs --self-test
+        # 🔴 CAMP-286. The step reads the self-test's own output, under
+        # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        # `grep -c … >/dev/null` and not `grep -q`: -q closes the pipe
+        # early and the writer dies of SIGPIPE, which pipefail turns into
+        # exit 141 — measured on five of five steps.
+        run: |
+          set -o pipefail
+          node scripts/ci/check-fixture-shape.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-fixture-shape self-test:' >/dev/null
 
       # CAMP-148. The feed is an archive with live warnings in it, and
       # the provider says the opposite in writing. Pure: no network, no
@@ -314,7 +322,15 @@ jobs:
       # failure is silent: the field renders, nothing breaks, and we are
       # outside the licence.
       - name: Derived-field guard still catches an undescribed field
-        run: node scripts/ci/check-derived-fields.mjs --self-test
+        # 🔴 CAMP-286. The step reads the self-test's own output, under
+        # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        # `grep -c … >/dev/null` and not `grep -q`: -q closes the pipe
+        # early and the writer dies of SIGPIPE, which pipefail turns into
+        # exit 141 — measured on five of five steps.
+        run: |
+          set -o pipefail
+          node scripts/ci/check-derived-fields.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-derived-fields self-test:' >/dev/null
 
       - name: Every derived field is described where ODbL §4.6 requires
         run: node scripts/ci/check-derived-fields.mjs
@@ -353,7 +369,15 @@ jobs:
       # nothing else, and 653 of 653 tests stayed green. This asks where
       # a file gets its data instead of whether somebody registered it.
       - name: CEMS coverage guard still catches an unregistered panel
-        run: node scripts/ci/check-cems-coverage.mjs --self-test
+        # 🔴 CAMP-286. The step reads the self-test's own output, under
+        # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        # `grep -c … >/dev/null` and not `grep -q`: -q closes the pipe
+        # early and the writer dies of SIGPIPE, which pipefail turns into
+        # exit 141 — measured on five of five steps.
+        run: |
+          set -o pipefail
+          node scripts/ci/check-cems-coverage.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-cems-coverage self-test:' >/dev/null
 
       - name: Everything showing CEMS data is inside the language guard
         run: node scripts/ci/check-cems-coverage.mjs
@@ -418,7 +442,15 @@ jobs:
       # now does. CAMP-182: the headline went 71 → 72 unnoticed. These
       # two steps put the same numbers in a file a human has to edit.
       - name: Fixture-count guard still catches a moved number
-        run: node scripts/ci/check-fixture-counts.mjs --self-test
+        # 🔴 CAMP-286. The step reads the self-test's own output, under
+        # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        # `grep -c … >/dev/null` and not `grep -q`: -q closes the pipe
+        # early and the writer dies of SIGPIPE, which pipefail turns into
+        # exit 141 — measured on five of five steps.
+        run: |
+          set -o pipefail
+          node scripts/ci/check-fixture-counts.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-fixture-counts self-test:' >/dev/null
 
       - name: The fixture still adds up to what the pages claim
         run: node scripts/ci/check-fixture-counts.mjs

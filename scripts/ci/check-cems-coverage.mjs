@@ -39,6 +39,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { chooseAction } from '../lib/entrypoint.mjs';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEB = join(HERE, '..', '..', 'apps', 'web');
 
@@ -246,6 +248,13 @@ function selfTest() {
     console.error(`✗ REHEARSAL FAILED: ${m}`);
     rc = 1;
   };
+  // 🔴 CAMP-286. Every assertion registers HERE, as it runs — a case that
+  // stopped executing prints exactly what a case that passed prints.
+  const cases = [];
+  const failIf = (cond, m) => {
+    cases.push(m);
+    if (cond) bad(m);
+  };
 
   // A tiny in-memory tree, shaped like the real one.
   const files = {
@@ -271,15 +280,18 @@ function selfTest() {
 
   const reach = (p) => reaches(p, CEMS_MODULES, resolveSpec, read);
 
-  if (!reach('/src/components/drought-panel.tsx')) {
-    bad('a panel reaching CEMS through a helper was not seen');
-  }
-  if (!reach('/src/app/drought/page.tsx')) {
-    bad('a page reaching CEMS two hops away was not seen');
-  }
-  if (reach('/src/components/footer.tsx')) {
-    bad('an unrelated component was reported as showing CEMS data');
-  }
+  failIf(
+    !reach('/src/components/drought-panel.tsx'),
+    'a panel reaching CEMS through a helper was not seen',
+  );
+  failIf(
+    !reach('/src/app/drought/page.tsx'),
+    'a page reaching CEMS two hops away was not seen',
+  );
+  failIf(
+    reach('/src/components/footer.tsx'),
+    'an unrelated component was reported as showing CEMS data',
+  );
 
   // 🔴 A cycle must not hang the walk. Two files importing each other is
   // ordinary in a component tree, and a walker without `seen` spins.
@@ -289,24 +301,31 @@ function selfTest() {
   };
   const cycRead = (p) => cyc[p] ?? null;
   const cycResolve = (s) => (cyc[`/${s.slice(2)}.ts`] !== undefined ? `/${s.slice(2)}.ts` : null);
-  if (reaches('/a.ts', CEMS_MODULES, cycResolve, cycRead)) {
-    bad('a cycle reported a reach that is not there');
-  }
+  failIf(
+    reaches('/a.ts', CEMS_MODULES, cycResolve, cycRead),
+    'a cycle reported a reach that is not there',
+  );
 
   // The covered set is read from what the descriptor imports.
   const cov = coveredComponents([
     "import { WildfirePanel } from '@/components/wildfire-panel';\n" +
       "import { wildfireState } from '@/lib/wildfires';",
   ]);
-  if (!cov.has('@/components/wildfire-panel')) bad('the descriptor’s component was not read');
-  if (cov.has('@/lib/wildfires')) bad('a lib was mistaken for a covered component');
+  failIf(
+    !cov.has('@/components/wildfire-panel'),
+    'the descriptor’s component was not read',
+  );
+  failIf(
+    cov.has('@/lib/wildfires'),
+    'a lib was mistaken for a covered component',
+  );
 
   // Import styles the regex must all see.
   const seen = importsOf(
     `import a from '@/one';\nconst b = await import("@/two");\nexport * from '@/three';`,
   );
   for (const want of ['@/one', '@/two', '@/three']) {
-    if (!seen.includes(want)) bad(`the import form giving ${want} was missed`);
+    failIf(!seen.includes(want), `the import form giving ${want} was missed`);
   }
 
   // 🔴 AND THE WHOLE THING, on a tree we build. Everything above tests
@@ -338,31 +357,60 @@ function selfTest() {
     put('src/components/exempt-panel.tsx', "import '@/lib/cems';\nexport const E = () => null;");
     const exempt = new Map([['components/exempt-panel.tsx', 'covered by the layer registry']]);
 
-    if (realRun(root, quiet, exempt) !== 0) {
-      bad('a fully described tree was reported as an offender');
-    }
+    failIf(
+      realRun(root, quiet, exempt) !== 0,
+      'a fully described tree was reported as an offender',
+    );
 
     // 🔴 The two shapes the import graph alone cannot see, each in the
     // tree so the rule that catches it has something to catch.
     put('src/components/fetch-only.tsx', "export const F = () => fetch('/data/wildfires.json');");
-    if (realRun(root, quiet, exempt) !== 1) bad('a fetch-only component was not reported');
+    failIf(
+      realRun(root, quiet, exempt) !== 1,
+      'a fetch-only component was not reported',
+    );
     rmSync(join(root, 'src/components/fetch-only.tsx'), { force: true });
 
     put('src/components/rel-import.tsx', "import '../lib/cems';\nexport const R = () => null;");
-    if (realRun(root, quiet, exempt) !== 1) bad('a relative import was not reported');
+    failIf(
+      realRun(root, quiet, exempt) !== 1,
+      'a relative import was not reported',
+    );
     rmSync(join(root, 'src/components/rel-import.tsx'), { force: true });
 
     // A page, registered nowhere.
     put('src/app/drought/page.tsx', "import '@/lib/cems';\nexport default () => null;");
-    if (realRun(root, quiet, exempt) !== 1) bad('an undescribed PAGE was not reported');
+    failIf(
+      realRun(root, quiet, exempt) !== 1,
+      'an undescribed PAGE was not reported',
+    );
 
     // And a component, so neither arm can be deleted unnoticed.
     rmSync(join(root, 'src/app/drought'), { recursive: true, force: true });
     put('src/components/drought-panel.tsx', "import '@/lib/cems';\nexport const D = () => null;");
-    if (realRun(root, quiet, exempt) !== 1) bad('an undescribed COMPONENT was not reported');
+    failIf(
+      realRun(root, quiet, exempt) !== 1,
+      'an undescribed COMPONENT was not reported',
+    );
 
     rmSync(root, { recursive: true, force: true });
   }
+
+  // 🔴 A literal, never `cases.length`.
+  const EXPECTED_CASES = 14;
+  if (cases.length !== EXPECTED_CASES) {
+    console.error(
+      `✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`,
+    );
+    rc = 1;
+  }
+
+  // 🔴 The line names this file.
+  console.log(
+    rc === 0
+      ? `✓ check-cems-coverage self-test: ${cases.length} cases over the CEMS language guard`
+      : `✗ check-cems-coverage self-test: ${cases.length} cases, at least one failed`,
+  );
 
   if (rc === 0) {
     console.log(
@@ -389,10 +437,16 @@ const invokedDirectly = (() => {
 
 if (!invokedDirectly) {
   // imported for its functions
-} else if (process.argv.includes('--self-test')) {
-  process.exit(selfTest());
 } else {
-  process.exit(realRun());
+  // 🔴 CAMP-286. `includes('--self-test')` meant a typo fell through to
+  // the real check, which passes. Green step, rehearsal never run.
+  const action = chooseAction(
+    process.argv.slice(2),
+    ['--self-test'],
+    'check-cems-coverage.mjs',
+  );
+  if (action.has('--self-test')) process.exit(selfTest());
+  else process.exit(realRun());
 }
 
 export { resolve };
