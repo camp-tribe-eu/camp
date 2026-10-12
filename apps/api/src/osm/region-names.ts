@@ -144,16 +144,71 @@ export const FRENCH_DEPARTEMENTS: readonly string[] = [
 export const NATURAL_EARTH_FIXES: Readonly<
   Record<string, Readonly<Record<string, string>>>
 > = {
-  // Natural Earth 1:10m admin-1, `name` field. Checked against the
-  // Code officiel géographique (INSEE), which is what the state uses on
-  // its own documents.
+  // Natural Earth 1:10m admin-1, `name` field. Every row below was
+  // found by joining `ne_admin1` to the campsites that carry the name,
+  // and each is checked against the polygon's own `iso_3166_2` code —
+  // the thing that says which administrative unit it IS, independently
+  // of how this build spells it.
   FR: {
-    // INSEE 68. "Haut", not "Haute": the Rhine is masculine.
+    // FR-68. "Haut", not "Haute": the Rhine is masculine. 238 campsites.
     'Haute-Rhin': 'Haut-Rhin',
-    // INSEE 77. Two letters transposed in the source.
+    // FR-77. Two letters transposed in the source. 70 campsites.
     'Seien-et-Marne': 'Seine-et-Marne',
+    // FR-GF. The state's short form, and the one the other four
+    // overseas departments are listed under. No campsite carries it
+    // today; the row exists so a future import does not report a real
+    // department as unknown.
+    'Guyane française': 'Guyane',
+  },
+  DK: {
+    // DK-85. A stray `a`: Sjælland, not Sjaælland. 306 campsites —
+    // more than both French misspellings together, and the biggest
+    // single one found. Denmark's other four regions are listed under
+    // their Danish names (Syddanmark, Midtjylland, Nordjylland,
+    // Hovedstaden), so `Sjælland` is the consistent form, not `Zealand`.
+    Sjaælland: 'Sjælland',
+  },
+  IT: {
+    // IT-OR. 32 campsites.
+    Oristrano: 'Oristano',
+    // IT-KR. 29 campsites.
+    Crotene: 'Crotone',
+  },
+  HU: {
+    // HU-GY and HU-HV. A circumflex where Hungarian uses a double
+    // acute — the classic transliteration slip. 3 and 1 campsites.
+    Gyôr: 'Győr',
+    Hódmezôvásárhely: 'Hódmezővásárhely',
+  },
+  IE: {
+    // IE-LS. `Laoighis` is the pre-1922 anglicised spelling; the county
+    // is Laois. 2 campsites.
+    Laoighis: 'Laois',
   },
 };
+
+// 🔴 WHY THIS TABLE IS HAND-PICKED AND NOT GENERATED.
+//
+// Review proposed a rule: Natural Earth also carries `name_en`, so take
+// every polygon where `name <> name_en` and treat the difference as a
+// misspelling. Measured over the EU-27, that rule returns the wrong
+// thing almost every time — the two columns differ because one is the
+// local name and the other the English exonym:
+//
+//     DE  Bayern              Bavaria                 1 336 campsites
+//     DE  Nordrhein-Westfalen North Rhine-Westphalia  1 067
+//     NL  Noord-Brabant       North Brabant             415
+//     CZ  Jihočeský           South Bohemian            246
+//
+// Not one of those is an error, and "correcting" them would rename
+// 1 336 German pages to an English word the country does not use. The
+// same column even runs the other way: for FR-64 `name` is the correct
+// `Pyrénées-Atlantiques` and `name_en` is the mangled
+// `Pyrenees-Atlantics`.
+//
+// So `name <> name_en` is evidence that fits both readings, which makes
+// it evidence for neither. Each row above was decided one at a time
+// against the polygon's `iso_3166_2` code and the state's own spelling.
 
 const BY_COUNTRY: Readonly<Record<string, ReadonlySet<string>>> = {
   FR: new Set(FRENCH_DEPARTEMENTS),
