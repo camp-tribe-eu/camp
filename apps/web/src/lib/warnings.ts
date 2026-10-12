@@ -198,6 +198,41 @@ const isNamed = (s: string | null | undefined): s is string =>
  * box", because the whole card is that emptiness is a lie here.
  */
 /**
+ * ISO-3166-1 alpha-2, as our database spells a country, to the feed name
+ * MeteoAlarm uses.
+ *
+ * 🔴 TWO VOCABULARIES, AND THE FIRST VERSION OF THIS FILE PRETENDED
+ * THEY WERE ONE. `camping_spots.country` is `LV`; `Warning.country` is
+ * `latvia`, the feed's own slug. Comparing them as strings is never
+ * true, so the whole `unlocatable` branch below was dead on real data
+ * while nine green tests said otherwise — they compared the author's
+ * literal with the author's literal. Found by review.
+ *
+ * 🔴 WRITTEN OUT, not derived from `Intl.DisplayNames`. `countryName()`
+ * would produce most of these, and it reads its answers from ICU, which
+ * differs between Node builds. A mapping that changes with the runtime
+ * would take this branch out again, silently, on some machine nobody
+ * was looking at.
+ *
+ * 🔴 `AX` IS NOT A MEMBER STATE AND IS 19 CAMPSITES. Åland is a
+ * subdivision of Finland and MeteoAlarm has no feed for it; its
+ * warnings arrive under `finland`. The repository already states this
+ * rule in `apps/api/src/osm/eu.ts` as `ISO_SUBDIVISION_OF`, and this
+ * entry is that rule applied here rather than a second opinion.
+ */
+export const FEED_COUNTRY: Readonly<Record<string, string>> = {
+  AT: 'austria', BE: 'belgium', BG: 'bulgaria', HR: 'croatia',
+  CY: 'cyprus', CZ: 'czechia', DK: 'denmark', EE: 'estonia',
+  FI: 'finland', FR: 'france', DE: 'germany', GR: 'greece',
+  HU: 'hungary', IE: 'ireland', IT: 'italy', LV: 'latvia',
+  LT: 'lithuania', LU: 'luxembourg', MT: 'malta', NL: 'netherlands',
+  PL: 'poland', PT: 'portugal', RO: 'romania', SK: 'slovakia',
+  SI: 'slovenia', ES: 'spain', SE: 'sweden',
+  // Subdivision, not a member state. See above.
+  AX: 'finland',
+};
+
+/**
  * Which of the feed's warnings cover this campsite, and which ones we
  * cannot decide about.
  *
@@ -227,26 +262,53 @@ export function applicableWarnings(
   codes: readonly string[],
   warnings: readonly Warning[],
 ): { applicable: readonly Warning[]; unlocatable: readonly Warning[] } {
-  const mine = new Set(codes.map((c) => c.trim().toLowerCase()).filter(Boolean));
-  const here = country.trim().toLowerCase();
+  // 🔴 `typeof c === 'string'` before `.trim()`: a feed that put a null
+  // in `codes` threw here, and a panel that throws renders nothing,
+  // which on this card is the forbidden outcome wearing a stack trace.
+  const mine = new Set(
+    codes
+      .filter((c): c is string => typeof c === 'string')
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const here = FEED_COUNTRY[country.trim().toUpperCase()] ?? country.trim().toLowerCase();
 
   const applicable: Warning[] = [];
   const unlocatable: Warning[] = [];
 
   for (const w of warnings) {
     const areas = w.areas ?? [];
+    const sameCountry = (w.country ?? '').trim().toLowerCase() === here;
+    const codesOf = (a: (typeof areas)[number]) =>
+      (a.codes ?? []).filter((c): c is string => typeof c === 'string');
+
     const matched = areas.some((a) =>
-      (a.codes ?? []).some((c) => mine.has(c.trim().toLowerCase())),
+      codesOf(a).some((c) => mine.has(c.trim().toLowerCase())),
     );
     if (matched) {
       applicable.push(w);
       continue;
     }
-    // Not matched. Can we rule it out, or merely fail to place it?
-    const placeless = areas.some((a) => (a.codes ?? []).length === 0);
-    if (placeless && (w.country ?? '').trim().toLowerCase() === here) {
-      unlocatable.push(w);
+
+    // 🔴 WE CANNOT PLACE THE CAMPSITE EITHER, AND THAT IS THE SAME DOUBT.
+    //
+    // `mine` is empty for every campsite until the zone codes exist on
+    // the row (CAMP-287 step 1). A code-only matcher answers "nothing
+    // applies" to all of them, which is `clear` for the whole of Europe
+    // on the strength of having no data at all. Review measured that
+    // state and it is the one this panel exists to prevent.
+    if (mine.size === 0) {
+      if (sameCountry) unlocatable.push(w);
+      continue;
     }
+
+    // 🔴 `some`, NOT `every`, and review proved the difference bites: a
+    // warning naming one zone we can read and one we cannot is still a
+    // warning we cannot rule out. `every` survived the first mutation
+    // run because the only mixed-area case in the suite MATCHED, and a
+    // match leaves this loop before reaching here.
+    const placeless = areas.some((a) => codesOf(a).length === 0);
+    if (placeless && sameCountry) unlocatable.push(w);
   }
 
   return { applicable, unlocatable };
