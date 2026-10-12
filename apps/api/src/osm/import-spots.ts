@@ -243,7 +243,7 @@ export function mergeUnnamed(rows: StagingRow[]): StagingRow[] {
  * `s-by-strand-camping` in both — but a change to one would have moved
  * only half the path.
  */
-function slugify(name: string | null, osmRef: string): string {
+export function slugify(name: string | null, osmRef: string): string {
   const base = foldToAscii(name ?? '')
     .slice(0, 80)
     .replace(/-+$/g, '');

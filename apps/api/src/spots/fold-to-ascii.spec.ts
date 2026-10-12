@@ -1,4 +1,5 @@
 import { foldToAscii, slugifyRegion } from './canonical';
+import { slugify } from '../osm/import-spots';
 
 // CAMP-290 — the letters NFD cannot take apart.
 //
@@ -74,16 +75,84 @@ describe('🔴 what must NOT change', () => {
   });
 });
 
-describe('🔴 the region slug and the campsite slug agree', () => {
-  // They are two segments of one URL. When each had its own copy of the
-  // same five lines, a change to one would have moved half the path.
-  it('slugifyRegion is the fold', () => {
-    for (const name of ['Sjælland', 'Skåne', 'Łódź', 'Haut-Rhin']) {
-      expect(slugifyRegion(name)).toBe(foldToAscii(name));
-    }
+describe('🔴 every row of the table is reachable', () => {
+  // Review deleted 7 of the 11 pairs one at a time and the spec stayed
+  // green: `ħ`, `œ`, `þ`, `ð`, `ŋ`, `ŧ` and `ẞ` were carried by nothing.
+  // `ħ` is not decoration — it is the Maltese letter, and Mellieħa and
+  // Għajn Tuffieħa are the rows this card is fixing.
+  const EACH: ReadonlyArray<readonly [string, string]> = [
+    ['Mellieħa', 'mellieha'],
+    ['Għajn Tuffieħa', 'ghajn-tuffieha'],
+    ['Sjælland', 'sjaelland'],
+    ['ÆRØ', 'aero'],
+    ['Søby', 'soby'],
+    ['Straße', 'strasse'],
+    ['STRAẞE', 'strasse'],
+    ['Łódź', 'lodz'],
+    ['Đakovo', 'dakovo'],
+    ['Cœur', 'coeur'],
+    ['Þingvellir', 'thingvellir'],
+    ['Ðalvík', 'dalvik'],
+    ['Sámi ŋ', 'sami-n'],
+    ['ŧ', 't'],
+  ];
+
+  it.each(EACH)('%s → %s', (from, to) => {
+    expect(foldToAscii(from)).toBe(to);
   });
 
-  it('an absent region is still an empty segment, not "null"', () => {
+  it('🔴 and the decomposable ones still go through NFD, not the table', () => {
+    // `ǿ` is ø + acute, `ǽ` is æ + acute. The table only sees them
+    // because the decomposition runs first.
+    expect(foldToAscii('ǿ')).toBe('o');
+    expect(foldToAscii('ǽ')).toBe('ae');
+  });
+});
+
+describe('🔴 the campsite slug, which is what this PR actually changes', () => {
+  // Review replaced `.slice(0, 80)` with `.slice(0, 12)` and removed
+  // the trailing-hyphen trim, and the whole 1 245-test suite stayed
+  // green: the function this card rewrites was reached by nothing.
+  it('folds the letters NFD cannot split', () => {
+    expect(slugify('Søby Strand Camping', 'w1')).toBe('soby-strand-camping');
+    expect(slugify('Großostheim', 'w1')).toBe('grossostheim');
+    expect(slugify('Camping & Feriecenter Samsø', 'w1')).toBe(
+      'camping-feriecenter-samso',
+    );
+  });
+
+  it('🔴 still stops at 80 characters', () => {
+    const long = `${'a'.repeat(100)} camping`;
+    expect(slugify(long, 'w1')).toHaveLength(80);
+  });
+
+  it('🔴 and never ends on the hyphen the cut leaves behind', () => {
+    // 'a'×79 + ' ' + … folds to 79 letters, a hyphen at 80.
+    const onTheEdge = `${'a'.repeat(79)} pins`;
+    expect(slugify(onTheEdge, 'w1')).toBe('a'.repeat(79));
+  });
+
+  it('a name with nothing a URL can carry falls back to the OSM id', () => {
+    expect(slugify('', 'w123')).toBe('spot-w123');
+    expect(slugify(null, 'w123')).toBe('spot-w123');
+    expect(slugify('—— ——', 'w123')).toBe('spot-w123');
+  });
+});
+
+describe('🔴 the region segment does NOT move yet', () => {
+  // `canonicalPath` computes it live and the page is statically
+  // exported with `dynamicParams = false`, so folding here would make
+  // 350 published pages 404 rather than 301. CAMP-289 brings the fold
+  // and the redirects together.
+  it('still spells the undecomposable letters as a hyphen', () => {
+    expect(slugifyRegion('Sjaælland')).toBe('sja-lland');
+    expect(slugifyRegion('Łódź')).toBe('odz');
+    expect(slugifyRegion('Mellieħa')).toBe('mellie-a');
+  });
+
+  it('…and is unchanged for everything else', () => {
+    expect(slugifyRegion('Skåne')).toBe('skane');
+    expect(slugifyRegion('Šibensko-Kninska')).toBe('sibensko-kninska');
     expect(slugifyRegion(null)).toBe('');
     expect(slugifyRegion('')).toBe('');
   });

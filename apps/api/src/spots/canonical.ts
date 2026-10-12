@@ -94,13 +94,19 @@ const UNDECOMPOSABLE: ReadonlyArray<readonly [RegExp, string]> = [
  * drift apart.
  */
 export function foldToAscii(text: string): string {
-  let out = text;
-  // The whole letters first — otherwise NFD leaves them and the
-  // character class below eats them.
+  // 🔴 AFTER the decomposition, not before, and the first version had
+  // it the other way round with a comment claiming the opposite.
+  //
+  // Review measured it: `ǿ` is ø + acute and `ǽ` is æ + acute, so NFD
+  // splits the mark off and leaves the base letter for this table to
+  // take. Folding first meant NFD never saw them and the character
+  // class turned them into a hyphen — the very defect this function
+  // exists to remove. No row in the database carries one today, which
+  // is exactly why the wrong order survived: the comment asserted a
+  // reason nobody had checked.
+  let out = text.normalize('NFD').replace(COMBINING, '');
   for (const [from, to] of UNDECOMPOSABLE) out = out.replace(from, to);
   return out
-    .normalize('NFD')
-    .replace(COMBINING, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
@@ -108,7 +114,29 @@ export function foldToAscii(text: string): string {
 
 export function slugifyRegion(region: string | null): string {
   if (!region) return '';
-  return foldToAscii(region);
+  // 🔴 NOT `foldToAscii`, AND THIS IS THE WHOLE POINT OF THE REVIEW
+  // THAT CAUGHT IT.
+  //
+  // `canonicalPath` builds the region segment from this on every call,
+  // and the campsite page declares `dynamicParams = false` with
+  // `generateStaticParams` taken from the current index. So changing
+  // this does not add a URL — it MOVES one, and the old path stops
+  // being built at all: 350 published pages would answer 404 rather
+  // than 301 (DK Sjaælland 306, PL Łódź 41, MT Mellieħa 3, measured).
+  //
+  // No redirect could catch them either: `SPOT_REDIRECTS` is generated
+  // from `spot_links`, which describes "campsite A → campsite B", and
+  // knows nothing about a region being renamed.
+  //
+  // CAMP-288 refused this same step one day ago, in writing, and this
+  // function would have taken it by accident. The fold arrives here
+  // together with the redirects, in CAMP-289 — not before.
+  return region
+    .normalize('NFD')
+    .replace(COMBINING, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 /**
