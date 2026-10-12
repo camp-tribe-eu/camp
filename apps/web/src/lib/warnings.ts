@@ -126,7 +126,25 @@ export type NoFreshReason =
    * thing this panel could do. So the panel says it is not showing
    * everything instead.
    */
-  | 'unattributable';
+  | 'unattributable'
+  /**
+   * 🔴 A warning we cannot PLACE, which is not the same as no warning.
+   *
+   * Matching a campsite to a warning is done on zone codes — the
+   * `SCHEME:VALUE` pairs in `area.codes`. Measured against all 27 live
+   * feeds on 12.10.2026: of 392 areas carrying 139 current warnings,
+   * **59 areas had no codes at all** — only a polygon — and for 21 of
+   * the 139 warnings that was true of every one of their areas. They
+   * were Latvia (39 areas), Estonia (14) and Sweden (6).
+   *
+   * A code-only matcher answers "not applicable" for those, and that
+   * answer is indistinguishable from "there is nothing here". For a
+   * Latvian campsite during a Latvian storm that is the worst sentence
+   * this panel could print — the same reasoning as `unattributable`
+   * above, arrived at from the other direction: there the warning may
+   * not be shown, here it cannot be located.
+   */
+  | 'unlocatable';
 
 /** True when `fetchedAt` is inside the licence's ten minutes. */
 export function isFresh(fetchedAt: string | null | undefined, now: Date): boolean {
@@ -179,10 +197,66 @@ const isNamed = (s: string | null | undefined): s is string =>
  * renders all three; there is no fourth value meaning "render an empty
  * box", because the whole card is that emptiness is a lie here.
  */
+/**
+ * Which of the feed's warnings cover this campsite, and which ones we
+ * cannot decide about.
+ *
+ * 🔴 CODES, NEVER COUNTRY. A Croatian warning on every Croatian campsite
+ * is an alarm where there is none, and the card that asked for this
+ * panel forbids it in those words. The unit of truth is the zone the
+ * issuing service named, which reaches us as `SCHEME:VALUE` in
+ * `area.codes` — `EMMA_ID:HR012`, `NUTS3:FR712`, `WARNCELLID:107215000`.
+ *
+ * 🔴 CASE-INSENSITIVE, because foreign sources do not agree with
+ * themselves about it. The comparison lower-cases both sides and keeps
+ * the original strings; a zone written `EMMA_ID:FR123` in one feed and
+ * `emma_id:fr123` in another is one zone, and treating them as two
+ * would silently drop warnings for a reason nobody would ever look for.
+ *
+ * 🔴 THE SECOND RETURN VALUE IS THE POINT. `unlocatable` holds warnings
+ * in THIS campsite's country that carry at least one area with no codes
+ * and did not match by code. We cannot say they apply here, and we must
+ * not say they do not. `warningState` turns a non-empty list into
+ * `no-fresh-data`, never into `clear`.
+ *
+ * Scoped by country on purpose: a Latvian warning nobody can place is a
+ * reason to stay quiet in Latvia, not in Portugal.
+ */
+export function applicableWarnings(
+  country: string,
+  codes: readonly string[],
+  warnings: readonly Warning[],
+): { applicable: readonly Warning[]; unlocatable: readonly Warning[] } {
+  const mine = new Set(codes.map((c) => c.trim().toLowerCase()).filter(Boolean));
+  const here = country.trim().toLowerCase();
+
+  const applicable: Warning[] = [];
+  const unlocatable: Warning[] = [];
+
+  for (const w of warnings) {
+    const areas = w.areas ?? [];
+    const matched = areas.some((a) =>
+      (a.codes ?? []).some((c) => mine.has(c.trim().toLowerCase())),
+    );
+    if (matched) {
+      applicable.push(w);
+      continue;
+    }
+    // Not matched. Can we rule it out, or merely fail to place it?
+    const placeless = areas.some((a) => (a.codes ?? []).length === 0);
+    if (placeless && (w.country ?? '').trim().toLowerCase() === here) {
+      unlocatable.push(w);
+    }
+  }
+
+  return { applicable, unlocatable };
+}
+
 export function warningState(
   feed: WarningFeed | null | undefined,
   applicable: readonly Warning[],
   now: Date,
+  unlocatable: readonly Warning[] = [],
 ): WarningState {
   const fetchedAt = feed?.meta?.fetchedAt ?? null;
   const ageMinutes = ageInMinutes(fetchedAt, now);
@@ -214,8 +288,27 @@ export function warningState(
   }
 
   const credit = creditFor(showable);
-  if (!credit) return { kind: 'clear', fetchedAt };
-  return { kind: 'warnings', warnings: showable, credit, fetchedAt };
+
+  // 🔴 ORDER, AND IT IS A SAFETY DECISION, NOT A STYLE ONE.
+  //
+  // `unattributable` above refuses to show a partial set, because the
+  // licence forbids showing those records at all. This is the opposite
+  // case: what we matched we MAY show, we simply cannot promise the set
+  // is complete. Hiding a warning we did match, in order to admit there
+  // may be another we could not place, would trade a certainty for a
+  // doubt — so a matched warning is always shown.
+  //
+  // It is only when we matched NOTHING that the distinction bites, and
+  // there it decides everything: `clear` is a measurement ("a fresh read
+  // found nothing for this place"), and we have not made that
+  // measurement for a warning we could not locate. Saying `clear` there
+  // would be the panel's worst sentence, printed to the one reader it
+  // was built for.
+  if (credit) return { kind: 'warnings', warnings: showable, credit, fetchedAt };
+  if (unlocatable.length > 0) {
+    return { kind: 'no-fresh-data', reason: 'unlocatable', fetchedAt, ageMinutes };
+  }
+  return { kind: 'clear', fetchedAt };
 }
 
 /**
@@ -276,6 +369,12 @@ export function noFreshDataSentence(
         `The last official warnings we hold were read ${age} ago, ` +
         `past the ${FRESH_FOR_MINUTES} minutes this feed may be redistributed within. ` +
         `This is not a statement that conditions are calm.`
+      );
+    case 'unlocatable':
+      return (
+        'At least one current warning for this country names an area we ' +
+        'cannot match to this campsite, so we cannot tell whether it ' +
+        'applies here. This is not a statement that conditions are calm.'
       );
     case 'unattributable':
       return (
