@@ -21,6 +21,10 @@ import { judgeByIdentity, upperBoundPercent } from './link-evidence';
 import {
   GONE_LIST_SQL,
   isSecondarySql,
+  linkedSecondariesJoin,
+  mergeAllLinked,
+  mergedFieldSql,
+  mergedStarsSql,
   REDIRECT_PAIRS_SQL,
   REDIRECT_LIST_SQL,
   RESOLVED_REDIRECTS_SQL,
@@ -715,6 +719,208 @@ async function main(): Promise<void> {
         await db.query('ROLLBACK');
       }
       console.log('  (rolled back — the database is exactly as it was)');
+    }
+
+    // ------------------------------------------------------------------
+    // 🔴 CAMP-280 REHEARSAL: two secondaries on one primary.
+    //
+    // The shape the unique index forbids today, rehearsed before the
+    // index is dropped rather than after. A campsite can be three rows —
+    // an OSM area, the way it was exported from, and a DATAtourisme
+    // record — and 23 were on 12.10.2026, seven of them with their star
+    // rating a level below where the merge could reach it.
+    //
+    // DROP INDEX is transactional in Postgres, so the forbidden shape
+    // can be planted and rolled back like any other. That is the only
+    // honest way to answer "will the read path hold" before committing
+    // to it.
+    console.log('\n--- rehearsal: one primary, two secondaries ---');
+    const spare = await db.query<{ id: string }>(
+      `SELECT s.id
+         FROM camping_spots s
+        WHERE NOT EXISTS (SELECT 1 FROM spot_links l
+                           WHERE l.unlinked_at IS NULL
+                             AND (l.primary_id = s.id OR l.secondary_id = s.id))
+        ORDER BY s.id
+        LIMIT 3`,
+    );
+    if (spare.rowCount !== 3) {
+      console.error('  ✗ need three unlinked rows to rehearse two secondaries');
+      failed++;
+    } else {
+      const [primary, first, second] = spare.rows.map((r) => r.id);
+
+      // The shipped read path, nothing retyped.
+      const READ = `SELECT s.id, s.name, s.stars, s.description,
+                           s.description_lang, s.website, s.contact,
+                           s.sources, s.owner_overrides,
+                           ${mergedStarsSql('s')} AS sql_stars,
+                           -- 🔴 website sits on the SECOND secondary, so
+                           -- this is the column that proves the SQL-side
+                           -- merge walks past a secondary that has not
+                           -- got the field. stars alone would have been
+                           -- satisfied by the old first-row-only read.
+                           ${mergedFieldSql('s', 'website', 'text')} AS sql_website,
+                           linked.rows AS linked_rows
+                      FROM camping_spots s${linkedSecondariesJoin()}
+                     WHERE s.id = $1`;
+
+      // 🔴 Content belongs to the ROW; only the insert order varies.
+      //
+      // The first draft tied the two together — the row listed first
+      // also got the French description — so "swap the order" also
+      // swapped the content, and a missing tiebreak would have been
+      // invisible. Here `first` always carries stars and French text and
+      // `second` always carries the website and German text, whichever
+      // order the links are made in.
+      const dress = async (): Promise<void> => {
+        await db.query(
+          `UPDATE camping_spots
+              SET region = coalesce(region, 'Rehearsal'), missing_since = NULL,
+                  stars = NULL, website = NULL, description = NULL,
+                  description_lang = NULL
+            WHERE id = ANY($1::uuid[])`,
+          [[primary, first, second]],
+        );
+        // A check constraint in the schema refuses a description without
+        // a language — which is how this rehearsal learned that the
+        // pairing is enforced by the database and not only by the merge.
+        await db.query(
+          `UPDATE camping_spots
+              SET stars = 4, description = 'from first', description_lang = 'fr'
+            WHERE id = $1`,
+          [first],
+        );
+        await db.query(
+          `UPDATE camping_spots
+              SET website = 'https://example.test/second',
+                  description = 'from second', description_lang = 'de'
+            WHERE id = $1`,
+          [second],
+        );
+      };
+
+      const link = async (
+        order: string[],
+        when: 'apart' | 'tied',
+      ): Promise<Record<string, unknown>> => {
+        await db.query(`DELETE FROM spot_links WHERE rule = 'rehearsal-two'`);
+        await dress();
+        for (let i = 0; i < order.length; i++) {
+          await db.query(
+            `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                     name_similarity, rule, created_at)
+             VALUES ($1, $2, 0, 1, 'rehearsal-two',
+                     now() - ($3 || ' minutes')::interval)`,
+            [primary, order[i], when === 'tied' ? 60 : 60 - i * 10],
+          );
+        }
+        const r = await db.query(READ, [primary]);
+        return mergeAllLinked(r.rows[0] as Record<string, unknown>);
+      };
+
+      await db.query('BEGIN');
+      try {
+        await db.query('DROP INDEX idx_spot_links_primary_live');
+
+        const a = await link([first, second], 'apart');
+        const bothRead =
+          a.stars === 4 && a.website === 'https://example.test/second';
+        const earlierWins =
+          a.description === 'from first' && a.description_lang === 'fr';
+        // 🔴 The SQL-side single-field merge must agree with the JS one,
+        // or a campsite shows four stars on its page and none in the
+        // listing that links to it.
+        const sqlAgrees =
+          a.sql_stars === 4 && a.sql_website === 'https://example.test/second';
+        console.log(
+          `  ${bothRead ? '✓' : '✗'} a field from EACH secondary reaches the page`,
+        );
+        console.log(
+          `  ${earlierWins ? '✓' : '✗'} where both have one, the earlier link wins, with its language`,
+        );
+        console.log(
+          `  ${sqlAgrees ? '✓' : '✗'} the SQL-side merge agrees, including past an empty secondary`,
+        );
+        if (!bothRead || !earlierWins || !sqlAgrees) failed++;
+
+        // Same rows and the same content, opposite link order: the
+        // answer must follow the ORDER.
+        const b = await link([second, first], 'apart');
+        const followsOrder =
+          b.description === 'from second' && b.description_lang === 'de';
+        console.log(
+          `  ${followsOrder ? '✓' : '✗'} made the other way round, the other one wins`,
+        );
+        if (!followsOrder) failed++;
+
+        // 🔴 And the case the index was added for: two links made in the
+        // same instant. created_at ties, so only the id can decide. The
+        // two runs below differ ONLY in the order the rows are inserted.
+        //
+        // 🔴 Said plainly: this check passes with the id tiebreak
+        // DELETED. Measured — the planner currently returns these rows
+        // in id order anyway, so it does the tiebreak's job by accident.
+        // That the accident is real was checked separately: two rows
+        // with an identical timestamp, aggregated with ORDER BY on that
+        // timestamp alone, come back in INSERT order and swap when the
+        // inserts swap. So the tiebreak is a contract rather than an
+        // observed behaviour here, and what holds it is the text
+        // assertion in links.spec.ts, which does fail when it is
+        // removed. This check holds the end-to-end property; it does not
+        // hold that clause.
+        const t1 = await link([first, second], 'tied');
+        const t2 = await link([second, first], 'tied');
+        const stable = t1.description === t2.description;
+        console.log(
+          `  ${stable ? '✓' : '✗'} with created_at tied, insert order does NOT decide`,
+        );
+        if (!stable) failed++;
+
+        // 🔴 The card's other half: with two secondaries, BOTH of their
+        // URLs must redirect to the primary, and neither to the other.
+        // One secondary pointing at the other is a chain that only
+        // exists because the model grew a second branch, and it would
+        // send a reader through two hops to a page that the first hop
+        // already hid.
+        const pathOfRow = async (id: string): Promise<string | null> => {
+          const r = await db.query<{
+            country: string;
+            region: string | null;
+            slug: string;
+          }>(`SELECT country, region, slug FROM camping_spots WHERE id = $1`, [
+            id,
+          ]);
+          const row = r.rows[0];
+          return row ? canonicalPath(row.country, row.region, row.slug) : null;
+        };
+        const pPrimary = await pathOfRow(primary);
+        const pFirst = await pathOfRow(first);
+        const pSecond = await pathOfRow(second);
+        const two = await bothLists();
+        const bothToPrimary =
+          pFirst !== null &&
+          pSecond !== null &&
+          two.redirects.get(pFirst) === pPrimary &&
+          two.redirects.get(pSecond) === pPrimary;
+        const neitherBuried =
+          !two.gone.has(pFirst ?? '') && !two.gone.has(pSecond ?? '');
+        console.log(
+          `  ${bothToPrimary ? '✓' : '✗'} both secondaries redirect to the primary, neither to the other`,
+        );
+        console.log(
+          `  ${neitherBuried ? '✓' : '✗'} and neither is announced gone`,
+        );
+        if (!bothToPrimary || !neitherBuried) failed++;
+      } catch (err) {
+        // 🔴 A rehearsal that dies is not a rehearsal that failed; it is
+        // one nobody read. The schema refused a row here once already.
+        console.error(`  ✗ the rehearsal could not run: ${String(err)}`);
+        failed++;
+      } finally {
+        await db.query('ROLLBACK');
+      }
+      console.log('  (rolled back — the index and the rows are as they were)');
     }
 
     // ------------------------------------------------------------------

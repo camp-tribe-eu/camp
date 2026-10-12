@@ -10,9 +10,9 @@ import { canonicalPath, readAmenities, slugifyRegion } from './canonical';
 // queries aggregate over campsites rather than rendering one.
 import {
   GONE_LIST_SQL,
-  LINKED_SECONDARY_JOIN,
+  linkedSecondariesJoin,
   mergedNameSql,
-  mergeLinked,
+  mergeAllLinked,
   notSecondarySql,
   REDIRECT_LIST_SQL,
 } from './links';
@@ -229,9 +229,12 @@ export class SpotsService {
               -- s.id alone would have halved the feature and the
               -- measurement would still have looked plausible.
               ${tariffsSql('s.id')} AS tariffs,
-              ${tariffsSql('linked.id')} AS linked_tariffs,
               ${withheldTariffCountSql('s.id')} AS tariffs_withheld,
-              ${withheldTariffCountSql('linked.id')} AS linked_tariffs_withheld,
+              -- 🔴 CAMP-280. The secondaries' tariffs are read INSIDE the
+              -- lateral, once per row, because there can be more than one
+              -- of them and a price list belongs to the record it was
+              -- published in.
+              linked.rows AS linked_rows,
               -- 🔴 CAMP-168, and read for the primary row ONLY, unlike
               -- the tariffs. A bathing water is chosen by geography, and
               -- linked secondary is the same campsite under another
@@ -253,9 +256,12 @@ export class SpotsService {
               -- near this campsite" from "no cameras anywhere yet".
               EXISTS (SELECT 1 FROM webcams LIMIT 1) AS webcams_imported,
               (NOT ${NOTHING_TO_SAY_SQL}
-               OR linked.stars IS NOT NULL
-               OR linked.description IS NOT NULL) AS indexable
-         FROM camping_spots s${LINKED_SECONDARY_JOIN}
+               OR linked.has_stars
+               OR linked.has_description) AS indexable
+         FROM camping_spots s${linkedSecondariesJoin({
+           linked_tariffs: tariffsSql('x.id'),
+           linked_tariffs_withheld: withheldTariffCountSql('x.id'),
+         })}
         WHERE s.slug = $1
         LIMIT 1`,
       [slug],
@@ -276,7 +282,7 @@ export class SpotsService {
       });
     }
 
-    return toView(mergeLinked(row));
+    return toView(mergeAllLinked(row));
   }
 
   /**
@@ -593,9 +599,9 @@ export class SpotsService {
               -- alone would noindex a page that now has stars and a
               -- description on it.
               (NOT ${NOTHING_TO_SAY_SQL}
-               OR linked.stars IS NOT NULL
-               OR linked.description IS NOT NULL) AS indexable
-         FROM camping_spots s${LINKED_SECONDARY_JOIN}
+               OR linked.has_stars
+               OR linked.has_description) AS indexable
+         FROM camping_spots s${linkedSecondariesJoin()}
         WHERE s.region IS NOT NULL AND s.missing_since IS NULL
           -- 🔴 CAMP-144. This is the line that stops the second page
           -- existing at all: the static site generates exactly the URLs
