@@ -22,6 +22,7 @@ import 'dotenv/config';
 import { Client } from 'pg';
 import { mapAmenities, mapContact, mapSpotType, OsmTags } from './tag-mapping';
 import { isEuMemberState } from './eu';
+import { foldToAscii } from '../spots/canonical';
 import { correctRegion, isKnownRegion } from './region-names';
 
 const COUNTRY = (process.argv[2] ?? '').toUpperCase();
@@ -232,14 +233,20 @@ export function mergeUnnamed(rows: StagingRow[]): StagingRow[] {
 }
 
 /** Latin-ish slug. Falls back to the OSM id when a name yields nothing. */
+/**
+ * The campsite's own address segment.
+ *
+ * 🔴 CAMP-290: the fold lives in spots/canonical.ts and is shared with
+ * `slugifyRegion`, because a campsite's address and the address of the
+ * region it sits in are two segments of ONE URL. When the two had their
+ * own copies of the same five lines, `Søby Strand Camping` became
+ * `s-by-strand-camping` in both — but a change to one would have moved
+ * only half the path.
+ */
 function slugify(name: string | null, osmRef: string): string {
-  const base = (name ?? '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
+  const base = foldToAscii(name ?? '')
+    .slice(0, 80)
+    .replace(/-+$/g, '');
   return base || `spot-${osmRef}`;
 }
 
