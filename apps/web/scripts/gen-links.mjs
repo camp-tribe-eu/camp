@@ -22,14 +22,26 @@
 // true on the first run and nowhere near true afterwards:
 //
 //     first run              2 986 pairs   288 923 bytes   55.1%
-//     12.10.2026             4 439 pairs   419 354 bytes   80.0%
+//     12.10.2026, morning    4 439 pairs   419 354 bytes   80.0%
+//     12.10.2026, after      4 455 pairs   420 858 bytes   80.3%
+//     CAMP-281 folded 16
 //
 // A path is roughly 95 bytes once both sides are counted, so the room
-// left on that date was about 1 100 more pairs. One ordinary run of the
-// reconciler has added more than that: CAMP-274 made 1 457 links in one
-// pass. Which is why the size is now printed on EVERY build and warned
-// about from 75%, instead of appearing for the first time in the run
-// that refuses to deploy.
+// left was about 1 100 more pairs. One ordinary run of the reconciler
+// has added more than that: CAMP-274 made 1 457 links in one pass.
+//
+// 🔴 Two entries on one day, and that is the point rather than an
+// oversight: a number written into a comment starts going stale the
+// moment it is written, and this one drifted 1 504 bytes between two
+// commits of the same card. So the live figure is printed on EVERY
+// build and warned about from 75%; the table above is history, kept to
+// show the slope, not a claim about today.
+//
+// (420 858 is the size of the generated file on disk, read with wc -c.
+// An earlier commit said 420 864 — which was this script's own rounded
+// "411.0 KB" multiplied back by 1024. Reading a tool's printout instead
+// of the thing it printed about is how the first wrong number in this
+// comment was born too.)
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { enforceEdgeBudget } from './edge-budget.mjs';
