@@ -63,9 +63,11 @@ import { pathToFileURL } from 'node:url';
  * A command-line token meant as a flag, as opposed to a value.
  *
  * `-` and `--` are the conventional separators and name nothing, so they
- * are values. Everything else that starts with a dash is a flag, single
- * dash included: `-self-test` is a typo for an action, not a filename,
- * and reading it as a positional value is how the typo stayed quiet.
+ * are not flags — and `chooseAction` then refuses them as stray, because
+ * a script that takes no argument has no use for a separator either.
+ * Everything else that starts with a dash is a flag, single dash
+ * included: `-self-test` is a typo for an action, not a filename, and
+ * reading it as a positional value is how the typo stayed quiet.
  */
 export function isFlag(token) {
   return token.startsWith('-') && token !== '-' && token !== '--';
@@ -81,22 +83,53 @@ export function flagName(token) {
  * Which of the actions this script knows were asked for — and a refusal
  * for anything else.
  *
+ * 🔴 A STRAY WORD IS REFUSED TOO, and that was a review finding. The
+ * first version filtered argv down to the things that look like flags
+ * and said nothing about the rest, so `self-test`, `selftest`, a
+ * `—self-test` written with an em dash, and `' --self-test'` with a
+ * leading space all came back as an EMPTY set — the script ran its
+ * default action and exited 0, which is the same green nothing this card
+ * is about, reached by four more routes. A script that takes no
+ * positional argument has no use for a word it was not expecting.
+ *
  * @param {string[]} argv   usually `process.argv.slice(2)`
  * @param {string[]} known  every flag this script acts on
  * @param {string} who      the script's own name, for the message
+ * @param {string[]} takesValue  flags followed by a value, e.g. --predict
  * @returns {Set<string>} the known flags actually present
- * @throws when a flag is not in `known`
+ * @throws when anything in argv is not a known flag or its value
  */
-export function chooseAction(argv, known, who) {
-  const seen = argv.filter(isFlag).map(flagName);
+export function chooseAction(argv, known, who, takesValue = []) {
+  const seen = [];
+  const stray = [];
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (!isFlag(token)) {
+      stray.push(token);
+      continue;
+    }
+    const name = flagName(token);
+    seen.push(name);
+    // `--predict out.json` — the next token belongs to the flag, not to
+    // this list. `--predict=out.json` carries its own value already.
+    if (takesValue.includes(name) && !token.includes('=')) i++;
+  }
   const unknown = seen.filter((flag) => !known.includes(flag));
   if (unknown.length > 0) {
     throw new Error(
       `${who}: unknown flag ${unknown.join(', ')}. ` +
-        `This script knows ${known.join(', ')}. ` +
+        `This script knows ${known.join(', ') || '(no flags)'}. ` +
         'An unrecognised flag used to mean "quietly do the default thing", ' +
         'which is how `--selftest` kept a CI step green while the ' +
         'self-test never ran (CAMP-285).',
+    );
+  }
+  if (stray.length > 0) {
+    throw new Error(
+      `${who}: unexpected argument ${stray.map((t) => JSON.stringify(t)).join(', ')}. ` +
+        `This script knows ${known.join(', ') || '(no flags)'} and takes nothing else. ` +
+        'A dash lost to a copy-paste, or an em dash, reads as a word and ' +
+        'used to be ignored in silence (CAMP-285).',
     );
   }
   return new Set(seen);
@@ -135,19 +168,36 @@ const CASES = [
   ['an unknown `--flag=value` still throws', () => {
     try { chooseAction(['--predic=f.json'], ['--predict'], 'x'); return false; } catch { return true; }
   }],
-  ['a positional value is not a flag', () => {
-    const got = chooseAction(['--predict', 'f.json'], ['--predict'], 'x');
+  ['a declared flag swallows its value', () => {
+    const got = chooseAction(['--predict', 'f.json'], ['--predict'], 'x', ['--predict']);
     return got.size === 1 && got.has('--predict');
   }],
-  ['a bare `--` separator is not a flag', () => chooseAction(['--'], [], 'x').size === 0],
-  ['a bare `-` is not a flag', () => chooseAction(['-'], [], 'x').size === 0],
+  ['🔴 a bare word is refused — the script takes none', () => {
+    try { chooseAction(['--predict', 'f.json'], ['--predict'], 'x'); return false; }
+    catch (e) { return e.message.includes('unexpected argument'); }
+  }],
+  ['🔴 `self-test` without dashes is refused', () => {
+    try { chooseAction(['self-test'], ['--self-test'], 'x'); return false; } catch { return true; }
+  }],
+  ['🔴 an em dash is not a dash', () => {
+    try { chooseAction(['\u2014self-test'], ['--self-test'], 'x'); return false; } catch { return true; }
+  }],
+  ['🔴 a leading space is refused', () => {
+    try { chooseAction([' --self-test'], ['--self-test'], 'x'); return false; } catch { return true; }
+  }],
+  ['a bare `--` names no action, so it is refused', () => {
+    try { chooseAction(['--'], [], 'x'); return false; } catch { return true; }
+  }],
+  ['a bare `-` likewise', () => {
+    try { chooseAction(['-'], [], 'x'); return false; } catch { return true; }
+  }],
   ['isFlag says what it means', () => isFlag('--a') && isFlag('-a') && !isFlag('a') && !isFlag('--') && !isFlag('-')],
   ['flagName cuts at the first `=` only', () => flagName('--a=b=c') === '--a' && flagName('--a') === '--a'],
 ];
 
 // 🔴 The count is asserted, because a case that stops being reached
 // looks exactly like a case that passed.
-const EXPECTED_CASES = 15;
+const EXPECTED_CASES = 19;
 
 function selfTest() {
   let failed = 0;

@@ -150,6 +150,20 @@ function selfTest() {
       ok = false;
     }
   }
+  // 🔴 The counts are asserted, and this file was the one the review
+  // caught without them. Delete a planted secret and the step prints
+  // "7 planted secrets caught" and exits 0 — a scanner with one fewer
+  // thing to catch reads exactly like a scanner that caught everything.
+  const EXPECTED_PLANTED = 8;
+  const EXPECTED_BENIGN = 8;
+  if (planted.length !== EXPECTED_PLANTED || benign.length !== EXPECTED_BENIGN) {
+    console.error(
+      `✗ ${planted.length} planted and ${benign.length} benign lines, ` +
+        `expected ${EXPECTED_PLANTED} and ${EXPECTED_BENIGN}. A case that ` +
+        'stopped being rehearsed prints what a passing case prints.',
+    );
+    ok = false;
+  }
   // 🔴 The line a CI step greps for, and it names this file. Two
   // scripts printing "✓ self-test passed" can satisfy each other's grep;
   // a basename cannot, because the filesystem already made it unique.

@@ -78,14 +78,61 @@ export function stepsIn(text) {
   return steps;
 }
 
+/**
+ * One shell command per entry, as a list of tokens.
+ *
+ * 🔴 TOKENS, NOT A REGEX, and review is the reason. The first version
+ * matched `node <path> --self-test` as one piece of text, so writing the
+ * SAME command over two lines —
+ *
+ *     node scripts/security/check-secrets.mjs \
+ *       --self-test
+ *
+ * — made the step disappear from the survey entirely: 45 steps became
+ * 44, the allow-list said nothing, and the check exited 0 while a locked
+ * step had quietly become unlocked. `bash x.sh --self-test` and a quoted
+ * path were missed for the same reason. A pattern that has to anticipate
+ * every spelling of a command loses to the shell.
+ */
+export function commandsIn(run) {
+  const joined = run.replace(/\\\n\s*/g, ' ');
+  return joined
+    .split(/\n|\|\||&&|[|;\n]/)
+    .map((part) => part.trim().split(/\s+/).filter(Boolean))
+    .filter((tokens) => tokens.length > 0);
+}
+
+const SCRIPT_TOKEN = /^["']?([^"']*\.(?:mjs|cjs|js|ts|sh))["']?$/;
+
 /** The scripts a step runs with `--self-test`, by path. */
 export function selfTested(run) {
   const found = [];
-  // `node x.mjs --self-test`, `npx ts-node x.ts --self-test`,
-  // `node --experimental-strip-types x.mjs --self-test`, `./x.sh --self-test`.
-  const re = /(?:^|\s|\|\s*)(?:npx\s+ts-node\s+|node\s+(?:--[\w-]+\s+)*|\.\/)(\S+?\.(?:mjs|cjs|js|ts|sh))\s+--self-test\b/g;
-  for (const m of run.matchAll(re)) found.push(m[1]);
+  for (const tokens of commandsIn(run)) {
+    if (!tokens.includes('--self-test')) continue;
+    const script = tokens
+      .map((t) => SCRIPT_TOKEN.exec(t)?.[1]?.replace(/^\.\//, ''))
+      .find(Boolean);
+    // 🔴 `null` rather than nothing: a `--self-test` this file cannot
+    // attribute to a script is the hole, not an absence. survey() turns
+    // it into an error instead of letting the step vanish.
+    found.push(script ?? null);
+  }
   return found;
+}
+
+/**
+ * Every `--self-test` written in a workflow, however it is spelled.
+ *
+ * The tripwire for the parser above: if the two counts disagree, this
+ * file has stopped reading something the workflow still runs. YAML
+ * comment lines do not count, because they run nothing.
+ */
+export function selfTestMentions(text) {
+  return text
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n')
+    .split('--self-test').length - 1;
 }
 
 /** The literal a step greps its own output for, if it does. */
@@ -150,11 +197,26 @@ function survey() {
         name: step.name,
         key: `${rel} :: ${step.name}`,
         pattern: grepPattern(step.run),
-        problem: auditStep({ ...step, scripts }),
+        unreadable: scripts.includes(null),
+        problem: scripts.includes(null)
+          ? { name: step.name, why: 'runs a --self-test this check cannot attribute to a script' }
+          : auditStep({ ...step, scripts }),
       });
     }
   }
   return all;
+}
+
+/** Workflows whose `--self-test` count the survey does not account for. */
+function unaccounted(all) {
+  const out = [];
+  for (const file of workflowFiles()) {
+    const rel = path.relative(ROOT, file);
+    const written = selfTestMentions(readFileSync(file, 'utf8'));
+    const seen = all.filter((s) => s.file === rel).length;
+    if (written !== seen) out.push({ file: rel, written, seen });
+  }
+  return out;
 }
 
 function run(action) {
@@ -207,10 +269,27 @@ function run(action) {
     );
   }
 
-  const locked = all.length - allowed.size;
+  // 🔴 Counted, not subtracted. `all.length - allowed.size` was
+  // arithmetic standing in for a count, and review proved it: adding one
+  // unlocked step made it print "8 read their own output" when 7 did.
+  const locked = all.filter((s) => s.problem === null).length;
+
+  // 🔴 The parser's own tripwire. A step reformatted into a shape this
+  // file cannot read used to vanish from the survey with no complaint.
+  for (const gap of unaccounted(all)) {
+    bad++;
+    console.error(
+      `::error file=${gap.file}::${gap.written} --self-test invocations are ` +
+        `written here and this check could attribute ${gap.seen}. ` +
+        'A step it cannot read is a step that left the survey in silence.',
+    );
+  }
+  // Every number here is counted from what was read. `allowed.size` is
+  // the list's own length and is printed beside the count it is meant to
+  // match, not instead of it.
   console.log(
     `${all.length} steps run a self-test; ${locked} read their own output, ` +
-      `${allowed.size} do not yet`,
+      `${all.length - locked} do not; the list allows ${allowed.size}`,
   );
   if (bad) {
     console.error(`\n✗ ${bad} problem(s). CAMP-285: a run that did not start looks like a caught mutation.`);
@@ -238,10 +317,25 @@ const CASES = [
   ['a self-test inside a pipeline is seen', () => selfTested("node a.mjs --self-test | tee /dev/stderr | grep -q 'a self-test:'")[0] === 'a.mjs'],
   ['two invocations on one line are both seen', () => selfTested('node a.mjs --self-test && node b.mjs --self-test').length === 2],
   ['a step that runs no self-test is not a subject', () => selfTested('node a.mjs --update').length === 0],
-  ['🔴 the real step text from this repository parses', () => {
-    const steps = stepsIn(readFileSync(path.join(WORKFLOWS, 'ci.yml'), 'utf8'));
-    return steps.filter((s) => selfTested(s.run).length > 0).length >= 35;
+  ['🔴 every --self-test in the real ci.yml is attributed to a script', () => {
+    // 🔴 An equality, after review found this case asserting `>= 35`
+    // against a real value of 41: six steps of slack, so the defect it
+    // was meant to catch could not move it.
+    const text = readFileSync(path.join(WORKFLOWS, 'ci.yml'), 'utf8');
+    const found = stepsIn(text).flatMap((st) => selfTested(st.run));
+    return found.length === selfTestMentions(text) && !found.includes(null);
   }],
+  ['🔴 a command split over two lines is still one command', () => {
+    const got = selfTested('node scripts/a.mjs \\\n  --self-test');
+    return got.length === 1 && got[0] === 'scripts/a.mjs';
+  }],
+  ['🔴 bash and sh are seen, and so is a quoted path', () =>
+    selfTested('bash scripts/a.sh --self-test')[0] === 'scripts/a.sh' &&
+    selfTested('node "scripts/a.mjs" --self-test')[0] === 'scripts/a.mjs'],
+  ['🔴 a --self-test with no script is reported, not dropped', () =>
+    selfTested('$RUNNER --self-test').length === 1 && selfTested('$RUNNER --self-test')[0] === null],
+  ['a grep for a line containing the words is not a command of ours', () =>
+    selfTested("grep -q 'a self-test:'").length === 0],
   ['grep -q is read, with other letters too', () => grepPattern("grep -q 'x self-test:'") === 'x self-test:' && grepPattern("grep -qE 'y'") === 'y'],
   ['no grep is no pattern', () => grepPattern('node a.mjs --self-test') === null],
   ['🔴 a step that never reads its output is a problem', () =>
@@ -256,7 +350,7 @@ const CASES = [
     auditStep({ name: 'X', run: "set -o pipefail\nnode dir/check-eu-scope.mjs --self-test | grep -q 'check-eu-scope self-test:'", scripts: ['dir/check-eu-scope.mjs'] }) === null],
 ];
 
-const EXPECTED_CASES = 16;
+const EXPECTED_CASES = 20;
 
 function selfTest() {
   let failed = 0;
