@@ -45,7 +45,8 @@
 // measured limit for the platform actually in use, and it is somebody's
 // decision about money, not this script's.
 
-import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /** Warn from here on, as a fraction of the cap. */
 export const WARN_AT = 0.75;
@@ -127,7 +128,14 @@ function selfTest() {
     // make a reader look for two problems. The size is still logged
     // first — a build that fails without saying how far over it went
     // tells nobody what to do next.
+    // 🔴 One byte over, not ten per cent over. A tolerance of a handful
+    // of bytes slipped through every other case: 1 000 passes and 1 010
+    // fails, so nothing between them was ever asked.
+    { name: 'one byte over', body: 'x'.repeat(1001), warns: false, throws: true },
     { name: '101 per cent', body: 'x'.repeat(1010), warns: false, throws: true },
+    // Nothing to write is a real outcome — the gone list is empty today
+    // — and it must still report, not skip.
+    { name: 'empty', body: '', warns: false, throws: false },
     // 🔴 Bytes, not characters. 400 euro signs are 1 200 bytes and 400
     // units of length; measuring the wrong one hides a third of the file
     // from the budget. Nothing in the map is non-ASCII today — which is
@@ -153,8 +161,10 @@ function selfTest() {
       threw = true;
       // The error has to name the size too, or a red build says only
       // that something is too big.
-      if (!String(err.message).includes(kb(bytes))) {
-        fail(`${c.name}: the error does not say the size (${kb(bytes)})`);
+      for (const want of ['probe', kb(bytes), kb(cap)]) {
+        if (!String(err.message).includes(want)) {
+          fail(`${c.name}: the error is missing ${JSON.stringify(want)}`);
+        }
       }
     }
     if (threw !== c.throws) fail(`${c.name}: threw=${threw}`);
@@ -170,29 +180,37 @@ function selfTest() {
         fail(`${c.name}: the line is missing ${JSON.stringify(want)}: ${line}`);
       }
     }
-    if (c.warns && !warns[0].includes(pct(bytes))) {
-      fail(`${c.name}: the warning does not say the share`);
+    if (c.warns) {
+      // The share, the name, and how much room is left: a warning that
+      // says only "getting full" leaves the reader to measure again.
+      for (const want of ['probe', pct(bytes), kb(cap - bytes)]) {
+        if (!warns[0].includes(want)) {
+          fail(`${c.name}: the warning is missing ${JSON.stringify(want)}`);
+        }
+      }
     }
   }
 
   // 🔴 And once through the handlers a caller actually gets.
   const realLog = console.log;
   const realWarn = console.warn;
-  const seen = { log: 0, warn: 0 };
-  console.log = () => {
-    seen.log++;
-  };
-  console.warn = () => {
-    seen.warn++;
-  };
+  const seen = { log: [], warn: [] };
+  console.log = (m) => seen.log.push(m);
+  console.warn = (m) => seen.warn.push(m);
   try {
     enforceEdgeBudget('probe', 'x'.repeat(800), cap);
   } finally {
     console.log = realLog;
     console.warn = realWarn;
   }
-  if (seen.log !== 1 || seen.warn !== 1) {
-    fail(`the default handlers were not used (log=${seen.log}, warn=${seen.warn})`);
+  // 🔴 Which channel said WHAT, not how many times each spoke. Swapping
+  // the two defaults left the counts at one and one, and sent the size
+  // to stderr and the warning to stdout.
+  if (seen.log.length !== 1 || !seen.log[0]?.includes(kb(800))) {
+    fail(`the size did not go to console.log: ${JSON.stringify(seen.log)}`);
+  }
+  if (seen.warn.length !== 1 || !seen.warn[0]?.startsWith('\u26a0')) {
+    fail(`the warning did not go to console.warn: ${JSON.stringify(seen.warn)}`);
   }
 
   console.log(
@@ -203,15 +221,45 @@ function selfTest() {
   if (bad > 0) process.exit(1);
 }
 
-// 🔴 The canonical form, and the sloppy one it replaced is worth a line.
+// 🔴 The canonical form, and the two sloppier ones it replaced.
 //
-// It was `import.meta.url.endsWith(argv[1].split('/').pop())` — a suffix
-// test on a URL, not a comparison of paths. A review wrote a file called
-// `budget.mjs` that merely IMPORTS this module, ran it, and watched this
-// module's self-test execute on import: `budget.mjs` is a suffix of
-// `edge-budget.mjs`. On Windows the split on '/' would have failed the
-// other way and the self-test would never have run at all, silently,
-// with exit 0.
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  if (process.argv.includes('--self-test')) selfTest();
+// First it was `import.meta.url.endsWith(argv[1].split('/').pop())` — a
+// suffix test on a URL, not a comparison of paths. A review wrote a file
+// called `budget.mjs` that merely IMPORTS this module, ran it, and
+// watched this module's self-test execute on import: `budget.mjs` is a
+// suffix of `edge-budget.mjs`.
+//
+// Then it was a plain `pathToFileURL(argv[1])` comparison, which a
+// symlink defeats with no mutation at all: Node resolves
+// `import.meta.url` through the real path and leaves `argv[1]` as the
+// link, so the two never match and the self-test silently does not run.
+// Exit 0, no output, green CI step.
+//
+// 🔴 And the last line is the one that matters: asking for the self-test
+// and not getting it must be LOUD. Every way of failing to start —
+// inverted guard, renamed flag, symlink, imported by mistake — used to
+// look exactly like seven passing checks.
+const invokedAs = process.argv[1]
+  ? realpathSync(process.argv[1])
+  : null;
+const thisFile = realpathSync(fileURLToPath(import.meta.url));
+if (process.argv.includes('--self-test')) {
+  if (invokedAs !== thisFile) {
+    throw new Error(
+      'edge-budget.mjs was asked for --self-test but is not the entry ' +
+        `point (running ${invokedAs ?? 'nothing'}). Refusing to exit 0 ` +
+        'without running it: a check that did not start must not look ' +
+        'like a check that passed.',
+    );
+  }
+  selfTest();
+} else if (invokedAs === thisFile) {
+  // 🔴 Run directly with no flag the module knows. Its only purpose as
+  // an entry point IS the self-test, so silence here is the third way
+  // the same green nothing used to happen: rename the flag in CI and
+  // the step keeps passing while nothing runs.
+  throw new Error(
+    'edge-budget.mjs does nothing when run without --self-test. ' +
+      `Got: ${process.argv.slice(2).join(' ') || '(no arguments)'}`,
+  );
 }

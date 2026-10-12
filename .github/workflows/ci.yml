@@ -809,9 +809,22 @@ jobs:
       #
       # 🔴 Both boundaries are rehearsed rather than waited for: 75%
       # warns, over 100% throws, and the size is printed either way.
+      # 🔴 The output is GREPPED, not merely produced.
+      #
+      # A review showed this step passing three ways while nothing ran:
+      # the entry-point guard inverted, the flag renamed, and — with no
+      # mutation at all — the script reached through a symlink, which
+      # Node resolves on one side and not the other. "Did not start" and
+      # "all seven passed" printed the same thing: nothing, exit 0.
+      #
+      # The script now refuses to exit quietly in all three cases. This
+      # line is the second lock, and it is the one that does not depend
+      # on the script being right about itself.
       - name: The edge budget still warns before it refuses
         working-directory: apps/web
-        run: node scripts/edge-budget.mjs --self-test
+        run: |
+          node scripts/edge-budget.mjs --self-test | tee /dev/stderr \
+            | grep -q 'edge-budget boundaries, messages read'
 
       # CAMP-147. The card's own acceptance clause is "no displayed price
       # exists without a validity period", and the only thing enforcing it
