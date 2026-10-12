@@ -80,14 +80,32 @@ const REDIRECTS = new Map<string, string>(
   Object.entries(SPOT_REDIRECTS as Record<string, string>),
 );
 
-// 🔴 CAMP-294. Нормалізація і побудова відповіді винесені СЮДИ, щоб їх
-// можна було перевірити зі СВОЄЮ мапою.
+// 🔴 CAMP-294, друга редакція. ПЕРША БУЛА ГІРШОЮ ЗА БАГ.
 //
-// Перша версія тесту кликала `middleware()` і спиралась на згенерований
-// `spot-redirects.json`. Локально там 4 455 пар, у CI — нуль, бо CI
-// збирає фікстуру з 72 кемпінгів, де ніщо нікуди не переїжджало. Тест
-// падав у CI й проходив локально, і винен був не код, а припущення, що
-// продакшн-дані є всюди.
+// Спершу я зробив `Location` відносним. Це здавалось елегантним: відносна
+// адреса не залежить від того, що Next думає про себе. Рецензія показала,
+// що вона ПАДАЄ: Next обгортає будь-який middleware в `adapter()`, а той
+// на рядку 319 робить `new NextURL(redirect, {forceLocale, headers,
+// nextConfig})` — другий аргумент це ОПЦІЇ, не база. Заміряно прямим
+// викликом:
+//
+//     new NextURL('/camping/at/b/new', {headers})        → TypeError: Invalid URL
+//     new NextURL('https://camptribe.eu/camping/at/b/new', {headers}) → OK
+//
+// Тобто 4 455 неправильних редиректів перетворились би на 4 455 падінь.
+// Саме тому `NextResponse.redirect()` і вимагає абсолютної адреси — це
+// не примха API.
+//
+// Правильне рішення: `Location` лишається АБСОЛЮТНИМ, але хост береться
+// з того, що передав проксі, а не з адреси, на якій слухає Next.
+export function publicOrigin(headers: Headers, fallback: string): string {
+  // `x-forwarded-host` ставить проксі; `host` лишається, якщо проксі немає.
+  const host = headers.get('x-forwarded-host') ?? headers.get('host');
+  if (!host) return fallback;
+  const proto = headers.get('x-forwarded-proto') ?? 'https';
+  return `${proto}://${host}`;
+}
+
 export function normalisePath(pathname: string): string {
   // Кінцеві скісні й регістр приходять зі старих посилань і від роботів,
   // і жодне з двох не має вирішувати, чи адреса переїхала.
@@ -97,43 +115,37 @@ export function normalisePath(pathname: string): string {
 export function redirectFor(
   pathname: string,
   search: string,
+  origin: string,
   redirects: ReadonlyMap<string, string> = REDIRECTS,
 ): NextResponse | null {
   const moved = redirects.get(normalisePath(pathname));
   if (!moved) return null;
 
-  // 🔴 ВІДНОСНИЙ `Location`, і це виправлення, а не стиль.
-  //
-  // Тут стояло `new URL(moved, request.nextUrl.origin)`. За зворотним
-  // проксі `nextUrl.origin` — адреса, на якій слухає сам Next, а не
-  // адреса сайту. На першій же викладці всі 4 455 редиректів віддали
-  // `Location: https://localhost:3000/...`, тобто вели в нікуди.
-  //
-  // Заміряно, що проксі ні до чого: запит ПРЯМО в Next із
-  // `Host: camptribe.eu` віддавав те саме. Next бере із заголовків лише
-  // схему, хост — ні.
-  //
-  // Відносний `Location` дозволений RFC 7231, браузер резолвить його
-  // відносно запиту — тож він правильний за будь-яким проксі, портом і
-  // способом розгортання. Ця функція НЕ БАЧИТЬ запиту взагалі, тож
-  // підставити туди адресу сервера більше нізвідки.
-  //
   // 🔴 Рядок запиту переноситься: читач, що прийшов за посиланням із
   // `?from=map`, має дістатись туди, куди йшов, із тим, що ніс.
-  return new NextResponse(null, {
-    status: 301,
-    headers: { Location: `${moved}${search}` },
-  });
+  // `target.search =` нормалізує відсутню `?` — тому саме так, а не
+  // конкатенацією: виклик із `'a=1'` інакше дав би `/новий-шляхa=1`.
+  const target = new URL(moved, origin);
+  target.search = search;
+  return NextResponse.redirect(target, 301);
 }
 
-export function middleware(request: NextRequest) {
+export function middleware(
+  request: NextRequest,
+  redirects: ReadonlyMap<string, string> = REDIRECTS,
+  gone: ReadonlySet<string> = GONE,
+) {
+  const origin = publicOrigin(request.headers, request.nextUrl.origin);
+
   const redirect = redirectFor(
     request.nextUrl.pathname,
     request.nextUrl.search,
+    origin,
+    redirects,
   );
   if (redirect) return redirect;
 
-  if (!GONE.has(normalisePath(request.nextUrl.pathname))) {
+  if (!gone.has(normalisePath(request.nextUrl.pathname))) {
     return NextResponse.next();
   }
 
