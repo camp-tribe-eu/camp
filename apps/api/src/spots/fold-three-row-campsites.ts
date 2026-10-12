@@ -66,9 +66,14 @@ const UNFOLDED_TWINS_SQL = `
            THEN 'w' || ((substring(a.osm_ref from 2))::bigint / 2)
            ELSE 'r' || (((substring(a.osm_ref from 2))::bigint - 1) / 2) END
    WHERE a.osm_ref ~ '^a[0-9]+$'
+     -- 🔴 ANY row, live or undone. A live-only test here would have
+     -- re-proposed a link a person had deliberately taken apart — and
+     -- idx_spot_links_pair is unique unconditionally, so the apply would
+     -- not merely re-link it, it would die on the insert and take the
+     -- rest of the run with it. reconcile-sources states the same rule
+     -- for the same table: a judgement already recorded is left alone.
      AND NOT EXISTS (SELECT 1 FROM spot_links l
-                      WHERE l.unlinked_at IS NULL
-                        AND l.primary_id = a.id AND l.secondary_id = t.id)
+                      WHERE l.primary_id = a.id AND l.secondary_id = t.id)
      -- A row already folded into somebody else must not be folded again:
      -- the live unique index on secondary_id would refuse it, and the
      -- refusal would be right.
@@ -80,13 +85,35 @@ const CHAINS_SQL = `
   SELECT below.id AS link_id, mid.id AS from_id, top.id AS to_id,
          coalesce(top.name, '(unnamed)') AS name,
          top.osm_ref AS top_ref, mid.osm_ref AS mid_ref
-    FROM spot_links above
-    JOIN camping_spots top ON top.id = above.primary_id
-    JOIN camping_spots mid ON mid.id = above.secondary_id
+    FROM camping_spots top
+    JOIN camping_spots mid ON mid.osm_ref = CASE
+           WHEN (substring(top.osm_ref from 2))::bigint % 2 = 0
+           THEN 'w' || ((substring(top.osm_ref from 2))::bigint / 2)
+           ELSE 'r' || (((substring(top.osm_ref from 2))::bigint - 1) / 2) END
     JOIN spot_links below ON below.primary_id = mid.id
                          AND below.unlinked_at IS NULL
-   WHERE above.unlinked_at IS NULL
-     AND top.osm_ref ~ '^a[0-9]+$'
+   WHERE top.osm_ref ~ '^a[0-9]+$'
+     -- 🔴 The chain is found from the TWIN, not from the link above it.
+     --
+     -- The first fix moved this bug rather than removing it: the stamp
+     -- query stopped depending on the link, and this one still started
+     -- FROM spot_links above, so a chain was invisible until the link
+     -- step of the SAME run created that row. One dry run still could
+     -- not describe the whole change, and a second apply still printed
+     -- "7 outstanding". It hid on 12.10 only because those 7 links had
+     -- been made the night before by another card.
+     --
+     -- The twin is arithmetic, so it is there whether or not anything
+     -- has been written yet.
+     AND NOT EXISTS (SELECT 1 FROM spot_links o
+                      WHERE o.unlinked_at IS NULL
+                        AND o.secondary_id = mid.id
+                        AND o.primary_id <> top.id)
+     -- Re-pointing must not collide with a pair that already exists:
+     -- idx_spot_links_pair is unique unconditionally, undone or not.
+     AND NOT EXISTS (SELECT 1 FROM spot_links q
+                      WHERE q.primary_id = top.id
+                        AND q.secondary_id = below.secondary_id)
    ORDER BY top.osm_ref`;
 
 /**
@@ -136,6 +163,12 @@ const STAMPED_FOR_WANT_OF_A_LINK_SQL = `
                       WHERE o.unlinked_at IS NULL
                         AND o.secondary_id = t.id
                         AND o.primary_id <> a.id)
+     -- 🔴 And not a twin somebody deliberately UNLINKED from this area.
+     -- Clearing its stamp would quietly undo half of that decision: the
+     -- row would stop being "gone" while still not being folded.
+     AND NOT EXISTS (SELECT 1 FROM spot_links u
+                      WHERE u.primary_id = a.id AND u.secondary_id = t.id
+                        AND u.unlinked_at IS NOT NULL)
    ORDER BY t.osm_ref`;
 
 export async function plan(db: Client): Promise<Fold[]> {
@@ -194,6 +227,17 @@ export async function plan(db: Client): Promise<Fold[]> {
  * inside one it means to roll back.
  */
 export async function applyFolds(db: Client, folds: Fold[]): Promise<void> {
+  // 🔴 Refuse to write outside a transaction. The comment above says the
+  // caller owns it; a comment is not a guarantee, and half of this
+  // applied is a database in the state this card calls dangerous.
+  const inTx = await db.query<{ tx: string | null }>(
+    `SELECT pg_current_xact_id_if_assigned()::text AS tx`,
+  );
+  if (inTx.rows[0]?.tx === null) {
+    throw new Error(
+      'applyFolds must run inside a transaction: no transaction id is assigned',
+    );
+  }
   for (const f of folds) {
     if (f.kind === 'link') {
       await db.query(

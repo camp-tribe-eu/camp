@@ -1,0 +1,226 @@
+// CAMP-281: prove the fold script, on rows this script makes itself.
+//
+//   npx ts-node src/spots/verify-folds.ts
+//
+// 🔴 WHY THIS IS NOT IN verify-links.ts.
+//
+// That file asks whether the link TABLE is in a sane state. This one
+// asks whether the program that changes it behaves — and the two
+// questions want opposite fixtures. The invariants want the real
+// database; these want shapes that do not exist in it, built on
+// purpose, so they run the same anywhere, including the CI fixture
+// where `spot_links` is empty.
+//
+// Three properties, each the scar of a review:
+//
+//   1. one dry run describes the whole change. Twice the plan was not a
+//      fixed point — the stamps could only be seen after the links were
+//      written, and when that was fixed the chains still could. Both
+//      times the dry run under-reported and the second apply printed
+//      "still outstanding".
+//   2. a link a person took apart is never proposed again. The unique
+//      index on the pair is not partial, so re-proposing one does not
+//      merely re-link it: the insert throws and takes the run with it.
+//   3. an OSM area carrying nothing but its own twin is not "already
+//      linked to another record". That reading sent 821 areas to review
+//      and made the shape the invariants call legal unreachable.
+//
+// Exits non-zero on any failure, so CI can run it.
+
+import 'dotenv/config';
+import { Client } from 'pg';
+import { applyFolds, plan } from './fold-three-row-campsites';
+import { CLAIMED_BY_OUTSIDE_RECORD_SQL } from './reconcile-sources';
+
+const DB_URL =
+  process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
+
+/**
+ * A campsite row made from an existing one, inside the caller's
+ * transaction. Cloning rather than inserting keeps this working when a
+ * column is added, and makes the rehearsal independent of whatever the
+ * database happens to hold.
+ */
+async function clone(
+  db: Client,
+  seed: string,
+  slug: string,
+  osmRef: string | null,
+  missing: boolean,
+): Promise<string> {
+  await db.query(`DROP TABLE IF EXISTS fold_src`);
+  await db.query(
+    `CREATE TEMP TABLE fold_src AS SELECT * FROM camping_spots WHERE id = $1`,
+    [seed],
+  );
+  await db.query(
+    `UPDATE fold_src
+        SET id = uuid_generate_v4(), slug = $1, osm_ref = $2,
+            region = coalesce(region, 'Fold'),
+            missing_since = CASE WHEN $3 THEN now() - interval '2 hours'
+                                 ELSE NULL END`,
+    [slug, osmRef, missing],
+  );
+  const r = await db.query<{ id: string }>(
+    `INSERT INTO camping_spots SELECT * FROM fold_src RETURNING id`,
+  );
+  return r.rows[0].id;
+}
+
+async function main(): Promise<void> {
+  const db = new Client({ connectionString: DB_URL });
+  await db.connect();
+  let failed = 0;
+  try {
+    const seedRow = await db.query<{ id: string }>(
+      `SELECT id FROM camping_spots ORDER BY id LIMIT 1`,
+    );
+    const seed = seedRow.rows[0]?.id;
+    if (!seed) {
+      console.error('✗ no campsite to clone from');
+      process.exit(1);
+    }
+
+    // ------------------------------------------------------------------
+    console.log('--- one dry run describes the whole change ---');
+    await db.query('BEGIN');
+    try {
+      // Shape one: an area and its twin, unlinked, the twin stamped.
+      const areaA = await clone(db, seed, 'fold-a-1', 'a200000002', false);
+      const twinA = await clone(db, seed, 'fold-w-1', 'w100000001', true);
+      // Shape two: an area whose twin carries an outside record, so the
+      // chain exists only once the twin is folded — which is what made
+      // the plan move under its own feet.
+      const areaB = await clone(db, seed, 'fold-a-2', 'a200000004', false);
+      const twinB = await clone(db, seed, 'fold-w-2', 'w100000002', false);
+      const outside = await clone(db, seed, 'fold-dt-1', null, false);
+      await db.query(
+        `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                 name_similarity, rule)
+         VALUES ($1, $2, 0, 1, 'fold-rehearsal')`,
+        [twinB, outside],
+      );
+
+      const first = await plan(db);
+      const kinds: Record<string, number> = {};
+      for (const f of first) kinds[f.kind] = (kinds[f.kind] ?? 0) + 1;
+      const sawAll =
+        (kinds.link ?? 0) >= 2 &&
+        (kinds.repoint ?? 0) >= 1 &&
+        (kinds.unmark ?? 0) >= 1;
+      console.log(
+        `  ${sawAll ? '✓' : '✗'} the first plan names all three kinds of work ` +
+          `(${JSON.stringify(kinds)})`,
+      );
+      if (!sawAll) failed++;
+
+      await applyFolds(db, first);
+      const second = await plan(db);
+      console.log(
+        `  ${second.length === 0 ? '✓' : '✗'} and after applying it, nothing is left`,
+      );
+      if (second.length !== 0) {
+        failed++;
+        for (const f of second.slice(0, 5)) {
+          console.error(`      ${JSON.stringify(f).slice(0, 120)}`);
+        }
+      }
+      void areaA;
+      void twinA;
+      void areaB;
+    } finally {
+      await db.query('ROLLBACK');
+    }
+
+    // ------------------------------------------------------------------
+    console.log('\n--- a link a person took apart stays apart ---');
+    await db.query('BEGIN');
+    try {
+      const area = await clone(db, seed, 'fold-a-3', 'a200000006', false);
+      const twin = await clone(db, seed, 'fold-w-3', 'w100000003', true);
+      await db.query(
+        `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                 name_similarity, rule, unlinked_at,
+                                 unlinked_reason)
+         VALUES ($1, $2, 0, 1, 'fold-rehearsal', now(), 'not the same site')`,
+        [area, twin],
+      );
+      const p = await plan(db);
+      const proposed = p.some(
+        (f) =>
+          (f.kind === 'link' && f.secondary === twin) ||
+          (f.kind === 'unmark' && f.row === twin),
+      );
+      console.log(
+        `  ${!proposed ? '✓' : '✗'} neither re-linked nor un-stamped`,
+      );
+      if (proposed) failed++;
+      // 🔴 And prove the check can fail: with the judgement removed, the
+      // same rows ARE proposed. Otherwise this passes on a plan that
+      // proposes nothing for any reason at all.
+      await db.query(`DELETE FROM spot_links WHERE rule = 'fold-rehearsal'`);
+      const q = await plan(db);
+      const nowProposed = q.some(
+        (f) => f.kind === 'link' && f.secondary === twin,
+      );
+      console.log(
+        `  ${nowProposed ? '✓' : '✗'} and without that judgement it IS proposed`,
+      );
+      if (!nowProposed) failed++;
+    } finally {
+      await db.query('ROLLBACK');
+    }
+
+    // ------------------------------------------------------------------
+    console.log('\n--- an area carrying only its twin is not spoken for ---');
+    await db.query('BEGIN');
+    try {
+      const area = await clone(db, seed, 'fold-a-4', 'a200000008', false);
+      const twin = await clone(db, seed, 'fold-w-4', 'w100000004', false);
+      const outside = await clone(db, seed, 'fold-dt-2', null, false);
+      await db.query(
+        `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                 name_similarity, rule)
+         VALUES ($1, $2, 0, 1, 'fold-rehearsal')`,
+        [area, twin],
+      );
+      const claimedOnTwin = await db.query<{ id: string }>(
+        CLAIMED_BY_OUTSIDE_RECORD_SQL,
+      );
+      const freeWithTwin = !claimedOnTwin.rows.some((r) => r.id === area);
+      console.log(
+        `  ${freeWithTwin ? '✓' : '✗'} its own twin does not make it claimed`,
+      );
+      if (!freeWithTwin) failed++;
+
+      await db.query(
+        `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                 name_similarity, rule)
+         VALUES ($1, $2, 0, 1, 'fold-rehearsal')`,
+        [area, outside],
+      );
+      const claimedOnOutside = await db.query<{ id: string }>(
+        CLAIMED_BY_OUTSIDE_RECORD_SQL,
+      );
+      const takenNow = claimedOnOutside.rows.some((r) => r.id === area);
+      console.log(`  ${takenNow ? '✓' : '✗'} but an outside record does`);
+      if (!takenNow) failed++;
+    } finally {
+      await db.query('ROLLBACK');
+    }
+  } finally {
+    await db.end();
+  }
+  if (failed > 0) {
+    console.error(`\n✗ ${failed} check(s) failed`);
+    process.exit(1);
+  }
+  console.log('\n✓ all checks passed');
+}
+
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

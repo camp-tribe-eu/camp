@@ -211,10 +211,12 @@ describe('CLAIMED_BY_OUTSIDE_RECORD_SQL', () => {
     expect(CLAIMED_BY_OUTSIDE_RECORD_SQL).toContain('l.unlinked_at IS NULL');
   });
 
-  it('🔴 does not claim a primary merely for having a link', () => {
-    // The old query was exactly this and nothing else.
-    expect(CLAIMED_BY_OUTSIDE_RECORD_SQL).not.toMatch(
-      /SELECT\s+primary_id\s+AS\s+id\s+FROM\s+spot_links\s+WHERE\s+unlinked_at\s+IS\s+NULL\s*$/,
-    );
-  });
+  // 🔴 There was a second test here asserting the old query's text was
+  // GONE. It could never have matched — the new constant starts
+  // `SELECT l.primary_id` — and worse, a review showed the whole
+  // behaviour could be reverted (`AND (s.osm_ref IS NULL OR TRUE)`)
+  // with this file still green. What holds the behaviour is
+  // verify-folds.ts, which plants an area carrying only its twin and
+  // checks it is not counted, then adds an outside record and checks it
+  // is. This file holds the shape; that one holds the meaning.
 });
