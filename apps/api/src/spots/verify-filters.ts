@@ -145,9 +145,12 @@ async function main(): Promise<void> {
   await client.connect();
 
   let failed = 0;
+  let ran = 0;
+  let rehearsed = 0;
 
   try {
     for (const c of CASES) {
+      ran++;
       const got = await slugsFromGenerator(client, c.query);
       const want = await slugsFromHandWritten(client, c.expected);
 
@@ -203,6 +206,7 @@ async function main(): Promise<void> {
         failed++;
       } else {
         console.log('  ✓ self-test: a deliberate mismatch is detected');
+        rehearsed++;
       }
     }
   } finally {
@@ -216,10 +220,59 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  // 🔴 CAMP-286. The count is asserted and the line names this file: a
+  // case deleted from CASES printed the same sentence over fewer
+  // comparisons, and a generic phrase is a lock another key opens.
+  // 🔴 A LITERAL, not `CASES.length`. The first version compared the
+  // loop's counter to the length of the very list it iterates, so the
+  // two moved together and a deleted case was invisible — the same
+  // "a printed total is not a check" defect this card keeps finding,
+  // one layer in.
+  const EXPECTED_CASES = 10;
+  if (ran !== EXPECTED_CASES) {
+    console.error(`\n✗ ${ran} cases ran, expected ${EXPECTED_CASES}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // 🔴 THE NAMED LINE BELONGS TO THE SELF-TEST, AND ONLY TO IT.
+  //
+  // The first version printed it on both paths, so the CI step's lock
+  // was satisfied by an ordinary run: review dropped `--self-test` from
+  // the step and it still exited 0, while the one rehearsal that proves
+  // a mismatch is visible had never run. A lock a plain run can open is
+  // not a lock (CAMP-286).
+  if (selfTest) {
+    const EXPECTED_REHEARSALS = 1;
+    if (rehearsed !== EXPECTED_REHEARSALS) {
+      console.error(
+        `\n✗ ${rehearsed} rehearsals ran, expected ${EXPECTED_REHEARSALS}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    console.log(
+      `\n✓ verify-filters self-test: ${ran} filter combinations match a ` +
+        `direct SQL query, and ${rehearsed} planted mismatch is still seen`,
+    );
+    return;
+  }
+
   console.log('\n✓ every filter combination matches a direct SQL query');
 }
 
 // Guarded like every other script here: an import must not run it.
+//
+// 🔴 CAMP-286: and an unknown flag is refused BEFORE `main()` opens a
+// connection. `--selftest` used to fall through to the full run.
 if (require.main === module) {
-  void main();
+  void (async () => {
+    const { chooseAction } =
+      await import('../../../../scripts/lib/entrypoint.mjs');
+    chooseAction(process.argv.slice(2), ['--self-test'], 'verify-filters.ts');
+    await main();
+  })().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }
