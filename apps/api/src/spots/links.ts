@@ -148,8 +148,16 @@ export const REDIRECT_PAIRS_SQL = `
  *
  * 🔴 A cycle publishes nothing rather than looping: every row in a cycle
  * is some pair's `from_id`, so none of them is a terminal and the
- * NOT EXISTS drops the lot. The depth cap stops the recursion itself;
- * it is not what makes the answer safe.
+ * NOT EXISTS drops the lot. `seen` is what stops the recursion, by
+ * refusing a destination the walk has already stood on.
+ *
+ * 🔴 It used to be `depth < 8`, and a review proved what that costs. A
+ * chain of ten was planted: rows two to nine resolved, and row ten got
+ * NO redirect — nine hops is more than eight, so the walk never reached
+ * a terminal and nothing was published for it. Worse, `gone()` had
+ * already subtracted it for being half of a pair, so that URL was in
+ * neither list and answered 404 in silence. A cap is a guess about how
+ * long a chain can be; `seen` is an argument about why the walk ends.
  *
  * 🔴 What each part of the ORDER BY is for, because two of them were
  * written as one guard and a mutation proved they covered each other:
@@ -166,32 +174,25 @@ export const REDIRECT_PAIRS_SQL = `
  *               intent and costs nothing, NOT because a test holds it.
  *   to_id     — a total order, so the answer cannot change between two
  *               runs over the same rows.
+ *
+ * `w.to_id <> w.from_id` used to sit beside the NOT EXISTS and survived
+ * every mutation, because `seen` starts with `from_id` and so the walk
+ * can never return to it. It was a guard against something that cannot
+ * happen; the mapper in SpotsService.links drops a self-redirect anyway.
  */
 export const RESOLVED_REDIRECTS_SQL = `
   WITH RECURSIVE pairs AS (${REDIRECT_PAIRS_SQL}),
-  walk (from_id, to_id, rank, depth) AS (
-      SELECT from_id, to_id, rank, 1 FROM pairs
+  walk (from_id, to_id, rank, depth, seen) AS (
+      SELECT from_id, to_id, rank, 1, ARRAY[from_id, to_id] FROM pairs
        UNION ALL
-      SELECT w.from_id, p.to_id, w.rank, w.depth + 1
+      SELECT w.from_id, p.to_id, w.rank, w.depth + 1, w.seen || p.to_id
         FROM walk w
         JOIN pairs p ON p.from_id = w.to_id
-       WHERE w.depth < 8)
+       WHERE NOT p.to_id = ANY (w.seen))
   SELECT DISTINCT ON (w.from_id) w.from_id, w.to_id
     FROM walk w
    WHERE NOT EXISTS (SELECT 1 FROM pairs t WHERE t.from_id = w.to_id)
-     AND w.to_id <> w.from_id
    ORDER BY w.from_id, w.rank, w.depth DESC, w.to_id`;
-
-/**
- * True when this row's URL is answered by a redirect, so nothing else
- * may claim it.
- *
- * 🔴 Deliberately NOT written as a second copy of the conditions above.
- */
-export function isRedirectedSql(alias: string): string {
-  return `EXISTS (SELECT 1 FROM (${REDIRECT_PAIRS_SQL}) rp
-                   WHERE rp.from_id = ${alias}.id)`;
-}
 
 /**
  * The live secondary of a spot, as a LATERAL join.
@@ -578,6 +579,12 @@ export const REDIRECT_LIST_SQL = `SELECT f.country AS from_country, f.region AS 
         -- invented paths. The destination needs no such clause --
         -- REDIRECT_PAIRS_SQL already requires it to be publishable, and
         -- requiring it twice is how the two copies drifted before.
+        --
+        -- This line narrows the query; it does not guard the answer.
+        -- canonicalPath returns null without a region and the mapper in
+        -- SpotsService.links drops those rows, which is why deleting
+        -- this survives a mutation. Said plainly rather than left for
+        -- the next person to discover.
         WHERE f.region IS NOT NULL
         ORDER BY f.country, f.region, f.slug`;
 
@@ -585,8 +592,21 @@ export const REDIRECT_LIST_SQL = `SELECT f.country AS from_country, f.region AS 
  * The gone list, exactly as the API serves it. Exported for the same
  * reason, and the two belong side by side: the one property that must
  * hold between them is that no path appears in both.
+ *
+ * 🔴 It subtracts the RESOLVED list, not the raw pairs. Being half of a
+ * pair is not the same as having a destination, and a row with neither
+ * is a URL that answers 404 without anybody deciding that. The two
+ * lists are complementary only if one answer decides both.
+ *
+ * 🔴 AS MATERIALIZED, and the word is worth 500 ms. Written as a plain
+ * subquery inside NOT EXISTS, the walk was re-run and the full-window
+ * query took 657–778 ms against 202–205 ms with no subtraction at all.
+ * Materialised it is computed once: 239–355 ms for the same 5 955 rows,
+ * measured 12.10.2026 on 63 031 campsites and 4 443 live links.
  */
-export const GONE_LIST_SQL = `SELECT g.slug, g.name, g.country, g.region, g.missing_since,
+export const GONE_LIST_SQL = `WITH redirected AS MATERIALIZED (
+    ${RESOLVED_REDIRECTS_SQL})
+  SELECT g.slug, g.name, g.country, g.region, g.missing_since,
               n.slug AS n_slug, n.name AS n_name,
               n.country AS n_country, n.region AS n_region,
               round(ST_Distance(g.location::geography,
@@ -619,5 +639,6 @@ export const GONE_LIST_SQL = `SELECT g.slug, g.name, g.country, g.region, g.miss
           -- Six rows were in exactly that state on 12.10.2026 — OSM
           -- dropped the primary while the secondary carried on — and
           -- each was 28 days from being declared dead while open.
-          AND NOT ${isRedirectedSql('g')}
+          AND NOT EXISTS (SELECT 1 FROM redirected rr
+                           WHERE rr.from_id = g.id)
         ORDER BY g.country, g.region, g.slug`;

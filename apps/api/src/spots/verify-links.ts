@@ -21,6 +21,7 @@ import { judgeByIdentity, upperBoundPercent } from './link-evidence';
 import {
   GONE_LIST_SQL,
   isSecondarySql,
+  REDIRECT_PAIRS_SQL,
   REDIRECT_LIST_SQL,
   RESOLVED_REDIRECTS_SQL,
 } from './links';
@@ -55,6 +56,16 @@ const INVARIANTS: { name: string; sql: string }[] = [
              GROUP BY secondary_id HAVING count(*) > 1) x`,
   },
   {
+    // 🔴 RED ON PRODUCTION SINCE CAMP-274, AND LEFT RED ON PURPOSE.
+    //
+    // 828 links now join two OSM rows, because an area and the way it
+    // was exported from are one campsite recorded twice. The shape is
+    // legitimate; this sentence is the one that has expired. It is not
+    // reworded here, because the same 7 of those links form chains
+    // whose bottom row — a DATAtourisme record — is no longer merged
+    // onto any page, and that IS a fault. Rewording the invariant
+    // without fixing the merge would delete the only thing still
+    // pointing at it. CAMP-281 does both.
     name: 'every link joins one OSM row to one non-OSM row',
     sql: `SELECT count(*)::int AS n
             FROM spot_links l
@@ -80,6 +91,26 @@ const INVARIANTS: { name: string; sql: string }[] = [
               OR t.missing_since IS NOT NULL
               OR t.region IS NULL
               OR ${isSecondarySql('t')}`,
+  },
+  {
+    // 🔴 The guard a review had to find by hand. Being half of a pair
+    // is not the same as having a destination: when the walk cannot
+    // reach a terminal, nothing is published for that row — and
+    // `gone()` has already subtracted it, so its URL is in neither
+    // list and answers 404 in silence. Nothing asked the question
+    // until a chain of ten was planted and row ten disappeared.
+    //
+    // A cycle makes this count rise, and it should: those URLs really
+    // do answer nothing, and that is a fault to see rather than a
+    // state to tolerate.
+    name: 'every row that is half of a pair, and has a URL, gets a destination',
+    sql: `SELECT count(*)::int AS n
+            FROM (${REDIRECT_PAIRS_SQL}) rp
+            JOIN camping_spots f ON f.id = rp.from_id
+            LEFT JOIN (${RESOLVED_REDIRECTS_SQL}) rr
+                   ON rr.from_id = rp.from_id
+           WHERE f.region IS NOT NULL
+             AND rr.from_id IS NULL`,
   },
   {
     // 🔴 Two redirects in a row lose the first one: a crawler follows
@@ -428,95 +459,111 @@ async function main(): Promise<void> {
     }
 
     // ------------------------------------------------------------------
-    // 🔴 CAMP-279 REHEARSAL II: a chain, built on purpose.
+    // ------------------------------------------------------------------
+    // 🔴 CAMP-279 REHEARSAL II: a chain, long enough to break a cap.
     //
-    // Seven existed on 12.10.2026 and none of them was planned: CAMP-274
-    // folded an OSM area into the way it came from, and that way was
-    // already carrying a DATAtourisme record. Nothing forbids the shape,
-    // so the redirect list has to answer it — and a check for it that
-    // runs only where the shape happens to exist is not a check.
-    console.log('\n--- rehearsal: three rows in a chain, c → b → a ---');
-    const trio = await db.query<{ a: string; b: string; c: string }>(
-      `SELECT x.id AS a, y.id AS b, z.id AS c
-         FROM camping_spots x, camping_spots y, camping_spots z
-        WHERE x.id < y.id AND y.id < z.id
-          AND NOT EXISTS (SELECT 1 FROM spot_links l
-                           WHERE l.unlinked_at IS NULL
-                             AND l.primary_id   IN (x.id, y.id, z.id)
-                             AND l.secondary_id IN (x.id, y.id, z.id))
-          AND NOT EXISTS (SELECT 1 FROM spot_links l
-                           WHERE l.unlinked_at IS NULL
-                             AND (l.secondary_id IN (x.id, y.id, z.id)
-                               OR l.primary_id   IN (y.id, z.id)))
-        ORDER BY x.id, y.id, z.id
-        LIMIT 1`,
+    // Seven chains existed on 12.10.2026 and none of them was planned:
+    // CAMP-274 folded an OSM area into the way it came from, and that
+    // way was already carrying a DATAtourisme record. Nothing forbids
+    // the shape, so the redirect list has to answer it.
+    //
+    // 🔴 TWELVE rows, not three, and the number is the point. The first
+    // version of this walk stopped at `depth < 8`; a review planted a
+    // chain of ten and found row ten with NO redirect — and `gone()`
+    // had already subtracted it for being half of a pair, so its URL
+    // was in neither list and answered 404 without a word. Three rows
+    // could never have shown that.
+    console.log(
+      '\n--- rehearsal: a chain of twelve, and nobody may be dropped ---',
     );
-    if (trio.rowCount === 0) {
-      console.error('  ✗ no three unlinked rows to build a chain from');
+    const chain = await db.query<{ id: string }>(
+      `SELECT s.id
+         FROM camping_spots s
+        WHERE NOT EXISTS (SELECT 1 FROM spot_links l
+                           WHERE l.unlinked_at IS NULL
+                             AND (l.primary_id = s.id OR l.secondary_id = s.id))
+        ORDER BY s.id
+        LIMIT 12`,
+    );
+    const pathById = async (id: string): Promise<string | null> => {
+      const r = await db.query<{
+        country: string;
+        region: string | null;
+        slug: string;
+      }>(`SELECT country, region, slug FROM camping_spots WHERE id = $1`, [id]);
+      const row = r.rows[0];
+      return row ? canonicalPath(row.country, row.region, row.slug) : null;
+    };
+    if (chain.rowCount !== 12) {
+      console.error(
+        `  ✗ only ${chain.rowCount} unlinked rows available — cannot build a chain`,
+      );
       failed++;
     } else {
-      const { a, b, c } = trio.rows[0];
+      // 🔴 The chain runs DOWN the id order on purpose: the top is the
+      // largest id, so the correct destination is the one the fallback
+      // tiebreak (lowest to_id) would never choose. Built the other way
+      // round, this test passed with the resolution deleted — the right
+      // answer and the accidental answer were the same row.
+      const ascending = chain.rows.map((r) => r.id);
+      const order = [...ascending].reverse();
       await db.query('BEGIN');
       try {
         await db.query(
           `UPDATE camping_spots SET region = coalesce(region, 'Rehearsal'),
                                     missing_since = NULL
             WHERE id = ANY($1::uuid[])`,
-          [[a, b, c]],
+          [order],
         );
-        for (const [pri, sec] of [
-          [a, b],
-          [b, c],
-        ]) {
+        for (let i = 0; i + 1 < order.length; i++) {
           await db.query(
             `INSERT INTO spot_links
                (primary_id, secondary_id, metres, name_similarity, rule)
              VALUES ($1, $2, 0, 1, 'rehearsal-chain')`,
-            [pri, sec],
+            [order[i], order[i + 1]],
           );
         }
-        const pathOf = async (id: string): Promise<string | null> => {
-          const r = await db.query<{
-            country: string;
-            region: string | null;
-            slug: string;
-          }>(`SELECT country, region, slug FROM camping_spots WHERE id = $1`, [
-            id,
-          ]);
-          const row = r.rows[0];
-          return row ? canonicalPath(row.country, row.region, row.slug) : null;
-        };
-        // One client, one query at a time — pg deprecates overlapping
-        // queries on the same connection and this is inside a
-        // transaction, where interleaving would be worse than noisy.
-        const pa = await pathOf(a);
-        const pb = await pathOf(b);
-        const pc = await pathOf(c);
+        const paths: (string | null)[] = [];
+        for (const id of order) paths.push(await pathById(id));
+        const topPath = paths[0];
+        const below = paths.slice(1);
         const chained = await bothLists();
-        const bGoesToA = pb !== null && chained.redirects.get(pb) === pa;
-        // 🔴 The whole point: c must be sent to a in one hop, not to b,
-        // which is itself redirected.
-        const cGoesToA = pc !== null && chained.redirects.get(pc) === pa;
-        const cNotToB = pc !== null && chained.redirects.get(pc) !== pb;
-        const noneLandOnB =
-          pb === null || ![...chained.redirects.values()].includes(pb);
+
+        const allResolved = below.every(
+          (p) => p !== null && chained.redirects.has(p),
+        );
+        const allToTop = below.every(
+          (p) => p !== null && chained.redirects.get(p) === topPath,
+        );
+        const middles = new Set(
+          below.slice(0, -1).filter((p): p is string => p !== null),
+        );
+        const noneLandMidway = ![...chained.redirects.values()].some((t) =>
+          middles.has(t),
+        );
+        const noneBuried = below.every(
+          (p) => p !== null && !chained.gone.has(p),
+        );
+
         console.log(
-          `  ${bGoesToA ? '✓' : '✗'} the middle row redirects to the top`,
+          `  ${allResolved ? '✓' : '✗'} every one of the eleven rows below the top has a destination`,
         );
         console.log(
-          `  ${cGoesToA && cNotToB ? '✓' : '✗'} the bottom row redirects to the TOP, not to the middle`,
+          `  ${allToTop ? '✓' : '✗'} and that destination is the top, not the next step`,
         );
         console.log(
-          `  ${noneLandOnB ? '✓' : '✗'} nothing is sent to a row that redirects onwards`,
+          `  ${noneLandMidway ? '✓' : '✗'} nothing is sent to a row that redirects onwards`,
         );
-        if (!bGoesToA || !cGoesToA || !cNotToB || !noneLandOnB) failed++;
+        console.log(
+          `  ${noneBuried ? '✓' : '✗'} none of them is announced gone instead`,
+        );
+        if (!allResolved || !allToTop || !noneLandMidway || !noneBuried)
+          failed++;
       } finally {
         await db.query('ROLLBACK');
       }
       console.log('  (rolled back — the database is exactly as it was)');
     }
-
-    // ------------------------------------------------------------------
     // 🔴 CAMP-279 REHEARSAL III: a cycle, and a row that is both.
     //
     // Two clauses in RESOLVED_REDIRECTS_SQL exist for shapes the data
@@ -527,19 +574,31 @@ async function main(): Promise<void> {
     console.log(
       '\n--- rehearsal: a cycle, and a row that redirects two ways ---',
     );
+    // 🔴 None of the three may already be in a live link, in EITHER
+    // role. The first version let `x` be a live primary — the partial
+    // unique index then threw on the first INSERT, and the exception
+    // walked straight past `failed++` and out of the process. A
+    // rehearsal that dies is not a rehearsal that failed; it is one
+    // that was never read. The import rehearsal below already states
+    // the condition in full, and this was the asymmetry.
+    const trio = await db.query<{ a: string; b: string; c: string }>(
+      `SELECT x.id AS a, y.id AS b, z.id AS c
+         FROM camping_spots x, camping_spots y, camping_spots z
+        WHERE x.id < y.id AND y.id < z.id
+          AND NOT EXISTS (SELECT 1 FROM spot_links l
+                           WHERE l.unlinked_at IS NULL
+                             AND (l.primary_id   IN (x.id, y.id, z.id)
+                               OR l.secondary_id IN (x.id, y.id, z.id)))
+        ORDER BY x.id, y.id, z.id
+        LIMIT 1`,
+    );
+    if (trio.rowCount !== 1) {
+      console.error('  ✗ no three unlinked rows to build these shapes from');
+      failed++;
+    }
     if (trio.rowCount === 1) {
       const { a, b, c } = trio.rows[0];
-      const pathOf = async (id: string): Promise<string | null> => {
-        const r = await db.query<{
-          country: string;
-          region: string | null;
-          slug: string;
-        }>(`SELECT country, region, slug FROM camping_spots WHERE id = $1`, [
-          id,
-        ]);
-        const row = r.rows[0];
-        return row ? canonicalPath(row.country, row.region, row.slug) : null;
-      };
+      const pathOf = pathById;
       const link = (pri: string, sec: string) =>
         db.query(
           `INSERT INTO spot_links

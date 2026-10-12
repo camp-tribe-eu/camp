@@ -470,8 +470,12 @@ describe('mergeLinked', () => {
  * database, with the state planted and then taken away again.
  */
 describe('the two lists cannot drift apart', () => {
-  it('gone subtracts exactly the pairs the redirect list is built from', () => {
-    expect(GONE_LIST_SQL).toContain(REDIRECT_PAIRS_SQL);
+  it('gone subtracts exactly what the redirect list publishes', () => {
+    // 🔴 The RESOLVED list, not the raw pairs. A review planted a chain
+    // of ten: row ten was half of a pair, so the pairs-based version
+    // subtracted it from gone, but the walk stopped short and published
+    // no redirect for it. That URL was in neither list.
+    expect(GONE_LIST_SQL).toContain(RESOLVED_REDIRECTS_SQL);
   });
 
   it('the redirect list is the resolved form of those same pairs', () => {
@@ -500,5 +504,19 @@ describe('the two lists cannot drift apart', () => {
     expect(RESOLVED_REDIRECTS_SQL).toMatch(
       /NOT EXISTS \(SELECT 1 FROM pairs t WHERE t\.from_id = w\.to_id\)/,
     );
+  });
+
+  it('🔴 the walk ends because it has been there, not after N steps', () => {
+    // `depth < 8` shipped first and lost row ten of a ten-row chain —
+    // no redirect, and already subtracted from gone. A cap is a guess
+    // about how long a chain can be.
+    expect(RESOLVED_REDIRECTS_SQL).not.toMatch(/depth\s*<\s*\d/);
+    expect(RESOLVED_REDIRECTS_SQL).toContain('NOT p.to_id = ANY (w.seen)');
+  });
+
+  it('the gone list computes that walk once, not per row', () => {
+    // Without MATERIALIZED the full-window query went from ~200 ms to
+    // 657–778 ms, measured 12.10.2026.
+    expect(GONE_LIST_SQL).toContain('AS MATERIALIZED');
   });
 });
