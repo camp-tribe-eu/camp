@@ -120,9 +120,27 @@ test.describe('cookie consent', () => {
     await page.goto('/legal/privacy');
     await expect(page.getByTestId('cookie-banner')).toBeVisible();
 
+    // 🔴 Прокрутка і замір — ОКРЕМО, із чеканням між ними.
+    //
+    // Перша редакція робила і те, і те в одному `evaluate`, і тест
+    // виявився флакі: на CI він упав і пройшов лише з повтору, що
+    // сторож репозиторію справедливо вважає падінням. `scrollTo` не
+    // гарантує, що компонування встигло — на повільному раннері
+    // `getBoundingClientRect` читав ще старі координати.
+    await page.evaluate(() =>
+      window.scrollTo(0, document.documentElement.scrollHeight),
+    );
+    await page.waitForFunction(
+      () =>
+        Math.abs(
+          window.scrollY +
+            window.innerHeight -
+            document.documentElement.scrollHeight,
+        ) < 2,
+    );
+
     const hidden = await page.evaluate(() => {
       const banner = document.querySelector('[data-testid="cookie-banner"]')!;
-      window.scrollTo(0, document.documentElement.scrollHeight);
       const top = banner.getBoundingClientRect().top;
       return [...document.querySelectorAll('body *')]
         .filter(
