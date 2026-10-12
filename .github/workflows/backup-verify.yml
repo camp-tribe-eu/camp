@@ -78,7 +78,7 @@ jobs:
         run: |
           set -o pipefail
           node scripts/backup/check-restore.mjs --self-test | tee /dev/stderr \
-            | grep -q 'check-restore self-test:'
+            | grep -c 'check-restore self-test:' >/dev/null
 
       - name: Schema
         working-directory: apps/api

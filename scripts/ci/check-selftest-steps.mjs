@@ -145,7 +145,27 @@ export function selfTestMentions(text) {
  * while half of it ran unwatched.
  */
 export function grepPatterns(run) {
-  return [...run.matchAll(/grep\s+-[a-zA-Z]*q[a-zA-Z]*\s+'([^']+)'/g)].map((m) => m[1]);
+  return [...run.matchAll(/grep\s+-[a-zA-Z]*[qc][a-zA-Z]*\s+'([^']+)'/g)].map((m) => m[1]);
+}
+
+/**
+ * Does this step's lock stop reading as soon as it has matched?
+ *
+ * 🔴 `grep -q` AND `pipefail` TOGETHER ARE A TRAP, and it is mine: every
+ * lock in CAMP-285 was written that way. `grep -q` exits at the first
+ * match, the pipe closes, and whatever is still writing gets SIGPIPE —
+ * so `pipefail` reports 141 and the step fails although nothing is
+ * wrong. Measured on check-map-palette.mjs, which prints a long sentence
+ * AFTER its named line: 5 runs out of 5 gave 141, direct and through a
+ * symlink alike.
+ *
+ * The other locks survive only because their named line happens to be
+ * the last thing printed — a property no one declared and the next
+ * person to add a line would silently break. `grep -c … >/dev/null`
+ * reads to EOF and still exits 1 when the count is zero.
+ */
+export function stopsReadingEarly(run) {
+  return /grep\s+-[a-zA-Z]*q/.test(run);
 }
 
 /**
@@ -158,6 +178,15 @@ export function auditStep({ name, run, scripts }) {
   const patterns = grepPatterns(run);
   if (patterns.length === 0) {
     return { name, why: 'runs a self-test and never reads what it printed' };
+  }
+  if (stopsReadingEarly(run)) {
+    return {
+      name,
+      why:
+        '`grep -q` closes the pipe at the first match, so anything still ' +
+        'writing takes SIGPIPE and `pipefail` turns a passing self-test ' +
+        'into exit 141. Use `grep -c … >/dev/null`, which reads to EOF',
+    };
   }
   if (!/set\s+-o\s+pipefail/.test(run)) {
     return {
@@ -389,10 +418,11 @@ const CASES = [
   ['🔴 a --self-test with no script is reported, not dropped', () =>
     selfTested('$RUNNER --self-test').length === 1 && selfTested('$RUNNER --self-test')[0] === null],
   ['a grep for a line containing the words is not a command of ours', () =>
-    selfTested("grep -q 'a self-test:'").length === 0],
-  ['grep -q is read, with other letters too', () =>
+    selfTested("grep -c 'a self-test:' >/dev/null").length === 0],
+  ['grep is read whichever quiet-ish flag it uses', () =>
     grepPatterns("grep -q 'x self-test:'")[0] === 'x self-test:' &&
-    grepPatterns("grep -qE 'y'")[0] === 'y'],
+    grepPatterns("grep -c 'y'")[0] === 'y' &&
+    grepPatterns("grep -qE 'z'")[0] === 'z'],
   ['no grep is no pattern', () => grepPatterns('node a.mjs --self-test').length === 0],
   ['🔴 every grep in the step is read, not only the first', () =>
     grepPatterns("grep -q 'a self-test:'\ngrep -q 'b self-test:'").join(',') ===
@@ -400,23 +430,35 @@ const CASES = [
   ['🔴 a step self-testing two scripts with one grep is not locked', () =>
     auditStep({
       name: 'X',
-      run: "set -o pipefail\nnode a.mjs --self-test && node b.mjs --self-test | grep -q 'a self-test:'",
+      run: "set -o pipefail\nnode a.mjs --self-test && node b.mjs --self-test | grep -c 'a self-test:' >/dev/null",
       scripts: ['a.mjs', 'b.mjs'],
     }).why.includes('does not name b')],
   ['🔴 …and is, once both are grepped', () =>
     auditStep({
       name: 'X',
-      run: "set -o pipefail\nnode a.mjs --self-test | grep -q 'a self-test:'\nnode b.mjs --self-test | grep -q 'b self-test:'",
+      run: "set -o pipefail\nnode a.mjs --self-test | grep -c 'a self-test:' >/dev/null\nnode b.mjs --self-test | grep -c 'b self-test:' >/dev/null",
       scripts: ['a.mjs', 'b.mjs'],
     }) === null],
   ['🔴 a step that never reads its output is a problem', () =>
     auditStep({ name: 'X', run: 'node a.mjs --self-test', scripts: ['a.mjs'] }).why.includes('never reads')],
   ['🔴 a grep without pipefail is a problem', () =>
-    auditStep({ name: 'X', run: "node a.mjs --self-test | grep -q 'a self-test:'", scripts: ['a.mjs'] }).why.includes('pipefail')],
+    auditStep({ name: 'X', run: "node a.mjs --self-test | grep -c 'a self-test:' >/dev/null", scripts: ['a.mjs'] }).why.includes('pipefail')],
+  ['🔴 `grep -q` is refused: it closes the pipe and pipefail reads 141', () =>
+    auditStep({
+      name: 'X',
+      run: "set -o pipefail\nnode a.mjs --self-test | grep -q 'a self-test:'",
+      scripts: ['a.mjs'],
+    }).why.includes('SIGPIPE')],
+  ['a `-c` lock that reads to EOF is accepted', () =>
+    auditStep({
+      name: 'X',
+      run: "set -o pipefail\nnode a.mjs --self-test | tee /dev/stderr | grep -c 'a self-test:' >/dev/null",
+      scripts: ['a.mjs'],
+    }) === null],
   ['🔴 a grep for somebody else\u2019s line is a problem', () =>
-    auditStep({ name: 'X', run: "set -o pipefail\nnode a.mjs --self-test | grep -q '✓ self-test passed'", scripts: ['a.mjs'] }).why.includes('does not name')],
+    auditStep({ name: 'X', run: "set -o pipefail\nnode a.mjs --self-test | grep -c '✓ self-test passed' >/dev/null", scripts: ['a.mjs'] }).why.includes('does not name')],
   ['a locked step is no problem', () =>
-    auditStep({ name: 'X', run: "set -o pipefail\nnode a.mjs --self-test | tee /dev/stderr | grep -q 'a self-test:'", scripts: ['a.mjs'] }) === null],
+    auditStep({ name: 'X', run: "set -o pipefail\nnode a.mjs --self-test | tee /dev/stderr | grep -c 'a self-test:' >/dev/null", scripts: ['a.mjs'] }) === null],
   ['🔴 one script run in two workflows may share its line', () =>
     sharedPatterns([
       { key: 'ci :: a', patterns: ['x self-test:'], scripts: 'scripts/x.mjs' },
@@ -435,10 +477,10 @@ const CASES = [
       { key: 'ci :: b', patterns: [], scripts: 'scripts/y.mjs' },
     ]).length === 0],
   ['the basename is matched without its extension', () =>
-    auditStep({ name: 'X', run: "set -o pipefail\nnode dir/check-eu-scope.mjs --self-test | grep -q 'check-eu-scope self-test:'", scripts: ['dir/check-eu-scope.mjs'] }) === null],
+    auditStep({ name: 'X', run: "set -o pipefail\nnode dir/check-eu-scope.mjs --self-test | grep -c 'check-eu-scope self-test:' >/dev/null", scripts: ['dir/check-eu-scope.mjs'] }) === null],
 ];
 
-const EXPECTED_CASES = 26;
+const EXPECTED_CASES = 28;
 
 function selfTest() {
   let failed = 0;

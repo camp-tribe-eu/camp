@@ -212,7 +212,9 @@ export function selfTest() {
   ];
 
   let failures = 0;
+  let ran = 0;
   for (const [name, html, want] of cases) {
+    ran++;
     const got = flat(html);
     if (got === want) {
       console.log(`✓ ${name}`);
@@ -222,6 +224,7 @@ export function selfTest() {
     }
   }
   for (const [name, html, want] of nested) {
+    ran++;
     const got = nestedMarks(html).length;
     if (got === want) {
       console.log(`✓ ${name}`);
@@ -231,10 +234,25 @@ export function selfTest() {
     }
   }
 
+  // 🔴 CAMP-286: the total is what RAN, not what was written down.
+  //
+  // The first version added `cases.length + nested.length` — the lengths
+  // of two array literals, which no mutation to the loops can move.
+  // Review replaced `of nested` with `of nested.slice(0, 0)`: four of
+  // the fifteen checks stopped running, the printed ✓/✗ lines fell from
+  // 17 to 13, and this line still said "15 self-test cases passed" with
+  // the CI lock satisfied, 3 runs out of 3. The two sibling files in the
+  // same commit count inside their loops and both go red on it.
+  const total = ran;
+  const EXPECTED_CASES = 15;
+  if (total !== EXPECTED_CASES) {
+    failures++;
+    console.log(`✗ ${total} cases ran, expected ${EXPECTED_CASES}`);
+  }
   console.log(
     failures
       ? `\n✗ ${failures} self-test failure(s)`
-      : `\n✓ ${cases.length + nested.length} self-test cases passed`,
+      : `\n✓ ${total} self-test cases passed`,
   );
   return failures;
 }

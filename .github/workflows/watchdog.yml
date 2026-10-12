@@ -60,7 +60,7 @@ jobs:
         run: |
           set -o pipefail
           node scripts/ci/check-schedule.mjs --self-test | tee /dev/stderr \
-            | grep -q 'check-schedule self-test:'
+            | grep -c 'check-schedule self-test:' >/dev/null
 
       - name: Look for silence
         id: check

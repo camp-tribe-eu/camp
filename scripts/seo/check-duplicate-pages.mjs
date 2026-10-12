@@ -20,7 +20,9 @@
 // run of five words in order is a much better sign of one template with
 // a substitution.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { chooseAction, flagValue } from '../lib/entrypoint.mjs';
 import { glob } from 'node:fs/promises';
 import path from 'node:path';
 import { visibleHtmlText, shingles, jaccard, selfTest, nestedMarks } from './page-text.mjs';
@@ -28,12 +30,54 @@ import { visibleHtmlText, shingles, jaccard, selfTest, nestedMarks } from './pag
 // 🔴 `--self-test` needs no build and no database, so CI can run it on
 // every push: the stripping rule decides what this guard is allowed to
 // ignore, and a hole in it goes GREEN rather than red.
-if (process.argv.includes('--self-test')) process.exit(selfTest() ? 1 : 0);
+// 🔴 CAMP-286: the house guard, written out rather than called, because
+// check-script-entrypoints.mjs recognises a guard by READING it.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
 const args = process.argv.slice(2);
+
+if (invokedDirectly) {
+  const action = chooseAction(args, ['--self-test', '--max', '--sample'],
+    'check-duplicate-pages.mjs', { takesValue: ['--max', '--sample'] });
+  if (action.has('--self-test')) {
+    // 🔴 The rules live in page-text.mjs, but the STEP runs this file,
+    // so the line a CI step greps for has to name this one. A grep for
+    // "15 self-test cases passed" would be satisfied by any script that
+    // happened to print it (CAMP-286).
+    const failures = selfTest();
+    if (!failures) {
+      console.log('\n✓ check-duplicate-pages self-test: the page-text rules still bite');
+    }
+    process.exit(failures ? 1 : 0);
+  }
+}
+
+// 🔴 `flagValue`, not `indexOf`: `--max=0.8` is a spelling chooseAction
+// accepts, and `indexOf` read it as absent — the threshold would quietly
+// fall back to its default (CAMP-286).
 const opt = (name, fallback) => {
-  const i = args.indexOf(`--${name}`);
-  return i >= 0 && args[i + 1] ? Number(args[i + 1]) : fallback;
+  const given = flagValue(args, `--${name}`);
+  if (given === undefined) return fallback;
+  const n = Number(given);
+  // 🔴 NaN IS NOT A THRESHOLD. Review handed this `--sample=junk`:
+  // `Number()` gave NaN, `picked.size < Math.min(NaN, …)` is false, the
+  // sample came out empty, and the check printed "no pair above NaN%"
+  // over nothing at all. On main the `=` spelling fell back to the
+  // default instead — still wrong, but quieter. A value that is not a
+  // number is a typo, and a typo is this card's whole subject.
+  if (!Number.isFinite(n)) {
+    throw new Error(
+      `check-duplicate-pages.mjs: --${name} takes a number, got ${JSON.stringify(given)}.`,
+    );
+  }
+  return n;
 };
 
 const MAX_SIMILARITY = opt('max', 0.8);

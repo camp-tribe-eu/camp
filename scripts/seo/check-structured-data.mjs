@@ -29,14 +29,15 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { chooseAction, flagValue } from '../lib/entrypoint.mjs';
 
 const args = process.argv.slice(2);
 const SELF_TEST = args.includes('--self-test');
-const dirIndex = args.indexOf('--dir');
-const ROOT =
-  dirIndex >= 0 && args[dirIndex + 1]
-    ? args[dirIndex + 1]
-    : 'apps/web/.next/server/app';
+// 🔴 `flagValue`, not `indexOf`: `--dir=<path>` is a spelling
+// chooseAction accepts, and `indexOf` read it as absent — the validator
+// would then walk the default directory and report on pages nobody asked
+// about (CAMP-286).
+const ROOT = flagValue(args, '--dir') ?? 'apps/web/.next/server/app';
 
 const INDEX = JSON.parse(
   readFileSync(new URL('./schema-index.json', import.meta.url), 'utf8'),
@@ -352,7 +353,55 @@ export function validateHtml(html, label) {
 // "the validator fails on deliberately broken markup". A checker nobody
 // has seen fail is not evidence of anything, so the broken cases live
 // here and run on demand.
-if (SELF_TEST) {
+// 🔴 REALPATH ON BOTH SIDES, or this guard silently switches CI off.
+//
+// `import.meta.url` is resolved through symlinks; `process.argv[1]` is
+// not. One symlink anywhere in the path makes them differ, `main()` never
+// runs, and the process prints nothing and exits 0 — a validator that has
+// quietly stopped validating, which is the exact failure this whole file
+// exists to prevent. Reproduced by review on macOS, where /tmp is a
+// symlink to /private/tmp:
+//
+//   direct   exit=1  "No built pages under … Build first."
+//   symlink  exit=0  (nothing at all)
+//
+// GitHub's runner path happens to be symlink-free today, so CI was not
+// broken — it would have broken the first time a checkout path gained a
+// symlink, and nothing would have said so.
+const invokedDirectly = (() => {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return false;
+  }
+})();
+
+// 🔴 CAMP-286: a flag this file does not know is an error, not a shrug.
+// `--selftest` used to fall through to the live walk of the build
+// directory, which on a machine without a build printed "No built pages"
+// and exited 1 — failing for the wrong reason — and in CI, with a build
+// present, would have printed a green validation while the self-test
+// never ran.
+// 🔴 AND BEHIND THE GUARD, which the first attempt left half-done: the
+// call sat here twice, once unguarded. Review imported this module with
+// argv `test foo` and got `unexpected argument "test"` AT IMPORT — in a
+// file whose own comment four lines down explains why the self-test had
+// to move behind the guard. It was green today only because a Playwright
+// worker's argv happens to be exactly [node, workerProcessEntry.js].
+if (invokedDirectly) {
+  chooseAction(args, ['--self-test', '--dir'], 'check-structured-data.mjs', {
+    takesValue: ['--dir'],
+  });
+}
+
+// 🔴 AND THE SELF-TEST IS BEHIND THE GUARD TOO. It was not: this file is
+// imported by apps/web/tests/unit/jsonld.spec.ts, and a Jest run whose
+// argv happened to carry `--self-test` would have run the whole
+// validator rehearsal and called process.exit() in the middle of the
+// suite (CAMP-286).
+if (invokedDirectly && SELF_TEST) {
   const cases = [
     ['valid Campground', true, {
       '@context': 'https://schema.org',
@@ -719,7 +768,9 @@ if (SELF_TEST) {
   ];
 
   let failures = 0;
+  let ran = 0;
   for (const [name, shouldPass, doc] of cases) {
+    ran++;
     // An array means several blocks on one page — the only way to
     // rehearse a cross-block rule such as the @id check.
     const html = (Array.isArray(doc) ? doc : [doc])
@@ -739,14 +790,23 @@ if (SELF_TEST) {
     '<script type="application/ld+json">{"@type": Campground}</script>',
     'malformed JSON',
   );
+  ran++;
   const ok = broken.errors.length > 0;
   if (!ok) failures++;
   console.log(`${ok ? '✓' : '✗'} malformed JSON: ${broken.errors[0] ?? 'ACCEPTED'}`);
 
+  // 🔴 CAMP-286: counted and asserted, and the line names this file —
+  // a grep for "the validator rejects every broken case" is prose any
+  // script could print.
+  const EXPECTED_CASES = 35;
+  if (ran !== EXPECTED_CASES) {
+    failures++;
+    console.log(`✗ ${ran} cases ran, expected ${EXPECTED_CASES}`);
+  }
   console.log(
     failures === 0
-      ? '\n✓ the validator rejects every broken case and accepts the good one'
-      : `\n✗ ${failures} self-test case(s) behaved wrongly`,
+      ? `\n✓ check-structured-data self-test: ${ran} cases`
+      : `\n✗ check-structured-data self-test: ${failures} case(s) behaved wrongly`,
   );
   process.exit(failures === 0 ? 0 : 1);
 }
@@ -757,30 +817,6 @@ if (SELF_TEST) {
 // would otherwise walk .next/server/app and exit the process. The tests
 // for CAMP-114's markup check the same rules this file enforces, against
 // the same vocabulary index — importing it is how the two cannot drift.
-// 🔴 REALPATH ON BOTH SIDES, or this guard silently switches CI off.
-//
-// `import.meta.url` is resolved through symlinks; `process.argv[1]` is
-// not. One symlink anywhere in the path makes them differ, `main()` never
-// runs, and the process prints nothing and exits 0 — a validator that has
-// quietly stopped validating, which is the exact failure this whole file
-// exists to prevent. Reproduced by review on macOS, where /tmp is a
-// symlink to /private/tmp:
-//
-//   direct   exit=1  "No built pages under … Build first."
-//   symlink  exit=0  (nothing at all)
-//
-// GitHub's runner path happens to be symlink-free today, so CI was not
-// broken — it would have broken the first time a checkout path gained a
-// symlink, and nothing would have said so.
-const invokedDirectly = (() => {
-  const entry = process.argv[1];
-  if (entry === undefined) return false;
-  try {
-    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
-  } catch {
-    return false;
-  }
-})();
 
 if (invokedDirectly) {
   // 🔴 `.catch`, not top-level `await`. A module with top-level await is
