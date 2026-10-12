@@ -517,6 +517,102 @@ async function main(): Promise<void> {
     }
 
     // ------------------------------------------------------------------
+    // 🔴 CAMP-279 REHEARSAL III: a cycle, and a row that is both.
+    //
+    // Two clauses in RESOLVED_REDIRECTS_SQL exist for shapes the data
+    // does not currently hold, and an untested guard is a guess. A
+    // mutation run proved the point: deleting either the NOT EXISTS or
+    // the ORDER BY left every check green, because each was covering
+    // for the other on the only shape being rehearsed.
+    console.log(
+      '\n--- rehearsal: a cycle, and a row that redirects two ways ---',
+    );
+    if (trio.rowCount === 1) {
+      const { a, b, c } = trio.rows[0];
+      const pathOf = async (id: string): Promise<string | null> => {
+        const r = await db.query<{
+          country: string;
+          region: string | null;
+          slug: string;
+        }>(`SELECT country, region, slug FROM camping_spots WHERE id = $1`, [
+          id,
+        ]);
+        const row = r.rows[0];
+        return row ? canonicalPath(row.country, row.region, row.slug) : null;
+      };
+      const link = (pri: string, sec: string) =>
+        db.query(
+          `INSERT INTO spot_links
+             (primary_id, secondary_id, metres, name_similarity, rule)
+           VALUES ($1, $2, 0, 1, 'rehearsal-shape')`,
+          [pri, sec],
+        );
+      const givePages = () =>
+        db.query(
+          `UPDATE camping_spots SET region = coalesce(region, 'Rehearsal'),
+                                    missing_since = NULL
+            WHERE id = ANY($1::uuid[])`,
+          [[a, b, c]],
+        );
+
+      // --- a → b → c → a: three rows, each one hidden behind the next.
+      await db.query('BEGIN');
+      try {
+        await givePages();
+        await link(a, b);
+        await link(b, c);
+        await link(c, a);
+        const paths = [await pathOf(a), await pathOf(b), await pathOf(c)];
+        const cyc = await bothLists();
+        const silent = paths.every((p) => p === null || !cyc.redirects.has(p));
+        console.log(
+          `  ${silent ? '✓' : '✗'} a cycle publishes no redirect at all, rather than a loop`,
+        );
+        if (!silent) failed++;
+      } finally {
+        await db.query('ROLLBACK');
+      }
+
+      // --- A row that is a secondary of a live primary AND the primary
+      // of a live secondary, and has itself gone missing. Both halves
+      // claim it. Its content is on the primary, so that is where it
+      // must point.
+      //
+      // 🔴 The roles are assigned AGAINST the id order on purpose. The
+      // trio comes back sorted, and with `top` = a the fallback
+      // tiebreak (lowest to_id) would have chosen the right answer by
+      // accident: the mutation that deletes `rank` survived, and the
+      // test said nothing. `top` is the LAST id, so the wrong answer is
+      // the one that sorts first.
+      const top = c;
+      const claimed = b;
+      const low = a;
+      await db.query('BEGIN');
+      try {
+        await givePages();
+        await link(top, claimed);
+        await link(claimed, low);
+        await db.query(
+          `UPDATE camping_spots SET missing_since = now() - interval '29 days'
+            WHERE id = $1`,
+          [claimed],
+        );
+        const pTop = await pathOf(top);
+        const pClaimed = await pathOf(claimed);
+        const both = await bothLists();
+        const toPrimary =
+          pClaimed !== null && both.redirects.get(pClaimed) === pTop;
+        console.log(
+          `  ${toPrimary ? '✓' : '✗'} a row both halves claim goes to the one carrying its content`,
+        );
+        if (!toPrimary) failed++;
+      } finally {
+        await db.query('ROLLBACK');
+      }
+      console.log('  (rolled back — the database is exactly as it was)');
+    }
+
+    // ------------------------------------------------------------------
     // 🔴 THE PROOF THAT MATTERS: rehearse the weekly import.
     //
     // A backup nobody has restored from does not exist, and a link

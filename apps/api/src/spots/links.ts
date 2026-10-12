@@ -108,14 +108,14 @@ export function notSecondarySql(alias: string): string {
  * duplicate a row. That is the property, not an accident of the data.
  */
 export const REDIRECT_PAIRS_SQL = `
-    SELECT l.secondary_id AS from_id, l.primary_id AS to_id
+    SELECT l.secondary_id AS from_id, l.primary_id AS to_id, 1 AS rank
       FROM spot_links l
       JOIN camping_spots lp ON lp.id = l.primary_id
      WHERE l.unlinked_at IS NULL
        AND lp.missing_since IS NULL
        AND lp.region IS NOT NULL
      UNION ALL
-    SELECT l.primary_id AS from_id, l.secondary_id AS to_id
+    SELECT l.primary_id AS from_id, l.secondary_id AS to_id, 2 AS rank
       FROM spot_links l
       JOIN camping_spots lp ON lp.id = l.primary_id
       JOIN camping_spots ls ON ls.id = l.secondary_id
@@ -150,13 +150,29 @@ export const REDIRECT_PAIRS_SQL = `
  * is some pair's `from_id`, so none of them is a terminal and the
  * NOT EXISTS drops the lot. The depth cap stops the recursion itself;
  * it is not what makes the answer safe.
+ *
+ * 🔴 What each part of the ORDER BY is for, because two of them were
+ * written as one guard and a mutation proved they covered each other:
+ *
+ *   rank      — a row can be BOTH halves' `from_id`: missing from OSM,
+ *               and a secondary of a live primary, and a primary of a
+ *               live secondary. Then two destinations are true at once
+ *               and the right one is the primary carrying its content,
+ *               which is rank 1. Without this the answer is whichever
+ *               row the planner reaches first.
+ *   depth DESC — the far end of a chain rather than the next step. The
+ *               NOT EXISTS above already leaves only terminals, so this
+ *               decides nothing today; it is kept because it states the
+ *               intent and costs nothing, NOT because a test holds it.
+ *   to_id     — a total order, so the answer cannot change between two
+ *               runs over the same rows.
  */
 export const RESOLVED_REDIRECTS_SQL = `
   WITH RECURSIVE pairs AS (${REDIRECT_PAIRS_SQL}),
-  walk (from_id, to_id, depth) AS (
-      SELECT from_id, to_id, 1 FROM pairs
+  walk (from_id, to_id, rank, depth) AS (
+      SELECT from_id, to_id, rank, 1 FROM pairs
        UNION ALL
-      SELECT w.from_id, p.to_id, w.depth + 1
+      SELECT w.from_id, p.to_id, w.rank, w.depth + 1
         FROM walk w
         JOIN pairs p ON p.from_id = w.to_id
        WHERE w.depth < 8)
@@ -164,7 +180,7 @@ export const RESOLVED_REDIRECTS_SQL = `
     FROM walk w
    WHERE NOT EXISTS (SELECT 1 FROM pairs t WHERE t.from_id = w.to_id)
      AND w.to_id <> w.from_id
-   ORDER BY w.from_id, w.depth DESC`;
+   ORDER BY w.from_id, w.rank, w.depth DESC, w.to_id`;
 
 /**
  * True when this row's URL is answered by a redirect, so nothing else
