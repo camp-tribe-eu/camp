@@ -805,14 +805,18 @@ async function main(): Promise<void> {
             WHERE id = $1`,
           [second],
         );
-        // 🔴 One secondary is made old enough to bury, or the check
-        // below that it is NOT buried cannot fail. It was green by
-        // construction until a review mutated the subtraction out of
-        // gone() and watched it stay green.
+        // 🔴 BOTH secondaries are made old enough to bury, or the check
+        // below that neither is buried cannot fail for both of them.
+        //
+        // It was green by construction until a review mutated the
+        // subtraction out of gone() and watched it stay green. The fix
+        // then aged only `second`, so the check could fail — but only
+        // ever on half its subject, while its name said "neither". A
+        // review found that too.
         await db.query(
           `UPDATE camping_spots SET missing_since = now() - interval '29 days'
-            WHERE id = $1`,
-          [second],
+            WHERE id = ANY($1::uuid[])`,
+          [[first, second]],
         );
       };
 
