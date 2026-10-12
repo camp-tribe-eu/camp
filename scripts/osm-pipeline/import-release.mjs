@@ -61,6 +61,17 @@ const MAX_COUNTRIES = 27;
  * succeed. A typo must stop the run, not change what it imports.
  */
 export function readOpt(argv, name, fallback = null) {
+  // 🔴 BOTH SPELLINGS. `chooseAction` accepts `--tag=osm-2026-09-24` —
+  // it has a case saying so — while this read it with `indexOf` and saw
+  // nothing, so the tag fell back to "whatever `gh release list --limit
+  // 1` returns" and the import rewrote the database from a release
+  // nobody asked for, printing a tag nobody asked for (CAMP-286).
+  const inline = argv.find((a) => a.startsWith(`--${name}=`));
+  if (inline !== undefined) {
+    const value = inline.slice(`--${name}=`.length);
+    if (value === '') throw new Error(`--${name} needs a value`);
+    return value;
+  }
   const i = argv.indexOf(`--${name}`);
   if (i < 0) return fallback;
   const value = argv[i + 1];
@@ -687,7 +698,13 @@ function selfTest() {
   for (const c of checks) {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
   }
-  const failed = checks.filter((c) => !c.pass).length;
+  // 🔴 `let`, not `const`. The count guard below did `failed += 1` on a
+  // constant, so a wrong EXPECTED_CASES threw
+  // `TypeError: Assignment to constant variable` instead of printing the
+  // sentence it was written to print. The step still went red — by
+  // accident, through a crash — and the guard itself had never been
+  // rehearsed (CAMP-286).
+  let failed = checks.filter((c) => !c.pass).length;
   // 🔴 CAMP-286: counted and named after this file. Its own header
   // records that `--self-test` printed "73/73 passed" for a week while
   // the import had not started at all — the number was never the
@@ -725,6 +742,24 @@ if (invokedDirectly) {
     takesValue: FLAGS_WITH_VALUES,
     positional: MAX_COUNTRIES,
   });
+  // 🔴 AND THE POSITIONALS ARE COUNTRY CODES, not merely few enough.
+  // `chooseAction` counts them; it cannot know what they mean. Review
+  // handed this `--tag T fra`: the count passed, the two-letter filter
+  // below silently dropped the typo, and the plan came back as all 27
+  // member states — a three-letter slip importing the whole Union
+  // (CAMP-286).
+  const strays = args
+    .filter((a) => !a.startsWith('-'))
+    .filter((a, i, all) => all.indexOf(a) === i)
+    .filter((a) => readOpt(args, 'tag', null) !== a)
+    .filter((a) => !/^[a-z]{2}$/i.test(a));
+  if (strays.length > 0) {
+    throw new Error(
+      `import-release.mjs: ${strays.join(', ')} is not a two-letter country ` +
+        'code. A three-letter slip used to be dropped in silence and import ' +
+        'all 27 member states (CAMP-286).',
+    );
+  }
   if (action.has('--self-test')) process.exit(selfTest() ? 0 : 1);
   else await main();
 }

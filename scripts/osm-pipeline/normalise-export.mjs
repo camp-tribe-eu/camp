@@ -35,9 +35,8 @@
 
 import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { argv, exit } from 'node:process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { chooseAction } from '../lib/entrypoint.mjs';
-import { resolve } from 'node:path';
 
 /** The tags that make a feature one of ours. */
 export const WANTED = ['camp_site', 'caravan_site'];

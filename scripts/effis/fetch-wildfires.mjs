@@ -47,7 +47,7 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
-import { chooseAction } from '../lib/entrypoint.mjs';
+import { chooseAction, flagValue } from '../lib/entrypoint.mjs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -1001,7 +1001,13 @@ async function selfTest() {
   for (const c of checks) {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
   }
-  const failed = checks.filter((c) => !c.pass).length;
+  // 🔴 `let`, not `const`. The count guard below did `failed += 1` on a
+  // constant, so a wrong EXPECTED_CASES threw
+  // `TypeError: Assignment to constant variable` instead of printing the
+  // sentence it was written to print. The step still went red — by
+  // accident, through a crash — and the guard itself had never been
+  // rehearsed (CAMP-286).
+  let failed = checks.filter((c) => !c.pass).length;
   // 🔴 CAMP-286: counted and named. "63/63 passed" is a sentence
   // several scripts print, and a case that stopped being reached prints
   // what a passing case prints.
@@ -1045,8 +1051,12 @@ if (invokedDirectly) {
   if (action.has('--self-test')) {
   process.exit((await selfTest()) ? 0 : 1);
 } else {
-  const daysArg = args.find((a) => a.startsWith('--days='));
-  const days = daysArg ? Number(daysArg.slice('--days='.length)) : WINDOW_DAYS;
+  // 🔴 BOTH SPELLINGS. `takesValue: ['--days']` lets chooseAction accept
+  // `--days 7` with a space, while this read only `--days=7`: the
+  // spaced form was accepted and then silently ignored, and the fetch
+  // ran over the default window instead (CAMP-286).
+  const daysArg = flagValue(args, '--days');
+  const days = daysArg === undefined ? WINDOW_DAYS : Number(daysArg);
   if (!Number.isInteger(days) || days <= 0 || days > 366) {
     throw new Error(`--days must be a whole number of days in 1..366, got ${daysArg}`);
   }
