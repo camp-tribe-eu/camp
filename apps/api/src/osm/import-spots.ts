@@ -22,6 +22,7 @@ import 'dotenv/config';
 import { Client } from 'pg';
 import { mapAmenities, mapContact, mapSpotType, OsmTags } from './tag-mapping';
 import { isEuMemberState } from './eu';
+import { correctRegion, isKnownRegion } from './region-names';
 
 const COUNTRY = (process.argv[2] ?? '').toUpperCase();
 const TABLE = process.argv[3] ?? 'osm_camping_staging';
@@ -573,6 +574,9 @@ async function main(): Promise<void> {
    * campsites and the run would print exactly what it printed before.
    */
   let noCountryCode = 0;
+  // CAMP-288: how many names this run corrected, and which it could not.
+  let renamed = 0;
+  const unknownRegions = new Map<string, number>();
   /** Points outside every admin-1 polygon - these get no page URL. */
   let withoutRegion = 0;
 
@@ -581,8 +585,23 @@ async function main(): Promise<void> {
     for (const row of deduped) {
       // Geometry wins over the argument. The argument only stands in where
       // the point falls outside every polygon (open sea, a gap in the data).
-      const region = row.admin_region;
       const country = row.admin_country ?? COUNTRY;
+      // 🔴 CAMP-288: Natural Earth's spelling is not the state's.
+      // Two of its admin-1 names are misspelt and went straight into
+      // the URL — `Haute-Rhin` on 238 campsites, `Seien-et-Marne` on
+      // 70. This is the only place `region` is written, so it is the
+      // only place a correction holds past next Monday's import.
+      const region = correctRegion(country, row.admin_region);
+      if (region !== row.admin_region) renamed++;
+      // A French region that is not a département is either a new
+      // misspelling or a neighbour's polygon flown under our flag, and
+      // both are worth a line rather than a silent page.
+      if (isKnownRegion(country, region) === false) {
+        unknownRegions.set(
+          `${country}/${region}`,
+          (unknownRegions.get(`${country}/${region}`) ?? 0) + 1,
+        );
+      }
       if (row.raw_country && !row.admin_country) noCountryCode++;
 
       // 🔴 CAMP-118: the Union, and nothing else. DECIDED FIRST, on purpose.
@@ -740,6 +759,21 @@ async function main(): Promise<void> {
     console.log(
       `  no ISO code        ${noCountryCode}  (polygon has none — region withheld, no page: CAMP-125)`,
     );
+    // 🔴 CAMP-288, and printed when it is zero for the same reason as
+    // the line above: the run where the correction stops being needed
+    // and the run where it stopped being applied look identical
+    // otherwise.
+    console.log(
+      `  names corrected    ${renamed}  (Natural Earth spelling → the state's: CAMP-288)`,
+    );
+    if (unknownRegions.size > 0) {
+      console.log(
+        `  🔴 ${unknownRegions.size} region name(s) this country does not have:`,
+      );
+      for (const [key, n] of [...unknownRegions].sort((a, b) => b[1] - a[1])) {
+        console.log(`       ${key}  ${n}`);
+      }
+    }
     if (withoutRegion) {
       console.log(
         `  🔴 no region       ${withoutRegion}  (no admin-1 polygon — these cannot get a page URL)`,
