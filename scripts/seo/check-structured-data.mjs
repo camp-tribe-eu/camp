@@ -384,10 +384,12 @@ const invokedDirectly = (() => {
 // and exited 1 — failing for the wrong reason — and in CI, with a build
 // present, would have printed a green validation while the self-test
 // never ran.
-chooseAction(args, ['--self-test', '--dir'], 'check-structured-data.mjs', {
-  takesValue: ['--dir'],
-});
-
+// 🔴 AND BEHIND THE GUARD, which the first attempt left half-done: the
+// call sat here twice, once unguarded. Review imported this module with
+// argv `test foo` and got `unexpected argument "test"` AT IMPORT — in a
+// file whose own comment four lines down explains why the self-test had
+// to move behind the guard. It was green today only because a Playwright
+// worker's argv happens to be exactly [node, workerProcessEntry.js].
 if (invokedDirectly) {
   chooseAction(args, ['--self-test', '--dir'], 'check-structured-data.mjs', {
     takesValue: ['--dir'],

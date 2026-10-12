@@ -64,7 +64,20 @@ if (invokedDirectly) {
 // fall back to its default (CAMP-286).
 const opt = (name, fallback) => {
   const given = flagValue(args, `--${name}`);
-  return given === undefined ? fallback : Number(given);
+  if (given === undefined) return fallback;
+  const n = Number(given);
+  // 🔴 NaN IS NOT A THRESHOLD. Review handed this `--sample=junk`:
+  // `Number()` gave NaN, `picked.size < Math.min(NaN, …)` is false, the
+  // sample came out empty, and the check printed "no pair above NaN%"
+  // over nothing at all. On main the `=` spelling fell back to the
+  // default instead — still wrong, but quieter. A value that is not a
+  // number is a typo, and a typo is this card's whole subject.
+  if (!Number.isFinite(n)) {
+    throw new Error(
+      `check-duplicate-pages.mjs: --${name} takes a number, got ${JSON.stringify(given)}.`,
+    );
+  }
+  return n;
 };
 
 const MAX_SIMILARITY = opt('max', 0.8);
