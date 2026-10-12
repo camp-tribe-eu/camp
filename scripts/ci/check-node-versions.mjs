@@ -35,10 +35,11 @@
 // format, and must REFUSE what it cannot understand rather than skip it.
 // Anything unrecognised below is an error, never a silent pass.
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, realpathSync } from 'node:fs';
 import { argv, exit } from 'node:process';
 import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 import yaml from 'js-yaml';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -447,7 +448,24 @@ const SELF_TEST = [
   ['🔴 a file that parses to no jobs is refused', '22', [...filler(), { file: 'a.yml', job: '(none)', empty: true }], {}, 1],
 ];
 
-if (argv.includes('--self-test')) {
+// 🔴 CAMP-286 REPLACED `resolve(argv[1])` WITH `realpathSync`. Node
+// resolves `import.meta.url` through the REAL path, while `resolve()`
+// only makes argv[1] absolute — it follows no symlink. Through a link
+// the two never matched, the self-test silently did not run, and the CI
+// step was green with no output. Written out rather than called because
+// check-script-entrypoints.mjs recognises a guard by READING it.
+const RUN_DIRECTLY = (() => {
+  if (argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (RUN_DIRECTLY) chooseAction(argv.slice(2), ['--self-test'], 'check-node-versions.mjs');
+
+if (RUN_DIRECTLY && argv.includes('--self-test')) {
   let failed = 0;
   for (const [what, nvmrc, jobs, exc, expected] of SELF_TEST) {
     const got = problems(nvmrc, jobs, exc, { jobs: 18, nodeSteps: 0 }).length;
@@ -565,12 +583,11 @@ if (argv.includes('--self-test')) {
   console.log(
     failed
       ? `\n::error::self-test failed on ${failed} cases`
-      : `\n✓ self-test passed: ${SELF_TEST.length + checks.length} cases`,
+      : `\n✓ check-node-versions self-test: ${SELF_TEST.length + checks.length} cases`,
   );
   exit(failed ? 1 : 0);
 }
 
-const RUN_DIRECTLY = argv[1] && fileURLToPath(import.meta.url) === resolve(argv[1]);
 if (RUN_DIRECTLY) {
   const nvmrc = readFileSync(join(ROOT, '.nvmrc'), 'utf8');
   const files = {};

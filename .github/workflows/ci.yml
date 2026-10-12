@@ -212,8 +212,13 @@ jobs:
       # skew becomes permanent: `warning-geography` sat on 24 for weeks
       # because it was copied from a file that needed 24, and nothing in
       # the repository could tell the two apart.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
       - name: Node-version guard still catches an unexplained version
-        run: node scripts/ci/check-node-versions.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/ci/check-node-versions.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-node-versions self-test:'
       - name: Every job runs .nvmrc's Node, or says why not
         run: node scripts/ci/check-node-versions.mjs
 
@@ -338,8 +343,13 @@ jobs:
       # — which differs between macOS and this runner. It cost nothing
       # the day it happened only because the two tables never referenced
       # each other. CAMP-179.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
       - name: Migration stamp guard still catches a collision
-        run: node scripts/ci/check-migration-stamps.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/ci/check-migration-stamps.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-migration-stamps self-test:'
 
       - name: No two migrations share a timestamp
         run: node scripts/ci/check-migration-stamps.mjs
@@ -354,8 +364,13 @@ jobs:
       # 15 of the 20 scripts that open a connection already had the
       # guard. The convention was real and nothing checked it, so five
       # files quietly did not follow it.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
       - name: Entry-point guard still tells guarded from unguarded
-        run: node scripts/ci/check-script-entrypoints.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/ci/check-script-entrypoints.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-script-entrypoints self-test:'
 
       - name: No script runs itself when a test imports it
         run: node scripts/ci/check-script-entrypoints.mjs
@@ -367,8 +382,13 @@ jobs:
       # word for word, the credit shown to the reader, and the URL both
       # were read from, because a licence nobody can reproduce from a link
       # is one we are quoting from memory.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
       - name: Satellite licence guard still refuses an unlicensed tile
-        run: node scripts/ci/check-satellite-licences.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/ci/check-satellite-licences.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-satellite-licences self-test:'
 
       - name: Every satellite source names its licence and its credit
         run: node scripts/ci/check-satellite-licences.mjs
@@ -465,8 +485,13 @@ jobs:
       # ONE transition speed where the design has four, no secondary
       # button at all, and no state-label colours — each of which reads as
       # a styling choice rather than a missing line.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
       - name: The design-token check still catches a missing token
-        run: node scripts/ci/check-design-tokens.mjs --self-test
+        run: |
+          set -o pipefail
+          node scripts/ci/check-design-tokens.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-design-tokens self-test:'
 
       - name: …and globals.css still matches the design system
         run: node scripts/ci/check-design-tokens.mjs
