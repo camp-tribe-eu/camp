@@ -3,11 +3,15 @@ import { join } from 'node:path';
 import { UPSERT_SPOT_SQL } from '../osm/import-spots';
 import {
   attributeTaken,
+  GONE_LIST_SQL,
   LINKED_SECONDARY_JOIN,
   mergedNameSql,
   mergedStarsSql,
   mergeLinked,
   notSecondarySql,
+  REDIRECT_LIST_SQL,
+  REDIRECT_PAIRS_SQL,
+  RESOLVED_REDIRECTS_SQL,
   withoutTaken,
 } from './links';
 
@@ -448,5 +452,76 @@ describe('mergeLinked', () => {
     expect(merged.name).toBe('Camping 2 Rivières');
     const sources = merged.sources as { id: string; fields: string[] }[];
     expect(sources[1].fields).toContain('name');
+  });
+});
+
+/**
+ * CAMP-279. The redirect list and the gone list answer about the same
+ * URLs, and the one thing that must never happen is a path in both.
+ *
+ * 🔴 These are assertions about SHARING, not about wording. A test that
+ * matched the conditions in each query would pass the day somebody
+ * retypes them identically into both and fails the day somebody
+ * reformats one — the opposite of what matters. What matters is that
+ * there is one definition and both read it, which is what makes the two
+ * lists impossible to drift apart.
+ *
+ * The behaviour itself is rehearsed in verify-links.ts, against a
+ * database, with the state planted and then taken away again.
+ */
+describe('the two lists cannot drift apart', () => {
+  it('gone computes the published list and subtracts from it', () => {
+    // 🔴 The RESOLVED list, not the raw pairs. A review planted a chain
+    // of ten: row ten was half of a pair, so the pairs-based version
+    // subtracted it from gone, but the walk stopped short and published
+    // no redirect for it. That URL was in neither list.
+    expect(GONE_LIST_SQL).toContain(RESOLVED_REDIRECTS_SQL);
+    // And it is SUBTRACTED, not merely mentioned — the first version of
+    // this test passed with the subtraction deleted, because the CTE
+    // was still there. The behaviour is held by the rehearsal; this
+    // holds the name honest.
+    expect(GONE_LIST_SQL).toContain('NOT EXISTS (SELECT 1 FROM redirected rr');
+  });
+
+  it('the redirect list is the resolved form of those same pairs', () => {
+    expect(RESOLVED_REDIRECTS_SQL).toContain(REDIRECT_PAIRS_SQL);
+    expect(REDIRECT_LIST_SQL).toContain(RESOLVED_REDIRECTS_SQL);
+  });
+
+  it('a pair can point either way, which is the whole fix', () => {
+    // Half one: the secondary redirects to its primary — the ordinary
+    // case. Half two: the primary redirects to its secondary, for the
+    // week OSM drops the primary and the secondary keeps the campsite.
+    expect(REDIRECT_PAIRS_SQL).toContain('l.secondary_id AS from_id');
+    expect(REDIRECT_PAIRS_SQL).toContain('l.primary_id AS from_id');
+  });
+
+  it('🔴 the second half is guarded by the negation of the first', () => {
+    // Not decoration: without it a link whose primary is publishable
+    // would feed both halves, UNION ALL would emit two rows, and the
+    // campsite would redirect in a circle.
+    expect(REDIRECT_PAIRS_SQL).toContain(
+      'NOT (lp.missing_since IS NULL AND lp.region IS NOT NULL)',
+    );
+  });
+
+  it('a chain is walked to a row nothing redirects away from', () => {
+    expect(RESOLVED_REDIRECTS_SQL).toMatch(
+      /NOT EXISTS \(SELECT 1 FROM pairs t WHERE t\.from_id = w\.to_id\)/,
+    );
+  });
+
+  it('🔴 the walk ends because it has been there, not after N steps', () => {
+    // `depth < 8` shipped first and lost row ten of a ten-row chain —
+    // no redirect, and already subtracted from gone. A cap is a guess
+    // about how long a chain can be.
+    expect(RESOLVED_REDIRECTS_SQL).not.toMatch(/depth\s*<\s*\d/);
+    expect(RESOLVED_REDIRECTS_SQL).toContain('NOT p.to_id = ANY (w.seen)');
+  });
+
+  it('the gone list computes that walk once, not per row', () => {
+    // Without MATERIALIZED the full-window query went from ~200 ms to
+    // 657–778 ms, measured 12.10.2026.
+    expect(GONE_LIST_SQL).toContain('AS MATERIALIZED');
   });
 });

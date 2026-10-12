@@ -73,6 +73,132 @@ export function notSecondarySql(alias: string): string {
 }
 
 /**
+ * CAMP-279: every 301 the site owes, as (from_id → to_id).
+ *
+ * 🔴 ONE definition, because two lists have to agree.
+ *
+ * `SpotsService.links` turns these into redirects and `SpotsService.gone`
+ * refuses to announce any of them as gone. Those two answers must never
+ * name the same URL — the middleware would be told to redirect it and to
+ * declare it dead in the same build — and the only way to be sure of
+ * that is to derive both from the same rows rather than from two
+ * hand-kept copies of one rule. The comment that used to sit on the old
+ * `links` query said the conditions "have to be the same two"; this is
+ * that sentence made structural.
+ *
+ * The rule is NOT "a secondary redirects to its primary". It is:
+ *
+ *   a row that is not published redirects to the row carrying it,
+ *   and only while that row is itself published.
+ *
+ * Usually the unpublished side is the secondary — that is what a link is
+ * for. But the primary can lose its page too: OSM drops it, the weekly
+ * import stamps `missing_since`, and `isSecondarySql` then deliberately
+ * un-hides the secondary so the campsite stays on the site. Six pairs
+ * were in that state on 12.10.2026, 11 to 120 m apart. The campsite is
+ * open and has a page; it is the primary's address — the canonical one,
+ * the one the secondary pointed 301 at until that import — that now
+ * leads nowhere, and in 28 days `gone()` would answer 410 there: "this
+ * campsite no longer exists", about a business that is open.
+ *
+ * So the redirect goes whichever way the pair is pointing that week.
+ *
+ * 🔴 The second half's first condition is the exact negation of the
+ * first half's, so a link feeds at most one half and UNION ALL cannot
+ * duplicate a row. That is the property, not an accident of the data.
+ */
+export const REDIRECT_PAIRS_SQL = `
+    SELECT l.secondary_id AS from_id, l.primary_id AS to_id, 1 AS rank
+      FROM spot_links l
+      JOIN camping_spots lp ON lp.id = l.primary_id
+     WHERE l.unlinked_at IS NULL
+       AND lp.missing_since IS NULL
+       AND lp.region IS NOT NULL
+     UNION ALL
+    SELECT l.primary_id AS from_id, l.secondary_id AS to_id, 2 AS rank
+      FROM spot_links l
+      JOIN camping_spots lp ON lp.id = l.primary_id
+      JOIN camping_spots ls ON ls.id = l.secondary_id
+     WHERE l.unlinked_at IS NULL
+       AND NOT (lp.missing_since IS NULL AND lp.region IS NOT NULL)
+       AND ls.missing_since IS NULL
+       AND ls.region IS NOT NULL`;
+
+/**
+ * The same pairs, with any chain followed to its end.
+ *
+ * 🔴 A link's primary can itself be somebody's secondary, and seven rows
+ * were in that shape on 12.10.2026 — all of them made by CAMP-274,
+ * which folded an OSM area into the way it was exported from while that
+ * way was already carrying a DATAtourisme record. Read one level at a
+ * time the answer is a two-hop redirect: the DATAtourisme row points at
+ * the way, and the way points at the area.
+ *
+ * A crawler tolerates that and a reader never notices, but the URL we
+ * published is not the URL we meant, and the number of hops grows with
+ * every future fold. So the destination is walked to the row that is
+ * nobody's secondary and has a page of its own.
+ *
+ * 🔴 Why the terminal row is always publishable, rather than hopefully:
+ * a row that is the live secondary of a publishable primary is itself
+ * the `from_id` of a pair, so it cannot be a terminal. A terminal is
+ * therefore not hidden, and both halves of REDIRECT_PAIRS_SQL already
+ * require it to be alive and to have a region. That is the whole
+ * argument, and the invariant in verify-links.ts checks it anyway.
+ *
+ * 🔴 A cycle publishes nothing rather than looping: every row in a cycle
+ * is some pair's `from_id`, so none of them is a terminal and the
+ * NOT EXISTS drops the lot. `seen` is what stops the recursion, by
+ * refusing a destination the walk has already stood on. (Its first
+ * element is the starting row. Deleting it survives a mutation, because
+ * a starting row is never a terminal and NOT EXISTS would drop the walk
+ * anyway; it is there so `seen` means "where this walk has been" rather
+ * than "where it has been since the second step".)
+ *
+ * 🔴 It used to be `depth < 8`, and a review proved what that costs. A
+ * chain of ten was planted: rows two to nine resolved, and row ten got
+ * NO redirect — nine hops is more than eight, so the walk never reached
+ * a terminal and nothing was published for it. Worse, `gone()` had
+ * already subtracted it for being half of a pair, so that URL was in
+ * neither list and answered 404 in silence. A cap is a guess about how
+ * long a chain can be; `seen` is an argument about why the walk ends.
+ *
+ * 🔴 What each part of the ORDER BY is for, because two of them were
+ * written as one guard and a mutation proved they covered each other:
+ *
+ *   rank      — a row can be BOTH halves' `from_id`: missing from OSM,
+ *               and a secondary of a live primary, and a primary of a
+ *               live secondary. Then two destinations are true at once
+ *               and the right one is the primary carrying its content,
+ *               which is rank 1. Without this the answer is whichever
+ *               row the planner reaches first.
+ *   depth DESC — the far end of a chain rather than the next step. The
+ *               NOT EXISTS above already leaves only terminals, so this
+ *               decides nothing today; it is kept because it states the
+ *               intent and costs nothing, NOT because a test holds it.
+ *   to_id     — a total order, so the answer cannot change between two
+ *               runs over the same rows.
+ *
+ * `w.to_id <> w.from_id` used to sit beside the NOT EXISTS and survived
+ * every mutation, because `seen` starts with `from_id` and so the walk
+ * can never return to it. It was a guard against something that cannot
+ * happen; the mapper in SpotsService.links drops a self-redirect anyway.
+ */
+export const RESOLVED_REDIRECTS_SQL = `
+  WITH RECURSIVE pairs AS (${REDIRECT_PAIRS_SQL}),
+  walk (from_id, to_id, rank, depth, seen) AS (
+      SELECT from_id, to_id, rank, 1, ARRAY[from_id, to_id] FROM pairs
+       UNION ALL
+      SELECT w.from_id, p.to_id, w.rank, w.depth + 1, w.seen || p.to_id
+        FROM walk w
+        JOIN pairs p ON p.from_id = w.to_id
+       WHERE NOT p.to_id = ANY (w.seen))
+  SELECT DISTINCT ON (w.from_id) w.from_id, w.to_id
+    FROM walk w
+   WHERE NOT EXISTS (SELECT 1 FROM pairs t WHERE t.from_id = w.to_id)
+   ORDER BY w.from_id, w.rank, w.depth DESC, w.to_id`;
+
+/**
  * The live secondary of a spot, as a LATERAL join.
  *
  * 🔴 `ORDER BY` before `LIMIT 1`, and the review that asked for it was
@@ -437,3 +563,86 @@ export function mergeLinked(
   };
   return merged;
 }
+
+/**
+ * The redirect list, exactly as the API serves it.
+ *
+ * 🔴 Exported rather than written inline in the service so that
+ * `verify-links.ts` can REHEARSE this statement instead of a paraphrase
+ * of it. A rehearsal against a retyped copy proves the copy works.
+ */
+export const REDIRECT_LIST_SQL = `SELECT f.country AS from_country, f.region AS from_region,
+              f.slug    AS from_slug,
+              t.country AS to_country,  t.region AS to_region,
+              t.slug    AS to_slug
+         FROM (${RESOLVED_REDIRECTS_SQL}) r
+         JOIN camping_spots f ON f.id = r.from_id
+         JOIN camping_spots t ON t.id = r.to_id
+        -- A row that never had a region never had a URL either, so there
+        -- is nothing to redirect from. Same rule as everywhere else: no
+        -- invented paths. The destination needs no such clause --
+        -- REDIRECT_PAIRS_SQL already requires it to be publishable, and
+        -- requiring it twice is how the two copies drifted before.
+        --
+        -- This line narrows the query; it does not guard the answer.
+        -- canonicalPath returns null without a region and the mapper in
+        -- SpotsService.links drops those rows, which is why deleting
+        -- this survives a mutation. Said plainly rather than left for
+        -- the next person to discover.
+        WHERE f.region IS NOT NULL
+        ORDER BY f.country, f.region, f.slug`;
+
+/**
+ * The gone list, exactly as the API serves it. Exported for the same
+ * reason, and the two belong side by side: the one property that must
+ * hold between them is that no path appears in both.
+ *
+ * 🔴 It subtracts the RESOLVED list, not the raw pairs. Being half of a
+ * pair is not the same as having a destination, and a row with neither
+ * is a URL that answers 404 without anybody deciding that. The two
+ * lists are complementary only if one answer decides both.
+ *
+ * 🔴 AS MATERIALIZED, and the word is worth 500 ms. Written as a plain
+ * subquery inside NOT EXISTS, the walk was re-run and the full-window
+ * query took 657–778 ms against 202–205 ms with no subtraction at all.
+ * Materialised it is computed once: 239–355 ms for the same 5 955 rows,
+ * measured 12.10.2026 on 63 031 campsites and 4 443 live links.
+ */
+export const GONE_LIST_SQL = `WITH redirected AS MATERIALIZED (
+    ${RESOLVED_REDIRECTS_SQL})
+  SELECT g.slug, g.name, g.country, g.region, g.missing_since,
+              n.slug AS n_slug, n.name AS n_name,
+              n.country AS n_country, n.region AS n_region,
+              round(ST_Distance(g.location::geography,
+                                n.location::geography)) AS n_metres
+         FROM camping_spots g
+         -- 🔴 LATERAL, so the nearest live campsite is found per row with
+         -- the GiST index (<->) rather than by joining every pair.
+         LEFT JOIN LATERAL (
+           SELECT s.slug, s.name, s.country, s.region, s.location
+             FROM camping_spots s
+            WHERE s.missing_since IS NULL
+              AND s.region IS NOT NULL
+              -- 🔴 CAMP-144. Without this the campsite offered to a
+              -- reader who lands on a dead URL can be one whose own URL
+              -- now 301s somewhere else — we would answer "this one is
+              -- gone, try that one" and that one would redirect.
+              AND ${notSecondarySql('s')}
+            ORDER BY s.location <-> g.location
+            LIMIT 1
+         ) n ON true
+        WHERE g.missing_since IS NOT NULL
+          AND g.missing_since < now() - interval '28 days'
+          AND g.region IS NOT NULL
+          -- CAMP-279. A row that is half of a live pair whose other half
+          -- is published has not gone anywhere: the campsite is on that
+          -- other page, and this address redirects to it. Announcing 410
+          -- as well would put one URL in both lists, and the two
+          -- generated files would contradict each other.
+          --
+          -- Six rows were in exactly that state on 12.10.2026 — OSM
+          -- dropped the primary while the secondary carried on — and
+          -- each was 28 days from being declared dead while open.
+          AND NOT EXISTS (SELECT 1 FROM redirected rr
+                           WHERE rr.from_id = g.id)
+        ORDER BY g.country, g.region, g.slug`;
