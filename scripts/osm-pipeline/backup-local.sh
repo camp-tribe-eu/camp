@@ -400,7 +400,15 @@ SQL
 # This runs the real clauses against temp tables. It touches no live row,
 # needs no fixture, and can be run on any machine with the database up.
 do_self_test() {
-  psql "$DB" -v ON_ERROR_STOP=1 -q <<'SQL'
+  # 🔴 CAMP-286: the ✓ below is earned, not printed.
+  #
+  # Review inserted `RETURN;` after the block's BEGIN: every check was
+  # skipped, psql still exited 0, and this function printed "the restore
+  # rules still bite" with the CI lock satisfied. So the SQL now counts
+  # the checks it ran, and the shell refuses a count that is not the one
+  # this file was written around.
+  local out expected=7 ran
+  out="$(psql "$DB" -v ON_ERROR_STOP=1 -q 2>&1 <<'SQL'
 CREATE TEMP TABLE spots (
   osm_ref text, context jsonb, context_computed_at timestamptz,
   owner_overrides jsonb, missing_since timestamptz, content_changed_at timestamptz);
@@ -441,44 +449,62 @@ UPDATE spots s SET missing_since = LEAST(s.missing_since, i.missing_since),
 FROM incoming i WHERE s.osm_ref = i.osm_ref;
 
 DO $$
-DECLARE failures int := 0;
+DECLARE failures int := 0; checks int := 0;
 BEGIN
   IF (SELECT context->>'elevation' FROM spots WHERE osm_ref='n/1') <> '900' THEN
-    RAISE WARNING '  x a STALE backup overwrote NEWER context'; failures := failures+1;
-  ELSE RAISE INFO '  ok a stale backup cannot overwrite newer context'; END IF;
+    checks := checks+1; RAISE WARNING '  x a STALE backup overwrote NEWER context'; failures := failures+1;
+  ELSE checks := checks+1; RAISE INFO '  ok a stale backup cannot overwrite newer context'; END IF;
 
   IF (SELECT context->>'elevation' FROM spots WHERE osm_ref='n/2') <> '2' THEN
-    RAISE WARNING '  x an empty context was NOT filled from the backup'; failures := failures+1;
-  ELSE RAISE INFO '  ok an empty context is filled from the backup'; END IF;
+    checks := checks+1; RAISE WARNING '  x an empty context was NOT filled from the backup'; failures := failures+1;
+  ELSE checks := checks+1; RAISE INFO '  ok an empty context is filled from the backup'; END IF;
 
   IF (SELECT context->>'elevation' FROM spots WHERE osm_ref='n/3') <> '333' THEN
-    RAISE WARNING '  x a genuinely newer backup did not win'; failures := failures+1;
-  ELSE RAISE INFO '  ok a genuinely newer backup wins'; END IF;
+    checks := checks+1; RAISE WARNING '  x a genuinely newer backup did not win'; failures := failures+1;
+  ELSE checks := checks+1; RAISE INFO '  ok a genuinely newer backup wins'; END IF;
 
   IF (SELECT owner_overrides->>'name' FROM spots WHERE osm_ref='n/4') <> 'kept' THEN
-    RAISE WARNING '  x a human correction was overwritten'; failures := failures+1;
-  ELSE RAISE INFO '  ok a human correction in the database is kept'; END IF;
+    checks := checks+1; RAISE WARNING '  x a human correction was overwritten'; failures := failures+1;
+  ELSE checks := checks+1; RAISE INFO '  ok a human correction in the database is kept'; END IF;
 
   IF (SELECT missing_since FROM spots WHERE osm_ref='n/5') <> '2026-09-10'::timestamptz THEN
-    RAISE WARNING '  x first-seen date did not widen to the earlier one'; failures := failures+1;
-  ELSE RAISE INFO '  ok first-seen widens to the earliest evidence'; END IF;
+    checks := checks+1; RAISE WARNING '  x first-seen date did not widen to the earlier one'; failures := failures+1;
+  ELSE checks := checks+1; RAISE INFO '  ok first-seen widens to the earliest evidence'; END IF;
 
   IF (SELECT content_changed_at FROM spots WHERE osm_ref='n/5') <> '2026-09-20'::timestamptz THEN
-    RAISE WARNING '  x last-changed date went backwards'; failures := failures+1;
-  ELSE RAISE INFO '  ok last-changed never goes backwards'; END IF;
+    checks := checks+1; RAISE WARNING '  x last-changed date went backwards'; failures := failures+1;
+  ELSE checks := checks+1; RAISE INFO '  ok last-changed never goes backwards'; END IF;
 
   IF (SELECT count(*) FROM spots WHERE osm_ref='n/6') <> 0 THEN
-    RAISE WARNING '  x restore invented a row that is not in this database'; failures := failures+1;
-  ELSE RAISE INFO '  ok a campsite not imported here is reported, not invented'; END IF;
+    checks := checks+1; RAISE WARNING '  x restore invented a row that is not in this database'; failures := failures+1;
+  ELSE checks := checks+1; RAISE INFO '  ok a campsite not imported here is reported, not invented'; END IF;
 
   IF failures > 0 THEN
     RAISE EXCEPTION '% self-test failure(s)', failures;
   END IF;
+  -- 🔴 CAMP-286: say how many checks RAN, not only how many failed. A
+  -- `RETURN;` after BEGIN skipped every one of them and this block still
+  -- ended quietly; the shell below printed its ✓ over nothing.
+  RAISE INFO 'self-test cases: %', checks;
   RAISE INFO 'self-test passed';
 END $$;
 SQL
+)"
+  printf '%s\n' "$out" >&2
+  ran="$(printf '%s\n' "$out" | sed -n 's/.*self-test cases: \([0-9]*\).*/\1/p' | tail -1)"
+  if [ "${ran:-0}" -ne "$expected" ]; then
+    die "the restore rehearsal ran ${ran:-0} checks, expected $expected"
+  fi
   say ""
   say "✓ the restore rules hold"
+  # 🔴 CAMP-286: a line that names THIS file, for the CI step to read
+  # back. "self-test passed" is printed by the SQL block above and by
+  # several other scripts; a grep for it is a lock another key opens.
+  #
+  # 🔴 AND ON STDOUT, not through `say`, which prints to stderr (line
+  # 103). The CI lock pipes stdout; a named line on stderr is a line the
+  # step cannot read, and the lock would have been green over nothing.
+  printf '%s\n' "✓ backup-local self-test: the restore rules still bite"
 }
 
 # --------------------------------------------------------------------

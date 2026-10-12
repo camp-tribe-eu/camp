@@ -845,8 +845,13 @@ jobs:
       #
       # This step proves the assertion still bites — it checks the check,
       # not the compiler, so it keeps working when Nest changes again.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
       - name: Build-emits guard still catches an empty dist
-        run: ./scripts/ci/check-api-build-emits.sh --self-test
+        run: |
+          set -o pipefail
+          ./scripts/ci/check-api-build-emits.sh --self-test | tee /dev/stderr \
+            | grep -c 'check-api-build-emits self-test:' >/dev/null
 
       - run: ./scripts/ci/check-api-build-emits.sh
 
@@ -1077,7 +1082,12 @@ jobs:
       - name: Restoring a backup cannot destroy newer work
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
-        run: ./scripts/osm-pipeline/backup-local.sh --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+        run: |
+          set -o pipefail
+          ./scripts/osm-pipeline/backup-local.sh --self-test | tee /dev/stderr \
+            | grep -c 'backup-local self-test:' >/dev/null
 
       # 🔴 Runs on Linux, and that is half the point.
       #
@@ -1105,8 +1115,13 @@ jobs:
       # 🔴 CAMP-269. Сім випадків, із них три — різні поломки, і всі
       # мусять дати «будуємо». Ворота, що мовчки кажуть «ні», зупиняють
       # CI не падаючи.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
       - name: Whether a run should build at all
-        run: ./scripts/ci/should-build.sh --self-test
+        run: |
+          set -o pipefail
+          ./scripts/ci/should-build.sh --self-test | tee /dev/stderr \
+            | grep -c 'should-build self-test:' >/dev/null
 
   e2e:
     needs: gate
