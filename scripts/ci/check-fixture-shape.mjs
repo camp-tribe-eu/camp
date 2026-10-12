@@ -27,7 +27,14 @@
 //
 // Run it by hand on a candidate:  node scripts/ci/check-fixture-shape.mjs <file>
 
-import { readFileSync, realpathSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -464,6 +471,152 @@ function selfTest() {
     'a region of one that the loader empties was accepted as the subject',
   );
 
+  // 🔴 CAMP-293. ТРИ РАННІ ВИХОДИ `run()` — ПО ПРИЧИНІ, А НЕ ПО КОДУ.
+  //
+  // Рецензія заміряла, що всі три переживають мутацію. Перша моя спроба
+  // це полагодити перевіряла `run(...) !== 1` — і мутації ПЕРЕЖИЛИ ЇЇ
+  // теж, бо `run` віддає 1 із ЧОТИРЬОХ місць: файл без рядків падає
+  // далі на `shapeProblems`, і код виходу однаковий.
+  //
+  // Та сама пастка, яку ця картка й закриває: код «1» не каже, ЧОМУ.
+  // Тому перехоплюємо повідомлення й питаємо причину поіменно.
+  {
+    const tmp = mkdtempSync(join(tmpdir(), 'fixture-shape-'));
+    const api = `export const REGION_PER_PAGE = ${PER_PAGE};`;
+    // 🔴 Повертаємо І код, І сказане. Лише повідомлення мало: гілку
+    // можна лишити балакучою й віддати 0, і сторож пропустить зниклу
+    // фікстуру мовчки. Лише код мало теж: `run` віддає 1 із чотирьох
+    // місць. Доводить тільки пара.
+    const said = (file) => {
+      const lines = [];
+      const code = run(
+        file,
+        { log: () => {}, error: (m) => lines.push(String(m)) },
+        api,
+      );
+      return { code, text: lines.join('\n') };
+    };
+    const refused = (file, reason) => {
+      const r = said(file);
+      return r.code === 1 && reason.test(r.text);
+    };
+
+    failIf(
+      !refused(join(tmp, 'there-is-no-such-file.sql'), /cannot read/),
+      'an unreadable file was not refused BY NAME',
+    );
+
+    const empty = join(tmp, 'empty.sql');
+    writeFileSync(empty, '-- no INSERT here at all\n');
+    failIf(
+      !refused(empty, /holds no camping_spots rows/),
+      'a file with no rows was not refused BY NAME',
+    );
+
+    // Два нерозбірні рядки плюс один справний, щоб спрацював саме поріг
+    // `skipped > 1`, а не «жодного рядка».
+    const broken = join(tmp, 'two-broken.sql');
+    writeFileSync(
+      broken,
+      "INSERT INTO camping_spots (slug, country, region, missing_since, amenities, context) " +
+        "VALUES ('ok', 'SI', 'Bled', NULL, '{}', '{}');\n" +
+        'INSERT INTO camping_spots (a, b) VALUES (1);\n'.repeat(2),
+    );
+    failIf(
+      !refused(broken, /could not be parsed/),
+      'two unparseable rows were not refused BY NAME',
+    );
+
+    rmSync(tmp, { recursive: true, force: true });
+  }
+
+  // 🔴 CAMP-293. ПОРІГ КВОРУМУ КОНТЕКСТУ, А НЕ ЛИШЕ НУЛЬ.
+  //
+  // Правило `withContext * 2 < live.length` існує, щоб фікстура без
+  // обчисленого контексту не виглядала як менша вибірка (CAMP-199).
+  // Але єдиний break обнуляв контекст УСІМ рядкам, тож поріг був
+  // випробуваний лише на нулі — і рецензія заміряла, що `< 1` та
+  // `=== 0` переживають усі тести. Тобто правило можна було тихо
+  // послабити до «хоч один».
+  //
+  // Нижче поріг перевіряється з обох боків: рівно половина мусить
+  // ПРОЙТИ, на одну менше — впасти.
+  const quorumRows = (withCtx, total) =>
+    Array.from({ length: total }, (_, i) => ({
+      slug: `q-${String(i).padStart(2, '0')}`,
+      country: 'SI',
+      region: 'Bled',
+      missing_since: null,
+      amenities: '{"toilets": "unknown"}',
+      context: i < withCtx ? '{"at":{"lat":1,"lon":1}}' : '{}',
+    }));
+  const quorumFired = (withCtx, total) =>
+    shapeProblems(quorumRows(withCtx, total), PER_PAGE).some((p) =>
+      /carry a computed context/.test(p),
+    );
+
+  failIf(
+    !quorumFired(4, 10),
+    '4 of 10 with context did not trip the quorum rule',
+  );
+  failIf(
+    quorumFired(5, 10),
+    '5 of 10 with context tripped the quorum rule, but half is enough',
+  );
+  failIf(
+    quorumFired(10, 10),
+    'every row having context tripped the quorum rule',
+  );
+
+  // 🔴 CAMP-293. ЧОТИРИ КЛАУЗУЛИ `thinTarget`, КОЖНА ОКРЕМО.
+  //
+  // Рецензія заміряла, що фікстура `spot()` ніколи не кладе
+  // `description`, `stars` чи зручність `yes/no` у рядок із порожнім
+  // контекстом. Тому три мутації переживали всі тести:
+  //
+  //     видалити `!hasKnownAmenity(r)`      → вижила
+  //     `!r.description && !r.stars` → true → вижила
+  //     `hasKnownAmenity` → лише 'yes'      → вижила
+  //
+  // Тобто рядок із зручностями став би «тонким», і ніхто б не помітив.
+  // Нижче кожна клаузула дискваліфікує кандидата САМА, без допомоги
+  // інших: базовий випадок доводить, що кандидат узагалі підходить.
+  const thinBase = (over = {}) => ({
+    slug: 'aaa-candidate',
+    country: 'SI',
+    region: 'Bled',
+    missing_since: null,
+    amenities: '{"toilets": "unknown"}',
+    context: '{}',
+    ...over,
+  });
+  const thinGone = {
+    slug: 'zzz-gone',
+    country: 'SI',
+    region: 'Bled',
+    missing_since: null,
+    amenities: '{"toilets": "unknown"}',
+    context: '{}',
+  };
+
+  failIf(
+    thinTarget([thinBase(), thinGone])?.slug !== 'aaa-candidate',
+    'a row that satisfies every clause was not picked as thin',
+  );
+
+  for (const [label, over] of [
+    ['a description', { description: 'the river runs past' }],
+    ['stars', { stars: 3 }],
+    ['an explicit "yes"', { amenities: '{"toilets": "yes"}' }],
+    ['an explicit "no"', { amenities: '{"showers": "no"}' }],
+    ['computed context', { context: '{"at":{"lat":1,"lon":1}}' }],
+  ]) {
+    failIf(
+      thinTarget([thinBase(over), thinGone])?.slug === 'aaa-candidate',
+      `a row with ${label} was picked as thin`,
+    );
+  }
+
   const breaks = [
     ['Slovenia gone', (r) => r.filter((x) => x.country !== 'SI'), /no SI campsites/],
     // 🔴 Croatia, which the earlier rehearsal never broke: setting the
@@ -595,7 +748,7 @@ function selfTest() {
 
   // 🔴 A literal, never `cases.length` — deriving the expectation from the
   // thing it checks makes the comparison true by construction.
-  const EXPECTED_CASES = 30;
+  const EXPECTED_CASES = 42;
   if (cases.length !== EXPECTED_CASES) {
     console.error(
       `✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`,
