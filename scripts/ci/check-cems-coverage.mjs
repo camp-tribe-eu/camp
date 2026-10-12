@@ -378,6 +378,53 @@ function selfTest() {
     );
     rmSync(join(root, 'src/components/rel-import.tsx'), { force: true });
 
+    // 🔴 CAMP-293. ДВА ПРАВИЛА, ЯКІ СЬОГОДНІ НІЧОГО НЕ ЛОВЛЯТЬ.
+    //
+    // Рецензія заміряла: `'@/lib/wildfires'` у `CEMS_MODULES` і
+    // `/\bWILDFIRE_URL\b/` у маркерах не мають жодного випадку — 0 із
+    // 5 справжніх файлів дістають wildfires, не дістаючи cems, а
+    // `campsite-map.tsx` містить і сам рядок URL.
+    //
+    // Але вони стережуть форму, якої сьогодні немає й яка завтра буде.
+    // Тому не видаляю, а даю кожному власний випадок: файл, який
+    // спрацьовує ЛИШЕ через це правило.
+    put(
+      'src/components/only-wildfires.tsx',
+      "import '@/lib/wildfires';\nexport const W = () => null;",
+    );
+    failIf(
+      realRun(root, quiet, exempt) !== 1,
+      'a component reaching only @/lib/wildfires was not reported',
+    );
+    rmSync(join(root, 'src/components/only-wildfires.tsx'), { force: true });
+
+    put(
+      'src/components/only-url-const.tsx',
+      'export const W = () => fetch(WILDFIRE_URL);',
+    );
+    failIf(
+      realRun(root, quiet, exempt) !== 1,
+      'a component naming only WILDFIRE_URL was not reported',
+    );
+    rmSync(join(root, 'src/components/only-url-const.tsx'), { force: true });
+
+    // 🔴 CAMP-293. ОБРОБНИК МАРШРУТУ — ЦЕ `.ts`, НЕ `.tsx`.
+    //
+    // Рецензія заміряла, що звуження `walk` до `/\.tsx$/` переживає всі
+    // тести: самотест клав `.ts` лише в `lib/`, який і так поза
+    // областю. Тобто новий `app/**/route.ts`, що віддає дані CEMS,
+    // став би невидимим для сторожа — а нинішній такий файл сидить у
+    // списку винятків, тому дірки не було видно.
+    put(
+      'src/app/data/wildfires.json/route.ts',
+      "import '@/lib/cems';\nexport const GET = () => new Response('{}');",
+    );
+    failIf(
+      realRun(root, quiet, exempt) !== 1,
+      'an undescribed route handler (.ts) was not reported',
+    );
+    rmSync(join(root, 'src/app/data'), { recursive: true, force: true });
+
     // A page, registered nowhere.
     put('src/app/drought/page.tsx', "import '@/lib/cems';\nexport default () => null;");
     failIf(
@@ -397,7 +444,7 @@ function selfTest() {
   }
 
   // 🔴 A literal, never `cases.length`.
-  const EXPECTED_CASES = 14;
+  const EXPECTED_CASES = 17;
   if (cases.length !== EXPECTED_CASES) {
     console.error(
       `✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`,
