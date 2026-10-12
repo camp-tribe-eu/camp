@@ -429,7 +429,10 @@ const feature = (
 ): NearestFeature | undefined =>
   m === null
     ? undefined
-    : { m: Number(m), ...(displayName(name) ? { name: displayName(name) } : {}) };
+    : {
+        m: Number(m),
+        ...(displayName(name) ? { name: displayName(name) } : {}),
+      };
 
 async function main(): Promise<void> {
   const db = new Client({ connectionString: DB_URL });
@@ -596,7 +599,9 @@ async function main(): Promise<void> {
             m: Number(r.water_m),
             kind: (r.water_kind ?? 'river') as WaterKind,
             // та сама транслітерація, що й у `feature` — CAMP-295
-            ...(displayName(r.water_name) ? { name: displayName(r.water_name) } : {}),
+            ...(displayName(r.water_name)
+              ? { name: displayName(r.water_name) }
+              : {}),
           } as NearestWater;
         } else noWater++;
 

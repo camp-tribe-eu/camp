@@ -26,7 +26,9 @@ describe('назви в context придатні для читання', () => {
 
   it('сира назва більше нікуди не потрапляє', () => {
     // Якщо хтось додасть поле з назвою й забуде `displayName`, падаємо.
-    expect(SOURCE.match(/name:\s*(?!displayName)(r\.\w*name|name)\b/g)).toBeNull();
+    expect(
+      SOURCE.match(/name:\s*(?!displayName)(r\.\w*name|name)\b/g),
+    ).toBeNull();
   });
 
   it('болгарську передає за Законом 2009 і лишає регістр', () => {
