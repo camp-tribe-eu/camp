@@ -437,21 +437,21 @@ async function main(): Promise<void> {
         const redirected =
           pPath !== null && after.redirects.get(pPath) === sPath;
         const notBuried = pPath !== null && !after.gone.has(pPath);
-        const secondaryKept = sPath !== null && !after.gone.has(sPath);
         console.log(
           `  ${redirected ? '✓' : '✗'} the dropped row redirects to the one holding the campsite`,
         );
         console.log(
           `  ${notBuried ? '✓' : '✗'} and is NOT announced gone, 29 days or not`,
         );
-        console.log(
-          `  ${secondaryKept ? '✓' : '✗'} the row that kept the campsite is not announced gone either`,
-        );
+        // (A third line here asserted that the row which KEPT the
+        // campsite is not announced gone. It never could be: `gone()`
+        // only looks at rows with `missing_since`, and that row is alive
+        // by construction. It never flipped under any mutation, which is
+        // how it was found. Decoration, removed.)
         console.log(
           `  ${after.overlap.length === 0 ? '✓' : '✗'} the two lists still do not overlap`,
         );
-        if (!redirected || !notBuried || !secondaryKept || after.overlap.length)
-          failed++;
+        if (!redirected || !notBuried || after.overlap.length) failed++;
 
         // 🔴 Now prove the exclusion was caused by the link and not by
         // something else about this row. Undo the link and the same
@@ -584,6 +584,27 @@ async function main(): Promise<void> {
         );
         if (!allResolved || !allToTop || !noneLandMidway || !noneBuried)
           failed++;
+
+        // 🔴 And now make the mapper check FIRE, because a guard that has
+        // never fired is a guess.
+        //
+        // `slugifyRegion` keeps `[a-z0-9]` and nothing else, so a region
+        // written in its own alphabet slugifies to the empty string and
+        // `canonicalPath` returns null. The SQL does not know that: it
+        // asks only `region IS NOT NULL`, keeps the row, and `gone()`
+        // subtracts it — so that URL would be in neither list. Greece,
+        // Bulgaria and Cyprus are in the EU-27 and OSM holds their region
+        // names in Greek and Cyrillic, so this is a row we have not
+        // imported yet, not a row that cannot exist.
+        await db.query(
+          `UPDATE camping_spots SET region = 'Αττική' WHERE id = $1`,
+          [order[order.length - 1]],
+        );
+        const greek = await bothLists();
+        console.log(
+          `  ${greek.dropped > 0 ? '✓' : '✗'} a region in its own alphabet is caught, not silently dropped`,
+        );
+        if (greek.dropped === 0) failed++;
       } finally {
         await db.query('ROLLBACK');
       }
