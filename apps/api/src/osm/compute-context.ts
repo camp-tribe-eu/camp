@@ -29,6 +29,7 @@ import {
   SpotContext,
   WaterKind,
 } from './spot-context';
+import { transliterate } from '../spots/transliterate';
 
 const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
@@ -366,11 +367,103 @@ async function elevations(
   return { values: out, failedBatches };
 }
 
-const feature = (
+// 🔴 CAMP-295. ЄДИНЕ МІСЦЕ, ДЕ НАЗВА З OSM СТАЄ ТЕКСТОМ ДЛЯ ЧИТАЧА.
+//
+// Заміряно 12.10.2026 на 63 031 кемпінгу: **927 сторінок** показували
+// назву найближчого міста не латиницею — 284 кирилицею (BG 270, PL 7,
+// RO 5, GR 2) і 643 грецькою. На англійській сторінці польського
+// кемпінгу стояло «the nearest town is Крылово».
+//
+// Транслітератор існував увесь цей час (`spots/transliterate.ts`:
+// болгарський Закон 2009, грецький ELOT 743), але його імпортував лише
+// `canonical.ts` — тобто він працював на слаги й не працював на те, що
+// читає людина.
+//
+// 🔴 Це НЕ переклад: `Сапарева баня` → `Sapareva Banya` за законом, а
+// не «Sapareva bath». Таблиці вже доведені самотестами, тут їх лише
+// застосовано. Назви, що вже латиницею, `transliterate` не чіпає.
+// 🔴 CAMP-295. `transliterate` ПИСАЛАСЬ ДЛЯ СЛАГІВ, НЕ ДЛЯ ТЕКСТУ.
+//
+// Заміряно 12.10.2026, перш ніж покластись на неї:
+//
+//     Сапарева баня → sapareva banya   ← усе малими
+//     Крылово       → krыlovo          ← `ы` не в таблиці: вона болгарська
+//     Αστερίας      → asterias         ← правильно, але теж малими
+//
+// Для слага це рівно те, що треба. Для речення «the nearest town is …»
+// це зіпсована назва. Тому тут окрема функція, і вона робить дві речі,
+// яких слагова не робить:
+//
+// 1. Повертає регістр: слово, що починалось з великої, лишається з
+//    великої. Регістр решти літер слагова функція вже з'їла, і
+//    відновити його нізвідки — але перша літера покриває всі назви
+//    міст, які ми бачили.
+//
+// 2. 🔴 Якщо після транслітерації лишилась НЕ-латиниця — назву не
+//    показуємо взагалі. Краще «the nearest town is 13 km away» без
+//    назви, ніж `krыlovo` у тексті. Таке буває лише на даних поза
+//    ЄС-27 (російські назви з прикордонного запасу екстрактів
+//    Geofabrik) — окрема картка про фільтр області.
+// 🔴 «Чи лишилась НЕ-ЛАТИНСЬКА ЛІТЕРА», а не «чи всі символи в діапазоні».
+//
+// Перша редакція була `[^\u0000-ɏḀ-ỿ]`, і рецензія
+// заміряла, що вона відкидає 250 бездоганних назв через звичайну
+// типографіку: тире `–` (99 рядків), апостроф `’` (92), вузький
+// нерозривний пробіл (28), лапки `„ “ ”`, три крапки. Гинули
+// `Watten – Éperlecques`, `L’Oise`, `tegut…`, `Niardo ‐ Losine`.
+// Тобто PR лагодив 1 038 сторінок і ламав 269 — з них 250 були справні.
+//
+// Подвійне заперечення читається так: символ, який НЕ латинського
+// письма і НЕ «не-літера» — тобто літера іншого письма. Пунктуація,
+// цифри й пробіли під нього не підпадають за побудовою.
+const NON_LATIN_LETTER = /[^\p{Script=Latin}\P{L}]/u;
+
+// Двомовні назви в прикордонних регіонах пишуть через скісну:
+// `Riču ezers / возера Рычы` (LV), `Vištyčio ež. / Виштынецкое озеро`
+// (LT). Відкидати їх цілком — втрачати готову латинську половину.
+function latinParts(text: string): string | null {
+  const parts = text
+    .split('/')
+    .map((x) => x.trim())
+    .filter((x) => x && !NON_LATIN_LETTER.test(x));
+  return parts.length ? parts.join(' / ') : null;
+}
+
+// Регістр повертається ПО РУНАХ ЛІТЕР, а не по словах.
+//
+// Перша редакція різала по пробілах і дефісах, і рецензія заміряла
+// 176 рядків, де велика літера після крапки чи дужки гинула:
+// `яз.Кърджали` → `yaz.kardzhali`, `Д'Артанян` → `D'artanyan`.
+// Транслітерація не зливає й не розриває руни через не-літери, тож їх
+// можна зіставити один в один.
+function restoreCase(raw: string, lowered: string): string {
+  const rawRuns = raw.match(/\p{L}+/gu) ?? [];
+  let i = 0;
+  return lowered.replace(/\p{L}+/gu, (run) => {
+    const source = rawRuns[i++];
+    return source && /^\p{Lu}/u.test(source)
+      ? run[0].toUpperCase() + run.slice(1)
+      : run;
+  });
+}
+
+export function displayName(raw: string | null): string | null {
+  if (!raw) return null;
+  const out = restoreCase(raw, transliterate(raw));
+  if (!NON_LATIN_LETTER.test(out)) return out;
+  return latinParts(out);
+}
+
+export const feature = (
   m: number | null,
   name: string | null,
 ): NearestFeature | undefined =>
-  m === null ? undefined : { m: Number(m), ...(name ? { name } : {}) };
+  m === null
+    ? undefined
+    : {
+        m: Number(m),
+        ...(displayName(name) ? { name: displayName(name) } : {}),
+      };
 
 async function main(): Promise<void> {
   const db = new Client({ connectionString: DB_URL });
@@ -536,7 +629,10 @@ async function main(): Promise<void> {
           context.water = {
             m: Number(r.water_m),
             kind: (r.water_kind ?? 'river') as WaterKind,
-            ...(r.water_name ? { name: r.water_name } : {}),
+            // та сама транслітерація, що й у `feature` — CAMP-295
+            ...(displayName(r.water_name)
+              ? { name: displayName(r.water_name) }
+              : {}),
           } as NearestWater;
         } else noWater++;
 
