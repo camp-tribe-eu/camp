@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   daysOld,
   describeSources,
+  FIELD_LABEL,
   formatUpdated,
   isStale,
   SOURCES,
@@ -110,4 +111,36 @@ test.describe('the date, which the licence is specific about', () => {
   test('a date in the future is not stale and does not crash', () => {
     expect(isStale('2027-01-01', today)).toBe(false);
   });
+});
+
+// CAMP-283 — every field the API can credit has a human label.
+//
+// 🔴 `source-note.tsx` falls back to the raw field name (`?? f`), so a
+// missing label is not an error, a blank, or anything a reader would
+// report: it is one machine word in the middle of a sentence the
+// licences require. `contact` sat there unnoticed through four cards.
+//
+// The list below is what `mergeLinked` can record as taken, plus the
+// two fields a source entry always declares for its own row. It is
+// written out rather than imported because the API is a separate
+// workspace — so this test is also the place that notices when the two
+// drift apart.
+test('every field a source can be credited with reads as English', () => {
+  const CREDITABLE = [
+    'name',
+    'description',
+    'stars',
+    'website',
+    'contact',
+    'tariffs',
+    'location',
+    'amenities',
+  ];
+  const missing = CREDITABLE.filter((f) => !FIELD_LABEL[f]);
+  expect(missing).toEqual([]);
+  // 🔴 There was a second assertion here: that a label never equals its
+  // own key. It was wrong, and it failed on correct data — `name`,
+  // `website`, `location` and `description` are ordinary English words
+  // that happen to spell their keys. A criterion that rejects the right
+  // answer is a worse bug than the one it was written to catch.
 });

@@ -435,14 +435,43 @@ export function attributeTaken(
  * An entry is kept even when nothing is left in it: it is OUR row, it is
  * the reason this page exists, and its licence and update date still
  * apply to the location and the amenities that are always ours.
+ *
+ * 🔴 CAMP-283: `shared` is the fields we ALSO supplied, which must not
+ * be stripped.
+ *
+ * The attribution model is flat — a field is "ours" or "theirs" — and
+ * `contact` is not: it is merged key by key, so the page can show our
+ * phone number and their email at once. The moment they supplied any
+ * key, `taken` held `contact`, this function removed `contact` from the
+ * OSM entry, and the page printed OpenStreetMap's phone number beside a
+ * line saying OpenStreetMap gave us no contact details.
+ *
+ * That is the same false statement about provenance as the over-claim
+ * above, pointing the other way: a reader who wants to correct the phone
+ * number is told to go to the wrong source, and the licence asks us to
+ * be exact about precisely this.
+ *
+ * 🔴 NO PAGE IS IN THAT STATE TODAY, and saying so is part of the fix.
+ *
+ * Measured 12.10.2026: 82 live pairs carry contact details on both
+ * sides, and in 0 of them does the secondary hold a key the primary
+ * lacks — all 82 are an OSM area beside the way it was exported from,
+ * with byte-identical contacts. DATAtourisme writes no contact at all,
+ * so `taken` never receives `contact` and this changes nothing that is
+ * published right now.
+ *
+ * It is still worth having: the shape arrives the day any source starts
+ * supplying contact details the OSM row lacks, and by then the wrong
+ * attribution would be on the page rather than in a reproduction.
  */
 export function withoutTaken(
   entries: SpotSource[],
   taken: Set<string>,
+  shared: Set<string> = new Set(),
 ): SpotSource[] {
   return entries.map((entry) => ({
     ...entry,
-    fields: (entry.fields ?? []).filter((f) => !taken.has(f)),
+    fields: (entry.fields ?? []).filter((f) => !taken.has(f) || shared.has(f)),
   }));
 }
 
@@ -618,6 +647,9 @@ export function mergeLinked(
   for (const [k, v] of Object.entries(ourContact)) {
     if (!isEmpty(v)) contact[k] = v;
   }
+  // 🔴 CAMP-283. Whether WE put anything in there, decided before their
+  // keys are merged in — afterwards the two are indistinguishable.
+  const weGaveContact = Object.keys(contact).length > 0;
   for (const [k, v] of Object.entries(theirContact)) {
     if (isEmpty(contact[k]) && !isEmpty(v)) {
       contact[k] = v;
@@ -686,7 +718,14 @@ export function mergeLinked(
       ...((row.owner_overrides ?? {}) as Record<string, unknown>),
     },
     sources: [
-      ...withoutTaken((row.sources ?? []) as SpotSource[], taken),
+      // 🔴 `contact` is the one field both rows can fill at once, so it
+      // is the one field that may stay on both entries. Everything else
+      // is ours or theirs, never both.
+      ...withoutTaken(
+        (row.sources ?? []) as SpotSource[],
+        taken,
+        weGaveContact ? new Set(['contact']) : new Set(),
+      ),
       ...attributeTaken((row.linked_sources ?? []) as SpotSource[], taken),
     ],
   };
