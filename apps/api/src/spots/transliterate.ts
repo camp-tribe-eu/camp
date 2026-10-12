@@ -25,8 +25,15 @@
 //     Cyrillic: ІАБВГДЕЗИКЛМНОПРСТХЦЧШЮЯабвгдежзийклмнопрстуфхцчшщъьюяі
 //     Greek:    ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΧΩαβγδεζηθικλμνοπρςστυφχψω
 //
-// The accented Greek vowels (ά έ ή ί ό ύ ώ) are absent from the table
-// on purpose: NFD splits the tonos off before this runs.
+//     Cyrillic (composed): й
+//     Greek (accented):    ΆΈ ά έ ή ί ό ύ ώ
+//
+// 🔴 The accented vowels ARE in the table, and an earlier version of
+// this very comment said they were left out "on purpose, because NFD
+// splits the tonos off". That was written before the order was
+// settled, stayed after it was, and said the opposite of the code 80
+// lines below. A comment that contradicts its own file is worse than
+// none: the reader believes it.
 
 /**
  * Bulgarian, by the Transliteration Act of 2009.
@@ -157,7 +164,43 @@ const GREEK: ReadonlyArray<readonly [string, string]> = [
   ['ϋ', 'y'],
   ['ΐ', 'i'],
   ['ΰ', 'y'],
+  // 🔴 APPENDED HERE ON PURPOSE, at the natural end of the table
+  // rather than up with the other digraphs.
+  //
+  // Review removed the `.sort()` below and all 1 394 tests stayed
+  // green: every digraph happened to be hand-placed above its own
+  // letters, so the sort was doing nothing and nothing said so. These
+  // rows sit where a person would actually append one, which makes the
+  // sort load-bearing — and `Ευαγγελικής` proves it.
+  ['γγ', 'ng'],
+  ['ΓΓ', 'ng'],
+  ['Γγ', 'ng'],
+  ['γξ', 'nx'],
+  ['γχ', 'nch'],
+  // The capitalised diphthongs carry the accent on the SECOND vowel,
+  // so `Εύβοια` is the capitalised form of `ευ` — and without these it
+  // came out `eyvoia`. No row carries one today; the next Greek import
+  // with a place like Εύβοια or Ούλα would have got it silently wrong.
+  ['Ού', 'ou'],
+  ['Αύ', 'av'],
+  ['Εύ', 'ev'],
 ];
+
+/**
+ * Rule 5 of the Transliteration Act: word-final «ия» is «ia».
+ *
+ * 🔴 NOT a letter rule, which is why it sits apart. Bulgaria's own
+ * submission to UNGEGN (E/CONF.101/12, p.4) states it as an exception
+ * to the table, and five live rows need it: Анастасия, Камчия (twice),
+ * Гардения, Селския двор край морето. Letter by letter they come out
+ * `…iya`; the Act says `…ia`, which is the spelling on the road signs
+ * a reader has already passed.
+ *
+ * `\p{L}` rather than `\b`, because JavaScript's word boundary is
+ * ASCII and would fire in the middle of every Cyrillic word.
+ */
+const WORD_FINAL_IYA = /ия(?!\p{L})/gu;
+const WORD_FINAL_IYA_UPPER = /ИЯ(?!\p{L})/gu;
 
 /** Both tables, longest source first so a digraph wins over its letters. */
 const PAIRS: ReadonlyArray<readonly [string, string]> = [...GREEK, ...BULGARIAN]
@@ -180,7 +223,9 @@ const PAIRS: ReadonlyArray<readonly [string, string]> = [...GREEK, ...BULGARIAN]
  * which is every name in every other member state.
  */
 export function transliterate(text: string): string {
-  let out = text;
+  let out = text
+    .replace(WORD_FINAL_IYA, 'ia')
+    .replace(WORD_FINAL_IYA_UPPER, 'ia');
   for (const [from, to] of PAIRS) {
     if (out.includes(from)) out = out.split(from).join(to);
   }

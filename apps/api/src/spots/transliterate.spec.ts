@@ -47,6 +47,24 @@ describe('Bulgarian, by the Transliteration Act of 2009', () => {
   it('ъ is a, which is the letter in България itself', () => {
     expect(foldToAscii('Къмпинг')).toBe('kamping');
   });
+
+  it('🔴 rule 5: word-final ия is ia, not iya', () => {
+    // E/CONF.101/12 p.4, Bulgaria's own submission to UNGEGN. Five
+    // live rows need it, and letter by letter they all came out wrong.
+    expect(foldToAscii('Анастасия')).toBe('anastasia');
+    expect(foldToAscii('Камчия')).toBe('kamchia');
+    expect(foldToAscii('Гардения')).toBe('gardenia');
+    expect(foldToAscii('Селския двор край морето')).toBe(
+      'selskia-dvor-kray-moreto',
+    );
+  });
+
+  it('🔴 …and only word-final: inside a word it stays iya', () => {
+    // The rule is an exception at the end of a word. Applying it
+    // everywhere would rewrite letters the Act leaves alone.
+    expect(transliterate('ияк')).toBe('iyak');
+    expect(foldToAscii('Камчиян')).toBe('kamchiyan');
+  });
 });
 
 describe('Greek, by ELOT 743', () => {
@@ -81,6 +99,28 @@ describe('Greek, by ELOT 743', () => {
 
   it('final sigma is the same letter as sigma', () => {
     expect(foldToAscii('ΣΣς')).toBe('sss');
+  });
+
+  it('🔴 γγ is ng — and this is what proves the sort is load-bearing', () => {
+    // The row sits at the END of the table, where a person appends
+    // one. Without `.sort()` by length the single γ would win and the
+    // live row Ευαγγελικής would read `evaggelikis`.
+    expect(foldToAscii('Ευαγγελικής')).toBe('evangelikis');
+    expect(foldToAscii('γγ')).toBe('ng');
+  });
+
+  it('🔴 γκ stays gk, which is ELOT’s own general case', () => {
+    // `ng` medially is BGN/PCGN 1962, a different standard. Mixing two
+    // romanisations in one table is how a name stops matching itself.
+    expect(foldToAscii('Κάμπινγκ')).toBe('kampingk');
+  });
+
+  it('🔴 a capitalised diphthong carries its accent on the second vowel', () => {
+    // So `Εύβοια` IS the capitalised `ευ`. Without these rows it came
+    // out `eyvoia`. No row carries one today — the next import would.
+    expect(foldToAscii('Εύβοια')).toBe('evvoia');
+    expect(foldToAscii('Ούλα')).toBe('oula');
+    expect(foldToAscii('Αύρα')).toBe('avra');
   });
 });
 
