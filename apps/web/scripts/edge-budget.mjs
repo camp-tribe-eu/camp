@@ -46,7 +46,7 @@
 // decision about money, not this script's.
 
 import { realpathSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 /** Warn from here on, as a fraction of the cap. */
 export const WARN_AT = 0.75;
@@ -142,6 +142,15 @@ function selfTest() {
     // exactly why no other case would catch it.
     { name: 'multi-byte', body: '\u20ac'.repeat(400), warns: false, throws: true },
   ];
+  // 🔴 The count is held HERE, not in the CI line that greps the output.
+  //
+  // That line matches "1 edge-budget boundaries" as happily as "9", so
+  // deleting cases would stay green. Pinning the number in the grep
+  // would work and would have to be edited from another workspace every
+  // time a case is added — which is how such a line gets loosened back.
+  // So the script refuses instead: removing a case is a deliberate act
+  // that touches both this constant and the list below it.
+  const EXPECTED_CASES = 9;
   let bad = 0;
   const fail = (what) => {
     console.error(`  \u2717 ${what}`);
@@ -213,6 +222,12 @@ function selfTest() {
     fail(`the warning did not go to console.warn: ${JSON.stringify(seen.warn)}`);
   }
 
+  if (cases.length !== EXPECTED_CASES) {
+    fail(
+      `${cases.length} cases, expected ${EXPECTED_CASES}. If a boundary ` +
+        'is genuinely gone, say so by changing both.',
+    );
+  }
   console.log(
     bad === 0
       ? `\u2713 ${cases.length} edge-budget boundaries, messages read`
@@ -246,16 +261,34 @@ function selfTest() {
 // carry that flag threw — `node gen-links.mjs --self-test` would have
 // crashed instead of generating, and check-script-entrypoints.mjs said
 // so: a module may not do work when it is imported.
-// 🔴 `import.meta.url` stands IN the condition, not behind a variable.
+// 🔴 The house form, from scripts/windy/fetch-webcams.mjs, and each
+// piece of it is a bug this guard has already had.
 //
-// check-script-entrypoints.mjs recognises a guard by reading the
-// comparison itself; two locals compared to each other look to it like
-// an unguarded call, and it said so. Inlining keeps the guard legible
-// to the one thing whose job is to read it.
-if (
-  realpathSync(fileURLToPath(import.meta.url)) ===
-  (process.argv[1] ? realpathSync(process.argv[1]) : '')
-) {
+// `realpathSync` on the argv side, because Node resolves
+// `import.meta.url` through the real path and leaves argv[1] as written:
+// without it a symlink made the two never match, the self-test silently
+// did not run, and the CI step was green with no output.
+//
+// Inside an IIFE with try/catch, because the previous version called
+// realpathSync IN the `if` condition — which runs on every import. A
+// review imported this module from a process whose argv[1] was not a
+// file and got ENOENT: the module had become unimportable, and
+// check-script-entrypoints cannot see that, since it reads what a branch
+// does and not what the condition costs.
+//
+// And `import.meta.url` stands in the comparison rather than behind a
+// local, because that check recognises a guard by reading the
+// comparison itself.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
   if (process.argv.includes('--self-test')) {
     selfTest();
   } else {
