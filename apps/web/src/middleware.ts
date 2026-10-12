@@ -80,25 +80,91 @@ const REDIRECTS = new Map<string, string>(
   Object.entries(SPOT_REDIRECTS as Record<string, string>),
 );
 
-export function middleware(request: NextRequest) {
-  // Trailing slashes and casing both reach us from old links and from
-  // crawlers, and neither should decide whether a URL is gone.
-  const pathname = request.nextUrl.pathname.replace(/\/+$/, '').toLowerCase();
+// 🔴 CAMP-294, друга редакція. ПЕРША БУЛА ГІРШОЮ ЗА БАГ.
+//
+// Спершу я зробив `Location` відносним. Це здавалось елегантним: відносна
+// адреса не залежить від того, що Next думає про себе. Рецензія показала,
+// що вона ПАДАЄ: Next обгортає будь-який middleware в `adapter()`, а той
+// на рядку 319 робить `new NextURL(redirect, {forceLocale, headers,
+// nextConfig})` — другий аргумент це ОПЦІЇ, не база. Заміряно прямим
+// викликом:
+//
+//     new NextURL('/camping/at/b/new', {headers})        → TypeError: Invalid URL
+//     new NextURL('https://camptribe.eu/camping/at/b/new', {headers}) → OK
+//
+// Тобто 4 455 неправильних редиректів перетворились би на 4 455 падінь.
+// Саме тому `NextResponse.redirect()` і вимагає абсолютної адреси — це
+// не примха API.
+//
+// Правильне рішення: `Location` лишається АБСОЛЮТНИМ, але хост береться
+// з того, що передав проксі, а не з адреси, на якій слухає Next.
+export function publicOrigin(headers: Headers, fallback: string): string {
+  // `x-forwarded-host` ставить проксі; `host` лишається, якщо проксі немає.
+  const host = headers.get('x-forwarded-host') ?? headers.get('host');
+  if (!host) return fallback;
+  const proto = headers.get('x-forwarded-proto') ?? 'https';
+  return `${proto}://${host}`;
+}
 
-  const moved = REDIRECTS.get(pathname);
-  if (moved) {
-    // 🔴 The query string is carried across. A reader arriving from a
-    // shared link with `?from=map` should land where they were going
-    // with what they were carrying; dropping it is a silent data loss
-    // that only shows up as a broken referrer report weeks later.
-    const target = new URL(moved, request.nextUrl.origin);
-    target.search = request.nextUrl.search;
-    return NextResponse.redirect(target, 301);
+export function normalisePath(pathname: string): string {
+  // Кінцеві скісні й регістр приходять зі старих посилань і від роботів,
+  // і жодне з двох не має вирішувати, чи адреса переїхала.
+  return pathname.replace(/\/+$/, '').toLowerCase();
+}
+
+export function redirectFor(
+  pathname: string,
+  search: string,
+  origin: string,
+  redirects: ReadonlyMap<string, string> = REDIRECTS,
+): NextResponse | null {
+  const moved = redirects.get(normalisePath(pathname));
+  if (!moved) return null;
+
+  // 🔴 Рядок запиту переноситься: читач, що прийшов за посиланням із
+  // `?from=map`, має дістатись туди, куди йшов, із тим, що ніс.
+  // `target.search =` нормалізує відсутню `?` — тому саме так, а не
+  // конкатенацією: виклик із `'a=1'` інакше дав би `/новий-шляхa=1`.
+  const target = new URL(moved, origin);
+  target.search = search;
+  return NextResponse.redirect(target, 301);
+}
+
+// 🔴 УВЕСЬ МАРШРУТИЗАТОР ЖИВЕ ТУТ, а не в `middleware`, і це не стиль.
+//
+// Спершу я дав `middleware` додаткові параметри для фікстур:
+// `middleware(request, redirects = REDIRECTS, gone = GONE)`. CI впав на
+// кожному запиті з `TypeError: d.get is not a function`, бо **Next кличе
+// `middleware(request, event)`** — другим аргументом іде `NextFetchEvent`,
+// і він прилітав замість мапи. Тобто сайт віддавав би 500 на все.
+//
+// Угода виклику фреймворку — частина контракту, і підпис `middleware`
+// належить Next, а не нам. Тож фікстури приймає `route`, а `middleware`
+// лишається рівно таким, яким його кличуть.
+export function route(
+  request: NextRequest,
+  redirects: ReadonlyMap<string, string>,
+  gone: ReadonlySet<string>,
+) {
+  const origin = publicOrigin(request.headers, request.nextUrl.origin);
+
+  const redirect = redirectFor(
+    request.nextUrl.pathname,
+    request.nextUrl.search,
+    origin,
+    redirects,
+  );
+  if (redirect) return redirect;
+
+  if (!gone.has(normalisePath(request.nextUrl.pathname))) {
+    return NextResponse.next();
   }
 
-  if (!GONE.has(pathname)) return NextResponse.next();
-
   return serveGone(request);
+}
+
+export function middleware(request: NextRequest) {
+  return route(request, REDIRECTS, GONE);
 }
 
 async function serveGone(request: NextRequest) {
