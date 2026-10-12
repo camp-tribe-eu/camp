@@ -470,12 +470,17 @@ describe('mergeLinked', () => {
  * database, with the state planted and then taken away again.
  */
 describe('the two lists cannot drift apart', () => {
-  it('gone subtracts exactly what the redirect list publishes', () => {
+  it('gone computes the published list and subtracts from it', () => {
     // 🔴 The RESOLVED list, not the raw pairs. A review planted a chain
     // of ten: row ten was half of a pair, so the pairs-based version
     // subtracted it from gone, but the walk stopped short and published
     // no redirect for it. That URL was in neither list.
     expect(GONE_LIST_SQL).toContain(RESOLVED_REDIRECTS_SQL);
+    // And it is SUBTRACTED, not merely mentioned — the first version of
+    // this test passed with the subtraction deleted, because the CTE
+    // was still there. The behaviour is held by the rehearsal; this
+    // holds the name honest.
+    expect(GONE_LIST_SQL).toContain('NOT EXISTS (SELECT 1 FROM redirected rr');
   });
 
   it('the redirect list is the resolved form of those same pairs', () => {

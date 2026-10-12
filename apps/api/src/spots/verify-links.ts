@@ -270,6 +270,7 @@ async function main(): Promise<void> {
       redirects: Map<string, string>;
       gone: Set<string>;
       overlap: string[];
+      dropped: number;
     }> => {
       const r = await db.query<{
         from_country: string;
@@ -303,6 +304,7 @@ async function main(): Promise<void> {
         redirects,
         gone,
         overlap: [...redirects.keys()].filter((p) => gone.has(p)),
+        dropped: r.rows.length - redirects.size,
       };
     };
 
@@ -310,6 +312,19 @@ async function main(): Promise<void> {
     console.log(
       `  ${lists.redirects.size} redirected, ${lists.gone.size} announced gone`,
     );
+    // 🔴 The SQL says `region IS NOT NULL`; canonicalPath says the region
+    // must SLUGIFY to something. They are not the same sentence, and a
+    // row that satisfies one but not the other is dropped by the mapper
+    // while `gone()` has already subtracted it — in neither list, again.
+    // 0 of 809 (country, region) pairs slugify to empty today, so this
+    // is a guard against a future row, which is exactly when nobody
+    // would be looking.
+    console.log(
+      `  ${lists.dropped === 0 ? '✓' : '✗'} every redirect the query returns survives the path builder${
+        lists.dropped ? ` (${lists.dropped} dropped)` : ''
+      }`,
+    );
+    if (lists.dropped !== 0) failed++;
     console.log(
       `  ${lists.overlap.length === 0 ? '✓' : '✗'} no path is in both lists`,
     );
@@ -514,6 +529,16 @@ async function main(): Promise<void> {
                                     missing_since = NULL
             WHERE id = ANY($1::uuid[])`,
           [order],
+        );
+        // 🔴 The bottom of the chain is made OLD ENOUGH TO BURY. Without
+        // this the fourth check below was green by construction: every
+        // row had `missing_since = NULL`, so `gone()` never looked at
+        // them, and the mutation that deletes the subtraction left it
+        // ✓. A check that cannot fail is not a check.
+        await db.query(
+          `UPDATE camping_spots SET missing_since = now() - interval '29 days'
+            WHERE id = $1`,
+          [order[order.length - 1]],
         );
         for (let i = 0; i + 1 < order.length; i++) {
           await db.query(

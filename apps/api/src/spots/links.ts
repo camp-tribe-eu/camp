@@ -149,7 +149,11 @@ export const REDIRECT_PAIRS_SQL = `
  * 🔴 A cycle publishes nothing rather than looping: every row in a cycle
  * is some pair's `from_id`, so none of them is a terminal and the
  * NOT EXISTS drops the lot. `seen` is what stops the recursion, by
- * refusing a destination the walk has already stood on.
+ * refusing a destination the walk has already stood on. (Its first
+ * element is the starting row. Deleting it survives a mutation, because
+ * a starting row is never a terminal and NOT EXISTS would drop the walk
+ * anyway; it is there so `seen` means "where this walk has been" rather
+ * than "where it has been since the second step".)
  *
  * 🔴 It used to be `depth < 8`, and a review proved what that costs. A
  * chain of ten was planted: rows two to nine resolved, and row ten got
