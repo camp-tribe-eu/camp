@@ -1,6 +1,9 @@
 import { countryName, getCountries, getRegions } from '@/lib/api';
-import { SITE } from '@/lib/sitemap';
+import { FUEL, FUEL_COUNTRIES } from '@/lib/fuel';
+import { getGuides } from '@/lib/guides';
 import { publishableCountries } from '@/lib/rental';
+import { getRoutes } from '@/lib/routes';
+import { SITE } from '@/lib/sitemap';
 
 // CAMP-39: llms.txt — the site explained to an agent in one file.
 //
@@ -129,6 +132,66 @@ export async function GET() {
         c.angle,
     );
   }
+  lines.push('');
+
+  // 🔴 CAMP-211. ТРИ РОЗДІЛИ З П'ЯТИ БУЛИ ВІДСУТНІ ТУТ ЦІЛКОМ.
+  //
+  // Заміряно 12.10.2026: мапа сайту публікує п'ять верхньорівневих
+  // розділів — `/camping`, `/camper-rental`, `/guides`, `/tools`,
+  // `/routes`. Цей файл називав лише перші два. Тобто агент, якому ми
+  // самі кажемо «ось що в нас є», не дізнавався про маршрути, гайди й
+  // калькулятори взагалі.
+  //
+  // Це дорожче, ніж здається саме зараз: Google вивів `HowTo` (2023),
+  // `SpecialAnnouncement` (31.07.2025) і звузив `FAQPage` до урядових
+  // та медичних сайтів. Багаті результати, на які ця розмітка
+  // розраховувала, більше не показують — а асистенти JSON-LD і цей
+  // файл читають далі. Тож повнота саме тут тепер важить більше за
+  // розмітку.
+  //
+  // 🔴 Усе нижче — з тих самих джерел, що й мапа сайту (`getRoutes`,
+  // `getGuides`, `FUEL_COUNTRIES`), а не список, який ведуть поруч.
+  // Інакше два переліки розійдуться, і цей збреше першим.
+  const routes = getRoutes();
+  lines.push('## Routes');
+  lines.push('');
+  lines.push(
+    `- [Curated camper routes](${SITE}/routes) — ${routes.length} routes, ` +
+      'each broken into stages, with the campsites our database holds ' +
+      'within 25 km of every stage.',
+  );
+  for (const r of routes) {
+    lines.push(
+      `- [${r.name}](${SITE}/routes/${r.slug}): ${r.days} days.`,
+    );
+  }
+  lines.push('');
+
+  const guides = await getGuides();
+  lines.push('## Guides');
+  lines.push('');
+  lines.push(
+    `- [All guides](${SITE}/guides) — ${guides.length} guides, reachable ` +
+      'by country and by topic. Each one states who wrote it, whether a ' +
+      'generator was involved and when its facts were last checked.',
+  );
+  lines.push('');
+
+  lines.push('## Tools');
+  lines.push('');
+  lines.push(`- [Tools](${SITE}/tools) — two calculators, no sign-in.`);
+  lines.push(
+    `- [Camper trip cost](${SITE}/tools/camper-trip-cost) — fuel cost for ` +
+      `a route, from the European Commission's Oil Bulletin of ` +
+      `${FUEL.bulletinDate}, covering ${FUEL_COUNTRIES.length} member states. ` +
+      'Results are shareable as query strings; those URLs are deliberately ' +
+      'absent from the sitemap and are not pages.',
+  );
+  lines.push(
+    `- [Camper packing list](${SITE}/tools/camper-packing-list) — what to ` +
+      'carry, with the items that are a legal requirement in some member ' +
+      'states marked as such.',
+  );
   lines.push('');
 
   lines.push('## Machine-readable');

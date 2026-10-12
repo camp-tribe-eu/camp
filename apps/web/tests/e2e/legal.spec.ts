@@ -127,17 +127,31 @@ test.describe('cookie consent', () => {
     // сторож репозиторію справедливо вважає падінням. `scrollTo` не
     // гарантує, що компонування встигло — на повільному раннері
     // `getBoundingClientRect` читав ще старі координати.
-    await page.evaluate(() =>
-      window.scrollTo(0, document.documentElement.scrollHeight),
-    );
-    await page.waitForFunction(
-      () =>
-        Math.abs(
-          window.scrollY +
-            window.innerHeight -
-            document.documentElement.scrollHeight,
-        ) < 2,
-    );
+    //
+    // 🔴 ДРУГИЙ ФЛАК У ЦЬОМУ САМОМУ ТЕСТІ, 12.10.2026, webkit-desktop,
+    // таймаут 30 с. Причина інша, ніж перша, і вона в нашому ж коді:
+    // `cookie-consent.tsx` ставить `--consent-h` через `ResizeObserver`,
+    // а `globals.css` додає `body { padding-bottom: var(--consent-h) }`.
+    // Сторінка ВИРОСТАЄ після першого малювання. Прокрутка один раз до
+    // `scrollHeight`, а потім чекання на рівність із уже НОВИМ
+    // `scrollHeight` не сходиться ніколи: різниця дорівнює висоті
+    // банера. Чекання, яке сторінка може зробити недосяжним, — це не
+    // чекання, а таймер.
+    //
+    // Тому прокрутка живе ВСЕРЕДИНІ чекання: виросла сторінка — наступне
+    // опитування докрутить. І порівняння через `>=` з допуском, а не
+    // `Math.abs(…) < 2`: пружна прокрутка webkit дає `scrollY`, більший
+    // за максимум, і точна рівність там недосяжна так само.
+    //
+    // 🔴 Якщо цей тест флакне ВТРЕТЄ — його треба не лагодити, а
+    // видаляти й перевіряти це твердження інакше.
+    await page.waitForFunction(() => {
+      const doc = document.documentElement;
+      window.scrollTo(0, doc.scrollHeight);
+      // Сторінка, коротша за екран, уже «внизу».
+      if (doc.scrollHeight <= window.innerHeight) return true;
+      return window.scrollY + window.innerHeight >= doc.scrollHeight - 2;
+    });
 
     const hidden = await page.evaluate(() => {
       const banner = document.querySelector('[data-testid="cookie-banner"]')!;
