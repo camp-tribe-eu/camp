@@ -128,6 +128,26 @@ if (disagree.length) {
   );
 }
 
+// 🔴 CAMP-211. Один підрахунок на перевірку й на підсумок.
+// Два окремі вирази тут означали б, що надрукований рядок може
+// розійтися з вироком — а надрукований підсумок це підпис, не перевірка.
+const sections = [
+  ...new Set(
+    allUrls
+      // 🔴 `allUrls` holds `{ url, from }`, not strings. The first
+      // version of this mapped the OBJECT through `new URL(...)`, which
+      // throws, and the catch turned every section into '' — a guard
+      // that could never fire, passing because it saw nothing. Caught
+      // by reading the loop that fills this array rather than by any
+      // test, so: no `catch` that swallows the shape. A URL that does
+      // not parse is an error here, because every one of them has
+      // already been checked as absolute https above.
+      .map(({ url }) => new URL(url).pathname.split('/')[1] ?? '')
+      .filter(Boolean),
+  ),
+].sort();
+let unlisted = [];
+
 // ── llms.txt ─────────────────────────────────────────────────────────────
 const llms =
   read(path.join(ROOT, 'llms.txt.body')) ?? read(path.join(ROOT, 'llms.txt'));
@@ -140,6 +160,31 @@ if (!llms) {
   if (!llms.includes('/sitemap.xml')) {
     errors.push('llms.txt does not point at the sitemap');
   }
+
+  // 🔴 CAMP-211. EVERY SECTION THE SITEMAP PUBLISHES MUST BE NAMED HERE.
+  //
+  // Measured 12.10.2026: the sitemap published five top-level sections
+  // and llms.txt named two. `/guides`, `/tools` and `/routes` were
+  // absent from it entirely — so the one file we hand an assistant as
+  // "here is what we have" did not mention 1 256 guides, twelve curated
+  // routes or either calculator.
+  //
+  // The shape checks above cannot see this: a file with an H1, a
+  // blockquote, sections and a sitemap link passes all four while
+  // describing a third of the site. This asks the sitemap what exists
+  // instead of asking llms.txt whether it looks well-formed.
+  //
+  // It matters more than it used to. Google retired `HowTo` (2023) and
+  // `SpecialAnnouncement` (31 July 2025) and narrowed `FAQPage` to
+  // government and health sites, so the rich results that markup aimed
+  // at are gone — while assistants still read this file.
+  unlisted = sections.filter((x) => !llms.includes(`/${x}`));
+  if (unlisted.length) {
+    errors.push(
+      `llms.txt never mentions ${unlisted.length} of ${sections.length} ` +
+        `sitemap section(s): ${unlisted.join(', ')}`,
+    );
+  }
 }
 
 console.log(`mode            ${MODE}`);
@@ -148,6 +193,10 @@ console.log(`urls            ${allUrls.length}`);
 console.log(`distinct dates  ${lastmods.size}`);
 console.log(`noindex in map  ${noindexed}`);
 console.log(`llms.txt        ${llms ? `${llms.split('\n').length} lines` : 'MISSING'}`);
+console.log(
+  `llms sections   ${sections.length - unlisted.length} of ${sections.length} named` +
+    (unlisted.length ? ` — missing: ${unlisted.join(', ')}` : ''),
+);
 
 if (lastmods.size === 1 && allUrls.length > 50) {
   console.warn(
