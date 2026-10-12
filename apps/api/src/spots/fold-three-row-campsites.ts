@@ -207,7 +207,7 @@ export async function skipped(
   db: Client,
 ): Promise<{ name: string; why: string }[]> {
   const r = await db.query<{ name: string; why: string }>(`
-    SELECT coalesce(a.name, '(unnamed)') AS name,
+    SELECT DISTINCT coalesce(a.name, '(unnamed)') AS name,
            'folding its twin would make a chain that cannot be flattened: ' ||
            'the pair (area, outside record) carries a decision somebody ' ||
            'made by hand' AS why
@@ -219,14 +219,19 @@ export async function skipped(
      WHERE a.osm_ref ~ '^a[0-9]+$'
        AND NOT EXISTS (SELECT 1 FROM spot_links l
                         WHERE l.primary_id = a.id AND l.secondary_id = t.id)
+       -- Not a twin already folded into somebody else: that is a
+       -- different refusal with a different reason, and naming the wrong
+       -- one is worse than naming none.
+       AND NOT EXISTS (SELECT 1 FROM spot_links o
+                        WHERE o.unlinked_at IS NULL AND o.secondary_id = t.id)
        AND EXISTS (
              SELECT 1 FROM spot_links below
               WHERE below.primary_id = t.id AND below.unlinked_at IS NULL
                 AND EXISTS (SELECT 1 FROM spot_links q
                              WHERE q.primary_id = a.id
                                AND q.secondary_id = below.secondary_id))
-     UNION ALL
-    SELECT coalesce(top.name, '(unnamed)') AS name,
+     UNION
+    SELECT DISTINCT coalesce(top.name, '(unnamed)') AS name,
            'its chain is left alone: somebody took the area and its twin ' ||
            'apart by hand' AS why
       FROM camping_spots top
@@ -239,7 +244,36 @@ export async function skipped(
      WHERE top.osm_ref ~ '^a[0-9]+$'
        AND EXISTS (SELECT 1 FROM spot_links h
                     WHERE h.primary_id = top.id AND h.secondary_id = mid.id
-                      AND h.unlinked_at IS NOT NULL)`);
+                      AND h.unlinked_at IS NOT NULL)
+     UNION
+    -- 🔴 The third refusal, and the one that was silent.
+    --
+    -- The area and its twin are ALREADY folded — the shape all seven
+    -- real chains have — the twin carries an outside record, and
+    -- somebody has judged the pair (area, record). The flattening step
+    -- refuses, correctly. But neither branch above describes this: the
+    -- first wants no link at all between area and twin, the second
+    -- wants that link undone, and here it is present and live. So the
+    -- run printed "0 outstanding" while an invariant stayed red for
+    -- good — the exact outcome this function was added to prevent,
+    -- reached by the one path it did not cover.
+    SELECT DISTINCT coalesce(top.name, '(unnamed)') AS name,
+           'its chain stays: the record below it belongs to a pair ' ||
+           'somebody has already judged, so it cannot be moved up' AS why
+      FROM camping_spots top
+      JOIN camping_spots mid ON mid.osm_ref = CASE
+             WHEN (substring(top.osm_ref from 2))::bigint % 2 = 0
+             THEN 'w' || ((substring(top.osm_ref from 2))::bigint / 2)
+             ELSE 'r' || (((substring(top.osm_ref from 2))::bigint - 1) / 2) END
+      JOIN spot_links above ON above.primary_id = top.id
+                           AND above.secondary_id = mid.id
+                           AND above.unlinked_at IS NULL
+      JOIN spot_links below ON below.primary_id = mid.id
+                           AND below.unlinked_at IS NULL
+     WHERE top.osm_ref ~ '^a[0-9]+$'
+       AND EXISTS (SELECT 1 FROM spot_links q
+                    WHERE q.primary_id = top.id
+                      AND q.secondary_id = below.secondary_id)`);
   return r.rows;
 }
 

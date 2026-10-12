@@ -322,6 +322,65 @@ async function main(): Promise<void> {
     } finally {
       await db.query('ROLLBACK');
     }
+
+    // ------------------------------------------------------------------
+    console.log(
+      '\n--- an already-folded chain that cannot be flattened says so ---',
+    );
+    // 🔴 The shape all seven real chains have: area and twin ALREADY
+    // linked. A review built it with a human judgement underneath and
+    // found the run silent — plan empty, nothing skipped, and the
+    // invariant red for good. Neither earlier branch described it: one
+    // wants no link between area and twin, the other wants that link
+    // undone, and here it is present and live.
+    await db.query('BEGIN');
+    try {
+      const area = await clone(db, seed, 'fold-a-7', 'a300000020', false);
+      const twin = await clone(db, seed, 'fold-w-7', 'w150000010', false);
+      const outside = await clone(db, seed, 'fold-dt-5', null, false);
+      for (const [pri, sec] of [
+        [area, twin],
+        [twin, outside],
+      ]) {
+        await db.query(
+          `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                   name_similarity, rule)
+           VALUES ($1, $2, 0, 1, 'fold-rehearsal')`,
+          [pri, sec],
+        );
+      }
+      await db.query(
+        `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                 name_similarity, rule, unlinked_at,
+                                 unlinked_reason)
+         VALUES ($1, $2, 0, 1, 'fold-rehearsal', now(), 'different sites')`,
+        [area, outside],
+      );
+      const p = await plan(db);
+      const quiet = p.length === 0;
+      const skips = await skipped(db);
+      const named = skips.some((sk) => sk.why.includes('already judged'));
+      console.log(
+        `  ${quiet ? '✓' : '✗'} the chain is not flattened (the pair was judged)`,
+      );
+      console.log(
+        `  ${named ? '✓' : '✗'} and the run names it instead of printing nothing`,
+      );
+      if (!quiet) failed++;
+      if (!named) failed++;
+
+      // 🔴 One campsite, one line. The second branch joined through the
+      // links below the twin, so a twin carrying two records named its
+      // area twice and the count lied.
+      const once =
+        skips.filter((sk) => sk.name === skips[0]?.name).length === 1;
+      console.log(
+        `  ${once ? '✓' : '✗'} and names it once, not once per record below it`,
+      );
+      if (!once) failed++;
+    } finally {
+      await db.query('ROLLBACK');
+    }
   } finally {
     await db.end();
   }
