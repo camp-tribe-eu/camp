@@ -1,0 +1,153 @@
+import { transliterate } from './transliterate';
+import { foldToAscii } from './canonical';
+
+// CAMP-291 — 188 campsites whose address carried no word at all.
+//
+// 🔴 The names below are real rows, not invented ones. A table checked
+// against examples somebody made up is a table checked against itself.
+
+/** Every Greek and Cyrillic letter present in the live rows (12.10.2026). */
+const INVENTORY =
+  'ІАБВГДЕЗИКЛМНОПРСТХЦЧШЮЯабвгдежзийклмнопрстуфхцчшщъьюяі' +
+  'ΆΈΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΧΩάέήίαβγδεζηθικλμνοπρςστυφχψωόύώ';
+
+describe('🔴 every letter the data actually contains has a rule', () => {
+  it.each([...INVENTORY])('%s becomes a Latin letter', (ch) => {
+    const out = foldToAscii(ch);
+    expect(out).not.toBe('');
+    expect(out).toMatch(/^[a-z0-9]+$/);
+  });
+
+  it('…and the inventory is the one that was measured', () => {
+    // A shrinking inventory would quietly stop testing the letters it
+    // dropped. 55 Cyrillic + 55 Greek, counted from the live rows.
+    expect(INVENTORY).toHaveLength(110);
+  });
+});
+
+describe('Bulgarian, by the Transliteration Act of 2009', () => {
+  it.each([
+    ['Нестинарка', 'nestinarka'],
+    ['Добруджа', 'dobrudzha'],
+    ['Тюленово', 'tyulenovo'],
+    ['Къмпинг Весело село', 'kamping-veselo-selo'],
+    ['Ваканционното селище „Чайка”', 'vakantsionnoto-selishte-chayka'],
+    ['Св. Кирик', 'sv-kirik'],
+  ])('%s → %s', (from, to) => {
+    expect(foldToAscii(from)).toBe(to);
+  });
+
+  it('🔴 й is y, not i — it is a composed letter and NFD would eat it', () => {
+    // Transliterating after the decomposition read it as `и` and wrote
+    // «Чайка» as `chaika`. Measured on the live row.
+    expect(foldToAscii('Чайка')).toBe('chayka');
+    expect(foldToAscii('й')).toBe('y');
+  });
+
+  it('ъ is a, which is the letter in България itself', () => {
+    expect(foldToAscii('Къмпинг')).toBe('kamping');
+  });
+
+  it('🔴 rule 5: word-final ия is ia, not iya', () => {
+    // E/CONF.101/12 p.4, Bulgaria's own submission to UNGEGN. Five
+    // live rows need it, and letter by letter they all came out wrong.
+    expect(foldToAscii('Анастасия')).toBe('anastasia');
+    expect(foldToAscii('Камчия')).toBe('kamchia');
+    expect(foldToAscii('Гардения')).toBe('gardenia');
+    expect(foldToAscii('Селския двор край морето')).toBe(
+      'selskia-dvor-kray-moreto',
+    );
+  });
+
+  it('🔴 …and only word-final: inside a word it stays iya', () => {
+    // The rule is an exception at the end of a word. Applying it
+    // everywhere would rewrite letters the Act leaves alone.
+    expect(transliterate('ияк')).toBe('iyak');
+    expect(foldToAscii('Камчиян')).toBe('kamchiyan');
+  });
+});
+
+describe('Greek, by ELOT 743', () => {
+  it.each([
+    ['Αστερίας', 'asterias'],
+    ['Ακτή Ρετζίκα', 'akti-retzika'],
+    ['Κατασκήνωση ΚΟΡΕΛΚΟ', 'kataskinosi-korelko'],
+    ['Κατασκηνώσεις Ερυθρού Σταυρού', 'kataskinoseis-erythrou-stavrou'],
+    [
+      'Αυτοδιαχειριζόμενο Κάμπινγκ Βούλας',
+      'avtodiacheirizomeno-kampingk-voulas',
+    ],
+  ])('%s → %s', (from, to) => {
+    expect(foldToAscii(from)).toBe(to);
+  });
+
+  it('🔴 the accented vowels are the table’s own, not NFD’s', () => {
+    // Leaving them out and decomposing first wrote `Αστερίας` as
+    // `aster-as`: the bare ι came back with nothing left to read it.
+    expect(foldToAscii('ί')).toBe('i');
+    expect(foldToAscii('ώ')).toBe('o');
+    expect(foldToAscii('ΐ')).toBe('i');
+  });
+
+  it('🔴 the digraphs that earn their place', () => {
+    // Without them: voylas, aytodiacheirizomeno. With them a reader
+    // recognises the name.
+    expect(foldToAscii('ού')).toBe('ou');
+    expect(foldToAscii('αυ')).toBe('av');
+    expect(foldToAscii('ευ')).toBe('ev');
+  });
+
+  it('final sigma is the same letter as sigma', () => {
+    expect(foldToAscii('ΣΣς')).toBe('sss');
+  });
+
+  it('🔴 γγ is ng — and this is what proves the sort is load-bearing', () => {
+    // The row sits at the END of the table, where a person appends
+    // one. Without `.sort()` by length the single γ would win and the
+    // live row Ευαγγελικής would read `evaggelikis`.
+    expect(foldToAscii('Ευαγγελικής')).toBe('evangelikis');
+    expect(foldToAscii('γγ')).toBe('ng');
+  });
+
+  it('🔴 γκ stays gk, which is ELOT’s own general case', () => {
+    // `ng` medially is BGN/PCGN 1962, a different standard. Mixing two
+    // romanisations in one table is how a name stops matching itself.
+    expect(foldToAscii('Κάμπινγκ')).toBe('kampingk');
+  });
+
+  it('🔴 a capitalised diphthong carries its accent on the second vowel', () => {
+    // So `Εύβοια` IS the capitalised `ευ`. Without these rows it came
+    // out `eyvoia`. No row carries one today — the next import would.
+    expect(foldToAscii('Εύβοια')).toBe('evvoia');
+    expect(foldToAscii('Ούλα')).toBe('oula');
+    expect(foldToAscii('Αύρα')).toBe('avra');
+  });
+});
+
+describe('🔴 what must NOT change', () => {
+  it('a Latin name is untouched by the transliterator', () => {
+    for (const name of [
+      'Søby Strand Camping',
+      'Camping Les Pins',
+      'Skåne',
+      'Šibensko-Kninska',
+      'Großostheim',
+    ]) {
+      expect(transliterate(name)).toBe(name);
+    }
+  });
+
+  it('…and still folds exactly as it did before', () => {
+    expect(foldToAscii('Skåne')).toBe('skane');
+    expect(foldToAscii('Søby Strand Camping')).toBe('soby-strand-camping');
+    expect(foldToAscii('Großostheim')).toBe('grossostheim');
+    expect(foldToAscii('Šibensko-Kninska')).toBe('sibensko-kninska');
+  });
+
+  it('🔴 it transliterates and never translates', () => {
+    // «Κάμπινγκ» and «Къмпинг» both mean "camping". Neither becomes the
+    // English word: the campsite's name belongs to the campsite.
+    expect(foldToAscii('Κάμπινγκ')).toBe('kampingk');
+    expect(foldToAscii('Къмпинг')).toBe('kamping');
+  });
+});
