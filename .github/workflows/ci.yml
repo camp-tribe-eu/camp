@@ -247,7 +247,14 @@ jobs:
       # card's subject from a third direction. The scale workflow enforces
       # it at zero today; docs/scale-check.md says what is left.
       - name: Skip guard still catches a test that did not run
-        run: node scripts/ci/check-skips.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output.
+      # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
+      # so a failing node on the left of a pipe is invisible. The grepped
+      # line names its own script, so no other self-test can satisfy it.
+        run: |
+          set -o pipefail
+          node scripts/ci/check-skips.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-skips self-test:'
 
       # 🔴 CAMP-173. check-fixture-not-shrunk.mjs counts rows; a
       # regeneration passed it at 73 → 90 campsites and produced a
@@ -268,7 +275,14 @@ jobs:
       # vintage, and the Irish splits — all pure, no network.
       - name: Warning area resolution
         if: ${{ !cancelled() }}
-        run: node scripts/meteoalarm/resolve-areas.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output.
+      # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
+      # so a failing node on the left of a pipe is invisible. The grepped
+      # line names its own script, so no other self-test can satisfy it.
+        run: |
+          set -o pipefail
+          node scripts/meteoalarm/resolve-areas.mjs --self-test | tee /dev/stderr \
+            | grep -q 'resolve-areas self-test:'
 
       - name: The fixture still holds what the tests stand on
         run: node scripts/ci/check-fixture-shape.mjs
@@ -395,7 +409,14 @@ jobs:
       # The silence watchdog's own logic. The check that runs daily and
       # the check that is tested are the same file.
       - name: Silence watchdog still catches a job that stopped
-        run: node scripts/ci/check-schedule.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output.
+      # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
+      # so a failing node on the left of a pipe is invisible. The grepped
+      # line names its own script, so no other self-test can satisfy it.
+        run: |
+          set -o pipefail
+          node scripts/ci/check-schedule.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-schedule self-test:'
 
       # 🔴 CAMP-30. Fonts and sprites are NOT inside a PMTiles archive; a
       # style names them by URL, and the obvious one points at GitHub

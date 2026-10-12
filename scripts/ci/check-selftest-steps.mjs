@@ -177,6 +177,27 @@ export function auditStep({ name, run, scripts }) {
   return null;
 }
 
+/**
+ * Grep patterns shared by steps that run DIFFERENT scripts.
+ *
+ * Pure, so the self-test drives this rule rather than a restatement of
+ * it — the first version's two cases asserted what `new Set` does, which
+ * is true whatever this function says.
+ */
+export function sharedPatterns(steps) {
+  const byPattern = new Map();
+  for (const step of steps.filter((s) => s.pattern)) {
+    byPattern.set(step.pattern, [...(byPattern.get(step.pattern) ?? []), step]);
+  }
+  const out = [];
+  for (const [pattern, group] of byPattern) {
+    const sources = [...new Set(group.map((s) => s.scripts))].sort();
+    if (sources.length <= 1) continue;
+    out.push({ pattern, sources, steps: group.map((s) => s.key) });
+  }
+  return out;
+}
+
 function workflowFiles() {
   return readdirSync(WORKFLOWS)
     .filter((f) => /\.ya?ml$/.test(f))
@@ -197,6 +218,7 @@ function survey() {
         name: step.name,
         key: `${rel} :: ${step.name}`,
         pattern: grepPattern(step.run),
+        scripts: scripts.filter(Boolean).sort().join(','),
         unreadable: scripts.includes(null),
         problem: scripts.includes(null)
           ? { name: step.name, why: 'runs a --self-test this check cannot attribute to a script' }
@@ -256,16 +278,20 @@ function run(action) {
 
   // Two self-tests satisfied by one line would both be green while one
   // of them never ran.
-  const byPattern = new Map();
-  for (const step of all.filter((s) => s.pattern)) {
-    byPattern.set(step.pattern, [...(byPattern.get(step.pattern) ?? []), step.key]);
-  }
-  for (const [pattern, keys] of byPattern) {
-    if (keys.length === 1) continue;
+  //
+  // 🔴 THE SAME SCRIPT IN TWO WORKFLOWS IS NOT THAT, and this check said
+  // it was. check-skips, check-schedule and resolve-areas each run in
+  // ci.yml and in a second workflow; both steps grep the same line
+  // because both run the same script, and each pipes only its OWN
+  // process's output — one cannot stand in for the other. What the rule
+  // is actually about is a pattern that a DIFFERENT script also prints.
+  for (const clash of sharedPatterns(all)) {
     bad++;
     console.error(
-      `::error::${keys.length} steps grep for the same line "${pattern}": ` +
-        `${keys.join(', ')}. Each would be satisfied by the other's output.`,
+      `::error::${clash.steps.length} steps grep for the same line ` +
+        `"${clash.pattern}" while running different scripts ` +
+        `(${clash.sources.join(' vs ')}): ${clash.steps.join(', ')}. ` +
+        "Each would be satisfied by the other's output.",
     );
   }
 
@@ -346,11 +372,28 @@ const CASES = [
     auditStep({ name: 'X', run: "set -o pipefail\nnode a.mjs --self-test | grep -q '✓ self-test passed'", scripts: ['a.mjs'] }).why.includes('does not name')],
   ['a locked step is no problem', () =>
     auditStep({ name: 'X', run: "set -o pipefail\nnode a.mjs --self-test | tee /dev/stderr | grep -q 'a self-test:'", scripts: ['a.mjs'] }) === null],
+  ['🔴 one script run in two workflows may share its line', () =>
+    sharedPatterns([
+      { key: 'ci :: a', pattern: 'x self-test:', scripts: 'scripts/x.mjs' },
+      { key: 'other :: a', pattern: 'x self-test:', scripts: 'scripts/x.mjs' },
+    ]).length === 0],
+  ['🔴 …but two different scripts sharing one line do not', () => {
+    const clash = sharedPatterns([
+      { key: 'ci :: a', pattern: 'self-test passed', scripts: 'scripts/x.mjs' },
+      { key: 'ci :: b', pattern: 'self-test passed', scripts: 'scripts/y.mjs' },
+    ]);
+    return clash.length === 1 && clash[0].steps.length === 2;
+  }],
+  ['a step with no grep is not a clash', () =>
+    sharedPatterns([
+      { key: 'ci :: a', pattern: null, scripts: 'scripts/x.mjs' },
+      { key: 'ci :: b', pattern: null, scripts: 'scripts/y.mjs' },
+    ]).length === 0],
   ['the basename is matched without its extension', () =>
     auditStep({ name: 'X', run: "set -o pipefail\nnode dir/check-eu-scope.mjs --self-test | grep -q 'check-eu-scope self-test:'", scripts: ['dir/check-eu-scope.mjs'] }) === null],
 ];
 
-const EXPECTED_CASES = 20;
+const EXPECTED_CASES = 23;
 
 function selfTest() {
   let failed = 0;

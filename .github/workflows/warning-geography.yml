@@ -70,7 +70,14 @@ jobs:
       # 🔴 The rules first, offline. If the table itself is wrong there
       # is no point asking the feeds, and this says so in a second.
       - name: The resolution rules
-        run: node scripts/meteoalarm/resolve-areas.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output.
+      # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
+      # so a failing node on the left of a pipe is invisible. The grepped
+      # line names its own script, so no other self-test can satisfy it.
+        run: |
+          set -o pipefail
+          node scripts/meteoalarm/resolve-areas.mjs --self-test | tee /dev/stderr \
+            | grep -q 'resolve-areas self-test:'
 
       # 🔴 The geometry is cached between runs because it changes with a
       # nomenclature revision, not with the weather. The feeds are

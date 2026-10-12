@@ -34,7 +34,9 @@
 // thing that would report it is the thing that stopped.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 import { join } from 'node:path';
 
 const DAY_MS = 86_400_000;
@@ -239,7 +241,9 @@ export function describe(p) {
 
 function selfTest() {
   let failures = 0;
+  let cases = 0;
   const check = (name, got, want) => {
+    cases++;
     const ok = JSON.stringify(got) === JSON.stringify(want);
     if (!ok) {
       console.error(
@@ -395,15 +399,44 @@ function selfTest() {
     true,
   );
 
+  // 🔴 CAMP-286: counted, and named after this file. "✓ self-test
+  // passed" is a line several scripts print, so a CI step grepping for
+  // it could be satisfied by somebody else's self-test.
+  const EXPECTED_CASES = 19;
+  if (cases !== EXPECTED_CASES) {
+    console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+    failures++;
+  }
   console.log(
-    failures ? `\n✗ ${failures} self-test failure(s)` : '\n✓ self-test passed',
+    failures
+      ? `\n✗ check-schedule self-test: ${failures} failure(s)`
+      : `\n✓ check-schedule self-test: ${cases} cases over the schedule watch`,
   );
   process.exit(failures ? 1 : 0);
 }
 
 // ---------------------------------------------------------------------
 
-if (process.argv.includes('--self-test')) selfTest();
+// 🔴 CAMP-286: the house guard, written out rather than called, because
+// check-script-entrypoints.mjs recognises a guard by READING this
+// comparison. Before this the whole file ran at module level, so
+// `--selftest` — one letter — fell straight through to the live check
+// and the step that proves the watchdog still bites was green without
+// it having bitten.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) {
+  const action = chooseAction(process.argv.slice(2), ['--self-test'], 'check-schedule.mjs');
+  if (action.has('--self-test')) selfTest();
+  else await watch();
+}
 
 /**
  * Ask GitHub for the recent SCHEDULED runs of one workflow.
@@ -449,75 +482,78 @@ function fetchRuns(workflow) {
   return JSON.parse(raw);
 }
 
-const runsByWorkflow = {};
-for (const w of WATCHED) {
-  try {
-    runsByWorkflow[w.workflow] = fetchRuns(w.workflow);
-  } catch (err) {
-    // 🔴 "NOT LANDED YET" IS NOT "GONE QUIET", and the guard could not
-    // tell them apart.
-    //
-    // A scheduled workflow is registered here in the same pull request
-    // that adds it — the only moment the registration can be reviewed
-    // beside the job it watches. But GitHub answers 404 for a workflow
-    // that is not on the DEFAULT branch yet, so the guard failed every
-    // such pull request, and the way round that is to register the job
-    // afterwards. That is how jobs end up unwatched.
-    //
-    // A 404 for a workflow whose file exists in this checkout means one
-    // thing: it is on its way in. Anything else — API down, token wrong
-    // — still fails, because then we genuinely do not know.
-    const notLandedYet =
-      /HTTP 404/.test(String(err.message)) &&
-      existsSync(join('.github', 'workflows', w.workflow));
-    if (notLandedYet) {
-      console.log(
-        `· ${w.workflow}: not on the default branch yet — registered here, watched once merged`,
-      );
-      continue;
+async function watch() {
+  const runsByWorkflow = {};
+  for (const w of WATCHED) {
+    try {
+      runsByWorkflow[w.workflow] = fetchRuns(w.workflow);
+    } catch (err) {
+      // 🔴 "NOT LANDED YET" IS NOT "GONE QUIET", and the guard could not
+      // tell them apart.
+      //
+      // A scheduled workflow is registered here in the same pull request
+      // that adds it — the only moment the registration can be reviewed
+      // beside the job it watches. But GitHub answers 404 for a workflow
+      // that is not on the DEFAULT branch yet, so the guard failed every
+      // such pull request, and the way round that is to register the job
+      // afterwards. That is how jobs end up unwatched.
+      //
+      // A 404 for a workflow whose file exists in this checkout means one
+      // thing: it is on its way in. Anything else — API down, token wrong
+      // — still fails, because then we genuinely do not know.
+      const notLandedYet =
+        /HTTP 404/.test(String(err.message)) &&
+        existsSync(join('.github', 'workflows', w.workflow));
+      if (notLandedYet) {
+        console.log(
+          `· ${w.workflow}: not on the default branch yet — registered here, watched once merged`,
+        );
+        continue;
+      }
+      // 🔴 A guard that cannot run must fail, not pass. If the API is
+      // unreachable we do not know whether the job is quiet, and "we do
+      // not know" is not "everything is fine".
+      console.error(`✗ could not ask GitHub about ${w.workflow}: ${err.message}`);
+      process.exit(1);
     }
-    // 🔴 A guard that cannot run must fail, not pass. If the API is
-    // unreachable we do not know whether the job is quiet, and "we do
-    // not know" is not "everything is fine".
-    console.error(`✗ could not ask GitHub about ${w.workflow}: ${err.message}`);
-    process.exit(1);
   }
-}
 
-const { problems, notes } = evaluate(WATCHED, runsByWorkflow, new Date());
+  const { problems, notes } = evaluate(WATCHED, runsByWorkflow, new Date());
 
-for (const n of notes) {
-  // A job that has simply not come round yet is not a tick.
-  console.log(`${n.kind === 'not-due-yet' ? '·' : '✓'} ${n.workflow}: ${n.text}`);
-}
-
-if (problems.length === 0) {
-  const pending = notes.filter((n) => n.kind === 'not-due-yet').length;
-  if (pending === notes.length && pending > 0) {
-    // 🔴 Nothing is wrong, and nothing has been proved either.
-    console.log(
-      `\n· nothing is overdue, but no watched job has run on schedule yet ` +
-        `(${pending} waiting for its first slot)`,
-    );
-  } else if (pending > 0) {
-    console.log(
-      `\n✓ nothing overdue (${pending} still waiting for a first scheduled run)`,
-    );
-  } else {
-    console.log('\n✓ every scheduled job has run recently');
+  for (const n of notes) {
+    // A job that has simply not come round yet is not a tick.
+    console.log(`${n.kind === 'not-due-yet' ? '·' : '✓'} ${n.workflow}: ${n.text}`);
   }
-  process.exit(0);
-}
 
-for (const p of problems) console.error(`\n✗ ${describe(p)}`);
+  if (problems.length === 0) {
+    const pending = notes.filter((n) => n.kind === 'not-due-yet').length;
+    if (pending === notes.length && pending > 0) {
+      // 🔴 Nothing is wrong, and nothing has been proved either.
+      console.log(
+        `\n· nothing is overdue, but no watched job has run on schedule yet ` +
+          `(${pending} waiting for its first slot)`,
+      );
+    } else if (pending > 0) {
+      console.log(
+        `\n✓ nothing overdue (${pending} still waiting for a first scheduled run)`,
+      );
+    } else {
+      console.log('\n✓ every scheduled job has run recently');
+    }
+    process.exit(0);
+  }
 
-// The workflow reads this to decide whether to open an issue.
-if (process.env.GITHUB_OUTPUT) {
-  const { appendFileSync } = await import('node:fs');
-  const body = problems.map(describe).join('\n\n');
-  appendFileSync(
-    process.env.GITHUB_OUTPUT,
-    `quiet=true\nbody<<CAMPEOF\n${body}\nCAMPEOF\n`,
-  );
+  for (const p of problems) console.error(`\n✗ ${describe(p)}`);
+
+  // The workflow reads this to decide whether to open an issue.
+  if (process.env.GITHUB_OUTPUT) {
+    const { appendFileSync } = await import('node:fs');
+    const body = problems.map(describe).join('\n\n');
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `quiet=true\nbody<<CAMPEOF\n${body}\nCAMPEOF\n`,
+    );
+  }
+  process.exit(1);
+
 }
-process.exit(1);

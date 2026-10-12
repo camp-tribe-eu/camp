@@ -71,7 +71,14 @@ jobs:
       # The gate's own logic, before it is trusted to judge anything.
       # A checker that ships broken reports "fine" by never disagreeing.
       - name: Prove the checker works
-        run: node scripts/backup/check-restore.mjs --self-test
+      # 🔴 CAMP-285/286: the step reads the self-test's own output.
+      # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
+      # so a failing node on the left of a pipe is invisible. The grepped
+      # line names its own script, so no other self-test can satisfy it.
+        run: |
+          set -o pipefail
+          node scripts/backup/check-restore.mjs --self-test | tee /dev/stderr \
+            | grep -q 'check-restore self-test:'
 
       - name: Schema
         working-directory: apps/api

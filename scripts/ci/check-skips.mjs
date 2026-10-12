@@ -32,9 +32,10 @@
 // passed". That is why the scale suite now fails instead of skipping,
 // and why this guard exists to hold it to that.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { argv, exit } from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { chooseAction } from '../lib/entrypoint.mjs';
 
 /**
  * Every test the run declined to execute.
@@ -162,9 +163,14 @@ export function verdict({ total, found, max, required = [], files = [] }) {
 
 // ---------------------------------------------------------------------
 
+/** Every flag this script acts on. CAMP-286. */
+const KNOWN_FLAGS = ['--self-test', '--max', '--require'];
+
 function selfTest() {
   let failures = 0;
+  let cases = 0;
   const check = (name, ok) => {
+    cases++;
     console.log(`  ${ok ? '✓' : '✗'} ${name}`);
     if (!ok) failures++;
   };
@@ -300,7 +306,17 @@ function selfTest() {
     return f.length === 1 && f[0] === 'x.spec.ts';
   })());
 
-  console.log(failures === 0 ? '\n✓ self-test passed' : `\n✗ ${failures} failed`);
+  // 🔴 CAMP-286: counted, and named after this file.
+  const EXPECTED_CASES = 21;
+  if (cases !== EXPECTED_CASES) {
+    console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+    failures++;
+  }
+  console.log(
+    failures === 0
+      ? `\n✓ check-skips self-test: ${cases} cases over the skip budget`
+      : `\n✗ check-skips self-test: ${failures} failed`,
+  );
   return failures === 0;
 }
 
@@ -314,14 +330,33 @@ function selfTest() {
 // whose exports cannot be imported has exports in name only. The sibling
 // scripts on this card already do this; this one had copied the older
 // check-flaky.mjs, which has the same gap.
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+// 🔴 CAMP-286: the house guard, written out rather than called, because
+// check-script-entrypoints.mjs recognises a guard by READING this
+// comparison. `realpathSync` on the argv side because Node resolves
+// `import.meta.url` through the real path and leaves argv[1] as written:
+// without it a symlink makes the two never match, the self-test silently
+// does not run, and the CI step is green with no output.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
 if (invokedDirectly) main();
 
 function main() {
-  if (argv.includes('--self-test')) {
+  // 🔴 CAMP-286. `--selftest` used to fall through to the usage line and
+  // `exit(2)`; the step still failed, but for the wrong reason and only
+  // by luck of the exit code. A flag this script does not know is now an
+  // error with a name on it. One bare word is expected: the report path.
+  const action = chooseAction(argv.slice(2), KNOWN_FLAGS, 'check-skips.mjs', {
+    takesValue: ['--max', '--require'],
+    positional: 1,
+  });
+  if (action.has('--self-test')) {
     exit(selfTest() ? 0 : 1);
   }
 
