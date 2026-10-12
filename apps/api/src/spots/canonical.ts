@@ -8,6 +8,7 @@
 // reason, and these two functions are the ones that must never change
 // behaviour — CAMP-87 is explicit that a published URL does not move.
 
+import { transliterate } from './transliterate';
 import {
   AMENITY_KEYS,
   AmenityValue,
@@ -104,7 +105,21 @@ export function foldToAscii(text: string): string {
   // exists to remove. No row in the database carries one today, which
   // is exactly why the wrong order survived: the comment asserted a
   // reason nobody had checked.
-  let out = text.normalize('NFD').replace(COMBINING, '');
+  // 🔴 CAMP-291: Greek and Cyrillic BEFORE the decomposition, and the
+  // table owns its accents for exactly that reason.
+  //
+  // Both orders were tried on the live rows. Transliterating after NFD
+  // read `й` as `и` — the breve had already been stripped — and wrote
+  // «Чайка» as `chaika` instead of `chayka`. Transliterating before NFD
+  // with the accents left out of the table wrote `Αστερίας` as
+  // `aster-as`. A script this table owns, it owns whole, and then the
+  // decomposition below has only Latin left to work on.
+  //
+  // Nothing else can help these two: NFD has no Latin letter to fall
+  // back to, so a Greek or Bulgarian name left no letter at all and the
+  // campsite was published as `spot-<osm_ref>` — 188 pages, 93 of
+  // Greece's 102 campsites and 89 of Bulgaria's 91.
+  let out = transliterate(text).normalize('NFD').replace(COMBINING, '');
   for (const [from, to] of UNDECOMPOSABLE) out = out.replace(from, to);
   return out
     .toLowerCase()
