@@ -36,7 +36,9 @@
 // latency as a number to print. The soak profile, run deliberately, is
 // where a latency budget means something.
 
-import { appendFileSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, readFileSync, rmSync, realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { chooseAction, flagValue } from '../lib/entrypoint.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { argv, env, exit } from 'node:process';
@@ -179,9 +181,12 @@ export function weighted(list) {
 
 // ---------------------------------------------------------------------
 
+// 🔴 `flagValue`, not `indexOf`: `--profile=smoke` is a spelling
+// chooseAction accepts, and `indexOf` read it as absent — the load test
+// would have run the default profile against whatever host it liked
+// (CAMP-286).
 function arg(name, fallback) {
-  const i = argv.indexOf(`--${name}`);
-  return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
+  return flagValue(argv.slice(2), `--${name}`) ?? fallback;
 }
 
 async function run(base, profile) {
@@ -298,7 +303,9 @@ function report(result, profile, v) {
 
 function selfTest() {
   let failures = 0;
+  let cases = 0;
   const check = (name, got, want) => {
+    cases++;
     const ok = JSON.stringify(got) === JSON.stringify(want);
     if (!ok) {
       console.error(`  ✗ ${name}\n      got  ${JSON.stringify(got)}\n      want ${JSON.stringify(want)}`);
@@ -389,11 +396,41 @@ function selfTest() {
     }
   }
 
-  console.log(failures ? `\n✗ ${failures} self-test failure(s)` : '\n✓ self-test passed');
+  // 🔴 CAMP-286: counted and named after this file.
+  const EXPECTED_CASES = 16;
+  if (cases !== EXPECTED_CASES) {
+    failures++;
+    console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+  }
+  console.log(
+    failures
+      ? `\n✗ load-test self-test: ${failures} failure(s)`
+      : `\n✓ load-test self-test: ${cases} cases`,
+  );
   exit(failures ? 1 : 0);
 }
 
-if (argv.includes('--self-test')) selfTest();
+// 🔴 CAMP-286. THIS FILE HAD NO ENTRY GUARD AT ALL, and everything below
+// it is a load test against the API. `--selftest` — one letter — fell
+// straight through and hammered `http://localhost:3001` while the step
+// named "the load-test verdict still fails a bad run" went green without
+// the verdict having been rehearsed. Written out rather than called
+// because check-script-entrypoints.mjs recognises a guard by READING it.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly) await main();
+
+async function main() {
+const action = chooseAction(argv.slice(2), ['--self-test', '--base', '--profile'],
+  'load-test.mjs', { takesValue: ['--base', '--profile'] });
+if (action.has('--self-test')) selfTest();
 
 const base = arg('base', env.API_BASE_URL ?? 'http://localhost:3001');
 const name = arg('profile', 'smoke');
@@ -408,3 +445,4 @@ const result = await run(base, profile);
 const v = verdict(result, profile);
 report(result, profile, v);
 exit(v.ok ? 0 : 1);
+}

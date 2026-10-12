@@ -62,6 +62,7 @@
 // number in a comment is a measurement or it is a decoration.
 
 import { writeFile } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
@@ -379,7 +380,9 @@ export function warningsFrom(payload, country, now) {
 
 function selfTest() {
   let bad = 0;
+  let cases = 0;
   const ok = (name, cond, detail = '') => {
+    cases += 1;
     if (cond) console.log(`ok   ${name}`);
     else {
       bad += 1;
@@ -1107,7 +1110,17 @@ function selfTest() {
   ok('every member state is listed exactly once', new Set(COUNTRIES).size === 27);
   ok('the url is built from the country', feedUrl('poland').endsWith('/feeds-poland'));
 
-  console.log(bad ? `\n✗ ${bad} self-test failure(s)` : '\n✓ self-test passed');
+  // 🔴 CAMP-286: counted, and named after this file.
+  const EXPECTED_CASES = 164;
+  if (cases !== EXPECTED_CASES) {
+    bad += 1;
+    console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
+  }
+  console.log(
+    bad
+      ? `\n✗ fetch-warnings self-test: ${bad} failure(s)`
+      : `\n✓ fetch-warnings self-test: ${cases} cases`,
+  );
   return bad;
 }
 
@@ -1474,9 +1487,20 @@ async function main() {
 // `apps/web/src/data/warnings.json`, which is NOT tracked and is built
 // by this script. A module that
 // cannot be imported without side effects cannot be unit-tested at all.
-const RUN_DIRECTLY =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+//
+// 🔴 CAMP-286 ADDED `realpathSync`. Node resolves `import.meta.url`
+// through the real path and leaves argv[1] as written, so through a
+// symlink the two never matched: the self-test silently did not run and
+// the step was green with no output. Inside an IIFE with try/catch
+// because realpathSync in the condition runs on every import.
+const RUN_DIRECTLY = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
 // 🔴 BOTH entry points below the guard. `--self-test` used to sit above
 // it, so importing this module with `--self-test` anywhere in argv ran

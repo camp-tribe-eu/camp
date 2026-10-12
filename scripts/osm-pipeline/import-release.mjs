@@ -35,6 +35,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { chooseAction } from '../lib/entrypoint.mjs';
 import { EU, GEOFABRIK } from '../ci/check-eu-scope.mjs';
 
 const REPO = 'camp-tribe-eu/camp';
@@ -42,6 +44,13 @@ const STAGING = 'osm_camping_staging';
 const DB = process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
 
 const args = process.argv.slice(2);
+
+// 🔴 Every flag this script acts on, and the positionals it takes: the
+// country codes, as in `import-release.mjs --tag osm-2026-09-24 fr si`
+// (osm-weekly.yml:403). Anything else is a typo (CAMP-286).
+const KNOWN_FLAGS = ['--self-test', '--tag'];
+const FLAGS_WITH_VALUES = ['--tag'];
+const MAX_COUNTRIES = 27;
 /**
  * The value of a `--flag value` pair.
  *
@@ -679,20 +688,45 @@ function selfTest() {
     console.log(`${c.pass ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `  (${c.detail})` : ''}`);
   }
   const failed = checks.filter((c) => !c.pass).length;
-  console.log(`\n${checks.length - failed}/${checks.length} passed`);
+  // 🔴 CAMP-286: counted and named after this file. Its own header
+  // records that `--self-test` printed "73/73 passed" for a week while
+  // the import had not started at all — the number was never the
+  // question, the line's owner was.
+  const EXPECTED_CASES = 74;
+  if (checks.length !== EXPECTED_CASES) {
+    failed += 1;
+    console.log(`✗ ${checks.length} cases ran, expected ${EXPECTED_CASES}`);
+  }
+  console.log(
+    failed
+      ? `\n✗ import-release self-test: ${failed} of ${checks.length} failed`
+      : `\n✓ import-release self-test: ${checks.length} cases`,
+  );
   return failed === 0;
 }
 
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+//
+// 🔴 CAMP-286 ADDED `realpathSync`: Node resolves `import.meta.url`
+// through the real path and leaves argv[1] as written, so through a
+// symlink the two never matched and the self-test silently did not run.
+const invokedDirectly = (() => {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+})();
 
-if (!invokedDirectly) {
-  // imported for its functions
-} else if (args.includes('--self-test')) {
-  process.exit(selfTest() ? 0 : 1);
-} else {
-  await main();
+if (invokedDirectly) {
+  // 🔴 CAMP-286. `--selftest` used to fall through to `main()`, which
+  // downloads a Geofabrik extract and rewrites the database. One letter.
+  const action = chooseAction(args, KNOWN_FLAGS, 'import-release.mjs', {
+    takesValue: FLAGS_WITH_VALUES,
+    positional: MAX_COUNTRIES,
+  });
+  if (action.has('--self-test')) process.exit(selfTest() ? 0 : 1);
+  else await main();
 }
 
 /**
