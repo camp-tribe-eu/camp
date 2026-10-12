@@ -135,10 +135,17 @@ export function selfTestMentions(text) {
     .split('--self-test').length - 1;
 }
 
-/** The literal a step greps its own output for, if it does. */
-export function grepPattern(run) {
-  const m = /grep\s+-[a-zA-Z]*q[a-zA-Z]*\s+'([^']+)'/.exec(run);
-  return m ? m[1] : null;
+/**
+ * Every literal a step greps its own output for.
+ *
+ * 🔴 ALL OF THEM, NOT THE FIRST. Review found the rule below could not
+ * fail: it asked whether SOME script the step runs is named by the one
+ * pattern it had read, and no step today runs two. A step that
+ * self-tests two scripts and greps for one would have counted as locked
+ * while half of it ran unwatched.
+ */
+export function grepPatterns(run) {
+  return [...run.matchAll(/grep\s+-[a-zA-Z]*q[a-zA-Z]*\s+'([^']+)'/g)].map((m) => m[1]);
 }
 
 /**
@@ -148,8 +155,8 @@ export function grepPattern(run) {
  * line that names the script it ran.
  */
 export function auditStep({ name, run, scripts }) {
-  const pattern = grepPattern(run);
-  if (pattern === null) {
+  const patterns = grepPatterns(run);
+  if (patterns.length === 0) {
     return { name, why: 'runs a self-test and never reads what it printed' };
   }
   if (!/set\s+-o\s+pipefail/.test(run)) {
@@ -161,20 +168,39 @@ export function auditStep({ name, run, scripts }) {
     };
   }
   const names = scripts.map((s) => path.basename(s).replace(/\.[^.]+$/, ''));
+  // EVERY script the step self-tests must be named by SOME pattern it
+  // greps for. One grep cannot vouch for two scripts.
+  const unnamed = names.filter(
+    (base) => !patterns.some((pattern) => namesScript(pattern, base)),
+  );
   // 🔴 As a whole word, not a substring. The first version asked
   // `pattern.includes(base)`, and its own case for the generic line
   // "✓ self-test passed" passed the audit: the script was called `a.mjs`
   // and "passed" contains an "a". A substring test over a short name
   // accepts almost anything.
-  if (!names.some((base) => new RegExp(`\\b${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(pattern))) {
+  if (unnamed.length > 0) {
     return {
       name,
       why:
-        `greps for "${pattern}", which does not name ${names.join(' or ')}. ` +
-        'A line another self-test can also print is a lock another key opens',
+        `greps for ${patterns.map((p) => `"${p}"`).join(', ')}, which does ` +
+        `not name ${unnamed.join(' or ')}. A line another self-test can ` +
+        'also print is a lock another key opens',
     };
   }
   return null;
+}
+
+/**
+ * Does this grep pattern name this script?
+ *
+ * As a whole word, not a substring. The first version asked
+ * `pattern.includes(base)`, and its own case for the generic line
+ * "✓ self-test passed" passed the audit: the script was called `a.mjs`
+ * and "passed" contains an "a".
+ */
+function namesScript(pattern, base) {
+  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escaped}\\b`).test(pattern);
 }
 
 /**
@@ -186,8 +212,10 @@ export function auditStep({ name, run, scripts }) {
  */
 export function sharedPatterns(steps) {
   const byPattern = new Map();
-  for (const step of steps.filter((s) => s.pattern)) {
-    byPattern.set(step.pattern, [...(byPattern.get(step.pattern) ?? []), step]);
+  for (const step of steps) {
+    for (const pattern of step.patterns ?? []) {
+      byPattern.set(pattern, [...(byPattern.get(pattern) ?? []), step]);
+    }
   }
   const out = [];
   for (const [pattern, group] of byPattern) {
@@ -217,7 +245,7 @@ function survey() {
         file: rel,
         name: step.name,
         key: `${rel} :: ${step.name}`,
-        pattern: grepPattern(step.run),
+        patterns: grepPatterns(step.run),
         scripts: scripts.filter(Boolean).sort().join(','),
         unreadable: scripts.includes(null),
         problem: scripts.includes(null)
@@ -362,8 +390,25 @@ const CASES = [
     selfTested('$RUNNER --self-test').length === 1 && selfTested('$RUNNER --self-test')[0] === null],
   ['a grep for a line containing the words is not a command of ours', () =>
     selfTested("grep -q 'a self-test:'").length === 0],
-  ['grep -q is read, with other letters too', () => grepPattern("grep -q 'x self-test:'") === 'x self-test:' && grepPattern("grep -qE 'y'") === 'y'],
-  ['no grep is no pattern', () => grepPattern('node a.mjs --self-test') === null],
+  ['grep -q is read, with other letters too', () =>
+    grepPatterns("grep -q 'x self-test:'")[0] === 'x self-test:' &&
+    grepPatterns("grep -qE 'y'")[0] === 'y'],
+  ['no grep is no pattern', () => grepPatterns('node a.mjs --self-test').length === 0],
+  ['🔴 every grep in the step is read, not only the first', () =>
+    grepPatterns("grep -q 'a self-test:'\ngrep -q 'b self-test:'").join(',') ===
+      'a self-test:,b self-test:'],
+  ['🔴 a step self-testing two scripts with one grep is not locked', () =>
+    auditStep({
+      name: 'X',
+      run: "set -o pipefail\nnode a.mjs --self-test && node b.mjs --self-test | grep -q 'a self-test:'",
+      scripts: ['a.mjs', 'b.mjs'],
+    }).why.includes('does not name b')],
+  ['🔴 …and is, once both are grepped', () =>
+    auditStep({
+      name: 'X',
+      run: "set -o pipefail\nnode a.mjs --self-test | grep -q 'a self-test:'\nnode b.mjs --self-test | grep -q 'b self-test:'",
+      scripts: ['a.mjs', 'b.mjs'],
+    }) === null],
   ['🔴 a step that never reads its output is a problem', () =>
     auditStep({ name: 'X', run: 'node a.mjs --self-test', scripts: ['a.mjs'] }).why.includes('never reads')],
   ['🔴 a grep without pipefail is a problem', () =>
@@ -374,26 +419,26 @@ const CASES = [
     auditStep({ name: 'X', run: "set -o pipefail\nnode a.mjs --self-test | tee /dev/stderr | grep -q 'a self-test:'", scripts: ['a.mjs'] }) === null],
   ['🔴 one script run in two workflows may share its line', () =>
     sharedPatterns([
-      { key: 'ci :: a', pattern: 'x self-test:', scripts: 'scripts/x.mjs' },
-      { key: 'other :: a', pattern: 'x self-test:', scripts: 'scripts/x.mjs' },
+      { key: 'ci :: a', patterns: ['x self-test:'], scripts: 'scripts/x.mjs' },
+      { key: 'other :: a', patterns: ['x self-test:'], scripts: 'scripts/x.mjs' },
     ]).length === 0],
   ['🔴 …but two different scripts sharing one line do not', () => {
     const clash = sharedPatterns([
-      { key: 'ci :: a', pattern: 'self-test passed', scripts: 'scripts/x.mjs' },
-      { key: 'ci :: b', pattern: 'self-test passed', scripts: 'scripts/y.mjs' },
+      { key: 'ci :: a', patterns: ['self-test passed'], scripts: 'scripts/x.mjs' },
+      { key: 'ci :: b', patterns: ['self-test passed'], scripts: 'scripts/y.mjs' },
     ]);
     return clash.length === 1 && clash[0].steps.length === 2;
   }],
   ['a step with no grep is not a clash', () =>
     sharedPatterns([
-      { key: 'ci :: a', pattern: null, scripts: 'scripts/x.mjs' },
-      { key: 'ci :: b', pattern: null, scripts: 'scripts/y.mjs' },
+      { key: 'ci :: a', patterns: [], scripts: 'scripts/x.mjs' },
+      { key: 'ci :: b', patterns: [], scripts: 'scripts/y.mjs' },
     ]).length === 0],
   ['the basename is matched without its extension', () =>
     auditStep({ name: 'X', run: "set -o pipefail\nnode dir/check-eu-scope.mjs --self-test | grep -q 'check-eu-scope self-test:'", scripts: ['dir/check-eu-scope.mjs'] }) === null],
 ];
 
-const EXPECTED_CASES = 23;
+const EXPECTED_CASES = 26;
 
 function selfTest() {
   let failed = 0;
