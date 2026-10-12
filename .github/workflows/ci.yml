@@ -64,6 +64,30 @@ concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
 
+# 🔴 CAMP-275. ЦЕ БЛАСТ-РАДІУС, А НЕ ПРИБИРАННЯ.
+#
+# Три алерти Dependabot висять на гілці за замовчуванням без патча і без
+# перспективи його мати: `extract-zip` двічі (high) і `sprintf-js`
+# (medium), усі `development`, `first_patched_version` порожній у всіх
+# трьох. Ланцюг наш власний: `@lhci/cli` → `lighthouse` →
+# `puppeteer-core` → `@puppeteer/browsers` → `extract-zip`.
+#
+# Дефект `extract-zip` — довільний запис файлів через симлінк в архіві.
+# Чого він вартий нападнику, вирішує не версія пакета (виправленої
+# немає), а те, що може `GITHUB_TOKEN` цього раннера.
+#
+# Заміряно 13.10.2026: шість воркфлоу з семи оголошували `permissions`.
+# Сьомим був цей — найбільший, 18 джоб, кожна з яких збирає сайт і
+# запускає наші скрипти. Він брав типові права репозиторію, тобто
+# налаштування поза цим файлом, якого не видно в рецензії.
+#
+# Тут нічого не потрібно, крім читання: єдине, що в цьому воркфлоу
+# торкається GitHub, — `actions/upload-artifact`, а він прав токена не
+# вимагає. Секретів ці джоби теж не бачать: `build-site` вживає
+# одноразові рядки (`ci-build-token`), а не `secrets.*`.
+permissions:
+  contents: read
+
 jobs:
   # 🔴 ONE RUN PER COMMIT (CAMP-269).
   #
@@ -221,6 +245,19 @@ jobs:
             | grep -c 'check-node-versions self-test:' >/dev/null
       - name: Every job runs .nvmrc's Node, or says why not
         run: node scripts/ci/check-node-versions.mjs
+
+      # 🔴 CAMP-275. Три алерти без патча означають, що ціну вирішує не
+      # версія пакета, а права токена. Цей воркфлоу був єдиним із семи,
+      # що їх не оголошував.
+      # 🔴 CAMP-285/286: крок читає власний вивід самотесту, під
+      # `set -o pipefail`, бо Actions запускає `bash -e {0}` без нього.
+      - name: Permissions guard still catches a workflow that says nothing
+        run: |
+          set -o pipefail
+          node scripts/ci/check-workflow-permissions.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-workflow-permissions self-test:' >/dev/null
+      - name: Every workflow says what its token may do
+        run: node scripts/ci/check-workflow-permissions.mjs
 
       # CAMP-60, debt #2. The verdict logic, including the case that
       # matters most: a run that sent nothing must FAIL, not report
