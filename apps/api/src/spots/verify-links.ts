@@ -18,10 +18,10 @@ import { Client } from 'pg';
 import { UPSERT_SPOT_SQL } from '../osm/import-spots';
 import { canonicalPath } from './canonical';
 import { judgeByIdentity, upperBoundPercent } from './link-evidence';
+import { SPOT_DETAIL_SQL } from './detail-query';
 import {
   GONE_LIST_SQL,
   isSecondarySql,
-  linkedSecondariesJoin,
   mergeAllLinked,
   mergedFieldSql,
   mergedStarsSql,
@@ -750,20 +750,27 @@ async function main(): Promise<void> {
     } else {
       const [primary, first, second] = spare.rows.map((r) => r.id);
 
-      // The shipped read path, nothing retyped.
-      const READ = `SELECT s.id, s.name, s.stars, s.description,
-                           s.description_lang, s.website, s.contact,
-                           s.sources, s.owner_overrides,
-                           ${mergedStarsSql('s')} AS sql_stars,
-                           -- 🔴 website sits on the SECOND secondary, so
-                           -- this is the column that proves the SQL-side
-                           -- merge walks past a secondary that has not
-                           -- got the field. stars alone would have been
-                           -- satisfied by the old first-row-only read.
-                           ${mergedFieldSql('s', 'website', 'text')} AS sql_website,
-                           linked.rows AS linked_rows
-                      FROM camping_spots s${linkedSecondariesJoin()}
-                     WHERE s.id = $1`;
+      // 🔴 THE SHIPPED QUERY, and the word is load-bearing.
+      //
+      // The first version of this rehearsal wrote its own SELECT over
+      // the new lateral. It printed seven ticks while nine columns in
+      // the real page query still named linked.id and friends, which the
+      // lateral no longer has — every campsite page was a 500, and
+      // nothing here could see it, because nothing here touched those
+      // columns. A proof that reads a paraphrase proves the paraphrase.
+      const slugRow = await db.query<{ slug: string }>(
+        `SELECT slug FROM camping_spots WHERE id = $1`,
+        [primary],
+      );
+      const slug = slugRow.rows[0]?.slug;
+
+      // These two fragments are shipped on their own — the guide and
+      // listing predicates embed them — so probing them directly is
+      // reading the artefact, not a stand-in for one.
+      const FRAGMENTS = `SELECT ${mergedStarsSql('s')} AS sql_stars,
+                                ${mergedFieldSql('s', 'website', 'text')}
+                                  AS sql_website
+                           FROM camping_spots s WHERE s.id = $1`;
 
       // 🔴 Content belongs to the ROW; only the insert order varies.
       //
@@ -798,6 +805,15 @@ async function main(): Promise<void> {
             WHERE id = $1`,
           [second],
         );
+        // 🔴 One secondary is made old enough to bury, or the check
+        // below that it is NOT buried cannot fail. It was green by
+        // construction until a review mutated the subtraction out of
+        // gone() and watched it stay green.
+        await db.query(
+          `UPDATE camping_spots SET missing_since = now() - interval '29 days'
+            WHERE id = $1`,
+          [second],
+        );
       };
 
       const link = async (
@@ -815,8 +831,10 @@ async function main(): Promise<void> {
             [primary, order[i], when === 'tied' ? 60 : 60 - i * 10],
           );
         }
-        const r = await db.query(READ, [primary]);
-        return mergeAllLinked(r.rows[0] as Record<string, unknown>);
+        const r = await db.query(SPOT_DETAIL_SQL, [slug]);
+        const merged = mergeAllLinked(r.rows[0] as Record<string, unknown>);
+        const f = await db.query(FRAGMENTS, [primary]);
+        return { ...merged, ...f.rows[0] };
       };
 
       await db.query('BEGIN');
@@ -871,7 +889,11 @@ async function main(): Promise<void> {
         // hold that clause.
         const t1 = await link([first, second], 'tied');
         const t2 = await link([second, first], 'tied');
-        const stable = t1.description === t2.description;
+        // 🔴 `!= null` is not decoration: with the fold deleted entirely
+        // both sides are null, null === null, and this printed a tick
+        // over a merge that did nothing.
+        const stable =
+          t1.description === t2.description && t1.description != null;
         console.log(
           `  ${stable ? '✓' : '✗'} with created_at tied, insert order does NOT decide`,
         );

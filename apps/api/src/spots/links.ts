@@ -499,11 +499,41 @@ export function mergeAllLinked(
 ): Record<string, unknown> {
   const secondaries = row.linked_rows as Record<string, unknown>[] | null;
   if (!Array.isArray(secondaries) || secondaries.length === 0) return row;
+
+  // 🔴 Each secondary's credit is set aside the moment it is earned.
+  //
+  // `mergeLinked` ends with
+  //   [...withoutTaken(ours, taken), ...attributeTaken(theirs, taken)]
+  // and `withoutTaken` is documented as narrowing OUR OWN entries. Feed
+  // the previous pass's output straight back in and the second pass
+  // treats the FIRST secondary's entry as ours and strips from it every
+  // field this pass took.
+  //
+  // One field can be taken twice: `contact`, because it is merged key by
+  // key — the first secondary supplies a phone, the second an email, and
+  // both passes record `contact`. The first then loses the credit, and
+  // if contact was all it gave, its entry survives with an empty field
+  // list that `attributeTaken` would itself have discarded. The page
+  // prints this list verbatim as "what this source gave us", so that is
+  // a false statement about provenance in the one place the licences
+  // make us be exact — pointing the other way than the over-claim
+  // `attributeTaken` exists to prevent, but just as wrong.
+  //
+  // Nothing in the data triggers it today: of the 7 three-row campsites
+  // on 12.10.2026, none has contact details on both secondaries. That is
+  // a fact about this week, not a property of the code.
   let merged = row;
+  let ours = (row.sources ?? []) as SpotSource[];
+  const credits: SpotSource[] = [];
   for (const secondary of secondaries) {
-    merged = mergeLinked({ ...merged, ...secondary });
+    const out = mergeLinked({ ...merged, ...secondary, sources: ours });
+    const all = (out.sources ?? []) as SpotSource[];
+    const mine = ours.length;
+    ours = all.slice(0, mine);
+    credits.push(...all.slice(mine));
+    merged = { ...out, sources: ours };
   }
-  return merged;
+  return { ...merged, sources: [...ours, ...credits] };
 }
 
 export function mergeLinked(

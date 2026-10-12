@@ -681,6 +681,38 @@ describe('mergeAllLinked', () => {
     expect(sources.find((e) => e.id === 'dt-b')?.fields).toEqual(['website']);
   });
 
+  it('🔴 credit for a field two secondaries both filled survives', () => {
+    // `contact` is the one field that can be taken twice, because it is
+    // merged key by key. The first secondary supplies a phone, the
+    // second an email, and a naive fold feeds the first one's credit
+    // back in as "ours" and strips it — leaving a source entry claiming
+    // nothing, beside data it did supply.
+    const merged = mergeAllLinked(
+      primary({
+        contact: {},
+        linked_rows: [
+          sec({
+            linked_id: 'a',
+            linked_contact: { phone: '+33 1 23 45 67 89' },
+            linked_sources: [{ id: 'dt-a', ref: 'A', fields: ['contact'] }],
+          }),
+          sec({
+            linked_id: 'b',
+            linked_contact: { email: 'hello@b.test' },
+            linked_sources: [{ id: 'dt-b', ref: 'B', fields: ['contact'] }],
+          }),
+        ],
+      }),
+    );
+    expect(merged.contact).toEqual({
+      phone: '+33 1 23 45 67 89',
+      email: 'hello@b.test',
+    });
+    const sources = merged.sources as { id: string; fields: string[] }[];
+    expect(sources.find((e) => e.id === 'dt-a')?.fields).toEqual(['contact']);
+    expect(sources.find((e) => e.id === 'dt-b')?.fields).toEqual(['contact']);
+  });
+
   it('a price list is still taken whole, from the first that has one', () => {
     const merged = mergeAllLinked(
       primary({
