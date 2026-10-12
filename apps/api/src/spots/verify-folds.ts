@@ -280,7 +280,7 @@ async function main(): Promise<void> {
       console.log(`  ${!wouldLink ? '✓' : '✗'} the fold is not proposed`);
       if (wouldLink) failed++;
       const skips = await skipped(db);
-      const named = skips.some((sk) => sk.why.includes('cannot be flattened'));
+      const named = skips.some((sk) => sk.why.includes('may not undo'));
       console.log(
         `  ${named ? '✓' : '✗'} and the run says so instead of staying silent`,
       );
@@ -359,7 +359,9 @@ async function main(): Promise<void> {
       const p = await plan(db);
       const quiet = p.length === 0;
       const skips = await skipped(db);
-      const named = skips.some((sk) => sk.why.includes('already judged'));
+      const named = skips.some((sk) =>
+        sk.why.includes('already carries a decision'),
+      );
       console.log(
         `  ${quiet ? '✓' : '✗'} the chain is not flattened (the pair was judged)`,
       );
@@ -423,13 +425,65 @@ async function main(): Promise<void> {
       const kept = (ceiling.rows[0]?.n ?? 0) === 0;
       const skips = await skipped(db);
       const named = skips.some((sk) =>
-        sk.why.includes('a question for a person'),
+        sk.why.includes('an outside record of its own'),
       );
       console.log(
         `  ${kept ? '✓' : '✗'} applying the plan leaves the one-record ceiling intact`,
       );
       console.log(`  ${named ? '✓' : '✗'} and the refusal is named`);
       if (!kept) failed++;
+      if (!named) failed++;
+    } finally {
+      await db.query('ROLLBACK');
+    }
+
+    // ------------------------------------------------------------------
+    console.log('\n--- an unfolded twin whose record has nowhere to go ---');
+    // 🔴 The gap the fourth condition itself opened, and the reason the
+    // reasons now live in one fragment.
+    //
+    // The area carries its own outside record; its twin carries another
+    // one; they are not linked yet. Folding the twin would make the
+    // chain, and the flattening step would then refuse to undo it — so
+    // the fold must not happen at all. The fourth refusal was added to
+    // the flattening query only, and the folding query went on building
+    // exactly the chain it could no longer undo, reporting success.
+    await db.query('BEGIN');
+    try {
+      const area = await clone(db, seed, 'fold-a-9', 'a300000080', false);
+      const twin = await clone(db, seed, 'fold-w-9', 'w150000040', false);
+      const mine = await clone(db, seed, 'fold-dt-8', null, false);
+      const theirs = await clone(db, seed, 'fold-dt-9', null, false);
+      for (const [pri, sec] of [
+        [area, mine],
+        [twin, theirs],
+      ]) {
+        await db.query(
+          `INSERT INTO spot_links (primary_id, secondary_id, metres,
+                                   name_similarity, rule)
+           VALUES ($1, $2, 0, 1, 'fold-rehearsal')`,
+          [pri, sec],
+        );
+      }
+      const p = await plan(db);
+      await applyFolds(db, p);
+      const chains = await db.query<{ n: number }>(
+        `SELECT count(*)::int AS n
+           FROM spot_links l
+           JOIN spot_links o ON o.secondary_id = l.primary_id
+                            AND o.unlinked_at IS NULL
+          WHERE l.unlinked_at IS NULL`,
+      );
+      const noChain = (chains.rows[0]?.n ?? 0) === 0;
+      const skips = await skipped(db);
+      const named = skips.some((sk) => sk.why.includes('left unfolded'));
+      console.log(
+        `  ${noChain ? '✓' : '✗'} the run does not build the chain it could not undo`,
+      );
+      console.log(
+        `  ${named ? '✓' : '✗'} and says the twin is left unfolded, not that a chain stays`,
+      );
+      if (!noChain) failed++;
       if (!named) failed++;
     } finally {
       await db.query('ROLLBACK');

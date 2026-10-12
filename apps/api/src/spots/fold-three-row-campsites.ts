@@ -56,6 +56,48 @@ export function isTwinOf(areaRef: string, otherRef: string | null): boolean {
   return otherRef !== null && sourceOfArea(areaRef) === otherRef;
 }
 
+/**
+ * Why a record sitting under a twin cannot be moved up onto the area.
+ *
+ * 🔴 ONE definition, because two places must agree about it.
+ *
+ * The flattening step refuses for these reasons, and the folding step
+ * must refuse to CREATE a chain for exactly the same ones — otherwise
+ * it builds a chain nobody can then undo and the run reports success
+ * over a red invariant.
+ *
+ * That asymmetry has now happened twice, each time because a new reason
+ * was added to one list and not the other. A reviewer found both. So the
+ * reasons live here, in one fragment that both queries embed, and
+ * `skipped()` names whichever of them fired.
+ */
+function cannotMoveUpSql(top: string, below: string): string {
+  return `(
+      -- The pair already carries a judgement: a live link would be a
+      -- duplicate, an undone one is a decision somebody made by hand.
+      EXISTS (SELECT 1 FROM spot_links q
+               WHERE q.primary_id = ${top}.id
+                 AND q.secondary_id = ${below}.secondary_id)
+      -- Or this campsite already has an outside record of its own, and
+      -- a second one is a question for a person, not for a script.
+      OR EXISTS (SELECT 1 FROM spot_links own
+                  JOIN camping_spots mine ON mine.id = own.secondary_id
+                 WHERE own.primary_id = ${top}.id
+                   AND own.unlinked_at IS NULL
+                   AND mine.osm_ref IS NULL))`;
+}
+
+/** Which of those reasons fired, as text, for the report. */
+function whyCannotMoveUpSql(top: string, below: string): string {
+  return `CASE
+      WHEN EXISTS (SELECT 1 FROM spot_links q
+                    WHERE q.primary_id = ${top}.id
+                      AND q.secondary_id = ${below}.secondary_id)
+      THEN 'the pair (campsite, outside record) already carries a decision'
+      ELSE 'this campsite already carries an outside record of its own'
+    END`;
+}
+
 const UNFOLDED_TWINS_SQL = `
   SELECT a.id AS area_id, a.osm_ref AS area_ref,
          coalesce(a.name, '(unnamed)') AS name,
@@ -90,9 +132,7 @@ const UNFOLDED_TWINS_SQL = `
      AND NOT EXISTS (
            SELECT 1 FROM spot_links below
             WHERE below.primary_id = t.id AND below.unlinked_at IS NULL
-              AND EXISTS (SELECT 1 FROM spot_links q
-                           WHERE q.primary_id = a.id
-                             AND q.secondary_id = below.secondary_id))
+              AND ${cannotMoveUpSql('a', 'below')})
    ORDER BY a.osm_ref`;
 
 const CHAINS_SQL = `
@@ -123,11 +163,9 @@ const CHAINS_SQL = `
                       WHERE o.unlinked_at IS NULL
                         AND o.secondary_id = mid.id
                         AND o.primary_id <> top.id)
-     -- Re-pointing must not collide with a pair that already exists:
-     -- idx_spot_links_pair is unique unconditionally, undone or not.
-     AND NOT EXISTS (SELECT 1 FROM spot_links q
-                      WHERE q.primary_id = top.id
-                        AND q.secondary_id = below.secondary_id)
+     -- 🔴 The same definition the folding step uses, so the two cannot
+     -- drift: everything this refuses, that one refuses to create.
+     AND NOT ${cannotMoveUpSql('top', 'below')}
      -- 🔴 And it must honour the same human decision the other two
      -- queries honour. This one did not: with the area↔twin link taken
      -- apart by hand, the outside record was still moved onto the area
@@ -137,20 +175,6 @@ const CHAINS_SQL = `
                       WHERE h.primary_id = top.id
                         AND h.secondary_id = mid.id
                         AND h.unlinked_at IS NOT NULL)
-     -- 🔴 And never give an area a SECOND outside record.
-     --
-     -- The invariant says one: two records describing one campsite is
-     -- either a duplicate in their data or two different businesses,
-     -- and this script may not decide which. Moving a record up from
-     -- the twin onto an area that already carries its own would do
-     -- exactly that, silently, and a review built the row: one run
-     -- turned a green database into "at most one non-OSM secondary = 1"
-     -- while printing "0 outstanding".
-     AND NOT EXISTS (SELECT 1 FROM spot_links own
-                      JOIN camping_spots mine ON mine.id = own.secondary_id
-                     WHERE own.primary_id = top.id
-                       AND own.unlinked_at IS NULL
-                       AND mine.osm_ref IS NULL)
    ORDER BY top.osm_ref`;
 
 /**
@@ -220,96 +244,54 @@ const STAMPED_FOR_WANT_OF_A_LINK_SQL = `
 export async function skipped(
   db: Client,
 ): Promise<{ name: string; why: string }[]> {
-  const r = await db.query<{ name: string; why: string }>(`
-    SELECT DISTINCT coalesce(a.name, '(unnamed)') AS name,
-           'folding its twin would make a chain that cannot be flattened: ' ||
-           'the pair (area, outside record) carries a decision somebody ' ||
-           'made by hand' AS why
-      FROM camping_spots a
+  // 🔴 Three states, one set of reasons.
+  //
+  // A review found the report saying "its chain stays" about a campsite
+  // whose chain did not exist yet — the run was about to create it and
+  // then refuse to undo it. The state and the reason are therefore
+  // separate: the state comes from whether the area and its twin are
+  // linked, undone, or neither, and the reason comes from the same
+  // fragment the queries refuse by.
+  const TWIN_JOIN = `
       JOIN camping_spots t ON t.osm_ref = CASE
              WHEN (substring(a.osm_ref from 2))::bigint % 2 = 0
              THEN 'w' || ((substring(a.osm_ref from 2))::bigint / 2)
-             ELSE 'r' || (((substring(a.osm_ref from 2))::bigint - 1) / 2) END
+             ELSE 'r' || (((substring(a.osm_ref from 2))::bigint - 1) / 2) END`;
+  const r = await db.query<{ name: string; why: string }>(`
+    SELECT DISTINCT coalesce(a.name, '(unnamed)') AS name,
+           'its twin is left unfolded: folding it would make a chain ' ||
+           'this run may not undo, because ' ||
+           ${whyCannotMoveUpSql('a', 'below')} AS why
+      FROM camping_spots a${TWIN_JOIN}
+      JOIN spot_links below ON below.primary_id = t.id
+                           AND below.unlinked_at IS NULL
      WHERE a.osm_ref ~ '^a[0-9]+$'
        AND NOT EXISTS (SELECT 1 FROM spot_links l
                         WHERE l.primary_id = a.id AND l.secondary_id = t.id)
-       -- Not a twin already folded into somebody else: that is a
-       -- different refusal with a different reason, and naming the wrong
-       -- one is worse than naming none.
        AND NOT EXISTS (SELECT 1 FROM spot_links o
                         WHERE o.unlinked_at IS NULL AND o.secondary_id = t.id)
-       AND EXISTS (
-             SELECT 1 FROM spot_links below
-              WHERE below.primary_id = t.id AND below.unlinked_at IS NULL
-                AND EXISTS (SELECT 1 FROM spot_links q
-                             WHERE q.primary_id = a.id
-                               AND q.secondary_id = below.secondary_id))
+       AND ${cannotMoveUpSql('a', 'below')}
      UNION
-    SELECT DISTINCT coalesce(top.name, '(unnamed)') AS name,
-           'its chain is left alone: somebody took the area and its twin ' ||
-           'apart by hand' AS why
-      FROM camping_spots top
-      JOIN camping_spots mid ON mid.osm_ref = CASE
-             WHEN (substring(top.osm_ref from 2))::bigint % 2 = 0
-             THEN 'w' || ((substring(top.osm_ref from 2))::bigint / 2)
-             ELSE 'r' || (((substring(top.osm_ref from 2))::bigint - 1) / 2) END
-      JOIN spot_links below ON below.primary_id = mid.id
-                           AND below.unlinked_at IS NULL
-     WHERE top.osm_ref ~ '^a[0-9]+$'
+    SELECT DISTINCT coalesce(a.name, '(unnamed)') AS name,
+           'left alone: somebody took this campsite and its twin apart ' ||
+           'by hand' AS why
+      FROM camping_spots a${TWIN_JOIN}
+     WHERE a.osm_ref ~ '^a[0-9]+$'
        AND EXISTS (SELECT 1 FROM spot_links h
-                    WHERE h.primary_id = top.id AND h.secondary_id = mid.id
+                    WHERE h.primary_id = a.id AND h.secondary_id = t.id
                       AND h.unlinked_at IS NOT NULL)
      UNION
-    -- 🔴 The third refusal, and the one that was silent.
-    --
-    -- The area and its twin are ALREADY folded — the shape all seven
-    -- real chains have — the twin carries an outside record, and
-    -- somebody has judged the pair (area, record). The flattening step
-    -- refuses, correctly. But neither branch above describes this: the
-    -- first wants no link at all between area and twin, the second
-    -- wants that link undone, and here it is present and live. So the
-    -- run printed "0 outstanding" while an invariant stayed red for
-    -- good — the exact outcome this function was added to prevent,
-    -- reached by the one path it did not cover.
-    SELECT DISTINCT coalesce(top.name, '(unnamed)') AS name,
-           'its chain stays: the record below it belongs to a pair ' ||
-           'somebody has already judged, so it cannot be moved up' AS why
-      FROM camping_spots top
-      JOIN camping_spots mid ON mid.osm_ref = CASE
-             WHEN (substring(top.osm_ref from 2))::bigint % 2 = 0
-             THEN 'w' || ((substring(top.osm_ref from 2))::bigint / 2)
-             ELSE 'r' || (((substring(top.osm_ref from 2))::bigint - 1) / 2) END
-      JOIN spot_links above ON above.primary_id = top.id
-                           AND above.secondary_id = mid.id
+    SELECT DISTINCT coalesce(a.name, '(unnamed)') AS name,
+           'its chain stays: the record under its twin cannot be moved ' ||
+           'up, because ' || ${whyCannotMoveUpSql('a', 'below')} AS why
+      FROM camping_spots a${TWIN_JOIN}
+      JOIN spot_links above ON above.primary_id = a.id
+                           AND above.secondary_id = t.id
                            AND above.unlinked_at IS NULL
-      JOIN spot_links below ON below.primary_id = mid.id
+      JOIN spot_links below ON below.primary_id = t.id
                            AND below.unlinked_at IS NULL
-     WHERE top.osm_ref ~ '^a[0-9]+$'
-       AND EXISTS (SELECT 1 FROM spot_links q
-                    WHERE q.primary_id = top.id
-                      AND q.secondary_id = below.secondary_id)
-     UNION
-    -- 🔴 The fourth refusal: the area already carries its own outside
-    -- record, so the one under its twin has nowhere legal to go. Moving
-    -- it would give one campsite two records, which the model forbids
-    -- precisely because this script cannot tell a duplicate from two
-    -- different businesses.
-    SELECT DISTINCT coalesce(top.name, '(unnamed)') AS name,
-           'its chain stays: this campsite already carries an outside ' ||
-           'record, and a second one is a question for a person' AS why
-      FROM camping_spots top
-      JOIN camping_spots mid ON mid.osm_ref = CASE
-             WHEN (substring(top.osm_ref from 2))::bigint % 2 = 0
-             THEN 'w' || ((substring(top.osm_ref from 2))::bigint / 2)
-             ELSE 'r' || (((substring(top.osm_ref from 2))::bigint - 1) / 2) END
-      JOIN spot_links below ON below.primary_id = mid.id
-                           AND below.unlinked_at IS NULL
-     WHERE top.osm_ref ~ '^a[0-9]+$'
-       AND EXISTS (SELECT 1 FROM spot_links own
-                    JOIN camping_spots mine ON mine.id = own.secondary_id
-                   WHERE own.primary_id = top.id
-                     AND own.unlinked_at IS NULL
-                     AND mine.osm_ref IS NULL)`);
+     WHERE a.osm_ref ~ '^a[0-9]+$'
+       AND ${cannotMoveUpSql('a', 'below')}`);
   return r.rows;
 }
 
