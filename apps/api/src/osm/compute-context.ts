@@ -404,26 +404,57 @@ async function elevations(
 //    назви, ніж `krыlovo` у тексті. Таке буває лише на даних поза
 //    ЄС-27 (російські назви з прикордонного запасу екстрактів
 //    Geofabrik) — окрема картка про фільтр області.
-const NON_LATIN = /[^\u0000-\u024F\u1E00-\u1EFF]/;
+// 🔴 «Чи лишилась НЕ-ЛАТИНСЬКА ЛІТЕРА», а не «чи всі символи в діапазоні».
+//
+// Перша редакція була `[^\u0000-ɏḀ-ỿ]`, і рецензія
+// заміряла, що вона відкидає 250 бездоганних назв через звичайну
+// типографіку: тире `–` (99 рядків), апостроф `’` (92), вузький
+// нерозривний пробіл (28), лапки `„ “ ”`, три крапки. Гинули
+// `Watten – Éperlecques`, `L’Oise`, `tegut…`, `Niardo ‐ Losine`.
+// Тобто PR лагодив 1 038 сторінок і ламав 269 — з них 250 були справні.
+//
+// Подвійне заперечення читається так: символ, який НЕ латинського
+// письма і НЕ «не-літера» — тобто літера іншого письма. Пунктуація,
+// цифри й пробіли під нього не підпадають за побудовою.
+const NON_LATIN_LETTER = /[^\p{Script=Latin}\P{L}]/u;
+
+// Двомовні назви в прикордонних регіонах пишуть через скісну:
+// `Riču ezers / возера Рычы` (LV), `Vištyčio ež. / Виштынецкое озеро`
+// (LT). Відкидати їх цілком — втрачати готову латинську половину.
+function latinParts(text: string): string | null {
+  const parts = text
+    .split('/')
+    .map((x) => x.trim())
+    .filter((x) => x && !NON_LATIN_LETTER.test(x));
+  return parts.length ? parts.join(' / ') : null;
+}
+
+// Регістр повертається ПО РУНАХ ЛІТЕР, а не по словах.
+//
+// Перша редакція різала по пробілах і дефісах, і рецензія заміряла
+// 176 рядків, де велика літера після крапки чи дужки гинула:
+// `яз.Кърджали` → `yaz.kardzhali`, `Д'Артанян` → `D'artanyan`.
+// Транслітерація не зливає й не розриває руни через не-літери, тож їх
+// можна зіставити один в один.
+function restoreCase(raw: string, lowered: string): string {
+  const rawRuns = raw.match(/\p{L}+/gu) ?? [];
+  let i = 0;
+  return lowered.replace(/\p{L}+/gu, (run) => {
+    const source = rawRuns[i++];
+    return source && /^\p{Lu}/u.test(source)
+      ? run[0].toUpperCase() + run.slice(1)
+      : run;
+  });
+}
 
 export function displayName(raw: string | null): string | null {
   if (!raw) return null;
-  const out = transliterate(raw)
-    .split(/(\s+|-)/)
-    .map((part, i) =>
-      i % 2 === 0 && /^[a-z]/.test(part) && /^\p{Lu}/u.test(rawWord(raw, i / 2))
-        ? part[0].toUpperCase() + part.slice(1)
-        : part,
-    )
-    .join('');
-  return NON_LATIN.test(out) ? null : out;
+  const out = restoreCase(raw, transliterate(raw));
+  if (!NON_LATIN_LETTER.test(out)) return out;
+  return latinParts(out);
 }
 
-function rawWord(raw: string, index: number): string {
-  return raw.split(/(?:\s+|-)/)[index] ?? '';
-}
-
-const feature = (
+export const feature = (
   m: number | null,
   name: string | null,
 ): NearestFeature | undefined =>

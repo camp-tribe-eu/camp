@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { displayName } from './compute-context';
+import { displayName, feature } from './compute-context';
 
 // CAMP-295 — 927 сторінок показували назву міста не латиницею.
 //
@@ -24,11 +24,24 @@ describe('назви в context придатні для читання', () => {
     expect(SOURCE).toContain('displayName(r.water_name)');
   });
 
-  it('сира назва більше нікуди не потрапляє', () => {
-    // Якщо хтось додасть поле з назвою й забуде `displayName`, падаємо.
-    expect(
-      SOURCE.match(/name:\s*(?!displayName)(r\.\w*name|name)\b/g),
-    ).toBeNull();
+  it('🔴 сира назва не проходить крізь feature() — перевірка ПОВЕДІНКИ', () => {
+    // Рецензія показала, що попередній сторож був прив'язаний до
+    // НАПИСАННЯ: регулярка по вихідному файлу ловила лише
+    // `name: r.*name`. Форма `{ name }` — саме та, якою сирий `name`
+    // стояв у `feature()` ДО цього PR — проходила 7 of 7 із кирилицею
+    // в контексті. Тобто сторож не ловив власного історичного багу.
+    //
+    // Тому тепер питаємо не «як написано», а «що віддає функція».
+    expect(feature(100, 'Крылово')).toEqual({ m: 100 });
+    expect(feature(100, 'Сапарева баня')).toEqual({
+      m: 100,
+      name: 'Sapareva banya',
+    });
+    expect(feature(100, 'Watten – Éperlecques')).toEqual({
+      m: 100,
+      name: 'Watten – Éperlecques',
+    });
+    expect(feature(null, 'Шумен')).toBeUndefined();
   });
 
   it('болгарську передає за Законом 2009 і лишає регістр', () => {
