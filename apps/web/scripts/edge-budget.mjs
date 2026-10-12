@@ -239,27 +239,33 @@ function selfTest() {
 // and not getting it must be LOUD. Every way of failing to start —
 // inverted guard, renamed flag, symlink, imported by mistake — used to
 // look exactly like seven passing checks.
-const invokedAs = process.argv[1]
-  ? realpathSync(process.argv[1])
-  : null;
-const thisFile = realpathSync(fileURLToPath(import.meta.url));
-if (process.argv.includes('--self-test')) {
-  if (invokedAs !== thisFile) {
+// 🔴 The entry-point test comes FIRST, and that ordering is a fix too.
+//
+// A draft asked "was --self-test requested?" before "am I the entry
+// point", so importing this module from a process that happened to
+// carry that flag threw — `node gen-links.mjs --self-test` would have
+// crashed instead of generating, and check-script-entrypoints.mjs said
+// so: a module may not do work when it is imported.
+// 🔴 `import.meta.url` stands IN the condition, not behind a variable.
+//
+// check-script-entrypoints.mjs recognises a guard by reading the
+// comparison itself; two locals compared to each other look to it like
+// an unguarded call, and it said so. Inlining keeps the guard legible
+// to the one thing whose job is to read it.
+if (
+  realpathSync(fileURLToPath(import.meta.url)) ===
+  (process.argv[1] ? realpathSync(process.argv[1]) : '')
+) {
+  if (process.argv.includes('--self-test')) {
+    selfTest();
+  } else {
+    // 🔴 Run directly with no flag this module knows. Its only purpose
+    // as an entry point IS the self-test, so silence here is one of the
+    // three ways the green nothing used to happen: rename the flag in
+    // CI and the step keeps passing while nothing runs.
     throw new Error(
-      'edge-budget.mjs was asked for --self-test but is not the entry ' +
-        `point (running ${invokedAs ?? 'nothing'}). Refusing to exit 0 ` +
-        'without running it: a check that did not start must not look ' +
-        'like a check that passed.',
+      'edge-budget.mjs does nothing when run without --self-test. ' +
+        `Got: ${process.argv.slice(2).join(' ') || '(no arguments)'}`,
     );
   }
-  selfTest();
-} else if (invokedAs === thisFile) {
-  // 🔴 Run directly with no flag the module knows. Its only purpose as
-  // an entry point IS the self-test, so silence here is the third way
-  // the same green nothing used to happen: rename the flag in CI and
-  // the step keeps passing while nothing runs.
-  throw new Error(
-    'edge-budget.mjs does nothing when run without --self-test. ' +
-      `Got: ${process.argv.slice(2).join(' ') || '(no arguments)'}`,
-  );
 }
