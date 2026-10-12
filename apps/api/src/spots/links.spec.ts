@@ -4,7 +4,8 @@ import { UPSERT_SPOT_SQL } from '../osm/import-spots';
 import {
   attributeTaken,
   GONE_LIST_SQL,
-  LINKED_SECONDARY_JOIN,
+  linkedSecondariesJoin,
+  mergeAllLinked,
   mergedNameSql,
   mergedStarsSql,
   mergeLinked,
@@ -109,32 +110,52 @@ describe('notSecondarySql', () => {
   });
 });
 
-describe('LINKED_SECONDARY_JOIN', () => {
-  it('is deterministic — ORDER BY before LIMIT', () => {
-    // 🔴 A bare LIMIT 1 picks whatever the planner returns first. With
+describe('linkedSecondariesJoin', () => {
+  const join = linkedSecondariesJoin();
+
+  it('🔴 is deterministic — a total order, not a LIMIT', () => {
+    // A bare LIMIT 1 picked whatever the planner returned first. With
     // two secondaries on one primary that made the star rating on a page
-    // change between builds, with no error anywhere. The unique index
-    // now prevents the second row; this keeps the query honest even if
-    // it ever does not.
-    const join = LINKED_SECONDARY_JOIN;
-    expect(join.indexOf('ORDER BY')).toBeGreaterThan(-1);
-    expect(join.indexOf('ORDER BY')).toBeLessThan(join.indexOf('LIMIT 1'));
+    // change between builds, with no error anywhere. The answer is now
+    // every secondary in a fixed order, and the order is what decides
+    // which value wins, so it has to be total: created_at can tie for
+    // two links made in the same transaction, and the id breaks it.
+    expect(join).toContain('ORDER BY l.created_at, x.id');
+    expect(join).not.toContain('LIMIT 1');
   });
 
-  it('selects an id, so the merge can tell "no linked row" from "no data"', () => {
-    expect(LINKED_SECONDARY_JOIN).toContain('x.id');
+  it('returns every live secondary, not the first one', () => {
+    expect(join).toContain('jsonb_agg');
+    expect(join).toContain('l.unlinked_at IS NULL');
+  });
+
+  it('selects an id per row, so the merge can tell "none" from "no data"', () => {
+    expect(join).toContain("'linked_id', x.id");
   });
 
   it('never brings the other row‘s location, amenities or slug', () => {
     // The page's URL and its geometry are the primary's, always. A join
     // that offered these would let a later edit pick one up by accident.
     for (const forbidden of ['location', 'amenities', 'slug', 'region']) {
-      expect(LINKED_SECONDARY_JOIN).not.toContain(`x.${forbidden}`);
+      expect(join).not.toContain(`x.${forbidden}`);
     }
   });
 
-  it('reads only live links', () => {
-    expect(LINKED_SECONDARY_JOIN).toContain('l.unlinked_at IS NULL');
+  it('🔴 answers false, not NULL, when there is no secondary at all', () => {
+    // bool_or over no rows is NULL, and `false OR NULL` is NULL. The
+    // page's `indexable` would then be neither true nor false.
+    expect(join).toContain('coalesce(bool_or(x.stars IS NOT NULL), false)');
+    expect(join).toContain(
+      'coalesce(bool_or(x.description IS NOT NULL), false)',
+    );
+  });
+
+  it('evaluates per-secondary expressions against the secondary row', () => {
+    // The tariffs are read once per secondary, because a price list
+    // belongs to the record it was published in.
+    const withTariffs = linkedSecondariesJoin({ linked_tariffs: 'f(x.id)' });
+    expect(withTariffs).toContain("'linked_tariffs', f(x.id)");
+    expect(join).not.toContain('linked_tariffs');
   });
 });
 
@@ -523,5 +544,189 @@ describe('the two lists cannot drift apart', () => {
     // Without MATERIALIZED the full-window query went from ~200 ms to
     // 657–778 ms, measured 12.10.2026.
     expect(GONE_LIST_SQL).toContain('AS MATERIALIZED');
+  });
+});
+
+/**
+ * CAMP-280: folding the merge over several secondaries.
+ *
+ * 🔴 These run without a database on purpose. The rehearsal in
+ * verify-links.ts proves the SQL produces the array; this proves what
+ * the fold does with it, including the cases a live database has no
+ * rows for yet.
+ */
+describe('mergeAllLinked', () => {
+  const sec = (over: Record<string, unknown>) => ({
+    linked_id: 'x',
+    linked_name: null,
+    linked_stars: null,
+    linked_description: null,
+    linked_description_lang: null,
+    linked_website: null,
+    linked_contact: null,
+    linked_sources: [],
+    linked_owner_overrides: null,
+    linked_tariffs: [],
+    linked_tariffs_withheld: 0,
+    ...over,
+  });
+  const primary = (over: Record<string, unknown> = {}) => ({
+    name: 'Camping Les Pins',
+    stars: null,
+    description: null,
+    description_lang: null,
+    website: null,
+    contact: {},
+    sources: [],
+    owner_overrides: {},
+    tariffs: [],
+    tariffs_withheld: 0,
+    ...over,
+  });
+
+  it('leaves a campsite with no secondary exactly as it was', () => {
+    const row = primary({ linked_rows: null });
+    expect(mergeAllLinked(row)).toBe(row);
+  });
+
+  it('🔴 takes a field from EACH secondary, not from the first only', () => {
+    // The whole reason the one-row read had to go: a campsite can be an
+    // OSM area, the way it was exported from, and a DATAtourisme record.
+    // Seven were in that shape on 12.10.2026 and their star rating was
+    // on the row the merge could not reach.
+    const merged = mergeAllLinked(
+      primary({
+        linked_rows: [
+          sec({ linked_id: 'a', linked_stars: 4 }),
+          sec({ linked_id: 'b', linked_website: 'https://b.test' }),
+        ],
+      }),
+    );
+    expect(merged.stars).toBe(4);
+    expect(merged.website).toBe('https://b.test');
+  });
+
+  it('the earlier secondary wins where both have the field', () => {
+    const merged = mergeAllLinked(
+      primary({
+        linked_rows: [
+          sec({ linked_id: 'a', linked_stars: 3 }),
+          sec({ linked_id: 'b', linked_stars: 5 }),
+        ],
+      }),
+    );
+    expect(merged.stars).toBe(3);
+  });
+
+  it('🔴 the language label travels with the text, across secondaries', () => {
+    // The trap this would fall into: taking the description from the
+    // second secondary and the language from the first, so French prose
+    // is announced as German in a lang attribute a screen reader obeys.
+    const merged = mergeAllLinked(
+      primary({
+        linked_rows: [
+          sec({ linked_id: 'a', linked_stars: 4 }),
+          sec({
+            linked_id: 'b',
+            linked_description: 'Au bord du lac',
+            linked_description_lang: 'fr',
+          }),
+        ],
+      }),
+    );
+    expect(merged.description).toBe('Au bord du lac');
+    expect(merged.description_lang).toBe('fr');
+  });
+
+  it('the primary still beats every secondary', () => {
+    const merged = mergeAllLinked(
+      primary({
+        stars: 2,
+        linked_rows: [
+          sec({ linked_id: 'a', linked_stars: 4 }),
+          sec({ linked_id: 'b', linked_stars: 5 }),
+        ],
+      }),
+    );
+    expect(merged.stars).toBe(2);
+  });
+
+  it('🔴 credits each source only for what it actually gave', () => {
+    // Attribution is a licence obligation, not tidiness: the page prints
+    // this list as "what this source gave us". Crediting the second
+    // source for a star rating the first supplied is a false statement
+    // about provenance — and it is the shape a careless N-row merge
+    // produces, because both sources declare the field.
+    const merged = mergeAllLinked(
+      primary({
+        linked_rows: [
+          sec({
+            linked_id: 'a',
+            linked_stars: 4,
+            linked_sources: [{ id: 'dt-a', ref: 'A', fields: ['stars'] }],
+          }),
+          sec({
+            linked_id: 'b',
+            linked_stars: 5,
+            linked_website: 'https://b.test',
+            linked_sources: [
+              { id: 'dt-b', ref: 'B', fields: ['stars', 'website'] },
+            ],
+          }),
+        ],
+      }),
+    );
+    const sources = merged.sources as { id: string; fields: string[] }[];
+    expect(sources.find((e) => e.id === 'dt-a')?.fields).toEqual(['stars']);
+    expect(sources.find((e) => e.id === 'dt-b')?.fields).toEqual(['website']);
+  });
+
+  it('🔴 credit for a field two secondaries both filled survives', () => {
+    // `contact` is the one field that can be taken twice, because it is
+    // merged key by key. The first secondary supplies a phone, the
+    // second an email, and a naive fold feeds the first one's credit
+    // back in as "ours" and strips it — leaving a source entry claiming
+    // nothing, beside data it did supply.
+    const merged = mergeAllLinked(
+      primary({
+        contact: {},
+        linked_rows: [
+          sec({
+            linked_id: 'a',
+            linked_contact: { phone: '+33 1 23 45 67 89' },
+            linked_sources: [{ id: 'dt-a', ref: 'A', fields: ['contact'] }],
+          }),
+          sec({
+            linked_id: 'b',
+            linked_contact: { email: 'hello@b.test' },
+            linked_sources: [{ id: 'dt-b', ref: 'B', fields: ['contact'] }],
+          }),
+        ],
+      }),
+    );
+    expect(merged.contact).toEqual({
+      phone: '+33 1 23 45 67 89',
+      email: 'hello@b.test',
+    });
+    const sources = merged.sources as { id: string; fields: string[] }[];
+    expect(sources.find((e) => e.id === 'dt-a')?.fields).toEqual(['contact']);
+    expect(sources.find((e) => e.id === 'dt-b')?.fields).toEqual(['contact']);
+  });
+
+  it('a price list is still taken whole, from the first that has one', () => {
+    const merged = mergeAllLinked(
+      primary({
+        linked_rows: [
+          sec({ linked_id: 'a', linked_tariffs: [] }),
+          sec({
+            linked_id: 'b',
+            linked_tariffs: [{ minPrice: '12.00' }],
+            linked_tariffs_withheld: 3,
+          }),
+        ],
+      }),
+    );
+    expect(merged.tariffs).toEqual([{ minPrice: '12.00' }]);
+    expect(merged.tariffs_withheld).toBe(3);
   });
 });

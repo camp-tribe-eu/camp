@@ -217,17 +217,73 @@ export const RESOLVED_REDIRECTS_SQL = `
  * because a bare `LIMIT 1` is only deterministic while that index holds,
  * and the cost of being wrong is silent.
  */
-export const LINKED_SECONDARY_JOIN = `
+/**
+ * CAMP-280: every live secondary of this campsite, as an ordered array.
+ *
+ * 🔴 It used to be ONE secondary — `ORDER BY l.created_at, x.id LIMIT 1`
+ * — because a unique index allowed only one. That index was right about
+ * the danger and wrong about the shape of the data.
+ *
+ * A campsite can be three rows, not two: OpenStreetMap exports the same
+ * site as an area `a…` AND as the way `w…` it was built from, and a
+ * DATAtourisme record describes it a third time. 23 campsites were in
+ * that state on 12.10.2026 — 16 of them with a duplicate page nobody
+ * could fold, and 7 of them with their official star rating, website and
+ * prices sitting one level below where the merge could see them.
+ *
+ * So the join returns ALL of them, in the order links were made, and the
+ * merge folds over that order filling gaps. `mergeLinked` is unchanged
+ * and runs once per secondary: every rule it already encodes — the
+ * shared definition of empty, the language travelling with the text it
+ * describes, contacts merged key by key, a price list taken whole or not
+ * at all, attribution narrowed to what was actually reused — applies to
+ * each in turn rather than being re-derived for N rows.
+ *
+ * 🔴 Order decides, so order must be total. `(created_at, id)` is, and
+ * the id breaks a tie between two links made in the same transaction.
+ * Without that this is the bug the unique index was added to stop: the
+ * page changing between two builds over unchanged rows.
+ *
+ * `perSecondary` adds expressions evaluated against the secondary alias
+ * `x` — the tariffs, which have to be read per row and not for the
+ * first one only.
+ */
+export function linkedSecondariesJoin(
+  perSecondary: Record<string, string> = {},
+): string {
+  const extra = Object.entries(perSecondary)
+    .map(([name, expr]) => `,\n               '${name}', ${expr}`)
+    .join('');
+  return `
   LEFT JOIN LATERAL (
-    SELECT x.id, x.stars, x.description, x.description_lang, x.website,
-           x.name, x.contact, x.sources, x.owner_overrides,
-           x.content_changed_at
+    SELECT jsonb_agg(jsonb_build_object(
+               'linked_id', x.id,
+               'linked_stars', x.stars,
+               'linked_description', x.description,
+               'linked_description_lang', x.description_lang,
+               'linked_website', x.website,
+               'linked_name', x.name,
+               'linked_contact', x.contact,
+               'linked_sources', x.sources,
+               'linked_owner_overrides', x.owner_overrides,
+               'linked_content_changed_at', x.content_changed_at${extra}
+             ) ORDER BY l.created_at, x.id) AS rows,
+           max(x.content_changed_at) AS content_changed_at,
+           -- 🔴 coalesce, and it is not tidiness. bool_or over no rows
+           -- is NULL, and false OR NULL is NULL, not false -- so a
+           -- campsite with no secondary would have come back with
+           -- indexable NULL instead of false and been read as absent
+           -- rather than as "do not index". (No backticks in here: this
+           -- comment sits inside a template literal, and the repo has
+           -- broken its own build this way three times now.)
+           coalesce(bool_or(x.stars IS NOT NULL), false) AS has_stars,
+           coalesce(bool_or(x.description IS NOT NULL), false)
+             AS has_description
       FROM spot_links l
       JOIN camping_spots x ON x.id = l.secondary_id
      WHERE l.primary_id = s.id AND l.unlinked_at IS NULL
-     ORDER BY l.created_at, x.id
-     LIMIT 1
   ) linked ON true`;
+}
 
 /**
  * One field of a campsite, read through its link.
@@ -284,11 +340,18 @@ export function mergedFieldSql(
       : `${alias}.${column}`;
   const theirs =
     kind === 'text' ? `nullif(btrim(x.${column}), '')` : `x.${column}`;
+  // 🔴 CAMP-280: the first secondary that HAS the field, not the first
+  // secondary. With one secondary the two are the same sentence; with
+  // two they are not, and the difference is a campsite whose official
+  // star rating sits on its second source while the first supplies only
+  // a website. The same ordering as linkedSecondariesJoin, so SQL and
+  // JS cannot disagree about which source won.
   return `coalesce(${mine}, (
     SELECT ${theirs}
       FROM spot_links l
       JOIN camping_spots x ON x.id = l.secondary_id
      WHERE l.primary_id = ${alias}.id AND l.unlinked_at IS NULL
+       AND ${theirs} IS NOT NULL
      ORDER BY l.created_at, x.id
      LIMIT 1))`;
 }
@@ -410,6 +473,69 @@ export function withoutTaken(
  * reused. A page built from both that named one of them would breach the
  * other. The page prints this list verbatim (source-note.tsx).
  */
+/**
+ * CAMP-280: fold `mergeLinked` over every secondary, in link order.
+ *
+ * 🔴 A loop rather than a second merge rule, and that is the whole
+ * design. `mergeLinked` fills gaps: it takes the other row's value only
+ * where this one has none. Applying it again with the next secondary
+ * therefore cannot undo the first — the fields it already filled are no
+ * longer empty — and attribution accumulates correctly, because each
+ * pass credits only what that pass actually took.
+ *
+ * Writing an N-row version instead would have meant restating, in new
+ * code, every trap the one-row version was beaten into shape by: the
+ * empty string that is not a value, the language that must travel with
+ * its text, the contact merged key by key, the price list taken whole.
+ * Each of those cost a review to find once already.
+ *
+ * Precedence falls out of the order: this row first, then the earliest
+ * link, then the next. For `owner_overrides`, where the spread runs the
+ * other way, that still leaves the primary on top and the earlier
+ * secondary above the later one.
+ */
+export function mergeAllLinked(
+  row: Record<string, unknown>,
+): Record<string, unknown> {
+  const secondaries = row.linked_rows as Record<string, unknown>[] | null;
+  if (!Array.isArray(secondaries) || secondaries.length === 0) return row;
+
+  // 🔴 Each secondary's credit is set aside the moment it is earned.
+  //
+  // `mergeLinked` ends with
+  //   [...withoutTaken(ours, taken), ...attributeTaken(theirs, taken)]
+  // and `withoutTaken` is documented as narrowing OUR OWN entries. Feed
+  // the previous pass's output straight back in and the second pass
+  // treats the FIRST secondary's entry as ours and strips from it every
+  // field this pass took.
+  //
+  // One field can be taken twice: `contact`, because it is merged key by
+  // key — the first secondary supplies a phone, the second an email, and
+  // both passes record `contact`. The first then loses the credit, and
+  // if contact was all it gave, its entry survives with an empty field
+  // list that `attributeTaken` would itself have discarded. The page
+  // prints this list verbatim as "what this source gave us", so that is
+  // a false statement about provenance in the one place the licences
+  // make us be exact — pointing the other way than the over-claim
+  // `attributeTaken` exists to prevent, but just as wrong.
+  //
+  // Nothing in the data triggers it today: of the 7 three-row campsites
+  // on 12.10.2026, none has contact details on both secondaries. That is
+  // a fact about this week, not a property of the code.
+  let merged = row;
+  let ours = (row.sources ?? []) as SpotSource[];
+  const credits: SpotSource[] = [];
+  for (const secondary of secondaries) {
+    const out = mergeLinked({ ...merged, ...secondary, sources: ours });
+    const all = (out.sources ?? []) as SpotSource[];
+    const mine = ours.length;
+    ours = all.slice(0, mine);
+    credits.push(...all.slice(mine));
+    merged = { ...out, sources: ours };
+  }
+  return { ...merged, sources: [...ours, ...credits] };
+}
+
 export function mergeLinked(
   row: Record<string, unknown>,
 ): Record<string, unknown> {
