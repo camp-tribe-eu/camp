@@ -157,6 +157,27 @@ export class CampingSpot {
   stars: number | null;
 
   /**
+   * The warning zones this point falls inside, as `SCHEME:VALUE`.
+   *
+   * CAMP-287. An official warning names an area by code — `EMMA_ID:HR012`,
+   * `NUTS3:FR712` — and never by coordinates. This is the only way a
+   * warning and a campsite can be said to be about the same place.
+   *
+   * 🔴 NULL AND `{}` ARE DIFFERENT ANSWERS. NULL means the resolver has
+   * not reached this row; `{}` means it did and found none. The panel
+   * says "we cannot tell" for the first and may say "clear" for the
+   * second, so collapsing them would turn a gap in our pipeline into a
+   * statement about the weather.
+   *
+   * 🔴 Only schemes the country's own feed publishes are written here.
+   * Measured 13.10.2026: France sits inside MeteoAlarm's own polygons
+   * for 97.5% of its campsites and publishes its warnings in NUTS3 —
+   * EMMA codes on a French row would match nothing, forever.
+   */
+  @Column({ name: 'warning_areas', type: 'text', array: true, nullable: true })
+  warningAreas: string[] | null;
+
+  /**
    * Where each field came from, and when that source last changed it.
    *
    * 🔴 Per FIELD, not per record. One campsite can be built from OSM
