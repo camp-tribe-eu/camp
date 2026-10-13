@@ -61,6 +61,21 @@ export const frameUrl = (ref: string, size: 'thumbnail' | 'preview' = 'preview')
 /** The credit Windy's terms require, word for word. */
 export const WINDY_CREDIT = 'Webcams provided by windy.com';
 
+/**
+ * Чия це мережа — для речень, які говорять про ПОКРИТТЯ.
+ *
+ * 🔴 CAMP-156. Назва джерела стояла лише там, де камери Є: `WINDY_CREDIT`
+ * друкується під картками. А твердження про покриття — «No public webcam
+ * within 25 km … That is what the camera network covers» — живе рівно в
+ * тому стані, де карток немає й читачеві нізвідки дізнатись, ЯКА це
+ * мережа. Твердження, джерела якого не названо, читач перевірити не може.
+ *
+ * Це не кредит і не вимога умов: кредит потрібен там, де показано їхній
+ * вміст, а тут не показано нічого. Це наша власна чесність щодо того,
+ * наскільки широко ми дивились.
+ */
+export const WEBCAM_NETWORK = 'windy.com';
+
 export const WEBCAM_RADIUS_M = 25_000;
 
 /**
