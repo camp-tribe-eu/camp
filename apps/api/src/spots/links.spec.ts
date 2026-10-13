@@ -499,10 +499,44 @@ describe('CAMP-301: один інтервал на обидва запити', (
   const daysIn = (sql: string) =>
     [...sql.matchAll(/interval '(\d+) days'/g)].map((m) => Number(m[1]));
 
-  it('число — похідна від частоти імпорту, а не чийсь вибір', () => {
-    // CAMP-87 оголошує кемпінг зниклим після ЧОТИРЬОХ поспіль імпортів
-    // без нього, а імпорт щотижневий.
-    expect(GONE_AFTER_DAYS).toBe(GONE_AFTER_IMPORTS * IMPORT_EVERY_DAYS);
+  it('🔴 «щотижневий» — це розклад воркфлоу, а не моє слово', () => {
+    // 🔴 ТУТ СТОЯЛО `expect(GONE_AFTER_DAYS).toBe(GONE_AFTER_IMPORTS *
+    // IMPORT_EVERY_DAYS)`, і це переказ означення з `links.ts`, а не
+    // перевірка. Рецензія це довела: `GONE_AFTER_IMPORTS = 9,
+    // IMPORT_EVERY_DAYS = 3` тихо робили інтервал 27 днів, і всі 68
+    // тестів файлу лишались зеленими. Жодна зміна входів похідної не
+    // могла її почервонити.
+    //
+    // Єдина сторона, яка справді знає частоту імпорту, — це його
+    // розклад. Беремо число звідти.
+    const wf = readFileSync(
+      join(
+        __dirname,
+        '..',
+        '..',
+        '..',
+        '..',
+        '.github',
+        'workflows',
+        'osm-weekly.yml',
+      ),
+      'utf8',
+    );
+    const cron = /^\s*-\s*cron:\s*'([^']+)'/m.exec(wf)?.[1];
+    // Jest-івський `expect` другого аргументу не бере — пояснення тут.
+    expect(cron).toBeTruthy(); // розклад імпорту не прочитався
+    const [, , dom, , dow] = (cron as string).trim().split(/\s+/);
+    // Щотижня — це фіксований день тижня при вільному дні місяця.
+    // Якби імпорт був прив'язаний до дня МІСЯЦЯ, він не щотижневий.
+    expect(dom).toBe('*');
+    // Нефіксований день тижня означав би, що «щотижня» — неправда.
+    expect(dow).toMatch(/^[0-6]$/);
+    expect(IMPORT_EVERY_DAYS).toBe(7);
+
+    // А це вже наше рішення, і воно з CAMP-87: чотири поспіль імпорти
+    // без кемпінгу, перш ніж назвати його зниклим назавжди.
+    expect(GONE_AFTER_IMPORTS).toBe(4);
+    expect(GONE_AFTER_DAYS).toBe(28);
   });
 
   it('🔴 у списку 410 немає жодного іншого інтервалу в днях', () => {
@@ -538,11 +572,25 @@ describe('CAMP-301: один інтервал на обидва запити', (
 
   it('🔴 причина рахується ІНШИМ запитом, а не тим самим', () => {
     // Якби обидва числа рахувались одним SQL, вони збігалися б завжди
-    // й не могли б розійтись — доказ підтверджував би сам себе. Тому
-    // запит про причину не має ні віднімання, ні LATERAL.
-    expect(GONE_PENDING_SQL).not.toContain('redirected');
-    expect(GONE_PENDING_SQL).not.toContain('LATERAL');
-    expect(GONE_PENDING_SQL).toContain('FROM camping_spots');
+    // й не могли б розійтись — доказ підтверджував би сам себе.
+    //
+    // 🔴 ПИТАЄМО ВЛАСТИВІСТЬ, А НЕ СПИСОК ЗАБОРОНЕНИХ СЛІВ. Перша
+    // редакція забороняла `redirected` і `LATERAL` — і рецензія
+    // пройшла повз неї, дописавши `NOT EXISTS (… spot_links …)`:
+    // на нашій базі таких рядків нуль, тож і числа не змінились, і
+    // забороненого слова не було. Кожне нове слово в списку лікувало б
+    // випадок, а не причину.
+    //
+    // Властивість така: це плаский підрахунок по ОДНІЙ таблиці.
+    // Будь-яке віднімання потребує або підзапиту, або з'єднання.
+    const selects = GONE_PENDING_SQL.match(/\bSELECT\b/gi) ?? [];
+    expect(selects).toHaveLength(1);
+    expect(GONE_PENDING_SQL).not.toMatch(/\bJOIN\b/i);
+    expect(GONE_PENDING_SQL).not.toMatch(/\bEXISTS\b/i);
+    // І таблиця в `FROM` рівно одна, без псевдоніма й без коми.
+    const from = /\bFROM\s+([^\s]+)/i.exec(GONE_PENDING_SQL)?.[1];
+    expect(from).toBe('camping_spots');
+    expect(GONE_PENDING_SQL).not.toMatch(/FROM\s+camping_spots\s*,/i);
   });
 
   it('він не рахує рядків, які не мають адреси взагалі', () => {

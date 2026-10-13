@@ -17,6 +17,7 @@
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   realpathSync,
   rmSync,
@@ -54,8 +55,46 @@ const MAX_BYTES = 256 * 1024;
  * Інтервал приїжджає з API. Своєї копії числа цей файл не має й не
  * сміє мати — дві копії погоджуються рівно доти, доки хтось не змінить
  * одну.
+ *
+ * ⚠️ ЗАПАС НА ХИБНУ ТРИВОГУ — ОДИН РЯДОК, і це варто знати заздалегідь.
+ * `mature` рахує й ті рядки, які список законно віднімає (половини
+ * живих пар, CAMP-279). Заміряно рецензією на живій базі: перший рядок
+ * дозріває 22.10.2026 (`spot-n6845224085`, SI/Koper), і до 08.11 буде
+ * `mature = 1, список = 1`. Тобто збірка впаде хибно лише якщо саме цей
+ * один рядок злінкують у ці 18 днів. З 09.11 запас стає 5 945 проти
+ * 5 939 — шість рядків, і питання знімається само.
  */
 export function verdict({ paths, pending }) {
+  // 🔴 СПЕРШУ ФОРМА, і без цього сторож падав ВІДКРИТИМ.
+  //
+  // Рецензія це відтворила: 200 із чужим тілом давав `mature ===
+  // undefined`, `undefined > 0` це false, тож вирок казав «усе добре»,
+  // файл писався, а в лог ішло «undefined matured». Примітка в коміті
+  // страхувала лише 404 — а 200 із не тим тілом цілком досяжний:
+  // досить переставити `@Get('gone/pending')` нижче за
+  // `:country/:region`, і маршрут віддасть 200 зі списком кемпінгів
+  // регіону «gone», а не числа.
+  //
+  // Відповідь не тієї форми — це збій, а не «нуль дозрілих».
+  const shape = ['intervalDays', 'mature', 'pending', 'oldestDays'];
+  const bad = shape.filter(
+    (k) =>
+      !(k in (pending ?? {})) ||
+      (k === 'oldestDays'
+        ? pending[k] !== null && !Number.isFinite(pending[k])
+        : !Number.isFinite(pending[k])),
+  );
+  if (bad.length > 0) {
+    return {
+      ok: false,
+      line: `gone list: ${paths.length} path(s) 410; причину прочитати не вдалось`,
+      reason:
+        `відповідь /spots/gone/pending не тієї форми: ${bad.join(', ')} — ` +
+        'не число. Без причини порожній список прийняти не можна: ' +
+        'саме так сторож і падає відкритим.',
+    };
+  }
+
   const { intervalDays, mature, pending: waiting, oldestDays } = pending;
   const line =
     `gone list: ${paths.length} path(s) 410; ` +
@@ -114,6 +153,10 @@ const apiGet = async (route) => {
  * піти далі» виживала б: жоден випадок сюди не доходив.
  */
 export async function main({ get = apiGet, outDir = out } = {}) {
+  // 🔴 ПОРЯДОК НЕ ВІЛЬНИЙ. Список питається першим, причина другою, бо
+  // `now()` другого запиту пізніший: множина дозрілих може лише
+  // зрости, тож `paths.length > mature` не може спрацювати хибно через
+  // гонку. Переставиш — і нічна збірка почне падати випадково.
   const gone = await get('/spots/gone');
   const pending = await get('/spots/gone/pending');
   const paths = gone.map((g) => g.path);
@@ -166,14 +209,21 @@ function pureCases() {
     'порожній список при жодному дозрілому — це законно, а не збій',
   );
   // Те саме порожньо, але причина його вже не пояснює.
-  const broken = verdict({ paths: [], pending: at(1, 5944, 28) });
+  // 🔴 `mature` НЕ 1 і НЕ 0. Рецензія показала, що перевірка
+  // `reason.includes('1')` задовольнялась літералом «410» у самому
+  // тексті причини — корпус підтверджував себе.
+  const broken = verdict({ paths: [], pending: at(3, 5944, 28) });
   check(
     broken.ok === false,
     '🔴 порожній список, коли рядок УЖЕ дозрів — це збій',
   );
   check(
-    broken.reason?.includes('1') && broken.reason?.includes('28'),
-    'причина називає і скільки дозріло, і сам інтервал',
+    broken.reason?.includes('3 рядків уже дозріли'),
+    'причина називає, СКІЛЬКИ рядків дозріло',
+  );
+  check(
+    broken.reason?.includes('старші за 28 днів'),
+    'і сам інтервал, бо без нього число ні про що не каже',
   );
   check(
     verdict({ paths: ['/a', '/b'], pending: at(5, 100, 40) }).ok === true,
@@ -201,11 +251,15 @@ function pureCases() {
   // Рядок у лог мусить називати ОБИДВА числа — зараз він казав лише
   // `gone list: 0 path(s)`, і це однаково виглядало для «ще рано» і
   // для «все зламалось».
-  const line = verdict({ paths: [], pending: at(0, 5945, 18) }).line;
-  check(line.includes('0 path(s)'), 'рядок каже, скільки адрес у списку');
+  // 🔴 ЧОТИРИ РІЗНІ ЧИСЛА, і це не прискіпливість. Попередня фікстура
+  // мала `paths.length === mature === 0`, тож поміняти їх місцями в
+  // рядку можна було безкарно — рецензія це заміряла, і репетиція сама
+  // друкувала «1 path(s) … 7 matured» при одній адресі й семи дозрілих.
+  const line = verdict({ paths: ['/a', '/b'], pending: at(7, 5945, 18) }).line;
+  check(line.includes('2 path(s)'), 'рядок каже, скільки адрес у списку');
   check(line.includes('5945 waiting'), 'рядок каже, скільки рядків чекають');
   check(line.includes('oldest 18 of 28 days'), 'рядок каже вік найдавнішого і інтервал');
-  check(line.includes('0 matured'), 'рядок каже, скільки вже дозріли');
+  check(line.includes('7 matured'), 'рядок каже, скільки вже дозріли');
   // 🔴 І сам РЯДОК мусить нести інтервал із відповіді, а не свою копію.
   // Без цього випадку `of ${intervalDays} days` можна було переписати на
   // `of 28 days` і нічого не почервоніло б: усі інші випадки саме 28 і
@@ -229,10 +283,18 @@ function pureCases() {
  * викликів, якою йде справжня збірка.
  */
 async function selfTestBuild(check) {
-  const rows = [{ path: '/fr/paca/le-camping' }];
+  const rows = [
+    { path: '/fr/paca/le-camping' },
+    { path: '/it/lazio/il-campeggio' },
+    { path: '/es/galicia/o-camping' },
+  ];
   const run = async (gone, pending) => {
     const dir = mkdtempSync(path.join(tmpdir(), 'gen-gone-rehearsal-'));
-    const get = async (route) => (route.endsWith('/pending') ? pending : gone);
+    const asked = [];
+    const get = async (route) => {
+      asked.push(route);
+      return route.endsWith('/pending') ? pending : gone;
+    };
     let blew = false;
     try {
       await main({ get, outDir: dir });
@@ -240,32 +302,91 @@ async function selfTestBuild(check) {
       blew = true;
     }
     const written = readdirSync(dir).sort();
+    // 🔴 ЧИТАЄМО ВМІСТ, А НЕ ІМЕНА. Рецензія показала, що перевірка імен
+    // пропускала `writeFileSync(…, '[]\n')` безумовно: 19 випадків
+    // лишались зеленими, а на диску при списку з трьох адрес лежав
+    // порожній масив. Це рівно та катастрофа, заради якої картка
+    // існує, і вона проходила власну репетицію.
+    const read = (f) =>
+      written.includes(f) ? JSON.parse(readFileSync(path.join(dir, f), 'utf8')) : null;
+    const out = { blew, written, asked, paths: read('gone-paths.json'), full: read('gone.json') };
     rmSync(dir, { recursive: true, force: true });
-    return { blew, written };
+    return out;
   };
+  const at = (mature, waiting, oldestDays, intervalDays = 28) => ({
+    intervalDays,
+    mature,
+    pending: waiting,
+    oldestDays,
+  });
 
   // Сьогоднішній прод: порожньо, бо ще рано.
-  const early = await run([], { intervalDays: 28, mature: 0, pending: 5945, oldestDays: 18 });
+  const early = await run([], at(0, 5945, 18));
   check(early.blew === false, 'порожній список без дозрілих рядків збірку НЕ валить');
   check(
     early.written.join(',') === 'gone-paths.json,gone.json',
     'і обидва файли записані — список порожній, але він є',
   );
+  // 🔴 Порядок запитів: список ПЕРШИМ, причина другою. `now()` другого
+  // запиту пізніший, тож множина дозрілих може лише зрости — і
+  // `paths.length > mature` не спрацює хибно через гонку. Переставлений
+  // порядок робить нічну збірку випадково червоною.
+  check(
+    early.asked.join(' → ') === '/spots/gone → /spots/gone/pending',
+    '🔴 список питається ПЕРШИМ, причина другою',
+  );
 
   // Після 22.10: те саме порожньо, але причина його вже не пояснює.
-  const late = await run([], { intervalDays: 28, mature: 1, pending: 5944, oldestDays: 28 });
+  const late = await run([], at(1, 5944, 28));
   check(late.blew === true, '🔴 порожній список при дозрілому рядку ВАЛИТЬ збірку');
   check(
     late.written.length === 0,
     '🔴 і НЕ записує файлу — інакше кожна зникла адреса тихо вертається в 404',
   );
 
-  // Звичайний робочий день.
-  const ok = await run(rows, { intervalDays: 28, mature: 7, pending: 20, oldestDays: 40 });
+  // Звичайний робочий день — і тут ВМІСТ, а не лише імена.
+  const ok = await run(rows, at(7, 20, 40));
   check(ok.blew === false, 'непорожній список у межах дозрілих пишеться');
   check(
     ok.written.join(',') === 'gone-paths.json,gone.json',
     'і теж обома файлами, щоб середина не могла розійтись',
+  );
+  check(
+    JSON.stringify(ok.paths) === JSON.stringify(rows.map((r) => r.path)),
+    '🔴 у gone-paths.json лежать САМЕ ті адреси, а не порожній масив',
+  );
+  check(
+    Array.isArray(ok.full) && ok.full.length === rows.length,
+    'і gone.json несе ті самі рядки цілком, для сторінки /gone',
+  );
+
+  // 🔴 ФОРМА ВІДПОВІДІ. 200 із чужим тілом давав `undefined > 0` ===
+  // false, тобто сторож падав ВІДКРИТИМ: файл писався, у лог ішло
+  // «undefined matured». Досяжно перестановкою маршруту нижче за
+  // `:country/:region` — тоді /spots/gone/pending віддає 200 зі
+  // списком кемпінгів регіону «gone».
+  for (const [label, body] of [
+    ['порожній обʼєкт', {}],
+    ['масив кемпінгів замість чисел', [{ slug: 'x' }]],
+    ['числа рядками', { intervalDays: '28', mature: '0', pending: '5', oldestDays: '1' }],
+    ['бракує одного поля', { intervalDays: 28, mature: 0, pending: 5 }],
+  ]) {
+    const odd = await run([], body);
+    check(odd.blew === true, `🔴 відповідь «${label}» — це збій, а не «нуль дозрілих»`);
+    check(odd.written.length === 0, `🔴 і при «${label}» нічого не записано`);
+  }
+
+  // 🔴 Стеля для edge-бандла. Без цього випадку рядок
+  // `enforceEdgeBudget` можна було прибрати або пересунути ПІСЛЯ
+  // запису, і жодна фікстура цього не помічала: усі вони крихітні.
+  const huge = Array.from({ length: 9000 }, (_, i) => ({
+    path: `/fr/paca/campsite-with-a-fairly-long-slug-number-${i}`,
+  }));
+  const over = await run(huge, at(9000, 0, 90));
+  check(over.blew === true, '🔴 список, більший за стелю edge-бандла, валить збірку');
+  check(
+    over.written.length === 0,
+    '🔴 і НЕ лишає файлу, який деплой потім не подужає',
   );
 }
 
@@ -283,7 +404,7 @@ async function selfTest() {
 
   // 🔴 CAMP-286: лічені, бо випадок, який перестав виконуватись, друкує
   // рівно те саме, що й той, який пройшов — нічого.
-  const EXPECTED_CASES = 19;
+  const EXPECTED_CASES = 33;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;

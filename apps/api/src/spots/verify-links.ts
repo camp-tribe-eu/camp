@@ -28,6 +28,8 @@ import {
   REDIRECT_PAIRS_SQL,
   REDIRECT_LIST_SQL,
   RESOLVED_REDIRECTS_SQL,
+  GONE_AFTER_DAYS,
+  GONE_PENDING_SQL,
 } from './links';
 
 const DB_URL =
@@ -479,6 +481,134 @@ async function main(): Promise<void> {
     // means the site answers 301 or 410 depending on which file the
     // middleware consults first, and the prerendered /gone page names a
     // campsite that is open on another page.
+    // 🔴 CAMP-301. `GONE_PENDING_SQL` вирішує, чи порожній список 410 —
+    // це «ще рано» чи «все зламалось». Доти його не виконував НІХТО:
+    // `links.spec.ts` міряв лише ТЕКСТ запиту, і рецензія показала, що
+    // крізь це проходить `WHERE false` на фільтрі дозрілих (сторож спить
+    // назавжди), своп двох фільтрів місцями, і додане віднімання
+    // `spot_links` у «незалежному» запиті.
+    //
+    // 🔴 ОРАКУЛ ЛІЧИТЬ У JS, а не другим SQL. Другий запит тієї ж форми
+    // погоджувався б із першим за побудовою — і це рівно те, проти чого
+    // сам CAMP-301: причина не сміє підтверджувати сама себе.
+    console.log('\n--- the reason an empty 410 list gives for itself ---');
+    {
+      const said = await db.query<{
+        mature: string | number;
+        pending: string | number;
+        oldest_days: number | null;
+      }>(GONE_PENDING_SQL);
+      const raw = await db.query<{ missing_since: Date }>(
+        `SELECT missing_since FROM camping_spots
+          WHERE missing_since IS NOT NULL AND region IS NOT NULL`,
+      );
+      const cutoff = Date.now() - GONE_AFTER_DAYS * 86_400_000;
+      const day = 86_400_000;
+      const want = {
+        mature: raw.rows.filter((r) => r.missing_since.getTime() < cutoff)
+          .length,
+        pending: raw.rows.filter((r) => r.missing_since.getTime() >= cutoff)
+          .length,
+        oldest:
+          raw.rows.length === 0
+            ? null
+            : Math.floor(
+                (Date.now() -
+                  Math.min(...raw.rows.map((r) => r.missing_since.getTime()))) /
+                  day,
+              ),
+      };
+      const got = {
+        mature: Number(said.rows[0]?.mature ?? -1),
+        pending: Number(said.rows[0]?.pending ?? -1),
+        oldest: said.rows[0]?.oldest_days ?? null,
+      };
+      console.log(
+        `  SQL: ${got.mature} mature, ${got.pending} pending, oldest ${got.oldest ?? '—'} days\n` +
+          `  JS : ${want.mature} mature, ${want.pending} pending, oldest ${want.oldest ?? '—'} days`,
+      );
+      for (const k of ['mature', 'pending'] as const) {
+        if (got[k] !== want[k]) {
+          console.error(
+            `✗ GONE_PENDING_SQL рахує ${k} як ${got[k]}, а той самий зріз у JS дає ${want[k]}. ` +
+              'Запит міряє не те, що каже його назва.',
+          );
+          failed += 1;
+        }
+      }
+      // Вік найдавнішого — у повних днях, і один день різниці тут
+      // означає календарне поле замість різниці (`date_part('month')`).
+      if (
+        got.oldest !== null &&
+        want.oldest !== null &&
+        Math.abs(got.oldest - want.oldest) > 1
+      ) {
+        console.error(
+          `✗ найдавнішому рядку ${got.oldest} днів за SQL і ${want.oldest} за JS`,
+        );
+        failed += 1;
+      }
+      // 🔴 І САДЖЕНИЙ РЯДОК, бо без нього ця перевірка залежить від
+      // календаря. Сьогодні `mature` дорівнює нулю — отже SQL, який
+      // завжди віддає нуль (`WHERE false` на цьому фільтрі), згоден із
+      // JS, і сторож спав би аж до 22.10, коли дізнатись про це буде
+      // пізно. Рядок віком 400 днів робить відповідь незалежною від
+      // того, який сьогодні день.
+      await db.query('BEGIN');
+      try {
+        await db.query(`DROP TABLE IF EXISTS gone_probe`);
+        await db.query(
+          `CREATE TEMP TABLE gone_probe ON COMMIT DROP AS
+             SELECT * FROM camping_spots WHERE region IS NOT NULL LIMIT 1`,
+        );
+        const probe = await db.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM gone_probe`,
+        );
+        if (probe.rows[0].n === 0) {
+          console.error(
+            '  ✗ немає жодного рядка з регіоном, щоб посадити зразок',
+          );
+          failed += 1;
+        } else {
+          await db.query(
+            `INSERT INTO camping_spots
+               SELECT * FROM gone_probe` + ` ON CONFLICT DO NOTHING`,
+          );
+          await db.query(
+            `UPDATE camping_spots SET missing_since = now() - interval '400 days'
+              WHERE id = (SELECT id FROM gone_probe)`,
+          );
+          const after = await db.query<{
+            mature: string;
+            oldest_days: number | null;
+          }>(GONE_PENDING_SQL);
+          const matureNow = Number(after.rows[0]?.mature ?? -1);
+          if (matureNow !== want.mature + 1) {
+            console.error(
+              `✗ посаджений рядок віком 400 днів не порахувався дозрілим: ` +
+                `${matureNow} замість ${want.mature + 1}. Фільтр «mature» ` +
+                'не міряє того, що обіцяє — і до 22.10 це було б непомітно.',
+            );
+            failed += 1;
+          }
+          const oldestNow = after.rows[0]?.oldest_days ?? -1;
+          if (oldestNow < 399 || oldestNow > 401) {
+            console.error(
+              `✗ вік найдавнішого ${oldestNow} днів замість ~400 — ` +
+                'рахується не різниця, а якесь календарне поле.',
+            );
+            failed += 1;
+          } else {
+            console.log(
+              `  посаджений рядок: ${matureNow} mature, oldest ${oldestNow} днів`,
+            );
+          }
+        }
+      } finally {
+        await db.query('ROLLBACK');
+      }
+    }
+
     console.log('\n--- the two lists the site is built from ---');
     const bothLists = async (): Promise<{
       redirects: Map<string, string>;
