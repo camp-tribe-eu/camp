@@ -69,3 +69,72 @@ export const PANEL_CHROME: readonly string[] = [
   REQUIRED_LINK,
   AGGREGATOR_CREDIT,
 ];
+
+/**
+ * Сім умов клаузули 5, кожна цитатою, і кожна — те, що має бути на
+ * екрані або в даних.
+ *
+ * 🔴 ЦЕЙ СПИСОК ІСНУЄ, ЩОБ ТЕСТ НЕ МОЖНА БУЛО ТИХО ВИДАЛИТИ. Матриця
+ * нижче (заміряна 13.10.2026) доводить, що кожен наявний тест
+ * червоніє, коли прибрати його елемент із компонента:
+ *
+ *   прибрано кредит    → «clause 5.3 …» і «clause 5.2 …»   (4 падіння)
+ *   прибрано час       → «clause 5.4 …»                     (1)
+ *   час замінено onset → «clause 5.4 …»                     (1)
+ *   прибрано посилання → «clause 5.5 …» + «all four» (2)
+ *   прибрано дисклеймер→ «clause 5.7 …» + «all four» (2)
+ *
+ * Але матриця каже лише про тести, які Є. Видали тест на 5.5 — і все
+ * лишиться зеленим, бо ніщо не питає, чи він узагалі існує. Саме це
+ * питає `warning-licence-coverage.spec.ts`, і саме тому список тут.
+ *
+ * `id` — рядок, який мусить стояти в назві тесту. Назва не є доказом
+ * сама по собі; доказ — матриця вище. Це перевірка на ПРИСУТНІСТЬ, а
+ * не на якість.
+ */
+export const CLAUSES: readonly { id: string; text: string }[] = [
+  {
+    id: 'clause 5.1',
+    text:
+      'If the Information being redistributed is modified in any way, it must ' +
+      'be redistributed along with the same Information without any material ' +
+      'change or modification.',
+  },
+  {
+    id: 'clause 5.2',
+    text:
+      'If the Information being redistributed spans more than one country, the ' +
+      'source of the Information must always be displayed as "EUMETNET – MeteoAlarm".',
+  },
+  {
+    id: 'clause 5.3',
+    text:
+      'If the Information being redistributed spans a single country, the name ' +
+      'of the relevant MeteoAlarm Participant (National Meteorological and ' +
+      'Hydrological Service) must always be displayed.',
+  },
+  {
+    id: 'clause 5.4',
+    text:
+      'The time of issue of the Information being redistributed, as indicated ' +
+      'on the MeteoAlarm Website at the time the Information is extracted, must ' +
+      'be included in any redistribution.',
+  },
+  {
+    id: 'clause 5.5',
+    text:
+      'Any Information being redistributed through internet applications must ' +
+      'include a link to the following URL: www.meteoalarm.org.',
+  },
+  {
+    id: 'clause 5.6',
+    text:
+      'Any Information being operationally redistributed must always be made ' +
+      'available with a delay on average less than five minutes and never ' +
+      'longer than ten minutes.',
+  },
+  {
+    id: 'clause 5.7',
+    text: 'All redistributors must publish the following disclaimer: ' + DISCLAIMER_VERBATIM,
+  },
+];
