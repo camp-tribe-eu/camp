@@ -202,7 +202,19 @@ const psql = (sql) => execFileSync('psql', [DB, '-tAX', '-c', sql], { encoding: 
 // `mkdtempSync`, як у import-release.mjs, це знімає, але знімає й кеш:
 // 61 МБ щоразу. `.cache/` у корені вже в .gitignore (рядок 94), лежить
 // під правами власника й переживає прогін.
-const CACHE = path.join(HERE, '..', '..', '.cache', 'camp-287-zones');
+/**
+ * Де лежить кеш, якщо скрипт лежить у `here`.
+ *
+ * 🔴 Окрема функція, бо інакше прив'язку до `HERE` не довести: мутація
+ * `path.join(process.cwd(), …)` ВИЖИВАЛА всі випадки — у CI прогін іде
+ * з кореня, тож cwd і корінь репозиторію збігаються, і перевірка на
+ * живому шляху однаково каже «так». Тут аргумент чужий, і підміна його
+ * на cwd червоніє.
+ */
+export const cachePathFor = (here) =>
+  path.join(here, '..', '..', '.cache', 'camp-287-zones');
+
+const CACHE = cachePathFor(HERE);
 
 /**
  * Чи тека кешу приватна: лежить під `root` і НЕ під спільною текою ОС.
@@ -219,7 +231,13 @@ export const cacheIsPrivate = (dir, root, osTmp) =>
   dir.startsWith(root + path.sep) && !dir.startsWith(osTmp + path.sep);
 
 function cacheDir() {
-  mkdirSync(CACHE, { recursive: true, mode: 0o700 });
+  // 🔴 Без `mode`. Він тут був і НІЧОГО не робив: `mkdirSync` накладає
+  // права лише коли створює теку, а на вже наявній — ні. Заміряно:
+  // `chmod 755` на теці, потім `mkdirSync(…, {mode: 0o700})` лишає
+  // `drwxr-xr-x`, і прибрати цей аргумент можна було безкарно. Права
+  // тут дає не він, а те, що тека лежить у репозиторії під обліковим
+  // записом власника, а не в спільній теці ОС.
+  mkdirSync(CACHE, { recursive: true });
   return CACHE;
 }
 
@@ -242,6 +260,8 @@ export async function sourceRows({
   let dropped = 0;
   for (const [scheme, src] of Object.entries(sources)) {
     const file = path.join(dir, `${scheme}.json`);
+    // Те, що щойно завантажили, вже розібране — удруге 33 МБ не парсимо.
+    let collection = null;
     if (!existsSync(file)) {
       const res = await fetchImpl(src.url);
       if (!res.ok) throw new Error(`GET ${src.url} returned ${res.status}`);
@@ -253,19 +273,44 @@ export async function sourceRows({
       // довіку: `existsSync` каже «вже є», завантаження не повторюється.
       // Вийти з цього можна було б лише руками, видаливши теку.
       // Платимо одним зайвим розбором на холодний кеш.
-      const parsed = JSON.parse(bytes.toString('utf8'));
-      if (parsed?.type !== 'FeatureCollection' || !Array.isArray(parsed.features)) {
-        throw new Error(`${src.url} віддав не FeatureCollection`);
+      collection = JSON.parse(bytes.toString('utf8'));
+      if (
+        collection?.type !== 'FeatureCollection' ||
+        !Array.isArray(collection.features) ||
+        // 🔴 І порожній `features` — теж помилка. Без цієї умови 200 із
+        // `{"type":"FeatureCollection","features":[]}` осідав у кеші
+        // назавжди: далі про розходження з `src.zones` сказав би лише
+        // `console.warn`, а це той самий «падає довіку» на поділку нижче.
+        // Усі три справжні джерела віддають 2 006 / 1 480 / 320 зон.
+        collection.features.length === 0
+      ) {
+        throw new Error(`${src.url} віддав не FeatureCollection із зонами`);
       }
-      // 🔴 І лише тепер — спершу в `.part`, і лише `renameSync` робить
-      // файл кешем. Обірване на половині лишалось би під власним ім'ям,
-      // і наступний прогін узяв би його мовчки. Перейменування в межах
-      // однієї теки атомарне.
-      const part = `${file}.part`;
-      write(part, bytes);
-      renameSync(part, file);
+      // 🔴 І лише тепер — спершу в тимчасовий файл, і лише `renameSync`
+      // робить його кешем. Обірване на половині лишалось би під власним
+      // ім'ям, і наступний прогін узяв би його мовчки. Перейменування в
+      // межах однієї теки атомарне.
+      //
+      // 🔴 PID У НАЗВІ, і це не прикраса. З однаковим `.part` два
+      // одночасні прогони — нічний таймер і ручний запуск — б'ються за
+      // той самий файл: один падає `ENOENT` на `rename`, другий читає
+      // кеш, який сусід опублікував недописаним. Вікно — секунди запису
+      // 33 МБ, тобто цілком досяжне.
+      const part = `${file}.${process.pid}.part`;
+      try {
+        write(part, bytes);
+        renameSync(part, file);
+      } finally {
+        // Після вдалого перейменування його вже немає; після зриву —
+        // є, і прибрати його має той, хто створив.
+        rmSync(part, { force: true });
+      }
     }
-    const made = rowsFrom(JSON.parse(readFileSync(file, 'utf8')), scheme, src.idField);
+    const made = rowsFrom(
+      collection ?? JSON.parse(readFileSync(file, 'utf8')),
+      scheme,
+      src.idField,
+    );
     // 🔴 Заміряне число зон — у `USED_SOURCES`. Джерело, що віддало
     // інакше, змінилось під нами, і це треба побачити, а не всереднити.
     if (made.lines.length !== src.zones) {
@@ -444,6 +489,24 @@ async function selfTest() {
     cacheIsPrivate('/elsewhere/.cache/zones', '/repo', '/tmp') === false,
     'тека поза репозиторієм — не приватна',
   );
+  // 🔴 І ДВА ВИПАДКИ ПРО `path.sep`, бо без них обидва `+ path.sep`
+  // можна було прибрати безкарно — рецензія це заміряла. Без них
+  // `/repo-backup/.cache/zones` при корені `/repo` вважався приватним
+  // (сусідній префікс, не вкладеність), а тека під `/tmp-other`
+  // читалась як тека в `/tmp`.
+  check(
+    cacheIsPrivate('/repo-backup/.cache/zones', '/repo', '/tmp') === false,
+    '🔴 сусідній префікс кореня — НЕ вкладеність',
+  );
+  check(
+    cacheIsPrivate('/tmp-other/repo/.cache/z', '/tmp-other/repo', '/tmp') === true,
+    '🔴 `/tmp-other` — це не `/tmp`',
+  );
+  check(
+    cachePathFor('/a/b/scripts/meteoalarm') === path.join('/a/b', '.cache', 'camp-287-zones'),
+    'шлях кешу рахується від теки скрипта, два рівні вгору',
+  );
+
   // 🔴 Єдиний випадок, де говорить саме умова про теку ОС: шлях лежить
   // під коренем (перша умова каже «так») і водночас у /tmp.
   check(
@@ -475,8 +538,15 @@ async function selfTest() {
     const got = await sourceRows({ dir, sources, fetchImpl, write });
     check(got.lines.length === 1, 'репетиція завантаження дає рядок, а не порожнечу');
     check(
-      seen.length === 1 && seen[0].endsWith('.json.part'),
-      '🔴 завантажене пишеться СПЕРШУ у .part — під власним ім\'ям обірване лишилось би кешем',
+      seen.length === 1 && seen[0].endsWith('.part') && !seen[0].endsWith('.json'),
+      '🔴 завантажене пишеться СПЕРШУ не під іменем кешу — інакше обірване лишилось би кешем',
+    );
+    // 🔴 І ім'я тимчасового файлу мусить бути РІЗНИМ у різних процесів.
+    // Зі спільним `.part` два одночасні прогони б'ються за один файл:
+    // один падає ENOENT на `rename`, другий читає недописане.
+    check(
+      seen[0].includes(`.${process.pid}.`),
+      '🔴 тимчасовий файл носить PID — спільне ім\'я ламає два одночасні прогони',
     );
     check(
       existsSync(path.join(dir, 'TEST.json')) && !existsSync(seen[0]),
@@ -501,9 +571,13 @@ async function selfTest() {
       !existsSync(path.join(dir2, 'TEST.json')),
       '🔴 після зриву кеш ПОРОЖНІЙ — інакше наступний прогін мовчки візьме обрізок',
     );
+    // 🔴 Тека має бути ПОРОЖНЯ, а не «лише .part». Попередня редакція
+    // питала `.every(…)`, а це на порожній теці істинне за побудовою —
+    // перевірка, зелена незалежно від коду. Тепер хвіст прибирає той,
+    // хто його створив (`finally` при записі), тож питаємо саме це.
     check(
-      readdirSync(dir2).every((f) => f.endsWith('.part')),
-      'усе, що лишилось від зриву, має суфікс .part і не читається як кеш',
+      readdirSync(dir2).length === 0,
+      '🔴 після зриву тека кешу ПОРОЖНЯ — хвіст прибирає той, хто його створив',
     );
 
     // 🔴 І сторінка-помилка з кодом 200. Саме вона осідала в кеші як
@@ -513,11 +587,19 @@ async function selfTest() {
     // `features`, тож обидві половини казали «ні» разом, і прибрати
     // будь-яку з них можна було безкарно — матриця показала дві вижилі
     // мутації. Нижче кожна половина лишається єдиною, хто говорить.
-    for (const [label, payload] of [
-      ['HTML замість JSON', '<!doctype html><title>502</title>'],
-      ['JSON, але не FeatureCollection', '{"type":"Feature","properties":{}}'],
-      ['правильний type, але features немає', '{"type":"FeatureCollection"}'],
-      ['features є, але type чужий', '{"type":"Feature","features":[]}'],
+    for (const [label, payload, ok] of [
+      ['HTML замість JSON', '<!doctype html><title>502</title>', true],
+      ['JSON, але не FeatureCollection', '{"type":"Feature","properties":{}}', true],
+      ['правильний type, але features немає', '{"type":"FeatureCollection"}', true],
+      ['features є, але type чужий', '{"type":"Feature","features":[]}', true],
+      // 🔴 Порожній перелік зон. Без власної умови він проходив сторож
+      // і кешувався назавжди.
+      ['FeatureCollection без жодної зони', '{"type":"FeatureCollection","features":[]}', true],
+      // 🔴 І сам `res.ok`. Усі фікстури вище казали `ok: true`, тож
+      // рядок `if (!res.ok) throw` не був покритий НІЧИМ: прибрати його
+      // можна було безкарно, і 5xx із правдоподібним тілом осів би в
+      // кеші.
+      ['5xx із правдоподібним тілом', '{"type":"FeatureCollection","features":[{"properties":{"code":"X1"},"geometry":{"type":"Point","coordinates":[0,0]}}]}', false],
     ]) {
       const d = mkdtempSync(path.join(tmpdir(), 'camp-287-rehearsal-'));
       let blew = false;
@@ -525,13 +607,17 @@ async function selfTest() {
         await sourceRows({
           dir: d,
           sources,
-          fetchImpl: async () => ({ ok: true, arrayBuffer: async () => Buffer.from(payload) }),
+          fetchImpl: async () => ({
+            ok,
+            status: ok ? 200 : 503,
+            arrayBuffer: async () => Buffer.from(payload),
+          }),
           write,
         });
       } catch {
         blew = true;
       }
-      check(blew, `🔴 ${label} з кодом 200 — це помилка, а не дані`);
+      check(blew, `🔴 ${label} — це помилка, а не дані`);
       check(
         !existsSync(path.join(d, 'TEST.json')),
         `🔴 ${label} НЕ осідає в кеші — інакше кожен наступний прогін падав би довіку`,
@@ -543,7 +629,7 @@ async function selfTest() {
     rmSync(dir2, { recursive: true, force: true });
   }
 
-  const EXPECTED_CASES = 48;
+  const EXPECTED_CASES = 56;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;
