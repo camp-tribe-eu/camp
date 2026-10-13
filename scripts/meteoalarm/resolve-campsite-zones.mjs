@@ -20,13 +20,24 @@
 // з'єднання йде ПАРАМИ «країна × схема, яку вона вживає».
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, realpathSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import {
+  readFileSync,
+  realpathSync,
+  renameSync,
+  writeFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  existsSync,
+} from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chooseAction } from '../lib/entrypoint.mjs';
 import { SCHEMES_USED, USED_SOURCES, rowsFrom, usesPairs, verdict } from './zone-coverage.mjs';
 
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DB = process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
 const STAGING = 'warning_zones_staging';
 
@@ -182,22 +193,65 @@ export function plan({ apply }) {
 
 const psql = (sql) => execFileSync('psql', [DB, '-tAX', '-c', sql], { encoding: 'utf8' }).trim();
 
+// 🔴 КЕШ ЛЕЖИТЬ У РЕПОЗИТОРІЇ, А НЕ В /tmp, і це не смак — це три
+// алерти CodeQL на цьому PR (`js/insecure-temporary-file` двічі,
+// `js/file-system-race`). Шлях у `os.tmpdir()` передбачуваний, а на
+// Linux тека ще й спільна для всіх на машині: хто завгодно міг покласти
+// туди свій `EMMA_ID.json` ДО нас — `existsSync` сказав би «вже є», і
+// ми залили б у продакшн-базу чужі полігони, нічого не завантаживши.
+// `mkdtempSync`, як у import-release.mjs, це знімає, але знімає й кеш:
+// 61 МБ щоразу. `.cache/` у корені вже в .gitignore (рядок 94), лежить
+// під правами власника й переживає прогін.
+const CACHE = path.join(HERE, '..', '..', '.cache', 'camp-287-zones');
+
+/**
+ * Чи тека кешу приватна: лежить під `root` і НЕ під спільною текою ОС.
+ *
+ * 🔴 Винесено в чисту функцію не задля краси. Перша версія перевіряла
+ * обидві умови на живому шляху — і на будь-якій машині, де репозиторій
+ * не всередині /tmp, перша умова спрацьовувала завжди першою, а друга
+ * не червоніла НІ ПІД ЯКОЮ мутацією. Два запобіжники прикривали один
+ * одного. На сконструйованих шляхах кожна половина ізолюється: саме
+ * друга половина — єдина, хто говорить на машині, де сам репозиторій
+ * розпакований у тимчасову теку.
+ */
+export const cacheIsPrivate = (dir, root, osTmp) =>
+  dir.startsWith(root + path.sep) && !dir.startsWith(osTmp + path.sep);
+
 function cacheDir() {
-  const dir = path.join(tmpdir(), 'camp-287-zones');
-  mkdirSync(dir, { recursive: true });
-  return dir;
+  mkdirSync(CACHE, { recursive: true, mode: 0o700 });
+  return CACHE;
 }
 
-async function sourceRows() {
-  const dir = cacheDir();
+/**
+ * Завантажити (або взяти з кешу) кожне джерело й скласти TSV-рядки.
+ *
+ * 🔴 Параметри існують заради репетиції, і це єдина причина. Без них
+ * мутація «пиши одразу в кеш, без .part» виживала: жоден випадок не
+ * доходив сюди, бо справжній прогін іде в мережу. Тепер репетиція
+ * проходить ТУ САМУ послідовність викликів і дивиться, під яким ім'ям
+ * файл з'являється вперше.
+ */
+export async function sourceRows({
+  dir = cacheDir(),
+  sources = USED_SOURCES,
+  fetchImpl = fetch,
+  write = writeFileSync,
+} = {}) {
   const lines = [];
   let dropped = 0;
-  for (const [scheme, src] of Object.entries(USED_SOURCES)) {
+  for (const [scheme, src] of Object.entries(sources)) {
     const file = path.join(dir, `${scheme}.json`);
     if (!existsSync(file)) {
-      const res = await fetch(src.url);
+      const res = await fetchImpl(src.url);
       if (!res.ok) throw new Error(`GET ${src.url} returned ${res.status}`);
-      writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+      // 🔴 Спершу в `.part`, і лише `renameSync` робить файл кешем.
+      // Обірване на половині завантаження інакше лишається під власним
+      // ім'ям, і наступний прогін бере його мовчки: `existsSync` не
+      // вміє питати «цілий?». Перейменування в межах теки атомарне.
+      const part = `${file}.part`;
+      write(part, Buffer.from(await res.arrayBuffer()));
+      renameSync(part, file);
     }
     const made = rowsFrom(JSON.parse(readFileSync(file, 'utf8')), scheme, src.idField);
     // 🔴 Заміряне число зон — у `USED_SOURCES`. Джерело, що віддало
@@ -275,7 +329,7 @@ async function run({ apply }) {
   return 0;
 }
 
-function selfTest() {
+async function selfTest() {
   let rc = 0;
   const cases = [];
   const check = (cond, m) => {
@@ -366,7 +420,85 @@ function selfTest() {
     'пари будуються з переданого набору, а не з глобального',
   );
 
-  const EXPECTED_CASES = 30;
+  // 🔴 Кеш не в спільній теці — те саме, що зняв три алерти CodeQL.
+  // Перевіряється ВЛАСТИВІСТЬ, а не рядок: «лежить під репозиторієм і
+  // не під os.tmpdir()». Інакше наступний, хто захоче зробити шлях
+  // коротшим, поверне /tmp і побачить зелене.
+  check(
+    cacheIsPrivate('/repo/.cache/zones', '/repo', '/tmp') === true,
+    'тека під репозиторієм і поза /tmp — приватна',
+  );
+  check(
+    cacheIsPrivate('/elsewhere/.cache/zones', '/repo', '/tmp') === false,
+    'тека поза репозиторієм — не приватна',
+  );
+  // 🔴 Єдиний випадок, де говорить саме умова про теку ОС: шлях лежить
+  // під коренем (перша умова каже «так») і водночас у /tmp.
+  check(
+    cacheIsPrivate('/tmp/work/repo/.cache/zones', '/tmp/work/repo', '/tmp') === false,
+    '🔴 під коренем, але всередині /tmp — не приватна: туди чужий файл кладеться раніше за наш',
+  );
+  check(
+    cacheIsPrivate(cacheDir(), path.resolve(HERE, '..', '..'), realpathSync(tmpdir())) === true,
+    'справжня тека кешу цього скрипта приватна',
+  );
+
+  // 🔴 ТА САМА ПОСЛІДОВНІСТЬ ВИКЛИКІВ, що й у справжньому прогоні —
+  // `sourceRows`, не загорнута навколо неї обгортка. Дивимось не на
+  // дані, а на ім'я, під яким файл з'являється ВПЕРШЕ.
+  {
+    const dir = mkdtempSync(path.join(tmpdir(), 'camp-287-rehearsal-'));
+    const sources = { TEST: { url: 'https://example.invalid/z', idField: 'code', zones: 1 } };
+    const body = JSON.stringify({
+      type: 'FeatureCollection',
+      features: [{ properties: { code: 'X1' }, geometry: { type: 'Point', coordinates: [0, 0] } }],
+    });
+    const seen = [];
+    const write = (p, b) => {
+      seen.push(p);
+      writeFileSync(p, b);
+    };
+    const fetchImpl = async () => ({ ok: true, arrayBuffer: async () => Buffer.from(body) });
+
+    const got = await sourceRows({ dir, sources, fetchImpl, write });
+    check(got.lines.length === 1, 'репетиція завантаження дає рядок, а не порожнечу');
+    check(
+      seen.length === 1 && seen[0].endsWith('.json.part'),
+      '🔴 завантажене пишеться СПЕРШУ у .part — під власним ім\'ям обірване лишилось би кешем',
+    );
+    check(
+      existsSync(path.join(dir, 'TEST.json')) && !existsSync(seen[0]),
+      'після успіху в кеші лежить .json і не лишається .part',
+    );
+
+    // І зрив посеред запису: у кеші не має з'явитись НІЧОГО під іменем,
+    // яке наступний прогін прийме за готове.
+    const dir2 = mkdtempSync(path.join(tmpdir(), 'camp-287-rehearsal-'));
+    const halfWrite = (p, b) => {
+      writeFileSync(p, b.subarray(0, 3));
+      throw new Error('обірвано');
+    };
+    let threw = false;
+    try {
+      await sourceRows({ dir: dir2, sources, fetchImpl, write: halfWrite });
+    } catch {
+      threw = true;
+    }
+    check(threw, 'зрив посеред запису не ковтається');
+    check(
+      !existsSync(path.join(dir2, 'TEST.json')),
+      '🔴 після зриву кеш ПОРОЖНІЙ — інакше наступний прогін мовчки візьме обрізок',
+    );
+    check(
+      readdirSync(dir2).every((f) => f.endsWith('.part')),
+      'усе, що лишилось від зриву, має суфікс .part і не читається як кеш',
+    );
+
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir2, { recursive: true, force: true });
+  }
+
+  const EXPECTED_CASES = 40;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;
@@ -394,6 +526,6 @@ if (invokedDirectly) {
     ['--self-test', '--apply'],
     'resolve-campsite-zones.mjs',
   );
-  if (action.has('--self-test')) process.exit(selfTest());
+  if (action.has('--self-test')) process.exit(await selfTest());
   process.exit(await run({ apply: action.has('--apply') }));
 }
