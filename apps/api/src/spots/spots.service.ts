@@ -18,6 +18,11 @@ import {
   notSecondarySql,
   REDIRECT_LIST_SQL,
 } from './links';
+import {
+  REGIONS_IN_USE_SQL,
+  regionRenames,
+  type RegionRename,
+} from './region-renames';
 import { NOTHING_TO_SAY_SQL, SPOT_DETAIL_SQL } from './detail-query';
 export { NOTHING_TO_SAY_SQL } from './detail-query';
 import type { TariffView } from './tariffs';
@@ -278,6 +283,34 @@ export class SpotsService {
    *
    * `intervalDays` їде сюди ж, щоб збірка не носила власної копії числа.
    */
+  /**
+   * CAMP-289: регіони, чия адреса переїжджає, і куди саме.
+   *
+   * Вісім пар, 607 байт — проти 65 КБ, якби кожну сторінку вести
+   * окремою парою. Це перейменування регіону, а не 668 окремих рішень,
+   * і дешевше воно саме тому, що каже правду.
+   *
+   * 🔴 Числа, які легко сплутати (заміряно 13.10.2026): 762 рядки
+   * лежать у цих регіонах, 721 із них живий, і лише 668 мають власну
+   * сторінку — решта вторинні.
+   */
+  async regionRenames(): Promise<{
+    regionsInUse: number;
+    renames: RegionRename[];
+  }> {
+    const rows = await this.db.query(REGIONS_IN_USE_SQL);
+    const mapped = rows.map((r: Record<string, unknown>) => ({
+      country: String(r.country),
+      region: String(r.region),
+      pages: Number(r.pages),
+    }));
+    // 🔴 `regionsInUse` їде разом зі списком, бо порожній список буває
+    // законним: на фікстурі CI регіонів, що потребують перейменування,
+    // немає. Відрізнити «нема чого перейменовувати» від «запит зламався»
+    // можна лише причиною — так само, як у CAMP-301.
+    return { regionsInUse: mapped.length, renames: regionRenames(mapped) };
+  }
+
   async gonePending(): Promise<{
     intervalDays: number;
     mature: number;

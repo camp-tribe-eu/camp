@@ -146,6 +146,24 @@ export function slugifyRegion(region: string | null): string {
   // CAMP-288 refused this same step one day ago, in writing, and this
   // function would have taken it by accident. The fold arrives here
   // together with the redirects, in CAMP-289 — not before.
+  return foldToAscii(region)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Як цей самий регіон писався В АДРЕСІ ДО CAMP-289.
+ *
+ * 🔴 Існує рівно для того, щоб було з чого вести редирект. NFD не
+ * розкладає `æ`, `ø`, `ß`, `ł`, `ħ` — вони ставали дефісом, і на цих
+ * адресах стоять опубліковані сторінки: `sja-lland` 306, `odz` 41,
+ * `mellie-a` 3 (заміряно 13.10.2026 по живих рядках). Доки хтось може
+ * прийти за старим посиланням, ця функція лишається.
+ *
+ * Її НЕ можна кликати, будуючи адресу: вона описує минуле.
+ */
+export function legacyRegionSlug(region: string | null): string {
+  if (!region) return '';
   return region
     .normalize('NFD')
     .replace(COMBINING, '')

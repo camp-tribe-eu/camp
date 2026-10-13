@@ -953,26 +953,42 @@ async function main(): Promise<void> {
         if (!allResolved || !allToTop || !noneLandMidway || !noneBuried)
           failed++;
 
-        // 🔴 And now make the mapper check FIRE, because a guard that has
-        // never fired is a guess.
+        // 🔴 CAMP-289 ЗМІНИВ ВІДПОВІДЬ ТУТ, і це поліпшення, а не регресія.
         //
-        // `slugifyRegion` keeps `[a-z0-9]` and nothing else, so a region
-        // written in its own alphabet slugifies to the empty string and
-        // `canonicalPath` returns null. The SQL does not know that: it
-        // asks only `region IS NOT NULL`, keeps the row, and `gone()`
-        // subtracts it — so that URL would be in neither list. Greece,
-        // Bulgaria and Cyprus are in the EU-27 and OSM holds their region
-        // names in Greek and Cyrillic, so this is a row we have not
-        // imported yet, not a row that cannot exist.
+        // Доти `slugifyRegion` лишав `[a-z0-9]` і нічого більше, тож
+        // регіон у власному алфавіті давав порожній слаг, `canonicalPath`
+        // повертав null, а SQL про це не знав — і адреса не потрапляла
+        // в жоден із двох списків. Перевірка стежила саме за цим.
+        //
+        // Тепер `foldToAscii` транслітерує: `Αττική` → `attiki`,
+        // `София` → `sofia`. Рядок не губиться — він дістає читабельну
+        // адресу. Заміряно 13.10.2026: живих рядків, яких це стосується,
+        // **нуль** (Natural Earth пише регіони латиницею), тож змінилась
+        // відповідь на посаджений рядок, а не поведінка на даних.
         await db.query(
           `UPDATE camping_spots SET region = 'Αττική' WHERE id = $1`,
           [order[order.length - 1]],
         );
         const greek = await bothLists();
+        const greekKept = greek.dropped === 0;
         console.log(
-          `  ${greek.dropped > 0 ? '✓' : '✗'} a region in its own alphabet is caught, not silently dropped`,
+          `  ${greekKept ? '✓' : '✗'} a region in its own alphabet gets a transliterated address, not silence`,
         );
-        if (greek.dropped === 0) failed++;
+        if (!greekKept) failed++;
+
+        // 🔴 Але сторож мусить лишатись живим: назва, з якої НІЧОГО не
+        // лишається, і досі не має адреси, і досі мусить бути спіймана.
+        // Без цього випадку транслітерацію можна було б прибрати разом
+        // із перевіркою й нічого б не почервоніло.
+        await db.query(
+          `UPDATE camping_spots SET region = '—— ——' WHERE id = $1`,
+          [order[order.length - 1]],
+        );
+        const nothing = await bothLists();
+        console.log(
+          `  ${nothing.dropped > 0 ? '✓' : '✗'} a region that folds to nothing is still caught`,
+        );
+        if (nothing.dropped === 0) failed++;
       } finally {
         await db.query('ROLLBACK');
       }

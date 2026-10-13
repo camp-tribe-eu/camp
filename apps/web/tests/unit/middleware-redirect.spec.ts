@@ -7,6 +7,7 @@ import {
   normalisePath,
   publicOrigin,
   redirectFor,
+  renameRegion,
   route,
 } from '../../src/middleware';
 
@@ -181,4 +182,113 @@ test('🔴 middleware keeps the signature Next calls it with', () => {
   // І підпис мусить лишатись одномісним: зайвий параметр — це той самий
   // дефект, що й був.
   expect(middleware.length).toBe(1);
+});
+
+
+// ── CAMP-289: регіон перейменували ──────────────────────────────────
+//
+// Вісім правил на 721 опубліковану сторінку, 413 байт. Пара на сторінку
+// коштувала б ~65 КБ і забрала б карту редиректів на 92,7% стелі.
+
+const RENAMES = new Map([
+  ['dk/sja-lland', 'sjaelland'],
+  ['fr/haute-rhin', 'haut-rhin'],
+]);
+
+test('🔴 стара адреса регіону веде на нову — і сторінка, і хаб', () => {
+  expect(renameRegion('/camping/dk/sja-lland/strandgaarden', RENAMES)).toBe(
+    '/camping/dk/sjaelland/strandgaarden',
+  );
+  // Хаб регіону опублікований так само, як сторінка кемпінга.
+  expect(renameRegion('/camping/dk/sja-lland', RENAMES)).toBe('/camping/dk/sjaelland');
+});
+
+test('чужа країна з тим самим слагом регіону не чіпається', () => {
+  // 🔴 Слаг регіону унікальний лише В МЕЖАХ країни, тож ключ — пара.
+  // Правило «замінити sja-lland скрізь» одного дня переписало б чужу
+  // адресу.
+  expect(renameRegion('/camping/se/sja-lland/x', RENAMES)).toBeNull();
+});
+
+test('нічого схожого не чіпається', () => {
+  expect(renameRegion('/camping/dk/fyn/x', RENAMES)).toBeNull();
+  expect(renameRegion('/guides/dk/sja-lland', RENAMES)).toBeNull();
+  expect(renameRegion('/camping/dk', RENAMES)).toBeNull();
+  expect(renameRegion('/', RENAMES)).toBeNull();
+});
+
+test('регістр і кінцева скісна не вирішують, чи адреса переїхала', () => {
+  expect(renameRegion('/Camping/DK/Sja-Lland/X/', RENAMES)).toBe('/camping/dk/sjaelland/x');
+});
+
+test('🔴 ОДИН 301, а не ланцюжок із двох', () => {
+  // Регіон переїхав, і кемпінг на новій адресі ще й склеєний з іншим.
+  // Читач має дістатись кінцевої адреси однією відповіддю.
+  const moved = new Map([['/camping/dk/sjaelland/old', '/camping/dk/sjaelland/new']]);
+  const res = route(
+    new NextRequest(new URL('/camping/dk/sja-lland/old', 'http://localhost:3000'), {
+      headers: proxied(),
+    }),
+    moved,
+    new Set(),
+    RENAMES,
+  ) as NextResponse;
+
+  expect(res.status).toBe(301);
+  expect(res.headers.get('location')).toBe(`${PUBLIC}/camping/dk/sjaelland/new`);
+});
+
+test('переїхав лише регіон — веде на перейменовану адресу', () => {
+  const res = route(
+    new NextRequest(new URL('/camping/fr/haute-rhin/le-camping?from=map', 'http://localhost:3000'), {
+      headers: proxied(),
+    }),
+    new Map(),
+    new Set(),
+    RENAMES,
+  ) as NextResponse;
+
+  expect(res.status).toBe(301);
+  expect(res.headers.get('location')).toBe(`${PUBLIC}/camping/fr/haut-rhin/le-camping?from=map`);
+});
+
+test('🔴 410 перевіряється за НОВОЮ адресою, а не за старою', () => {
+  // Список 410 будується з канонічних адрес. Кемпінг, що зник, на
+  // старому посиланні мусить дати 410 одразу, а не 301 у 410.
+  //
+  // 🔴 ТУТ СТОЯЛО `expect((res as NextResponse).status).not.toBe(301)`,
+  // і це була перевірка, зелена за побудовою: гілка 410 повертає
+  // Promise, у якого `.status` — `undefined`, а `undefined !== 301`
+  // завжди. Рецензія довела: мутація «гілка 410 → NextResponse.next()»
+  // лишала цей тест зеленим. Питаємо, у яку гілку пішли, як це вже
+  // робить тест вище.
+  const gone = new Set(['/camping/dk/sjaelland/spot-gone']);
+  const res = route(
+    new NextRequest(new URL('/camping/dk/sja-lland/spot-gone', 'http://localhost:3000'), {
+      headers: proxied(),
+    }),
+    new Map(),
+    gone,
+    RENAMES,
+  );
+  expect(res instanceof Promise, 'пішли не в гілку 410').toBe(true);
+  void (res as Promise<unknown>).catch(() => {});
+});
+
+test('🔴 правило, що веде саме в себе, не дає вічного редиректу', () => {
+  // Генератор такі правила відкидає, і `regionRenames` теж — але це
+  // остання лінія: згенерований файл може приїхати з чим завгодно, а
+  // ціна помилки тут — нескінченний цикл для читача й робота.
+  const selfish = new Map([['dk/fyn', 'fyn']]);
+  expect(renameRegion('/camping/dk/fyn/x', selfish)).toBeNull();
+
+  const res = route(
+    new NextRequest(new URL('/camping/dk/fyn/x', 'http://localhost:3000'), {
+      headers: proxied(),
+    }),
+    new Map(),
+    new Set(),
+    selfish,
+  ) as NextResponse;
+  expect(res.status, 'відповіли редиректом самі на себе').not.toBe(301);
 });
