@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { GET } from '@/app/data/warnings.json/route';
+import { CACHE_SECONDS } from '@/lib/warnings-feed';
 
 // CAMP-287 — сам обробник `GET`, якого не торкався жоден тест.
 //
@@ -24,7 +26,13 @@ async function callGet(impl: (url: string) => Promise<Response>) {
     return impl(String(u));
   }) as typeof fetch;
   try {
-    const { GET } = await import('@/app/data/warnings.json/route');
+    // 🔴 СТАТИЧНИЙ ІМПОРТ, А НЕ ДИНАМІЧНИЙ. `await import('@/…')`
+    // проходив локально (Node 24) і падав у CI (Node 22) з `Cannot find
+    // module '@/lib/warnings-feed'`: завантажувач Playwright переписує
+    // статичні шляхи, а динамічний рядок розвʼязує Node, який про
+    // псевдонім `@/` не знає. Динаміка тут була й не потрібна —
+    // обробник читає `globalThis.fetch` у момент виклику, а не
+    // імпорту, тож підміну видно й так.
     const res = await GET();
     return { res, seen, inits };
   } finally {
@@ -41,7 +49,6 @@ test('успіх: 200 і тіло у формі, яку читає панель'
 
 test('успіх: відповідь можна кешувати рівно стільки, скільки оголошено', async () => {
   const { res } = await callGet(async () => new Response(apiBody, { status: 200 }));
-  const { CACHE_SECONDS } = await import('@/lib/warnings-feed');
   expect(res.headers.get('cache-control')).toBe(`public, max-age=${CACHE_SECONDS}`);
 });
 
