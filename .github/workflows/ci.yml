@@ -284,6 +284,15 @@ jobs:
           node scripts/meteoalarm/zone-coverage.mjs --self-test | tee /dev/stderr \
             | grep -c '✓ zone-coverage self-test:' >/dev/null
 
+      # 🔴 CAMP-287. Репетирується ПОСЛІДОВНІСТЬ, не лише запит: прогін
+      # без `--apply` не сміє писати нічого, а `--apply` мусить писати
+      # рівно один раз і міряти покриття ПІСЛЯ запису.
+      - name: Zone resolver still refuses to write without --apply
+        run: |
+          set -o pipefail
+          node scripts/meteoalarm/resolve-campsite-zones.mjs --self-test | tee /dev/stderr \
+            | grep -c '✓ resolve-campsite-zones self-test:' >/dev/null
+
       # CAMP-60, debt #2. The verdict logic, including the case that
       # matters most: a run that sent nothing must FAIL, not report
       # "0 errors".
