@@ -68,6 +68,14 @@ export interface ChunkMarker {
   amenities: Partial<Amenities> | null;
   /** 🔴 Null when the campsite has no page — see canonicalPath. */
   path: string | null;
+  /**
+   * Коди зон попереджень цього кемпінга (CAMP-112).
+   *
+   * 🔴 КОДИ, А НЕ РІВЕНЬ. Чанк кешується як дані кемпінгів; знімок
+   * попереджень живе десять хвилин за клаузулою 5.6. Запекти сюди
+   * вирок означало б зробити кожен чанк десятихвилинним.
+   */
+  warningAreas?: readonly string[] | null;
 }
 
 export interface ChunkFeature {
@@ -79,6 +87,19 @@ export interface ChunkFeature {
     type: string;
     /** Null rather than a broken URL. The popup renders text instead. */
     href: string | null;
+    /**
+     * Зони попереджень, зшиті в ОДИН рядок через `|` (CAMP-112).
+     *
+     * 🔴 Рядок, а не масив, і це не економія на дужках: вирази
+     * MapLibre над масивом у `properties` обмежені, а `["in", код,
+     * ["get","z"]]` над рядком працює як підрядковий тест. Ключ
+     * ОДНОЛІТЕРНИЙ, бо він повторюється 61 тисячу разів.
+     *
+     * 🔴 Відсутній, коли кодів немає — як і зручності. Порожній рядок
+     * і «немає» читались би однаково, а вони різні: перше означало б,
+     * що зони порожні, друге — що резолвер сюди не дійшов.
+     */
+    z?: string;
   } & Partial<Record<AmenityKey, 'yes' | 'no'>>;
 }
 
@@ -100,6 +121,12 @@ export function chunkBody(markers: readonly ChunkMarker[]): string {
       name: m.name,
       type: m.type,
       href: m.path,
+      // 🔴 Порожній масив НЕ пишеться: `[]` і «немає» різні відповіді,
+      // а в чанку вони виглядали б однаково. Відсутній ключ — те саме,
+      // що й у зручностей: невідомо.
+      ...(m.warningAreas && m.warningAreas.length > 0
+        ? { z: m.warningAreas.join('|') }
+        : {}),
       // Only what is known — an absent key means unknown, which is what
       // the filters already assume. See knownAmenities.
       ...knownAmenities(m.amenities),

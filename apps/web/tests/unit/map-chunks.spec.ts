@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  type ChunkMarker,
   type Bounds,
   type RegionSummary,
   BYTES_PER_CAMPSITE,
@@ -500,4 +501,70 @@ test('🔴 the wide message says which set it counted', () => {
   const msg = dataMessage({ kind: 'wide', count: 3116 }) ?? '';
   expect(msg).toContain('regions in view');
   expect(msg).not.toMatch(/3,116 campsites in view\b/);
+});
+
+// CAMP-112 — зони попереджень їдуть у чанку, щоб мапа могла підсвітити
+// саме ті кемпінги, яких попередження стосується.
+//
+// 🔴 ЗАМІРЯНО, ЩО ЦЕ ВМІЩАЄТЬСЯ. Чанк на 1 344 кемпінги важить 258,0
+// байта на кемпінг при бюджеті 400 — запас 142. Зони додають 20,8.
+test.describe('CAMP-112: зони в чанку', () => {
+  const m = (over: Partial<ChunkMarker> = {}): ChunkMarker => ({
+    slug: 's',
+    name: 'N',
+    type: 'camp_site',
+    lat: 43.8,
+    lon: 15.5,
+    amenities: null,
+    path: '/camping/hr/x/s',
+    ...over,
+  });
+  const props = (marker: ChunkMarker) =>
+    (JSON.parse(chunkBody([marker])) as { features: { properties: Record<string, unknown> }[] })
+      .features[0].properties;
+
+  test('коди зшиваються в один рядок через |', () => {
+    expect(props(m({ warningAreas: ['EMMA_ID:HR008', 'NUTS3:HR033'] })).z).toBe(
+      'EMMA_ID:HR008|NUTS3:HR033',
+    );
+  });
+
+  test('один код — без роздільника', () => {
+    expect(props(m({ warningAreas: ['NUTS3:HR033'] })).z).toBe('NUTS3:HR033');
+  });
+
+  // 🔴 `[]` і «немає» — різні відповіді, і в чанку вони не сміють
+  // виглядати однаково. Порожній рядок читався б як «зони порожні»,
+  // а відсутній ключ означає «невідомо», як і в зручностей.
+  test('порожній масив не пише ключа', () => {
+    expect('z' in props(m({ warningAreas: [] }))).toBe(false);
+  });
+
+  test('null не пише ключа', () => {
+    expect('z' in props(m({ warningAreas: null }))).toBe(false);
+  });
+
+  test('відсутнє поле не пише ключа', () => {
+    expect('z' in props(m())).toBe(false);
+  });
+
+  // 🔴 Ключ однолітерний навмисно: він повторюється 61 тисячу разів.
+  test('ключ лишається однолітерним', () => {
+    const p = props(m({ warningAreas: ['NUTS3:HR033'] }));
+    expect(Object.keys(p).filter((k) => k.toLowerCase().includes('warning'))).toEqual([]);
+  });
+
+  test('зони не витісняють решти властивостей', () => {
+    const p = props(m({ warningAreas: ['NUTS3:HR033'] }));
+    expect([p.slug, p.name, p.type, p.href]).toEqual(['s', 'N', 'camp_site', '/camping/hr/x/s']);
+  });
+
+  // 🔴 Бюджет не на око: 1 000 кемпінгів із двома кодами кожен мусять
+  // лишатись під `chunkWeight`, інакше маршрут відмовиться їх віддати.
+  test('тисяча кемпінгів із зонами лишається в бюджеті', () => {
+    const many = Array.from({ length: 1000 }, (_, i) =>
+      m({ slug: `camp-${i}`, warningAreas: ['EMMA_ID:HR008', 'NUTS3:HR033'] }),
+    );
+    expect(chunkBody(many).length).toBeLessThan(chunkWeight(many.length));
+  });
 });
