@@ -394,7 +394,9 @@ test.describe('/map filters', () => {
   //
   // Падає, щойно вміст над ним виросте: саме так CAMP-255 зробив гірше
   // (панель 371 → 479), і саме цього тут бракувало.
-  test('🔴 CAMP-297: the count is on the first screen, measured', async ({ page }) => {
+  test('🔴 CAMP-297: the count is on the first screen, measured', async ({
+    page,
+  }) => {
     for (const [w, h] of [
       [390, 844],
       [360, 640],
@@ -403,24 +405,35 @@ test.describe('/map filters', () => {
       await page.goto('/map');
       await skipWithoutWebGL(page);
 
-      const seen = async (label: string) => {
+      const bottom = async () => {
         const box = await page.getByTestId('filter-count').boundingBox();
-        expect(box, `${label} ${w}×${h}: лічильника немає взагалі`).not.toBeNull();
-        expect(
-          Math.round(box!.y + box!.height),
-          `${label} ${w}×${h}: лічильник закінчується нижче за екран`,
-        ).toBeLessThanOrEqual(h);
+        expect(box, `${w}×${h}: лічильника немає взагалі`).not.toBeNull();
+        return Math.round(box!.y + box!.height);
       };
 
-      // 🔴 З банером І без нього. Банер — накладка внизу й вмісту не
-      // штовхає; якщо міряти лише без нього, ми знову лікували б не ту
-      // причину, як це вже сталось у CAMP-264.
-      await expect(page.getByTestId('cookie-banner')).toBeVisible();
-      await seen('із банером');
+      const withBanner = await bottom();
+      expect(
+        withBanner,
+        `${w}×${h}: лічильник закінчується нижче за екран`,
+      ).toBeLessThanOrEqual(h);
 
-      await page.getByTestId('cookie-reject').click();
-      await expect(page.getByTestId('cookie-banner')).toBeHidden();
-      await seen('без банера');
+      // 🔴 І ТЕ САМЕ ПІСЛЯ ВІДПОВІДІ НА БАНЕР. CAMP-264 звинуватила
+      // банер і додала нижній відступ — лічильник не зрушив ні на
+      // піксель, бо причина була над ним, а не під ним. Тут це
+      // стверджується, а не переказується: позиція мусить бути ТА САМА.
+      //
+      // Банер — накладка внизу, і те, чи він устиг відмалюватись, на
+      // число впливати не сміє; тому тест не чекає на його появу.
+      const reject = page.getByTestId('cookie-reject');
+      if (await reject.isVisible().catch(() => false)) {
+        await reject.click();
+        await expect(page.getByTestId('cookie-banner')).toBeHidden();
+      }
+
+      expect(
+        await bottom(),
+        `${w}×${h}: банер зрушив лічильник — отже причина не там, де ми думали`,
+      ).toBe(withBanner);
     }
   });
 
