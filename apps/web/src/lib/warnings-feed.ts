@@ -60,8 +60,46 @@ export function toFeed(payload: unknown): WarningFeed | null {
   const { fetchedAt, warnings } = payload as Record<string, unknown>;
   if (typeof fetchedAt !== 'string' || fetchedAt.trim() === '') return null;
   if (!Array.isArray(warnings)) return null;
+
+  // 🔴 КОНВЕРТ ПЕРЕВІРЯВСЯ, ВМІСТ — НІ, І ЦЕ КОШТУВАЛО Б УСЮ СТОРІНКУ.
+  // `warnings as readonly Warning[]` був сліпим приведенням. Рецензія
+  // прогнала три тіла: `[null]` → `Cannot read properties of null
+  // (reading 'areas')`; `areas: "oops"` → `areas.some is not a
+  // function`; `country: 42` → `.trim is not a function`. Виняток у
+  // рендері клієнтського компонента піднімається до межі сегмента, тож
+  // читач діставав би error-екран замість СТОРІНКИ КЕМПІНГА — не
+  // замість панелі.
+  const usable = warnings.filter(isWarning);
+
+  // 🔴 Усе нечитабельне при непорожньому масиві — це не «попереджень
+  // немає», це «ми не змогли прочитати». Та сама логіка, що
+  // `yieldLooksBroken` у фетчері: побачили блоки, не лишили жодного.
+  if (usable.length === 0 && warnings.length > 0) return null;
+
   return {
     meta: { source: AGGREGATOR, sourceUrl: METEOALARM_URL, fetchedAt },
-    warnings: warnings as readonly Warning[],
+    warnings: usable,
   };
+}
+
+/**
+ * Чи можна це прочитати, не кинувши винятку.
+ *
+ * 🔴 Перелічені рівно ті поля, яких читач ТОРКАЄТЬСЯ без перевірки:
+ * `country.trim()`, `areas.some()`, `area.codes`. Решта полів може
+ * бути будь-чим — вони лише друкуються, і `null` друкується
+ * нормально.
+ */
+export function isWarning(x: unknown): x is Warning {
+  if (typeof x !== 'object' || x === null) return false;
+  const w = x as Record<string, unknown>;
+  if (typeof w.country !== 'string') return false;
+  if (!Array.isArray(w.areas)) return false;
+  return w.areas.every(
+    (a) =>
+      typeof a === 'object' &&
+      a !== null &&
+      (( a as Record<string, unknown>).codes === undefined ||
+        Array.isArray((a as Record<string, unknown>).codes)),
+  );
 }

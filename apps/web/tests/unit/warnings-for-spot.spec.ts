@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { panelStateFor } from '@/components/warnings-for-spot';
-import type { Warning, WarningFeed } from '@/lib/warnings';
+import { panelStateFor, REFRESH_EVERY_MS } from '@/components/warnings-for-spot';
+import { FRESH_FOR_MINUTES, type Warning, type WarningFeed } from '@/lib/warnings';
 
 // CAMP-287 пункт перевірки 1 — «кемпінг у зоні з чинним попередженням
 // показує панель; сусідній кемпінг поза зоною — ні, і це доведено на
@@ -138,4 +138,39 @@ test('але знімок віком 11 хв після падіння — це 
   const s = state([...PARADISO], feedAt(11, [croatianWind([PARADISO[0]])]), true);
   expect(s?.kind).toBe('no-fresh-data');
   expect(s?.kind === 'no-fresh-data' && s.reason).toBe('stale');
+});
+
+// 🔴 ДЕФЕКТИ, ЗНАЙДЕНІ РЕЦЕНЗІЄЮ. Жодного з них не бачив прогін вище,
+// бо всі чотири фікстури мали `expires` у майбутньому — тобто жоден
+// випадок не питав про вік ПОПЕРЕДЖЕННЯ, лише про вік ЗНІМКА.
+
+test('протерміноване попередження не показується, хоч знімок свіжий', () => {
+  const past = { ...croatianWind([PARADISO[0]]), expires: '2026-10-13T11:00:00Z' };
+  const s = state([...PARADISO], feedAt(3, [past]));
+  // Воно скінчилось годину тому. Знімок свіжий, тож це ВИМІР: нічого
+  // не чинне. Не «немає свіжих даних» і не попередження.
+  expect(s?.kind).toBe('clear');
+});
+
+test('попередження без читабельного expires не вважається чинним', () => {
+  const untimed = { ...croatianWind([PARADISO[0]]), expires: 'колись' };
+  expect(state([...PARADISO], feedAt(3, [untimed]))?.kind).toBe('clear');
+});
+
+test('попередження, що скінчиться за хвилину, ще чинне', () => {
+  const soon = { ...croatianWind([PARADISO[0]]), expires: '2026-10-13T12:01:00Z' };
+  expect(state([...PARADISO], feedAt(3, [soon]))?.kind).toBe('warnings');
+});
+
+test('протермінований unlocatable не тримає панель у мовчанні', () => {
+  const placeless = { ...croatianWind([]), expires: '2026-10-13T11:00:00Z' };
+  // Непридатне до розміщення, але вже не чинне — мовчати більше нема про що.
+  expect(state([], feedAt(3, [placeless]))?.kind).toBe('clear');
+});
+
+test('період оновлення менший за бюджет ліцензії', () => {
+  // 🔴 Не «60000 === 60000»: порівняння з ЛІЦЕНЗІЙНИМ числом. Якщо
+  // хтось підніме період до бюджету, вікно протермінованого знімка
+  // стане досяжним, і це впаде.
+  expect(REFRESH_EVERY_MS).toBeLessThan(FRESH_FOR_MINUTES * 60_000);
 });

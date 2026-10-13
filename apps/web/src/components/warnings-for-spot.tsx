@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import {
   applicableWarnings,
+  splitByForce,
   warningState,
   type Warning,
   type WarningFeed,
@@ -20,6 +21,16 @@ import { WarningPanel } from './warning-panel';
 // браузер, після того як сторінка вже на екрані.
 
 export const WARNINGS_URL = '/data/warnings.json';
+
+/**
+ * Як часто перепитувати — і чому саме так.
+ *
+ * 🔴 Менше за `FRESH_FOR_MINUTES` (десять хвилин, клаузула 5.6), бо
+ * рівне йому дало б вікно, у якому знімок уже протермінований, а ми
+ * ще не дивились. Збігається з `max-age` маршруту, тож тік без нових
+ * даних не коштує мережі.
+ */
+export const REFRESH_EVERY_MS = 60_000;
 
 /**
  * Попередження для ОДНОГО кемпінга.
@@ -45,6 +56,7 @@ export function WarningsForSpot({
 }) {
   const [feed, setFeed] = useState<WarningFeed | null>(null);
   const [failed, setFailed] = useState(false);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     if (codes === null) return;
@@ -53,7 +65,10 @@ export function WarningsForSpot({
     void get(WARNINGS_URL)
       .then((r) => (r.ok ? (r.json() as Promise<WarningFeed>) : Promise.reject(new Error('нема'))))
       .then((f) => {
-        if (alive) setFeed(f);
+        if (alive) {
+          setFeed(f);
+          setFailed(false);
+        }
       })
       .catch(() => {
         if (alive) setFailed(true);
@@ -61,7 +76,25 @@ export function WarningsForSpot({
     return () => {
       alive = false;
     };
-  }, [codes, fetchImpl]);
+  }, [codes, fetchImpl, tick]);
+
+  // 🔴 БЕЗ ЦЬОГО ВКЛАДКА ПЕРЕРОСТАЄ БЮДЖЕТ ЛІЦЕНЗІЇ Й НЕ ЗНАЄ ПРО ЦЕ.
+  //
+  // Запит стріляв рівно один раз, `now` бралось один раз на рендері, а
+  // рендерів після `setFeed` більше не було. Вкладка, відкрита сорок
+  // хвилин, і далі показувала попередження зі знімка віком три
+  // хвилини — у файлі, збудованому навколо «ніколи не довше за десять
+  // хвилин». Знайдено рецензією.
+  //
+  // 🔴 Період МЕНШИЙ за бюджет, а не рівний йому: рівний означав би, що
+  // знімок устигає протермінуватись рівно між перевірками. Шістдесят
+  // секунд збігаються з `max-age` маршруту, тож більшість цих тіків
+  // обслуговує кеш браузера, не мережа.
+  useEffect(() => {
+    if (codes === null) return;
+    const id = setInterval(() => setTick((n) => n + 1), REFRESH_EVERY_MS);
+    return () => clearInterval(id);
+  }, [codes]);
 
   const state = panelStateFor({
     country,
@@ -108,6 +141,14 @@ export function panelStateFor({
   const warnings: readonly Warning[] = feed?.warnings ?? [];
   const { applicable, unlocatable } = applicableWarnings(country, codes, warnings);
 
+  // 🔴 ВІК ЗНІМКА І ВІК ПОПЕРЕДЖЕННЯ — РІЗНІ ГОДИННИКИ, і тут був лише
+  // перший. Фетчер викидає протерміновані на момент забору, але знімок
+  // живе в памʼяті 5 хв, плюс хвилина HTTP-кешу, плюс скільки вкладка
+  // його тримає. Попередження, що скінчилось одразу після забору,
+  // показувалось як чинне. Відкидається на КОЖНОМУ читанні.
+  const live = splitByForce(applicable, now);
+  const stillOpen = splitByForce(unlocatable, now);
+
   // 🔴 ТУТ СТОЯВ `failed ? null : feed`, І ЙОГО ПРИБРАНО ПІСЛЯ МУТАЦІЇ.
   // Жоден випадок не міг його почервонити: коли перший запит падає,
   // `feed` і так `null`, тож тернарник був тотожним. Єдиний стан, у
@@ -117,5 +158,5 @@ export function panelStateFor({
   // того, чи вдався наступний запит, а тернарник перетворював його на
   // «немає свіжих даних». Вік судить `warningState` — тим самим
   // числом, яким судить ліцензія.
-  return warningState(feed, applicable, now, unlocatable);
+  return warningState(feed, live.inForce, now, stillOpen.inForce);
 }
