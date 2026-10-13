@@ -248,7 +248,7 @@ test.describe('the two elements that are ours', () => {
     expect(text).toContain('This is not a statement that conditions are calm.');
   });
 
-  test('…the boundary is the licence’s ten minutes, either side of it', () => {
+  test('clause 5.6 — the boundary is the licence’s ten minutes, either side', () => {
     expect(warningState(feed(fresh(FRESH_FOR_MINUTES), []), [], NOW).kind).toBe('clear');
     expect(
       warningState(feed(fresh(FRESH_FOR_MINUTES + 0.1), []), [], NOW).kind,
@@ -398,7 +398,7 @@ test.describe('nothing on this panel is a phrase we wrote about the weather', ()
   };
 
   for (const [kind, state] of Object.entries(EVERY)) {
-    test(`🔴 ${kind}: every word is either the source’s or declared chrome`, () => {
+    test(`🔴 clause 5.1 — ${kind}: every word is either the source’s or declared chrome`, () => {
       expect(leftover(everything(state)), `${kind}: ${WHY}`).toEqual([]);
     });
   }
