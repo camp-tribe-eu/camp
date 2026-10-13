@@ -366,6 +366,55 @@ test.describe('CAMP-156: твердження про покриття назив
     expect(WEBCAM_NETWORK).toMatch(/^\S+\.\S+$/);
   });
 
+  test('🔴 у порожньому стані НЕМАЄ кредиту Windy', () => {
+    // 🔴 Рецензія знайшла найтоншу з трьох: `'windy.com'` — ПІДРЯДОК
+    // `WINDY_CREDIT = 'Webcams provided by windy.com'`, і той теж
+    // імпортований у цей компонент. Мутація `{WEBCAM_NETWORK}` →
+    // `{WINDY_CREDIT}` лишала всі 31 зеленими, а сторінка друкувала
+    // «No public webcam within 25 km of this campsite is listed on
+    // Webcams provided by windy.com» — тобто ліцензійний кредит саме
+    // там, де їхнього вмісту не показано жодного.
+    //
+    // Кредит належить рівно туди, де є картки. Питаємо це прямо.
+    const STALE = new Date(NOW.getTime() + (CAMERA_DEAD_AFTER_MINUTES + 60) * 60_000);
+    for (const [label, props] of [
+      ['немає камер', { webcams: [], now: NOW }],
+      ['камери замовкли', { webcams: REAL, now: STALE }],
+    ] as const) {
+      const out = text(renderComponent(WebcamPanel, props));
+      expect(out, label).not.toContain(WINDY_CREDIT);
+    }
+    // І навпаки: там, де картки є, кредит мусить бути.
+    expect(text(renderComponent(WebcamPanel, { webcams: REAL, now: NOW }))).toContain(
+      WINDY_CREDIT,
+    );
+  });
+
+  test('🔴 кредит Windy — дослівний, бо так вимагають їхні умови', () => {
+    // 🔴 Успадкований дефект, який рецензія знайшла дорогою: мутація
+    // `'Webcams by windy.com'` лишала всі 31 зеленими. Літерал існує
+    // рівно в одному місці репозиторію, тож дослівності не тримало
+    // ніщо — а це умова ліцензії, не стиль.
+    expect(WINDY_CREDIT).toBe('Webcams provided by windy.com');
+  });
+
+  test('🔴 назва мережі — це той самий хост, куди ходить імпортер', () => {
+    // 🔴 `WEBCAM_NETWORK = 'example.org'` лишало всі 31 зеленими:
+    // константа не була прив'язана ні до чого. Радіус має свого
+    // сторожа (`scripts/ci/check-webcam-radius.mjs`), назва мережі — ні.
+    //
+    // Єдина сторона, яка справді знає, чия це мережа, — скрипт, що
+    // ходить по дані. Беремо хост звідти.
+    const fetcher = readFileSync(
+      join(process.cwd(), '..', '..', 'scripts', 'windy', 'fetch-webcams.mjs'),
+      'utf8',
+    );
+    const api = /export const API = '([^']+)'/.exec(fetcher)?.[1];
+    expect(api).toBeTruthy();
+    const host = new URL(api as string).hostname; // api.windy.com
+    expect(host.endsWith(`.${WEBCAM_NETWORK}`) || host === WEBCAM_NETWORK).toBe(true);
+  });
+
   test('🔴 назва мережі не зашита в компонент рядком', () => {
     // 🔴 ЦЕ ЧИТАЄ ВИХІДНИЙ ТЕКСТ, і без цього два тести вище мали дірку:
     // зашитий літерал `windy.com` проходив би `toContain(WEBCAM_NETWORK)`
@@ -377,7 +426,11 @@ test.describe('CAMP-156: твердження про покриття назив
     );
     expect(src, 'назва мережі має приїжджати з lib/webcams, а не стояти текстом')
       .not.toMatch(/['"`][^'"`]*windy\.com/);
-    expect(src).toContain('WEBCAM_NETWORK');
+    // 🔴 `toContain('WEBCAM_NETWORK')` задовольнявся САМИМ рядком
+    // import — під мутацією, що прибирає константу з розмітки, він
+    // лишався зеленим. Рахуємо вживання у JSX: їх двоє, по одному на
+    // кожен порожній стан.
+    expect(src.match(/\{WEBCAM_NETWORK\}/g) ?? []).toHaveLength(2);
   });
 });
 
