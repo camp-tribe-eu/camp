@@ -96,6 +96,24 @@ export function verdict({ paths, pending }) {
   }
 
   const { intervalDays, mature, pending: waiting, oldestDays } = pending;
+
+  // 🔴 І ПРИЧИНА НЕ СМІЄ СУПЕРЕЧИТИ САМІЙ СОБІ. Найдавніший рядок
+  // старший за інтервал — отже він дозрілий за означенням, і `mature`
+  // нулем бути не може. Рецензія показала, що вирок приймав
+  // `{mature: 0, oldestDays: 400, intervalDays: 28}` і друкував
+  // «oldest 400 of 28 days; 0 matured», записавши порожній файл. Це
+  // рівно симптом `WHERE false` на фільтрі дозрілих, що доїхав до
+  // збірки — той самий дефект, який я тиждень тому ловив у SQL.
+  if (oldestDays !== null && oldestDays >= intervalDays && mature === 0) {
+    return {
+      ok: false,
+      line: `gone list: ${paths.length} path(s) 410; причина суперечить сама собі`,
+      reason:
+        `найдавнішому рядку ${oldestDays} днів при інтервалі ${intervalDays}, ` +
+        'але дозрілих нуль. Так не буває: рядок, старший за інтервал, і є ' +
+        'дозрілим. Отже фільтр «mature» міряє не те, що обіцяє.',
+    };
+  }
   const line =
     `gone list: ${paths.length} path(s) 410; ` +
     `${waiting} waiting, oldest ${oldestDays ?? '—'} of ${intervalDays} days; ` +
@@ -291,9 +309,23 @@ async function selfTestBuild(check) {
   const run = async (gone, pending) => {
     const dir = mkdtempSync(path.join(tmpdir(), 'gen-gone-rehearsal-'));
     const asked = [];
+    // 🔴 ПОРЯДОК ВИКОНАННЯ, А НЕ ВИКЛИКІВ. Попередня редакція лише
+    // складала імена в `asked`, і `Promise.all([get(a), get(b)])`
+    // переживав її: обидва виклики робляться в тому ж порядку, але
+    // виконуються паралельно — гонка `now()`, проти якої стоїть
+    // коментар у `main()`, відкривалась назад саме тим рефакторингом,
+    // який хтось зробить із думкою «нащо два await».
+    let goneResolved = false;
+    let raced = false;
     const get = async (route) => {
       asked.push(route);
-      return route.endsWith('/pending') ? pending : gone;
+      if (route.endsWith('/pending')) {
+        if (!goneResolved) raced = true;
+        return pending;
+      }
+      await new Promise((r) => setTimeout(r, 0));
+      goneResolved = true;
+      return gone;
     };
     let blew = false;
     try {
@@ -309,7 +341,14 @@ async function selfTestBuild(check) {
     // існує, і вона проходила власну репетицію.
     const read = (f) =>
       written.includes(f) ? JSON.parse(readFileSync(path.join(dir, f), 'utf8')) : null;
-    const out = { blew, written, asked, paths: read('gone-paths.json'), full: read('gone.json') };
+    const out = {
+      blew,
+      written,
+      asked,
+      raced,
+      paths: read('gone-paths.json'),
+      full: read('gone.json'),
+    };
     rmSync(dir, { recursive: true, force: true });
     return out;
   };
@@ -335,6 +374,10 @@ async function selfTestBuild(check) {
     early.asked.join(' → ') === '/spots/gone → /spots/gone/pending',
     '🔴 список питається ПЕРШИМ, причина другою',
   );
+  check(
+    early.raced === false,
+    '🔴 і причина питається ПІСЛЯ того, як список повернувся, а не разом із ним',
+  );
 
   // Після 22.10: те саме порожньо, але причина його вже не пояснює.
   const late = await run([], at(1, 5944, 28));
@@ -355,8 +398,12 @@ async function selfTestBuild(check) {
     JSON.stringify(ok.paths) === JSON.stringify(rows.map((r) => r.path)),
     '🔴 у gone-paths.json лежать САМЕ ті адреси, а не порожній масив',
   );
+  // 🔴 ЦІЛКОМ — означає побайтово ті самі обʼєкти. Попередня редакція
+  // питала `isArray && length`, і мутація, що писала в `gone.json`
+  // масив ШЛЯХІВ замість рядків, переживала її. Сторінка /gone читає
+  // цей файл як `GoneSpot[]` і дістала б рядки замість обʼєктів.
   check(
-    Array.isArray(ok.full) && ok.full.length === rows.length,
+    JSON.stringify(ok.full) === JSON.stringify(rows),
     'і gone.json несе ті самі рядки цілком, для сторінки /gone',
   );
 
@@ -369,12 +416,27 @@ async function selfTestBuild(check) {
     ['порожній обʼєкт', {}],
     ['масив кемпінгів замість чисел', [{ slug: 'x' }]],
     ['числа рядками', { intervalDays: '28', mature: '0', pending: '5', oldestDays: '1' }],
-    ['бракує одного поля', { intervalDays: 28, mature: 0, pending: 5 }],
+    // 🔴 ПО ОДНОМУ ПОЛЮ НА ВИПАДОК, і без цього сторож форми не був
+    // відрепетирований ЖОДНИМ своїм полем: усі фікстури вище ламають
+    // кілька одразу, тож прибрати будь-яке імʼя зі `shape` можна було
+    // безкарно. Рецензія прибрала `'mature'` і отримала рівно вихідний
+    // блокер на немутованій репетиції: «undefined matured» у лог,
+    // порожній файл на диск, збірка зелена.
+    ['бракує лише intervalDays', { mature: 0, pending: 5, oldestDays: 1 }],
+    ['бракує лише mature', { intervalDays: 28, pending: 5, oldestDays: 1 }],
+    ['бракує лише pending', { intervalDays: 28, mature: 0, oldestDays: 1 }],
+    ['бракує лише oldestDays', { intervalDays: 28, mature: 0, pending: 5 }],
   ]) {
     const odd = await run([], body);
     check(odd.blew === true, `🔴 відповідь «${label}» — це збій, а не «нуль дозрілих»`);
     check(odd.written.length === 0, `🔴 і при «${label}» нічого не записано`);
   }
+
+  // 🔴 Причина, що суперечить сама собі: найдавнішому 400 днів при
+  // інтервалі 28, а дозрілих нуль. Форма правильна, числа — ні.
+  const liar = await run([], at(0, 5945, 400));
+  check(liar.blew === true, '🔴 причина, що суперечить сама собі, валить збірку');
+  check(liar.written.length === 0, '🔴 і при суперечливій причині нічого не записано');
 
   // 🔴 Стеля для edge-бандла. Без цього випадку рядок
   // `enforceEdgeBudget` можна було прибрати або пересунути ПІСЛЯ
@@ -404,7 +466,7 @@ async function selfTest() {
 
   // 🔴 CAMP-286: лічені, бо випадок, який перестав виконуватись, друкує
   // рівно те саме, що й той, який пройшов — нічого.
-  const EXPECTED_CASES = 33;
+  const EXPECTED_CASES = 42;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;

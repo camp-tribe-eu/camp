@@ -558,22 +558,28 @@ async function main(): Promise<void> {
       try {
         await db.query(`DROP TABLE IF EXISTS gone_probe`);
         await db.query(
+          // 🔴 `missing_since IS NULL`, і це не дрібниця. Рецензія
+          // заміряла: `INSERT … ON CONFLICT DO NOTHING` дає `INSERT 0
+          // 0` — рядок конфліктує сам із собою по id, отже «саджений»
+          // насправді ЗАХОПЛЕНИЙ із наявних. Сьогодні `mature = 0` і
+          // `want.mature + 1` правильне; з 22.10 `LIMIT 1` без
+          // `ORDER BY` може вхопити вже дозрілий рядок, і перевірка
+          // дасть ХИБНИЙ ЧЕРВОНИЙ. Беремо лише живий: він за
+          // означенням не дозрілий, тож очікування вірне завжди.
           `CREATE TEMP TABLE gone_probe ON COMMIT DROP AS
-             SELECT * FROM camping_spots WHERE region IS NOT NULL LIMIT 1`,
+             SELECT * FROM camping_spots
+              WHERE region IS NOT NULL AND missing_since IS NULL LIMIT 1`,
         );
         const probe = await db.query<{ n: number }>(
           `SELECT count(*)::int AS n FROM gone_probe`,
         );
         if (probe.rows[0].n === 0) {
           console.error(
-            '  ✗ немає жодного рядка з регіоном, щоб посадити зразок',
+            '  ✗ немає жодного ЖИВОГО рядка з регіоном, щоб посадити зразок',
           );
           failed += 1;
         } else {
-          await db.query(
-            `INSERT INTO camping_spots
-               SELECT * FROM gone_probe` + ` ON CONFLICT DO NOTHING`,
-          );
+          // Рядок уже в таблиці — лишилось зробити його давно зниклим.
           await db.query(
             `UPDATE camping_spots SET missing_since = now() - interval '400 days'
               WHERE id = (SELECT id FROM gone_probe)`,
