@@ -462,6 +462,23 @@ jobs:
       - name: No unit refers to a file the repository does not have
         run: node scripts/ci/check-server-drift.mjs --offline
 
+      # 🔴 CAMP-307. `@next/next/no-html-link-for-pages` ловить маршрут
+      # лише тоді, коли в його теці є ДИНАМІЧНИЙ нащадок. Заміряно
+      # 13.10.2026 по одному href за раз: ловить /guides, /routes,
+      # /camping, /legal/notice; пропускає /about, /contact, /gone,
+      # /map, /search, /tools/camper-packing-list — шість листових
+      # статичних сторінок не захищені нічим.
+      #
+      # Правило лишається ввімкненим; цей крок закриває його діру.
+      - name: The internal-anchor guard still catches a plain <a>
+        run: |
+          set -o pipefail
+          node scripts/ci/check-internal-anchors.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-internal-anchors self-test:' >/dev/null
+
+      - name: No <a> navigates to an internal page
+        run: node scripts/ci/check-internal-anchors.mjs
+
       # 🔴 CAMP-183. The import script unpacks releases without a shell,
       # and its own rehearsal proves the rule still bites. That rehearsal
       # was written and then run NOWHERE — not here, not in package.json
