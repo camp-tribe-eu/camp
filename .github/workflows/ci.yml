@@ -735,7 +735,13 @@ jobs:
           site-mode: closed
           database-url: ${{ env.CI_DATABASE_URL }}
 
-      - run: npm run lint --workspace=apps/web
+      # 🔴 `--max-warnings=0`, бо попередження, яке ніколи не валить
+      # збірку, — це попередження, якого ніхто не читає. Те саме
+      # міркування вже записане нижче для apps/api, а тут його не було:
+      # рецензія CAMP-156 заміряла мутацію, після якої `WEBCAM_NETWORK`
+      # не вживався ніде, і єдиним слідом лишалось `'WEBCAM_NETWORK' is
+      # defined but never used` — попередження, з яким CI був зелений.
+      - run: npm run lint --workspace=apps/web -- --max-warnings=0
 
       # 🔴 `next build` typechecks only what the app imports, so nothing
       # ever looked at tests/ — the e2e specs were unchecked TypeScript

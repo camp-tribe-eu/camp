@@ -4,6 +4,7 @@ import { expect, test } from '@playwright/test';
 import { WebcamPanel } from '@/components/webcam-panel';
 import { RESERVED_WORDS } from '@/lib/cems';
 import {
+  WEBCAM_NETWORK,
   CAMERA_DEAD_AFTER_MINUTES,
   absence,
   WINDY_CREDIT,
@@ -327,6 +328,113 @@ test.describe('the words beside the pictures', () => {
 //
 // Every test passed, because every test handed the panel a `now` sitting
 // beside its fixture timestamps. These two do not.
+test.describe('CAMP-156: твердження про покриття називає свою мережу', () => {
+  // 🔴 Назва джерела стояла ЛИШЕ там, де камери є: `WINDY_CREDIT`
+  // друкується під картками. А речення про покриття живе рівно в тому
+  // стані, де карток немає — тож читачеві нізвідки було дізнатись, про
+  // яку мережу йдеться. Твердження, джерела якого не названо, читач
+  // перевірити не може, а покриття Windy по ЄС нерівномірне.
+
+  test('🔴 «камер поруч немає» каже, у ЧИЇЙ мережі їх немає', () => {
+    const out = text(renderComponent(WebcamPanel, { webcams: [], now: NOW }));
+    expect(absence([], NOW)).toBe('none');
+    expect(out, 'речення про покриття не називає мережі').toContain(WEBCAM_NETWORK);
+    // І не просто згадує назву десь поруч, а саме звужує твердження.
+    expect(out).toContain('the one network we look in');
+    expect(
+      out,
+      'читач має знати, що камера може існувати й не бути в цій мережі',
+    ).toContain('not be listed with them');
+  });
+
+  test('🔴 і «камери замовкли» — теж', () => {
+    const STALE = new Date(NOW.getTime() + (CAMERA_DEAD_AFTER_MINUTES + 60) * 60_000);
+    expect(absence(REAL, STALE)).toBe('stale');
+    const out = text(renderComponent(WebcamPanel, { webcams: REAL, now: STALE }));
+    expect(out, 'у цьому стані теж немає карток, отже й кредиту').toContain(WEBCAM_NETWORK);
+    expect(out).toContain('none of them has reported');
+  });
+
+  test('🔴 сама назва не може бути порожньою', () => {
+    // 🔴 Матриця показала, що без цього випадку константу можна було
+    // зробити порожнім рядком і всі тести лишались зеленими:
+    // `toContain('')` істинне завжди, а сторінка казала «on , the one
+    // network we look in». Перевірка, зелена за побудовою.
+    //
+    // Питаємо ВЛАСТИВІСТЬ, а не рядок: назва джерела виглядає як назва
+    // джерела. Перейменування мережі це переживе, порожнеча — ні.
+    expect(WEBCAM_NETWORK).toMatch(/^\S+\.\S+$/);
+  });
+
+  test('🔴 у порожньому стані НЕМАЄ кредиту Windy', () => {
+    // 🔴 Рецензія знайшла найтоншу з трьох: `'windy.com'` — ПІДРЯДОК
+    // `WINDY_CREDIT = 'Webcams provided by windy.com'`, і той теж
+    // імпортований у цей компонент. Мутація `{WEBCAM_NETWORK}` →
+    // `{WINDY_CREDIT}` лишала всі 31 зеленими, а сторінка друкувала
+    // «No public webcam within 25 km of this campsite is listed on
+    // Webcams provided by windy.com» — тобто ліцензійний кредит саме
+    // там, де їхнього вмісту не показано жодного.
+    //
+    // Кредит належить рівно туди, де є картки. Питаємо це прямо.
+    const STALE = new Date(NOW.getTime() + (CAMERA_DEAD_AFTER_MINUTES + 60) * 60_000);
+    const states: [string, { webcams: Webcam[]; now: Date }][] = [
+      ['немає камер', { webcams: [], now: NOW }],
+      ['камери замовкли', { webcams: REAL, now: STALE }],
+    ];
+    for (const [label, props] of states) {
+      const out = text(renderComponent(WebcamPanel, props));
+      expect(out, label).not.toContain(WINDY_CREDIT);
+    }
+    // І навпаки: там, де картки є, кредит мусить бути.
+    expect(text(renderComponent(WebcamPanel, { webcams: REAL, now: NOW }))).toContain(
+      WINDY_CREDIT,
+    );
+  });
+
+  test('🔴 кредит Windy — дослівний, бо так вимагають їхні умови', () => {
+    // 🔴 Успадкований дефект, який рецензія знайшла дорогою: мутація
+    // `'Webcams by windy.com'` лишала всі 31 зеленими. Літерал існує
+    // рівно в одному місці репозиторію, тож дослівності не тримало
+    // ніщо — а це умова ліцензії, не стиль.
+    expect(WINDY_CREDIT).toBe('Webcams provided by windy.com');
+  });
+
+  test('🔴 назва мережі — це той самий хост, куди ходить імпортер', () => {
+    // 🔴 `WEBCAM_NETWORK = 'example.org'` лишало всі 31 зеленими:
+    // константа не була прив'язана ні до чого. Радіус має свого
+    // сторожа (`scripts/ci/check-webcam-radius.mjs`), назва мережі — ні.
+    //
+    // Єдина сторона, яка справді знає, чия це мережа, — скрипт, що
+    // ходить по дані. Беремо хост звідти.
+    const fetcher = readFileSync(
+      join(process.cwd(), '..', '..', 'scripts', 'windy', 'fetch-webcams.mjs'),
+      'utf8',
+    );
+    const api = /export const API = '([^']+)'/.exec(fetcher)?.[1];
+    expect(api).toBeTruthy();
+    const host = new URL(api as string).hostname; // api.windy.com
+    expect(host.endsWith(`.${WEBCAM_NETWORK}`) || host === WEBCAM_NETWORK).toBe(true);
+  });
+
+  test('🔴 назва мережі не зашита в компонент рядком', () => {
+    // 🔴 ЦЕ ЧИТАЄ ВИХІДНИЙ ТЕКСТ, і без цього два тести вище мали дірку:
+    // зашитий літерал `windy.com` проходив би `toContain(WEBCAM_NETWORK)`
+    // непомітно, бо константа теж `windy.com`. Та сама пастка, що й з
+    // інтервалом у CAMP-301 — там її показала матриця.
+    const src = readFileSync(
+      join(process.cwd(), 'src', 'components', 'webcam-panel.tsx'),
+      'utf8',
+    );
+    expect(src, 'назва мережі має приїжджати з lib/webcams, а не стояти текстом')
+      .not.toMatch(/['"`][^'"`]*windy\.com/);
+    // 🔴 `toContain('WEBCAM_NETWORK')` задовольнявся САМИМ рядком
+    // import — під мутацією, що прибирає константу з розмітки, він
+    // лишався зеленим. Рахуємо вживання у JSX: їх двоє, по одному на
+    // кожен порожній стан.
+    expect(src.match(/\{WEBCAM_NETWORK\}/g) ?? []).toHaveLength(2);
+  });
+});
+
 test.describe('an empty panel says which kind of empty it is', () => {
   /** A day and an hour after the frames in REAL. */
   const STALE_CLOCK = new Date(NOW.getTime() + (CAMERA_DEAD_AFTER_MINUTES + 60) * 60_000);

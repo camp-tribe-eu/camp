@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
+  WEBCAM_NETWORK,
   WINDY_CREDIT,
   absence,
   direction,
@@ -154,14 +155,16 @@ export function WebcamPanel({
         // on every page that is in that state, which is the rule.
         why === 'stale' ? (
           <p className="mt-2" data-boilerplate="webcam-stale">
-            We have cameras listed near this campsite, but none of them has
-            reported for more than a day. That is how old our last reading of
-            them is, not a statement about the place.
+            {WEBCAM_NETWORK} lists cameras near this campsite, but none of
+            them has reported for more than a day. That is how old our last
+            reading of them is, not a statement about the place.
           </p>
         ) : (
           <p className="mt-2" data-boilerplate="webcam-none">
-            No public webcam within {distance(WEBCAM_RADIUS_M)} of this campsite. That is
-            what the camera network covers, not a statement about the place.
+            No public webcam within {distance(WEBCAM_RADIUS_M)} of this campsite
+            is listed on {WEBCAM_NETWORK}, the one network we look in. That is
+            what that network covers, not a statement about the place — a camera
+            can be there and not be listed with them.
           </p>
         )
       ) : (
