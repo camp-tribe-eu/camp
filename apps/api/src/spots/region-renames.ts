@@ -28,7 +28,15 @@ export interface RegionRename {
   pages: number;
 }
 
-/** Рядок, яким база відповідає на питання «які регіони в ужитку». */
+/**
+ * Рядок, яким база відповідає на питання «які регіони в ужитку».
+ *
+ * 🔴 БЕЗ `missing_since IS NULL`, і це не недогляд. З ним правило
+ * зникало б тієї миті, коли в перейменованого регіону зникне останній
+ * живий кемпінг — а стара адреса нікуди не дівається. Тоді замість 410
+ * («зникло навмисно») вона віддала б 404, і пошуковик ходив би по ній
+ * місяцями. Правило коштує ~50 байт; мовчазна втрата сигналу — більше.
+ */
 export interface RegionRow {
   country: string;
   region: string;
@@ -39,7 +47,7 @@ export interface RegionRow {
 export const REGIONS_IN_USE_SQL = `
   SELECT country, region, count(*)::int AS pages
     FROM camping_spots
-   WHERE missing_since IS NULL AND region IS NOT NULL
+   WHERE region IS NOT NULL
    GROUP BY country, region`;
 
 /**
@@ -54,18 +62,35 @@ export const REGIONS_IN_USE_SQL = `
  * сторінці. Картка просила це заміряти — заміряно, і дві пари з девʼяти
  * відпали саме тому.
  */
-export function regionRenames(rows: readonly RegionRow[]): RegionRename[] {
+export function regionRenames(
+  rows: readonly RegionRow[],
+  // 🔴 Параметр існує заради репетиції, і це єдина причина. Колізії
+  // «два написання → той самий старий слаг, але різні нові» в реальній
+  // таблиці виправлень сьогодні немає, тож перевірити сторож можна лише
+  // підставивши свою. Без цього сторож був би здогадом.
+  correct: (country: string, region: string) => string | null = correctRegion,
+): RegionRename[] {
   const byPair = new Map<string, RegionRename>();
   for (const row of rows) {
     const from = legacyRegionSlug(row.region);
-    const to = slugifyRegion(correctRegion(row.country, row.region));
+    const to = slugifyRegion(correct(row.country, row.region));
     if (from === '' || to === '' || from === to) continue;
     const key = `${row.country.toLowerCase()}/${from}`;
     const seen = byPair.get(key);
     // Два написання однієї країни можуть зводитись до того самого
-    // старого слага; сторінки додаються, адреса призначення одна.
-    if (seen) seen.pages += row.pages;
-    else
+    // старого слага; сторінки додаються.
+    if (seen) {
+      // 🔴 АЛЕ ОДНА СТАРА АДРЕСА НЕ МОЖЕ ВЕСТИ У ДВА МІСЦЯ. Попередня
+      // редакція мовчки лишала перше призначення, а коментар поруч
+      // стверджував, що воно одне — і ніхто цього не перевіряв.
+      if (seen.to !== to) {
+        throw new Error(
+          `дві адреси для ${key}: «${seen.to}» і «${to}». Одна стара ` +
+            'адреса не може вести у два місця — виправ NATURAL_EARTH_FIXES.',
+        );
+      }
+      seen.pages += row.pages;
+    } else
       byPair.set(key, {
         country: row.country.toLowerCase(),
         from,

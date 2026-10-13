@@ -255,6 +255,13 @@ test('переїхав лише регіон — веде на переймен�
 test('🔴 410 перевіряється за НОВОЮ адресою, а не за старою', () => {
   // Список 410 будується з канонічних адрес. Кемпінг, що зник, на
   // старому посиланні мусить дати 410 одразу, а не 301 у 410.
+  //
+  // 🔴 ТУТ СТОЯЛО `expect((res as NextResponse).status).not.toBe(301)`,
+  // і це була перевірка, зелена за побудовою: гілка 410 повертає
+  // Promise, у якого `.status` — `undefined`, а `undefined !== 301`
+  // завжди. Рецензія довела: мутація «гілка 410 → NextResponse.next()»
+  // лишала цей тест зеленим. Питаємо, у яку гілку пішли, як це вже
+  // робить тест вище.
   const gone = new Set(['/camping/dk/sjaelland/spot-gone']);
   const res = route(
     new NextRequest(new URL('/camping/dk/sja-lland/spot-gone', 'http://localhost:3000'), {
@@ -264,5 +271,24 @@ test('🔴 410 перевіряється за НОВОЮ адресою, а н�
     gone,
     RENAMES,
   );
-  expect((res as NextResponse).status).not.toBe(301);
+  expect(res instanceof Promise, 'пішли не в гілку 410').toBe(true);
+  void (res as Promise<unknown>).catch(() => {});
+});
+
+test('🔴 правило, що веде саме в себе, не дає вічного редиректу', () => {
+  // Генератор такі правила відкидає, і `regionRenames` теж — але це
+  // остання лінія: згенерований файл може приїхати з чим завгодно, а
+  // ціна помилки тут — нескінченний цикл для читача й робота.
+  const selfish = new Map([['dk/fyn', 'fyn']]);
+  expect(renameRegion('/camping/dk/fyn/x', selfish)).toBeNull();
+
+  const res = route(
+    new NextRequest(new URL('/camping/dk/fyn/x', 'http://localhost:3000'), {
+      headers: proxied(),
+    }),
+    new Map(),
+    new Set(),
+    selfish,
+  ) as NextResponse;
+  expect(res.status, 'відповіли редиректом самі на себе').not.toBe(301);
 });
