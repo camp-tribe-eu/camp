@@ -163,6 +163,31 @@ export default function MapFilters({
             onClick={() => setTypes(t)}
           />
         ))}
+        {/* 🔴 CAMP-255. «Wild camping» — це фільтр на 2 917 точок, і до
+            цього рядка ЄДИНЕ застереження про законність ночівлі жило на
+            сторінці окремого кемпінгу. Читач, який фільтрує на мапі,
+            бачив піни й не бачив нічого.
+
+            Заміряно 25.09.2026 по ЄС-27: на 48 970 місць ночівлі
+            відкриті дані дають 651 ствердну відповідь «тут можна». Тобто
+            питання «чи можна мені тут заночувати» у відкритих даних
+            відповіді не має, і тип місця на неї теж не відповідає:
+            `wild` приходить із `backcountry=yes` або `camp_site=basic`,
+            а це про те, ЧИМ місце є, не про дозвіл.
+
+            🔴 Видно ЗАВЖДИ, не лише коли обрано «Wild». Застереження, яке
+            треба спершу викликати, половина читачів не побачить — те
+            саме міркування записане в `travel-notice.tsx`, і воно тут
+            важить більше, бо мапа це перше, що відкривають. */}
+        <p
+          data-testid="overnight-caveat"
+          className="mt-2 w-full text-xs leading-5 text-ink-2"
+        >
+          Being on this map is not permission to stay the night. Whether you
+          may is decided by local rules and the landowner, and open data
+          answers that for almost none of these places — the type of a site
+          describes what it is, not what you are allowed to do there.
+        </p>
       </Group>
 
       <Group
