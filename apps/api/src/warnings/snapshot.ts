@@ -1,5 +1,7 @@
 // CAMP-302: що саме їде читачеві й що НЕ їде.
 //
+import { createHash } from 'node:crypto';
+
 // 🔴 ЦЕ ЧИСТИЙ МОДУЛЬ НАВМИСНО. Рішення «віддати без геометрії» і
 // «лишити знімку його власний час» — єдине, що тут можна зіпсувати
 // тихо, і доводити їх треба без Nest, без мережі й без годинника.
@@ -43,6 +45,7 @@ export interface Snapshot {
 export function withoutGeometry(warnings: readonly Warning[]): Warning[] {
   return warnings.map((w) => ({
     ...w,
+    id: typeof w.id === 'string' ? safeId(w.id) : w.id,
     areas: (w.areas ?? []).map((a) => ({
       name: a.name,
       codes: a.codes,
@@ -50,6 +53,34 @@ export function withoutGeometry(warnings: readonly Warning[]): Warning[] {
       circles: [],
     })),
   }));
+}
+
+/**
+ * Пара координат у будь-якому тексті.
+ *
+ * 🔴 Рецензія знайшла геометрію ТАМ, КУДИ Я НЕ ДИВИВСЯ. `id`
+ * попередження будується у фетчері як `identifier|<ключ зони>`, а
+ * ключем зони стає `codes.join('+') || polygons.join('+')` — тобто для
+ * зони БЕЗ кодів у `id` запікається сирий полігон, ще до того, як
+ * `withoutGeometry` щось почистить. Заміряно на живих фідах: Швеція
+ * 45 155 байт із 55 781 (81%), Естонія 15 048 із 21 638 (69.5%) — це ті
+ * самі три країни без кодів, які названі в коментарі вище.
+ */
+export const COORD_PAIR = /-?\d+\.\d+\s*[, ]\s*-?\d+\.\d+/;
+
+/**
+ * `id` без координат, але так само унікальний.
+ *
+ * Хвіст, що містить координати, замінюється дайджестом: два різні
+ * полігони дають два різні `id`, і жодна цифра широти не їде читачеві.
+ */
+export function safeId(id: string): string {
+  if (!COORD_PAIR.test(id)) return id;
+  const cut = id.indexOf('|');
+  const head = cut === -1 ? '' : id.slice(0, cut);
+  const tail = cut === -1 ? id : id.slice(cut + 1);
+  const digest = createHash('sha1').update(tail).digest('hex').slice(0, 12);
+  return head === '' ? `geo:${digest}` : `${head}|geo:${digest}`;
 }
 
 /**
@@ -66,6 +97,21 @@ export function countShapes(warnings: readonly Warning[]): number {
     }
   }
   return n;
+}
+
+/**
+ * Скільки пар координат лишилось у ВСЬОМУ, що ми віддаємо.
+ *
+ * 🔴 `countShapes` виявився перевіркою, яка погоджується сама з собою:
+ * він сумує рівно ті два поля, які чистить `withoutGeometry`, і тому
+ * повертав нуль, коли 81% тіла відповіді складався з координат у `id`.
+ * Ця функція дивиться на СЕРІАЛІЗОВАНУ відповідь — на те саме, що
+ * побачить читач, — і не знає, у якому полі шукати.
+ */
+export function coordinatesIn(payload: unknown): number {
+  const text = JSON.stringify(payload) ?? '';
+  const all = new RegExp(COORD_PAIR.source, 'g');
+  return (text.match(all) ?? []).length;
 }
 
 /**
@@ -105,8 +151,28 @@ export function ageMinutes(snapshot: Snapshot, now: Date): number | null {
 export function adopt(
   previous: Snapshot,
   fresh: Snapshot,
-  { countries, failed }: { countries: number; failed: number },
+  {
+    countries,
+    failed,
+    looksBroken = false,
+  }: { countries: number; failed: number; looksBroken?: boolean },
 ): Snapshot {
-  if (countries > 0 && failed >= countries) return previous;
+  // 🔴 `failed >= countries`, І ЦЕ НАВМИСНО ПОКРИВАЄ НУЛЬ.
+  //
+  // Спершу тут стояло `countries > 0 && failed >= countries`, і той
+  // перший доданок благословляв порожній перелік країн: `fresh`
+  // публікувався, тобто порожнеча ставала відповіддю. Рецензія це
+  // заміряла.
+  //
+  // 🔴 А потім я додав окремий рядок `if (countries === 0)` — і матриця
+  // показала, що він НЕ ЧЕРВОНІЄ НІ ПІД ЧИМ: при нулі країн `0 >= 0`
+  // істинне, тож два сторожі прикривали один одного. Надлишковий
+  // прибрано, лишився той, який справді говорить.
+  if (failed >= countries) return previous;
+  // 🔴 І 27 відповідей «200 OK» із тілом, із якого нічого не вийшло, —
+  // теж збій, хоч жодна з них не «впала». Детектор для цього вже є у
+  // фетчері (`yieldLooksBroken`), і до рецензії він не був згаданий в
+  // API жодного разу.
+  if (looksBroken) return previous;
   return fresh;
 }

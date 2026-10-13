@@ -28,10 +28,51 @@ import {
  */
 export const REFRESH_EVERY_MS = 5 * 60_000;
 
+/**
+ * Скільки чекати на ОДИН фід.
+ *
+ * 🔴 Двадцять секунд при пʼятихвилинному циклі: 27 фідів по 20 с — це
+ * девʼять хвилин у найгіршому разі, тобто оберт усе одно може
+ * перекритись, і саме тому поруч стоїть `running`. Але без таймауту
+ * взагалі один мовчазний фід тримав би оберт 300 секунд (стандарт
+ * undici) і робив би перекриття звичайною справою, а не крайнім разом.
+ */
+export const FEED_TIMEOUT_MS = 20_000;
+
 /** Порожній знімок до першого оберту: часу немає, бо ми ще не питали. */
 export const NOTHING_YET: Snapshot = { fetchedAt: null, warnings: [] };
 
-type Fetcher = Pick<CollectDeps, 'countries' | 'feedUrl' | 'warningsFrom'>;
+type Fetcher = Pick<
+  CollectDeps,
+  'COUNTRIES' | 'feedUrl' | 'warningsFrom' | 'yieldLooksBroken'
+>;
+
+/** Імена, без яких оберт не має сенсу. Саме так їх називає виробник. */
+const REQUIRED = ['COUNTRIES', 'feedUrl', 'warningsFrom'] as const;
+
+/**
+ * 🔴 ПЕРЕВІРКА ЗАМІСТЬ ПРИВЕДЕННЯ ТИПУ.
+ *
+ * Тут стояло `as unknown as Fetcher`, і воно ховало від компілятора те,
+ * що служба читала `countries`, а модуль експортує `COUNTRIES`. Наслідок
+ * рецензія заміряла: `collect` падав на першому ж оберті, помилка
+ * ковталась, і `GET /warnings` вічно віддавав `{"fetchedAt":null,
+ * "warnings":[]}`, скаржачись у лог раз на пʼять хвилин. Фіча була
+ * мертва в продакшні й зелена в тестах.
+ */
+export function asFetcher(mod: Record<string, unknown>): Fetcher {
+  const missing = REQUIRED.filter((k) => mod[k] === undefined);
+  if (missing.length > 0) {
+    throw new Error(
+      `фетчер не експортує ${missing.join(', ')} — ` +
+        `є: ${Object.keys(mod).slice(0, 12).join(', ')}`,
+    );
+  }
+  if (!Array.isArray(mod.COUNTRIES) || mod.COUNTRIES.length === 0) {
+    throw new Error('COUNTRIES не масив або порожній');
+  }
+  return mod as unknown as Fetcher;
+}
 
 /**
  * 🔴 Фетчер ПЕРЕВИКОРИСТОВУЄТЬСЯ, не переписується.
@@ -83,7 +124,7 @@ const loadFetcher = async (): Promise<Fetcher> => {
   if (path === null) {
     throw new Error(`не знайшов ${FETCHER_RELATIVE} вгору від ${__dirname}`);
   }
-  return (await esmImport(pathToFileURL(path).href)) as unknown as Fetcher;
+  return asFetcher(await esmImport(pathToFileURL(path).href));
 };
 
 @Injectable()
@@ -92,6 +133,16 @@ export class WarningsService implements OnModuleInit, OnModuleDestroy {
   private snapshot: Snapshot = NOTHING_YET;
   private timer: NodeJS.Timeout | null = null;
   private lastCalls = 0;
+  /**
+   * 🔴 Чи вже йде оберт.
+   *
+   * Без цього два оберти перекриваються: інтервал пʼять хвилин, а 27
+   * послідовних фідів без таймауту можуть тягнутись довше (undici за
+   * замовчуванням чекає заголовків 300 с на КОЖЕН). Той, що почався
+   * пізніше, міг закінчитись раніше — і ранній перезаписував його,
+   * відкочуючи `fetchedAt` НАЗАД на пʼять хвилин.
+   */
+  private running = false;
 
   constructor(
     private readonly deps: {
@@ -126,27 +177,39 @@ export class WarningsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async refresh(): Promise<void> {
+    if (this.running) {
+      this.log.warn('попередній оберт ще йде — цей пропущено');
+      return;
+    }
+    this.running = true;
     const now = this.deps.now ?? (() => new Date());
     try {
       const fetcher = await (this.deps.loader ?? loadFetcher)();
       const result = await collect({
-        countries: fetcher.countries,
+        COUNTRIES: fetcher.COUNTRIES,
         feedUrl: fetcher.feedUrl,
         warningsFrom: fetcher.warningsFrom,
+        yieldLooksBroken: fetcher.yieldLooksBroken,
         fetchImpl:
           this.deps.fetchImpl ??
+          // 🔴 Із таймаутом. Без нього один мовчазний фід тримає оберт
+          // довше за інтервал (undici чекає заголовків 300 с), і
+          // перекриття обертів стає звичайною справою.
           ((url: string) =>
-            fetch(url) as unknown as ReturnType<CollectDeps['fetchImpl']>),
+            fetch(url, {
+              signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+            }) as unknown as ReturnType<CollectDeps['fetchImpl']>),
         now,
       });
       this.lastCalls = result.calls;
       this.snapshot = adopt(this.snapshot, result.snapshot, {
-        countries: fetcher.countries.length,
+        countries: fetcher.COUNTRIES.length,
         failed: result.failed.length,
+        looksBroken: result.looksBroken,
       });
       if (result.failed.length > 0) {
         this.log.warn(
-          `${result.failed.length} із ${fetcher.countries.length} фідів не відповіли: ` +
+          `${result.failed.length} із ${fetcher.COUNTRIES.length} фідів не відповіли: ` +
             `${result.failed.join(', ')}`,
         );
       }
@@ -155,6 +218,8 @@ export class WarningsService implements OnModuleInit, OnModuleDestroy {
       // `stale` — «ми не знаємо». Замінити його порожнім означало б
       // сказати «попереджень немає».
       this.log.error(`оновлення не вдалось: ${(e as Error).message}`);
+    } finally {
+      this.running = false;
     }
 
     const age = ageMinutes(this.snapshot, now());

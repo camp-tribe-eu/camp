@@ -4,7 +4,7 @@ import { countShapes } from './snapshot';
 const COUNTRIES = ['france', 'italy', 'croatia'];
 
 const fetcher = {
-  countries: COUNTRIES,
+  COUNTRIES,
   feedUrl: (c: string) => `https://feeds.invalid/${c}`,
   warningsFrom: (_p: unknown, country: string) => ({
     kept: [
@@ -169,5 +169,48 @@ describe('🔴 CAMP-302: справжній завантажувач, не за�
 
   it('якщо файлу немає, пошук каже null, а не кидає', () => {
     expect(findFetcher('/')).toBeNull();
+  });
+});
+
+describe('🔴 CAMP-302: два оберти не перекриваються', () => {
+  it('другий оберт пропускається, поки йде перший', async () => {
+    // Рецензія: без цього пізніший оберт міг закінчитись раніше, а
+    // ранній перезаписував його — `fetchedAt` відкочувався НАЗАД.
+    let release: (() => void) | null = null;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    let started = 0;
+    const svc = new WarningsService({
+      loader: async () => fetcher,
+      now: () => new Date('2026-10-13T12:00:00Z'),
+      fetchImpl: async () => {
+        started += 1;
+        await held;
+        return { ok: true, status: 200, json: async () => ({}) };
+      },
+    });
+
+    const first = svc.refresh();
+    await Promise.resolve();
+    await svc.refresh(); // має вийти одразу
+    expect(started).toBeLessThanOrEqual(1);
+
+    release?.();
+    await first;
+    expect(svc.callsLastCycle()).toBe(3);
+  });
+
+  it('🔴 відмова завантажувача знімає прапорець — інакше оберти стали б назавжди', async () => {
+    const svc = new WarningsService({
+      loader: async () => {
+        throw new Error('ні');
+      },
+      now: () => new Date('2026-10-13T12:00:00Z'),
+    });
+    await svc.refresh();
+    await svc.refresh();
+    // Другий виклик мусив ДІЙТИ до завантажувача, а не впертись у прапорець.
+    expect(svc.current().fetchedAt).toBeNull();
   });
 });

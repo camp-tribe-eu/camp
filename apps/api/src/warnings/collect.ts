@@ -3,13 +3,27 @@
 import { withoutGeometry, type Snapshot, type Warning } from './snapshot';
 
 export interface CollectDeps {
-  countries: readonly string[];
+  /**
+   * 🔴 ВЕЛИКИМИ ЛІТЕРАМИ, бо так це називає виробник.
+   * `fetch-warnings.mjs` експортує `COUNTRIES`, а перша редакція читала
+   * `fetcher.countries` — назву, яку я вигадав сам. Приведення типу це
+   * ховало, `collect` падав на першому ж оберті, помилка ковталась, і
+   * `GET /warnings` вічно віддавав порожнечу. Обидві сторони зʼєднання
+   * мусять приходити від того, хто дані виробляє.
+   */
+  COUNTRIES: readonly string[];
   feedUrl: (country: string) => string;
   warningsFrom: (
     payload: unknown,
     country: string,
     now: Date,
-  ) => { kept: Warning[] };
+  ) => { kept: Warning[]; seen?: number };
+  /** Детектор «прогін побачив блоки й не лишив жодного» з фетчера. */
+  yieldLooksBroken?: (x: {
+    only: string | null;
+    seen: number;
+    kept: number;
+  }) => boolean;
   fetchImpl: (
     url: string,
   ) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
@@ -18,6 +32,14 @@ export interface CollectDeps {
 
 export interface CollectResult {
   snapshot: Snapshot;
+  /**
+   * Чи схоже, що прогін зламався, хоч ніхто й не «впав».
+   *
+   * 🔴 27 відповідей «200 OK», із яких не вийшло жодного попередження,
+   * дають `failed = 0` — і знімок замінився б свіжим і порожнім. Це
+   * рівно та брехня, проти якої написана картка.
+   */
+  looksBroken: boolean;
   /** Скільки разів ми звернулись до зовнішнього фіда за цей оберт. */
   calls: number;
   /** Країни, фід яких не відповів. Порожньо — усі відповіли. */
@@ -42,8 +64,9 @@ export async function collect(deps: CollectDeps): Promise<CollectResult> {
   const warnings: Warning[] = [];
   const failed: string[] = [];
   let calls = 0;
+  let seen = 0;
 
-  for (const country of deps.countries) {
+  for (const country of deps.COUNTRIES) {
     calls += 1;
     try {
       const res = await deps.fetchImpl(deps.feedUrl(country));
@@ -52,12 +75,15 @@ export async function collect(deps: CollectDeps): Promise<CollectResult> {
         continue;
       }
       const payload = await res.json();
-      warnings.push(...deps.warningsFrom(payload, country, now).kept);
+      const made = deps.warningsFrom(payload, country, now);
+      seen += made.seen ?? 0;
+      warnings.push(...made.kept);
     } catch {
       failed.push(country);
     }
   }
 
+  const broken = deps.yieldLooksBroken ?? (() => false);
   return {
     snapshot: {
       fetchedAt: now.toISOString(),
@@ -65,5 +91,6 @@ export async function collect(deps: CollectDeps): Promise<CollectResult> {
     },
     calls,
     failed,
+    looksBroken: broken({ only: null, seen, kept: warnings.length }),
   };
 }

@@ -18,7 +18,7 @@
 // виконує модулі у власній VM. Тому доказ живе тут: звичайний Node,
 // звичайний CommonJS — рівно те, чим є зібраний API.
 
-const { existsSync } = require('node:fs');
+const { existsSync, readFileSync } = require('node:fs');
 const { dirname, join } = require('node:path');
 const { pathToFileURL } = require('node:url');
 
@@ -52,16 +52,32 @@ async function main() {
   const f = await esmImport(pathToFileURL(path).href);
 
   ok('модуль завантажився з CommonJS', typeof f === 'object' && f !== null);
+  // 🔴 ІМЕНА БЕРУТЬСЯ ЗІ СЛУЖБИ, А НЕ ЗВІДСИ.
+  //
+  // Перша редакція цього зонда перевіряла `COUNTRIES`, а служба читала
+  // `countries` — обидві назви вигадав я, жодна не прийшла від того,
+  // хто дані виробляє. Зонд був зелений над мертвою фічею. Тепер
+  // перелік читається з `REQUIRED` у `warnings.service.ts`: якщо служба
+  // почне читати інше імʼя, зонд дізнається про це сам.
+  const service = readFileSync(
+    join(__dirname, '..', 'src', 'warnings', 'warnings.service.ts'),
+    'utf8',
+  );
+  const required = [...service.matchAll(/const REQUIRED = \[([^\]]+)\]/g)]
+    .flatMap((m) => [...m[1].matchAll(/'([A-Za-z_]+)'/g)].map((x) => x[1]));
+
+  ok('перелік потрібних імен прочитано зі служби', required.length >= 3, String(required));
+
+  for (const name of required) {
+    ok(`модуль експортує ${name}, якого чекає служба`, f[name] !== undefined, typeof f[name]);
+  }
   ok(
     'і це 27 держав ЄС, а не порожній перелік',
     Array.isArray(f.COUNTRIES) && f.COUNTRIES.length === 27,
     `отримано ${Array.isArray(f.COUNTRIES) ? f.COUNTRIES.length : typeof f.COUNTRIES}`,
   );
-  for (const name of ['feedUrl', 'warningsFrom']) {
-    ok(`експортує ${name}`, typeof f[name] === 'function', typeof f[name]);
-  }
 
-  if (bad === 0) console.log('\n✓ warnings-loader probe: 5 перевірок');
+  if (bad === 0) console.log(`\n✓ warnings-loader probe: ${3 + required.length} перевірок`);
   process.exit(bad === 0 ? 0 : 1);
 }
 

@@ -16,7 +16,7 @@ const block = (country: string) => ({
 });
 
 const deps = (over: Partial<CollectDeps> = {}): CollectDeps => ({
-  countries: ['france', 'italy', 'croatia'],
+  COUNTRIES: ['france', 'italy', 'croatia'],
   feedUrl: (c) => `https://feeds.invalid/${c}`,
   warningsFrom: (_p, country) => ({ kept: [block(country)] }),
   fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) }),
@@ -77,6 +77,30 @@ describe('CAMP-302: оберт оновлювача', () => {
     );
     expect(r.failed).toEqual(['croatia']);
     expect(r.calls).toBe(3);
+  });
+
+  it('🔴 27 відповідей «200 OK» без жодного попередження — це збій', async () => {
+    // Рецензія: `failed = 0`, бо ніхто не «впав», і знімок замінився б
+    // свіжим і порожнім. Детектор для цього вже був у фетчері й не був
+    // згаданий в API жодного разу.
+    const r = await collect(
+      deps({
+        warningsFrom: () => ({ kept: [], seen: 2000 }),
+        yieldLooksBroken: ({ seen, kept }) => seen > 0 && kept === 0,
+      }),
+    );
+    expect(r.failed).toHaveLength(0);
+    expect(r.looksBroken).toBe(true);
+  });
+
+  it('…а порожній день без блоків узагалі — не збій', async () => {
+    const r = await collect(
+      deps({
+        warningsFrom: () => ({ kept: [], seen: 0 }),
+        yieldLooksBroken: ({ seen, kept }) => seen > 0 && kept === 0,
+      }),
+    );
+    expect(r.looksBroken).toBe(false);
   });
 
   it('🔴 усі фіди мовчать — знімок порожній, але час у нього Є', async () => {
