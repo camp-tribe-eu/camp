@@ -17,6 +17,8 @@
 
 import { NextResponse } from 'next/server';
 
+import { CACHE_SECONDS, toFeed } from '@/lib/warnings-feed';
+
 const API = process.env.API_BASE_URL ?? 'http://localhost:3001';
 
 /**
@@ -27,40 +29,31 @@ const API = process.env.API_BASE_URL ?? 'http://localhost:3001';
  */
 export const dynamic = 'force-dynamic';
 
-/**
- * Скільки читачів можуть ділити одну відповідь.
- *
- * Оновлювач в API крутиться раз на 5 хвилин, тож кешувати довше немає
- * сенсу, а коротше — марна праця. 🔴 Але не більше за бюджет ліцензії
- * мінус цикл: інакше ми самі зробили б знімок протермінованим.
- */
-export const CACHE_SECONDS = 60;
+// 🔴 ФУНКЦІЯ, А НЕ КОНСТАНТА. Тіло `Response` читається один раз;
+// спільний екземпляр на всі запити віддав би другому читачеві
+// вичерпаний потік.
+//
+// 🔴 503, а не 200 з порожнім тілом. Клієнт перевіряє `r.ok`, і саме
+// так «ми не змогли прочитати» стає `nothing-arrived`, а не `clear`.
+const nothingArrived = () =>
+  NextResponse.json(
+    { error: 'no snapshot' },
+    { status: 503, headers: { 'Cache-Control': 'no-store' } },
+  );
 
-/**
- * 🔴 ВІДПОВІДЬ ПЕРЕДАЄТЬСЯ ЯК Є, разом із її `fetchedAt`.
- *
- * Спокуса поставити тут свій час (момент віддачі) перетворила б
- * протерміноване на свіже одним рядком — і `warningState` на сторінці
- * ніколи б не сказав `stale`. Те саме застереження стоїть у самій
- * службі; тут воно повторене, бо тут його найлегше порушити.
- */
 export async function GET() {
   try {
     const res = await fetch(`${API}/warnings`, {
       cache: 'no-store',
       signal: AbortSignal.timeout(5_000),
     });
-    if (!res.ok) {
-      return NextResponse.json({ fetchedAt: null, warnings: [] }, { status: 200 });
-    }
-    const snapshot: unknown = await res.json();
-    return NextResponse.json(snapshot, {
+    if (!res.ok) return nothingArrived();
+    const feed = toFeed(await res.json());
+    if (feed === null) return nothingArrived();
+    return NextResponse.json(feed, {
       headers: { 'Cache-Control': `public, max-age=${CACHE_SECONDS}` },
     });
   } catch {
-    // 🔴 `fetchedAt: null` — «ми не знаємо», і саме так його читає
-    // `warningState`. Порожній масив із СВІЖИМ часом сказав би
-    // «попереджень немає», а це інша відповідь і неправда.
-    return NextResponse.json({ fetchedAt: null, warnings: [] }, { status: 200 });
+    return nothingArrived();
   }
 }
