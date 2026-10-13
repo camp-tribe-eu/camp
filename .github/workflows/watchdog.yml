@@ -113,3 +113,77 @@ jobs:
             gh issue close "$EXISTING" \
               --comment "Every watched job has run recently again. Closing."
           fi
+
+  # CAMP-151: «запит удався і повернув архів» — це теж збій.
+  #
+  # 🔴 ОКРЕМА РОБОТА, А НЕ КРОК У `quiet`. Той сторож питає «чи
+  # відбувався прогін»; цей питає «чи те, що прогін приніс, ще живе».
+  # Державна служба може мовчати пʼять діб і далі віддавати HTTP 200 з
+  # архівом — заміряно 13.10.2026: Австрія 34 блоки, чинних нуль,
+  # остання публікація 119,5 години тому. Жоден із пʼяти сторожів
+  # фетчера цього не бачить, бо всі вони судять про ПРОГІН, а не про
+  # країну.
+  #
+  # 🔴 Окреме питання й окремий заголовок: змішати їх означало б, що
+  # мовчазний cron і мовчазна метеослужба закривають одне одного.
+  stale-sources:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # 🔴 CAMP-285/286: крок ЧИТАЄ надруковане самотестом.
+      # `set -o pipefail`, бо Actions запускає `bash -e {0}` БЕЗ нього,
+      # і падіння node ліворуч від труби невидиме. Рядок, який грепаємо,
+      # називає власний скрипт, тож чужий самотест його не задовольнить.
+      - name: Prove the stall detector bites
+        run: |
+          set -o pipefail
+          node scripts/ci/check-feed-stall.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-feed-stall self-test:' >/dev/null
+
+      - name: Look for archives served as live data
+        id: stall
+        run: node scripts/ci/check-feed-stall.mjs
+        continue-on-error: true
+
+      - name: Open or update the stale-source issue
+        if: steps.stall.outputs.stalled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ steps.stall.outputs.body }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE='🔴 A warning source is serving an archive'
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number --jq '.[0].number // empty')
+          FULL="$BODY
+
+          Checked by: $RUN_URL"
+          # Одне питання, оновлюване. Чотири однакові на місяць вимикають.
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$FULL"
+          else
+            gh issue create --title "$TITLE" --body "$FULL"
+          fi
+
+      # 🔴 Закрити, коли джерела ожили. Тривога, що лишається відкритою
+      # після зникнення проблеми, вчить ігнорувати наступну.
+      - name: Close it once every source publishes again
+        if: steps.stall.outputs.stalled != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TITLE='🔴 A warning source is serving an archive'
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" \
+              --comment "Кожна точка знову віддає чинні записи. Закриваю."
+          fi
