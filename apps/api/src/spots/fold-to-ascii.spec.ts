@@ -1,4 +1,4 @@
-import { foldToAscii, slugifyRegion } from './canonical';
+import { foldToAscii, legacyRegionSlug, slugifyRegion } from './canonical';
 import { slugify } from '../osm/import-spots';
 
 // CAMP-290 — the letters NFD cannot take apart.
@@ -139,15 +139,27 @@ describe('🔴 the campsite slug, which is what this PR actually changes', () =>
   });
 });
 
-describe('🔴 the region segment does NOT move yet', () => {
-  // `canonicalPath` computes it live and the page is statically
-  // exported with `dynamicParams = false`, so folding here would make
-  // 350 published pages 404 rather than 301. CAMP-289 brings the fold
-  // and the redirects together.
-  it('still spells the undecomposable letters as a hyphen', () => {
-    expect(slugifyRegion('Sjaælland')).toBe('sja-lland');
-    expect(slugifyRegion('Łódź')).toBe('odz');
-    expect(slugifyRegion('Mellieħa')).toBe('mellie-a');
+describe('🔴 CAMP-289: the region segment HAS moved, with its redirects', () => {
+  // Цей блок раніше називався «does NOT move yet» і пришпилював стару
+  // поведінку, бо згортання без редиректів перетворило б 350
+  // опублікованих сторінок на 404. Редиректи приїхали в CAMP-289 —
+  // вісім правил, 413 байт, `renameRegion` у middleware, — тож
+  // згортання більше не має чого чекати.
+  it('folds the letters NFD cannot decompose', () => {
+    expect(slugifyRegion('Sjaælland')).toBe('sjaaelland');
+    expect(slugifyRegion('Sjælland')).toBe('sjaelland');
+    expect(slugifyRegion('Łódź')).toBe('lodz');
+    expect(slugifyRegion('Mellieħa')).toBe('mellieha');
+  });
+
+  it('🔴 and the OLD spelling is still computable, or nothing could redirect', () => {
+    // `legacyRegionSlug` описує минуле й існує рівно для того, щоб
+    // було з чого вести 301. Без нього вісім правил нема звідки взяти.
+    expect(legacyRegionSlug('Sjaælland')).toBe('sja-lland');
+    expect(legacyRegionSlug('Łódź')).toBe('odz');
+    expect(legacyRegionSlug('Mellieħa')).toBe('mellie-a');
+    // Там, де NFD справляється, минуле й теперішнє збігаються.
+    expect(legacyRegionSlug('Skåne')).toBe(slugifyRegion('Skåne'));
   });
 
   it('…and is unchanged for everything else', () => {

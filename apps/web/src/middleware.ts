@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import GONE_PATHS from '@/generated/gone-paths.json';
+import REGION_RENAMES from '@/generated/region-renames.json';
 import SPOT_REDIRECTS from '@/generated/spot-redirects.json';
 
 // 🔴 CAMP-284: NOTHING IN THIS REPOSITORY DEPLOYS THIS FILE.
@@ -112,6 +113,38 @@ export function normalisePath(pathname: string): string {
   return pathname.replace(/\/+$/, '').toLowerCase();
 }
 
+// CAMP-289 — 301 для регіону, який перейменували.
+//
+// 🔴 ПРАВИЛО НА РЕГІОН, А НЕ ПАРА НА СТОРІНКУ. Карта редиректів уже на
+// 80% стелі edge-бандла; 721 окрема пара коштувала б ~65 КБ і забрала б
+// її на 92,7%. Вісім правил коштують 413 байт — бо це і є те, чим воно
+// є: перейменування регіону, а не 721 окреме рішення.
+const RENAMES: ReadonlyMap<string, string> = new Map(
+  (REGION_RENAMES as { country: string; from: string; to: string }[]).map((r) => [
+    `${r.country}/${r.from}`,
+    r.to,
+  ]),
+);
+
+/**
+ * Новий шлях, якщо сегмент регіону переїхав. Інакше `null`.
+ *
+ * Працює і для сторінки кемпінга (`/camping/dk/sja-lland/x`), і для
+ * хабу регіону (`/camping/dk/sja-lland`) — старе посилання на хаб таке
+ * саме опубліковане, як і на кемпінг.
+ */
+export function renameRegion(
+  pathname: string,
+  renames: ReadonlyMap<string, string> = RENAMES,
+): string | null {
+  const parts = normalisePath(pathname).split('/').filter(Boolean);
+  if (parts.length < 3 || parts[0] !== 'camping') return null;
+  const to = renames.get(`${parts[1]}/${parts[2]}`);
+  if (to === undefined || to === parts[2]) return null;
+  parts[2] = to;
+  return `/${parts.join('/')}`;
+}
+
 export function redirectFor(
   pathname: string,
   search: string,
@@ -145,22 +178,36 @@ export function route(
   request: NextRequest,
   redirects: ReadonlyMap<string, string>,
   gone: ReadonlySet<string>,
+  renames: ReadonlyMap<string, string> = RENAMES,
 ) {
   const origin = publicOrigin(request.headers, request.nextUrl.origin);
 
-  const redirect = redirectFor(
-    request.nextUrl.pathname,
-    request.nextUrl.search,
-    origin,
-    redirects,
-  );
+  // 🔴 СПЕРШУ ПЕРЕЙМЕНУВАННЯ, І ОДИН 301, А НЕ ЛАНЦЮЖОК. Якщо регіон
+  // переїхав, а кемпінг на новій адресі ще й склеєний з іншим, читач
+  // мав би два послідовні 301. Ми рахуємо новий шлях, питаємо карту
+  // саме про нього — і віддаємо одну відповідь із кінцевою адресою.
+  const renamed = renameRegion(request.nextUrl.pathname, renames);
+  const effective = renamed ?? request.nextUrl.pathname;
+
+  const redirect = redirectFor(effective, request.nextUrl.search, origin, redirects);
   if (redirect) return redirect;
 
-  if (!gone.has(normalisePath(request.nextUrl.pathname))) {
-    return NextResponse.next();
+  // 🔴 410 ПЕРЕВІРЯЄТЬСЯ РАНІШЕ за редирект регіону. Якщо кемпінг
+  // зник, то він зник на обох адресах, і вести читача 301-им на
+  // сторінку, яка одразу віддасть 410, — це два кроки замість одного
+  // і гірша відповідь роботу: 301 каже «шукай далі», 410 каже «кінець».
+  if (gone.has(normalisePath(effective))) {
+    return serveGone(request);
   }
 
-  return serveGone(request);
+  // Переїхав лише регіон — ведемо туди.
+  if (renamed !== null) {
+    const target = new URL(renamed, origin);
+    target.search = request.nextUrl.search;
+    return NextResponse.redirect(target, 301);
+  }
+
+  return NextResponse.next();
 }
 
 export function middleware(request: NextRequest) {

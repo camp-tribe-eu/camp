@@ -143,6 +143,12 @@ export class SpotsController {
    * page, and where each one now lives. Declared above the `:country`
    * routes for the same reason as `gone`.
    */
+  /** CAMP-289: старі адреси регіонів і куди вони ведуть. */
+  @Get('region-renames')
+  regionRenames() {
+    return this.spots.regionRenames();
+  }
+
   @Get('links')
   links() {
     return this.spots.links();

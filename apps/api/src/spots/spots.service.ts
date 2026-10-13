@@ -18,6 +18,11 @@ import {
   notSecondarySql,
   REDIRECT_LIST_SQL,
 } from './links';
+import {
+  REGIONS_IN_USE_SQL,
+  regionRenames,
+  type RegionRename,
+} from './region-renames';
 import { NOTHING_TO_SAY_SQL, SPOT_DETAIL_SQL } from './detail-query';
 export { NOTHING_TO_SAY_SQL } from './detail-query';
 import type { TariffView } from './tariffs';
@@ -278,6 +283,24 @@ export class SpotsService {
    *
    * `intervalDays` їде сюди ж, щоб збірка не носила власної копії числа.
    */
+  /**
+   * CAMP-289: регіони, чия адреса переїжджає, і куди саме.
+   *
+   * Вісім пар на 721 сторінку, 413 байт — проти 65 КБ, якби кожну
+   * сторінку вести окремою парою. Це перейменування регіону, а не 721
+   * окреме рішення, і дешевше воно саме тому, що каже правду.
+   */
+  async regionRenames(): Promise<RegionRename[]> {
+    const rows = await this.db.query(REGIONS_IN_USE_SQL);
+    return regionRenames(
+      rows.map((r: Record<string, unknown>) => ({
+        country: String(r.country),
+        region: String(r.region),
+        pages: Number(r.pages),
+      })),
+    );
+  }
+
   async gonePending(): Promise<{
     intervalDays: number;
     mature: number;
