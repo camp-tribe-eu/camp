@@ -245,12 +245,24 @@ export async function sourceRows({
     if (!existsSync(file)) {
       const res = await fetchImpl(src.url);
       if (!res.ok) throw new Error(`GET ${src.url} returned ${res.status}`);
-      // 🔴 Спершу в `.part`, і лише `renameSync` робить файл кешем.
-      // Обірване на половині завантаження інакше лишається під власним
-      // ім'ям, і наступний прогін бере його мовчки: `existsSync` не
-      // вміє питати «цілий?». Перейменування в межах теки атомарне.
+      const bytes = Buffer.from(await res.arrayBuffer());
+      // 🔴 РОЗБИРАЄМО ДО ТОГО, як файл стане кешем, і це не педантизм.
+      // Сервер, що віддав сторінку-помилку з кодом 200, пройшов би
+      // `res.ok`, осів у кеші як `EMMA_ID.json` — і КОЖЕН наступний
+      // прогін читав би його, падав на `JSON.parse` і падав би так
+      // довіку: `existsSync` каже «вже є», завантаження не повторюється.
+      // Вийти з цього можна було б лише руками, видаливши теку.
+      // Платимо одним зайвим розбором на холодний кеш.
+      const parsed = JSON.parse(bytes.toString('utf8'));
+      if (parsed?.type !== 'FeatureCollection' || !Array.isArray(parsed.features)) {
+        throw new Error(`${src.url} віддав не FeatureCollection`);
+      }
+      // 🔴 І лише тепер — спершу в `.part`, і лише `renameSync` робить
+      // файл кешем. Обірване на половині лишалось би під власним ім'ям,
+      // і наступний прогін узяв би його мовчки. Перейменування в межах
+      // однієї теки атомарне.
       const part = `${file}.part`;
-      write(part, Buffer.from(await res.arrayBuffer()));
+      write(part, bytes);
       renameSync(part, file);
     }
     const made = rowsFrom(JSON.parse(readFileSync(file, 'utf8')), scheme, src.idField);
@@ -494,11 +506,44 @@ async function selfTest() {
       'усе, що лишилось від зриву, має суфікс .part і не читається як кеш',
     );
 
+    // 🔴 І сторінка-помилка з кодом 200. Саме вона осідала в кеші як
+    // готовий .json і ламала КОЖЕН наступний прогін — назавжди.
+    // 🔴 Четвертий і пʼятий рядки існують тому, що без них половини
+    // умови прикривали одна одну: `{"type":"Feature"}` не має й
+    // `features`, тож обидві половини казали «ні» разом, і прибрати
+    // будь-яку з них можна було безкарно — матриця показала дві вижилі
+    // мутації. Нижче кожна половина лишається єдиною, хто говорить.
+    for (const [label, payload] of [
+      ['HTML замість JSON', '<!doctype html><title>502</title>'],
+      ['JSON, але не FeatureCollection', '{"type":"Feature","properties":{}}'],
+      ['правильний type, але features немає', '{"type":"FeatureCollection"}'],
+      ['features є, але type чужий', '{"type":"Feature","features":[]}'],
+    ]) {
+      const d = mkdtempSync(path.join(tmpdir(), 'camp-287-rehearsal-'));
+      let blew = false;
+      try {
+        await sourceRows({
+          dir: d,
+          sources,
+          fetchImpl: async () => ({ ok: true, arrayBuffer: async () => Buffer.from(payload) }),
+          write,
+        });
+      } catch {
+        blew = true;
+      }
+      check(blew, `🔴 ${label} з кодом 200 — це помилка, а не дані`);
+      check(
+        !existsSync(path.join(d, 'TEST.json')),
+        `🔴 ${label} НЕ осідає в кеші — інакше кожен наступний прогін падав би довіку`,
+      );
+      rmSync(d, { recursive: true, force: true });
+    }
+
     rmSync(dir, { recursive: true, force: true });
     rmSync(dir2, { recursive: true, force: true });
   }
 
-  const EXPECTED_CASES = 40;
+  const EXPECTED_CASES = 48;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;
