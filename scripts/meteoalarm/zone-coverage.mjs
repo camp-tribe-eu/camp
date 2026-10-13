@@ -174,19 +174,37 @@ export function rowsFrom(collection, scheme, idField) {
   return { lines: out, dropped };
 }
 
+/**
+ * Найменше, що ще є роботою, а не поломкою.
+ *
+ * 🔴 ПІДЛОГИ НЕ БУЛО, І ЦЕ ЗНАЙШЛА РЕЦЕНЗІЯ. `verdict` віддавав `ok` на
+ * 1 кемпінгу з 57 082 — тобто на 0.0% — і падав лише на рівно нулі.
+ * Разом із тим, що звіт не читав колонки, це означало: мутація, яка
+ * стирає колонку начисто, друкує успіх.
+ *
+ * Числа — зріз 13.10.2026: 52 907 із 57 082 = 92.7%. Підлога нижча за
+ * нього з запасом, бо джерела й дані рухаються; вона ловить катастрофу,
+ * а не коливання.
+ */
+export const FLOOR_SHARE = 80;
+export const FLOOR_TOTAL = 40_000;
+
 /** The verdict: a share, and the countries that carry the shortfall. */
 export function verdict(total, placed, perCountry) {
   if (total === 0) {
     return { ok: false, why: 'no live campsites were read at all' };
   }
+  if (total < FLOOR_TOTAL) {
+    return { ok: false, why: `only ${total} live campsites were read, under the ${FLOOR_TOTAL} floor — the denominator collapsed` };
+  }
+  const share = Math.round((1000 * placed) / total) / 10;
+  if (share < FLOOR_SHARE) {
+    return { ok: false, why: `only ${share}% could be placed, under the ${FLOOR_SHARE}% floor — measured 92.7% on 13.10.2026` };
+  }
   const short = perCountry
     .filter((c) => c.missing > 0)
     .sort((a, b) => b.missing - a.missing);
-  return {
-    ok: true,
-    share: Math.round((1000 * placed) / total) / 10,
-    short,
-  };
+  return { ok: true, share, short };
 }
 
 function selfTest() {
@@ -349,27 +367,47 @@ function selfTest() {
   // фікстура обирала правильну відповідь за мене: мутація «прибрати
   // `.sort()`» переживала весь прогін. Тепер найбільша нестача стоїть
   // у вході ОСТАННЬОЮ.
-  const v = verdict(100, 93, [
-    { country: 'FR', total: 50, missing: 1 },
-    { country: 'IT', total: 40, missing: 0 },
-    { country: 'SE', total: 10, missing: 10 },
+  // 🔴 ФІКСТУРА В СПРАВЖНЬОМУ МАСШТАБІ. Попередня була на 100 кемпінгів
+  // — нижче підлоги, якої тоді не існувало. Тепер числа ті самі, що й
+  // заміряні 13.10.2026, тож випадок говорить про дійсність.
+  const v = verdict(57082, 52907, [
+    { country: 'FR', total: 21702, missing: 90 },
+    { country: 'IT', total: 4167, missing: 0 },
+    { country: 'SE', total: 2290, missing: 2290 },
   ]);
-  check(v.share === 93, `the share is 93, got ${v.share}`);
+  check(v.share === 92.7, `the share is 92.7, got ${v.share}`);
   // 🔴 ОДИН ЗНАК ПІСЛЯ КОМИ, І ЗАГОЛОВОК PR НА НЬОМУ ТРИМАЄТЬСЯ (92.7).
   // Фікстура вище має total=100, тож арифметика вироджується і мутація
   // `Math.round((100*placed)/total)` переживала її непоміченою.
   check(
-    verdict(1000, 927, []).share === 92.7,
-    `927 of 1000 is 92.7, got ${verdict(1000, 927, []).share}`,
+    verdict(50000, 46350, []).share === 92.7,
+    `46 350 of 50 000 is 92.7, got ${verdict(50000, 46350, []).share}`,
   );
+
+  // 🔴 ПІДЛОГА, ЯКОЇ НЕ БУЛО. Рецензія заміряла: `verdict` віддавав
+  // `ok` на 1 кемпінгу з 57 082 — тобто на 0.0%. Разом зі звітом, що
+  // не читав колонки, це означало, що мутація, яка стирає колонку
+  // начисто, друкує успіх.
+  check(verdict(57082, 0, []).ok === false, '🔴 нуль розташованих — це поломка, не 0%');
+  check(verdict(57082, 1, []).ok === false, 'один кемпінг із 57 082 теж поломка');
+  check(
+    /under the 80% floor/.test(verdict(57082, 1, []).why ?? ''),
+    'і причина називає підлогу, а не просто «погано»',
+  );
+  check(verdict(100, 93, []).ok === false, '🔴 схлопнутий знаменник — поломка, навіть якщо частка гарна');
+  check(
+    /denominator collapsed/.test(verdict(100, 93, []).why ?? ''),
+    'і причина називає саме знаменник',
+  );
+  check(verdict(57082, 52907, []).ok === true, 'заміряна дійсність проходить'); 
   check(v.short.length === 2, 'only the countries with a shortfall are listed');
   check(v.short[0].country === 'SE', 'the largest shortfall is named first');
   check(verdict(0, 0, []).ok === false, '🔴 reading no campsites at all is a failure, not 0%');
 
   // 🔴 Літерал, і він спіймав мене тричі за цю сесію. Лічба: 3 про
   // схеми + 7 мовчазних + 5 про область + 7 про джерела + 5 про рядки +
-  // 6 про вирок + 2 про порядок + 4 про інверсію перепису = 39.
-  const EXPECTED_CASES = 39;
+  // 12 про вирок + 2 про порядок + 4 про інверсію перепису = 45.
+  const EXPECTED_CASES = 45;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;

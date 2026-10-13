@@ -30,6 +30,11 @@ import { SCHEMES_USED, USED_SOURCES, rowsFrom, usesPairs, verdict } from './zone
 const DB = process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
 const STAGING = 'warning_zones_staging';
 
+/** Живих рядків, які після запису лишились NULL. Мусить бути нуль. */
+export const NO_NULLS_SQL =
+  'SELECT count(*) FROM camping_spots ' +
+  'WHERE missing_since IS NULL AND location IS NOT NULL AND warning_areas IS NULL';
+
 /** `('AT','EMMA_ID'),('BE','EMMA_ID'),…` — the join, from the census. */
 export function pairsValues(schemes = SCHEMES_USED) {
   return usesPairs(schemes)
@@ -54,24 +59,23 @@ export function pairsValues(schemes = SCHEMES_USED) {
 // 🔴 ЗОНА СУСІДНЬОЇ КРАЇНИ — ЦЕ НЕ ПОМИЛКА, І ЦЕ ЗАМІРЯНО.
 //
 // З'єднання бере схеми, які вживає країна КЕМПІНГА, але не питає, чиєю
-// є сама зона. Заміряно після першого запису 13.10.2026: з 30 411 кодів
-// EMMA **338 (1.1%)** належать зоні іншої країни — DE↔NL 68, NL→BE 43,
-// PL→DE 18, BE→FR 14, AT→DE 8, GR→MK 20.
+// є сама зона. Заміряно після першого запису 13.10.2026 за властивістю
+// `country` самого джерела: з 30 411 кодів EMMA **246 (0.8%)** належать
+// зоні іншої країни — DE↔NL, NL→BE, PL→DE, BE→FR, AT→DE, GR→MK.
 //
 // Лишаємо навмисно. Кемпінг за 300 метрів від кордону справді лежить
 // усередині сусідської зони, і попередження, видане для неї, його таки
-// накриває — погода кордону не знає. Відфільтрувати «чужі» зони означало
-// б викинути попередження, які стосуються місця.
+// накриває — погода кордону не знає.
 //
-// 🔴 А ось чого в цьому числі НЕМАЄ, попри перше враження: 92 випадки
-// `IE → EI` не прикордонні. Ірландські зони EMMA несуть ОБИДВА префікси
-// — `IE…` (30 зон) і `EI…` (21), `country` в обох `IE`. Хибною була моя
-// міряльна евристика «перші дві літери коду — це країна», не дані.
-// Префікс коду не є кодом країни, і якщо колись знадобиться країна
-// зони — вона лежить у властивості `country` джерела.
+// 🔴 СПЕРШУ Я НАПИСАВ ТУТ 338, І ЦЕ БУЛО ЧИСЛО ІНШОГО ЗАМІРУ. Його дала
+// евристика «перші дві літери коду — це країна», і 92 з тих 338 були
+// ірландські зони з префіксом `EI…` при `country: IE` — тобто ВСЕРЕДИНІ
+// числа, а не поза ним, як стверджував цей самий коментар. 338 − 92 =
+// 246, і правильне число те, що з властивості `country`, бо саме її
+// коментар і приписує вживати. Префікс коду не є кодом країни.
 //
-// Зони країн, чиїх фідів ми не тягнемо (`MK`, 20 випадків), інертні: код
-// лежить, збігтися йому нема з чим.
+// Зони країн, чиїх фідів ми не тягнемо (`MK`), інертні: код лежить,
+// збігтися йому нема з чим.
 export function codesSelect(schemes = SCHEMES_USED) {
   return `
     SELECT s.id,
@@ -96,8 +100,13 @@ export function updateSql(schemes = SCHEMES_USED) {
      WHERE found.id = t.id`;
 }
 
-/** The measurement, built from the same select for the same reason. */
-export function coverageSql(schemes = SCHEMES_USED) {
+/**
+ * Що БУЛО Б записано — для прогону без `--apply`.
+ *
+ * Рахується з того самого CTE, і це правильно саме тут: писати нема що,
+ * тож питання стоїть «скільки знайшлося б».
+ */
+export function wouldCoverSql(schemes = SCHEMES_USED) {
   return `
     WITH found AS (${codesSelect(schemes)})
     SELECT s.country,
@@ -105,6 +114,34 @@ export function coverageSql(schemes = SCHEMES_USED) {
            count(*) FILTER (WHERE cardinality(found.codes) = 0) AS missing
       FROM found JOIN camping_spots s ON s.id = found.id
      GROUP BY s.country ORDER BY s.country`;
+}
+
+/**
+ * Що СПРАВДІ лежить у колонці — для прогону з `--apply`.
+ *
+ * 🔴 ЦЕ ВИПРАВЛЕННЯ БЛОКЕРА, І ВІН БУВ У МОЄМУ ВЛАСНОМУ МІРКУВАННІ.
+ *
+ * Перша редакція міряла покриття тим самим CTE в обох режимах. Я мав
+ * випадок «покриття міряється ПІСЛЯ запису, інакше звіт не про те, що
+ * лежить у базі» — і він не давав обіцяного, бо число не залежало від
+ * запису взагалі.
+ *
+ * Рецензія це довела: мутація `SET warning_areas = found.codes` →
+ * `'{}'::text[]` лишала самотест зеленим, прогін друкував «92.7%» і
+ * «✓ записано», а в колонці ставало 0 заповнених із 57 082.
+ *
+ * Тепер після запису звіт читає САМУ КОЛОНКУ. Та сама мутація дає 0%,
+ * а підлога нижче перетворює 0% на ненульовий код виходу.
+ */
+export function storedCoverSql() {
+  return `
+    SELECT country,
+           count(*) AS total,
+           count(*) FILTER (WHERE warning_areas IS NULL
+                               OR cardinality(warning_areas) = 0) AS missing
+      FROM camping_spots
+     WHERE missing_since IS NULL AND location IS NOT NULL
+     GROUP BY country ORDER BY country`;
 }
 
 /**
@@ -127,7 +164,16 @@ export function plan({ apply }) {
     { name: 'analyze', sql: `ANALYZE ${STAGING}` },
   ];
   if (apply) steps.push({ name: 'write', sql: updateSql() });
-  steps.push({ name: 'coverage', sql: coverageSql() });
+  if (apply) {
+    // 🔴 ІНВАРІАНТ, ЯКОГО ПІДЛОГА НЕ ЛОВИТЬ. `LEFT JOIN` → `JOIN` у
+    // `codesSelect` викидає кемпінги без зони з результату, тож `UPDATE`
+    // їх не торкається й вони лишаються NULL. Частка при цьому та сама
+    // — рецензія заміряла 100% на такій мутації. Але NULL означає
+    // «резолвер сюди не дійшов», а він дійшов: після запису живих NULL
+    // не може бути жодного.
+    steps.push({ name: 'no nulls left', sql: NO_NULLS_SQL });
+  }
+  steps.push({ name: 'coverage', sql: apply ? storedCoverSql() : wouldCoverSql() });
   // 🔴 Прибирання В КІНЦІ Й ЗАВЖДИ. Проміжна таблиця на 3 806 полігонів
   // лишилась би в продакшн-базі після кожного прогону.
   steps.push({ name: 'drop staging', sql: `DROP TABLE IF EXISTS ${STAGING}` });
@@ -187,6 +233,18 @@ async function run({ apply }) {
       if (step.copy) {
         execFileSync('psql', [DB, '-v', 'ON_ERROR_STOP=1', '-q', '-c',
           `\\copy ${STAGING} (scheme, code, gj) FROM '${tsv}'`], { stdio: 'inherit' });
+        continue;
+      }
+      if (step.name === 'no nulls left') {
+        const left = Number(psql(step.sql));
+        if (left !== 0) {
+          console.error(
+            `✗ після запису ${left} живих кемпінгів лишились NULL. ` +
+              'NULL означає «резолвер не дійшов», а він дійшов — отже ' +
+              'запис оминув ці рядки замість написати їм порожній масив.',
+          );
+          return 1;
+        }
         continue;
       }
       if (step.name === 'coverage') {
@@ -250,12 +308,53 @@ function selfTest() {
 
   // 🔴 ЗАПИТ ОДИН, і він тут імпортований, а не переписаний.
   const upd = updateSql();
-  const cov = coverageSql();
-  check(upd.includes(codesSelect()), 'запис користується ТИМ САМИМ select, що й замір');
-  check(cov.includes(codesSelect()), 'замір користується ним теж');
+  check(upd.includes(codesSelect()), 'запис користується ТИМ САМИМ select, що й замір «було б»');
+  check(wouldCoverSql().includes(codesSelect()), 'прогін без запису міряє тим самим select');
   check(/missing_since IS NULL/.test(codesSelect()), 'зниклі рядки не чіпаємо');
-  check(/'\{\}'/.test(codesSelect()), "🔴 без зони пишемо порожній масив, не NULL — це різні відповіді");
   check(/ST_Contains/.test(codesSelect()), 'зона мусить МІСТИТИ точку, не лише бути поруч');
+
+  // 🔴 ЗАПИС МУСИТЬ ІТИ САМЕ В ЦЮ КОЛОНКУ. Рецензія показала, що
+  // `upd.includes(codesSelect())` проходить і тоді, коли `SET` пише в
+  // зовсім іншу колонку — перевірялась наявність підзапиту, не ціль.
+  check(/SET\s+warning_areas\s*=/.test(upd), '🔴 запис іде в warning_areas, а не кудись');
+  check(/=\s*found\.codes/.test(upd), '🔴 і пише знайдені коди, а не константу');
+
+  // 🔴 БЕЗ ЗОНИ — ПОРОЖНІЙ МАСИВ, НЕ NULL. Перевірка була текстова
+  // (`/'\{\}'/`), і рецензія обійшла її, лишивши `'{}'` у коментарі SQL
+  // та прибравши сам `coalesce`.
+  check(/coalesce\(array_agg/.test(codesSelect()), 'порожнечу дає coalesce, а не випадковий текст');
+  check(
+    codesSelect().replace(/--[^\n]*/g, '').includes("'{}'"),
+    "🔴 і порожній масив стоїть у КОДІ, не в коментарі",
+  );
+
+  // 🔴 ПІСЛЯ ЗАПИСУ ЗВІТ ЧИТАЄ КОЛОНКУ, А НЕ ПЕРЕРАХОВУЄ CTE.
+  // Це той самий блокер: мутація `SET … = '{}'` лишала звіт на 92.7%,
+  // бо він не питав у колонки нічого.
+  const stored = storedCoverSql();
+  check(/FROM camping_spots/.test(stored), 'звіт після запису читає таблицю');
+  check(/warning_areas/.test(stored), '🔴 і саме колонку warning_areas');
+  check(!stored.includes(codesSelect()), '🔴 і НЕ перераховує той самий CTE');
+  check(
+    plan({ apply: true }).find((x) => x.name === 'coverage')?.sql === stored,
+    'з --apply у плані стоїть саме звіт по колонці',
+  );
+  check(
+    plan({ apply: false }).find((x) => x.name === 'coverage')?.sql === wouldCoverSql(),
+    'без --apply — звіт «скільки знайшлося б»',
+  );
+
+  // 🔴 ІНВАРІАНТ ПРО NULL. Підлога ловить стерту колонку, але не ловить
+  // запис, що ОМИНУВ рядки: частка лишається та сама, а без зони замість
+  // `{}` стоїть NULL. Рецензія заміряла це на мутації `LEFT JOIN`→`JOIN`.
+  check(wet.includes('no nulls left'), '🔴 після запису перевіряємо, що живих NULL не лишилось');
+  check(!dry.includes('no nulls left'), 'без запису перевіряти нема чого');
+  check(
+    wet.indexOf('write') < wet.indexOf('no nulls left'),
+    'перевірка NULL іде ПІСЛЯ запису',
+  );
+  check(/warning_areas IS NULL/.test(NO_NULLS_SQL), 'і питає саме про NULL у колонці');
+  check(/missing_since IS NULL/.test(NO_NULLS_SQL), 'серед живих рядків, не всіх');
 
   const vals = pairsValues();
   check(vals.includes("('FR','NUTS3')"), 'Франція зʼєднується по NUTS3');
@@ -267,7 +366,7 @@ function selfTest() {
     'пари будуються з переданого набору, а не з глобального',
   );
 
-  const EXPECTED_CASES = 17;
+  const EXPECTED_CASES = 30;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;
