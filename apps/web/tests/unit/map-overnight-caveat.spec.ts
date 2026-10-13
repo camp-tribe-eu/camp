@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import MapFilters from '@/components/map-filters';
 import { EMPTY_FILTERS, type MapFilterState } from '@/lib/map-filter';
 import { renderComponent } from './render-component';
-import { everythingSaid } from './rendered-text';
+import { visibleText } from './rendered-text';
 
 // CAMP-255 — на мапі є фільтр «Wild camping», і до цього файлу жодного
 // застереження про законність ночівлі поруч із ним не було.
@@ -21,11 +21,22 @@ import { everythingSaid } from './rendered-text';
 // (`travel-notice.tsx`). Читач, який відкрив мапу й фільтрує, туди не
 // заходив.
 
-// 🔴 `everythingSaid` віддає МАСИВ рядків (видимий текст, `title`,
-// `aria-label`), не один рядок. Перша редакція цього файлу робила
-// `toContain` по масиву — тобто вимагала ТОЧНОГО збігу елемента, і
-// падала, хоч застереження малювалось. Зшиваємо в один рядок.
-const said = (state: MapFilterState) => everythingSaid(render(state)).join(' ');
+// 🔴 `visibleText`, і вибір читача тут — ПІВ ТЕСТУ.
+//
+// Спершу тут стояв `everythingSaid(...).join(' ')`. Це читач, який
+// НАВМИСНО включає приховане (`read(html, false, …)`) і дописує
+// `title`/`aria-label` тим же масивом — і він правильний там, де
+// питають «чи сказано», бо попередження в прихованому елементі все одно
+// промовляється. Але тут питають «чи ВИДНО», а на це він відповісти не
+// може: рецензія заміряла пʼять способів сховати абзац — `hidden`,
+// `sm:hidden` (невидимий на КОЖНІЙ десктопній ширині), `sr-only`,
+// інлайновий `display:none` і батько з атрибутом `hidden` — і всі пʼять
+// лишали чотири випадки зеленими. Шостий: порожній `<p>` з усім
+// реченням у `title=` малює НУЛЬ видимих символів і теж був зелений.
+//
+// `visibleText` викидає приховане першим ділом і не читає атрибутів —
+// саме та асиметрія, яку `rendered-text.ts` описує у своїй же шапці.
+const said = (state: MapFilterState) => visibleText(render(state));
 
 const render = (state: MapFilterState) =>
   renderComponent(MapFilters, {
@@ -45,7 +56,13 @@ test('🔴 застереження про ночівлю видно БЕЗ жо
 test('🔴 і воно НЕ зʼявляється лише тоді, коли обрано «Wild»', () => {
   // Застереження, яке треба спершу викликати, половина читачів не
   // побачить — те саме міркування записане в `travel-notice.tsx`.
-  for (const types of [[], ['wild'], ['paid'], ['free', 'rv_park']] as const) {
+  //
+  // 🔴 Порожнього `[]` тут НЕМАЄ навмисно. Він був, і разом зі spread
+  // давав рівно `EMPTY_FILTERS` — тобто цей випадок був строгою
+  // надмножиною попереднього, і «чотири випадки» насправді були три.
+  // Рецензія це заміряла. Тепер кожен випадок каже щось своє: той —
+  // про типовий стан, цей — про те, що вибір типу нічого не змінює.
+  for (const types of [['wild'], ['paid'], ['free', 'rv_park']] as const) {
     expect(
       said({ ...EMPTY_FILTERS, types: [...types] }),
       `types=${JSON.stringify(types)}`,
@@ -56,7 +73,7 @@ test('🔴 і воно НЕ зʼявляється лише тоді, коли �
 test('воно називає, ХТО вирішує, а не просто застерігає', () => {
   // «Будьте обережні» нічого не каже. Читач мусить дізнатись, де шукати
   // відповідь: місцеві правила й власник землі.
-  expect(said(EMPTY_FILTERS)).toContain('local rules');
+  expect(said(EMPTY_FILTERS)).toContain('local law');
   expect(said(EMPTY_FILTERS)).toContain('landowner');
 });
 

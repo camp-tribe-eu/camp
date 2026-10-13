@@ -385,6 +385,33 @@ test.describe('/map filters', () => {
     }
   });
 
+  // ── CAMP-255: застереження про ночівлю ──────────────────────────────
+  //
+  // 🔴 ЦЕ ЄДИНА ПЕРЕВІРКА, ЩО ДИВИТЬСЯ НА НЬОГО СПРАВЖНІМ БРАУЗЕРОМ.
+  // Юніт-тест читає текст через `visibleText`, тобто розбирає розмітку
+  // за переліком ідіом — і сам свій коментар про це каже. Чого він не
+  // вміє: `data-testid`, перейменований на інший, лишав усі чотири
+  // випадки зеленими (заміряно), бо тексту він не чіпає. І клас, чия
+  // дія живе в таблиці стилів під власним іменем, із розмітки не
+  // судиться взагалі.
+  //
+  // Тут — три ширини × три браузери, і питання до самої сторінки.
+  test('the overnight caveat is on the map page, at this width', async ({
+    page,
+  }) => {
+    await page.goto('/map');
+    await skipWithoutWebGL(page);
+    const caveat = page.getByTestId('overnight-caveat');
+    await expect(
+      caveat,
+      'застереження про ночівлю відсутнє або невидиме на цій ширині',
+    ).toBeVisible();
+    // 🔴 Видиме — ще не прочитане. `toBeVisible` пропускає елемент
+    // нульової висоти з текстом у `title`, тож питаємо ще й те, що
+    // справді намальовано.
+    await expect(caveat).toContainText('not permission to stay the night');
+  });
+
   // ── CAMP-122: bulk controls ─────────────────────────────────────────
   //
   // 🔴 In the document at every width, like every other control in this

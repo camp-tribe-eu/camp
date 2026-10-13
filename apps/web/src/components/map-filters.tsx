@@ -163,31 +163,6 @@ export default function MapFilters({
             onClick={() => setTypes(t)}
           />
         ))}
-        {/* 🔴 CAMP-255. «Wild camping» — це фільтр на 2 917 точок, і до
-            цього рядка ЄДИНЕ застереження про законність ночівлі жило на
-            сторінці окремого кемпінгу. Читач, який фільтрує на мапі,
-            бачив піни й не бачив нічого.
-
-            Заміряно 25.09.2026 по ЄС-27: на 48 970 місць ночівлі
-            відкриті дані дають 651 ствердну відповідь «тут можна». Тобто
-            питання «чи можна мені тут заночувати» у відкритих даних
-            відповіді не має, і тип місця на неї теж не відповідає:
-            `wild` приходить із `backcountry=yes` або `camp_site=basic`,
-            а це про те, ЧИМ місце є, не про дозвіл.
-
-            🔴 Видно ЗАВЖДИ, не лише коли обрано «Wild». Застереження, яке
-            треба спершу викликати, половина читачів не побачить — те
-            саме міркування записане в `travel-notice.tsx`, і воно тут
-            важить більше, бо мапа це перше, що відкривають. */}
-        <p
-          data-testid="overnight-caveat"
-          className="mt-2 w-full text-xs leading-5 text-ink-2"
-        >
-          Being on this map is not permission to stay the night. Whether you
-          may is decided by local rules and the landowner, and open data
-          answers that for almost none of these places — the type of a site
-          describes what it is, not what you are allowed to do there.
-        </p>
       </Group>
 
       <Group
@@ -292,6 +267,54 @@ export default function MapFilters({
             Playwright `check()` here can report "clicking the checkbox
             did not change its state": the target moved out from under
             the click between the actionability check and the event. */}
+        {/* 🔴 CAMP-255. «Wild camping» — це фільтр на 2 917 точок, і до
+            цього рядка ЄДИНЕ застереження про законність ночівлі жило на
+            сторінці окремого кемпінгу. Читач, який фільтрує на мапі,
+            бачив піни й не бачив нічого.
+
+            Заміряно 25.09.2026 по ЄС-27: на 48 970 місць ночівлі
+            відкриті дані дають 651 ствердну відповідь «тут можна». Тобто
+            питання «чи можна мені тут заночувати» у відкритих даних
+            відповіді не має, і тип місця на неї теж не відповідає:
+            `wild` приходить із `backcountry=yes` або `camp_site=basic`,
+            а це про те, ЧИМ місце є, не про дозвіл.
+
+            🔴 ЧОМУ ТУТ, А НЕ ПІД ЧИПАМИ «Type», де стояло спершу.
+            Заміряно в Chromium на справжньому білді globals.css, три
+            ширини, висота цієї панелі:
+
+              1280 px   без абзацу 207   під чипами 261   тут 255
+               768 px               271               325      319
+               390 px               371               465      459
+
+            Різницю робить не текст, а місце. Групи від `sm` лежать
+            поруч як flex-елементи й беруть ширину ЗА ВМІСТОМ, тож абзац
+            усередині `fieldset` роздував «Type» із 432 до 1246 px —
+            «Facilities» і «Accessibility» падали на новий ряд. У вже
+            повноширокому нижньому ряду «Type» лишається 432 px, рівно
+            як без абзацу.
+
+            🔴 А 230 px із коментаря при `className` вище — це вже НЕ
+            бюджет, і я це перевірив, а не успадкував. Тест, який тоді
+            впав, із того часу робить `scrollIntoViewIfNeeded()` ДО
+            читання координат (`tests/e2e/map.spec.ts:793`), і його ж
+            коментар каже, що виправлення було в двох місцях. Панель
+            більше не вирішує, чи клікається маркер.
+
+            🔴 Видно ЗАВЖДИ, не лише коли обрано «Wild». Застереження, яке
+            треба спершу викликати, половина читачів не побачить — те
+            саме міркування записане в `travel-notice.tsx`, і воно тут
+            важить більше, бо мапа це перше, що відкривають. */}
+        <p
+          data-testid="overnight-caveat"
+          className="w-full text-xs leading-5 text-ink-2"
+        >
+          Being on this map is not permission to stay the night. Whether you
+          may is decided by local law and the landowner, and open data
+          answers that for almost none of these places — the type of a site
+          describes what it is, not what you are allowed to do there.
+        </p>
+
         <p data-testid="filter-count" className="w-full text-ink-2">
           {count.value !== null && (
             <strong className="font-semibold text-heading">
