@@ -282,7 +282,7 @@ jobs:
         run: |
           set -o pipefail
           node scripts/meteoalarm/zone-coverage.mjs --self-test | tee /dev/stderr \
-            | grep -c 'zone-coverage self-test:' >/dev/null
+            | grep -c '✓ zone-coverage self-test:' >/dev/null
 
       # CAMP-60, debt #2. The verdict logic, including the case that
       # matters most: a run that sent nothing must FAIL, not report
