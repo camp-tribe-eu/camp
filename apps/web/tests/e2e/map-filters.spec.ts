@@ -385,6 +385,64 @@ test.describe('/map filters', () => {
     }
   });
 
+  // ── CAMP-297: лічильник на першому екрані ───────────────────────────
+  //
+  // 🔴 ТЕСТ МІРЯЄ ПОЗИЦІЮ, А НЕ ІСНУВАННЯ, і картка просила саме цього.
+  // Лічильник існував завжди — він лежав на 756 px і на телефоні 844 px
+  // був на самій межі екрана, а на 640 px за нею. «N campsites in view»
+  // — єдине число, яке каже читачеві, що фільтр спрацював.
+  //
+  // Падає, щойно вміст над ним виросте: саме так CAMP-255 зробив гірше
+  // (панель 371 → 479), і саме цього тут бракувало.
+  test('🔴 CAMP-297: the count is on the first screen, measured', async ({
+    page,
+  }) => {
+    for (const [w, h] of [
+      [390, 844],
+      [360, 640],
+    ] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto('/map');
+      await skipWithoutWebGL(page);
+
+      // 🔴 Завжди від верху сторінки. Клік по «Reject» сам прокручує
+      // сторінку до кнопки внизу — і перша редакція цього тесту міряла
+      // саме прокрутку, а не розкладку: 406 проти 438 у webkit. Я
+      // стверджував рівність позицій, і це було надмірним твердженням
+      // про те, чого тест не міряв.
+      const bottom = async () => {
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await expect
+          .poll(() => page.evaluate(() => Math.round(window.scrollY)))
+          .toBe(0);
+        const box = await page.getByTestId('filter-count').boundingBox();
+        expect(box, `${w}×${h}: лічильника немає взагалі`).not.toBeNull();
+        return Math.round(box!.y + box!.height);
+      };
+
+      expect(
+        await bottom(),
+        `${w}×${h}: з банером лічильник закінчується нижче за екран`,
+      ).toBeLessThanOrEqual(h);
+
+      // 🔴 І ТЕ САМЕ ПІСЛЯ ВІДПОВІДІ НА БАНЕР. CAMP-264 звинуватила
+      // банер і додала нижній відступ — лічильник не зрушив, бо причина
+      // була НАД ним. Тому обидва стани мусять лишати його на першому
+      // екрані; рівність до пікселя тут не стверджується, бо вона й не
+      // потрібна, а довести її цей тест не може.
+      const reject = page.getByTestId('cookie-reject');
+      if (await reject.isVisible().catch(() => false)) {
+        await reject.click();
+        await expect(page.getByTestId('cookie-banner')).toBeHidden();
+      }
+
+      expect(
+        await bottom(),
+        `${w}×${h}: без банера лічильник закінчується нижче за екран`,
+      ).toBeLessThanOrEqual(h);
+    }
+  });
+
   // ── CAMP-255: застереження про ночівлю ──────────────────────────────
   //
   // 🔴 ЦЕ ЄДИНА ПЕРЕВІРКА, ЩО ДИВИТЬСЯ НА НЬОГО СПРАВЖНІМ БРАУЗЕРОМ.

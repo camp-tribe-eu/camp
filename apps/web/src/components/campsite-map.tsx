@@ -35,7 +35,7 @@ import {
   type MapFilterState,
   type SpotProperties as FilterProperties,
 } from "@/lib/map-filter";
-import MapFilters from "./map-filters";
+import MapFilters, { MapCount } from "./map-filters";
 import {
   MARKER_STROKE,
   TYPE_COLOUR,
@@ -2110,13 +2110,20 @@ export default function CampsiteMap() {
       <div className="mt-3">
         {/* 🔴 The in-view numbers, not the fetched ones. CAMP-133: the
             denominator a reader is given has to be a set they can see. */}
+        {/* 🔴 CAMP-297: лічильник НАД панеллю. Усередині неї він лежав
+            на 756 px і на телефоні 844 px був на самій межі екрана, а
+            на коротшому — за нею. */}
+        <MapCount
+          shown={tally.inViewShown}
+          total={tally.inViewTotal}
+          dataState={dataState}
+          state={filters}
+        />
+
         <MapFilters
           state={filters}
           onChange={setFilters}
-          shown={tally.inViewShown}
-          total={tally.inViewTotal}
           unknownExcluded={tally.inViewUnknownExcluded}
-          dataState={dataState}
         />
       </div>
 
