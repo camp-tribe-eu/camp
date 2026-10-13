@@ -9,7 +9,9 @@ import { canonicalPath, readAmenities, slugifyRegion } from './canonical';
 // two answers to one question. The guides import it because their
 // queries aggregate over campsites rather than rendering one.
 import {
+  GONE_AFTER_DAYS,
   GONE_LIST_SQL,
+  GONE_PENDING_SQL,
   linkedSecondariesJoin,
   mergedNameSql,
   mergeAllLinked,
@@ -263,6 +265,37 @@ export class SpotsService {
    * they need is the right HTTP status at the old address: a 410 tells
    * Google the URL is intentionally gone, which 404 does not.
    */
+  /**
+   * Чому список 410 саме такий — числа, із якими збірка його звіряє.
+   *
+   * 🔴 Це відповідь на питання «порожньо тому, що ще рано, чи тому, що
+   * зламалось». CAMP-301: `gen-gone.mjs` відмовляється писати файл лише
+   * коли відповідь НЕ ok, а порожній масив зі статусом 200 проходить і
+   * записується. Сьогодні це правильно — найдавнішому зниклому рядку 18
+   * днів із 28. Приблизно 22.10.2026 перший дозріє, і з того дня та сама
+   * тиша означатиме, що впав імпорт, зламався запит або хтось зсунув
+   * інтервал — без жодного симптому до звіту про обхід.
+   *
+   * `intervalDays` їде сюди ж, щоб збірка не носила власної копії числа.
+   */
+  async gonePending(): Promise<{
+    intervalDays: number;
+    mature: number;
+    pending: number;
+    oldestDays: number | null;
+  }> {
+    const [row] = await this.db.query(GONE_PENDING_SQL);
+    return {
+      intervalDays: GONE_AFTER_DAYS,
+      mature: Number(row?.mature ?? 0),
+      pending: Number(row?.pending ?? 0),
+      oldestDays:
+        row?.oldest_days === null || row?.oldest_days === undefined
+          ? null
+          : Number(row.oldest_days),
+    };
+  }
+
   async gone(): Promise<
     {
       path: string;

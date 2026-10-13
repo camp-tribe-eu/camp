@@ -3,7 +3,11 @@ import { join } from 'node:path';
 import { UPSERT_SPOT_SQL } from '../osm/import-spots';
 import {
   attributeTaken,
+  GONE_AFTER_DAYS,
+  GONE_AFTER_IMPORTS,
   GONE_LIST_SQL,
+  GONE_PENDING_SQL,
+  IMPORT_EVERY_DAYS,
   linkedSecondariesJoin,
   mergeAllLinked,
   mergedNameSql,
@@ -490,6 +494,129 @@ describe('mergeLinked', () => {
  * The behaviour itself is rehearsed in verify-links.ts, against a
  * database, with the state planted and then taken away again.
  */
+describe('CAMP-301: один інтервал на обидва запити', () => {
+  /** Кожен `interval 'N days'`, що є в рядку запиту. */
+  const daysIn = (sql: string) =>
+    [...sql.matchAll(/interval '(\d+) days'/g)].map((m) => Number(m[1]));
+
+  it('🔴 «щотижневий» — це розклад воркфлоу, а не моє слово', () => {
+    // 🔴 ТУТ СТОЯЛО `expect(GONE_AFTER_DAYS).toBe(GONE_AFTER_IMPORTS *
+    // IMPORT_EVERY_DAYS)`, і це переказ означення з `links.ts`, а не
+    // перевірка. Рецензія це довела: `GONE_AFTER_IMPORTS = 9,
+    // IMPORT_EVERY_DAYS = 3` тихо робили інтервал 27 днів, і всі 68
+    // тестів файлу лишались зеленими. Жодна зміна входів похідної не
+    // могла її почервонити.
+    //
+    // Єдина сторона, яка справді знає частоту імпорту, — це його
+    // розклад. Беремо число звідти.
+    const wf = readFileSync(
+      join(
+        __dirname,
+        '..',
+        '..',
+        '..',
+        '..',
+        '.github',
+        'workflows',
+        'osm-weekly.yml',
+      ),
+      'utf8',
+    );
+    // 🔴 ВСІ розклади, не перший. `.exec()` читав лише перший `- cron:`,
+    // і рецензія додала другий рядок `- cron: '0 4 * * 4'` — імпорт
+    // двічі на тиждень, `IMPORT_EVERY_DAYS = 7` стало брехнею, а тест
+    // лишився зеленим. Щотижня означає РІВНО один розклад.
+    const crons = [...wf.matchAll(/^\s*-\s*cron:\s*'([^']+)'/gm)].map(
+      (m) => m[1],
+    );
+    expect(crons).toHaveLength(1);
+    const cron = crons[0];
+    // Jest-івський `expect` другого аргументу не бере — пояснення тут.
+    expect(cron).toBeTruthy(); // розклад імпорту не прочитався
+    const [, , dom, , dow] = (cron as string).trim().split(/\s+/);
+    // Щотижня — це фіксований день тижня при вільному дні місяця.
+    // Якби імпорт був прив'язаний до дня МІСЯЦЯ, він не щотижневий.
+    expect(dom).toBe('*');
+    // Нефіксований день тижня означав би, що «щотижня» — неправда.
+    expect(dow).toMatch(/^[0-6]$/);
+    expect(IMPORT_EVERY_DAYS).toBe(7);
+
+    // А це вже наше рішення, і воно з CAMP-87: чотири поспіль імпорти
+    // без кемпінгу, перш ніж назвати його зниклим назавжди.
+    expect(GONE_AFTER_IMPORTS).toBe(4);
+    expect(GONE_AFTER_DAYS).toBe(28);
+  });
+
+  it('🔴 у списку 410 немає жодного іншого інтервалу в днях', () => {
+    // 🔴 Перелічуємо ВСІ, а не питаємо `toContain`. Друга копія числа
+    // десь нижче в запиті пройшла б `toContain` непомітно — а саме дві
+    // копії, що розійшлись, і є тим, від чого ця перевірка стоїть.
+    expect(daysIn(GONE_LIST_SQL)).toEqual([GONE_AFTER_DAYS]);
+  });
+
+  it('🔴 і в запиті про причину — теж рівно він, двічі й однаково', () => {
+    // Тут інтервал стоїть у двох `FILTER`: що дозріло і що чекає.
+    // Різні числа в них означали б вікно, у яке рядок не потрапляє
+    // ні туди, ні туди.
+    expect(daysIn(GONE_PENDING_SQL)).toEqual([
+      GONE_AFTER_DAYS,
+      GONE_AFTER_DAYS,
+    ]);
+  });
+
+  it('🔴 у джерелі немає жодного інтервалу в днях, написаного числом', () => {
+    // 🔴 ЦЕ ЧИТАЄ ВИХІДНИЙ ТЕКСТ, і без цього тести вище мали дірку.
+    // Вони дивляться на вже підставлений рядок, тож зашита назад копія
+    // `interval '28 days'` проходила непомітно: константа теж 28.
+    // Матриця це показала — мутація вижила.
+    //
+    // Тут питання інше й воно не залежить від сьогоднішнього значення:
+    // у файлі не сміє стояти інтервал у днях, написаний цифрами.
+    // Єдина дозволена форма — підстановка константи.
+    const src = readFileSync(join(__dirname, 'links.ts'), 'utf8');
+    expect(src).not.toMatch(/interval '\d+ days'/);
+    expect(src).toContain("interval '${GONE_AFTER_DAYS} days'");
+  });
+
+  it('🔴 причина рахується ІНШИМ запитом, а не тим самим', () => {
+    // Якби обидва числа рахувались одним SQL, вони збігалися б завжди
+    // й не могли б розійтись — доказ підтверджував би сам себе.
+    //
+    // 🔴 ПИТАЄМО ВЛАСТИВІСТЬ, А НЕ СПИСОК ЗАБОРОНЕНИХ СЛІВ. Перша
+    // редакція забороняла `redirected` і `LATERAL` — і рецензія
+    // пройшла повз неї, дописавши `NOT EXISTS (… spot_links …)`:
+    // на нашій базі таких рядків нуль, тож і числа не змінились, і
+    // забороненого слова не було. Кожне нове слово в списку лікувало б
+    // випадок, а не причину.
+    //
+    // Властивість така: це плаский підрахунок по ОДНІЙ таблиці.
+    //
+    // ⚠️ І вона НЕ ловить усього, що звужує зріз — рецензія показала
+    // три форми, які проходять: `AND country <> 'SI'`,
+    // `AND id <> ALL (ARRAY[…])` і CTE з `VALUES`. Статичний текст і не
+    // може їх зловити: вони не мають ні підзапиту до таблиці, ні
+    // з'єднання. Їх ловить інша сітка — прогін по ЖИВІЙ базі у
+    // `verify-links.ts`, де оракул лічить у JS: там усі чотири
+    // заміряні мутації (`WHERE false`, своп фільтрів, `AND country <>
+    // 'FR'`, `date_part('month')`) дають rc=1. Ця перевірка закриває
+    // найгрубіше — віднімання через інші таблиці.
+    const selects = GONE_PENDING_SQL.match(/\bSELECT\b/gi) ?? [];
+    expect(selects).toHaveLength(1);
+    expect(GONE_PENDING_SQL).not.toMatch(/\bJOIN\b/i);
+    expect(GONE_PENDING_SQL).not.toMatch(/\bEXISTS\b/i);
+    // І таблиця в `FROM` рівно одна, без псевдоніма й без коми.
+    const from = /\bFROM\s+([^\s]+)/i.exec(GONE_PENDING_SQL)?.[1];
+    expect(from).toBe('camping_spots');
+    expect(GONE_PENDING_SQL).not.toMatch(/FROM\s+camping_spots\s*,/i);
+  });
+
+  it('він не рахує рядків, які не мають адреси взагалі', () => {
+    // Рядок без регіону не має URL, тож «дозрів» про нього нічого не
+    // означає: це передумова існування адреси, а не віднімання.
+    expect(GONE_PENDING_SQL).toContain('region IS NOT NULL');
+  });
+});
+
 describe('the two lists cannot drift apart', () => {
   it('gone computes the published list and subtracts from it', () => {
     // 🔴 The RESOLVED list, not the raw pairs. A review planted a chain

@@ -776,6 +776,45 @@ export const REDIRECT_LIST_SQL = `SELECT f.country AS from_country, f.region AS 
  * Materialised it is computed once: 239–355 ms for the same 5 955 rows,
  * measured 12.10.2026 on 63 031 campsites and 4 443 live links.
  */
+/**
+ * Скільки днів рядок мусить пролежати зниклим, перш ніж його адреса
+ * почне відповідати 410.
+ *
+ * 🔴 ОДНА КОПІЯ НА ВЕСЬ ПРОЄКТ, і це головне в цій константі. Число
+ * стояло текстом усередині `GONE_LIST_SQL`, а збірка сайту окремо
+ * вирішувала, чи порожній список законний — тобто мусила б носити власну
+ * копію. Дві копії погоджуються рівно доти, доки хтось не змінить одну:
+ * тоді `gen-gone.mjs` каже «ще рано» про рядок, який API вже оголосив
+ * мертвим, і сторінка 410 тихо порожніє.
+ *
+ * Саме число — похідна, не вибір: CAMP-87 оголошує кемпінг зниклим
+ * після ЧОТИРЬОХ поспіль імпортів без нього, а імпорт щотижневий.
+ */
+export const GONE_AFTER_IMPORTS = 4;
+export const IMPORT_EVERY_DAYS = 7;
+export const GONE_AFTER_DAYS = GONE_AFTER_IMPORTS * IMPORT_EVERY_DAYS;
+
+/**
+ * Чому список 410 саме такої довжини — рахунок ПОЗА `GONE_LIST_SQL`.
+ *
+ * 🔴 Навмисно інший запит, а не той самий під іншою назвою. Якби обидва
+ * числа рахувались одним SQL, вони збігалися б завжди й не могли б
+ * розійтись — доказ підтверджував би сам себе. Тут питання простіше й
+ * ставиться прямо до таблиці: скільки рядків узагалі дозріли.
+ *
+ * `region IS NOT NULL` лишається, бо рядок без регіону не має адреси
+ * взагалі — це не відніманння, а передумова існування URL.
+ */
+export const GONE_PENDING_SQL = `
+  SELECT count(*) FILTER (
+           WHERE missing_since < now() - interval '${GONE_AFTER_DAYS} days') AS mature,
+         count(*) FILTER (
+           WHERE missing_since >= now() - interval '${GONE_AFTER_DAYS} days') AS pending,
+         max(date_part('day', now() - missing_since))::int AS oldest_days
+    FROM camping_spots
+   WHERE missing_since IS NOT NULL
+     AND region IS NOT NULL`;
+
 export const GONE_LIST_SQL = `WITH redirected AS MATERIALIZED (
     ${RESOLVED_REDIRECTS_SQL})
   SELECT g.slug, g.name, g.country, g.region, g.missing_since,
@@ -800,7 +839,7 @@ export const GONE_LIST_SQL = `WITH redirected AS MATERIALIZED (
             LIMIT 1
          ) n ON true
         WHERE g.missing_since IS NOT NULL
-          AND g.missing_since < now() - interval '28 days'
+          AND g.missing_since < now() - interval '${GONE_AFTER_DAYS} days'
           AND g.region IS NOT NULL
           -- CAMP-279. A row that is half of a live pair whose other half
           -- is published has not gone anywhere: the campsite is on that

@@ -129,6 +129,16 @@ export class SpotsController {
   }
 
   /**
+   * CAMP-301: чому список 410 саме такої довжини. Оголошено ПІСЛЯ
+   * `gone`, але до `:country` — два сегменти, тож `:country/:region`
+   * зловив би його, якби стояв вище.
+   */
+  @Get('gone/pending')
+  gonePending() {
+    return this.spots.gonePending();
+  }
+
+  /**
    * CAMP-144: old URLs of campsites that have been folded into another
    * page, and where each one now lives. Declared above the `:country`
    * routes for the same reason as `gone`.
