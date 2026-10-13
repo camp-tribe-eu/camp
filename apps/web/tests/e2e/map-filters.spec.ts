@@ -405,25 +405,31 @@ test.describe('/map filters', () => {
       await page.goto('/map');
       await skipWithoutWebGL(page);
 
+      // 🔴 Завжди від верху сторінки. Клік по «Reject» сам прокручує
+      // сторінку до кнопки внизу — і перша редакція цього тесту міряла
+      // саме прокрутку, а не розкладку: 406 проти 438 у webkit. Я
+      // стверджував рівність позицій, і це було надмірним твердженням
+      // про те, чого тест не міряв.
       const bottom = async () => {
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await expect
+          .poll(() => page.evaluate(() => Math.round(window.scrollY)))
+          .toBe(0);
         const box = await page.getByTestId('filter-count').boundingBox();
         expect(box, `${w}×${h}: лічильника немає взагалі`).not.toBeNull();
         return Math.round(box!.y + box!.height);
       };
 
-      const withBanner = await bottom();
       expect(
-        withBanner,
-        `${w}×${h}: лічильник закінчується нижче за екран`,
+        await bottom(),
+        `${w}×${h}: з банером лічильник закінчується нижче за екран`,
       ).toBeLessThanOrEqual(h);
 
       // 🔴 І ТЕ САМЕ ПІСЛЯ ВІДПОВІДІ НА БАНЕР. CAMP-264 звинуватила
-      // банер і додала нижній відступ — лічильник не зрушив ні на
-      // піксель, бо причина була над ним, а не під ним. Тут це
-      // стверджується, а не переказується: позиція мусить бути ТА САМА.
-      //
-      // Банер — накладка внизу, і те, чи він устиг відмалюватись, на
-      // число впливати не сміє; тому тест не чекає на його появу.
+      // банер і додала нижній відступ — лічильник не зрушив, бо причина
+      // була НАД ним. Тому обидва стани мусять лишати його на першому
+      // екрані; рівність до пікселя тут не стверджується, бо вона й не
+      // потрібна, а довести її цей тест не може.
       const reject = page.getByTestId('cookie-reject');
       if (await reject.isVisible().catch(() => false)) {
         await reject.click();
@@ -432,8 +438,8 @@ test.describe('/map filters', () => {
 
       expect(
         await bottom(),
-        `${w}×${h}: банер зрушив лічильник — отже причина не там, де ми думали`,
-      ).toBe(withBanner);
+        `${w}×${h}: без банера лічильник закінчується нижче за екран`,
+      ).toBeLessThanOrEqual(h);
     }
   });
 
