@@ -30,12 +30,7 @@
 // `applicableWarnings`, та сама, що на сторінці кемпінга: мапа й
 // сторінка не сміють розходитись у відповіді про одне місце.
 
-import {
-  applicableWarnings,
-  splitByForce,
-  type Warning,
-  type WarningFeed,
-} from './warnings';
+import { splitByForce, type Warning, type WarningFeed } from './warnings';
 
 /** Коди зон, як чанк їх зшив: `EMMA_ID:HR008|NUTS3:HR033`. */
 export const ZONES_KEY = 'z';
@@ -43,52 +38,6 @@ export const ZONES_KEY = 'z';
 /** Розібрати те, що зшив `chunkBody`. Порожнє — порожній список. */
 export const zonesOf = (joined: string | null | undefined): string[] =>
   typeof joined === 'string' && joined !== '' ? joined.split('|').filter(Boolean) : [];
-
-/**
- * Рівень тривоги на кожен кемпінг, який її має.
- *
- * 🔴 ТІЛЬКИ ТІ, ХТО В СПИСКУ. Кемпінг без запису — не «спокійно», а
- * «нічого чинного не знайдено для нього». Різниця видна на мапі: шар
- * або показує стан усієї Європи, або не показує нічого, і друге чесніше
- * за підсвічені крапки без пояснення.
- *
- * 🔴 МАКСИМУМ, А НЕ ПЕРШИЙ. Кемпінг під жовтим вітром і помаранчевим
- * дощем — помаранчевий. Перший за списком залежав би від порядку у
- * фіді, тобто від чужого сортування.
- */
-export function levelsBySlug(
-  country: string,
-  spots: readonly { slug: string; zones: string | null | undefined }[],
-  feed: WarningFeed | null,
-  now: Date,
-): Map<string, number> {
-  const out = new Map<string, number>();
-  if (feed === null) return out;
-  const warnings: readonly Warning[] = feed.warnings ?? [];
-  if (warnings.length === 0) return out;
-
-  for (const spot of spots) {
-    // 🔴 ТУТ СТОЯЛО `if (codes.length === 0) continue;`, І ЙОГО
-    // ПРИБРАНО ПІСЛЯ МУТАЦІЇ. Жоден випадок не міг його почервонити:
-    // `applicableWarnings` із порожнім набором кодів і так не дає
-    // збігів — порожні зони потрапляють у `unlocatable`, який мапа не
-    // читає. Надлишковий захист, що дублює чужу умову, з часом
-    // починає її підпирати: правиш одну, друга тримає, і жоден тест не
-    // каже, що щось зламалось.
-    const { applicable } = applicableWarnings(country, zonesOf(spot.zones), warnings);
-    // 🔴 Вік ПОПЕРЕДЖЕННЯ, не лише вік знімка — той самий годинник, що
-    // й на сторінці. Фетчер відсіює протерміновані на момент забору, а
-    // знімок живе довше за це.
-    const live = splitByForce(applicable, now).inForce;
-    let max = 0;
-    for (const w of live) {
-      const lv = typeof w.level === 'number' ? w.level : 0;
-      if (lv > max) max = lv;
-    }
-    if (max > 0) out.set(spot.slug, max);
-  }
-  return out;
-}
 
 /**
  * Скільки показувати рівнів — і чому всі.
@@ -115,3 +64,68 @@ export const SHOWN_LEVELS = [2, 3, 4] as const;
 /** Рівень 1 — зелений, тобто ВІДСУТНІСТЬ попередження. Його тут бути не може. */
 export const isShownLevel = (level: number): boolean =>
   (SHOWN_LEVELS as readonly number[]).includes(level);
+
+/**
+ * Зона → найвищий рівень чинного попередження на ній.
+ *
+ * 🔴 ОДИН ПРОХІД ПО ФІДУ, А НЕ ПО КЕМПІНГУ. На екрані до 2 000
+ * маркерів і до 180 попереджень; зіставляти кожен із кожним — 360
+ * тисяч порівнянь на кожне оновлення раз на хвилину. Індекс робить це
+ * один раз, а кемпінг стає пошуком за своїми 1–3 кодами.
+ *
+ * 🔴 БЕЗ КРАЇНИ, І ЦЕ СКАЗАНО ВГОЛОС. Перша версія брала країну й
+ * кликала `applicableWarnings`, але та при позитивному збігу теж
+ * дивиться ЛИШЕ на коди — країна в ній вирішує долю `unlocatable`,
+ * якого мапа не читає. Параметр, що нічого не вирішує, гірший за його
+ * відсутність: він обіцяє перевірку, якої немає. Сторінка кемпінга
+ * застосовує те саме правило, тож мапа й сторінка не розходяться.
+ *
+ * 🔴 ВІК ПОПЕРЕДЖЕННЯ, не лише знімка: `splitByForce`, той самий
+ * годинник, що на сторінці.
+ */
+export function levelByZone(feed: WarningFeed | null, now: Date): Map<string, number> {
+  const out = new Map<string, number>();
+  if (feed === null) return out;
+  const warnings: readonly Warning[] = feed.warnings ?? [];
+  for (const w of splitByForce(warnings, now).inForce) {
+    // 🔴 `isShownLevel`, А НЕ `> 0`. Перша версія відсікала лише нуль,
+    // і рівень 1 — ЗЕЛЕНИЙ, тобто відсутність попередження — потрапляв
+    // би в індекс. Фетчер його й так відкидає, але покладатись тут на
+    // чужий фільтр означало б, що `SHOWN_LEVELS` нижче лише описує, а
+    // не вирішує. Список, який нічим не керує, рано чи пізно розходиться
+    // з тим, що насправді малюється.
+    const lv = typeof w.level === 'number' ? w.level : 0;
+    if (!isShownLevel(lv)) continue;
+    for (const area of w.areas ?? []) {
+      for (const code of area.codes ?? []) {
+        if (typeof code !== 'string') continue;
+        const key = code.trim().toLowerCase();
+        if (key === '') continue;
+        // 🔴 Максимум, а не останній: порядок у фіді — чуже сортування.
+        const was = out.get(key);
+        if (was === undefined || lv > was) out.set(key, lv);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Рівень для одного кемпінга, або 0.
+ *
+ * 🔴 НУЛЬ — ЦЕ «НІЧОГО НЕ ЗНАЙДЕНО ДЛЯ НЬОГО», а не «тут спокійно».
+ * Різницю каже панель під мапою, не колір крапки: шар або показує стан,
+ * або чесно каже, що не показує.
+ */
+export function levelForSpot(
+  zones: string | null | undefined,
+  byZone: ReadonlyMap<string, number>,
+): number {
+  let max = 0;
+  for (const code of zonesOf(zones)) {
+    const lv = byZone.get(code.trim().toLowerCase());
+    if (lv !== undefined && lv > max) max = lv;
+  }
+  return max;
+}
+

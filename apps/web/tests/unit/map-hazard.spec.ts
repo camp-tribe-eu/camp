@@ -1,15 +1,14 @@
 import { expect, test } from '@playwright/test';
-import { isShownLevel, levelsBySlug, SHOWN_LEVELS, zonesOf } from '@/lib/map-hazard';
+import {
+  isShownLevel,
+  levelByZone,
+  levelForSpot,
+  SHOWN_LEVELS,
+  zonesOf,
+} from '@/lib/map-hazard';
 import type { Warning, WarningFeed } from '@/lib/warnings';
 
 // CAMP-112 — які кемпінги на мапі накриті чинним попередженням.
-//
-// 🔴 ПАРА, НА ЯКІЙ ТРИМАЄТЬСЯ ГОЛОВНИЙ ВИПАДОК, УЗЯТА З БАЗИ. Запит по
-// camptribe_dev 13.10.2026: 52 коди зон належать БІЛЬШ НІЖ одній
-// країні. Найбільший — `EMMA_ID:NL014`, 645 кемпінгів у Німеччині й
-// Нідерландах; далі `EMMA_ID:IT002`, 255 в Австрії й Італії.
-// Метеозони не зупиняються на кордоні, і зіставлення лише за кодом
-// підсвітило б 645 німецьких кемпінгів на голландське попередження.
 
 const NOW = new Date('2026-10-13T12:00:00Z');
 const at = (minutesAgo: number) =>
@@ -45,6 +44,10 @@ const feed = (warnings: Warning[]): WarningFeed => ({
   warnings,
 });
 
+/** Те, що мапа робить насправді: індекс один раз, потім пошук на кемпінг. */
+const spotLevel = (zones: string | null, f: WarningFeed | null) =>
+  levelForSpot(zones, levelByZone(f, NOW));
+
 test('зшиті коди розбираються назад', () => {
   expect(zonesOf('EMMA_ID:HR008|NUTS3:HR033')).toEqual(['EMMA_ID:HR008', 'NUTS3:HR033']);
   expect(zonesOf('NUTS3:HR033')).toEqual(['NUTS3:HR033']);
@@ -57,142 +60,129 @@ test('відсутнє або порожнє — порожній список, 
 });
 
 test('кемпінг у зоні попередження отримує свій рівень', () => {
-  const m = levelsBySlug(
-    'HR',
-    [{ slug: 'a', zones: 'EMMA_ID:HR804' }],
-    feed([warn({ country: 'croatia', codes: ['EMMA_ID:HR804'], level: 3 })]),
-    NOW,
-  );
-  expect(m.get('a')).toBe(3);
+  expect(
+    spotLevel('EMMA_ID:HR804', feed([warn({ country: 'croatia', codes: ['EMMA_ID:HR804'], level: 3 })])),
+  ).toBe(3);
 });
 
 test('сусід в іншій зоні не отримує нічого', () => {
-  const m = levelsBySlug(
-    'HR',
-    [{ slug: 'a', zones: 'EMMA_ID:HR804' }, { slug: 'b', zones: 'EMMA_ID:HR008' }],
-    feed([warn({ country: 'croatia', codes: ['EMMA_ID:HR804'] })]),
-    NOW,
-  );
-  expect([...m.keys()]).toEqual(['a']);
+  expect(
+    spotLevel('EMMA_ID:HR008', feed([warn({ country: 'croatia', codes: ['EMMA_ID:HR804'] })])),
+  ).toBe(0);
 });
 
 // 🔴 ЦЕЙ ВИПАДОК Я СПОЧАТКУ НАПИСАВ НАВПАКИ, І ПОМИЛЯВСЯ НЕ КОД, А Я.
 //
-// Очікував, що голландське попередження НЕ сміє чіпати німецький
-// кемпінг. Тест упав, і третє джерело розсудило: резолвер зон робить
+// Очікував, що голландське попередження не сміє чіпати німецький
+// кемпінг. Тест упав, і розсудило третє джерело: резолвер зон робить
 // `ST_Contains(z.geom, s.location)` і має власний самотест — «зона
 // мусить МІСТИТИ точку, не лише бути поруч»
-// (`resolve-campsite-zones.mjs:425`). Отже код на кемпінгу означає, що
-// ця точка ГЕОМЕТРИЧНО всередині зони, а не «десь поблизу».
+// (`resolve-campsite-zones.mjs:425`). Отже код означає, що точка
+// ГЕОМЕТРИЧНО всередині зони.
 //
 // Німецький кемпінг усередині голландської зони справді стоїть у
 // площі, про яку попередила KNMI. Погода не зупиняється на кордоні, а
 // клаузула 5.3 змушує назвати службу, тож читач бачить «KNMI» і судить
-// сам. Сховати це означало б сказати «спокійно» під штормом — те
-// єдине, чого картка забороняє.
+// сам. Сховати це означало б сказати «спокійно» під штормом.
 //
 // Заміряно: 52 коди належать більш ніж одній країні, 3 656 кемпінгів
 // носять такий код. Це не крайовий випадок.
-//
-// 🔴 А ось чого тут НЕМАЄ і бути не сміє — зіставлення за КРАЇНОЮ:
-// хорватське попередження на всіх хорватських кемпінгах. Воно
-// перевірене нижче.
 test('зона, що перетинає кордон, підсвічує кемпінг по той бік', () => {
-  const m = levelsBySlug(
-    'DE',
-    [{ slug: 'німецький', zones: 'EMMA_ID:NL014|WARNCELLID:107215000' }],
-    feed([warn({ country: 'netherlands', codes: ['EMMA_ID:NL014'], level: 4 })]),
-    NOW,
-  );
-  expect(m.get('німецький')).toBe(4);
+  expect(
+    spotLevel(
+      'EMMA_ID:NL014|WARNCELLID:107215000',
+      feed([warn({ country: 'netherlands', codes: ['EMMA_ID:NL014'], level: 4 })]),
+    ),
+  ).toBe(4);
 });
 
-// 🔴 І межа, яку перетинати не можна: збіг країни БЕЗ збігу коду нічого
-// не означає. Інакше одне попередження світило б усю державу.
+// 🔴 А ось межа, яку перетинати не можна: збіг КРАЇНИ без збігу зони
+// нічого не означає. Інакше одне попередження світило б усю державу —
+// рівно те, що картка забороняє прямим текстом.
 test('та сама країна, інша зона — не підсвічує', () => {
-  const m = levelsBySlug(
-    'HR',
-    [{ slug: 'a', zones: 'EMMA_ID:HR008' }],
-    feed([warn({ country: 'croatia', codes: ['EMMA_ID:HR804'], level: 4 })]),
-    NOW,
-  );
-  expect(m.size).toBe(0);
+  expect(
+    spotLevel('EMMA_ID:HR008', feed([warn({ country: 'croatia', codes: ['EMMA_ID:HR804'], level: 4 })])),
+  ).toBe(0);
 });
 
-test('…а власне попередження країни його підсвічує', () => {
-  const m = levelsBySlug(
-    'DE',
-    [{ slug: 'німецький', zones: 'EMMA_ID:NL014|WARNCELLID:107215000' }],
-    feed([warn({ country: 'germany', codes: ['WARNCELLID:107215000'], level: 3 })]),
-    NOW,
-  );
-  expect(m.get('німецький')).toBe(3);
-});
-
-// 🔴 Максимум, не перший: порядок у фіді — чуже сортування.
 test('два попередження — береться вищий рівень', () => {
-  const m = levelsBySlug(
-    'HR',
-    [{ slug: 'a', zones: 'EMMA_ID:HR804' }],
-    feed([
-      warn({ id: '1', country: 'croatia', codes: ['EMMA_ID:HR804'], level: 2 }),
-      warn({ id: '2', country: 'croatia', codes: ['EMMA_ID:HR804'], level: 4 }),
-    ]),
-    NOW,
-  );
-  expect(m.get('a')).toBe(4);
+  expect(
+    spotLevel(
+      'EMMA_ID:HR804',
+      feed([
+        warn({ id: '1', country: 'croatia', codes: ['EMMA_ID:HR804'], level: 2 }),
+        warn({ id: '2', country: 'croatia', codes: ['EMMA_ID:HR804'], level: 4 }),
+      ]),
+    ),
+  ).toBe(4);
 });
 
 test('…і порядок у фіді на це не впливає', () => {
-  const m = levelsBySlug(
-    'HR',
-    [{ slug: 'a', zones: 'EMMA_ID:HR804' }],
-    feed([
-      warn({ id: '2', country: 'croatia', codes: ['EMMA_ID:HR804'], level: 4 }),
-      warn({ id: '1', country: 'croatia', codes: ['EMMA_ID:HR804'], level: 2 }),
-    ]),
-    NOW,
-  );
-  expect(m.get('a')).toBe(4);
+  expect(
+    spotLevel(
+      'EMMA_ID:HR804',
+      feed([
+        warn({ id: '2', country: 'croatia', codes: ['EMMA_ID:HR804'], level: 4 }),
+        warn({ id: '1', country: 'croatia', codes: ['EMMA_ID:HR804'], level: 2 }),
+      ]),
+    ),
+  ).toBe(4);
+});
+
+// 🔴 Регістр: чужі джерела не згодні самі з собою про нього.
+test('регістр коду не вирішує нічого', () => {
+  expect(
+    spotLevel('emma_id:hr804', feed([warn({ country: 'croatia', codes: ['EMMA_ID:HR804'], level: 3 })])),
+  ).toBe(3);
 });
 
 // 🔴 Вік ПОПЕРЕДЖЕННЯ, не лише знімка — той самий годинник, що на сторінці.
 test('протерміноване попередження не підсвічує нічого', () => {
-  const m = levelsBySlug(
-    'HR',
-    [{ slug: 'a', zones: 'EMMA_ID:HR804' }],
-    feed([
-      warn({ country: 'croatia', codes: ['EMMA_ID:HR804'], expires: '2026-10-13T11:00:00Z' }),
-    ]),
-    NOW,
-  );
-  expect(m.size).toBe(0);
+  expect(
+    spotLevel(
+      'EMMA_ID:HR804',
+      feed([
+        warn({ country: 'croatia', codes: ['EMMA_ID:HR804'], expires: '2026-10-13T11:00:00Z' }),
+      ]),
+    ),
+  ).toBe(0);
 });
 
-test('кемпінг без кодів не потрапляє в список', () => {
-  const m = levelsBySlug(
-    'SE',
-    [{ slug: 'шведський', zones: null }],
-    feed([warn({ country: 'sweden', codes: [], level: 3 })]),
-    NOW,
-  );
-  expect(m.size).toBe(0);
+test('кемпінг без кодів — нуль, а не виняток', () => {
+  expect(spotLevel(null, feed([warn({ country: 'sweden', codes: [], level: 3 })]))).toBe(0);
 });
 
-test('немає фіда — порожньо, а не виняток', () => {
-  expect(levelsBySlug('HR', [{ slug: 'a', zones: 'EMMA_ID:HR804' }], null, NOW).size).toBe(0);
+test('немає фіда — нуль', () => {
+  expect(spotLevel('EMMA_ID:HR804', null)).toBe(0);
 });
 
-test('порожній фід — порожньо', () => {
-  expect(levelsBySlug('HR', [{ slug: 'a', zones: 'EMMA_ID:HR804' }], feed([]), NOW).size).toBe(0);
+test('порожній фід — нуль', () => {
+  expect(spotLevel('EMMA_ID:HR804', feed([]))).toBe(0);
 });
 
 // 🔴 Рівень 1 — зелений, тобто ВІДСУТНІСТЬ попередження; фетчер його
-// відкидає, і на мапі його бути не може.
+// відкидає, і в індексі його бути не може.
+test('зелений рівень не потрапляє в індекс', () => {
+  const idx = levelByZone(
+    feed([warn({ country: 'croatia', codes: ['EMMA_ID:HR804'], level: 1 })]),
+    NOW,
+  );
+  expect(idx.size).toBe(0);
+});
+
 test('показуються рівні 2, 3 і 4 — і тільки вони', () => {
   expect([...SHOWN_LEVELS]).toEqual([2, 3, 4]);
   expect(isShownLevel(1)).toBe(false);
   expect(isShownLevel(2)).toBe(true);
   expect(isShownLevel(4)).toBe(true);
   expect(isShownLevel(5)).toBe(false);
+});
+
+// 🔴 Індекс будується ОДИН раз: це і є причина, чому він існує.
+test('індекс покриває всі зони попередження, не лише першу', () => {
+  const idx = levelByZone(
+    feed([warn({ country: 'croatia', codes: ['EMMA_ID:HR804', 'NUTS3:HR034'], level: 3 })]),
+    NOW,
+  );
+  expect([...idx.keys()].sort()).toEqual(['emma_id:hr804', 'nuts3:hr034']);
 });
