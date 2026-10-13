@@ -377,10 +377,11 @@ test.describe('CAMP-156: твердження про покриття назив
     //
     // Кредит належить рівно туди, де є картки. Питаємо це прямо.
     const STALE = new Date(NOW.getTime() + (CAMERA_DEAD_AFTER_MINUTES + 60) * 60_000);
-    for (const [label, props] of [
+    const states: [string, { webcams: Webcam[]; now: Date }][] = [
       ['немає камер', { webcams: [], now: NOW }],
       ['камери замовкли', { webcams: REAL, now: STALE }],
-    ] as const) {
+    ];
+    for (const [label, props] of states) {
       const out = text(renderComponent(WebcamPanel, props));
       expect(out, label).not.toContain(WINDY_CREDIT);
     }
