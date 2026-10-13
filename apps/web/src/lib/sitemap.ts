@@ -137,20 +137,38 @@ ${body}
 `;
 }
 
+/**
+ * Сторінки, які не рахуються з даних — просто існують.
+ *
+ * 🔴 Винесено з `hubUrls` навмисно: та функція ходить по індекс
+ * кемпінгів і по гайди, тобто в мережу. Перевірка «чи є тут /about»
+ * крізь неї доводила б доступність API, а не наявність сторінки.
+ */
+export const STATIC_HUBS: readonly SitemapUrl[] = [
+  { loc: `${SITE}/`, changefreq: 'weekly', priority: '1.0' },
+  { loc: `${SITE}/camping`, changefreq: 'weekly', priority: '0.9' },
+  { loc: `${SITE}/guides`, changefreq: 'weekly', priority: '0.7' },
+  { loc: `${SITE}/tools`, changefreq: 'monthly', priority: '0.7' },
+  // CAMP-209. Обидві були в карті сайту й не існували як адреси.
+  // Для бельгійської юрособи контакт — вимога, а не ввічливість, і
+  // саме ці дві сторінки читає афіліат-мережа, розглядаючи заявку
+  // (CAMP-98).
+  //
+  // 🔴 `monthly`, хоч вони й міняються рідше: `yearly` цей тип не
+  // приймає, і це не моє обмеження — його задає сам формат sitemap.
+  { loc: `${SITE}/about`, changefreq: 'monthly', priority: '0.5' },
+  { loc: `${SITE}/contact`, changefreq: 'monthly', priority: '0.5' },
+  // CAMP-3 / CAMP-45. High priority on purpose: the owner's own
+  // weighting puts routes at 30% of the MVP, and the source research
+  // behind CAMP-45 says routes collect more search traffic than the
+  // map does. A section nobody tells a crawler about is a section
+  // that exists for nobody — the same argument the guides carry.
+  { loc: `${SITE}/routes`, changefreq: 'monthly', priority: '0.9' },
+];
+
 /** Static pages plus every hub we actually want ranking. */
 export async function hubUrls(): Promise<SitemapUrl[]> {
-  const urls: SitemapUrl[] = [
-    { loc: `${SITE}/`, changefreq: 'weekly', priority: '1.0' },
-    { loc: `${SITE}/camping`, changefreq: 'weekly', priority: '0.9' },
-    { loc: `${SITE}/guides`, changefreq: 'weekly', priority: '0.7' },
-    { loc: `${SITE}/tools`, changefreq: 'monthly', priority: '0.7' },
-    // CAMP-3 / CAMP-45. High priority on purpose: the owner's own
-    // weighting puts routes at 30% of the MVP, and the source research
-    // behind CAMP-45 says routes collect more search traffic than the
-    // map does. A section nobody tells a crawler about is a section
-    // that exists for nobody — the same argument the guides carry.
-    { loc: `${SITE}/routes`, changefreq: 'monthly', priority: '0.9' },
-  ];
+  const urls: SitemapUrl[] = [...STATIC_HUBS];
 
   // CAMP-3 / CAMP-45: one entry per curated route.
   //
