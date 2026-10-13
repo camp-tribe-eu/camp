@@ -30,7 +30,12 @@
 // `applicableWarnings`, та сама, що на сторінці кемпінга: мапа й
 // сторінка не сміють розходитись у відповіді про одне місце.
 
-import { splitByForce, type Warning, type WarningFeed } from './warnings';
+import {
+  splitByForce,
+  type Warning,
+  type WarningFeed,
+  type WarningState,
+} from './warnings';
 
 /** Коди зон, як чанк їх зшив: `EMMA_ID:HR008|NUTS3:HR033`. */
 export const ZONES_KEY = 'z';
@@ -129,3 +134,19 @@ export function levelForSpot(
   return max;
 }
 
+/**
+ * Чи має мапа право друкувати число накритих кемпінгів.
+ *
+ * 🔴 ЗНАЙДЕНО НА ЗНІМКУ ВІЗУАЛЬНОГО ТЕСТУ, не тестом. У CI фід
+ * недоступний, і панель чесно казала «немає свіжих даних… це не
+ * твердження, що спокійно», а рядок ПРЯМО НАД НЕЮ казав «жоден кемпінг
+ * у видимій області не накритий попередженням». Два речення поруч, і
+ * друге спростовує перше.
+ *
+ * Рядок про число — це твердження про ВІДСУТНІСТЬ, і воно дозволене
+ * лише тоді, коли фід прочитано: `warnings` або `clear`. При
+ * `no-fresh-data` єдине чесне число — жодного, тож рядка немає, і
+ * говорить сама панель.
+ */
+export const canCountSpots = (state: WarningState): boolean =>
+  state.kind === 'warnings' || state.kind === 'clear';

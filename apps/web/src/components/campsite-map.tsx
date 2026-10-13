@@ -48,7 +48,7 @@ import {
 import { LayerChip } from "./layer-chip";
 import { WildfirePanel } from "./wildfire-panel";
 import { WarningPanel } from "./warning-panel";
-import { levelByZone, levelForSpot } from "@/lib/map-hazard";
+import { canCountSpots, levelByZone, levelForSpot } from "@/lib/map-hazard";
 import { WARNINGS_URL } from "./warnings-for-spot";
 import {
   splitByForce,
@@ -2404,29 +2404,31 @@ export default function CampsiteMap() {
           бо три теплі кольори в палітру не вмістились, і це
           виявилось на краще: власна триколірна шкала читалась би як
           НАША оцінка тяжкості. */}
-      {hazardsOn && (
-        <p className="mt-3 text-sm text-ink-2" data-testid="hazard-count">
-          {/* 🔴 Число, а не оцінка. «З тих кемпінгів, що зараз на
-              екрані, стільки накрито чинним попередженням» — факт, який
-              читач перевіряє, відкривши будь-який із них. Нуль теж
-              друкується: порожнє місце читається як «усе спокійно», і
-              саме цього картка не дозволяє. */}
-          {hazardCount === 0
-            ? "No campsite in view is covered by a warning in force."
-            : hazardCount === 1
-              ? "1 campsite in view is covered by a warning in force."
-              : `${hazardCount} campsites in view are covered by a warning in force.`}
-        </p>
-      )}
-      {hazardsOn && (
-        <WarningPanel
-          state={warningState(
-            feedFailed ? null : feed,
-            hazardWarnings,
-            new Date(),
-          )}
-        />
-      )}
+      {hazardsOn && (() => {
+        const state = warningState(
+          feedFailed ? null : feed,
+          hazardWarnings,
+          new Date(),
+        );
+        // 🔴 Правило живе в `map-hazard.ts` і має там свої випадки:
+        // рядок про число стверджує ВІДСУТНІСТЬ, тож мовчить, коли
+        // стверджувати нема чого. Знайдено на знімку візуального тесту.
+        const canCount = canCountSpots(state);
+        return (
+          <>
+            {canCount && (
+              <p className="mt-3 text-sm text-ink-2" data-testid="hazard-count">
+                {hazardCount === 0
+                  ? "No campsite in view is covered by a warning in force."
+                  : hazardCount === 1
+                    ? "1 campsite in view is covered by a warning in force."
+                    : `${hazardCount} campsites in view are covered by a warning in force.`}
+              </p>
+            )}
+            <WarningPanel state={state} />
+          </>
+        );
+      })()}
 
       {/* 🔴 THE SATELLITE CREDIT HAS TO LIVE HERE TOO, not only in
           MapLibre's own control. That control is built with

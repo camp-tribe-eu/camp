@@ -1,12 +1,13 @@
 import { expect, test } from '@playwright/test';
 import {
+  canCountSpots,
   isShownLevel,
   levelByZone,
   levelForSpot,
   SHOWN_LEVELS,
   zonesOf,
 } from '@/lib/map-hazard';
-import type { Warning, WarningFeed } from '@/lib/warnings';
+import type { Warning, WarningFeed, WarningState } from '@/lib/warnings';
 
 // CAMP-112 — які кемпінги на мапі накриті чинним попередженням.
 
@@ -185,4 +186,33 @@ test('індекс покриває всі зони попередження, н
     NOW,
   );
   expect([...idx.keys()].sort()).toEqual(['emma_id:hr804', 'nuts3:hr034']);
+});
+
+// 🔴 ЗНАЙДЕНО НА ЗНІМКУ, НЕ ТЕСТОМ. Панель казала «немає свіжих даних…
+// це не твердження, що спокійно», а рядок над нею — «жоден кемпінг не
+// накритий». Друге спростовувало перше.
+test('число можна друкувати лише над прочитаним фідом', () => {
+  const read: WarningState[] = [
+    { kind: 'clear', fetchedAt: at(2) },
+    {
+      kind: 'warnings',
+      warnings: [warn({ country: 'croatia', codes: ['EMMA_ID:HR804'] })],
+      credit: { kind: 'participant', names: ['A National Service'] },
+      fetchedAt: at(2),
+    },
+  ];
+  for (const s of read) expect(canCountSpots(s), s.kind).toBe(true);
+});
+
+test('…і мовчить на кожній причині «немає свіжих даних»', () => {
+  const reasons = ['nothing-arrived', 'stale', 'unattributable', 'unlocatable'] as const;
+  for (const reason of reasons) {
+    expect(
+      canCountSpots({ kind: 'no-fresh-data', reason, fetchedAt: null, ageMinutes: null }),
+      reason,
+    ).toBe(false);
+  }
+  // 🔴 Усі чотири причини перелічені навмисно: нова причина, додана без
+  // цього рядка, мовчки отримала б право стверджувати відсутність.
+  expect(reasons.length).toBe(4);
 });
