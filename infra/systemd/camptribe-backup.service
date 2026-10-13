@@ -1,0 +1,12 @@
+[Unit]
+Description=CampTribe content backup
+After=postgresql.service
+# 🔴 CAMP-306. Без цього рядка падіння бекапу видно лише тому, хто
+# подивиться в journal — а 13.10.2026 ніхто не дивився добу.
+OnFailure=camptribe-failed@%n.service
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current
+ExecStart=/usr/local/bin/camptribe-backup

@@ -1,0 +1,25 @@
+[Unit]
+Description=CampTribe API
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current/apps/api
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+ExecStart=/usr/bin/node dist/main
+Restart=always
+RestartSec=5
+# Слухає лише локально — назовні його пускає Caddy, не ufw.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/camptribe
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

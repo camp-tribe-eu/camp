@@ -1,0 +1,16 @@
+# CAMP-306: падіння, яке лишає слід.
+#
+# 🔴 БЕЗ ЦЬОГО ЗУПИНЕНИЙ ЗАПОБІЖНИК ЗУПИНЯЄТЬСЯ ТИХО. 13.10.2026
+# `camptribe-backup.service` упав о 03:30 UTC із `status=200/CHDIR` —
+# `WorkingDirectory` вказувала на теку, яку прибрав деплой. Падіння
+# побачив той, хто випадково заглянув у journal; доба пройшла без
+# бекапу, і ніщо про це не сказало.
+#
+# Шаблон: `OnFailure=camptribe-failed@%n.service` у будь-якому юніті
+# дає тут `%i` = назва того, що впало.
+[Unit]
+Description=Record that %i failed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/camptribe-failed %i
