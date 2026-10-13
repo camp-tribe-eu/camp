@@ -116,6 +116,24 @@ export async function GET() {
   }
   lines.push('');
 
+  // CAMP-209. Хто ми й як нас знайти.
+  //
+  // 🔴 Тут вони тому, що сторож `check-sitemap.mjs` це зажадав — і він
+  // має рацію. Розділ, названий у карті сайту й не названий тут, це
+  // розділ, про який агент не дізнається: мапа сайту каже обхіднику
+  // «ця адреса існує», а `llms.txt` каже «ось що на ній є».
+  lines.push('## About this project');
+  lines.push('');
+  lines.push(
+    `- [About CampTribe](${SITE}/about): what the data is, where it comes ` +
+      'from, and what it does not know',
+  );
+  lines.push(
+    `- [Contact](${SITE}/contact): one address for corrections, licence ` +
+      'questions and partnerships — we take no bookings',
+  );
+  lines.push('');
+
   // CAMP-4. Twelve member states, not two hundred cities — see
   // src/data/rental/countries.ts for why the list is short and what each
   // page had to prove to be on it.
