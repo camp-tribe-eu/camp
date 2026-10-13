@@ -1154,6 +1154,19 @@ jobs:
           node scripts/edge-budget.mjs --self-test | tee /dev/stderr \
             | grep -c 'edge-budget boundaries, messages read' >/dev/null
 
+      # CAMP-302. Чи може CommonJS-API завантажити ESM-фетчер.
+      #
+      # 🔴 Jest цього довести НЕ МОЖЕ — він виконує модулі у власній VM,
+      # де динамічний імпорт ESM недоступний. Перша редакція служби
+      # падала б у продакшні при першому ж оберті
+      # (`ERR_REQUIRE_ASYNC_MODULE`), і жоден тест цього не бачив, бо
+      # кожен підставляв свій завантажувач.
+      - name: The CommonJS API can load the ESM warnings fetcher
+        run: |
+          set -o pipefail
+          node apps/api/test/warnings-loader.probe.cjs | tee /dev/stderr \
+            | grep -c 'warnings-loader probe:' >/dev/null
+
       # CAMP-289. Порожній перелік перейменувань — це збій, а не «змін
       # немає»: 13.10.2026 їх вісім на 721 живу сторінку, і записаний
       # порожній файл тихо перетворив би кожну з них на 404.

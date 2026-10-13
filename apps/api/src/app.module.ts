@@ -19,6 +19,7 @@ import { GuidesModule } from './guides/guides.module';
 import { AuthModule } from './auth/auth.module';
 import { TripsModule } from './trips/trips.module';
 import { HealthModule } from './health/health.module';
+import { WarningsModule } from './warnings/warnings.module';
 import { ClientError } from './entities/client-error.entity';
 import { NotFoundHit } from './entities/not-found-hit.entity';
 import { SpotTariff } from './entities/spot-tariff.entity';
@@ -71,6 +72,7 @@ import { ApiThrottlerGuard } from './throttle.guard';
     // who is asking.
     AuthModule,
     TripsModule,
+    WarningsModule,
   ],
   controllers: [AppController],
   providers: [
