@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 import { alternatesFor } from '@/lib/i18n';
 import { breadcrumbList, jsonLdProps } from '@/lib/jsonld';
@@ -52,13 +53,13 @@ export default function Contact() {
         <p>
           {COMPANY.name}, {COMPANY.city}. Company details and the supervisory
           authority are on the{' '}
-          <a className="underline" href="/legal/notice">
+          <Link className="underline" href="/legal/notice">
             legal notice
-          </a>
+          </Link>
           ; what we store and for how long is on the{' '}
-          <a className="underline" href="/legal/privacy">
+          <Link className="underline" href="/legal/privacy">
             privacy page
-          </a>
+          </Link>
           .
         </p>
       </div>

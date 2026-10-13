@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 import { alternatesFor } from '@/lib/i18n';
 import { breadcrumbList, jsonLdProps } from '@/lib/jsonld';
@@ -67,22 +68,22 @@ export default function About() {
           CampTribe is operated by {COMPANY.name}, {COMPANY.city}. The legal
           notice, the licences of every data source and what we do and do not
           store are set out in full under{' '}
-          <a className="underline" href="/legal/notice">
+          <Link className="underline" href="/legal/notice">
             Legal notice
-          </a>
+          </Link>
           .
         </p>
       </div>
 
       {/* Своя CTA: кожна глибока сторінка це окремий лендинг. */}
       <div className="mt-8 flex flex-wrap items-center gap-3">
-        <a
+        <Link
           data-testid="about-cta"
           href="/map"
           className="inline-flex h-11 items-center rounded-sm border border-line-blue bg-surface px-4 text-sm font-semibold text-heading hover:border-line-2"
         >
           Open the campsite map
-        </a>
+        </Link>
         <a className="text-sm underline text-ink-2" href={`mailto:${CONTACT_EMAIL}`}>
           Or write to us
         </a>
