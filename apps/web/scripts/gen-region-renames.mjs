@@ -27,17 +27,26 @@ const out = path.join(here, '..', 'src', 'generated');
  * перетворив би 721 опубліковану адресу на 404 — рівно те, від чого ця
  * картка й існує.
  */
-export function verdict(renames) {
-  if (!Array.isArray(renames)) {
-    return { ok: false, reason: 'відповідь не масив' };
+export function verdict(payload) {
+  if (!payload || !Array.isArray(payload.renames) || !Number.isFinite(payload.regionsInUse)) {
+    return { ok: false, reason: 'відповідь не тієї форми: бракує renames або regionsInUse' };
   }
-  if (renames.length === 0) {
+  const { renames, regionsInUse } = payload;
+  // 🔴 ПОРОЖНЬО БУВАЄ ЗАКОННО, і перший варіант цієї перевірки цього не
+  // знав: він завалив збірку в CI, де фікстурна база не має жодного
+  // регіону з помилкою. Та сама пастка, що в CAMP-301 — відрізнити «ще
+  // нема чого» від «запит зламався» можна лише причиною.
+  if (regionsInUse === 0) {
     return {
       ok: false,
       reason:
-        'перейменувань нуль. 13.10.2026 їх було вісім на 721 сторінку; ' +
-        'порожній файл означає 404 на кожній із них, а не «нічого не змінилось».',
+        'жодного регіону в ужитку. Це не «перейменувань немає» — це база, ' +
+        'з якої нічого не прочиталось, і записаний із неї порожній файл ' +
+        'залишив би кожну стару адресу без 301.',
     };
+  }
+  if (renames.length === 0) {
+    return { ok: true, empty: true, regionsInUse };
   }
   const bad = renames.filter(
     (r) => !r || typeof r.country !== 'string' || !r.from || !r.to || r.from === r.to,
@@ -59,9 +68,10 @@ async function main({ get, outDir = out } = {}) {
       return res.json();
     });
 
-  const renames = await fetchIt();
-  const say = verdict(renames);
+  const payload = await fetchIt();
+  const say = verdict(payload);
   if (!say.ok) throw new Error(`region renames: ${say.reason}`);
+  const { renames, regionsInUse } = payload;
 
   // Сторінки до файлу не їдуть: middleware рахує правила, не сторінки.
   const body = renames.map(({ country, from, to }) => ({ country, from, to }));
@@ -70,25 +80,34 @@ async function main({ get, outDir = out } = {}) {
   writeFileSync(path.join(outDir, 'region-renames.json'), json);
 
   const pages = renames.reduce((n, r) => n + (r.pages ?? 0), 0);
-  console.log(`region renames: ${body.length} rules, ${pages} page(s), ${json.length} bytes`);
+  console.log(
+    `region renames: ${body.length} rules, ${pages} page(s), ${json.length} bytes` +
+      ` (${regionsInUse} regions in use)`,
+  );
 }
 
 function selfTest() {
   let rc = 0;
   const cases = [];
   const check = (c, m) => { cases.push(m); if (!c) { console.error(`✗ REHEARSAL FAILED: ${m}`); rc = 1; } };
-  const good = [{ country: 'dk', from: 'sja-lland', to: 'sjaelland' }];
+  const one = [{ country: 'dk', from: 'sja-lland', to: 'sjaelland' }];
+  const at = (renames, regionsInUse = 807) => ({ renames, regionsInUse });
 
-  check(verdict(good).ok === true, 'звичайний перелік приймається');
-  check(verdict([]).ok === false, '🔴 порожній перелік — це збій, а не «змін немає»');
-  check(verdict([]).reason?.includes('721'), 'причина називає, скільки сторінок утратилось би');
-  check(verdict(null).ok === false, 'не масив — збій');
-  check(verdict([{ country: 'dk', from: 'x', to: 'x' }]).ok === false,
+  check(verdict(at(one)).ok === true, 'звичайний перелік приймається');
+  // 🔴 Порожньо при живій базі — законно: так виглядає фікстура CI.
+  check(verdict(at([])).ok === true, '🔴 нуль правил при живих регіонах — законно');
+  check(verdict(at([])).empty === true, 'і це позначено окремо, а не змовчано');
+  // 🔴 А порожньо без жодного регіону — збій.
+  check(verdict(at([], 0)).ok === false, '🔴 нуль регіонів у базі — збій');
+  check(verdict(at(one, 0)).ok === false, 'нуль регіонів — збій навіть із правилами');
+  check(verdict(null).ok === false, 'порожня відповідь — збій');
+  check(verdict({ renames: one }).ok === false, 'без regionsInUse — збій: нема чим розсудити порожнечу');
+  check(verdict(at([{ country: 'dk', from: 'x', to: 'x' }])).ok === false,
     '🔴 правило, що веде саме в себе, — збій: воно дало б вічний редирект');
-  check(verdict([{ from: 'a', to: 'b' }]).ok === false, 'правило без країни — збій');
-  check(verdict([{ country: 'dk', from: '', to: 'b' }]).ok === false, 'правило без старого боку — збій');
+  check(verdict(at([{ from: 'a', to: 'b' }])).ok === false, 'правило без країни — збій');
+  check(verdict(at([{ country: 'dk', from: '', to: 'b' }])).ok === false, 'правило без старого боку — збій');
 
-  const EXPECTED_CASES = 7;
+  const EXPECTED_CASES = 10;
   if (cases.length !== EXPECTED_CASES) { console.error(`✗ ${cases.length} cases, expected ${EXPECTED_CASES}`); rc = 1; }
   if (rc === 0) console.log(`✓ gen-region-renames self-test: ${cases.length} cases`);
   return rc;

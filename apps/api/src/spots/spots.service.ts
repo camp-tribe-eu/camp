@@ -290,15 +290,21 @@ export class SpotsService {
    * сторінку вести окремою парою. Це перейменування регіону, а не 721
    * окреме рішення, і дешевше воно саме тому, що каже правду.
    */
-  async regionRenames(): Promise<RegionRename[]> {
+  async regionRenames(): Promise<{
+    regionsInUse: number;
+    renames: RegionRename[];
+  }> {
     const rows = await this.db.query(REGIONS_IN_USE_SQL);
-    return regionRenames(
-      rows.map((r: Record<string, unknown>) => ({
-        country: String(r.country),
-        region: String(r.region),
-        pages: Number(r.pages),
-      })),
-    );
+    const mapped = rows.map((r: Record<string, unknown>) => ({
+      country: String(r.country),
+      region: String(r.region),
+      pages: Number(r.pages),
+    }));
+    // 🔴 `regionsInUse` їде разом зі списком, бо порожній список буває
+    // законним: на фікстурі CI регіонів, що потребують перейменування,
+    // немає. Відрізнити «нема чого перейменовувати» від «запит зламався»
+    // можна лише причиною — так само, як у CAMP-301.
+    return { regionsInUse: mapped.length, renames: regionRenames(mapped) };
   }
 
   async gonePending(): Promise<{
