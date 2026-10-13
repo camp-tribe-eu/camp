@@ -1120,6 +1120,23 @@ jobs:
           node scripts/edge-budget.mjs --self-test | tee /dev/stderr \
             | grep -c 'edge-budget boundaries, messages read' >/dev/null
 
+      # CAMP-301. Порожній список 410 сьогодні ЗАКОННИЙ — у базі 5 945
+      # зниклих рядків, найдавнішому 18 днів із 28, жоден не дозрів.
+      # Приблизно 22.10.2026 перший дозріє, і з того дня та сама тиша
+      # означатиме, що впав імпорт або зсунувся інтервал. Сторож, який
+      # тоді мусить спрацювати, не можна перевірити тоді: до 22.10 він
+      # мовчить правильно, а після — мовчатиме помилково, і відрізнити це
+      # буде нічим. Тож репетиція, і саме зараз.
+      - name: An empty 410 list is still explained by its reason
+        working-directory: apps/web
+        run: |
+          # pipefail, як і сусід нижче: grep закриває «не стартувало»,
+          # код виходу — «стартувало й упало». Без обох девʼять падінь
+          # дали б зелений крок.
+          set -o pipefail
+          node scripts/gen-gone.mjs --self-test | tee /dev/stderr \
+            | grep -c 'gen-gone self-test:' >/dev/null
+
       # CAMP-147. The card's own acceptance clause is "no displayed price
       # exists without a validity period", and the only thing enforcing it
       # in SQL is `DISPLAYABLE_TARIFF_SQL`. Until now the check that would

@@ -3,7 +3,11 @@ import { join } from 'node:path';
 import { UPSERT_SPOT_SQL } from '../osm/import-spots';
 import {
   attributeTaken,
+  GONE_AFTER_DAYS,
+  GONE_AFTER_IMPORTS,
   GONE_LIST_SQL,
+  GONE_PENDING_SQL,
+  IMPORT_EVERY_DAYS,
   linkedSecondariesJoin,
   mergeAllLinked,
   mergedNameSql,
@@ -490,6 +494,64 @@ describe('mergeLinked', () => {
  * The behaviour itself is rehearsed in verify-links.ts, against a
  * database, with the state planted and then taken away again.
  */
+describe('CAMP-301: один інтервал на обидва запити', () => {
+  /** Кожен `interval 'N days'`, що є в рядку запиту. */
+  const daysIn = (sql: string) =>
+    [...sql.matchAll(/interval '(\d+) days'/g)].map((m) => Number(m[1]));
+
+  it('число — похідна від частоти імпорту, а не чийсь вибір', () => {
+    // CAMP-87 оголошує кемпінг зниклим після ЧОТИРЬОХ поспіль імпортів
+    // без нього, а імпорт щотижневий.
+    expect(GONE_AFTER_DAYS).toBe(GONE_AFTER_IMPORTS * IMPORT_EVERY_DAYS);
+  });
+
+  it('🔴 у списку 410 немає жодного іншого інтервалу в днях', () => {
+    // 🔴 Перелічуємо ВСІ, а не питаємо `toContain`. Друга копія числа
+    // десь нижче в запиті пройшла б `toContain` непомітно — а саме дві
+    // копії, що розійшлись, і є тим, від чого ця перевірка стоїть.
+    expect(daysIn(GONE_LIST_SQL)).toEqual([GONE_AFTER_DAYS]);
+  });
+
+  it('🔴 і в запиті про причину — теж рівно він, двічі й однаково', () => {
+    // Тут інтервал стоїть у двох `FILTER`: що дозріло і що чекає.
+    // Різні числа в них означали б вікно, у яке рядок не потрапляє
+    // ні туди, ні туди.
+    expect(daysIn(GONE_PENDING_SQL)).toEqual([
+      GONE_AFTER_DAYS,
+      GONE_AFTER_DAYS,
+    ]);
+  });
+
+  it('🔴 у джерелі немає жодного інтервалу в днях, написаного числом', () => {
+    // 🔴 ЦЕ ЧИТАЄ ВИХІДНИЙ ТЕКСТ, і без цього тести вище мали дірку.
+    // Вони дивляться на вже підставлений рядок, тож зашита назад копія
+    // `interval '28 days'` проходила непомітно: константа теж 28.
+    // Матриця це показала — мутація вижила.
+    //
+    // Тут питання інше й воно не залежить від сьогоднішнього значення:
+    // у файлі не сміє стояти інтервал у днях, написаний цифрами.
+    // Єдина дозволена форма — підстановка константи.
+    const src = readFileSync(join(__dirname, 'links.ts'), 'utf8');
+    expect(src).not.toMatch(/interval '\d+ days'/);
+    expect(src).toContain("interval '${GONE_AFTER_DAYS} days'");
+  });
+
+  it('🔴 причина рахується ІНШИМ запитом, а не тим самим', () => {
+    // Якби обидва числа рахувались одним SQL, вони збігалися б завжди
+    // й не могли б розійтись — доказ підтверджував би сам себе. Тому
+    // запит про причину не має ні віднімання, ні LATERAL.
+    expect(GONE_PENDING_SQL).not.toContain('redirected');
+    expect(GONE_PENDING_SQL).not.toContain('LATERAL');
+    expect(GONE_PENDING_SQL).toContain('FROM camping_spots');
+  });
+
+  it('він не рахує рядків, які не мають адреси взагалі', () => {
+    // Рядок без регіону не має URL, тож «дозрів» про нього нічого не
+    // означає: це передумова існування адреси, а не віднімання.
+    expect(GONE_PENDING_SQL).toContain('region IS NOT NULL');
+  });
+});
+
 describe('the two lists cannot drift apart', () => {
   it('gone computes the published list and subtracts from it', () => {
     // 🔴 The RESOLVED list, not the raw pairs. A review planted a chain
