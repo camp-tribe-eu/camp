@@ -425,6 +425,24 @@ jobs:
       - name: Every derived field is described where ODbL §4.6 requires
         run: node scripts/ci/check-derived-fields.mjs
 
+      # 🔴 CAMP-219. `live: true` в `LOCALES` — не вмикач перекладу, а
+      # обіцянка пошукачеві. Поставлений другій мові, він змушує кожну
+      # з 65 435 сторінок надрукувати `hreflang="de"` на адресу, якої
+      # немає, і внести ті самі адреси в sitemap. Заміряно 13.10.2026:
+      # `/de`, `/fr`, `/de/camping` — усі 404; сегмента `[locale]` у
+      # `app/` немає, словників перекладів немає.
+      #
+      # 🔴 CAMP-285: крок читає надруковане самотестом; `set -o
+      # pipefail`, бо Actions запускає `bash -e {0}` без нього.
+      - name: The live-language guard still catches a language with no pages
+        run: |
+          set -o pipefail
+          node scripts/ci/check-live-locales.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-live-locales self-test:' >/dev/null
+
+      - name: Every live language has pages to serve
+        run: node scripts/ci/check-live-locales.mjs
+
       # 🔴 CAMP-183. The import script unpacks releases without a shell,
       # and its own rehearsal proves the rule still bites. That rehearsal
       # was written and then run NOWHERE — not here, not in package.json
