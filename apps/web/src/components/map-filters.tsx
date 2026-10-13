@@ -28,37 +28,18 @@ import { filterCountLabel, type MapDataState } from '@/lib/map-chunks';
 interface Props {
   state: MapFilterState;
   onChange: (next: MapFilterState) => void;
-  /**
-   * Campsites drawn INSIDE THE VIEWPORT.
-   *
-   * 🔴 All three numbers are about the visible area, and the caller has
-   * to keep them that way. CAMP-133: `total` used to be every campsite
-   * fetched so far ("306 of 1 308 campsites", reviewed 25.09.2026), and
-   * because chunks are never discarded it only ever grew — with the
-   * reader's route, not with what was on screen. Mixing a viewport
-   * numerator with a fetched denominator would put that back.
-   */
-  shown: number;
-  /** Campsites in the viewport before filtering, for "12 of 47 in view". */
-  total: number;
   /** Dropped only for want of data, in the viewport — the honesty number. */
   unknownExcluded: number;
-  /**
-   * What the map is doing — which decides whether a count exists at all.
-   *
-   * 🔴 Passed in whole rather than as a boolean, because "no number"
-   * has three different reasons and each needs its own sentence.
-   */
-  dataState: MapDataState;
 }
+
+// 🔴 CAMP-297: `shown`, `total` і `dataState` звідси ПІШЛИ разом із
+// лічильником. Вони описували результат, а не фільтри, і доки вони тут
+// лежали, лічильник не міг жити деінде. `MapCount` нижче бере їх сам.
 
 export default function MapFilters({
   state,
   onChange,
-  shown,
-  total,
   unknownExcluded,
-  dataState,
 }: Props) {
   const setTypes = (t: SpotType) =>
     onChange({ ...state, types: toggle(state.types, t, SPOT_TYPES) });
@@ -118,7 +99,6 @@ export default function MapFilters({
     applyAmenities(state.amenities.filter((a) => !group.includes(a)));
 
   const filtering = isFiltering(state);
-  const count = filterCountLabel(dataState, { shown, total, filtering });
 
   return (
     <section
@@ -322,15 +302,6 @@ export default function MapFilters({
           describes what it is, not what you are allowed to do there.
         </p>
 
-        <p data-testid="filter-count" className="w-full text-ink-2">
-          {count.value !== null && (
-            <strong className="font-semibold text-heading">
-              {count.value.toLocaleString('en-GB')}
-            </strong>
-          )}
-          {count.text}
-        </p>
-
         {/* 🔴 The sentence the card is really asking for. OpenStreetMap
             not recording a shower is not a campsite without one, and a
             filter that quietly drops 820 sites would be stating something
@@ -384,6 +355,50 @@ export default function MapFilters({
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * «898 campsites in view» — головний зворотний звʼязок мапи.
+ *
+ * 🔴 CAMP-297: ЖИВЕ НАД ПАНЕЛЛЮ, А НЕ ВСЕРЕДИНІ НЕЇ. Заміряно на
+ * 390×844: лічильник лежав на 756 px, бо над ним 74 px шапки й панель
+ * фільтрів на 371 — а після CAMP-255 на 479. Читач, що прийшов із
+ * пошуку, бачив фільтри й не бачив, скільки знайшлось.
+ *
+ * Картка сама питала, чи йому там місце. Ні: це не контроль, а
+ * результат. Нижній відступ під банер (CAMP-264) цього вилікувати не
+ * міг — він додає місце В КІНЦІ документа, а причина була на початку.
+ *
+ * 🔴 І це НЕ згортання фільтрів за кнопку. Згортання сховало б разом із
+ * ними застереження про ночівлю, яке CAMP-255 навмисно тримає завжди
+ * видимим.
+ */
+export function MapCount({
+  shown,
+  total,
+  dataState,
+  state,
+}: {
+  shown: number;
+  total: number;
+  dataState: MapDataState;
+  state: MapFilterState;
+}) {
+  const count = filterCountLabel(dataState, {
+    shown,
+    total,
+    filtering: isFiltering(state),
+  });
+  return (
+    <p data-testid="filter-count" className="mt-3 text-sm text-ink-2">
+      {count.value !== null && (
+        <strong className="font-semibold text-heading">
+          {count.value.toLocaleString('en-GB')}
+        </strong>
+      )}
+      {count.text}
+    </p>
   );
 }
 

@@ -385,6 +385,45 @@ test.describe('/map filters', () => {
     }
   });
 
+  // ── CAMP-297: лічильник на першому екрані ───────────────────────────
+  //
+  // 🔴 ТЕСТ МІРЯЄ ПОЗИЦІЮ, А НЕ ІСНУВАННЯ, і картка просила саме цього.
+  // Лічильник існував завжди — він лежав на 756 px і на телефоні 844 px
+  // був на самій межі екрана, а на 640 px за нею. «N campsites in view»
+  // — єдине число, яке каже читачеві, що фільтр спрацював.
+  //
+  // Падає, щойно вміст над ним виросте: саме так CAMP-255 зробив гірше
+  // (панель 371 → 479), і саме цього тут бракувало.
+  test('🔴 CAMP-297: the count is on the first screen, measured', async ({ page }) => {
+    for (const [w, h] of [
+      [390, 844],
+      [360, 640],
+    ] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto('/map');
+      await skipWithoutWebGL(page);
+
+      const seen = async (label: string) => {
+        const box = await page.getByTestId('filter-count').boundingBox();
+        expect(box, `${label} ${w}×${h}: лічильника немає взагалі`).not.toBeNull();
+        expect(
+          Math.round(box!.y + box!.height),
+          `${label} ${w}×${h}: лічильник закінчується нижче за екран`,
+        ).toBeLessThanOrEqual(h);
+      };
+
+      // 🔴 З банером І без нього. Банер — накладка внизу й вмісту не
+      // штовхає; якщо міряти лише без нього, ми знову лікували б не ту
+      // причину, як це вже сталось у CAMP-264.
+      await expect(page.getByTestId('cookie-banner')).toBeVisible();
+      await seen('із банером');
+
+      await page.getByTestId('cookie-reject').click();
+      await expect(page.getByTestId('cookie-banner')).toBeHidden();
+      await seen('без банера');
+    }
+  });
+
   // ── CAMP-255: застереження про ночівлю ──────────────────────────────
   //
   // 🔴 ЦЕ ЄДИНА ПЕРЕВІРКА, ЩО ДИВИТЬСЯ НА НЬОГО СПРАВЖНІМ БРАУЗЕРОМ.
