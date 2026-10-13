@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback,
+  useEffect, useRef, useState } from "react";
 // 🔴 Named imports: maplibre-gl 6 is ESM-only and dropped the default
 // export, so `import maplibregl from 'maplibre-gl'` compiles under
 // TypeScript and then fails at bundle time with "does not contain a
@@ -37,6 +38,7 @@ import {
 } from "@/lib/map-filter";
 import MapFilters, { MapCount } from "./map-filters";
 import {
+  HAZARD_COLOUR,
   MARKER_STROKE,
   TYPE_COLOUR,
   clusterCounts,
@@ -45,6 +47,15 @@ import {
 } from "@/lib/map-palette";
 import { LayerChip } from "./layer-chip";
 import { WildfirePanel } from "./wildfire-panel";
+import { WarningPanel } from "./warning-panel";
+import { levelByZone, levelForSpot } from "@/lib/map-hazard";
+import { WARNINGS_URL } from "./warnings-for-spot";
+import {
+  splitByForce,
+  warningState,
+  type Warning,
+  type WarningFeed,
+} from "@/lib/warnings";
 import {
   DETAIL_ZOOM,
   chunkUrl,
@@ -116,6 +127,11 @@ const REGION_COUNT = "campsite-region-count";
 const CLUSTER_LAYER = "campsite-clusters";
 const COUNT_LAYER = "campsite-cluster-count";
 const POINT_LAYER = "campsite-points";
+// CAMP-112. 🔴 ОКРЕМЕ КІЛЬЦЕ ПІД МАРКЕРОМ, а не інший колір маркера.
+// Колір крапки вже означає ТИП кемпінга (CAMP-222), і перефарбувати
+// його означало б сказати двома мовами в одному пікселі: читач не
+// відрізнить «це дикий майданчик» від «тут попередження».
+const HAZARD_HALO = "campsite-hazard-halo";
 // CAMP-153: the Copernicus burnt-area perimeters.
 const FIRE_SOURCE = "wildfires";
 const FIRE_FILL = "wildfire-areas";
@@ -667,6 +683,7 @@ export default function CampsiteMap() {
    */
   const [layers, setLayers] = useState<LayerId[]>(() => DEFAULT_LAYERS());
   const firesOn = layers.includes("wildfire" as LayerId);
+  const hazardsOn = layers.includes("hazards" as LayerId);
 
   // One call, not five. The JSX below used to ask `satelliteFor()`
   // separately for the click, aria-pressed, aria-disabled, the class
@@ -798,6 +815,41 @@ export default function CampsiteMap() {
             "text-allow-overlap": true,
           },
           paint: { "text-color": "#FFFFFF" },
+        });
+      }
+
+      // CAMP-112. 🔴 ПІД МАРКЕРАМИ, ЗАВЖДИ. Питання, на яке відповідає
+      // це кільце, — «чи варто туди їхати сьогодні»; питання, на яке
+      // відповідає крапка, — «що це за місце». Друге не сміє зникнути
+      // під першим.
+      //
+      // 🔴 Фільтр стартує ПОРОЖНІМ. Шар без даних, який малює все, на
+      // секунду підсвітив би кожен кемпінг Європи.
+      if (!m.getLayer(HAZARD_HALO)) {
+        m.addLayer({
+          id: HAZARD_HALO,
+          type: "circle",
+          source: SOURCE_ID,
+          filter: ["in", ["get", "slug"], ["literal", []]],
+          paint: {
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              5,
+              7,
+              12,
+              12,
+            ],
+            "circle-color": HAZARD_COLOUR,
+            "circle-opacity": 0.5,
+            // 🔴 Та сама темна обводка, що й у маркерів, і це не стиль:
+            // на сирій підкладці не проходить за контрастом НІЩО —
+            // `roadCasing` валить і світле, і темне. Кільце несе форму,
+            // заливці лишається 3:1 проти нього.
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": MARKER_STROKE,
+          },
         });
       }
 
@@ -1661,6 +1713,114 @@ export default function CampsiteMap() {
   const drawFiresRef = useRef(drawFires);
   drawFiresRef.current = drawFires;
 
+  // CAMP-112: попередження. Той самий маршрут, що й на сторінці
+  // кемпінга, і той самий бюджет — клаузула 5.6 дає знімку десять
+  // хвилин, тож перепитуємо, а не беремо раз.
+  //
+  // 🔴 КОЖЕН ВИХІД СТАВИТЬ СТАН, ЯКИЙ ЩОСЬ КАЖЕ. Мережа впала, 503 від
+  // маршруту, тіло не тієї форми — усе лягає на `failed`, і панель під
+  // мапою каже «немає свіжих даних». Порожня мапа без пояснення
+  // читається як «усе спокійно», і це найгірша брехня саме тут.
+  const [feed, setFeed] = useState<WarningFeed | null>(null);
+  const [feedFailed, setFeedFailed] = useState(false);
+  const [feedTick, setFeedTick] = useState(0);
+
+  useEffect(() => {
+    if (!hazardsOn) return;
+    let cancelled = false;
+    void fetch(WARNINGS_URL)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((body: unknown) => {
+        if (cancelled) return;
+        setFeed(body as WarningFeed);
+        setFeedFailed(false);
+      })
+      .catch(() => {
+        if (!cancelled) setFeedFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hazardsOn, feedTick]);
+
+  // 🔴 Без цього вкладка переростає бюджет ліцензії й не знає про це —
+  // та сама пастка, що на сторінці кемпінга. Період менший за десять
+  // хвилин і збігається з `max-age` маршруту.
+  useEffect(() => {
+    if (!hazardsOn) return;
+    const id = setInterval(() => setFeedTick((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, [hazardsOn]);
+
+  // CAMP-112: які саме крапки обвести. 🔴 Рахується над тим, що ВЖЕ
+  // завантажено, бо іншого ми й не малюємо: `querySourceFeatures`
+  // віддає фічі, які MapLibre тримає для поточного вигляду.
+  //
+  // 🔴 Кільце зʼявляється лише там, де крапки окремі. На масштабі
+  // всієї Європи мапа показує кластери й кружки регіонів, і підсвітити
+  // кластер означало б сказати «тут попередження» про сотню кемпінгів,
+  // із яких воно стосується трьох.
+  const [hazardCount, setHazardCount] = useState(0);
+  // 🔴 Попередження, які стосуються ВИДИМИХ кемпінгів, а не всі 183.
+  // Клаузула 5.2 проти 5.3: кого називати — службу чи агрегатора —
+  // вирішує те, що на екрані, а не те, що у фіді.
+  const [hazardWarnings, setHazardWarnings] = useState<readonly Warning[]>([]);
+  const paintHazards = useCallback(() => {
+    const m = map.current;
+    if (!m || !m.getLayer(HAZARD_HALO)) return;
+    if (!hazardsOn || feed === null) {
+      m.setFilter(HAZARD_HALO, ["in", ["get", "slug"], ["literal", []]]);
+      setHazardCount(0);
+      setHazardWarnings([]);
+      return;
+    }
+    const now = new Date();
+    const byZone = levelByZone(feed, now);
+    const hit: string[] = [];
+    const zonesHit = new Set<string>();
+    for (const f of m.querySourceFeatures(SOURCE_ID)) {
+      const p = (f.properties ?? {}) as Record<string, unknown>;
+      const slug = typeof p.slug === "string" ? p.slug : null;
+      if (slug === null) continue;
+      const z = typeof p.z === "string" ? p.z : null;
+      if (levelForSpot(z, byZone) === 0) continue;
+      hit.push(slug);
+      for (const code of String(z ?? "").split("|")) {
+        const key = code.trim().toLowerCase();
+        if (key !== "" && byZone.has(key)) zonesHit.add(key);
+      }
+    }
+    // 🔴 Назвати треба саме ті служби, чиї попередження на екрані.
+    // Перелічити всі 183 означало б приписати хорватське попередження
+    // норвезькому краєвиду; клаузула 5.3 про конкретну службу.
+    setHazardWarnings(
+      splitByForce(feed.warnings ?? [], now).inForce.filter((w) =>
+        (w.areas ?? []).some((a) =>
+          (a.codes ?? []).some(
+            (c) => typeof c === "string" && zonesHit.has(c.trim().toLowerCase()),
+          ),
+        ),
+      ),
+    );
+    // 🔴 Унікальні: одна крапка може приїхати з кількох тайлів джерела,
+    // і дубль у літералі нічого не ламає, але робить число під мапою
+    // неправдивим.
+    const unique = [...new Set(hit)];
+    m.setFilter(HAZARD_HALO, ["in", ["get", "slug"], ["literal", unique]]);
+    setHazardCount(unique.length);
+  }, [feed, hazardsOn]);
+
+  useEffect(() => {
+    paintHazards();
+    const m = map.current;
+    if (!m) return;
+    // Нові тайли приїжджають на рух — перерахувати треба тоді ж.
+    m.on("idle", paintHazards);
+    return () => {
+      m.off("idle", paintHazards);
+    };
+  }, [paintHazards]);
+
   // The perimeters, once. 🔴 Every outcome sets a state that SAYS
   // something: a network failure, a 404 from a bad deploy and a file that
   // is not the shape we wrote all land on `missing`, which renders "no
@@ -2234,6 +2394,39 @@ export default function CampsiteMap() {
           beside Copernicus data are a licence matter, and a check can
           only read them if the panel can be rendered on its own. */}
       <WildfirePanel state={fireState} on={firesOn} inView={firesHere} />
+      {/* CAMP-112. 🔴 ТА САМА ПАНЕЛЬ, ЩО НА СТОРІНЦІ КЕМПІНГА, і це не
+          економія: вона вже несе всі сім умов клаузули 5 — службу,
+          час випуску, посилання, дисклеймер дослівно — і кожну з них
+          тримає окремий тест (CAMP-152). Друга панель поруч означала б
+          другий набір умов, який розійдеться з першим мовчки.
+
+          🔴 Рівень каже вона ж, словами служби. На мапі його немає,
+          бо три теплі кольори в палітру не вмістились, і це
+          виявилось на краще: власна триколірна шкала читалась би як
+          НАША оцінка тяжкості. */}
+      {hazardsOn && (
+        <p className="mt-3 text-sm text-ink-2" data-testid="hazard-count">
+          {/* 🔴 Число, а не оцінка. «З тих кемпінгів, що зараз на
+              екрані, стільки накрито чинним попередженням» — факт, який
+              читач перевіряє, відкривши будь-який із них. Нуль теж
+              друкується: порожнє місце читається як «усе спокійно», і
+              саме цього картка не дозволяє. */}
+          {hazardCount === 0
+            ? "No campsite in view is covered by a warning in force."
+            : hazardCount === 1
+              ? "1 campsite in view is covered by a warning in force."
+              : `${hazardCount} campsites in view are covered by a warning in force.`}
+        </p>
+      )}
+      {hazardsOn && (
+        <WarningPanel
+          state={warningState(
+            feedFailed ? null : feed,
+            hazardWarnings,
+            new Date(),
+          )}
+        />
+      )}
 
       {/* 🔴 THE SATELLITE CREDIT HAS TO LIVE HERE TOO, not only in
           MapLibre's own control. That control is built with
