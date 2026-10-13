@@ -1,0 +1,28 @@
+[Unit]
+Description=CampTribe web (next start)
+After=network.target camptribe-api.service
+Requires=camptribe-api.service
+
+[Service]
+Type=simple
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current/apps/web
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+Environment=API_BASE_URL=http://localhost:3001
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+ExecStart=/usr/bin/npx next start -p 3000 -H 127.0.0.1
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/camptribe
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

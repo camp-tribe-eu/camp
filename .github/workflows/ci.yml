@@ -443,6 +443,25 @@ jobs:
       - name: Every live language has pages to serve
         run: node scripts/ci/check-live-locales.mjs
 
+      # 🔴 CAMP-306. Бекап мовчки лежав добу, бо в юніті стояла
+      # `WorkingDirectory=/srv/camptribe/app` — тека, яку прибрав
+      # деплой. Юніти лежать у `infra/`, і тут перевіряється те, на що
+      # вистачає репозиторію: чи посилається юніт на щось, чого в
+      # репозиторії немає — рівно той рядок, що вказує в порожнечу.
+      #
+      # 🔴 Порівняння з МАШИНОЮ потребує SSH-ключа, тож тут не біжить.
+      # `node scripts/ci/check-server-drift.mjs` без прапорця — для
+      # машини, де ключ є. Вдавати, що CI це перевіряє, було б гірше за
+      # відсутність перевірки.
+      - name: The infra guard still catches a unit pointing at nothing
+        run: |
+          set -o pipefail
+          node scripts/ci/check-server-drift.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-server-drift self-test:' >/dev/null
+
+      - name: No unit refers to a file the repository does not have
+        run: node scripts/ci/check-server-drift.mjs --offline
+
       # 🔴 CAMP-183. The import script unpacks releases without a shell,
       # and its own rehearsal proves the rule still bites. That rehearsal
       # was written and then run NOWHERE — not here, not in package.json

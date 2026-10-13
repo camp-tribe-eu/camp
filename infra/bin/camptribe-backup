@@ -1,0 +1,17 @@
+#!/bin/bash
+# Бекап контенту, який НЕМОЖЛИВО відтворити: гайди, маршрути, юридичні
+# сторінки, відгуки, фото і обчислений контекст кемпінгів.
+# OSM-дані сюди навмисно не входять — вони завжди заімпортуються наново.
+set -euo pipefail
+cd /srv/camptribe/current
+DIR="/srv/camptribe/backups/$(date -u +%Y-%m-%d)"
+./scripts/osm-pipeline/backup-local.sh backup "$DIR"
+# 🔴 Бекап, який не звірили, не вважається зробленим.
+./scripts/osm-pipeline/backup-local.sh verify "$DIR"
+# тримаємо 14 денних зрізів
+ls -1d /srv/camptribe/backups/20* 2>/dev/null | sort | head -n -14 | xargs -r rm -rf
+# 🔴 Прибрати слід ВЛАСНОГО падіння — і лише свій. Слід, який ніхто не
+# знімає, перетворює тривогу на шум за тиждень; слід, який знімає чужий
+# успіх, ховає чуже падіння.
+rm -f /srv/camptribe/failed/camptribe-backup.service
+echo "готово: $DIR ($(du -sh "$DIR" | cut -f1)), зрізів: $(ls -1d /srv/camptribe/backups/20* 2>/dev/null | wc -l)"
