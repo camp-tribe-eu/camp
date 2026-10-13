@@ -279,6 +279,15 @@ export interface Spot {
   /** Which source gave which field, and when it last changed it. */
   sources: SpotSource[];
   /**
+   * Коди зон попереджень цього кемпінга (CAMP-287).
+   *
+   * 🔴 `null` і `[]` — різні відповіді, і їх не можна злити. `null`:
+   * резолвер сюди не дійшов, ми не знаємо зони. `[]`: дійшов і зон не
+   * знайшов. У першому випадку панель мовчить, у другому каже, що
+   * попереджень для цього місця немає.
+   */
+  warningAreas?: string[] | null;
+  /**
    * CAMP-147: the price list — a table, never one number.
    *
    * 🔴 Optional, and every reader of it uses `?? []`. Same reason as

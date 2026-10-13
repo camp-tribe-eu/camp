@@ -85,6 +85,15 @@ export interface SpotView {
    */
   sources: SpotSource[];
   /**
+   * Коди зон попереджень цього кемпінга (CAMP-287).
+   *
+   * 🔴 `null` і `[]` — РІЗНІ відповіді. `null`: резолвер сюди не дійшов,
+   * і ми не знаємо, у якій зоні цей кемпінг. `[]`: дійшов і зон не
+   * знайшов — такий кемпінг попереджень не дістане ніколи, і сторінка
+   * мусить сказати це інакше, ніж «попереджень немає».
+   */
+  warningAreas: string[] | null;
+  /**
    * CAMP-147: the campsite's price list — a table, never one number.
    *
    * 🔴 Every entry carries its own validity period, because the API
@@ -770,6 +779,9 @@ function toView(row: Record<string, unknown>): SpotView {
     // in a half-deployed state, not for a case the schema allows.
     contact: (row.contact as SpotView['contact']) ?? {},
     sources: (row.sources ?? []) as SpotSource[],
+    warningAreas: Array.isArray(row.warning_areas)
+      ? (row.warning_areas as string[])
+      : null,
     // 🔴 `?? []`, and the default is "no prices", never a partial list.
     // Every query that does not select these columns is a query that
     // knows nothing about prices; the failure must be a page with no

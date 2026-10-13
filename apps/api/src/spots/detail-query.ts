@@ -58,6 +58,17 @@ export const SPOT_DETAIL_SQL = `SELECT s.slug, s.name, s.country, s.region, s.ty
               s.amenities, s.owner_overrides, s.last_seen_at, s.missing_since,
               s.context, s.description, s.description_lang, s.stars,
               s.website, s.contact, s.sources,
+              -- 🔴 CAMP-287 крок 4. Коди зон попереджень, записані
+              -- кроком 1. Без них сторінка не може спитати «чи це
+              -- попередження про мене»: матчер зіставляє саме коди, а
+              -- не країну — хорватське попередження на всіх хорватських
+              -- кемпінгах це тривога там, де її немає.
+              --
+              -- NULL означає «резолвер сюди не дійшов», порожній масив
+              -- — «дійшов і кодів немає». Різницю сторінка показує
+              -- по-різному. (Без зворотних лапок: ми всередині
+              -- шаблонного рядка, і файл попереджає про це вище.)
+              s.warning_areas,
               -- 🔴 CAMP-144. The other sources' rows, joined in — not
               -- merged in SQL. Which field wins is a decision with
               -- reasons behind it (mergeLinked, below), and a reason
