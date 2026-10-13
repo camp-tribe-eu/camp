@@ -29,6 +29,7 @@ import TariffTable from '@/components/tariff-table';
 import BathingWaterNote from '@/components/bathing-water';
 import AirQualityNote from '@/components/air-quality';
 import { DroughtPanel } from '@/components/drought-panel';
+import { WarningsForSpot } from '@/components/warnings-for-spot';
 import { settingParagraph } from '@/lib/setting';
 import { droughtAtBuild } from '@/lib/drought-build';
 import { WebcamNote } from '@/components/webcam-panel';
@@ -547,6 +548,19 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           campsite in this ten-day period, and leaving the space blank
           would turn it into "nobody knows". */}
       <DroughtPanel state={droughtAtBuild()} lat={spot.lat} lon={spot.lon} />
+
+      {/* 🔴 CAMP-287 крок 4: офіційні попередження про небезпеку.
+          Стоїть ПІСЛЯ посухи й перед камерами навмисно — посуха це
+          десятиденне вікно, попередження — години, і найгостріше за
+          часом має бути ближче до того, що читач перевіряє перед
+          виїздом.
+
+          🔴 Єдина панель на цій сторінці, яка приходить У БРАУЗЕР, а
+          не в збірку. Її бюджет свіжості — десять хвилин (клаузула 5.6
+          ліцензії MeteoAlarm), а сторінки збираються вночі: запечене
+          попередження показувало б «No fresh data» завжди. Доведено в
+          CAMP-302. */}
+      <WarningsForSpot country={spot.country} codes={spot.warningAreas ?? null} />
 
       {/* 🔴 CAMP-190: what a camera near here is looking at.
 

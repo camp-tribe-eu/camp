@@ -139,6 +139,21 @@ export function importsOf(source) {
  * that imports `@/lib/cems` is showing CEMS data just as surely as one
  * that imports it directly, and a one-hop check would wave it through.
  */
+/**
+ * The source with comments removed, for matching things that must be
+ * CODE rather than prose.
+ *
+ * 🔴 Deliberately crude: block comments and line comments, nothing
+ * about strings containing `//`. A URL inside a string literal stays,
+ * which is exactly the case this guard must keep catching; the only
+ * thing it loses is a `//` that sits inside a quoted string, and the
+ * result there is a false POSITIVE — the safe direction for a licence
+ * guard.
+ */
+export function withoutComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
 export function reaches(start, targets, resolveSpec, read, seen = new Set()) {
   if (seen.has(start)) return false;
   seen.add(start);
@@ -146,7 +161,17 @@ export function reaches(start, targets, resolveSpec, read, seen = new Set()) {
   if (src === null) return false;
   // 🔴 A file that merely NAMES the data URL is showing CEMS data, even
   // with no import at all. See CEMS_DATA_MARKERS.
-  if (CEMS_DATA_MARKERS.some((re) => re.test(src))) return true;
+  //
+  // 🔴 IN CODE, NOT IN PROSE. This matched comments too, and on
+  // 13.10.2026 it stopped a PR that had nothing to do with CEMS:
+  // `app/data/warnings.json/route.ts` names `/data/wildfires.json` in a
+  // comment, as the CONTRAST it is written against — fires are a
+  // committed file because their budget is 72 hours, warnings cannot be
+  // because theirs is ten minutes. Naming a thing to say "not that" is
+  // the opposite of showing it, and the fix a flagged author reaches
+  // for first is to delete the sentence, which costs the reader the
+  // reason and leaves the trap for the next one.
+  if (CEMS_DATA_MARKERS.some((re) => re.test(withoutComments(src)))) return true;
   for (const spec of importsOf(src)) {
     // `from` matters: '../lib/cems' means something different in each
     // directory, and resolving it without the importer is guesswork.
@@ -425,6 +450,33 @@ function selfTest() {
     );
     rmSync(join(root, 'src/app/data'), { recursive: true, force: true });
 
+    // 🔴 ПРОЗА — НЕ ПОКАЗ. Файл, що НАЗИВАЄ шлях у коментарі, пишучи
+    // проти нього, не є субʼєктом. 13.10.2026 така згадка зупинила PR
+    // про попередження MeteoAlarm, який із CEMS не має спільного
+    // нічого.
+    put(
+      'src/app/data/warnings.json/route.ts',
+      "// Пожежі поруч (/data/wildfires.json) віддаються закоміченим файлом.\n" +
+        "export const GET = () => new Response('{}');",
+    );
+    failIf(
+      realRun(root, quiet, exempt) !== 0,
+      'a file that only NAMES the CEMS url in a comment was reported',
+    );
+    rmSync(join(root, 'src/app/data'), { recursive: true, force: true });
+
+    // 🔴 І ДРУГА ПОЛОВИНА, інакше попередній випадок можна задовольнити,
+    // осліпивши маркер цілком: той самий шлях у КОДІ лишається показом.
+    put(
+      'src/app/data/wildfires.json/route.ts',
+      "export const GET = () => fetch('/data/wildfires.json');",
+    );
+    failIf(
+      realRun(root, quiet, exempt) !== 1,
+      'the CEMS url in code stopped counting as showing CEMS data',
+    );
+    rmSync(join(root, 'src/app/data'), { recursive: true, force: true });
+
     // A page, registered nowhere.
     put('src/app/drought/page.tsx', "import '@/lib/cems';\nexport default () => null;");
     failIf(
@@ -444,7 +496,7 @@ function selfTest() {
   }
 
   // 🔴 A literal, never `cases.length`.
-  const EXPECTED_CASES = 17;
+  const EXPECTED_CASES = 19;
   if (cases.length !== EXPECTED_CASES) {
     console.error(
       `✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`,

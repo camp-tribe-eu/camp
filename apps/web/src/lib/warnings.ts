@@ -314,6 +314,52 @@ export function applicableWarnings(
   return { applicable, unlocatable };
 }
 
+/**
+ * Чи це попередження ще ЧИННЕ, за його власним `expires`.
+ *
+ * 🔴 ДРУГИЙ ГОДИННИК, І ЙОГО ТУТ НЕ БУЛО. Вік ЗНІМКА і вік
+ * ПОПЕРЕДЖЕННЯ — різні величини, і код знав лише перший. Фетчер
+ * відсіює протерміновані блоки на момент ЗАБОРУ (`dropReason` →
+ * `'expired'`), але знімок живе в памʼяті пʼять хвилин, плюс хвилина
+ * HTTP-кешу, плюс скільки вкладка його тримає. Попередження, що
+ * скінчилось одразу після забору, їхало до читача як чинне. Знайдено
+ * рецензією; CAMP-151 називає це першим із трьох годинників і вимагає
+ * викидати запис «на кожному читанні, ніколи не вірити фіду».
+ *
+ * 🔴 Нечитабельний `expires` — теж НЕ чинне. Ми не можемо стверджувати,
+ * що діє те, чого не вміємо датувати.
+ */
+export function inForce(w: Warning, now: Date): boolean {
+  const until = w.expires ? Date.parse(w.expires) : Number.NaN;
+  return Number.isFinite(until) && until > now.getTime();
+}
+
+/**
+ * Розділяє на чинні й ні — з ПРИЧИНОЮ, а не булевим прапорцем.
+ *
+ * Причина, а не булеве: «сьогодні нічого не протермінувалось» і
+ * «перевірка на `expires` перестала працювати» виглядають однаково,
+ * якщо рахувати лише те, що лишилось. Та сама вимога, що й у
+ * `dropReason` фетчера.
+ */
+export function splitByForce(
+  warnings: readonly Warning[],
+  now: Date,
+): { inForce: readonly Warning[]; expired: number; untimed: number } {
+  const live: Warning[] = [];
+  let expired = 0;
+  let untimed = 0;
+  for (const w of warnings) {
+    if (inForce(w, now)) {
+      live.push(w);
+      continue;
+    }
+    if (w.expires && Number.isFinite(Date.parse(w.expires))) expired += 1;
+    else untimed += 1;
+  }
+  return { inForce: live, expired, untimed };
+}
+
 export function warningState(
   feed: WarningFeed | null | undefined,
   applicable: readonly Warning[],
