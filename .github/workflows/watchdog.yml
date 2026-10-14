@@ -187,3 +187,57 @@ jobs:
             gh issue close "$EXISTING" \
               --comment "Кожна точка знову віддає чинні записи. Закриваю."
           fi
+
+  # CAMP-273: PR від dependabot, який стоїть червоний і якого ніхто не
+  # відкрив.
+  #
+  # PR #29 (`@nestjs/core` 10 → 12) простояв пʼять діб: щодня було видно
+  # «червоний», а ламався він в одному рядку `package.json` — решта пакетів
+  # Nest лишились на мажорі 10. 14.10.2026 те саме з #156/#158 (react).
+  #
+  # ОКРЕМА РОБОТА. `quiet` питає «чи відбувався прогін», `stale-sources` —
+  # «чи те, що він приніс, ще живе»; цей питає «чи хтось дивиться на PR,
+  # який бот відкрив і лишив». Інше питання, інші права, інший результат:
+  # не issue, а коментар у самому PR, де дивиться людина.
+  #
+  # Сторож читає діф маніфестів і НАЗИВАЄ пакети, що лишились на старому
+  # мажорі, а не каже «схоже на неповний бамп». Логіка, пороги й чому саме
+  # такі — у scripts/ci/check-dependabot-prs.mjs.
+  dependabot-prs:
+    runs-on: ubuntu-latest
+    # Розклад і ручний запуск водночас створили б два коментарі раніше, ніж
+    # котрийсь побачить другий. Другий чекає, а не скасовує першого.
+    concurrency:
+      group: watchdog-dependabot-prs
+      cancel-in-progress: false
+    permissions:
+      # Читати діф, дерево репозиторію й маніфести PR.
+      contents: read
+      # Читати прогони й джоби за SHA голови.
+      actions: read
+      # Писати й правити коментар у PR. Для PR вистачає цього, без issues.
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      # Той самий пін, що в сусідів. Залежностей немає — вбудовані модулі
+      # Node й `gh`, який уже є на раннері, тож без `npm ci`.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # CAMP-285/286: крок ЧИТАЄ надруковане самотестом.
+      # `set -o pipefail`, бо Actions запускає `bash -e {0}` БЕЗ нього.
+      # Рядок, який грепаємо, називає власний скрипт.
+      - name: Prove the dependabot-PR watchdog bites
+        run: |
+          set -o pipefail
+          node scripts/ci/check-dependabot-prs.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-dependabot-prs self-test:' >/dev/null
+
+      # Без `continue-on-error`: якщо зламався САМ сторож (запит не
+      # відповів, відповідь без очікуваного масиву, фільтр осліп), червоний
+      # крок і є сигнал. Коли він просто кричить у PR, крок зелений.
+      - name: Look at the open dependabot PRs and comment where there is something to say
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/check-dependabot-prs.mjs --comment
