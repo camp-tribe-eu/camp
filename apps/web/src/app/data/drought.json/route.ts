@@ -7,10 +7,18 @@ import DOMAIN from '@/data/drought-domain.json';
 // together or not at all — a grid without its mask is exactly the picture
 // that says "no drought" about Malta and about the open sea alike — so two
 // requests would only double the latency of something that is useless
-// until both have arrived. The body is `{ meta, cdi, domain }`: the grid
-// file as committed, plus the `domain` string of the mask file. The mask's
-// own `meta` (which dekads it was built from) is for the people who
-// rebuild it and is not sent.
+// until both have arrived. The body is `{ meta, cdi, domain, domainGrid }`:
+// the grid file as committed, the `domain` string of the mask file, and the
+// mask's GRID — five numbers.
+//
+// 🔴 THE MASK'S GRID IS SENT, and nothing else of the mask's `meta`.
+// The first cut of this route sent no part of it, and with it went the only
+// way for the browser to check that the mask was cut from the grid it is laid
+// over: `droughtState` refuses a payload whose two geometries disagree, and
+// it can only do that with both in hand. The rest of the mask's `meta` —
+// the dekads it was built from, the growth curve — is for the people who
+// rebuild it and stays home: +95 bytes for the grid, +1 356 for all of it
+// (measured 14.10.2026, `node -e` over the two committed files).
 //
 // 🔴 A file rather than an import, because the map is a client component.
 // Bundled, these kilobytes would be parsed into the page's JavaScript for
@@ -29,22 +37,21 @@ export const dynamic = 'force-static';
 /**
  * 🔴 The ceiling this payload is allowed to reach, checked at build time.
  *
- * Measured 14.10.2026: 102 117 bytes served (`curl -s …/data/drought.json
- * | wc -c` against the production build; `wc -c` of
- * `.next/server/app/data/drought.json.body` says the same). The two
- * committed files are 85 306 and 18 164 bytes (`wc -c`), 103 470 together;
- * the payload is a little smaller because the mask file's own `meta` is
- * not sent. 250 000 is 2.45 times the payload. The grid is fixed by the
- * service, so the only thing that moves the size is how fragmented the
- * classes are: a wetter or drier season changes what gzip finds to
- * squeeze, not the dimensions. Room for the worst dekad by a wide
- * margin, and a build that crosses it stops rather than shipping a map
- * that a phone on a mountain road cannot load.
+ * Measured 14.10.2026: 102 212 bytes served (`node -e` over the committed
+ * files, building the body this route builds; before the mask's grid was
+ * added it was 102 117). The two committed files are 85 306 and 18 164
+ * bytes (`wc -c`), 103 470 together; the payload is a little smaller because
+ * the mask file's own `meta` is not sent but for its grid. 250 000 is 2.45
+ * times the payload. The grid is fixed by the service, so the only thing
+ * that moves the size is how fragmented the classes are: a wetter or drier
+ * season changes what gzip finds to squeeze, not the dimensions. Room for
+ * the worst dekad by a wide margin, and a build that crosses it stops
+ * rather than shipping a map that a phone on a mountain road cannot load.
  */
 const BUDGET_BYTES = 250_000;
 
 export async function GET() {
-  const body = JSON.stringify({ ...DROUGHT, domain: DOMAIN.domain });
+  const body = JSON.stringify({ ...DROUGHT, domain: DOMAIN.domain, domainGrid: DOMAIN.meta.grid });
   // Bytes on the wire, not UTF-16 units: the class descriptions carry a
   // typographic apostrophe, and `body.length` would undercount it.
   const bytes = new TextEncoder().encode(body).length;

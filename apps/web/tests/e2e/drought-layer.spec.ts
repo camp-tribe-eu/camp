@@ -24,7 +24,7 @@ const SHIPPED = JSON.parse(
 ) as { meta: Record<string, unknown> & { dekad: string; classes: { value: number; label: string }[] }; cdi: string };
 const DOMAIN = JSON.parse(
   readFileSync(join(__dirname, '..', '..', 'src', 'data', 'drought-domain.json'), 'utf8'),
-) as { domain: string };
+) as { meta: { grid: Record<string, number> }; domain: string };
 
 const NOTE = '[data-testid="drought-layer-note"]';
 const MAP = '[data-testid="map"]';
@@ -50,8 +50,8 @@ function dayLabel(iso: string): string {
   return `${d} ${month} ${y}`;
 }
 
-/** What the route serves: the grid file as committed, plus the mask's string. */
-const SERVED = { ...SHIPPED, domain: DOMAIN.domain };
+/** What the route serves: the grid file as committed, plus the mask's string and the mask's grid. */
+const SERVED = { ...SHIPPED, domain: DOMAIN.domain, domainGrid: DOMAIN.meta.grid };
 
 /** Serve a doctored payload in place of the real one. */
 async function serveDrought(page: Page, body: unknown) {
@@ -95,13 +95,12 @@ function synthetic(opts: {
       if (opts.covered(lat, lon)) domain[i >> 3] |= 1 << (i & 7);
     }
   }
+  const grid = { width: opts.width, height: opts.height, lon0: opts.lon0, lat0: opts.lat0, pixel: opts.pixel };
   return {
-    meta: {
-      ...SHIPPED.meta,
-      grid: { width: opts.width, height: opts.height, lon0: opts.lon0, lat0: opts.lat0, pixel: opts.pixel },
-    },
+    meta: { ...SHIPPED.meta, grid },
     cdi: gzipSync(Buffer.from(cdi)).toString('base64'),
     domain: gzipSync(Buffer.from(domain)).toString('base64'),
+    domainGrid: grid,
   };
 }
 
@@ -384,6 +383,17 @@ test.describe('a payload we cannot use is said in words, never drawn, never a bl
     ['a payload that is not our shape', (page) => serveDrought(page, { not: 'a drought file' })],
     ['a grid that will not gunzip', (page) => serveDrought(page, { ...SERVED, cdi: Buffer.from('plain bytes').toString('base64') })],
     ['a mask that is missing', (page) => serveDrought(page, { meta: SHIPPED.meta, cdi: SHIPPED.cdi })],
+    // 🔴 The mask is there, and so is its size: it was cut from another grid
+    // (rows and columns swapped — the same number of cells). The browser
+    // reads the real payload through `readDroughtPayload`, so this is the one
+    // place the geometry check is run in a page.
+    ['a mask cut from a different grid', (page) => serveDrought(page, {
+      ...SERVED,
+      domainGrid: { ...DOMAIN.meta.grid, width: DOMAIN.meta.grid.height, height: DOMAIN.meta.grid.width },
+    })],
+    ['a mask that does not say which grid it was cut from', (page) => serveDrought(page, {
+      ...SHIPPED, domain: DOMAIN.domain,
+    })],
   ];
   for (const [what, arrange] of broken) {
     test(`${what} says “No drought reading” and draws nothing`, async ({ page }) => {
@@ -458,6 +468,68 @@ async function dismissBanner(page: Page) {
   if (await reject.count()) await reject.first().click();
   await expect(reject).toHaveCount(0);
 }
+
+// ── can the three kinds be told apart? ───────────────────────────────────
+//
+// 🔴 THE PIXEL TEST BELOW CHECKED THAT THE MAP DREW WHAT THE TABLE SAYS, and
+// with a tolerance of 3 out of 255 it said the same thing about a class 0 at
+// ΔE 7 from the bare map as about one at ΔE 45: the expected colour was
+// worked out from the same table the page reads, so any table agrees with
+// itself. That is a check of COMPOSITING — that alpha × raster-opacity
+// reaches the screen the way the palette guard models it — and it keeps its
+// name for that. It cannot say a reader can tell the three kinds apart.
+//
+// What can is the distance between the pixels THE BROWSER PAINTED, measured
+// the way this repository measures a colour pair everywhere else
+// (`scripts/ci/check-map-palette.mjs`). The thresholds are that file's and
+// are read from it, below, so this cannot drift to a number of its own.
+
+const MIN_CONTRAST = 3;
+const MIN_DELTA_E = 25;
+
+type Rgb = [number, number, number];
+const lin = (v: number) => {
+  const c = v / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+};
+const luminance = ([r, g, b]: Rgb) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+const contrastRatio = (a: Rgb, b: Rgb) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+function lab([r, g, b]: Rgb): Rgb {
+  const [R, G, B] = [lin(r), lin(g), lin(b)];
+  const X = (R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047;
+  const Y = R * 0.2126 + G * 0.7152 + B * 0.0722;
+  const Z = (B * 0.9505 + G * 0.1192 + R * 0.0193) / 1.08883;
+  const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
+}
+const deltaE = (a: Rgb, b: Rgb) => {
+  const [p, q] = [lab(a), lab(b)];
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+};
+
+test.describe('the colour maths the pixel checks use', () => {
+  test('agrees with scripts/ci/check-map-palette.mjs at points that script was run on', () => {
+    // Pinned, because this is a second implementation of that script's maths
+    // and a second implementation agrees with the first only if somebody
+    // checks. Black and white are the ends of both scales. The third pair is
+    // the first version of class 0 (#9CC5A1 at 22.9%) over the stub basemap's
+    // #E8E8E8 — measured 14.10.2026 by the script: ΔE 6.5, contrast 1.10.
+    expect(deltaE([255, 255, 255], [0, 0, 0])).toBeCloseTo(100, 1);
+    expect(contrastRatio([255, 255, 255], [0, 0, 0])).toBeCloseTo(21, 5);
+    const old = [0, 1, 2].map((i) => Math.round(0.229412 * [0x9c, 0xc5, 0xa1][i] + (1 - 0.229412) * 232)) as Rgb;
+    expect(deltaE(old, [232, 232, 232])).toBeCloseTo(6.5, 1);
+    expect(contrastRatio(old, [232, 232, 232])).toBeCloseTo(1.1, 2);
+  });
+
+  test('the thresholds are the script’s own, read from it', () => {
+    const script = readFileSync(join(__dirname, '..', '..', '..', '..', 'scripts', 'ci', 'check-map-palette.mjs'), 'utf8');
+    expect(script).toContain(`export const MIN_CONTRAST = ${MIN_CONTRAST};`);
+    expect(script).toContain(`export const MIN_DELTA_E = ${MIN_DELTA_E};`);
+  });
+});
 
 test.describe('the picture', () => {
   test('🔴 it really reaches the canvas: the same map with the layer on and off differs', async ({ page, browserName }) => {
@@ -545,7 +617,7 @@ test.describe('the picture', () => {
     };
     const want = (lat: number, lon: number) => {
       if (lon < 14.5) return { name: 'bare', rgb: [BASE, BASE, BASE] };
-      if (inBlock(lat, lon)) return { name: 'class 0, tinted', rgb: blend('#9CC5A1', 90) };
+      if (inBlock(lat, lon)) return { name: 'class 0, tinted', rgb: blend('#1C4418', 255) };
       return (Math.floor(lat) + Math.floor(lon)) % 2 === 0
         ? { name: 'class 1', rgb: blend('#F2D98A', 255) }
         : { name: 'class 3', rgb: blend('#A5541B', 255) };
@@ -575,16 +647,76 @@ test.describe('the picture', () => {
     const wrong: string[] = [];
     spots.forEach((s, i) => {
       const got = read[i];
-      // 🔴 3, not a generous number. Measured 14.10.2026 over 674–714 sampled
-      // pixels: the worst deviation from the blend computed above was 0 in
-      // Chromium and 1 in Firefox and WebKit. A loose bound here let a class-0
-      // tint of the wrong strength through, because it differs from the right
-      // one by less than the bound.
+      // 🔴 COMPOSITING, NOT LEGIBILITY. This says the browser laid each class
+      // on the map at the strength the table and the layer's raster-opacity
+      // give it. 3 out of 255 is measured: over 674–714 sampled pixels the
+      // worst deviation from the blend computed above was 0 in Chromium and 1
+      // in Firefox and WebKit. It is NOT a statement that the kinds read
+      // apart — a tolerance of 3 is as green at ΔE 7 as at ΔE 45. That is the
+      // next block's.
       if (Math.max(...s.rgb.map((v, k) => Math.abs(v - got[k]))) > 3) {
         wrong.push(`(${s.at}) lat ${latAt(s.at[1]).toFixed(2)} lon ${lonAt(s.at[0]).toFixed(2)}: wanted ${s.name} ${s.rgb}, got ${got.slice(0, 3)}`);
       }
     });
     expect(wrong.slice(0, 5), `${wrong.length} of ${spots.length} pixels were the wrong colour`).toEqual([]);
+
+    // 🔴 CAN THE KINDS BE TOLD APART — from the pixels the browser painted,
+    // not from the table. "Covered, and fine" must not read as "not covered"
+    // (bare), nor as the drought classes beside it: that is the distinction
+    // this card exists to make. Measured on the stub basemap's flat #E8E8E8,
+    // the one surface this test controls; the same question over every
+    // basemap colour we serve is `scripts/ci/check-map-palette.mjs`'s.
+    //
+    // Mutation: move class 0 back to `#9CC5A1` at alpha 90 in
+    // `lib/drought-colours.ts` AND change the literal in `want()` above to
+    // match — the compositing check stays green, as it must, and this fails
+    // on ΔE 6.5 and 1.10:1.
+    const pixelOf = (name: string): Rgb => {
+      const i = spots.findIndex((s) => s.name === name);
+      return read[i].slice(0, 3) as Rgb;
+    };
+    const bare = pixelOf('bare');
+    const zero = pixelOf('class 0, tinted');
+    const one = pixelOf('class 1');
+    const three = pixelOf('class 3');
+    expect(deltaE(zero, bare), 'class 0 against the bare map, ΔE').toBeGreaterThanOrEqual(MIN_DELTA_E);
+    expect(contrastRatio(zero, bare), 'class 0 against the bare map, contrast').toBeGreaterThanOrEqual(MIN_CONTRAST);
+    expect(deltaE(zero, one), 'class 0 against class 1, ΔE').toBeGreaterThanOrEqual(MIN_DELTA_E);
+    expect(deltaE(zero, three), 'class 0 against class 3, ΔE').toBeGreaterThanOrEqual(MIN_DELTA_E);
+
+    // 🔴 AND THE KEY READS WHAT THE MAP PAINTS. Each swatch's colour is read
+    // off the page as the browser computed it, laid on the same flat colour
+    // the stub basemap is, and compared with the pixel the canvas really
+    // holds for that class — a key shown at a strength the picture does not
+    // have is a key that explains nothing. (The unit spec compares the
+    // swatch with what the painter writes; this is the end of that chain, in
+    // a real browser, with `raster-opacity` applied by WebGL.)
+    //
+    // Mutation: paint the swatch with `row.hex` instead of `row.swatch` in
+    // drought-layer-panel.tsx — class 0's key becomes a strong dark green
+    // beside a pixel of the same green at 65%… and for any class drawn at
+    // under full strength, fails here.
+    const swatches = await page.locator('[data-testid="drought-legend"] li').evaluateAll((lis) =>
+      lis.map((li) => ({
+        label: (li.textContent ?? '').replace(/\s+/g, ' ').trim(),
+        css: li.querySelector('[data-swatch]') ? getComputedStyle(li.querySelector('[data-swatch]')!).backgroundColor : null,
+      })),
+    );
+    for (const [label, pixel] of [
+      ['no drought', zero],
+      ['less rain than normal', one],
+      ['vegetation under stress', three],
+    ] as [string, Rgb][]) {
+      const row = swatches.find((r) => r.css && r.label.includes(label));
+      expect(row, `no legend row for “${label}”`).toBeTruthy();
+      const m = row!.css!.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/)!;
+      const a = m[4] === undefined ? 1 : Number(m[4]);
+      const shown = [1, 2, 3].map((k) => Math.round(a * Number(m[k]) + (1 - a) * BASE));
+      expect(
+        Math.max(...shown.map((v, k) => Math.abs(v - pixel[k]))),
+        `“${label}”: the swatch over #E8E8E8 is ${shown}, the map paints ${pixel}`,
+      ).toBeLessThanOrEqual(3);
+    }
   });
 
   test('🔴 switching the basemap does not take the picture with it', async ({ page, browserName }) => {

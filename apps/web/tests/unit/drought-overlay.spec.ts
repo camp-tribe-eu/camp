@@ -4,15 +4,20 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
   DROUGHT_COLOURS,
+  DROUGHT_RASTER_OPACITY,
   droughtLegend,
   droughtState,
+  effectiveOpacity,
   inflateBase64,
+  maskFileOf,
   paintOverlay,
   readDroughtPayload,
   readingAt,
   type DroughtState,
 } from '@/lib/drought';
+import { DroughtLayerPanel } from '@/components/drought-layer-panel';
 import { GET } from '@/app/data/drought.json/route';
+import { renderComponent } from './render-component';
 
 // CAMP-200 — the drought grid on the map: the payload the route serves, how
 // the browser turns it into a state, and the picture painted from that state.
@@ -40,27 +45,32 @@ const DAY = 86_400_000;
 const after = (days: number) => new Date(Date.parse(`${FILE.meta.dekad}T00:00:00Z`) + days * DAY);
 
 /** What the route serves, built the way the route builds it. */
-const SERVED = { ...FILE, domain: DOMAIN.domain };
+const SERVED = { ...FILE, domain: DOMAIN.domain, domainGrid: DOMAIN.meta.grid };
 
 // ── the route ────────────────────────────────────────────────────────────
 
 test.describe('the route serves the grid and its mask as one payload', () => {
-  test('🔴 one body carries the committed grid AND the mask, and nothing else of the mask file', async () => {
+  test('🔴 one body carries the committed grid, the mask AND the mask’s grid, and nothing else of the mask file', async () => {
     // Mutation: serve `DROUGHT` alone (drop `domain`) — fails. Mutation:
-    // `domain: DOMAIN` (the whole file, not its string) — fails on the type.
+    // drop `domainGrid` — fails: the browser could no longer check that the
+    // mask was cut from the grid it is laid over. Mutation: `domainGrid:
+    // DOMAIN.meta` (all of it, the dekads and the growth curve with it) —
+    // fails on the grid's own five keys.
     const res = await GET();
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('application/json; charset=utf-8');
     const body = JSON.parse(await res.text());
-    expect(Object.keys(body).sort()).toEqual(['cdi', 'domain', 'meta']);
+    expect(Object.keys(body).sort()).toEqual(['cdi', 'domain', 'domainGrid', 'meta']);
     expect(body.cdi).toBe(FILE.cdi);
     expect(body.domain).toBe(DOMAIN.domain);
     expect(body.meta).toEqual(FILE.meta);
+    expect(Object.keys(body.domainGrid).sort()).toEqual(['height', 'lat0', 'lon0', 'pixel', 'width']);
+    expect(body.domainGrid).toEqual(DOMAIN.meta.grid);
   });
 
   test('the payload is under the build budget, with room to spare', async () => {
     // 250 000 is the ceiling the route enforces, written out here as a
-    // literal. Measured 102 117 bytes at the time of writing; the point of
+    // literal. Measured 102 212 bytes at the time of writing; the point of
     // a ceiling about 2.4 times that is that an ordinary dekad never meets
     // it. Mutation: add 150 KB to the payload — fails here before it fails
     // the build.
@@ -123,6 +133,22 @@ test.describe('readDroughtPayload', () => {
     ['a grid that is not base64', { ...SERVED, cdi: '%%%not-base64%%%' }],
     ['a grid that is base64 but not gzip', { ...SERVED, cdi: Buffer.from('plain bytes').toString('base64') }],
     ['a grid of the wrong size', { ...SERVED, cdi: pack(new Uint8Array(10)) }],
+    // 🔴 THE BROWSER'S OWN COPY of the mask-size case. `drought.spec.ts` pins
+    // the check through the build's reader; this goes through the path the
+    // map takes, where a payload's mask is what the route assembled. The
+    // mask's grid is the right one, so only the length check refuses it.
+    // Mutation: delete `domain.length !== Math.ceil(cells / 8)` from
+    // `droughtState` — fails here and in drought.spec.ts.
+    ['a mask of the wrong size', { ...SERVED, domain: pack(new Uint8Array(10)) }],
+    ['a mask one byte short', { ...SERVED, domain: pack(new Uint8Array(Math.ceil((1280 * 889) / 8) - 1)) }],
+    // 🔴 And the geometry, which the payload could not carry before it sent
+    // `domainGrid`. Rows and columns swapped is the same byte count: the
+    // length check passes it and only the comparison of the two grids refuses.
+    // Mutation: serve `domainGrid` as the pixel grid's own `meta.grid` (the
+    // check then compares a grid with itself) — the swapped case is accepted.
+    ['a mask with no grid beside it', (({ domainGrid: _d, ...rest }) => rest)(SERVED)],
+    ['a mask cut from a grid with rows and columns swapped', { ...SERVED, domainGrid: { ...DOMAIN.meta.grid, width: 889, height: 1280 } }],
+    ['a mask cut from a grid one cell to the east', { ...SERVED, domainGrid: { ...DOMAIN.meta.grid, lon0: DOMAIN.meta.grid.lon0 + DOMAIN.meta.grid.pixel } }],
     ['the credit removed', { ...SERVED, meta: { ...FILE.meta, attribution: 'Copernicus' } }],
   ] as [string, unknown][]) {
     test(`${name} is \`missing\`, not an exception`, async () => {
@@ -151,22 +177,21 @@ function tinyState(opts: {
   opts.mask.forEach((bit, i) => {
     if (bit) domain[i >> 3] |= 1 << (i & 7);
   });
+  const grid = { width: opts.width, height: opts.height, lon0: opts.lon0, lat0: opts.lat0, pixel: opts.pixel };
   const payload = {
-    meta: {
-      ...FILE.meta,
-      grid: { width: opts.width, height: opts.height, lon0: opts.lon0, lat0: opts.lat0, pixel: opts.pixel },
-    },
+    meta: { ...FILE.meta, grid },
     cdi: pack(Uint8Array.from(opts.cells)),
     domain: pack(domain),
+    domainGrid: grid,
   };
-  const s = droughtState(payload, payload, after(12), nodeDecode);
+  const s = droughtState(payload, maskFileOf(payload), after(12), nodeDecode);
   if (s.kind !== 'current') throw new Error(`the tiny state came out ${s.kind}`);
   return s;
 }
 
 /** The colours the picture must use, written out here and not read from the table. */
 const WANT: Record<number, [number, number, number, number]> = {
-  0: [0x9c, 0xc5, 0xa1, 90],
+  0: [0x1c, 0x44, 0x18, 255],
   1: [0xf2, 0xd9, 0x8a, 255],
   2: [0xd9, 0xa4, 0x41, 255],
   3: [0xa5, 0x54, 0x1b, 255],
@@ -277,7 +302,7 @@ test.describe('paintOverlay', () => {
     };
     expect(px(0), 'covered by neither: the raster says 0, the mask says no').toEqual(BARE);
     expect(px(2), 'a loud value under a mask that says no').toEqual(BARE);
-    expect(px(3), 'covered, and the indicator measured normal conditions').toEqual([0x9c, 0xc5, 0xa1, 90]);
+    expect(px(3), 'covered, and the indicator measured normal conditions').toEqual([0x1c, 0x44, 0x18, 255]);
   });
 
   test('no source row is skipped: every row of the grid is the answer for at least one output row', () => {
@@ -348,17 +373,119 @@ test.describe('the legend', () => {
     }
   });
 
-  test('🔴 the legend and the pixels read one table', () => {
-    // Each legend swatch is the colour a pixel of that class gets, and its
-    // label is the file’s own name for the class. Mutation: give the legend
-    // its own hex for one row — fails.
-    const rows = droughtLegend(meta);
-    for (const c of meta.classes as { value: number; label: string }[]) {
-      const hex = '#' + WANT[c.value].slice(0, 3).map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase();
-      const row = rows.find((r) => r.hex.toUpperCase() === hex);
-      expect(row, `no legend row for class ${c.value} (${hex})`).toBeTruthy();
-      expect(row!.label, `class ${c.value}`).toContain(c.label);
+  test('the layer opacity and the colours are what the map is measured against, once', () => {
+    // 🔴 Written out as literals, the only place they are. `check-map-palette.mjs`
+    // measures every drought class at alpha × this opacity against the
+    // basemaps, so changing either number is a decision that changes what a
+    // reader can tell apart — it should cost an edit here, and a re-run of
+    // that check, not nothing.
+    expect(DROUGHT_RASTER_OPACITY).toBe(0.65);
+    expect(effectiveOpacity(255)).toBeCloseTo(0.65, 10);
+    expect(effectiveOpacity(90)).toBeCloseTo((90 / 255) * 0.65, 10);
+    expect(effectiveOpacity(0)).toBe(0);
+  });
+
+  /**
+   * What the legend PRINTS, read off the HTML a reader is served: for each
+   * row, the red, green, blue and alpha of the swatch's CSS colour, and the
+   * words beside it. A row with no `data-swatch` is the dashed "not coloured"
+   * one and has no colour to read.
+   */
+  function legendOf(html: string): { rgba: [number, number, number, number] | null; label: string }[] {
+    const ul = html.match(/<ul[^>]*data-testid="drought-legend"[^>]*>([\s\S]*?)<\/ul>/);
+    if (!ul) throw new Error('the legend is not in the panel');
+    return [...ul[1].matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map(([, li]) => {
+      const m = li.match(/data-swatch=""[^>]*style="[^"]*background-color:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
+      const label = li.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+      return { rgba: m ? ([Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])] as [number, number, number, number]) : null, label };
+    });
+  }
+
+  /** The panel the map shows under the layer, as the HTML a reader is served. */
+  function panelHtml(): string {
+    const state = tinyState({
+      width: 7, height: 1, lon0: 10, lat0: 50, pixel: 1,
+      cells: [0, 1, 2, 3, 4, 5, 6], mask: [1, 1, 1, 1, 1, 1, 1],
+    });
+    return renderComponent(DroughtLayerPanel, { state });
+  }
+
+  /** The pixel `paintOverlay` writes for each class, as the strength a reader sees: [r, g, b, alpha × raster-opacity]. */
+  function pixelsPerClass(colours?: Readonly<Record<number, { hex: string; alpha: number }>>): Record<number, [number, number, number, number]> {
+    const state = tinyState({
+      width: 7, height: 1, lon0: 10, lat0: 50, pixel: 1,
+      cells: [0, 1, 2, 3, 4, 5, 6], mask: [1, 1, 1, 1, 1, 1, 1],
+    });
+    const overlay = paintOverlay(state, colours);
+    const r = Math.floor(overlay.height / 2);
+    const out: Record<number, [number, number, number, number]> = {};
+    for (let c = 0; c < 7; c++) {
+      const at = (r * overlay.width + c) * 4;
+      const d = overlay.data;
+      out[c] = [d[at], d[at + 1], d[at + 2], (d[at + 3] / 255) * DROUGHT_RASTER_OPACITY];
     }
+    return out;
+  }
+
+  test('🔴 the legend and the pixels read one table: the same colour AND the same strength', () => {
+    // The swatch is read off the rendered panel; the pixel is what
+    // `paintOverlay` writes into the canvas. For every class the swatch's
+    // colour must be the pixel's, and its alpha must be the pixel's alpha at
+    // the layer's `raster-opacity` — what reaches the screen, not what the
+    // table says.
+    //
+    // 🔴 THE FIRST VERSION OF THIS TEST COMPARED HEX AND NOTHING ELSE, and
+    // that is why it stayed green over a swatch painted at full strength
+    // for a class drawn at 22.9%: it never read the alpha, so it could not
+    // see that the key and the picture had come apart.
+    //
+    // Mutation: paint the swatch with `row.hex` — fails on the alpha.
+    // Mutation: `opacity = style.alpha / 255` in `droughtLegend` (the
+    // raster-opacity left out) — fails on every class.
+    // Mutation: give the legend its own hex for one class — fails on the colour.
+    const rows = legendOf(panelHtml());
+    const pixel = pixelsPerClass();
+    const want = FILE.meta.classes as { value: number; label: string }[];
+    for (const c of want) {
+      const row = rows.find((r) => r.rgba && r.label.includes(c.label));
+      expect(row, `no legend row for class ${c.value} (${c.label})`).toBeTruthy();
+      const [r, g, b, a] = row!.rgba!;
+      const [pr, pg, pb, pa] = pixel[c.value];
+      expect([r, g, b], `class ${c.value}: the swatch colour is not the pixel colour`).toEqual([pr, pg, pb]);
+      expect(a, `class ${c.value}: the swatch is drawn at ${a}, the map draws it at ${pa}`).toBeCloseTo(pa, 3);
+    }
+  });
+
+  test('🔴 …and with a class whose own alpha is not 255, which no shipped class has today', () => {
+    // Today every class is drawn at alpha 255, so the test above cannot tell
+    // "uses the table's alpha" from "ignores it". A synthetic table can:
+    // class 0 at 90, class 1 at 128, the rest at 255. The expected strengths
+    // are written out here, not worked out by the code under test.
+    const table = {
+      ...DROUGHT_COLOURS,
+      0: { hex: '#336699', alpha: 90 },
+      1: { hex: '#CC9933', alpha: 128 },
+    };
+    // Mutation: ignore the alpha in `droughtLegend` — class 0 reads 0.65
+    // where the pixel is 0.2294, and this fails.
+    const rows = droughtLegend(FILE.meta, table);
+    const pixel = pixelsPerClass(table);
+    const byLabel = (label: string) => rows.find((r) => r.label.includes(label))!;
+    expect(byLabel('no drought').opacity).toBeCloseTo(0.2294, 3);
+    expect(byLabel('less rain than normal').opacity).toBeCloseTo(0.3263, 3);
+    expect(byLabel('dry ground').opacity).toBeCloseTo(0.65, 10);
+    expect(byLabel('no drought').swatch).toBe('rgba(51, 102, 153, 0.2294)');
+    expect(pixel[0][3]).toBeCloseTo(0.2294, 3);
+    expect(pixel[1][3]).toBeCloseTo(0.3263, 3);
+    expect(pixel[2][3]).toBeCloseTo(0.65, 10);
+  });
+
+  test('the dashed row says what bare means, and carries no colour', () => {
+    // "Not coloured" has no swatch to be wrong about. What it must not be is
+    // a coloured row: bare and "no drought" are different things.
+    const rows = legendOf(panelHtml());
+    const bare = rows.filter((r) => r.rgba === null);
+    expect(bare.map((r) => r.label)).toEqual(['not coloured: outside the area the indicator covers']);
   });
 
   test('classes drawn in one colour are one row, not three identical swatches', () => {

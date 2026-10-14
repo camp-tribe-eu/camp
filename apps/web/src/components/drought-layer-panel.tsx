@@ -1,4 +1,5 @@
 import {
+  LEGEND_BACKING,
   droughtLegend,
   formatDay,
   type DroughtLayerState,
@@ -81,12 +82,25 @@ export function DroughtLayerPanel({ state }: { state: DroughtLayerState }) {
           <p className="mt-1">{state.meta.cadenceNote}</p>
           <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1" data-testid="drought-legend">
             {droughtLegend(state.meta).map((row) => (
-              <li key={row.hex} className="inline-flex items-center gap-1.5">
+              <li key={row.swatch} className="inline-flex items-center gap-1.5">
+                {/* 🔴 The colour the map really shows: the class's own, at
+                    the strength it is drawn with, laid on the colour the
+                    basemaps paint as land. It used to be the raw hex at full
+                    strength, and class 0 — drawn at 22.9% — had a key about
+                    four times stronger than the picture. The backing is
+                    there because a translucent swatch looks like whatever is
+                    behind it, and in dark mode that is not the map. */}
                 <span
                   aria-hidden="true"
                   className="inline-block h-3 w-3 rounded-sm border border-line-2"
-                  style={{ backgroundColor: row.hex }}
-                />
+                  style={{ backgroundColor: LEGEND_BACKING }}
+                >
+                  <span
+                    className="block h-full w-full rounded-sm"
+                    data-swatch=""
+                    style={{ backgroundColor: row.swatch }}
+                  />
+                </span>
                 {row.label}
               </li>
             ))}

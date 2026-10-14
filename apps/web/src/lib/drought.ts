@@ -1,4 +1,15 @@
 import { CEMS_NOTICE, RESERVED_WORDS } from './cems';
+import { DROUGHT_COLOURS, effectiveOpacity, hexRgb } from './drought-colours';
+
+// How each class is drawn lives in `./drought-colours` — a module with no
+// imports, so the palette guard can read it. Re-exported here: this is still
+// the one place the page, the map and the tests ask.
+export {
+  DROUGHT_COLOURS,
+  DROUGHT_RASTER_OPACITY,
+  LEGEND_BACKING,
+  effectiveOpacity,
+} from './drought-colours';
 
 // CAMP-163 — the Combined Drought Indicator, as the page reads it.
 //
@@ -119,6 +130,13 @@ function readGrid(input: unknown): DroughtGrid | null {
   return { width: g.width as number, height: g.height as number, lon0: g.lon0, lat0: g.lat0, pixel: g.pixel };
 }
 
+const sameGrid = (a: DroughtGrid, b: DroughtGrid): boolean =>
+  a.width === b.width &&
+  a.height === b.height &&
+  a.lon0 === b.lon0 &&
+  a.lat0 === b.lat0 &&
+  a.pixel === b.pixel;
+
 export function readMeta(input: unknown): DroughtMeta | null {
   if (!input || typeof input !== 'object') return null;
   const m = (input as { meta?: unknown }).meta as Partial<DroughtMeta> | undefined;
@@ -229,6 +247,17 @@ export function droughtState(
   const domRaw = (domainInput as { domain?: unknown })?.domain;
   if (typeof cdiRaw !== 'string' || typeof domRaw !== 'string') return { kind: 'missing' };
 
+  // 🔴 THE MASK HAS TO SAY WHICH GRID IT WAS CUT FROM, and agree with the
+  // grid it is laid over. A length check cannot do this: a mask of the right
+  // size on the wrong geometry — the same number of cells, rows and columns
+  // swapped, or shifted by one cell — passes it, and it is exactly the mask
+  // that says "no drought" about Malta and "not covered" about Sicily with
+  // every number in the file looking right. The mask file records its grid
+  // (`scripts/edo/fetch-drought.mjs` writes it), so it is compared: a file
+  // that does not carry one is refused, not assumed.
+  const maskGrid = readGrid((domainInput as { meta?: { grid?: unknown } } | null)?.meta?.grid);
+  if (!maskGrid || !sameGrid(maskGrid, meta.grid)) return { kind: 'missing' };
+
   let cdi: Uint8Array;
   let domain: Uint8Array;
   try {
@@ -336,7 +365,23 @@ export async function inflateBase64(b64: string): Promise<Uint8Array> {
 }
 
 /**
- * The route's payload — `{ meta, cdi, domain }` — as a state.
+ * The mask, as `droughtState` wants to read it, out of the payload the route
+ * serves.
+ *
+ * 🔴 NOT `droughtState(body, body, …)`. The payload's own `meta` is the
+ * GRID file's, so reading the mask's geometry from the same object would
+ * compare the grid with itself and pass for every payload there is — the
+ * shape of a check that agrees with the bug. The route sends the mask's grid
+ * under its own key (`domainGrid`), and this puts it where the build-side
+ * call (`drought-build.ts`, which hands over the mask FILE) has it.
+ */
+export function maskFileOf(body: unknown): { meta: { grid: unknown }; domain: unknown } {
+  const p = (body ?? {}) as { domain?: unknown; domainGrid?: unknown };
+  return { meta: { grid: p.domainGrid }, domain: p.domain };
+}
+
+/**
+ * The route's payload — `{ meta, cdi, domain, domainGrid }` — as a state.
  *
  * 🔴 `droughtState` is the ONLY thing that decides what the payload means,
  * here as on the page. It takes a synchronous `decode`; a browser can only
@@ -354,46 +399,26 @@ export async function readDroughtPayload(body: unknown, now: Date): Promise<Drou
   } catch {
     return { kind: 'missing' };
   }
-  return droughtState(body, body, now, (s) => {
+  return droughtState(body, maskFileOf(body), now, (s) => {
     const got = inflated.get(s);
     if (!got) throw new Error('not inflated');
     return got;
   });
 }
 
-/**
- * How each class is drawn. The legend and the pixels both read this one
- * table, so they cannot drift apart.
- *
- * 🔴 NOT a traffic light. Red on a class of drought is the CAMP-162
- * vocabulary rendered in CSS, and the campsite markers are already
- * #C83D28. One hue, pale to dark, for the three drought classes, and a
- * cool colour for the three recovery ones.
- *
- * 🔴 Class 0 IS DRAWN, faintly. That is what the mask is for: where the
- * indicator measured normal conditions the map is tinted, and where it
- * does not look at all (the sea, the places outside its domain) it is left
- * bare. If 0 were transparent too, "bare" would mean either, and the map
- * would say about Malta exactly what the mask exists to stop it saying.
- */
-export const DROUGHT_COLOURS: Readonly<Record<number, { hex: string; alpha: number }>> = {
-  0: { hex: '#9CC5A1', alpha: 90 },
-  1: { hex: '#F2D98A', alpha: 255 },
-  2: { hex: '#D9A441', alpha: 255 },
-  3: { hex: '#A5541B', alpha: 255 },
-  4: { hex: '#8FB8CC', alpha: 255 },
-  5: { hex: '#8FB8CC', alpha: 255 },
-  6: { hex: '#8FB8CC', alpha: 255 },
-};
-
-const hexRgb = (hex: string): [number, number, number] => [
-  parseInt(hex.slice(1, 3), 16),
-  parseInt(hex.slice(3, 5), 16),
-  parseInt(hex.slice(5, 7), 16),
-];
-
 export interface LegendRow {
+  /** The class's own colour, as the table holds it. NOT what the swatch is painted with. */
   hex: string;
+  /** What reaches the screen: the table's alpha, then the layer's `raster-opacity`. 0–1. */
+  opacity: number;
+  /**
+   * The swatch's colour: `hex` at `opacity`, as CSS.
+   *
+   * 🔴 THE EFFECTIVE COLOUR, not the raw one. The swatch used to be painted
+   * with `hex` at full strength, so class 0 — drawn on the map at 22.9% —
+   * showed a key about 4.4 times stronger than the picture it explained.
+   */
+  swatch: string;
   /** The classes' own words, from the file, joined when they share a colour. */
   label: string;
 }
@@ -403,16 +428,33 @@ export interface LegendRow {
  *
  * 🔴 From `meta.classes`, not from a list typed here: those strings went
  * through `wordsAreOurs` at the door, and a label written in a component
- * would not have. Classes drawn in the same colour are one row.
+ * would not have. Classes drawn in the same colour — the same hex AT THE
+ * SAME alpha — are one row.
  */
-export function droughtLegend(meta: DroughtMeta): LegendRow[] {
+export function droughtLegend(
+  meta: DroughtMeta,
+  colours: Readonly<Record<number, { hex: string; alpha: number }>> = DROUGHT_COLOURS,
+): LegendRow[] {
   const rows: LegendRow[] = [];
+  let lastKey = '';
   for (const c of [...meta.classes].sort((a, b) => a.value - b.value)) {
-    const style = DROUGHT_COLOURS[c.value];
+    const style = colours[c.value];
     if (!style) continue;
+    const key = `${style.hex}/${style.alpha}`;
     const last = rows[rows.length - 1];
-    if (last && last.hex === style.hex) last.label += `, ${c.label}`;
-    else rows.push({ hex: style.hex, label: c.label });
+    if (last && key === lastKey) {
+      last.label += `, ${c.label}`;
+      continue;
+    }
+    const opacity = effectiveOpacity(style.alpha);
+    const [r, g, b] = hexRgb(style.hex);
+    rows.push({
+      hex: style.hex,
+      opacity,
+      swatch: `rgba(${r}, ${g}, ${b}, ${Number(opacity.toFixed(4))})`,
+      label: c.label,
+    });
+    lastKey = key;
   }
   return rows;
 }
@@ -445,7 +487,10 @@ export interface DroughtOverlay {
  * Nearest-neighbour on purpose: a 4.6 km cell is drawn as the block it is.
  * Smoothing it would invent a gradient Copernicus did not publish.
  */
-export function paintOverlay(state: Extract<DroughtState, { kind: 'current' }>): DroughtOverlay {
+export function paintOverlay(
+  state: Extract<DroughtState, { kind: 'current' }>,
+  colours: Readonly<Record<number, { hex: string; alpha: number }>> = DROUGHT_COLOURS,
+): DroughtOverlay {
   const { grid } = state.meta;
   const north = grid.lat0;
   const south = grid.lat0 - grid.height * grid.pixel;
@@ -459,7 +504,7 @@ export function paintOverlay(state: Extract<DroughtState, { kind: 'current' }>):
   const data = new Uint8ClampedArray(grid.width * height * 4);
 
   const palette = new Map<number, { rgb: [number, number, number]; alpha: number }>();
-  for (const [value, style] of Object.entries(DROUGHT_COLOURS)) {
+  for (const [value, style] of Object.entries(colours)) {
     palette.set(Number(value), { rgb: hexRgb(style.hex), alpha: style.alpha });
   }
 

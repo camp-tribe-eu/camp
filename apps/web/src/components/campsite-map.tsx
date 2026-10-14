@@ -81,6 +81,7 @@ import {
   type LayerId,
 } from "@/lib/map-layers";
 import {
+  DROUGHT_RASTER_OPACITY,
   DROUGHT_URL,
   paintOverlay,
   readDroughtPayload,
@@ -422,7 +423,11 @@ function attachDrought(
         source: DROUGHT_SOURCE,
         layout: { visibility: visible ? "visible" : "none" },
         paint: {
-          "raster-opacity": 0.65,
+          // 🔴 The constant, never a number typed here: the legend's
+          // swatches and `check-map-palette.mjs` both work out what a reader
+          // sees from it, and a bare 0.65 was the one thing none of them
+          // could read.
+          "raster-opacity": DROUGHT_RASTER_OPACITY,
           // A 4.6 km cell is drawn as the block it is, never smoothed.
           "raster-resampling": "nearest",
           "raster-fade-duration": 0,

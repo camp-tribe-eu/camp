@@ -46,6 +46,15 @@ import {
   dominantColourExpression,
   dominantType,
 } from '../../apps/web/src/lib/map-palette.ts';
+// 🔴 CAMP-200. A module with no imports of its own, so that this file can
+// read it: `lib/drought.ts` imports `./cems`, which `--experimental-strip-types`
+// cannot resolve. The drought colours are painted over every campsite on the
+// map and this guard did not know they existed.
+import {
+  DROUGHT_COLOURS,
+  DROUGHT_RASTER_OPACITY,
+  effectiveOpacity,
+} from '../../apps/web/src/lib/drought-colours.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -357,6 +366,143 @@ export function literalLineColours(source) {
   return out;
 }
 
+/**
+ * 🔴 CAMP-200. THE DROUGHT PICTURE, measured as a reader sees it.
+ *
+ * A class is drawn at its own alpha and then at the layer's
+ * `raster-opacity`, so the pixel over a basemap colour is the class colour at
+ * `alpha/255 × raster-opacity` — not the hex in the table, and not the alpha
+ * in it either. The first version of the table was read by nobody here and
+ * drew "no drought" at 22.9%: ΔE 4.0–7.0 and a contrast of 1.09–1.13 against
+ * the basemaps, under the 25 and 3 this file holds everything else to, which
+ * made the one distinction the card exists for — covered and fine, against
+ * not covered — a shade of green on a shade of green.
+ *
+ * TWO THINGS ARE HELD:
+ *
+ *  1. THE CLASSES IN `held` read apart from the map beneath them: the
+ *     pixel, against every basemap colour we serve, clears `MIN_CONTRAST`
+ *     and `MIN_DELTA_E` — and from every other class, by `MIN_DELTA_E`.
+ *  2. EVERY CLASS leaves the campsite markers legible. The markers are drawn
+ *     on top of the picture, so their background is the PIXEL, not the
+ *     basemap — a thing `problems()` above never measures.
+ *
+ * 🔴 `held` is [0] and not every class, and that is a recorded limit rather
+ * than an oversight. Class 0 is the one whose job is to be told from "the
+ * indicator does not look here"; the others are measured and printed, and
+ * today they do NOT clear either threshold (classes 1, 2 and 4–6 are under
+ * ΔE 25 somewhere, and none of the six reaches 3:1 on any background — the
+ * best is class 3 at 2.03). Holding them would be a different card with a
+ * different palette in it.
+ */
+export const DROUGHT_HELD = [0];
+
+/** What one class looks like over one basemap colour, and how well it separates. */
+export function droughtPixel(hex, alpha, bg, rasterOpacity) {
+  const eff = (alpha / 255) * rasterOpacity;
+  const pixel = blend(hex, bg, eff);
+  return { eff, pixel, contrast: contrast(pixel, bg), deltaE: deltaE(pixel, bg) };
+}
+
+export function droughtProblems(
+  colours = DROUGHT_COLOURS,
+  rasterOpacity = DROUGHT_RASTER_OPACITY,
+  backgrounds = BASEMAP,
+  held = DROUGHT_HELD,
+  fills = everyFill(),
+  stroke = MARKER_STROKE,
+) {
+  const out = [];
+  const classes = Object.entries(colours).map(([v, c]) => [Number(v), c]);
+
+  // 🔴 A value we cannot measure is a failure, never a skip.
+  if (!(rasterOpacity > 0 && rasterOpacity <= 1))
+    out.push(`raster-opacity ${rasterOpacity} is not in (0, 1]`);
+  for (const [v, { hex, alpha }] of classes) {
+    if (!HEX.test(hex)) out.push(`drought class ${v}: ${hex} is not a six-digit hex`);
+    if (!Number.isInteger(alpha) || alpha < 0 || alpha > 255)
+      out.push(`drought class ${v}: alpha ${alpha} is not an integer from 0 to 255`);
+  }
+  for (const v of held)
+    if (!colours[v]) out.push(`drought class ${v} is held to the thresholds and has no colour`);
+  if (out.length) return out;
+
+  const bgs = Object.entries(backgrounds);
+  for (const v of held) {
+    const { hex, alpha } = colours[v];
+    for (const [where, bg] of bgs) {
+      const r = droughtPixel(hex, alpha, bg, rasterOpacity);
+      if (r.contrast < MIN_CONTRAST)
+        out.push(
+          `drought class ${v} ${hex} at ${(r.eff * 100).toFixed(1)}% on ${where} ${bg}: ` +
+            `${r.contrast.toFixed(2)}:1, needs ${MIN_CONTRAST}`
+        );
+      if (r.deltaE < MIN_DELTA_E)
+        out.push(
+          `drought class ${v} ${hex} at ${(r.eff * 100).toFixed(1)}% reads like ${where} ${bg}: ` +
+            `ΔE ${r.deltaE.toFixed(1)}, needs ${MIN_DELTA_E}`
+        );
+      for (const [w, other] of classes) {
+        if (w === v || (held.includes(w) && w < v)) continue;
+        const o = droughtPixel(other.hex, other.alpha, bg, rasterOpacity);
+        const d = deltaE(r.pixel, o.pixel);
+        if (d < MIN_DELTA_E)
+          out.push(
+            `drought classes ${v} and ${w} read alike on ${where} ${bg}: ΔE ${d.toFixed(1)}, needs ${MIN_DELTA_E}`
+          );
+      }
+    }
+  }
+
+  // The markers, on the pixel. Grouped by class and surface, naming the
+  // worst marker: five fills sharing one ring would otherwise print five
+  // lines for one fact.
+  for (const [v, { hex, alpha }] of classes) {
+    for (const [where, bg] of bgs) {
+      const { pixel } = droughtPixel(hex, alpha, bg, rasterOpacity);
+      let worst = null;
+      for (const [name, fill] of fills) {
+        const seen = visibility(fill, stroke, pixel);
+        if (worst === null || seen < worst.seen) worst = { name, seen };
+      }
+      if (worst && worst.seen < MIN_CONTRAST)
+        out.push(
+          `markers over drought class ${v} on ${where} ${bg} (pixel ${pixel}): ` +
+            `the worst, ${worst.name}, is ${worst.seen.toFixed(4)}:1, needs ${MIN_CONTRAST}`
+        );
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether the map paints the drought picture with the number this file
+ * measured.
+ *
+ * 🔴 A palette measured here means nothing unless the map uses it — the
+ * lesson `literalLineColours` records. The measurement above multiplies by
+ * `DROUGHT_RASTER_OPACITY`; if `campsite-map.tsx` painted its own `0.4`, or
+ * left the property out (MapLibre's default is 1), every number printed here
+ * would be about a picture nobody sees.
+ */
+export function rasterOpacityProblems(source) {
+  const out = [];
+  const re = /['"]raster-opacity['"]\s*:\s*([^,}\n]+)/g;
+  const found = [...source.matchAll(re)].map((m) => m[1].trim());
+  if (found.length === 0)
+    out.push(
+      'no `raster-opacity` is set on the drought layer: MapLibre would draw it at 1, ' +
+        'and the colours measured here assume DROUGHT_RASTER_OPACITY'
+    );
+  for (const value of found)
+    if (value !== 'DROUGHT_RASTER_OPACITY')
+      out.push(
+        `\`raster-opacity: ${value}\` is written into the component — a number the palette ` +
+          'check does not multiply by. Import DROUGHT_RASTER_OPACITY from lib/drought-colours.ts.'
+      );
+  return out;
+}
+
 /** 🔴 Rehearsed, not trusted. Each case is one the real check must still refuse. */
 function selfTest() {
   const fails = [];
@@ -416,10 +562,74 @@ function selfTest() {
   cases++;
   if (problems([['x', '#7C92B7']], '#FFFFFF', { water: '#A0C8F0' }).length === 0)
     fails.push('a fill invisible over water was accepted');
+  // 🔴 CAMP-200. THE DROUGHT PICTURE. Each case is one the real run on the
+  // shipped table has to be able to fail — and the shipped table is not used
+  // here at all, so the rehearsal does not move when the colours do.
+  //
+  // The tables are small and hand-made: `oldZero` is the first version of
+  // class 0 (measured: ΔE 4.0, 1.01:1); `darkZero` clears both thresholds and
+  // costs the markers; `midZero` keeps the markers and fails both thresholds.
+  const oldZero = { 0: { hex: '#9CC5A1', alpha: 90 } };
+  const darkZero = { 0: { hex: '#1C4418', alpha: 255 } };
+  const midZero = { 0: { hex: '#6E7889', alpha: 255 } };
+  const ring = dark; // the marker stroke, declared at the top of this function
+  const blackRing = '#000000';
+  const has = (list, re) => list.some((l) => re.test(l));
+  cases++;
+  if (!has(droughtProblems(oldZero, 0.65), /class 0 .*at 22\.9%.*ΔE 4\.0/))
+    fails.push('the first version of class 0, 22.9% over the map at ΔE 4, was accepted');
+  cases++;
+  if (!has(droughtProblems(oldZero, 0.65), /class 0 .*at 22\.9%.*1\.0\d:1/))
+    fails.push('the first version of class 0 was accepted at a contrast of 1.0');
+  // 🔴 The alpha IN THE TABLE is not what is seen. Same colour, same alpha:
+  // at the layer's own opacity it clears; at 0.3 it does not.
+  cases++;
+  if (droughtProblems(darkZero, 1, BASEMAP, [0], [], ring).length !== 0)
+    fails.push('class 0 at full strength was refused although it clears both thresholds');
+  cases++;
+  if (!has(droughtProblems(darkZero, 0.3, BASEMAP, [0], [], ring), /class 0 /))
+    fails.push('the layer raster-opacity was ignored: a class that fails at 30% was measured as if it were solid');
+  // The cost of a dark tint, and the way out of it. One ring, one pixel.
+  cases++;
+  if (!has(droughtProblems(darkZero, 0.65, BASEMAP, [0], undefined, ring), /markers over drought class 0 /))
+    fails.push('a tint that leaves a campsite marker under 3:1 on the pixel was accepted');
+  cases++;
+  if (droughtProblems(darkZero, 0.65, BASEMAP, [0], undefined, blackRing).length !== 0)
+    fails.push('a dark class 0 with a dark enough ring was refused');
+  cases++;
+  if (!has(droughtProblems(midZero, 0.65, BASEMAP, [0], [], ring), /class 0 .*ΔE/))
+    fails.push('a class 0 at ΔE 20 from its map was accepted');
+  // Only what is held is held to the bare map; everything is held to the markers.
+  cases++;
+  if (has(droughtProblems({ ...darkZero, 1: { hex: '#F2D98A', alpha: 255 } }, 0.65, BASEMAP, [0], [], ring), /class 1 .*(ΔE|:1, needs)/))
+    fails.push('a class that is not held was reported against the bare map');
+  cases++;
+  if (!has(droughtProblems({ ...darkZero, 1: { hex: '#1D4519', alpha: 255 } }, 0.65, BASEMAP, [0], [], ring), /classes 0 and 1 read alike/))
+    fails.push('class 0 and a class one shade away were accepted as two things');
+  // Values that cannot be measured.
+  cases++;
+  if (droughtProblems({ 0: { hex: '#FC3', alpha: 255 } }, 0.65).length === 0)
+    fails.push('a drought colour in three-digit notation was accepted');
+  cases++;
+  if (droughtProblems({ 0: { hex: '#1C4418', alpha: 300 } }, 0.65).length === 0)
+    fails.push('an alpha of 300 was accepted');
+  cases++;
+  if (droughtProblems(darkZero, 0, BASEMAP, [0], [], ring).length === 0)
+    fails.push('a raster-opacity of 0 was accepted');
+  // The map must use the number that was measured.
+  cases++;
+  if (rasterOpacityProblems('paint: { "raster-opacity": 0.65, }').length === 0)
+    fails.push('a literal raster-opacity written into the component was accepted');
+  cases++;
+  if (rasterOpacityProblems('paint: { "raster-opacity": DROUGHT_RASTER_OPACITY, }').length !== 0)
+    fails.push('the imported raster-opacity was refused');
+  cases++;
+  if (rasterOpacityProblems('paint: { "raster-resampling": "nearest" }').length === 0)
+    fails.push('a drought layer with no raster-opacity at all was accepted');
   // 🔴 CAMP-286: counted, because "13 cases" was prose. An assertion
   // that stopped being reached printed exactly what a passing one
   // printed, and the sentence below went on claiming thirteen.
-  const EXPECTED_CASES = 15;
+  const EXPECTED_CASES = 30;
   if (cases !== EXPECTED_CASES) {
     fails.push(`${cases} assertions ran, expected ${EXPECTED_CASES}`);
   }
@@ -435,7 +645,9 @@ function selfTest() {
     `self-test ok: ${cases} cases — a faint fill, four unmeasurable notations, a\n` +
       'lookalike pair, a marker lost over water, an uncased line too close to\n' +
       'the map, a line too close to its own casing, a casing lost on a road, a\n' +
-      'line whose opacity was ignored, and a colour the component wrote itself'
+      'line whose opacity was ignored, a colour the component wrote itself,\n' +
+      'a drought class lost in the map beneath it, a layer opacity the\n' +
+      'measurement ignored, and a tint that leaves a campsite marker unreadable'
   );
 }
 
@@ -483,11 +695,35 @@ if (invokedDirectly) {
         ).toFixed(2)}:1 on the map, uncased`;
     console.log(`  ${name.padEnd(12)} ${colour}  ${said}`);
   }
+  // 🔴 CAMP-200. The drought picture, every class, as a reader sees it:
+  // the colour at its own alpha and then at the layer's raster-opacity,
+  // over each basemap colour we serve. Printed for all seven; only the
+  // classes in DROUGHT_HELD are failed on the bare map (see there).
+  const droughtFound = droughtProblems();
+  const droughtLiterals = rasterOpacityProblems(
+    readFileSync(join(ROOT, 'apps/web/src/components/campsite-map.tsx'), 'utf8')
+  );
+  for (const [value, { hex, alpha }] of Object.entries(DROUGHT_COLOURS)) {
+    const seen = Object.values(BASEMAP).map((bg) =>
+      droughtPixel(hex, alpha, bg, DROUGHT_RASTER_OPACITY)
+    );
+    const held = DROUGHT_HELD.includes(Number(value)) ? 'held' : 'not held';
+    console.log(
+      `  drought ${value}`.padEnd(14) +
+        ` ${hex}  ${(effectiveOpacity(alpha) * 100).toFixed(1)}% drawn   ` +
+        `ΔE ${Math.min(...seen.map((r) => r.deltaE)).toFixed(1)}  ` +
+        `${Math.min(...seen.map((r) => r.contrast)).toFixed(2)}:1 worst basemap  (${held})`
+    );
+  }
   const split = twinsDisagree();
+  if (droughtFound.length)
+    console.error('\nthe drought picture is not legible:\n  ' + droughtFound.join('\n  '));
+  if (droughtLiterals.length)
+    console.error('\ncampsite-map.tsx does not use the measured opacity:\n  ' + droughtLiterals.join('\n  '));
   if (lines.length) console.error('\nroute lines are not legible:\n  ' + lines.join('\n  '));
   if (literals.length)
     console.error('\nroute-map.tsx does not use the measured palette:\n  ' + literals.join('\n  '));
-  if (found.length || split.length || lines.length || literals.length) {
+  if (found.length || split.length || lines.length || literals.length || droughtFound.length || droughtLiterals.length) {
     if (found.length) console.error('\nmap palette is not legible:\n  ' + found.join('\n  '));
     if (split.length)
       console.error(
@@ -500,6 +736,11 @@ if (invokedDirectly) {
   );
   console.log(
     `the cluster expression agrees with dominantType on all ${4 ** Object.keys(TYPE_COLOUR).length} count vectors`
+  );
+  console.log(
+    `${Object.keys(DROUGHT_COLOURS).length} drought classes at raster-opacity ${DROUGHT_RASTER_OPACITY}: ` +
+      `class ${DROUGHT_HELD.join(', ')} clears ${MIN_CONTRAST}:1 and ΔE ${MIN_DELTA_E} on every basemap colour, ` +
+      'and every class leaves every marker >= ' + `${MIN_CONTRAST}:1`
   );
 }
 }

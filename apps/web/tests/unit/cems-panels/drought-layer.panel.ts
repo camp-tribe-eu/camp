@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { DroughtLayerPanel } from '@/components/drought-layer-panel';
-import { droughtState, type DroughtLayerState } from '@/lib/drought';
+import { droughtState, maskFileOf, type DroughtLayerState } from '@/lib/drought';
 import { renderComponent } from '../render-component';
 import type { CemsPanel, CemsScenario } from '../cems-panel';
 
@@ -30,6 +30,7 @@ const FILE = JSON.parse(readFileSync(join(DATA, 'drought.json'), 'utf8')) as {
   cdi: string;
 };
 const DOMAIN = JSON.parse(readFileSync(join(DATA, 'drought-domain.json'), 'utf8')) as {
+  meta: { grid: { width: number; height: number; lon0: number; lat0: number; pixel: number } };
   domain: string;
 };
 
@@ -38,13 +39,16 @@ const decode = (s: string): Uint8Array => new Uint8Array(gunzipSync(Buffer.from(
 const DAY = 86_400_000;
 const soonAfter = (days: number) => new Date(Date.parse(`${FILE.meta.dekad}T12:00:00Z`) + days * DAY);
 
-/** What `app/data/drought.json/route.ts` serves: the grid file with the mask beside it. */
-const SERVED = { ...FILE, domain: DOMAIN.domain };
+/** What `app/data/drought.json/route.ts` serves: the grid file with the mask, and the mask's grid, beside it. */
+const SERVED = { ...FILE, domain: DOMAIN.domain, domainGrid: DOMAIN.meta.grid };
 
 const html = (state: DroughtLayerState): string => renderComponent(DroughtLayerPanel, { state });
 
+// 🔴 `maskFileOf`, the adapter the map's own reader uses, and not the payload
+// handed over twice: its `meta` is the GRID file's, so the mask's geometry
+// would be compared with itself and every payload would pass.
 const panelFor = (payload: unknown, now: Date = soonAfter(12)): string =>
-  html(droughtState(payload, payload, now, decode));
+  html(droughtState(payload, maskFileOf(payload), now, decode));
 
 /**
  * A payload whose meta says a reserved word in one string. `droughtState`
@@ -83,6 +87,22 @@ const panel: CemsPanel = {
     {
       name: 'the mask is missing from the payload, so no reading can be trusted',
       html: panelFor({ meta: SERVED.meta, cdi: SERVED.cdi }),
+      showsData: false,
+    },
+    {
+      // 🔴 The mask is there and so is its size, but it was cut from another
+      // grid — rows and columns swapped, the same number of cells. A reader
+      // must be told nothing is drawn, not shown a map placed wrongly.
+      name: 'the mask was cut from a different grid, so no reading can be placed',
+      html: panelFor({
+        ...SERVED,
+        domainGrid: { ...DOMAIN.meta.grid, width: DOMAIN.meta.grid.height, height: DOMAIN.meta.grid.width },
+      }),
+      showsData: false,
+    },
+    {
+      name: 'the mask does not say which grid it was cut from',
+      html: panelFor((({ domainGrid: _grid, ...rest }) => rest)(SERVED)),
       showsData: false,
     },
     {
