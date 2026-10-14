@@ -53,8 +53,63 @@ import { getSummary } from './api';
  */
 export async function publishableCampsiteCount(): Promise<number | null> {
   const { spots } = await getSummary();
-  return Number.isInteger(spots) && spots > 0 ? spots : null;
+  return printable(spots);
 }
+
+/**
+ * A figure we can print, or `null` when the API's answer cannot be stood
+ * behind.
+ *
+ * 🔴 THE SAME TEST, IN ONE PLACE, BECAUSE THE DEFECT HAD FOUR HOMES.
+ * CAMP-308 was written about /routes, and /routes is where the typed
+ * `61 422` lived. But the predicate "is this number worth printing" was
+ * needed by three more surfaces that read the same endpoint, and each of
+ * them printed `summary.spots` raw — so on a 429 or a 500 at build time
+ * they stated, to a reader and to a crawler, that we hold `0` campsites:
+ *
+ *   apps/web/src/app/page.tsx:90       "0 campsites and motorhome parks
+ *                                       across 0 regions"
+ *   apps/web/src/app/search/page.tsx:67 "0 campsites across 27 countries"
+ *   apps/web/src/app/search/page.tsx:51 the same 0, inside JSON-LD
+ *
+ * `getSummary` answers `{spots: 0, countries: 0, regions: 0}` for any
+ * non-ok response, which is right for a hero that has an empty state and
+ * wrong for a sentence. Zero is not "no data"; printed as a fact it is a
+ * false one, and a static build bakes it in until the next deploy.
+ */
+export const printable = (n: unknown): number | null =>
+  typeof n === 'number' && Number.isInteger(n) && n > 0 ? n : null;
+
+const en = (n: number): string => n.toLocaleString('en-GB');
+
+/**
+ * The home page's opening clause. The sentence continues ", each with the
+ * distance to water…", so this ends without punctuation and starts a
+ * sentence either way.
+ */
+export function heroLead(spots: number | null, regions: number | null): string {
+  if (spots === null && regions === null)
+    return 'Campsites and motorhome parks across Europe';
+  if (regions === null) return `${en(spots as number)} campsites and motorhome parks`;
+  if (spots === null)
+    return `Campsites and motorhome parks across ${en(regions)} regions`;
+  return `${en(spots)} campsites and motorhome parks across ${en(regions)} regions`;
+}
+
+/**
+ * /search, above the box. `countries` is the length of a list we already
+ * hold, not a figure from the summary, so it is never in doubt.
+ */
+export const searchLead = (spots: number | null, countries: number): string =>
+  spots === null
+    ? `Campsites across ${en(countries)} countries`
+    : `${en(spots)} campsites across ${en(countries)} countries`;
+
+/** /search, as a search result and an assistant read it. */
+export const searchDescription = (spots: number | null): string =>
+  spots === null
+    ? 'Find a campsite by name, by region, or by somewhere near it.'
+    : `Find a campsite among ${en(spots)} by name, by region, or by somewhere near it.`;
 
 /** `/routes`, as a search result shows it. */
 export function routesDescription(campsites: number | null): string {
