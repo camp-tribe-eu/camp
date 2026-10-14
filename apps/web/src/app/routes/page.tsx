@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { countryName } from '@/lib/api';
+import { publishableCampsiteCount, routesDescription } from '@/lib/campsite-count';
 import { alternatesFor } from '@/lib/i18n';
 import { breadcrumbList, jsonLdProps } from '@/lib/jsonld';
 import { routeLibraryGraph } from '@/lib/route-jsonld';
@@ -13,12 +14,24 @@ import RouteLibrary, { type RouteCard } from '@/components/route-library';
 // demonstrates the database; a route is the thing somebody actually
 // searches for. Until today the site had no /routes at all.
 
-export const metadata: Metadata = {
-  title: 'Camping routes across Europe',
-  description:
-    'Twelve curated camping routes through the EU — the stages, what each one is for, and the real campsites near every stop, from our own database of 61 422.',
-  alternates: alternatesFor('/routes'),
-};
+// 🔴 CAMP-308. A function, not a constant, and the difference is a
+// number. This `description` said "from our own database of 61 422" —
+// measured 27.09.2026, typed in, and read by Google as today's figure for
+// every day after. The count is asked for when the page is built, from
+// the endpoint the home page uses, and the sentence is made in
+// lib/campsite-count.ts, where the choice among the three campsite
+// counts is explained and where a test reads the result.
+//
+// When the API cannot say, the description says nothing about size
+// rather than printing a zero — a search result with no number is a
+// smaller claim; a search result with the wrong one is a false one.
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: 'Camping routes across Europe',
+    description: routesDescription(await publishableCampsiteCount()),
+    alternates: alternatesFor('/routes'),
+  };
+}
 
 export default function RoutesIndex() {
   const routes = getRoutes();

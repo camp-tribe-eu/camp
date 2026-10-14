@@ -329,6 +329,10 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
             known amenity, no description and no stars. Nothing but a
             name. The duplicate-page guard found their pages
             indistinguishable from their neighbours', and it was right.
+            (A measurement, not a figure for today: taken 04.10.2026,
+            recorded with its method in `lib/setting.ts`. 🔴 CAMP-308:
+            this sentence is a comment and is NOT rendered — only
+            `setting` below reaches the reader, and it prints no total.)
 
             What they do have is this paragraph's subject: how far the
             water is and what kind, the nearest town, the nearest shop,
