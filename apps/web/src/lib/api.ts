@@ -106,7 +106,16 @@ async function fetchMapRegions(): Promise<MapRegion[]> {
     next: { revalidate: 86400 },
   });
   if (!res.ok) {
-    throw new Error(`Region index request failed: ${res.status}`);
+    // 🔴 429 МАЄ НАЗВАТИ СЕБЕ. Два дні я шукав дефект у коді, бо бачив
+    // лише «500» у браузері й «429» у логу, а причиною була відсутня
+    // змінна оточення. Повідомлення, яке називає її, коштує рядка.
+    throw new Error(
+      res.status === 429
+        ? 'Region index request was rate-limited (429). У dev це майже завжди ' +
+          'означає, що `API_BUILD_TOKEN` не заданий для веб-застосунку — ' +
+          'див. apps/web/.env.example.'
+        : `Region index request failed: ${res.status}`,
+    );
   }
   const regions = (await res.json()) as MapRegion[];
   // 🔴 Порожній перелік — це збій, а не порожня мапа. Перевірка була в
