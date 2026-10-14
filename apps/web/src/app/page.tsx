@@ -10,6 +10,7 @@ import {
   SPOT_TYPE_LABEL,
   WATER_LABEL,
 } from '@/lib/api';
+import { heroLead, printable } from '@/lib/campsite-count';
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 
@@ -86,9 +87,12 @@ function Hero({
         </h1>
         <p className="mt-4 max-w-prose text-ink-2">
           {/* The real count, from the database. It reads as small today
-              and that is correct — it is the number we can stand behind. */}
-          {summary.spots.toLocaleString('en-GB')} campsites and motorhome
-          parks across {summary.regions.toLocaleString('en-GB')} regions, each
+              and that is correct — it is the number we can stand behind.
+              🔴 And when we cannot stand behind it — the API answered with
+              an error and `getSummary` filled in zeros — the clause is
+              written without the figures rather than claiming nought
+              (CAMP-308). */}
+          {heroLead(printable(summary.spots), printable(summary.regions))}, each
           with the distance to water, to the nearest town and to a railway
           station, its elevation and its terrain — calculated by us, published
           by nobody else.

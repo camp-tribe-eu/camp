@@ -486,6 +486,22 @@ jobs:
             | grep -c 'check-internal-links self-test:' >/dev/null
           node scripts/ci/check-internal-links.mjs
 
+      # 🔴 CAMP-308. `description` сторінки `/routes` казав «from our own
+      # database of 61 422» — число, заміряне 27.09.2026 і набране руками.
+      # Імпорт щотижневий, тож воно бреше пів тижня в середньому, і бреше
+      # перед Google. Сторож читає синтаксичне дерево: коментар із заміром
+      # і датою, де таке число доречне, для нього не вузол і лишається
+      # зеленим.
+      #
+      # 🔴 CAMP-285/286: крок читає надруковане самотестом; `set -o
+      # pipefail`, бо Actions запускає `bash -e {0}` без нього.
+      - name: No campsite count is typed into text a reader or Google sees
+        run: |
+          set -o pipefail
+          node scripts/ci/check-hardcoded-counts.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-hardcoded-counts self-test:' >/dev/null
+          node scripts/ci/check-hardcoded-counts.mjs
+
       # 🔴 CAMP-170. Цей сторож каже, який імпортер замовк, і його
       # щодня запускає таймер на машині. Його власна самоперевірка не
       # бігла НІДЕ — тобто єдине, що стоїть між «дані застаріли» і

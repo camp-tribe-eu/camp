@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { countryName, getCountries, getSummary } from '@/lib/api';
+import { printable, searchDescription, searchLead } from '@/lib/campsite-count';
 import { alternatesFor } from '@/lib/i18n';
 import SearchEmbed from '@/components/search-embed';
 import { abs, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
@@ -48,7 +49,7 @@ export default async function SearchPage() {
           '@type': 'SearchResultsPage',
           '@id': `${abs('/search')}#page`,
           name: 'Search',
-          description: `Find a campsite among ${summary.spots.toLocaleString('en-GB')} by name, by region, or by somewhere near it.`,
+          description: searchDescription(printable(summary.spots)),
           url: abs('/search'),
           inLanguage: 'en',
         })}
@@ -64,7 +65,7 @@ export default async function SearchPage() {
 
       <h1 className="text-2xl font-bold text-heading sm:text-3xl">Search</h1>
       <p className="mt-2 max-w-prose text-sm text-ink-2">
-        {summary.spots.toLocaleString('en-GB')} campsites across {countries.length} countries. Type a
+        {searchLead(printable(summary.spots), countries.length)}. Type a
         name, a region, or a town or lake nearby.
       </p>
 
