@@ -244,7 +244,34 @@ export interface Queryable {
  * члени Союзу під чужою назвою; код, який normaliseCountry кудись перекладає,
  * не збігається зі списком і не знайдеться в ньому.
  */
-export async function assertCountryTagsReady(db: Queryable): Promise<void> {
+export const PARTIAL_ENV = 'CAMPTRIBE_PARTIAL_CONTEXT';
+
+/**
+ * 🔴 ТРЕТЯ ПЕРЕВІРКА ВБИВАЛА ВЛАСНИЙ РОБОЧИЙ ПРОЦЕС, І ЦЕ ЗНАЙШЛА РЕЦЕНЗІЯ.
+ *
+ * `load-context.sh europe/slovenia` — задокументований спосіб працювати з
+ * однією країною (рядки 4-5 того скрипта). Після нього в шарах є міста
+ * Словенії і сусідів, а решти двадцяти з гаком держав немає — і перевірка
+ * «кожна держава-член десь трапляється» валила `compute-context` із
+ * порадою `--tag-only`, якої **неможливо виконати**: лікує вона інше, а
+ * єдиний справжній спосіб — завантажити всі 27 екстрактів.
+ *
+ * Тому перевірка лишається за замовчуванням (на проді неповна таблиця
+ * полігонів = країна мовчки втрачає все), але часткове завантаження її
+ * **свідомо послаблює**: `partial: true` друкує, чого бракує, замість
+ * падати. Прапорець не вгадується з даних — його ставить той, хто
+ * запустив часткове завантаження, через `CAMPTRIBE_PARTIAL_CONTEXT=1`.
+ *
+ * 🔴 Послаблення **гучне**: воно перелічує коди поіменно. Тихий пропуск і
+ * виконана перевірка виглядають однаково через тиждень.
+ */
+export async function assertCountryTagsReady(
+  db: Queryable,
+  { partial = false, log = console }: Readonly<{
+    partial?: boolean;
+    log?: Pick<Console, 'warn'>;
+  }> = {},
+): Promise<void> {
   const fix =
     'Run: ./scripts/osm-pipeline/load-country-boundaries.sh --tag-only';
 
@@ -282,10 +309,13 @@ export async function assertCountryTagsReady(db: Queryable): Promise<void> {
 
   const missing = EU_MEMBER_STATES.filter((c) => !seen.has(c));
   if (missing.length > 0) {
-    throw new Error(
+    const what =
       `no town, shop or station is tagged with: ${missing.join(', ')}.\n` +
-        'Every campsite there would lose its town, shop and station.\n' +
-        fix,
+      'Every campsite there would lose its town, shop and station.';
+    if (!partial) throw new Error(`${what}\n${fix}`);
+    log.warn(
+      `🔴 ${PARTIAL_ENV}=1 — ${what}\n` +
+        'That is expected after a partial load-context.sh; it is NOT safe in production.',
     );
   }
 

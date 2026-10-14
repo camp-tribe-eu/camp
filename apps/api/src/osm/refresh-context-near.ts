@@ -45,6 +45,7 @@ import { Client } from 'pg';
 import { feature, saysSomething } from './compute-context';
 import {
   assertCountryTagsReady,
+  PARTIAL_ENV,
   contextParams,
   NEAR_SQL,
   withoutUnionFilter,
@@ -153,7 +154,11 @@ async function main(apply: boolean, withDrift: boolean): Promise<void> {
   const db = new Client({ connectionString: process.env.DATABASE_URL });
   await db.connect();
   try {
-    await assertCountryTagsReady(db);
+    await assertCountryTagsReady(db, {
+      // Прапорець ставить людина, що запустила часткове завантаження;
+      // з даних його не вгадати. Див. PARTIAL_ENV у context-sql.ts.
+      partial: process.env[PARTIAL_ENV] === '1',
+    });
 
     const { rows } = await db.query<Row>(
       NEAR_SQL,

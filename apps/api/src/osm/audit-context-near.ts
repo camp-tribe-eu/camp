@@ -29,6 +29,7 @@ import 'dotenv/config';
 import { Client } from 'pg';
 import {
   assertCountryTagsReady,
+  PARTIAL_ENV,
   contextParams,
   NEAR_SQL,
   WATER_FID_SQL,
@@ -119,7 +120,11 @@ async function main(): Promise<void> {
   const db = new Client({ connectionString: process.env.DATABASE_URL });
   await db.connect();
   try {
-    await assertCountryTagsReady(db);
+    await assertCountryTagsReady(db, {
+      // Прапорець ставить людина, що запустила часткове завантаження;
+      // з даних його не вгадати. Див. PARTIAL_ENV у context-sql.ts.
+      partial: process.env[PARTIAL_ENV] === '1',
+    });
 
     const t0 = Date.now();
     const before = (await db.query<Row>(withoutUnionFilter(NEAR_SQL), [null]))

@@ -235,13 +235,36 @@ psql "$DB_URL" -t -A -F ' ' -c \
 # misplaced or missing a territory shows up here as live campsites outside
 # every polygon. A few hundred metres is a coastline; kilometres is a hole.
 if [ "$(count_rows "SELECT to_regclass('public.camping_spots') IS NOT NULL")" = t ]; then
+  # 🔴 ДВІ ПОМИЛКИ В ЦЬОМУ ЗАПИТІ, ОБИДВІ ЗНАЙШЛА РЕЦЕНЗІЯ PR #238.
+  #
+  # 1. «(expected 0)» був ПІДПИСОМ, а не перевіркою: скільки б не вийшло,
+  #    рядок друкувався і скрипт виходив з нулем. Сьогодні там нуль — і
+  #    саме тому відрізнити «працює» від «завжди нуль» було неможливо.
+  # 2. Відсів `ST_Expand(…, 0.02)` вужчий за те, що він відсіює. 0.02° по
+  #    довготі — це 2,2 км на екваторі, але лише 0,76 км на 70° пн. ш.
+  #    (111 320 м × cos 70° × 0.02). Тобто біля Нордкапа він викидав
+  #    полігони, які ST_DWithin визнав би близькими, і кемпінг рахувався
+  #    «далеким» через відсів, а не через географію.
+  #
+  # Тепер радіус відсіву рахується на широті самого кемпінгу, а різниця
+  # з 2 000 м лишається тільки в бік запасу: по широті градус довший, ніж
+  # по довготі, тож однакове розширення по обох осях щедріше, ніж треба.
   far=$(count_rows "
     SELECT count(*) FROM camping_spots s
      WHERE s.missing_since IS NULL
        AND NOT EXISTS (SELECT 1 FROM osm_country_area a
-                        WHERE a.geom && ST_Expand(s.location::geometry, 0.02)
+                        WHERE a.geom && ST_Expand(
+                                s.location::geometry,
+                                2000.0 / (111320.0 * cos(radians(
+                                  ST_Y(s.location::geometry)))))
                           AND ST_DWithin(a.geom::geography, s.location, 2000))")
-  echo "  live campsites more than 2 km from every polygon: $far (expected 0)"
+  echo "  live campsites more than 2 km from every polygon: $far"
+  if [ "$far" != 0 ]; then
+    echo "🔴 $far живих кемпінгів далі ніж 2 км від будь-якого полігона." >&2
+    echo "   Це або дірка в полігонах, або кемпінг у морі — і в обох" >&2
+    echo "   випадках він утратить місто, магазин і станцію мовчки." >&2
+    exit 1
+  fi
 fi
 
 echo "✓ osm_country_area ready in $(( $(date +%s) - started )) s"
