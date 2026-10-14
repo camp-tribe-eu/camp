@@ -150,31 +150,6 @@ export const deltaE = (a, b) => {
   return Math.hypot(la[0] - lb[0], la[1] - lb[1], la[2] - lb[2]);
 };
 
-/**
- * The hue of a colour in CIELAB, degrees 0–360 (CAMP-315). Measured: the
- * marker reds `#C83D28` / `#D5412A` are 39°, the brown `#A5541B` 57°, amber
- * 65–80°, pure yellow 102°, class 0's green 136°, a teal 190°, blue 265°.
- * "Warmer" is read as "nearer red", which is a SMALLER angle through this
- * range — the drought series is yellow, then orange, then brown.
- */
-export const hue = (hex) => {
-  const [, a, b] = lab(hex);
-  return ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
-};
-
-/**
- * How much colour there is, in CIELAB. 🔴 A hue is only a hue when this is not
- * near zero: a grey has an angle too, and it is noise — `#808080` can come out
- * "cool" or "warm" by a rounding error. The warm and cool checks refuse a
- * colour under `MIN_CHROMA` instead of reading an angle off it.
- */
-export const chroma = (hex) => {
-  const [, a, b] = lab(hex);
-  return Math.hypot(a, b);
-};
-/** Measured: the shipped drought colours are 35–84; the washed-out `#8FB8CC` that was refused is 17. */
-export const MIN_CHROMA = 20;
-
 /** Every fill the map can paint — including the one for a kind we have no colour for. */
 /**
  * 🔴 CAMP-112. Кільце попередження малюється з тією самою темною
@@ -392,131 +367,178 @@ export function literalLineColours(source) {
 }
 
 /**
- * 🔴 CAMP-200 / CAMP-315. THE DROUGHT PICTURE, measured as a reader sees it.
+ * 🔴 CAMP-315, REWRITTEN 14.10.2026 BY THE OWNER'S DECISION: THE DROUGHT PICTURE
+ * MIRRORS THE SOURCE, AND THIS GUARD NOW ASKS THREE DIFFERENT QUESTIONS.
  *
- * A class is drawn at its own alpha and then at the layer's
- * `raster-opacity`, so the pixel over a basemap colour is the class colour at
- * `alpha/255 × raster-opacity` — not the hex in the table, and not the alpha
- * in it either. The first version of the table was read by nobody here and
- * drew "no drought" at 22.9%: ΔE 4.0–13.2 over the eleven basemap colours,
- * under the 25 this file holds every "do these read alike" question to, which
- * made the one distinction the card exists for — covered and fine, against
- * not covered — a shade of green on a shade of green.
+ * WHAT IT ASKED BEFORE, AND WHY THAT STOPPED MAKING SENSE. Through CAMP-200 and
+ * the first CAMP-315 rounds the palette was OURS, so the guard judged whether
+ * our colours were good: class 0 the lightest, a ladder that darkens and warms
+ * (a CIELAB hue band for yellow-to-brown, no red), recovery one cool colour,
+ * and for a while one named pair allowed under the bar. Every one of those was
+ * a rule about a design WE had drawn. The owner decided to draw what the source
+ * publishes instead (EDO's own CDI v4.1.1 colours), and when the series comes
+ * from the source, "are our colours well chosen" is not the question any more —
+ * "did we show what they published" is. So, DELETED, not forgotten:
  *
- * 🔴 CAMP-315: THE SAME DEFECT WAS IN THE OTHER FIVE, and this guard let it
- * through because it held class 0 alone. Measured 14.10.2026 on the table as
- * it stood: class 1 `#F2D98A` was ΔE 6.6 from liberty's trunk roads, class 4–6
- * `#8FB8CC` was ΔE 6.0 from bright's water, class 2 was 22.3 — "less rain than
- * normal" over a motorway and "recovering" over a lake read as a bare map, i.e.
- * as "we do not measure here". All seven classes are held now.
+ *  · `WARM_HUE` / `COOL_HUE` and the hue check: EDO's yellow, orange, red and
+ *    its three recovery colours (lilac, pink, green) are not our bands.
+ *  · "the recovery classes are ONE colour": that was our merge. EDO draws 4, 5
+ *    and 6 in three different colours, and the legend now prints three rows.
+ *  · the order rules (class 0 the lightest, 0 → 1 → 2 → 3 darker): the ladder is
+ *    EDO's now. 🔴 What goes with them: nothing stops a future class 0 from
+ *    being dark. Class 0 is one of the two named exceptions below, and what is
+ *    asked of it is rules 2 and 3 — which a dark class 0 over the campsite
+ *    markers fails on its own (that is how CAMP-200 found it).
+ *  · "NOT A TRAFFIC LIGHT / no red": CAMP-162 kept red for the campsite markers
+ *    (`#C83D28`, `#D5412A`) and the first rounds barred it from the drought
+ *    series. EDO draws Alert `#DC050C`. 🔴 THIS WAS CHECKED, NOT FORGOTTEN:
+ *    markers over the Alert pixel hold 3:1 (rule 3 measures it every run; at
+ *    the shipped opacity the worst is printed for class 3 in the table below —
+ *    over liberty's water — and it is the lowest of all seven). The red markers
+ *    are told from a red layer by their dark ring, not by their fill.
+ *  · the named pair exception for 2–3: it belonged to our muted palette.
  *
- * THE CLASSES COME AS FIVE COLOURS, NOT SEVEN. 4, 5 and 6 (recovered, soil
- * recovering, vegetation recovering) are one GROUP and are drawn in ONE cool
- * colour on purpose (the legend prints them as one row). The group is held to
- * be one colour — three shades of it is a different legend — and the group is
- * compared with the other four, never with itself: ΔE 0 between two of its own
- * members is the design, not a defect. 🔴 It is a list HERE, not read from the
- * table: a group derived from the colours the table holds would let the table
- * excuse itself, and "class 2 drawn exactly like class 1" would be one group.
+ * THE THREE RULES, in the order a reader of the table meets them:
  *
- * FOUR THINGS ARE HELD:
+ *  1. CONFORMITY TO THE SOURCE. Classes 1, 2, 3, 5 and 6 EQUAL the values
+ *     recorded in `EDO_SOURCE` — the hex, and alpha 255, byte for byte. This
+ *     catches the thing that matters most: somebody nudges a colour and we stop
+ *     showing what the source published.
+ *  2. VISIBILITY ON OUR MAP. Every class, as the reader sees it (alpha ×
+ *     `DROUGHT_RASTER_OPACITY`): ΔE >= `MIN_DELTA_E` from each of the eleven
+ *     basemap colours we serve, and from every other class. "Is the layer
+ *     there at all" and "can these two classes be told apart" — the colours
+ *     the source chose were made for its own white map, not for our pale land,
+ *     white roads and pale water.
+ *  3. THE MARKERS. The campsite markers drawn on top stay >= `MIN_CONTRAST`
+ *     over the pixel of every class.
  *
- *  1. EVERY CLASS is told from the map beneath it and from every other colour:
- *     its pixel is `MIN_DELTA_E` away from every basemap colour we serve and
- *     from the pixel of every class outside its own group.
- *  2. EVERY CLASS leaves the campsite markers legible (`MIN_CONTRAST`). The
- *     markers are drawn on top of the picture, so their background is the
- *     PIXEL, not the basemap — a thing `problems()` above never measures.
- *  3. THE SCALE IS THE RIGHT WAY ROUND. The `lightest` class (0, "no drought")
- *     is lighter than every other class on every basemap colour. A scale turned
- *     upside down is a defect even when every number above passes: an earlier
- *     version of this check also demanded 3:1 of class 0 against the basemap,
- *     and the only colours that met it were dark enough to make "no drought"
- *     the heaviest thing on the map.
- *  4. THE TWO SCALES ARE TOLD APART, and each is checked by what it is.
- *     - The DROUGHT SERIES 0 → 1 → 2 → 3 is a ladder: every rung darker than the
- *       one above it on every surface, and rungs 1–3 get WARMER (their CIELAB
- *       hue falls) inside a yellow-to-brown band that stops short of red.
- *     - The RECOVERY GROUP is checked on its own and is NOT a rung. It is a COOL
- *       colour (hue in `COOL_HUE`), and its lightness is deliberately left out of
- *       the chain: a cool teal has no place between two ambers, and a rule that
- *       chained it in would force one — measured on the shipped table, over a
- *       flat #E8E8E8 its luminance (0.36) falls between class 2 (0.51) and
- *       class 3 (0.29). "Class 0 is the lightest of all seven" stays true and
- *       still covers it; nothing else orders it.
+ * TWO CLASSES ARE OURS, BY NAME, and are held to rules 2 and 3 only — never
+ * rule 1 (`EDO_SOURCE.own`, each with its reason and its date):
+ *
+ *  · class 0: EDO draws "no drought" white/transparent. Bare on OUR map means
+ *    "the indicator does not look here" (Malta, the sea), so class 0 must be
+ *    drawn or the map says about Malta what the mask exists to stop it saying.
+ *    It stays `#9CFE84`, proved in CAMP-200.
+ *  · class 4 "Recovery": EDO's `#CAB2D6` is a pale lilac and clears no
+XX Ours is the colour nearest to it, in
+ *    ΔE, that clears rules 2 and 3 at the shipped opacity.
+ *
+ * THE OPACITY IS ITS OWN QUESTION, and the guard is why it has a number. The
+ * pixel over a basemap colour is the class colour at `alpha/255 ×
+ * raster-opacity`, so the same EDO colours that read as one at one opacity read
+ * as two at another. The shipped value is the LOWEST (step 0.01) at which
+ * classes 0, 1, 2, 3, 5 and 6 clear rules 2 and 3 together — lower is better,
+ * because the basemap should stay visible under the layer. What sets it, as the
+ * guard measures it: Watch against Warning, which are ΔE 21.3 apart at 0.65 and
+ * 24.87 at 0.74.
  *
  * 🔴 WHAT IS DELIBERATELY NOT HELD: A CONTRAST OF A FILL AGAINST THE MAP.
  * `MIN_CONTRAST` answers "can a mark or a word be read on this colour" — it is
- * why the markers are held to it above. Whether a FILL can be told from the
- * absence of one is a question of colour DIFFERENCE, and that is ΔE. Applying
- * the contrast to the fill would also be applying it to classes that cannot
- * meet it: as drawn, the best of the seven (class 3 over liberty's roads)
- * reaches 2.77:1 (measured 14.10.2026), so the rule would have been written
- * for a colour it was never true of. Said here, not left out quietly.
- *
- * 🔴 WHY THE BANDS ARE WHERE THEY ARE. `WARM_HUE` starts at 45° because the
- * campsite markers are red (`#C83D28`, `#D5412A`: 39°) and CAMP-162 keeps red
- * for them — a drought class in that hue is a traffic light drawn under a
- * marker of the same colour. It ends at 105° because yellow is 102° and past
- * it the colour is green, the colour of class 0. `COOL_HUE` is the cyan-to-
- * blue half of the wheel; the water the basemaps paint sits in it too, and
- * that is what the ΔE against the basemap is for.
+ * why the markers are held to it. Whether a FILL can be told from the absence
+ * of one is a question of colour DIFFERENCE, and that is ΔE.
  */
-export const DROUGHT_HELD = [0, 1, 2, 3, 4, 5, 6];
-/** The class the scale starts from: "no drought", and the lightest. */
-export const DROUGHT_LIGHTEST = 0;
-/** The drought series, lightest to darkest. Class 0 is its first rung and green, so the warm band skips it. */
-export const DROUGHT_LADDER = [0, 1, 2, 3];
-/** The recovery group: three classes, one cool colour, not a rung of the ladder. */
-export const DROUGHT_RECOVERY = [4, 5, 6];
-/** CIELAB hue, degrees. Orange-brown to yellow; not red (39°), not green (136°). */
-export const WARM_HUE = [45, 105];
-/** CIELAB hue, degrees. Cyan to blue. */
-export const COOL_HUE = [170, 290];
 
 /**
- * 🔴 CAMP-315 — A NAMED EXCEPTION, NOT A LOWER BAR.
+ * WHAT THE SOURCE PUBLISHES, recorded next to where it is measured.
  *
- * DECISION OF THE OWNER, 14.10.2026. The palette that clears every line (class
- * 1 `#F2E02E`, class 2 `#FF8E00`, recovery `#00938A`, measured: every pair
- * >= ΔE 30.8, every class >= ΔE 29.3 from every basemap colour) is saturated —
- * chroma 81–84 against the markers' 73 — and he chose a MUTED one instead,
- * knowingly accepting that exactly ONE pair of classes sits under
- * `MIN_DELTA_E`. The saturated palette stays valid and is not the one shipped.
- *
- * WHAT THE EXCEPTION IS AND IS NOT:
- *  · It is a PAIR, written down here: which two classes, the ΔE they were
- *    measured at (worst case over the eleven basemap colours) and when. The
- *    guard holds that pair to its recorded `floor`, not to "anything": if a
- *    colour moves tomorrow and the pair closes up, this goes red.
- *  · It is NOT `MIN_DELTA_E` lowered. That number is shared with the markers and
- *    the route lines, and loosening it to fit a fill would be tuning the guard
- *    to the answer. Every OTHER pair still needs 25, and every class still
- *    needs 25 from every basemap colour — "is the layer there at all" has no
- *    exception.
- *  · It is ONE (`MAX_PAIR_EXCEPTIONS`). A second is the owner's decision, not an
- *    edit to a list.
- *  · The floor is the MEASUREMENT, not a comfortable number: while the pair is
- *    under 25 the floor may sit at most `FLOOR_SLACK` below what is measured, so
- *    "20.1" cannot be loosened to "10" in the same edit that shifts a colour.
- *    An exception the pair no longer needs (it clears 25) is printed as a note
- *    and not failed — that is what lets the saturated palette pass — but it is
- *    the first thing to delete.
- *
- * WHY THIS PAIR: classes 2 ("dry ground") and 3 ("vegetation under stress") are
- * both drought, one rung apart on the same warm ladder; read one for the other
- * and the reader has the severity off by one step and nothing else wrong. The
- * alternatives, measured on the same search (chroma <= 65, yellow and orange
- * bands, every other line held): an exception on 1–2 ("less rain" against "dry
- * ground", also both drought) can only reach ΔE 12.4; no other single pair is
- * feasible at all, and the pairs that mix drought with "no drought" (0–1) or
- * with recovery (4–6 against anything) are the dangerous confusions, so they
- * stay at 25.
+ * Measured 14.10.2026 from three independent places that agree: the CDI v4.1.1
+ * fact sheet, the style config `combinedDroughtIndicatorAllClassesStyle`, and
+ * the colours a `GetMap` request returns. The fact sheet (Table 1, v4.1.1, July
+ * 2026) shows the seven levels as colour swatches and prints no hex codes, so
+ * the values come from the config and the render; the swatches in the PDF
+ * match them by eye (yellow, orange, red; lilac, pink, green).
  */
-export const MAX_PAIR_EXCEPTIONS = 1;
-export const DROUGHT_PAIR_EXCEPTIONS = [{ classes: [2, 3], floor: 20.1, measured: '2026-10-14' }];
-/** While a pair is under 25, its recorded floor may sit at most this far below what is measured. */
-export const FLOOR_SLACK = 1.0;
+export const EDO_SOURCE = {
+  indicator: 'Combined Drought Indicator (CDI) v4.1.1',
+  factsheet: 'https://drought.emergency.copernicus.eu/data/factsheets/factsheet_combinedDroughtIndicator_v4.pdf',
+  styleConfig: 'combinedDroughtIndicatorAllClassesStyle',
+  measured: '2026-10-14',
+  /** class -> the hex the source draws it in (its alpha is 255: the layer's opacity is OURS). */
+  colours: {
+    1: '#F0E442', // Watch
+    2: '#E69F00', // Warning
+    3: '#DC050C', // Alert
+    5: '#CC79A7', // Temporary Soil Moisture recovery
+    6: '#009E73', // Temporary vegetation recovery
+  },
+  /** The classes that are OURS: not required to equal anything, required to clear rules 2 and 3. */
+  own: {
+    0: {
+      edo: '#FFFFFF (transparent)',
+      reason:
+        'EDO draws "no drought" white/transparent; on our map bare means "the indicator does not look here", ' +
+        'so "covered and fine" must be drawn (CAMP-200)',
+      decided: '2026-10-14',
+    },
+    4: {
+      edo: '#CAB2D6',
+      reason:
+        'EDO\'s pale lilac clears no opacity on our pale basemaps (best worst-case ΔE 21.9 at opacity 0.99); ' +
+        'ours is the colour nearest to it that clears rules 2 and 3',
+      decided: '2026-10-14',
+    },
+  },
+};
+/** Every class is held to rules 2 and 3, the two named exceptions included. */
+export const DROUGHT_HELD = [0, 1, 2, 3, 4, 5, 6];
+
+/** `#RRGGBB` of the opaque colour: what rule 1 compares, upper-cased. */
+const sameHex = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toUpperCase() === b.toUpperCase();
+
+/**
+ * The record itself must be one a reader can follow up: a source, a date, a
+ * six-digit colour per class, and for each named exception its reason and date.
+ * 🔴 A record that cannot be checked is a failure, never a skip — the same rule
+ * as every unmeasurable value in this file.
+ */
+export function sourceRecordProblems(source = EDO_SOURCE) {
+  const out = [];
+  if (!/^https:\/\/\S+$/.test(source.factsheet ?? ''))
+    out.push(`the source record has no fact-sheet URL (${source.factsheet})`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(source.measured ?? ''))
+    out.push(`the source record has no date it was measured on (${source.measured})`);
+  for (const [v, hex] of Object.entries(source.colours ?? {}))
+    if (!HEX.test(hex)) out.push(`source class ${v}: ${hex} is not a six-digit hex`);
+  for (const [v, own] of Object.entries(source.own ?? {})) {
+    if (source.colours?.[v] !== undefined)
+      out.push(`class ${v} is both a source colour and a named exception`);
+    if (typeof own.reason !== 'string' || own.reason.trim().length < 20)
+      out.push(`the named exception for class ${v} has no reason`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(own.decided ?? ''))
+      out.push(`the named exception for class ${v} has no date`);
+  }
+  return out;
+}
+
+/**
+ * RULE 1. The classes the source publishes equal the source, byte for byte; the
+ * classes that are ours are named; nothing else exists.
+ */
+export function sourceProblems(colours, source = EDO_SOURCE) {
+  const out = sourceRecordProblems(source);
+  if (out.length) return out;
+  for (const [v, hex] of Object.entries(source.colours)) {
+    const mine = colours[v];
+    if (!mine) {
+      out.push(`class ${v}: the source publishes ${hex} and the table has no colour for it`);
+      continue;
+    }
+    if (!sameHex(mine.hex, hex))
+      out.push(
+        `class ${v} is drawn ${mine.hex} but the source publishes ${hex} (${source.indicator}, measured ${source.measured}, ` +
+          `${source.factsheet}): a class that is not a named exception must equal it`
+      );
+    if (mine.alpha !== 255)
+      out.push(`class ${v} is drawn at alpha ${mine.alpha}: the source's colour is opaque, and the layer's opacity is the one place ours is applied`);
+  }
+  for (const v of Object.keys(source.own))
+    if (!colours[v]) out.push(`class ${v} is a named exception and has no colour`);
+  for (const v of Object.keys(colours))
+    if (source.colours[v] === undefined && source.own[v] === undefined)
+      out.push(`class ${v} is neither in the source record nor a named exception: say which`);
+  return out;
+}
 
 /** What one class looks like over one basemap colour, and how well it separates. */
 export function droughtPixel(hex, alpha, bg, rasterOpacity) {
@@ -525,54 +547,11 @@ export function droughtPixel(hex, alpha, bg, rasterOpacity) {
   return { eff, pixel, contrast: contrast(pixel, bg), deltaE: deltaE(pixel, bg) };
 }
 
-/** The named exception that covers this pair of classes, if any; the order of the two does not matter. */
-export const pairException = (exceptions, a, b) =>
-  exceptions.find((e) => Array.isArray(e.classes) && a !== b && e.classes.includes(a) && e.classes.includes(b));
-
-/** The worst ΔE between two classes' pixels, over every surface. */
-export function pairWorst(
-  colours,
-  a,
-  b,
-  rasterOpacity = DROUGHT_RASTER_OPACITY,
-  backgrounds = BASEMAP
-) {
-  let worst = { deltaE: Infinity, where: null };
-  for (const [where, bg] of Object.entries(backgrounds)) {
-    const pa = droughtPixel(colours[a].hex, colours[a].alpha, bg, rasterOpacity).pixel;
-    const pb = droughtPixel(colours[b].hex, colours[b].alpha, bg, rasterOpacity).pixel;
-    const d = deltaE(pa, pb);
-    if (d < worst.deltaE) worst = { deltaE: d, where };
-  }
-  return worst;
-}
-
 /**
- * Exceptions the palette no longer needs, as words. NOT failures: a palette
- * that clears every line is valid with the exception still written down — the
- * saturated one is — but a stale exception is a loophole with a floor in it,
- * so it is said out loud, every run, until somebody deletes it.
+ * The three rules, on `colours` at `rasterOpacity`. `source` is rule 1's record;
+ * `null` leaves rule 1 out, which is how the self-test below asks about rules 2
+ * and 3 with small hand-made tables.
  */
-export function droughtNotes(
-  colours = DROUGHT_COLOURS,
-  rasterOpacity = DROUGHT_RASTER_OPACITY,
-  backgrounds = BASEMAP,
-  exceptions = DROUGHT_PAIR_EXCEPTIONS,
-) {
-  const out = [];
-  for (const e of exceptions) {
-    const [a, b] = e.classes ?? [];
-    if (!colours[a] || !colours[b]) continue;
-    const m = pairWorst(colours, a, b, rasterOpacity, backgrounds);
-    if (m.deltaE >= MIN_DELTA_E)
-      out.push(
-        `the named exception for classes ${a} and ${b} is not needed: the pair is ΔE ${m.deltaE.toFixed(1)} apart ` +
-          `at worst (${m.where}), over ${MIN_DELTA_E} — delete it from DROUGHT_PAIR_EXCEPTIONS`
-      );
-  }
-  return out;
-}
-
 export function droughtProblems(
   colours = DROUGHT_COLOURS,
   rasterOpacity = DROUGHT_RASTER_OPACITY,
@@ -580,37 +559,10 @@ export function droughtProblems(
   held = DROUGHT_HELD,
   fills = everyFill(),
   stroke = MARKER_STROKE,
-  lightest = DROUGHT_LIGHTEST,
-  ladder = DROUGHT_LADDER,
-  recovery = DROUGHT_RECOVERY,
-  exceptions = DROUGHT_PAIR_EXCEPTIONS,
+  source = EDO_SOURCE,
 ) {
   const out = [];
   const classes = Object.entries(colours).map(([v, c]) => [Number(v), c]);
-  // Two members of the recovery group are one colour BY DESIGN: they are not
-  // compared with each other, only with the rest (see the comment above).
-  const sameGroup = (a, b) => recovery.includes(a) && recovery.includes(b);
-  const exceptionFor = (a, b) => pairException(exceptions, a, b);
-
-  // 🔴 The exception list is itself checked: one entry, two different classes,
-  // and a floor that is a real number under the bar. A floor at or above 25 is
-  // not an exception, and one that is not a number would compare false with
-  // everything and excuse the pair.
-  if (exceptions.length > MAX_PAIR_EXCEPTIONS)
-    out.push(
-      `${exceptions.length} named pair exceptions: the owner agreed to ${MAX_PAIR_EXCEPTIONS}, ` +
-        'and a further one is his decision, not an edit to a list'
-    );
-  for (const e of exceptions) {
-    const [a, b] = e.classes ?? [];
-    if (!Number.isInteger(a) || !Number.isInteger(b) || a === b)
-      out.push(`a pair exception must name two different classes, not ${JSON.stringify(e.classes)}`);
-    if (!(Number.isFinite(e.floor) && e.floor > 0 && e.floor < MIN_DELTA_E))
-      out.push(
-        `the pair exception for classes ${a} and ${b} records floor ${e.floor}: it must be a number above 0 ` +
-          `and under ${MIN_DELTA_E} — at ${MIN_DELTA_E} or more it is not an exception`
-      );
-  }
 
   // 🔴 A value we cannot measure is a failure, never a skip.
   if (!(rasterOpacity > 0 && rasterOpacity <= 1))
@@ -624,6 +576,10 @@ export function droughtProblems(
     if (!colours[v]) out.push(`drought class ${v} is held to the thresholds and has no colour`);
   if (out.length) return out;
 
+  // RULE 1.
+  if (source) out.push(...sourceProblems(colours, source));
+
+  // RULE 2. Against every basemap colour, and against every other class once.
   const bgs = Object.entries(backgrounds);
   for (const v of held) {
     const { hex, alpha } = colours[v];
@@ -636,17 +592,10 @@ export function droughtProblems(
             `ΔE ${r.deltaE.toFixed(1)}, needs ${MIN_DELTA_E}`
         );
       for (const [w, other] of classes) {
-        if (w === v || (held.includes(w) && w < v) || sameGroup(v, w)) continue;
+        if (w === v || (held.includes(w) && w < v)) continue;
         const o = droughtPixel(other.hex, other.alpha, bg, rasterOpacity);
         const d = deltaE(r.pixel, o.pixel);
-        const ex = exceptionFor(v, w);
-        if (ex) {
-          if (d < ex.floor)
-            out.push(
-              `drought classes ${v} and ${w} are ΔE ${d.toFixed(1)} apart on ${where} ${bg}, under the floor ` +
-                `${ex.floor} recorded for their named exception (owner, ${ex.measured}); every other pair needs ${MIN_DELTA_E}`
-            );
-        } else if (d < MIN_DELTA_E)
+        if (d < MIN_DELTA_E)
           out.push(
             `drought classes ${v} and ${w} read alike on ${where} ${bg}: ΔE ${d.toFixed(1)}, needs ${MIN_DELTA_E}`
           );
@@ -654,107 +603,9 @@ export function droughtProblems(
     }
   }
 
-  // 🔴 The floor is the MEASUREMENT. While the pair is under the bar it may sit
-  // at most FLOOR_SLACK below what is measured: a floor written looser than
-  // that is slack, and slack is what a second edit would spend.
-  for (const e of exceptions) {
-    const [a, b] = e.classes;
-    if (!colours[a] || !colours[b]) continue;
-    const m = pairWorst(colours, a, b, rasterOpacity, backgrounds);
-    if (m.deltaE < MIN_DELTA_E && m.deltaE - e.floor > FLOOR_SLACK)
-      out.push(
-        `the named exception for classes ${a} and ${b} records floor ${e.floor}, but the pair is ΔE ` +
-          `${m.deltaE.toFixed(1)} apart at worst (${m.where}): raise the floor to what is measured ` +
-          `(more than ${FLOOR_SLACK} of slack is not allowed)`
-      );
-  }
-
-  // The scale, the right way round: the lightest class is lighter than the
-  // rest, by the pixel the reader sees, on every surface.
-  if (colours[lightest]) {
-    for (const [where, bg] of bgs) {
-      const mine = droughtPixel(colours[lightest].hex, colours[lightest].alpha, bg, rasterOpacity);
-      for (const [w, other] of classes) {
-        if (w === lightest) continue;
-        const o = droughtPixel(other.hex, other.alpha, bg, rasterOpacity);
-        if (luminance(mine.pixel) <= luminance(o.pixel))
-          out.push(
-            `drought class ${lightest} is not lighter than class ${w} on ${where} ${bg}: ` +
-              `luminance ${luminance(mine.pixel).toFixed(3)} against ${luminance(o.pixel).toFixed(3)} — ` +
-              'the scale runs the wrong way round'
-          );
-      }
-    }
-  }
-
-  // The drought series is a ladder: each rung darker than the one above it, by
-  // the pixel the reader sees, on every surface. The first rung is `lightest`,
-  // whose comparison with everything is the block above — said once, not twice.
-  const rungs = ladder.filter((v) => colours[v]);
-  for (let i = 1; i < rungs.length; i++) {
-    const [a, b] = [rungs[i - 1], rungs[i]];
-    if (a === lightest) continue;
-    for (const [where, bg] of bgs) {
-      const la = luminance(droughtPixel(colours[a].hex, colours[a].alpha, bg, rasterOpacity).pixel);
-      const lb = luminance(droughtPixel(colours[b].hex, colours[b].alpha, bg, rasterOpacity).pixel);
-      if (lb >= la)
-        out.push(
-          `drought class ${b} is not darker than class ${a} on ${where} ${bg}: ` +
-            `luminance ${lb.toFixed(3)} against ${la.toFixed(3)} — the drought series runs the wrong way round`
-        );
-    }
-  }
-
-  // Rungs 1–3 are WARM, and get warmer: inside the yellow-to-brown band, hue
-  // falling towards red. Class 0 (green) starts the ladder and is not in it.
-  const warm = rungs.filter((v) => v !== lightest);
-  for (const v of warm) {
-    const { hex } = colours[v];
-    const [h, c] = [hue(hex), chroma(hex)];
-    if (c < MIN_CHROMA)
-      out.push(`drought class ${v} ${hex} has chroma ${c.toFixed(0)}, under ${MIN_CHROMA}: too grey to have a hue to read`);
-    else if (h < WARM_HUE[0] || h > WARM_HUE[1])
-      out.push(
-        `drought class ${v} ${hex} has hue ${h.toFixed(0)}°, outside ${WARM_HUE[0]}–${WARM_HUE[1]}°: ` +
-          'the drought series is orange-brown to yellow — not red (the campsite markers), not green, not cool'
-      );
-  }
-  for (let i = 1; i < warm.length; i++) {
-    const [a, b] = [warm[i - 1], warm[i]];
-    const [ha, hb] = [hue(colours[a].hex), hue(colours[b].hex)];
-    if (hb >= ha)
-      out.push(
-        `drought class ${b} ${colours[b].hex} (hue ${hb.toFixed(0)}°) is not warmer than class ${a} ` +
-          `${colours[a].hex} (${ha.toFixed(0)}°): the series runs from yellow towards red, so the hue must fall`
-      );
-  }
-
-  // The recovery group: one colour, and a cool one. Its lightness is NOT part of
-  // the ladder — see "THE TWO SCALES ARE TOLD APART" above.
-  const rec = recovery.filter((v) => colours[v]);
-  for (const v of rec.slice(1)) {
-    const [a, b] = [colours[rec[0]], colours[v]];
-    if (a.hex.toUpperCase() !== b.hex.toUpperCase() || a.alpha !== b.alpha)
-      out.push(
-        `recovery classes ${rec[0]} and ${v} are drawn ${a.hex}/${a.alpha} and ${b.hex}/${b.alpha}: ` +
-          'they are one group and one colour'
-      );
-  }
-  for (const v of rec) {
-    const { hex } = colours[v];
-    const [h, c] = [hue(hex), chroma(hex)];
-    if (c < MIN_CHROMA)
-      out.push(`recovery class ${v} ${hex} has chroma ${c.toFixed(0)}, under ${MIN_CHROMA}: too grey to be called cool`);
-    else if (h < COOL_HUE[0] || h > COOL_HUE[1])
-      out.push(
-        `recovery class ${v} ${hex} has hue ${h.toFixed(0)}°, outside ${COOL_HUE[0]}–${COOL_HUE[1]}°: ` +
-          'recovery is drawn in a cool colour, apart from the warm series'
-      );
-  }
-
-  // The markers, on the pixel. Grouped by class and surface, naming the
-  // worst marker: five fills sharing one ring would otherwise print five
-  // lines for one fact.
+  // RULE 3. The markers, on the pixel. Grouped by class and surface, naming the
+  // worst marker: five fills sharing one ring would otherwise print five lines
+  // for one fact.
   for (const [v, { hex, alpha }] of classes) {
     for (const [where, bg] of bgs) {
       const { pixel } = droughtPixel(hex, alpha, bg, rasterOpacity);
@@ -775,10 +626,8 @@ export function droughtProblems(
 
 /**
  * The worst figure each class reaches, over every basemap colour — what the
- * printed table at the bottom of this file shows, kept as a function so that
- * a number in a report and a number the check compares are one computation.
- * `other` leaves out the class's own recovery group: two of its members are
- * one colour by design.
+ * printed table at the bottom of this file shows, kept as a function so that a
+ * number in a report and a number the check compares are one computation.
  */
 export function droughtWorst(
   colours = DROUGHT_COLOURS,
@@ -786,29 +635,23 @@ export function droughtWorst(
   backgrounds = BASEMAP,
   fills = everyFill(),
   stroke = MARKER_STROKE,
-  recovery = DROUGHT_RECOVERY,
-  exceptions = DROUGHT_PAIR_EXCEPTIONS,
+  source = EDO_SOURCE,
 ) {
   const out = {};
   for (const [v, { hex, alpha }] of Object.entries(colours)) {
     const worst = {
+      matches: source?.colours?.[v] === undefined ? null : sameHex(hex, source.colours[v]) && alpha === 255,
       basemap: { deltaE: Infinity, where: null },
       other: { deltaE: Infinity, where: null },
-      // The class's named-exception partner, kept APART from `other`: `other`
-      // is what the bar of 25 sees, and one pair under it must not hide the rest.
-      excepted: null,
       markers: { seen: Infinity, where: null },
     };
     for (const [where, bg] of Object.entries(backgrounds)) {
       const r = droughtPixel(hex, alpha, bg, rasterOpacity);
       if (r.deltaE < worst.basemap.deltaE) worst.basemap = { deltaE: r.deltaE, where };
       for (const [u, other] of Object.entries(colours)) {
-        if (u === v || (recovery.includes(Number(u)) && recovery.includes(Number(v)))) continue;
+        if (u === v) continue;
         const d = deltaE(r.pixel, droughtPixel(other.hex, other.alpha, bg, rasterOpacity).pixel);
-        if (pairException(exceptions, Number(u), Number(v))) {
-          if (!worst.excepted || d < worst.excepted.deltaE)
-            worst.excepted = { deltaE: d, where: `class ${u} on ${where}` };
-        } else if (d < worst.other.deltaE) worst.other = { deltaE: d, where: `class ${u} on ${where}` };
+        if (d < worst.other.deltaE) worst.other = { deltaE: d, where: `class ${u} on ${where}` };
       }
       for (const [, fill] of fills) {
         const seen = visibility(fill, stroke, r.pixel);
@@ -852,13 +695,11 @@ export function rasterOpacityProblems(source) {
 function selfTest() {
   const fails = [];
   let cases = 0;
-  // 🔴 CAMP-315: `dp` is `droughtProblems` with NO named exception unless a case
-  // passes one. The shipped list is not the rehearsal's business: without this the
-  // self-test moved when somebody edited DROUGHT_PAIR_EXCEPTIONS (measured: a second
-  // entry broke 25 cases for the wrong reason), and a case that is about the
-  // order of a ladder was quietly excusing classes 2 and 3.
-  const dp = (colours, rasterOpacity, backgrounds, held, fills, stroke, lightest, ladder, recovery, exceptions = []) =>
-    droughtProblems(colours, rasterOpacity, backgrounds, held, fills, stroke, lightest, ladder, recovery, exceptions);
+  // 🔴 CAMP-315: `dp` is `droughtProblems` for rules 2 and 3 alone: no source
+  // record, because the hand-made tables below are not EDO's. The cases that ask
+  // about rule 1 call `droughtProblems` with the record, through `three`.
+  const dp = (colours, rasterOpacity, backgrounds, held, fills, stroke, source = null) =>
+    droughtProblems(colours, rasterOpacity, backgrounds, held, fills, stroke, source);
   const dark = '#181D26';
   cases++;
   if (problems([['x', '#FFC83C']], '#FFFFFF').length === 0)
@@ -914,16 +755,16 @@ function selfTest() {
   cases++;
   if (problems([['x', '#7C92B7']], '#FFFFFF', { water: '#A0C8F0' }).length === 0)
     fails.push('a fill invisible over water was accepted');
-  // 🔴 CAMP-200. THE DROUGHT PICTURE. Each case is one the real run on the
-  // shipped table has to be able to fail — and the shipped table is not used
-  // here at all, so the rehearsal does not move when the colours do.
+  // 🔴 CAMP-200. THE DROUGHT PICTURE, RULES 2 AND 3. Each case is one the real
+  // run on the shipped table has to be able to fail — and the shipped table is
+  // not used here at all, so the rehearsal does not move when the colours do.
   //
   // The tables are small and hand-made. `oldZero` is the first version of
   // class 0 (measured: ΔE 4.0 over the map). `goodZero` is a light class 0
   // that clears everything. `darkZero` is the colour an earlier version of
   // this check demanded — dark enough for 3:1 against the map — which clears
-  // ΔE, costs the markers, and turns the scale upside down. `midZero` keeps
-  // the markers and fails ΔE.
+  // ΔE and costs the markers. `midZero` keeps the markers and fails ΔE.
+  // `dp` leaves rule 1 (the source) out: these tables are not EDO's.
   const oldZero = { 0: { hex: '#9CC5A1', alpha: 90 } };
   const goodZero = { 0: { hex: '#9CFE84', alpha: 255 } };
   const darkZero = { 0: { hex: '#1C4418', alpha: 255 } };
@@ -955,7 +796,7 @@ function selfTest() {
     fails.push('a class 0 at ΔE 20 from its map was accepted');
   // 🔴 NOT HELD TO A CONTRAST. The light class 0 is 1.3:1 against some
   // surface and must not be refused for it: whether a fill is told from
-  // the map is ΔE's question, and the other six classes are under 3:1 too.
+  // the map is ΔE's question.
   cases++;
   if (dp(goodZero, 0.65, BASEMAP, [0], [], ring).length !== 0)
     fails.push('a light class 0 that clears ΔE and the markers was refused for its contrast');
@@ -966,27 +807,8 @@ function selfTest() {
   cases++;
   if (!has(dp({ ...goodZero, 1: { hex: '#9DFE85', alpha: 255 } }, 0.65, BASEMAP, [0], [], ring), /classes 0 and 1 read alike/))
     fails.push('class 0 and a class one shade away were accepted as two things');
-  // 🔴 THE SCALE, THE RIGHT WAY ROUND. Every number can pass and the scale
-  // still be upside down: that is the defect the contrast rule produced.
-  // `[]` and `[]` — nothing held, no markers — so only the ordering can speak.
-  cases++;
-  if (!has(dp({ ...darkZero, 1: paleOne }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 1 /))
-    fails.push('"no drought" darker than "less rain than normal" was accepted');
-  cases++;
-  if (!has(dp({ 0: paleOne, 1: paleOne }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 1 /))
-    fails.push('"no drought" exactly as light as class 1 was accepted as lighter');
-  cases++;
-  if (dp({ ...goodZero, 1: paleOne, 2: { hex: '#D9A441', alpha: 255 }, 3: { hex: '#A5541B', alpha: 255 } }, 0.65, BASEMAP, [], [], ring, 0, undefined, undefined, []).length !== 0)
-    fails.push('the scale the right way round (0 lightest, then 1, 2, 3 darker) was refused');
-  // Against EVERY other class, not the first one.
-  cases++;
-  if (!has(dp({ ...goodZero, 1: paleOne, 4: { hex: '#FFFFFF', alpha: 255 } }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 4 /))
-    fails.push('class 0 lighter than class 1 but darker than class 4 was accepted');
   // Values that cannot be measured.
   cases++;
-  // 🔴 `[]` held, not the default: with all seven held (CAMP-315) this
-  // one-class table is refused for "class 1 has no colour" whatever the
-  // notation, and a hex check that had been deleted would still be "caught".
   if (dp({ 0: { hex: '#FC3', alpha: 255 } }, 0.65, BASEMAP, []).length === 0)
     fails.push('a drought colour in three-digit notation was accepted');
   // 🔴 `[]` for the fills and `[0]` for the held class on the next two, and
@@ -1027,30 +849,105 @@ function selfTest() {
   cases++;
   if (rasterOpacityProblems('paint: { "raster-resampling": "nearest" }').length === 0)
     fails.push('a drought layer with no raster-opacity at all was accepted');
-  // 🔴 CAMP-315. ALL SEVEN HELD. Again hand-made tables that do not move when
-  // the shipped colours do. `GOOD` is a right one, in the five-colour shape
-  // (4–6 one colour); the others are each ONE thing wrong with it.
-  const yellow = { hex: '#F2E02E', alpha: 255 };
-  const orange = { hex: '#FF8E00', alpha: 255 };
-  const brown = { hex: '#A5541B', alpha: 255 };
-  const teal = { hex: '#00938A', alpha: 255 };
-  const oldRecovery = { hex: '#8FB8CC', alpha: 255 }; // ΔE 6.0 from bright's water
-  const GOOD = { ...goodZero, 1: yellow, 2: orange, 3: brown, 4: teal, 5: teal, 6: teal };
+
+  // 🔴 CAMP-315 (owner, 14.10.2026): THE PICTURE MIRRORS THE SOURCE. `GOOD` is the
+  // whole table written out by hand — EDO's five colours, class 0 and the colour
+  // of class 4 that are ours — at the opacity measured, so the rehearsal does not
+  // move when the shipped table does. Every case below is ONE thing wrong with
+  // it, or the one thing it is allowed.
+  const OPACITY = 0.76;
+  const edo = EDO_SOURCE.colours;
+  const GOOD = {
+    0: { hex: '#9CFE84', alpha: 255 },
+    1: { hex: edo[1], alpha: 255 },
+    2: { hex: edo[2], alpha: 255 },
+    3: { hex: edo[3], alpha: 255 },
+    4: { hex: '#757591', alpha: 255 },
+    5: { hex: edo[5], alpha: 255 },
+    6: { hex: edo[6], alpha: 255 },
+  };
   const ALL = [0, 1, 2, 3, 4, 5, 6];
-  // 🔴 The exception list is passed EXPLICITLY in every case below: the shipped
-  // one would lower the bar for classes 2 and 3 under cases that are about
-  // something else, and the saturated `GOOD` is valid WITHOUT it.
-  const strict = (table, held, fills = undefined) =>
-    droughtProblems(table, 0.65, BASEMAP, held, fills, ring, undefined, undefined, undefined, []);
-  const withExceptions = (table, exceptions, held = ALL) =>
-    droughtProblems(table, 0.65, BASEMAP, held, undefined, ring, undefined, undefined, undefined, exceptions);
-  // 🔴 THE POSITIVE CONTROL. With all seven held, a check that refused every
-  // table would "catch" every case below. This is the one that proves it can
-  // say yes — and, because 4, 5 and 6 are the same colour in it, that two
-  // members of the recovery group are not compared with each other.
+  const three = (table, opacity = OPACITY, held = ALL, fills = undefined, stroke = ring) =>
+    droughtProblems(table, opacity, BASEMAP, held, fills, stroke, EDO_SOURCE);
+  // The positive control. With the source's five colours required byte for byte,
+  // a check that refused every table would "catch" every case below.
   cases++;
-  if (strict(GOOD, ALL).length !== 0)
-    fails.push('a right seven-class table (0 light green, 1 yellow, 2 orange, 3 brown, 4–6 one teal) was refused with no exception');
+  if (three(GOOD).length !== 0)
+    fails.push('the right table (EDO\'s five colours, ours for 0 and 4, opacity 0.76) was refused by one of the three rules');
+  // RULE 1: each of the five equals the source — one step off in one channel is a different colour.
+  const nudge = (hex) => {
+    const n = parseInt(hex.slice(1, 3), 16);
+    return '#' + (n < 255 ? n + 1 : n - 1).toString(16).padStart(2, '0').toUpperCase() + hex.slice(3);
+  };
+  for (const v of [1, 2, 3, 5, 6])
+    if (
+      cases++,
+      !has(three({ ...GOOD, [v]: { hex: nudge(edo[v]), alpha: 255 } }, OPACITY, []), new RegExp(`class ${v} is drawn #\\w+ but the source publishes ${edo[v]}`))
+    )
+      fails.push(`class ${v} drawn one step off the source's ${edo[v]} was accepted`);
+  cases++;
+  if (!has(three({ ...GOOD, 2: { hex: '#D95F02', alpha: 255 } }, OPACITY, []), /class 2 is drawn #D95F02 but the source publishes #E69F00/))
+    fails.push('class 2 swapped for another colour altogether was accepted');
+  cases++;
+  if (!has(three({ ...GOOD, 3: { hex: edo[3], alpha: 254 } }, OPACITY, []), /class 3 is drawn at alpha 254/))
+    fails.push('an EDO class drawn at alpha 254 was accepted as the source\'s colour');
+  cases++;
+  const { 6: _sixth, ...withoutSix } = GOOD;
+  if (!has(three(withoutSix, OPACITY, []), /class 6: the source publishes #009E73 and the table has no colour/))
+    fails.push('a class the source publishes, missing from the table, was accepted');
+  cases++;
+  if (!has(three({ ...GOOD, 7: { hex: '#123456', alpha: 255 } }, OPACITY, []), /class 7 is neither in the source record nor a named exception/))
+    fails.push('a class that is neither the source\'s nor a named exception was accepted');
+  // THE TWO NAMED EXCEPTIONS are held to rules 2 and 3 and NOT to rule 1: class 0
+  // is `#9CFE84` and EDO draws it white, class 4 is not `#CAB2D6`, and `GOOD`
+  // (above) passes. Here: they are still held to rule 2 — EDO's own white for
+  // class 0 vanishes into our white roads, EDO's own lilac for class 4 into our
+  // pale land — and neither is reported for differing from the source.
+  cases++;
+  {
+    const p = three({ ...GOOD, 4: { hex: '#CAB2D6', alpha: 255 } });
+    if (!has(p, /drought class 4 #CAB2D6 .*reads like .*ΔE/) || has(p, /class 4 is drawn/))
+      fails.push('class 4 at EDO\'s #CAB2D6 was accepted, or was refused for differing from the source instead of for ΔE');
+  }
+  cases++;
+  {
+    const p = three({ ...GOOD, 0: { hex: '#FFFFFF', alpha: 255 } });
+    if (!has(p, /drought class 0 #FFFFFF .*reads like liberty\.road/) || has(p, /class 0 is drawn/))
+      fails.push('class 0 at EDO\'s white was accepted, or was refused for differing from the source instead of for ΔE');
+  }
+  // The named exceptions are exactly the two the owner named, so a third cannot be
+  // slipped in to excuse a class from rule 1 without this literal changing too.
+  cases++;
+  if (JSON.stringify(Object.keys(EDO_SOURCE.own)) !== JSON.stringify(['0', '4']))
+    fails.push(`the named exceptions are ${Object.keys(EDO_SOURCE.own)}, not 0 and 4`);
+  // RULE 2, the opacity: the EDO palette at the layer's old 0.65 has Watch and
+  // Warning at ΔE 21.3 from each other — the reason the opacity is what it is.
+  cases++;
+  if (!has(three(GOOD, 0.65), /classes 1 and 2 read alike on .*ΔE 2[01]\./))
+    fails.push('the EDO palette at opacity 0.65, Watch and Warning ΔE 21 apart, was accepted');
+  // RULE 3: the markers over EDO's Alert red. A ring too light to carry them is lost over it.
+  cases++;
+  if (!has(three(GOOD, OPACITY, ALL, undefined, '#808080'), /markers over drought class 3 /))
+    fails.push('markers over the Alert red with a ring that does not carry them were accepted');
+  // The record itself must be one a reader can follow up.
+  cases++;
+  if (sourceRecordProblems(EDO_SOURCE).length !== 0)
+    fails.push('the source record was refused: ' + sourceRecordProblems(EDO_SOURCE)[0]);
+  cases++;
+  if (!has(sourceRecordProblems({ ...EDO_SOURCE, factsheet: '' }), /no fact-sheet URL/))
+    fails.push('a source record with no fact-sheet URL was accepted');
+  cases++;
+  if (!has(sourceRecordProblems({ ...EDO_SOURCE, measured: 'yesterday' }), /no date it was measured on/))
+    fails.push('a source record with no measurement date was accepted');
+  cases++;
+  if (!has(sourceRecordProblems({ ...EDO_SOURCE, own: { ...EDO_SOURCE.own, 0: { ...EDO_SOURCE.own[0], reason: '' } } }), /named exception for class 0 has no reason/))
+    fails.push('a named exception with no reason was accepted');
+  cases++;
+  if (!has(sourceRecordProblems({ ...EDO_SOURCE, own: { ...EDO_SOURCE.own, 4: { ...EDO_SOURCE.own[4], decided: undefined } } }), /named exception for class 4 has no date/))
+    fails.push('a named exception with no date was accepted');
+  cases++;
+  if (!has(sourceRecordProblems({ ...EDO_SOURCE, own: { ...EDO_SOURCE.own, 2: EDO_SOURCE.own[4] } }), /class 2 is both a source colour and a named exception/))
+    fails.push('a class that is both a source colour and a named exception was accepted');
   // 🔴 WHICH CLASSES EXIST comes from the data file, not from this script: a
   // class EDO adds, or one the held list quietly stopped naming, must be red.
   const FILE_CLASSES = JSON.parse(
@@ -1060,162 +957,26 @@ function selfTest() {
   if (FILE_CLASSES.length < 7 || FILE_CLASSES.some((v) => !DROUGHT_HELD.includes(v)))
     fails.push(`a class the data file describes is not held to the thresholds: ${FILE_CLASSES} against ${DROUGHT_HELD}`);
   cases++;
-  if (FILE_CLASSES.some((v) => !DROUGHT_LADDER.includes(v) && !DROUGHT_RECOVERY.includes(v)))
-    fails.push('a class is in neither the drought series nor the recovery group, so nothing checks where it sits');
-  // The two the card names, each by its own measured figure.
-  cases++;
-  if (!has(dp({ ...goodZero, 1: paleOne }, 0.65, BASEMAP, [1], [], ring), /class 1 #F2D98A .*reads like liberty\.trunk #FFEEAA: ΔE 6\.6/))
-    fails.push('class 1 at #F2D98A, ΔE 6.6 from liberty’s trunk roads, was accepted');
-  cases++;
-  if (!has(dp({ ...goodZero, 4: oldRecovery, 5: oldRecovery, 6: oldRecovery }, 0.65, BASEMAP, [4, 5, 6], [], ring), /class 4 #8FB8CC .*reads like bright\.water #AECFE2: ΔE 6\.0/))
-    fails.push('the recovery group at #8FB8CC, ΔE 6.0 from bright’s water, was accepted');
-  // Two classes drawn as one colour, outside the group that is allowed to.
-  cases++;
-  if (!has(strict({ ...GOOD, 2: yellow }, ALL, []), /classes 1 and 2 read alike on .*ΔE 0\.0/))
-    fails.push('class 2 drawn exactly like class 1 was accepted');
-  // The drought series, the right way round: darker at every rung…
-  cases++;
-  if (!has(dp({ ...goodZero, 1: { hex: '#D9A441', alpha: 255 }, 2: paleOne }, 0.65, BASEMAP, [], [], ring), /class 2 is not darker than class 1 /))
-    fails.push('the series turned over (class 1 darker than class 2) was accepted');
-  // …and warmer. ISOLATED from the luminance rule: class 2 here is darker than
-  // class 1, as it should be, and its hue goes the wrong way. Both messages
-  // are asked for, because a hue rule that also fired on the luminance would
-  // be one rule holding the other up.
-  cases++;
-  {
-    const wrongWarmth = dp(
-      { ...goodZero, 1: { hex: '#F59105', alpha: 255 }, 2: { hex: '#8A7A00', alpha: 255 } },
-      0.65, BASEMAP, [], [], ring
-    );
-    if (!has(wrongWarmth, /class 2 #8A7A00 \(hue 95°\) is not warmer than class 1 /) || has(wrongWarmth, /is not darker than/))
-      fails.push('a darker rung that is less warm than the one above it was accepted, or was caught by the wrong rule');
-  }
-  // The warm band: a red rung (the campsite markers' colour) and a cool one.
-  cases++;
-  if (!has(dp({ ...goodZero, 1: yellow, 2: { hex: '#D5412A', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 2 #D5412A has hue 39°, outside \d+–\d+°/))
-    fails.push('a red drought class (hue 39°, the markers’ colour) was accepted');
-  cases++;
-  if (!has(dp({ ...goodZero, 1: teal }, 0.65, BASEMAP, [], [], ring), /class 1 #00938A has hue 188°, outside \d+–\d+°/))
-    fails.push('a cool colour in the drought series was accepted');
-  cases++;
-  if (!has(dp({ ...goodZero, 1: { hex: '#7FC83C', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 1 #7FC83C has hue 127°, outside \d+–\d+°/))
-    fails.push('a green drought class (hue 127°, the colour of "no drought") was accepted');
-  // Recovery is cool, and one colour.
-  cases++;
-  if (!has(dp({ ...goodZero, 4: orange }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #FF8E00 has hue 65°, outside \d+–\d+°/))
-    fails.push('a warm recovery colour was accepted');
-  // …and cool means cyan to blue: not the green beside it (164°), not magenta (336°).
-  cases++;
-  if (!has(dp({ ...goodZero, 4: { hex: '#3A8266', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #3A8266 has hue 164°, outside \d+–\d+°/))
-    fails.push('a green recovery colour (hue 164°) was accepted as cool');
-  cases++;
-  if (!has(dp({ ...goodZero, 4: { hex: '#C32BA6', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #C32BA6 has hue 336°, outside \d+–\d+°/))
-    fails.push('a magenta recovery colour (hue 336°) was accepted as cool');
-  cases++;
-  if (!has(dp({ ...goodZero, 4: teal, 5: { hex: '#0A9388', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery classes 4 and 5 are drawn #00938A\/255 and #0A9388\/255/))
-    fails.push('recovery classes drawn in two shades were accepted as one group');
-  // A grey has an angle too, and it is noise: refused, not read.
-  cases++;
-  if (!has(dp({ ...goodZero, 1: { hex: '#808080', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 1 #808080 has chroma 0, under 20: too grey/))
-    fails.push('a grey drought class was given a hue and accepted');
-  cases++;
-  if (!has(dp({ ...goodZero, 4: { hex: '#808080', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #808080 has chroma 0, under 20: too grey/))
-    fails.push('a grey recovery colour was given a hue and accepted');
+  if (FILE_CLASSES.some((v) => EDO_SOURCE.colours[v] === undefined && EDO_SOURCE.own[v] === undefined))
+    fails.push('a class the data file describes is neither in the source record nor a named exception');
   // The printed table is the check's own figure, not a second computation.
   cases++;
   {
-    const w = droughtWorst({ ...goodZero, 1: paleOne }, 0.65, BASEMAP, [], ring, undefined, []);
+    const w = droughtWorst({ ...goodZero, 1: paleOne }, 0.65, BASEMAP, [], ring, null);
     if (w[1].basemap.where !== 'liberty.trunk' || Math.abs(w[1].basemap.deltaE - 6.6) > 0.05)
       fails.push(`the printed worst basemap ΔE for #F2D98A is ${w[1].basemap.deltaE.toFixed(2)} on ${w[1].basemap.where}, not 6.6 on liberty.trunk`);
   }
   cases++;
   {
-    const w = droughtWorst({ 4: teal, 5: teal }, 0.65, BASEMAP, [], ring, undefined, []);
-    const w0 = droughtWorst({ ...goodZero, 4: teal, 5: teal }, 0.65, BASEMAP, [], ring, undefined, []);
-    if (w[4].other.deltaE !== Infinity || !(w0[4].other.deltaE > 25 && w0[4].other.deltaE < 100))
-      fails.push('the printed "against another colour" figure counted a class’s own recovery group, or lost the others');
-  }
-
-  // 🔴 CAMP-315 — THE NAMED EXCEPTION (owner, 14.10.2026): ONE pair under the bar,
-  // held to its recorded floor. `MUTED` is the shipped palette written out by
-  // hand (again: the rehearsal must not move when the shipped colours do).
-  // Every case below is ONE thing wrong with it, or the one thing it is allowed.
-  const MUTED = {
-    ...goodZero,
-    1: { hex: '#BEB632', alpha: 255 },
-    2: { hex: '#FA9E45', alpha: 255 },
-    3: brown,
-    4: { hex: '#008784', alpha: 255 },
-    5: { hex: '#008784', alpha: 255 },
-    6: { hex: '#008784', alpha: 255 },
-  };
-  const EXC = [{ classes: [2, 3], floor: 20.1, measured: '2026-10-14' }];
-  // The positive control: the muted palette, with its exception, is accepted…
-  cases++;
-  if (withExceptions(MUTED, EXC).length !== 0)
-    fails.push('the muted palette was refused although its one pair under the bar is a recorded exception');
-  // …and WITHOUT the exception it is not: the exception is what lets it through.
-  cases++;
-  if (!has(withExceptions(MUTED, []), /classes 2 and 3 read alike on .*ΔE 20\.\d/))
-    fails.push('the muted palette was accepted with no exception: classes 2 and 3 are ΔE 20.1 apart');
-  // The floor is enforced: the same table against a floor it does not meet.
-  cases++;
-  if (!has(withExceptions(MUTED, [{ ...EXC[0], floor: 21 }]), /classes 2 and 3 are ΔE 20\.\d apart .* under the floor 21 /))
-    fails.push('a pair closer than its recorded floor was accepted');
-  // The order the two classes are written in is not part of the exception.
-  cases++;
-  if (withExceptions(MUTED, [{ ...EXC[0], classes: [3, 2] }]).length !== 0)
-    fails.push('an exception written as [3, 2] did not cover classes 2 and 3');
-  // ONE pair: a SECOND pair under 25 is still an error, with the exception in place.
-  cases++;
-  if (!has(withExceptions({ ...MUTED, 1: { hex: '#F3A64F', alpha: 255 } }, EXC), /classes 1 and 2 read alike on /))
-    fails.push('a second pair under the bar was excused by the exception for another pair');
-  // The exception names a pair, not "classes 2 and 3 are free": another pair's
-  // exception does not excuse 2–3…
-  cases++;
-  if (!has(withExceptions(MUTED, [{ classes: [1, 2], floor: 20, measured: '2026-10-14' }]), /classes 2 and 3 read alike on /))
-    fails.push('an exception for classes 1 and 2 excused classes 2 and 3');
-  // …and it is no exception to the BASEMAP: class 2 over the trunk roads at ΔE 6.6 is refused.
-  cases++;
-  if (!has(withExceptions({ ...MUTED, 2: paleOne }, EXC), /class 2 #F2D98A .*reads like liberty\.trunk/))
-    fails.push('a class in an exception was excused from the basemap');
-  // The list itself: one entry, a floor under the bar and above nothing.
-  cases++;
-  if (!has(withExceptions(MUTED, [...EXC, { classes: [1, 2], floor: 20, measured: '2026-10-14' }]), /2 named pair exceptions/))
-    fails.push('two named pair exceptions were accepted');
-  cases++;
-  if (!has(withExceptions(MUTED, [{ ...EXC[0], floor: 25 }]), /records floor 25: it must be a number above 0 and under 25/))
-    fails.push('an exception with a floor at the bar was accepted');
-  cases++;
-  if (!has(withExceptions(MUTED, [{ ...EXC[0], floor: 0 }]), /records floor 0: it must be a number above 0/))
-    fails.push('an exception with a floor of 0, which excuses any closeness, was accepted');
-  // The floor is the measurement: written 10 where 20.1 is measured, it is slack.
-  cases++;
-  if (!has(withExceptions(MUTED, [{ ...EXC[0], floor: 10 }]), /records floor 10, but the pair is ΔE 20\.\d apart/))
-    fails.push('a floor ten units below what is measured was accepted as slack nobody can spend');
-  // The saturated palette is valid and not the one shipped: its exception is stale,
-  // which is said, not failed (the slack rule applies only while the pair is under the bar).
-  cases++;
-  if (withExceptions(GOOD, EXC).length !== 0)
-    fails.push('the saturated palette was refused because an exception it no longer needs is still written down');
-  cases++;
-  if (!has(droughtNotes(GOOD, 0.65, BASEMAP, EXC), /classes 2 and 3 is not needed: the pair is ΔE 3\d\.\d apart/))
-    fails.push('an exception the palette no longer needs was not said out loud');
-  cases++;
-  if (droughtNotes(MUTED, 0.65, BASEMAP, EXC).length !== 0)
-    fails.push('an exception that is in use was reported as not needed');
-  // The printed table keeps the exception's partner apart from "other".
-  cases++;
-  {
-    const w = droughtWorst(MUTED, 0.65, BASEMAP, [], ring, undefined, EXC);
-    if (!(w[2].excepted && Math.abs(w[2].excepted.deltaE - 20.1) < 0.1) || !(w[2].other.deltaE >= MIN_DELTA_E))
-      fails.push('the printed figures for class 2 mixed its named-exception partner into "other", or lost it');
+    const w = droughtWorst(GOOD, OPACITY, BASEMAP, [], ring, EDO_SOURCE);
+    if (w[2].matches !== true || w[0].matches !== null || w[4].matches !== null)
+      fails.push('the printed table says a class equals the source when it does not, or judges a named exception against it');
   }
 
   // 🔴 CAMP-286: counted, because "13 cases" was prose. An assertion
   // that stopped being reached printed exactly what a passing one
   // printed, and the sentence below went on claiming thirteen.
-  const EXPECTED_CASES = 70;
+  const EXPECTED_CASES = 57;
   if (cases !== EXPECTED_CASES) {
     fails.push(`${cases} assertions ran, expected ${EXPECTED_CASES}`);
   }
@@ -1234,12 +995,11 @@ function selfTest() {
       'line whose opacity was ignored, a colour the component wrote itself,\n' +
       'a drought class lost in the map beneath it, a layer opacity the\n' +
       'measurement ignored, a tint that leaves a campsite marker unreadable,\n' +
-      'a scale with "no drought" darker than a drought class, and (CAMP-315)\n' +
-      'a drought colour lost in the basemap that is not class 0, two classes\n' +
-      'drawn alike, a series turned over or cooling, a red or grey class, and a\n' +
-      'recovery group that is warm or in two shades, and the named exception\n' +
-      '(CAMP-315, owner 14.10.2026): one pair under the bar, held to its floor,\n' +
-      'never a second, never the basemap, never a loosened floor'
+      'and (CAMP-315, the picture mirrors the source) a class drawn one step off\n' +
+      'the source, at the wrong alpha, missing or unnamed, the named exceptions\n' +
+      'held to ΔE and the markers but not to the source, the old opacity that\n' +
+      'merges Watch and Warning, markers lost over the Alert red, and a source\n' +
+      'record with no URL, no date or an exception with no reason'
   );
 }
 
@@ -1294,30 +1054,27 @@ if (invokedDirectly) {
   const droughtLiterals = rasterOpacityProblems(
     readFileSync(join(ROOT, 'apps/web/src/components/campsite-map.tsx'), 'utf8')
   );
-  // Per class: the worst ΔE against the basemap, the worst ΔE against another
-  // colour (the class's own recovery group left out), the worst marker.
+  // Per class: does it equal the source (rule 1), the worst ΔE against the
+  // basemap and against another class (rule 2), the worst marker (rule 3).
   const worst = droughtWorst();
   for (const [value, { hex, alpha }] of Object.entries(DROUGHT_COLOURS)) {
     const w = worst[value];
     console.log(
       `  drought ${value}`.padEnd(14) +
         ` ${hex}  ${(effectiveOpacity(alpha) * 100).toFixed(1)}% drawn   ` +
+        `EDO ${w.matches === null ? 'named exception' : w.matches ? 'yes' : 'NO'}`.padEnd(24) +
         `ΔE ${w.basemap.deltaE.toFixed(1)} basemap (${w.basemap.where})   ` +
         `ΔE ${w.other.deltaE.toFixed(1)} other (${w.other.where})   ` +
-        `markers ${w.markers.seen.toFixed(2)}:1 (${w.markers.where})` +
-        (w.excepted
-          ? `   [named exception: ΔE ${w.excepted.deltaE.toFixed(1)} from ${w.excepted.where}]`
-          : '')
+        `markers ${w.markers.seen.toFixed(2)}:1 (${w.markers.where})`
     );
   }
-  for (const e of DROUGHT_PAIR_EXCEPTIONS) {
-    const m = pairWorst(DROUGHT_COLOURS, e.classes[0], e.classes[1]);
+  for (const [v, own] of Object.entries(EDO_SOURCE.own))
     console.log(
-      `  named exception, owner ${e.measured}: classes ${e.classes.join(' and ')} worst ΔE ${m.deltaE.toFixed(1)} ` +
-        `(${m.where}), recorded floor ${e.floor}; every other pair needs ${MIN_DELTA_E}`
+      `  named exception, class ${v} (EDO draws ${own.edo}), decided ${own.decided}: held to rules 2 and 3 only. ${own.reason}`
     );
-  }
-  for (const note of droughtNotes()) console.log(`  NOTE: ${note}`);
+  console.log(
+    `  source: ${EDO_SOURCE.indicator}, measured ${EDO_SOURCE.measured}, ${EDO_SOURCE.factsheet}`
+  );
   const split = twinsDisagree();
   if (droughtFound.length)
     console.error('\nthe drought picture is not legible:\n  ' + droughtFound.join('\n  '));
@@ -1342,14 +1099,9 @@ if (invokedDirectly) {
   );
   console.log(
     `${Object.keys(DROUGHT_COLOURS).length} drought classes at raster-opacity ${DROUGHT_RASTER_OPACITY}: ` +
-      `classes ${DROUGHT_HELD.join(', ')} are each >= ΔE ${MIN_DELTA_E} from every basemap colour and from every ` +
-      `colour outside their group` +
-      (DROUGHT_PAIR_EXCEPTIONS.length
-        ? `, bar the named exception (${DROUGHT_PAIR_EXCEPTIONS.map((e) => `${e.classes.join(' and ')}, floor ${e.floor}`).join('; ')})`
-        : '') +
-      `; class ${DROUGHT_LIGHTEST} is the lightest, ${DROUGHT_LADDER.join(' → ')} ` +
-      `runs light to dark and ${DROUGHT_LADDER.slice(1).join(' → ')} yellow to brown, ${DROUGHT_RECOVERY.join(', ')} ` +
-      `is one cool colour, and every class leaves every marker >= ${MIN_CONTRAST}:1`
+      `classes ${Object.keys(EDO_SOURCE.colours).join(', ')} equal ${EDO_SOURCE.indicator}'s colours, ` +
+      `classes ${Object.keys(EDO_SOURCE.own).join(' and ')} are named exceptions; every class is >= ΔE ${MIN_DELTA_E} ` +
+      `from every basemap colour and from every other class, and leaves every marker >= ${MIN_CONTRAST}:1`
   );
 }
 }

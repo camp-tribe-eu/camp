@@ -21,127 +21,101 @@
  * that described the class said "alpha 90" — and nothing could tell the two
  * apart.
  */
-export const DROUGHT_RASTER_OPACITY = 0.65;
+export const DROUGHT_RASTER_OPACITY = 0.76;
 
 /**
- * How each class is drawn. The legend and the pixels both read this one
- * table, so they cannot drift apart.
+ * How each class is drawn: THE SOURCE'S OWN COLOURS, with two classes that are
+ * ours. The legend and the pixels both read this one table, so they cannot
+ * drift apart.
  *
- * 🔴 NOT a traffic light. Red on a class of drought is the CAMP-162
- * vocabulary rendered in CSS, and the campsite markers are already
- * #C83D28. One warm family — yellow, then orange, then brown — for the
- * three drought classes, and ONE cool colour for the three recovery ones.
+ * 🔴 CAMP-315, DECISION OF THE OWNER, 14.10.2026 — WHAT CHANGED, AND WHY.
+ * Until now this was OUR palette: one warm hue pale to dark for the three
+ * drought classes (and no red, because the campsite markers are red — CAMP-162),
+ * and ONE cool colour for the three recovery classes, which `droughtLegend`
+ * printed as one row. The first CAMP-315 rounds then argued about how saturated
+ * that palette could be on our basemaps. The owner decided to stop drawing our
+ * own series and draw what the source publishes: the Copernicus EDO Combined
+ * Drought Indicator v4.1.1 (fact sheet
+ * https://drought.emergency.copernicus.eu/data/factsheets/factsheet_combinedDroughtIndicator_v4.pdf,
+ * style config `combinedDroughtIndicatorAllClassesStyle`, and the colours
+ * `GetMap` returns; the three agree, measured 14.10.2026):
  *
- * 🔴 Class 0 IS DRAWN, and drawn so that it can be told from a place the
- * indicator does not look at. That is what the mask is for: where the
- * indicator measured normal conditions the map is tinted, and where it
- * does not look at all (the sea, the places outside its domain) it is left
- * bare. If 0 were invisible, "bare" would mean either, and the map would
- * say about Malta exactly what the mask exists to stop it saying.
+ *   0 no drought  white / transparent     4 Recovery                    #CAB2D6
+ *   1 Watch       #F0E442                 5 Temporary Soil Moisture     #CC79A7
+ *   2 Warning     #E69F00                   recovery
+ *   3 Alert       #DC050C                 6 Temporary vegetation        #009E73
+ *                                           recovery
  *
- * The first version drew 0 as `#9CC5A1` at alpha 90. Through the layer's
- * 0.65 that is 22.9% — ΔE 4.0 to 13.2 over the eleven basemap colours we
- * serve, against the 25 this repository holds every "do these read alike"
- * question to (measured 14.10.2026 by `check-map-palette.mjs`, which now
- * reads this table). The distinction the card exists to make had moved from
- * the data into the rendering, where it was one shade of green on another.
+ * So, DELIBERATELY AND NOT BY OVERSIGHT:
+ *  · Classes 4, 5 and 6 are THREE colours now. EDO draws them apart; merging them
+ *    into one cool colour was our decision, not the source's. The legend prints
+ *    three rows (it merges classes only when hex and alpha are identical).
+ *  · Class 3 is RED, `#DC050C`. "NOT A TRAFFIC LIGHT" was our own rule about our
+ *    own palette (red is the campsite markers' colour, `#C83D28`/`#D5412A`); the
+ *    source draws Alert red, and a map that shows Alert in another colour is not
+ *    showing what EDO published. 🔴 CHECKED, so that the next reader does not
+ *    think it was forgotten: the markers drawn over the Alert pixel hold 3:1 —
+ *    the lowest of the seven classes, 3.32:1 over liberty's water, and still
+ *    over the line. The red markers are told from a red layer by their dark ring
+ *    (`MARKER_STROKE`), not by their fill. Rule 3 of `check-map-palette.mjs`
+ *    measures it on every run.
+ *  · The old order rules are gone with the palette they described: class 0 the
+ *    lightest, the ladder darkening and warming, hue bands. The ladder is EDO's.
  *
- * 🔴 SEVEN CLASSES, FIVE COLOURS: 0, 1, 2, 3 and ONE for 4–6. Those three are
- * the RECOVERY group (recovered, soil recovering, vegetation recovering), drawn
- * alike on purpose and printed as one legend row; do not split them. What EDO
- * calls them is in `drought.json`'s `meta.classes`.
+ * 🔴 TWO CLASSES ARE OURS, BY NAME, and the palette guard holds them to
+ * "visible on our map" and "markers readable" only — not to equal the source:
  *
- * 🔴 WHAT EVERY ONE OF THE FIVE IS HELD TO. `check-map-palette.mjs` measures all
- * seven classes, as the reader sees them (alpha × `DROUGHT_RASTER_OPACITY`, over
- * each of the eleven basemap colours we serve):
+ *  · CLASS 0, `#9CFE84`, unchanged from CAMP-200. EDO draws "no drought" white or
+ *    transparent. On our map BARE means "the indicator does not look here" (the
+ *    sea, Malta), so "covered and fine" has to be drawn, or the map says about
+ *    Malta exactly what the mask exists to stop it saying.
+ *  · CLASS 4, `#757591`. EDO's `#CAB2D6` is a pale lilac that clears NO opacity on
+ *    our pale land, white roads and pale water: at 0.65 it is ΔE 14.1–20.7 from
+ *    eight of the eleven basemap colours, and at its best, over the 100 steps
+ *    (opacity 0.99), the worst is still ΔE 21.9 (positron's water) — measured
+ *    14.10.2026. `#757591` is the colour nearest to it in ΔE (CIE76 on the guard's
+ *    own Lab: 26.98 from `#CAB2D6`) of ALL 16.7 million RGB colours that clear ΔE
+ *    >= 25 from the eleven basemap colours and from the other six classes, and the
+ *    markers, at the shipped opacity. That distance is how far we have moved
+ *    from the source on this class: a slate violet at lightness 50 for a lilac at
+ *    76, the same side of the hue wheel (292° against 315°), much less colour
+ *    (chroma 16 against 21).
  *
- *  1. ΔE >= 25 against every basemap colour, and against every other colour:
- *     "covered and fine", "a drought class" and "recovering" are each told from
- *     "not covered" and from one another. Until CAMP-315 only class 0 was held,
- *     and the rest were not under the line: class 1 `#F2D98A` was ΔE 6.6 from
- *     liberty's trunk roads, 4–6 `#8FB8CC` was ΔE 6.0 from bright's water,
- *     class 2 `#D9A441` was 22.3 (measured 14.10.2026 by that script). "Less rain
- *     than normal" over a motorway and "recovering" over a lake read as a bare
- *     map, which says "we do not measure here" — the very conflation the mask
- *     exists to stop, on other classes.
- *  2. The campsite markers, which are drawn on top, stay >= 3:1 over its pixel.
- *  3. THE SCALE STAYS THE RIGHT WAY ROUND. Class 0 is the LIGHTEST of all seven.
- *     The drought series 0 → 1 → 2 → 3 gets darker AND warmer at every step
- *     (yellow, orange, brown — hue falling towards red, never into it). The
- *     recovery colour is COOL and is not a rung of that series: its lightness is
- *     not ordered against 1–3 (a teal does not belong between two ambers).
- *     A scale turned upside down is a defect even when every number above
- *     passes — the version that held class 0 to 3:1 against the basemap made "no
- *     drought" the darkest thing on the map, darker than "vegetation under
- *     stress".
+ * 🔴 THE OPACITY, 0.76, IS THE LOWEST AT WHICH EVERYTHING BUT CLASS 4 HOLDS.
+ * Scanned in steps of 0.01 from 0.01 to 1.00 with the guard itself on classes 0,
+ * 1, 2, 3, 5 and 6: nothing below 0.76 holds, and everything from 0.76 to 1.00
+ * does. What sets it is Watch against Warning, the two EDO colours closest to
+ * each other: ΔE 21.3 apart at the old 0.65 (over liberty's green), 24.87 at 0.74,
+ * 24.998 at 0.75 (over liberty's water: a miss of 0.002) and 25.40 at 0.76. Lower
+ * is better — the basemap should stay visible under the layer — so it is not
+ * higher than it must be. The markers are not what sets it: over Alert they fall
+ * with opacity, from 3.56:1 at 0.65 to 3.32:1 at 0.76, and still clear.
  *
- * It is NOT held to a contrast against the basemap. Contrast answers "can a
- * mark or a word be read on this colour"; whether a FILL can be told from the
- * absence of one is a question of colour difference, which is ΔE.
- *
- * 🔴 THE PALETTE SHIPPED IS THE MUTED ONE, AND IT HAS ONE NAMED EXCEPTION.
- * Decision of the owner, 14.10.2026. A palette that clears every line exists —
- * class 1 `#F2E02E`, class 2 `#FF8E00`, recovery `#00938A`: every pair >= ΔE
- * 30.8, every class >= ΔE 29.3 from every basemap colour, markers >= 4.43:1 —
- * but its yellow and orange are chroma 81 and 84 (the campsite markers are 73),
- * and he chose the muted one (chroma <= 65), knowing that costs exactly ONE pair
- * of classes its ΔE 25. The saturated palette is still valid: put those three
- * colours back and `check-map-palette.mjs` is green (it prints a note that the
- * exception is no longer needed).
- *
- * THE EXCEPTION is classes 2 ("dry ground") and 3 ("vegetation under stress"):
- * ΔE 20.1 at worst (over liberty's trunk roads, measured 14.10.2026), recorded
- * as a FLOOR of 20.1 in `DROUGHT_PAIR_EXCEPTIONS`. The guard demands at least
- * that of the pair — if a colour moves and they close up, it goes red — and
- * every OTHER pair, and every class against every basemap colour, still needs
- * 25. `MIN_DELTA_E` is not lowered: it is shared with the markers and the route
- * lines. Why this pair: both are drought, one rung apart, so a reader who takes
- * one for the other has the severity off by a step and nothing else wrong. In
- * the search (chroma <= 65, yellow and orange bands) it was the better of the
- * only two pairs that could be the single exception at all: 1–2 ("less rain"
- * against "dry ground", also both drought) reaches ΔE 12.4. The pairs that mix
- * drought with "no drought" (0–1) or with recovery can not be it, and would be
- * the dangerous confusions if they could.
- *
- * THE FIVE, AS `check-map-palette.mjs` PRINTS THEM (14.10.2026): the worst case
+ * THE SEVEN, AS `check-map-palette.mjs` PRINTS THEM (14.10.2026): the worst case
  * over the eleven basemap colours, so each is a floor and not an average.
  *
- *   class  colour    ΔE vs basemap          ΔE vs another colour        markers
- *   0      #9CFE84   32.6 liberty.trunk     28.1 class 1                11.66:1
- *   1      #BEB632   25.1 liberty.trunk     25.2 class 2                 8.09:1
- *   2      #FA9E45   28.2 liberty.trunk     25.2 class 1 (20.1 class 3)  8.05:1
- *   3      #A5541B   38.2 liberty.trunk     34.8 class 1 (20.1 class 2)  4.43:1
- *   4–6    #008784   28.8 bright.water      47.0 class 0                 5.15:1
+ *   class  colour   equals EDO        ΔE vs basemap       ΔE vs another class   markers
+ *   0      #9CFE84  named exception  38.0 liberty.trunk   34.9 class 1          12.20:1
+ *   1      #F0E442  yes              33.2 liberty.trunk   25.4 class 2          11.59:1
+ *   2      #E69F00  yes              42.8 liberty.trunk   25.4 class 1           7.53:1
+ *   3      #DC050C  yes              79.8 liberty.trunk   57.0 class 5           3.32:1
+ *   4      #757591  named exception  25.2 bright.water    25.1 class 5           4.75:1
+ *   5      #CC79A7  yes              32.6 liberty.water   25.1 class 4           6.09:1
+ *   6      #009E73  yes              41.5 liberty.green   39.7 class 0           5.55:1
  *
- * HOW 1, 2 AND 4–6 WERE CHOSEN, so the next person can redo it rather than trust
- * it. Class 0 (`#9CFE84`) and class 3 (`#A5541B`) were not touched. Colours on
- * an RGB grid were dropped unless they cleared the basemap, the markers and the
- * order (0 lightest, 1 → 2 → 3 darker and warmer, yellow and orange bands), and
- * the survivors were searched for the pair and the recovery colour with the
- * widest worst case. Muting costs the exception's floor, steeply: with one pair
- * allowed under 25 and chroma capped at 70 / 68 / 66 / 64 / 62, the best floor
- * for 2–3 was 23.4 / 22.1 / 19.5 / 18.0 / 16.0 (3-step grid). Without the
- * exception nothing at chroma <= 65 clears everything: none in the yellow and
- * orange bands, and across the whole 45–105° warm band the widest worst case
- * found was an olive and a khaki at ΔE 23.5. The recovery
- * colour has far more room (a middling teal, so that "recovered" is not the
- * heaviest thing on the map, and not a blue, because the basemaps' water is
- * blue). Class 0 is chroma 71, brighter than the muted pair beside it; it was
- * measured and proved in CAMP-200 and is left alone.
- *
- * `#9CFE84` is a light green. 3 401 of the 140 608 colours on a 5-step grid
- * clear class 0's three rules (and are lighter than the classes beside them on
- * every basemap colour); it was picked from the best-separated of them in
- * CAMP-200, and its markers are at 11.66:1.
+ * WHAT THE GUARD ASKS, in three rules (see it for the reasons): the five source
+ * classes EQUAL the values recorded there byte for byte; every class is ΔE >= 25
+ * from each basemap colour and from every other class; the markers stay >= 3:1
+ * over every class's pixel.
  */
 export const DROUGHT_COLOURS: Readonly<Record<number, { hex: string; alpha: number }>> = {
   0: { hex: '#9CFE84', alpha: 255 },
-  1: { hex: '#BEB632', alpha: 255 },
-  2: { hex: '#FA9E45', alpha: 255 },
-  3: { hex: '#A5541B', alpha: 255 },
-  4: { hex: '#008784', alpha: 255 },
-  5: { hex: '#008784', alpha: 255 },
-  6: { hex: '#008784', alpha: 255 },
+  1: { hex: '#F0E442', alpha: 255 },
+  2: { hex: '#E69F00', alpha: 255 },
+  3: { hex: '#DC050C', alpha: 255 },
+  4: { hex: '#757591', alpha: 255 },
+  5: { hex: '#CC79A7', alpha: 255 },
+  6: { hex: '#009E73', alpha: 255 },
 };
 
 export const hexRgb = (hex: string): [number, number, number] => [

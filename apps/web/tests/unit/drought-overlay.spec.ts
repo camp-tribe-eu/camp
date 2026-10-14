@@ -189,15 +189,19 @@ function tinyState(opts: {
   return s;
 }
 
-/** The colours the picture must use, written out here and not read from the table. */
+/**
+ * The colours the picture must use, written out here and not read from the table.
+ * 1, 2, 3, 5 and 6 are EDO's (CDI v4.1.1, measured 14.10.2026); 0 and 4 are ours
+ * (`lib/drought-colours.ts` says why) — and 4, 5, 6 are three colours, as EDO draws them.
+ */
 const WANT: Record<number, [number, number, number, number]> = {
   0: [0x9c, 0xfe, 0x84, 255],
-  1: [0xbe, 0xb6, 0x32, 255],
-  2: [0xfa, 0x9e, 0x45, 255],
-  3: [0xa5, 0x54, 0x1b, 255],
-  4: [0x00, 0x87, 0x84, 255],
-  5: [0x00, 0x87, 0x84, 255],
-  6: [0x00, 0x87, 0x84, 255],
+  1: [0xf0, 0xe4, 0x42, 255],
+  2: [0xe6, 0x9f, 0x00, 255],
+  3: [0xdc, 0x05, 0x0c, 255],
+  4: [0x75, 0x75, 0x91, 255],
+  5: [0xcc, 0x79, 0xa7, 255],
+  6: [0x00, 0x9e, 0x73, 255],
 };
 const BARE: [number, number, number, number] = [0, 0, 0, 0];
 
@@ -379,9 +383,9 @@ test.describe('the legend', () => {
     // basemaps, so changing either number is a decision that changes what a
     // reader can tell apart — it should cost an edit here, and a re-run of
     // that check, not nothing.
-    expect(DROUGHT_RASTER_OPACITY).toBe(0.65);
-    expect(effectiveOpacity(255)).toBeCloseTo(0.65, 10);
-    expect(effectiveOpacity(90)).toBeCloseTo((90 / 255) * 0.65, 10);
+    expect(DROUGHT_RASTER_OPACITY).toBe(0.76);
+    expect(effectiveOpacity(255)).toBeCloseTo(0.76, 10);
+    expect(effectiveOpacity(90)).toBeCloseTo((90 / 255) * 0.76, 10);
     expect(effectiveOpacity(0)).toBe(0);
   });
 
@@ -466,18 +470,18 @@ test.describe('the legend', () => {
       0: { hex: '#336699', alpha: 90 },
       1: { hex: '#CC9933', alpha: 128 },
     };
-    // Mutation: ignore the alpha in `droughtLegend` — class 0 reads 0.65
-    // where the pixel is 0.2294, and this fails.
+    // Mutation: ignore the alpha in `droughtLegend` — class 0 reads 0.76
+    // where the pixel is 0.2682, and this fails.
     const rows = droughtLegend(FILE.meta, table);
     const pixel = pixelsPerClass(table);
     const byLabel = (label: string) => rows.find((r) => r.label.includes(label))!;
-    expect(byLabel('no drought').opacity).toBeCloseTo(0.2294, 3);
-    expect(byLabel('less rain than normal').opacity).toBeCloseTo(0.3263, 3);
-    expect(byLabel('dry ground').opacity).toBeCloseTo(0.65, 10);
-    expect(byLabel('no drought').swatch).toBe('rgba(51, 102, 153, 0.2294)');
-    expect(pixel[0][3]).toBeCloseTo(0.2294, 3);
-    expect(pixel[1][3]).toBeCloseTo(0.3263, 3);
-    expect(pixel[2][3]).toBeCloseTo(0.65, 10);
+    expect(byLabel('no drought').opacity).toBeCloseTo(0.2682, 3);
+    expect(byLabel('less rain than normal').opacity).toBeCloseTo(0.3815, 3);
+    expect(byLabel('dry ground').opacity).toBeCloseTo(0.76, 10);
+    expect(byLabel('no drought').swatch).toBe('rgba(51, 102, 153, 0.2682)');
+    expect(pixel[0][3]).toBeCloseTo(0.2682, 3);
+    expect(pixel[1][3]).toBeCloseTo(0.3815, 3);
+    expect(pixel[2][3]).toBeCloseTo(0.76, 10);
   });
 
   test('the dashed row says what bare means, and carries no colour', () => {
@@ -488,9 +492,30 @@ test.describe('the legend', () => {
     expect(bare.map((r) => r.label)).toEqual(['not coloured: outside the area the indicator covers']);
   });
 
-  test('classes drawn in one colour are one row, not three identical swatches', () => {
-    const rows = droughtLegend(meta);
-    // 0, 1, 2, 3 and the three recovery classes sharing a colour.
+  test('🔴 the key a reader is served has seven coloured rows, one per class, in the colours of the source', () => {
+    // CAMP-315: EDO draws the three recovery classes in three colours, so the key
+    // prints three rows where it used to print one. Read off the HTML the page
+    // serves, against the literal table above — not off `droughtLegend`, whose
+    // merging is the thing under test.
+    //
+    // Mutation: give two recovery classes one colour in `DROUGHT_COLOURS` — the
+    // key merges them into one row and this fails on the count. Mutation: change
+    // any class's hex — fails on that row's colour.
+    const rows = legendOf(panelHtml()).filter((r) => r.rgba !== null);
+    const want = (meta.classes as { value: number; label: string }[]).slice().sort((a, b) => a.value - b.value);
+    expect(rows.map((r) => r.label), 'one row per class, in class order, each with its own words').toEqual(want.map((c) => c.label));
+    want.forEach((c, i) => {
+      const [r, g, b, a] = rows[i].rgba!;
+      expect([r, g, b], `class ${c.value} (${c.label})`).toEqual(WANT[c.value].slice(0, 3));
+      expect(a, `class ${c.value} is drawn at the layer's opacity`).toBeCloseTo(0.76, 3);
+    });
+  });
+
+  test('classes drawn in one colour are still one row, not identical swatches (the merging, with a table that has it)', () => {
+    // The key MERGES classes drawn in the same hex at the same alpha. The shipped
+    // table has none now (above), so the mechanism is tested with one that does.
+    const merged = { ...DROUGHT_COLOURS, 5: DROUGHT_COLOURS[4], 6: DROUGHT_COLOURS[4] };
+    const rows = droughtLegend(meta, merged);
     expect(rows.length).toBe(5);
     expect(rows[rows.length - 1].label).toBe('recovered, soil recovering, vegetation recovering');
   });
