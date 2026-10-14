@@ -118,7 +118,7 @@ const psql = (sql) =>
   execFileSync('psql', [DB, '-tAX', '-F', '|', '-c', sql], { encoding: 'utf8' }).trim();
 
 /** Одне вимірювання, живе. */
-function read(source) {
+function readLive(source) {
   if (source.file) {
     const full = path.join(ROOT, source.file);
     if (!existsSync(full)) return { rows: 0, at: null };
@@ -133,7 +133,7 @@ function read(source) {
   return { rows: Number(n), at: t === '' ? null : t };
 }
 
-function run(now = new Date(), log = console, alarmOn = 'any') {
+function run(now = new Date(), log = console, alarmOn = 'any', read = readLive) {
   const judged = SOURCES.map((s) => judge(s, read(s), now));
   const v = verdict(judged);
 
@@ -162,6 +162,27 @@ function run(now = new Date(), log = console, alarmOn = 'any') {
     );
   }
   return exitCodeFor(v, alarmOn);
+}
+
+/** Помилка вживання — на відміну від справжнього падіння, яке мусить кричати. */
+export class UsageError extends Error {}
+
+/**
+ * 🔴 ЄДИНИЙ РЯДОК, ЩО ЗʼЄДНУЄ ПРАПОРЕЦЬ ІЗ ВИРОКОМ — І ДО РЕЦЕНЗІЇ
+ * 14.10.2026 ЙОГО НЕ ПЕРЕВІРЯЛО НІЩО.
+ *
+ * `exitCodeFor` був покритий як чиста функція, та підміна виклику на
+ * `run(…, 'any')` лишала всі 19 випадків зеленими — і новий крок CI
+ * теж. На сьогоднішніх даних обидва режими дають 1 (три застарілих),
+ * тож і живий прогін їх не розрізнив би. Дефект, який це ховало: лампа
+ * дзвонить щодня на два ненастроєні імпортери, тобто рівно те, заради
+ * чого прапорець і зʼявився.
+ *
+ * Тому плутанина режимів тепер живе в ОДНІЙ функції, яку самоперевірка
+ * викликає цілком — від argv до коду виходу.
+ */
+export function runWith(argv, now = new Date(), log = console, read = readLive) {
+  return run(now, log, alarmModeFrom(argv), read);
 }
 
 function selfTest() {
@@ -230,7 +251,27 @@ function selfTest() {
   }
   check(rejected, '🔴 помилкове написання відкидається, а не ковтається мовчки');
 
-  const EXPECTED_CASES = 19;
+  // 🔴 ТРИ ВИПАДКИ НА САМЕ ЗʼЄДНАННЯ argv → ВИРОК, а не на чисті
+  // функції поруч. Рецензія 14.10.2026 показала: підміна виклику на
+  // `run(…, 'any')` лишала всі 19 попередніх випадків зеленими.
+  const silent = { log: () => {}, error: () => {} };
+  const fakeRead = (states) => (source) => {
+    const st = states[source.name] ?? 'ok';
+    if (st === 'never') return { rows: 0, at: null };
+    if (st === 'stale') return { rows: 5, at: '2026-09-01T00:00:00Z' };
+    return { rows: 5, at: '2026-10-12T00:00:00Z' };
+  };
+  const onlyNever = fakeRead({ 'камери Windy': 'never' });
+  const oneStale = fakeRead({ 'POI маршрутів': 'stale' });
+
+  check(runWith(['--stale-only'], NOW, silent, onlyNever) === 0,
+    '🔴 --stale-only доходить до коду виходу: ненастроєне НЕ дзвонить');
+  check(runWith([], NOW, silent, onlyNever) === 1,
+    '🔴 без прапорця те саме джерело дзвонить — отже режим справді передається');
+  check(runWith(['--stale-only'], NOW, silent, oneStale) === 1,
+    '🔴 зупинене дзвонить і через argv');
+
+  const EXPECTED_CASES = 22;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;
@@ -259,7 +300,7 @@ export const KNOWN_FLAGS = Object.freeze(['--self-test', '--stale-only']);
 export function alarmModeFrom(argv) {
   const unknown = argv.filter((a) => a.startsWith('-') && !KNOWN_FLAGS.includes(a));
   if (unknown.length > 0) {
-    throw new Error(
+    throw new UsageError(
       `невідомий аргумент: ${unknown.join(', ')}. Відомі: ${KNOWN_FLAGS.join(', ')}`,
     );
   }
@@ -269,12 +310,14 @@ export function alarmModeFrom(argv) {
 if (invokedDirectly) {
   const argv = process.argv.slice(2);
   if (argv.includes('--self-test')) process.exit(selfTest());
-  let mode;
   try {
-    mode = alarmModeFrom(argv);
+    process.exit(runWith(argv));
   } catch (e) {
+    // 🔴 Лише помилка ВЖИВАННЯ глушиться. Справжнє падіння — база
+    // недоступна, psql немає — мусить вийти зі стеком, інакше таймер
+    // перетворить аварію на тихе «2».
+    if (!(e instanceof UsageError)) throw e;
     console.error(`\u2717 ${e.message}`);
     process.exit(2);
   }
-  process.exit(run(new Date(), console, mode));
 }

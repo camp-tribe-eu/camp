@@ -125,29 +125,38 @@ export function releasePaths(unitText) {
 }
 
 /**
- * Чи існує в репозиторії те, що юніт назвав під релізом.
+ * Що деплой СТВОРЮЄ на машині сам — тобто чого в репозиторії немає
+ * правильно. Кожен рядок названий тим рядком `infra/bin/camptribe-deploy`,
+ * який його створює.
  *
- * 🔴 «НЕМАЄ, БО ДРЕЙФ» І «НЕМАЄ, БО ЦЕ ЗБІРКА» РОЗРІЗНЯЄ САМ GIT, а не
- * список слів у цьому файлі. `apps/api/dist/main` і `apps/api/.env`
- * відсутні правильно — обидва під `.gitignore`, і деплой створює їх
- * сам. Список винятків тут довелось би доповнювати після кожного
- * нового юніта; питання «чи цей шлях узагалі походить із репозиторію»
- * не доводиться доповнювати ніколи.
+ * 🔴 ТУТ СТОЯВ `git check-ignore`, І ЦЕ БУЛО ГІРШЕ ЗА СПИСОК. Рецензія
+ * 14.10.2026 заміряла: `out/freshness.mjs`, `logs/x.mjs`,
+ * `.env.production` і навіть `WorkingDirectory=…/current/out` проходили
+ * МОВЧКИ, бо в `.gitignore` `out`, `dist`, `logs`, `coverage` і `.next`
+ * записані голими й неприкріпленими — тож збігається будь-яка складова
+ * шляху. Плюс вирок залежав від машини: `check-ignore` читає ще й
+ * глобальні excludes, яких у CI немає.
+ *
+ * Я захищав `check-ignore` тим, що список довелось би доповнювати
+ * після кожного нового юніта. Це неправда: список не про юніти, а про
+ * те, що будує деплой, і змінюється він разом зі збіркою. А коротка
+ * правильна відповідь краща за властивість, яка мовчки приймає `out/`.
+ */
+export const DEPLOY_CREATES = Object.freeze([
+  'apps/api/dist/', // npm run build:api
+  'apps/web/.next/', // npm run build:web
+  'apps/api/.env', // install -m 600 … з чинного релізу
+]);
+
+export const madeByDeploy = (rel) =>
+  DEPLOY_CREATES.some((p) => (p.endsWith('/') ? rel.startsWith(p) : rel === p));
+
+/**
+ * Чи існує в репозиторії те, що юніт назвав під релізом.
  */
 export function missingReleasePaths(files, opts = {}) {
   const read = opts.read ?? ((f) => readFileSync(f, 'utf8'));
   const exists = opts.exists ?? ((rel) => existsSync(path.join(ROOT, rel)));
-  const ignored =
-    opts.ignored ??
-    ((rel) => {
-      try {
-        execFileSync('git', ['check-ignore', '-q', rel], { cwd: ROOT });
-        return true;
-      } catch {
-        return false;
-      }
-    });
-
   const bad = [];
   for (const f of files) {
     if (!f.name.endsWith('.service') && !f.name.endsWith('.timer')) continue;
@@ -157,7 +166,7 @@ export function missingReleasePaths(files, opts = {}) {
         continue;
       }
       const rel = ref.abs.slice(RELEASE_ROOT.length + 1);
-      if (rel === '' || ignored(rel) || exists(rel)) continue;
+      if (rel === '' || madeByDeploy(rel) || exists(rel)) continue;
       bad.push({ unit: f.name, missing: `${ref.key}=${ref.abs} — у репозиторії немає ${rel}` });
     }
   }
@@ -367,27 +376,58 @@ function selfTest() {
     ['/srv/camptribe/current/scripts/ci/x.mjs']);
   // `/usr/local/bin/camptribe-backup` і `/bin/rm` — не рушії; перший
   // перевіряє `danglingReferences`, другий нам не належить.
+  // 🔴 ФІКСТУРА МАЄ НЕОПЦІЙНИЙ АРГУМЕНТ, І ЦЕ ВАЖЛИВО ДВІЧІ.
+  //
+  // Без аргументу випадок був підписом: `find()` однаково повертав
+  // `undefined`, тож зняття `if (!ENGINE.test(bin))` його не валило
+  // (рецензія 14.10). З аргументом-ПРАПОРЦЕМ — так само, бо `find()`
+  // пропускає і його; я наступив на це під час самого виправлення.
+  // Червоніти цей випадок може лише на неопційному аргументі.
   is('чужий виконуваний файл сюди не потрапляє',
-    releasePaths('ExecStart=/usr/local/bin/camptribe-backup\n').length, 0);
+    releasePaths('ExecStart=/usr/local/bin/camptribe-backup weekly\n').length, 0);
+  // 🔴 І окремо: блок EnvironmentFile теж мусить мати свого свідка —
+  // третина функції не була стверджена нічим.
+  is('EnvironmentFile прочитано',
+    releasePaths(freshUnit).filter((r) => r.key === 'EnvironmentFile').map((r) => r.abs),
+    ['/srv/camptribe/current/apps/api/.env']);
 
   const files2 = [{ name: 'u.service', local: 'u' }];
   const probe = (text, opts) =>
     missingReleasePaths(files2, { read: () => text, ...opts }).map((b) => b.missing);
 
   is('🔴 тека поза релізом — саме дефект 13.10',
-    probe('WorkingDirectory=/srv/camptribe/app\n', { exists: () => true, ignored: () => false }),
+    probe('WorkingDirectory=/srv/camptribe/app\n', { exists: () => true }),
     ['WorkingDirectory=/srv/camptribe/app — не під /srv/camptribe/current']);
-  is('🔴 те, що ігнорує git, відсутнє правильно',
-    probe('WorkingDirectory=/srv/camptribe/current/apps/api\nExecStart=/usr/bin/node dist/main\n',
-      { exists: () => false, ignored: (rel) => rel === 'apps/api/dist/main' }),
-    ['WorkingDirectory=/srv/camptribe/current/apps/api — у репозиторії немає apps/api']);
-  is('🔴 відсутнє і не ігнороване — скарга',
-    probe('ExecStart=/usr/bin/node scripts/ci/x.mjs\n', { exists: () => false, ignored: () => false }),
+  is('🔴 відсутнє — скарга',
+    probe('ExecStart=/usr/bin/node scripts/ci/x.mjs\n', { exists: () => false }),
     ['Exec=/srv/camptribe/current/scripts/ci/x.mjs — у репозиторії немає scripts/ci/x.mjs']);
-  is('наявне — мовчання',
-    probe(freshUnit, { exists: () => true, ignored: () => false }), []);
 
-  const EXPECTED_CASES = 18;
+  // ── ВИРОБНИЧЕ ПІДКЛЮЧЕННЯ, БЕЗ ЖОДНОГО ПІДМІННИКА ─────────────────
+  //
+  // 🔴 Рецензія 14.10.2026: усі випадки вище підставляли власний
+  // `exists`, тож мутації ДЕФОЛТНОГО `exists → () => true` і
+  // дефолтного правила «відсутнє правильно → завжди» обидві лишали
+  // 18/18 зеленими. А вирок у `--offline` ухвалюють саме дефолти.
+  const real = (text) => missingReleasePaths(files2, { read: () => text }).map((b) => b.missing);
+
+  is('справжній файл репозиторію — мовчання',
+    real('ExecStart=/usr/bin/node scripts/ci/check-data-freshness.mjs --stale-only\n'), []);
+  is('🔴 справжньої відсутності не прощає',
+    real('ExecStart=/usr/bin/node scripts/ci/nope.mjs\n'),
+    ['Exec=/srv/camptribe/current/scripts/ci/nope.mjs — у репозиторії немає scripts/ci/nope.mjs']);
+  is('те, що деплой будує сам, відсутнє правильно',
+    real('WorkingDirectory=/srv/camptribe/current/apps/api\nExecStart=/usr/bin/node dist/main\n'), []);
+
+  // 🔴 ТРИ ВХОДИ, ЯКІ `git check-ignore` ПРОПУСКАВ МОВЧКИ. Кожен тут
+  // тому, що був заміряний як хибне проходження, а не вигаданий.
+  is('🔴 out/ більше не ковтається',
+    real('ExecStart=/usr/bin/node out/freshness.mjs\n').length, 1);
+  is('🔴 logs/ більше не ковтається',
+    real('ExecStart=/usr/bin/node logs/x.mjs\n').length, 1);
+  is('🔴 .env.production більше не ковтається',
+    real('EnvironmentFile=/srv/camptribe/current/.env.production\n').length, 1);
+
+  const EXPECTED_CASES = 23;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;
