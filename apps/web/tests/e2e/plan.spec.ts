@@ -204,7 +204,7 @@ test.describe('what it does with what you type', () => {
     // Панель каже «not saved, and not sent anywhere». Це твердження про
     // браузер, тож його перевіряє браузер: унікальний рядок, і після
     // відправки — жоден запит його не несе, жодне сховище його не має.
-    const token = 'Zzyzx-Testville-4817';
+    const needle = 'Zzyzx-Testville-4817';
     const seen: string[] = [];
     const posts: string[] = [];
     page.on('request', (r) => {
@@ -213,23 +213,23 @@ test.describe('what it does with what you type', () => {
     });
 
     const f = await open(page);
-    await fillValid(f, { from: token, to: `${token}-end` });
+    await fillValid(f, { from: needle, to: `${needle}-end` });
     await f.submit.click();
     await expect(f.result).toContainText('not sent anywhere');
-    await expect(f.result).toContainText(token);
+    await expect(f.result).toContainText(needle);
     // Дати можливим запитам вийти, якщо вони є.
     await page.waitForLoadState('networkidle');
 
-    expect(seen.filter((s) => s.includes(token)), 'введений рядок потрапив у запит').toEqual([]);
+    expect(seen.filter((s) => s.includes(needle)), 'введений рядок потрапив у запит').toEqual([]);
     expect(posts, 'після відправки пішов не-GET запит').toEqual([]);
 
     const stored = await page.evaluate(() => {
       const dump = (s: Storage) => Object.keys(s).map((k) => `${k}=${s.getItem(k)}`).join('\n');
       return [dump(localStorage), dump(sessionStorage), document.cookie].join('\n');
     });
-    expect(stored.includes(token), 'введений рядок потрапив у сховище чи cookie').toBe(false);
+    expect(stored.includes(needle), 'введений рядок потрапив у сховище чи cookie').toBe(false);
     // Адреса теж: те, що людина набрала, не стає посиланням.
-    expect(page.url()).not.toContain(token);
+    expect(page.url()).not.toContain(needle);
   });
 
   test('🔴 the longest place name fits a phone: no sideways scrolling', async ({ page }) => {
