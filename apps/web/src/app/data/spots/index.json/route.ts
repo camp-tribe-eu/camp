@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/api';
+import { mapRegions } from '@/lib/api';
 import {
   VIEW_BUDGET_BYTES,
   chunkWeight,
@@ -87,11 +87,9 @@ function heaviestUnavoidableView(regions: readonly RegionSummary[]): {
 }
 
 export async function GET() {
-  const res = await apiFetch('/spots/map/regions');
-  if (!res.ok) {
-    throw new Error(`Region index request failed: ${res.status}`);
-  }
-  const regions = (await res.json()) as RegionSummary[];
+  // 🔴 Спільна `mapRegions()` — із витримкою й перевіркою на порожнє
+  // в одному місці. Тут теж стояв запит без підказки про кеш (CAMP-312).
+  const regions = await mapRegions();
 
   // 🔴 An empty index is a failure, not an empty map.
   //
