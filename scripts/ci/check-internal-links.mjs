@@ -31,10 +31,69 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..', '..');
 const WEB = path.join(ROOT, 'apps', 'web');
 
-/** Лише рядкові літерали. Вираз у фігурних дужках ми не вгадуємо. */
-const HREF = /href=["'](\/[^"'{}\s]*)["']/g;
+/**
+ * Лише рядкові літерали. Вираз у фігурних дужках ми не вгадуємо.
+ *
+ * 🔴 ДВА НАПИСАННЯ, І ДРУГЕ Я СПЕРШУ ПРОПУСТИВ. `href="/x"` це атрибут у
+ * розмітці, а `href: '/x'` — поле обʼєкта, і саме так написане головне
+ * меню (`components/site-chrome.tsx`). Перша версія брала лише знак
+ * рівності, тож ЖОДНЕ посилання шапки не перевірялось: підкинутий у
+ * меню `/nope-dead-link` пройшов із «усі 19 ведуть кудись», rc=0
+ * (заміряно 14.10.2026, у день, коли цей сторож і зʼявився).
+ *
+ * Знайшов це агент, що додавав `/plan` у ту саму шапку — тобто перший
+ * же, хто торкнувся меню. Сторож, сліпий на найпомітніші посилання
+ * сайту, гірший за відсутній: він дає впевненість, якої не покриває.
+ */
+const HREF = /href\s*[:=]\s*["'](\/[^"'{}\s]*)["']/g;
 
 /** `/a/b/` і `/a/b` — одне й те саме; `#` і `?` до маршруту не належать. */
+/**
+ * Код без коментарів.
+ *
+ * 🔴 ЦЕ ДРУГА ПОМИЛКА ПОСПІЛЬ У ЦЬОМУ Ж ФАЙЛІ, І ВОНА В МЕНЕ ЗАПИСАНА.
+ * Щойно регулярка навчилась бачити `href:` у полях обʼєкта, вона
+ * почала скаржитись на `/plan` і `/rentals` — а вони ЗАКОМЕНТОВАНІ в
+ * `site-chrome.tsx` під рядком «Added as each ships, not before». Тобто
+ * сторож поскаржився на намір, а не на код.
+ *
+ * Той самий дефект уже був у перевірці CEMS: вона матчила згадку в
+ * коментарі й зупинила чужий PR.
+ *
+ * 🔴 ЧОМУ НЕ ПРОСТО ВИРІЗАТИ ВІД `//` ДО КІНЦЯ РЯДКА. Усередині рядка
+ * трапляється `https://`, і наївне правило обрізало б рядок на `//`,
+ * сховавши все, що написане після нього. Тому стан рядка тут
+ * відстежується: що в лапках — те не коментар.
+ */
+export function stripComments(text) {
+  let out = '';
+  let quote = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (quote !== null) {
+      out += c;
+      if (c === '\\') { out += next ?? ''; i += 1; continue; }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { quote = c; out += c; continue; }
+    if (c === '/' && next === '/') {
+      while (i < text.length && text[i] !== '\n') i += 1;
+      out += '\n';
+      continue;
+    }
+    if (c === '/' && next === '*') {
+      i += 2;
+      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i += 1;
+      i += 1;
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
 export function normalise(href) {
   const clean = href.split('#')[0].split('?')[0];
   const cut = clean.length > 1 ? clean.replace(/\/+$/, '') : clean;
@@ -111,14 +170,21 @@ export function offenders(found, routes, publicDir, exists = existsSync) {
 }
 
 /** Усі внутрішні href у дереві, з файлами, де вони трапились. */
-function collect(srcDir) {
+/**
+ * 🔴 ЧИТАЧ ІН'ЄКТОВАНИЙ, І ЦЕ НЕ ПРИКРАСА. Мутація «прибрати
+ * `stripComments` із читання файлів» ловилась лише СПРАВЖНІМ прогоном:
+ * випадки самоперевірки кликали `stripComments` напряму, тож проводка
+ * між читанням і прибиранням не перевірялась нічим. Заміряно
+ * 14.10.2026: справжній прогін rc=1, самоперевірка rc=0.
+ */
+function collect(srcDir, read = (f) => readFileSync(f, 'utf8'), walk = readdirSync) {
   const found = new Map();
   const visit = (abs) => {
-    for (const e of readdirSync(abs, { withFileTypes: true })) {
+    for (const e of walk(abs, { withFileTypes: true })) {
       const full = path.join(abs, e.name);
       if (e.isDirectory()) visit(full);
       else if (/\.tsx?$/.test(e.name)) {
-        const text = readFileSync(full, 'utf8');
+        const text = stripComments(read(full));
         for (const m of text.matchAll(HREF)) {
           const href = normalise(m[1]);
           if (!found.has(href)) found.set(href, new Set());
@@ -187,7 +253,37 @@ function selfTest() {
   const named = offenders(new Map([['/nope', new Set(['b.tsx', 'a.tsx'])]]), routes, '/pub', noAssets);
   check(named[0].files.join() === 'a.tsx,b.tsx', '🔴 скарга називає файли, і в сталому порядку');
 
-  const EXPECTED_CASES = 12;
+  // ── CAMP-318, друга хвиля: шапка сайту й коментарі ────────────────
+  //
+  // 🔴 Обидва випадки нижче — це дефекти, які цей файл мав у день, коли
+  // зʼявився. Перший: регулярка брала лише `href=`, тож ЖОДНЕ посилання
+  // головного меню не перевірялось. Другий: коли навчилась бачити
+  // `href:`, почала скаржитись на закоментовані наміри.
+  const seen = (src) => [...stripComments(src).matchAll(HREF)].map((m) => m[1]);
+
+  check(seen(`{ href: '/map', label: 'Map' }`).join() === '/map',
+    '🔴 поле обʼєкта `href:` видно — так написане головне меню');
+  check(seen(`<a href="/map">`).join() === '/map', 'атрибут `href=` видно, як і раніше');
+  check(seen(`//   { href: '/plan' },`).length === 0,
+    '🔴 закоментований намір — не посилання');
+  check(seen(`/* { href: '/plan' }, */`).length === 0, 'блоковий коментар теж');
+  check(seen(`const a='https://x//y'; const b={ href: '/map' };`).join() === '/map',
+    '🔴 `//` усередині рядка не ховає те, що написане після нього');
+  check(seen(`const s='it\\'s // no'; const b={ href: '/map' };`).join() === '/map',
+    'екранована лапка не ламає стан розбору');
+
+  // 🔴 ВЕСЬ ШЛЯХ, А НЕ ЛИШЕ `stripComments`. Випадки вище кличуть його
+  // напряму, тож мутація «не прибирати коментарі ПРИ ЧИТАННІ» їх не
+  // валила — її ловив лише справжній прогін.
+  {
+    const fakeWalk = () => [{ name: 'x.tsx', isDirectory: () => false }];
+    const fakeRead = () => "//  { href: '/dead-on-purpose' }\nconst a = { href: '/map' };";
+    const found = collect('/fake', fakeRead, fakeWalk);
+    check(!found.has('/dead-on-purpose'), '🔴 закоментоване не доходить і через читання файлу');
+    check(found.has('/map'), 'справжнє посилання через читання файлу доходить');
+  }
+
+  const EXPECTED_CASES = 20;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;
