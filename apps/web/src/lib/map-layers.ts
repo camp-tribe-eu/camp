@@ -62,9 +62,15 @@ export const LAYERS = [
   },
   {
     id: 'hazards',
-    label: 'Hazards',
-    description: 'Official severe-weather warnings.',
-    status: 'planned',
+    // 🔴 "Warnings", не "Hazards" і не "Danger". Ми показуємо те, що
+    // ОПУБЛІКУВАЛА національна метеослужба, із її рівнем і її словами.
+    // "Danger" було б нашою оцінкою ризику для автомобіля, якого ми не
+    // бачили, на дорозі, якої не знаємо — рівно те, чого картка
+    // забороняє.
+    label: 'Weather warnings',
+    description:
+      'Official severe-weather warnings in force now, on the campsites they cover. From the national services through MeteoAlarm.',
+    status: 'live',
     card: 'CAMP-112',
   },
   {

@@ -12,6 +12,21 @@ export * from './viewport';
 export * from './filters';
 
 /** One campsite as a marker needs it — no geometry beyond the point. */
+/**
+ * Колонки, які читає `toMarker`, — ОДИН раз на два запити.
+ *
+ * 🔴 ЦЕ БУВ ДВА СПИСКИ, І Я МАЛО НЕ ВИПРАВИВ ОДИН. `points()` і
+ * `markersForCountry()` обидва годують `toMarker`, і перша спроба
+ * додати `warning_areas` влучила лише в один — друга половина мапи
+ * мовчки лишилась би без попереджень, а тип сказав би, що все гаразд.
+ * Одне визначення на два запити замість сторожа над двома копіями.
+ */
+const markerSelect = () =>
+  `slug, ${mergedNameSql('s')} AS name,
+   country, region, type, amenities, warning_areas,
+   ST_Y(location::geometry) AS lat,
+   ST_X(location::geometry) AS lon`;
+
 export interface SpotMarker {
   slug: string;
   name: string | null;
@@ -21,6 +36,24 @@ export interface SpotMarker {
   lat: number;
   lon: number;
   amenities: CampingSpotAmenities;
+  /**
+   * Зони попереджень цього кемпінга (CAMP-112).
+   *
+   * 🔴 КОДИ, А НЕ ВИРОК. Зіставлення з чинними попередженнями робить
+   * КЛІЄНТ, і це не стиль: дані кемпінгів кешуються надовго, а знімок
+   * попереджень живе десять хвилин за клаузулою 5.6. Порахувати рівень
+   * тут означало б прив'язати перше до бюджету другого й оновлювати
+   * усю мапу раз на десять хвилин.
+   *
+   * 🔴 І ЦЕ ДЕШЕВО, ЗАМІРЯНО 13.10.2026: медіана — один код на кемпінг,
+   * максимум три, 16 байтів на масив у середньому, і всього 1 682
+   * унікальні коди на всю базу, тож стиснення зʼїдає повтори. 2 000
+   * маркерів за замовчуванням — це 32 КБ сирих.
+   *
+   * 🔴 `null` і `[]` — різні відповіді, як і на сторінці: `null`
+   * означає, що резолвер сюди не дійшов.
+   */
+  warningAreas: string[] | null;
   /**
    * 🔴 Built here, by the same function the pages use. The web app had
    * started re-deriving the region slug from the region name to make
@@ -294,10 +327,7 @@ export class MapQueryService {
     const params: unknown[] = [country, named];
 
     const rows = await this.db.query(
-      `SELECT slug, ${mergedNameSql('s')} AS name,
-              country, region, type, amenities,
-              ST_Y(location::geometry) AS lat,
-              ST_X(location::geometry) AS lon
+      `SELECT ${markerSelect()}
          FROM camping_spots s
         WHERE missing_since IS NULL
           AND lower(country) = lower($1)
@@ -318,10 +348,7 @@ export class MapQueryService {
     const f = filterSql(filters, box.length);
 
     const rows = await this.db.query(
-      `SELECT slug, ${mergedNameSql('s')} AS name,
-              country, region, type, amenities,
-              ST_Y(location::geometry) AS lat,
-              ST_X(location::geometry) AS lon
+      `SELECT ${markerSelect()}
          FROM camping_spots s
         WHERE missing_since IS NULL
           AND ${notSecondarySql('s')}
@@ -444,6 +471,9 @@ function toMarker(row: Record<string, unknown>): SpotMarker {
     // Read through the same normaliser as the page, so the two can
     // never disagree about which amenities exist.
     amenities: readAmenities(row.amenities),
+    warningAreas: Array.isArray(row.warning_areas)
+      ? (row.warning_areas as string[])
+      : null,
     path: canonicalPath(
       row.country as string,
       (row.region as string) ?? null,

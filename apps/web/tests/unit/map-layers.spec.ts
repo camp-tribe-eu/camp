@@ -13,6 +13,26 @@ import {
   toggleLayer,
 } from '../../src/lib/map-layers';
 
+/**
+ * Будь-який шар, який ще НЕ живий, узятий з реєстру.
+ *
+ * 🔴 ТРИ ВИПАДКИ НИЖЧЕ ВЖИВАЛИ ЛІТЕРАЛЬНЕ `'hazards'` ЯК ПРИКЛАД
+ * «неживого», і всі три впали, щойно CAMP-112 його увімкнула. Правило
+ * не зламалось — переїхав приклад. Поки в реєстрі є хоч один
+ * планований шар, випадки мають на чому стояти; коли не лишиться,
+ * `plannedId()` впаде з поясненням, а не тихо перестане щось
+ * перевіряти.
+ */
+const plannedId = (): string => {
+  const planned = LAYERS.find((l) => l.status === 'planned');
+  if (planned === undefined) {
+    throw new Error(
+      'у реєстрі не лишилось планованих шарів — випадки про «неживий id» утратили предмет',
+    );
+  }
+  return planned.id;
+};
+
 // CAMP-122. The rules this file holds are the ones that decide whether a
 // reader can tell an empty area from a broken map — and both of those
 // look identical on screen unless the code says which it is.
@@ -119,13 +139,18 @@ test('a layer that is switched off is not reported as empty', () => {
 });
 
 test('several silent layers are listed, not summarised', () => {
-  const notice = emptyLayerNotice(
-    ['campsites', 'hazards', 'charging'] as never,
-    {},
-  );
-  expect(notice).toContain('Campsites');
-  expect(notice).toContain('Hazards');
-  expect(notice).toContain('Charging');
+  // 🔴 ПІДПИСИ БЕРУТЬСЯ З РЕЄСТРУ, НЕ ВПИСУЮТЬСЯ ТУТ. Цей тест чекав
+  // літерального «Hazards» і впав, щойно шар перейменували на «Weather
+  // warnings» (CAMP-112) — а перейменування було навмисним і
+  // правильним. Копія підпису в тесті не є другою думкою про підпис:
+  // вона просто застаріває мовчки й падає на наступному.
+  const ids = ['campsites', 'hazards', 'charging'] as const;
+  const notice = emptyLayerNotice(ids as never, {});
+  for (const id of ids) {
+    const label = LAYERS.find((l) => l.id === id)?.label;
+    expect(label, `${id} зник із реєстру`).toBeTruthy();
+    expect(notice).toContain(label as string);
+  }
   expect(notice).toContain(' and ');
 });
 
@@ -153,14 +178,21 @@ test('an unknown id is refused on its own, without the order rule', () => {
   // noticing, because only one layer is live. This drives each.
   expect(toggleLayer(['campsites'], 'not-a-layer')).toEqual(['campsites']);
   expect(toggleLayer([], 'not-a-layer')).toEqual([]);
-  expect(toggleLayer([], 'hazards')).toEqual([]);
+
+  // 🔴 ПЛАНОВАНИЙ ШАР БЕРЕТЬСЯ З РЕЄСТРУ. Тут стояло літеральне
+  // `'hazards'`, і воно перестало бути плановим, щойно CAMP-112 його
+  // увімкнула — тест упав не тому, що правило зламалось, а тому, що
+  // його приклад переїхав. Поки в реєстрі є хоч один планований шар,
+  // цей випадок має на чому стояти; коли не лишиться — впаде з
+  // поясненням, а не мовчки перестане щось перевіряти.
+  expect(toggleLayer([], plannedId())).toEqual([]);
 });
 
 test('an unknown id already in the state is dropped, not carried', () => {
   // The order rule is also the safety net: whatever comes in, what comes
   // out is live layers in registry order.
-  expect(toggleLayer(['hazards', 'campsites', 'nonsense'], 'campsites')).toEqual([]);
-  expect(toggleLayer(['hazards', 'nonsense'], 'campsites')).toEqual(['campsites']);
+  expect(toggleLayer([plannedId(), 'campsites', 'nonsense'], 'campsites')).toEqual([]);
+  expect(toggleLayer([plannedId(), 'nonsense'], 'campsites')).toEqual(['campsites']);
 });
 
 test('the round trip is lossless for EVERY subset, not just the ends', () => {

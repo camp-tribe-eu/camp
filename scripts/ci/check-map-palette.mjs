@@ -37,6 +37,7 @@ import { chooseAction } from '../lib/entrypoint.mjs';
 import { expression } from '@maplibre/maplibre-gl-style-spec';
 import SERVED from '../../apps/web/src/data/basemap-colours.json' with { type: 'json' };
 import {
+  HAZARD_COLOUR,
   LINE_GUESS,
   MARKER_STROKE,
   ROUTE_LINE,
@@ -141,9 +142,24 @@ export const deltaE = (a, b) => {
 };
 
 /** Every fill the map can paint — including the one for a kind we have no colour for. */
-export const everyFill = (types = TYPE_COLOUR, unknown = UNKNOWN_COLOUR) => [
+/**
+ * 🔴 CAMP-112. Кільце попередження малюється з тією самою темною
+ * обводкою, що й маркери, тож міряється там само — проти неї, а не
+ * проти підкладки. Без цього рядка колір, якого мапа вже малює, не
+ * міряв би ніхто, і сторож казав би «усі проходять» про множину, що
+ * його не містить — рівно та помилка, якої цей файл уже припускався
+ * з `UNKNOWN_COLOUR`.
+ */
+export const everyFill = (
+  types = TYPE_COLOUR,
+  unknown = UNKNOWN_COLOUR,
+  hazard = HAZARD_COLOUR,
+) => [
   ...Object.entries(types),
   ['«unknown»', unknown],
+  // 🔴 CAMP-112: кільце попередження. Воно малюється з тією самою
+  // темною обводкою, тож і міряється тут, а не окремо.
+  ['«hazard»', hazard],
 ];
 
 /** Can this marker be seen on that background — by its fill, or by its ring? */
