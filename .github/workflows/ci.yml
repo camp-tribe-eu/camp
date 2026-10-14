@@ -293,6 +293,18 @@ jobs:
       - name: Every workflow says what its token may do
         run: node scripts/ci/check-workflow-permissions.mjs
 
+      # CAMP-273. The daily watchdog over Dependabot pull requests names the
+      # neighbours a bump left behind. It runs on its own schedule, where
+      # nobody watches it, so what proves it still bites has to run here, on
+      # every change: a watchdog that ships broken reports "fine" by never
+      # reporting. The step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: Dependabot-PR watchdog still names what a bump left behind
+        run: |
+          set -o pipefail
+          node scripts/ci/check-dependabot-prs.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-dependabot-prs self-test:' >/dev/null
+
       # 🔴 CAMP-287 крок 1. Перепис схем вирішує, чиї попередження ми
       # взагалі можемо зіставити з кемпінгом. Франція лежить у полігонах
       # EMMA на 97.5%, а попереджає в NUTS3 — коди в чужій схемі не
