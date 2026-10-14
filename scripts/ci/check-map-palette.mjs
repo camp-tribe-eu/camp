@@ -373,8 +373,8 @@ export function literalLineColours(source) {
  * `raster-opacity`, so the pixel over a basemap colour is the class colour at
  * `alpha/255 × raster-opacity` — not the hex in the table, and not the alpha
  * in it either. The first version of the table was read by nobody here and
- * drew "no drought" at 22.9%: ΔE 4.0–7.0 and a contrast of 1.09–1.13 against
- * the basemaps, under the 25 and 3 this file holds everything else to, which
+ * drew "no drought" at 22.9%: ΔE 4.0–13.2 and a contrast of 1.01–1.15 over
+ * the eleven basemap colours, under the 25 and 3 this file holds everything else to, which
  * made the one distinction the card exists for — covered and fine, against
  * not covered — a shade of green on a shade of green.
  *
