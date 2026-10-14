@@ -1,6 +1,8 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { INITIAL_VIEW } from '@/lib/map-sources';
@@ -112,21 +114,29 @@ const uniform = (value: number) =>
     covered: () => true,
   });
 
+/** The flat land of the stub basemap, unless a test asks for another. */
+const STUB_LAND = '#e8e8e8';
+
 /** A flat, local basemap, so the pixels are ours. See wildfire-layer.spec.ts. */
-async function stubStyles(page: Page) {
+async function stubStyles(page: Page, land: string = STUB_LAND) {
   await page.route('**/styles/*', async (route) => {
     await route.fulfill({
       json: {
         version: 8,
         sources: {},
-        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#e8e8e8' } }],
+        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': land } }],
       },
     });
   });
 }
 
-/** Campsites we place ourselves; `[]` is a map with no markers. See map.spec.ts. */
-async function stubSpots(page: Page, points: { lng: number; lat: number; name: string }[]) {
+/**
+ * Campsites we place ourselves; `[]` is a map with no markers. See map.spec.ts.
+ * A point is `paid` unless it says what it is: the kinds are the five OSM gives
+ * us (`TYPE_COLOUR` in map-palette.ts), and a test about one kind's colour has
+ * to be able to ask for it.
+ */
+async function stubSpots(page: Page, points: { lng: number; lat: number; name: string; type?: string }[]) {
   await page.route('**/data/spots/index.json', (route) =>
     route.fulfill({
       contentType: 'application/json',
@@ -147,7 +157,7 @@ async function stubSpots(page: Page, points: { lng: number; lat: number; name: s
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
           properties: {
-            slug: `fixture-${i}`, name: p.name, type: 'paid', href: '/camping',
+            slug: `fixture-${i}`, name: p.name, type: p.type ?? 'paid', href: '/camping',
             electricity: 'yes', water: 'unknown', shower: 'no', dogFriendly: 'unknown', wifi: 'unknown',
           },
         })),
@@ -168,8 +178,8 @@ async function skipWithoutWebGL(page: Page) {
 }
 
 /** Open /map, retrying only when the page itself did not render (the API rate-limits). */
-async function openMap(page: Page) {
-  await stubStyles(page);
+async function openMap(page: Page, land: string = STUB_LAND) {
+  await stubStyles(page, land);
   for (let attempt = 0; attempt < 8; attempt++) {
     await page.goto('/map');
     await skipWithoutWebGL(page);
@@ -778,4 +788,219 @@ test.describe('the picture', () => {
     const off = await map.screenshot();
     expect(Buffer.compare(stale, off) === 0, 'a stale period changed the canvas — it was drawn').toBe(true);
   });
+});
+
+// ── CAMP-319: a marker's FILL over the Alert class, on the pixels ─────────
+//
+// `check-map-palette.mjs` says that a `wild` marker's fill and the pixel the
+// drought layer paints under it are, over the Alert class (3), almost one
+// colour — `fillOnlyOnPixel()`: ΔE 6.9 on the worst basemap surface, against a
+// floor of 25 — and that the marker is carried by its dark ring alone. That
+// number is ARITHMETIC: a fill hex and a blend, both worked out in a script.
+// This is the only place it is held against what a browser PAINTS: the
+// marker's own pixels against the layer's, on a canvas.
+//
+// 🔴 IT PINS A KNOWN BAD STATE, ON PURPOSE. It does not say the markers are
+// fine. It says they are exactly as bad as the guard says, and that the
+// guard's arithmetic is the picture's. The day someone fixes the markers (a
+// lighter `wild`, a ring that cuts the fill off, a halo) it goes red and says
+// so; the answer is to close CAMP-319 and rewrite this, not to widen it.
+//
+// 🔴 THE EXPECTATION IS WORKED OUT BY THE GUARD, IN ITS OWN PROCESS, NOT BY
+// THIS FILE. "The colour maths the pixel checks use" above is a second
+// implementation of ΔE; using it for the expected value as well would make the
+// test agree with itself. The browser supplies the measurement, the guard
+// supplies the expectation, and they share nothing but the palette both are
+// asked about.
+//
+// 🔴 THE WORST CASE IS REPRODUCED, NOT HUNTED FOR. The guard's worst pair is
+// `wild` over class 3 on `liberty.trunk`; the stub basemap is one flat colour,
+// so it is given that colour for the test, and the layer over it is exactly
+// the pixel the guard computes. (`ci-seed.sql` is not touched for this:
+// `check-fixture-counts.mjs` holds its 72 campsites, 37 and 35 by country, and
+// /map prints them — a test makes the case reproducible for less.)
+//
+// 🔴 WHAT THE AGREEMENT CANNOT CATCH, AND IS NOT CLAIMED TO: a change to the
+// palette itself (`TYPE_COLOUR.wild`, `DROUGHT_COLOURS[3]`) moves the guard's
+// number and the painted pixel together, so the agreement stays green. That is
+// the second assertion's — the pair must still be one the guard reports as
+// merged — and what the first catches is the page painting something other
+// than the palette the guard measured.
+const GUARD = join(__dirname, '..', '..', '..', '..', 'scripts', 'ci', 'check-map-palette.mjs');
+
+type GuardRow = { klass: number; marker: string; where: string; pixel: string; contrast: number; deltaE: number; bg: string };
+
+/**
+ * Every (`wild`, class 3) pair the guard measures, worst first — one per
+ * basemap surface it knows, plus the stub's flat land — and the fill the guard
+ * holds for `wild`. Asked of the guard in a child process, started the way CI
+ * starts it (`--experimental-strip-types`), so the numbers are the guard's.
+ */
+function guardWildOverAlert(): { rows: GuardRow[]; fill: string | null } {
+  const source = `
+    import { fillOnlyOnPixel, everyFill, BASEMAP } from ${JSON.stringify(pathToFileURL(GUARD).href)};
+    const land = { ...BASEMAP, stub: ${JSON.stringify(STUB_LAND)} };
+    const rows = fillOnlyOnPixel(undefined, undefined, land)
+      .filter((r) => r.marker === 'wild' && r.klass === 3)
+      .map((r) => ({ ...r, bg: land[r.where] }));
+    const fill = everyFill().find(([name]) => name === 'wild');
+    console.log(JSON.stringify({ rows, fill: fill ? fill[1] : null }));
+  `;
+  const out = execFileSync(process.execPath, ['--experimental-strip-types', '--no-warnings', '--input-type=module', '-e', source], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return JSON.parse(out);
+}
+
+/**
+ * 🔴 THE TOLERANCE: 1.7 ΔE, AND WHERE IT COMES FROM.
+ *
+ * It is the error of the instrument, and nothing else. The browser composites
+ * the layer at `raster-opacity` on the GPU and the guard rounds the same blend
+ * to whole 8-bit channels; "it is in the right PLACE" above found the two
+ * apart by at most 1 out of 255 in a channel (0 in Chromium, 1 in Firefox and
+ * WebKit, on the runners that file was written on). ΔE is steep here — marker
+ * and layer are both near red — so one step matters: the worst ΔE moves when
+ * every one of the six channels (the marker's pixel AND the layer's) is off by
+ * one is 1.49 on the guard's worst surface and 1.64 on the stub's land, found
+ * by trying all 3⁶ = 729 combinations. 1.64 rounded up to a tenth is 1.7, and
+ * the test below recomputes that, so the number cannot drift from its reason.
+ *
+ * On the machine this was written on (macOS, Chromium, Firefox and WebKit,
+ * device pixel ratios 1, 2 and 2.625) the browser and the guard agreed to the
+ * third decimal — the marker painted exactly its fill, the layer exactly the
+ * guard's blend — so the tolerance is headroom for other GPUs, not a
+ * correction for this one.
+ *
+ * 🔴 WHAT 1.7 DOES NOT SEPARATE: a marker drawn at 90% opacity reads about
+ * 0.7 ΔE from the guard's number here, inside the tolerance. What it does
+ * separate is a different colour: white reads 91, `paid` 40.
+ */
+const PIXEL_TOLERANCE = 1.7;
+
+/** The middle value of each channel over a block of RGBA readings. */
+function medianPixel(block: number[][]): Rgb {
+  return [0, 1, 2].map((k) => {
+    const v = block.map((p) => p[k]).sort((a, b) => a - b);
+    return v[Math.floor(v.length / 2)];
+  }) as Rgb;
+}
+
+test.describe('a marker’s fill over the Alert class (CAMP-319)', () => {
+  test('the tolerance is the instrument’s own: one 8-bit step in every channel of both pixels, rounded up to a tenth', () => {
+    // Worked out here from the guard's own pairs, so a palette that moves the
+    // pairs moves the number and this says so, instead of a comment going stale.
+    const { rows, fill } = guardWildOverAlert();
+    expect(fill, 'the guard holds no fill for wild').toBeTruthy();
+    const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as Rgb;
+    const pairs = [rows[0], rows.find((r) => r.where === 'stub')];
+    let worst = 0;
+    for (const pair of pairs) {
+      expect(pair, 'a pair the tests below use is missing from the guard').toBeTruthy();
+      const a = rgb(fill!);
+      const b = rgb(pair!.pixel);
+      const exact = deltaE(a, b);
+      for (let m = 0; m < 3 ** 6; m++) {
+        let k = m;
+        const off = Array.from({ length: 6 }, () => {
+          const d = (k % 3) - 1;
+          k = Math.floor(k / 3);
+          return d;
+        });
+        const moved = deltaE(a.map((v, i) => v + off[i]) as Rgb, b.map((v, i) => v + off[3 + i]) as Rgb);
+        worst = Math.max(worst, Math.abs(moved - exact));
+      }
+    }
+    expect(worst, 'one step moved nothing: the sweep did not run').toBeGreaterThan(1);
+    expect(
+      PIXEL_TOLERANCE,
+      `one 8-bit step in every channel now moves ΔE by up to ${worst.toFixed(3)}, so the tolerance should be ${Math.ceil(worst * 10) / 10}. ` +
+        `The guard's pairs moved (the markers or the layer palette changed): if CAMP-319 is being closed, this goes with the other assertions; ` +
+        `if not, set the tolerance to that figure — and not to anything wider`,
+    ).toBe(Math.ceil(worst * 10) / 10);
+  });
+
+  for (const surface of ['worst', 'stub'] as const) {
+    test(`🔴 wild over class 3 on ${surface === 'worst' ? 'the surface the guard calls the worst' : 'the stub basemap’s own land'}: the ΔE the guard computes is the ΔE the browser painted`, async ({ page, browserName }) => {
+      test.skip(cameraUnreliable(browserName), 'WebKit on Linux cannot photograph a canvas — see wildfire-layer.spec.ts');
+      const { rows, fill } = guardWildOverAlert();
+      expect(rows.length, 'the guard measures no (wild, class 3) pair — there is nothing to hold the picture to').toBeGreaterThan(1);
+      const want = surface === 'worst' ? rows[0] : rows.find((r) => r.where === 'stub');
+      expect(want, 'the guard has no row for the stub basemap').toBeTruthy();
+      const pair = want!;
+
+      // Class 3 everywhere the map opens, one `wild` marker at the middle of
+      // the opening view, and the guard's own surface as the flat land under it.
+      await page.clock.setFixedTime(clockAt(27));
+      await serveDrought(page, uniform(3));
+      await stubSpots(page, [{ lng: INITIAL_VIEW.lng, lat: INITIAL_VIEW.lat, name: 'Fixture campsite 0', type: 'wild' }]);
+      await openMap(page, pair.bg);
+      await mapReady(page);
+      await dismissBanner(page);
+      await switchOn(page);
+      const map = page.locator(MAP);
+      await expect(map).toHaveAttribute('data-drought-drawn', '1');
+      // 🔴 THE MARKER IS ON THE CANVAS — MapLibre's own count of the campsites
+      // it painted, and where. An empty map has to fail here, in words, and
+      // not reach a comparison that would have nothing to compare.
+      await expect(map, 'the map painted no campsite marker: there is nothing to measure').toHaveAttribute('data-visible-points', '1');
+      await expect.poll(async () => await map.getAttribute('data-point-at'), { message: 'the map did not say where the marker is' }).not.toBeNull();
+      await expect(map).toHaveAttribute('data-camera', 'still');
+      await map.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(800);
+
+      const [mx, my] = (await map.getAttribute('data-point-at'))!.split(',').map(Number);
+      const shot = await map.screenshot();
+      const dpr = await page.evaluate(() => window.devicePixelRatio);
+
+      // 🔴 THE MEDIAN OF A 5 × 5 BLOCK OF DEVICE PIXELS, not one pixel. The
+      // marker's centre is published rounded to a CSS pixel, the screenshot is
+      // in device pixels (2.625 per CSS pixel on the Pixel 7), and the fill's
+      // edge is anti-aliased: one pixel could be the ring's. The block is 2
+      // device pixels either side of the centre — inside the fill, whose
+      // radius is 4.5 CSS pixels at the opening zoom less half the 1.5 px ring
+      // (about 3.8) — and the median shrugs off the four corners if the
+      // anti-aliasing reaches them. The layer-only pixel is the same block 30
+      // CSS pixels to the left, well clear of the ring; the right-hand one is
+      // there to say the layer is uniform and nothing else is in the way.
+      const HALF = 2;
+      const sites: [string, number, number][] = [['marker', mx, my], ['left', mx - 30, my], ['right', mx + 30, my]];
+      const blockAt = (x: number, y: number): [number, number][] => {
+        const out: [number, number][] = [];
+        for (let dy = -HALF; dy <= HALF; dy++)
+          for (let dx = -HALF; dx <= HALF; dx++) out.push([Math.round(x * dpr) + dx, Math.round(y * dpr) + dy]);
+        return out;
+      };
+      const per = (2 * HALF + 1) ** 2;
+      const read = await pixelsOf(page, shot, sites.flatMap(([, x, y]) => blockAt(x, y)));
+      const [markerPx, leftPx, rightPx] = sites.map((_, i) => medianPixel(read.slice(i * per, (i + 1) * per)));
+
+      expect(
+        Math.max(...leftPx.map((v, k) => Math.abs(v - rightPx[k]))),
+        `the layer is not uniform either side of the marker: ${leftPx} against ${rightPx}`,
+      ).toBeLessThanOrEqual(1);
+
+      const measured = deltaE(markerPx, leftPx);
+      test.info().annotations.push({
+        type: 'camp-319',
+        description: `${pair.where} ${pair.bg}: marker ${markerPx} on layer ${leftPx}: measured ΔE ${measured.toFixed(3)}, guard ΔE ${pair.deltaE.toFixed(3)} (fill ${fill}, pixel ${pair.pixel}), dpr ${dpr}`,
+      });
+      expect(
+        Math.abs(measured - pair.deltaE),
+        `wild over class 3 on ${pair.where} ${pair.bg}: the browser painted the marker as ${markerPx} on a layer pixel of ${leftPx}, ΔE ${measured.toFixed(2)}; ` +
+          `the guard computes ΔE ${pair.deltaE.toFixed(2)} for the fill ${fill} on the pixel ${pair.pixel}`,
+      ).toBeLessThanOrEqual(PIXEL_TOLERANCE);
+
+      // 🔴 THE KNOWN STATE. Both numbers — the guard's and the picture's — are
+      // under the floor, so a marker's fill and the layer under it read as one
+      // colour. When this fails the markers were fixed: close CAMP-319.
+      expect(
+        pair.deltaE,
+        `the guard no longer reports a wild marker as merging with class 3 on ${pair.where} (ΔE ${pair.deltaE.toFixed(1)}, floor ${MIN_DELTA_E}): ` +
+          `the markers were changed — update CAMP-319, and rewrite or delete this test`,
+      ).toBeLessThan(MIN_DELTA_E);
+      expect(measured, `the browser paints a wild marker apart from class 3 (ΔE ${measured.toFixed(1)}, floor ${MIN_DELTA_E}): CAMP-319 is fixed`).toBeLessThan(MIN_DELTA_E);
+    });
+  }
 });
