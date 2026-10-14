@@ -610,12 +610,34 @@ function selfTest() {
   cases++;
   if (droughtProblems({ 0: { hex: '#FC3', alpha: 255 } }, 0.65).length === 0)
     fails.push('a drought colour in three-digit notation was accepted');
+  // 🔴 `[]` for the fills and `[0]` for the held class on the next two, and
+  // not the defaults: with the defaults this table is refused for the markers
+  // anyway, so a validation that had been deleted would still have been
+  // "caught" by something else. Measured by deleting it: both survived.
   cases++;
-  if (droughtProblems({ 0: { hex: '#1C4418', alpha: 300 } }, 0.65).length === 0)
+  if (droughtProblems({ 0: { hex: '#1C4418', alpha: 300 } }, 0.65, BASEMAP, [0], [], ring).length === 0)
     fails.push('an alpha of 300 was accepted');
   cases++;
-  if (droughtProblems(darkZero, 0, BASEMAP, [0], [], ring).length === 0)
+  if (droughtProblems(darkZero, 0, BASEMAP, [], [], ring).length === 0)
     fails.push('a raster-opacity of 0 was accepted');
+  cases++;
+  if (droughtProblems(darkZero, 1.5, BASEMAP, [], [], ring).length === 0)
+    fails.push('a raster-opacity above 1 was accepted');
+  // A marker is seen by its fill OR by its ring. Over a pixel so dark that the
+  // ring is lost (2.7:1), a pale fill still carries it (4+:1) — and a check
+  // that looked at the ring alone would refuse a table that is fine.
+  cases++;
+  if (
+    droughtProblems(
+      { 0: { hex: '#101010', alpha: 255 } },
+      0.65,
+      BASEMAP,
+      [],
+      [['rv_park', '#C9D3E4']],
+      ring
+    ).length !== 0
+  )
+    fails.push('a marker carried by its pale fill over a dark pixel was refused');
   // The map must use the number that was measured.
   cases++;
   if (rasterOpacityProblems('paint: { "raster-opacity": 0.65, }').length === 0)
@@ -629,7 +651,7 @@ function selfTest() {
   // 🔴 CAMP-286: counted, because "13 cases" was prose. An assertion
   // that stopped being reached printed exactly what a passing one
   // printed, and the sentence below went on claiming thirteen.
-  const EXPECTED_CASES = 30;
+  const EXPECTED_CASES = 32;
   if (cases !== EXPECTED_CASES) {
     fails.push(`${cases} assertions ran, expected ${EXPECTED_CASES}`);
   }

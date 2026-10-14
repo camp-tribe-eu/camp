@@ -40,25 +40,28 @@ export const DROUGHT_RASTER_OPACITY = 0.65;
  * say about Malta exactly what the mask exists to stop it saying.
  *
  * The first version drew 0 as `#9CC5A1` at alpha 90. Through the layer's
- * 0.65 that is 22.9% — ΔE 4.0 to 7.0 and a contrast of 1.09 to 1.13 against
- * the colours of the basemaps we serve, against the 25 and 3 this
- * repository holds everything else to (measured 14.10.2026 by
- * `check-map-palette.mjs`, which now reads this table). The distinction the
+ * 0.65 that is 22.9% — ΔE 4.0 to 13.2 and a contrast of 1.01 to 1.15 over
+ * the eleven basemap colours we serve, against the 25 and 3 this repository
+ * holds everything else to (measured 14.10.2026 by `check-map-palette.mjs`,
+ * which now reads this table). The distinction the
  * card exists to make had moved from the data into the rendering, where it
  * was one shade of green on another.
  *
  * 🔴 WHY THE TINT IS DARK, AND WHAT IT COSTS. A contrast of 3:1 against
- * every basemap colour — the darkest being liberty's water, `#9EBDFF` — means
- * the pixel itself has to be about as dark as relative luminance 0.136. At
- * the layer's ceiling of 65% that takes a very dark green: of the 262 144
- * colours on a 4-step grid, 22 546 pass both thresholds and the lightest
- * green among them is about `#1C4418`. The cost is on the campsite markers
- * that sit on top: their dark ring needs 3:1 against the SAME pixel, which
- * asks for a luminance of at least 0.1366 — and the two windows do not
- * meet (0.1363 against 0.1366). The best any colour manages is 2.998:1 for
- * a `free` marker over a tinted lake in liberty. `check-map-palette.mjs`
- * reports that line and it is the one thing left for a decision; see the
- * pull request.
+ * every basemap colour — the darkest being liberty's water, `#9EBDFF` —
+ * means the pixel itself has to be about as dark as relative luminance
+ * 0.136. At the layer's ceiling of 65% that takes a very dark green: of the
+ * 262 144 colours on a 4-step grid, 22 546 pass both thresholds, and
+ * `#1C4418` is among the greens nearest the line (3.0001:1 on liberty's
+ * water, ΔE 40.4 at the worst basemap colour; it sits ON the line on
+ * purpose, because every step lighter is a step under 3:1).
+ *
+ * The cost is on the campsite markers that sit on top. Their dark ring needs
+ * 3:1 against the SAME pixel, which asks for a luminance of at least 0.1366
+ * — and the two windows do not meet (0.1363 against 0.1366). The best any
+ * colour manages is 2.998:1, for a `free` marker over a tinted lake in
+ * liberty and nowhere else. `check-map-palette.mjs` reports exactly that
+ * line, and it is the one thing left for a decision: see the pull request.
  */
 export const DROUGHT_COLOURS: Readonly<Record<number, { hex: string; alpha: number }>> = {
   0: { hex: '#1C4418', alpha: 255 },
