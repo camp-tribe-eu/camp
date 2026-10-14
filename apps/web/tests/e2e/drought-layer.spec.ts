@@ -617,7 +617,7 @@ test.describe('the picture', () => {
       if (lon < 14.5) return { name: 'bare', rgb: [BASE, BASE, BASE] };
       if (inBlock(lat, lon)) return { name: 'class 0, tinted', rgb: blend('#9CFE84', 255) };
       return (Math.floor(lat) + Math.floor(lon)) % 2 === 0
-        ? { name: 'class 1', rgb: blend('#F2E02E', 255) }
+        ? { name: 'class 1', rgb: blend('#BEB632', 255) }
         : { name: 'class 3', rgb: blend('#A5541B', 255) };
     };
 

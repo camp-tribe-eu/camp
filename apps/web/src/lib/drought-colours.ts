@@ -79,29 +79,55 @@ export const DROUGHT_RASTER_OPACITY = 0.65;
  * mark or a word be read on this colour"; whether a FILL can be told from the
  * absence of one is a question of colour difference, which is ΔE.
  *
+ * 🔴 THE PALETTE SHIPPED IS THE MUTED ONE, AND IT HAS ONE NAMED EXCEPTION.
+ * Decision of the owner, 14.10.2026. A palette that clears every line exists —
+ * class 1 `#F2E02E`, class 2 `#FF8E00`, recovery `#00938A`: every pair >= ΔE
+ * 30.8, every class >= ΔE 29.3 from every basemap colour, markers >= 4.43:1 —
+ * but its yellow and orange are chroma 81 and 84 (the campsite markers are 73),
+ * and he chose the muted one (chroma <= 65), knowing that costs exactly ONE pair
+ * of classes its ΔE 25. The saturated palette is still valid: put those three
+ * colours back and `check-map-palette.mjs` is green (it prints a note that the
+ * exception is no longer needed).
+ *
+ * THE EXCEPTION is classes 2 ("dry ground") and 3 ("vegetation under stress"):
+ * ΔE 20.1 at worst (over liberty's trunk roads, measured 14.10.2026), recorded
+ * as a FLOOR of 20.1 in `DROUGHT_PAIR_EXCEPTIONS`. The guard demands at least
+ * that of the pair — if a colour moves and they close up, it goes red — and
+ * every OTHER pair, and every class against every basemap colour, still needs
+ * 25. `MIN_DELTA_E` is not lowered: it is shared with the markers and the route
+ * lines. Why this pair: both are drought, one rung apart, so a reader who takes
+ * one for the other has the severity off by a step and nothing else wrong. In
+ * the search (chroma <= 65, yellow and orange bands) it was the better of the
+ * only two pairs that could be the single exception at all: 1–2 ("less rain"
+ * against "dry ground", also both drought) reaches ΔE 12.4. The pairs that mix
+ * drought with "no drought" (0–1) or with recovery can not be it, and would be
+ * the dangerous confusions if they could.
+ *
  * THE FIVE, AS `check-map-palette.mjs` PRINTS THEM (14.10.2026): the worst case
  * over the eleven basemap colours, so each is a floor and not an average.
  *
  *   class  colour    ΔE vs basemap          ΔE vs another colour        markers
- *   0      #9CFE84   32.6 liberty.trunk     33.7 class 1                11.66:1
- *   1      #F2E02E   33.8 liberty.trunk     31.0 class 2                10.88:1
- *   2      #FF8E00   43.2 liberty.trunk     30.8 class 3                 7.33:1
- *   3      #A5541B   38.2 liberty.trunk     30.8 class 2                 4.43:1
- *   4–6    #00938A   29.3 bright.water      44.2 class 0                 5.62:1
+ *   0      #9CFE84   32.6 liberty.trunk     28.1 class 1                11.66:1
+ *   1      #BEB632   25.1 liberty.trunk     25.2 class 2                 8.09:1
+ *   2      #FA9E45   28.2 liberty.trunk     25.2 class 1 (20.1 class 3)  8.05:1
+ *   3      #A5541B   38.2 liberty.trunk     34.8 class 1 (20.1 class 2)  4.43:1
+ *   4–6    #008784   28.8 bright.water      47.0 class 0                 5.15:1
  *
  * HOW 1, 2 AND 4–6 WERE CHOSEN, so the next person can redo it rather than trust
  * it. Class 0 (`#9CFE84`) and class 3 (`#A5541B`) were not touched. Colours on
- * an RGB grid were dropped unless they cleared items 1–3 against the basemap and
- * against 0 and 3, and the survivors were searched for the yellow–orange pair
- * and the recovery colour with the widest worst case. The room is small: yellow
- * and orange are sandwiched between a pale-yellow trunk road, a light green
- * class 0 and a brown class 3, and in the search with their chroma capped at 65
- * the best pair found reached ΔE 23.5 — under the line. Hence the saturated
- * yellow and orange; the pixel is 35% basemap, so on the map they read softer.
- * The recovery colour has far more room (498 colours of hue 186–200°, chroma
- * 28–45 and lightness 52–62 on a 3-step grid clear everything); it is a
- * middling teal so that "recovered" is not the heaviest thing on the map, and
- * not a blue, because the basemaps' water is blue.
+ * an RGB grid were dropped unless they cleared the basemap, the markers and the
+ * order (0 lightest, 1 → 2 → 3 darker and warmer, yellow and orange bands), and
+ * the survivors were searched for the pair and the recovery colour with the
+ * widest worst case. Muting costs the exception's floor, steeply: with one pair
+ * allowed under 25 and chroma capped at 70 / 68 / 66 / 64 / 62, the best floor
+ * for 2–3 was 23.4 / 22.1 / 19.5 / 18.0 / 16.0 (3-step grid). Without the
+ * exception nothing at chroma <= 65 clears everything: none in the yellow and
+ * orange bands, and across the whole 45–105° warm band the widest worst case
+ * found was an olive and a khaki at ΔE 23.5. The recovery
+ * colour has far more room (a middling teal, so that "recovered" is not the
+ * heaviest thing on the map, and not a blue, because the basemaps' water is
+ * blue). Class 0 is chroma 71, brighter than the muted pair beside it; it was
+ * measured and proved in CAMP-200 and is left alone.
  *
  * `#9CFE84` is a light green. 3 401 of the 140 608 colours on a 5-step grid
  * clear class 0's three rules (and are lighter than the classes beside them on
@@ -110,12 +136,12 @@ export const DROUGHT_RASTER_OPACITY = 0.65;
  */
 export const DROUGHT_COLOURS: Readonly<Record<number, { hex: string; alpha: number }>> = {
   0: { hex: '#9CFE84', alpha: 255 },
-  1: { hex: '#F2E02E', alpha: 255 },
-  2: { hex: '#FF8E00', alpha: 255 },
+  1: { hex: '#BEB632', alpha: 255 },
+  2: { hex: '#FA9E45', alpha: 255 },
   3: { hex: '#A5541B', alpha: 255 },
-  4: { hex: '#00938A', alpha: 255 },
-  5: { hex: '#00938A', alpha: 255 },
-  6: { hex: '#00938A', alpha: 255 },
+  4: { hex: '#008784', alpha: 255 },
+  5: { hex: '#008784', alpha: 255 },
+  6: { hex: '#008784', alpha: 255 },
 };
 
 export const hexRgb = (hex: string): [number, number, number] => [

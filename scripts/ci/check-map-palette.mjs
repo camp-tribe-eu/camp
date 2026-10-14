@@ -474,11 +474,103 @@ export const WARM_HUE = [45, 105];
 /** CIELAB hue, degrees. Cyan to blue. */
 export const COOL_HUE = [170, 290];
 
+/**
+ * 🔴 CAMP-315 — A NAMED EXCEPTION, NOT A LOWER BAR.
+ *
+ * DECISION OF THE OWNER, 14.10.2026. The palette that clears every line (class
+ * 1 `#F2E02E`, class 2 `#FF8E00`, recovery `#00938A`, measured: every pair
+ * >= ΔE 30.8, every class >= ΔE 29.3 from every basemap colour) is saturated —
+ * chroma 81–84 against the markers' 73 — and he chose a MUTED one instead,
+ * knowingly accepting that exactly ONE pair of classes sits under
+ * `MIN_DELTA_E`. The saturated palette stays valid and is not the one shipped.
+ *
+ * WHAT THE EXCEPTION IS AND IS NOT:
+ *  · It is a PAIR, written down here: which two classes, the ΔE they were
+ *    measured at (worst case over the eleven basemap colours) and when. The
+ *    guard holds that pair to its recorded `floor`, not to "anything": if a
+ *    colour moves tomorrow and the pair closes up, this goes red.
+ *  · It is NOT `MIN_DELTA_E` lowered. That number is shared with the markers and
+ *    the route lines, and loosening it to fit a fill would be tuning the guard
+ *    to the answer. Every OTHER pair still needs 25, and every class still
+ *    needs 25 from every basemap colour — "is the layer there at all" has no
+ *    exception.
+ *  · It is ONE (`MAX_PAIR_EXCEPTIONS`). A second is the owner's decision, not an
+ *    edit to a list.
+ *  · The floor is the MEASUREMENT, not a comfortable number: while the pair is
+ *    under 25 the floor may sit at most `FLOOR_SLACK` below what is measured, so
+ *    "20.1" cannot be loosened to "10" in the same edit that shifts a colour.
+ *    An exception the pair no longer needs (it clears 25) is printed as a note
+ *    and not failed — that is what lets the saturated palette pass — but it is
+ *    the first thing to delete.
+ *
+ * WHY THIS PAIR: classes 2 ("dry ground") and 3 ("vegetation under stress") are
+ * both drought, one rung apart on the same warm ladder; read one for the other
+ * and the reader has the severity off by one step and nothing else wrong. The
+ * alternatives, measured on the same search (chroma <= 65, yellow and orange
+ * bands, every other line held): an exception on 1–2 ("less rain" against "dry
+ * ground", also both drought) can only reach ΔE 12.4; no other single pair is
+ * feasible at all, and the pairs that mix drought with "no drought" (0–1) or
+ * with recovery (4–6 against anything) are the dangerous confusions, so they
+ * stay at 25.
+ */
+export const MAX_PAIR_EXCEPTIONS = 1;
+export const DROUGHT_PAIR_EXCEPTIONS = [{ classes: [2, 3], floor: 20.1, measured: '2026-10-14' }];
+/** While a pair is under 25, its recorded floor may sit at most this far below what is measured. */
+export const FLOOR_SLACK = 1.0;
+
 /** What one class looks like over one basemap colour, and how well it separates. */
 export function droughtPixel(hex, alpha, bg, rasterOpacity) {
   const eff = (alpha / 255) * rasterOpacity;
   const pixel = blend(hex, bg, eff);
   return { eff, pixel, contrast: contrast(pixel, bg), deltaE: deltaE(pixel, bg) };
+}
+
+/** The named exception that covers this pair of classes, if any; the order of the two does not matter. */
+export const pairException = (exceptions, a, b) =>
+  exceptions.find((e) => Array.isArray(e.classes) && a !== b && e.classes.includes(a) && e.classes.includes(b));
+
+/** The worst ΔE between two classes' pixels, over every surface. */
+export function pairWorst(
+  colours,
+  a,
+  b,
+  rasterOpacity = DROUGHT_RASTER_OPACITY,
+  backgrounds = BASEMAP
+) {
+  let worst = { deltaE: Infinity, where: null };
+  for (const [where, bg] of Object.entries(backgrounds)) {
+    const pa = droughtPixel(colours[a].hex, colours[a].alpha, bg, rasterOpacity).pixel;
+    const pb = droughtPixel(colours[b].hex, colours[b].alpha, bg, rasterOpacity).pixel;
+    const d = deltaE(pa, pb);
+    if (d < worst.deltaE) worst = { deltaE: d, where };
+  }
+  return worst;
+}
+
+/**
+ * Exceptions the palette no longer needs, as words. NOT failures: a palette
+ * that clears every line is valid with the exception still written down — the
+ * saturated one is — but a stale exception is a loophole with a floor in it,
+ * so it is said out loud, every run, until somebody deletes it.
+ */
+export function droughtNotes(
+  colours = DROUGHT_COLOURS,
+  rasterOpacity = DROUGHT_RASTER_OPACITY,
+  backgrounds = BASEMAP,
+  exceptions = DROUGHT_PAIR_EXCEPTIONS,
+) {
+  const out = [];
+  for (const e of exceptions) {
+    const [a, b] = e.classes ?? [];
+    if (!colours[a] || !colours[b]) continue;
+    const m = pairWorst(colours, a, b, rasterOpacity, backgrounds);
+    if (m.deltaE >= MIN_DELTA_E)
+      out.push(
+        `the named exception for classes ${a} and ${b} is not needed: the pair is ΔE ${m.deltaE.toFixed(1)} apart ` +
+          `at worst (${m.where}), over ${MIN_DELTA_E} — delete it from DROUGHT_PAIR_EXCEPTIONS`
+      );
+  }
+  return out;
 }
 
 export function droughtProblems(
@@ -491,12 +583,34 @@ export function droughtProblems(
   lightest = DROUGHT_LIGHTEST,
   ladder = DROUGHT_LADDER,
   recovery = DROUGHT_RECOVERY,
+  exceptions = DROUGHT_PAIR_EXCEPTIONS,
 ) {
   const out = [];
   const classes = Object.entries(colours).map(([v, c]) => [Number(v), c]);
   // Two members of the recovery group are one colour BY DESIGN: they are not
   // compared with each other, only with the rest (see the comment above).
   const sameGroup = (a, b) => recovery.includes(a) && recovery.includes(b);
+  const exceptionFor = (a, b) => pairException(exceptions, a, b);
+
+  // 🔴 The exception list is itself checked: one entry, two different classes,
+  // and a floor that is a real number under the bar. A floor at or above 25 is
+  // not an exception, and one that is not a number would compare false with
+  // everything and excuse the pair.
+  if (exceptions.length > MAX_PAIR_EXCEPTIONS)
+    out.push(
+      `${exceptions.length} named pair exceptions: the owner agreed to ${MAX_PAIR_EXCEPTIONS}, ` +
+        'and a further one is his decision, not an edit to a list'
+    );
+  for (const e of exceptions) {
+    const [a, b] = e.classes ?? [];
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a === b)
+      out.push(`a pair exception must name two different classes, not ${JSON.stringify(e.classes)}`);
+    if (!(Number.isFinite(e.floor) && e.floor > 0 && e.floor < MIN_DELTA_E))
+      out.push(
+        `the pair exception for classes ${a} and ${b} records floor ${e.floor}: it must be a number above 0 ` +
+          `and under ${MIN_DELTA_E} — at ${MIN_DELTA_E} or more it is not an exception`
+      );
+  }
 
   // 🔴 A value we cannot measure is a failure, never a skip.
   if (!(rasterOpacity > 0 && rasterOpacity <= 1))
@@ -525,12 +639,34 @@ export function droughtProblems(
         if (w === v || (held.includes(w) && w < v) || sameGroup(v, w)) continue;
         const o = droughtPixel(other.hex, other.alpha, bg, rasterOpacity);
         const d = deltaE(r.pixel, o.pixel);
-        if (d < MIN_DELTA_E)
+        const ex = exceptionFor(v, w);
+        if (ex) {
+          if (d < ex.floor)
+            out.push(
+              `drought classes ${v} and ${w} are ΔE ${d.toFixed(1)} apart on ${where} ${bg}, under the floor ` +
+                `${ex.floor} recorded for their named exception (owner, ${ex.measured}); every other pair needs ${MIN_DELTA_E}`
+            );
+        } else if (d < MIN_DELTA_E)
           out.push(
             `drought classes ${v} and ${w} read alike on ${where} ${bg}: ΔE ${d.toFixed(1)}, needs ${MIN_DELTA_E}`
           );
       }
     }
+  }
+
+  // 🔴 The floor is the MEASUREMENT. While the pair is under the bar it may sit
+  // at most FLOOR_SLACK below what is measured: a floor written looser than
+  // that is slack, and slack is what a second edit would spend.
+  for (const e of exceptions) {
+    const [a, b] = e.classes;
+    if (!colours[a] || !colours[b]) continue;
+    const m = pairWorst(colours, a, b, rasterOpacity, backgrounds);
+    if (m.deltaE < MIN_DELTA_E && m.deltaE - e.floor > FLOOR_SLACK)
+      out.push(
+        `the named exception for classes ${a} and ${b} records floor ${e.floor}, but the pair is ΔE ` +
+          `${m.deltaE.toFixed(1)} apart at worst (${m.where}): raise the floor to what is measured ` +
+          `(more than ${FLOOR_SLACK} of slack is not allowed)`
+      );
   }
 
   // The scale, the right way round: the lightest class is lighter than the
@@ -651,12 +787,16 @@ export function droughtWorst(
   fills = everyFill(),
   stroke = MARKER_STROKE,
   recovery = DROUGHT_RECOVERY,
+  exceptions = DROUGHT_PAIR_EXCEPTIONS,
 ) {
   const out = {};
   for (const [v, { hex, alpha }] of Object.entries(colours)) {
     const worst = {
       basemap: { deltaE: Infinity, where: null },
       other: { deltaE: Infinity, where: null },
+      // The class's named-exception partner, kept APART from `other`: `other`
+      // is what the bar of 25 sees, and one pair under it must not hide the rest.
+      excepted: null,
       markers: { seen: Infinity, where: null },
     };
     for (const [where, bg] of Object.entries(backgrounds)) {
@@ -665,7 +805,10 @@ export function droughtWorst(
       for (const [u, other] of Object.entries(colours)) {
         if (u === v || (recovery.includes(Number(u)) && recovery.includes(Number(v)))) continue;
         const d = deltaE(r.pixel, droughtPixel(other.hex, other.alpha, bg, rasterOpacity).pixel);
-        if (d < worst.other.deltaE) worst.other = { deltaE: d, where: `class ${u} on ${where}` };
+        if (pairException(exceptions, Number(u), Number(v))) {
+          if (!worst.excepted || d < worst.excepted.deltaE)
+            worst.excepted = { deltaE: d, where: `class ${u} on ${where}` };
+        } else if (d < worst.other.deltaE) worst.other = { deltaE: d, where: `class ${u} on ${where}` };
       }
       for (const [, fill] of fills) {
         const seen = visibility(fill, stroke, r.pixel);
@@ -826,7 +969,7 @@ function selfTest() {
   if (!has(droughtProblems({ 0: paleOne, 1: paleOne }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 1 /))
     fails.push('"no drought" exactly as light as class 1 was accepted as lighter');
   cases++;
-  if (droughtProblems({ ...goodZero, 1: paleOne, 2: { hex: '#D9A441', alpha: 255 }, 3: { hex: '#A5541B', alpha: 255 } }, 0.65, BASEMAP, [], [], ring, 0).length !== 0)
+  if (droughtProblems({ ...goodZero, 1: paleOne, 2: { hex: '#D9A441', alpha: 255 }, 3: { hex: '#A5541B', alpha: 255 } }, 0.65, BASEMAP, [], [], ring, 0, undefined, undefined, []).length !== 0)
     fails.push('the scale the right way round (0 lightest, then 1, 2, 3 darker) was refused');
   // Against EVERY other class, not the first one.
   cases++;
@@ -887,13 +1030,20 @@ function selfTest() {
   const oldRecovery = { hex: '#8FB8CC', alpha: 255 }; // ΔE 6.0 from bright's water
   const GOOD = { ...goodZero, 1: yellow, 2: orange, 3: brown, 4: teal, 5: teal, 6: teal };
   const ALL = [0, 1, 2, 3, 4, 5, 6];
+  // 🔴 The exception list is passed EXPLICITLY in every case below: the shipped
+  // one would lower the bar for classes 2 and 3 under cases that are about
+  // something else, and the saturated `GOOD` is valid WITHOUT it.
+  const strict = (table, held, fills = undefined) =>
+    droughtProblems(table, 0.65, BASEMAP, held, fills, ring, undefined, undefined, undefined, []);
+  const withExceptions = (table, exceptions, held = ALL) =>
+    droughtProblems(table, 0.65, BASEMAP, held, undefined, ring, undefined, undefined, undefined, exceptions);
   // 🔴 THE POSITIVE CONTROL. With all seven held, a check that refused every
   // table would "catch" every case below. This is the one that proves it can
   // say yes — and, because 4, 5 and 6 are the same colour in it, that two
   // members of the recovery group are not compared with each other.
   cases++;
-  if (droughtProblems(GOOD, 0.65, BASEMAP, ALL, undefined, ring).length !== 0)
-    fails.push('a right seven-class table (0 light green, 1 yellow, 2 orange, 3 brown, 4–6 one teal) was refused');
+  if (strict(GOOD, ALL).length !== 0)
+    fails.push('a right seven-class table (0 light green, 1 yellow, 2 orange, 3 brown, 4–6 one teal) was refused with no exception');
   // 🔴 WHICH CLASSES EXIST comes from the data file, not from this script: a
   // class EDO adds, or one the held list quietly stopped naming, must be red.
   const FILE_CLASSES = JSON.parse(
@@ -914,7 +1064,7 @@ function selfTest() {
     fails.push('the recovery group at #8FB8CC, ΔE 6.0 from bright’s water, was accepted');
   // Two classes drawn as one colour, outside the group that is allowed to.
   cases++;
-  if (!has(droughtProblems({ ...GOOD, 2: yellow }, 0.65, BASEMAP, ALL, [], ring), /classes 1 and 2 read alike on .*ΔE 0\.0/))
+  if (!has(strict({ ...GOOD, 2: yellow }, ALL, []), /classes 1 and 2 read alike on .*ΔE 0\.0/))
     fails.push('class 2 drawn exactly like class 1 was accepted');
   // The drought series, the right way round: darker at every rung…
   cases++;
@@ -979,10 +1129,86 @@ function selfTest() {
       fails.push('the printed "against another colour" figure counted a class’s own recovery group, or lost the others');
   }
 
+  // 🔴 CAMP-315 — THE NAMED EXCEPTION (owner, 14.10.2026): ONE pair under the bar,
+  // held to its recorded floor. `MUTED` is the shipped palette written out by
+  // hand (again: the rehearsal must not move when the shipped colours do).
+  // Every case below is ONE thing wrong with it, or the one thing it is allowed.
+  const MUTED = {
+    ...goodZero,
+    1: { hex: '#BEB632', alpha: 255 },
+    2: { hex: '#FA9E45', alpha: 255 },
+    3: brown,
+    4: { hex: '#008784', alpha: 255 },
+    5: { hex: '#008784', alpha: 255 },
+    6: { hex: '#008784', alpha: 255 },
+  };
+  const EXC = [{ classes: [2, 3], floor: 20.1, measured: '2026-10-14' }];
+  // The positive control: the muted palette, with its exception, is accepted…
+  cases++;
+  if (withExceptions(MUTED, EXC).length !== 0)
+    fails.push('the muted palette was refused although its one pair under the bar is a recorded exception');
+  // …and WITHOUT the exception it is not: the exception is what lets it through.
+  cases++;
+  if (!has(withExceptions(MUTED, []), /classes 2 and 3 read alike on .*ΔE 20\.\d/))
+    fails.push('the muted palette was accepted with no exception: classes 2 and 3 are ΔE 20.1 apart');
+  // The floor is enforced: the same table against a floor it does not meet.
+  cases++;
+  if (!has(withExceptions(MUTED, [{ ...EXC[0], floor: 21 }]), /classes 2 and 3 are ΔE 20\.\d apart .* under the floor 21 /))
+    fails.push('a pair closer than its recorded floor was accepted');
+  // The order the two classes are written in is not part of the exception.
+  cases++;
+  if (withExceptions(MUTED, [{ ...EXC[0], classes: [3, 2] }]).length !== 0)
+    fails.push('an exception written as [3, 2] did not cover classes 2 and 3');
+  // ONE pair: a SECOND pair under 25 is still an error, with the exception in place.
+  cases++;
+  if (!has(withExceptions({ ...MUTED, 1: { hex: '#F3A64F', alpha: 255 } }, EXC), /classes 1 and 2 read alike on /))
+    fails.push('a second pair under the bar was excused by the exception for another pair');
+  // The exception names a pair, not "classes 2 and 3 are free": another pair's
+  // exception does not excuse 2–3…
+  cases++;
+  if (!has(withExceptions(MUTED, [{ classes: [1, 2], floor: 20, measured: '2026-10-14' }]), /classes 2 and 3 read alike on /))
+    fails.push('an exception for classes 1 and 2 excused classes 2 and 3');
+  // …and it is no exception to the BASEMAP: class 2 over the trunk roads at ΔE 6.6 is refused.
+  cases++;
+  if (!has(withExceptions({ ...MUTED, 2: paleOne }, EXC), /class 2 #F2D98A .*reads like liberty\.trunk/))
+    fails.push('a class in an exception was excused from the basemap');
+  // The list itself: one entry, a floor under the bar and above nothing.
+  cases++;
+  if (!has(withExceptions(MUTED, [...EXC, { classes: [1, 2], floor: 20, measured: '2026-10-14' }]), /2 named pair exceptions/))
+    fails.push('two named pair exceptions were accepted');
+  cases++;
+  if (!has(withExceptions(MUTED, [{ ...EXC[0], floor: 25 }]), /records floor 25: it must be a number above 0 and under 25/))
+    fails.push('an exception with a floor at the bar was accepted');
+  cases++;
+  if (!has(withExceptions(MUTED, [{ ...EXC[0], floor: 0 }]), /records floor 0: it must be a number above 0/))
+    fails.push('an exception with a floor of 0, which excuses any closeness, was accepted');
+  // The floor is the measurement: written 10 where 20.1 is measured, it is slack.
+  cases++;
+  if (!has(withExceptions(MUTED, [{ ...EXC[0], floor: 10 }]), /records floor 10, but the pair is ΔE 20\.\d apart/))
+    fails.push('a floor ten units below what is measured was accepted as slack nobody can spend');
+  // The saturated palette is valid and not the one shipped: its exception is stale,
+  // which is said, not failed (the slack rule applies only while the pair is under the bar).
+  cases++;
+  if (withExceptions(GOOD, EXC).length !== 0)
+    fails.push('the saturated palette was refused because an exception it no longer needs is still written down');
+  cases++;
+  if (!has(droughtNotes(GOOD, 0.65, BASEMAP, EXC), /classes 2 and 3 is not needed: the pair is ΔE 3\d\.\d apart/))
+    fails.push('an exception the palette no longer needs was not said out loud');
+  cases++;
+  if (droughtNotes(MUTED, 0.65, BASEMAP, EXC).length !== 0)
+    fails.push('an exception that is in use was reported as not needed');
+  // The printed table keeps the exception's partner apart from "other".
+  cases++;
+  {
+    const w = droughtWorst(MUTED, 0.65, BASEMAP, [], ring, undefined, EXC);
+    if (!(w[2].excepted && Math.abs(w[2].excepted.deltaE - 20.1) < 0.1) || !(w[2].other.deltaE >= MIN_DELTA_E))
+      fails.push('the printed figures for class 2 mixed its named-exception partner into "other", or lost it');
+  }
+
   // 🔴 CAMP-286: counted, because "13 cases" was prose. An assertion
   // that stopped being reached printed exactly what a passing one
   // printed, and the sentence below went on claiming thirteen.
-  const EXPECTED_CASES = 55;
+  const EXPECTED_CASES = 70;
   if (cases !== EXPECTED_CASES) {
     fails.push(`${cases} assertions ran, expected ${EXPECTED_CASES}`);
   }
@@ -1004,7 +1230,9 @@ function selfTest() {
       'a scale with "no drought" darker than a drought class, and (CAMP-315)\n' +
       'a drought colour lost in the basemap that is not class 0, two classes\n' +
       'drawn alike, a series turned over or cooling, a red or grey class, and a\n' +
-      'recovery group that is warm or in two shades'
+      'recovery group that is warm or in two shades, and the named exception\n' +
+      '(CAMP-315, owner 14.10.2026): one pair under the bar, held to its floor,\n' +
+      'never a second, never the basemap, never a loosened floor'
   );
 }
 
@@ -1069,9 +1297,20 @@ if (invokedDirectly) {
         ` ${hex}  ${(effectiveOpacity(alpha) * 100).toFixed(1)}% drawn   ` +
         `ΔE ${w.basemap.deltaE.toFixed(1)} basemap (${w.basemap.where})   ` +
         `ΔE ${w.other.deltaE.toFixed(1)} other (${w.other.where})   ` +
-        `markers ${w.markers.seen.toFixed(2)}:1 (${w.markers.where})`
+        `markers ${w.markers.seen.toFixed(2)}:1 (${w.markers.where})` +
+        (w.excepted
+          ? `   [named exception: ΔE ${w.excepted.deltaE.toFixed(1)} from ${w.excepted.where}]`
+          : '')
     );
   }
+  for (const e of DROUGHT_PAIR_EXCEPTIONS) {
+    const m = pairWorst(DROUGHT_COLOURS, e.classes[0], e.classes[1]);
+    console.log(
+      `  named exception, owner ${e.measured}: classes ${e.classes.join(' and ')} worst ΔE ${m.deltaE.toFixed(1)} ` +
+        `(${m.where}), recorded floor ${e.floor}; every other pair needs ${MIN_DELTA_E}`
+    );
+  }
+  for (const note of droughtNotes()) console.log(`  NOTE: ${note}`);
   const split = twinsDisagree();
   if (droughtFound.length)
     console.error('\nthe drought picture is not legible:\n  ' + droughtFound.join('\n  '));
@@ -1097,7 +1336,11 @@ if (invokedDirectly) {
   console.log(
     `${Object.keys(DROUGHT_COLOURS).length} drought classes at raster-opacity ${DROUGHT_RASTER_OPACITY}: ` +
       `classes ${DROUGHT_HELD.join(', ')} are each >= ΔE ${MIN_DELTA_E} from every basemap colour and from every ` +
-      `colour outside their group; class ${DROUGHT_LIGHTEST} is the lightest, ${DROUGHT_LADDER.join(' → ')} ` +
+      `colour outside their group` +
+      (DROUGHT_PAIR_EXCEPTIONS.length
+        ? `, bar the named exception (${DROUGHT_PAIR_EXCEPTIONS.map((e) => `${e.classes.join(' and ')}, floor ${e.floor}`).join('; ')})`
+        : '') +
+      `; class ${DROUGHT_LIGHTEST} is the lightest, ${DROUGHT_LADDER.join(' → ')} ` +
       `runs light to dark and ${DROUGHT_LADDER.slice(1).join(' → ')} yellow to brown, ${DROUGHT_RECOVERY.join(', ')} ` +
       `is one cool colour, and every class leaves every marker >= ${MIN_CONTRAST}:1`
   );
