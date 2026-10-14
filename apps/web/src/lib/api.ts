@@ -38,6 +38,13 @@ export const API_BASE =
  * it is never in the browser bundle — which is the point: a token shipped
  * to every reader is not a token.
  */
+// 🔴 ПІД ЦИМ ІМЕНЕМ У ЗАСТОСУНКУ ДВА РІЗНІ ТИПИ, і мій імпорт затінив
+// місцевий: `RegionSummary` нижче в цьому файлі має `spots` і
+// `indexable` і описує регіон СТОРІНОК, а той, що в `map-chunks`, —
+// регіон МАПИ з `slug` і `count`. Три сторінки впали на typecheck.
+// Псевдонім тут дешевший за перейменування, але сам факт варто знати.
+import type { RegionSummary as MapRegion } from './map-chunks';
+
 export async function apiFetch(
   path: string,
   init: RequestInit & { next?: { revalidate?: number } } = {},
@@ -50,6 +57,64 @@ export async function apiFetch(
       ...(token ? { 'x-build-token': token } : {}),
     },
   });
+}
+
+/**
+ * Перелік регіонів мапи — 812 рядків, які міняються раз на тиждень.
+ *
+ * 🔴 ОДНА ФУНКЦІЯ НА ТРИ ВИКЛИКИ, І ДВА З НИХ НЕ МАЛИ ПІДКАЗКИ ПРО
+ * КЕШ. `map/page.tsx` просив із `revalidate: 86400`, а
+ * `data/spots/index.json` і `data/spots/[country]/[chunk]` — без нічого.
+ * У Next 15 `fetch` без підказки не кешується взагалі, тож кожен чанк
+ * ходив по мережу заново.
+ *
+ * 🔴 ЦЕ КЛАЛО МАПУ В DEV ЦІЛКОМ. На вигляді «уся Європа» мапа просить
+ * десятки чанків ПАРАЛЕЛЬНО; `generateStaticParams` кожного з них бив у
+ * цей ендпоінт; понад 120 однакових запитів за хвилину впиралися у наш
+ * власний `DEFAULT_LIMIT`, API віддавав 429, маршрут кидав, браузер
+ * діставав 500 — і на мапі не було ЖОДНОГО кемпінга, не лише
+ * підсвіченого. Заміряно 13 і 14.10.2026; обидва рази я спершу шукав
+ * дефект у коді, бо `curl` на той самий чанк віддавав 200.
+ *
+ * Витримка — та сама доба, що вже стояла на сторінці мапи: число не
+ * вигадане тут, а взяте з єдиного місця, де воно було.
+ */
+let regionsInFlight: Promise<MapRegion[]> | null = null;
+
+export function mapRegions(): Promise<MapRegion[]> {
+  // 🔴 ОДИН ЗАПИТ НА ПРОЦЕС, І ВИТРИМКИ САМОЇ ПО СОБІ БУЛО ЗАМАЛО.
+  // Заміряно 14.10.2026: сама `revalidate: 86400` підняла мапу з нуля
+  // кемпінгів до 72, але частина чанків і далі віддавала 500. Кеш
+  // `fetch` не склеює запити, що летять ОДНОЧАСНО: десятки чанків
+  // стартують разом, усі промахуються повз порожній кеш в одну мить і
+  // всі йдуть у мережу. Спільна обіцянка склеює саме цей випадок.
+  //
+  // 🔴 ПРОВАЛ НЕ КЕШУЄТЬСЯ. Якби відхилена обіцянка лишилась у змінній,
+  // одна тимчасова 429 клала б мапу до перезапуску процесу — тобто
+  // лікування було б гіршим за хворобу.
+  if (regionsInFlight === null) {
+    regionsInFlight = fetchMapRegions().catch((e: unknown) => {
+      regionsInFlight = null;
+      throw e;
+    });
+  }
+  return regionsInFlight;
+}
+
+async function fetchMapRegions(): Promise<MapRegion[]> {
+  const res = await apiFetch('/spots/map/regions', {
+    next: { revalidate: 86400 },
+  });
+  if (!res.ok) {
+    throw new Error(`Region index request failed: ${res.status}`);
+  }
+  const regions = (await res.json()) as MapRegion[];
+  // 🔴 Порожній перелік — це збій, а не порожня мапа. Перевірка була в
+  // двох із трьох викликів; тепер вона там, де її не обійти.
+  if (regions.length === 0) {
+    throw new Error('No regions to build map chunks from.');
+  }
+  return regions;
 }
 
 export type AmenityValue = 'yes' | 'no' | 'unknown';

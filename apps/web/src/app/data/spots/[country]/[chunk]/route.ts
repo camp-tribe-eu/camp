@@ -1,10 +1,9 @@
-import { apiFetch } from '@/lib/api';
+import { apiFetch, mapRegions } from '@/lib/api';
 import {
   BYTES_PER_CAMPSITE,
   chunkBody,
   chunkWeight,
   type ChunkMarker,
-  type RegionSummary,
 } from '@/lib/map-chunks';
 
 // CAMP-127: one region of the map, as its own file.
@@ -29,14 +28,13 @@ export const dynamic = 'force-static';
 export const dynamicParams = false;
 
 export async function generateStaticParams() {
-  const res = await apiFetch('/spots/map/regions');
-  if (!res.ok) {
-    throw new Error(`Region index request failed: ${res.status}`);
-  }
-  const regions = (await res.json()) as RegionSummary[];
-  if (regions.length === 0) {
-    throw new Error('No regions to build map chunks from.');
-  }
+  // 🔴 `mapRegions()`, А НЕ ВЛАСНИЙ ЗАПИТ. Тут стояв `fetch` без
+  // підказки про кеш, і в Next 15 такий не кешується зовсім — тобто
+  // КОЖЕН чанк ходив по мережу заново. На вигляді «уся Європа» мапа
+  // просить десятки чанків паралельно, і понад 120 однакових запитів
+  // за хвилину впиралися в наш DEFAULT_LIMIT: 429 → кидок → 500, і на
+  // мапі не було жодного кемпінга (CAMP-312).
+  const regions = await mapRegions();
   return regions.map((r) => ({
     country: r.country.toLowerCase(),
     // The extension lives in the parameter so the built file keeps it —
