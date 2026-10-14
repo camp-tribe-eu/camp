@@ -1,4 +1,15 @@
 import { CEMS_NOTICE, RESERVED_WORDS } from './cems';
+import { DROUGHT_COLOURS, effectiveOpacity, hexRgb } from './drought-colours';
+
+// How each class is drawn lives in `./drought-colours` — a module with no
+// imports, so the palette guard can read it. Re-exported here: this is still
+// the one place the page, the map and the tests ask.
+export {
+  DROUGHT_COLOURS,
+  DROUGHT_RASTER_OPACITY,
+  LEGEND_BACKING,
+  effectiveOpacity,
+} from './drought-colours';
 
 // CAMP-163 — the Combined Drought Indicator, as the page reads it.
 //
@@ -119,6 +130,13 @@ function readGrid(input: unknown): DroughtGrid | null {
   return { width: g.width as number, height: g.height as number, lon0: g.lon0, lat0: g.lat0, pixel: g.pixel };
 }
 
+const sameGrid = (a: DroughtGrid, b: DroughtGrid): boolean =>
+  a.width === b.width &&
+  a.height === b.height &&
+  a.lon0 === b.lon0 &&
+  a.lat0 === b.lat0 &&
+  a.pixel === b.pixel;
+
 export function readMeta(input: unknown): DroughtMeta | null {
   if (!input || typeof input !== 'object') return null;
   const m = (input as { meta?: unknown }).meta as Partial<DroughtMeta> | undefined;
@@ -229,6 +247,17 @@ export function droughtState(
   const domRaw = (domainInput as { domain?: unknown })?.domain;
   if (typeof cdiRaw !== 'string' || typeof domRaw !== 'string') return { kind: 'missing' };
 
+  // 🔴 THE MASK HAS TO SAY WHICH GRID IT WAS CUT FROM, and agree with the
+  // grid it is laid over. A length check cannot do this: a mask of the right
+  // size on the wrong geometry — the same number of cells, rows and columns
+  // swapped, or shifted by one cell — passes it, and it is exactly the mask
+  // that says "no drought" about Malta and "not covered" about Sicily with
+  // every number in the file looking right. The mask file records its grid
+  // (`scripts/edo/fetch-drought.mjs` writes it), so it is compared: a file
+  // that does not carry one is refused, not assumed.
+  const maskGrid = readGrid((domainInput as { meta?: { grid?: unknown } } | null)?.meta?.grid);
+  if (!maskGrid || !sameGrid(maskGrid, meta.grid)) return { kind: 'missing' };
+
   let cdi: Uint8Array;
   let domain: Uint8Array;
   try {
@@ -302,5 +331,209 @@ export function droughtNote(state: DroughtState, lat: number, lon: number): Drou
     headline: reading.value === 0 ? 'No drought here' : `Drought: ${reading.label}`,
     detail: reading.detail,
     asOf,
+  };
+}
+
+// ── CAMP-200: the same grid, on the map ──────────────────────────────────
+//
+// 🔴 ONE READER, TWO PLACES. The campsite page asks `readingAt` about one
+// coordinate; the map asks it about a million. Everything below goes
+// through that function, so the mask that keeps "no drought" apart from
+// "we do not measure here" is applied to the picture by the same line that
+// applies it to a sentence. A second decoder that walked the raster itself
+// would be the place that mask quietly stopped applying.
+
+/** The route that serves both files as one payload — see `app/data/drought.json/route.ts`. */
+export const DROUGHT_URL = '/data/drought.json';
+
+/**
+ * What the map's drought panel can be in.
+ *
+ * `loading` is its own state, and it is not `missing`: until the file has
+ * answered, "still fetching" and "we hold nothing" draw the same empty map,
+ * and the sentence under it has to tell them apart.
+ */
+export type DroughtLayerState = { kind: 'loading' } | DroughtState;
+
+/** base64 → gunzip, in the browser. Node 18+ has the same globals, so a test can run it. */
+export async function inflateBase64(b64: string): Promise<Uint8Array> {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/**
+ * The mask, as `droughtState` wants to read it, out of the payload the route
+ * serves.
+ *
+ * 🔴 NOT `droughtState(body, body, …)`. The payload's own `meta` is the
+ * GRID file's, so reading the mask's geometry from the same object would
+ * compare the grid with itself and pass for every payload there is — the
+ * shape of a check that agrees with the bug. The route sends the mask's grid
+ * under its own key (`domainGrid`), and this puts it where the build-side
+ * call (`drought-build.ts`, which hands over the mask FILE) has it.
+ */
+export function maskFileOf(body: unknown): { meta: { grid: unknown }; domain: unknown } {
+  const p = (body ?? {}) as { domain?: unknown; domainGrid?: unknown };
+  return { meta: { grid: p.domainGrid }, domain: p.domain };
+}
+
+/**
+ * The route's payload — `{ meta, cdi, domain, domainGrid }` — as a state.
+ *
+ * 🔴 `droughtState` is the ONLY thing that decides what the payload means,
+ * here as on the page. It takes a synchronous `decode`; a browser can only
+ * gunzip asynchronously, so the two strings are inflated first and handed
+ * back by lookup. Anything that goes wrong lands on `missing` — which the
+ * panel says out loud — and never throws into React.
+ */
+export async function readDroughtPayload(body: unknown, now: Date): Promise<DroughtState> {
+  const inflated = new Map<string, Uint8Array>();
+  try {
+    const p = body as { cdi?: unknown; domain?: unknown } | null;
+    for (const s of [p?.cdi, p?.domain]) {
+      if (typeof s === 'string') inflated.set(s, await inflateBase64(s));
+    }
+  } catch {
+    return { kind: 'missing' };
+  }
+  return droughtState(body, maskFileOf(body), now, (s) => {
+    const got = inflated.get(s);
+    if (!got) throw new Error('not inflated');
+    return got;
+  });
+}
+
+export interface LegendRow {
+  /** The class's own colour, as the table holds it. NOT what the swatch is painted with. */
+  hex: string;
+  /** What reaches the screen: the table's alpha, then the layer's `raster-opacity`. 0–1. */
+  opacity: number;
+  /**
+   * The swatch's colour: `hex` at `opacity`, as CSS.
+   *
+   * 🔴 THE EFFECTIVE COLOUR, not the raw one. The swatch used to be painted
+   * with `hex` at full strength, so class 0 — drawn on the map at 22.9% —
+   * showed a key about 4.4 times stronger than the picture it explained.
+   */
+  swatch: string;
+  /** The classes' own words, from the file, joined when they share a colour. */
+  label: string;
+}
+
+/**
+ * The legend, built from the file's own class names.
+ *
+ * 🔴 From `meta.classes`, not from a list typed here: those strings went
+ * through `wordsAreOurs` at the door, and a label written in a component
+ * would not have. Classes drawn in the same colour — the same hex AT THE
+ * SAME alpha — are one row.
+ */
+export function droughtLegend(
+  meta: DroughtMeta,
+  colours: Readonly<Record<number, { hex: string; alpha: number }>> = DROUGHT_COLOURS,
+): LegendRow[] {
+  const rows: LegendRow[] = [];
+  let lastKey = '';
+  for (const c of [...meta.classes].sort((a, b) => a.value - b.value)) {
+    const style = colours[c.value];
+    if (!style) continue;
+    const key = `${style.hex}/${style.alpha}`;
+    const last = rows[rows.length - 1];
+    if (last && key === lastKey) {
+      last.label += `, ${c.label}`;
+      continue;
+    }
+    const opacity = effectiveOpacity(style.alpha);
+    const [r, g, b] = hexRgb(style.hex);
+    rows.push({
+      hex: style.hex,
+      opacity,
+      swatch: `rgba(${r}, ${g}, ${b}, ${Number(opacity.toFixed(4))})`,
+      label: c.label,
+    });
+    lastKey = key;
+  }
+  return rows;
+}
+
+const mercatorY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+const latOfMercatorY = (y: number) => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * (180 / Math.PI);
+
+export interface DroughtOverlay {
+  width: number;
+  height: number;
+  /** RGBA, row-major from the north. Places the indicator does not cover are transparent. */
+  data: Uint8ClampedArray;
+  /** Upper-left, upper-right, lower-right, lower-left, as MapLibre wants a canvas source's corners. */
+  coordinates: [[number, number], [number, number], [number, number], [number, number]];
+}
+
+/**
+ * The grid as a picture MapLibre can lay over the map.
+ *
+ * 🔴 RESAMPLED INTO WEB MERCATOR, and not a courtesy. The raster is
+ * equirectangular (a cell is 1/24° both ways) and MapLibre stretches a
+ * canvas linearly in MERCATOR space between its four corners. Laid on as it
+ * is, the middle of the picture (53°N) would land about 6° off. So each
+ * output row is one latitude in mercator space; the column count is the
+ * grid's own, because longitude is linear in both.
+ *
+ * One output row per source cell at the southern edge, where a cell is
+ * shortest in mercator space, so no source row is ever skipped.
+ *
+ * Nearest-neighbour on purpose: a 4.6 km cell is drawn as the block it is.
+ * Smoothing it would invent a gradient Copernicus did not publish.
+ */
+export function paintOverlay(
+  state: Extract<DroughtState, { kind: 'current' }>,
+  colours: Readonly<Record<number, { hex: string; alpha: number }>> = DROUGHT_COLOURS,
+): DroughtOverlay {
+  const { grid } = state.meta;
+  const north = grid.lat0;
+  const south = grid.lat0 - grid.height * grid.pixel;
+  const west = grid.lon0;
+  const east = grid.lon0 + grid.width * grid.pixel;
+  const yTop = mercatorY(north);
+  const yBottom = mercatorY(south);
+  const smallestCell =
+    (grid.pixel * Math.PI) / 180 / Math.cos((Math.min(Math.abs(south), Math.abs(north)) * Math.PI) / 180);
+  const height = Math.max(1, Math.ceil((yTop - yBottom) / smallestCell));
+  const data = new Uint8ClampedArray(grid.width * height * 4);
+
+  const palette = new Map<number, { rgb: [number, number, number]; alpha: number }>();
+  for (const [value, style] of Object.entries(colours)) {
+    palette.set(Number(value), { rgb: hexRgb(style.hex), alpha: style.alpha });
+  }
+
+  for (let r = 0; r < height; r++) {
+    const lat = latOfMercatorY(yTop - ((r + 0.5) * (yTop - yBottom)) / height);
+    for (let c = 0; c < grid.width; c++) {
+      const lon = west + (c + 0.5) * grid.pixel;
+      const reading = readingAt(state, lat, lon);
+      // 🔴 Not known → bare. This is the mask speaking, through the same
+      // function the campsite page uses.
+      if (!reading.known) continue;
+      const style = palette.get(reading.value);
+      if (!style) continue;
+      const at = (r * grid.width + c) * 4;
+      data[at] = style.rgb[0];
+      data[at + 1] = style.rgb[1];
+      data[at + 2] = style.rgb[2];
+      data[at + 3] = style.alpha;
+    }
+  }
+  return {
+    width: grid.width,
+    height,
+    data,
+    coordinates: [
+      [west, north],
+      [east, north],
+      [east, south],
+      [west, south],
+    ],
   };
 }

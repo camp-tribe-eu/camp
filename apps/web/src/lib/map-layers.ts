@@ -45,6 +45,31 @@ export const LAYERS = [
     terms: 'cems',
   },
   {
+    id: 'drought',
+    // 🔴 CAMP-163. "Drought", not "Drought risk" or "Drought alert": EDO
+    // is a CEMS product, so the licence applies, and the CDI's own class
+    // names are two of the four words it reserves. It is the source that
+    // carries the rule, hence the tag below — without it, the spec that
+    // reads every CEMS panel never sees this layer. CAMP-174 built exactly
+    // that, a drought panel saying "severe drought risk", and the suite
+    // stayed green.
+    label: 'Drought',
+    // CAMP-200. Says what is DRAWN. The first version of this sentence
+    // (CAMP-163, PR #84) promised the class "at each campsite you select";
+    // that popup was never built, and a tooltip that describes a control
+    // the map does not have is a promise.
+    description:
+      'The Copernicus EDO Combined Drought Indicator for its newest ten-day period, drawn as a grid over the EU-27.',
+    status: 'live',
+    card: 'CAMP-200',
+    terms: 'cems',
+    // 🔴 OFF until a reader switches it on, like the webcams will be:
+    // three datasets over the campsites make the map mud. And OFF means
+    // the 102 KB behind it is not requested at all — see
+    // `app/data/drought.json/route.ts` and tests/e2e/drought-layer.spec.ts.
+    defaultOn: false,
+  },
+  {
     id: 'webcams',
     // 🔴 "Webcams", not "Live webcams". We show the most recent DAYLIGHT
     // frame, which after sunset is hours old — measured: the current
@@ -117,6 +142,15 @@ export const LAYERS = [
    * to escape the check.
    */
   terms?: 'cems';
+  /**
+   * `false` — a first-time reader does NOT get this layer switched on.
+   * Absent means on, which is what every layer so far wanted.
+   *
+   * 🔴 Only `false` is a legal value. `defaultOn: true` would say what
+   * leaving the field out already says, and two spellings of the same
+   * thing is how a registry ends up disagreeing with itself.
+   */
+  defaultOn?: false;
 }[];
 
 export type LayerId = (typeof LAYERS)[number]['id'];
@@ -146,9 +180,15 @@ export const liveLayers = (): LayerId[] =>
 export const isLive = (id: string): id is LayerId =>
   LAYERS.some((l) => l.id === id && l.status === 'live');
 
-/** What a first-time reader sees. Every live layer, because hiding one
- *  by default means nobody discovers it. */
-export const DEFAULT_LAYERS = (): LayerId[] => liveLayers();
+/**
+ * What a first-time reader sees: every live layer, because hiding one by
+ * default means nobody discovers it — EXCEPT a layer that declares
+ * `defaultOn: false`, which is live (it has a switch) and starts off.
+ */
+export const DEFAULT_LAYERS = (): LayerId[] =>
+  LAYERS.filter(
+    (l) => l.status === 'live' && !('defaultOn' in l && l.defaultOn === false),
+  ).map((l) => l.id);
 
 /**
  * Turn a layer on or off, keeping the registry's order.
@@ -178,7 +218,15 @@ export const noLayers = (): LayerId[] => [];
 export function layersToParam(active: readonly LayerId[]): string | null {
   const live = liveLayers();
   const on = live.filter((l) => active.includes(l));
-  if (on.length === live.length) return null; // the default: leave it out
+  // 🔴 The DEFAULT, not "everything live". These were the same set until
+  // a layer started off: then "all live layers" was no longer what a bare
+  // /map shows, so a link with the drought layer on was written as no
+  // parameter and opened without it. Both lists are in registry order, so
+  // comparing position by position is comparing sets.
+  const standard = DEFAULT_LAYERS();
+  if (on.length === standard.length && on.every((l, i) => l === standard[i])) {
+    return null; // the default: leave it out
+  }
   return on.join(',');
 }
 

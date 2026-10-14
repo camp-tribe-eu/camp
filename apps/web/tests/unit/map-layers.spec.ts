@@ -61,10 +61,33 @@ test('every declared layer is unique and describes itself', () => {
   }
 });
 
-test('a first-time reader gets every live layer', () => {
-  // Hiding one by default means nobody discovers it.
-  expect(DEFAULT_LAYERS()).toEqual(liveLayers());
+test('a first-time reader gets every live layer that does not start off', () => {
+  // Hiding one by default means nobody discovers it — so a layer starts off
+  // only when its entry says `defaultOn: false`, and that is the only way.
+  const off = LAYERS.filter((l) => 'defaultOn' in l && l.defaultOn === false).map((l) => l.id);
+  expect(DEFAULT_LAYERS()).toEqual(liveLayers().filter((id) => !(off as string[]).includes(id)));
   expect(DEFAULT_LAYERS().length).toBeGreaterThan(0);
+});
+
+test('🔴 CAMP-200: the drought layer is live, has a switch, and starts off', () => {
+  // Three datasets over the campsites make the map mud, and the file behind
+  // the layer is only fetched once it is switched on — so "off by default"
+  // is also "not requested by default".
+  //
+  // 🔴 Mutation: delete `defaultOn: false` from the drought entry — fails
+  // here, and in the e2e that counts requests. Mutation: change
+  // DEFAULT_LAYERS back to `liveLayers()` — fails here too.
+  expect(isLive('drought')).toBe(true);
+  expect(liveLayers()).toContain('drought');
+  expect(DEFAULT_LAYERS()).not.toContain('drought');
+  // The others are not collateral: the rest of the live layers are on.
+  for (const id of liveLayers().filter((l) => l !== 'drought')) {
+    expect(DEFAULT_LAYERS(), `${id} stopped being on by default`).toContain(id);
+  }
+  // And it can be switched on from the default, and off again.
+  const on = toggleLayer(DEFAULT_LAYERS(), 'drought');
+  expect(on).toContain('drought');
+  expect(toggleLayer(on, 'drought')).toEqual(DEFAULT_LAYERS());
 });
 
 test('toggling is reversible and keeps the registry order', () => {
@@ -87,7 +110,21 @@ test('the default is absent from the URL, not spelled out', () => {
   // 🔴 A link that carries the default would freeze it: a reader who
   // shared /map today would still be showing today's layers a year from
   // now, after we added three more.
-  expect(layersToParam(allLayers())).toBeNull();
+  expect(layersToParam(DEFAULT_LAYERS())).toBeNull();
+});
+
+test('🔴 a layer that starts off is spelled out in the URL when it is on', () => {
+  // `allLayers()` is every live layer, which is no longer what a bare /map
+  // shows. A link with drought on that came out as "no parameter" would
+  // open without it. Mutation: compare against `liveLayers()` in
+  // `layersToParam` again — fails.
+  const param = layersToParam(allLayers());
+  expect(param).not.toBeNull();
+  expect(param!.split(',')).toContain('drought');
+  expect(layersFromParam(param)).toEqual(allLayers());
+  expect(layersFromParam('wildfire,drought')).toEqual(['wildfire', 'drought']);
+  // …and the default, with drought switched off by the reader, is still absent.
+  expect(layersToParam(toggleLayer(allLayers(), 'drought'))).toBeNull();
 });
 
 test('and an absent parameter means the default, not an empty map', () => {
@@ -112,7 +149,7 @@ test('whitespace in a hand-edited link is forgiven', () => {
 });
 
 test('a round trip through the URL is lossless', () => {
-  for (const state of [allLayers(), noLayers()]) {
+  for (const state of [DEFAULT_LAYERS(), allLayers(), noLayers()]) {
     const param = layersToParam(state);
     expect(layersFromParam(param)).toEqual(state);
   }

@@ -179,10 +179,62 @@ test.describe('the file is not trusted by the reader that renders it', () => {
     expect(state(12, { ...FILE, cdi: long }).kind).toBe('missing');
   });
 
-  test('a domain mask of the wrong size is refused', () => {
-    expect(state(12, FILE, { domain: FILE.cdi }).kind).toBe('missing');
+  // 🔴 ISOLATED FROM THE GEOMETRY CHECK below, for the reason the grid test
+  // above gives about the two guards pinning each other. The mask here
+  // carries the RIGHT grid (`DOMAIN.meta`) and the wrong bytes, so the only
+  // line that can refuse it is the length check. Before the geometry check
+  // existed this test passed `{ domain: … }` alone; with it, that object is
+  // refused for having no grid, and removing the length check would have
+  // left this test green — measured, then fixed here.
+  //
+  // `FILE.cdi` is the pixel grid's own bytes: 1 137 920 of them, where the
+  // mask is 142 240.
+  test('🔴 a domain mask of the wrong size is refused', () => {
+    expect(state(12, FILE, { meta: DOMAIN.meta, domain: FILE.cdi }).kind).toBe('missing');
+    // One byte short and one byte over: the boundary, not just "very wrong".
+    const bytes = Math.ceil((FILE.meta.grid.width * FILE.meta.grid.height) / 8);
+    for (const n of [bytes - 1, bytes + 1]) {
+      const domain = gzipSync(Buffer.alloc(n)).toString('base64');
+      expect(state(12, FILE, { meta: DOMAIN.meta, domain }).kind, `${n} bytes`).toBe('missing');
+    }
     expect(state(12, FILE, { not: 'a domain' }).kind).toBe('missing');
   });
+
+  test('the mask we ship, with the grid it carries, is a current state', () => {
+    // The control for everything around it: every refusal here is the
+    // doctored copy of this one, and this one is accepted.
+    expect(state(12, FILE, DOMAIN).kind).toBe('current');
+  });
+
+  // 🔴 THE MASK MUST AGREE WITH THE GRID IT IS LAID OVER. A mask of the right
+  // size on the wrong geometry is the mask that says "no drought" about Malta
+  // and "not covered" about Sicily with every length in the file correct.
+  //
+  // Each case below changes ONE thing in the mask's grid and leaves its bytes
+  // alone, so each is refused by one comparison and by nothing else — the
+  // pixel grid's size and the mask's byte count are both still right.
+  test('🔴 a mask that does not say which grid it was cut from is refused', () => {
+    expect(state(12, FILE, { domain: DOMAIN.domain }).kind).toBe('missing');
+    expect(state(12, FILE, { meta: {}, domain: DOMAIN.domain }).kind).toBe('missing');
+    expect(state(12, FILE, { meta: { grid: null }, domain: DOMAIN.domain }).kind).toBe('missing');
+    expect(state(12, FILE, { meta: { grid: { ...DOMAIN.meta.grid, width: 'wide' } }, domain: DOMAIN.domain }).kind).toBe('missing');
+  });
+
+  const g = DOMAIN.meta.grid;
+  for (const [what, grid] of [
+    ['a different width', { ...g, width: g.width - 1 }],
+    ['a different height', { ...g, height: g.height + 1 }],
+    // The same number of cells, so the byte count is still right: rows and
+    // columns swapped. Only the geometry can tell.
+    ['rows and columns swapped (same cell count)', { ...g, width: g.height, height: g.width }],
+    ['a different western edge', { ...g, lon0: g.lon0 + g.pixel }],
+    ['a different northern edge', { ...g, lat0: g.lat0 - g.pixel }],
+    ['a different cell size', { ...g, pixel: g.pixel * 1.5 }],
+  ] as [string, unknown][]) {
+    test(`🔴 a mask cut from a grid with ${what} is refused`, () => {
+      expect(state(12, FILE, { meta: { grid }, domain: DOMAIN.domain }).kind).toBe('missing');
+    });
+  }
 
   test('a file that is not the shape we write is refused', () => {
     expect(state(12, { not: 'a file' }).kind).toBe('missing');

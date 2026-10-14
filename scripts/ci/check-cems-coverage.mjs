@@ -58,7 +58,19 @@ export const CEMS_MODULES = ['@/lib/cems', '@/lib/wildfires', '@/data/wildfires.
  * printed its ✓. A file that names the URL is showing the data as surely
  * as one that imports the reader.
  */
-export const CEMS_DATA_MARKERS = [/\/data\/wildfires\.json/, /\bWILDFIRE_URL\b/];
+//
+// 🔴 CAMP-200. `/data/drought.json` IS THE SECOND OF THEM, and it was not here.
+// The drought layer fetches its grid from that route exactly as the fire
+// layer fetches its perimeters, and review proved the guard blind to it by
+// running the real checker: a component whose only link to CEMS was
+// `fetch('/data/drought.json')` exited 0, the same component naming
+// `wildfires.json` exited 1. The mask's own file, `/data/drought-domain.json`,
+// is not on this list on purpose — it is a bit per pixel, not a word.
+export const CEMS_DATA_MARKERS = [
+  /\/data\/wildfires\.json/,
+  /\bWILDFIRE_URL\b/,
+  /\/data\/drought\.json/,
+];
 
 /**
  * Files that reach CEMS data and are covered by the OTHER arm of the
@@ -81,6 +93,16 @@ export const COVERED_ELSEWHERE = new Map([
   [
     'app/data/wildfires.json/route.ts',
     'serves the feed as JSON and renders no text at all; its words are the source’s own, checked where they are displayed',
+  ],
+  // 🔴 CAMP-200. The drought grid's twin of the line above, and listed for
+  // the same reason: this is a route handler, it returns a Response and no
+  // markup, and the words beside the data are written and checked in the
+  // panel that DISPLAYS it. `drought-layer.panel.ts` renders that panel
+  // through the payload this route builds, once for every state it can be in
+  // — including a hostile file that tries to print a reserved word.
+  [
+    'app/data/drought.json/route.ts',
+    'serves the grid and its mask as JSON and renders no text at all; the words beside it are checked on the map’s panel by cems-panels/drought-layer.panel.ts',
   ],
   // 🔴 CAMP-163. The campsite page reaches CEMS data only by mounting
   // <DroughtPanel>, and every word that panel can print is driven
@@ -396,6 +418,19 @@ function selfTest() {
     );
     rmSync(join(root, 'src/components/fetch-only.tsx'), { force: true });
 
+    // 🔴 CAMP-200. The same shape, for the second CEMS data route. Without
+    // `/data/drought.json` in the markers this file is invisible: it imports
+    // nothing, and the URL is the only thing that says what it shows.
+    put(
+      'src/components/fetch-only-drought.tsx',
+      "export const F = () => fetch('/data/drought.json');",
+    );
+    failIf(
+      realRun(root, quiet, exempt) !== 1,
+      'a drought-fetch-only component was not reported',
+    );
+    rmSync(join(root, 'src/components/fetch-only-drought.tsx'), { force: true });
+
     put('src/components/rel-import.tsx', "import '../lib/cems';\nexport const R = () => null;");
     failIf(
       realRun(root, quiet, exempt) !== 1,
@@ -496,7 +531,7 @@ function selfTest() {
   }
 
   // 🔴 A literal, never `cases.length`.
-  const EXPECTED_CASES = 19;
+  const EXPECTED_CASES = 20;
   if (cases.length !== EXPECTED_CASES) {
     console.error(
       `✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`,
