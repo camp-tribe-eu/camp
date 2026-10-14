@@ -232,4 +232,22 @@ test.describe('поверхні справді кличуть помічники
       expect(html, 'опис у JSON-LD').not.toMatch(/among \d/);
     });
   });
+
+  // 🔴 І ЩАСЛИВИЙ ШЛЯХ ТЕЖ, бо випадки вище зелені й тоді, коли сторінка
+  // ЗАВЖДИ друкує речення без числа. «Не бреше» і «каже правду» — два
+  // різні твердження, і перше саме по собі задовольняє мовчун.
+  test('🔴 коли API відповів — число на сторінці те саме, що в нього', async () => {
+    await withApi(
+      { '/spots/summary': { body: SUMMARY }, '/spots/countries': { body: [] } },
+      async () => {
+        const homeTree = await (Home as unknown as () => Promise<unknown>)();
+        const home = visibleText(renderComponent(() => homeTree, {}));
+        expect(home).toContain('52,501 campsites and motorhome parks across 800 regions');
+
+        const searchTree = await (SearchPage as unknown as () => Promise<unknown>)();
+        const search = visibleText(renderComponent(() => searchTree, {}));
+        expect(search).toContain('52,501 campsites across');
+      },
+    );
+  });
 });
