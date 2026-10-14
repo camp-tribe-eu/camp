@@ -191,7 +191,7 @@ function tinyState(opts: {
 
 /** The colours the picture must use, written out here and not read from the table. */
 const WANT: Record<number, [number, number, number, number]> = {
-  0: [0x1c, 0x44, 0x18, 255],
+  0: [0x9c, 0xfe, 0x84, 255],
   1: [0xf2, 0xd9, 0x8a, 255],
   2: [0xd9, 0xa4, 0x41, 255],
   3: [0xa5, 0x54, 0x1b, 255],
@@ -302,7 +302,7 @@ test.describe('paintOverlay', () => {
     };
     expect(px(0), 'covered by neither: the raster says 0, the mask says no').toEqual(BARE);
     expect(px(2), 'a loud value under a mask that says no').toEqual(BARE);
-    expect(px(3), 'covered, and the indicator measured normal conditions').toEqual([0x1c, 0x44, 0x18, 255]);
+    expect(px(3), 'covered, and the indicator measured normal conditions').toEqual([0x9c, 0xfe, 0x84, 255]);
   });
 
   test('no source row is skipped: every row of the grid is the answer for at least one output row', () => {

@@ -484,7 +484,6 @@ async function dismissBanner(page: Page) {
 // (`scripts/ci/check-map-palette.mjs`). The thresholds are that file's and
 // are read from it, below, so this cannot drift to a number of its own.
 
-const MIN_CONTRAST = 3;
 const MIN_DELTA_E = 25;
 
 type Rgb = [number, number, number];
@@ -526,7 +525,6 @@ test.describe('the colour maths the pixel checks use', () => {
 
   test('the thresholds are the script’s own, read from it', () => {
     const script = readFileSync(join(__dirname, '..', '..', '..', '..', 'scripts', 'ci', 'check-map-palette.mjs'), 'utf8');
-    expect(script).toContain(`export const MIN_CONTRAST = ${MIN_CONTRAST};`);
     expect(script).toContain(`export const MIN_DELTA_E = ${MIN_DELTA_E};`);
   });
 });
@@ -617,7 +615,7 @@ test.describe('the picture', () => {
     };
     const want = (lat: number, lon: number) => {
       if (lon < 14.5) return { name: 'bare', rgb: [BASE, BASE, BASE] };
-      if (inBlock(lat, lon)) return { name: 'class 0, tinted', rgb: blend('#1C4418', 255) };
+      if (inBlock(lat, lon)) return { name: 'class 0, tinted', rgb: blend('#9CFE84', 255) };
       return (Math.floor(lat) + Math.floor(lon)) % 2 === 0
         ? { name: 'class 1', rgb: blend('#F2D98A', 255) }
         : { name: 'class 3', rgb: blend('#A5541B', 255) };
@@ -670,7 +668,7 @@ test.describe('the picture', () => {
     // Mutation: move class 0 back to `#9CC5A1` at alpha 90 in
     // `lib/drought-colours.ts` AND change the literal in `want()` above to
     // match — the compositing check stays green, as it must, and this fails
-    // on ΔE 6.5 and 1.10:1.
+    // on ΔE 6.5.
     const pixelOf = (name: string): Rgb => {
       const i = spots.findIndex((s) => s.name === name);
       return read[i].slice(0, 3) as Rgb;
@@ -680,9 +678,21 @@ test.describe('the picture', () => {
     const one = pixelOf('class 1');
     const three = pixelOf('class 3');
     expect(deltaE(zero, bare), 'class 0 against the bare map, ΔE').toBeGreaterThanOrEqual(MIN_DELTA_E);
-    expect(contrastRatio(zero, bare), 'class 0 against the bare map, contrast').toBeGreaterThanOrEqual(MIN_CONTRAST);
     expect(deltaE(zero, one), 'class 0 against class 1, ΔE').toBeGreaterThanOrEqual(MIN_DELTA_E);
     expect(deltaE(zero, three), 'class 0 against class 3, ΔE').toBeGreaterThanOrEqual(MIN_DELTA_E);
+
+    // 🔴 AND THE SCALE RUNS THE RIGHT WAY ROUND, in the pixels: "no drought"
+    // is the lightest of the three drought-side kinds drawn here and class 3
+    // ("vegetation under stress") the darkest. It is ΔE that tells a fill
+    // from a bare map, not a contrast — an earlier cut of this test asked
+    // class 0 for 3:1 against the map, and the only colours that give it make
+    // "no drought" the heaviest thing on the screen.
+    //
+    // Mutation: class 0 back to `#1C4418` in `lib/drought-colours.ts` (and
+    // the literal in `want()` above) — fails here: class 0 is darker than
+    // class 1.
+    expect(luminance(zero), 'class 0 is lighter than class 1').toBeGreaterThan(luminance(one));
+    expect(luminance(one), 'class 1 is lighter than class 3').toBeGreaterThan(luminance(three));
 
     // 🔴 AND THE KEY READS WHAT THE MAP PAINTS. Each swatch's colour is read
     // off the page as the browser computed it, laid on the same flat colour

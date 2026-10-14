@@ -373,29 +373,44 @@ export function literalLineColours(source) {
  * `raster-opacity`, so the pixel over a basemap colour is the class colour at
  * `alpha/255 × raster-opacity` — not the hex in the table, and not the alpha
  * in it either. The first version of the table was read by nobody here and
- * drew "no drought" at 22.9%: ΔE 4.0–13.2 and a contrast of 1.01–1.15 over
- * the eleven basemap colours, under the 25 and 3 this file holds everything else to, which
+ * drew "no drought" at 22.9%: ΔE 4.0–13.2 over the eleven basemap colours,
+ * under the 25 this file holds every "do these read alike" question to, which
  * made the one distinction the card exists for — covered and fine, against
  * not covered — a shade of green on a shade of green.
  *
- * TWO THINGS ARE HELD:
+ * THREE THINGS ARE HELD:
  *
- *  1. THE CLASSES IN `held` read apart from the map beneath them: the
- *     pixel, against every basemap colour we serve, clears `MIN_CONTRAST`
- *     and `MIN_DELTA_E` — and from every other class, by `MIN_DELTA_E`.
- *  2. EVERY CLASS leaves the campsite markers legible. The markers are drawn
- *     on top of the picture, so their background is the PIXEL, not the
- *     basemap — a thing `problems()` above never measures.
+ *  1. THE CLASSES IN `held` are told from the map beneath them and from the
+ *     other classes: the pixel is `MIN_DELTA_E` away from every basemap colour
+ *     we serve and from every other class's pixel.
+ *  2. EVERY CLASS leaves the campsite markers legible (`MIN_CONTRAST`). The
+ *     markers are drawn on top of the picture, so their background is the
+ *     PIXEL, not the basemap — a thing `problems()` above never measures.
+ *  3. THE SCALE IS THE RIGHT WAY ROUND. The `lightest` class (0, "no drought")
+ *     is lighter than every other class on every basemap colour. A scale turned
+ *     upside down is a defect even when every number above passes: an earlier
+ *     version of this check also demanded 3:1 of class 0 against the basemap,
+ *     and the only colours that met it were dark enough to make "no drought"
+ *     the heaviest thing on the map.
+ *
+ * 🔴 WHAT IS DELIBERATELY NOT HELD: A CONTRAST OF A FILL AGAINST THE MAP.
+ * `MIN_CONTRAST` answers "can a mark or a word be read on this colour" — it is
+ * why the markers are held to it above. Whether a FILL can be told from the
+ * absence of one is a question of colour DIFFERENCE, and that is ΔE. Applying
+ * the contrast to the fill would also be applying it to one class of seven:
+ * the other six do not clear 3:1 on any background (the best, class 3, is
+ * 2.03), so the rule would have been written for the class it was never true
+ * of. Said here, not left out quietly.
  *
  * 🔴 `held` is [0] and not every class, and that is a recorded limit rather
  * than an oversight. Class 0 is the one whose job is to be told from "the
  * indicator does not look here"; the others are measured and printed, and
- * today they do NOT clear either threshold (classes 1, 2 and 4–6 are under
- * ΔE 25 somewhere, and none of the six reaches 3:1 on any background — the
- * best is class 3 at 2.03). Holding them would be a different card with a
- * different palette in it.
+ * today classes 1, 2 and 4–6 are under ΔE 25 somewhere. Holding them would be
+ * a different card with a different palette in it.
  */
 export const DROUGHT_HELD = [0];
+/** The class the scale starts from: "no drought", and the lightest. */
+export const DROUGHT_LIGHTEST = 0;
 
 /** What one class looks like over one basemap colour, and how well it separates. */
 export function droughtPixel(hex, alpha, bg, rasterOpacity) {
@@ -411,6 +426,7 @@ export function droughtProblems(
   held = DROUGHT_HELD,
   fills = everyFill(),
   stroke = MARKER_STROKE,
+  lightest = DROUGHT_LIGHTEST,
 ) {
   const out = [];
   const classes = Object.entries(colours).map(([v, c]) => [Number(v), c]);
@@ -432,11 +448,7 @@ export function droughtProblems(
     const { hex, alpha } = colours[v];
     for (const [where, bg] of bgs) {
       const r = droughtPixel(hex, alpha, bg, rasterOpacity);
-      if (r.contrast < MIN_CONTRAST)
-        out.push(
-          `drought class ${v} ${hex} at ${(r.eff * 100).toFixed(1)}% on ${where} ${bg}: ` +
-            `${r.contrast.toFixed(2)}:1, needs ${MIN_CONTRAST}`
-        );
+      // 🔴 ΔE and not a contrast: see "WHAT IS DELIBERATELY NOT HELD" above.
       if (r.deltaE < MIN_DELTA_E)
         out.push(
           `drought class ${v} ${hex} at ${(r.eff * 100).toFixed(1)}% reads like ${where} ${bg}: ` +
@@ -449,6 +461,24 @@ export function droughtProblems(
         if (d < MIN_DELTA_E)
           out.push(
             `drought classes ${v} and ${w} read alike on ${where} ${bg}: ΔE ${d.toFixed(1)}, needs ${MIN_DELTA_E}`
+          );
+      }
+    }
+  }
+
+  // The scale, the right way round: the lightest class is lighter than the
+  // rest, by the pixel the reader sees, on every surface.
+  if (colours[lightest]) {
+    for (const [where, bg] of bgs) {
+      const mine = droughtPixel(colours[lightest].hex, colours[lightest].alpha, bg, rasterOpacity);
+      for (const [w, other] of classes) {
+        if (w === lightest) continue;
+        const o = droughtPixel(other.hex, other.alpha, bg, rasterOpacity);
+        if (luminance(mine.pixel) <= luminance(o.pixel))
+          out.push(
+            `drought class ${lightest} is not lighter than class ${w} on ${where} ${bg}: ` +
+              `luminance ${luminance(mine.pixel).toFixed(3)} against ${luminance(o.pixel).toFixed(3)} — ` +
+              'the scale runs the wrong way round'
           );
       }
     }
@@ -566,28 +596,30 @@ function selfTest() {
   // shipped table has to be able to fail — and the shipped table is not used
   // here at all, so the rehearsal does not move when the colours do.
   //
-  // The tables are small and hand-made: `oldZero` is the first version of
-  // class 0 (measured: ΔE 4.0, 1.01:1); `darkZero` clears both thresholds and
-  // costs the markers; `midZero` keeps the markers and fails both thresholds.
+  // The tables are small and hand-made. `oldZero` is the first version of
+  // class 0 (measured: ΔE 4.0 over the map). `goodZero` is a light class 0
+  // that clears everything. `darkZero` is the colour an earlier version of
+  // this check demanded — dark enough for 3:1 against the map — which clears
+  // ΔE, costs the markers, and turns the scale upside down. `midZero` keeps
+  // the markers and fails ΔE.
   const oldZero = { 0: { hex: '#9CC5A1', alpha: 90 } };
+  const goodZero = { 0: { hex: '#9CFE84', alpha: 255 } };
   const darkZero = { 0: { hex: '#1C4418', alpha: 255 } };
   const midZero = { 0: { hex: '#6E7889', alpha: 255 } };
+  const paleOne = { hex: '#F2D98A', alpha: 255 };
   const ring = dark; // the marker stroke, declared at the top of this function
   const blackRing = '#000000';
   const has = (list, re) => list.some((l) => re.test(l));
   cases++;
   if (!has(droughtProblems(oldZero, 0.65), /class 0 .*at 22\.9%.*ΔE 4\.0/))
     fails.push('the first version of class 0, 22.9% over the map at ΔE 4, was accepted');
-  cases++;
-  if (!has(droughtProblems(oldZero, 0.65), /class 0 .*at 22\.9%.*1\.0\d:1/))
-    fails.push('the first version of class 0 was accepted at a contrast of 1.0');
   // 🔴 The alpha IN THE TABLE is not what is seen. Same colour, same alpha:
   // at the layer's own opacity it clears; at 0.3 it does not.
   cases++;
-  if (droughtProblems(darkZero, 1, BASEMAP, [0], [], ring).length !== 0)
-    fails.push('class 0 at full strength was refused although it clears both thresholds');
+  if (droughtProblems(goodZero, 1, BASEMAP, [0], [], ring).length !== 0)
+    fails.push('a light class 0 at full strength was refused although it clears ΔE');
   cases++;
-  if (!has(droughtProblems(darkZero, 0.3, BASEMAP, [0], [], ring), /class 0 /))
+  if (!has(droughtProblems(goodZero, 0.3, BASEMAP, [0], [], ring), /class 0 .*ΔE/))
     fails.push('the layer raster-opacity was ignored: a class that fails at 30% was measured as if it were solid');
   // The cost of a dark tint, and the way out of it. One ring, one pixel.
   cases++;
@@ -599,13 +631,35 @@ function selfTest() {
   cases++;
   if (!has(droughtProblems(midZero, 0.65, BASEMAP, [0], [], ring), /class 0 .*ΔE/))
     fails.push('a class 0 at ΔE 20 from its map was accepted');
+  // 🔴 NOT HELD TO A CONTRAST. The light class 0 is 1.3:1 against some
+  // surface and must not be refused for it: whether a fill is told from
+  // the map is ΔE's question, and the other six classes are under 3:1 too.
+  cases++;
+  if (droughtProblems(goodZero, 0.65, BASEMAP, [0], [], ring).length !== 0)
+    fails.push('a light class 0 that clears ΔE and the markers was refused for its contrast');
   // Only what is held is held to the bare map; everything is held to the markers.
   cases++;
-  if (has(droughtProblems({ ...darkZero, 1: { hex: '#F2D98A', alpha: 255 } }, 0.65, BASEMAP, [0], [], ring), /class 1 .*(ΔE|:1, needs)/))
+  if (has(droughtProblems({ ...goodZero, 1: paleOne }, 0.65, BASEMAP, [0], [], ring), /class 1 .*ΔE/))
     fails.push('a class that is not held was reported against the bare map');
   cases++;
-  if (!has(droughtProblems({ ...darkZero, 1: { hex: '#1D4519', alpha: 255 } }, 0.65, BASEMAP, [0], [], ring), /classes 0 and 1 read alike/))
+  if (!has(droughtProblems({ ...goodZero, 1: { hex: '#9DFE85', alpha: 255 } }, 0.65, BASEMAP, [0], [], ring), /classes 0 and 1 read alike/))
     fails.push('class 0 and a class one shade away were accepted as two things');
+  // 🔴 THE SCALE, THE RIGHT WAY ROUND. Every number can pass and the scale
+  // still be upside down: that is the defect the contrast rule produced.
+  // `[]` and `[]` — nothing held, no markers — so only the ordering can speak.
+  cases++;
+  if (!has(droughtProblems({ ...darkZero, 1: paleOne }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 1 /))
+    fails.push('"no drought" darker than "less rain than normal" was accepted');
+  cases++;
+  if (!has(droughtProblems({ 0: paleOne, 1: paleOne }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 1 /))
+    fails.push('"no drought" exactly as light as class 1 was accepted as lighter');
+  cases++;
+  if (droughtProblems({ ...goodZero, 1: paleOne, 2: { hex: '#D9A441', alpha: 255 }, 3: { hex: '#A5541B', alpha: 255 } }, 0.65, BASEMAP, [], [], ring, 0).length !== 0)
+    fails.push('the scale the right way round (0 lightest, then 1, 2, 3 darker) was refused');
+  // Against EVERY other class, not the first one.
+  cases++;
+  if (!has(droughtProblems({ ...goodZero, 1: paleOne, 4: { hex: '#FFFFFF', alpha: 255 } }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 4 /))
+    fails.push('class 0 lighter than class 1 but darker than class 4 was accepted');
   // Values that cannot be measured.
   cases++;
   if (droughtProblems({ 0: { hex: '#FC3', alpha: 255 } }, 0.65).length === 0)
@@ -615,13 +669,13 @@ function selfTest() {
   // anyway, so a validation that had been deleted would still have been
   // "caught" by something else. Measured by deleting it: both survived.
   cases++;
-  if (droughtProblems({ 0: { hex: '#1C4418', alpha: 300 } }, 0.65, BASEMAP, [0], [], ring).length === 0)
+  if (droughtProblems({ 0: { hex: '#9CFE84', alpha: 300 } }, 0.65, BASEMAP, [0], [], ring).length === 0)
     fails.push('an alpha of 300 was accepted');
   cases++;
-  if (droughtProblems(darkZero, 0, BASEMAP, [], [], ring).length === 0)
+  if (droughtProblems(goodZero, 0, BASEMAP, [], [], ring).length === 0)
     fails.push('a raster-opacity of 0 was accepted');
   cases++;
-  if (droughtProblems(darkZero, 1.5, BASEMAP, [], [], ring).length === 0)
+  if (droughtProblems(goodZero, 1.5, BASEMAP, [], [], ring).length === 0)
     fails.push('a raster-opacity above 1 was accepted');
   // A marker is seen by its fill OR by its ring. Over a pixel so dark that the
   // ring is lost (2.7:1), a pale fill still carries it (4+:1) — and a check
@@ -651,7 +705,7 @@ function selfTest() {
   // 🔴 CAMP-286: counted, because "13 cases" was prose. An assertion
   // that stopped being reached printed exactly what a passing one
   // printed, and the sentence below went on claiming thirteen.
-  const EXPECTED_CASES = 32;
+  const EXPECTED_CASES = 36;
   if (cases !== EXPECTED_CASES) {
     fails.push(`${cases} assertions ran, expected ${EXPECTED_CASES}`);
   }
@@ -669,7 +723,8 @@ function selfTest() {
       'the map, a line too close to its own casing, a casing lost on a road, a\n' +
       'line whose opacity was ignored, a colour the component wrote itself,\n' +
       'a drought class lost in the map beneath it, a layer opacity the\n' +
-      'measurement ignored, and a tint that leaves a campsite marker unreadable'
+      'measurement ignored, a tint that leaves a campsite marker unreadable,\n' +
+      'and a scale with "no drought" darker than a drought class'
   );
 }
 
@@ -729,12 +784,15 @@ if (invokedDirectly) {
     const seen = Object.values(BASEMAP).map((bg) =>
       droughtPixel(hex, alpha, bg, DROUGHT_RASTER_OPACITY)
     );
-    const held = DROUGHT_HELD.includes(Number(value)) ? 'held' : 'not held';
+    const markers = Math.min(
+      ...seen.flatMap((r) => everyFill().map(([, fill]) => visibility(fill, MARKER_STROKE, r.pixel)))
+    );
+    const held = DROUGHT_HELD.includes(Number(value)) ? 'held to ΔE' : 'not held';
     console.log(
       `  drought ${value}`.padEnd(14) +
         ` ${hex}  ${(effectiveOpacity(alpha) * 100).toFixed(1)}% drawn   ` +
-        `ΔE ${Math.min(...seen.map((r) => r.deltaE)).toFixed(1)}  ` +
-        `${Math.min(...seen.map((r) => r.contrast)).toFixed(2)}:1 worst basemap  (${held})`
+        `ΔE ${Math.min(...seen.map((r) => r.deltaE)).toFixed(1)} worst basemap   ` +
+        `markers ${markers.toFixed(2)}:1 worst   (${held})`
     );
   }
   const split = twinsDisagree();
@@ -761,8 +819,8 @@ if (invokedDirectly) {
   );
   console.log(
     `${Object.keys(DROUGHT_COLOURS).length} drought classes at raster-opacity ${DROUGHT_RASTER_OPACITY}: ` +
-      `class ${DROUGHT_HELD.join(', ')} clears ${MIN_CONTRAST}:1 and ΔE ${MIN_DELTA_E} on every basemap colour, ` +
-      'and every class leaves every marker >= ' + `${MIN_CONTRAST}:1`
+      `class ${DROUGHT_HELD.join(', ')} is >= ΔE ${MIN_DELTA_E} from every basemap colour and every other class, ` +
+      `class ${DROUGHT_LIGHTEST} is the lightest, and every class leaves every marker >= ${MIN_CONTRAST}:1`
   );
 }
 }
