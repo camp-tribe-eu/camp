@@ -13,6 +13,8 @@
 // can assert the shape of what will run.
 
 import { EU_MEMBER_STATES_AND_SUBDIVISIONS, ISO_SUBDIVISION_OF } from './eu';
+import { FACILITY_COLUMNS, facilitySelectSql } from './route-poi-facilities';
+import { CANONICAL_REF_KINDS, classifyCaseSql } from './route-poi';
 
 /**
  * 🔴 ST_PointOnSurface, not ST_Centroid.
@@ -181,4 +183,139 @@ export function euLeakGuardSql(euParam: string): string {
      WHERE f.m <= e.m
      ORDER BY f.m
      LIMIT 20`;
+}
+
+/**
+ * 🔴 ONE ROW PER OSM OBJECT: `a246` and `w123` are the same way.
+ *
+ * `osmium export` hands a closed way out twice (CAMP-253): as a
+ * LineString under `w<id>` and as a Polygon under `a<id>`, where
+ * libosmium numbers an area `way × 2` for a way and `relation × 2 + 1`
+ * for a relation. Two ids for one object, so the upsert key never
+ * collapsed them. Measured on the Slovenian extract, 14.10.2026: every
+ * `w` came with an `a` twin (43 of 43 rest areas, 32 of 32 service areas,
+ * 5 of 5 dump stations), and 16 rest areas and 44 service areas came
+ * ONLY as `a` — so folding on the pair alone would still miss them.
+ *
+ * This maps an area id back to the object it was built from. The result
+ * is a real OpenStreetMap id — `w123` opens at openstreetmap.org/way/123 —
+ * which `a246` never did.
+ *
+ * 🔴 `a` → `w` is NOT a string substitution (`a132953274` is way
+ * 66476637), which is the mistake normalise-export.mjs documents making.
+ */
+export function canonicalRefSql(idExpr: string): string {
+  return `CASE
+              WHEN ${idExpr} ~ '^a[0-9]+$' THEN
+                CASE WHEN substr(${idExpr}, 2)::bigint % 2 = 0
+                     THEN 'w' || (substr(${idExpr}, 2)::bigint / 2)::text
+                     ELSE 'r' || ((substr(${idExpr}, 2)::bigint - 1) / 2)::text
+                END
+              ELSE ${idExpr}
+            END`;
+}
+
+/**
+ * The columns every statement here names, in order, so the INSERT list,
+ * the SELECT list and the ON CONFLICT list cannot drift apart.
+ */
+const BASE_COLUMNS = [
+  'osm_ref',
+  'kind',
+  'name',
+  'location',
+  'country',
+  'phone',
+  'website',
+  'opening_hours',
+  'last_seen_at',
+] as const;
+
+/**
+ * The statement `load-route-poi.ts` runs: staging → osm_route_poi.
+ * Parameters: $1 the run's timestamp, $2 the access values that mean
+ * "not you", $3 the EU-27 member list.
+ *
+ * Lives here, and not in the script, so a spec can run EXACTLY this text
+ * against a real database. It used to be a template literal inside a
+ * file that opens a connection on import — which is why four mutations
+ * of it shipped green (see the header of this file).
+ *
+ * 🔴 TWO ROW KEYS, ON PURPOSE.
+ *
+ * `rest_area`, `service_area` (CAMP-119) and `dump` are keyed on the
+ * canonical object id, one row per OSM object. The other six kinds — the
+ * 2.2 million rows that were here before — are keyed on what osmium
+ * wrote. Re-keying them would fold 338 305 closed-way twins (measured
+ * 14.10.2026 on camptribe_dev, `dump` included) — and it would also move
+ * 37 576 fuel points whose `fuel_station_prices.osm_ref` points at them,
+ * with no foreign key to say so. That is a decision with a cost and it is
+ * not this card's; it is written down for the next one. `dump` is folded
+ * because nothing is keyed on it and its count is the number the card
+ * asks to be reproducible (see route-poi.ts).
+ *
+ * 🔴 Where both twins arrive, the AREA wins (`a` first): its geometry is a
+ * polygon, which ST_PointOnSurface can place inside; the line is the
+ * ring's outline.
+ */
+export function buildRoutePoiInsertSql(): string {
+  const foldedKinds = CANONICAL_REF_KINDS.map((k) => {
+    if (!/^[a-z_]+$/.test(k))
+      throw new Error(`route-poi-sql: unsafe kind ${k}`);
+    return `'${k}'`;
+  }).join(', ');
+  const base = BASE_COLUMNS.join(', ');
+  const facilities = FACILITY_COLUMNS.join(', ');
+  const updates = [
+    ...BASE_COLUMNS.filter((c) => c !== 'osm_ref'),
+    ...FACILITY_COLUMNS,
+  ]
+    .map((c) => `${c} = EXCLUDED.${c}`)
+    .join(',\n            ');
+
+  return `INSERT INTO osm_route_poi
+         (${base},
+          ${facilities})
+       SELECT ${[...BASE_COLUMNS, ...FACILITY_COLUMNS].map((c) => `r.${c}`).join(', ')}
+         FROM (
+         SELECT DISTINCT ON (x.ref)
+                x.ref AS osm_ref,
+                k.kind AS kind,
+                nullif(btrim(s.name), '') AS name,
+                ${POINT_SQL} AS location,
+                ${countrySql(POINT_SQL, '$3')} AS country,
+                ${firstOf(`coalesce(s.phone, s."contact:phone")`)} AS phone,
+                ${WEBSITE_SQL} AS website,
+                nullif(btrim(s.opening_hours), '') AS opening_hours,
+                $1::timestamptz AS last_seen_at,
+                ${facilitySelectSql('s')}
+           FROM osm_route_poi_staging s
+          CROSS JOIN LATERAL (SELECT ${classifyCaseSql('s')} AS kind) k
+          CROSS JOIN LATERAL (
+                SELECT CASE WHEN k.kind IN (${foldedKinds})
+                            THEN ${canonicalRefSql('s.id')}
+                            ELSE s.id
+                       END AS ref) x
+          WHERE k.kind IS NOT NULL
+            -- 🔴 A private or employees-only fuel station is not
+            -- somewhere a stranger can fill up. 9 874 of the candidates
+            -- say so. The same goes for a rest area behind a barrier.
+            AND (s.access IS NULL OR s.access <> ALL ($2::text[]))
+            AND s.geom IS NOT NULL
+            AND ${POINT_SQL} IS NOT NULL
+          ORDER BY x.ref, (s.id LIKE 'a%') DESC, s.id
+       ) r
+        -- 🔴 CAMP-118, and NO "country IS NULL" exception.
+        --
+        -- There used to be one, reasoning that a row inside no Natural
+        -- Earth polygon is coastal rather than foreign. Measured: it
+        -- admitted 423 rows strictly nearer to a non-member than to any
+        -- member, because a point 7 m outside NORTHERN CYPRUS is also
+        -- inside no polygon. countrySql now answers with the nearest
+        -- polygon instead, so there is nothing to make an exception for
+        -- — and the column is NOT NULL, so the exception cannot come
+        -- back without the import failing loudly.
+        WHERE r.country = ANY ($3::text[])
+       ON CONFLICT (osm_ref) DO UPDATE SET
+            ${updates}`;
 }

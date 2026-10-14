@@ -540,6 +540,19 @@ jobs:
           node scripts/osm-pipeline/normalise-export.mjs --self-test | tee /dev/stderr \
             | grep -c 'normalise-export self-test:' >/dev/null
 
+      # 🔴 CAMP-119. The raw-extract counter is the oracle the stopping-place
+      # import is reconciled against, so the thing that must not be wrong in
+      # silence is how it reads OPL — `%2c%` taken for a URL escape comes
+      # back as `,%` — and what it counts as a dump station: the AMENITY, and
+      # never the `sanitary_dump_station=*` key on somebody else's object.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: The raw-extract counter still reads OPL and still counts the amenity, not the key
+        run: |
+          set -o pipefail
+          node scripts/osm-pipeline/count-rest-stops.mjs --self-test | tee /dev/stderr \
+            | grep -c 'count-rest-stops self-test:' >/dev/null
+
       # 🔴 CAMP-174. The CEMS language rule is enforced on panels the
       # suite can FIND, and it found them through hand-written
       # descriptors. Review built a drought panel and a /drought page
@@ -1378,6 +1391,19 @@ jobs:
       # shimmed on PATH. md5sum is not \u2014 the checksum is what is on trial.
       - name: An unverified extract can never load
         run: ./scripts/osm-pipeline/load-context.selftest.sh
+
+      # 🔴 CAMP-119. The export list used to be a heredoc in
+      # load-route-poi.sh and dropped `toilets`, `fee` and `shower` for
+      # every object we hold — and a tag the export drops looks exactly
+      # like a tag nobody wrote. This drives the script with the same
+      # shims and asserts on the config osmium is actually handed.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: The stopping places are filtered for and exported with their tags
+        run: |
+          set -o pipefail
+          ./scripts/osm-pipeline/load-route-poi.selftest.sh | tee /dev/stderr \
+            | grep -c 'load-route-poi self-test:' >/dev/null
 
       # 🔴 CAMP-267. Thirteen of these cases exist because review showed
       # four different failures — a 404, a dead network, a redirect onto
