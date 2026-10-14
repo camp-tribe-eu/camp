@@ -25,9 +25,11 @@ const NAV: NavItem[] = [
   { href: '/map', label: 'Map' },
   { href: '/camping', label: 'Campsites' },
   { href: '/search', label: 'Search' },
+  // 🔴 CAMP-205: сторінка відкривається, тож пункт з'явився. Вона
+  // каже, що алгоритм (CAMP-46) ще не рахує, — див. app/plan/page.tsx.
+  { href: '/plan', label: 'Plan a trip' },
   // Added as each ships, not before:
   //   { href: '/routes',  label: 'Routes' },     CAMP-45
-  //   { href: '/plan',    label: 'Plan a trip' },CAMP-46
   //   { href: '/rentals', label: 'Rentals' },    CAMP-54
   { href: '/guides', label: 'Guides' }, // CAMP-66
   { href: '/tools', label: 'Tools' }, // CAMP-55
