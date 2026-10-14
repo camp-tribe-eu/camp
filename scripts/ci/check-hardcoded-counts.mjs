@@ -92,7 +92,7 @@ export const EXCLUDED = Object.freeze({
  * «motorhome park».
  */
 const WORD = new RegExp(
-  '\\b(?:camp\\s?sites?|campgrounds?|camping|motorhome\\s+parks?|camper\\s+stops?|' +
+  '\\b(?:campsites?|campgrounds?|camping|motorhome\\s+parks?|camper\\s+stops?|' +
     'rv\\s+parks?|aires?|pitch(?:es)?|sites?|spots?|listings?|records?|entries|pages?|' +
     'database|dataset)\\b',
   'i',
@@ -105,7 +105,7 @@ const WORD = new RegExp(
  * іменником «in 2026 for campsites» читалось би як «2026 campsites», і
  * кожен датований рядок про кемпінги став би червоним.
  */
-const NOUN_AFTER = /^\s+(?:camp\s?sites?|sites?|spots?|pages?|records?|pitch(?:es)?|listings?|entries)\b/i;
+const NOUN_AFTER = /^\s+(?:campsites?|sites?|spots?|pages?|records?|pitch(?:es)?|listings?|entries)\b/i;
 
 /**
  * Число, яким пишуть кількість: з роздільниками тисяч (пробіл, нерозривний
@@ -389,6 +389,11 @@ function selfTest() {
 
   is('число в шаблонному рядку з підстановкою',
     numbers('export const d = `${n} of the 61 422 campsites`;'), ['61 422']);
+  // 🔴 Підстановка розрізає цифри: «12${a}345 sites» — не «12345 sites».
+  // Без роздільника між шматками шаблону склеєні половинки читались би
+  // як число, якого в тексті немає.
+  is('🔴 підстановка розрізає цифри — це не число',
+    numbers('export const d = `${a}12${b}345 sites`;'), []);
   is('число в атрибуті', numbers('export default () => <a aria-label="61 422 campsites">x</a>;'), ['61 422']);
 
   // 🔴 Наївне вирізання від `//` до кінця рядка сховало б усе після
@@ -512,7 +517,7 @@ function selfTest() {
     is('нічого не знайдено — нічого й не друкується', report([], []), []);
   }
 
-  const EXPECTED_CASES = 60;
+  const EXPECTED_CASES = 61;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;
