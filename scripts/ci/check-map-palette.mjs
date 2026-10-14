@@ -852,6 +852,13 @@ export function rasterOpacityProblems(source) {
 function selfTest() {
   const fails = [];
   let cases = 0;
+  // 🔴 CAMP-315: `dp` is `droughtProblems` with NO named exception unless a case
+  // passes one. The shipped list is not the rehearsal's business: without this the
+  // self-test moved when somebody edited DROUGHT_PAIR_EXCEPTIONS (measured: a second
+  // entry broke 25 cases for the wrong reason), and a case that is about the
+  // order of a ladder was quietly excusing classes 2 and 3.
+  const dp = (colours, rasterOpacity, backgrounds, held, fills, stroke, lightest, ladder, recovery, exceptions = []) =>
+    droughtProblems(colours, rasterOpacity, backgrounds, held, fills, stroke, lightest, ladder, recovery, exceptions);
   const dark = '#181D26';
   cases++;
   if (problems([['x', '#FFC83C']], '#FFFFFF').length === 0)
@@ -926,81 +933,81 @@ function selfTest() {
   const blackRing = '#000000';
   const has = (list, re) => list.some((l) => re.test(l));
   cases++;
-  if (!has(droughtProblems(oldZero, 0.65, BASEMAP, [0]), /class 0 .*at 22\.9%.*ΔE 4\.0/))
+  if (!has(dp(oldZero, 0.65, BASEMAP, [0]), /class 0 .*at 22\.9%.*ΔE 4\.0/))
     fails.push('the first version of class 0, 22.9% over the map at ΔE 4, was accepted');
   // 🔴 The alpha IN THE TABLE is not what is seen. Same colour, same alpha:
   // at the layer's own opacity it clears; at 0.3 it does not.
   cases++;
-  if (droughtProblems(goodZero, 1, BASEMAP, [0], [], ring).length !== 0)
+  if (dp(goodZero, 1, BASEMAP, [0], [], ring).length !== 0)
     fails.push('a light class 0 at full strength was refused although it clears ΔE');
   cases++;
-  if (!has(droughtProblems(goodZero, 0.3, BASEMAP, [0], [], ring), /class 0 .*ΔE/))
+  if (!has(dp(goodZero, 0.3, BASEMAP, [0], [], ring), /class 0 .*ΔE/))
     fails.push('the layer raster-opacity was ignored: a class that fails at 30% was measured as if it were solid');
   // The cost of a dark tint, and the way out of it. One ring, one pixel.
   cases++;
-  if (!has(droughtProblems(darkZero, 0.65, BASEMAP, [0], undefined, ring), /markers over drought class 0 /))
+  if (!has(dp(darkZero, 0.65, BASEMAP, [0], undefined, ring), /markers over drought class 0 /))
     fails.push('a tint that leaves a campsite marker under 3:1 on the pixel was accepted');
   cases++;
-  if (droughtProblems(darkZero, 0.65, BASEMAP, [0], undefined, blackRing).length !== 0)
+  if (dp(darkZero, 0.65, BASEMAP, [0], undefined, blackRing).length !== 0)
     fails.push('a dark class 0 with a dark enough ring was refused');
   cases++;
-  if (!has(droughtProblems(midZero, 0.65, BASEMAP, [0], [], ring), /class 0 .*ΔE/))
+  if (!has(dp(midZero, 0.65, BASEMAP, [0], [], ring), /class 0 .*ΔE/))
     fails.push('a class 0 at ΔE 20 from its map was accepted');
   // 🔴 NOT HELD TO A CONTRAST. The light class 0 is 1.3:1 against some
   // surface and must not be refused for it: whether a fill is told from
   // the map is ΔE's question, and the other six classes are under 3:1 too.
   cases++;
-  if (droughtProblems(goodZero, 0.65, BASEMAP, [0], [], ring).length !== 0)
+  if (dp(goodZero, 0.65, BASEMAP, [0], [], ring).length !== 0)
     fails.push('a light class 0 that clears ΔE and the markers was refused for its contrast');
   // Only what is held is held to the bare map; everything is held to the markers.
   cases++;
-  if (has(droughtProblems({ ...goodZero, 1: paleOne }, 0.65, BASEMAP, [0], [], ring), /class 1 .*ΔE/))
+  if (has(dp({ ...goodZero, 1: paleOne }, 0.65, BASEMAP, [0], [], ring), /class 1 .*ΔE/))
     fails.push('a class that is not held was reported against the bare map');
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 1: { hex: '#9DFE85', alpha: 255 } }, 0.65, BASEMAP, [0], [], ring), /classes 0 and 1 read alike/))
+  if (!has(dp({ ...goodZero, 1: { hex: '#9DFE85', alpha: 255 } }, 0.65, BASEMAP, [0], [], ring), /classes 0 and 1 read alike/))
     fails.push('class 0 and a class one shade away were accepted as two things');
   // 🔴 THE SCALE, THE RIGHT WAY ROUND. Every number can pass and the scale
   // still be upside down: that is the defect the contrast rule produced.
   // `[]` and `[]` — nothing held, no markers — so only the ordering can speak.
   cases++;
-  if (!has(droughtProblems({ ...darkZero, 1: paleOne }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 1 /))
+  if (!has(dp({ ...darkZero, 1: paleOne }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 1 /))
     fails.push('"no drought" darker than "less rain than normal" was accepted');
   cases++;
-  if (!has(droughtProblems({ 0: paleOne, 1: paleOne }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 1 /))
+  if (!has(dp({ 0: paleOne, 1: paleOne }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 1 /))
     fails.push('"no drought" exactly as light as class 1 was accepted as lighter');
   cases++;
-  if (droughtProblems({ ...goodZero, 1: paleOne, 2: { hex: '#D9A441', alpha: 255 }, 3: { hex: '#A5541B', alpha: 255 } }, 0.65, BASEMAP, [], [], ring, 0, undefined, undefined, []).length !== 0)
+  if (dp({ ...goodZero, 1: paleOne, 2: { hex: '#D9A441', alpha: 255 }, 3: { hex: '#A5541B', alpha: 255 } }, 0.65, BASEMAP, [], [], ring, 0, undefined, undefined, []).length !== 0)
     fails.push('the scale the right way round (0 lightest, then 1, 2, 3 darker) was refused');
   // Against EVERY other class, not the first one.
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 1: paleOne, 4: { hex: '#FFFFFF', alpha: 255 } }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 4 /))
+  if (!has(dp({ ...goodZero, 1: paleOne, 4: { hex: '#FFFFFF', alpha: 255 } }, 0.65, BASEMAP, [], [], ring, 0), /class 0 is not lighter than class 4 /))
     fails.push('class 0 lighter than class 1 but darker than class 4 was accepted');
   // Values that cannot be measured.
   cases++;
   // 🔴 `[]` held, not the default: with all seven held (CAMP-315) this
   // one-class table is refused for "class 1 has no colour" whatever the
   // notation, and a hex check that had been deleted would still be "caught".
-  if (droughtProblems({ 0: { hex: '#FC3', alpha: 255 } }, 0.65, BASEMAP, []).length === 0)
+  if (dp({ 0: { hex: '#FC3', alpha: 255 } }, 0.65, BASEMAP, []).length === 0)
     fails.push('a drought colour in three-digit notation was accepted');
   // 🔴 `[]` for the fills and `[0]` for the held class on the next two, and
   // not the defaults: with the defaults this table is refused for the markers
   // anyway, so a validation that had been deleted would still have been
   // "caught" by something else. Measured by deleting it: both survived.
   cases++;
-  if (droughtProblems({ 0: { hex: '#9CFE84', alpha: 300 } }, 0.65, BASEMAP, [0], [], ring).length === 0)
+  if (dp({ 0: { hex: '#9CFE84', alpha: 300 } }, 0.65, BASEMAP, [0], [], ring).length === 0)
     fails.push('an alpha of 300 was accepted');
   cases++;
-  if (droughtProblems(goodZero, 0, BASEMAP, [], [], ring).length === 0)
+  if (dp(goodZero, 0, BASEMAP, [], [], ring).length === 0)
     fails.push('a raster-opacity of 0 was accepted');
   cases++;
-  if (droughtProblems(goodZero, 1.5, BASEMAP, [], [], ring).length === 0)
+  if (dp(goodZero, 1.5, BASEMAP, [], [], ring).length === 0)
     fails.push('a raster-opacity above 1 was accepted');
   // A marker is seen by its fill OR by its ring. Over a pixel so dark that the
   // ring is lost (2.7:1), a pale fill still carries it (4+:1) — and a check
   // that looked at the ring alone would refuse a table that is fine.
   cases++;
   if (
-    droughtProblems(
+    dp(
       { 0: { hex: '#101010', alpha: 255 } },
       0.65,
       BASEMAP,
@@ -1057,10 +1064,10 @@ function selfTest() {
     fails.push('a class is in neither the drought series nor the recovery group, so nothing checks where it sits');
   // The two the card names, each by its own measured figure.
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 1: paleOne }, 0.65, BASEMAP, [1], [], ring), /class 1 #F2D98A .*reads like liberty\.trunk #FFEEAA: ΔE 6\.6/))
+  if (!has(dp({ ...goodZero, 1: paleOne }, 0.65, BASEMAP, [1], [], ring), /class 1 #F2D98A .*reads like liberty\.trunk #FFEEAA: ΔE 6\.6/))
     fails.push('class 1 at #F2D98A, ΔE 6.6 from liberty’s trunk roads, was accepted');
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 4: oldRecovery, 5: oldRecovery, 6: oldRecovery }, 0.65, BASEMAP, [4, 5, 6], [], ring), /class 4 #8FB8CC .*reads like bright\.water #AECFE2: ΔE 6\.0/))
+  if (!has(dp({ ...goodZero, 4: oldRecovery, 5: oldRecovery, 6: oldRecovery }, 0.65, BASEMAP, [4, 5, 6], [], ring), /class 4 #8FB8CC .*reads like bright\.water #AECFE2: ΔE 6\.0/))
     fails.push('the recovery group at #8FB8CC, ΔE 6.0 from bright’s water, was accepted');
   // Two classes drawn as one colour, outside the group that is allowed to.
   cases++;
@@ -1068,7 +1075,7 @@ function selfTest() {
     fails.push('class 2 drawn exactly like class 1 was accepted');
   // The drought series, the right way round: darker at every rung…
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 1: { hex: '#D9A441', alpha: 255 }, 2: paleOne }, 0.65, BASEMAP, [], [], ring), /class 2 is not darker than class 1 /))
+  if (!has(dp({ ...goodZero, 1: { hex: '#D9A441', alpha: 255 }, 2: paleOne }, 0.65, BASEMAP, [], [], ring), /class 2 is not darker than class 1 /))
     fails.push('the series turned over (class 1 darker than class 2) was accepted');
   // …and warmer. ISOLATED from the luminance rule: class 2 here is darker than
   // class 1, as it should be, and its hue goes the wrong way. Both messages
@@ -1076,7 +1083,7 @@ function selfTest() {
   // be one rule holding the other up.
   cases++;
   {
-    const wrongWarmth = droughtProblems(
+    const wrongWarmth = dp(
       { ...goodZero, 1: { hex: '#F59105', alpha: 255 }, 2: { hex: '#8A7A00', alpha: 255 } },
       0.65, BASEMAP, [], [], ring
     );
@@ -1085,46 +1092,46 @@ function selfTest() {
   }
   // The warm band: a red rung (the campsite markers' colour) and a cool one.
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 1: yellow, 2: { hex: '#D5412A', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 2 #D5412A has hue 39°, outside \d+–\d+°/))
+  if (!has(dp({ ...goodZero, 1: yellow, 2: { hex: '#D5412A', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 2 #D5412A has hue 39°, outside \d+–\d+°/))
     fails.push('a red drought class (hue 39°, the markers’ colour) was accepted');
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 1: teal }, 0.65, BASEMAP, [], [], ring), /class 1 #00938A has hue 188°, outside \d+–\d+°/))
+  if (!has(dp({ ...goodZero, 1: teal }, 0.65, BASEMAP, [], [], ring), /class 1 #00938A has hue 188°, outside \d+–\d+°/))
     fails.push('a cool colour in the drought series was accepted');
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 1: { hex: '#7FC83C', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 1 #7FC83C has hue 127°, outside \d+–\d+°/))
+  if (!has(dp({ ...goodZero, 1: { hex: '#7FC83C', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 1 #7FC83C has hue 127°, outside \d+–\d+°/))
     fails.push('a green drought class (hue 127°, the colour of "no drought") was accepted');
   // Recovery is cool, and one colour.
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 4: orange }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #FF8E00 has hue 65°, outside \d+–\d+°/))
+  if (!has(dp({ ...goodZero, 4: orange }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #FF8E00 has hue 65°, outside \d+–\d+°/))
     fails.push('a warm recovery colour was accepted');
   // …and cool means cyan to blue: not the green beside it (164°), not magenta (336°).
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 4: { hex: '#3A8266', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #3A8266 has hue 164°, outside \d+–\d+°/))
+  if (!has(dp({ ...goodZero, 4: { hex: '#3A8266', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #3A8266 has hue 164°, outside \d+–\d+°/))
     fails.push('a green recovery colour (hue 164°) was accepted as cool');
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 4: { hex: '#C32BA6', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #C32BA6 has hue 336°, outside \d+–\d+°/))
+  if (!has(dp({ ...goodZero, 4: { hex: '#C32BA6', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #C32BA6 has hue 336°, outside \d+–\d+°/))
     fails.push('a magenta recovery colour (hue 336°) was accepted as cool');
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 4: teal, 5: { hex: '#0A9388', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery classes 4 and 5 are drawn #00938A\/255 and #0A9388\/255/))
+  if (!has(dp({ ...goodZero, 4: teal, 5: { hex: '#0A9388', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery classes 4 and 5 are drawn #00938A\/255 and #0A9388\/255/))
     fails.push('recovery classes drawn in two shades were accepted as one group');
   // A grey has an angle too, and it is noise: refused, not read.
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 1: { hex: '#808080', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 1 #808080 has chroma 0, under 20: too grey/))
+  if (!has(dp({ ...goodZero, 1: { hex: '#808080', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 1 #808080 has chroma 0, under 20: too grey/))
     fails.push('a grey drought class was given a hue and accepted');
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 4: { hex: '#808080', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #808080 has chroma 0, under 20: too grey/))
+  if (!has(dp({ ...goodZero, 4: { hex: '#808080', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #808080 has chroma 0, under 20: too grey/))
     fails.push('a grey recovery colour was given a hue and accepted');
   // The printed table is the check's own figure, not a second computation.
   cases++;
   {
-    const w = droughtWorst({ ...goodZero, 1: paleOne }, 0.65, BASEMAP, [], ring);
+    const w = droughtWorst({ ...goodZero, 1: paleOne }, 0.65, BASEMAP, [], ring, undefined, []);
     if (w[1].basemap.where !== 'liberty.trunk' || Math.abs(w[1].basemap.deltaE - 6.6) > 0.05)
       fails.push(`the printed worst basemap ΔE for #F2D98A is ${w[1].basemap.deltaE.toFixed(2)} on ${w[1].basemap.where}, not 6.6 on liberty.trunk`);
   }
   cases++;
   {
-    const w = droughtWorst({ 4: teal, 5: teal }, 0.65, BASEMAP, [], ring);
-    const w0 = droughtWorst({ ...goodZero, 4: teal, 5: teal }, 0.65, BASEMAP, [], ring);
+    const w = droughtWorst({ 4: teal, 5: teal }, 0.65, BASEMAP, [], ring, undefined, []);
+    const w0 = droughtWorst({ ...goodZero, 4: teal, 5: teal }, 0.65, BASEMAP, [], ring, undefined, []);
     if (w[4].other.deltaE !== Infinity || !(w0[4].other.deltaE > 25 && w0[4].other.deltaE < 100))
       fails.push('the printed "against another colour" figure counted a class’s own recovery group, or lost the others');
   }
