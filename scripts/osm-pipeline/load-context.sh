@@ -14,7 +14,18 @@
 # arriving through the front door instead.
 #
 # Then:
+#   ./scripts/osm-pipeline/load-country-boundaries.sh --tag-only      # CAMP-296
 #   cd apps/api && npx ts-node src/osm/compute-context.ts
+#
+# 🔴 The tagging step is not optional. This script's `ogr2ogr -overwrite`
+# re-creates osm_ctx_place and osm_ctx_poi WITHOUT the `country` column that
+# compute-context filters on: it looks for the nearest town, supermarket and
+# station INSIDE the Union. These extracts carry a border margin — the Polish
+# one holds Kaliningrad — so without the column the nearest town of five
+# campsites in Warmia-Masuria was Крылово, in Russia. --tag-only takes
+# seconds; the full run (no flag) re-reads the extracts and is only needed
+# when they change. compute-context refuses to run while the column is
+# missing or has untagged rows.
 #
 # Three layers, because a campsite is described by different things:
 #

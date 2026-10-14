@@ -58,6 +58,18 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+`src/osm/context-sql.spec.ts` runs the real SQL against a real PostGIS, so it
+needs `CAMP_TEST_DATABASE_URL` (CI already sets `CI_DATABASE_URL`):
+
+```bash
+$ CAMP_TEST_DATABASE_URL=postgres://localhost:5432/postgres npm run test
+```
+
+Any database you may `CREATE DATABASE` in will do. The suite creates its own
+throwaway `camp296_*` database and drops it afterwards; it reads and writes
+nothing in the one you name. Without the variable it **fails** instead of
+skipping — a skipped test reads as a passed one.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
