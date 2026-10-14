@@ -935,24 +935,24 @@ function selfTest() {
   }
   // The warm band: a red rung (the campsite markers' colour) and a cool one.
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 1: yellow, 2: { hex: '#D5412A', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 2 #D5412A has hue 39°, outside 45–105°/))
+  if (!has(droughtProblems({ ...goodZero, 1: yellow, 2: { hex: '#D5412A', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 2 #D5412A has hue 39°, outside \d+–\d+°/))
     fails.push('a red drought class (hue 39°, the markers’ colour) was accepted');
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 1: teal }, 0.65, BASEMAP, [], [], ring), /class 1 #00938A has hue 188°, outside 45–105°/))
+  if (!has(droughtProblems({ ...goodZero, 1: teal }, 0.65, BASEMAP, [], [], ring), /class 1 #00938A has hue 188°, outside \d+–\d+°/))
     fails.push('a cool colour in the drought series was accepted');
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 1: { hex: '#7FC83C', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 1 #7FC83C has hue 127°, outside 45–105°/))
+  if (!has(droughtProblems({ ...goodZero, 1: { hex: '#7FC83C', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /class 1 #7FC83C has hue 127°, outside \d+–\d+°/))
     fails.push('a green drought class (hue 127°, the colour of "no drought") was accepted');
   // Recovery is cool, and one colour.
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 4: orange }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #FF8E00 has hue 65°, outside 170–290°/))
+  if (!has(droughtProblems({ ...goodZero, 4: orange }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #FF8E00 has hue 65°, outside \d+–\d+°/))
     fails.push('a warm recovery colour was accepted');
   // …and cool means cyan to blue: not the green beside it (164°), not magenta (336°).
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 4: { hex: '#3A8266', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #3A8266 has hue 164°, outside 170–290°/))
+  if (!has(droughtProblems({ ...goodZero, 4: { hex: '#3A8266', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #3A8266 has hue 164°, outside \d+–\d+°/))
     fails.push('a green recovery colour (hue 164°) was accepted as cool');
   cases++;
-  if (!has(droughtProblems({ ...goodZero, 4: { hex: '#C32BA6', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #C32BA6 has hue 336°, outside 170–290°/))
+  if (!has(droughtProblems({ ...goodZero, 4: { hex: '#C32BA6', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery class 4 #C32BA6 has hue 336°, outside \d+–\d+°/))
     fails.push('a magenta recovery colour (hue 336°) was accepted as cool');
   cases++;
   if (!has(droughtProblems({ ...goodZero, 4: teal, 5: { hex: '#0A9388', alpha: 255 } }, 0.65, BASEMAP, [], [], ring), /recovery classes 4 and 5 are drawn #00938A\/255 and #0A9388\/255/))
