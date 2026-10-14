@@ -34,8 +34,13 @@ import { getSummary } from './api';
 //
 // `/spots/summary` (this), `/spots/countries` (llms.txt, /camping, the
 // country list under /map) and `/spots/index` (the sitemap, and the pages
-// that are generated) share that one predicate, so these are the same
-// figure by construction and by measurement — see campsite-count.spec.ts.
+// that are generated) each spell out that predicate in their own SQL, so
+// they agree by measurement and not by construction. 14.10.2026, on a copy
+// of `camptribe_dev`: summary.spots, the sum of countries[].spots and
+// len(index) were all 52 501, and `/spots/map/regions` summed to 52 633.
+// If they ever part, /routes and llms.txt will print different numbers
+// and nothing in the build will say so: campsite-count.spec.ts pins how
+// each surface READS its endpoint, not that the endpoints agree.
 
 /**
  * The number of campsites that have a page, or `null` when we cannot say.
