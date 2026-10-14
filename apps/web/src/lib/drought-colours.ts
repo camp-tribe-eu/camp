@@ -29,8 +29,8 @@ export const DROUGHT_RASTER_OPACITY = 0.65;
  *
  * 🔴 NOT a traffic light. Red on a class of drought is the CAMP-162
  * vocabulary rendered in CSS, and the campsite markers are already
- * #C83D28. One hue, pale to dark, for the three drought classes, and a
- * cool colour for the three recovery ones.
+ * #C83D28. One warm family — yellow, then orange, then brown — for the
+ * three drought classes, and ONE cool colour for the three recovery ones.
  *
  * 🔴 Class 0 IS DRAWN, and drawn so that it can be told from a place the
  * indicator does not look at. That is what the mask is for: where the
@@ -46,39 +46,75 @@ export const DROUGHT_RASTER_OPACITY = 0.65;
  * reads this table). The distinction the card exists to make had moved from
  * the data into the rendering, where it was one shade of green on another.
  *
- * 🔴 WHAT CLASS 0 IS HELD TO, AND WHAT IT IS NOT. Three things, all measured
- * by `check-map-palette.mjs`:
+ * 🔴 SEVEN CLASSES, FIVE COLOURS: 0, 1, 2, 3 and ONE for 4–6. Those three are
+ * the RECOVERY group (recovered, soil recovering, vegetation recovering), drawn
+ * alike on purpose and printed as one legend row; do not split them. What EDO
+ * calls them is in `drought.json`'s `meta.classes`.
  *
- *  1. ΔE >= 25 against every basemap colour, and against every other class:
- *     "covered and fine" is told from "not covered" and from a drought class.
+ * 🔴 WHAT EVERY ONE OF THE FIVE IS HELD TO. `check-map-palette.mjs` measures all
+ * seven classes, as the reader sees them (alpha × `DROUGHT_RASTER_OPACITY`, over
+ * each of the eleven basemap colours we serve):
+ *
+ *  1. ΔE >= 25 against every basemap colour, and against every other colour:
+ *     "covered and fine", "a drought class" and "recovering" are each told from
+ *     "not covered" and from one another. Until CAMP-315 only class 0 was held,
+ *     and the rest were not under the line: class 1 `#F2D98A` was ΔE 6.6 from
+ *     liberty's trunk roads, 4–6 `#8FB8CC` was ΔE 6.0 from bright's water,
+ *     class 2 `#D9A441` was 22.3 (measured 14.10.2026 by that script). "Less rain
+ *     than normal" over a motorway and "recovering" over a lake read as a bare
+ *     map, which says "we do not measure here" — the very conflation the mask
+ *     exists to stop, on other classes.
  *  2. The campsite markers, which are drawn on top, stay >= 3:1 over its pixel.
- *  3. THE SCALE STAYS THE RIGHT WAY ROUND: class 0 is the LIGHTEST class and
- *     the drought classes get darker and warmer with severity. A scale
- *     turned upside down is a defect even when every number above passes —
- *     the version that held class 0 to 3:1 against the basemap made "no
+ *  3. THE SCALE STAYS THE RIGHT WAY ROUND. Class 0 is the LIGHTEST of all seven.
+ *     The drought series 0 → 1 → 2 → 3 gets darker AND warmer at every step
+ *     (yellow, orange, brown — hue falling towards red, never into it). The
+ *     recovery colour is COOL and is not a rung of that series: its lightness is
+ *     not ordered against 1–3 (a teal does not belong between two ambers).
+ *     A scale turned upside down is a defect even when every number above
+ *     passes — the version that held class 0 to 3:1 against the basemap made "no
  *     drought" the darkest thing on the map, darker than "vegetation under
  *     stress".
  *
  * It is NOT held to a contrast against the basemap. Contrast answers "can a
  * mark or a word be read on this colour"; whether a FILL can be told from the
- * absence of one is a question of colour difference, which is ΔE. And the
- * other six classes are not held to 3:1 either — the best of them reaches
- * 2.03 — so the rule would have been applied to the one class it hurt.
+ * absence of one is a question of colour difference, which is ΔE.
+ *
+ * THE FIVE, AS `check-map-palette.mjs` PRINTS THEM (14.10.2026): the worst case
+ * over the eleven basemap colours, so each is a floor and not an average.
+ *
+ *   class  colour    ΔE vs basemap          ΔE vs another colour        markers
+ *   0      #9CFE84   32.6 liberty.trunk     33.7 class 1                11.66:1
+ *   1      #F2E02E   33.8 liberty.trunk     31.0 class 2                10.88:1
+ *   2      #FF8E00   43.2 liberty.trunk     30.8 class 3                 7.33:1
+ *   3      #A5541B   38.2 liberty.trunk     30.8 class 2                 4.43:1
+ *   4–6    #00938A   29.3 bright.water      44.2 class 0                 5.62:1
+ *
+ * HOW 1, 2 AND 4–6 WERE CHOSEN, so the next person can redo it rather than trust
+ * it. Class 0 (`#9CFE84`) and class 3 (`#A5541B`) were not touched. Colours on
+ * an RGB grid were dropped unless they cleared items 1–3 against the basemap and
+ * against 0 and 3, and the survivors were searched for the yellow–orange pair
+ * and the recovery colour with the widest worst case. The room is small: yellow
+ * and orange are sandwiched between a pale-yellow trunk road, a light green
+ * class 0 and a brown class 3, and in the search with their chroma capped at 65
+ * the best pair found reached ΔE 23.5 — under the line. Hence the saturated
+ * yellow and orange; the pixel is 35% basemap, so on the map they read softer.
+ * The recovery colour has far more room (several hundred teals clear everything);
+ * it is a middling teal so that "recovered" is not the heaviest thing on the
+ * map, and not a blue, because the basemaps' water is blue.
  *
  * `#9CFE84` is a light green. 3 401 of the 140 608 colours on a 5-step grid
- * clear all three (and are lighter than the classes beside them on every
- * basemap colour); it was picked from the best-separated of them, and its
- * worst figures are ΔE 32.6 from a basemap colour (liberty's trunk roads),
- * ΔE 32.2 from another class, and markers at 11.66:1.
+ * clear class 0's three rules (and are lighter than the classes beside them on
+ * every basemap colour); it was picked from the best-separated of them in
+ * CAMP-200, and its markers are at 11.66:1.
  */
 export const DROUGHT_COLOURS: Readonly<Record<number, { hex: string; alpha: number }>> = {
   0: { hex: '#9CFE84', alpha: 255 },
-  1: { hex: '#F2D98A', alpha: 255 },
-  2: { hex: '#D9A441', alpha: 255 },
+  1: { hex: '#F2E02E', alpha: 255 },
+  2: { hex: '#FF8E00', alpha: 255 },
   3: { hex: '#A5541B', alpha: 255 },
-  4: { hex: '#8FB8CC', alpha: 255 },
-  5: { hex: '#8FB8CC', alpha: 255 },
-  6: { hex: '#8FB8CC', alpha: 255 },
+  4: { hex: '#00938A', alpha: 255 },
+  5: { hex: '#00938A', alpha: 255 },
+  6: { hex: '#00938A', alpha: 255 },
 };
 
 export const hexRgb = (hex: string): [number, number, number] => [
