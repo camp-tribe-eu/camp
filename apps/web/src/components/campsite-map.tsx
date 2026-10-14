@@ -47,6 +47,7 @@ import {
 } from "@/lib/map-palette";
 import { LayerChip } from "./layer-chip";
 import { WildfirePanel } from "./wildfire-panel";
+import { DroughtLayerPanel } from "./drought-layer-panel";
 import { WarningPanel } from "./warning-panel";
 import { canCountSpots, levelByZone, levelForSpot } from "@/lib/map-hazard";
 import { WARNINGS_URL } from "./warnings-for-spot";
@@ -79,6 +80,14 @@ import {
   toggleLayer,
   type LayerId,
 } from "@/lib/map-layers";
+import {
+  DROUGHT_URL,
+  paintOverlay,
+  readDroughtPayload,
+  type DroughtLayerState,
+  type DroughtOverlay,
+  type DroughtState,
+} from "@/lib/drought";
 import {
   WILDFIRE_URL,
   firesInView,
@@ -132,6 +141,9 @@ const POINT_LAYER = "campsite-points";
 // його означало б сказати двома мовами в одному пікселі: читач не
 // відрізнить «це дикий майданчик» від «тут попередження».
 const HAZARD_HALO = "campsite-hazard-halo";
+// CAMP-200: the Copernicus EDO drought grid, laid under everything else.
+const DROUGHT_SOURCE = "drought-cdi";
+const DROUGHT_LAYER = "drought-cdi-overlay";
 // CAMP-153: the Copernicus burnt-area perimeters.
 const FIRE_SOURCE = "wildfires";
 const FIRE_FILL = "wildfire-areas";
@@ -332,6 +344,133 @@ export function setCampsiteFeatures(
 
 function hideMarkers(m: InstanceType<typeof MapLibreMap>) {
   setCampsiteFeatures(m, []);
+}
+
+/** The drought grid as a picture, ready for MapLibre. */
+interface DroughtImage {
+  canvas: HTMLCanvasElement;
+  coordinates: DroughtOverlay["coordinates"];
+}
+
+/**
+ * CAMP-200: paint the grid onto a canvas and hand MapLibre the canvas.
+ *
+ * 🔴 Built from the SAME state the campsite page's panel reads — every
+ * pixel is asked of `readingAt`, the function that applies the coverage
+ * mask — and once per arrival of the data, not once per switch.
+ *
+ * 🔴 A CANVAS SOURCE, NOT AN IMAGE SOURCE WITH A `data:` URL. MapLibre
+ * loads an image source with `fetch()`, and this site's Content Security
+ * Policy has `connect-src 'self' …` and no `data:` there: the first
+ * version of this layer (CAMP-163, PR #84) drew nothing on the production
+ * build and left one console line to say why. `img-src` allows `data:`;
+ * widening `connect-src` to let a fetch read a string we made ourselves
+ * would be the wrong repair. A canvas source reads the canvas directly and
+ * makes no request at all.
+ */
+function buildDroughtImage(
+  state: Extract<DroughtState, { kind: "current" }>,
+): DroughtImage | null {
+  const overlay = paintOverlay(state);
+  const canvas = document.createElement("canvas");
+  canvas.width = overlay.width;
+  canvas.height = overlay.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.putImageData(
+    new ImageData(
+      overlay.data as unknown as Uint8ClampedArray<ArrayBuffer>,
+      overlay.width,
+      overlay.height,
+    ),
+    0,
+    0,
+  );
+  return { canvas, coordinates: overlay.coordinates };
+}
+
+/**
+ * CAMP-200: the drought picture, under the perimeters and the campsites.
+ *
+ * 🔴 Idempotent, and called both from `attach` (which runs on every
+ * styledata, because setStyle drops every source and layer) and from
+ * `drawDrought` (when the data arrives after the style did). Added BEFORE
+ * the fire layers when they exist, so a burnt area is never hidden under a
+ * colour wash, and nothing here can sit on top of a campsite: the question
+ * this layer answers is about the place, and the place has to stay visible.
+ */
+function attachDrought(
+  m: InstanceType<typeof MapLibreMap>,
+  image: DroughtImage | null,
+  visible: boolean,
+) {
+  if (!image) return;
+  if (!m.getSource(DROUGHT_SOURCE)) {
+    m.addSource(DROUGHT_SOURCE, {
+      type: "canvas",
+      canvas: image.canvas,
+      coordinates: image.coordinates,
+      // Static: read once. The default re-uploads the texture every frame.
+      animate: false,
+    });
+  }
+  if (!m.getLayer(DROUGHT_LAYER)) {
+    m.addLayer(
+      {
+        id: DROUGHT_LAYER,
+        type: "raster",
+        source: DROUGHT_SOURCE,
+        layout: { visibility: visible ? "visible" : "none" },
+        paint: {
+          "raster-opacity": 0.65,
+          // A 4.6 km cell is drawn as the block it is, never smoothed.
+          "raster-resampling": "nearest",
+          "raster-fade-duration": 0,
+        },
+      },
+      m.getLayer(FIRE_FILL) ? FIRE_FILL : undefined,
+    );
+  } else if (
+    (m.getLayoutProperty(DROUGHT_LAYER, "visibility") === "visible") !== visible
+  ) {
+    // Only on a real change: this runs from `styledata`, and a style
+    // change fires `styledata` again.
+    m.setLayoutProperty(DROUGHT_LAYER, "visibility", visible ? "visible" : "none");
+  }
+}
+
+/**
+ * CAMP-200: `attachDrought`, for a caller that cannot know whether the
+ * style has loaded.
+ *
+ * 🔴 NOT gated on `isStyleLoaded()`. That answers "is anything still being
+ * fetched" — false while tiles are loading, which on a busy map is most of
+ * the first seconds — and gating on it meant the first arrival of the data
+ * could be skipped with no later event to retry it. What `addSource`
+ * actually needs is the style DOCUMENT to have loaded, and it says so by
+ * throwing; that one message is the only thing swallowed, because
+ * `styledata` fires when the document arrives and `attach` then draws what
+ * was skipped.
+ */
+function tryAttachDrought(
+  m: InstanceType<typeof MapLibreMap>,
+  image: DroughtImage | null,
+  visible: boolean,
+) {
+  try {
+    attachDrought(m, image, visible);
+  } catch (e) {
+    if (!(e instanceof Error) || !/not done loading/i.test(e.message)) throw e;
+  }
+}
+
+/** Is the drought picture on the map, and showing, right now? Asked of the map, not remembered. */
+function droughtIsDrawn(m: InstanceType<typeof MapLibreMap> | null): boolean {
+  return (
+    !!m &&
+    !!m.getLayer(DROUGHT_LAYER) &&
+    m.getLayoutProperty(DROUGHT_LAYER, "visibility") === "visible"
+  );
 }
 
 /**
@@ -684,6 +823,21 @@ export default function CampsiteMap() {
   const [layers, setLayers] = useState<LayerId[]>(() => DEFAULT_LAYERS());
   const firesOn = layers.includes("wildfire" as LayerId);
   const hazardsOn = layers.includes("hazards" as LayerId);
+  const droughtOn = layers.includes("drought" as LayerId);
+
+  // CAMP-200. The drought layer's state, kept apart in the same way.
+  //
+  // 🔴 `loading` until the file has actually answered, for the reason the
+  // fire layer's is: "still fetching" and "we hold nothing" draw the same
+  // empty map, and the sentence under it has to tell them apart.
+  const [droughtStateNow, setDroughtStateNow] = useState<DroughtLayerState>({
+    kind: "loading",
+  });
+  const droughtImage = useRef<DroughtImage | null>(null);
+  /** Whether the picture should be showing — read by `attach`, which runs on every styledata. */
+  const droughtShown = useRef(false);
+  const droughtAsked = useRef(false);
+  const mounted = useRef(true);
 
   // One call, not five. The JSX below used to ask `satelliteFor()`
   // separately for the click, aria-pressed, aria-disabled, the class
@@ -751,6 +905,15 @@ export default function CampsiteMap() {
       // sources and layers wholesale — the fire layer has to be restored
       // on each styledata exactly like the campsites, and the region
       // circles are in this file's history as the thing that was forgotten.
+      // 🔴 The drought picture below the perimeters, and both below the
+      // campsites — so it goes first. Restored here for the same reason:
+      // setStyle discards it with everything else.
+      attachDrought(m, droughtImage.current, droughtShown.current);
+      // 🔴 Said again here, because this is the moment a picture that had
+      // to wait for the style actually goes on the map.
+      if (container.current) {
+        container.current.dataset.droughtDrawn = droughtIsDrawn(m) ? "1" : "0";
+      }
       attachFires(m);
       if (!m.getSource(SOURCE_ID)) {
         m.addSource(SOURCE_ID, {
@@ -1869,6 +2032,84 @@ export default function CampsiteMap() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fireState, firesOn]);
 
+  /**
+   * CAMP-200: put the drought picture on the map, or take it off.
+   *
+   * 🔴 ONE DECISION, IN ONE PLACE: `shown`. The picture is built only from
+   * a state that is `current`, so a period past its budget draws nothing —
+   * `droughtState` decides that, and nothing on the way in has already
+   * emptied the state for it.
+   *
+   * 🔴 `data-drought-drawn` says whether a picture is on the map right now,
+   * for the same reason `data-in-view` exists: the drawing lives in a WebGL
+   * canvas that nothing else about the page can read.
+   */
+  const drawDrought = () => {
+    const m = map.current;
+    const el = container.current;
+    const shown = droughtOn && droughtStateNow.kind === "current";
+    droughtShown.current = shown;
+    if (shown && !droughtImage.current && droughtStateNow.kind === "current") {
+      let built: DroughtImage | null = null;
+      try {
+        built = buildDroughtImage(droughtStateNow);
+      } catch {
+        built = null; // a canvas this size that the browser will not give us
+      }
+      if (!built) {
+        // 🔴 A panel that describes a drawn layer over a map it could not
+        // draw on is the blank that reads as an all-clear. `missing` is
+        // the honest state for "we hold it and cannot show it".
+        droughtShown.current = false;
+        if (el) el.dataset.droughtDrawn = "0";
+        setDroughtStateNow({ kind: "missing" });
+        return;
+      }
+      droughtImage.current = built;
+    }
+    if (m) tryAttachDrought(m, droughtImage.current, shown);
+    if (el) el.dataset.droughtDrawn = droughtIsDrawn(m) ? "1" : "0";
+  };
+  const drawDroughtRef = useRef(drawDrought);
+  drawDroughtRef.current = drawDrought;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  // 🔴 THE FILE IS ASKED FOR ONLY WHEN THE LAYER IS FIRST SWITCHED ON, and
+  // that is the whole point of it being off by default: a reader who never
+  // looks at drought pays nothing for it — no request, not a fast one.
+  // Switching it off and on again does not ask twice.
+  //
+  // 🔴 Every outcome sets a state that SAYS something — a network failure,
+  // a 404 from a bad deploy and a payload that is not the shape we wrote
+  // all land on `missing`, which renders "no drought reading" and never a
+  // blank.
+  useEffect(() => {
+    if (!droughtOn || droughtAsked.current) return;
+    droughtAsked.current = true;
+    void fetch(DROUGHT_URL)
+      .then((r) =>
+        r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)),
+      )
+      .then((body: unknown) => readDroughtPayload(body, new Date()))
+      .then((state) => {
+        if (mounted.current) setDroughtStateNow(state);
+      })
+      .catch(() => {
+        if (mounted.current) setDroughtStateNow({ kind: "missing" });
+      });
+  }, [droughtOn]);
+
+  useEffect(() => {
+    drawDroughtRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [droughtStateNow, droughtOn]);
+
   // 🔴 Read through a ref inside the fetch above: that effect runs once,
   // and closing over `filters` would pin it to whatever was set on the
   // first render — so a link opened with filters already in its query
@@ -2394,6 +2635,10 @@ export default function CampsiteMap() {
           beside Copernicus data are a licence matter, and a check can
           only read them if the panel can be rendered on its own. */}
       <WildfirePanel state={fireState} on={firesOn} inView={firesHere} />
+      {/* CAMP-200, CAMP-162. The drought layer's own note: the period, the
+          key to the colours and the credit beside the data. Mounted only
+          while the layer is on — see the component for why. */}
+      {droughtOn && <DroughtLayerPanel state={droughtStateNow} />}
       {/* CAMP-112. 🔴 ТА САМА ПАНЕЛЬ, ЩО НА СТОРІНЦІ КЕМПІНГА, і це не
           економія: вона вже несе всі сім умов клаузули 5 — службу,
           час випуску, посилання, дисклеймер дослівно — і кожну з них

@@ -304,3 +304,191 @@ export function droughtNote(state: DroughtState, lat: number, lon: number): Drou
     asOf,
   };
 }
+
+// ── CAMP-200: the same grid, on the map ──────────────────────────────────
+//
+// 🔴 ONE READER, TWO PLACES. The campsite page asks `readingAt` about one
+// coordinate; the map asks it about a million. Everything below goes
+// through that function, so the mask that keeps "no drought" apart from
+// "we do not measure here" is applied to the picture by the same line that
+// applies it to a sentence. A second decoder that walked the raster itself
+// would be the place that mask quietly stopped applying.
+
+/** The route that serves both files as one payload — see `app/data/drought.json/route.ts`. */
+export const DROUGHT_URL = '/data/drought.json';
+
+/**
+ * What the map's drought panel can be in.
+ *
+ * `loading` is its own state, and it is not `missing`: until the file has
+ * answered, "still fetching" and "we hold nothing" draw the same empty map,
+ * and the sentence under it has to tell them apart.
+ */
+export type DroughtLayerState = { kind: 'loading' } | DroughtState;
+
+/** base64 → gunzip, in the browser. Node 18+ has the same globals, so a test can run it. */
+export async function inflateBase64(b64: string): Promise<Uint8Array> {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/**
+ * The route's payload — `{ meta, cdi, domain }` — as a state.
+ *
+ * 🔴 `droughtState` is the ONLY thing that decides what the payload means,
+ * here as on the page. It takes a synchronous `decode`; a browser can only
+ * gunzip asynchronously, so the two strings are inflated first and handed
+ * back by lookup. Anything that goes wrong lands on `missing` — which the
+ * panel says out loud — and never throws into React.
+ */
+export async function readDroughtPayload(body: unknown, now: Date): Promise<DroughtState> {
+  const inflated = new Map<string, Uint8Array>();
+  try {
+    const p = body as { cdi?: unknown; domain?: unknown } | null;
+    for (const s of [p?.cdi, p?.domain]) {
+      if (typeof s === 'string') inflated.set(s, await inflateBase64(s));
+    }
+  } catch {
+    return { kind: 'missing' };
+  }
+  return droughtState(body, body, now, (s) => {
+    const got = inflated.get(s);
+    if (!got) throw new Error('not inflated');
+    return got;
+  });
+}
+
+/**
+ * How each class is drawn. The legend and the pixels both read this one
+ * table, so they cannot drift apart.
+ *
+ * 🔴 NOT a traffic light. Red on a class of drought is the CAMP-162
+ * vocabulary rendered in CSS, and the campsite markers are already
+ * #C83D28. One hue, pale to dark, for the three drought classes, and a
+ * cool colour for the three recovery ones.
+ *
+ * 🔴 Class 0 IS DRAWN, faintly. That is what the mask is for: where the
+ * indicator measured normal conditions the map is tinted, and where it
+ * does not look at all (the sea, the places outside its domain) it is left
+ * bare. If 0 were transparent too, "bare" would mean either, and the map
+ * would say about Malta exactly what the mask exists to stop it saying.
+ */
+export const DROUGHT_COLOURS: Readonly<Record<number, { hex: string; alpha: number }>> = {
+  0: { hex: '#9CC5A1', alpha: 90 },
+  1: { hex: '#F2D98A', alpha: 255 },
+  2: { hex: '#D9A441', alpha: 255 },
+  3: { hex: '#A5541B', alpha: 255 },
+  4: { hex: '#8FB8CC', alpha: 255 },
+  5: { hex: '#8FB8CC', alpha: 255 },
+  6: { hex: '#8FB8CC', alpha: 255 },
+};
+
+const hexRgb = (hex: string): [number, number, number] => [
+  parseInt(hex.slice(1, 3), 16),
+  parseInt(hex.slice(3, 5), 16),
+  parseInt(hex.slice(5, 7), 16),
+];
+
+export interface LegendRow {
+  hex: string;
+  /** The classes' own words, from the file, joined when they share a colour. */
+  label: string;
+}
+
+/**
+ * The legend, built from the file's own class names.
+ *
+ * 🔴 From `meta.classes`, not from a list typed here: those strings went
+ * through `wordsAreOurs` at the door, and a label written in a component
+ * would not have. Classes drawn in the same colour are one row.
+ */
+export function droughtLegend(meta: DroughtMeta): LegendRow[] {
+  const rows: LegendRow[] = [];
+  for (const c of [...meta.classes].sort((a, b) => a.value - b.value)) {
+    const style = DROUGHT_COLOURS[c.value];
+    if (!style) continue;
+    const last = rows[rows.length - 1];
+    if (last && last.hex === style.hex) last.label += `, ${c.label}`;
+    else rows.push({ hex: style.hex, label: c.label });
+  }
+  return rows;
+}
+
+const mercatorY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+const latOfMercatorY = (y: number) => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * (180 / Math.PI);
+
+export interface DroughtOverlay {
+  width: number;
+  height: number;
+  /** RGBA, row-major from the north. Places the indicator does not cover are transparent. */
+  data: Uint8ClampedArray;
+  /** Upper-left, upper-right, lower-right, lower-left, as MapLibre wants a canvas source's corners. */
+  coordinates: [[number, number], [number, number], [number, number], [number, number]];
+}
+
+/**
+ * The grid as a picture MapLibre can lay over the map.
+ *
+ * 🔴 RESAMPLED INTO WEB MERCATOR, and not a courtesy. The raster is
+ * equirectangular (a cell is 1/24° both ways) and MapLibre stretches a
+ * canvas linearly in MERCATOR space between its four corners. Laid on as it
+ * is, the middle of the picture (53°N) would land about 6° off. So each
+ * output row is one latitude in mercator space; the column count is the
+ * grid's own, because longitude is linear in both.
+ *
+ * One output row per source cell at the southern edge, where a cell is
+ * shortest in mercator space, so no source row is ever skipped.
+ *
+ * Nearest-neighbour on purpose: a 4.6 km cell is drawn as the block it is.
+ * Smoothing it would invent a gradient Copernicus did not publish.
+ */
+export function paintOverlay(state: Extract<DroughtState, { kind: 'current' }>): DroughtOverlay {
+  const { grid } = state.meta;
+  const north = grid.lat0;
+  const south = grid.lat0 - grid.height * grid.pixel;
+  const west = grid.lon0;
+  const east = grid.lon0 + grid.width * grid.pixel;
+  const yTop = mercatorY(north);
+  const yBottom = mercatorY(south);
+  const smallestCell =
+    (grid.pixel * Math.PI) / 180 / Math.cos((Math.min(Math.abs(south), Math.abs(north)) * Math.PI) / 180);
+  const height = Math.max(1, Math.ceil((yTop - yBottom) / smallestCell));
+  const data = new Uint8ClampedArray(grid.width * height * 4);
+
+  const palette = new Map<number, { rgb: [number, number, number]; alpha: number }>();
+  for (const [value, style] of Object.entries(DROUGHT_COLOURS)) {
+    palette.set(Number(value), { rgb: hexRgb(style.hex), alpha: style.alpha });
+  }
+
+  for (let r = 0; r < height; r++) {
+    const lat = latOfMercatorY(yTop - ((r + 0.5) * (yTop - yBottom)) / height);
+    for (let c = 0; c < grid.width; c++) {
+      const lon = west + (c + 0.5) * grid.pixel;
+      const reading = readingAt(state, lat, lon);
+      // 🔴 Not known → bare. This is the mask speaking, through the same
+      // function the campsite page uses.
+      if (!reading.known) continue;
+      const style = palette.get(reading.value);
+      if (!style) continue;
+      const at = (r * grid.width + c) * 4;
+      data[at] = style.rgb[0];
+      data[at + 1] = style.rgb[1];
+      data[at + 2] = style.rgb[2];
+      data[at + 3] = style.alpha;
+    }
+  }
+  return {
+    width: grid.width,
+    height,
+    data,
+    coordinates: [
+      [west, north],
+      [east, north],
+      [east, south],
+      [west, south],
+    ],
+  };
+}

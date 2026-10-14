@@ -1,4 +1,4 @@
-import { droughtNote, formatDay, type DroughtState } from '@/lib/drought';
+import { droughtNote, formatDay, type DroughtMeta, type DroughtState } from '@/lib/drought';
 
 // CAMP-163 — the EDO drought reading, beside the campsite it is about.
 //
@@ -103,45 +103,57 @@ export function DroughtPanel({
         </p>
       )}
 
-      {state.kind === 'current' && (
-        // Identical everywhere too: the credit is the licence's, not the
-        // campsite's.
-        <p className="mt-2 text-xs" data-boilerplate="drought-credit">
-          <a
-            href={state.meta.sourceUrl}
-            className="underline"
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            {state.meta.source}
-          </a>
-          {' · '}
-          {state.meta.indicator}
-          {' · '}
-          <a
-            href={state.meta.termsUrl}
-            className="underline"
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            CEMS terms
-          </a>
-          {' · '}
-          {/* Read on, not built on: the licence asks for the date of the
-              DATA, and a build date would drift away from it every time
-              anything else on the site changed. */}
-          Read from Copernicus on{' '}
-          <time dateTime={state.meta.fetchedAt}>
-            {formatDay(state.meta.fetchedAt.slice(0, 10)) ?? state.meta.fetchedAt}
-          </time>
-          {'. '}
-          {/* 🔴 The CEMS notice for modified data, word for word, with
-              the year — carried by the data file rather than written
-              here, so it cannot go stale in a component. */}
-          {state.meta.attribution}
-        </p>
-      )}
+      {state.kind === 'current' && <DroughtCredit meta={state.meta} />}
       </div>
     </section>
+  );
+}
+
+/**
+ * 🔴 CAMP-200. The credit, once, for both places the indicator is shown.
+ *
+ * It was thirty lines inside `DroughtPanel`; the map's drought layer needs
+ * the same sentence, and a second copy would be a licence condition kept in
+ * two places that could disagree. Nothing about the markup changed in the
+ * move — `data-boilerplate` stays, so the duplicate-content guard still
+ * strips it from the campsite pages.
+ */
+export function DroughtCredit({ meta }: { meta: DroughtMeta }) {
+  return (
+    // Identical everywhere: the credit is the licence's, not the campsite's.
+    <p className="mt-2 text-xs" data-boilerplate="drought-credit">
+      <a
+        href={meta.sourceUrl}
+        className="underline"
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        {meta.source}
+      </a>
+      {' · '}
+      {meta.indicator}
+      {' · '}
+      <a
+        href={meta.termsUrl}
+        className="underline"
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        CEMS terms
+      </a>
+      {' · '}
+      {/* Read on, not built on: the licence asks for the date of the
+          DATA, and a build date would drift away from it every time
+          anything else on the site changed. */}
+      Read from Copernicus on{' '}
+      <time dateTime={meta.fetchedAt}>
+        {formatDay(meta.fetchedAt.slice(0, 10)) ?? meta.fetchedAt}
+      </time>
+      {'. '}
+      {/* 🔴 The CEMS notice for modified data, word for word, with the
+          year — carried by the data file rather than written here, so it
+          cannot go stale in a component. */}
+      {meta.attribution}
+    </p>
   );
 }
