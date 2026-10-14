@@ -832,8 +832,14 @@ test.describe('/map', () => {
     await expect.poll(() => asked.length).toBeGreaterThan(0);
 
     const first = asked[0];
+    // 🔴 A basemap button, not "the first button that is not pressed".
+    // The layer chips sit above the switcher, and since CAMP-200 one of
+    // them (Drought) starts off — so the first unpressed button on the page
+    // became a layer chip, the click switched a layer and not a supplier,
+    // and this failed in all four browsers for a reason that was about the
+    // test's reach and not about the switcher.
     const other = await page
-      .getByRole('button', { pressed: false })
+      .locator('[data-source][aria-pressed="false"]')
       .first()
       .textContent();
 
