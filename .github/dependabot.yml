@@ -76,6 +76,23 @@ updates:
         update-types: ['version-update:semver-major']
       - dependency-name: eslint-config-next
         update-types: ['version-update:semver-major']
+      # 🔴 Додано 14.10.2026 (CAMP-266). Dependabot розрізав React 18 → 19
+      # на ДВА PR — `react` окремо, `react-dom` окремо — і жоден із них не
+      # міг позеленіти, бо react 19 із react-dom 18 не збирається взагалі.
+      # Обидва простояли по десять днів червоними, і причина виглядала як
+      # «наші тести поламані», хоч ламалось дерево залежностей.
+      #
+      # Мажор React — це наше рішення, а не робота бота: `@types/*` мусять
+      # іти тим самим кроком, що й пакети, і підніматись ОДНИМ PR. Мінори
+      # й патчі далі приходять як завжди.
+      - dependency-name: react
+        update-types: ['version-update:semver-major']
+      - dependency-name: react-dom
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react-dom'
+        update-types: ['version-update:semver-major']
       # 🔴 Додано 11.10.2026 (CAMP-178), поки TypeScript 7 ще не вийшов —
       # і він уже встиг відкрити PR #89, у якому CI не запустився ЖОДНОГО
       # разу. «Перевірок немає» в інтерфейсі виглядає як «нічого не
