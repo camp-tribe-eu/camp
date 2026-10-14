@@ -40,7 +40,12 @@ import { argv, exit } from 'node:process';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chooseAction } from '../lib/entrypoint.mjs';
-import yaml from 'js-yaml';
+// 🔴 Іменований імпорт, бо js-yaml 5 ПРИБРАВ default-експорт. На 4-й
+// `import yaml from 'js-yaml'` працював; на 5-й той самий рядок дає
+// `SyntaxError: does not provide an export named 'default'` — і падає
+// не тест, а завантаження модуля, тобто сторож мовчить про те, що
+// стеріг. Заміряно 14.10.2026 на 5.4.3: default === undefined.
+import { load as loadYaml } from 'js-yaml';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const WORKFLOWS = join(ROOT, '.github/workflows');
@@ -228,14 +233,14 @@ export function readJobs(files, actions = {}, scripts = {}) {
   // `.github/actions/build-site/action.yml` was invisible before this.
   const actionNode = {};
   for (const [name, text] of Object.entries(actions)) {
-    const doc = yaml.load(text) ?? {};
+    const doc = loadYaml(text) ?? {};
     const steps = doc?.runs?.steps ?? [];
     const found = steps.map(setupNodeOf).filter(Boolean);
     if (found.length) actionNode[name] = found;
   }
 
   for (const [file, text] of Object.entries(files)) {
-    const doc = yaml.load(text) ?? {};
+    const doc = loadYaml(text) ?? {};
     const theJobs = doc.jobs ?? {};
     if (Object.keys(theJobs).length === 0) {
       jobs.push({ file, job: '(none)', empty: true });
