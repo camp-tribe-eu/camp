@@ -39,7 +39,12 @@
 import { readFileSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import yaml from 'js-yaml';
+// 🔴 Іменований імпорт, бо js-yaml 5 ПРИБРАВ default-експорт. На 4-й
+// `import yaml from 'js-yaml'` працював; на 5-й той самий рядок дає
+// `SyntaxError: does not provide an export named 'default'` — і падає
+// не тест, а завантаження модуля, тобто сторож мовчить про те, що
+// стеріг. Заміряно 14.10.2026 на 5.4.3: default === undefined.
+import { load as loadYaml } from 'js-yaml';
 import { chooseAction } from '../lib/entrypoint.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -67,7 +72,7 @@ export function problems(files) {
   for (const name of names) {
     let doc;
     try {
-      doc = yaml.load(files[name]);
+      doc = loadYaml(files[name]);
     } catch (err) {
       // Unreadable is not clean. A parser that gave up must say so, or
       // its silence counts as approval.
