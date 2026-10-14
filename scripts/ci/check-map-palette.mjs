@@ -625,6 +625,72 @@ export function droughtProblems(
 }
 
 /**
+ * 🔴 CAMP-319. WHAT `visibility` DOES NOT ASK, AND WHY THAT MATTERED.
+ *
+ * Rule 3 above takes `Math.max(fill vs pixel, ring vs pixel)`: a marker counts
+ * as seen when EITHER half stands out. Over the Alert class that maximum is
+ * carried ENTIRELY BY THE RING. The marker's fill and the pixel under it are
+ * both red — `#C83D28` on `#DC050C` — so what a reader sees is a dark ring
+ * with nothing inside it.
+ *
+ * Found 14.10.2026 by eye, not by number: «Wild camping» over Alert is almost
+ * one dark ring, and on a dense map it is easy to miss. Rule 3 said 3.32:1 and
+ * passed, because 3.32 is what the RING scores. The check was measuring the
+ * half that was fine.
+ *
+ * 🔴 THIS IS MEASURED AND PRINTED, NOT HELD — a recorded limit, not an
+ * oversight. Holding it would fail the palette we deliberately took from the
+ * source (CAMP-315), and whether a ring alone is enough is a design question
+ * about the markers, not about the drought colours. CAMP-319 carries it.
+ *
+ * What it buys: the number stops being invisible. Whoever changes either
+ * palette sees which marker disappears into which class, by name.
+ */
+export function fillOnlyOnPixel(
+  colours = DROUGHT_COLOURS,
+  rasterOpacity = DROUGHT_RASTER_OPACITY,
+  backgrounds = BASEMAP,
+  fills = everyFill(),
+) {
+  const seen = [];
+  for (const [v, { hex, alpha }] of Object.entries(colours)) {
+    for (const [where, bg] of Object.entries(backgrounds)) {
+      const { pixel } = droughtPixel(hex, alpha, bg, rasterOpacity);
+      for (const [name, fill] of fills) {
+        seen.push({
+          klass: Number(v),
+          marker: name,
+          where,
+          pixel,
+          // 🔴 ОБИДВІ ВЕЛИЧИНИ, І СУДИМО ПО ΔE. Контраст міряє, чи
+          // прочитається ЗНАК на тлі; чи відрізню я одну заливку від
+          // іншої — питання різниці кольору. Перша версія цього заміру
+          // судила по контрасту й дала 420 «провалів» із 539 пар, бо
+          // прикладала до заливок лінійку для тексту. Та сама помилка,
+          // через яку в CAMP-315 «посухи немає» мало не стало
+          // найтемнішим класом на мапі.
+          contrast: contrast(fill, pixel),
+          deltaE: deltaE(fill, pixel),
+        });
+      }
+    }
+  }
+  // 🔴 Найгірше першим, і сортування стале: інакше «найгірша пара» в звіті
+  // стрибала б між рівними значеннями від прогону до прогону.
+  return seen.sort(
+    (a, b) =>
+      a.deltaE - b.deltaE ||
+      a.klass - b.klass ||
+      a.marker.localeCompare(b.marker) ||
+      a.where.localeCompare(b.where),
+  );
+}
+
+/** Пари «заливка маркера проти пікселя», що читаються однаково. */
+export const fillsLostInPixel = (rows, min = MIN_DELTA_E) =>
+  rows.filter((r) => r.deltaE < min);
+
+/**
  * The worst figure each class reaches, over every basemap colour — what the
  * printed table at the bottom of this file shows, kept as a function so that a
  * number in a report and a number the check compares are one computation.
@@ -974,10 +1040,51 @@ function selfTest() {
       fails.push('the printed table says a class equals the source when it does not (or the reverse), or judges a named exception against it');
   }
 
+  // ── CAMP-319: заливка маркера проти пікселя ───────────────────────
+  //
+  // 🔴 Перша версія цього заміру судила по КОНТРАСТУ й дала 420 «провалів»
+  // із 539 пар — бо прикладала до двох заливок лінійку для тексту. Судимо
+  // по ΔE, і тоді зливаються 63 пари, а найгірша — рівно та, яку знайшли
+  // оком. Випадок нижче тримає цей вибір.
+  cases++;
+  {
+    // 🔴 ВІДНОШЕННЯ, А НЕ МАГІЧНЕ ЧИСЛО. Перша версія цього випадку
+    // чекала ΔE близько нуля від маркера, пофарбованого ТОЧНО в колір
+    // класу — і впала на 15.4. Правильно: піксель це колір класу,
+    // ЗМІШАНИЙ із підкладкою при `rasterOpacity`, а не сирий hex. Тож
+    // стверджуємо те, що справді мусить бути: маркер кольору класу
+    // ближчий до його пікселя, ніж маркер протилежного кольору.
+    const near = fillOnlyOnPixel(GOOD, OPACITY, BASEMAP, [['same', '#DC050C']]).filter((r) => r.klass === 3);
+    const far = fillOnlyOnPixel(GOOD, OPACITY, BASEMAP, [['far', '#00FFFF']]).filter((r) => r.klass === 3);
+    const worstNear = Math.min(...near.map((r) => r.deltaE));
+    const worstFar = Math.min(...far.map((r) => r.deltaE));
+    if (!(worstNear < worstFar))
+      fails.push(`a marker the colour of its class (ΔE ${worstNear.toFixed(1)}) is not closer to its pixel than an opposite one (ΔE ${worstFar.toFixed(1)})`);
+  }
+  cases++;
+  {
+    // Маркер, далекий від усіх класів, не має потрапляти до злитих.
+    const far = fillOnlyOnPixel(GOOD, OPACITY, BASEMAP, [['far', '#000000']]);
+    if (fillsLostInPixel(far).length !== 0)
+      fails.push('a marker that differs from every class pixel is still reported as merged');
+  }
+  cases++;
+  {
+    // 🔴 Найгірше першим, і порядок сталий — інакше «найгірша пара» в
+    // звіті стрибала б між рівними значеннями від прогону до прогону.
+    const rows = fillOnlyOnPixel();
+    const sorted = rows.every((r, i) => i === 0 || rows[i - 1].deltaE <= r.deltaE);
+    const twice = JSON.stringify(fillOnlyOnPixel()) === JSON.stringify(rows);
+    if (!sorted || !twice) fails.push('the merged-pairs list is not sorted worst-first, or not stable between runs');
+  }
+  cases++;
+  if (fillsLostInPixel([{ deltaE: MIN_DELTA_E }, { deltaE: MIN_DELTA_E - 0.1 }]).length !== 1)
+    fails.push('the merge threshold does not sit exactly at MIN_DELTA_E');
+
   // 🔴 CAMP-286: counted, because "13 cases" was prose. An assertion
   // that stopped being reached printed exactly what a passing one
   // printed, and the sentence below went on claiming thirteen.
-  const EXPECTED_CASES = 57;
+  const EXPECTED_CASES = 61;
   if (cases !== EXPECTED_CASES) {
     fails.push(`${cases} assertions ran, expected ${EXPECTED_CASES}`);
   }
@@ -1104,5 +1211,21 @@ if (invokedDirectly) {
       `classes ${Object.keys(EDO_SOURCE.own).join(' and ')} are named exceptions; every class is >= ΔE ${MIN_DELTA_E} ` +
       `from every basemap colour and from every other class, and leaves every marker >= ${MIN_CONTRAST}:1`
   );
+
+  // 🔴 CAMP-319. Надруковане, не втримуване — і саме тому надруковане.
+  // Rule 3 бере максимум із «заливка проти пікселя» і «кільце проти
+  // пікселя», тож маркер, чия заливка зникла, проходить за рахунок
+  // кільця. Знайдено оком: «Wild camping» над Alert — майже одне темне
+  // кільце. Нижче — ті самі пари числом, щоб наступного разу їх не
+  // довелося шукати очима.
+  const merged = fillsLostInPixel(fillOnlyOnPixel());
+  if (merged.length > 0) {
+    const w = merged[0];
+    console.log(
+      `🔴 ${merged.length} marker/class pairs merge by fill alone (ΔE < ${MIN_DELTA_E}); ` +
+        `worst: ${w.marker} over class ${w.klass} on ${w.where} — ΔE ${w.deltaE.toFixed(1)}. ` +
+        `They pass rule 3 on the ring, not the fill. CAMP-319.`
+    );
+  }
 }
 }
