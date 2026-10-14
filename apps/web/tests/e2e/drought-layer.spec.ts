@@ -610,15 +610,15 @@ test.describe('the picture', () => {
     const away = (v: number) => Math.abs(v - Math.round(v)) > 0.08;
     const BASE = 232;
     const blend = (hex: string, alpha: number): number[] => {
-      const eff = (0.65 * alpha) / 255;
+      const eff = (0.76 * alpha) / 255;
       return [0, 2, 4].map((i) => Math.round(eff * parseInt(hex.slice(1 + i, 3 + i), 16) + (1 - eff) * BASE));
     };
     const want = (lat: number, lon: number) => {
       if (lon < 14.5) return { name: 'bare', rgb: [BASE, BASE, BASE] };
       if (inBlock(lat, lon)) return { name: 'class 0, tinted', rgb: blend('#9CFE84', 255) };
       return (Math.floor(lat) + Math.floor(lon)) % 2 === 0
-        ? { name: 'class 1', rgb: blend('#F2D98A', 255) }
-        : { name: 'class 3', rgb: blend('#A5541B', 255) };
+        ? { name: 'class 1', rgb: blend('#F0E442', 255) }
+        : { name: 'class 3', rgb: blend('#DC050C', 255) };
     };
 
     const spots: { at: [number, number]; name: string; rgb: number[] }[] = [];
@@ -681,19 +681,15 @@ test.describe('the picture', () => {
     expect(deltaE(zero, one), 'class 0 against class 1, ΔE').toBeGreaterThanOrEqual(MIN_DELTA_E);
     expect(deltaE(zero, three), 'class 0 against class 3, ΔE').toBeGreaterThanOrEqual(MIN_DELTA_E);
 
-    // 🔴 AND THE SCALE RUNS THE RIGHT WAY ROUND, in the pixels: "no drought"
-    // is the lightest of the three drought-side kinds drawn here and class 3
-    // ("vegetation under stress") the darkest. It is ΔE that tells a fill
-    // from a bare map, not a contrast — an earlier cut of this test asked
-    // class 0 for 3:1 against the map, and the only colours that give it make
-    // "no drought" the heaviest thing on the screen.
+    // 🔴 THERE IS NO "SCALE RUNS THE RIGHT WAY ROUND" CHECK HERE ANY MORE. This
+    // block used to assert, in the pixels, that class 0 is lighter than class 1 and
+    // class 1 lighter than class 3 — a rule about OUR ladder (CAMP-200: an earlier
+    // version made "no drought" the darkest thing on the map). CAMP-315, owner,
+    // 14.10.2026: the series is EDO's now, so what it looks like is the source's
+    // to say, and a test that pinned our order would fail, for the wrong reason,
+    // the day EDO changes a colour. It happens to hold today (over #E8E8E8 the
+    // luminances are 0.79, 0.75 and 0.19) and is no longer a requirement.
     //
-    // Mutation: class 0 back to `#1C4418` in `lib/drought-colours.ts` (and
-    // the literal in `want()` above) — fails here: class 0 is darker than
-    // class 1.
-    expect(luminance(zero), 'class 0 is lighter than class 1').toBeGreaterThan(luminance(one));
-    expect(luminance(one), 'class 1 is lighter than class 3').toBeGreaterThan(luminance(three));
-
     // 🔴 AND THE KEY READS WHAT THE MAP PAINTS. Each swatch's colour is read
     // off the page as the browser computed it, laid on the same flat colour
     // the stub basemap is, and compared with the pixel the canvas really
