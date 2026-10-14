@@ -79,7 +79,29 @@ export async function apiFetch(
  * Витримка — та сама доба, що вже стояла на сторінці мапи: число не
  * вигадане тут, а взяте з єдиного місця, де воно було.
  */
-export async function mapRegions(): Promise<MapRegion[]> {
+let regionsInFlight: Promise<MapRegion[]> | null = null;
+
+export function mapRegions(): Promise<MapRegion[]> {
+  // 🔴 ОДИН ЗАПИТ НА ПРОЦЕС, І ВИТРИМКИ САМОЇ ПО СОБІ БУЛО ЗАМАЛО.
+  // Заміряно 14.10.2026: сама `revalidate: 86400` підняла мапу з нуля
+  // кемпінгів до 72, але частина чанків і далі віддавала 500. Кеш
+  // `fetch` не склеює запити, що летять ОДНОЧАСНО: десятки чанків
+  // стартують разом, усі промахуються повз порожній кеш в одну мить і
+  // всі йдуть у мережу. Спільна обіцянка склеює саме цей випадок.
+  //
+  // 🔴 ПРОВАЛ НЕ КЕШУЄТЬСЯ. Якби відхилена обіцянка лишилась у змінній,
+  // одна тимчасова 429 клала б мапу до перезапуску процесу — тобто
+  // лікування було б гіршим за хворобу.
+  if (regionsInFlight === null) {
+    regionsInFlight = fetchMapRegions().catch((e: unknown) => {
+      regionsInFlight = null;
+      throw e;
+    });
+  }
+  return regionsInFlight;
+}
+
+async function fetchMapRegions(): Promise<MapRegion[]> {
   const res = await apiFetch('/spots/map/regions', {
     next: { revalidate: 86400 },
   });
