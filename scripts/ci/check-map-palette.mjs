@@ -449,10 +449,10 @@ export function literalLineColours(source) {
  * `MIN_CONTRAST` answers "can a mark or a word be read on this colour" — it is
  * why the markers are held to it above. Whether a FILL can be told from the
  * absence of one is a question of colour DIFFERENCE, and that is ΔE. Applying
- * the contrast to the fill would also be applying it to a class that cannot
- * meet it: the best of the seven is under 3:1 on every background, so the rule
- * would have been written for a colour it was never true of. Said here, not
- * left out quietly.
+ * the contrast to the fill would also be applying it to classes that cannot
+ * meet it: as drawn, the best of the seven (class 3 over liberty's roads)
+ * reaches 2.77:1 (measured 14.10.2026), so the rule would have been written
+ * for a colour it was never true of. Said here, not left out quietly.
  *
  * 🔴 WHY THE BANDS ARE WHERE THEY ARE. `WARM_HUE` starts at 45° because the
  * campsite markers are red (`#C83D28`, `#D5412A`: 39°) and CAMP-162 keeps red

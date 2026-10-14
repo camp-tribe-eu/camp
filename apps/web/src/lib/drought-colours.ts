@@ -98,9 +98,10 @@ export const DROUGHT_RASTER_OPACITY = 0.65;
  * class 0 and a brown class 3, and in the search with their chroma capped at 65
  * the best pair found reached ΔE 23.5 — under the line. Hence the saturated
  * yellow and orange; the pixel is 35% basemap, so on the map they read softer.
- * The recovery colour has far more room (several hundred teals clear everything);
- * it is a middling teal so that "recovered" is not the heaviest thing on the
- * map, and not a blue, because the basemaps' water is blue.
+ * The recovery colour has far more room (498 colours of hue 186–200°, chroma
+ * 28–45 and lightness 52–62 on a 3-step grid clear everything); it is a
+ * middling teal so that "recovered" is not the heaviest thing on the map, and
+ * not a blue, because the basemaps' water is blue.
  *
  * `#9CFE84` is a light green. 3 401 of the 140 608 colours on a 5-step grid
  * clear class 0's three rules (and are lighter than the classes beside them on
