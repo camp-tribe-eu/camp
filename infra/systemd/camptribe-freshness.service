@@ -1,0 +1,29 @@
+# CAMP-170: щоденне питання «який імпортер замовк».
+#
+# 🔴 ЦЕ ПРО ТЕ, ЩО ВИГЛЯДАЄ ЗДОРОВИМ. Жоден із семи імпортерів,
+# зупинившись, нічого не ламає помітно: сторінка покаже ціну, кемпінг,
+# маршрут. Просто числа будуть старі, і ніхто про це не дізнається,
+# поки хтось не приїде на заправку.
+#
+# 🔴 ЧОМУ `--stale-only`, А НЕ ПОВНИЙ ЗВІТ. Двоє з семи джерел не
+# запускались ЖОДНОГО РАЗУ (ціни станцій, камери Windy — обидва 0
+# рядків, заміряно 13.10.2026). Якби тривога дзвонила і на них, лампа
+# горіла б червоним щодня з першого ж дня — тобто перестала б бути
+# сигналом рівно тоді, коли вперше знадобиться. Таймер питає те, що
+# розклад справді лагодить: що працювало й зупинилось.
+[Unit]
+Description=CampTribe data freshness check
+After=postgresql.service
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+ExecStart=/usr/bin/node scripts/ci/check-data-freshness.mjs --stale-only
+# 🔴 Слід знімається лише після УСПІШНОГО прогону. Для Type=oneshot
+# ExecStartPost не біжить, якщо ExecStart повернув ненуль — тож
+# вчорашня тривога не зникає сама від того, що юніт просто стартував.
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-freshness.service
