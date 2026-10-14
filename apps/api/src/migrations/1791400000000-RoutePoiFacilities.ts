@@ -24,9 +24,28 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *   verbatim, or unknown access, hgv, maxheight, maxlength
  *
  * The second group is a value, not a yes/no — `access=customers`,
- * `maxheight=3.5` — and is stored as OSM wrote it (lower-cased), the same
- * stance the opening_hours column takes. The CHECK there forbids the
- * empty string, which is the other way a gap can pose as an answer.
+ * `maxheight=3.5` — and is stored as OSM wrote it (ASCII-lower-cased, blanks
+ * trimmed), the same stance the opening_hours column takes. The CHECK there
+ * forbids the empty string AND a value made only of blanks, which are the
+ * other ways a gap can pose as an answer.
+ *
+ * 🔴 "BLANK" IS 25 CODE POINTS, NOT ONE (CAMP-119 review, defect 2).
+ * `CHECK (btrim(x) <> '')` strips U+0020 and nothing else, so a column
+ * holding a lone TAB — `maxheight='\t'`, `hgv='\n'` — passed it and was
+ * stored, which the paragraph above promised could not happen. It is the
+ * same root as the loader's own trim: the CHECK is the second lock, for
+ * every writer that is not the loader, and it must mean what the loader
+ * means. BLANKS_SQL is those 25 code points as an escape string; a spec
+ * asserts it is route-poi-facilities.ts's BLANKS_SQL character for
+ * character, and the database spec inserts every one of them.
+ *
+ * 🔴 `x = 'unknown' OR btrim(...)`, AND THE FIRST HALF IS THERE FOR THE
+ * LOCK, NOT FOR THE MEANING. Each CHECK in an ADD COLUMN is evaluated
+ * against every existing row while the table is locked, and a 25-character
+ * `btrim` is not free: measured 14.10.2026 on the 2 248 280-row copy, the
+ * four CHECKs took 0.8 s as submitted, 2.0 s written plainly with the wider
+ * set, and 0.4 s with `'unknown'` tested first — which is every row there
+ * is, and which is not blank, so the answer is the same.
  *
  * 🔴 NO `fee` FILTER IS BUILT ON THIS, AND NONE SHOULD BE. Measured on
  * the 27 raw extracts, 25.09.2026: `fee=*` is set on 5.1% of rest areas
@@ -68,6 +87,18 @@ export class RoutePoiFacilities1791400000000 implements MigrationInterface {
   /** Kept beside the up() that creates them, so the two cannot drift. */
   static readonly KINDS = ['rest_area', 'service_area'] as const;
 
+  /**
+   * The characters `btrim` must strip, as SQL: the 25 code points
+   * JavaScript's `trim()` strips. Frozen HERE rather than imported — a
+   * migration says on the day it runs what it said on the day it was
+   * written — and kept equal to the loader's by a spec, like the lists
+   * above.
+   */
+  static readonly BLANKS_SQL =
+    "E'\\u0009\\u000a\\u000b\\u000c\\u000d\\u0020\\u00a0\\u1680" +
+    '\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200a' +
+    "\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff'";
+
   static readonly TRISTATE = [
     'toilets',
     'shower',
@@ -97,7 +128,8 @@ export class RoutePoiFacilities1791400000000 implements MigrationInterface {
       ...RoutePoiFacilities1791400000000.VERBATIM.map(
         (c) =>
           `ADD COLUMN IF NOT EXISTS ${c} text NOT NULL DEFAULT 'unknown' ` +
-          `CHECK (btrim(${c}) <> '')`,
+          `CHECK (${c} = 'unknown' OR ` +
+          `btrim(${c}, ${RoutePoiFacilities1791400000000.BLANKS_SQL}) <> '')`,
       ),
     ];
     await queryRunner.query(

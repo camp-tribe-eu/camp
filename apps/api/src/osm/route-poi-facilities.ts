@@ -36,7 +36,8 @@
 // `access`, `hgv`, `maxheight`, `maxlength` carry a value ("customers",
 // "destination", "3.5", "11'6\"", "default"). Collapsing them to a
 // boolean would throw away the only information they have, so they are
-// stored as OSM wrote them — lower-cased and trimmed, the same stance the
+// stored as OSM wrote them — ASCII-lower-cased and trimmed of blanks (see
+// the section below for what both words mean), the same stance the
 // opening_hours column takes ("verbatim and untranslated") — and the word
 // `unknown` stands where the tag is absent.
 //
@@ -105,12 +106,83 @@ export const FACILITY_COLUMNS: readonly string[] = [
  */
 export const FACILITY_TAGS: readonly string[] = FACILITY_COLUMNS;
 
+// ── WHAT A BLANK IS, AND WHAT "LOWER-CASE" MEANS — ONE ANSWER, BOTH SIDES ─
+//
+// 🔴 CAMP-119 review, defect 1: the two implementations disagreed on a TAB.
+// JavaScript's `trim()` strips 25 code points; PostgreSQL's `btrim(text)`
+// strips exactly one (U+0020). `toilets='\tyes'` was `yes` to the
+// JavaScript and `unknown` in the table, and the spec that exists to make
+// the two disagree out loud fed them three kinds of blank and nothing
+// else — narrowing the JavaScript to a plain space left every test green.
+//
+// 🔴 WHICH SIDE MOVED, AND WHY. The database moved to JavaScript's
+// definition, not the other way round, for three reasons:
+//   1. The generous reading is the safe one. `access='\tprivate'` is a
+//      private place with a stray character. The narrow reading stores it
+//      under the name `\tprivate`, which is not in the excluded list, and
+//      PUBLISHES it. Trimming more can only drop a row that said "not
+//      you"; it cannot make a row appear.
+//   2. `scripts/osm-pipeline/count-rest-stops.mjs` — the oracle the import
+//      is reconciled against — reads the raw extracts with `trim()`. Moving
+//      the database to the same set is what lets the two count one thing.
+//   3. A mapper who typed a tab before `yes` meant yes.
+//
+// 🔴 THE SET IS WRITTEN OUT, NOT LEFT TO EACH ENGINE. `\s` in a PostgreSQL
+// regular expression is whatever the database's locale says: measured on
+// camptribe_dev, U+FEFF is not a space to it and U+00A0 is, and under
+// COLLATE "C" U+00A0 is not either — so an import run on another machine
+// could split a list differently. The 25 code points below are the ones
+// `trim()` and `\s` mean in JavaScript (the spec sweeps all 1 114 112 code
+// points to prove it, so an engine whose table moves turns this red), and
+// the SQL is built from this list and not from `\s`.
+//
+// 🔴 `lower()` IS ASCII-ONLY ON BOTH SIDES, FOR THE SAME REASON. PostgreSQL
+// folds by the database's locale: `lower('İ')` is `i` here and `İ` under
+// COLLATE "C"; JavaScript folds by Unicode SpecialCasing, where it is `i`
+// plus U+0307. No two of those agree. Every word this module compares to
+// is ASCII (`yes`, `designated`, `private`), so only an ASCII letter can
+// change an answer — and a value in another script is kept as written
+// instead of being re-spelled by whichever machine ran the import.
+
+/** The code points `String.prototype.trim` strips — and `\s` matches. */
+export const BLANK_CODE_POINTS: readonly number[] = [
+  0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x0020, 0x00a0, 0x1680, 0x2000,
+  0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009,
+  0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff,
+];
+
+/** `rest;of;the;list` is read part by part, around a `;` of any blanks. */
+const SEPARATOR = /\s*;\s*/;
+
+/** An ASCII-only `toLowerCase`: see the note above on why not Unicode. */
+export function asciiLower(text: string): string {
+  return text.replace(/[A-Z]+/g, (run) => run.toLowerCase());
+}
+
+/**
+ * What a tag value IS, before anything reads it: blanks off both ends,
+ * ASCII letters folded. Empty for a tag nobody wrote. The SQL twin is
+ * `normalisedSql`, and `access` is read through it too — filter and
+ * column must see one value.
+ */
+export function normaliseTag(raw: string | null | undefined): string {
+  if (raw === null || raw === undefined) return '';
+  return asciiLower(raw.trim());
+}
+
+/** A `;` list as its parts; none for a tag nobody wrote, or for `;`. */
+export function tagParts(raw: string | null | undefined): string[] {
+  return normaliseTag(raw)
+    .split(SEPARATOR)
+    .filter((p) => p.length > 0);
+}
+
 // ── the JavaScript half ──────────────────────────────────────────────────
 //
 // 🔴 A SECOND IMPLEMENTATION, ON PURPOSE. The SQL below is what runs on
 // 2.2 million rows; this is what a spec and the sampling check compare it
 // to. Two implementations of one rule only help when they are made to
-// disagree out loud — route-poi-facilities.spec.ts runs the same inputs
+// disagree out loud — route-poi-sql.db.spec.ts runs the same inputs
 // through BOTH, against a real PostgreSQL, and fails if they differ.
 
 /**
@@ -122,22 +194,16 @@ export function resolveTriState(
   raw: string | null | undefined,
   vocabulary: Vocabulary,
 ): FacilityState {
-  if (raw === null || raw === undefined) return UNKNOWN;
-  const text = raw.trim();
-  if (text === '') return UNKNOWN;
-  const parts = text
-    .toLowerCase()
-    .split(/\s*;\s*/)
-    .filter((p) => p.length > 0);
+  const parts = tagParts(raw);
+  if (parts.length === 0) return UNKNOWN;
   if (parts.some((p) => vocabulary.yes.has(p))) return 'yes';
-  if (parts.length > 0 && parts.every((p) => vocabulary.no.has(p))) return 'no';
+  if (parts.every((p) => vocabulary.no.has(p))) return 'no';
   return UNKNOWN;
 }
 
 /** One value-carrying tag → what the column holds. */
 export function resolveVerbatim(raw: string | null | undefined): string {
-  if (raw === null || raw === undefined) return UNKNOWN;
-  const text = raw.trim().toLowerCase();
+  const text = normaliseTag(raw);
   return text === '' ? UNKNOWN : text;
 }
 
@@ -158,6 +224,48 @@ function sqlWords(words: ReadonlySet<string>): string {
     }
   }
   return `ARRAY[${sorted.map((w) => `'${w}'`).join(', ')}]::text[]`;
+}
+
+const hex4 = (codePoint: number) => codePoint.toString(16).padStart(4, '0');
+
+/**
+ * The blanks as the text of a SQL string constant: `E'\u0009\u000a…'`.
+ * Escapes and not the characters, so no invisible character sits in this
+ * file, in a log line or in a diff.
+ */
+export const BLANKS_SQL = `E'${BLANK_CODE_POINTS.map((c) => `\\u${hex4(c)}`).join('')}'`;
+
+/** The same blanks as a regular-expression bracket: `[\u0009…]`. */
+const BLANK_CLASS_SQL = `[${BLANK_CODE_POINTS.map((c) => `\\u${hex4(c)}`).join('')}]`;
+
+/** `[blanks]*;[blanks]*` as a SQL constant — the SQL twin of SEPARATOR. */
+export const SEPARATOR_SQL = `E'${BLANK_CLASS_SQL}*;${BLANK_CLASS_SQL}*'`;
+
+const ASCII_UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+/** `btrim` with the blanks above — `btrim(x)` alone strips U+0020 only. */
+export function trimSql(expr: string): string {
+  return `btrim(${expr}, ${BLANKS_SQL})`;
+}
+
+/**
+ * The SQL twin of `normaliseTag`: blanks off both ends, ASCII letters
+ * folded, NULL stays NULL. `translate`, not `lower()`: `lower()` follows
+ * the database's locale (see the note above).
+ */
+export function normalisedSql(expr: string): string {
+  return `translate(${trimSql(expr)}, '${ASCII_UPPER}', '${ASCII_UPPER.toLowerCase()}')`;
+}
+
+/**
+ * The SQL twin of `tagParts`: the parts of a `;` list, none of them
+ * empty. NULL for a NULL tag.
+ *
+ * `array_remove`: `no;` is [no, ''] before it and [no] after, which is
+ * what `tagParts` and tag-mapping.ts's splitValues both read.
+ */
+export function tagPartsSql(expr: string): string {
+  return `array_remove(regexp_split_to_array(${normalisedSql(expr)}, ${SEPARATOR_SQL}), '')`;
 }
 
 function safeColumn(column: string): string {
@@ -191,11 +299,9 @@ export function triStateSql(
   alias = 's',
 ): string {
   const col = `${alias}."${safeColumn(column)}"`;
-  // array_remove: `no;` is [no, ''] before it and [no] after, which is
-  // what `resolveTriState` and tag-mapping.ts's splitValues both read.
-  const parts = `array_remove(regexp_split_to_array(lower(btrim(${col})), '\\s*;\\s*'), '')`;
+  const parts = tagPartsSql(col);
   return `CASE
-              WHEN nullif(btrim(${col}), '') IS NULL THEN '${UNKNOWN}'
+              WHEN nullif(${trimSql(col)}, '') IS NULL THEN '${UNKNOWN}'
               WHEN ${parts} && ${sqlWords(vocabulary.yes)} THEN 'yes'
               WHEN cardinality(${parts}) > 0
                AND ${parts} <@ ${sqlWords(vocabulary.no)} THEN 'no'
@@ -206,7 +312,7 @@ export function triStateSql(
 /** The SQL for one value-carrying column. */
 export function verbatimSql(column: string, alias = 's'): string {
   const col = `${alias}."${safeColumn(column)}"`;
-  return `coalesce(lower(nullif(btrim(${col}), '')), '${UNKNOWN}')`;
+  return `coalesce(nullif(${normalisedSql(col)}, ''), '${UNKNOWN}')`;
 }
 
 /** `expr AS column` for every facility column, in INSERT order. */

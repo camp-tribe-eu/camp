@@ -103,6 +103,8 @@
 // useful fraction the column is one import away; this comment is the
 // measurement to re-run before anybody builds the control.
 
+import { tagParts } from './route-poi-facilities';
+
 /** The closed list of service kinds. Order is the order a page shows them. */
 export const ROUTE_POI_KINDS = [
   'fuel',
@@ -265,6 +267,49 @@ export const STORED_POI_RULES: Record<StoredPoiKind, TagRule[]> = {
  * car park is customers-only and a driver buying groceries is a customer.
  */
 export const ACCESS_EXCLUDED = ['private', 'no', 'employees', 'permit'];
+
+/**
+ * 🔴 WHETHER AN `access` VALUE KEEPS THE PLACE OUT — THE ONE RULE THE
+ * LOADER'S FILTER, THE `access` COLUMN AND THE RAW-EXTRACT COUNTER ALL
+ * USE (CAMP-119 review, defect 3; the SQL twin is `tagPartsSql`).
+ *
+ * The filter used to compare the RAW tag to the list while the column was
+ * written as `lower(btrim(...))`. `access='Private'` was published, and
+ * the column beside it read `private`; the canonical `'private'` was
+ * rejected correctly, which is why nothing looked wrong on canonical data.
+ * And `count-rest-stops.mjs` normalised before the same list — so the
+ * oracle counted a rule the loader did not apply. Now all three read the
+ * value through `tagParts`: blanks off, ASCII letters folded, split on `;`.
+ *
+ * 🔴 A LIST IS EXCLUDED WHEN ANY PART OF IT IS. `access=private;customers`
+ * means somebody said "private" about this place, and the part that follows
+ * cannot unsay it. Measured 14.10.2026 on the staging table of
+ * camptribe_dev (2 285 391 rows, 123 477 with an `access`): 9 rows carry a
+ * `;` list, and 5 of them name an excluded word — `private;customers`,
+ * `customers;private`, `delivery;private`, `no;yes`, `students;employees`.
+ * Two of those five are rows of `osm_route_poi` today (a charging station
+ * tagged `no;yes`, and the "Restaurant Universitaire de Kergoat", a
+ * university canteen, tagged `students;employees` — not a place a
+ * stranger eats); the other three carry no classifying tag in that old
+ * staging (it has no `highway` column) and say nothing about what they
+ * are until the CAMP-119 export is loaded. The other four rows
+ * (`customers;visitors;members`) name nothing excluded and stay. Run
+ * through the old filter and the new one, the staging table passes
+ * 2 274 129 rows and 2 274 124: exactly those five, and none the other way.
+ *
+ * Why "any" and not "every part": a wrong "published" sends a driver to a
+ * barrier and puts a private place on a public page; a wrong "kept out"
+ * costs one stop among 2.2 million. `countrySql` took the same side for
+ * the same reason — "when we cannot tell, we do not publish it". Reading a
+ * list as excluded only when EVERY part is would publish the canteen,
+ * because `students` alone is not on the list.
+ */
+export function isAccessExcluded(
+  raw: string | null | undefined,
+  excluded: readonly string[] = ACCESS_EXCLUDED,
+): boolean {
+  return tagParts(raw).some((part) => excluded.includes(part));
+}
 
 /**
  * 🔴 ONE POINT OF EACH KIND PER STAGE, AND THE REASON IS LEGAL.

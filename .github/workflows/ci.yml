@@ -543,8 +543,11 @@ jobs:
       # 🔴 CAMP-119. The raw-extract counter is the oracle the stopping-place
       # import is reconciled against, so the thing that must not be wrong in
       # silence is how it reads OPL — `%2c%` taken for a URL escape comes
-      # back as `,%` — and what it counts as a dump station: the AMENITY, and
-      # never the `sanitary_dump_station=*` key on somebody else's object.
+      # back as `,%`, and an escaped comma inside a value is not a separator
+      # (decoding before splitting dropped the rest of the tag) — and what it
+      # counts as a dump station: the AMENITY, and never the
+      # `sanitary_dump_station=*` key on somebody else's object. Its
+      # `access` filter is read in both directions, one object at a time.
       # 🔴 CAMP-285/286: the step reads the self-test's own output, under
       # `set -o pipefail` because Actions runs `bash -e {0}` without it.
       - name: The raw-extract counter still reads OPL and still counts the amenity, not the key

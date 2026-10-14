@@ -2,9 +2,13 @@ import { Client } from 'pg';
 import type { QueryRunner } from 'typeorm';
 import { RoutePoi1790572800000 } from '../migrations/1790572800000-RoutePoi';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
-import { ACCESS_EXCLUDED } from './route-poi';
+import { ACCESS_EXCLUDED, isAccessExcluded } from './route-poi';
 import { ensureStagingColumns, exportedTags } from './route-poi-export';
-import { resolveTriState, TRISTATE_FACILITIES } from './route-poi-facilities';
+import {
+  resolveTriState,
+  resolveVerbatim,
+  TRISTATE_FACILITIES,
+} from './route-poi-facilities';
 import { buildRoutePoiInsertSql, EU_SQL_LIST } from './route-poi-sql';
 
 // CAMP-119 — the import statement, run against a REAL PostgreSQL.
@@ -193,6 +197,35 @@ const CASES: {
     expect: { maxheight: '3.5', hgv: 'designated', maxlength: 'unknown' },
   },
   {
+    // 🔴 CAMP-119 review: a value that is ONLY a blank of some kind is
+    // nobody having written anything, whichever blank it is. Before the
+    // fix `maxheight='\t'` was stored as a column holding a lone TAB —
+    // `btrim()` strips U+0020 and nothing else, and the CHECK beside it
+    // is the same expression.
+    fixture: pt('n18', {
+      ...REST,
+      maxheight: '\t',
+      hgv: '\n',
+      maxlength: '\u00a0',
+      access: '\u2028',
+      toilets: '\tyes',
+      shower: 'yes\u00a0',
+      fee: '\u2003no',
+      drinking_water: '\ufeffyes\ufeff',
+    }),
+    expectKind: 'rest_area',
+    expect: {
+      maxheight: 'unknown',
+      hgv: 'unknown',
+      maxlength: 'unknown',
+      access: 'unknown',
+      toilets: 'yes',
+      shower: 'yes',
+      fee: 'no',
+      drinking_water: 'yes',
+    },
+  },
+  {
     fixture: pt('n10', { highway: 'services', toilets: 'yes', shower: 'yes' }),
     expectKind: 'service_area',
     expect: { toilets: 'yes', shower: 'yes', fee: 'unknown' },
@@ -217,6 +250,67 @@ const CASES: {
   },
 ];
 
+/**
+ * 🔴 THE ACCESS FILTER AND THE ACCESS COLUMN MUST READ ONE VALUE
+ * (CAMP-119 review, the worst of the six).
+ *
+ * The filter compared the RAW tag to the excluded list while the column
+ * was written as `lower(btrim(...))`, so `access='Private'` was published
+ * with a column that read `private`. Hand-written: raw value → what the
+ * column says, or null when no row may exist. The excluded words are
+ * private / no / employees / permit; a `;` list is excluded when ANY part
+ * is one (see ACCESS_EXCLUDED in route-poi.ts for why).
+ */
+const ACCESS_CASES: readonly (readonly [string, string | null])[] = [
+  // the canonical spellings, which the old filter also caught
+  ['private', null],
+  ['no', null],
+  ['employees', null],
+  ['permit', null],
+  // the same words, spelled the way strangers type them
+  ['Private', null],
+  ['PRIVATE', null],
+  ['private ', null],
+  [' No ', null],
+  ['\tprivate', null],
+  ['employees\n', null],
+  ['\u00a0permit\u00a0', null],
+  ['\u2028no\u2029', null],
+  ['\ufeffprivate', null],
+  // a list that names an excluded value — the five live rows' shapes
+  ['private;customers', null],
+  ['customers;private', null],
+  ['delivery;private', null],
+  ['no;yes', null],
+  ['students;employees', null],
+  ['Customers; Private ', null],
+  ['customers\u00a0;\u00a0Permit', null],
+  // what stays: nothing excluded in it
+  ['customers', 'customers'],
+  ['Customers', 'customers'],
+  ['yes', 'yes'],
+  ['permissive', 'permissive'],
+  ['destination', 'destination'],
+  ['delivery', 'delivery'],
+  ['students', 'students'],
+  ['customers;visitors;members', 'customers;visitors;members'],
+  [' Customers ; Visitors ', 'customers ; visitors'],
+  // a word that merely CONTAINS an excluded one is not that word
+  ['privateer', 'privateer'],
+  ['not_private', 'not_private'],
+  ['no_entry', 'no_entry'],
+  ['private road', 'private road'],
+  // nothing was written: the column says so, and the place is kept
+  ['', 'unknown'],
+  ['   ', 'unknown'],
+  ['\t', 'unknown'],
+  [';', ';'],
+  // characters that look like blanks and are not: no trimming, no match
+  ['\u0085private', '\u0085private'],
+  ['private\u200b', 'private\u200b'],
+  ['\u180eno', '\u180eno'],
+];
+
 /** Rows that must produce NO row at all. */
 const NOT_STORED: Fixture[] = [
   pt('n8', { ...REST, access: 'private' }),
@@ -225,48 +319,163 @@ const NOT_STORED: Fixture[] = [
   pt('n17', { amenity: 'bench' }),
 ];
 
+// 🔴 THE CLASS OF BLANKS, WRITTEN OUT BY HAND (CAMP-119 review).
+//
+// JavaScript's `trim()` strips 25 code points. PostgreSQL's `btrim(text)`
+// strips ONE (U+0020), and `\s` in its regular expressions is whatever
+// the database's locale says: on camptribe_dev U+FEFF is not a space to it
+// and U+00A0 is, and under COLLATE "C" U+00A0 is not either. This spec
+// used to feed both sides three kinds of blank and nothing else, so
+// narrowing the JavaScript to a plain space left every test green.
+//
+// This list is NOT imported from the module that defines the set: a list
+// read from the code it checks cannot disagree with it. The sweep of the
+// whole BMP in route-poi-facilities.spec.ts is what ties this list to the
+// engine; this one ties it to the database.
+const BLANKS: readonly string[] = [
+  '\u0009', // TAB
+  '\u000a', // LF
+  '\u000b', // VT
+  '\u000c', // FF
+  '\u000d', // CR
+  '\u0020', // SPACE
+  '\u00a0', // NBSP
+  '\u1680', // OGHAM SPACE MARK
+  '\u2000',
+  '\u2001',
+  '\u2002',
+  '\u2003',
+  '\u2004',
+  '\u2005',
+  '\u2006',
+  '\u2007',
+  '\u2008',
+  '\u2009',
+  '\u200a',
+  '\u2028', // LINE SEPARATOR
+  '\u2029', // PARAGRAPH SEPARATOR
+  '\u202f', // NARROW NBSP
+  '\u205f',
+  '\u3000', // IDEOGRAPHIC SPACE
+  '\ufeff', // BOM / ZERO WIDTH NO-BREAK SPACE
+];
+
+// …and the characters that LOOK like blanks and are not: JavaScript does
+// not trim them, so neither may the database. Overreach is a defect too —
+// it would make `yes` out of a value that says something else.
+const NOT_BLANKS: readonly string[] = [
+  '\u0085', // NEL — a space to some libc locales, not to JavaScript
+  '\u180e', // MONGOLIAN VOWEL SEPARATOR — was Zs until Unicode 6.3
+  '\u200b', // ZERO WIDTH SPACE
+  '\u2060', // WORD JOINER
+  '\u00ad', // SOFT HYPHEN
+];
+
+/** Every value a blank can frame: before, after, both, alone, around `;`. */
+const framed = (word: string, other: string): string[] => [
+  ...BLANKS.flatMap((b) => [
+    `${b}${word}`,
+    `${word}${b}`,
+    `${b}${word}${b}`,
+    `${other}${b};${b}${other}`,
+    `${word}${b};${other}`,
+    `${b}${b}${word}${b}${b}`,
+  ]),
+  ...BLANKS,
+  ...NOT_BLANKS.flatMap((b) => [
+    `${b}${word}`,
+    `${word}${b}`,
+    `${other}${b};${b}${other}`,
+  ]),
+];
+
+/**
+ * The same question asked of the SQL filter and of `isAccessExcluded` over
+ * every spelling this spec can generate — each excluded word, in three
+ * cases, framed by every blank, and as one part of a `;` list. The table
+ * above is the hand-written half; this is the half that ties the SQL to the
+ * JavaScript rule (and, through route-poi-facilities.spec.ts, to the
+ * raw-extract counter that runs the same rule).
+ */
+const ACCESS_GENERATED: readonly string[] = Array.from(
+  new Set(
+    ACCESS_EXCLUDED.flatMap((word) => [
+      word,
+      word.toUpperCase(),
+      `${word[0].toUpperCase()}${word.slice(1)}`,
+      ...BLANKS.flatMap((b) => [
+        `${b}${word}`,
+        `${word}${b}`,
+        `${b}${word}${b}`,
+        `customers${b};${b}${word}`,
+        `${word}${b};${b}customers`,
+        `customers${b};${b}visitors`,
+      ]),
+      ...NOT_BLANKS.flatMap((b) => [`${b}${word}`, `${word}${b}`]),
+    ]),
+  ),
+);
+
 // Raw values for the two-implementations check. Chosen to include every
 // shape that has gone wrong in OSM data: blanks, case, lists, trailing
 // separators, and words that only mean something for a different tag.
-const RAW_VALUES = [
-  'yes',
-  'no',
-  'YES',
-  'No',
-  ' yes ',
-  'true',
-  'false',
-  '1',
-  '0',
-  'designated',
-  'limited',
-  'customers',
-  'public',
-  'permissive',
-  'private',
-  'none',
-  'maybe',
-  'unknown',
-  'fixme',
-  'donation',
-  'separate',
-  'outside',
-  'hot',
-  '?',
-  'yes;no',
-  'no;yes',
-  'no;no',
-  'no;',
-  ';no',
-  ';',
-  'yes ; no',
-  'no;maybe',
-  'conditional',
-  'interval',
-  'free',
-  'paid',
-  'grey_water',
-];
+const RAW_VALUES: string[] = Array.from(
+  new Set([
+    'yes',
+    'no',
+    'YES',
+    'No',
+    ' yes ',
+    'true',
+    'false',
+    '1',
+    '0',
+    'designated',
+    'limited',
+    'customers',
+    'public',
+    'permissive',
+    'private',
+    'none',
+    'maybe',
+    'unknown',
+    'fixme',
+    'donation',
+    'separate',
+    'outside',
+    'hot',
+    '?',
+    'yes;no',
+    'no;yes',
+    'no;no',
+    'no;',
+    ';no',
+    ';',
+    'yes ; no',
+    'no;maybe',
+    'conditional',
+    'interval',
+    'free',
+    'paid',
+    'grey_water',
+    // the whole class of blanks around a word that means yes, one that
+    // means no, and a `;` list — the CAMP-119 review's 18 disagreements
+    ...framed('yes', 'no'),
+    ...framed('no', 'yes'),
+    // 🔴 case: PostgreSQL's lower() follows the database's locale
+    // (lower('İ') is 'i' here and 'İ' under COLLATE "C"), JavaScript's
+    // follows Unicode SpecialCasing ('i' + U+0307). Both sides now fold
+    // ASCII only, so none of these can read as a word either side knows.
+    'DESİGNATED',
+    'YESİ',
+    'NO\u0130',
+    'İ',
+    'ΑΣ',
+    'ÉYES',
+    'yes\u212a',
+    'ſes',
+  ]),
+);
 
 describe('the import statement, against a real PostgreSQL', () => {
   let db: Client;
@@ -368,6 +577,40 @@ describe('the import statement, against a real PostgreSQL', () => {
           tags: { ...REST, [column]: raw },
         });
       }
+    }
+
+    // ── the verbatim differential: one row per raw value, `maxheight` ──
+    // (no filter stands in front of this column, so every row is stored)
+    i = 0;
+    for (const raw of RAW_VALUES) {
+      i += 1;
+      await stage({
+        id: `n93${String(i).padStart(3, '0')}`,
+        wkt: `POINT(${16 + (i % 20) * 0.05} 46.8)`,
+        tags: { ...REST, maxheight: raw },
+      });
+    }
+
+    // ── the access filter: one rest area per hand-written case ──
+    i = 0;
+    for (const [raw] of ACCESS_CASES) {
+      i += 1;
+      await stage({
+        id: `n95${String(i).padStart(3, '0')}`,
+        wkt: `POINT(${13.2 + (i % 30) * 0.1} 46.9)`,
+        tags: { ...REST, access: raw },
+      });
+    }
+
+    // ── the access filter, generated: one rest area per spelling ──
+    i = 0;
+    for (const raw of ACCESS_GENERATED) {
+      i += 1;
+      await stage({
+        id: `n96${String(i).padStart(4, '0')}`,
+        wkt: `POINT(${13.2 + (i % 35) * 0.1} 46.95)`,
+        tags: { ...REST, access: raw },
+      });
     }
 
     await insert(new Date().toISOString());
@@ -515,6 +758,85 @@ describe('the import statement, against a real PostgreSQL', () => {
     );
   });
 
+  describe('the verbatim columns and the JavaScript twin agree', () => {
+    // 🔴 Nobody compared `verbatimSql` with `resolveVerbatim` at all — the
+    // differential above covered the two yes/no/unknown columns only.
+    it('give the same answer for every raw value in maxheight', async () => {
+      const rows = await db.query(
+        `SELECT maxheight AS stored FROM osm_route_poi WHERE osm_ref LIKE 'n93%' ORDER BY osm_ref`,
+      );
+      expect(rows.rows).toHaveLength(RAW_VALUES.length);
+      const disagreements = rows.rows
+        .map((r, k) => ({
+          raw: RAW_VALUES[k],
+          sql: r.stored as string,
+          js: resolveVerbatim(RAW_VALUES[k]),
+        }))
+        .filter((d) => d.sql !== d.js);
+      expect(disagreements).toEqual([]);
+    });
+  });
+
+  describe('the access filter reads what the access column stores', () => {
+    // 🔴 MUTATION: compare the RAW value to the excluded list again
+    // (`s.access <> ALL ($2)`) — the old filter. `Private` is published
+    // and its own column says `private`.
+    it.each(ACCESS_CASES.map((c, k) => [c[0], c[1], k + 1] as const))(
+      'access %j is stored as %j',
+      async (_raw, stored, k) => {
+        const row = await rowOf(`n95${String(k).padStart(3, '0')}`);
+        if (stored === null) {
+          expect(row).toBeUndefined();
+        } else {
+          expect(row).toBeDefined();
+          expect(row.access).toBe(stored);
+        }
+      },
+    );
+
+    // 🔴 MUTATION: read a list as excluded only when every part is, or stop
+    // trimming at the first blank that is not U+0020 — either way the SQL
+    // and `isAccessExcluded` part ways on some spelling below.
+    it('keeps out exactly the rows isAccessExcluded says to keep out', async () => {
+      const rows = await db.query(
+        `SELECT osm_ref, access FROM osm_route_poi WHERE osm_ref LIKE 'n96%'`,
+      );
+      const stored = new Map<string, string>(
+        rows.rows.map((r) => [r.osm_ref as string, r.access as string]),
+      );
+      const wrong: string[] = [];
+      let kept = 0;
+      ACCESS_GENERATED.forEach((raw, k) => {
+        const ref = `n96${String(k + 1).padStart(4, '0')}`;
+        const excluded = isAccessExcluded(raw);
+        if (stored.has(ref) === excluded) wrong.push(`${JSON.stringify(raw)}`);
+        else if (stored.has(ref)) {
+          kept += 1;
+          if (stored.get(ref) !== resolveVerbatim(raw))
+            wrong.push(`${JSON.stringify(raw)} stored as ${stored.get(ref)}`);
+        }
+      });
+      expect(wrong).toEqual([]);
+      // both outcomes occur, so agreement is not agreement on "everything"
+      expect(kept).toBeGreaterThan(50);
+      expect(ACCESS_GENERATED.length - kept).toBeGreaterThan(100);
+    });
+
+    // The invariant the table above is an instance of, asked of EVERY row
+    // in the table: nothing stored says an excluded word as a part of its
+    // own access column. Whatever the staging held, this is what the filter
+    // and the column must never disagree on.
+    it('stores no row whose access column names an excluded value', async () => {
+      const blank = `[${BLANKS.join('')}]*`;
+      const bad = await db.query(
+        `SELECT osm_ref, access FROM osm_route_poi
+          WHERE regexp_split_to_array(access, $2) && $1::text[]`,
+        [ACCESS_EXCLUDED, `${blank};${blank}`],
+      );
+      expect(bad.rows).toEqual([]);
+    });
+  });
+
   describe('a second run', () => {
     // 🔴 MUTATION: leave the facility columns out of ON CONFLICT … DO
     // UPDATE. The first import would be right and every later one would
@@ -652,5 +974,48 @@ describe('the import statement, against a real PostgreSQL', () => {
         ),
       ).rejects.toThrow(/violates (check|not-null) constraint/);
     });
+
+    // 🔴 MUTATION: put `btrim(x) <> ''` back in the migration's CHECK — the
+    // one expression that strips U+0020 and nothing else. A column holding
+    // a lone TAB passed it: `maxheight='\t'` was STORED, and the migration's
+    // header promises the empty string cannot be. This is the second lock,
+    // and it is tested apart from the loader: the loader is one writer and
+    // not the only one.
+    it.each(
+      ['access', 'hgv', 'maxheight', 'maxlength'].flatMap((column) =>
+        BLANKS.map(
+          (blank) =>
+            [
+              column,
+              blank.codePointAt(0)!.toString(16).padStart(4, '0'),
+              blank,
+            ] as const,
+        ),
+      ),
+    )('refuses %s made only of U+%s', async (column, _hex, blank) => {
+      for (const value of [blank, `${blank}${blank}`, ` ${blank} `]) {
+        await expect(
+          db.query(
+            `INSERT INTO osm_route_poi (osm_ref, kind, location, country, ${column})
+             VALUES ('n888888', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si', $1)`,
+            [value],
+          ),
+        ).rejects.toThrow(/violates check constraint/);
+      }
+    });
+
+    // …and the lock is not a wall: a value with something in it is kept,
+    // and so is one made of characters that only LOOK like blanks.
+    it.each(['\u0085', '\u200b', '\u180e', '3.5', ' 3.5\t'])(
+      'accepts a verbatim value of %j',
+      async (value) => {
+        await db.query(
+          `INSERT INTO osm_route_poi (osm_ref, kind, location, country, maxheight)
+           VALUES ('n777777', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si', $1)`,
+          [value],
+        );
+        await db.query(`DELETE FROM osm_route_poi WHERE osm_ref = 'n777777'`);
+      },
+    );
   });
 });

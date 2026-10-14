@@ -31,7 +31,11 @@ ROOT="$(mktemp -d "${TMPDIR:-/tmp}/load-route-poi-selftest.XXXXXX")"
 trap 'rm -rf "$ROOT"' EXIT
 
 # The number of pass/fail calls below. Update it WITH the cases.
-EXPECTED=17
+EXPECTED=19
+
+# The database the run is asked for. Nothing connects to it: every tool that
+# would is a shim, and the name says so.
+ASKED='postgres://localhost:5432/selftest_never_used'
 
 PASSED=0
 FAILED=0
@@ -64,16 +68,32 @@ case "$1" in
   *) : > "$out" ;;
 esac
 SHIM
-for tool in ogr2ogr npx; do
-  cat > "$BIN/$tool" <<SHIM
+# 🔴 ONE LINE PER CALL, and the line carries what that call saw. It used to
+# be two lines — the call, then `DATABASE_URL=…` — printed by the ogr2ogr
+# shim as well as the npx one, and the case that read them used two
+# unconnected greps. The ogr2ogr shim's line was the TEST's own environment
+# handed back (ogr2ogr is given its database in a `PG:` argument, never
+# through DATABASE_URL), so it matched whatever the loader was run
+# against: the loader pointed at `postgres://WRONG` still passed 17 of 17.
+# Only the loader reads DATABASE_URL, so only its line carries it; ogr2ogr
+# and psql are judged by their arguments, which is where the script puts the
+# database.
+cat > "$BIN/ogr2ogr" <<'SHIM'
 #!/usr/bin/env bash
-printf '$tool %s\n' "\$*" >> "\$SELFTEST_CALLS"
-printf 'DATABASE_URL=%s\n' "\${DATABASE_URL:-}" >> "\$SELFTEST_CALLS"
+printf 'ogr2ogr %s\n' "$*" >> "$SELFTEST_CALLS"
 exit 0
 SHIM
-done
+cat > "$BIN/npx" <<'SHIM'
+#!/usr/bin/env bash
+printf 'npx %s [DATABASE_URL=%s]\n' "$*" "${DATABASE_URL:-}" >> "$SELFTEST_CALLS"
+exit 0
+SHIM
 # The row check compares psql's count with `wc -l` of the export: two.
-printf '#!/usr/bin/env bash\necho 2\n' > "$BIN/psql"
+cat > "$BIN/psql" <<'SHIM'
+#!/usr/bin/env bash
+printf 'psql %s\n' "$*" >> "$SELFTEST_CALLS"
+echo 2
+SHIM
 chmod +x "$BIN/osmium" "$BIN/ogr2ogr" "$BIN/npx" "$BIN/psql"
 
 # 🔴 The shims are asked before anything relies on them: a broken shim
@@ -95,15 +115,22 @@ make_world() {
 }
 
 run() {
-  # run <work-dir-name> <script> — prints combined output, returns the code
+  # run <work-dir-name> <script> — prints combined output, returns the code.
+  # With SELFTEST_UNSET_DB=1 the run is given NO DATABASE_URL at all.
   local wd="$ROOT/$1" script="${2:-$SCRIPT}"
   make_world "$wd"
   : > "$CALLS"
   rm -f "$ROOT/seen-config.json"
-  env PATH="$BIN:$PATH" WORK_DIR="$wd" \
-    SELFTEST_CALLS="$CALLS" SELFTEST_SEEN_CONFIG="$ROOT/seen-config.json" \
-    DATABASE_URL='postgres://localhost:5432/selftest_never_used' \
-    bash "$script" europe/malta 2>&1
+  if [ "${SELFTEST_UNSET_DB:-}" = 1 ]; then
+    env -u DATABASE_URL PATH="$BIN:$PATH" WORK_DIR="$wd" \
+      SELFTEST_CALLS="$CALLS" SELFTEST_SEEN_CONFIG="$ROOT/seen-config.json" \
+      bash "$script" europe/malta 2>&1
+  else
+    env PATH="$BIN:$PATH" WORK_DIR="$wd" \
+      SELFTEST_CALLS="$CALLS" SELFTEST_SEEN_CONFIG="$ROOT/seen-config.json" \
+      DATABASE_URL="$ASKED" \
+      bash "$script" europe/malta 2>&1
+  fi
 }
 
 echo "load-route-poi.sh self-test"
@@ -153,12 +180,49 @@ for tag in toilets shower fee drinking_water sanitary_dump_station access hgv ma
   fi
 done
 
-# ── c: the loader and the lock ───────────────────────────────────────
-if grep -q '^npx ts-node src/osm/load-route-poi.ts' "$CALLS" &&
-   grep -q '^DATABASE_URL=postgres://localhost:5432/selftest_never_used' "$CALLS"; then
+# ── c: the loader, and the database it is run against ────────────────
+#
+# 🔴 ONE LINE, EXACTLY. The line the npx shim wrote for the loader is the
+# last line of the log (the loader is run LAST) and it says, in itself,
+# which database the loader's environment named. Two greps over a log that
+# held two other lines with the same text proved nothing about which call
+# they belonged to.
+loader_line="npx ts-node src/osm/load-route-poi.ts [DATABASE_URL=$ASKED]"
+if [ "$(tail -n 1 "$CALLS")" = "$loader_line" ]; then
   pass "the loader is run last, against the database that was asked for"
 else
-  fail "the loader was not run as expected: $(cat "$CALLS" | tail -3)"
+  fail "the last call was not the loader on $ASKED: $(tail -n 3 "$CALLS" | tr '\n' '|')"
+fi
+
+# ogr2ogr and psql are told the database in their ARGUMENTS. A staging
+# table loaded into one database and a loader run against another is the
+# quietest failure this script has: the row check counts the first and the
+# loader reads the second, and both are satisfied.
+ogr_line=$(grep -m1 '^ogr2ogr ' "$CALLS" || true)
+psql_other=$(grep '^psql ' "$CALLS" | grep -vcF "psql $ASKED " || true)
+psql_all=$(grep -c '^psql ' "$CALLS" || true)
+ogr_at=$(grep -n -m1 '^ogr2ogr ' "$CALLS" | cut -d: -f1)
+npx_at=$(grep -n -m1 '^npx ' "$CALLS" | cut -d: -f1)
+if grep -q 'dbname=selftest_never_used' <<<"$ogr_line" &&
+   [ "$psql_all" -ge 2 ] && [ "$psql_other" -eq 0 ] &&
+   [ -n "$ogr_at" ] && [ -n "$npx_at" ] && [ "$ogr_at" -lt "$npx_at" ]; then
+  pass "ogr2ogr and every psql call use that same database, and run before the loader"
+else
+  fail "ogr2ogr/psql were not all pointed at $ASKED before the loader: ogr='$ogr_line' psql calls=$psql_all other=$psql_other"
+fi
+
+# With NO DATABASE_URL the script resolves a default for ogr2ogr and psql;
+# the loader must be handed that same one explicitly, or it reads its own
+# (dotenv, then its own default) and loads into a database the staging
+# table is not in. The default is not written here: it is whatever psql was
+# given.
+SELFTEST_UNSET_DB=1 run c2 >/dev/null; rc=$?
+resolved=$(grep -m1 '^psql ' "$CALLS" | cut -d' ' -f2)
+if [ $rc -eq 0 ] && [ -n "$resolved" ] &&
+   [ "$(tail -n 1 "$CALLS")" = "npx ts-node src/osm/load-route-poi.ts [DATABASE_URL=$resolved]" ]; then
+  pass "with no DATABASE_URL set the loader is still handed the database the script resolved"
+else
+  fail "the loader was not handed the resolved database '$resolved'; rc=$rc, last: $(tail -n 1 "$CALLS")"
 fi
 
 # ── d: a missing export file is a refusal, not an empty export ───────

@@ -13,7 +13,11 @@
 // can assert the shape of what will run.
 
 import { EU_MEMBER_STATES_AND_SUBDIVISIONS, ISO_SUBDIVISION_OF } from './eu';
-import { FACILITY_COLUMNS, facilitySelectSql } from './route-poi-facilities';
+import {
+  FACILITY_COLUMNS,
+  facilitySelectSql,
+  tagPartsSql,
+} from './route-poi-facilities';
 import { CANONICAL_REF_KINDS, classifyCaseSql } from './route-poi';
 
 /**
@@ -300,7 +304,15 @@ export function buildRoutePoiInsertSql(): string {
             -- 🔴 A private or employees-only fuel station is not
             -- somewhere a stranger can fill up. 9 874 of the candidates
             -- say so. The same goes for a rest area behind a barrier.
-            AND (s.access IS NULL OR s.access <> ALL ($2::text[]))
+            --
+            -- 🔴 Read through the SAME expression the access COLUMN is
+            -- written with (normalisedSql / tagPartsSql), and not the raw
+            -- tag: 'Private', 'private ' and '\tprivate' were published
+            -- while their own column said "private". A list is out when
+            -- ANY part is excluded — see isAccessExcluded in route-poi.ts.
+            -- coalesce: a NULL tag has no parts, and NOT NULL is NULL, which
+            -- would drop every row that never wrote an access at all.
+            AND NOT coalesce(${tagPartsSql('s."access"')} && $2::text[], false)
             AND s.geom IS NOT NULL
             AND ${POINT_SQL} IS NOT NULL
           ORDER BY x.ref, (s.id LIKE 'a%') DESC, s.id

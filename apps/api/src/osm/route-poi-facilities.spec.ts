@@ -1,12 +1,23 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
 import { exportedTags } from './route-poi-export';
 import {
+  asciiLower,
+  BLANK_CODE_POINTS,
+  BLANKS_SQL,
+  facilitySelectSql,
   FACILITY_COLUMNS,
   FACILITY_TAGS,
+  normalisedSql,
+  normaliseTag,
   resolveTriState,
   resolveVerbatim,
+  SEPARATOR_SQL,
+  tagParts,
+  tagPartsSql,
   TRISTATE_COLUMNS,
   TRISTATE_FACILITIES,
   triStateSql,
@@ -14,6 +25,7 @@ import {
 } from './route-poi-facilities';
 import {
   ACCESS_EXCLUDED,
+  isAccessExcluded,
   REST_STOP_KINDS,
   STORED_POI_RULES,
 } from './route-poi';
@@ -109,6 +121,145 @@ describe('the JavaScript twin of the three states', () => {
     expect(resolveVerbatim(undefined)).toBe('unknown');
     expect(resolveVerbatim('')).toBe('unknown');
     expect(resolveVerbatim('  ')).toBe('unknown');
+  });
+});
+
+// ── WHAT A BLANK IS (CAMP-119 review, defects 1 and 2) ───────────────────
+describe('what a blank is, in JavaScript and in SQL', () => {
+  // Every code point there is, asked of the engine itself.
+  const engineTrims: number[] = [];
+  const engineBackslashS: number[] = [];
+  for (let cp = 0; cp <= 0x10ffff; cp++) {
+    const ch = String.fromCodePoint(cp);
+    if (ch.trim() === '') engineTrims.push(cp);
+    if (/\s/.test(ch)) engineBackslashS.push(cp);
+  }
+
+  // 🔴 MUTATION: delete U+FEFF (or any one) from BLANK_CODE_POINTS, or add
+  // U+0085 to it. The SQL is built from this list and not from `\s`, so
+  // this is the only thing that ties it to what `trim()` means — and it
+  // is what makes the oracle (which uses `trim()`) count the loader's rule.
+  it('is exactly the code points trim() strips and \\s matches — all 1 114 112', () => {
+    expect([...BLANK_CODE_POINTS]).toEqual(engineTrims);
+    expect(engineBackslashS).toEqual(engineTrims);
+    expect(BLANK_CODE_POINTS).toHaveLength(25);
+  });
+
+  // 🔴 MUTATION: change one escape in the migration's BLANKS_SQL. The
+  // migration freezes its own copy, on purpose; this keeps the two equal.
+  it("is the set the migration's CHECK strips, character for character", () => {
+    expect(RoutePoiFacilities1791400000000.BLANKS_SQL).toBe(BLANKS_SQL);
+  });
+
+  // 🔴 MUTATION: put `btrim(x)` or `lower(x)` back in a facility column.
+  // The first strips U+0020 and the second follows the locale — and the
+  // database spec only sees the one this machine's locale happens to be.
+  it('is how every facility column is trimmed, and none of them uses lower()', () => {
+    const sql = facilitySelectSql('s');
+    expect(sql).not.toMatch(/\blower\(/);
+    const trims = [...sql.matchAll(/btrim\(([^()]*)\)/g)];
+    expect(trims.length).toBeGreaterThan(9);
+    for (const m of trims) expect(m[1]).toContain(`, ${BLANKS_SQL}`);
+  });
+
+  it('is written as escapes, so no invisible character sits in the SQL', () => {
+    // eslint-disable-next-line no-control-regex
+    expect(BLANKS_SQL).toMatch(/^E'(\\u[0-9a-f]{4})+'$/);
+    // eslint-disable-next-line no-control-regex
+    expect(`${BLANKS_SQL}${SEPARATOR_SQL}`).not.toMatch(
+      /[\u0000-\u001f\u0080-\uffff]/,
+    );
+  });
+
+  // 🔴 MUTATION: the old `trim()` → a plain-space strip, or `\s*;\s*` → ` *; *`
+  // — the review's own mutation, which left 102 tests green.
+  it('is stripped from both ends of a value, and around a `;`', () => {
+    for (const cp of BLANK_CODE_POINTS) {
+      const b = String.fromCodePoint(cp);
+      expect(normaliseTag(`${b}Yes${b}`)).toBe('yes');
+      expect(
+        resolveTriState(`${b}yes`, TRISTATE_FACILITIES[0].vocabulary),
+      ).toBe('yes');
+      expect(resolveVerbatim(`${b}${b}`)).toBe('unknown');
+      expect(resolveVerbatim(`${b}3.5${b}`)).toBe('3.5');
+      expect(tagParts(`no${b};${b}No`)).toEqual(['no', 'no']);
+    }
+  });
+
+  // …and the converse: overreach is a defect as well.
+  it('is not stripped when it only looks like a blank', () => {
+    for (const b of ['\u0085', '\u180e', '\u200b', '\u2060', '\u00ad']) {
+      expect(normaliseTag(`${b}yes`)).toBe(`${b}yes`);
+      expect(tagParts(`no${b};no`)).toEqual([`no${b}`, 'no']);
+    }
+  });
+});
+
+describe('what lower-case means, in JavaScript and in SQL', () => {
+  // 🔴 MUTATION: asciiLower → toLowerCase(). `İ` becomes `i` + U+0307 here
+  // and `i` in a UTF-8 libc locale, and stays `İ` under COLLATE "C": no
+  // two of them agree, so only ASCII is folded.
+  it('folds ASCII letters and nothing else', () => {
+    // written out by hand: the expectation is not the implementation again
+    expect(asciiLower('YES Customers')).toBe('yes customers');
+    expect(asciiLower('İ')).toBe('İ');
+    expect(asciiLower('ΑΣ')).toBe('ΑΣ');
+    expect(asciiLower('ÉÀ')).toBe('ÉÀ');
+    expect(asciiLower('ẞ')).toBe('ẞ');
+    expect(asciiLower('\u212a')).toBe('\u212a');
+    expect(normaliseTag('DESİGNATED')).toBe('desİgnated');
+  });
+
+  it('reads a value a locale could re-spell as the unknown word it is', () => {
+    const vocab = TRISTATE_FACILITIES[0].vocabulary;
+    expect(resolveTriState('DESİGNATED', vocab)).toBe('unknown');
+    expect(resolveTriState('YESİ', vocab)).toBe('unknown');
+  });
+
+  // 🔴 MUTATION: normalisedSql → lower(...)
+  it('is translate(), not lower(), in the SQL', () => {
+    const sql = normalisedSql('x');
+    expect(sql).toMatch(/^translate\(btrim\(x, E'/);
+    expect(sql).not.toMatch(/lower\(/);
+  });
+});
+
+describe('the access rule', () => {
+  // 🔴 MUTATION: compare the raw value (no normalisation); read a list as
+  // excluded only when EVERY part is; drop one word from the comparison.
+  it.each([
+    ['private', true],
+    ['Private', true],
+    ['PRIVATE ', true],
+    ['\tno\n', true],
+    ['\u00a0permit', true],
+    ['employees', true],
+    ['private;customers', true],
+    ['customers;private', true],
+    ['delivery;private', true],
+    ['no;yes', true],
+    ['students;employees', true],
+    ['Customers ; PRIVATE', true],
+    ['customers', false],
+    ['yes', false],
+    ['permissive', false],
+    ['students', false],
+    ['customers;visitors;members', false],
+    ['private road', false],
+    ['not_private', false],
+    ['\u0085private', false],
+    ['', false],
+    ['   ', false],
+    [';', false],
+    [null, false],
+    [undefined, false],
+  ] as const)('says %j keeps the place out: %s', (raw, excluded) => {
+    expect(isAccessExcluded(raw)).toBe(excluded);
+  });
+
+  it('is told which words exclude, and reads no others', () => {
+    expect(isAccessExcluded('customers', ['customers'])).toBe(true);
+    expect(isAccessExcluded('private', ['customers'])).toBe(false);
   });
 });
 
@@ -268,5 +419,124 @@ describe('the raw-extract counter reads the same lists as the loader', () => {
 
   it('asks about every facility tag the loader writes', () => {
     expect(listIn('FACILITY_TAGS').sort()).toEqual([...FACILITY_TAGS].sort());
+  });
+
+  // 🔴 CAMP-119 review, defect 3: the counter normalised before the list and
+  // the loader did not, so the oracle counted a rule the loader never
+  // applied. Reading both as TEXT cannot show that; this RUNS the counter —
+  // `isAccessExcluded` and the `add()` that is supposed to call it — over
+  // every spelling there is, in a child process (a `.mjs` is not something
+  // this CommonJS spec can import), and compares with the loader's rule.
+  //
+  // 🔴 MUTATION: in count-rest-stops.mjs compare the raw access value, read
+  // a list as excluded only when every part is, or stop `add()` calling it.
+  describe('applies the same access rule, run on the same inputs', () => {
+    const blanks = [...BLANK_CODE_POINTS].map((c) => String.fromCodePoint(c));
+    const values: (string | null)[] = [
+      null,
+      ...ACCESS_EXCLUDED.flatMap((w) => [
+        w,
+        w.toUpperCase(),
+        `${w[0].toUpperCase()}${w.slice(1)}`,
+        ...blanks.flatMap((b) => [
+          `${b}${w}`,
+          `${w}${b}`,
+          `${b}${w}${b}`,
+          `customers${b};${b}${w}`,
+          `${w}${b};${b}customers`,
+        ]),
+      ]),
+      'private;customers',
+      'customers;private',
+      'delivery;private',
+      'no;yes',
+      'students;employees',
+      'customers;visitors;members',
+      'customers',
+      'yes',
+      'permissive',
+      'students',
+      'destination',
+      'private road',
+      'not_private',
+      'privateer',
+      '\u0085private',
+      '\u200bno',
+      ...blanks,
+      '',
+      ';',
+    ];
+
+    const asRun = (): { excluded: boolean; candidate: number }[] => {
+      const url = pathToFileURL(join(SCRIPTS, 'count-rest-stops.mjs')).href;
+      const out = execFileSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `import { readFileSync } from 'node:fs';
+           import { isAccessExcluded, add, emptyTally } from ${JSON.stringify(url)};
+           const values = JSON.parse(readFileSync(0, 'utf8'));
+           console.log(JSON.stringify(values.map((v) => {
+             const t = emptyTally();
+             add(t, { type: 'n', id: '1', tags: v === null ? { highway: 'rest_area' } : { highway: 'rest_area', access: v } });
+             return { excluded: isAccessExcluded(v), candidate: t.rest_area.loaderCandidates };
+           })));`,
+        ],
+        { input: JSON.stringify(values), encoding: 'utf8' },
+      );
+      return JSON.parse(out) as { excluded: boolean; candidate: number }[];
+    };
+
+    it("gives the loader's verdict on every spelling", () => {
+      const run = asRun();
+      expect(run).toHaveLength(values.length);
+      const disagree = values
+        .map((v, i) => ({
+          v,
+          oracle: run[i].excluded,
+          loader: isAccessExcluded(v),
+        }))
+        .filter((d) => d.oracle !== d.loader);
+      expect(disagree).toEqual([]);
+      // both verdicts occur: a pair that said "false" everywhere would agree
+      expect(run.filter((r) => r.excluded).length).toBeGreaterThan(100);
+      expect(run.filter((r) => !r.excluded).length).toBeGreaterThan(20);
+    });
+
+    it('counts a node as a loader candidate exactly when the rule lets it in', () => {
+      const run = asRun();
+      const wrong = values
+        .map((v, i) => ({
+          v,
+          candidate: run[i].candidate,
+          excluded: isAccessExcluded(v),
+        }))
+        .filter((d) => d.candidate !== (d.excluded ? 0 : 1));
+      expect(wrong).toEqual([]);
+    });
+  });
+});
+
+// 🔴 The filter and the column are written from ONE expression — that is
+// what defect 3 broke (the filter read the raw tag, the column read
+// `lower(btrim(...))`). The database spec asserts the VALUES; this keeps
+// the two from being built apart again.
+describe('the access filter and the access column', () => {
+  const sql = buildRoutePoiInsertSql();
+  const col = 's."access"';
+
+  // 🔴 MUTATION: `s.access <> ALL ($2::text[])` — the filter as it was.
+  it('filter the parts of the NORMALISED value', () => {
+    expect(sql).toContain(
+      `AND NOT coalesce(${tagPartsSql(col)} && $2::text[], false)`,
+    );
+    expect(sql).not.toMatch(/s\.access <> ALL/);
+  });
+
+  it('store the same normalised value the filter reads', () => {
+    expect(sql).toContain(
+      `coalesce(nullif(${normalisedSql(col)}, ''), 'unknown') AS access`,
+    );
   });
 });
