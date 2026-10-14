@@ -866,7 +866,7 @@ function NoPhotos() {
       </p>
       <p className="mt-4 text-sm">
         <Link
-          href="/owner/claim"
+          href="/contact"
           className="inline-flex h-10 items-center rounded bg-btn px-4 font-semibold text-btn-ink transition-colors hover:bg-btn-hover"
         >
           You own this site? Add your photos

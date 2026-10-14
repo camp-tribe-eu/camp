@@ -50,6 +50,22 @@ export default function Contact() {
           import. Tell us anyway, and we will say which of the two it is.
         </p>
 
+        {/* 🔴 CAMP-318. Кнопка «You own this site? Add your photos» на
+            сторінці кемпінга веде сюди, тож відповідь на неї мусить бути
+            тут. Запросити фото й змовчати про умови означало б обіцянку,
+            якої ми не стримаємо: без дозволу на публікацію знімок
+            залишиться лежати в пошті. */}
+        <p>
+          <strong className="text-heading">
+            If you run a campsite and want your photographs on its page
+          </strong>
+          , send them to the same address. Three things have to come with
+          them: that the picture is yours to give, your permission for us to
+          publish it here, and the month it was taken — we print that date
+          beside every photograph. Uploads through the site do not exist yet,
+          so email is the whole of it.
+        </p>
+
         <p>
           {COMPANY.name}, {COMPANY.city}. Company details and the supervisory
           authority are on the{' '}

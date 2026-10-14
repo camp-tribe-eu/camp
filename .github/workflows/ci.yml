@@ -462,6 +462,18 @@ jobs:
       - name: No unit refers to a file the repository does not have
         run: node scripts/ci/check-server-drift.mjs --offline
 
+      # 🔴 CAMP-318. Кнопка «You own this site? Add your photos» вела на
+      # `/owner/claim`, якого ніколи не існувало — 404 для рівно тієї
+      # людини, яку ми просимо про допомогу, майже на кожній сторінці
+      # кемпінга. Сусідній сторож дивився на ФОРМУ посилання (`<Link>`
+      # замість `<a>`), а чи існує ЦІЛЬ — не питав ніхто.
+      - name: Every internal link goes somewhere that exists
+        run: |
+          set -o pipefail
+          node scripts/ci/check-internal-links.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-internal-links self-test:' >/dev/null
+          node scripts/ci/check-internal-links.mjs
+
       # 🔴 CAMP-170. Цей сторож каже, який імпортер замовк, і його
       # щодня запускає таймер на машині. Його власна самоперевірка не
       # бігла НІДЕ — тобто єдине, що стоїть між «дані застаріли» і
