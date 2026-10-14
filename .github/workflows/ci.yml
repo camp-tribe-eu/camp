@@ -462,6 +462,16 @@ jobs:
       - name: No unit refers to a file the repository does not have
         run: node scripts/ci/check-server-drift.mjs --offline
 
+      # 🔴 CAMP-170. Цей сторож каже, який імпортер замовк, і його
+      # щодня запускає таймер на машині. Його власна самоперевірка не
+      # бігла НІДЕ — тобто єдине, що стоїть між «дані застаріли» і
+      # тишею, саме не було перевірене нічим.
+      - name: The freshness guard still tells a stopped importer from an unconfigured one
+        run: |
+          set -o pipefail
+          node scripts/ci/check-data-freshness.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-data-freshness self-test:' >/dev/null
+
       # 🔴 CAMP-307. `@next/next/no-html-link-for-pages` ловить маршрут
       # лише тоді, коли в його теці є ДИНАМІЧНИЙ нащадок. Заміряно
       # 13.10.2026 по одному href за раз: ловить /guides, /routes,

@@ -25,7 +25,7 @@
 // протилежне було б гірше за відсутність перевірки. Це інструмент для
 // машини, де ключ є.
 
-import { readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -83,6 +83,96 @@ export function referencesIn(unitText) {
   return refs;
 }
 
+/** Корінь релізу на машині — симлінк, який перемикає деплой. */
+export const RELEASE_ROOT = '/srv/camptribe/current';
+
+/** Рушії, яким у `Exec*=` передають шлях до скрипта. */
+const ENGINE = /\/(?:node|bash|sh|python3)$/;
+
+/**
+ * Шляхи ПІД РЕЛІЗОМ, які називає юніт.
+ *
+ * 🔴 ЦЕ ТОЙ САМИЙ РЯДОК, ЧЕРЕЗ ЯКИЙ УСЕ ПОЧАЛОСЬ — І ДО 14.10.2026
+ * ЙОГО НІХТО НЕ ПЕРЕВІРЯВ. 13.10 бекап помер із `status=200/CHDIR`, бо
+ * мав `WorkingDirectory=/srv/camptribe/app` — теку, яку прибрав
+ * деплой. `--offline` при цьому друкував «посилань у порожнечу немає»:
+ * він дивився лише на `/usr/local/bin` і на `OnFailure`. Репетирувано
+ * 14.10.2026 — обидва написання помилки проходили зеленими.
+ *
+ * Перевірка, сліпа на власну причину смерті, не є перевіркою.
+ */
+export function releasePaths(unitText) {
+  const out = [];
+  const wdm = unitText.match(/^WorkingDirectory\s*=\s*(\S+)/m);
+  const wd = wdm === null ? null : wdm[1];
+  if (wd !== null) out.push({ key: 'WorkingDirectory', abs: wd });
+
+  for (const m of unitText.matchAll(/^EnvironmentFile\s*=\s*-?(\S+)/gm)) {
+    out.push({ key: 'EnvironmentFile', abs: m[1] });
+  }
+
+  for (const m of unitText.matchAll(
+    /^Exec(?:Start|StartPre|StartPost|Stop|Reload)\s*=\s*-?(\S+)(.*)$/gm,
+  )) {
+    const [, bin, rest] = m;
+    if (!ENGINE.test(bin)) continue;
+    // Перший неопційний аргумент рушія — і є скрипт.
+    const arg = rest.trim().split(/\s+/).find((a) => a !== '' && !a.startsWith('-'));
+    if (arg === undefined) continue;
+    out.push({ key: 'Exec', abs: arg.startsWith('/') ? arg : `${wd ?? RELEASE_ROOT}/${arg}` });
+  }
+  return out;
+}
+
+/**
+ * Що деплой СТВОРЮЄ на машині сам — тобто чого в репозиторії немає
+ * правильно. Кожен рядок названий тим рядком `infra/bin/camptribe-deploy`,
+ * який його створює.
+ *
+ * 🔴 ТУТ СТОЯВ `git check-ignore`, І ЦЕ БУЛО ГІРШЕ ЗА СПИСОК. Рецензія
+ * 14.10.2026 заміряла: `out/freshness.mjs`, `logs/x.mjs`,
+ * `.env.production` і навіть `WorkingDirectory=…/current/out` проходили
+ * МОВЧКИ, бо в `.gitignore` `out`, `dist`, `logs`, `coverage` і `.next`
+ * записані голими й неприкріпленими — тож збігається будь-яка складова
+ * шляху. Плюс вирок залежав від машини: `check-ignore` читає ще й
+ * глобальні excludes, яких у CI немає.
+ *
+ * Я захищав `check-ignore` тим, що список довелось би доповнювати
+ * після кожного нового юніта. Це неправда: список не про юніти, а про
+ * те, що будує деплой, і змінюється він разом зі збіркою. А коротка
+ * правильна відповідь краща за властивість, яка мовчки приймає `out/`.
+ */
+export const DEPLOY_CREATES = Object.freeze([
+  'apps/api/dist/', // npm run build:api
+  'apps/web/.next/', // npm run build:web
+  'apps/api/.env', // install -m 600 … з чинного релізу
+]);
+
+export const madeByDeploy = (rel) =>
+  DEPLOY_CREATES.some((p) => (p.endsWith('/') ? rel.startsWith(p) : rel === p));
+
+/**
+ * Чи існує в репозиторії те, що юніт назвав під релізом.
+ */
+export function missingReleasePaths(files, opts = {}) {
+  const read = opts.read ?? ((f) => readFileSync(f, 'utf8'));
+  const exists = opts.exists ?? ((rel) => existsSync(path.join(ROOT, rel)));
+  const bad = [];
+  for (const f of files) {
+    if (!f.name.endsWith('.service') && !f.name.endsWith('.timer')) continue;
+    for (const ref of releasePaths(read(f.local))) {
+      if (ref.abs !== RELEASE_ROOT && !ref.abs.startsWith(`${RELEASE_ROOT}/`)) {
+        bad.push({ unit: f.name, missing: `${ref.key}=${ref.abs} — не під ${RELEASE_ROOT}` });
+        continue;
+      }
+      const rel = ref.abs.slice(RELEASE_ROOT.length + 1);
+      if (rel === '' || madeByDeploy(rel) || exists(rel)) continue;
+      bad.push({ unit: f.name, missing: `${ref.key}=${ref.abs} — у репозиторії немає ${rel}` });
+    }
+  }
+  return bad;
+}
+
 /**
  * Чи все, на що посилаються юніти, лежить поруч у репозиторії.
  *
@@ -121,7 +211,11 @@ const ssh = (cmd) =>
 
 function offline() {
   const files = managedFiles();
-  const bad = danglingReferences(files);
+  // 🔴 Два різні питання, і обидва про той самий рядок у порожнечу:
+  // чи є поруч те, що РОЗКЛАДАЄМО МИ, і чи є в репозиторії те, що юніт
+  // назвав ПІД РЕЛІЗОМ. Друге додано 14.10.2026 — без нього перевірка
+  // не ловила причину, заради якої її написали.
+  const bad = [...danglingReferences(files), ...missingReleasePaths(files)];
   if (bad.length > 0) {
     console.error('✗ юніт посилається на те, чого в репозиторії немає:\n');
     for (const b of bad) console.error(`  ${b.unit} → ${b.missing}`);
@@ -255,7 +349,85 @@ function selfTest() {
   is('порожнє на машині проти непорожнього в git',
     drift([{ remote: '/x', expected: 'a', actual: '' }]).length, 1);
 
-  const EXPECTED_CASES = 10;
+  // ── шляхи під релізом (CAMP-170) ──────────────────────────────────
+  //
+  // 🔴 ЦІ ВІСІМ ВИПАДКІВ Є ТОМУ, ЩО 14.10.2026 Я ЗАМІРЯВ: обидва
+  // написання дефекту, який убив бекап 13.10, проходили `--offline`
+  // зеленими. Перевірка бачила `/usr/local/bin` і `OnFailure`, а
+  // `WorkingDirectory` не читала взагалі.
+  const freshUnit =
+    'WorkingDirectory=/srv/camptribe/current\n' +
+    'EnvironmentFile=/srv/camptribe/current/apps/api/.env\n' +
+    'ExecStart=/usr/bin/node scripts/ci/x.mjs --stale-only\n' +
+    'ExecStartPost=/bin/rm -f /srv/camptribe/failed/u.service\n';
+
+  is('робоча тека прочитана',
+    releasePaths(freshUnit).filter((r) => r.key === 'WorkingDirectory').map((r) => r.abs),
+    ['/srv/camptribe/current']);
+  // 🔴 Відносний шлях розвʼязується проти РОБОЧОЇ ТЕКИ юніта, а не
+  // проти кореня релізу: інакше юніт з `WorkingDirectory=.../apps/api`
+  // перевірявся б не за тим шляхом і мовчав би про справжню помилку.
+  is('відносний аргумент розвʼязано проти робочої теки',
+    releasePaths('WorkingDirectory=/srv/camptribe/current/apps/api\nExecStart=/usr/bin/node dist/main\n')
+      .filter((r) => r.key === 'Exec').map((r) => r.abs),
+    ['/srv/camptribe/current/apps/api/dist/main']);
+  is('🔴 береться скрипт, а не прапорець',
+    releasePaths(freshUnit).filter((r) => r.key === 'Exec').map((r) => r.abs),
+    ['/srv/camptribe/current/scripts/ci/x.mjs']);
+  // `/usr/local/bin/camptribe-backup` і `/bin/rm` — не рушії; перший
+  // перевіряє `danglingReferences`, другий нам не належить.
+  // 🔴 ФІКСТУРА МАЄ НЕОПЦІЙНИЙ АРГУМЕНТ, І ЦЕ ВАЖЛИВО ДВІЧІ.
+  //
+  // Без аргументу випадок був підписом: `find()` однаково повертав
+  // `undefined`, тож зняття `if (!ENGINE.test(bin))` його не валило
+  // (рецензія 14.10). З аргументом-ПРАПОРЦЕМ — так само, бо `find()`
+  // пропускає і його; я наступив на це під час самого виправлення.
+  // Червоніти цей випадок може лише на неопційному аргументі.
+  is('чужий виконуваний файл сюди не потрапляє',
+    releasePaths('ExecStart=/usr/local/bin/camptribe-backup weekly\n').length, 0);
+  // 🔴 І окремо: блок EnvironmentFile теж мусить мати свого свідка —
+  // третина функції не була стверджена нічим.
+  is('EnvironmentFile прочитано',
+    releasePaths(freshUnit).filter((r) => r.key === 'EnvironmentFile').map((r) => r.abs),
+    ['/srv/camptribe/current/apps/api/.env']);
+
+  const files2 = [{ name: 'u.service', local: 'u' }];
+  const probe = (text, opts) =>
+    missingReleasePaths(files2, { read: () => text, ...opts }).map((b) => b.missing);
+
+  is('🔴 тека поза релізом — саме дефект 13.10',
+    probe('WorkingDirectory=/srv/camptribe/app\n', { exists: () => true }),
+    ['WorkingDirectory=/srv/camptribe/app — не під /srv/camptribe/current']);
+  is('🔴 відсутнє — скарга',
+    probe('ExecStart=/usr/bin/node scripts/ci/x.mjs\n', { exists: () => false }),
+    ['Exec=/srv/camptribe/current/scripts/ci/x.mjs — у репозиторії немає scripts/ci/x.mjs']);
+
+  // ── ВИРОБНИЧЕ ПІДКЛЮЧЕННЯ, БЕЗ ЖОДНОГО ПІДМІННИКА ─────────────────
+  //
+  // 🔴 Рецензія 14.10.2026: усі випадки вище підставляли власний
+  // `exists`, тож мутації ДЕФОЛТНОГО `exists → () => true` і
+  // дефолтного правила «відсутнє правильно → завжди» обидві лишали
+  // 18/18 зеленими. А вирок у `--offline` ухвалюють саме дефолти.
+  const real = (text) => missingReleasePaths(files2, { read: () => text }).map((b) => b.missing);
+
+  is('справжній файл репозиторію — мовчання',
+    real('ExecStart=/usr/bin/node scripts/ci/check-data-freshness.mjs --stale-only\n'), []);
+  is('🔴 справжньої відсутності не прощає',
+    real('ExecStart=/usr/bin/node scripts/ci/nope.mjs\n'),
+    ['Exec=/srv/camptribe/current/scripts/ci/nope.mjs — у репозиторії немає scripts/ci/nope.mjs']);
+  is('те, що деплой будує сам, відсутнє правильно',
+    real('WorkingDirectory=/srv/camptribe/current/apps/api\nExecStart=/usr/bin/node dist/main\n'), []);
+
+  // 🔴 ТРИ ВХОДИ, ЯКІ `git check-ignore` ПРОПУСКАВ МОВЧКИ. Кожен тут
+  // тому, що був заміряний як хибне проходження, а не вигаданий.
+  is('🔴 out/ більше не ковтається',
+    real('ExecStart=/usr/bin/node out/freshness.mjs\n').length, 1);
+  is('🔴 logs/ більше не ковтається',
+    real('ExecStart=/usr/bin/node logs/x.mjs\n').length, 1);
+  is('🔴 .env.production більше не ковтається',
+    real('EnvironmentFile=/srv/camptribe/current/.env.production\n').length, 1);
+
+  const EXPECTED_CASES = 23;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;

@@ -1,0 +1,8 @@
+[Unit]
+Description=CampTribe data freshness check, daily
+[Timer]
+# Після денного бекапу (03:30) і до того, як прокинеться власник.
+OnCalendar=*-*-* 06:00:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target
