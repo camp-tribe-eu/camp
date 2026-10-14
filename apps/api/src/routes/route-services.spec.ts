@@ -14,9 +14,12 @@ import { SOURCES } from '../fuel/stations';
 import {
   ACCESS_EXCLUDED,
   classifyCaseSql,
+  REST_STOP_KINDS,
   ROUTE_POI_KINDS,
   ROUTE_POI_RULES,
   SERVICES_PER_KIND,
+  STORED_POI_KINDS,
+  STORED_POI_RULES,
 } from '../osm/route-poi';
 
 // CAMP-113 — the rules of the services endpoint, checked without a
@@ -240,8 +243,8 @@ describe('the tag rules behind each kind', () => {
   // headings at the same stop, and which one won would depend on the
   // order of a CASE expression nobody reads.
   it('never lets two kinds claim the same tag', () => {
-    const tags = ROUTE_POI_KINDS.flatMap((kind) =>
-      ROUTE_POI_RULES[kind].flatMap((rule) =>
+    const tags = STORED_POI_KINDS.flatMap((kind) =>
+      STORED_POI_RULES[kind].flatMap((rule) =>
         rule.values.map((v) => `${rule.key}=${v}`),
       ),
     );
@@ -264,9 +267,12 @@ describe('the tag rules behind each kind', () => {
     const filtered = new Set(
       [...script.matchAll(/^\s{2}([a-z_]+=[a-z_]+)$/gm)].map((m) => m[1]),
     );
+    // 🔴 CAMP-119: every STORED kind, not only the ones a page shows. The
+    // two lists this guards are the shell's FILTERS and what the loader
+    // classifies, and the loader now classifies the stopping places too.
     const classified = new Set(
-      ROUTE_POI_KINDS.flatMap((kind) =>
-        ROUTE_POI_RULES[kind].flatMap((rule) =>
+      STORED_POI_KINDS.flatMap((kind) =>
+        STORED_POI_RULES[kind].flatMap((rule) =>
           rule.values.map((v) => `${rule.key}=${v}`),
         ),
       ),
@@ -276,8 +282,24 @@ describe('the tag rules behind each kind', () => {
 
   it('builds a CASE that names every kind', () => {
     const sql = classifyCaseSql('s');
-    for (const kind of ROUTE_POI_KINDS) expect(sql).toContain(`THEN '${kind}'`);
+    for (const kind of STORED_POI_KINDS)
+      expect(sql).toContain(`THEN '${kind}'`);
     expect(sql.startsWith('CASE ')).toBe(true);
+  });
+
+  // 🔴 CAMP-119. A CASE returns its FIRST match, so the order of the
+  // branches is a decision: an object tagged both `amenity=fuel` and
+  // `highway=services` is the fuel station it was before this card, and
+  // its row — and the price keyed on it — does not move.
+  it('tries the kinds a page shows before the stopping places', () => {
+    const sql = classifyCaseSql('s');
+    for (const rest of REST_STOP_KINDS) {
+      for (const shown of ROUTE_POI_KINDS) {
+        expect(sql.indexOf(`THEN '${shown}'`)).toBeLessThan(
+          sql.indexOf(`THEN '${rest}'`),
+        );
+      }
+    }
   });
 
   it('refuses a tag value it cannot safely quote', () => {
@@ -297,6 +319,42 @@ describe('the tag rules behind each kind', () => {
     // them would delete a chunk of the groceries layer for a word.
     expect(ACCESS_EXCLUDED).not.toContain('customers');
     expect(ACCESS_EXCLUDED).not.toContain('permissive');
+  });
+});
+
+// 🔴 CAMP-119: THE ROUTE PAGE DOES NOT GROW TWO KINDS BY ACCIDENT.
+//
+// ROUTE_POI_KINDS is what `parseKinds` defaults to, what
+// `buildServicesSql` writes one index scan per kind for, and what
+// MAX_SERVICE_POINTS is derived from — so that the ODbL "Substantial"
+// floor cannot be crossed. The stopping places are stored in the same
+// table and are NOT in it. Appending them there would change all three
+// with nothing in the diff to say so.
+describe('the stopping places stay off the route page', () => {
+  it('keeps rest_area and service_area out of the page kinds', () => {
+    for (const kind of REST_STOP_KINDS) {
+      expect(ROUTE_POI_KINDS as readonly string[]).not.toContain(kind);
+    }
+    expect([...ROUTE_POI_KINDS]).toEqual([
+      'fuel',
+      'charging',
+      'water',
+      'dump',
+      'groceries',
+      'food',
+      'shelter',
+    ]);
+  });
+
+  it('refuses to put a stopping place into a stage query', () => {
+    for (const kind of REST_STOP_KINDS) {
+      expect(() => buildServicesSql([kind as never])).toThrow(/unknown kind/);
+    }
+    expect(parseKinds('rest_area,service_area')).toEqual([...ROUTE_POI_KINDS]);
+  });
+
+  it('leaves the number of stages a page may ask about where it was', () => {
+    expect(MAX_SERVICE_POINTS).toBe(9);
   });
 });
 

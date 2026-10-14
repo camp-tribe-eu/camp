@@ -61,6 +61,14 @@
 # `load-route-poi.ts`. Nothing is downloaded — the extracts are already
 # there.
 #
+# CAMP-119 added `highway=rest_area`, `highway=services` and nine facility
+# tags to the export. Measured 14.10.2026 against a scratch database, all
+# 27 extracts: 27 minutes end to end on a machine at load average 70,
+# 9.5 of them in `osmium tags-filter`/`merge` and the rest in ogr2ogr and
+# the loader. 2 324 790 features were staged. A second run of the loader
+# alone, over rows that already held every kind, took 24 minutes while
+# other jobs were running.
+#
 # 🔴 That 14 minutes is up from 5, and the extra is bought deliberately.
 # Resolving a country by "containing polygon, else NEAREST polygon"
 # costs a KNN lookup for the 2.9% of rows inside no polygon, and the
@@ -107,8 +115,11 @@ fi
 echo $$ > "$LOCK_DIR/pid"
 trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
 
-# 🔴 The tag list, and it must stay identical to ROUTE_POI_RULES in
-# apps/api/src/osm/route-poi.ts. A tag filtered here and not classified
+# 🔴 The tag list, and it must stay identical to STORED_POI_RULES in
+# apps/api/src/osm/route-poi.ts (CAMP-119: every kind the table can hold,
+# not only the seven a route page shows — a spec reads this array and
+# compares). `amenity=parking` is deliberately NOT here: 3.1 million
+# objects, and a separate conversation. A tag filtered here and not classified
 # there is a row loaded and thrown away; a tag classified there and not
 # filtered here is a kind that silently holds nothing — which is the
 # failure that does not announce itself. `load-route-poi.ts` fails if any
@@ -120,6 +131,8 @@ FILTERS=(
   amenity=water_point
   man_made=water_tap
   amenity=sanitary_dump_station
+  highway=rest_area
+  highway=services
   shop=supermarket
   shop=convenience
   amenity=restaurant
@@ -172,12 +185,20 @@ fi
 # ogr2ogr makes a column of each, and across the EU-27 that is past
 # PostgreSQL's 1600-column ceiling — the load fails and the previous
 # contents stay in place looking like data.
-cat > export-rpoi.json <<'JSON'
-{"include_tags":["name","amenity","shop","tourism","man_made",
-"opening_hours","phone","contact:phone","website","contact:website","access"]}
-JSON
+#
+# 🔴 CAMP-119: THE LIST LIVES IN ONE FILE, NOT IN A HEREDOC HERE.
+#
+# It used to be written out below, and it was the reason `toilets`, `fee`
+# and `shower` never reached the database even for the 7 525 dump
+# stations we already held: the export dropped them, nothing downstream
+# could see that it had, and a dropped tag looks exactly like a tag
+# nobody wrote. `apps/api/src/osm/route-poi-facilities.ts` names the tags
+# the loader reads, and a spec asserts every one of them is in this file —
+# so removing one is a red test, not a column of 'unknown' on a page.
+EXPORT_CONFIG="$REPO_ROOT/scripts/osm-pipeline/export-rpoi.json"
+[ -f "$EXPORT_CONFIG" ] || { echo "::error::$EXPORT_CONFIG is missing" >&2; exit 1; }
 
-osmium export merged.rpoi.pbf -o rpoi.geojsonl --config=export-rpoi.json \
+osmium export merged.rpoi.pbf -o rpoi.geojsonl --config="$EXPORT_CONFIG" \
   --overwrite -f geojsonseq -u type_id
 
 ogr2ogr -f PostgreSQL "PG:$OGR_CONN" rpoi.geojsonl \

@@ -50,7 +50,10 @@
 //   highway=rest_area,         A services area is a wrapper around the
 //     highway=services         fuel, food and toilets already listed, so
 //     (36 258)                 it would show the same stop twice under
-//                              two names.
+//                              two names. 🔴 CAMP-119 now STORES them —
+//                              see REST_STOP_KINDS below — and the route
+//                              page still does not read them: that
+//                              argument is about the PAGE and stands.
 //   amenity=shower (21 128)    Same argument as toilets, at a tenth the
 //                              count.
 //
@@ -100,6 +103,8 @@
 // useful fraction the column is one import away; this comment is the
 // measurement to re-run before anybody builds the control.
 
+import { tagParts } from './route-poi-facilities';
+
 /** The closed list of service kinds. Order is the order a page shows them. */
 export const ROUTE_POI_KINDS = [
   'fuel',
@@ -129,7 +134,7 @@ export function isRoutePoiKind(value: unknown): value is RoutePoiKind {
  */
 export interface TagRule {
   /** The OSM key, as the staging table columns are named. */
-  key: 'amenity' | 'shop' | 'tourism' | 'man_made';
+  key: 'amenity' | 'shop' | 'tourism' | 'man_made' | 'highway';
   /** The values that count. */
   values: string[];
 }
@@ -151,6 +156,110 @@ export const ROUTE_POI_RULES: Record<RoutePoiKind, TagRule[]> = {
   ],
 };
 
+// ── CAMP-119: STOPPING PLACES — STORED, NOT SHOWN ────────────────────────
+//
+// `highway=rest_area` (a lay-by or motorway rest area) and
+// `highway=services` (a motorway service area) are loaded into the same
+// table so a later card can draw them and filter them. Nothing on a route
+// page reads them yet.
+//
+// 🔴 THEY ARE NOT IN ROUTE_POI_KINDS, AND THAT LIST IS THE ONE THE PAGE
+// READS. `parseKinds` defaults to every kind in it, `buildServicesSql`
+// writes one index scan per kind into the stage query, and
+// MAX_SERVICE_POINTS is derived from its length so the ODbL "Substantial"
+// floor (100 objects a page) cannot be crossed. Appending two kinds there
+// would have changed all three without anyone asking: routes would start
+// listing rest areas, every stage query would grow two scans, and the
+// number of stages a page may ask about would drop from nine to seven.
+// A spec fails if either kind enters that list.
+//
+// 🔴 THE NAMES. `rest_area` is OSM's own word and kept. `highway=services`
+// is stored as `service_area`, NOT `services`: in this codebase "services"
+// already means everything a route page lists (`route-services.ts`,
+// `/routes/services`, `RouteService`), and a `kind: 'services'` inside a
+// `services[]` would read as the whole thing and the part at once.
+//
+// 🔴 `amenity=parking` IS NOT HERE. 3.1 million objects, and not the same
+// conversation: it needs its own count of what a camper can actually
+// park a van on.
+//
+// 🔴 THE `dump` NUMBER, AND WHAT IT IS.
+//
+// `dump` is `amenity=sanitary_dump_station` on a NODE or a WAY, one row
+// per OSM object, minus `access` in ACCESS_EXCLUDED, inside the EU-27.
+// That is one formula, and the loader prints the number it gives.
+//
+// It is NOT the `sanitary_dump_station=*` KEY on any object. That tag is
+// also written on campsites, rest areas and service areas ("this place has
+// a dump point"), where it is a facility of somewhere else, not a point of
+// its own — it lands in the `sanitary_dump_station` COLUMN of whatever row
+// it sits on, as yes/no/unknown, and is never counted as a dump station.
+// The two were measured on 14.10.2026 over the 27 raw extracts and they
+// differ by a factor of two (7 306 objects with `amenity=`, 14 910 with
+// the key), which is why a card that quoted "17 579" could not be
+// reproduced by either: it was never one formula.
+//
+// A closed way is one object. `osmium export` hands it out twice (CAMP-253),
+// as `w123` and `a246`. The kinds in CANONICAL_REF_KINDS are folded to one
+// row per object by `canonicalRefSql`; the other six are left as they were
+// written, because `fuel_station_prices.osm_ref` is keyed on the fuel rows
+// among them and re-keying is a decision with a cost (see
+// buildRoutePoiInsertSql).
+//
+// 🔴 `dump` IS FOLDED, WHICH IS WHAT MAKES ITS NUMBER AN OBJECT COUNT.
+// Left as written, the live table holds 7 525 `dump` rows and 311 of
+// them are the second copy of a closed way (measured 14.10.2026 on
+// camptribe_dev: 311 `w` rows each with its `a` twin) — so a formula that
+// says "one row per object" beside that count would be a label and not a
+// description. Nothing is keyed on a dump row (`fuel_station_prices` joins
+// fuel points only), so of the seven kinds it is the one where the fold
+// costs nothing and the number stops being a label.
+
+/**
+ * The one sentence the `dump` row count is the answer to. The loader
+ * prints it next to the number, so the number never travels without its
+ * formula.
+ */
+export const DUMP_FORMULA =
+  'amenity=sanitary_dump_station on a node or a way, one row per OSM ' +
+  'object, access not in private/no/employees/permit, inside the EU-27';
+
+/** The kinds CAMP-119 added. Stored, never shown on a route page. */
+export const REST_STOP_KINDS = ['rest_area', 'service_area'] as const;
+
+export type RestStopKind = (typeof REST_STOP_KINDS)[number];
+
+/**
+ * 🔴 The kinds whose rows are keyed on the CANONICAL object id — `w123`,
+ * `r456` — and so hold one row per OSM object. `dump` is here although it
+ * is older than this card: see the note above on why it is the one
+ * legacy kind that can be folded for free.
+ */
+export const CANONICAL_REF_KINDS = [
+  'dump',
+  'rest_area',
+  'service_area',
+] as const;
+
+/** Everything the table can hold. Order is the CASE's order: legacy first. */
+export const STORED_POI_KINDS = [
+  ...ROUTE_POI_KINDS,
+  ...REST_STOP_KINDS,
+] as const;
+
+export type StoredPoiKind = (typeof STORED_POI_KINDS)[number];
+
+export const REST_STOP_RULES: Record<RestStopKind, TagRule[]> = {
+  rest_area: [{ key: 'highway', values: ['rest_area'] }],
+  service_area: [{ key: 'highway', values: ['services'] }],
+};
+
+/** Every kind's rules. The loader classifies with this, the page with ROUTE_POI_RULES. */
+export const STORED_POI_RULES: Record<StoredPoiKind, TagRule[]> = {
+  ...ROUTE_POI_RULES,
+  ...REST_STOP_RULES,
+};
+
 /**
  * `access` values that mean "not you".
  *
@@ -158,6 +267,49 @@ export const ROUTE_POI_RULES: Record<RoutePoiKind, TagRule[]> = {
  * car park is customers-only and a driver buying groceries is a customer.
  */
 export const ACCESS_EXCLUDED = ['private', 'no', 'employees', 'permit'];
+
+/**
+ * 🔴 WHETHER AN `access` VALUE KEEPS THE PLACE OUT — THE ONE RULE THE
+ * LOADER'S FILTER, THE `access` COLUMN AND THE RAW-EXTRACT COUNTER ALL
+ * USE (CAMP-119 review, defect 3; the SQL twin is `tagPartsSql`).
+ *
+ * The filter used to compare the RAW tag to the list while the column was
+ * written as `lower(btrim(...))`. `access='Private'` was published, and
+ * the column beside it read `private`; the canonical `'private'` was
+ * rejected correctly, which is why nothing looked wrong on canonical data.
+ * And `count-rest-stops.mjs` normalised before the same list — so the
+ * oracle counted a rule the loader did not apply. Now all three read the
+ * value through `tagParts`: blanks off, ASCII letters folded, split on `;`.
+ *
+ * 🔴 A LIST IS EXCLUDED WHEN ANY PART OF IT IS. `access=private;customers`
+ * means somebody said "private" about this place, and the part that follows
+ * cannot unsay it. Measured 14.10.2026 on the staging table of
+ * camptribe_dev (2 285 391 rows, 123 477 with an `access`): 9 rows carry a
+ * `;` list, and 5 of them name an excluded word — `private;customers`,
+ * `customers;private`, `delivery;private`, `no;yes`, `students;employees`.
+ * Two of those five are rows of `osm_route_poi` today (a charging station
+ * tagged `no;yes`, and the "Restaurant Universitaire de Kergoat", a
+ * university canteen, tagged `students;employees` — not a place a
+ * stranger eats); the other three carry no classifying tag in that old
+ * staging (it has no `highway` column) and say nothing about what they
+ * are until the CAMP-119 export is loaded. The other four rows
+ * (`customers;visitors;members`) name nothing excluded and stay. Run
+ * through the old filter and the new one, the staging table passes
+ * 2 274 129 rows and 2 274 124: exactly those five, and none the other way.
+ *
+ * Why "any" and not "every part": a wrong "published" sends a driver to a
+ * barrier and puts a private place on a public page; a wrong "kept out"
+ * costs one stop among 2.2 million. `countrySql` took the same side for
+ * the same reason — "when we cannot tell, we do not publish it". Reading a
+ * list as excluded only when EVERY part is would publish the canteen,
+ * because `students` alone is not on the list.
+ */
+export function isAccessExcluded(
+  raw: string | null | undefined,
+  excluded: readonly string[] = ACCESS_EXCLUDED,
+): boolean {
+  return tagParts(raw).some((part) => excluded.includes(part));
+}
 
 /**
  * 🔴 ONE POINT OF EACH KIND PER STAGE, AND THE REASON IS LEGAL.
@@ -198,8 +350,12 @@ export function classifyCaseSql(alias = 's'): string {
     return `'${v}'`;
   };
 
-  const branches = ROUTE_POI_KINDS.map((kind) => {
-    const tests = ROUTE_POI_RULES[kind].map(
+  // 🔴 Every STORED kind, legacy ones first. A CASE returns its first
+  // match, so an object tagged both `amenity=fuel` and `highway=services`
+  // stays the fuel station it was before CAMP-119 and its row — and the
+  // price keyed on it — does not move.
+  const branches = STORED_POI_KINDS.map((kind) => {
+    const tests = STORED_POI_RULES[kind].map(
       (rule) => `${alias}.${rule.key} IN (${rule.values.map(safe).join(', ')})`,
     );
     return `WHEN ${tests.join(' OR ')} THEN '${kind}'`;

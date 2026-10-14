@@ -108,7 +108,7 @@ export type AmenityRule = ValueRule | PresenceRule;
  * that have one, not with the sites that don't. `designated` is the
  * strongest possible yes (the site is explicitly set up for it).
  */
-const TRUTHY = new Set([
+export const TRUTHY: ReadonlySet<string> = new Set([
   'yes',
   'true',
   '1',
@@ -123,7 +123,13 @@ const TRUTHY = new Set([
  * `private` sits here on purpose: an amenity marked private is not available
  * to the camper doing the filtering, so answering "yes" would mislead.
  */
-const FALSY = new Set(['no', 'false', '0', 'none', 'private']);
+export const FALSY: ReadonlySet<string> = new Set([
+  'no',
+  'false',
+  '0',
+  'none',
+  'private',
+]);
 
 /**
  * Values that look like an answer but are not one. Kept out of
