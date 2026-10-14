@@ -969,8 +969,9 @@ function selfTest() {
   cases++;
   {
     const w = droughtWorst(GOOD, OPACITY, BASEMAP, [], ring, EDO_SOURCE);
-    if (w[2].matches !== true || w[0].matches !== null || w[4].matches !== null)
-      fails.push('the printed table says a class equals the source when it does not, or judges a named exception against it');
+    const off = droughtWorst({ ...GOOD, 2: { hex: nudge(edo[2]), alpha: 255 } }, OPACITY, BASEMAP, [], ring, EDO_SOURCE);
+    if (w[2].matches !== true || off[2].matches !== false || w[0].matches !== null || w[4].matches !== null)
+      fails.push('the printed table says a class equals the source when it does not (or the reverse), or judges a named exception against it');
   }
 
   // 🔴 CAMP-286: counted, because "13 cases" was prose. An assertion
