@@ -10,27 +10,39 @@
 #   pg_restore -d "$DATABASE_URL" --clean --if-exists -t osm_route_poi dump
 #
 # Перевірив як годиться: 2 271 596 рядків, види збіглися з локальними до
-# одиниці. Через годину сусідній запит висів 4 хвилини 42 секунди.
-# Виявилось: `--clean` зняв таблицю РАЗОМ з індексами, а `-t` відбирає
-# для відновлення лише саму таблицю — індекси й PRIMARY KEY лежать у
-# дампі окремими записами TOC, і фільтр їх не пропускає. На таблиці з
-# 2,27 млн рядків лишилось НУЛЬ індексів і жодного первинного ключа.
-# CHECK вціліли тільки тому, що вбудовані в CREATE TABLE.
+# одиниці. Через годину сусідній запит висів 4 хвилини 42 секунди: на
+# таблиці лишилось НУЛЬ індексів і жодного первинного ключа. CHECK вціліли
+# тільки тому, що вбудовані в CREATE TABLE. Жодна програма не сказала ні
+# слова: мій спосіб перевірки міряв ВМІСТ, а зіпсувалась СТРУКТУРА.
 #
-# Жодна програма не сказала ні слова. Мій спосіб перевірки міряв ВМІСТ,
-# а зіпсувалась СТРУКТУРА.
+# 🔴 ПРИЧИНА — НЕ «pg_restore губить індекси». Дамп, знятий
+# `pg_dump -Fc -t T`, УЖЕ містить усе: індекси, первинний ключ, послідовність,
+# DEFAULT, тригери. Губить їх `-t` НА ВІДНОВЛЕННІ: він фільтрує записи TOC за
+# назвою й лишає з дампу лише TABLE та TABLE DATA. Дамп однієї таблиці цього
+# фільтра не потребує — в ньому й так лише вона. Тож `-t` там нічого не дає
+# і коштує всієї структури. Заміряно на двох базах (id serial PRIMARY KEY,
+# CHECK, два індекси, 50 рядків):
 #
-# 🔴 ТОМУ ТУТ ТРИ ПЕРЕВІРКИ, А НЕ ОДНА:
-#   1. скільки рядків     — те, що я перевіряв і тоді;
-#   2. яка структура      — індекси й обмеження звіряються з ДЖЕРЕЛОМ
-#                           і відтворюються, якщо pg_restore їх загубив;
-#   3. чи швидко читається — типовий запит на час, бо повільний запит це
-#                           симптом структури, а не навантаження.
+#   pg_restore --clean --if-exists -t t dump   50 рядків, 0 індексів, немає послідовності
+#   pg_restore --clean --if-exists    dump     50 рядків, 3 індекси, є послідовність і nextval()
 #
-# 🔴 І ВІДКАТ РЕПЕТИРУЄТЬСЯ ДО ЗАМІНИ. Страхувальна копія, з якої не
-# відновлювались, не існує: вона знімається тим самим `-t` і має ту саму
-# ваду. Скрипт відновлює її в окрему базу й дивиться, що там усередині,
-# ПЕРШ НІЖ чіпати бойову.
+# Тому `-t` тут є лише на ЗНЯТТІ дампу (pg_dump) і ніколи — на відновленні:
+# ні на заміні, ні на відкаті, ні на репетиції.
+#
+# Що зроблено інакше, ніж першою спробою (яка лікувала симптом: звіряла три
+# лічильники — рядки, індекси, обмеження — і відтворювала втрачене сама):
+#   1. Структуру не відтворюємо, бо вона не губиться. Лічильників немає:
+#      вони були сліпі до послідовностей, DEFAULT, тригерів і EXCLUDE.
+#   2. Після заміни звіряється ТЕКСТ `pg_dump --schema-only -t T` джерела й
+#      прода (див. norm_schema нижче: що саме нормалізується і чому), плюс
+#      код виходу pg_restore і кількість рядків.
+#   3. Відкат репетирується ДО заміни, а після відкату ЗВІРЯЄТЬСЯ з тим, що
+#      було до заміни (рядки й схема). Код виходу: 3 — повернули й звірили,
+#      4 — відкат не звірився, прод у невідомому стані.
+#   4. До будь-яких змін пробується `DROP TABLE` у відкочуваній транзакції:
+#      без `-t` pg_restore --clean знімає індекси ПЕРЕД таблицею, і якщо таблицю
+#      зняти не можна (подання, чужий зовнішній ключ), залишає її зі зламаною
+#      структурою та подвоєними рядками. Це ціна прибраного `-t`, заміряна.
 set -uo pipefail
 
 TABLE="${1:-}"; shift 2>/dev/null || true
@@ -41,14 +53,20 @@ for a in "$@"; do
     *) echo "невідомий прапорець: $a" >&2; exit 2 ;;
   esac
 done
-[ -n "$TABLE" ] || { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
-case "$TABLE" in *[!a-z0-9_]*) echo "назва таблиці мусить бути [a-z0-9_]: $TABLE" >&2; exit 2 ;; esac
+[ -n "$TABLE" ] || { sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+# 🔴 Літери перелічено, а не діапазоном: `[a-z]` залежить від локалі, і під
+# en_US.UTF-8 у bash 3.2 (macOS — саме там цей скрипт і запускається) пускав
+# `RV_UP`.
+case "$TABLE" in *[!abcdefghijklmnopqrstuvwxyz0123456789_]*) echo "назва таблиці мусить бути [a-z0-9_]: $TABLE" >&2; exit 2 ;; esac
 
 HOST="${CAMPTRIBE_HOST:?задай CAMPTRIBE_HOST=root@… — адреси машини в репозиторії немає навмисно}"
 KEY="${CAMPTRIBE_KEY:-$HOME/.ssh/id_ed25519_camptribe_server}"
 LOCAL_DB="${CAMPTRIBE_LOCAL_DB:-camptribe_dev}"
 REMOTE_ENV="${CAMPTRIBE_REMOTE_ENV:-/srv/camptribe/current/apps/api/.env}"
 BACKUP_DIR="${CAMPTRIBE_BACKUP_DIR:-/srv/camptribe/backups}"
+# Куди на машині класти те, що їде з ноутбука. На проді /tmp; самоперевірка
+# підставляє свою теку, щоб два прогони поруч не топтали файли один одного.
+RTMP="${CAMPTRIBE_REMOTE_TMP:-/tmp}"
 WORK="${TMPDIR:-/tmp}/camptribe-move-$TABLE.$$"
 PSQL="${CAMPTRIBE_PSQL:-psql}"
 PG_DUMP="${CAMPTRIBE_PG_DUMP:-pg_dump}"
@@ -67,43 +85,18 @@ src_rows=$("$PSQL" -At -d "$LOCAL_DB" -c "select count(*) from $TABLE") \
   || die "локальна таблиця $TABLE не читається"
 [ "${src_rows:-0}" -gt 0 ] || die "у локальній $TABLE нуль рядків — переносити нічого"
 
-# 🔴 Структура джерела — ЕТАЛОН. Саме з нею звіряється прод після заміни.
-# 🔴 Індекси БЕЗ тих, що стоять за обмеженнями. `ADD CONSTRAINT … PRIMARY
-# KEY` сам створює свій індекс, і якби ми створили його окремо, друге
-# додавання впало б на зайнятій назві.
-"$PSQL" -At -d "$LOCAL_DB" -c \
-  "select i.indexdef||';' from pg_indexes i
-    where i.tablename='$TABLE'
-      and not exists (select 1 from pg_constraint c
-                       where c.conrelid='$TABLE'::regclass and c.conname = i.indexname)
-    order by i.indexname" > "$WORK/src-idx.sql"
-# 🔴 А обмеження — з DDL, а не самими назвами. CHECK приїжджають усередині
-# CREATE TABLE, а PRIMARY KEY, UNIQUE і зовнішні ключі `pg_restore -t` НЕ
-# приносить: вони окремі записи TOC, і фільтр їх відкидає. Відтворити
-# унікальний індекс замість первинного ключа недосить — це різні речі.
-"$PSQL" -At -d "$LOCAL_DB" -c \
-  "select 'ALTER TABLE '||quote_ident('$TABLE')||' ADD CONSTRAINT '||quote_ident(conname)
-          ||' '||pg_get_constraintdef(oid)||';'
-     from pg_constraint where conrelid='$TABLE'::regclass and contype in ('p','u','f')
-    order by conname" > "$WORK/src-con.sql"
-"$PSQL" -At -d "$LOCAL_DB" -c \
-  "select conname from pg_constraint where conrelid='$TABLE'::regclass order by conname" > "$WORK/src-con.txt"
-src_idx=$(wc -l < "$WORK/src-idx.sql" | tr -d ' ')
-src_idx_all=$("$PSQL" -At -d "$LOCAL_DB" -c "select count(*) from pg_indexes where tablename='$TABLE'")
-src_con=$(wc -l < "$WORK/src-con.txt" | tr -d ' ')
-
-say "джерело ($LOCAL_DB.$TABLE): $src_rows рядків, $src_idx_all індексів, $src_con обмежень"
+say "джерело ($LOCAL_DB.$TABLE): $src_rows рядків"
 
 if [ "$APPLY" != 1 ]; then
   say ''
   say 'СУХИЙ ПРОГІН — машину не чіпав. Що зробив би:'
-  say "  1. дамп $TABLE з $LOCAL_DB"
-  say "  2. страхувальна копія бойової $TABLE у $BACKUP_DIR"
-  say '  3. РЕПЕТИЦІЯ: відновити копію в окрему базу й перелічити, що в ній'
-  say "  4. замінити бойову таблицю"
-  say "  5. звірити рядки, ТА Й СТРУКТУРУ: $src_idx_all індексів, $src_con обмежень"
-  say '  6. відтворити те, що pg_restore загубив (він губить їх завжди)'
-  say '  7. заміряти типовий запит; при провалі — повернути копію'
+  say "  1. дамп $TABLE з $LOCAL_DB (pg_dump -Fc -t) і її схема текстом (pg_dump --schema-only -t)"
+  say '  2. перевірити, що DROP TABLE на проді пройде (подання чи чужий зовнішній ключ його б зупинили)'
+  say "  3. страхувальна копія бойової $TABLE у $BACKUP_DIR"
+  say '  4. РЕПЕТИЦІЯ: відновити копію в окрему базу й порахувати рядки в ній'
+  say '  5. замінити бойову таблицю: pg_restore --clean --if-exists, БЕЗ -t'
+  say "  6. звірити: pg_restore без помилок, $src_rows рядків, схема прода = схема джерела (текстом)"
+  say '  7. невдача — повернути копію й ЗВІРИТИ відкат: рядки й схема такі самі, як до заміни'
   say ''
   say 'Застосувати: додай --apply'
   exit 0
@@ -111,19 +104,22 @@ fi
 
 # --- 2. дамп і доставка ---------------------------------------------------
 "$PG_DUMP" -Fc -d "$LOCAL_DB" -t "$TABLE" -f "$WORK/table.dump" || die "pg_dump не вдався"
+# 🔴 Схема джерела — ЕТАЛОН для звірки. Без власника й прав: на ноутбуці й на
+# проді вони різні навмисно.
+"$PG_DUMP" --schema-only --no-owner --no-acl -d "$LOCAL_DB" -t "$TABLE" -f "$WORK/src-schema.sql" \
+  || die "не вдалось зняти схему джерела"
 say "дамп: $(( $(wc -c < "$WORK/table.dump") / 1048576 )) МБ"
-"$SCP" -i "$KEY" -o BatchMode=yes "$WORK/table.dump" "$HOST:/tmp/camptribe-move.dump" >/dev/null \
+"$SCP" -i "$KEY" -o BatchMode=yes "$WORK/table.dump" "$HOST:$RTMP/camptribe-move.dump" >/dev/null \
   || die 'не вдалось доставити дамп'
-"$SCP" -i "$KEY" -o BatchMode=yes "$WORK/src-idx.sql" "$HOST:/tmp/camptribe-move-idx.sql" >/dev/null \
-  || die 'не вдалось доставити еталон індексів'
-"$SCP" -i "$KEY" -o BatchMode=yes "$WORK/src-con.sql" "$HOST:/tmp/camptribe-move-con.sql" >/dev/null \
-  || die 'не вдалось доставити еталон обмежень'
+"$SCP" -i "$KEY" -o BatchMode=yes "$WORK/src-schema.sql" "$HOST:$RTMP/camptribe-move-schema.sql" >/dev/null \
+  || die 'не вдалось доставити еталон схеми'
 
 # --- 3. усе інше робиться НА МАШИНІ, одним скриптом ----------------------
 cat > "$WORK/remote.sh" <<'REMOTE'
 #!/usr/bin/env bash
 set -uo pipefail
-TABLE="$1"; SRC_ROWS="$2"; SRC_IDX="$3"; SRC_CON="$4"; BACKUP_DIR="$5"; ENVF="$6"
+TABLE="$1"; SRC_ROWS="$2"; BACKUP_DIR="$3"; ENVF="$4"; RTMP="$5"
+# shellcheck source=/dev/null
 set -a; . "$ENVF"; set +a
 # 🔴 Створення бази під репетицію винесено в змінні: на бойовій машині це
 # суперкористувач (прикладний користувач права не має й не повинен), а в
@@ -132,16 +128,64 @@ set -a; . "$ENVF"; set +a
 CREATEDB="${CAMPTRIBE_CREATEDB:-sudo -u postgres createdb}"
 DROPDB="${CAMPTRIBE_DROPDB:-sudo -u postgres dropdb}"
 PSQL_SUPER="${CAMPTRIBE_PSQL_SUPER:-sudo -u postgres psql}"
+REHEARSAL_DB="${CAMPTRIBE_REHEARSAL_DB:-camptribe_move_rehearsal}"
 q() { psql "$DATABASE_URL" -At -c "$1"; }
+RW="$(mktemp -d "$RTMP/camptribe-move-r.XXXXXX")" || { echo "✗ не можу створити робочу теку"; exit 1; }
+trap 'rm -rf "$RW"' EXIT
 stamp=$(date +%Y%m%d-%H%M%S)
 B="$BACKUP_DIR/$TABLE-before-$stamp.dump"
 mkdir -p "$BACKUP_DIR"
 
+# 🔴 Схема як ТЕКСТ. Один фільтр і для еталона з ноутбука, і для прода. Він
+# прибирає РІВНО це, і кожне з причини; решта має збігтися до символу:
+#   рядки `--…`         заголовок із версіями сервера й pg_dump («Dumped from…»)
+#                       та підписи «Name/Type/Owner». Самі DDL-команди під ними
+#                       лишаються й звіряються. (Рядок усередині COMMENT-тексту,
+#                       що сам починається з `--`, теж піде — нехтуємо.)
+#   `\restrict`,        випадковий токен, який pg_dump ≥17.6 пише в КОЖЕН дамп;
+#   `\unrestrict`       без цього звірка червоніла б завжди.
+#   `SET <сесійне>`     перелічені поіменно (timeouts, client_encoding, xmloption,
+#                       row_security…) і `set_config('search_path')`: залежать від
+#                       версії pg_dump (`transaction_timeout` є лише з 17), до
+#                       самої таблиці не належать. `SET default_tablespace` і
+#                       `SET default_table_access_method` НЕ прибираються — вони
+#                       описують таблицю.
+#   порожні рядки       лише пробіли між командами.
+# Власник і права прибрано не тут, а прапорцями --no-owner --no-acl на знятті.
+# Порожній результат — теж провал (grep тоді повертає 1, pipefail його не губить).
+norm_schema() {
+  grep -Ev \
+    -e '^--' \
+    -e '^\\(un)?restrict ' \
+    -e '^SET (statement_timeout|lock_timeout|idle_in_transaction_session_timeout|transaction_timeout|client_encoding|standard_conforming_strings|check_function_bodies|xmloption|client_min_messages|row_security) ' \
+    -e '^SELECT pg_catalog\.set_config\(.search_path' \
+    -e '^$'
+}
+prod_schema() { pg_dump --schema-only --no-owner --no-acl -t "$TABLE" "$DATABASE_URL" | norm_schema > "$1"; }
+
 before_rows=$(q "select count(*) from $TABLE" 2>/dev/null || echo 0)
 echo "прод до заміни: $before_rows рядків"
 
+# 🔴 ЧИ ТАБЛИЦЮ ВЗАГАЛІ МОЖНА ЗНЯТИ. Без `-t` pg_restore --clean виконує ВСІ
+# записи дампа по черзі: спершу знімає індекси, обмеження, DEFAULT і тригери,
+# і лише потім саму таблицю. Якщо таблицю зняти не можна (від неї залежить
+# подання чи зовнішній ключ іншої таблиці), структуру вже знято, а дані
+# дописано поверх старих. Заміряно на поданні: на проді 1000 рядків без жодного
+# ключа, а відкат дописав ще 500 (1500). З `-t` цього не бувало лише тому, що
+# `-t` не знімав і індексів. Тож пробуємо ТЕ САМЕ `DROP TABLE` у транзакції,
+# яку одразу відкочуємо: Postgres сам називає залежний об'єкт.
+if ! drop_err=$(psql -q "$DATABASE_URL" -At -c "begin; set local lock_timeout = '10s'; drop table if exists $TABLE; rollback" 2>&1); then
+  echo "✗ DROP TABLE на проді не пройде — заміну НЕ роблю, нічого не змінено:"
+  printf '%s\n' "$drop_err" | head -4
+  exit 1
+fi
+
 pg_dump -Fc "$DATABASE_URL" -t "$TABLE" -f "$B" || { echo "✗ копію зняти не вдалось"; exit 1; }
 echo "страхувальна копія: $(( $(wc -c < "$B") / 1048576 )) МБ → $B"
+
+# Стан прода ДО заміни — з ним звіряється відкат.
+prod_schema "$RW/pre.sql" || { echo "✗ схему прода зняти не вдалось — відкат звіряти було б нема з чим, заміну НЕ роблю"; exit 1; }
+norm_schema < "$RTMP/camptribe-move-schema.sql" > "$RW/src.sql" || { echo "✗ схема джерела порожня — звіряти нема з чим, заміну НЕ роблю"; exit 1; }
 
 # 🔴 РЕПЕТИЦІЯ ВІДКАТУ ДО ЗАМІНИ. Копія, з якої не відновлювались, не існує.
 # 🔴 Власник репетиційної бази. У бойовому URL є `user:pass@host`, у
@@ -150,64 +194,82 @@ echo "страхувальна копія: $(( $(wc -c < "$B") / 1048576 )) МБ
 rest="${DATABASE_URL#*://}"
 userinfo="${rest%%@*}"
 if [ "$userinfo" = "$rest" ]; then OWNER="$(id -un)"; else OWNER="${userinfo%%:*}"; fi
-$DROPDB --if-exists camptribe_move_rehearsal
-$CREATEDB -O "$OWNER" camptribe_move_rehearsal || { echo "✗ репетиційну базу не створив"; exit 1; }
-$PSQL_SUPER -q -d camptribe_move_rehearsal -c 'CREATE EXTENSION IF NOT EXISTS postgis'
-SCRATCH="${DATABASE_URL%/*}/camptribe_move_rehearsal"
+$DROPDB --if-exists "$REHEARSAL_DB"
+$CREATEDB -O "$OWNER" "$REHEARSAL_DB" || { echo "✗ репетиційну базу не створив"; exit 1; }
+$PSQL_SUPER -q -d "$REHEARSAL_DB" -c 'CREATE EXTENSION IF NOT EXISTS postgis'
+SCRATCH="${DATABASE_URL%/*}/$REHEARSAL_DB"
 t0=$(date +%s)
-pg_restore -d "$SCRATCH" --no-owner --no-acl "$B" >/dev/null 2>&1 || true
+pg_restore -d "$SCRATCH" --clean --if-exists --no-owner --no-acl "$B" >/dev/null 2>"$RW/rehearsal.err"
 t1=$(date +%s)
 R=$(psql "$SCRATCH" -At -c "select count(*) from $TABLE" 2>/dev/null || echo 0)
-$DROPDB camptribe_move_rehearsal
+$DROPDB "$REHEARSAL_DB"
 echo "репетиція відкату: $(( t1 - t0 )) с, $R рядків у відновленій копії"
 # 🔴 Порожній результат — це провал, а не тиша.
 if [ "${R:-0}" -lt $(( before_rows / 2 )) ]; then
-  echo "✗ копія віддала $R рядків проти $before_rows на проді — відкотитись на неї не вийде, заміну НЕ роблю"; exit 1
+  echo "✗ копія віддала $R рядків проти $before_rows на проді — відкотитись на неї не вийде, заміну НЕ роблю"
+  head -3 "$RW/rehearsal.err"
+  exit 1
 fi
 
 # --- заміна ---
-pg_restore -d "$DATABASE_URL" --clean --if-exists --no-owner --no-acl -t "$TABLE" /tmp/camptribe-move.dump 2>&1 | head -3
-rows=$(q "select count(*) from $TABLE")
-idx=$(q "select count(*) from pg_indexes where tablename='$TABLE'")
-con=$(q "select count(*) from pg_constraint where conrelid='$TABLE'::regclass")
-echo "після заміни: $rows рядків, $idx індексів, $con обмежень"
+# 🔴 БЕЗ `-t`: дамп однієї таблиці його не потребує, а він відкидає індекси,
+# ключі, послідовність, DEFAULT і тригери (див. шапку).
+pg_restore -d "$DATABASE_URL" --clean --if-exists --no-owner --no-acl "$RTMP/camptribe-move.dump" 2>"$RW/restore.err"
+rc_restore=$?
+rows=$(q "select count(*) from $TABLE" 2>/dev/null || echo 'таблиці немає')
+echo "після заміни: $rows рядків, pg_restore вийшов з кодом $rc_restore"
 
-# 🔴 ОСЬ ЦЕ І Є ТЕ, ЧОГО НЕ БУЛО 15.10: `-t` не відновлює ні індекси, ні
-# первинний ключ. Відтворюємо їх з еталона джерела.
-# Спершу обмеження (PRIMARY KEY сам приносить свій індекс), тоді решта
-# індексів — інакше друге створення впаде на зайнятій назві.
-if [ "$con" -lt "$SRC_CON" ]; then
-  echo "обмежень $con проти $SRC_CON у джерелі — відтворюю"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -q -f /tmp/camptribe-move-con.sql 2>&1 | grep -v '^$' | head -5
-  con=$(q "select count(*) from pg_constraint where conrelid='$TABLE'::regclass")
-  echo "обмежень тепер: $con"
-fi
-if [ "$idx" -lt "$SRC_IDX" ]; then
-  echo "індексів $idx проти $SRC_IDX у джерелі — відтворюю"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -q -f /tmp/camptribe-move-idx.sql 2>&1 | grep -v '^$' | head -5
-  idx=$(q "select count(*) from pg_indexes where tablename='$TABLE'")
-  echo "індексів тепер: $idx"
-fi
-
+# Три незалежні сигнали, кожен названо окремо. Рядки й схема самі не відрізнять
+# «заміна відбулась» від «нічого не змінилось», коли прод уже був таким, як
+# джерело, — це відрізняє лише код виходу pg_restore.
 ok=1
-[ "$rows" = "$SRC_ROWS" ] || { echo "🔴 рядків $rows проти $SRC_ROWS у джерелі"; ok=0; }
-[ "$idx"  -ge "$SRC_IDX" ] || { echo "🔴 індексів $idx проти $SRC_IDX у джерелі"; ok=0; }
-[ "$con"  -ge "$SRC_CON" ] || { echo "🔴 обмежень $con проти $SRC_CON у джерелі"; ok=0; }
+if [ "$rc_restore" != 0 ]; then
+  echo "🔴 pg_restore вийшов з кодом $rc_restore:"; head -3 "$RW/restore.err"; ok=0
+fi
+if [ "$rows" != "$SRC_ROWS" ]; then
+  echo "🔴 рядків $rows проти $SRC_ROWS у джерелі"; ok=0
+fi
+if prod_schema "$RW/post.sql" && diff -u "$RW/src.sql" "$RW/post.sql" > "$RW/schema.diff"; then
+  schema_ok=1
+else
+  schema_ok=0
+fi
+if [ "$schema_ok" != 1 ]; then
+  echo "🔴 структура прода не збігається з джерелом (- джерело, + прод):"
+  if [ -s "$RW/schema.diff" ]; then head -20 "$RW/schema.diff"; else echo "   схему прода зняти не вдалось"; fi
+  ok=0
+fi
 
 if [ "$ok" != 1 ]; then
   echo "повертаю страхувальну копію"
-  pg_restore -d "$DATABASE_URL" --clean --if-exists --no-owner --no-acl -t "$TABLE" "$B" >/dev/null 2>&1
-  echo "повернуто: $(q "select count(*) from $TABLE") рядків"
-  exit 3
+  # 🔴 Теж БЕЗ `-t`, і код виходу не ховається: першою спробою відкат
+  # відтворював той самий інцидент — таблицю без жодного індексу — і писав
+  # «повернуто». Тому після нього звіряється стан із тим, що був ДО заміни.
+  pg_restore -d "$DATABASE_URL" --clean --if-exists --no-owner --no-acl "$B" 2>"$RW/rollback.err"
+  rc_rb=$?
+  rb_rows=$(q "select count(*) from $TABLE" 2>/dev/null || echo 'таблиці немає')
+  if prod_schema "$RW/rb.sql" && diff -u "$RW/pre.sql" "$RW/rb.sql" > "$RW/rb.diff"; then rb_schema=1; else rb_schema=0; fi
+  if [ "$rb_rows" = "$before_rows" ] && [ "$rb_schema" = 1 ]; then
+    echo "повернуто й звірено: $rb_rows рядків, структура така сама, як до заміни (pg_restore відкату: код $rc_rb)"
+    exit 3
+  fi
+  echo "🔴 ВІДКАТ НЕ ЗВІРИВСЯ (pg_restore відкату: код $rc_rb): рядків $rb_rows проти $before_rows до заміни"
+  if [ "$rb_schema" != 1 ]; then
+    echo "   структура відрізняється від тієї, що була до заміни (- до, + тепер):"
+    if [ -s "$RW/rb.diff" ]; then head -20 "$RW/rb.diff"; else echo "   схему прода зняти не вдалось"; fi
+  fi
+  head -3 "$RW/rollback.err"
+  echo "   прод у невідомому стані; копія лежить у $B — віднови вручну й перевір"
+  exit 4
 fi
-echo "✓ рядки, індекси й обмеження збігаються з джерелом"
+echo "✓ pg_restore без помилок, $rows рядків, структура збігається з джерелом"
 REMOTE
 
-"$SCP" -i "$KEY" -o BatchMode=yes "$WORK/remote.sh" "$HOST:/tmp/camptribe-move-remote.sh" >/dev/null \
+"$SCP" -i "$KEY" -o BatchMode=yes "$WORK/remote.sh" "$HOST:$RTMP/camptribe-move-remote.sh" >/dev/null \
   || die 'не вдалось доставити виконавця'
 set +e
-ssh_ "bash /tmp/camptribe-move-remote.sh $(printf '%q %q %q %q %q %q' "$TABLE" "$src_rows" "$src_idx_all" "$src_con" "$BACKUP_DIR" "$REMOTE_ENV")"
+ssh_ "bash $RTMP/camptribe-move-remote.sh $(printf '%q %q %q %q %q' "$TABLE" "$src_rows" "$BACKUP_DIR" "$REMOTE_ENV" "$RTMP")"
 rc=$?
 set -e
-ssh_ "rm -f /tmp/camptribe-move.dump /tmp/camptribe-move-idx.sql /tmp/camptribe-move-con.sql /tmp/camptribe-move-remote.sh" >/dev/null 2>&1 || true
+ssh_ "rm -f $RTMP/camptribe-move.dump $RTMP/camptribe-move-schema.sql $RTMP/camptribe-move-remote.sh" >/dev/null 2>&1 || true
 exit $rc
