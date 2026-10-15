@@ -469,6 +469,8 @@ export type OvernightCountLabel =
       allowed: number;
       forbidden: number;
       unknown: number;
+      /** Set aside by the reader's other filters; see `OvernightTally`. */
+      leftOut: number;
       /** True when the chunks for this view are not all in hand. */
       partial: boolean;
     }
@@ -476,7 +478,12 @@ export type OvernightCountLabel =
 
 export function overnightCountLabel(
   state: MapDataState,
-  tally: { allowed: number; forbidden: number; unknown: number },
+  tally: {
+    allowed: number;
+    forbidden: number;
+    unknown: number;
+    leftOut: number;
+  },
 ): OvernightCountLabel {
   switch (state.kind) {
     case 'ready':

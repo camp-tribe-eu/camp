@@ -495,6 +495,21 @@ function OvernightCount({
           not allowed
         </>
       )}
+      {/* 🔴 The rest of the SAME set. "N of M campsites in view" above
+          counts M over everything on screen, so these figures have to
+          add up to M too — and with another filter on, the places it set
+          aside are exactly what would otherwise be missing from the sum.
+          Nothing is printed when nothing was set aside. */}
+      {label.leftOut > 0 && (
+        <>
+          {' '}
+          ·{' '}
+          <strong className="font-semibold text-heading">
+            {n(label.leftOut)}
+          </strong>{' '}
+          left out by your other filters
+        </>
+      )}
       .
       {label.allowed === 0 && label.unknown > 0 && (
         <>

@@ -219,27 +219,52 @@ export interface OvernightTally {
   allowed: number;
   forbidden: number;
   unknown: number;
+  /**
+   * Features the reader's OTHER filters (type, amenities) set aside before
+   * the overnight question is asked at all. Not an overnight answer — the
+   * remainder that makes the four numbers one set.
+   */
+  leftOut: number;
 }
 
 /**
  * Confirmed against not-known, over what the reader is looking at.
  *
- * 🔴 Over the features that pass every OTHER filter (type, amenities,
- * exactly as `applyFilters` applies them) and partitioned by overnight
- * status — so ticking "Wild camping" and then the overnight filter says
- * how many WILD places are confirmed and how many are not known, not how
- * many in all of Europe. It is the same set the markers are drawn from,
- * which is what lets a reader count the pins and check the sentence.
+ * 🔴 ONE SET, and it is everything handed in. The first version counted
+ * only the features that pass every OTHER filter, while the row above it
+ * ("N of M campsites in view") counts M over everything on screen. With
+ * "Wild camping" ticked that printed "1 of 7 … 1 confirmed allowed · 1 not
+ * known": 1 + 1 is not 7, and the reader is shown the contradiction. It
+ * only added up with no other filter on — the one state anybody looked at.
  *
- * The three always add up to the set; `unknown` is the remainder by
- * construction, never counted from a property that could disagree.
+ * So the features are split four ways and the four ALWAYS add up to
+ * `features.length`:
+ *
+ *   allowed / forbidden / unknown   among those that pass type and
+ *                                   amenities, exactly as `applyFilters`
+ *                                   applies them — so `allowed` is still
+ *                                   the number of pins drawn, and ticking
+ *                                   "Wild camping" still says how many WILD
+ *                                   places are confirmed, not how many in
+ *                                   all of Europe;
+ *   leftOut                         the rest: set aside by those other
+ *                                   filters, so the reader can see where
+ *                                   the other places went.
+ *
+ * `unknown` and `leftOut` are remainders by construction, never counted
+ * from a property that could disagree.
  */
 export function overnightTally<F extends { properties: SpotProperties }>(
   features: F[],
   state: MapFilterState,
 ): OvernightTally {
   const rest = applyFilters(features, { ...state, overnight: false }).shown;
-  const tally: OvernightTally = { allowed: 0, forbidden: 0, unknown: 0 };
+  const tally: OvernightTally = {
+    allowed: 0,
+    forbidden: 0,
+    unknown: 0,
+    leftOut: features.length - rest.length,
+  };
   for (const f of rest) tally[overnightOf(f.properties)]++;
   return tally;
 }

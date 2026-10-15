@@ -138,23 +138,28 @@ test.describe('the filter is strict, in both questions', () => {
 });
 
 test.describe('the number beside the filter', () => {
-  test('🔴 confirmed, not allowed and not known add up to what is in view', () => {
+  test('🔴 confirmed, not allowed, not known and left out add up to what is in view', () => {
     const t = overnightTally(CAMPS, state({ overnight: true }));
-    expect(t).toEqual({ allowed: 3, forbidden: 1, unknown: 4 });
-    expect(t.allowed + t.forbidden + t.unknown).toBe(CAMPS.length);
+    expect(t).toEqual({ allowed: 3, forbidden: 1, unknown: 4, leftOut: 0 });
+    expect(t.allowed + t.forbidden + t.unknown + t.leftOut).toBe(CAMPS.length);
   });
 
-  test('is counted over what passes the OTHER filters, not over everything', () => {
-    // Wild only: one campsite, and it is not known.
-    expect(overnightTally(CAMPS, state({ overnight: true, types: ['wild'] }))).toEqual({
-      allowed: 0,
-      forbidden: 0,
-      unknown: 1,
-    });
-    // A strict shower filter: the three that definitely have one.
-    expect(
-      overnightTally(CAMPS, state({ overnight: true, amenities: ['shower'] })),
-    ).toEqual({ allowed: 1, forbidden: 1, unknown: 2 });
+  // 🔴 CAMP-255 review: it used to be 1 + 1 ≠ 7 here. The overnight answers
+  // are still asked of what passes the OTHER filters (so `allowed` is the
+  // number of pins), and what those filters set aside is counted too, so
+  // the four are one set — checked with another filter ACTIVE, which the
+  // original test never did.
+  test('is asked of what passes the OTHER filters, and still adds up to everything in view', () => {
+    const wild = overnightTally(CAMPS, state({ overnight: true, types: ['wild'] }));
+    // Wild only: one campsite, and it is not known; the other seven are
+    // set aside by the type filter.
+    expect(wild).toEqual({ allowed: 0, forbidden: 0, unknown: 1, leftOut: 7 });
+    // A strict shower filter: the four that definitely have one.
+    const shower = overnightTally(CAMPS, state({ overnight: true, amenities: ['shower'] }));
+    expect(shower).toEqual({ allowed: 1, forbidden: 1, unknown: 2, leftOut: 4 });
+    for (const t of [wild, shower]) {
+      expect(t.allowed + t.forbidden + t.unknown + t.leftOut).toBe(CAMPS.length);
+    }
   });
 
   test('the same number whether or not the overnight filter is on', () => {
@@ -163,11 +168,12 @@ test.describe('the number beside the filter', () => {
     );
   });
 
-  test('over nothing, it is three zeros', () => {
+  test('over nothing, it is four zeros', () => {
     expect(overnightTally([], state({ overnight: true }))).toEqual({
       allowed: 0,
       forbidden: 0,
       unknown: 0,
+      leftOut: 0,
     });
   });
 });
@@ -304,7 +310,7 @@ test.describe('the panel', () => {
   });
 });
 
-const count = (dataState: MapDataState, s: MapFilterState, tally = { allowed: 12, forbidden: 3, unknown: 2447 }) =>
+const count = (dataState: MapDataState, s: MapFilterState, tally = { allowed: 12, forbidden: 3, unknown: 2447, leftOut: 0 }) =>
   visibleText(
     renderComponent(MapCount, {
       shown: 12,
@@ -337,26 +343,26 @@ test.describe('the counter above the panel', () => {
   // 🔴 The empty result: not "0", and not silence. "None" and a sentence
   // saying not known is not the same as there being none.
   test('🔴 when none is confirmed it says none, and that not known is not none', () => {
-    const text = count(ready, on, { allowed: 0, forbidden: 0, unknown: 1400 });
+    const text = count(ready, on, { allowed: 0, forbidden: 0, unknown: 1400, leftOut: 0 });
     expect(text).toContain('Overnight stay: none confirmed allowed · 1,400 not known.');
     expect(text).toContain('Not known means no source says either way here. It does not mean there are no places.');
     expect(text).not.toContain('not allowed');
   });
 
   test('says nothing odd over an area with no campsites at all', () => {
-    const text = count(ready, on, { allowed: 0, forbidden: 0, unknown: 0 });
+    const text = count(ready, on, { allowed: 0, forbidden: 0, unknown: 0, leftOut: 0 });
     expect(text).toContain('none confirmed allowed');
     expect(text).not.toContain('Not known means');
   });
 
   test('before the chunks arrive it says it is counting — not zero', () => {
-    const text = count({ kind: 'loading' }, on, { allowed: 0, forbidden: 0, unknown: 0 });
+    const text = count({ kind: 'loading' }, on, { allowed: 0, forbidden: 0, unknown: 0, leftOut: 0 });
     expect(text).toContain('Counting overnight answers…');
     expect(text).not.toContain('none confirmed');
   });
 
   test('zoomed out it says to zoom in — not a number it did not count', () => {
-    const text = count({ kind: 'wide', count: 5609 }, on, { allowed: 0, forbidden: 0, unknown: 0 });
+    const text = count({ kind: 'wide', count: 5609 }, on, { allowed: 0, forbidden: 0, unknown: 0, leftOut: 0 });
     expect(text).toContain('Zoom in to see how many campsites are confirmed for overnight stays and how many are not known.');
   });
 
@@ -366,8 +372,100 @@ test.describe('the counter above the panel', () => {
   });
 
   test('the label function and the component agree on the states', () => {
-    expect(overnightCountLabel({ kind: 'ready' }, { allowed: 1, forbidden: 0, unknown: 2 })).toEqual({
-      kind: 'counts', allowed: 1, forbidden: 0, unknown: 2, partial: false,
+    expect(overnightCountLabel({ kind: 'ready' }, { allowed: 1, forbidden: 0, unknown: 2, leftOut: 4 })).toEqual({
+      kind: 'counts', allowed: 1, forbidden: 0, unknown: 2, leftOut: 4, partial: false,
     });
+  });
+});
+
+// 🔴 CAMP-255 review. The two rows of the counter must count ONE set.
+//
+// "N of M campsites in view" counts M over everything on screen; the
+// overnight row used to count only what passed the reader's OTHER filters.
+// With "Wild camping" ticked beside the overnight filter it printed
+// "1 of 7 campsites in view · Overnight stay: 1 confirmed allowed · 1 not
+// known" — 1 + 1 is not 7, and the reader is shown the contradiction. With
+// no other filter the two agree (3 + 1 + 3 = 7), which is the one state
+// the author looked at, so every earlier test passed.
+//
+// The numbers below are read off the HTML the component serves, and the
+// total is read off the SAME page — never a constant standing in for it.
+test.describe('the two rows of the counter count one set', () => {
+  // Seven in view: three confirmed (one of them wild), three not allowed,
+  // one wild place nobody has an answer for — the 3 + 3 + 1 of the report.
+  const VIEW = [
+    feature({ id: 'wild-yes', type: 'wild', o: 'y', shower: 'yes' }),
+    feature({ id: 'wild-unknown', type: 'wild' }),
+    feature({ id: 'paid-yes-1', o: 'y', shower: 'yes' }),
+    feature({ id: 'paid-yes-2', o: 'y' }),
+    feature({ id: 'paid-no-1', o: 'n', shower: 'yes' }),
+    feature({ id: 'paid-no-2', o: 'n' }),
+    feature({ id: 'paid-no-3', o: 'n', shower: 'no' }),
+  ];
+
+  const page = (s: MapFilterState): string =>
+    visibleText(
+      renderComponent(MapCount, {
+        shown: applyFilters(VIEW, s).shown.length,
+        total: VIEW.length,
+        dataState: { kind: 'ready' } as MapDataState,
+        state: s,
+        overnight: overnightTally(VIEW, s),
+      }),
+    );
+  const num = (raw: string) => Number(raw.replace(/,/g, ''));
+  /** The "M" of "N of M campsites in view", as printed. */
+  const printedTotal = (text: string) =>
+    num(/of ([\d,]+) campsites in view/.exec(text)![1]);
+  /** The "N" of "N of M campsites in view", as printed. */
+  const printedShown = (text: string) =>
+    num(/([\d,]+) of [\d,]+ campsites in view/.exec(text)![1]);
+  /** Every figure in the overnight sentence, as printed. */
+  const printedParts = (text: string) => {
+    const sentence = /Overnight stay[^:]*:(.*?)\.(?: |$)/.exec(text)![1];
+    return (sentence.match(/\d[\d,]*/g) ?? []).map(num);
+  };
+
+  const OTHER_FILTERS: [string, Partial<MapFilterState>][] = [
+    ['no other filter', {}],
+    ['wild only', { types: ['wild'] }],
+    ['paid only', { types: ['paid'] }],
+    ['a strict shower filter', { amenities: ['shower'] }],
+    ['wild and a shower', { types: ['wild'], amenities: ['shower'] }],
+    ['a shower, unknown included', { amenities: ['shower'], includeUnknown: true }],
+    ['a type nothing here has', { types: ['rv_park'] }],
+  ];
+
+  for (const [name, other] of OTHER_FILTERS) {
+    test(`🔴 ${name}: the figures in the overnight row add up to the total in the row above`, () => {
+      const text = page(state({ overnight: true, ...other }));
+      const total = printedTotal(text);
+      expect(total).toBe(7); // anchor: it is the whole view, not a subset
+      const parts = printedParts(text);
+      expect(parts.length).toBeGreaterThanOrEqual(2); // anchor: it read something
+      expect(parts.reduce((a, b) => a + b, 0)).toBe(total);
+      // …and the old property survives the fix: "confirmed allowed" is
+      // still the number of pins, so a reader can count them and check.
+      const confirmed = /Overnight stay[^:]*: (none|[\d,]+) confirmed allowed/.exec(
+        text,
+      )![1];
+      expect(confirmed === 'none' ? 0 : num(confirmed)).toBe(printedShown(text));
+    });
+  }
+
+  test('the report’s own case, word for word', () => {
+    const text = page(state({ overnight: true, types: ['wild'] }));
+    expect(text).toContain('1 of 7 campsites in view');
+    expect(text).toContain(
+      'Overnight stay: 1 confirmed allowed · 1 not known · 5 left out by your other filters.',
+    );
+  });
+
+  test('with no other filter nothing is left out, and nothing says so', () => {
+    const text = page(state({ overnight: true }));
+    expect(text).toContain(
+      'Overnight stay: 3 confirmed allowed · 1 not known · 3 not allowed.',
+    );
+    expect(text).not.toContain('left out');
   });
 });

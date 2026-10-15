@@ -698,8 +698,9 @@ export default function CampsiteMap() {
     inViewTotal: 0,
     inViewUnknownExcluded: 0,
     // CAMP-255: confirmed / forbidden / unknown over the visible area,
-    // among the campsites that pass the OTHER filters.
-    inViewOvernight: { allowed: 0, forbidden: 0, unknown: 0 },
+    // among the campsites that pass the OTHER filters — plus how many
+    // those filters set aside, so the four add up to `inViewTotal`.
+    inViewOvernight: { allowed: 0, forbidden: 0, unknown: 0, leftOut: 0 },
   });
   // CAMP-127: the table of contents, and which of its chunks are in hand.
   const index = useRef<RegionSummary[]>([]);
