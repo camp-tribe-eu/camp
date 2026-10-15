@@ -304,38 +304,38 @@ new_world a1
 echo touched >> "$W/root/releases/$S0/VERSION"; git -C "$W/root/releases/$S0" checkout -q -- VERSION; touch "$W/root/releases/$S0/VERSION"
 FP=$(fingerprint "$W/root")
 X deploy --sha "$SHA1"
-[ $RC -eq 0 ] && echo "$OUT" | grep -q 'СУХИЙ ПРОГІН' && pass "deploy без прапорців: код 0 і написано, що це сухий прогін" || fail "deploy без прапорців" "rc=$RC $OUT"
-[ "$(fingerprint "$W/root")" = "$FP" ] && pass "deploy без --apply: дерево релізів не змінилось ні на байт" || fail "deploy без --apply змінив дерево"
-[ -z "$(mutating_calls)" ] && pass "deploy без --apply: жодного npm, pg_dump, restart" || fail "deploy без --apply викликав змінне" "$(mutating_calls)"
-[ ! -e "$W/root/deploy-history.jsonl" ] && [ ! -e "$W/root/deploy.log" ] && pass "deploy без --apply: ні історії, ні логу, ні замка" || fail "сухий прогін лишив слід"
+[ $RC -eq 0 ] && echo "$OUT" | grep -q 'СУХИЙ ПРОГІН' && pass "deploy без прапорців: код 0 і написано, що це сухий прогін" || fail "deploy без прапорців: код 0 і написано, що це сухий прогін" "rc=$RC $OUT"
+[ "$(fingerprint "$W/root")" = "$FP" ] && pass "deploy без --apply: дерево релізів не змінилось ні на байт" || fail "deploy без --apply: дерево релізів не змінилось ні на байт"
+[ -z "$(mutating_calls)" ] && pass "deploy без --apply: жодного npm, pg_dump, restart" || fail "deploy без --apply: жодного npm, pg_dump, restart" "$(mutating_calls)"
+[ ! -e "$W/root/deploy-history.jsonl" ] && [ ! -e "$W/root/deploy.log" ] && pass "deploy без --apply: ні історії, ні логу, ні замка" || fail "deploy без --apply: ні історії, ні логу, ні замка"
 
 X deploy --sha "$SHA1" --migrate
-[ "$(fingerprint "$W/root")" = "$FP" ] && [ -z "$(mutating_calls)" ] && pass "--migrate без --apply усе ще сухий прогін" || fail "--migrate без --apply щось змінив" "$(mutating_calls)"
+[ "$(fingerprint "$W/root")" = "$FP" ] && [ -z "$(mutating_calls)" ] && pass "--migrate без --apply усе ще сухий прогін" || fail "--migrate без --apply усе ще сухий прогін" "$(mutating_calls)"
 
 FP=$(fingerprint "$W/root"); X status
-[ "$(fingerprint "$W/root")" = "$FP" ] && pass "status не міняє нічого, зокрема .git/index (--no-optional-locks)" || fail "status змінив дерево (ймовірно .git/index)"
+[ "$(fingerprint "$W/root")" = "$FP" ] && pass "status не міняє нічого, зокрема .git/index (--no-optional-locks)" || fail "status не міняє нічого, зокрема .git/index (--no-optional-locks)"
 
 new_world a2
 X deploy --sha "$SHA1" --apply >/dev/null; X deploy --sha "$SHA2" --apply --migrate >/dev/null
 : > "$W/calls"; FP=$(fingerprint "$W/root")
 X rollback
 [ $RC -eq 0 ] && echo "$OUT" | grep -q 'СУХИЙ ПРОГІН' && [ "$(fingerprint "$W/root")" = "$FP" ] && [ -z "$(mutating_calls)" ] \
-  && pass "rollback без --apply: показав план і нічого не змінив" || fail "rollback без --apply" "rc=$RC $(mutating_calls)"
+  && pass "rollback без --apply: показав план і нічого не змінив" || fail "rollback без --apply: показав план і нічого не змінив" "rc=$RC $(mutating_calls)"
 X switch "$S1"
-[ $RC -eq 0 ] && [ "$(fingerprint "$W/root")" = "$FP" ] && [ -z "$(mutating_calls)" ] && pass "switch без --apply: нічого не змінив" || fail "switch без --apply" "rc=$RC $(mutating_calls)"
+[ $RC -eq 0 ] && [ "$(fingerprint "$W/root")" = "$FP" ] && [ -z "$(mutating_calls)" ] && pass "switch без --apply: нічого не змінив" || fail "switch без --apply: нічого не змінив" "rc=$RC $(mutating_calls)"
 
 new_world a3
 X deploy --sha "$SHA1" --apply >/dev/null
 : > "$W/calls"; FP=$(fingerprint "$W/root"); X rehearse
 [ $RC -eq 0 ] && echo "$OUT" | grep -q 'СУХИЙ ПРОГІН' && [ "$(fingerprint "$W/root")" = "$FP" ] && [ -z "$(mutating_calls)" ] \
-  && pass "rehearse без --apply: план, нічого не створено" || fail "rehearse без --apply" "rc=$RC $OUT"
+  && pass "rehearse без --apply: план, нічого не створено" || fail "rehearse без --apply: план, нічого не створено" "rc=$RC $OUT"
 
 # ═══════════════════════════════════════════════════════════════════
 section "B. Реліз пов'язаний із комітом не лише іменем теки"
 
 new_world b1
 X status
-echo "$OUT" | grep -q "RELEASE.json немає" && echo "$OUT" | grep -q "$SHA0" && pass "реліз без маніфесту: status каже це й дістає повний SHA з .git" || fail "status легасі-релізу" "$OUT"
+echo "$OUT" | grep -q "RELEASE.json немає" && echo "$OUT" | grep -q "$SHA0" && pass "реліз без маніфесту: status каже це й дістає повний SHA з .git" || fail "реліз без маніфесту: status каже це й дістає повний SHA з .git" "$OUT"
 
 X deploy --sha "$SHA1" --apply
 M="$W/root/releases/$S1/RELEASE.json"
@@ -347,20 +347,20 @@ if [ -f "$M" ] \
   && jq -e '.built_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+Z$")' "$M" >/dev/null \
   && [ "$(jq -r '.migrations | join(",")' "$M")" = "1000000000000-Alpha,1000000000001-Beta" ]; then
   pass "маніфест, прочитаний з ФАЙЛУ: повний SHA, ім'я теки, хто, коли, BUILD_ID, міграції"
-else fail "зміст RELEASE.json" "$(cat "$M" 2>&1)"; fi
-[ "$(stat -f %Lp "$M" 2>/dev/null || stat -c %a "$M")" = 444 ] && pass "маніфест записано лише для читання (444)" || fail "права маніфесту"
+else fail "маніфест, прочитаний з ФАЙЛУ: повний SHA, ім'я теки, хто, коли, BUILD_ID, міграції" "$(cat "$M" 2>&1)"; fi
+[ "$(stat -f %Lp "$M" 2>/dev/null || stat -c %a "$M")" = 444 ] && pass "маніфест записано лише для читання (444)" || fail "маніфест записано лише для читання (444)"
 X status
 [ $RC -eq 0 ] && echo "$OUT" | grep -q "$SHA1" && echo "$OUT" | grep -q 'commit v1' && echo "$OUT" | grep -q 'ВИСНОВОК: усе збігається' \
-  && pass "status: повний SHA й тема коміту з маніфесту, і вирок «усе збігається»" || fail "status після деплою" "$OUT"
+  && pass "status: повний SHA й тема коміту з маніфесту, і вирок «усе збігається»" || fail "status: повний SHA й тема коміту з маніфесту, і вирок «усе збігається»" "$OUT"
 
 echo tamper >> "$W/root/releases/$S1/apps/api/dist/main.js"
 X status
-[ $RC -ne 0 ] && echo "$OUT" | grep -q 'ЗМІНЕНО після збірки' && pass "status ловить правку dist API після збірки (хеш з маніфесту)" || fail "підмінений dist не помічено" "rc=$RC"
+[ $RC -ne 0 ] && echo "$OUT" | grep -q 'ЗМІНЕНО після збірки' && pass "status ловить правку dist API після збірки (хеш з маніфесту)" || fail "status ловить правку dist API після збірки (хеш з маніфесту)" "rc=$RC"
 
 new_world b2
 echo "local edit" >> "$W/root/releases/$S0/VERSION"
 X status
-echo "$OUT" | grep -q 'відрізняються від його коміту' && pass "реліз із правкою поверх коміту: status каже, що ім'я теки не доводить зміст" || fail "dirty-реліз не помічено" "$OUT"
+echo "$OUT" | grep -q 'відрізняються від його коміту' && pass "реліз із правкою поверх коміту: status каже, що ім'я теки не доводить зміст" || fail "реліз із правкою поверх коміту: status каже, що ім'я теки не доводить зміст" "$OUT"
 
 # ═══════════════════════════════════════════════════════════════════
 section "C. Після перемикання перевіряється, що саме працює"
@@ -371,63 +371,63 @@ if [ $RC -eq 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S1" ] \
    && [ "$(running_from api)" = "$S1" ] && [ "$(running_from web)" = "$S1" ] \
    && [ "$(served_web_id)" = "$(file_id "$S1" | tr - _)" ]; then
   pass "деплой: current, обидва процеси (за ОС) і відданий BUILD_ID — усе на новому релізі"
-else fail "щасливий деплой" "rc=$RC api=$(running_from api) web=$(running_from web) $OUT"; fi
+else fail "деплой: current, обидва процеси (за ОС) і відданий BUILD_ID — усе на новому релізі" "rc=$RC api=$(running_from api) web=$(running_from web) $OUT"; fi
 echo "$(hist)" | jq -e 'select(.action=="deploy" and .ok==true and .from=="'"$S0"'" and .to=="'"$S1"'")' >/dev/null \
-  && pass "історія: запис deploy $S0→$S1, ok" || fail "історія після деплою" "$(hist)"
+  && pass "історія: запис deploy $S0→$S1, ok" || fail "історія: запис deploy $S0→$S1, ok" "$(hist)"
 
 new_world c2
 STUB_RESTART=noop X deploy --sha "$SHA1" --apply
 if [ $RC -eq 3 ] && [ "$(readlink "$W/root/current")" = "releases/$S0" ] && echo "$OUT" | grep -q 'повертаю' && echo "$OUT" | grep -q 'працює з'; then
   pass "службу не перезапущено: перевірка падає, скрипт повертає $S0 і виходить 3"
-else fail "не перезапущена служба не впіймана" "rc=$RC link=$(readlink "$W/root/current") $OUT"; fi
+else fail "службу не перезапущено: перевірка падає, скрипт повертає $S0 і виходить 3" "rc=$RC link=$(readlink "$W/root/current") $OUT"; fi
 echo "$(hist)" | jq -e 'select(.action=="deploy" and .ok==false)' >/dev/null && echo "$(hist)" | jq -e 'select(.action=="revert" and .ok==true)' >/dev/null \
-  && pass "історія: невдалий deploy і успішний revert записано обидва" || fail "історія невдалого деплою" "$(hist)"
+  && pass "історія: невдалий deploy і успішний revert записано обидва" || fail "історія: невдалий deploy і успішний revert записано обидва" "$(hist)"
 
 # Той самий BUILD_ID у двох релізах: лише перевірка ПРОЦЕСУ може відрізнити їх.
 new_world c3 "$S0" 0 samesamesamesamesame1
 FAKE_BUILD_ID=samesamesamesamesame1 STUB_RESTART=noop X deploy --sha "$SHA1" --apply
 if [ $RC -eq 3 ] && echo "$OUT" | grep -q 'веб: pid [0-9]* працює з' && ! echo "$OUT" | grep -q 'веб віддає BUILD_ID .* а у релізі'; then
   pass "однаковий BUILD_ID, health ok: лише перевірка теки процесу ловить «працює старе»"
-else fail "перевірка cwd процесу не ізольована" "rc=$RC $OUT"; fi
+else fail "однаковий BUILD_ID, health ok: лише перевірка теки процесу ловить «працює старе»" "rc=$RC $OUT"; fi
 
 new_world c4
 STUB_BAD_RELEASE="$S1" STUB_WEB_ID=wrongwrongwrongwrongx X deploy --sha "$SHA1" --apply
 if [ $RC -eq 3 ] && echo "$OUT" | grep -q 'веб віддає BUILD_ID .wrongwrongwrongwrongx.' && ! echo "$OUT" | grep -q 'працює з .*, а чекали'; then
   pass "процес у правильній теці, але віддає чужий BUILD_ID: ловить саме перевірка відданого"
-else fail "перевірка BUILD_ID не ізольована" "rc=$RC $OUT"; fi
+else fail "процес у правильній теці, але віддає чужий BUILD_ID: ловить саме перевірка відданого" "rc=$RC $OUT"; fi
 
 new_world c5
 STUB_BAD_RELEASE="$S1" STUB_API_HEALTH=503 X deploy --sha "$SHA1" --apply
 if [ $RC -eq 3 ] && echo "$OUT" | grep -q 'API /health → 503' && ! echo "$OUT" | grep -q 'працює з .*, а чекали'; then
   pass "API піднялась із правильної теки, але /health 503: деплой не проходить, повернуто $S0"
-else fail "перевірка /health не ізольована" "rc=$RC $OUT"; fi
+else fail "API піднялась із правильної теки, але /health 503: деплой не проходить, повернуто $S0" "rc=$RC $OUT"; fi
 
 new_world c6
 STUB_BAD_RELEASE="$S1" STUB_API_HEALTH=503 STUB_RESTART=fail_after_1 X deploy --sha "$SHA1" --apply
 if [ $RC -eq 4 ] && echo "$OUT" | grep -q 'ПЕРЕВІРЕНИМ НЕ ВДАЛОСЬ' && echo "$(hist)" | jq -e 'select(.action=="revert" and .ok==false)' >/dev/null; then
   pass "перемкнули на зламане, а повернути не вдалось: код 4, гучне «стан невідомий», revert ok=false в історії"
-else fail "код 4 не досягнуто" "rc=$RC $OUT"; fi
+else fail "перемкнули на зламане, а повернути не вдалось: код 4, гучне «стан невідомий», revert ok=false в історії" "rc=$RC $OUT"; fi
 new_world c6b
 STUB_RESTART=fail X deploy --sha "$SHA1" --apply
 if [ $RC -eq 3 ] && echo "$OUT" | grep -q 'systemctl restart завершився з помилкою'; then
   pass "restart падає, але нічого не рушило: скрипт не вмирає посеред перемикання, звіряє й чесно повертає (код 3)"
-else fail "падіння restart посеред перемикання" "rc=$RC $OUT"; fi
+else fail "restart падає, але нічого не рушило: скрипт не вмирає посеред перемикання, звіряє й чесно повертає (код 3)" "rc=$RC $OUT"; fi
 
 new_world c7
 FAKE_BUILD_ID=abcde-fghij-klmno-pqrst X deploy --sha "$SHA1" --apply
 [ $RC -eq 0 ] && [ "$(served_web_id)" = "abcde_fghij_klmno_pqrst" ] \
-  && pass "BUILD_ID з дефісами: Next віддає їх підкресленнями, і порівняння це знає" || fail "нормалізація BUILD_ID" "rc=$RC $OUT"
+  && pass "BUILD_ID з дефісами: Next віддає їх підкресленнями, і порівняння це знає" || fail "BUILD_ID з дефісами: Next віддає їх підкресленнями, і порівняння це знає" "rc=$RC $OUT"
 
 new_world c9
 # systemd каже, що MainPID юніту — це pid самого тесту; а порт слухає зовсім інший процес.
 STUB_BAD_RELEASE="$S1" STUB_MAINPID_OVERRIDE=$$ X deploy --sha "$SHA1" --apply
 [ $RC -eq 3 ] && echo "$OUT" | grep -q 'не належить юніту' && ! echo "$OUT" | grep -q 'працює з .*, а чекали' \
-  && pass "порт слухає процес, що не належить юніту: перевірка падає саме на цьому (cwd і BUILD_ID правильні)" || fail "чужий слухач порту" "rc=$RC $OUT"
+  && pass "порт слухає процес, що не належить юніту: перевірка падає саме на цьому (cwd і BUILD_ID правильні)" || fail "порт слухає процес, що не належить юніту: перевірка падає саме на цьому (cwd і BUILD_ID правильні)" "rc=$RC $OUT"
 
 new_world c8
 STUB_WD_OVERRIDE=/srv/camptribe/current/apps/api X deploy --sha "$SHA1" --apply
 [ $RC -eq 1 ] && echo "$OUT" | grep -q 'WorkingDirectory' && [ -z "$(mutating_calls | grep -v '^systemctl show')" ] \
-  && pass "юніт дивиться не в той симлінк: відмова ДО будь-якої зміни" || fail "перевірка прив'язки юніта" "rc=$RC $(mutating_calls)"
+  && pass "юніт дивиться не в той симлінк: відмова ДО будь-якої зміни" || fail "юніт дивиться не в той симлінк: відмова ДО будь-якої зміни" "rc=$RC $(mutating_calls)"
 
 # ═══════════════════════════════════════════════════════════════════
 section "D. Відкат"
@@ -435,33 +435,33 @@ section "D. Відкат"
 new_world d1
 X deploy --sha "$SHA1" --apply >/dev/null
 X rollback --apply
-echo "$(hist)" | jq -e 'select(.action=="rollback" and .ok==true and .from=="'"$S1"'" and .to=="'"$S0"'")' >/dev/null && pass "rollback записано в історію: $S1→$S0, ok" || fail "історія rollback" "$(hist)"
+echo "$(hist)" | jq -e 'select(.action=="rollback" and .ok==true and .from=="'"$S1"'" and .to=="'"$S0"'")' >/dev/null && pass "rollback записано в історію: $S1→$S0, ok" || fail "rollback записано в історію: $S1→$S0, ok" "$(hist)"
 if [ $RC -eq 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S0" ] && [ "$(running_from api)" = "$S0" ] && [ "$(running_from web)" = "$S0" ] \
    && [ "$(served_web_id)" = "$(file_id "$S0" | tr - _)" ] && echo "$OUT" | grep -qE 'перемикання й перевірка: [0-9]+ с'; then
   pass "rollback --apply: current, процеси за ОС і відданий BUILD_ID повернулись на $S0, час названо"
-else fail "rollback" "rc=$RC api=$(running_from api) $OUT"; fi
+else fail "rollback --apply: current, процеси за ОС і відданий BUILD_ID повернулись на $S0, час названо" "rc=$RC api=$(running_from api) $OUT"; fi
 X rollback --apply
 [ $RC -eq 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S1" ] && [ "$(running_from web)" = "$S1" ] \
-  && pass "другий rollback скасовує перший: знову $S1 (відкат = «скасувати останнє перемикання»)" || fail "подвійний rollback" "rc=$RC $OUT"
+  && pass "другий rollback скасовує перший: знову $S1 (відкат = «скасувати останнє перемикання»)" || fail "другий rollback скасовує перший: знову $S1 (відкат = «скасувати останнє перемикання»)" "rc=$RC $OUT"
 
 new_world d2
 X rollback
-[ $RC -eq 1 ] && echo "$OUT" | grep -q 'історії перемикань немає' && pass "історії немає: «попередній» не вгадується, просить --to" || fail "rollback без історії" "rc=$RC $OUT"
+[ $RC -eq 1 ] && echo "$OUT" | grep -q 'історії перемикань немає' && pass "історії немає: «попередній» не вгадується, просить --to" || fail "історії немає: «попередній» не вгадується, просить --to" "rc=$RC $OUT"
 X rollback --to "$S1"
-[ $RC -eq 1 ] && echo "$OUT" | grep -q 'не збудований\|немає в' && pass "--to на реліз, якого немає чи який не збудований, відмовляє" || fail "--to без збірки" "rc=$RC $OUT"
+[ $RC -eq 1 ] && echo "$OUT" | grep -q 'не збудований\|немає в' && pass "--to на реліз, якого немає чи який не збудований, відмовляє" || fail "--to на реліз, якого немає чи який не збудований, відмовляє" "rc=$RC $OUT"
 
 new_world d3
 X deploy --sha "$SHA1" --apply >/dev/null
 ln -sfn "releases/$S0" "$W/root/current"
 X rollback
-[ $RC -eq 1 ] && echo "$OUT" | grep -q 'повз скрипт' && pass "хтось перемкнув повз скрипт: історія й current розходяться, «попередній» ненадійний — відмова" || fail "розбіжність історії й current" "rc=$RC $OUT"
+[ $RC -eq 1 ] && echo "$OUT" | grep -q 'повз скрипт' && pass "хтось перемкнув повз скрипт: історія й current розходяться, «попередній» ненадійний — відмова" || fail "хтось перемкнув повз скрипт: історія й current розходяться, «попередній» ненадійний — відмова" "rc=$RC $OUT"
 X status
-[ $RC -ne 0 ] && echo "$OUT" | grep -q 'історія каже, що чинний' && pass "status у тій самій ситуації: розбіжність історії названо, код ≠ 0" || fail "status не бачить розбіжності історії" "rc=$RC"
+[ $RC -ne 0 ] && echo "$OUT" | grep -q 'історія каже, що чинний' && pass "status у тій самій ситуації: розбіжність історії названо, код ≠ 0" || fail "status у тій самій ситуації: розбіжність історії названо, код ≠ 0" "rc=$RC"
 
 new_world d2c
 mkdir -p "$W/root/releases/$S1/apps/web"; echo half > "$W/root/releases/$S1/apps/web/leftover"
 X rollback --to "$S1"
-[ $RC -eq 1 ] && echo "$OUT" | grep -q 'не збудований' && pass "--to на теку без збірки (залишок): відмова «не збудований»" || fail "--to на недобудований реліз" "rc=$RC $OUT"
+[ $RC -eq 1 ] && echo "$OUT" | grep -q 'не збудований' && pass "--to на теку без збірки (залишок): відмова «не збудований»" || fail "--to на теку без збірки (залишок): відмова «не збудований»" "rc=$RC $OUT"
 
 new_world d8
 X deploy --sha "$SHA1" --apply >/dev/null
@@ -469,21 +469,21 @@ printf 'Alpha1000000000000\n' > "$W/db/applied"   # БД «відновлено 
 : > "$W/calls"
 X rollback
 [ $RC -eq 1 ] && echo "$OUT" | grep -q 'очікує міграції, яких немає в БД' && echo "$OUT" | grep -q 'Beta1000000000001' && [ -z "$(mutating_calls)" ] \
-  && pass "відкат на код, якому бракує міграції в БД: відмова з іменем міграції" || fail "відкат на реліз із міграцією, якої немає" "rc=$RC $OUT"
+  && pass "відкат на код, якому бракує міграції в БД: відмова з іменем міграції" || fail "відкат на код, якому бракує міграції в БД: відмова з іменем міграції" "rc=$RC $OUT"
 
 new_world d9
 X deploy --sha "$SHA1" --apply >/dev/null
 echo "EXTRA=1" >> "$W/root/releases/$S1/apps/api/.env"   # .env чинного релізу правили після деплою
 X rollback
-[ $RC -eq 0 ] && echo "$OUT" | grep -q '.env релізу .* відрізняється від чинного' && pass "відкат попереджає, що .env цілі інший за чинний: поверне старі значення" || fail "дрейф .env" "rc=$RC $OUT"
+[ $RC -eq 0 ] && echo "$OUT" | grep -q '.env релізу .* відрізняється від чинного' && pass "відкат попереджає, що .env цілі інший за чинний: поверне старі значення" || fail "відкат попереджає, що .env цілі інший за чинний: поверне старі значення" "rc=$RC $OUT"
 
 new_world d6
 printf 'Alpha1000000000000\n' > "$W/db/applied"
 X status
-[ $RC -ne 0 ] && echo "$OUT" | grep -q 'код очікує міграції, яких у БД немає: Beta1000000000001' && pass "status: код знає міграцію, якої БД не має — розбіжність названа поіменно" || fail "status без Beta" "rc=$RC $OUT"
+[ $RC -ne 0 ] && echo "$OUT" | grep -q 'код очікує міграції, яких у БД немає: Beta1000000000001' && pass "status: код знає міграцію, якої БД не має — розбіжність названа поіменно" || fail "status: код знає міграцію, якої БД не має — розбіжність названа поіменно" "rc=$RC $OUT"
 new_world d7
 STUB_PSQL=fail X status
-[ $RC -ne 0 ] && echo "$OUT" | grep -q 'невідомо' && pass "status не може прочитати таблицю migrations: це «НЕ ПЕРЕВІРЕНО», а не «гаразд»" || fail "status при недоступній БД" "rc=$RC $OUT"
+[ $RC -ne 0 ] && echo "$OUT" | grep -q 'невідомо' && pass "status не може прочитати таблицю migrations: це «НЕ ПЕРЕВІРЕНО», а не «гаразд»" || fail "status не може прочитати таблицю migrations: це «НЕ ПЕРЕВІРЕНО», а не «гаразд»" "rc=$RC $OUT"
 
 new_world d4
 X deploy --sha "$SHA1" --apply >/dev/null
@@ -491,12 +491,12 @@ STUB_RESTART=noop X deploy --sha "$SHA2" --apply --migrate >/dev/null
 X rollback
 if [ $RC -eq 0 ] && echo "$OUT" | grep -q "rollback $S1 → $S0"; then
   pass "після невдалого деплою rollback веде до $S0, а не до релізу, що провалився"
-else fail "ціль відкату після невдалого деплою" "rc=$RC $OUT"; fi
+else fail "після невдалого деплою rollback веде до $S0, а не до релізу, що провалився" "rc=$RC $OUT"; fi
 
 new_world d5
 X deploy --sha "$SHA2" --apply --migrate >/dev/null
 X rollback
-echo "$OUT" | grep -q 'схема БД ПОПЕРЕДУ' && echo "$OUT" | grep -q 'Gamma1000000000002' && pass "rollback на код без міграції, що вже застосована: попередження з іменем міграції" || fail "попередження schema-ahead" "$OUT"
+echo "$OUT" | grep -q 'схема БД ПОПЕРЕДУ' && echo "$OUT" | grep -q 'Gamma1000000000002' && pass "rollback на код без міграції, що вже застосована: попередження з іменем міграції" || fail "rollback на код без міграції, що вже застосована: попередження з іменем міграції" "$OUT"
 
 # ═══════════════════════════════════════════════════════════════════
 section "E. Міграції"
@@ -506,55 +506,55 @@ X deploy --sha "$SHA2" --apply
 if [ $RC -eq 1 ] && echo "$OUT" | grep -q 'Gamma1000000000002' && echo "$OUT" | grep -q -- '--migrate' \
    && ! calls_have '^npm (ci|run)' && ! calls_have '^pg_dump' && [ ! -d "$W/root/releases/$S2" ]; then
   pass "потрібна міграція, --migrate немає: відмова ДО збірки, жодного npm, теку прибрано"
-else fail "без --migrate" "rc=$RC $(mutating_calls) $OUT"; fi
+else fail "потрібна міграція, --migrate немає: відмова ДО збірки, жодного npm, теку прибрано" "rc=$RC $(mutating_calls) $OUT"; fi
 
 new_world e2
 X deploy --sha "$SHA2" --apply --migrate
 A=$(line_no '^pg_dump'); B=$(line_no 'npm run migration:run'); C=$(line_no 'npm run build:web'); D=$(line_no '^systemctl restart')
 if [ $RC -eq 0 ] && [ -n "$A" ] && [ -n "$B" ] && [ -n "$C" ] && [ -n "$D" ] && [ "$A" -lt "$B" ] && [ "$B" -lt "$C" ] && [ "$C" -lt "$D" ]; then
   pass "порядок викликів: знімок БД → міграція → збірка вебу → перезапуск"
-else fail "порядок деплою з міграцією" "pg_dump=$A migrate=$B web=$C restart=$D rc=$RC $OUT"; fi
-grep -qx 'Gamma1000000000002' "$W/db/applied" && pass "після деплою в БД є Gamma (міграцію застосовано)" || fail "міграцію не застосовано"
+else fail "порядок викликів: знімок БД → міграція → збірка вебу → перезапуск" "pg_dump=$A migrate=$B web=$C restart=$D rc=$RC $OUT"; fi
+grep -qx 'Gamma1000000000002' "$W/db/applied" && pass "після деплою в БД є Gamma (міграцію застосовано)" || fail "після деплою в БД є Gamma (міграцію застосовано)"
 [ "$(cat "$W/root/releases/$S2/apps/web/.next/built-against")" = v2 ] \
-  && pass "веб зібрано ПРОТИ НОВОЇ API (вона відповіла v2), а не проти чинної (v0)" || fail "веб зібрано не проти нової API" "$(cat "$W/root/releases/$S2/apps/web/.next/built-against" 2>&1)"
-[ -z "$(lsof -nP -iTCP:"$TPORT" -sTCP:LISTEN -t 2>/dev/null)" ] && pass "тимчасова API після збірки зупинена: порт $TPORT вільний" || fail "тимчасова API лишилась жити"
-ls "$W/root/backups/predeploy-$S0"-*.dump >/dev/null 2>&1 && pass "знімок БД лежить у backups/ і названий за релізом, з якого зроблено" || fail "знімок не створено"
+  && pass "веб зібрано ПРОТИ НОВОЇ API (вона відповіла v2), а не проти чинної (v0)" || fail "веб зібрано ПРОТИ НОВОЇ API (вона відповіла v2), а не проти чинної (v0)" "$(cat "$W/root/releases/$S2/apps/web/.next/built-against" 2>&1)"
+[ -z "$(lsof -nP -iTCP:"$TPORT" -sTCP:LISTEN -t 2>/dev/null)" ] && pass "тимчасова API після збірки зупинена: порт $TPORT вільний" || fail "тимчасова API після збірки зупинена: порт $TPORT вільний"
+ls "$W/root/backups/predeploy-$S0"-*.dump >/dev/null 2>&1 && pass "знімок БД лежить у backups/ і названий за релізом, з якого зроблено" || fail "знімок БД лежить у backups/ і названий за релізом, з якого зроблено"
 
 new_world e3
 STUB_MIGRATE_FAIL=1 X deploy --sha "$SHA2" --apply --migrate
 if [ $RC -ne 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S0" ] && ! calls_have 'build:web' && ! calls_have '^systemctl restart' \
    && ! calls_have 'migration:revert' && [ ! -d "$W/root/releases/$S2" ]; then
   pass "міграція впала: current не рушив, веб не збирався, нічого не перезапущено, revert не викликано, залишок прибрано"
-else fail "падіння міграції" "rc=$RC $(mutating_calls)"; fi
+else fail "міграція впала: current не рушив, веб не збирався, нічого не перезапущено, revert не викликано, залишок прибрано" "rc=$RC $(mutating_calls)"; fi
 
 new_world e4
 STUB_RESTART=noop X deploy --sha "$SHA2" --apply --migrate
 if [ $RC -eq 3 ] && [ "$(readlink "$W/root/current")" = "releases/$S0" ] && grep -qx 'Gamma1000000000002' "$W/db/applied" && ! calls_have 'migration:revert'; then
   pass "міграція пройшла, перемикання впало: код повернуто на $S0, БД лишилась мігрованою, revert міграції НЕ викликано"
-else fail "міграція ок, перемикання впало" "rc=$RC $OUT"; fi
+else fail "міграція пройшла, перемикання впало: код повернуто на $S0, БД лишилась мігрованою, revert міграції НЕ викликано" "rc=$RC $OUT"; fi
 
 new_world e5
 STUB_PGDUMP=fail X deploy --sha "$SHA2" --apply --migrate
-[ $RC -ne 0 ] && ! calls_have 'migration:run' && pass "pg_dump не вдався: міграцію не запущено" || fail "міграція пішла без знімка" "rc=$RC $OUT"
+[ $RC -ne 0 ] && ! calls_have 'migration:run' && pass "pg_dump не вдався: міграцію не запущено" || fail "pg_dump не вдався: міграцію не запущено" "rc=$RC $OUT"
 new_world e6
 STUB_PGDUMP=empty X deploy --sha "$SHA2" --apply --migrate
-[ $RC -ne 0 ] && ! calls_have 'migration:run' && echo "$OUT" | grep -q 'не читається' && pass "порожній знімок не читається (pg_restore -l): міграцію не запущено" || fail "порожній знімок прийнято" "rc=$RC $OUT"
+[ $RC -ne 0 ] && ! calls_have 'migration:run' && echo "$OUT" | grep -q 'не читається' && pass "порожній знімок не читається (pg_restore -l): міграцію не запущено" || fail "порожній знімок не читається (pg_restore -l): міграцію не запущено" "rc=$RC $OUT"
 
 new_world e7
 X deploy --sha "$SHA2" --migrations "1000000000000-Alpha,1000000000001-Beta" --apply --migrate
-[ $RC -ne 0 ] && echo "$OUT" | grep -q 'не збігається' && ! calls_have '^npm (ci|run)' && pass "список міграцій з ноутбука ≠ списку в коміті: відмова до збірки" || fail "розбіжність плану й дійсності" "rc=$RC $OUT"
+[ $RC -ne 0 ] && echo "$OUT" | grep -q 'не збігається' && ! calls_have '^npm (ci|run)' && pass "список міграцій з ноутбука ≠ списку в коміті: відмова до збірки" || fail "список міграцій з ноутбука ≠ списку в коміті: відмова до збірки" "rc=$RC $OUT"
 new_world e11
 X deploy --sha "$SHA2"
-[ $RC -eq 0 ] && echo "$OUT" | grep -q 'у сухому прогоні невідомо' && ! echo "$OUT" | grep -q 'нових немає' && pass "сухий прогін без списку міграцій: чесне «невідомо», а не «нових немає»" || fail "невідомі міграції видано за відсутні" "rc=$RC $OUT"
+[ $RC -eq 0 ] && echo "$OUT" | grep -q 'у сухому прогоні невідомо' && ! echo "$OUT" | grep -q 'нових немає' && pass "сухий прогін без списку міграцій: чесне «невідомо», а не «нових немає»" || fail "сухий прогін без списку міграцій: чесне «невідомо», а не «нових немає»" "rc=$RC $OUT"
 
 new_world e8
 X deploy --sha "$SHA2" --migrations "1000000000000-Alpha,1000000000001-Beta,1000000000002-Gamma"
 [ $RC -eq 0 ] && echo "$OUT" | grep -q 'ЧЕКАЮТЬ 1' && echo "$OUT" | grep -q 'Gamma1000000000002' && echo "$OUT" | grep -q 'add --apply --migrate\|додай --apply --migrate' \
-  && pass "сухий прогін із переданим списком: називає міграцію і підказує --apply --migrate" || fail "план міграцій" "rc=$RC $OUT"
+  && pass "сухий прогін із переданим списком: називає міграцію і підказує --apply --migrate" || fail "сухий прогін із переданим списком: називає міграцію і підказує --apply --migrate" "rc=$RC $OUT"
 
 new_world e9
 STUB_PGDUMP=partial X deploy --sha "$SHA2" --apply --migrate
-[ $RC -ne 0 ] && ! calls_have 'migration:run' && echo "$OUT" | grep -q 'pg_dump не вдався' && pass "pg_dump впав посередині, лишивши ЧИТАБЕЛЬНИЙ файл: міграцію не запущено (ловить код виходу, не pg_restore -l)" || fail "частковий знімок прийнято" "rc=$RC $OUT"
+[ $RC -ne 0 ] && ! calls_have 'migration:run' && echo "$OUT" | grep -q 'pg_dump не вдався' && pass "pg_dump впав посередині, лишивши ЧИТАБЕЛЬНИЙ файл: міграцію не запущено (ловить код виходу, не pg_restore -l)" || fail "pg_dump впав посередині, лишивши ЧИТАБЕЛЬНИЙ файл: міграцію не запущено (ловить код виходу, не pg_restore -l)" "rc=$RC $OUT"
 
 new_world e10
 mkdir -p "$W/root/backups"
@@ -562,7 +562,7 @@ for i in 1 2 3 4; do : > "$W/root/backups/predeploy-old$i-2026010${i}T000000Z.du
 X deploy --sha "$SHA2" --apply --migrate
 N=$(ls "$W/root/backups"/predeploy-*.dump | wc -l | tr -d ' ')
 [ $RC -eq 0 ] && [ "$N" = 3 ] && ls "$W/root/backups/predeploy-$S0"-*.dump >/dev/null 2>&1 && [ ! -e "$W/root/backups/predeploy-old1-20260101T000000Z.dump" ] \
-  && pass "знімків лишається три: найстарші прибрано, свіжий на місці" || fail "ротація знімків" "rc=$RC n=$N $(ls "$W/root/backups")"
+  && pass "знімків лишається три: найстарші прибрано, свіжий на місці" || fail "знімків лишається три: найстарші прибрано, свіжий на місці" "rc=$RC n=$N $(ls "$W/root/backups")"
 
 # ═══════════════════════════════════════════════════════════════════
 section "H. Шляхи, яких бойовий деплой торкається не щодня"
@@ -572,34 +572,34 @@ X deploy --sha "$SHA1" --apply >/dev/null; X rollback --apply >/dev/null; : > "$
 X deploy --sha "$SHA1" --apply
 if [ $RC -eq 0 ] && echo "$OUT" | grep -q 'збирати не треба' && ! calls_have '^npm (ci|run)' && [ "$(running_from web)" = "$S1" ]; then
   pass "реліз уже збудований: деплой лише перемикає (жодного npm), процеси на $S1"
-else fail "повторне використання збудованого релізу" "rc=$RC $(mutating_calls) $OUT"; fi
+else fail "реліз уже збудований: деплой лише перемикає (жодного npm), процеси на $S1" "rc=$RC $(mutating_calls) $OUT"; fi
 
 new_world h2
 mkdir -p "$W/root/releases/$S1"; git -C "$W/root/releases/$S1" init -q; git -C "$W/root/releases/$S1" remote add origin "$REPO"; echo junk > "$W/root/releases/$S1/junk"
 X deploy --sha "$SHA1" --apply
-[ $RC -eq 0 ] && [ ! -e "$W/root/releases/$S1/junk" ] && [ "$(running_from web)" = "$S1" ] && pass "залишок невдалої збірки в теці цілі: прибрано, зібрано наново, викочено" || fail "залишок теки" "rc=$RC $OUT"
+[ $RC -eq 0 ] && [ ! -e "$W/root/releases/$S1/junk" ] && [ "$(running_from web)" = "$S1" ] && pass "залишок невдалої збірки в теці цілі: прибрано, зібрано наново, викочено" || fail "залишок невдалої збірки в теці цілі: прибрано, зібрано наново, викочено" "rc=$RC $OUT"
 
 new_world h3
 # тека з ім'ям цілі, але в ній інший коміт
 d="$W/root/releases/$S1"; mkdir -p "$d"; git -C "$d" init -q; git -C "$d" remote add origin "$REPO"; git -C "$d" fetch -q --depth 1 origin "$SHA2"; git -C "$d" checkout -q --detach FETCH_HEAD
 X deploy --sha "$SHA1" --apply
-[ $RC -eq 1 ] && echo "$OUT" | grep -q 'колізія' && [ -d "$d/.git" ] && ! calls_have '^npm (ci|run)' && pass "тека з ім'ям $S1, у якій інший коміт: відмова, чужу теку не видалено" || fail "колізія імені" "rc=$RC $OUT"
+[ $RC -eq 1 ] && echo "$OUT" | grep -q 'колізія' && [ -d "$d/.git" ] && ! calls_have '^npm (ci|run)' && pass "тека з ім'ям $S1, у якій інший коміт: відмова, чужу теку не видалено" || fail "тека з ім'ям $S1, у якій інший коміт: відмова, чужу теку не видалено" "rc=$RC $OUT"
 
 new_world h4
 T_MIN_FREE=999999 X deploy --sha "$SHA1" --apply
-[ $RC -eq 1 ] && echo "$OUT" | grep -q 'збірка може не вміститись' && [ -z "$(mutating_calls)" ] && pass "місця на диску менше за поріг: відмова до будь-якої зміни" || fail "перевірка диска" "rc=$RC $OUT"
+[ $RC -eq 1 ] && echo "$OUT" | grep -q 'збірка може не вміститись' && [ -z "$(mutating_calls)" ] && pass "місця на диску менше за поріг: відмова до будь-якої зміни" || fail "місця на диску менше за поріг: відмова до будь-якої зміни" "rc=$RC $OUT"
 
 new_world h5
 X deploy --sha "$SHA1" --apply >/dev/null; X deploy --sha "$SHA2" --apply --migrate >/dev/null; X deploy --sha "$SHA3" --apply >/dev/null
 if [ $RC -eq 0 ] && [ ! -d "$W/root/releases/$S0" ] && [ -d "$W/root/releases/$S1" ] && [ -d "$W/root/releases/$S2" ] && [ -d "$W/root/releases/$S3" ]; then
   pass "після успіху прибрано найстарший ($S0); чинний $S3, ціль відкату $S2 і ще один ($S1) на місці"
-else fail "прибирання після деплою" "rc=$RC $(ls "$W/root/releases" | tr '\n' ' ')"; fi
-[ ! -d "$W/root/.deploy.lock" ] && pass "після деплою замок знято" || fail "замок лишився після деплою"
+else fail "після успіху прибрано найстарший ($S0); чинний $S3, ціль відкату $S2 і ще один ($S1) на місці" "rc=$RC $(ls "$W/root/releases" | tr '\n' ' ')"; fi
+[ ! -d "$W/root/.deploy.lock" ] && pass "після деплою замок знято" || fail "після деплою замок знято"
 
 new_world h6
 mkdir "$W/root/.deploy.lock"; echo 99999999 > "$W/root/.deploy.lock/pid"
 X deploy --sha "$SHA1" --apply
-[ $RC -eq 0 ] && echo "$OUT" | grep -q 'лишив замок і зник' && pass "замок мертвого процесу не блокує назавжди: взято й деплой пройшов" || fail "застарілий замок" "rc=$RC $OUT"
+[ $RC -eq 0 ] && echo "$OUT" | grep -q 'лишив замок і зник' && pass "замок мертвого процесу не блокує назавжди: взято й деплой пройшов" || fail "замок мертвого процесу не блокує назавжди: взято й деплой пройшов" "rc=$RC $OUT"
 
 # ═══════════════════════════════════════════════════════════════════
 section "F. Запобіжники"
@@ -615,7 +615,7 @@ new_world f1
   r4=0; safe_rm_release 'a b' "" >/dev/null 2>&1 && r4=1
   r5=0; safe_rm_release ccccccc bbbbbbb >/dev/null 2>&1 && r5=1
   echo "$r1$r2$r3$r4$r5 $(ls "$ROOT/releases" | tr '\n' ',')" ) > "$BASE/f1.out"
-[ "$(cat "$BASE/f1.out")" = "00001 aaaaaaa,bbbbbbb," ] && pass "safe_rm_release: не чіпає чинний, ціль відкату, шлях не-SHA; видаляє лише зайвий" || fail "safe_rm_release" "$(cat "$BASE/f1.out")"
+[ "$(cat "$BASE/f1.out")" = "00001 aaaaaaa,bbbbbbb," ] && pass "safe_rm_release: не чіпає чинний, ціль відкату, шлях не-SHA; видаляє лише зайвий" || fail "safe_rm_release: не чіпає чинний, ціль відкату, шлях не-SHA; видаляє лише зайвий" "$(cat "$BASE/f1.out")"
 
 new_world f2
 # п'ять релізів із різним часом коміту; current=c4, ціль відкату=c3, KEEP_EXTRA=1
@@ -624,7 +624,7 @@ for pair in "$S0:$SHA0" "$S1:$SHA1" "$S2:$SHA2" "$S3:$SHA3" "$S4:$SHA4"; do
 done
 # shellcheck disable=SC1090,SC2034
 GOT=$( source "$DEPLOY"; ROOT="$W/root"; KEEP_EXTRA=1; prune_candidates "$S4" "$S3" | tr '\n' ' ' )
-[ "$GOT" = "$S1 $S0 " ] && pass "prune: лишає чинний, ціль відкату й 1 найновіший із решти; решту (від найстаршого) називає до видалення" || fail "prune_candidates" "got='$GOT' want='$S1 $S0 '"
+[ "$GOT" = "$S1 $S0 " ] && pass "prune: лишає чинний, ціль відкату й 1 найновіший із решти; решту (від найстаршого) називає до видалення" || fail "prune: лишає чинний, ціль відкату й 1 найновіший із решти; решту (від найстаршого) називає до видалення" "got='$GOT' want='$S1 $S0 '"
 
 new_world f3
 # shellcheck disable=SC1090,SC2034
@@ -638,7 +638,7 @@ GOT=$( source "$DEPLOY"; ROOT=/srv/camptribe
   OUTSIDE="$HOME/.camptribe-selftest-outside-$$"; mkdir -p "$OUTSIDE"; : > "$OUTSIDE/.camptribe-rehearsal-root"
   f=0; TMPDIR=/nonexistent-tmp safe_rm_rehearsal "$OUTSIDE" >/dev/null 2>&1 && f=1; rm -rf "$OUTSIDE"
   echo "$a$b$c$e$f $( [ -d "$BASE/rh2" ] && echo rh2-alive ) $( [ -d "$BASE/rh1" ] && echo rh1-alive ) $( [ -d "$BASE/rh3" ] && echo rh3-alive )" )
-[ "$GOT" = "00010 rh2-alive rh1-alive " ] && pass "safe_rm_rehearsal: без мітки не видаляє, бойовий корінь не видаляє, з міткою — видаляє" || fail "safe_rm_rehearsal" "'$GOT'"
+[ "$GOT" = "00010 rh2-alive rh1-alive " ] && pass "safe_rm_rehearsal: без мітки не видаляє, бойовий корінь не видаляє, з міткою — видаляє" || fail "safe_rm_rehearsal: без мітки не видаляє, бойовий корінь не видаляє, з міткою — видаляє" "'$GOT'"
 
 new_world f4
 # shellcheck disable=SC1090,SC2034
@@ -651,21 +651,21 @@ if ! grep -q '/srv/camptribe/' "$U" "$A" && ! grep -qE '(^|[^0-9])(3000|3001)([^
    && grep -q 'Requires=camptribe-rehearsal-api.service' "$U" && grep -q '^ProtectSystem=strict' "$U" "$A" \
    && grep -qx 'ReadWritePaths=' "$U" && grep -qx 'ReadWritePaths=' "$A" && ! grep -q '^\[Install\]' "$U" "$A"; then
   pass "юніти репетиції з РЕАЛЬНИХ юнітів репо: жодного бойового шляху чи порту, лише читання, без [Install]"
-else fail "render_rehearsal_unit" "$(cat "$U")"; fi
+else fail "юніти репетиції з РЕАЛЬНИХ юнітів репо: жодного бойового шляху чи порту, лише читання, без [Install]" "$(cat "$U")"; fi
 
 new_world f5
 mkdir "$W/root/.deploy.lock"; sleep 300 & HOLDER=$!; echo $HOLDER > "$W/root/.deploy.lock/pid"
 X deploy --sha "$SHA1" --apply
 kill $HOLDER 2>/dev/null; wait $HOLDER 2>/dev/null
-[ $RC -eq 1 ] && echo "$OUT" | grep -q 'уже йде' && [ ! -d "$W/root/releases/$S1" ] && pass "замок тримає живий процес: другий деплой відмовляє й нічого не створює" || fail "замок" "rc=$RC $OUT"
+[ $RC -eq 1 ] && echo "$OUT" | grep -q 'уже йде' && [ ! -d "$W/root/releases/$S1" ] && pass "замок тримає живий процес: другий деплой відмовляє й нічого не створює" || fail "замок тримає живий процес: другий деплой відмовляє й нічого не створює" "rc=$RC $OUT"
 
 new_world f6
 X deploy --sha abc123 --apply
-[ $RC -eq 1 ] && echo "$OUT" | grep -q '40-символьним' && pass "--sha коротший за 40 символів відхилено" || fail "валідація --sha" "rc=$RC $OUT"
+[ $RC -eq 1 ] && echo "$OUT" | grep -q '40-символьним' && pass "--sha коротший за 40 символів відхилено" || fail "--sha коротший за 40 символів відхилено" "rc=$RC $OUT"
 X deploy --sha "$SHA0" --apply
-[ $RC -eq 1 ] && echo "$OUT" | grep -q 'і є чинний' && pass "деплой уже чинного релізу відхилено (а не «перебудовано»)" || fail "деплой чинного" "rc=$RC $OUT"
+[ $RC -eq 1 ] && echo "$OUT" | grep -q 'і є чинний' && pass "деплой уже чинного релізу відхилено (а не «перебудовано»)" || fail "деплой уже чинного релізу відхилено (а не «перебудовано»)" "rc=$RC $OUT"
 X bogus; R1=$RC; X deploy --nonsense; R2=$RC
-[ $R1 -eq 2 ] && [ $R2 -eq 2 ] && pass "невідома команда і невідомий прапорець: код 2" || fail "код 2" "$R1 $R2"
+[ $R1 -eq 2 ] && [ $R2 -eq 2 ] && pass "невідома команда і невідомий прапорець: код 2" || fail "невідома команда і невідомий прапорець: код 2" "$R1 $R2"
 
 # ═══════════════════════════════════════════════════════════════════
 section "G. Обгортка на ноутбуці: infra/deploy-app.sh"
@@ -703,35 +703,35 @@ SH
   WRAPX --sha "$SHA1"
   if [ $RC -eq 0 ] && ! grep -q -- '--apply' "$WRAP_LOG" && [ "$(fingerprint "$W/root")" = "$FP" ] && echo "$OUT" | grep -q 'СУХИЙ ПРОГІН'; then
     pass "deploy-app.sh без --apply: ssh не отримав --apply, прод не змінився, виведено сухий прогін"
-  else fail "обгортка без аргументів" "rc=$RC log=$(cat "$WRAP_LOG") $OUT"; fi
+  else fail "deploy-app.sh без --apply: ssh не отримав --apply, прод не змінився, виведено сухий прогін" "rc=$RC log=$(cat "$WRAP_LOG") $OUT"; fi
   : > "$WRAP_LOG"; WRAPX --sha "$SHA1" --apply
   if [ $RC -eq 0 ] && grep -q -- '--apply' "$WRAP_LOG" && [ "$(readlink "$W/root/current")" = "releases/$S1" ]; then
     pass "deploy-app.sh --apply: ssh отримав --apply і реліз викочено"
-  else fail "обгортка --apply" "rc=$RC $(cat "$WRAP_LOG") $OUT"; fi
+  else fail "deploy-app.sh --apply: ssh отримав --apply і реліз викочено" "rc=$RC $(cat "$WRAP_LOG") $OUT"; fi
   jq -e --arg sha "$SHA1" '.sha == $sha and (.deployed_by | startswith("tester@example.test@"))' "$W/root/releases/$S1/RELEASE.json" >/dev/null \
-    && pass "обгортка розв'язала SHA на ноутбуці й передала повний: у маніфесті саме він, оператор записаний" || fail "SHA через обгортку"
+    && pass "обгортка розв'язала SHA на ноутбуці й передала повний: у маніфесті саме він, оператор записаний" || fail "обгортка розв'язала SHA на ноутбуці й передала повний: у маніфесті саме він, оператор записаний"
   : > "$WRAP_LOG"; WRAPX --rollback
   if [ $RC -eq 0 ] && ! grep -q -- '--apply' "$WRAP_LOG" && [ "$(readlink "$W/root/current")" = "releases/$S1" ]; then
     pass "deploy-app.sh --rollback без --apply: лише план, current не рушив"
-  else fail "обгортка --rollback" "rc=$RC $OUT"; fi
+  else fail "deploy-app.sh --rollback без --apply: лише план, current не рушив" "rc=$RC $OUT"; fi
   WRAPX --rollback --apply
-  [ $RC -eq 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S0" ] && pass "deploy-app.sh --rollback --apply: повернуто $S0" || fail "обгортка --rollback --apply" "rc=$RC $OUT"
+  [ $RC -eq 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S0" ] && pass "deploy-app.sh --rollback --apply: повернуто $S0" || fail "deploy-app.sh --rollback --apply: повернуто $S0" "rc=$RC $OUT"
   : > "$WRAP_LOG"; WRAPX
-  [ $RC -eq 0 ] && echo "$OUT" | grep -q "$SHA4" && ! grep -q -- '--apply' "$WRAP_LOG" && pass "deploy-app.sh без аргументів: розв'язав origin/main у ПОВНИЙ SHA кінчика ($SHA4) і передав його" || fail "розв'язання origin/main" "rc=$RC $OUT"
+  [ $RC -eq 0 ] && echo "$OUT" | grep -q "$SHA4" && ! grep -q -- '--apply' "$WRAP_LOG" && pass "deploy-app.sh без аргументів: розв'язав origin/main у ПОВНИЙ SHA кінчика ($SHA4) і передав його" || fail "deploy-app.sh без аргументів: розв'язав origin/main у ПОВНИЙ SHA кінчика ($SHA4) і передав його" "rc=$RC $OUT"
   WRAPX --sha "$SHA2"
-  [ $RC -eq 0 ] && echo "$OUT" | grep -q 'ЧЕКАЮТЬ 1' && echo "$OUT" | grep -q 'Gamma1000000000002' && pass "deploy-app.sh: сухий прогін сам називає міграцію, що чекає (список з git за цим SHA дійшов до машини)" || fail "обгортка не передала список міграцій" "rc=$RC $OUT"
+  [ $RC -eq 0 ] && echo "$OUT" | grep -q 'ЧЕКАЮТЬ 1' && echo "$OUT" | grep -q 'Gamma1000000000002' && pass "deploy-app.sh: сухий прогін сам називає міграцію, що чекає (список з git за цим SHA дійшов до машини)" || fail "deploy-app.sh: сухий прогін сам називає міграцію, що чекає (список з git за цим SHA дійшов до машини)" "rc=$RC $OUT"
   WRAPX --sha "$SHA2" --apply
-  [ $RC -ne 0 ] && echo "$OUT" | grep -q -- '--migrate' && ! grep -qx 'Gamma1000000000002' "$W/db/applied" && pass "deploy-app.sh --apply без --migrate при чекаючій міграції: відмова, БД не рушила" || fail "обгортка без --migrate" "rc=$RC $OUT"
+  [ $RC -ne 0 ] && echo "$OUT" | grep -q -- '--migrate' && ! grep -qx 'Gamma1000000000002' "$W/db/applied" && pass "deploy-app.sh --apply без --migrate при чекаючій міграції: відмова, БД не рушила" || fail "deploy-app.sh --apply без --migrate при чекаючій міграції: відмова, БД не рушила" "rc=$RC $OUT"
   WRAPX --sha "$SHA2" --apply --migrate
-  [ $RC -eq 0 ] && grep -qx 'Gamma1000000000002' "$W/db/applied" && [ "$(readlink "$W/root/current")" = "releases/$S2" ] && pass "deploy-app.sh --apply --migrate: прапорець дійшов до машини, міграцію застосовано, реліз викочено" || fail "обгортка --migrate" "rc=$RC $OUT"
+  [ $RC -eq 0 ] && grep -qx 'Gamma1000000000002' "$W/db/applied" && [ "$(readlink "$W/root/current")" = "releases/$S2" ] && pass "deploy-app.sh --apply --migrate: прапорець дійшов до машини, міграцію застосовано, реліз викочено" || fail "deploy-app.sh --apply --migrate: прапорець дійшов до машини, міграцію застосовано, реліз викочено" "rc=$RC $OUT"
   git -C "$W_REPO" -c user.email=x@y.z -c user.name=x commit -q --allow-empty -m "only local"
   WRAPX --sha HEAD --apply
-  [ $RC -ne 0 ] && echo "$OUT" | grep -q 'не лежить ні в одній гілці origin' && pass "комміт, якого немає на origin: обгортка відмовляє до ssh, машина його б не отримала" || fail "локальний комміт" "rc=$RC $OUT"
+  [ $RC -ne 0 ] && echo "$OUT" | grep -q 'не лежить ні в одній гілці origin' && pass "комміт, якого немає на origin: обгортка відмовляє до ssh, машина його б не отримала" || fail "комміт, якого немає на origin: обгортка відмовляє до ssh, машина його б не отримала" "rc=$RC $OUT"
   WRAPX --rollback --to "$S1"
-  [ $RC -eq 0 ] && echo "$OUT" | grep -q 'явне --to' && echo "$OUT" | grep -q "rollback $S2 → $S1" && pass "deploy-app.sh --rollback --to: явна ціль дійшла до машини" || fail "обгортка --to" "rc=$RC $OUT"
+  [ $RC -eq 0 ] && echo "$OUT" | grep -q 'явне --to' && echo "$OUT" | grep -q "rollback $S2 → $S1" && pass "deploy-app.sh --rollback --to: явна ціль дійшла до машини" || fail "deploy-app.sh --rollback --to: явна ціль дійшла до машини" "rc=$RC $OUT"
   WRAPX --status
-  [ $RC -eq 0 ] && echo "$OUT" | grep -q 'ВИСНОВОК: усе збігається' && pass "deploy-app.sh --status: одна команда відповідає, що зараз на проді" || fail "обгортка --status" "rc=$RC $OUT"
-  WRAPX --bogus; [ $RC -eq 2 ] && pass "обгортка: невідомий прапорець — код 2" || fail "обгортка --bogus" "rc=$RC"
+  [ $RC -eq 0 ] && echo "$OUT" | grep -q 'ВИСНОВОК: усе збігається' && pass "deploy-app.sh --status: одна команда відповідає, що зараз на проді" || fail "deploy-app.sh --status: одна команда відповідає, що зараз на проді" "rc=$RC $OUT"
+  WRAPX --bogus; [ $RC -eq 2 ] && pass "обгортка: невідомий прапорець — код 2" || fail "обгортка: невідомий прапорець — код 2" "rc=$RC"
 else
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13; do fail "обгортки ще немає ($WRAPPER)"; done
 fi
