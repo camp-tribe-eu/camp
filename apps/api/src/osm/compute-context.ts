@@ -30,6 +30,12 @@ import {
   WaterKind,
 } from './spot-context';
 import { transliterate } from '../spots/transliterate';
+import {
+  assertCountryTagsReady,
+  PARTIAL_ENV,
+  CONTEXT_SQL,
+  contextParams,
+} from './context-sql';
 
 const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
@@ -86,67 +92,6 @@ interface SpotRow {
   rail_m: number | null;
   rail_name: string | null;
 }
-
-/**
- * Every distance in one statement.
- *
- * LATERAL plus `<->` per feature class: the KNN operator walks the GiST
- * index instead of measuring every row, so this stays the same shape
- * whether the table holds 300 campsites or 50,000. Ordering is by planar
- * `<->` and the reported number is `ST_Distance` on geography — ordering
- * by geography distance directly would not use the index, and at these
- * ranges the two orderings do not disagree.
- *
- * 🔴 Water is filtered to lakes, reservoirs, rivers and the coastline.
- * Slovenia's extract holds 26,654 streams against 338 lakes, so "nearest
- * water" without a filter would nearly always be a drainage ditch a few
- * metres away — technically true, useless to a camper, and it would make
- * every campsite in the country look waterfront.
- */
-const CONTEXT_SQL = `
-  SELECT s.id, s.slug,
-         ST_Y(s.location::geometry) AS lat,
-         ST_X(s.location::geometry) AS lon,
-         s.context,
-         w.m AS water_m, w.kind AS water_kind, w.name AS water_name,
-         t.m AS town_m,  t.name AS town_name,
-         p.m AS shop_m,  p.name AS shop_name,
-         r.m AS rail_m,  r.name AS rail_name
-    FROM camping_spots s
-    LEFT JOIN LATERAL (
-      SELECT round(ST_Distance(s.location::geography, x.geom::geography)) AS m,
-             CASE
-               WHEN x."natural" = 'coastline' THEN 'sea'
-               WHEN x.water IN ('lake','reservoir') THEN x.water
-               ELSE 'river'
-             END AS kind,
-             x.name
-        FROM osm_ctx_water x
-       WHERE x.water IN ('lake','reservoir','river')
-          OR x.waterway = 'river'
-          OR x."natural" = 'coastline'
-       ORDER BY s.location <-> x.geom LIMIT 1
-    ) w ON true
-    LEFT JOIN LATERAL (
-      SELECT round(ST_Distance(s.location::geography, x.geom::geography)) AS m, x.name
-        FROM osm_ctx_place x
-       WHERE x.place IN ('city','town')
-       ORDER BY s.location <-> x.geom LIMIT 1
-    ) t ON true
-    LEFT JOIN LATERAL (
-      SELECT round(ST_Distance(s.location::geography, x.geom::geography)) AS m, x.name
-        FROM osm_ctx_poi x
-       WHERE x.shop = 'supermarket'
-       ORDER BY s.location <-> x.geom LIMIT 1
-    ) p ON true
-    LEFT JOIN LATERAL (
-      SELECT round(ST_Distance(s.location::geography, x.geom::geography)) AS m, x.name
-        FROM osm_ctx_poi x
-       WHERE x.railway IN ('station','halt')
-       ORDER BY s.location <-> x.geom LIMIT 1
-    ) r ON true
-   WHERE s.missing_since IS NULL
-     AND ($1::text IS NULL OR upper(s.country) = $1)`;
 
 /**
  * Does this context actually tell a reader anything?
@@ -401,9 +346,12 @@ async function elevations(
 //
 // 2. 🔴 Якщо після транслітерації лишилась НЕ-латиниця — назву не
 //    показуємо взагалі. Краще «the nearest town is 13 km away» без
-//    назви, ніж `krыlovo` у тексті. Таке буває лише на даних поза
-//    ЄС-27 (російські назви з прикордонного запасу екстрактів
-//    Geofabrik) — окрема картка про фільтр області.
+//    назви, ніж `krыlovo` у тексті. Таке бувало на даних поза ЄС-27
+//    (російські назви з прикордонного запасу екстрактів Geofabrik).
+//    CAMP-296 прибрав причину для міста, магазину й станції: вони тепер
+//    шукаються лише всередині ЄС-27 (context-sql.ts). Ця перевірка лишається
+//    як страховка і тому, що ВОДУ за ЄС-27 ми не фільтруємо навмисно —
+//    озеро за кордоном лишається найближчим озером.
 // 🔴 «Чи лишилась НЕ-ЛАТИНСЬКА ЛІТЕРА», а не «чи всі символи в діапазоні».
 //
 // Перша редакція була `[^\u0000-ɏḀ-ỿ]`, і рецензія
@@ -482,7 +430,18 @@ async function main(): Promise<void> {
     }
   }
 
-  const { rows } = await db.query<SpotRow>(CONTEXT_SQL, [COUNTRY]);
+  // CAMP-296: без проставленої країни фільтр ЄС-27 не помиляється — він
+  // прибирає все, тож шари без неї (або з неповною) зупиняємо тут.
+  await assertCountryTagsReady(db, {
+    // Прапорець ставить людина, що запустила часткове завантаження;
+    // з даних його не вгадати. Див. PARTIAL_ENV у context-sql.ts.
+    partial: process.env[PARTIAL_ENV] === '1',
+  });
+
+  const { rows } = await db.query<SpotRow>(
+    CONTEXT_SQL,
+    contextParams(COUNTRY) as unknown[],
+  );
 
   // A spot is skipped when its stored context was computed at the same
   // coordinates. Recomputing 300 unchanged rows would be free locally and
