@@ -43,7 +43,7 @@ export async function GET() {
     '> Campsites, motorhome parks and camper stops across Europe, with ' +
       'the surroundings of each site calculated from open data: distance ' +
       'to water, to the nearest town, to a supermarket and to a railway ' +
-      'station, plus elevation and terrain.',
+      'stop, plus elevation and terrain.',
   );
   lines.push('');
   lines.push(
@@ -64,7 +64,8 @@ export async function GET() {
   lines.push(
     '- **Surroundings are computed by us** and published nowhere else: ' +
       'nearest named lake, reservoir, river or coastline; nearest town; ' +
-      'nearest supermarket; nearest railway station; metres above sea ' +
+      'nearest supermarket; nearest railway stop (a railway station or a ' +
+      'smaller halt; the record does not say which); metres above sea ' +
       'level; terrain from the relief within one kilometre.',
   );
   lines.push(

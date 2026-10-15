@@ -23,6 +23,7 @@ import {
   officialStars,
 } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import { RAILWAY_STOP, RAILWAY_STOP_TITLE } from '@/lib/railway-stop';
 import TravelNotice from '@/components/travel-notice';
 import OvernightStay from '@/components/overnight-stay';
 import RecordEdited from '@/components/record-edited';
@@ -352,7 +353,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
             rows, 435 pairs — it is 4.1% at the median, 17.6% at p90,
             and ONE pair at 100%: autocamp-pisak and autokemp-marin,
             four campsites on one beach outside Obrovac sharing a town,
-            a shop and a station.
+            a shop and a railway stop.
 
             The live figures live in `lib/setting.ts` and are enforced by
             `tests/unit/setting.spec.ts` against that seed. They are not
@@ -457,9 +458,16 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
           {spot.context.station && (
             <>
-              <dt className="text-ink-2">Nearest station</dt>
+              {/* 🔴 CAMP-325: a STOP, not a station. The field is
+                  `railway=station` AND `railway=halt` (a platform with
+                  no staff and no ticket office), 32.1% of them on the
+                  measured corpus, and the page used to say "station"
+                  over JSON-LD that said "railway stop". The words come
+                  from `lib/railway-stop.ts`, the same ones the markup
+                  and the prose paragraph use. */}
+              <dt className="text-ink-2">{`Nearest ${RAILWAY_STOP}`}</dt>
               <dd>
-                {spot.context.station.name ?? 'Railway station'}
+                {spot.context.station.name ?? RAILWAY_STOP_TITLE}
                 {', '}
                 <span className="tabular-nums">
                   {formatDistance(spot.context.station.m)}
@@ -725,7 +733,9 @@ function Around({ spot }: { spot: Spot }) {
   }
   if (c.station) {
     facts.push({
-      label: c.station.name ? `${c.station.name} station` : 'Railway station',
+      label: c.station.name
+        ? `${c.station.name} ${RAILWAY_STOP}`
+        : RAILWAY_STOP_TITLE,
       value: formatDistance(c.station.m),
     });
   }
@@ -821,7 +831,7 @@ function summarise(spot: Spot): string {
   if (c.station) {
     parts.push(
       `${formatDistance(c.station.m)} from ${
-        c.station.name ? `${c.station.name} station` : 'a railway station'
+        c.station.name ? `${c.station.name} ${RAILWAY_STOP}` : `a ${RAILWAY_STOP}`
       }`,
     );
   }

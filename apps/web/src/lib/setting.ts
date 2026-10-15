@@ -1,4 +1,5 @@
 import type { SpotContext, TerrainType, WaterKind } from './api';
+import { RAILWAY_STOP } from './railway-stop';
 
 // CAMP-199 — the facts we compute, said in words rather than listed as
 // numbers.
@@ -229,6 +230,13 @@ export function shopClause(shop: SpotContext['supermarket']): string | null {
 /**
  * How you arrive, or that you cannot arrive that way.
  *
+ * 🔴 CAMP-325: A STOP, NOT A STATION. `context.station` is `railway=station`
+ * AND `railway=halt` (3 163 of 9 838 on a halt, 15.10.2026), and the
+ * stored value does not say which, so every clause says `RAILWAY_STOP` —
+ * the word the campsite page row and the JSON-LD use too. Only the eight
+ * strings below name it (four bands, with and without a name); `tests/unit/railway-stop.spec.ts` reads the
+ * rendered page for all of them.
+ *
  * 🔴 THE 15 km CUT USED TO SILENCE THIS ENTIRELY, and that was the
  * single biggest cause of the mail-merge review found.
  *
@@ -239,8 +247,8 @@ export function shopClause(shop: SpotContext['supermarket']): string | null {
  * the digits were stripped, and every one of those rows had a station
  * the reader was never told about.
  *
- * "There is no station near enough to use, the closest is Ploče, 48 km
- * off" is not padding. It is the answer to "can I get there without a
+ * "You will want a car here: the nearest railway stop, Ploče, is 48 km
+ * away" is not padding. It is the answer to "can I get there without a
  * car", it is measured, and the name is OpenStreetMap's. The earlier
  * rule — "a station 50 km away is true and useless" — was right about
  * one page and wrong about the set: a fact that distinguishes one
@@ -251,21 +259,21 @@ export function stationClause(station: SpotContext['station']): string | null {
   const d = distance(station.m);
   const name = station.name;
   if (station.m < 2000) {
-    return name ? `${name} station is ${d} away, so you can arrive by train` : `a railway station is ${d} away`;
+    return name ? `${name} ${RAILWAY_STOP} is ${d} away, so you can arrive by train` : `a ${RAILWAY_STOP} is ${d} away`;
   }
   if (station.m <= 15_000) {
-    return name ? `the nearest railway station is ${name}, ${d} off` : `the nearest railway station is ${d} off`;
+    return name ? `the nearest ${RAILWAY_STOP} is ${name}, ${d} off` : `the nearest ${RAILWAY_STOP} is ${d} off`;
   }
   // 🔴 Past a taxi ride, the honest sentence changes its subject: it
   // stops being "how to arrive" and becomes "you will need a car".
   if (station.m <= 40_000) {
     return name
-      ? `the railway does not come close — ${name} is the nearest station, ${d} off`
-      : `the railway does not come close: the nearest station is ${d} off`;
+      ? `the railway does not come close — ${name} is the nearest ${RAILWAY_STOP}, ${d} off`
+      : `the railway does not come close: the nearest ${RAILWAY_STOP} is ${d} off`;
   }
   return name
-    ? `you will want a car here: the nearest railway station, ${name}, is ${d} away`
-    : `you will want a car here: the nearest railway station is ${d} away`;
+    ? `you will want a car here: the nearest ${RAILWAY_STOP}, ${name}, is ${d} away`
+    : `you will want a car here: the nearest ${RAILWAY_STOP} is ${d} away`;
 }
 
 const TERRAIN_WORD: Record<TerrainType, string> = {
