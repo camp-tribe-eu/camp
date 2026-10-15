@@ -598,10 +598,13 @@ async function main(): Promise<void> {
   //
   // A release built before `-a timestamp,version` has no such column, and
   // the importer must say so in as many words rather than let "every row
-  // is not known" read as a country nobody has edited. The two columns are
-  // INTEGERS (ogr2ogr types a JSON number as one), so the text-column
-  // filter above never turns them into OSM "tags" — and the specs pin
-  // that, because a tag called "@timestamp" would reach the mappers.
+  // is not known" read as a country nobody has edited. ogr2ogr lands the
+  // two attributes as INTEGER columns named exactly `@timestamp` and
+  // `@version` — measured here on 15.10.2026 (Malta, then all 27 countries)
+  // and, independently, by review on GDAL 3.13.3. That is NOT pinned by a test:
+  // CI has no GDAL. If a GDAL release ever renames them, the symptom is
+  // exactly the line printed below, on every country, and `import-main.db.spec`
+  // pins that this line is printed and what the run then writes.
   const editCols = await db.query<{ column_name: string }>(
     `SELECT column_name FROM information_schema.columns
       WHERE table_name = $1 AND column_name IN ('@timestamp', '@version')`,

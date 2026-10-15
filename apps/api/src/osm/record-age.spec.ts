@@ -159,12 +159,19 @@ describe('loadDateVerdict — do these look like edit dates, or like today?', ()
     expect(loadDateVerdict(spread(500), RUN)).toBeNull();
   });
 
-  it('judges nothing below the minimum: ninety-nine identical dates are not a verdict', () => {
-    expect(MIN_RECORDS_TO_JUDGE).toBe(100);
-    const ninetyNine = Array.from({ length: 99 }, () => hoursBefore(1));
-    expect(loadDateVerdict(ninetyNine, RUN)).toBeNull();
-    const hundred = Array.from({ length: 100 }, () => hoursBefore(1));
-    expect(loadDateVerdict(hundred, RUN)).not.toBeNull();
+  it('🔴 judges every country we hold: Malta has 13 dated records, and 13 identical dates ARE refused', () => {
+    // 13 = Malta in the 27 extracts, 15.10.2026 — the smallest country. At a
+    // floor of 100 it was the one place a substituted date loaded unnoticed.
+    const malta = Array.from({ length: 13 }, () => hoursBefore(1));
+    expect(loadDateVerdict(malta, RUN)).not.toBeNull();
+  });
+
+  it('judges nothing below the minimum: nine identical dates are not a verdict', () => {
+    expect(MIN_RECORDS_TO_JUDGE).toBe(10);
+    const nine = Array.from({ length: 9 }, () => hoursBefore(1));
+    expect(loadDateVerdict(nine, RUN)).toBeNull();
+    const ten = Array.from({ length: 10 }, () => hoursBefore(1));
+    expect(loadDateVerdict(ten, RUN)).not.toBeNull();
   });
 
   it('the line is 90%: 180 of 200 recent is refused, 179 of 200 is not', () => {
@@ -177,9 +184,9 @@ describe('loadDateVerdict — do these look like edit dates, or like today?', ()
     expect(loadDateVerdict(mixed(179), RUN)).toBeNull();
   });
 
-  it('records with no date are not in the sum: 50 dated and 5 000 not is too few to judge', () => {
+  it('records with no date are not in the sum: 9 dated and 5 000 not is too few to judge', () => {
     const dates = [
-      ...Array.from({ length: 50 }, () => hoursBefore(1)),
+      ...Array.from({ length: 9 }, () => hoursBefore(1)),
       ...Array.from({ length: 5000 }, () => null),
     ];
     expect(loadDateVerdict(dates, RUN)).toBeNull();

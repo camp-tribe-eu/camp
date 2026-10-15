@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { bandFor, BAND_CAPTION, recordAge, YEAR_DAYS } from '@/lib/record-age';
+import { bandFor, BAND_CAPTION, recordAge, recordEdit, YEAR_DAYS } from '@/lib/record-age';
+import { SOURCES } from '@/lib/sources';
 
 // CAMP-256 — the grade and the wording of an OSM edit date, as pure logic.
 //
@@ -49,6 +50,7 @@ test.describe('what it says', () => {
       day: '2023-06-14',
       month: 'June 2023',
       caption: 'more than three years ago',
+      source: { id: 'osm', name: 'OpenStreetMap' },
     });
     // The middle grade, with a month a typed distance from NOW: 15 months.
     expect(recordAge('2025-07-14T10:11:12.000Z', NOW)).toEqual({
@@ -57,6 +59,7 @@ test.describe('what it says', () => {
       day: '2025-07-14',
       month: 'July 2025',
       caption: 'between one and three years ago',
+      source: { id: 'osm', name: 'OpenStreetMap' },
     });
     // …and the first: 4 months.
     expect(recordAge('2026-06-14T10:11:12.000Z', NOW)).toEqual({
@@ -65,6 +68,7 @@ test.describe('what it says', () => {
       day: '2026-06-14',
       month: 'June 2026',
       caption: 'within the last year',
+      source: { id: 'osm', name: 'OpenStreetMap' },
     });
   });
 
@@ -83,6 +87,7 @@ test.describe('what it says', () => {
       day: '2011-02-03',
       month: 'February 2011',
       caption: 'more than three years ago',
+      source: { id: 'osm', name: 'OpenStreetMap' },
     });
   });
 
@@ -127,6 +132,104 @@ test.describe('"Not known" is the answer to everything that is not an OSM edit d
       known: true,
       month: 'August 2004',
       band: 'over-three',
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A record that comes only from DATAtourisme: the SOURCE's own date.
+//
+// 🔴 `sources[].updatedAt` means three different things in three sources, and
+// the registry says which (`SourceInfo.datesAre`). The OpenStreetMap entry's
+// is the day OUR importer last looked — this week for almost every campsite.
+// Every case below has that entry in `sources`, dated this week, and expects
+// it never to be read.
+
+const entry = (id: string, updatedAt: unknown) => ({
+  id,
+  ref: 'r',
+  updatedAt,
+  fields: ['name'],
+});
+const OSM_LOOKED_THIS_WEEK = entry('osm', '2026-10-12');
+
+test.describe('recordEdit: whose date, and which', () => {
+  test('the registry marks exactly one source as dating its own records', () => {
+    // Written out. A second source acquiring `edited` is a decision with a
+    // legal and a wording side, not a side effect of an edit to a table.
+    expect(
+      Object.values(SOURCES)
+        .filter((s) => s.datesAre === 'edited')
+        .map((s) => s.id),
+    ).toEqual(['datatourisme']);
+    expect(SOURCES.osm.datesAre).toBe('checked');
+  });
+
+  test('an OpenStreetMap edit date wins, and names OpenStreetMap', () => {
+    const v = recordEdit('2023-06-14T10:11:12.000Z', [entry('datatourisme', '2026-08-20')], NOW);
+    expect(v).toMatchObject({
+      known: true,
+      month: 'June 2023',
+      source: { id: 'osm', name: 'OpenStreetMap' },
+    });
+  });
+
+  test('no OSM date: the DATAtourisme date, day precision kept as a day, source named', () => {
+    const v = recordEdit(null, [OSM_LOOKED_THIS_WEEK, entry('datatourisme', '2026-08-20')], NOW);
+    expect(v).toEqual({
+      known: true,
+      band: 'fresh',
+      day: '2026-08-20',
+      month: 'August 2026',
+      caption: 'within the last year',
+      source: { id: 'datatourisme', name: 'DATAtourisme' },
+    });
+  });
+
+  test('the oldest record we hold, from 2002, is shown — not read as "before OpenStreetMap"', () => {
+    const v = recordEdit(null, [entry('datatourisme', '2002-05-24')], NOW);
+    expect(v).toMatchObject({ known: true, month: 'May 2002', band: 'over-three' });
+    // The same date as an OSM edit would be impossible, and is refused.
+    expect(recordAge('2002-05-24T00:00:00.000Z', NOW)).toEqual({ known: false });
+  });
+
+  test('🔴 the OpenStreetMap entry`s updatedAt is NEVER read: it is the day we looked', () => {
+    expect(recordEdit(null, [OSM_LOOKED_THIS_WEEK], NOW)).toEqual({ known: false });
+  });
+
+  test('🔴 nor is any source the registry does not mark `edited`, nor one it does not know', () => {
+    const others = [
+      entry('eea-bathing-water', '2026-06-02'),
+      entry('eea-air-quality', '2026-10-15'),
+      entry('someone-new', '2026-01-01'),
+    ];
+    expect(recordEdit(null, others, NOW)).toEqual({ known: false });
+  });
+
+  test('an unusable DATAtourisme date is "Not known", and does not stop a later valid one', () => {
+    for (const bad of [null, undefined, '', 'last Tuesday', '1970-01-01', '2099-01-01', 20260820, {}]) {
+      expect([String(bad), recordEdit(null, [entry('datatourisme', bad)], NOW)]).toEqual([
+        String(bad),
+        { known: false },
+      ]);
+    }
+  });
+
+  test('malformed `sources` are skipped, never guessed at', () => {
+    for (const junk of [undefined, null, 'osm', 7, {}, [null, 3, 'x', {}, { id: 4 }]]) {
+      expect([JSON.stringify(junk), recordEdit(null, junk, NOW)]).toEqual([
+        JSON.stringify(junk),
+        { known: false },
+      ]);
+    }
+  });
+
+  test('an unusable OSM date falls through to the source date; a usable one does not', () => {
+    expect(recordEdit('garbage', [entry('datatourisme', '2026-08-20')], NOW)).toMatchObject({
+      source: { id: 'datatourisme' },
+    });
+    expect(recordEdit('2026-06-14T10:11:12.000Z', [entry('datatourisme', '2002-05-24')], NOW)).toMatchObject({
+      source: { id: 'osm' },
     });
   });
 });

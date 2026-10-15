@@ -441,13 +441,16 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
             only on the pages that have a date would make the rest look
             like pages that never thought of the question.
 
-            🔴 It reads `osmRecordEditedAt` and NOTHING ELSE. The page
-            also holds `lastSeenAt`, the day our importer last found this
-            place, which is this week for almost every campsite; a line
-            that printed that under these words would say every place had
-            just been edited. `record-edited.spec.ts` renders this page
-            with the two dates years apart and reads what it says. */}
-        <RecordEdited editedAt={spot.osmRecordEditedAt} />
+            🔴 It reads `osmRecordEditedAt` and, where there is none, the
+            `updatedAt` of a source the registry marks `edited` (DATAtourisme
+            dates its own records) — and NOTHING ELSE. The page also holds
+            `lastSeenAt` and the OpenStreetMap entry's `updatedAt`, which are
+            the day our importer last found this place, this week for almost
+            every campsite; a line that printed either under these words would
+            say every place had just been edited. `record-edited.spec.ts`
+            renders this page with those dates years apart and reads what it
+            says. */}
+        <RecordEdited osmEditedAt={spot.osmRecordEditedAt} sources={spot.sources} />
       </Section>
 
       <Section title="Getting there">

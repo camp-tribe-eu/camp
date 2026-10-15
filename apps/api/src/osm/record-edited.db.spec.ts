@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Client } from 'pg';
 import type { QueryRunner } from 'typeorm';
 import { SpotOvernight1791500000000 } from '../migrations/1791500000000-SpotOvernight';
@@ -7,6 +9,11 @@ import {
   UPSERT_SPOT_SQL,
   upsertSpotParams,
 } from './import-spots';
+import {
+  loadDateVerdict,
+  MIN_RECORDS_TO_JUDGE,
+  recentShare,
+} from './record-age';
 
 // CAMP-256 — the OSM edit date, against a REAL PostgreSQL.
 //
@@ -505,11 +512,21 @@ describe('🔴 the importer refuses a country whose STORED dates are the date of
     );
   });
 
-  it('the same substitution on 99 rows is not judged: too few to say', async () => {
+  it('🔴 …and on 13 rows — the size of Malta — it is refused too', async () => {
     const START = '2026-10-15T05:00:00Z';
-    await run(SUBSTITUTED, START, 99, spread, 'few-');
+    await run(SUBSTITUTED, START, 13, spread, 'mt-');
+    await expect(
+      assertStoredEditDates(db, new Date(START), 'MT'),
+    ).rejects.toThrow(
+      /^MT: 13 of 13 dated records claim an edit within 48 hours/,
+    );
+  });
+
+  it('the same substitution on 9 rows is not judged: too few to say', async () => {
+    const START = '2026-10-16T05:00:00Z';
+    await run(SUBSTITUTED, START, 9, spread, 'few-');
     const dates = await assertStoredEditDates(db, new Date(START), 'HR');
-    expect(dates).toHaveLength(99);
+    expect(dates).toHaveLength(9);
   });
 
   it("only THIS run's rows are read: an earlier run's are not in the sum", async () => {
@@ -521,5 +538,191 @@ describe('🔴 the importer refuses a country whose STORED dates are the date of
       'HR',
     );
     expect(dates).toEqual([]);
+  });
+});
+
+describe('🔴 edit-date-distribution.sql, the statement a person runs after a load', () => {
+  // Review found it blind exactly where the mistake happens. An import runs per
+  // COUNTRY, and section 4 aggregated all of them: one country at 100% among
+  // twenty-six honest ones moved the percentage to 3.81% and printed `ok`.
+  // Its floor of 100 rows also made it blind to every country the importer's own
+  // guard could not judge.
+  //
+  // This runs THE FILE — read from disk, its psql meta-commands stripped, its
+  // `:'only'` variable bound — not a retyped copy of the query, and it runs it
+  // against the importer's own rule (`loadDateVerdict`).
+  const FILE = join(
+    __dirname,
+    '../../../../scripts/osm-pipeline/edit-date-distribution.sql',
+  );
+
+  /** The statement that carries the verdict, ready for pg: `:'only'` -> $1. */
+  function verdictSql(): string {
+    const statements = readFileSync(FILE, 'utf8')
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('\\'))
+      .join('\n')
+      .split(/;\s*\n/)
+      .filter((st) => /AS verdict/.test(st));
+    // Anchor: exactly one statement carries a verdict, or this reads nothing.
+    expect(statements).toHaveLength(1);
+    return statements[0].split(":'only'").join('$1::text');
+  }
+
+  const RUN_AT = '2026-10-15T05:00:00Z';
+
+  /**
+   * `n` dated OSM rows for one country; `recent` of them edited `minutesBefore`
+   * minutes before the run (an hour unless said), the rest years before.
+   */
+  async function seedCountry(
+    code: string,
+    n: number,
+    recent: number,
+    minutesBefore = 60,
+  ) {
+    await db.query(
+      `INSERT INTO camping_spots
+         (osm_ref, country, slug, type, location, last_seen_at,
+          osm_record_edited_at, osm_record_version)
+       SELECT $1::text || i::text, $1::text, $1::text || '-s' || i::text, 'paid',
+              ST_SetSRID(ST_MakePoint(14, 45), 4326), $4::timestamptz,
+              CASE WHEN i <= $3::int
+                   THEN $4::timestamptz - ($5::int * interval '1 minute')
+                   ELSE '2019-03-01T00:00:00Z'::timestamptz - (i::text || ' days')::interval
+              END,
+              3
+         FROM generate_series(1, $2::int) AS i`,
+      [code, n, recent, RUN_AT, minutesBefore],
+    );
+  }
+
+  const verdicts = async (prefix: string) =>
+    Object.fromEntries(
+      (
+        await db.query<{ country: string; verdict: string }>(verdictSql(), [''])
+      ).rows
+        .filter((r) => r.country.startsWith(prefix))
+        .map((r) => [r.country, r.verdict]),
+    );
+
+  it('🔴 one substituted country among twenty-six honest ones is RED — and the honest ones are not', async () => {
+    for (let i = 0; i < 26; i++) {
+      await seedCountry(`HN${String(i).padStart(2, '0')}`, 300, 1);
+    }
+    await seedCountry('HNXX', 150, 150);
+    const v = await verdicts('HN');
+    expect(Object.keys(v)).toHaveLength(27);
+    expect(v.HNXX).toMatch(/^RED/);
+    expect(
+      Object.entries(v)
+        .filter(([c]) => c !== 'HNXX')
+        .map(([, x]) => x),
+    ).toEqual(Array(26).fill('ok'));
+    // …which is exactly what the old all-countries percentage could not say:
+    // 150 recent of 7 950 dated rows is under 2%.
+    const overall = (
+      await db.query(
+        `SELECT 100.0 * count(*) FILTER (WHERE osm_record_edited_at >= last_seen_at - interval '48 hours')
+                / count(*) AS pct
+           FROM camping_spots WHERE country LIKE 'HN%'`,
+      )
+    ).rows[0].pct;
+    expect(Number(overall)).toBeLessThan(3);
+  });
+
+  it('🔴 the small countries the importer once could not judge are RED at 100%: Malta 14, Cyprus 55, Luxembourg 83', async () => {
+    await seedCountry('SMT', 14, 14);
+    await seedCountry('SCY', 55, 55);
+    await seedCountry('SLU', 83, 83);
+    expect(await verdicts('S')).toMatchObject({
+      SMT: expect.stringMatching(/^RED/),
+      SCY: expect.stringMatching(/^RED/),
+      SLU: expect.stringMatching(/^RED/),
+    });
+  });
+
+  it('below the floor it is SUSPECT, never ok: nine rows at 100% is not a clean bill of health', async () => {
+    await seedCountry('UNI', 9, 9);
+    await seedCountry('UNJ', 9, 2);
+    const v = await verdicts('UN');
+    expect(v.UNI).toMatch(/^SUSPECT/);
+    expect(v.UNJ).toBe('ok');
+  });
+
+  it('`-v only=XX` narrows it to one country', async () => {
+    const rows = (await db.query(verdictSql(), ['HNXX'])).rows;
+    expect(rows.map((r) => r.country)).toEqual(['HNXX']);
+  });
+
+  it("🔴 the file's verdict and the importer's agree on every case around the line, and on the floor", async () => {
+    // (n, recent) pairs straddling the 90% line and the floor. Each is
+    // seeded as its own country, judged by THE FILE, and judged by
+    // `loadDateVerdict` on the same dates — RED must mean "the importer
+    // would refuse it", and SUSPECT "it is under the floor and over the line".
+    const cases: [number, number, number][] = [];
+    for (const n of [5, 9, 10, 11, 19, 20, 27, 30, 99, 100, 101, 250]) {
+      for (const recent of new Set([
+        0,
+        Math.max(0, Math.floor(0.9 * n) - 1),
+        Math.floor(0.9 * n),
+        Math.ceil(0.9 * n),
+        Math.min(n, Math.ceil(0.9 * n) + 1),
+        n,
+      ])) {
+        cases.push([n, recent, 60]);
+      }
+    }
+    // The WINDOW, as well as the line and the floor: every recent row sits
+    // 47 h, exactly 48 h, 48 h and a minute, and 72 h before the run. Review's
+    // mutation — the file's window shortened to an hour — survived the grid
+    // above, because every "recent" row in it was an hour old.
+    for (const minutes of [47 * 60, 48 * 60, 48 * 60 + 1, 72 * 60]) {
+      cases.push([100, 100, minutes], [20, 18, minutes], [13, 13, minutes]);
+    }
+    for (const [i, [n, recent, minutes]] of cases.entries()) {
+      await seedCountry(`TW${String(i).padStart(3, '0')}`, n, recent, minutes);
+    }
+    const v = await verdicts('TW');
+    expect(Object.keys(v)).toHaveLength(cases.length);
+
+    const started = new Date(RUN_AT);
+    const disagreements: string[] = [];
+    let red = 0;
+    let suspect = 0;
+    for (const [i, [n, recent, minutes]] of cases.entries()) {
+      const dates = [
+        ...Array.from(
+          { length: recent },
+          () => new Date(started.getTime() - minutes * 60_000),
+        ),
+        ...Array.from(
+          { length: n - recent },
+          () => new Date('2019-01-01T00:00:00Z'),
+        ),
+      ];
+      const importerRefuses = loadDateVerdict(dates, started) !== null;
+      // "Over the line" as the IMPORTER counts recent rows, window included.
+      const counted = recentShare(dates, started);
+      const overLine = 10 * counted.recent >= 9 * counted.dated;
+      const want = importerRefuses
+        ? 'RED'
+        : n < MIN_RECORDS_TO_JUDGE && overLine
+          ? 'SUSPECT'
+          : 'ok';
+      const got = v[`TW${String(i).padStart(3, '0')}`].split(':')[0];
+      if (got !== want)
+        disagreements.push(
+          `n=${n} recent=${recent} at ${minutes} min: file ${got}, importer ${want}`,
+        );
+      if (want === 'RED') red++;
+      if (want === 'SUSPECT') suspect++;
+    }
+    expect(disagreements).toEqual([]);
+    // Anchor: the grid really contains all three outcomes, or "they agree"
+    // could mean "they agree that nothing is wrong".
+    expect(red).toBeGreaterThan(8);
+    expect(suspect).toBeGreaterThanOrEqual(2); // n=5 and n=9, each at its first count over the line
+    expect(cases.length - red - suspect).toBeGreaterThan(20);
   });
 });

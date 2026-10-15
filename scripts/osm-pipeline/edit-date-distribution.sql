@@ -71,21 +71,35 @@ SELECT count(*)                                                       AS dated,
   FROM d;
 
 \echo
-\echo '== 4. the substitution test: edit date within 48 h of the import that last saw the row'
-\echo '   real data: a fraction of one percent, and ~0 when the import ran weeks after the extract was cut.'
-\echo '   (measured on the 27 extracts of 24.09.2026, against each extract''s own date: Finland 13.7 %, every other country 0.45 % or less.)'
+\echo '== 4. the substitution test, PER COUNTRY: edit date within 48 h of the import that last saw the row'
+\echo '   real data: a fraction of one percent, and ~0 when the import ran weeks after the extract was cut'
+\echo '   (measured on the 27 extracts of 24.09.2026 against each extract''s own date: Finland 13.7 %, every other country 0.45 % or less).'
 \echo '   the load date written over the edit date: 100 %.'
-SELECT count(*) FILTER (WHERE osm_record_edited_at >= last_seen_at - interval '48 hours')
-                                                                AS edited_within_48h_of_import,
-       count(*)                                                 AS dated,
-       round(100.0 * count(*) FILTER (WHERE osm_record_edited_at >= last_seen_at - interval '48 hours')
-             / NULLIF(count(*), 0), 2)                          AS pct,
-       CASE WHEN count(*) >= 100
-             AND count(*) FILTER (WHERE osm_record_edited_at >= last_seen_at - interval '48 hours')
-                 >= 0.9 * count(*)
+\echo
+\echo '   🔴 PER COUNTRY, because an import runs per country and so does the mistake: one country at 100 %'
+\echo '   among twenty-six honest ones moves an all-countries percentage to ~4 % and prints "ok".'
+\echo '   RED needs 10 or more dated rows and 90 % of them recent — the same rule the importer refuses a country on'
+\echo '   (MIN_RECORDS_TO_JUDGE and MAX_RECENT_SHARE in apps/api/src/osm/record-age.ts; apps/api/src/osm/record-edited.db.spec.ts'
+\echo '   runs THIS statement against those two and fails if they disagree). Below 10 rows the importer cannot judge,'
+\echo '   so 90 % there reads SUSPECT, never ok: a country of 14 rows at 100 % is not a clean bill of health.'
+WITH per AS (
+  SELECT country,
+         count(*) AS dated,
+         count(*) FILTER (WHERE osm_record_edited_at >= last_seen_at - interval '48 hours') AS recent
+    FROM camping_spots
+   WHERE osm_ref IS NOT NULL AND missing_since IS NULL
+     AND osm_record_edited_at IS NOT NULL
+     AND (:'only' = '' OR country = :'only')
+   GROUP BY country
+)
+SELECT country,
+       recent                                  AS edited_within_48h_of_import,
+       dated,
+       round(100.0 * recent / dated, 2)        AS pct,
+       CASE WHEN dated >= 10 AND 10 * recent >= 9 * dated
             THEN 'RED: the dates are the date of the load, not OSM edit dates'
-            ELSE 'ok' END                                       AS verdict
-  FROM camping_spots
- WHERE osm_ref IS NOT NULL AND missing_since IS NULL
-   AND osm_record_edited_at IS NOT NULL
-   AND (:'only' = '' OR country = :'only');
+            WHEN 10 * recent >= 9 * dated
+            THEN 'SUSPECT: fewer than 10 dated rows, too few for the importer to judge - read by hand'
+            ELSE 'ok' END                      AS verdict
+  FROM per
+ ORDER BY (recent::numeric / dated) DESC, country;

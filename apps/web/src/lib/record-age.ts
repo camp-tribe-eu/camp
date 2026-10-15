@@ -9,7 +9,14 @@
 // been vandalised. So the words say what the date IS ("last edited"), the
 // age is said as a plain span of time, and no word in this file means
 // "stale", "outdated", "old data", "unreliable" or "may be wrong".
-// `record-edited.spec.tsx` reads the rendered page for each of them.
+// That is enforced as a PROPERTY, not as a list of words: the visible text
+// of the block is compared, in full and by equality, with the template
+// (tests/unit/record-edited-text.spec.ts on the component,
+// tests/unit/record-edited.spec.ts on the rendered page). A sentence ADDED
+// to any grade — in any words — breaks the equality; a word list is beaten
+// by the next synonym, and the first version of this guard, which compared
+// the caption and checked the fixed sentence by `toContain`, was beaten by a
+// sentence simply appended.
 //
 // 🔴 NOTHING IS HIDDEN. The grade (within a year / one to three years /
 // more than three) is a caption beside the date, never a reason to leave
@@ -20,6 +27,15 @@
 // the place, and it moves every week; the date here moves only when a
 // mapper edits. Nothing in this file accepts `lastSeenAt`, and a missing
 // edit date is "Not known", never the other date.
+//
+// 🔴 A record that comes only from DATAtourisme has no OpenStreetMap date, but
+// the SOURCE dates it: `sources[].updatedAt` of the `datatourisme` entry is the
+// source system's own last-update day (see `SourceInfo.datesAre`). It is shown
+// in the same words with the source's name beside it — and only for a source
+// the registry marks `edited`. The OpenStreetMap entry's `updatedAt` is the
+// other date again, and is never read here.
+
+import { SOURCES } from '@/lib/sources';
 
 /** A year, for the grade. Not 365.25: the boundaries below are whole days a test can point at. */
 export const YEAR_DAYS = 365;
@@ -27,8 +43,21 @@ export const YEAR_DAYS = 365;
 /** OpenStreetMap began in August 2004; an earlier date is not an edit. */
 const OSM_EPOCH_MS = Date.UTC(2004, 7, 1);
 
+/**
+ * The earliest date accepted from a source that dates its own records.
+ *
+ * 🔴 NOT the OpenStreetMap floor. DATAtourisme's legacy records carry real
+ * dates from 2002 (the oldest of 8 752, measured 15.10.2026: 2002-05-24), and
+ * applying 2004-08 to them would turn the oldest records — the ones a reader
+ * most needs to see dated — into "Not known". 1995 only has to refuse the
+ * values a failed cast produces (1970, year 1).
+ */
+const SOURCE_EPOCH_MS = Date.UTC(1995, 0, 1);
+
 /** How far ahead of the page's clock an edit may be (build clock vs OSM's). */
 const FUTURE_SLACK_MS = 86_400_000;
+
+const OSM_SOURCE = { id: 'osm', name: 'OpenStreetMap' } as const;
 
 export type RecordAgeBand = 'fresh' | 'one-to-three' | 'over-three';
 
@@ -50,6 +79,12 @@ export type RecordAgeView =
       month: string;
       /** One of BAND_CAPTION. */
       caption: string;
+      /**
+       * Whose date this is. `osm` for the OpenStreetMap edit date; otherwise
+       * the id and display name of the source whose own date it is
+       * (DATAtourisme). Always set: a date is never printed without it.
+       */
+      source: { id: string; name: string };
     };
 
 /**
@@ -78,12 +113,18 @@ export function bandFor(days: number): RecordAgeBand {
  * UTC throughout, so the build machine's time zone cannot move a record
  * across a month boundary: a record saved at 23:30 UTC on 31 May is May.
  */
-export function recordAge(raw: unknown, now: Date): RecordAgeView {
+export function recordAge(
+  raw: unknown,
+  now: Date,
+  source: { id: string; name: string } = OSM_SOURCE,
+): RecordAgeView {
   if (typeof raw !== 'string') return { known: false };
   const at = new Date(raw);
   const ms = at.getTime();
   if (Number.isNaN(ms)) return { known: false };
-  if (ms < OSM_EPOCH_MS) return { known: false };
+  if (ms < (source.id === 'osm' ? OSM_EPOCH_MS : SOURCE_EPOCH_MS)) {
+    return { known: false };
+  }
   if (ms > now.getTime() + FUTURE_SLACK_MS) return { known: false };
 
   // A date a little ahead of the clock is "today", not minus one.
@@ -99,5 +140,53 @@ export function recordAge(raw: unknown, now: Date): RecordAgeView {
       timeZone: 'UTC',
     }),
     caption: BAND_CAPTION[band],
+    source,
   };
+}
+
+
+/**
+ * Which date the page prints under "Record last edited", and whose it is.
+ *
+ * The OpenStreetMap edit date wins where there is one. Where there is none —
+ * every record that comes only from DATAtourisme, which has no OSM object —
+ * the source's OWN date for the record is used instead, with the source named
+ * beside it so a reader sees whose record is meant.
+ *
+ * 🔴 WHICH `sources[].updatedAt` MAY BE READ IS DECIDED BY THE REGISTRY, not by
+ * this function: only a source whose `datesAre` is `edited`. The OpenStreetMap
+ * entry carries `updatedAt` too — the day OUR importer last looked, this week
+ * for nearly every campsite — and reading "any source's updatedAt" would put
+ * exactly that under the label. An id the registry does not know is not read
+ * either: an unknown source's date has an unknown meaning.
+ *
+ * `sources` is the API's, unchecked (absent, malformed entries and all); a
+ * malformed entry is skipped, never guessed at.
+ */
+export function recordEdit(
+  osmRecordEditedAt: unknown,
+  sources: unknown,
+  now: Date,
+): RecordAgeView {
+  const osm = recordAge(osmRecordEditedAt, now);
+  if (osm.known) return osm;
+
+  const entries = Array.isArray(sources) ? sources : [];
+  // Sorted by id, so two sources with an edit date never depend on array order.
+  const dated = entries
+    .filter(
+      (e): e is { id: string; updatedAt: unknown } =>
+        typeof e === 'object' && e !== null && typeof e.id === 'string',
+    )
+    .sort((a, b) => a.id.localeCompare(b.id));
+  for (const entry of dated) {
+    const info = SOURCES[entry.id];
+    if (!info || info.datesAre !== 'edited') continue;
+    const view = recordAge(entry.updatedAt, now, {
+      id: info.id,
+      name: info.name,
+    });
+    if (view.known) return view;
+  }
+  return { known: false };
 }

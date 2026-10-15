@@ -1,10 +1,13 @@
-import { recordAge } from '@/lib/record-age';
+import { recordEdit } from '@/lib/record-age';
+import { SOURCES } from '@/lib/sources';
 
 // CAMP-256 — "Record last edited: June 2023".
 //
-// The day a mapper last changed this place's entry in OpenStreetMap, as
-// plain text beside the facilities it describes, and "Not known" where we
-// do not have it.
+// The day a mapper last changed this place's entry in OpenStreetMap — or,
+// for a record that comes only from DATAtourisme, the day its source system
+// last updated it, with DATAtourisme named beside the date — as plain text
+// beside the facilities it describes, and "Not known" where no source we
+// hold dates the place.
 //
 // 🔴 "THE RECORD THIS PAGE IS BUILT ON", not "this place's entry". One page
 // is usually one OpenStreetMap object. Where the importer merged a node and
@@ -44,28 +47,46 @@ import { recordAge } from '@/lib/record-age';
 // beside it is absolute.
 
 /**
- * 🔴 Under "Not known", and the reason it is there. 5 139 of the 52 741
- * campsite pages in the dev database (15.10.2026) have no OpenStreetMap object
- * at all — they come from DATAtourisme, whose own date sits in the box at
- * the foot of the page. "Record last edited: Not known" with nothing more
- * would read, just above that date, as though we did not know when ANY
- * record of this place was last changed; this says which date is missing.
+ * 🔴 Under "Not known", and the reason it is there: without it, "Record last
+ * edited: Not known" would read as though NO record of this place had a date,
+ * when the point is that none of the sources we hold dates this one. The
+ * sources named are the ones that CAN date a record — OpenStreetMap, and every
+ * source the registry marks `edited` — read from the registry, so adding a
+ * source there changes this sentence and the page with it.
  */
-export const RECORD_EDITED_UNKNOWN =
-  'We hold no edit date from OpenStreetMap for this place.';
+export const RECORD_EDITED_UNKNOWN = `We hold no edit date for this place from ${[
+  'OpenStreetMap',
+  ...Object.values(SOURCES)
+    .filter((s) => s.datesAre === 'edited')
+    .map((s) => s.name),
+].join(' or ')}.`;
 
+/** The OpenStreetMap date's sentence. "The record this page is built on": see the header. */
 export const RECORD_EDITED_CAVEAT =
   'This is the last time a mapper changed the OpenStreetMap record this page is built on, not the day we last checked it. An older date says when it was last touched, not whether it is right.';
 
+/**
+ * A source's OWN date. "As of our last import" is in the sentence because it
+ * is true and it matters: the source keeps editing, and a page built from last
+ * month's import cannot know it (checked 15.10.2026: of 15 DATAtourisme
+ * records, 3 had been updated at the source after our snapshot).
+ */
+export const recordEditedCaveatFor = (sourceName: string) =>
+  `This is the last time the source system behind ${sourceName} updated this record, as of our last import, not the day we last checked it. An older date says when it was last touched, not whether it is right.`;
+
 export default function RecordEdited({
-  editedAt,
+  osmEditedAt,
+  sources,
   now = new Date(),
 }: {
   /** The API's `osmRecordEditedAt`, unchecked: an ISO instant, null, or absent. */
-  editedAt: unknown;
+  osmEditedAt: unknown;
+  /** The API's `sources`, unchecked. Read only through `recordEdit`. */
+  sources?: unknown;
   now?: Date;
 }) {
-  const age = recordAge(editedAt, now);
+  const age = recordEdit(osmEditedAt, sources, now);
+  const own = age.known && age.source.id !== 'osm' ? age.source : null;
 
   return (
     <div data-testid="record-edited" data-band={age.known ? age.band : 'unknown'}>
@@ -76,6 +97,17 @@ export default function RecordEdited({
             <time dateTime={age.day} className="text-heading">
               {age.month}
             </time>
+            {/* The source's name beside a date that is the source's own, so
+                a reader sees whose record is meant. The same on every page
+                it appears on, so it is marked. */}
+            {own && (
+              <>
+                {' '}
+                <span data-boilerplate={`record-edited-source-${own.id}`}>
+                  ({own.name})
+                </span>
+              </>
+            )}
             {' — '}
             {/* One name per grade: each is word for word the same on every
                 page it appears on, which is the rule the mark is held to. */}
@@ -90,10 +122,16 @@ export default function RecordEdited({
       <p
         className="mt-1 max-w-prose text-xs leading-5 text-ink-2"
         data-boilerplate={
-          age.known ? 'record-edited-caveat' : 'record-edited-unknown'
+          age.known
+            ? `record-edited-caveat${own ? `-${own.id}` : ''}`
+            : 'record-edited-unknown'
         }
       >
-        {age.known ? RECORD_EDITED_CAVEAT : RECORD_EDITED_UNKNOWN}
+        {age.known
+          ? own
+            ? recordEditedCaveatFor(own.name)
+            : RECORD_EDITED_CAVEAT
+          : RECORD_EDITED_UNKNOWN}
       </p>
     </div>
   );

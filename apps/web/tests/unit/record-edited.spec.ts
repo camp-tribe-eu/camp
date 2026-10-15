@@ -125,7 +125,41 @@ const recordLine = (text: string): string | null => {
   return m ? m[0].trim() : null;
 };
 
-const UNKNOWN_SENTENCE = 'We hold no edit date from OpenStreetMap for this place.';
+/**
+ * The WHOLE block as the page prints it: from the label to the heading of the
+ * next section, with nothing cut off.
+ *
+ * 🔴 `recordLine` above stops at the fixed sentence, which is right for
+ * reading the date line and was WRONG as the only guard: whatever is added
+ * after that point was never compared with anything. This keeps everything
+ * the page prints in between, so a sentence appended anywhere in the block is
+ * part of what the test compares.
+ */
+const recordBlock = (text: string): string | null => {
+  const m = /Record last edited: .*?(?= Getting there|$)/s.exec(text);
+  return m ? m[0].trim() : null;
+};
+
+const UNKNOWN_SENTENCE =
+  'We hold no edit date for this place from OpenStreetMap or DATAtourisme.';
+const CAVEAT_DT =
+  'This is the last time the source system behind DATAtourisme updated this record, as of our last import, not the day we last checked it. An older date says when it was last touched, not whether it is right.';
+
+/** A source entry as the API sends it. `updatedAt` is a DAY for DATAtourisme. */
+const datatourisme = (updatedAt: string) => ({
+  id: 'datatourisme',
+  ref: 'https://data.datatourisme.fr/13/71389ebb-090b-3ff0-ac17-386c0ab52a21',
+  updatedAt,
+  fields: ['name', 'location'],
+});
+const osmLookedThisWeek = {
+  id: 'osm',
+  ref: 'w1',
+  updatedAt: '2026-10-12',
+  fields: ['name', 'location', 'amenities'],
+};
+/** `YYYY-MM-DD`, as DATAtourisme gives it: no time of day. */
+const dayAgo = (n: number) => daysAgo(n).slice(0, 10);
 const CAVEAT =
   'This is the last time a mapper changed the OpenStreetMap record this page is built on, not the day we last checked it. An older date says when it was last touched, not whether it is right.';
 
@@ -239,6 +273,122 @@ test.describe('the campsite page says when its record was last edited', () => {
     expect(text).toContain('Camping Owner');
     expect(recordLine(text)).toBe(
       `Record last edited: ${monthYear(at)} — between one and three years ago`,
+    );
+  });
+
+  // 🔴 THE RED RULE AS A PROPERTY. The page's block is exactly the template —
+  // see record-edited-text.spec.ts for why equality and not a word list. This
+  // is the same property read off the REAL page, so a sentence added
+  // anywhere between the label and the next section is compared too.
+  test('🔴 the block on the page is the date line and the fixed sentence, and nothing else — in every grade', async () => {
+    for (const [days, caption] of [
+      [100, 'within the last year'],
+      [400, 'between one and three years ago'],
+      [1500, 'more than three years ago'],
+    ] as [number, string][]) {
+      const at = daysAgo(days);
+      const text = await pageText({ osmRecordEditedAt: at });
+      expect(recordBlock(text)).toBe(
+        `Record last edited: ${monthYear(at)} — ${caption} ${CAVEAT}`,
+      );
+    }
+  });
+
+  test('🔴 …and so is the block with no date', async () => {
+    const text = await pageText({ osmRecordEditedAt: null });
+    expect(recordBlock(text)).toBe(
+      `Record last edited: Not known ${UNKNOWN_SENTENCE}`,
+    );
+  });
+
+  test('anchor for the two above: the block really is found, and the next heading really ends it', async () => {
+    const text = await pageText({ osmRecordEditedAt: daysAgo(400) });
+    expect(recordBlock(text)?.length).toBeGreaterThan(200);
+    expect(recordBlock(text)).not.toContain('Getting there');
+    expect(text).toContain('Getting there');
+  });
+
+  // ---- a record that comes ONLY from DATAtourisme -------------------------
+  //
+  // It has no OpenStreetMap date, but the source dates its own records
+  // (`sources[].updatedAt`, a day). Shown in the same words, with the source's
+  // name beside it, and the block still equal to its template.
+
+  test('🔴 a DATAtourisme-only page: the source date, the source named, its own sentence, nothing else', async () => {
+    for (const [days, caption] of [
+      [100, 'within the last year'],
+      [400, 'between one and three years ago'],
+      [1500, 'more than three years ago'],
+    ] as [number, string][]) {
+      const day = dayAgo(days);
+      const text = await pageText({
+        osmRecordEditedAt: null,
+        sources: [datatourisme(day)],
+      });
+      expect(recordBlock(text)).toBe(
+        `Record last edited: ${monthYear(day)} (DATAtourisme) — ${caption} ${CAVEAT_DT}`,
+      );
+    }
+  });
+
+  test('the oldest record we hold, 2002-05-24, is printed — not read as "before OpenStreetMap"', async () => {
+    const text = await pageText({
+      osmRecordEditedAt: null,
+      sources: [datatourisme('2002-05-24')],
+    });
+    expect(recordBlock(text)).toBe(
+      `Record last edited: May 2002 (DATAtourisme) — more than three years ago ${CAVEAT_DT}`,
+    );
+  });
+
+  test('it is the same date the source box prints, and the box still says whose', async () => {
+    const day = dayAgo(400);
+    const text = await pageText({
+      osmRecordEditedAt: null,
+      sources: [datatourisme(day)],
+    });
+    expect(text).toContain('Last updated by the source on');
+    // The box prints the full day; the block prints the month of that day.
+    const full = new Date(day).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+    expect(text).toContain(full);
+    expect(recordBlock(text)).toContain(monthYear(day));
+  });
+
+  test('🔴 an OpenStreetMap edit date wins over a DATAtourisme date, and the OSM wording is used', async () => {
+    const osm = daysAgo(400);
+    const text = await pageText({
+      osmRecordEditedAt: osm,
+      sources: [osmLookedThisWeek, datatourisme(dayAgo(100))],
+    });
+    expect(recordBlock(text)).toBe(
+      `Record last edited: ${monthYear(osm)} — between one and three years ago ${CAVEAT}`,
+    );
+    expect(recordBlock(text)).not.toContain('DATAtourisme');
+  });
+
+  test('🔴 the OpenStreetMap source entry`s updatedAt — the day we looked — is never the edit date', async () => {
+    // `sources` holds an `osm` entry dated 12 October 2026 and nothing else.
+    const text = await pageText({
+      osmRecordEditedAt: null,
+      sources: [osmLookedThisWeek],
+    });
+    expect(recordBlock(text)).toBe(
+      `Record last edited: Not known ${UNKNOWN_SENTENCE}`,
+    );
+  });
+
+  test('a source the registry does not mark as dating its own records is not read', async () => {
+    const text = await pageText({
+      osmRecordEditedAt: null,
+      sources: [{ id: 'eea-bathing-water', ref: 'x', updatedAt: dayAgo(30), fields: [] }],
+    });
+    expect(recordBlock(text)).toBe(
+      `Record last edited: Not known ${UNKNOWN_SENTENCE}`,
     );
   });
 });

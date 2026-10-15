@@ -20,7 +20,8 @@ import { renderComponent } from './render-component';
 
 const NOW = new Date('2026-10-15T20:00:00.000Z');
 
-const render = (editedAt: unknown) => renderComponent(RecordEdited, { editedAt, now: NOW });
+const render = (osmEditedAt: unknown, sources?: unknown) =>
+  renderComponent(RecordEdited, { osmEditedAt, sources, now: NOW });
 
 /** Every marked block as `name::text`, read by the GUARD'S OWN WALK. */
 const marked = (html: string): string[] =>
@@ -69,11 +70,26 @@ test.describe('the marks on the "Record last edited" line', () => {
     ]);
   });
 
+  test('🔴 a DATAtourisme date: the source name and its sentence are marked, the month is not, and two records agree', () => {
+    const dt = (d: string) => [{ id: 'datatourisme', ref: 'r', updatedAt: d, fields: [] }];
+    const a = render(null, dt('2024-03-02'));
+    const b = render(null, dt('2025-01-20'));
+    expect(marked(a)).toEqual(marked(b));
+    expect(marked(a)).toEqual([
+      'record-edited-label::Record last edited:',
+      'record-edited-source-datatourisme::(DATAtourisme)',
+      'record-edited-caption-one-to-three::between one and three years ago',
+      'record-edited-caveat-datatourisme::This is the last time the source system behind DATAtourisme updated this record, as of our last import, not the day we last checked it. An older date says when it was last touched, not whether it is right.',
+    ]);
+    expect(visibleHtmlText(a)).not.toBe(visibleHtmlText(b));
+    expect(visibleHtmlText(a)).toContain('march 2024');
+  });
+
   test('"Not known": the label and the fixed sentence are marked, and "Not known" is still read', () => {
     const html = render(null);
     expect(marked(html)).toEqual([
       'record-edited-label::Record last edited:',
-      'record-edited-unknown::We hold no edit date from OpenStreetMap for this place.',
+      'record-edited-unknown::We hold no edit date for this place from OpenStreetMap or DATAtourisme.',
     ]);
     expect(visibleHtmlText(html)).toContain('not known');
   });

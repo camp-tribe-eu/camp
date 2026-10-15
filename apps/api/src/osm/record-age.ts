@@ -112,8 +112,29 @@ export function readRecordAge(
 /** Records edited within this long of the run are "recent" for the verdict. */
 export const RECENT_WINDOW_HOURS = 48;
 
-/** Fewer dated records than this say nothing about a country. */
-export const MIN_RECORDS_TO_JUDGE = 100;
+/**
+ * Fewer dated records than this say nothing about a country.
+ *
+ * 🔴 TEN, and it was a hundred. A hundred left every country the importer
+ * could not judge — Malta (13 dated records in the 27 extracts, 15.10.2026),
+ * Åland (19), Cyprus (55) and Luxembourg (83) — and a substituted date loaded
+ * there without a word: review watched Malta take the load date while Austria
+ * was refused. The smallest country we hold has 13 dated records, so ten
+ * judges all 28 codes the database holds.
+ *
+ * The floor is not zero for one reason: with a handful of records, "nine of
+ * ten were edited this week" is one mapper's afternoon, not a verdict. At
+ * ten it is still possible and still cheap — a refused country is retried
+ * after the 48 hours have passed, and the refusal names what it saw. This is a
+ * judgement, not a measurement: the measured part is the other side of the
+ * line (no country's real data is anywhere near 90% recent; Finland, with a
+ * mass edit, is 13.7%).
+ *
+ * `scripts/osm-pipeline/edit-date-distribution.sql` carries the same floor, and
+ * `record-edited.db.spec.ts` runs that file's statement against this function
+ * and fails if the two disagree.
+ */
+export const MIN_RECORDS_TO_JUDGE = 10;
 
 /**
  * The share of recently-edited records at or above which a country's dates
