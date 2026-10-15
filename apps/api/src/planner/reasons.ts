@@ -45,8 +45,10 @@
 // NOT `water`, which in the snapshot is the amenity "drinking water at the
 // campsite", a different thing with a different number.
 //
-// 🔴 WORDING. Distances are straight lines and say so, in the words
-// route-services.tsx already uses ("180 m away in a straight line"). The
+// 🔴 WORDING. Distances are straight lines and say so, in the words the site
+// already uses: "180 m away in a straight line" is assembled in
+// apps/web/src/components/route-services.tsx (from STRAIGHT_LINE_LABEL in
+// lib/routes.ts) and written out in apps/web/src/lib/jsonld.ts. The
 // text never says "nearest": for water the stored object is the planar-
 // nearest one (context-sql.ts, CAMP-323), so "a lake 800 m away" is true and
 // "the nearest lake" might not be.
@@ -209,10 +211,25 @@ const AMENITY_PHRASE: Record<string, string> = {
   greyWater: 'grey-water disposal',
 };
 
+/**
+ * 🔴 EACH LABEL IS TRUE FOR EVERY VALUE THE LAYER ADMITS, not for the common
+ * one. `context.station` is `railway=station` OR `railway=halt` and
+ * `context.town` is `place=city` OR `place=town` (STATION_RAILWAY_VALUES and
+ * TOWN_PLACE_VALUES in osm/context-sql.ts), and the stored context does not
+ * say which: `{ m, name }`. This printed "Railway station" and "Town", and
+ * 3 163 of 9 838 station reasons stood on a halt and 197 of 3 524 town reasons
+ * on a city (measured 15.10.2026 on `camptribe_dev`, by matching each reason
+ * to its layer feature on name and distance). A halt is a platform, often with
+ * no staff and no ticket office; someone planning to arrive by train would
+ * decide on "station". "Railway stop" is true of both; "City or town" is true
+ * of both. If the kind is ever stored, the text may say more when it is
+ * present — and must still say this when it is not, which is every row until
+ * the context is recomputed.
+ */
 const SURROUNDING_LABEL: Record<Exclude<ContextKey, 'water'>, string> = {
   supermarket: 'Supermarket',
-  station: 'Railway station',
-  town: 'Town',
+  station: 'Railway stop',
+  town: 'City or town',
 };
 
 const upperFirst = (s: string): string => s[0].toUpperCase() + s.slice(1);

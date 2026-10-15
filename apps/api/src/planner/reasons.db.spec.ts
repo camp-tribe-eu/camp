@@ -90,8 +90,9 @@ afterAll(async () => {
 // ON the meridian, so "along" is a difference of latitude.
 //
 //   rich      cut 1   every amenity yes, five stars, all four surroundings
-//   partial   cut 2   electricity yes; a supermarket at 900 m and a lake at
-//                     2 500 m (too far to be a reason); no rating
+//   partial   cut 2   7 km PAST the cut. Electricity yes; a supermarket at
+//                     900 m and a lake at 2 500 m (too far to be a reason);
+//                     no rating
 //   bare      cut 3   nothing but a position: every amenity `unknown` (the
 //                     importer's own spelling), no rating, an empty context
 //   d1/d2/d3  ±25 km  no tags, no context: worse than the campsite on the
@@ -105,6 +106,9 @@ const DEGREE_M = (R * Math.PI) / 180;
 const LAT0 = 40;
 const LON = 10;
 const EVEN_KM = DEGREE_M / 1000; // 111.195 km: four degrees in four days
+
+/** How far past its cut `partial` lies: it is not on the cut, and says so. */
+const PAST_KM = 7;
 
 const FULL_TAGS = { power_supply: 'yes', sanitary_dump_station: 'yes' };
 
@@ -151,7 +155,7 @@ async function buildFixture(): Promise<void> {
       at: { lat: 48.38, lon: 2.8 },
     },
   });
-  await put('partial', 2 * EVEN_KM, {
+  await put('partial', 2 * EVEN_KM + PAST_KM, {
     tags: { power_supply: 'yes' },
     context: {
       supermarket: { m: 900 },
@@ -271,7 +275,7 @@ const RICH = [
     unit: 'm',
     name: 'Moret-sur-Loing',
     weighed: false,
-    text: 'Railway station (Moret-sur-Loing) 948 m away in a straight line',
+    text: 'Railway stop (Moret-sur-Loing) 948 m away in a straight line',
   },
   {
     field: 'context.town',
@@ -279,7 +283,7 @@ const RICH = [
     unit: 'm',
     name: 'Moret',
     weighed: false,
-    text: 'Town (Moret) 640 m away in a straight line',
+    text: 'City or town (Moret) 640 m away in a straight line',
   },
 ];
 
@@ -376,7 +380,7 @@ describe('🔴 a value changed in the TABLE changes the sentence in the plan', (
       async () => reasonOf((await nights())[0], 'context.station')?.text,
     );
     expect(text).toBe(
-      'Railway station (Moret-sur-Loing) 1.5 km away in a straight line',
+      'Railway stop (Moret-sur-Loing) 1.5 km away in a straight line',
     );
   });
 
@@ -541,5 +545,98 @@ describe('the reasons follow the configuration the plan is handed', () => {
     expect(n1.slug).toBe('rich');
     expect(reasonOf(n1, 'electricity')?.weighed).toBe(false);
     expect(reasonOf(n1, 'greyWater')?.weighed).toBe(true);
+  });
+});
+
+describe('🔴 an empty list is not "unexplained": every night carries where it was asked to fall', () => {
+  // Worked out here, on the meridian, and read from nothing the module
+  // computes: a degree of latitude is DEGREE_M metres on the sphere, the line
+  // is four of them long, so day k should end k × DEGREE_M along it.
+  const cut = (k: number) => k * DEGREE_M;
+
+  it('the night with NO reasons still has its position, its target and its distance from it', async () => {
+    const n3 = (await nights())[2];
+    expect(n3.slug).toBe('bare');
+    expect(n3.reasons).toEqual([]);
+    expect(n3.alongM).toBeCloseTo(cut(3), 0);
+    expect(n3.targetAlongM).toBeCloseTo(cut(3), 0);
+    expect(n3.offsetM).toBeLessThan(1);
+    expect(n3.fromTargetM).toBeLessThan(1);
+  });
+
+  it('a night that is not on its cut says how far: `partial` is 7 000 m past it', async () => {
+    const n2 = (await nights())[1];
+    expect(n2.slug).toBe('partial');
+    expect(n2.alongM).toBeCloseTo(cut(2) + PAST_KM * 1000, 0);
+    expect(n2.targetAlongM).toBeCloseTo(cut(2), 0);
+    expect(n2.fromTargetM).toBeCloseTo(PAST_KM * 1000, 0);
+  });
+
+  it('the targets are the even split of the line: k × length / days, one apart by a day’s run', async () => {
+    const [n1, n2, n3] = await nights();
+    expect(n1.targetAlongM).toBeCloseTo(cut(1), 0);
+    expect(n2.targetAlongM - n1.targetAlongM).toBeCloseTo(DEGREE_M, 0);
+    expect(n3.targetAlongM - n2.targetAlongM).toBeCloseTo(DEGREE_M, 0);
+  });
+
+  it('every one of the four numbers is a finite number on every night, whatever the reasons say', async () => {
+    for (const n of await nights()) {
+      for (const v of [n.alongM, n.offsetM, n.targetAlongM, n.fromTargetM]) {
+        expect(Number.isFinite(v)).toBe(true);
+      }
+    }
+  });
+
+  it('the distance is the one the score was made from: a night that is 7 km off scores lower than the same night on the cut', async () => {
+    // `partial` is the only night with a position gap; its score is the
+    // distance fit of a 7 km miss over one even day, plus a hook-up and a
+    // missing rating's middle: worked out from the weights written here.
+    const n2 = (await nights())[1];
+    const even = DEGREE_M;
+    const expected =
+      0.75 * (1 - (PAST_KM * 1000) / even) + 0.1 * 1 + 0.05 * 0.5;
+    expect(n2.score).toBeCloseTo(expected, 6);
+  });
+});
+
+describe('the distance from the target, with a side-step as well as a run along', () => {
+  // A 3-4-5 triangle: a night 4 000 m along from its cut and 3 000 m to the
+  // side of the line is 5 000 m from where the day should end. The point is
+  // placed with the closed-form spherical triangle (written out here), not
+  // with the corridor's own arithmetic.
+  const LON2 = 20;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const deg = (r: number) => (r * 180) / Math.PI;
+  const onMeridian = (lat0: number, alongM: number, eastM: number) => {
+    const phiF = rad(lat0 + alongM / DEGREE_M);
+    const xt = eastM / R;
+    return {
+      lon: LON2 + deg(Math.atan(Math.tan(xt) / Math.cos(phiF))),
+      lat: deg(Math.asin(Math.sin(phiF) * Math.cos(xt))),
+    };
+  };
+
+  it('is 5 000 m: Pythagoras on 4 000 along and 3 000 across', async () => {
+    const lat0 = 40;
+    const at = onMeridian(lat0, DEGREE_M + 4000, 3000);
+    await db.query(
+      `INSERT INTO camping_spots (slug, country, region, location)
+       VALUES ('side-step', 'FR', 'Region', ST_SetSRID(ST_MakePoint($1, $2), 4326))`,
+      [at.lon, at.lat],
+    );
+    const r = await planItinerary(db, {
+      from: [LON2, lat0],
+      to: [LON2, lat0 + 2],
+      days: 2,
+      band: { minM: 60_000, maxM: 160_000 },
+      bufferM: 30_000,
+    });
+    if (r.status !== 'ok') throw new Error(`not ok: ${JSON.stringify(r)}`);
+    const n = r.days[0].night;
+    expect(n?.slug).toBe('side-step');
+    expect(n?.alongM).toBeCloseTo(DEGREE_M + 4000, 0);
+    expect(n?.offsetM).toBeCloseTo(3000, 0);
+    expect(n?.targetAlongM).toBeCloseTo(DEGREE_M, 0);
+    expect(n?.fromTargetM).toBeCloseTo(5000, 0);
   });
 });

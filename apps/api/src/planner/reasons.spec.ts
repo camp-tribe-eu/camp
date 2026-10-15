@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { STATION_RAILWAY_VALUES, TOWN_PLACE_VALUES } from '../osm/context-sql';
 import { AMENITY_KEYS } from '../osm/tag-mapping';
 import { CoverageSnapshot } from './coverage-snapshot';
 import {
@@ -104,7 +105,7 @@ const FULL_REASONS: Reason[] = [
     unit: 'm',
     name: 'Moret-sur-Loing',
     weighed: false,
-    text: 'Railway station (Moret-sur-Loing) 948 m away in a straight line',
+    text: 'Railway stop (Moret-sur-Loing) 948 m away in a straight line',
   },
   {
     field: 'context.town',
@@ -112,7 +113,7 @@ const FULL_REASONS: Reason[] = [
     unit: 'm',
     name: 'Moret',
     weighed: false,
-    text: 'Town (Moret) 640 m away in a straight line',
+    text: 'City or town (Moret) 640 m away in a straight line',
   },
 ];
 
@@ -184,18 +185,18 @@ describe('🔴 a substituted value changes the sentence — and the machine part
     [
       'context.station',
       { context: { station: { m: 948 } } },
-      'Railway station 948 m away in a straight line',
+      'Railway stop 948 m away in a straight line',
       { context: { station: { m: 1500 } } },
-      'Railway station 1.5 km away in a straight line',
+      'Railway stop 1.5 km away in a straight line',
       948,
       1500,
     ],
     [
       'context.town',
       { context: { town: { m: 640 } } },
-      'Town 640 m away in a straight line',
+      'City or town 640 m away in a straight line',
       { context: { town: { m: 90 } } },
-      'Town 90 m away in a straight line',
+      'City or town 90 m away in a straight line',
       640,
       90,
     ],
@@ -243,11 +244,13 @@ describe('🔴 a substituted value changes the sentence — and the machine part
         context: { town: { m: 640, name } },
       });
       expect(r).toHaveLength(1);
-      expect(r[0].text).toBe('Town 640 m away in a straight line');
+      expect(r[0].text).toBe('City or town 640 m away in a straight line');
       expect(r[0]).not.toHaveProperty('name');
     }
     const padded = reasons({ context: { town: { m: 640, name: '  Moret ' } } });
-    expect(padded[0].text).toBe('Town (Moret) 640 m away in a straight line');
+    expect(padded[0].text).toBe(
+      'City or town (Moret) 640 m away in a straight line',
+    );
   });
 
   it('electricity and grey water have one value that is a reason, `yes`: change it and the reason is gone', () => {
@@ -530,7 +533,7 @@ describe('how close is close: the radius of each surrounding, pinned from both s
     expect(got[0].value).toBe(346.6);
     expect(got[0].text).toBe('Supermarket 347 m away in a straight line');
     const km = reasons({ context: { station: { m: 1500.4 } } });
-    expect(km[0].text).toBe('Railway station 1.5 km away in a straight line');
+    expect(km[0].text).toBe('Railway stop 1.5 km away in a straight line');
   });
 
   it('a distance of zero is a distance: the feature is ON the campsite', () => {
@@ -734,5 +737,67 @@ describe('🔴 a reason that stands on a field nobody measured refuses to load',
 
   it('a field measured at zero is measured: the table says how often, and it is never', () => {
     expect(checkReasons([source('a')], snapshot({ a: 0 }))).toEqual([]);
+  });
+});
+
+describe('🔴 a label is true of every kind of feature the layer admits', () => {
+  // `context.station` and `context.town` are filled from layers that admit
+  // two OSM values each, and the stored `{ m, name }` does not say which one
+  // a row came from (reasons-layers.db.spec.ts runs the real SQL over a halt
+  // and a city). So ONE sentence has to be true of every admitted value. This
+  // table is what is true of each, written by hand: a halt is a platform that
+  // may have no staff and no ticket office, so it is a stop and not a
+  // station; a city is not a town.
+  const TRUE_OF: Record<string, string[]> = {
+    station: ['Railway station', 'Railway stop'],
+    halt: ['Railway stop'],
+    city: ['City or town', 'City'],
+    town: ['City or town', 'Town'],
+  };
+
+  it('the layers admit these, and no other: a new value is a new claim to word', () => {
+    expect([...STATION_RAILWAY_VALUES]).toEqual(['station', 'halt']);
+    expect([...TOWN_PLACE_VALUES]).toEqual(['city', 'town']);
+    // Every admitted value has a row in the table above, and none is extra.
+    expect(Object.keys(TRUE_OF).sort()).toEqual(
+      [...STATION_RAILWAY_VALUES, ...TOWN_PLACE_VALUES].sort(),
+    );
+  });
+
+  it.each([...STATION_RAILWAY_VALUES])(
+    'railway=%s: the sentence is one that is true of it',
+    (kind) => {
+      const text = reasons({
+        context: { station: { m: 28, name: 'Hamnen' } },
+      })[0].text;
+      expect(
+        TRUE_OF[kind].some((label) =>
+          text.startsWith(`${label} (Hamnen) 28 m`),
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each([...TOWN_PLACE_VALUES])(
+    'place=%s: the sentence is one that is true of it',
+    (kind) => {
+      const text = reasons({
+        context: { town: { m: 640, name: 'Moret' } },
+      })[0].text;
+      expect(
+        TRUE_OF[kind].some((label) =>
+          text.startsWith(`${label} (Moret) 640 m`),
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it('and a record that says nothing of the kind gets the same words with a name or without', () => {
+    expect(reasons({ context: { station: { m: 28 } } })[0].text).toBe(
+      'Railway stop 28 m away in a straight line',
+    );
+    expect(reasons({ context: { town: { m: 640 } } })[0].text).toBe(
+      'City or town 640 m away in a straight line',
+    );
   });
 });

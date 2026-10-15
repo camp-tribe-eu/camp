@@ -649,6 +649,7 @@ describe('🔴 distances are straight lines, and say so', () => {
       'alongM',
       'amenities',
       'country',
+      'fromTargetM',
       'lat',
       'lon',
       'needs',
@@ -657,6 +658,7 @@ describe('🔴 distances are straight lines, and say so', () => {
       'score',
       'slug',
       'stars',
+      'targetAlongM',
     ]);
   });
 });
