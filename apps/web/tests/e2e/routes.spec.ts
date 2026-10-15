@@ -248,6 +248,72 @@ test.describe('a route page', () => {
     );
   });
 
+  // 🔴 CAMP-119, SECOND HALF — the chain from the database to the reader,
+  // in a browser, through the real API.
+  //
+  // The first half put rest areas and service areas into the table and
+  // touched nothing in this workspace; the data reached the database and
+  // stopped. This is the test that fails if it stops again anywhere
+  // between `osm_route_poi` and a sentence on the page: the rows are the
+  // ones in ci-seed-route-poi.sql, which are real OpenStreetMap objects
+  // chosen next to this route's stages, and every assertion is about what
+  // the page SAYS about them.
+  test('🔴 a rest area is listed with its distance, and its facilities say yes, no or not known', async ({
+    page,
+  }) => {
+    await page.goto('/routes/france-atlantic-coast');
+    const blocks = page.getByTestId('stage-services');
+
+    const row = (stage: number, kind: 'rest_area' | 'service_area') =>
+      blocks.nth(stage).getByTestId(`service-${kind}`);
+    const facilities = (stage: number, kind: 'rest_area' | 'service_area') =>
+      row(stage, kind).getByTestId('service-facilities');
+
+    // Stage 1: OSM says nothing about this rest area. Five "Not known",
+    // and — the whole point — not one "No".
+    await expect(row(0, 'rest_area')).toContainText('Aire de repos des Bossioux');
+    await expect(row(0, 'rest_area')).toContainText('km away in a straight line');
+    await expect(facilities(0, 'rest_area')).toContainText('Toilets: Not known');
+    await expect(facilities(0, 'rest_area')).toContainText('Fee: Not known');
+    await expect(facilities(0, 'rest_area')).not.toContainText(/: (?:No(?!t)|Yes)\b/);
+
+    // Stage 2: a written yes.
+    await expect(row(1, 'rest_area')).toContainText('Houmée');
+    await expect(facilities(1, 'rest_area')).toContainText('Toilets: Yes');
+    await expect(facilities(1, 'rest_area')).toContainText('Shower: Not known');
+
+    // Stage 3: a written NO — a different word from the gap above it.
+    await expect(row(2, 'rest_area')).toContainText('La Rivière');
+    await expect(facilities(2, 'rest_area')).toContainText('Toilets: No');
+    await expect(facilities(2, 'rest_area')).not.toContainText('Toilets: Not known');
+
+    // Stage 6: a service area, with the contact fields it has.
+    await expect(row(5, 'service_area')).toContainText('Aire de Labenne');
+    await expect(row(5, 'service_area')).toContainText('km away in a straight line');
+    await expect(facilities(5, 'service_area')).toContainText('Toilets: Yes');
+
+    // And where the fixture holds none, the page says so about the
+    // ground it examined — not a blank, and not a facilities block.
+    await expect(blocks.nth(1).getByTestId('service-service_area-absent')).toContainText(
+      'Our database holds no service area within 25 km of this stop.',
+    );
+    await expect(blocks.nth(3).getByTestId('service-rest_area-absent')).toBeVisible();
+
+    // Not a minute anywhere on a stopping-place row: there is no routing
+    // engine, and the distance is a straight line.
+    for (const [stage, kind] of [
+      [0, 'rest_area'],
+      [1, 'rest_area'],
+      [2, 'rest_area'],
+      [5, 'service_area'],
+    ] as const) {
+      const text = (await row(stage, kind).textContent()) ?? '';
+      expect(text, `${kind} at stage ${stage + 1} promised a travel time`).not.toMatch(
+        /\bmin(?:ute)?s?\b|\bdriv(?:e|ing)\b|\bby road\b/i,
+      );
+    }
+  });
+
   // 🔴 The narrowing, stated on the page. CAMP-113 depends on CAMP-111
   // and CAMP-111 is not done, so this ships OSM alone — and a reader has
   // to be able to tell that from the page, or an absent charging point
