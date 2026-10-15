@@ -123,6 +123,12 @@ describe('the command the unit names is a live entry point', () => {
             ...process.env,
             NODE_OPTIONS: '',
             DATABASE_URL: 'postgres://127.0.0.1:1/never',
+            // Transpile only (0.3 s of CPU against 1.8 s type-checked): the
+            // types are tsc's job, and this child shares a machine with
+            // timing specs. `rootDir` because TypeScript 6 refuses an
+            // `outDir` it cannot place when it is not given the file list.
+            TS_NODE_TRANSPILE_ONLY: 'true',
+            TS_NODE_COMPILER_OPTIONS: '{"rootDir":"."}',
           },
           timeout: 60_000,
         },
