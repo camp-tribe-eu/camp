@@ -143,6 +143,12 @@ test.describe('a campsite page says the answer outright', () => {
     expect(text).toContain('That is a gap in the data, not a no.');
     expect(text).toContain('Check on the spot or before you go');
     expect(text).toContain('Signs at the place');
+    // Read as it is served: the item ends on a whole phrase, not on a
+    // preposition that leaves the sentence hanging ("…along the road in.").
+    expect(text).toContain(
+      'Signs at the place — a no-overnight, no-camping or no-motorhome sign at the entrance or on the road leading to it.',
+    );
+    expect(text).not.toContain('the road in.');
     expect(text).toContain('The municipal rule');
     expect(text).toContain('Seasonal or time limits');
     // …and it never says either answer.

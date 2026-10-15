@@ -108,7 +108,7 @@ export const OVERNIGHT_CHECKLIST: readonly { what: string; detail: string }[] = 
   {
     what: 'Signs at the place',
     detail:
-      'a no-overnight, no-camping or no-motorhome sign at the entrance or along the road in',
+      'a no-overnight, no-camping or no-motorhome sign at the entrance or on the road leading to it',
   },
   {
     what: 'The municipal rule',
