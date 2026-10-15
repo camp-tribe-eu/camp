@@ -502,6 +502,20 @@ jobs:
             | grep -c 'check-hardcoded-counts self-test:' >/dev/null
           node scripts/ci/check-hardcoded-counts.mjs
 
+      # 🔴 CAMP-240. `/spots/countries` віддає КОДИ: 28 станом на
+      # 15.10.2026, бо `ax` (Аландські острови) має власний ISO-код, а
+      # держава-член — Фінляндія. Сайт, область якого ЄС-27, друкував
+      # «28 countries». Копій було чотири, і лагодили їх двома заходами —
+      # саме так зʼявляється пʼята. Ознака — ПОХОДЖЕННЯ списку, а не
+      # форма рядка: у /guides стоїть та сама форма `countries.length`, і
+      # вона правильна, бо список зібрано з `getGuides()`.
+      - name: No country count is taken from the length of a list of country codes
+        run: |
+          set -o pipefail
+          node scripts/ci/check-country-count.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-country-count self-test:' >/dev/null
+          node scripts/ci/check-country-count.mjs
+
       # 🔴 CAMP-170. Цей сторож каже, який імпортер замовк, і його
       # щодня запускає таймер на машині. Його власна самоперевірка не
       # бігла НІДЕ — тобто єдине, що стоїть між «дані застаріли» і
