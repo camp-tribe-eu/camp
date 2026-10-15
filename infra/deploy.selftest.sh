@@ -38,7 +38,7 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-deploy-selftest.XXXXXX")"
 cleanup_all() { stop_world; rm -rf "$BASE"; }
 trap cleanup_all EXIT
 trap 'exit 130' INT TERM
-EXPECTED=84
+EXPECTED=85
 PASSED=0
 FAILED=0
 pass() { echo "  ✓ $1"; PASSED=$((PASSED + 1)); }
@@ -352,7 +352,7 @@ if [ -f "$M" ] \
   && [ "$(jq -r '.migrations | join(",")' "$M")" = "1000000000000-Alpha,1000000000001-Beta" ]; then
   pass "маніфест, прочитаний з ФАЙЛУ: повний SHA, ім'я теки, хто, коли, BUILD_ID, міграції"
 else fail "маніфест, прочитаний з ФАЙЛУ: повний SHA, ім'я теки, хто, коли, BUILD_ID, міграції" "$(cat "$M" 2>&1)"; fi
-[ "$(stat -f %Lp "$M" 2>/dev/null || stat -c %a "$M")" = 444 ] && pass "маніфест записано лише для читання (444)" || fail "маніфест записано лише для читання (444)"
+[ "$(node -e 'console.log((require("fs").statSync(process.argv[1]).mode & 0o777).toString(8))' "$M")" = 444 ] && pass "маніфест записано лише для читання (444)" || fail "маніфест записано лише для читання (444)"
 X status
 [ $RC -eq 0 ] && echo "$OUT" | grep -q "$SHA1" && echo "$OUT" | grep -q 'commit v1' && echo "$OUT" | grep -q 'ВИСНОВОК: усе збігається' \
   && pass "status: повний SHA й тема коміту з маніфесту, і вирок «усе збігається»" || fail "status: повний SHA й тема коміту з маніфесту, і вирок «усе збігається»" "$OUT"
@@ -377,7 +377,7 @@ if [ $RC -eq 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S1" ] \
   pass "деплой: current, обидва процеси (за ОС) і відданий BUILD_ID — усе на новому релізі"
 else fail "деплой: current, обидва процеси (за ОС) і відданий BUILD_ID — усе на новому релізі" "rc=$RC api=$(running_from api) web=$(running_from web) $OUT"; fi
 echo "$(hist)" | jq -e 'select(.action=="deploy" and .ok==true and .from=="'"$S0"'" and .to=="'"$S1"'")' >/dev/null \
-  && pass "історія: запис deploy $S0→$S1, ok" || fail "історія: запис deploy $S0→$S1, ok" "$(hist)"
+  && pass "історія: запис deploy ${S0}→${S1}, ok" || fail "історія: запис deploy ${S0}→${S1}, ok" "$(hist)"
 
 new_world c2
 STUB_RESTART=noop X deploy --sha "$SHA1" --apply
@@ -439,7 +439,7 @@ section "D. Відкат"
 new_world d1
 X deploy --sha "$SHA1" --apply >/dev/null
 X rollback --apply
-echo "$(hist)" | jq -e 'select(.action=="rollback" and .ok==true and .from=="'"$S1"'" and .to=="'"$S0"'")' >/dev/null && pass "rollback записано в історію: $S1→$S0, ok" || fail "rollback записано в історію: $S1→$S0, ok" "$(hist)"
+echo "$(hist)" | jq -e 'select(.action=="rollback" and .ok==true and .from=="'"$S1"'" and .to=="'"$S0"'")' >/dev/null && pass "rollback записано в історію: ${S1}→${S0}, ok" || fail "rollback записано в історію: ${S1}→${S0}, ok" "$(hist)"
 if [ $RC -eq 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S0" ] && [ "$(running_from api)" = "$S0" ] && [ "$(running_from web)" = "$S0" ] \
    && [ "$(served_web_id)" = "$(file_id "$S0" | tr - _)" ] && echo "$OUT" | grep -qE 'перемикання й перевірка: [0-9]+ с'; then
   pass "rollback --apply: current, процеси за ОС і відданий BUILD_ID повернулись на $S0, час названо"
@@ -670,6 +670,25 @@ X deploy --sha "$SHA0" --apply
 [ $RC -eq 1 ] && echo "$OUT" | grep -q 'і є чинний' && pass "деплой уже чинного релізу відхилено (а не «перебудовано»)" || fail "деплой уже чинного релізу відхилено (а не «перебудовано»)" "rc=$RC $OUT"
 X bogus; R1=$RC; X deploy --nonsense; R2=$RC
 [ $R1 -eq 2 ] && [ $R2 -eq 2 ] && pass "невідома команда і невідомий прапорець: код 2" || fail "невідома команда і невідомий прапорець: код 2" "$R1 $R2"
+
+# ═══════════════════════════════════════════════════════════════════
+section "F2. Переносимість"
+
+# 🔴 `$S0→$S1`: у локалі без UTF-8 bash 3.2 бере перший байт «→» за частину імені
+# змінної і падає з «unbound variable». Заміряно 15.10.2026 на запуску з Python
+# (він виставляє LC_CTYPE=C.UTF-8, невалідну на macOS). Властивість така: у скриптах
+# жодна змінна не стоїть упритул до не-ASCII без фігурних дужок.
+BAD=$(node -e '
+  const fs = require("fs"); const bad = [];
+  for (const f of process.argv.slice(1)) {
+    fs.readFileSync(f, "utf8").split("\n").forEach((l, i) => {
+      if (l.trimStart().startsWith("#")) return;
+      for (const m of l.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)(?=[^\x00-\x7f])/g)) bad.push(f.split("/").pop() + ":" + (i + 1) + " " + m[0]);
+    });
+  }
+  console.log(bad.join("; "));
+' "$DEPLOY" "$WRAPPER" "$HERE/deploy.selftest.sh")
+[ -z "$BAD" ] && pass "жодна змінна в скриптах infra/ не стоїть упритул до не-ASCII (без дужок)" || fail "жодна змінна в скриптах infra/ не стоїть упритул до не-ASCII (без дужок)" "$BAD"
 
 # ═══════════════════════════════════════════════════════════════════
 section "G. Обгортка на ноутбуці: infra/deploy-app.sh"

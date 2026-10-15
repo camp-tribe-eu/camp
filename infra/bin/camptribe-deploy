@@ -906,7 +906,7 @@ cmd_rehearse() { # apply keep teardown
   prod_after="$(link_rel)|$(systemctl show -p MainPID --value "$API_UNIT")|$(systemctl show -p MainPID --value "$WEB_UNIT")|$(systemctl show -p ActiveEnterTimestampMonotonic --value "$API_UNIT")|$(systemctl show -p ActiveEnterTimestampMonotonic --value "$WEB_UNIT")"
   [ "$prod_before" = "$prod_after" ] || die "БОЙОВЕ РУШИЛО: було '$prod_before', стало '$prod_after'"
   say "── підсумок"
-  say "  ✓ відкат відрепетирувано: switch $old→$new і rollback $new→$old"
+  say "  ✓ відкат відрепетирувано: switch ${old}→${new} і rollback ${new}→${old}"
   say "  switch + перевірка: $t_fwd с; rollback + перевірка: $t_back с (цілі секунди)"
   say "  BUILD_ID: $oid → $nid → $served (повернувся)"
   say "  ✓ бойове не рушило: current → $(link_rel), MainPID та час старту api/web ті самі"
