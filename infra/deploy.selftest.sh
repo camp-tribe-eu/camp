@@ -444,7 +444,7 @@ if [ $RC -eq 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S1" ] \
    && [ "$(running_from api)" = "$S1" ] && [ "$(running_from web)" = "$S1" ] \
    && [ "$(web_serves "$(file_id "$S1")")" = 200 ] && [ "$(web_serves "$(file_id "$S0")")" = 404 ]; then
   pass "деплой: current, обидва процеси (за ОС) і статика збірки — усе на новому релізі (стара збірка вже 404)"
-else fail "деплой: current, обидва процеси (за ОС) і відданий BUILD_ID — усе на новому релізі" "rc=$RC api=$(running_from api) web=$(running_from web) $OUT"; fi
+else fail "деплой: current, обидва процеси (за ОС) і статика збірки — усе на новому релізі (стара збірка вже 404)" "rc=$RC api=$(running_from api) web=$(running_from web) $OUT"; fi
 echo "$(hist)" | jq -e 'select(.action=="deploy" and .ok==true and .from=="'"$S0"'" and .to=="'"$S1"'")' >/dev/null \
   && pass "історія: запис deploy ${S0}→${S1}, ok" || fail "історія: запис deploy ${S0}→${S1}, ok" "$(hist)"
 
