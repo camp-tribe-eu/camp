@@ -36,7 +36,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 MOVE="${CAMPTRIBE_MOVE_BIN:-$HERE/move-table.sh}"
-EXPECTED=27
+EXPECTED=28
 # 🔴 Де брати базу. Локально це сокет і поточний користувач; у CI —
 # сервіс postgis/postgis із користувачем postgres. Один рядок замість
 # двох шляхів у коді.
@@ -65,7 +65,13 @@ fail() { RUN=$((RUN+1)); FAIL=$((FAIL+1)); printf '  ✗ %s\n     %s\n' "$1" "${
 ok()   { if [ "$1" = 0 ]; then pass "$2"; else fail "$2" "${3-}"; fi; }
 
 # --- світ: дві бази, у джерелі 500 рядків, на «проді» 300 -----------------
-# Обидві з однаковою структурою; тригер потребує функції, і вона є в обох.
+# За замовчуванням обидві з однаковою структурою. `build_world bare` робить
+# прод ГОЛИМ: ті самі колонки, але без ключа, індексів, послідовності, тригера
+# й коментаря. Це не косметика: коли старий прод уже має всю структуру,
+# перевірка «структура приїхала» пасує і новій таблиці, і старій, яку скрипт
+# повернув відкатом, — тобто нічого не доводить. На голому проді структура
+# може взятись лише з дампа.
+# Тригер потребує функції, і вона є в обох (pg_dump -t функцій не возить).
 build_world() {
   dropdb --if-exists "$SRC_DB" 2>/dev/null; dropdb --if-exists "$DST_DB" 2>/dev/null
   createdb "$SRC_DB"; createdb "$DST_DB"
@@ -86,7 +92,13 @@ build_world() {
     CREATE TRIGGER ${TABLE}_touch BEFORE INSERT ON $TABLE FOR EACH ROW EXECUTE FUNCTION mv_touch();
     COMMENT ON TABLE $TABLE IS 'пробна таблиця самоперевірки';"
   psql -q -d "$SRC_DB" -c "$ddl"
-  psql -q -d "$DST_DB" -c "$ddl"
+  if [ "${1:-}" = bare ]; then
+    psql -q -d "$DST_DB" -c "CREATE FUNCTION mv_touch() RETURNS trigger LANGUAGE plpgsql
+        AS \$f\$ BEGIN NEW.touched := true; RETURN NEW; END \$f\$;
+      CREATE TABLE $TABLE (id integer, ref text, kind text, n int, rng int4range, touched boolean)"
+  else
+    psql -q -d "$DST_DB" -c "$ddl"
+  fi
   psql -q -d "$SRC_DB" -c "INSERT INTO $TABLE (ref,kind,n,rng) SELECT 'r'||i, (ARRAY['a','b','unknown'])[1+i%3], i, int4range(i,i+1) FROM generate_series(1,500) i"
   psql -q -d "$DST_DB" -c "INSERT INTO $TABLE (ref,kind,n,rng) SELECT 'r'||i, 'b', i, int4range(i,i+1) FROM generate_series(1,300) i"
 }
@@ -153,6 +165,7 @@ field() { fp "$1" | tr ' ' '\n' | grep "^$2=" ; }
 # вважає `$?` після виклику функції станом умови, яку легко перебити.
 eq() { [ "$1" = "$2" ]; }
 FULL='idx=5 p=1 u=1 x=1 c=1 seq=1 nextval=1 trg=1 cmt=1'
+BARE='idx=0 p=0 u=0 x=0 c=0 seq=0 nextval=0 trg=0 cmt=0'
 # Те, що зробив би застосунок: INSERT без id. Відкочується, щоб не міняти стан.
 app_insert() {
   psql -At -q -d "$1" -c begin \
@@ -161,7 +174,8 @@ app_insert() {
 }
 
 echo '— сухий прогін'
-build_world
+build_world bare
+bare_fp="$(fp "$DST_DB")"
 run "$TABLE"
 [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'СУХИЙ ПРОГІН'; ok $? 'без --apply: каже «сухий прогін»' "rc=$RC $OUT"
 eq "$(rows)" 300; ok $? 'без --apply: бойова таблиця не змінилась' "$(rows)"
@@ -174,8 +188,8 @@ run "$TABLE" --apply
 eq "$RC" 0; ok $? '--apply: код 0' "rc=$RC $OUT"
 eq "$(rows)" 500; ok $? 'рядки приїхали: 500' "$(rows)"
 # 🔴 Головне. Саме цього не було 15.10: індекси, ключ, послідовність, DEFAULT.
-eq "$(field "$DST_DB" idx)" 'idx=5'
-ok $? '🔴 індекси на місці: 5 (PK, UNIQUE, EXCLUDE і два звичайних)' "$(fp "$DST_DB")"
+[ "$bare_fp" = "$BARE" ] && eq "$(field "$DST_DB" idx)" 'idx=5'
+ok $? '🔴 індекси на місці: 5 (PK, UNIQUE, EXCLUDE і два звичайних); до того на проді не було жодного' "до=$bare_fp після=$(fp "$DST_DB")"
 [ "$(field "$DST_DB" p)" = 'p=1' ] && [ "$(field "$DST_DB" u)" = 'u=1' ] && eq "$(field "$DST_DB" c)" 'c=1'
 ok $? 'PRIMARY KEY, UNIQUE і CHECK на місці' "$(fp "$DST_DB")"
 eq "$(field "$DST_DB" x)" 'x=1'; ok $? 'обмеження EXCLUDE на місці' "$(fp "$DST_DB")"
@@ -283,6 +297,7 @@ psql -q -d "$SRC_DB" -c "CREATE TYPE mv_mood AS ENUM ('calm','wild')" -c "ALTER 
 before_fp="$(fp "$DST_DB")"
 run "$TABLE" --apply
 [ "$RC" = 3 ] && printf '%s' "$OUT" | grep -q 'після заміни: таблиці немає' \
+  && printf '%s' "$OUT" | grep -q 'pg_restore вийшов з кодом' \
   && printf '%s' "$OUT" | grep -q 'повертаю страхувальну копію' && printf '%s' "$OUT" | grep -q 'повернуто й звірено' \
   && eq "$(rows)" 300
 ok $? 'відкат ПОТРІБЕН (таблиці після заміни не було) і спрацював: код 3, 300 рядків' "rc=$RC rows=$(rows) $OUT"
@@ -305,6 +320,19 @@ run "$TABLE" --apply
 ok $? 'схема не збіглась: діф називає тригер, відкат, код 3, прод на своїх 300' "rc=$RC rows=$(rows) $OUT"
 [ "$before_fp" = "${FULL/trg=1/trg=0}" ] && eq "$(fp "$DST_DB")" "$before_fp"
 ok $? 'після відкату структура така сама, як до заміни' "до=$before_fp після=$(fp "$DST_DB")"
+
+echo '— у джерела є дочірня таблиця успадкування: count(*) її бачить, дамп — ні'
+# 🔴 Єдиний випадок, де розійдуться ЛИШЕ рядки: pg_restore виходить кодом 0, а
+# текст схеми однаковий (дочірня таблиця в дамп `-t` не потрапляє). Без нього
+# перевірку рядків не відрізнити від зайвої: код і схема її б не замінили.
+build_world
+psql -q -d "$SRC_DB" -c "CREATE TABLE ${TABLE}_child () INHERITS ($TABLE)" \
+  -c "INSERT INTO ${TABLE}_child (ref,kind,n,rng) SELECT 'c'||i, 'a', 1000+i, int4range(5000+i,5001+i) FROM generate_series(1,100) i"
+run "$TABLE" --apply
+eq "$RC" 3 && printf '%s' "$OUT" | grep -q 'рядків 500 проти 600 у джерелі' \
+  && ! printf '%s' "$OUT" | grep -q 'pg_restore вийшов з кодом [1-9]' && ! printf '%s' "$OUT" | grep -q 'структура прода не збігається' \
+  && printf '%s' "$OUT" | grep -q 'повернуто й звірено' && eq "$(rows)" 300
+ok $? 'розійшлись лише рядки (500 проти 600): код 3, відкат, прод на своїх 300' "rc=$RC rows=$(rows) $OUT"
 
 echo '— копія не відновлюється в чистій базі: заміну не робимо'
 # 🔴 Ворота репетиції. Прод залежить від типу, якого в чистій репетиційній базі
