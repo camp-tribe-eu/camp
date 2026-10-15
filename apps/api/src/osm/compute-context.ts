@@ -433,10 +433,10 @@ async function main(): Promise<void> {
   // CAMP-296: без проставленої країни фільтр ЄС-27 не помиляється — він
   // прибирає все, тож шари без неї (або з неповною) зупиняємо тут.
   await assertCountryTagsReady(db, {
-      // Прапорець ставить людина, що запустила часткове завантаження;
-      // з даних його не вгадати. Див. PARTIAL_ENV у context-sql.ts.
-      partial: process.env[PARTIAL_ENV] === '1',
-    });
+    // Прапорець ставить людина, що запустила часткове завантаження;
+    // з даних його не вгадати. Див. PARTIAL_ENV у context-sql.ts.
+    partial: process.env[PARTIAL_ENV] === '1',
+  });
 
   const { rows } = await db.query<SpotRow>(
     CONTEXT_SQL,

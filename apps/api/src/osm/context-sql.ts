@@ -267,7 +267,10 @@ export const PARTIAL_ENV = 'CAMPTRIBE_PARTIAL_CONTEXT';
  */
 export async function assertCountryTagsReady(
   db: Queryable,
-  { partial = false, log = console }: Readonly<{
+  {
+    partial = false,
+    log = console,
+  }: Readonly<{
     partial?: boolean;
     log?: Pick<Console, 'warn'>;
   }> = {},
