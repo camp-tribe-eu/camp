@@ -102,8 +102,10 @@ function Hours({ value }: { value: string | null }) {
  * missing shower as "no shower". Same rule as the campsite page's amenity
  * grid and CAMP-255's overnight answer: the third state is printed.
  *
- * 🔴 NO COLOUR, NO TICK, NO CROSS. The word carries the answer (WCAG
- * 1.4.1), and a green tick beside "Toilets" would be a verdict on a toilet
+ * 🔴 NO COLOUR CARRIES THE ANSWER, AND THERE IS NO TICK OR CROSS. The word
+ * is the answer (WCAG 1.4.1) — the grey on "Not known" is emphasis for
+ * someone who can see it, and the line reads the same without it. A green
+ * tick beside "Toilets" would be a verdict on a toilet
  * we know nothing about. The owner's own sentence is that whether a toilet
  * is clean or working is what decides the stop — it is not in open data,
  * the paragraph under the list says so, and this component has no prop
