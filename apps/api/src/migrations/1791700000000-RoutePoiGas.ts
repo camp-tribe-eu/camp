@@ -46,8 +46,11 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * 11 and later, for the reason the facilities migration measured (heap
  * unchanged). Each CHECK is still validated against every existing row, so
  * both columns are ONE `ALTER` — one ACCESS EXCLUSIVE lock and one scan, not
- * two. Measured 15.10.2026 on camptribe_dev (2 271 596 rows): the lpg column
- * and its index took 611 ms.
+ * two. Measured 15.10.2026 on a fresh copy of the table in its pre-migration
+ * shape (2 271 596 rows, 18 columns, 10 indexes): the whole `up()` — both
+ * columns, both new indexes — took 904 ms; a second `up()` over the result
+ * took 4 ms and changed nothing (columns, indexes and CHECKs counted before
+ * and after).
  *
  * 🔴 TWO PARTIAL GiST INDEXES, FOR THE REASON 1790572800000-RoutePoi.ts
  * SPENDS A PAGE ON. Every query this table exists for is "the nearest X to
