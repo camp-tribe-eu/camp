@@ -151,9 +151,13 @@ export type ContextKey = keyof typeof NEAR_M;
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** A distance we can say: a finite number of metres, not negative. */
-const isMetres = (v: unknown): v is number =>
-  typeof v === 'number' && Number.isFinite(v) && v >= 0;
+/**
+ * A distance we can say: a number of metres, not negative. NaN fails `>= 0`;
+ * Infinity is turned away by the radius below, which is why there is no
+ * second check for it here — two guards for one case hold each other up, and
+ * a mutation of either would not show.
+ */
+const isMetres = (v: unknown): v is number => typeof v === 'number' && v >= 0;
 
 function surrounding(field: string, key: ContextKey): ReasonSource {
   return {

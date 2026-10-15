@@ -3,6 +3,7 @@ import { AMENITY_KEYS, mapAmenities } from '../osm/tag-mapping';
 import { loadPool } from './ablate-scoring';
 import { measureCoverage, queryHash, SQL } from './measure-coverage';
 import { plannerPopulationSql } from './population';
+import { CONTEXT_KEYS } from './reasons';
 import { BEGIN_READ_ONLY, inReadOnlyTransaction, Queryable } from './read-only';
 
 // CAMP-262 — the measuring SQL, against a REAL PostgreSQL.
@@ -400,6 +401,17 @@ describe('measureCoverage', () => {
       const changed = queryHash();
       SQL[key] = original;
       expect(changed).not.toBe(real);
+    }
+    expect(queryHash()).toBe(real);
+  });
+
+  it('the hash also reads the context keys the sources are counted by: a new key is a new table', () => {
+    const real = queryHash();
+    CONTEXT_KEYS.push('shop' as never);
+    try {
+      expect(queryHash()).not.toBe(real);
+    } finally {
+      CONTEXT_KEYS.pop();
     }
     expect(queryHash()).toBe(real);
   });

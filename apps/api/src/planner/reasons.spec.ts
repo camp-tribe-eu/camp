@@ -523,6 +523,16 @@ describe('how close is close: the radius of each surrounding, pinned from both s
     },
   );
 
+  it('a distance with a fraction is said in whole metres, and the machine part keeps what the record holds', () => {
+    // The stored distances are whole today (0 of 61 558 water distances have
+    // a fraction); a record that ever carries one must not print "346.6 m".
+    const got = reasons({ context: { supermarket: { m: 346.6 } } });
+    expect(got[0].value).toBe(346.6);
+    expect(got[0].text).toBe('Supermarket 347 m away in a straight line');
+    const km = reasons({ context: { station: { m: 1500.4 } } });
+    expect(km[0].text).toBe('Railway station 1.5 km away in a straight line');
+  });
+
   it('a distance of zero is a distance: the feature is ON the campsite', () => {
     const got = reasons({ context: { supermarket: { m: 0 } } });
     expect(got).toHaveLength(1);
