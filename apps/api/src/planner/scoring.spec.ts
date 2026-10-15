@@ -51,6 +51,9 @@ function reweigh(
 }
 
 const TOL = 10_000;
+/** The component carrying most of the weight — whatever the weights are. */
+const heaviest = () =>
+  COMPONENTS.reduce((a, b) => (b.weight > a.weight ? b : a));
 const BARE: Candidate = {
   slug: 'bare',
   distanceM: 0,
@@ -256,7 +259,10 @@ describe('the rule: an input known for under half may not weigh over 0.1', () =>
     const t = table({ ...FULL, electricity: 4_999 });
     expect(checkScoring(COMPONENTS, t)).toEqual([]);
     const over = checkScoring(
-      reweigh({ electricity: 0.1 + 1e-6, distance_fit: 0.75 - 1e-6 }),
+      reweigh({
+        electricity: 0.1 + 1e-6,
+        distance_fit: heaviest().weight - 1e-6,
+      }),
       t,
     );
     expect(over).toHaveLength(1);
@@ -395,7 +401,9 @@ describe('start-up: the module refuses to load a weight the data cannot carry', 
       s.fields.location.known = Math.floor(s.population.n * 0.3);
     });
     expect(loaded).toBe(false);
-    expect(error?.message).toMatch(/distance_fit: weight 0\.75 on "location"/);
+    expect(error?.message).toMatch(
+      new RegExp(`distance_fit: weight ${heaviest().weight} on "location"`),
+    );
     expect(error?.message).toMatch(/scoring refuses to load/);
   });
 

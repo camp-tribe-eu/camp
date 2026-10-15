@@ -15,13 +15,14 @@
 // lift for a recorded electric hook-up, a recorded dump point and an
 // official star classification. It does NOT rank "by quality".
 //
-// 🔴 WHY THE FORMULA IS SMALL. The version in CAMP-6 and CAMP-46 was
-// `rating·0.4 + scenic·0.3 + popularity·0.2 + distance_fit·0.1`. Ninety
-// per cent of that weight sat on inputs we do not have: no column, no
-// word in the tree for `scenic` and `popularity`, and a rating known for a
-// small fraction of the campsites. Run as written it ranks by distance
-// alone while the page says "chosen for quality". Variant A (the owner's
-// decision) rewrites the formula to what we can measure.
+// 🔴 WHY THE FORMULA IS SMALL. The version in CAMP-6 and CAMP-46 weighed a
+// rating at 0.4, a landscape score at 0.3, a visit-count figure at 0.2 and
+// the distance fit at 0.1. Ninety per cent of that weight sat on inputs we
+// do not have: the second and third exist nowhere in the database or the
+// code, and the rating is known for a small fraction of the campsites. Run
+// as written it ranks by distance alone while the page says "chosen for
+// quality". Variant A (the owner's decision) rewrites the formula to what
+// we can measure.
 //
 // 🔴 THE RULE, enforced when this module LOADS and therefore when the API
 // starts: an input known for fewer than COVERAGE_FLOOR of the campsites may
@@ -54,8 +55,9 @@
 //     rated one instead of ahead or behind.
 //
 // 🔴 WHAT IS DELIBERATELY NOT HERE, and why (each of these was proposed):
-//   · scenic, popularity — no column, no definition of what the number
-//     would be or where it would come from. Not inventable.
+//   · the landscape score and the visit-count figure — no column, and no
+//     definition anywhere of what the number would be or where it would
+//     come from. Not inventable.
 //   · fit for the vehicle's size (CAMP-247/251) — no data on pitch sizes.
 //   · freshness (CAMP-256) — `last_seen_at` is the stamp of the import
 //     run, identical for every row that run touched. It says when WE
@@ -67,10 +69,13 @@
 //
 // 🔴 `stars` IS THE FRENCH OFFICIAL CLASSIFICATION (DATAtourisme), not a
 // visitor rating, and the snapshot says where it exists
-// (`evidence.starsKnownByCountry`). A rating-shaped bonus that only one
-// country has would tilt every cross-border route toward that country by
-// the size of the bonus. Centring the missing value on the measured mean
-// is what stops that; the ablation (ablate-scoring.ts) measures it.
+// (`evidence.starsKnownByCountry`). A bonus that nearly one country has
+// would tilt every cross-border route toward it by the size of the bonus,
+// unless a missing rating sits level with the average rated one — which is
+// what centring on the measured mean does. At today's small weight the
+// difference that makes to a border query's top twenty was measured (in the
+// CAMP-262 pull request) at a campsite or none, so this guards the design
+// against the day the weight is raised; it is not a visible correction now.
 
 import * as measured from './coverage.snapshot.json';
 import { AmenityKey, AmenityValue } from '../osm/tag-mapping';
