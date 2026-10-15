@@ -10,7 +10,12 @@ import {
   MAX_DAYS,
   planItinerary,
 } from './itinerary';
-import { measureTrips, problemsOf } from './measure-itinerary';
+import {
+  measureTrips,
+  minGapM,
+  problemsOf,
+  TripResult,
+} from './measure-itinerary';
 import {
   COMPONENTS,
   ComponentDef,
@@ -216,6 +221,12 @@ async function putAt(
 //           distance along the line alone a-beside is the nearer; by
 //           distance from the cut b-on is (1 km against 20).
 //
+//   lon 110 A PLANTED GAP. Three campsites on one meridian, not on any route:
+//           pl-a at 43.00°N, pl-b at 43.01°N (0.01° of latitude: 1 112 m on
+//           the sphere, about 1 111 on the spheroid) and pl-far at 43.50°N
+//           (55.6 km from the others). The smallest distance between any two
+//           of them is pl-a to pl-b; the largest is about 55 600 m.
+//
 //   lon 100 THE EVEN SPLIT. No tags anywhere, so only position counts.
 //           cut-1..6 on the even cuts; off-k-minus and off-k-plus 25 km
 //           either side of each cut. The answer is cut-1..6 by
@@ -265,6 +276,10 @@ async function buildFixture(): Promise<void> {
 
   for (let km = 20; km <= 200; km += 20) await putAt(60, `d-${km}`, km);
 
+  await put({ slug: 'pl-a', lon: 110, lat: 43 });
+  await put({ slug: 'pl-b', lon: 110, lat: 43.01 });
+  await put({ slug: 'pl-far', lon: 110, lat: 43.5 });
+
   await putAt(90, 'b-on', LENGTH_M / 2000 + 1);
   await putAt(90, 'a-beside', LENGTH_M / 2000, { eastKm: 20 });
 
@@ -310,22 +325,6 @@ async function nightsOf(
   const r = await plan(req, deps);
   if (r.status !== 'ok') throw new Error(`not ok: ${JSON.stringify(r)}`);
   return r.days.flatMap((d) => (d.night ? [d.night.slug] : []));
-}
-
-/**
- * The smallest distance between ANY two of these campsites, in metres, read
- * from PostGIS: a geography on the spheroid. Not from `corridor.ts`.
- */
-async function minGapM(slugs: string[]): Promise<number> {
-  const r = await db.query(
-    `SELECT min(ST_Distance(a.location::geography, b.location::geography)) AS m
-       FROM camping_spots a JOIN camping_spots b ON a.slug < b.slug
-      WHERE a.slug = ANY($1) AND b.slug = ANY($1)`,
-    [slugs],
-  );
-  const m = r.rows[0].m;
-  if (m === null) throw new Error(`no pair among ${JSON.stringify(slugs)}`);
-  return Number(m);
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +378,10 @@ describe('seven days over 667 km: the clean case', () => {
   it('🔴 no two nights are closer than 94 000 m: the smallest gap, from PostGIS', async () => {
     const slugs = await nightsOf(req);
     expect(slugs).toHaveLength(6);
-    expect(await minGapM(slugs)).toBeGreaterThanOrEqual(94_000);
+    const gap = await minGapM(db, slugs);
+    expect(gap).toBeGreaterThanOrEqual(94_000);
+    // And it is the SMALLEST: neighbours are 95.3 km apart, the ends five times that.
+    expect(gap).toBeLessThanOrEqual(96_000);
   });
 
   it('what is shown of a night is what was recorded: the amenities, five stars, where it is', async () => {
@@ -446,7 +448,7 @@ describe('🔴 seven days, six stops in one place', () => {
 
   it('no two nights are closer than 59 400 m: 60 km less what the spheroid takes off, from PostGIS', async () => {
     const slugs = await nightsOf(req);
-    expect(await minGapM(slugs)).toBeGreaterThanOrEqual(59_400);
+    expect(await minGapM(db, slugs)).toBeGreaterThanOrEqual(59_400);
   });
 });
 
@@ -783,6 +785,12 @@ describe('the measuring script, against this table', () => {
     // Runs of 0.5 to 1.5 of 95.3 km: a floor of 47 655 m.
     expect(t.minM).toBeCloseTo(47_655.04, 0);
     expect(t.minGapM).toBeGreaterThanOrEqual(94_000);
+    // The SMALLEST gap is between neighbours, 95.3 km: the largest, gold-1
+    // to gold-6, is five times that.
+    expect(t.minGapM).toBeLessThanOrEqual(96_000);
+    // Seven runs, six nights, every run inside the band it asked for.
+    expect(t.runsM).toHaveLength(7);
+    expect(t.maxM).toBeCloseTo(142_965.1, 0);
     expect(problemsOf({ trips: [t], dp: [] })).toEqual([]);
   });
 
@@ -796,6 +804,48 @@ describe('the measuring script, against this table', () => {
     expect(t.reason).toBe('no-chain');
     expect(t.candidates).toBe(0);
     expect(problemsOf({ trips: [t], dp: [] })).toHaveLength(1);
+  });
+});
+
+describe('🔴 the gap guard measures the SMALLEST distance, and says so when it is too small', () => {
+  // pl-a and pl-b are 1.1 km apart on purpose; pl-far is 55.6 km from both. A
+  // guard that read the largest distance would see 55 km and pass.
+  const planted = ['pl-a', 'pl-b', 'pl-far'];
+
+  it('the smallest of three is the near pair: about 1 111 m, not 55 600', async () => {
+    const gap = await minGapM(db, planted);
+    expect(gap).toBeGreaterThan(1_100);
+    expect(gap).toBeLessThan(1_125);
+  });
+
+  it('with only the near pair it is the same number', async () => {
+    const gap = await minGapM(db, ['pl-a', 'pl-b']);
+    expect(gap).toBeGreaterThan(1_100);
+    expect(gap).toBeLessThan(1_125);
+  });
+
+  it('one night alone has no gap, and that is an error rather than 0', async () => {
+    await expect(minGapM(db, ['pl-a'])).rejects.toThrow(/no pair of nights/);
+  });
+
+  it('two nights 1.1 km apart under a 50 km floor: problemsOf gives the line, and says 1.11 km', async () => {
+    const trip: TripResult = {
+      name: 'planted',
+      status: 'ok',
+      lengthKm: 490,
+      minM: 50_000,
+      maxM: 100_000,
+      candidates: 3,
+      nights: ['n1', 'n2', 'n3', 'n4', 'n5', 'n6'],
+      runsM: [70_000, 70_000, 70_000, 70_000, 70_000, 70_000, 70_000],
+      minGapM: await minGapM(db, planted),
+      ms: [1],
+    };
+    const p = problemsOf({ trips: [trip], dp: [] });
+    expect(p).toHaveLength(1);
+    expect(p[0]).toContain('planted');
+    expect(p[0]).toContain('1.11 km apart');
+    expect(p[0]).toContain('50.00 km');
   });
 });
 

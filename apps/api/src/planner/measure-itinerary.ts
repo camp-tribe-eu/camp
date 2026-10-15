@@ -44,6 +44,8 @@ import { splitIntoDays } from './split-days';
 export const SPHEROID_SLACK = 0.99;
 
 export const DAYS = 7;
+/** Float noise in a run that is a difference of two positions: a millimetre. */
+const RUN_EPSILON_M = 1e-3;
 /** Runs of 0.5 to 1.5 of an even day: a calm and a hurried day around the mean. */
 export const BAND_SHARE = { min: 0.5, max: 1.5 } as const;
 export const BUFFER_M = 30_000;
@@ -90,8 +92,12 @@ export interface TripResult {
   lengthKm?: number;
   /** Lower bound of the band the trip asked for, metres. */
   minM: number;
+  /** Upper bound of the band the trip asked for, metres. */
+  maxM: number;
   candidates?: number;
   nights?: string[];
+  /** The length of each day's run as the planner reported it, metres. */
+  runsM?: number[];
   /** Smallest distance between any two nights, from PostGIS, metres. */
   minGapM?: number;
   /** Milliseconds of each call, in order. */
@@ -116,14 +122,24 @@ export const median = (xs: readonly number[]): number => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
-/** The smallest distance between any two of these campsites, from PostGIS. */
-async function minGapM(db: Queryable, slugs: string[]): Promise<number> {
-  const r = await db.query(
-    `SELECT min(ST_Distance(a.location::geography, b.location::geography)) AS m
+/**
+ * The smallest distance between ANY two of the campsites named, from PostGIS:
+ * `ST_Distance` on a geography, the spheroid.
+ *
+ * 🔴 ONE STATEMENT, imported by the spec that checks it
+ * (itinerary.db.spec.ts) and not retyped there. Two copies of a guard's query
+ * is two chances for the next fix to land in one of them, and the aggregate
+ * is the whole claim: `min` here is what "no two nights closer than" means;
+ * `max` would print a number just as plausible and exit 0. The spec plants
+ * two campsites 1.1 km apart and a third far away and asks for the answer
+ * that only `min` gives.
+ */
+export const MIN_GAP_SQL = `SELECT min(ST_Distance(a.location::geography, b.location::geography)) AS m
        FROM camping_spots a JOIN camping_spots b ON a.slug < b.slug
-      WHERE a.slug = ANY($1) AND b.slug = ANY($1)`,
-    [slugs],
-  );
+      WHERE a.slug = ANY($1) AND b.slug = ANY($1)`;
+
+export async function minGapM(db: Queryable, slugs: string[]): Promise<number> {
+  const r = await db.query(MIN_GAP_SQL, [slugs]);
   const m = r.rows[0].m;
   if (m === null || m === undefined) {
     throw new Error(`no pair of nights among ${slugs.length} slugs`);
@@ -164,11 +180,13 @@ export async function measureTrips(
       status: (last as ItineraryOutcome).status,
       lengthKm: lengthM / 1000,
       minM: band.minM,
+      maxM: band.maxM,
       ms,
     };
     if (last?.status === 'ok') {
       r.candidates = last.candidates;
       r.nights = last.days.flatMap((d) => (d.night ? [d.night.slug] : []));
+      r.runsM = last.days.map((d) => d.runM);
       r.minGapM = await minGapM(db, r.nights);
     } else if (last?.status === 'infeasible') {
       r.reason = last.reason;
@@ -234,6 +252,25 @@ export function problemsOf(m: Measurement): string[] {
           `closer than the band's ${(t.minM / 1000).toFixed(2)} km ` +
           `(allowing ${((1 - SPHEROID_SLACK) * 100).toFixed(0)}% for the spheroid)`,
       );
+    }
+    // The other half of the band, and the count: what the planner reported,
+    // held to what was asked. (The gap above is read from PostGIS; these are
+    // the planner's own figures, so they check the programme, not its source.)
+    if (t.nights?.length !== DAYS - 1) {
+      out.push(
+        `${t.name}: ${t.nights?.length ?? 'no'} nights, not ${DAYS - 1} for ${DAYS} days`,
+      );
+    }
+    if (t.runsM?.length !== DAYS) {
+      out.push(`${t.name}: ${t.runsM?.length ?? 'no'} day-runs, not ${DAYS}`);
+    }
+    for (const run of t.runsM ?? []) {
+      if (run < t.minM - RUN_EPSILON_M || run > t.maxM + RUN_EPSILON_M) {
+        out.push(
+          `${t.name}: a day's run of ${(run / 1000).toFixed(2)} km is outside ` +
+            `the band ${(t.minM / 1000).toFixed(2)} to ${(t.maxM / 1000).toFixed(2)} km`,
+        );
+      }
     }
   }
   return out;
