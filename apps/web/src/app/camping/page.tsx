@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { countryName, getCountries } from '@/lib/api';
+import { memberStateCount } from '@/lib/campsite-count';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 
@@ -26,7 +27,14 @@ export default async function CampingIndex() {
         {...jsonLdProps(
           collectionGraph({
             name: 'Campsites in Europe',
-            description: `${total} campsites across ${countries.length} countries.`,
+            // 🔴 CAMP-240. `memberStateCount`, not `countries.length`:
+            // `/spots/countries` answers with the codes the rows carry,
+            // and `ax` (Åland, a region of Finland) is one of them. The
+            // chip below stays — Åland has a page — but a count of
+            // COUNTRIES on a site scoped to the EU-27 cannot say 28.
+            description: `${total} campsites across ${memberStateCount(
+              countries.map((c) => c.country),
+            )} countries.`,
             path: '/camping',
             items: countries.map((c) => ({
               name: countryName(c.country),

@@ -2,10 +2,14 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import CampingIndex from '@/app/camping/page';
+import { GET as llmsTxt } from '@/app/llms.txt/route';
+import MapPage from '@/app/map/page';
 import RoutePage from '@/app/routes/[slug]/page';
 import RoutesIndex from '@/app/routes/page';
 import SearchPage from '@/app/search/page';
 import ToolsIndex from '@/app/tools/page';
+import MapEmbed from '@/components/map-embed';
 import PackingListBuilder from '@/components/packing-list-builder';
 import RouteMapEmbed from '@/components/route-map-embed';
 import TripCostCalculator from '@/components/trip-cost-calculator';
@@ -552,5 +556,183 @@ test.describe('/search', () => {
     const text = visibleText(await renderSearch());
     expect(text).toContain('France · 17,915');
     expect(text).not.toMatch(/France · 17915/);
+  });
+});
+
+// ── 5. /camping, /map and llms.txt — the same count, three more surfaces ─
+
+// 🔴 CAMP-240 fixed the sentence on /search and left three copies of it
+// standing. `countries.length` is the length of the list `/spots/countries`
+// answers with, and that list carries `ax` — Åland, a self-governing
+// region of Finland with 19 campsites and an ISO code of its own. So each
+// of these three said "28 countries" on a site whose scope is the EU-27:
+// two of them inside JSON-LD, where no reader would ever catch it, and
+// one in the file assistants read and quote.
+//
+// 🔴 THE EXPECTED NUMBER IS NOT THE FUNCTION'S. It is the length of
+// `eu-member-states.json`, the file the API workspace owns — so a table
+// here that quietly folded two member states together would fail rather
+// than agree with itself. And every check reads the number OUT of what
+// the surface serves, rather than asserting the absence of "28": a page
+// that rendered nothing at all satisfies "does not say 28", which is how
+// a check like this goes green over a blank page.
+
+/** The EU-27, counted from the file the API workspace keeps. */
+const EU_MEMBERS: number = Object.keys(
+  (
+    JSON.parse(
+      readFileSync(
+        join(process.cwd(), '..', 'api', 'src', 'osm', 'eu-member-states.json'),
+        'utf8',
+      ),
+    ) as { members: Record<string, string> }
+  ).members,
+).length;
+
+/** The campsites the fixture holds — what each surface should still total. */
+const FIXTURE_SPOTS = API_COUNTRIES.reduce((n, c) => n + c.spots, 0);
+
+/** The `description` of the CollectionPage a page marks itself up as. */
+function collectionDescription(html: string): string {
+  const block = jsonLd(html).find((b) => b['@type'] === 'CollectionPage');
+  expect(block, 'the page carries no CollectionPage JSON-LD').toBeTruthy();
+  return String(block!.description);
+}
+
+/** Every URL the CollectionPage's item list names. */
+function collectionItemPaths(html: string): string[] {
+  const block = jsonLd(html).find((b) => b['@type'] === 'CollectionPage');
+  const list = (block!.mainEntity as { itemListElement: { url: string }[] })
+    .itemListElement;
+  return list.map((it) => new URL(it.url).pathname);
+}
+
+/**
+ * The number a surface prints in "across N countries".
+ *
+ * 🔴 Returns the number or fails. A regex that did not match would
+ * otherwise make every assertion below it vacuous.
+ */
+function countriesSaid(text: string, where: string): number {
+  const m = /across (\d+) (?:countries|country)/.exec(text);
+  expect(m, `${where} no longer says how many countries it covers`).not.toBeNull();
+  return Number(m![1]);
+}
+
+/** /camping, rendered against the raw fixture. */
+async function renderCamping(): Promise<string> {
+  let html = '';
+  await withFetch(
+    (url) => {
+      if (url.endsWith('/spots/countries')) return json(API_COUNTRIES);
+      throw new Error(`unexpected request in a unit test: ${url}`);
+    },
+    async () => {
+      html = await renderAsyncComponent(CampingIndex, {});
+    },
+  );
+  return html;
+}
+
+/** /map, rendered against the raw fixture. The canvas is left out. */
+async function renderMap(): Promise<string> {
+  let html = '';
+  await withFetch(
+    (url) => {
+      // The map draws the campsites with no region too, which is why the
+      // page asks a second endpoint — and why its own two numbers differ.
+      if (url.endsWith('/spots/map/regions')) {
+        return json([{ slug: 'r1', count: FIXTURE_SPOTS + 135 }]);
+      }
+      if (url.endsWith('/spots/countries')) return json(API_COUNTRIES);
+      throw new Error(`unexpected request in a unit test: ${url}`);
+    },
+    async () => {
+      html = await renderAsyncComponent(MapPage, {}, { omit: [MapEmbed] });
+    },
+  );
+  return html;
+}
+
+/** /llms.txt, served as a crawler receives it. */
+async function renderLlmsTxt(): Promise<string> {
+  let body = '';
+  await withFetch(
+    (url) => {
+      if (url.endsWith('/spots/countries')) return json(API_COUNTRIES);
+      if (/\/spots\/[a-z]{2}\/regions(\?|$)/.test(url)) return json([]);
+      if (url.endsWith('/guides')) return json([]);
+      throw new Error(`unexpected request in a unit test: ${url}`);
+    },
+    async () => {
+      body = await (await llmsTxt()).text();
+    },
+  );
+  return body;
+}
+
+test.describe('the count of countries, on every surface that prints one', () => {
+  test('🔴 the fixture can still tell the two numbers apart', () => {
+    // Without this, a fixture trimmed to 27 member states would make
+    // every test below pass while the defect was still in the code.
+    expect(EU_MEMBERS).toBe(27);
+    expect(API_COUNTRIES.length).toBe(28);
+    expect(API_COUNTRIES.map((c) => c.country)).toContain('ax');
+    expect(API_COUNTRIES.length).toBeGreaterThan(EU_MEMBERS);
+  });
+
+  test('🔴 /camping marks itself up as 27 countries, not 28', async () => {
+    const html = await renderCamping();
+    const description = collectionDescription(html);
+    expect(countriesSaid(description, '/camping')).toBe(EU_MEMBERS);
+    expect(description).toContain(`${FIXTURE_SPOTS} campsites`);
+  });
+
+  test('/camping still lists Åland — only the COUNT changed', async () => {
+    const html = await renderCamping();
+    const paths = collectionItemPaths(html);
+    // Every code gets a link, Åland included: it has 19 campsites and a
+    // page of its own. Folding it away from the LIST would lose them.
+    expect(paths.length).toBe(API_COUNTRIES.length);
+    expect(paths).toContain('/camping/ax');
+    const text = visibleText(html);
+    expect(text).toContain('Åland Islands');
+    expect(html).toContain('href="/camping/ax"');
+  });
+
+  test('🔴 /map marks itself up as 27 countries, not 28', async () => {
+    const html = await renderMap();
+    const description = collectionDescription(html);
+    expect(countriesSaid(description, '/map')).toBe(EU_MEMBERS);
+    // The campsite figure beside it is the browsable one, unchanged.
+    expect(description).toContain(
+      `${FIXTURE_SPOTS.toLocaleString('en-GB')} campsites`,
+    );
+  });
+
+  test('/map still links Åland in the list below the canvas', async () => {
+    const html = await renderMap();
+    expect(collectionItemPaths(html)).toContain('/camping/ax');
+    expect(html).toContain('href="/camping/ax"');
+  });
+
+  test('🔴 llms.txt tells an assistant 27 countries, not 28', async () => {
+    const body = await renderLlmsTxt();
+    expect(countriesSaid(body, 'llms.txt')).toBe(EU_MEMBERS);
+    // The plural branch is chosen from the same number it prints.
+    expect(body).toMatch(/across 27 countries,/);
+    expect(body).toContain(`**${FIXTURE_SPOTS} campsites**`);
+  });
+
+  test('llms.txt still points at Åland under "Start here"', async () => {
+    const body = await renderLlmsTxt();
+    // One line per code, Åland included — an assistant that is told we
+    // cover 27 countries must still be able to reach all 28 pages.
+    expect(body).toContain('/camping/ax)');
+    expect(body).toContain('Åland Islands');
+    const starts = body.split('## Start here')[1] ?? '';
+    expect(
+      starts.split('\n').filter((l) => l.startsWith('- [Campsites in ')).length,
+    ).toBe(API_COUNTRIES.length);
   });
 });
