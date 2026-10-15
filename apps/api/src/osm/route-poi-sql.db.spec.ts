@@ -3,7 +3,7 @@ import type { QueryRunner } from 'typeorm';
 import { RoutePoi1790572800000 } from '../migrations/1790572800000-RoutePoi';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
 import { RoutePoiGas1791700000000 } from '../migrations/1791700000000-RoutePoiGas';
-import { ACCESS_EXCLUDED, isAccessExcluded } from './route-poi';
+import { ACCESS_EXCLUDED, gasLayerError, isAccessExcluded } from './route-poi';
 import { ensureStagingColumns, exportedTags } from './route-poi-export';
 import {
   LPG,
@@ -317,6 +317,14 @@ const CASES: {
     fixture: pt('n28', { amenity: 'fuel', 'fuel:lpg': '   ' }),
     expectKind: 'fuel',
     expect: { lpg: 'unknown' },
+  },
+  {
+    // 🔴 a shop that is NOT a gas shop: groceries, flag unknown. It is the
+    // row a flag built from the wrong rule would wrongly mark `yes`, which is
+    // what the permissive side of the gas-layer check is for.
+    fixture: pt('n32', { shop: 'supermarket' }),
+    expectKind: 'groceries',
+    expect: { cylinder_swap: 'unknown' },
   },
   {
     // the tag on a place that is not a fuel station is still read: the
@@ -1023,10 +1031,12 @@ describe('the import statement, against a real PostgreSQL', () => {
       expect(layer).toEqual({
         own_kind: '3',
         other_kinds: '3',
-        broken: '0',
+        missing: '0',
+        extra: '0',
         layer: '6',
         layer_objects: '5',
       });
+      expect(gasLayerError(layer)).toBeNull();
       const refs = (
         await db.query(
           `SELECT osm_ref FROM osm_route_poi
@@ -1034,6 +1044,102 @@ describe('the import statement, against a real PostgreSQL', () => {
         )
       ).rows.map((r) => r.osm_ref);
       expect(refs).toEqual(['a1600', 'n20', 'n21', 'n22', 'w700', 'w800']);
+    });
+
+    // ── THE CHECK, SEEN TO FAIL ──
+    //
+    // 🔴 The assertion above says `missing: '0'` and `extra: '0'`, and a check
+    // that is only ever shown to answer ZERO is green by construction: the
+    // review of this card narrowed `missing` to `cylinder_swap = 'no'` — a
+    // branch that cannot fire, since the loader never writes `no` — and 453
+    // tests stayed green. So each way the flag can disagree with the tag is
+    // PLANTED here, in a transaction that is rolled back, and the check's own
+    // SQL has to count it. The numbers are written out by hand from the
+    // fixtures:
+    //
+    //   flag yes today   n20 n21 w700 (gas_exchange)   n22 w800 a1600 (fuel)
+    //   shop=gas rows    those six — a1400 is folded away, n30 is excluded
+    //   not gas shops    n32 (groceries), n12 + w600 (dump)
+    //
+    // MUTATION: narrow `missing` to `cylinder_swap = 'no'` (the review's own),
+    // drop `extra`, or build either from STORED_POI_RULES.
+    const planted = async (change: string) => {
+      await db.query('BEGIN');
+      try {
+        await db.query(change);
+        const row = (await db.query(GAS_LAYER_SUMMARY_SQL)).rows[0];
+        return { row, error: gasLayerError(row) };
+      } finally {
+        await db.query('ROLLBACK');
+      }
+    };
+
+    it('sees ONE forecourt lose its flag', async () => {
+      const { row, error } = await planted(
+        `UPDATE osm_route_poi SET cylinder_swap = 'unknown' WHERE osm_ref = 'n22'`,
+      );
+      expect({ missing: row.missing, extra: row.extra }).toEqual({
+        missing: '1',
+        extra: '0',
+      });
+      expect(error).toMatch(/^1 rows of objects that say shop=gas/);
+    });
+
+    // the bug the card's flag exists to prevent: written for the kind only
+    it('sees the flag written for the kind only: the forecourts are gone', async () => {
+      const { row, error } = await planted(
+        `UPDATE osm_route_poi SET cylinder_swap = 'unknown' WHERE kind <> 'gas_exchange'`,
+      );
+      expect({ missing: row.missing, extra: row.extra }).toEqual({
+        missing: '3', // n22, w800, a1600
+        extra: '0',
+      });
+      expect(error).not.toBeNull();
+    });
+
+    // the permissive side, which the first version of the check did not have:
+    // the review widened the rule to gas_exchange + groceries and ONE test
+    // noticed, because no fixture here was a supermarket
+    it('sees the flag widened to a shop that is not a gas shop', async () => {
+      const { row, error } = await planted(
+        `UPDATE osm_route_poi SET cylinder_swap = 'yes' WHERE kind = 'groceries'`,
+      );
+      expect({ missing: row.missing, extra: row.extra }).toEqual({
+        missing: '0',
+        extra: '1', // n32
+      });
+      expect(error).toMatch(
+        /^1 rows say cylinder_swap=yes and no staged object/,
+      );
+    });
+
+    // the flag built from ANOTHER rule altogether — the review's `dump` — is
+    // both at once: every gas shop lost, every disposal point gained. A check
+    // that asked the rows whether they agreed with the rule that wrote them
+    // would have said nothing here.
+    it('sees the flag built from the dump rule: gas shops lost, dumps gained', async () => {
+      const { row, error } = await planted(
+        `UPDATE osm_route_poi SET cylinder_swap =
+           CASE WHEN kind = 'dump' THEN 'yes' ELSE 'unknown' END`,
+      );
+      expect({ missing: row.missing, extra: row.extra }).toEqual({
+        missing: '6', // n20 n21 w700 n22 w800 a1600
+        extra: '2', // n12, w600
+      });
+      expect(error).not.toBeNull();
+    });
+
+    // a closed-way forecourt is two rows in the table and two in staging; the
+    // check must match each by its own id, and the gas_exchange row by the
+    // folded one (a1400 is staged, w700 is stored)
+    it('matches a folded gas_exchange row to its staged area twin', async () => {
+      const { row } = await planted(
+        `UPDATE osm_route_poi SET cylinder_swap = 'unknown' WHERE osm_ref = 'w700'`,
+      );
+      expect({ missing: row.missing, extra: row.extra }).toEqual({
+        missing: '1',
+        extra: '0',
+      });
     });
 
     // 🔴 MUTATION: let a kind change with the flag, or the flag with the

@@ -44,13 +44,14 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * 🔴 ADD COLUMN … NOT NULL DEFAULT <constant> IS NOT A REWRITE on PostgreSQL
  * 11 and later, for the reason the facilities migration measured (heap
- * unchanged). Each CHECK is still validated against every existing row, so
- * both columns are ONE `ALTER` — one ACCESS EXCLUSIVE lock and one scan, not
- * two. Measured 15.10.2026 on a fresh copy of the table in its pre-migration
- * shape (2 271 596 rows, 18 columns, 10 indexes): the whole `up()` — both
- * columns, both new indexes — took 904 ms; a second `up()` over the result
- * took 4 ms and changed nothing (columns, indexes and CHECKs counted before
- * and after).
+ * unchanged), and the two CHECKs are one `ALTER` — one lock and one scan for
+ * both, not two. `up()` is written to bring the columns, CHECKs and indexes
+ * to their shape WHATEVER STATE THEY ARE IN (see the comments in it): the
+ * first version used `ADD COLUMN IF NOT EXISTS … NOT NULL DEFAULT … CHECK`,
+ * which PostgreSQL skips as a whole when the column exists. Measured
+ * 15.10.2026 on a fresh copy of the table in its pre-migration shape (2 271
+ * 596 rows, 18 columns, 10 indexes): see the CAMP-258 PR for the timing of
+ * this version.
  *
  * 🔴 TWO PARTIAL GiST INDEXES, FOR THE REASON 1790572800000-RoutePoi.ts
  * SPENDS A PAGE ON. Every query this table exists for is "the nearest X to
@@ -83,23 +84,81 @@ export class RoutePoiGas1791700000000 implements MigrationInterface {
   static readonly FLAG_INDEX = 'idx_osm_route_poi_cylinder_swap';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    const columns = RoutePoiGas1791700000000.COLUMNS.map(
-      (c) =>
-        `ADD COLUMN IF NOT EXISTS ${c} text NOT NULL DEFAULT 'unknown' ` +
-        `CHECK (${c} IN ('yes', 'no', 'unknown'))`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE osm_route_poi\n        ${columns.join(',\n        ')}`,
-    );
-    for (const kind of RoutePoiGas1791700000000.KINDS) {
+    const columns = RoutePoiGas1791700000000.COLUMNS;
+
+    // 🔴 THE COLUMN, IN WHATEVER STATE IT IS ALREADY IN.
+    //
+    // `ADD COLUMN IF NOT EXISTS lpg text NOT NULL DEFAULT 'unknown' CHECK (…)`
+    // looks idempotent and is not: when the column exists PostgreSQL skips the
+    // WHOLE subcommand, NOT NULL, DEFAULT and CHECK with it. Measured on a
+    // scratch database in the CAMP-258 review: after a bare `ADD COLUMN lpg
+    // text`, that `up()` left the column nullable, without a DEFAULT and
+    // without a CHECK, `lpg = 'banana'` went in, and the migration was
+    // recorded as done. On production that is 2.27 million rows of NULL — the
+    // one thing this file's header says cannot happen.
+    //
+    // So the two paths are separate, decided in SQL (no result is read: the
+    // specs' QueryRunner shim and TypeORM's return different things):
+    //   · no such column: ADD COLUMN … NOT NULL DEFAULT, which is a catalog
+    //     change and not a rewrite;
+    //   · the column exists: fill its NULLs, then SET DEFAULT and SET NOT NULL.
+    //     A value that is not one of the three words is NOT touched — the
+    //     CHECK below then refuses it and the migration stops, loudly: a
+    //     fourth state somebody wrote by hand is not ours to call `unknown`.
+    for (const c of columns) {
       await queryRunner.query(`
-        CREATE INDEX IF NOT EXISTS idx_osm_route_poi_${kind}
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = current_schema()
+               AND table_name = 'osm_route_poi' AND column_name = '${c}'
+          ) THEN
+            ALTER TABLE osm_route_poi
+              ADD COLUMN ${c} text NOT NULL DEFAULT 'unknown';
+          ELSE
+            UPDATE osm_route_poi SET ${c} = 'unknown' WHERE ${c} IS NULL;
+            ALTER TABLE osm_route_poi
+              ALTER COLUMN ${c} SET DEFAULT 'unknown',
+              ALTER COLUMN ${c} SET NOT NULL;
+          END IF;
+        END $$`);
+    }
+
+    // 🔴 THE CHECKS, REPLACED, NOT SKIPPED. Dropped by name and added again in
+    // ONE statement for both columns: one ACCESS EXCLUSIVE lock and one scan
+    // validating both, which is why the facilities migration is one ALTER. The
+    // name is the one PostgreSQL gives an inline CHECK on `ADD COLUMN`, so a
+    // CHECK left by an earlier hand-made version of this very column is
+    // replaced as well. A leftover CHECK under another name is not found.
+    const checks = columns.map((c) => `osm_route_poi_${c}_check`);
+    await queryRunner.query(
+      `ALTER TABLE osm_route_poi
+        ${[
+          ...checks.map((n) => `DROP CONSTRAINT IF EXISTS ${n}`),
+          ...columns.map(
+            (c, i) =>
+              `ADD CONSTRAINT ${checks[i]} CHECK (${c} IN ('yes', 'no', 'unknown'))`,
+          ),
+        ].join(',\n        ')}`,
+    );
+
+    // 🔴 THE INDEXES, REBUILT, NOT SKIPPED — for the same reason: `CREATE INDEX
+    // IF NOT EXISTS name` is satisfied by an index of that name on the wrong
+    // predicate, and the catalog spec would then be the only thing that knew.
+    for (const kind of RoutePoiGas1791700000000.KINDS) {
+      await queryRunner.query(`DROP INDEX IF EXISTS idx_osm_route_poi_${kind}`);
+      await queryRunner.query(`
+        CREATE INDEX idx_osm_route_poi_${kind}
           ON osm_route_poi USING GIST (location)
          WHERE kind = '${kind}'
       `);
     }
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS ${RoutePoiGas1791700000000.FLAG_INDEX}`,
+    );
     await queryRunner.query(`
-      CREATE INDEX IF NOT EXISTS ${RoutePoiGas1791700000000.FLAG_INDEX}
+      CREATE INDEX ${RoutePoiGas1791700000000.FLAG_INDEX}
         ON osm_route_poi USING GIST (location)
        WHERE cylinder_swap = 'yes'
     `);

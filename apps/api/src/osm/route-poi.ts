@@ -506,46 +506,52 @@ export function rulesTestSql(rules: readonly TagRule[], alias = 's'): string {
 export interface GasLayerSummary {
   own_kind: string;
   other_kinds: string;
-  broken: string;
+  missing: string;
+  extra: string;
   layer: string;
   layer_objects: string;
 }
 
 /**
- * 🔴 CAMP-258: THE TWO WAYS THE GAS LAYER LOSES ITS THIRD, BOTH SILENT.
+ * 🔴 CAMP-258: THE GAS LAYER, CHECKED IN BOTH DIRECTIONS AGAINST THE TAG.
  *
  * The flag `cylinder_swap` exists so the 4 014 forecourts that also say
- * `shop=gas` (kind `fuel`) stay in the layer. If it is ever written for the
- * `gas_exchange` kind only, every table of numbers still looks fine — 2 088
- * points, all of them yes — and the layer is a third of what the data holds.
- * So the loader asks, inside its transaction:
+ * `shop=gas` (kind `fuel`) stay in the layer. It can go wrong two ways and
+ * both are silent — every table of numbers still looks fine:
  *
- *   · a `gas_exchange` row that does not say yes: the flag and the kind have
- *     stopped reading one rule;
- *   · many `gas_exchange` rows and not one row of another kind that says yes.
+ *   · `missing`: an object that says `shop=gas` and whose row does not say
+ *     yes. Written for the kind only, this is the 5 643 forecourts: the layer
+ *     is a third of what the data holds, all 2 088 points still say yes.
+ *   · `extra`: a row that says yes and that no staged `shop=gas` explains.
+ *     A flag built from the wrong rule (the dump rule; gas_exchange plus
+ *     groceries) puts supermarkets in a layer of gas shops, and nothing the
+ *     first direction looks at changes.
  *
- * The floor (1 000) is there so a scratch load of one country is not refused:
- * the largest single extract has 679 lone gas shops (France), so only a
- * multi-country load passes it, and every such load measured carries some
- * forecourts. Returns the failure message, or null.
+ * Both counts come from GAS_LAYER_SUMMARY_SQL, which reads the staging table's
+ * `shop` — NOT STORED_POI_RULES. See the note there on why: the first version
+ * of this guard asked the rows whether they agreed with the rule that wrote
+ * them, and a flag from the wrong rule agreed with itself.
+ *
+ * There is no floor and no "how many forecourts" heuristic: either
+ * direction at a count of one is a rule that has stopped being applied. A
+ * run with no forecourts in it has `missing = 0` honestly. Returns the
+ * failure message, or null.
  */
-export const GAS_LAYER_MIN_OWN_ROWS = 1000;
-
 export function gasLayerError(s: GasLayerSummary): string | null {
-  const own = Number(s.own_kind);
-  const others = Number(s.other_kinds);
-  const broken = Number(s.broken);
-  if (broken > 0) {
+  const missing = Number(s.missing);
+  const extra = Number(s.extra);
+  if (missing > 0) {
     return (
-      `${broken} gas_exchange rows do not say cylinder_swap=yes — the flag ` +
-      `and the kind are no longer read from one rule (rulesTestSql).`
+      `${missing} rows of objects that say shop=gas do not say ` +
+      `cylinder_swap=yes — the gas layer has lost them (the flag is written ` +
+      `for one kind only, or from another rule than shop=gas).`
     );
   }
-  if (own >= GAS_LAYER_MIN_OWN_ROWS && others === 0) {
+  if (extra > 0) {
     return (
-      `${own} gas_exchange rows and not one row of another kind says ` +
-      `cylinder_swap=yes — the flag is written for the kind only, and the ` +
-      `forecourts that also say shop=gas have dropped out of the gas layer.`
+      `${extra} rows say cylinder_swap=yes and no staged object says ` +
+      `shop=gas — the flag is written from another rule than shop=gas, and ` +
+      `the gas layer holds things that are not gas shops.`
     );
   }
   return null;

@@ -415,13 +415,18 @@ export function lpgSelectSql(alias = 's'): string {
  * extracts 18 081 of 118 726 fuel objects do. The loader asks this inside
  * its transaction and rolls back on an answer.
  *
- * 🔴 THE FLOOR, AND WHAT IT RESTS ON. A scratch load of one small country
- * can truthfully hold no LPG station, so the guard does not speak below
- * 1 000 fuel rows. Measured 15.10.2026 per extract (`osmium tags-filter -R`):
- * every one of the 27 has at least one `fuel:lpg=yes` — Malta 1 of 78,
- * Luxembourg 10 of 251, Denmark 5 of 2 144 (the thinnest large one), the
- * rest far more — so a population past the floor with none is not a
- * finding about Europe.
+ * 🔴 THE FLOOR, AND WHAT IT RESTS ON — IN ROWS, NOT OBJECTS. A scratch load
+ * of one small country can truthfully hold no LPG station, so the guard does
+ * not speak below 1 000 fuel ROWS. The unit matters: the older kinds are not
+ * folded, so a closed-way fuel station is two rows, and the table holds 154 183
+ * `fuel` rows for about 116 600 objects. Measured 15.10.2026 on camptribe_dev
+ * after the full load, per country: Malta 100 rows, Luxembourg 280, Cyprus 458,
+ * Estonia 890 and Latvia 925 are BELOW the floor — for those, a single-country
+ * load is not guarded at all, and that is a limit of this check, not a finding
+ * about them. From Slovenia (1 110 rows, 186 of them `yes`) up, every country
+ * has at least 5 `yes` rows (Ireland and Denmark, the thinnest, have exactly
+ * 5 of 2 308 and 2 515), so a population past the floor with none is not a
+ * finding about Europe. The full 27-country load is the case this is for.
  */
 export const LPG_GUARD_MIN_FUEL_ROWS = 1000;
 

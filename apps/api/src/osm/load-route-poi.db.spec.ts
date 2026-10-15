@@ -290,12 +290,31 @@ describe('the loader, run as a program (CAMP-258)', () => {
     ).toBe(0);
   });
 
-  // 🔴 THE LAYER LOSES ITS FORECOURTS — SIMULATED BY THE ONE THING THAT CAN
-  // DO IT TO A REAL RUN: a flag that is written for the kind only. The
-  // trigger below is exactly that bug, in the database, so the loader's own
-  // SQL runs unchanged and writes `yes` for the forecourt and the trigger
-  // takes it back. With 1 000 lone gas shops in the run, every number the
-  // loader prints looks right and the layer is 1 000 points short of a map.
+  // 🔴 THE FLAG DISAGREES WITH THE TAG — SIMULATED BY THE ONE THING THAT CAN
+  // DO IT TO A REAL RUN: a rule that is wrong in the database. Each trigger
+  // below IS one such bug, so the loader's own SQL runs unchanged, writes
+  // what it writes, and the trigger changes it on the way in. The loader's
+  // check must then roll the run back, whatever else in the run looks right.
+  async function withTrigger(body: string, run: () => Promise<void>) {
+    await db.query(
+      `CREATE FUNCTION camp258_wrong_flag() RETURNS trigger LANGUAGE plpgsql AS $$
+       BEGIN ${body} RETURN NEW; END $$`,
+    );
+    await db.query(
+      `CREATE TRIGGER camp258_wrong_flag BEFORE INSERT OR UPDATE ON osm_route_poi
+         FOR EACH ROW EXECUTE FUNCTION camp258_wrong_flag()`,
+    );
+    try {
+      await run();
+    } finally {
+      await db.query('DROP TRIGGER camp258_wrong_flag ON osm_route_poi');
+      await db.query('DROP FUNCTION camp258_wrong_flag()');
+    }
+  }
+
+  // The flag written for the gas_exchange kind only: the forecourt n11 is a
+  // fuel station that says shop=gas, and it loses the flag. 1 000 lone gas
+  // shops are in the run so that every number the loader prints looks right.
   //
   // 🔴 MUTATION: delete the `if (gasFailure !== null) throw` line in
   // load-route-poi.ts, or the `gasLayerError` call above it.
@@ -308,32 +327,54 @@ describe('the loader, run as a program (CAMP-258)', () => {
               'gas'
          FROM generate_series(1, 1000) g`,
     );
-    await db.query(
-      `CREATE FUNCTION camp258_flag_kind_only() RETURNS trigger LANGUAGE plpgsql AS $$
-       BEGIN
-         IF NEW.kind <> 'gas_exchange' THEN NEW.cylinder_swap := 'unknown'; END IF;
-         RETURN NEW;
-       END $$`,
+    await withTrigger(
+      `IF NEW.kind <> 'gas_exchange' THEN NEW.cylinder_swap := 'unknown'; END IF;`,
+      async () => {
+        const run = runLoader();
+        expect({ status: run.status, err: run.err }).toEqual({
+          status: 1,
+          err: expect.stringContaining(
+            '1 rows of objects that say shop=gas do not say cylinder_swap=yes',
+          ),
+        });
+        expect(
+          (await db.query('SELECT count(*)::int AS n FROM osm_route_poi'))
+            .rows[0].n,
+        ).toBe(0);
+      },
     );
-    await db.query(
-      `CREATE TRIGGER camp258_flag_kind_only BEFORE INSERT OR UPDATE ON osm_route_poi
-         FOR EACH ROW EXECUTE FUNCTION camp258_flag_kind_only()`,
+  });
+
+  // The permissive side: the flag widened to a shop that is not a gas shop
+  // (the supermarket n5). No number of gas_exchange rows changes; the layer
+  // just holds a supermarket. MUTATION: drop `extra` from the check.
+  it('rolls back when the flag is written for something that is not a gas shop', async () => {
+    await resetStaging({ gas: true });
+    await withTrigger(
+      `IF NEW.kind = 'groceries' THEN NEW.cylinder_swap := 'yes'; END IF;`,
+      async () => {
+        const run = runLoader();
+        expect({ status: run.status, err: run.err }).toEqual({
+          status: 1,
+          err: expect.stringContaining(
+            '1 rows say cylinder_swap=yes and no staged object says shop=gas',
+          ),
+        });
+        expect(
+          (await db.query('SELECT count(*)::int AS n FROM osm_route_poi'))
+            .rows[0].n,
+        ).toBe(0);
+      },
     );
-    try {
-      const run = runLoader();
-      expect({ status: run.status, err: run.err }).toEqual({
-        status: 1,
-        err: expect.stringContaining(
-          '1001 gas_exchange rows and not one row of another kind says cylinder_swap=yes',
-        ),
-      });
-      expect(
-        (await db.query('SELECT count(*)::int AS n FROM osm_route_poi')).rows[0]
-          .n,
-      ).toBe(0);
-    } finally {
-      await db.query('DROP TRIGGER camp258_flag_kind_only ON osm_route_poi');
-      await db.query('DROP FUNCTION camp258_flag_kind_only()');
-    }
+  });
+
+  // …and the same run with no trigger is published: the check is not a wall.
+  it('publishes the same run when the flag agrees with the tag', async () => {
+    await resetStaging({ gas: true });
+    const run = runLoader();
+    expect(run.status).toBe(0);
+    expect(run.out).toContain(
+      'gas layer (kind=gas_exchange OR cylinder_swap=yes): 2 rows / 2 objects  (own kind 1, on other kinds 1)',
+    );
   });
 });

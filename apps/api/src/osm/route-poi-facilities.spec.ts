@@ -522,45 +522,74 @@ describe('cylinder_swap is derived from the gas_exchange rule, not from the kind
   });
 });
 
-describe('the loader notices when the gas layer lost its forecourts', () => {
-  const sum = (own: number, others: number, broken = 0) => ({
-    own_kind: String(own),
-    other_kinds: String(others),
-    broken: String(broken),
-    layer: String(own + others),
-    layer_objects: String(own + others),
+describe('the loader notices when the gas layer disagrees with the tag', () => {
+  const sum = (missing: number, extra: number) => ({
+    own_kind: '2088',
+    other_kinds: '5643',
+    missing: String(missing),
+    extra: String(extra),
+    layer: '7731',
+    layer_objects: '6096',
   });
 
-  // 🔴 MUTATION: write the flag for the kind only. The real run then has
-  // 2 088 own rows and 0 others; this is the line that says so.
-  it('says so for many gas_exchange rows and none of another kind', () => {
-    expect(gasLayerError(sum(2088, 0))).toMatch(
-      /2088 gas_exchange rows and not one row of another kind/,
+  // These feed the guard a HAND-WRITTEN summary, so they pin what the
+  // function does with a number. That the number is ever anything but zero
+  // is asserted against a real PostgreSQL in route-poi-sql.db.spec.ts, where
+  // a disagreement is planted in the table and the check's own SQL counts it.
+  //
+  // 🔴 MUTATION: stop reading `missing`, or test it with `< 0`.
+  it('says so when objects that say shop=gas lost the flag', () => {
+    expect(gasLayerError(sum(5643, 0))).toMatch(
+      /5643 rows of objects that say shop=gas do not say cylinder_swap=yes/,
     );
-    expect(gasLayerError(sum(1000, 0))).not.toBeNull();
+    expect(gasLayerError(sum(1, 0))).not.toBeNull();
   });
 
-  it('is silent when forecourts carry the flag, and below the floor', () => {
-    expect(gasLayerError(sum(2088, 4008))).toBeNull();
-    expect(gasLayerError(sum(2088, 1))).toBeNull();
-    // one country: no forecourts is a possible truth, and below 1 000 own rows
-    expect(gasLayerError(sum(999, 0))).toBeNull();
-    expect(gasLayerError(sum(29, 0))).toBeNull();
-  });
-
-  // 🔴 MUTATION: drop the `broken` test, or move the floor above it. A
-  // gas_exchange row that does not say yes is the flag and the kind having
-  // stopped reading one rule — at ANY size.
-  it('refuses a gas_exchange row that does not say yes, at any size', () => {
-    expect(gasLayerError(sum(5, 0, 1))).toMatch(
-      /1 gas_exchange rows do not say cylinder_swap=yes/,
+  // 🔴 MUTATION: stop reading `extra` — the permissive side, which the first
+  // version of this guard did not have at all.
+  it('says so when rows say yes and no staged shop=gas explains them', () => {
+    expect(gasLayerError(sum(0, 12))).toMatch(
+      /12 rows say cylinder_swap=yes and no staged object says shop=gas/,
     );
-    expect(gasLayerError(sum(2088, 4008, 3))).not.toBeNull();
+    expect(gasLayerError(sum(0, 1))).not.toBeNull();
+  });
+
+  it('is silent when the flag and the tag agree', () => {
+    expect(gasLayerError(sum(0, 0))).toBeNull();
+  });
+
+  // Not a floor, and not a count of forecourts: a run with none in it has
+  // `missing = 0` honestly, and one lost gas shop is already a rule that has
+  // stopped being applied.
+  it('has no floor: one row either way is enough', () => {
+    expect(
+      gasLayerError({ ...sum(0, 0), own_kind: '3', other_kinds: '0' }),
+    ).toBeNull();
+    expect(
+      gasLayerError({ ...sum(1, 0), own_kind: '3', other_kinds: '0' }),
+    ).not.toBeNull();
+    expect(
+      gasLayerError({ ...sum(0, 1), own_kind: '3', other_kinds: '0' }),
+    ).not.toBeNull();
+  });
+
+  // 🔴 MUTATION: build the oracle from STORED_POI_RULES again. The check
+  // would then agree with whatever the flag was built from, and a flag from
+  // the wrong rule would pass it — that was the first version's defect.
+  it('reads the tag itself, written out, and not the rules the flag uses', () => {
+    const sql = GAS_LAYER_SUMMARY_SQL;
+    expect(sql).toContain("s.shop = 'gas'");
+    expect(sql).not.toContain("IN ('gas')");
+    // …and the rule it stands in for is exactly that, so widening one without
+    // the other is a red test here and not a silent disagreement
+    expect(STORED_POI_RULES.gas_exchange).toEqual([
+      { key: 'shop', values: ['gas'] },
+    ]);
   });
 
   it('is asked through the statement the loader runs', () => {
     expect(GAS_LAYER_SUMMARY_SQL).toContain(
-      "kind = 'gas_exchange' OR cylinder_swap = 'yes'",
+      "kind = 'gas_exchange'\n                           OR cylinder_swap = 'yes'",
     );
     expect(GAS_LAYER_SUMMARY_SQL).toContain('count(DISTINCT');
   });

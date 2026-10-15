@@ -378,22 +378,49 @@ export function cylinderSwapSelectSql(alias = 's'): string {
 
 /**
  * CAMP-258: the gas layer in one row — what a map reads as
- * `kind = 'gas_exchange' OR cylinder_swap = 'yes'`.
+ * `kind = 'gas_exchange' OR cylinder_swap = 'yes'` — and the two checks of
+ * the flag against the STAGING table.
  *
- *   own_kind     rows of the kind `gas_exchange`
- *   other_kinds  rows of ANOTHER kind that say `cylinder_swap = 'yes'`
- *   broken       `gas_exchange` rows that do NOT say yes — must be 0, the flag
- *                is derived from the same rule as the kind
- *   layer        the layer, in rows
+ *   own_kind       rows of the kind `gas_exchange`
+ *   other_kinds    rows of ANOTHER kind that say `cylinder_swap = 'yes'`
+ *   missing        rows of objects that say `shop=gas` in staging and do NOT
+ *                  say `cylinder_swap = 'yes'` — the layer has lost them
+ *   extra          rows that say `yes` although no staged object says
+ *                  `shop=gas` — the layer has gained something that is not
+ *                  a gas shop
+ *   layer          the layer, in rows
  *   layer_objects  the layer, in OSM objects: the older kinds are not folded,
- *                so a closed-way forecourt is two rows (`w123`, `a246`)
+ *                  so a closed-way forecourt is two rows (`w123`, `a246`)
+ *
+ * 🔴 `missing` AND `extra` ARE COMPUTED FROM `s.shop = 'gas'`, WRITTEN OUT
+ * HERE, AND NOT FROM STORED_POI_RULES. The first version of this check
+ * asked "does a gas_exchange row fail to say yes" — and the flag, the kind
+ * and that question all read the same rule, so a flag built from the WRONG
+ * rule (the dump rule, `gas_exchange` + groceries) satisfied it: every row
+ * the check looked at agreed with itself. A check that shares its field with
+ * the thing it measures is green by construction. This one reads the tag.
+ * (A spec pins the rule to exactly `shop` in ('gas'), so widening the rule
+ * forces this line to be edited with it, on purpose.)
+ *
+ * Staged ids are matched to table refs both as written and folded to their
+ * canonical form: a gas_exchange row is keyed on `w123`, a fuel row on what
+ * osmium wrote (`w123` AND its area `a246`).
  */
-export const GAS_LAYER_SUMMARY_SQL = `SELECT
+export const GAS_LAYER_SUMMARY_SQL = `WITH gas AS (
+         SELECT s.id AS id, ${canonicalRefSql('s.id')} AS cref
+           FROM osm_route_poi_staging s
+          WHERE s.shop = 'gas' AND s.id IS NOT NULL
+       )
+       SELECT
        count(*) FILTER (WHERE kind = 'gas_exchange')::text AS own_kind,
        count(*) FILTER (WHERE kind <> 'gas_exchange'
                           AND cylinder_swap = 'yes')::text AS other_kinds,
-       count(*) FILTER (WHERE kind = 'gas_exchange'
-                          AND cylinder_swap <> 'yes')::text AS broken,
+       count(*) FILTER (WHERE cylinder_swap <> 'yes'
+                          AND (osm_ref IN (SELECT id FROM gas)
+                               OR osm_ref IN (SELECT cref FROM gas)))::text AS missing,
+       count(*) FILTER (WHERE cylinder_swap = 'yes'
+                          AND osm_ref NOT IN (SELECT id FROM gas)
+                          AND osm_ref NOT IN (SELECT cref FROM gas))::text AS extra,
        count(*) FILTER (WHERE kind = 'gas_exchange'
                            OR cylinder_swap = 'yes')::text AS layer,
        count(DISTINCT CASE WHEN kind = 'gas_exchange' OR cylinder_swap = 'yes'
