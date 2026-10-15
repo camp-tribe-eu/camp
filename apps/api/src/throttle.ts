@@ -79,8 +79,14 @@ export const LOGIN_LIMIT = { ttl: MINUTE, limit: 10 };
  * something else: every accepted request can put a message from our domain
  * into somebody else's inbox, and a domain that has been used to bury a
  * stranger's mailbox lands on blacklists — for everyone, for months. The
- * per-address wait (`Cooldown`, 60 s) bounds one victim; this bounds one
- * CALLER, who could otherwise walk a list of victims at a hundred a minute.
+ * per-address wait (`Cooldown`, 60 s) paces one ADDRESS AS SPELLED; this bounds
+ * one CALLER, who could otherwise walk a list of victims at a hundred a minute.
+ *
+ * 🔴 NEITHER BOUNDS A MAILBOX. `victim+1@`, `victim+2@` and `v.i.ctim@` are
+ * three addresses to us and three clocks. Against one mailbox the ceiling is
+ * THIS bucket alone: sixty letters an hour per caller. Folding the spelling
+ * would shrink that and would also decide who can register, so it is the
+ * owner's call and is not made here (`account.db.spec.ts` pins the number).
  *
  * Ten per ten minutes. Not measured — argued: a person on these forms makes a
  * handful of requests (a typo in the password, the resend button, one

@@ -80,6 +80,9 @@ export class AccountService implements BeforeApplicationShutdown {
   /** Work started after a response was sent; see `later`. */
   private readonly pending = new Set<Promise<void>>();
 
+  /** Reset links whose password is being hashed right now; see `resetPassword`. */
+  private readonly resetting = new Set<string>();
+
   readonly cooldown = new Cooldown(COOLDOWN_MS);
 
   constructor(
@@ -103,8 +106,21 @@ export class AccountService implements BeforeApplicationShutdown {
    * take an address and promise nothing — are uniform, and measured so
    * (`account.db.spec.ts`). This one is bounded rather than hidden: it
    * costs a scrypt hash and a letter per new address, it is counted in the
-   * `mail` bucket, and it never sends a letter to an address that already has
-   * an account, so it cannot be used to mail a stranger twice.
+   * `mail` bucket, and it never sends a letter to an address — AS SPELLED —
+   * that already has an account.
+   *
+   * 🔴 WHAT THAT LAST CLAUSE IS NOT. It does not stop a mailbox being mailed
+   * more than once. `victim+1@gmail.com`, `victim+2@gmail.com` and
+   * `v.i.ctim@gmail.com` are three addresses to us, so three accounts and
+   * three letters into one inbox. The only ceiling is the `mail` bucket: ten
+   * requests per ten minutes per caller, that is SIXTY LETTERS AN HOUR from
+   * one address into one victim's mailbox (and as many unconfirmed accounts),
+   * multiplied by however many callers there are — which is Cloudflare's to
+   * absorb, in front of us. Folding `+tags` and dots would shrink it, and it
+   * would also decide who can register at all (dots mean different mailboxes
+   * at some providers), so it is the owner's decision and is NOT made here.
+   * `account.db.spec.ts` pins the residual with its number, so that closing it
+   * is a conscious change and not a quiet one.
    *
    * The alternative — no session until the link is clicked — keeps this
    * uniform and breaks the card's central sentence, so it is the owner's to
@@ -233,6 +249,38 @@ export class AccountService implements BeforeApplicationShutdown {
     now: Date = new Date(),
   ): Promise<void> {
     const row = await this.liveToken('reset_password', rawToken, now);
+    // 🔴 ONE HASH PER LINK, however many times it is posted at once.
+    //
+    // Measured before this line existed (15.10.2026, a loaded laptop, one
+    // burst): twelve concurrent requests carrying ONE valid link ran
+    // `hashPassword` twelve times (673 ms against 267 ms for one) — eleven of
+    // them to answer 410 — while a garbage token cost 1.02 ms. The request was in the 120-a-minute bucket, so one link bought
+    // up to 120 scrypt hashes a minute from one address, where sign-in is held
+    // to ten. Nothing about the link had to be guessed: it only had to be
+    // asked for, which costs a letter.
+    //
+    // The check and the `add` below are one synchronous step, so of any number
+    // of requests that passed `liveToken` together exactly one goes on to
+    // hash and the rest answer the same "stale" the claim would have. With
+    // that, a hash needs a link, a link needs a letter, and letters are the
+    // `mail` bucket's — which is why this route may stay in the ordinary
+    // bucket. Per process, like the cooldown: two processes allow two hashes.
+    if (this.resetting.has(row.id)) throw new StaleLink();
+    this.resetting.add(row.id);
+    try {
+      await this.resetWith(row, newPassword, now);
+    } finally {
+      // Also on a refused password: the link is still good, and the person
+      // must be able to try again.
+      this.resetting.delete(row.id);
+    }
+  }
+
+  private async resetWith(
+    row: AuthToken,
+    newPassword: unknown,
+    now: Date,
+  ): Promise<void> {
     const user = await this.users.findOne({ where: { id: row.userId } });
     if (!user) throw new StaleLink();
     // 🔴 BEFORE the link is spent. A password that is too short must leave
@@ -303,6 +351,10 @@ export class AccountService implements BeforeApplicationShutdown {
     now: Date,
   ): Promise<void> {
     const mailer = this.mailer as Mailer;
+    // 🔴 256 bits, 43 URL-safe characters, and that is the ONLY thing between
+    // a stranger and this account: the route that spends the link is not rate
+    // limited as guessing (it cannot be, usefully). `account.db.spec.ts`
+    // asserts the length of the token in the LETTER as a literal.
     const token = newToken();
     await this.tokens.save(
       this.tokens.create({

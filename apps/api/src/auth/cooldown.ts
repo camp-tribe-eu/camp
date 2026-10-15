@@ -15,6 +15,12 @@ import { createHash } from 'node:crypto';
  * request for an address starts the clock whether or not an account exists
  * behind it, so the second is refused identically for both.
  *
+ * 🔴 THE KEY IS THE ADDRESS AS SPELLED, so it paces an address and not a
+ * mailbox: `victim+1@gmail.com` and `victim+2@gmail.com` have a clock each and
+ * reach the same inbox. The bound on a mailbox is the per-caller `mail` bucket
+ * in throttle.ts, nothing here. Folding `+tags` and dots would change who can
+ * register, which is the owner's decision.
+ *
  * 🔴 AND A REFUSED REQUEST DOES NOT RESTART IT. Otherwise a person pressing
  * the button every ten seconds would never see it come back.
  *

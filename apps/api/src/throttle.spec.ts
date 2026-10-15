@@ -475,10 +475,22 @@ describe('🔴 the mail bucket (CAMP-228)', () => {
     expect(bucketOf('/auth/forgot')).not.toBe(bucketOf('/auth/login'));
   });
 
-  // The routes that SPEND a one-time link are cheap and 256-bit: they stay in
-  // the ordinary bucket on purpose, and this pins that so a "tidy-up" that
-  // moves them into mail (and so lets ten wrong clicks lock out sign-up) is
-  // a red test and not a surprise.
+  // The routes that SPEND a one-time link stay in the ordinary bucket, and the
+  // reason is not "that is where they landed":
+  //
+  //   · a garbage token costs one indexed lookup (1.02 ms measured), so there
+  //     is nothing scarce to count;
+  //   · the one expensive thing — a scrypt hash on /auth/reset-password — is
+  //     reached only through a VALID link, and the service allows one hash per
+  //     link (twelve concurrent posts: one hash, `account.db.spec.ts`), and a
+  //     link costs a letter, which IS the mail bucket's;
+  //   · guessing a link is not what any bucket here stops. Its 256 bits are,
+  //     and the length is asserted as a literal in `account.db.spec.ts` and
+  //     `session.spec.ts`.
+  //
+  // This pins it so a "tidy-up" that moves them into mail (and lets ten wrong
+  // clicks lock out sign-up) is a red test and not a surprise — and so that
+  // anyone who wants them elsewhere has to read the three lines above first.
   it.each(['/auth/verify-email', '/auth/reset-password', '/auth/logout'])(
     'leaves %s in the ordinary bucket',
     (path) => {

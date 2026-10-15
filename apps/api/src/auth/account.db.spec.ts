@@ -9,6 +9,7 @@ import type { QueryRunner } from 'typeorm';
 import { DevMailbox, MailMessage, MailSender } from './mail';
 import { WarningsService } from '../warnings/warnings.service';
 import { AccountService, MAILER } from './account.service';
+import * as passwordModule from './password';
 
 // CAMP-228 — sign-up, confirmation and password reset, against a REAL
 // PostgreSQL and the REAL application.
@@ -561,6 +562,113 @@ describe('🔴 the TTL written into a freshly issued link is 60 minutes', () => 
   });
 });
 
+// ── the link itself ──────────────────────────────────────────────────────
+
+describe('🔴 the token in a letter is 256 bits — the whole defence of the link', () => {
+  // The route that spends a link is not rate limited as a guessing target and
+  // cannot usefully be: a stranger who can try a hundred and twenty a minute
+  // still does not find 2^256. What stands between them and the account is the
+  // length of this string, so the length is asserted as a literal — 43
+  // base64url characters — and not as `TOKEN_BYTES`, which a mutation moves
+  // together with the generator.
+  const SHAPE = /^[A-Za-z0-9_-]{43}$/;
+
+  it('is 43 URL-safe characters in the confirmation letter and in the reset letter', async () => {
+    const { email } = await register();
+    await post('/auth/forgot', { email });
+    await settle();
+    const confirm = tokenIn(lettersTo(email, 'verify_email')[0]);
+    const reset = tokenIn(lettersTo(email, 'reset_password')[0]);
+    expect(confirm).toMatch(SHAPE);
+    expect(reset).toMatch(SHAPE);
+    expect(reset).not.toBe(confirm);
+  });
+
+  it('is different for every letter, not just long', async () => {
+    const tokens: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const email = unique();
+      await insertRawUser(email);
+      await post('/auth/forgot', { email });
+      await settle();
+      tokens.push(tokenIn(lettersTo(email, 'reset_password')[0]));
+    }
+    for (const t of tokens) expect(t).toMatch(SHAPE);
+    expect(new Set(tokens).size).toBe(6);
+  });
+});
+
+describe('🔴 one valid reset link buys one hash, however many times it is posted at once', () => {
+  // Measured on 15.10.2026 before the guard: twelve concurrent requests with
+  // ONE valid link called `hashPassword` twelve times. The call is COUNTED, not
+  // replaced: the spy passes through to the real scrypt, so a response that is
+  // wrong for any other reason still fails.
+  it('twelve concurrent resets with one link: one 204, eleven 410, ONE hash', async () => {
+    const email = unique();
+    await insertRawUser(email);
+    await post('/auth/forgot', { email });
+    await settle();
+    const token = tokenIn(lettersTo(email, 'reset_password')[0]);
+
+    const hashes = jest.spyOn(passwordModule, 'hashPassword');
+    try {
+      const replies = await Promise.all(
+        Array.from({ length: 12 }, (_, i) =>
+          post('/auth/reset-password', {
+            token,
+            password: `a new long password ${i}`,
+          }),
+        ),
+      );
+      expect(replies.map((r) => r.status).sort()).toEqual([
+        204, 410, 410, 410, 410, 410, 410, 410, 410, 410, 410, 410,
+      ]);
+      expect(hashes).toHaveBeenCalledTimes(1);
+    } finally {
+      hashes.mockRestore();
+    }
+  });
+
+  it('a refused password gives the link back: the guard is released on every path', async () => {
+    const email = unique();
+    await insertRawUser(email);
+    await post('/auth/forgot', { email });
+    await settle();
+    const token = tokenIn(lettersTo(email, 'reset_password')[0]);
+    for (let i = 0; i < 3; i++) {
+      const weak = await post('/auth/reset-password', {
+        token,
+        password: 'short',
+      });
+      expect(weak.status).toBe(400);
+    }
+    expect(
+      (
+        await post('/auth/reset-password', {
+          token,
+          password: 'a brand new password 42',
+        })
+      ).status,
+    ).toBe(204);
+  });
+
+  it('a garbage token never reaches the hash', async () => {
+    const hashes = jest.spyOn(passwordModule, 'hashPassword');
+    try {
+      for (let i = 0; i < 5; i++) {
+        const r = await post('/auth/reset-password', {
+          token: `garbage-${i}`,
+          password: 'a perfectly good new password',
+        });
+        expect(r.status).toBe(410);
+      }
+      expect(hashes).not.toHaveBeenCalled();
+    } finally {
+      hashes.mockRestore();
+    }
+  });
+});
+
 // ── "forgot password": same answer, same wait ────────────────────────────
 
 describe('🔴 "if an account exists" — the form does not tell', () => {
@@ -1070,7 +1178,57 @@ describe('🔴 the routes that send a letter are counted in their own bucket', (
       ).toBe(202);
   });
 
-  it('does not count a link being followed: those are cheap and unguessable', async () => {
+  // 🔴 A KNOWN RESIDUAL, PINNED SO THAT CLOSING IT IS A DECISION. The cooldown
+  // paces an address as spelled, so one mailbox written ten ways is ten
+  // addresses and ten letters; the only ceiling is this bucket — ten requests
+  // in ten minutes from a caller, sixty letters an hour. Folding `+tag` and
+  // dots would shrink it and would also decide who can register (dots are
+  // different mailboxes at some providers): the owner's call. If this test
+  // goes red because somebody added that folding, the product decision has
+  // been taken — update the number here and in the comments that cite it.
+  it('KNOWN RESIDUAL: ten spellings of one mailbox are ten letters into it, then the bucket', async () => {
+    const ip = '203.0.113.206';
+    const addresses = [
+      'victim+1',
+      'victim+2',
+      'victim+3',
+      'victim+4',
+      'victim+5',
+      'victim+6',
+      'victim+7',
+      'v.ictim',
+      'vi.ctim',
+      'vic.tim',
+    ].map((local) => `${local}.${process.pid}@example.com`);
+    for (const a of addresses) await insertRawUser(a);
+    const statuses: number[] = [];
+    for (const a of addresses)
+      statuses.push(
+        (await post('/auth/forgot', { email: a }, asIp(ip))).status,
+      );
+    await settle();
+    expect(statuses).toEqual(Array<number>(10).fill(202));
+    // One letter each: ten letters, every one a separate address to us.
+    for (const a of addresses)
+      expect(lettersTo(a, 'reset_password')).toHaveLength(1);
+    // And the eleventh — any spelling — is the bucket's, not the cooldown's.
+    const eleventh = await post(
+      '/auth/forgot',
+      { email: `victim+11.${process.pid}@example.com` },
+      asIp(ip),
+    );
+    expect(eleventh.status).toBe(429);
+    expect(eleventh.json?.code).not.toBe('too_soon');
+  });
+
+  // verify-email is in the ordinary bucket on purpose, and the reason is not
+  // "that is where it landed": the request does one indexed lookup and no hash
+  // (a hash is only ever reached through a valid link, and the reset route
+  // allows one per link), so there is nothing scarce to count; and guessing a
+  // link is not what this bucket would stop — its length is, and that is
+  // asserted above as a literal. Ten wrong clicks must not lock a person out
+  // of anything else.
+  it('does not count a link being followed: one lookup, no hash, nothing scarce', async () => {
     const ip = '203.0.113.205';
     for (let i = 0; i < 15; i++)
       expect(
