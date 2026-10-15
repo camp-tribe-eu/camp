@@ -12,6 +12,13 @@
 // spec runs exactly what runs here. It prints the `dump` count together
 // with the formula that makes it a count of OSM objects.
 //
+// 🔴 CAMP-258 added `gas_exchange` (`shop=gas`, stored and not served) and
+// the `lpg` column (`fuel:lpg`, yes / no / unknown) and the `cylinder_swap`
+// flag (`shop=gas` on an object of ANY kind). The per-kind check below
+// covers the first — a kind nobody filters for loads nothing and the run
+// rolls back — `lpgArrivalError` covers the second, and `gasLayerError` the
+// third.
+//
 // 🔴 One statement, inside one transaction, and never a TRUNCATE
 // followed by an INSERT outside one. The API is reading this table while
 // the weekly import runs; a truncate that is visible before its insert
@@ -24,11 +31,17 @@ import { Client } from 'pg';
 import {
   ACCESS_EXCLUDED,
   DUMP_FORMULA,
+  gasLayerError,
+  type GasLayerSummary,
   REST_STOP_KINDS,
   STORED_POI_KINDS,
 } from './route-poi';
 import { ensureStagingColumns, exportedTags } from './route-poi-export';
-import { TRISTATE_COLUMNS } from './route-poi-facilities';
+import {
+  lpgArrivalError,
+  type LpgSummaryRow,
+  TRISTATE_COLUMNS,
+} from './route-poi-facilities';
 // 🔴 The SQL lives in its own file so it can be unit-tested — a script
 // that opens a database connection on import cannot be. See the header
 // of route-poi-sql.ts for what got through while it could not.
@@ -36,6 +49,8 @@ import {
   buildRoutePoiInsertSql,
   EU_SQL_LIST,
   euLeakGuardSql,
+  GAS_LAYER_SUMMARY_SQL,
+  LPG_SUMMARY_SQL,
 } from './route-poi-sql';
 
 const DB_URL =
@@ -105,6 +120,27 @@ async function main() {
       );
     }
 
+    // 🔴 CAMP-258: DID `fuel:lpg` ARRIVE. `unknown` is the right answer for
+    // 82% of fuel stations, so a column that is `unknown` on all of them
+    // looks exactly like a column that was read. The only tell is a fuel
+    // population with no `yes` in it — see lpgArrivalError.
+    const lpgSummary = await db.query<LpgSummaryRow>(LPG_SUMMARY_SQL);
+    const lpgFailure = lpgArrivalError(lpgSummary.rows);
+    if (lpgFailure !== null) throw new Error(lpgFailure);
+    const lpgBy = new Map<string, LpgSummaryRow>(
+      lpgSummary.rows.map((r) => [r.state, r]),
+    );
+
+    // 🔴 CAMP-258: THE GAS LAYER KEEPS ITS FORECOURTS. `cylinder_swap` is
+    // what lets the 9 394 `fuel` rows that also say `gas` in `shop` stay in the
+    // layer a map draws as `kind = 'gas_exchange' OR cylinder_swap = 'yes'`.
+    // Written for the kind only, every number looks right and the layer is a
+    // third of what it should be — see gasLayerError.
+    const gasLayer = (await db.query<GasLayerSummary>(GAS_LAYER_SUMMARY_SQL))
+      .rows[0];
+    const gasFailure = gasLayerError(gasLayer);
+    if (gasFailure !== null) throw new Error(gasFailure);
+
     // 🔴 CAMP-118, CHECKED AGAINST THE GEOMETRY AND NOT AGAINST THE
     // COLUMN THE IMPORT JUST WROTE.
     //
@@ -167,6 +203,33 @@ async function main() {
     // 🔴 The number and the formula that produced it, together. A card
     // once quoted 17 579 for this and no formula reproduces it.
     console.log(`  dump = ${counts.get('dump')}  (${DUMP_FORMULA})`);
+
+    // CAMP-258: what the fuel stations say about LPG. Rows and objects,
+    // because only the latter is comparable with a count of OSM objects.
+    console.log(
+      `  fuel lpg (rows / objects): ` +
+        ['yes', 'no', 'unknown']
+          .map(
+            (st) =>
+              `${st} ${lpgBy.get(st)?.rows ?? 0} / ${lpgBy.get(st)?.objects ?? 0}`,
+          )
+          .join('  '),
+    );
+
+    // CAMP-258: the gas layer, as a map reads it. Rows and objects, for the
+    // reason given at the lpg line above.
+    console.log(
+      `  gas layer (kind=gas_exchange OR cylinder_swap=yes): ` +
+        `${gasLayer.layer} rows / ${gasLayer.layer_objects} objects  ` +
+        `(own kind ${gasLayer.own_kind}, on other kinds ${gasLayer.other_kinds})`,
+    );
+    // …and the wider reading: objects that mention gas as a word in `shop`,
+    // and the ones the rule does not mark. Reported, not fatal, unless
+    // systematic — see gasLayerError.
+    console.log(
+      `  gas read widely: ${gasLayer.wide_objects} staged objects mention gas ` +
+        `as a word in shop, ${gasLayer.wide_only} not marked by the rule`,
+    );
 
     // What the stopping places say about themselves — three words, and
     // the third is not a gap. `unknown` is the answer for most of them.

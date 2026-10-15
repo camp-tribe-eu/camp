@@ -105,7 +105,7 @@
 // useful fraction the column is one import away; this comment is the
 // measurement to re-run before anybody builds the control.
 
-import { tagParts } from './route-poi-facilities';
+import { tagParts, tagPartsSql } from './route-poi-facilities';
 
 /**
  * The closed list of service kinds. Order is the order a page shows them.
@@ -151,6 +151,30 @@ export interface TagRule {
   key: 'amenity' | 'shop' | 'tourism' | 'man_made' | 'highway';
   /** The values that count. */
   values: string[];
+  /**
+   * 🔴 CAMP-258: THE KEY HOLDS A `;` LIST, AND ANY ELEMENT COUNTS.
+   *
+   * OpenStreetMap writes several values for one key as `a;b`. A rule that
+   * compares the whole tag (`shop IN ('gas')`) misses every object that says
+   * `shop=convenience;gas` — and the tag filter the pipeline hands osmium is
+   * the same equality, so such an object never reaches staging at all unless
+   * something else selected it. Measured 15.10.2026 on the staging table of
+   * camptribe_dev: `shop = 'gas'` on 8 071 rows (6 108 objects), `gas` as an
+   * element of a list on a further 3 755 rows (2 804 objects), and no object
+   * in both. 3 751 of those rows were already stored as `fuel` with
+   * `cylinder_swap = 'unknown'` — the other half of the hypermarket
+   * forecourts the column was introduced for.
+   *
+   * Set only where a measured gap says so. Applying it to every rule would
+   * change the kind of rows that exist: measured on the same staging table, a
+   * list reading of EVERY rule moves 47 `shelter` rows to `food`, 8 `food` to
+   * `groceries`, 2 `groceries` to `fuel` and 2 `rest_area` to `food` (see
+   * the CAMP-258 PR). That is a decision with a cost, and not this card's.
+   *
+   * Read as the elements of the tag split on `;`, blanks off and ASCII
+   * letters folded — `tagPartsSql`, the reading `access` already has.
+   */
+  list?: true;
 }
 
 export const ROUTE_POI_RULES: Record<RoutePoiKind, TagRule[]> = {
@@ -300,31 +324,95 @@ export function isRestStopKind(value: unknown): value is RestStopKind {
  * 🔴 The kinds whose rows are keyed on the CANONICAL object id — `w123`,
  * `r456` — and so hold one row per OSM object. `dump` is here although it
  * is older than this card: see the note above on why it is the one
- * legacy kind that can be folded for free.
+ * legacy kind that can be folded for free. `gas_exchange` (CAMP-258) is
+ * here because it is NEW: no price and no page is keyed on its rows, so
+ * there is nothing a fold could move, and its count is then a count of
+ * objects — the thing a card quotes it as.
  */
 export const CANONICAL_REF_KINDS = [
   'dump',
   'rest_area',
   'service_area',
+  'gas_exchange',
 ] as const;
 
 /**
- * Everything the table can hold. Order is the CASE's order: legacy first.
+ * 🔴 CAMP-258: KINDS THE TABLE HOLDS AND NO PAGE ASKS FOR — YET.
  *
- * 🔴 TODAY THIS IS THE SAME LIST AS ROUTE_POI_KINDS, and it is kept as a
- * name of its own because it answers a different question: what the
- * LOADER classifies and must find at least one row of, against what a
- * PAGE shows. The day a kind is stored and not shown (`amenity=parking`,
- * which a comment above declines for now) this is where it goes, and
- * nothing that reads either list has to change its mind.
+ * `gas_exchange` is `shop=gas`: a shop that sells and swaps bottled gas.
+ * It is stored and not served, the way `rest_area` and `service_area` were
+ * for the first half of CAMP-119 (PR #234), and for the same reason: a kind
+ * in ROUTE_POI_KINDS changes three things at once — `parseKinds` defaults
+ * to every kind in it, `buildServicesSql` writes one index scan per kind
+ * into the stage query, and MAX_SERVICE_POINTS is derived from its length
+ * so the ODbL floor cannot be crossed. The second half of this work (a
+ * point on the map, a mention in the guides) is the card that decides
+ * whether the page grows by a tenth kind; this one only makes the data
+ * exist and be queryable.
+ *
+ * 🔴 IT IS LAST IN THE CASE, AND THAT IS NOT A DETAIL. 8 938 distinct
+ * objects (nodes and ways) in the 27 extracts say `gas` in their `shop` tag
+ * — 6 108 as the whole tag and 2 830 as an element of a `;` list
+ * (`convenience;gas`; measured 15.10.2026: `osmium tags-filter -R
+ * nwr/shop=*gas*` over every `*.osm.pbf`, parsed and de-duplicated by OSM id).
+ * 6 816 of them are ALSO `amenity=fuel` (4 014 + 2 802) — mostly French
+ * hypermarket forecourts: Intermarché, Carrefour, E.Leclerc, Super U. A CASE
+ * returns its first match, so those stay the fuel stations they were before
+ * this card. Putting `gas_exchange` ahead of `fuel` would move them out of
+ * `fuel`, and on production the price rows are keyed on the `fuel` row's
+ * `osm_ref` with no foreign key to say so (see buildRoutePoiInsertSql).
+ *
+ * So `gas_exchange` holds the gas shops that are nothing else — 2 114 rows in
+ * camptribe_dev. The card's "6 119" is the sum of the whole-tag objects over
+ * the extracts (4 019 forecourts + 2 100 others, border duplicates included),
+ * and it is itself too small: it was counted with an osmium filter that is
+ * the same whole-tag equality as the rule was, so the 2 831 list-valued rows
+ * are in neither number.
+ *
+ * 🔴 WHY THERE IS A KIND AND ALSO A COLUMN, AND WHY NEITHER IS SPARE.
+ * The row's `kind` says WHAT THE POINT IS; one object has one kind (the
+ * primary key is `osm_ref`), and a forecourt is a fuel station. The column
+ * `cylinder_swap` says WHAT CAN BE DONE THERE, and an object can say that
+ * about itself whatever kind it ended up with. Without the column, the 6 800
+ * forecourts that also say `shop=gas` would lose that fact altogether — they
+ * are `fuel`, and `fuel` has nowhere to put it — and a map layer could show
+ * 2 114 bottle-swap points where the data holds 8 925 (11 511 rows). Without
+ * the KIND, a lone gas shop would be a row of some other kind with a flag,
+ * and "what is this point" would have no answer. The layer is therefore
+ * `kind = 'gas_exchange' OR cylinder_swap = 'yes'` — and because the flag is
+ * derived from the same rule as the kind (rulesTestSql), `gas_exchange`
+ * implies `yes`, so `cylinder_swap = 'yes'` alone is the same set. Removing
+ * either one as redundant is how three quarters of the points go missing.
  */
-export const STORED_POI_KINDS = ROUTE_POI_KINDS;
+export const STORED_ONLY_KINDS = ['gas_exchange'] as const;
+
+/**
+ * Everything the table can hold. Order is the CASE's order: legacy first,
+ * then CAMP-119's two, then what is stored and not shown.
+ *
+ * 🔴 It answers a different question from ROUTE_POI_KINDS — what the
+ * LOADER classifies and must find at least one row of, against what a PAGE
+ * shows — and since CAMP-258 the two lists differ by `gas_exchange`.
+ * Everything that asked "is this a kind the table holds" (the loader's
+ * empty-kind check, the CASE, the tag-list spec, the index spec) reads this
+ * one; everything that asked "is this a kind a page may request" still reads
+ * ROUTE_POI_KINDS and is unchanged.
+ */
+export const STORED_POI_KINDS = [
+  ...ROUTE_POI_KINDS,
+  ...STORED_ONLY_KINDS,
+] as const;
 
 export type StoredPoiKind = (typeof STORED_POI_KINDS)[number];
 
 /** Every kind's rules. The loader classifies with this. */
-export const STORED_POI_RULES: Record<StoredPoiKind, TagRule[]> =
-  ROUTE_POI_RULES;
+export const STORED_POI_RULES: Record<StoredPoiKind, TagRule[]> = {
+  ...ROUTE_POI_RULES,
+  // CAMP-258. `gas` among the elements of `shop`, and nothing else:
+  // `amenity=fuel` objects that also carry it are classified `fuel` before
+  // this branch is reached. A LIST rule — see TagRule.list.
+  gas_exchange: [{ key: 'shop', values: ['gas'], list: true }],
+};
 
 /**
  * `access` values that mean "not you".
@@ -409,23 +497,138 @@ export const SERVICES_PER_KIND = 1;
  * is public.
  */
 export function classifyCaseSql(alias = 's'): string {
+  // 🔴 Every STORED kind, legacy ones first. A CASE returns its first
+  // match, so an object tagged both `amenity=fuel` and `highway=services`
+  // stays the fuel station it was before CAMP-119 and its row — and the
+  // price keyed on it — does not move.
+  const branches = STORED_POI_KINDS.map(
+    (kind) =>
+      `WHEN ${rulesTestSql(STORED_POI_RULES[kind], alias)} THEN '${kind}'`,
+  );
+
+  return `CASE ${branches.join(' ')} END`;
+}
+
+/**
+ * One kind's rules as a SQL predicate over a staging row: `s.shop IN ('gas')`,
+ * joined with OR. Shared between the CASE that picks an object's KIND and the
+ * `cylinder_swap` flag (CAMP-258), which asks the same question of the same
+ * rule without being the first match — so the two cannot disagree about what
+ * counts as a gas shop.
+ */
+export function rulesTestSql(rules: readonly TagRule[], alias = 's'): string {
   const safe = (v: string) => {
     if (!/^[a-z_]+$/.test(v)) {
       throw new Error(`route-poi: unsafe tag value ${JSON.stringify(v)}`);
     }
     return `'${v}'`;
   };
+  const array = (values: readonly string[]) =>
+    `ARRAY[${values.map(safe).join(', ')}]::text[]`;
+  return rules
+    .map((rule) =>
+      rule.list
+        ? // an element of the `;` list; NULL for a NULL tag, which a CASE
+          // reads as not-matched
+          `${tagPartsSql(`${alias}."${rule.key}"`)} && ${array(rule.values)}`
+        : `${alias}.${rule.key} IN (${rule.values.map(safe).join(', ')})`,
+    )
+    .join(' OR ');
+}
 
-  // 🔴 Every STORED kind, legacy ones first. A CASE returns its first
-  // match, so an object tagged both `amenity=fuel` and `highway=services`
-  // stays the fuel station it was before CAMP-119 and its row — and the
-  // price keyed on it — does not move.
-  const branches = STORED_POI_KINDS.map((kind) => {
-    const tests = STORED_POI_RULES[kind].map(
-      (rule) => `${alias}.${rule.key} IN (${rule.values.map(safe).join(', ')})`,
+/**
+ * The tag filters osmium has to be given for a rule — `key=value`, or
+ * `key=*value*` for a list rule, because osmium matches the WHOLE value and
+ * `shop=gas` selects nothing that says `shop=convenience;gas`. The `*` form is
+ * a substring match: it also pulls in `gasvending=fuel` and the like, which
+ * the classifier then refuses (3 such rows in the 27 extracts). A spec
+ * compares this with the list in load-route-poi.sh.
+ */
+export function osmiumFiltersFor(rule: TagRule): string[] {
+  return rule.values.map((v) =>
+    rule.list ? `${rule.key}=*${v}*` : `${rule.key}=${v}`,
+  );
+}
+
+/** One row of GAS_LAYER_SUMMARY_SQL: Postgres hands counts back as text. */
+export interface GasLayerSummary {
+  own_kind: string;
+  other_kinds: string;
+  missing: string;
+  extra: string;
+  wide_objects: string;
+  wide_only: string;
+  layer: string;
+  layer_objects: string;
+}
+
+/**
+ * 🔴 CAMP-258: THE GAS LAYER, CHECKED AGAINST THE TAG — IN BOTH DIRECTIONS,
+ * AND WITH A READING WIDER THAN THE RULE'S.
+ *
+ * The flag `cylinder_swap` exists so the forecourts that also say `shop=gas`
+ * (kind `fuel`) stay in the layer. It can go wrong in three ways, all silent —
+ * every table of numbers still looks fine:
+ *
+ *   · `missing`: an object that says `gas` in `shop` and whose row does not say
+ *     yes. Written for the kind only, this is 5 000 forecourts: the layer is a
+ *     third short, all the `gas_exchange` points still say yes.
+ *   · `extra`: a row that says yes and that no staged `gas` explains. A flag
+ *     built from the wrong rule (the dump rule; gas_exchange plus groceries)
+ *     puts supermarkets in a layer of gas shops.
+ *   · `wide_only`: objects whose `shop` mentions `gas` and that the rule does
+ *     not mark. THIS is the one the first two cannot see, because they read the
+ *     tag the same way the rule does: `shop` is a `;` list, `convenience;gas`
+ *     was 2 804 objects (3 755 rows) the rule's equality walked past, and the
+ *     guard said `missing = 0` over a layer short by a third.
+ *
+ * `missing` and `extra` are code, and fail at any count. `wide_only` is data:
+ * a handful of oddly written values must cost those records and not the run:
+ * measured 15.10.2026 on the 27 raw extracts, 7 of 8 945 objects mention `gas`
+ * as a word in `shop` without having it as a list element (`gas_bottle`,
+ * `gas bottle shop`, `industrial_gas`, `fuel & liquid gas`, `gas station`…) and
+ * 6 more contain it only inside another word (`magasin_…`, `gasvending=fuel`). So it is reported (the loader prints it) and fails only when it is
+ * SYSTEMATIC: at least GAS_WIDE_MIN_OBJECTS objects AND more than
+ * GAS_WIDE_MAX_PERCENT of the objects that mention gas. The rule read as an
+ * equality would have been 2 804 of 8 912, 31% (staging); today it is 7 of
+ * 8 945, under 0.1%.
+ *
+ * Both counts come from GAS_LAYER_SUMMARY_SQL, which reads the staging table's
+ * `shop` by its own two implementations — see the note there.
+ *
+ * Returns the failure message, or null.
+ */
+export const GAS_WIDE_MIN_OBJECTS = 10;
+export const GAS_WIDE_MAX_PERCENT = 1;
+
+export function gasLayerError(s: GasLayerSummary): string | null {
+  const missing = Number(s.missing);
+  const extra = Number(s.extra);
+  const wide = Number(s.wide_objects);
+  const wideOnly = Number(s.wide_only);
+  if (missing > 0) {
+    return (
+      `${missing} rows of objects that say shop=gas do not say ` +
+      `cylinder_swap=yes — the gas layer has lost them (the flag is written ` +
+      `for one kind only, or from another rule than shop=gas).`
     );
-    return `WHEN ${tests.join(' OR ')} THEN '${kind}'`;
-  });
-
-  return `CASE ${branches.join(' ')} END`;
+  }
+  if (extra > 0) {
+    return (
+      `${extra} rows say cylinder_swap=yes and no staged object says ` +
+      `shop=gas — the flag is written from another rule than shop=gas, and ` +
+      `the gas layer holds things that are not gas shops.`
+    );
+  }
+  if (
+    wideOnly >= GAS_WIDE_MIN_OBJECTS &&
+    wideOnly * 100 > wide * GAS_WIDE_MAX_PERCENT
+  ) {
+    return (
+      `${wideOnly} of ${wide} staged objects mention gas as a word in shop ` +
+      `and the rule does not mark them — the rule reads shop more narrowly ` +
+      `than OpenStreetMap writes it (a ';' list, a ',' list, another case).`
+    );
+  }
+  return null;
 }
