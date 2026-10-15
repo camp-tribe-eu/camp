@@ -30,6 +30,14 @@ import {
 import { isEuMemberState } from './eu';
 import { foldToAscii } from '../spots/canonical';
 import { correctRegion, isKnownRegion } from './region-names';
+import {
+  loadDateVerdict,
+  readRecordAge,
+  recentShare,
+  RECENT_WINDOW_HOURS,
+  type RecordAge,
+  type RecordAgeProblem,
+} from './record-age';
 
 const COUNTRY = (process.argv[2] ?? '').toUpperCase();
 const TABLE = process.argv[3] ?? 'osm_camping_staging';
@@ -310,7 +318,8 @@ export const MARK_GONE_SQL = `UPDATE camping_spots
 export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            (name, country, region, slug, type, amenities, location,
             osm_ref, last_seen_at, missing_since, content_changed_at, sources,
-            contact, overnight_status, overnight_source, overnight_checked_at)
+            contact, overnight_status, overnight_source, overnight_checked_at,
+            osm_record_edited_at, osm_record_version)
          -- 🔴 $8::text in BOTH places, not just in the JSON below.
          --
          -- osm_ref is character varying, so an uncast $8 here made
@@ -353,7 +362,15 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
                  $11::text,
                  $12::text,
                  CASE WHEN $11::text = 'unknown' THEN NULL
-                      ELSE $9::timestamptz::date END)
+                      ELSE $9::timestamptz::date END,
+                 -- 🔴 CAMP-256. The day a MAPPER last edited this object and
+                 -- the object's version, straight from the extract's own
+                 -- timestamp. NOT $9: that is the day THIS RUN started,
+                 -- which is what last_seen_at holds, and writing it here is
+                 -- the one mistake this card is most likely to ship — every
+                 -- page would read "edited this month" and nothing would
+                 -- look wrong. NULL is "not known" and stays NULL.
+                 $13::timestamptz, $14::integer)
          ON CONFLICT (osm_ref) DO UPDATE SET
            name          = EXCLUDED.name,
            country       = EXCLUDED.country,
@@ -376,6 +393,14 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            overnight_status     = EXCLUDED.overnight_status,
            overnight_source     = EXCLUDED.overnight_source,
            overnight_checked_at = EXCLUDED.overnight_checked_at,
+           -- 🔴 CAMP-256. Rewritten on every run, the date and the version
+           -- TOGETHER, and a NULL in is a NULL out: an extract that does
+           -- not carry the date must not leave last month's in place under
+           -- this month's import — a stale claim is worse than a missing
+           -- one. Neither is in the content_changed_at comparison below,
+           -- on purpose: see there.
+           osm_record_edited_at = EXCLUDED.osm_record_edited_at,
+           osm_record_version   = EXCLUDED.osm_record_version,
            location      = EXCLUDED.location,
            last_seen_at  = EXCLUDED.last_seen_at,
            missing_since = NULL,
@@ -396,6 +421,14 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            -- moved. last_seen_at ticks every week whether or not anything
            -- changed, so using it as <lastmod> would restamp every page
            -- each Monday and teach crawlers the field is noise.
+           --
+           -- 🔴 CAMP-256: osm_record_edited_at is NOT in the comparison.
+           -- The first load of the column turns NULL into a date on every
+           -- OSM row, and counting that as a change would restamp every
+           -- page's <lastmod> in one run for a sentence that appeared
+           -- beside the facilities, not for anything about the campsite.
+           -- A mapper's later edit that changes anything we show already
+           -- moves it through name, amenities, contact or location.
            content_changed_at = CASE
              -- 🔴 CAMP-255: status and source, NOT the day. The day moves
              -- every run, and a <lastmod> that moves with it restamps
@@ -439,7 +472,110 @@ interface StagingRow {
    * sees working is a fallback nobody can check.
    */
   raw_country?: string | null;
+  /**
+   * CAMP-256: the OSM edit date and version of THIS object, read from the
+   * staging columns `"@timestamp"` / `"@version"`.
+   *
+   * Optional only so that the row helpers in the specs, which predate it,
+   * keep compiling; `main()` always sets it. It travels on the row so that
+   * `dedupe` — which keeps one object's row and merges the other's tags
+   * into it — keeps THAT object's date with it: the date is a fact about
+   * the object whose id we store, and `osm_ref` is how a person checks it
+   * on openstreetmap.org.
+   *
+   * ⚠️ The merged-away object can be the NEWER one. Measured 15.10.2026 on
+   * the 27 extracts of 24.09.2026: 516 merged pages, and on 162 of them a
+   * merged-away object was edited after the kept one (median 147 days,
+   * p90 about 5.5 years) — 0.34% of the 47 602 dated pages. The date stays
+   * the kept object's, so it can be checked by `osm_ref`; the page words
+   * its caption for "the record this page is built on" to stay true.
+   */
+  record?: RecordAge;
   tags: OsmTags;
+}
+
+/**
+ * Everything one UPSERT_SPOT_SQL execution takes, by name.
+ *
+ * 🔴 CAMP-256: the statement takes FOURTEEN placeholders and this is the
+ * only place that knows their order. The importer, the link rehearsal
+ * (`verify-links.ts`) and the DB specs all execute that one statement, and
+ * each used to carry its own positional array. The array grew from ten to
+ * twelve for CAMP-255 and the rehearsal kept passing ten — CI died on
+ * "bind message supplies 10 parameters, but prepared statement requires
+ * 12", between two files that each looked right. Adding the thirteenth and
+ * fourteenth is the same edit; this makes it one edit in one place.
+ */
+export interface UpsertSpotValues {
+  name: string | null;
+  country: string;
+  region: string | null;
+  slug: string;
+  type: string;
+  amenities: unknown;
+  /** `POINT(lon lat)` — what ST_GeomFromText reads. */
+  pointWkt: string;
+  osmRef: string;
+  /** When THIS RUN started: becomes last_seen_at and nothing else. */
+  seenAt: Date | string;
+  contact: unknown;
+  overnightStatus: string;
+  overnightSource: string | null;
+  /** The OSM edit date and version, or `null` for "not known". Never `seenAt`. */
+  record: Pick<RecordAge, 'editedAt' | 'version'>;
+}
+
+export function upsertSpotParams(v: UpsertSpotValues): unknown[] {
+  return [
+    v.name,
+    v.country,
+    v.region,
+    v.slug,
+    v.type,
+    JSON.stringify(v.amenities),
+    v.pointWkt,
+    v.osmRef,
+    v.seenAt,
+    JSON.stringify(v.contact),
+    v.overnightStatus,
+    v.overnightSource,
+    v.record.editedAt,
+    v.record.version,
+  ];
+}
+
+/**
+ * 🔴 CAMP-256: the edit dates THE DATABASE NOW HOLDS for the rows this run
+ * wrote — and a refusal if they look like the day of the load.
+ *
+ * Read back from the table, for the rows whose `last_seen_at` is exactly the
+ * run's start (which is what the upsert stamps on every row it touches). Not
+ * the values that were about to be sent: a check on the INPUT cannot see a
+ * substitution made by anything between the input and the table — the
+ * builder, the statement, a later edit of either — and the card's named
+ * failure, "the import wrote the load date instead of the edit date", is
+ * exactly that. A substituted date is wrong on every row at once, so no
+ * per-row test can see it; the only witness is the shape of the whole
+ * country.
+ *
+ * Called inside the transaction, before COMMIT: the throw lands in main()'s
+ * catch, which ROLLS BACK, so a refused country is left exactly as it was and
+ * the next one is unaffected.
+ */
+export async function assertStoredEditDates(
+  db: Pick<Client, 'query'>,
+  startedAt: Date,
+  country: string,
+): Promise<(Date | null)[]> {
+  const stored = await db.query<{ osm_record_edited_at: Date | null }>(
+    `SELECT osm_record_edited_at FROM camping_spots
+      WHERE osm_ref IS NOT NULL AND last_seen_at = $1`,
+    [startedAt],
+  );
+  const dates = stored.rows.map((r) => r.osm_record_edited_at);
+  const verdict = loadDateVerdict(dates, startedAt);
+  if (verdict) throw new Error(`${country}: ${verdict}`);
+  return dates;
 }
 
 async function main(): Promise<void> {
@@ -457,6 +593,23 @@ async function main(): Promise<void> {
   const tagColumns = cols.rows
     .map((r) => r.column_name)
     .filter((c) => c !== 'id');
+
+  // 🔴 CAMP-256: does the staging table carry the OSM edit date at all?
+  //
+  // A release built before `-a timestamp,version` has no such column, and
+  // the importer must say so in as many words rather than let "every row
+  // is not known" read as a country nobody has edited. The two columns are
+  // INTEGERS (ogr2ogr types a JSON number as one), so the text-column
+  // filter above never turns them into OSM "tags" — and the specs pin
+  // that, because a tag called "@timestamp" would reach the mappers.
+  const editCols = await db.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_name = $1 AND column_name IN ('@timestamp', '@version')`,
+    [TABLE],
+  );
+  const stagingHasEditDate = editCols.rows.some(
+    (r) => r.column_name === '@timestamp',
+  );
 
   // CAMP-34: the region and the country come from the geometry, not from
   // tags and not from the command line.
@@ -588,6 +741,10 @@ async function main(): Promise<void> {
       admin_region: row.admin_region ?? null,
       admin_country: row.admin_country ?? null,
       raw_country: row.raw_country ?? null,
+      // 🔴 CAMP-256: read from the object's OWN row, before dedupe. A
+      // missing column reads as `undefined` and becomes problem
+      // `missing` — never a default, and never `startedAt`.
+      record: readRecordAge(row['@timestamp'], row['@version'], startedAt),
       tags,
     };
   });
@@ -599,7 +756,10 @@ async function main(): Promise<void> {
   const known = await db.query<{ osm_ref: string; slug: string }>(
     `SELECT osm_ref, slug FROM camping_spots WHERE osm_ref IS NOT NULL`,
   );
-  const slugByRef = new Map(known.rows.map((r) => [r.osm_ref, r.slug]));
+  // Typed, because the named parameters below refuse a bare `unknown`.
+  const slugByRef = new Map<string, string>(
+    known.rows.map((r): [string, string] => [r.osm_ref, r.slug]),
+  );
   const allSlugs = await db.query<{ slug: string }>(
     `SELECT slug FROM camping_spots`,
   );
@@ -635,6 +795,15 @@ async function main(): Promise<void> {
   const unknownRegions = new Map<string, number>();
   /** Points outside every admin-1 polygon - these get no page URL. */
   let withoutRegion = 0;
+  // CAMP-256: what the run decided about each record's OSM edit date.
+  //
+  // 🔴 Counted per KIND of refusal and printed every run, zeros included.
+  // A date written as NULL looks identical to the page whether the extract
+  // never had it, had a malformed one, or had one from the future — and
+  // only the kind says which part of the pipeline to look at.
+  const editRefused = new Map<RecordAgeProblem, number>();
+  /** What the database holds for this run's rows, read back before COMMIT. */
+  let storedEditDates: (Date | null)[] = [];
 
   await db.query('BEGIN');
   try {
@@ -727,20 +896,38 @@ async function main(): Promise<void> {
         );
       }
 
-      const res = await db.query(UPSERT_SPOT_SQL, [
-        name,
-        country,
-        region,
-        slug,
-        type,
-        JSON.stringify(amenities),
-        row.point_wkt,
-        row.osm_ref,
-        startedAt,
-        JSON.stringify(contact),
-        overnight.status,
-        overnight.source,
-      ]);
+      // 🔴 CAMP-256: a record with no `record` at all (a caller that built
+      // the row by hand) is "not known", not an error and not a date.
+      const record: RecordAge = row.record ?? {
+        editedAt: null,
+        version: null,
+        problem: 'missing',
+      };
+      if (!record.editedAt && record.problem) {
+        editRefused.set(
+          record.problem,
+          (editRefused.get(record.problem) ?? 0) + 1,
+        );
+      }
+
+      const res = await db.query(
+        UPSERT_SPOT_SQL,
+        upsertSpotParams({
+          name,
+          country,
+          region,
+          slug,
+          type,
+          amenities,
+          pointWkt: row.point_wkt,
+          osmRef: row.osm_ref,
+          seenAt: startedAt,
+          contact,
+          overnightStatus: overnight.status,
+          overnightSource: overnight.source,
+          record,
+        }),
+      );
       if (res.rows[0]?.was_insert) inserted++;
       else updated++;
     }
@@ -773,6 +960,10 @@ async function main(): Promise<void> {
       COUNTRY,
       CYCLE_HOURS,
     ]);
+
+    // 🔴 CAMP-256: what the table now holds, judged before COMMIT — see
+    // assertStoredEditDates for why it reads the table and not the input.
+    storedEditDates = await assertStoredEditDates(db, startedAt, COUNTRY);
 
     await db.query('COMMIT');
 
@@ -840,6 +1031,33 @@ async function main(): Promise<void> {
       .slice(0, 15)) {
       console.log(`    left unknown on purpose  ${why}  ${n}`);
     }
+    // 🔴 CAMP-256, said out loud every run INCLUDING the zeros — and the
+    // second line is the one that would have caught the card's own named
+    // failure: the share of records whose "edit" falls inside the last
+    // two days. Real data is a small fraction of one percent; the load
+    // date written over every row is 100%.
+    // Counted from what the table holds, not from what the loop meant to
+    // write, so the line cannot say "dated" about a column that is empty.
+    const share = recentShare(storedEditDates, startedAt);
+    console.log(
+      `  OSM edit date      dated ${share.dated} · not known ${storedEditDates.length - share.dated}  (the extract's own timestamp, never this run's date: CAMP-256)`,
+    );
+    if (!stagingHasEditDate) {
+      console.log(
+        `  🔴 "${TABLE}" has no "@timestamp" column — this extract was built before the edit date was exported, so every record above reads "not known"`,
+      );
+    }
+    for (const [why, n] of [...editRefused].sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+    )) {
+      console.log(`    not known because  ${why}  ${n}`);
+    }
+    console.log(
+      `  edited ≤${RECENT_WINDOW_HOURS} h before this run  ${share.recent} of ${share.dated} dated` +
+        (share.dated > 0
+          ? `  (${((100 * share.recent) / share.dated).toFixed(2)}%)`
+          : ''),
+    );
     if (unknownRegions.size > 0) {
       console.log(
         `  🔴 ${unknownRegions.size} region name(s) this country does not have:`,

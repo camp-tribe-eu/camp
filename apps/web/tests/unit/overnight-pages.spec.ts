@@ -60,6 +60,12 @@ const spot = (overnight: unknown) => ({
   },
   ownerOverrides: {},
   lastSeenAt: '2026-10-12T05:00:00.000Z',
+  // 🔴 CAMP-256: the page now says "Record last edited: …", and with no
+  // date it says "Not known" — which is also the word this file asserts is
+  // ABSENT from a page whose overnight answer is allowed or forbidden. The
+  // fixture carries a date so that the assertions below keep asking what
+  // they were written to ask: that the OVERNIGHT answer is not "Not known".
+  osmRecordEditedAt: '2023-06-14T10:11:12.000Z',
   missingSince: null,
   context: {},
   description: null,

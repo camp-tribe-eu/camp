@@ -15,7 +15,7 @@
 
 import 'dotenv/config';
 import { Client } from 'pg';
-import { UPSERT_SPOT_SQL } from '../osm/import-spots';
+import { UPSERT_SPOT_SQL, upsertSpotParams } from '../osm/import-spots';
 import { mapOvernight } from '../osm/tag-mapping';
 import { canonicalPath } from './canonical';
 import { judgeByIdentity, upperBoundPercent } from './link-evidence';
@@ -368,10 +368,19 @@ async function main(): Promise<void> {
              SELECT * FROM camping_spots WHERE id = $1`,
           [seedId],
         );
+        // 🔴 CAMP-256: the clone's OSM edit date and version are cleared,
+        // always. The planted rows are about LINKS, not about dates, and a
+        // copy of an OSM row with its `osm_ref` removed but its edit date
+        // kept is a shape the table refuses on purpose
+        // (camping_spots_osm_record_origin_check: a date only on a row that
+        // HAS an OSM object). It went unseen while the seed carried no
+        // dates; on the first database that did, three invariants read
+        // "✗ … violates check constraint" for a reason that was not theirs.
         await db.query(
           `UPDATE trap_src
               SET id = uuid_generate_v4(), slug = $1, osm_ref = $2,
                   missing_since = NULL,
+                  osm_record_edited_at = NULL, osm_record_version = NULL,
                   region = coalesce(region, 'Trap')`,
           [slug, osmRef],
         );
@@ -1444,27 +1453,38 @@ async function main(): Promise<void> {
             '  (no real link yet — rehearsing against a temporary one)',
           );
         }
-        // 🔴 CAMP-255. The statement takes TWELVE parameters now, and this
-        // call kept passing ten: CI's "a source link survives the weekly
+        // 🔴 CAMP-255. The statement took TWELVE parameters and this call
+        // kept passing ten: CI's "a source link survives the weekly
         // import" step died on "bind message supplies 10 parameters, but
         // prepared statement requires 12" — the rehearsal and the importer
         // had drifted apart on the one thing a rehearsal exists to share.
-        // The last two come from the importer's own mapper, as in main().
+        // CAMP-256 made it fourteen, and made the list ONE function the
+        // importer calls too (`upsertSpotParams`), so it cannot drift again.
+        // The overnight pair comes from the importer's own mapper, as in
+        // main(); the edit date is a typed one, in the past, so the
+        // rehearsal can tell it from the run's own start.
         const overnight = mapOvernight({ motorhome: 'yes' });
-        const res = await db.query<{ was_insert: boolean }>(UPSERT_SPOT_SQL, [
-          v.name,
-          v.country,
-          v.region,
-          v.slug,
-          v.type,
-          JSON.stringify(v.amenities),
-          v.wkt,
-          v.osm_ref,
-          new Date().toISOString(),
-          JSON.stringify(v.contact),
-          overnight.status,
-          overnight.source,
-        ]);
+        const res = await db.query<{ was_insert: boolean }>(
+          UPSERT_SPOT_SQL,
+          upsertSpotParams({
+            name: v.name,
+            country: v.country,
+            region: v.region,
+            slug: v.slug,
+            type: v.type,
+            amenities: v.amenities,
+            pointWkt: v.wkt,
+            osmRef: v.osm_ref,
+            seenAt: new Date().toISOString(),
+            contact: v.contact,
+            overnightStatus: overnight.status,
+            overnightSource: overnight.source,
+            record: {
+              editedAt: new Date('2023-06-14T10:11:12Z'),
+              version: 7,
+            },
+          }),
+        );
         const wasInsert = res.rows[0]?.was_insert === true;
 
         const after = await db.query<{ id: string; n: number }>(
@@ -1489,6 +1509,35 @@ async function main(): Promise<void> {
           `  ${stillLinked ? '✓' : '✗'} the link is still live after the import`,
         );
         if (wasInsert || !sameRow || !stillLinked) failed++;
+
+        // 🔴 CAMP-256. The import has just written an OSM edit date, and
+        // the page's OWN query — SPOT_DETAIL_SQL, the text the API runs —
+        // is asked for it, in the same transaction. That is the whole
+        // chain the card adds, from the statement to what a page can
+        // read, replayed on a real row, and it asks the one question that
+        // matters here: are there TWO dates, and is each the right one?
+        // A page reading last_seen_at under the edit date's label would
+        // be told "edited today" by this very check.
+        const detail = await db.query<{
+          osm_record_edited_at: Date | null;
+          last_seen_at: Date | null;
+        }>(SPOT_DETAIL_SQL, [v.slug]);
+        const editedAt = detail.rows[0]?.osm_record_edited_at ?? null;
+        const seenAt = detail.rows[0]?.last_seen_at ?? null;
+        const editRead =
+          editedAt instanceof Date &&
+          editedAt.toISOString() === '2023-06-14T10:11:12.000Z';
+        const twoDates =
+          editedAt instanceof Date &&
+          seenAt instanceof Date &&
+          editedAt.getTime() !== seenAt.getTime();
+        console.log(
+          `  ${editRead ? '✓' : '✗'} the page query returns the edit date the import wrote (2023-06-14T10:11:12Z)`,
+        );
+        console.log(
+          `  ${twoDates ? '✓' : '✗'} …and it is not the date the import ran: edit date ${editedAt?.toISOString() ?? 'null'}, last seen ${seenAt?.toISOString() ?? 'null'}`,
+        );
+        if (!editRead || !twoDates) failed++;
       } finally {
         await db.query('ROLLBACK');
       }

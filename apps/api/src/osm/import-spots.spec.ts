@@ -1,4 +1,9 @@
-import { dedupe, MARK_GONE_SQL, UPSERT_SPOT_SQL } from './import-spots';
+import {
+  dedupe,
+  MARK_GONE_SQL,
+  UPSERT_SPOT_SQL,
+  upsertSpotParams,
+} from './import-spots';
 
 // CAMP-28. The upsert is the whole card, and its two most important
 // properties are things it must NOT do. Both are one careless line away,
@@ -221,5 +226,113 @@ describe('🔴 dedupe is deterministic (CAMP-39)', () => {
     ];
     expect(dedupe(mixed())[0].osm_ref).toBe('w222');
     expect(dedupe(mixed().reverse())[0].osm_ref).toBe('w222');
+  });
+});
+
+describe('🔴 CAMP-256: the OSM edit date in the weekly upsert', () => {
+  const doUpdate = UPSERT_SPOT_SQL.slice(
+    UPSERT_SPOT_SQL.indexOf('DO UPDATE SET'),
+  );
+  /** The statement with its `--` comments removed, so a placeholder named in prose is not counted. */
+  const code = UPSERT_SPOT_SQL.replace(/--[^\n]*/g, '');
+
+  const values = {
+    name: 'Camp Bovec',
+    country: 'SI',
+    region: 'Bovec',
+    slug: 'camp-bovec',
+    type: 'paid',
+    amenities: { shower: 'yes' },
+    pointWkt: 'POINT(14 46)',
+    osmRef: 'w2',
+    seenAt: '2026-10-12T05:00:00Z',
+    contact: {},
+    overnightStatus: 'unknown',
+    overnightSource: null,
+    record: { editedAt: new Date('2023-06-14T10:11:12Z'), version: 7 },
+  };
+
+  it('🔴 the builder gives one value for every placeholder the statement has', () => {
+    // CAMP-255 added two placeholders and the link rehearsal went on
+    // passing ten; CI found it, a week later. The number is read out of
+    // the statement itself, not typed here.
+    const highest = Math.max(
+      ...[...code.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])),
+    );
+    expect(highest).toBe(14);
+    expect(upsertSpotParams(values)).toHaveLength(highest);
+  });
+
+  it('🔴 the edit date is the 13th value and the run date is the 9th — and they are two values', () => {
+    const p = upsertSpotParams(values);
+    expect(p[8]).toBe('2026-10-12T05:00:00Z');
+    expect(p[12]).toEqual(new Date('2023-06-14T10:11:12Z'));
+    expect(p[13]).toBe(7);
+    expect(p[12]).not.toEqual(new Date(p[8] as string));
+  });
+
+  it('🔴 "not known" is passed as null, not as the run date', () => {
+    const p = upsertSpotParams({
+      ...values,
+      record: { editedAt: null, version: null },
+    });
+    expect(p[12]).toBeNull();
+    expect(p[13]).toBeNull();
+  });
+
+  it('writes the edit date from its own placeholder, never from the run date ($9)', () => {
+    expect(code).toMatch(/\$13::timestamptz/);
+    expect(code).toMatch(/\$14::integer/);
+  });
+
+  it('refreshes the date and the version on every run', () => {
+    expect(doUpdate).toMatch(
+      /\bosm_record_edited_at\s*=\s*EXCLUDED\.osm_record_edited_at/,
+    );
+    expect(doUpdate).toMatch(
+      /\bosm_record_version\s*=\s*EXCLUDED\.osm_record_version/,
+    );
+  });
+
+  it("🔴 a NULL date replaces an old one: no COALESCE keeping last import's date alive", () => {
+    const update = doUpdate.replace(/--[^\n]*/g, '');
+    expect(update).not.toMatch(/COALESCE\s*\([^)]*osm_record/i);
+  });
+
+  it('🔴 the date is NOT in the content_changed_at comparison — the first load must not restamp every page', () => {
+    const compare = UPSERT_SPOT_SQL.slice(
+      UPSERT_SPOT_SQL.indexOf('content_changed_at = CASE'),
+    ).replace(/--[^\n]*/g, '');
+    expect(compare).not.toMatch(/osm_record/);
+  });
+
+  it("dedupe keeps the date of the object it keeps — the way's, not the node's", () => {
+    const mk = (
+      osm_ref: string,
+      lon: number,
+      editedAt: string,
+      version: number,
+    ) => ({
+      osm_ref,
+      point_wkt: `POINT(${lon} 46)`,
+      admin_region: 'Bovec',
+      admin_country: 'SI',
+      record: {
+        editedAt: new Date(editedAt),
+        version,
+        problem: null,
+      },
+      tags: { name: 'Camp Bovec' },
+    });
+    const out = dedupe([
+      mk('n1', 14.0, '2026-09-01T00:00:00Z', 2),
+      mk('w2', 14.0002, '2019-06-14T08:00:00Z', 5),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].osm_ref).toBe('w2');
+    expect(out[0].record?.editedAt?.toISOString()).toBe(
+      '2019-06-14T08:00:00.000Z',
+    );
+    expect(out[0].record?.version).toBe(5);
   });
 });

@@ -32,10 +32,23 @@
 // So: keep only features that carry the tag themselves, and give each
 // one its real OSM identifier back, so `w871234` in our table is a thing
 // a person can open on openstreetmap.org.
+//
+// 🔴 CAMP-256: AND LET THE EDIT DATE THROUGH, UNTOUCHED. The export now
+// carries `@timestamp` (Unix seconds) and `@version` on every feature
+// (extract-campsites.sh asks for them). Nothing here reads, converts or
+// rewrites them — a feature is kept or dropped whole — and that is the
+// point: the first place a date could quietly become a different date is
+// a "tidy-up" in this file. What this file DOES do is refuse an export in
+// which none of the kept features carries one, because the failure it
+// stands for (the flag lost upstream) changes no count and no exit code
+// anywhere else: every campsite just reads "Not known".
 
-import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { argv, exit } from 'node:process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chooseAction } from '../lib/entrypoint.mjs';
 
 /** The tags that make a feature one of ours. */
@@ -119,6 +132,43 @@ export function verdict(before, kept) {
   return null;
 }
 
+/** The two attributes `osmium export -a timestamp,version` adds (CAMP-256). */
+export const EDIT_DATE = '@timestamp';
+export const EDIT_VERSION = '@version';
+
+/**
+ * Does this feature carry an edit date we can use?
+ *
+ * 🔴 An INTEGER, not "something truthy" and not a string we would then
+ * parse. osmium writes Unix seconds as a JSON number; anything else is a
+ * different producer, and guessing its format is how a date turns into
+ * another date without a single error. A feature that fails this is KEPT
+ * — the campsite exists, only its date is unknown — and it is counted.
+ */
+export function hasEditDate(feature) {
+  return Number.isInteger(feature?.properties?.[EDIT_DATE]);
+}
+
+/**
+ * Is an export safe to load, or has the date been lost upstream?
+ *
+ * 🔴 NONE is the verdict, not "few". A real extract carries a date on
+ * every object (Austria, measured 15.10.2026: 1 684 of 1 684), so a share
+ * between zero and one is not a state this pipeline has produced, and any
+ * threshold chosen here would be a number I made up. Zero is the state
+ * that means a flag was dropped, and it is the one that looks like
+ * success — the campsites load, the counts match, every date is blank.
+ */
+export function editDateVerdict(kept, withDate) {
+  if (kept > 0 && withDate === 0) {
+    return (
+      `none of the ${kept} features carries ${EDIT_DATE} — ` +
+      '`-a timestamp` is missing from the osmium export, and every record would read "Not known"'
+    );
+  }
+  return null;
+}
+
 const SELF_TEST = () => {
   const ok = [];
   const t = (what, cond, detail = '') => ok.push([what, cond, detail]);
@@ -173,13 +223,92 @@ const SELF_TEST = () => {
   t('keeping some is not refused', verdict(1684, 796) === null);
   t('keeping exactly one is not refused', verdict(1, 1) === null);
 
+  // 🔴 CAMP-256 — THE DATE GOES THROUGH AS THE NUMBER IT ARRIVED AS.
+  // The values are the ones `osmium export -a timestamp,version` wrote
+  // for Rinella Scout Centre, n1072718253, on Malta (15.10.2026) — typed
+  // out here, not derived from anything this file computes.
+  const dated = (id, type, ts, ver, tourism = 'camp_site') => ({
+    id,
+    geometry: { type, coordinates: [] },
+    properties: { tourism, [EDIT_DATE]: ts, [EDIT_VERSION]: ver },
+  });
+  const carried = normalise([dated('n1072718253', 'Point', 1787953167, 4)]).features[0];
+  t('the edit date comes through as the number it arrived as',
+    carried.properties['@timestamp'] === 1787953167, JSON.stringify(carried.properties['@timestamp']));
+  t('…and so does the version', carried.properties['@version'] === 4, JSON.stringify(carried.properties['@version']));
+
+  // The same object arrives twice and both copies carry the same pair
+  // (Austria, 15.10.2026: 670 line/area twins, 0 differing). Whichever
+  // is kept must still have it.
+  const twin = normalise([
+    dated('w123', 'LineString', 1700000000, 7),
+    dated('a246', 'Polygon', 1700000000, 7),
+  ]).features[0];
+  t('a collapsed line/area pair keeps the date of the copy it keeps',
+    twin.geometry.type === 'Polygon' && twin.properties['@timestamp'] === 1700000000 &&
+      twin.properties['@version'] === 7,
+    JSON.stringify(twin.properties));
+
+  t('an integer is an edit date', hasEditDate(dated('n1', 'Point', 1787953167, 4)));
+  t('a string is not — we do not guess the format of another producer',
+    !hasEditDate(dated('n1', 'Point', '2026-08-28T21:39:27Z', 4)) &&
+      !hasEditDate(dated('n1', 'Point', '1787953167', 4)));
+  t('a feature with no date is not counted as having one',
+    !hasEditDate(camp('n1', 'Point')) && !hasEditDate(undefined));
+
+  // 🔴 THE FLAG LOST UPSTREAM — and the case it needs is "all lost", not
+  // "some", because that is the only shape the pipeline can produce.
+  t('an export where none of the kept features has a date is refused',
+    editDateVerdict(796, 0) !== null, String(editDateVerdict(796, 0)));
+  t('…and the refusal names the attribute, so a log says what to look for',
+    String(editDateVerdict(796, 0)).includes('@timestamp'));
+  t('one feature with a date is enough to let it through', editDateVerdict(796, 1) === null);
+  t('an empty export is not refused for lacking dates', editDateVerdict(0, 0) === null);
+
+  // 🔴 THE SCRIPT, RUN — not its helpers. Every case above passed while
+  // the entry point could have been broken, which is the lesson of
+  // import-release's `resolve()`. These two start `node` on this file,
+  // hand it a file and read what comes out.
+  const runOn = (features) => {
+    const dir = mkdtempSync(join(tmpdir(), 'camptribe-normalise-'));
+    try {
+      const inPath = join(dir, 'raw.geojson');
+      const outPath = join(dir, 'out.geojson');
+      writeFileSync(inPath, JSON.stringify({ type: 'FeatureCollection', features }));
+      const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), inPath, outPath], {
+        encoding: 'utf8',
+      });
+      return {
+        status: r.status,
+        stderr: r.stderr,
+        written: existsSync(outPath) ? JSON.parse(readFileSync(outPath, 'utf8')).features : null,
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const good = runOn([
+    dated('n1072718253', 'Point', 1787953167, 4),
+    dated('a551350684', 'Polygon', 1771957304, 6, 'caravan_site'),
+  ]);
+  t('run on a file: exits 0 and writes both campsites',
+    good.status === 0 && good.written?.length === 2, `${good.status} ${good.written?.length}`);
+  t('…each with the date it was given, read back from the written file',
+    good.written?.[0]?.properties['@timestamp'] === 1787953167 &&
+      good.written?.[1]?.properties['@timestamp'] === 1771957304,
+    JSON.stringify(good.written?.map((f) => f.properties['@timestamp'])));
+  const lost = runOn([camp('n1', 'Point'), camp('n2', 'Point')]);
+  t('run on an export that lost its dates: exits 1, writes nothing',
+    lost.status === 1 && lost.written === null, `${lost.status} ${JSON.stringify(lost.written)}`);
+  t('…and says why on stderr', lost.stderr.includes('@timestamp'), lost.stderr.slice(0, 160));
+
   let failed = 0;
   for (const [what, cond, detail] of ok) {
     if (!cond) failed++;
     console.log(`${cond ? '✓' : '✗'} ${what}${cond ? '' : `  → ${detail}`}`);
   }
   // 🔴 CAMP-286: counted and named after this file.
-  const EXPECTED_CASES = 18;
+  const EXPECTED_CASES = 32;
   if (ok.length !== EXPECTED_CASES) {
     failed += 1;
     console.log(`✗ ${ok.length} cases ran, expected ${EXPECTED_CASES}`);
@@ -229,8 +358,13 @@ if (RUN_DIRECTLY) {
   console.log(`    not campsites     ${String(notOurs).padStart(7)}  (gates, flagpoles, benches inside a site)`);
   console.log(`    duplicate copies  ${String(collapsed).padStart(7)}  (a closed way arriving as line AND area)`);
   console.log(`    kept              ${String(features.length).padStart(7)}`);
+  // 🔴 CAMP-256: said every run, INCLUDING when it is all of them — a
+  // line that prints only when something is wrong is a line the day it
+  // breaks looks identical to the day nothing was there to report.
+  const withDate = features.filter(hasEditDate).length;
+  console.log(`    with an edit date ${String(withDate).padStart(7)}  (${EDIT_DATE}; the rest read "Not known")`);
 
-  const bad = verdict(before, features.length);
+  const bad = verdict(before, features.length) ?? editDateVerdict(features.length, withDate);
   if (bad) {
     console.error(`::error::${bad}`);
     exit(1);

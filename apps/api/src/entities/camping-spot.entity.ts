@@ -206,6 +206,27 @@ export class CampingSpot {
   overnightCheckedAt: string | null;
 
   /**
+   * CAMP-256: the day a MAPPER last edited this OpenStreetMap object — its
+   * tags or its member list — read from the extract's own `timestamp`.
+   *
+   * 🔴 NOT `lastSeenAt`. That is the day OUR importer last found the
+   * object, stamped on every row of every run; this moves only when
+   * somebody edits. The two are never interchangeable, and a page that
+   * printed `lastSeenAt` under this one's label would say every campsite
+   * had been updated this month.
+   *
+   * `null` is "not known" and is never filled in from anything else:
+   * DATAtourisme rows have no OSM object, and an OSM row loaded from an
+   * extract built before this existed has no date until the next import.
+   */
+  @Column({ name: 'osm_record_edited_at', type: 'timestamptz', nullable: true })
+  osmRecordEditedAt: Date | null;
+
+  /** The object version `osmRecordEditedAt` belongs to (1 or more). */
+  @Column({ name: 'osm_record_version', type: 'integer', nullable: true })
+  osmRecordVersion: number | null;
+
+  /**
    * Where each field came from, and when that source last changed it.
    *
    * 🔴 Per FIELD, not per record. One campsite can be built from OSM
