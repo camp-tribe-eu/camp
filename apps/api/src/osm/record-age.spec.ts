@@ -2,11 +2,14 @@ import {
   FUTURE_SLACK_SECONDS,
   loadDateVerdict,
   MAX_RECENT_SHARE,
+  mergedRecord,
   MIN_RECORDS_TO_JUDGE,
   OSM_EPOCH_SECONDS,
   readRecordAge,
   recentShare,
   RECENT_WINDOW_HOURS,
+  type RecordAge,
+  type RecordEdit,
 } from './record-age';
 
 // CAMP-256 — the edit date of an OpenStreetMap record, read from staging.
@@ -21,11 +24,14 @@ import {
 /** The importer's start, in every case that needs one. A Thursday. */
 const RUN = new Date('2026-10-15T20:00:00.000Z');
 
+/** The object every record below is read from — a way, in `osm_ref`'s spelling. */
+const REF = 'w4242';
+
 describe('readRecordAge — one record, one date', () => {
   it('reads Unix seconds as the instant they are, in UTC', () => {
-    const r = readRecordAge(1787953167, 4, RUN);
-    expect(r.editedAt?.toISOString()).toBe('2026-08-28T21:39:27.000Z');
-    expect(r.version).toBe(4);
+    const r = readRecordAge(1787953167, 4, RUN, REF);
+    expect(r.edit?.editedAt.toISOString()).toBe('2026-08-28T21:39:27.000Z');
+    expect(r.edit?.version).toBe(4);
     expect(r.problem).toBeNull();
   });
 
@@ -33,22 +39,32 @@ describe('readRecordAge — one record, one date', () => {
     // The card's named failure. The same stored value read at two
     // different run times gives the same date; only the future bound
     // moves.
-    const a = readRecordAge(1560499200, 1, new Date('2026-10-15T00:00:00Z'));
-    const b = readRecordAge(1560499200, 1, new Date('2027-01-01T00:00:00Z'));
-    expect(a.editedAt?.toISOString()).toBe('2019-06-14T08:00:00.000Z');
-    expect(b.editedAt?.toISOString()).toBe('2019-06-14T08:00:00.000Z');
+    const a = readRecordAge(
+      1560499200,
+      1,
+      new Date('2026-10-15T00:00:00Z'),
+      REF,
+    );
+    const b = readRecordAge(
+      1560499200,
+      1,
+      new Date('2027-01-01T00:00:00Z'),
+      REF,
+    );
+    expect(a.edit?.editedAt.toISOString()).toBe('2019-06-14T08:00:00.000Z');
+    expect(b.edit?.editedAt.toISOString()).toBe('2019-06-14T08:00:00.000Z');
   });
 
   it('reads the digit string pg returns for an int8 column', () => {
-    const r = readRecordAge('1686737472', '7', RUN);
-    expect(r.editedAt?.toISOString()).toBe('2023-06-14T10:11:12.000Z');
-    expect(r.version).toBe(7);
+    const r = readRecordAge('1686737472', '7', RUN, REF);
+    expect(r.edit?.editedAt.toISOString()).toBe('2023-06-14T10:11:12.000Z');
+    expect(r.edit?.version).toBe(7);
   });
 
   it('a missing value is "not known" — null and undefined alike', () => {
     for (const raw of [null, undefined]) {
-      const r = readRecordAge(raw, 4, RUN);
-      expect(r).toEqual({ editedAt: null, version: null, problem: 'missing' });
+      const r = readRecordAge(raw, 4, RUN, REF);
+      expect(r).toEqual({ edit: null, problem: 'missing' });
     }
   });
 
@@ -61,29 +77,29 @@ describe('readRecordAge — one record, one date', () => {
     ['an empty string', ''],
     ['an object', {}],
   ])('refuses %s, and says it was not an integer', (_what, raw) => {
-    const r = readRecordAge(raw, 4, RUN);
-    expect(r.editedAt).toBeNull();
+    const r = readRecordAge(raw, 4, RUN, REF);
+    expect(r.edit).toBeNull();
     expect(r.problem).toBe('not-an-integer');
   });
 
   it('🔴 zero is the year 1970, not a date: a failed cast must not become one', () => {
-    const r = readRecordAge(0, 4, RUN);
-    expect(r.editedAt).toBeNull();
+    const r = readRecordAge(0, 4, RUN, REF);
+    expect(r.edit).toBeNull();
     expect(r.problem).toBe('before-openstreetmap');
   });
 
   it('the first second of OpenStreetMap is accepted, the second before it is not', () => {
     // 2004-08-01T00:00:00Z = 1091318400, worked out separately.
     expect(OSM_EPOCH_SECONDS).toBe(1091318400);
-    expect(readRecordAge(1091318400, 1, RUN).problem).toBeNull();
-    expect(readRecordAge(1091318399, 1, RUN).problem).toBe(
+    expect(readRecordAge(1091318400, 1, RUN, REF).problem).toBeNull();
+    expect(readRecordAge(1091318399, 1, RUN, REF).problem).toBe(
       'before-openstreetmap',
     );
   });
 
   it('🔴 milliseconds read as seconds is a date in the future, and is refused', () => {
-    const r = readRecordAge(1787953167000, 4, RUN);
-    expect(r.editedAt).toBeNull();
+    const r = readRecordAge(1787953167000, 4, RUN, REF);
+    expect(r.edit).toBeNull();
     expect(r.problem).toBe('in-the-future');
   });
 
@@ -91,16 +107,17 @@ describe('readRecordAge — one record, one date', () => {
     const runSeconds = RUN.getTime() / 1000; // 1792094400
     expect(runSeconds).toBe(1792094400);
     expect(FUTURE_SLACK_SECONDS).toBe(86400);
-    expect(readRecordAge(1792094400 + 86400, 1, RUN).problem).toBeNull();
-    expect(readRecordAge(1792094400 + 86401, 1, RUN).problem).toBe(
+    expect(readRecordAge(1792094400 + 86400, 1, RUN, REF).problem).toBeNull();
+    expect(readRecordAge(1792094400 + 86401, 1, RUN, REF).problem).toBe(
       'in-the-future',
     );
   });
 
   it('a bad date takes its version with it: a version of nothing is not stored', () => {
-    expect(readRecordAge('nonsense', 9, RUN).version).toBeNull();
-    expect(readRecordAge(0, 9, RUN).version).toBeNull();
-    expect(readRecordAge(null, 9, RUN).version).toBeNull();
+    // "Not known" has no edit at all, so there is no version to be had from it.
+    expect(readRecordAge('nonsense', 9, RUN, REF).edit).toBeNull();
+    expect(readRecordAge(0, 9, RUN, REF).edit).toBeNull();
+    expect(readRecordAge(null, 9, RUN, REF).edit).toBeNull();
   });
 
   it.each([
@@ -113,12 +130,183 @@ describe('readRecordAge — one record, one date', () => {
   ])(
     'a good date with a %s version keeps the date and drops only the version',
     (_w, v) => {
-      const r = readRecordAge(1787953167, v, RUN);
-      expect(r.editedAt?.toISOString()).toBe('2026-08-28T21:39:27.000Z');
-      expect(r.version).toBeNull();
+      const r = readRecordAge(1787953167, v, RUN, REF);
+      expect(r.edit?.editedAt.toISOString()).toBe('2026-08-28T21:39:27.000Z');
+      expect(r.edit?.version).toBeNull();
       expect(r.problem).toBeNull();
     },
   );
+});
+
+describe('readRecordAge — the object a date belongs to', () => {
+  it('🔴 the ref it returns is the one it was given, for each object — not a constant', () => {
+    // Two different objects, two different refs: a function that returned a
+    // fixed string, or the first ref it ever saw, would pass one of these.
+    expect(readRecordAge(1787953167, 4, RUN, 'n7726104242').edit).toEqual({
+      ref: 'n7726104242',
+      editedAt: new Date('2026-08-28T21:39:27Z'),
+      version: 4,
+    });
+    expect(readRecordAge(1787953167, 4, RUN, 'a37825860').edit?.ref).toBe(
+      'a37825860',
+    );
+  });
+
+  it.each([
+    ['an empty string', ''],
+    ['undefined', undefined],
+    ['null', null],
+    ['a number', 4242],
+  ])(
+    '🔴 a good date whose object is %s is NOT a date: no object to look it up on',
+    (_what, ref) => {
+      const r = readRecordAge(1787953167, 4, RUN, ref as unknown as string);
+      expect(r).toEqual({ edit: null, problem: 'no-object' });
+    },
+  );
+});
+
+describe('🔴 an edit is one value: its ref cannot be left out', () => {
+  // Checked by the compiler, and ts-jest runs it: each directive below is
+  // itself an assertion. If the type ever lets the line through, "Unused
+  // '@ts-expect-error' directive" stops this whole file from compiling.
+  //
+  // What these CANNOT show is `ref: null` or `editedAt: null` written out:
+  // this workspace has `strictNullChecks: false`, where null is a value of
+  // every type. That is why "not known" is the absence of the whole edit
+  // (`edit: null`) rather than a half-filled one — and why readRecordAge
+  // refuses a date whose ref is not a non-empty string (above).
+  it('a date with no ref, a ref with no date, and a ref with no version are not values', () => {
+    // @ts-expect-error a date and a version with no ref: a pair nobody can look up
+    const noRef: RecordEdit = { editedAt: new Date(0), version: 1 };
+    // @ts-expect-error a ref with no date
+    const noDate: RecordEdit = { ref: 'w1', version: 1 };
+    // @ts-expect-error the version is stated, even when it is "none"
+    const noVersion: RecordEdit = { ref: 'w1', editedAt: new Date(0) };
+    // @ts-expect-error the old flat shape: a date beside no edit at all
+    const flat: RecordAge = { editedAt: new Date(0), problem: null };
+    expect([noRef, noDate, noVersion, flat]).toHaveLength(4);
+  });
+
+  it('the two legal shapes compile: a whole edit, and no edit with the reason', () => {
+    const dated: RecordAge = {
+      edit: {
+        ref: 'w2',
+        editedAt: new Date('2012-03-04T05:06:07Z'),
+        version: 9,
+      },
+      problem: null,
+    };
+    const unknown: RecordAge = { edit: null, problem: 'missing' };
+    expect(dated.edit?.ref).toBe('w2');
+    expect(unknown.edit).toBeNull();
+  });
+});
+
+describe('mergedRecord — a row built from several objects', () => {
+  /** A dated record, written out, for the object `ref`. */
+  const rec = (
+    ref: string,
+    iso: string,
+    version: number | null,
+  ): RecordAge => ({
+    edit: { ref, editedAt: new Date(iso), version },
+    problem: null,
+  });
+  const UNDATED: RecordAge = { edit: null, problem: 'missing' };
+
+  // Review's case, through the function that decides it. The way w2 holds the
+  // row (its id is `osm_ref`); the node n1 is the newer object.
+  const W2 = rec('w2', '2012-04-05T06:07:08Z', 9);
+  const N1 = rec('n1', '2026-09-30T10:11:12Z', 2);
+
+  it('🔴 the newer object is the WHOLE result — its date, its version and its ref, as one edit', () => {
+    expect(mergedRecord(W2, N1)).toEqual({
+      edit: {
+        ref: 'n1',
+        editedAt: new Date('2026-09-30T10:11:12Z'),
+        version: 2,
+      },
+      problem: null,
+    });
+  });
+
+  it('🔴 …and the older one is not: the kept object keeps its own ref when it is the newer', () => {
+    expect(mergedRecord(N1, W2)).toEqual(N1);
+    const newerWay = rec('w2', '2026-10-01T00:00:00Z', 9);
+    expect(mergedRecord(newerWay, N1)).toEqual(newerWay);
+  });
+
+  it('a tie keeps the first argument — the kept object — so the ref stays osm_ref', () => {
+    const twin = rec('n1', '2012-04-05T06:07:08Z', 4);
+    expect(mergedRecord(W2, twin)).toEqual(W2);
+    expect(mergedRecord(W2, twin)?.edit?.ref).toBe('w2');
+  });
+
+  it('three objects, merged one after another: the newest of all, with its own ref', () => {
+    const n3 = rec('n3', '2024-01-02T03:04:05Z', 4);
+    const first = mergedRecord(W2, n3);
+    expect(first?.edit?.ref).toBe('n3');
+    expect(mergedRecord(first, N1)).toEqual(N1);
+    // …in the other order too.
+    expect(mergedRecord(mergedRecord(W2, N1), n3)).toEqual(N1);
+  });
+
+  it('🔴 if ANY object is undated the result is not known — no date, no version, no ref', () => {
+    for (const merged of [
+      mergedRecord(W2, UNDATED),
+      mergedRecord(UNDATED, W2),
+      mergedRecord(UNDATED, UNDATED),
+    ]) {
+      expect(merged).toEqual({ edit: null, problem: 'missing' });
+    }
+  });
+
+  it('keeps the first problem it is told about, and says nothing for two hand-built rows', () => {
+    const bad: RecordAge = { edit: null, problem: 'in-the-future' };
+    expect(mergedRecord(W2, bad)?.problem).toBe('in-the-future');
+    expect(mergedRecord(undefined, undefined)).toBeUndefined();
+  });
+
+  it('🔴 PROPERTY: whatever the dates, the result is one input, whole — never a date of one object with the ref of another', () => {
+    // A small deterministic generator (an LCG), so a failure repeats. 2 000
+    // pairs of dated records: distinct refs, dates on 400 distinct days (so
+    // ties happen), versions 1..40.
+    let seed = 20261016;
+    const next = (n: number) => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      // The HIGH bits: an LCG's low bits cycle with a tiny period.
+      return Math.floor(seed / 65536) % n;
+    };
+    const dated = (ref: string): RecordAge => ({
+      edit: {
+        ref,
+        editedAt: new Date(Date.UTC(2025, 0, 1) + next(400) * 86_400_000),
+        version: 1 + next(40),
+      },
+      problem: null,
+    });
+    let strictlyNewer = 0;
+    let ties = 0;
+    for (let i = 0; i < 2000; i++) {
+      const a = dated(`w${i}`);
+      const b = dated(`n${i}`);
+      const merged = mergedRecord(a, b);
+      const aT = a.edit!.editedAt.getTime();
+      const bT = b.edit!.editedAt.getTime();
+      // It IS the one with the later date — and on a tie, the first — and it
+      // is that input itself, so its date, version and ref cannot have been
+      // taken from two different objects.
+      expect(merged).toBe(bT > aT ? b : a);
+      if (bT > aT) strictlyNewer++;
+      if (aT === bT) ties++;
+    }
+    // Anchor: the generator really produced both branches and some ties, or
+    // "always the first argument" would pass.
+    expect(strictlyNewer).toBeGreaterThan(800);
+    expect(strictlyNewer).toBeLessThan(1200);
+    expect(ties).toBeGreaterThan(0);
+  });
 });
 
 describe('recentShare — who claims to have been edited this week', () => {
@@ -159,11 +347,23 @@ describe('loadDateVerdict — do these look like edit dates, or like today?', ()
     expect(loadDateVerdict(spread(500), RUN)).toBeNull();
   });
 
-  it('🔴 judges every country we hold: Malta has 13 dated records, and 13 identical dates ARE refused', () => {
-    // 13 = Malta in the 27 extracts, 15.10.2026 — the smallest country. At a
-    // floor of 100 it was the one place a substituted date loaded unnoticed.
-    const malta = Array.from({ length: 13 }, () => hoursBefore(1));
-    expect(loadDateVerdict(malta, RUN)).not.toBeNull();
+  it('🔴 the floor is a property of the rule, not of any country: n identical fresh dates are refused for EVERY n from 10 to 400, and for no n below', () => {
+    // It was "Malta has 13 dated records, and 13 identical dates are refused":
+    // a number about live data (it moves, and the comments disagreed on it),
+    // which says nothing about 11, 12 or 14. At a floor of 100 the smallest
+    // countries were the one place a substituted date loaded unnoticed, so the
+    // property is: whatever size a country has, from the floor up, it is judged.
+    // 10 is typed here — the floor itself, not read from the module.
+    const wrong: number[] = [];
+    for (let n = 0; n <= 400; n++) {
+      const refused =
+        loadDateVerdict(
+          Array.from({ length: n }, () => hoursBefore(1)),
+          RUN,
+        ) !== null;
+      if (refused !== n >= 10) wrong.push(n);
+    }
+    expect(wrong).toEqual([]);
   });
 
   it('judges nothing below the minimum: nine identical dates are not a verdict', () => {

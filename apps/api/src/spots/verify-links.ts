@@ -368,19 +368,22 @@ async function main(): Promise<void> {
              SELECT * FROM camping_spots WHERE id = $1`,
           [seedId],
         );
-        // 🔴 CAMP-256: the clone's OSM edit date and version are cleared,
-        // always. The planted rows are about LINKS, not about dates, and a
-        // copy of an OSM row with its `osm_ref` removed but its edit date
-        // kept is a shape the table refuses on purpose
-        // (camping_spots_osm_record_origin_check: a date only on a row that
-        // HAS an OSM object). It went unseen while the seed carried no
-        // dates; on the first database that did, three invariants read
+        // 🔴 CAMP-256: the clone's OSM edit date, version AND the object
+        // they belong to are cleared, always. The planted rows are about
+        // LINKS, not about dates, and a copy of an OSM row with its `osm_ref`
+        // removed but its edit date kept is a shape the table refuses on
+        // purpose (camping_spots_osm_record_origin_check: a date only on a
+        // row that HAS an OSM object). It went unseen while the seed carried
+        // no dates; on the first database that did, three invariants read
         // "✗ … violates check constraint" for a reason that was not theirs.
+        // The ref goes with them: a ref without a date is refused too
+        // (camping_spots_osm_record_ref_check).
         await db.query(
           `UPDATE trap_src
               SET id = uuid_generate_v4(), slug = $1, osm_ref = $2,
                   missing_since = NULL,
                   osm_record_edited_at = NULL, osm_record_version = NULL,
+                  osm_record_ref = NULL,
                   region = coalesce(region, 'Trap')`,
           [slug, osmRef],
         );
@@ -1458,7 +1461,7 @@ async function main(): Promise<void> {
         // import" step died on "bind message supplies 10 parameters, but
         // prepared statement requires 12" — the rehearsal and the importer
         // had drifted apart on the one thing a rehearsal exists to share.
-        // CAMP-256 made it fourteen, and made the list ONE function the
+        // CAMP-256 made it fifteen, and made the list ONE function the
         // importer calls too (`upsertSpotParams`), so it cannot drift again.
         // The overnight pair comes from the importer's own mapper, as in
         // main(); the edit date is a typed one, in the past, so the
@@ -1480,6 +1483,7 @@ async function main(): Promise<void> {
             overnightStatus: overnight.status,
             overnightSource: overnight.source,
             record: {
+              ref: v.osm_ref,
               editedAt: new Date('2023-06-14T10:11:12Z'),
               version: 7,
             },

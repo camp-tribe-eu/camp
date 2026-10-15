@@ -166,11 +166,13 @@ const stored = async (table: string) =>
       i: number;
       edited: string | null;
       v: number | null;
+      ref: string | null;
     }>(
       `SELECT split_part(osm_ref, '-', 3)::int AS i,
               to_char(osm_record_edited_at AT TIME ZONE 'UTC',
                       'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS edited,
-              osm_record_version AS v
+              osm_record_version AS v,
+              osm_record_ref AS ref
          FROM camping_spots WHERE osm_ref LIKE $1 ORDER BY 1`,
       [`n-${table}-%`],
     )
@@ -193,9 +195,20 @@ describe('the importer, run', () => {
 
     const rows = await stored('honest');
     expect(rows).toHaveLength(12);
-    // Typed: row 0 is 2023-06-14T10:11:12Z, row 1 is 30 days later.
-    expect(rows[0]).toEqual({ i: 0, edited: '2023-06-14T10:11:12Z', v: 5 });
-    expect(rows[1]).toEqual({ i: 1, edited: '2023-07-14T10:11:12Z', v: 5 });
+    // Typed: row 0 is 2023-06-14T10:11:12Z, row 1 is 30 days later. Nothing
+    // here was merged, so each row's ref is its own osm_ref.
+    expect(rows[0]).toEqual({
+      i: 0,
+      edited: '2023-06-14T10:11:12Z',
+      v: 5,
+      ref: 'n-honest-0',
+    });
+    expect(rows[1]).toEqual({
+      i: 1,
+      edited: '2023-07-14T10:11:12Z',
+      v: 5,
+      ref: 'n-honest-1',
+    });
     // …and the two dates of a row are two: the run is today, the edit is 2023.
     const seen = (
       await db.query(
@@ -250,7 +263,9 @@ describe('the importer, run', () => {
     expect(r.out).toMatch(/not known because\s+missing\s+12/);
     const rows = await stored('oldrelease');
     expect(rows).toHaveLength(12);
-    expect(rows.every((x) => x.edited === null && x.v === null)).toBe(true);
+    expect(
+      rows.every((x) => x.edited === null && x.v === null && x.ref === null),
+    ).toBe(true);
   });
 
   it('🔴 one corrupt value costs one record its date, never the run: a zero and a date from next year among ten good ones', async () => {
@@ -272,5 +287,130 @@ describe('the importer, run', () => {
     // The ten good ones keep exactly the date they were staged with.
     expect(rows[0].edited).toBe('2023-06-14T10:11:12Z');
     expect(rows[11].edited).toBe('2024-05-09T10:11:12Z');
+  });
+});
+
+describe("🔴 the importer, run on a campsite mapped twice: the date, the version and the ref are ONE object's", () => {
+  // Review's case (16.10.2026), through the real script, the real dedupe and a
+  // real table: a way `w2` (2012, version 9) holds the row; a node `n1` that
+  // adds no tag of its own is the newer object (2026-09-30, version 2). The row
+  // was reading `osm_ref = w2` over a date and version that were in the history
+  // of no object `w2` could be looked up as. Every Unix second below is written
+  // out (calendar.timegm), and every stored value is read back out of the table.
+  const W2_2012 = 1333606028; // 2012-04-05T06:07:08Z
+  const N1_2026 = 1790763072; // 2026-09-30T10:11:12Z
+  const W2_2015 = 1430802305; // 2015-05-05T05:05:05Z
+  const N1_2022 = 1643767322; // 2022-02-02T02:02:02Z
+  const N3_2026 = 1790816461; // 2026-10-01T01:01:01Z
+
+  type Obj = {
+    id: string;
+    lon: number;
+    ts: number | null;
+    version: number | null;
+    website?: string;
+    toilets?: string;
+  };
+
+  async function stageObjects(table: string, objects: Obj[]) {
+    await db.query(
+      `CREATE TABLE ${table} (
+         id varchar, geom geometry(Point, 4326), name varchar, tourism varchar,
+         website varchar, toilets varchar,
+         "@timestamp" integer, "@version" integer)`,
+    );
+    for (const o of objects) {
+      await db.query(
+        `INSERT INTO ${table}
+           (id, geom, name, tourism, website, toilets, "@timestamp", "@version")
+         VALUES ($1, ST_SetSRID(ST_MakePoint($2, 45), 4326), 'Camp Twice',
+                 'camp_site', $3, $4, $5, $6)`,
+        [o.id, o.lon, o.website ?? null, o.toilets ?? null, o.ts, o.version],
+      );
+    }
+  }
+
+  const rowsOf = async (prefix: string) =>
+    (
+      await db.query(
+        `SELECT osm_ref, osm_record_ref AS ref, osm_record_version AS v,
+                to_char(osm_record_edited_at AT TIME ZONE 'UTC',
+                        'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS edited
+           FROM camping_spots WHERE osm_ref LIKE $1 ORDER BY osm_ref`,
+        [`${prefix}-%`],
+      )
+    ).rows;
+
+  it('🔴 w2 (2012, v9) + n1 with no tag of its own (2026-09-30, v2): the row is keyed on w2, and names n1 as the owner of the date and version', async () => {
+    await stageObjects('twice', [
+      {
+        id: 'w-twice-2',
+        lon: 14.0,
+        ts: W2_2012,
+        version: 9,
+        website: 'https://bovec.example',
+        toilets: 'yes',
+      },
+      { id: 'n-twice-1', lon: 14.0002, ts: N1_2026, version: 2 },
+      // An unmerged neighbour, far away: its ref is its own osm_ref.
+      { id: 'n-twice-9', lon: 14.5, ts: W2_2015, version: 14 },
+    ]);
+    const r = runImporter('twice');
+    expect({ status: r.status, err: r.err.split('\n')[0] }).toEqual({
+      status: 0,
+      err: '',
+    });
+    // Anchor: the pair REALLY merged (two rows from three objects) — or this
+    // is the one-object path and proves nothing about merging.
+    expect(r.out).toMatch(/merged duplicates\s+1/);
+
+    expect(await rowsOf('n-twice')).toEqual([
+      {
+        osm_ref: 'n-twice-9',
+        ref: 'n-twice-9',
+        v: 14,
+        edited: '2015-05-05T05:05:05Z',
+      },
+    ]);
+    expect(await rowsOf('w-twice')).toEqual([
+      // Keyed on the way; the pair — date, version, ref — is the node's, whole.
+      {
+        osm_ref: 'w-twice-2',
+        ref: 'n-twice-1',
+        v: 2,
+        edited: '2026-09-30T10:11:12Z',
+      },
+    ]);
+  });
+
+  it('🔴 three objects, the newest a node at version 1: a fresh date over version 1 names the node, which is where version 1 is', async () => {
+    await stageObjects('three', [
+      { id: 'w-three-2', lon: 14.0, ts: W2_2015, version: 14 },
+      { id: 'n-three-1', lon: 14.0001, ts: N1_2022, version: 6 },
+      { id: 'n-three-3', lon: 14.0002, ts: N3_2026, version: 1 },
+    ]);
+    const r = runImporter('three');
+    expect(r.status).toBe(0);
+    expect(await rowsOf('w-three')).toEqual([
+      {
+        osm_ref: 'w-three-2',
+        ref: 'n-three-3',
+        v: 1,
+        edited: '2026-10-01T01:01:01Z',
+      },
+    ]);
+    expect(await rowsOf('n-three')).toEqual([]);
+  });
+
+  it("🔴 one of the objects has no date: the row has NO date, no version and no ref — not the other's", async () => {
+    await stageObjects('undated', [
+      { id: 'w-undated-2', lon: 14.0, ts: W2_2012, version: 9 },
+      { id: 'n-undated-1', lon: 14.0002, ts: null, version: null },
+    ]);
+    const r = runImporter('undated');
+    expect(r.status).toBe(0);
+    expect(await rowsOf('w-undated')).toEqual([
+      { osm_ref: 'w-undated-2', ref: null, v: null, edited: null },
+    ]);
   });
 });

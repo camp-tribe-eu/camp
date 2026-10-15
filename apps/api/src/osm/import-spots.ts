@@ -38,6 +38,7 @@ import {
   RECENT_WINDOW_HOURS,
   type RecordAge,
   type RecordAgeProblem,
+  type RecordEdit,
 } from './record-age';
 
 const COUNTRY = (process.argv[2] ?? '').toUpperCase();
@@ -326,7 +327,7 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            (name, country, region, slug, type, amenities, location,
             osm_ref, last_seen_at, missing_since, content_changed_at, sources,
             contact, overnight_status, overnight_source, overnight_checked_at,
-            osm_record_edited_at, osm_record_version)
+            osm_record_edited_at, osm_record_version, osm_record_ref)
          -- 🔴 $8::text in BOTH places, not just in the JSON below.
          --
          -- osm_ref is character varying, so an uncast $8 here made
@@ -377,7 +378,12 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
                  -- the one mistake this card is most likely to ship — every
                  -- page would read "edited this month" and nothing would
                  -- look wrong. NULL is "not known" and stays NULL.
-                 $13::timestamptz, $14::integer)
+                 --
+                 -- $15 is the OBJECT those two belong to — the same one, every
+                 -- time, because the three are one fact. It is osm_ref except
+                 -- where the importer built this row from several objects and
+                 -- the newest of them is not the one the row is keyed on.
+                 $13::timestamptz, $14::integer, $15::text)
          ON CONFLICT (osm_ref) DO UPDATE SET
            name          = EXCLUDED.name,
            country       = EXCLUDED.country,
@@ -408,6 +414,7 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            -- on purpose: see there.
            osm_record_edited_at = EXCLUDED.osm_record_edited_at,
            osm_record_version   = EXCLUDED.osm_record_version,
+           osm_record_ref       = EXCLUDED.osm_record_ref,
            location      = EXCLUDED.location,
            last_seen_at  = EXCLUDED.last_seen_at,
            missing_since = NULL,
@@ -480,22 +487,24 @@ interface StagingRow {
    */
   raw_country?: string | null;
   /**
-   * CAMP-256: the OSM edit date and version of THIS object, read from the
-   * staging columns `"@timestamp"` / `"@version"`.
+   * CAMP-256: the OSM edit date and version of THIS object, and the object
+   * they belong to, read from the staging columns `"@timestamp"` /
+   * `"@version"` and the row's own `osm_ref`.
    *
    * Optional only so that the row helpers in the specs, which predate it,
    * keep compiling; `main()` always sets it. It travels on the row so that
    * `dedupe` — which keeps one object's row and merges the other's tags
    * into it — can date the merged row (below). For a row of one object it
-   * is that object's own date, and `osm_ref` is how a person checks it on
-   * openstreetmap.org.
+   * is that object's own date, and `record.ref` is that object: `osm_ref`.
    *
    * 🔴 A ROW BUILT FROM SEVERAL OBJECTS is dated by the NEWEST of them
    * (`mergedRecord`): its tags are a union, and the kept object's date alone
    * was older than a displayed tag in 162 of 516 merged clusters (measured
-   * 15.10.2026, 27 extracts; 123 database rows). For such a row the date can belong to the
-   * merged-away object, so `osm_ref` is not always the object to check it
-   * against — it is for the other 99.7%.
+   * 15.10.2026, 27 extracts; 123 database rows). For such a row the date
+   * belongs to the merged-away object, and `record.ref` says which — it is
+   * NOT `osm_ref`, which stays the kept object's, so a person checking the
+   * date on openstreetmap.org looks up `record.ref` (the column
+   * `osm_record_ref`) and never `osm_ref`.
    */
   record?: RecordAge;
   tags: OsmTags;
@@ -504,14 +513,14 @@ interface StagingRow {
 /**
  * Everything one UPSERT_SPOT_SQL execution takes, by name.
  *
- * 🔴 CAMP-256: the statement takes FOURTEEN placeholders and this is the
+ * 🔴 CAMP-256: the statement takes FIFTEEN placeholders and this is the
  * only place that knows their order. The importer, the link rehearsal
  * (`verify-links.ts`) and the DB specs all execute that one statement, and
  * each used to carry its own positional array. The array grew from ten to
  * twelve for CAMP-255 and the rehearsal kept passing ten — CI died on
  * "bind message supplies 10 parameters, but prepared statement requires
- * 12", between two files that each looked right. Adding the thirteenth and
- * fourteenth is the same edit; this makes it one edit in one place.
+ * 12", between two files that each looked right. Adding the thirteenth to
+ * the fifteenth is the same edit; this makes it one edit in one place.
  */
 export interface UpsertSpotValues {
   name: string | null;
@@ -528,8 +537,12 @@ export interface UpsertSpotValues {
   contact: unknown;
   overnightStatus: string;
   overnightSource: string | null;
-  /** The OSM edit date and version, or `null` for "not known". Never `seenAt`. */
-  record: Pick<RecordAge, 'editedAt' | 'version'>;
+  /**
+   * The OSM edit — object, date and version, as ONE value — or `null` for "not
+   * known". Never `seenAt`. A date cannot be passed without its ref: there is
+   * no way to spell it (see RecordEdit), which is the point.
+   */
+  record: RecordEdit | null;
 }
 
 export function upsertSpotParams(v: UpsertSpotValues): unknown[] {
@@ -546,8 +559,9 @@ export function upsertSpotParams(v: UpsertSpotValues): unknown[] {
     JSON.stringify(v.contact),
     v.overnightStatus,
     v.overnightSource,
-    v.record.editedAt,
-    v.record.version,
+    v.record?.editedAt ?? null,
+    v.record?.version ?? null,
+    v.record?.ref ?? null,
   ];
 }
 
@@ -754,7 +768,14 @@ async function main(): Promise<void> {
       // 🔴 CAMP-256: read from the object's OWN row, before dedupe. A
       // missing column reads as `undefined` and becomes problem
       // `missing` — never a default, and never `startedAt`.
-      record: readRecordAge(row['@timestamp'], row['@version'], startedAt),
+      // The object's OWN id travels with its date: `dedupe` may later hand
+      // the row to another object's date, and the ref goes with it.
+      record: readRecordAge(
+        row['@timestamp'],
+        row['@version'],
+        startedAt,
+        row.osm_ref,
+      ),
       tags,
     };
   });
@@ -909,11 +930,10 @@ async function main(): Promise<void> {
       // 🔴 CAMP-256: a record with no `record` at all (a caller that built
       // the row by hand) is "not known", not an error and not a date.
       const record: RecordAge = row.record ?? {
-        editedAt: null,
-        version: null,
+        edit: null,
         problem: 'missing',
       };
-      if (!record.editedAt && record.problem) {
+      if (!record.edit && record.problem) {
         editRefused.set(
           record.problem,
           (editRefused.get(record.problem) ?? 0) + 1,
@@ -935,7 +955,7 @@ async function main(): Promise<void> {
           contact,
           overnightStatus: overnight.status,
           overnightSource: overnight.source,
-          record,
+          record: record.edit,
         }),
       );
       if (res.rows[0]?.was_insert) inserted++;

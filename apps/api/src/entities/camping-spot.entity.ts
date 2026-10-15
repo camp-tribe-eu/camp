@@ -222,9 +222,26 @@ export class CampingSpot {
   @Column({ name: 'osm_record_edited_at', type: 'timestamptz', nullable: true })
   osmRecordEditedAt: Date | null;
 
-  /** The object version `osmRecordEditedAt` belongs to (1 or more). */
+  /** The version of the object `osmRecordRef` names at `osmRecordEditedAt` (1 or more). */
   @Column({ name: 'osm_record_version', type: 'integer', nullable: true })
   osmRecordVersion: number | null;
+
+  /**
+   * CAMP-256: the OpenStreetMap OBJECT whose edit date and version the two
+   * columns above are — in the same spelling as `osmRef` (`n123`, `w456`,
+   * `a789`), the handle a person looks the pair up by on openstreetmap.org.
+   *
+   * 🔴 NOT ALWAYS `osmRef`. A row the importer built from several objects (a
+   * node and the way around it) is keyed on the kept object but dated by the
+   * NEWEST of them, so for those rows this is the merged-away object whose
+   * date and version they are, and the pair is in ITS history, not
+   * `osmRef`'s. For every other row it equals `osmRef`.
+   *
+   * Written together with the date and the version, by the importer and by
+   * nothing else; `null` exactly when the date is (a CHECK, not a habit).
+   */
+  @Column({ name: 'osm_record_ref', type: 'varchar', nullable: true })
+  osmRecordRef: string | null;
 
   /**
    * Where each field came from, and when that source last changed it.

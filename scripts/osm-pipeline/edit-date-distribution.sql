@@ -81,7 +81,7 @@ SELECT count(*)                                                       AS dated,
 \echo '   RED needs 10 or more dated rows and 90 % of them recent — the same rule the importer refuses a country on'
 \echo '   (MIN_RECORDS_TO_JUDGE and MAX_RECENT_SHARE in apps/api/src/osm/record-age.ts; apps/api/src/osm/record-edited.db.spec.ts'
 \echo '   runs THIS statement against those two and fails if they disagree). Below 10 rows the importer cannot judge,'
-\echo '   so 90 % there reads SUSPECT, never ok: a country of 14 rows at 100 % is not a clean bill of health.'
+\echo '   so 90 % there reads SUSPECT, never ok: a country of 9 rows at 100 % is not a clean bill of health.'
 WITH per AS (
   SELECT country,
          count(*) AS dated,

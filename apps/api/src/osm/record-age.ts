@@ -36,18 +36,54 @@ export const OSM_EPOCH_SECONDS = Date.UTC(2004, 7, 1) / 1000;
 export const FUTURE_SLACK_SECONDS = 24 * 3600;
 
 export type RecordAgeProblem =
-  'missing' | 'not-an-integer' | 'before-openstreetmap' | 'in-the-future';
+  | 'missing'
+  | 'not-an-integer'
+  | 'before-openstreetmap'
+  | 'in-the-future'
+  | 'no-object';
+
+/**
+ * One edit of one OpenStreetMap object: WHICH object, WHEN a mapper last
+ * edited it, and the version that edit made. One value, so the three cannot
+ * be separated.
+ *
+ * 🔴 `ref` IS NOT OPTIONAL, AND THE TYPE IS ONE OBJECT, NOT THREE FIELDS. A
+ * merged row takes the NEWEST of its objects' edits (`mergedRecord`) while it
+ * stays keyed on the kept object. Review, 16.10.2026: a way `w2` (2012,
+ * version 9) and a node `n1` that adds no tag (2026-09-30, version 2) gave
+ * `osm_ref = w2`, date 2026-09-30, version 2 — a pair that is in the history
+ * of NO object `osm_ref` points at, and nothing on the row said so. A date
+ * and a version carried as two optional fields drift away from the object they
+ * describe the next time somebody touches one of them; an edit that has no
+ * `ref` does not compile, and a function that returns an edit returns it whole.
+ *
+ * `ref` is an OSM object id in the same spelling as `camping_spots.osm_ref`
+ * (`n123`, `w456`, `a789`) — the handle a person looks the pair up by.
+ *
+ * (Not a union with a "not known" shape, which would be tidier: this
+ * workspace compiles with `strictNullChecks: false`, where `null` is a value of
+ * every type and such a union cannot tell a date from a missing one — measured
+ * 16.10.2026 with `@ts-expect-error` lines that the compiler called unused.
+ * "Not known" is therefore the ABSENCE of the whole edit, `edit: null`, which
+ * no spelling of a half-edit can imitate.)
+ */
+export interface RecordEdit {
+  /** The object whose edit this is. */
+  readonly ref: string;
+  /** The day a mapper last edited that object. */
+  readonly editedAt: Date;
+  /**
+   * That object's version at `editedAt`. `null` only when the extract did not
+   * carry a usable one; a version with no date has nothing to be the version OF.
+   */
+  readonly version: number | null;
+}
 
 export interface RecordAge {
   /** `null` is "not known" — never a stand-in for another date. */
-  editedAt: Date | null;
-  /**
-   * The object version `editedAt` belongs to. `null` whenever `editedAt`
-   * is: a version with no date has nothing to be the version OF.
-   */
-  version: number | null;
-  /** Why `editedAt` is null, when it is. Counted by the run, per kind. */
-  problem: RecordAgeProblem | null;
+  readonly edit: RecordEdit | null;
+  /** Why `edit` is null, when it is. Counted by the run, per kind. */
+  readonly problem: RecordAgeProblem | null;
 }
 
 /**
@@ -72,20 +108,26 @@ function wholeNumber(value: unknown): number | null {
 
 /**
  * One record's edit date and version, from the two staging columns
- * (`"@timestamp"`, `"@version"`) exactly as `pg` returned them.
+ * (`"@timestamp"`, `"@version"`) exactly as `pg` returned them, and the
+ * OBJECT they belong to (`ref`, the staging row's own `osm_ref`).
  *
  * `runStartedAt` is the importer's own start, and the ONLY use made of it
  * is the upper bound: a timestamp later than the run that read it is not an
  * edit, whatever else it is.
+ *
+ * 🔴 `ref` IS REQUIRED, and a date whose object cannot be named is not a
+ * date: a staging row with no id (it cannot be — the importer's own SELECT
+ * drops those — but this is where the types end and `pg`'s `any` begins) reads
+ * "not known", problem `no-object`, rather than a date nobody can look up.
  */
 export function readRecordAge(
   rawTimestamp: unknown,
   rawVersion: unknown,
   runStartedAt: Date,
+  ref: string,
 ): RecordAge {
   const none = (problem: RecordAgeProblem): RecordAge => ({
-    editedAt: null,
-    version: null,
+    edit: null,
     problem,
   });
 
@@ -98,13 +140,17 @@ export function readRecordAge(
   if (seconds > runStartedAt.getTime() / 1000 + FUTURE_SLACK_SECONDS) {
     return none('in-the-future');
   }
+  if (typeof ref !== 'string' || ref === '') return none('no-object');
 
   const version = wholeNumber(rawVersion);
   return {
-    editedAt: new Date(seconds * 1000),
-    // 1 or more: an object's first version is 1, and 0 is how a missing
-    // value looks after a careless cast.
-    version: version !== null && version >= 1 ? version : null,
+    edit: {
+      ref,
+      editedAt: new Date(seconds * 1000),
+      // 1 or more: an object's first version is 1, and 0 is how a missing
+      // value looks after a careless cast.
+      version: version !== null && version >= 1 ? version : null,
+    },
     problem: null,
   };
 }
@@ -127,8 +173,16 @@ export function readRecordAge(
  * And if ANY contributing object has no usable date, the row has none: a date
  * from the others would say nothing about what the undated one contributed.
  *
- * The version is the version of the object whose date was taken, so the pair
- * stays one object's. A tie keeps the first argument (the kept object).
+ * 🔴 THE RESULT IS ONE OBJECT'S EDIT, WHOLE — date, version AND `ref` — so
+ * the pair stays verifiable: `ref` is where to look it up, and it is NOT
+ * always the row's `osm_ref`. When the merged-away object is the newer one,
+ * the row is still keyed on the kept object but its date, its version and its
+ * `ref` are the merged-away object's. (Returning the date and the version of
+ * one object and the id of another is the one thing this function must never
+ * do; the result is one of the two inputs, never assembled field by field.)
+ *
+ * A tie keeps the first argument — the kept object, so `ref` stays `osm_ref`
+ * unless a merged-away object is STRICTLY newer.
  */
 export function mergedRecord(
   kept: RecordAge | undefined,
@@ -136,14 +190,15 @@ export function mergedRecord(
 ): RecordAge | undefined {
   // Rows built by hand in specs carry no record at all; there is nothing to merge.
   if (kept === undefined && other === undefined) return undefined;
-  if (!kept?.editedAt || !other?.editedAt) {
+  if (!kept?.edit || !other?.edit) {
     return {
-      editedAt: null,
-      version: null,
+      edit: null,
       problem: kept?.problem ?? other?.problem ?? 'missing',
     };
   }
-  return other.editedAt.getTime() > kept.editedAt.getTime() ? other : kept;
+  return other.edit.editedAt.getTime() > kept.edit.editedAt.getTime()
+    ? other
+    : kept;
 }
 
 /** Records edited within this long of the run are "recent" for the verdict. */
@@ -152,12 +207,33 @@ export const RECENT_WINDOW_HOURS = 48;
 /**
  * Fewer dated records than this say nothing about a country.
  *
- * 🔴 TEN, and it was a hundred. A hundred left every country the importer
- * could not judge — Malta (13 dated records in the 27 extracts, 15.10.2026),
- * Åland (19), Cyprus (55) and Luxembourg (83) — and a substituted date loaded
- * there without a word: review watched Malta take the load date while Austria
- * was refused. The smallest country we hold has 13 dated records, so ten
- * judges all 28 codes the database holds.
+ * 🔴 TEN, and it was a hundred. A hundred left every small country the importer
+ * could not judge, and a substituted date loaded there without a word: review
+ * watched Malta take the load date while Austria was refused.
+ *
+ * 🔴 WHAT TEN RESTS ON IS A PROPERTY, NOT A NUMBER: the floor must sit at or
+ * below the smallest country we hold, whatever that is today, so that no
+ * country goes unjudged. The sizes below are a SNAPSHOT of live data, and they
+ * move with every import:
+ *
+ *   camptribe_dev, 16.10.2026 — dated, live rows per `country` (the grouping
+ *   scripts/osm-pipeline/edit-date-distribution.sql §4 uses):
+ *
+ *     SELECT country, count(*) FROM camping_spots
+ *      WHERE osm_ref IS NOT NULL AND missing_since IS NULL
+ *        AND osm_record_edited_at IS NOT NULL
+ *      GROUP BY country ORDER BY 2, 1 LIMIT 4;
+ *     → MT 13, AX 19, CY 55, LU 82
+ *
+ * (`camptribe_camp256`, a scratch copy of the same data, held LU 83 that day:
+ * one row is dated there and not on dev. Earlier comments here said 13, 14 and
+ * 83 for the same countries; there is one number per fact now, and it carries
+ * its date.) At ten, every code dev holds a date for is judged: 28 of them on
+ * 16.10.2026, `AX` — Åland, a code of its own — among them.
+ *
+ * The tests pin the PROPERTY — every size from the floor up is judged, none
+ * below — and not these four numbers (`record-age.spec.ts`,
+ * `record-edited.db.spec.ts`).
  *
  * The floor is not zero for one reason: with a handful of records, "nine of
  * ten were edited this week" is one mapper's afternoon, not a verdict. At
@@ -215,9 +291,9 @@ export function recentShare(
  * Do these dates look like edit dates, or like the day somebody loaded
  * them? `null` is "fine"; a string is the reason to refuse the country.
  *
- * Only DATED records are judged, and only when there are enough of them:
- * Malta has 14, and "all fourteen were edited this week" is a Tuesday, not
- * a verdict.
+ * Only DATED records are judged, and only when there are enough of them
+ * (MIN_RECORDS_TO_JUDGE): "all four were edited this week" is a Tuesday, not a
+ * verdict.
  */
 export function loadDateVerdict(
   editedAts: ReadonlyArray<Date | null>,

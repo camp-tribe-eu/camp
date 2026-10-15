@@ -24,6 +24,11 @@ import {
 // A test of the SQL's text cannot tell `$13` from `$9`; this one stores a
 // date from 2023 in a run that started in 2026 and reads both back.
 //
+// 🔴 THE THREE COLUMNS ARE ONE FACT (date, version, and the object they belong
+// to: `osm_record_ref`). They are asserted TOGETHER, in one `toEqual`, so a
+// version that moved without its ref — or a ref that is `osm_ref` by habit
+// where a merged row's differs — cannot hide behind a test of one column.
+//
 // 🔴 EVERY STATEMENT UNDER TEST IS IMPORTED, NOT RETYPED: the real
 // migration's `up()`, the importer's own `UPSERT_SPOT_SQL` and the one
 // function that builds its parameters. Only the pre-existing columns of
@@ -107,8 +112,9 @@ afterAll(async () => {
 /** One run of the importer's statement for one campsite. */
 async function upsert(
   osmRef: string,
-  record: { editedAt: Date | null; version: number | null },
-  opts: { startedAt?: string; name?: string } = {},
+  /** The object's own edit, or `null` for "not known". Its ref is `osmRef`. */
+  record: { editedAt: Date; version: number | null } | null,
+  opts: { startedAt?: string; name?: string; recordRef?: string } = {},
 ) {
   const res = await db.query(
     UPSERT_SPOT_SQL,
@@ -125,13 +131,16 @@ async function upsert(
       contact: {},
       overnightStatus: 'unknown',
       overnightSource: null,
-      record,
+      // The ref is the row's own osm_ref unless the test says this row was
+      // built from several objects and the date is another one's.
+      record:
+        record === null ? null : { ref: opts.recordRef ?? osmRef, ...record },
     }),
   );
   return res.rows[0] as { was_insert: boolean; content_changed: boolean };
 }
 
-/** The two dates of one row, as the strings Postgres would print in UTC. */
+/** The two dates of one row, with the version and ref beside them, as Postgres would print them in UTC. */
 const datesOf = async (osmRef: string) =>
   (
     await db.query(
@@ -140,6 +149,7 @@ const datesOf = async (osmRef: string) =>
               to_char(last_seen_at AT TIME ZONE 'UTC',
                       'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS seen,
               osm_record_version AS version,
+              osm_record_ref AS ref,
               content_changed_at
          FROM camping_spots WHERE osm_ref = $1`,
       [osmRef],
@@ -148,13 +158,14 @@ const datesOf = async (osmRef: string) =>
     edited: string | null;
     seen: string | null;
     version: number | null;
+    ref: string | null;
     content_changed_at: Date;
   };
 
 const EDITED_2023 = new Date('2023-06-14T10:11:12Z');
 
 describe('the migration', () => {
-  it('adds the two columns, nullable, with no default — and the three constraints', async () => {
+  it('adds the three columns, nullable, with no default — and the four constraints', async () => {
     const cols = (
       await db.query(
         `SELECT column_name, data_type, is_nullable, column_default
@@ -163,9 +174,10 @@ describe('the migration', () => {
           ORDER BY column_name`,
       )
     ).rows;
-    // Anchor: both columns, or every assertion after this reads nothing.
+    // Anchor: all three columns, or every assertion after this reads nothing.
     expect(cols.map((c) => c.column_name)).toEqual([
       'osm_record_edited_at',
+      'osm_record_ref',
       'osm_record_version',
     ]);
     expect(cols[0]).toMatchObject({
@@ -173,7 +185,14 @@ describe('the migration', () => {
       is_nullable: 'YES',
       column_default: null,
     });
+    // The ref is the same type as osm_ref, so `osm_record_ref = osm_ref`
+    // compares like with like.
     expect(cols[1]).toMatchObject({
+      data_type: 'character varying',
+      is_nullable: 'YES',
+      column_default: null,
+    });
+    expect(cols[2]).toMatchObject({
       data_type: 'integer',
       is_nullable: 'YES',
       column_default: null,
@@ -189,6 +208,7 @@ describe('the migration', () => {
     expect(cons).toEqual([
       'camping_spots_osm_record_edited_range_check',
       'camping_spots_osm_record_origin_check',
+      'camping_spots_osm_record_ref_check',
       'camping_spots_osm_record_version_check',
     ]);
   });
@@ -200,6 +220,7 @@ describe('the migration', () => {
     expect(r.seen).toBe('2026-10-05T04:00:00Z');
     expect(r.edited).toBeNull();
     expect(r.version).toBeNull();
+    expect(r.ref).toBeNull();
   });
 
   it('the column says in the catalogue that it is NOT last_seen_at', async () => {
@@ -212,6 +233,19 @@ describe('the migration', () => {
       )
     ).rows[0].comment as string;
     expect(c).toContain('NOT last_seen_at');
+  });
+
+  it('🔴 the ref column says in the catalogue that it is NOT always osm_ref', async () => {
+    const c = (
+      await db.query(
+        `SELECT col_description('camping_spots'::regclass,
+                  (SELECT attnum FROM pg_attribute
+                    WHERE attrelid = 'camping_spots'::regclass
+                      AND attname = 'osm_record_ref')) AS comment`,
+      )
+    ).rows[0].comment as string;
+    expect(c).toContain('EXCEPT');
+    expect(c).toContain('not on osm_ref');
   });
 
   it('up is idempotent, and down takes the columns and the constraints away', async () => {
@@ -239,29 +273,103 @@ describe('the migration', () => {
             AND conname LIKE '%osm_record%'`,
       )
     ).rows[0];
-    expect(back.n).toBe(3);
+    expect(back.n).toBe(4);
+  });
+
+  it('🔴 a database that already holds the FIRST shape (dates and versions, no ref) comes out with those NULL — not a date kept under a ref it never had', async () => {
+    // dev did, from 15.10.2026. Isolated in its own schema, so the rows the
+    // other tests hold are not touched.
+    await db.query('CREATE SCHEMA first_shape');
+    try {
+      await db.query('SET search_path TO first_shape, public');
+      await db.query(`
+        CREATE TABLE camping_spots (
+          osm_ref varchar UNIQUE,
+          osm_record_edited_at timestamptz,
+          osm_record_version integer)`);
+      await db.query(`
+        INSERT INTO camping_spots VALUES
+          ('n-dated',   '2023-06-14T10:11:12Z', 7),
+          ('n-nover',   '2021-01-02T03:04:05Z', NULL),
+          ('n-vonly',   NULL,                   4),
+          ('n-unknown', NULL,                   NULL)`);
+      await MIGRATION.up(runner());
+      const rows = (
+        await db.query(
+          `SELECT osm_ref, osm_record_edited_at AS at, osm_record_version AS v,
+                  osm_record_ref AS ref
+             FROM camping_spots ORDER BY osm_ref`,
+        )
+      ).rows;
+      // Anchor: all four rows are still there — nulled, not deleted.
+      expect(rows.map((r) => r.osm_ref)).toEqual([
+        'n-dated',
+        'n-nover',
+        'n-unknown',
+        'n-vonly',
+      ]);
+      expect(
+        rows.every((r) => r.at === null && r.v === null && r.ref === null),
+      ).toBe(true);
+      // …and the new invariant is now in force on that table.
+      await expect(
+        db.query(
+          `INSERT INTO camping_spots VALUES ('n-late', '2023-06-14T10:11:12Z', 7)`,
+        ),
+      ).rejects.toThrow(/camping_spots_osm_record_ref_check/);
+    } finally {
+      await db.query('RESET search_path');
+      await db.query('DROP SCHEMA first_shape CASCADE');
+    }
+  });
+
+  it('…and a second run changes nothing: a row that HAS its ref keeps its date', async () => {
+    await upsert('n-rerun', { editedAt: EDITED_2023, version: 7 });
+    await MIGRATION.up(runner());
+    await MIGRATION.up(runner());
+    expect(await datesOf('n-rerun')).toMatchObject({
+      edited: '2023-06-14T10:11:12Z',
+      version: 7,
+      ref: 'n-rerun',
+    });
   });
 });
 
 describe('the table refuses a date that cannot be an OSM edit', () => {
+  /**
+   * `ref` left out means the row's own osm_ref when there is a date, none when
+   * there is not — the shape the importer writes. Pass `null` or another
+   * string to write the shapes the table must refuse.
+   */
   const insert = (
     slug: string,
     osmRef: string | null,
     editedAt: string | null,
     version: number | null,
+    ref?: string | null,
   ) =>
     db.query(
       `INSERT INTO camping_spots
          (osm_ref, country, slug, type, location,
-          osm_record_edited_at, osm_record_version)
+          osm_record_edited_at, osm_record_version, osm_record_ref)
        VALUES ($1, 'HR', $2, 'paid', ST_SetSRID(ST_MakePoint(14, 45), 4326),
-               $3::timestamptz, $4::integer)`,
-      [osmRef, slug, editedAt, version],
+               $3::timestamptz, $4::integer, $5::text)`,
+      [
+        osmRef,
+        slug,
+        editedAt,
+        version,
+        ref === undefined ? (editedAt === null ? null : osmRef) : ref,
+      ],
     );
 
   it('anchor: a plausible date and version on an OSM row are stored', async () => {
     await insert('ok-1', 'n-ok-1', '2023-06-14T10:11:12Z', 7);
-    expect((await datesOf('n-ok-1')).edited).toBe('2023-06-14T10:11:12Z');
+    expect(await datesOf('n-ok-1')).toMatchObject({
+      edited: '2023-06-14T10:11:12Z',
+      version: 7,
+      ref: 'n-ok-1',
+    });
   });
 
   it('🔴 the year 1970 is refused (a zero that survived a cast) — edited_range', async () => {
@@ -274,10 +382,11 @@ describe('the table refuses a date that cannot be an OSM edit', () => {
     await expect(
       db.query(
         `INSERT INTO camping_spots
-           (osm_ref, country, slug, type, location, osm_record_edited_at)
+           (osm_ref, country, slug, type, location,
+            osm_record_edited_at, osm_record_ref)
          VALUES ('n-bad-2', 'HR', 'bad-2', 'paid',
                  ST_SetSRID(ST_MakePoint(14, 45), 4326),
-                 to_timestamp(1787953167000))`,
+                 to_timestamp(1787953167000), 'n-bad-2')`,
       ),
     ).rejects.toThrow(/camping_spots_osm_record_edited_range_check/);
   });
@@ -307,6 +416,33 @@ describe('the table refuses a date that cannot be an OSM edit', () => {
     );
   });
 
+  it('🔴 a date with no ref is refused — ref_check: a pair nobody can look up', async () => {
+    await expect(
+      insert('bad-6', 'n-bad-6', '2023-06-14T10:11:12Z', 7, null),
+    ).rejects.toThrow(/camping_spots_osm_record_ref_check/);
+  });
+
+  it('🔴 a ref with no date is refused — ref_check: an object named for nothing', async () => {
+    await expect(
+      insert('bad-7', 'n-bad-7', null, null, 'n-bad-7'),
+    ).rejects.toThrow(/camping_spots_osm_record_ref_check/);
+  });
+
+  it("a ref that is NOT the row's osm_ref is accepted — that is what a merged row is", async () => {
+    await insert(
+      'merged-1',
+      'w-merged-1',
+      '2026-09-30T10:11:12Z',
+      2,
+      'n-merged-1',
+    );
+    expect(await datesOf('w-merged-1')).toMatchObject({
+      edited: '2026-09-30T10:11:12Z',
+      version: 2,
+      ref: 'n-merged-1',
+    });
+  });
+
   it('a row with no OSM object and no date is fine — that is every DATAtourisme row', async () => {
     await insert('datatourisme-1', null, null, null);
     const r = (
@@ -325,22 +461,65 @@ describe('the weekly upsert writes the EDIT date, and not the date of the run', 
       { editedAt: EDITED_2023, version: 7 },
       { startedAt: '2026-10-12T05:00:00Z' },
     );
+    // An UNMERGED row: the object the date belongs to is the row's own.
     expect(await datesOf('n-2023')).toMatchObject({
       edited: '2023-06-14T10:11:12Z',
       seen: '2026-10-12T05:00:00Z',
       version: 7,
+      ref: 'n-2023',
+    });
+  });
+
+  it('🔴 a row built from SEVERAL objects stores the date, the version and the ref of the NEWEST one: osm_ref w, osm_record_ref n', async () => {
+    // Review's case. The row is keyed on the way; the date and version are the
+    // node's, and the row says so.
+    await upsert(
+      'w-merged',
+      { editedAt: new Date('2026-09-30T10:11:12Z'), version: 2 },
+      { recordRef: 'n-merged-away' },
+    );
+    expect(await datesOf('w-merged')).toEqual(
+      expect.objectContaining({
+        edited: '2026-09-30T10:11:12Z',
+        version: 2,
+        ref: 'n-merged-away',
+      }),
+    );
+    const keyed = (
+      await db.query(
+        `SELECT osm_ref, osm_record_ref FROM camping_spots WHERE osm_ref = 'w-merged'`,
+      )
+    ).rows[0];
+    expect(keyed).toEqual({
+      osm_ref: 'w-merged',
+      osm_record_ref: 'n-merged-away',
+    });
+  });
+
+  it('🔴 the ref moves WITH the date on the next import: the newest object of a cluster changes, and so do all three', async () => {
+    await upsert(
+      'w-move',
+      { editedAt: new Date('2026-09-30T10:11:12Z'), version: 2 },
+      { recordRef: 'n-move-1' },
+    );
+    await upsert(
+      'w-move',
+      { editedAt: new Date('2026-10-10T01:02:03Z'), version: 5 },
+      { recordRef: 'n-move-2', startedAt: '2026-10-19T05:00:00Z' },
+    );
+    expect(await datesOf('w-move')).toMatchObject({
+      edited: '2026-10-10T01:02:03Z',
+      version: 5,
+      ref: 'n-move-2',
     });
   });
 
   it('🔴 not known stays not known: no date in, no date out — not the run date', async () => {
-    await upsert(
-      'n-nodate',
-      { editedAt: null, version: null },
-      { startedAt: '2026-10-12T05:00:00Z' },
-    );
+    await upsert('n-nodate', null, { startedAt: '2026-10-12T05:00:00Z' });
     const r = await datesOf('n-nodate');
     expect(r.edited).toBeNull();
     expect(r.version).toBeNull();
+    expect(r.ref).toBeNull();
     // …and last_seen_at DID move, so the two columns really are two.
     expect(r.seen).toBe('2026-10-12T05:00:00Z');
   });
@@ -356,6 +535,7 @@ describe('the weekly upsert writes the EDIT date, and not the date of the run', 
       edited: '2026-09-30T06:07:08Z',
       seen: '2026-10-19T05:00:00Z',
       version: 8,
+      ref: 'n-edit',
     });
   });
 
@@ -378,15 +558,17 @@ describe('the weekly upsert writes the EDIT date, and not the date of the run', 
     const row = (
       await db.query(
         `SELECT name, osm_record_version AS version,
+                osm_record_ref AS ref,
                 to_char(osm_record_edited_at AT TIME ZONE 'UTC',
                         'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS edited
            FROM camping_spots WHERE osm_ref = 'n-arlberg'`,
       )
     ).rows[0];
-    // All three are the second import's, together.
+    // All of them are the second import's, together.
     expect(row).toEqual({
       name: 'Austria Parks Arlberg',
       version: 3,
+      ref: 'n-arlberg',
       edited: '2026-10-08T14:48:38Z',
     });
   });
@@ -411,14 +593,12 @@ describe('the weekly upsert writes the EDIT date, and not the date of the run', 
 
   it("🔴 an extract that no longer carries the date CLEARS it: last import's date is not left under this import's", async () => {
     await upsert('n-lost', { editedAt: EDITED_2023, version: 7 });
-    await upsert(
-      'n-lost',
-      { editedAt: null, version: null },
-      { startedAt: '2026-10-19T05:00:00Z' },
-    );
+    await upsert('n-lost', null, { startedAt: '2026-10-19T05:00:00Z' });
     const r = await datesOf('n-lost');
     expect(r.edited).toBeNull();
     expect(r.version).toBeNull();
+    // …and the ref goes with them: a ref kept under no date is refused.
+    expect(r.ref).toBeNull();
   });
 
   it('a date with no version is stored as the date alone — the version is not invented', async () => {
@@ -426,13 +606,14 @@ describe('the weekly upsert writes the EDIT date, and not the date of the run', 
     expect(await datesOf('n-nover')).toMatchObject({
       edited: '2023-06-14T10:11:12Z',
       version: null,
+      ref: 'n-nover',
     });
   });
 
   it('🔴 the FIRST load of the column does not move content_changed_at — no sitemap storm', async () => {
     // A campsite imported before the column existed: same name, same
     // everything, no edit date. Then the load that fills it in.
-    const first = await upsert('n-lastmod', { editedAt: null, version: null });
+    const first = await upsert('n-lastmod', null);
     expect(first.was_insert).toBe(true);
     const before = (await datesOf('n-lastmod')).content_changed_at;
 
@@ -499,7 +680,11 @@ describe('🔴 the importer refuses a country whose STORED dates are the date of
           contact: {},
           overnightStatus: 'unknown',
           overnightSource: null,
-          record: { editedAt: dateOf(i), version: 3 },
+          record: {
+            ref: `n-${prefix}${i}`,
+            editedAt: dateOf(i),
+            version: 3,
+          },
         }),
       );
     }
@@ -544,13 +729,15 @@ describe('🔴 the importer refuses a country whose STORED dates are the date of
     );
   });
 
-  it('🔴 …and on 13 rows — the size of Malta — it is refused too', async () => {
+  it('🔴 …and on exactly 10 rows — the floor — it is refused too', async () => {
+    // The size of a country is not the point (the smallest we hold moves: see
+    // MIN_RECORDS_TO_JUDGE); the floor is. Ten is judged, nine is not (next test).
     const START = '2026-10-15T05:00:00Z';
-    await run(SUBSTITUTED, START, 13, spread, 'mt-');
+    await run(SUBSTITUTED, START, 10, spread, 'floor-');
     await expect(
-      assertStoredEditDates(db, new Date(START), 'MT'),
+      assertStoredEditDates(db, new Date(START), 'XX'),
     ).rejects.toThrow(
-      /^MT: 13 of 13 dated records claim an edit within 48 hours/,
+      /^XX: 10 of 10 dated records claim an edit within 48 hours/,
     );
   });
 
@@ -616,14 +803,15 @@ describe('🔴 edit-date-distribution.sql, the statement a person runs after a l
     await db.query(
       `INSERT INTO camping_spots
          (osm_ref, country, slug, type, location, last_seen_at,
-          osm_record_edited_at, osm_record_version)
+          osm_record_edited_at, osm_record_version, osm_record_ref)
        SELECT $1::text || i::text, $1::text, $1::text || '-s' || i::text, 'paid',
               ST_SetSRID(ST_MakePoint(14, 45), 4326), $4::timestamptz,
               CASE WHEN i <= $3::int
                    THEN $4::timestamptz - ($5::int * interval '1 minute')
                    ELSE '2019-03-01T00:00:00Z'::timestamptz - (i::text || ' days')::interval
               END,
-              3
+              3,
+              $1::text || i::text
          FROM generate_series(1, $2::int) AS i`,
       [code, n, recent, RUN_AT, minutesBefore],
     );
@@ -663,15 +851,21 @@ describe('🔴 edit-date-distribution.sql, the statement a person runs after a l
     expect(Number(overall)).toBeLessThan(3);
   });
 
-  it('🔴 the small countries the importer once could not judge are RED at 100%: Malta 14, Cyprus 55, Luxembourg 83', async () => {
-    await seedCountry('SMT', 14, 14);
-    await seedCountry('SCY', 55, 55);
-    await seedCountry('SLU', 83, 83);
-    expect(await verdicts('S')).toMatchObject({
-      SMT: expect.stringMatching(/^RED/),
-      SCY: expect.stringMatching(/^RED/),
-      SLU: expect.stringMatching(/^RED/),
-    });
+  it('🔴 a country is RED at 100% at EVERY size from the floor up — not at the sizes the countries happened to have', async () => {
+    // It was "Malta 14, Cyprus 55, Luxembourg 83": three numbers about live data
+    // (two of them wrong the day they were checked), and a test that held on
+    // them said nothing about the size in between. The rule is about EVERY
+    // size, so every size from 10 to 60 is a country of its own here.
+    const sizes = Array.from({ length: 51 }, (_, i) => 10 + i);
+    for (const n of sizes) await seedCountry(`SZ${n}`, n, n);
+    const v = await verdicts('SZ');
+    // Anchor: all 51 are there, or "none of them is wrong" reads nothing.
+    expect(Object.keys(v)).toHaveLength(sizes.length);
+    expect(
+      Object.entries(v)
+        .filter(([, verdict]) => !/^RED/.test(verdict))
+        .map(([country]) => country),
+    ).toEqual([]);
   });
 
   it('below the floor it is SUSPECT, never ok: nine rows at 100% is not a clean bill of health', async () => {

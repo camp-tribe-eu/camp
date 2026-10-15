@@ -143,7 +143,7 @@ async function upsert(
       contact: {},
       overnightStatus: o.status,
       overnightSource: o.source,
-      record: { editedAt: null, version: null },
+      record: null,
     }),
   );
   return res.rows[0] as { was_insert: boolean; content_changed: boolean };
