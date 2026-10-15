@@ -60,6 +60,32 @@ grep -rnE "searchParams" apps/web/src/app/plan/  → 0
 Через це `llms.txt` на копії каже «28 countries» замість 27. Аландські
 острови — частина Фінляндії; 19 кемпінгів `AX` лежать у полігоні `fi`.
 
+### Правило `country` у планувальнику не знає `EL`, а сторож на нього не в CI
+
+`EU_MEMBER_STATES_AND_SUBDIVISIONS` несе `ax`, але не `el`;
+`normaliseCountry('EL')` дає `gr`, проте SQL правила `country` порівнює
+**записаний** код зі списком. Рядок із `country = 'EL'` кемпінг з Греції
+вилучить із планувальника без помилки. Виміряно 15.10.2026 на живій таблиці:
+
+```
+select lower(country), count(*) from camping_spots group by 1  → 28 кодів:
+  27 держав + ax (19); el немає. where lower(country)='el'      → 0
+grep -rln "measure-constraints" .github scripts apps/api/package.json → 0
+```
+
+Сьогодні втрати немає: `el` у таблиці 0. Єдиний, хто назве `el`, якщо
+джерело його почне писати, це блок «source country codes» у
+`cd apps/api && npx ts-node src/planner/measure-constraints.ts` (`problemsOf`:
+«source country code "el" … is outside the scope»), а його ніхто не
+запускає за розкладом. Обидві половини закріплює тест «a source that starts
+writing EL for Greece loses those rows AND is named» у
+`hard-constraints.db.spec.ts`: розшириш список правила — він почервоніє,
+і це зроблено навмисно.
+
+🔴 Лагодити в імпортері (`normaliseCountry` перед записом, як для шару
+купальних вод у CAMP-168), а не додаванням `el` до списку правила: тоді
+таблиця тримала б два написання однієї країни.
+
 ---
 
 ## Безпека, що не їде в продакшн

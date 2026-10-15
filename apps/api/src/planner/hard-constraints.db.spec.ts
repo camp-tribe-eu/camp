@@ -1121,6 +1121,42 @@ describe('measure-constraints: the counts the report prints, on a table whose an
     }
   });
 
+  it('a source that starts writing EL for Greece loses those rows AND is named: not silently', async () => {
+    // `el` is Greece in the Eurostat spelling and `normaliseCountry` knows it,
+    // but the list the country rule tests the column against is what the
+    // table STORES — the 27 states and `ax`. Today the live table holds 0
+    // `el` rows. If a source one day writes one, the rule rejects it. This
+    // test pins both halves: the row is lost, and the report that lists the
+    // codes the source holds says so in words. Nothing runs that report on a
+    // schedule (docs/after-launch.md), so this is the guard there is; widen
+    // the rule's list and the first assertion goes red on purpose.
+    await db.query('BEGIN');
+    try {
+      await put({ slug: 'cc-el', country: 'EL', lon: 14, lat: 45.7 });
+      const country = HARD.find((r) => r.id === 'country') as HardRule;
+      const { where, params } = hardWhere(REQ, 's', 1, [country]);
+      const kept = await db.query(
+        `SELECT 1 FROM camping_spots s WHERE s.slug = $1 AND ${where}`,
+        ['cc-el', ...params],
+      );
+      expect(kept.rowCount).toBe(0);
+      // Asking for Greece as `EL` still finds the row stored as GR, and not
+      // the one stored as EL: the loss is in the column, not in the request.
+      const asked = await run({ ...SHORT, countries: ['EL'] });
+      expect(slugsOf(asked, 'cc-')).toEqual(['cc-gr']);
+
+      const withEl = await measureConstraints(db, JOURNEY);
+      expect(withEl.codes.outOfScope).toEqual(
+        expect.arrayContaining([{ code: 'el', n: 1 }]),
+      );
+      expect(problemsOf(withEl).join('\n')).toMatch(
+        /source country code "el" \(1 campsites\) is outside the scope/,
+      );
+    } finally {
+      await db.query('ROLLBACK');
+    }
+  });
+
   it('prints those numbers, in the columns it labels', () => {
     const text = format(m, 'test');
     // The row for dogs over the corridor: yes 2, no 1, unknown 23; rejected
