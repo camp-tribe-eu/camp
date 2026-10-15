@@ -51,10 +51,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * first version used `ADD COLUMN IF NOT EXISTS … NOT NULL DEFAULT … CHECK`,
  * which PostgreSQL skips as a whole when the column exists. Measured
  * 15.10.2026 on a fresh copy of the table in its pre-migration shape (2 271
- * 596 rows, 18 columns, 10 indexes), load average about 20: the whole `up()`
- * took 937 ms; run again over the result it took 941 and 955 ms and changed
- * nothing (20 columns, 12 indexes, 11 CHECKs, no NULL — counted before and
- * after). A busy machine multiplies these: at a load average above 200 the
+ * 596 rows, 18 columns, 10 indexes), load average about 13: the whole `up()`
+ * took 938 ms; run again over the result (the repair path) it took 1 121 and
+ * 1 247 ms and changed nothing (20 columns, 12 indexes, 11 CHECKs, no NULL —
+ * counted before and after). A busy machine multiplies these: at a load average above 200 the
  * same statements took 26 and 46 seconds, so time it on a quiet one.
  *
  * 🔴 TWO PARTIAL GiST INDEXES, FOR THE REASON 1790572800000-RoutePoi.ts
