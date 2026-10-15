@@ -38,7 +38,7 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-deploy-selftest.XXXXXX")"
 cleanup_all() { stop_world; rm -rf "$BASE"; }
 trap cleanup_all EXIT
 trap 'exit 130' INT TERM
-EXPECTED=86
+EXPECTED=100
 PASSED=0
 FAILED=0
 pass() { echo "  ✓ $1"; PASSED=$((PASSED + 1)); }
@@ -91,25 +91,37 @@ W="${STUB_W:?}"
 echo "systemctl $*" >> "$W/calls"
 sub="$1"; shift
 up() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+# kind/port/wd юніту: з .conf світу («бойова» пара) або з юніта, який виконавець ВІДРЕНДЕРИВ (репетиція).
+unit_info() {
+  kind=""; port=""; wd=""
+  if [ -f "$W/units/$1.conf" ]; then . "$W/units/$1.conf"; return 0; fi
+  local f="${STUB_UNIT_DIR:-/nonexistent}/$1.service" ef
+  [ -f "$f" ] || return 1
+  wd=$(sed -n 's/^WorkingDirectory=//p' "$f" | head -1)
+  case "$1" in *-api) kind=api ;; *) kind=web ;; esac
+  if [ "$kind" = web ]; then port=$(sed -n 's/.* -p \([0-9][0-9]*\).*/\1/p' "$f" | head -1)
+  else ef=$(sed -n 's/^EnvironmentFile=//p' "$f" | head -1); port=$(sed -n 's/^PORT=//p' "$ef" | head -1); fi
+}
 stop_unit() {
-  local u="$1" pid port
+  local u="$1" pid
   pid=$(cat "$W/units/$u.pid" 2>/dev/null) || return 0
-  . "$W/units/$u.conf"
+  unit_info "$u" || return 0
   pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null
   for _ in $(seq 1 40); do up "$port" || break; sleep 0.1; done
   rm -f "$W/units/$u.pid"
 }
 start_unit() {
   local u="$1" real
-  . "$W/units/$u.conf"
+  unit_info "$u" || { echo "systemctl shim: немає юніта $u" >&2; exit 5; }
   # systemd розкриває WorkingDirectory ПІД ЧАС СТАРТУ: що веде симлінк у цю мить, те й стає cwd.
-  real=$(cd -P "$STUB_ROOT/$STUB_LINK" && pwd -P)
+  real=$(cd -P "$wd" && pwd -P)
   if [ "$kind" = api ]; then
-    STUB_UNIT=1 PORT=$port bash -c 'echo $$ > "$1"; cd "$2"; exec node dist/main.js' _ "$W/units/$u.pid" "$real/apps/api" >/dev/null 2>&1 &
+    STUB_UNIT=1 PORT=$port bash -c 'echo $$ > "$1"; cd "$2"; exec node dist/main.js' _ "$W/units/$u.pid" "$real" >/dev/null 2>&1 &
   else
-    STUB_UNIT=1 PORT=$port bash -c 'echo $$ > "$1"; cd "$2"; node "$3" & wait' _ "$W/units/$u.pid" "$real/apps/web" "$STUB_DIR/web.js" >/dev/null 2>&1 &
+    STUB_UNIT=1 PORT=$port bash -c 'echo $$ > "$1"; cd "$2"; node "$3" & wait' _ "$W/units/$u.pid" "$real" "$STUB_DIR/web.js" >/dev/null 2>&1 &
   fi
   disown 2>/dev/null || true
+  date +%s%N > "$W/units/$u.started" 2>/dev/null || date +%s > "$W/units/$u.started"
   for _ in $(seq 1 50); do up "$port" && break; sleep 0.1; done
 }
 case "$sub" in
@@ -121,7 +133,12 @@ case "$sub" in
     [ "${STUB_RESTART:-}" != noop ] || exit 0
     for u in "$@"; do stop_unit "$u"; done
     for u in "$@"; do start_unit "$u"; done ;;
-  start) for u in "$@"; do start_unit "$u"; done ;;
+  start)
+    for u in "$@"; do start_unit "$u"; done
+    # вада, яку репетиція мусить ловити: запуск юніта репетиції зачепив БОЙОВІ юніти
+    if [ -n "${STUB_TOUCH_PROD:-}" ]; then
+      stop_unit camptribe-api; stop_unit camptribe-web; start_unit camptribe-api; start_unit camptribe-web
+    fi ;;
   stop) for u in "$@"; do stop_unit "$u"; done ;;
   daemon-reload) ;;
   is-active)
@@ -135,7 +152,12 @@ case "$sub" in
         if [ -n "${STUB_MAINPID_OVERRIDE:-}" ] && readlink "$STUB_ROOT/$STUB_LINK" | grep -q "${STUB_BAD_RELEASE:-ZZZZZZZ}"; then echo "$STUB_MAINPID_OVERRIDE"
         else cat "$W/units/$unit.pid" 2>/dev/null || echo 0; fi ;;
       WorkingDirectory)
-        if [ -n "${STUB_WD_OVERRIDE:-}" ]; then echo "$STUB_WD_OVERRIDE"; else . "$W/units/$unit.conf"; echo "$wd"; fi ;;
+        if [ -n "${STUB_WD_OVERRIDE:-}" ]; then echo "$STUB_WD_OVERRIDE"; else unit_info "$unit" && echo "$wd"; fi ;;
+      ProtectSystem)
+        if [ -n "${STUB_PROTECT_OVERRIDE:-}" ]; then echo "$STUB_PROTECT_OVERRIDE"; else sed -n 's/^ProtectSystem=//p' "${STUB_UNIT_DIR:-/nonexistent}/$unit.service" | head -1; fi ;;
+      ReadWritePaths)
+        if [ -n "${STUB_RWP_OVERRIDE:-}" ]; then echo "$STUB_RWP_OVERRIDE"; else sed -n 's/^ReadWritePaths=//p' "${STUB_UNIT_DIR:-/nonexistent}/$unit.service" | head -1; fi ;;
+      ActiveEnterTimestampMonotonic) cat "$W/units/$unit.started" 2>/dev/null || echo 0 ;;
       *) echo ;;
     esac ;;
   *) echo "systemctl shim: не знаю '$sub'" >&2; exit 99 ;;
@@ -194,6 +216,15 @@ W="${STUB_W:?}"
 echo "pg_restore $*" >> "$W/calls"
 [ -s "${*: -1}" ]
 SH
+cat > "$STUBBIN/systemd-run" <<'SH'
+#!/usr/bin/env bash
+W="${STUB_W:?}"
+echo "systemd-run $*" >> "$W/calls"
+# Справжній systemd-run з ProtectSystem=strict не пустив би запис: це властивість ЯДРА, тут вона
+# відтворена відповіддю. Заміряно на справжньому сервері 15.10.2026: READONLY.
+if [ -n "${STUB_PROBE_WRITABLE:-}" ]; then exec /bin/sh -c "${*: -1}"; fi
+echo READONLY
+SH
 chmod +x "$STUBBIN"/*
 
 # ── репозиторій ──────────────────────────────────────────────────────
@@ -221,7 +252,18 @@ git clone -q --bare "$SRC" "$REPO"; git -C "$REPO" config uploadpack.allowAnySHA
 
 # ── світ одного випадку ──────────────────────────────────────────────
 W=""
-free_port() { local p; while :; do p=$((30000 + RANDOM % 20000)); (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null || { echo "$p"; return; }; done; }
+# Порт перевіряється самим bash (/dev/tcp), а не lsof: на раннері lsof може не бути, і тоді «порт вільний»
+# було б правдою завжди.
+port_up() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+USED_PORTS=" "
+free_port() {
+  local p
+  while :; do
+    p=$((30000 + RANDOM % 20000))
+    case "$USED_PORTS" in *" $p "*) continue ;; esac
+    port_up "$p" || { USED_PORTS="$USED_PORTS$p "; echo "$p"; return; }
+  done
+}
 
 stop_world() {
   [ -n "$W" ] && [ -d "$W/units" ] || return 0
@@ -250,7 +292,14 @@ new_world() { # імʼя [короткий sha, з якого стартує "п
   W="$BASE/w_$1"; rm -rf "$W"
   mkdir -p "$W/db" "$W/units" "$W/root/releases"
   : > "$W/calls"
-  APIP=$(free_port); WEBP=$(free_port); TPORT=$(free_port)
+  APIP=$(free_port); WEBP=$(free_port); TPORT=$(free_port); RWP=$(free_port); RAP=$(free_port)
+  # Юніти репетиції генеруються з РЕАЛЬНИХ юнітів репо: лише шляхи й порти підставлено під цей світ.
+  mkdir -p "$W/unitsrc" "$W/unitdir"
+  for u in api web; do
+    sed -e "s|/srv/camptribe/current|$W/root/current|g" -e "s|-p 3000|-p $WEBP|" -e "s|^Environment=PORT=3000|Environment=PORT=$WEBP|" \
+        -e "s|API_BASE_URL=http://localhost:3001|API_BASE_URL=http://localhost:$APIP|" "$HERE/systemd/camptribe-$u.service" > "$W/unitsrc/camptribe-$u.service"
+  done
+  export STUB_UNIT_DIR="$W/unitdir"
   printf 'kind=api\nport=%s\nwd=%s\n' "$APIP" "$W/root/current/apps/api" > "$W/units/camptribe-api.conf"
   printf 'kind=web\nport=%s\nwd=%s\n' "$WEBP" "$W/root/current/apps/web" > "$W/units/camptribe-web.conf"
   printf 'Alpha1000000000000\nBeta1000000000001\n' > "$W/db/applied"
@@ -267,7 +316,8 @@ ORIG_PATH="$PATH"
 X() {
   OUT=$(env CAMPTRIBE_ROOT="$W/root" CAMPTRIBE_REPO="$REPO" CAMPTRIBE_API_PORT="$APIP" CAMPTRIBE_WEB_PORT="$WEBP" \
             CAMPTRIBE_BUILD_API_PORT="$TPORT" CAMPTRIBE_READY_TRIES=20 CAMPTRIBE_READY_SLEEP=0.3 CAMPTRIBE_MIN_FREE_GB="${T_MIN_FREE:-0}" \
-            CAMPTRIBE_USER=selftest-nobody CAMPTRIBE_DEPLOYER=tester@selftest CAMPTRIBE_UNIT_SRC="$HERE/systemd" \
+            CAMPTRIBE_USER=selftest-nobody CAMPTRIBE_DEPLOYER=tester@selftest CAMPTRIBE_UNIT_SRC="$W/unitsrc" CAMPTRIBE_UNIT_DIR="$W/unitdir" \
+            CAMPTRIBE_REHEARSAL_ROOT="$W/rehearsal" CAMPTRIBE_REHEARSAL_WEB_PORT="$RWP" CAMPTRIBE_REHEARSAL_API_PORT="$RAP" \
             bash "$DEPLOY" "$@" 2>&1)
   RC=$?
 }
@@ -536,7 +586,7 @@ else fail "порядок викликів: знімок БД → міграці
 grep -qx 'Gamma1000000000002' "$W/db/applied" && pass "після деплою в БД є Gamma (міграцію застосовано)" || fail "після деплою в БД є Gamma (міграцію застосовано)"
 [ "$(cat "$W/root/releases/$S2/apps/web/.next/built-against")" = v2 ] \
   && pass "веб зібрано ПРОТИ НОВОЇ API (вона відповіла v2), а не проти чинної (v0)" || fail "веб зібрано ПРОТИ НОВОЇ API (вона відповіла v2), а не проти чинної (v0)" "$(cat "$W/root/releases/$S2/apps/web/.next/built-against" 2>&1)"
-[ -z "$(lsof -nP -iTCP:"$TPORT" -sTCP:LISTEN -t 2>/dev/null)" ] && pass "тимчасова API після збірки зупинена: порт $TPORT вільний" || fail "тимчасова API після збірки зупинена: порт $TPORT вільний"
+! port_up "$TPORT" && pass "тимчасова API після збірки зупинена: порт $TPORT вільний" || fail "тимчасова API після збірки зупинена: порт $TPORT вільний"
 ls "$W/root/backups/predeploy-$S0"-*.dump >/dev/null 2>&1 && pass "знімок БД лежить у backups/ і названий за релізом, з якого зроблено" || fail "знімок БД лежить у backups/ і названий за релізом, з якого зроблено"
 
 new_world e3
@@ -583,6 +633,14 @@ N=$(ls "$W/root/backups"/predeploy-*.dump | wc -l | tr -d ' ')
 [ $RC -eq 0 ] && [ "$N" = 3 ] && ls "$W/root/backups/predeploy-$S0"-*.dump >/dev/null 2>&1 && [ ! -e "$W/root/backups/predeploy-old1-20260101T000000Z.dump" ] \
   && pass "знімків лишається три: найстарші прибрано, свіжий на місці" || fail "знімків лишається три: найстарші прибрано, свіжий на місці" "rc=$RC n=$N $(ls "$W/root/backups")"
 
+new_world e12
+node -e 'require("http").createServer().listen(+process.argv[1], "127.0.0.1")' "$TPORT" & BUSY=$!
+for _ in $(seq 1 30); do port_up "$TPORT" && break; sleep 0.1; done
+X deploy --sha "$SHA1" --apply
+kill $BUSY 2>/dev/null; wait $BUSY 2>/dev/null
+[ $RC -eq 1 ] && echo "$OUT" | grep -q 'зайнятий' && ! calls_have 'npm run build:web' && [ ! -d "$W/root/releases/$S1" ] \
+  && pass "порт тимчасової API зайнятий чужим: веб не збирається, реліз-залишок прибрано, код 1" || fail "порт тимчасової API зайнятий чужим: веб не збирається, реліз-залишок прибрано, код 1" "rc=$RC $OUT"
+
 # ═══════════════════════════════════════════════════════════════════
 section "H. Шляхи, яких бойовий деплой торкається не щодня"
 
@@ -619,6 +677,75 @@ new_world h6
 mkdir "$W/root/.deploy.lock"; echo 99999999 > "$W/root/.deploy.lock/pid"
 X deploy --sha "$SHA1" --apply
 [ $RC -eq 0 ] && echo "$OUT" | grep -q 'лишив замок і зник' && pass "замок мертвого процесу не блокує назавжди: взято й деплой пройшов" || fail "замок мертвого процесу не блокує назавжди: взято й деплой пройшов" "rc=$RC $OUT"
+
+# ═══════════════════════════════════════════════════════════════════
+section "I. Репетиція відкату: rehearse --apply"
+
+# Світ із двома збудованими релізами з різним BUILD_ID: «старий» S0 (без маніфесту) і «новий» S1 (з маніфестом).
+rehearsal_world() { new_world "$1"; X deploy --sha "$SHA1" --apply >/dev/null; : > "$W/calls"; }
+prod_pids() { cat "$W/units/camptribe-api.pid" "$W/units/camptribe-web.pid" 2>/dev/null | tr '\n' ' '; }
+sha_of() { node -e 'console.log(require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex"))' "$1"; }
+leftovers() { # що репетиція мусить прибрати; порожньо = усе прибрано
+  local r=""
+  [ ! -e "$W/rehearsal" ] || r="$r root"
+  ls "$W/unitdir"/camptribe-rehearsal-*.service >/dev/null 2>&1 && r="$r units"
+  if port_up "$RWP" || port_up "$RAP"; then r="$r ports"; fi
+  echo "$r"
+}
+
+rehearsal_world i1
+BEFORE=$(prod_pids); ENV0=$(sha_of "$W/root/releases/$S0/apps/api/.env"); WP=$(cd -P "$W" && pwd -P)
+X rehearse --apply
+HARD=ok
+if stat -c %h /dev/null >/dev/null 2>&1; then [ "$(stat -c %h "$W/root/releases/$S0/apps/web/.next/BUILD_ID")" = 1 ] || HARD=left; fi
+if [ $RC -eq 0 ] && echo "$OUT" | grep -q "старт на $S0" && echo "$OUT" | grep -q "switch $S1 --apply" \
+   && echo "$OUT" | grep -q "pid [0-9]* працює з $WP/rehearsal/releases/$S0/apps/web" && echo "$OUT" | grep -q "pid [0-9]* працює з $WP/rehearsal/releases/$S1/apps/web" \
+   && echo "$OUT" | grep -q 'відкат відрепетирувано' && [ "$(prod_pids)" = "$BEFORE" ] && [ "$(running_from web)" = "$S1" ] && [ "$(running_from api)" = "$S1" ] \
+   && [ "$(sha_of "$W/root/releases/$S0/apps/api/.env")" = "$ENV0" ] && [ -z "$(leftovers)" ] && [ "$HARD" = ok ]; then
+  pass "rehearse --apply: старт на старому, switch на новий, rollback; бойові процеси й .env не рушили; нічого не лишилось"
+else fail "rehearse --apply: старт на старому, switch на новий, rollback; бойові процеси й .env не рушили; нічого не лишилось" "rc=$RC left='$(leftovers)' hard=$HARD $OUT"; fi
+
+rehearsal_world i2
+BEFORE=$(prod_pids)
+STUB_BAD_RELEASE="$S1" STUB_API_HEALTH=503 X rehearse --apply
+[ $RC -ne 0 ] && echo "$OUT" | grep -q 'switch у репетиції не вдався' && [ "$(prod_pids)" = "$BEFORE" ] && [ -z "$(leftovers)" ] \
+  && pass "репетиція, де нове перемикання ламається: падає, але світ усе одно прибрано, а бойове ціле" || fail "репетиція, де нове перемикання ламається: падає, але світ усе одно прибрано, а бойове ціле" "rc=$RC left='$(leftovers)' $OUT"
+
+rehearsal_world i3
+STUB_TOUCH_PROD=1 X rehearse --apply
+[ $RC -ne 0 ] && echo "$OUT" | grep -q 'БОЙОВЕ РУШИЛО' && [ -z "$(leftovers)" ] \
+  && pass "якщо запуск юнітів репетиції зачепив бойові юніти, репетиція це виявляє й падає" || fail "якщо запуск юнітів репетиції зачепив бойові юніти, репетиція це виявляє й падає" "rc=$RC $OUT"
+
+rehearsal_world i4
+X rehearse --apply --keep
+if [ $RC -eq 0 ] && [ -d "$W/rehearsal" ] && [ -f "$W/unitdir/camptribe-rehearsal-api.service" ] && port_up "$RWP" && echo "$OUT" | grep -q -- '--keep: світ'; then
+  pass "rehearse --keep лишає світ: корінь, юніти й працюючий веб репетиції"
+else fail "rehearse --keep лишає світ: корінь, юніти й працюючий веб репетиції" "rc=$RC $OUT"; fi
+X rehearse --apply
+[ $RC -eq 1 ] && echo "$OUT" | grep -q 'уже існує' && [ -d "$W/rehearsal" ] \
+  && pass "rehearse --apply поверх залишку відмовляє й залишок не чіпає" || fail "rehearse --apply поверх залишку відмовляє й залишок не чіпає" "rc=$RC $OUT"
+X rehearse --teardown
+[ $RC -eq 0 ] && [ -z "$(leftovers)" ] && pass "rehearse --teardown прибирає залишок: корінь, юніти, порти" || fail "rehearse --teardown прибирає залишок: корінь, юніти, порти" "rc=$RC left='$(leftovers)' $OUT"
+
+rehearsal_world i5
+node -e 'require("http").createServer().listen(+process.argv[1], "127.0.0.1")' "$RWP" & BUSY=$!
+for _ in $(seq 1 30); do port_up "$RWP" && break; sleep 0.1; done
+X rehearse --apply
+kill $BUSY 2>/dev/null; wait $BUSY 2>/dev/null
+[ $RC -eq 1 ] && echo "$OUT" | grep -q 'зайнятий' && [ ! -e "$W/rehearsal" ] && pass "порт репетиції зайнятий: відмова до створення будь-чого" || fail "порт репетиції зайнятий: відмова до створення будь-чого" "rc=$RC $OUT"
+
+rehearsal_world i6
+STUB_PROTECT_OVERRIDE=no X rehearse --apply
+[ $RC -ne 0 ] && echo "$OUT" | grep -q 'без ProtectSystem=strict' && ! calls_have '^systemctl start' && [ -z "$(leftovers)" ] \
+  && pass "юніт репетиції без ProtectSystem=strict (за станом, який віддає systemd): не стартує, світ прибрано" || fail "юніт репетиції без ProtectSystem=strict (за станом, який віддає systemd): не стартує, світ прибрано" "rc=$RC $OUT"
+rehearsal_world i7
+STUB_RWP_OVERRIDE=/srv X rehearse --apply
+[ $RC -ne 0 ] && echo "$OUT" | grep -q 'має ReadWritePaths' && ! calls_have '^systemctl start' && [ -z "$(leftovers)" ] \
+  && pass "systemd каже, що в юніта репетиції є ReadWritePaths (напр. drop-in): не стартує, світ прибрано" || fail "systemd каже, що в юніта репетиції є ReadWritePaths (напр. drop-in): не стартує, світ прибрано" "rc=$RC $OUT"
+rehearsal_world i8
+STUB_PROBE_WRITABLE=1 X rehearse --apply
+[ $RC -ne 0 ] && echo "$OUT" | grep -q 'проба запису' && ! calls_have '^systemctl start' && [ -z "$(leftovers)" ] \
+  && pass "проба запису в пісочниці вдалась (мало бути READONLY): не стартує, пробу прибрано, світ прибрано" || fail "проба запису в пісочниці вдалась (мало бути READONLY): не стартує, пробу прибрано, світ прибрано" "rc=$RC $OUT"
 
 # ═══════════════════════════════════════════════════════════════════
 section "F. Запобіжники"
@@ -683,6 +810,8 @@ X deploy --sha abc123 --apply
 [ $RC -eq 1 ] && echo "$OUT" | grep -q '40-символьним' && pass "--sha коротший за 40 символів відхилено" || fail "--sha коротший за 40 символів відхилено" "rc=$RC $OUT"
 X deploy --sha "$SHA0" --apply
 [ $RC -eq 1 ] && echo "$OUT" | grep -q 'і є чинний' && pass "деплой уже чинного релізу відхилено (а не «перебудовано»)" || fail "деплой уже чинного релізу відхилено (а не «перебудовано»)" "rc=$RC $OUT"
+X --help; R1=$RC; H1=$OUT; X deploy --help; R2=$RC
+[ $R1 -eq 0 ] && [ $R2 -eq 0 ] && echo "$H1" | grep -q 'camptribe-deploy status' && pass "--help друкує користування й виходить 0, і як перший аргумент, і після команди" || fail "--help друкує користування й виходить 0, і як перший аргумент, і після команди" "rc=$R1/$R2 $H1"
 X bogus; R1=$RC; X deploy --nonsense; R2=$RC
 [ $R1 -eq 2 ] && [ $R2 -eq 2 ] && pass "невідома команда і невідомий прапорець: код 2" || fail "невідома команда і невідомий прапорець: код 2" "$R1 $R2"
 
@@ -738,7 +867,8 @@ SH
   WRAPX() {
     OUT=$(cd "$W_REPO" && env PATH="$BASE/wbin:$PATH" CAMPTRIBE_HOST=root@selftest.invalid CAMPTRIBE_KEY=/dev/null CAMPTRIBE_REMOTE_TMP="$BASE" \
           CAMPTRIBE_ROOT="$W/root" CAMPTRIBE_REPO="$REPO" CAMPTRIBE_API_PORT="$APIP" CAMPTRIBE_WEB_PORT="$WEBP" CAMPTRIBE_BUILD_API_PORT="$TPORT" \
-          CAMPTRIBE_READY_TRIES=20 CAMPTRIBE_READY_SLEEP=0.3 CAMPTRIBE_MIN_FREE_GB=0 CAMPTRIBE_USER=selftest-nobody CAMPTRIBE_UNIT_SRC="$HERE/systemd" \
+          CAMPTRIBE_READY_TRIES=20 CAMPTRIBE_READY_SLEEP=0.3 CAMPTRIBE_MIN_FREE_GB=0 CAMPTRIBE_USER=selftest-nobody CAMPTRIBE_UNIT_SRC="$W/unitsrc" CAMPTRIBE_UNIT_DIR="$W/unitdir" \
+          CAMPTRIBE_REHEARSAL_ROOT="$W/rehearsal" CAMPTRIBE_REHEARSAL_WEB_PORT="$RWP" CAMPTRIBE_REHEARSAL_API_PORT="$RAP" \
           bash "$W_REPO/infra/deploy-app.sh" "$@" 2>&1)
     RC=$?
   }
@@ -770,13 +900,17 @@ SH
   git -C "$W_REPO" -c user.email=x@y.z -c user.name=x commit -q --allow-empty -m "only local"
   WRAPX --sha HEAD --apply
   [ $RC -ne 0 ] && echo "$OUT" | grep -q 'не лежить ні в одній гілці origin' && pass "комміт, якого немає на origin: обгортка відмовляє до ssh, машина його б не отримала" || fail "комміт, якого немає на origin: обгортка відмовляє до ssh, машина його б не отримала" "rc=$RC $OUT"
+  WRAPX --rehearse --apply --keep
+  [ $RC -eq 0 ] && [ -d "$W/rehearsal" ] && pass "deploy-app.sh --rehearse --apply --keep: прапорець дійшов, світ лишено" || fail "deploy-app.sh --rehearse --apply --keep: прапорець дійшов, світ лишено" "rc=$RC $OUT"
+  WRAPX --rehearse --teardown
+  [ $RC -eq 0 ] && [ ! -e "$W/rehearsal" ] && ! ls "$W/unitdir"/camptribe-rehearsal-*.service >/dev/null 2>&1 && pass "deploy-app.sh --rehearse --teardown: прапорець дійшов, світ прибрано" || fail "deploy-app.sh --rehearse --teardown: прапорець дійшов, світ прибрано" "rc=$RC $OUT"
   WRAPX --rollback --to "$S1"
   [ $RC -eq 0 ] && echo "$OUT" | grep -q 'явне --to' && echo "$OUT" | grep -q "rollback $S2 → $S1" && pass "deploy-app.sh --rollback --to: явна ціль дійшла до машини" || fail "deploy-app.sh --rollback --to: явна ціль дійшла до машини" "rc=$RC $OUT"
   WRAPX --status
   [ $RC -eq 0 ] && echo "$OUT" | grep -q 'ВИСНОВОК: усе збігається' && pass "deploy-app.sh --status: одна команда відповідає, що зараз на проді" || fail "deploy-app.sh --status: одна команда відповідає, що зараз на проді" "rc=$RC $OUT"
   WRAPX --bogus; [ $RC -eq 2 ] && pass "обгортка: невідомий прапорець — код 2" || fail "обгортка: невідомий прапорець — код 2" "rc=$RC"
 else
-  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13; do fail "обгортки ще немає ($WRAPPER)"; done
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do fail "обгортки ще немає ($WRAPPER)"; done
 fi
 
 # ═══════════════════════════════════════════════════════════════════

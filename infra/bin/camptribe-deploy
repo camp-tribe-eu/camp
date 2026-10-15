@@ -61,7 +61,7 @@ KEEP_PREV=""
 say() { printf '%s\n' "$*" || true; if [ -n "$LOG" ]; then printf '%s\n' "$*" >> "$LOG" 2>/dev/null || true; fi; }
 warn() { say "⚠ $*"; }
 die() { say "✗ $*" >&2; exit 1; }
-usage() { sed -n '2,9p' "$SELF" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,9p' "$SELF" | sed 's/^# \{0,1\}//' >&2; exit "${1:-2}"; }
 
 # ── дрібні помічники ─────────────────────────────────────────────────
 
@@ -817,7 +817,7 @@ rehearsal_teardown() { # root rapi-unit rweb-unit [old new]
 
 cmd_rehearse() { # apply keep teardown
   local apply="$1" keep="$2" teardown="$3"
-  local R="$REHEARSAL_ROOT" RWEB=3100 RAPI=3101 ra=camptribe-rehearsal-api rw=camptribe-rehearsal-web
+  local R="$REHEARSAL_ROOT" RWEB="${CAMPTRIBE_REHEARSAL_WEB_PORT:-3100}" RAPI="${CAMPTRIBE_REHEARSAL_API_PORT:-3101}" ra=camptribe-rehearsal-api rw=camptribe-rehearsal-web
   need jq; need curl; need git
   case "$R" in /|"$ROOT"|"$ROOT"/*) die "репетиційний корінь '$R' не може збігатись із бойовим $ROOT чи лежати в ньому" ;; esac
   preflight
@@ -842,10 +842,12 @@ cmd_rehearse() { # apply keep teardown
   say "юніти:     $ra на :$RAPI, $rw на :$RWEB; файли в $UNIT_DIR (зникнуть і при перезавантаженні)"
   say "кроки:     старт на $old → switch $new --apply → rollback --apply → перевірка, що бойове не рушило → прибирання"
   local p
+  # Спершу залишок: після `--keep` порти зайняті ще ЖИВИМ світом, і «порт зайнятий»
+  # затьмарило б справжню причину та ліки (`--teardown`).
+  [ ! -e "$R" ] || die "$R уже існує — лишок попередньої репетиції. Прибрати: camptribe-deploy rehearse --teardown"
   for p in $RAPI $RWEB; do
     [ -z "$(listener_pid "$p")" ] || die "порт $p зайнятий"
   done
-  [ ! -e "$R" ] || die "$R уже існує — лишок попередньої репетиції. Прибрати: camptribe-deploy rehearse --teardown"
   for p in camptribe-api camptribe-web; do [ -f "$UNIT_SRC/$p.service" ] || die "немає $UNIT_SRC/$p.service — з чого генерувати юніти репетиції?"; done
   if [ "$apply" != yes ]; then say "Застосувати: додай --apply"; return 0; fi
 
@@ -932,6 +934,9 @@ wait_ready_at() { # webport apiport
 main() {
   trap '' HUP   # розрив ssh не повинен зупиняти збірку на півдорозі
   local cmd="${1:-}"; [ $# -eq 0 ] || shift
+  case "$cmd" in
+    -h|--help) usage 0 ;;
+  esac
   local apply=no migrate=no sha="" ref="" migrations="" to="" keep=no teardown=no pos=""
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -944,7 +949,7 @@ main() {
       --migrations) migrations="${2:-}"; shift ;;
       --to) to="${2:-}"; shift ;;
       --deployer) CAMPTRIBE_DEPLOYER="${2:-}"; export CAMPTRIBE_DEPLOYER; shift ;;
-      -h|--help) usage ;;
+      -h|--help) usage 0 ;;
       -*) printf 'невідомий прапорець: %s\n' "$1" >&2; exit 2 ;;
       *) pos="$1" ;;
     esac
