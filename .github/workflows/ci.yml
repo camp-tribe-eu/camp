@@ -1117,6 +1117,33 @@ jobs:
           # require-node-24.cjs says the same thing out loud to a developer.
           node-version: 24
           cache: npm
+      # 🔴 CAMP-258. Перенесення однієї таблиці на прод. 15.10.2026 я зробив
+      # це руками через `pg_restore --clean -t`, перевірив кількість рядків
+      # і види — усе збіглося з локальними до одиниці. А таблиця на 2,27 млн
+      # рядків приїхала БЕЗ жодного індексу й без первинного ключа: `-t`
+      # відбирає лише саму таблицю, бо індекси й PRIMARY KEY лежать у дампі
+      # окремими записами TOC. Помітив через годину, коли сусідній запит
+      # висів 4 хвилини 42 секунди.
+      #
+      # Самоперевірка не імітує цього: дві справжні бази, справжній
+      # pg_restore, а підмінник ssh запускає виконавця ТУТ. Втрату індексів
+      # створює сам Postgres — і якщо він колись перестане їх губити,
+      # випадок перестане відтворюватись, а лічильник не зійдеться.
+      #
+      # Крок читає надруковане: рядок із власною назвою скрипта друкується
+      # лише коли виконано рівно EXPECTED випадків, жоден не впав і жоден
+      # не пропущено.
+      - name: Moving one table to production keeps its indexes and its key
+        env:
+          CAMPTRIBE_SELFTEST_PG_BASE: postgres://postgres:postgres@localhost:5432
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          ./infra/move-table.selftest.sh | tee /dev/stderr \
+            | grep -c 'move-table self-test: усе гаразд' >/dev/null
+
       - run: npm ci
 
       # 🔴 CAMP-192: build TWICE and check it actually wrote files.
