@@ -16,6 +16,7 @@
 import 'dotenv/config';
 import { Client } from 'pg';
 import { UPSERT_SPOT_SQL } from '../osm/import-spots';
+import { mapOvernight } from '../osm/tag-mapping';
 import { canonicalPath } from './canonical';
 import { judgeByIdentity, upperBoundPercent } from './link-evidence';
 import { SPOT_DETAIL_SQL } from './detail-query';
@@ -1443,6 +1444,13 @@ async function main(): Promise<void> {
             '  (no real link yet — rehearsing against a temporary one)',
           );
         }
+        // 🔴 CAMP-255. The statement takes TWELVE parameters now, and this
+        // call kept passing ten: CI's "a source link survives the weekly
+        // import" step died on "bind message supplies 10 parameters, but
+        // prepared statement requires 12" — the rehearsal and the importer
+        // had drifted apart on the one thing a rehearsal exists to share.
+        // The last two come from the importer's own mapper, as in main().
+        const overnight = mapOvernight({ motorhome: 'yes' });
         const res = await db.query<{ was_insert: boolean }>(UPSERT_SPOT_SQL, [
           v.name,
           v.country,
@@ -1454,6 +1462,8 @@ async function main(): Promise<void> {
           v.osm_ref,
           new Date().toISOString(),
           JSON.stringify(v.contact),
+          overnight.status,
+          overnight.source,
         ]);
         const wasInsert = res.rows[0]?.was_insert === true;
 
