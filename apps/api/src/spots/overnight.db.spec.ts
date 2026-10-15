@@ -644,6 +644,21 @@ describe('what the counts and the map say', () => {
     ]);
   });
 
+  // The cluster bubbles are drawn from the same condition. A bubble of twelve
+  // that opens to two pins is the failure `filterSql` was written to stop.
+  it('🔴 the clusters count the same confirmed places the markers draw', async () => {
+    const clusters = await new MapQueryService(asDataSource()).clusters(BOX, {
+      ...NO_FILTERS,
+      overnight: true,
+    });
+    expect(clusters.reduce((n, c) => n + c.count, 0)).toBe(2);
+    const markers = await new MapQueryService(asDataSource()).points(BOX, {
+      ...NO_FILTERS,
+      overnight: true,
+    });
+    expect(markers.markers).toHaveLength(2);
+  });
+
   // 🔴 CAMP-255 review. `filterSql` is called from queries that alias the
   // table (`FROM camping_spots s`, all the runtime ones) AND from the
   // hand-comparison in verify-filters.ts, which does not. This condition
