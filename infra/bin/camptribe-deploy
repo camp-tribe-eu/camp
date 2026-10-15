@@ -175,20 +175,25 @@ count_lines() { if [ -z "$1" ]; then echo 0; else printf '%s\n' "$1" | wc -l | t
 
 http_code() { curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$1" 2>/dev/null || true; }
 
-# BUILD_ID, який ВІДДАЄТЬСЯ читачу, а не той, що лежить у файлі.
+# Чи ВІДДАЄ процес статику РІВНО ЦІЄЇ збірки.
 #
-# 🔴 ДВІ ПАСТКИ, ОБИДВІ ЗАМІРЯНІ 12.10.2026.
-# 1. `curl … | head -c` закриває канал, curl падає з кодом 23, і під
-#    `pipefail` це вбиває скрипт. Тому відповідь читається ЦІЛКОМ у змінну.
-# 2. Next друкує BUILD_ID у коментарі, замінюючи `-` на `_`. Порівнювати
-#    можна лише нормалізовані значення.
-# 🔴 ЖОДНОГО КОНВЕЄРА: на цю пастку я наступив тричі в одній функції.
-normalise_id() { printf '%s' "$1" | tr '-' '_'; }
-served_build_id() {
-  local body
-  body=$(curl -sS --max-time 30 "http://127.0.0.1:$WEB_PORT/" 2>/dev/null) || return 0
-  [[ $body =~ \<!--([A-Za-z0-9_-]{15,})--\> ]] && printf '%s' "${BASH_REMATCH[1]}"
-  return 0
+# 🔴 BUILD_ID В HTML-КОМЕНТАРІ — НЕНАДІЙНИЙ ВІДБИТОК. Тут стояв саме він:
+# `<!--T8Mi…-->` у `/`. Він є лише у сторінки, що ще не ревалідувалась: Next
+# після ISR-ревалідації перезаписує її без коментаря. Заміряно 15.10.2026 на
+# живому проді: `/` — 87 885 байт, коментаря немає; `/guides` — немає;
+# `/camping` — є. Тож `status` на прогрітому сервері казав би «веб віддає
+# нічого», а відкат на реліз, що вже віддавався, не пройшов би власну перевірку.
+#
+# Натомість питаємо те, що сервер відповідає ЗА ОЧІКУВАНИМ значенням: URL
+# будується з BUILD_ID файлу релізу, і процес від іншої збірки відповість 404.
+# Заміряно на проді: `/_next/static/<id>/_buildManifest.js` → 200 (1701 Б),
+# `/_next/static/WRONGWRONGWRONG/_buildManifest.js` → 404.
+#
+# 🔴 ЖОДНОГО КОНВЕЄРА з curl: `curl | head` закриває канал, curl падає з
+# кодом 23, і під `pipefail` це вбиває скрипт (CAMP-285, і тричі в цій
+# функції до 15.10.2026).
+serves_build() { # BUILD_ID -> код HTTP
+  http_code "http://127.0.0.1:$WEB_PORT/_next/static/$1/_buildManifest.js"
 }
 
 listener_pid() { # порт -> pid того, хто СЛУХАЄ
@@ -224,7 +229,7 @@ is_self_or_descendant() { # pid ancestor
 # який слухає порт, і що саме він віддає. Це один код і для `status`, і
 # для перевірки після перемикання, щоб вони не могли розійтись.
 check_running() { # очікуваний реліз
-  local rel="$1" bad=0 want_api want_web t spec unit port want label mp lp cwd code file_id served
+  local rel="$1" bad=0 want_api want_web t spec unit port want label mp lp cwd code file_id
   want_api=$(phys "$(rel_dir "$rel")/apps/api"); want_web=$(phys "$(rel_dir "$rel")/apps/web")
 
   t=$(link_rel)
@@ -252,11 +257,12 @@ check_running() { # очікуваний реліз
   else say "  ✗ API /health → ${code:-?}"; bad=$((bad + 1)); fi
 
   file_id=$(cat "$(rel_dir "$rel")/apps/web/.next/BUILD_ID" 2>/dev/null || true)
-  served=$(served_build_id)
-  if [ -n "$served" ] && [ "$(normalise_id "$served")" = "$(normalise_id "$file_id")" ]; then
-    say "  ✓ веб віддає BUILD_ID $served (збігається з файлом релізу)"
+  if [[ "$file_id" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    code=$(serves_build "$file_id")
+    if [ "$code" = 200 ]; then say "  ✓ веб віддає статику збірки $file_id (/_next/static/$file_id/_buildManifest.js → 200)"
+    else say "  ✗ веб не віддає статику збірки $file_id з релізу $rel: /_next/static/$file_id/_buildManifest.js → ${code:-?}"; bad=$((bad + 1)); fi
   else
-    say "  ✗ веб віддає BUILD_ID '${served:-нічого}', а у релізі $rel — '${file_id:-?}'"; bad=$((bad + 1))
+    say "  ✗ у релізі $rel немає придатного .next/BUILD_ID ('${file_id:-}')"; bad=$((bad + 1))
   fi
   return "$bad"
 }
@@ -892,9 +898,9 @@ cmd_rehearse() { # apply keep teardown
   t0=$(date +%s); out=$("${E[@]}" bash "$SELF" rollback --apply 2>&1) || { say "$out"; die "rollback --apply у репетиції не вдався"; }; t_back=$(( $(date +%s) - t0 ))
   say "$out"
   "${E[@]}" bash "$SELF" status || die "після rollback status не збігається"
-  local served; served=$(curl -sS --max-time 20 "http://127.0.0.1:$RWEB/" || true)
-  [[ $served =~ \<!--([A-Za-z0-9_-]{15,})--\> ]] && served="${BASH_REMATCH[1]}" || served=""
-  [ "$(normalise_id "$served")" = "$(normalise_id "$oid")" ] || die "після відкату віддається '$served', а мало повернутись $oid"
+  local c_old c_new
+  c_old=$(http_code "http://127.0.0.1:$RWEB/_next/static/$oid/_buildManifest.js"); c_new=$(http_code "http://127.0.0.1:$RWEB/_next/static/$nid/_buildManifest.js")
+  [ "$c_old" = 200 ] && [ "$c_new" = 404 ] || die "після відкату статика старої збірки → $c_old (чекали 200), нової → $c_new (чекали 404)"
 
   if [ "$keep" != yes ]; then
     say "── прибирання"
@@ -908,7 +914,7 @@ cmd_rehearse() { # apply keep teardown
   say "── підсумок"
   say "  ✓ відкат відрепетирувано: switch ${old}→${new} і rollback ${new}→${old}"
   say "  switch + перевірка: $t_fwd с; rollback + перевірка: $t_back с (цілі секунди)"
-  say "  BUILD_ID: $oid → $nid → $served (повернувся)"
+  say "  статика збірки: $oid → $nid → $oid (після відкату стара 200, нова 404)"
   say "  ✓ бойове не рушило: current → $(link_rel), MainPID та час старту api/web ті самі"
 }
 

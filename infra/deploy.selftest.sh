@@ -38,7 +38,7 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-deploy-selftest.XXXXXX")"
 cleanup_all() { stop_world; rm -rf "$BASE"; }
 trap cleanup_all EXIT
 trap 'exit 130' INT TERM
-EXPECTED=85
+EXPECTED=86
 PASSED=0
 FAILED=0
 pass() { echo "  ✓ $1"; PASSED=$((PASSED + 1)); }
@@ -66,14 +66,22 @@ http.createServer((q, s) => {
 }).listen(process.env.PORT, '127.0.0.1');
 JS
 cat > "$STUBDIR/web.js" <<'JS'
-// Як Next: BUILD_ID читається з .next/ у теці, з якої процес ЗАПУЩЕНО,
-// і друкується в коментарі з `-` заміненими на `_`.
+// Як Next на ПРОГРІТОМУ сервері (заміряно 15.10.2026): `/` БЕЗ коментаря з BUILD_ID
+// (після ISR-ревалідації він зникає), а статика збірки лежить під /_next/static/<id>/ і
+// віддається лише для РІВНО тієї збірки, з теки якої процес ЗАПУЩЕНО: BUILD_ID читається
+// з .next/ у cwd на кожен запит.
 const http = require('http'), fs = require('fs');
 const bad = process.env.STUB_UNIT === '1' && process.cwd().includes(process.env.STUB_BAD_RELEASE || '\u0000');
 http.createServer((q, s) => {
+  // «поламаний» процес віддає статику ЧУЖОЇ збірки (STUB_WEB_ID), хоч працює з правильної теки
   const id = (bad && process.env.STUB_WEB_ID) || fs.readFileSync('.next/BUILD_ID', 'utf8').trim();
+  const m = /^\/_next\/static\/([^/]+)\/_buildManifest\.js$/.exec(q.url);
+  if (m) {
+    if (m[1] === id) { s.writeHead(200, { 'content-type': 'application/javascript' }); return s.end('self.__BUILD_MANIFEST={}'); }
+    s.writeHead(404); return s.end('nope');
+  }
   s.writeHead(200, { 'content-type': 'text/html' });
-  s.end('<!DOCTYPE html><html><body>ok<!--' + id.replace(/-/g, '_') + '--></body></html>');
+  s.end('<!DOCTYPE html><html><body>ok, без коментаря з BUILD_ID</body></html>');
 }).listen(process.env.PORT, '127.0.0.1');
 JS
 
@@ -278,7 +286,8 @@ running_from() { # api|web -> тека релізу, з якої реально 
   local port; if [ "$1" = api ]; then port=$APIP; else port=$WEBP; fi
   local c; c=$(os_cwd "$(listener_of "$port")"); c="${c%/apps/*}"; echo "${c##*/}"
 }
-served_web_id() { curl -s "http://127.0.0.1:$WEBP/" | sed -n 's/.*<!--\([A-Za-z0-9_]*\)-->.*/\1/p'; }
+# Що живий процес відповідає на запит статики збірки <id>: 200 лише для його власної.
+web_serves() { curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$WEBP/_next/static/$1/_buildManifest.js"; }
 file_id() { cat "$W/root/releases/$1/apps/web/.next/BUILD_ID"; }
 
 # Відбиток дерева: ім'я, тип, розмір, mtime, режим, ціль симлінка.
@@ -373,8 +382,8 @@ new_world c1
 X deploy --sha "$SHA1" --apply
 if [ $RC -eq 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S1" ] \
    && [ "$(running_from api)" = "$S1" ] && [ "$(running_from web)" = "$S1" ] \
-   && [ "$(served_web_id)" = "$(file_id "$S1" | tr - _)" ]; then
-  pass "деплой: current, обидва процеси (за ОС) і відданий BUILD_ID — усе на новому релізі"
+   && [ "$(web_serves "$(file_id "$S1")")" = 200 ] && [ "$(web_serves "$(file_id "$S0")")" = 404 ]; then
+  pass "деплой: current, обидва процеси (за ОС) і статика збірки — усе на новому релізі (стара збірка вже 404)"
 else fail "деплой: current, обидва процеси (за ОС) і відданий BUILD_ID — усе на новому релізі" "rc=$RC api=$(running_from api) web=$(running_from web) $OUT"; fi
 echo "$(hist)" | jq -e 'select(.action=="deploy" and .ok==true and .from=="'"$S0"'" and .to=="'"$S1"'")' >/dev/null \
   && pass "історія: запис deploy ${S0}→${S1}, ok" || fail "історія: запис deploy ${S0}→${S1}, ok" "$(hist)"
@@ -390,15 +399,15 @@ echo "$(hist)" | jq -e 'select(.action=="deploy" and .ok==false)' >/dev/null && 
 # Той самий BUILD_ID у двох релізах: лише перевірка ПРОЦЕСУ може відрізнити їх.
 new_world c3 "$S0" 0 samesamesamesamesame1
 FAKE_BUILD_ID=samesamesamesamesame1 STUB_RESTART=noop X deploy --sha "$SHA1" --apply
-if [ $RC -eq 3 ] && echo "$OUT" | grep -q 'веб: pid [0-9]* працює з' && ! echo "$OUT" | grep -q 'веб віддає BUILD_ID .* а у релізі'; then
+if [ $RC -eq 3 ] && echo "$OUT" | grep -q 'веб: pid [0-9]* працює з' && ! echo "$OUT" | grep -q 'веб не віддає статику збірки'; then
   pass "однаковий BUILD_ID, health ok: лише перевірка теки процесу ловить «працює старе»"
 else fail "однаковий BUILD_ID, health ok: лише перевірка теки процесу ловить «працює старе»" "rc=$RC $OUT"; fi
 
 new_world c4
 STUB_BAD_RELEASE="$S1" STUB_WEB_ID=wrongwrongwrongwrongx X deploy --sha "$SHA1" --apply
-if [ $RC -eq 3 ] && echo "$OUT" | grep -q 'веб віддає BUILD_ID .wrongwrongwrongwrongx.' && ! echo "$OUT" | grep -q 'працює з .*, а чекали'; then
-  pass "процес у правильній теці, але віддає чужий BUILD_ID: ловить саме перевірка відданого"
-else fail "процес у правильній теці, але віддає чужий BUILD_ID: ловить саме перевірка відданого" "rc=$RC $OUT"; fi
+if [ $RC -eq 3 ] && echo "$OUT" | grep -q 'веб не віддає статику збірки' && ! echo "$OUT" | grep -q 'працює з .*, а чекали'; then
+  pass "процес у правильній теці, але віддає статику ЧУЖОЇ збірки: ловить саме перевірка статики"
+else fail "процес у правильній теці, але віддає статику ЧУЖОЇ збірки: ловить саме перевірка статики" "rc=$RC $OUT"; fi
 
 new_world c5
 STUB_BAD_RELEASE="$S1" STUB_API_HEALTH=503 X deploy --sha "$SHA1" --apply
@@ -418,15 +427,21 @@ if [ $RC -eq 3 ] && echo "$OUT" | grep -q 'systemctl restart завершивс�
 else fail "restart падає, але нічого не рушило: скрипт не вмирає посеред перемикання, звіряє й чесно повертає (код 3)" "rc=$RC $OUT"; fi
 
 new_world c7
-FAKE_BUILD_ID=abcde-fghij-klmno-pqrst X deploy --sha "$SHA1" --apply
-[ $RC -eq 0 ] && [ "$(served_web_id)" = "abcde_fghij_klmno_pqrst" ] \
-  && pass "BUILD_ID з дефісами: Next віддає їх підкресленнями, і порівняння це знає" || fail "BUILD_ID з дефісами: Next віддає їх підкресленнями, і порівняння це знає" "rc=$RC $OUT"
+FAKE_BUILD_ID=abcde-fghij_klmno-pqr_s X deploy --sha "$SHA1" --apply
+[ $RC -eq 0 ] && [ "$(web_serves abcde-fghij_klmno-pqr_s)" = 200 ] \
+  && pass "BUILD_ID з дефісами й підкресленнями проходить перевірку статики (в URL іде як є)" || fail "BUILD_ID з дефісами й підкресленнями проходить перевірку статики (в URL іде як є)" "rc=$RC $OUT"
 
 new_world c9
 # systemd каже, що MainPID юніту — це pid самого тесту; а порт слухає зовсім інший процес.
 STUB_BAD_RELEASE="$S1" STUB_MAINPID_OVERRIDE=$$ X deploy --sha "$SHA1" --apply
 [ $RC -eq 3 ] && echo "$OUT" | grep -q 'не належить юніту' && ! echo "$OUT" | grep -q 'працює з .*, а чекали' \
   && pass "порт слухає процес, що не належить юніту: перевірка падає саме на цьому (cwd і BUILD_ID правильні)" || fail "порт слухає процес, що не належить юніту: перевірка падає саме на цьому (cwd і BUILD_ID правильні)" "rc=$RC $OUT"
+
+new_world c10
+FAKE_BUILD_ID='bad/id?x' X deploy --sha "$SHA1" --apply
+[ $RC -eq 3 ] && echo "$OUT" | grep -q 'немає придатного .next/BUILD_ID' && [ "$(readlink "$W/root/current")" = "releases/$S0" ] \
+  && pass "BUILD_ID, який не можна безпечно вставити в URL, не перевіряється наосліп: деплой не проходить, повернуто $S0" \
+  || fail "BUILD_ID, який не можна безпечно вставити в URL, не перевіряється наосліп: деплой не проходить, повернуто $S0" "rc=$RC $OUT"
 
 new_world c8
 STUB_WD_OVERRIDE=/srv/camptribe/current/apps/api X deploy --sha "$SHA1" --apply
@@ -441,7 +456,7 @@ X deploy --sha "$SHA1" --apply >/dev/null
 X rollback --apply
 echo "$(hist)" | jq -e 'select(.action=="rollback" and .ok==true and .from=="'"$S1"'" and .to=="'"$S0"'")' >/dev/null && pass "rollback записано в історію: ${S1}→${S0}, ok" || fail "rollback записано в історію: ${S1}→${S0}, ok" "$(hist)"
 if [ $RC -eq 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S0" ] && [ "$(running_from api)" = "$S0" ] && [ "$(running_from web)" = "$S0" ] \
-   && [ "$(served_web_id)" = "$(file_id "$S0" | tr - _)" ] && echo "$OUT" | grep -qE 'перемикання й перевірка: [0-9]+ с'; then
+   && [ "$(web_serves "$(file_id "$S0")")" = 200 ] && [ "$(web_serves "$(file_id "$S1")")" = 404 ] && echo "$OUT" | grep -qE 'перемикання й перевірка: [0-9]+ с'; then
   pass "rollback --apply: current, процеси за ОС і відданий BUILD_ID повернулись на $S0, час названо"
 else fail "rollback --apply: current, процеси за ОС і відданий BUILD_ID повернулись на $S0, час названо" "rc=$RC api=$(running_from api) $OUT"; fi
 X rollback --apply
