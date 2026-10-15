@@ -207,14 +207,32 @@ function nearestJoin(alias: string, table: string, kind: string): string {
 }
 
 /**
+ * CAMP-245: ЩО САМЕ ВОНИ БЕРУТЬ. Записане в `context.station` — це станція АБО
+ * зупинка (`railway=halt`: платформа без персоналу й каси), а записане в
+ * `context.town` — місто АБО містечко. Заміряно 15.10.2026 на `camptribe_dev`:
+ * 3 163 з 9 838 станційних причин стоять на зупинці, 197 з 3 524 міських — на
+ * `place=city`. Усе, що ПИШЕ про ці поля (apps/api/src/planner/reasons.ts),
+ * мусить бути правдою для обох значень, тож цей перелік — не деталь запиту: на
+ * ньому стоїть підпис. reasons.spec.ts пінить обидва списки; додати значення
+ * сюди без перегляду підпису там не вийде.
+ */
+export const STATION_RAILWAY_VALUES = ['station', 'halt'] as const;
+export const TOWN_PLACE_VALUES = ['city', 'town'] as const;
+
+const inList = (values: readonly string[]): string =>
+  values.map((v) => `'${v}'`).join(',');
+export const STATION_FILTER = `x.railway IN (${inList(STATION_RAILWAY_VALUES)})`;
+export const TOWN_FILTER = `x.place IN (${inList(TOWN_PLACE_VALUES)})`;
+
+/**
  * Три join-и «про людське місце». Окремою константою, щоб і повний запит, і
  * `NEAR_SQL` (без води) складалися з одного й того самого тексту: фільтр не
  * може бути в одному, а в другому ні.
  */
 const NEAR_JOINS = [
-  nearestJoin('t', 'osm_ctx_place', `x.place IN ('city','town')`),
+  nearestJoin('t', 'osm_ctx_place', TOWN_FILTER),
   nearestJoin('p', 'osm_ctx_poi', `x.shop = 'supermarket'`),
-  nearestJoin('r', 'osm_ctx_poi', `x.railway IN ('station','halt')`),
+  nearestJoin('r', 'osm_ctx_poi', STATION_FILTER),
 ].join('');
 
 /** Скільки разів умова на країну стоїть у NEAR_JOINS: два кроки × три join-и. */

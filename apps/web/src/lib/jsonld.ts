@@ -133,6 +133,23 @@ function amenityFeatures(amenities: Amenities) {
     }));
 }
 
+/**
+ * 🔴 CAMP-245. WHAT `context.station` AND `context.town` ARE, in the words
+ * this file may use for them.
+ *
+ * `station` is filled from `railway=station` AND `railway=halt`, and `town`
+ * from `place=city` AND `place=town` (apps/api/src/osm/context-sql.ts), and
+ * the stored context does not say which: `{ m, name }`. Measured 15.10.2026
+ * on `camptribe_dev`, 3 163 of 9 838 station entries stand on a halt — a
+ * platform, often with no staff and no ticket office — and 197 of 3 524 town
+ * entries on a city. Calling every one a "station" and a "town" tells a reader
+ * planning to arrive by train, or by a city, something the data does not say.
+ * These words are true of both values; the same words as
+ * apps/api/src/planner/reasons.ts ("Railway stop", "City or town").
+ */
+const STATION = 'railway stop';
+const TOWN = 'town or city';
+
 /** The prose sentence, reused so the graph and the page cannot disagree. */
 function contextSentence(spot: Spot): string | undefined {
   const c = spot.context ?? {};
@@ -146,12 +163,12 @@ function contextSentence(spot: Spot): string | undefined {
     );
   }
   if (c.town) {
-    bits.push(`${formatDistance(c.town.m)} from ${c.town.name ?? 'the nearest town'}`);
+    bits.push(`${formatDistance(c.town.m)} from ${c.town.name ?? `the nearest ${TOWN}`}`);
   }
   if (c.station) {
     bits.push(
       `${formatDistance(c.station.m)} from ${
-        c.station.name ? `${c.station.name} station` : 'a railway station'
+        c.station.name ? `${c.station.name} ${STATION}` : `a ${STATION}`
       }`,
     );
   }
@@ -215,7 +232,7 @@ export function surroundingProperties(spot: Spot) {
     out.push(metres(`Distance to ${what}`, c.water.m));
   }
   if (c.town && known(c.town.m)) {
-    out.push(metres(`Distance to ${text(c.town.name) ?? 'the nearest town'}`, c.town.m));
+    out.push(metres(`Distance to ${text(c.town.name) ?? `the nearest ${TOWN}`}`, c.town.m));
   }
   if (c.supermarket && known(c.supermarket.m)) {
     out.push(metres('Distance to the nearest supermarket', c.supermarket.m));
@@ -224,7 +241,7 @@ export function surroundingProperties(spot: Spot) {
     const name = text(c.station.name);
     out.push(
       metres(
-        `Distance to ${name ? `${name} station` : 'the nearest railway station'}`,
+        `Distance to ${name ? `${name} ${STATION}` : `the nearest ${STATION}`}`,
         c.station.m,
       ),
     );
@@ -406,8 +423,8 @@ export function campsiteFaq(spot: Spot): FaqItem[] {
   }
   if (c.town && known(c.town.m)) {
     items.push({
-      q: `How far is the nearest town?`,
-      a: `${text(c.town.name) ?? 'The nearest town'} is ${formatDistance(c.town.m)} away in a straight line.`,
+      q: `How far is the nearest ${TOWN}?`,
+      a: `${text(c.town.name) ?? `The nearest ${TOWN}`} is ${formatDistance(c.town.m)} away in a straight line.`,
     });
   }
   if (c.supermarket && known(c.supermarket.m)) {
@@ -419,8 +436,8 @@ export function campsiteFaq(spot: Spot): FaqItem[] {
   if (c.station && known(c.station.m)) {
     const station = text(c.station.name);
     items.push({
-      q: `How far is the nearest railway station?`,
-      a: `${station ? `${station} station` : 'The nearest railway station'} is ${formatDistance(c.station.m)} away in a straight line. We do not know whether a bus or a path connects the two.`,
+      q: `How far is the nearest railway station or stop?`,
+      a: `${station ? `${station} ${STATION}` : `The nearest ${STATION}`} is ${formatDistance(c.station.m)} away in a straight line. We do not know whether a bus or a path connects the two.`,
     });
   }
   if (known(c.elevation) || (c.terrain && known(c.terrain.relief))) {

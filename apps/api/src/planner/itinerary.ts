@@ -37,6 +37,12 @@ import { Corridor, CorridorProvider, Measure } from './corridor';
 import { LonLat, needsOf, validateRequest } from './hard-constraints';
 import { MAX_RADIUS_M } from '../routes/route-points';
 import { Queryable } from './read-only';
+import {
+  loadMeasuredReasons,
+  Reason,
+  reasonsOf,
+  ReasonsConfig,
+} from './reasons';
 import { loadMeasuredScoring, ScoringConfig, score } from './scoring';
 import { Placed, selectLocated } from './shortlist';
 import { assertBand, bandReach, DayBand, splitIntoDays } from './split-days';
@@ -87,12 +93,34 @@ export interface Night {
   alongM: number;
   /** Metres from that line, straight. */
   offsetM: number;
+  /**
+   * 🔴 CAMP-245: WHERE THIS NIGHT WAS ASKED TO FALL, and how far it is from
+   * there. `targetAlongM` is the point k/D of the way along the line — the
+   * even split, where day k should end — and `fromTargetM` is the straight
+   * line from it to this campsite: the very distance `distance_fit` scored.
+   * They are the largest term of the score, and they are NOT reasons: every
+   * record has a position, so a reason about it would exist for a campsite we
+   * know nothing else about. They travel beside `reasons` so that an empty
+   * `reasons` is read as "nothing recorded to add", never as "we do not know
+   * why this was chosen": the frame an interface puts round the list is
+   * "closest to where day N should end", and these are its numbers.
+   */
+  targetAlongM: number;
+  fromTargetM: number;
   /** A ranking key, not a percentage (scoring.ts). */
   score: number;
   amenities: Placed['amenities'];
   stars: number | null;
   /** Each REQUIRED amenity: `yes`, or `unknown` — a recorded `no` is not here. */
   needs: Array<{ key: AmenityKey; state: AmenityValue }>;
+  /**
+   * 🔴 CAMP-245: what THIS record holds that adds to why it was offered
+   * (reasons.ts). Empty for a campsite we hold only a position for — never a
+   * guess, and never "unexplained": the main reason is `fromTargetM` above.
+   * Each reason is a field, a value and a unit, with its sentence built from
+   * them; `weighed` says whether the ranking used it.
+   */
+  reasons: Reason[];
 }
 
 export interface Day {
@@ -151,6 +179,8 @@ export interface ItineraryDeps {
   corridor?: CorridorProvider;
   /** The weights, already checked against the measured table. */
   scoring?: ScoringConfig;
+  /** The reason sources, already checked against the measured table. */
+  reasons?: ReasonsConfig;
 }
 
 /**
@@ -189,6 +219,25 @@ type OnLine = Placed & { along: number; offset: number };
 const locateAll = (found: readonly Placed[], corridor: Corridor): OnLine[] =>
   found.map((p) => ({ ...p, ...corridor.locate([p.lon, p.lat]) }));
 
+/**
+ * The computed surroundings of the campsites that WERE chosen — one query for
+ * at most MAX_DAYS − 1 rows, not a column on stage 1's read of every
+ * candidate in the corridor. Raw: reasons.ts reads it as untrusted. A slug
+ * with no row here (it cannot happen inside one request, but nothing holds a
+ * transaction open) simply has no surroundings to give reasons from.
+ */
+async function readContexts(
+  db: Queryable,
+  slugs: readonly string[],
+): Promise<Map<string, unknown>> {
+  if (slugs.length === 0) return new Map();
+  const res = await db.query(
+    `SELECT slug, context FROM camping_spots WHERE slug = ANY($1::text[])`,
+    [[...slugs]],
+  );
+  return new Map(res.rows.map((r) => [String(r.slug), r.context]));
+}
+
 export async function planItinerary(
   db: Queryable,
   req: ItineraryRequest,
@@ -203,21 +252,25 @@ export async function planItinerary(
     to: req.to,
   });
   const scoring = deps.scoring ?? loadMeasuredScoring();
+  const reasons = deps.reasons ?? loadMeasuredReasons();
   const L = corridor.metres;
   const D = req.days;
 
   // The even split, and the width of "close to it": one even day. Both come
   // from the corridor and the request; neither is a number chosen here.
   const evenM = L / D;
+  // Metres from the point night k ideally falls on. `along` and `offset` are
+  // two perpendicular distances, so Pythagoras; over a day's run the flat
+  // figure is within a fraction of a per cent of the arc. ONE function: the
+  // score reads it and so does the night's `fromTargetM`, so what the
+  // interface says the night was chosen for is the number it was scored on.
+  const fromTarget = (c: OnLine, night: number): number =>
+    Math.hypot(c.along - night * evenM, c.offset);
   const value = (c: OnLine, night: number): number =>
     score(
       {
         slug: c.slug,
-        // Metres from the point night k ideally falls on. `along` and
-        // `offset` are two perpendicular distances, so Pythagoras; over a
-        // day's run the flat figure is within a fraction of a per cent of
-        // the arc.
-        distanceM: Math.hypot(c.along - night * evenM, c.offset),
+        distanceM: fromTarget(c, night),
         amenities: c.amenities,
         stars: c.stars,
       },
@@ -270,6 +323,10 @@ export async function planItinerary(
     };
   }
 
+  const contexts = await readContexts(
+    db,
+    split.nights.map((c) => c.slug),
+  );
   const days: Day[] = [];
   let from = 0;
   for (let k = 1; k <= D; k++) {
@@ -287,10 +344,21 @@ export async function planItinerary(
             lat: c.lat,
             alongM: c.along,
             offsetM: c.offset,
+            targetAlongM: k * evenM,
+            fromTargetM: fromTarget(c, k),
             score: value(c, k),
             amenities: c.amenities,
             stars: c.stars,
             needs: needsOf(c.amenities, req.needs),
+            reasons: reasonsOf(
+              {
+                amenities: c.amenities,
+                stars: c.stars,
+                context: contexts.get(c.slug),
+              },
+              reasons,
+              scoring.components,
+            ),
           }
         : null,
     });

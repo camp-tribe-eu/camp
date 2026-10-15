@@ -3,6 +3,7 @@ import { AMENITY_KEYS, mapAmenities } from '../osm/tag-mapping';
 import { loadPool } from './ablate-scoring';
 import { measureCoverage, queryHash, SQL } from './measure-coverage';
 import { plannerPopulationSql } from './population';
+import { CONTEXT_KEYS } from './reasons';
 import { BEGIN_READ_ONLY, inReadOnlyTransaction, Queryable } from './read-only';
 
 // CAMP-262 — the measuring SQL, against a REAL PostgreSQL.
@@ -66,6 +67,7 @@ beforeAll(async () => {
       location geometry(Point, 4326) NOT NULL,
       owner_overrides jsonb NOT NULL DEFAULT '{}',
       stars smallint,
+      context jsonb NOT NULL DEFAULT '{}',
       missing_since timestamptz);
     CREATE TABLE spot_links (
       primary_id uuid NOT NULL, secondary_id uuid NOT NULL,
@@ -87,6 +89,8 @@ interface Spot {
   /** Bypasses the mapper: a row written before an amenity existed. */
   rawAmenities?: Record<string, string>;
   stars?: number;
+  /** The computed surroundings, as the column holds them (CAMP-245). */
+  context?: unknown;
   missing?: boolean;
   lon?: number;
   lat?: number;
@@ -96,9 +100,9 @@ async function put(s: Spot): Promise<string> {
   const amenities = s.rawAmenities ?? mapAmenities(s.tags ?? {});
   const res = await db.query(
     `INSERT INTO camping_spots
-       (slug, country, region, amenities, location, stars, missing_since)
+       (slug, country, region, amenities, location, stars, missing_since, context)
      VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), $7,
-             CASE WHEN $8::boolean THEN now() ELSE NULL END)
+             CASE WHEN $8::boolean THEN now() ELSE NULL END, $9::jsonb)
      RETURNING id`,
     [
       s.slug,
@@ -109,6 +113,7 @@ async function put(s: Spot): Promise<string> {
       s.lat ?? 45,
       s.stars ?? null,
       s.missing ?? false,
+      JSON.stringify(s.context ?? {}),
     ],
   );
   return res.rows[0].id;
@@ -140,6 +145,16 @@ describe('measureCoverage', () => {
   // x1-missing    FR  power_supply=yes                              5   out: missing_since is set
   // x2-noregion   DE  power_supply=yes                              5   out: no region, no page
   // s1-hidden     DE  (no tags)                                     5   out: live secondary of p2
+  //
+  // CAMP-245, the surroundings (context). A feature is known when it holds a
+  // NUMBER under `m`:
+  //   p1-both     water 50 (lake), town 1200, supermarket 300, station 400
+  //   p2-merged   water 10 (sea) only
+  //   p3-no       every feature is a shell: water {}, town {m: null},
+  //               supermarket "oops", station {m: "5"} — none is known
+  //   p6-el       town {m: 0} — a distance of zero is a distance
+  //   x1-missing, s1-hidden  all four, but they are outside the population
+  //   the rest    {}
   const POPULATION = [
     'p1-both',
     'p2-merged',
@@ -165,17 +180,36 @@ describe('measureCoverage', () => {
     );
 
     const both = { power_supply: 'yes', sanitary_dump_station: 'yes' };
-    await put({ slug: 'p1-both', country: 'FR', tags: both, stars: 4 });
+    const ALL_FOUR = {
+      water: { m: 50, kind: 'lake' },
+      town: { m: 1200 },
+      supermarket: { m: 300 },
+      station: { m: 400 },
+    };
+    await put({
+      slug: 'p1-both',
+      country: 'FR',
+      tags: both,
+      stars: 4,
+      context: ALL_FOUR,
+    });
     const p2 = await put({
       slug: 'p2-merged',
       country: 'DE',
       tags: { power_supply: 'yes' },
+      context: { water: { m: 10, kind: 'sea' } },
     });
     await put({
       slug: 'p3-no',
       country: 'FR',
       tags: { power_supply: 'no', sanitary_dump_station: 'no' },
       stars: 2,
+      context: {
+        water: {},
+        town: { m: null },
+        supermarket: 'oops',
+        station: { m: '5' },
+      },
     });
     await put({ slug: 'p4-empty', country: 'DE' });
     await put({ slug: 'p5-legacy', country: 'FR', rawAmenities: {} });
@@ -183,6 +217,7 @@ describe('measureCoverage', () => {
       slug: 'p6-el',
       country: 'DE',
       tags: { power_supply: 'yes' },
+      context: { town: { m: 0 } },
     });
     const p7 = await put({
       slug: 'p7-dump',
@@ -196,6 +231,7 @@ describe('measureCoverage', () => {
       tags: { power_supply: 'yes' },
       stars: 5,
       missing: true,
+      context: ALL_FOUR,
     });
     const s3 = await put({
       slug: 's3-orphan',
@@ -209,7 +245,12 @@ describe('measureCoverage', () => {
       tags: { power_supply: 'yes' },
       stars: 5,
     });
-    const s1 = await put({ slug: 's1-hidden', country: 'DE', stars: 5 });
+    const s1 = await put({
+      slug: 's1-hidden',
+      country: 'DE',
+      stars: 5,
+      context: ALL_FOUR,
+    });
     await link(p2, s1);
     await link(p7, s2, true);
     await link(x1, s3);
@@ -299,11 +340,49 @@ describe('measureCoverage', () => {
     expect(snap.evidence.starsKnownByCountry).toEqual({ FR: 2, DE: 2 });
   });
 
-  it('carries every amenity the importer writes, in the importer’s order', async () => {
+  it('carries every amenity the importer writes, in the importer’s order, then the surroundings', async () => {
     const snap = await measureCoverage(db);
     const keys = Object.keys(snap.fields);
-    expect(keys).toEqual(['location', 'stars', ...AMENITY_KEYS]);
+    expect(keys).toEqual([
+      'location',
+      'stars',
+      ...AMENITY_KEYS,
+      'context.water',
+      'context.supermarket',
+      'context.station',
+      'context.town',
+    ]);
     expect(snap.fields.laundry).toEqual({ known: 0, yes: 0 });
+  });
+
+  it('🔴 counts a surrounding as known when the row holds a NUMBER for its distance — from the JSON in the table above', async () => {
+    const snap = await measureCoverage(db);
+    // water: p1, p2. p3's `{}` is a shell and p4's absent key is nothing.
+    expect(snap.fields['context.water']).toEqual({ known: 2 });
+    // town: p1 (1200) and p6 (0 — a distance of zero is one). p3's null is not.
+    expect(snap.fields['context.town']).toEqual({ known: 2 });
+    // supermarket: p1 alone. p3's "oops" is a string where an object goes.
+    expect(snap.fields['context.supermarket']).toEqual({ known: 1 });
+    // station: p1 alone. p3's {m: "5"} holds a string, not a number.
+    expect(snap.fields['context.station']).toEqual({ known: 1 });
+  });
+
+  it('counts the surroundings of the population only: a missing campsite and a hidden secondary hold all four and are not in it', async () => {
+    const outside = await db.query(
+      `SELECT count(*)::int AS n FROM camping_spots
+        WHERE slug IN ('x1-missing', 's1-hidden')
+          AND jsonb_typeof(context -> 'water' -> 'm') = 'number'`,
+    );
+    // Anchor: they do hold a water distance, so a count that included them
+    // would have said 3, not 2.
+    expect(outside.rows[0].n).toBe(2);
+    expect((await measureCoverage(db)).fields['context.water'].known).toBe(2);
+  });
+
+  it('`water` is still the amenity: the surrounding does not overwrite it', async () => {
+    const snap = await measureCoverage(db);
+    expect(snap.fields.water).toEqual({ known: 0, yes: 0 });
+    expect(snap.fields['context.water'].known).toBe(2);
   });
 
   it('stamps the snapshot with the hash of the SQL that produced it', async () => {
@@ -322,6 +401,17 @@ describe('measureCoverage', () => {
       const changed = queryHash();
       SQL[key] = original;
       expect(changed).not.toBe(real);
+    }
+    expect(queryHash()).toBe(real);
+  });
+
+  it('the hash also reads the context keys the sources are counted by: a new key is a new table', () => {
+    const real = queryHash();
+    CONTEXT_KEYS.push('shop' as never);
+    try {
+      expect(queryHash()).not.toBe(real);
+    } finally {
+      CONTEXT_KEYS.pop();
     }
     expect(queryHash()).toBe(real);
   });

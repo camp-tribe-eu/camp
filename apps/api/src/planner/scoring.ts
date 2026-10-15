@@ -276,9 +276,12 @@ const VALUE: Record<ComponentId, (c: Candidate, toleranceM: number) => number> =
  * candidates — and a spec says so — instead of the formula being a constant
  * that only a source edit can change.
  *
- * Each component's contribution, weight included. This is the shape
- * CAMP-245 ("why this one") reads: every reason is a term, and a term that
- * is zero is a reason that does not exist.
+ * Each component's contribution, weight included. Every WEIGHED reason
+ * CAMP-245 gives ("why this one", reasons.ts) is a term of this sum, and a
+ * term that is zero is a reason that does not exist; the surroundings it also
+ * lists are not terms at all (`weighed: false`). reasons.ts does not read this
+ * function: it reads the record, and reasons.spec.ts holds the two together
+ * by asking `score()` whether each field lifted the score above an unknown.
  */
 export function scoreParts(
   c: Candidate,
