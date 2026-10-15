@@ -384,6 +384,16 @@ describe('corridorBox: the index prefilter may never be tighter than the exact d
       0.4,
     ],
     [
+      'the bow is on the LAST leg: Lisbon → Madrid → Thessaloniki',
+      [
+        [-9.1393, 38.7223],
+        [-3.7038, 40.4168],
+        [22.9444, 40.6401],
+      ],
+      'north',
+      0.6,
+    ],
+    [
       'Lyon → Barcelona, which runs almost along a meridian',
       [
         [4.8357, 45.764],

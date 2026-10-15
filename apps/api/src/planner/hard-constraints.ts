@@ -209,11 +209,79 @@ const country: HardRule = {
  */
 const M_PER_DEG = 110_000;
 
+type Vec3 = readonly [number, number, number];
+
+const unitVector = ([lon, lat]: LonLat): Vec3 => {
+  const φ = (lat * Math.PI) / 180;
+  const λ = (lon * Math.PI) / 180;
+  return [Math.cos(φ) * Math.cos(λ), Math.cos(φ) * Math.sin(λ), Math.sin(φ)];
+};
+const cross = (a: Vec3, b: Vec3): Vec3 => [
+  a[1] * b[2] - a[2] * b[1],
+  a[2] * b[0] - a[0] * b[2],
+  a[0] * b[1] - a[1] * b[0],
+];
+const dot = (a: Vec3, b: Vec3): number =>
+  a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+/**
+ * The most northerly and most southerly latitude the great-circle ARC from
+ * `p` to `q` reaches BETWEEN its ends, in degrees; `undefined` for a side on
+ * which the arc never rises above (or sinks below) its own ends.
+ *
+ * 🔴 Why this exists. `ST_DWithin` on a `geography` measures to the
+ * great-circle arc, not to the straight line a map draws between two
+ * vertices. Between two points at the same latitude that arc bows toward the
+ * pole — Madrid (40.4°N) and Thessaloniki (40.6°N) are joined by an arc that
+ * climbs to 41.3°N half-way — so a box built from the VERTICES is narrower
+ * than the exact distance, and the `&&` in front of it threw away 249 of the
+ * 370 campsites the exact test keeps. A box that is too tight is not an
+ * optimisation, it is a lost result that nothing reports.
+ *
+ * Closed form, not sampling, so there is no step to choose and no gap
+ * between steps. The great circle through `p` and `q` lies in the plane with
+ * normal n = p × q; its northernmost point is `v`, the direction of the
+ * z-axis projected into that plane, and its southernmost is −v. `v` is on
+ * the minor arc p→q exactly when it is ahead of p and behind q, which is two
+ * sign tests on the scalar triple product with n.
+ *
+ * Longitude needs no such care: along a great circle that does not pass
+ * through a pole it only ever runs one way, so the longitudes of the ends
+ * are the extremes. The scope is Europe; a line through a pole is not.
+ */
+function arcLatitudeBeyondEnds(
+  p: LonLat,
+  q: LonLat,
+): { north?: number; south?: number } {
+  const a = unitVector(p);
+  const b = unitVector(q);
+  const n = cross(a, b);
+  const nn = dot(n, n);
+  // The same point twice, or opposite points: no single arc to speak of.
+  if (nn < 1e-24) return {};
+  // z projected into the plane of the circle. Its length is zero when the
+  // circle is the equator, which never leaves latitude 0.
+  const k = n[2] / nn;
+  const v: Vec3 = [-k * n[0], -k * n[1], 1 - k * n[2]];
+  const vv = dot(v, v);
+  if (vv < 1e-18) return {};
+  const ahead = dot(cross(a, v), n);
+  const behind = dot(cross(v, b), n);
+  // The latitude of v is asin(v_z / |v|), and v_z = |v|² here.
+  const apex = (Math.asin(Math.min(1, Math.sqrt(vv))) * 180) / Math.PI;
+  if (ahead > 0 && behind > 0) return { north: apex };
+  if (ahead < 0 && behind < 0) return { south: -apex };
+  return {};
+}
+
 /**
  * A box that contains everything within `bufferM` of the line:
  * [xmin, ymin, xmax, ymax]. A prefilter for the gist index on `location`;
  * the exact distance is ST_DWithin's, and this must never be tighter than it.
  *
+ * "The line" is what ST_DWithin measures to: each leg is a great-circle ARC,
+ * so the box reaches as far north and south as the arcs do, which between
+ * two vertices can be well beyond the vertices (`arcLatitudeBeyondEnds`).
  * Longitude degrees shrink with latitude, so the width is taken at the
  * highest latitude the box reaches. Not meant for the antimeridian: the
  * scope is Europe.
@@ -229,11 +297,21 @@ export function corridorBox(
   let lonMax = -Infinity;
   let latMin = Infinity;
   let latMax = -Infinity;
-  for (const [lon, lat] of line) {
+  for (let i = 0; i < line.length; i++) {
+    const [lon, lat] = line[i];
     if (lon < lonMin) lonMin = lon;
     if (lon > lonMax) lonMax = lon;
     if (lat < latMin) latMin = lat;
     if (lat > latMax) latMax = lat;
+    if (i > 0) {
+      const beyond = arcLatitudeBeyondEnds(line[i - 1], line[i]);
+      if (beyond.north !== undefined && beyond.north > latMax) {
+        latMax = beyond.north;
+      }
+      if (beyond.south !== undefined && beyond.south < latMin) {
+        latMin = beyond.south;
+      }
+    }
   }
   const dLat = bufferM / M_PER_DEG;
   const ymin = Math.max(-90, latMin - dLat);

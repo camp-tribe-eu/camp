@@ -574,7 +574,7 @@ describe('the prefilter is lossless: the index box never drops what the exact di
   // so a box built from the VERTICES alone is exactly big enough and the test
   // could not fail. ST_DWithin on a geography measures to the great-circle
   // ARC, and between two points at the same latitude that arc bows toward the
-  // pole: Madrid→Thessaloniki climbs from 40.6°N to 41.5°N half-way. A box
+  // pole: Madrid→Thessaloniki climbs from 40.6°N to 41.3°N half-way. A box
   // from the vertices cut 249 of 370 campsites from that route, and this
   // test stayed green. Review changed the fixture and it went red.
   //
@@ -671,6 +671,19 @@ describe('the prefilter is lossless: the index box never drops what the exact di
         [-3.7038, 40.4168],
         [22.9444, 40.6401],
         [0.4753, 40.47],
+      ],
+      bufferM: 30_000,
+      scatter: 'arc',
+      bows: true,
+    },
+    {
+      // The highest arc is the LAST leg, so a box that stops short of the
+      // final leg is lossy here and nowhere else.
+      name: 'Lisbon → Madrid → Thessaloniki, the bow on the last leg',
+      line: [
+        [-9.1393, 38.7223],
+        [-3.7038, 40.4168],
+        [22.9444, 40.6401],
       ],
       bufferM: 30_000,
       scatter: 'arc',
