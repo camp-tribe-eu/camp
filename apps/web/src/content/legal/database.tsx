@@ -90,7 +90,7 @@ export default function Database() {
 
       <P>
         <B>The distances are ours; several of the names are not.</B> Where
-        an entry below names a nearby lake, town, shop or station, that
+        an entry below names a nearby lake, town, shop or railway stop, that
         name is read from OpenStreetMap and passed on unchanged — it is
         their Content, under their licence, and only the measurement
         between it and the campsite is our derivation.
@@ -116,8 +116,13 @@ export default function Database() {
           distance and name.
         </li>
         <li>
-          <B>station</B> — the nearest railway station, with its distance
-          and name.
+          <B>station</B> — the nearest railway stop, with its distance and
+          name. A stop here is either a railway station (OpenStreetMap
+          tag railway=station) or a halt (railway=halt), the smaller kind:
+          a platform that usually has no staff and no ticket office. The
+          record keeps the distance and the name and does not say which of
+          the two it is, which is why the site says railway stop and not
+          station.
         </li>
         <li>
           <B>elevation</B> — metres above sea level, from the Copernicus
