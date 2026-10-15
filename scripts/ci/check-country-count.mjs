@@ -65,6 +65,12 @@
 //     «places: 28 countries». Це журнал збірки, не читач і не Google,
 //     тож сторож його не валить. Рядок усе одно каже неправду, і це
 //     окрема дрібна картка, а не привід тримати сторожа червоним;
+//   · походження тримається за ІМЕНЕМ, а не за областю видимості, тож
+//     однойменна незаражена змінна в тому ж файлі теж буде помічена.
+//     Помилка тут — у бік СУВОРІШОГО (зайва скарга, яку видно), а не
+//     пропущеного дефекту, і на цьому дереві таких збігів немає
+//     (заміряно: прохід зелений на main+#242+#243). Випадок унизу її
+//     закріплює, щоб зміна поведінки не пройшла мовчки;
 //   · `countries['length']` у дужках, число прописом, лічильник, зібраний
 //     циклом (`for (… ) n++`);
 //   · `src/data/**` — редакційні набори, див. `EXCLUDED`.
@@ -534,6 +540,17 @@ function selfTest() {
   green('🔴 правильний виклик — memberStateCount — лишається зеленим',
     'const c = await getCountries();\nexport const m = { description: `across ${memberStateCount(c.map((x) => x.country))} countries` };');
 
+  // 🔴 ВІДОМА НАДМІРНА СУВОРІСТЬ, закріплена випадком, а не обіцянкою.
+  // Походження тримається за іменем, не за областю видимості: однойменний
+  // параметр в іншій функції теж буде помічений. Помилка в бік зайвої
+  // скарги, яку видно, а не пропущеного дефекту. Якщо колись це стане
+  // справжньою завадою — ось випадок, який почервоніє й нагадає.
+  red('🔴 відома межа: однойменна змінна в іншій області теж помічена',
+    'const countries = await getCountries();\n' +
+      'export const ok = memberStateCount(countries.map((c) => c.country));\n' +
+      'function unrelated(countries: string[]) { return countries.length; }',
+    'x.ts');
+
   // ── чисті функції окремо, щоб мутація в них не ховалась ──────────
   is('isSourceCall бачить виклик', isSourceCall(
     ts.createSourceFile('x.ts', 'getCountries()', ts.ScriptTarget.Latest, true).statements[0].expression), true);
@@ -609,7 +626,7 @@ function selfTest() {
     is('нічого не знайдено — нічого й не друкується', report([], []), []);
   }
 
-  const EXPECTED_CASES = 59;
+  const EXPECTED_CASES = 60;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;
