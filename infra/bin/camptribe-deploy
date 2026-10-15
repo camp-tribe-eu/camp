@@ -5,7 +5,8 @@
 #   camptribe-deploy deploy   --sha <40 hex> [--migrate] [--apply]
 #   camptribe-deploy switch   <реліз> [--apply]           # на вже збудований реліз
 #   camptribe-deploy rollback [--to <реліз>] [--apply]    # скасувати останнє перемикання
-#   camptribe-deploy rehearse [--apply] [--keep|--teardown]  # відкат у паралельному світі
+#   camptribe-deploy rehearse [--apply] [--keep]          # відкат у паралельному світі
+#   camptribe-deploy rehearse --teardown [--apply]        # прибрати залишок після --keep
 #
 # Зазвичай запускається не напряму, а з ноутбука: `infra/deploy-app.sh`.
 # Той кладе на машину РІВНО цей файл із коміта, який ти переглянув, тож
@@ -14,7 +15,9 @@
 # 🔴 СУХИЙ ПРОГІН ЗА ЗАМОВЧУВАННЯМ. Усе, що міняє машину, вимагає
 # `--apply`. Скрипт, який без прапорця будує, перемикає й перезапускає,
 # рано чи пізно запустять «просто подивитись» — і він змінить не те.
-# До 15.10.2026 `deploy` саме так і поводився.
+# До 15.10.2026 `deploy` саме так і поводився, а `rehearse --teardown`
+# (гілка стояла ПЕРЕД перевіркою `--apply`) зупиняв юніти й стирав світ
+# репетиції без прапорця, з кодом 0 і без слів «СУХИЙ ПРОГІН».
 #
 # 🔴 ЧОМУ СИМЛІНК, А НЕ "git pull && build" НА МІСЦІ. Збірка триває ~400 с
 # і займає 8.6 ГБ (заміряно 12.10.2026 на CPX32). Якщо збирати там, звідки
@@ -88,6 +91,88 @@ who_am_i() { printf '%s' "${CAMPTRIBE_DEPLOYER:-${SUDO_USER:-$(id -un)}@$(hostna
 # але /proc/<pid>/cwd завжди показує другий. Порівнювати можна лише фізичні.
 phys() { ( cd -P "$1" 2>/dev/null && pwd -P ) || true; }
 
+# ── секрети: через файл оточення, а не через командний рядок ─────────
+#
+# 🔴 argv видно КОЖНОМУ. Заміряно 15.10.2026 на проді: `/proc` змонтовано без
+# hidepid (`mount | grep ' /proc '`), тож `ps` будь-якого користувача читає
+# командні рядки всіх процесів. Три місця клали туди пароль БД: `psql "$url"`,
+# `pg_dump -Fc "$url"` і `sudo -u … env DATABASE_URL=… API_BUILD_TOKEN=… npm run
+# build:web` — sudo лишається живим усю збірку (~400 с) з повним argv.
+#
+# Тепер значення йдуть файлом (0600, власник — користувач служби), який
+# дитина читає й видаляє ПЕРШИМ ділом, до того як почне довгу роботу; у argv
+# лишається лише шлях до файлу. Файл читає `bash -c`, а не `sudo env`, бо
+# sudo при env_reset не віддав би дитині нічого з оточення.
+#
+# Що не вмію передати оточенням — не вгадую й не пропускаю: відмова з назвою
+# параметра (не значення).
+
+# %XX → байт. 1, якщо після % не дві hex-цифри, є сирий зворотний слеш або
+# результат — керівний символ (CR/LF/NUL у паролі — це майже напевно помилка).
+pct_decode() {
+  local s="$1" out="" hex
+  case "$s" in *\\*) return 1 ;; esac
+  while [[ "$s" == *%* ]]; do
+    out+="${s%%\%*}"; s="${s#*%}"
+    hex="${s:0:2}"; s="${s:2}"
+    [[ "$hex" =~ ^[0-9A-Fa-f]{2}$ ]] || return 1
+    case "$hex" in [01][0-9A-Fa-f]|7[Ff]) return 1 ;; esac
+    out+=$(printf "\\x$hex")
+  done
+  printf '%s' "$out$s"
+}
+
+# postgres://user:пароль@host:port/db?sslmode=… → пари в PG_KV (імʼя змінної libpq, значення).
+PG_KV=()
+pg_parse_url() { # url
+  local url="$1" re user pass host port db query kv k v pairs
+  PG_KV=()
+  re='^postgres(ql)?://(([^:@/?]*)(:([^@/?]*))?@)?([^:/?@]*)(:([0-9]*))?(/([^?]*))?(\?(.*))?$'
+  [[ "$url" =~ $re ]] || { echo "DATABASE_URL не схожий на postgres://користувач:пароль@хост:порт/база — відмовляю" >&2; return 1; }
+  user="${BASH_REMATCH[3]}"; pass="${BASH_REMATCH[5]}"; host="${BASH_REMATCH[6]}"
+  port="${BASH_REMATCH[8]}"; db="${BASH_REMATCH[10]}"; query="${BASH_REMATCH[12]}"
+  user=$(pct_decode "$user") && pass=$(pct_decode "$pass") && host=$(pct_decode "$host") && db=$(pct_decode "$db") \
+    || { echo "DATABASE_URL: некоректне %-кодування (або керівний символ) у користувачі, паролі, хості чи базі — відмовляю" >&2; return 1; }
+  [ -z "$host" ] || PG_KV+=(PGHOST "$host")
+  [ -z "$port" ] || PG_KV+=(PGPORT "$port")
+  [ -z "$user" ] || PG_KV+=(PGUSER "$user")
+  [ -z "$pass" ] || PG_KV+=(PGPASSWORD "$pass")
+  [ -z "$db" ] || PG_KV+=(PGDATABASE "$db")
+  if [ -n "$query" ]; then
+    IFS='&' read -r -a pairs <<< "$query"
+    for kv in "${pairs[@]}"; do
+      [ -n "$kv" ] || continue
+      k="${kv%%=*}"; v=""; [ "$k" = "$kv" ] || v="${kv#*=}"
+      case "$k" in
+        sslmode) v=$(pct_decode "$v") || { echo "DATABASE_URL: некоректне %-кодування в sslmode — відмовляю" >&2; return 1; }
+                 PG_KV+=(PGSSLMODE "$v") ;;
+        *) echo "DATABASE_URL має параметр '$k', який я не вмію передати через оточення — відмовляю, а не вгадую" >&2; return 1 ;;
+      esac
+    done
+  fi
+  return 0
+}
+
+# KEY VALUE [KEY VALUE …] → шлях до файлу KEY=значення (значення в лапках bash, %q).
+env_file() {
+  local f
+  f=$(umask 077; mktemp "${TMPDIR:-/tmp}/camptribe-envfile.XXXXXX") || return 1
+  while [ $# -ge 2 ]; do printf '%s=%q\n' "$1" "$2" >> "$f"; shift 2; done
+  if [ "$(id -u)" = 0 ] && [ -n "$USER_" ] && id "$USER_" >/dev/null 2>&1; then chown "$USER_:$USER_" "$f" || { rm -f "$f"; return 1; }; fi
+  printf '%s' "$f"
+}
+# Дитина читає файл і ВИДАЛЯЄ його до `exec`: на довгій роботі (збірка) секрети не лежать на диску.
+# Батько видаляє теж: якщо дитина не стартувала (sudo відмовив), файл не лишиться.
+ENV_RUN='set -a; . "$1" || exit 97; set +a; rm -f "$1"; shift; exec "$@"'
+_with_env_file() { # here|as_user файл cmd…  (одне місце, де файл видаляє батько)
+  local who="$1" f="$2" rc=0; shift 2
+  if [ "$who" = as_user ]; then as_user bash -c "$ENV_RUN" _ "$f" "$@" || rc=$?
+  else bash -c "$ENV_RUN" _ "$f" "$@" || rc=$?; fi
+  rm -f "$f"; return "$rc"
+}
+with_env_file() { _with_env_file here "$@"; }              # від поточного користувача
+with_env_file_as_user() { _with_env_file as_user "$@"; }   # від користувача служби
+
 # KEY=VALUE з .env БЕЗ виконання файлу. `. .env` виконав би все, що там
 # опиниться, а значення з `&`, `;` чи пробілом його б зламало.
 env_get() {
@@ -110,11 +195,12 @@ git_in() { as_user git --no-optional-locks -c safe.directory='*' -C "$1" "${@:2}
 
 # ── що відомо про реліз: маніфест, а якщо його нема — .git ───────────
 #
-# 🔴 «ІМ'Я ТЕКИ = КОМІТ» НЕ ДОВОДИТЬСЯ. Заміряно 15.10.2026: у релізі
-# 0ca5f4e в індексі лежали правки (A backfill-context-names.ts,
-# M compute-context.ts), яких немає в коміті 0ca5f4e. Ім'я казало одне,
-# зміст — інше. Тому маніфест пише повний SHA, а перелік змінених
-# відстежуваних файлів — окремим полем.
+# 🔴 «ІМ'Я ТЕКИ = КОМІТ» НЕ ДОВОДИТЬСЯ. Заміряно 15.10.2026: у теці релізу
+# 0ca5f4e (НЕ чинного: current веде на fd3b06b, і той збігається зі своїм
+# комітом, 583 файли з 583 за sha256) в індексі лежали правки
+# (A backfill-context-names.ts, M compute-context.ts), яких немає в коміті
+# 0ca5f4e. Ім'я казало одне, зміст — інше. Тому маніфест пише повний SHA,
+# а перелік змінених відстежуваних файлів — окремим полем.
 
 manifest_path() { printf '%s/RELEASE.json' "$(rel_dir "$1")"; }
 has_manifest() { [ -f "$(manifest_path "$1")" ]; }
@@ -154,9 +240,11 @@ migration_files_in() { # тека -> рядки "<ts>-<Name>", за зроста
 migration_db_name() { local ts="${1%%-*}" nm="${1#*-}"; printf '%s%s' "$nm" "$ts"; }
 
 applied_migrations() { # реліз -> імена з БД; 1, якщо не прочиталось
-  local url; url=$(env_get "$(rel_dir "$1")/apps/api/.env" DATABASE_URL)
+  local url f; url=$(env_get "$(rel_dir "$1")/apps/api/.env" DATABASE_URL)
   [ -n "$url" ] || return 1
-  PGOPTIONS='-c default_transaction_read_only=on' psql "$url" -X -A -t -c 'select name from migrations order by id' 2>/dev/null
+  pg_parse_url "$url" || return 1
+  f=$(env_file ${PG_KV[@]+"${PG_KV[@]}"} PGOPTIONS '-c default_transaction_read_only=on') || return 1
+  with_env_file "$f" psql -X -A -t -c 'select name from migrations order by id' 2>/dev/null
 }
 
 # $1 = файл зі списком "<ts>-<Name>", $2 = файл з іменами з БД, $3 = pending|ahead
@@ -258,6 +346,16 @@ check_running() { # очікуваний реліз
   if [ "$code" = 200 ]; then say "  ✓ API /health → 200"
   else say "  ✗ API /health → ${code:-?}"; bad=$((bad + 1)); fi
 
+  # 🔴 СТАТИКА НЕ ДОВОДИТЬ, ЩО САЙТ ЖИВИЙ. Тут стояла лише вона (і /health API): коли
+  # перевірку на HTML-коментар BUILD_ID (ненадійну, див. вище) замінили файлом з диска,
+  # зникла ЄДИНА перевірка, що брала сторінку. Будь-який збій рантайму Next, що не
+  # заважає віддавати статику (кожна сторінка 500), давав зелений деплой, `status` «усе
+  # збігається» і жодного автовідкату — відтворено рецензентом 15.10.2026. Тепер питаємо
+  # саме сторінку, ту, яку бачить відвідувач.
+  code=$(http_code "http://127.0.0.1:$WEB_PORT/")
+  if [ "$code" = 200 ]; then say "  ✓ веб віддає HTML (/ → 200)"
+  else say "  ✗ веб не віддає HTML: / → ${code:-?} (статика збірки може віддаватись, а сторінки — ні)"; bad=$((bad + 1)); fi
+
   file_id=$(cat "$(rel_dir "$rel")/apps/web/.next/BUILD_ID" 2>/dev/null || true)
   if [[ "$file_id" =~ ^[A-Za-z0-9_-]+$ ]]; then
     code=$(serves_build "$file_id")
@@ -277,7 +375,7 @@ wait_ready() {
     fi
     sleep "$READY_SLEEP"
   done
-  return 0 # не відповіли — це покаже check_running, зі словами
+  return 0 # не відповіли — це покаже check_running: він сам питає `/` (HTML) і /health, зі словами
 }
 
 # ── історія: єдине джерело «що було перед цим» ───────────────────────
@@ -457,13 +555,15 @@ write_manifest() { # реліз sha ref
 }
 
 snapshot_db() { # реліз, з .env якого береться DATABASE_URL
-  local dir url f old n=0; dir=$(rel_dir "$1")
+  local dir url f pf old n=0; dir=$(rel_dir "$1")
   url=$(env_get "$dir/apps/api/.env" DATABASE_URL)
   [ -n "$url" ] || die "у $dir/apps/api/.env немає DATABASE_URL"
+  pg_parse_url "$url" || die "DATABASE_URL не розібрано — знімка БД не роблю, міграцію не запускаю"
   mkdir -p "$ROOT/backups"
   f="$ROOT/backups/predeploy-$1-$(date -u +%Y%m%dT%H%M%SZ).dump"
   say "  знімок БД перед міграцією → $f"
-  as_user pg_dump -Fc "$url" -f "$f" || { rm -f "$f"; die "pg_dump не вдався — міграцію не запускаю"; }
+  pf=$(env_file ${PG_KV[@]+"${PG_KV[@]}"}) || die "не вдалось підготувати файл оточення для pg_dump — міграцію не запускаю"
+  with_env_file_as_user "$pf" pg_dump -Fc -f "$f" || { rm -f "$f"; die "pg_dump не вдався — міграцію не запускаю"; }
   # 🔴 Знімок, який не прочитали, не вважається зробленим: `pg_restore -l`
   # читає зміст архіву, і порожній чи обрізаний файл тут падає.
   pg_restore -l "$f" >/dev/null 2>&1 || die "знімок $f не читається (pg_restore -l) — міграцію не запускаю"
@@ -510,16 +610,18 @@ build_api() { # реліз
 }
 
 build_web() { # реліз
-  local dir envf; dir=$(rel_dir "$1"); envf="$dir/apps/api/.env"
+  local dir envf bf; dir=$(rel_dir "$1"); envf="$dir/apps/api/.env"
   # 🔴 ВЕБ ЗБИРАЄТЬСЯ ПРОТИ НОВОЇ API, НЕ ПРОТИ ЧИННОЇ. Збірка читає API на
   # льоту (API_BASE_URL) і з неї роблять 65 тис. сторінок. Заміряно
   # 15.10.2026: між живим fd3b06b і main 46 файлів apps/api/src, зокрема
   # сутність camping-spot з колонками warning_areas і overnight_*. Чинна
   # API про них не знає, тож веб, зібраний проти неї, не впав би, а
   # мовчки не мав би цих даних.
-  ( cd "$dir" && as_user env DATABASE_URL="$(env_get "$envf" DATABASE_URL)" API_BUILD_TOKEN="$(env_get "$envf" API_BUILD_TOKEN)" \
-      API_BASE_URL="http://localhost:$BUILD_API_PORT" NODE_OPTIONS=--max-old-space-size=5120 \
-      npm run build:web ) || die "збірка вебу не вдалась — нічого не перемикав"
+  # Секрети — файлом оточення, не `env K=V` в argv (див. «секрети» вище).
+  bf=$(env_file DATABASE_URL "$(env_get "$envf" DATABASE_URL)" API_BUILD_TOKEN "$(env_get "$envf" API_BUILD_TOKEN)" \
+      API_BASE_URL "http://localhost:$BUILD_API_PORT" NODE_OPTIONS --max-old-space-size=5120) \
+    || die "не вдалось підготувати файл оточення для збірки вебу — нічого не перемикав"
+  ( cd "$dir" && with_env_file_as_user "$bf" npm run build:web ) || die "збірка вебу не вдалась — нічого не перемикав"
   [ -f "$dir/apps/web/.next/BUILD_ID" ] || die "збірка вебу не дала BUILD_ID"
 }
 
@@ -578,7 +680,7 @@ cmd_status() {
 
   say "схема БД:"
   ap=$(mktemp); known=$(mktemp)
-  if applied_migrations "$rel" > "$ap" 2>/dev/null; then
+  if applied_migrations "$rel" > "$ap"; then
     migration_files_in "$(rel_dir "$rel")/apps/api/src/migrations" > "$known"
     pend=$(migration_delta "$known" "$ap" pending); ahead=$(migration_delta "$known" "$ap" ahead)
     say "  застосовано в БД: $(grep -c . "$ap" || true); відомо релізу: $(grep -c . "$known" || true)"
@@ -614,7 +716,7 @@ switch_plan() { # реліз
   [ -d "$(rel_dir "$rel")" ] || { say "✗ релізу $rel немає в $ROOT/releases"; return 1; }
   built "$rel" || { say "✗ реліз $rel не збудований (немає .next/BUILD_ID чи dist/main.js)"; return 1; }
   ap=$(mktemp); known=$(mktemp)
-  if applied_migrations "$rel" > "$ap" 2>/dev/null; then
+  if applied_migrations "$rel" > "$ap"; then
     migration_files_in "$(rel_dir "$rel")/apps/api/src/migrations" > "$known"
     pend=$(migration_delta "$known" "$ap" pending); ahead=$(migration_delta "$known" "$ap" ahead)
     if [ -n "$pend" ]; then
@@ -706,7 +808,7 @@ cmd_deploy() { # sha apply migrate migrations-від-ноутбука ref
   # (`--migrations`, обчислено з git за цим SHA); при --apply він
   # перераховується з теки, яку скрипт сам витягнув, і ЗВІРЯЄТЬСЯ.
   known=$(mktemp); ap=$(mktemp)
-  applied_migrations "$cur" > "$ap" 2>/dev/null || { rm -f "$known" "$ap"; die "не вдалось прочитати таблицю migrations — планувати міграції наосліп не можна"; }
+  applied_migrations "$cur" > "$ap" || { rm -f "$known" "$ap"; die "не вдалось прочитати таблицю migrations — планувати міграції наосліп не можна"; }
   if [ -n "$given" ]; then printf '%s\n' "$given" | tr ',' '\n' > "$known"; have_list=yes
   elif [ -d "$dir/apps/api/src/migrations" ]; then migration_files_in "$dir/apps/api/src/migrations" > "$known"; have_list=yes; fi
   if [ "$have_list" = yes ]; then pend=$(migration_delta "$known" "$ap" pending); fi
@@ -803,29 +905,68 @@ safe_rm_rehearsal() { # шлях
 
 cp_al() { if cp -al "$1" "$2" 2>/dev/null; then :; elif command -v gcp >/dev/null 2>&1; then gcp -al "$1" "$2"; else return 1; fi; }
 
+# Лічильник жорстких посилань: GNU `stat -c %h`, BSD `stat -f %l`. Порожньо, якщо не прочитався.
+nlink() { stat -c %h "$1" 2>/dev/null || stat -f %l "$1" 2>/dev/null || true; }
+
+# Що прибере `--teardown`, без жодної зміни: це ВЕСЬ вивід його сухого прогону.
+rehearsal_teardown_plan() { # root rapi-unit rweb-unit
+  local R="$1" ra="$2" rw="$3" d rels=""
+  say "буде зупинено й прибрано (нічого з цього зараз не чіпається):"
+  say "  юніти:  $rw ($( [ -f "$UNIT_DIR/$rw.service" ] && echo 'файл є' || echo 'файлу немає' )), $ra ($( [ -f "$UNIT_DIR/$ra.service" ] && echo 'файл є' || echo 'файлу немає' )), у $UNIT_DIR"
+  if [ -d "$R" ]; then
+    say "  корінь: $R — є$( [ -f "$R/.camptribe-rehearsal-root" ] && echo ', мітка репетиційного кореня на місці' || echo ', АЛЕ мітки репетиційного кореня немає: видалення відмовиться' )"
+    for d in "$R"/releases/*; do if [ -d "$d" ]; then rels="$rels ${d##*/}"; fi; done
+    say "  після цього — лічильник посилань BUILD_ID у бойових релізів:${rels:- (репетиційних релізів немає, перевіряти нічого)}"
+  else
+    say "  корінь: $R — немає, прибирати нічого"
+  fi
+  say "Застосувати: додай --apply  (camptribe-deploy rehearse --teardown --apply)"
+}
+
 rehearsal_teardown() { # root rapi-unit rweb-unit [old new]
-  local R="$1" ra="$2" rw="$3" old="${4:-}" new="${5:-}" r h
+  local R="$1" ra="$2" rw="$3" d r h checked=0 rels="${4:-} ${5:-}"
+  # 🔴 Самостійний `--teardown` (після `--keep`) кличеться БЕЗ імен релізів, і доказ «репетиційних
+  # посилань не лишилось» крутився нуль разів, мовчки рапортуючи успіх — саме на шляху, яким
+  # людина користується. Тож імена беруться з теки, яку зараз прибиратимемо: вона знає, на що
+  # посилалась.
+  if [ -d "$R/releases" ]; then
+    for d in "$R"/releases/*; do if [ -d "$d" ]; then rels="$rels ${d##*/}"; fi; done
+  fi
   systemctl stop "$rw" "$ra" 2>/dev/null || true
   rm -f "$UNIT_DIR/$ra.service" "$UNIT_DIR/$rw.service"
   systemctl daemon-reload 2>/dev/null || true
   if [ -d "$R" ]; then safe_rm_rehearsal "$R" || return 1; fi
   # Прибрали лише власні посилання: у бойових файлів лічильник має знову бути 1.
-  for r in $old $new; do
-    if stat -c %h "$ROOT/releases/$r/apps/web/.next/BUILD_ID" >/dev/null 2>&1; then
-      h=$(stat -c %h "$ROOT/releases/$r/apps/web/.next/BUILD_ID")
-      if [ "$h" = 1 ]; then say "  ✓ бойовий реліз $r: лічильник посилань BUILD_ID = 1 (репетиційних посилань не лишилось)"
-      else say "  ✗ бойовий реліз $r: лічильник посилань BUILD_ID = $h — лишились чужі посилання"; return 1; fi
-    fi
+  for r in $(printf '%s\n' $rels | LC_ALL=C sort -u); do
+    is_rel_name "$r" || continue
+    [ -f "$ROOT/releases/$r/apps/web/.next/BUILD_ID" ] || continue
+    h=$(nlink "$ROOT/releases/$r/apps/web/.next/BUILD_ID")
+    [ -n "$h" ] || { say "  ✗ бойовий реліз $r: лічильник посилань BUILD_ID не прочитався (ні stat -c, ні stat -f) — «не знаю» не є «гаразд»"; return 1; }
+    if [ "$h" = 1 ]; then say "  ✓ бойовий реліз $r: лічильник посилань BUILD_ID = 1 (репетиційних посилань не лишилось)"
+    else say "  ✗ бойовий реліз $r: лічильник посилань BUILD_ID = $h — лишились чужі посилання"; return 1; fi
+    checked=$((checked + 1))
   done
+  # Нуль перевірених — не успіх, а «перевіряти було нічого»: так і пишемо.
+  if [ "$checked" = 0 ]; then say "  лічильник посилань не перевірявся: репетиційних релізів не було (нічого не лишалось)"; fi
+  return 0
 }
 
 cmd_rehearse() { # apply keep teardown
   local apply="$1" keep="$2" teardown="$3"
   local R="$REHEARSAL_ROOT" RWEB="${CAMPTRIBE_REHEARSAL_WEB_PORT:-3100}" RAPI="${CAMPTRIBE_REHEARSAL_API_PORT:-3101}" ra=camptribe-rehearsal-api rw=camptribe-rehearsal-web
+  if [ "$keep" = yes ] && [ "$teardown" = yes ]; then
+    printf '%s\n' '--keep і --teardown разом не мають сенсу: одне лишає світ репетиції, друге його прибирає' >&2; exit 2
+  fi
   need jq; need curl; need git
   case "$R" in /|"$ROOT"|"$ROOT"/*) die "репетиційний корінь '$R' не може збігатись із бойовим $ROOT чи лежати в ньому" ;; esac
   preflight
-  if [ "$teardown" = yes ]; then say "== rehearse --teardown"; rehearsal_teardown "$R" "$ra" "$rw"; return; fi
+  # 🔴 `--teardown` МІНЯЄ машину (зупиняє юніти, стирає світ), тож стоїть ПІСЛЯ того самого правила, що й усе
+  # інше: без `--apply` — лише план. До 15.10.2026 ця гілка стояла перед перевіркою `--apply` нижче.
+  if [ "$teardown" = yes ]; then
+    say "== rehearse --teardown  $( [ "$apply" = yes ] && echo '(--apply)' || echo '(СУХИЙ ПРОГІН: нічого не змінюється)')"
+    if [ "$apply" != yes ]; then rehearsal_teardown_plan "$R" "$ra" "$rw"; return 0; fi
+    rehearsal_teardown "$R" "$ra" "$rw"; return
+  fi
 
   # Два найновіші збудовані релізи з РІЗНИМ BUILD_ID: старий — «що було», новий — «що викотили».
   local list d r new="" old="" nid="" oid="" id
@@ -848,7 +989,7 @@ cmd_rehearse() { # apply keep teardown
   local p
   # Спершу залишок: після `--keep` порти зайняті ще ЖИВИМ світом, і «порт зайнятий»
   # затьмарило б справжню причину та ліки (`--teardown`).
-  [ ! -e "$R" ] || die "$R уже існує — лишок попередньої репетиції. Прибрати: camptribe-deploy rehearse --teardown"
+  [ ! -e "$R" ] || die "$R уже існує — лишок попередньої репетиції. Прибрати: camptribe-deploy rehearse --teardown --apply"
   for p in $RAPI $RWEB; do
     [ -z "$(listener_pid "$p")" ] || die "порт $p зайнятий"
   done
@@ -913,7 +1054,7 @@ cmd_rehearse() { # apply keep teardown
     trap - EXIT
     rehearsal_teardown "$R" "$ra" "$rw" "$old" "$new" || die "прибирання репетиції не вдалось"
   else
-    say "  --keep: світ $R і юніти $ra, $rw ЛИШЕНО. Прибрати: camptribe-deploy rehearse --teardown"
+    say "  --keep: світ $R і юніти $ra, $rw ЛИШЕНО. Прибрати: camptribe-deploy rehearse --teardown --apply"
   fi
   prod_after="$(link_rel)|$(systemctl show -p MainPID --value "$API_UNIT")|$(systemctl show -p MainPID --value "$WEB_UNIT")|$(systemctl show -p ActiveEnterTimestampMonotonic --value "$API_UNIT")|$(systemctl show -p ActiveEnterTimestampMonotonic --value "$WEB_UNIT")"
   [ "$prod_before" = "$prod_after" ] || die "БОЙОВЕ РУШИЛО: було '$prod_before', стало '$prod_after'"
@@ -935,6 +1076,14 @@ wait_ready_at() { # webport apiport
 
 # ── вхід ─────────────────────────────────────────────────────────────
 
+# Прапорець зі значенням: значення мусить бути, і не мусить саме бути прапорцем.
+# 🔴 Раніше `--to` останнім аргументом вбивав розбірник через `set -e` на `shift`: код 1 і жодного
+# слова. А `--to --apply` мовчки брав `--apply` за ціль.
+need_value() { # прапорець [значення …]
+  if [ $# -lt 2 ]; then printf 'прапорець %s потребує значення\n' "$1" >&2; exit 2; fi
+  case "$2" in -*) printf 'прапорець %s потребує значення, а не прапорець (отримано %s)\n' "$1" "$2" >&2; exit 2 ;; esac
+}
+
 main() {
   trap '' HUP   # розрив ssh не повинен зупиняти збірку на півдорозі
   local cmd="${1:-}"; [ $# -eq 0 ] || shift
@@ -948,11 +1097,11 @@ main() {
       --migrate) migrate=yes ;;
       --keep) keep=yes ;;
       --teardown) teardown=yes ;;
-      --sha) sha="${2:-}"; shift ;;
-      --ref) ref="${2:-}"; shift ;;
-      --migrations) migrations="${2:-}"; shift ;;
-      --to) to="${2:-}"; shift ;;
-      --deployer) CAMPTRIBE_DEPLOYER="${2:-}"; export CAMPTRIBE_DEPLOYER; shift ;;
+      --sha) need_value "$@"; sha="$2"; shift ;;
+      --ref) need_value "$@"; ref="$2"; shift ;;
+      --migrations) need_value "$@"; migrations="$2"; shift ;;
+      --to) need_value "$@"; to="$2"; shift ;;
+      --deployer) need_value "$@"; CAMPTRIBE_DEPLOYER="$2"; export CAMPTRIBE_DEPLOYER; shift ;;
       -h|--help) usage 0 ;;
       -*) printf 'невідомий прапорець: %s\n' "$1" >&2; exit 2 ;;
       *) pos="$1" ;;

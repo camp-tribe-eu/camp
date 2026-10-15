@@ -7,7 +7,8 @@
 #   ./infra/deploy-app.sh --status                     # що зараз на проді
 #   ./infra/deploy-app.sh --rollback [--to REL]        # сухий прогін відкату
 #   ./infra/deploy-app.sh --rollback --apply           # відкотити
-#   ./infra/deploy-app.sh --rehearse [--apply]         # відрепетирувати відкат у паралельному світі
+#   ./infra/deploy-app.sh --rehearse [--apply] [--keep] # відрепетирувати відкат у паралельному світі
+#   ./infra/deploy-app.sh --rehearse --teardown [--apply]  # прибрати залишок після --keep (сухий прогін без --apply)
 #   ./infra/deploy-app.sh --sha <sha> | --ref <гілка>  # що викочувати (за замовчуванням origin/main)
 #
 # 🔴 СУХИЙ ПРОГІН ЗА ЗАМОВЧУВАННЯМ. Без `--apply` на машині не змінюється
@@ -38,7 +39,14 @@ KEY="${CAMPTRIBE_KEY:-$HOME/.ssh/id_ed25519_camptribe_server}"
 REMOTE_TMP="${CAMPTRIBE_REMOTE_TMP:-/run}"
 
 die() { printf '✗ %s\n' "$*" >&2; exit 1; }
-usage() { sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+
+# Прапорець зі значенням: значення мусить бути, і не мусить саме бути прапорцем.
+# 🔴 Раніше `--to` останнім аргументом вбивав розбірник через `set -e` на `shift`: код 1 і жодного слова.
+need_value() { # прапорець [значення …]
+  if [ $# -lt 2 ]; then printf 'прапорець %s потребує значення\n' "$1" >&2; exit 2; fi
+  case "$2" in -*) printf 'прапорець %s потребує значення, а не прапорець (отримано %s)\n' "$1" "$2" >&2; exit 2 ;; esac
+}
 
 mode=deploy; apply=""; migrate=""; sha=""; ref=""; to=""; keep=""; teardown=""
 while [ $# -gt 0 ]; do
@@ -50,9 +58,9 @@ while [ $# -gt 0 ]; do
     --rehearse) mode=rehearse ;;
     --keep) keep=--keep ;;
     --teardown) teardown=--teardown ;;
-    --to) to="${2:-}"; shift ;;
-    --sha) sha="${2:-}"; shift ;;
-    --ref) ref="${2:-}"; shift ;;
+    --to) need_value "$@"; to="$2"; shift ;;
+    --sha) need_value "$@"; sha="$2"; shift ;;
+    --ref) need_value "$@"; ref="$2"; shift ;;
     -h|--help) usage ;;
     *) echo "невідомий прапорець: $1" >&2; exit 2 ;;
   esac
@@ -77,7 +85,8 @@ case "$mode" in
     git -C "$REPO_ROOT" fetch -q origin || die "git fetch origin не вдався — не знаю, що на origin"
     if [ -n "$sha" ]; then
       full="$(git -C "$REPO_ROOT" rev-parse --verify "$sha^{commit}" 2>/dev/null)" || die "'$sha' — не коміт"
-      label="--sha $sha"
+      # Не `--sha …`: цей підпис їде виконавцю значенням `--ref`, а значення з тире виконавець відхиляє.
+      label="sha $sha"
     else
       ref="${ref:-main}"
       full="$(git -C "$REPO_ROOT" rev-parse --verify "origin/$ref^{commit}" 2>/dev/null)" || die "немає origin/$ref"

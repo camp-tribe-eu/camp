@@ -38,7 +38,7 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-deploy-selftest.XXXXXX")"
 cleanup_all() { stop_world; rm -rf "$BASE"; }
 trap cleanup_all EXIT
 trap 'exit 130' INT TERM
-EXPECTED=100
+EXPECTED=129
 PASSED=0
 FAILED=0
 pass() { echo "  ✓ $1"; PASSED=$((PASSED + 1)); }
@@ -80,6 +80,11 @@ const bad = process.env.STUB_UNIT === '1' && process.cwd().includes(process.env.
 http.createServer((q, s) => {
   // «поламаний» процес віддає статику ЧУЖОЇ збірки (STUB_WEB_ID), хоч працює з правильної теки
   const id = (bad && process.env.STUB_WEB_ID) || fs.readFileSync('.next/BUILD_ID', 'utf8').trim();
+  // …або НЕ РЕНДЕРИТЬ HTML (STUB_WEB_HTML=500): збій рантайму Next, що не заважає віддавати
+  // файли з диска. Статика збірки лишається 200, тож її перевірка цього не бачить.
+  if (bad && process.env.STUB_WEB_HTML === '500' && !q.url.startsWith('/_next/static/')) {
+    s.writeHead(500, { 'content-type': 'text/plain' }); return s.end('Internal Server Error');
+  }
   const m = /^\/_next\/static\/([^/]+)\/_buildManifest\.js$/.exec(q.url);
   if (m) {
     if (m[1] === id) { s.writeHead(200, { 'content-type': 'application/javascript' }); return s.end('self.__BUILD_MANIFEST={}'); }
@@ -180,6 +185,10 @@ case "$*" in
     mkdir -p apps/api/dist
     sed "s/__VERSION__/$(cat VERSION)/" "$STUB_DIR/api.js" > apps/api/dist/main.js ;;
   "run build:web")
+    . "$STUB_DIR/leak.sh"; leakcheck build:web
+    # Файл оточення з секретами мусить зникнути ДО того, як збірка (~400 с) почнеться, а не після.
+    printf 'DATABASE_URL=%s\nAPI_BUILD_TOKEN=%s\nAPI_BASE_URL=%s\nNODE_OPTIONS=%s\nENVFILES=%s\n' "${DATABASE_URL-<unset>}" "${API_BUILD_TOKEN-<unset>}" \
+      "${API_BASE_URL-<unset>}" "${NODE_OPTIONS-<unset>}" "$(ls "${TMPDIR:-/tmp}"/camptribe-envfile.* 2>/dev/null | wc -l | tr -d ' ')" > "$W/buildenv"
     base="${API_BASE_URL:?}"
     code=$(curl -s -o /dev/null -w '%{http_code}' "$base/health")
     [ "$code" = 200 ] || { echo "build:web: API на $base відповіла '$code'" >&2; exit 1; }
@@ -201,7 +210,11 @@ SH
 cat > "$STUBBIN/psql" <<'SH'
 #!/usr/bin/env bash
 W="${STUB_W:?}"
-echo "psql ${*:2}" >> "$W/calls"
+echo "psql $*" >> "$W/calls"
+. "$STUB_DIR/leak.sh"; leakcheck psql
+# Що інструмент справді отримав у ОТОЧЕННІ: так бачить libpq. У argv цього немає, і тест це доводить.
+printf 'host=%s port=%s user=%s db=%s ssl=%s pw=%s opts=%s\n' "${PGHOST-<unset>}" "${PGPORT-<unset>}" "${PGUSER-<unset>}" \
+  "${PGDATABASE-<unset>}" "${PGSSLMODE-<unset>}" "${PGPASSWORD-<unset>}" "${PGOPTIONS-<unset>}" >> "$W/pgenv.psql"
 [ "${STUB_PSQL:-}" != fail ] || exit 2
 case "$*" in *"from migrations"*) cat "$W/db/applied" ;; esac
 SH
@@ -209,6 +222,9 @@ cat > "$STUBBIN/pg_dump" <<'SH'
 #!/usr/bin/env bash
 W="${STUB_W:?}"
 echo "pg_dump $*" >> "$W/calls"
+. "$STUB_DIR/leak.sh"; leakcheck pg_dump
+printf 'host=%s port=%s user=%s db=%s ssl=%s pw=%s opts=%s\n' "${PGHOST-<unset>}" "${PGPORT-<unset>}" "${PGUSER-<unset>}" \
+  "${PGDATABASE-<unset>}" "${PGSSLMODE-<unset>}" "${PGPASSWORD-<unset>}" "${PGOPTIONS-<unset>}" >> "$W/pgenv.pg_dump"
 [ "${STUB_PGDUMP:-}" != fail ] || exit 1
 f=""; while [ $# -gt 0 ]; do [ "$1" = -f ] && f="$2"; shift; done
 if [ "${STUB_PGDUMP:-}" = empty ]; then : > "$f"; else echo "dump of $(tr '\n' ' ' < "$W/db/applied")" > "$f"; fi
@@ -230,6 +246,42 @@ echo "systemd-run $*" >> "$W/calls"
 if [ -n "${STUB_PROBE_WRITABLE:-}" ]; then exec /bin/sh -c "${*: -1}"; fi
 echo READONLY
 SH
+# Лічильник: скільки процесів НА МАШИНІ тримають секрет у командному рядку просто зараз.
+# Його кличуть підмінники інструментів у ту мить, коли справжні psql/pg_dump/збірка жили б.
+# `ps` читає ВЕСЬ перелік процесів, тож він бачить і предків (sudo, bash -c), а не лише сам інструмент.
+cat > "$STUBDIR/leak.sh" <<'SH'
+leakcheck() { # імʼя інструмента
+  [ -n "${STUB_SECRET_MARKS:-}" ] || return 0
+  local W="${STUB_W:?}" total n
+  # shellcheck disable=SC2086
+  printf '%s\n' $STUB_SECRET_MARKS > "$W/leak.marks"
+  ps axww -o args= > "$W/leak.ps.$$" 2>/dev/null || true
+  total=$(grep -c . "$W/leak.ps.$$" || true)
+  n=$(grep -c -F -f "$W/leak.marks" "$W/leak.ps.$$" || true)
+  echo "$1 procs=$total leaks=$n" >> "$W/leak.log"
+  rm -f "$W/leak.ps.$$"
+}
+SH
+
+# sudo — як справжній: лишається ПРОЦЕСОМ-БАТЬКОМ на весь час життя дитини (його argv, з усім, що
+# йому передали, видно в `ps` увесь цей час), і, як при env_reset, віддає дитині не все оточення.
+cat > "$STUBBIN/sudo" <<'SH'
+#!/usr/bin/env bash
+W="${STUB_W:?}"
+echo "sudo $*" >> "$W/calls"
+while [ $# -gt 0 ]; do case "$1" in -u) shift 2 ;; -H) shift ;; *) break ;; esac; done
+case " $* " in *" ${STUB_SUDO_FAIL:-ZZZNOTHING} "*) exit 1 ;; esac
+keep=()
+for v in $(compgen -e); do
+  case "$v" in PATH|HOME|TERM|TMPDIR|LANG|LC_*|STUB_*|FAKE_BUILD_ID|GIT_*) keep+=("$v=${!v}") ;; esac
+done
+env -i "${keep[@]}" "$@"
+rc=$?   # не останній рядок: bash не підміняє себе дитиною, і argv sudo лишається в `ps`
+exit "$rc"
+SH
+printf '#!/usr/bin/env bash\nexit 0\n' > "$STUBBIN/chown"
+# stat, що вміє «не прочитатись» (STUB_STAT_FAIL): інакше гілка «лічильник не прочитався» недосяжна.
+printf '#!/usr/bin/env bash\n[ -z "${STUB_STAT_FAIL:-}" ] || exit 1\nexec %s "$@"\n' "$(command -v stat)" > "$STUBBIN/stat"
 chmod +x "$STUBBIN"/*
 
 # ── репозиторій ──────────────────────────────────────────────────────
@@ -403,6 +455,40 @@ X deploy --sha "$SHA1" --apply >/dev/null
 [ $RC -eq 0 ] && echo "$OUT" | grep -q 'СУХИЙ ПРОГІН' && [ "$(fingerprint "$W/root")" = "$FP" ] && [ -z "$(mutating_calls)" ] \
   && pass "rehearse без --apply: план, нічого не створено" || fail "rehearse без --apply: план, нічого не створено" "rc=$RC $OUT"
 
+# 🔴 Відбиток дивився лише на $W/root, а teardown руйнує НЕ ТАМ: корінь репетиції, її юніти й порти лежать
+# поза ним. Сторож, сліпий до місця, де міняється стан, червоніти не може. Тому тут світ, у якому живе
+# ВСЕ, що будь-яка команда могла б зачепити, і відбиток охоплює все це.
+new_world a4
+X deploy --sha "$SHA1" --apply >/dev/null; X rehearse --apply --keep >/dev/null
+fp_all() {
+  echo "root=$(fingerprint "$W/root") rehearsal=$(fingerprint "$W/rehearsal" 2>&1) units=$(fingerprint "$W/unitdir")" \
+       "rweb=$(port_up "$RWP" && echo up || echo down) rapi=$(port_up "$RAP" && echo up || echo down)"
+}
+FPALL=$(fp_all)
+[ -d "$W/rehearsal" ] && [ -f "$W/rehearsal/.camptribe-rehearsal-root" ] && [ -f "$W/unitdir/camptribe-rehearsal-api.service" ] && [ -f "$W/unitdir/camptribe-rehearsal-web.service" ] && port_up "$RWP" && port_up "$RAP" \
+  && pass "передумова A4: після rehearse --apply --keep світ репетиції живий (корінь, обидва юніти, обидва порти)" \
+  || fail "передумова A4: після rehearse --apply --keep світ репетиції живий (корінь, обидва юніти, обидва порти)" "$(ls "$W" "$W/unitdir" 2>&1)"
+dry_case() { # опис очікуваний-код args…
+  local label="$1" want="$2"; shift 2
+  : > "$W/calls"; X "$@"
+  if [ $RC -eq "$want" ] && [ "$(fp_all)" = "$FPALL" ] && [ -z "$(mutating_calls)" ]; then
+    pass "без --apply, коли світ репетиції живий: $label — код $want, кореня, юнітів і портів не зачеплено"
+  else fail "без --apply, коли світ репетиції живий: $label — код $want, кореня, юнітів і портів не зачеплено" "rc=$RC mutating=[$(mutating_calls)] changed=$([ "$(fp_all)" = "$FPALL" ] && echo no || echo YES) $OUT"; fi
+}
+dry_case "status" 0 status
+dry_case "deploy --sha … --migrate" 0 deploy --sha "$SHA2" --migrate
+dry_case "switch" 0 switch "$S0"
+dry_case "rollback" 0 rollback
+dry_case "rehearse (відмовляє: залишок)" 1 rehearse
+dry_case "rehearse --keep" 1 rehearse --keep
+dry_case "rehearse --teardown" 0 rehearse --teardown
+dry_case "rehearse --keep --teardown (суперечливі прапорці)" 2 rehearse --keep --teardown
+: > "$W/calls"; X rehearse --teardown
+if [ $RC -eq 0 ] && echo "$OUT" | grep -q 'СУХИЙ ПРОГІН' && echo "$OUT" | grep -qF "$W/rehearsal" \
+   && echo "$OUT" | grep -q 'camptribe-rehearsal-api' && echo "$OUT" | grep -q 'camptribe-rehearsal-web' && echo "$OUT" | grep -q -- '--teardown --apply'; then
+  pass "rehearse --teardown без --apply: слова «СУХИЙ ПРОГІН», що саме буде прибрано (корінь, обидва юніти) і як застосувати"
+else fail "rehearse --teardown без --apply: слова «СУХИЙ ПРОГІН», що саме буде прибрано (корінь, обидва юніти) і як застосувати" "rc=$RC $OUT"; fi
+
 # ═══════════════════════════════════════════════════════════════════
 section "B. Реліз пов'язаний із комітом не лише іменем теки"
 
@@ -423,7 +509,7 @@ if [ -f "$M" ] \
 else fail "маніфест, прочитаний з ФАЙЛУ: повний SHA, ім'я теки, хто, коли, BUILD_ID, міграції" "$(cat "$M" 2>&1)"; fi
 [ "$(node -e 'console.log((require("fs").statSync(process.argv[1]).mode & 0o777).toString(8))' "$M")" = 444 ] && pass "маніфест записано лише для читання (444)" || fail "маніфест записано лише для читання (444)"
 X status
-[ $RC -eq 0 ] && echo "$OUT" | grep -q "$SHA1" && echo "$OUT" | grep -q 'commit v1' && echo "$OUT" | grep -q 'ВИСНОВОК: усе збігається' \
+[ $RC -eq 0 ] && echo "$OUT" | grep -q "$SHA1" && echo "$OUT" | grep -q 'commit v1' && echo "$OUT" | grep -q 'ВИСНОВОК: усе збігається' && echo "$OUT" | grep -q 'веб віддає HTML (/ → 200)' \
   && pass "status: повний SHA й тема коміту з маніфесту, і вирок «усе збігається»" || fail "status: повний SHA й тема коміту з маніфесту, і вирок «усе збігається»" "$OUT"
 
 echo tamper >> "$W/root/releases/$S1/apps/api/dist/main.js"
@@ -502,6 +588,21 @@ FAKE_BUILD_ID='bad/id?x' X deploy --sha "$SHA1" --apply
 [ $RC -eq 3 ] && echo "$OUT" | grep -q 'немає придатного .next/BUILD_ID' && [ "$(readlink "$W/root/current")" = "releases/$S0" ] \
   && pass "BUILD_ID, який не можна безпечно вставити в URL, не перевіряється наосліп: деплой не проходить, повернуто $S0" \
   || fail "BUILD_ID, який не можна безпечно вставити в URL, не перевіряється наосліп: деплой не проходить, повернуто $S0" "rc=$RC $OUT"
+
+# 🔴 Збій рантайму Next, що не заважає віддавати файли з диска: `/health` і статика збірки 200, а КОЖНА
+# HTML-сторінка 500. Перевірка, що брала лише статику, цього не бачила: деплой проходив, відкату не було.
+new_world c11
+STUB_BAD_RELEASE="$S1" STUB_WEB_HTML=500 X deploy --sha "$SHA1" --apply
+if [ $RC -eq 3 ] && [ "$(readlink "$W/root/current")" = "releases/$S0" ] && echo "$OUT" | grep -q 'веб не віддає HTML: / → 500' \
+   && ! echo "$OUT" | grep -q 'веб не віддає статику збірки' && ! echo "$OUT" | grep -q 'працює з .*, а чекали' && ! echo "$OUT" | grep -q '✗ API /health'; then
+  pass "кожна HTML-сторінка 500, а /health і статика 200: деплой не проходить, повернуто $S0, код 3 (ловить саме перевірка HTML)"
+else fail "кожна HTML-сторінка 500, а /health і статика 200: деплой не проходить, повернуто $S0, код 3 (ловить саме перевірка HTML)" "rc=$RC link=$(readlink "$W/root/current") $OUT"; fi
+
+STUB_BAD_RELEASE="$S0" STUB_WEB_HTML=500 new_world c12
+X status
+if [ $RC -ne 0 ] && echo "$OUT" | grep -q 'веб не віддає HTML: / → 500' && echo "$OUT" | grep -q 'РОЗБІЖНОСТЕЙ 1,' && ! echo "$OUT" | grep -q 'веб не віддає статику збірки'; then
+  pass "status на живому сайті, що віддає 500 на HTML при здоровій статиці: код ≠ 0, рівно одна розбіжність, названа"
+else fail "status на живому сайті, що віддає 500 на HTML при здоровій статиці: код ≠ 0, рівно одна розбіжність, названа" "rc=$RC $OUT"; fi
 
 new_world c8
 STUB_WD_OVERRIDE=/srv/camptribe/current/apps/api X deploy --sha "$SHA1" --apply
@@ -734,8 +835,26 @@ else fail "rehearse --keep лишає світ: корінь, юніти й пр
 X rehearse --apply
 [ $RC -eq 1 ] && echo "$OUT" | grep -q 'уже існує' && [ -d "$W/rehearsal" ] \
   && pass "rehearse --apply поверх залишку відмовляє й залишок не чіпає" || fail "rehearse --apply поверх залишку відмовляє й залишок не чіпає" "rc=$RC $OUT"
-X rehearse --teardown
-[ $RC -eq 0 ] && [ -z "$(leftovers)" ] && pass "rehearse --teardown прибирає залишок: корінь, юніти, порти" || fail "rehearse --teardown прибирає залишок: корінь, юніти, порти" "rc=$RC left='$(leftovers)' $OUT"
+X rehearse --teardown --apply
+[ $RC -eq 0 ] && [ -z "$(leftovers)" ] && pass "rehearse --teardown --apply прибирає залишок: корінь, юніти, порти" || fail "rehearse --teardown --apply прибирає залишок: корінь, юніти, порти" "rc=$RC left='$(leftovers)' $OUT"
+# 🔴 Самостійний teardown кличеться без імен релізів, тож доказ «репетиційних посилань не лишилось» крутився
+# нуль разів і мовчки рапортував успіх. Тепер імена беруться з теки, яку він прибирає, і кожен названо.
+if [ $RC -eq 0 ] && echo "$OUT" | grep -q "бойовий реліз $S0: лічильник посилань BUILD_ID = 1" && echo "$OUT" | grep -q "бойовий реліз $S1: лічильник посилань BUILD_ID = 1"; then
+  pass "самостійний teardown (після --keep) доводить, що лічильник посилань BUILD_ID = 1 в обох бойових релізів, а не мовчить"
+else fail "самостійний teardown (після --keep) доводить, що лічильник посилань BUILD_ID = 1 в обох бойових релізів, а не мовчить" "rc=$RC $OUT"; fi
+
+rehearsal_world i9
+X rehearse --apply --keep >/dev/null
+ln "$W/root/releases/$S1/apps/web/.next/BUILD_ID" "$W/stray-link"   # чуже жорстке посилання на бойовий файл
+X rehearse --teardown --apply
+[ $RC -ne 0 ] && echo "$OUT" | grep -q "бойовий реліз $S1: лічильник посилань BUILD_ID = 2" && echo "$OUT" | grep -q 'лишились чужі посилання' && [ -z "$(leftovers)" ] \
+  && pass "чуже жорстке посилання на бойовий файл: самостійний teardown не рапортує успіх (код ≠ 0, лічильник 2 названо)" || fail "чуже жорстке посилання на бойовий файл: самостійний teardown не рапортує успіх (код ≠ 0, лічильник 2 названо)" "rc=$RC left='$(leftovers)' $OUT"
+
+rehearsal_world i10
+X rehearse --apply --keep >/dev/null
+STUB_STAT_FAIL=1 X rehearse --teardown --apply
+[ $RC -ne 0 ] && echo "$OUT" | grep -q "бойовий реліз .*: лічильник посилань BUILD_ID не прочитався" && ! echo "$OUT" | grep -q 'лічильник посилань BUILD_ID = 1' && [ -z "$(leftovers)" ] \
+  && pass "лічильник посилань не прочитався (stat мовчить): teardown не рапортує «= 1» і не успіх, а називає, що не знає" || fail "лічильник посилань не прочитався (stat мовчить): teardown не рапортує «= 1» і не успіх, а називає, що не знає" "rc=$RC left='$(leftovers)' $OUT"
 
 rehearsal_world i5
 node -e 'require("http").createServer().listen(+process.argv[1], "127.0.0.1")' "$RWP" & BUSY=$!
@@ -756,6 +875,83 @@ rehearsal_world i8
 STUB_PROBE_WRITABLE=1 X rehearse --apply
 [ $RC -ne 0 ] && echo "$OUT" | grep -q 'проба запису' && ! calls_have '^systemctl start' && [ -z "$(leftovers)" ] \
   && pass "проба запису в пісочниці вдалась (мало бути READONLY): не стартує, пробу прибрано, світ прибрано" || fail "проба запису в пісочниці вдалась (мало бути READONLY): не стартує, пробу прибрано, світ прибрано" "rc=$RC $OUT"
+
+# ═══════════════════════════════════════════════════════════════════
+section "J. Облікові дані не потрапляють у командний рядок"
+
+# 🔴 `ps` на сервері бачить кожен: /proc там змонтовано без hidepid. Тож пароль БД і токен збірки не смій-
+# ть стояти в argv жодного процесу: ні самого інструмента (`psql "$url"`, `pg_dump "$url"`), ні його
+# предка (`sudo -u … env DATABASE_URL=… npm`: sudo живе всю збірку, ~400 с, з повним argv).
+# Світ тут — «root»: `id -u` дає 0, `sudo` — підмінник, що лишається батьком і тримає argv видимим.
+# Підмінники інструментів у свою мить читають `ps` по ВСІЙ машині й пишуть, скільки процесів мають секрет.
+J_PW='p@ss:w/rd%x y_PWMARK9'
+J_URL='postgres://camp:p%40ss%3Aw%2Frd%25x%20y_PWMARK9@db.example.test:6543/campdb?sslmode=require'
+J_TOK='TOKMARK9-selftest'
+jworld() { # імʼя [url]
+  new_world "$1"
+  printf 'DATABASE_URL=%s\nAPI_BUILD_TOKEN=%s\nPORT=3001\n' "${2:-$J_URL}" "$J_TOK" > "$W/root/releases/$S0/apps/api/.env"
+  mkdir -p "$W/tmp"; : > "$W/leak.log"; : > "$W/calls"
+}
+jrun() { # X від імені «root»
+  id() { case "$*" in -u) echo 0 ;; selftest-nobody) return 0 ;; *) command id "$@" ;; esac; }
+  export -f id
+  TMPDIR="$W/tmp" STUB_SECRET_MARKS="PWMARK9 TOKMARK9" X "$@"
+  unset -f id
+}
+# Знімок був І в ньому жоден процес не мав секрету. «Знімка не було» не є «витоку немає».
+leak_clean() {
+  grep -qE "^$1 procs=[1-9][0-9]* leaks=0\$" "$W/leak.log" && ! grep -qE "^$1 procs=[0-9]+ leaks=[1-9]" "$W/leak.log"
+}
+WANT_PSQL="host=db.example.test port=6543 user=camp db=campdb ssl=require pw=$J_PW opts=-c default_transaction_read_only=on"
+WANT_DUMP="host=db.example.test port=6543 user=camp db=campdb ssl=require pw=$J_PW opts=<unset>"
+benv() { sed -n "s/^$1=//p" "$W/buildenv"; }
+
+jworld j1
+jrun deploy --sha "$SHA2" --apply --migrate
+if [ $RC -eq 0 ] && leak_clean psql && leak_clean pg_dump && leak_clean build:web; then
+  pass "deploy --apply --migrate: у знімку процесів КОЖНОЇ машини в мить psql, pg_dump і збірки вебу пароля БД і токена немає в жодному argv"
+else fail "deploy --apply --migrate: у знімку процесів КОЖНОЇ машини в мить psql, pg_dump і збірки вебу пароля БД і токена немає в жодному argv" "rc=$RC leak.log: $(cat "$W/leak.log")"; fi
+if [ -s "$W/pgenv.psql" ] && [ -z "$(grep -vxF "$WANT_PSQL" "$W/pgenv.psql")" ] && [ -s "$W/pgenv.pg_dump" ] && [ -z "$(grep -vxF "$WANT_DUMP" "$W/pgenv.pg_dump")" ]; then
+  pass "psql і pg_dump отримали з'єднання через ОТОЧЕННЯ, розкодоване точно (пароль зі @ : / % і пробілом, порт, база, sslmode), а не в argv"
+else fail "psql і pg_dump отримали з'єднання через ОТОЧЕННЯ, розкодоване точно (пароль зі @ : / % і пробілом, порт, база, sslmode), а не в argv" "psql: $(sort -u "$W/pgenv.psql" 2>&1) pg_dump: $(sort -u "$W/pgenv.pg_dump" 2>&1)"; fi
+if [ "$(benv DATABASE_URL)" = "$J_URL" ] && [ "$(benv API_BUILD_TOKEN)" = "$J_TOK" ] && [ "$(benv API_BASE_URL)" = "http://localhost:$TPORT" ] && [ "$(benv NODE_OPTIONS)" = "--max-old-space-size=5120" ]; then
+  pass "збірка вебу отримала DATABASE_URL, API_BUILD_TOKEN, API_BASE_URL і NODE_OPTIONS через оточення, байт у байт"
+else fail "збірка вебу отримала DATABASE_URL, API_BUILD_TOKEN, API_BASE_URL і NODE_OPTIONS через оточення, байт у байт" "$(sed 's/PWMARK9.*@/<…>@/' "$W/buildenv" 2>&1)"; fi
+[ "$(benv ENVFILES)" = 0 ] && pass "файл оточення з секретами зник ДО початку збірки вебу, а не після (за ~400 с збірки він лежав би на диску)" || fail "файл оточення з секретами зник ДО початку збірки вебу, а не після (за ~400 с збірки він лежав би на диску)" "envfiles=$(benv ENVFILES)"
+
+jworld j4b
+STUB_SUDO_FAIL=pg_dump jrun deploy --sha "$SHA2" --apply --migrate
+if [ $RC -ne 0 ] && echo "$OUT" | grep -q 'pg_dump не вдався' && ! calls_have 'migration:run' && ! ls "$W/tmp"/camptribe-envfile.* >/dev/null 2>&1; then
+  pass "sudo не запустив pg_dump (дитина не встигла прочитати файл): файл оточення з секретами все одно прибрано, міграцію не запущено"
+else fail "sudo не запустив pg_dump (дитина не встигла прочитати файл): файл оточення з секретами все одно прибрано, міграцію не запущено" "rc=$RC left=$(ls "$W/tmp" 2>&1 | tr '\n' ' ') $OUT"; fi
+
+jworld j5
+jrun status
+if [ $RC -eq 0 ] && leak_clean psql && [ -s "$W/pgenv.psql" ] && [ -z "$(grep -vxF "$WANT_PSQL" "$W/pgenv.psql")" ] && ! calls_have '^pg_dump'; then
+  pass "status (читає БД через psql): пароля в argv немає, з'єднання прийшло оточенням, pg_dump не викликано"
+else fail "status (читає БД через psql): пароля в argv немає, з'єднання прийшло оточенням, pg_dump не викликано" "rc=$RC leak.log: $(cat "$W/leak.log") $(sort -u "$W/pgenv.psql" 2>&1)"; fi
+
+# 🔴 Те, чого не вмію передати через оточення, не вгадую і не пропускаю мовчки: відмова, що називає
+# ПАРАМЕТР (не значення) і не друкує пароль.
+J_BAD='postgres://camp:PWMARK9x@db.example.test/campdb?foo=bar'
+jworld j6a "$J_BAD"
+jrun status
+if [ $RC -ne 0 ] && echo "$OUT" | grep -q "'foo'" && echo "$OUT" | grep -q 'НЕ ПЕРЕВІРЕНО 1' && ! echo "$OUT" | grep -q 'PWMARK9' && ! calls_have '^psql'; then
+  pass "DATABASE_URL з параметром, якого не вмію передати оточенням: status не вгадує й не пропускає (НЕ ПЕРЕВІРЕНО), називає параметр, пароля не друкує"
+else fail "DATABASE_URL з параметром, якого не вмію передати оточенням: status не вгадує й не пропускає (НЕ ПЕРЕВІРЕНО), називає параметр, пароля не друкує" "rc=$RC $(echo "$OUT" | sed 's/PWMARK9[^ ]*/<ПАРОЛЬ!>/g')"; fi
+jworld j6b "$J_BAD"
+jrun deploy --sha "$SHA2" --apply --migrate
+if [ $RC -ne 0 ] && ! echo "$OUT" | grep -q 'PWMARK9' && ! calls_have '^(npm (ci|run)|pg_dump|systemctl restart)' && [ "$(readlink "$W/root/current")" = "releases/$S0" ]; then
+  pass "той самий URL при deploy --apply --migrate: відмова ДО збірки, знімка й міграції, current не рушив, пароля у виводі немає"
+else fail "той самий URL при deploy --apply --migrate: відмова ДО збірки, знімка й міграції, current не рушив, пароля у виводі немає" "rc=$RC $(echo "$OUT" | sed 's/PWMARK9[^ ]*/<ПАРОЛЬ!>/g')"; fi
+
+# snapshot_db сам не розбирає чужого: у потоці `deploy` його ловить раніше applied_migrations, тож гілку
+# «URL не розібрано» перевіряємо прямо, викликом функції.
+jworld j7 "$J_BAD"
+J7=$( source "$DEPLOY"; ROOT="$W/root"; TMPDIR="$W/tmp"; ( snapshot_db "$S0" ) 2>&1 && echo "rc=0" || echo "rc=$?" )
+if echo "$J7" | grep -qx 'rc=1' && echo "$J7" | grep -q 'знімка БД не роблю' && ! echo "$J7" | grep -q 'PWMARK9' && ! calls_have '^pg_dump' && [ ! -d "$W/root/backups" ]; then
+  pass "snapshot_db з URL, якого не вдалось розібрати: відмова ДО створення теки знімків і до pg_dump, пароля у виводі немає"
+else fail "snapshot_db з URL, якого не вдалось розібрати: відмова ДО створення теки знімків і до pg_dump, пароля у виводі немає" "$(echo "$J7" | sed 's/PWMARK9[^ ]*/<ПАРОЛЬ!>/g')"; fi
 
 # ═══════════════════════════════════════════════════════════════════
 section "F. Запобіжники"
@@ -824,6 +1020,27 @@ X --help; R1=$RC; H1=$OUT; X deploy --help; R2=$RC
 [ $R1 -eq 0 ] && [ $R2 -eq 0 ] && echo "$H1" | grep -q 'camptribe-deploy status' && pass "--help друкує користування й виходить 0, і як перший аргумент, і після команди" || fail "--help друкує користування й виходить 0, і як перший аргумент, і після команди" "rc=$R1/$R2 $H1"
 X bogus; R1=$RC; X deploy --nonsense; R2=$RC
 [ $R1 -eq 2 ] && [ $R2 -eq 2 ] && pass "невідома команда і невідомий прапорець: код 2" || fail "невідома команда і невідомий прапорець: код 2" "$R1 $R2"
+
+# 🔴 Прапорець зі значенням, що стоїть ОСТАННІМ: `shift` у розбірнику падав під `set -e` без жодного слова,
+# код 1, нічого не надруковано. «Нічого не сталося» тут не відрізнити від «усе гаразд, нема чого казати».
+# Значення, що саме виглядає як прапорець (`--to --apply`), теж не значення.
+new_world f7
+BADV=""
+for fl in --to --sha --ref --migrations --deployer; do
+  X rollback "$fl"
+  { [ $RC -eq 2 ] && echo "$OUT" | grep -qF -- "$fl"; } || BADV="$BADV $fl(rc=$RC)"
+done
+[ -z "$BADV" ] && pass "виконавець: прапорець зі значенням останнім і без значення (--to --sha --ref --migrations --deployer): код 2 і назва прапорця, а не мовчазний вихід 1" \
+  || fail "виконавець: прапорець зі значенням останнім і без значення (--to --sha --ref --migrations --deployer): код 2 і назва прапорця, а не мовчазний вихід 1" "$BADV"
+BADV=""; : > "$W/calls"
+for fl in --to --sha --ref --migrations --deployer; do
+  X rollback "$fl" --apply
+  { [ $RC -eq 2 ] && [ -z "$(mutating_calls)" ]; } || BADV="$BADV $fl(rc=$RC)"
+done
+X deploy --sha "$SHA1" --migrations ""
+[ $RC -eq 0 ] || BADV="$BADV порожній-список-міграцій(rc=$RC)"
+[ -z "$BADV" ] && pass "виконавець: «--to --apply» — не значення (код 2, нічого не змінено), але порожній список міграцій (--migrations \"\") лишається законним значенням" \
+  || fail "виконавець: «--to --apply» — не значення (код 2, нічого не змінено), але порожній список міграцій (--migrations \"\") лишається законним значенням" "$BADV"
 
 # ═══════════════════════════════════════════════════════════════════
 section "F2. Переносимість"
@@ -912,13 +1129,32 @@ SH
   [ $RC -ne 0 ] && echo "$OUT" | grep -q 'не лежить ні в одній гілці origin' && pass "комміт, якого немає на origin: обгортка відмовляє до ssh, машина його б не отримала" || fail "комміт, якого немає на origin: обгортка відмовляє до ssh, машина його б не отримала" "rc=$RC $OUT"
   WRAPX --rehearse --apply --keep
   [ $RC -eq 0 ] && [ -d "$W/rehearsal" ] && pass "deploy-app.sh --rehearse --apply --keep: прапорець дійшов, світ лишено" || fail "deploy-app.sh --rehearse --apply --keep: прапорець дійшов, світ лишено" "rc=$RC $OUT"
+  # 🔴 Рецензент відтворив це саме тут: `--rehearse --teardown` без --apply стирав світ, код 0, без слів «СУХИЙ ПРОГІН».
+  FPG="$(fp_all)"; : > "$W/calls"; : > "$WRAP_LOG"
   WRAPX --rehearse --teardown
-  [ $RC -eq 0 ] && [ ! -e "$W/rehearsal" ] && ! ls "$W/unitdir"/camptribe-rehearsal-*.service >/dev/null 2>&1 && pass "deploy-app.sh --rehearse --teardown: прапорець дійшов, світ прибрано" || fail "deploy-app.sh --rehearse --teardown: прапорець дійшов, світ прибрано" "rc=$RC $OUT"
+  if [ $RC -eq 0 ] && echo "$OUT" | grep -q 'СУХИЙ ПРОГІН' && ! grep -q -- '--apply' "$WRAP_LOG" && [ "$(fp_all)" = "$FPG" ] && [ -d "$W/rehearsal" ] && [ -z "$(mutating_calls)" ]; then
+    pass "deploy-app.sh --rehearse --teardown БЕЗ --apply: сухий прогін (слова є, ssh без --apply), світ репетиції стоїть, юніти й порти ті самі"
+  else fail "deploy-app.sh --rehearse --teardown БЕЗ --apply: сухий прогін (слова є, ssh без --apply), світ репетиції стоїть, юніти й порти ті самі" "rc=$RC mutating=[$(mutating_calls)] $OUT"; fi
+  WRAPX --rehearse --teardown --apply
+  [ $RC -eq 0 ] && [ ! -e "$W/rehearsal" ] && ! ls "$W/unitdir"/camptribe-rehearsal-*.service >/dev/null 2>&1 && pass "deploy-app.sh --rehearse --teardown --apply: прапорці дійшли, світ прибрано" || fail "deploy-app.sh --rehearse --teardown --apply: прапорці дійшли, світ прибрано" "rc=$RC $OUT"
   WRAPX --rollback --to "$S1"
   [ $RC -eq 0 ] && echo "$OUT" | grep -q 'явне --to' && echo "$OUT" | grep -q "rollback $S2 → $S1" && pass "deploy-app.sh --rollback --to: явна ціль дійшла до машини" || fail "deploy-app.sh --rollback --to: явна ціль дійшла до машини" "rc=$RC $OUT"
   WRAPX --status
   [ $RC -eq 0 ] && echo "$OUT" | grep -q 'ВИСНОВОК: усе збігається' && pass "deploy-app.sh --status: одна команда відповідає, що зараз на проді" || fail "deploy-app.sh --status: одна команда відповідає, що зараз на проді" "rc=$RC $OUT"
   WRAPX --bogus; [ $RC -eq 2 ] && pass "обгортка: невідомий прапорець — код 2" || fail "обгортка: невідомий прапорець — код 2" "rc=$RC"
+  BADV=""; : > "$WRAP_LOG"
+  for fl in --to --sha --ref; do
+    WRAPX "$fl"
+    { [ $RC -eq 2 ] && echo "$OUT" | grep -qF -- "$fl"; } || BADV="$BADV $fl(rc=$RC)"
+  done
+  [ -z "$BADV" ] && ! grep -q . "$WRAP_LOG" && pass "обгортка: прапорець зі значенням останнім і без значення (--to --sha --ref): код 2 і назва прапорця, ssh не викликано" \
+    || fail "обгортка: прапорець зі значенням останнім і без значення (--to --sha --ref): код 2 і назва прапорця, ssh не викликано" "$BADV log=$(cat "$WRAP_LOG")"
+  BADV=""
+  for fl in --to --sha --ref; do
+    WRAPX --rollback "$fl" --apply
+    { [ $RC -eq 2 ] && ! grep -q -- '--apply' "$WRAP_LOG"; } || BADV="$BADV $fl(rc=$RC)"
+  done
+  [ -z "$BADV" ] && pass "обгортка: «--rollback --to --apply» — не значення: код 2, --apply не дійшов до ssh" || fail "обгортка: «--rollback --to --apply» — не значення: код 2, --apply не дійшов до ssh" "$BADV log=$(cat "$WRAP_LOG")"
 else
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do fail "обгортки ще немає ($WRAPPER)"; done
 fi
