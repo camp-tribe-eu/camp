@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { apiFetch, countryName, getCountries } from '@/lib/api';
 import MapEmbed from '@/components/map-embed';
+import { memberStateCount } from '@/lib/campsite-count';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import type { RegionSummary } from '@/lib/map-chunks';
@@ -79,7 +80,14 @@ export default async function MapPage() {
             // list — not of what the canvas draws. The two differ by the
             // 135 campsites with no region, and the description of a
             // list of links has to be about the links.
-            description: `${browsable.toLocaleString('en-GB')} campsites across ${countries.length} countries, on one map.`,
+            //
+            // 🔴 CAMP-240. COUNTRIES, though, is not the length of that
+            // list: `ax` (Åland) is a region of Finland with its own ISO
+            // code, so the list has 28 entries and the EU-27 has 27
+            // member states. The chips below still show Åland.
+            description: `${browsable.toLocaleString('en-GB')} campsites across ${memberStateCount(
+              countries.map((c) => c.country),
+            )} countries, on one map.`,
             path: '/map',
             items: countries.map((c) => ({
               name: countryName(c.country),

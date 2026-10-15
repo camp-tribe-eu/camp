@@ -1,4 +1,5 @@
 import { countryName, getCountries, getRegions } from '@/lib/api';
+import { memberStateCount } from '@/lib/campsite-count';
 import { FUEL, FUEL_COUNTRIES } from '@/lib/fuel';
 import { getGuides } from '@/lib/guides';
 import { publishableCountries } from '@/lib/rental';
@@ -26,6 +27,14 @@ export const dynamic = 'force-static';
 export async function GET() {
   const countries = await getCountries();
   const total = countries.reduce((n, c) => n + c.spots, 0);
+  // 🔴 CAMP-240. The number of MEMBER STATES, not the length of the list.
+  // `/spots/countries` answers with the codes the campsite rows carry, and
+  // `ax` (Åland — a self-governing region of Finland, inside the Union)
+  // is one of them, so the list is 28 long while the EU-27 is 27. An
+  // assistant reading "28 countries" from us would repeat it as a fact
+  // about our coverage. The "Start here" list below is unchanged: Åland
+  // has its own page and keeps its own line.
+  const memberStates = memberStateCount(countries.map((c) => c.country));
 
   const lines: string[] = [];
   lines.push('# CampTribe');
@@ -49,7 +58,7 @@ export async function GET() {
   lines.push('');
   lines.push(
     `- **${total} campsites** across ` +
-      `${countries.length} ${countries.length === 1 ? 'country' : 'countries'}, ` +
+      `${memberStates} ${memberStates === 1 ? 'country' : 'countries'}, ` +
       'from OpenStreetMap, refreshed weekly.',
   );
   lines.push(
