@@ -464,6 +464,8 @@ fp_all() {
   echo "root=$(fingerprint "$W/root") rehearsal=$(fingerprint "$W/rehearsal" 2>&1) units=$(fingerprint "$W/unitdir")" \
        "rweb=$(port_up "$RWP" && echo up || echo down) rapi=$(port_up "$RAP" && echo up || echo down)"
 }
+# Дотик до відстежуваного файлу: тепер `git status` БУВ БИ переписав .git/index, якби йому дозволили (як у A1).
+touch "$W/root/releases/$S0/VERSION"
 FPALL=$(fp_all)
 [ -d "$W/rehearsal" ] && [ -f "$W/rehearsal/.camptribe-rehearsal-root" ] && [ -f "$W/unitdir/camptribe-rehearsal-api.service" ] && [ -f "$W/unitdir/camptribe-rehearsal-web.service" ] && port_up "$RWP" && port_up "$RAP" \
   && pass "передумова A4: після rehearse --apply --keep світ репетиції живий (корінь, обидва юніти, обидва порти)" \

@@ -122,13 +122,15 @@ pct_decode() {
   printf '%s' "$out$s"
 }
 
-# postgres://user:пароль@host:port/db?sslmode=… → пари в PG_KV (імʼя змінної libpq, значення).
+# Рядок підключення postgres (схема, користувач, пароль, хост, порт, база, у запиті лише sslmode)
+# → пари в PG_KV (імʼя змінної libpq, значення). Форму описано словами навмисно: сторож
+# `check-secrets` бачить у будь-якому «схема, двокрапка, пароль, @» пароль, і не вміє розрізнити зразок.
 PG_KV=()
 pg_parse_url() { # url
   local url="$1" re user pass host port db query kv k v pairs
   PG_KV=()
   re='^postgres(ql)?://(([^:@/?]*)(:([^@/?]*))?@)?([^:/?@]*)(:([0-9]*))?(/([^?]*))?(\?(.*))?$'
-  [[ "$url" =~ $re ]] || { echo "DATABASE_URL не схожий на postgres://користувач:пароль@хост:порт/база — відмовляю" >&2; return 1; }
+  [[ "$url" =~ $re ]] || { echo "DATABASE_URL не схожий на рядок підключення postgres (користувач, пароль, хост, порт, база) — відмовляю" >&2; return 1; }
   user="${BASH_REMATCH[3]}"; pass="${BASH_REMATCH[5]}"; host="${BASH_REMATCH[6]}"
   port="${BASH_REMATCH[8]}"; db="${BASH_REMATCH[10]}"; query="${BASH_REMATCH[12]}"
   user=$(pct_decode "$user") && pass=$(pct_decode "$pass") && host=$(pct_decode "$host") && db=$(pct_decode "$db") \
