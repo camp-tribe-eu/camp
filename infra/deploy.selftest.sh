@@ -42,7 +42,12 @@ EXPECTED=100
 PASSED=0
 FAILED=0
 pass() { echo "  ✓ $1"; PASSED=$((PASSED + 1)); }
-fail() { echo "  ✗ $1"; FAILED=$((FAILED + 1)); [ -z "${2:-}" ] || printf '      %s\n' "$2" | head -12; }
+# 🔴 Хвіст, а не голова: причина падіння — в кінці виводу, і перші 12 рядків лише повторюють план.
+fail() {
+  echo "  ✗ $1"; FAILED=$((FAILED + 1))
+  [ -z "${2:-}" ] || printf '      %s\n' "$2" | tail -n 30
+  if [ -n "${W:-}" ] && [ -s "$W/calls" ]; then echo "      -- останні виклики підмінників:"; tail -n 12 "$W/calls" | sed 's/^/      /'; fi
+}
 section() { echo; echo "── $1"; }
 
 # ── підмінники ───────────────────────────────────────────────────────
