@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { AccountPage } from '@/components/account-page';
 import { ResetForm } from '@/components/account-forms';
 
 // CAMP-228 — /reset-password.
@@ -24,5 +25,9 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <ResetForm />;
+  return (
+    <AccountPage name="Choose a new password" path="/reset-password">
+      <ResetForm />
+    </AccountPage>
+  );
 }

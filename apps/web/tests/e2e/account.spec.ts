@@ -39,6 +39,25 @@ test.describe('кожна сторінка', () => {
     });
   }
 
+  // 🔴 Знайдено CI, а не мною: `check-structured-data` вимагає JSON-LD від
+  // КОЖНОЇ зібраної сторінки, крім сторінок помилок, а мої п'ять його не мали.
+  // Скрипт читає збірку, якої локально не зібрати (65 тис. сторінок), тож
+  // тут те саме правило, але на виданому HTML цих п'яти.
+  for (const { path } of PAGES) {
+    test(`${path}: у виданому HTML є хлібні крихти JSON-LD, що ведуть сюди`, async ({ request }) => {
+      const html = await (await request.get(path)).text();
+      const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(
+        (m) => JSON.parse(m[1]),
+      );
+      const crumbs = blocks.find((b) => b['@type'] === 'BreadcrumbList');
+      expect(crumbs, 'немає BreadcrumbList').toBeDefined();
+      const items = crumbs.itemListElement as { position: number; name: string; item: string }[];
+      expect(items.map((i) => i.position)).toEqual([1, 2]);
+      expect(items[0].name).toBe('CampTribe');
+      expect(new URL(items[1].item).pathname).toBe(path);
+    });
+  }
+
   for (const path of ['/reset-password', '/verify-email']) {
     test(`${path}: токен у адресі не йде далі в Referer`, async ({ request }) => {
       const html = await (await request.get(`${path}?t=anything`)).text();

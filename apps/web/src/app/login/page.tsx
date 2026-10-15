@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { AccountPage } from '@/components/account-page';
 import { LoginForm } from '@/components/account-forms';
 
 // CAMP-228 — /login.
@@ -19,5 +20,9 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <LoginForm />;
+  return (
+    <AccountPage name="Sign in" path="/login">
+      <LoginForm />
+    </AccountPage>
+  );
 }

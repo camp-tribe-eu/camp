@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { AccountPage } from '@/components/account-page';
 import { VerifyEmail } from '@/components/account-forms';
 
 // CAMP-228 — /verify-email.
@@ -24,5 +25,9 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <VerifyEmail />;
+  return (
+    <AccountPage name="Confirm your email" path="/verify-email">
+      <VerifyEmail />
+    </AccountPage>
+  );
 }
