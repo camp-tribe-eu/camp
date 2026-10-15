@@ -101,6 +101,11 @@ lock_public() {
   code="$($CURL -s --max-time 20 -o /dev/null -w '%{http_code}' "$SITE_URL/?nocache=$bust" 2>/dev/null || echo 000)"
   [ "$code" = 000 ] && { echo 'недосяжно'; return; }
   [ "$code" = 401 ] && { echo 'пароль'; return; }
+  # 🔴 «НЕ 401» НЕ ОЗНАЧАЄ «ВІДКРИТО». Перша редакція вважала відкритим усе,
+  # що не 401 і не 000: 503 від CDN, сторінка-челендж WAF, 403 — усе це
+  # читалось як успіх, і `open --apply` виходив нулем над сайтом, який
+  # насправді лежить. Відкрито — це саме 200 і нічого іншого.
+  [ "$code" = 200 ] || { echo "код-$code"; return; }
   hdr="$($CURL -s --max-time 20 -o /dev/null -D - "$SITE_URL/?nocache=$bust" 2>/dev/null || true)"
   printf '%s' "$hdr" | grep -qi 'x-robots-tag:.*noindex' && { echo 'noindex'; return; }
   body="$($CURL -s --max-time 20 "$SITE_URL/robots.txt?nocache=$bust" 2>/dev/null || true)"
@@ -159,7 +164,10 @@ caddy_apply() { # «що робимо» для повідомлення, куд�
   fi
   if ! "$CADDY_BIN" reload --config "$CADDYFILE" >/dev/null 2>&1; then
     point_gate "$back"
-    "$CADDY_BIN" reload --config "$CADDYFILE" >/dev/null 2>&1 || true
+    # Якщо й це не перечиталось, Caddy лишився на тому, що мав: симлінк
+    # повернуто, але чинною є попередня конфігурація. Кажемо саме так.
+    "$CADDY_BIN" reload --config "$CADDYFILE" >/dev/null 2>&1 \
+      || die "caddy reload не вдався ($what) і повторний теж: gate.conf повернуто на $back, але Caddy досі на попередній конфігурації"
     die "caddy reload не вдався ($what): gate.conf повернуто на $back"
   fi
 }
@@ -169,7 +177,7 @@ caddy_apply() { # «що робимо» для повідомлення, куд�
 point_gate() { ln -sfn "$1" "$GATE"; }
 
 switch_gate() { # open|closed
-  local want="$1" target cur was expect
+  local want="$1" target cur expect
   cur="$(lock_gate)"
   [ "$want" = open ] && target="$GATE_OPEN" || target="$GATE_CLOSED"
   [ -f "$target" ] || die "немає $target"
@@ -188,10 +196,13 @@ switch_gate() { # open|closed
     return 0
   fi
 
-  was="$(readlink -f "$GATE" 2>/dev/null || true)"
-  [ -n "$was" ] || die "gate.conf не симлінк — не знаю, куди вертати; полагодь руками за docs/launch-switch.md"
+  # 🔴 `readlink -f` НА ЗВИЧАЙНОМУ ФАЙЛІ ВІДДАЄ ЙОГО Ж ШЛЯХ. Перша редакція
+  # перевіряла `[ -n "$was" ]` і тому пропускала рукописний gate.conf далі:
+  # `ln -sfn gate.conf gate.conf` знищував файл і робив симлінк на себе
+  # (ELOOP), а полагодити це `close` вже не міг. Питаємо саме про симлінк.
+  [ -L "$GATE" ] || die "gate.conf — не симлінк, а звичайний файл. Я його не чіпаю: зроби симлінк на gate-closed.conf за docs/launch-switch.md"
   point_gate "$target"
-  caddy_apply "$cur → $want" "$was"
+  caddy_apply "$cur → $want" "$GATE_CLOSED"
   say "  ✓ gate.conf: $cur → $want, Caddy перечитано"
 
   local seen=""
@@ -201,14 +212,20 @@ switch_gate() { # open|closed
     sleep "$VERIFY_SLEEP"
   done
 
-  warn "ззовні «$seen», чекали «$expect» — повертаю"
-  point_gate "$was"
+  # 🔴 ВІДКОЧУЄМОСЬ ЗАВЖДИ ПІД ПАРОЛЬ, А НЕ «ТУДИ, ДЕ БУЛИ». Перша редакція
+  # вертала на попередню ціль — і для `close` попередньою ціллю був
+  # ВІДКРИТИЙ gate. Тобто команда, чия єдина робота повернути пароль,
+  # при недосяжній публічній адресі лишала сайт відкритим і друкувала
+  # «стан повернуто й перевірено». Безпечний стан тут один, і він не
+  # залежить від напрямку.
+  warn "ззовні «$seen», чекали «$expect» — повертаю під пароль"
+  point_gate "$GATE_CLOSED"
   if "$CADDY_BIN" validate --config "$CADDYFILE" >/dev/null 2>&1 \
      && "$CADDY_BIN" reload --config "$CADDYFILE" >/dev/null 2>&1 \
-     && [ "$(lock_gate)" = "$cur" ]; then
-    printf '✗ перевірка не пройшла, стан повернуто в «%s» і перевірено\n' "$cur" >&2; exit 3
+     && [ "$(lock_gate)" = closed ]; then
+    printf '✗ перевірка не пройшла, сайт повернуто під пароль і це перевірено\n' >&2; exit 3
   fi
-  printf '✗ перевірка не пройшла, і повернути перевіреним не вийшло — дивись %s\n' "$GATE" >&2; exit 4
+  printf '✗ перевірка не пройшла, і повернути під пароль перевіреним не вийшло — дивись %s\n' "$GATE" >&2; exit 4
 }
 
 # --- розбір ---------------------------------------------------------------

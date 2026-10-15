@@ -24,7 +24,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LAUNCH="${CAMPTRIBE_LAUNCH_BIN:-$HERE/bin/camptribe-launch}"
-EXPECTED=24
+EXPECTED=33
 
 [ -f "$LAUNCH" ] || { echo "немає $LAUNCH" >&2; exit 1; }
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-launch-selftest.XXXXXX")"
@@ -96,8 +96,16 @@ emit_build() { # заголовки й тіло того, що віддає Next
 }
 
 case "$URL" in
-  "$WEB_ORIGIN"*) emit_build ;;
+  "$WEB_ORIGIN"*) [ -e "$WEB_DOWN" ] && exit 7; emit_build ;;
   "$SITE_ORIGIN"*)
+    # CDN перед нами може відповісти сам: 503, челендж WAF, 403. Для
+    # скрипта це НЕ «сайт відкрито», і підмінник мусить уміти це сказати.
+    if [ -e "$SITE_5XX" ]; then
+      CODE=503; HDR='HTTP/1.1 503 Service Temporarily Unavailable'; BODY='<html>cloudflare</html>'
+      [ "$WANT_CODE" = 1 ] && { printf '%s' "$CODE"; exit 0; }
+      [ "$WANT_HDR" = 1 ] && { printf '%s\n\n' "$HDR"; exit 0; }
+      printf '%s\n' "$BODY"; exit 0
+    fi
     emit_build
     GATE_NOW="$(readlink -f "$GATE_PATH" 2>/dev/null || echo none)"
     if [ "$GATE_NOW" = "$(readlink -f "$GATE_CLOSED_PATH" 2>/dev/null)" ] || [ -e "$CF_STALE" ]; then
@@ -118,7 +126,7 @@ chmod +x "$STUB/caddy" "$STUB/curl"
 
 export CADDY_LOG="$BASE/caddy.log"; : > "$CADDY_LOG"
 export CADDY_VALIDATE_FAILS="$BASE/no-validate" CADDY_RELOAD_FAILS="$BASE/no-reload"
-export CF_STALE="$BASE/cf-stale" WORLD="$W"
+export CF_STALE="$BASE/cf-stale" WORLD="$W" SITE_5XX="$BASE/site-5xx" WEB_DOWN="$BASE/web-down"
 export WEB_ORIGIN='http://127.0.0.1:3000' SITE_ORIGIN='https://camptribe.eu'
 export GATE_PATH="$CADDY/gate.conf" GATE_CLOSED_PATH="$CADDY/gate-closed.conf"
 
@@ -139,6 +147,16 @@ ok $? 'status на закритому світі: код 0 і слово ЗАК�
 printf '%s' "$OUT" | grep -q 'ззовні                        : пароль'; ok $? 'status бачить 401 ЗЗОВНІ, а не на 127.0.0.1' "$OUT"
 
 echo '— .env'
+# 🔴 Якір `^` у lock_env. Без нього закоментований рядок читається як
+# ввімкнений, і крок 1 вважається зробленим над файлом, де змінної немає.
+# Ставимо це ДО першого `env --apply`, поки справжнього рядка ще нема —
+# інакше перевірка зелена незалежно від якоря.
+printf '#NEXT_PUBLIC_SITE_MODE=public\n' >> "$ROOT/releases/r1/apps/api/.env"
+run status
+printf '%s' "$OUT" | grep -q 'NEXT_PUBLIC_SITE_MODE : closed'
+ok $? 'закоментований рядок у .env не рахується за ввімкнений' "$OUT"
+sed -i.bak '/^#NEXT_PUBLIC_SITE_MODE/d' "$ROOT/releases/r1/apps/api/.env"
+rm -f "$ROOT/releases/r1/apps/api/.env.bak"
 run env --public
 [ "$RC" = 0 ] && [ "$(envline)" = 0 ] && printf '%s' "$OUT" | grep -q 'СУХИЙ ПРОГІН'
 ok $? 'env --public без --apply: .env не змінено' "rc=$RC env=$(envline) $OUT"
@@ -155,6 +173,8 @@ run env --public --apply
   && grep -q '^PORT=3001$' "$ROOT/releases/r1/apps/api/.env"
 ok $? 'env --public двічі: рядок один, а решта .env ціла' "rc=$RC env=$(envline) файл=$(cat "$ROOT/releases/r1/apps/api/.env" | tr '\n' ' ') $OUT"
 run env --apply; [ "$RC" = 2 ]; ok $? 'env без --public/--closed: код 2' "rc=$RC $OUT"
+run bogus-command; [ "$RC" = 2 ]; ok $? 'невідома команда: код 2' "rc=$RC $OUT"
+run status --bogus; [ "$RC" = 2 ]; ok $? 'невідомий прапорець: код 2' "rc=$RC $OUT"
 
 echo '— головне: зняти пароль над закритою збіркою НЕ МОЖНА'
 run status
@@ -176,8 +196,12 @@ run open
 ok $? 'open без --apply: gate не рушив, caddy не викликали' "rc=$RC gate=$(gate_now) $OUT"
 run open --apply
 [ "$RC" = 0 ] && [ "$(gate_now)" = open ]; ok $? 'open --apply: gate → open' "rc=$RC gate=$(gate_now) $OUT"
-grep -q '^validate ' "$CADDY_LOG" && grep -q '^reload ' "$CADDY_LOG"
-ok $? 'open --apply: validate ПЕРЕД reload' "log=$(cat "$CADDY_LOG")"
+# 🔴 Не «обидва рядки є», а саме ПОРЯДОК: присутність задовольняється і
+# тоді, коли reload непровалідованого конфігу стоїть першим.
+VL="$(grep -n '^validate ' "$CADDY_LOG" | head -1 | cut -d: -f1)"
+RL="$(grep -n '^reload ' "$CADDY_LOG" | head -1 | cut -d: -f1)"
+[ -n "$VL" ] && [ -n "$RL" ] && [ "$VL" -lt "$RL" ]
+ok $? 'open --apply: validate стоїть ПЕРЕД reload, а не просто поруч' "validate=$VL reload=$RL log=$(cat "$CADDY_LOG")"
 run status
 [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'ВІДКРИТО'; ok $? 'status після open: ВІДКРИТО, код 0' "rc=$RC $OUT"
 
@@ -214,9 +238,54 @@ ok $? 'validate впав → gate повернуто, reload не кликали
 rm -f "$CADDY_VALIDATE_FAILS"
 
 echo '— gate.conf показує на те, чого немає'
+# 🔴 Ізолюємо саме gate: замки 1 і 2 ставимо в public, інакше rc=1 дає
+# гілка .env, і випадок зелений навіть коли lock_gate повертає 'open'.
+run env --public --apply; printf 'public\n' > "$W/build-mode"
 ln -sfn "$CADDY/gate-missing.conf" "$CADDY/gate.conf"
-run status; [ "$RC" = 1 ]; ok $? 'чужа ціль gate.conf: status не каже ні ЗАКРИТО, ні ВІДКРИТО' "rc=$RC $OUT"
+run status
+[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'gate.conf              : чуже'
+ok $? 'чужа ціль gate.conf: названа «чуже», і стан не цілісний' "rc=$RC $OUT"
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+
+echo '— збірка мовчить (Next лежить)'
+: > "$WEB_DOWN"; : > "$CADDY_LOG"
+run open --apply
+[ "$RC" = 1 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'невідомо'
+ok $? 'збірка «невідомо»: open --apply відмовляється, а не вважає це публічним' "rc=$RC gate=$(gate_now) $OUT"
+rm -f "$WEB_DOWN"
+
+echo '— gate.conf рукописний файл, а не симлінк'
+rm -f "$CADDY/gate.conf"
+printf 'basic_auth {\n\tcamptribe XXX\n}\n' > "$CADDY/gate.conf"
+BEFORE="$(cat "$CADDY/gate.conf")"
+run open --apply
+[ "$RC" = 1 ] && [ ! -L "$CADDY/gate.conf" ] && [ "$(cat "$CADDY/gate.conf")" = "$BEFORE" ]
+ok $? 'рукописний gate.conf: відмова, файл не знищено й не перетворено на симлінк на себе' "rc=$RC $OUT"
+rm -f "$CADDY/gate.conf"; ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+
+echo '— CDN відповідає сам: 503 це не «відкрито»'
+: > "$SITE_5XX"
+run status
+[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'ззовні                        : код-503'
+ok $? '503 від CDN читається як «код-503», а не як відкритий сайт' "rc=$RC $OUT"
+# 🔴 Головний регрес: close під недосяжною публічною адресою. Перша
+# редакція вертала «туди, де були», тобто ВІДКРИВАЛА сайт командою,
+# чия єдина робота — повернути пароль.
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"; : > "$CADDY_LOG"
+run close --apply
+[ "$RC" = 3 ] && [ "$(gate_now)" = closed ]
+ok $? 'close --apply при 503: сайт лишився ПІД ПАРОЛЕМ, а не відкритим' "rc=$RC gate=$(gate_now) $OUT"
+rm -f "$SITE_5XX"
+
+echo '— відкат релізу повернув закриту збірку, а пароль уже знятий'
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+printf 'closed\n' > "$W/build-mode"
+run status
+printf '%s' "$OUT" | grep -q 'ззовні                        : noindex'
+ok $? 'пароля немає, а збірка просить noindex — ззовні саме noindex' "$OUT"
+[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'повна викладка'
+ok $? 'і це НЕУЗГОДЖЕНО з вимогою зібрати заново, а не «відкрито»' "rc=$RC $OUT"
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"; printf 'public\n' > "$W/build-mode"
 
 printf '\n%s\n' "$PASS passed, $FAIL failed"
 if [ "$RUN" != "$EXPECTED" ]; then
