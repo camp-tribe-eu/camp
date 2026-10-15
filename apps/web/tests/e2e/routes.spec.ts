@@ -277,20 +277,52 @@ test.describe('a route page', () => {
     await expect(facilities(0, 'rest_area')).toContainText('Fee: Not known');
     await expect(facilities(0, 'rest_area')).not.toContainText(/: (?:No(?!t)|Yes)\b/);
 
-    // Stage 2: a written yes.
+    // 🔴 THE FIVE WORDS OF EACH ROW, IN ORDER, WRITTEN OUT HERE.
+    //
+    // Not `toContainText` on one of them: CAMP-119 review (D2) renamed one
+    // key on one side of the API/page boundary and every assertion about it
+    // still passed, because the fixture said `unknown` for it and a key the
+    // page cannot read ALSO prints "Not known". The three rows below now say
+    // yes or no for all five columns (see the header of
+    // ci-seed-route-poi.sql, which also says these values are hand-set), and
+    // `toHaveText` with an array compares every <li> — the whole list, so a
+    // renamed key, a swapped pair and a dropped item are each a different
+    // list. The expected words are typed, not read from the fixture or from
+    // FACILITY_KEYS.
+    const listOf = (stage: number, kind: 'rest_area' | 'service_area') =>
+      facilities(stage, kind).getByRole('listitem');
+
+    // Stage 2: a written yes for toilets, and yes or no for the rest.
     await expect(row(1, 'rest_area')).toContainText('Houmée');
-    await expect(facilities(1, 'rest_area')).toContainText('Toilets: Yes');
-    await expect(facilities(1, 'rest_area')).toContainText('Shower: Not known');
+    await expect(listOf(1, 'rest_area')).toHaveText([
+      'Toilets: Yes',
+      'Shower: No',
+      'Drinking water: Yes',
+      'Chemical toilet disposal: No',
+      'Fee: Yes',
+    ]);
 
     // Stage 3: a written NO — a different word from the gap above it.
     await expect(row(2, 'rest_area')).toContainText('La Rivière');
-    await expect(facilities(2, 'rest_area')).toContainText('Toilets: No');
-    await expect(facilities(2, 'rest_area')).not.toContainText('Toilets: Not known');
+    await expect(listOf(2, 'rest_area')).toHaveText([
+      'Toilets: No',
+      'Shower: Yes',
+      'Drinking water: Yes',
+      'Chemical toilet disposal: No',
+      'Fee: No',
+    ]);
 
-    // Stage 6: a service area, with the contact fields it has.
+    // Stage 6: a service area, with the contact fields it has — and one
+    // facility nobody wrote down, among four that somebody did.
     await expect(row(5, 'service_area')).toContainText('Aire de Labenne');
     await expect(row(5, 'service_area')).toContainText('km away in a straight line');
-    await expect(facilities(5, 'service_area')).toContainText('Toilets: Yes');
+    await expect(listOf(5, 'service_area')).toHaveText([
+      'Toilets: Yes',
+      'Shower: Not known',
+      'Drinking water: No',
+      'Chemical toilet disposal: Yes',
+      'Fee: No',
+    ]);
 
     // And where the fixture holds none, the page says so about the
     // ground it examined — not a blank, and not a facilities block.

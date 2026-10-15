@@ -61,6 +61,66 @@ function apiList(name: 'ROUTE_POI_KINDS' | 'REST_STOP_KINDS'): string[] {
   return [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
 }
 
+/**
+ * The five facility keys the API's `FACILITY_FIELDS` names, as the API's own
+ * file spells them (apps/api/src/routes/route-services.ts).
+ *
+ * 🔴 CAMP-119 review, D2: `FACILITY_KEYS` here and `FACILITY_FIELDS` there are
+ * two lists written by hand with nothing between them. Renaming
+ * `drinkingWater` on this side left the whole project green (1 282 passed,
+ * 0 failed) while the page printed "Drinking water: Not known" over an
+ * answer of "Yes" — because every stub in this file was BUILT FROM
+ * `FACILITY_KEYS` (a corpus that shares its field with the thing it
+ * measures) and the one hand-written stub gave that very key the value
+ * `unknown`, which is what a mismatch prints anyway.
+ *
+ * So a payload in this file is written out with the API's own spelling, by
+ * hand, and never derived from the list under test. Read from DISK, for the
+ * reason `apiList` gives. The anchor (a non-empty list) is asserted by the
+ * caller.
+ */
+const ROUTE_SERVICES_API_FILE = join(
+  __dirname, '..', '..', '..', 'api', 'src', 'routes', 'route-services.ts',
+);
+
+function apiFacilityKeys(): string[] {
+  const src = readFileSync(ROUTE_SERVICES_API_FILE, 'utf8');
+  const m = /export const FACILITY_FIELDS = \[([\s\S]*?)\] as const/.exec(src);
+  if (!m) {
+    throw new Error(`FACILITY_FIELDS is not in ${ROUTE_SERVICES_API_FILE} — the spec cannot read the API's keys`);
+  }
+  return [...m[1].matchAll(/key:\s*'([A-Za-z]+)'/g)].map((x) => x[1]);
+}
+
+/** The five keys on the wire, by hand. See `apiFacilityKeys`. */
+const WIRE_KEYS = ['toilets', 'shower', 'drinkingWater', 'dumpStation', 'fee'];
+
+/** Every facility the same word, with the keys spelled out and not derived. */
+const facilitiesAll = (state: string): Wire => ({
+  toilets: state,
+  shower: state,
+  drinkingWater: state,
+  dumpStation: state,
+  fee: state,
+});
+
+/**
+ * Two payloads, chosen so that each of the five keys is a yes or a no in at
+ * least one of them and no two keys have the same pair of answers:
+ *
+ *            A        B
+ *   toilets  yes      no
+ *   shower   no       yes
+ *   water    yes      yes
+ *   dump     no       no
+ *   fee      unknown  yes
+ *
+ * A key the page cannot read prints `Not known` in both, which is a wrong
+ * word in at least one of them; two keys swapped print the other's pair.
+ */
+const MIX_A: Wire = { toilets: 'yes', shower: 'no', drinkingWater: 'yes', dumpStation: 'no', fee: 'unknown' };
+const MIX_B: Wire = { toilets: 'no', shower: 'yes', drinkingWater: 'yes', dumpStation: 'no', fee: 'yes' };
+
 // ── rendering the page ───────────────────────────────────────────────────
 
 const route = CURATED_ROUTES[0];
@@ -205,6 +265,27 @@ test.describe('the API serves what the page can show, and the page shows what th
   });
 });
 
+// 🔴 THE TWO KEY LISTS ARE ONE LIST (CAMP-119 review, D2). The API names the
+// five facilities in `FACILITY_FIELDS`, the page in `FACILITY_KEYS`; the JSON
+// between them is keyed by the first and read by the second, and a name that
+// differs on one side does not fail — it prints "Not known" over a "Yes".
+// Compared in both directions, as the kinds are, and against the spelling
+// this file writes its own payloads in, so that list cannot drift quietly
+// either.
+test.describe('the API’s facility keys are exactly this page’s facility keys', () => {
+  test('🔴 FACILITY_FIELDS in the API names the five keys FACILITY_KEYS reads', () => {
+    const api = apiFacilityKeys();
+    // Anchor: the parse found the list. An empty one must not read as
+    // "no keys to disagree about".
+    expect(api.length).toBeGreaterThan(0);
+    expect([...api].sort()).toEqual([...FACILITY_KEYS].sort());
+  });
+
+  test('the spelling this file writes its payloads in is the API’s', () => {
+    expect([...WIRE_KEYS].sort()).toEqual([...apiFacilityKeys()].sort());
+  });
+});
+
 // ── 2. THE PAGE, FOR EVERY KIND THE API SERVES ───────────────────────────
 
 test.describe('the route page lists every kind the API serves, at every stop', () => {
@@ -261,13 +342,7 @@ test.describe('a rest area and a service area, rendered', () => {
     osmRef: 'n10',
     name: 'Aire du Test',
     metres: 1234,
-    facilities: {
-      toilets: 'yes',
-      shower: 'no',
-      drinkingWater: 'unknown',
-      dumpStation: 'unknown',
-      fee: 'unknown',
-    },
+    facilities: MIX_A,
   });
   const service = wire('service_area', {
     osmRef: 'w20',
@@ -289,8 +364,8 @@ test.describe('a rest area and a service area, rendered', () => {
     const restFacilities = facilitiesText(rowOf(html, 'rest_area'));
     expect(restFacilities).toContain('Toilets: Yes');
     expect(restFacilities).toContain('Shower: No');
-    expect(restFacilities).toContain('Drinking water: Not known');
-    expect(restFacilities).toContain('Chemical toilet disposal: Not known');
+    expect(restFacilities).toContain('Drinking water: Yes');
+    expect(restFacilities).toContain('Chemical toilet disposal: No');
     expect(restFacilities).toContain('Fee: Not known');
 
     const serviceRow = visibleText(rowOf(html, 'service_area'));
@@ -337,7 +412,7 @@ test.describe('🔴 not known is never printed as no', () => {
     ['an API that predates the field (no `facilities` at all)', undefined],
     ['null', null],
     ['an empty object', {}],
-    ['five written unknowns', Object.fromEntries(FACILITY_KEYS.map((k) => [k, 'unknown']))],
+    ['five written unknowns', facilitiesAll('unknown')],
     ['values that are not the three words', { toilets: 'maybe', shower: null, drinkingWater: 'YES', dumpStation: 1, fee: true }],
     ['a string where an object was expected', 'toilets=yes'],
   ];
@@ -362,7 +437,7 @@ test.describe('🔴 not known is never printed as no', () => {
     const html = await renderRoute(
       servicesBody(() => [
         wire('rest_area', {
-          facilities: Object.fromEntries(FACILITY_KEYS.map((k) => [k, 'no'])),
+          facilities: facilitiesAll('no'),
         }),
       ]),
     );
@@ -375,7 +450,7 @@ test.describe('🔴 not known is never printed as no', () => {
     const html = await renderRoute(
       servicesBody(() => [
         wire('service_area', {
-          facilities: Object.fromEntries(FACILITY_KEYS.map((k) => [k, 'yes'])),
+          facilities: facilitiesAll('yes'),
         }),
       ]),
     );
@@ -383,29 +458,35 @@ test.describe('🔴 not known is never printed as no', () => {
     expect(count(text, /: Yes\b/g), text).toBe(5);
   });
 
-  // 🔴 THE FIVE ARE FIVE DIFFERENT FACILITIES. A swap of two keys on the
-  // way to the page would print "Shower: Yes" for a toilet; one answer per
-  // facility makes that a red test.
-  test('each facility word is the facility’s own', async () => {
-    const html = await renderRoute(
-      servicesBody(() => [
-        wire('rest_area', {
-          facilities: {
-            toilets: 'yes',
-            shower: 'no',
-            drinkingWater: 'unknown',
-            dumpStation: 'yes',
-            fee: 'no',
-          },
-        }),
-      ]),
-    );
-    const text = facilitiesText(rowOf(html, 'rest_area'));
-    expect(text).toContain('Toilets: Yes');
-    expect(text).toContain('Shower: No');
-    expect(text).toContain('Drinking water: Not known');
-    expect(text).toContain('Chemical toilet disposal: Yes');
-    expect(text).toContain('Fee: No');
+  // 🔴 THE FIVE ARE FIVE DIFFERENT FACILITIES, AND EVERY ONE OF THEM IS READ.
+  // A swap of two keys on the way to the page would print "Shower: Yes" for
+  // a toilet; a key the page cannot read — the name disagrees with the
+  // API's — prints "Not known" over an answer. Two payloads, written by
+  // hand (see MIX_A / MIX_B), give every key a yes or a no in at least one
+  // of them and a different pair from every other key, so each of those is
+  // a red test. The expected words are written out here, not derived.
+  test('each facility word is the facility’s own, for all five, in two payloads', async () => {
+    const words = async (facilities: Wire) =>
+      facilitiesText(
+        rowOf(await renderRoute(servicesBody(() => [wire('rest_area', { facilities })])), 'rest_area'),
+      );
+
+    const a = await words(MIX_A);
+    expect(a).toContain('Toilets: Yes');
+    expect(a).toContain('Shower: No');
+    expect(a).toContain('Drinking water: Yes');
+    expect(a).toContain('Chemical toilet disposal: No');
+    expect(a).toContain('Fee: Not known');
+    // exactly these, and not the same words in another order of keys
+    expect([count(a, /: Yes\b/g), count(a, /: No\b/g), count(a, /: Not known/g)]).toEqual([2, 2, 1]);
+
+    const b = await words(MIX_B);
+    expect(b).toContain('Toilets: No');
+    expect(b).toContain('Shower: Yes');
+    expect(b).toContain('Drinking water: Yes');
+    expect(b).toContain('Chemical toilet disposal: No');
+    expect(b).toContain('Fee: Yes');
+    expect([count(b, /: Yes\b/g), count(b, /: No\b/g), count(b, /: Not known/g)]).toEqual([3, 2, 0]);
   });
 
   // 🔴 CAMP-255 SAYS "NOT KNOWN" FOR THE SAME STATE. One word for one idea,
@@ -498,9 +579,11 @@ test.describe('readFacilities', () => {
     ];
     for (const raw of inputs) {
       const out = readFacilities(raw);
-      expect(Object.keys(out).sort()).toEqual([...FACILITY_KEYS].sort());
-      for (const key of FACILITY_KEYS) {
-        expect(out[key], `${JSON.stringify(raw)} → ${key}`).toBe('unknown');
+      // 🔴 The keys it answers for are the wire's, written out by hand —
+      // not `FACILITY_KEYS` compared with itself.
+      expect(Object.keys(out).sort()).toEqual([...WIRE_KEYS].sort());
+      for (const key of WIRE_KEYS) {
+        expect(out[key as keyof typeof out], `${JSON.stringify(raw)} → ${key}`).toBe('unknown');
       }
     }
   });
@@ -511,5 +594,21 @@ test.describe('readFacilities', () => {
       shower: 'no',
       fee: 'unknown',
     });
+  });
+
+  // 🔴 EVERY KEY, ON ITS OWN. The test above names two of the five; this one
+  // names each of them in turn, in the API's spelling, and requires that key
+  // to come out as the answer and the other four as nothing.
+  test('reads each of the five keys the API sends, one at a time', () => {
+    for (const key of WIRE_KEYS) {
+      for (const state of ['yes', 'no'] as const) {
+        const out = readFacilities({ [key]: state });
+        expect(out[key as keyof typeof out], `${key}=${state}`).toBe(state);
+        const others = Object.entries(out).filter(([k]) => k !== key);
+        expect(others.map(([, v]) => v), `${key}=${state}: the other four`).toEqual([
+          'unknown', 'unknown', 'unknown', 'unknown',
+        ]);
+      }
+    }
   });
 });
