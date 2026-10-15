@@ -306,33 +306,105 @@ describe('🔴 CAMP-256: the OSM edit date in the weekly upsert', () => {
     expect(compare).not.toMatch(/osm_record/);
   });
 
-  it("dedupe keeps the date of the object it keeps — the way's, not the node's", () => {
+  describe('🔴 a row built from several objects is dated by the NEWEST of them', () => {
+    // Review's finding, from a real row: the name on the page came from a newer
+    // version of an object than the date printed under "Record last edited". The
+    // merged tags are a union, so the date must not be older than any of them.
     const mk = (
       osm_ref: string,
       lon: number,
-      editedAt: string,
-      version: number,
+      editedAt: string | null,
+      version: number | null,
+      name: string | null = 'Camp Bovec',
     ) => ({
       osm_ref,
       point_wkt: `POINT(${lon} 46)`,
       admin_region: 'Bovec',
       admin_country: 'SI',
       record: {
-        editedAt: new Date(editedAt),
+        editedAt: editedAt === null ? null : new Date(editedAt),
         version,
-        problem: null,
+        problem: editedAt === null ? ('missing' as const) : null,
       },
-      tags: { name: 'Camp Bovec' },
+      tags: name === null ? {} : { name },
     });
-    const out = dedupe([
-      mk('n1', 14.0, '2026-09-01T00:00:00Z', 2),
-      mk('w2', 14.0002, '2019-06-14T08:00:00Z', 5),
-    ]);
-    expect(out).toHaveLength(1);
-    expect(out[0].osm_ref).toBe('w2');
-    expect(out[0].record?.editedAt?.toISOString()).toBe(
-      '2019-06-14T08:00:00.000Z',
-    );
-    expect(out[0].record?.version).toBe(5);
+
+    it("a node edited AFTER the way it was merged into: the row carries the node's date and version", () => {
+      const out = dedupe([
+        mk('n1', 14.0, '2026-09-01T10:00:00Z', 2),
+        mk('w2', 14.0002, '2019-06-14T08:00:00Z', 5),
+      ]);
+      expect(out).toHaveLength(1);
+      // The way is still the row (its id, its slug)…
+      expect(out[0].osm_ref).toBe('w2');
+      // …and the date is the newest, with ITS version: a pair of one object.
+      expect(out[0].record?.editedAt?.toISOString()).toBe(
+        '2026-09-01T10:00:00.000Z',
+      );
+      expect(out[0].record?.version).toBe(2);
+    });
+
+    it("the way edited after the node: the way's date, as before", () => {
+      const out = dedupe([
+        mk('n1', 14.0, '2019-06-14T08:00:00Z', 2),
+        mk('w2', 14.0002, '2026-09-01T10:00:00Z', 5),
+      ]);
+      expect(out[0].record?.editedAt?.toISOString()).toBe(
+        '2026-09-01T10:00:00.000Z',
+      );
+      expect(out[0].record?.version).toBe(5);
+    });
+
+    it('whichever order they arrive in', () => {
+      const a = dedupe([
+        mk('w2', 14.0002, '2019-06-14T08:00:00Z', 5),
+        mk('n1', 14.0, '2026-09-01T10:00:00Z', 2),
+      ]);
+      expect(a[0].record?.version).toBe(2);
+    });
+
+    it('an unnamed pair, merged on the tighter radius, is dated the same way', () => {
+      const out = dedupe([
+        mk('n1', 14.0, '2026-09-01T10:00:00Z', 2, null),
+        mk('w2', 14.0002, '2019-06-14T08:00:00Z', 5, null),
+      ]);
+      expect(out).toHaveLength(1);
+      // Anchor: the rows REALLY are unnamed, or this is the named path again —
+      // an earlier version of this test passed `undefined`, which a default
+      // parameter turned into a name, and the unnamed path went untested.
+      expect(out[0].tags.name).toBeUndefined();
+      expect(out[0].record?.editedAt?.toISOString()).toBe(
+        '2026-09-01T10:00:00.000Z',
+      );
+      expect(out[0].record?.version).toBe(2);
+    });
+
+    it('three objects: the newest of all three', () => {
+      const out = dedupe([
+        mk('n1', 14.0, '2024-01-01T00:00:00Z', 1),
+        mk('n3', 14.0001, '2026-03-03T00:00:00Z', 4),
+        mk('w2', 14.0002, '2019-06-14T08:00:00Z', 5),
+      ]);
+      expect(out).toHaveLength(1);
+      expect(out[0].record?.version).toBe(4);
+    });
+
+    it('🔴 if ANY merged object has no date, the row has none: "not known", not the others\' date', () => {
+      const out = dedupe([
+        mk('n1', 14.0, null, null),
+        mk('w2', 14.0002, '2019-06-14T08:00:00Z', 5),
+      ]);
+      expect(out).toHaveLength(1);
+      expect(out[0].record).toEqual({
+        editedAt: null,
+        version: null,
+        problem: 'missing',
+      });
+    });
+
+    it('a row that was not merged keeps its own date untouched', () => {
+      const out = dedupe([mk('w2', 14.0002, '2019-06-14T08:00:00Z', 5)]);
+      expect(out[0].record?.version).toBe(5);
+    });
   });
 });

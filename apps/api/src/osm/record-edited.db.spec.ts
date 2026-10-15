@@ -359,6 +359,38 @@ describe('the weekly upsert writes the EDIT date, and not the date of the run', 
     });
   });
 
+  it("🔴 a row's name, edit date and version always come from the SAME import — a rename never keeps the old date", async () => {
+    // Review's real row: Arlberg, a relation. The extract of 24.09 had version 2
+    // (2022-09-08) under the name "Campingplatz Arlberg @ EuroParcs"; by the next
+    // import it was version 3 (2026-10-08) under "Austria Parks Arlberg". The row
+    // that reached the page had the NEW name and the OLD date and version — a
+    // caption about one version over data from another, which reads as a fact.
+    await upsert(
+      'n-arlberg',
+      { editedAt: new Date('2022-09-08T10:35:19Z'), version: 2 },
+      { name: 'Campingplatz Arlberg @ EuroParcs' },
+    );
+    await upsert(
+      'n-arlberg',
+      { editedAt: new Date('2026-10-08T14:48:38Z'), version: 3 },
+      { name: 'Austria Parks Arlberg', startedAt: '2026-10-19T05:00:00Z' },
+    );
+    const row = (
+      await db.query(
+        `SELECT name, osm_record_version AS version,
+                to_char(osm_record_edited_at AT TIME ZONE 'UTC',
+                        'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS edited
+           FROM camping_spots WHERE osm_ref = 'n-arlberg'`,
+      )
+    ).rows[0];
+    // All three are the second import's, together.
+    expect(row).toEqual({
+      name: 'Austria Parks Arlberg',
+      version: 3,
+      edited: '2026-10-08T14:48:38Z',
+    });
+  });
+
   it('🔴 re-reading an UNCHANGED record a week later moves last_seen_at and leaves the edit date alone', async () => {
     await upsert(
       'n-same',

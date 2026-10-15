@@ -32,6 +32,7 @@ import { foldToAscii } from '../spots/canonical';
 import { correctRegion, isKnownRegion } from './region-names';
 import {
   loadDateVerdict,
+  mergedRecord,
   readRecordAge,
   recentShare,
   RECENT_WINDOW_HOURS,
@@ -155,6 +156,9 @@ export function dedupe(rows: StagingRow[]): StagingRow[] {
         for (const [k, v] of Object.entries(loser.tags)) {
           if (winner.tags[k] === undefined) winner.tags[k] = v;
         }
+        // 🔴 CAMP-256: the tags above are a UNION, so the date is the newest
+        // of the objects that contributed to it (see mergedRecord).
+        winner.record = mergedRecord(winner.record, loser.record);
       }
       out.push(winner);
     }
@@ -237,6 +241,9 @@ export function mergeUnnamed(rows: StagingRow[]): StagingRow[] {
       for (const [k, v] of Object.entries(drop.tags)) {
         if (keep.tags[k] === undefined) keep.tags[k] = v;
       }
+      // 🔴 CAMP-256: as in dedupe() — the merged row is dated by the newest
+      // object it was built from.
+      keep.record = mergedRecord(keep.record, drop.record);
       winner = keep;
     }
 
@@ -479,16 +486,16 @@ interface StagingRow {
    * Optional only so that the row helpers in the specs, which predate it,
    * keep compiling; `main()` always sets it. It travels on the row so that
    * `dedupe` — which keeps one object's row and merges the other's tags
-   * into it — keeps THAT object's date with it: the date is a fact about
-   * the object whose id we store, and `osm_ref` is how a person checks it
-   * on openstreetmap.org.
+   * into it — can date the merged row (below). For a row of one object it
+   * is that object's own date, and `osm_ref` is how a person checks it on
+   * openstreetmap.org.
    *
-   * ⚠️ The merged-away object can be the NEWER one. Measured 15.10.2026 on
-   * the 27 extracts of 24.09.2026: 516 merged pages, and on 162 of them a
-   * merged-away object was edited after the kept one (median 147 days,
-   * p90 about 5.5 years) — 0.34% of the 47 602 dated pages. The date stays
-   * the kept object's, so it can be checked by `osm_ref`; the page words
-   * its caption for "the record this page is built on" to stay true.
+   * 🔴 A ROW BUILT FROM SEVERAL OBJECTS is dated by the NEWEST of them
+   * (`mergedRecord`): its tags are a union, and the kept object's date alone
+   * was older than a displayed tag in 162 of 516 merged clusters (measured
+   * 15.10.2026, 27 extracts; 123 database rows). For such a row the date can belong to the
+   * merged-away object, so `osm_ref` is not always the object to check it
+   * against — it is for the other 99.7%.
    */
   record?: RecordAge;
   tags: OsmTags;

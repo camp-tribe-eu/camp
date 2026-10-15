@@ -109,6 +109,43 @@ export function readRecordAge(
   };
 }
 
+/**
+ * The edit date of ONE row that was built from SEVERAL OpenStreetMap objects:
+ * the NEWEST of them — or "not known", if any of them has no date.
+ *
+ * 🔴 WHY NOT THE KEPT OBJECT'S. The importer merges a campsite mapped twice (a
+ * node and the way around it) into one row, keeping the way's id and filling
+ * the way's gaps from the node's tags. A row's tags are therefore a UNION, and
+ * a date taken from the kept object alone can be OLDER than a tag it displays:
+ * measured 15.10.2026 on the 27 extracts, 516 merged clusters, and in 162 of
+ * them a merged-away object had been edited after the kept one (123 database
+ * rows changed date when the importer was switched to the newest). A caption that says
+ * "last edited 2019" over a tag somebody added in 2026 states something about
+ * the world that is not true, and reads as a fact. The newest date is never
+ * older than anything the row shows.
+ *
+ * And if ANY contributing object has no usable date, the row has none: a date
+ * from the others would say nothing about what the undated one contributed.
+ *
+ * The version is the version of the object whose date was taken, so the pair
+ * stays one object's. A tie keeps the first argument (the kept object).
+ */
+export function mergedRecord(
+  kept: RecordAge | undefined,
+  other: RecordAge | undefined,
+): RecordAge | undefined {
+  // Rows built by hand in specs carry no record at all; there is nothing to merge.
+  if (kept === undefined && other === undefined) return undefined;
+  if (!kept?.editedAt || !other?.editedAt) {
+    return {
+      editedAt: null,
+      version: null,
+      problem: kept?.problem ?? other?.problem ?? 'missing',
+    };
+  }
+  return other.editedAt.getTime() > kept.editedAt.getTime() ? other : kept;
+}
+
 /** Records edited within this long of the run are "recent" for the verdict. */
 export const RECENT_WINDOW_HOURS = 48;
 

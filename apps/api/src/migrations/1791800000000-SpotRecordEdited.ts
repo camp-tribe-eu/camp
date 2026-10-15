@@ -24,6 +24,16 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * list. A way keeps its timestamp when somebody drags one of its nodes, so
  * this is not "the outline was last redrawn on".
  *
+ * 🔴 THESE TWO COLUMNS ARE WRITTEN BY THE IMPORTER, FROM THE SAME STAGING ROW
+ * THAT SUPPLIES THE REST OF THE ROW, AND BY NOTHING ELSE. The date and version
+ * describe the version of the object whose tags, name and location the row
+ * holds; fill them from another extract — a join, a backfill, a copy from a
+ * clone — and they describe a different version than the page shows. That was
+ * done once, on dev, on 15.10.2026, from the 24.09 extracts onto rows imported
+ * on 12.10: 931 rows ended up with a new name and an old date, one of them
+ * Arlberg (version 2, 2022-09-08, under the name from version 3, 2026-10-08).
+ * To remove a date, set it NULL; to get one, run the importer.
+ *
  * 🔴 NULL IS "NOT KNOWN" AND IS NEVER FILLED IN. Existing rows start NULL
  * and stay NULL until an import reads their date out of an extract built
  * with `osmium export -a timestamp,version` (extract-campsites.sh). There

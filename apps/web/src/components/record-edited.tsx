@@ -11,10 +11,10 @@ import { SOURCES } from '@/lib/sources';
 //
 // 🔴 "THE RECORD THIS PAGE IS BUILT ON", not "this place's entry". One page
 // is usually one OpenStreetMap object. Where the importer merged a node and
-// a way into one page it keeps the date of the object it kept (the way,
-// whose id is the `osm_ref` we store), and the merged-away object can be the newer
-// of the two: 162 of the 516 merged pages across the 27 extracts of
-// 24.09.2026 (measured 15.10.2026), about 0.3% of all dated pages. The
+// a way into one page, the date is the NEWEST of the objects it was built
+// from (apps/api/src/osm/record-age.ts, `mergedRecord`): the page shows a
+// union of their tags, and the kept object's date alone was older than a
+// displayed tag in 162 of 516 merged clusters (measured 15.10.2026). The
 // caption names the record, so it stays true for them too.
 //
 // 🔴 IT SAYS WHEN SOMEBODY LAST TOUCHED THE ENTRY, and nothing about
