@@ -230,6 +230,23 @@ export const STRAIGHT_LINE_LABEL = 'in a straight line';
 
 export { formatKm };
 
+/**
+ * "1,240 km in a straight line" — the number and its qualifier, made
+ * together so that no surface can print the one without the other.
+ *
+ * 🔴 CAMP-240. The index card carries a distance because the design's
+ * card does (04-routes.html, screen 1: days · km · countries), and the
+ * only distance we can honestly stand behind is the sum of the straight
+ * lines between consecutive stops. Handing a caller the two halves
+ * separately is how "1,240 km" ends up on a card with nothing after it,
+ * which a reader takes for the length of the drive. This returns one
+ * string; a test reads the rendered index for a `km` with no label.
+ */
+export function straightLineLabel(route: CuratedRoute): string {
+  const { total } = straightLineLegs(route.stages);
+  return `${formatKm(total)} ${STRAIGHT_LINE_LABEL}`;
+}
+
 /** "10 days · 9 nights · 3 countries" — the spine of a route card. */
 export function routeShape(route: CuratedRoute): string {
   const nights = route.stages.reduce((a, s) => a + s.nights, 0);

@@ -1,10 +1,17 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { countryName, getCountries, getSummary } from '@/lib/api';
-import { printable, searchDescription, searchLead } from '@/lib/campsite-count';
+import {
+  memberStateCount,
+  printable,
+  searchDescription,
+  searchLead,
+} from '@/lib/campsite-count';
 import { alternatesFor } from '@/lib/i18n';
+import Breadcrumbs from '@/components/breadcrumbs';
 import SearchEmbed from '@/components/search-embed';
 import { abs, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
+import { getRoutes } from '@/lib/routes';
 
 // CAMP-67 — /search.
 //
@@ -24,11 +31,18 @@ export const metadata: Metadata = {
   robots: { index: false, follow: true },
 };
 
+const crumbs = [
+  { name: 'CampTribe', path: '/' },
+  { name: 'Search', path: '/search' },
+];
+
 export default async function SearchPage() {
   const [summary, countries] = await Promise.all([
     getSummary(),
     getCountries(),
   ]);
+
+  const routeCount = getRoutes().length;
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
@@ -54,19 +68,23 @@ export default async function SearchPage() {
           inLanguage: 'en',
         })}
       />
-      <script
-        {...jsonLdProps(
-          breadcrumbList([
-            { name: 'CampTribe', path: '/' },
-            { name: 'Search', path: '/search' },
-          ]),
-        )}
-      />
+      <script {...jsonLdProps(breadcrumbList(crumbs))} />
 
-      <h1 className="text-2xl font-bold text-heading sm:text-3xl">Search</h1>
+      <Breadcrumbs crumbs={crumbs} />
+
+      <h1 className="mt-4 text-2xl font-bold text-heading sm:text-3xl">
+        Search
+      </h1>
       <p className="mt-2 max-w-prose text-sm text-ink-2">
-        {searchLead(printable(summary.spots), countries.length)}. Type a
-        name, a region, or a town or lake nearby.
+        {/* 🔴 CAMP-240. `memberStateCount`, not `countries.length`: the
+            list has 28 codes and one of them is Åland, which is Finland.
+            "Across 28 countries" was a false sentence on a page whose
+            site serves 27. See lib/campsite-count.ts. */}
+        {searchLead(
+          printable(summary.spots),
+          memberStateCount(countries.map((c) => c.country)),
+        )}
+        . Type a name, a region, or a town or lake nearby.
       </p>
 
       <div className="mt-5 max-w-2xl">
@@ -84,10 +102,56 @@ export default async function SearchPage() {
                 href={`/camping/${c.country}`}
                 className="inline-flex h-9 items-center rounded-sm border border-line-2 bg-surface px-3 text-sm text-heading hover:border-line-blue"
               >
-                {countryName(c.country)} · {c.spots}
+                {countryName(c.country)} · {c.spots.toLocaleString('en-GB')}
               </Link>
             </li>
           ))}
+        </ul>
+      </section>
+
+      {/* 🔴 CAMP-240. What the box does NOT search, said on the page that
+          has the box. The design's search (09-guides.html) groups its
+          results by campsites, routes, guides and cities; ours finds
+          campsites only, and a reader who types a route's name and gets
+          "nothing" is told the site has no such route. These are the
+          places the other things live. The design's "often searched"
+          and "recently viewed" are not here: we keep no search log to
+          say what is often searched, and recently viewed is a feature
+          of the browser, not a sentence for this page. */}
+      <section className="mt-10 border-t border-line-2 pt-6">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-2">
+          Not looking for a campsite?
+        </h2>
+        <p className="mt-2 max-w-prose text-sm text-ink-2">
+          This box searches campsites only. The rest of the site is in these
+          places.
+        </p>
+        <ul className="mt-3 space-y-2 text-sm text-ink-2">
+          <li>
+            <Link className="font-semibold text-heading underline" href="/map">
+              The map
+            </Link>{' '}
+            — every campsite we hold, on one map you can filter.
+          </li>
+          <li>
+            <Link className="font-semibold text-heading underline" href="/routes">
+              Routes
+            </Link>{' '}
+            — {routeCount} curated routes through the EU, stop by stop.
+          </li>
+          <li>
+            <Link className="font-semibold text-heading underline" href="/guides">
+              Guides
+            </Link>{' '}
+            — one question about one region, answered from our own records.
+          </li>
+          <li>
+            <Link className="font-semibold text-heading underline" href="/tools">
+              Tools
+            </Link>{' '}
+            — what a trip costs with this week&rsquo;s fuel prices, and what to
+            pack.
+          </li>
         </ul>
       </section>
     </main>
