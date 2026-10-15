@@ -350,36 +350,39 @@ export const CANONICAL_REF_KINDS = [
  * whether the page grows by a tenth kind; this one only makes the data
  * exist and be queryable.
  *
- * 🔴 IT IS LAST IN THE CASE, AND THAT IS NOT A DETAIL. 4 014 of the 6 109
- * distinct `shop=gas` objects in the 27 extracts (measured 15.10.2026:
- * `osmium tags-filter -R nwr/amenity=fuel nwr/shop=gas` over every
- * `*.osm.pbf`, parsed and de-duplicated by OSM id) are ALSO `amenity=fuel`
- * — 3 800 of them in France and 180 in Czechia, and by name they are
- * hypermarket forecourts: Intermarché 798, Carrefour 361, Carrefour Market
- * 204, Super U 164. A CASE returns its first match, so those stay the fuel
- * stations they were before this card. Putting `gas_exchange` ahead of
- * `fuel` would move the 4 008 of them already in camptribe_dev out of
+ * 🔴 IT IS LAST IN THE CASE, AND THAT IS NOT A DETAIL. 8 938 distinct
+ * objects (nodes and ways) in the 27 extracts say `gas` in their `shop` tag
+ * — 6 108 as the whole tag and 2 830 as an element of a `;` list
+ * (`convenience;gas`; measured 15.10.2026: `osmium tags-filter -R
+ * nwr/shop=*gas*` over every `*.osm.pbf`, parsed and de-duplicated by OSM id).
+ * 6 816 of them are ALSO `amenity=fuel` (4 014 + 2 802) — mostly French
+ * hypermarket forecourts: Intermarché, Carrefour, E.Leclerc, Super U. A CASE
+ * returns its first match, so those stay the fuel stations they were before
+ * this card. Putting `gas_exchange` ahead of `fuel` would move them out of
  * `fuel`, and on production the price rows are keyed on the `fuel` row's
  * `osm_ref` with no foreign key to say so (see buildRoutePoiInsertSql).
  *
- * So `gas_exchange` holds the gas shops that are nothing else — 2 088 rows
- * in camptribe_dev, about a third of the "6 119" the card quotes, which
- * counts both groups.
+ * So `gas_exchange` holds the gas shops that are nothing else — 2 114 rows in
+ * camptribe_dev. The card's "6 119" is the sum of the whole-tag objects over
+ * the extracts (4 019 forecourts + 2 100 others, border duplicates included),
+ * and it is itself too small: it was counted with an osmium filter that is
+ * the same whole-tag equality as the rule was, so the 2 831 list-valued rows
+ * are in neither number.
  *
  * 🔴 WHY THERE IS A KIND AND ALSO A COLUMN, AND WHY NEITHER IS SPARE.
  * The row's `kind` says WHAT THE POINT IS; one object has one kind (the
  * primary key is `osm_ref`), and a forecourt is a fuel station. The column
  * `cylinder_swap` says WHAT CAN BE DONE THERE, and an object can say that
- * about itself whatever kind it ended up with. Without the column, the 4 014
+ * about itself whatever kind it ended up with. Without the column, the 6 800
  * forecourts that also say `shop=gas` would lose that fact altogether — they
  * are `fuel`, and `fuel` has nowhere to put it — and a map layer could show
- * 2 088 bottle-swap points where the data holds about 6 100 (6 109 objects). Without the
- * KIND, a lone gas shop would be a row of some other kind with a flag, and
- * "what is this point" would have no answer. The layer is therefore
+ * 2 114 bottle-swap points where the data holds 8 925 (11 511 rows). Without
+ * the KIND, a lone gas shop would be a row of some other kind with a flag,
+ * and "what is this point" would have no answer. The layer is therefore
  * `kind = 'gas_exchange' OR cylinder_swap = 'yes'` — and because the flag is
  * derived from the same rule as the kind (rulesTestSql), `gas_exchange`
  * implies `yes`, so `cylinder_swap = 'yes'` alone is the same set. Removing
- * either one as redundant is how a third of the points go missing.
+ * either one as redundant is how three quarters of the points go missing.
  */
 export const STORED_ONLY_KINDS = ['gas_exchange'] as const;
 

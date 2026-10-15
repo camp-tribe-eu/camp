@@ -361,12 +361,12 @@ export const LPG_SUMMARY_SQL = `SELECT lpg AS state, count(*)::text AS rows,
  * WHATEVER KIND IT ENDED UP WITH.
  *
  * Derived from the SAME rule the `gas_exchange` branch of the CASE uses
- * (rulesTestSql over STORED_POI_RULES), and not from the row's kind: 4 014
- * of the 6 109 `shop=gas` objects are also `amenity=fuel`, are `fuel` because
- * the CASE returns its first match, and would otherwise lose the one fact
- * that makes them a gas-swap point. Reading the KIND here would put the flag
- * on 2 088 rows instead of about 6 100, and every query that looked fine on
- * a fixture of lone gas shops would keep looking fine.
+ * (rulesTestSql over STORED_POI_RULES), and not from the row's kind: 6 816
+ * of the 8 938 objects that say `gas` in `shop` are also `amenity=fuel`, are
+ * `fuel` because the CASE returns its first match, and would otherwise lose
+ * the one fact that makes them a gas-swap point. Reading the KIND here would
+ * put the flag on 2 114 rows instead of 11 511, and every query that looked
+ * fine on a fixture of lone gas shops would keep looking fine.
  *
  * `yes` or `unknown`, never `no`: no tag says "no cylinders here", and a
  * place that is not tagged `shop=gas` is a place nobody described that way.

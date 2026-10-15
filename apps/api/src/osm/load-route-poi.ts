@@ -132,7 +132,7 @@ async function main() {
     );
 
     // 🔴 CAMP-258: THE GAS LAYER KEEPS ITS FORECOURTS. `cylinder_swap` is
-    // what lets the 4 014 `fuel` rows that also say `shop=gas` stay in the
+    // what lets the 9 394 `fuel` rows that also say `gas` in `shop` stay in the
     // layer a map draws as `kind = 'gas_exchange' OR cylinder_swap = 'yes'`.
     // Written for the kind only, every number looks right and the layer is a
     // third of what it should be — see gasLayerError.

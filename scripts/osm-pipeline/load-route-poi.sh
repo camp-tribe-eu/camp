@@ -102,9 +102,10 @@
 # compare an object count with `count(DISTINCT canonicalRefSql(osm_ref))`,
 # which the loader prints, and not with `count(*)`.
 #
-# 🔴 And `gas_exchange` is about a third of what "shop=gas" suggests: 4 014
-# of its 6 109 objects are ALSO `amenity=fuel` and stay `fuel`. See
-# STORED_ONLY_KINDS in apps/api/src/osm/route-poi.ts.
+# 🔴 And the KIND `gas_exchange` is a quarter of the gas layer: 6 816 of the
+# 8 938 objects that say `gas` in `shop` are ALSO `amenity=fuel` and stay
+# `fuel`, flagged by the column `cylinder_swap`. See STORED_ONLY_KINDS in
+# apps/api/src/osm/route-poi.ts.
 set -euo pipefail
 
 DB_URL="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"

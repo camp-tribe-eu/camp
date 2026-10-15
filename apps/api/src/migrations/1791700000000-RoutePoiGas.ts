@@ -33,11 +33,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * 🔴 WHY THERE IS A COLUMN AND ALSO A KIND, `gas_exchange`.
  * `kind` says what the point IS; an object has one kind. `cylinder_swap`
  * says what can be DONE there, and an object can say that whatever kind it
- * ended up with. 4 014 of the 6 109 distinct `shop=gas` objects are also
- * `amenity=fuel` (hypermarket forecourts, 3 800 in France) and stay `fuel`,
- * because their rows are the ones prices are keyed on. Without this column
- * the fact that they swap cylinders is stored nowhere and a map layer could
- * show 2 088 points where the data holds about 6 100. Without the kind, a
+ * ended up with. 6 816 of the 8 938 distinct objects that say `gas` in `shop`
+ * (as the whole tag or as an element of a `;` list) are also `amenity=fuel`
+ * (hypermarket forecourts, mostly French) and stay `fuel`, because their
+ * rows are the ones prices are keyed on. Without this column the fact that
+ * they swap cylinders is stored nowhere and a map layer could show 2 114
+ * points where the data holds 8 925. Without the kind, a
  * lone gas shop would be a row of some other kind carrying a flag. Both stay;
  * the layer is `kind = 'gas_exchange' OR cylinder_swap = 'yes'`. The long
  * form of this note is at STORED_ONLY_KINDS in osm/route-poi.ts.
