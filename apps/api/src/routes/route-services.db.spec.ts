@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Client } from 'pg';
 import type { QueryRunner } from 'typeorm';
 import { FuelStationPrices1790662801000 } from '../migrations/1790662801000-FuelStationPrices';
@@ -6,6 +8,7 @@ import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-Rou
 import { ROUTE_POI_KINDS } from '../osm/route-poi';
 import {
   buildServicesSql,
+  FACILITY_FIELDS,
   rowToRouteService,
   servicesOverfetch,
   type RouteService,
@@ -435,5 +438,69 @@ describe('CAMP-119: one OSM object is one row', () => {
       await db.query(`SELECT kind FROM osm_route_poi WHERE osm_ref = 'n70'`)
     ).rows;
     expect(rows).toEqual([{ kind: 'fuel' }]);
+  });
+});
+
+// ── THE CI FIXTURE, LOADED AND READ BACK ────────────────────────────────
+//
+// 🔴 CAMP-119 review, defect D2. The five facility keys are named twice, by
+// hand — the API's FACILITY_FIELDS and the page's FACILITY_KEYS — and the
+// only thing that makes a disagreement between them visible is a row that
+// says yes or no for the key in question. The fixture CI builds the site
+// from had `toilets` and then `'unknown'` four times over, in all four
+// rows, so for four keys of five nothing anywhere could tell a renamed key
+// from a key nobody had written down: both print "Not known".
+//
+// This loads the REAL fixture file into PostgreSQL (inside a transaction,
+// rolled back) and reads the columns back, rather than parsing the SQL:
+// what the page can be told is what the database holds after the file has
+// run. It asks two things of the corpus, one for each way it could stop
+// being able to see:
+//
+//   - every facility column says yes on some row and no on some row,
+//     or a key renamed on one side still prints the same word it did;
+//   - no two columns have the same pattern down the rows, or two keys
+//     swapped on the way to the page print the same words in another order.
+//
+// The columns checked are the API's own list, not the fixture's: the thing
+// being measured must not choose what it is measured against.
+describe('CAMP-119: the CI fixture passes every facility key through yes and through no', () => {
+  const FIXTURE = join(__dirname, '../../test/fixtures/ci-seed-route-poi.sql');
+
+  it('says yes and no for each of the five columns, in a different pattern for each', async () => {
+    const columns = FACILITY_FIELDS.map((f) => f.column);
+    expect(columns.length).toBe(5);
+    const patterns: string[] = [];
+    const blind: string[] = [];
+    await db.query('BEGIN');
+    try {
+      await db.query(readFileSync(FIXTURE, 'utf8'));
+      // The fixture's rows are the French ones; this file's own are 'hr'.
+      const where = `kind IN ('rest_area', 'service_area') AND country = 'fr'`;
+      const loaded = await db.query(
+        `SELECT count(*)::int AS n FROM osm_route_poi WHERE ${where}`,
+      );
+      // Anchor: the fixture put its stopping places into the table. An
+      // empty read would make every count below zero for the wrong reason.
+      expect(loaded.rows[0].n).toBeGreaterThan(0);
+
+      for (const column of columns) {
+        const r = await db.query(
+          `SELECT count(*) FILTER (WHERE ${column} = 'yes')::int AS yes,
+                  count(*) FILTER (WHERE ${column} = 'no')::int  AS no,
+                  string_agg(${column}, ',' ORDER BY osm_ref)    AS pattern
+             FROM osm_route_poi WHERE ${where}`,
+        );
+        if (r.rows[0].yes === 0) blind.push(`${column} never says yes`);
+        if (r.rows[0].no === 0) blind.push(`${column} never says no`);
+        patterns.push(r.rows[0].pattern);
+      }
+    } finally {
+      await db.query('ROLLBACK');
+    }
+    // The names go in the value: Jest's `expect` takes ONE argument.
+    expect(blind).toEqual([]);
+    // Five columns, five different patterns.
+    expect(new Set(patterns).size).toBe(columns.length);
   });
 });

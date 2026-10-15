@@ -466,6 +466,24 @@ describe('the migrations’ KINDS lists are the kinds the endpoint serves', () =
   });
 });
 
+// 🔴 CAMP-119 review, D2: the fixture CI loads is `ci-seed.sql`, and the
+// rows this block's neighbours describe live in `ci-seed-route-poi.sql`,
+// which `regenerate.sh` appends to it verbatim. Two files holding one set of
+// rows is one of them out of date the day somebody edits the other — and
+// the one CI reads is the one nobody opens. route-services.db.spec.ts loads
+// the small file; this is what says the big one is carrying the same text.
+describe('the route-POI fixture CI loads is the one the specs read', () => {
+  it('ci-seed.sql carries ci-seed-route-poi.sql verbatim', () => {
+    const dir = join(__dirname, '../../test/fixtures');
+    const part = readFileSync(join(dir, 'ci-seed-route-poi.sql'), 'utf8');
+    const whole = readFileSync(join(dir, 'ci-seed.sql'), 'utf8');
+    // Anchor: the part is the file with the INSERTs in it, not an empty
+    // string — which `includes` finds in anything.
+    expect(part).toContain('INSERT INTO osm_route_poi');
+    expect(whole.includes(part)).toBe(true);
+  });
+});
+
 // ── CAMP-154: THE PRICE ON THE FUEL ROW ─────────────────────────────────
 //
 // 🔴 Three things are asserted, and each of them is a way the query
