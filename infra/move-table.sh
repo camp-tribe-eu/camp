@@ -119,8 +119,10 @@ cat > "$WORK/remote.sh" <<'REMOTE'
 #!/usr/bin/env bash
 set -uo pipefail
 TABLE="$1"; SRC_ROWS="$2"; BACKUP_DIR="$3"; ENVF="$4"; RTMP="$5"
+set -a
 # shellcheck source=/dev/null
-set -a; . "$ENVF"; set +a
+. "$ENVF"
+set +a
 # 🔴 Створення бази під репетицію винесено в змінні: на бойовій машині це
 # суперкористувач (прикладний користувач права не має й не повинен), а в
 # самоперевірці — звичайний createdb. Без цього самоперевірка ганяла б не
