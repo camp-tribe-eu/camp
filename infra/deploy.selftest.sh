@@ -269,7 +269,7 @@ PORTS_USED="$BASE/ports.used"; : > "$PORTS_USED"
 free_port() {
   local p
   while :; do
-    p=$((20000 + RANDOM % 10000))
+    p=$((${SELFTEST_PORT_BASE:-20000} + RANDOM % ${SELFTEST_PORT_SPAN:-10000}))
     grep -qx "$p" "$PORTS_USED" && continue
     port_up "$p" || { echo "$p" >> "$PORTS_USED"; echo "$p"; return; }
   done
