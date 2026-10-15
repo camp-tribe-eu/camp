@@ -34,6 +34,13 @@ export interface RouteCard {
   months: number[];
   monthsLabel: string;
   suits: TravellerTag[];
+  /**
+   * 🔴 CAMP-240. "1,240 km in a straight line", already assembled by the
+   * server (`straightLineLabel` in lib/routes.ts) — a finished string and
+   * not a number, so this component cannot print the distance without the
+   * qualifier, and does not have to import the route data to know it.
+   */
+  distance: string;
 }
 
 const MONTH_GROUPS: { id: string; label: string; months: number[] }[] = [
@@ -221,6 +228,16 @@ export default function RouteLibrary({ routes }: { routes: RouteCard[] }) {
                 </span>
                 <span className="mt-4 text-xs text-ink-2">
                   {r.days} days · {r.nights} nights · {r.monthsLabel}
+                </span>
+                <span className="mt-1 text-xs text-ink-2">{r.distance}</span>
+                {/* 🔴 CAMP-240. Why a card matches a filter, said on the
+                    card. The mockup puts a difficulty badge here; we have
+                    nothing to compute a difficulty from, but we do have
+                    who each route was written for, and "Families" on the
+                    card is what makes the "Families" filter explain
+                    itself. */}
+                <span className="mt-1 text-xs text-ink-2">
+                  Suits: {r.suits.map((t) => TRAVELLER_LABEL[t]).join(', ')}
                 </span>
               </Link>
             </li>

@@ -1,0 +1,142 @@
+[
+ {
+  "country": "fr",
+  "spots": 17915,
+  "regions": 100
+ },
+ {
+  "country": "de",
+  "spots": 8229,
+  "regions": 16
+ },
+ {
+  "country": "it",
+  "spots": 4104,
+  "regions": 110
+ },
+ {
+  "country": "nl",
+  "spots": 3578,
+  "regions": 12
+ },
+ {
+  "country": "es",
+  "spots": 3269,
+  "regions": 49
+ },
+ {
+  "country": "se",
+  "spots": 2207,
+  "regions": 21
+ },
+ {
+  "country": "pl",
+  "spots": 2027,
+  "regions": 16
+ },
+ {
+  "country": "dk",
+  "spots": 1951,
+  "regions": 5
+ },
+ {
+  "country": "cz",
+  "spots": 1261,
+  "regions": 14
+ },
+ {
+  "country": "fi",
+  "spots": 892,
+  "regions": 18
+ },
+ {
+  "country": "at",
+  "spots": 783,
+  "regions": 9
+ },
+ {
+  "country": "pt",
+  "spots": 745,
+  "regions": 20
+ },
+ {
+  "country": "be",
+  "spots": 728,
+  "regions": 11
+ },
+ {
+  "country": "hr",
+  "spots": 624,
+  "regions": 20
+ },
+ {
+  "country": "hu",
+  "spots": 603,
+  "regions": 41
+ },
+ {
+  "country": "gr",
+  "spots": 584,
+  "regions": 13
+ },
+ {
+  "country": "ro",
+  "spots": 557,
+  "regions": 39
+ },
+ {
+  "country": "ee",
+  "spots": 457,
+  "regions": 15
+ },
+ {
+  "country": "ie",
+  "spots": 433,
+  "regions": 27
+ },
+ {
+  "country": "lt",
+  "spots": 345,
+  "regions": 10
+ },
+ {
+  "country": "lv",
+  "spots": 298,
+  "regions": 78
+ },
+ {
+  "country": "si",
+  "spots": 282,
+  "regions": 105
+ },
+ {
+  "country": "bg",
+  "spots": 270,
+  "regions": 26
+ },
+ {
+  "country": "sk",
+  "spots": 222,
+  "regions": 8
+ },
+ {
+  "country": "lu",
+  "spots": 83,
+  "regions": 3
+ },
+ {
+  "country": "cy",
+  "spots": 22,
+  "regions": 4
+ },
+ {
+  "country": "ax",
+  "spots": 19,
+  "regions": 6
+ },
+ {
+  "country": "mt",
+  "spots": 13,
+  "regions": 10
+ }
+]

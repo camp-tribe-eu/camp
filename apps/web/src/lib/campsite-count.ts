@@ -97,8 +97,43 @@ export function heroLead(spots: number | null, regions: number | null): string {
 }
 
 /**
- * /search, above the box. `countries` is the length of a list we already
- * hold, not a figure from the summary, so it is never in doubt.
+ * 🔴 CAMP-240. How many MEMBER STATES a list of the API's country codes
+ * names — which is not `list.length`.
+ *
+ * `/spots/countries` answers with the codes the campsite rows carry, and
+ * measured 15.10.2026 against `camptribe_dev` that is 28 of them: the 27
+ * member states and `ax`, 19 campsites. Åland is a self-governing region
+ * of Finland, inside the Union, and the OSM import stores it under its own
+ * ISO code. `/search` read the length of that list and printed "across 28
+ * countries" on a site whose scope is the EU-27, next to a chip for
+ * "Åland Islands" as though it were a twenty-eighth.
+ *
+ * The rule is the API's own — `ISO_SUBDIVISION_OF` in
+ * apps/api/src/osm/eu.ts, where it is derived from a sweep of every
+ * European Natural Earth code and found to hold exactly one entry — and it
+ * is repeated here as a written-out table rather than a guess, because the
+ * web app cannot import from the API workspace. A rule that guessed which
+ * codes "really" belong to a member state would one day admit
+ * Liechtenstein.
+ *
+ * Any code NOT in the table counts as itself, so a source that starts
+ * emitting a 29th code makes the number rise rather than vanish: the test
+ * compares the folded set with the EU-27 file and fails on either side.
+ */
+const SUBDIVISION_OF: Readonly<Record<string, string>> = { ax: 'fi' };
+
+export const memberState = (code: string): string => {
+  const c = code.trim().toLowerCase();
+  return SUBDIVISION_OF[c] ?? c;
+};
+
+export const memberStateCount = (codes: readonly string[]): number =>
+  new Set(codes.map(memberState)).size;
+
+/**
+ * /search, above the box. `countries` is the number of member states the
+ * list of country codes we already hold names (see `memberStateCount`),
+ * not a figure from the summary, so it is never in doubt.
  */
 export const searchLead = (spots: number | null, countries: number): string =>
   spots === null
