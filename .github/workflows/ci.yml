@@ -493,6 +493,18 @@ jobs:
           ./infra/deploy.selftest.sh | tee /dev/stderr \
             | grep -c 'deploy self-test: усе гаразд' >/dev/null
 
+      # 🔴 CAMP-322. Вимикач відкриття: три замки, і два з них ззовні
+      # виглядають однаково. Самоперевірка грає роль проксі підмінником
+      # curl, який щоразу читає gate.conf У ЦЮ МИТЬ, тому «пароль зняли,
+      # а сайт лишився noindex» там відтворюється, а не вигадується.
+      # Крок читає надруковане: рядок із власною назвою скрипта друкується
+      # лише коли виконано рівно EXPECTED випадків і жоден не впав.
+      - name: Launch switch refuses to open over a closed build, and reverts
+        run: |
+          set -o pipefail
+          ./infra/launch.selftest.sh | tee /dev/stderr \
+            | grep -c 'launch self-test: усе гаразд' >/dev/null
+
       # 🔴 CAMP-318. Кнопка «You own this site? Add your photos» вела на
       # `/owner/claim`, якого ніколи не існувало — 404 для рівно тієї
       # людини, яку ми просимо про допомогу, майже на кожній сторінці

@@ -1,0 +1,21 @@
+# ЗАКРИТО (передзапуск). Приклад: на машині поруч лежить справжній
+# gate-closed.conf, де замість ЗАГЛУШКИ стоїть bcrypt-хеш.
+#
+#   caddy hash-password --algorithm bcrypt
+#   sed "s#__HASH__#<хеш>#" gate-closed.conf.example > /etc/caddy/gate-closed.conf
+#   chmod 600 /etc/caddy/gate-closed.conf
+#
+# 🔴 ШЛЯХ ПЕРЕВІРКИ СЕРТИФІКАТА — ПОЗА ПАРОЛЕМ. Cloudflare має «Always use
+# HTTPS» і переадресовує перевірку Let's Encrypt на 443 (заміряно 308);
+# під паролем вона діставала б 401, і сертифікат мовчки не продовжився б
+# приблизно через 60 днів.
+@needs-password not path /.well-known/acme-challenge/*
+basic_auth @needs-password {
+	camptribe __HASH__
+}
+
+# 🔴 Це ДРУГИЙ замок індексації, незалежний від збірки. Заголовок, доданий
+# проксі, перекриває те, що віддав Next: виставити NEXT_PUBLIC_SITE_MODE=public
+# і перезібрати — НЕ досить, сайт лишиться noindex, доки стоїть цей рядок.
+# Саме тому `camptribe-launch status` читає обидва замки окремо.
+header X-Robots-Tag "noindex, nofollow, noarchive, nosnippet, noimageindex"

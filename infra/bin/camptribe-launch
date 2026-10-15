@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+# CampTribe — ВИМИКАЧ ВІДКРИТТЯ: зняти пароль і пустити пошукові системи
+# (CAMP-322). Виконується НА СЕРВЕРІ.
+#
+#   camptribe-launch status                  # лише читає; друкує всі замки
+#   camptribe-launch env --public [--apply]  # 1-й замок: рядок у .env
+#   camptribe-launch open  [--apply]         # 3-й замок: Caddy
+#   camptribe-launch close [--apply]         # назад під пароль
+#
+# Зазвичай запускається не напряму, а з ноутбука: `infra/launch-switch.sh`.
+#
+# 🔴 ЗАМКІВ ТРИ, А НЕ ОДИН. Картка CAMP-322 казала «вмикається однією
+# змінною» — це було неправдою, і саме через це процедура потрібна:
+#
+#   1. `.env`  NEXT_PUBLIC_SITE_MODE=public    — читається НА ЗБІРЦІ
+#   2. збірка  robots.txt + X-Robots-Tag       — те, що насправді віддає Next
+#   3. Caddy   basic_auth + X-Robots-Tag       — ПЕРЕКРИВАЄ те, що віддав Next
+#
+# Виставити змінну й перезапустити службу — НЕ відкриває сайт: значення
+# запікається на збірці (`apps/web/next.config.mjs:22`), тож між 1 і 3
+# обовʼязково стоїть повна викладка. А зняти пароль, не зробивши 1 і 2,
+# означає пустити робота на сторінки, які самі себе просять не індексувати:
+# `robots.txt` із `Disallow: /`. Обидві половини однаково марні.
+#
+# 🔴 СУХИЙ ПРОГІН ЗА ЗАМОВЧУВАННЯМ. Усе, що міняє машину, вимагає --apply.
+#
+# 🔴 ПЕРЕВІРКА — ТІЛЬКИ ЗЗОВНІ. Запитувати 127.0.0.1:3000 після відкриття
+# безглуздо: Caddy там і не стоїть, а саме він додає noindex. Перевірка,
+# яка не проходить через проксі, зеленіла б при повністю закритому сайті.
+#
+# Коди виходу:
+#   0  зроблено (або сухий прогін показав план); для status — замки згодні
+#   1  зупинка ДО зміни: передумова не виконана; для status — замки РОЗІЙШЛИСЬ
+#   2  неправильний виклик
+#   3  змінили, перевірка ззовні не пройшла, стан ПОВЕРНУТО й перевірено
+#   4  змінили, перевірка не пройшла, повернути не вдалось: стан невідомий
+set -euo pipefail
+
+ROOT="${CAMPTRIBE_ROOT:-/srv/camptribe}"
+LINK="${CAMPTRIBE_LINK:-current}"
+CADDY_DIR="${CAMPTRIBE_CADDY_DIR:-/etc/caddy}"
+CADDY_BIN="${CAMPTRIBE_CADDY_BIN:-caddy}"
+CADDYFILE="${CAMPTRIBE_CADDYFILE:-$CADDY_DIR/Caddyfile}"
+GATE="${CAMPTRIBE_GATE:-$CADDY_DIR/gate.conf}"
+GATE_OPEN="${CAMPTRIBE_GATE_OPEN:-$CADDY_DIR/gate-open.conf}"
+GATE_CLOSED="${CAMPTRIBE_GATE_CLOSED:-$CADDY_DIR/gate-closed.conf}"
+WEB_URL="${CAMPTRIBE_WEB_URL:-http://127.0.0.1:3000}"
+SITE_URL="${CAMPTRIBE_SITE_URL:-https://camptribe.eu}"
+CURL="${CAMPTRIBE_CURL:-curl}"
+VERIFY_TRIES="${CAMPTRIBE_VERIFY_TRIES:-10}"
+VERIFY_SLEEP="${CAMPTRIBE_VERIFY_SLEEP:-3}"
+
+say()  { printf '%s\n' "$*"; }
+warn() { printf '  ⚠ %s\n' "$*" >&2; }
+die()  { printf '✗ %s\n' "$*" >&2; exit 1; }
+usage() { sed -n '2,30p' "${BASH_SOURCE[0]:-$0}" | sed 's/^# \{0,1\}//'; exit 2; }
+
+rel_dir() { readlink -f "$ROOT/$LINK"; }
+envfile() { printf '%s/apps/api/.env\n' "$(rel_dir)"; }
+
+# --- читання замків -------------------------------------------------------
+# Кожен замок читається З ТОГО МІСЦЯ, ЯКЕ НА НЬОГО ВПЛИВАЄ, і жоден — з
+# іншого замка. Інакше три перевірки перетворюються на одну, повторену тричі.
+
+# 1. Рядок у .env. Саме рядок, не процес: служба могла стартувати раніше.
+lock_env() {
+  local f; f="$(envfile)"
+  [ -f "$f" ] || { echo 'немає'; return; }
+  if grep -Eq '^[[:space:]]*NEXT_PUBLIC_SITE_MODE[[:space:]]*=[[:space:]]*public[[:space:]]*$' "$f"
+  then echo 'public'; else echo 'closed'; fi
+}
+
+# 2. Те, що ВІДДАЄ зібраний Next. Не `.next/`-тека й не дата збірки:
+# тека існує й після dev-сервера, а відповідь буває лише від збірки.
+lock_build() {
+  local body hdr
+  body="$($CURL -fsS --max-time 10 "$WEB_URL/robots.txt" 2>/dev/null || true)"
+  [ -n "$body" ] || { echo 'невідомо'; return; }
+  hdr="$($CURL -fsS --max-time 10 -o /dev/null -D - "$WEB_URL/robots.txt" 2>/dev/null || true)"
+  if printf '%s' "$body" | grep -Eq '^[[:space:]]*Disallow:[[:space:]]*/[[:space:]]*$' \
+     || printf '%s' "$hdr" | grep -qi 'x-robots-tag:.*noindex'
+  then echo 'closed'; else echo 'public'; fi
+}
+
+# 3. На що показує gate.conf. Читаємо ЦІЛЬ симлінка, а не вміст: порожній
+# файл і симлінк на порожній файл — різні стани, і відкочуються по-різному.
+lock_gate() {
+  [ -L "$GATE" ] || { echo 'не-симлінк'; return; }
+  case "$(readlink -f "$GATE")" in
+    "$(readlink -f "$GATE_OPEN")")   echo 'open' ;;
+    "$(readlink -f "$GATE_CLOSED")") echo 'closed' ;;
+    *) echo 'чуже' ;;
+  esac
+}
+
+# 4. Що бачить сторонній. Єдине, що має значення для пошуковика; решта
+# три — лише пояснення, ЧОМУ він бачить саме це.
+lock_public() {
+  local bust code hdr body
+  bust="$(date +%s)-$$"
+  code="$($CURL -s --max-time 20 -o /dev/null -w '%{http_code}' "$SITE_URL/?nocache=$bust" 2>/dev/null || echo 000)"
+  [ "$code" = 000 ] && { echo 'недосяжно'; return; }
+  [ "$code" = 401 ] && { echo 'пароль'; return; }
+  hdr="$($CURL -s --max-time 20 -o /dev/null -D - "$SITE_URL/?nocache=$bust" 2>/dev/null || true)"
+  printf '%s' "$hdr" | grep -qi 'x-robots-tag:.*noindex' && { echo 'noindex'; return; }
+  body="$($CURL -s --max-time 20 "$SITE_URL/robots.txt?nocache=$bust" 2>/dev/null || true)"
+  printf '%s' "$body" | grep -Eq '^[[:space:]]*Disallow:[[:space:]]*/[[:space:]]*$' && { echo 'robots-disallow'; return; }
+  echo 'відкрито'
+}
+
+status() {
+  local e b g p
+  e="$(lock_env)"; b="$(lock_build)"; g="$(lock_gate)"; p="$(lock_public)"
+  say "1. .env   NEXT_PUBLIC_SITE_MODE : $e      ($(envfile))"
+  say "2. збірка віддає robots/X-Robots: $b      ($WEB_URL)"
+  say "3. Caddy  gate.conf              : $g      ($GATE)"
+  say "4. ззовні                        : $p      ($SITE_URL)"
+  say ''
+  if [ "$e" = closed ] && [ "$b" = closed ] && [ "$g" = closed ] && [ "$p" = 'пароль' ]; then
+    say 'ЗАКРИТО — всі три замки на місці, ззовні пароль.'; return 0
+  fi
+  if [ "$e" = public ] && [ "$b" = public ] && [ "$g" = open ] && [ "$p" = 'відкрито' ]; then
+    say 'ВІДКРИТО — жодного замка, ззовні сторінка без noindex.'; return 0
+  fi
+  say '🔴 НЕУЗГОДЖЕНО. Наступний крок:'
+  [ "$e" != public ] && { say '   camptribe-launch env --public --apply'; return 1; }
+  [ "$b" != public ] && { say '   повна викладка (infra/deploy-app.sh --apply): змінна запікається на збірці'; return 1; }
+  [ "$g" != open ]   && { say '   camptribe-launch open --apply'; return 1; }
+  say "   замки зняті, а ззовні «$p» — дивись кеш Cloudflare (Purge Everything) і docs/launch-switch.md"
+  return 1
+}
+
+# --- зміни ----------------------------------------------------------------
+set_env() { # public|closed
+  local want="$1" f cur
+  f="$(envfile)"; cur="$(lock_env)"
+  [ -f "$f" ] || die "немає $f"
+  if [ "$cur" = "$want" ]; then say "  .env уже «$want» — нічого не міняю"; return 0; fi
+  if [ "$APPLY" != 1 ]; then say "  [сухий] .env: $cur → $want ($f)"; return 0; fi
+  cp -p "$f" "$f.bak.$(date +%Y%m%d-%H%M%S)"
+  local tmp; tmp="$(mktemp)"
+  grep -Ev '^[[:space:]]*NEXT_PUBLIC_SITE_MODE[[:space:]]*=' "$f" > "$tmp"
+  [ "$want" = public ] && printf 'NEXT_PUBLIC_SITE_MODE=public\n' >> "$tmp"
+  ( umask 077; cat "$tmp" > "$f" ); rm -f "$tmp"
+  [ "$(lock_env)" = "$want" ] || die "записав, а читається «$(lock_env)» — не чіпай машину далі"
+  say "  ✓ .env: $cur → $want"
+  say '  🔴 САМО ПО СОБІ ЦЕ НІЧОГО НЕ ЗМІНИЛО: значення читається на збірці.'
+  say '     Далі — повна викладка, інакше замок 2 лишиться закритим.'
+}
+
+# 🔴 ПОВЕРТАЄ СИМЛІНК САМА. Симлінк уже переставлено, коли викликають це:
+# вийти тут із `die`, як було в першій редакції, означало б лишити
+# gate.conf на новій цілі, а в повідомленні написати «повернуто».
+caddy_apply() { # «що робимо» для повідомлення, куди вертати
+  local what="$1" back="$2"
+  if ! "$CADDY_BIN" validate --config "$CADDYFILE" >/dev/null 2>&1; then
+    point_gate "$back"
+    die "caddy validate не пройшов ($what): gate.conf повернуто на $back, Caddy не перечитував"
+  fi
+  if ! "$CADDY_BIN" reload --config "$CADDYFILE" >/dev/null 2>&1; then
+    point_gate "$back"
+    "$CADDY_BIN" reload --config "$CADDYFILE" >/dev/null 2>&1 || true
+    die "caddy reload не вдався ($what): gate.conf повернуто на $back"
+  fi
+}
+
+# `ln -sfn` і не `mv -T`: -T є лише в GNU coreutils, а самоперевірка
+# ганяється і на macOS. Ціль завжди файл, тож -n досить.
+point_gate() { ln -sfn "$1" "$GATE"; }
+
+switch_gate() { # open|closed
+  local want="$1" target cur was expect
+  cur="$(lock_gate)"
+  [ "$want" = open ] && target="$GATE_OPEN" || target="$GATE_CLOSED"
+  [ -f "$target" ] || die "немає $target"
+  [ "$want" = open ] && expect='відкрито' || expect='пароль'
+
+  if [ "$cur" = "$want" ]; then say "  gate.conf уже «$want» — нічого не міняю"; return 0; fi
+
+  if [ "$want" = open ]; then
+    local b; b="$(lock_build)"
+    [ "$b" = public ] || die "збірка віддає «$b»: зняти пароль зараз означає пустити робота на сайт, який сам просить себе не індексувати. Спершу env --public і повна викладка"
+  fi
+
+  if [ "$APPLY" != 1 ]; then
+    say "  [сухий] gate.conf: $cur → $want ($target)"
+    say "  [сухий] далі: caddy validate && caddy reload, тоді перевірка ззовні ($SITE_URL)"
+    return 0
+  fi
+
+  was="$(readlink -f "$GATE" 2>/dev/null || true)"
+  [ -n "$was" ] || die "gate.conf не симлінк — не знаю, куди вертати; полагодь руками за docs/launch-switch.md"
+  point_gate "$target"
+  caddy_apply "$cur → $want" "$was"
+  say "  ✓ gate.conf: $cur → $want, Caddy перечитано"
+
+  local seen=""
+  for _ in $(seq 1 "$VERIFY_TRIES"); do
+    seen="$(lock_public)"
+    [ "$seen" = "$expect" ] && { say "  ✓ ззовні: $seen"; return 0; }
+    sleep "$VERIFY_SLEEP"
+  done
+
+  warn "ззовні «$seen», чекали «$expect» — повертаю"
+  point_gate "$was"
+  if "$CADDY_BIN" validate --config "$CADDYFILE" >/dev/null 2>&1 \
+     && "$CADDY_BIN" reload --config "$CADDYFILE" >/dev/null 2>&1 \
+     && [ "$(lock_gate)" = "$cur" ]; then
+    printf '✗ перевірка не пройшла, стан повернуто в «%s» і перевірено\n' "$cur" >&2; exit 3
+  fi
+  printf '✗ перевірка не пройшла, і повернути перевіреним не вийшло — дивись %s\n' "$GATE" >&2; exit 4
+}
+
+# --- розбір ---------------------------------------------------------------
+[ $# -ge 1 ] || usage
+CMD="$1"; shift
+APPLY=0; WANT=''
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply)  APPLY=1 ;;
+    --public) WANT=public ;;
+    --closed) WANT=closed ;;
+    -h|--help) usage ;;
+    *) printf 'невідомий прапорець: %s\n' "$1" >&2; exit 2 ;;
+  esac
+  shift
+done
+if [ "$APPLY" != 1 ] && [ "$CMD" != status ]; then
+  say 'СУХИЙ ПРОГІН — нічого не змінено. Додай --apply.'
+fi
+
+case "$CMD" in
+  status) status ;;
+  env)    [ -n "$WANT" ] || { echo 'env вимагає --public або --closed' >&2; exit 2; }; set_env "$WANT" ;;
+  open)   switch_gate open ;;
+  close)  switch_gate closed ;;
+  *) usage ;;
+esac
