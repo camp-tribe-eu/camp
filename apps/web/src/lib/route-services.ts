@@ -1,5 +1,6 @@
 // CAMP-113: the services beside a route's stages — fuel, charging,
-// water, a dump point, a shop, a meal and a roof.
+// water, a dump point, a shop, a meal, a roof, and (CAMP-119) a rest area
+// and a service area.
 //
 // 🔴 THE SCOPE IS OPENSTREETMAP, AND THAT IS NARROWER THAN THE CARD.
 //
@@ -37,7 +38,18 @@ import { apiFetch } from './api';
 import { countryFuel, FUEL } from './fuel';
 import type { CuratedRoute } from './route-types';
 
-/** The closed list of kinds, in the order a stage lists them. */
+/**
+ * The closed list of kinds, in the order a stage lists them.
+ *
+ * 🔴 THIS IS THE API'S LIST, AND A SPEC READS IT OFF DISK TO SAY SO. The
+ * API's `ROUTE_POI_KINDS` (apps/api/src/osm/route-poi.ts) decides what the
+ * endpoint can return; this decides what the page can SHOW. A kind in the
+ * first and not the second is data that reaches the browser and stops — the
+ * state CAMP-119 stayed open in after its first half merged, with 23 000-odd
+ * rest and service areas in the database and no page that could say so.
+ * `route-stopping-places.spec.ts` compares the two lists in both directions
+ * and renders the page for every kind the API serves.
+ */
 export const SERVICE_KINDS = [
   'fuel',
   'charging',
@@ -46,6 +58,8 @@ export const SERVICE_KINDS = [
   'groceries',
   'food',
   'shelter',
+  'rest_area',
+  'service_area',
 ] as const;
 
 export type ServiceKind = (typeof SERVICE_KINDS)[number];
@@ -67,6 +81,13 @@ export const SERVICE_LABEL: Record<ServiceKind, string> = {
   groceries: 'Groceries',
   food: 'Somewhere to eat',
   shelter: 'Somewhere to sleep',
+  // CAMP-119. OSM's own two words, not "stopover" or "parking": a rest
+  // area (`highway=rest_area`) is a lay-by or a motorway rest stop and a
+  // service area (`highway=services`) is the bigger one with a forecourt
+  // and usually a shop. Neither tag says anything about overnight stays,
+  // and the label must not either.
+  rest_area: 'Rest area',
+  service_area: 'Service area',
 };
 
 /**
@@ -87,6 +108,8 @@ export const SERVICE_UNNAMED: Record<ServiceKind, string> = {
   groceries: 'Unnamed shop',
   food: 'Unnamed café or restaurant',
   shelter: 'Unnamed place to stay',
+  rest_area: 'Unnamed rest area',
+  service_area: 'Unnamed service area',
 };
 
 /**
@@ -110,6 +133,8 @@ export const SERVICE_ABSENT: Record<ServiceKind, string> = {
   groceries: 'no supermarket or convenience shop',
   food: 'no restaurant, café or takeaway',
   shelter: 'no hotel, motel, hostel or guest house',
+  rest_area: 'no rest area',
+  service_area: 'no service area',
 };
 
 /** How far from a stage we will look. The same radius as the campsites. */
@@ -132,6 +157,99 @@ export const SERVICE_RADIUS_M = 25_000;
  * water taps.
  */
 export const SERVICES_PER_KIND = 1;
+
+/**
+ * CAMP-119 — THE THREE WORDS A FACILITY CAN BE, AND THE THIRD IS NOT THE
+ * SECOND.
+ *
+ * Exactly the shape CAMP-255 settled for an overnight stay
+ * (`OvernightStatus`: allowed / forbidden / unknown) and the campsite
+ * page settled for amenities (yes / no / unknown): `unknown` is "nobody
+ * wrote it down where we could read it", on this question the large
+ * majority of places, and printing it as `no` tells a driver that a toilet
+ * is absent when what OpenStreetMap holds is silence. It is never
+ * rewritten into either answer and never hidden; it is a word on the page.
+ */
+export type FacilityState = 'yes' | 'no' | 'unknown';
+
+/** The five a driver asks a rest area about, in the order the page lists them. */
+export const FACILITY_KEYS = [
+  'toilets',
+  'shower',
+  'drinkingWater',
+  'dumpStation',
+  'fee',
+] as const;
+
+export type FacilityKey = (typeof FACILITY_KEYS)[number];
+
+export type ServiceFacilities = Record<FacilityKey, FacilityState>;
+
+/**
+ * 🔴 The words are OSM's own sense of each tag, and `Fee` is not `Free`.
+ * `fee=no` is a statement that nothing is charged; `Fee: No` says exactly
+ * that and no more, where a "Free" badge would read as a promise about a
+ * place we have not visited.
+ */
+export const FACILITY_LABEL: Record<FacilityKey, string> = {
+  toilets: 'Toilets',
+  shower: 'Shower',
+  drinkingWater: 'Drinking water',
+  dumpStation: 'Chemical toilet disposal',
+  fee: 'Fee',
+};
+
+/**
+ * The three words as a reader reads them.
+ *
+ * 🔴 `Not known` is CAMP-255's own word for the same state
+ * (`OVERNIGHT_LABEL.unknown`), and a spec asserts the two are the same
+ * string, so a third wording cannot appear on this site by one of them
+ * being edited. The campsite page's amenity grid says "Not recorded" for
+ * the same state; that is the older wording and is left alone.
+ */
+export const FACILITY_STATE_LABEL: Record<FacilityState, string> = {
+  yes: 'Yes',
+  no: 'No',
+  unknown: 'Not known',
+};
+
+/**
+ * The kinds whose rows carry the five facilities. Same two as the API's
+ * `REST_STOP_KINDS`, and the same spec reads that list off disk.
+ */
+export const FACILITY_KINDS = [
+  'rest_area',
+  'service_area',
+] as const satisfies readonly ServiceKind[];
+
+export function hasFacilities(kind: ServiceKind): boolean {
+  return (FACILITY_KINDS as readonly string[]).includes(kind);
+}
+
+/**
+ * An API payload → what the page may print.
+ *
+ * 🔴 TOTAL, AND FAIL-SAFE IN ONE DIRECTION, as the CAMP-255 reader is.
+ * Only the exact strings `yes` and `no` are answers. A missing object, a
+ * missing key, `null`, an unfamiliar word, a payload from an API that
+ * predates this field — all five `unknown`. There is no input that makes
+ * this return `no` for a gap, which is the one thing it must not do.
+ * `getRouteServices` is a cached `res.json()` and the API deploys on its
+ * own clock, so the older payload is an input and not a hypothetical.
+ */
+export function readFacilities(raw: unknown): ServiceFacilities {
+  const src =
+    typeof raw === 'object' && raw !== null
+      ? (raw as Record<string, unknown>)
+      : {};
+  const out = {} as ServiceFacilities;
+  for (const key of FACILITY_KEYS) {
+    const v = src[key];
+    out[key] = v === 'yes' || v === 'no' ? v : 'unknown';
+  }
+  return out;
+}
 
 export interface RouteServicePoint {
   kind: ServiceKind;
@@ -159,6 +277,14 @@ export interface RouteServicePoint {
    * at the foot of this file.
    */
   prices?: RouteFuelStationPrice[];
+  /**
+   * CAMP-119 — what the place says about its toilets, showers, drinking
+   * water, a disposal point and a fee. Sent on `rest_area` and
+   * `service_area` only. 🔴 Read through `readFacilities`, never directly:
+   * the page prints five words for such a place whether or not this
+   * arrived.
+   */
+  facilities?: Partial<Record<FacilityKey, string>>;
 }
 
 export interface StageServices {
