@@ -346,13 +346,9 @@ export function officialStars(spot: Spot): number | undefined {
  * a specification: the weekly import moves these, and the property that
  * matters is that nothing here is decoded by guessing.
  *
- * 🔴 ONE SHAPE HAS NO BRANCH, AND IS ABSENT TODAY: `r<id>`. 0 rows carry
- * it, but `normalise-export.mjs` documents an in-place migration of
- * `osm_ref` to canonical refs (`canonicalId`: `a`→`w`/`r`), and the day
- * that runs, every relation ref becomes `r…` and loses its link here
- * without a sound. A ref whose shape we do not recognise produces no
- * link — answering with a guessed permalink is precisely the failure this
- * whole file is built to avoid — so that migration has to add the branch.
+ * 🔴 FOUR SHAPES ARE DECODED, AND EVERY OTHER OSM REF THROWS. Not "no
+ * link": a throw, naming the ref and the campsite. See the guard below
+ * for why, and for the one shape it exists to catch (`r<id>`).
  */
 export function sourceLinks(spot: Spot): string[] {
   const out: string[] = [];
@@ -381,7 +377,45 @@ export function sourceLinks(spot: Spot): string[] {
       continue;
     }
     const area = /^a(\d+)$/.exec(ref);
-    if (!area) continue;
+    if (!area) {
+      // 🔴 THE GUARD: n, w, a-even and a-odd are decoded above, and
+      // EVERYTHING ELSE STOPS THE BUILD instead of yielding no link.
+      //
+      // WHY LOUD. The sentence this guard replaced said an odd area id
+      // "cannot exist here". It was TRUE on 28.09.2026 (the import
+      // filtered `n/` and `w/` only) and FALSE from 11.10.2026, when
+      // CAMP-253 added `r/` to the filter. The comment did not lie, it
+      // rotted: nothing re-counted, and 1 320 campsite pages lost their
+      // OpenStreetMap link without a sound until a reviewer measured it.
+      // A skip is exactly how that happened, so a shape we cannot decode
+      // is now the day somebody finds out, not the day nobody does.
+      //
+      // THE SHAPE THIS IS FOR: `r<id>`. 0 rows carry it as of
+      // 15.10.2026 (camptribe_dev: `sources[].ref` and `osm_ref` alike),
+      // so it is absent TODAY and the date matters — `normalise-export.mjs`
+      // documents an in-place migration of `osm_ref` to canonical refs
+      // (`canonicalId`: `a`→`w`/`r`), and the day that runs every
+      // relation becomes `r…`.
+      //
+      // WHY THERE IS NO `r` BRANCH. Code for a shape with no rows cannot
+      // be tested against anything real, and the next reader would take
+      // it for working. Whoever writes that migration adds the branch
+      // here, with actual rows to check it on, because this stopped them.
+      //
+      // WHY A THROW AND NOT A LOG. The campsite pages are generated
+      // statically (`dynamicParams = false`), so this fails the BUILD and
+      // the site stays on its last good one; a log line is what 1 320
+      // pages already proved nobody reads. The message names the one
+      // record, so a corrupt ref costs one diagnosis, not a hunt.
+      throw new Error(
+        `sourceLinks: OSM ref ${JSON.stringify(ref)} on ` +
+          `${spot.country}/${spot.slug} is not one of the four shapes this ` +
+          `parser decodes (n<id>, w<id>, a<even>, a<odd>). If it is r<id>, ` +
+          `osm_ref was migrated to canonical ids: add a branch for it in ` +
+          `apps/web/src/lib/jsonld.ts with real rows to test it on — do not ` +
+          `make this skip it.`,
+      );
+    }
     const id = BigInt(area[1]);
     // libosmium: way_id * 2 for a way, relation_id * 2 + 1 for a relation.
     const isRelation = id % 2n === 1n;

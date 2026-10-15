@@ -730,18 +730,27 @@ test('an area ref is decoded to the way it stands for, never guessed', () => {
   ]);
   expect(link('w871234')).toEqual(['https://www.openstreetmap.org/way/871234']);
   expect(link('n123')).toEqual(['https://www.openstreetmap.org/node/123']);
-  // 🔴 A shape we do not recognise produces NO link. A permalink to the
-  // wrong object is a machine-readable claim that this campsite is
-  // something else entirely.
-  for (const bogus of ['r5', '12345', 'node/5', '', 'a', 'a12x', 'n12x']) {
-    expect(link(bogus), bogus).toEqual([]);
+  // 🔴 A ref that is PRESENT and in a shape we do not decode THROWS, and
+  // the message names the ref and the campsite. It used to produce no
+  // link, which is the very silence that lost 1 320 of them: an
+  // unrecognised shape must be the day somebody finds out. `r123` is the
+  // one the guard exists for (0 rows as of 15.10.2026, but the pipeline's
+  // `canonicalId` would make every relation one); the rest prove it is
+  // "everything else" and not just that letter.
+  for (const unknown of [
+    'r5', 'r123', '12345', 'node/5', 'a', 'a12x', 'n12x', 'N5', 'a-3', 'a1.5',
+  ]) {
+    expect(() => link(unknown), unknown).toThrow(`"${unknown}"`);
+    expect(() => link(unknown), unknown).toThrow('si/nowhere');
   }
+  // A MISSING ref is not an unknown shape: there is nothing to decode.
+  expect(link('')).toEqual([]);
   // Surrounding whitespace is trimmed, as everywhere else in this file.
   expect(link('  n1  ')).toEqual(['https://www.openstreetmap.org/node/1']);
   // Odd area ids are RELATIONS, and have their own test below. This one
   // used to assert the opposite — that an odd id was corrupt input and
-  // produced no link — and it passed for two days after CAMP-253 put
-  // 1 320 of them into the database.
+  // produced no link — and it stayed green after CAMP-253 put 1 320 of
+  // them into the database.
   //
   // An id OpenStreetMap never issues is not a permalink. `a1` is
   // relation 0 (odd: (1 - 1) / 2), so it belongs on this list as much as
@@ -749,6 +758,33 @@ test('an area ref is decoded to the way it stands for, never guessed', () => {
   for (const zero of ['a0', 'a1', 'n0', 'w0']) {
     expect(link(zero), zero).toEqual([]);
   }
+});
+
+// CAMP-326: the guard is not the parser's alone. A throw that something
+// above it caught and turned into "no sameAs" would be the same silence in
+// a different file, so this goes through the two functions the page calls.
+test('🔴 an OSM ref we cannot decode stops the page graph, it is not skipped', () => {
+  const withRef = (ref: string, fields = ['name', 'location']): Spot => ({
+    ...bare,
+    sources: [{ id: 'osm', ref, updatedAt: '2026-10-12', fields }],
+  });
+  const crumbs = CRUMBS;
+
+  expect(() => campgroundGraph(withRef('r123'), PATH)).toThrow('"r123"');
+  expect(() =>
+    campsitePageGraph({ spot: withRef('r123'), path: PATH, crumbs, faq: [] }),
+  ).toThrow('"r123"');
+
+  // The same page with a decodable ref builds, so the throw above is the
+  // ref and not something else about the fixture.
+  expect(() =>
+    campsitePageGraph({ spot: withRef('a397501'), path: PATH, crumbs, faq: [] }),
+  ).not.toThrow();
+
+  // The guard speaks for IDENTITY, like the rest of this function: a
+  // record that did not give the location is attribution, and an
+  // unfamiliar ref on it loses no link, so it does not stop a build.
+  expect(sourceLinks(withRef('r123', ['stars']))).toEqual([]);
 });
 
 // CAMP-326: an ODD area id is a relation.
