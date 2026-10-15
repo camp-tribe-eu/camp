@@ -163,8 +163,15 @@ function build(
   // 🔴 In BOTH builds — `allowUnknown` must not reach this line. See the
   // note on `MapFilters.overnight`. It carries no parameter, so it cannot
   // shift the numbering of anything after it.
+  //
+  // 🔴 NO TABLE ALIAS, like every other condition in this function
+  // (`type`, `amenities`). The runtime queries say `FROM camping_spots s`
+  // and verify-filters.ts says `FROM camping_spots`; a bare column works
+  // in both, `s.overnight_status` worked in one. The first version named
+  // the alias and CAMP-35's check died on it — and was never run on the
+  // one filter that makes a legal claim.
   if (filters.overnight) {
-    parts.push(`${overnightStatusSql('s')} = 'allowed'`);
+    parts.push(`${overnightStatusSql()} = 'allowed'`);
   }
 
   for (const amenity of filters.amenities) {

@@ -12,7 +12,7 @@ import {
   UNKNOWN_OVERNIGHT,
 } from './overnight';
 import { SPOT_DETAIL_SQL } from './detail-query';
-import { NO_FILTERS } from './filters';
+import { filterSql, NO_FILTERS } from './filters';
 
 // CAMP-255 — overnight stay, against a REAL PostgreSQL.
 //
@@ -590,6 +590,29 @@ describe('what the counts and the map say', () => {
       'camp-i1',
       'camp-i2',
     ]);
+  });
+
+  // 🔴 CAMP-255 review. `filterSql` is called from queries that alias the
+  // table (`FROM camping_spots s`, all the runtime ones) AND from the
+  // hand-comparison in verify-filters.ts, which does not. This condition
+  // was the one that named the alias, so the second caller died with
+  // "missing FROM-clause entry" and CAMP-35's check never ran on the one
+  // filter that carries a legal claim. Both shapes, same rows.
+  it('🔴 the overnight condition runs with a table alias and without one, and agrees', async () => {
+    const f = filterSql({ ...NO_FILTERS, overnight: true }, 0);
+    const slugs = async (from: string) =>
+      (
+        await db.query(
+          `SELECT slug ${from} WHERE missing_since IS NULL${f.where} ORDER BY slug`,
+          f.params,
+        )
+      ).rows.map((r) => r.slug);
+
+    const aliased = await slugs('FROM camping_spots s');
+    const bare = await slugs('FROM camping_spots');
+    // Anchor: a comparison of two empty lists would pass for ever.
+    expect(aliased).toEqual(['camp-i1', 'camp-i2']);
+    expect(bare).toEqual(aliased);
   });
 
   // 🔴 The rule, against the database: ticking "include places where the
