@@ -18,13 +18,16 @@ import {
   CYLINDER_SWAP,
   facilitySelectSql,
   lpgSelectSql,
+  normalisedSql,
   ROW_FACILITY_COLUMNS,
   tagPartsSql,
 } from './route-poi-facilities';
 import {
+  arraySql,
   CANONICAL_REF_KINDS,
   classifyCaseSql,
   rulesTestSql,
+  STORED_POI_KINDS,
   STORED_POI_RULES,
 } from './route-poi';
 
@@ -458,3 +461,115 @@ export const GAS_LAYER_SUMMARY_SQL = `WITH gas AS (
        count(DISTINCT CASE WHEN kind = 'gas_exchange' OR cylinder_swap = 'yes'
                            THEN ${canonicalRefSql('osm_ref')} END)::text AS layer_objects
   FROM t`;
+
+/**
+ * 🔴 CAMP-327: THE TEN KINDS' RULES, CHECKED AGAINST THE STAGED TAGS — one
+ * row per stored kind, `kind, listed, missed, extra, wide_objects, wide_only`,
+ * every count in OSM OBJECTS (a closed way staged as `w123` and `a246` is
+ * one). See listRulesError for what each means and which fail at any count.
+ *
+ * THE CHECK MUST NOT READ THE FIELD IT CHECKS, AND IT MUST READ MORE THAN
+ * THE RULE DOES. The gas guard failed twice for the first reason and once,
+ * quietly, for the second; this one is built the other way round on purpose:
+ *   · the rule's verdict is the CASE the loader runs (classifyCaseSql over
+ *     the staged row) — the thing a mutation changes;
+ *   · the NARROW reading is a second implementation of the same definition:
+ *     the tag split on `;` with `string_to_array` and `unnest`, each element
+ *     trimmed and folded, where the rule uses `regexp_split_to_array` and
+ *     `array_remove`. The trim and the fold ARE shared (normalisedSql): the
+ *     ASCII-only fold is what keeps one `chargİng_station` from costing the
+ *     run, and the 25 blanks are the definition, not an implementation;
+ *   · the WIDE reading is no list at all: the word between any
+ *     non-alphanumerics, any case (`restaurant,cafe`, `bar / cafe`,
+ *     `internet_cafe`).
+ * `missed` and `extra` are the two directions of narrow-against-rule; neither
+ * has a floor, because the two readings agree on every input by construction
+ * and a disagreement is code. `wide_only` is the only number that is data.
+ *
+ * The staged table is folded to one row per object FIRST (`DISTINCT ON` the
+ * canonical ref: a closed way's twins carry the same tags), so every count
+ * below is a plain `count(*)` and not forty `count(DISTINCT …)` sorts over
+ * 2.3 million rows.
+ */
+export function listRulesSummarySql(
+  // 🔴 A parameter, and the default is the real thing: a spec feeds the check
+  // a classifier that reads the tag the OLD way (the whole value) and one that
+  // reads it as a substring, and shows that each turns it red. A guard that is
+  // only ever run against the correct rule is green by construction.
+  classify: string = classifyCaseSql('o'),
+): string {
+  const keys = [
+    ...new Set(
+      STORED_POI_KINDS.flatMap((k) => STORED_POI_RULES[k].map((r) => r.key)),
+    ),
+  ];
+  for (const key of keys) {
+    if (!/^[a-z_]+$/.test(key)) {
+      throw new Error(`route-poi-sql: unsafe key ${JSON.stringify(key)}`);
+    }
+  }
+
+  const parts = keys
+    .map(
+      (k) =>
+        // a NULL tag has no elements; the CASE spares the subplan for the
+        // 99% of rows that do not carry this key
+        `CASE WHEN o."${k}" IS NULL THEN NULL ELSE ARRAY(` +
+        `SELECT ${normalisedSql('e.v')} FROM unnest(string_to_array(o."${k}", ';')) AS e(v)` +
+        `) END AS p_${k}`,
+    )
+    .join(',\n           ');
+  const lowered = keys.map((k) => `lower(o."${k}") AS w_${k}`).join(', ');
+
+  const narrow = (kind: (typeof STORED_POI_KINDS)[number]) =>
+    STORED_POI_RULES[kind]
+      .map((r) => `p_${r.key} && ${arraySql(r.values)}`)
+      .join(' OR ');
+  // `strpos` first: it is a plain substring scan and keeps the regular
+  // expression off the 99% of rows that do not mention the word at all
+  const wide = (kind: (typeof STORED_POI_KINDS)[number]) =>
+    STORED_POI_RULES[kind]
+      .flatMap((r) =>
+        r.values.map((v) => {
+          arraySql([v]); // the same whitelist the rule's values pass
+          return `(strpos(w_${r.key}, '${v}') > 0 AND w_${r.key} ~ '(^|[^a-z0-9])${v}([^a-z0-9]|$)')`;
+        }),
+      )
+      .join(' OR ');
+
+  const flags = STORED_POI_KINDS.map(
+    (k) =>
+      `coalesce(${narrow(k)}, false) AS el_${k},\n           coalesce(${wide(k)}, false) AS wide_${k}`,
+  ).join(',\n           ');
+
+  const rows = STORED_POI_KINDS.map(
+    (k) => `SELECT '${k}' AS kind,
+       count(*) FILTER (WHERE el_${k})::text AS listed,
+       count(*) FILTER (WHERE el_${k} AND kind IS NULL)::text AS missed,
+       count(*) FILTER (WHERE kind = '${k}' AND NOT el_${k})::text AS extra,
+       count(*) FILTER (WHERE wide_${k})::text AS wide_objects,
+       count(*) FILTER (WHERE wide_${k} AND NOT el_${k})::text AS wide_only
+  FROM flags`,
+  ).join('\nUNION ALL\n');
+
+  return `WITH objs AS (
+         SELECT DISTINCT ON (c.cref) c.cref, ${keys.map((k) => `s."${k}"`).join(', ')}
+           FROM osm_route_poi_staging s
+          CROSS JOIN LATERAL (SELECT ${canonicalRefSql('s.id')} AS cref) c
+          WHERE s.id IS NOT NULL
+          ORDER BY c.cref
+       ), parts AS (
+         SELECT o.cref,
+                ${classify} AS kind,
+                ${parts},
+                ${lowered}
+           FROM objs o
+       ), flags AS (
+         SELECT kind,
+           ${flags}
+           FROM parts
+       )
+${rows}`;
+}
+
+export const LIST_RULES_SUMMARY_SQL = listRulesSummarySql();

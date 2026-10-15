@@ -290,23 +290,33 @@ describe('the tag rules behind each kind', () => {
       join(__dirname, '../../../../scripts/osm-pipeline/load-route-poi.sh'),
       'utf8',
     );
-    const filtered = new Set(
-      // `shop=*gas*` is quoted in the script (a bare `*` in an array is a
-      // glob), so the quote is optional here, and the value may be a substring
-      // pattern: the filter for a LIST rule (see osmiumFiltersFor)
-      [
-        ...script.matchAll(/^\s{2}'?([a-z_]+=\*?[a-z_]+\*?)'?\s*(?:#.*)?$/gm),
-      ].map((m) => m[1]),
-    );
+    // 🔴 CAMP-327: the script's array holds PLAIN `key=value` pairs and the
+    // substring form is applied once, in its loop (load-route-poi.selftest.sh
+    // checks what osmium is handed). So what is compared here is the PAIRS —
+    // and the line below the comparison is what ties `osmiumFiltersFor` to the
+    // loop: every pair has exactly one substring form, `key=*value*`.
+    const filtered = [
+      ...script.matchAll(/^\s{2}([a-z_]+=[a-z_]+)\s*(?:#.*)?$/gm),
+    ].map((m) => m[1]);
     // 🔴 CAMP-119: every STORED kind, not only the ones a page shows. The
     // two lists this guards are the shell's FILTERS and what the loader
     // classifies, and the loader now classifies the stopping places too.
-    const classified = new Set(
-      STORED_POI_KINDS.flatMap((kind) =>
-        STORED_POI_RULES[kind].flatMap((rule) => osmiumFiltersFor(rule)),
+    const classified = STORED_POI_KINDS.flatMap((kind) =>
+      STORED_POI_RULES[kind].flatMap((rule) =>
+        rule.values.map((v) => `${rule.key}=${v}`),
       ),
     );
+    // it is reading something: two empty lists are equal
+    expect(filtered.length).toBeGreaterThan(10);
     expect([...classified].sort()).toEqual([...filtered].sort());
+    // …and each pair is asked of osmium as a substring, never as an equality:
+    // `amenity=restaurant` selects nothing that says `restaurant;ice_cream`.
+    const asked = STORED_POI_KINDS.flatMap((kind) =>
+      STORED_POI_RULES[kind].flatMap((rule) => osmiumFiltersFor(rule)),
+    );
+    expect(asked.sort()).toEqual(
+      classified.map((p) => p.replace(/=(.*)$/, '=*$1*')).sort(),
+    );
   });
 
   it('builds a CASE that names every kind', () => {

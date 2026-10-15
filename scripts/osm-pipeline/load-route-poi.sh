@@ -152,6 +152,16 @@ trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
 # filtered here is a kind that silently holds nothing — which is the
 # failure that does not announce itself. `load-route-poi.ts` fails if any
 # kind ends up empty, which is the check that catches both directions.
+#
+# 🔴 CAMP-327: PLAIN `key=value` PAIRS HERE, AND THE SUBSTRING FORM IN ONE
+# PLACE BELOW. Every rule reads its key as a `;` list (`amenity=restaurant;
+# ice_cream` is a restaurant), osmium compares the WHOLE value, so every
+# value has to be asked for as `key=*value*`. It used to be written out by
+# hand for one entry (`'shop=*gas*'`) and as an equality for the other
+# seventeen — which is how 30 objects of the Austrian extract alone (`tourism=
+# hotel;camp_site` among them) never reached staging. Written once, in the loop, the form
+# cannot differ between entries; the spec compares the PAIRS with
+# STORED_POI_RULES and the self-test checks what osmium is actually handed.
 FILTERS=(
   amenity=fuel
   amenity=charging_station
@@ -161,7 +171,7 @@ FILTERS=(
   amenity=sanitary_dump_station
   highway=rest_area
   highway=services
-  'shop=*gas*'   # quoted: an unquoted `*` in an array is a glob over WORK_DIR
+  shop=gas
   shop=supermarket
   shop=convenience
   amenity=restaurant
@@ -178,7 +188,12 @@ for f in "${FILTERS[@]}"; do
   # Nodes AND ways: a supermarket and a motorway services are usually
   # areas, and "the nearest shop" that skipped every building would be
   # wrong in a way nobody would spot from the page.
-  TAG_ARGS+=("n/$f" "w/$f")
+  #
+  # 🔴 The `*`s sit inside double quotes: an unquoted `*` is a glob over
+  # WORK_DIR, and a file called `shop=xgas` there would replace the filter
+  # with its own name, silently, with exit 0 (load-route-poi.selftest.sh
+  # plants such a file). `${f%%=*}` is the key, `${f#*=}` the value.
+  TAG_ARGS+=("n/${f%%=*}=*${f#*=}*" "w/${f%%=*}=*${f#*=}*")
 done
 
 if [ $# -gt 0 ]; then

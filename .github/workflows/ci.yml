@@ -617,6 +617,22 @@ jobs:
           node scripts/osm-pipeline/count-rest-stops.mjs --self-test | tee /dev/stderr \
             | grep -c 'count-rest-stops self-test:' >/dev/null
 
+      # 🔴 CAMP-327. The list-tag counter is the oracle a reload of the route
+      # POI table is reconciled against: it counts the raw extracts under the
+      # whole-value reading and under the elements of a `;` list, and what it
+      # must not get wrong in silence is the difference between them — a list
+      # (`restaurant;ice_cream`) is an element, a substring (`internet_cafe`),
+      # a `,` list and a value that holds `key=value` are not, and the first
+      # branch of the CASE wins. Its rules are compared with the loader's by
+      # the API spec; this runs its own cases.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: The list-tag counter still reads a list as its elements and a substring as nothing
+        run: |
+          set -o pipefail
+          node scripts/osm-pipeline/count-list-tags.mjs --self-test | tee /dev/stderr \
+            | grep -c 'count-list-tags self-test:' >/dev/null
+
       # 🔴 CAMP-174. The CEMS language rule is enforced on panels the
       # suite can FIND, and it found them through hand-written
       # descriptors. Review built a drought panel and a /drought page

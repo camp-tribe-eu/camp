@@ -33,6 +33,7 @@ import {
 } from './route-poi-facilities';
 import {
   ACCESS_EXCLUDED,
+  arraySql,
   classifyCaseSql,
   GAS_WIDE_MAX_PERCENT,
   GAS_WIDE_MIN_OBJECTS,
@@ -625,7 +626,7 @@ describe('the loader notices when the gas layer disagrees with the tag', () => {
     // and the rule it stands in for is exactly this, so widening one without
     // the other is a red test here and not a silent disagreement
     expect(STORED_POI_RULES.gas_exchange).toEqual([
-      { key: 'shop', values: ['gas'], list: true },
+      { key: 'shop', values: ['gas'] },
     ]);
   });
 
@@ -651,36 +652,107 @@ describe('the loader notices when the gas layer disagrees with the tag', () => {
   });
 });
 
-describe('a list rule reads the tag as its elements', () => {
-  // 🔴 MUTATION: compare the whole tag again (`IN ('gas')`), or drop `list`
-  // from the gas_exchange rule. 3 755 rows of `convenience;gas` walk past.
-  it('is the SQL of an element test for a list rule, and of an equality for the others', () => {
-    expect(
-      rulesTestSql([{ key: 'shop', values: ['gas'], list: true }], 's'),
-    ).toBe(`${tagPartsSql('s."shop"')} && ARRAY['gas']::text[]`);
+describe('every rule reads its tag as the elements of a `;` list', () => {
+  const element = (key: string, ...values: string[]) =>
+    `${tagPartsSql(`s."${key}"`)} && ARRAY[${values.map((v) => `'${v}'`).join(', ')}]::text[]`;
+
+  // 🔴 MUTATION: compare the whole tag again (`s.shop IN ('gas')`) in
+  // rulesTestSql. 3 755 rows of `convenience;gas` walked past it, and — since
+  // CAMP-327 — so would every `amenity=restaurant;ice_cream`.
+  it('is the SQL of an element test, for one key or several', () => {
     expect(rulesTestSql([{ key: 'shop', values: ['gas'] }], 's')).toBe(
-      "s.shop IN ('gas')",
+      element('shop', 'gas'),
     );
-  });
-
-  // 🔴 MUTATION: apply `list` to every rule. A list reading of every rule
-  // moves 47 shelter rows to food, 8 food to groceries, 2 groceries to fuel and
-  // 2 rest_area to food (measured 15.10.2026 on the staging of camptribe_dev) —
-  // rows that exist would change kind. Only the gas rule is a list rule.
-  it('is set on the gas rule alone', () => {
-    const listed = STORED_POI_KINDS.flatMap((k) =>
-      STORED_POI_RULES[k].filter((r) => r.list).map(() => k),
-    );
-    expect(listed).toEqual(['gas_exchange']);
-  });
-
-  it('asks osmium for a substring, because osmium matches the whole value', () => {
     expect(
-      osmiumFiltersFor({ key: 'shop', values: ['gas'], list: true }),
-    ).toEqual(['shop=*gas*']);
+      rulesTestSql(
+        [
+          { key: 'amenity', values: ['fuel', 'cafe'] },
+          { key: 'man_made', values: ['water_tap'] },
+        ],
+        's',
+      ),
+    ).toBe(
+      `${element('amenity', 'fuel', 'cafe')} OR ${element('man_made', 'water_tap')}`,
+    );
+  });
+
+  // 🔴 CAMP-327. MUTATION: put an `IN (…)` back into the test of ANY ONE rule
+  // — the first value of the first rule, or the last of the last. The CASE of
+  // all ten kinds is written out below by hand, key by key and value by value,
+  // so a rule left as an equality is one red line and not "the whole CASE
+  // changed". 17 of the 18 values were equalities until this card.
+  it('has an element test for every value of every kind and no equality anywhere', () => {
+    const sql = classifyCaseSql('s');
+    expect(sql).not.toMatch(/\bIN\s*\(/);
+    const contract: [string, string, string[]][] = [
+      ['fuel', 'amenity', ['fuel']],
+      ['charging', 'amenity', ['charging_station']],
+      ['water', 'amenity', ['drinking_water', 'water_point']],
+      ['water', 'man_made', ['water_tap']],
+      ['dump', 'amenity', ['sanitary_dump_station']],
+      ['groceries', 'shop', ['supermarket', 'convenience']],
+      ['food', 'amenity', ['restaurant', 'cafe', 'fast_food']],
+      ['shelter', 'tourism', ['hotel', 'motel', 'hostel', 'guest_house']],
+      ['rest_area', 'highway', ['rest_area']],
+      ['service_area', 'highway', ['services']],
+      ['gas_exchange', 'shop', ['gas']],
+    ];
+    const branches = sql.split('WHEN ').slice(1);
+    for (const [kind, key, values] of contract) {
+      // …in the branch of ITS kind, and not another's
+      const branch = branches.find((b) => b.includes(`THEN '${kind}'`));
+      expect(branch).toBeDefined();
+      expect(branch).toContain(element(key, ...values));
+    }
+    // 11 element tests, one per (kind, key) in the contract
+    expect(sql.match(/&& ARRAY\[/g)).toHaveLength(contract.length);
+  });
+
+  // The two refusals the substring filter makes necessary. An element is a
+  // word between `;`s, so `internet_cafe` and `restaurant,cafe` are not ones:
+  // this is the spec of what the rule is NOT, kept apart from the SQL above
+  // because a regular expression that "just contains the word" satisfies every
+  // line of it.
+  it('compares elements by equality of the whole element, not by containment', () => {
+    const sql = rulesTestSql([{ key: 'amenity', values: ['cafe'] }], 's');
+    expect(sql).toContain('&& ARRAY[');
+    expect(sql).not.toMatch(/\bLIKE\b|~|ILIKE|strpos|position\(/i);
+  });
+
+  // 🔴 MUTATION: make osmiumFiltersFor return `key=value` for any rule — the
+  // filter then selects nothing that says `a;b`, and the table is never asked
+  // for it. The shell script's loop applies the same form (checked, against
+  // what osmium is handed, by load-route-poi.selftest.sh).
+  it('asks osmium for a substring of every value, because osmium matches the whole value', () => {
+    expect(osmiumFiltersFor({ key: 'shop', values: ['gas'] })).toEqual([
+      'shop=*gas*',
+    ]);
     expect(
       osmiumFiltersFor({ key: 'amenity', values: ['fuel', 'cafe'] }),
-    ).toEqual(['amenity=fuel', 'amenity=cafe']);
+    ).toEqual(['amenity=*fuel*', 'amenity=*cafe*']);
+  });
+
+  // 🔴 A rule has no way to be an equality: there is no flag to forget. If one
+  // comes back, this is where somebody has to say what it is for.
+  it('has no per-rule switch between the two readings', () => {
+    for (const kind of STORED_POI_KINDS) {
+      for (const rule of STORED_POI_RULES[kind]) {
+        expect(Object.keys(rule).sort()).toEqual(['key', 'values']);
+      }
+    }
+  });
+
+  // 🔴 THE VALUES THEMSELVES, written out: a rule's value gains no `;` or
+  // blank or capital, which `arraySql` would refuse to interpolate and which
+  // would never match an element.
+  it('only ever interpolates plain lower-case words', () => {
+    for (const kind of STORED_POI_KINDS) {
+      for (const rule of STORED_POI_RULES[kind]) {
+        for (const v of rule.values) expect(v).toMatch(/^[a-z_]+$/);
+      }
+    }
+    expect(() => arraySql(['restaurant; drop'])).toThrow(/unsafe tag value/);
+    expect(() => arraySql(['Cafe'])).toThrow(/unsafe tag value/);
   });
 });
 
@@ -913,5 +985,72 @@ describe('the access filter and the access column', () => {
     expect(sql).toContain(
       `coalesce(nullif(${normalisedSql(col)}, ''), 'unknown') AS access`,
     );
+  });
+});
+
+// ── CAMP-327: THE LIST-TAG COUNTER READS THE LOADER'S RULES ──────────────
+//
+// scripts/osm-pipeline/count-list-tags.mjs counts the raw extracts under the
+// old reading (the whole value) and the new one (the elements of a `;` list),
+// and is what the before/after of a reload is reconciled against. A `.mjs`
+// cannot import this package's `.ts`, so it carries a copy of the rules — and
+// a copy that drifts is an oracle counting something the loader does not load.
+// It is RUN, in a child process, and its answer is compared with the rules
+// here: reading its text would pass a file whose `RULES` says one thing and
+// whose `kindOf` does another.
+describe('the list-tag counter reads the same rules as the loader', () => {
+  const asRun = () => {
+    const url = pathToFileURL(join(SCRIPTS, 'count-list-tags.mjs')).href;
+    const out = execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import { RULES, KINDS, EXPRESSIONS } from ${JSON.stringify(url)};
+         console.log(JSON.stringify({ RULES, KINDS, EXPRESSIONS }));`,
+      ],
+      { encoding: 'utf8' },
+    );
+    return JSON.parse(out) as {
+      RULES: [string, string, string[], boolean][];
+      KINDS: string[];
+      EXPRESSIONS: string[];
+    };
+  };
+
+  // 🔴 MUTATION: change a value, a key or the order in RULES there — e.g. put
+  // `food` before `groceries`, which changes what a hotel with a shop is.
+  it('has the same kinds, keys, values and ORDER', () => {
+    const run = asRun();
+    expect(run.KINDS).toEqual([...STORED_POI_KINDS]);
+    const mine = STORED_POI_KINDS.flatMap((kind) =>
+      STORED_POI_RULES[kind].map(
+        (r) => [kind, r.key, [...r.values]] as [string, string, string[]],
+      ),
+    );
+    expect(run.RULES.map(([k, key, values]) => [k, key, values])).toEqual(mine);
+  });
+
+  // 🔴 MUTATION: let `gas_exchange` stop being a list rule in the counter's
+  // "before" reading, or another rule start being one. Only gas was a list
+  // rule before CAMP-327; the `exact` column is a count of THAT behaviour.
+  it('knows that only the gas rule was a list rule before this card', () => {
+    expect(
+      asRun()
+        .RULES.filter((r) => r[3])
+        .map((r) => r[0]),
+    ).toEqual(['gas_exchange']);
+  });
+
+  // 🔴 MUTATION: ask osmium for `nwr/amenity=fuel` there. The counter would
+  // then count only what the old filter selected and could not see what this
+  // card changes.
+  it('asks osmium for the substring of every value the loader asks for', () => {
+    const wanted = STORED_POI_KINDS.flatMap((kind) =>
+      STORED_POI_RULES[kind].flatMap((rule) =>
+        osmiumFiltersFor(rule).map((f) => `nwr/${f}`),
+      ),
+    );
+    expect(asRun().EXPRESSIONS.sort()).toEqual(wanted.sort());
   });
 });
