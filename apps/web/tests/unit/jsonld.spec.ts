@@ -1020,3 +1020,64 @@ test.describe('prices in the graph', () => {
     expect(campgroundGraph(old, path)).not.toHaveProperty('makesOffer');
   });
 });
+
+// 🔴 CAMP-245 — the review of PR #256 measured that `context.station` is
+// `railway=station` OR `railway=halt`, and `context.town` is `place=city` OR
+// `place=town` (apps/api/src/osm/context-sql.ts), while this file said
+// "station" and "town" for every one: 3 163 of 9 838 station entries stand on
+// a halt, 197 of 3 524 town entries on a city (15.10.2026, `camptribe_dev`).
+// The stored context is `{ m, name }` and carries no kind, so the wording has
+// to be true of both, and it has to be the same wording everywhere this file
+// speaks of them: the FAQ answer, the structured-data property, the sentence.
+test('🔴 a halt is not called a station and a city is not called a town — in the FAQ', () => {
+  const faq = campsiteFaq(full);
+  const station = faq.find((f) => /railway/.test(f.q));
+  expect(station?.q).toBe('How far is the nearest railway station or stop?');
+  expect(station?.a).toBe(
+    'Lesce-Bled railway stop is 2.1 km away in a straight line. We do not know whether a bus or a path connects the two.',
+  );
+  expect(station?.a).not.toMatch(/\bstation\b/i);
+
+  const town = faq.find((f) => /nearest town/.test(f.q));
+  expect(town?.q).toBe('How far is the nearest town or city?');
+  expect(town?.a).toBe('Bled is 1.2 km away in a straight line.');
+});
+
+test('🔴 the same wording when the feature has no name', () => {
+  const unnamed: Spot = {
+    ...full,
+    context: {
+      ...full.context,
+      town: { m: 1200 },
+      station: { m: 2100 },
+    },
+  };
+  const faq = campsiteFaq(unnamed);
+  expect(faq.find((f) => /railway/.test(f.q))?.a).toBe(
+    'The nearest railway stop is 2.1 km away in a straight line. We do not know whether a bus or a path connects the two.',
+  );
+  expect(faq.find((f) => /nearest town/.test(f.q))?.a).toBe(
+    'The nearest town or city is 1.2 km away in a straight line.',
+  );
+  const names = (surroundingProperties(unnamed) as { name: string }[]).map(
+    (p) => p.name,
+  );
+  expect(names).toContain('Distance to the nearest railway stop');
+  expect(names).toContain('Distance to the nearest town or city');
+});
+
+test('🔴 and in the structured-data property and the one-line description', () => {
+  const names = (surroundingProperties(full) as { name: string }[]).map(
+    (p) => p.name,
+  );
+  expect(names).toContain('Distance to Lesce-Bled railway stop');
+  expect(names).not.toContain('Distance to Lesce-Bled station');
+
+  const graph = JSON.stringify(
+    campsitePageGraph({ spot: full, path: PATH, crumbs: CRUMBS, faq: [] }),
+  );
+  // Anchor: the sentence is in the markup at all, so "no station" is not
+  // satisfied by a markup that stopped mentioning the railway.
+  expect(graph).toContain('from Lesce-Bled railway stop');
+  expect(graph).not.toMatch(/\bstation\b/i);
+});

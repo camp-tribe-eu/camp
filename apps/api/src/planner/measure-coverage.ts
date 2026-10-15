@@ -61,6 +61,7 @@ import {
 } from './coverage-snapshot';
 import { plannerPopulationSql } from './population';
 import { inReadOnlyTransaction, Queryable } from './read-only';
+import { CONTEXT_KEYS } from './reasons';
 
 export const SNAPSHOT_FILE = join(__dirname, 'coverage.snapshot.json');
 
@@ -84,7 +85,7 @@ export function writeRefusal(dir: string = __dirname): string | undefined {
 
 /** The planner's candidates, with the one thing each input is read from. */
 const POPULATION_CTE = `WITH p AS (
-  SELECT s.country, s.location, s.amenities, s.owner_overrides,
+  SELECT s.country, s.location, s.amenities, s.owner_overrides, s.context,
          s.stars AS own_stars,
          ${mergedStarsSql('s')} AS stars
     FROM camping_spots s
@@ -109,6 +110,18 @@ SELECT k.key,
        count(*) FILTER (WHERE p.amenities ->> k.key = '${AmenityValue.YES}')::int AS yes
   FROM p CROSS JOIN unnest($1::text[]) AS k(key)
  GROUP BY k.key`,
+  // CAMP-245: the computed surroundings a reason can stand on. Known means
+  // the row HOLDS a distance for the feature (a number under `m`), which is
+  // what a reason is read from: a feature object with no distance, or a key
+  // that is missing, is not known. The keys are one array parameter, the
+  // same as the amenities, and are the ones reasons.ts reads — not a second
+  // list. Reported as `context.<key>`, never as `<key>`: the snapshot's
+  // `water` is the amenity "drinking water at the campsite".
+  context: `${POPULATION_CTE}
+SELECT k.key,
+       count(*) FILTER (WHERE jsonb_typeof(p.context -> k.key -> 'm') = 'number')::int AS known
+  FROM p CROSS JOIN unnest($1::text[]) AS k(key)
+ GROUP BY k.key`,
   starsByCountry: `${POPULATION_CTE}
 SELECT country, count(*)::int AS known
   FROM p WHERE stars IS NOT NULL
@@ -118,7 +131,7 @@ SELECT country, count(*)::int AS known
 /** What the snapshot is the output OF. A different query is a different table. */
 export function queryHash(): string {
   return createHash('sha256')
-    .update(JSON.stringify([SQL, [...AMENITY_KEYS]]))
+    .update(JSON.stringify([SQL, [...AMENITY_KEYS], [...CONTEXT_KEYS]]))
     .digest('hex');
 }
 
@@ -167,6 +180,19 @@ export async function measureCoverage(
     fields[key] = { known: Number(r.known), yes: Number(r.yes) };
   }
 
+  const contextRows = (await db.query(SQL.context, [[...CONTEXT_KEYS]]))
+    .rows as Array<{ key: string; known: number }>;
+  if (contextRows.length !== CONTEXT_KEYS.length) {
+    throw new Error(
+      `expected ${CONTEXT_KEYS.length} context rows, got ${contextRows.length}`,
+    );
+  }
+  for (const key of CONTEXT_KEYS) {
+    const r = contextRows.find((row) => row.key === key);
+    if (!r) throw new Error(`no coverage row for context ${key}`);
+    fields[`context.${key}`] = { known: Number(r.known) };
+  }
+
   const byCountry: Record<string, number> = {};
   for (const r of (await db.query(SQL.starsByCountry)).rows) {
     byCountry[String(r.country)] = Number(r.known);
@@ -191,12 +217,12 @@ export function formatTable(s: CoverageSnapshot): string {
     `Coverage of scoring inputs, measured ${s.measuredAt}`,
     `population: ${s.population.n} campsites with a page`,
     '',
-    'input'.padEnd(16) + 'known'.padStart(8) + 'of n'.padStart(8) + '   share',
+    'input'.padEnd(20) + 'known'.padStart(8) + 'of n'.padStart(8) + '   share',
   ];
   for (const [field, f] of Object.entries(s.fields)) {
     const share = shareOf(s, field);
     lines.push(
-      field.padEnd(16) +
+      field.padEnd(20) +
         String(f.known).padStart(8) +
         String(s.population.n).padStart(8) +
         `   ${share === undefined ? 'n/a' : (share * 100).toFixed(1) + '%'}` +

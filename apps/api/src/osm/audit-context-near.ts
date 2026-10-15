@@ -33,6 +33,8 @@ import {
   PARTIAL_ENV,
   contextParams,
   NEAR_SQL,
+  STATION_FILTER,
+  TOWN_FILTER,
   WATER_FID_SQL,
   withoutUnionFilter,
 } from './context-sql';
@@ -182,13 +184,13 @@ async function main(): Promise<void> {
 
     console.log('розбіжність колонки `country` з живими полігонами:');
     console.log(
-      `  місто   ${await disagreement(db, 'osm_ctx_place', "x.place IN ('city','town')")}`,
+      `  місто   ${await disagreement(db, 'osm_ctx_place', TOWN_FILTER)}`,
     );
     console.log(
       `  магазин ${await disagreement(db, 'osm_ctx_poi', "x.shop = 'supermarket'")}`,
     );
     console.log(
-      `  станція ${await disagreement(db, 'osm_ctx_poi', "x.railway IN ('station','halt')")}`,
+      `  станція ${await disagreement(db, 'osm_ctx_poi', STATION_FILTER)}`,
     );
   } finally {
     await db.end();

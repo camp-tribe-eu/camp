@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CoverageSnapshot } from './coverage-snapshot';
 import { checkHard, HARD, type HardRule } from './hard-constraints';
+import { checkReasons, REASON_SOURCES } from './reasons';
 import { checkScoring, COMPONENTS } from './scoring';
 
 // CAMP-262 — "the check runs at start-up" is a statement about the PROCESS,
@@ -171,5 +172,43 @@ describe('the API root module runs the hard-constraint check', () => {
     expect(error?.message).toMatch(
       /corridor: hard constraint on location: known for only 50\.0%/,
     );
+  });
+});
+
+describe('the API root module runs the reasons check', () => {
+  // CAMP-245. Delete the measured `context.water` from the table: scoring
+  // stands on location, electricity, greyWater and stars, the hard
+  // constraints on location, so BOTH of those load; only the reasons stand on
+  // the context. Loading the root module with this table is refused by the
+  // reasons check ALONE — with no stand-in and no replaced loader — so remove
+  // the call from app.module.ts and the module loads, and this goes red.
+  const noContextWater = (s: CoverageSnapshot) => {
+    delete s.fields['context.water'];
+  };
+
+  it('premise: scoring and the hard constraints accept that table', () => {
+    // If either ever starts to refuse it, the test below would pass on THEIR
+    // error and say nothing about the reasons.
+    const snapshot = real();
+    noContextWater(snapshot);
+    expect(checkScoring(COMPONENTS, snapshot)).toEqual([]);
+    expect(checkHard(HARD, snapshot)).toEqual([]);
+    expect(checkReasons(REASON_SOURCES, snapshot)).not.toEqual([]);
+  });
+
+  it('refuses to start on it, in the reasons’ own words, naming the field', () => {
+    const { AppModule, error } = loadAppModule(noContextWater);
+    expect(AppModule).toBeUndefined();
+    expect(error?.message).toMatch(/^CAMP-245 reasons refuse to load:/);
+    expect(error?.message).toMatch(
+      /context\.water: field is not in the coverage snapshot/,
+    );
+  });
+
+  it('and `water`, the amenity, is still there: it does not stand in for the context', () => {
+    const snapshot = real();
+    expect(snapshot.fields.water).toBeDefined();
+    noContextWater(snapshot);
+    expect(snapshot.fields.water).toBeDefined();
   });
 });

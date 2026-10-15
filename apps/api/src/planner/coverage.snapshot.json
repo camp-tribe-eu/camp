@@ -1,9 +1,9 @@
 {
-  "measuredAt": "2026-10-15 10:59:45.77849+02",
+  "measuredAt": "2026-10-15 19:25:42.555722+02",
   "population": {
     "n": 52501
   },
-  "queryHash": "aad73741c49bb4da1e03b0ae0bea3f2058235b4d8d781092553d928831da9695",
+  "queryHash": "1bf0e7bd307224996419c73a89ef85996f98fe576e56dd5a3acb6d590533e6d0",
   "fields": {
     "location": {
       "known": 52501
@@ -50,6 +50,18 @@
     "wheelchairFull": {
       "known": 4712,
       "yes": 3043
+    },
+    "context.water": {
+      "known": 51029
+    },
+    "context.supermarket": {
+      "known": 51029
+    },
+    "context.station": {
+      "known": 51029
+    },
+    "context.town": {
+      "known": 51029
     }
   },
   "evidence": {

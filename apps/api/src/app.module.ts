@@ -33,6 +33,7 @@ import { DEFAULT_LIMIT } from './throttle';
 import { ApiThrottlerGuard } from './throttle.guard';
 import { loadMeasuredScoring } from './planner/scoring';
 import { loadMeasuredHardConstraints } from './planner/hard-constraints';
+import { loadMeasuredReasons } from './planner/reasons';
 
 /**
  * 🔴 CAMP-262: built as this module LOADS. `loadMeasuredScoring()` checks the
@@ -55,6 +56,16 @@ export const SCORING = loadMeasuredScoring();
  * is removed.
  */
 export const HARD_CONSTRAINTS = loadMeasuredHardConstraints();
+
+/**
+ * 🔴 CAMP-245: the same for "why this one". A reason that stands on a field
+ * coverage.snapshot.json does not hold would be a sentence about a record we
+ * never counted; `loadMeasuredReasons()` throws on one, so an API built with
+ * it does not start. Loaded AFTER the other two, so a table that breaks more
+ * than one reports the formula first. planner/startup.spec.ts fails if the
+ * call is removed.
+ */
+export const REASONS = loadMeasuredReasons();
 
 @Module({
   imports: [
