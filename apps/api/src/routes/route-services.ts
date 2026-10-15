@@ -85,6 +85,98 @@ export function facilitiesFromRow(
   return out;
 }
 
+/**
+ * CAMP-254 — THE KIND THAT IS ASKED WHERE ITS DRINKING WATER IS.
+ *
+ * One kind, named once, and used by BOTH the SQL (`WATER_NEAR_SUBQUERY`
+ * runs for this kind and no other) and the row mapping (only this kind
+ * carries the answer). Two literals `'dump'` would be two lists that can
+ * drift: the query answering for one kind and the mapper reading it for
+ * another.
+ */
+export const WATER_CHECKED_KIND = 'dump' as const satisfies RoutePoiKind;
+
+/**
+ * CAMP-254 — HOW CLOSE "NEAR" IS, IN METRES ON THE GROUND.
+ *
+ * 🔴 The only place this number is written. The SQL takes it, the payload
+ * carries it back (`RouteDumpWater.radiusMetres`) and the page prints the
+ * radius it was sent — so the sentence "no drinking water within 500 m"
+ * can only ever say the radius that was actually searched. A second copy
+ * in the web app would be a second number to keep right.
+ *
+ * Measured 15.10.2026 on camptribe_dev: of 7 214 disposal points, 4 069
+ * (56.4%) have a drinking-water point inside it. 2 073 of those are
+ * within 10 m and 1 537 (37.8%) are 50 m or more away, 810 of them 200 m
+ * or more — so the radius is not decorative, and the distance is not
+ * always "right there".
+ */
+export const WATER_NEAR_DUMP_RADIUS_M = 500;
+
+/**
+ * CAMP-254 — HOW MUCH WIDER THE PREFILTER BOX IS THAN THE VERDICT.
+ *
+ * 🔴 THE INVARIANT, AND IT IS ONE-SIDED: the box may be WIDER than the
+ * radius and must NEVER be narrower. It only chooses which water rows the
+ * index hands to `ST_DWithin`; the answer is `ST_DWithin`'s. A box that is
+ * too wide costs a few extra rows to test. A box that is too narrow drops
+ * real water before the verdict sees it, and the page then says "our
+ * database holds no drinking water within 500 m" over a tap 495 m away.
+ *
+ * `ST_Buffer(geography, 500)::geometry` is NOT a box of 500 m, which is
+ * why this is not 1. Measured 15.10.2026 (`ST_Distance` from the point to
+ * the middle of each edge of the buffer's lon/lat bounding box): 499.9 m
+ * a side up to 69.999° N, and **491.9 m east-west from 70.0° N**, where
+ * PostGIS changes projection. Swept every 0.25° from -85° to 85°, the
+ * worst is 491.93 m, at ±70° (a 1.6% shortfall). 5% clears that by three
+ * times over, and the sweep in `route-services-water.db.spec.ts` asserts
+ * the invariant at every latitude rather than trusting this paragraph.
+ *
+ * The EU-27 has land above 70° (Utsjoki and Nuorgam, 70.09° N). Today
+ * that costs nothing — the northernmost of the 7 214 disposal points is
+ * at 69.584° N, so both forms answer 4 069 — but that is a fact about
+ * today's data, and the first disposal point in Lapland would have made
+ * the page wrong, silently.
+ */
+export const WATER_BOX_MARGIN = 1.05;
+
+/**
+ * The box's radius in metres: the verdict's radius, widened, and rounded
+ * UP so that a fractional product can never come out narrower.
+ */
+export const WATER_BOX_METRES = Math.ceil(
+  WATER_NEAR_DUMP_RADIUS_M * WATER_BOX_MARGIN,
+);
+
+/**
+ * The prefilter geometry around a point expression, as SQL. Exported so the
+ * latitude sweep in the database spec tests THIS text and not a copy of it.
+ */
+export const waterBoxSql = (point: string): string =>
+  `ST_Buffer(${point}::geography, ${WATER_BOX_METRES})::geometry`;
+
+/**
+ * CAMP-254 — is there drinking water near THIS disposal point?
+ *
+ * 🔴 `metres: null` is an ANSWER: we searched and found none inside
+ * `radiusMetres`. It is not "unknown". An absent `drinkingWaterNear`
+ * (the key missing from a row) is the other thing: nobody asked. The two
+ * must stay different on the wire, because the page says "our database
+ * holds none within 500 m" for the first and must NOT say it for the
+ * second — see `waterNearField`.
+ *
+ * 🔴 Straight-line metres to the NEAREST such point, like every other
+ * distance on a route page. The water point itself — its name, its
+ * coordinates, its OSM reference — is not sent: the page prints a
+ * distance, not a second object.
+ */
+export interface RouteDumpWater {
+  /** The radius that was searched, in metres. */
+  radiusMetres: number;
+  /** Metres to the nearest drinking-water point inside it, or null. */
+  metres: number | null;
+}
+
 /** One service beside a stage, or the fact that there is none. */
 export interface RouteService {
   kind: RoutePoiKind;
@@ -153,6 +245,13 @@ export interface RouteService {
    * so a page cannot mistake "no facilities block" for "no facilities".
    */
   facilities?: RouteServiceFacilities;
+  /**
+   * CAMP-254 — drinking water near a disposal point. 🔴 Present on `dump`
+   * and ABSENT on the other eight kinds, and on `dump` present whenever
+   * the query asked, with `metres: null` when it found nothing. See
+   * `RouteDumpWater`.
+   */
+  drinkingWaterNear?: RouteDumpWater;
 }
 
 /** One grade's price on one forecourt. */
@@ -353,7 +452,8 @@ export function buildServicesSql(kinds: RoutePoiKind[]): string {
              WHERE metres <= $4
              ORDER BY kind, metres
           )
-          SELECT p.*, ${FUEL_PRICE_SUBQUERY} AS prices
+          SELECT p.*, ${FUEL_PRICE_SUBQUERY} AS prices,
+                 ${WATER_NEAR_SUBQUERY} AS water_near_m
             FROM picked p
            ORDER BY p.kind`;
 }
@@ -423,6 +523,61 @@ export const FUEL_PRICE_SUBQUERY = `(
                  AND f.source IN (${SOURCE_IDS})
             )`;
 
+/**
+ * CAMP-254 — the nearest drinking water to the disposal point we just
+ * picked, within `WATER_NEAR_DUMP_RADIUS_M` metres, or NULL.
+ *
+ * 🔴 `geography` AT BOTH ENDS OF THE DISTANCE. `ST_DWithin` and
+ * `ST_Distance` on `geometry` answer in DEGREES: `ST_DWithin(a, b, 500)`
+ * on two geometry columns is "within 500 degrees", which is every point
+ * on Earth, and `round(ST_Distance(a, b))` is 0 for anything under half
+ * a degree. Both read as plausible, and both have already cost this
+ * repository a wrong answer. The casts are the unit.
+ *
+ * 🔴 THE `&&` IS A PREFILTER AND NOT THE VERDICT, AND WITHOUT IT THE
+ * PLAN LOOKS RIGHT AND IS NOT. A cast column cannot be matched against
+ * the GiST index on `location`, so without the box PostgreSQL walks the
+ * WHOLE partial index and filters every row: measured 15.10.2026 on
+ * camptribe_dev, one stage, `Index Scan using idx_osm_route_poi_water`
+ * with no Index Cond, `Rows Removed by Filter: 230431`, 3 422 ms; with
+ * the box, an Index Cond and 0.025 ms. Both plans name the same index and
+ * neither is a sequential scan, so "uses the index" is not the check —
+ * the database spec asks for the Index Cond. `ST_DWithin` on the
+ * geography then decides.
+ *
+ * 🔴 THE BOX IS `WATER_BOX_MARGIN` WIDER THAN THE VERDICT, ON PURPOSE —
+ * see that constant for the invariant (wider is fine, narrower drops real
+ * water) and for the 70.0° N projection change that made a box of exactly
+ * the radius too narrow. It is still derived from the one radius constant,
+ * not a second number in degrees. Measured on all 7 214 disposal points,
+ * the plain `ST_Expand(location, 0.02)` and this form both answer 4 069.
+ *
+ * 🔴 `p.kind = 'dump'` short-circuits it for the other eight kinds, as
+ * the fuel lookup's `p.kind = 'fuel'` does: only a disposal point is asked
+ * where its drinking water is, and the mapper drops the column for every
+ * other kind, so a probe for them would be work whose answer is thrown
+ * away.
+ *
+ * 🔴 The point is rebuilt from `p.lon, p.lat`, which `measured` made with
+ * ST_X/ST_Y of the very geometry — the same two doubles, so no distance
+ * is measured from a point a metre away from the one that was printed.
+ *
+ * 🔴 `min` over no rows is NULL, and NULL is what the mapper turns into
+ * "searched, found none" — not into "unknown".
+ */
+export const WATER_NEAR_SUBQUERY = `(
+              SELECT min(ST_Distance(w.location::geography,
+                                     here.g::geography))
+                FROM (SELECT ST_SetSRID(ST_MakePoint(p.lon, p.lat), 4326)
+                             AS g) here,
+                     osm_route_poi w
+               WHERE p.kind = '${WATER_CHECKED_KIND}'
+                 AND w.kind = 'water'
+                 AND w.location && ${waterBoxSql('here.g')}
+                 AND ST_DWithin(w.location::geography, here.g::geography,
+                                ${WATER_NEAR_DUMP_RADIUS_M})
+            )`;
+
 /** How many candidates each kind's index walk fetches before re-sorting. */
 export const servicesOverfetch = (perKind: number) => perKind * OVERFETCH;
 
@@ -463,5 +618,64 @@ export function rowToRouteService(r: Record<string, unknown>): RouteService {
     // CAMP-119. The two stopping places, always with all five keys; no
     // other kind, ever. See RouteService.facilities.
     ...(isRestStopKind(kind) ? { facilities: facilitiesFromRow(r) } : {}),
+    // CAMP-254. The disposal point only, and only when the query asked.
+    ...(kind === WATER_CHECKED_KIND ? waterNearField(r) : {}),
+  };
+}
+
+/**
+ * One row's answer to "is there drinking water near this disposal
+ * point", as the field the endpoint sends — or no field at all.
+ *
+ * 🔴 THREE OUTCOMES, AND THE THIRD IS THE ONE THAT MUST NOT TURN INTO THE
+ * SECOND.
+ *
+ *   - `water_near_m` is a number inside the radius → `metres: <rounded>`.
+ *   - `water_near_m` is NULL                       → `metres: null`:
+ *     the query ran and `min` of nothing is NULL. Searched, none found.
+ *   - the row has no `water_near_m` at all, or a value that is not a
+ *     distance inside the radius                   → NO FIELD.
+ *
+ * The third is a row from a query that never asked — a refactor that
+ * drops the column from the SQL and keeps this mapper, a caller with its
+ * own SELECT. Reading a missing column as "none" would make every
+ * disposal point on every route page say "our database holds no drinking
+ * water within 500 m", 4 069 of them untruthfully, with every test that
+ * only looks at the SQL still green. The same rule `readFacilityState`
+ * follows: the one thing a gap cannot produce is a negative.
+ */
+export function waterNearField(
+  r: Record<string, unknown>,
+): { drinkingWaterNear: RouteDumpWater } | Record<string, never> {
+  const raw = r.water_near_m;
+  // 🔴 STRICTLY `null`, never `== null`: `undefined` is a column the query
+  // did not select, and the loose comparison would read it as "searched,
+  // found none".
+  if (raw === null) {
+    return {
+      drinkingWaterNear: {
+        radiusMetres: WATER_NEAR_DUMP_RADIUS_M,
+        metres: null,
+      },
+    };
+  }
+  // A number, or a numeric string (the driver hands float8 back as a
+  // number, a `numeric` as text). Not `Number(raw)` on anything: that
+  // turns '' and `true` into 0 and 1, and 0 m is an answer.
+  const m =
+    typeof raw === 'number'
+      ? raw
+      : typeof raw === 'string' && raw.trim() !== ''
+        ? Number(raw)
+        : NaN;
+  // A distance outside [0, radius] is not an answer to the question that
+  // was asked, and printing it under "within 500 m" would contradict
+  // itself. Dropped, so the page says it did not check.
+  if (!Number.isFinite(m) || m < 0 || m > WATER_NEAR_DUMP_RADIUS_M) return {};
+  return {
+    drinkingWaterNear: {
+      radiusMetres: WATER_NEAR_DUMP_RADIUS_M,
+      metres: Math.round(m),
+    },
   };
 }
