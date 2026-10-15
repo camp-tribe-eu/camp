@@ -231,7 +231,8 @@ chmod +x "$STUBBIN"/*
 SRC="$BASE/src"; REPO="$BASE/repo.git"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.test GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.test
 mkdir -p "$SRC/apps/api/src/migrations" "$SRC/apps/web"
-git init -q "$SRC"; git -C "$SRC" config commit.gpgsign false
+# 🔴 `-b main` явно: на раннері init.defaultBranch це master, і обгортка (origin/main) не знаходила гілки.
+git init -q -b main "$SRC"; git -C "$SRC" config commit.gpgsign false
 : > "$SRC/apps/api/.gitkeep"; : > "$SRC/apps/web/.gitkeep"; echo '{}' > "$SRC/package.json"
 mig() { printf 'export class X {}\n' > "$SRC/apps/api/src/migrations/$1.ts"; }
 commit() { # index тег
