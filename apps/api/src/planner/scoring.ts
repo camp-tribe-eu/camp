@@ -24,11 +24,22 @@
 // quality". Variant A (the owner's decision) rewrites the formula to what
 // we can measure.
 //
-// 🔴 THE RULE, enforced when this module LOADS and therefore when the API
-// starts: an input known for fewer than COVERAGE_FLOOR of the campsites may
-// not carry more than LOW_COVERAGE_MAX_WEIGHT. It throws. A warning is a
-// line in a log nobody reads while a weight of 0.4 on a 3% field ranks the
-// other 97% by what we do not know about them.
+// 🔴 THE RULE, enforced when the API STARTS: an input known for fewer than
+// COVERAGE_FLOOR of the campsites may not carry more than
+// LOW_COVERAGE_MAX_WEIGHT. `loadMeasuredScoring()` throws, and app.module.ts
+// calls it as it loads. A warning is a line in a log nobody reads while a
+// weight of 0.4 on a 3% field ranks the other 97% by what we do not know
+// about them.
+//
+// 🔴 WHY THE THROW IS NOT AT THE TOP OF THIS FILE. It was: `SCORING` was
+// built at import, so a weight the data cannot carry stopped every suite that
+// so much as imported the formula. Measured 15.10.2026, stars 0.05 -> 0.4:
+// 3 suites and 60 of 1 925 tests never started, and the one real assertion
+// left (startup.spec.ts) only checked that no error was thrown, not which.
+// "Failed to run" prints the same as "caught", so nothing showed that the
+// refusal was the one that was meant. Now this module only DEFINES the
+// formula and the check; the specs call the check and read its message, and
+// the rest of the suite runs on whatever weights it is given.
 //
 // 🔴 THE COVERAGE IS NOT TYPED HERE. Each weight below names the field it
 // stands on, and the percentage next to it comes from coverage.snapshot.json
@@ -187,12 +198,16 @@ export function loadScoring(
   };
 }
 
-// 🔴 At import, not on first use: the API refuses to START with a weight the
-// data cannot carry, instead of ranking wrongly until somebody looks.
-export const SCORING: ScoringConfig = loadScoring(
-  COMPONENTS,
-  measured as unknown as CoverageSnapshot,
-);
+/**
+ * The shipped weights against the shipped table. Throws when they disagree.
+ *
+ * 🔴 Called by app.module.ts as it loads, not on first use: the API refuses
+ * to START with a weight the data cannot carry, instead of ranking wrongly
+ * until somebody looks. `startup.spec.ts` fails if that call is removed.
+ */
+export function loadMeasuredScoring(): ScoringConfig {
+  return loadScoring(COMPONENTS, measured as unknown as CoverageSnapshot);
+}
 
 // ---------------------------------------------------------------------------
 // The inputs, each mapped to 0..1
@@ -263,7 +278,7 @@ export function scoreParts(
   toleranceM: number,
 ): Record<ComponentId, number> {
   const out = {} as Record<ComponentId, number>;
-  for (const comp of SCORING.components) {
+  for (const comp of COMPONENTS) {
     out[comp.id] = comp.weight * VALUE[comp.id](c, toleranceM);
   }
   return out;
@@ -280,7 +295,7 @@ export function score(
 ): number {
   const parts = scoreParts(c, toleranceM);
   let total = 0;
-  for (const comp of SCORING.components) {
+  for (const comp of COMPONENTS) {
     if (!without.includes(comp.id)) total += parts[comp.id];
   }
   return total;
@@ -304,7 +319,9 @@ export function rank(
 }
 
 /** The weights beside the coverage of the field each one stands on. */
-export function describeScoring(config: ScoringConfig = SCORING): string {
+export function describeScoring(
+  config: ScoringConfig = loadMeasuredScoring(),
+): string {
   const rows = config.components.map(
     (c) =>
       c.id.padEnd(14) +

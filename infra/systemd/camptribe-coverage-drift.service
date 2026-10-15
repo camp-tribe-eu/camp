@@ -1,0 +1,39 @@
+# CAMP-262: чи досі правда таблиця, на якій стоять ваги планувальника.
+#
+# 🔴 ЦЕ ЄДИНЕ МІСЦЕ, ДЕ `measure-coverage.js --check` ЗАПУСКАЄТЬСЯ.
+# 15.10.2026 `grep measure-coverage` по .github/, infra/, scripts/ і
+# package.json давав нуль: знімок `coverage.snapshot.json` лежав у
+# репозиторії, а порівнювати його з базою не просив ніхто. Знімок, який
+# ніхто не звіряє, це файл, а не детектор.
+#
+# 🔴 ЧОМУ НЕ CI. У CI база — фікстура на 72 кемпінги; таблиця на 52 501
+# розійшлась би з нею на першому ж виклику й червоніла б завжди, тобто
+# не казала б нічого. Порівнювати можна лише там, де жива база: тут.
+#
+# 🔴 ЧОМУ `--check`, А НЕ `--write`. `--write` переписує знімок поруч зі
+# скриптом, тобто всередині `dist/` ЧИННОГО РЕЛІЗУ, і наступний деплой
+# збирає реліз заново з репозиторію та мовчки забирає запис назад.
+# Скрипт сам відмовляється від `--write` поза `src/` (exit 2), а
+# `drift-timer.spec.ts` падає, якщо цей рядок колись зміниться.
+#
+# 🔴 ЩО ТО ВОНО ЗНАЧИТЬ, КОЛИ ЮНІТ ВПАВ. Знімок розійшовся з базою більш
+# ніж на 1 п.п. по якомусь входу (або вхід перетнув 50%). Ваги досі
+# стоять на старій таблиці. Перемірити З РЕПОЗИТОРІЮ, не з машини:
+#   cd apps/api && npx ts-node src/planner/measure-coverage.ts --write
+# і закомітити знімок разом з перечитаними вагами.
+[Unit]
+Description=CampTribe coverage snapshot drift check
+After=postgresql.service
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current/apps/api
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+ExecStart=/usr/bin/node dist/planner/measure-coverage.js --check
+# 🔴 Слід знімається лише після УСПІШНОГО прогону, як і в freshness:
+# для Type=oneshot ExecStartPost не біжить, якщо ExecStart повернув
+# ненуль, тож вчорашня тривога не зникає від того, що юніт стартував.
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-coverage-drift.service

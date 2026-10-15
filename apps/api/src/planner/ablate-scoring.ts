@@ -30,7 +30,7 @@ import { Client } from 'pg';
 import { mergedStarsSql } from '../spots/links';
 import { plannerPopulationSql } from './population';
 import { inReadOnlyTransaction, Queryable } from './read-only';
-import { Candidate, ComponentId, rank, SCORING } from './scoring';
+import { Candidate, COMPONENTS, ComponentId, rank } from './scoring';
 
 export interface Query {
   name: string;
@@ -61,6 +61,14 @@ export const QUERIES: readonly Query[] = [
   { name: 'Menton FR/IT', lon: 7.5, lat: 43.8, radiusM: R },
 ];
 
+/**
+ * How many campsites a reader is shown, and so the window `top10` and `head`
+ * count in. One constant, not a literal in each signature: a default typed
+ * twice is two numbers that can part company, and the figure the pull request
+ * rests its case for `stars` on (`top10`) is exactly this window.
+ */
+export const TOP_N = 10;
+
 export interface Shift {
   pool: number;
   /** Candidates whose position is different. */
@@ -80,7 +88,7 @@ export interface Shift {
 export function compareRankings(
   full: readonly string[],
   ablated: readonly string[],
-  topN = 10,
+  topN = TOP_N,
 ): Shift {
   const a = new Set(full);
   if (
@@ -104,13 +112,13 @@ export function compareRankings(
 export function ablate(
   pool: readonly Candidate[],
   radiusM: number,
-  topN = 10,
+  topN = TOP_N,
 ): Record<ComponentId, Shift> {
   const slugs = (without: ComponentId[]) =>
     rank(pool, radiusM, without).map((c) => c.slug);
   const full = slugs([]);
   const out = {} as Record<ComponentId, Shift>;
-  for (const c of SCORING.components) {
+  for (const c of COMPONENTS) {
     out[c.id] = compareRankings(full, slugs([c.id]), topN);
   }
   return out;
@@ -180,7 +188,7 @@ async function main(): Promise<number> {
       process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev',
   });
   await client.connect();
-  const ids = SCORING.components.map((c) => c.id);
+  const ids = COMPONENTS.map((c) => c.id);
   const moved = Object.fromEntries(ids.map((id) => [id, 0])) as Record<
     ComponentId,
     number
@@ -191,8 +199,8 @@ async function main(): Promise<number> {
     await inReadOnlyTransaction(client, async () => {
       console.log(
         'Rank with every component, then with one switched off.\n' +
-          'moved = positions that differ; top10 = of the ten shown, how many are different;\n' +
-          'head = of the ten positions, how many hold a different campsite.\n',
+          `moved = positions that differ; top${TOP_N} = of the ${TOP_N} shown, how many are different;\n` +
+          `head = of the ${TOP_N} positions, how many hold a different campsite.\n`,
       );
       for (const q of QUERIES) {
         const pool = await loadPool(client, q);
@@ -212,7 +220,7 @@ async function main(): Promise<number> {
           >;
           console.log(
             `  without ${id.padEnd(13)} moved ${String(s.moved).padStart(3)}` +
-              `   top10 ${String(s.topReplaced).padStart(2)}` +
+              `   top${TOP_N} ${String(s.topReplaced).padStart(2)}` +
               `   head ${String(s.headMoved).padStart(2)}` +
               `   top1 ${s.top1Changed ? 'changed' : 'same   '}` +
               `   top-20: ${mix(without, 20)}`,

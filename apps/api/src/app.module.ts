@@ -30,13 +30,19 @@ import {
 } from './entities/air-quality.entity';
 import { DEFAULT_LIMIT } from './throttle';
 import { ApiThrottlerGuard } from './throttle.guard';
-// 🔴 CAMP-262: imported for what it does when it LOADS. The scoring module
-// checks its weights against the measured coverage table at import and
-// throws on a weight the data cannot carry, so an API built with one does
-// not start. Nothing injects it yet (the planner service is CAMP-246 and
-// later); the import is here so the check runs in the process that will
-// serve it, and planner/startup.spec.ts fails if it is removed.
-import './planner/scoring';
+import { loadMeasuredScoring } from './planner/scoring';
+
+/**
+ * 🔴 CAMP-262: built as this module LOADS. `loadMeasuredScoring()` checks the
+ * scoring weights against the measured coverage table and throws on a weight
+ * the data cannot carry, so an API built with one does not start. Nothing
+ * injects the planner yet (the service is CAMP-246 and later); the value is
+ * here so the check runs in the process that will serve it, and
+ * planner/startup.spec.ts fails if it is removed. A value rather than a bare
+ * call, so that the planner has something to take and a bare statement does
+ * not run, and discard its result, every time this file is imported.
+ */
+export const SCORING = loadMeasuredScoring();
 
 @Module({
   imports: [

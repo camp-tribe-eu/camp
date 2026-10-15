@@ -10,6 +10,20 @@
 //   npx ts-node src/planner/measure-coverage.ts --write    # rewrite coverage.snapshot.json
 //   npx ts-node src/planner/measure-coverage.ts --check    # exit 1 if the snapshot has drifted
 //
+// 🔴 WHERE `--check` RUNS. On the machine, daily, from
+// infra/systemd/camptribe-coverage-drift.timer, as
+// `node dist/planner/measure-coverage.js --check` against the real database.
+// Not in CI: CI's database is a fixture of 72 campsites, and a table of
+// 52 501 drifts from it on the first call. Until 15.10.2026 nothing ran it
+// anywhere (`grep measure-coverage` over .github/, infra/, scripts/ and
+// package.json gave zero), and a snapshot nobody compares is a file.
+//
+// 🔴 `--write` RUNS FROM THE REPOSITORY ONLY. The snapshot is written next
+// to this script, and compiled that is `dist/planner/` inside a release: the
+// next deploy rebuilds the release from git and silently takes the write
+// back, while the run before it printed "wrote" and exited 0. `writeRefusal`
+// stops it before a database is opened.
+//
 // Reads DATABASE_URL (default: the local camptribe_dev). Read-only by
 // construction: everything runs in one READ ONLY transaction (read-only.ts),
 // which is also why the numbers agree with each other while an import is
@@ -35,7 +49,7 @@
 import 'dotenv/config';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { Client } from 'pg';
 import { AMENITY_KEYS, AmenityValue } from '../osm/tag-mapping';
 import { mergedStarsSql } from '../spots/links';
@@ -49,6 +63,24 @@ import { plannerPopulationSql } from './population';
 import { inReadOnlyTransaction, Queryable } from './read-only';
 
 export const SNAPSHOT_FILE = join(__dirname, 'coverage.snapshot.json');
+
+/**
+ * Why `--write` may not run from `dir`, or undefined when it may.
+ *
+ * Only the source tree (`apps/api/src/planner`) is the repository. Compiled,
+ * this file lives in `apps/api/dist/planner`, and on the server that is
+ * inside a live release.
+ */
+export function writeRefusal(dir: string = __dirname): string | undefined {
+  if (basename(dirname(dir)) === 'src') return undefined;
+  return (
+    `--write refuses to run from ${dir}: that is a build, not the repository. ` +
+    `A snapshot written here lands inside a release that the next deploy ` +
+    `replaces, and the deploy takes it back without a word. Run it from the ` +
+    `repository and commit the result:\n` +
+    `  cd apps/api && npx ts-node src/planner/measure-coverage.ts --write`
+  );
+}
 
 /** The planner's candidates, with the one thing each input is read from. */
 const POPULATION_CTE = `WITH p AS (
@@ -180,8 +212,10 @@ export function formatTable(s: CoverageSnapshot): string {
   return lines.join('\n');
 }
 
-export function readSnapshotFile(): CoverageSnapshot {
-  return JSON.parse(readFileSync(SNAPSHOT_FILE, 'utf8')) as CoverageSnapshot;
+export function readSnapshotFile(
+  file: string = SNAPSHOT_FILE,
+): CoverageSnapshot {
+  return JSON.parse(readFileSync(file, 'utf8')) as CoverageSnapshot;
 }
 
 /** Stable layout and a trailing newline: a re-run over the same data diffs to nothing. */
@@ -189,7 +223,11 @@ export function serialise(s: CoverageSnapshot): string {
   return JSON.stringify(s, null, 2) + '\n';
 }
 
-async function main(argv: string[]): Promise<number> {
+/** `dir` is where the snapshot lives; only a spec passes anything else. */
+export async function main(
+  argv: string[],
+  dir: string = __dirname,
+): Promise<number> {
   const flags = argv.filter((a) => a.startsWith('--'));
   const stray = argv.filter((a) => !a.startsWith('--'));
   const known = ['--write', '--check'];
@@ -200,6 +238,16 @@ async function main(argv: string[]): Promise<number> {
     );
     return 2;
   }
+  // Before a connection is opened: a refused write must not have touched
+  // the database either.
+  if (flags[0] === '--write') {
+    const refusal = writeRefusal(dir);
+    if (refusal) {
+      console.error(refusal);
+      return 2;
+    }
+  }
+  const snapshotFile = join(dir, 'coverage.snapshot.json');
 
   const client = new Client({
     connectionString:
@@ -214,17 +262,20 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (flags[0] === '--write') {
-    writeFileSync(SNAPSHOT_FILE, serialise(live));
+    writeFileSync(snapshotFile, serialise(live));
     console.log(formatTable(live));
-    console.log(`\nwrote ${SNAPSHOT_FILE}`);
+    console.log(`\nwrote ${snapshotFile}`);
     return 0;
   }
   if (flags[0] === '--check') {
-    const drift = driftOf(readSnapshotFile(), live);
+    const drift = driftOf(readSnapshotFile(snapshotFile), live);
     if (drift.length) {
       console.error('coverage.snapshot.json no longer matches the database:');
       for (const d of drift) console.error(`  ${d}`);
-      console.error('re-measure with --write, then re-read the weights.');
+      console.error(
+        're-measure FROM THE REPOSITORY (`--write` refuses to run from a build), ' +
+          'commit the snapshot, then re-read the weights.',
+      );
       return 1;
     }
     console.log(

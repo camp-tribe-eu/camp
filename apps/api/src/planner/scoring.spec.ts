@@ -9,11 +9,12 @@ import {
   ComponentDef,
   describeScoring,
   distanceFit,
+  loadMeasuredScoring,
+  loadScoring,
   LOW_COVERAGE_MAX_WEIGHT,
   rank,
   score,
   scoreParts,
-  SCORING,
   STARS_NEUTRAL,
   starsValue,
 } from './scoring';
@@ -345,8 +346,9 @@ describe('the real weights against the measured table', () => {
   });
 
   it('the coverage the config carries is the file’s, not a number typed into scoring.ts', () => {
-    expect(SCORING.components).toHaveLength(COMPONENTS.length);
-    for (const c of SCORING.components) {
+    const config = loadMeasuredScoring();
+    expect(config.components).toHaveLength(COMPONENTS.length);
+    for (const c of config.components) {
       expect(c.coverage).toBe(snap.fields[c.field].known / snap.population.n);
       expect(c.known).toBe(snap.fields[c.field].known);
     }
@@ -367,8 +369,15 @@ describe('the real weights against the measured table', () => {
   });
 });
 
-describe('start-up: the module refuses to load a weight the data cannot carry', () => {
-  /** Loads scoring.ts afresh against a snapshot we have altered. */
+describe('start-up: the check refuses a weight the data cannot carry', () => {
+  // 🔴 THESE CALL THE CHECK AND READ WHAT IT SAYS. The check used to run when
+  // scoring.ts was imported, so a bad weight stopped every suite that
+  // imported the formula before it could assert anything: stars 0.05 -> 0.4
+  // left 3 suites and 60 of 1 925 tests unstarted and one assertion that
+  // never looked at the message. A suite that fails to run prints the same
+  // as a mutation caught, so a refusal has to be an ASSERTION on its text.
+
+  /** Runs the shipped check afresh against a snapshot we have altered. */
   function load(alter: (s: CoverageSnapshot) => void): {
     error?: Error;
     loaded: boolean;
@@ -382,7 +391,7 @@ describe('start-up: the module refuses to load a weight the data cannot carry', 
       try {
         // jest.isolateModules is synchronous, so it can only load by require.
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require('./scoring');
+        require('./scoring').loadMeasuredScoring();
         loaded = true;
       } catch (e) {
         error = e as Error;
@@ -392,8 +401,78 @@ describe('start-up: the module refuses to load a weight the data cannot carry', 
     return { error, loaded };
   }
 
+  it('the shipped weights load against the shipped table; a refusal would be read here, in full', () => {
+    // Not `expect(() => ...).not.toThrow()`: when this goes red, the
+    // received value IS the refusal — the input, its weight and its measured
+    // share — instead of "function threw".
+    let refusal: string | undefined;
+    try {
+      loadMeasuredScoring();
+    } catch (e) {
+      refusal = (e as Error).message;
+    }
+    expect(refusal).toBeUndefined();
+  });
+
   it('loads against the real table (so the failures below are about the table)', () => {
     expect(load(() => undefined)).toEqual({ error: undefined, loaded: true });
+  });
+
+  it('says exactly what the pull request quotes: stars at 0.4, known for only 8.0%', () => {
+    // A table of our own, numbers written out: 800 of 10 000 is 8.0%.
+    const eight = table({
+      location: 10_000,
+      electricity: 3_000,
+      greyWater: 3_000,
+      stars: 800,
+    });
+    let message = '';
+    try {
+      loadScoring(reweigh({ distance_fit: 0.4, stars: 0.4 }), eight);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toBe(
+      'CAMP-262 scoring refuses to load:\n' +
+        '  stars: weight 0.4 on "stars", known for only 8.0% (< 50%), may not exceed 0.1\n' +
+        '(coverage measured test; re-measure with src/planner/measure-coverage.ts --write)',
+    );
+  });
+
+  it('says it of the REAL table too, with the share the snapshot file holds', () => {
+    const snap = fileSnapshot();
+    const share = ((snap.fields.stars.known / snap.population.n) * 100).toFixed(
+      1,
+    );
+    expect(Number(share)).toBeLessThan(50); // anchor: stars is a low-coverage input
+    let message = '';
+    try {
+      loadScoring(reweigh({ distance_fit: 0.4, stars: 0.4 }), snap);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain(
+      `stars: weight 0.4 on "stars", known for only ${share}% (< 50%), may not exceed 0.1`,
+    );
+    // …and only that: moving 0.35 from distance to stars keeps the sum at 1.
+    expect(message.split('\n').filter((l) => l.startsWith('  '))).toHaveLength(
+      1,
+    );
+  });
+
+  it('says the sum, and only the sum, when the weights stop adding up to 1', () => {
+    let message = '';
+    try {
+      loadScoring(reweigh({ distance_fit: 0.74 }), fileSnapshot());
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toMatch(
+      /^CAMP-262 scoring refuses to load:\n {2}weights sum to 0\.9\d*, not 1\n/,
+    );
+    expect(message.split('\n').filter((l) => l.startsWith('  '))).toHaveLength(
+      1,
+    );
   });
 
   it('throws when the field the heavy weight stands on is known for 30%', () => {
@@ -402,7 +481,9 @@ describe('start-up: the module refuses to load a weight the data cannot carry', 
     });
     expect(loaded).toBe(false);
     expect(error?.message).toMatch(
-      new RegExp(`distance_fit: weight ${heaviest().weight} on "location"`),
+      new RegExp(
+        `distance_fit: weight ${heaviest().weight} on "location", known for only 30\\.0%`,
+      ),
     );
     expect(error?.message).toMatch(/scoring refuses to load/);
   });
