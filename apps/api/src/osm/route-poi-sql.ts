@@ -427,29 +427,34 @@ export function cylinderSwapSelectSql(alias = 's'): string {
 export const GAS_LAYER_SUMMARY_SQL = `WITH gas AS (
          SELECT s.id AS id, ${canonicalRefSql('s.id')} AS cref
            FROM osm_route_poi_staging s
-          WHERE s.id IS NOT NULL AND EXISTS (
+          WHERE s.id IS NOT NULL AND s.shop ILIKE '%gas%' AND EXISTS (
                   SELECT 1 FROM unnest(string_to_array(s.shop, ';')) AS e(v)
                    WHERE lower(btrim(e.v, ${BLANKS_SQL})) = 'gas')
-       ), wide AS (
+       ), by_id AS (SELECT DISTINCT id AS k FROM gas),
+          by_cref AS (SELECT DISTINCT cref AS k FROM gas),
+       wide AS (
          SELECT DISTINCT ${canonicalRefSql('s.id')} AS cref
            FROM osm_route_poi_staging s
           WHERE s.id IS NOT NULL AND s.shop ILIKE '%gas%'
             AND lower(s.shop) ~ '(^|[^a-z0-9])gas([^a-z0-9]|$)'
+       ), t AS (
+         SELECT r.kind, r.cylinder_swap, r.osm_ref,
+                (i.k IS NOT NULL OR c.k IS NOT NULL) AS says_gas
+           FROM osm_route_poi r
+           LEFT JOIN by_id i ON i.k = r.osm_ref
+           LEFT JOIN by_cref c ON c.k = r.osm_ref
        )
        SELECT
        count(*) FILTER (WHERE kind = 'gas_exchange')::text AS own_kind,
        count(*) FILTER (WHERE kind <> 'gas_exchange'
                           AND cylinder_swap = 'yes')::text AS other_kinds,
-       count(*) FILTER (WHERE cylinder_swap <> 'yes'
-                          AND (osm_ref IN (SELECT id FROM gas)
-                               OR osm_ref IN (SELECT cref FROM gas)))::text AS missing,
-       count(*) FILTER (WHERE cylinder_swap = 'yes'
-                          AND osm_ref NOT IN (SELECT id FROM gas)
-                          AND osm_ref NOT IN (SELECT cref FROM gas))::text AS extra,
+       count(*) FILTER (WHERE cylinder_swap <> 'yes' AND says_gas)::text AS missing,
+       count(*) FILTER (WHERE cylinder_swap = 'yes' AND NOT says_gas)::text AS extra,
        (SELECT count(*) FROM wide)::text AS wide_objects,
-       (SELECT count(*) FROM wide WHERE cref NOT IN (SELECT cref FROM gas))::text AS wide_only,
+       (SELECT count(*) FROM wide w
+         LEFT JOIN by_cref g ON g.k = w.cref WHERE g.k IS NULL)::text AS wide_only,
        count(*) FILTER (WHERE kind = 'gas_exchange'
                            OR cylinder_swap = 'yes')::text AS layer,
        count(DISTINCT CASE WHEN kind = 'gas_exchange' OR cylinder_swap = 'yes'
                            THEN ${canonicalRefSql('osm_ref')} END)::text AS layer_objects
-  FROM osm_route_poi`;
+  FROM t`;

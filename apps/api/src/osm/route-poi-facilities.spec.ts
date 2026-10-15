@@ -629,6 +629,20 @@ describe('the loader notices when the gas layer disagrees with the tag', () => {
     ]);
   });
 
+  // 🔴 THE FIRST VERSION OF THIS STATEMENT RAN FOR 19 MINUTES ON THE REAL TABLE.
+  // It compared 2.27 million rows with `osm_ref IN (SELECT id FROM gas)` and
+  // `NOT IN (SELECT …)`; the planner could not know that `gas` has 9 000 rows
+  // and not 1.1 million, so it did not hash the subqueries, and each row was
+  // compared with the whole CTE. The same question as joins is 1.6 seconds
+  // (measured 15.10.2026 on camptribe_dev). A fixture of 30 rows cannot show
+  // this, so it is pinned by SHAPE: no IN-subquery on a staging CTE.
+  // MUTATION: put `osm_ref IN (SELECT …)` back.
+  it('compares the table with staging by JOIN, not by IN (SELECT …) subqueries', () => {
+    expect(GAS_LAYER_SUMMARY_SQL).not.toMatch(/\bIN\s*\(\s*SELECT/i);
+    expect(GAS_LAYER_SUMMARY_SQL).toMatch(/LEFT JOIN by_id/);
+    expect(GAS_LAYER_SUMMARY_SQL).toMatch(/LEFT JOIN by_cref/);
+  });
+
   it('is asked through the statement the loader runs', () => {
     expect(GAS_LAYER_SUMMARY_SQL).toContain(
       "kind = 'gas_exchange'\n                           OR cylinder_swap = 'yes'",
