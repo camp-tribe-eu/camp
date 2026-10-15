@@ -83,6 +83,33 @@ export class RoutePoiGas1791700000000 implements MigrationInterface {
   /** The partial index on the flag, named after its column. */
   static readonly FLAG_INDEX = 'idx_osm_route_poi_cylinder_swap';
 
+  /**
+   * The schema `osm_route_poi` lives in, resolved the way `ALTER TABLE
+   * osm_route_poi` resolves it — by the search_path — and not as the first
+   * schema on the path (`current_schema()`), which need not hold the table.
+   *
+   * 🔴 WHY THIS IS A SQL EXPRESSION AND NOT THE WORD `public`. An UNQUALIFIED
+   * `DROP INDEX IF EXISTS name` walks the whole search_path and drops the first
+   * index of that name it meets — in ANOTHER schema if this one has none yet.
+   * Exactly that happened while the CAMP-258 specs were being run: they build
+   * the table in a schema of their own, `up()` found no such index there, and
+   * the two REAL indexes in `public` on camptribe_dev were dropped. Production
+   * has one schema and could not have shown it; the rule is the same anyway:
+   * a migration drops what belongs to ITS table.
+   */
+  private static readonly TABLE_SCHEMA = `(SELECT n.nspname
+          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE c.oid = 'osm_route_poi'::regclass)`;
+
+  /** `DROP INDEX IF EXISTS`, aimed at the table's own schema. */
+  private static dropIndex(name: string): string {
+    if (!/^[a-z_]+$/.test(name)) throw new Error(`unsafe index name ${name}`);
+    return `DO $$ BEGIN
+          EXECUTE format('DROP INDEX IF EXISTS %I.%I',
+                         ${RoutePoiGas1791700000000.TABLE_SCHEMA}, '${name}');
+        END $$`;
+  }
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     const columns = RoutePoiGas1791700000000.COLUMNS;
 
@@ -111,7 +138,7 @@ export class RoutePoiGas1791700000000 implements MigrationInterface {
         BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM information_schema.columns
-             WHERE table_schema = current_schema()
+             WHERE table_schema = ${RoutePoiGas1791700000000.TABLE_SCHEMA}
                AND table_name = 'osm_route_poi' AND column_name = '${c}'
           ) THEN
             ALTER TABLE osm_route_poi
@@ -147,7 +174,9 @@ export class RoutePoiGas1791700000000 implements MigrationInterface {
     // IF NOT EXISTS name` is satisfied by an index of that name on the wrong
     // predicate, and the catalog spec would then be the only thing that knew.
     for (const kind of RoutePoiGas1791700000000.KINDS) {
-      await queryRunner.query(`DROP INDEX IF EXISTS idx_osm_route_poi_${kind}`);
+      await queryRunner.query(
+        RoutePoiGas1791700000000.dropIndex(`idx_osm_route_poi_${kind}`),
+      );
       await queryRunner.query(`
         CREATE INDEX idx_osm_route_poi_${kind}
           ON osm_route_poi USING GIST (location)
@@ -155,7 +184,7 @@ export class RoutePoiGas1791700000000 implements MigrationInterface {
       `);
     }
     await queryRunner.query(
-      `DROP INDEX IF EXISTS ${RoutePoiGas1791700000000.FLAG_INDEX}`,
+      RoutePoiGas1791700000000.dropIndex(RoutePoiGas1791700000000.FLAG_INDEX),
     );
     await queryRunner.query(`
       CREATE INDEX ${RoutePoiGas1791700000000.FLAG_INDEX}
@@ -166,10 +195,12 @@ export class RoutePoiGas1791700000000 implements MigrationInterface {
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `DROP INDEX IF EXISTS ${RoutePoiGas1791700000000.FLAG_INDEX}`,
+      RoutePoiGas1791700000000.dropIndex(RoutePoiGas1791700000000.FLAG_INDEX),
     );
     for (const kind of RoutePoiGas1791700000000.KINDS) {
-      await queryRunner.query(`DROP INDEX IF EXISTS idx_osm_route_poi_${kind}`);
+      await queryRunner.query(
+        RoutePoiGas1791700000000.dropIndex(`idx_osm_route_poi_${kind}`),
+      );
     }
     for (const column of [...RoutePoiGas1791700000000.COLUMNS].reverse()) {
       await queryRunner.query(

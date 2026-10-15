@@ -37,6 +37,7 @@ const URL =
 
 let db: Client;
 let schema = '';
+let decoy = '';
 let n = 0;
 
 const runner = () =>
@@ -180,10 +181,101 @@ beforeAll(async () => {
 afterEach(async () => {
   await db.query('RESET search_path');
   await db.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+  await db.query(`DROP SCHEMA IF EXISTS ${decoy} CASCADE`);
 });
 
 afterAll(async () => {
   await db?.end();
+});
+
+// 🔴 A MIGRATION DROPS WHAT BELONGS TO ITS OWN TABLE, AND NOTHING ELSE.
+//
+// An unqualified `DROP INDEX IF EXISTS name` walks the whole search_path and
+// drops the first index of that name it finds — in ANOTHER schema, when its
+// own has none yet. That is what this very spec did to camptribe_dev the first
+// time it ran the rewritten `up()`: the table was built in a schema of its
+// own, the two indexes were not there yet, and the REAL ones in `public` went.
+// Production has one schema and would never have shown it, so it is made to
+// show here: a second schema, later on the search_path, holds the complete
+// result of this migration, and it has to come out untouched.
+describe('RoutePoiGas.up() and down() leave another schema alone', () => {
+  const indexesOf = async (name: string) =>
+    (
+      await db.query(
+        `SELECT indexname FROM pg_indexes
+          WHERE schemaname = $1 AND tablename = 'osm_route_poi' ORDER BY 1`,
+        [name],
+      )
+    ).rows.map((r) => r.indexname as string);
+
+  async function decoyWithTheWholeResult() {
+    decoy = `camp258_decoy_${process.pid}`;
+    await db.query(`CREATE SCHEMA ${decoy}`);
+    await db.query(`SET search_path = ${decoy}, public`);
+    await new RoutePoi1790572800000().up(runner());
+    await new RoutePoiFacilities1791400000000().up(runner());
+    await new RoutePoiGas1791700000000().up(runner());
+    return indexesOf(decoy);
+  }
+
+  // MUTATION: an unqualified `DROP INDEX IF EXISTS …` in up() or down().
+  it('up(): the decoy keeps both of its indexes', async () => {
+    const before = await decoyWithTheWholeResult();
+    expect(before).toEqual(
+      expect.arrayContaining([
+        'idx_osm_route_poi_gas_exchange',
+        'idx_osm_route_poi_cylinder_swap',
+      ]),
+    );
+    await freshTable();
+    // the table's own schema first, the decoy after it — the shape of
+    // `search_path = camp258_mig_…, public`, where `public` held the real ones
+    await db.query(`SET search_path = ${schema}, ${decoy}, public`);
+    await new RoutePoiGas1791700000000().up(runner());
+    expect(await indexesOf(decoy)).toEqual(before);
+    expect(Object.keys(await indexDefs())).toHaveLength(2);
+  });
+
+  it('down(): the decoy keeps both of its indexes', async () => {
+    const before = await decoyWithTheWholeResult();
+    await freshTable();
+    await db.query(`SET search_path = ${schema}, ${decoy}, public`);
+    await new RoutePoiGas1791700000000().up(runner());
+    await new RoutePoiGas1791700000000().down(runner());
+    expect(await indexesOf(decoy)).toEqual(before);
+  });
+
+  // …and the columns of the decoy are as they were: the DO block that decides
+  // between ADD COLUMN and repair looks at THIS table's schema, not at the
+  // first schema on the path, so a decoy that already has the columns cannot
+  // make a fresh table skip them.
+  it('up(): a decoy that has the columns does not stop the table from getting them', async () => {
+    await decoyWithTheWholeResult();
+    await freshTable();
+    await db.query(`SET search_path = ${schema}, ${decoy}, public`);
+    await new RoutePoiGas1791700000000().up(runner());
+    await expectTheWantedShape();
+  });
+});
+
+describe('RoutePoiGas.up() resolves the table the way the search_path does', () => {
+  // The DO block that chooses between ADD COLUMN and repair must look at the
+  // schema the TABLE is in, which is not always the first schema on the path:
+  // here the first one exists and holds nothing. MUTATION: ask
+  // `current_schema()` instead — it answers the empty one, finds no column,
+  // and tries to ADD a column that is already there.
+  it('when the first schema on the path exists and holds no table', async () => {
+    await freshTable();
+    await db.query(
+      `ALTER TABLE osm_route_poi ADD COLUMN lpg text, ADD COLUMN cylinder_swap text`,
+    );
+    decoy = `camp258_empty_${process.pid}`;
+    await db.query(`CREATE SCHEMA ${decoy}`);
+    await db.query(`SET search_path = ${decoy}, ${schema}, public`);
+    await new RoutePoiGas1791700000000().up(runner());
+    await db.query(`SET search_path = ${schema}, public`);
+    await expectTheWantedShape();
+  });
 });
 
 describe('RoutePoiGas.up() brings the columns, checks and indexes to their shape', () => {
