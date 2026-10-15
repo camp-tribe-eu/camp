@@ -226,10 +226,12 @@ show_diff() { head -20 "$RW/$1.diff" 2>/dev/null; head -10 "$RW/$1.acldiff" 2>/d
 # $1 = дамп, $2 = куди, $3 = lock_timeout, решта — прапорці pg_restore.
 make_script() {
   local dump="$1" out="$2" lt="$3"; shift 3
-  pg_restore --clean --if-exists "$@" -f "$out.raw" "$dump" || return 1
-  { printf "SET lock_timeout = '%s';\n" "$lt"
-    sed "1,80s/^SET lock_timeout = 0;\$/SET lock_timeout = '$lt';/" "$out.raw"; } > "$out"
-  rm -f "$out.raw"
+  # Потоком, без проміжного файлу: текстовий скрипт таблиці на 2,27 млн рядків
+  # у кілька разів більший за дамп, і другий екземпляр поруч із ним — зайвий
+  # диск на проді. pipefail лишає код pg_restore, а не sed.
+  pg_restore --clean --if-exists "$@" -f - "$dump" \
+    | { printf "SET lock_timeout = '%s';\n" "$lt"
+        sed "1,80s/^SET lock_timeout = 0;\$/SET lock_timeout = '$lt';/"; } > "$out"
 }
 
 before_rows=$(q "select count(*) from $TABLE" 2>/dev/null || echo 0)

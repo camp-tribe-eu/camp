@@ -33,7 +33,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 MOVE="${CAMPTRIBE_MOVE_BIN:-$HERE/move-table.sh}"
-EXPECTED=39
+EXPECTED=42
 # 🔴 Де брати базу. Локально це сокет і поточний користувач; у CI —
 # сервіс postgis/postgis із користувачем postgres. Один рядок замість
 # двох шляхів у коді.
@@ -149,7 +149,9 @@ EOF
 chmod +x "$BASE/bin/ssh" "$BASE/bin/scp"
 
 ENVF="$BASE/prod.env"
-printf 'DATABASE_URL=%s/%s\n' "$PG_BASE" "$DST_DB" > "$ENVF"
+# 🔴 Параметр підключення в URL (на проді це `?sslmode=…`): репетиційна база мусить
+# отримати його теж, а `${DATABASE_URL%/*}` його губив.
+printf 'DATABASE_URL=%s/%s?application_name=mvapp\n' "$PG_BASE" "$DST_DB" > "$ENVF"
 
 # LOCALE, T_LOCK, T_RBLOCK (якщо задано) діють лише на скрипт, що тестується.
 LOCALE=; T_LOCK=; T_RBLOCK=
@@ -286,6 +288,30 @@ reh="$(printf '%s' "$OUT" | sed -n 's/.*репетиція відкату: [0-9]
 [ -n "$reh" ] && eq "$reh" 300
 ok $? 'репетиція відкату ВІДНОВИЛА ті самі 300 рядків, що були на проді' "у копії=$reh"
 ls "$BASE/backups/$TABLE-before-"*.dump >/dev/null 2>&1; ok $? 'страхувальна копія лежить на місці' "$(ls "$BASE/backups" 2>&1)"
+
+echo '— великий прод: параметри підключення з URL доходять до репетиційної бази'
+# 🔴 `?sslmode=…` та інші параметри URL прода мусять дійти й до репетиційної бази
+# (`${DATABASE_URL%/*}` їх губив, і репетиція йшла б не так, як прод). Тут це
+# `application_name`, і його видно в pg_stat_activity — але підключення живе
+# соті частки секунди, а опитування кожні кілька мс його не ловить надійно
+# (заміряно: 1–2 вибірки, і то не завжди). Тому прод тут ВЕЛИКИЙ (150 тис.
+# рядків): відновлення копії триває секунди, і опитування раз на 20 мс влучає
+# завжди. Заодно це заміна таблиці, що не поміщається в мілісекунди.
+build_world
+psql -q -d "$DST_DB" -c "INSERT INTO $TABLE (ref,kind,n,rng) SELECT 'bulk'||i, 'b', 100000+i, int4range(100000+i*2, 100000+i*2+1) FROM generate_series(1,150000) i"
+rm -f "$BASE/appname.seen"
+( i=0
+  until [ "$(psql -At -d "$PG_BASE/postgres" -c "select count(*) from pg_stat_activity where datname='$REHEARSAL_DB' and application_name='mvapp'" 2>/dev/null)" = 1 ]; do
+    sleep 0.02; i=$((i+1)); [ "$i" -gt 1500 ] && exit 1
+  done
+  : > "$BASE/appname.seen" ) & ww=$!
+run "$TABLE" --apply
+wait "$ww" 2>/dev/null; kill "$ww" 2>/dev/null
+eq "$RC" 0 && eq "$(rows)" 500 && printf '%s' "$OUT" | grep -q 'репетиція відкату: [0-9]* с, 150300 рядків'
+r=$?
+ok "$r" 'великий прод (150300 рядків): репетиція відновила їх усі, заміна пройшла, код 0' "rc=$RC rows=$(rows) $OUT"
+ls "$BASE/appname.seen" >/dev/null 2>&1
+ok $? '🔴 параметри підключення з URL прода дійшли до репетиційної бази (application_name видно на її підключенні)' "не побачено; репетиція: $(printf '%s' "$OUT" | grep 'репетиція')"
 
 echo '— порожнє джерело не має шансу стерти прод'
 psql -q -d "$SRC_DB" -c "TRUNCATE $TABLE"
@@ -489,6 +515,22 @@ eq "$RC" 4 && printf '%s' "$OUT" | grep -q '^+ALTER TABLE public.mv_probe ENABLE
   && ! printf '%s' "$OUT" | grep -q 'повернуто й звірено'
 r=$?
 ok "$r" '🔴 схема розійшлась при коді 0 відновлення; відкат теж не відтворює стан: код 4, діф називає RLS, «повернуто» не друкується' "rc=$RC $OUT"
+
+echo '— event trigger на проді знімає тригер: заміна проходить (код 0), тригера немає'
+# 🔴 Те, що три лічильники пропускали, і клас дефекту, заради якого схема
+# звіряється ТЕКСТОМ: відновлення без помилок, рядки 500, індекси й обмеження на
+# місці, а тригера немає. (Відсутня ФУНКЦІЯ тригера дає не це, а помилку
+# відновлення — її ловить код виходу; тут помилки немає взагалі.) Відкат
+# відтворює тригер, і охоронець знімає його знову: код 4.
+build_world
+psql -q -d "$DST_DB" -c "CREATE FUNCTION mv_nokill() RETURNS event_trigger LANGUAGE plpgsql AS \$f\$ DECLARE r record; BEGIN FOR r IN SELECT * FROM pg_event_trigger_ddl_commands() WHERE command_tag='CREATE TRIGGER' LOOP EXECUTE format('DROP TRIGGER %s', r.object_identity); END LOOP; END \$f\$" \
+  -c "CREATE EVENT TRIGGER mv_no_triggers ON ddl_command_end WHEN TAG IN ('CREATE TRIGGER') EXECUTE FUNCTION mv_nokill()"
+run "$TABLE" --apply
+eq "$RC" 4 && printf '%s' "$OUT" | grep -q 'після заміни: 500 рядків, відновлення вийшло з кодом 0' \
+  && printf '%s' "$OUT" | grep -q '^-CREATE TRIGGER mv_probe_touch' && printf '%s' "$OUT" | grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ' \
+  && ! printf '%s' "$OUT" | grep -q 'повернуто й звірено'
+r=$?
+ok "$r" '🔴 тригера немає, а відновлення вийшло з кодом 0: діф називає тригер, відкат теж його не повертає: код 4' "rc=$RC $OUT"
 
 echo '— event trigger на проді скасовує гранти: заміна проходить, права зникають'
 # 🔴 Звірка «власник і права не загублено» потребує свого природного входу:
