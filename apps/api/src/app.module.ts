@@ -31,6 +31,7 @@ import {
 import { DEFAULT_LIMIT } from './throttle';
 import { ApiThrottlerGuard } from './throttle.guard';
 import { loadMeasuredScoring } from './planner/scoring';
+import { loadMeasuredHardConstraints } from './planner/hard-constraints';
 
 /**
  * 🔴 CAMP-262: built as this module LOADS. `loadMeasuredScoring()` checks the
@@ -43,6 +44,16 @@ import { loadMeasuredScoring } from './planner/scoring';
  * not run, and discard its result, every time this file is imported.
  */
 export const SCORING = loadMeasuredScoring();
+
+/**
+ * 🔴 CAMP-246: the same for stage 1. A hard constraint that rejects by a
+ * value we mostly do not have would reject most of the campsites and call it
+ * choosiness; `loadMeasuredHardConstraints()` throws on one, so an API built
+ * with it does not start. Loaded AFTER the scoring, so a table that breaks
+ * both reports the formula first. planner/startup.spec.ts fails if the call
+ * is removed.
+ */
+export const HARD_CONSTRAINTS = loadMeasuredHardConstraints();
 
 @Module({
   imports: [
