@@ -281,3 +281,159 @@ describe('CAMP-119: a row no importer has described', () => {
     }
   });
 });
+
+// ── THE INDEXES, READ FROM THE CATALOG ──────────────────────────────────
+//
+// 🔴 WHY THIS BLOCK EXISTS (CAMP-119 review, defect D1). Deleting the whole
+// `CREATE INDEX` loop out of RoutePoiFacilities.up() left 68 suites and
+// 1 889 tests green. The guard the spec had for it —
+// `route-services.spec.ts`, "every kind has the index its query needs" —
+// reads the migration FILE with a regex and only for the literal
+// `static readonly KINDS = [...]`. It pins a LIST of kinds, and a list of
+// kinds is not an index: take `'service_area'` out of that literal and one
+// test goes red, take the `CREATE INDEX` statement out and none does.
+//
+// What an index missing here costs is not an error. It is
+//   WHERE r.kind = 'rest_area' ORDER BY location <-> point
+// as a sequential scan over 2.26 million rows on every stage of every
+// route page — the failure this table's first migration already paid for
+// once (9 699 ms for one page, measured) and which nothing announces.
+//
+// So this asks PostgreSQL. The tables here are made by the real migrations'
+// `up()`, which is the one place those statements run, and the question is
+// put to the catalog — not to the migration's text, and not to a table
+// whose size makes the answer depend on the planner's mood.
+//
+// 🔴 THE LIST BEING CHECKED IS THE ENDPOINT'S, NOT THE MIGRATION'S.
+// `ROUTE_POI_KINDS` is what `buildServicesSql` asks about. Checking the
+// migrations' own `KINDS` against the migrations' own indexes would be a
+// corpus that shares its field with the thing it measures: a kind added to
+// the endpoint and to neither migration would pass.
+
+/** `kind` → the index name that is partial on it, from the catalog. */
+async function partialGistIndexes(): Promise<{
+  byKind: Map<string, string>;
+}> {
+  const { rows } = await db.query<{ indexname: string; indexdef: string }>(
+    `SELECT indexname, indexdef
+       FROM pg_indexes
+      WHERE schemaname = current_schema() AND tablename = 'osm_route_poi'`,
+  );
+  const byKind = new Map<string, string>();
+  for (const row of rows) {
+    // How PostgreSQL prints `USING GIST (location) WHERE kind = 'x'`:
+    //   … USING gist (location) WHERE (kind = 'x'::text)
+    const m =
+      /USING gist \(location\) WHERE \(kind = '([a-z_]+)'::text\)$/.exec(
+        row.indexdef,
+      );
+    if (m) byKind.set(m[1], row.indexname);
+  }
+  return { byKind };
+}
+
+describe('CAMP-119: every kind the endpoint asks about has its partial GiST index', () => {
+  it('the catalog holds one on location, partial on the kind, for each of them', async () => {
+    const { byKind } = await partialGistIndexes();
+    // Anchor: there are kinds to look for. An empty list would make
+    // `missing` empty for the wrong reason.
+    expect(ROUTE_POI_KINDS.length).toBeGreaterThan(0);
+    const missing = ROUTE_POI_KINDS.filter((kind) => !byKind.has(kind));
+    // The names go in the value: Jest's `expect` takes ONE argument.
+    expect(missing).toEqual([]);
+  });
+
+  // 🔴 Having the index is not the same as the query being able to use it.
+  // The 9 699 ms was an index that existed and a predicate the planner
+  // could not prove, because the kind was a join column and not a literal.
+  // This plans the endpoint's OWN statement with sequential scans switched
+  // off — which makes the answer independent of how many rows there are,
+  // the thing the CAMP-32 check has to load 55 000 rows to get around —
+  // and requires every kind's block to name the index that is partial on
+  // it, and the table to be read by no sequential scan at all.
+  it('the endpoint’s own statement plans an index scan on each of them', async () => {
+    const { byKind } = await partialGistIndexes();
+    await db.query('SET enable_seqscan = off');
+    let plan: PlanNode;
+    try {
+      const res = await db.query(
+        `EXPLAIN (FORMAT JSON) ${buildServicesSql([...ROUTE_POI_KINDS])}`,
+        [14, 45, servicesOverfetch(1), 25_000],
+      );
+      plan = res.rows[0]['QUERY PLAN'][0].Plan;
+    } finally {
+      await db.query('RESET enable_seqscan');
+    }
+    const used = new Set<string>();
+    const seqScans: string[] = [];
+    walkPlan(plan, (n) => {
+      if (n['Index Name']) used.add(n['Index Name']);
+      if (
+        n['Node Type'] === 'Seq Scan' &&
+        n['Relation Name'] === 'osm_route_poi'
+      ) {
+        seqScans.push(n['Relation Name']);
+      }
+    });
+    expect(ROUTE_POI_KINDS.length).toBeGreaterThan(0);
+    const unused = ROUTE_POI_KINDS.filter((kind) => {
+      const name = byKind.get(kind);
+      return name === undefined || !used.has(name);
+    });
+    expect(unused).toEqual([]);
+    expect(seqScans).toEqual([]);
+  });
+});
+
+interface PlanNode {
+  'Node Type': string;
+  'Relation Name'?: string;
+  'Index Name'?: string;
+  Plans?: PlanNode[];
+}
+
+function walkPlan(node: PlanNode, visit: (n: PlanNode) => void) {
+  visit(node);
+  for (const child of node.Plans ?? []) walkPlan(child, visit);
+}
+
+// ── ONE OSM OBJECT IS ONE ROW, IN ONE KIND ──────────────────────────────
+//
+// 🔴 CAMP-119 review, defect D3: nothing stops a fuel station and a service
+// area that are ONE OpenStreetMap object from being printed as two rows.
+// Checked rather than assumed, and the premise does not hold — twice over:
+//
+//   1. The schema. `osm_ref` is this table's PRIMARY KEY, so a stage cannot
+//      be handed the same object under two kinds. This is the direct
+//      assertion of that, on the table the page reads.
+//   2. The loader. An object tagged both `amenity=fuel` and
+//      `highway=services` is classified by the FIRST matching branch and
+//      stored once, as `fuel` — pinned against a real PostgreSQL by case
+//      `n11` in osm/route-poi-sql.db.spec.ts.
+//
+// Measured on the real region extract the CAMP-119 fixture was cut from
+// (18 189 OSM objects, 18 189 distinct ids): zero objects carry both tags.
+// What does occur is a service area and a fuel station that are DIFFERENT
+// objects a few metres apart — 55 of the 64 `highway=services` objects have
+// one within 150 m, and none of the 132 such pairs shares a name. That is
+// two true statements about one place, not one statement printed twice, and
+// it has a different osmRef each time, so no rule on `osmRef` could remove
+// it.
+describe('CAMP-119: one OSM object is one row', () => {
+  it('refuses a second row with the same osm_ref, whatever its kind', async () => {
+    const insert = (kind: string) =>
+      db.query(
+        `INSERT INTO osm_route_poi (osm_ref, kind, name, location, country)
+         VALUES ('n70', $1, 'Same object', ST_GeomFromText('POINT(22 45)', 4326), 'hr')`,
+        [kind],
+      );
+    await insert('fuel');
+    await expect(insert('service_area')).rejects.toMatchObject({
+      code: '23505', // unique_violation
+    });
+    const rows = (
+      await db.query(`SELECT kind FROM osm_route_poi WHERE osm_ref = 'n70'`)
+    ).rows;
+    expect(rows).toEqual([{ kind: 'fuel' }]);
+  });
+});

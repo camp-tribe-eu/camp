@@ -418,8 +418,16 @@ describe('the stopping places are on the route page', () => {
 
 // 🔴 A kind without its partial index is not an error, it is a
 // sequential scan over 2.26 million rows — the failure that does not
-// announce itself. The migrations declare one index per kind; this
-// asserts that, between them, they declare every kind the page asks about.
+// announce itself.
+//
+// 🔴 WHAT THIS BLOCK DOES AND DOES NOT SEE (CAMP-119 review, D1). It reads
+// the migrations' `KINDS` literals off disk and compares them with the
+// endpoint's list. That pins two LISTS. It does not see an index: deleting
+// the `CREATE INDEX` loop out of `up()` leaves every assertion here green,
+// and did — 68 suites, 1 889 tests. The indexes themselves are asserted in
+// `route-services.db.spec.ts`, which runs the real `up()`s against
+// PostgreSQL and reads `pg_indexes` and the plan of the endpoint's own
+// statement. Do not read this block as the guard for them.
 //
 // 🔴 TWO MIGRATIONS NOW, NOT ONE. The original seven are in
 // 1790572800000-RoutePoi.ts and CAMP-119's two are in
@@ -427,9 +435,9 @@ describe('the stopping places are on the route page', () => {
 // and compare it with the whole list, which is exactly the comparison
 // that goes red the day a kind is added by a later migration — and the
 // tempting fix is to loosen it. It is widened to read both instead, and
-// stays an EQUALITY: a kind with no index, or an index for a kind nobody
-// asks about, is still a failure.
-describe('every kind has the index its query needs', () => {
+// stays an EQUALITY: a kind missing from the two lists, or listed that
+// nobody asks about, is still a failure.
+describe('the migrations’ KINDS lists are the kinds the endpoint serves', () => {
   const declaredIn = (file: string): string[] => {
     const migration = readFileSync(
       join(__dirname, '../migrations', file),
@@ -447,7 +455,7 @@ describe('every kind has the index its query needs', () => {
     return [...(declared?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
   };
 
-  it('the migrations create one partial GiST index per kind', () => {
+  it('the two migrations between them list every kind the endpoint serves, once', () => {
     const first = declaredIn('1790572800000-RoutePoi.ts');
     const second = declaredIn('1791400000000-RoutePoiFacilities.ts');
     // Anchors: each file contributed, or the equality below is satisfied

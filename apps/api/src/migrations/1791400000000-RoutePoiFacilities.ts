@@ -79,7 +79,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * exists for is "the nearest X to this point", and a kind without its
  * own index is a walk over every other kind on the way to the answer.
  * The kinds are a closed list; a spec asserts this list and
- * REST_STOP_KINDS are the same.
+ * REST_STOP_KINDS are the same — and that is all that one asserts. That the
+ * INDEXES exist is asserted by route-services.db.spec.ts, which runs this
+ * up() against PostgreSQL and reads pg_indexes (CAMP-119 review: deleting
+ * the loop below left 1 889 tests green before it did).
  */
 export class RoutePoiFacilities1791400000000 implements MigrationInterface {
   name = 'RoutePoiFacilities1791400000000';
