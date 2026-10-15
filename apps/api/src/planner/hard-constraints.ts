@@ -209,19 +209,19 @@ const country: HardRule = {
  */
 const M_PER_DEG = 110_000;
 
-type Vec3 = readonly [number, number, number];
+export type Vec3 = readonly [number, number, number];
 
-const unitVector = ([lon, lat]: LonLat): Vec3 => {
+export const unitVector = ([lon, lat]: LonLat): Vec3 => {
   const φ = (lat * Math.PI) / 180;
   const λ = (lon * Math.PI) / 180;
   return [Math.cos(φ) * Math.cos(λ), Math.cos(φ) * Math.sin(λ), Math.sin(φ)];
 };
-const cross = (a: Vec3, b: Vec3): Vec3 => [
+export const cross = (a: Vec3, b: Vec3): Vec3 => [
   a[1] * b[2] - a[2] * b[1],
   a[2] * b[0] - a[0] * b[2],
   a[0] * b[1] - a[1] * b[0],
 ];
-const dot = (a: Vec3, b: Vec3): number =>
+export const dot = (a: Vec3, b: Vec3): number =>
   a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 /**

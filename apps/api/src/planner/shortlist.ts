@@ -13,9 +13,11 @@
 // and not from a constant in this file. Hand it other weights and the same
 // campsites come back in another order.
 //
-// This is the skeleton the planner grows on, not the planner: one target
-// stop, no day-splitting (the dynamic programme is a later step), and the
-// distance is a straight line in metres, not time on a road.
+// This is the single-stop reader: one target stop, the distance a straight
+// line in metres, not time on a road. Splitting a corridor into days is
+// itinerary.ts (CAMP-46); it reads the same stage 1 through `selectLocated`
+// below, so there is one list of columns and one rule for what a malformed
+// amenity set reads as.
 
 import { AmenityKey, AmenityValue } from '../osm/tag-mapping';
 import { mergedStarsSql } from '../spots/links';
@@ -46,7 +48,13 @@ export interface Selected extends Candidate {
   country: string;
   /** The amenities as the reader sees them (owner's corrections applied). */
   amenities: Partial<Record<AmenityKey, string>>;
+  /** WGS84 degrees, as stored: the corridor measures from these. */
+  lon: number;
+  lat: number;
 }
+
+/** Stage 1 without a target: a campsite and where it is, nothing measured from it. */
+export type Placed = Omit<Selected, 'distanceM'>;
 
 export interface Shortlisted extends Selected {
   score: number;
@@ -62,8 +70,29 @@ type Row = {
   country: string;
   amenities: unknown;
   stars: number | null;
-  metres: number | string | null;
+  lon: number | string;
+  lat: number | string;
+  metres?: number | string | null;
 };
+
+/** The columns both readers of stage 1 take, in one place. */
+const placedColumns = (alias: string): string =>
+  `${alias}.slug, ${alias}.country,
+            ${effectiveAmenitiesSql(alias)} AS amenities,
+            ${mergedStarsSql(alias)} AS stars,
+            ST_X(${alias}.location) AS lon, ST_Y(${alias}.location) AS lat`;
+
+const placedOf = (r: Row): Placed => ({
+  slug: r.slug,
+  country: r.country,
+  // A stored amenity set that is not an object reads as nothing known.
+  amenities: (typeof r.amenities === 'object' && r.amenities !== null
+    ? r.amenities
+    : {}) as Selected['amenities'],
+  stars: r.stars === null ? null : Number(r.stars),
+  lon: Number(r.lon),
+  lat: Number(r.lat),
+});
 
 /**
  * Stage 1. Every published campsite that passes the hard constraints, with
@@ -77,9 +106,7 @@ export async function selectCandidates(
   const hard = hardWhere(req, 's', 0);
   const t = hard.params.length;
   const res = await db.query(
-    `SELECT s.slug, s.country,
-            ${effectiveAmenitiesSql('s')} AS amenities,
-            ${mergedStarsSql('s')} AS stars,
+    `SELECT ${placedColumns('s')},
             ST_Distance(s.location::geography,
               ST_SetSRID(ST_MakePoint($${t + 1}::float8, $${t + 2}::float8), 4326)::geography
             ) AS metres
@@ -88,17 +115,32 @@ export async function selectCandidates(
     [...hard.params, req.target[0], req.target[1]],
   );
   return (res.rows as unknown as Row[]).map((r) => ({
-    slug: r.slug,
-    country: r.country,
-    // A stored amenity set that is not an object reads as nothing known.
-    amenities: (typeof r.amenities === 'object' && r.amenities !== null
-      ? r.amenities
-      : {}) as Selected['amenities'],
-    stars: r.stars === null ? null : Number(r.stars),
+    ...placedOf(r),
     // NaN, not 0, for a distance that is not there: `distanceFit` scores NaN
     // as nothing, whereas 0 metres would be a perfect fit.
     distanceM: r.metres === null ? NaN : Number(r.metres),
   }));
+}
+
+/**
+ * Stage 1 for a reader that has no single target (the itinerary, CAMP-46):
+ * every published campsite that passes the hard constraints, and where it is.
+ * The same rules, the same columns and the same reading of a malformed
+ * amenity set as `selectCandidates`, so a campsite is never in one and out of
+ * the other.
+ */
+export async function selectLocated(
+  db: Queryable,
+  req: HardRequest,
+): Promise<Placed[]> {
+  const hard = hardWhere(req, 's', 0);
+  const res = await db.query(
+    `SELECT ${placedColumns('s')}
+       FROM camping_spots s
+      WHERE ${hard.where}`,
+    hard.params,
+  );
+  return (res.rows as unknown as Row[]).map(placedOf);
 }
 
 /**
