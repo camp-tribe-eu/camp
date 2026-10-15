@@ -10,9 +10,10 @@
 //
 // 🔴 THE SEAM. `splitIntoDays` (split-days.ts) knows `along` — a number of
 // metres from the start — and nothing about how it was measured. When a
-// router exists (CAMP-42/99, not stood up: the merged EU-27 asks for about
-// 145 GB of disk and 63 GB of memory, so the tiles are built on a rented
-// machine), the change is one provider here, in corridor-source.ts:
+// router exists (CAMP-42/99, not stood up: building the merged EU-27 was
+// measured at about 145 GB of disk and 63 GB of memory — the correction of
+// 15.10.2026 in docs/trip-planner-design.md — so the tiles are built on a
+// rented machine), the change is one provider here, in corridor-source.ts:
 //
 //   · `line` becomes the road's geometry (hard-constraints.ts already takes a
 //     polyline, and `corridorBox` was written for tens of thousands of
@@ -30,10 +31,17 @@
 // a campsite the corridor kept is located on the line it was kept by.
 //
 // Sphere, not spheroid: PostGIS measures on the WGS84 spheroid, this on a
-// sphere of the mean radius. The two differ by up to about 0.5% on a leg —
-// a 100 km figure here can be 100.5 km to PostGIS — which is far below what a
-// day's run on a real road will differ from either, and is why none of this
-// may be shown to the metre.
+// sphere of the mean radius. MEASURED 15.10.2026, `ST_Distance` on a
+// geography against this sphere, on the only three lines tried:
+//
+//   6° of meridian at 10°E        666 556.9 m  against 667 170.5   -0.09%
+//   6° of parallel at 45°N        472 972.9 m  against 471 652.9   +0.28%
+//   Lyon to Barcelona             530 861.4 m  against 530 991.1   -0.02%
+//
+// Three lines are not a bound; they say the order of magnitude is a few
+// tenths of a per cent, well below what a day's run on a real road will differ
+// from either, and why none of this may be shown to the metre. Nothing re-runs
+// these numbers: if the choice of sphere ever matters, measure again.
 
 import { cross, dot, LonLat, unitVector, Vec3 } from './hard-constraints';
 

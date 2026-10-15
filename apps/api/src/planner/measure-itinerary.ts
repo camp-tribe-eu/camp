@@ -18,8 +18,9 @@
 // from PostGIS — `ST_Distance` on a geography, the spheroid — for every pair
 // of nights of every itinerary, and compared with the lower bound of the band
 // the request asked for. The planner works on a sphere and PostGIS on the
-// spheroid, which differ by up to about 0.5% on a leg, so the check allows 1%
-// (`SPHEROID_SLACK`); a gap below that is a bug, not rounding.
+// spheroid, which differ by -0.09% to +0.28% on the three lines measured
+// (corridor.ts), so the check allows 1% (`SPHEROID_SLACK`); a gap below that
+// is a bug, not rounding.
 //
 // 🔴 THE TIME IS THE FUNCTION'S, END TO END: `planItinerary` — the corridor
 // rule in SQL, the position of each campsite, the programme — on a database
@@ -39,7 +40,7 @@ import { JOURNEYS } from './measure-constraints';
 import { inReadOnlyTransaction, Queryable } from './read-only';
 import { splitIntoDays } from './split-days';
 
-/** PostGIS measures on the spheroid, the planner on a sphere: up to ~0.5%. */
+/** PostGIS measures on the spheroid, the planner on a sphere: tenths of a per cent. */
 export const SPHEROID_SLACK = 0.99;
 
 export const DAYS = 7;

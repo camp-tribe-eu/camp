@@ -211,10 +211,16 @@ async function putAt(
 //   lon 70  WEIGHTS. One night. w-near on the cut, no tags; w-power 30 km
 //           past it, power_supply=yes.
 //
-//   lon 90  BESIDE THE LINE. One night. b-on is on the cut and on the line;
-//           a-beside is on the cut, 20 km to the side. Same tags (none). The
-//           name of the one beside sorts FIRST, so a planner that ignored
-//           the side would choose it.
+//   lon 90  BESIDE THE LINE. One night. b-on is on the line, 1 km past the
+//           cut; a-beside is ON the cut, 20 km to the side. No tags. By
+//           distance along the line alone a-beside is the nearer; by
+//           distance from the cut b-on is (1 km against 20).
+//
+//   lon 100 THE EVEN SPLIT. No tags anywhere, so only position counts.
+//           cut-1..6 on the even cuts; off-k-minus and off-k-plus 25 km
+//           either side of each cut. The answer is cut-1..6 by
+//           construction: distance 0 from its cut is the most any night can
+//           be worth, and nothing here has an amenity to offset it.
 // ---------------------------------------------------------------------------
 
 async function buildFixture(): Promise<void> {
@@ -259,8 +265,14 @@ async function buildFixture(): Promise<void> {
 
   for (let km = 20; km <= 200; km += 20) await putAt(60, `d-${km}`, km);
 
-  await putAt(90, 'b-on', LENGTH_M / 2000);
+  await putAt(90, 'b-on', LENGTH_M / 2000 + 1);
   await putAt(90, 'a-beside', LENGTH_M / 2000, { eastKm: 20 });
+
+  for (let k = 1; k <= 6; k++) {
+    await putAt(100, `cut-${k}`, k * evenKm);
+    await putAt(100, `off-${k}-minus`, k * evenKm - 25);
+    await putAt(100, `off-${k}-plus`, k * evenKm + 25);
+  }
 
   await putAt(70, 'w-near', LENGTH_M / 2000);
   await putAt(70, 'w-power', LENGTH_M / 2000 + 30, {
@@ -540,13 +552,48 @@ describe('only what is recorded as `no` is turned away', () => {
 });
 
 describe('the side of the line counts, not only the distance along it', () => {
-  it('on the line beats 20 km beside it, though the one beside sorts first by name', async () => {
+  it('1 km past the cut on the line beats ON the cut 20 km beside it', async () => {
     const r = await plan(
       week(90, { days: 2, band: { minM: 300_000, maxM: 400_000 } }),
     );
     if (r.status !== 'ok') throw new Error(`not ok: ${JSON.stringify(r)}`);
     expect(r.candidates).toBe(2);
     expect(r.days[0].night?.slug).toBe('b-on');
+  });
+});
+
+describe('the even split: with nothing to choose on but place, the nights are on the cuts', () => {
+  it('anchors: 18 campsites in the corridor, none with an amenity or a rating', async () => {
+    const r = await plan(week(100));
+    if (r.status !== 'ok') throw new Error(`not ok: ${JSON.stringify(r)}`);
+    expect(r.candidates).toBe(18);
+    expect(r.days.flatMap((d) => (d.night ? [d.night.stars] : []))).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it('cut-1 .. cut-6: night k is on the k-th cut, not the first one', async () => {
+    expect(await nightsOf(week(100))).toEqual([
+      'cut-1',
+      'cut-2',
+      'cut-3',
+      'cut-4',
+      'cut-5',
+      'cut-6',
+    ]);
+  });
+
+  it('and each is worth 0.775: 0.75 for the cut, 0.025 for an unrated one at the middle of the scale', async () => {
+    const r = await plan(week(100));
+    if (r.status !== 'ok') throw new Error('not ok');
+    for (const d of r.days.slice(0, 6)) {
+      expect(d.night?.score).toBeCloseTo(0.775, 6);
+    }
   });
 });
 

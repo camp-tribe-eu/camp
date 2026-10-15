@@ -131,6 +131,45 @@ describe('the edges of the band are inside it', () => {
   });
 });
 
+describe('the first and the last run keep to the band as well', () => {
+  // Two days over 600 km, runs of 60 to 600 km: one night. A campsite worth
+  // 100 stands 20 km from one end; the one worth 1 is in the middle.
+  const wide = { minM: km(60), maxM: km(600) };
+  const day2 = (value: SplitRequest<Cand>['value']) => ask(2, value, wide);
+  const worth = (best: string) => (c: Cand) => (c.slug === best ? 100 : 1);
+
+  it('20 km from A is closer than a 60 km run allows: not the night, however good', () => {
+    const r = splitIntoDays(
+      [at(20, 'by-A'), at(300, 'middle')],
+      day2(worth('by-A')),
+    );
+    expect(nightsKm(r)).toEqual([300]);
+  });
+
+  it('20 km from B is closer than a 60 km run allows: not the night, however good', () => {
+    const r = splitIntoDays(
+      [at(580, 'by-B'), at(300, 'middle')],
+      day2(worth('by-B')),
+    );
+    expect(nightsKm(r)).toEqual([300]);
+  });
+
+  it('anchors: each of the two is a night when the band lets it be', () => {
+    const open = { minM: km(10), maxM: km(600) };
+    const wideOpen = (best: string) => ask(2, worth(best), open);
+    expect(
+      nightsKm(
+        splitIntoDays([at(20, 'by-A'), at(300, 'middle')], wideOpen('by-A')),
+      ),
+    ).toEqual([20]);
+    expect(
+      nightsKm(
+        splitIntoDays([at(580, 'by-B'), at(300, 'middle')], wideOpen('by-B')),
+      ),
+    ).toEqual([580]);
+  });
+});
+
 describe('seven days, six stops in one place', () => {
   // Eight campsites within 7 km of each other, 85..92 km out — exactly where
   // night 1 falls — each worth about 100 more than any grid campsite. They are
@@ -304,6 +343,23 @@ describe('one bad record costs one record', () => {
       c.km === 90 && k === 1 ? NaN : nearEven(7)(c, k);
     expect(nightsKm(splitIntoDays(GRID, ask(7, nan)))).toEqual([
       75, 165, 255, 345, 435, 510,
+    ]);
+  });
+
+  it('nor can one whose value is infinite, at night 1', () => {
+    // Infinity would be the best night there is, and is not a worth.
+    const inf = (c: Cand, k: number) =>
+      c.km === 90 && k === 1 ? Infinity : nearEven(7)(c, k);
+    expect(nightsKm(splitIntoDays(GRID, ask(7, inf)))).toEqual([
+      75, 165, 255, 345, 435, 510,
+    ]);
+  });
+
+  it('nor at night 3: 255 km is the best night 3, without it 270 is', () => {
+    const inf = (c: Cand, k: number) =>
+      c.km === 255 && k === 3 ? Infinity : nearEven(7)(c, k);
+    expect(nightsKm(splitIntoDays(GRID, ask(7, inf)))).toEqual([
+      90, 165, 270, 345, 435, 510,
     ]);
   });
 
