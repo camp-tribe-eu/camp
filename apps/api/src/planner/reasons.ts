@@ -149,7 +149,7 @@ export const NEAR_M = {
 export type ContextKey = keyof typeof NEAR_M;
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
+  typeof v === 'object' && v !== null;
 
 /**
  * A distance we can say: a number of metres, not negative. NaN fails `>= 0`;

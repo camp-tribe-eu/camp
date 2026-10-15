@@ -658,9 +658,20 @@ describe('🔴 the sources: exactly what scoring.ts reads, plus the surroundings
     expect(() => textOf({ field: 'wifi', value: 'yes', unit: null })).toThrow(
       /no wording for reason field "wifi"/,
     );
-    expect(() =>
-      textOf({ field: 'constructor', value: 'yes', unit: null }),
-    ).toThrow(/no wording/);
+    // A field name is a string, and the words an object happens to inherit
+    // are not wording for it.
+    for (const field of [
+      'constructor',
+      'toString',
+      'context.constructor',
+      'context.toString',
+      'context.',
+      '',
+    ]) {
+      expect(() => textOf({ field, value: 5, unit: 'm' })).toThrow(
+        /no wording/,
+      );
+    }
   });
 });
 
