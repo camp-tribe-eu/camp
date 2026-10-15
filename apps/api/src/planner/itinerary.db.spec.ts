@@ -79,6 +79,7 @@ beforeAll(async () => {
       location geometry(Point, 4326) NOT NULL,
       owner_overrides jsonb NOT NULL DEFAULT '{}',
       stars smallint,
+      context jsonb NOT NULL DEFAULT '{}',
       missing_since timestamptz);
     CREATE TABLE spot_links (
       primary_id uuid NOT NULL, secondary_id uuid NOT NULL,
@@ -652,6 +653,7 @@ describe('🔴 distances are straight lines, and say so', () => {
       'lon',
       'needs',
       'offsetM',
+      'reasons',
       'score',
       'slug',
       'stars',
