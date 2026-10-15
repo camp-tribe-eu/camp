@@ -26,6 +26,7 @@ import {
   SERVICE_UNNAMED,
   serviceOf,
   SERVICES_PER_KIND,
+  WATER_NEAR_KINDS,
 } from '../../src/lib/route-services';
 
 // CAMP-3 / CAMP-45 — the rules the route library must satisfy.
@@ -129,15 +130,22 @@ test('every route says where its campsite data comes from', () => {
 // at two each it would be 126, over our own floor, on the page that
 // prints the claim in its own footer. This is the test that fails the
 // day somebody adds an eighth kind or decides one of each looks thin.
+//
+// 🔴 CAMP-254 put a THIRD in it: beside a disposal point the page names the
+// distance to the nearest drinking water, which is one more OSM object per
+// stage (one per kind in `WATER_NEAR_KINDS`). Only the distance is printed,
+// not the object — but this line is drawn over objects USED, so it is
+// counted. The longest route, seven stages, is now 7 x (4 + 9 + 1) = 98.
 test('🔴 no route page can show a Substantial number of OSM objects at all', () => {
   for (const r of CURATED_ROUTES) {
     const campsites = r.stages.length * CAMPSITES_PER_STAGE;
     const services = r.stages.length * SERVICE_KINDS.length * SERVICES_PER_KIND;
+    const water = r.stages.length * WATER_NEAR_KINDS.length;
     expect(
-      campsites + services,
-      `${r.slug} could show ${campsites} campsites and ${services} services, ` +
-        `${campsites + services} objects, against a Substantial line of ` +
-        `${ODBL_SUBSTANTIAL_FLOOR}`,
+      campsites + services + water,
+      `${r.slug} could show ${campsites} campsites, ${services} services and ` +
+        `${water} drinking-water distances, ${campsites + services + water} ` +
+        `objects, against a Substantial line of ${ODBL_SUBSTANTIAL_FLOOR}`,
     ).toBeLessThan(ODBL_SUBSTANTIAL_FLOOR);
   }
 });

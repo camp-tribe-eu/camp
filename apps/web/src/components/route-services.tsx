@@ -10,8 +10,10 @@ import {
   FUEL_BULLETIN_DATE,
   FUEL_SOURCE,
   hasFacilities,
+  hasWaterNear,
   NO_STATION_PRICE,
   PRICE_STALE_AFTER_DAYS,
+  readDumpWater,
   readFacilities,
   SERVICE_ABSENT,
   SERVICE_KINDS,
@@ -143,6 +145,65 @@ function Facilities({ raw }: { raw: unknown }) {
         );
       })}
     </ul>
+  );
+}
+
+/**
+ * CAMP-254 — is there drinking water at the disposal point we found?
+ *
+ * 🔴 EVERY DISPOSAL POINT GETS ONE OF THREE SENTENCES, AND NONE OF THEM IS
+ * BLANK. A driver emptying a tank wants to fill one too, so the question
+ * the card asks is "water beside the dump?", and the commonest answers are
+ * the two that look like nothing to print: 43.6% of disposal points have
+ * no drinking-water point within 500 m (3 145 of 7 214, measured
+ * 15.10.2026), and an empty space there would read as the page having
+ * forgotten.
+ *
+ *   found      "Drinking water 180 m away in a straight line from this
+ *              disposal point"
+ *   none       "Our database holds no drinking water within 500 m of this
+ *              disposal point" — "our database holds", never "there is".
+ *              The same words for 510 m and for nothing in sight: only the
+ *              500 m was searched, and the page does not hint at more.
+ *   unchecked  "We did not check for drinking water near this disposal
+ *              point" — the API did not say, which is a fact about US, and
+ *              the one that must never print as the second.
+ *
+ * 🔴 "FROM THIS DISPOSAL POINT" IS IN EVERY SENTENCE ON PURPOSE. The line
+ * sits under "Unnamed disposal point · 7.4 km away in a straight line",
+ * and a bare "Drinking water 180 m away" would be read as 180 m from the
+ * STOP — a tap that is 7.4 km from where the driver is, announced as
+ * beside them.
+ *
+ * 🔴 WORDS, NOT COLOUR, AND NO TICK. The grey is emphasis for someone who
+ * can see it; the sentence reads the same without it (WCAG 1.4.1).
+ */
+function DumpWater({ raw }: { raw: unknown }) {
+  const water = readDumpWater(raw);
+  const grey = water.state === 'found' ? 'text-ink-2' : 'text-ink-3';
+  return (
+    <div
+      className={`mt-0.5 text-xs ${grey}`}
+      data-testid="service-dump-water"
+      data-water-state={water.state}
+    >
+      {water.state === 'found' ? (
+        // 🔴 STRAIGHT_LINE_LABEL, as on the line above it. The distance is
+        // straight too, and there is a test asserting the page says so
+        // wherever it prints one.
+        <>
+          Drinking water {formatDistance(water.metres)} away{' '}
+          {STRAIGHT_LINE_LABEL} from this disposal point
+        </>
+      ) : water.state === 'none' ? (
+        <>
+          Our database holds no drinking water within{' '}
+          {formatDistance(water.radiusMetres)} of this disposal point
+        </>
+      ) : (
+        <>We did not check for drinking water near this disposal point</>
+      )}
+    </div>
   );
 }
 
@@ -375,6 +436,13 @@ function ServiceRow({
             area OSM does not describe — look like a row that forgot
             something. */}
         {hasFacilities(kind) ? <Facilities raw={point.facilities} /> : null}
+        {/* 🔴 CAMP-254: on the disposal point and on EVERY one of them,
+            gated on the kind and not on `point.drinkingWaterNear` being
+            present — the same reasoning as the two blocks above. A gate
+            on the data would make a payload without the field print
+            nothing, and "nothing" is the one answer this line is not
+            allowed to give. */}
+        {hasWaterNear(kind) ? <DumpWater raw={point.drinkingWaterNear} /> : null}
         <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs">
           <Hours value={point.openingHours} />
           <Phone value={point.phone} />

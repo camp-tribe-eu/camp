@@ -12,6 +12,10 @@ import {
   readFacilityState,
   rowToRouteService,
   servicesOverfetch,
+  WATER_CHECKED_KIND,
+  WATER_NEAR_DUMP_RADIUS_M,
+  WATER_NEAR_SUBQUERY,
+  waterNearField,
 } from './route-services';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
 import { TRISTATE_COLUMNS } from '../osm/route-poi-facilities';
@@ -123,7 +127,14 @@ describe('the SQL a stage runs', () => {
     // over a geography cast cannot use the index and took over two
     // minutes for the same points when routes.near() was written.
     expect(sql).toContain('<->');
-    expect(sql).not.toMatch(/ST_DWithin/i);
+    // 🔴 The ban is on the CANDIDATE WALK — the `cand` blocks the sentence
+    // above is about — and no longer on the whole statement. CAMP-254's
+    // `water_near_m` is the one place ST_DWithin is allowed, because it
+    // runs once per stage on the single picked row and carries its own
+    // `&&` prefilter on the partial index; its guards are the CAMP-254
+    // block below and the plan check in route-services.db.spec.ts. Were it
+    // to appear inside a block, every stage would be a 230 431-row cast.
+    for (const block of blocks) expect(block).not.toMatch(/ST_DWithin/i);
   });
 
   // 🔴 MUTATION: `LIMIT $3` → `LIMIT 1`. That deletes the overfetch this
@@ -791,5 +802,214 @@ describe('CAMP-119: which rows carry the facilities', () => {
     });
     // a fuel row's price is still only ever on a fuel row
     expect(rowToRouteService(row('rest_area'))).not.toHaveProperty('prices');
+  });
+});
+
+// ── CAMP-254: DRINKING WATER NEAR THE DISPOSAL POINT ─────────────────────
+//
+// 🔴 What is defended here is the SHAPE of the statement and of the field.
+// What PostgreSQL answers for it — 180 m is 180 m, 800 m is "none", a tap
+// that is not a tap does not count — is route-services.db.spec.ts's, and
+// that one runs a real PostGIS. Each test below names the mutation it
+// answers, because a string test that no edit makes red is decoration.
+describe('CAMP-254: the drinking-water subquery', () => {
+  const sub = WATER_NEAR_SUBQUERY;
+  const sql = buildServicesSql([...ROUTE_POI_KINDS]);
+
+  // 🔴 MUTATION: `geography` → `geometry` on either call. `ST_DWithin(a, b,
+  // 500)` on geometry is 500 DEGREES — every point on Earth — and
+  // `ST_Distance` on geometry is degrees too. The statement must put the
+  // cast on BOTH arguments of BOTH, and it is read argument by argument,
+  // not as "the word geography appears somewhere".
+  it('measures with geography at both ends, in both calls', () => {
+    const calls = [
+      ...sub.matchAll(
+        /ST_(DWithin|Distance)\(([^;]*?)\)(?=\s*(?:\)|AND|,|$))/g,
+      ),
+    ];
+    // Anchor: both calls were found. A regex that finds nothing must not
+    // read as "no call is wrong".
+    expect(calls.map((c) => c[1]).sort()).toEqual(['DWithin', 'Distance']);
+    // The names go in the value: Jest's `expect` takes ONE argument.
+    const notGeography = calls
+      .filter(([, , args]) =>
+        args
+          .split(',')
+          .slice(0, 2)
+          .some((a) => !a.trim().endsWith('::geography')),
+      )
+      .map(([call]) => call);
+    expect(notGeography).toEqual([]);
+  });
+
+  // 🔴 MUTATION: delete the `&&` line. The statement still answers
+  // correctly and is a sequential scan of 230 431 casts per stage; only
+  // the plan check in the database spec sees it, and this is the cheap
+  // second place.
+  it('carries the && prefilter on the water rows’ own geometry', () => {
+    expect(sub).toMatch(/w\.location && ST_Buffer\(/);
+  });
+
+  // 🔴 MUTATION: 500 → 5000 in ONE of the two places. The box and the
+  // verdict must be bounded by the same number, or raising the radius
+  // leaves a box narrower than it.
+  it('takes the box and the verdict from the one radius constant', () => {
+    expect(WATER_NEAR_DUMP_RADIUS_M).toBe(500);
+    const numbers = [
+      ...sub.matchAll(
+        /(?:ST_Buffer\(here\.g::geography,|here\.g::geography,)\s*(\d+)\)/g,
+      ),
+    ].map((m) => Number(m[1]));
+    expect(numbers).toEqual([
+      WATER_NEAR_DUMP_RADIUS_M,
+      WATER_NEAR_DUMP_RADIUS_M,
+    ]);
+  });
+
+  // 🔴 MUTATION: `w.kind = 'water'` → anything else, or deleted. A bench
+  // or a fuel station would be "drinking water".
+  it('looks only at drinking water', () => {
+    expect(sub).toContain("w.kind = 'water'");
+  });
+
+  // 🔴 MUTATION: delete `p.kind = 'dump'`. Every kind would be probed for
+  // water that the mapper then throws away.
+  it('runs for the disposal point and for no other kind', () => {
+    expect(WATER_CHECKED_KIND).toBe('dump');
+    expect(
+      (ROUTE_POI_KINDS as readonly string[]).includes(WATER_CHECKED_KIND),
+    ).toBe(true);
+    expect(sub).toContain(`p.kind = '${WATER_CHECKED_KIND}'`);
+  });
+
+  // 🔴 MUTATION: `min(` → `max(`. Still a number, no longer the nearest.
+  it('answers with the NEAREST water, not an arbitrary one', () => {
+    expect(sub).toMatch(/SELECT min\(ST_Distance\(/);
+  });
+
+  // 🔴 MUTATION: drop `AS water_near_m` from the final select. The mapper
+  // then sees no column and — by design — sends no field, which the page
+  // prints as "we did not check". The disposal point silently stops
+  // answering and nothing else in this file notices.
+  it('is selected into the statement the endpoint runs, as water_near_m', () => {
+    expect(sql).toContain(`${WATER_NEAR_SUBQUERY} AS water_near_m`);
+    // …on the FINAL row, after the nearest of each kind has been picked.
+    expect(sql.indexOf('AS water_near_m')).toBeGreaterThan(
+      sql.indexOf('picked AS ('),
+    );
+  });
+});
+
+describe('CAMP-254: the field a disposal point carries', () => {
+  const row = (kind: string, extra: Record<string, unknown> = {}) => ({
+    kind,
+    osm_ref: 'n1',
+    name: null,
+    lat: 45,
+    lon: 14,
+    metres: 1234.4,
+    phone: null,
+    website: null,
+    opening_hours: null,
+    ...extra,
+  });
+
+  // 🔴 MUTATION: `Math.round(m)` → `m`. The page would print 179.62 m.
+  // 🔴 MUTATION: delete `radiusMetres`. The page would not know which
+  // radius the "none" sentence is about.
+  // The wire keys are written out by hand, not read from the interface.
+  it('sends the distance, rounded, with the radius it was searched in', () => {
+    expect(
+      rowToRouteService(row('dump', { water_near_m: 179.62 }))
+        .drinkingWaterNear,
+    ).toEqual({ radiusMetres: 500, metres: 180 });
+  });
+
+  // 🔴 MUTATION: the `raw === null` branch returns `{}`. "Searched, found
+  // none" would become "did not ask", and the page would stop saying the
+  // one thing this card is for.
+  it('says "searched, none within the radius" when the query came back NULL', () => {
+    expect(
+      rowToRouteService(row('dump', { water_near_m: null })).drinkingWaterNear,
+    ).toEqual({ radiusMetres: 500, metres: null });
+  });
+
+  it('keeps zero metres as zero: a tap on the very point is an answer', () => {
+    expect(
+      rowToRouteService(row('dump', { water_near_m: 0.2 })).drinkingWaterNear,
+    ).toEqual({ radiusMetres: 500, metres: 0 });
+  });
+
+  it('keeps a distance given as text, as a numeric column would be', () => {
+    expect(
+      rowToRouteService(row('dump', { water_near_m: '311.4' }))
+        .drinkingWaterNear,
+    ).toEqual({ radiusMetres: 500, metres: 311 });
+  });
+
+  // 🔴 MUTATION: `raw === null` → `raw == null`, so a column the query
+  // never selected (`undefined`) reads as "searched, found none". A
+  // MISSING COLUMN IS NOT "NONE": it would put "our database holds no
+  // drinking water within 500 m" on every disposal point of every route
+  // page whenever the SQL and the mapper drift apart.
+  it('sends NO field for a row from a query that never asked', () => {
+    expect(rowToRouteService(row('dump'))).not.toHaveProperty(
+      'drinkingWaterNear',
+    );
+    expect(waterNearField({})).toEqual({});
+  });
+
+  // 🔴 …and the same for a value that is not a distance inside the
+  // radius. Each of these is something a different driver, column type or
+  // bug could hand over; none may print a distance or a "none".
+  it.each([
+    ['undefined', undefined],
+    ['an empty string', ''],
+    ['blanks', '   '],
+    ['text that is not a number', 'near'],
+    ['a boolean', true],
+    ['an object', {}],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['a negative distance', -3],
+    ['a distance beyond the radius', 500.5],
+    ['a far distance', 800],
+  ])('sends NO field when the value is %s', (_why, value) => {
+    expect(
+      rowToRouteService(row('dump', { water_near_m: value })),
+    ).not.toHaveProperty('drinkingWaterNear');
+  });
+
+  it('keeps a distance of exactly the radius', () => {
+    expect(
+      rowToRouteService(row('dump', { water_near_m: 500 })).drinkingWaterNear,
+    ).toEqual({ radiusMetres: 500, metres: 500 });
+  });
+
+  // 🔴 MUTATION: `kind === WATER_CHECKED_KIND` → `true`. A fuel station
+  // would carry "no drinking water within 500 m" about itself — on a
+  // forecourt row, where the page has no sentence for it and the API
+  // would have published a claim nobody asked for.
+  it.each(ROUTE_POI_KINDS.filter((k) => k !== 'dump'))(
+    'puts none on a %s, whatever its columns say',
+    (kind) => {
+      expect(
+        rowToRouteService(row(kind, { water_near_m: 120 })),
+      ).not.toHaveProperty('drinkingWaterNear');
+      expect(
+        rowToRouteService(row(kind, { water_near_m: null })),
+      ).not.toHaveProperty('drinkingWaterNear');
+    },
+  );
+
+  // The ODbL arithmetic, with the water counted. The page names a distance
+  // to one more OSM object per stage that has a disposal point; the
+  // distance is all that is printed, but this repository's line is "objects
+  // used", not "objects shown", so the worst page is counted WITH it.
+  // Today: 7 stages x (4 + 9 + 1) = 98, under 100. A tenth kind makes it
+  // 105 and this says so, the way the derived cap does for the first nine.
+  it('keeps the worst page under the Substantial floor with the water counted', () => {
+    const perStage = DEFAULT_PER_POINT + ROUTE_POI_KINDS.length + 1;
+    expect(MAX_SERVICE_POINTS * perStage).toBeLessThan(ODBL_SUBSTANTIAL_FLOOR);
   });
 });

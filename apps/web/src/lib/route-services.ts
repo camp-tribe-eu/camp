@@ -251,6 +251,88 @@ export function readFacilities(raw: unknown): ServiceFacilities {
   return out;
 }
 
+/**
+ * CAMP-254 — THE KIND WHOSE ROW SAYS HOW FAR ITS DRINKING WATER IS.
+ *
+ * The API's `WATER_CHECKED_KIND` (apps/api/src/routes/route-services.ts),
+ * and `route-dump-water.spec.tsx` reads that file off disk to say so. Same
+ * arrangement as `FACILITY_KINDS` above: the API decides which rows carry
+ * the answer, this decides which rows PRINT one, and a kind in the first
+ * and not the second is data that reaches the browser and stops.
+ */
+export const WATER_NEAR_KINDS = ['dump'] as const satisfies readonly ServiceKind[];
+
+export function hasWaterNear(kind: ServiceKind): boolean {
+  return (WATER_NEAR_KINDS as readonly string[]).includes(kind);
+}
+
+/**
+ * CAMP-254 — what the page may say about drinking water near a disposal
+ * point. THREE states, and the third is not the second.
+ *
+ *   found      the API searched `radiusMetres` and the nearest is `metres`
+ *              away.
+ *   none       the API searched `radiusMetres` and found nothing. This is
+ *              an ANSWER, printed as one — "our database holds no
+ *              drinking water within 500 m of it" — and it is the same
+ *              sentence whether the nearest tap is 510 m away or there is
+ *              none for kilometres, because nothing beyond the radius was
+ *              looked for and the page must not hint that it was.
+ *   unchecked  the payload carries no usable answer. The page says it did
+ *              not check, and never says "none".
+ */
+export type DumpWater =
+  | { state: 'found'; metres: number }
+  | { state: 'none'; radiusMetres: number }
+  | { state: 'unchecked' };
+
+/**
+ * An API payload → what the page may print about the water near a
+ * disposal point.
+ *
+ * 🔴 TOTAL, AND FAIL-SAFE IN ONE DIRECTION, as `readFacilities` is. Only a
+ * well-formed `{ radiusMetres, metres }` is an answer; a missing object,
+ * a missing key, `null`, a string where a number was, a negative, a
+ * distance beyond its own radius, a payload from an API that predates the
+ * field — all `unchecked`. There is no input that makes this return
+ * `none` for a gap. That is the whole of the risk: `getRouteServices` is
+ * a cached `res.json()` and the API deploys on its own clock, so on the
+ * day this page ships before the API does, EVERY disposal point arrives
+ * without the field, and reading that as "none" would print "our database
+ * holds no drinking water within 500 m" at all of them — at 4 069 of
+ * 7 214 untruthfully (measured 15.10.2026).
+ *
+ * 🔴 `metres: null` and `metres` MISSING are different inputs with
+ * different answers: the first is the API saying it searched and found
+ * nothing, the second is the API not saying anything.
+ */
+export function readDumpWater(raw: unknown): DumpWater {
+  const unchecked: DumpWater = { state: 'unchecked' };
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return unchecked;
+  }
+  const o = raw as Record<string, unknown>;
+  const radius = o.radiusMetres;
+  if (typeof radius !== 'number' || !Number.isFinite(radius) || radius <= 0) {
+    return unchecked;
+  }
+  const metres = o.metres;
+  // 🔴 STRICTLY `null`, never `== null`: a `metres` key the API never wrote
+  // is `undefined` and must stay `unchecked`; only a written `null` is
+  // "searched, found none".
+  if (metres === null) return { state: 'none', radiusMetres: radius };
+  if (
+    typeof metres !== 'number' ||
+    !Number.isFinite(metres) ||
+    metres < 0 ||
+    // A distance beyond the radius it was searched in contradicts itself.
+    metres > radius
+  ) {
+    return unchecked;
+  }
+  return { state: 'found', metres };
+}
+
 export interface RouteServicePoint {
   kind: ServiceKind;
   /** The OpenStreetMap object, so a reader can check or fix it. */
@@ -285,6 +367,13 @@ export interface RouteServicePoint {
    * arrived.
    */
   facilities?: Partial<Record<FacilityKey, string>>;
+  /**
+   * CAMP-254 — how far the nearest drinking water is from THIS point,
+   * sent on `dump` only. 🔴 Read through `readDumpWater`, never directly:
+   * `metres: null` is "searched, found none" and a missing field is
+   * "nobody asked", and only the reader keeps them apart.
+   */
+  drinkingWaterNear?: { radiusMetres?: unknown; metres?: unknown };
 }
 
 export interface StageServices {
