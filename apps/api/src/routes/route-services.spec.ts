@@ -25,11 +25,14 @@ import { DEFAULT_PER_POINT, MAX_POINTS } from './route-points';
 import { SOURCES } from '../fuel/stations';
 import {
   ACCESS_EXCLUDED,
+  CANONICAL_REF_KINDS,
   classifyCaseSql,
+  isRoutePoiKind,
   REST_STOP_KINDS,
   ROUTE_POI_KINDS,
   ROUTE_POI_RULES,
   SERVICES_PER_KIND,
+  STORED_ONLY_KINDS,
   STORED_POI_KINDS,
   STORED_POI_RULES,
 } from '../osm/route-poi';
@@ -429,6 +432,83 @@ describe('the stopping places are on the route page', () => {
   });
 });
 
+// ── CAMP-258: A KIND THE TABLE HOLDS AND NO PAGE ASKS FOR ────────────────
+//
+// `gas_exchange` (`shop=gas`) is stored for a later card to draw. Everything
+// below says what "stored and not served" means in code, each against the
+// line that carries it — the way the stopping places were pinned by the
+// first half of CAMP-119 before the page learned them.
+describe('CAMP-258: gas_exchange is stored and not served', () => {
+  // 🔴 MUTATION: add 'gas_exchange' to ROUTE_POI_KINDS. The page would grow
+  // a tenth kind, `parseKinds` would default to it, MAX_SERVICE_POINTS would
+  // fall from 7 to 6 and the ODbL arithmetic would move.
+  it('is in the stored list, after everything, and not in the served one', () => {
+    expect([...STORED_POI_KINDS]).toEqual([
+      'fuel',
+      'charging',
+      'water',
+      'dump',
+      'groceries',
+      'food',
+      'shelter',
+      'rest_area',
+      'service_area',
+      'gas_exchange',
+    ]);
+    expect([...STORED_ONLY_KINDS]).toEqual(['gas_exchange']);
+    expect([...ROUTE_POI_KINDS]).not.toContain('gas_exchange');
+    expect(isRoutePoiKind('gas_exchange')).toBe(false);
+  });
+
+  it('is not what a caller gets by default, nor by asking for it', () => {
+    expect(parseKinds(undefined)).not.toContain('gas_exchange');
+    // asking for a stored-only kind is asking for nothing the page knows:
+    // the answer is the default, which does not contain it
+    expect(parseKinds('gas_exchange')).toEqual([...ROUTE_POI_KINDS]);
+    expect(parseKinds('fuel,gas_exchange')).toEqual(['fuel']);
+  });
+
+  // 🔴 MUTATION: loosen the whitelist in buildServicesSql to STORED_POI_KINDS.
+  it('is refused by the stage query, which writes kinds into SQL', () => {
+    expect(() => buildServicesSql(['gas_exchange' as never])).toThrow(
+      /unknown kind/,
+    );
+    expect(buildServicesSql([...ROUTE_POI_KINDS])).not.toContain(
+      'gas_exchange',
+    );
+  });
+
+  // 🔴 MUTATION: put 'gas_exchange' FIRST in STORED_POI_KINDS. A CASE
+  // returns its first match, so a fuel station that also says `shop=gas`
+  // (4 014 of them, 3 800 in France) would become a gas shop and leave the
+  // `fuel` kind its price rows are keyed on.
+  it('is the last branch of the CASE, so a fuel station stays a fuel station', () => {
+    const sql = classifyCaseSql('s');
+    const at = sql.indexOf("THEN 'gas_exchange'");
+    expect(at).toBeGreaterThan(0);
+    for (const kind of ROUTE_POI_KINDS) {
+      expect(sql.indexOf(`THEN '${kind}'`)).toBeLessThan(at);
+    }
+    // …and the branch is `shop=gas`, as a real predicate on a real column
+    expect(sql).toContain("s.shop IN ('gas')");
+  });
+
+  // 🔴 MUTATION: take it out of CANONICAL_REF_KINDS. A gas shop mapped as a
+  // closed way would be two rows, and its count would no longer be a count
+  // of objects.
+  it('is folded to one row per OSM object, like the other new kinds', () => {
+    // read as strings: the list's own type is what the mutation edits, and a
+    // test that stops COMPILING when it does is a red that proves nothing
+    const folded = CANONICAL_REF_KINDS as readonly string[];
+    expect(folded).toContain('gas_exchange');
+    expect(folded.filter((k) => k === 'gas_exchange')).toHaveLength(1);
+  });
+
+  it('does not move the licence arithmetic', () => {
+    expect(MAX_SERVICE_POINTS).toBe(7);
+  });
+});
+
 // 🔴 A kind without its partial index is not an error, it is a
 // sequential scan over 2.26 million rows — the failure that does not
 // announce itself.
@@ -476,6 +556,20 @@ describe('the migrations’ KINDS lists are the kinds the endpoint serves', () =
     expect(first).toHaveLength(7);
     expect(second).toEqual([...REST_STOP_KINDS]);
     expect([...first, ...second]).toEqual([...ROUTE_POI_KINDS]);
+  });
+
+  // 🔴 CAMP-258. The TABLE holds one kind more than the endpoint serves, so
+  // the equality above stays on the served list and this one is on the
+  // stored list: the three migrations between them index every kind the
+  // loader classifies, once. MUTATION: take 'gas_exchange' out of the new
+  // migration's KINDS — and note that a LIST is not an index; the catalog
+  // check in route-services.db.spec.ts is the one that sees the index.
+  it('the three migrations between them list every kind the table holds, once', () => {
+    const first = declaredIn('1790572800000-RoutePoi.ts');
+    const second = declaredIn('1791400000000-RoutePoiFacilities.ts');
+    const third = declaredIn('1791700000000-RoutePoiLpg.ts');
+    expect(third).toEqual([...STORED_ONLY_KINDS]);
+    expect([...first, ...second, ...third]).toEqual([...STORED_POI_KINDS]);
   });
 });
 

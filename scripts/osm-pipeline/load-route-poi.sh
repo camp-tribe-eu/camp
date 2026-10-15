@@ -78,6 +78,25 @@
 # `country IS NULL` exception and invisible to a check that read the
 # same column. A weekly job is the right place to spend nine minutes on
 # being sure.
+#
+# 🔴 CAMP-258 added `shop=gas` to the filter (the `gas_exchange` kind: a shop
+# that sells and swaps bottled gas, stored and not shown) and `fuel:lpg` to
+# the export (the `lpg` column of every fuel row: yes / no / unknown).
+#
+# 🔴 HOW TO COUNT WHAT THIS LOADS AGAINST THE RAW EXTRACTS — `-R`, AND THE
+# TWO CLOSED-WAY TRAPS. `osmium tags-filter` WITHOUT `-R` also writes the
+# nodes a found way is built from, so counting its output gave 403 007 fuel
+# stations on 15.10.2026 where there are 119 201 (`-R`: "omit referenced
+# objects"). THIS script must NOT pass `-R`: it needs those nodes to build
+# the geometry of a way. They are different jobs. Second, the table holds
+# a closed-way fuel station as TWO rows (`w123` and its area `a246`) —
+# 154 183 `fuel` rows in camptribe_dev against ~118 700 objects — so
+# compare an object count with `count(DISTINCT canonicalRefSql(osm_ref))`,
+# which the loader prints, and not with `count(*)`.
+#
+# 🔴 And `gas_exchange` is about a third of what "shop=gas" suggests: 4 014
+# of its 6 109 objects are ALSO `amenity=fuel` and stay `fuel`. See
+# STORED_ONLY_KINDS in apps/api/src/osm/route-poi.ts.
 set -euo pipefail
 
 DB_URL="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"
@@ -117,8 +136,8 @@ trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
 
 # 🔴 The tag list, and it must stay identical to STORED_POI_RULES in
 # apps/api/src/osm/route-poi.ts (CAMP-119: every kind the table can hold,
-# not only the seven a route page shows — a spec reads this array and
-# compares). `amenity=parking` is deliberately NOT here: 3.1 million
+# not only the nine a route page shows — `shop=gas` is the tenth, CAMP-258 —
+# a spec reads this array and compares). `amenity=parking` is deliberately NOT here: 3.1 million
 # objects, and a separate conversation. A tag filtered here and not classified
 # there is a row loaded and thrown away; a tag classified there and not
 # filtered here is a kind that silently holds nothing — which is the
@@ -133,6 +152,7 @@ FILTERS=(
   amenity=sanitary_dump_station
   highway=rest_area
   highway=services
+  shop=gas
   shop=supermarket
   shop=convenience
   amenity=restaurant

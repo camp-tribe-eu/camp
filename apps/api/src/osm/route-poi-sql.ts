@@ -14,8 +14,9 @@
 
 import { EU_MEMBER_STATES_AND_SUBDIVISIONS, ISO_SUBDIVISION_OF } from './eu';
 import {
-  FACILITY_COLUMNS,
   facilitySelectSql,
+  lpgSelectSql,
+  ROW_FACILITY_COLUMNS,
   tagPartsSql,
 } from './route-poi-facilities';
 import { CANONICAL_REF_KINDS, classifyCaseSql } from './route-poi';
@@ -247,7 +248,8 @@ const BASE_COLUMNS = [
  *
  * 🔴 TWO ROW KEYS, ON PURPOSE.
  *
- * `rest_area`, `service_area` (CAMP-119) and `dump` are keyed on the
+ * `rest_area`, `service_area` (CAMP-119), `gas_exchange` (CAMP-258, new, so
+ * nothing is keyed on it) and `dump` are keyed on the
  * canonical object id, one row per OSM object. The other six kinds — the
  * 2.2 million rows that were here before — are keyed on what osmium
  * wrote. Re-keying them would fold 338 305 closed-way twins (measured
@@ -269,10 +271,10 @@ export function buildRoutePoiInsertSql(): string {
     return `'${k}'`;
   }).join(', ');
   const base = BASE_COLUMNS.join(', ');
-  const facilities = FACILITY_COLUMNS.join(', ');
+  const facilities = ROW_FACILITY_COLUMNS.join(', ');
   const updates = [
     ...BASE_COLUMNS.filter((c) => c !== 'osm_ref'),
-    ...FACILITY_COLUMNS,
+    ...ROW_FACILITY_COLUMNS,
   ]
     .map((c) => `${c} = EXCLUDED.${c}`)
     .join(',\n            ');
@@ -280,7 +282,7 @@ export function buildRoutePoiInsertSql(): string {
   return `INSERT INTO osm_route_poi
          (${base},
           ${facilities})
-       SELECT ${[...BASE_COLUMNS, ...FACILITY_COLUMNS].map((c) => `r.${c}`).join(', ')}
+       SELECT ${[...BASE_COLUMNS, ...ROW_FACILITY_COLUMNS].map((c) => `r.${c}`).join(', ')}
          FROM (
          SELECT DISTINCT ON (x.ref)
                 x.ref AS osm_ref,
@@ -292,7 +294,8 @@ export function buildRoutePoiInsertSql(): string {
                 ${WEBSITE_SQL} AS website,
                 nullif(btrim(s.opening_hours), '') AS opening_hours,
                 $1::timestamptz AS last_seen_at,
-                ${facilitySelectSql('s')}
+                ${facilitySelectSql('s')},
+                ${lpgSelectSql('s')}
            FROM osm_route_poi_staging s
           CROSS JOIN LATERAL (SELECT ${classifyCaseSql('s')} AS kind) k
           CROSS JOIN LATERAL (
@@ -331,3 +334,16 @@ export function buildRoutePoiInsertSql(): string {
        ON CONFLICT (osm_ref) DO UPDATE SET
             ${updates}`;
 }
+
+/**
+ * CAMP-258: the `lpg` distribution over fuel stations — ROWS and OBJECTS.
+ *
+ * Rows, because that is what the table holds; objects, because the older
+ * kinds are not folded (see buildRoutePoiInsertSql) and a closed-way fuel
+ * station is two rows, so only the second is comparable with a count of OSM
+ * objects. Measured on camptribe_dev before this card: 154 183 `fuel` rows
+ * against 119 201 objects in the raw extracts.
+ */
+export const LPG_SUMMARY_SQL = `SELECT lpg AS state, count(*)::text AS rows,
+              count(DISTINCT ${canonicalRefSql('osm_ref')})::text AS objects
+         FROM osm_route_poi WHERE kind = 'fuel' GROUP BY 1`;

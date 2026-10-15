@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
+import { RoutePoiLpg1791700000000 } from '../migrations/1791700000000-RoutePoiLpg';
 import { exportedTags } from './route-poi-export';
 import {
   asciiLower,
@@ -11,10 +12,16 @@ import {
   facilitySelectSql,
   FACILITY_COLUMNS,
   FACILITY_TAGS,
+  lpgArrivalError,
+  LPG,
+  LPG_GUARD_MIN_FUEL_ROWS,
+  lpgSelectSql,
   normalisedSql,
   normaliseTag,
   resolveTriState,
   resolveVerbatim,
+  ROW_FACILITY_COLUMNS,
+  ROW_FACILITY_TAGS,
   SEPARATOR_SQL,
   tagParts,
   tagPartsSql,
@@ -29,7 +36,11 @@ import {
   REST_STOP_KINDS,
   STORED_POI_RULES,
 } from './route-poi';
-import { buildRoutePoiInsertSql, canonicalRefSql } from './route-poi-sql';
+import {
+  buildRoutePoiInsertSql,
+  canonicalRefSql,
+  LPG_SUMMARY_SQL,
+} from './route-poi-sql';
 import { FALSY, TRUTHY } from './tag-mapping';
 
 // CAMP-119 — what a stopping place says about itself, and the contract
@@ -62,6 +73,13 @@ describe('the vocabulary is the campsites', () => {
       expect(byColumn(column).yes).toBe(TRUTHY);
       expect(byColumn(column).no).toBe(FALSY);
     }
+  });
+
+  // 🔴 MUTATION (CAMP-258): copy the words into the LPG constant instead of
+  // importing them. Identity, as above: a copy is equal today.
+  it('reads `fuel:lpg` through the same sets as the other availability tags', () => {
+    expect(LPG.vocabulary.yes).toBe(TRUTHY);
+    expect(LPG.vocabulary.no).toBe(FALSY);
   });
 
   // 🔴 MUTATION: give `fee` the availability vocabulary. `fee=private`
@@ -366,6 +384,137 @@ describe('the migration and the module describe the same columns', () => {
     expect([...RoutePoiFacilities1791400000000.KINDS]).toEqual([
       ...REST_STOP_KINDS,
     ]);
+  });
+});
+
+// ── CAMP-258: `lpg` ──────────────────────────────────────────────────────
+
+describe('the lpg column is read from fuel:lpg and written as lpg', () => {
+  // 🔴 MUTATION: read `s.lpg` (or `s."lpg"`) in lpgSelectSql. The staging
+  // table has no such column — ogr2ogr makes one per OSM key — so the
+  // INSERT would die on a real run; and if somebody then "fixed" it by
+  // adding an `lpg` column to the staging table, every row would say
+  // `unknown`, which is the failure the loader's guard exists for.
+  it('names the OSM key on the way in and the column on the way out', () => {
+    const sql = lpgSelectSql('s');
+    expect(sql).toContain('s."fuel:lpg"');
+    expect(sql).not.toMatch(/s\."?lpg"?/);
+    expect(sql.trim()).toMatch(/END AS lpg$/);
+    expect(LPG.tag).toBe('fuel:lpg');
+    expect(LPG.column).toBe('lpg');
+  });
+
+  // 🔴 MUTATION: change the 'unknown' branches of triStateSql into 'no'.
+  // The database spec shows the values; this keeps lpg on the same shape
+  // as every other yes/no/unknown column: one way to say no, through a list.
+  it('says no in exactly one place, and it reads the no-list', () => {
+    const sql = lpgSelectSql('s');
+    expect(sql.match(/THEN 'no'/g)).toHaveLength(1);
+    expect(sql).toMatch(/IS NULL THEN 'unknown'/);
+    expect(sql).toMatch(/ELSE 'unknown'/);
+  });
+
+  // 🔴 MUTATION: delete "fuel:lpg" from scripts/osm-pipeline/export-rpoi.json.
+  // Not a crash: the loader adds the missing staging column EMPTY, and 154 183
+  // fuel rows say `unknown`, which reads as an honest gap.
+  it('is in the export, under the tag and not under the column', () => {
+    const exported = new Set(exportedTags());
+    expect(exported.has('fuel:lpg')).toBe(true);
+    expect(ROW_FACILITY_TAGS.filter((t) => !exported.has(t))).toEqual([]);
+  });
+
+  // 🔴 MUTATION: write the INSERT's column list from FACILITY_COLUMNS again.
+  // `lpg` would be selected and never inserted, or inserted and never
+  // refreshed by ON CONFLICT — the first import right, every later one
+  // keeping what it first wrote.
+  it('is inserted, selected and refreshed on conflict', () => {
+    const sql = buildRoutePoiInsertSql();
+    expect([...ROW_FACILITY_COLUMNS]).toEqual([...FACILITY_COLUMNS, 'lpg']);
+    expect(sql).toMatch(/\(osm_ref, kind[^)]*\blpg\b[^)]*\)/);
+    expect(sql).toContain('r.lpg');
+    expect(sql).toContain('lpg = EXCLUDED.lpg');
+  });
+
+  // The page's five and the table's lpg are different groups on purpose —
+  // see the section in route-poi-facilities.ts. If `lpg` ever joins the five
+  // this is the place that says a page now has to decide about it.
+  it('is not one of the five facilities a stopping place prints', () => {
+    expect(TRISTATE_COLUMNS).not.toContain('lpg');
+    expect(FACILITY_COLUMNS).not.toContain('lpg');
+    expect(FACILITY_TAGS).not.toContain('fuel:lpg');
+  });
+});
+
+describe('the lpg migration and the module describe the same column', () => {
+  // 🔴 MUTATION: rename the column in the migration, or in LPG.
+  it('adds exactly the column the loader writes', () => {
+    expect(RoutePoiLpg1791700000000.COLUMN).toBe(LPG.column);
+    // the two migrations between them are the INSERT's column list, once
+    expect([
+      ...RoutePoiFacilities1791400000000.TRISTATE,
+      ...RoutePoiFacilities1791400000000.VERBATIM,
+      RoutePoiLpg1791700000000.COLUMN,
+    ]).toEqual([...ROW_FACILITY_COLUMNS]);
+  });
+});
+
+describe('the loader notices when fuel:lpg did not arrive', () => {
+  const row = (state: string, rows: number) => ({
+    state,
+    rows: String(rows),
+    objects: String(rows),
+  });
+
+  // 🔴 MUTATION: invert the test, drop the floor, or compare `yes` with
+  // anything but zero. Each of the four lines below goes red under one.
+  it('says so for a big fuel population with no yes in it', () => {
+    expect(lpgArrivalError([row('unknown', 154_183)])).toMatch(
+      /154183 fuel rows and not one says lpg=yes/,
+    );
+    expect(
+      lpgArrivalError([row('no', 3_000), row('unknown', 151_183)]),
+    ).toMatch(/not one says lpg=yes/);
+  });
+
+  it('is silent once a single station says yes', () => {
+    expect(
+      lpgArrivalError([row('yes', 1), row('unknown', 154_182)]),
+    ).toBeNull();
+    expect(
+      lpgArrivalError([
+        row('yes', 24_000),
+        row('no', 3_000),
+        row('unknown', 127_183),
+      ]),
+    ).toBeNull();
+  });
+
+  // 🔴 MUTATION: `<` → `<=` on the floor, or the floor to 100 or 1 000 000.
+  // The edge is the thing: a scratch load of one small country must not be
+  // refused, and the first population large enough to mean something must.
+  // The numbers are WRITTEN OUT and not read from the constant — a test that
+  // takes its edge from the thing it tests moves with every edit of it.
+  it('speaks from exactly 1 000 fuel rows, and not below', () => {
+    expect(lpgArrivalError([row('unknown', 999)])).toBeNull();
+    expect(lpgArrivalError([row('no', 500), row('unknown', 499)])).toBeNull();
+    expect(lpgArrivalError([row('unknown', 1000)])).not.toBeNull();
+    expect(
+      lpgArrivalError([row('no', 500), row('unknown', 500)]),
+    ).not.toBeNull();
+    expect(LPG_GUARD_MIN_FUEL_ROWS).toBe(1000);
+  });
+
+  it('is silent for an empty answer, which is a different failure', () => {
+    // an empty `fuel` kind is the loader's own empty-kind check, not this
+    expect(lpgArrivalError([])).toBeNull();
+  });
+
+  // The summary query is the loader's own text, imported — and it reads
+  // `lpg` of the fuel kind only, grouped by state, with rows AND objects.
+  it('is asked through the statement the loader runs', () => {
+    expect(LPG_SUMMARY_SQL).toContain("WHERE kind = 'fuel'");
+    expect(LPG_SUMMARY_SQL).toContain('GROUP BY 1');
+    expect(LPG_SUMMARY_SQL).toContain('count(DISTINCT');
   });
 });
 

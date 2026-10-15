@@ -31,7 +31,7 @@ ROOT="$(mktemp -d "${TMPDIR:-/tmp}/load-route-poi-selftest.XXXXXX")"
 trap 'rm -rf "$ROOT"' EXIT
 
 # The number of pass/fail calls below. Update it WITH the cases.
-EXPECTED=19
+EXPECTED=21
 
 # The database the run is asked for. Nothing connects to it: every tool that
 # would is a shim, and the name says so.
@@ -145,7 +145,9 @@ else
   fail "a clean run should complete; rc=$rc: $out"
 fi
 
-for want in highway=rest_area highway=services amenity=sanitary_dump_station; do
+# 🔴 CAMP-258: shop=gas is here too — it is what makes gas_exchange a kind
+# that can be non-empty. Written out, not read from the script.
+for want in highway=rest_area highway=services amenity=sanitary_dump_station shop=gas; do
   # both element types: a rest area is mostly a way, a dump point a node
   if grep -q "n/$want" <<<"$filter_call" && grep -q "w/$want" <<<"$filter_call"; then
     pass "osmium is asked for $want on nodes AND ways"
@@ -172,7 +174,8 @@ fi
 # The card's own list. Written out here, NOT read from the loader: this is
 # the contract, and a list derived from the code it checks cannot disagree
 # with it.
-for tag in toilets shower fee drinking_water sanitary_dump_station access hgv maxheight maxlength; do
+# CAMP-258: `fuel:lpg` is the tag; the column it becomes is called `lpg`.
+for tag in toilets shower fee drinking_water sanitary_dump_station access hgv maxheight maxlength fuel:lpg; do
   if grep -q "\"$tag\"" "$ROOT/seen-config.json" 2>/dev/null; then
     pass "the config osmium receives carries \"$tag\""
   else

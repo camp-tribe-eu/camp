@@ -45,6 +45,35 @@
 // (measured 25.09.2026: 0 of 16 817) and on 99.8% of fuel stations; the
 // column exists so the day that changes there is nothing to build.
 
+// ── CAMP-258: `lpg`, AND WHY IT IS NOT ONE OF THE NINE ───────────────────
+//
+// `lpg` says whether a place sells LPG (autogas) — `fuel:lpg=yes|no` on an
+// `amenity=fuel` object. It is a third group beside the five yes/no/unknown
+// facilities and the four verbatim ones, and it is kept OUT of them on
+// purpose, for three reasons that each have a spec:
+//
+//   1. THE TAG IS NOT THE COLUMN. Every CAMP-119 column is read from the
+//      OSM key of the same name; this one is read from `fuel:lpg` and
+//      written as `lpg`, because a colon in a column name is a quoting
+//      accident waiting for a query that forgets it. `LPG.tag` and
+//      `LPG.column` are two words, and the INSERT reads `s."fuel:lpg"`.
+//   2. IT IS NOT A STOPPING-PLACE FACILITY. TRISTATE_COLUMNS is the five
+//      things a route page prints on a rest area, and route-services.spec.ts
+//      asserts the page's field list equals it. A sixth entry would make the
+//      page "decide by omission" about LPG on a service area.
+//   3. THE ORACLE. count-rest-stops.mjs counts FACILITY_TAGS on the raw
+//      extracts for the stopping kinds; `fuel:lpg` on a rest area is a
+//      number nobody asked for.
+//
+// The vocabulary is the campsites' one, for the reason given above. Measured
+// on the 27 raw extracts, 15.10.2026, over the 118 726 distinct
+// `amenity=fuel` objects: `yes` 18 081, `no` 3 010, absent 97 621, and 14
+// objects with some other word (`only` 5, `FIXME` 4, `fixme` 1, `retail`,
+// `forest`, `surface`, `yes ACME, Dish`) — all of which read as `unknown`,
+// which is what we know about them. `unknown` is never `no`: 82% of fuel
+// stations say nothing about LPG, and a filter that treated them as "no LPG"
+// would hide four in five stations that may well sell it.
+
 import { FALSY, TRUTHY } from './tag-mapping';
 
 /** The three words. Same spelling as `AmenityValue` in tag-mapping.ts. */
@@ -81,6 +110,16 @@ export const TRISTATE_FACILITIES = [
   { column: 'fee', vocabulary: CHARGE },
 ] as const;
 
+/**
+ * CAMP-258: whether a place sells LPG. The OSM key and the column are NOT
+ * the same word — see the section above.
+ */
+export const LPG = {
+  column: 'lpg',
+  tag: 'fuel:lpg',
+  vocabulary: AVAILABILITY,
+} as const;
+
 /** The value-carrying columns. `unknown` when the tag is absent. */
 export const VERBATIM_FACILITIES = [
   'access',
@@ -105,6 +144,20 @@ export const FACILITY_COLUMNS: readonly string[] = [
  * a name, which is what keeps "is it in the export" a one-line question.
  */
 export const FACILITY_TAGS: readonly string[] = FACILITY_COLUMNS;
+
+/**
+ * 🔴 CAMP-258: EVERY facility-shaped column the INSERT writes — CAMP-119's
+ * nine, then `lpg`. The INSERT, its SELECT list and its ON CONFLICT list
+ * are all built from this one, so a column added to one of them and not to
+ * the others is not a thing that can be typed.
+ */
+export const ROW_FACILITY_COLUMNS: readonly string[] = [
+  ...FACILITY_COLUMNS,
+  LPG.column,
+];
+
+/** The OSM keys the INSERT reads for those columns: `fuel:lpg`, not `lpg`. */
+export const ROW_FACILITY_TAGS: readonly string[] = [...FACILITY_TAGS, LPG.tag];
 
 // ── WHAT A BLANK IS, AND WHAT "LOWER-CASE" MEANS — ONE ANSWER, BOTH SIDES ─
 //
@@ -269,7 +322,10 @@ export function tagPartsSql(expr: string): string {
 }
 
 function safeColumn(column: string): string {
-  if (!/^[a-z_]+$/.test(column)) {
+  // `fuel:lpg` is a staging column too (ogr2ogr keeps the colon, as it does
+  // for `contact:phone`), so one `:` between two words is allowed — and
+  // nothing else: the whole point of the check is that a quote cannot get in.
+  if (!/^[a-z_]+(:[a-z_]+)?$/.test(column)) {
     throw new Error(
       `route-poi-facilities: unsafe column ${JSON.stringify(column)}`,
     );
@@ -324,4 +380,57 @@ export function facilitySelectSql(alias = 's'): string {
     (c) => `${verbatimSql(c, alias)} AS ${c}`,
   );
   return [...tri, ...verbatim].join(',\n           ');
+}
+
+/**
+ * CAMP-258: `<tri-state of fuel:lpg> AS lpg`. The staging column is read
+ * under its OSM key (`s."fuel:lpg"`) and written under the table's name.
+ */
+export function lpgSelectSql(alias = 's'): string {
+  return `${triStateSql(LPG.tag, LPG.vocabulary, alias)} AS ${LPG.column}`;
+}
+
+/**
+ * 🔴 CAMP-258: THE ONE FAILURE OF `lpg` THAT CANNOT BE SEEN FROM A TABLE.
+ *
+ * If `fuel:lpg` never reaches the staging table — the export dropped it, the
+ * INSERT reads another name — every fuel station says `unknown`, and
+ * `unknown` is a legitimate answer for 82% of them, so nothing looks wrong.
+ * The tell is a fuel population in which NOTHING says `yes`: in the 27
+ * extracts 18 081 of 118 726 fuel objects do. The loader asks this inside
+ * its transaction and rolls back on an answer.
+ *
+ * 🔴 THE FLOOR, AND WHAT IT RESTS ON. A scratch load of one small country
+ * can truthfully hold no LPG station, so the guard does not speak below
+ * 1 000 fuel rows. Measured 15.10.2026 per extract (`osmium tags-filter -R`):
+ * every one of the 27 has at least one `fuel:lpg=yes` — Malta 1 of 78,
+ * Luxembourg 10 of 251, Denmark 5 of 2 144 (the thinnest large one), the
+ * rest far more — so a population past the floor with none is not a
+ * finding about Europe.
+ */
+export const LPG_GUARD_MIN_FUEL_ROWS = 1000;
+
+/** One line of LPG_SUMMARY_SQL's answer: Postgres hands counts back as text. */
+export interface LpgSummaryRow {
+  state: string;
+  rows: string;
+  objects: string;
+}
+
+/**
+ * The failure message when `fuel:lpg` did not arrive, or null. Takes what
+ * LPG_SUMMARY_SQL returned, so a spec can run the same SQL against a real
+ * table and feed the same function.
+ */
+export function lpgArrivalError(
+  summary: readonly LpgSummaryRow[],
+): string | null {
+  const fuelRows = summary.reduce((sum, r) => sum + Number(r.rows), 0);
+  const yes = Number(summary.find((r) => r.state === 'yes')?.rows ?? 0);
+  if (fuelRows < LPG_GUARD_MIN_FUEL_ROWS || yes > 0) return null;
+  return (
+    `${fuelRows} fuel rows and not one says lpg=yes — \`fuel:lpg\` did not ` +
+    `reach the table (scripts/osm-pipeline/export-rpoi.json, or the INSERT ` +
+    `reads another name). This is a failure, not "no LPG in Europe".`
+  );
 }

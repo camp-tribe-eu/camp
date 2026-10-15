@@ -300,31 +300,80 @@ export function isRestStopKind(value: unknown): value is RestStopKind {
  * 🔴 The kinds whose rows are keyed on the CANONICAL object id — `w123`,
  * `r456` — and so hold one row per OSM object. `dump` is here although it
  * is older than this card: see the note above on why it is the one
- * legacy kind that can be folded for free.
+ * legacy kind that can be folded for free. `gas_exchange` (CAMP-258) is
+ * here because it is NEW: no price and no page is keyed on its rows, so
+ * there is nothing a fold could move, and its count is then a count of
+ * objects — the thing a card quotes it as.
  */
 export const CANONICAL_REF_KINDS = [
   'dump',
   'rest_area',
   'service_area',
+  'gas_exchange',
 ] as const;
 
 /**
- * Everything the table can hold. Order is the CASE's order: legacy first.
+ * 🔴 CAMP-258: KINDS THE TABLE HOLDS AND NO PAGE ASKS FOR — YET.
  *
- * 🔴 TODAY THIS IS THE SAME LIST AS ROUTE_POI_KINDS, and it is kept as a
- * name of its own because it answers a different question: what the
- * LOADER classifies and must find at least one row of, against what a
- * PAGE shows. The day a kind is stored and not shown (`amenity=parking`,
- * which a comment above declines for now) this is where it goes, and
- * nothing that reads either list has to change its mind.
+ * `gas_exchange` is `shop=gas`: a shop that sells and swaps bottled gas.
+ * It is stored and not served, the way `rest_area` and `service_area` were
+ * for the first half of CAMP-119 (PR #234), and for the same reason: a kind
+ * in ROUTE_POI_KINDS changes three things at once — `parseKinds` defaults
+ * to every kind in it, `buildServicesSql` writes one index scan per kind
+ * into the stage query, and MAX_SERVICE_POINTS is derived from its length
+ * so the ODbL floor cannot be crossed. The second half of this work (a
+ * point on the map, a mention in the guides) is the card that decides
+ * whether the page grows by a tenth kind; this one only makes the data
+ * exist and be queryable.
+ *
+ * 🔴 IT IS LAST IN THE CASE, AND THAT IS NOT A DETAIL. 4 014 of the 6 109
+ * distinct `shop=gas` objects in the 27 extracts (measured 15.10.2026:
+ * `osmium tags-filter -R nwr/amenity=fuel nwr/shop=gas` over every
+ * `*.osm.pbf`, parsed and de-duplicated by OSM id) are ALSO `amenity=fuel`
+ * — 3 800 of them in France and 180 in Czechia, and by name they are
+ * hypermarket forecourts: Intermarché 798, Carrefour 361, Carrefour Market
+ * 204, Super U 164. A CASE returns its first match, so those stay the fuel
+ * stations they were before this card. Putting `gas_exchange` ahead of
+ * `fuel` would move the 4 008 of them already in camptribe_dev out of
+ * `fuel`, and on production the price rows are keyed on the `fuel` row's
+ * `osm_ref` with no foreign key to say so (see buildRoutePoiInsertSql).
+ *
+ * So `gas_exchange` holds the 2 095 objects that are a gas shop and nothing
+ * else — about a third of the "6 118" the card quotes, because that number
+ * counts both groups. The other two thirds are not lost to the data: they
+ * are `fuel` rows with the `lpg` column every fuel row has (route-poi-
+ * facilities.ts; 590 of the 4 014 say `fuel:lpg=yes`), and whether a fuel
+ * station that also says `shop=gas` is a bottle-swap point is a decision
+ * for the card that draws the map, not one to take by CASE order.
  */
-export const STORED_POI_KINDS = ROUTE_POI_KINDS;
+export const STORED_ONLY_KINDS = ['gas_exchange'] as const;
+
+/**
+ * Everything the table can hold. Order is the CASE's order: legacy first,
+ * then CAMP-119's two, then what is stored and not shown.
+ *
+ * 🔴 It answers a different question from ROUTE_POI_KINDS — what the
+ * LOADER classifies and must find at least one row of, against what a PAGE
+ * shows — and since CAMP-258 the two lists differ by `gas_exchange`.
+ * Everything that asked "is this a kind the table holds" (the loader's
+ * empty-kind check, the CASE, the tag-list spec, the index spec) reads this
+ * one; everything that asked "is this a kind a page may request" still reads
+ * ROUTE_POI_KINDS and is unchanged.
+ */
+export const STORED_POI_KINDS = [
+  ...ROUTE_POI_KINDS,
+  ...STORED_ONLY_KINDS,
+] as const;
 
 export type StoredPoiKind = (typeof STORED_POI_KINDS)[number];
 
 /** Every kind's rules. The loader classifies with this. */
-export const STORED_POI_RULES: Record<StoredPoiKind, TagRule[]> =
-  ROUTE_POI_RULES;
+export const STORED_POI_RULES: Record<StoredPoiKind, TagRule[]> = {
+  ...ROUTE_POI_RULES,
+  // CAMP-258. `shop=gas` and nothing else: `amenity=fuel` objects that
+  // also carry it are classified `fuel` before this branch is reached.
+  gas_exchange: [{ key: 'shop', values: ['gas'] }],
+};
 
 /**
  * `access` values that mean "not you".

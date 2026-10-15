@@ -2,9 +2,11 @@ import { Client } from 'pg';
 import type { QueryRunner } from 'typeorm';
 import { RoutePoi1790572800000 } from '../migrations/1790572800000-RoutePoi';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
+import { RoutePoiLpg1791700000000 } from '../migrations/1791700000000-RoutePoiLpg';
 import { ACCESS_EXCLUDED, isAccessExcluded } from './route-poi';
 import { ensureStagingColumns, exportedTags } from './route-poi-export';
 import {
+  LPG,
   resolveTriState,
   resolveVerbatim,
   TRISTATE_FACILITIES,
@@ -248,6 +250,70 @@ const CASES: {
     expectKind: 'dump',
     expect: { fee: 'yes', sanitary_dump_station: 'unknown' },
   },
+  // ── CAMP-258: `shop=gas`, and what a fuel station says about LPG ──
+  {
+    // the new kind, and a shop that never mentioned LPG says nothing
+    fixture: pt('n20', { shop: 'gas', name: 'Butagaz' }),
+    expectKind: 'gas_exchange',
+    expect: { lpg: 'unknown', toilets: 'unknown' },
+  },
+  {
+    // a gas shop that DOES say it sells LPG: 16 objects in the extracts
+    fixture: pt('n21', { shop: 'gas', 'fuel:lpg': 'yes' }),
+    expectKind: 'gas_exchange',
+    expect: { lpg: 'yes' },
+  },
+  {
+    // 🔴 THE 4 014. A hypermarket forecourt tagged `amenity=fuel` AND
+    // `shop=gas` is the fuel station it was before this card — the CASE
+    // returns its first match, and `gas_exchange` is last on purpose.
+    fixture: pt('n22', { amenity: 'fuel', shop: 'gas', 'fuel:lpg': 'yes' }),
+    expectKind: 'fuel',
+    expect: { lpg: 'yes' },
+  },
+  {
+    // nobody wrote `fuel:lpg` on this station: unknown, and NEVER no
+    fixture: pt('n23', { amenity: 'fuel' }),
+    expectKind: 'fuel',
+    expect: { lpg: 'unknown' },
+  },
+  {
+    // a written no is a no — 3 010 stations say it, and it must survive
+    fixture: pt('n24', { amenity: 'fuel', 'fuel:lpg': 'no' }),
+    expectKind: 'fuel',
+    expect: { lpg: 'no' },
+  },
+  {
+    // the spellings strangers type, read as the other columns read them
+    fixture: pt('n25', { amenity: 'fuel', 'fuel:lpg': ' YES ' }),
+    expectKind: 'fuel',
+    expect: { lpg: 'yes' },
+  },
+  {
+    // words that are in the extracts and are not yes or no: `only` (5),
+    // `FIXME` (4). A statement we cannot read is `unknown`, not `no`.
+    fixture: pt('n26', { amenity: 'fuel', 'fuel:lpg': 'only' }),
+    expectKind: 'fuel',
+    expect: { lpg: 'unknown' },
+  },
+  {
+    fixture: pt('n27', { amenity: 'fuel', 'fuel:lpg': 'FIXME' }),
+    expectKind: 'fuel',
+    expect: { lpg: 'unknown' },
+  },
+  {
+    // blank is nobody having written anything
+    fixture: pt('n28', { amenity: 'fuel', 'fuel:lpg': '   ' }),
+    expectKind: 'fuel',
+    expect: { lpg: 'unknown' },
+  },
+  {
+    // the tag on a place that is not a fuel station is still read: the
+    // column is on every row, as the facility columns are
+    fixture: pt('n29', { highway: 'services', 'fuel:lpg': 'yes' }),
+    expectKind: 'service_area',
+    expect: { lpg: 'yes' },
+  },
 ];
 
 /**
@@ -317,6 +383,10 @@ const NOT_STORED: Fixture[] = [
   pt('n16', { highway: 'rest_area', access: 'no' }),
   pt('n13', { highway: 'bus_stop' }),
   pt('n17', { amenity: 'bench' }),
+  // CAMP-258: the access filter applies to the new kind like any other
+  pt('n30', { shop: 'gas', access: 'private' }),
+  // …and `fuel:lpg` alone classifies nothing: it is a property, not a place
+  pt('n31', { 'fuel:lpg': 'yes' }),
 ];
 
 // 🔴 THE CLASS OF BLANKS, WRITTEN OUT BY HAND (CAMP-119 review).
@@ -514,6 +584,7 @@ describe('the import statement, against a real PostgreSQL', () => {
     } as unknown as QueryRunner;
     await new RoutePoi1790572800000().up(qr);
     await new RoutePoiFacilities1791400000000().up(qr);
+    await new RoutePoiLpg1791700000000().up(qr);
 
     await db.query(
       `CREATE TABLE ne_admin1 (geom geometry(MultiPolygon, 4326), iso_a2 text, admin text)`,
@@ -562,6 +633,9 @@ describe('the import statement, against a real PostgreSQL', () => {
       wkt: POLYGON,
       tags: { amenity: 'sanitary_dump_station' },
     });
+    // CAMP-258: a gas shop that is a closed way arrives twice, and is one row
+    await stage({ id: 'w700', wkt: RING, tags: { shop: 'gas' } });
+    await stage({ id: 'a1400', wkt: POLYGON, tags: { shop: 'gas' } });
     // the OLDER kinds are left as they were written: both twins stay
     await stage({ id: 'w400', wkt: RING, tags: { amenity: 'fuel' } });
     await stage({ id: 'a800', wkt: POLYGON, tags: { amenity: 'fuel' } });
@@ -588,6 +662,18 @@ describe('the import statement, against a real PostgreSQL', () => {
         id: `n93${String(i).padStart(3, '0')}`,
         wkt: `POINT(${16 + (i % 20) * 0.05} 46.8)`,
         tags: { ...REST, maxheight: raw },
+      });
+    }
+
+    // ── the lpg differential: one fuel station per raw value ──
+    // (CAMP-258: the tag is `fuel:lpg`, the column is `lpg`)
+    i = 0;
+    for (const raw of RAW_VALUES) {
+      i += 1;
+      await stage({
+        id: `n97${String(i).padStart(3, '0')}`,
+        wkt: `POINT(${16 + (i % 20) * 0.05} 46.6)`,
+        tags: { amenity: 'fuel', 'fuel:lpg': raw },
       });
     }
 
@@ -638,6 +724,7 @@ describe('the import statement, against a real PostgreSQL', () => {
         'hgv',
         'maxheight',
         'maxlength',
+        'lpg',
       ]) {
         expect(`${column}=${row[column]}`).toBe(`${column}=unknown`);
       }
@@ -661,7 +748,7 @@ describe('the import statement, against a real PostgreSQL', () => {
           WHERE toilets IS NULL OR shower IS NULL OR drinking_water IS NULL
              OR sanitary_dump_station IS NULL OR fee IS NULL
              OR access IS NULL OR hgv IS NULL OR maxheight IS NULL
-             OR maxlength IS NULL
+             OR maxlength IS NULL OR lpg IS NULL
              OR btrim(access) = '' OR btrim(hgv) = ''
              OR btrim(maxheight) = '' OR btrim(maxlength) = ''`,
       );
@@ -719,6 +806,16 @@ describe('the import statement, against a real PostgreSQL', () => {
       expect(twins.rows).toEqual([{ osm_ref: 'w600', kind: 'dump' }]);
     });
 
+    // 🔴 MUTATION: take `gas_exchange` out of CANONICAL_REF_KINDS. A gas
+    // shop mapped as a closed way would be two rows, and the card's number
+    // would again count some objects twice.
+    it('folds a gas shop too, so its count is a count of objects', async () => {
+      const twins = await db.query(
+        `SELECT osm_ref, kind FROM osm_route_poi WHERE osm_ref IN ('w700', 'a1400')`,
+      );
+      expect(twins.rows).toEqual([{ osm_ref: 'w700', kind: 'gas_exchange' }]);
+    });
+
     // 🔴 MUTATION: fold the older kinds as well. That re-keys 37 576 fuel
     // points whose prices are joined on `osm_ref`, with no foreign key to
     // say so — a decision with a cost, and not this card's.
@@ -756,6 +853,31 @@ describe('the import statement, against a real PostgreSQL', () => {
         expect(disagreements).toEqual([]);
       },
     );
+  });
+
+  describe('the lpg column and the JavaScript twin agree', () => {
+    // 🔴 MUTATION: read `s.toilets` in lpgSelectSql, or give `lpg` a
+    // vocabulary of its own that disagrees with the twin below. The key is
+    // `fuel:lpg` and the column is `lpg`; this is the one place a typo in
+    // either side shows up against every awkward value there is.
+    it('give the same answer for every raw value in fuel:lpg', async () => {
+      const rows = await db.query(
+        `SELECT lpg AS state FROM osm_route_poi WHERE osm_ref LIKE 'n97%' ORDER BY osm_ref`,
+      );
+      expect(rows.rows).toHaveLength(RAW_VALUES.length);
+      const disagreements = rows.rows
+        .map((r, k) => ({
+          raw: RAW_VALUES[k],
+          sql: r.state as string,
+          js: resolveTriState(RAW_VALUES[k], LPG.vocabulary) as string,
+        }))
+        .filter((d) => d.sql !== d.js);
+      expect(disagreements).toEqual([]);
+      // all three answers occur, so agreement is not agreement on "unknown"
+      expect(new Set(rows.rows.map((r) => r.state))).toEqual(
+        new Set(['yes', 'no', 'unknown']),
+      );
+    });
   });
 
   describe('the verbatim columns and the JavaScript twin agree', () => {
@@ -864,6 +986,28 @@ describe('the import statement, against a real PostgreSQL', () => {
     });
   });
 
+  describe('a second run, for lpg', () => {
+    // 🔴 MUTATION (CAMP-258): leave `lpg` out of ON CONFLICT … DO UPDATE. The
+    // first import would be right and every later one would keep what it
+    // first wrote — a station that gains `fuel:lpg=yes` would stay `no`, and
+    // one that loses the tag would keep saying `yes` to a driver.
+    it('re-reads fuel:lpg, in both directions', async () => {
+      expect((await rowOf('n24')).lpg).toBe('no');
+      expect((await rowOf('n22')).lpg).toBe('yes');
+
+      await db.query(
+        `UPDATE osm_route_poi_staging SET "fuel:lpg" = 'yes' WHERE id = 'n24'`,
+      );
+      await db.query(
+        `UPDATE osm_route_poi_staging SET "fuel:lpg" = NULL WHERE id = 'n22'`,
+      );
+      await insert(new Date(Date.now() + 2000).toISOString());
+
+      expect((await rowOf('n24')).lpg).toBe('yes');
+      expect((await rowOf('n22')).lpg).toBe('unknown');
+    });
+  });
+
   describe('a staging table that lacks a column', () => {
     // A small extract has no `maxheight` on any feature, so ogr2ogr never
     // makes the column and the INSERT would die on it for a good file.
@@ -938,6 +1082,59 @@ describe('the import statement, against a real PostgreSQL', () => {
       ]) {
         expect(`${column}=${row[column]}`).toBe(`${column}=unknown`);
       }
+    });
+
+    // 🔴 MUTATION (CAMP-258): drop NOT NULL, or the DEFAULT, from the lpg
+    // column — or make the DEFAULT 'no'. 2.27 million rows exist before the
+    // first import writes this column, and until then they must say "we do
+    // not know", not "we read it and it said no".
+    it('says lpg=unknown for a row inserted without it', async () => {
+      await db.query(
+        `INSERT INTO osm_route_poi (osm_ref, kind, location, country)
+         VALUES ('n999998', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si')`,
+      );
+      expect((await rowOf('n999998')).lpg).toBe('unknown');
+    });
+
+    // 🔴 MUTATION (CAMP-258): let the CHECK on lpg accept a word outside
+    // yes / no / unknown — add 'maybe' to it, or remove it. The database
+    // would then hold a fourth state that no page and no filter knows
+    // how to read. Each value below is refused on its own, and the three
+    // that are allowed are accepted, so the CHECK is shown to be neither
+    // missing nor a wall.
+    it.each(['maybe', 'YES', 'Yes', 'no ', ' no', '', 'true', '1', 'only'])(
+      'refuses lpg = %j',
+      async (value) => {
+        await expect(
+          db.query(
+            `INSERT INTO osm_route_poi (osm_ref, kind, location, country, lpg)
+             VALUES ('n888887', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si', $1)`,
+            [value],
+          ),
+        ).rejects.toMatchObject({
+          code: '23514', // check_violation
+          constraint: 'osm_route_poi_lpg_check',
+        });
+      },
+    );
+
+    it('refuses lpg = NULL', async () => {
+      await expect(
+        db.query(
+          `INSERT INTO osm_route_poi (osm_ref, kind, location, country, lpg)
+           VALUES ('n888887', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si', NULL)`,
+        ),
+      ).rejects.toMatchObject({ code: '23502' }); // not_null_violation
+    });
+
+    it.each(['yes', 'no', 'unknown'])('accepts lpg = %s', async (value) => {
+      await db.query(
+        `INSERT INTO osm_route_poi (osm_ref, kind, location, country, lpg)
+         VALUES ('n888886', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si', $1)`,
+        [value],
+      );
+      expect((await rowOf('n888886')).lpg).toBe(value);
+      await db.query(`DELETE FROM osm_route_poi WHERE osm_ref = 'n888886'`);
     });
 
     // 🔴 MUTATION: remove the CHECKs, or NOT NULL from any one column.
