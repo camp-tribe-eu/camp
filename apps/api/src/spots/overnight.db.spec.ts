@@ -467,6 +467,26 @@ describe('one gate, two implementations, one table of cases', () => {
       day: '2026-10-12',
       expected: 'unknown',
     },
+    // 🔴 CAMP-255 review. `toOvernightView` refused an empty source and
+    // the SQL gate did not, so the map could draw an "allowed" pin where
+    // the page said unknown — the two implementations this table exists
+    // to keep identical had already drifted, and nothing was red. The
+    // table's CHECK refuses '' on a real row; a VALUES row is how this
+    // gate is exercised on the day it is not there.
+    {
+      name: 'allowed, empty source',
+      status: 'allowed',
+      source: '',
+      day: '2026-10-12',
+      expected: 'unknown',
+    },
+    {
+      name: 'forbidden, empty source',
+      status: 'forbidden',
+      source: '',
+      day: '2026-10-12',
+      expected: 'unknown',
+    },
     {
       name: 'a word nobody defined',
       status: 'maybe',
@@ -518,6 +538,20 @@ describe('one gate, two implementations, one table of cases', () => {
         checkedAt: c.day,
       });
     }
+  });
+
+  // The one input the table above cannot feed: it takes the day from
+  // `to_char`, which is always a string. `pg` hands back a `Date` (at local
+  // midnight, so a day that moves with the server's time zone) the moment a
+  // query selects the column bare — and `toOvernightView` promises not to
+  // print that next to a claim.
+  it('a day that arrives as a Date is not printed: the claim falls back to unknown', () => {
+    const view = toOvernightView({
+      overnight_status: 'allowed',
+      overnight_source: 'osm:motorhome=yes',
+      overnight_checked_at: new Date('2026-10-12T00:00:00Z'),
+    });
+    expect(view).toEqual(UNKNOWN_OVERNIGHT);
   });
 
   it('the page query selects through the same gate', () => {

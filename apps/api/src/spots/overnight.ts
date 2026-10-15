@@ -10,9 +10,24 @@
 // map filter and the region counts — and when each wrote its own `CASE`
 // they would have agreed until somebody edited one. So there is ONE
 // definition in SQL (`overnightStatusSql`), used by all four, and ONE in
-// TypeScript (`toOvernightView`) for the single-row page; and
-// overnight.db.spec.ts drives both from the same table of cases, so the
-// two cannot drift apart without a test turning red.
+// TypeScript (`toOvernightView`) for the single-row page.
+//
+// 🔴 The two carry the SAME FOUR CONDITIONS, and that is checked rather
+// than hoped for: the status is one of the two answers, the source is
+// present, the source is not empty, the day is present.
+// overnight.db.spec.ts drives both from one table of cases, as VALUES
+// rows (no CHECK to refuse the inconsistent ones), and each of the four
+// has a row that turns red when that condition is taken out of EITHER
+// side. The first version said this and was false: the TypeScript side
+// refused an empty source and the SQL side did not, so the map could draw
+// "allowed" where the page said unknown, and no test noticed.
+//
+// 🔴 What is NOT a condition here: the SHAPE of the day. The column is a
+// `date` and `OVERNIGHT_DAY_SQL` formats it, so no row can hold a day of
+// another shape — a check on it would be a branch nothing can enter and
+// nothing can mirror in SQL. The format is pinned instead where it is
+// produced: the table asserts the day that comes out of
+// `OVERNIGHT_DAY_SQL` is exactly the day that went in.
 
 import { OVERNIGHT_STATUSES, type OvernightStatus } from '../osm/tag-mapping';
 
@@ -35,7 +50,7 @@ export function overnightStatusSql(alias = ''): string {
   const col = (name: string) => (alias ? `${alias}.${name}` : name);
   return `(CASE
       WHEN ${col('overnight_status')} IN ('allowed', 'forbidden')
-       AND ${col('overnight_source')} IS NOT NULL
+       AND COALESCE(${col('overnight_source')}, '') <> ''
        AND ${col('overnight_checked_at')} IS NOT NULL
       THEN ${col('overnight_status')}
       ELSE 'unknown'
@@ -63,8 +78,6 @@ export const UNKNOWN_OVERNIGHT: OvernightView = {
   checkedAt: null,
 };
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
-
 /**
  * One row of `SPOT_DETAIL_SQL` → the page's view.
  *
@@ -82,8 +95,7 @@ export function toOvernightView(row: Record<string, unknown>): OvernightView {
     (status === 'allowed' || status === 'forbidden') &&
     typeof source === 'string' &&
     source !== '' &&
-    typeof day === 'string' &&
-    DAY.test(day)
+    typeof day === 'string'
   ) {
     return { status, source, checkedAt: day };
   }

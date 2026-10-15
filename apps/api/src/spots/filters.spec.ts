@@ -6,6 +6,7 @@ import {
   SPOT_TYPES,
 } from './filters';
 import { AMENITY_KEYS } from '../osm/tag-mapping';
+import { overnightStatusSql } from './overnight';
 
 describe('parseFilters: only values this codebase defines reach the SQL', () => {
   it('keeps known types and amenities', () => {
@@ -190,10 +191,10 @@ describe('overnight filter: only confirmed, and never padded with unknown', () =
   it('asks for the sourced status, through the shared gate', () => {
     const sql = filterSql({ ...NO_FILTERS, overnight: true }, 4);
     expect(sql.where).toContain("= 'allowed'");
-    // The gate, not the bare column: a status with no source must not
-    // match here either.
-    expect(sql.where).toContain('overnight_source IS NOT NULL');
-    expect(sql.where).toContain('overnight_checked_at IS NOT NULL');
+    // The gate itself, not the bare column and not a re-spelling of it: a
+    // status with no source must not match here either, and what that
+    // means is defined once, in overnight.ts, and tested there.
+    expect(sql.where).toContain(overnightStatusSql());
     expect(sql.params).toEqual([]);
   });
 
