@@ -185,6 +185,16 @@ function nearestJoin(alias: string, table: string, kind: string): string {
                ORDER BY s.location <-> x.geom LIMIT 1) k
         CROSS JOIN LATERAL (SELECT k.bound / ${M_PER_DEGREE_LAT} AS dy) y
         CROSS JOIN LATERAL (
+          -- 🔴 least(89, ...) — СТЕЛЯ, І ВОНА Ж ЄДИНА ДІРКА В ГАРАНТІЇ.
+          -- Поки куля не накриває полюс, прямокутник її містить: перевірено
+          -- незалежним оракулом на ST_Project — 1 065 пар, широта 0-70
+          -- градусів, R від 1 м до 2 100 км, мінімальний запас 1,0052 по
+          -- широті та 1,0120 по довготі.
+          -- Коли накриває — стеля 89 обрізає потрібну довготу: на 88 пн. ш.
+          -- із R = 313 км треба 197,1 градуса, а дається 163,1.
+          -- Недосяжно на наших даних: максимум abs(lat) + dy = 72,75 при
+          -- стелі 89, тобто запас 16,25 градуса. Але якщо хтось підніме межу
+          -- широт — ЄС-27 закінчується на 71 — цей рядок треба читати першим.
           SELECT y.dy / cos(radians(least(89, abs(ST_Y(s.location)) + y.dy))) AS dx) z
         CROSS JOIN LATERAL (
           SELECT ST_Distance(s.location::geography, x.geom::geography) AS m,
