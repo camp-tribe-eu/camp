@@ -269,6 +269,13 @@ const VALUE: Record<ComponentId, (c: Candidate, toleranceM: number) => number> =
   };
 
 /**
+ * 🔴 CAMP-246: `components` is the CONFIGURATION the weights are read from.
+ * It defaults to the shipped COMPONENTS, and `shortlist.ts` hands it the
+ * config that `loadScoring` already checked against the measured table, so
+ * a different set of weights gives a different order from the same
+ * candidates — and a spec says so — instead of the formula being a constant
+ * that only a source edit can change.
+ *
  * Each component's contribution, weight included. This is the shape
  * CAMP-245 ("why this one") reads: every reason is a term, and a term that
  * is zero is a reason that does not exist.
@@ -276,9 +283,10 @@ const VALUE: Record<ComponentId, (c: Candidate, toleranceM: number) => number> =
 export function scoreParts(
   c: Candidate,
   toleranceM: number,
+  components: readonly ComponentDef[] = COMPONENTS,
 ): Record<ComponentId, number> {
   const out = {} as Record<ComponentId, number>;
-  for (const comp of COMPONENTS) {
+  for (const comp of components) {
     out[comp.id] = comp.weight * VALUE[comp.id](c, toleranceM);
   }
   return out;
@@ -292,10 +300,11 @@ export function score(
   c: Candidate,
   toleranceM: number,
   without: readonly ComponentId[] = [],
+  components: readonly ComponentDef[] = COMPONENTS,
 ): number {
-  const parts = scoreParts(c, toleranceM);
+  const parts = scoreParts(c, toleranceM, components);
   let total = 0;
-  for (const comp of COMPONENTS) {
+  for (const comp of components) {
     if (!without.includes(comp.id)) total += parts[comp.id];
   }
   return total;
@@ -306,10 +315,11 @@ export function rank(
   candidates: readonly Candidate[],
   toleranceM: number,
   without: readonly ComponentId[] = [],
+  components: readonly ComponentDef[] = COMPONENTS,
 ): Candidate[] {
   const keyed = candidates.map((c) => ({
     c,
-    s: score(c, toleranceM, without),
+    s: score(c, toleranceM, without, components),
   }));
   keyed.sort(
     (a, b) =>
