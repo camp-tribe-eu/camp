@@ -13,6 +13,10 @@
 // literals. If it called filterSql it would be comparing the generator
 // against itself and would agree with every bug it has.
 //
+// 🔴 The database is changed only inside a transaction that is rolled
+// back (CAMP-255, see `plantOvernight`): nothing this script does is
+// visible to anyone else, on CI's fixture or on a developer's own copy.
+//
 // 🔴 A comparison that finds nothing to compare must fail. Every case
 // asserts the strict set is non-empty; otherwise "0 rows equals 0 rows"
 // would pass for ever the day an amenity stopped being imported — the
@@ -42,6 +46,11 @@ interface Case {
 
 const YES = (key: string) => `amenities ->> '${key}' = 'yes'`;
 const NOT_NO = (key: string) => `amenities ->> '${key}' IS DISTINCT FROM 'no'`;
+// The words are spelled out on purpose, as everywhere in this list: the
+// expected side must not call the code it is checking.
+const OVERNIGHT_ALLOWED = `overnight_status = 'allowed'
+        AND overnight_source IS NOT NULL
+        AND overnight_checked_at IS NOT NULL`;
 
 const CASES: Case[] = [
   {
@@ -99,7 +108,81 @@ const CASES: Case[] = [
     expected: `type = 'wild' AND ${YES('laundry')}`,
     mayBeEmpty: true,
   },
+  // 🔴 CAMP-255. The one filter that carries a LEGAL claim — "a pin under
+  // this is read as allowed to stay the night" — and until now the one
+  // the check never ran. It broke here for a reason no unit test could
+  // see: the generated condition named its table (`s.overnight_status`)
+  // and this query, like every hand-written one beside it, has no alias.
+  {
+    name: 'overnight allowed — the confirmed ones, never the unknown',
+    query: { overnight: 'allowed' },
+    expected: OVERNIGHT_ALLOWED,
+  },
+  // 🔴 …and the rule the filter exists to keep, on real rows: loosening
+  // an AMENITY (`unknown=1`) must not let an unknown-overnight place in.
+  {
+    name: 'overnight allowed stays strict when an amenity is loosened',
+    query: { overnight: 'allowed', amenities: 'toilets', unknown: '1' },
+    expected: `${OVERNIGHT_ALLOWED} AND ${NOT_NO('toilets')}`,
+  },
 ];
+
+/**
+ * 🔴 CAMP-255. The fixture holds NO overnight answer: ci-seed.sql was cut
+ * before the column existed, and the migration makes every row `unknown`.
+ * A case about "allowed" would compare 0 rows with 0 rows — which is not
+ * a pass, it is a comparison that has never been able to fail (and the
+ * "proves nothing" check below would refuse it).
+ *
+ * So the run plants a few answers, INSIDE the transaction `main()` rolls
+ * back — the way verify-links.ts plants a link — rather than editing the
+ * seed, which a regeneration would silently undo.
+ *
+ * The rows are picked by SLUG ORDER, a field the filter under test never
+ * reads: choosing them by `overnight_status` would hand the corpus to the
+ * thing being measured. Both answers are planted, not only the one the
+ * filter asks for, so a filter that returned "anything but unknown" would
+ * disagree with the hand-written SQL. The rest stay `unknown`, which is
+ * the state of every real row until the importer next reads its tags.
+ */
+const PLANT = { allowed: 6, forbidden: 6 };
+
+async function plantOvernight(client: Client): Promise<void> {
+  const plant = (status: string, source: string, skip: number, take: number) =>
+    client.query(
+      `UPDATE camping_spots
+          SET overnight_status = $1,
+              overnight_source = $2,
+              overnight_checked_at = DATE '2026-10-12'
+        WHERE slug IN (SELECT slug FROM camping_spots
+                        WHERE missing_since IS NULL
+                          AND location && ST_MakeEnvelope($3, $4, $5, $6, 4326)
+                        ORDER BY slug OFFSET $7 LIMIT $8)`,
+      [status, source, ...BOX, skip, take],
+    );
+  await plant('allowed', 'osm:motorhome=yes', 0, PLANT.allowed);
+  await plant('forbidden', 'osm:motorhome=no', PLANT.allowed, PLANT.forbidden);
+
+  // The planting must have taken, and must have left both kinds of row
+  // the filter has to tell apart.
+  const seen = (
+    await client.query(
+      `SELECT overnight_status AS status, count(*)::int AS n
+         FROM camping_spots
+        WHERE missing_since IS NULL
+          AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+        GROUP BY 1`,
+      BOX,
+    )
+  ).rows as { status: string; n: number }[];
+  const n = (status: string) => seen.find((r) => r.status === status)?.n ?? 0;
+  if (n('allowed') < 1 || n('forbidden') < 1 || n('unknown') < 1) {
+    throw new Error(
+      `overnight planting did not leave all three kinds of row: ` +
+        JSON.stringify(seen),
+    );
+  }
+}
 
 const BASE = `FROM camping_spots
    WHERE missing_since IS NULL
@@ -143,16 +226,34 @@ async function main(): Promise<void> {
   const selfTest = process.argv.includes('--self-test');
   const client = new Client({ connectionString: DB_URL });
   await client.connect();
+  await client.query('BEGIN');
 
   let failed = 0;
   let ran = 0;
   let rehearsed = 0;
 
   try {
+    await plantOvernight(client);
+
     for (const c of CASES) {
       ran++;
-      const got = await slugsFromGenerator(client, c.query);
-      const want = await slugsFromHandWritten(client, c.expected);
+      // 🔴 One broken case costs one case. A query that does not even run
+      // used to escape as a stack trace and hide every case after it; a
+      // savepoint keeps the transaction usable so the rest still report.
+      await client.query('SAVEPOINT one_case');
+      let got: string[];
+      let want: string[];
+      try {
+        got = await slugsFromGenerator(client, c.query);
+        want = await slugsFromHandWritten(client, c.expected);
+      } catch (err) {
+        await client.query('ROLLBACK TO SAVEPOINT one_case');
+        console.error(
+          `  ✗ ${c.name}\n      SQL error: ${(err as Error).message}`,
+        );
+        failed++;
+        continue;
+      }
 
       const same =
         got.length === want.length && got.every((s, i) => s === want[i]);
@@ -210,6 +311,8 @@ async function main(): Promise<void> {
       }
     }
   } finally {
+    // Whatever happened above, nothing planted survives.
+    await client.query('ROLLBACK').catch(() => undefined);
     await client.end();
   }
 
@@ -228,7 +331,7 @@ async function main(): Promise<void> {
   // two moved together and a deleted case was invisible — the same
   // "a printed total is not a check" defect this card keeps finding,
   // one layer in.
-  const EXPECTED_CASES = 10;
+  const EXPECTED_CASES = 12;
   if (ran !== EXPECTED_CASES) {
     console.error(`\n✗ ${ran} cases ran, expected ${EXPECTED_CASES}`);
     process.exitCode = 1;

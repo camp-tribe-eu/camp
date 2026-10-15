@@ -7,6 +7,7 @@ import { slugifyRegion } from './canonical';
 import { filterSql, NO_FILTERS, type MapFilters } from './filters';
 import { gridFor, POINT_LIMIT, type Bbox } from './viewport';
 import { mergedNameSql, notSecondarySql } from './links';
+import { overnightStatusSql, type OvernightStatus } from './overnight';
 
 export * from './viewport';
 export * from './filters';
@@ -24,6 +25,9 @@ export * from './filters';
 const markerSelect = () =>
   `slug, ${mergedNameSql('s')} AS name,
    country, region, type, amenities, warning_areas,
+   -- 🔴 CAMP-255. Through the one gate every reader uses, so a status
+   -- with no source is unknown on the map exactly as on the page.
+   ${overnightStatusSql('s')} AS overnight_status,
    ST_Y(location::geometry) AS lat,
    ST_X(location::geometry) AS lon`;
 
@@ -54,6 +58,16 @@ export interface SpotMarker {
    * означає, що резолвер сюди не дійшов.
    */
   warningAreas: string[] | null;
+  /**
+   * CAMP-255: may a motorhome stay the night here.
+   *
+   * 🔴 The chunk file writes this only for `allowed` and `forbidden`, and
+   * leaves it out for `unknown` — the same convention as the amenities,
+   * for the same reason (96% of campsites would otherwise spend bytes
+   * saying "we do not know"). Absent therefore means unknown, and the
+   * filter reads it that way.
+   */
+  overnight: OvernightStatus;
   /**
    * 🔴 Built here, by the same function the pages use. The web app had
    * started re-deriving the region slug from the region name to make
@@ -474,6 +488,13 @@ function toMarker(row: Record<string, unknown>): SpotMarker {
     warningAreas: Array.isArray(row.warning_areas)
       ? (row.warning_areas as string[])
       : null,
+    // 🔴 The SQL gate already turned a status with no source into
+    // `unknown`; a value that is not one of the three words (a column
+    // this query did not select) falls back to it here too.
+    overnight:
+      row.overnight_status === 'allowed' || row.overnight_status === 'forbidden'
+        ? row.overnight_status
+        : 'unknown',
     path: canonicalPath(
       row.country as string,
       (row.region as string) ?? null,

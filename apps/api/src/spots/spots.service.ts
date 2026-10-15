@@ -40,6 +40,11 @@ export type { AirQualityFacts } from '../air/nearby';
 // live in canonical.ts, where a unit test can reach them.
 export { canonicalPath, readAmenities, slugifyRegion };
 import { SpotContext } from '../osm/spot-context';
+import {
+  overnightStatusSql,
+  toOvernightView,
+  type OvernightView,
+} from './overnight';
 import type { SpotSource } from '../entities/camping-spot.entity';
 
 /** One campsite as a page needs it. Geometry is already reduced to lat/lon. */
@@ -93,6 +98,16 @@ export interface SpotView {
    * мусить сказати це інакше, ніж «попереджень немає».
    */
   warningAreas: string[] | null;
+  /**
+   * CAMP-255: may a motorhome stay the night here — `allowed`,
+   * `forbidden` or `unknown`, with the source and the day beside every
+   * answer that is not `unknown`.
+   *
+   * 🔴 `unknown` is the common case and is NEVER rewritten into either
+   * answer on its way here: `toOvernightView` is total and falls back to
+   * it, and the page prints it as a sentence rather than hiding it.
+   */
+  overnight: OvernightView;
   /**
    * CAMP-147: the campsite's price list — a table, never one number.
    *
@@ -446,13 +461,30 @@ export class SpotsService {
    * Regions of one country. Every region is returned, including the thin
    * ones — leaving them out would break the crawl path to their campsites.
    */
-  async regions(
-    country: string,
-  ): Promise<
-    { region: string; slug: string; spots: number; indexable: boolean }[]
+  async regions(country: string): Promise<
+    {
+      region: string;
+      slug: string;
+      spots: number;
+      indexable: boolean;
+      overnightAllowed: number;
+      overnightForbidden: number;
+      overnightReadAt: string | null;
+    }[]
   > {
     const rows = await this.db.query(
-      `SELECT region, count(*)::int AS spots
+      `SELECT region, count(*)::int AS spots,
+              -- 🔴 CAMP-255. Counted through the ONE gate every reader
+              -- uses, from OUR rows. Unknown is not counted here: it is
+              -- spots - allowed - forbidden, derived where it is shown, so
+              -- the three can never add up to something else.
+              count(*) FILTER (WHERE ${overnightStatusSql('s')} = 'allowed')::int
+                AS overnight_allowed,
+              count(*) FILTER (WHERE ${overnightStatusSql('s')} = 'forbidden')::int
+                AS overnight_forbidden,
+              -- The day the figures above are a reading of: the last time
+              -- an import found any of these campsites in OpenStreetMap.
+              to_char(max(last_seen_at), 'YYYY-MM-DD') AS overnight_read_at
          FROM camping_spots s
         WHERE lower(country) = lower($1)
           AND region IS NOT NULL AND missing_since IS NULL
@@ -460,12 +492,23 @@ export class SpotsService {
         GROUP BY 1 ORDER BY 2 DESC, 1`,
       [country],
     );
-    return rows.map((r: { region: string; spots: number }) => ({
-      region: r.region,
-      slug: slugifyRegion(r.region),
-      spots: r.spots,
-      indexable: r.spots >= REGION_INDEX_THRESHOLD,
-    }));
+    return rows.map(
+      (r: {
+        region: string;
+        spots: number;
+        overnight_allowed: number;
+        overnight_forbidden: number;
+        overnight_read_at: string | null;
+      }) => ({
+        region: r.region,
+        slug: slugifyRegion(r.region),
+        spots: r.spots,
+        indexable: r.spots >= REGION_INDEX_THRESHOLD,
+        overnightAllowed: r.overnight_allowed,
+        overnightForbidden: r.overnight_forbidden,
+        overnightReadAt: r.overnight_read_at,
+      }),
+    );
   }
 
   /**
@@ -782,6 +825,9 @@ function toView(row: Record<string, unknown>): SpotView {
     warningAreas: Array.isArray(row.warning_areas)
       ? (row.warning_areas as string[])
       : null,
+    // 🔴 CAMP-255. A query that did not select the columns reads as
+    // `unknown`, which is the true answer about a page that never asked.
+    overnight: toOvernightView(row),
     // 🔴 `?? []`, and the default is "no prices", never a partial list.
     // Every query that does not select these columns is a query that
     // knows nothing about prices; the failure must be a page with no

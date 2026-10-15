@@ -764,3 +764,197 @@ export function mapContact(tags: OsmTags): SpotContact {
 
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Overnight stay — CAMP-255
+// ---------------------------------------------------------------------------
+
+/**
+ * Three states, and the third NEVER becomes either of the others.
+ *
+ * `unknown` is not "no" and it is not "probably yes". It is "nobody
+ * wrote it down where we could read it", and on this question that is
+ * the overwhelming majority of places: a fine issued in our name is the
+ * worst thing a map can do, and an `allowed` we cannot source is exactly
+ * that. So everything below is built to fail towards `unknown`.
+ */
+export type OvernightStatus = 'allowed' | 'forbidden' | 'unknown';
+
+export const OVERNIGHT_STATUSES: readonly OvernightStatus[] = [
+  'allowed',
+  'forbidden',
+  'unknown',
+];
+
+/**
+ * What the question IS. It is about a motorhome or campervan, because
+ * that is the vehicle OSM's `motorhome` key describes and the one the
+ * people asking "may I sleep here" are driving. It says nothing about a
+ * tent, a caravan on a tow bar, or a person sleeping in a car.
+ *
+ * On a `tourism=camp_site` this reads as "motorhomes accepted", and
+ * `no` as "tents only" — which for someone in a van IS the answer.
+ */
+export interface OvernightResolution {
+  status: OvernightStatus;
+  /**
+   * `osm:motorhome=yes` — which source said it and which tag, so a
+   * reader (and we, auditing) can go and look. Built ONLY from the
+   * recognised words, never from raw tag text, so it cannot carry
+   * somebody's free text onto a page.
+   *
+   * 🔴 Null exactly when `status` is `unknown`. The database enforces the
+   * same equivalence in a CHECK; this is the first of the two places that
+   * make "no source, no claim" true.
+   */
+  source: string | null;
+  /**
+   * Why a tag that WAS there did not become an answer — null when there
+   * was no tag at all, which is the ordinary case and not worth a line.
+   *
+   * 🔴 The import prints these, counted. A fallback nobody can see being
+   * taken is a fallback nobody can check: `customers` on one campsite is a
+   * decision, and 400 000 of them would be a different product.
+   */
+  leftUnknownBecause: string | null;
+}
+
+/** Words that mean the place is set up for it, or at least takes it. */
+const OVERNIGHT_YES = new Set(['yes', 'designated']);
+const OVERNIGHT_NO = new Set(['no']);
+
+/**
+ * 🔴 THE BOUNDARY VALUES, DECIDED, WITH THE NUMBERS BEHIND THEM.
+ *
+ * Only `yes`, `designated` and `no` are an answer. Everything else is
+ * `unknown` — and that is a rule with a reason, not a shrug:
+ *
+ *   permissive   permitted until the owner changes their mind. Real today,
+ *                not a right tomorrow; "allowed" would promise the second.
+ *   customers    allowed IF you buy something. A condition is not a yes —
+ *   permit       and not a no either, because somebody with the permit or
+ *                the receipt may stay. Both halves are a claim we cannot
+ *                make for the reader in front of us.
+ *   private      not for the public, but the owner may say yes. "Not
+ *                allowed" would tell a guest of that owner they may not.
+ *   discouraged  frowned on, not banned. Calling it forbidden is invention.
+ *   unknown /    the mapper's own "I do not know" — the one value that must
+ *   fixme        not be upgraded to a statement.
+ *
+ * Counts, read 15.10.2026 from taginfo.openstreetmap.org (key `motorhome`,
+ * all OSM objects, not only campsites): yes 6 799, no 3 640, designated
+ * 1 868 — 99.6% of use between them — and the whole conditional tail is
+ * discouraged 26, unknown 17, permit 12, destination 10, permissive 9,
+ * customers 6, limited 4, private 4, only 4 and nine more below that. In
+ * our own French staging: yes 309, designated 67, no 46, customers 1.
+ * Deciding the tail by hand costs almost nothing; deciding it WRONG is a
+ * sentence on a page.
+ *
+ * A semicolon list is an answer only when every part agrees:
+ * `yes;designated` is a yes, `yes;no` is a mapper contradicting themselves
+ * and is `unknown`.
+ */
+
+/**
+ * 🔴 A veto on `allowed` — never on `forbidden`. A `no` agrees with a
+ * closed gate, and a vetoed `yes` simply falls back to "we do not know".
+ *
+ * `access=no|private` says the site itself is not open to the public.
+ * Together with `motorhome=yes` that is a mapper contradicting
+ * themselves, and the safe reading of a contradiction is silence.
+ * Measured on the French staging (15.10.2026): 1 of the 376 positive rows
+ * is vetoed by this. `access=customers`, `permit` and `permissive` are
+ * deliberately NOT vetoes: on a campsite, "customers" is simply the
+ * people who booked a pitch.
+ */
+const ACCESS_VETO = new Set(['no', 'private']);
+
+/**
+ * A stay shorter than a night is not an overnight stay.
+ *
+ * `maxstay=2 hours` beside `motorhome=yes` describes a lay-by, and
+ * calling it "allowed to stay the night" would be wrong in the exact
+ * direction this module exists to avoid. Twelve hours is the line: the
+ * shortest limit on any positive row we hold is 24 hours, so today it
+ * vetoes nothing (0 of 376) and is here for the first row that needs it.
+ * Anything that is not a plain duration — `no`, `unlimited`, a seasonal
+ * rule — is not read as a limit and vetoes nothing.
+ */
+export const OVERNIGHT_MIN_STAY_HOURS = 12;
+
+const DURATION =
+  /^(\d+(?:[.,]\d+)?)\s*(h|hr|hrs|hour|hours|min|mins|minute|minutes)$/;
+
+/** `maxstay` in hours when it is a plain hours/minutes figure, else null. */
+export function maxstayHours(raw: string | null | undefined): number | null {
+  if (typeof raw !== 'string') return null;
+  const m = DURATION.exec(raw.trim().toLowerCase());
+  if (!m) return null;
+  const n = Number(m[1].replace(',', '.'));
+  if (!Number.isFinite(n)) return null;
+  return m[2].startsWith('m') ? n / 60 : n;
+}
+
+/** The first tag value as a lower-cased, trimmed string, or null. */
+const tagText = (tags: OsmTags, key: string): string | null => {
+  const raw = tags[key];
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim().toLowerCase();
+  return v === '' ? null : v;
+};
+
+/**
+ * OSM `motorhome` → overnight status.
+ *
+ * Total on purpose: no input throws. One malformed row must cost one
+ * row, never the run, and the only way to guarantee that here is a
+ * function with no way to fail.
+ */
+export function mapOvernight(tags: OsmTags): OvernightResolution {
+  const unknown = (because: string | null): OvernightResolution => ({
+    status: 'unknown',
+    source: null,
+    leftUnknownBecause: because,
+  });
+
+  const raw = tagText(tags, 'motorhome');
+  // 🔴 No tag is `unknown`, and it is the branch that carries almost the
+  // whole table: 12 488 of 12 911 French rows. It must never be `no`.
+  if (raw === null) return unknown(null);
+
+  const parts = splitValues(raw);
+  if (parts.length === 0) return unknown(null);
+
+  const allYes = parts.every((p) => OVERNIGHT_YES.has(p));
+  const allNo = parts.every((p) => OVERNIGHT_NO.has(p));
+  if (!allYes && !allNo) {
+    // The conditional tail, the mapper's own "unknown", and a list that
+    // disagrees with itself all end here.
+    return unknown(`motorhome=${parts.join(';').slice(0, 40)}`);
+  }
+
+  const source = `osm:motorhome=${[...new Set(parts)].join(';')}`;
+
+  if (allNo) return { status: 'forbidden', source, leftUnknownBecause: null };
+
+  // 🔴 `access` is read PART BY PART, exactly as `motorhome` is above:
+  // `private;customers` is a list, and reading it whole made the veto
+  // miss it — a private site became "allowed to stay the night". Any one
+  // closed part vetoes, wherever it stands: a list that says "private"
+  // anywhere is not a list that says "open".
+  const access = tagText(tags, 'access');
+  const closed =
+    access === null
+      ? undefined
+      : splitValues(access).find((p) => ACCESS_VETO.has(p));
+  if (closed !== undefined) {
+    // The part that vetoed, not the raw text: a recognised word, so the
+    // audit string stays short and carries nobody's free text.
+    return unknown(`access=${closed}`);
+  }
+  const hours = maxstayHours(tags['maxstay']);
+  if (hours !== null && hours < OVERNIGHT_MIN_STAY_HOURS) {
+    return unknown('maxstay<12h');
+  }
+  return { status: 'allowed', source, leftUnknownBecause: null };
+}

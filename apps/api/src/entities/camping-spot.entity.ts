@@ -6,7 +6,11 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Point } from 'geojson';
-import { AmenityValue, CampingSpotAmenities } from '../osm/tag-mapping';
+import {
+  AmenityValue,
+  CampingSpotAmenities,
+  OvernightStatus,
+} from '../osm/tag-mapping';
 
 export enum CampingSpotType {
   FREE = 'free',
@@ -176,6 +180,30 @@ export class CampingSpot {
    */
   @Column({ name: 'warning_areas', type: 'text', array: true, nullable: true })
   warningAreas: string[] | null;
+
+  /**
+   * CAMP-255: may a motorhome stay the night here. Three answers.
+   *
+   * 🔴 `unknown` is the default and the ordinary case, and it NEVER
+   * becomes `forbidden` or `allowed` by being absent. Read through
+   * `overnightStatusSql` / `toOvernightView` (spots/overnight.ts), never
+   * straight off the column: those are where "no source, no claim" is
+   * applied for every reader.
+   *
+   * The columns are written by the OSM importer only (`osm/import-spots`)
+   * and rewritten from the tags on every run — a `motorhome=yes` that a
+   * mapper later deletes must stop being an `allowed` the next Monday.
+   */
+  @Column({ name: 'overnight_status', type: 'text', default: 'unknown' })
+  overnightStatus: OvernightStatus;
+
+  /** `osm:motorhome=yes` — null exactly when `overnightStatus` is unknown. */
+  @Column({ name: 'overnight_source', type: 'text', nullable: true })
+  overnightSource: string | null;
+
+  /** The day WE last read that source's tag — not when a mapper edited it. */
+  @Column({ name: 'overnight_checked_at', type: 'date', nullable: true })
+  overnightCheckedAt: string | null;
 
   /**
    * Where each field came from, and when that source last changed it.

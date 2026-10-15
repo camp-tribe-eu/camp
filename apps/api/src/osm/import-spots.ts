@@ -20,7 +20,13 @@
 
 import 'dotenv/config';
 import { Client } from 'pg';
-import { mapAmenities, mapContact, mapSpotType, OsmTags } from './tag-mapping';
+import {
+  mapAmenities,
+  mapContact,
+  mapOvernight,
+  mapSpotType,
+  OsmTags,
+} from './tag-mapping';
 import { isEuMemberState } from './eu';
 import { foldToAscii } from '../spots/canonical';
 import { correctRegion, isKnownRegion } from './region-names';
@@ -304,7 +310,7 @@ export const MARK_GONE_SQL = `UPDATE camping_spots
 export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            (name, country, region, slug, type, amenities, location,
             osm_ref, last_seen_at, missing_since, content_changed_at, sources,
-            contact)
+            contact, overnight_status, overnight_source, overnight_checked_at)
          -- 🔴 $8::text in BOTH places, not just in the JSON below.
          --
          -- osm_ref is character varying, so an uncast $8 here made
@@ -326,8 +332,28 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
                    -- this list as "what this source gave us". A field we
                    -- write and do not declare is an attribution that lies
                    -- by omission.
-                   'fields', '["name","location","amenities","contact"]'::jsonb)),
-                 $10)
+                   -- 🔴 CAMP-255: "overnight" is declared ONLY when this
+                   -- source actually gave us an answer. The page prints
+                   -- this list as "what this source gave us", and
+                   -- listing it beside a row whose status is unknown
+                   -- would credit OSM with something it did not supply.
+                   'fields', '["name","location","amenities","contact"]'::jsonb
+                             || CASE WHEN $11::text = 'unknown'
+                                     THEN '[]'::jsonb
+                                     ELSE '["overnight"]'::jsonb END)),
+                 $10,
+                 -- 🔴 CAMP-255. The status, its source and the day we read
+                 -- it, written TOGETHER from one mapper result. The source
+                 -- comes from the mapper, which returns one exactly when
+                 -- it returns an answer; the day is decided HERE, from the
+                 -- status, so it cannot be passed inconsistently. The
+                 -- table's CHECK refuses anything that disagrees — and a
+                 -- guard on the source here would be a second copy of the
+                 -- mapper's rule that no test could tell from the first.
+                 $11::text,
+                 $12::text,
+                 CASE WHEN $11::text = 'unknown' THEN NULL
+                      ELSE $9::timestamptz::date END)
          ON CONFLICT (osm_ref) DO UPDATE SET
            name          = EXCLUDED.name,
            country       = EXCLUDED.country,
@@ -343,6 +369,13 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            -- inside a template literal, and the first draft of this
            -- comment ended the string and broke the build.)
            contact       = EXCLUDED.contact,
+           -- 🔴 CAMP-255. Rewritten from the tags on EVERY run, all three
+           -- together, so a motorhome=yes a mapper later deletes stops
+           -- being an "allowed" the next Monday — a stale claim is worse
+           -- than a missing one. Absent tag in, unknown out.
+           overnight_status     = EXCLUDED.overnight_status,
+           overnight_source     = EXCLUDED.overnight_source,
+           overnight_checked_at = EXCLUDED.overnight_checked_at,
            location      = EXCLUDED.location,
            last_seen_at  = EXCLUDED.last_seen_at,
            missing_since = NULL,
@@ -364,13 +397,21 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            -- changed, so using it as <lastmod> would restamp every page
            -- each Monday and teach crawlers the field is noise.
            content_changed_at = CASE
+             -- 🔴 CAMP-255: status and source, NOT the day. The day moves
+             -- every run, and a <lastmod> that moves with it restamps
+             -- every confirmed page each Monday, which is the churn this
+             -- CASE exists to prevent.
              WHEN (camping_spots.name, camping_spots.country,
                    camping_spots.region, camping_spots.type,
-                   camping_spots.amenities, camping_spots.contact)
+                   camping_spots.amenities, camping_spots.contact,
+                   camping_spots.overnight_status,
+                   camping_spots.overnight_source)
                   IS DISTINCT FROM
                   (EXCLUDED.name, EXCLUDED.country,
                    EXCLUDED.region, EXCLUDED.type,
-                   EXCLUDED.amenities, EXCLUDED.contact)
+                   EXCLUDED.amenities, EXCLUDED.contact,
+                   EXCLUDED.overnight_status,
+                   EXCLUDED.overnight_source)
                OR NOT ST_Equals(camping_spots.location, EXCLUDED.location)
              THEN EXCLUDED.last_seen_at
              ELSE camping_spots.content_changed_at
@@ -581,6 +622,14 @@ async function main(): Promise<void> {
    * campsites and the run would print exactly what it printed before.
    */
   let noCountryCode = 0;
+  // CAMP-255: what the run decided about overnight stay, counted.
+  //
+  // 🔴 Printed every run INCLUDING the zeros, and with the reason a tag
+  // that was present did not become an answer. A mapper that quietly
+  // stopped recognising `yes` would otherwise look exactly like a
+  // country with no tags.
+  const overnightCounts = { allowed: 0, forbidden: 0, unknown: 0 };
+  const overnightLeft = new Map<string, number>();
   // CAMP-288: how many names this run corrected, and which it could not.
   let renamed = 0;
   const unknownRegions = new Map<string, number>();
@@ -669,6 +718,14 @@ async function main(): Promise<void> {
       const amenities = mapAmenities(row.tags);
       const contact = mapContact(row.tags);
       const type = mapSpotType(row.tags).type;
+      const overnight = mapOvernight(row.tags);
+      overnightCounts[overnight.status]++;
+      if (overnight.leftUnknownBecause) {
+        overnightLeft.set(
+          overnight.leftUnknownBecause,
+          (overnightLeft.get(overnight.leftUnknownBecause) ?? 0) + 1,
+        );
+      }
 
       const res = await db.query(UPSERT_SPOT_SQL, [
         name,
@@ -681,6 +738,8 @@ async function main(): Promise<void> {
         row.osm_ref,
         startedAt,
         JSON.stringify(contact),
+        overnight.status,
+        overnight.source,
       ]);
       if (res.rows[0]?.was_insert) inserted++;
       else updated++;
@@ -773,6 +832,14 @@ async function main(): Promise<void> {
     console.log(
       `  names corrected    ${renamed}  (Natural Earth spelling → the state's: CAMP-288)`,
     );
+    console.log(
+      `  overnight stay     allowed ${overnightCounts.allowed} · forbidden ${overnightCounts.forbidden} · unknown ${overnightCounts.unknown}  (motorhome tag — CAMP-255)`,
+    );
+    for (const [why, n] of [...overnightLeft]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 15)) {
+      console.log(`    left unknown on purpose  ${why}  ${n}`);
+    }
     if (unknownRegions.size > 0) {
       console.log(
         `  🔴 ${unknownRegions.size} region name(s) this country does not have:`,

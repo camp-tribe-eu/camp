@@ -6,6 +6,7 @@ import {
   SPOT_TYPES,
 } from './filters';
 import { AMENITY_KEYS } from '../osm/tag-mapping';
+import { overnightStatusSql } from './overnight';
 
 describe('parseFilters: only values this codebase defines reach the SQL', () => {
   it('keeps known types and amenities', () => {
@@ -76,7 +77,12 @@ describe('filterSql: placeholders continue the caller’s numbering', () => {
 
   it('numbers types and amenities in one continuous run', () => {
     const sql = filterSql(
-      { types: ['free'], amenities: ['shower', 'wifi'], includeUnknown: false },
+      {
+        types: ['free'],
+        amenities: ['shower', 'wifi'],
+        includeUnknown: false,
+        overnight: false,
+      },
       4,
     );
     expect(sql.where).toContain('$5::text[]');
@@ -119,7 +125,12 @@ describe('filterSql: placeholders continue the caller’s numbering', () => {
 
   it('never leaves a filter value inline in the SQL text', () => {
     const sql = filterSql(
-      { types: ['free', 'paid'], amenities: ['shower'], includeUnknown: false },
+      {
+        types: ['free', 'paid'],
+        amenities: ['shower'],
+        includeUnknown: false,
+        overnight: false,
+      },
       4,
     );
     for (const value of ['free', 'paid', 'shower']) {
@@ -146,7 +157,79 @@ describe('describeFilters', () => {
         types: ['wild'],
         amenities: ['toilets'],
         includeUnknown: true,
+        overnight: false,
       }),
     ).toBe('types=wild amenities=toilets unknown=included');
+  });
+});
+
+// CAMP-255: the overnight filter. It is STRICT in every query it appears in.
+describe('overnight filter: only confirmed, and never padded with unknown', () => {
+  it('is read only from the one word this codebase defines', () => {
+    expect(parseFilters({ overnight: 'allowed' }).overnight).toBe(true);
+    // Not the amenity convention (`1`/`true`/`yes`), on purpose: this is a
+    // named status, and `overnight=forbidden` is not a filter anybody has.
+    for (const raw of [
+      undefined,
+      '',
+      '1',
+      'true',
+      'yes',
+      'forbidden',
+      'unknown',
+      'ALLOWED',
+      ['allowed'],
+      42,
+    ]) {
+      expect([raw, parseFilters({ overnight: raw }).overnight]).toEqual([
+        raw,
+        false,
+      ]);
+    }
+  });
+
+  it('asks for the sourced status, through the shared gate', () => {
+    const sql = filterSql({ ...NO_FILTERS, overnight: true }, 4);
+    expect(sql.where).toContain("= 'allowed'");
+    // The gate itself, not the bare column and not a re-spelling of it: a
+    // status with no source must not match here either, and what that
+    // means is defined once, in overnight.ts, and tested there.
+    expect(sql.where).toContain(overnightStatusSql());
+    expect(sql.params).toEqual([]);
+  });
+
+  // 🔴 THE RULE. A reader who ticks "includes places nobody recorded" for
+  // a shower must not thereby have unknown-status places drawn as allowed
+  // ones. Both the strict and the lenient question keep the condition.
+  it('🔴 keeps the condition in the lenient question too', () => {
+    const sql = filterSql(
+      {
+        ...NO_FILTERS,
+        amenities: ['shower'],
+        includeUnknown: true,
+        overnight: true,
+      },
+      4,
+    );
+    expect(sql.where).toContain("= 'allowed'");
+    expect(sql.lenientWhere).toContain("= 'allowed'");
+    // …while the amenity half of the same filter DID loosen.
+    expect(sql.where).toContain("IS DISTINCT FROM 'no'");
+  });
+
+  it('adds no placeholder, so the numbering after it is untouched', () => {
+    const without = filterSql({ ...NO_FILTERS, amenities: ['shower'] }, 4);
+    const withIt = filterSql(
+      { ...NO_FILTERS, amenities: ['shower'], overnight: true },
+      4,
+    );
+    expect(withIt.params).toEqual(without.params);
+    expect(withIt.where).toContain('$5');
+  });
+
+  it('is named in the description of the filter', () => {
+    expect(describeFilters({ ...NO_FILTERS, overnight: true })).toBe(
+      'overnight=allowed',
+    );
   });
 });

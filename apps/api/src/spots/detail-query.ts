@@ -3,6 +3,7 @@ import { airQualitySql } from '../air/nearby';
 import { nearbyWebcamsSql } from '../webcams/nearby';
 import { linkedSecondariesJoin } from './links';
 import { tariffsSql, withheldTariffCountSql } from './tariffs';
+import { OVERNIGHT_DAY_SQL, overnightStatusSql } from './overnight';
 
 /**
  * 🔴 Every column here is qualified `s.`, so the table MUST be aliased
@@ -69,6 +70,14 @@ export const SPOT_DETAIL_SQL = `SELECT s.slug, s.name, s.country, s.region, s.ty
               -- по-різному. (Без зворотних лапок: ми всередині
               -- шаблонного рядка, і файл попереджає про це вище.)
               s.warning_areas,
+              -- 🔴 CAMP-255. The status through the ONE gate every reader
+              -- uses (overnight.ts), so a status with no source reads as
+              -- unknown here exactly as it does on the map. The raw source
+              -- and the day travel with it: the page prints both beside
+              -- the claim. (No backticks: template literal.)
+              ${overnightStatusSql('s')} AS overnight_status,
+              s.overnight_source,
+              ${OVERNIGHT_DAY_SQL('s')} AS overnight_checked_at,
               -- 🔴 CAMP-144. The other sources' rows, joined in — not
               -- merged in SQL. Which field wins is a decision with
               -- reasons behind it (mergeLinked, below), and a reason

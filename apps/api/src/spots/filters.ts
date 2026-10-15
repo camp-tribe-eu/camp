@@ -25,6 +25,7 @@
 // filters.spec.ts checks the generated SQL against real rows.
 
 import { AMENITY_KEYS, AmenityKey } from '../osm/tag-mapping';
+import { overnightStatusSql } from './overnight';
 
 /** Mirrors CampingSpotType; kept as a union so this file stays ORM-free. */
 export const SPOT_TYPES = [
@@ -44,14 +45,30 @@ export interface MapFilters {
   /**
    * When true, a site whose answer is `unknown` still matches. The reader
    * asked for it after being told how many there are.
+   *
+   * 🔴 About AMENITIES only. See `overnight` below for why it does not
+   * reach that question.
    */
   includeUnknown: boolean;
+  /**
+   * CAMP-255: only places whose overnight stay is confirmed `allowed`.
+   *
+   * 🔴 STRICT IN BOTH QUERIES, and that is a decision rather than an
+   * omission. An amenity filter may offer to include the places nobody
+   * recorded, because a shower we cannot confirm costs the reader a
+   * detour. "May I sleep here" has no such offer: a pin that appears
+   * under "allowed" is read as allowed, so `unknown` must never be drawn
+   * there. The reader is told HOW MANY are unknown instead (the map's
+   * counter), which is the honest half of what CAMP-255 asks for.
+   */
+  overnight: boolean;
 }
 
 export const NO_FILTERS: MapFilters = {
   types: [],
   amenities: [],
   includeUnknown: false,
+  overnight: false,
 };
 
 /**
@@ -72,6 +89,9 @@ export function parseFilters(query: Record<string, unknown>): MapFilters {
     ) as SpotType[],
     amenities: pickKnown(query.amenities, AMENITY_KEYS) as AmenityKey[],
     includeUnknown: isTruthy(query.unknown),
+    // Only the one word this codebase defines; `overnight=forbidden`
+    // would be a filter for places to AVOID, which nobody has asked for.
+    overnight: query.overnight === 'allowed',
   };
 }
 
@@ -140,6 +160,20 @@ function build(
     parts.push(`type = ANY($${++n}::text[]::camping_spots_type_enum[])`);
   }
 
+  // 🔴 In BOTH builds — `allowUnknown` must not reach this line. See the
+  // note on `MapFilters.overnight`. It carries no parameter, so it cannot
+  // shift the numbering of anything after it.
+  //
+  // 🔴 NO TABLE ALIAS, like every other condition in this function
+  // (`type`, `amenities`). The runtime queries say `FROM camping_spots s`
+  // and verify-filters.ts says `FROM camping_spots`; a bare column works
+  // in both, `s.overnight_status` worked in one. The first version named
+  // the alias and CAMP-35's check died on it — and was never run on the
+  // one filter that makes a legal claim.
+  if (filters.overnight) {
+    parts.push(`${overnightStatusSql()} = 'allowed'`);
+  }
+
   for (const amenity of filters.amenities) {
     // 🔴 The key travels as a parameter, not as text spliced into the
     // query. It is already restricted to AMENITY_KEYS by parseFilters, so
@@ -171,5 +205,6 @@ export function describeFilters(filters: MapFilters): string {
   if (filters.amenities.length)
     bits.push(`amenities=${filters.amenities.join('+')}`);
   if (filters.includeUnknown) bits.push('unknown=included');
+  if (filters.overnight) bits.push('overnight=allowed');
   return bits.join(' ') || 'none';
 }

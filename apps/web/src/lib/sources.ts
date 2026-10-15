@@ -220,6 +220,11 @@ export const FIELD_LABEL: Record<string, string> = {
   // field a reader is most likely to act on, and Licence Ouverte asks
   // for the source and the date of what we reuse.
   tariffs: 'prices',
+  // CAMP-255. Credited only on a row whose status OSM actually gave us
+  // (the importer declares it conditionally): "overnight stay" beside a
+  // place we know nothing about would credit OSM with an answer it did
+  // not supply.
+  overnight: 'overnight stay',
 };
 
 /**
