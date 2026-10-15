@@ -42,8 +42,8 @@ export interface Query {
 const R = 30_000;
 
 /**
- * Spread on purpose: one country each, and four border queries where a
- * country-shaped bias would show.
+ * Spread on purpose: eight countries, and the queries labelled with two
+ * codes sit on a border, where a country-shaped bias would show.
  */
 export const QUERIES: readonly Query[] = [
   { name: 'Zeeland NL/BE', lon: 3.9, lat: 51.5, radiusM: R },
