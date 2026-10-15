@@ -788,6 +788,50 @@ describe('CAMP-255 mapOvernight: unknown never becomes either answer', () => {
       }
     });
 
+    // 🔴 CAMP-255 review: `access` was read WHOLE while `motorhome` right
+    // beside it is split on `;`. `private;customers` is not the word
+    // `private`, so the veto did not fire and a private site became an
+    // "allowed" — the one direction this module exists to refuse.
+    it('🔴 a list is read part by part: ANY closed part vetoes, wherever it stands', () => {
+      for (const access of [
+        'private;customers',
+        'customers;private',
+        'no;permit',
+        'yes;no',
+        ' Customers ; PRIVATE ',
+        'customers;private;yes',
+      ]) {
+        const r = m({ motorhome: 'yes', access });
+        expect([access, r.status, r.source]).toEqual([access, 'unknown', null]);
+      }
+    });
+
+    it('the audit string names the word that vetoed, never the raw list', () => {
+      expect(
+        m({ motorhome: 'yes', access: 'customers;private' }).leftUnknownBecause,
+      ).toBe('access=private');
+      // Bounded: free text beside a veto word cannot ride along.
+      const long = `${'x'.repeat(500)};private`;
+      expect(m({ motorhome: 'yes', access: long }).leftUnknownBecause).toBe(
+        'access=private',
+      );
+    });
+
+    // The other half of the same rule, so it cannot be satisfied by
+    // vetoing every list: a list with NO closed part still answers.
+    it('a list with no closed part does not veto', () => {
+      for (const access of [
+        'customers;permit',
+        'yes;customers',
+        'permissive;yes',
+      ]) {
+        expect([access, m({ motorhome: 'yes', access }).status]).toEqual([
+          access,
+          'allowed',
+        ]);
+      }
+    });
+
     it('customers, permit, permissive and yes do NOT veto — on a campsite a customer is a camper', () => {
       for (const access of ['customers', 'permit', 'permissive', 'yes']) {
         expect(m({ motorhome: 'yes', access }).status).toBe('allowed');

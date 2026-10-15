@@ -937,9 +937,20 @@ export function mapOvernight(tags: OsmTags): OvernightResolution {
 
   if (allNo) return { status: 'forbidden', source, leftUnknownBecause: null };
 
+  // 🔴 `access` is read PART BY PART, exactly as `motorhome` is above:
+  // `private;customers` is a list, and reading it whole made the veto
+  // miss it — a private site became "allowed to stay the night". Any one
+  // closed part vetoes, wherever it stands: a list that says "private"
+  // anywhere is not a list that says "open".
   const access = tagText(tags, 'access');
-  if (access !== null && ACCESS_VETO.has(access)) {
-    return unknown(`access=${access}`);
+  const closed =
+    access === null
+      ? undefined
+      : splitValues(access).find((p) => ACCESS_VETO.has(p));
+  if (closed !== undefined) {
+    // The part that vetoed, not the raw text: a recognised word, so the
+    // audit string stays short and carries nobody's free text.
+    return unknown(`access=${closed}`);
   }
   const hours = maxstayHours(tags['maxstay']);
   if (hours !== null && hours < OVERNIGHT_MIN_STAY_HOURS) {

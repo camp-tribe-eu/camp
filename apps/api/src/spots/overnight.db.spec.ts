@@ -346,6 +346,24 @@ describe('the weekly upsert', () => {
     });
   });
 
+  // 🔴 CAMP-255 review. Through the real UPSERT, because "written to the
+  // database as allowed" is what the finding says happened.
+  it('🔴 a yes beside `access=private;customers` is stored as unknown, not allowed', async () => {
+    await upsert('n-access-list', {
+      motorhome: 'yes',
+      access: 'private;customers',
+    });
+    expect(await rowOf('n-access-list')).toMatchObject({
+      status: 'unknown',
+      source: null,
+      day: null,
+    });
+    // Anchor: the same row WITHOUT the list is an allowed, so the line
+    // above is about the veto and not about a broken fixture.
+    await upsert('n-access-open', { motorhome: 'yes', access: 'customers' });
+    expect((await rowOf('n-access-open')).status).toBe('allowed');
+  });
+
   it('a yes that turns into a no is rewritten, source and all', async () => {
     await upsert('n-flip', { motorhome: 'designated' });
     await upsert(
