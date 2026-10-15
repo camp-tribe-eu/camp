@@ -46,8 +46,14 @@ if [ "$1" = install ]; then
     echo 'НЕ чіпав би: gate.conf (симлінк стану) і gate-closed.conf (у ньому хеш).'
     exit 0
   fi
-  # Спершу поруч, потім перевірка, і лише тоді на місце: конфіг, який не
-  # проходить validate, не має шансу стати чинним навіть на мить.
+  # 🔴 ЦЕ СТОСУЄТЬСЯ ЛИШЕ Caddyfile: він лягає поруч як `.new`, проходить
+  # validate і лише тоді стає на місце, тож конфіг, який не валідується,
+  # не буває чинним навіть мить. Дві половинки замка кладуться ДО того —
+  # і це навмисно й безпечно: `gate-open.conf` нічого не робить, доки
+  # `gate.conf` на нього не показує (а його цей крок не чіпає), а
+  # `gate-closed.conf.example` взагалі ніким не імпортується. Рецензія
+  # слушно зауважила, що попереднє формулювання обіцяло більше, ніж код
+  # робить: воно звучало як гарантія на всі три файли.
   tar -C "$CADDY_SRC" -cf - camptribe.eu.caddyfile gate-open.conf gate-closed.conf.example \
     | ssh_ 'set -e; d=$(mktemp -d /tmp/camptribe-caddy.XXXXXX); tar -C "$d" -xf -;
             install -m 0644 "$d/gate-open.conf" /etc/caddy/gate-open.conf;
