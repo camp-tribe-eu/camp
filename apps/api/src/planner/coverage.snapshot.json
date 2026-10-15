@@ -1,0 +1,65 @@
+{
+  "measuredAt": "2026-10-15 10:59:45.77849+02",
+  "population": {
+    "n": 52501
+  },
+  "queryHash": "aad73741c49bb4da1e03b0ae0bea3f2058235b4d8d781092553d928831da9695",
+  "fields": {
+    "location": {
+      "known": 52501
+    },
+    "stars": {
+      "known": 4214
+    },
+    "electricity": {
+      "known": 17042,
+      "yes": 13669
+    },
+    "water": {
+      "known": 13192,
+      "yes": 11238
+    },
+    "shower": {
+      "known": 10776,
+      "yes": 8875
+    },
+    "toilets": {
+      "known": 13007,
+      "yes": 10939
+    },
+    "dogFriendly": {
+      "known": 5002,
+      "yes": 4744
+    },
+    "wifi": {
+      "known": 9397,
+      "yes": 7002
+    },
+    "greyWater": {
+      "known": 12929,
+      "yes": 10314
+    },
+    "laundry": {
+      "known": 1564,
+      "yes": 1494
+    },
+    "wheelchair": {
+      "known": 4712,
+      "yes": 4107
+    },
+    "wheelchairFull": {
+      "known": 4712,
+      "yes": 3043
+    }
+  },
+  "evidence": {
+    "starsMean": 2.9852871381110586,
+    "starsOwnRow": 1589,
+    "starsKnownByCountry": {
+      "FR": 4208,
+      "BE": 3,
+      "DE": 2,
+      "ES": 1
+    }
+  }
+}
