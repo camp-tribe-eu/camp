@@ -34,8 +34,9 @@
 //   · stars — a French official classification, on a few per cent;
 //   · season or opening dates — no column holds them, so there is nothing
 //     known to reject on;
-//   · overnight status — it reads the OSM `motorhome` tag only, so it is an
-//     answer about one kind of vehicle, not about the campsite.
+//   · overnight status — it reads the OSM `motorhome` tag (with an `access`
+//     veto), so it is an answer about one kind of vehicle, not about the
+//     campsite.
 // Each would be a filter on our own blindness. Add one only with a measured
 // field above the floor, and `assertHardAllowed` will say if it is not.
 
@@ -303,7 +304,7 @@ const needs: HardRule = {
       // 🔴 `IS DISTINCT FROM 'no'`, never `= 'yes'`. NULL (the key is not
       // there at all — a row written before the amenity existed, or a
       // French row that stores `{}`) IS DISTINCT FROM 'no', so it passes, as does
-      // the word `unknown`. `= 'yes'` is the 96.7% empty result.
+      // the word `unknown`. `= 'yes'` is the empty result CAMP-246 measured.
       where: keys
         .map(
           (_, i) =>

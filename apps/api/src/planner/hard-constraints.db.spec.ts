@@ -18,6 +18,7 @@ import {
   loadScoring,
 } from './scoring';
 import {
+  format,
   measureConstraints,
   Measurement,
   problemsOf,
@@ -899,6 +900,14 @@ describe('measure-constraints: the counts the report prints, on a table whose an
     // el-over-no (the owner's no), el-over-bad (a correction that is not an
     // object leaves the imported no). Everything else of the 26 is unknown.
     expect(el).toEqual({ key: 'electricity', yes: 3, no: 3, unknown: 20 });
+    // Electricity is 3 and 3, which cannot tell a swap of the two apart; dogs
+    // are not: yes = dog-yes and both-yes, no = dog-no.
+    expect(m.journeys[0].needs.find((n) => n.key === 'dogFriendly')).toEqual({
+      key: 'dogFriendly',
+      yes: 2,
+      no: 1,
+      unknown: 23,
+    });
     for (const n of m.journeys[0].needs) {
       expect(n.yes + n.no + n.unknown).toBe(26);
     }
@@ -910,6 +919,12 @@ describe('measure-constraints: the counts the report prints, on a table whose an
     expect(el?.yes).toBe(4);
     expect(el?.no).toBe(4);
     expect(el!.yes + el!.no + el!.unknown).toBe(35);
+    expect(m.eu.find((n) => n.key === 'dogFriendly')).toEqual({
+      key: 'dogFriendly',
+      yes: 2,
+      no: 1,
+      unknown: 32,
+    });
   });
 
   it('lists the country codes the source ACTUALLY holds, and flags the one outside the Union', async () => {
@@ -948,6 +963,18 @@ describe('measure-constraints: the counts the report prints, on a table whose an
     } finally {
       await db.query('ROLLBACK');
     }
+  });
+
+  it('prints those numbers, in the columns it labels', () => {
+    const text = format(m, 'test');
+    // The row for dogs over the corridor: yes 2, no 1, unknown 23; rejected
+    // as `no` is 1 of 26 (3.8%); rejected as `not yes` is 24 of 26 (92.3%).
+    expect(text).toMatch(/dogFriendly\s+2\s+1\s+23\s+1\s+3\.8%\s+24\s+92\.3%/);
+    expect(text).toMatch(/fixture {2}\(buffer 30 km\): 35 -> corridor 26/);
+    expect(text).toMatch(/rejects 9 \(25\.7%\)/); // 9 of the 35, not of the 39
+    expect(text).toMatch(/page\s+3\s+7\.7%/);
+    expect(text).toMatch(/outside the scope: CH 1;/);
+    expect(text).toMatch(/written other than the member's own code: AX 1/);
   });
 
   it('calls a rule that rejects nothing, or everything, by its name', () => {
