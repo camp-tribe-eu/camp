@@ -8,15 +8,82 @@
 // whether the query is an index scan or a sequential one.
 
 import {
+  isRestStopKind,
   isRoutePoiKind,
   ROUTE_POI_KINDS,
   SERVICES_PER_KIND,
   type RoutePoiKind,
 } from '../osm/route-poi';
+import { type FacilityState } from '../osm/route-poi-facilities';
 import { DEFAULT_PER_POINT, OVERFETCH } from './route-points';
 // CAMP-154: the three sources whose licences permit us to republish a
 // per-station price. A closed list, and the only one the query may serve.
 import { SOURCES } from '../fuel/stations';
+
+/**
+ * CAMP-119: what OpenStreetMap says about the five facilities a driver
+ * asks a rest area about. Each is one of THREE words, and the third is a
+ * value rather than an absence: `unknown` is "nobody wrote it down", and
+ * it is never `no`.
+ *
+ * 🔴 The keys are camelCase because this is JSON; the database columns
+ * they come from are in FACILITY_FIELDS, one place, so the SELECT, the
+ * mapping and the spec that compares them with the migration cannot
+ * disagree about which column is which.
+ *
+ * 🔴 There is no field for how CLEAN or WORKING a toilet is. That is what
+ * the owner said decides the stop, it is not in open data, and it will
+ * arrive as community reviews (CAMP-53) or not at all. A field here that
+ * could carry a score would be the first place an invented one appeared.
+ */
+export interface RouteServiceFacilities {
+  toilets: FacilityState;
+  shower: FacilityState;
+  drinkingWater: FacilityState;
+  /** `sanitary_dump_station` on the place itself, not the nearest dump point. */
+  dumpStation: FacilityState;
+  fee: FacilityState;
+}
+
+/**
+ * The five columns, and the key each is sent under. Written as data so
+ * the SQL, the row mapping and the spec read one list.
+ */
+export const FACILITY_FIELDS = [
+  { key: 'toilets', column: 'toilets' },
+  { key: 'shower', column: 'shower' },
+  { key: 'drinkingWater', column: 'drinking_water' },
+  { key: 'dumpStation', column: 'sanitary_dump_station' },
+  { key: 'fee', column: 'fee' },
+] as const satisfies readonly {
+  key: keyof RouteServiceFacilities;
+  column: string;
+}[];
+
+/**
+ * One facility column → the word a reader is told.
+ *
+ * 🔴 TOTAL, AND FAIL-SAFE IN ONE DIRECTION. Only the exact strings `yes`
+ * and `no` are answers; everything else — `unknown`, NULL, a missing
+ * column from a query that did not select it, a status word a half-
+ * deployed migration has not heard of — is `unknown`. The table's CHECK
+ * already refuses anything else, so this is the second lock for every
+ * caller that is not the table, and it is written so that the one thing
+ * it cannot produce from a gap is `no`.
+ */
+export function readFacilityState(raw: unknown): FacilityState {
+  return raw === 'yes' || raw === 'no' ? raw : 'unknown';
+}
+
+/** The five facility columns of one row, as the page is sent them. */
+export function facilitiesFromRow(
+  row: Record<string, unknown>,
+): RouteServiceFacilities {
+  const out = {} as RouteServiceFacilities;
+  for (const f of FACILITY_FIELDS)
+    out[f.key] = readFacilityState(row[f.column]);
+  return out;
+}
 
 /** One service beside a stage, or the fact that there is none. */
 export interface RouteService {
@@ -77,6 +144,15 @@ export interface RouteService {
    * `measuredAt` and `source` so the page can say which it is showing.
    */
   prices?: RouteFuelStationPrice[];
+  /**
+   * CAMP-119 — what the place says about toilets, showers, drinking
+   * water, a disposal point and a fee. 🔴 Present on `rest_area` and
+   * `service_area` and ABSENT on the other seven kinds, and on those two
+   * it is always present with all five keys: a stopping place whose
+   * facilities were never read is five `unknown`, not a missing object,
+   * so a page cannot mistake "no facilities block" for "no facilities".
+   */
+  facilities?: RouteServiceFacilities;
 }
 
 /** One grade's price on one forecourt. */
@@ -143,10 +219,18 @@ export const ODBL_SUBSTANTIAL_FLOOR = 100;
  *
  * This is the constraint the old numbers were hiding. A route page shows
  * `DEFAULT_PER_POINT` campsites AND one of each service kind per stage,
- * so it takes 4 + 7 = 11 objects from the database per stage. The ODbL
- * Produced Work position rests on staying under 100 of them, which makes
- * NINE stages the real ceiling — not the 12 the points parser allows and
- * not the 7 the current library happens to have.
+ * so it takes `DEFAULT_PER_POINT + ROUTE_POI_KINDS.length` objects from
+ * the database per stage: 4 + 7 = 11 until CAMP-119, 4 + 9 = 13 now. The
+ * ODbL Produced Work position rests on staying under 100 of them, which
+ * made NINE stages the real ceiling with seven kinds and makes SEVEN the
+ * ceiling with nine — not the 12 the points parser allows.
+ *
+ * 🔴 SEVEN IS ALSO THE LONGEST ROUTE IN THE LIBRARY, so there is no
+ * headroom left: an eighth stage on any route is refused by the web
+ * suite (`routes.spec.ts`, "no route has more stages than the services
+ * endpoint will answer about") before it is ever refused here. That is
+ * the intended order — the author is told at commit time, not the reader
+ * at build time — and it is a cost of CAMP-119 named here, not hidden.
  *
  * Review found the gap exactly here: the services cap was 56 against an
  * askable 84, so a nine-stage route satisfied the API spec (which
@@ -194,7 +278,26 @@ export function parseKinds(raw: unknown): RoutePoiKind[] {
 }
 
 /**
- * One query per stage: seven index scans in a UNION ALL, then the
+ * `alias.toilets, alias.shower, …` — the five facility columns, from the
+ * one list. 🔴 Selected for EVERY kind, because a UNION ALL needs the same
+ * columns in every block; only the two stopping places are ever READ for
+ * them (see `rowToRouteService`), so the other seven carry five strings
+ * that are dropped on the way out.
+ */
+const FACILITY_COLUMNS_SQL = (alias: string): string =>
+  FACILITY_FIELDS.map((f) => {
+    // Belt and braces, as for the kinds and the source ids: this is
+    // interpolated into SQL and nothing here comes from a request.
+    if (!/^[a-z_]+$/.test(f.column)) {
+      throw new Error(
+        `route-services: unsafe column ${JSON.stringify(f.column)}`,
+      );
+    }
+    return `${alias}.${f.column}`;
+  }).join(', ');
+
+/**
+ * One query per stage: one index scan per kind in a UNION ALL, then the
  * nearest of each kind.
  *
  * 🔴 Overfetched and re-sorted, the same as spots.nearby() and
@@ -222,7 +325,8 @@ export function buildServicesSql(kinds: RoutePoiKind[]): string {
       throw new Error(`route-services: unknown kind ${JSON.stringify(kind)}`);
     }
     return `(SELECT '${kind}'::text AS kind, r.osm_ref, r.name, r.location,
-                    r.phone, r.website, r.opening_hours
+                    r.phone, r.website, r.opening_hours,
+                    ${FACILITY_COLUMNS_SQL('r')}
                FROM osm_route_poi r
               WHERE r.kind = '${kind}'
               ORDER BY r.location <-> (SELECT g FROM here)
@@ -237,6 +341,7 @@ export function buildServicesSql(kinds: RoutePoiKind[]): string {
           ),
           measured AS (
             SELECT c.kind, c.osm_ref, c.name, c.phone, c.website, c.opening_hours,
+                   ${FACILITY_COLUMNS_SQL('c')},
                    ST_Y(c.location) AS lat, ST_X(c.location) AS lon,
                    ST_Distance(c.location::geography,
                                (SELECT g FROM here)::geography) AS metres
@@ -258,15 +363,15 @@ export function buildServicesSql(kinds: RoutePoiKind[]): string {
  *
  * 🔴 A correlated subquery on the FINAL row, not a join in `cand`.
  *
- * `cand` holds `$3 × 7` candidates per stage before the nearest of each
- * kind is chosen; joining prices there would look them up for every
+ * `cand` holds `$3` candidates PER KIND per stage before the nearest of
+ * each kind is chosen; joining prices there would look them up for every
  * candidate we are about to discard. Here it runs once per stage, for
  * one row.
  *
- * 🔴 `p.kind = 'fuel'` short-circuits it for the other six kinds. A café
+ * 🔴 `p.kind = 'fuel'` short-circuits it for every other kind. A café
  * has no row in `fuel_station_prices` so the result would be null
- * anyway — but "would be null anyway" is six index probes per stage
- * that exist only to return nothing, and this project has already paid
+ * anyway — but "would be null anyway" is one index probe per other kind
+ * per stage that exists only to return nothing, and this project has already paid
  * 9 699 ms for one plausible-looking lookup on this table.
  *
  * 🔴 `price_eur::text`. The column is `numeric(6,3)`; `json_build_object`
@@ -320,3 +425,43 @@ export const FUEL_PRICE_SUBQUERY = `(
 
 /** How many candidates each kind's index walk fetches before re-sorting. */
 export const servicesOverfetch = (perKind: number) => perKind * OVERFETCH;
+
+/**
+ * One row of `buildServicesSql` → what the endpoint sends.
+ *
+ * 🔴 HERE AND NOT INLINE IN routes.service.ts, for the reason this file's
+ * header gives: the service imports @nestjs/typeorm, which Jest cannot
+ * parse in this package, so a mapping written there has no test while
+ * appearing to have one. It was inline until CAMP-119 added a field to
+ * it, and a field that decides whether a rest area says "toilets: no" or
+ * "toilets: not known" is not one to leave untested.
+ */
+export function rowToRouteService(r: Record<string, unknown>): RouteService {
+  const kind = r.kind as RoutePoiKind;
+  return {
+    kind,
+    osmRef: r.osm_ref as string,
+    name: (r.name as string | null) ?? null,
+    lat: Number(r.lat),
+    lon: Number(r.lon),
+    metres: Math.round(Number(r.metres)),
+    // 🔴 `?? null`, never `?? ''`. An empty string renders as a blank
+    // cell that reads "none"; null is what the page turns into the word
+    // "unknown", which is the card's acceptance criterion and the
+    // difference between the two facts.
+    phone: (r.phone as string | null) ?? null,
+    website: (r.website as string | null) ?? null,
+    openingHours: (r.opening_hours as string | null) ?? null,
+    // CAMP-154. `json_agg` over no rows is SQL NULL, not `[]`, so the
+    // overwhelming majority of fuel points and every non-fuel kind
+    // arrive here as null — which is the honest shape: the key is simply
+    // absent, and the page then says we hold no price rather than
+    // rendering an empty space beside a pump.
+    ...(Array.isArray(r.prices) && r.prices.length > 0
+      ? { prices: r.prices as RouteFuelStationPrice[] }
+      : {}),
+    // CAMP-119. The two stopping places, always with all five keys; no
+    // other kind, ever. See RouteService.facilities.
+    ...(isRestStopKind(kind) ? { facilities: facilitiesFromRow(r) } : {}),
+  };
+}

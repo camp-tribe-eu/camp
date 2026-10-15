@@ -3,11 +3,16 @@ import { formatKm, STRAIGHT_LINE_LABEL } from '@/lib/routes';
 import {
   AVERAGE_BADGE,
   displayPrices,
+  FACILITY_KEYS,
+  FACILITY_LABEL,
+  FACILITY_STATE_LABEL,
   FUEL_ATTRIBUTION,
   FUEL_BULLETIN_DATE,
   FUEL_SOURCE,
+  hasFacilities,
   NO_STATION_PRICE,
   PRICE_STALE_AFTER_DAYS,
+  readFacilities,
   SERVICE_ABSENT,
   SERVICE_KINDS,
   SERVICE_LABEL,
@@ -31,6 +36,9 @@ import {
 // simply missing from the list reads as an oversight, and a blank cell
 // beside "Phone" reads as "this place has no phone" — which is a claim
 // about the world, where the truth is a claim about our data.
+//
+// (Written when there were seven kinds; there are nine now, and every one
+// is still listed at every stage.)
 //
 // Measured against the 67 published stages on 28.09.2026, this is not a
 // rare path. Six kinds are found within 25 km of all 67; chemical-toilet
@@ -80,6 +88,61 @@ function Hours({ value }: { value: string | null }) {
     <span className="font-mono text-ink-2" data-testid="service-hours">
       {value}
     </span>
+  );
+}
+
+/**
+ * CAMP-119 — what OpenStreetMap says about a rest area's toilets, shower,
+ * drinking water, disposal point and fee. Five words, always five.
+ *
+ * 🔴 ALWAYS FIVE, AND `Not known` IS A WORD, NOT A GAP IN THE ROW. A line
+ * that omitted the facilities nobody wrote down would make the usual rest
+ * area — one OSM describes by its toilets alone, or by nothing — look like
+ * a place with a short list of amenities, and a driver would read the
+ * missing shower as "no shower". Same rule as the campsite page's amenity
+ * grid and CAMP-255's overnight answer: the third state is printed.
+ *
+ * 🔴 NO COLOUR CARRIES THE ANSWER, AND THERE IS NO TICK OR CROSS. The word
+ * is the answer (WCAG 1.4.1) — the grey on "Not known" is emphasis for
+ * someone who can see it, and the line reads the same without it. A green
+ * tick beside "Toilets" would be a verdict on a toilet
+ * we know nothing about. The owner's own sentence is that whether a toilet
+ * is clean or working is what decides the stop — it is not in open data,
+ * the paragraph under the list says so, and this component has no prop
+ * that could carry a score.
+ */
+function Facilities({ raw }: { raw: unknown }) {
+  const facilities = readFacilities(raw);
+  return (
+    <ul
+      className="mt-0.5 flex flex-wrap items-baseline gap-x-4 gap-y-0.5 text-xs"
+      data-testid="service-facilities"
+    >
+      {FACILITY_KEYS.map((key) => {
+        const state = facilities[key];
+        return (
+          <li
+            key={key}
+            data-facility={key}
+            data-state={state}
+            className={state === 'unknown' ? 'text-ink-3' : 'text-ink-2'}
+          >
+            {FACILITY_LABEL[key]}:{' '}
+            <span
+              className={
+                state === 'yes'
+                  ? 'font-semibold text-heading'
+                  : state === 'unknown'
+                    ? 'italic'
+                    : 'font-medium'
+              }
+            >
+              {FACILITY_STATE_LABEL[state]}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -304,6 +367,14 @@ function ServiceRow({
             <StationPrices prices={displayPrices(point, now)} />
           </div>
         ) : null}
+        {/* 🔴 CAMP-119: on the two stopping places and on EVERY one of
+            them. Gated on the kind and not on `point.facilities` being
+            present, for the same reason the fuel price above is: the
+            absent case must print its five "Not known" words, and a
+            gate on the data would make the commonest case — a rest
+            area OSM does not describe — look like a row that forgot
+            something. */}
+        {hasFacilities(kind) ? <Facilities raw={point.facilities} /> : null}
         <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs">
           <Hours value={point.openingHours} />
           <Phone value={point.phone} />
@@ -525,6 +596,15 @@ export default function RouteStageServices({
         not translate them into &ldquo;open now&rdquo;, because most of them
         carry seasons and exceptions a rewrite would lose. We have not phoned
         ahead, and we hold no ratings or photographs of these places.
+        {/* 🔴 CAMP-119. The same words on every stage, so they sit inside
+            the one marked paragraph and not in a second one: the guard
+            looks away from marked text, and this is a promise about
+            every stop rather than a fact about this one. */}{' '}
+        For rest areas and service areas we also print what OpenStreetMap
+        records about toilets, showers, drinking water, chemical-toilet
+        disposal and a fee. &ldquo;Not known&rdquo; means nobody has written
+        it down, which is not the same as &ldquo;No&rdquo;. Whether a toilet
+        is clean or working is not in open data, so nothing here says.
       </p>
     </div>
   );

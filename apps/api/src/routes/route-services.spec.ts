@@ -2,13 +2,19 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   buildServicesSql,
+  FACILITY_FIELDS,
+  facilitiesFromRow,
   FUEL_PRICE_SUBQUERY,
   MAX_SERVICE_POINTS,
   MAX_SERVICES_TOTAL,
   ODBL_SUBSTANTIAL_FLOOR,
   parseKinds,
+  readFacilityState,
+  rowToRouteService,
   servicesOverfetch,
 } from './route-services';
+import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
+import { TRISTATE_COLUMNS } from '../osm/route-poi-facilities';
 import { DEFAULT_PER_POINT, MAX_POINTS } from './route-points';
 import { SOURCES } from '../fuel/stations';
 import {
@@ -97,14 +103,17 @@ describe('the SQL a stage runs', () => {
   it('labels each block with the kind that block actually selects', () => {
     expect(blocks).toHaveLength(ROUTE_POI_KINDS.length);
     for (const block of blocks) {
-      const label = /SELECT '([a-z]+)'::text AS kind/.exec(block)?.[1];
-      const where = /WHERE r\.kind = '([a-z]+)'/.exec(block)?.[1];
+      // 🔴 `[a-z_]+`, and the underscore is CAMP-119's: `rest_area` is two
+      // words, and `[a-z]+` read it as nothing — which this test reports
+      // as a missing label rather than as a regex that cannot see it.
+      const label = /SELECT '([a-z_]+)'::text AS kind/.exec(block)?.[1];
+      const where = /WHERE r\.kind = '([a-z_]+)'/.exec(block)?.[1];
       expect(label).toBeTruthy();
       expect(label).toBe(where);
     }
     // …and between them they cover every kind exactly once.
     const labels = blocks.map(
-      (b) => /SELECT '([a-z]+)'::text AS kind/.exec(b)?.[1],
+      (b) => /SELECT '([a-z_]+)'::text AS kind/.exec(b)?.[1],
     );
     expect(labels.sort()).toEqual([...ROUTE_POI_KINDS].sort());
   });
@@ -291,11 +300,25 @@ describe('the tag rules behind each kind', () => {
   // branches is a decision: an object tagged both `amenity=fuel` and
   // `highway=services` is the fuel station it was before this card, and
   // its row — and the price keyed on it — does not move.
-  it('tries the kinds a page shows before the stopping places', () => {
+  it('tries the kinds that existed before the stopping places first', () => {
     const sql = classifyCaseSql('s');
+    // 🔴 The seven, and not "every kind but the new two" computed from
+    // REST_STOP_KINDS: if the list those are subtracted from were wrong,
+    // so would the subtraction be. Written out, the way the test above
+    // this block writes the page's own list out.
+    const legacy = [
+      'fuel',
+      'charging',
+      'water',
+      'dump',
+      'groceries',
+      'food',
+      'shelter',
+    ];
+    expect(ROUTE_POI_KINDS.slice(0, legacy.length)).toEqual(legacy);
     for (const rest of REST_STOP_KINDS) {
-      for (const shown of ROUTE_POI_KINDS) {
-        expect(sql.indexOf(`THEN '${shown}'`)).toBeLessThan(
+      for (const before of legacy) {
+        expect(sql.indexOf(`THEN '${before}'`)).toBeLessThan(
           sql.indexOf(`THEN '${rest}'`),
         );
       }
@@ -322,19 +345,21 @@ describe('the tag rules behind each kind', () => {
   });
 });
 
-// 🔴 CAMP-119: THE ROUTE PAGE DOES NOT GROW TWO KINDS BY ACCIDENT.
+// 🔴 CAMP-119: THE STOPPING PLACES ARE ON THE ROUTE PAGE, AND THIS IS THE
+// TEST THAT WAS RIGHT UNTIL THEY WERE.
 //
-// ROUTE_POI_KINDS is what `parseKinds` defaults to, what
-// `buildServicesSql` writes one index scan per kind for, and what
-// MAX_SERVICE_POINTS is derived from — so that the ODbL "Substantial"
-// floor cannot be crossed. The stopping places are stored in the same
-// table and are NOT in it. Appending them there would change all three
-// with nothing in the diff to say so.
-describe('the stopping places stay off the route page', () => {
-  it('keeps rest_area and service_area out of the page kinds', () => {
-    for (const kind of REST_STOP_KINDS) {
-      expect(ROUTE_POI_KINDS as readonly string[]).not.toContain(kind);
-    }
+// This block used to say "the stopping places stay off the route page",
+// and pinned ROUTE_POI_KINDS to its seven. That pin was correct for the
+// first half of the card, which loaded 'rest_area' and 'service_area'
+// into the table and had no page to show them on; it was also the reason
+// the card stayed open after that half merged, because the data reached
+// the database and stopped there. Flipped, not deleted: it still pins the
+// list, now to the nine the page has to know.
+//
+// What is asserted instead is what a reader and the licence need from
+// that decision, each against the code that carries it.
+describe('the stopping places are on the route page', () => {
+  it('serves rest_area and service_area, after the seven it always did', () => {
     expect([...ROUTE_POI_KINDS]).toEqual([
       'fuel',
       'charging',
@@ -343,39 +368,119 @@ describe('the stopping places stay off the route page', () => {
       'groceries',
       'food',
       'shelter',
+      'rest_area',
+      'service_area',
+    ]);
+    // …and they are what the facility mapping treats as stopping places.
+    expect([...REST_STOP_KINDS]).toEqual(['rest_area', 'service_area']);
+  });
+
+  // 🔴 The two are now ASKED FOR by default: `parseKinds` of nothing is
+  // every kind, which is what the web page sends.
+  it('asks for them by default, and when they are named', () => {
+    expect(parseKinds(undefined)).toContain('rest_area');
+    expect(parseKinds(undefined)).toContain('service_area');
+    expect(parseKinds('rest_area,service_area')).toEqual([
+      'rest_area',
+      'service_area',
     ]);
   });
 
-  it('refuses to put a stopping place into a stage query', () => {
+  it('puts one index scan per stopping place into a stage query', () => {
+    const sql = buildServicesSql([...REST_STOP_KINDS]);
     for (const kind of REST_STOP_KINDS) {
-      expect(() => buildServicesSql([kind as never])).toThrow(/unknown kind/);
+      // The literal, not a parameter: a partial index cannot be proven
+      // usable against `$n` (9 699 ms on one route page, measured).
+      expect(sql).toContain(`WHERE r.kind = '${kind}'`);
     }
-    expect(parseKinds('rest_area,service_area')).toEqual([...ROUTE_POI_KINDS]);
   });
 
-  it('leaves the number of stages a page may ask about where it was', () => {
-    expect(MAX_SERVICE_POINTS).toBe(9);
+  // 🔴 The query still refuses a kind that is not on the list. Widening
+  // the list did not widen what may reach the SQL.
+  it('still refuses a kind it does not hold', () => {
+    expect(() => buildServicesSql(['parking' as never])).toThrow(
+      /unknown kind/,
+    );
+  });
+
+  // 🔴 THE LICENCE ARITHMETIC MOVED, AND ON PURPOSE. 4 campsites + 9
+  // kinds is 13 objects a stage, so the stages a page may ask about fell
+  // from 9 to 7 — the number of stages on the longest route in the
+  // library. If this is red somebody changed the kinds or the per-point
+  // count; read the ODbL note in route-services.ts before touching it.
+  it('lets a page ask about as many stages as the longest route has', () => {
+    expect(MAX_SERVICE_POINTS).toBe(7);
+    expect(
+      MAX_SERVICE_POINTS * (DEFAULT_PER_POINT + ROUTE_POI_KINDS.length),
+    ).toBeLessThan(ODBL_SUBSTANTIAL_FLOOR);
   });
 });
 
 // 🔴 A kind without its partial index is not an error, it is a
 // sequential scan over 2.26 million rows — the failure that does not
-// announce itself. The migration declares one index per kind; this
-// asserts the two lists are the same list.
-describe('every kind has the index its query needs', () => {
-  it('the migration creates one partial GiST index per kind', () => {
+// announce itself.
+//
+// 🔴 WHAT THIS BLOCK DOES AND DOES NOT SEE (CAMP-119 review, D1). It reads
+// the migrations' `KINDS` literals off disk and compares them with the
+// endpoint's list. That pins two LISTS. It does not see an index: deleting
+// the `CREATE INDEX` loop out of `up()` leaves every assertion here green,
+// and did — 68 suites, 1 889 tests. The indexes themselves are asserted in
+// `route-services.db.spec.ts`, which runs the real `up()`s against
+// PostgreSQL and reads `pg_indexes` and the plan of the endpoint's own
+// statement. Do not read this block as the guard for them.
+//
+// 🔴 TWO MIGRATIONS NOW, NOT ONE. The original seven are in
+// 1790572800000-RoutePoi.ts and CAMP-119's two are in
+// 1791400000000-RoutePoiFacilities.ts. This used to read the first alone
+// and compare it with the whole list, which is exactly the comparison
+// that goes red the day a kind is added by a later migration — and the
+// tempting fix is to loosen it. It is widened to read both instead, and
+// stays an EQUALITY: a kind missing from the two lists, or listed that
+// nobody asks about, is still a failure.
+describe('the migrations’ KINDS lists are the kinds the endpoint serves', () => {
+  const declaredIn = (file: string): string[] => {
     const migration = readFileSync(
-      join(__dirname, '../migrations/1790572800000-RoutePoi.ts'),
+      join(__dirname, '../migrations', file),
       'utf8',
     );
     const declared = migration.match(
       /static readonly KINDS = \[([\s\S]*?)\] as const/,
     );
-    expect(declared).not.toBeNull();
-    const kinds = [...(declared?.[1] ?? '').matchAll(/'([a-z]+)'/g)].map(
-      (m) => m[1],
+    // The explanation goes in the value: Jest's `expect` takes ONE argument.
+    expect(declared === null ? `${file} declares no KINDS` : 'declared').toBe(
+      'declared',
     );
-    expect(kinds).toEqual([...ROUTE_POI_KINDS]);
+    // `[a-z_]+`: `rest_area` has an underscore, and `[a-z]+` reads it as
+    // nothing — which would shrink the list quietly and not fail.
+    return [...(declared?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+  };
+
+  it('the two migrations between them list every kind the endpoint serves, once', () => {
+    const first = declaredIn('1790572800000-RoutePoi.ts');
+    const second = declaredIn('1791400000000-RoutePoiFacilities.ts');
+    // Anchors: each file contributed, or the equality below is satisfied
+    // by one of them being empty and the other being wrong.
+    expect(first).toHaveLength(7);
+    expect(second).toEqual([...REST_STOP_KINDS]);
+    expect([...first, ...second]).toEqual([...ROUTE_POI_KINDS]);
+  });
+});
+
+// 🔴 CAMP-119 review, D2: the fixture CI loads is `ci-seed.sql`, and the
+// rows this block's neighbours describe live in `ci-seed-route-poi.sql`,
+// which `regenerate.sh` appends to it verbatim. Two files holding one set of
+// rows is one of them out of date the day somebody edits the other — and
+// the one CI reads is the one nobody opens. route-services.db.spec.ts loads
+// the small file; this is what says the big one is carrying the same text.
+describe('the route-POI fixture CI loads is the one the specs read', () => {
+  it('ci-seed.sql carries ci-seed-route-poi.sql verbatim', () => {
+    const dir = join(__dirname, '../../test/fixtures');
+    const part = readFileSync(join(dir, 'ci-seed-route-poi.sql'), 'utf8');
+    const whole = readFileSync(join(dir, 'ci-seed.sql'), 'utf8');
+    // Anchor: the part is the file with the INSERTs in it, not an empty
+    // string — which `includes` finds in anything.
+    expect(part).toContain('INSERT INTO osm_route_poi');
+    expect(whole.includes(part)).toBe(true);
   });
 });
 
@@ -483,5 +588,208 @@ describe('one OSM fuel point cannot carry two stations’ prices', () => {
       'utf8',
     );
     expect(migration).not.toMatch(/osm_ref\s+text\s+NOT NULL/);
+  });
+});
+
+// ── CAMP-119: WHAT A STOPPING PLACE SAYS ABOUT ITSELF ───────────────────
+//
+// 🔴 The rule is the card's own sentence: where OpenStreetMap says a thing
+// about a toilet, a shower, a disposal point or a fee, it is shown; where
+// it does not, the answer is "not known" — and "not known" is never
+// "no". Everything here is about the line between those two.
+
+describe('CAMP-119: the five facilities of a stopping place', () => {
+  // 🔴 THE COLUMNS ARE THE MIGRATION'S, NOT A COPY. A column the page
+  // shows and the table does not have is a 500 from a route page; a
+  // tri-state column the table has and the page does not show is a
+  // facility somebody decided about by omission.
+  it('are exactly the table’s yes/no/unknown columns', () => {
+    const columns = FACILITY_FIELDS.map((f) => f.column);
+    expect(columns.sort()).toEqual(
+      [...RoutePoiFacilities1791400000000.TRISTATE].sort(),
+    );
+    expect(columns.sort()).toEqual([...TRISTATE_COLUMNS].sort());
+    // …each sent under a key of its own.
+    expect(new Set(FACILITY_FIELDS.map((f) => f.key)).size).toBe(5);
+  });
+
+  // 🔴 THE QUERY CARRIES THEM, through all three stages it has. A UNION ALL
+  // needs the same columns in every block, and `measured` and `picked` are
+  // what the row passes through on the way out: leave them off any one of
+  // the three and the page gets five `unknown`s that look exactly like a
+  // rest area nobody described. The DB spec proves the values arrive; this
+  // names the places.
+  it('are selected in every block and carried through `measured`', () => {
+    const sql = buildServicesSql([...ROUTE_POI_KINDS]);
+    const cand = sql.slice(
+      sql.indexOf('cand AS ('),
+      sql.indexOf('measured AS ('),
+    );
+    const measured = sql.slice(
+      sql.indexOf('measured AS ('),
+      sql.indexOf('picked AS ('),
+    );
+    for (const f of FACILITY_FIELDS) {
+      expect(cand.split(`r.${f.column}`)).toHaveLength(
+        ROUTE_POI_KINDS.length + 1,
+      );
+      expect(measured).toContain(`c.${f.column}`);
+    }
+  });
+
+  describe('readFacilityState', () => {
+    it('keeps a written yes and a written no', () => {
+      expect(readFacilityState('yes')).toBe('yes');
+      expect(readFacilityState('no')).toBe('no');
+    });
+
+    // 🔴 MUTATION: make the fall-through `'no'`. The state a reader is
+    // told for a gap would flip from "not known" to "no", for every one
+    // of these — which is the whole card in one character.
+    const GAPS: [unknown, string][] = [
+      ['unknown', 'the stored word'],
+      [null, 'null'],
+      [undefined, 'a column the query did not select'],
+      ['', 'an empty string'],
+      [' yes', 'a padded yes'],
+      ['YES', 'an upper-case yes'],
+      ['No', 'a capitalised no'],
+      [true, 'a boolean'],
+      [0, 'a zero'],
+      ['designated', 'an OSM word that is not one of the three'],
+    ];
+    it.each(GAPS)('reads %p (%s) as not known, never as no', (raw) => {
+      expect(readFacilityState(raw)).toBe('unknown');
+    });
+  });
+
+  // 🔴 FIVE DIFFERENT ANSWERS, so a swap of two columns is a red test.
+  // `split().length === 3` was the shape of the check this repository
+  // wrote before it learned that a shape is not a value: it passed a
+  // column swap and `[object Object]` alike.
+  it('maps each column to its own key', () => {
+    expect(
+      facilitiesFromRow({
+        toilets: 'yes',
+        shower: 'no',
+        drinking_water: 'unknown',
+        sanitary_dump_station: 'yes',
+        fee: 'no',
+        // a column that is not a facility must not leak in
+        access: 'customers',
+      }),
+    ).toEqual({
+      toilets: 'yes',
+      shower: 'no',
+      drinkingWater: 'unknown',
+      dumpStation: 'yes',
+      fee: 'no',
+    });
+    expect(
+      facilitiesFromRow({
+        toilets: 'no',
+        shower: 'yes',
+        drinking_water: 'yes',
+        sanitary_dump_station: 'no',
+        fee: 'yes',
+      }),
+    ).toEqual({
+      toilets: 'no',
+      shower: 'yes',
+      drinkingWater: 'yes',
+      dumpStation: 'no',
+      fee: 'yes',
+    });
+  });
+
+  it('says not known for all five when the row says nothing', () => {
+    expect(facilitiesFromRow({})).toEqual({
+      toilets: 'unknown',
+      shower: 'unknown',
+      drinkingWater: 'unknown',
+      dumpStation: 'unknown',
+      fee: 'unknown',
+    });
+  });
+});
+
+describe('CAMP-119: which rows carry the facilities', () => {
+  const row = (kind: string, extra: Record<string, unknown> = {}) => ({
+    kind,
+    osm_ref: 'n1',
+    name: null,
+    lat: 45,
+    lon: 14,
+    metres: 1234.4,
+    phone: null,
+    website: null,
+    opening_hours: null,
+    toilets: 'yes',
+    shower: 'no',
+    drinking_water: 'unknown',
+    sanitary_dump_station: 'no',
+    fee: 'yes',
+    ...extra,
+  });
+
+  // 🔴 MUTATION: `isRestStopKind(kind)` → `false`. The facility words
+  // never reach the page and the card is open again, with every other
+  // test in this file green.
+  it.each([...REST_STOP_KINDS])('puts all five on a %s', (kind) => {
+    expect(rowToRouteService(row(kind)).facilities).toEqual({
+      toilets: 'yes',
+      shower: 'no',
+      drinkingWater: 'unknown',
+      dumpStation: 'no',
+      fee: 'yes',
+    });
+  });
+
+  // 🔴 MUTATION: `isRestStopKind(kind)` → `true`. A fuel station would
+  // carry five "not known"s, and a supermarket's customer toilet would be
+  // published as a statement about the road.
+  it.each([
+    'fuel',
+    'charging',
+    'water',
+    'dump',
+    'groceries',
+    'food',
+    'shelter',
+  ])('puts none on a %s, whatever its columns say', (kind) => {
+    expect(rowToRouteService(row(kind))).not.toHaveProperty('facilities');
+  });
+
+  // 🔴 A rest area whose columns did not arrive is five "not known", not
+  // a missing object: a page cannot tell "no facilities block" from "no
+  // facilities", so the block is always there.
+  it('gives a rest area with no facility columns five "not known"', () => {
+    const bare = row('rest_area');
+    for (const f of FACILITY_FIELDS)
+      delete (bare as Record<string, unknown>)[f.column];
+    expect(rowToRouteService(bare).facilities).toEqual({
+      toilets: 'unknown',
+      shower: 'unknown',
+      drinkingWater: 'unknown',
+      dumpStation: 'unknown',
+      fee: 'unknown',
+    });
+  });
+
+  it('keeps what the endpoint always sent, rounded as it always was', () => {
+    const s = rowToRouteService(
+      row('rest_area', { name: 'Aire de la Palmyre' }),
+    );
+    expect(s).toMatchObject({
+      kind: 'rest_area',
+      osmRef: 'n1',
+      name: 'Aire de la Palmyre',
+      metres: 1234,
+      phone: null,
+      website: null,
+      openingHours: null,
+    });
+    // a fuel row's price is still only ever on a fuel row
+    expect(rowToRouteService(row('rest_area'))).not.toHaveProperty('prices');
   });
 });

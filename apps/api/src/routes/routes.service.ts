@@ -24,8 +24,8 @@ import {
   buildServicesSql,
   MAX_SERVICE_POINTS,
   MAX_SERVICES_TOTAL,
+  rowToRouteService,
   servicesOverfetch,
-  type RouteFuelStationPrice,
   type RouteService,
   type RouteServiceAnswer,
   type RouteServiceGroup,
@@ -244,9 +244,10 @@ export class RoutesService {
     kinds: RoutePoiKind[],
     radiusRequested = DEFAULT_RADIUS_M,
   ): Promise<RouteServiceAnswer> {
-    // 🔴 MAX_SERVICE_POINTS, not MAX_POINTS. A route page takes 4
-    // campsites AND 7 services per stage, so nine stages is where the
-    // ODbL floor of 100 objects actually lands — see route-services.ts.
+    // 🔴 MAX_SERVICE_POINTS, not MAX_POINTS. A route page takes the
+    // campsites AND one service of every kind per stage, so the number
+    // of stages where the ODbL floor of 100 objects lands is DERIVED —
+    // see route-services.ts for the arithmetic and what it is today.
     // Asking about more is refused with `truncated`, so the web layer
     // says "we could not look" rather than the page printing an absence
     // about stops nothing examined.
@@ -289,31 +290,11 @@ export class RoutesService {
       const room = MAX_SERVICES_TOTAL - returned;
       if (rows.length > room) truncated = true;
 
+      // 🔴 The mapping lives in route-services.ts (`rowToRouteService`),
+      // where Jest can reach it. It used to be written out here.
       const services: RouteService[] = rows
         .slice(0, room)
-        .map((r: Record<string, unknown>) => ({
-          kind: r.kind as RoutePoiKind,
-          osmRef: r.osm_ref as string,
-          name: (r.name as string | null) ?? null,
-          lat: Number(r.lat),
-          lon: Number(r.lon),
-          metres: Math.round(Number(r.metres)),
-          // 🔴 `?? null`, never `?? ''`. An empty string renders as a
-          // blank cell that reads "none"; null is what the page turns
-          // into the word "unknown", which is the card's acceptance
-          // criterion and the difference between the two facts.
-          phone: (r.phone as string | null) ?? null,
-          website: (r.website as string | null) ?? null,
-          openingHours: (r.opening_hours as string | null) ?? null,
-          // CAMP-154. `json_agg` over no rows is SQL NULL, not `[]`, so
-          // the overwhelming majority of fuel points and every non-fuel
-          // kind arrive here as null — which is the honest shape: the
-          // key is simply absent, and the page then says we hold no
-          // price rather than rendering an empty space beside a pump.
-          ...(Array.isArray(r.prices) && r.prices.length > 0
-            ? { prices: r.prices as RouteFuelStationPrice[] }
-            : {}),
-        }));
+        .map((r: Record<string, unknown>) => rowToRouteService(r));
 
       returned += services.length;
       groups.push({ lat: p.lat, lon: p.lon, services });

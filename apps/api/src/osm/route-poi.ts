@@ -47,13 +47,15 @@
 //     shop=bakery,             do I stop between two campsites", and
 //     shop=car_repair,         seven kinds is already the ceiling the
 //     shop=laundry             per-page cap allows (see ODbL note below).
-//   highway=rest_area,         A services area is a wrapper around the
-//     highway=services         fuel, food and toilets already listed, so
-//     (36 258)                 it would show the same stop twice under
-//                              two names. 🔴 CAMP-119 now STORES them —
-//                              see REST_STOP_KINDS below — and the route
-//                              page still does not read them: that
-//                              argument is about the PAGE and stands.
+//   highway=rest_area,         WAS LEFT OUT HERE, AND IS NOT ANY MORE.
+//     highway=services         The argument was that a services area wraps
+//     (36 258)                 the fuel, food and toilets already listed,
+//                              so it would show the same stop twice under
+//                              two names. CAMP-119 stored them and then
+//                              put them on the page; the reasoning for
+//                              why that was allowed to change is at
+//                              REST_STOP_KINDS below, where it can be
+//                              read next to the numbers it rests on.
 //   amenity=shower (21 128)    Same argument as toilets, at a tenth the
 //                              count.
 //
@@ -105,7 +107,17 @@
 
 import { tagParts } from './route-poi-facilities';
 
-/** The closed list of service kinds. Order is the order a page shows them. */
+/**
+ * The closed list of service kinds. Order is the order a page shows them.
+ *
+ * 🔴 THE LAST TWO ARE CAMP-119'S, AND THEY ARE LAST ON PURPOSE. The list
+ * is also the order `classifyCaseSql` tries them in, and a CASE returns
+ * its FIRST match: an object tagged both `amenity=fuel` and
+ * `highway=services` must stay the fuel station it was before this card,
+ * so that its row — and the price keyed on it — does not move. Putting a
+ * new kind anywhere but the end would re-classify objects that already
+ * have a row.
+ */
 export const ROUTE_POI_KINDS = [
   'fuel',
   'charging',
@@ -114,6 +126,8 @@ export const ROUTE_POI_KINDS = [
   'groceries',
   'food',
   'shelter',
+  'rest_area',
+  'service_area',
 ] as const;
 
 export type RoutePoiKind = (typeof ROUTE_POI_KINDS)[number];
@@ -154,24 +168,57 @@ export const ROUTE_POI_RULES: Record<RoutePoiKind, TagRule[]> = {
   shelter: [
     { key: 'tourism', values: ['hotel', 'motel', 'hostel', 'guest_house'] },
   ],
+  // CAMP-119. `highway=services` is stored as `service_area`, and the
+  // reason for the name is in the block below.
+  rest_area: [{ key: 'highway', values: ['rest_area'] }],
+  service_area: [{ key: 'highway', values: ['services'] }],
 };
 
-// ── CAMP-119: STOPPING PLACES — STORED, NOT SHOWN ────────────────────────
+// ── CAMP-119: STOPPING PLACES — STORED, AND SHOWN ────────────────────────
 //
 // `highway=rest_area` (a lay-by or motorway rest area) and
 // `highway=services` (a motorway service area) are loaded into the same
-// table so a later card can draw them and filter them. Nothing on a route
-// page reads them yet.
+// table, carry the nine facility columns of migration 1791400000000, and
+// are in ROUTE_POI_KINDS, so a route page lists the nearest of each at
+// every stage with its straight-line distance and what OpenStreetMap says
+// about toilets, showers, drinking water, a disposal point and a fee.
 //
-// 🔴 THEY ARE NOT IN ROUTE_POI_KINDS, AND THAT LIST IS THE ONE THE PAGE
-// READS. `parseKinds` defaults to every kind in it, `buildServicesSql`
-// writes one index scan per kind into the stage query, and
-// MAX_SERVICE_POINTS is derived from its length so the ODbL "Substantial"
-// floor (100 objects a page) cannot be crossed. Appending two kinds there
-// would have changed all three without anyone asking: routes would start
-// listing rest areas, every stage query would grow two scans, and the
-// number of stages a page may ask about would drop from nine to seven.
-// A spec fails if either kind enters that list.
+// 🔴 THEY WERE STORED FIRST AND KEPT OFF THE PAGE ON PURPOSE, AND THIS IS
+// WHY THAT STOPPED BEING TRUE. The first half of this card (PR #234)
+// loaded them and left ROUTE_POI_KINDS alone, because adding two
+// kinds to that list changes three things at once: `parseKinds` defaults
+// to every kind in it, `buildServicesSql` writes one index scan per kind
+// into the stage query, and MAX_SERVICE_POINTS is derived from its length
+// so the ODbL "Substantial" floor (100 objects a page) cannot be crossed.
+// A spec pinned the list, and the pin was right for as long as the page
+// had no way to say what a rest area is. It was also the reason the card
+// stayed open after that PR merged: the data was in the database and no
+// reader could see any of it.
+//
+// What the pin protected, and what now carries it instead:
+//
+//   · THE QUERY. The two partial GiST indexes exist
+//     (1791400000000-RoutePoiFacilities.ts) and the spec that checks "a
+//     kind without its index is a sequential scan over 2.26 million rows"
+//     now reads BOTH migrations' lists against this one.
+//   · THE LICENCE. MAX_SERVICE_POINTS is derived, so it fell from 9 to 7
+//     on its own. 7 is the number of stages on the longest route in the
+//     library, and `routes.spec.ts` in the web app fails a route that
+//     outgrows it: 7 stages × (4 campsites + 9 kinds) is 91 objects
+//     against our own line of 100.
+//   · THE DUPLICATE. "A services area wraps the fuel and the food already
+//     listed, so it would show the same stop twice under two names" is
+//     TRUE of `highway=services`: the CAMP-119 reconnaissance of
+//     14.10.2026 reports `amenity=fuel` inside most of them (85.4% by its
+//     own count, quoted from the card and not re-measured here). It is
+//     NOT true of `highway=rest_area`, which is a lay-by and holds
+//     nothing — and that is the object the owner asked for ("I may need
+//     the toilet just on the road"). Two things make the repeat tolerable
+//     for the first: the row carries what the fuel row cannot, the
+//     facility states, and an object tagged both is classified once, as
+//     fuel, by the CASE order. The remaining overlap is a polygon and a
+//     pin for one forecourt; it is named here rather than hidden, and it
+//     is the price of showing the rest areas.
 //
 // 🔴 THE NAMES. `rest_area` is OSM's own word and kept. `highway=services`
 // is stored as `service_area`, NOT `services`: in this codebase "services"
@@ -224,10 +271,30 @@ export const DUMP_FORMULA =
   'amenity=sanitary_dump_station on a node or a way, one row per OSM ' +
   'object, access not in private/no/employees/permit, inside the EU-27';
 
-/** The kinds CAMP-119 added. Stored, never shown on a route page. */
+/**
+ * The kinds CAMP-119 added: the ones whose rows carry facility states a
+ * page prints. A subset of ROUTE_POI_KINDS, named because the page, the
+ * API mapping and the loader all need to ask "is this a stopping place".
+ *
+ * 🔴 The facility columns are on EVERY row — the loader writes them for
+ * every kind — and a page prints them for THESE TWO ONLY, because the
+ * same words mean different things. `toilets=yes` on a rest area is the
+ * reason the place exists; on a fuel station or a supermarket it is a
+ * customer toilet, which is a different claim and one the card did not
+ * ask us to make. `fee` on a `dump` row is meaningful and is not asked
+ * for either; it is the obvious next kind to add here, and a deliberate
+ * omission rather than an oversight.
+ */
 export const REST_STOP_KINDS = ['rest_area', 'service_area'] as const;
 
 export type RestStopKind = (typeof REST_STOP_KINDS)[number];
+
+export function isRestStopKind(value: unknown): value is RestStopKind {
+  return (
+    typeof value === 'string' &&
+    (REST_STOP_KINDS as readonly string[]).includes(value)
+  );
+}
 
 /**
  * 🔴 The kinds whose rows are keyed on the CANONICAL object id — `w123`,
@@ -241,24 +308,23 @@ export const CANONICAL_REF_KINDS = [
   'service_area',
 ] as const;
 
-/** Everything the table can hold. Order is the CASE's order: legacy first. */
-export const STORED_POI_KINDS = [
-  ...ROUTE_POI_KINDS,
-  ...REST_STOP_KINDS,
-] as const;
+/**
+ * Everything the table can hold. Order is the CASE's order: legacy first.
+ *
+ * 🔴 TODAY THIS IS THE SAME LIST AS ROUTE_POI_KINDS, and it is kept as a
+ * name of its own because it answers a different question: what the
+ * LOADER classifies and must find at least one row of, against what a
+ * PAGE shows. The day a kind is stored and not shown (`amenity=parking`,
+ * which a comment above declines for now) this is where it goes, and
+ * nothing that reads either list has to change its mind.
+ */
+export const STORED_POI_KINDS = ROUTE_POI_KINDS;
 
 export type StoredPoiKind = (typeof STORED_POI_KINDS)[number];
 
-export const REST_STOP_RULES: Record<RestStopKind, TagRule[]> = {
-  rest_area: [{ key: 'highway', values: ['rest_area'] }],
-  service_area: [{ key: 'highway', values: ['services'] }],
-};
-
-/** Every kind's rules. The loader classifies with this, the page with ROUTE_POI_RULES. */
-export const STORED_POI_RULES: Record<StoredPoiKind, TagRule[]> = {
-  ...ROUTE_POI_RULES,
-  ...REST_STOP_RULES,
-};
+/** Every kind's rules. The loader classifies with this. */
+export const STORED_POI_RULES: Record<StoredPoiKind, TagRule[]> =
+  ROUTE_POI_RULES;
 
 /**
  * `access` values that mean "not you".

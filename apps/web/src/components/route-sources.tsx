@@ -32,8 +32,9 @@ import { SOURCES, formatUpdated, type SpotSource } from '@/lib/sources';
 // The Produced Work sentence used to end "this page shows {campsiteCount}".
 // With the services block that number stopped being the number of
 // objects taken from the database — a seven-stage route showing 28
-// campsites also shows up to 49 services — and a licence note that
-// undercounts by two thirds is worse than none, because it is the
+// campsites also showed up to 49 services then, and 63 now that CAMP-119
+// has added two kinds — and a licence note that undercounts by two thirds
+// is worse than none, because it is the
 // document we would point at if the position were ever questioned. So
 // the services are counted too, and named separately, because they come
 // from OpenStreetMap alone while the campsites do not.
@@ -188,8 +189,8 @@ export default function RouteSources({
             here is the difference between a narrowing and an omission.
             Somebody reading this page should not conclude that a charging
             point absent from OpenStreetMap does not exist. */}
-        Fuel, charging, water, disposal points, shops, places to eat and places
-        to sleep all come from OpenStreetMap alone. Other sources for them —
+        Fuel, charging, water, disposal points, shops, places to eat, places to
+        sleep, rest areas and service areas all come from OpenStreetMap alone. Other sources for them —
         Open Charge Map, the national fuel portals — are not settled yet, so
         what is here is what volunteers have mapped and no more. We hold no
         ratings and no photographs of these places, and we will not take either
