@@ -114,6 +114,48 @@ export const WATER_CHECKED_KIND = 'dump' as const satisfies RoutePoiKind;
 export const WATER_NEAR_DUMP_RADIUS_M = 500;
 
 /**
+ * CAMP-254 — HOW MUCH WIDER THE PREFILTER BOX IS THAN THE VERDICT.
+ *
+ * 🔴 THE INVARIANT, AND IT IS ONE-SIDED: the box may be WIDER than the
+ * radius and must NEVER be narrower. It only chooses which water rows the
+ * index hands to `ST_DWithin`; the answer is `ST_DWithin`'s. A box that is
+ * too wide costs a few extra rows to test. A box that is too narrow drops
+ * real water before the verdict sees it, and the page then says "our
+ * database holds no drinking water within 500 m" over a tap 495 m away.
+ *
+ * `ST_Buffer(geography, 500)::geometry` is NOT a box of 500 m, which is
+ * why this is not 1. Measured 15.10.2026 (`ST_Distance` from the point to
+ * the middle of each edge of the buffer's lon/lat bounding box): 499.9 m
+ * a side up to 69.999° N, and **491.9 m east-west from 70.0° N**, where
+ * PostGIS changes projection. Swept every 0.25° from -85° to 85°, the
+ * worst is 491.93 m, at ±70° (a 1.6% shortfall). 5% clears that by three
+ * times over, and the sweep in `route-services-water.db.spec.ts` asserts
+ * the invariant at every latitude rather than trusting this paragraph.
+ *
+ * The EU-27 has land above 70° (Utsjoki and Nuorgam, 70.09° N). Today
+ * that costs nothing — the northernmost of the 7 214 disposal points is
+ * at 69.584° N, so both forms answer 4 069 — but that is a fact about
+ * today's data, and the first disposal point in Lapland would have made
+ * the page wrong, silently.
+ */
+export const WATER_BOX_MARGIN = 1.05;
+
+/**
+ * The box's radius in metres: the verdict's radius, widened, and rounded
+ * UP so that a fractional product can never come out narrower.
+ */
+export const WATER_BOX_METRES = Math.ceil(
+  WATER_NEAR_DUMP_RADIUS_M * WATER_BOX_MARGIN,
+);
+
+/**
+ * The prefilter geometry around a point expression, as SQL. Exported so the
+ * latitude sweep in the database spec tests THIS text and not a copy of it.
+ */
+export const waterBoxSql = (point: string): string =>
+  `ST_Buffer(${point}::geography, ${WATER_BOX_METRES})::geometry`;
+
+/**
  * CAMP-254 — is there drinking water near THIS disposal point?
  *
  * 🔴 `metres: null` is an ANSWER: we searched and found none inside
@@ -501,11 +543,14 @@ export const FUEL_PRICE_SUBQUERY = `(
  * the box, an Index Cond and 0.025 ms. Both plans name the same index and
  * neither is a sequential scan, so "uses the index" is not the check —
  * the database spec asks for the Index Cond. `ST_DWithin` on the
- * geography then decides. The box is the radius's own buffer, bounded to
- * the same number — not a second constant in degrees — so raising the
- * radius cannot leave a box narrower than it. Measured on all 7 214
- * disposal points: this form and the plain `ST_Expand(location, 0.02)`
- * both answer 4 069, in 557 ms and 386 ms.
+ * geography then decides.
+ *
+ * 🔴 THE BOX IS `WATER_BOX_MARGIN` WIDER THAN THE VERDICT, ON PURPOSE —
+ * see that constant for the invariant (wider is fine, narrower drops real
+ * water) and for the 70.0° N projection change that made a box of exactly
+ * the radius too narrow. It is still derived from the one radius constant,
+ * not a second number in degrees. Measured on all 7 214 disposal points,
+ * the plain `ST_Expand(location, 0.02)` and this form both answer 4 069.
  *
  * 🔴 `p.kind = 'dump'` short-circuits it for the other eight kinds, as
  * the fuel lookup's `p.kind = 'fuel'` does: only a disposal point is asked
@@ -528,8 +573,7 @@ export const WATER_NEAR_SUBQUERY = `(
                      osm_route_poi w
                WHERE p.kind = '${WATER_CHECKED_KIND}'
                  AND w.kind = 'water'
-                 AND w.location && ST_Buffer(here.g::geography,
-                                             ${WATER_NEAR_DUMP_RADIUS_M})::geometry
+                 AND w.location && ${waterBoxSql('here.g')}
                  AND ST_DWithin(w.location::geography, here.g::geography,
                                 ${WATER_NEAR_DUMP_RADIUS_M})
             )`;

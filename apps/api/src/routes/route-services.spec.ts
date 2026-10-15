@@ -12,9 +12,11 @@ import {
   readFacilityState,
   rowToRouteService,
   servicesOverfetch,
+  WATER_BOX_METRES,
   WATER_CHECKED_KIND,
   WATER_NEAR_DUMP_RADIUS_M,
   WATER_NEAR_SUBQUERY,
+  waterBoxSql,
   waterNearField,
 } from './route-services';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
@@ -850,20 +852,24 @@ describe('CAMP-254: the drinking-water subquery', () => {
     expect(sub).toMatch(/w\.location && ST_Buffer\(/);
   });
 
-  // 🔴 MUTATION: 500 → 5000 in ONE of the two places. The box and the
-  // verdict must be bounded by the same number, or raising the radius
-  // leaves a box narrower than it.
-  it('takes the box and the verdict from the one radius constant', () => {
+  // 🔴 MUTATION: 500 → 5000 in ONE of the two places. The verdict is the
+  // radius constant, and the box is the radius WIDENED (WATER_BOX_METRES) —
+  // never the same number and never a smaller one. What the text can say
+  // is only that: the real guard of "the box is not narrower than the
+  // verdict" is the latitude sweep and the 70.05° N case in the database
+  // spec, because a literal that reads 525 can still be too narrow on the
+  // ground (a box of exactly 500 was, above 70° N).
+  it('takes the verdict from the one radius constant and the box from its widened form', () => {
     expect(WATER_NEAR_DUMP_RADIUS_M).toBe(500);
+    expect(WATER_BOX_METRES).toBeGreaterThan(WATER_NEAR_DUMP_RADIUS_M);
     const numbers = [
       ...sub.matchAll(
         /(?:ST_Buffer\(here\.g::geography,|here\.g::geography,)\s*(\d+)\)/g,
       ),
     ].map((m) => Number(m[1]));
-    expect(numbers).toEqual([
-      WATER_NEAR_DUMP_RADIUS_M,
-      WATER_NEAR_DUMP_RADIUS_M,
-    ]);
+    // the box first, then the verdict, as the statement orders them
+    expect(numbers).toEqual([WATER_BOX_METRES, WATER_NEAR_DUMP_RADIUS_M]);
+    expect(waterBoxSql('here.g')).toContain(`, ${WATER_BOX_METRES})::geometry`);
   });
 
   // 🔴 MUTATION: `w.kind = 'water'` → anything else, or deleted. A bench

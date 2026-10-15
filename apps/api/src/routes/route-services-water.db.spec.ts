@@ -8,7 +8,10 @@ import {
   buildServicesSql,
   rowToRouteService,
   servicesOverfetch,
+  WATER_BOX_METRES,
+  WATER_NEAR_DUMP_RADIUS_M,
   WATER_NEAR_SUBQUERY,
+  waterBoxSql,
   type RouteService,
 } from './route-services';
 
@@ -38,6 +41,11 @@ import {
 //     north  50 m  → lat 45.0104499    east   50 m → lon 14.0006342
 //     NE 450 m (318 N + 318 E) → (lat 45.0128634, lon 14.0040363)
 //     NE 600 m (424 N + 424 E) → (lat 45.0138178, lon 14.0053818)
+//
+// and, from the disposal point at (lon 0.0, lat 70.05):
+//
+//     east or west 495 m → 0.0129938° of longitude
+//     east         505 m → 0.0132563° of longitude
 //
 // (each came back as its stated distance to within 0.05 m). The corpus
 // therefore shares no field with the thing that measures it.
@@ -89,7 +97,16 @@ const SCENE = {
   fuelWithWater: 24.0,
   diagonal450: 25.0,
   diagonal600: 26.0,
+  // Above 70° N, where PostGIS changes projection and a box of exactly the
+  // radius stops being one. One degree of longitude is 38 km here, still
+  // more than the 25 km the page looks, so the scenes keep their distance.
+  lapland495East: 27.0,
+  lapland495West: 28.0,
+  lapland505East: 29.0,
 } as const;
+
+const NORTH_STAGE_LAT = 70.04;
+const NORTH_DUMP_LAT = 70.05;
 
 beforeAll(async () => {
   if (!ADMIN_URL) {
@@ -190,6 +207,20 @@ beforeAll(async () => {
   await poi('nb_w', 'water', SCENE.diagonal450 + 0.0040363, 45.0128634);
   await poi('nc_d', 'dump', SCENE.diagonal600, DUMP_LAT);
   await poi('nc_w', 'water', SCENE.diagonal600 + 0.0053818, 45.0138178);
+
+  // 13, 14 and 15. 70.05° N — THE LATITUDE A BOX OF EXACTLY THE RADIUS GOES
+  // NARROW. There the lon/lat bounding box of a 500 m geography buffer is
+  // 491.9 m east-west (499.9 m below 70.0°), so a tap 495 m due east or due
+  // west falls outside it, never reaches `ST_DWithin`, and the page says
+  // "no drinking water within 500 m" over a tap 495 m away. Cases 1-12 are
+  // all below 70° or off the axis and cannot see this. 505 m east is the
+  // other side: still none, so the widened box has not widened the verdict.
+  await poi('nd_d', 'dump', SCENE.lapland495East, NORTH_DUMP_LAT);
+  await poi('nd_w', 'water', SCENE.lapland495East + 0.0129938, NORTH_DUMP_LAT);
+  await poi('ne_d', 'dump', SCENE.lapland495West, NORTH_DUMP_LAT);
+  await poi('ne_w', 'water', SCENE.lapland495West - 0.0129938, NORTH_DUMP_LAT);
+  await poi('nf_d', 'dump', SCENE.lapland505East, NORTH_DUMP_LAT);
+  await poi('nf_w', 'water', SCENE.lapland505East + 0.0132563, NORTH_DUMP_LAT);
 });
 
 afterAll(async () => {
@@ -199,11 +230,14 @@ afterAll(async () => {
 });
 
 /** The endpoint's own query and mapping, for one stage, as `services()` runs them. */
-async function stage(lon: number): Promise<RouteService[]> {
+async function stage(
+  lon: number,
+  lat: number = STAGE_LAT,
+): Promise<RouteService[]> {
   const rows = (
     await db.query(buildServicesSql([...ROUTE_POI_KINDS]), [
       lon,
-      STAGE_LAT,
+      lat,
       servicesOverfetch(1),
       25_000,
     ])
@@ -365,6 +399,38 @@ describe('CAMP-254: the disposal point says how far its drinking water is', () =
     expect(dump?.drinkingWaterNear?.metres).toBeLessThanOrEqual(451);
   });
 
+  // 🔴 MUTATION: the box narrower than the verdict — `WATER_BOX_MARGIN`
+  // 1.05 → 1, or the box literal 492, or the buffer back to exactly the
+  // radius. Above 70° N a 500 m buffer's bounding box is 491.9 m east-west,
+  // and a tap 495 m due east is dropped before the verdict can see it.
+  // THIS is the behavioural guard of the box; the unit spec's text test can
+  // only read a number, and a number that reads right can be too narrow on
+  // the ground.
+  it('13. water 495 m due EAST at 70.05° N: found, though the box of the radius itself would drop it', async () => {
+    const dump = dumpOf(await stage(SCENE.lapland495East, NORTH_STAGE_LAT));
+    expect(dump?.osmRef).toBe('nd_d');
+    expect(dump?.drinkingWaterNear?.metres).toBeGreaterThanOrEqual(494);
+    expect(dump?.drinkingWaterNear?.metres).toBeLessThanOrEqual(496);
+  });
+
+  it('14. water 495 m due WEST at 70.05° N: found', async () => {
+    const dump = dumpOf(await stage(SCENE.lapland495West, NORTH_STAGE_LAT));
+    expect(dump?.osmRef).toBe('ne_d');
+    expect(dump?.drinkingWaterNear?.metres).toBeGreaterThanOrEqual(494);
+    expect(dump?.drinkingWaterNear?.metres).toBeLessThanOrEqual(496);
+  });
+
+  // The other side of the same latitude: a wider box must not have widened
+  // the ANSWER. 505 m is outside the radius, and ST_DWithin says so.
+  it('15. water 505 m due EAST at 70.05° N: still none', async () => {
+    const dump = dumpOf(await stage(SCENE.lapland505East, NORTH_STAGE_LAT));
+    expect(dump?.osmRef).toBe('nf_d');
+    expect(dump?.drinkingWaterNear).toEqual({
+      radiusMetres: 500,
+      metres: null,
+    });
+  });
+
   // A stage with no disposal point inside 25 km has no row to carry a
   // field, which is the page's own "our database holds none" and not a
   // water answer.
@@ -438,5 +504,91 @@ describe('CAMP-254: the water lookup is an index LOOKUP on the water rows', () =
     // Absent, the same index is read end to end and filtered.
     expect(scans[0].cond ?? '').toMatch(/\(location && /);
     expect(seqScans).toEqual([]);
+  });
+});
+
+// ── THE BOX NEVER NARROWER THAN THE VERDICT, AT EVERY LATITUDE ──────────
+//
+// 🔴 `waterBoxSql` is the statement's own text. For every latitude from
+// -85° to 85° in steps of 0.25° (681 of them) and every 22.5° of azimuth
+// (16), this puts a point 499.9 m from the centre — INSIDE the radius, which
+// the verdict itself confirms first — and asks the box whether it contains
+// it. One point the box misses is a tap `ST_DWithin` would have found and
+// never sees. Measured 15.10.2026 before the margin: a box of exactly 500 m
+// missed 252 of those 10 896 points — 244 at |latitude| 70° or more, and 8
+// below it, where the buffer's box is 499.9 m, a tenth of a metre short of
+// the radius it was asked for — all of them on the four cardinal bearings
+// (0°, 90°, 180°, 270°). With the margin: none.
+//
+// The corpus is made by `ST_Project` and judged by `ST_DWithin` and `&&`:
+// the invariant is a relation BETWEEN two PostGIS answers (the polygon's
+// extent and the geodesic distance), which is the thing that broke, and it
+// does not depend on any one latitude being the interesting one.
+describe('CAMP-254: the prefilter box contains everything the verdict accepts', () => {
+  const POINTS_SQL = `
+    SELECT l.lat, a.az,
+           ST_SetSRID(ST_MakePoint(25, l.lat), 4326) AS here,
+           ST_Project(ST_SetSRID(ST_MakePoint(25, l.lat), 4326)::geography,
+                      499.9, radians(a.az)) AS near
+      FROM generate_series(-85, 85, 0.25) AS l(lat),
+           generate_series(0, 337.5, 22.5) AS a(az)`;
+
+  it('every point 499.9 m out, at every latitude and bearing, is inside the box', async () => {
+    const res = await db.query(`
+      WITH pts AS (${POINTS_SQL})
+      SELECT count(*)::int AS total,
+             count(*) FILTER (
+               WHERE NOT ST_DWithin(near, here::geography, ${WATER_NEAR_DUMP_RADIUS_M})
+             )::int AS outside_the_verdict,
+             count(*) FILTER (
+               WHERE NOT (near::geometry && ${waterBoxSql('here')})
+             )::int AS missed_by_the_box,
+             min(lat) FILTER (
+               WHERE NOT (near::geometry && ${waterBoxSql('here')})
+             ) AS first_missed_lat
+        FROM pts`);
+    const row = res.rows[0];
+    // Anchor: the sweep ran over 681 x 16 points. An empty one would be
+    // "no misses" for the wrong reason.
+    expect(row.total).toBe(681 * 16);
+    // The premise: every one of them IS within the radius, by the verdict.
+    expect(row.outside_the_verdict).toBe(0);
+    // The invariant. The names go in the value: Jest's `expect` takes ONE
+    // argument.
+    expect({
+      missed: row.missed_by_the_box,
+      firstMissedLat: row.first_missed_lat,
+    }).toEqual({ missed: 0, firstMissedLat: null });
+  });
+
+  // …and wider is allowed but not without limit: a box that grew to a
+  // kilometre would be an index lookup that hands the verdict a hundred
+  // rows. Measured with the margin: 516.5 to 532.6 m, middle of each edge,
+  // over the same 681 latitudes.
+  it('is wider than the radius but not by much, at every latitude', async () => {
+    const res = await db.query(`
+      WITH c AS (
+        SELECT l.lat,
+               ST_SetSRID(ST_MakePoint(25, l.lat), 4326) AS here
+          FROM generate_series(-85, 85, 0.25) AS l(lat)),
+      b AS (SELECT lat, here, ${waterBoxSql('here')} AS box FROM c),
+      h AS (
+        SELECT lat,
+          ST_Distance(here::geography, ST_SetSRID(ST_MakePoint(ST_XMax(box), lat), 4326)::geography) AS e,
+          ST_Distance(here::geography, ST_SetSRID(ST_MakePoint(ST_XMin(box), lat), 4326)::geography) AS w,
+          ST_Distance(here::geography, ST_SetSRID(ST_MakePoint(25, ST_YMax(box)), 4326)::geography) AS n,
+          ST_Distance(here::geography, ST_SetSRID(ST_MakePoint(25, ST_YMin(box)), 4326)::geography) AS s
+          FROM b)
+      SELECT count(*)::int AS total,
+             least(min(e), min(w), min(n), min(s)) AS narrowest,
+             greatest(max(e), max(w), max(n), max(s)) AS widest
+        FROM h`);
+    const { total, narrowest, widest } = res.rows[0];
+    expect(total).toBe(681);
+    expect(Number(narrowest)).toBeGreaterThanOrEqual(WATER_NEAR_DUMP_RADIUS_M);
+    expect(Number(widest)).toBeLessThanOrEqual(1.2 * WATER_NEAR_DUMP_RADIUS_M);
+    // …and it is the box the statement asked PostgreSQL for, not a number
+    // this test made up.
+    expect(waterBoxSql('here')).toContain(`, ${WATER_BOX_METRES})::geometry`);
   });
 });
