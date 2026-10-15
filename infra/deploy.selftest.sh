@@ -702,6 +702,11 @@ echo "ssh $*" >> "$WRAP_LOG"
 # відкидаємо -i/-o …, лишаємо host і віддалену команду
 while [ $# -gt 0 ]; do case "$1" in -i|-o) shift 2 ;; -*) shift ;; *) break ;; esac; done
 shift
+# 🔴 /run на сервері змонтовано noexec: файл ЧИТАТИ можна, ЗАПУСТИТИ як програму — ні.
+# Тут це відтворено як властивість «машини»: команда, що починається зі шляху до
+# тимчасового файлу виконавця, дає «Permission denied» (126), як на Ubuntu.
+first="${1%% *}"
+case "$first" in "$CAMPTRIBE_REMOTE_TMP"/*) echo "bash: $first: Permission denied" >&2; exit 126 ;; esac
 bash -c "$*"
 SH
   cat > "$BASE/wbin/scp" <<'SH'

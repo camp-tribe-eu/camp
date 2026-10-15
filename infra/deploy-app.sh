@@ -109,7 +109,9 @@ trap 'ssh_ rm -f "$remote" >/dev/null 2>&1 || true' EXIT
 quoted=""
 for a in "${args[@]}"; do quoted+=" $(printf '%q' "$a")"; done
 set +e
-ssh_ "$(printf '%q' "$remote") $cmd$quoted"
+# 🔴 `bash <файл>`, а не `<файл>`: /run на Ubuntu змонтовано noexec, і прямий запуск
+# дає «Permission denied» (код 126). Заміряно 15.10.2026 на першому ж сухому прогоні.
+ssh_ "bash $(printf '%q' "$remote") $cmd$quoted"
 rc=$?
 set -e
 exit "$rc"
