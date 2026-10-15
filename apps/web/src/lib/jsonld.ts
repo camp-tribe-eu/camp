@@ -32,6 +32,7 @@ import {
   WATER_LABEL,
 } from './api';
 import { DEFAULT_LOCALE } from './i18n';
+import { RAILWAY_STATION_OR_STOP, RAILWAY_STOP } from './railway-stop';
 import { describeTariff, groupTariffs } from './tariffs';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://camptribe.eu';
@@ -146,8 +147,11 @@ function amenityFeatures(amenities: Amenities) {
  * planning to arrive by train, or by a city, something the data does not say.
  * These words are true of both values; the same words as
  * apps/api/src/planner/reasons.ts ("Railway stop", "City or town").
+ * CAMP-325: the railway one now lives in `./railway-stop`, shared with the
+ * campsite page and the prose paragraph, so none of the three can say
+ * "station" while the others say "stop".
  */
-const STATION = 'railway stop';
+const STATION = RAILWAY_STOP;
 const TOWN = 'town or city';
 
 /** The prose sentence, reused so the graph and the page cannot disagree. */
@@ -436,7 +440,7 @@ export function campsiteFaq(spot: Spot): FaqItem[] {
   if (c.station && known(c.station.m)) {
     const station = text(c.station.name);
     items.push({
-      q: `How far is the nearest railway station or stop?`,
+      q: `How far is the nearest ${RAILWAY_STATION_OR_STOP}?`,
       a: `${station ? `${station} ${STATION}` : `The nearest ${STATION}`} is ${formatDistance(c.station.m)} away in a straight line. We do not know whether a bus or a path connects the two.`,
     });
   }

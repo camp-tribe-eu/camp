@@ -94,7 +94,7 @@ function Hero({
               (CAMP-308). */}
           {heroLead(printable(summary.spots), printable(summary.regions))}, each
           with the distance to water, to the nearest town and to a railway
-          station, its elevation and its terrain — calculated by us, published
+          stop, its elevation and its terrain — calculated by us, published
           by nobody else.
         </p>
 
