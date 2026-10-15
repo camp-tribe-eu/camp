@@ -140,6 +140,11 @@ export function validateRequest(req: HardRequest): void {
       throw new Error(`needs: "${k}" is not an amenity we record`);
     }
   }
+  // `[]` is not "no preference": it would read as no country at all, and the
+  // rule would reject everything. Leave `countries` out for the whole Union.
+  if (req.countries !== undefined && req.countries.length === 0) {
+    throw new Error('countries: an empty list; omit it for the whole Union');
+  }
   for (const c of req.countries ?? []) {
     if (!isEuMemberState(c)) {
       throw new Error(`countries: "${c}" is not an EU member state`);
@@ -175,9 +180,7 @@ const page: HardRule = {
 export function sourceCountryCodes(
   countries?: readonly string[],
 ): readonly string[] {
-  if (!countries || countries.length === 0) {
-    return EU_MEMBER_STATES_AND_SUBDIVISIONS;
-  }
+  if (!countries) return EU_MEMBER_STATES_AND_SUBDIVISIONS;
   const wanted = new Set(countries.map((c) => normaliseCountry(c)));
   return EU_MEMBER_STATES_AND_SUBDIVISIONS.filter((c) =>
     wanted.has(normaliseCountry(c)),
@@ -219,17 +222,28 @@ export function corridorBox(
   line: readonly LonLat[],
   bufferM: number,
 ): [number, number, number, number] {
-  const lons = line.map((p) => p[0]);
-  const lats = line.map((p) => p[1]);
+  // A loop, not `Math.min(...coords)`: a road's geometry runs to tens of
+  // thousands of vertices, and spreading that many arguments overflows the
+  // call stack.
+  let lonMin = Infinity;
+  let lonMax = -Infinity;
+  let latMin = Infinity;
+  let latMax = -Infinity;
+  for (const [lon, lat] of line) {
+    if (lon < lonMin) lonMin = lon;
+    if (lon > lonMax) lonMax = lon;
+    if (lat < latMin) latMin = lat;
+    if (lat > latMax) latMax = lat;
+  }
   const dLat = bufferM / M_PER_DEG;
-  const ymin = Math.max(-90, Math.min(...lats) - dLat);
-  const ymax = Math.min(90, Math.max(...lats) + dLat);
+  const ymin = Math.max(-90, latMin - dLat);
+  const ymax = Math.min(90, latMax + dLat);
   const worst = Math.min(89, Math.max(Math.abs(ymin), Math.abs(ymax)));
   const dLon = bufferM / (M_PER_DEG * Math.cos((worst * Math.PI) / 180));
   return [
-    Math.max(-180, Math.min(...lons) - dLon),
+    Math.max(-180, lonMin - dLon),
     ymin,
-    Math.min(180, Math.max(...lons) + dLon),
+    Math.min(180, lonMax + dLon),
     ymax,
   ];
 }

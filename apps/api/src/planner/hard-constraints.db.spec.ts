@@ -971,6 +971,13 @@ describe('measure-constraints: the counts the report prints, on a table whose an
     // as `no` is 1 of 26 (3.8%); rejected as `not yes` is 24 of 26 (92.3%).
     expect(text).toMatch(/dogFriendly\s+2\s+1\s+23\s+1\s+3\.8%\s+24\s+92\.3%/);
     expect(text).toMatch(/fixture {2}\(buffer 30 km\): 35 -> corridor 26/);
+    // The buffer printed is the journey's own, not a constant of the report.
+    expect(
+      format(
+        { ...m, journeys: [{ ...m.journeys[0], bufferM: 45_000 }] },
+        'test',
+      ),
+    ).toMatch(/\(buffer 45 km\)/);
     expect(text).toMatch(/rejects 9 \(25\.7%\)/); // 9 of the 35, not of the 39
     expect(text).toMatch(/page\s+3\s+7\.7%/);
     expect(text).toMatch(/outside the scope: CH 1;/);

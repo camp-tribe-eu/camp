@@ -139,6 +139,7 @@ export interface NeedCount {
 
 export interface JourneyCount {
   journey: string;
+  bufferM: number;
   /** After page and country: what the corridor is cut from. */
   pool: number;
   /** After the corridor too. */
@@ -237,6 +238,7 @@ export async function measureConstraints(
     const hard = hardWhere(req, 's', 0, upTo);
     out.push({
       journey: j.name,
+      bufferM: j.bufferM,
       pool: afterCountry,
       inCorridor: await count(db, req, upTo),
       needs: await needCounts(db, hard),
@@ -349,7 +351,7 @@ export function format(m: Measurement, measuredFrom: string): string {
   for (const j of m.journeys) {
     L.push('');
     L.push(
-      `${j.journey}  (buffer ${BUFFER_M / 1000} km): ${j.pool} -> corridor ${j.inCorridor}` +
+      `${j.journey}  (buffer ${j.bufferM / 1000} km): ${j.pool} -> corridor ${j.inCorridor}` +
         `   rejects ${j.pool - j.inCorridor} (${pct(j.pool - j.inCorridor, j.pool)})`,
     );
     table(j.needs, j.inCorridor);

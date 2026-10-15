@@ -205,6 +205,12 @@ describe('validateRequest: a request that would filter nothing, or everything, t
     );
   });
 
+  it('refuses an EMPTY country list instead of reading it as "none" and rejecting everything', () => {
+    expect(() => validateRequest({ ...REQ, countries: [] })).toThrow(
+      /an empty list; omit it/,
+    );
+  });
+
   it('accepts Greece as EL, Åland as AX, and any case', () => {
     expect(() =>
       validateRequest({ ...REQ, countries: ['EL', 'ax', 'fr'] }),
@@ -318,6 +324,20 @@ describe('corridorBox: the index prefilter may never be tighter than the exact d
     const trueLon = trueLat / Math.cos(rad(45));
     expect((x1 - x0) / 2 / trueLon).toBeLessThan(1.08);
     expect((x1 - x0) / 2 / trueLon).toBeGreaterThan(1);
+  });
+
+  it('takes a road-sized polyline: 300 000 vertices do not overflow the stack', () => {
+    // `Math.min(...coords)` throws RangeError somewhere past ~120 000
+    // arguments; a road's geometry is that long.
+    const road: LonLat[] = Array.from({ length: 300_000 }, (_, i) => [
+      i / 100_000,
+      45 + i / 300_000,
+    ]);
+    const [x0, y0, x1, y1] = corridorBox(road, 30_000);
+    expect(x0).toBeLessThan(0);
+    expect(x1).toBeGreaterThan(2.99);
+    expect(y0).toBeLessThan(45);
+    expect(y1).toBeGreaterThan(45.99);
   });
 
   it('stays on the globe', () => {
