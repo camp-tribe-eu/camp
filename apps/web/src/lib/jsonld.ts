@@ -314,21 +314,45 @@ export function officialStars(spot: Spot): number | undefined {
  *
  * OpenStreetMap is stored the way `osmium export -u type_id` writes it:
  * `n<id>` for a node, `w<id>` for a way, and `a<id>` for an AREA, which
- * is libosmium's own numbering rather than an OSM element id — an even
- * area id is `way_id * 2`.
+ * is libosmium's own numbering rather than an OSM element id:
  *
- * 🔴 That decoding is measured, not assumed. 37 of our `a…` refs were
- * decoded and fetched from the OpenStreetMap API on 28.09.2026: 37 of 37
- * resolved to a way carrying `tourism=camp_site` or `caravan_site` whose
- * `name` tag equals ours, character for character.
+ *     area = way_id * 2             even  →  /way/<area / 2>
+ *     area = relation_id * 2 + 1    odd   →  /relation/<(area - 1) / 2>
  *
- * 🔴 An ODD area id is NOT published, although libosmium would call it
- * `relation_id * 2 + 1`. `scripts/osm-pipeline/import.sh` filters `n/`
- * and `w/` only, so no relation can enter this data at all, and all
- * 32 413 of our area ids are in fact even. An odd one would therefore be
- * corrupt input, and answering corrupt input with a confident permalink
- * to an unrelated OSM object is precisely the failure this whole file is
- * built to avoid. A ref whose shape we do not recognise produces no link.
+ * 🔴 That decoding is measured, not assumed. Even: 37 of our `a…` refs
+ * were decoded and fetched from the OpenStreetMap API on 28.09.2026 and
+ * 37 of 37 resolved to a way carrying `tourism=camp_site` or
+ * `caravan_site` whose `name` tag equals ours. Odd: the 1 320 odd refs
+ * were decoded the same way and fetched in bulk on 15.10.2026. All 1 320
+ * exist as relations; 1 311 carry a camp tag and a `name` equal to ours
+ * today, and the other 9 were retagged (4) or deleted (5) in OSM after
+ * our snapshot — each of them, at the version we stored, carries our
+ * name. Shifting the formula by one (`relation + 1`) is what the same
+ * check looks like when it is wrong: 4 of 102 sampled carry a camp tag.
+ *
+ * 🔴 EVERY SHAPE THAT EXISTS, COUNTED. This function used to say that an
+ * odd area id "cannot exist here" because `import.sh` filtered `n/` and
+ * `w/` only. That was true on 28.09.2026 and stopped being true on
+ * 11.10.2026, when CAMP-253 added `r/` to the filter
+ * (`extract-campsites.sh`); the sentence stayed, and nobody re-counted.
+ * `sources[].ref` where `id = 'osm'`, camptribe_dev, 15.10.2026, 54 279
+ * refs (equal to the 54 279 non-null `camping_spots.osm_ref`, row by row):
+ *
+ *     a… even   32 495   way       a… odd   1 320   RELATION
+ *     n…        19 608   node      w…         856   way
+ *     any other shape        0
+ *
+ * plus 8 752 `datatourisme` refs, every one an https URL. A snapshot, not
+ * a specification: the weekly import moves these, and the property that
+ * matters is that nothing here is decoded by guessing.
+ *
+ * 🔴 ONE SHAPE HAS NO BRANCH, AND IS ABSENT TODAY: `r<id>`. 0 rows carry
+ * it, but `normalise-export.mjs` documents an in-place migration of
+ * `osm_ref` to canonical refs (`canonicalId`: `a`→`w`/`r`), and the day
+ * that runs, every relation ref becomes `r…` and loses its link here
+ * without a sound. A ref whose shape we do not recognise produces no
+ * link — answering with a guessed permalink is precisely the failure this
+ * whole file is built to avoid — so that migration has to add the branch.
  */
 export function sourceLinks(spot: Spot): string[] {
   const out: string[] = [];
@@ -359,9 +383,15 @@ export function sourceLinks(spot: Spot): string[] {
     const area = /^a(\d+)$/.exec(ref);
     if (!area) continue;
     const id = BigInt(area[1]);
-    // Even areas are ways. Odd ones cannot exist here — see above.
-    if (id > 0n && id % 2n === 0n) {
-      out.push(`https://www.openstreetmap.org/way/${id / 2n}`);
+    // libosmium: way_id * 2 for a way, relation_id * 2 + 1 for a relation.
+    const isRelation = id % 2n === 1n;
+    const objectId = isRelation ? (id - 1n) / 2n : id / 2n;
+    // Zero is an id OpenStreetMap never issues: `a0` is way 0 and `a1`
+    // is relation 0, and neither is a permalink.
+    if (objectId > 0n) {
+      out.push(
+        `https://www.openstreetmap.org/${isRelation ? 'relation' : 'way'}/${objectId}`,
+      );
     }
   }
   return out;
