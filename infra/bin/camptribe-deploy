@@ -1,122 +1,961 @@
 #!/usr/bin/env bash
-# CampTribe — викладка і відкат на сервері.
+# CampTribe — викладка, перевірка й відкат релізу НА СЕРВЕРІ (CAMP-61).
 #
-# 🔴 ЧОМУ СИМЛІНК, А НЕ "git pull && build" НА МІСЦІ.
+#   camptribe-deploy status                               # що зараз на проді; лише читає
+#   camptribe-deploy deploy   --sha <40 hex> [--migrate] [--apply]
+#   camptribe-deploy switch   <реліз> [--apply]           # на вже збудований реліз
+#   camptribe-deploy rollback [--to <реліз>] [--apply]    # скасувати останнє перемикання
+#   camptribe-deploy rehearse [--apply] [--keep|--teardown]  # відкат у паралельному світі
 #
-# Збірка триває ~400 с і займає 8.6 ГБ (заміряно 12.10.2026 на CPX32).
-# Якщо збирати в каталозі, з якого сайт віддається, то всі ці хвилини
-# він віддає половину старого й половину нового. Тому кожен реліз —
-# окремий каталог, а `current` перемикається однією операцією, яку
-# ядро виконує атомарно.
+# Зазвичай запускається не напряму, а з ноутбука: `infra/deploy-app.sh`.
+# Той кладе на машину РІВНО цей файл із коміта, який ти переглянув, тож
+# встановлена копія в /usr/local/bin не може розійтись із репозиторієм.
 #
-# Відкат доведений, не припущений: 12.10.2026 викладено реліз
-# 73d1710, BUILD_ID на сайті змінився з V68nKUfZ… на HwgXdu8w…,
-# після `rollback` повернувся на V68nKUfZ…. Перевірено ЧЕРЕЗ
-# Cloudflare, не локально.
+# 🔴 СУХИЙ ПРОГІН ЗА ЗАМОВЧУВАННЯМ. Усе, що міняє машину, вимагає
+# `--apply`. Скрипт, який без прапорця будує, перемикає й перезапускає,
+# рано чи пізно запустять «просто подивитись» — і він змінить не те.
+# До 15.10.2026 `deploy` саме так і поводився.
+#
+# 🔴 ЧОМУ СИМЛІНК, А НЕ "git pull && build" НА МІСЦІ. Збірка триває ~400 с
+# і займає 8.6 ГБ (заміряно 12.10.2026 на CPX32). Якщо збирати там, звідки
+# сайт віддається, він ці хвилини віддає половину старого й половину
+# нового. Тому кожен реліз — окрема тека, а `current` перемикається однією
+# операцією (rename(2), атомарно).
+#
+# Коди виходу:
+#   0  зроблено (або сухий прогін показав план, який можна застосувати)
+#   1  відмова ДО будь-якої зміни (передумова не виконана) або status
+#      знайшов розбіжність
+#   2  неправильний виклик
+#   3  --apply не вдалось, скрипт повернув попередній реліз і ПЕРЕВІРИВ це
+#   4  --apply не вдалось, і повернути попередній реліз перевіреним не
+#      вийшло: стан машини невідомий, дивись вивід
 set -euo pipefail
 
-ROOT=/srv/camptribe
-REPO=https://github.com/camp-tribe-eu/camp.git
-KEEP=3          # скільки релізів тримати, не рахуючи чинного
-USER_=camptribe
+ROOT="${CAMPTRIBE_ROOT:-/srv/camptribe}"
+LINK="${CAMPTRIBE_LINK:-current}"
+API_UNIT="${CAMPTRIBE_API_UNIT:-camptribe-api}"
+WEB_UNIT="${CAMPTRIBE_WEB_UNIT:-camptribe-web}"
+API_PORT="${CAMPTRIBE_API_PORT:-3001}"
+WEB_PORT="${CAMPTRIBE_WEB_PORT:-3000}"
+# Нова API на цьому порту живе лише на час збірки вебу (див. build_web).
+BUILD_API_PORT="${CAMPTRIBE_BUILD_API_PORT:-3002}"
+REPO="${CAMPTRIBE_REPO:-https://github.com/camp-tribe-eu/camp.git}"
+USER_="${CAMPTRIBE_USER:-camptribe}"
+# Скільки релізів тримати крім чинного й цілі відкату.
+KEEP_EXTRA="${CAMPTRIBE_KEEP_EXTRA:-1}"
+READY_TRIES="${CAMPTRIBE_READY_TRIES:-30}"
+READY_SLEEP="${CAMPTRIBE_READY_SLEEP:-2}"
+MIN_FREE_GB="${CAMPTRIBE_MIN_FREE_GB:-12}"
+REHEARSAL_ROOT="${CAMPTRIBE_REHEARSAL_ROOT:-/srv/camptribe-rehearsal}"
+UNIT_SRC="${CAMPTRIBE_UNIT_SRC:-/etc/systemd/system}"
+UNIT_DIR="${CAMPTRIBE_UNIT_DIR:-/run/systemd/system}"
+SELF="${BASH_SOURCE[0]:-$0}"
 
-say() { printf '%s\n' "$*" >&2; }
-die() { printf '✗ %s\n' "$*" >&2; exit 1; }
+LOG=""
+LOCK_DIR=""
+TEMP_API_PID=""
+PARTIAL_REL=""
+KEEP_PREV=""
 
-current_release() { readlink "$ROOT/current" | sed 's|releases/||'; }
+say() { printf '%s\n' "$*" || true; if [ -n "$LOG" ]; then printf '%s\n' "$*" >> "$LOG" 2>/dev/null || true; fi; }
+warn() { say "⚠ $*"; }
+die() { say "✗ $*" >&2; exit 1; }
+usage() { sed -n '2,9p' "$SELF" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
-# BUILD_ID, який ВІДДАЄТЬСЯ, а не той, що лежить у файлі: саме він
-# доводить, що перемикання дійшло до читача.
+# ── дрібні помічники ─────────────────────────────────────────────────
+
+need() { command -v "$1" >/dev/null 2>&1 || die "на машині немає '$1'"; }
+
+as_user() {
+  if [ "$(id -u)" = 0 ] && [ -n "$USER_" ] && id "$USER_" >/dev/null 2>&1; then
+    sudo -u "$USER_" -H "$@"
+  else
+    "$@"
+  fi
+}
+
+sha256_of_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1
+  else shasum -a 256 | cut -d' ' -f1; fi
+}
+now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+who_am_i() { printf '%s' "${CAMPTRIBE_DEPLOYER:-${SUDO_USER:-$(id -un)}@$(hostname -s 2>/dev/null || echo ?)}"; }
+
+# Фізичний шлях: `current/apps/web` і `releases/abc/apps/web` — один каталог,
+# але /proc/<pid>/cwd завжди показує другий. Порівнювати можна лише фізичні.
+phys() { ( cd -P "$1" 2>/dev/null && pwd -P ) || true; }
+
+# KEY=VALUE з .env БЕЗ виконання файлу. `. .env` виконав би все, що там
+# опиниться, а значення з `&`, `;` чи пробілом його б зламало.
+env_get() {
+  local v
+  v=$(grep -E "^$2=" "$1" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)
+  v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
+  printf '%s' "$v"
+}
+
+rel_dir() { printf '%s/releases/%s' "$ROOT" "$1"; }
+link_rel() { local t; t=$(readlink "$ROOT/$LINK" 2>/dev/null || true); printf '%s' "${t##*/}"; }
+is_rel_name() { [[ "$1" =~ ^[0-9a-f]{7}$ ]]; }
+built() { [ -f "$(rel_dir "$1")/apps/web/.next/BUILD_ID" ] && [ -f "$(rel_dir "$1")/apps/api/dist/main.js" ]; }
+
+# 🔴 `--no-optional-locks`: ЧИТАННЯ git не повинне нічого писати. Без цього
+# `git status` оновлює кеш у .git/index і переписує його — а якщо ми root,
+# то ще й міняє власника. Заміряно 15.10.2026: сам огляд релізів «лише
+# читаючи» переписав .git/index у всіх трьох релізах на проді.
+git_in() { as_user git --no-optional-locks -c safe.directory='*' -C "$1" "${@:2}"; }
+
+# ── що відомо про реліз: маніфест, а якщо його нема — .git ───────────
+#
+# 🔴 «ІМ'Я ТЕКИ = КОМІТ» НЕ ДОВОДИТЬСЯ. Заміряно 15.10.2026: у релізі
+# 0ca5f4e в індексі лежали правки (A backfill-context-names.ts,
+# M compute-context.ts), яких немає в коміті 0ca5f4e. Ім'я казало одне,
+# зміст — інше. Тому маніфест пише повний SHA, а перелік змінених
+# відстежуваних файлів — окремим полем.
+
+manifest_path() { printf '%s/RELEASE.json' "$(rel_dir "$1")"; }
+has_manifest() { [ -f "$(manifest_path "$1")" ]; }
+mf() {
+  has_manifest "$1" || return 0
+  jq -r --arg k "$2" '.[$k] // empty | if type == "array" then join(",") else tostring end' "$(manifest_path "$1")"
+}
+rel_sha() {
+  local s; s=$(mf "$1" sha)
+  # 🔴 `--verify -q HEAD^{commit}`, а не `rev-parse HEAD`: у теці після перерваного
+  # fetch (є `git init`, коміту нема) останній друкує буквальне слово «HEAD»,
+  # і воно сприймалось як SHA. Тест h2 знайшов це на першому ж прогоні.
+  [ -n "$s" ] || s=$(git_in "$(rel_dir "$1")" rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null || true)
+  printf '%s' "$s"
+}
+rel_modified() { git_in "$(rel_dir "$1")" status --porcelain --untracked-files=no 2>/dev/null || true; }
+rel_commit_time() { git_in "$(rel_dir "$1")" log -1 --format=%ct 2>/dev/null || echo 0; }
+rel_env_hash() {
+  if [ -f "$(rel_dir "$1")/apps/api/.env" ]; then sha256_of_stdin < "$(rel_dir "$1")/apps/api/.env"; fi
+}
+dist_hash() { # тека релізу
+  ( cd "$1/apps/api/dist" && find . -type f | LC_ALL=C sort | while read -r f; do sha256_of_stdin < "$f"; echo " $f"; done | sha256_of_stdin )
+}
+
+# ── міграції: імена з файлів проти імен у БД ─────────────────────────
+#
+# TypeORM кладе в таблицю `migrations` імʼя класу: <Назва><мітка часу>.
+# Файл — <мітка часу>-<Назва>.ts. Звірено 15.10.2026 для всіх 23 файлів.
+
+migration_files_in() { # тека -> рядки "<ts>-<Name>", за зростанням ts
+  local f b
+  for f in "$1"/*.ts; do
+    [ -e "$f" ] || continue
+    b="${f##*/}"; printf '%s\n' "${b%.ts}"
+  done | LC_ALL=C sort
+}
+migration_db_name() { local ts="${1%%-*}" nm="${1#*-}"; printf '%s%s' "$nm" "$ts"; }
+
+applied_migrations() { # реліз -> імена з БД; 1, якщо не прочиталось
+  local url; url=$(env_get "$(rel_dir "$1")/apps/api/.env" DATABASE_URL)
+  [ -n "$url" ] || return 1
+  PGOPTIONS='-c default_transaction_read_only=on' psql "$url" -X -A -t -c 'select name from migrations order by id' 2>/dev/null
+}
+
+# $1 = файл зі списком "<ts>-<Name>", $2 = файл з іменами з БД, $3 = pending|ahead
+#   pending: відомі релізу й не застосовані; ahead: застосовані й релізу невідомі
+migration_delta() {
+  local k a l
+  k=$(mktemp); a=$(mktemp)
+  while IFS= read -r l; do
+    [ -z "$l" ] || printf '%s\n' "$(migration_db_name "$l")"
+  done < "$1" | LC_ALL=C sort > "$k"
+  grep -v '^$' "$2" 2>/dev/null | LC_ALL=C sort > "$a" || true
+  if [ "$3" = pending ]; then LC_ALL=C comm -23 "$k" "$a"; else LC_ALL=C comm -13 "$k" "$a"; fi
+  rm -f "$k" "$a"
+}
+count_lines() { if [ -z "$1" ]; then echo 0; else printf '%s\n' "$1" | wc -l | tr -d ' '; fi; }
+
+# ── перевірка: що ПРАЦЮЄ, а не що лежить ─────────────────────────────
+
+http_code() { curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$1" 2>/dev/null || true; }
+
+# BUILD_ID, який ВІДДАЄТЬСЯ читачу, а не той, що лежить у файлі.
 #
 # 🔴 ДВІ ПАСТКИ, ОБИДВІ ЗАМІРЯНІ 12.10.2026.
-#
-# 1. Тут було `curl … | head -c 200`. `head` закриває канал, curl падає
-#    з кодом 23 («Failure writing output to destination»), і під
-#    `set -o pipefail` це вбиває весь скрипт. Та сама пастка, через яку
-#    29 кроків CI віддавали 141 (CAMP-285). Тому відповідь читається
-#    ЦІЛКОМ у змінну, а вже потім ріжеться.
-#
-# 2. Next друкує BUILD_ID у коментарі, замінюючи `-` на `_`: у файлі
-#    `V68nKUfZ_V5ox5K-e3J3c`, у HTML `V68nKUfZ_V5ox5K_e3J3c`. Тому
-#    порівнювати можна лише нормалізовані значення.
+# 1. `curl … | head -c` закриває канал, curl падає з кодом 23, і під
+#    `pipefail` це вбиває скрипт. Тому відповідь читається ЦІЛКОМ у змінну.
+# 2. Next друкує BUILD_ID у коментарі, замінюючи `-` на `_`. Порівнювати
+#    можна лише нормалізовані значення.
+# 🔴 ЖОДНОГО КОНВЕЄРА: на цю пастку я наступив тричі в одній функції.
 normalise_id() { printf '%s' "$1" | tr '-' '_'; }
-
-# 🔴 ЖОДНОГО КОНВЕЄРА. Я наступив на цю пастку ТРИЧІ в цій функції:
-# спершу `head -c` (код 23), потім `grep -m1` (код 141) — обидва
-# закривають канал, писар гине, `pipefail` робить із цього падіння
-# всього скрипта. Bash уміє витягти підрядок сам, без підпроцесів.
 served_build_id() {
   local body
-  body=$(curl -sS --max-time 30 http://127.0.0.1:3000/ 2>/dev/null) || return 0
+  body=$(curl -sS --max-time 30 "http://127.0.0.1:$WEB_PORT/" 2>/dev/null) || return 0
   [[ $body =~ \<!--([A-Za-z0-9_-]{15,})--\> ]] && printf '%s' "${BASH_REMATCH[1]}"
   return 0
 }
 
-swap_to() {
-  local rel="$1"
-  [ -d "$ROOT/releases/$rel" ] || die "релізу $rel немає"
-  [ -f "$ROOT/releases/$rel/apps/web/.next/BUILD_ID" ] || die "у релізі $rel немає збірки"
-  local before; before=$(served_build_id)
-  ln -sfn "releases/$rel" "$ROOT/current"
-  chown -h "$USER_:$USER_" "$ROOT/current"
-  systemctl restart camptribe-api camptribe-web
-  for _ in $(seq 1 30); do
-    sleep 2
-    [ "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:3000/ 2>/dev/null)" = "200" ] && break
+listener_pid() { # порт -> pid того, хто СЛУХАЄ
+  local out
+  if command -v ss >/dev/null 2>&1; then
+    out=$(ss -H -ltnp "sport = :$1" 2>/dev/null || true)
+    [[ $out =~ pid=([0-9]+) ]] && printf '%s' "${BASH_REMATCH[1]}"
+  else
+    out=$(lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null || true)
+    printf '%s' "${out%%$'\n'*}"
+  fi
+  return 0
+}
+proc_cwd() {
+  if [ -d /proc/self ]; then readlink "/proc/$1/cwd" 2>/dev/null || true
+  else lsof -a -d cwd -p "$1" -Fn 2>/dev/null | sed -n 's/^n//p' || true; fi
+}
+# pid слухача — сам MainPID юніта або його нащадок (next-server — дитина npx).
+is_self_or_descendant() { # pid ancestor
+  local p="$1" i=0
+  while [ -n "$p" ] && [ "$p" != 0 ] && [ "$p" != 1 ] && [ "$i" -lt 20 ]; do
+    [ "$p" = "$2" ] && return 0
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ' || true)
+    i=$((i + 1))
   done
-  local after; after=$(served_build_id)
-  local want; want=$(cat "$ROOT/releases/$rel/apps/web/.next/BUILD_ID")
-  # 🔴 Перевіряємо ВІДДАНЕ проти ОЧІКУВАНОГО. «Служба active» нічого не
-  # доводить: вона буває active і на старому каталозі.
-  [ "$(normalise_id "$after")" = "$(normalise_id "$want")" ] \
-    || die "перемкнули на $rel, а віддається '$after' (чекали '$want')"
-  say "✓ $rel віддається (BUILD_ID $after, було $before)"
+  return 1
 }
 
-do_deploy() {
-  local sha; sha=$(git ls-remote "$REPO" "${1:-main}" | cut -c1-7)
-  [ -n "$sha" ] || die "не знайшов гілку ${1:-main}"
-  local dir="$ROOT/releases/$sha"
+# Друкує по рядку на кожну перевірку й повертає кількість невдалих.
+#
+# 🔴 «СЛУЖБА active» НІЧОГО НЕ ДОВОДИТЬ: вона буває active на старому
+# каталозі. Тут перевіряється ЩО ВИКОНУЄТЬСЯ: з якої теки працює процес,
+# який слухає порт, і що саме він віддає. Це один код і для `status`, і
+# для перевірки після перемикання, щоб вони не могли розійтись.
+check_running() { # очікуваний реліз
+  local rel="$1" bad=0 want_api want_web t spec unit port want label mp lp cwd code file_id served
+  want_api=$(phys "$(rel_dir "$rel")/apps/api"); want_web=$(phys "$(rel_dir "$rel")/apps/web")
 
-  if [ -f "$dir/apps/web/.next/BUILD_ID" ]; then
-    say "реліз $sha уже зібраний — просто перемикаю"
+  t=$(link_rel)
+  if [ "$t" = "$rel" ]; then say "  ✓ $LINK → releases/$rel"
+  else say "  ✗ $LINK → releases/${t:-?}, а чекали releases/$rel"; bad=$((bad + 1)); fi
+
+  for spec in "$API_UNIT:$API_PORT:$want_api:API" "$WEB_UNIT:$WEB_PORT:$want_web:веб"; do
+    IFS=: read -r unit port want label <<< "$spec"
+    if [ "$(systemctl is-active "$unit" 2>/dev/null || true)" != active ]; then
+      say "  ✗ $label: юніт $unit не active"; bad=$((bad + 1)); continue
+    fi
+    mp=$(systemctl show -p MainPID --value "$unit" 2>/dev/null || true)
+    lp=$(listener_pid "$port")
+    if [ -z "$lp" ]; then say "  ✗ $label: на порту $port ніхто не слухає"; bad=$((bad + 1)); continue; fi
+    if [ -z "$mp" ] || [ "$mp" = 0 ] || ! is_self_or_descendant "$lp" "$mp"; then
+      say "  ✗ $label: порт $port слухає pid $lp, який не належить юніту $unit (MainPID ${mp:-?})"; bad=$((bad + 1)); continue
+    fi
+    cwd=$(proc_cwd "$lp")
+    if [ "$cwd" = "$want" ]; then say "  ✓ $label: pid $lp працює з $cwd"
+    else say "  ✗ $label: pid $lp працює з '${cwd:-?}', а чекали $want"; bad=$((bad + 1)); fi
+  done
+
+  code=$(http_code "http://127.0.0.1:$API_PORT/health")
+  if [ "$code" = 200 ]; then say "  ✓ API /health → 200"
+  else say "  ✗ API /health → ${code:-?}"; bad=$((bad + 1)); fi
+
+  file_id=$(cat "$(rel_dir "$rel")/apps/web/.next/BUILD_ID" 2>/dev/null || true)
+  served=$(served_build_id)
+  if [ -n "$served" ] && [ "$(normalise_id "$served")" = "$(normalise_id "$file_id")" ]; then
+    say "  ✓ веб віддає BUILD_ID $served (збігається з файлом релізу)"
   else
-    rm -rf "$dir"
-    sudo -u "$USER_" git clone -q --depth 1 --branch "${1:-main}" "$REPO" "$dir"
-    # .env не в репозиторії й ніколи там не буде — беремо з чинного релізу
-    install -m 600 -o "$USER_" -g "$USER_" \
-      "$ROOT/releases/$(current_release)/apps/api/.env" "$dir/apps/api/.env"
-    ( cd "$dir"
-      sudo -u "$USER_" npm ci --no-audit --no-fund
-      sudo -u "$USER_" npm run build:api
-      sudo -u "$USER_" env $(grep -E '^(DATABASE_URL|API_BUILD_TOKEN)=' apps/api/.env | xargs) \
-        API_BASE_URL=http://localhost:3001 NODE_OPTIONS=--max-old-space-size=5120 \
-        npm run build:web )
+    say "  ✗ веб віддає BUILD_ID '${served:-нічого}', а у релізі $rel — '${file_id:-?}'"; bad=$((bad + 1))
+  fi
+  return "$bad"
+}
+
+wait_ready() {
+  local i
+  for i in $(seq 1 "$READY_TRIES"); do
+    if [ "$(http_code "http://127.0.0.1:$WEB_PORT/")" = 200 ] && [ "$(http_code "http://127.0.0.1:$API_PORT/health")" != 000 ]; then
+      return 0
+    fi
+    sleep "$READY_SLEEP"
+  done
+  return 0 # не відповіли — це покаже check_running, зі словами
+}
+
+# ── історія: єдине джерело «що було перед цим» ───────────────────────
+#
+# 🔴 Відкат = «скасувати останнє перемикання», а не «найновіша тека за
+# mtime», як було. mtime теки міняється від чого завгодно, і «найновіший
+# не чинний» міг виявитись зовсім не тим, що стояв до тебе.
+# `revert` в історії є, але в пошук цілі не входить: після невдалого
+# деплою «попередній» не може означати реліз, який щойно провалився.
+
+hist_file() { printf '%s/deploy-history.jsonl' "$ROOT"; }
+hist_append() { # action from to ok note
+  jq -nc --arg at "$(now_iso)" --arg action "$1" --arg from "$2" --arg to "$3" --arg ok "$4" \
+        --arg note "$5" --arg by "$(who_am_i)" --arg sha "$(rel_sha "$3")" \
+        '{at:$at, action:$action, from:$from, to:$to, sha:$sha, ok:($ok=="true"), by:$by, note:$note}' \
+    >> "$(hist_file)"
+}
+hist_last_ok() { # поле останнього успішного запису, крім revert
+  [ -f "$(hist_file)" ] || return 0
+  jq -r --arg k "$1" 'select(.ok == true and .action != "revert") | .[$k]' "$(hist_file)" 2>/dev/null | tail -n 1 || true
+}
+
+# ── передумови, замок, прибирання ────────────────────────────────────
+
+preflight() {
+  need jq; need curl; need git; need psql
+  cd "$ROOT" 2>/dev/null || die "немає $ROOT"
+  [ -d "$ROOT/releases" ] || die "немає $ROOT/releases"
+  [ -L "$ROOT/$LINK" ] || die "$ROOT/$LINK не симлінк"
+  if [ -z "$(link_rel)" ] || [ ! -d "$(rel_dir "$(link_rel)")" ]; then die "$LINK веде в нікуди"; fi
+  # 🔴 Юніт, який збираємось перезапускати, МУСИТЬ працювати саме з цього
+  # симлінка. Інакше `--apply` перемкне один каталог, а перезапустить службу,
+  # що дивиться в інший, — і «✓» нічого не означатиме.
+  local u wd
+  for u in "$API_UNIT" "$WEB_UNIT"; do
+    wd=$(systemctl show -p WorkingDirectory --value "$u" 2>/dev/null || true)
+    case "$wd" in
+      "$ROOT/$LINK"/*) ;;
+      *) die "юніт $u має WorkingDirectory='${wd:-?}', а не під $ROOT/$LINK/ — перезапускати його заради цього перемикання не можна" ;;
+    esac
+  done
+}
+
+free_gb() { local k; k=$(df -Pk "$ROOT" | awk 'NR==2 {print $4}'); echo $((k / 1048576)); }
+
+lock_take() {
+  LOCK_DIR="$ROOT/.deploy.lock"
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    local owner; owner=$(cat "$LOCK_DIR/pid" 2>/dev/null || echo '?')
+    if [ "$owner" != '?' ] && kill -0 "$owner" 2>/dev/null; then
+      LOCK_DIR=""; die "інший деплой (pid $owner) уже йде"
+    fi
+    say "  попередній запуск (pid $owner) лишив замок і зник — беру його"
+    rm -rf "$LOCK_DIR"; mkdir "$LOCK_DIR" || { LOCK_DIR=""; die "не можу взяти замок"; }
+  fi
+  echo $$ > "$LOCK_DIR/pid"
+}
+
+stop_temp_api() {
+  local lp
+  if [ -n "$TEMP_API_PID" ] || [ -n "$(listener_pid "$BUILD_API_PORT")" ]; then
+    # Підоболонка, яку ми запустили, — не сам node: вбиваємо того, хто
+    # СЛУХАЄ порт, інакше після збірки лишилась би друга API на 3002.
+    lp=$(listener_pid "$BUILD_API_PORT")
+    if [ -n "$lp" ]; then kill "$lp" 2>/dev/null || true; fi
+    if [ -n "$TEMP_API_PID" ]; then kill "$TEMP_API_PID" 2>/dev/null || true; wait "$TEMP_API_PID" 2>/dev/null || true; fi
+    TEMP_API_PID=""
+  fi
+}
+
+cleanup() {
+  local rc=$?
+  stop_temp_api
+  if [ -n "$PARTIAL_REL" ]; then safe_rm_release "$PARTIAL_REL" "$KEEP_PREV" || true; fi
+  if [ -n "$LOCK_DIR" ]; then rm -rf "$LOCK_DIR"; fi
+  return "$rc"
+}
+
+# 🔴 Видаляти реліз можна лише за двох умов: це тека РІВНО під releases/ з
+# іменем-SHA, і це не те, на що вказує $LINK чи що є ціллю відкату.
+safe_rm_release() { # реліз [ціль-відкату]
+  local rel="$1" keep="${2:-}"
+  is_rel_name "$rel" || { warn "не видаляю '$rel': не схоже на реліз"; return 1; }
+  [ "$rel" != "$(link_rel)" ] || { warn "не видаляю $rel: це чинний реліз"; return 1; }
+  [ "$rel" != "$keep" ] || { warn "не видаляю $rel: це ціль відкату"; return 1; }
+  [ -d "$(rel_dir "$rel")" ] || return 0
+  say "  прибираю реліз $rel"
+  rm -rf "${ROOT:?}/releases/${rel:?}"
+}
+
+prune_candidates() { # $1 = майбутній чинний, $2 = майбутня ціль відкату
+  local d r n=0 line
+  for d in "$ROOT"/releases/*; do
+    [ -d "$d" ] || continue
+    r="${d##*/}"
+    if is_rel_name "$r" && [ "$r" != "$1" ] && [ "$r" != "$2" ]; then
+      printf '%s %s\n' "$(rel_commit_time "$r")" "$r"
+    fi
+  done | LC_ALL=C sort -rn | while read -r line; do
+    n=$((n + 1))
+    if [ "$n" -gt "$KEEP_EXTRA" ]; then printf '%s\n' "${line#* }"; fi
+  done
+}
+
+# ── перемикання ──────────────────────────────────────────────────────
+
+set_link() { # реліз
+  local tmp="$ROOT/.$LINK.new.$$"
+  ln -sfn "releases/$1" "$tmp"
+  if [ "$(id -u)" = 0 ]; then chown -h "$USER_:$USER_" "$tmp" 2>/dev/null || true; fi
+  # rename(2): `current` ніколи не зникає, навіть на мить. `ln -sfn`
+  # напряму — це unlink + symlink, і між ними його немає. BSD mv не знає -T
+  # (так буває лише на ноутбуці, де йдуть тести), тоді — запасний шлях.
+  if mv -T "$tmp" "$ROOT/$LINK" 2>/dev/null; then :; else
+    ln -sfn "releases/$1" "$ROOT/$LINK"; rm -f "$tmp"
+  fi
+}
+
+# Перемкнути, перезапустити, ПЕРЕВІРИТИ. 0 лише якщо перевірка пройшла.
+switch_and_verify() { # реліз
+  local rel="$1" t0=$SECONDS
+  set_link "$rel"
+  # 🔴 Невдалий restart не повинен вбити скрипт посеред перемикання (set -e):
+  # лінк уже зміщено, і далі МУСИТЬ іти перевірка та повернення.
+  systemctl restart "$API_UNIT" "$WEB_UNIT" || say "  ✗ systemctl restart завершився з помилкою"
+  wait_ready
+  if check_running "$rel"; then say "  перемикання й перевірка: $((SECONDS - t0)) с"; return 0; fi
+  return 1
+}
+
+# Перемкнути на реліз, а якщо перевірка не пройшла — повернути попередній
+# І ПЕРЕВІРИТИ ЦЕ. Той самий код відкату, що й `rollback`.
+apply_switch() { # реліз дія
+  local rel="$1" action="$2" prev; prev=$(link_rel)
+  if [ "$rel" = "$prev" ]; then say "уже чинний: $rel — перемикати нічого"; return 0; fi
+  say "→ $action: $prev → $rel"
+  if switch_and_verify "$rel"; then
+    hist_append "$action" "$prev" "$rel" true ""
+    say "✓ $rel віддається"
+    return 0
+  fi
+  say "✗ перевірка після перемикання на $rel НЕ пройшла — повертаю $prev"
+  hist_append "$action" "$prev" "$rel" false "перевірка не пройшла"
+  if switch_and_verify "$prev"; then
+    hist_append revert "$rel" "$prev" true "автоматично після невдалого $action"
+    say "✗ $action не вдався; $prev повернуто й перевірено"
+    exit 3
+  fi
+  hist_append revert "$rel" "$prev" false "повернення теж не пройшло перевірку"
+  say "🔴 $action не вдався, І ПОВЕРНУТИ $prev ПЕРЕВІРЕНИМ НЕ ВДАЛОСЬ. Стан машини невідомий; дивись: camptribe-deploy status"
+  exit 4
+}
+
+# ── збірка ───────────────────────────────────────────────────────────
+
+write_manifest() { # реліз sha ref
+  local rel="$1" dir mig mod dist out; dir=$(rel_dir "$1")
+  mig=$(migration_files_in "$dir/apps/api/src/migrations" | jq -R . | jq -sc .)
+  mod=$(rel_modified "$rel" | jq -R . | jq -sc 'map(select(. != ""))')
+  dist=$(dist_hash "$dir")
+  out=$(mktemp)
+  jq -n --arg release "$rel" --arg sha "$2" --arg ref "${3:-}" \
+        --arg subject "$(git_in "$dir" log -1 --format=%s)" \
+        --arg commit_time "$(git_in "$dir" log -1 --format=%cI)" \
+        --arg built_at "$(now_iso)" --arg deployed_by "$(who_am_i)" \
+        --arg build_id "$(cat "$dir/apps/web/.next/BUILD_ID")" \
+        --arg env_sha256 "$(rel_env_hash "$rel")" --arg api_dist_sha256 "$dist" \
+        --arg node "$(node -v 2>/dev/null || true)" \
+        --argjson modified "$mod" --argjson migrations "$mig" \
+        '{schema:1, release:$release, sha:$sha, ref:$ref, subject:$subject, commit_time:$commit_time,
+          built_at:$built_at, deployed_by:$deployed_by, build_id:$build_id,
+          modified_tracked_files:$modified, migrations:$migrations,
+          env_sha256:$env_sha256, api_dist_sha256:$api_dist_sha256, node:$node}' > "$out"
+  cp "$out" "$dir/RELEASE.json"; chmod 444 "$dir/RELEASE.json"
+  if [ "$(id -u)" = 0 ]; then chown "$USER_:$USER_" "$dir/RELEASE.json" 2>/dev/null || true; fi
+  rm -f "$out"
+}
+
+snapshot_db() { # реліз, з .env якого береться DATABASE_URL
+  local dir url f old n=0; dir=$(rel_dir "$1")
+  url=$(env_get "$dir/apps/api/.env" DATABASE_URL)
+  [ -n "$url" ] || die "у $dir/apps/api/.env немає DATABASE_URL"
+  mkdir -p "$ROOT/backups"
+  f="$ROOT/backups/predeploy-$1-$(date -u +%Y%m%dT%H%M%SZ).dump"
+  say "  знімок БД перед міграцією → $f"
+  as_user pg_dump -Fc "$url" -f "$f" || { rm -f "$f"; die "pg_dump не вдався — міграцію не запускаю"; }
+  # 🔴 Знімок, який не прочитали, не вважається зробленим: `pg_restore -l`
+  # читає зміст архіву, і порожній чи обрізаний файл тут падає.
+  pg_restore -l "$f" >/dev/null 2>&1 || die "знімок $f не читається (pg_restore -l) — міграцію не запускаю"
+  say "  знімок: $(wc -c < "$f" | tr -d ' ') байт, зміст читається"
+  while IFS= read -r old; do
+    n=$((n + 1)); if [ "$n" -gt 3 ]; then rm -f "$old"; fi
+  done < <(ls -1t "$ROOT"/backups/predeploy-*.dump 2>/dev/null || true)
+}
+
+start_temp_api() { # реліз
+  local dir i; dir=$(rel_dir "$1")
+  say "  тимчасова нова API на порту $BUILD_API_PORT — веб збирається проти неї"
+  [ -z "$(listener_pid "$BUILD_API_PORT")" ] || die "порт $BUILD_API_PORT зайнятий — тимчасову API не запускаю"
+  ( cd "$dir/apps/api" && as_user env PORT="$BUILD_API_PORT" node dist/main > "$dir/build-api.log" 2>&1 ) &
+  TEMP_API_PID=$!
+  for i in $(seq 1 "$READY_TRIES"); do
+    [ "$(http_code "http://127.0.0.1:$BUILD_API_PORT/health")" = 200 ] && return 0
+    kill -0 "$TEMP_API_PID" 2>/dev/null || break
+    sleep "$READY_SLEEP"
+  done
+  die "тимчасова API не піднялась на $BUILD_API_PORT (див. $dir/build-api.log) — веб не збираю"
+}
+
+fetch_release() { # sha реліз
+  local dir; dir=$(rel_dir "$2")
+  mkdir -p "$dir"; if [ "$(id -u)" = 0 ]; then chown "$USER_:$USER_" "$dir"; fi
+  PARTIAL_REL="$2"
+  as_user git -C "$dir" init -q
+  as_user git -C "$dir" remote add origin "$REPO"
+  as_user git -C "$dir" fetch -q --depth 1 origin "$1" || die "не вдалось отримати $1 з $REPO"
+  as_user git -C "$dir" checkout -q --detach FETCH_HEAD
+}
+
+build_api() { # реліз
+  local rel="$1" dir cur; dir=$(rel_dir "$1"); cur=$(link_rel)
+  # .env не в репозиторії й ніколи там не буде — береться з чинного релізу.
+  ( umask 077; cp "$(rel_dir "$cur")/apps/api/.env" "$dir/apps/api/.env" )
+  if [ "$(id -u)" = 0 ]; then chown "$USER_:$USER_" "$dir/apps/api/.env"; fi
+  ( cd "$dir" && as_user npm ci --no-audit --no-fund ) || die "npm ci не вдався — нічого не перемикав"
+  ( cd "$dir" && as_user npm run build:api ) || die "збірка API не вдалась — нічого не перемикав"
+  [ -f "$dir/apps/api/dist/main.js" ] || die "збірка API не дала dist/main.js ($rel)"
+}
+
+build_web() { # реліз
+  local dir envf; dir=$(rel_dir "$1"); envf="$dir/apps/api/.env"
+  # 🔴 ВЕБ ЗБИРАЄТЬСЯ ПРОТИ НОВОЇ API, НЕ ПРОТИ ЧИННОЇ. Збірка читає API на
+  # льоту (API_BASE_URL) і з неї роблять 65 тис. сторінок. Заміряно
+  # 15.10.2026: між живим fd3b06b і main 46 файлів apps/api/src, зокрема
+  # сутність camping-spot з колонками warning_areas і overnight_*. Чинна
+  # API про них не знає, тож веб, зібраний проти неї, не впав би, а
+  # мовчки не мав би цих даних.
+  ( cd "$dir" && as_user env DATABASE_URL="$(env_get "$envf" DATABASE_URL)" API_BUILD_TOKEN="$(env_get "$envf" API_BUILD_TOKEN)" \
+      API_BASE_URL="http://localhost:$BUILD_API_PORT" NODE_OPTIONS=--max-old-space-size=5120 \
+      npm run build:web ) || die "збірка вебу не вдалась — нічого не перемикав"
+  [ -f "$dir/apps/web/.next/BUILD_ID" ] || die "збірка вебу не дала BUILD_ID"
+}
+
+# Міграції реліза: pending проти БД, на яку дивиться $2. Друкує pending.
+pending_for() { # реліз реліз-чия-.env
+  local known ap out; known=$(mktemp); ap=$(mktemp)
+  migration_files_in "$(rel_dir "$1")/apps/api/src/migrations" > "$known"
+  applied_migrations "$2" > "$ap" || { rm -f "$known" "$ap"; return 1; }
+  out=$(migration_delta "$known" "$ap" pending)
+  rm -f "$known" "$ap"
+  printf '%s' "$out"
+}
+
+run_migrations() { # реліз реліз-чия-.env-для-знімка
+  local dir; dir=$(rel_dir "$1")
+  snapshot_db "$2"
+  say "→ міграції (одна транзакція: або всі, або жодної)"
+  ( cd "$dir/apps/api" && as_user npm run migration:run ) || say "  ✗ migration:run завершився з помилкою"
+  # 🔴 Вирок виносить ЗВІРКА з тим, що тепер лежить у БД, а не код виходу:
+  # `npm run` може вийти 0, нічого не застосувавши, і вийти 1 після
+  # застосування. TypeORM виконує всі міграції однією транзакцією (за
+  # замовчуванням "all", MigrationRunCommand.js), тож при невдачі БД
+  # лишається такою, як була.
+  local left; left=$(pending_for "$1" "$1") || die "після migration:run не вдалось прочитати migrations — не перемикаю"
+  [ -z "$left" ] || die "міграція не пройшла (лишились неприйняті: $(printf '%s' "$left" | tr '\n' ' ')). Нічого не перемикав; чинний $(link_rel)."
+}
+
+# ── команди ──────────────────────────────────────────────────────────
+
+cmd_status() {
+  preflight
+  local rel mod bad=0 unknown=0 ap known pend ahead last_to; rel=$(link_rel)
+  say "== Що зараз на проді ($ROOT/$LINK)"
+  say "реліз:     $rel"
+  if has_manifest "$rel"; then
+    say "коміт:     $(mf "$rel" sha)  \"$(mf "$rel" subject)\""
+    say "зібрано:   $(mf "$rel" built_at), $(mf "$rel" deployed_by), ref: $(mf "$rel" ref)"
+    if [ "$(mf "$rel" api_dist_sha256)" = "$(dist_hash "$(rel_dir "$rel")")" ]; then say "  ✓ dist API збігається з маніфестом"
+    else say "  ✗ dist API ЗМІНЕНО після збірки (хеш не збігається з RELEASE.json)"; bad=$((bad + 1)); fi
+    if [ "$(mf "$rel" build_id)" = "$(cat "$(rel_dir "$rel")/apps/web/.next/BUILD_ID" 2>/dev/null || true)" ]; then :
+    else say "  ✗ BUILD_ID у маніфесті не той, що в .next"; bad=$((bad + 1)); fi
+    if [ -n "$(mf "$rel" env_sha256)" ] && [ "$(mf "$rel" env_sha256)" != "$(rel_env_hash "$rel")" ]; then
+      say "  ℹ .env змінювали після збірки (хеш інший)"
+    fi
+  else
+    say "коміт:     $(rel_sha "$rel")  (RELEASE.json немає: збудовано до CAMP-61, SHA взято з .git)"
+  fi
+  mod=$(rel_modified "$rel")
+  if [ -n "$mod" ]; then
+    warn "відстежувані файли релізу відрізняються від його коміту ($(count_lines "$mod")): ім'я теки НЕ доводить зміст"
+    printf '%s\n' "$mod" | head -5 | sed 's/^/      /'
   fi
 
-  # 🔴 Збираємо ДО перемикання. Зламана збірка не стає чинною ніколи.
-  swap_to "$sha"
+  say "процеси:"
+  check_running "$rel" || bad=$((bad + $?))
 
-  # прибирання: тримаємо KEEP найстаріших… ні, найновіших, і ніколи чинний
-  local cur; cur=$(current_release)
-  ls -1dt "$ROOT"/releases/* 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do
-    [ "$(basename "$old")" = "$cur" ] && continue
-    say "прибираю старий реліз $(basename "$old")"
-    rm -rf "$old"
+  say "схема БД:"
+  ap=$(mktemp); known=$(mktemp)
+  if applied_migrations "$rel" > "$ap" 2>/dev/null; then
+    migration_files_in "$(rel_dir "$rel")/apps/api/src/migrations" > "$known"
+    pend=$(migration_delta "$known" "$ap" pending); ahead=$(migration_delta "$known" "$ap" ahead)
+    say "  застосовано в БД: $(grep -c . "$ap" || true); відомо релізу: $(grep -c . "$known" || true)"
+    if [ -n "$pend" ]; then say "  ✗ код очікує міграції, яких у БД немає: $(printf '%s' "$pend" | tr '\n' ' ')"; bad=$((bad + 1)); fi
+    if [ -n "$ahead" ]; then say "  ℹ схема попереду коду на $(count_lines "$ahead"): $(printf '%s' "$ahead" | tr '\n' ' ')"; fi
+    if [ -z "$pend" ] && [ -z "$ahead" ]; then say "  ✓ збігається"; fi
+  else
+    say "  ✗ таблицю migrations прочитати не вдалось: «невідомо» не є «гаразд»"; unknown=$((unknown + 1))
+  fi
+  rm -f "$ap" "$known"
+
+  say "історія:"
+  if [ -f "$(hist_file)" ]; then
+    last_to=$(hist_last_ok to)
+    say "  останній запис: $(tail -n 1 "$(hist_file)" | jq -r '"\(.at) \(.action) \(.from)→\(.to), \(.by), ok=\(.ok)"')"
+    if [ -n "$last_to" ] && [ "$last_to" != "$rel" ]; then
+      say "  ✗ історія каже, що чинний $last_to, а $LINK веде на $rel: хтось перемикав повз скрипт"; bad=$((bad + 1))
+    fi
+  else
+    say "  записів немає (перемикань через скрипт ще не було)"
+  fi
+
+  if [ "$bad" -gt 0 ] || [ "$unknown" -gt 0 ]; then
+    say "ВИСНОВОК: РОЗБІЖНОСТЕЙ $bad, НЕ ПЕРЕВІРЕНО $unknown"; return 1
+  fi
+  say "ВИСНОВОК: усе збігається — $rel"
+}
+
+# План перемикання на вже збудований реліз; 1 = не можна.
+switch_plan() { # реліз
+  local rel="$1" ap known pend ahead a b
+  is_rel_name "$rel" || { say "✗ '$rel' не схоже на реліз (7 hex)"; return 1; }
+  [ -d "$(rel_dir "$rel")" ] || { say "✗ релізу $rel немає в $ROOT/releases"; return 1; }
+  built "$rel" || { say "✗ реліз $rel не збудований (немає .next/BUILD_ID чи dist/main.js)"; return 1; }
+  ap=$(mktemp); known=$(mktemp)
+  if applied_migrations "$rel" > "$ap" 2>/dev/null; then
+    migration_files_in "$(rel_dir "$rel")/apps/api/src/migrations" > "$known"
+    pend=$(migration_delta "$known" "$ap" pending); ahead=$(migration_delta "$known" "$ap" ahead)
+    if [ -n "$pend" ]; then
+      say "✗ реліз $rel очікує міграції, яких немає в БД: $(printf '%s' "$pend" | tr '\n' ' ')"; rm -f "$ap" "$known"; return 1
+    fi
+    if [ -n "$ahead" ]; then
+      warn "схема БД ПОПЕРЕДУ релізу $rel на $(count_lines "$ahead") міграцій: $(printf '%s' "$ahead" | tr '\n' ' ')"
+      say "  Старий код на новій схемі безпечний лише якщо ті міграції лише ДОДАВАЛИ (docs/deploy.md, «Міграції»)."
+    fi
+  else
+    say "✗ не вдалось прочитати таблицю migrations — не знаю, чи підходить схема"; rm -f "$ap" "$known"; return 1
+  fi
+  rm -f "$ap" "$known"
+  a=$(rel_env_hash "$rel"); b=$(rel_env_hash "$(link_rel)")
+  if [ "$a" != "$b" ]; then warn ".env релізу $rel відрізняється від чинного: перемикання поверне ТІ значення, що були в $rel, а не поточні"; fi
+  return 0
+}
+
+cmd_switch() { # реліз apply
+  local rel="$1" apply="$2"
+  [ -n "$rel" ] || usage
+  preflight
+  say "== switch → $rel  $( [ "$apply" = yes ] && echo '(--apply)' || echo '(СУХИЙ ПРОГІН: нічого не змінюється)')"
+  say "чинний: $(link_rel)"
+  switch_plan "$rel" || exit 1
+  if [ "$apply" != yes ]; then
+    say "План: $LINK → $rel; restart $API_UNIT $WEB_UNIT; перевірка (процес, cwd, /health, BUILD_ID); автовідкат, якщо перевірка не пройшла."
+    say "Застосувати: додай --apply"
+    return 0
+  fi
+  LOG="$ROOT/deploy.log"; trap cleanup EXIT; lock_take
+  apply_switch "$rel" switch
+}
+
+cmd_rollback() { # to apply
+  local to="$1" apply="$2" cur target last_to
+  preflight
+  cur=$(link_rel); target="$to"
+  if [ -z "$target" ]; then
+    [ -f "$(hist_file)" ] || die "історії перемикань немає, тож «попередній» невідомий. Назви ціль: --to <реліз>. Наявні: $(ls -1 "$ROOT/releases" | tr '\n' ' ')"
+    last_to=$(hist_last_ok to)
+    [ "$last_to" = "$cur" ] || die "історія каже, що чинний '${last_to:-?}', а $LINK веде на $cur: хтось перемикав повз скрипт, тож «попередній» ненадійний. Назви ціль: --to <реліз>"
+    target=$(hist_last_ok from)
+    [ -n "$target" ] || die "в історії немає, звідки ми прийшли. Назви ціль: --to <реліз>"
+  fi
+  [ "$target" != "$cur" ] || die "$target і є чинний реліз"
+  say "== rollback $cur → $target  $( [ "$apply" = yes ] && echo '(--apply)' || echo '(СУХИЙ ПРОГІН: нічого не змінюється)')"
+  say "джерело цілі: $( [ -n "$to" ] && echo 'явне --to' || echo 'останній успішний запис історії' )"
+  if has_manifest "$target"; then say "ціль: $(mf "$target" sha)  \"$(mf "$target" subject)\""; else say "ціль: $(rel_sha "$target") (без маніфесту)"; fi
+  switch_plan "$target" || exit 1
+  if [ "$apply" != yes ]; then
+    say "План: те саме перемикання, що й деплой, у зворотний бік; автоповернення, якщо не пройде перевірку."
+    say "Застосувати: додай --apply"
+    return 0
+  fi
+  LOG="$ROOT/deploy.log"; trap cleanup EXIT; lock_take
+  apply_switch "$target" rollback
+}
+
+cmd_deploy() { # sha apply migrate migrations-від-ноутбука ref
+  local sha="$1" apply="$2" migrate="$3" given="$4" ref="$5"
+  local rel dir cur reuse=no have gb known ap pend="" have_list=no pr
+  preflight
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "--sha має бути повним 40-символьним SHA (отримано '${sha:-<порожньо>}')"
+  rel="${sha:0:7}"; dir=$(rel_dir "$rel"); cur=$(link_rel); KEEP_PREV="$cur"
+  say "== deploy $sha  $( [ "$apply" = yes ] && echo '(--apply)' || echo '(СУХИЙ ПРОГІН: нічого не змінюється)')"
+  say "чинний:  $cur  ($(rel_sha "$cur"))"
+  say "ціль:    $rel  ← $sha${ref:+  ($ref)}"
+  [ "$rel" != "$cur" ] || die "ціль і є чинний реліз; щоб його перевірити, візьми: status"
+
+  if [ -d "$dir" ]; then
+    have=$(rel_sha "$rel")
+    if [ -n "$have" ] && [ "$have" != "$sha" ]; then
+      die "тека $dir уже є, але в ній $have, а не $sha: колізія короткого імені або чужа тека"
+    fi
+    if [ -n "$have" ] && built "$rel" && has_manifest "$rel" && [ -z "$(rel_modified "$rel")" ]; then
+      reuse=yes; say "реліз $rel уже збудований, маніфест є, дерево чисте — збирати не треба"
+    else
+      say "тека $rel є, але це недобудований чи змінений залишок — буде прибрано й зібрано наново"
+    fi
+  fi
+  if [ "$reuse" = no ]; then
+    gb=$(free_gb)
+    say "диск:    вільно $gb ГБ, потрібно ~9 (реліз ≈ 8.6 ГБ)"
+    [ "$gb" -ge "$MIN_FREE_GB" ] || die "вільно $gb ГБ < $MIN_FREE_GB: збірка може не вміститись"
+  fi
+
+  # Міграції, які чекають. У сухому прогоні список може прийти від ноутбука
+  # (`--migrations`, обчислено з git за цим SHA); при --apply він
+  # перераховується з теки, яку скрипт сам витягнув, і ЗВІРЯЄТЬСЯ.
+  known=$(mktemp); ap=$(mktemp)
+  applied_migrations "$cur" > "$ap" 2>/dev/null || { rm -f "$known" "$ap"; die "не вдалось прочитати таблицю migrations — планувати міграції наосліп не можна"; }
+  if [ -n "$given" ]; then printf '%s\n' "$given" | tr ',' '\n' > "$known"; have_list=yes
+  elif [ -d "$dir/apps/api/src/migrations" ]; then migration_files_in "$dir/apps/api/src/migrations" > "$known"; have_list=yes; fi
+  if [ "$have_list" = yes ]; then pend=$(migration_delta "$known" "$ap" pending); fi
+  rm -f "$known" "$ap"
+  if [ "$have_list" = no ]; then
+    say "міграції: у сухому прогоні невідомо (список за цим SHA не передано); --apply визначить їх після fetch і зупиниться ДО збірки, якщо потрібен --migrate"
+  elif [ -n "$pend" ]; then
+    say "міграції: ЧЕКАЮТЬ $(count_lines "$pend"):"; printf '%s\n' "$pend" | sed 's/^/    /'
+    if [ "$migrate" = yes ]; then say "  --migrate дано: знімок БД → міграції → і лише потім веб"
+    else say "  🔴 без --migrate --apply відмовиться: код, що чекає цих колонок, не можна класти на схему без них"; fi
+  else
+    say "міграції: нових немає"
+  fi
+  pr=$(prune_candidates "$rel" "$cur" | tr '\n' ' ')
+  say "після успіху буде прибрано: ${pr:-нічого}"
+  say "порядок: fetch → [знімок БД → міграції] → збірка API → тимчасова нова API → збірка вебу проти неї → маніфест → перемикання → перевірка → (при провалі) автовідкат на $cur"
+
+  if [ "$apply" != yes ]; then
+    if [ -n "$pend" ] && [ "$migrate" != yes ]; then say "Застосувати: додай --apply --migrate"; else say "Застосувати: додай --apply"; fi
+    return 0
+  fi
+
+  LOG="$ROOT/deploy.log"; trap cleanup EXIT; lock_take
+  say "$(now_iso) почато: $sha, оператор $(who_am_i)"
+  if [ "$reuse" = no ]; then
+    if [ -d "$dir" ]; then safe_rm_release "$rel" "$cur" || die "не вдалось прибрати залишок $dir"; fi
+    fetch_release "$sha" "$rel"
+    pend=$(pending_for "$rel" "$cur") || die "не вдалось прочитати таблицю migrations"
+    if [ -n "$given" ]; then
+      known=$(mktemp); migration_files_in "$dir/apps/api/src/migrations" > "$known"
+      if [ "$(printf '%s\n' "$given" | tr ',' '\n' | LC_ALL=C sort | tr '\n' ' ')" != "$(LC_ALL=C sort < "$known" | tr '\n' ' ')" ]; then
+        rm -f "$known"; die "список міграцій з ноутбука не збігається з тим, що лежить у $sha на машині: план і дійсність розійшлись"
+      fi
+      rm -f "$known"
+    fi
+    if [ -n "$pend" ] && [ "$migrate" != yes ]; then
+      die "чекають міграції ($(printf '%s' "$pend" | tr '\n' ' ')); повтори з --migrate. Збірку не починав."
+    fi
+    build_api "$rel"
+    if [ -n "$pend" ]; then run_migrations "$rel" "$cur"; fi
+    start_temp_api "$rel"
+    build_web "$rel"
+    stop_temp_api
+    write_manifest "$rel" "$sha" "$ref"
+    PARTIAL_REL=""
+    say "  маніфест: $dir/RELEASE.json"
+  else
+    pend=$(pending_for "$rel" "$cur") || die "не вдалось прочитати таблицю migrations"
+    if [ -n "$pend" ]; then
+      [ "$migrate" = yes ] || die "чекають міграції ($(printf '%s' "$pend" | tr '\n' ' ')); повтори з --migrate"
+      run_migrations "$rel" "$cur"
+    fi
+  fi
+  # Збирали ДО перемикання: зламана збірка не стає чинною ніколи.
+  apply_switch "$rel" deploy
+  local p
+  for p in $(prune_candidates "$rel" "$cur"); do safe_rm_release "$p" "$cur" || true; done
+}
+
+# ── паралельний світ для репетиції відкату ───────────────────────────
+#
+# 🔴 ВІДКАТ, ЯКИМ НЕ КОРИСТУВАЛИСЬ, НЕ ІСНУЄ. Репетиція ганяє ті самі
+# команди `switch` і `rollback --apply`, що й бойовий деплой, але над
+# ІНШИМ коренем, ІНШИМ симлінком і ІНШИМИ юнітами на ІНШИХ портах.
+# Бойові `current`, camptribe-api і camptribe-web не чіпаються.
+#
+# Релізи в репетиційному корені — жорсткі посилання на справжні збудовані
+# релізи (8.6 ГБ × 2 копіями — це 17 ГБ і хвилини вводу-виводу, а .next
+# становить 91% реліза). Спільні inode, тому юніти репетиції працюють із
+# ProtectSystem=strict і порожнім ReadWritePaths: записати крізь посилання
+# в бойовий файл вони не можуть, і це перевіряється перед стартом.
+
+render_rehearsal_unit() { # шаблон-файл root webport apiport
+  sed -e "s|$ROOT/$LINK|$2/current|g" \
+      -e "s|^Description=.*|Description=REHEARSAL (CAMP-61), не прод|" \
+      -e "s|camptribe-api\.service|camptribe-rehearsal-api.service|g" \
+      -e "s|-p $WEB_PORT|-p $3|" \
+      -e "s|^Environment=PORT=$WEB_PORT|Environment=PORT=$3|" \
+      -e "s|API_BASE_URL=http://localhost:$API_PORT|API_BASE_URL=http://localhost:$4|" \
+      -e "s|^ReadWritePaths=.*|ReadWritePaths=|" \
+      -e '/^\[Install\]/,$d' "$1"
+}
+
+safe_rm_rehearsal() { # шлях
+  local p="$1"
+  [ -f "$p/.camptribe-rehearsal-root" ] || { warn "не видаляю $p: немає мітки репетиційного кореня"; return 1; }
+  case "$p" in
+    /srv/camptribe-rehearsal*|/tmp/*|/var/tmp/*|"${TMPDIR:-/nonexistent}"*) ;;
+    *) warn "не видаляю $p: шлях не схожий на репетиційний"; return 1 ;;
+  esac
+  [ "$p" != "$ROOT" ] || { warn "не видаляю $p: це бойовий корінь"; return 1; }
+  rm -rf "${p:?}"
+}
+
+cp_al() { if cp -al "$1" "$2" 2>/dev/null; then :; elif command -v gcp >/dev/null 2>&1; then gcp -al "$1" "$2"; else return 1; fi; }
+
+rehearsal_teardown() { # root rapi-unit rweb-unit [old new]
+  local R="$1" ra="$2" rw="$3" old="${4:-}" new="${5:-}" r h
+  systemctl stop "$rw" "$ra" 2>/dev/null || true
+  rm -f "$UNIT_DIR/$ra.service" "$UNIT_DIR/$rw.service"
+  systemctl daemon-reload 2>/dev/null || true
+  if [ -d "$R" ]; then safe_rm_rehearsal "$R" || return 1; fi
+  # Прибрали лише власні посилання: у бойових файлів лічильник має знову бути 1.
+  for r in $old $new; do
+    if stat -c %h "$ROOT/releases/$r/apps/web/.next/BUILD_ID" >/dev/null 2>&1; then
+      h=$(stat -c %h "$ROOT/releases/$r/apps/web/.next/BUILD_ID")
+      if [ "$h" = 1 ]; then say "  ✓ бойовий реліз $r: лічильник посилань BUILD_ID = 1 (репетиційних посилань не лишилось)"
+      else say "  ✗ бойовий реліз $r: лічильник посилань BUILD_ID = $h — лишились чужі посилання"; return 1; fi
+    fi
   done
 }
 
-do_rollback() {
-  local cur; cur=$(current_release)
-  local prev
-  prev=$(ls -1dt "$ROOT"/releases/* | grep -v "/$cur\$" | head -1 || true)
-  [ -n "$prev" ] || die "немає куди відкочуватись: лише один реліз"
-  swap_to "$(basename "$prev")"
+cmd_rehearse() { # apply keep teardown
+  local apply="$1" keep="$2" teardown="$3"
+  local R="$REHEARSAL_ROOT" RWEB=3100 RAPI=3101 ra=camptribe-rehearsal-api rw=camptribe-rehearsal-web
+  need jq; need curl; need git
+  case "$R" in /|"$ROOT"|"$ROOT"/*) die "репетиційний корінь '$R' не може збігатись із бойовим $ROOT чи лежати в ньому" ;; esac
+  preflight
+  if [ "$teardown" = yes ]; then say "== rehearse --teardown"; rehearsal_teardown "$R" "$ra" "$rw"; return; fi
+
+  # Два найновіші збудовані релізи з РІЗНИМ BUILD_ID: старий — «що було», новий — «що викотили».
+  local list d r new="" old="" nid="" oid="" id
+  list=$(for d in "$ROOT"/releases/*; do
+    r="${d##*/}"
+    if is_rel_name "$r" && built "$r"; then printf '%s %s\n' "$(rel_commit_time "$r")" "$r"; fi
+  done | LC_ALL=C sort -rn | awk '{print $2}')
+  for r in $list; do
+    id=$(cat "$(rel_dir "$r")/apps/web/.next/BUILD_ID")
+    if [ -z "$new" ]; then new="$r"; nid="$id"
+    elif [ -z "$old" ] && [ "$id" != "$nid" ]; then old="$r"; oid="$id"; fi
+  done
+  [ -n "$new" ] && [ -n "$old" ] || die "для репетиції потрібні два збудовані релізи з різним BUILD_ID (є: $(echo "$list" | tr '\n' ' '))"
+
+  say "== rehearse  $( [ "$apply" = yes ] && echo '(--apply)' || echo '(СУХИЙ ПРОГІН: нічого не створюється)')"
+  say "світ:      $R  (бойовий $ROOT не чіпається)"
+  say "релізи:    старий $old (BUILD_ID $oid) → новий $new (BUILD_ID $nid); жорсткі посилання, місця майже не займають"
+  say "юніти:     $ra на :$RAPI, $rw на :$RWEB; файли в $UNIT_DIR (зникнуть і при перезавантаженні)"
+  say "кроки:     старт на $old → switch $new --apply → rollback --apply → перевірка, що бойове не рушило → прибирання"
+  local p
+  for p in $RAPI $RWEB; do
+    [ -z "$(listener_pid "$p")" ] || die "порт $p зайнятий"
+  done
+  [ ! -e "$R" ] || die "$R уже існує — лишок попередньої репетиції. Прибрати: camptribe-deploy rehearse --teardown"
+  for p in camptribe-api camptribe-web; do [ -f "$UNIT_SRC/$p.service" ] || die "немає $UNIT_SRC/$p.service — з чого генерувати юніти репетиції?"; done
+  if [ "$apply" != yes ]; then say "Застосувати: додай --apply"; return 0; fi
+
+  # Бойове до репетиції — щоб після неї довести, що воно не рушило.
+  local prod_before prod_after
+  prod_before="$(link_rel)|$(systemctl show -p MainPID --value "$API_UNIT")|$(systemctl show -p MainPID --value "$WEB_UNIT")|$(systemctl show -p ActiveEnterTimestampMonotonic --value "$API_UNIT")|$(systemctl show -p ActiveEnterTimestampMonotonic --value "$WEB_UNIT")"
+
+  # Подвійні лапки навмисно: R, ra, rw — локальні, до спрацювання EXIT їх уже немає.
+  # shellcheck disable=SC2064
+  if [ "$keep" != yes ]; then trap "rehearsal_teardown '$R' '$ra' '$rw' '$old' '$new' || true" EXIT; fi
+  mkdir -p "$R/releases"; : > "$R/.camptribe-rehearsal-root"
+  if [ "$(id -u)" = 0 ]; then chown "$USER_:$USER_" "$R" "$R/releases"; fi
+  for r in $old $new; do
+    cp_al "$ROOT/releases/$r" "$R/releases/$r" || die "не вдалось зробити жорсткі посилання на $r (інша файлова система?)"
+    # Спільного inode з бойовим .env не лишаємо: власна копія з іншим PORT.
+    rm -f "$R/releases/$r/apps/api/.env"
+    ( umask 077; sed "s/^PORT=.*/PORT=$RAPI/" "$ROOT/releases/$r/apps/api/.env" > "$R/releases/$r/apps/api/.env" )
+    grep -q "^PORT=$RAPI\$" "$R/releases/$r/apps/api/.env" || die "у .env репетиційного релізу $r немає PORT=$RAPI"
+    if [ "$(id -u)" = 0 ]; then chown "$USER_:$USER_" "$R/releases/$r/apps/api/.env"; fi
+  done
+  ln -sfn "releases/$old" "$R/current"
+  if [ "$(id -u)" = 0 ]; then chown -h "$USER_:$USER_" "$R/current"; fi
+
+  mkdir -p "$UNIT_DIR"
+  render_rehearsal_unit "$UNIT_SRC/camptribe-api.service" "$R" "$RWEB" "$RAPI" > "$UNIT_DIR/$ra.service"
+  render_rehearsal_unit "$UNIT_SRC/camptribe-web.service" "$R" "$RWEB" "$RAPI" > "$UNIT_DIR/$rw.service"
+  systemctl daemon-reload
+  # Юніт репетиції не повинен мати куди писати: файли під ним — ті самі inode, що в проді.
+  [ "$(systemctl show -p ProtectSystem --value "$rw")" = strict ] || die "юніт $rw без ProtectSystem=strict — не стартую: бойові файли були б writable"
+  [ -z "$(systemctl show -p ReadWritePaths --value "$rw")" ] || die "юніт $rw має ReadWritePaths — не стартую"
+  local probe
+  probe=$(systemd-run --quiet --wait --collect --pipe -p User="$USER_" -p ProtectSystem=strict -p PrivateTmp=yes \
+            /bin/sh -c "touch '$R/releases/$old/apps/web/.next/.probe' 2>/dev/null && echo WROTE || echo READONLY" 2>/dev/null || echo ERR)
+  [ "$probe" = READONLY ] || { rm -f "$R/releases/$old/apps/web/.next/.probe"; die "проба запису в пісочниці дала '$probe', чекали READONLY — не стартую"; }
+  say "  ✓ пісочниця репетиції лише читає (проба запису: READONLY)"
+
+  systemctl start "$ra"; systemctl start "$rw"
+
+  local E=(env CAMPTRIBE_ROOT="$R" CAMPTRIBE_LINK=current CAMPTRIBE_API_UNIT="$ra" CAMPTRIBE_WEB_UNIT="$rw" \
+           CAMPTRIBE_API_PORT="$RAPI" CAMPTRIBE_WEB_PORT="$RWEB" CAMPTRIBE_DEPLOYER="rehearsal@$(hostname -s 2>/dev/null || echo ?)")
+  local out t0 t_fwd t_back
+  say "── 1. старт на $old"
+  wait_ready_at "$RWEB" "$RAPI"
+  "${E[@]}" bash "$SELF" status || die "репетиційний світ неспроможний на стартовому status — зупиняюсь"
+  say "── 2. switch $new --apply (як при деплої)"
+  t0=$(date +%s); "${E[@]}" bash "$SELF" switch "$new" --apply || die "switch у репетиції не вдався"; t_fwd=$(( $(date +%s) - t0 ))
+  "${E[@]}" bash "$SELF" status || die "після switch status не збігається"
+  say "── 3. rollback (сухий) і rollback --apply"
+  "${E[@]}" bash "$SELF" rollback
+  t0=$(date +%s); out=$("${E[@]}" bash "$SELF" rollback --apply 2>&1) || { say "$out"; die "rollback --apply у репетиції не вдався"; }; t_back=$(( $(date +%s) - t0 ))
+  say "$out"
+  "${E[@]}" bash "$SELF" status || die "після rollback status не збігається"
+  local served; served=$(curl -sS --max-time 20 "http://127.0.0.1:$RWEB/" || true)
+  [[ $served =~ \<!--([A-Za-z0-9_-]{15,})--\> ]] && served="${BASH_REMATCH[1]}" || served=""
+  [ "$(normalise_id "$served")" = "$(normalise_id "$oid")" ] || die "після відкату віддається '$served', а мало повернутись $oid"
+
+  if [ "$keep" != yes ]; then
+    say "── прибирання"
+    trap - EXIT
+    rehearsal_teardown "$R" "$ra" "$rw" "$old" "$new" || die "прибирання репетиції не вдалось"
+  else
+    say "  --keep: світ $R і юніти $ra, $rw ЛИШЕНО. Прибрати: camptribe-deploy rehearse --teardown"
+  fi
+  prod_after="$(link_rel)|$(systemctl show -p MainPID --value "$API_UNIT")|$(systemctl show -p MainPID --value "$WEB_UNIT")|$(systemctl show -p ActiveEnterTimestampMonotonic --value "$API_UNIT")|$(systemctl show -p ActiveEnterTimestampMonotonic --value "$WEB_UNIT")"
+  [ "$prod_before" = "$prod_after" ] || die "БОЙОВЕ РУШИЛО: було '$prod_before', стало '$prod_after'"
+  say "── підсумок"
+  say "  ✓ відкат відрепетирувано: switch $old→$new і rollback $new→$old"
+  say "  switch + перевірка: $t_fwd с; rollback + перевірка: $t_back с (цілі секунди)"
+  say "  BUILD_ID: $oid → $nid → $served (повернувся)"
+  say "  ✓ бойове не рушило: current → $(link_rel), MainPID та час старту api/web ті самі"
 }
 
-case "${1:-}" in
-  deploy)   do_deploy "${2:-main}" ;;
-  rollback) do_rollback ;;
-  current)  echo "$(current_release)  BUILD_ID=$(served_build_id)" ;;
-  *) die "usage: deploy.sh deploy [гілка] | rollback | current" ;;
-esac
+wait_ready_at() { # webport apiport
+  local i
+  for i in $(seq 1 "$READY_TRIES"); do
+    if [ "$(http_code "http://127.0.0.1:$1/")" = 200 ] && [ "$(http_code "http://127.0.0.1:$2/health")" = 200 ]; then return 0; fi
+    sleep "$READY_SLEEP"
+  done
+  return 0
+}
+
+# ── вхід ─────────────────────────────────────────────────────────────
+
+main() {
+  trap '' HUP   # розрив ssh не повинен зупиняти збірку на півдорозі
+  local cmd="${1:-}"; [ $# -eq 0 ] || shift
+  local apply=no migrate=no sha="" ref="" migrations="" to="" keep=no teardown=no pos=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --apply) apply=yes ;;
+      --migrate) migrate=yes ;;
+      --keep) keep=yes ;;
+      --teardown) teardown=yes ;;
+      --sha) sha="${2:-}"; shift ;;
+      --ref) ref="${2:-}"; shift ;;
+      --migrations) migrations="${2:-}"; shift ;;
+      --to) to="${2:-}"; shift ;;
+      --deployer) CAMPTRIBE_DEPLOYER="${2:-}"; export CAMPTRIBE_DEPLOYER; shift ;;
+      -h|--help) usage ;;
+      -*) printf 'невідомий прапорець: %s\n' "$1" >&2; exit 2 ;;
+      *) pos="$1" ;;
+    esac
+    shift
+  done
+  case "$cmd" in
+    status|current) cmd_status ;;
+    deploy)   cmd_deploy "$sha" "$apply" "$migrate" "$migrations" "$ref" ;;
+    switch)   cmd_switch "$pos" "$apply" ;;
+    rollback) cmd_rollback "$to" "$apply" ;;
+    rehearse) cmd_rehearse "$apply" "$keep" "$teardown" ;;
+    *) usage ;;
+  esac
+}
+
+# Запуск лише як програма: selftest підключає цей файл через `source`, щоб
+# перевіряти окремі функції, і тоді main не мусить стартувати.
+if [ -z "${BASH_SOURCE[0]:-}" ] || [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi
