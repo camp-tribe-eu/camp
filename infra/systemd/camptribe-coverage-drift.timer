@@ -1,0 +1,11 @@
+[Unit]
+Description=CampTribe coverage snapshot drift check, daily
+[Timer]
+# Щодня, а не після імпорту: імпорт на машині не за розкладом із цього
+# репозиторію, а прогін коштує секунди (читає базу в READ ONLY
+# транзакції). Після freshness (06:00), щоб два сторожі не кликали базу
+# одночасно.
+OnCalendar=*-*-* 06:30:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target

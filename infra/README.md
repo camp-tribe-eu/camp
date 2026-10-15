@@ -32,6 +32,8 @@ status=200/CHDIR
 | `systemd/camptribe-failed@.service` | 🔴 обробник падінь (CAMP-306) |
 | `systemd/camptribe-freshness.service` | 🔴 який імпортер замовк (CAMP-170) |
 | `systemd/camptribe-freshness.timer` | 06:00 UTC, `Persistent=true` |
+| `systemd/camptribe-coverage-drift.service` | 🔴 чи досі правда таблиця заповненості, на якій стоять ваги планувальника (CAMP-262): `measure-coverage.js --check` |
+| `systemd/camptribe-coverage-drift.timer` | 06:30 UTC, `Persistent=true` |
 | `bin/camptribe-backup` | бекап + **звірка** + 14 денних зрізів |
 | `bin/camptribe-failed` | лишає слід у `/srv/camptribe/failed/<юніт>` |
 | `bin/camptribe-deploy` | деплой релізу |
