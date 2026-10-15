@@ -11,6 +11,7 @@ import { Route } from './entities/route.entity';
 import { RoutePoint } from './entities/route-point.entity';
 import { Trip } from './entities/trip.entity';
 import { Session } from './entities/session.entity';
+import { AuthToken } from './entities/auth-token.entity';
 import { TripStop } from './entities/trip-stop.entity';
 import { SpotsModule } from './spots/spots.module';
 import { RoutesModule } from './routes/routes.module';
@@ -74,6 +75,7 @@ export const HARD_CONSTRAINTS = loadMeasuredHardConstraints();
         Trip,
         TripStop,
         Session,
+        AuthToken,
         ClientError,
         NotFoundHit,
         SpotTariff,

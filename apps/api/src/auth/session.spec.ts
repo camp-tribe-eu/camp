@@ -30,8 +30,19 @@ describe('tokenHash', () => {
 });
 
 describe('newToken', () => {
+  // 🔴 LITERALS, NOT `TOKEN_BYTES`. The first version asserted
+  // `toHaveLength(TOKEN_BYTES)`, which is the constant measured against
+  // itself: review set it to 4 and this file stayed green 25 of 25.
   it('carries the full 32 bytes of entropy', () => {
-    expect(Buffer.from(newToken(), 'base64url')).toHaveLength(TOKEN_BYTES);
+    expect(Buffer.from(newToken(), 'base64url')).toHaveLength(32);
+  });
+
+  it('is 43 characters long: 256 bits in base64url, without padding', () => {
+    expect(newToken()).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
+  it('is asked for 32 bytes', () => {
+    expect(TOKEN_BYTES).toBe(32);
   });
 
   // A generator that repeats is the one failure that looks fine in

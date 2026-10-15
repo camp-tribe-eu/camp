@@ -70,6 +70,48 @@ export const BULK_LIMIT = { ttl: MINUTE, limit: 6 };
 export const LOGIN_LIMIT = { ttl: MINUTE, limit: 10 };
 
 /**
+ * 🔴 CAMP-228: the routes whose cost is a LETTER, which is a different cost
+ * again — and the card says so by name: "reset needs its own bucket, its
+ * price is a sent email, not a hash".
+ *
+ * Sign-in is scarce in scrypt (ten a minute is about CPU and guessing).
+ * Sign-up, "forgot password" and "send the confirmation again" are scarce in
+ * something else: every accepted request can put a message from our domain
+ * into somebody else's inbox, and a domain that has been used to bury a
+ * stranger's mailbox lands on blacklists — for everyone, for months. The
+ * per-address wait (`Cooldown`, 60 s) paces one ADDRESS AS SPELLED; this bounds
+ * one CALLER, who could otherwise walk a list of victims at a hundred a minute.
+ *
+ * 🔴 NEITHER BOUNDS A MAILBOX. `victim+1@`, `victim+2@` and `v.i.ctim@` are
+ * three addresses to us and three clocks. Against one mailbox the ceiling is
+ * THIS bucket alone: sixty letters an hour per caller. Folding the spelling
+ * would shrink that and would also decide who can register, so it is the
+ * owner's call and is not made here (`account.db.spec.ts` pins the number).
+ *
+ * Ten per ten minutes. Not measured — argued: a person on these forms makes a
+ * handful of requests (a typo in the password, the resend button, one
+ * "forgot"), and a household or an office behind one address a few times
+ * that. It caps what one caller can make us send at sixty an hour.
+ */
+export const MAIL_LIMIT = { ttl: 10 * MINUTE, limit: 10 };
+
+/** The routes that spend the MAIL bucket. Paths as the router sees them. */
+export const MAIL_ROUTES = [
+  'auth/signup',
+  'auth/forgot',
+  'auth/resend-verification',
+] as const;
+
+/** Is this a route that can send a letter? Normalised like isLoginPath. */
+export function isMailPath(path: string): boolean {
+  const clean = path
+    .split('?')[0]
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
+  return MAIL_ROUTES.some((r) => clean === r);
+}
+
+/**
  * Routes counted in the LOGIN bucket.
  *
  * 🔴 CAMP-176 happened again here, and review caught it: `@Throttle(LOGIN)`
@@ -98,7 +140,7 @@ export function isLoginPath(path: string): boolean {
 /**
  * Which counter this request is spent from.
  *
- * 🔴 ONE function, exported, so the three buckets are a fact a test can
+ * 🔴 ONE function, exported, so the four buckets are a fact a test can
  * read rather than a ternary buried in a Nest guard. The bug review
  * found was precisely that the limit and the bucket were decided in two
  * different files and nothing compared them.
@@ -108,9 +150,10 @@ export function isLoginPath(path: string): boolean {
  * a list therefore lands in the ordinary bucket — generous, but never
  * silently sharing a scarce counter with something else.
  */
-export function bucketOf(path: string): 'bulk' | 'login' | 'ordinary' {
+export function bucketOf(path: string): 'bulk' | 'login' | 'mail' | 'ordinary' {
   if (isBulkPath(path)) return 'bulk';
   if (isLoginPath(path)) return 'login';
+  if (isMailPath(path)) return 'mail';
   return 'ordinary';
 }
 
