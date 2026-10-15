@@ -13,15 +13,18 @@ import { LoginForm } from '@/components/account-forms';
 //
 // Так само сторінки немає в карті сайту й у llms.txt.
 
+// Один рядок на `<title>`, на назву хлібної крихти й на виданий `<h1>`.
+const TITLE = 'Sign in';
+
 export const metadata: Metadata = {
-  title: 'Sign in',
+  title: TITLE,
   description: 'Sign in to CampTribe.',
   robots: { index: false, follow: false },
 };
 
 export default function Page() {
   return (
-    <AccountPage name="Sign in" path="/login">
+    <AccountPage name={TITLE} path="/login">
       <LoginForm />
     </AccountPage>
   );

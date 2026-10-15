@@ -13,8 +13,11 @@ import { ResetForm } from '@/components/account-forms';
 //
 // Так само сторінки немає в карті сайту й у llms.txt.
 
+// Один рядок на `<title>`, на назву хлібної крихти й на виданий `<h1>`.
+const TITLE = 'Choose a new password';
+
 export const metadata: Metadata = {
-  title: 'Choose a new password',
+  title: TITLE,
   description: 'Set a new CampTribe password.',
   robots: { index: false, follow: false },
   // 🔴 Токен у адресі. Без `Referrer-Policy: no-referrer` він іде в
@@ -26,7 +29,7 @@ export const metadata: Metadata = {
 
 export default function Page() {
   return (
-    <AccountPage name="Choose a new password" path="/reset-password">
+    <AccountPage name={TITLE} path="/reset-password">
       <ResetForm />
     </AccountPage>
   );

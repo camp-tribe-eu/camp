@@ -16,15 +16,15 @@ import { visibleText } from '../unit/rendered-text';
 // збірку.
 
 // `heading` — що стоїть в <h1> ВИДАНОГО документа, тобто до того, як сторінка
-// прочитала адресу й вирішила, який стан показати. Для /verify-email це
-// «перевіряємо», а не «підтвердіть»: заголовок вкладки (<title>) каже інше, і
-// саме тому читається <h1>, а не весь текст — інакше title пройшов би за h1.
+// прочитала адресу й вирішила, який стан показати. Читається саме <h1>, а не
+// весь текст: заголовок вкладки (<title>) інакше пройшов би за h1. Хлібна
+// крихта мусить дорівнювати цьому рядку (див. нижче).
 const PAGES = [
   { path: '/signup', heading: 'Create an account' },
   { path: '/login', heading: 'Sign in' },
   { path: '/forgot-password', heading: 'Reset your password' },
   { path: '/reset-password', heading: 'Choose a new password' },
-  { path: '/verify-email', heading: 'Checking your link' },
+  { path: '/verify-email', heading: 'Confirm your email' },
 ] as const;
 
 test.describe('кожна сторінка', () => {
@@ -43,8 +43,8 @@ test.describe('кожна сторінка', () => {
   // КОЖНОЇ зібраної сторінки, крім сторінок помилок, а мої п'ять його не мали.
   // Скрипт читає збірку, якої локально не зібрати (65 тис. сторінок), тож
   // тут те саме правило, але на виданому HTML цих п'яти.
-  for (const { path } of PAGES) {
-    test(`${path}: у виданому HTML є хлібні крихти JSON-LD, що ведуть сюди`, async ({ request }) => {
+  for (const { path, heading } of PAGES) {
+    test(`${path}: у виданому HTML є хлібні крихти JSON-LD, що ведуть сюди й називаються як <h1>`, async ({ request }) => {
       const html = await (await request.get(path)).text();
       const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(
         (m) => JSON.parse(m[1]),
@@ -55,6 +55,10 @@ test.describe('кожна сторінка', () => {
       expect(items.map((i) => i.position)).toEqual([1, 2]);
       expect(items[0].name).toBe('CampTribe');
       expect(new URL(items[1].item).pathname).toBe(path);
+      // Не лише шлях: і ІМ'Я. Те, що стоїть у крихті, — те, що стоїть у <h1>.
+      const h1 = [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)].map((m) => visibleText(m[1]));
+      expect(items[1].name).toBe(heading);
+      expect(h1).toEqual([items[1].name]);
     });
   }
 

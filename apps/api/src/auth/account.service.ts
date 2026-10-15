@@ -260,11 +260,17 @@ export class AccountService implements BeforeApplicationShutdown {
     // asked for, which costs a letter.
     //
     // The check and the `add` below are one synchronous step, so of any number
-    // of requests that passed `liveToken` together exactly one goes on to
-    // hash and the rest answer the same "stale" the claim would have. With
-    // that, a hash needs a link, a link needs a letter, and letters are the
-    // `mail` bucket's — which is why this route may stay in the ordinary
-    // bucket. Per process, like the cooldown: two processes allow two hashes.
+    // of requests carrying the SAME link that passed `liveToken` together
+    // exactly one goes on to hash and the rest answer the same "stale" the
+    // claim would have. With that, a hash needs a link, a link needs a letter,
+    // and letters are the `mail` bucket's — which is why this route may stay
+    // in the ordinary bucket.
+    //
+    // 🔴 PER LINK, NOT PER USER, and that is all it claims. Two different
+    // links of one person are two hashes (a letter each, so still the mail
+    // bucket's); what arbitrates THEM is the lock order in the transaction
+    // below, not this set. Per process, like the cooldown: two processes
+    // allow two hashes for one link.
     if (this.resetting.has(row.id)) throw new StaleLink();
     this.resetting.add(row.id);
     try {
@@ -290,6 +296,28 @@ export class AccountService implements BeforeApplicationShutdown {
     const passwordHash = await hashPassword(newPassword as string);
 
     await this.tokens.manager.transaction(async (m) => {
+      // 🔴 LOCK ORDER: THE USER ROW FIRST, THEN THE TOKEN ROWS, ALWAYS.
+      //
+      // Two valid reset links of ONE user, posted together (the person asked
+      // twice, got two letters and used both from two tabs), took these locks
+      // crosswise: A's transaction held link A and wanted the user; B's held
+      // link B and, having got the user, wanted every unused link of that
+      // user — which includes A's. Postgres: `deadlock detected`, HTTP 500.
+      // Reproduced by review 6 times in 6 on the real app, and 5 in 6 before
+      // any of this card's later changes: it was there from the first commit.
+      //
+      // The user row is the one thing every such transaction needs, so it is
+      // the one to queue on. Whoever gets it does all four writes and commits;
+      // the other waits HERE, holding nothing, then finds its own link already
+      // spent by the first one's "kill the other links" step and answers the
+      // same 410 a spent link always answers.
+      //
+      // The confirmation path takes a user lock too (after its own token) and
+      // does not deadlock with this one because it only ever touches
+      // `verify_email` links, and this touches only `reset_password` ones: the
+      // two sets of token rows do not meet. `account.db.spec.ts` posts both
+      // kinds, two links each, at once.
+      await m.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [user.id]);
       await this.claim(m, row, now);
       await m.update(User, { id: user.id }, { passwordHash });
       // Any OTHER reset link we sent this person is dead as well: the reason

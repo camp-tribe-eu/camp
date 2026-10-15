@@ -13,8 +13,11 @@ import { VerifyEmail } from '@/components/account-forms';
 //
 // Так само сторінки немає в карті сайту й у llms.txt.
 
+// Один рядок на `<title>`, на назву хлібної крихти й на виданий `<h1>`.
+const TITLE = 'Confirm your email';
+
 export const metadata: Metadata = {
-  title: 'Confirm your email',
+  title: TITLE,
   description: 'Confirm the email address of your CampTribe account.',
   robots: { index: false, follow: false },
   // 🔴 Токен у адресі. Без `Referrer-Policy: no-referrer` він іде в
@@ -26,7 +29,7 @@ export const metadata: Metadata = {
 
 export default function Page() {
   return (
-    <AccountPage name="Confirm your email" path="/verify-email">
+    <AccountPage name={TITLE} path="/verify-email">
       <VerifyEmail />
     </AccountPage>
   );

@@ -12,6 +12,7 @@ import {
   SignupDoneView,
   SignupFormView,
   StaleLinkView,
+  VerifyingView,
   messageFor,
 } from '@/components/account-view';
 import { SignupForm } from '@/components/account-forms';
@@ -282,6 +283,16 @@ test.describe('«Посилання застаріло»', () => {
       'If an account with that address is waiting to be confirmed, we have just sent it a new letter.',
     );
     expect(visibleText(html)).not.toContain('x@y.zz');
+  });
+});
+
+test.describe('«Підтвердьте пошту» за посиланням, поки йде перевірка', () => {
+  test('заголовок — назва сторінки, а «перевіряємо» — речення під ним', () => {
+    const html = renderComponent(VerifyingView, {});
+    expect([...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)].map((m) => visibleText(m[1]))).toEqual([
+      'Confirm your email',
+    ]);
+    expect(visibleText(html)).toContain('Checking your link…');
   });
 });
 

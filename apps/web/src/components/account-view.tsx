@@ -598,8 +598,12 @@ export function StaleLinkView({ children }: { children: ReactNode }) {
 
 export function VerifyingView() {
   return (
-    <Shell title="Checking your link">
-      <p className="mt-4 text-ink-2">One moment…</p>
+    // 🔴 Заголовок той самий, що в `<title>` і в хлібній крихті сторінки:
+    // це стан «підтвердження пошти», і «перевіряємо» — його підпис, а не
+    // його назва. Виданий HTML показує саме цей стан, тож саме він мусить
+    // збігатись із крихтою.
+    <Shell title="Confirm your email">
+      <p className="mt-4 text-ink-2">Checking your link…</p>
     </Shell>
   );
 }

@@ -669,6 +669,96 @@ describe('🔴 one valid reset link buys one hash, however many times it is post
   });
 });
 
+describe('🔴 two links of ONE user, posted together, do not deadlock', () => {
+  // The one-hash guard above is keyed on the LINK, so it says nothing here: two
+  // different links of one user both reach the transaction. Taken in different
+  // orders, their locks crossed and Postgres killed one with `deadlock
+  // detected` — a 500, reproduced by review 6 in 6. A person who pressed
+  // "send again", got two letters and used both from two tabs did exactly this.
+  //
+  // Five rounds, because a deadlock needs the two transactions to interleave
+  // and one round can get lucky.
+  const twoLinks = async (email: string, kind: 'reset' | 'confirm') => {
+    const first = new Date();
+    const second = new Date(first.getTime() + 61_000);
+    const ask =
+      kind === 'reset'
+        ? (at: Date) => service().requestReset(email, at)
+        : (at: Date) => service().requestVerification(email, at);
+    await ask(first);
+    await ask(second);
+    await settle();
+    return lettersTo(
+      email,
+      kind === 'reset' ? 'reset_password' : 'verify_email',
+    ).map(tokenIn);
+  };
+
+  it('two reset links: one 204, one 410, never a 500', async () => {
+    const resets: number[][] = [];
+    const logins: number[][] = [];
+    for (let round = 0; round < 5; round++) {
+      const email = unique();
+      await insertRawUser(email);
+      const [a, b] = await twoLinks(email, 'reset');
+      const replies = await Promise.all([
+        post('/auth/reset-password', {
+          token: a,
+          password: 'password chosen in tab A',
+        }),
+        post('/auth/reset-password', {
+          token: b,
+          password: 'password chosen in tab B',
+        }),
+      ]);
+      resets.push(replies.map((r) => r.status).sort());
+      // Exactly one of the two passwords is now the account's.
+      const tried = await Promise.all(
+        ['password chosen in tab A', 'password chosen in tab B'].map(
+          (password) => post('/auth/login', { email, password }),
+        ),
+      );
+      logins.push(tried.map((r) => r.status).sort());
+    }
+    // Whole arrays, so a failure shows WHICH round was a 500.
+    expect(resets).toEqual(Array.from({ length: 5 }, () => [204, 410]));
+    expect(logins).toEqual(Array.from({ length: 5 }, () => [200, 401]));
+  });
+
+  it('two confirmation links and two reset links, all four at once: no 500 anywhere', async () => {
+    const confirms: number[][] = [];
+    const resets: number[][] = [];
+    for (let round = 0; round < 5; round++) {
+      const email = unique();
+      await insertRawUser(email);
+      const [v1, v2] = await twoLinks(email, 'confirm');
+      const [r1, r2] = await twoLinks(email, 'reset');
+      const replies = await Promise.all([
+        post('/auth/verify-email', { token: v1 }),
+        post('/auth/verify-email', { token: v2 }),
+        post('/auth/reset-password', {
+          token: r1,
+          password: 'password chosen in tab A',
+        }),
+        post('/auth/reset-password', {
+          token: r2,
+          password: 'password chosen in tab B',
+        }),
+      ]);
+      confirms.push(replies.slice(0, 2).map((r) => r.status));
+      resets.push(
+        replies
+          .slice(2)
+          .map((r) => r.status)
+          .sort(),
+      );
+      expect((await row(email)).email_verified_at).not.toBeNull();
+    }
+    expect(confirms).toEqual(Array.from({ length: 5 }, () => [200, 200]));
+    expect(resets).toEqual(Array.from({ length: 5 }, () => [204, 410]));
+  });
+});
+
 // ── "forgot password": same answer, same wait ────────────────────────────
 
 describe('🔴 "if an account exists" — the form does not tell', () => {
@@ -1188,18 +1278,23 @@ describe('🔴 the routes that send a letter are counted in their own bucket', (
   // been taken — update the number here and in the comments that cite it.
   it('KNOWN RESIDUAL: ten spellings of one mailbox are ten letters into it, then the bucket', async () => {
     const ip = '203.0.113.206';
+    // ONE mailbox under Gmail's rules (a `+tag` is ignored, dots are ignored),
+    // written ten ways. The first draft put the tag AFTER the pid and so made
+    // two mailboxes; the check below is what makes this one.
+    const box = `victim${process.pid}`;
     const addresses = [
-      'victim+1',
-      'victim+2',
-      'victim+3',
-      'victim+4',
-      'victim+5',
-      'victim+6',
-      'victim+7',
-      'v.ictim',
-      'vi.ctim',
-      'vic.tim',
-    ].map((local) => `${local}.${process.pid}@example.com`);
+      ...[1, 2, 3, 4, 5, 6, 7].map((n) => `${box}+${n}@example.com`),
+      `v.ictim${process.pid}@example.com`,
+      `vi.ctim${process.pid}@example.com`,
+      `vic.tim${process.pid}@example.com`,
+    ];
+    const mailbox = (a: string) =>
+      a.replace(/\+[^@]*@/, '@').replace(/\.(?=[^@]*@)/g, '');
+    expect(addresses).toHaveLength(10);
+    expect(new Set(addresses).size).toBe(10);
+    expect(new Set(addresses.map(mailbox))).toEqual(
+      new Set([`${box}@example.com`]),
+    );
     for (const a of addresses) await insertRawUser(a);
     const statuses: number[] = [];
     for (const a of addresses)
@@ -1214,7 +1309,7 @@ describe('🔴 the routes that send a letter are counted in their own bucket', (
     // And the eleventh — any spelling — is the bucket's, not the cooldown's.
     const eleventh = await post(
       '/auth/forgot',
-      { email: `victim+11.${process.pid}@example.com` },
+      { email: `${box}+11@example.com` },
       asIp(ip),
     );
     expect(eleventh.status).toBe(429);
