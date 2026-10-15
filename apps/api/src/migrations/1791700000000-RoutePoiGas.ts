@@ -50,8 +50,11 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * first version used `ADD COLUMN IF NOT EXISTS … NOT NULL DEFAULT … CHECK`,
  * which PostgreSQL skips as a whole when the column exists. Measured
  * 15.10.2026 on a fresh copy of the table in its pre-migration shape (2 271
- * 596 rows, 18 columns, 10 indexes): see the CAMP-258 PR for the timing of
- * this version.
+ * 596 rows, 18 columns, 10 indexes), load average about 20: the whole `up()`
+ * took 937 ms; run again over the result it took 941 and 955 ms and changed
+ * nothing (20 columns, 12 indexes, 11 CHECKs, no NULL — counted before and
+ * after). A busy machine multiplies these: at a load average above 200 the
+ * same statements took 26 and 46 seconds, so time it on a quiet one.
  *
  * 🔴 TWO PARTIAL GiST INDEXES, FOR THE REASON 1790572800000-RoutePoi.ts
  * SPENDS A PAGE ON. Every query this table exists for is "the nearest X to
