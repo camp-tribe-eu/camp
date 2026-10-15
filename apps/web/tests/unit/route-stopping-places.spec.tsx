@@ -15,6 +15,7 @@ import {
   FACILITY_KEYS,
   FACILITY_KINDS,
   readFacilities,
+  SERVICE_ABSENT,
   SERVICE_KINDS,
   SERVICE_LABEL,
   SERVICE_RADIUS_M,
@@ -225,6 +226,23 @@ test.describe('the route page lists every kind the API serves, at every stop', (
       expect(text, `${kind} has no label on the page`).toContain(
         SERVICE_LABEL[kind as ServiceKind],
       );
+    }
+
+    // 🔴 AND THE OTHER DIRECTION, READ OFF THE HTML: a kind the PAGE lists
+    // that the API did not serve prints, at every stop, "Our database holds
+    // no rest area within 25 km of this stop" — about a thing the endpoint
+    // was never asked for. That sentence is what a reader meets when the
+    // API's list loses a kind, and it is the symptom this card was open
+    // for: the data is in the database and the page says it is not.
+    for (const kind of SERVICE_KINDS) {
+      expect(
+        occurrences(html, `data-testid="service-${kind}-absent"`),
+        `${kind}: the page says our database holds none, to a stub that held one at every stop`,
+      ).toBe(0);
+      // …and in the words a reader reads, not only in a testid. (The
+      // campsite list beside it has its own "holds no campsite" line and
+      // is not what this is about: the stub has no campsites.)
+      expect(text, kind).not.toContain(`Our database holds ${SERVICE_ABSENT[kind]} within`);
     }
     // The distance and how it was measured, in the row of every kind.
     for (const [i, kind] of served.entries()) {
