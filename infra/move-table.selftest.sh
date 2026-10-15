@@ -400,7 +400,7 @@ wait_reader_holds
 T_LOCK=1s; t0=$(date +%s); run "$TABLE" --apply; t1=$(date +%s); T_LOCK=
 stop_readers; wait "$rp" 2>/dev/null
 eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'DROP TABLE на проді не пройде' && eq "$(rows)" 300 && [ -z "$(ls "$BASE/backups" 2>/dev/null)" ]
-ok $? "проба DROP не чекає читача довше за lock_timeout: код 1 за $((t1 - t0)) с, копії не знімали" "rc=$RC rows=$(rows) за $((t1 - t0)) с $OUT"
+ok $? 'проба DROP не чекає читача довше за lock_timeout: код 1, копії не знімали' "rc=$RC rows=$(rows) за $((t1 - t0)) с $OUT"
 
 echo '— подання з'"'"'являється ПІСЛЯ проби, а прод уже такий самий, як джерело'
 # 🔴 Проба DROP вікно лише звужувала: між нею й заміною на проді — копія,
@@ -437,7 +437,7 @@ T_LOCK=1s; t0=$(date +%s); run "$TABLE" --apply; t1=$(date +%s); T_LOCK=
 stop_readers; wait "$wp" 2>/dev/null
 eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'заміна не відбулась' && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$FULL" ]
 r=$?
-ok "$r" "заміна не чекає читача довше за lock_timeout: код 1 за $((t1 - t0)) с, прод цілий (300 рядків, структура, власник і гранти ті самі)" "rc=$RC rows=$(rows) fp=$(fp "$DST_DB") за $((t1 - t0)) с $OUT"
+ok "$r" 'заміна не чекає читача довше за lock_timeout: код 1, прод цілий (300 рядків, структура, власник і гранти ті самі)' "rc=$RC rows=$(rows) fp=$(fp "$DST_DB") за $((t1 - t0)) с $OUT"
 
 echo '— хтось змінив структуру прода, поки заміна стояла в черзі й не вдалась'
 # 🔴 Після атомарного обриву скрипт каже «прод такий самий» — і мусить це
