@@ -474,6 +474,25 @@ jobs:
       - name: No unit refers to a file the repository does not have
         run: node scripts/ci/check-server-drift.mjs --offline
 
+      # 🔴 CAMP-61. Процедура викочування існувала, але без сухого
+      # прогону, без звʼязку релізу з комітом, з перевіркою лише вебу й з
+      # відкатом, обраним за mtime теки. Ця перевірка ганяє СПРАВЖНІЙ
+      # скрипт над справжнім git, симлінками, curl і процесами node; лише
+      # systemctl, npm, psql і pg_dump підмінено, і вони віддають сире.
+      # Процеси спостерігаються окремо від скрипта.
+      #
+      # 🔴 Біжить на Linux, і це половина сенсу: на macOS, де скрипт
+      # пишуть, немає ss і /proc, і він іде запасним шляхом (lsof); шлях
+      # сервера перевіряється тут. Крок читає надруковане самотестом: рядок
+      # «усе гаразд» друкується лише коли виконано рівно EXPECTED випадків
+      # і жоден не впав. `set -o pipefail`, бо Actions запускає `bash -e {0}`
+      # без нього.
+      - name: Deploys dry-run by default, verify what is running, and roll back
+        run: |
+          set -o pipefail
+          ./infra/deploy.selftest.sh | tee /dev/stderr \
+            | grep -c 'deploy self-test: усе гаразд' >/dev/null
+
       # 🔴 CAMP-318. Кнопка «You own this site? Add your photos» вела на
       # `/owner/claim`, якого ніколи не існувало — 404 для рівно тієї
       # людини, яку ми просимо про допомогу, майже на кожній сторінці

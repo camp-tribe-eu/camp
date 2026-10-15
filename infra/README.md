@@ -36,7 +36,20 @@ status=200/CHDIR
 | `systemd/camptribe-coverage-drift.timer` | 06:30 UTC, `Persistent=true` |
 | `bin/camptribe-backup` | бекап + **звірка** + 14 денних зрізів |
 | `bin/camptribe-failed` | лишає слід у `/srv/camptribe/failed/<юніт>` |
-| `bin/camptribe-deploy` | деплой релізу |
+| `bin/camptribe-deploy` | викладка, перевірка й відкат релізу (CAMP-61); зазвичай запускається з ноутбука через `deploy-app.sh` |
+
+## Деплой застосунку — окремо від юнітів
+
+`deploy-infra.sh` розкладає юніти systemd. Код сайту викочується
+`./infra/deploy-app.sh`, і за замовчуванням це **сухий прогін**. Усе, що
+треба знати — що зараз на проді, як викотити, як відкотити, що з
+міграціями — в [`docs/deploy.md`](../docs/deploy.md).
+
+```bash
+export CAMPTRIBE_HOST=root@…           # адреси машини в репозиторії немає навмисно
+./infra/deploy-app.sh --status         # що зараз на проді
+./infra/deploy.selftest.sh             # перевірка самої процедури, без сервера
+```
 
 ## Як розкладати
 
