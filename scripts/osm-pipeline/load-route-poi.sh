@@ -79,9 +79,17 @@
 # same column. A weekly job is the right place to spend nine minutes on
 # being sure.
 #
-# 🔴 CAMP-258 added `shop=gas` to the filter (the `gas_exchange` kind: a shop
+# 🔴 CAMP-258 added `shop=*gas*` to the filter (the `gas_exchange` kind: a shop
 # that sells and swaps bottled gas, stored and not shown) and `fuel:lpg` to
 # the export (the `lpg` column of every fuel row: yes / no / unknown).
+#
+# 🔴 `*gas*`, NOT `gas`. osmium matches the WHOLE value, and OpenStreetMap
+# writes several values for one key as a list: `shop=convenience;gas`. An
+# exact `shop=gas` never selects such an object, so it never reaches staging
+# unless something else selected it — and a classifier that reads the list
+# correctly is then reading a table the filter has already emptied of them.
+# The `*` form is osmium's substring match; it also pulls `gasvending=fuel`
+# and similar typos in, which the classifier refuses.
 #
 # 🔴 HOW TO COUNT WHAT THIS LOADS AGAINST THE RAW EXTRACTS — `-R`, AND THE
 # TWO CLOSED-WAY TRAPS. `osmium tags-filter` WITHOUT `-R` also writes the
@@ -152,7 +160,7 @@ FILTERS=(
   amenity=sanitary_dump_station
   highway=rest_area
   highway=services
-  shop=gas
+  'shop=*gas*'   # quoted: an unquoted `*` in an array is a glob over WORK_DIR
   shop=supermarket
   shop=convenience
   amenity=restaurant

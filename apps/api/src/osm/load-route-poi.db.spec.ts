@@ -376,5 +376,50 @@ describe('the loader, run as a program (CAMP-258)', () => {
     expect(run.out).toContain(
       'gas layer (kind=gas_exchange OR cylinder_swap=yes): 2 rows / 2 objects  (own kind 1, on other kinds 1)',
     );
+    // the wider reading is printed too: two objects say gas, the rule marks both
+    expect(run.out).toContain(
+      'gas read widely: 2 staged objects mention gas as a word in shop, 0 not marked by the rule',
+    );
+  });
+
+  // 🔴 THE THIRD DIRECTION, THROUGH THE REAL LOADER: the rule reads `shop`
+  // more narrowly than it is written. Eleven objects say `gas,convenience` — a
+  // ',' list, which the rule does not read as a list — so the rule marks none,
+  // the narrow checks (`missing`, `extra`) find nothing wrong, and only the
+  // wide reading sees them: 11 of the 13 objects that mention gas. This is the
+  // blindness the `;` list exposed (2 804 objects, `missing = 0`).
+  //
+  // 🔴 MUTATION: delete the `wide_only` branch of gasLayerError, or build the
+  // wide reading from the rule's own expression.
+  it('rolls back when a systematic share of the gas objects is not marked', async () => {
+    await resetStaging({ gas: true });
+    await db.query(
+      `INSERT INTO osm_route_poi_staging (id, geom, shop)
+       SELECT 'n3' || lpad(g::text, 4, '0'),
+              ST_Multi(ST_SetSRID(ST_MakePoint(13.2 + g * 0.05, 45.1), 4326)),
+              'gas,convenience'
+         FROM generate_series(1, 11) g`,
+    );
+    const run = runLoader();
+    expect({ status: run.status, err: run.err }).toEqual({
+      status: 1,
+      err: expect.stringContaining('11 of 13 staged objects mention gas'),
+    });
+    expect(
+      (await db.query('SELECT count(*)::int AS n FROM osm_route_poi')).rows[0]
+        .n,
+    ).toBe(0);
+  });
+
+  // …and two such objects are DATA: reported, and the run is published.
+  it('publishes the run, and reports it, when two objects are written oddly', async () => {
+    await resetStaging({ gas: true });
+    await stageObject('n3001', { shop: 'gas,convenience' }, 50);
+    await stageObject('n3002', { shop: 'gas_bottle' }, 51);
+    const run = runLoader();
+    expect(run.status).toBe(0);
+    expect(run.out).toContain(
+      'gas read widely: 4 staged objects mention gas as a word in shop, 2 not marked by the rule',
+    );
   });
 });

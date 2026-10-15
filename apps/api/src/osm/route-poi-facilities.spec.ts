@@ -34,10 +34,14 @@ import {
 import {
   ACCESS_EXCLUDED,
   classifyCaseSql,
+  GAS_WIDE_MAX_PERCENT,
+  GAS_WIDE_MIN_OBJECTS,
   gasLayerError,
   isAccessExcluded,
+  osmiumFiltersFor,
   REST_STOP_KINDS,
   rulesTestSql,
+  STORED_POI_KINDS,
   STORED_POI_RULES,
 } from './route-poi';
 import {
@@ -481,7 +485,7 @@ describe('cylinder_swap is derived from the gas_exchange rule, not from the kind
   // stays right, and the 4 014 forecourts that also say `shop=gas` lose the
   // one fact that makes them part of the layer.
   it('tests the tag the kind is built from, on the staging row', () => {
-    expect(sql).toContain("s.shop IN ('gas')");
+    expect(sql).toContain(`${tagPartsSql('s."shop"')} && ARRAY['gas']::text[]`);
     expect(sql).not.toMatch(/\bkind\b/);
     expect(sql.trim()).toMatch(/AS cylinder_swap$/);
   });
@@ -490,7 +494,7 @@ describe('cylinder_swap is derived from the gas_exchange rule, not from the kind
   // gas_exchange another rule. The flag and the kind read ONE rule.
   it('reads the very rule the gas_exchange branch of the CASE reads', () => {
     expect(rulesTestSql(STORED_POI_RULES.gas_exchange, 's')).toBe(
-      "s.shop IN ('gas')",
+      `${tagPartsSql('s."shop"')} && ARRAY['gas']::text[]`,
     );
     expect(classifyCaseSql('s')).toContain(
       `WHEN ${rulesTestSql(STORED_POI_RULES.gas_exchange, 's')} THEN 'gas_exchange'`,
@@ -523,11 +527,13 @@ describe('cylinder_swap is derived from the gas_exchange rule, not from the kind
 });
 
 describe('the loader notices when the gas layer disagrees with the tag', () => {
-  const sum = (missing: number, extra: number) => ({
+  const sum = (missing: number, extra: number, wideOnly = 0, wide = 8945) => ({
     own_kind: '2088',
     other_kinds: '5643',
     missing: String(missing),
     extra: String(extra),
+    wide_objects: String(wide),
+    wide_only: String(wideOnly),
     layer: '7731',
     layer_objects: '6096',
   });
@@ -556,12 +562,41 @@ describe('the loader notices when the gas layer disagrees with the tag', () => {
 
   it('is silent when the flag and the tag agree', () => {
     expect(gasLayerError(sum(0, 0))).toBeNull();
+    // …including with today's seven oddly written values (7 of 8 945)
+    expect(gasLayerError(sum(0, 0, 7, 8945))).toBeNull();
+  });
+
+  // 🔴 THE THIRD DIRECTION, WHICH `missing` AND `extra` CANNOT SEE: the rule
+  // reads `shop` more narrowly than OpenStreetMap writes it. The review found
+  // `convenience;gas` — 2 804 staged objects of 8 912 — with both counts zero.
+  // SYSTEMATIC means at least 10 objects AND more than 1% of those that
+  // mention gas; below that it is data, reported and not fatal.
+  //
+  // 🔴 MUTATION: stop reading `wide_only`, or compare it with `>= wide`, or move
+  // either threshold. The numbers are written out, not read from the constants.
+  it('says so when a systematic share of the gas objects is not marked', () => {
+    expect(gasLayerError(sum(0, 0, 2804, 8912))).toMatch(
+      /2804 of 8912 staged objects mention gas as a word in shop/,
+    );
+  });
+
+  it('is silent for a handful of odd values, and speaks from the thresholds', () => {
+    // 9 of 100: under the absolute floor (10), however large the share
+    expect(gasLayerError(sum(0, 0, 9, 100))).toBeNull();
+    // 10 of 1 000: exactly 1%, which is not MORE than 1%
+    expect(gasLayerError(sum(0, 0, 10, 1000))).toBeNull();
+    // 10 of 999: just over 1%
+    expect(gasLayerError(sum(0, 0, 10, 999))).not.toBeNull();
+    // one odd record never costs the run, in any population
+    expect(gasLayerError(sum(0, 0, 1, 1))).toBeNull();
+    expect(GAS_WIDE_MIN_OBJECTS).toBe(10);
+    expect(GAS_WIDE_MAX_PERCENT).toBe(1);
   });
 
   // Not a floor, and not a count of forecourts: a run with none in it has
   // `missing = 0` honestly, and one lost gas shop is already a rule that has
   // stopped being applied.
-  it('has no floor: one row either way is enough', () => {
+  it('has no floor for the code checks: one row either way is enough', () => {
     expect(
       gasLayerError({ ...sum(0, 0), own_kind: '3', other_kinds: '0' }),
     ).toBeNull();
@@ -573,17 +608,24 @@ describe('the loader notices when the gas layer disagrees with the tag', () => {
     ).not.toBeNull();
   });
 
-  // 🔴 MUTATION: build the oracle from STORED_POI_RULES again. The check
-  // would then agree with whatever the flag was built from, and a flag from
-  // the wrong rule would pass it — that was the first version's defect.
-  it('reads the tag itself, written out, and not the rules the flag uses', () => {
+  // 🔴 MUTATION: build the check from the rule's own expression again
+  // (`tagPartsSql` / `rulesTestSql`). The narrow side would then agree with
+  // whatever the rule does, and the rule's blind spot would be the check's.
+  // This is the defect of BOTH earlier versions of this guard.
+  it('reads the tag by two readings of its own, and not by the rule it checks', () => {
     const sql = GAS_LAYER_SUMMARY_SQL;
-    expect(sql).toContain("s.shop = 'gas'");
-    expect(sql).not.toContain("IN ('gas')");
-    // …and the rule it stands in for is exactly that, so widening one without
+    // the narrow reading: an element of the `;` list — unnest and btrim, where
+    // the rule uses regexp_split_to_array and translate
+    expect(sql).toContain("string_to_array(s.shop, ';')");
+    expect(sql).toContain(`lower(btrim(e.v, ${BLANKS_SQL})) = 'gas'`);
+    expect(sql).not.toContain('regexp_split_to_array');
+    expect(sql).not.toContain('translate(');
+    // the WIDE reading: gas as a word between any non-alphanumerics
+    expect(sql).toContain("'(^|[^a-z0-9])gas([^a-z0-9]|$)'");
+    // and the rule it stands in for is exactly this, so widening one without
     // the other is a red test here and not a silent disagreement
     expect(STORED_POI_RULES.gas_exchange).toEqual([
-      { key: 'shop', values: ['gas'] },
+      { key: 'shop', values: ['gas'], list: true },
     ]);
   });
 
@@ -592,6 +634,39 @@ describe('the loader notices when the gas layer disagrees with the tag', () => {
       "kind = 'gas_exchange'\n                           OR cylinder_swap = 'yes'",
     );
     expect(GAS_LAYER_SUMMARY_SQL).toContain('count(DISTINCT');
+  });
+});
+
+describe('a list rule reads the tag as its elements', () => {
+  // 🔴 MUTATION: compare the whole tag again (`IN ('gas')`), or drop `list`
+  // from the gas_exchange rule. 3 755 rows of `convenience;gas` walk past.
+  it('is the SQL of an element test for a list rule, and of an equality for the others', () => {
+    expect(
+      rulesTestSql([{ key: 'shop', values: ['gas'], list: true }], 's'),
+    ).toBe(`${tagPartsSql('s."shop"')} && ARRAY['gas']::text[]`);
+    expect(rulesTestSql([{ key: 'shop', values: ['gas'] }], 's')).toBe(
+      "s.shop IN ('gas')",
+    );
+  });
+
+  // 🔴 MUTATION: apply `list` to every rule. A list reading of every rule
+  // moves 47 shelter rows to food, 8 food to groceries, 2 groceries to fuel and
+  // 2 rest_area to food (measured 15.10.2026 on the staging of camptribe_dev) —
+  // rows that exist would change kind. Only the gas rule is a list rule.
+  it('is set on the gas rule alone', () => {
+    const listed = STORED_POI_KINDS.flatMap((k) =>
+      STORED_POI_RULES[k].filter((r) => r.list).map(() => k),
+    );
+    expect(listed).toEqual(['gas_exchange']);
+  });
+
+  it('asks osmium for a substring, because osmium matches the whole value', () => {
+    expect(
+      osmiumFiltersFor({ key: 'shop', values: ['gas'], list: true }),
+    ).toEqual(['shop=*gas*']);
+    expect(
+      osmiumFiltersFor({ key: 'amenity', values: ['fuel', 'cafe'] }),
+    ).toEqual(['amenity=fuel', 'amenity=cafe']);
   });
 });
 

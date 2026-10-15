@@ -1,4 +1,5 @@
 import { Client } from 'pg';
+import { DataSource } from 'typeorm';
 import type { QueryRunner } from 'typeorm';
 import { RoutePoi1790572800000 } from '../migrations/1790572800000-RoutePoi';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
@@ -30,7 +31,7 @@ import { RoutePoiGas1791700000000 } from '../migrations/1791700000000-RoutePoiGa
 
 jest.setTimeout(120_000);
 
-const URL =
+const DB_URL =
   process.env.CI_DATABASE_URL ??
   process.env.DATABASE_URL ??
   'postgres://localhost:5432/camptribe_dev';
@@ -173,7 +174,7 @@ async function expectTheWantedShape() {
 }
 
 beforeAll(async () => {
-  db = new Client({ connectionString: URL });
+  db = new Client({ connectionString: DB_URL });
   await db.connect();
   await db.query('CREATE EXTENSION IF NOT EXISTS postgis');
 });
@@ -243,6 +244,72 @@ describe('RoutePoiGas.up() and down() leave another schema alone', () => {
     await new RoutePoiGas1791700000000().up(runner());
     await new RoutePoiGas1791700000000().down(runner());
     expect(await indexesOf(decoy)).toEqual(before);
+  });
+
+  // 🔴 `down()` ON ITS OWN. The test above runs `up()` first, which creates
+  // the indexes in the table's own schema — so a bare `DROP INDEX IF EXISTS`
+  // in `down()` alone found them there and never reached the decoy. The review
+  // reproduced the incident through `down()` exactly this way, with the table's
+  // indexes absent. MUTATION: an unqualified `DROP INDEX` in down() only.
+  it('down() alone: the decoy keeps both of its indexes', async () => {
+    const before = await decoyWithTheWholeResult();
+    await freshTable(); // the table has none of the indexes
+    await db.query(`SET search_path = ${schema}, ${decoy}, public`);
+    await new RoutePoiGas1791700000000().down(runner());
+    expect(await indexesOf(decoy)).toEqual(before);
+  });
+
+  // 🔴 AN INDEX OF THAT NAME ON ANOTHER TABLE OF THE SAME SCHEMA. Qualifying
+  // the drop by schema does not stop it; production has one schema, so this is
+  // the form of the incident that can still happen there. The migration must
+  // leave it alone and stop loudly on the taken name. MUTATION: drop by
+  // schema and name only (`DROP INDEX %I.%I` without the table).
+  it.each([
+    'idx_osm_route_poi_gas_exchange',
+    'idx_osm_route_poi_cylinder_swap',
+  ])(
+    'up(): an index %s on ANOTHER table of the same schema survives, and the migration stops',
+    async (name) => {
+      await freshTable();
+      await db.query(
+        `CREATE TABLE other_table (id int, location geometry(Point, 4326))`,
+      );
+      await db.query(
+        `CREATE INDEX ${name} ON other_table USING GIST (location)`,
+      );
+      await expect(
+        new RoutePoiGas1791700000000().up(runner()),
+      ).rejects.toMatchObject({
+        code: '42P07', // duplicate_table: the name is taken
+      });
+      const left = (
+        await db.query(
+          `SELECT tablename FROM pg_indexes
+            WHERE schemaname = current_schema() AND indexname = $1`,
+          [name],
+        )
+      ).rows;
+      expect(left).toEqual([{ tablename: 'other_table' }]);
+    },
+  );
+
+  it('down(): an index of that name on another table of the same schema survives', async () => {
+    await freshTable();
+    await db.query(
+      `CREATE TABLE other_table (id int, location geometry(Point, 4326))`,
+    );
+    await db.query(
+      `CREATE INDEX idx_osm_route_poi_gas_exchange ON other_table USING GIST (location)`,
+    );
+    await new RoutePoiGas1791700000000().down(runner());
+    expect(
+      (
+        await db.query(
+          `SELECT tablename FROM pg_indexes
+            WHERE schemaname = current_schema() AND indexname = 'idx_osm_route_poi_gas_exchange'`,
+        )
+      ).rows,
+    ).toEqual([{ tablename: 'other_table' }]);
   });
 
   // …and the columns of the decoy are as they were: the DO block that decides
@@ -370,6 +437,120 @@ describe('RoutePoiGas.up() brings the columns, checks and indexes to their shape
     ).toBe('banana');
   });
 
+  // 🔴 THE REVIEW'S TWO COUNTER-EXAMPLES TO "WHATEVER STATE".
+  //
+  // (a) `lpg char(10)`: `up()` succeeded and the values read back padded,
+  //     `'unknown   '`. MUTATION: take the `TYPE text` step out of up().
+  it('on a column of the wrong TYPE: char(10) becomes text, and the padding goes', async () => {
+    await freshTable();
+    await db.query(
+      `ALTER TABLE osm_route_poi ADD COLUMN lpg char(10), ADD COLUMN cylinder_swap text`,
+    );
+    await insertRow('n1', 'fuel', `lpg='unknown'`);
+    await insertRow('n2', 'fuel', `lpg='yes'`);
+    await new RoutePoiGas1791700000000().up(runner());
+    expect(
+      (
+        await db.query(
+          `SELECT data_type FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = 'osm_route_poi'
+              AND column_name = 'lpg'`,
+        )
+      ).rows[0].data_type,
+    ).toBe('text');
+    expect(
+      (await db.query(`SELECT osm_ref, lpg FROM osm_route_poi ORDER BY 1`))
+        .rows,
+    ).toEqual([
+      { osm_ref: 'n1', lpg: 'unknown' }, // not 'unknown   '
+      { osm_ref: 'n2', lpg: 'yes' },
+    ]);
+    await expectTheWantedShape();
+  });
+
+  // (b) a CHECK of ANOTHER NAME: `up()` succeeded, and then every default
+  //     INSERT failed with 23514. MUTATION: drop only the canonical name.
+  it('on a column with a CHECK of another name: it is dropped, and a default INSERT works', async () => {
+    await freshTable();
+    await db.query(
+      `ALTER TABLE osm_route_poi
+         ADD COLUMN lpg text NOT NULL DEFAULT 'no',
+         ADD COLUMN cylinder_swap text`,
+    );
+    await db.query(
+      `ALTER TABLE osm_route_poi ADD CONSTRAINT lpg_legacy_values
+         CHECK (lpg IN ('banana', 'yes'))`,
+    );
+    await new RoutePoiGas1791700000000().up(runner());
+    expect(
+      (
+        await db.query(
+          `SELECT conname FROM pg_constraint
+            WHERE conrelid = 'osm_route_poi'::regclass AND conname = 'lpg_legacy_values'`,
+        )
+      ).rows,
+    ).toEqual([]);
+    await expectTheWantedShape(); // includes a default INSERT and 'banana' refused
+  });
+
+  // A CHECK that is about this column AND another is not ours and stays.
+  it('leaves a CHECK that is about more than the one column alone', async () => {
+    await freshTable();
+    await db.query(
+      `ALTER TABLE osm_route_poi ADD COLUMN lpg text, ADD COLUMN cylinder_swap text`,
+    );
+    await db.query(
+      `ALTER TABLE osm_route_poi ADD CONSTRAINT lpg_or_country
+         CHECK (lpg IS NOT NULL OR country = 'si')`,
+    );
+    await new RoutePoiGas1791700000000().up(runner());
+    expect(
+      (
+        await db.query(
+          `SELECT conname FROM pg_constraint
+            WHERE conrelid = 'osm_route_poi'::regclass AND conname = 'lpg_or_country'`,
+        )
+      ).rows,
+    ).toEqual([{ conname: 'lpg_or_country' }]);
+  });
+
+  // Wrong types that cannot be made right end LOUDLY, and nothing is changed
+  // (see the transaction test below for the "nothing changed" half).
+  it.each([
+    ['boolean', 'true'],
+    ['integer', '1'],
+  ])('a %s column ends the migration loudly', async (type, value) => {
+    await freshTable();
+    await db.query(
+      `ALTER TABLE osm_route_poi ADD COLUMN lpg ${type}, ADD COLUMN cylinder_swap text`,
+    );
+    await db.query(
+      `INSERT INTO osm_route_poi (osm_ref, kind, location, country, lpg)
+       VALUES ('n1', 'fuel', ${point}, 'si', ${value})`,
+    );
+    await expect(
+      new RoutePoiGas1791700000000().up(runner()),
+    ).rejects.toMatchObject({
+      code: '23514', // check_violation: 'true' / '1' are not one of the three words
+    });
+  });
+
+  // 🔴 NO REWRITE WHEN THE COLUMN IS ALREADY RIGHT. `ALTER COLUMN … TYPE text`
+  // on a `text` column must not copy 2.27 million rows. The relation's file
+  // node changes when a table is rewritten; it is read before and after.
+  // MUTATION: `TYPE text USING lpg::varchar(7)` or any change of type.
+  it('does not rewrite the table when the columns are already right', async () => {
+    await freshTable();
+    await new RoutePoiGas1791700000000().up(runner());
+    await insertRow('n1', 'fuel', `lpg='yes'`);
+    const node = async () =>
+      (await db.query(`SELECT pg_relation_filenode('osm_route_poi') AS f`))
+        .rows[0].f;
+    const before = await node();
+    await new RoutePoiGas1791700000000().up(runner());
+    expect(await node()).toBe(before);
+  });
+
   it('twice over: the second run changes nothing and does not fail', async () => {
     await freshTable();
     await new RoutePoiGas1791700000000().up(runner());
@@ -395,5 +576,115 @@ describe('RoutePoiGas.up() brings the columns, checks and indexes to their shape
     ).rows;
     expect(left).toEqual([]);
     expect(await indexDefs()).toEqual({});
+  });
+});
+
+// ── ONE TRANSACTION, THROUGH TYPEORM'S OWN EXECUTOR ─────────────────────────
+//
+// 🔴 THE SHIM ABOVE IS NOT TRANSACTIONAL: it sends each statement on its own,
+// so it cannot say what the production run depends on — that an `up()` which
+// fails in the middle leaves NOTHING behind. TypeORM runs a pending migration
+// inside a transaction by default, and every statement here is transactional
+// (no CONCURRENTLY, no VACUUM), but "by default" and "by construction" are not
+// the same as shown. So this runs `up()` through a real DataSource's
+// `runMigrations()` — the code that production runs — against a table in the
+// state that makes it fail LATE: `lpg` holds a fourth word (the CHECK, which
+// comes after the first column and the second column's ADD COLUMN and after
+// every index was dropped, refuses it), and asks what is left.
+//
+// MUTATION: `transaction: 'none'` in the DataSource, or a statement that
+// cannot run in a transaction in up().
+describe('RoutePoiGas through TypeORM: a migration that fails in the middle leaves nothing behind', () => {
+  it('rolls back the second column, the dropped indexes and the migrations row', async () => {
+    await freshTable();
+    // the table already HAS indexes of ours, so a dropped one would show
+    await db.query(
+      `CREATE INDEX idx_osm_route_poi_gas_exchange ON osm_route_poi USING GIST (location) WHERE kind = 'fuel'`,
+    );
+    await db.query(`ALTER TABLE osm_route_poi ADD COLUMN lpg text`);
+    await insertRow('n1', 'fuel', `lpg='banana'`);
+    const before = {
+      columns: (
+        await db.query(
+          `SELECT column_name, is_nullable FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = 'osm_route_poi'
+            ORDER BY ordinal_position`,
+        )
+      ).rows,
+      indexes: await indexDefs(),
+    };
+
+    const url = new URL(DB_URL);
+    url.searchParams.set('options', `-c search_path=${schema},public`);
+    const ds = new DataSource({
+      type: 'postgres',
+      url: url.toString(),
+      schema,
+      migrations: [RoutePoiGas1791700000000],
+      migrationsTableName: 'migrations',
+      logging: false,
+      migrationsTransactionMode: 'all',
+    });
+    await ds.initialize();
+    try {
+      await expect(ds.runMigrations()).rejects.toMatchObject({ code: '23514' });
+    } finally {
+      await ds.destroy();
+    }
+
+    const after = {
+      columns: (
+        await db.query(
+          `SELECT column_name, is_nullable FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = 'osm_route_poi'
+            ORDER BY ordinal_position`,
+        )
+      ).rows,
+      indexes: await indexDefs(),
+    };
+    // no `cylinder_swap` column, `lpg` still nullable, the index still the old one
+    expect(after).toEqual(before);
+    expect(after.columns.map((c) => c.column_name)).not.toContain(
+      'cylinder_swap',
+    );
+    // and the run is NOT recorded as done
+    expect(
+      (
+        await db.query(
+          `SELECT count(*)::int AS n FROM migrations WHERE name = 'RoutePoiGas1791700000000'`,
+        )
+      ).rows[0].n,
+    ).toBe(0);
+  });
+
+  // …and the same migration, through the same executor, on a good table, IS
+  // recorded: the test above is not a DataSource that never runs anything.
+  it('and records itself when it succeeds', async () => {
+    await freshTable();
+    const url = new URL(DB_URL);
+    url.searchParams.set('options', `-c search_path=${schema},public`);
+    const ds = new DataSource({
+      type: 'postgres',
+      url: url.toString(),
+      schema,
+      migrations: [RoutePoiGas1791700000000],
+      migrationsTableName: 'migrations',
+      logging: false,
+    });
+    await ds.initialize();
+    try {
+      const ran = await ds.runMigrations();
+      expect(ran.map((m) => m.name)).toEqual(['RoutePoiGas1791700000000']);
+    } finally {
+      await ds.destroy();
+    }
+    await expectTheWantedShape();
+    expect(
+      (
+        await db.query(
+          `SELECT count(*)::int AS n FROM migrations WHERE name = 'RoutePoiGas1791700000000'`,
+        )
+      ).rows[0].n,
+    ).toBe(1);
   });
 });

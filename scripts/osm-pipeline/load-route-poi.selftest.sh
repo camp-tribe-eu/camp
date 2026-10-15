@@ -31,7 +31,7 @@ ROOT="$(mktemp -d "${TMPDIR:-/tmp}/load-route-poi-selftest.XXXXXX")"
 trap 'rm -rf "$ROOT"' EXIT
 
 # The number of pass/fail calls below. Update it WITH the cases.
-EXPECTED=21
+EXPECTED=22
 
 # The database the run is asked for. Nothing connects to it: every tool that
 # would is a shim, and the name says so.
@@ -112,6 +112,8 @@ make_world() {
   local wd="$1"
   mkdir -p "$wd"
   : > "$wd/europe-malta.osm.pbf"
+  # a file that a glob in the script's filter list would match
+  if [ -n "${SELFTEST_EXTRA_FILE:-}" ]; then : > "$wd/$SELFTEST_EXTRA_FILE"; fi
 }
 
 run() {
@@ -145,16 +147,31 @@ else
   fail "a clean run should complete; rc=$rc: $out"
 fi
 
-# 🔴 CAMP-258: shop=gas is here too — it is what makes gas_exchange a kind
-# that can be non-empty. Written out, not read from the script.
-for want in highway=rest_area highway=services amenity=sanitary_dump_station shop=gas; do
+# 🔴 CAMP-258: shop=*gas* is here too — it is what makes gas_exchange a kind
+# that can be non-empty, and it is a SUBSTRING match on purpose: osmium compares
+# the whole value, so `shop=gas` never selects `shop=convenience;gas`. Written
+# out, not read from the script. `grep -F`: the `*` is not a regex here.
+for want in highway=rest_area highway=services amenity=sanitary_dump_station 'shop=*gas*'; do
   # both element types: a rest area is mostly a way, a dump point a node
-  if grep -q "n/$want" <<<"$filter_call" && grep -q "w/$want" <<<"$filter_call"; then
+  if grep -qF "n/$want" <<<"$filter_call" && grep -qF "w/$want" <<<"$filter_call"; then
     pass "osmium is asked for $want on nodes AND ways"
   else
     fail "osmium was not asked for n/ and w/ $want: $filter_call"
   fi
 done
+
+# 🔴 CAMP-258: the `*` in `shop=*gas*` must reach osmium as a `*`. Unquoted in
+# the script's array it is a GLOB over WORK_DIR, and a file called `shop=xgas`
+# there would replace the filter with its own name — silently, with exit 0. The
+# work directory of this run has such a file. MUTATION: take the quotes off
+# 'shop=*gas*' in load-route-poi.sh.
+out=$(SELFTEST_EXTRA_FILE='shop=xgas' run g); rc=$?
+glob_call=$(grep -m1 '^osmium tags-filter' "$CALLS")
+if [ $rc -eq 0 ] && grep -qF 'n/shop=*gas*' <<<"$glob_call" && ! grep -qF 'shop=xgas' <<<"$glob_call"; then
+  pass "shop=*gas* reaches osmium as written, though a file called shop=xgas sits in the work directory"
+else
+  fail "the * in shop=*gas* was globbed; rc=$rc: $glob_call"
+fi
 
 # 🔴 The card says it in so many words: parking is 3.1 million objects and
 # a separate conversation.

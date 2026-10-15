@@ -87,34 +87,62 @@ export class RoutePoiGas1791700000000 implements MigrationInterface {
   static readonly FLAG_INDEX = 'idx_osm_route_poi_cylinder_swap';
 
   /**
-   * The schema `osm_route_poi` lives in, resolved the way `ALTER TABLE
-   * osm_route_poi` resolves it — by the search_path — and not as the first
-   * schema on the path (`current_schema()`), which need not hold the table.
+   * `DROP INDEX`, aimed at THIS TABLE'S index of that name and at nothing
+   * else.
    *
-   * 🔴 WHY THIS IS A SQL EXPRESSION AND NOT THE WORD `public`. An UNQUALIFIED
-   * `DROP INDEX IF EXISTS name` walks the whole search_path and drops the first
-   * index of that name it meets — in ANOTHER schema if this one has none yet.
-   * Exactly that happened while the CAMP-258 specs were being run: they build
-   * the table in a schema of their own, `up()` found no such index there, and
-   * the two REAL indexes in `public` on camptribe_dev were dropped. Production
-   * has one schema and could not have shown it; the rule is the same anyway:
-   * a migration drops what belongs to ITS table.
+   * 🔴 TWO WAYS A PLAIN `DROP INDEX IF EXISTS name` DROPS WHAT IS NOT OURS,
+   * AND BOTH ARE CLOSED HERE.
+   *   · It walks the whole search_path and drops the first index of that name
+   *     it meets — in ANOTHER schema if this one has none yet. That is what
+   *     happened while the CAMP-258 specs were being run: they build the table
+   *     in a schema of their own, `up()` found no such index there, and the
+   *     two REAL indexes in `public` on camptribe_dev went.
+   *   · Qualifying it by schema is not enough: an index of that name on
+   *     ANOTHER TABLE of the same schema is dropped just the same. Production
+   *     has one schema, so this is the one form of the incident that could
+   *     still happen there.
+   * So the index is looked up through `pg_index`, as an index OF
+   * `osm_route_poi` — whose schema is resolved the way `ALTER TABLE
+   * osm_route_poi` resolves it, by the search_path — and only that one is
+   * dropped. A same-named index on another table is left alone, and the
+   * `CREATE INDEX` that follows then fails loudly on the taken name.
    */
+  private static dropIndex(name: string): string {
+    if (!/^[a-z_]+$/.test(name)) throw new Error(`unsafe index name ${name}`);
+    return `DO $$
+        DECLARE r record;
+        BEGIN
+          FOR r IN
+            SELECT n.nspname AS s, c.relname AS i
+              FROM pg_index x
+              JOIN pg_class c ON c.oid = x.indexrelid
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE x.indrelid = 'osm_route_poi'::regclass
+               AND c.relname = '${name}'
+          LOOP
+            EXECUTE format('DROP INDEX %I.%I', r.s, r.i);
+          END LOOP;
+        END $$`;
+  }
+
+  /** The schema `osm_route_poi` lives in, resolved by the search_path. */
   private static readonly TABLE_SCHEMA = `(SELECT n.nspname
           FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE c.oid = 'osm_route_poi'::regclass)`;
 
-  /** `DROP INDEX IF EXISTS`, aimed at the table's own schema. */
-  private static dropIndex(name: string): string {
-    if (!/^[a-z_]+$/.test(name)) throw new Error(`unsafe index name ${name}`);
-    return `DO $$ BEGIN
-          EXECUTE format('DROP INDEX IF EXISTS %I.%I',
-                         ${RoutePoiGas1791700000000.TABLE_SCHEMA}, '${name}');
-        END $$`;
-  }
-
   public async up(queryRunner: QueryRunner): Promise<void> {
     const columns = RoutePoiGas1791700000000.COLUMNS;
+    const indexes = [
+      ...RoutePoiGas1791700000000.KINDS.map((k) => `idx_osm_route_poi_${k}`),
+      RoutePoiGas1791700000000.FLAG_INDEX,
+    ];
+
+    // Our indexes go FIRST and are made LAST: the flag index is partial on
+    // `cylinder_swap`, and a column that is about to change type should not
+    // have an index hanging on it.
+    for (const name of indexes) {
+      await queryRunner.query(RoutePoiGas1791700000000.dropIndex(name));
+    }
 
     // 🔴 THE COLUMN, IN WHATEVER STATE IT IS ALREADY IN.
     //
@@ -131,36 +159,55 @@ export class RoutePoiGas1791700000000 implements MigrationInterface {
     // specs' QueryRunner shim and TypeORM's return different things):
     //   · no such column: ADD COLUMN … NOT NULL DEFAULT, which is a catalog
     //     change and not a rewrite;
-    //   · the column exists: fill its NULLs, then SET DEFAULT and SET NOT NULL.
+    //   · the column exists, in whatever shape: every CHECK that is about this
+    //     column alone is dropped WHATEVER IT IS CALLED (a leftover
+    //     `lpg_legacy_values` made every default INSERT fail with 23514 after
+    //     an `up()` that reported success); the type becomes `text` (a
+    //     `char(10)` read back as `'unknown   '`); then the NULLs are filled
+    //     and DEFAULT and NOT NULL set. The type step is a no-op, with no
+    //     table rewrite, when the column is already `text` — a spec reads the
+    //     relation's file node before and after.
     //     A value that is not one of the three words is NOT touched — the
     //     CHECK below then refuses it and the migration stops, loudly: a
     //     fourth state somebody wrote by hand is not ours to call `unknown`.
+    //     (`boolean` and `integer` columns end the same way: their text is
+    //     `'true'`, `'1'`, which no CHECK allows.)
     for (const c of columns) {
       await queryRunner.query(`
         DO $$
+        DECLARE
+          tbl regclass := 'osm_route_poi'::regclass;
+          r record;
         BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM information_schema.columns
              WHERE table_schema = ${RoutePoiGas1791700000000.TABLE_SCHEMA}
                AND table_name = 'osm_route_poi' AND column_name = '${c}'
           ) THEN
-            ALTER TABLE osm_route_poi
-              ADD COLUMN ${c} text NOT NULL DEFAULT 'unknown';
+            EXECUTE format('ALTER TABLE %s ADD COLUMN ${c} text NOT NULL DEFAULT ''unknown''', tbl);
           ELSE
-            UPDATE osm_route_poi SET ${c} = 'unknown' WHERE ${c} IS NULL;
-            ALTER TABLE osm_route_poi
-              ALTER COLUMN ${c} SET DEFAULT 'unknown',
-              ALTER COLUMN ${c} SET NOT NULL;
+            FOR r IN
+              SELECT k.conname
+                FROM pg_constraint k
+                JOIN pg_attribute a
+                  ON a.attrelid = k.conrelid AND a.attnum = k.conkey[1]
+               WHERE k.conrelid = tbl AND k.contype = 'c'
+                 AND array_length(k.conkey, 1) = 1 AND a.attname = '${c}'
+            LOOP
+              EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', tbl, r.conname);
+            END LOOP;
+            EXECUTE format('ALTER TABLE %s ALTER COLUMN ${c} DROP DEFAULT', tbl);
+            EXECUTE format('ALTER TABLE %s ALTER COLUMN ${c} TYPE text USING ${c}::text', tbl);
+            EXECUTE format('UPDATE %s SET ${c} = ''unknown'' WHERE ${c} IS NULL', tbl);
+            EXECUTE format('ALTER TABLE %s ALTER COLUMN ${c} SET DEFAULT ''unknown'', ALTER COLUMN ${c} SET NOT NULL', tbl);
           END IF;
         END $$`);
     }
 
-    // 🔴 THE CHECKS, REPLACED, NOT SKIPPED. Dropped by name and added again in
-    // ONE statement for both columns: one ACCESS EXCLUSIVE lock and one scan
-    // validating both, which is why the facilities migration is one ALTER. The
-    // name is the one PostgreSQL gives an inline CHECK on `ADD COLUMN`, so a
-    // CHECK left by an earlier hand-made version of this very column is
-    // replaced as well. A leftover CHECK under another name is not found.
+    // 🔴 THE CHECKS: the canonical ones, added in ONE statement for both
+    // columns — one ACCESS EXCLUSIVE lock and one scan validating both, which
+    // is why the facilities migration is one ALTER. Anything of the same name
+    // that is still there is dropped first.
     const checks = columns.map((c) => `osm_route_poi_${c}_check`);
     await queryRunner.query(
       `ALTER TABLE osm_route_poi
@@ -173,22 +220,16 @@ export class RoutePoiGas1791700000000 implements MigrationInterface {
         ].join(',\n        ')}`,
     );
 
-    // 🔴 THE INDEXES, REBUILT, NOT SKIPPED — for the same reason: `CREATE INDEX
-    // IF NOT EXISTS name` is satisfied by an index of that name on the wrong
-    // predicate, and the catalog spec would then be the only thing that knew.
+    // 🔴 THE INDEXES, MADE FRESH — `CREATE INDEX IF NOT EXISTS name` would be
+    // satisfied by an index of that name on the wrong predicate, and the
+    // catalog spec would then be the only thing that knew.
     for (const kind of RoutePoiGas1791700000000.KINDS) {
-      await queryRunner.query(
-        RoutePoiGas1791700000000.dropIndex(`idx_osm_route_poi_${kind}`),
-      );
       await queryRunner.query(`
         CREATE INDEX idx_osm_route_poi_${kind}
           ON osm_route_poi USING GIST (location)
          WHERE kind = '${kind}'
       `);
     }
-    await queryRunner.query(
-      RoutePoiGas1791700000000.dropIndex(RoutePoiGas1791700000000.FLAG_INDEX),
-    );
     await queryRunner.query(`
       CREATE INDEX ${RoutePoiGas1791700000000.FLAG_INDEX}
         ON osm_route_poi USING GIST (location)

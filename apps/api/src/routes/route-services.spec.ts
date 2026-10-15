@@ -20,7 +20,7 @@ import {
   waterNearField,
 } from './route-services';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
-import { TRISTATE_COLUMNS } from '../osm/route-poi-facilities';
+import { tagPartsSql, TRISTATE_COLUMNS } from '../osm/route-poi-facilities';
 import { DEFAULT_PER_POINT, MAX_POINTS } from './route-points';
 import { SOURCES } from '../fuel/stations';
 import {
@@ -28,6 +28,7 @@ import {
   CANONICAL_REF_KINDS,
   classifyCaseSql,
   isRoutePoiKind,
+  osmiumFiltersFor,
   REST_STOP_KINDS,
   ROUTE_POI_KINDS,
   ROUTE_POI_RULES,
@@ -290,16 +291,19 @@ describe('the tag rules behind each kind', () => {
       'utf8',
     );
     const filtered = new Set(
-      [...script.matchAll(/^\s{2}([a-z_]+=[a-z_]+)$/gm)].map((m) => m[1]),
+      // `shop=*gas*` is quoted in the script (a bare `*` in an array is a
+      // glob), so the quote is optional here, and the value may be a substring
+      // pattern: the filter for a LIST rule (see osmiumFiltersFor)
+      [
+        ...script.matchAll(/^\s{2}'?([a-z_]+=\*?[a-z_]+\*?)'?\s*(?:#.*)?$/gm),
+      ].map((m) => m[1]),
     );
     // 🔴 CAMP-119: every STORED kind, not only the ones a page shows. The
     // two lists this guards are the shell's FILTERS and what the loader
     // classifies, and the loader now classifies the stopping places too.
     const classified = new Set(
       STORED_POI_KINDS.flatMap((kind) =>
-        STORED_POI_RULES[kind].flatMap((rule) =>
-          rule.values.map((v) => `${rule.key}=${v}`),
-        ),
+        STORED_POI_RULES[kind].flatMap((rule) => osmiumFiltersFor(rule)),
       ),
     );
     expect([...classified].sort()).toEqual([...filtered].sort());
@@ -489,8 +493,9 @@ describe('CAMP-258: gas_exchange is stored and not served', () => {
     for (const kind of ROUTE_POI_KINDS) {
       expect(sql.indexOf(`THEN '${kind}'`)).toBeLessThan(at);
     }
-    // …and the branch is `shop=gas`, as a real predicate on a real column
-    expect(sql).toContain("s.shop IN ('gas')");
+    // …and the branch is `gas` among the elements of `shop`, as a real
+    // predicate on a real column (a LIST rule: see TagRule.list)
+    expect(sql).toContain(`${tagPartsSql('s."shop"')} && ARRAY['gas']::text[]`);
   });
 
   // 🔴 MUTATION: take it out of CANONICAL_REF_KINDS. A gas shop mapped as a

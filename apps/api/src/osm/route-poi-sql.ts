@@ -14,6 +14,7 @@
 
 import { EU_MEMBER_STATES_AND_SUBDIVISIONS, ISO_SUBDIVISION_OF } from './eu';
 import {
+  BLANKS_SQL,
   CYLINDER_SWAP,
   facilitySelectSql,
   lpgSelectSql,
@@ -378,38 +379,62 @@ export function cylinderSwapSelectSql(alias = 's'): string {
 
 /**
  * CAMP-258: the gas layer in one row — what a map reads as
- * `kind = 'gas_exchange' OR cylinder_swap = 'yes'` — and the two checks of
- * the flag against the STAGING table.
+ * `kind = 'gas_exchange' OR cylinder_swap = 'yes'` — and the checks of the
+ * flag against the STAGING table, in two strengths.
  *
  *   own_kind       rows of the kind `gas_exchange`
  *   other_kinds    rows of ANOTHER kind that say `cylinder_swap = 'yes'`
- *   missing        rows of objects that say `shop=gas` in staging and do NOT
- *                  say `cylinder_swap = 'yes'` — the layer has lost them
- *   extra          rows that say `yes` although no staged object says
- *                  `shop=gas` — the layer has gained something that is not
- *                  a gas shop
+ *   missing        rows of objects that say `gas` as an element of the `shop`
+ *                  list in staging and do NOT say `cylinder_swap = 'yes'`
+ *   extra          rows that say `yes` although no staged object says `gas`
+ *                  as an element of `shop`
+ *   wide_objects   staged objects whose `shop` mentions `gas` as a WORD, with
+ *                  any separator and any case — a wider reading than the rule's
+ *   wide_only      of those, the objects the rule does not mark
  *   layer          the layer, in rows
  *   layer_objects  the layer, in OSM objects: the older kinds are not folded,
  *                  so a closed-way forecourt is two rows (`w123`, `a246`)
  *
- * 🔴 `missing` AND `extra` ARE COMPUTED FROM `s.shop = 'gas'`, WRITTEN OUT
- * HERE, AND NOT FROM STORED_POI_RULES. The first version of this check
- * asked "does a gas_exchange row fail to say yes" — and the flag, the kind
- * and that question all read the same rule, so a flag built from the WRONG
- * rule (the dump rule, `gas_exchange` + groceries) satisfied it: every row
- * the check looked at agreed with itself. A check that shares its field with
- * the thing it measures is green by construction. This one reads the tag.
- * (A spec pins the rule to exactly `shop` in ('gas'), so widening the rule
- * forces this line to be edited with it, on purpose.)
- *
+ * 🔴 THE CHECKS MUST NOT READ THE FIELD THEY CHECK. This guard has been wrong
+ * twice, and both times for that reason.
+ *   1. The first version asked the rows whether they agreed with the rule that
+ *      wrote them; a flag built from the WRONG rule agreed with itself.
+ *   2. The second read `s.shop = 'gas'` — and the rule it checked was written
+ *      as the same equality, so both sides were blind to the same objects.
+ *      `shop` is a `;` LIST in OpenStreetMap: `convenience;gas` is 2 804
+ *      staged objects (3 755 rows, 3 751 of them stored as `fuel` with the
+ *      flag `unknown`) and the guard said `missing = 0, extra = 0` over a
+ *      layer that was short by a third.
+ * So there are two independent readings here, and the second is WIDER than the
+ * rule:
+ *   · `missing` / `extra` use a second implementation of the SAME definition
+ *     (an element of the `;` list, blanks off, case folded): `unnest` and
+ *     `btrim` against the rule's `regexp_split_to_array`. They are code bugs
+ *     when they are not zero, at any count.
+ *   · `wide_objects` / `wide_only` use a WIDER definition: `gas` as a word
+ *     between any non-alphanumeric characters (`gas,convenience`, `gas
+ *     bottles`, `gas_bottle`). Objects the wide reading sees and the rule does
+ *     not mark are DATA, not code — a handful of typos is a handful of
+ *     records, and one record must not cost the run — so they are counted and
+ *     printed, and the guard fails only when they are SYSTEMATIC
+ *     (see gasLayerError).
  * Staged ids are matched to table refs both as written and folded to their
  * canonical form: a gas_exchange row is keyed on `w123`, a fuel row on what
- * osmium wrote (`w123` AND its area `a246`).
+ * osmium wrote (`w123` AND its area `a246`). The fold is what makes 2 rows on
+ * today's data (`w493009868`, `w849580105`) not `extra`, and a spec stages a
+ * shop that arrives ONLY as an area so that dropping it is red.
  */
 export const GAS_LAYER_SUMMARY_SQL = `WITH gas AS (
          SELECT s.id AS id, ${canonicalRefSql('s.id')} AS cref
            FROM osm_route_poi_staging s
-          WHERE s.shop = 'gas' AND s.id IS NOT NULL
+          WHERE s.id IS NOT NULL AND EXISTS (
+                  SELECT 1 FROM unnest(string_to_array(s.shop, ';')) AS e(v)
+                   WHERE lower(btrim(e.v, ${BLANKS_SQL})) = 'gas')
+       ), wide AS (
+         SELECT DISTINCT ${canonicalRefSql('s.id')} AS cref
+           FROM osm_route_poi_staging s
+          WHERE s.id IS NOT NULL AND s.shop ILIKE '%gas%'
+            AND lower(s.shop) ~ '(^|[^a-z0-9])gas([^a-z0-9]|$)'
        )
        SELECT
        count(*) FILTER (WHERE kind = 'gas_exchange')::text AS own_kind,
@@ -421,6 +446,8 @@ export const GAS_LAYER_SUMMARY_SQL = `WITH gas AS (
        count(*) FILTER (WHERE cylinder_swap = 'yes'
                           AND osm_ref NOT IN (SELECT id FROM gas)
                           AND osm_ref NOT IN (SELECT cref FROM gas))::text AS extra,
+       (SELECT count(*) FROM wide)::text AS wide_objects,
+       (SELECT count(*) FROM wide WHERE cref NOT IN (SELECT cref FROM gas))::text AS wide_only,
        count(*) FILTER (WHERE kind = 'gas_exchange'
                            OR cylinder_swap = 'yes')::text AS layer,
        count(DISTINCT CASE WHEN kind = 'gas_exchange' OR cylinder_swap = 'yes'

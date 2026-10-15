@@ -318,6 +318,45 @@ const CASES: {
     expectKind: 'fuel',
     expect: { lpg: 'unknown' },
   },
+  // ── CAMP-258: `shop` IS A `;` LIST ──
+  //
+  // OpenStreetMap writes several values for one key as `a;b`, and the rule
+  // used to compare the whole tag. 3 755 staged rows said `convenience;gas`
+  // and every one walked past it; 3 751 of them were stored as `fuel` with the
+  // flag `unknown`. Each shape below is one that exists in the extracts.
+  {
+    // a gas shop that is ALSO a convenience store, and nothing else: its own
+    // kind, because the exact `convenience` rule does not match a list
+    fixture: pt('n33', { shop: 'convenience;gas' }),
+    expectKind: 'gas_exchange',
+    expect: { cylinder_swap: 'yes' },
+  },
+  {
+    // 🔴 the forecourt shape (3 750 rows in France): fuel, and in the layer.
+    // MUTATION: compare the whole tag (`IN ('gas')`) in rulesTestSql.
+    fixture: pt('n34', { amenity: 'fuel', shop: 'gas;convenience' }),
+    expectKind: 'fuel',
+    expect: { cylinder_swap: 'yes' },
+  },
+  {
+    // blanks around the separator and the element
+    fixture: pt('n35', { shop: ' gas ; tobacco ' }),
+    expectKind: 'gas_exchange',
+    expect: { cylinder_swap: 'yes' },
+  },
+  {
+    // case is folded, as for every other tag the loader reads
+    fixture: pt('n36', { shop: 'Gas;convenience' }),
+    expectKind: 'gas_exchange',
+    expect: { cylinder_swap: 'yes' },
+  },
+  {
+    // the exact rules stay exact: a plain convenience store is groceries and
+    // says nothing about cylinders
+    fixture: pt('n38', { shop: 'convenience' }),
+    expectKind: 'groceries',
+    expect: { cylinder_swap: 'unknown' },
+  },
   {
     // 🔴 a shop that is NOT a gas shop: groceries, flag unknown. It is the
     // row a flag built from the wrong rule would wrongly mark `yes`, which is
@@ -404,6 +443,13 @@ const NOT_STORED: Fixture[] = [
   pt('n17', { amenity: 'bench' }),
   // CAMP-258: the access filter applies to the new kind like any other
   pt('n30', { shop: 'gas', access: 'private' }),
+  // …and values that mention gas WITHOUT being a gas element of the list: a
+  // word inside another word, and three the wide reading counts and the rule
+  // does not (a ',' list, an underscore, an ampersand). Not stored.
+  pt('n37', { shop: 'gasvending=fuel' }),
+  pt('n39', { shop: 'gas_bottle' }),
+  pt('n40', { shop: 'gas,convenience' }),
+  pt('n41', { shop: 'fuel & liquid gas' }),
   // …and `fuel:lpg` alone classifies nothing: it is a property, not a place
   pt('n31', { 'fuel:lpg': 'yes' }),
 ];
@@ -655,6 +701,15 @@ describe('the import statement, against a real PostgreSQL', () => {
     // CAMP-258: a gas shop that is a closed way arrives twice, and is one row
     await stage({ id: 'w700', wkt: RING, tags: { shop: 'gas' } });
     await stage({ id: 'a1400', wkt: POLYGON, tags: { shop: 'gas' } });
+    // 🔴 A GAS SHOP THAT ARRIVES ONLY AS AN AREA: way 1500 as `a3000` and
+    // relation 1500 as `a3001`, with no `w1500` or `r1500` staged. The row is
+    // stored under the canonical ref (`w1500`, `r1500`), so the check that
+    // compares staging with the table has to fold the staged id too. On the real
+    // data this is two rows (`w493009868` it, `w849580105` si). MUTATION:
+    // `s.id AS cref` in GAS_LAYER_SUMMARY_SQL — before this fixture, 575 of 575
+    // tests stayed green, because every staged area here had its way staged too.
+    await stage({ id: 'a3000', wkt: POLYGON, tags: { shop: 'gas' } });
+    await stage({ id: 'a3001', wkt: POLYGON, tags: { shop: 'gas' } });
     // CAMP-258: a forecourt that is ALSO a gas shop, mapped as a closed way:
     // a fuel station (so not folded: both twins stay) and in the gas layer
     await stage({
@@ -1020,22 +1075,35 @@ describe('the import statement, against a real PostgreSQL', () => {
   // ── CAMP-258: THE GAS LAYER, COUNTED THE WAY A MAP READS IT ──
   //
   // The expectations are written out by hand from the fixtures above:
-  //   lone gas shops (kind gas_exchange)  n20, n21, w700 (a1400 is folded)
-  //   forecourts that also say shop=gas   n22, w800 and a1600 (not folded)
-  //   excluded                            n30 (access=private)
+  //   gas_exchange rows       n20 n21 n33 n35 n36 (lone gas shops, whole tag
+  //                           or a `;` list), w700 (a1400 is folded), w1500
+  //                           and r1500 (staged ONLY as areas a3000, a3001)
+  //   fuel rows that say gas  n22 n34 w800 a1600 (the closed way is two rows)
+  //   excluded                n30 (access=private)
+  //   stored, not gas         n32 (groceries), n38 (groceries), n12 w600 (dump)
+  //   mention gas, not marked n39 `gas_bottle`, n40 `gas,convenience`,
+  //                           n41 `fuel & liquid gas` — and n37
+  //                           `gasvending=fuel`, which contains gas only INSIDE
+  //                           a word and is counted by neither reading
   describe('the gas layer', () => {
     // 🔴 MUTATION: write the flag for kind='gas_exchange' only — the layer
-    // is then 3 rows and not 6, and the card's "about 6 100" is 2 088.
-    it('is every gas shop whatever its kind: 6 rows, 5 objects', async () => {
+    // is then 8 rows and not 12, and "about 6 100" is 2 088.
+    it('is every gas shop whatever its kind: 12 rows, 11 objects', async () => {
       const layer = (await db.query(GAS_LAYER_SUMMARY_SQL)).rows[0];
       expect(layer).toEqual({
-        own_kind: '3',
-        other_kinds: '3',
+        own_kind: '8',
+        other_kinds: '4',
         missing: '0',
         extra: '0',
-        layer: '6',
-        layer_objects: '5',
+        // staged objects that say gas as a word: the 11 objects of the layer,
+        // n30 (excluded from the table, still staged) and the three the rule
+        // does not mark — n39, n40, n41
+        wide_objects: '15',
+        wide_only: '3',
+        layer: '12',
+        layer_objects: '11',
       });
+      // three oddly written values are REPORTED, not fatal
       expect(gasLayerError(layer)).toBeNull();
       const refs = (
         await db.query(
@@ -1043,7 +1111,20 @@ describe('the import statement, against a real PostgreSQL', () => {
             WHERE kind = 'gas_exchange' OR cylinder_swap = 'yes' ORDER BY 1`,
         )
       ).rows.map((r) => r.osm_ref);
-      expect(refs).toEqual(['a1600', 'n20', 'n21', 'n22', 'w700', 'w800']);
+      expect(refs).toEqual([
+        'a1600',
+        'n20',
+        'n21',
+        'n22',
+        'n33',
+        'n34',
+        'n35',
+        'n36',
+        'r1500',
+        'w1500',
+        'w700',
+        'w800',
+      ]);
     });
 
     // ── THE CHECK, SEEN TO FAIL ──
@@ -1055,11 +1136,7 @@ describe('the import statement, against a real PostgreSQL', () => {
     // tests stayed green. So each way the flag can disagree with the tag is
     // PLANTED here, in a transaction that is rolled back, and the check's own
     // SQL has to count it. The numbers are written out by hand from the
-    // fixtures:
-    //
-    //   flag yes today   n20 n21 w700 (gas_exchange)   n22 w800 a1600 (fuel)
-    //   shop=gas rows    those six — a1400 is folded away, n30 is excluded
-    //   not gas shops    n32 (groceries), n12 + w600 (dump)
+    // fixtures above.
     //
     // MUTATION: narrow `missing` to `cylinder_swap = 'no'` (the review's own),
     // drop `extra`, or build either from STORED_POI_RULES.
@@ -1073,15 +1150,16 @@ describe('the import statement, against a real PostgreSQL', () => {
         await db.query('ROLLBACK');
       }
     };
+    const counts = (row: Record<string, string>) => ({
+      missing: row.missing,
+      extra: row.extra,
+    });
 
     it('sees ONE forecourt lose its flag', async () => {
       const { row, error } = await planted(
         `UPDATE osm_route_poi SET cylinder_swap = 'unknown' WHERE osm_ref = 'n22'`,
       );
-      expect({ missing: row.missing, extra: row.extra }).toEqual({
-        missing: '1',
-        extra: '0',
-      });
+      expect(counts(row)).toEqual({ missing: '1', extra: '0' });
       expect(error).toMatch(/^1 rows of objects that say shop=gas/);
     });
 
@@ -1090,8 +1168,8 @@ describe('the import statement, against a real PostgreSQL', () => {
       const { row, error } = await planted(
         `UPDATE osm_route_poi SET cylinder_swap = 'unknown' WHERE kind <> 'gas_exchange'`,
       );
-      expect({ missing: row.missing, extra: row.extra }).toEqual({
-        missing: '3', // n22, w800, a1600
+      expect(counts(row)).toEqual({
+        missing: '4', // n22, n34, w800, a1600
         extra: '0',
       });
       expect(error).not.toBeNull();
@@ -1104,12 +1182,12 @@ describe('the import statement, against a real PostgreSQL', () => {
       const { row, error } = await planted(
         `UPDATE osm_route_poi SET cylinder_swap = 'yes' WHERE kind = 'groceries'`,
       );
-      expect({ missing: row.missing, extra: row.extra }).toEqual({
+      expect(counts(row)).toEqual({
         missing: '0',
-        extra: '1', // n32
+        extra: '2', // n32, n38
       });
       expect(error).toMatch(
-        /^1 rows say cylinder_swap=yes and no staged object/,
+        /^2 rows say cylinder_swap=yes and no staged object/,
       );
     });
 
@@ -1122,24 +1200,55 @@ describe('the import statement, against a real PostgreSQL', () => {
         `UPDATE osm_route_poi SET cylinder_swap =
            CASE WHEN kind = 'dump' THEN 'yes' ELSE 'unknown' END`,
       );
-      expect({ missing: row.missing, extra: row.extra }).toEqual({
-        missing: '6', // n20 n21 w700 n22 w800 a1600
+      expect(counts(row)).toEqual({
+        missing: '12', // every row of the layer
         extra: '2', // n12, w600
       });
       expect(error).not.toBeNull();
     });
 
-    // a closed-way forecourt is two rows in the table and two in staging; the
-    // check must match each by its own id, and the gas_exchange row by the
-    // folded one (a1400 is staged, w700 is stored)
+    // a closed-way shop is two rows or one, stored under a ref that is not
+    // always the staged one
     it('matches a folded gas_exchange row to its staged area twin', async () => {
       const { row } = await planted(
         `UPDATE osm_route_poi SET cylinder_swap = 'unknown' WHERE osm_ref = 'w700'`,
       );
-      expect({ missing: row.missing, extra: row.extra }).toEqual({
-        missing: '1',
-        extra: '0',
+      expect(counts(row)).toEqual({ missing: '1', extra: '0' });
+    });
+
+    // 🔴 THE FOLD, PINNED. `w1500` and `r1500` are stored and their staged ids
+    // are `a3000` and `a3001`: a check that did not fold the staged id would
+    // see no gas shop for them at all — `extra` 2 in the baseline above, and
+    // here `missing` 0 where it must be 2.
+    it('matches a shop that was staged ONLY as an area, through the fold', async () => {
+      const { row } = await planted(
+        `UPDATE osm_route_poi SET cylinder_swap = 'unknown'
+          WHERE osm_ref IN ('w1500', 'r1500')`,
+      );
+      expect(counts(row)).toEqual({ missing: '2', extra: '0' });
+    });
+
+    // 🔴 THE THIRD DIRECTION. Twelve more objects that say `gas,convenience`
+    // (a ',' list, which the rule does not read) are PLANTED in staging: the
+    // wide reading counts them, the rule marks none, and with the three oddities of
+    // the fixtures that is 15 of 27 —
+    // systematic. With only the three oddities of the fixtures the same check
+    // is silent (above). MUTATION: drop `wide_only` from gasLayerError, or
+    // build the wide reading from the rule.
+    it('sees a systematic share of gas objects the rule does not mark', async () => {
+      const { row, error } = await planted(
+        `INSERT INTO osm_route_poi_staging (id, geom, shop)
+         SELECT 'n8' || lpad(g::text, 4, '0'),
+                ST_Multi(ST_SetSRID(ST_MakePoint(14.0 + g * 0.01, 46.5), 4326)),
+                'gas,convenience'
+           FROM generate_series(1, 12) g`,
+      );
+      expect(counts(row)).toEqual({ missing: '0', extra: '0' });
+      expect({ wide: row.wide_objects, wideOnly: row.wide_only }).toEqual({
+        wide: '27',
+        wideOnly: '15',
       });
+      expect(error).toMatch(/^15 of 27 staged objects mention gas/);
     });
 
     // 🔴 MUTATION: let a kind change with the flag, or the flag with the
@@ -1148,12 +1257,13 @@ describe('the import statement, against a real PostgreSQL', () => {
       const kinds = (
         await db.query(
           `SELECT osm_ref, kind FROM osm_route_poi
-            WHERE osm_ref IN ('n22', 'w800', 'a1600') ORDER BY 1`,
+            WHERE osm_ref IN ('n22', 'n34', 'w800', 'a1600') ORDER BY 1`,
         )
       ).rows;
       expect(kinds).toEqual([
         { osm_ref: 'a1600', kind: 'fuel' },
         { osm_ref: 'n22', kind: 'fuel' },
+        { osm_ref: 'n34', kind: 'fuel' },
         { osm_ref: 'w800', kind: 'fuel' },
       ]);
     });

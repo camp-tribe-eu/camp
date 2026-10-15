@@ -223,6 +223,13 @@ async function main() {
         `${gasLayer.layer} rows / ${gasLayer.layer_objects} objects  ` +
         `(own kind ${gasLayer.own_kind}, on other kinds ${gasLayer.other_kinds})`,
     );
+    // …and the wider reading: objects that mention gas as a word in `shop`,
+    // and the ones the rule does not mark. Reported, not fatal, unless
+    // systematic — see gasLayerError.
+    console.log(
+      `  gas read widely: ${gasLayer.wide_objects} staged objects mention gas ` +
+        `as a word in shop, ${gasLayer.wide_only} not marked by the rule`,
+    );
 
     // What the stopping places say about themselves — three words, and
     // the third is not a gap. `unknown` is the answer for most of them.
