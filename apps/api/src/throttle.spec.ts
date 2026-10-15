@@ -3,10 +3,14 @@ import { join } from 'node:path';
 import {
   BULK_LIMIT,
   BULK_ROUTES,
+  bucketOf,
   clientKey,
   DEFAULT_LIMIT,
   isBulkPath,
   isExempt,
+  LOGIN_ROUTES,
+  MAIL_LIMIT,
+  MAIL_ROUTES,
 } from './throttle';
 
 // CAMP-69 — the rate limit, checked without booting Nest.
@@ -288,58 +292,60 @@ describe('🔴 the decorator and the bucket list agree', () => {
    * So: strip comments, walk the lines, and collect the decorators that
    * belong to each route whichever order they appear in.
    */
-  const decorated = controllers
-    .flatMap((file) => {
-      const source = readFileSync(file, 'utf8').replace(
-        /\/\*[\s\S]*?\*\//g,
-        '',
-      );
-      const prefixes = [
-        ...source.matchAll(
-          /@Controller\(\s*(?:\[([^\]]*)\]|['"`]([^'"`]*)['"`])?\s*\)/g,
-        ),
-      ].flatMap((m) =>
-        m[1]
-          ? [...m[1].matchAll(/['"`]([^'"`]*)['"`]/g)].map((q) => q[1])
-          : [m[2] ?? ''],
-      );
-      const prefix = prefixes[0] ?? '';
+  const routesCarrying = (THROTTLE: RegExp): string[] =>
+    controllers
+      .flatMap((file) => {
+        const source = readFileSync(file, 'utf8').replace(
+          /\/\*[\s\S]*?\*\//g,
+          '',
+        );
+        const prefixes = [
+          ...source.matchAll(
+            /@Controller\(\s*(?:\[([^\]]*)\]|['"`]([^'"`]*)['"`])?\s*\)/g,
+          ),
+        ].flatMap((m) =>
+          m[1]
+            ? [...m[1].matchAll(/['"`]([^'"`]*)['"`]/g)].map((q) => q[1])
+            : [m[2] ?? ''],
+        );
+        const prefix = prefixes[0] ?? '';
 
-      const ROUTE =
-        /^\s*@(?:Get|Post|Put|Patch|Delete|All)\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/;
-      const THROTTLE_BULK = /^\s*@Throttle\(.*\bBULK(?:_LIMIT)?\b/;
+        const ROUTE =
+          /^\s*@(?:Get|Post|Put|Patch|Delete|All)\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/;
 
-      const out: string[] = [];
-      let pending: string[] = [];
-      for (const raw of source.split('\n')) {
-        const line = raw.replace(/\/\/.*$/, '');
-        if (/^\s*$/.test(line)) continue;
-        const route = ROUTE.exec(line);
-        if (route) {
-          // The throttle may sit above the route OR below it; both are
-          // collected, because Nest applies them the same way.
-          if (pending.some((d) => THROTTLE_BULK.test(d))) {
-            out.push([prefix, route[1] ?? ''].filter(Boolean).join('/'));
+        const out: string[] = [];
+        let pending: string[] = [];
+        for (const raw of source.split('\n')) {
+          const line = raw.replace(/\/\/.*$/, '');
+          if (/^\s*$/.test(line)) continue;
+          const route = ROUTE.exec(line);
+          if (route) {
+            // The throttle may sit above the route OR below it; both are
+            // collected, because Nest applies them the same way.
+            if (pending.some((d) => THROTTLE.test(d))) {
+              out.push([prefix, route[1] ?? ''].filter(Boolean).join('/'));
+            }
+            pending = [line];
+            continue;
           }
-          pending = [line];
-          continue;
-        }
-        if (/^\s*@/.test(line)) {
-          pending.push(line);
-          // A throttle written UNDER its route decorator belongs to it.
-          if (THROTTLE_BULK.test(line)) {
-            const prev = pending.find((d) => ROUTE.test(d));
-            const m = prev ? ROUTE.exec(prev) : null;
-            if (m) out.push([prefix, m[1] ?? ''].filter(Boolean).join('/'));
+          if (/^\s*@/.test(line)) {
+            pending.push(line);
+            // A throttle written UNDER its route decorator belongs to it.
+            if (THROTTLE.test(line)) {
+              const prev = pending.find((d) => ROUTE.test(d));
+              const m = prev ? ROUTE.exec(prev) : null;
+              if (m) out.push([prefix, m[1] ?? ''].filter(Boolean).join('/'));
+            }
+            continue;
           }
-          continue;
+          pending = [];
         }
-        pending = [];
-      }
-      return out;
-    })
-    .filter((v, i, a) => a.indexOf(v) === i)
-    .sort();
+        return out;
+      })
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .sort();
+
+  const decorated = routesCarrying(/^\s*@Throttle\(.*\bBULK(?:_LIMIT)?\b/);
 
   // 🔴 An empty reading passes every comparison below. If the decorator
   // is ever spelled differently, this is what says so instead of
@@ -363,5 +369,125 @@ describe('🔴 the decorator and the bucket list agree', () => {
       (p) => !decorated.includes(p),
     );
     expect(bucketedNotDecorated).toEqual([]);
+  });
+});
+
+// CAMP-228. THE SAME TWO STATEMENTS ABOUT ONE ROUTE, FOR THE OTHER TWO BUCKETS.
+//
+// The check above compares the BULK decorator with BULK_ROUTES. Sign-in and
+// the letter routes have the same shape of risk — `@Throttle(LOGIN)` sets the
+// number, `LOGIN_ROUTES` sets the bucket — and nothing compared either pair:
+// the comment on `login()` says a test reads the controller, and the test
+// that did was replaced by one that asserts the bucket. So the comparison is
+// made here, with the same reading of the controllers, for both.
+describe('🔴 the login and mail decorators agree with their route lists', () => {
+  const controllers = (function find(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory()
+        ? find(join(dir, e.name))
+        : e.name.endsWith('.controller.ts')
+          ? [join(dir, e.name)]
+          : [],
+    );
+  })(__dirname);
+
+  /** `@Throttle(NAME…)` above (or below) `@Post('x')`, as `prefix/x`. */
+  function carrying(name: string): string[] {
+    const throttle = new RegExp(`^\\s*@Throttle\\(.*\\b${name}(?:_LIMIT)?\\b`);
+    const out: string[] = [];
+    for (const file of controllers) {
+      const source = readFileSync(file, 'utf8').replace(
+        /\/\*[\s\S]*?\*\//g,
+        '',
+      );
+      const prefix =
+        /@Controller\(\s*['"`]([^'"`]*)['"`]\s*\)/.exec(source)?.[1] ?? '';
+      const route =
+        /^\s*@(?:Get|Post|Put|Patch|Delete|All)\(\s*(?:['"`]([^'"`]*)['"`])?\s*\)/;
+      let pending: string[] = [];
+      for (const raw of source.split('\n')) {
+        const line = raw.replace(/\/\/.*$/, '');
+        if (/^\s*$/.test(line)) continue;
+        const m = route.exec(line);
+        if (m) {
+          if (pending.some((d) => throttle.test(d)))
+            out.push([prefix, m[1] ?? ''].filter(Boolean).join('/'));
+          pending = [line];
+        } else if (/^\s*@/.test(line)) {
+          pending.push(line);
+          if (throttle.test(line)) {
+            const prev = pending.find((d) => route.test(d));
+            const pm = prev ? route.exec(prev) : null;
+            if (pm) out.push([prefix, pm[1] ?? ''].filter(Boolean).join('/'));
+          }
+        } else pending = [];
+      }
+    }
+    return out.filter((v, i, a) => a.indexOf(v) === i).sort();
+  }
+
+  it('the controllers really were read', () => {
+    expect(carrying('LOGIN')).not.toEqual([]);
+    expect(carrying('MAIL')).not.toEqual([]);
+  });
+
+  it('every route marked LOGIN is in LOGIN_ROUTES, and nothing else is', () => {
+    expect(carrying('LOGIN')).toEqual([...LOGIN_ROUTES].sort());
+  });
+
+  it('every route marked MAIL is in MAIL_ROUTES, and nothing else is', () => {
+    expect(carrying('MAIL')).toEqual([...MAIL_ROUTES].sort());
+  });
+
+  it('and the routes it names are the three that can send a letter', () => {
+    expect([...MAIL_ROUTES].sort()).toEqual([
+      'auth/forgot',
+      'auth/resend-verification',
+      'auth/signup',
+    ]);
+  });
+});
+
+describe('🔴 the mail bucket (CAMP-228)', () => {
+  it.each(['/auth/signup', '/auth/forgot', '/auth/resend-verification'])(
+    'files %s under mail',
+    (path) => {
+      expect(bucketOf(path)).toBe('mail');
+    },
+  );
+
+  // The router is case-insensitive and tolerates a trailing slash and a
+  // query, so the bucket must be too — the hole isBulkPath already had.
+  it.each([
+    '/auth/forgot/',
+    '/AUTH/FORGOT',
+    '/auth/forgot?utm=x',
+    '//auth/forgot',
+    '/Auth/Resend-Verification/',
+  ])('files %s under mail as well', (path) => {
+    expect(bucketOf(path)).toBe('mail');
+  });
+
+  it('does not share a counter with sign-in, ordinary reading or the bulk routes', () => {
+    expect(bucketOf('/auth/login')).toBe('login');
+    expect(bucketOf('/spots/countries')).toBe('ordinary');
+    expect(bucketOf('/spots/index')).toBe('bulk');
+    expect(bucketOf('/auth/forgot')).not.toBe(bucketOf('/auth/login'));
+  });
+
+  // The routes that SPEND a one-time link are cheap and 256-bit: they stay in
+  // the ordinary bucket on purpose, and this pins that so a "tidy-up" that
+  // moves them into mail (and so lets ten wrong clicks lock out sign-up) is
+  // a red test and not a surprise.
+  it.each(['/auth/verify-email', '/auth/reset-password', '/auth/logout'])(
+    'leaves %s in the ordinary bucket',
+    (path) => {
+      expect(bucketOf(path)).toBe('ordinary');
+    },
+  );
+
+  it('allows ten in ten minutes — written out, not read back', () => {
+    expect(MAIL_LIMIT.limit).toBe(10);
+    expect(MAIL_LIMIT.ttl).toBe(600_000);
   });
 });

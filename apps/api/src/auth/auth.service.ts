@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
 import { hashPassword, looksLikeStoredHash, verifyPassword } from './password';
+import { normalizeEmail } from './email';
 import { Viewer } from './ownership';
 import { expiryFrom, isExpired, newToken, tokenHash } from './session';
 
@@ -55,7 +56,12 @@ export class AuthService {
     password: string,
     now: Date = new Date(),
   ): Promise<SignedIn | null> {
-    const user = await this.users.findOne({ where: { email } });
+    // 🔴 The same spelling every other door uses (CAMP-228). Accounts are
+    // now stored lower-cased and trimmed; looking one up as typed would
+    // refuse `Anna@Example.com` for an account that is `anna@example.com`.
+    const user = await this.users.findOne({
+      where: { email: normalizeEmail(email) },
+    });
     // 🔴 `??` WAS NOT ENOUGH, AND THE GAP WAS 1 700× (CAMP-223).
     //
     // It catches `null` and `undefined`. It does not catch `''`, and a
@@ -87,12 +93,26 @@ export class AuthService {
     const hash = looksLikeStoredHash(stored) ? stored : await decoyHash();
     const ok = await verifyPassword(password, hash);
     if (!ok || !user) return null;
+    return this.startSession(user.id, now);
+  }
 
+  /**
+   * Open a session for an account that has already proved who it is.
+   *
+   * One place, because sign-in and sign-up must mint the same thing:
+   * a token that is shown once, stored only as its hash, with the same
+   * expiry. Two copies of this are two chances for one of them to start
+   * storing the token itself.
+   */
+  async startSession(
+    userId: string,
+    now: Date = new Date(),
+  ): Promise<SignedIn> {
     const token = newToken();
     const expiresAt = expiryFrom(now);
     await this.sessions.save(
       this.sessions.create({
-        userId: user.id,
+        userId,
         tokenHash: tokenHash(token),
         expiresAt,
       }),

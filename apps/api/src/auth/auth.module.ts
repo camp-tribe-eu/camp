@@ -1,15 +1,34 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuthToken } from '../entities/auth-token.entity';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
+import { AccountService, MAILER } from './account.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { mailBootLine, mailerFrom } from './mail';
 import { ViewerMiddleware } from './viewer.middleware';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, Session])],
+  imports: [TypeOrmModule.forFeature([User, Session, AuthToken])],
   controllers: [AuthController],
-  providers: [AuthService, ViewerMiddleware],
+  providers: [
+    AuthService,
+    ViewerMiddleware,
+    AccountService,
+    {
+      // 🔴 Decided once, at boot, and SAID. The mail provider is not set up
+      // yet (CAMP-110), so in a deployment nobody configured, sign-up and the
+      // two letter forms answer 503 — and this line is what makes the reason
+      // obvious, in the same spirit as the build-token line in main.ts.
+      provide: MAILER,
+      useFactory: () => {
+        const result = mailerFrom(process.env);
+        console.log(mailBootLine(result, process.env.MAIL_PROVIDER));
+        return result.mailer;
+      },
+    },
+  ],
   exports: [AuthService],
 })
 export class AuthModule implements NestModule {
