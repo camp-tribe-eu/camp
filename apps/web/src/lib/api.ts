@@ -10,6 +10,8 @@ import type { Tariff } from './tariffs';
 import type { BathingWater } from './bathing';
 // CAMP-164: what the EEA air quality index holds for a campsite.
 import type { AirQualityFacts } from './air-quality';
+// CAMP-255: may a motorhome stay the night here.
+import type { OvernightFacts } from './overnight';
 
 export type { SpotSource };
 export type { Tariff };
@@ -369,6 +371,18 @@ export interface Spot {
    */
   warningAreas?: string[] | null;
   /**
+   * CAMP-255: may a motorhome stay the night here — `allowed`,
+   * `forbidden` or `unknown`, with the source and the day beside every
+   * answer that is not `unknown`.
+   *
+   * 🔴 Optional, and read ONLY through `readOvernight` (lib/overnight.ts),
+   * never off this field: `getSpot` is a cached `res.json()` and the API
+   * deploys separately, so a payload written before this field existed
+   * must read as "not known" rather than throw, and an answer that arrives
+   * without a source must read as "not known" too.
+   */
+  overnight?: OvernightFacts;
+  /**
    * CAMP-147: the price list — a table, never one number.
    *
    * 🔴 Optional, and every reader of it uses `?? []`. Same reason as
@@ -487,6 +501,19 @@ export interface RegionSummary {
   spots: number;
   /** False below the threshold — the page exists but carries `noindex`. */
   indexable: boolean;
+  /**
+   * CAMP-255: how many of this region's campsites have a confirmed
+   * overnight answer, counted from OUR rows. Unknown is NOT sent: it is
+   * `spots - allowed - forbidden`, derived in `overnightCoverage`, so the
+   * three cannot add up to something else.
+   *
+   * Optional because the API deploys separately; a payload without them
+   * reads as "nothing confirmed", which is the safe direction.
+   */
+  overnightAllowed?: number;
+  overnightForbidden?: number;
+  /** `YYYY-MM-DD`: the last time an import found these campsites in OSM. */
+  overnightReadAt?: string | null;
 }
 
 export interface SpotCard {

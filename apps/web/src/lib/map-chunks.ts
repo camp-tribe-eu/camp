@@ -29,7 +29,8 @@
 // region bbox comes within 145° of ±180° and the case cannot arise while
 // the project is EU-27 (CAMP-133).
 
-import { knownAmenities } from './map-filter';
+import { knownAmenities, knownOvernight } from './map-filter';
+import type { OvernightStatus } from './overnight';
 import type { Amenities, AmenityKey } from './api';
 
 export interface RegionSummary {
@@ -76,6 +77,13 @@ export interface ChunkMarker {
    * вирок означало б зробити кожен чанк десятихвилинним.
    */
   warningAreas?: readonly string[] | null;
+  /**
+   * CAMP-255: may a motorhome stay the night here, as the API's marker
+   * route hands it over — already through the gate that turns an answer
+   * with no source into `unknown`. Optional: a build against an older
+   * API has none, and absent reads as unknown.
+   */
+  overnight?: OvernightStatus;
 }
 
 export interface ChunkFeature {
@@ -100,6 +108,14 @@ export interface ChunkFeature {
      * що зони порожні, друге — що резолвер сюди не дійшов.
      */
     z?: string;
+    /**
+     * CAMP-255: `y` — ночівля підтверджена як дозволена, `n` — як
+     * заборонена. 🔴 ВІДСУТНІЙ означає «невідомо», і це не економія на
+     * дужках: так само пишуться зручності, а 97% кемпінгів інакше
+     * платили б байтами за слова «ми не знаємо». Ключ однолітерний із
+     * тієї ж причини, що й `z`.
+     */
+    o?: 'y' | 'n';
   } & Partial<Record<AmenityKey, 'yes' | 'no'>>;
 }
 
@@ -126,6 +142,10 @@ export function chunkBody(markers: readonly ChunkMarker[]): string {
       // що й у зручностей: невідомо.
       ...(m.warningAreas && m.warningAreas.length > 0
         ? { z: m.warningAreas.join('|') }
+        : {}),
+      // CAMP-255: only a KNOWN answer is written. Absent is unknown.
+      ...(knownOvernight(m.overnight)
+        ? { o: knownOvernight(m.overnight) }
         : {}),
       // Only what is known — an absent key means unknown, which is what
       // the filters already assume. See knownAmenities.
@@ -428,6 +448,53 @@ export function dataMessage(state: MapDataState): string | null {
  * "In view" is a set the reader can see and check by counting the
  * markers, and `withinView` explains why it is complete.
  */
+/**
+ * CAMP-255: the sentence beside the overnight filter.
+ *
+ * 🔴 It says what the filter cannot show. Under "confirmed allowed" the
+ * map draws only the confirmed, and on our data that is a few percent of
+ * what is there — so an empty or thin map is the commonest result, and
+ * without a number beside it that reads as "there are no places here"
+ * when it means "we do not know about the places here". The count of
+ * not-known places is therefore never left out, and an empty result says
+ * outright that not known is not the same as none.
+ *
+ * Same states as `filterCountLabel`, for the same reason: above
+ * DETAIL_ZOOM nothing is loaded, and a number computed over nothing is a
+ * statement about the world made by code that did not look.
+ */
+export type OvernightCountLabel =
+  | {
+      kind: 'counts';
+      allowed: number;
+      forbidden: number;
+      unknown: number;
+      /** True when the chunks for this view are not all in hand. */
+      partial: boolean;
+    }
+  | { kind: 'text'; text: string };
+
+export function overnightCountLabel(
+  state: MapDataState,
+  tally: { allowed: number; forbidden: number; unknown: number },
+): OvernightCountLabel {
+  switch (state.kind) {
+    case 'ready':
+      return { kind: 'counts', ...tally, partial: false };
+    case 'loading':
+      return { kind: 'text', text: 'Counting overnight answers…' };
+    case 'wide':
+      return {
+        kind: 'text',
+        text: 'Zoom in to see how many campsites are confirmed for overnight stays and how many are not known.',
+      };
+    case 'failed':
+      return state.loaded > 0
+        ? { kind: 'counts', ...tally, partial: true }
+        : { kind: 'text', text: 'Not counted — the campsites did not load.' };
+  }
+}
+
 export function filterCountLabel(
   state: MapDataState,
   counts: { shown: number; total: number; filtering: boolean },

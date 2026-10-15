@@ -22,26 +22,75 @@
 
 import { AMENITY_KEYS } from './api';
 import type { Amenities, AmenityKey, SpotType } from './api';
+import type { OvernightStatus } from './overnight';
 
 export interface MapFilterState {
   /** Empty means every type, not no types. */
   types: SpotType[];
   amenities: AmenityKey[];
-  /** The reader has seen how many are unknown and asked to include them. */
+  /**
+   * The reader has seen how many are unknown and asked to include them.
+   *
+   * 🔴 About AMENITIES only. It never reaches `overnight` below.
+   */
   includeUnknown: boolean;
+  /**
+   * CAMP-255: only places whose overnight stay is CONFIRMED allowed.
+   *
+   * 🔴 STRICT, in `matchesStrict` and in `matchesLenient` alike, and there
+   * is deliberately no "include the unknown" for it. An amenity filter
+   * can offer the places nobody recorded, because a shower we cannot
+   * confirm costs the reader a detour. A pin that appears under
+   * "allowed" is READ as allowed, so a place we know nothing about must
+   * never be drawn there. The reader is told how many are unknown
+   * instead (`overnightTally`), which is what the card asks for: the
+   * honest number beside the filter, not a quiet padding of it.
+   */
+  overnight: boolean;
 }
 
 export const EMPTY_FILTERS: MapFilterState = {
   types: [],
   amenities: [],
   includeUnknown: false,
+  overnight: false,
 };
+
+/**
+ * How a chunk file writes the overnight answer: one letter, and ONLY for a
+ * known one. Absent means unknown — the convention the amenities already
+ * use, and for the same reason: 97% of campsites would otherwise spend
+ * bytes saying "we do not know" (BYTES_PER_CAMPSITE is a measured budget).
+ */
+export const OVERNIGHT_CODE = { allowed: 'y', forbidden: 'n' } as const;
+
+/** A marker's status → the chunk's property, or undefined for unknown. */
+export function knownOvernight(
+  status: OvernightStatus | null | undefined,
+): 'y' | 'n' | undefined {
+  if (status === 'allowed') return OVERNIGHT_CODE.allowed;
+  if (status === 'forbidden') return OVERNIGHT_CODE.forbidden;
+  return undefined;
+}
+
+/**
+ * A chunk feature's property → its status.
+ *
+ * 🔴 Anything that is not exactly `y` or `n` is `unknown` — a feature
+ * from a chunk built before this existed, a typo, a future code. The
+ * fallback is the cautious one and the only place it is decided.
+ */
+export function overnightOf(props: SpotProperties): OvernightStatus {
+  if (props.o === OVERNIGHT_CODE.allowed) return 'allowed';
+  if (props.o === OVERNIGHT_CODE.forbidden) return 'forbidden';
+  return 'unknown';
+}
 
 /** Flat properties, as the GeoJSON route writes them. */
 export type SpotProperties = Record<string, unknown>;
 
 export function isFiltering(state: MapFilterState): boolean {
-  return state.types.length > 0 || state.amenities.length > 0;
+  return state.types.length > 0 || state.amenities.length > 0 || state.overnight;
 }
 
 /**
@@ -71,6 +120,13 @@ export function knownAmenities(
   return out;
 }
 
+function overnightMatches(
+  props: SpotProperties,
+  state: MapFilterState,
+): boolean {
+  return !state.overnight || overnightOf(props) === 'allowed';
+}
+
 function typeMatches(props: SpotProperties, state: MapFilterState): boolean {
   if (state.types.length === 0) return true;
   return state.types.includes(props.type as SpotType);
@@ -86,6 +142,7 @@ export function matchesStrict(
   state: MapFilterState,
 ): boolean {
   if (!typeMatches(props, state)) return false;
+  if (!overnightMatches(props, state)) return false;
   return state.amenities.every((k) => props[k] === 'yes');
 }
 
@@ -102,6 +159,9 @@ export function matchesLenient(
   state: MapFilterState,
 ): boolean {
   if (!typeMatches(props, state)) return false;
+  // 🔴 The overnight condition is NOT loosened here — see `overnight` on
+  // MapFilterState. Only the amenity half of this question is lenient.
+  if (!overnightMatches(props, state)) return false;
   return state.amenities.every((k) => props[k] !== 'no');
 }
 
@@ -152,6 +212,39 @@ export function applyFilters<F extends { properties: SpotProperties }>(
 }
 
 // ---------------------------------------------------------------------------
+// CAMP-255: the number beside the overnight filter
+// ---------------------------------------------------------------------------
+
+export interface OvernightTally {
+  allowed: number;
+  forbidden: number;
+  unknown: number;
+}
+
+/**
+ * Confirmed against not-known, over what the reader is looking at.
+ *
+ * 🔴 Over the features that pass every OTHER filter (type, amenities,
+ * exactly as `applyFilters` applies them) and partitioned by overnight
+ * status — so ticking "Wild camping" and then the overnight filter says
+ * how many WILD places are confirmed and how many are not known, not how
+ * many in all of Europe. It is the same set the markers are drawn from,
+ * which is what lets a reader count the pins and check the sentence.
+ *
+ * The three always add up to the set; `unknown` is the remainder by
+ * construction, never counted from a property that could disagree.
+ */
+export function overnightTally<F extends { properties: SpotProperties }>(
+  features: F[],
+  state: MapFilterState,
+): OvernightTally {
+  const rest = applyFilters(features, { ...state, overnight: false }).shown;
+  const tally: OvernightTally = { allowed: 0, forbidden: 0, unknown: 0 };
+  for (const f of rest) tally[overnightOf(f.properties)]++;
+  return tally;
+}
+
+// ---------------------------------------------------------------------------
 // The query string — so a filtered map is a link somebody can send
 // ---------------------------------------------------------------------------
 
@@ -165,6 +258,9 @@ export function toSearchParams(state: MapFilterState): string {
   if (state.types.length) p.set('types', state.types.join(','));
   if (state.amenities.length) p.set('amenities', state.amenities.join(','));
   if (state.includeUnknown) p.set('unknown', '1');
+  // Same name and same single word as the API takes (`overnight=allowed`),
+  // so the map's query string pastes onto /spots/map/points unchanged.
+  if (state.overnight) p.set('overnight', 'allowed');
   return p.toString();
 }
 
@@ -189,6 +285,7 @@ export function fromSearchParams(
     types: pick(p.get('types'), knownTypes) as SpotType[],
     amenities: pick(p.get('amenities'), knownAmenities) as AmenityKey[],
     includeUnknown: p.get('unknown') === '1',
+    overnight: p.get('overnight') === 'allowed',
   };
 }
 

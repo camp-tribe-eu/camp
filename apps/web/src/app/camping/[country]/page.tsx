@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { countryName, getCountries, getRegions } from '@/lib/api';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import OvernightCoverage from '@/components/overnight-coverage';
 
 // CAMP-71, level 1: the country hub.
 //
@@ -96,6 +97,10 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
         OpenStreetMap, and where nobody has recorded them we say so rather
         than guessing.
       </p>
+
+      {/* 🔴 CAMP-255. Always rendered: a country where nothing is known
+          says so in a sentence instead of saying nothing. */}
+      <OvernightCoverage countryName={name} regions={regions} />
 
       <h2 className="mt-8 text-xl font-bold md:text-[25px]">Regions</h2>
       <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">

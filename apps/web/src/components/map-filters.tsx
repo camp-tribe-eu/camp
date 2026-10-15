@@ -9,8 +9,18 @@ import {
   type AmenityKey,
   type SpotType,
 } from '@/lib/api';
-import { isFiltering, toggle, type MapFilterState } from '@/lib/map-filter';
-import { filterCountLabel, type MapDataState } from '@/lib/map-chunks';
+import {
+  EMPTY_FILTERS,
+  isFiltering,
+  toggle,
+  type MapFilterState,
+  type OvernightTally,
+} from '@/lib/map-filter';
+import {
+  filterCountLabel,
+  overnightCountLabel,
+  type MapDataState,
+} from '@/lib/map-chunks';
 
 // CAMP-35 / CAMP-25 — the filter panel.
 //
@@ -143,6 +153,24 @@ export default function MapFilters({
             onClick={() => setTypes(t)}
           />
         ))}
+      </Group>
+
+      {/* 🔴 CAMP-255. ONE chip, and it is "confirmed allowed", not
+          "allowed": the filter shows what a source says and nothing the
+          source did not. There is deliberately no "include unknown" next
+          to it — see MapFilterState.overnight. What the reader gets
+          instead is the number of places we cannot answer for, printed
+          ABOVE this panel beside the campsite count (MapCount), where it
+          is on screen without scrolling.
+
+          No All / None: a group of one has nothing to select all of. */}
+      <Group legend="Overnight stay" testId="overnight">
+        <Chip
+          testId="filter-overnight-allowed"
+          label="Confirmed allowed"
+          pressed={state.overnight}
+          onClick={() => onChange({ ...state, overnight: !state.overnight })}
+        />
       </Group>
 
       <Group
@@ -345,9 +373,11 @@ export default function MapFilters({
           <button
             type="button"
             data-testid="filter-clear"
-            onClick={() =>
-              onChange({ types: [], amenities: [], includeUnknown: false })
-            }
+            // 🔴 EMPTY_FILTERS, not a literal. This was a hand-written
+            // object, and a field added to MapFilterState (overnight) is
+            // exactly the one a literal forgets — the button would then
+            // leave that filter on while saying it had cleared them.
+            onClick={() => onChange(EMPTY_FILTERS)}
             className="ml-auto rounded-sm border border-line-2 px-2 py-1 text-sm text-heading hover:border-line-blue"
           >
             Clear filters
@@ -379,11 +409,20 @@ export function MapCount({
   total,
   dataState,
   state,
+  overnight = null,
 }: {
   shown: number;
   total: number;
   dataState: MapDataState;
   state: MapFilterState;
+  /**
+   * CAMP-255: confirmed / not known / not allowed over what is in view.
+   * Null while the overnight filter is off — there is nothing to explain
+   * then. 🔴 It is a PROP, not something this component derives, so the
+   * number printed is the one the map computed over the same markers it
+   * drew.
+   */
+  overnight?: OvernightTally | null;
 }) {
   const count = filterCountLabel(dataState, {
     shown,
@@ -391,13 +430,79 @@ export function MapCount({
     filtering: isFiltering(state),
   });
   return (
-    <p data-testid="filter-count" className="mt-3 text-sm text-ink-2">
-      {count.value !== null && (
-        <strong className="font-semibold text-heading">
-          {count.value.toLocaleString('en-GB')}
-        </strong>
+    <>
+      <p data-testid="filter-count" className="mt-3 text-sm text-ink-2">
+        {count.value !== null && (
+          <strong className="font-semibold text-heading">
+            {count.value.toLocaleString('en-GB')}
+          </strong>
+        )}
+        {count.text}
+      </p>
+      {state.overnight && overnight && (
+        <OvernightCount dataState={dataState} tally={overnight} />
       )}
-      {count.text}
+    </>
+  );
+}
+
+/**
+ * 🔴 CAMP-255: "12 confirmed allowed · 2,447 not known".
+ *
+ * Directly under the campsite count and above the panel, for the reason
+ * CAMP-297 moved the count there: measured on a phone, anything inside
+ * the panel is below the fold. This is the sentence that stops an empty
+ * result reading as "there are no places here".
+ */
+function OvernightCount({
+  dataState,
+  tally,
+}: {
+  dataState: MapDataState;
+  tally: OvernightTally;
+}) {
+  const label = overnightCountLabel(dataState, tally);
+  const n = (v: number) => v.toLocaleString('en-GB');
+  if (label.kind === 'text') {
+    return (
+      <p
+        data-testid="overnight-count"
+        className="mt-1 text-sm text-ink-2"
+      >
+        {label.text}
+      </p>
+    );
+  }
+  return (
+    <p
+      data-testid="overnight-count"
+      className="mt-1 text-sm text-ink-2"
+    >
+      Overnight stay{label.partial ? ' (of what loaded)' : ''}:{' '}
+      <strong className="font-semibold text-heading">
+        {label.allowed === 0 ? 'none' : n(label.allowed)}
+      </strong>{' '}
+      confirmed allowed ·{' '}
+      <strong className="font-semibold text-heading">{n(label.unknown)}</strong>{' '}
+      not known
+      {label.forbidden > 0 && (
+        <>
+          {' '}
+          ·{' '}
+          <strong className="font-semibold text-heading">
+            {n(label.forbidden)}
+          </strong>{' '}
+          not allowed
+        </>
+      )}
+      .
+      {label.allowed === 0 && label.unknown > 0 && (
+        <>
+          {' '}
+          Not known means no source says either way here. It does not mean
+          there are no places.
+        </>
+      )}
     </p>
   );
 }

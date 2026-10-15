@@ -3,7 +3,12 @@ import {
   cleanWebsite,
   mapAmenities,
   mapContact,
+  mapOvernight,
   mapSpotType,
+  maxstayHours,
+  OVERNIGHT_MIN_STAY_HOURS,
+  OVERNIGHT_STATUSES,
+  OvernightResolution,
   resolveAmenity,
 } from './tag-mapping';
 
@@ -634,5 +639,296 @@ describe('contact — CAMP-141', () => {
 
   it('an untagged campsite yields an empty object, not nulls', () => {
     expect(mapContact({})).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CAMP-255: overnight stay is three-valued, and the third value stays itself
+// ---------------------------------------------------------------------------
+
+describe('CAMP-255 mapOvernight: unknown never becomes either answer', () => {
+  const m = (tags: Record<string, string>) => mapOvernight(tags);
+
+  // 🔴 The anchor, asserted BEFORE the rules that lean on it. If the
+  // positive path were dead, every "stays unknown" case below would pass
+  // over a mapper that answers nothing at all.
+  it('anchor: the three recognised words are answers, with a source', () => {
+    expect(m({ motorhome: 'yes' })).toEqual({
+      status: 'allowed',
+      source: 'osm:motorhome=yes',
+      leftUnknownBecause: null,
+    });
+    expect(m({ motorhome: 'designated' })).toEqual({
+      status: 'allowed',
+      source: 'osm:motorhome=designated',
+      leftUnknownBecause: null,
+    });
+    expect(m({ motorhome: 'no' })).toEqual({
+      status: 'forbidden',
+      source: 'osm:motorhome=no',
+      leftUnknownBecause: null,
+    });
+  });
+
+  // 🔴 THE MUTATION THIS CARD IS ABOUT: make an absent tag `forbidden`
+  // and this goes red. 12 488 of the 12 911 French rows are exactly this.
+  it('🔴 no motorhome tag at all is unknown, never forbidden', () => {
+    const none = m({});
+    expect(none.status).toBe('unknown');
+    expect(none.source).toBeNull();
+    expect(none.leftUnknownBecause).toBeNull();
+  });
+
+  it('other tags on the object never turn silence into a no', () => {
+    // A caravan ban, a private site and a long stay say nothing about
+    // motorhomes. Each of them was a plausible shortcut to "forbidden".
+    for (const tags of [
+      { caravans: 'no' },
+      { access: 'private' },
+      { access: 'no' },
+      { maxstay: '1 night' },
+      { fee: 'yes', tourism: 'camp_site' },
+      { 'motorhome:overnight': 'no' },
+    ]) {
+      const r = m(tags);
+      expect([JSON.stringify(tags), r.status]).toEqual([
+        JSON.stringify(tags),
+        'unknown',
+      ]);
+      expect(r.source).toBeNull();
+    }
+  });
+
+  it('a blank value is no tag', () => {
+    for (const blank of ['', '   ', ';', ' ; ; ']) {
+      const r = m({ motorhome: blank });
+      expect([blank, r.status]).toEqual([blank, 'unknown']);
+      expect(r.source).toBeNull();
+    }
+  });
+
+  it('reads case and padding the way OSM is typed', () => {
+    expect(m({ motorhome: ' Yes ' })).toMatchObject({
+      status: 'allowed',
+      source: 'osm:motorhome=yes',
+    });
+    expect(m({ motorhome: 'NO' })).toMatchObject({ status: 'forbidden' });
+  });
+
+  // 🔴 Each of these is a value somebody once typed, with the reason it is
+  // NOT an answer written in the table in tag-mapping.ts. The assertion is
+  // on BOTH wrong directions: promoting any of them to `allowed` is a fine
+  // in our name, demoting any of them to `forbidden` turns away a customer.
+  it('🔴 the conditional tail is unknown, in BOTH directions', () => {
+    for (const value of [
+      'permissive',
+      'customers',
+      'permit',
+      'private',
+      'discouraged',
+      'destination',
+      'limited',
+      'only',
+      'official',
+      'agricultural',
+      'unknown',
+      'fixme',
+      'maybe',
+      'true',
+      '1',
+      'false',
+      '0',
+    ]) {
+      const r = m({ motorhome: value });
+      expect([value, r.status, r.source]).toEqual([value, 'unknown', null]);
+      expect(r.leftUnknownBecause).toBe(`motorhome=${value}`);
+    }
+  });
+
+  it('a list is an answer only when every part agrees', () => {
+    expect(m({ motorhome: 'yes;designated' })).toMatchObject({
+      status: 'allowed',
+      source: 'osm:motorhome=yes;designated',
+    });
+    expect(m({ motorhome: 'no;no' })).toMatchObject({
+      status: 'forbidden',
+      source: 'osm:motorhome=no',
+    });
+    // A mapper contradicting themselves is silence, not a coin toss.
+    for (const v of ['yes;no', 'no;yes', 'yes;permit', 'no;customers']) {
+      expect([v, m({ motorhome: v }).status]).toEqual([v, 'unknown']);
+    }
+  });
+
+  it('never puts raw tag text into the source', () => {
+    const r = m({ motorhome: 'yes;<script>alert(1)</script>' });
+    expect(r.status).toBe('unknown');
+    expect(r.source).toBeNull();
+    // What is left in the audit string is bounded.
+    expect(
+      m({ motorhome: 'x'.repeat(500) }).leftUnknownBecause!.length,
+    ).toBeLessThanOrEqual('motorhome='.length + 40);
+  });
+
+  describe('a site closed to the public vetoes `allowed`, and only that', () => {
+    it('access=no and access=private turn a yes into unknown', () => {
+      for (const motorhome of ['yes', 'designated']) {
+        for (const access of ['no', 'private', ' Private ']) {
+          const r = m({ motorhome, access });
+          expect([motorhome, access, r.status]).toEqual([
+            motorhome,
+            access,
+            'unknown',
+          ]);
+          expect(r.source).toBeNull();
+          expect(r.leftUnknownBecause).toBe(
+            `access=${access.trim().toLowerCase()}`,
+          );
+        }
+      }
+    });
+
+    it('customers, permit, permissive and yes do NOT veto — on a campsite a customer is a camper', () => {
+      for (const access of ['customers', 'permit', 'permissive', 'yes']) {
+        expect(m({ motorhome: 'yes', access }).status).toBe('allowed');
+      }
+    });
+
+    it('does not touch a no: a closed gate agrees with it', () => {
+      expect(m({ motorhome: 'no', access: 'private' })).toMatchObject({
+        status: 'forbidden',
+        source: 'osm:motorhome=no',
+      });
+    });
+  });
+
+  describe('a stay shorter than a night is not an overnight stay', () => {
+    it('vetoes a yes below twelve hours', () => {
+      for (const maxstay of [
+        '2 hours',
+        '90 min',
+        '11 hours',
+        '1h',
+        '0 hours',
+        '3,5 hrs',
+      ]) {
+        const r = m({ motorhome: 'yes', maxstay });
+        expect([maxstay, r.status]).toEqual([maxstay, 'unknown']);
+        expect(r.leftUnknownBecause).toBe('maxstay<12h');
+      }
+    });
+
+    it('lets twelve hours and everything longer through', () => {
+      for (const maxstay of [
+        '12 hours',
+        '24 hours',
+        '48 hours',
+        '1 day',
+        '3 nights',
+        '7 days',
+      ]) {
+        expect([maxstay, m({ motorhome: 'yes', maxstay }).status]).toEqual([
+          maxstay,
+          'allowed',
+        ]);
+      }
+    });
+
+    it('reads only a plain duration as a limit', () => {
+      // These are NOT limits, so they veto nothing. `no` in OSM's maxstay
+      // means "no maximum" — the commonest value here after 48 hours.
+      for (const maxstay of [
+        'no',
+        'none',
+        'unlimited',
+        '',
+        'Mar 15-Oct 15: 72 hours; Oct 16-Mar 14: 7 days',
+        '2 hours;48 hours',
+      ]) {
+        expect([maxstay, maxstayHours(maxstay)]).toEqual([maxstay, null]);
+        expect(m({ motorhome: 'designated', maxstay }).status).toBe('allowed');
+      }
+      expect(maxstayHours('90 min')).toBe(1.5);
+      expect(maxstayHours('48 hours')).toBe(48);
+      expect(OVERNIGHT_MIN_STAY_HOURS).toBe(12);
+    });
+
+    it('does not touch a no', () => {
+      expect(m({ motorhome: 'no', maxstay: '1 hour' }).status).toBe(
+        'forbidden',
+      );
+    });
+  });
+
+  // 🔴 One malformed row must cost one row. The function has no way to
+  // fail, and this proves it over inputs a staging table can produce.
+  it('is total: nothing it is handed can make it throw', () => {
+    const weird: unknown[] = [
+      undefined,
+      null,
+      '',
+      ' ',
+      '\u0000',
+      'x'.repeat(100_000),
+      '𝔶𝔢𝔰',
+      ';;;;',
+      'yes;'.repeat(5000),
+      42,
+      {},
+      [],
+    ];
+    for (const v of weird) {
+      for (const key of ['motorhome', 'access', 'maxstay']) {
+        const tags = {
+          motorhome: 'yes',
+          access: 'yes',
+          maxstay: '24 hours',
+        } as Record<string, unknown>;
+        tags[key] = v;
+        expect(() => mapOvernight(tags as never)).not.toThrow();
+      }
+    }
+  });
+
+  // The equivalence the database also enforces in a CHECK: a source
+  // exists exactly when there is an answer. Walked over the cross product
+  // of everything above, so a new branch cannot forget it.
+  it('🔴 status is unknown exactly when there is no source', () => {
+    const motorhomes = [
+      undefined,
+      '',
+      'yes',
+      'designated',
+      'no',
+      'permit',
+      'yes;no',
+      'private',
+      'customers',
+    ];
+    const accesses = [undefined, 'private', 'no', 'customers', 'yes'];
+    const maxstays = [undefined, '2 hours', '48 hours', 'no'];
+    let walked = 0;
+    for (const motorhome of motorhomes) {
+      for (const access of accesses) {
+        for (const maxstay of maxstays) {
+          const r: OvernightResolution = mapOvernight({
+            motorhome,
+            access,
+            maxstay,
+          });
+          expect(OVERNIGHT_STATUSES).toContain(r.status);
+          expect([
+            JSON.stringify({ motorhome, access, maxstay }),
+            r.status === 'unknown',
+          ]).toEqual([
+            JSON.stringify({ motorhome, access, maxstay }),
+            r.source === null,
+          ]);
+          walked++;
+        }
+      }
+    }
+    // The run walked what it says it walked.
+    expect(walked).toBe(motorhomes.length * accesses.length * maxstays.length);
   });
 });

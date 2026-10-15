@@ -30,6 +30,7 @@ import {
 } from "@/lib/api";
 import {
   applyFilters,
+  overnightTally,
   EMPTY_FILTERS,
   fromSearchParams,
   toSearchParams,
@@ -696,6 +697,9 @@ export default function CampsiteMap() {
     inViewShown: 0,
     inViewTotal: 0,
     inViewUnknownExcluded: 0,
+    // CAMP-255: confirmed / forbidden / unknown over the visible area,
+    // among the campsites that pass the OTHER filters.
+    inViewOvernight: { allowed: 0, forbidden: 0, unknown: 0 },
   });
   // CAMP-127: the table of contents, and which of its chunks are in hand.
   const index = useRef<RegionSummary[]>([]);
@@ -2152,6 +2156,7 @@ export default function CampsiteMap() {
       inViewShown: here.shown.length,
       inViewTotal: inView.length,
       inViewUnknownExcluded: here.unknownExcluded,
+      inViewOvernight: overnightTally(inView, state),
     });
 
     // 🔴 Republish `data-in-view` NOW, not at the map's next idle.
@@ -2524,6 +2529,7 @@ export default function CampsiteMap() {
           total={tally.inViewTotal}
           dataState={dataState}
           state={filters}
+          overnight={tally.inViewOvernight}
         />
 
         <MapFilters

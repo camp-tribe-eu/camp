@@ -24,6 +24,7 @@ import {
 } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import TravelNotice from '@/components/travel-notice';
+import OvernightStay from '@/components/overnight-stay';
 import SourceNote from '@/components/source-note';
 import TariffTable from '@/components/tariff-table';
 import BathingWaterNote from '@/components/bathing-water';
@@ -408,6 +409,14 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
       <NoPhotos />
 
       <Around spot={spot} />
+
+      {/* 🔴 CAMP-255. ALWAYS rendered — it says "not known" and what to
+          check where we have no answer, rather than vanishing there.
+          Above the facilities, because "may I sleep here" is asked before
+          "is there a shower", and above the travel notice, which it does
+          not replace: that one is the general warning, this one is the
+          answer to the specific question. */}
+      <OvernightStay overnight={spot.overnight} />
 
       <Section title="Facilities">
         {known === 0 ? (
