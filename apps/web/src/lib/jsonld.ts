@@ -32,6 +32,7 @@ import {
   WATER_LABEL,
 } from './api';
 import { DEFAULT_LOCALE } from './i18n';
+import { RAILWAY_STATION_OR_STOP, RAILWAY_STOP } from './railway-stop';
 import { describeTariff, groupTariffs } from './tariffs';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://camptribe.eu';
@@ -146,8 +147,11 @@ function amenityFeatures(amenities: Amenities) {
  * planning to arrive by train, or by a city, something the data does not say.
  * These words are true of both values; the same words as
  * apps/api/src/planner/reasons.ts ("Railway stop", "City or town").
+ * CAMP-325: the railway one now lives in `./railway-stop`, shared with the
+ * campsite page and the prose paragraph, so none of the three can say
+ * "station" while the others say "stop".
  */
-const STATION = 'railway stop';
+const STATION = RAILWAY_STOP;
 const TOWN = 'town or city';
 
 /** The prose sentence, reused so the graph and the page cannot disagree. */
@@ -282,6 +286,58 @@ export function officialStars(spot: Spot): number | undefined {
 }
 
 /**
+ * The highest OpenStreetMap object id we publish as a permalink, per kind.
+ * Outside 1..ceiling a ref is refused the same loud way as an unknown shape.
+ *
+ * 🔴 WHY A CEILING. A shape check says "this is an a-number", not "this
+ * is an object". `a19999999999` has the right shape and decodes to
+ * `relation/9999999999`, which does not exist; as `sameAs` that is a
+ * machine-readable claim that this campsite IS that object — the failure
+ * this file is built against. Review ran the real function and got it
+ * published, and a 400-digit URL with it. Zero got the same reasoning
+ * already; it was only ever applied to zero.
+ *
+ * WHY THESE NUMBERS (measured 16.10.2026 on api.openstreetmap.org: the
+ * newest ids in five busy `map` areas, created 15.10.2026 for nodes and
+ * ways and 02.10.2026 for the newest relation seen):
+ *
+ *                 newest seen      our own highest     ceiling
+ *     node    14 287 130 486   14 267 571 140   30 000 000 000
+ *     way      1 568 535 296    1 566 532 993    3 200 000 000
+ *     relation    21 473 298       21 473 170       45 000 000
+ *
+ * (our highest way is the area `a3133065986`, halved.) Each ceiling is about
+ * twice the newest id seen. Growth per year, from our own version-1 records
+ * (`osm_record_edited_at` is the creation date at version 1): nodes about
+ * 1.0e9, ways 0.11e9, relations 1.5e6 — so twice is 14 years or more of
+ * growth for each, enough that a real id will not trip it, and nowhere near
+ * 9 999 999 999.
+ *
+ * 🔴 A STATE OF THE WORLD, NOT A PROPERTY OF THE CODE. It is right on
+ * 16.10.2026 and wrong some year after 2040. The day it trips on an id that
+ * IS in OpenStreetMap, the error names the record: raise the number, redo
+ * the table above, and date it.
+ */
+const OSM_ID_CEILING = {
+  node: 30_000_000_000n,
+  way: 3_200_000_000n,
+  relation: 45_000_000n,
+} as const;
+
+/**
+ * One voice for every refusal in `sourceLinks`, so each says which source,
+ * which ref and which campsite — a corrupt record costs one diagnosis.
+ * Long refs are cut for the message; the 400-digit one is the point.
+ */
+function refusal(spot: Spot, sourceId: unknown, ref: string, why: string): Error {
+  const shown = ref.length > 80 ? `${ref.slice(0, 80)}…` : ref;
+  return new Error(
+    `sourceLinks: ${why} — source ${JSON.stringify(sourceId)}, ref ` +
+      `${JSON.stringify(shown)}, campsite ${spot.country}/${spot.slug}.`,
+  );
+}
+
+/**
  * CAMP-114 / CAMP-101: the record this campsite IS, as a URL.
  *
  * 🔴 `sameAs` means "another page that unambiguously indicates this same
@@ -310,21 +366,43 @@ export function officialStars(spot: Spot): number | undefined {
  *
  * OpenStreetMap is stored the way `osmium export -u type_id` writes it:
  * `n<id>` for a node, `w<id>` for a way, and `a<id>` for an AREA, which
- * is libosmium's own numbering rather than an OSM element id — an even
- * area id is `way_id * 2`.
+ * is libosmium's own numbering rather than an OSM element id:
  *
- * 🔴 That decoding is measured, not assumed. 37 of our `a…` refs were
- * decoded and fetched from the OpenStreetMap API on 28.09.2026: 37 of 37
- * resolved to a way carrying `tourism=camp_site` or `caravan_site` whose
- * `name` tag equals ours, character for character.
+ *     area = way_id * 2             even  →  /way/<area / 2>
+ *     area = relation_id * 2 + 1    odd   →  /relation/<(area - 1) / 2>
  *
- * 🔴 An ODD area id is NOT published, although libosmium would call it
- * `relation_id * 2 + 1`. `scripts/osm-pipeline/import.sh` filters `n/`
- * and `w/` only, so no relation can enter this data at all, and all
- * 32 413 of our area ids are in fact even. An odd one would therefore be
- * corrupt input, and answering corrupt input with a confident permalink
- * to an unrelated OSM object is precisely the failure this whole file is
- * built to avoid. A ref whose shape we do not recognise produces no link.
+ * 🔴 That decoding is measured, not assumed. Even: 37 of our `a…` refs
+ * were decoded and fetched from the OpenStreetMap API on 28.09.2026 and
+ * 37 of 37 resolved to a way carrying `tourism=camp_site` or
+ * `caravan_site` whose `name` tag equals ours. Odd: the 1 320 odd refs
+ * were decoded the same way and fetched in bulk on 15.10.2026. All 1 320
+ * exist as relations; 1 311 carry a camp tag and a `name` equal to ours
+ * today, and the other 9 were retagged (4) or deleted (5) in OSM after
+ * our snapshot — each of them, at the version we stored, carries our
+ * name. Shifting the formula by one (`relation + 1`) is what the same
+ * check looks like when it is wrong: 4 of 102 sampled carry a camp tag.
+ *
+ * 🔴 EVERY SHAPE THAT EXISTS, COUNTED. This function used to say that an
+ * odd area id "cannot exist here" because `import.sh` filtered `n/` and
+ * `w/` only. That was true on 28.09.2026 and stopped being true on
+ * 11.10.2026, when CAMP-253 added `r/` to the filter
+ * (`extract-campsites.sh`); the sentence stayed, and nobody re-counted.
+ * `sources[].ref` where `id = 'osm'`, camptribe_dev, 15.10.2026, 54 279
+ * refs (equal to the 54 279 non-null `camping_spots.osm_ref`, row by row):
+ *
+ *     a… even   32 495   way       a… odd   1 320   RELATION
+ *     n…        19 608   node      w…         856   way
+ *     any other shape        0
+ *
+ * plus 8 752 `datatourisme` refs, every one an https URL. A snapshot, not
+ * a specification: the weekly import moves these, and the property that
+ * matters is that nothing here is decoded by guessing.
+ *
+ * 🔴 FOUR SHAPES ARE DECODED, ONE RANGE OF VALUES IS PUBLISHED, AND
+ * EVERYTHING ELSE THROWS. Not "no link": a throw that names the source,
+ * the ref and the campsite. A shape we cannot decode and a value no object
+ * can have are the same refusal. `OSM_ID_CEILING` says what the range is
+ * and why; the guard below says why it is loud, and what it is for.
  */
 export function sourceLinks(spot: Spot): string[] {
   const out: string[] = [];
@@ -335,30 +413,96 @@ export function sourceLinks(spot: Spot): string[] {
   const sources = Array.isArray(spot.sources) ? spot.sources : [];
   for (const s of sources) {
     const ref = text(s?.ref);
+    // No ref, no identity to publish and nothing to decode.
+    if (!ref) continue;
+    // 🔴 `fields` is checked here, by name. `{}` used to reach `.includes`
+    // and die as "includes is not a function", with no word about which
+    // record; a string would not even die, since strings have `includes`.
+    // A missing `fields` is read as "gave nothing", as it always was.
+    // Today none is wrong (0 of 63 031 sources, camptribe_dev, 16.10.2026),
+    // and that is a state of the data, not a property of this code.
+    const fields: unknown = s.fields ?? [];
+    if (!Array.isArray(fields)) {
+      throw refusal(
+        spot,
+        s.id,
+        ref,
+        `fields is ${JSON.stringify(fields)?.slice(0, 60)}, not a list`,
+      );
+    }
     // Identity, not attribution: see the note above.
-    if (!ref || !(s.fields ?? []).includes('location')) continue;
+    if (!fields.includes('location')) continue;
     if (s.id === 'datatourisme') {
       if (/^https?:\/\//i.test(ref)) out.push(ref);
       continue;
     }
     if (s.id !== 'osm') continue;
-    const m = /^([nw])(\d+)$/.exec(ref);
-    if (m) {
-      const id = BigInt(m[2]);
-      if (id > 0n) {
-        out.push(
-          `https://www.openstreetmap.org/${m[1] === 'n' ? 'node' : 'way'}/${id}`,
-        );
-      }
-      continue;
+
+    let kind: 'node' | 'way' | 'relation';
+    let id: bigint;
+    const nodeOrWay = /^([nw])(\d+)$/.exec(ref);
+    const area = nodeOrWay ? null : /^a(\d+)$/.exec(ref);
+    if (nodeOrWay) {
+      kind = nodeOrWay[1] === 'n' ? 'node' : 'way';
+      id = BigInt(nodeOrWay[2]);
+    } else if (area) {
+      // libosmium: way_id * 2 for a way, relation_id * 2 + 1 for a relation.
+      const areaId = BigInt(area[1]);
+      kind = areaId % 2n === 1n ? 'relation' : 'way';
+      id = kind === 'relation' ? (areaId - 1n) / 2n : areaId / 2n;
+    } else {
+      // 🔴 THE GUARD: n, w, a-even and a-odd are decoded above, and
+      // EVERYTHING ELSE STOPS THE BUILD instead of yielding no link.
+      //
+      // WHY LOUD. The sentence this guard replaced said an odd area id
+      // "cannot exist here". It was TRUE on 28.09.2026 (the import
+      // filtered `n/` and `w/` only) and FALSE from 11.10.2026, when
+      // CAMP-253 added `r/` to the filter. The comment did not lie, it
+      // rotted: nothing re-counted, and 1 320 campsite pages lost their
+      // OpenStreetMap link without a sound until a reviewer measured it.
+      // A skip is exactly how that happened, so a shape we cannot decode
+      // is now the day somebody finds out, not the day nobody does.
+      //
+      // THE SHAPE THIS IS FOR: `r<id>`. 0 rows carry it as of
+      // 15.10.2026 (camptribe_dev: `sources[].ref` and `osm_ref` alike),
+      // so it is absent TODAY and the date matters — `normalise-export.mjs`
+      // documents an in-place migration of `osm_ref` to canonical refs
+      // (`canonicalId`: `a`→`w`/`r`), and the day that runs every
+      // relation becomes `r…`.
+      //
+      // WHY THERE IS NO `r` BRANCH. Code for a shape with no rows cannot
+      // be tested against anything real, and the next reader would take
+      // it for working. Whoever writes that migration adds the branch
+      // here, with actual rows to check it on, because this stopped them.
+      //
+      // WHY A THROW AND NOT A LOG. The campsite pages are generated
+      // statically (`dynamicParams = false`), so this fails the BUILD and
+      // the site stays on its last good one; a log line is what 1 320
+      // pages already proved nobody reads. The message names the one
+      // record, so a corrupt ref costs one diagnosis, not a hunt.
+      throw refusal(
+        spot,
+        s.id,
+        ref,
+        `OSM ref is not one of the four shapes this parser decodes ` +
+          `(n<id>, w<id>, a<even>, a<odd>). If it is r<id>, osm_ref was ` +
+          `migrated to canonical ids: add a branch for it in ` +
+          `apps/web/src/lib/jsonld.ts with real rows to test it on — do ` +
+          `not make this skip it`,
+      );
     }
-    const area = /^a(\d+)$/.exec(ref);
-    if (!area) continue;
-    const id = BigInt(area[1]);
-    // Even areas are ways. Odd ones cannot exist here — see above.
-    if (id > 0n && id % 2n === 0n) {
-      out.push(`https://www.openstreetmap.org/way/${id / 2n}`);
+    // The VALUE is guarded like the shape: 0 is no object (`a0` is way 0,
+    // `a1` is relation 0) and anything above the ceiling is no object yet.
+    if (id < 1n || id > OSM_ID_CEILING[kind]) {
+      throw refusal(
+        spot,
+        s.id,
+        ref,
+        `${kind} id ${String(id).length > 24 ? `${String(id).slice(0, 24)}…` : id} is outside 1..` +
+          `${OSM_ID_CEILING[kind]} (OSM_ID_CEILING in apps/web/src/lib/jsonld.ts)`,
+      );
     }
+    out.push(`https://www.openstreetmap.org/${kind}/${id}`);
   }
   return out;
 }
@@ -436,7 +580,7 @@ export function campsiteFaq(spot: Spot): FaqItem[] {
   if (c.station && known(c.station.m)) {
     const station = text(c.station.name);
     items.push({
-      q: `How far is the nearest railway station or stop?`,
+      q: `How far is the nearest ${RAILWAY_STATION_OR_STOP}?`,
       a: `${station ? `${station} ${STATION}` : `The nearest ${STATION}`} is ${formatDistance(c.station.m)} away in a straight line. We do not know whether a bus or a path connects the two.`,
     });
   }

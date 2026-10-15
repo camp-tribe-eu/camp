@@ -69,7 +69,7 @@ export default function Attribution() {
 
       <H3>What we added</H3>
       <P>
-        Distance to the nearest water, town, supermarket and station, the
+        Distance to the nearest water, town, supermarket and railway stop, the
         terrain description and the relief figure are computed by CampTribe
         from the sources on this page. They are our derivation, they carry
         the licences of what they were derived from, and they are estimates

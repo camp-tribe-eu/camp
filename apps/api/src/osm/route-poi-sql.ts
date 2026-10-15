@@ -14,11 +14,19 @@
 
 import { EU_MEMBER_STATES_AND_SUBDIVISIONS, ISO_SUBDIVISION_OF } from './eu';
 import {
-  FACILITY_COLUMNS,
+  BLANKS_SQL,
+  CYLINDER_SWAP,
   facilitySelectSql,
+  lpgSelectSql,
+  ROW_FACILITY_COLUMNS,
   tagPartsSql,
 } from './route-poi-facilities';
-import { CANONICAL_REF_KINDS, classifyCaseSql } from './route-poi';
+import {
+  CANONICAL_REF_KINDS,
+  classifyCaseSql,
+  rulesTestSql,
+  STORED_POI_RULES,
+} from './route-poi';
 
 /**
  * 🔴 ST_PointOnSurface, not ST_Centroid.
@@ -247,7 +255,8 @@ const BASE_COLUMNS = [
  *
  * 🔴 TWO ROW KEYS, ON PURPOSE.
  *
- * `rest_area`, `service_area` (CAMP-119) and `dump` are keyed on the
+ * `rest_area`, `service_area` (CAMP-119), `gas_exchange` (CAMP-258, new, so
+ * nothing is keyed on it) and `dump` are keyed on the
  * canonical object id, one row per OSM object. The other six kinds — the
  * 2.2 million rows that were here before — are keyed on what osmium
  * wrote. Re-keying them would fold 338 305 closed-way twins (measured
@@ -269,10 +278,10 @@ export function buildRoutePoiInsertSql(): string {
     return `'${k}'`;
   }).join(', ');
   const base = BASE_COLUMNS.join(', ');
-  const facilities = FACILITY_COLUMNS.join(', ');
+  const facilities = ROW_FACILITY_COLUMNS.join(', ');
   const updates = [
     ...BASE_COLUMNS.filter((c) => c !== 'osm_ref'),
-    ...FACILITY_COLUMNS,
+    ...ROW_FACILITY_COLUMNS,
   ]
     .map((c) => `${c} = EXCLUDED.${c}`)
     .join(',\n            ');
@@ -280,7 +289,7 @@ export function buildRoutePoiInsertSql(): string {
   return `INSERT INTO osm_route_poi
          (${base},
           ${facilities})
-       SELECT ${[...BASE_COLUMNS, ...FACILITY_COLUMNS].map((c) => `r.${c}`).join(', ')}
+       SELECT ${[...BASE_COLUMNS, ...ROW_FACILITY_COLUMNS].map((c) => `r.${c}`).join(', ')}
          FROM (
          SELECT DISTINCT ON (x.ref)
                 x.ref AS osm_ref,
@@ -292,7 +301,9 @@ export function buildRoutePoiInsertSql(): string {
                 ${WEBSITE_SQL} AS website,
                 nullif(btrim(s.opening_hours), '') AS opening_hours,
                 $1::timestamptz AS last_seen_at,
-                ${facilitySelectSql('s')}
+                ${facilitySelectSql('s')},
+                ${lpgSelectSql('s')},
+                ${cylinderSwapSelectSql('s')}
            FROM osm_route_poi_staging s
           CROSS JOIN LATERAL (SELECT ${classifyCaseSql('s')} AS kind) k
           CROSS JOIN LATERAL (
@@ -331,3 +342,119 @@ export function buildRoutePoiInsertSql(): string {
        ON CONFLICT (osm_ref) DO UPDATE SET
             ${updates}`;
 }
+
+/**
+ * CAMP-258: the `lpg` distribution over fuel stations — ROWS and OBJECTS.
+ *
+ * Rows, because that is what the table holds; objects, because the older
+ * kinds are not folded (see buildRoutePoiInsertSql) and a closed-way fuel
+ * station is two rows, so only the second is comparable with a count of OSM
+ * objects. Measured on camptribe_dev before this card: 154 183 `fuel` rows
+ * against 119 201 objects in the raw extracts.
+ */
+export const LPG_SUMMARY_SQL = `SELECT lpg AS state, count(*)::text AS rows,
+              count(DISTINCT ${canonicalRefSql('osm_ref')})::text AS objects
+         FROM osm_route_poi WHERE kind = 'fuel' GROUP BY 1`;
+
+/**
+ * 🔴 CAMP-258: `cylinder_swap` — `yes` FOR ANY OBJECT THAT SAYS `shop=gas`,
+ * WHATEVER KIND IT ENDED UP WITH.
+ *
+ * Derived from the SAME rule the `gas_exchange` branch of the CASE uses
+ * (rulesTestSql over STORED_POI_RULES), and not from the row's kind: 6 816
+ * of the 8 938 objects that say `gas` in `shop` are also `amenity=fuel`, are
+ * `fuel` because the CASE returns its first match, and would otherwise lose
+ * the one fact that makes them a gas-swap point. Reading the KIND here would
+ * put the flag on 2 114 rows instead of 11 511, and every query that looked
+ * fine on a fixture of lone gas shops would keep looking fine.
+ *
+ * `yes` or `unknown`, never `no`: no tag says "no cylinders here", and a
+ * place that is not tagged `shop=gas` is a place nobody described that way.
+ * A NULL `shop` makes the test NULL, which a CASE reads as not-matched, so
+ * the ELSE answers `unknown`.
+ */
+export function cylinderSwapSelectSql(alias = 's'): string {
+  return `CASE WHEN ${rulesTestSql(STORED_POI_RULES.gas_exchange, alias)} THEN 'yes' ELSE 'unknown' END AS ${CYLINDER_SWAP.column}`;
+}
+
+/**
+ * CAMP-258: the gas layer in one row — what a map reads as
+ * `kind = 'gas_exchange' OR cylinder_swap = 'yes'` — and the checks of the
+ * flag against the STAGING table, in two strengths.
+ *
+ *   own_kind       rows of the kind `gas_exchange`
+ *   other_kinds    rows of ANOTHER kind that say `cylinder_swap = 'yes'`
+ *   missing        rows of objects that say `gas` as an element of the `shop`
+ *                  list in staging and do NOT say `cylinder_swap = 'yes'`
+ *   extra          rows that say `yes` although no staged object says `gas`
+ *                  as an element of `shop`
+ *   wide_objects   staged objects whose `shop` mentions `gas` as a WORD, with
+ *                  any separator and any case — a wider reading than the rule's
+ *   wide_only      of those, the objects the rule does not mark
+ *   layer          the layer, in rows
+ *   layer_objects  the layer, in OSM objects: the older kinds are not folded,
+ *                  so a closed-way forecourt is two rows (`w123`, `a246`)
+ *
+ * 🔴 THE CHECKS MUST NOT READ THE FIELD THEY CHECK. This guard has been wrong
+ * twice, and both times for that reason.
+ *   1. The first version asked the rows whether they agreed with the rule that
+ *      wrote them; a flag built from the WRONG rule agreed with itself.
+ *   2. The second read `s.shop = 'gas'` — and the rule it checked was written
+ *      as the same equality, so both sides were blind to the same objects.
+ *      `shop` is a `;` LIST in OpenStreetMap: `convenience;gas` is 2 804
+ *      staged objects (3 755 rows, 3 751 of them stored as `fuel` with the
+ *      flag `unknown`) and the guard said `missing = 0, extra = 0` over a
+ *      layer that was short by a third.
+ * So there are two independent readings here, and the second is WIDER than the
+ * rule:
+ *   · `missing` / `extra` use a second implementation of the SAME definition
+ *     (an element of the `;` list, blanks off, case folded): `unnest` and
+ *     `btrim` against the rule's `regexp_split_to_array`. They are code bugs
+ *     when they are not zero, at any count.
+ *   · `wide_objects` / `wide_only` use a WIDER definition: `gas` as a word
+ *     between any non-alphanumeric characters (`gas,convenience`, `gas
+ *     bottles`, `gas_bottle`). Objects the wide reading sees and the rule does
+ *     not mark are DATA, not code — a handful of typos is a handful of
+ *     records, and one record must not cost the run — so they are counted and
+ *     printed, and the guard fails only when they are SYSTEMATIC
+ *     (see gasLayerError).
+ * Staged ids are matched to table refs both as written and folded to their
+ * canonical form: a gas_exchange row is keyed on `w123`, a fuel row on what
+ * osmium wrote (`w123` AND its area `a246`). The fold is what makes 2 rows on
+ * today's data (`w493009868`, `w849580105`) not `extra`, and a spec stages a
+ * shop that arrives ONLY as an area so that dropping it is red.
+ */
+export const GAS_LAYER_SUMMARY_SQL = `WITH gas AS (
+         SELECT s.id AS id, ${canonicalRefSql('s.id')} AS cref
+           FROM osm_route_poi_staging s
+          WHERE s.id IS NOT NULL AND s.shop ILIKE '%gas%' AND EXISTS (
+                  SELECT 1 FROM unnest(string_to_array(s.shop, ';')) AS e(v)
+                   WHERE lower(btrim(e.v, ${BLANKS_SQL})) = 'gas')
+       ), by_id AS (SELECT DISTINCT id AS k FROM gas),
+          by_cref AS (SELECT DISTINCT cref AS k FROM gas),
+       wide AS (
+         SELECT DISTINCT ${canonicalRefSql('s.id')} AS cref
+           FROM osm_route_poi_staging s
+          WHERE s.id IS NOT NULL AND s.shop ILIKE '%gas%'
+            AND lower(s.shop) ~ '(^|[^a-z0-9])gas([^a-z0-9]|$)'
+       ), t AS (
+         SELECT r.kind, r.cylinder_swap, r.osm_ref,
+                (i.k IS NOT NULL OR c.k IS NOT NULL) AS says_gas
+           FROM osm_route_poi r
+           LEFT JOIN by_id i ON i.k = r.osm_ref
+           LEFT JOIN by_cref c ON c.k = r.osm_ref
+       )
+       SELECT
+       count(*) FILTER (WHERE kind = 'gas_exchange')::text AS own_kind,
+       count(*) FILTER (WHERE kind <> 'gas_exchange'
+                          AND cylinder_swap = 'yes')::text AS other_kinds,
+       count(*) FILTER (WHERE cylinder_swap <> 'yes' AND says_gas)::text AS missing,
+       count(*) FILTER (WHERE cylinder_swap = 'yes' AND NOT says_gas)::text AS extra,
+       (SELECT count(*) FROM wide)::text AS wide_objects,
+       (SELECT count(*) FROM wide w
+         LEFT JOIN by_cref g ON g.k = w.cref WHERE g.k IS NULL)::text AS wide_only,
+       count(*) FILTER (WHERE kind = 'gas_exchange'
+                           OR cylinder_swap = 'yes')::text AS layer,
+       count(DISTINCT CASE WHEN kind = 'gas_exchange' OR cylinder_swap = 'yes'
+                           THEN ${canonicalRefSql('osm_ref')} END)::text AS layer_objects
+  FROM t`;
