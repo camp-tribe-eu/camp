@@ -482,7 +482,9 @@ start_temp_api() { # реліз
     kill -0 "$TEMP_API_PID" 2>/dev/null || break
     sleep "$READY_SLEEP"
   done
-  die "тимчасова API не піднялась на $BUILD_API_PORT (див. $dir/build-api.log) — веб не збираю"
+  # Причину друкуємо тут, а не відсилаємо до файлу: на машині, де щойно впала збірка, ніхто не піде його читати.
+  die "тимчасова API не піднялась на $BUILD_API_PORT — веб не збираю. Кінець $dir/build-api.log:
+$(tail -n 8 "$dir/build-api.log" 2>/dev/null | sed 's/^/      /' || true)"
 }
 
 fetch_release() { # sha реліз

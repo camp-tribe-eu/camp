@@ -261,13 +261,17 @@ W=""
 # Порт перевіряється самим bash (/dev/tcp), а не lsof: на раннері lsof може не бути, і тоді «порт вільний»
 # було б правдою завжди.
 port_up() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
-USED_PORTS=" "
+# 🔴 Порти беруться з 20000–29999: нижче ефемерного діапазону і Linux (32768+), і macOS (49152+).
+# Випадковий порт із 30000–50000 міг збігтись із локальним портом клієнтського з'єднання curl і дати
+# EADDRINUSE у сервера, який стартує. А реєстр використаних портів — файл: `$(free_port)` виконується
+# в підоболонці, і змінна, змінена там, до наступного виклику не доживає.
+PORTS_USED="$BASE/ports.used"; : > "$PORTS_USED"
 free_port() {
   local p
   while :; do
-    p=$((30000 + RANDOM % 20000))
-    case "$USED_PORTS" in *" $p "*) continue ;; esac
-    port_up "$p" || { USED_PORTS="$USED_PORTS$p "; echo "$p"; return; }
+    p=$((20000 + RANDOM % 10000))
+    grep -qx "$p" "$PORTS_USED" && continue
+    port_up "$p" || { echo "$p" >> "$PORTS_USED"; echo "$p"; return; }
   done
 }
 
