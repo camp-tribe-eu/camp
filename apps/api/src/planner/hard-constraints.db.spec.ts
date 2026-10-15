@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Client } from 'pg';
 import { EU_MEMBER_STATES } from '../osm/eu';
 import { AMENITY_KEYS, mapAmenities } from '../osm/tag-mapping';
@@ -83,7 +85,8 @@ beforeAll(async () => {
       missing_since timestamptz);
     CREATE TABLE spot_links (
       primary_id uuid NOT NULL, secondary_id uuid NOT NULL,
-      unlinked_at timestamptz, created_at timestamptz DEFAULT now());`);
+      unlinked_at timestamptz, created_at timestamptz DEFAULT now());
+    CREATE INDEX camping_spots_location_gist ON camping_spots USING gist (location);`);
   await buildFixture();
 });
 
@@ -108,6 +111,7 @@ interface Spot {
   lon: number;
   lat: number;
   missing?: boolean;
+  stars?: number;
 }
 
 async function put(s: Spot): Promise<string> {
@@ -116,10 +120,10 @@ async function put(s: Spot): Promise<string> {
     JSON.stringify(s.rawAmenities ?? mapAmenities(s.tags ?? {}));
   const res = await db.query(
     `INSERT INTO camping_spots
-       (slug, country, region, amenities, owner_overrides, location, missing_since)
+       (slug, country, region, amenities, owner_overrides, location, missing_since, stars)
      VALUES ($1, $2, $3, $4::jsonb, $5::jsonb,
              ST_SetSRID(ST_MakePoint($6, $7), 4326),
-             CASE WHEN $8::boolean THEN now() ELSE NULL END)
+             CASE WHEN $8::boolean THEN now() ELSE NULL END, $9)
      RETURNING id`,
     [
       s.slug,
@@ -130,6 +134,7 @@ async function put(s: Spot): Promise<string> {
       s.lon,
       s.lat,
       s.missing ?? false,
+      s.stars ?? null,
     ],
   );
   return res.rows[0].id;
@@ -279,6 +284,9 @@ async function buildFixture(): Promise<void> {
   //   sc-no  at the target, power_supply=no
   //   sc-a   0.4 km east, nothing recorded
   //   sc-b   6 km east, power_supply=yes and sanitary_dump_station=yes
+  // and a second disc of 10 km around (18, 47), for a near-tie the weights decide:
+  //   sc-y   1.0 km east, no rating
+  //   sc-x   1.5 km east, five stars
   const lon47 = (km: number) => 16 + km / 76; // at 47°N: 1° of longitude is ~76 km
   await put({ slug: 'sc-no', lon: 16, lat: 47, tags: { power_supply: 'no' } });
   await put({ slug: 'sc-a', lon: lon47(0.4), lat: 47 });
@@ -288,6 +296,8 @@ async function buildFixture(): Promise<void> {
     lat: 47,
     tags: { power_supply: 'yes', sanitary_dump_station: 'yes' },
   });
+  await put({ slug: 'sc-y', lon: 18 + 1 / 76, lat: 47 });
+  await put({ slug: 'sc-x', lon: 18 + 1.5 / 76, lat: 47, stars: 5 });
 }
 
 const slugsOf = (rows: Array<{ slug: string }>, prefix = ''): string[] =>
@@ -616,6 +626,44 @@ describe('the prefilter is lossless: the index box never drops what the exact di
   });
 });
 
+describe('the corridor can use the index on location', () => {
+  // The `&&` box is the reason the rule has two halves: ST_DWithin on a
+  // geography cast cannot use a geometry index, so without the box every
+  // request reads every campsite. With sequential scans switched off, the
+  // planner takes an index if there is ANY way to, and says so.
+  const corridor = HARD.find((r) => r.id === 'corridor') as HardRule;
+
+  const plan = async (where: string, params: unknown[]): Promise<string> => {
+    await db.query('BEGIN');
+    try {
+      await db.query('SET LOCAL enable_seqscan = off');
+      const r = await db.query(
+        `EXPLAIN SELECT slug FROM camping_spots s WHERE ${where}`,
+        params,
+      );
+      return r.rows.map((x) => x['QUERY PLAN']).join('\n');
+    } finally {
+      await db.query('ROLLBACK');
+    }
+  };
+
+  it('the planner reaches for camping_spots_location_gist', async () => {
+    const { where, params } = hardWhere(REQ, 's', 0, [corridor]);
+    expect(await plan(where, params)).toMatch(
+      /Index Scan using camping_spots_location_gist|Bitmap Index Scan on camping_spots_location_gist/,
+    );
+  });
+
+  it('and does NOT with the exact distance alone — so the test can tell the two apart', async () => {
+    const plain = await plan(
+      `ST_DWithin(s.location::geography,
+         ST_SetSRID(ST_GeomFromGeoJSON($1::text), 4326)::geography, $2::float8)`,
+      [JSON.stringify({ type: 'LineString', coordinates: LINE }), 30_000],
+    );
+    expect(plain).not.toMatch(/camping_spots_location_gist/);
+  });
+});
+
 describe('every declared rule, on a campsite that is only unknown', () => {
   // The CAMP-246 rule as a property of the LIST, so a rule added tomorrow
   // meets it without anyone remembering to write the test: el-unk is
@@ -756,6 +804,52 @@ describe('stage 2 comes after stage 1, and reads its weights from the configurat
     ).toThrow(/electricity: weight 0.7 on "electricity", known for only 30.0%/);
   });
 
+  describe('a near-tie that the weights decide', () => {
+    // sc-y is 1.0 km from the target and unrated; sc-x is 1.5 km and has five
+    // stars. Distance fit is 0.90 against 0.85, and the rating is worth
+    // 0.5 more to sc-x than the neutral middle gives sc-y. The shipped
+    // weights say the half-kilometre matters more; a re-weighing that the
+    // coverage rule PERMITS (distance 0.7, the three bonuses 0.1 each) says
+    // the stars do. Same two campsites, two honest orders.
+    const tie: ShortlistRequest = {
+      line: [[18, 47]],
+      target: [18, 47],
+      bufferM: 10_000,
+      toleranceM: 10_000,
+    };
+
+    it('anchors: the two are in the disc, and the stars came through the page’s own reading', async () => {
+      const rows = await selectCandidates(db, tie);
+      expect(slugsOf(rows)).toEqual(['sc-x', 'sc-y']);
+      const by = Object.fromEntries(rows.map((r) => [r.slug, r]));
+      expect(by['sc-x'].stars).toBe(5);
+      expect(by['sc-y'].stars).toBeNull();
+      expect(by['sc-y'].distanceM).toBeLessThan(by['sc-x'].distanceM);
+    });
+
+    it('the shipped weights: the nearer one first', async () => {
+      expect((await run(tie)).map((r) => r.slug)).toEqual(['sc-y', 'sc-x']);
+    });
+
+    it('a permitted re-weighing, loaded against the REAL coverage table: the rated one first', async () => {
+      const permitted = loadScoring(
+        reweigh({
+          distance_fit: 0.7,
+          electricity: 0.1,
+          greyWater: 0.1,
+          stars: 0.1,
+        }),
+        JSON.parse(
+          readFileSync(join(__dirname, 'coverage.snapshot.json'), 'utf8'),
+        ) as CoverageSnapshot,
+      );
+      expect((await shortlist(db, tie, permitted)).map((r) => r.slug)).toEqual([
+        'sc-x',
+        'sc-y',
+      ]);
+    });
+  });
+
   it('is best first, and one input gives one order', async () => {
     const a = await run(SHORT);
     const b = await run(SHORT);
@@ -772,11 +866,11 @@ describe('stage 2 comes after stage 1, and reads its weights from the configurat
 });
 
 describe('measure-constraints: the counts the report prints, on a table whose answers are known', () => {
-  // By construction (see the table at the top): 37 rows in all. Unpublishable
+  // By construction (see the table at the top): 39 rows in all. Unpublishable
   // are pg-missing, pg-noregion and pg-hidden (3). Outside the Union is
-  // cc-ch (1). Of the 33 left, 26 lie within 30 km of the line: the other
-  // seven are four corridor rows that are out and the three `sc-*` rows,
-  // which sit in another country's corner of the map.
+  // cc-ch (1). Of the 35 left, 26 lie within 30 km of the line: the other
+  // nine are four corridor rows that are out and the five `sc-*` rows,
+  // which sit in other corners of the map.
   const JOURNEY = [{ name: 'fixture', line: LINE, bufferM: 30_000 }];
   let m: Measurement;
 
@@ -784,18 +878,18 @@ describe('measure-constraints: the counts the report prints, on a table whose an
     m = await measureConstraints(db, JOURNEY);
   });
 
-  it('anchors: the table has the 37 rows it is written with', async () => {
+  it('anchors: the table has the 39 rows it is written with', async () => {
     const r = await db.query('SELECT count(*)::int AS n FROM camping_spots');
-    expect(r.rows[0].n).toBe(37);
+    expect(r.rows[0].n).toBe(39);
   });
 
   it('counts what each rule rejects, alone and in sequence', () => {
-    expect(m.total).toBe(37);
+    expect(m.total).toBe(39);
     expect(m.alone).toEqual({ page: 3, country: 1 });
-    expect(m.afterPage).toBe(34);
-    expect(m.afterCountry).toBe(33);
+    expect(m.afterPage).toBe(36);
+    expect(m.afterCountry).toBe(35);
     expect(m.journeys).toHaveLength(1);
-    expect(m.journeys[0].pool).toBe(33);
+    expect(m.journeys[0].pool).toBe(35);
     expect(m.journeys[0].inCorridor).toBe(26);
   });
 
@@ -812,10 +906,10 @@ describe('measure-constraints: the counts the report prints, on a table whose an
 
   it('counts the whole scope, not only a corridor', () => {
     const el = m.eu.find((n) => n.key === 'electricity');
-    // The whole scope is the 33; the sc-* rows add sc-b (yes) and sc-no (no).
+    // The whole scope is the 35; the sc-* rows add sc-b (yes) and sc-no (no).
     expect(el?.yes).toBe(4);
     expect(el?.no).toBe(4);
-    expect(el!.yes + el!.no + el!.unknown).toBe(33);
+    expect(el!.yes + el!.no + el!.unknown).toBe(35);
   });
 
   it('lists the country codes the source ACTUALLY holds, and flags the one outside the Union', async () => {
