@@ -34,6 +34,10 @@ if [ "$(id -u)" = 0 ]; then echo "не запускай це від root: sudo -
 [ -f "$DEPLOY" ] || { echo "немає $DEPLOY" >&2; exit 1; }
 
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-deploy-selftest.XXXXXX")"
+# 🔴 Прервана перевірка не повинна лишати за собою процеси на портах і тимчасове дерево.
+cleanup_all() { stop_world; rm -rf "$BASE"; }
+trap cleanup_all EXIT
+trap 'exit 130' INT TERM
 EXPECTED=84
 PASSED=0
 FAILED=0
@@ -737,8 +741,6 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════
-stop_world
-rm -rf "$BASE"
 echo
 echo "deploy self-test: ran $((PASSED + FAILED)), passed $PASSED, failed $FAILED (expected $EXPECTED cases)"
 if [ "$FAILED" -ne 0 ]; then exit 1; fi
