@@ -14,12 +14,18 @@
 
 import { EU_MEMBER_STATES_AND_SUBDIVISIONS, ISO_SUBDIVISION_OF } from './eu';
 import {
+  CYLINDER_SWAP,
   facilitySelectSql,
   lpgSelectSql,
   ROW_FACILITY_COLUMNS,
   tagPartsSql,
 } from './route-poi-facilities';
-import { CANONICAL_REF_KINDS, classifyCaseSql } from './route-poi';
+import {
+  CANONICAL_REF_KINDS,
+  classifyCaseSql,
+  rulesTestSql,
+  STORED_POI_RULES,
+} from './route-poi';
 
 /**
  * 🔴 ST_PointOnSurface, not ST_Centroid.
@@ -295,7 +301,8 @@ export function buildRoutePoiInsertSql(): string {
                 nullif(btrim(s.opening_hours), '') AS opening_hours,
                 $1::timestamptz AS last_seen_at,
                 ${facilitySelectSql('s')},
-                ${lpgSelectSql('s')}
+                ${lpgSelectSql('s')},
+                ${cylinderSwapSelectSql('s')}
            FROM osm_route_poi_staging s
           CROSS JOIN LATERAL (SELECT ${classifyCaseSql('s')} AS kind) k
           CROSS JOIN LATERAL (
@@ -347,3 +354,48 @@ export function buildRoutePoiInsertSql(): string {
 export const LPG_SUMMARY_SQL = `SELECT lpg AS state, count(*)::text AS rows,
               count(DISTINCT ${canonicalRefSql('osm_ref')})::text AS objects
          FROM osm_route_poi WHERE kind = 'fuel' GROUP BY 1`;
+
+/**
+ * 🔴 CAMP-258: `cylinder_swap` — `yes` FOR ANY OBJECT THAT SAYS `shop=gas`,
+ * WHATEVER KIND IT ENDED UP WITH.
+ *
+ * Derived from the SAME rule the `gas_exchange` branch of the CASE uses
+ * (rulesTestSql over STORED_POI_RULES), and not from the row's kind: 4 014
+ * of the 6 109 `shop=gas` objects are also `amenity=fuel`, are `fuel` because
+ * the CASE returns its first match, and would otherwise lose the one fact
+ * that makes them a gas-swap point. Reading the KIND here would put the flag
+ * on 2 088 rows instead of about 6 100, and every query that looked fine on
+ * a fixture of lone gas shops would keep looking fine.
+ *
+ * `yes` or `unknown`, never `no`: no tag says "no cylinders here", and a
+ * place that is not tagged `shop=gas` is a place nobody described that way.
+ * A NULL `shop` makes the test NULL, which a CASE reads as not-matched, so
+ * the ELSE answers `unknown`.
+ */
+export function cylinderSwapSelectSql(alias = 's'): string {
+  return `CASE WHEN ${rulesTestSql(STORED_POI_RULES.gas_exchange, alias)} THEN 'yes' ELSE 'unknown' END AS ${CYLINDER_SWAP.column}`;
+}
+
+/**
+ * CAMP-258: the gas layer in one row — what a map reads as
+ * `kind = 'gas_exchange' OR cylinder_swap = 'yes'`.
+ *
+ *   own_kind     rows of the kind `gas_exchange`
+ *   other_kinds  rows of ANOTHER kind that say `cylinder_swap = 'yes'`
+ *   broken       `gas_exchange` rows that do NOT say yes — must be 0, the flag
+ *                is derived from the same rule as the kind
+ *   layer        the layer, in rows
+ *   layer_objects  the layer, in OSM objects: the older kinds are not folded,
+ *                so a closed-way forecourt is two rows (`w123`, `a246`)
+ */
+export const GAS_LAYER_SUMMARY_SQL = `SELECT
+       count(*) FILTER (WHERE kind = 'gas_exchange')::text AS own_kind,
+       count(*) FILTER (WHERE kind <> 'gas_exchange'
+                          AND cylinder_swap = 'yes')::text AS other_kinds,
+       count(*) FILTER (WHERE kind = 'gas_exchange'
+                          AND cylinder_swap <> 'yes')::text AS broken,
+       count(*) FILTER (WHERE kind = 'gas_exchange'
+                           OR cylinder_swap = 'yes')::text AS layer,
+       count(DISTINCT CASE WHEN kind = 'gas_exchange' OR cylinder_swap = 'yes'
+                           THEN ${canonicalRefSql('osm_ref')} END)::text AS layer_objects
+  FROM osm_route_poi`;

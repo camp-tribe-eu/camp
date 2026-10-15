@@ -4,7 +4,7 @@ import { Client } from 'pg';
 import type { QueryRunner } from 'typeorm';
 import { RoutePoi1790572800000 } from '../migrations/1790572800000-RoutePoi';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
-import { RoutePoiLpg1791700000000 } from '../migrations/1791700000000-RoutePoiLpg';
+import { RoutePoiGas1791700000000 } from '../migrations/1791700000000-RoutePoiGas';
 import { exportedTags } from './route-poi-export';
 
 // CAMP-258 — THE LOADER ITSELF, RUN AS A PROGRAM.
@@ -76,6 +76,8 @@ const OBJECTS: { id: string; tags: Record<string, string> }[] = [
   { id: 'n8', tags: { highway: 'rest_area' } },
   { id: 'n9', tags: { highway: 'services' } },
   { id: 'n10', tags: { shop: 'gas', name: 'Plin' } },
+  // a forecourt that is ALSO a gas shop: a fuel station that swaps cylinders
+  { id: 'n11', tags: { amenity: 'fuel', shop: 'gas', name: 'Hypermarket' } },
 ];
 
 async function stageObject(
@@ -135,7 +137,7 @@ beforeAll(async () => {
   } as unknown as QueryRunner;
   await new RoutePoi1790572800000().up(qr);
   await new RoutePoiFacilities1791400000000().up(qr);
-  await new RoutePoiLpg1791700000000().up(qr);
+  await new RoutePoiGas1791700000000().up(qr);
 
   await db.query(
     `CREATE TABLE ne_admin1 (geom geometry(MultiPolygon, 4326), iso_a2 text, admin text)`,
@@ -169,7 +171,7 @@ describe('the loader, run as a program (CAMP-258)', () => {
   // never arrived commits 154 000 stations that all say `unknown`.
   it('rolls back, and publishes nothing, when 1 000 fuel stations arrive and none says lpg=yes', async () => {
     await resetStaging({ gas: true });
-    await stageFuel(999); // + n1 = 1 000 fuel rows, the floor
+    await stageFuel(998); // + n1 and n11 = 1 000 fuel rows, the floor
     const run = runLoader();
     expect({ status: run.status, err: run.err }).toEqual({
       status: 1,
@@ -186,7 +188,7 @@ describe('the loader, run as a program (CAMP-258)', () => {
   // 🔴 The same population, one station short of the floor: not a finding.
   it('does not refuse a small population with no lpg=yes in it', async () => {
     await resetStaging({ gas: true });
-    await stageFuel(998); // + n1 = 999
+    await stageFuel(997); // + n1 and n11 = 999
     const run = runLoader();
     expect({ status: run.status, err: run.err }).toEqual({
       status: 0,
@@ -199,7 +201,7 @@ describe('the loader, run as a program (CAMP-258)', () => {
   // printed one, side by side: they must agree.
   it('publishes the run, and says what the fuel stations said about LPG', async () => {
     await resetStaging({ gas: true });
-    await stageFuel(1000); // + n1 = 1 001 fuel rows
+    await stageFuel(1000); // + n1 and n11 = 1 002 fuel rows
     await db.query(
       `UPDATE osm_route_poi_staging SET "fuel:lpg" = 'yes' WHERE id IN ('n1000001', 'n1000002', 'n1000003')`,
     );
@@ -210,6 +212,10 @@ describe('the loader, run as a program (CAMP-258)', () => {
     // and the older kinds are not folded: two ROWS, one OBJECT, both saying yes
     await stageObject('w900', { amenity: 'fuel', 'fuel:lpg': 'yes' }, 41);
     await stageObject('a1800', { amenity: 'fuel', 'fuel:lpg': 'yes' }, 41);
+    // …and a forecourt that is also a gas shop, as a closed way: two fuel
+    // rows (the older kinds are not folded), one object, both in the layer
+    await stageObject('w950', { amenity: 'fuel', shop: 'gas' }, 42);
+    await stageObject('a1900', { amenity: 'fuel', shop: 'gas' }, 42);
     const run = runLoader();
     expect(run.status).toBe(0);
     const by = (
@@ -219,13 +225,13 @@ describe('the loader, run as a program (CAMP-258)', () => {
     ).rows;
     expect(by).toEqual([
       { lpg: 'no', n: 2 },
-      { lpg: 'unknown', n: 996 },
+      { lpg: 'unknown', n: 999 },
       { lpg: 'yes', n: 5 },
     ]);
     // five rows say yes and they are FOUR stations: the two closed-way twins
     // are one. Only the second number is comparable with a count of objects.
     expect(run.out).toContain(
-      'fuel lpg (rows / objects): yes 5 / 4  no 2 / 2  unknown 996 / 996',
+      'fuel lpg (rows / objects): yes 5 / 4  no 2 / 2  unknown 999 / 998',
     );
     // …and the new kind is in the table, and in the printed counts
     expect(
@@ -236,6 +242,26 @@ describe('the loader, run as a program (CAMP-258)', () => {
       ).rows,
     ).toEqual([{ osm_ref: 'n10' }]);
     expect(run.out).toMatch(/gas_exchange\s+1\n/);
+    // 🔴 THE GAS LAYER, as the loader prints it and as a map would read it:
+    // kind=gas_exchange (n10) OR cylinder_swap=yes on another kind (n11, w950,
+    // a1900). Four rows, THREE objects — n10, n11 and the one closed way.
+    // MUTATION: write the flag for the kind only and this is 1 row.
+    expect(run.out).toContain(
+      'gas layer (kind=gas_exchange OR cylinder_swap=yes): 4 rows / 3 objects  (own kind 1, on other kinds 3)',
+    );
+    expect(
+      (
+        await db.query(
+          `SELECT osm_ref, kind FROM osm_route_poi
+            WHERE kind = 'gas_exchange' OR cylinder_swap = 'yes' ORDER BY 1`,
+        )
+      ).rows,
+    ).toEqual([
+      { osm_ref: 'a1900', kind: 'fuel' },
+      { osm_ref: 'n10', kind: 'gas_exchange' },
+      { osm_ref: 'n11', kind: 'fuel' },
+      { osm_ref: 'w950', kind: 'fuel' },
+    ]);
   });
 
   // 🔴 THE CARD'S OWN CHECK, RUN: "gas_exchange non-empty". With no gas shop
@@ -262,5 +288,52 @@ describe('the loader, run as a program (CAMP-258)', () => {
       (await db.query('SELECT count(*)::int AS n FROM osm_route_poi')).rows[0]
         .n,
     ).toBe(0);
+  });
+
+  // 🔴 THE LAYER LOSES ITS FORECOURTS — SIMULATED BY THE ONE THING THAT CAN
+  // DO IT TO A REAL RUN: a flag that is written for the kind only. The
+  // trigger below is exactly that bug, in the database, so the loader's own
+  // SQL runs unchanged and writes `yes` for the forecourt and the trigger
+  // takes it back. With 1 000 lone gas shops in the run, every number the
+  // loader prints looks right and the layer is 1 000 points short of a map.
+  //
+  // 🔴 MUTATION: delete the `if (gasFailure !== null) throw` line in
+  // load-route-poi.ts, or the `gasLayerError` call above it.
+  it('rolls back when the flag reaches the gas_exchange kind only', async () => {
+    await resetStaging({ gas: true });
+    await db.query(
+      `INSERT INTO osm_route_poi_staging (id, geom, shop)
+       SELECT 'n2' || lpad(g::text, 6, '0'),
+              ST_Multi(ST_SetSRID(ST_MakePoint(13.2 + (g % 100) * 0.03, 45.2 + (g / 100) * 0.03), 4326)),
+              'gas'
+         FROM generate_series(1, 1000) g`,
+    );
+    await db.query(
+      `CREATE FUNCTION camp258_flag_kind_only() RETURNS trigger LANGUAGE plpgsql AS $$
+       BEGIN
+         IF NEW.kind <> 'gas_exchange' THEN NEW.cylinder_swap := 'unknown'; END IF;
+         RETURN NEW;
+       END $$`,
+    );
+    await db.query(
+      `CREATE TRIGGER camp258_flag_kind_only BEFORE INSERT OR UPDATE ON osm_route_poi
+         FOR EACH ROW EXECUTE FUNCTION camp258_flag_kind_only()`,
+    );
+    try {
+      const run = runLoader();
+      expect({ status: run.status, err: run.err }).toEqual({
+        status: 1,
+        err: expect.stringContaining(
+          '1001 gas_exchange rows and not one row of another kind says cylinder_swap=yes',
+        ),
+      });
+      expect(
+        (await db.query('SELECT count(*)::int AS n FROM osm_route_poi')).rows[0]
+          .n,
+      ).toBe(0);
+    } finally {
+      await db.query('DROP TRIGGER camp258_flag_kind_only ON osm_route_poi');
+      await db.query('DROP FUNCTION camp258_flag_kind_only()');
+    }
   });
 });

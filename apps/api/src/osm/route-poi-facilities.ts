@@ -120,6 +120,16 @@ export const LPG = {
   vocabulary: AVAILABILITY,
 } as const;
 
+/**
+ * CAMP-258: whether a gas cylinder can be swapped here. Written `yes` for any
+ * object that carries the `gas_exchange` rule (`shop=gas`) — whatever KIND it
+ * ended up with — and `unknown` for everything else. It reads no tag of its
+ * own (the export already carries `shop`), so there is no `tag` here and the
+ * expression lives in route-poi-sql.ts beside the rule it is derived from.
+ * See STORED_ONLY_KINDS in route-poi.ts for why a column AND a kind.
+ */
+export const CYLINDER_SWAP = { column: 'cylinder_swap' } as const;
+
 /** The value-carrying columns. `unknown` when the tag is absent. */
 export const VERBATIM_FACILITIES = [
   'access',
@@ -147,16 +157,21 @@ export const FACILITY_TAGS: readonly string[] = FACILITY_COLUMNS;
 
 /**
  * 🔴 CAMP-258: EVERY facility-shaped column the INSERT writes — CAMP-119's
- * nine, then `lpg`. The INSERT, its SELECT list and its ON CONFLICT list
+ * nine, then `lpg` and `cylinder_swap`. The INSERT, its SELECT list and its ON CONFLICT list
  * are all built from this one, so a column added to one of them and not to
  * the others is not a thing that can be typed.
  */
 export const ROW_FACILITY_COLUMNS: readonly string[] = [
   ...FACILITY_COLUMNS,
   LPG.column,
+  CYLINDER_SWAP.column,
 ];
 
-/** The OSM keys the INSERT reads for those columns: `fuel:lpg`, not `lpg`. */
+/**
+ * The OSM keys the INSERT reads for those columns beyond the nine: `fuel:lpg`,
+ * not `lpg`. (`cylinder_swap` reads `shop`, which the export carries for the
+ * classifier.)
+ */
 export const ROW_FACILITY_TAGS: readonly string[] = [...FACILITY_TAGS, LPG.tag];
 
 // ── WHAT A BLANK IS, AND WHAT "LOWER-CASE" MEANS — ONE ANSWER, BOTH SIDES ─

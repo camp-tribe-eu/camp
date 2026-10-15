@@ -13,9 +13,11 @@
 // with the formula that makes it a count of OSM objects.
 //
 // 🔴 CAMP-258 added `gas_exchange` (`shop=gas`, stored and not served) and
-// the `lpg` column (`fuel:lpg`, yes / no / unknown). The per-kind check
-// below covers the first — a kind nobody filters for loads nothing and
-// the run rolls back — and `lpgArrivalError` covers the second.
+// the `lpg` column (`fuel:lpg`, yes / no / unknown) and the `cylinder_swap`
+// flag (`shop=gas` on an object of ANY kind). The per-kind check below
+// covers the first — a kind nobody filters for loads nothing and the run
+// rolls back — `lpgArrivalError` covers the second, and `gasLayerError` the
+// third.
 //
 // 🔴 One statement, inside one transaction, and never a TRUNCATE
 // followed by an INSERT outside one. The API is reading this table while
@@ -29,6 +31,8 @@ import { Client } from 'pg';
 import {
   ACCESS_EXCLUDED,
   DUMP_FORMULA,
+  gasLayerError,
+  type GasLayerSummary,
   REST_STOP_KINDS,
   STORED_POI_KINDS,
 } from './route-poi';
@@ -45,6 +49,7 @@ import {
   buildRoutePoiInsertSql,
   EU_SQL_LIST,
   euLeakGuardSql,
+  GAS_LAYER_SUMMARY_SQL,
   LPG_SUMMARY_SQL,
 } from './route-poi-sql';
 
@@ -126,6 +131,16 @@ async function main() {
       lpgSummary.rows.map((r) => [r.state, r]),
     );
 
+    // 🔴 CAMP-258: THE GAS LAYER KEEPS ITS FORECOURTS. `cylinder_swap` is
+    // what lets the 4 014 `fuel` rows that also say `shop=gas` stay in the
+    // layer a map draws as `kind = 'gas_exchange' OR cylinder_swap = 'yes'`.
+    // Written for the kind only, every number looks right and the layer is a
+    // third of what it should be — see gasLayerError.
+    const gasLayer = (await db.query<GasLayerSummary>(GAS_LAYER_SUMMARY_SQL))
+      .rows[0];
+    const gasFailure = gasLayerError(gasLayer);
+    if (gasFailure !== null) throw new Error(gasFailure);
+
     // 🔴 CAMP-118, CHECKED AGAINST THE GEOMETRY AND NOT AGAINST THE
     // COLUMN THE IMPORT JUST WROTE.
     //
@@ -199,6 +214,14 @@ async function main() {
               `${st} ${lpgBy.get(st)?.rows ?? 0} / ${lpgBy.get(st)?.objects ?? 0}`,
           )
           .join('  '),
+    );
+
+    // CAMP-258: the gas layer, as a map reads it. Rows and objects, for the
+    // reason given at the lpg line above.
+    console.log(
+      `  gas layer (kind=gas_exchange OR cylinder_swap=yes): ` +
+        `${gasLayer.layer} rows / ${gasLayer.layer_objects} objects  ` +
+        `(own kind ${gasLayer.own_kind}, on other kinds ${gasLayer.other_kinds})`,
     );
 
     // What the stopping places say about themselves — three words, and

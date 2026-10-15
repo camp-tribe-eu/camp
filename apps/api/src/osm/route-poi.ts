@@ -338,13 +338,24 @@ export const CANONICAL_REF_KINDS = [
  * `fuel`, and on production the price rows are keyed on the `fuel` row's
  * `osm_ref` with no foreign key to say so (see buildRoutePoiInsertSql).
  *
- * So `gas_exchange` holds the 2 095 objects that are a gas shop and nothing
- * else — about a third of the "6 118" the card quotes, because that number
- * counts both groups. The other two thirds are not lost to the data: they
- * are `fuel` rows with the `lpg` column every fuel row has (route-poi-
- * facilities.ts; 590 of the 4 014 say `fuel:lpg=yes`), and whether a fuel
- * station that also says `shop=gas` is a bottle-swap point is a decision
- * for the card that draws the map, not one to take by CASE order.
+ * So `gas_exchange` holds the gas shops that are nothing else — 2 088 rows
+ * in camptribe_dev, about a third of the "6 119" the card quotes, which
+ * counts both groups.
+ *
+ * 🔴 WHY THERE IS A KIND AND ALSO A COLUMN, AND WHY NEITHER IS SPARE.
+ * The row's `kind` says WHAT THE POINT IS; one object has one kind (the
+ * primary key is `osm_ref`), and a forecourt is a fuel station. The column
+ * `cylinder_swap` says WHAT CAN BE DONE THERE, and an object can say that
+ * about itself whatever kind it ended up with. Without the column, the 4 014
+ * forecourts that also say `shop=gas` would lose that fact altogether — they
+ * are `fuel`, and `fuel` has nowhere to put it — and a map layer could show
+ * 2 088 bottle-swap points where the data holds about 6 100 (6 109 objects). Without the
+ * KIND, a lone gas shop would be a row of some other kind with a flag, and
+ * "what is this point" would have no answer. The layer is therefore
+ * `kind = 'gas_exchange' OR cylinder_swap = 'yes'` — and because the flag is
+ * derived from the same rule as the kind (rulesTestSql), `gas_exchange`
+ * implies `yes`, so `cylinder_swap = 'yes'` alone is the same set. Removing
+ * either one as redundant is how a third of the points go missing.
  */
 export const STORED_ONLY_KINDS = ['gas_exchange'] as const;
 
@@ -458,23 +469,84 @@ export const SERVICES_PER_KIND = 1;
  * is public.
  */
 export function classifyCaseSql(alias = 's'): string {
+  // 🔴 Every STORED kind, legacy ones first. A CASE returns its first
+  // match, so an object tagged both `amenity=fuel` and `highway=services`
+  // stays the fuel station it was before CAMP-119 and its row — and the
+  // price keyed on it — does not move.
+  const branches = STORED_POI_KINDS.map(
+    (kind) =>
+      `WHEN ${rulesTestSql(STORED_POI_RULES[kind], alias)} THEN '${kind}'`,
+  );
+
+  return `CASE ${branches.join(' ')} END`;
+}
+
+/**
+ * One kind's rules as a SQL predicate over a staging row: `s.shop IN ('gas')`,
+ * joined with OR. Shared between the CASE that picks an object's KIND and the
+ * `cylinder_swap` flag (CAMP-258), which asks the same question of the same
+ * rule without being the first match — so the two cannot disagree about what
+ * counts as a gas shop.
+ */
+export function rulesTestSql(rules: readonly TagRule[], alias = 's'): string {
   const safe = (v: string) => {
     if (!/^[a-z_]+$/.test(v)) {
       throw new Error(`route-poi: unsafe tag value ${JSON.stringify(v)}`);
     }
     return `'${v}'`;
   };
-
-  // 🔴 Every STORED kind, legacy ones first. A CASE returns its first
-  // match, so an object tagged both `amenity=fuel` and `highway=services`
-  // stays the fuel station it was before CAMP-119 and its row — and the
-  // price keyed on it — does not move.
-  const branches = STORED_POI_KINDS.map((kind) => {
-    const tests = STORED_POI_RULES[kind].map(
+  return rules
+    .map(
       (rule) => `${alias}.${rule.key} IN (${rule.values.map(safe).join(', ')})`,
-    );
-    return `WHEN ${tests.join(' OR ')} THEN '${kind}'`;
-  });
+    )
+    .join(' OR ');
+}
 
-  return `CASE ${branches.join(' ')} END`;
+/** One row of GAS_LAYER_SUMMARY_SQL: Postgres hands counts back as text. */
+export interface GasLayerSummary {
+  own_kind: string;
+  other_kinds: string;
+  broken: string;
+  layer: string;
+  layer_objects: string;
+}
+
+/**
+ * 🔴 CAMP-258: THE TWO WAYS THE GAS LAYER LOSES ITS THIRD, BOTH SILENT.
+ *
+ * The flag `cylinder_swap` exists so the 4 014 forecourts that also say
+ * `shop=gas` (kind `fuel`) stay in the layer. If it is ever written for the
+ * `gas_exchange` kind only, every table of numbers still looks fine — 2 088
+ * points, all of them yes — and the layer is a third of what the data holds.
+ * So the loader asks, inside its transaction:
+ *
+ *   · a `gas_exchange` row that does not say yes: the flag and the kind have
+ *     stopped reading one rule;
+ *   · many `gas_exchange` rows and not one row of another kind that says yes.
+ *
+ * The floor (1 000) is there so a scratch load of one country is not refused:
+ * the largest single extract has 679 lone gas shops (France), so only a
+ * multi-country load passes it, and every such load measured carries some
+ * forecourts. Returns the failure message, or null.
+ */
+export const GAS_LAYER_MIN_OWN_ROWS = 1000;
+
+export function gasLayerError(s: GasLayerSummary): string | null {
+  const own = Number(s.own_kind);
+  const others = Number(s.other_kinds);
+  const broken = Number(s.broken);
+  if (broken > 0) {
+    return (
+      `${broken} gas_exchange rows do not say cylinder_swap=yes — the flag ` +
+      `and the kind are no longer read from one rule (rulesTestSql).`
+    );
+  }
+  if (own >= GAS_LAYER_MIN_OWN_ROWS && others === 0) {
+    return (
+      `${own} gas_exchange rows and not one row of another kind says ` +
+      `cylinder_swap=yes — the flag is written for the kind only, and the ` +
+      `forecourts that also say shop=gas have dropped out of the gas layer.`
+    );
+  }
+  return null;
 }

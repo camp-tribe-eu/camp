@@ -2,7 +2,7 @@ import { Client } from 'pg';
 import type { QueryRunner } from 'typeorm';
 import { RoutePoi1790572800000 } from '../migrations/1790572800000-RoutePoi';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
-import { RoutePoiLpg1791700000000 } from '../migrations/1791700000000-RoutePoiLpg';
+import { RoutePoiGas1791700000000 } from '../migrations/1791700000000-RoutePoiGas';
 import { ACCESS_EXCLUDED, isAccessExcluded } from './route-poi';
 import { ensureStagingColumns, exportedTags } from './route-poi-export';
 import {
@@ -11,7 +11,11 @@ import {
   resolveVerbatim,
   TRISTATE_FACILITIES,
 } from './route-poi-facilities';
-import { buildRoutePoiInsertSql, EU_SQL_LIST } from './route-poi-sql';
+import {
+  buildRoutePoiInsertSql,
+  EU_SQL_LIST,
+  GAS_LAYER_SUMMARY_SQL,
+} from './route-poi-sql';
 
 // CAMP-119 — the import statement, run against a REAL PostgreSQL.
 //
@@ -255,27 +259,34 @@ const CASES: {
     // the new kind, and a shop that never mentioned LPG says nothing
     fixture: pt('n20', { shop: 'gas', name: 'Butagaz' }),
     expectKind: 'gas_exchange',
-    expect: { lpg: 'unknown', toilets: 'unknown' },
+    expect: { lpg: 'unknown', toilets: 'unknown', cylinder_swap: 'yes' },
   },
   {
     // a gas shop that DOES say it sells LPG: 16 objects in the extracts
     fixture: pt('n21', { shop: 'gas', 'fuel:lpg': 'yes' }),
     expectKind: 'gas_exchange',
-    expect: { lpg: 'yes' },
+    expect: { lpg: 'yes', cylinder_swap: 'yes' },
   },
   {
     // 🔴 THE 4 014. A hypermarket forecourt tagged `amenity=fuel` AND
     // `shop=gas` is the fuel station it was before this card — the CASE
-    // returns its first match, and `gas_exchange` is last on purpose.
+    // returns its first match, and `gas_exchange` is last on purpose — AND
+    // it still says that cylinders are swapped there. This is the row the
+    // `cylinder_swap` column exists for: kind `fuel`, flag `yes`.
+    //
+    // 🔴 MUTATION: derive the flag from the KIND (`k.kind = 'gas_exchange'`)
+    // in cylinderSwapSelectSql. This row says `unknown`, and so would every
+    // one of the 4 014.
     fixture: pt('n22', { amenity: 'fuel', shop: 'gas', 'fuel:lpg': 'yes' }),
     expectKind: 'fuel',
-    expect: { lpg: 'yes' },
+    expect: { lpg: 'yes', cylinder_swap: 'yes' },
   },
   {
     // nobody wrote `fuel:lpg` on this station: unknown, and NEVER no
     fixture: pt('n23', { amenity: 'fuel' }),
     expectKind: 'fuel',
-    expect: { lpg: 'unknown' },
+    // …and no `shop=gas` means nobody said anything about cylinders: unknown
+    expect: { lpg: 'unknown', cylinder_swap: 'unknown' },
   },
   {
     // a written no is a no — 3 010 stations say it, and it must survive
@@ -584,7 +595,7 @@ describe('the import statement, against a real PostgreSQL', () => {
     } as unknown as QueryRunner;
     await new RoutePoi1790572800000().up(qr);
     await new RoutePoiFacilities1791400000000().up(qr);
-    await new RoutePoiLpg1791700000000().up(qr);
+    await new RoutePoiGas1791700000000().up(qr);
 
     await db.query(
       `CREATE TABLE ne_admin1 (geom geometry(MultiPolygon, 4326), iso_a2 text, admin text)`,
@@ -636,6 +647,18 @@ describe('the import statement, against a real PostgreSQL', () => {
     // CAMP-258: a gas shop that is a closed way arrives twice, and is one row
     await stage({ id: 'w700', wkt: RING, tags: { shop: 'gas' } });
     await stage({ id: 'a1400', wkt: POLYGON, tags: { shop: 'gas' } });
+    // CAMP-258: a forecourt that is ALSO a gas shop, mapped as a closed way:
+    // a fuel station (so not folded: both twins stay) and in the gas layer
+    await stage({
+      id: 'w800',
+      wkt: RING,
+      tags: { amenity: 'fuel', shop: 'gas' },
+    });
+    await stage({
+      id: 'a1600',
+      wkt: POLYGON,
+      tags: { amenity: 'fuel', shop: 'gas' },
+    });
     // the OLDER kinds are left as they were written: both twins stay
     await stage({ id: 'w400', wkt: RING, tags: { amenity: 'fuel' } });
     await stage({ id: 'a800', wkt: POLYGON, tags: { amenity: 'fuel' } });
@@ -986,6 +1009,101 @@ describe('the import statement, against a real PostgreSQL', () => {
     });
   });
 
+  // ── CAMP-258: THE GAS LAYER, COUNTED THE WAY A MAP READS IT ──
+  //
+  // The expectations are written out by hand from the fixtures above:
+  //   lone gas shops (kind gas_exchange)  n20, n21, w700 (a1400 is folded)
+  //   forecourts that also say shop=gas   n22, w800 and a1600 (not folded)
+  //   excluded                            n30 (access=private)
+  describe('the gas layer', () => {
+    // 🔴 MUTATION: write the flag for kind='gas_exchange' only — the layer
+    // is then 3 rows and not 6, and the card's "about 6 100" is 2 088.
+    it('is every gas shop whatever its kind: 6 rows, 5 objects', async () => {
+      const layer = (await db.query(GAS_LAYER_SUMMARY_SQL)).rows[0];
+      expect(layer).toEqual({
+        own_kind: '3',
+        other_kinds: '3',
+        broken: '0',
+        layer: '6',
+        layer_objects: '5',
+      });
+      const refs = (
+        await db.query(
+          `SELECT osm_ref FROM osm_route_poi
+            WHERE kind = 'gas_exchange' OR cylinder_swap = 'yes' ORDER BY 1`,
+        )
+      ).rows.map((r) => r.osm_ref);
+      expect(refs).toEqual(['a1600', 'n20', 'n21', 'n22', 'w700', 'w800']);
+    });
+
+    // 🔴 MUTATION: let a kind change with the flag, or the flag with the
+    // kind. The forecourts keep the kind their prices are keyed on.
+    it('moves no forecourt out of fuel', async () => {
+      const kinds = (
+        await db.query(
+          `SELECT osm_ref, kind FROM osm_route_poi
+            WHERE osm_ref IN ('n22', 'w800', 'a1600') ORDER BY 1`,
+        )
+      ).rows;
+      expect(kinds).toEqual([
+        { osm_ref: 'a1600', kind: 'fuel' },
+        { osm_ref: 'n22', kind: 'fuel' },
+        { osm_ref: 'w800', kind: 'fuel' },
+      ]);
+    });
+
+    // 🔴 MUTATION: add a branch that answers 'no' to cylinder_swap. The
+    // loader says yes or unknown and nothing else.
+    it('is never written as no', async () => {
+      const n = (
+        await db.query(
+          `SELECT count(*)::int AS n FROM osm_route_poi WHERE cylinder_swap = 'no'`,
+        )
+      ).rows[0].n;
+      expect(n).toBe(0);
+    });
+
+    // The invariant the loader asserts: the kind implies the flag.
+    it('says yes on every gas_exchange row', async () => {
+      const bad = await db.query(
+        `SELECT osm_ref FROM osm_route_poi
+          WHERE kind = 'gas_exchange' AND cylinder_swap <> 'yes'`,
+      );
+      expect(bad.rows).toEqual([]);
+    });
+  });
+
+  describe('a second run, for cylinder_swap', () => {
+    // 🔴 MUTATION: leave `cylinder_swap` out of ON CONFLICT … DO UPDATE. A
+    // forecourt that loses `shop=gas` would keep saying yes, and one that
+    // gains it would never say it.
+    it('re-reads shop, in both directions', async () => {
+      expect((await rowOf('n22')).cylinder_swap).toBe('yes');
+      expect((await rowOf('n23')).cylinder_swap).toBe('unknown');
+
+      await db.query(
+        `UPDATE osm_route_poi_staging SET shop = NULL WHERE id = 'n22'`,
+      );
+      await db.query(
+        `UPDATE osm_route_poi_staging SET shop = 'gas' WHERE id = 'n23'`,
+      );
+      await insert(new Date(Date.now() + 3000).toISOString());
+
+      expect((await rowOf('n22')).cylinder_swap).toBe('unknown');
+      expect((await rowOf('n23')).cylinder_swap).toBe('yes');
+      // a forecourt that gained the tag stays a fuel station
+      expect((await rowOf('n23')).kind).toBe('fuel');
+      // put the fixtures back for whatever runs after this
+      await db.query(
+        `UPDATE osm_route_poi_staging SET shop = 'gas' WHERE id = 'n22'`,
+      );
+      await db.query(
+        `UPDATE osm_route_poi_staging SET shop = NULL WHERE id = 'n23'`,
+      );
+      await insert(new Date(Date.now() + 4000).toISOString());
+    });
+  });
+
   describe('a second run, for lpg', () => {
     // 🔴 MUTATION (CAMP-258): leave `lpg` out of ON CONFLICT … DO UPDATE. The
     // first import would be right and every later one would keep what it
@@ -1084,57 +1202,63 @@ describe('the import statement, against a real PostgreSQL', () => {
       }
     });
 
-    // 🔴 MUTATION (CAMP-258): drop NOT NULL, or the DEFAULT, from the lpg
-    // column — or make the DEFAULT 'no'. 2.27 million rows exist before the
-    // first import writes this column, and until then they must say "we do
-    // not know", not "we read it and it said no".
-    it('says lpg=unknown for a row inserted without it', async () => {
-      await db.query(
-        `INSERT INTO osm_route_poi (osm_ref, kind, location, country)
-         VALUES ('n999998', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si')`,
-      );
-      expect((await rowOf('n999998')).lpg).toBe('unknown');
-    });
-
-    // 🔴 MUTATION (CAMP-258): let the CHECK on lpg accept a word outside
-    // yes / no / unknown — add 'maybe' to it, or remove it. The database
-    // would then hold a fourth state that no page and no filter knows
-    // how to read. Each value below is refused on its own, and the three
-    // that are allowed are accepted, so the CHECK is shown to be neither
-    // missing nor a wall.
-    it.each(['maybe', 'YES', 'Yes', 'no ', ' no', '', 'true', '1', 'only'])(
-      'refuses lpg = %j',
-      async (value) => {
-        await expect(
-          db.query(
-            `INSERT INTO osm_route_poi (osm_ref, kind, location, country, lpg)
-             VALUES ('n888887', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si', $1)`,
-            [value],
-          ),
-        ).rejects.toMatchObject({
-          code: '23514', // check_violation
-          constraint: 'osm_route_poi_lpg_check',
-        });
+    // 🔴 MUTATION (CAMP-258): drop NOT NULL, or the DEFAULT, from either of
+    // the two new columns — or make the DEFAULT 'no'. 2.27 million rows exist
+    // before the first import writes them, and until then they must say "we
+    // do not know", not "we read it and it said no".
+    it.each(['lpg', 'cylinder_swap'])(
+      'says %s=unknown for a row inserted without it',
+      async (column) => {
+        await db.query(
+          `INSERT INTO osm_route_poi (osm_ref, kind, location, country)
+           VALUES ('n999998', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si')`,
+        );
+        expect((await rowOf('n999998'))[column]).toBe('unknown');
+        await db.query(`DELETE FROM osm_route_poi WHERE osm_ref = 'n999998'`);
       },
     );
 
-    it('refuses lpg = NULL', async () => {
-      await expect(
-        db.query(
-          `INSERT INTO osm_route_poi (osm_ref, kind, location, country, lpg)
-           VALUES ('n888887', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si', NULL)`,
-        ),
-      ).rejects.toMatchObject({ code: '23502' }); // not_null_violation
-    });
-
-    it.each(['yes', 'no', 'unknown'])('accepts lpg = %s', async (value) => {
-      await db.query(
-        `INSERT INTO osm_route_poi (osm_ref, kind, location, country, lpg)
-         VALUES ('n888886', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si', $1)`,
-        [value],
+    // 🔴 MUTATION (CAMP-258): let the CHECK on either column accept a word
+    // outside yes / no / unknown — add 'maybe' to it, or remove it. The
+    // database would then hold a fourth state that no page and no filter
+    // knows how to read. Each value below is refused on its own, and the
+    // three that are allowed are accepted, so the CHECK is shown to be
+    // neither missing nor a wall.
+    describe.each(['lpg', 'cylinder_swap'])('the %s column', (column) => {
+      it.each(['maybe', 'YES', 'Yes', 'no ', ' no', '', 'true', '1', 'only'])(
+        'refuses %j',
+        async (value) => {
+          await expect(
+            db.query(
+              `INSERT INTO osm_route_poi (osm_ref, kind, location, country, ${column})
+               VALUES ('n888887', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si', $1)`,
+              [value],
+            ),
+          ).rejects.toMatchObject({
+            code: '23514', // check_violation
+            constraint: `osm_route_poi_${column}_check`,
+          });
+        },
       );
-      expect((await rowOf('n888886')).lpg).toBe(value);
-      await db.query(`DELETE FROM osm_route_poi WHERE osm_ref = 'n888886'`);
+
+      it('refuses NULL', async () => {
+        await expect(
+          db.query(
+            `INSERT INTO osm_route_poi (osm_ref, kind, location, country, ${column})
+             VALUES ('n888887', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si', NULL)`,
+          ),
+        ).rejects.toMatchObject({ code: '23502' }); // not_null_violation
+      });
+
+      it.each(['yes', 'no', 'unknown'])('accepts %s', async (value) => {
+        await db.query(
+          `INSERT INTO osm_route_poi (osm_ref, kind, location, country, ${column})
+           VALUES ('n888886', 'fuel', ST_SetSRID(ST_MakePoint(14, 46), 4326), 'si', $1)`,
+          [value],
+        );
+        expect((await rowOf('n888886'))[column]).toBe(value);
+        await db.query(`DELETE FROM osm_route_poi WHERE osm_ref = 'n888886'`);
+      });
     });
 
     // 🔴 MUTATION: remove the CHECKs, or NOT NULL from any one column.

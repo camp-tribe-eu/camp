@@ -3,12 +3,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
-import { RoutePoiLpg1791700000000 } from '../migrations/1791700000000-RoutePoiLpg';
+import { RoutePoiGas1791700000000 } from '../migrations/1791700000000-RoutePoiGas';
 import { exportedTags } from './route-poi-export';
 import {
   asciiLower,
   BLANK_CODE_POINTS,
   BLANKS_SQL,
+  CYLINDER_SWAP,
   facilitySelectSql,
   FACILITY_COLUMNS,
   FACILITY_TAGS,
@@ -32,13 +33,18 @@ import {
 } from './route-poi-facilities';
 import {
   ACCESS_EXCLUDED,
+  classifyCaseSql,
+  gasLayerError,
   isAccessExcluded,
   REST_STOP_KINDS,
+  rulesTestSql,
   STORED_POI_RULES,
 } from './route-poi';
 import {
   buildRoutePoiInsertSql,
   canonicalRefSql,
+  cylinderSwapSelectSql,
+  GAS_LAYER_SUMMARY_SQL,
   LPG_SUMMARY_SQL,
 } from './route-poi-sql';
 import { FALSY, TRUTHY } from './tag-mapping';
@@ -429,7 +435,11 @@ describe('the lpg column is read from fuel:lpg and written as lpg', () => {
   // keeping what it first wrote.
   it('is inserted, selected and refreshed on conflict', () => {
     const sql = buildRoutePoiInsertSql();
-    expect([...ROW_FACILITY_COLUMNS]).toEqual([...FACILITY_COLUMNS, 'lpg']);
+    expect([...ROW_FACILITY_COLUMNS]).toEqual([
+      ...FACILITY_COLUMNS,
+      'lpg',
+      'cylinder_swap',
+    ]);
     expect(sql).toMatch(/\(osm_ref, kind[^)]*\blpg\b[^)]*\)/);
     expect(sql).toContain('r.lpg');
     expect(sql).toContain('lpg = EXCLUDED.lpg');
@@ -445,16 +455,114 @@ describe('the lpg column is read from fuel:lpg and written as lpg', () => {
   });
 });
 
-describe('the lpg migration and the module describe the same column', () => {
-  // 🔴 MUTATION: rename the column in the migration, or in LPG.
-  it('adds exactly the column the loader writes', () => {
-    expect(RoutePoiLpg1791700000000.COLUMN).toBe(LPG.column);
+describe('the gas migration and the module describe the same columns', () => {
+  // 🔴 MUTATION: rename a column in the migration, or in LPG / CYLINDER_SWAP.
+  it('adds exactly the columns the loader writes', () => {
+    expect([...RoutePoiGas1791700000000.COLUMNS]).toEqual([
+      LPG.column,
+      CYLINDER_SWAP.column,
+    ]);
     // the two migrations between them are the INSERT's column list, once
     expect([
       ...RoutePoiFacilities1791400000000.TRISTATE,
       ...RoutePoiFacilities1791400000000.VERBATIM,
-      RoutePoiLpg1791700000000.COLUMN,
+      ...RoutePoiGas1791700000000.COLUMNS,
     ]).toEqual([...ROW_FACILITY_COLUMNS]);
+  });
+});
+
+// ── CAMP-258: `cylinder_swap` ────────────────────────────────────────────
+
+describe('cylinder_swap is derived from the gas_exchange rule, not from the kind', () => {
+  const sql = cylinderSwapSelectSql('s');
+
+  // 🔴 MUTATION: derive the flag from the row's KIND (`k.kind =
+  // 'gas_exchange'`). Every table of numbers on a fixture of lone gas shops
+  // stays right, and the 4 014 forecourts that also say `shop=gas` lose the
+  // one fact that makes them part of the layer.
+  it('tests the tag the kind is built from, on the staging row', () => {
+    expect(sql).toContain("s.shop IN ('gas')");
+    expect(sql).not.toMatch(/\bkind\b/);
+    expect(sql.trim()).toMatch(/AS cylinder_swap$/);
+  });
+
+  // 🔴 MUTATION: copy the value into the flag by hand ('gass'), or give
+  // gas_exchange another rule. The flag and the kind read ONE rule.
+  it('reads the very rule the gas_exchange branch of the CASE reads', () => {
+    expect(rulesTestSql(STORED_POI_RULES.gas_exchange, 's')).toBe(
+      "s.shop IN ('gas')",
+    );
+    expect(classifyCaseSql('s')).toContain(
+      `WHEN ${rulesTestSql(STORED_POI_RULES.gas_exchange, 's')} THEN 'gas_exchange'`,
+    );
+    expect(sql).toContain(rulesTestSql(STORED_POI_RULES.gas_exchange, 's'));
+  });
+
+  // 🔴 MUTATION: add a branch that answers 'no'. No tag says "no cylinders
+  // here"; absence of `shop=gas` is `unknown`.
+  it('answers yes or unknown, and has no way to answer no', () => {
+    expect(sql).toContain("THEN 'yes'");
+    expect(sql).toContain("ELSE 'unknown'");
+    expect(sql).not.toMatch(/'no'/);
+  });
+
+  it('is inserted and refreshed on conflict, like every column', () => {
+    const insert = buildRoutePoiInsertSql();
+    expect(insert).toMatch(/\(osm_ref, kind[^)]*\bcylinder_swap\b[^)]*\)/);
+    expect(insert).toContain('r.cylinder_swap');
+    expect(insert).toContain('cylinder_swap = EXCLUDED.cylinder_swap');
+  });
+
+  it('is not a stopping-place facility and needs no tag of its own', () => {
+    expect(TRISTATE_COLUMNS).not.toContain('cylinder_swap');
+    expect(FACILITY_COLUMNS).not.toContain('cylinder_swap');
+    expect(ROW_FACILITY_TAGS).toEqual([...FACILITY_TAGS, 'fuel:lpg']);
+    // `shop` is what it reads, and the export carries it for the classifier
+    expect(exportedTags()).toContain('shop');
+  });
+});
+
+describe('the loader notices when the gas layer lost its forecourts', () => {
+  const sum = (own: number, others: number, broken = 0) => ({
+    own_kind: String(own),
+    other_kinds: String(others),
+    broken: String(broken),
+    layer: String(own + others),
+    layer_objects: String(own + others),
+  });
+
+  // 🔴 MUTATION: write the flag for the kind only. The real run then has
+  // 2 088 own rows and 0 others; this is the line that says so.
+  it('says so for many gas_exchange rows and none of another kind', () => {
+    expect(gasLayerError(sum(2088, 0))).toMatch(
+      /2088 gas_exchange rows and not one row of another kind/,
+    );
+    expect(gasLayerError(sum(1000, 0))).not.toBeNull();
+  });
+
+  it('is silent when forecourts carry the flag, and below the floor', () => {
+    expect(gasLayerError(sum(2088, 4008))).toBeNull();
+    expect(gasLayerError(sum(2088, 1))).toBeNull();
+    // one country: no forecourts is a possible truth, and below 1 000 own rows
+    expect(gasLayerError(sum(999, 0))).toBeNull();
+    expect(gasLayerError(sum(29, 0))).toBeNull();
+  });
+
+  // 🔴 MUTATION: drop the `broken` test, or move the floor above it. A
+  // gas_exchange row that does not say yes is the flag and the kind having
+  // stopped reading one rule — at ANY size.
+  it('refuses a gas_exchange row that does not say yes, at any size', () => {
+    expect(gasLayerError(sum(5, 0, 1))).toMatch(
+      /1 gas_exchange rows do not say cylinder_swap=yes/,
+    );
+    expect(gasLayerError(sum(2088, 4008, 3))).not.toBeNull();
+  });
+
+  it('is asked through the statement the loader runs', () => {
+    expect(GAS_LAYER_SUMMARY_SQL).toContain(
+      "kind = 'gas_exchange' OR cylinder_swap = 'yes'",
+    );
+    expect(GAS_LAYER_SUMMARY_SQL).toContain('count(DISTINCT');
   });
 });
 

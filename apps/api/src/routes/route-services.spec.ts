@@ -567,7 +567,7 @@ describe('the migrations’ KINDS lists are the kinds the endpoint serves', () =
   it('the three migrations between them list every kind the table holds, once', () => {
     const first = declaredIn('1790572800000-RoutePoi.ts');
     const second = declaredIn('1791400000000-RoutePoiFacilities.ts');
-    const third = declaredIn('1791700000000-RoutePoiLpg.ts');
+    const third = declaredIn('1791700000000-RoutePoiGas.ts');
     expect(third).toEqual([...STORED_ONLY_KINDS]);
     expect([...first, ...second, ...third]).toEqual([...STORED_POI_KINDS]);
   });
