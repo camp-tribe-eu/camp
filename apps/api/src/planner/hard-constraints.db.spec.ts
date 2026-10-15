@@ -566,64 +566,207 @@ describe('corridor: geography, in metres', () => {
 });
 
 describe('the prefilter is lossless: the index box never drops what the exact distance keeps', () => {
-  // 600 campsites scattered round a diagonal corridor at 50–66°N, where a
-  // degree of longitude is much shorter than a degree of latitude and a box
-  // that forgot it would lose the east and west edges. The oracle is plain
-  // ST_DWithin — the definition — with no box.
+  // The oracle is plain ST_DWithin — the definition — with no box.
+  //
+  // 🔴 WHY THERE ARE ROUTES HERE THAT RUN EAST–WEST. This property used to
+  // run one line, and that line went north (10°E→24°E while climbing from 50
+  // to 66°N). On it the great-circle arc never rises above its own vertices,
+  // so a box built from the VERTICES alone is exactly big enough and the test
+  // could not fail. ST_DWithin on a geography measures to the great-circle
+  // ARC, and between two points at the same latitude that arc bows toward the
+  // pole: Madrid→Thessaloniki climbs from 40.6°N to 41.5°N half-way. A box
+  // from the vertices cut 249 of 370 campsites from that route, and this
+  // test stayed green. Review changed the fixture and it went red.
+  //
+  // So each route says whether it bows, and the test PROVES the fixture
+  // reaches the path it checks: a bowing route must put campsites, that the
+  // exact distance keeps, outside the box the two ends alone would give.
   const corridor = HARD.find((r) => r.id === 'corridor') as HardRule;
-  const LONG: LonLat[] = [
-    [10, 50],
-    [20, 58],
-    [24, 66],
+
+  const R = 6_371_008.8;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const deg = (r: number) => (r * 180) / Math.PI;
+  const unit = ([lon, lat]: LonLat): [number, number, number] => [
+    Math.cos(rad(lat)) * Math.cos(rad(lon)),
+    Math.cos(rad(lat)) * Math.sin(rad(lon)),
+    Math.sin(rad(lat)),
   ];
-  const big: HardRequest = { line: LONG, bufferM: 60_000 };
+  /** The point a fraction t of the way along the great-circle arc a→b: SLERP. */
+  function along(a: LonLat, b: LonLat, t: number): LonLat {
+    const va = unit(a);
+    const vb = unit(b);
+    const w = Math.acos(
+      Math.min(1, va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2]),
+    );
+    const k1 = Math.sin((1 - t) * w) / Math.sin(w);
+    const k2 = Math.sin(t * w) / Math.sin(w);
+    const x = va.map((c, i) => k1 * c + k2 * vb[i]);
+    return [
+      deg(Math.atan2(x[1], x[0])),
+      deg(Math.atan2(x[2], Math.hypot(x[0], x[1]))),
+    ];
+  }
+  /** `d` metres from `p` on `bearing` (degrees), on the sphere. */
+  function destination(p: LonLat, bearing: number, d: number): LonLat {
+    const φ1 = rad(p[1]);
+    const θ = rad(bearing);
+    const δ = d / R;
+    const φ2 = Math.asin(
+      Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ),
+    );
+    const λ2 =
+      rad(p[0]) +
+      Math.atan2(
+        Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
+        Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2),
+      );
+    return [deg(λ2), deg(φ2)];
+  }
 
-  beforeAll(async () => {
-    await db.query('BEGIN');
-    await db.query('DELETE FROM camping_spots');
-    let seed = 246;
-    const rnd = () => {
-      seed = (seed * 1_664_525 + 1_013_904_223) % 4_294_967_296;
-      return seed / 4_294_967_296;
-    };
-    for (let i = 0; i < 600; i++) {
-      await put({
-        slug: `rnd-${String(i).padStart(3, '0')}`,
-        lon: 6 + rnd() * 22,
-        lat: 48 + rnd() * 20,
-      });
-    }
-  });
-  afterAll(async () => {
-    await db.query('ROLLBACK');
-  });
+  interface Route {
+    name: string;
+    line: LonLat[];
+    bufferM: number;
+    /** `region`: scattered over a block of Europe. `arc`: round the route itself. */
+    scatter: 'region' | 'arc';
+    /** The great-circle arc rises above its ends: the box must follow it. */
+    bows: boolean;
+  }
+  const ROUTES: Route[] = [
+    {
+      name: 'north-east at 50–66°N, where a degree of longitude is short',
+      line: [
+        [10, 50],
+        [20, 58],
+        [24, 66],
+      ],
+      bufferM: 60_000,
+      scatter: 'region',
+      bows: false,
+    },
+    {
+      name: 'Madrid → Thessaloniki, due east, 2 800 km',
+      line: [
+        [-3.7038, 40.4168],
+        [22.9444, 40.6401],
+      ],
+      bufferM: 30_000,
+      scatter: 'arc',
+      bows: true,
+    },
+    {
+      name: 'Dublin → Warsaw, east, a little south',
+      line: [
+        [-6.2603, 53.3498],
+        [21.0122, 52.2297],
+      ],
+      bufferM: 30_000,
+      scatter: 'arc',
+      bows: true,
+    },
+    {
+      // A road is a polyline; each leg is its own arc, and here both bow.
+      name: 'Madrid → Thessaloniki → Vinaròs, out and back, two bowing legs',
+      line: [
+        [-3.7038, 40.4168],
+        [22.9444, 40.6401],
+        [0.4753, 40.47],
+      ],
+      bufferM: 30_000,
+      scatter: 'arc',
+      bows: true,
+    },
+    {
+      name: 'Lyon → Barcelona, south-west: nearly a meridian, nothing to bow',
+      line: [
+        [4.8357, 45.764],
+        [2.1734, 41.3851],
+      ],
+      bufferM: 30_000,
+      scatter: 'arc',
+      bows: false,
+    },
+  ];
 
-  it('returns exactly the set plain ST_DWithin returns', async () => {
-    const exact = (
-      await db.query(
-        `SELECT slug FROM camping_spots s
-          WHERE ST_DWithin(s.location::geography,
-                  ST_SetSRID(ST_GeomFromGeoJSON($1::text), 4326)::geography, $2)
-          ORDER BY slug`,
-        [
-          JSON.stringify({ type: 'LineString', coordinates: LONG }),
-          big.bufferM,
-        ],
-      )
-    ).rows.map((r) => r.slug);
-    const { where, params } = hardWhere(big, 's', 0, [corridor]);
-    const viaRule = (
-      await db.query(
-        `SELECT slug FROM camping_spots s WHERE ${where} ORDER BY slug`,
-        params,
-      )
-    ).rows.map((r) => r.slug);
+  const count = async (): Promise<number> =>
+    (await db.query('SELECT count(*)::int AS n FROM camping_spots')).rows[0].n;
 
-    // Anchor: the corridor takes SOME of the 600 and not all of them, or
-    // equality of two sets says nothing.
-    expect(exact.length).toBeGreaterThan(40);
-    expect(exact.length).toBeLessThan(560);
-    expect(viaRule).toEqual(exact);
+  describe.each(ROUTES.map((r) => [r.name, r] as const))('%s', (_n, route) => {
+    beforeAll(async () => {
+      await db.query('BEGIN');
+      await db.query('DELETE FROM camping_spots');
+      let seed = 246 + route.line.length;
+      const rnd = () => {
+        seed = (seed * 1_664_525 + 1_013_904_223) % 4_294_967_296;
+        return seed / 4_294_967_296;
+      };
+      for (let i = 0; i < 600; i++) {
+        let at: LonLat;
+        if (route.scatter === 'region') {
+          at = [6 + rnd() * 22, 48 + rnd() * 20];
+        } else {
+          // A point on a random leg's arc, pushed up to 2.5 buffers off it
+          // in a random direction: about 40% land inside, and the half-way
+          // part of each leg — where the arc is furthest from its ends — is
+          // as thick as any other.
+          const leg = Math.floor(rnd() * (route.line.length - 1));
+          const p = along(route.line[leg], route.line[leg + 1], rnd());
+          at = destination(p, rnd() * 360, rnd() * 2.5 * route.bufferM);
+        }
+        await put({
+          slug: `rnd-${String(i).padStart(3, '0')}`,
+          lon: at[0],
+          lat: at[1],
+        });
+      }
+    });
+    afterAll(async () => {
+      await db.query('ROLLBACK');
+    });
+
+    it('returns exactly the set plain ST_DWithin returns', async () => {
+      const exactRows = (
+        await db.query(
+          `SELECT slug, ST_Y(s.location) AS lat FROM camping_spots s
+            WHERE ST_DWithin(s.location::geography,
+                    ST_SetSRID(ST_GeomFromGeoJSON($1::text), 4326)::geography, $2)
+            ORDER BY slug`,
+          [
+            JSON.stringify({ type: 'LineString', coordinates: route.line }),
+            route.bufferM,
+          ],
+        )
+      ).rows as Array<{ slug: string; lat: number }>;
+      const exact = exactRows.map((r) => r.slug);
+      const req: HardRequest = { line: route.line, bufferM: route.bufferM };
+      const { where, params } = hardWhere(req, 's', 0, [corridor]);
+      const viaRule = (
+        await db.query(
+          `SELECT slug FROM camping_spots s WHERE ${where} ORDER BY slug`,
+          params,
+        )
+      ).rows.map((r) => r.slug);
+
+      // Anchor: the corridor takes SOME of the 600 and not all of them, or
+      // equality of two sets says nothing.
+      expect(await count()).toBe(600);
+      expect(exact.length).toBeGreaterThan(40);
+      expect(exact.length).toBeLessThan(560);
+
+      // Anchor: the fixture REACHES the path this test is about. Campsites
+      // the exact distance keeps, but that lie beyond the box the two ends
+      // would give, are what a vertex-only box loses. A bowing route has
+      // them; a test that cannot see any proves nothing about the bow.
+      const dLat = route.bufferM / 110_000;
+      const top = Math.max(...route.line.map((p) => p[1])) + dLat;
+      const bottom = Math.min(...route.line.map((p) => p[1])) - dLat;
+      const beyondTheEnds = exactRows.filter(
+        (r) => r.lat > top || r.lat < bottom,
+      ).length;
+      if (route.bows) expect(beyondTheEnds).toBeGreaterThan(10);
+
+      expect(viaRule).toEqual(exact);
+    });
   });
 });
 

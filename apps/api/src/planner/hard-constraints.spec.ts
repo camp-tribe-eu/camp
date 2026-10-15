@@ -305,6 +305,143 @@ describe('corridorBox: the index prefilter may never be tighter than the exact d
     },
   );
 
+  // 🔴 THE VERTICES ARE NOT THE LINE. ST_DWithin on a `geography` measures to
+  // the great-circle ARC between two vertices, and between two points at the
+  // same latitude that arc bows toward the pole: Madrid (40.4°N) and
+  // Thessaloniki (40.6°N) are joined by an arc that climbs to 41.5°N half-way.
+  // The test above tries points `bufferM` from each VERTEX, which is where the
+  // arc bows least; a box built from the vertices passes it, and cut 249 of
+  // 370 campsites from the real route. So the oracle below walks the arc
+  // itself: every 5 km along the great circle (spherical interpolation, not
+  // the formula under test), and from each step every 10° of bearing.
+  function greatCircle(a: LonLat, b: LonLat, stepM: number): LonLat[] {
+    const v = ([lon, lat]: LonLat): [number, number, number] => [
+      Math.cos(rad(lat)) * Math.cos(rad(lon)),
+      Math.cos(rad(lat)) * Math.sin(rad(lon)),
+      Math.sin(rad(lat)),
+    ];
+    const va = v(a);
+    const vb = v(b);
+    const w = Math.acos(
+      Math.min(1, va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2]),
+    );
+    const steps = Math.max(1, Math.ceil((w * R) / stepM));
+    const out: LonLat[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const k1 = w === 0 ? 1 : Math.sin((1 - t) * w) / Math.sin(w);
+      const k2 = w === 0 ? 0 : Math.sin(t * w) / Math.sin(w);
+      const x = va.map((c, j) => k1 * c + k2 * vb[j]);
+      out.push([
+        deg(Math.atan2(x[1], x[0])),
+        deg(Math.atan2(x[2], Math.hypot(x[0], x[1]))),
+      ]);
+    }
+    return out;
+  }
+  const arcOf = (line: readonly LonLat[]): LonLat[] =>
+    line.slice(1).flatMap((p, i) => greatCircle(line[i], p, 5_000));
+
+  // [name, line, which way the arc bows, and by how many degrees of latitude
+  // at least, beyond the ends of its leg — the fixture must REACH the bow, or
+  // this proves nothing about it. Measured with the same walk below.]
+  const BOWS: Array<[string, LonLat[], 'north' | 'south' | 'none', number]> = [
+    [
+      'Madrid → Thessaloniki',
+      [
+        [-3.7038, 40.4168],
+        [22.9444, 40.6401],
+      ],
+      'north',
+      0.6,
+    ],
+    [
+      'Dublin → Warsaw',
+      [
+        [-6.2603, 53.3498],
+        [21.0122, 52.2297],
+      ],
+      'north',
+      0.3,
+    ],
+    [
+      'the same route in the southern hemisphere',
+      [
+        [-3.7038, -40.4168],
+        [22.9444, -40.6401],
+      ],
+      'south',
+      0.6,
+    ],
+    [
+      'out and back: Madrid → Thessaloniki → Vinaròs, two bowing legs',
+      [
+        [-3.7038, 40.4168],
+        [22.9444, 40.6401],
+        [0.4753, 40.47],
+      ],
+      'north',
+      0.4,
+    ],
+    [
+      'Lyon → Barcelona, which runs almost along a meridian',
+      [
+        [4.8357, 45.764],
+        [2.1734, 41.3851],
+      ],
+      'none',
+      0,
+    ],
+  ];
+
+  it.each(BOWS)(
+    'holds every point bufferM from the arc itself, along its whole length: %s',
+    (_name, line, direction, minBow) => {
+      const buffer = 30_000;
+      const [x0, y0, x1, y1] = corridorBox(line, buffer);
+      const arc = arcOf(line);
+      // The fixture reaches the bow: on some leg the arc's own extreme lies
+      // beyond BOTH of that leg's ends by at least what the route is known
+      // to bow. (Per leg: on a road the bow of one leg can sit inside the
+      // box of the others, and then nothing about it is tested.)
+      const lats = arc.map((p) => p[1]);
+      let bowNorth = 0;
+      let bowSouth = 0;
+      for (let i = 1; i < line.length; i++) {
+        const legLats = greatCircle(line[i - 1], line[i], 5_000).map(
+          (p) => p[1],
+        );
+        const ends = [line[i - 1][1], line[i][1]];
+        bowNorth = Math.max(bowNorth, Math.max(...legLats) - Math.max(...ends));
+        bowSouth = Math.max(bowSouth, Math.min(...ends) - Math.min(...legLats));
+      }
+      if (direction === 'north') expect(bowNorth).toBeGreaterThan(minBow);
+      if (direction === 'south') expect(bowSouth).toBeGreaterThan(minBow);
+      if (direction === 'none') {
+        expect(bowNorth).toBeLessThan(0.05);
+        expect(bowSouth).toBeLessThan(0.05);
+      }
+
+      const outside: unknown[] = [];
+      for (const p of arc) {
+        for (let bearing = 0; bearing < 360; bearing += 10) {
+          const [lon, la] = destination(p, bearing, buffer);
+          if (lon < x0 || lon > x1 || la < y0 || la > y1) {
+            if (outside.length < 3) outside.push({ from: p, bearing, lon, la });
+          }
+        }
+      }
+      // Read as: the first three points the box would have cut off.
+      expect(outside).toEqual([]);
+
+      // And it is the arc's box, not a pad: no more than 5% of a buffer's
+      // width of latitude beyond the arc's own extremes.
+      const trueLat = deg(buffer / R);
+      expect(y1 - Math.max(...lats)).toBeLessThan(trueLat * 1.05);
+      expect(Math.min(...lats) - y0).toBeLessThan(trueLat * 1.05);
+    },
+  );
+
   it('is wider in degrees of longitude the further north the line is', () => {
     const wide = (lat: number) => {
       const [x0, , x1] = corridorBox([[14, lat]], 30_000);
