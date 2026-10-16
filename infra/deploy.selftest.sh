@@ -38,7 +38,7 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-deploy-selftest.XXXXXX")"
 cleanup_all() { stop_world; rm -rf "$BASE"; }
 trap cleanup_all EXIT
 trap 'exit 130' INT TERM
-EXPECTED=129
+EXPECTED=131
 PASSED=0
 FAILED=0
 pass() { echo "  ✓ $1"; PASSED=$((PASSED + 1)); }
@@ -187,15 +187,21 @@ case "$*" in
   "run build:web")
     . "$STUB_DIR/leak.sh"; leakcheck build:web
     # Файл оточення з секретами мусить зникнути ДО того, як збірка (~400 с) почнеться, а не після.
-    printf 'DATABASE_URL=%s\nAPI_BUILD_TOKEN=%s\nAPI_BASE_URL=%s\nNODE_OPTIONS=%s\nENVFILES=%s\n' "${DATABASE_URL-<unset>}" "${API_BUILD_TOKEN-<unset>}" \
-      "${API_BASE_URL-<unset>}" "${NODE_OPTIONS-<unset>}" "$(ls "${TMPDIR:-/tmp}"/camptribe-envfile.* 2>/dev/null | wc -l | tr -d ' ')" > "$W/buildenv"
+    printf 'DATABASE_URL=%s\nAPI_BUILD_TOKEN=%s\nAPI_BASE_URL=%s\nNODE_OPTIONS=%s\nNEXT_PUBLIC_API_BASE_URL=%s\nENVFILES=%s\n' "${DATABASE_URL-<unset>}" "${API_BUILD_TOKEN-<unset>}" \
+      "${API_BASE_URL-<unset>}" "${NODE_OPTIONS-<unset>}" "${NEXT_PUBLIC_API_BASE_URL-<unset>}" "$(ls "${TMPDIR:-/tmp}"/camptribe-envfile.* 2>/dev/null | wc -l | tr -d ' ')" > "$W/buildenv"
     base="${API_BASE_URL:?}"
     code=$(curl -s -o /dev/null -w '%{http_code}' "$base/health")
     [ "$code" = 200 ] || { echo "build:web: API на $base відповіла '$code'" >&2; exit 1; }
     mkdir -p apps/web/.next
     curl -s "$base/version" > apps/web/.next/built-against
     id="${FAKE_BUILD_ID:-$(node -e 'console.log(require("crypto").createHash("sha256").update(process.argv[1]).digest("base64url").slice(0,21))' "build-$(cat VERSION)")}"
-    printf '%s' "$id" > apps/web/.next/BUILD_ID ;;
+    printf '%s' "$id" > apps/web/.next/BUILD_ID
+    # 🔴 CAMP-340. Підмінник запікає у «статику» РІВНО ТЕ, що отримав в
+    # оточенні — порожнє, якщо не отримав нічого. Якби він писав сюди
+    # правильну адресу, перевірка підтверджувала б сама себе і пройшла б
+    # навіть тоді, коли build_web() знову перестане проводити NEXT_PUBLIC_*.
+    mkdir -p apps/web/.next/static/chunks
+    printf 'var API=%s;\n' "\"${NEXT_PUBLIC_API_BASE_URL-}\"" > apps/web/.next/static/chunks/main.js ;;
   "run migration:run")
     [ "${STUB_MIGRATE_FAIL:-}" != 1 ] || { echo "міграція впала" >&2; exit 1; }
     for f in "$(migdir)"/*.ts; do
@@ -343,9 +349,15 @@ make_legacy_release() { # short sha
   local d="$W/root/releases/$1"
   mkdir -p "$d"; git -C "$d" init -q; git -C "$d" remote add origin "$REPO"
   git -C "$d" fetch -q --depth 1 origin "$2"; git -C "$d" checkout -q --detach FETCH_HEAD
-  printf 'DATABASE_URL=postgres://stub/stub\nAPI_BUILD_TOKEN=tok\nPORT=3001\n' > "$d/apps/api/.env"
+  printf 'DATABASE_URL=postgres://stub/stub\nAPI_BUILD_TOKEN=tok\nPORT=3001\nNEXT_PUBLIC_API_BASE_URL=https://camptribe.eu/api\n' > "$d/apps/api/.env"
   ( cd "$d" && npm run build:api && STUB_API_BASE=none API_BASE_URL=http://127.0.0.1:"$TPORT" true >/dev/null )
-  mkdir -p "$d/apps/web/.next"
+  mkdir -p "$d/apps/web/.next/static/chunks"
+  # 🔴 CAMP-340. Це реліз «як до CAMP-61»: наш конвеєр його не збирав, тож
+  # обидві половини тут задані фікстурою й розійтись не можуть. Справжню
+  # перевірку, що build_web() проводить NEXT_PUBLIC_*, робить підмінник
+  # build:web — він пише те, що ОТРИМАВ.
+  printf 'var API="%s";\n' "$(sed -n 's/^NEXT_PUBLIC_API_BASE_URL=//p' "$d/apps/api/.env")" \
+    > "$d/apps/web/.next/static/chunks/main.js"
   printf '%s' "${3:-$(node -e 'console.log(require("crypto").createHash("sha256").update(process.argv[1]).digest("base64url").slice(0,21))' "build-$(cat "$d/VERSION")")}" > "$d/apps/web/.next/BUILD_ID"
 }
 
@@ -889,9 +901,16 @@ section "J. Облікові дані не потрапляють у коман�
 J_PW='p@ss:w/rd%x y_PWMARK9'
 J_URL='postgres://camp:p%40ss%3Aw%2Frd%25x%20y_PWMARK9@db.example.test:6543/campdb?sslmode=require'
 J_TOK='TOKMARK9-selftest'
+# 🔴 CAMP-340. Прикметна адреса, якої немає ніде більше: якщо вона
+# опиниться в оточенні збірки, це означає, що build_web() справді провів
+# NEXT_PUBLIC_* з .env, а не що хтось десь написав правильний рядок.
+J_PUB='https://pubmark9.example.test/api'
 jworld() { # імʼя [url]
   new_world "$1"
-  printf 'DATABASE_URL=%s\nAPI_BUILD_TOKEN=%s\nPORT=3001\n' "${2:-$J_URL}" "$J_TOK" > "$W/root/releases/$S0/apps/api/.env"
+  printf 'DATABASE_URL=%s\nAPI_BUILD_TOKEN=%s\nPORT=3001\nNEXT_PUBLIC_API_BASE_URL=%s\n' "${2:-$J_URL}" "$J_TOK" "$J_PUB" > "$W/root/releases/$S0/apps/api/.env"
+  # .env цього світу інший, ніж у make_legacy_release, — «статику» релізу
+  # переписуємо з НЬОГО, інакше реліз виглядав би зібраним проти чужої адреси.
+  printf 'var API="%s";\n' "$J_PUB" > "$W/root/releases/$S0/apps/web/.next/static/chunks/main.js"
   mkdir -p "$W/tmp"; : > "$W/leak.log"; : > "$W/calls"
 }
 jrun() { # X від імені «root»
@@ -919,6 +938,14 @@ else fail "psql і pg_dump отримали з'єднання через ОТО�
 if [ "$(benv DATABASE_URL)" = "$J_URL" ] && [ "$(benv API_BUILD_TOKEN)" = "$J_TOK" ] && [ "$(benv API_BASE_URL)" = "http://localhost:$TPORT" ] && [ "$(benv NODE_OPTIONS)" = "--max-old-space-size=5120" ]; then
   pass "збірка вебу отримала DATABASE_URL, API_BUILD_TOKEN, API_BASE_URL і NODE_OPTIONS через оточення, байт у байт"
 else fail "збірка вебу отримала DATABASE_URL, API_BUILD_TOKEN, API_BASE_URL і NODE_OPTIONS через оточення, байт у байт" "$(sed 's/PWMARK9.*@/<…>@/' "$W/buildenv" 2>&1)"; fi
+# 🔴 CAMP-340. ЦЕ ТОЙ САМИЙ ДЕФЕКТ, ЧЕРЕЗ ЯКИЙ АКАУНТИ НЕ ПРАЦЮВАЛИ. Перелік
+# змінних збірки був зашитий і NEXT_PUBLIC_* у нього не входили; значення з
+# .env просто не доїжджало, а веб брав запасне '' і мовчав. Питаємо прикметну
+# адресу, якої немає ніде, крім .env цього світу, і додатково — що вона дійшла
+# аж до «статики», бо саме там її читає браузер.
+if [ "$(benv NEXT_PUBLIC_API_BASE_URL)" = "$J_PUB" ] && grep -qF "$J_PUB" "$W/root/releases/$S2/apps/web/.next/static/chunks/main.js" 2>/dev/null; then
+  pass "NEXT_PUBLIC_* з .env доїхали до збірки вебу й запеклись у статику (перелік не зашитий)"
+else fail "NEXT_PUBLIC_* з .env доїхали до збірки вебу й запеклись у статику (перелік не зашитий)" "buildenv=$(benv NEXT_PUBLIC_API_BASE_URL) static=$(cat "$W/root/releases/$S2/apps/web/.next/static/chunks/main.js" 2>&1)"; fi
 [ "$(benv ENVFILES)" = 0 ] && pass "файл оточення з секретами зник ДО початку збірки вебу, а не після (за ~400 с збірки він лежав би на диску)" || fail "файл оточення з секретами зник ДО початку збірки вебу, а не після (за ~400 с збірки він лежав би на диску)" "envfiles=$(benv ENVFILES)"
 
 jworld j4b
@@ -1006,6 +1033,30 @@ if ! grep -q '/srv/camptribe/' "$U" "$A" && ! grep -qE '(^|[^0-9])(3000|3001)([^
    && grep -qx 'ReadWritePaths=' "$U" && grep -qx 'ReadWritePaths=' "$A" && ! grep -q '^\[Install\]' "$U" "$A"; then
   pass "юніти репетиції з РЕАЛЬНИХ юнітів репо: жодного бойового шляху чи порту, лише читання, без [Install]"
 else fail "юніти репетиції з РЕАЛЬНИХ юнітів репо: жодного бойового шляху чи порту, лише читання, без [Install]" "$(cat "$U")"; fi
+
+new_world f_camp340
+# 🔴 CAMP-340. Сторож «статика несе адресу API» мусить уміти почервоніти,
+# і ЩЕ мусить відрізняти «корпусу немає» (3) від «адреси немає» (5):
+# порожній grep і grep по неіснуючій теці виглядають однаково.
+# shellcheck disable=SC1090,SC2034
+GOT=$( source "$DEPLOY"
+  d="$BASE/c340"; mkdir -p "$d/good" "$d/empty" "$d/nojs"
+  printf 'var a="https://camptribe.eu/api/auth";\n' > "$d/good/chunk.js"
+  printf 'var a="https://camptribe.eu";\n'          > "$d/empty/chunk.js"
+  : > "$d/nojs/readme.txt"
+  B="https://camptribe.eu/api"
+  for case_ in "$d/good:$B" "$d/empty:$B" "$d/nojs:$B" "$d/nema:$B" "$d/good:"; do
+    rc=0; static_base_verdict "${case_%%:*}" "${case_#*:}" || rc=$?; printf '%s' "$rc"
+  done
+  printf ' '
+  # і перелік ключів: беремо лише строгу форму NEXT_PUBLIC_<ВЕЛИКІ>=
+  e="$d/.env"; printf 'DATABASE_URL=x\nNEXT_PUBLIC_API_BASE_URL=y\nNEXT_PUBLIC_SITE_MODE=public\nnext_public_lower=z\nNEXT_PUBLIC_BAD KEY=q\n' > "$e"
+  public_keys "$e" | tr '\n' ',' )
+if [ "$GOT" = "05334 NEXT_PUBLIC_API_BASE_URL,NEXT_PUBLIC_SITE_MODE," ]; then
+  pass "CAMP-340: вердикт про статику розрізняє 0/5/3/3/4, public_keys бере лише строгу форму"
+else
+  fail "CAMP-340: вердикт про статику розрізняє 0/5/3/3/4, public_keys бере лише строгу форму" "got='$GOT' want='05334 NEXT_PUBLIC_API_BASE_URL,NEXT_PUBLIC_SITE_MODE,'"
+fi
 
 new_world f5
 mkdir "$W/root/.deploy.lock"; sleep 300 & HOLDER=$!; echo $HOLDER > "$W/root/.deploy.lock/pid"

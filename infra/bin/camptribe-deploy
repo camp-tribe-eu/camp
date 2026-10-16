@@ -184,6 +184,40 @@ env_get() {
   printf '%s' "$v"
 }
 
+# 🔴 CAMP-340. ПЕРЕЛІК NEXT_PUBLIC_* НЕ ЗАШИТИЙ, І ЦЕ ГОЛОВНЕ В ЦЬОМУ
+# ПОМІЧНИКУ. До 16.10.2026 build_web() називав змінні збірки поіменно, і
+# жодної NEXT_PUBLIC_* серед них не було: шість із них мовчки лишались
+# запасними значеннями, зокрема NEXT_PUBLIC_API_BASE_URL — тобто акаунти
+# на проді не працювали ЖОДНОГО дня. Зашитий перелік тут ламається тихо:
+# нова змінна не потрапляє у статику, а виглядає це як «працює запасне
+# значення», не як помилка.
+#
+# Ключ беремо лише у строгій формі ^NEXT_PUBLIC_[A-Z0-9_]*=, тож рядок,
+# що не є парою KEY=VALUE, сюди не пролізе.
+public_keys() { sed -n 's/^\(NEXT_PUBLIC_[A-Z0-9_]*\)=.*/\1/p' "$1" 2>/dev/null | sort -u; }
+
+# 🔴 CAMP-340. ВЕРДИКТ — ОКРЕМОЮ ЧИСТОЮ ФУНКЦІЄЮ, ЩОБ ЙОГО МОЖНА БУЛО
+# ЗМУСИТИ ПОЧЕРВОНІТИ. Сторож, що живе рядками всередині check(), не
+# проганяється нічим, крім справжнього деплою, — тобто не проганяється.
+#
+#   0 — статика несе адресу
+#   3 — корпусу немає або він порожній: ВИСНОВКУ НЕ ІСНУЄ (не плутати з 5)
+#   4 — у .env немає NEXT_PUBLIC_API_BASE_URL
+#   5 — корпус є, адреси в ньому немає
+#
+# 🔴 3 І 5 — ДВА РІЗНІ ЗАМКИ. Порожній `grep` і `grep` по неіснуючій теці
+# виглядають однаково; саме на цьому я спіймався 16.10.2026, грепнувши
+# apps/web/out/_next/static (збірка лягає в .next, теки out немає).
+# Якби обидва випадки давали 5, «перевірка не читалась» читалося б як
+# «змінна не доїхала» — і навпаки.
+static_base_verdict() { # тека-статики очікувана-адреса
+  local d="$1" b="$2"
+  [ -d "$d" ] && [ -n "$(find "$d" -name '*.js' -print -quit 2>/dev/null)" ] || return 3
+  [ -n "$b" ] || return 4
+  grep -rqF -- "$b" "$d" 2>/dev/null || return 5
+  return 0
+}
+
 rel_dir() { printf '%s/releases/%s' "$ROOT" "$1"; }
 link_rel() { local t; t=$(readlink "$ROOT/$LINK" 2>/dev/null || true); printf '%s' "${t##*/}"; }
 is_rel_name() { [[ "$1" =~ ^[0-9a-f]{7}$ ]]; }
@@ -321,7 +355,7 @@ is_self_or_descendant() { # pid ancestor
 # який слухає порт, і що саме він віддає. Це один код і для `status`, і
 # для перевірки після перемикання, щоб вони не могли розійтись.
 check_running() { # очікуваний реліз
-  local rel="$1" bad=0 want_api want_web t spec unit port want label mp lp cwd code file_id
+  local rel="$1" bad=0 want_api want_web t spec unit port want label mp lp cwd code file_id static_dir want_base verdict
   want_api=$(phys "$(rel_dir "$rel")/apps/api"); want_web=$(phys "$(rel_dir "$rel")/apps/web")
 
   t=$(link_rel)
@@ -357,6 +391,28 @@ check_running() { # очікуваний реліз
   code=$(http_code "http://127.0.0.1:$WEB_PORT/")
   if [ "$code" = 200 ]; then say "  ✓ веб віддає HTML (/ → 200)"
   else say "  ✗ веб не віддає HTML: / → ${code:-?} (статика збірки може віддаватись, а сторінки — ні)"; bad=$((bad + 1)); fi
+
+  # 🔴 CAMP-340. NEXT_PUBLIC_* МОВЧАТЬ, КОЛИ ЇХ НЕМАЄ — ТОМУ ЇХ ПИТАЮТЬ ТУТ.
+  # Вони запікаються у статику під час збірки; якщо змінна не доїхала, код
+  # бере запасне значення і все виглядає здоровим. Саме так акаунти на
+  # проді не працювали жодного дня: ACCOUNT_API був '' (apps/web/src/lib/
+  # account.ts), браузер не робив ЖОДНОГО запиту, а сторінка казала
+  # «Accounts are not available right now» — повідомлення, яке ні від чого
+  # не відрізнити, бо до мережі справа не доходила.
+  #
+  # 🔴 КОНТРОЛЬ ПЕРЕД ПРЕДМЕТОМ. Порожній `grep` і `grep` по неіснуючій
+  # теці виглядають однаково — на цьому я вже спіймався 16.10.2026, коли
+  # грепав apps/web/out/_next/static (його тут немає: збірка лягає в
+  # .next). Тому спершу переконуємось, що корпус узагалі читається.
+  static_dir="$(rel_dir "$rel")/apps/web/.next/static"
+  want_base=$(env_get "$(rel_dir "$rel")/apps/api/.env" NEXT_PUBLIC_API_BASE_URL)
+  verdict=0; static_base_verdict "$static_dir" "$want_base" || verdict=$?
+  case "$verdict" in
+    0) say "  ✓ статика несе адресу API ($want_base)" ;;
+    3) say "  ✗ у релізі $rel немає статики ($static_dir) — висновку про NEXT_PUBLIC_* НЕ існує"; bad=$((bad + 1)) ;;
+    4) say "  ✗ у .env релізу $rel немає NEXT_PUBLIC_API_BASE_URL — акаунти у браузері не працюватимуть"; bad=$((bad + 1)) ;;
+    *) say "  ✗ статика релізу $rel не несе '$want_base' — збірка не отримала NEXT_PUBLIC_API_BASE_URL"; bad=$((bad + 1)) ;;
+  esac
 
   file_id=$(cat "$(rel_dir "$rel")/apps/web/.next/BUILD_ID" 2>/dev/null || true)
   if [[ "$file_id" =~ ^[A-Za-z0-9_-]+$ ]]; then
@@ -620,8 +676,20 @@ build_web() { # реліз
   # API про них не знає, тож веб, зібраний проти неї, не впав би, а
   # мовчки не мав би цих даних.
   # Секрети — файлом оточення, не `env K=V` в argv (див. «секрети» вище).
+  #
+  # 🔴 NEXT_PUBLIC_* ЗАПІКАЮТЬСЯ У СТАТИКУ САМЕ ТУТ. Після збірки їх не
+  # змінити нічим, крім нової збірки: правка .env на машині не має жодного
+  # впливу на вже віддані браузеру файли. Беруться вони з того самого
+  # apps/api/.env, що й решта — див. public_keys() про те, чому переліком.
+  local pub=() k
+  while IFS= read -r k; do
+    [ -n "$k" ] || continue
+    pub+=("$k" "$(env_get "$envf" "$k")")
+  done < <(public_keys "$envf")
+  say "  i у збірку вебу йдуть NEXT_PUBLIC_*: $(public_keys "$envf" | tr '\n' ' ')"
   bf=$(env_file DATABASE_URL "$(env_get "$envf" DATABASE_URL)" API_BUILD_TOKEN "$(env_get "$envf" API_BUILD_TOKEN)" \
-      API_BASE_URL "http://localhost:$BUILD_API_PORT" NODE_OPTIONS --max-old-space-size=5120) \
+      API_BASE_URL "http://localhost:$BUILD_API_PORT" NODE_OPTIONS --max-old-space-size=5120 \
+      ${pub[@]+"${pub[@]}"}) \
     || die "не вдалось підготувати файл оточення для збірки вебу — нічого не перемикав"
   ( cd "$dir" && with_env_file_as_user "$bf" npm run build:web ) || die "збірка вебу не вдалась — нічого не перемикав"
   [ -f "$dir/apps/web/.next/BUILD_ID" ] || die "збірка вебу не дала BUILD_ID"
