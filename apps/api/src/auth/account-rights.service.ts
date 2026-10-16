@@ -249,8 +249,11 @@ export class AccountRightsService
       `SELECT ${tz('created_at')} AS "createdAt", ${tz('expires_at')} AS "expiresAt"
          FROM sessions WHERE user_id = $1 ORDER BY created_at, id`,
     );
+    // 🔴 CAMP-229 — `newEmail` ТУТ, А НЕ СЕРЕД ПРОПУЩЕНОГО. Адреса, на яку
+    // людина попросила перевести акаунт і ще не підтвердила, — це дані про
+    // неї, і стаття 15 про них теж. Для решти видів посилань вона порожня.
     const emailLinks = await q(
-      `SELECT kind, ${tz('created_at')} AS "createdAt",
+      `SELECT kind, new_email AS "newEmail", ${tz('created_at')} AS "createdAt",
               ${tz('expires_at')} AS "expiresAt", ${tz('used_at')} AS "usedAt"
          FROM auth_tokens WHERE user_id = $1 ORDER BY created_at, id`,
     );

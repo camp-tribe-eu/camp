@@ -150,6 +150,16 @@ export const verifyEmail = (token: string, base?: string, f?: Fetch) =>
 export const resetPassword = (token: string, password: string, base?: string, f?: Fetch) =>
   call('/auth/reset-password', { token, password }, base, f);
 
+/**
+ * Підтвердити переїзд на нову адресу. CAMP-229.
+ *
+ * Жодної сесії: людина клікає з тієї скриньки, що переїжджає, і це цілком
+ * може бути інший браузер, ніж той, де вона ввійшла. `call` і так ходить із
+ * `credentials: 'omit'`.
+ */
+export const confirmEmailChange = (token: string, base?: string, f?: Fetch) =>
+  call('/auth/confirm-email-change', { token }, base, f);
+
 // ── Відлік «надіслати ще раз можна через 0:47» ─────────────────────────
 
 /** Скільки секунд лишилось, ніколи не менше нуля й завжди ціле вгору. */

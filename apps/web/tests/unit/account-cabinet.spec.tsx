@@ -138,8 +138,15 @@ test.describe('🔴 порожні стани: той текст, що в мак
   test('кожна намальована кнопка веде на сторінку, яка є в застосунку', () => {
     const app = join(__dirname, '..', '..', 'src', 'app');
     const hrefs = links(html).map((l) => l.href);
-    // CAMP-229 (3/3): the three empty cards' buttons, and the one way into «Your data».
-    expect(hrefs.slice().sort()).toEqual(['/account/data', '/map', '/plan', '/routes']);
+    // CAMP-229: кнопки трьох порожніх карток, і два входи з навігації —
+    // налаштування та «Your data».
+    expect(hrefs.slice().sort()).toEqual([
+      '/account/data',
+      '/account/settings',
+      '/map',
+      '/plan',
+      '/routes',
+    ]);
     for (const href of hrefs) expect(existsSync(join(app, href, 'page.tsx')), href).toBe(true);
   });
 });

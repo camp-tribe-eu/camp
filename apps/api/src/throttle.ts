@@ -133,6 +133,17 @@ export const LOGIN_ROUTES = [
   // the default would allow 120 a minute. It shares sign-in's counter, so ten
   // wrong passwords across the two are ten, not twenty.
   'account/delete',
+  // 🔴 CAMP-229 — налаштування. Обидві ці дії питають пароль, отже кожна є
+  // ще одним місцем, де його можна вгадувати, і найдешевшим із краденою
+  // сесією: типовий кошик дав би 120 спроб на хвилину. Спільний лічильник
+  // означає, що десять хибних паролів по всіх чотирьох дверях — це десять,
+  // а не сорок.
+  //
+  // 🔴 ДЕКОРАТОР І ЦЕЙ ПЕРЕЛІК — ДВА СПИСКИ ОДНОГО ПРАВИЛА. Додав маршрут
+  // в одне місце — додай у друге; `throttle.spec.ts` звіряє їх в обидва
+  // боки саме тому, що половина виправлення тут виглядає як ціле.
+  'account/password',
+  'account/email',
 ] as const;
 
 /** Is this the sign-in route? Normalised like isBulkPath, and for the same reasons. */

@@ -9,8 +9,11 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
-/** What a link in a letter is for. The database holds the same two words. */
-export type AuthTokenKind = 'verify_email' | 'reset_password';
+/**
+ * What a link in a letter is for. The database holds the same three words,
+ * and `auth_tokens_kind` is what keeps the two lists from drifting apart.
+ */
+export type AuthTokenKind = 'verify_email' | 'reset_password' | 'change_email';
 
 /**
  * A single-use link sent by email. CAMP-228.
@@ -45,6 +48,23 @@ export class AuthToken {
 
   @Column({ name: 'expires_at', type: 'timestamptz' })
   expiresAt: Date;
+
+  /**
+   * Where a `change_email` link is taking this account — and nothing else.
+   *
+   * 🔴 NULL FOR EVERY OTHER KIND, AND THE DATABASE INSISTS.
+   * `auth_tokens_new_email` is an equivalence, not a nullability rule:
+   * `(kind = 'change_email') = (new_email IS NOT NULL)`. A `change_email`
+   * row without an address is a link that would set somebody's email to
+   * nothing; a `verify_email` row WITH one is a pending address change that
+   * no screen ever asked for. Both are refused by the same line.
+   *
+   * It lives here rather than on `users` so that an address nobody has
+   * confirmed yet is never part of the person's row — and so it disappears
+   * exactly when the link does.
+   */
+  @Column({ name: 'new_email', type: 'varchar', length: 320, nullable: true })
+  newEmail: string | null;
 
   @Column({ name: 'used_at', type: 'timestamptz', nullable: true })
   usedAt: Date | null;

@@ -144,7 +144,12 @@ export function CabinetView({ profile }: { profile: Profile }) {
       </div>
       {/* CAMP-229 (3/3): вхід у вивантаження й видалення. Це `<nav>`, а не `<section>`:
           розділи кабінету — три порожні стани, і тести читають саме їх. */}
-      <nav aria-label="Your data" className="mt-6 text-sm">
+      <nav aria-label="Your data" className="mt-6 flex flex-col gap-1.5 text-sm">
+        {/* CAMP-229: єдиний вхід у налаштування. Сторінка, до якої не веде
+            жодне посилання, існує лише для того, хто знає адресу. */}
+        <Link className="underline" href="/account/settings">
+          Settings — email, password and letters
+        </Link>
         <Link className="underline" href="/account/data">
           Your data — download a copy, or delete your account
         </Link>

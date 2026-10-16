@@ -28,6 +28,23 @@ export const MAX_LENGTH = 128;
 
 export type PasswordProblem = 'too-short' | 'too-long' | 'common' | 'is-email';
 
+/**
+ * Що сторінка каже людині за кожну причину відмови.
+ *
+ * 🔴 ЖИВЕ ПОРУЧ ІЗ `PasswordProblem`, А НЕ В КОНТРОЛЕРІ, бо контролерів, що
+ * приймають новий пароль, тепер двоє: `auth` (скидання за посиланням) і
+ * `account` (зміна в налаштуваннях, CAMP-229). Дві копії цієї мапи розійшлись
+ * би першою ж правкою формулювання, і та сама відмова звучала б на двох
+ * екранах по-різному. `Record<PasswordProblem, string>` до того ж не дасть
+ * додати причину й забути слова до неї.
+ */
+export const PASSWORD_MESSAGE: Record<PasswordProblem, string> = {
+  'too-short': 'Use at least 10 characters.',
+  'too-long': 'Use at most 128 characters.',
+  common: 'That password is on the list of the most common ones. Pick another.',
+  'is-email': 'The password must not be your email address.',
+};
+
 /** Lower-case, every entry at least `MIN_LENGTH` long. */
 export const COMMON_PASSWORDS: ReadonlySet<string> = new Set([
   '1234567890',

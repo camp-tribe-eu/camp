@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { metadata as forgotMeta } from '@/app/forgot-password/page';
 import { metadata as loginMeta } from '@/app/login/page';
 import { metadata as resetMeta } from '@/app/reset-password/page';
 import { metadata as signupMeta } from '@/app/signup/page';
 import { metadata as verifyMeta } from '@/app/verify-email/page';
+import { metadata as changeMeta } from '@/app/confirm-email-change/page';
+import { metadata as settingsMeta } from '@/app/account/settings/page';
 import {
   EMPTY_SIGNUP,
   ForgotSentView,
@@ -359,7 +363,30 @@ test.describe('🔴 сторінки: noindex метатегом, а не robots
     '/forgot-password': forgotMeta,
     '/reset-password': resetMeta,
     '/verify-email': verifyMeta,
+    '/confirm-email-change': changeMeta,
+    '/account/settings': settingsMeta,
   };
+
+  // 🔴 ПЕРЕЛІК ВИЩЕ — РУЧНИЙ, І САМЕ ТОМУ ЙОГО ТРЕБА ЗВІРЯТИ З ЧИМОСЬ
+  // ЗОВНІШНІМ. Коли CAMP-229 додала сторінку `/confirm-email-change`, цей
+  // набір лишився зеленим: він просто не питав про неї. Сторінка, про яку
+  // перевірка не знає, не перевірена — а виглядає перевіреною.
+  //
+  // Кожне посилання з листа мусить бути тут: саме ті сторінки відкривають із
+  // пошти, саме вони несуть токен, і саме їм індексація найдорожча.
+  // `LINK_PATH` живе в API і є джерелом правди для листів; `mail.spec.ts`
+  // окремо доводить, що для кожного шляху існує сторінка.
+  test('🔴 кожен шлях, на який вказує лист, перелічено тут', () => {
+    const mail = readFileSync(
+      join(__dirname, '..', '..', '..', 'api', 'src', 'auth', 'mail.ts'),
+      'utf8',
+    );
+    const block = /export const LINK_PATH[\s\S]*?\};/.exec(mail)![0];
+    const paths = [...block.matchAll(/'(\/[a-z0-9-]+)'/g)].map((m) => m[1]);
+    // Щоб порожнє читання не пройшло за «усе перелічено».
+    expect(paths.length).toBeGreaterThanOrEqual(3);
+    for (const path of paths) expect(Object.keys(PAGES), path).toContain(path);
+  });
 
   for (const [path, meta] of Object.entries(PAGES)) {
     test(`${path}: noindex, nofollow`, () => {
@@ -370,6 +397,7 @@ test.describe('🔴 сторінки: noindex метатегом, а не robots
   test('сторінки з токеном у адресі не віддають Referer', () => {
     expect(resetMeta.referrer).toBe('no-referrer');
     expect(verifyMeta.referrer).toBe('no-referrer');
+    expect(changeMeta.referrer).toBe('no-referrer');
   });
 
   test('відкрита збірка НЕ закриває їх у robots.txt — інакше робот не прочитає noindex', () => {
