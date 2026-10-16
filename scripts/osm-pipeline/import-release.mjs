@@ -33,8 +33,9 @@
 //   ogr2ogr   → PostGIS parses the GeoJSON itself (`ST_GeomFromGeoJSON`);
 //               this file reads the asset as a stream and hands the rows to
 //               `psql` as one `COPY`
-//   npx       → `node …/ts-node/dist/bin.js`, the copy under apps/api, so
-//               that nothing can be fetched from a registry at run time
+//   npx       → `node apps/api/dist/osm/import-spots.js`, the file the deploy
+//               already compiles: no ts-node (a devDependency the server does
+//               not have), nothing to fetch from a registry at run time
 //
 // What is left outside Node is `psql`, which every other script of this
 // pipeline already needs. The staging table keeps the shape ogr2ogr gave
@@ -59,12 +60,12 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { StringDecoder } from 'node:string_decoder';
@@ -1076,25 +1077,41 @@ export function loadNotes(r) {
 }
 
 /**
- * ts-node, the copy under apps/api — resolved, never fetched.
+ * The compiled importer, `apps/api/dist/osm/import-spots.js` — found, never
+ * built and never fetched.
  *
- * 🔴 This was `npx ts-node …`, and npx will go to a registry for a
- * package it cannot find: measured 16.10.2026 on npm 10.9.8,
- * `npx --no <a package that does not exist>` still ASKED the registry
- * ("404 … is not in this registry") before giving up. On a server where
- * nothing may be installed, a missing devDependency must be an error that
- * names it, not a download.
+ * 🔴 This was `npx ts-node src/osm/import-spots.ts …`, and it needed ts-node,
+ * a devDependency. Measured on the server 16.10.2026 (release 1581656):
+ * `node_modules/ts-node` is NOT there, `typescript` is, and the deploy has
+ * already compiled `dist/osm/import-spots.js`. Worse, `npx` goes to a
+ * registry for a package it cannot find (npm 10.9.8: even `npx --no <a
+ * package that does not exist>` still ASKED the registry — "404 … is not in
+ * this registry" — before giving up), so on that machine it would have
+ * tried to install the one thing this card says may not be installed.
+ *
+ * The compiled file is a complete entry point: import-spots.ts guards its
+ * `main()` with `require.main === module` and reads the country and the
+ * table from process.argv[2] and [3], exactly as ts-node passed them.
+ *
+ * A missing file stops the run, by name, before the first download.
  */
 const API_DIR = fileURLToPath(new URL('../../apps/api/', import.meta.url));
-export function tsNodeBin(apiDir = API_DIR) {
+export function importerPath(apiDir = API_DIR) {
+  const file = join(apiDir, 'dist', 'osm', 'import-spots.js');
+  let present = false;
   try {
-    return createRequire(join(apiDir, 'package.json')).resolve('ts-node/dist/bin.js');
+    present = statSync(file).isFile();
   } catch {
+    // not there
+  }
+  if (!present) {
     throw new Error(
-      `ts-node is not installed under ${apiDir} — it is a devDependency of apps/api. ` +
-        'This script does not install packages; run `npm ci --workspace=apps/api` there.',
+      `the compiled importer is missing: ${file}\n` +
+        '  Build the API first (`npm run build --workspace=apps/api`). This script does not ' +
+        'compile, install or download anything.',
     );
   }
+  return file;
 }
 
 const run = (cmd, argv, opts = {}) =>
@@ -1103,6 +1120,26 @@ const run = (cmd, argv, opts = {}) =>
 /** A promise that gives up after `ms`, so a hung case is a failed case. */
 const within = (ms, p) =>
   Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`did not finish in ${ms} ms`)), ms).unref())]);
+
+/**
+ * A copy of this very file at <dir>/scripts/osm-pipeline/copy.mjs, with its
+ * two sibling imports pointed at the real ones — so that it runs from a
+ * temporary tree, and so that `../../apps/api/` is a path inside that tree.
+ */
+function copyOfThisFile(dir, edit = (text) => text) {
+  const sibling = (rel) => JSON.stringify(new URL(rel, import.meta.url).href);
+  const copy = join(dir, 'scripts', 'osm-pipeline', 'copy.mjs');
+  mkdirSync(dirname(copy), { recursive: true });
+  writeFileSync(
+    copy,
+    edit(
+      readFileSync(new URL(import.meta.url), 'utf8')
+        .replace("'../lib/entrypoint.mjs'", sibling('../lib/entrypoint.mjs'))
+        .replace("'../ci/check-eu-scope.mjs'", sibling('../ci/check-eu-scope.mjs')),
+    ),
+  );
+  return copy;
+}
 
 async function selfTest() {
   const checks = [];
@@ -1757,29 +1794,87 @@ async function selfTest() {
     }
   }
 
-  // ── CAMP-332: ts-node is resolved, never fetched ──
+  // ── CAMP-332: the compiled importer is found, never built or fetched ──
   {
     const dir = mkdtempSync(join(tmpdir(), 'camptribe-api-'));
-    writeFileSync(join(dir, 'package.json'), '{"name":"x"}');
-    ok('a missing ts-node is an error that names it and says nothing is installed here', (() => {
+    const wanted = join(dir, 'dist', 'osm', 'import-spots.js');
+    ok('a missing compiled importer is an error that names the file and says to build the API', (() => {
       try {
-        tsNodeBin(dir);
+        importerPath(dir);
         return false;
       } catch (e) {
-        return /ts-node/.test(e.message) && /does not install packages/.test(e.message);
+        return e.message.includes(wanted) && /Build the API first/.test(e.message) && /does not\s+compile, install or download/.test(e.message.replace(/\n\s*/g, ' '));
       }
     })());
-    const bin = join(dir, 'node_modules', 'ts-node', 'dist', 'bin.js');
-    mkdirSync(join(dir, 'node_modules', 'ts-node', 'dist'), { recursive: true });
-    writeFileSync(join(dir, 'node_modules', 'ts-node', 'package.json'), '{"name":"ts-node","version":"0.0.0"}');
-    writeFileSync(bin, '');
-    ok('a ts-node under the directory is found, as a path', realpathSync(tsNodeBin(dir)) === realpathSync(bin));
+    mkdirSync(join(dir, 'dist', 'osm', 'import-spots.js'), { recursive: true });
+    ok('a DIRECTORY with that name is not an importer', (() => {
+      try {
+        importerPath(dir);
+        return false;
+      } catch (e) {
+        return e.message.includes(wanted);
+      }
+    })());
+    rmSync(wanted, { recursive: true });
+    writeFileSync(wanted, '');
+    ok('the compiled importer under the directory is found, as that path', importerPath(dir) === wanted);
+    ok('only dist/osm/import-spots.js counts: the TypeScript source beside it does not', (() => {
+      const other = mkdtempSync(join(tmpdir(), 'camptribe-api-src-'));
+      mkdirSync(join(other, 'src', 'osm'), { recursive: true });
+      writeFileSync(join(other, 'src', 'osm', 'import-spots.ts'), '');
+      try {
+        importerPath(other);
+        return false;
+      } catch (e) {
+        return e.message.includes(join(other, 'dist', 'osm', 'import-spots.js'));
+      } finally {
+        rmSync(other, { recursive: true, force: true });
+      }
+    })());
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // 🔴 THE REAL ENTRY POINT, run as a child: with no compiled importer the
+  // script must stop before it downloads anything — non-zero exit, and the
+  // missing path in what it printed. A COPY of this file is run from a
+  // temporary tree whose `../../apps/api` has no dist; PATH holds only the
+  // directory of this Node, so neither psql nor anything else can answer
+  // first, and the order of the two pre-flight checks is part of what is
+  // tested (the file is looked for before the process is started).
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'camptribe-nodist-'));
+    const real = realpathSync(dir);
+    const copy = copyOfThisFile(dir);
+    const nodeOnly = { PATH: dirname(process.execPath) };
+    ok('with no compiled importer the script exits non-zero, names the path, and says how to build it', (() => {
+      try {
+        run('node', [copy, '--tag', 'osm-2026-10-16', 'mt'], { env: nodeOnly });
+        return false;
+      } catch (e) {
+        const said = `${e.stdout}${e.stderr}`;
+        return typeof e.status === 'number' && e.status !== 0 &&
+          said.includes(join(real, 'apps', 'api', 'dist', 'osm', 'import-spots.js')) && /npm run build --workspace=apps\/api/.test(said);
+      }
+    })());
+    mkdirSync(join(real, 'apps', 'api', 'dist', 'osm'), { recursive: true });
+    writeFileSync(join(real, 'apps', 'api', 'dist', 'osm', 'import-spots.js'), '');
+    ok('with the importer present and no psql the same entry point stops on psql instead', (() => {
+      try {
+        run('node', [copy, '--tag', 'osm-2026-10-16', 'mt'], { env: nodeOnly });
+        return false;
+      } catch (e) {
+        const said = `${e.stdout}${e.stderr}`;
+        return typeof e.status === 'number' && e.status !== 0 && /psql is not installed/.test(said) && !/compiled importer is missing/.test(said);
+      }
+    })());
     rmSync(dir, { recursive: true, force: true });
   }
   ok('preflight names a missing psql before anything is downloaded', (() => {
     const dir = mkdtempSync(join(tmpdir(), 'camptribe-nopsql-'));
+    mkdirSync(join(dir, 'dist', 'osm'), { recursive: true });
+    writeFileSync(join(dir, 'dist', 'osm', 'import-spots.js'), '');
     try {
-      preflight({ env: { PATH: dir } });
+      preflight({ env: { PATH: dir }, apiDir: dir });
       return false;
     } catch (e) {
       return /psql is not installed/.test(e.message);
@@ -1816,16 +1911,8 @@ async function selfTest() {
   if (process.env.IMPORT_RELEASE_SELFTEST_CHILD === undefined) {
     ok('a self-test that has a failure exits 1', await (async () => {
       const dir = mkdtempSync(join(tmpdir(), 'camptribe-selfexit-'));
-      const sibling = (rel) => JSON.stringify(new URL(rel, import.meta.url).href);
-      const copy = join(dir, 'copy.mjs');
-      writeFileSync(
-        copy,
-        readFileSync(new URL(import.meta.url), 'utf8')
-          // (anchored to the start of a line: this very line also spells the pattern)
-          .replace(/^(\s*)const EXPECTED_CASES = \d+;/m, '$1const EXPECTED_CASES = 99999;')
-          .replace("'../lib/entrypoint.mjs'", sibling('../lib/entrypoint.mjs'))
-          .replace("'../ci/check-eu-scope.mjs'", sibling('../ci/check-eu-scope.mjs')),
-      );
+      // (anchored to the start of a line: this very line also spells the pattern)
+      const copy = copyOfThisFile(dir, (t) => t.replace(/^(\s*)const EXPECTED_CASES = \d+;/m, '$1const EXPECTED_CASES = 99999;'));
       try {
         run('node', [copy, '--self-test'], { env: { PATH: process.env.PATH, IMPORT_RELEASE_SELFTEST_CHILD: '1' } });
         return false;
@@ -1975,7 +2062,7 @@ async function selfTest() {
   // judge. Those whose first argument is a name held in a variable it
   // cannot, and that blind spot is written down in the comment further up;
   // here it is also PINNED: the variable launches are exactly the wrapper
-  // itself and the ts-node call, and a third one fails this until a person
+  // itself and the importer call, and a third one fails this until a person
   // has looked at it.
   const LAUNCH = /(?:execFileSync|execFile|spawnSync|spawn|run)\s*\(\s*([^,)\s][^,)]*)/g;
   const launches = [...source.matchAll(LAUNCH)].map((m) => m[1].trim());
@@ -2041,7 +2128,7 @@ async function selfTest() {
   // records that `--self-test` printed "73/73 passed" for a week while
   // the import had not started at all — the number was never the
   // question, the line's owner was.
-  const EXPECTED_CASES = 169;
+  const EXPECTED_CASES = 173;
   if (checks.length !== EXPECTED_CASES) {
     failed += 1;
     console.log(`✗ ${checks.length} cases ran, expected ${EXPECTED_CASES}`);
@@ -2453,14 +2540,13 @@ async function selfTestDb() {
     // ── the pre-flight, with the real psql ──────────────────────────────
     {
       const fake = mkdtempSync(join(tmpdir(), 'camptribe-fakeapi-'));
-      mkdirSync(join(fake, 'node_modules', 'ts-node', 'dist'), { recursive: true });
-      writeFileSync(join(fake, 'package.json'), '{"name":"x"}');
-      writeFileSync(join(fake, 'node_modules', 'ts-node', 'package.json'), '{"name":"ts-node","version":"0.0.0"}');
-      writeFileSync(join(fake, 'node_modules', 'ts-node', 'dist', 'bin.js'), '');
+      mkdirSync(join(fake, 'dist', 'osm'), { recursive: true });
+      writeFileSync(join(fake, 'dist', 'osm', 'import-spots.js'), '');
       const pf = preflight({ env: process.env, apiDir: fake });
-      ok('preflight reports the psql version and where ts-node is', /^psql \(PostgreSQL\) \d+/.test(pf.psql) && pf.tsNode.endsWith('ts-node/dist/bin.js'), JSON.stringify(pf));
-      ok('preflight refuses a machine that has psql but no ts-node',
-        (() => { try { preflight({ env: process.env, apiDir: dir }); return false; } catch (e) { return /ts-node/.test(e.message); } })());
+      ok('preflight reports the psql version and where the compiled importer is',
+        /^psql \(PostgreSQL\) \d+/.test(pf.psql) && pf.importer === join(fake, 'dist', 'osm', 'import-spots.js'), JSON.stringify(pf));
+      ok('preflight refuses a machine that has psql but no compiled importer, and names the file',
+        (() => { try { preflight({ env: process.env, apiDir: dir }); return false; } catch (e) { return e.message.includes(join(dir, 'dist', 'osm', 'import-spots.js')); } })());
       rmSync(fake, { recursive: true, force: true });
     }
   } catch (err) {
@@ -2558,11 +2644,15 @@ export function makeWorkDir() {
 
 /**
  * What this run needs from the machine, checked BEFORE anything is
- * downloaded: `psql`, and ts-node under apps/api. A server missing one of
- * them should say so in the first second, not after the first country's
- * download — and must never answer by fetching it.
+ * downloaded: the compiled importer under apps/api, and `psql`. A server
+ * missing one of them should say so in the first second, not after the first
+ * country's download — and must never answer by fetching or building it.
+ *
+ * The file is looked for FIRST: it costs no process, and it is the one the
+ * deploy can leave out.
  */
 export function preflight({ env = process.env, apiDir = API_DIR } = {}) {
+  const importer = importerPath(apiDir);
   let psql;
   try {
     psql = run('psql', ['--version'], { env }).trim();
@@ -2571,12 +2661,12 @@ export function preflight({ env = process.env, apiDir = API_DIR } = {}) {
       err.code === 'ENOENT' ? 'psql is not installed or not on PATH' : `psql does not run: ${err.message.split('\n')[0]}`,
     );
   }
-  return { psql, tsNode: tsNodeBin(apiDir) };
+  return { psql, importer };
 }
 
 async function main() {
-  const { psql, tsNode } = preflight();
-  console.log(`${psql}; ts-node at ${tsNode}`);
+  const { psql, importer } = preflight();
+  console.log(`${psql}; importer ${importer}`);
 
   const tag = opt('tag') ?? (await latestTag());
   if (!tag) throw new Error('no release found');
@@ -2607,11 +2697,13 @@ async function main() {
         const loaded = await loadStaging({ table: STAGING, gz, db: DB });
         process.stdout.write(`${loaded.staged} staged${loadNotes(loaded)} … `);
 
-        // Run with this very Node and the ts-node copy that preflight
-        // found: no registry, no PATH lookup. DATABASE_URL goes through
-        // the environment, never the argument list.
+        // Run with this very Node and the compiled importer that preflight
+        // found: no ts-node, no registry, no PATH lookup. The working
+        // directory is apps/api, where the importer's `dotenv` looks for a
+        // .env. DATABASE_URL goes through the environment, never the
+        // argument list.
         const out = run(process.execPath, [
-          tsNode, 'src/osm/import-spots.ts', code.toUpperCase(), STAGING,
+          importer, code.toUpperCase(), STAGING,
         ], { cwd: API_DIR, env: { ...process.env, DATABASE_URL: DB } });
 
         const line = out.split('\n').find((l) => /inserted|updated/i.test(l))?.trim();
