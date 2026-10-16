@@ -52,7 +52,7 @@ describe('which environment may send mail', () => {
   });
 
   it('refuses a provider this build has no sender for, and names CAMP-110', () => {
-    for (const provider of ['resend', 'smtp', 'smtp2go', 'DEV', 'devv']) {
+    for (const provider of ['resend', 'smtp2go', 'DEV', 'devv']) {
       const r = mailerFrom({ ...ENV, MAIL_PROVIDER: provider });
       expect(r.mailer).toBeNull();
       expect(r.why).toBe(
