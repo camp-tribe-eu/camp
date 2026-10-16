@@ -38,7 +38,7 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-deploy-selftest.XXXXXX")"
 cleanup_all() { stop_world; rm -rf "$BASE"; }
 trap cleanup_all EXIT
 trap 'exit 130' INT TERM
-EXPECTED=133
+EXPECTED=134
 PASSED=0
 FAILED=0
 pass() { echo "  ✓ $1"; PASSED=$((PASSED + 1)); }
@@ -811,6 +811,20 @@ X deploy --sha "$SHA1" --apply
 if [ $RC -eq 0 ] && echo "$OUT" | grep -q 'збирати не треба' && ! calls_have '^npm (ci|run)' && [ "$(running_from web)" = "$S1" ]; then
   pass "реліз уже збудований: деплой лише перемикає (жодного npm), процеси на $S1"
 else fail "реліз уже збудований: деплой лише перемикає (жодного npm), процеси на $S1" "rc=$RC $(mutating_calls) $OUT"; fi
+
+new_world h_camp340
+# 🔴 Сценарій рецензента: гілка `reuse=yes` не кличе build_web, отже
+# обходить замок у ньому. Без другого замка `deploy` на вже зібраний
+# реліз перемикав current на збірку без адреси API й виходив НУЛЕМ.
+X deploy --sha "$SHA1" --apply >/dev/null; X rollback --apply >/dev/null; : > "$W/calls"
+# реліз лишається «зібраним», але його статика більше не несе адреси —
+# рівно так виглядає все, що зібрано до CAMP-340
+printf 'var API="";\n' > "$W/root/releases/$S1/apps/web/.next/static/chunks/main.js"
+X deploy --sha "$SHA1" --apply
+if [ $RC -ne 0 ] && [ "$(readlink "$W/root/current")" = "releases/$S0" ] && ! calls_have '^systemctl restart' \
+   && printf '%s' "$OUT" | grep -q 'NEXT_PUBLIC_API_BASE_URL'; then
+  pass "деплой на ВЖЕ ЗІБРАНИЙ реліз без адреси API: відмова до перемикання, current не рушив, змінну названо"
+else fail "деплой на ВЖЕ ЗІБРАНИЙ реліз без адреси API: відмова до перемикання, current не рушив, змінну названо" "rc=$RC current=$(readlink "$W/root/current") $(mutating_calls) $OUT"; fi
 
 new_world h2
 mkdir -p "$W/root/releases/$S1"; git -C "$W/root/releases/$S1" init -q; git -C "$W/root/releases/$S1" remote add origin "$REPO"; echo junk > "$W/root/releases/$S1/junk"

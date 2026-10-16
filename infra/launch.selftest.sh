@@ -24,7 +24,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LAUNCH="${CAMPTRIBE_LAUNCH_BIN:-$HERE/bin/camptribe-launch}"
-EXPECTED=34
+EXPECTED=35
 
 [ -f "$LAUNCH" ] || { echo "немає $LAUNCH" >&2; exit 1; }
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-launch-selftest.XXXXXX")"
@@ -140,21 +140,41 @@ case "$URL" in
     # вимір на машині; це тут для того, щоб видалення маршруту не минало
     # мовчки.
     if [ "$CODE" = 200 ]; then
-      UP=$(awk -v want="$PATHPART" '
-        /^[[:space:]]*handle_path[[:space:]]/ { pat=$2; up=""; inblk=1; next }
+      # 🔴 НАЙДОВШИЙ ЗБІГ, А НЕ ПЕРШИЙ. Caddy сортує маршрути й віддає
+      # запит ВУЖЧОМУ path-матчеру (той самий `sortRoutes`, яким
+      # `handle_path` опиняється перед `handle`). Перша редакція цього
+      # розбірника брала перший за порядком рядків: щойно хтось додав би
+      # вужчий `/api/auth/*` під наявний `/api/*`, підмінник назвав би
+      # старий порт, а випадок лишився б зеленим над іншим маршрутом.
+      #
+      # 🔴 Префікс для зрізання теж ВИВОДИТЬСЯ з матчера, а не зашитий як
+      # `/api`: зашитий був переказом семантики handle_path, тобто жив би
+      # правильно лише доти, доки ніхто не перейменує шлях.
+      R=$(awk -v want="$PATHPART" '
+        /^[[:space:]]*handle_path[[:space:]]/ {
+          np=0; for (i=2; i<NF; i++) pats[++np]=$i   # остання лексема — "{"
+          up=""; inblk=1; next
+        }
         inblk && match($0, /127\.0\.0\.1:[0-9]+/) { up=substr($0, RSTART, RLENGTH) }
         inblk && /^[[:space:]]*}[[:space:]]*$/ {
-          if (pat != "" && up != "") {
-            n=length(pat)
-            if (substr(pat,n,1) == "*") {
-              pre=substr(pat,1,n-1)
-              if (substr(want,1,length(pre)) == pre) { print up; exit }
-            } else if (want == pat) { print up; exit }
+          if (up != "") for (i=1; i<=np; i++) {
+            pp=pats[i]; n=length(pp)
+            if (substr(pp,n,1) == "*") {
+              pre=substr(pp,1,n-1)
+              if (substr(want,1,length(pre)) == pre && length(pre) > bestlen) {
+                bestlen=length(pre); best=up; bestpre=pre
+              }
+            } else if (want == pp && n > bestlen) { bestlen=n; best=up; bestpre=pp }
           }
-          inblk=0; pat=""; up=""
+          inblk=0; np=0; up=""
         }
+        END { if (best != "") { sub(/\/$/, "", bestpre); print best "\t" bestpre } }
       ' "$CADDYFILE_PATH" 2>/dev/null)
-      [ -z "$UP" ] || BODY="API@$UP${PATHPART#/api}"
+      if [ -n "$R" ]; then
+        UP="${R%%	*}"; PRE="${R##*	}"
+        REST="${PATHPART#"$PRE"}"; [ -n "$REST" ] || REST=/
+        BODY="API@$UP$REST"
+      fi
     fi ;;
   *) exit 6 ;;
 esac
@@ -306,6 +326,26 @@ B_ACC=$("$STUB/curl" -s "https://camptribe.eu/api/account/export")
 B_ACME=$("$STUB/curl" -s "https://camptribe.eu/.well-known/acme-challenge/x")
 [ "$G_ROOT" = 401 ] && [ "$G_SPOTS" = 401 ] && [ "$G_GUIDES" = 401 ] && [ "$G_AUTH" = 200 ] && [ "$G_ACC" = 200 ] && [ "$G_ACME" = 200 ] && [ "$B_AUTH" = 'API@127.0.0.1:3001/auth/login' ] && [ "$B_ACC" = 'API@127.0.0.1:3001/account/export' ] && [ "${B_ACME#API@}" = "$B_ACME" ]
 ok $? 'закрито: /, /api/spots і /api/guides під паролем; /api/auth/* і /api/account/* ідуть на 127.0.0.1:3001 зі зрізаним /api; acme віддає веб' "/=$G_ROOT spots=$G_SPOTS guides=$G_GUIDES auth=$G_AUTH account=$G_ACC acme=$G_ACME auth-тіло='$B_AUTH' acc-тіло='$B_ACC' acme-тіло='$B_ACME'"
+
+# 🔴 Вірність розбірника маршрутів: перекриття «загальний вище за вузький».
+# У нашому Caddyfile один handle_path, тож без цього випадку правило
+# «найдовший збіг» не проганяє ніхто — а саме на ньому підмінник і Caddy
+# розходились: перший брав перший за порядком рядків, другий — вужчий
+# матчер. Синтетичний конфіг, бо предмет перевірки тут сам розбірник.
+echo '— розбірник маршрутів: вужчий handle_path виграє в ширшого'
+OVER="$BASE/Caddyfile.overlap"
+{ printf 'camptribe.eu {\n\timport %s\n\n' "$CADDY/gate.conf"
+  printf '\thandle_path /api/* {\n\t\treverse_proxy 127.0.0.1:3001\n\t}\n\n'
+  printf '\thandle_path /api/auth/* {\n\t\treverse_proxy 127.0.0.1:3002\n\t}\n\n'
+  printf '\thandle {\n\t\treverse_proxy 127.0.0.1:3000\n\t}\n}\n'; } > "$OVER"
+O_AUTH=$(CADDYFILE_PATH="$OVER" "$STUB/curl" -s "https://camptribe.eu/api/auth/login")
+O_ACC=$(CADDYFILE_PATH="$OVER" "$STUB/curl" -s "https://camptribe.eu/api/account/export")
+# 🔴 Зрізається префікс ТОГО блоку, що виграв: `handle_path /api/auth/*`
+# знімає `/api/auth`, тож апстрім бачить `/login`, а не `/auth/login`.
+# Перша редакція цього випадку чекала `/auth/login` — помилка була в
+# очікуванні, і знайшов її сам випадок, а не код.
+[ "$O_AUTH" = 'API@127.0.0.1:3002/login' ] && [ "$O_ACC" = 'API@127.0.0.1:3001/account/export' ]
+ok $? 'перекриття маршрутів: /api/auth/* бере вужчий блок (3002) і зрізає СВІЙ префікс; /api/account/* лишається на ширшому (3001)' "auth='$O_AUTH' account='$O_ACC'"
 
 echo '— збірка мовчить (Next лежить)'
 : > "$WEB_DOWN"; : > "$CADDY_LOG"
