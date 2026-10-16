@@ -24,7 +24,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LAUNCH="${CAMPTRIBE_LAUNCH_BIN:-$HERE/bin/camptribe-launch}"
-EXPECTED=33
+EXPECTED=34
 
 [ -f "$LAUNCH" ] || { echo "немає $LAUNCH" >&2; exit 1; }
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-launch-selftest.XXXXXX")"
@@ -109,10 +109,20 @@ case "$URL" in
     emit_build
     GATE_NOW="$(readlink -f "$GATE_PATH" 2>/dev/null || echo none)"
     if [ "$GATE_NOW" = "$(readlink -f "$GATE_CLOSED_PATH" 2>/dev/null)" ] || [ -e "$CF_STALE" ]; then
-      case "$PATHPART" in
-        /.well-known/acme-challenge/*) : ;;
-        *) CODE=401; HDR='HTTP/1.1 401 Unauthorized'; BODY='' ;;
-      esac
+      # 🔴 ПЕРЕЛІК ВИНЯТКІВ ЧИТАЄТЬСЯ З СПРАВЖНЬОГО gate-closed.conf, А НЕ
+      # ПЕРЕКАЗУЄТЬСЯ ТУТ. Доки він був переписаний у цьому case, підмінник
+      # і конфіг могли розійтись: додаєш виняток у конфіг — самотест і далі
+      # каже 401 і «ловить» неіснуючу аварію; прибираєш — не ловить
+      # справжню. Тепер двійника немає.
+      EXEMPT=$(sed -n 's/^@needs-password not path //p' "$GATE_CLOSED_PATH" 2>/dev/null)
+      # Порожньо = файл не прочитався. Це провал, а не «винятків немає»:
+      # інакше «не виміряли» виглядало б як «усе під паролем, як і треба».
+      [ -n "$EXEMPT" ] || { echo "підмінник curl: не прочитав винятки з $GATE_CLOSED_PATH" >&2; exit 23; }
+      HIT=0
+      for pat in $EXEMPT; do
+        case "$PATHPART" in $pat) HIT=1; break ;; esac
+      done
+      [ "$HIT" = 1 ] || { CODE=401; HDR='HTTP/1.1 401 Unauthorized'; BODY=''; }
     fi ;;
   *) exit 6 ;;
 esac
@@ -246,6 +256,19 @@ run status
 [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'gate.conf              : чуже'
 ok $? 'чужа ціль gate.conf: названа «чуже», і стан не цілісний' "rc=$RC $OUT"
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+
+echo '— що саме виходить з-під пароля, поки закрито (CAMP-340)'
+# 🔴 Рішення власника 16.10.2026: з-під пароля виходять ЛИШЕ /api/auth/*
+# і /api/account/*, бо браузер не може надіслати basic-auth до API
+# (`credentials: 'omit'`), і без цього акаунти не перевірити до відкриття.
+# Випадок питає ОБИДВІ сторони: що виняток працює І що він вузький —
+# перелік, який пускає все, задовольнив би половину тверджень.
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+gcode() { "$STUB/curl" -s -o /dev/null -w '%{http_code}' "https://camptribe.eu$1"; }
+G_ROOT=$(gcode /); G_SPOTS=$(gcode /api/spots); G_GUIDES=$(gcode /api/guides)
+G_AUTH=$(gcode /api/auth/login); G_ACC=$(gcode /api/account/export); G_ACME=$(gcode /.well-known/acme-challenge/x)
+[ "$G_ROOT" = 401 ] && [ "$G_SPOTS" = 401 ] && [ "$G_GUIDES" = 401 ]   && [ "$G_AUTH" = 200 ] && [ "$G_ACC" = 200 ] && [ "$G_ACME" = 200 ]
+ok $? 'закрито: / , /api/spots і /api/guides під паролем; /api/auth/*, /api/account/* і acme — ні'   "/=$G_ROOT spots=$G_SPOTS guides=$G_GUIDES auth=$G_AUTH account=$G_ACC acme=$G_ACME"
 
 echo '— збірка мовчить (Next лежить)'
 : > "$WEB_DOWN"; : > "$CADDY_LOG"
