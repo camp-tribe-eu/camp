@@ -109,7 +109,9 @@ export async function call(
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
-      // Ні cookie, ні заголовка Authorization: API так само налаштоване.
+      // Ці запити не несуть ні cookie, ні Authorization. (З CAMP-229 API
+      // дозволяє заголовок Authorization — але лише для GET /auth/me, який шле
+      // lib/cabinet.ts; сюди його ніщо не додає.)
       credentials: 'omit',
     });
     let body: unknown = null;

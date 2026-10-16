@@ -1,8 +1,11 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { DEFAULT_LIMIT, LOGIN_LIMIT, bucketOf } from '../throttle';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
-import { AuthService } from './auth.service';
+import { AccountService } from './account.service';
+import { AuthController } from './auth.controller';
+import { AuthService, type Profile } from './auth.service';
 import { hashPassword, looksLikeStoredHash } from './password';
 import { expiryFrom, tokenHash } from './session';
 
@@ -414,5 +417,57 @@ describe('profile', () => {
   it('is null when the account is gone, not an error and not an empty profile', async () => {
     const { service } = serviceFor(null);
     expect(await service.profile(USER_ID)).toBeNull();
+  });
+});
+
+// ── CAMP-229: the route in front of it ────────────────────────────────────
+//
+// 🔴 THE TWO REFUSAL BRANCHES, one by one. Over HTTP the second of them cannot
+// be reached: `sessions.user_id` cascades on delete, so a session without an
+// account does not exist in a real database, and `account.db.spec.ts` can only
+// ever exercise the first. A controller line that nothing can reach is a line
+// that can be deleted without a single test noticing — and the card's sentence
+// is "401, not an empty object".
+
+describe('GET /auth/me, the controller alone', () => {
+  const PROFILE: Profile = {
+    email: 'anna@example.com',
+    displayName: 'Anna',
+    emailVerified: true,
+  };
+  const NO_SESSION = { code: 'no_session', message: 'You are not signed in.' };
+
+  const controllerFor = (profile: Profile | null) => {
+    const auth = { profile: jest.fn().mockResolvedValue(profile) };
+    return {
+      auth,
+      controller: new AuthController(
+        auth as unknown as AuthService,
+        {} as AccountService,
+      ),
+    };
+  };
+
+  it('answers the profile for a viewer whose account exists', async () => {
+    const { auth, controller } = controllerFor(PROFILE);
+    await expect(controller.me({ id: USER_ID })).resolves.toEqual(PROFILE);
+    expect(auth.profile).toHaveBeenCalledWith(USER_ID);
+  });
+
+  it('refuses nobody with the 401 body, and never asks for a profile', async () => {
+    const { auth, controller } = controllerFor(PROFILE);
+    const err = await controller.me(null).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnauthorizedException);
+    expect((err as UnauthorizedException).getStatus()).toBe(401);
+    expect((err as UnauthorizedException).getResponse()).toEqual(NO_SESSION);
+    expect(auth.profile).not.toHaveBeenCalled();
+  });
+
+  it('refuses a viewer whose account is gone with the same 401, not a 200 with null', async () => {
+    const { controller } = controllerFor(null);
+    const err = await controller.me({ id: USER_ID }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnauthorizedException);
+    expect((err as UnauthorizedException).getStatus()).toBe(401);
+    expect((err as UnauthorizedException).getResponse()).toEqual(NO_SESSION);
   });
 });

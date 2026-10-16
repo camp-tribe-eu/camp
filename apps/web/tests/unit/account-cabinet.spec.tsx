@@ -7,7 +7,6 @@ import {
   CabinetErrorView,
   CabinetView,
   CheckingView,
-  EMPTY_STATES,
   SignedOutView,
 } from '@/components/account-cabinet-view';
 import { LoginDoneView, SignupDoneView } from '@/components/account-view';
@@ -23,8 +22,9 @@ import { visibleText } from './rendered-text';
 // клас, не `data-testid`, не `sr-only`. «Порожній стан читається» означає, що
 // ТЕКСТ, який бачить людина, дорівнює рядку з макета (перекладеному, див.
 // docs/design-audit.md §6.7), а не що в розмітці є елемент. Масив `EMPTY_STATES`
-// імпортується лише для адрес кнопок у e2e; ТУТ очікувані рядки написано
-// руками, щоб тест не перевіряв компонент його ж даними.
+// читає лише e2e (щоб довести, що до відповіді сервера жоден заголовок не
+// виданий); ТУТ очікувані рядки написано руками, щоб тест не перевіряв
+// компонент його ж даними.
 
 const ANNA: Profile = { email: 'anna@example.com', displayName: 'Anna', emailVerified: true };
 const NO_NAME: Profile = { email: 'kim@example.com', displayName: null, emailVerified: false };
@@ -140,14 +140,6 @@ test.describe('🔴 порожні стани: той текст, що в мак
     const hrefs = links(html).map((l) => l.href);
     expect(hrefs.slice().sort()).toEqual(['/map', '/plan', '/routes']);
     for (const href of hrefs) expect(existsSync(join(app, href, 'page.tsx')), href).toBe(true);
-  });
-
-  test('виданий текст порожніх станів дорівнює тому, що імпортує e2e (EMPTY_STATES)', () => {
-    // Те, що перевіряє e2e на «адреси відкриваються», — те, що намальовано.
-    const drawn = empties.map((s) => ({
-      href: s.links.map((l) => l.href),
-    }));
-    expect(drawn).toEqual(EMPTY_STATES.map((s) => ({ href: s.actions.map((a) => a.href) })));
   });
 });
 
