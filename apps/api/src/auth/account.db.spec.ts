@@ -1260,6 +1260,77 @@ describe('🔴 GET /auth/me — who the account page is talking to', () => {
     expect((await get('/auth/me', res.json.token)).status).toBe(401);
   });
 
+  // 🔴 THE REFUSAL NOTHING ELSE REACHES: a session that is still live, for an
+  // account that is not. `sessions.user_id` cascades on delete, so in a
+  // database as migrated this state cannot arise — a deleted account takes its
+  // sessions with it and the first line of the handler answers instead. That
+  // is why the controller line that answers THIS state could be deleted, or
+  // given another body, without a single wire-level test noticing (the unit
+  // test in `auth.spec.ts` sees the exception, not the response).
+  //
+  // So the state is built by hand, in this file's own scratch database: the
+  // constraint is read back out of the catalog, dropped, the account deleted,
+  // and the constraint put back exactly as it was in `finally`, so a failing
+  // assertion cannot leave the later tests running on a schema that differs
+  // from production. The two facts that make the request reach the second
+  // line — the session row is there, the account row is not — are asserted
+  // from the table before it is sent: without them this test would pass
+  // through the FIRST line (no viewer) and prove nothing about the second.
+  //
+  // The answer is compared with the one a caller with no credential gets, on
+  // the wire: status, every byte of the body, every header but the clock. One
+  // answer for every reason is the property; a body of its own for "the
+  // account is gone" would tell a guesser that a token was once real.
+  it('refuses a live session whose account is gone with the very same 401 as nobody at all', async () => {
+    const { res } = await register();
+    const token = res.json.token as string;
+    expect((await get('/auth/me', token)).status).toBe(200);
+    const nobody = await get('/auth/me');
+    expect(nobody.status).toBe(401);
+
+    const fks = (
+      await db.query(
+        `SELECT conname, pg_get_constraintdef(oid) AS def
+           FROM pg_constraint
+          WHERE conrelid = 'sessions'::regclass
+            AND confrelid = 'users'::regclass
+            AND contype = 'f'`,
+      )
+    ).rows;
+    expect(fks).toHaveLength(1);
+    const { conname, def } = fks[0] as { conname: string; def: string };
+
+    let gone: Reply;
+    await db.query(`ALTER TABLE sessions DROP CONSTRAINT "${conname}"`);
+    try {
+      await db.query('DELETE FROM users WHERE email = $1', [res.json.email]);
+      const stored = await db.query(
+        `SELECT
+           (SELECT count(*) FROM sessions WHERE token_hash = $1)::int AS sessions,
+           (SELECT count(*) FROM users WHERE email = $2)::int AS users`,
+        [sha256(token), res.json.email],
+      );
+      expect(stored.rows[0]).toEqual({ sessions: 1, users: 0 });
+      gone = await get('/auth/me', token);
+    } finally {
+      await db.query(
+        'DELETE FROM sessions WHERE user_id NOT IN (SELECT id FROM users)',
+      );
+      await db.query(`ALTER TABLE sessions ADD CONSTRAINT "${conname}" ${def}`);
+    }
+
+    // Read the wire, not the exception: this is what the page receives.
+    const wire = (r: Reply) =>
+      [...r.headers.entries()]
+        .filter(([name]) => name !== 'date')
+        .sort(([a], [b]) => (a < b ? -1 : 1));
+    expect(gone.status).toBe(401);
+    expect(gone.json).toEqual(NO_SESSION);
+    expect(gone.text).toBe(nobody.text);
+    expect(wire(gone)).toEqual(wire(nobody));
+    expect(gone.headers.get('cache-control')).toBe('no-store');
+  });
+
   // 🔴 READ OFF THE WIRE, on both outcomes. A comment in the controller says
   // the header rides on the refusal too; this is where that sentence is
   // checked rather than believed.
