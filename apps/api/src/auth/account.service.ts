@@ -246,6 +246,21 @@ export class AccountService implements BeforeApplicationShutdown {
   async verifyEmail(rawToken: unknown, now: Date = new Date()): Promise<void> {
     const row = await this.liveToken('verify_email', rawToken, now);
     await this.tokens.manager.transaction(async (m) => {
+      // 🔴 РЯДОК ЛЮДИНИ ПЕРШИЙ, ЯК І ВСЮДИ. Тут цього не було, і доки
+      // підтвердження адреси торкалось лише `verify_email`-рядків, а
+      // скидання — лише `reset_password`-рядків, два набори не
+      // перетинались і це сходило з рук. CAMP-229 їх перетнула:
+      // `confirmEmailChange` бере рядок людини, а потім оновлює чужі
+      // токени, тож ця транзакція й та брали замки навхрест.
+      //
+      // Рецензія відтворила: 30 пар із 30 дали `deadlock detected`
+      // (40P01) і HTTP 500. Правило «спершу рядок людини» тепер діє на
+      // КОЖНОМУ шляху, що пише і в `users`, і в `auth_tokens`, і саме
+      // тому воно більше не залежить від того, які види токенів хто
+      // чіпає.
+      await m.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [
+        row.userId,
+      ]);
       await this.claim(m, row, now);
       // Only if still unconfirmed: the FIRST confirmation is the one worth
       // remembering, and a second link must not move it.
@@ -327,19 +342,31 @@ export class AccountService implements BeforeApplicationShutdown {
       // spent by the first one's "kill the other links" step and answers the
       // same 410 a spent link always answers.
       //
-      // The confirmation path takes a user lock too (after its own token) and
-      // does not deadlock with this one because it only ever touches
-      // `verify_email` links, and this touches only `reset_password` ones: the
-      // two sets of token rows do not meet. `account.db.spec.ts` posts both
-      // kinds, two links each, at once.
+      // 🔴 ЦЕЙ АРГУМЕНТ БУВ ІНШИЙ І ПЕРЕСТАВ БУТИ ПРАВДОЮ. Тут стояло: «шлях
+      // підтвердження не блокується з цим, бо торкається лише
+      // `verify_email`-рядків, а цей — лише `reset_password`». CAMP-229
+      // перетнула набори (зміна пароля тепер гасить УСІ невикористані
+      // посилання людини, бо саме цього чекає той, кого зламали), і той
+      // аргумент мовчки став хибним.
+      //
+      // Тепер гарантія не в тому, ЯКІ рядки хто чіпає, а в тому, що рядок
+      // людини беруть ПЕРШИМ скрізь: `verifyEmail`, `confirmEmailChange`,
+      // `changePassword` і цей шлях. `account.db.spec.ts` кидає обидва види
+      // по два посилання одночасно.
       await m.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [user.id]);
       await this.claim(m, row, now);
       await m.update(User, { id: user.id }, { passwordHash });
-      // Any OTHER reset link we sent this person is dead as well: the reason
-      // to reset is often "somebody else may have my letters".
+      // 🔴 УСІ невикористані посилання цієї людини, А НЕ ЛИШЕ НА СКИДАННЯ.
+      // Тут стояв фільтр `kind: 'reset_password'`, і це був шлях до повного
+      // захоплення акаунта: зловмисник, що мав пароль, просив переїзд на
+      // свою адресу; жертва робила рівно те, що радить кожен («мене
+      // зламали — міняю пароль»), і посилання переїзду лишалось робочим.
+      // Рецензія заміряла: після зміни пароля та після скидання за листом
+      // `change_email`-посилання відповідало 204 і пошта ставала
+      // зловмисниковою. Видалення акаунта робило це правильно від початку.
       await m.update(
         AuthToken,
-        { userId: user.id, kind: 'reset_password', usedAt: IsNull() },
+        { userId: user.id, usedAt: IsNull() },
         { usedAt: now },
       );
       // 🔴 And every session. A reset that leaves the old sessions alive
@@ -415,11 +442,13 @@ export class AccountService implements BeforeApplicationShutdown {
       // Порядок блокувань той самий, що й у `resetWith`: спершу рядок людини.
       await m.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [user.id]);
       await m.update(User, { id: user.id }, { passwordHash });
-      // Невикористані посилання на скидання теж мертві: людина щойно довела,
-      // що памʼятає пароль, а лист міг лежати в чужій скриньці.
+      // 🔴 УСІ невикористані посилання цієї людини — і на скидання, і на
+      // переїзд. Та сама причина, що й у `resetWith`: канонічний засіб
+      // жертви мусить закривати ВСЕ, що вже надіслано, інакше він лікує
+      // половину нападу й залишає другу.
       await m.update(
         AuthToken,
-        { userId: user.id, kind: 'reset_password', usedAt: IsNull() },
+        { userId: user.id, usedAt: IsNull() },
         { usedAt: now },
       );
       await m.delete(Session, { userId: user.id });
@@ -470,13 +499,22 @@ export class AccountService implements BeforeApplicationShutdown {
     // Рішення — після відповіді, як і в `requestLink`: інакше «зайнято» й
     // «вільно» розрізняються часом відповіді, а не її текстом.
     this.later(async () => {
-      if (taken) return;
-      // Одна зміна за раз: попереднє посилання, якщо людина передумала й
-      // ввела іншу адресу, має померти разом із наміром.
+      // 🔴 ІНВАЛІДАЦІЯ ПЕРШОЮ, РІШЕННЯ ДРУГИМ — І ПОРЯДОК ТУТ Є ВСІМ.
+      // Спершу стояло `if (taken) return;`, і зайнята адреса лишала
+      // попереднє посилання ЖИВИМ, а вільна його вбивала. Тіла відповідей
+      // були байт-у-байт однакові, і час теж (заміряно: 166,6 мс проти
+      // 167,4 мс на тлі scrypt) — різниця жила в СТАНІ. Той, хто має свій
+      // акаунт, просив переїзд на власну запасну адресу, не клікав, тоді
+      // просив переїзд на перевірювану, і дивився, чи вціліло перше
+      // посилання: 204 означало «зайнята», 410 — «вільна».
+      //
+      // Тобто мовчання відповіді ще не робить дію мовчазною. Кожна гілка
+      // мусить лишати по собі ОДНАКОВИЙ слід, а не однаковий текст.
       await this.tokens.update(
         { userId: user.id, kind: 'change_email', usedAt: IsNull() },
         { usedAt: now },
       );
+      if (taken) return;
       await this.issue('change_email', user, now, email);
     });
   }

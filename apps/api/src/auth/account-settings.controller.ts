@@ -9,7 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { LOGIN_LIMIT } from '../throttle';
+import { LOGIN_LIMIT, MAIL_LIMIT } from '../throttle';
 import {
   AccountService,
   BadEmail,
@@ -25,6 +25,7 @@ import type { Viewer } from './ownership';
 import { PASSWORD_MESSAGE } from './password-policy';
 
 const LOGIN = { default: LOGIN_LIMIT };
+const MAIL = { default: MAIL_LIMIT };
 
 /** The one body every refusal for "not signed in" gets, as in `GET /auth/me`. */
 const NO_SESSION = {
@@ -132,7 +133,7 @@ export class AccountSettingsController {
    * перелічення, який ми закрили у формах відновлення.
    */
   @Post('email')
-  @Throttle(LOGIN)
+  @Throttle(MAIL)
   @HttpCode(202)
   @Header('Cache-Control', 'no-store')
   async email(@CurrentViewer() viewer: Viewer, @Body() body: unknown) {

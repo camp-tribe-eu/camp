@@ -224,7 +224,7 @@ describe('зміна пароля', () => {
     ).toBe(200);
   });
 
-  it('порожній чинний пароль — 400, і scrypt не кличеться', async () => {
+  it('порожній чинний пароль — 400, і код саме про пароль', async () => {
     const u = await makeUser();
     const r = await post(
       '/account/password',
@@ -402,6 +402,149 @@ describe('зміна пошти', () => {
     expect(
       (await post('/auth/confirm-email-change', { token: live })).status,
     ).toBe(204);
+  });
+});
+
+describe('🔴 сліди, а не лише відповіді', () => {
+  // Рецензія знайшла витік, якого 26 випадків не бачили: `if (taken) return;`
+  // стояв ПЕРЕД інвалідацією, тож зайнята адреса лишала попереднє посилання
+  // живим, а вільна його вбивала. Відповіді були байт-у-байт однакові, і час
+  // теж (166,6 мс проти 167,4 мс). Жоден наявний тест не схрещував дві осі:
+  // один міряв рівність ВІДПОВІДЕЙ на вільну й зайняту, другий — смерть
+  // посилання на двох ВІЛЬНИХ. Цей міряє саме перетин.
+  it('🔴 зайнята ціль вбиває попереднє посилання ТАК САМО, як вільна', async () => {
+    const other = await makeUser();
+
+    const a = await makeUser();
+    const freeFirst = unique();
+    await post(
+      '/account/email',
+      { password: PASSWORD, email: freeFirst },
+      asUser(a.token),
+    );
+    await settle();
+    const aToken = tokenIn(lettersTo(freeFirst, 'change_email')[0]);
+    await post(
+      '/account/email',
+      { password: PASSWORD, email: unique() },
+      asUser(a.token),
+    );
+    await settle();
+
+    const b = await makeUser();
+    const freeSecond = unique();
+    await post(
+      '/account/email',
+      { password: PASSWORD, email: freeSecond },
+      asUser(b.token),
+    );
+    await settle();
+    const bToken = tokenIn(lettersTo(freeSecond, 'change_email')[0]);
+    await post(
+      '/account/email',
+      { password: PASSWORD, email: other.email },
+      asUser(b.token),
+    );
+    await settle();
+
+    const afterFree = await post('/auth/confirm-email-change', {
+      token: aToken,
+    });
+    const afterTaken = await post('/auth/confirm-email-change', {
+      token: bToken,
+    });
+    expect([afterFree.status, afterTaken.status]).toEqual([410, 410]);
+  });
+
+  it('🔴 зміна пароля відкликає вже надіслане посилання переїзду', async () => {
+    const u = await makeUser();
+    const target = unique();
+    await post(
+      '/account/email',
+      { password: PASSWORD, email: target },
+      asUser(u.token),
+    );
+    await settle();
+    const token = tokenIn(lettersTo(target, 'change_email')[0]);
+
+    const changed = await post(
+      '/account/password',
+      { currentPassword: PASSWORD, newPassword: 'a different long password' },
+      asUser(u.token),
+    );
+    expect(changed.status).toBe(200);
+
+    // «Мене зламали — міняю пароль» мусить закривати ВСЕ, що вже
+    // надіслано, інакше лікує половину нападу й лишає другу.
+    expect((await post('/auth/confirm-email-change', { token })).status).toBe(
+      410,
+    );
+    expect(await emailOf(u.email)).toBeTruthy();
+    expect(await emailOf(target)).toBeFalsy();
+  });
+
+  it('🔴 скидання пароля за листом — так само', async () => {
+    const u = await makeUser();
+    const target = unique();
+    await post(
+      '/account/email',
+      { password: PASSWORD, email: target },
+      asUser(u.token),
+    );
+    await settle();
+    const move = tokenIn(lettersTo(target, 'change_email')[0]);
+
+    await post('/auth/forgot', { email: u.email });
+    await settle();
+    const reset = tokenIn(lettersTo(u.email, 'reset_password').at(-1)!);
+    const done = await post('/auth/reset-password', {
+      token: reset,
+      password: 'a fresh long password',
+    });
+    expect(done.status).toBe(204);
+
+    expect(
+      (await post('/auth/confirm-email-change', { token: move })).status,
+    ).toBe(410);
+    expect(await emailOf(u.email)).toBeTruthy();
+  });
+
+  it('🔴 підтвердження адреси й підтвердження переїзду разом не дають 500', async () => {
+    // Рецензія відтворила `deadlock detected` 30 пар із 30: одна транзакція
+    // брала токен і йшла в users, друга брала users і йшла в токени.
+    // Тепер рядок людини беруть ПЕРШИМ скрізь.
+    const work: Promise<number[]>[] = [];
+    for (let i = 0; i < 6; i++) {
+      work.push(
+        (async () => {
+          const email = unique();
+          await post('/auth/signup', { email, password: PASSWORD });
+          await settle();
+          const verify = tokenIn(lettersTo(email, 'verify_email')[0]);
+          const login = await post('/auth/login', {
+            email,
+            password: PASSWORD,
+          });
+          const target = unique();
+          await post(
+            '/account/email',
+            { password: PASSWORD, email: target },
+            asUser(login.json.token),
+          );
+          await settle();
+          const move = tokenIn(lettersTo(target, 'change_email')[0]);
+          const both = await Promise.all([
+            post('/auth/verify-email', { token: verify }),
+            post('/auth/confirm-email-change', { token: move }),
+          ]);
+          return both.map((r) => r.status);
+        })(),
+      );
+    }
+    const got = await Promise.all(work);
+    // Будь-який 500 тут — це взаємне блокування, а не «так буває».
+    for (const pair of got)
+      for (const status of pair) expect(status).toBeLessThan(500);
   });
 });
 
@@ -599,8 +742,11 @@ describe('🔴 auth_tokens_new_email — еквівалентність, а не
   });
 
   it('а правильна пара приймається — інакше ці три нічого не доводять', async () => {
-    await expect(
-      insert('change_email', 'ok@example.com'),
-    ).resolves.toBeTruthy();
+    // 🔴 `INSERT … SELECT … LIMIT 1` на порожній таблиці users повертає
+    // `INSERT 0 0` — успішно і БЕЗ рядка. `toBeTruthy()` цього не
+    // розрізняв, тож позитивний контроль не доводив, що пара приймається.
+    // Питаємо саме кількість.
+    const ok = await insert('change_email', 'ok@example.com');
+    expect(ok.rowCount).toBe(1);
   });
 });

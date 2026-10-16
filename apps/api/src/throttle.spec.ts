@@ -439,8 +439,14 @@ describe('🔴 the login and mail decorators agree with their route lists', () =
     expect(carrying('MAIL')).toEqual([...MAIL_ROUTES].sort());
   });
 
-  it('and the routes it names are the three that can send a letter', () => {
+  // 🔴 CAMP-229 ЗРОБИЛА ЇХ ЧОТИРМА. `account/email` шле лист на вказану
+  // адресу, тож належить сюди, а не до LOGIN_ROUTES, де він спершу й був:
+  // кошик входу вдесятеро щедріший (10 за 60 с проти 10 за 600 с), і
+  // маршрут, що шле листи, там підняв би стелю бомбардування чужої
+  // скриньки з 60 листів на годину до 600.
+  it('and the routes it names are the four that can send a letter', () => {
     expect([...MAIL_ROUTES].sort()).toEqual([
+      'account/email',
       'auth/forgot',
       'auth/resend-verification',
       'auth/signup',
@@ -449,12 +455,14 @@ describe('🔴 the login and mail decorators agree with their route lists', () =
 });
 
 describe('🔴 the mail bucket (CAMP-228)', () => {
-  it.each(['/auth/signup', '/auth/forgot', '/auth/resend-verification'])(
-    'files %s under mail',
-    (path) => {
-      expect(bucketOf(path)).toBe('mail');
-    },
-  );
+  it.each([
+    '/auth/signup',
+    '/auth/forgot',
+    '/auth/resend-verification',
+    '/account/email',
+  ])('files %s under mail', (path) => {
+    expect(bucketOf(path)).toBe('mail');
+  });
 
   // The router is case-insensitive and tolerates a trailing slash and a
   // query, so the bucket must be too — the hole isBulkPath already had.
