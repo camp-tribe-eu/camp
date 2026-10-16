@@ -125,7 +125,19 @@ afterAll(async () => {
   }
 });
 
-afterEach(() => jest.restoreAllMocks());
+/**
+ * Gates a test holds a build open with. 🔴 RELEASED AFTER EVERY TEST, PASS OR FAIL: the
+ * application waits for every build still running when it closes (`drain`, so that no
+ * archive is cut off mid-write), and a test that failed before it reached its own
+ * `release()` would leave a build waiting for ever — the suite would HANG instead of
+ * reporting the failure. A mutation of the staleness rule did exactly that, once.
+ */
+const gates: (() => void)[] = [];
+
+afterEach(() => {
+  for (const release of gates.splice(0)) release();
+  jest.restoreAllMocks();
+});
 
 let callers = 0;
 const nextCaller = () => `198.51.100.${(callers++ % 250) + 1}`;
@@ -301,6 +313,7 @@ const count = async (sql: string, params: unknown[] = []) =>
 function holdBuilds() {
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
+  gates.push(() => release());
   const original = (AccountRightsService.prototype as any).assemble;
   const spy = jest
     .spyOn(rights() as any, 'assemble')
@@ -654,6 +667,7 @@ describe('🔴 the export (Art. 15): a file that opens', () => {
     const p = await person();
     const gate: { release: () => void } = { release: () => undefined };
     const first = new Promise<void>((r) => (gate.release = r));
+    gates.push(() => gate.release());
     const spy = jest
       .spyOn(rights() as any, 'assemble')
       .mockImplementationOnce(async () => {
@@ -678,6 +692,60 @@ describe('🔴 the export (Art. 15): a file that opens', () => {
     gate.release();
     await rights().drain();
     expect(spy).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse((await get('/account/export/file', p.token)).text).who,
+    ).toBe('the new build');
+  });
+
+  // 🔴 THE `requested_at` GUARD, ISOLATED. In the test above the old build finishes
+  // when the newer archive is already READY, and the write's `status = 'preparing'`
+  // alone would refuse it — the request's own stamp is never the deciding clause. Here
+  // the old build finishes while the NEWER request is still being built: the row says
+  // "preparing", the status clause lets the write through, and only the stamp says it is
+  // not this build's row. Without it the old build would mark the row ready with the old
+  // data, and the new build's own write — the row no longer "preparing" — would be dropped.
+  it('an old build that finishes while a newer request is still being built writes nothing', async () => {
+    const p = await person();
+    let releaseOld!: () => void;
+    let releaseNew!: () => void;
+    const oldGate = new Promise<void>((r) => (releaseOld = r));
+    const newGate = new Promise<void>((r) => (releaseNew = r));
+    gates.push(
+      () => releaseOld(),
+      () => releaseNew(),
+    );
+    jest
+      .spyOn(rights() as any, 'assemble')
+      .mockImplementationOnce(async () => {
+        await oldGate;
+        return { who: 'the old build' };
+      })
+      .mockImplementationOnce(async () => {
+        await newGate;
+        return { who: 'the new build' };
+      });
+
+    await post('/account/export', {}, auth(p.token));
+    await db.query(
+      `UPDATE data_exports SET requested_at = now() - interval '11 minutes' WHERE user_id = $1`,
+      [p.id],
+    );
+    const again = await post('/account/export', {}, auth(p.token));
+    expect(again.json.status).toBe('preparing');
+
+    // The OLD build finishes first.
+    releaseOld();
+    await new Promise((r) => setTimeout(r, 300));
+    // The control that this is a real race: the old build has finished and is done writing…
+    // …and the row still says what the NEW request says: preparing, no file.
+    expect((await get('/account/export', p.token)).json.status).toBe(
+      'preparing',
+    );
+    expect((await get('/account/export/file', p.token)).status).toBe(404);
+
+    releaseNew();
+    await rights().drain();
+    expect((await get('/account/export', p.token)).json.status).toBe('ready');
     expect(
       JSON.parse((await get('/account/export/file', p.token)).text).who,
     ).toBe('the new build');
@@ -923,26 +991,25 @@ describe('🔴 deleting: what happens to the photos is what was chosen', () => {
     ]);
   });
 
-  it('does not touch anybody else’s photos', async () => {
-    const { p } = await photoPerson();
-    const other = await person();
-    const otherId = await seedPhoto(other.id, {
-      status: 'approved',
-      credit: 'Bee Credit',
-    });
-    await post(
-      '/account/delete',
-      goodDelete({ photos: 'delete' }),
-      auth(p.token),
-    );
-    expect(await rowsOf([otherId])).toEqual([
-      expect.objectContaining({
-        submitted_by_id: other.id,
-        licence_attribution_name: 'Bee Credit',
-        source: 'owner',
-      }),
-    ]);
-  });
+  it.each(['delete', 'keep-anonymous'] as const)(
+    'does not touch anybody else’s photos (%s)',
+    async (photos) => {
+      const { p } = await photoPerson();
+      const other = await person();
+      const otherId = await seedPhoto(other.id, {
+        status: 'approved',
+        credit: 'Bee Credit',
+      });
+      await post('/account/delete', goodDelete({ photos }), auth(p.token));
+      expect(await rowsOf([otherId])).toEqual([
+        expect.objectContaining({
+          submitted_by_id: other.id,
+          licence_attribution_name: 'Bee Credit',
+          source: 'owner',
+        }),
+      ]);
+    },
+  );
 
   it('removes the person’s reviews whichever way the photos went', async () => {
     for (const photos of ['delete', 'keep-anonymous']) {
