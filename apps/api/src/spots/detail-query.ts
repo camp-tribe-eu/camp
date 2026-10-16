@@ -78,6 +78,14 @@ export const SPOT_DETAIL_SQL = `SELECT s.slug, s.name, s.country, s.region, s.ty
               ${overnightStatusSql('s')} AS overnight_status,
               s.overnight_source,
               ${OVERNIGHT_DAY_SQL('s')} AS overnight_checked_at,
+              -- 🔴 CAMP-256. The day a MAPPER last edited the OSM record —
+              -- NOT s.last_seen_at, selected earlier in this list, which is
+              -- the day our importer last found it and moves every week. The page
+              -- prints this one under the words "Record last edited", and
+              -- it is selected by its own name so that nothing downstream
+              -- can reach for the other by mistake. NULL is "not known".
+              -- (No backticks: template literal.)
+              s.osm_record_edited_at,
               -- 🔴 CAMP-144. The other sources' rows, joined in — not
               -- merged in SQL. Which field wins is a decision with
               -- reasons behind it (mergeLinked, below), and a reason

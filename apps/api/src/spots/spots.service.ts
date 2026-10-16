@@ -59,7 +59,21 @@ export interface SpotView {
   amenities: CampingSpotAmenities;
   /** Owner-corrected fields win over OSM at read time (CAMP-86). */
   ownerOverrides: Record<string, unknown>;
+  /**
+   * The day OUR importer last found this campsite in OpenStreetMap.
+   * 🔴 Not an edit date: it moves every week for every campsite.
+   */
   lastSeenAt: Date | null;
+  /**
+   * CAMP-256: the day a MAPPER last edited the OpenStreetMap record.
+   *
+   * 🔴 The OTHER date, and the one the page labels "Record last edited".
+   * `null` is "not known" — DATAtourisme rows have no OSM object, and an
+   * OSM row loaded before the extract carried this has none until the next
+   * import — and is never replaced by `lastSeenAt`, which would turn every
+   * page into "edited this month".
+   */
+  osmRecordEditedAt: Date | null;
   missingSince: Date | null;
   /** CAMP-33: computed surroundings — the part no competitor publishes. */
   context: SpotContext;
@@ -810,6 +824,10 @@ function toView(row: Record<string, unknown>): SpotView {
     amenities,
     ownerOverrides: (row.owner_overrides ?? {}) as Record<string, unknown>,
     lastSeenAt: (row.last_seen_at as Date) ?? null,
+    // 🔴 CAMP-256. Read from its OWN column and by its own name. `?? null`:
+    // a query that did not select it knows nothing about edit dates, and
+    // the page must say "not known" rather than print another date.
+    osmRecordEditedAt: (row.osm_record_edited_at as Date) ?? null,
     missingSince: (row.missing_since as Date) ?? null,
     context: (row.context ?? {}) as SpotContext,
     description: (row.description as string) ?? null,

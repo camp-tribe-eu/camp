@@ -48,8 +48,31 @@ osmium tags-filter "$PBF" \
 # 🔴 `-u type_id` is not optional either (CAMP-28). Without it the export
 # carries no OSM identifier at all: ogr2ogr then invents `ogc_fid`, a row
 # counter that changes between runs, and upserting on that is impossible.
+#
+# 🔴 `-a timestamp,version` IS NOT OPTIONAL EITHER (CAMP-256).
+#
+# It is the only way the date of the last OSM edit reaches the database.
+# The extracts carry it for every object — Austria, the 24.09.2026
+# extract, measured 15.10.2026: 1 684 of 1 684 features have both — and
+# `export` drops it unless asked. Without the flag nothing fails: every
+# record's date is simply "Not known", which looks like a source that never
+# says, so normalise-export.mjs refuses an export in which no feature
+# carries `@timestamp`.
+#
+# `@timestamp` is Unix SECONDS, `@version` the object's own version
+# number. They are ONLY those two: `user`, `uid` and `changeset` name a
+# private person and we have no use for them. The public extracts already
+# blank them (measured 15.10.2026 on Malta: `c0 i0 u`), so asking for them
+# would change nothing today and would start carrying a mapper's name the
+# day an extract that keeps them is used. Do not widen this list.
+#
+# 🔴 THIS IS NOT `last_seen_at`. That is the day OUR importer last found
+# the object; this is the day a mapper last changed it. The object's own
+# record only: a way keeps its timestamp when someone drags one of its
+# nodes, so "edited" means its tags or its member list, not its outline.
 osmium export "$WORK/filtered.osm.pbf" \
-  -o "$WORK/raw.geojson" --overwrite -f geojson -u type_id
+  -o "$WORK/raw.geojson" --overwrite -f geojson -u type_id \
+  -a timestamp,version
 
 node "$HERE/normalise-export.mjs" "$WORK/raw.geojson" "$OUT"
 

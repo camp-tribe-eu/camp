@@ -1,7 +1,8 @@
 import { Client } from 'pg';
 import type { DataSource, QueryRunner } from 'typeorm';
 import { SpotOvernight1791500000000 } from '../migrations/1791500000000-SpotOvernight';
-import { UPSERT_SPOT_SQL } from '../osm/import-spots';
+import { SpotRecordEdited1791800000000 } from '../migrations/1791800000000-SpotRecordEdited';
+import { UPSERT_SPOT_SQL, upsertSpotParams } from '../osm/import-spots';
 import { mapOvernight } from '../osm/tag-mapping';
 import { MapQueryService } from './map.service';
 import { SpotsService } from './spots.service';
@@ -57,6 +58,12 @@ const runner = (): QueryRunner =>
   ({ query: async (sql: string) => db.query(sql) }) as unknown as QueryRunner;
 
 const MIGRATION = new SpotOvernight1791500000000();
+/**
+ * CAMP-256: the upsert now writes two more columns, so the table must have
+ * them — from the real migration, as the overnight ones are. This file asks
+ * nothing about them; it only has to be able to run the statement.
+ */
+const RECORD_MIGRATION = new SpotRecordEdited1791800000000();
 
 /** Covers every fixture below: lon 14.0-14.7, lat 45. */
 const BOX = { minLon: 13, minLat: 44, maxLon: 15, maxLat: 46 };
@@ -100,6 +107,7 @@ beforeAll(async () => {
       primary_id uuid NOT NULL, secondary_id uuid NOT NULL,
       unlinked_at timestamptz, created_at timestamptz DEFAULT now());`);
   await MIGRATION.up(runner());
+  await RECORD_MIGRATION.up(runner());
 });
 
 afterAll(async () => {
@@ -120,20 +128,24 @@ async function upsert(
   } = {},
 ) {
   const o = mapOvernight(tags);
-  const res = await db.query(UPSERT_SPOT_SQL, [
-    `Camp ${osmRef}`,
-    'HR',
-    opts.region === undefined ? 'Istria' : opts.region,
-    `camp-${osmRef}`,
-    'paid',
-    JSON.stringify(opts.amenities ?? {}),
-    `POINT(${opts.lon ?? 14} 45)`,
-    osmRef,
-    opts.startedAt ?? '2026-10-12T05:00:00Z',
-    '{}',
-    o.status,
-    o.source,
-  ]);
+  const res = await db.query(
+    UPSERT_SPOT_SQL,
+    upsertSpotParams({
+      name: `Camp ${osmRef}`,
+      country: 'HR',
+      region: opts.region === undefined ? 'Istria' : opts.region,
+      slug: `camp-${osmRef}`,
+      type: 'paid',
+      amenities: opts.amenities ?? {},
+      pointWkt: `POINT(${opts.lon ?? 14} 45)`,
+      osmRef,
+      seenAt: opts.startedAt ?? '2026-10-12T05:00:00Z',
+      contact: {},
+      overnightStatus: o.status,
+      overnightSource: o.source,
+      record: null,
+    }),
+  );
   return res.rows[0] as { was_insert: boolean; content_changed: boolean };
 }
 

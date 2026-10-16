@@ -293,7 +293,24 @@ export interface Spot {
   lon: number;
   amenities: Amenities;
   ownerOverrides: Record<string, unknown>;
+  /**
+   * The day OUR importer last found this campsite in OpenStreetMap.
+   * 🔴 Not an edit date: it is stamped on every campsite every week.
+   */
   lastSeenAt: string | null;
+  /**
+   * CAMP-256: the day a MAPPER last edited the OpenStreetMap record, as
+   * an ISO instant — the API's `osm_record_edited_at`.
+   *
+   * 🔴 The OTHER date, the one the page prints under "Record last edited".
+   * `null` is "not known" (a DATAtourisme row has no OSM object; an OSM
+   * row loaded before the extract carried it has none yet). Optional,
+   * because the API and the site deploy separately and an API that has not
+   * learned it yet omits it; the page then says "Not known" — and reads
+   * it ONLY through `recordAge` (lib/record-age.ts), never as a date of
+   * its own, and never falls back to `lastSeenAt`.
+   */
+  osmRecordEditedAt?: string | null;
   missingSince: string | null;
   /**
    * CAMP-105: false when this page carries nothing but a name and a

@@ -601,6 +601,26 @@ jobs:
           node scripts/osm-pipeline/normalise-export.mjs --self-test | tee /dev/stderr \
             | grep -c 'normalise-export self-test:' >/dev/null
 
+      # 🔴 CAMP-256. The date of the last OSM edit reaches the database only
+      # if `extract-campsites.sh` asks osmium for it (`-a timestamp,version`),
+      # and when it does not NOTHING fails: the campsites load, the counts
+      # match, and every page says "Not known". The normaliser's self-test
+      # above is handed a file and cannot see that; this builds a PBF from a
+      # few lines of OPL and runs the real script on the real tool — and then
+      # runs a copy with the flag removed and requires it to fail. osmium is
+      # installed rather than shimmed because a shim that "supports -a"
+      # would test the shim; the suite FAILS without it instead of skipping.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: Install osmium for the extract self-test
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends osmium-tool
+
+      - name: The extract carries each campsite's edit date, and refuses to load without it
+        run: |
+          set -o pipefail
+          ./scripts/osm-pipeline/extract-campsites.selftest.sh | tee /dev/stderr \
+            | grep -c 'extract-campsites self-test:' >/dev/null
+
       # 🔴 CAMP-119. The raw-extract counter is the oracle the stopping-place
       # import is reconciled against, so the thing that must not be wrong in
       # silence is how it reads OPL — `%2c%` taken for a URL escape comes
@@ -1133,6 +1153,38 @@ jobs:
           # require-node-24.cjs says the same thing out loud to a developer.
           node-version: 24
           cache: npm
+      # 🔴 CAMP-258. Перенесення однієї таблиці на прод. 15.10.2026 я зробив
+      # це руками через `pg_restore --clean -t`, перевірив кількість рядків
+      # і види — усе збіглося з локальними до одиниці. А таблиця на 2,27 млн
+      # рядків приїхала БЕЗ жодного індексу й без первинного ключа. Дамп,
+      # знятий `pg_dump -t`, цілий; губить структуру `-t` НА ВІДНОВЛЕННІ: він
+      # фільтрує записи TOC і лишає лише саму таблицю. Помітив через годину,
+      # коли сусідній запит висів 4 хвилини 42 секунди.
+      #
+      # Самоперевірка: дві справжні бази, справжні pg_dump, pg_restore і psql,
+      # а підмінник ssh запускає виконавця ТУТ. Виправлений скрипт `-t` на
+      # відновленні не вживає, тож дефект у нормальному прогоні не
+      # відтворюється; він з'являється, коли `-t` повернути, і тоді червоніють
+      # перенесення, відкат і звірка схем. Заміна й відкат — одна транзакція;
+      # відмови створює сам Postgres, а не підмінники: `pg_dump -t` не возить
+      # типів і функцій, event trigger на проді змінює результат відновлення, а
+      # читач і чужий DDL у вікні — окремі фонові psql, що чекають на подію в
+      # pg_locks. Набору потрібні права суперкористувача (ролі, event trigger).
+      #
+      # Крок читає надруковане: рядок із власною назвою скрипта друкується
+      # лише коли виконано рівно EXPECTED випадків, жоден не впав і жоден
+      # не пропущено.
+      - name: Moving one table to production keeps its indexes and its key
+        env:
+          CAMPTRIBE_SELFTEST_PG_BASE: postgres://postgres:postgres@localhost:5432
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          ./infra/move-table.selftest.sh | tee /dev/stderr \
+            | grep -c 'move-table self-test: усе гаразд' >/dev/null
+
       - run: npm ci
 
       # 🔴 CAMP-192: build TWICE and check it actually wrote files.
