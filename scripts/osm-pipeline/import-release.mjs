@@ -2102,9 +2102,22 @@ async function selfTestDb() {
     writeFileSync(path, gzipSync(Buffer.from(raw ?? JSON.stringify({ type: 'FeatureCollection', features }))));
     return path;
   };
-  const load = (features, table = 'stg', extra = {}) =>
-    loadStaging({ table, gz: gzOf(features, extra.raw), db: extra.db ?? url, chunks: extra.chunks });
   const q = (sql) => psqlOn(url, sql).trim();
+  // 🔴 A load that does not finish is a FAILED load, and the session it left
+  // behind is ended: psql alive inside a transaction holds the DROP's lock,
+  // so every later case on the same table would wait for it — one
+  // regression would then read as a hung run instead of as the cases it broke.
+  const load = async (features, table = 'stg', extra = {}) => {
+    try {
+      return await within(20000, loadStaging({ table, gz: gzOf(features, extra.raw), db: extra.db ?? url, chunks: extra.chunks }));
+    } catch (e) {
+      if (/did not finish/.test(e.message)) {
+        q(`SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity
+            WHERE datname = current_database() AND pid <> pg_backend_pid()`);
+      }
+      throw e;
+    }
+  };
   const rows = (t) =>
     JSON.parse(
       q(`SELECT coalesce(json_agg((to_jsonb(x) - 'geom') || jsonb_build_object('wkt', ST_AsText(x.geom)) ORDER BY x.ogc_fid), '[]')
