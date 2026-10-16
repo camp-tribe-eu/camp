@@ -1,21 +1,21 @@
 /**
- * Outgoing mail (CAMP-228): the seam, a local mailbox, and the letters.
+ * Outgoing mail (CAMP-228, CAMP-110): the seam, a local mailbox, the real
+ * sender, and the letters.
  *
- * 🔴 THERE IS NO MAIL PROVIDER YET, AND THAT DOES NOT BLOCK THIS CARD. The
- * owner's decision of 15.10.2026: the provider is set up at the end, together
- * with the project mailbox (CAMP-110 — Resend first, SMTP2GO behind it, a
- * local Postfix as the queue, "zero binding in application code"). So the
- * whole sign-up / confirm / reset flow is written against `MailSender` and
- * run against `DevMailbox`, and connecting the real thing is one new class
- * and one `case` in `mailerFrom` — the flow is not touched.
+ * The whole sign-up / confirm / reset flow is written against `MailSender`
+ * and run against `DevMailbox` in development and CI. The real sender is
+ * `mail-smtp.ts` — SMTP submission to the Hetzner mail server through
+ * nodemailer — and it is selected only by `MAIL_PROVIDER=smtp`. It is one
+ * class and one `if` in `mailerFrom`; the flow is not touched.
  *
- * 🔴 WHAT IS NOT HERE, said plainly: no SMTP or HTTP sender. It would need a
- * dependency (`nodemailer` or a vendor SDK), and this repository's update
- * policy wants a new dependency read and aged before it is trusted; picking
- * one while the vendor is still undecided would be choosing for CAMP-110.
- * The end-to-end proof — a letter into Gmail and Outlook, `dkim=pass`,
- * `spf=pass`, not in spam — is CAMP-110's, and nothing here claims it.
+ * 🔴 WHAT IS NOT PROVEN HERE, said plainly: the tests use a stand-in
+ * transport or a socket on 127.0.0.1, so this code has not yet sent a letter
+ * through the real server. The end-to-end proof — a letter into Gmail and
+ * Outlook, `dkim=pass`, `spf=pass`, not in spam — needs the server's password
+ * and is a step of its own; nothing here claims it.
  */
+
+import { smtpSenderFrom } from './mail-smtp';
 
 export type MailKind = 'verify_email' | 'reset_password';
 
@@ -95,6 +95,15 @@ export function mailerFrom(
         why: 'MAIL_PROVIDER=dev is refused when NODE_ENV=production',
       };
     return { mailer: { sender: dev, webBase: base } };
+  }
+
+  if (provider === 'smtp') {
+    // 🔴 Fails closed like every branch here: a missing setting is `null` and
+    // a reason naming the variable, never the dev mailbox and never a throw.
+    const smtp = smtpSenderFrom(env);
+    return smtp.sender
+      ? { mailer: { sender: smtp.sender, webBase: base } }
+      : { mailer: null, why: smtp.why };
   }
 
   // The seam. A real sender is one more `if (provider === '…')` above.
