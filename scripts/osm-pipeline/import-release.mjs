@@ -2201,7 +2201,7 @@ async function selfTestDb() {
     } catch (e) {
       if (/did not finish/.test(e.message)) {
         q(`SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity
-            WHERE datname = current_database() AND pid <> pg_backend_pid()`);
+            WHERE datname = current_database() AND pid <> pg_backend_pid() AND backend_type = 'client backend'`);
       }
       throw e;
     }
@@ -2440,11 +2440,24 @@ async function selfTestDb() {
     ok('a stream that breaks after rows were sent is never committed — and psql is let go, not left waiting',
       (await rejectsWith(within(15000, load(null, 'stg_atomic', { chunks: cutSecondTime })), /ends inside the FeatureCollection/)) && intact());
     // 🔴 A psql left alive holds the DROP's lock until the machine is
-    // rebooted, and the NEXT import hangs on it. The count is of sessions
-    // other than this one; any that exist are ended so the cases below can run.
-    ok('no database session is left behind by a load that failed',
-      q(`SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity
-          WHERE datname = current_database() AND pid <> pg_backend_pid()`) === '0');
+    // rebooted, and the NEXT import hangs on it. The count is of client
+    // sessions other than this one. A backend takes a few milliseconds to go
+    // after its psql has exited, so it is given up to 3 s to do so — a check
+    // that flickered under an unrelated mutation (it did, once) is a check
+    // nobody can trust — and any that is still there is ended so that the
+    // cases below can run.
+    {
+      const strays = () =>
+        Number(q(`SELECT count(*) FROM pg_stat_activity
+                   WHERE datname = current_database() AND pid <> pg_backend_pid() AND backend_type = 'client backend'`));
+      let left = strays();
+      for (let i = 0; i < 30 && left > 0; i++) {
+        await new Promise((done) => setTimeout(done, 100));
+        left = strays();
+      }
+      if (left > 0) q(`SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND backend_type = 'client backend'`);
+      ok('no database session is left behind by a load that failed', left === 0, `${left} left`);
+    }
     const shrinks = (() => {
       let n = 0;
       return () => {
