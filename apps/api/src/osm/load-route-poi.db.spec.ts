@@ -241,7 +241,7 @@ describe('the loader, run as a program (CAMP-258)', () => {
         )
       ).rows,
     ).toEqual([{ osm_ref: 'n10' }]);
-    expect(run.out).toMatch(/gas_exchange\s+1\n/);
+    expect(run.out).toMatch(/gas_exchange\s+1 rows \/ 1 objects\n/);
     // 🔴 THE GAS LAYER, as the loader prints it and as a map would read it:
     // kind=gas_exchange (n10) OR cylinder_swap=yes on another kind (n11, w950,
     // a1900). Four rows, THREE objects — n10, n11 and the one closed way.
@@ -420,6 +420,70 @@ describe('the loader, run as a program (CAMP-258)', () => {
     expect(run.status).toBe(0);
     expect(run.out).toContain(
       'gas read widely: 4 staged objects mention gas as a word in shop, 2 not marked by the rule',
+    );
+  });
+
+  // ── CAMP-327: EVERY KIND READS ITS TAGS AS `;` LISTS, THROUGH THE LOADER ──
+
+  // 🔴 MUTATION: delete the `if (listFailure !== null) throw` line in
+  // load-route-poi.ts, or the `listRulesError` call above it. The unit tests
+  // of the function and the database tests of the statement stay green, and a
+  // run in which a systematic spelling went unread commits as if it had not.
+  // Twelve objects say `restaurant,cafe` — a ',' list, which the rule does not
+  // read — so the rule takes none of them and the one restaurant there is
+  // makes it 12 of 13.
+  it('rolls back when a systematic share of a kind is written as a list the rule does not read', async () => {
+    await resetStaging({ gas: true });
+    await db.query(
+      `INSERT INTO osm_route_poi_staging (id, geom, amenity)
+       SELECT 'n4' || lpad(g::text, 4, '0'),
+              ST_Multi(ST_SetSRID(ST_MakePoint(13.2 + g * 0.05, 45.1), 4326)),
+              'restaurant,cafe'
+         FROM generate_series(1, 12) g`,
+    );
+    const run = runLoader();
+    expect({ status: run.status, err: run.err }).toEqual({
+      status: 1,
+      err: expect.stringContaining(
+        'food: 12 of 13 staged objects mention its words and the rule does not take them',
+      ),
+    });
+    expect(
+      (await db.query('SELECT count(*)::int AS n FROM osm_route_poi')).rows[0]
+        .n,
+    ).toBe(0);
+  });
+
+  // …and two such objects are DATA: reported, and the run is published. The
+  // object that says `restaurant; ice_cream` — a blank after the `;`, the
+  // shape that exists — is a restaurant now, and is counted by the loader as
+  // one: two OBJECTS and two ROWS of food, and a closed-way fuel station that
+  // is two rows and ONE object, where the older kinds are not folded.
+  it('publishes a list-valued restaurant, counts objects, and reports what it does not read', async () => {
+    await resetStaging({ gas: true });
+    await stageObject('n4001', { amenity: 'restaurant; ice_cream' }, 60);
+    await stageObject('n4002', { amenity: 'restaurant,cafe' }, 61);
+    await stageObject('n4003', { amenity: 'internet_cafe' }, 62);
+    await stageObject('w4004', { amenity: 'fuel' }, 63);
+    await stageObject('a8008', { amenity: 'fuel' }, 63);
+    const run = runLoader();
+    expect(run.status).toBe(0);
+    expect(
+      (
+        await db.query(
+          `SELECT osm_ref, kind FROM osm_route_poi
+            WHERE osm_ref IN ('n4001', 'n4002', 'n4003') ORDER BY 1`,
+        )
+      ).rows,
+    ).toEqual([{ osm_ref: 'n4001', kind: 'food' }]);
+    // food: n6 and n4001. fuel: n1, n11 and the closed way's two rows.
+    expect(run.out).toMatch(/\n\s+food\s+2 rows \/ 2 objects\n/);
+    expect(run.out).toMatch(/\n\s+fuel\s+4 rows \/ 3 objects\n/);
+    // what the staged tags say, and what the rule does not take: n4002 (a ','
+    // list) mentions a food word and is not taken; n4003 (`internet_cafe`) is
+    // another value, and not a mention at all
+    expect(run.out).toMatch(
+      /food\s+staged objects naming it as a list element 2, mentioned wider 3, mentioned and not taken 1\n/,
     );
   });
 });

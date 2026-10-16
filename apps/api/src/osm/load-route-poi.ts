@@ -33,6 +33,8 @@ import {
   DUMP_FORMULA,
   gasLayerError,
   type GasLayerSummary,
+  listRulesError,
+  type ListRulesSummary,
   REST_STOP_KINDS,
   STORED_POI_KINDS,
 } from './route-poi';
@@ -47,9 +49,11 @@ import {
 // of route-poi-sql.ts for what got through while it could not.
 import {
   buildRoutePoiInsertSql,
+  canonicalRefSql,
   EU_SQL_LIST,
   euLeakGuardSql,
   GAS_LAYER_SUMMARY_SQL,
+  LIST_RULES_SUMMARY_SQL,
   LPG_SUMMARY_SQL,
 } from './route-poi-sql';
 
@@ -107,10 +111,22 @@ async function main() {
     // apart. A kind nobody filters for does not break anything — it just
     // quietly says "we hold no charging station within 25 km" on every
     // route in Europe, which reads exactly like an honest gap.
-    const byKind = await db.query<{ kind: string; n: string }>(
-      `SELECT kind, count(*)::text AS n FROM osm_route_poi GROUP BY kind`,
+    //
+    // 🔴 ROWS AND OBJECTS (CAMP-327). The six older kinds are not folded (see
+    // buildRoutePoiInsertSql), so a closed-way fuel station is two rows,
+    // `w123` and its area `a246`, and `count(*)` over-counts the objects a
+    // card quotes by a fifth and more (154 183 rows against 116 609 objects of
+    // fuel — measured on a full reload of the 27 extracts, 16.10.2026).
+    // The empty-kind check reads rows; a person reads objects.
+    const byKind = await db.query<{ kind: string; n: string; objects: string }>(
+      `SELECT kind, count(*)::text AS n,
+              count(DISTINCT ${canonicalRefSql('osm_ref')})::text AS objects
+         FROM osm_route_poi GROUP BY kind`,
     );
     const counts = new Map(byKind.rows.map((r) => [r.kind, Number(r.n)]));
+    const objectsOf = new Map(
+      byKind.rows.map((r) => [r.kind, Number(r.objects)]),
+    );
     const empty = STORED_POI_KINDS.filter((k) => !counts.get(k));
     if (empty.length > 0) {
       throw new Error(
@@ -140,6 +156,17 @@ async function main() {
       .rows[0];
     const gasFailure = gasLayerError(gasLayer);
     if (gasFailure !== null) throw new Error(gasFailure);
+
+    // 🔴 CAMP-327: EVERY KIND'S RULE READS ITS TAG AS A `;` LIST, AND THIS
+    // IS THE CHECK THAT SAYS IT STILL DOES. Staged objects that say a kind's
+    // word as an element and got no kind (the rule read as an equality), or
+    // got a kind with no such element (read as a substring), roll the run
+    // back at any count; spellings the rule does not read are reported, and
+    // fail it only when systematic — see listRulesError.
+    const listRules = (await db.query<ListRulesSummary>(LIST_RULES_SUMMARY_SQL))
+      .rows;
+    const listFailure = listRulesError(listRules);
+    if (listFailure !== null) throw new Error(listFailure);
 
     // 🔴 CAMP-118, CHECKED AGAINST THE GEOMETRY AND NOT AGAINST THE
     // COLUMN THE IMPORT JUST WROTE.
@@ -198,7 +225,19 @@ async function main() {
 
     console.log(`  written: ${inserted.rowCount}, removed: ${gone.rowCount}`);
     for (const kind of STORED_POI_KINDS) {
-      console.log(`    ${kind.padEnd(13)} ${counts.get(kind)}`);
+      console.log(
+        `    ${kind.padEnd(13)} ${counts.get(kind)} rows / ${objectsOf.get(kind)} objects`,
+      );
+    }
+    // CAMP-327: what each kind's words say in staging, read as a ';' list,
+    // and what the rule does not take. `listed` is objects; `wide only` is
+    // the spellings no rule reads (commas, spaces, substrings) — reported,
+    // fatal only when systematic.
+    for (const r of listRules) {
+      console.log(
+        `    ${r.kind.padEnd(13)} staged objects naming it as a list element ` +
+          `${r.listed}, mentioned wider ${r.wide_objects}, mentioned and not taken ${r.wide_only}`,
+      );
     }
     // 🔴 The number and the formula that produced it, together. A card
     // once quoted 17 579 for this and no formula reproduces it.

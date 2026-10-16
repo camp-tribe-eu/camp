@@ -149,32 +149,34 @@ export function isRoutePoiKind(value: unknown): value is RoutePoiKind {
 export interface TagRule {
   /** The OSM key, as the staging table columns are named. */
   key: 'amenity' | 'shop' | 'tourism' | 'man_made' | 'highway';
-  /** The values that count. */
-  values: string[];
   /**
-   * 🔴 CAMP-258: THE KEY HOLDS A `;` LIST, AND ANY ELEMENT COUNTS.
+   * The values that count — each read as an ELEMENT of the tag.
    *
-   * OpenStreetMap writes several values for one key as `a;b`. A rule that
-   * compares the whole tag (`shop IN ('gas')`) misses every object that says
-   * `shop=convenience;gas` — and the tag filter the pipeline hands osmium is
-   * the same equality, so such an object never reaches staging at all unless
-   * something else selected it. Measured 15.10.2026 on the staging table of
-   * camptribe_dev: `shop = 'gas'` on 8 071 rows (6 108 objects), `gas` as an
-   * element of a list on a further 3 755 rows (2 804 objects), and no object
-   * in both. 3 751 of those rows were already stored as `fuel` with
-   * `cylinder_swap = 'unknown'` — the other half of the hypermarket
-   * forecourts the column was introduced for.
+   * 🔴 CAMP-327: EVERY RULE READS ITS KEY AS A `;` LIST, AND ANY ELEMENT
+   * COUNTS. THERE IS NO OTHER READING, SO THERE IS NO FLAG FOR IT.
    *
-   * Set only where a measured gap says so. Applying it to every rule would
-   * change the kind of rows that exist: measured on the same staging table, a
-   * list reading of EVERY rule moves 47 `shelter` rows to `food`, 8 `food` to
-   * `groceries`, 2 `groceries` to `fuel` and 2 `rest_area` to `food` (see
-   * the CAMP-258 PR). That is a decision with a cost, and not this card's.
+   * OpenStreetMap writes several values for one key as `a;b`:
+   * `amenity=restaurant;ice_cream`, `shop=convenience;gas`,
+   * `tourism=hotel;camp_site`. A rule that compares the whole tag
+   * (`amenity IN ('restaurant')`) misses every such object, and the tag
+   * filter the pipeline hands osmium was the same equality, so the object
+   * never reached staging at all. CAMP-258 found this for `shop=gas`, where it
+   * cost the gas layer a third of its objects, and fixed it for that one rule
+   * with a flag, `list`, because reading EVERY rule that way moves rows that
+   * exist from one kind to another and that was a decision with a cost. This
+   * card is that decision (numbers in the PR; the rule is one line: a kind is
+   * the FIRST branch of the CASE that matches, whichever way the tag was
+   * written, so a hotel with `amenity=restaurant;bar` is food exactly as a
+   * hotel with `amenity=restaurant` already was).
    *
    * Read as the elements of the tag split on `;`, blanks off and ASCII
-   * letters folded — `tagPartsSql`, the reading `access` already has.
+   * letters folded — `tagPartsSql`, the reading `access` already has. Not a
+   * substring (`internet_cafe` is not a cafe), not a `,` list
+   * (`camp_site,caravan_site`), not a value that holds `key=value` itself.
+   * The loader refuses those three on purpose and counts what it refused
+   * (see LIST_RULES_SUMMARY_SQL).
    */
-  list?: true;
+  values: string[];
 }
 
 export const ROUTE_POI_RULES: Record<RoutePoiKind, TagRule[]> = {
@@ -410,8 +412,12 @@ export const STORED_POI_RULES: Record<StoredPoiKind, TagRule[]> = {
   ...ROUTE_POI_RULES,
   // CAMP-258. `gas` among the elements of `shop`, and nothing else:
   // `amenity=fuel` objects that also carry it are classified `fuel` before
-  // this branch is reached. A LIST rule — see TagRule.list.
-  gas_exchange: [{ key: 'shop', values: ['gas'], list: true }],
+  // this branch is reached — and, since CAMP-327, `shop=convenience;gas` is a
+  // `groceries`: every rule reads lists, and `groceries` comes first. 17 of the
+  // 2 114 gas_exchange objects moved there on the full reload of 16.10.2026
+  // (2 097 stay); the flag `cylinder_swap` kept all 17 in the gas layer, which
+  // is the reason it exists: the layer was 8 925 objects before and after.
+  gas_exchange: [{ key: 'shop', values: ['gas'] }],
 };
 
 /**
@@ -510,44 +516,47 @@ export function classifyCaseSql(alias = 's'): string {
 }
 
 /**
- * One kind's rules as a SQL predicate over a staging row: `s.shop IN ('gas')`,
- * joined with OR. Shared between the CASE that picks an object's KIND and the
- * `cylinder_swap` flag (CAMP-258), which asks the same question of the same
- * rule without being the first match — so the two cannot disagree about what
- * counts as a gas shop.
+ * One kind's rules as a SQL predicate over a staging row — the elements of
+ * the tag against the values, joined with OR. Shared between the CASE that
+ * picks an object's KIND and the `cylinder_swap` flag (CAMP-258), which asks
+ * the same question of the same rule without being the first match — so the
+ * two cannot disagree about what counts as a gas shop.
+ *
+ * 🔴 CAMP-327: AN ELEMENT OF THE `;` LIST FOR EVERY RULE. NULL for a NULL tag,
+ * which a CASE reads as not-matched.
  */
 export function rulesTestSql(rules: readonly TagRule[], alias = 's'): string {
+  return rules
+    .map(
+      (rule) =>
+        `${tagPartsSql(`${alias}."${rule.key}"`)} && ${arraySql(rule.values)}`,
+    )
+    .join(' OR ');
+}
+
+/** A closed list of plain words as a SQL array — checked, never escaped. */
+export function arraySql(values: readonly string[]): string {
   const safe = (v: string) => {
     if (!/^[a-z_]+$/.test(v)) {
       throw new Error(`route-poi: unsafe tag value ${JSON.stringify(v)}`);
     }
     return `'${v}'`;
   };
-  const array = (values: readonly string[]) =>
-    `ARRAY[${values.map(safe).join(', ')}]::text[]`;
-  return rules
-    .map((rule) =>
-      rule.list
-        ? // an element of the `;` list; NULL for a NULL tag, which a CASE
-          // reads as not-matched
-          `${tagPartsSql(`${alias}."${rule.key}"`)} && ${array(rule.values)}`
-        : `${alias}.${rule.key} IN (${rule.values.map(safe).join(', ')})`,
-    )
-    .join(' OR ');
+  return `ARRAY[${values.map(safe).join(', ')}]::text[]`;
 }
 
 /**
- * The tag filters osmium has to be given for a rule — `key=value`, or
- * `key=*value*` for a list rule, because osmium matches the WHOLE value and
- * `shop=gas` selects nothing that says `shop=convenience;gas`. The `*` form is
- * a substring match: it also pulls in `gasvending=fuel` and the like, which
- * the classifier then refuses (3 such rows in the 27 extracts). A spec
- * compares this with the list in load-route-poi.sh.
+ * The tag filters osmium has to be given for a rule — `key=*value*`, for
+ * EVERY value, because osmium matches the WHOLE value and `amenity=restaurant`
+ * selects nothing that says `amenity=restaurant;ice_cream`. The `*` form is a
+ * substring match: it also pulls in `amenity=internet_cafe` and
+ * `amenity=device_charging_station`, which the classifier then refuses (20 of
+ * 69 196 objects in the Austrian extract). A spec compares this with the list
+ * in load-route-poi.sh, and the self-test of that script checks that the `*`s
+ * reach osmium.
  */
 export function osmiumFiltersFor(rule: TagRule): string[] {
-  return rule.values.map((v) =>
-    rule.list ? `${rule.key}=*${v}*` : `${rule.key}=${v}`,
-  );
+  return rule.values.map((v) => `${rule.key}=*${v}*`);
 }
 
 /** One row of GAS_LAYER_SUMMARY_SQL: Postgres hands counts back as text. */
@@ -631,4 +640,101 @@ export function gasLayerError(s: GasLayerSummary): string | null {
     );
   }
   return null;
+}
+
+/**
+ * One row of LIST_RULES_SUMMARY_SQL, one per stored kind. Postgres hands
+ * counts back as text.
+ */
+export interface ListRulesSummary {
+  kind: string;
+  listed: string;
+  missed: string;
+  extra: string;
+  wide_objects: string;
+  wide_only: string;
+}
+
+/**
+ * The same two thresholds as the gas guard's, for the same reason, and kept
+ * as their own constants: the two guards answer different questions and may
+ * need to move apart.
+ */
+export const LIST_WIDE_MIN_OBJECTS = 10;
+export const LIST_WIDE_MAX_PERCENT = 1;
+
+/**
+ * 🔴 CAMP-327: EVERY KIND'S RULE, CHECKED AGAINST THE TAG — WITH A READING
+ * THAT IS NOT THE RULE'S, ON THE OBJECTS STAGING HOLDS.
+ *
+ * The gas guard (gasLayerError) checks one rule and one flag. This is the
+ * same idea for all ten kinds, and it answers three questions per kind, each
+ * from LIST_RULES_SUMMARY_SQL, which reads the staged tags by two readings of
+ * its own (see the note there):
+ *
+ *   · `missed`  (code, fails at any count): staged objects that say one of the
+ *     kind's words as an ELEMENT of its tag and that the CASE gave NO kind at
+ *     all. This is the rule read as an equality: `amenity=restaurant;ice_cream`
+ *     was 9 of 30 such objects in the Austrian extract, and every other check
+ *     in this file is silent about them, because none of them has a row.
+ *   · `extra`   (code, fails at any count): objects the CASE made this kind
+ *     although none of its tags holds one of its words as an element — a rule
+ *     broadened to a substring (`internet_cafe` a cafe), or pointed at the
+ *     wrong key. The twin of `missed`, and the one that makes the substring
+ *     filter safe: osmium is asked for `*cafe*`, the classifier must refuse it.
+ *   · `wide_only` (data, thresholded): objects whose tag mentions a word of
+ *     the kind as a WORD — between any characters that are not letters,
+ *     digits or `_` — and that the element reading does not take:
+ *     `restaurant,cafe` with a comma, `bar / cafe`, `cafe restaurant`. (A longer
+ *     word is not a mention: `internet_cafe` is its own value.) A handful is
+ *     data and costs those records, never the run; it fails only when
+ *     SYSTEMATIC: at least LIST_WIDE_MIN_OBJECTS objects AND more than
+ *     LIST_WIDE_MAX_PERCENT of the objects the kind's words are mentioned in.
+ *
+ * A kind with no row is a kind nobody checked, and that reads exactly like a
+ * kind that passed: it is an error too.
+ *
+ * Returns the failure message, or null.
+ */
+export function listRulesError(
+  rows: readonly ListRulesSummary[],
+  kinds: readonly string[] = STORED_POI_KINDS,
+): string | null {
+  const problems: string[] = [];
+  for (const kind of kinds) {
+    const r = rows.find((row) => row.kind === kind);
+    if (r === undefined) {
+      problems.push(`no row for kind ${kind} — it was not checked`);
+      continue;
+    }
+    const missed = Number(r.missed);
+    const extra = Number(r.extra);
+    const wide = Number(r.wide_objects);
+    const wideOnly = Number(r.wide_only);
+    if (missed > 0) {
+      problems.push(
+        `${kind}: ${missed} staged objects say its words as an element of a ';' ` +
+          `list and the rule gave them no kind — the rule reads the tag more ` +
+          `narrowly than OpenStreetMap writes it (the whole value, not its elements)`,
+      );
+    }
+    if (extra > 0) {
+      problems.push(
+        `${kind}: ${extra} objects were made ${kind} although no element of ` +
+          `their tags is one of its words — the rule reads more than a ';' ` +
+          `element (a substring? the wrong key?)`,
+      );
+    }
+    if (
+      wideOnly >= LIST_WIDE_MIN_OBJECTS &&
+      wideOnly * 100 > wide * LIST_WIDE_MAX_PERCENT
+    ) {
+      problems.push(
+        `${kind}: ${wideOnly} of ${wide} staged objects mention its words and ` +
+          `the rule does not take them — a systematic spelling the rule does ` +
+          `not read (a ',' list, another case, a space)`,
+      );
+    }
+  }
+  return problems.length === 0 ? null : problems.join('; ');
 }

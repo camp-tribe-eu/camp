@@ -3,18 +3,28 @@ import type { QueryRunner } from 'typeorm';
 import { RoutePoi1790572800000 } from '../migrations/1790572800000-RoutePoi';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
 import { RoutePoiGas1791700000000 } from '../migrations/1791700000000-RoutePoiGas';
-import { ACCESS_EXCLUDED, gasLayerError, isAccessExcluded } from './route-poi';
+import {
+  ACCESS_EXCLUDED,
+  gasLayerError,
+  isAccessExcluded,
+  listRulesError,
+  type ListRulesSummary,
+  STORED_POI_KINDS,
+  STORED_POI_RULES,
+} from './route-poi';
 import { ensureStagingColumns, exportedTags } from './route-poi-export';
 import {
   LPG,
   resolveTriState,
   resolveVerbatim,
+  SEPARATOR_SQL,
   TRISTATE_FACILITIES,
 } from './route-poi-facilities';
 import {
   buildRoutePoiInsertSql,
   EU_SQL_LIST,
   GAS_LAYER_SUMMARY_SQL,
+  listRulesSummarySql,
 } from './route-poi-sql';
 
 // CAMP-119 — the import statement, run against a REAL PostgreSQL.
@@ -84,6 +94,59 @@ const pt = (id: string, tags: Tags): Fixture => {
 };
 
 const REST = { highway: 'rest_area' };
+
+/**
+ * 🔴 CAMP-327: EVERY RULE READS A `;` LIST — ONE OBJECT PER VALUE, WRITTEN OUT.
+ *
+ * Until that card seventeen of the eighteen values were compared with the WHOLE
+ * tag, so none of these was a row. Each is the shape OpenStreetMap writes: the
+ * word first, last, behind a blank, in capitals, beside a word of another kind
+ * or of none. The expectations are by hand and not computed from
+ * STORED_POI_RULES — a table derived from the rules cannot disagree with them —
+ * and each of the 18 values appears at least once, so a rule left as an
+ * equality is one red row, not "some of them".
+ *
+ * MUTATION: compare the whole tag again for ONE rule (`s.amenity IN
+ * ('restaurant', …)`, any of the nine): the rows of its kind below go red.
+ */
+const LIST_CASES: readonly [string, Tags, string][] = [
+  ['n50', { amenity: 'fuel;car_wash' }, 'fuel'],
+  ['n51', { amenity: 'bench; charging_station' }, 'charging'],
+  ['n52', { amenity: 'drinking_water;bench' }, 'water'],
+  ['n53', { amenity: 'toilets; water_point' }, 'water'],
+  ['n54', { man_made: 'water_well;water_tap' }, 'water'],
+  ['n55', { amenity: 'sanitary_dump_station;toilets' }, 'dump'],
+  ['n56', { shop: 'bakery;supermarket' }, 'groceries'],
+  ['n57', { shop: 'kiosk; convenience' }, 'groceries'],
+  // the live shape: a blank AFTER the `;`, and the word that is ours first
+  ['n58', { amenity: 'restaurant; ice_cream' }, 'food'],
+  ['n59', { amenity: 'ice_cream; cafe' }, 'food'],
+  ['n60', { amenity: 'bar;fast_food' }, 'food'],
+  // 🔴 the card's own number, in miniature: a hotel that is also a campsite
+  ['n61', { tourism: 'hotel;camp_site' }, 'shelter'],
+  ['n62', { tourism: 'motel;apartment' }, 'shelter'],
+  ['n63', { tourism: 'camp_site; hostel' }, 'shelter'],
+  ['n64', { tourism: 'apartment;guest_house' }, 'shelter'],
+  ['n65', { highway: 'bus_stop;rest_area' }, 'rest_area'],
+  ['n66', { highway: 'bus_stop;services' }, 'service_area'],
+  // case is folded and blanks come off, as for every tag the loader reads
+  ['n67', { amenity: ' BAR ; Restaurant ' }, 'food'],
+  // a trailing separator is an empty element, not a missing one
+  ['n68', { amenity: 'cafe;' }, 'food'],
+  // 🔴 THE FIRST BRANCH WINS, WHICHEVER WAY THE TAG WAS WRITTEN. These are the
+  // objects whose KIND changed when the rules began to read lists — the card's
+  // risk — and each one now lands exactly where the same object written with
+  // plain tags already did: a hotel with a restaurant is food (n71, which was
+  // always so), so a hotel with `restaurant;bar` is food too.
+  ['n70', { tourism: 'hotel', amenity: 'restaurant;bar' }, 'food'],
+  ['n71', { tourism: 'hotel', amenity: 'restaurant' }, 'food'],
+  ['n72', { shop: 'convenience', amenity: 'fuel;charging_station' }, 'fuel'],
+  ['n73', { amenity: 'restaurant', shop: 'supermarket;bakery' }, 'groceries'],
+  ['n74', { highway: 'rest_area', amenity: 'cafe;bar' }, 'food'],
+  // …and where the first branch of the SAME key is not the first word:
+  // `highway=rest_area;services` is a rest area, as the rule order says
+  ['n75', { highway: 'services;rest_area' }, 'rest_area'],
+];
 
 /**
  * One row per case, with the answer written out BY HAND. The expectations
@@ -325,10 +388,19 @@ const CASES: {
   // and every one walked past it; 3 751 of them were stored as `fuel` with the
   // flag `unknown`. Each shape below is one that exists in the extracts.
   {
-    // a gas shop that is ALSO a convenience store, and nothing else: its own
-    // kind, because the exact `convenience` rule does not match a list
+    // a gas shop that is ALSO a convenience store, and nothing else.
+    //
+    // 🔴 CAMP-327: GROCERIES, NOT gas_exchange. Until that card only the gas
+    // rule read `shop` as a list, so this was the one shop whose `convenience`
+    // was invisible and it fell through to `gas_exchange`. Every rule reads
+    // lists now, and `groceries` comes BEFORE `gas_exchange` in the CASE — as
+    // it always did for a plain `shop=convenience` that is also `shop=gas`
+    // written as two objects' worth of tags. The flag is what keeps it in the
+    // gas layer: `cylinder_swap` stays `yes`, and the layer is
+    // `kind = 'gas_exchange' OR cylinder_swap = 'yes'`.
+    // MUTATION: leave `convenience` an equality in rulesTestSql.
     fixture: pt('n33', { shop: 'convenience;gas' }),
-    expectKind: 'gas_exchange',
+    expectKind: 'groceries',
     expect: { cylinder_swap: 'yes' },
   },
   {
@@ -345,14 +417,15 @@ const CASES: {
     expect: { cylinder_swap: 'yes' },
   },
   {
-    // case is folded, as for every other tag the loader reads
+    // case is folded, as for every other tag the loader reads — and, since
+    // CAMP-327, `convenience` is read in this list too, so it is a grocery
+    // (see n33); the flag keeps it in the gas layer
     fixture: pt('n36', { shop: 'Gas;convenience' }),
-    expectKind: 'gas_exchange',
+    expectKind: 'groceries',
     expect: { cylinder_swap: 'yes' },
   },
   {
-    // the exact rules stay exact: a plain convenience store is groceries and
-    // says nothing about cylinders
+    // a plain convenience store is groceries and says nothing about cylinders
     fixture: pt('n38', { shop: 'convenience' }),
     expectKind: 'groceries',
     expect: { cylinder_swap: 'unknown' },
@@ -372,6 +445,11 @@ const CASES: {
     expectKind: 'service_area',
     expect: { lpg: 'yes' },
   },
+  ...LIST_CASES.map(([id, tags, expectKind]): (typeof CASES)[number] => ({
+    fixture: pt(id, tags),
+    expectKind,
+    expect: {},
+  })),
 ];
 
 /**
@@ -452,6 +530,28 @@ const NOT_STORED: Fixture[] = [
   pt('n41', { shop: 'fuel & liquid gas' }),
   // …and `fuel:lpg` alone classifies nothing: it is a property, not a place
   pt('n31', { 'fuel:lpg': 'yes' }),
+  // 🔴 CAMP-327: WHAT A SUBSTRING FILTER HANDS OVER AND THE RULE MUST REFUSE.
+  // osmium is asked for `amenity=*cafe*`, so these arrive in staging; none is
+  // an element of a list that names one of our words. (Austria: 20 of 69 196.)
+  pt('n80', { amenity: 'internet_cafe' }),
+  pt('n81', { amenity: 'device_charging_station' }),
+  // a LIST, with no element of ours: a rule that merely asks "is there a `;`"
+  // and "does it contain the word" takes this one
+  pt('n82', { amenity: 'bench;device_charging_station' }),
+  // a value that holds the key and the value itself — written that way in the
+  // data — and a `,` list. Not read as a list, on purpose: taking them is a
+  // decision to name in a PR, and not a side effect of a regular expression.
+  pt('n83', { tourism: 'tourism=caravan_site' }),
+  pt('n84', { tourism: 'camp_site,caravan_site,apartment' }),
+  // …and the same two shapes where a word of OURS is in them
+  pt('n85', { tourism: 'hotel,hostel' }),
+  pt('n86', { amenity: 'restaurant,cafe' }),
+  pt('n87', { amenity: 'restaurant / bar' }),
+  pt('n88', { shop: 'supermarket,convenience' }),
+  // a word of ours inside another word: `fuel` in `fuel_dispenser`, `hotel` in
+  // `hotel_apartment` — the substring filter delivers them, the rule does not
+  pt('n89', { amenity: 'fuel_dispenser' }),
+  pt('n90', { tourism: 'hotel_apartment' }),
 ];
 
 // 🔴 THE CLASS OF BLANKS, WRITTEN OUT BY HAND (CAMP-119 review).
@@ -1075,12 +1175,15 @@ describe('the import statement, against a real PostgreSQL', () => {
   // ── CAMP-258: THE GAS LAYER, COUNTED THE WAY A MAP READS IT ──
   //
   // The expectations are written out by hand from the fixtures above:
-  //   gas_exchange rows       n20 n21 n33 n35 n36 (lone gas shops, whole tag
-  //                           or a `;` list), w700 (a1400 is folded), w1500
+  //   gas_exchange rows       n20 n21 n35 (lone gas shops, whole tag or a
+  //                           `;` list), w700 (a1400 is folded), w1500
   //                           and r1500 (staged ONLY as areas a3000, a3001)
+  //   groceries that say gas  n33 n36 (`convenience;gas`: CAMP-327 — the
+  //                           grocery rule reads lists now, and comes first)
   //   fuel rows that say gas  n22 n34 w800 a1600 (the closed way is two rows)
   //   excluded                n30 (access=private)
-  //   stored, not gas         n32 (groceries), n38 (groceries), n12 w600 (dump)
+  //   stored, not gas         n32 n38 n56 n57 n73 (groceries), n12 w600 n55
+  //                           (dump)
   //   mention gas, not marked n39 `gas_bottle`, n40 `gas,convenience`,
   //                           n41 `fuel & liquid gas` — and n37
   //                           `gasvending=fuel`, which contains gas only INSIDE
@@ -1091,8 +1194,12 @@ describe('the import statement, against a real PostgreSQL', () => {
     it('is every gas shop whatever its kind: 12 rows, 11 objects', async () => {
       const layer = (await db.query(GAS_LAYER_SUMMARY_SQL)).rows[0];
       expect(layer).toEqual({
-        own_kind: '8',
-        other_kinds: '4',
+        // 🔴 CAMP-327: 6 and 6, where it was 8 and 4 — n33 and n36 say
+        // `convenience;gas`, which is a grocery now that every rule reads a
+        // list and `groceries` comes first. The LAYER is the same 12 rows and
+        // 11 objects, which is what the flag is for.
+        own_kind: '6',
+        other_kinds: '6',
         missing: '0',
         extra: '0',
         // staged objects that say gas as a word: the 11 objects of the layer,
@@ -1169,7 +1276,7 @@ describe('the import statement, against a real PostgreSQL', () => {
         `UPDATE osm_route_poi SET cylinder_swap = 'unknown' WHERE kind <> 'gas_exchange'`,
       );
       expect(counts(row)).toEqual({
-        missing: '4', // n22, n34, w800, a1600
+        missing: '6', // n22, n34, w800, a1600, and (CAMP-327) n33, n36
         extra: '0',
       });
       expect(error).not.toBeNull();
@@ -1184,10 +1291,10 @@ describe('the import statement, against a real PostgreSQL', () => {
       );
       expect(counts(row)).toEqual({
         missing: '0',
-        extra: '2', // n32, n38
+        extra: '5', // n32, n38, and (CAMP-327) the groceries n56, n57, n73
       });
       expect(error).toMatch(
-        /^2 rows say cylinder_swap=yes and no staged object/,
+        /^5 rows say cylinder_swap=yes and no staged object/,
       );
     });
 
@@ -1202,7 +1309,7 @@ describe('the import statement, against a real PostgreSQL', () => {
       );
       expect(counts(row)).toEqual({
         missing: '12', // every row of the layer
-        extra: '2', // n12, w600
+        extra: '3', // n12, w600, and (CAMP-327) the dump list n55
       });
       expect(error).not.toBeNull();
     });
@@ -1286,6 +1393,298 @@ describe('the import statement, against a real PostgreSQL', () => {
           WHERE kind = 'gas_exchange' AND cylinder_swap <> 'yes'`,
       );
       expect(bad.rows).toEqual([]);
+    });
+  });
+
+  // ── CAMP-327: EVERY KIND READS ITS TAGS AS `;` LISTS, AND THE CHECK SAYS SO ──
+  describe('every kind reads its tags as lists', () => {
+    const run = async (change?: string, classify?: string) => {
+      await db.query('BEGIN');
+      try {
+        if (change) await db.query(change);
+        return (await db.query<ListRulesSummary>(listRulesSummarySql(classify)))
+          .rows;
+      } finally {
+        await db.query('ROLLBACK');
+      }
+    };
+    const summary = (classify?: string) => run(undefined, classify);
+    const planted = (change: string, classify?: string) =>
+      run(change, classify);
+    const of = (rows: ListRulesSummary[], kind: string) => {
+      const row = rows.find((r) => r.kind === kind);
+      if (!row) throw new Error(`no row for ${kind}`);
+      return row;
+    };
+
+    // The OLD rule, written out: every tag compared with its WHOLE value. It
+    // is what a revert of rulesTestSql produces, and the check has to turn red
+    // on it — handed to the check as a classifier, so the test does not need
+    // the code to be broken to see what the check does when it is.
+    const equalityCase = () =>
+      'CASE ' +
+      STORED_POI_KINDS.map(
+        (kind) =>
+          'WHEN ' +
+          STORED_POI_RULES[kind]
+            .map(
+              (r) =>
+                `o."${r.key}" IN (${r.values.map((v) => `'${v}'`).join(', ')})`,
+            )
+            .join(' OR ') +
+          ` THEN '${kind}'`,
+      ).join(' ') +
+      ' END';
+    // …and the rule read as a SUBSTRING, which is what osmium's `*cafe*`
+    // tempts one to do with the answer.
+    const substringCase = () =>
+      'CASE ' +
+      STORED_POI_KINDS.map(
+        (kind) =>
+          'WHEN ' +
+          STORED_POI_RULES[kind]
+            .flatMap((r) => r.values.map((v) => `o."${r.key}" LIKE '%${v}%'`))
+            .join(' OR ') +
+          ` THEN '${kind}'`,
+      ).join(' ') +
+      ' END';
+
+    it('answers one row for each of the ten kinds', async () => {
+      const rows = await summary();
+      // written out: a kind dropped from the statement is a kind nobody checks
+      expect(rows.map((r) => r.kind).sort()).toEqual(
+        [
+          'charging',
+          'dump',
+          'food',
+          'fuel',
+          'gas_exchange',
+          'groceries',
+          'rest_area',
+          'service_area',
+          'shelter',
+          'water',
+        ].sort(),
+      );
+    });
+
+    // The fixtures hold every shape above, and the rule takes all of them and
+    // refuses all of the others: no kind has an object it missed or one it
+    // should not have made. Values written out for the three smallest kinds,
+    // counted by hand from the fixtures (an object is counted once however
+    // many rows it staged as).
+    it('is clean on the real rule', async () => {
+      const rows = await summary();
+      for (const r of rows) {
+        expect(`${r.kind} missed ${r.missed} extra ${r.extra}`).toBe(
+          `${r.kind} missed 0 extra 0`,
+        );
+      }
+      expect(listRulesError(rows)).toBeNull();
+    });
+
+    // 🔴 THE RULE READ AS AN EQUALITY — THE CARD'S OWN DEFECT — MUST TURN IT
+    // RED. Every kind has at least one fixture that says its word inside a
+    // list, so every kind misses something. The gas guard said `missing 0` over
+    // a layer short by a third because both its sides read equalities; this is
+    // the test that the new one does not.
+    //
+    // MUTATION: build the narrow reading from the rule's own expression
+    // (tagPartsSql / rulesTestSql), or from an equality.
+    it('turns red for every kind when the rule is read as an equality', async () => {
+      const rows = await summary(equalityCase());
+      for (const kind of STORED_POI_KINDS) {
+        expect(Number(of(rows, kind).missed)).toBeGreaterThan(0);
+      }
+      expect(listRulesError(rows)).toMatch(
+        /food: \d+ staged objects say its words/,
+      );
+      // the objects of the three smallest lists, counted by hand: the only
+      // staged objects naming them inside a list
+      expect(of(rows, 'dump').missed).toBe('1'); // n55
+      expect(of(rows, 'charging').missed).toBe('1'); // n51
+      expect(of(rows, 'service_area').missed).toBe('2'); // n66, n75
+    });
+
+    // 🔴 …AND READ AS A SUBSTRING, MUST TURN RED THE OTHER WAY: `internet_cafe`
+    // is made a food place, and the check names the objects that have no
+    // element of the kind's words.
+    //
+    // MUTATION: count `extra` against the wide reading instead of the narrow
+    // one, or drop it.
+    it('turns red when the rule is read as a substring', async () => {
+      const rows = await summary(substringCase());
+      expect(of(rows, 'food').extra).toBe('3'); // n80, n86, n87
+      expect(of(rows, 'charging').extra).toBe('2'); // n81, n82
+      expect(of(rows, 'fuel').extra).toBe('1'); // n89
+      expect(listRulesError(rows)).toMatch(
+        /charging: 2 objects were made charging/,
+      );
+    });
+
+    // The refused shapes are DATA, and the wide reading counts them: a handful
+    // is reported and costs those records, never the run.
+    it('counts what it refuses, and does not fail for a handful', async () => {
+      const rows = await summary();
+      // an underscore keeps a word together: `internet_cafe` (n80),
+      // `device_charging_station` (n81, n82), `fuel_dispenser` (n89) and
+      // `hotel_apartment` (n90) are other VALUES and not mentions of ours
+      expect(of(rows, 'food').wide_only).toBe('2'); // n86, n87
+      expect(of(rows, 'charging').wide_only).toBe('0');
+      expect(of(rows, 'shelter').wide_only).toBe('1'); // n85
+      expect(of(rows, 'groceries').wide_only).toBe('2'); // n40 `gas,convenience`, n88
+      expect(of(rows, 'fuel').wide_only).toBe('0');
+      expect(listRulesError(rows)).toBeNull();
+    });
+
+    // 🔴 THE GUARD MUST BE ABLE TO DISAGREE WITH THE RULE (review of #262).
+    //
+    // What makes the narrow reading a check is that it is NOT the rule's code:
+    // listRulesSummarySql splits the tag with `string_to_array` + `unnest`
+    // where the rule uses `tagPartsSql`. Nothing in the types, the lint or the
+    // tests above stops the next person from calling that duplication and
+    // writing `tagPartsSql(…)` there — and a narrow reading built from the
+    // rule's own expression agrees with the rule WHATEVER the rule does: every
+    // test above stays green, because each one feeds the guard a rule that
+    // reads the tag differently from the guard's own way (a classifier of its
+    // own, written here), which a mirror also disagrees with.
+    //
+    // So this does not look for the text of the narrow reading; a list of
+    // forbidden spellings is walked round with a new spelling. It moves the ONE
+    // thing the two readings would share if they were one — the separator — in
+    // the statement as built, so that only what reads it through the rule's
+    // code moves with it: the RULE learns to split on `,` as well (the
+    // review's M22). An independent narrow reading still splits on `;` and
+    // counts what the rule now takes on a comma as `extra`; a mirror splits on
+    // the comma too and counts nothing in any kind.
+    //
+    // The five fixtures with a comma are n40 `shop=gas,convenience`, n84, n85
+    // `tourism=hotel,hostel`, n86 `amenity=restaurant,cafe` and n88
+    // `shop=supermarket,convenience`. Of them the comma rule makes n40 and n88
+    // groceries (it comes before gas_exchange in the CASE), n85 shelter, n86
+    // food, and n84 nothing (camp_site, caravan_site and apartment are none of
+    // the shelter words) — counted by hand from the fixtures.
+    //
+    // MUTATION: in listRulesSummarySql replace the inline `p_<key>` block with
+    // `${tagPartsSql(`o."${k}"`)} AS p_${k}` — `extra` is 0 in every kind.
+    it('sees a rule that has learned to split on a comma', async () => {
+      const real = listRulesSummarySql();
+      // the mutation, and proof that it HIT: every rule's test reads the tag
+      // through the separator, so the statement holds it at least once per rule
+      const taught = real
+        .split(SEPARATOR_SQL)
+        .join(SEPARATOR_SQL.replace(';', '[;,]'));
+      const rules = STORED_POI_KINDS.flatMap((k) => STORED_POI_RULES[k]).length;
+      expect(real.split(SEPARATOR_SQL).length - 1).toBeGreaterThanOrEqual(
+        rules,
+      );
+      expect(taught).not.toBe(real);
+
+      const rows = (await db.query<ListRulesSummary>(taught)).rows;
+      const extras = Object.fromEntries(
+        rows.filter((r) => r.extra !== '0').map((r) => [r.kind, r.extra]),
+      );
+      expect(extras).toEqual({ groceries: '2', food: '1', shelter: '1' });
+      expect(listRulesError(rows)).toMatch(
+        /groceries: 2 objects were made groceries although no element/,
+      );
+      // …and the same statement with the rule as it is stays clean, so the
+      // disagreement above came from the comma and from nothing else
+      expect(
+        listRulesError((await db.query<ListRulesSummary>(real)).rows),
+      ).toBeNull();
+    });
+
+    // 🔴 THE WIDE READING DOES NOT FOLD BY THE DATABASE'S LOCALE EITHER.
+    // `lower('chargİng_station')` is `charging_station` under en_US.UTF-8 and
+    // stays `chargİng_station` under COLLATE "C": read through `lower()` the
+    // object is a mention of `charging_station` on one machine and not on
+    // another, and `wide_*` is not a number a second machine can reproduce.
+    // Every word compared with is ASCII, so the ASCII fold is the only one that
+    // can change an answer. The object is not a mention here — and not an
+    // element, so nothing else moves either.
+    //
+    // MUTATION: `lower(o."<key>")` without its `COLLATE "C"` in the wide
+    // reading of listRulesSummarySql (red on a database whose locale folds `İ`,
+    // as the one this suite runs on does).
+    it('does not let the locale of the database decide what the wide reading counts', async () => {
+      const before = of(await summary(), 'charging');
+      const after = of(
+        await planted(
+          `INSERT INTO osm_route_poi_staging (id, geom, amenity)
+           VALUES ('n9301', ST_Multi(ST_SetSRID(ST_MakePoint(14.5, 46.5), 4326)),
+                   'charg\u0130ng_station')`,
+        ),
+        'charging',
+      );
+      expect(after).toEqual(before);
+    });
+
+    // …and counts a mention in ANY ASCII case, which is the other half of the
+    // fold above: a wide reading that stopped folding would miss every
+    // `Restaurant,CAFE` the rule refuses and the check would go quiet about
+    // them (the rule takes `RESTAURANT` alone, through its own fold, so nothing
+    // else would notice). One planted object is one more of each count.
+    //
+    // MUTATION: no fold at all in the wide reading of listRulesSummarySql.
+    it('counts a mention of a word in any ASCII case', async () => {
+      const before = of(await summary(), 'food');
+      const after = of(
+        await planted(
+          `INSERT INTO osm_route_poi_staging (id, geom, amenity)
+           VALUES ('n9302', ST_Multi(ST_SetSRID(ST_MakePoint(14.6, 46.5), 4326)),
+                   'Restaurant,CAFE')`,
+        ),
+        'food',
+      );
+      expect({
+        wide: Number(after.wide_objects) - Number(before.wide_objects),
+        wideOnly: Number(after.wide_only) - Number(before.wide_only),
+        extra: after.extra,
+        missed: after.missed,
+      }).toEqual({ wide: 1, wideOnly: 1, extra: '0', missed: '0' });
+    });
+
+    // …and fails when SYSTEMATIC: twelve more `restaurant,cafe`, which a rule
+    // that read `,` as a separator would take and this one does not. MUTATION:
+    // drop `wide_only` from listRulesError, or build the wide reading from the
+    // rule's own expression.
+    it('turns red when a systematic share of a kind is written another way', async () => {
+      const rows = await planted(
+        `INSERT INTO osm_route_poi_staging (id, geom, amenity)
+         SELECT 'n7' || lpad(g::text, 4, '0'),
+                ST_Multi(ST_SetSRID(ST_MakePoint(14.0 + g * 0.01, 46.5), 4326)),
+                'restaurant,cafe'
+           FROM generate_series(1, 12) g`,
+      );
+      expect(of(rows, 'food').wide_only).toBe('14'); // 12 planted, n86, n87
+      expect(listRulesError(rows)).toMatch(
+        /food: 14 of \d+ staged objects mention its words/,
+      );
+    });
+
+    // An object is counted ONCE however many rows it staged as: a closed way
+    // is `w123` and `a246`, the same tags twice. MUTATION: take the
+    // `DISTINCT ON (cref)` out of the statement and the twins double every count.
+    it('counts a closed way once', async () => {
+      const before = of(await summary(), 'dump').listed;
+      const rowsAfter = await planted(
+        `INSERT INTO osm_route_poi_staging (id, geom, amenity)
+         VALUES ('w9100', ST_Multi(ST_GeomFromText('${RING}', 4326)), 'sanitary_dump_station;toilets'),
+                ('a18200', ST_Multi(ST_GeomFromText('${POLYGON}', 4326)), 'sanitary_dump_station;toilets')`,
+      );
+      const after = of(rowsAfter, 'dump').listed;
+      expect(Number(after) - Number(before)).toBe(1);
+    });
+
+    // A list object that an EARLIER kind takes is not missed: `hotel` with a
+    // restaurant is food, and is not nobody's.
+    it('does not call an object missed when another kind took it', async () => {
+      const rows = await summary();
+      // n70 is a hotel that says `restaurant;bar`: shelter names it and the
+      // CASE gave it food — a kind, so not missed
+      expect(of(rows, 'shelter').missed).toBe('0');
+      expect(of(rows, 'food').missed).toBe('0');
     });
   });
 

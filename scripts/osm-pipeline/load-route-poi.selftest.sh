@@ -31,7 +31,7 @@ ROOT="$(mktemp -d "${TMPDIR:-/tmp}/load-route-poi-selftest.XXXXXX")"
 trap 'rm -rf "$ROOT"' EXIT
 
 # The number of pass/fail calls below. Update it WITH the cases.
-EXPECTED=22
+EXPECTED=20
 
 # The database the run is asked for. Nothing connects to it: every tool that
 # would is a shim, and the name says so.
@@ -113,7 +113,10 @@ make_world() {
   mkdir -p "$wd"
   : > "$wd/europe-malta.osm.pbf"
   # a file that a glob in the script's filter list would match
-  if [ -n "${SELFTEST_EXTRA_FILE:-}" ]; then : > "$wd/$SELFTEST_EXTRA_FILE"; fi
+  if [ -n "${SELFTEST_EXTRA_FILE:-}" ]; then
+    mkdir -p "$(dirname "$wd/$SELFTEST_EXTRA_FILE")"
+    : > "$wd/$SELFTEST_EXTRA_FILE"
+  fi
 }
 
 run() {
@@ -147,28 +150,58 @@ else
   fail "a clean run should complete; rc=$rc: $out"
 fi
 
-# 🔴 CAMP-258: shop=*gas* is here too — it is what makes gas_exchange a kind
-# that can be non-empty, and it is a SUBSTRING match on purpose: osmium compares
-# the whole value, so `shop=gas` never selects `shop=convenience;gas`. Written
-# out, not read from the script. `grep -F`: the `*` is not a regex here.
-for want in highway=rest_area highway=services amenity=sanitary_dump_station 'shop=*gas*'; do
-  # both element types: a rest area is mostly a way, a dump point a node
-  if grep -qF "n/$want" <<<"$filter_call" && grep -qF "w/$want" <<<"$filter_call"; then
-    pass "osmium is asked for $want on nodes AND ways"
-  else
-    fail "osmium was not asked for n/ and w/ $want: $filter_call"
-  fi
+# 🔴 CAMP-327: EVERY VALUE IS ASKED FOR AS A SUBSTRING, `key=*value*`, ON
+# NODES AND WAYS. osmium compares the whole value, so `amenity=restaurant`
+# selects nothing that says `amenity=restaurant;ice_cream`; before this card
+# only `shop=*gas*` was written that way (CAMP-258) and the other seventeen
+# were equalities, which is how 30 objects of one country never reached
+# staging. The 18 values are written out here, NOT read from the script or from
+# route-poi.ts: this is the contract, and a list derived from the code it
+# checks cannot disagree with it. Each argument is compared WHOLE (`grep -x`),
+# so `n/amenity=*fuel*x` does not stand in for `n/amenity=*fuel*`.
+WANT=(
+  amenity=fuel amenity=charging_station amenity=drinking_water
+  amenity=water_point man_made=water_tap amenity=sanitary_dump_station
+  highway=rest_area highway=services shop=gas shop=supermarket
+  shop=convenience amenity=restaurant amenity=cafe amenity=fast_food
+  tourism=hotel tourism=motel tourism=hostel tourism=guest_house
+)
+filter_args=$(tr ' ' '\n' <<<"$filter_call")
+missing=''
+for want in "${WANT[@]}"; do
+  for el in n w; do
+    # both element types: a rest area is mostly a way, a dump point a node
+    grep -qxF "$el/${want%%=*}=*${want#*=}*" <<<"$filter_args" \
+      || missing="$missing $el/${want%%=*}=*${want#*=}*"
+  done
 done
+if [ -z "$missing" ]; then
+  pass "osmium is asked for all ${#WANT[@]} values as a substring, on nodes AND ways"
+else
+  fail "osmium was not handed:$missing  (call: $filter_call)"
+fi
 
-# 🔴 CAMP-258: the `*` in `shop=*gas*` must reach osmium as a `*`. Unquoted in
-# the script's array it is a GLOB over WORK_DIR, and a file called `shop=xgas`
-# there would replace the filter with its own name — silently, with exit 0. The
-# work directory of this run has such a file. MUTATION: take the quotes off
-# 'shop=*gas*' in load-route-poi.sh.
-out=$(SELFTEST_EXTRA_FILE='shop=xgas' run g); rc=$?
+# …and for nothing else: 18 values on two element types, no more. A value
+# added to the script and not to the rules would be a row loaded and thrown
+# away (the spec compares the pairs with STORED_POI_RULES; this is what the
+# shell actually hands over).
+asked=$(grep -cE '^[nw]/' <<<"$filter_args" || true)
+if [ "$asked" = "$(( ${#WANT[@]} * 2 ))" ]; then
+  pass "osmium is handed exactly $asked tag expressions, no more"
+else
+  fail "osmium was handed $asked tag expressions, expected $(( ${#WANT[@]} * 2 )): $filter_call"
+fi
+
+# 🔴 CAMP-258/327: the `*`s must reach osmium as `*`s. Unquoted in the
+# script's loop they are a GLOB over WORK_DIR, and a file whose name matches
+# the pattern — here `n/shop=xgas` — would replace the filter with its own
+# name, silently, with exit 0. The work directory of this run has such a
+# file. MUTATION: take the double quotes off the TAG_ARGS line in
+# load-route-poi.sh.
+out=$(SELFTEST_EXTRA_FILE='n/shop=xgas' run g); rc=$?
 glob_call=$(grep -m1 '^osmium tags-filter' "$CALLS")
 if [ $rc -eq 0 ] && grep -qF 'n/shop=*gas*' <<<"$glob_call" && ! grep -qF 'shop=xgas' <<<"$glob_call"; then
-  pass "shop=*gas* reaches osmium as written, though a file called shop=xgas sits in the work directory"
+  pass "shop=*gas* reaches osmium as written, though a file called n/shop=xgas sits in the work directory"
 else
   fail "the * in shop=*gas* was globbed; rc=$rc: $glob_call"
 fi
