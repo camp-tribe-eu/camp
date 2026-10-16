@@ -282,6 +282,13 @@ export default function Privacy() {
 
       <H2 id="children">Children</H2>
       <P>
+        Reading this site needs no account and no age. Opening one requires
+        you to be eighteen, and we ask you to confirm that rather than
+        asking for your date of birth — a date we would then be holding and
+        would have to protect, to answer a question that a yes already
+        answers.
+      </P>
+      <P>
         This site is not aimed at children, and we do not knowingly open
         accounts for them or collect anything from them. If you believe a
         child has given us personal data, write to us and we will remove it.
