@@ -296,6 +296,9 @@ test.describe('🔴 /account: noindex метатегом, а не robots.txt (м
     const rules = robotsFor(true).rules as { disallow: string[] };
     const blocked = (path: string) => rules.disallow.some((d) => path.startsWith(d));
     expect(blocked('/account')).toBe(false);
+    // CAMP-229 (3/3): і дві нові сторінки, з тієї ж причини.
+    expect(blocked('/account/data')).toBe(false);
+    expect(blocked('/account/delete')).toBe(false);
     // Щоб відсутність щось означала: правило, яке справді є, спрацьовує.
     expect(blocked('/trips/abc')).toBe(true);
   });
@@ -305,5 +308,8 @@ test.describe('🔴 /account: noindex метатегом, а не robots.txt (м
     expect(listed.length).toBeGreaterThan(3);
     expect(listed).toContain('/camping');
     expect(listed).not.toContain('/account');
+    // CAMP-229 (3/3): ні вивантаження, ні видалення теж.
+    expect(listed).not.toContain('/account/data');
+    expect(listed).not.toContain('/account/delete');
   });
 });

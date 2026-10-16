@@ -198,3 +198,79 @@ test.describe('🔴 /account: не ввійшов — на /login, і сторі
     expect(kept).toBeNull();
   });
 });
+
+// ── CAMP-229 (3/3): /account/data і /account/delete ──────────────────────
+//
+// 🔴 Той самий поділ, що вище: розмітку екранів (варіанти долі фото, і що жоден не
+// позначений; текст «що лишиться» з назвою підстави) читають `tests/unit/account-delete.spec.tsx`
+// та `account-data.spec.tsx` на ВИДАНОМУ HTML компонентів; розмову з API — `rights.spec.ts`
+// і `account-rights.db.spec.ts`; повний шлях у браузері з живим API (вхід, архів, видалення,
+// повернення входом, консоль, 375 і 1024 px, axe) прогнано руками й записано в описі PR.
+// Тут — виданий документ і те, що людину без сесії відправляють на /login.
+
+const RIGHTS_PAGES = [
+  { path: '/account/data', heading: 'Your data' },
+  { path: '/account/delete', heading: 'Delete your account' },
+] as const;
+
+test.describe('🔴 /account/data і /account/delete: виданий документ', () => {
+  for (const { path, heading } of RIGHTS_PAGES) {
+    test(`${path}: 200, noindex+nofollow, один <h1>, і ні варіантів, ні кнопок видалення до того, як сервер назвав людину`, async ({
+      request,
+    }) => {
+      const res = await request.get(path);
+      expect(res.status()).toBe(200);
+      const html = await res.text();
+      expect(html).toMatch(/<meta name="robots"[^>]*content="[^"]*noindex[^"]*nofollow/i);
+      const h1 = [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)].map((m) => visibleText(m[1]));
+      expect(h1).toEqual([heading]);
+      // Що бачить кожен, кому JS не виконався: заголовок і «перевіряємо» — і нічого з того,
+      // що належить людині. Парна половина: «перевіряємо» справді є, тож порожнеча нижче —
+      // не від того, що сторінка не відрендерилась.
+      const text = visibleText(html);
+      expect(text).toContain('Checking your sign-in…');
+      expect(html).not.toMatch(/type="radio"/);
+      expect(html).not.toMatch(/type="password"/);
+      expect(text).not.toContain('Delete account');
+      expect(text).not.toContain('Prepare my archive');
+    });
+
+    test(`${path}: хлібні крихти JSON-LD ведуть сюди й називаються як <h1>`, async ({ request }) => {
+      const html = await (await request.get(path)).text();
+      const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(
+        (m) => JSON.parse(m[1]),
+      );
+      const crumbs = blocks.find((b) => b['@type'] === 'BreadcrumbList');
+      expect(crumbs, 'немає BreadcrumbList').toBeDefined();
+      const items = crumbs.itemListElement as { position: number; name: string; item: string }[];
+      expect(new URL(items[1].item).pathname).toBe(path);
+      expect(items[1].name).toBe(heading);
+    });
+
+    test(`${path}: людина без сесії потрапляє на /login, і в сховищі вкладки лежить рівно ${path}`, async ({
+      page,
+    }) => {
+      const errors: string[] = [];
+      page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(path);
+      await page.waitForURL('**/login');
+      expect(new URL(page.url()).pathname).toBe('/login');
+      const stored = await page.evaluate((key) => window.sessionStorage.getItem(key), RETURN_KEY);
+      expect(stored, 'місце повернення записано').not.toBeNull();
+      expect(JSON.parse(stored!).path).toBe(path);
+      expect(errors).toEqual([]);
+    });
+  }
+
+  // Карту сайту читає unit-тест кабінету (`STATIC_HUBS`); тут — robots.txt, як його віддає
+  // сервер: ні, шляху в `Disallow` немає, бо тоді робот не прочитав би й `noindex`.
+  test('robots.txt їх не закриває, і сам файл справжній', async ({ request }) => {
+    const robots = await (await request.get('/robots.txt')).text();
+    // Парна половина: файл має правила, тож відсутність цих шляхів щось означає.
+    expect(robots).toMatch(/^Disallow:/mi);
+    for (const { path } of RIGHTS_PAGES) {
+      expect(robots, path).not.toMatch(new RegExp(`^Disallow:\\s*${path}`, 'mi'));
+    }
+  });
+});
