@@ -24,7 +24,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LAUNCH="${CAMPTRIBE_LAUNCH_BIN:-$HERE/bin/camptribe-launch}"
-EXPECTED=33
+EXPECTED=35
 
 [ -f "$LAUNCH" ] || { echo "немає $LAUNCH" >&2; exit 1; }
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-launch-selftest.XXXXXX")"
@@ -109,10 +109,72 @@ case "$URL" in
     emit_build
     GATE_NOW="$(readlink -f "$GATE_PATH" 2>/dev/null || echo none)"
     if [ "$GATE_NOW" = "$(readlink -f "$GATE_CLOSED_PATH" 2>/dev/null)" ] || [ -e "$CF_STALE" ]; then
-      case "$PATHPART" in
-        /.well-known/acme-challenge/*) : ;;
-        *) CODE=401; HDR='HTTP/1.1 401 Unauthorized'; BODY='' ;;
-      esac
+      # 🔴 ПЕРЕЛІК ВИНЯТКІВ ЧИТАЄТЬСЯ З СПРАВЖНЬОГО gate-closed.conf, А НЕ
+      # ПЕРЕКАЗУЄТЬСЯ ТУТ. Доки він був переписаний у цьому case, підмінник
+      # і конфіг могли розійтись: додаєш виняток у конфіг — самотест і далі
+      # каже 401 і «ловить» неіснуючу аварію; прибираєш — не ловить
+      # справжню. Тепер двійника немає.
+      EXEMPT=$(sed -n 's/^@needs-password not path //p' "$GATE_CLOSED_PATH" 2>/dev/null)
+      # Порожньо = файл не прочитався. Це провал, а не «винятків немає»:
+      # інакше «не виміряли» виглядало б як «усе під паролем, як і треба».
+      [ -n "$EXEMPT" ] || { echo "підмінник curl: не прочитав винятки з $GATE_CLOSED_PATH" >&2; exit 23; }
+      # 🔴 `set -f` ОБОВʼЯЗКОВИЙ. Без нього незакавичене $EXEMPT не лише
+      # ділиться на слова, а й розкривається як глоб ПО СПРАВЖНІЙ ФС:
+      # зараз теки /api немає, тож тримається випадково, а в контейнері,
+      # де вона є, випадок почав би падати без причини в коді.
+      HIT=0; set -f
+      for pat in $EXEMPT; do
+        case "$PATHPART" in $pat) HIT=1; break ;; esac
+      done
+      set +f
+      [ "$HIT" = 1 ] || { CODE=401; HDR='HTTP/1.1 401 Unauthorized'; BODY=''; }
+    fi
+    # 🔴 МАРШРУТ ЧИТАЄТЬСЯ З Caddyfile, А НЕ ВИГАДУЄТЬСЯ ТУТ. Доки цього не
+    # було, випадок «акаунти виходять з-під пароля» діставав 200 від
+    # ВЕБ-підмінника: прибери з Caddyfile увесь блок
+    # `handle_path /api/* { reverse_proxy … }` — і самотест лишався 34/34.
+    # Тобто єдиний тест на цю гілку не стеріг головного, що вона додала.
+    #
+    # Це симуляція, а не Caddy: знає лише `handle_path <глоб> {` з
+    # `reverse_proxy 127.0.0.1:<порт>` усередині. Вирішальний доказ — живий
+    # вимір на машині; це тут для того, щоб видалення маршруту не минало
+    # мовчки.
+    if [ "$CODE" = 200 ]; then
+      # 🔴 НАЙДОВШИЙ ЗБІГ, А НЕ ПЕРШИЙ. Caddy сортує маршрути й віддає
+      # запит ВУЖЧОМУ path-матчеру (той самий `sortRoutes`, яким
+      # `handle_path` опиняється перед `handle`). Перша редакція цього
+      # розбірника брала перший за порядком рядків: щойно хтось додав би
+      # вужчий `/api/auth/*` під наявний `/api/*`, підмінник назвав би
+      # старий порт, а випадок лишився б зеленим над іншим маршрутом.
+      #
+      # 🔴 Префікс для зрізання теж ВИВОДИТЬСЯ з матчера, а не зашитий як
+      # `/api`: зашитий був переказом семантики handle_path, тобто жив би
+      # правильно лише доти, доки ніхто не перейменує шлях.
+      R=$(awk -v want="$PATHPART" '
+        /^[[:space:]]*handle_path[[:space:]]/ {
+          np=0; for (i=2; i<NF; i++) pats[++np]=$i   # остання лексема — "{"
+          up=""; inblk=1; next
+        }
+        inblk && match($0, /127\.0\.0\.1:[0-9]+/) { up=substr($0, RSTART, RLENGTH) }
+        inblk && /^[[:space:]]*}[[:space:]]*$/ {
+          if (up != "") for (i=1; i<=np; i++) {
+            pp=pats[i]; n=length(pp)
+            if (substr(pp,n,1) == "*") {
+              pre=substr(pp,1,n-1)
+              if (substr(want,1,length(pre)) == pre && length(pre) > bestlen) {
+                bestlen=length(pre); best=up; bestpre=pre
+              }
+            } else if (want == pp && n > bestlen) { bestlen=n; best=up; bestpre=pp }
+          }
+          inblk=0; np=0; up=""
+        }
+        END { if (best != "") { sub(/\/$/, "", bestpre); print best "\t" bestpre } }
+      ' "$CADDYFILE_PATH" 2>/dev/null)
+      if [ -n "$R" ]; then
+        UP="${R%%	*}"; PRE="${R##*	}"
+        REST="${PATHPART#"$PRE"}"; [ -n "$REST" ] || REST=/
+        BODY="API@$UP$REST"
+      fi
     fi ;;
   *) exit 6 ;;
 esac
@@ -128,7 +190,7 @@ export CADDY_LOG="$BASE/caddy.log"; : > "$CADDY_LOG"
 export CADDY_VALIDATE_FAILS="$BASE/no-validate" CADDY_RELOAD_FAILS="$BASE/no-reload"
 export CF_STALE="$BASE/cf-stale" WORLD="$W" SITE_5XX="$BASE/site-5xx" WEB_DOWN="$BASE/web-down"
 export WEB_ORIGIN='http://127.0.0.1:3000' SITE_ORIGIN='https://camptribe.eu'
-export GATE_PATH="$CADDY/gate.conf" GATE_CLOSED_PATH="$CADDY/gate-closed.conf"
+export GATE_PATH="$CADDY/gate.conf" GATE_CLOSED_PATH="$CADDY/gate-closed.conf" CADDYFILE_PATH="$CADDY/Caddyfile"
 
 run() { # прапорці скрипта → вивід у $OUT, код у $RC
   OUT="$(CAMPTRIBE_ROOT="$ROOT" CAMPTRIBE_CADDY_DIR="$CADDY" \
@@ -246,6 +308,44 @@ run status
 [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'gate.conf              : чуже'
 ok $? 'чужа ціль gate.conf: названа «чуже», і стан не цілісний' "rc=$RC $OUT"
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+
+echo '— що саме виходить з-під пароля, поки закрито (CAMP-340)'
+# 🔴 Рішення власника 16.10.2026: з-під пароля виходять ЛИШЕ /api/auth/*
+# і /api/account/*, бо браузер не може надіслати basic-auth до API
+# (`credentials: 'omit'`), і без цього акаунти не перевірити до відкриття.
+# Випадок питає ОБИДВІ сторони: що виняток працює І що він вузький —
+# перелік, який пускає все, задовольнив би половину тверджень.
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+gcode() { "$STUB/curl" -s -o /dev/null -w '%{http_code}' "https://camptribe.eu$1"; }
+G_ROOT=$(gcode /); G_SPOTS=$(gcode /api/spots); G_GUIDES=$(gcode /api/guides)
+G_AUTH=$(gcode /api/auth/login); G_ACC=$(gcode /api/account/export); G_ACME=$(gcode /.well-known/acme-challenge/x)
+# 🔴 Код 200 сам по собі нічого не каже — його дав би й веб. Питаємо ТІЛО:
+# воно називає порт, узятий із Caddyfile, і шлях ПІСЛЯ зрізання префікса.
+B_AUTH=$("$STUB/curl" -s "https://camptribe.eu/api/auth/login")
+B_ACC=$("$STUB/curl" -s "https://camptribe.eu/api/account/export")
+B_ACME=$("$STUB/curl" -s "https://camptribe.eu/.well-known/acme-challenge/x")
+[ "$G_ROOT" = 401 ] && [ "$G_SPOTS" = 401 ] && [ "$G_GUIDES" = 401 ] && [ "$G_AUTH" = 200 ] && [ "$G_ACC" = 200 ] && [ "$G_ACME" = 200 ] && [ "$B_AUTH" = 'API@127.0.0.1:3001/auth/login' ] && [ "$B_ACC" = 'API@127.0.0.1:3001/account/export' ] && [ "${B_ACME#API@}" = "$B_ACME" ]
+ok $? 'закрито: /, /api/spots і /api/guides під паролем; /api/auth/* і /api/account/* ідуть на 127.0.0.1:3001 зі зрізаним /api; acme віддає веб' "/=$G_ROOT spots=$G_SPOTS guides=$G_GUIDES auth=$G_AUTH account=$G_ACC acme=$G_ACME auth-тіло='$B_AUTH' acc-тіло='$B_ACC' acme-тіло='$B_ACME'"
+
+# 🔴 Вірність розбірника маршрутів: перекриття «загальний вище за вузький».
+# У нашому Caddyfile один handle_path, тож без цього випадку правило
+# «найдовший збіг» не проганяє ніхто — а саме на ньому підмінник і Caddy
+# розходились: перший брав перший за порядком рядків, другий — вужчий
+# матчер. Синтетичний конфіг, бо предмет перевірки тут сам розбірник.
+echo '— розбірник маршрутів: вужчий handle_path виграє в ширшого'
+OVER="$BASE/Caddyfile.overlap"
+{ printf 'camptribe.eu {\n\timport %s\n\n' "$CADDY/gate.conf"
+  printf '\thandle_path /api/* {\n\t\treverse_proxy 127.0.0.1:3001\n\t}\n\n'
+  printf '\thandle_path /api/auth/* {\n\t\treverse_proxy 127.0.0.1:3002\n\t}\n\n'
+  printf '\thandle {\n\t\treverse_proxy 127.0.0.1:3000\n\t}\n}\n'; } > "$OVER"
+O_AUTH=$(CADDYFILE_PATH="$OVER" "$STUB/curl" -s "https://camptribe.eu/api/auth/login")
+O_ACC=$(CADDYFILE_PATH="$OVER" "$STUB/curl" -s "https://camptribe.eu/api/account/export")
+# 🔴 Зрізається префікс ТОГО блоку, що виграв: `handle_path /api/auth/*`
+# знімає `/api/auth`, тож апстрім бачить `/login`, а не `/auth/login`.
+# Перша редакція цього випадку чекала `/auth/login` — помилка була в
+# очікуванні, і знайшов її сам випадок, а не код.
+[ "$O_AUTH" = 'API@127.0.0.1:3002/login' ] && [ "$O_ACC" = 'API@127.0.0.1:3001/account/export' ]
+ok $? 'перекриття маршрутів: /api/auth/* бере вужчий блок (3002) і зрізає СВІЙ префікс; /api/account/* лишається на ширшому (3001)' "auth='$O_AUTH' account='$O_ACC'"
 
 echo '— збірка мовчить (Next лежить)'
 : > "$WEB_DOWN"; : > "$CADDY_LOG"
