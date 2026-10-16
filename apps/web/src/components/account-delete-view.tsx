@@ -159,9 +159,11 @@ export function DeleteFormView({
           <h3 className="text-sm font-semibold text-heading">What stays in any case — and why</h3>
           <p className="mt-1.5 text-[13px] leading-[1.6] text-ink-2">
             <b className="font-semibold text-heading">Anonymised moderation records</b> — that a photo
-            or a review was rejected, why, and when, with no name and no address — so that someone we
-            blocked for fake photos cannot come back the next day with a new account. This is our
-            legitimate interest, and Article 17(3) of the GDPR expressly allows it.
+            or a review was rejected, why, when, and for which place, with nothing that could point
+            back to you: no name, no address, not even a reference to the account. Because no part of
+            that row identifies a person, it is not personal data any more, and the right to erasure
+            has nothing left to reach. We keep it to be able to account for our own decisions — not
+            to recognise anyone, which it could not do.
           </p>
           <p className="mt-1.5 text-[13px] leading-[1.6] text-ink-2">
             <b className="font-semibold text-heading">The licence on photos already published</b> is a

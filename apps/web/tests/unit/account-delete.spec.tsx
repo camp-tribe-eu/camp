@@ -25,8 +25,10 @@ import { visibleText } from './rendered-text';
 //       коли екран не відрендерився взагалі; тому спершу доводиться, що обидва варіанти
 //       присутні, а потім — що жоден не позначений, і що цей самий розбір БАЧИТЬ
 //       позначений, коли він є.
-//   «текст називає підставу» ← рядком, а не «текст непорожній»: «Article 17(3) of the
-//       GDPR expressly allows it» у тому ж блоці, що й «Anonymised moderation records».
+//   «текст називає підставу» ← рядком, а не «текст непорожній». 🔴 І саме ця вимога
+//       картки була ХИБНОЮ: вона просила послатись на виняток зі ст. 17(3), якого там
+//       немає — «законний інтерес» не входить до її пʼяти підстав. Тепер стережеться
+//       правильне твердження: у знеособленому рядку немає чого стирати.
 //
 // 🔴 ПЕРШИЙ ЕКРАН — НЕ ПРОП, А КОМПОНЕНТ: `DeleteFlow` рендериться у своєму ПОЧАТКОВОМУ
 // стані, тим, з якого він стартує в браузері. Передати тесту `EMPTY_DELETE` самому — це
@@ -199,18 +201,35 @@ test.describe('🔴 пункт приймання 4: текст про те, щ�
   test('називає, ЩО лишається: знеособлені записи модерації, і навіщо', () => {
     const { block } = read();
     expect(block).toContain('Anonymised moderation records');
-    expect(block).toContain('that a photo or a review was rejected, why, and when, with no name and no address');
     expect(block).toContain(
-      'so that someone we blocked for fake photos cannot come back the next day with a new account',
+      'that a photo or a review was rejected, why, when, and for which place',
     );
+    expect(block).toContain('nothing that could point back to you');
+    // 🔴 І те, чого блок НЕ сміє обіцяти. Стовпець moderation_log не має жодної
+    // колонки, що вказує на людину (див. міграцію 1791900000000), тож упізнати
+    // того, хто повернувся, він не може фізично — а коду, що когось блокує,
+    // у репозиторії немає зовсім. Обіцянка такої мети була б неправдою.
+    expect(block).not.toContain('come back the next day');
   });
 
-  test('🔴 називає ПІДСТАВУ — ст. 17 п. 3 — в тому ж блоці, а не окремо десь на сторінці', () => {
+  test('🔴 називає ПІДСТАВУ правильно: не виняток зі ст. 17, а те, що стирати вже нічого', () => {
     const { block } = read();
-    expect(block).toContain('This is our legitimate interest');
-    expect(block).toContain('Article 17(3) of the GDPR expressly allows it.');
-    // «Article 17» без пункту не рахується: саме пункт 3 називає виняток.
-    expect(block.match(/Article 17\(3\)/g)).toHaveLength(1);
+    // ПОЗИТИВНЕ твердження — те, що блок МУСИТЬ сказати.
+    expect(block).toContain('it is not personal data any more');
+    expect(block).toContain('the right to erasure has nothing left to reach');
+    expect(block).toContain('to be able to account for our own decisions');
+
+    // 🔴 І ПАРНЕ ЗАПЕРЕЧЕННЯ, бо саме тут картка помилялась. Стаття 17(3)
+    // перелічує пʼять підстав — свобода вираження, юридичний обовʼязок або
+    // завдання в публічному інтересі, громадське здоровʼя, архівування та
+    // дослідження, і встановлення чи захист правових вимог. «Законного
+    // інтересу» серед них НЕМАЄ, тож посилання на неї було хибним.
+    //
+    // Саме заперечення тут не стоїть саме: порожній екран задовольнив би його
+    // так само, як правильний. Тому воно йде поряд із позитивними вимогами
+    // вище, які порожній екран провалить.
+    expect(block).not.toContain('Article 17(3)');
+    expect(block).not.toContain('legitimate interest');
   });
 
   test('називає й другу річ, що лишається: ліцензію на опубліковані фото — договір, не персональні дані', () => {
@@ -224,9 +243,9 @@ test.describe('🔴 пункт приймання 4: текст про те, щ�
     const { html } = read();
     // `visibleText` викидає приховане; блок, прочитаний ним, уже містить підставу (вище).
     // Тут — дзеркало: ніхто не сховав її й не продублював у атрибутах замість тексту.
-    expect(visibleText(html)).toContain('Article 17(3) of the GDPR expressly allows it.');
-    expect(html).not.toMatch(/sr-only[^>]*>[^<]*Article 17/);
-    expect(html).not.toMatch(/(?:title|aria-label)="[^"]*Article 17/);
+    expect(visibleText(html)).toContain('the right to erasure has nothing left to reach');
+    expect(html).not.toMatch(/sr-only[^>]*>[^<]*right to erasure/);
+    expect(html).not.toMatch(/(?:title|aria-label)="[^"]*right to erasure/);
   });
 
   test('«30 днів — це не спосіб потягнути час»: закон, мета вікна й «доступ припиняється одразу»', () => {
