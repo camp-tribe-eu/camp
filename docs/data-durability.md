@@ -161,6 +161,50 @@ release asset and imports locally. This card's job was to make sure that
 by the time the server exists there are **months of data waiting**
 instead of nothing.
 
+The server exists now, and the section below says what that machine
+actually does — because until 16.10.2026 this page described a procedure
+that had never run (CAMP-332). A document that describes a path nobody
+has walked is worse than no document: people plan against it.
+
+## How the import actually runs (CAMP-332, proven 16.10.2026)
+
+**`gdal-bin` and `gh` are not installed on the server, and that is the
+decision, not an omission.** `import-release.mjs` originally shelled out
+to `gh` to find the release asset and to `ogr2ogr` to load the GeoJSON
+into staging. Installing GDAL on a production box drags a large
+dependency tail onto a machine that serves the site, for a job that node
+and `psql` can do themselves. So the script lost both dependencies
+instead (PR #267, PR #269).
+
+It needs **node and nothing else**. The PATH it hands its own child is a
+directory containing one symlink to `process.execPath`, so a build that
+quietly started depending on some other binary fails on a developer's
+laptop, not for the first time on the server at 03:00.
+
+**The proof run.** Malta, 16.10.2026, on the live machine:
+
+* `osm_camping_staging` appeared in the production database **for the
+  first time** — 14 rows. Before this run `pg_tables` matched nothing on
+  `%staging%`, which is how we knew the documented path had never
+  executed;
+* Malta's rows carry `last_seen_at = 2026-10-16 17:06 UTC`, against
+  `2026-10-11` for every other country — so the freshness is this run's,
+  not a leftover;
+* the live page `/camping/mt/mellieha/adventure-campsite` reads *"Record
+  last edited: February 2026 — within the last year"*, and the row says
+  `2026-02-24`. Same value, read off the page a visitor would get.
+
+🔴 **An import on its own changes no page.** The site is prerendered: the
+rows moved at 17:06 UTC and the page still showed nothing until the
+release built at 20:08–20:16 UTC that evening. Any plan that ends at
+"the import succeeded" ends one step early — the data reaches readers at
+the next build, and nowhere before it.
+
+**What this does not yet cover.** One country, run by hand from a laptop
+over SSH. The weekly workflow that publishes per-country assets, and the
+machine pulling them on a schedule, are still CAMP-97 and CAMP-99. The
+difference now is that the last mile is measured rather than assumed.
+
 **Publishing the computed context.** The raw extract in the release is
 OpenStreetMap data under ODbL and belongs in public. The computed context
 is the one thing we have that competitors do not, and a bulk download of
