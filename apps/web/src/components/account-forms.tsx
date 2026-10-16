@@ -18,6 +18,7 @@ import {
   verifyPhase,
   waitUntil,
   type Outcome,
+  confirmEmailChange,
 } from '@/lib/account';
 import { takeReturn } from '@/lib/return-path';
 import { clearSession, saveSession } from '@/lib/session-store';
@@ -32,6 +33,9 @@ import {
   ResetFormView,
   SignupDoneView,
   SignupFormView,
+  EmailChangeCheckingView,
+  EmailChangedView,
+  EmailTakenView,
   StaleLinkView,
   VerifiedView,
   VerifyFailedView,
@@ -324,6 +328,59 @@ export function VerifyEmail() {
       </StaleLinkView>
     );
   return <VerifyingView />;
+}
+
+// ── CAMP-229: підтвердження переїзду на іншу адресу ──────────────────
+
+type ChangeState =
+  | { phase: 'checking' }
+  | { phase: 'changed' }
+  | { phase: 'taken' }
+  | { phase: 'stale' }
+  | { phase: 'failed'; outcome: Outcome };
+
+/**
+ * Те саме, що `VerifyEmail`, і свідомо настільки ж просте: лист, один
+ * токен, жодної сесії.
+ *
+ * 🔴 ВІДМІННІСТЬ ОДНА, І ВОНА ВАЖЛИВА. Застаріле посилання тут НЕ пропонує
+ * «надіслати ще раз»: щоб попросити новий лист, треба довести пароль у
+ * налаштуваннях. Форма «вкажіть адресу, і ми надішлемо» на цій сторінці
+ * була б способом слати листи про переїзд будь-кому без жодного доказу.
+ */
+export function ConfirmEmailChange() {
+  const [state, setState] = useState<ChangeState>({ phase: 'checking' });
+  // Один раз: у StrictMode ефект виконується двічі, а другий запит із тим
+  // самим одноразовим токеном сказав би «застаріло» тому, чий лист щойно
+  // спрацював.
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    const token = tokenFrom(window.location.search);
+    if (token === '') return setState({ phase: 'stale' });
+    confirmEmailChange(token).then((out) => {
+      if (out.kind === 'ok') return setState({ phase: 'changed' });
+      if (out.kind === 'taken') return setState({ phase: 'taken' });
+      if (out.kind === 'stale') return setState({ phase: 'stale' });
+      setState({ phase: 'failed', outcome: out });
+    });
+  }, []);
+
+  if (state.phase === 'changed') return <EmailChangedView />;
+  if (state.phase === 'taken') return <EmailTakenView />;
+  if (state.phase === 'failed') return <VerifyFailedView outcome={state.outcome} />;
+  if (state.phase === 'stale')
+    return (
+      <StaleLinkView>
+        <p className="mt-3 text-ink-2">
+          Ask for a new letter in your account settings — it asks for your
+          password, which is why a stranger cannot ask for one.
+        </p>
+      </StaleLinkView>
+    );
+  return <EmailChangeCheckingView />;
 }
 
 /** «Надіслати новий лист» зі сторінки застарілого посилання підтвердження. */

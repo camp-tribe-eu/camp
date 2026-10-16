@@ -663,6 +663,55 @@ export function VerifiedView() {
   );
 }
 
+// ── CAMP-229: переїзд на іншу адресу ─────────────────────────────────
+
+export function EmailChangeCheckingView() {
+  return (
+    <Shell title="Confirm your new email">
+      <p className="mt-4 text-ink-2">Checking your link…</p>
+    </Shell>
+  );
+}
+
+export function EmailChangedView() {
+  return (
+    <Shell title="Your email is changed">
+      <p className="mt-4 max-w-prose text-ink-2">
+        This address is now the one on the account, and it is confirmed — you
+        just proved you can read it.{' '}
+        <Link className={LINK} href="/login">Sign in</Link> with it and the
+        password you already had.
+      </p>
+      {/* 🔴 Сказано прямо, бо інакше людина вирішить, що її «вибило». Зміна
+          пошти коштує стільки ж, скільки зміна пароля: пошта — це спосіб
+          повернути доступ. */}
+      <p className="mt-3 max-w-prose text-sm text-ink-2">
+        Everywhere you were signed in has been signed out, including this
+        browser. That is deliberate.
+      </p>
+    </Shell>
+  );
+}
+
+/**
+ * Адресу зайняли, поки лист ішов.
+ *
+ * 🔴 Сказати про це можна: той, хто клікнув, уже довів, що читає цю
+ * скриньку, тож нічого нового про чужі акаунти він не дізнається.
+ */
+export function EmailTakenView() {
+  return (
+    <Shell title="That address is taken">
+      <p className="mt-4 max-w-prose text-ink-2">
+        Between the letter and this click, an account was created with this
+        address. Nothing has changed: your account still has the address it
+        had. Pick another one in your settings, or sign in to the account that
+        now holds this address.
+      </p>
+    </Shell>
+  );
+}
+
 /** Не вдалось дістатись сервера: посилання НЕ витрачене, і це сказано. */
 export function VerifyFailedView({ outcome }: { outcome: Outcome }) {
   return (

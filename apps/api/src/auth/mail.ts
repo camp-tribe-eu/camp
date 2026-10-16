@@ -17,7 +17,7 @@
 
 import { smtpSenderFrom } from './mail-smtp';
 
-export type MailKind = 'verify_email' | 'reset_password';
+export type MailKind = 'verify_email' | 'reset_password' | 'change_email';
 
 export type MailMessage = {
   to: string;
@@ -154,6 +154,7 @@ export function webBaseFrom(raw: string | undefined): string | null {
 export const LINK_PATH: Record<MailKind, string> = {
   verify_email: '/verify-email',
   reset_password: '/reset-password',
+  change_email: '/confirm-email-change',
 };
 
 export const linkFor = (base: string, kind: MailKind, token: string): string =>
@@ -210,6 +211,32 @@ export const verifyEmailMessage = (to: string, link: string): MailMessage =>
     'Confirm email',
     link,
     'If you did not create a CampTribe account, you can ignore this letter.',
+  );
+
+/**
+ * CAMP-229 — the letter that moves an account to a new address.
+ *
+ * 🔴 IT GOES TO THE NEW ADDRESS, NEVER THE OLD ONE, and that is the whole
+ * point of the flow: the only thing that can prove somebody reads an
+ * address is a letter they answer. A confirmation sent to the address that
+ * is already on the account would confirm nothing about the new one.
+ *
+ * 🔴 AND IT NAMES THE ADDRESS IT WOULD MOVE TO. A letter that says only
+ * "confirm the change" leaves a person who did not ask for it unable to see
+ * what is being asked — and a person who mistyped unable to see the typo.
+ * The old address is NOT named here: this letter may land in a stranger's
+ * inbox (somebody mistyped), and it must not tell that stranger which
+ * account is involved.
+ */
+export const changeEmailMessage = (to: string, link: string): MailMessage =>
+  letter(
+    to,
+    'change_email',
+    'Confirm your new email for CampTribe',
+    `Someone asked to move a CampTribe account to this address (${to}).`,
+    'Confirm this address',
+    link,
+    'If it was not you, delete this letter — nothing has changed, and no account has been moved here.',
   );
 
 export const resetPasswordMessage = (to: string, link: string): MailMessage =>

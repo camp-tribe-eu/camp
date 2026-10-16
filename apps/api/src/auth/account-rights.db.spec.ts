@@ -498,7 +498,7 @@ describe('🔴 the export (Art. 15): a file that opens', () => {
         'marketing_consent_at',
       ],
       sessions: ['created_at', 'expires_at'],
-      auth_tokens: ['kind', 'created_at', 'expires_at', 'used_at'],
+      auth_tokens: ['kind', 'new_email', 'created_at', 'expires_at', 'used_at'],
       trips: ['id', 'name', 'start_date', 'end_date', 'created_at'],
       trip_stops: ['sequence', 'camping_spot_id', 'arrival_date'],
       photo_submissions: [

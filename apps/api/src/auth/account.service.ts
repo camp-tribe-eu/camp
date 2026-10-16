@@ -5,22 +5,24 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, IsNull, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import { AuthToken, AuthTokenKind } from '../entities/auth-token.entity';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
-import { AuthService } from './auth.service';
+import { AuthService, SignedIn } from './auth.service';
 import { Cooldown } from './cooldown';
 import { isPlausibleEmail, normalizeEmail } from './email';
 import {
   LINK_TTL_MS,
   Mailer,
+  changeEmailMessage,
   linkFor,
   resetPasswordMessage,
   verifyEmailMessage,
 } from './mail';
+import { NoSuchAccount, WrongPassword } from './account-rights.service';
 import { PasswordProblem, checkNewPassword } from './password-policy';
-import { hashPassword } from './password';
+import { hashPassword, looksLikeStoredHash, verifyPassword } from './password';
 import { isExpired, newToken, tokenHash } from './session';
 
 /** Injection token for the mailer, or null when this process cannot send. */
@@ -40,6 +42,9 @@ export class WeakPassword extends Error {
 export class EmailTaken extends Error {}
 export class MailUnavailable extends Error {}
 export class StaleLink extends Error {}
+/** Нова адреса збігається з чинною: тут мовчати нема про що. */
+export class SameEmail extends Error {}
+
 export class TooSoon extends Error {
   constructor(readonly retryAfterSec: number) {
     super('too soon');
@@ -241,6 +246,34 @@ export class AccountService implements BeforeApplicationShutdown {
   async verifyEmail(rawToken: unknown, now: Date = new Date()): Promise<void> {
     const row = await this.liveToken('verify_email', rawToken, now);
     await this.tokens.manager.transaction(async (m) => {
+      // 🔴 РЯДОК ЛЮДИНИ ПЕРШИЙ, ЯК І ВСЮДИ. Тут цього не було, і доки
+      // підтвердження адреси торкалось лише `verify_email`-рядків, а
+      // скидання — лише `reset_password`-рядків, два набори не
+      // перетинались і це сходило з рук. CAMP-229 їх перетнула:
+      // `confirmEmailChange` бере рядок людини, а потім оновлює чужі
+      // токени, тож ця транзакція й та брали замки навхрест.
+      //
+      // Рецензія відтворила: 30 пар із 30 дали `deadlock detected`
+      // (40P01) і HTTP 500.
+      //
+      // 🔴 ПЕРЕЛІК ШЛЯХІВ, ЩО ПИШУТЬ І В `users`, І В `auth_tokens` —
+      // щоб наступний читач ПЕРЕВІРИВ, а не повірив:
+      //
+      //   verifyEmail          цей рядок нижче
+      //   confirmEmailChange   `SELECT … FOR UPDATE` перед claim
+      //   changePassword       те саме
+      //   resetWith            те саме
+      //   deleteAccount        account-rights.service.ts:366, на початку
+      //                        тієї ж транзакції, що видаляє токени на :433
+      //
+      // Усі пʼять беруть рядок людини ПЕРШИМ, тож гарантія більше не
+      // залежить від того, які види токенів хто чіпає. Рецензія другого
+      // кола стверджувала, що `deleteAccount` цього не робить — вона
+      // дивилась на порядок ЗАПИСІВ, а не на взяття замка; її ж вимір по
+      // HTTP (20 пар, 0 × 500) це й підтвердив.
+      await m.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [
+        row.userId,
+      ]);
       await this.claim(m, row, now);
       // Only if still unconfirmed: the FIRST confirmation is the one worth
       // remembering, and a second link must not move it.
@@ -322,25 +355,305 @@ export class AccountService implements BeforeApplicationShutdown {
       // spent by the first one's "kill the other links" step and answers the
       // same 410 a spent link always answers.
       //
-      // The confirmation path takes a user lock too (after its own token) and
-      // does not deadlock with this one because it only ever touches
-      // `verify_email` links, and this touches only `reset_password` ones: the
-      // two sets of token rows do not meet. `account.db.spec.ts` posts both
-      // kinds, two links each, at once.
+      // 🔴 ЦЕЙ АРГУМЕНТ БУВ ІНШИЙ І ПЕРЕСТАВ БУТИ ПРАВДОЮ. Тут стояло: «шлях
+      // підтвердження не блокується з цим, бо торкається лише
+      // `verify_email`-рядків, а цей — лише `reset_password`». CAMP-229
+      // перетнула набори (зміна пароля тепер гасить УСІ невикористані
+      // посилання людини, бо саме цього чекає той, кого зламали), і той
+      // аргумент мовчки став хибним.
+      //
+      // Тепер гарантія не в тому, ЯКІ рядки хто чіпає, а в тому, що рядок
+      // людини беруть ПЕРШИМ скрізь: `verifyEmail`, `confirmEmailChange`,
+      // `changePassword` і цей шлях. `account.db.spec.ts` кидає обидва види
+      // по два посилання одночасно.
       await m.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [user.id]);
       await this.claim(m, row, now);
       await m.update(User, { id: user.id }, { passwordHash });
-      // Any OTHER reset link we sent this person is dead as well: the reason
-      // to reset is often "somebody else may have my letters".
+      // 🔴 ПОСИЛАННЯ, ЩО ДАЮТЬ ДОСТУП, А НЕ ВСІ ПІДРЯД.
+      // Тут стояв фільтр `kind: 'reset_password'`, і це був шлях до повного
+      // захоплення акаунта: зловмисник, що мав пароль, просив переїзд на
+      // свою адресу; жертва робила рівно те, що радить кожен («мене
+      // зламали — міняю пароль»), і посилання переїзду лишалось робочим.
+      // Рецензія заміряла: після зміни пароля та після скидання за листом
+      // `change_email`-посилання відповідало 204 і пошта ставала
+      // зловмисниковою.
+      //
+      // 🔴 АЛЕ НЕ `verify_email`. Спершу я гасив тут УСЕ, і підтвердження
+      // адреси, надіслане хвилину тому, мовчки вмирало: людина клікала й
+      // діставала 410, а жоден екран про це не попереджав. Безпекової
+      // користі нуль — те посилання лише підтверджує адресу, яка вже на
+      // акаунті, і нічого нікуди не переносить.
       await m.update(
         AuthToken,
-        { userId: user.id, kind: 'reset_password', usedAt: IsNull() },
+        {
+          userId: user.id,
+          kind: In(['reset_password', 'change_email']),
+          usedAt: IsNull(),
+        },
         { usedAt: now },
       );
       // 🔴 And every session. A reset that leaves the old sessions alive
       // locks out the owner and lets in whoever made the reset necessary.
       await m.delete(Session, { userId: user.id });
     });
+  }
+
+  // ── settings (CAMP-229) ──────────────────────────────────────────────────
+
+  /**
+   * Перевірити пароль того, хто вже ввійшов.
+   *
+   * 🔴 ОКРЕМИЙ КРОК ПЕРЕД КОЖНОЮ ЗМІНОЮ ОБЛІКОВИХ ДАНИХ, і саме він тримає
+   * усю сторінку налаштувань. Украдений токен сесії сам по собі не дає ні
+   * змінити пароль, ні перевести акаунт на чужу адресу: обидві дії питають
+   * те, чого в сесії немає. Без цього кроку крадіжка однієї вкладки
+   * перетворювалась би на захоплення акаунта.
+   *
+   * Значення, яке не схоже на наш збережений хеш, відмовляється ДО scrypt —
+   * так само, як при вході.
+   */
+  private async provePassword(
+    userId: string,
+    password: unknown,
+  ): Promise<User> {
+    const user = await this.users.findOne({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        deletedAt: true,
+      },
+    });
+    if (!user || user.deletedAt) throw new NoSuchAccount();
+    // Значення, яке не є рядком, відмовляється тут, а не всередині scrypt:
+    // це та сама відмова, що й хибний пароль, і коштує стільки ж.
+    const ok =
+      typeof password === 'string' && looksLikeStoredHash(user.passwordHash)
+        ? await verifyPassword(password, user.passwordHash)
+        : false;
+    if (!ok) throw new WrongPassword();
+    return user;
+  }
+
+  /**
+   * Новий пароль для того, хто знає чинний.
+   *
+   * 🔴 ВСІ СЕСІЇ ВМИРАЮТЬ, ВКЛЮЧНО З ЦІЄЮ — І ЗВІДСИ ПОВЕРТАЄТЬСЯ НОВА.
+   * Причина змінити пароль найчастіше звучить як «здається, хтось має
+   * доступ»; зміна, що лишає чужу сесію живою, не робить нічого з тим, через
+   * що її й затіяли. Зберегти саме поточну сесію означало б відрізняти її від
+   * решти, а `Viewer` знає лише `id` людини, не свій рядок у `sessions`.
+   * Тому чесніше: убити все і видати нову тут-таки, щоб сторінка, на якій
+   * людина стоїть, не викинула її на /login посеред дії.
+   *
+   * Політика пароля перевіряється ДО того, як щось записано: закороткий
+   * пароль мусить лишити людину там, де вона була.
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: unknown,
+    newPassword: unknown,
+    now: Date = new Date(),
+  ): Promise<SignedIn> {
+    const user = await this.provePassword(userId, currentPassword);
+    const problem = checkNewPassword(newPassword, user.email);
+    if (problem) throw new WeakPassword(problem);
+    const passwordHash = await hashPassword(newPassword as string);
+
+    await this.tokens.manager.transaction(async (m) => {
+      // Порядок блокувань той самий, що й у `resetWith`: спершу рядок людини.
+      await m.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [user.id]);
+      await m.update(User, { id: user.id }, { passwordHash });
+      // 🔴 Ті самі два види, що й у `resetWith`, і з тієї ж причини:
+      // канонічний засіб жертви мусить закривати все, що ДАЄ ДОСТУП, —
+      // але не підтвердження адреси, яке доступу не дає.
+      await m.update(
+        AuthToken,
+        {
+          userId: user.id,
+          kind: In(['reset_password', 'change_email']),
+          usedAt: IsNull(),
+        },
+        { usedAt: now },
+      );
+      await m.delete(Session, { userId: user.id });
+    });
+
+    return this.auth.startSession(user.id, now);
+  }
+
+  /**
+   * Попросити перевести акаунт на іншу адресу.
+   *
+   * 🔴 ЛИСТ ІДЕ НА НОВУ АДРЕСУ, І НІЧОГО НЕ МІНЯЄТЬСЯ ДО КЛІКУ. Єдине, що
+   * доводить, ніби людина читає адресу, — відповідь на лист у неї. Поки
+   * посилання не відкрито, `users.email` лишається попереднім, а нова адреса
+   * живе тільки в рядку токена (див. `auth_tokens.new_email`).
+   *
+   * 🔴 «ЦЯ АДРЕСА ВЖЕ ЗАЙНЯТА» МИ НЕ КАЖЕМО. Відповідь однакова і для вільної
+   * адреси, і для чужої: інакше форма налаштувань стає тим самим оракулом
+   * перелічення, який ми закрили у формах відновлення. Лист при цьому не
+   * надсилається — власникові чужої адреси нема за що отримувати листа про
+   * чужу спробу.
+   *
+   * Власна чинна адреса — виняток: про неї людина й так знає, тож мовчати
+   * нема про що, і тиха «успішна» відповідь на дію, яка нічого не зробить,
+   * була б гіршою за відмову.
+   */
+  async requestEmailChange(
+    userId: string,
+    password: unknown,
+    rawNewEmail: unknown,
+    now: Date = new Date(),
+  ): Promise<void> {
+    if (!this.mailer) throw new MailUnavailable();
+    const user = await this.provePassword(userId, password);
+
+    const email = normalizeEmail(rawNewEmail);
+    if (!isPlausibleEmail(email)) throw new BadEmail();
+    if (email === user.email) throw new SameEmail();
+
+    const gate = this.cooldown.take(`change_email:${email}`, now);
+    if (gate.ok === false) throw new TooSoon(gate.retryAfterSec);
+
+    const taken = await this.users.findOne({
+      where: { email },
+      select: { id: true },
+    });
+
+    // Рішення — після відповіді, як і в `requestLink`: інакше «зайнято» й
+    // «вільно» розрізняються часом відповіді, а не її текстом.
+    this.later(async () => {
+      // 🔴 ІНВАЛІДАЦІЯ ПЕРШОЮ, РІШЕННЯ ДРУГИМ — І ПОРЯДОК ТУТ Є ВСІМ.
+      // Спершу стояло `if (taken) return;`, і зайнята адреса лишала
+      // попереднє посилання ЖИВИМ, а вільна його вбивала. Тіла відповідей
+      // були байт-у-байт однакові, і час теж (заміряно: 166,6 мс проти
+      // 167,4 мс на тлі scrypt) — різниця жила в СТАНІ. Той, хто має свій
+      // акаунт, просив переїзд на власну запасну адресу, не клікав, тоді
+      // просив переїзд на перевірювану, і дивився, чи вціліло перше
+      // посилання: 204 означало «зайнята», 410 — «вільна».
+      //
+      // Тобто мовчання відповіді ще не робить дію мовчазною. Кожна гілка
+      // мусить лишати по собі ОДНАКОВИЙ слід, а не однаковий текст.
+      await this.tokens.update(
+        { userId: user.id, kind: 'change_email', usedAt: IsNull() },
+        { usedAt: now },
+      );
+      // 🔴 РЯДОК ЗАВОДИМО ЗАВЖДИ, ЛИСТ ШЛЕМО ВИБІРКОВО — І ЦЕ ДРУГА СПРОБА
+      // ЗАКРИТИ ОДИН І ТОЙ САМИЙ ВИТІК. Спершу тут стояло `if (taken)
+      // return;` перед інвалідацією, і зайнята адреса лишала попереднє
+      // посилання живим. Я переставив рядки — і витік ПЕРЕЇХАВ: вільна
+      // ціль лишала по собі зайвий ЖИВИЙ рядок токена, зайнята — ні.
+      //
+      // Видно це було без жодних привілеїв, власним архівом за статтею 15:
+      // після зайнятої цілі 2 рядки, після вільної 3. Тобто «однакова
+      // відповідь» нічого не варта, поки стан розрізняється хоч у чомусь,
+      // що людина може прочитати про СЕБЕ.
+      //
+      // Тепер обидві гілки лишають однакову кількість однакових рядків, а
+      // відрізняється лише те, чого той, хто питав, побачити не може:
+      // надісланий лист. Невідправлений токен нікому не дістанеться —
+      // сирий рядок існує тільки в листі — і за годину помре сам.
+      await this.issue('change_email', user, now, email, !taken);
+    });
+  }
+
+  /**
+   * Відкрити посилання з листа й переїхати.
+   *
+   * 🔴 НОВА АДРЕСА ВВАЖАЄТЬСЯ ПІДТВЕРДЖЕНОЮ ТИМ САМИМ КЛІКОМ. Людина щойно
+   * довела, що читає її — питати ще один лист означало б питати двічі те
+   * саме.
+   *
+   * 🔴 МІЖ ЛИСТОМ І КЛІКОМ АДРЕСУ МІГ ХТОСЬ ЗАЙНЯТИ. Унікальний індекс по
+   * `users.email` це ловить, і помилка Postgres перетворюється на
+   * `EmailTaken`, а не на 500. Сказати про це тут можна: людина вже довела,
+   * що читає цю скриньку, тож нічого нового вона не дізнається.
+   *
+   * Сесії вмирають усі — пошта це спосіб повернути доступ, і її зміна
+   * мусить коштувати стільки ж, скільки зміна пароля.
+   */
+  async confirmEmailChange(
+    rawToken: unknown,
+    now: Date = new Date(),
+  ): Promise<void> {
+    const row = await this.liveToken('change_email', rawToken, now);
+    const next = row.newEmail;
+    // Рядок без адреси заборонений перевіркою `auth_tokens_new_email`, тож
+    // сюди він потрапити не може. Якщо колись потрапить — це зламане
+    // посилання, а не привід записати людині порожню пошту.
+    if (!next) throw new StaleLink();
+
+    try {
+      await this.tokens.manager.transaction(async (m) => {
+        await m.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [
+          row.userId,
+        ]);
+        await this.claim(m, row, now);
+        await m.update(
+          User,
+          { id: row.userId },
+          { email: next, emailVerifiedAt: now },
+        );
+        // Інші незужиті посилання цього акаунта більше не мають сенсу:
+        // підтвердження старої адреси й друга спроба переїзду однаково
+        // стосуються пошти, яка щойно змінилась.
+        await m.update(
+          AuthToken,
+          { userId: row.userId, kind: 'change_email', usedAt: IsNull() },
+          { usedAt: now },
+        );
+        await m.update(
+          AuthToken,
+          { userId: row.userId, kind: 'verify_email', usedAt: IsNull() },
+          { usedAt: now },
+        );
+        await m.delete(Session, { userId: row.userId });
+      });
+    } catch (e) {
+      if (isUniqueViolation(e)) throw new EmailTaken();
+      throw e;
+    }
+  }
+
+  /**
+   * Увімкнути чи вимкнути листи про новини.
+   *
+   * 🔴 УВІМКНЕННЯ — ЛИШЕ ВІД ЛІТЕРАЛЬНОГО `true`, те саме правило, що й у
+   * `signUp` (Planet49, C-673/17). Будь-що інше — `"true"`, `1`, відсутність —
+   * це вимкнено. Згода, яку можна отримати неточним значенням, не є згодою.
+   *
+   * Зберігається МОМЕНТ, а не галочка: «коли людина це дозволила» — те, що
+   * доведеться показати, якщо спитають.
+   */
+  /**
+   * Чи ввімкнені листи зараз.
+   *
+   * Повертає ТАК або НІ, а не момент згоди: сторінці треба стан перемикача,
+   * і поле, якого вона не отримує, не може опинитись у її HTML.
+   */
+  async letters(userId: string): Promise<boolean> {
+    const row = await this.users.findOne({
+      where: { id: userId },
+      select: { id: true, marketingConsentAt: true },
+    });
+    if (!row) throw new NoSuchAccount();
+    return row.marketingConsentAt != null;
+  }
+
+  async setLetters(
+    userId: string,
+    letters: unknown,
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    const on = letters === true;
+    const done = await this.users.update(
+      { id: userId, deletedAt: IsNull() },
+      { marketingConsentAt: on ? now : null },
+    );
+    if (done.affected !== 1) throw new NoSuchAccount();
+    return on;
   }
 
   // ── internals ────────────────────────────────────────────────────────────
@@ -387,6 +700,19 @@ export class AccountService implements BeforeApplicationShutdown {
     kind: AuthTokenKind,
     user: Pick<User, 'id' | 'email'>,
     now: Date,
+    /**
+     * 🔴 CAMP-229 — куди переїжджає акаунт, і ЛИШЕ для `change_email`.
+     * Для решти видів лишається `null`, і база це вимагає
+     * (`auth_tokens_new_email`): запис іншого виду з адресою виглядав би
+     * як запит на зміну пошти, якого ніхто не робив.
+     */
+    newEmail?: string,
+    /**
+     * 🔴 `false` — завести рядок і НЕ слати. Єдиний випадок: адреса вже
+     * чужа. Пропустити разом із листом і сам рядок означало б лишити
+     * різницю в стані там, де відповідь навмисно однакова.
+     */
+    send: boolean = true,
   ): Promise<void> {
     const mailer = this.mailer as Mailer;
     // 🔴 256 bits, 43 URL-safe characters, and that is the ONLY thing between
@@ -401,13 +727,20 @@ export class AccountService implements BeforeApplicationShutdown {
         tokenHash: tokenHash(token),
         expiresAt: new Date(now.getTime() + LINK_TTL_MS),
         usedAt: null,
+        newEmail: kind === 'change_email' ? (newEmail ?? null) : null,
       }),
     );
+    if (!send) return;
     const link = linkFor(mailer.webBase, kind, token);
+    // 🔴 Лист про переїзд іде на НОВУ адресу, решта — на чинну. Переплутати
+    // тут означало б надіслати підтвердження тому, хто й так уже власник,
+    // і нічого не довести про адресу, заради якої все робиться.
     await mailer.sender.send(
       kind === 'verify_email'
         ? verifyEmailMessage(user.email, link)
-        : resetPasswordMessage(user.email, link),
+        : kind === 'change_email'
+          ? changeEmailMessage(newEmail as string, link)
+          : resetPasswordMessage(user.email, link),
     );
   }
 

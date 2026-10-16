@@ -25,19 +25,12 @@ import { AuthService } from './auth.service';
 import { LOGIN_LIMIT, MAIL_LIMIT } from '../throttle';
 import { CurrentViewer } from './current-viewer.decorator';
 import type { Viewer } from './ownership';
+import { PASSWORD_MESSAGE } from './password-policy';
 import { parseBearer } from './session';
 import type { WithViewer } from './viewer.middleware';
 
 const LOGIN = { default: LOGIN_LIMIT };
 const MAIL = { default: MAIL_LIMIT };
-
-/** What the page may say for each way a new password can be refused. */
-const PASSWORD_MESSAGE = {
-  'too-short': 'Use at least 10 characters.',
-  'too-long': 'Use at most 128 characters.',
-  common: 'That password is on the list of the most common ones. Pick another.',
-  'is-email': 'The password must not be your email address.',
-} as const;
 
 /**
  * One HTTP answer per domain error — and ONE body shape, `{ code, message }`,
@@ -258,6 +251,33 @@ export class AuthController {
   async resetPassword(@Body() body: Record<string, unknown>) {
     try {
       await this.account.resetPassword(body?.token, body?.password);
+    } catch (e) {
+      throw httpFor(e);
+    }
+  }
+
+  /**
+   * Відкрити посилання «підтвердіть нову адресу». CAMP-229.
+   *
+   * 🔴 СТОЇТЬ ПОРУЧ ІЗ `verify-email` НАВМИСНО: це та сама родина — лист,
+   * одноразове посилання, і жодної сесії. Людина клікає з тієї скриньки, що
+   * переїжджає, і це може бути інший браузер, ніж той, де вона ввійшла.
+   * Вимагати тут сесію означало б зламати найзвичайніший шлях.
+   *
+   * 204, і те саме «посилання не годиться» на кожну причину — невідоме,
+   * прострочене, вже використане, чужого виду. Різні відповіді були б
+   * способом дізнатись, які токени існують.
+   *
+   * 409 — єдиний виняток: поки лист ішов, адресу встиг зайняти хтось інший.
+   * Сказати про це можна, бо той, хто клікнув, уже довів, що читає цю
+   * скриньку, і нічого нового про чужі акаунти не дізнається.
+   */
+  @Post('confirm-email-change')
+  @HttpCode(204)
+  @Header('Cache-Control', 'no-store')
+  async confirmEmailChange(@Body() body: Record<string, unknown>) {
+    try {
+      await this.account.confirmEmailChange(body?.token);
     } catch (e) {
       throw httpFor(e);
     }

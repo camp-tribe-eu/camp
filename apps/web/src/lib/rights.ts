@@ -11,8 +11,10 @@
 // сервер сказав «ні». Компонент, якому токен передали б пропсом, тримав би його в
 // памʼяті довше, ніж він живий.
 
-import { ACCOUNT_API } from '@/lib/account';
-import { clearSession, readSession } from '@/lib/session-store';
+import { authed, readJson, type Deps, type Failure } from '@/lib/authed';
+import { clearSession } from '@/lib/session-store';
+
+export type { Deps } from '@/lib/authed';
 
 /**
  * Скільки днів видалений акаунт можна повернути входом.
@@ -101,69 +103,6 @@ export type ArchiveState =
 /** Стан, який назвав сервер, → стан екрана. Назви збігаються, окрім `status` → `kind`. */
 export const archiveFrom = (s: ExportStatus): ArchiveState =>
   s.status === 'ready' ? { kind: 'ready', expiresAt: s.expiresAt } : { kind: s.status };
-
-type Fetch = (url: string, init: RequestInit) => Promise<Response>;
-type SessionStorageLike = Pick<Storage, 'getItem' | 'removeItem'>;
-
-export type Deps = {
-  base?: string;
-  storage?: SessionStorageLike;
-  now?: number;
-  fetchImpl?: Fetch;
-};
-
-/** Чому відповіді немає. Спільне для всіх викликів. */
-type Failure = { kind: 'signed-out' } | { kind: 'unavailable' } | { kind: 'failed' };
-
-/**
- * Один запит із токеном сесії. Не кидає.
- *
- * Порядок свідомий, як у `loadCabinet`: нема сесії → `signed-out` БЕЗ запиту;
- * нема адреси API → `unavailable`; мережа впала → `failed`; 401 → `signed-out` і
- * сховище чиститься (токен мертвий).
- */
-async function authed(
-  path: string,
-  init: { method: 'GET' | 'POST'; body?: unknown },
-  { base = ACCOUNT_API, storage, now = Date.now(), fetchImpl }: Deps,
-): Promise<{ kind: 'response'; res: Response } | Failure> {
-  const session = readSession(storage, now);
-  if (session === null) {
-    clearSession(storage);
-    return { kind: 'signed-out' };
-  }
-  if (base === '') return { kind: 'unavailable' };
-  const doFetch: Fetch = fetchImpl ?? ((url, i) => fetch(url, i));
-  let res: Response;
-  try {
-    res = await doFetch(`${base}${path}`, {
-      method: init.method,
-      headers: {
-        authorization: `Bearer ${session.token}`,
-        ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}),
-      },
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-      // Ні cookie: сесія — токен, який сторінка прикладає сама.
-      credentials: 'omit',
-      cache: 'no-store',
-    });
-  } catch {
-    return { kind: 'failed' };
-  }
-  if (res.status === 401) {
-    clearSession(storage);
-    return { kind: 'signed-out' };
-  }
-  return { kind: 'response', res };
-}
-
-async function readJson(res: Response): Promise<unknown> {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
 
 export type StatusCall = { kind: 'ok'; value: ExportStatus } | Failure | { kind: 'throttled' };
 

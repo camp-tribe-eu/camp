@@ -4,6 +4,7 @@ import { AuthToken } from '../entities/auth-token.entity';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
 import { AccountRightsController } from './account-rights.controller';
+import { AccountSettingsController } from './account-settings.controller';
 import { AccountRightsService } from './account-rights.service';
 import { AccountService, MAILER } from './account.service';
 import { AuthController } from './auth.controller';
@@ -13,7 +14,11 @@ import { ViewerMiddleware } from './viewer.middleware';
 
 @Module({
   imports: [TypeOrmModule.forFeature([User, Session, AuthToken])],
-  controllers: [AuthController, AccountRightsController],
+  controllers: [
+    AuthController,
+    AccountRightsController,
+    AccountSettingsController,
+  ],
   providers: [
     AuthService,
     ViewerMiddleware,
