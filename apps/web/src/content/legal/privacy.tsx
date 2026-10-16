@@ -250,14 +250,17 @@ export default function Privacy() {
         in thirty days.
       </P>
       <Callout>
-        <B>What deletion does not reach, and why.</B> Anonymised moderation
-        records stay, so that somebody blocked for fake photographs cannot
-        return the next day with a new account. That is our legitimate
-        interest, and Article 17(3) GDPR expressly allows it. The licence
-        you granted for photographs already published is a contract rather
-        than personal data, so the photographs may remain — but your name
-        comes off them on request. We would rather tell you where the line
-        is than let you discover it.
+        <B>What deletion does not reach, and why.</B> One record survives:
+        that a photo or a review was rejected, why, when, and for which
+        place. It carries nothing that points back to you — no name, no
+        address, not even a reference to the account that was deleted.
+        Because no part of it identifies a person, it has stopped being
+        personal data, and the right to erasure has nothing left to reach.
+        We keep it to be able to account for our own moderation decisions.
+        Separately, the licence you granted for photographs already
+        published is a contract rather than personal data, so those
+        photographs may remain — but your name comes off them on request.
+        We would rather tell you where the line is than let you discover it.
       </Callout>
       <P>
         For anything else, write to{' '}
