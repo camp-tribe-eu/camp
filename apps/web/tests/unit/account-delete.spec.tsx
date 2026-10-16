@@ -177,22 +177,26 @@ test.describe('🔴 пункт приймання 3: жоден варіант �
 });
 
 test.describe('🔴 пункт приймання 4: текст про те, що лишиться, є, і НАЗИВАЄ ПІДСТАВУ', () => {
-  const html = served();
-
-  /** Блок, що починається заголовком «What stays in any case — and why», до кінця його контейнера. */
-  const block = (() => {
+  // 🔴 Читається ВСЕРЕДИНІ тестів, а не при збиранні файлу: `expect` або падіння рендеру в
+  // тілі `describe` обвалює завантаження всього файлу (0 тестів — схоже на збій запуску), а
+  // тут зламаний екран має зачервонити саме той тест, якого це стосується.
+  const read = () => {
+    const html = served();
     const at = html.indexOf('What stays in any case — and why');
     expect(at, 'заголовок блоку є у виданому HTML').toBeGreaterThan(0);
+    // Блок = контейнер, у якому стоїть заголовок, до його закриття.
     const start = html.lastIndexOf('<div', at);
     const end = html.indexOf('</div>', at) + '</div>'.length;
-    return visibleText(html.slice(start, end));
-  })();
+    return { html, block: visibleText(html.slice(start, end)) };
+  };
 
   test('заголовок блоку — слова макета: «що лишиться в будь-якому разі — і чому»', () => {
+    const { block } = read();
     expect(block.startsWith('What stays in any case — and why')).toBe(true);
   });
 
   test('називає, ЩО лишається: знеособлені записи модерації, і навіщо', () => {
+    const { block } = read();
     expect(block).toContain('Anonymised moderation records');
     expect(block).toContain('that a photo or a review was rejected, why, and when, with no name and no address');
     expect(block).toContain(
@@ -201,6 +205,7 @@ test.describe('🔴 пункт приймання 4: текст про те, щ�
   });
 
   test('🔴 називає ПІДСТАВУ — ст. 17 п. 3 — в тому ж блоці, а не окремо десь на сторінці', () => {
+    const { block } = read();
     expect(block).toContain('This is our legitimate interest');
     expect(block).toContain('Article 17(3) of the GDPR expressly allows it.');
     // «Article 17» без пункту не рахується: саме пункт 3 називає виняток.
@@ -208,12 +213,14 @@ test.describe('🔴 пункт приймання 4: текст про те, щ�
   });
 
   test('називає й другу річ, що лишається: ліцензію на опубліковані фото — договір, не персональні дані', () => {
+    const { block } = read();
     expect(block).toContain('The licence on photos already published is a contract, not personal data.');
     expect(block).toContain('your name comes off whenever you ask');
     expect(block).toContain('the photo itself only if you chose the first option above');
   });
 
   test('цей текст ВИДНО: його немає лише в прихованому елементі, `sr-only`, `title` чи `aria-label`', () => {
+    const { html } = read();
     // `visibleText` викидає приховане; блок, прочитаний ним, уже містить підставу (вище).
     // Тут — дзеркало: ніхто не сховав її й не продублював у атрибутах замість тексту.
     expect(visibleText(html)).toContain('Article 17(3) of the GDPR expressly allows it.');
@@ -222,6 +229,7 @@ test.describe('🔴 пункт приймання 4: текст про те, щ�
   });
 
   test('«30 днів — це не спосіб потягнути час»: закон, мета вікна й «доступ припиняється одразу»', () => {
+    const { html } = read();
     const text = visibleText(html);
     expect(text).toContain('30 days is not a way to stall');
     expect(text).toContain('without undue delay');
@@ -232,6 +240,7 @@ test.describe('🔴 пункт приймання 4: текст про те, щ�
   });
 
   test('галочка підтвердження називає ті самі 30 днів, що й решта екрана', () => {
+    const { html } = read();
     expect(visibleText(html)).toContain(
       'I understand: for 30 days the account can be brought back by simply signing in; after that it cannot.',
     );
