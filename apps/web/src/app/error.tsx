@@ -7,10 +7,18 @@ import { useEffect } from 'react';
 //
 // 🔴 An honest note about the status code, because the card asks for one.
 // The site is prerendered: by the time a page fails it has already been
-// served with a 200, and this boundary replaces what is inside it. A
-// real HTTP 500 comes from the host — Cloudflare — when it cannot serve
-// the document at all, and its body is configured there rather than
-// here. What this file controls is the far more likely failure: a client
+// served with a 200, and this boundary replaces what is inside it.
+//
+// 🔴 This note used to say a real 500 "comes from the host — Cloudflare".
+// Both halves were wrong, and CAMP-324 caught the first: Cloudflare is
+// the CDN and reverse proxy, not the host. Our own machine serves the
+// document, so a real 500 would come from there. And if Cloudflare cannot
+// reach that machine at all, the visitor does not get a 500 either — they
+// get Cloudflare's own 52x page, which is configured there rather than
+// here. Two different failures with two different codes, and neither of
+// them is what this file renders.
+//
+// What this file controls is the far more likely failure: a client
 // component throwing after the page has loaded, which without a boundary
 // blanks the entire page.
 //
