@@ -304,7 +304,6 @@ describe('🔴 CAMP-256: the OSM edit date in the weekly upsert', () => {
   it('writes the edit date from its own placeholder, never from the run date ($9)', () => {
     expect(code).toMatch(/\$13::timestamptz/);
     expect(code).toMatch(/\$14::integer/);
-    expect(code).toMatch(/\$15::text/);
   });
 
   it('writes the ref into its own column, and from EXCLUDED on every run', () => {

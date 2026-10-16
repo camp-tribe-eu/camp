@@ -262,10 +262,27 @@ describe('mergedRecord — a row built from several objects', () => {
     }
   });
 
-  it('keeps the first problem it is told about, and says nothing for two hand-built rows', () => {
-    const bad: RecordAge = { edit: null, problem: 'in-the-future' };
-    expect(mergedRecord(W2, bad)?.problem).toBe('in-the-future');
+  it('a not-known result carries the KEPT object\'s problem first, then the other\'s, then "missing"', () => {
+    const future: RecordAge = { edit: null, problem: 'in-the-future' };
+    const notInt: RecordAge = { edit: null, problem: 'not-an-integer' };
+    // Both undated, with different reasons: the first argument's wins.
+    expect(mergedRecord(future, notInt)?.problem).toBe('in-the-future');
+    expect(mergedRecord(notInt, future)?.problem).toBe('not-an-integer');
+    // Only the other is undated: its reason is the one reported.
+    expect(mergedRecord(W2, future)?.problem).toBe('in-the-future');
+    // Neither says why: "missing".
+    expect(mergedRecord(W2, { edit: null, problem: null })?.problem).toBe(
+      'missing',
+    );
+  });
+
+  it('two hand-built rows with no record at all have nothing to merge — undefined, not "not known"', () => {
     expect(mergedRecord(undefined, undefined)).toBeUndefined();
+    // …but ONE of them missing is a record that is not known.
+    expect(mergedRecord(W2, undefined)).toEqual({
+      edit: null,
+      problem: 'missing',
+    });
   });
 
   it('🔴 PROPERTY: whatever the dates, the result is one input, whole — never a date of one object with the ref of another', () => {
