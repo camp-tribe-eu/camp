@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { metadata as deleteMeta } from '@/app/account/delete/page';
 import { DeleteFlow } from '@/components/account-delete';
 import { LoginDoneView } from '@/components/account-view';
 import {
@@ -345,5 +346,14 @@ test.describe('🔴 вхід, що скасував видалення, каже
       expect(text).not.toMatch(/deletion|restored/i);
       expect(text).toContain('You are signed in');
     }
+  });
+});
+
+test.describe('🔴 /account/delete: noindex метатегом, а не robots.txt', () => {
+  // Див. account-data.spec.tsx: у закритій збірці layout каже `noindex` сам, тож про сторінку
+  // це доводить лише її власний `metadata`.
+  test('noindex, nofollow, і назва — той самий рядок, що <h1>', () => {
+    expect(deleteMeta.robots).toEqual({ index: false, follow: false });
+    expect(deleteMeta.title).toBe(DELETE_TITLE);
   });
 });

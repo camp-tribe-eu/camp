@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { metadata as dataMeta } from '@/app/account/data/page';
 import { DATA_TITLE, DataView, type DownloadProblem } from '@/components/account-data-view';
 import type { ArchiveState } from '@/lib/rights';
 import { renderComponent } from './render-component';
@@ -199,5 +200,15 @@ test.describe('вхід у видалення і решта сторінки', (
       onRetry: () => undefined,
     });
     expect(leaky).not.toContain('LEAK');
+  });
+});
+
+test.describe('🔴 /account/data: noindex метатегом, а не robots.txt', () => {
+  // 🔴 Читається з `metadata` САМОЇ сторінки, а не з виданого документа: у закритій збірці
+  // кореневий layout сам каже `noindex`, і документ виглядає однаково з метатегом сторінки й без
+  // нього. Доказ, що сторінка каже це сама, — тут, а не в e2e.
+  test('noindex, nofollow, і назва — той самий рядок, що <h1>', () => {
+    expect(dataMeta.robots).toEqual({ index: false, follow: false });
+    expect(dataMeta.title).toBe(DATA_TITLE);
   });
 });

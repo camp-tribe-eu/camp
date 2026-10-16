@@ -1277,8 +1277,17 @@ describe('🔴 deleting: thirty days to come back, with the same password, and n
       post('/account/delete', goodDelete({ photos: 'delete' }), auth(p.token)),
       post('/account/delete', goodDelete({ photos: 'delete' }), auth(p.token)),
     ]);
-    expect([a.status, b.status].sort()).toEqual(expect.arrayContaining([200]));
-    for (const r of [a, b]) expect([200, 401]).toContain(r.status);
+    // Both were past viewer lookup and their 200 ms password check before either
+    // committed, so both are 200 — and the one that waited on the account's row lock
+    // reports the SAME deadline as the first, instead of pushing it further out.
+    expect([a.status, b.status]).toEqual([200, 200]);
+    expect(a.json.restorableUntil).toBe(b.json.restorableUntil);
+    const marked = (
+      await db.query('SELECT deleted_at FROM users WHERE id = $1', [p.id])
+    ).rows[0].deleted_at as Date;
+    expect(Date.parse(a.json.restorableUntil) - marked.getTime()).toBe(
+      30 * 86_400_000,
+    );
     expect(
       await count(
         `SELECT count(*) n FROM moderation_log WHERE reason = 'twice?'`,
