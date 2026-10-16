@@ -25,9 +25,28 @@
 #
 # 🔴 ВИНЯТОК ВУЗЬКИЙ НАВМИСНО: лише /api/auth/* і /api/account/*. Решта
 # API (/api/spots, /api/guides) лишається під паролем, бо це база, яку
-# замок і має ховати до запуску. Дані тут не оголюються: КОЖЕН обробник
-# у account-rights.controller.ts починається з
-# `if (!viewer) throw new UnauthorizedException(NO_SESSION)`.
+# замок і має ховати до запуску.
+#
+# 🔴 ЩО САМЕ ЦЕ ВІДКРИВАЄ — ПОВНИЙ ПЕРЕЛІК, А НЕ ЗРУЧНА ПОЛОВИНА. Перша
+# редакція цього коментаря посилалась лише на account-rights.controller.ts
+# і тому звучала безпечніше, ніж є.
+#
+#   /api/account/*  — безпечно: всі чотири маршрути
+#                     (account-rights.controller.ts:60,69,86,123)
+#                     починаються з `if (!viewer) throw
+#                     new UnauthorizedException(NO_SESSION)`.
+#
+#   /api/auth/*     — НЕ лише вхід. Сюди входять POST /auth/signup,
+#                     /auth/forgot і /auth/resend-verification. Вони
+#                     шлють СПРАВЖНЮ пошту нашим SMTP на будь-яку
+#                     вказану адресу, а 409 `taken` на signup дозволяє
+#                     перебирати, чи існує акаунт із такою адресою.
+#                     Ліміт частоти (@Throttle(MAIL)) є, пароля немає.
+#
+# Ціна прийнята свідомо: без цього перевірити акаунти очима можна було б
+# аж у день відкриття. Домен щойно прогрітий, тож зловживання відправкою
+# б'є по репутації пошти — якщо виняток стоятиме довго, його варто
+# звузити до часу перевірки, а не лишати до запуску.
 @needs-password not path /.well-known/acme-challenge/* /api/auth/* /api/account/*
 basic_auth @needs-password {
 	camptribe __HASH__

@@ -118,11 +118,43 @@ case "$URL" in
       # Порожньо = файл не прочитався. Це провал, а не «винятків немає»:
       # інакше «не виміряли» виглядало б як «усе під паролем, як і треба».
       [ -n "$EXEMPT" ] || { echo "підмінник curl: не прочитав винятки з $GATE_CLOSED_PATH" >&2; exit 23; }
-      HIT=0
+      # 🔴 `set -f` ОБОВʼЯЗКОВИЙ. Без нього незакавичене $EXEMPT не лише
+      # ділиться на слова, а й розкривається як глоб ПО СПРАВЖНІЙ ФС:
+      # зараз теки /api немає, тож тримається випадково, а в контейнері,
+      # де вона є, випадок почав би падати без причини в коді.
+      HIT=0; set -f
       for pat in $EXEMPT; do
         case "$PATHPART" in $pat) HIT=1; break ;; esac
       done
+      set +f
       [ "$HIT" = 1 ] || { CODE=401; HDR='HTTP/1.1 401 Unauthorized'; BODY=''; }
+    fi
+    # 🔴 МАРШРУТ ЧИТАЄТЬСЯ З Caddyfile, А НЕ ВИГАДУЄТЬСЯ ТУТ. Доки цього не
+    # було, випадок «акаунти виходять з-під пароля» діставав 200 від
+    # ВЕБ-підмінника: прибери з Caddyfile увесь блок
+    # `handle_path /api/* { reverse_proxy … }` — і самотест лишався 34/34.
+    # Тобто єдиний тест на цю гілку не стеріг головного, що вона додала.
+    #
+    # Це симуляція, а не Caddy: знає лише `handle_path <глоб> {` з
+    # `reverse_proxy 127.0.0.1:<порт>` усередині. Вирішальний доказ — живий
+    # вимір на машині; це тут для того, щоб видалення маршруту не минало
+    # мовчки.
+    if [ "$CODE" = 200 ]; then
+      UP=$(awk -v want="$PATHPART" '
+        /^[[:space:]]*handle_path[[:space:]]/ { pat=$2; up=""; inblk=1; next }
+        inblk && match($0, /127\.0\.0\.1:[0-9]+/) { up=substr($0, RSTART, RLENGTH) }
+        inblk && /^[[:space:]]*}[[:space:]]*$/ {
+          if (pat != "" && up != "") {
+            n=length(pat)
+            if (substr(pat,n,1) == "*") {
+              pre=substr(pat,1,n-1)
+              if (substr(want,1,length(pre)) == pre) { print up; exit }
+            } else if (want == pat) { print up; exit }
+          }
+          inblk=0; pat=""; up=""
+        }
+      ' "$CADDYFILE_PATH" 2>/dev/null)
+      [ -z "$UP" ] || BODY="API@$UP${PATHPART#/api}"
     fi ;;
   *) exit 6 ;;
 esac
@@ -138,7 +170,7 @@ export CADDY_LOG="$BASE/caddy.log"; : > "$CADDY_LOG"
 export CADDY_VALIDATE_FAILS="$BASE/no-validate" CADDY_RELOAD_FAILS="$BASE/no-reload"
 export CF_STALE="$BASE/cf-stale" WORLD="$W" SITE_5XX="$BASE/site-5xx" WEB_DOWN="$BASE/web-down"
 export WEB_ORIGIN='http://127.0.0.1:3000' SITE_ORIGIN='https://camptribe.eu'
-export GATE_PATH="$CADDY/gate.conf" GATE_CLOSED_PATH="$CADDY/gate-closed.conf"
+export GATE_PATH="$CADDY/gate.conf" GATE_CLOSED_PATH="$CADDY/gate-closed.conf" CADDYFILE_PATH="$CADDY/Caddyfile"
 
 run() { # прапорці скрипта → вивід у $OUT, код у $RC
   OUT="$(CAMPTRIBE_ROOT="$ROOT" CAMPTRIBE_CADDY_DIR="$CADDY" \
@@ -267,8 +299,13 @@ ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 gcode() { "$STUB/curl" -s -o /dev/null -w '%{http_code}' "https://camptribe.eu$1"; }
 G_ROOT=$(gcode /); G_SPOTS=$(gcode /api/spots); G_GUIDES=$(gcode /api/guides)
 G_AUTH=$(gcode /api/auth/login); G_ACC=$(gcode /api/account/export); G_ACME=$(gcode /.well-known/acme-challenge/x)
-[ "$G_ROOT" = 401 ] && [ "$G_SPOTS" = 401 ] && [ "$G_GUIDES" = 401 ]   && [ "$G_AUTH" = 200 ] && [ "$G_ACC" = 200 ] && [ "$G_ACME" = 200 ]
-ok $? 'закрито: / , /api/spots і /api/guides під паролем; /api/auth/*, /api/account/* і acme — ні'   "/=$G_ROOT spots=$G_SPOTS guides=$G_GUIDES auth=$G_AUTH account=$G_ACC acme=$G_ACME"
+# 🔴 Код 200 сам по собі нічого не каже — його дав би й веб. Питаємо ТІЛО:
+# воно називає порт, узятий із Caddyfile, і шлях ПІСЛЯ зрізання префікса.
+B_AUTH=$("$STUB/curl" -s "https://camptribe.eu/api/auth/login")
+B_ACC=$("$STUB/curl" -s "https://camptribe.eu/api/account/export")
+B_ACME=$("$STUB/curl" -s "https://camptribe.eu/.well-known/acme-challenge/x")
+[ "$G_ROOT" = 401 ] && [ "$G_SPOTS" = 401 ] && [ "$G_GUIDES" = 401 ] && [ "$G_AUTH" = 200 ] && [ "$G_ACC" = 200 ] && [ "$G_ACME" = 200 ] && [ "$B_AUTH" = 'API@127.0.0.1:3001/auth/login' ] && [ "$B_ACC" = 'API@127.0.0.1:3001/account/export' ] && [ "${B_ACME#API@}" = "$B_ACME" ]
+ok $? 'закрито: /, /api/spots і /api/guides під паролем; /api/auth/* і /api/account/* ідуть на 127.0.0.1:3001 зі зрізаним /api; acme віддає веб' "/=$G_ROOT spots=$G_SPOTS guides=$G_GUIDES auth=$G_AUTH account=$G_ACC acme=$G_ACME auth-тіло='$B_AUTH' acc-тіло='$B_ACC' acme-тіло='$B_ACME'"
 
 echo '— збірка мовчить (Next лежить)'
 : > "$WEB_DOWN"; : > "$CADDY_LOG"
