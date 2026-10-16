@@ -479,10 +479,11 @@ describe('the loader, run as a program (CAMP-258)', () => {
     // food: n6 and n4001. fuel: n1, n11 and the closed way's two rows.
     expect(run.out).toMatch(/\n\s+food\s+2 rows \/ 2 objects\n/);
     expect(run.out).toMatch(/\n\s+fuel\s+4 rows \/ 3 objects\n/);
-    // what the staged tags say, and what the rule does not take: n4002
-    // (a ',' list) and n4003 (a word inside a word) mention food words
+    // what the staged tags say, and what the rule does not take: n4002 (a ','
+    // list) mentions a food word and is not taken; n4003 (`internet_cafe`) is
+    // another value, and not a mention at all
     expect(run.out).toMatch(
-      /food\s+staged objects naming it as a list element 2, mentioned wider 4, mentioned and not taken 2\n/,
+      /food\s+staged objects naming it as a list element 2, mentioned wider 3, mentioned and not taken 1\n/,
     );
   });
 });

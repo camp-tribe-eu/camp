@@ -1525,11 +1525,14 @@ describe('the import statement, against a real PostgreSQL', () => {
     // is reported and costs those records, never the run.
     it('counts what it refuses, and does not fail for a handful', async () => {
       const rows = await summary();
-      expect(of(rows, 'food').wide_only).toBe('3'); // n80, n86, n87
-      expect(of(rows, 'charging').wide_only).toBe('2'); // n81, n82
-      expect(of(rows, 'shelter').wide_only).toBe('2'); // n85, n90
+      // an underscore keeps a word together: `internet_cafe` (n80),
+      // `device_charging_station` (n81, n82), `fuel_dispenser` (n89) and
+      // `hotel_apartment` (n90) are other VALUES and not mentions of ours
+      expect(of(rows, 'food').wide_only).toBe('2'); // n86, n87
+      expect(of(rows, 'charging').wide_only).toBe('0');
+      expect(of(rows, 'shelter').wide_only).toBe('1'); // n85
       expect(of(rows, 'groceries').wide_only).toBe('2'); // n40 `gas,convenience`, n88
-      expect(of(rows, 'fuel').wide_only).toBe('1'); // n89
+      expect(of(rows, 'fuel').wide_only).toBe('0');
       expect(listRulesError(rows)).toBeNull();
     });
 
@@ -1545,9 +1548,9 @@ describe('the import statement, against a real PostgreSQL', () => {
                 'restaurant,cafe'
            FROM generate_series(1, 12) g`,
       );
-      expect(of(rows, 'food').wide_only).toBe('15');
+      expect(of(rows, 'food').wide_only).toBe('14'); // 12 planted, n86, n87
       expect(listRulesError(rows)).toMatch(
-        /food: 15 of \d+ staged objects mention its words/,
+        /food: 14 of \d+ staged objects mention its words/,
       );
     });
 

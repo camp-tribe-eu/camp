@@ -115,7 +115,8 @@ async function main() {
     // 🔴 ROWS AND OBJECTS (CAMP-327). The six older kinds are not folded (see
     // buildRoutePoiInsertSql), so a closed-way fuel station is two rows,
     // `w123` and its area `a246`, and `count(*)` over-counts the objects a
-    // card quotes by a fifth (154 183 rows against 118 726 objects of fuel).
+    // card quotes by a fifth and more (154 183 rows against 116 609 objects of
+    // fuel — measured on a full reload of the 27 extracts, 16.10.2026).
     // The empty-kind check reads rows; a person reads objects.
     const byKind = await db.query<{ kind: string; n: string; objects: string }>(
       `SELECT kind, count(*)::text AS n,

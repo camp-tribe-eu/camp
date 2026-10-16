@@ -412,7 +412,11 @@ export const STORED_POI_RULES: Record<StoredPoiKind, TagRule[]> = {
   ...ROUTE_POI_RULES,
   // CAMP-258. `gas` among the elements of `shop`, and nothing else:
   // `amenity=fuel` objects that also carry it are classified `fuel` before
-  // this branch is reached.
+  // this branch is reached — and, since CAMP-327, `shop=convenience;gas` is a
+  // `groceries`: every rule reads lists, and `groceries` comes first. 17 of the
+  // 2 114 gas_exchange objects moved there on the full reload of 16.10.2026
+  // (2 097 stay); the flag `cylinder_swap` kept all 17 in the gas layer, which
+  // is the reason it exists: the layer was 8 925 objects before and after.
   gas_exchange: [{ key: 'shop', values: ['gas'] }],
 };
 
@@ -679,12 +683,13 @@ export const LIST_WIDE_MAX_PERCENT = 1;
  *     wrong key. The twin of `missed`, and the one that makes the substring
  *     filter safe: osmium is asked for `*cafe*`, the classifier must refuse it.
  *   · `wide_only` (data, thresholded): objects whose tag mentions a word of
- *     the kind as a WORD between any non-alphanumerics and that the element
- *     reading does not take — `restaurant,cafe` with a comma, `bar / cafe`,
- *     `internet_cafe`. A handful is data and costs those records, never the
- *     run; it fails only when SYSTEMATIC: at least LIST_WIDE_MIN_OBJECTS
- *     objects AND more than LIST_WIDE_MAX_PERCENT of the objects the kind's
- *     words are mentioned in.
+ *     the kind as a WORD — between any characters that are not letters,
+ *     digits or `_` — and that the element reading does not take:
+ *     `restaurant,cafe` with a comma, `bar / cafe`, `cafe restaurant`. (A longer
+ *     word is not a mention: `internet_cafe` is its own value.) A handful is
+ *     data and costs those records, never the run; it fails only when
+ *     SYSTEMATIC: at least LIST_WIDE_MIN_OBJECTS objects AND more than
+ *     LIST_WIDE_MAX_PERCENT of the objects the kind's words are mentioned in.
  *
  * A kind with no row is a kind nobody checked, and that reads exactly like a
  * kind that passed: it is an error too.

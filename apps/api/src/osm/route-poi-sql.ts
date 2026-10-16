@@ -479,9 +479,14 @@ export const GAS_LAYER_SUMMARY_SQL = `WITH gas AS (
  *     `array_remove`. The trim and the fold ARE shared (normalisedSql): the
  *     ASCII-only fold is what keeps one `chargİng_station` from costing the
  *     run, and the 25 blanks are the definition, not an implementation;
- *   · the WIDE reading is no list at all: the word between any
- *     non-alphanumerics, any case (`restaurant,cafe`, `bar / cafe`,
- *     `internet_cafe`).
+ *   · the WIDE reading is no list at all: the word between any characters
+ *     that are not letters, digits or `_`, any case (`restaurant,cafe`,
+ *     `bar / cafe`). An underscore keeps a word together — `internet_cafe`
+ *     and `device_charging_station` are other values, not mentions of `cafe`
+ *     and `charging_station`: counted as mentions, the second was 918 of the
+ *     152 117 objects that mention charging (0.6%, against a floor of 1%) on
+ *     the first full reload, and a count that grows with the map is a guard
+ *     that fails a run for a value nobody misread.
  * `missed` and `extra` are the two directions of narrow-against-rule; neither
  * has a floor, because the two readings agree on every input by construction
  * and a disagreement is code. `wide_only` is the only number that is data.
@@ -532,7 +537,7 @@ export function listRulesSummarySql(
       .flatMap((r) =>
         r.values.map((v) => {
           arraySql([v]); // the same whitelist the rule's values pass
-          return `(strpos(w_${r.key}, '${v}') > 0 AND w_${r.key} ~ '(^|[^a-z0-9])${v}([^a-z0-9]|$)')`;
+          return `(strpos(w_${r.key}, '${v}') > 0 AND w_${r.key} ~ '(^|[^a-z0-9_])${v}([^a-z0-9_]|$)')`;
         }),
       )
       .join(' OR ');

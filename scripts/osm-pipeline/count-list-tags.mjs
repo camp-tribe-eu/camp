@@ -249,6 +249,7 @@ const SELF_TEST = () => {
   t('a comma is not a `;`', list({ tourism: 'camp_site,caravan_site,hotel' }) === null);
   t('a value that holds the key is not an element', list({ tourism: 'tourism=hotel' }) === null);
   t('the first rule in order wins a double tag', list({ amenity: 'restaurant', tourism: 'hotel' }) === 'food' && exact({ amenity: 'restaurant', tourism: 'hotel' }) === 'food');
+  t('groceries comes before food, and food before shelter, in either reading', exact({ amenity: 'restaurant', shop: 'supermarket' }) === 'groceries' && list({ amenity: 'restaurant', shop: 'supermarket' }) === 'groceries' && exact({ tourism: 'hotel', amenity: 'cafe' }) === 'food');
   t('a hotel with a LISTED restaurant moves from shelter to food', exact({ tourism: 'hotel', amenity: 'restaurant;bar' }) === 'shelter' && list({ tourism: 'hotel', amenity: 'restaurant;bar' }) === 'food');
   t('gas was a list rule before this card, in both columns', exact({ shop: 'gas;hairdresser' }) === 'gas_exchange' && list({ shop: 'gas;hairdresser' }) === 'gas_exchange');
   // 🔴 The one place the change touches the kind CAMP-258 added: groceries
@@ -283,7 +284,7 @@ const SELF_TEST = () => {
   }
   // 🔴 A printed total is a label: compare the number that ran with the
   // number written down.
-  const EXPECTED_CASES = 19;
+  const EXPECTED_CASES = 20;
   if (ok.length !== EXPECTED_CASES) {
     failed += 1;
     console.log(`✗ ${ok.length} cases ran, expected ${EXPECTED_CASES}`);

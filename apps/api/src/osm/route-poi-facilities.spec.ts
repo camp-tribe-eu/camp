@@ -39,6 +39,10 @@ import {
   GAS_WIDE_MIN_OBJECTS,
   gasLayerError,
   isAccessExcluded,
+  LIST_WIDE_MAX_PERCENT,
+  LIST_WIDE_MIN_OBJECTS,
+  listRulesError,
+  type ListRulesSummary,
   osmiumFiltersFor,
   REST_STOP_KINDS,
   rulesTestSql,
@@ -753,6 +757,111 @@ describe('every rule reads its tag as the elements of a `;` list', () => {
     }
     expect(() => arraySql(['restaurant; drop'])).toThrow(/unsafe tag value/);
     expect(() => arraySql(['Cafe'])).toThrow(/unsafe tag value/);
+  });
+});
+
+describe('the loader notices when a rule does not read its tag as a `;` list', () => {
+  const row = (
+    kind: string,
+    over: Partial<ListRulesSummary> = {},
+  ): ListRulesSummary => ({
+    kind,
+    listed: '100',
+    missed: '0',
+    extra: '0',
+    wide_objects: '1000',
+    wide_only: '0',
+    ...over,
+  });
+  // every one of the ten kinds, written out — and not STORED_POI_KINDS, which
+  // is what the function reads: a kind dropped from it would drop from both
+  const KINDS = [
+    'fuel',
+    'charging',
+    'water',
+    'dump',
+    'groceries',
+    'food',
+    'shelter',
+    'rest_area',
+    'service_area',
+    'gas_exchange',
+  ];
+  const all = (over: Record<string, Partial<ListRulesSummary>> = {}) =>
+    KINDS.map((k) => row(k, over[k]));
+
+  it('is silent when every kind agrees with the tag', () => {
+    expect(listRulesError(all())).toBeNull();
+    expect([...STORED_POI_KINDS]).toEqual(KINDS);
+  });
+
+  // 🔴 MUTATION: stop reading `missed`, or test it with `< 0` or `> 1`. THIS
+  // is the card's defect in a number: objects that name a kind's word inside a
+  // list and that the rule gave no kind.
+  it('says so, and names the kind, when objects that say its words got no kind', () => {
+    expect(listRulesError(all({ food: { missed: '9' } }))).toMatch(
+      /^food: 9 staged objects say its words as an element of a ';' list and the rule gave them no kind/,
+    );
+    // one object is enough, in a kind of any size: it is code, not data
+    expect(listRulesError(all({ dump: { missed: '1', listed: '2' } }))).toMatch(
+      /^dump: 1 staged objects/,
+    );
+  });
+
+  // 🔴 MUTATION: stop reading `extra` — the permissive side. A rule broadened
+  // to a substring makes `internet_cafe` a restaurant, and every `missed` stays 0.
+  it('says so, and names the kind, when objects were made a kind that none of their tags names', () => {
+    expect(listRulesError(all({ charging: { extra: '2' } }))).toMatch(
+      /^charging: 2 objects were made charging although no element of their tags is one of its words/,
+    );
+    expect(listRulesError(all({ fuel: { extra: '1' } }))).not.toBeNull();
+  });
+
+  // 🔴 MUTATION: stop reading `wide_only`, compare it with `>= wide`, or move
+  // either threshold. The numbers are written out, not read from the constants.
+  it('says so for a systematic share of spellings the rule does not read, and speaks from the thresholds', () => {
+    expect(
+      listRulesError(all({ food: { wide_only: '12', wide_objects: '13' } })),
+    ).toMatch(
+      /^food: 12 of 13 staged objects mention its words and the rule does not take them/,
+    );
+    // 9 of 100: under the absolute floor (10), however large the share
+    expect(
+      listRulesError(all({ food: { wide_only: '9', wide_objects: '100' } })),
+    ).toBeNull();
+    // 10 of 1 000: exactly 1%, which is not MORE than 1%
+    expect(
+      listRulesError(all({ food: { wide_only: '10', wide_objects: '1000' } })),
+    ).toBeNull();
+    // 10 of 999: just over
+    expect(
+      listRulesError(all({ food: { wide_only: '10', wide_objects: '999' } })),
+    ).not.toBeNull();
+    // one odd record never costs the run, in any population
+    expect(
+      listRulesError(all({ food: { wide_only: '1', wide_objects: '1' } })),
+    ).toBeNull();
+    expect(LIST_WIDE_MIN_OBJECTS).toBe(10);
+    expect(LIST_WIDE_MAX_PERCENT).toBe(1);
+  });
+
+  // 🔴 MUTATION: return at the first problem. A run with two wrong kinds says
+  // both, so the second is not found by the next run.
+  it('says every kind that is wrong, not only the first', () => {
+    const error = listRulesError(
+      all({ water: { missed: '3' }, shelter: { extra: '1' } }),
+    );
+    expect(error).toMatch(/^water: 3 staged objects/);
+    expect(error).toMatch(/; shelter: 1 objects were made shelter/);
+  });
+
+  // 🔴 MUTATION: skip a kind with no row. A statement that dropped one of its
+  // ten SELECTs would read as a kind that passed.
+  it('says so when a kind was not checked at all', () => {
+    expect(listRulesError(all().filter((r) => r.kind !== 'rest_area'))).toBe(
+      'no row for kind rest_area — it was not checked',
+    );
+    expect(listRulesError([])).toMatch(/^no row for kind fuel/);
   });
 });
 

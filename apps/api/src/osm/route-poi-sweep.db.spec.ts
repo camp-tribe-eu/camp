@@ -238,31 +238,50 @@ describe('the oracle and the loader, on the same tags', () => {
   it('agrees with the guard: nothing missed, nothing extra, and the refusals are counted', async () => {
     const rows = (await db.query<ListRulesSummary>(listRulesSummarySql())).rows;
     expect(rows).toHaveLength(STORED_POI_KINDS.length);
+    // 4 spellings per value are mentions nobody reads (see below), so a kind
+    // of N values has 4 × N such objects — written out for the ten kinds
+    const values: Record<string, number> = {
+      fuel: 1,
+      charging: 1,
+      water: 3,
+      dump: 1,
+      groceries: 2,
+      food: 3,
+      shelter: 4,
+      rest_area: 1,
+      service_area: 1,
+      gas_exchange: 1,
+    };
     for (const r of rows) {
       expect(`${r.kind} missed ${r.missed} extra ${r.extra}`).toBe(
         `${r.kind} missed 0 extra 0`,
       );
       expect(Number(r.listed)).toBeGreaterThan(5);
-      expect(Number(r.wide_only)).toBeGreaterThan(5);
+      expect(`${r.kind} wide_only ${r.wide_only}`).toBe(
+        `${r.kind} wide_only ${4 * values[r.kind]}`,
+      );
     }
     // …and the ONLY thing that fails is the systematic share of spellings
     // nobody reads — which is what it is for. By hand: each value is written
-    // in six refused shapes, so a kind of N values has 6 × N objects that
-    // mention it and are not taken, and the floor is 10: water (3 values),
-    // food (3), shelter (4) and groceries (2) are over it, the six kinds of
-    // one value (6 objects) are not. One odd record never costs a run.
+    // in six refused shapes and FOUR of them still mention it as a word
+    // (`key=v`, `v,bench`, `bench,v`, `v bench`; `x_v` and `v_x` are other
+    // values, and an underscore keeps a word together), so a kind of N values
+    // has 4 × N objects that mention it and are not taken, and the floor is
+    // 10: water (3 values: 12), food (3: 12) and shelter (4: 16) are over it;
+    // groceries (2: 8) and the six kinds of one value (4) are not. One odd
+    // record never costs a run.
     const error = listRulesError(rows) ?? '';
     for (const [kind, n] of [
-      ['water', 18],
-      ['food', 18],
-      ['shelter', 24],
-      ['groceries', 12],
+      ['water', 12],
+      ['food', 12],
+      ['shelter', 16],
     ] as const) {
       expect(error).toContain(`${kind}: ${n} of `);
     }
     for (const kind of [
       'fuel',
       'charging',
+      'groceries',
       'dump',
       'rest_area',
       'service_area',
