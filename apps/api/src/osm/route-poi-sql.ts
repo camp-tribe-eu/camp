@@ -480,7 +480,7 @@ export const GAS_LAYER_SUMMARY_SQL = `WITH gas AS (
  *     ASCII-only fold is what keeps one `chargİng_station` from costing the
  *     run, and the 25 blanks are the definition, not an implementation;
  *   · the WIDE reading is no list at all: the word between any characters
- *     that are not letters, digits or `_`, any case (`restaurant,cafe`,
+ *     that are not letters, digits or `_`, in any ASCII case (`restaurant,cafe`,
  *     `bar / cafe`). An underscore keeps a word together — `internet_cafe`
  *     and `device_charging_station` are other values, not mentions of `cafe`
  *     and `charging_station`: counted as mentions, the second was 918 of the
@@ -514,6 +514,21 @@ export function listRulesSummarySql(
     }
   }
 
+  // 🔴 DO NOT REPLACE THIS BLOCK WITH `tagPartsSql(…)`, AND DO NOT LIFT IT
+  // INTO A FUNCTION THE RULE SHARES. It is the second implementation, and the
+  // duplication is the price of the check: the guard is a guard because it
+  // reads the tag with code of its own (`string_to_array` + `unnest`) and
+  // compares that with what the rule took. Written as
+  // `${tagPartsSql(`o."${k}"`)} AS p_${k}` it is tidier, it compiles, and
+  // every other check stays green (review did exactly this: the suites, tsc
+  // and prettier passed; only eslint noticed, for an import now unused, and
+  // removing the import made that green too) — and it agrees with the rule
+  // whatever the rule does, so it can never report `extra`. What holds this
+  // block in place is a behaviour, not its text: 'sees a rule that has learned
+  // to split on a comma' in route-poi-sql.db.spec.ts teaches the RULE the
+  // comma and requires the guard to notice. The trim and the fold below ARE
+  // shared (normalisedSql) on purpose: the blanks are a definition, not a way
+  // of reading a list.
   const parts = keys
     .map(
       (k) =>
@@ -524,7 +539,20 @@ export function listRulesSummarySql(
         `) END AS p_${k}`,
     )
     .join(',\n           ');
-  const lowered = keys.map((k) => `lower(o."${k}") AS w_${k}`).join(', ');
+  // 🔴 `lower()` ALONE FOLDS BY THE DATABASE'S LOCALE (`İ` is `i` under
+  // en_US.UTF-8 and stays `İ` under COLLATE "C"), and the module forbids that
+  // for the narrow side. The wide side was the one place it still happened: a
+  // `chargİng_station` was a mention on one machine and not on another, so the
+  // `wide_*` counts of a reload could not be reproduced elsewhere. Every word
+  // compared with is ASCII, so only the ASCII fold can change an answer, and
+  // `COLLATE "C"` makes `lower()` exactly that on any machine. Not
+  // `normalisedSql` here: `translate` searches its alphabet for every
+  // character and made the whole statement measurably slower on the Austrian
+  // slice, and this side reads no list, so it has no use for the trim either
+  // (the boundary class below already reads a blank as a boundary).
+  const folded = keys
+    .map((k) => `lower(o."${k}" COLLATE "C") AS w_${k}`)
+    .join(', ');
 
   const narrow = (kind: (typeof STORED_POI_KINDS)[number]) =>
     STORED_POI_RULES[kind]
@@ -567,7 +595,7 @@ export function listRulesSummarySql(
          SELECT o.cref,
                 ${classify} AS kind,
                 ${parts},
-                ${lowered}
+                ${folded}
            FROM objs o
        ), flags AS (
          SELECT kind,

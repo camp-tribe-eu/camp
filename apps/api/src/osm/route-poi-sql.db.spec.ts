@@ -17,6 +17,7 @@ import {
   LPG,
   resolveTriState,
   resolveVerbatim,
+  SEPARATOR_SQL,
   TRISTATE_FACILITIES,
 } from './route-poi-facilities';
 import {
@@ -1534,6 +1535,114 @@ describe('the import statement, against a real PostgreSQL', () => {
       expect(of(rows, 'groceries').wide_only).toBe('2'); // n40 `gas,convenience`, n88
       expect(of(rows, 'fuel').wide_only).toBe('0');
       expect(listRulesError(rows)).toBeNull();
+    });
+
+    // 🔴 THE GUARD MUST BE ABLE TO DISAGREE WITH THE RULE (review of #262).
+    //
+    // What makes the narrow reading a check is that it is NOT the rule's code:
+    // listRulesSummarySql splits the tag with `string_to_array` + `unnest`
+    // where the rule uses `tagPartsSql`. Nothing in the types, the lint or the
+    // tests above stops the next person from calling that duplication and
+    // writing `tagPartsSql(…)` there — and a narrow reading built from the
+    // rule's own expression agrees with the rule WHATEVER the rule does: every
+    // test above stays green, because each one feeds the guard a rule that
+    // reads the tag differently from the guard's own way (a classifier of its
+    // own, written here), which a mirror also disagrees with.
+    //
+    // So this does not look for the text of the narrow reading; a list of
+    // forbidden spellings is walked round with a new spelling. It moves the ONE
+    // thing the two readings would share if they were one — the separator — in
+    // the statement as built, so that only what reads it through the rule's
+    // code moves with it: the RULE learns to split on `,` as well (the
+    // review's M22). An independent narrow reading still splits on `;` and
+    // counts what the rule now takes on a comma as `extra`; a mirror splits on
+    // the comma too and counts nothing in any kind.
+    //
+    // The five fixtures with a comma are n40 `shop=gas,convenience`, n84, n85
+    // `tourism=hotel,hostel`, n86 `amenity=restaurant,cafe` and n88
+    // `shop=supermarket,convenience`. Of them the comma rule makes n40 and n88
+    // groceries (it comes before gas_exchange in the CASE), n85 shelter, n86
+    // food, and n84 nothing (camp_site, caravan_site and apartment are none of
+    // the shelter words) — counted by hand from the fixtures.
+    //
+    // MUTATION: in listRulesSummarySql replace the inline `p_<key>` block with
+    // `${tagPartsSql(`o."${k}"`)} AS p_${k}` — `extra` is 0 in every kind.
+    it('sees a rule that has learned to split on a comma', async () => {
+      const real = listRulesSummarySql();
+      // the mutation, and proof that it HIT: every rule's test reads the tag
+      // through the separator, so the statement holds it at least once per rule
+      const taught = real
+        .split(SEPARATOR_SQL)
+        .join(SEPARATOR_SQL.replace(';', '[;,]'));
+      const rules = STORED_POI_KINDS.flatMap((k) => STORED_POI_RULES[k]).length;
+      expect(real.split(SEPARATOR_SQL).length - 1).toBeGreaterThanOrEqual(
+        rules,
+      );
+      expect(taught).not.toBe(real);
+
+      const rows = (await db.query<ListRulesSummary>(taught)).rows;
+      const extras = Object.fromEntries(
+        rows.filter((r) => r.extra !== '0').map((r) => [r.kind, r.extra]),
+      );
+      expect(extras).toEqual({ groceries: '2', food: '1', shelter: '1' });
+      expect(listRulesError(rows)).toMatch(
+        /groceries: 2 objects were made groceries although no element/,
+      );
+      // …and the same statement with the rule as it is stays clean, so the
+      // disagreement above came from the comma and from nothing else
+      expect(
+        listRulesError((await db.query<ListRulesSummary>(real)).rows),
+      ).toBeNull();
+    });
+
+    // 🔴 THE WIDE READING DOES NOT FOLD BY THE DATABASE'S LOCALE EITHER.
+    // `lower('chargİng_station')` is `charging_station` under en_US.UTF-8 and
+    // stays `chargİng_station` under COLLATE "C": read through `lower()` the
+    // object is a mention of `charging_station` on one machine and not on
+    // another, and `wide_*` is not a number a second machine can reproduce.
+    // Every word compared with is ASCII, so the ASCII fold is the only one that
+    // can change an answer. The object is not a mention here — and not an
+    // element, so nothing else moves either.
+    //
+    // MUTATION: `lower(o."<key>")` without its `COLLATE "C"` in the wide
+    // reading of listRulesSummarySql (red on a database whose locale folds `İ`,
+    // as the one this suite runs on does).
+    it('does not let the locale of the database decide what the wide reading counts', async () => {
+      const before = of(await summary(), 'charging');
+      const after = of(
+        await planted(
+          `INSERT INTO osm_route_poi_staging (id, geom, amenity)
+           VALUES ('n9301', ST_Multi(ST_SetSRID(ST_MakePoint(14.5, 46.5), 4326)),
+                   'charg\u0130ng_station')`,
+        ),
+        'charging',
+      );
+      expect(after).toEqual(before);
+    });
+
+    // …and counts a mention in ANY ASCII case, which is the other half of the
+    // fold above: a wide reading that stopped folding would miss every
+    // `Restaurant,CAFE` the rule refuses and the check would go quiet about
+    // them (the rule takes `RESTAURANT` alone, through its own fold, so nothing
+    // else would notice). One planted object is one more of each count.
+    //
+    // MUTATION: no fold at all in the wide reading of listRulesSummarySql.
+    it('counts a mention of a word in any ASCII case', async () => {
+      const before = of(await summary(), 'food');
+      const after = of(
+        await planted(
+          `INSERT INTO osm_route_poi_staging (id, geom, amenity)
+           VALUES ('n9302', ST_Multi(ST_SetSRID(ST_MakePoint(14.6, 46.5), 4326)),
+                   'Restaurant,CAFE')`,
+        ),
+        'food',
+      );
+      expect({
+        wide: Number(after.wide_objects) - Number(before.wide_objects),
+        wideOnly: Number(after.wide_only) - Number(before.wide_only),
+        extra: after.extra,
+        missed: after.missed,
+      }).toEqual({ wide: 1, wideOnly: 1, extra: '0', missed: '0' });
     });
 
     // …and fails when SYSTEMATIC: twelve more `restaurant,cafe`, which a rule
