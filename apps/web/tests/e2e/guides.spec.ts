@@ -114,16 +114,22 @@ test.describe("the section the header points at", () => {
 
     // Посилання, які несе СТАТИЧНА сторінка, прочитані без браузера.
     //
-    // 🔴 Вміст <script> викидається першим. Next кладе в тіло сторінки ще
-    // й payload RSC, і в ньому трапляються ті самі шляхи — без цього
-    // кроку тест бачив би посилання, яких читач не бачить, і «порожній
-    // фасет» перестав би бути порожнім.
-    const hrefsInHtml = (html: string, pattern: RegExp) => {
-      const visible = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
-      return [...visible.matchAll(/\shref="([^"]*)"/g)]
+    // 🔴 ВМІСТ <script> НЕ ЗНІМАЄТЬСЯ, І ЦЕ ЗАМІРЯНО, А НЕ ЗАБУТО. Перша
+    // версія знімала його «про всяк випадок»: Next кладе в тіло payload
+    // RSC, і здавалось, що звідти можуть прийти посилання, яких читач не
+    // бачить. Рецензія заміряла на ШЕСТИ справжніх зібраних сторінках
+    // (25–29 тегів <script> на кожній): усередині жодного з них немає
+    // ані одного `href="/guides/…"` — payload серіалізує шлях як
+    // \"href\":\"/guides/x\", і під шаблон нижче він не підпадає.
+    // Мутація «прибрати зняття» не червонила нічого.
+    //
+    // Рядок, що нічого не ловить, але може зʼїсти пів документа на
+    // неочікуваному `</script>`, — це ризик без покриття. Якщо Next
+    // колись змінить серіалізацію, це спіймає порівняння з DOM нижче.
+    const hrefsInHtml = (html: string, pattern: RegExp) =>
+      [...html.matchAll(/\shref="([^"]*)"/g)]
         .map((m) => m[1].replace(/&amp;/g, "&"))
         .filter((h) => pattern.test(h));
-    };
 
     const guideHrefsAt = async (href: string) => {
       const res = await request.get(href);
@@ -131,22 +137,51 @@ test.describe("the section the header points at", () => {
       return hrefsInHtml(await res.text(), /^\/guides\/[^/]+$/);
     };
 
+    // 🔴 ПЕРЕВІРКА МЕТОДУ ЗА ТИПОМ СТОРІНКИ, А НЕ ЗА ПОЗИЦІЄЮ.
+    //
+    // Перша версія звіряла розбір із браузером лише на facets[0] і
+    // твердила, що «впаде саме вона». Рецензія це спростувала прогоном:
+    // розмітка `href='…'` одинарними лапками на facets[0] червоніє, а та
+    // сама на facets[3] дає `1 passed`. Покрито було 1 із 31 = 3,2%.
+    //
+    // І `unreachable` цього не підстраховує: кожен гайд лежить рівно на
+    // ДВОХ фасетах — своїй країні й своїй темі (`src/lib/guide-facets.ts`,
+    // 26 + 5 = 31). Недобір на всіх 26 сторінках країн поглинається
+    // тематичною, `reachable` лишається повним, `empty` мовчить. Щоб той
+    // сторож спрацював, гайд мусить загубитись ДВІЧІ.
+    //
+    // Тому звіряємо по одному фасету КОЖНОГО типу. Це не «всі 31» — і
+    // текст тут не вдає, що всі: типів у нас два, і сторінки одного типу
+    // малює той самий компонент. Зміниться це — міняти й тут.
+    const probed = new Set<string>();
+    const typeOf = (href: string) => href.split("/")[2] ?? "";
+
     const empty: string[] = [];
-    for (const [i, href] of facets.entries()) {
+    for (const href of facets) {
       const found = await guideHrefsAt(href);
 
-      if (i === 0) {
+      const type = typeOf(href);
+      if (!probed.has(type)) {
+        probed.add(type);
         await page.goto(href);
         const inBrowser = await hrefsOn(/^\/guides\/[^/]+$/);
         expect(
           [...new Set(found)].sort(),
-          "розбір HTML і браузер читають різні посилання на одній сторінці",
+          `розбір HTML і браузер читають різні посилання на ${href}`,
         ).toEqual([...new Set(inBrowser)].sort());
       }
 
       if (found.length === 0) empty.push(href);
       for (const h of found) reachable.add(h.replace("/guides/", ""));
     }
+
+    // Якщо хаб колись почне пропонувати фасет третього типу, він мусить
+    // пройти ту саму перевірку методу — інакше новий тип читається
+    // непротестованим шляхом.
+    expect(
+      [...probed].sort(),
+      "зʼявився тип фасета, чий розбір ніхто не звіряв із браузером",
+    ).toEqual(["country", "topic"]);
     expect(
       empty,
       "the index offers these facets and they list nothing",
