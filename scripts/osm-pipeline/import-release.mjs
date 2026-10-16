@@ -1629,8 +1629,8 @@ async function selfTest() {
     })());
     ok('geom is text while the rows go in, and is converted afterwards in place',
       sql.before.includes('"geom" text') && sql.after.includes('ALTER COLUMN geom TYPE geometry(Geometry, 4326)'));
-    ok('the number of rows sent is written into the check, twice',
-      (sql.after.match(/\b5\b/g) ?? []).length >= 2);
+    ok('the number of rows sent is what the database compares COPY against, and what it says in the refusal',
+      /count\(\*\) FROM "osm_camping_staging"\) <> 5 THEN/.test(sql.after) && sql.after.includes("were sent', (SELECT") && sql.after.includes('COPY took % rows, 5 were sent'));
     ok('a table name with a quote, a space, a semicolon or a leading digit is refused',
       ['a"b', 'a b', 'x;y', '1abc', '', 'a'.repeat(64), 'a-b'].every((t) => throws(() => stagingSql(t, plan, 1))));
     ok('a load of no rows is refused before any SQL exists',
@@ -1924,6 +1924,7 @@ async function selfTest() {
       // very false alarm this stripping exists to prevent.
       .replace(/(^|[^:'"\\])\/\/[^\n]*/g, '$1 ');
 
+  const EXEC_CALL = /\bexec\s*\(/;
   const SHELL_CALL =
     /(?:execFileSync|execFile|spawnSync|spawn|run)\s*\(\s*['"`](?:\/(?:usr\/)?bin\/)?(?:sh|bash|zsh|dash|ksh)['"`]/;
   // 🔴 The rehearsal's own fixtures are not the code under the rule.
@@ -1991,7 +1992,7 @@ async function selfTest() {
   // 🔴 CAMP-332: and so is `exec`, which the rule above does not name. It
   // was no risk while this file imported only execFileSync; it imports
   // `spawn` now, from the same module, and `exec` is one word away from it.
-  ok('exec is not used', !/\bexec\s*\(/.test(source));
+  ok('exec is not used', !EXEC_CALL.test(source));
   // And the stripping must not blind the check: a trailing comment is
   // removed, a shell call on the same line is not.
   /* fixtures-not-code */
@@ -2019,11 +2020,11 @@ async function selfTest() {
   ok('each launcher the rule lists is actually matched',
     ['execFileSync', 'execFile', 'spawnSync', 'spawn', 'run']
       .every((fn) => SHELL_CALL.test(`${fn}('sh', [])`)));
-  ok('exec( is seen, bare or on an object', /\bexec\s*\(/.test(sourceOf(`exec('ls | wc')`)) && /\bexec\s*\(/.test(sourceOf(`cp.exec('ls | wc')`)));
+  ok('exec( is seen, bare or on an object', EXEC_CALL.test(sourceOf(`exec('ls | wc')`)) && EXEC_CALL.test(sourceOf(`cp.exec('ls | wc')`)));
   /* end-fixtures-not-code */
 
   } catch (err) {
-    ok('the self-test ran to its end', false, String(err?.stack ?? err).split('\n').slice(0, 3).join(' | '));
+    ok('the self-test ran to its end', false, `after "${checks.at(-1)?.name.slice(0, 60)}": ${String(err?.stack ?? err).split('\n').slice(0, 3).join(' | ')}`);
   }
 
   for (const c of checks) {
@@ -2463,7 +2464,7 @@ async function selfTestDb() {
       rmSync(fake, { recursive: true, force: true });
     }
   } catch (err) {
-    ok('the db self-test ran to its end', false, String(err?.stack ?? err).split('\n').slice(0, 3).join(' | '));
+    ok('the db self-test ran to its end', false, `after "${checks.at(-1)?.name.slice(0, 60)}": ${String(err?.stack ?? err).split('\n').slice(0, 3).join(' | ')}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     try {
