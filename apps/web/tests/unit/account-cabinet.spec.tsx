@@ -138,8 +138,22 @@ test.describe('🔴 порожні стани: той текст, що в мак
   test('кожна намальована кнопка веде на сторінку, яка є в застосунку', () => {
     const app = join(__dirname, '..', '..', 'src', 'app');
     const hrefs = links(html).map((l) => l.href);
-    expect(hrefs.slice().sort()).toEqual(['/map', '/plan', '/routes']);
+    // CAMP-229 (3/3): the three empty cards' buttons, and the one way into «Your data».
+    expect(hrefs.slice().sort()).toEqual(['/account/data', '/map', '/plan', '/routes']);
     for (const href of hrefs) expect(existsSync(join(app, href, 'page.tsx')), href).toBe(true);
+  });
+});
+
+test.describe('🔴 вхід у вивантаження й видалення (CAMP-229, частина 3)', () => {
+  test('кабінет має рівно одне посилання на «Your data», і воно не в жодній із трьох порожніх карток', () => {
+    const html = cabinet(ANNA);
+    const found = links(html).filter((l) => l.href === '/account/data');
+    expect(found).toEqual([
+      { href: '/account/data', text: 'Your data — download a copy, or delete your account' },
+    ]);
+    // Три порожні картки лишаються тими, що в макеті: посилання не стало четвертою.
+    expect(sections(html).slice(1)).toHaveLength(3);
+    for (const s of sections(html)) expect(s.links.map((l) => l.href)).not.toContain('/account/data');
   });
 });
 

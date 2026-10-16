@@ -405,9 +405,30 @@ export function LoginFormView({
  * видно лише мить, а лишається він для випадку, коли перехід не стався: посилання
  * веде в те саме місце, не на головну.
  */
-export function LoginDoneView({ to = DEFAULT_RETURN }: { to?: string }) {
+export function LoginDoneView({
+  to = DEFAULT_RETURN,
+  restored = false,
+}: {
+  to?: string;
+  restored?: boolean;
+}) {
   return (
     <Shell title="You are signed in">
+      {/* CAMP-229 (3/3): лише коли цей вхід скасував видалення. Що сталося з фото — правда
+          про те, що вже зроблено: вибір застосовується одразу й не скасовується. */}
+      {restored && (
+        <div
+          role="status"
+          className="mt-4 max-w-md rounded border border-line-2 bg-surface-2 p-4 text-sm text-ink"
+        >
+          <p className="font-semibold text-heading">Your account was scheduled for deletion.</p>
+          <p className="mt-1">
+            Signing in has cancelled that: your profile and routes are back. What you chose for your
+            photos has already been applied and stays — signing in restores the account, not the
+            photos.
+          </p>
+        </div>
+      )}
       <p className="mt-4 text-ink-2">
         <Link className={LINK} href={safeReturnPath(to)}>
           Continue to the site

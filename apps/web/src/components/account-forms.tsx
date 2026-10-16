@@ -149,7 +149,7 @@ export function LoginForm() {
   const [draft, setDraft] = useState({ email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Outcome | null>(null);
-  const [done, setDone] = useState<string | null>(null);
+  const [done, setDone] = useState<{ to: string; restored: boolean } | null>(null);
 
   async function submit() {
     setBusy(true);
@@ -157,15 +157,24 @@ export function LoginForm() {
     const out = await logIn(draft.email, draft.password);
     setBusy(false);
     if (out.kind !== 'ok' || !out.body) return setError(out);
-    const { token, expiresAt } = out.body as { token: string; expiresAt: string };
+    const { token, expiresAt, restored } = out.body as {
+      token: string;
+      expiresAt: string;
+      restored?: unknown;
+    };
     saveSession({ token, expiresAt, email: draft.email.trim().toLowerCase() });
     // Спершу забрати й стерти запис, потім іти: невдалий перехід не зациклить.
     const to = takeReturn();
-    setDone(to);
-    router.replace(to);
+    // 🔴 CAMP-229 (3/3): ВХІД, ЩО СКАСУВАВ ВИДАЛЕННЯ, ЛИШАЄТЬСЯ НА СВОЄМУ ПОВІДОМЛЕННІ.
+    // API каже `restored: true` лише тоді, коли саме цей вхід повернув акаунт, який
+    // людина просила видалити. Мовчазний перехід далі лишив би її впевненою, що дані
+    // стерті, коли ми їх тримаємо. `=== true`, як і скрізь: усе інше — звичайний вхід.
+    const wasRestored = restored === true;
+    setDone({ to, restored: wasRestored });
+    if (!wasRestored) router.replace(to);
   }
 
-  if (done !== null) return <LoginDoneView to={done} />;
+  if (done !== null) return <LoginDoneView to={done.to} restored={done.restored} />;
   return (
     <LoginFormView
       draft={draft}
