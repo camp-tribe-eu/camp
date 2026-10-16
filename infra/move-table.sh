@@ -65,10 +65,25 @@
 #      Це швидка зупинка з назвою залежного об'єкта ДО копії, що триває хвилини;
 #      безпека заміни від неї не залежить.
 #
+# 🔴 ВОРОТА. Заміна тримає ACCESS EXCLUSIVE на таблиці весь час завантаження
+# й побудови індексів. Заміряно на справжній `osm_route_poi` (2 273 710 рядків,
+# 1295 МБ), `psql -1 -f swap.sql`, ноутбук, локальний SSD: 28 с у рецензента,
+# 45 с у мене під навантаженням 24 на 8 ядрах; на VPS більше. Не «хвилини», але й
+# не нічого: до відкриття сайту це не важить, після — читачі таблиці (сторінки
+# маршрутів) у цей час чекають, а за lock_timeout отримують помилку.
+# Коментар запобіжником не є, тому скрипт ВІДМОВЛЯЄТЬСЯ (код 1, нічого не змінено),
+# коли передзапусковий замок знято: `gate.conf` показує не на `gate-closed.conf`.
+# Перевіряється двічі: на початку й перед самою заміною (її передує копія й
+# репетиція, тобто хвилини, за які ворота могли відчинити). Свідомо перекрити:
+# `--apply --allow-open-site`. Шляхи й змінні ті самі, що в infra/bin/camptribe-launch
+# (CAMPTRIBE_CADDY_DIR, CAMPTRIBE_GATE, CAMPTRIBE_GATE_OPEN, CAMPTRIBE_GATE_CLOSED):
+# читається ЦІЛЬ симлінка, не вміст, а закритим вважається лише gate-closed.conf.
+#
 # Коди виходу:
 #   0  заміна пройшла й звірена
 #   1  нічого не змінено (зупинка до заміни, або заміна не відбулась, і прод
-#      перевірено: структура, власник і права такі самі)
+#      перевірено: структура, власник і права такі самі; або ВІДМОВА через
+#      ворота: сайт відкритий, див. нижче)
 #   2  невірний виклик
 #   3  заміна закомітилась, звірка не пройшла; прод повернуто з копії й ЗВІРЕНО
 #   4  прод у невідомому стані (відкат не звірився, або структуру прода змінили
@@ -76,10 +91,11 @@
 set -uo pipefail
 
 TABLE="${1:-}"; shift 2>/dev/null || true
-APPLY=0
+APPLY=0; ALLOW_OPEN=0
 for a in "$@"; do
   case "$a" in
     --apply) APPLY=1 ;;
+    --allow-open-site) ALLOW_OPEN=1 ;;
     *) echo "невідомий прапорець: $a" >&2; exit 2 ;;
   esac
 done
@@ -98,11 +114,29 @@ BACKUP_DIR="${CAMPTRIBE_BACKUP_DIR:-/srv/camptribe/backups}"
 # здатись, і скільки — відкат (чекає довше: таблицю мусить бути повернено).
 LOCK_TIMEOUT="${CAMPTRIBE_LOCK_TIMEOUT:-10s}"
 RB_LOCK_TIMEOUT="${CAMPTRIBE_ROLLBACK_LOCK_TIMEOUT:-60s}"
-for v in "$LOCK_TIMEOUT" "$RB_LOCK_TIMEOUT"; do
-  [[ $v =~ ^[0-9]+(ms|s|min)?$ ]] || { echo "lock_timeout: число з одиницею (ms, s, min), а не «$v»" >&2; exit 2; }
+# 🔴 Одиниця ОБОВ'ЯЗКОВА. Голе число Postgres читає як МІЛІСЕКУНДИ (заміряно:
+# `set lock_timeout='60'; show lock_timeout` дає 60ms), тож `…=120` у голові людини
+# це «2 хвилини», а в базі 120 мс: відкат здається миттєво й дає код 4. Нуль
+# (`0`, `0s`) Postgres читає як «без ліміту» — рівно те, від чого цей параметр
+# захищає (непотримана заявка на ACCESS EXCLUSIVE блокує всіх, хто прийшов за нею),
+# тож це теж відмова.
+for pair in "CAMPTRIBE_LOCK_TIMEOUT=$LOCK_TIMEOUT" "CAMPTRIBE_ROLLBACK_LOCK_TIMEOUT=$RB_LOCK_TIMEOUT"; do
+  v="${pair#*=}"
+  [[ $v =~ ^[0-9]+(ms|s|min)$ ]] && ! [[ $v =~ ^0+(ms|s|min)$ ]] \
+    || { echo "${pair%%=*}: потрібне число з ОДИНИЦЕЮ (ms, s, min) і більше нуля, а не «$v» (голе число Postgres читає як мілісекунди, нуль знімає ліміт)" >&2; exit 2; }
 done
 # Куди на машині класти те, що їде з ноутбука. На проді /tmp; самоперевірка
 # підставляє свою теку, щоб два прогони поруч не топтали файли один одного.
+# 🔴 РОЗМІР тимчасових файлів там — питання кожної нової машини. Заміряно на
+# `osm_route_poi` (2 273 710 рядків; відновлена таблиця з індексами — 676 МБ):
+#   дамп                      102 МБ  (≈ 15% таблиці)
+#   swap.sql, текст заміни    521 МБ  (≈ 77%; на ноутбуці, де таблиця роздута до
+#                                      1358 МБ, це ≈ 38%)
+#   rb.sql, текст відкату     ≈ 521 МБ, лише коли відкат потрібен
+# Пік у $RTMP ≈ 1,1 ГБ, тобто ≈ 1,7 × розмір таблиці. Страхувальна копія лежить
+# окремо, у BACKUP_DIR (≈ 100 МБ). Бойовий /tmp перевірено 16.10.2026 (головна
+# сесія): ext4 на /dev/sda1, 112 ГБ вільних, не tmpfs, тож пік проходить; на
+# іншій машині (tmpfs у пам'яті, малий диск) цього не припускай.
 RTMP="${CAMPTRIBE_REMOTE_TMP:-/tmp}"
 WORK="${TMPDIR:-/tmp}/camptribe-move-$TABLE.$$"
 PSQL="${CAMPTRIBE_PSQL:-psql}"
@@ -127,6 +161,7 @@ say "джерело ($LOCAL_DB.$TABLE): $src_rows рядків"
 if [ "$APPLY" != 1 ]; then
   say ''
   say 'СУХИЙ ПРОГІН — машину не чіпав. Що зробив би:'
+  say '  0. ворота: ВІДМОВИТИСЬ, якщо сайт відкритий (gate.conf не показує на gate-closed.conf); свідомо перекрити — --allow-open-site'
   say "  1. дамп $TABLE з $LOCAL_DB (pg_dump -Fc -t) і її схема текстом (pg_dump --schema-only -t)"
   say "  2. перевірити, що DROP TABLE на проді пройде (відкочувана транзакція, lock_timeout $LOCK_TIMEOUT)"
   say "  3. страхувальна копія бойової $TABLE у $BACKUP_DIR"
@@ -157,7 +192,7 @@ say "дамп: $(( $(wc -c < "$WORK/table.dump") / 1048576 )) МБ"
 cat > "$WORK/remote.sh" <<'REMOTE'
 #!/usr/bin/env bash
 set -uo pipefail
-TABLE="$1"; SRC_ROWS="$2"; BACKUP_DIR="$3"; ENVF="$4"; RTMP="$5"; LOCK_TIMEOUT="$6"; RB_LOCK_TIMEOUT="$7"
+TABLE="$1"; SRC_ROWS="$2"; BACKUP_DIR="$3"; ENVF="$4"; RTMP="$5"; LOCK_TIMEOUT="$6"; RB_LOCK_TIMEOUT="$7"; ALLOW_OPEN="${8:-0}"
 set -a
 # shellcheck source=/dev/null
 . "$ENVF"
@@ -175,6 +210,41 @@ RW="$(mktemp -d "$RTMP/camptribe-move-r.XXXXXX")" || { echo "✗ не можу �
 trap 'rm -rf "$RW"' EXIT
 stamp=$(date +%Y%m%d-%H%M%S)
 B="$BACKUP_DIR/$TABLE-before-$stamp.dump"
+
+# 🔴 ВОРОТА (див. шапку: заміна тримає ACCESS EXCLUSIVE десятки секунд). Ті самі
+# змінні й та сама логіка, що `lock_gate` в infra/bin/camptribe-launch: читається
+# ЦІЛЬ симлінка gate.conf. Закритим вважається лише gate-closed.conf; усе інше
+# (gate-open.conf, рукописний файл, чужа ціль, немає файлу) означає «закритості
+# не доведено». Гілка `open` стоїть ПЕРШОЮ: якщо обидва файли воріт відсутні,
+# порожній рядок дорівнює порожньому, і хибний збіг має дати «відчинено», а не «закрито».
+CADDY_DIR="${CAMPTRIBE_CADDY_DIR:-/etc/caddy}"
+GATE="${CAMPTRIBE_GATE:-$CADDY_DIR/gate.conf}"
+GATE_OPEN="${CAMPTRIBE_GATE_OPEN:-$CADDY_DIR/gate-open.conf}"
+GATE_CLOSED="${CAMPTRIBE_GATE_CLOSED:-$CADDY_DIR/gate-closed.conf}"
+gate_state() {
+  case "$(readlink -f "$GATE")" in
+    "$(readlink -f "$GATE_OPEN")")   echo 'open' ;;
+    "$(readlink -f "$GATE_CLOSED")") echo 'closed' ;;
+    *) echo 'чуже' ;;
+  esac
+}
+# $1 — коли саме перевіряємо (для повідомлення). 0 — можна далі, 1 — відмова.
+need_closed_gate() {
+  local g; g="$(gate_state)"
+  if [ "$g" = closed ]; then
+    echo "ворота: gate.conf → gate-closed.conf, сайт закритий ($1)"; return 0
+  fi
+  if [ "$ALLOW_OPEN" = 1 ]; then
+    echo "⚠ ворота «$g» ($GATE), але задано --allow-open-site ($1): продовжую; читачі таблиці чекатимуть на ACCESS EXCLUSIVE"; return 0
+  fi
+  echo "✗ ВІДМОВА ($1): ворота «$g» ($GATE) — закритості сайту не доведено."
+  echo "  Заміна тримає ACCESS EXCLUSIVE на таблиці десятки секунд (на 2,27 млн рядків заміряно 28–45 с, на VPS більше):"
+  echo '  на відкритому сайті сторінки, що читають цю таблицю, у цей час не відповідають.'
+  echo '  Свідомо перекрити: додай --allow-open-site (і переконайся, що читачі таблиці це витримають).'
+  return 1
+}
+need_closed_gate 'до початку' || { echo 'нічого не змінено'; exit 1; }
+
 mkdir -p "$BACKUP_DIR"
 
 # 🔴 Схема як ТЕКСТ. Один фільтр і для еталона з ноутбука, і для прода. Він
@@ -232,6 +302,28 @@ make_script() {
   pg_restore --clean --if-exists "$@" -f - "$dump" \
     | { printf "SET lock_timeout = '%s';\n" "$lt"
         sed "1,80s/^SET lock_timeout = 0;\$/SET lock_timeout = '$lt';/"; } > "$out"
+}
+
+# 🔴 Нова таблиця стартує БЕЗ статистики (заміряно на 2,27 млн рядків, і рецензентом,
+# і мною: одразу після заміни pg_stats = 0 рядків, last_analyze NULL), і планувальник
+# сліпий, доки не прийде autoanalyze (у рецензента він сів за 15 с). ANALYZE на цій
+# таблиці 1,6 с — дешевше за це вікно; так робить і
+# scripts/osm-pipeline/load-route-poi.sh. Заміна створює таблицю заново, і відкат
+# теж: статистики немає в обох випадках.
+# Викликається ПІСЛЯ коміту, окремою командою, а не в транзакції заміни: там він
+# продовжив би ACCESS EXCLUSIVE. Блокує лише інші ANALYZE/VACUUM; читачів і запис
+# не чіпає. Збій тут не вирок (код виходу не міняє, autoanalyze дожене), але й не
+# мовчить: попередження psql теж друкується (не власник і не суперкористувач:
+# ANALYZE пропускає таблицю й виходить з кодом 0).
+analyze_table() {
+  local out rc t0
+  t0=$(date +%s)
+  out="$(psql "$DATABASE_URL" -q -c "analyze $TABLE" 2>&1)"; rc=$?
+  if [ "$rc" = 0 ] && [ -z "$out" ]; then
+    echo "ANALYZE $TABLE: статистику зібрано за $(( $(date +%s) - t0 )) с"
+  else
+    echo "⚠ ANALYZE $TABLE не вдався чисто (код $rc), статистику дожене autoanalyze: $(printf '%s' "$out" | head -2)"
+  fi
 }
 
 before_rows=$(q "select count(*) from $TABLE" 2>/dev/null || echo 0)
@@ -300,6 +392,9 @@ fi
 make_script "$RTMP/camptribe-move.dump" "$RW/swap.sql" "$LOCK_TIMEOUT" --no-owner --no-acl \
   || { echo "✗ не вдалось зібрати скрипт заміни — прод не торкнуто"; exit 1; }
 cat "$RW/pre_acl.sql" >> "$RW/swap.sql"
+# 🔴 Ворота ще раз: між першою перевіркою й цим місцем — копія й репетиція, тобто
+# хвилини. Відмова тут чиста: прод ще не торкнуто.
+need_closed_gate 'перед заміною' || { echo "прод не торкнуто; копія лежить у $B"; exit 1; }
 psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 -1 -f "$RW/swap.sql" >/dev/null 2>"$RW/restore.err"
 rc_restore=$?
 rows=$(q "select count(*) from $TABLE" 2>/dev/null || echo 'таблиці немає')
@@ -358,23 +453,39 @@ if [ "$ok" != 1 ]; then
   rb_rows=$(q "select count(*) from $TABLE" 2>/dev/null || echo 'таблиці немає')
   # Рядки — проти того, що лежить у КОПІЇ (R, порахував репетицією), а не проти
   # `before_rows`, знятого до неї: запис у таблицю між ними дав би хибний код 4.
-  if [ "$rb_rows" = "$R" ] && same_as_pre rb; then
+  # 🔴 Код відновлення відкату ГЕЙТИТЬ вердикт. Попередня версія казала «відкат
+  # атомарний, вердикт дає звірка стану» — і помилялась: коли прод ПІСЛЯ заміни
+  # збігається з продом ДО заміни за всім, що звіряється (рядків у копії стільки ж,
+  # скільки в заміненій; структура прода вже дорівнює структурі джерела; власник і
+  # права дописано в саму заміну), відкат міг УПАСТИ (читач у черзі, lock_timeout),
+  # а звірка однаково була зеленою: «повернуто й звірено» над таблицею, яку не
+  # повернули (на проді: 0 рядків прода, 500 джерела, код 3). Саме ЗБІЖНІСТЬ
+  # лічильників ховає провал, тож лише код відновлення його відрізняє. Природний
+  # вхід на проді: запис у ЛОКАЛЬНУ таблицю між `select count(*)` і `pg_dump`.
+  if [ "$rc_rb" = 0 ] && [ "$rb_rows" = "$R" ] && same_as_pre rb; then
+    analyze_table
     echo "повернуто й звірено: $rb_rows рядків, структура, власник і права такі самі, як до заміни (відновлення відкату: код $rc_rb)"
     exit 3
   fi
   echo "🔴 ВІДКАТ НЕ ЗВІРИВСЯ (відновлення відкату: код $rc_rb): рядків $rb_rows проти $R у копії"
-  echo "   відрізняється від стану до заміни (- до, + тепер):"; show_diff rb
+  [ "$rc_rb" != 0 ] && echo "   відновлення відкату ВПАЛО: таблицю НЕ повернуто, хоч рядки й структура можуть збігатись із копією"
+  # Заголовок лише коли діф є: у збіжному випадку (рядки, структура, власник, права
+  # однакові, але відкат упав) він стояв би над порожнім місцем.
+  if [ -s "$RW/rb.diff" ] || [ -s "$RW/rb.acldiff" ]; then
+    echo "   відрізняється від стану до заміни (- до, + тепер):"; show_diff rb
+  fi
   head -3 "$RW/rollback.err"
   echo "   прод у невідомому стані; копія лежить у $B — віднови вручну й перевір"
   exit 4
 fi
+analyze_table
 echo "✓ відновлення без помилок, $rows рядків, структура збігається з джерелом, власник і права на місці"
 REMOTE
 
 "$SCP" -i "$KEY" -o BatchMode=yes "$WORK/remote.sh" "$HOST:$RTMP/camptribe-move-remote.sh" >/dev/null \
   || die 'не вдалось доставити виконавця'
 set +e
-ssh_ "bash $RTMP/camptribe-move-remote.sh $(printf '%q %q %q %q %q %q %q' "$TABLE" "$src_rows" "$BACKUP_DIR" "$REMOTE_ENV" "$RTMP" "$LOCK_TIMEOUT" "$RB_LOCK_TIMEOUT")"
+ssh_ "bash $RTMP/camptribe-move-remote.sh $(printf '%q %q %q %q %q %q %q %q' "$TABLE" "$src_rows" "$BACKUP_DIR" "$REMOTE_ENV" "$RTMP" "$LOCK_TIMEOUT" "$RB_LOCK_TIMEOUT" "$ALLOW_OPEN")"
 rc=$?
 set -e
 ssh_ "rm -f $RTMP/camptribe-move.dump $RTMP/camptribe-move-schema.sql $RTMP/camptribe-move-remote.sh" >/dev/null 2>&1 || true

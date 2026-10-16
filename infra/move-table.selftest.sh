@@ -33,7 +33,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 MOVE="${CAMPTRIBE_MOVE_BIN:-$HERE/move-table.sh}"
-EXPECTED=42
+EXPECTED=55
 # 🔴 Де брати базу. Локально це сокет і поточний користувач; у CI —
 # сервіс postgis/postgis із користувачем postgres. Один рядок замість
 # двох шляхів у коді.
@@ -153,6 +153,15 @@ ENVF="$BASE/prod.env"
 # отримати його теж, а `${DATABASE_URL%/*}` його губив.
 printf 'DATABASE_URL=%s/%s?application_name=mvapp\n' "$PG_BASE" "$DST_DB" > "$ENVF"
 
+# 🔴 Ворота. Скрипт відмовляється працювати, коли сайт відкритий (gate.conf →
+# gate-open.conf). Тут стоять ті самі файли, що на машині, у власній теці, і ті самі
+# змінні, що в infra/bin/camptribe-launch. ЗА ЗАМОВЧУВАННЯМ ЗАКРИТО: усі випадки
+# нижче йдуть цим шляхом, тож «закриті → проходить» перевіряє кожен із них.
+GATE_DIR="$BASE/caddy"; mkdir -p "$GATE_DIR"
+: > "$GATE_DIR/gate-open.conf"; printf 'basic_auth {\n}\n' > "$GATE_DIR/gate-closed.conf"; : > "$GATE_DIR/gate-foreign.conf"
+set_gate() { ln -sfn "$GATE_DIR/gate-$1.conf" "$GATE_DIR/gate.conf"; }
+set_gate closed
+
 # LOCALE, T_LOCK, T_RBLOCK (якщо задано) діють лише на скрипт, що тестується.
 LOCALE=; T_LOCK=; T_RBLOCK=
 run() {
@@ -162,6 +171,8 @@ run() {
         CAMPTRIBE_REHEARSAL_DB="$REHEARSAL_DB" \
         CAMPTRIBE_LOCK_TIMEOUT="$T_LOCK" CAMPTRIBE_ROLLBACK_LOCK_TIMEOUT="$T_RBLOCK" \
         CAMPTRIBE_SSH="$BASE/bin/ssh" CAMPTRIBE_SCP="$BASE/bin/scp" \
+        CAMPTRIBE_GATE="$GATE_DIR/gate.conf" CAMPTRIBE_GATE_OPEN="$GATE_DIR/gate-open.conf" \
+        CAMPTRIBE_GATE_CLOSED="$GATE_DIR/gate-closed.conf" \
         LC_ALL="${LOCALE:-${LC_ALL:-}}" \
         bash "$MOVE" "$@" 2>&1)"; RC=$?
 }
@@ -199,6 +210,17 @@ app_insert() {
   psql -At -q -d "$1" -c begin \
     -c "insert into $TABLE (ref,kind,n,rng) values ('app','a',1,int4range(9000,9001)) returning id||'|'||touched" \
     -c rollback 2>&1
+}
+# Статистика, яку бачить база. last_analyze ставить ЛИШЕ ручний ANALYZE (autoanalyze
+# пише в last_autoanalyze), pg_stats — те, з чим планувальник справді працює. Нова
+# таблиця стартує без обох. Друкує t/f.
+analyzed() {
+  psql -At -d "$DST_DB" -c "select (select last_analyze is not null from pg_stat_user_tables where relname='$TABLE')
+    and (select count(*) > 0 from pg_stats where tablename='$TABLE')" 2>&1
+}
+# Як Postgres ЧИТАЄ значення lock_timeout (у мілісекундах): джерело істини для випадків про одиницю.
+pg_ms() {
+  psql -At -q -d "$PG_BASE/postgres" -c "set lock_timeout='$1'" -c "select setting from pg_settings where name='lock_timeout'" 2>&1 | tail -1
 }
 # Те, що зробить роль застосунку: читає таблицю від свого імені.
 api_read() { psql -At -q -d "$DST_DB" -c "set role \"$ROLE_API\"" -c "select count(*) from $TABLE" 2>&1; }
@@ -252,11 +274,64 @@ eq "$(rows)" 300; ok $? 'без --apply: бойова таблиця не змі
 printf '%s' "$OUT" | grep -q 'джерело (.*): 500 рядків'
 ok $? 'сухий прогін називає, скільки рядків їде: 500' "$OUT"
 
+echo '— lock_timeout без одиниці: Postgres читає голе число як МІЛІСЕКУНДИ'
+# 🔴 Заміряно: `set lock_timeout='60'; show lock_timeout` дає 60ms. `…=120` у голові людини
+# це «2 хвилини», а в базі 120 мс: відкат здається миттєво й дає код 4. Скрипт мусить
+# відмовитись, а не здогадатись, і відмова мусить НАЗВАТИ змінну, яку відкинуто: кожна
+# з двох — окремим випадком, інакше зелене лишалось би й тоді, коли перевіряється лише одна.
+# Стоїть одразу після першого сухого прогону: світ свіжий (джерело 500 рядків), а сухий прогін
+# його не міняє — без цього «код 1: нуль рядків у джерелі» перебив би те, що міряємо, а
+# окремий build_world зсунув би стан, на який спираються наступні випадки.
+echo "    (Postgres читає '120' як $(pg_ms 120) мс — звідси відмова)"
+T_LOCK=120; run "$TABLE"; T_LOCK=
+[ "$RC" = 2 ] && printf '%s' "$OUT" | grep -q '^CAMPTRIBE_LOCK_TIMEOUT: ' && ! printf '%s' "$OUT" | grep -q 'ROLLBACK' \
+  && ! printf '%s' "$OUT" | grep -q 'СУХИЙ ПРОГІН'
+ok $? 'CAMPTRIBE_LOCK_TIMEOUT=120 без одиниці: код 2, названо саме її, нічого не запущено' "rc=$RC $OUT"
+T_RBLOCK=120; run "$TABLE"; T_RBLOCK=
+[ "$RC" = 2 ] && printf '%s' "$OUT" | grep -q '^CAMPTRIBE_ROLLBACK_LOCK_TIMEOUT: ' && ! printf '%s' "$OUT" | grep -q '^CAMPTRIBE_LOCK_TIMEOUT' \
+  && ! printf '%s' "$OUT" | grep -q 'СУХИЙ ПРОГІН'
+ok $? 'CAMPTRIBE_ROLLBACK_LOCK_TIMEOUT=120 без одиниці: код 2, названо саме її, нічого не запущено' "rc=$RC $OUT"
+# Нуль Postgres читає як «без ліміту» — те, від чого цей параметр захищає.
+bad=''
+for v in 0 0s 0ms 00min; do
+  T_LOCK="$v"; run "$TABLE"; T_LOCK=;   [ "$RC" = 2 ] || bad="$bad LOCK=$v(код $RC)"
+  T_RBLOCK="$v"; run "$TABLE"; T_RBLOCK=; [ "$RC" = 2 ] || bad="$bad ROLLBACK=$v(код $RC)"
+done
+eq "$bad" ""; ok $? 'нуль (0, 0s, 0ms, 00min) в обох змінних: код 2 (нуль знімає ліміт)' "прийнято:$bad"
+# Сміття: відмова на кожному, в обох змінних.
+bad=''
+for v in abc '10 s' 1.5s -5s 5h s 5S ms; do
+  T_LOCK="$v"; run "$TABLE"; T_LOCK=;   [ "$RC" = 2 ] || bad="$bad LOCK='$v'(код $RC)"
+  T_RBLOCK="$v"; run "$TABLE"; T_RBLOCK=; [ "$RC" = 2 ] || bad="$bad ROLLBACK='$v'(код $RC)"
+done
+eq "$bad" ""; ok $? 'невалідні значення (abc, «10 s», 1.5s, -5s, 5h, s, 5S, ms) в обох змінних: код 2' "прийнято:$bad"
+# Протилежний бік: приймається те, що Postgres читає так, як написано. Без цього випадку
+# відмова на всьому підряд була б зеленою. Очікувані мс записано числами, не обчислено.
+bad=''
+for pair in '5s:5000' '1500ms:1500' '2min:120000'; do
+  v="${pair%%:*}"; want="${pair#*:}"
+  T_LOCK="$v"; T_RBLOCK="$v"; run "$TABLE"; T_LOCK=; T_RBLOCK=
+  got="$(pg_ms "$v")"
+  { [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'СУХИЙ ПРОГІН' && [ "$got" = "$want" ]; } \
+    || bad="$bad $v(код $RC; Postgres читає $got мс, очікувалось $want)"
+done
+eq "$bad" ""; ok $? 'приймається 5s, 1500ms, 2min — і Postgres читає їх як 5000, 1500, 120000 мс, тобто так, як написано' "розбіжність:$bad"
+
 echo '— справжнє перенесення (прод голий, але з нетиповим власником і грантом)'
 rm -rf "$BASE/backups"
 run "$TABLE" --apply
 eq "$RC" 0; ok $? '--apply: код 0' "rc=$RC $OUT"
+# Ворота закриті (стан за замовчуванням): скрипт це бачить і називає в обох місцях перевірки.
+# Чесна межа: сам вивід нічого не доводить — це пара до випадків про відчинені ворота нижче,
+# де за тим самим кодом стоїть відмова; червоніє цей випадок лише на скрипті, що воріт не знає.
+printf '%s' "$OUT" | grep -q 'ворота: gate.conf → gate-closed.conf, сайт закритий (до початку)' \
+  && printf '%s' "$OUT" | grep -q 'ворота: gate.conf → gate-closed.conf, сайт закритий (перед заміною)'
+ok $? 'ворота закриті: заміна пройшла, скрипт назвав ворота і на початку, і перед самою заміною' "$OUT"
 eq "$(rows)" 500; ok $? 'рядки приїхали: 500' "$(rows)"
+# 🔴 Нова таблиця стартує без статистики (заміряно на 2,27 млн рядків: pg_stats 0 рядків,
+# last_analyze NULL, і так до autoanalyze). Читається СТАН бази, не рядок у виводі.
+eq "$(analyzed)" t
+ok $? '🔴 після заміни таблицю проаналізовано: last_analyze стоїть (його ставить лише ручний ANALYZE), pg_stats не порожній' "analyzed=$(analyzed)"
 # 🔴 Головне. Саме цього не було 15.10: індекси, ключ, послідовність, DEFAULT.
 [ "$bare_fp" = "$BARE" ] && eq "$(field "$DST_DB" idx)" 'idx=5'
 ok $? '🔴 індекси на місці: 5 (PK, UNIQUE, EXCLUDE і два звичайних); до того на проді не було жодного' "до=$bare_fp після=$(fp "$DST_DB")"
@@ -499,6 +574,9 @@ rd="$(api_read)"; ins="$(app_insert "$DST_DB")"
 [ "$(fp "$DST_DB")" = "$FULL" ] && eq "$rd" 300 && eq "$ins" '301|true'
 r=$?
 ok "$r" '🔴 після відкату ВСЕ як було: структура, власник, гранти на таблицю й на послідовність; роль застосунку читає 300; INSERT дає 301' "після=$(fp "$DST_DB") api=$rd insert=$ins"
+# Відкат створює таблицю заново, і статистики в неї знову немає: окремий виклик, окремий випадок.
+eq "$(analyzed)" t
+ok $? '🔴 після відкату таблицю теж проаналізовано (відкат — друга дорога до нової таблиці без статистики)' "analyzed=$(analyzed)"
 
 echo '— event trigger на проді: заміна проходить (код 0), а схема розходиться'
 # 🔴 Єдиний природний вхід «відновлення без помилок, рядки ті самі, схема інша»:
@@ -593,6 +671,43 @@ eq "$RC" 4 && printf '%s' "$OUT" | grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ' 
 r=$?
 ok "$r" "відкат не дочекався читача: код 4, 🔴 ВІДКАТ НЕ ЗВІРИВСЯ (а не «повернуто» після його 6 с), прод лишився на замінених 500" "rc=$RC за $((t1 - t0)) с rows=$(rows) $OUT"
 
+echo '— відкат не може взяти блокування, а лічильники ЗБІГЛИСЬ: «повернуто й звірено» не друкується'
+# 🔴 БЛОКЕР рецензії (відтворено 3 з 3). Попередній випадок розводить лічильники (прод 300,
+# після заміни 500, у копії 300), тож звірка рядків провалюється сама. Цей дефект ховається
+# РІВНО ТОДІ, коли вони збігаються: прод має 500 своїх рядків, джерело 500 + дочірня на 100
+# (count(*) 600, у дампі 500) — після заміни 500, у копії 500, структура прода вже дорівнює
+# джерелу, а власник і права дописано в саму заміну. Відкат упирається в читача й НЕ
+# відбувається; без гейта на код відновлення скрипт друкував «повернуто й звірено» (код 3)
+# над продом, де 0 рядків прода і 500 рядків джерела. Природний вхід на проді: запис у
+# ЛОКАЛЬНУ таблицю між `select count(*)` і `pg_dump`. Стан читається з бази: рядки з `p%` —
+# це прод, що його мали повернути.
+build_world
+psql -q -d "$DST_DB" -c "TRUNCATE $TABLE RESTART IDENTITY" \
+  -c "INSERT INTO $TABLE (ref,kind,n,rng) SELECT 'p'||i, 'b', i, int4range(i,i+1) FROM generate_series(1,500) i"
+psql -q -d "$SRC_DB" -c "CREATE TABLE ${TABLE}_child () INHERITS ($TABLE)" \
+  -c "INSERT INTO ${TABLE}_child (ref,kind,n,rng) SELECT 'c'||i, 'a', 1000+i, int4range(5000+i,5001+i) FROM generate_series(1,100) i"
+pre_ok=1; [ "$(rows)" = 500 ] && [ "$(fp "$DST_DB")" = "$FULL" ] && [ "$(dst "select count(*) from $TABLE where ref like 'p%'")" = 500 ] && pre_ok=0
+rm -rf "$BASE/backups"
+( wait_for_backup && {
+    reader 60 & ra=$!
+    wait_waiter AccessExclusiveLock
+    reader 6 & rb=$!
+    wait_waiter AccessShareLock
+    stop_readers 'pg_sleep(60)'
+    wait "$ra" "$rb"
+  } ) & wp=$!
+T_LOCK=10s; T_RBLOCK=1s; run "$TABLE" --apply; T_LOCK=; T_RBLOCK=
+stop_readers; wait "$wp" 2>/dev/null
+own="$(dst "select count(*) from $TABLE where ref like 'p%'")"
+[ "$pre_ok" = 0 ] && printf '%s' "$OUT" | grep -q 'рядків 500 проти 600 у джерелі' \
+  && printf '%s' "$OUT" | grep -q 'після заміни: 500 рядків' && printf '%s' "$OUT" | grep -q 'репетиція відкату: [0-9]* с, 500 рядків' \
+  && eq "$RC" 4 && printf '%s' "$OUT" | grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ (відновлення відкату: код [1-9]' \
+  && ! printf '%s' "$OUT" | grep -q 'повернуто й звірено' && eq "$(rows)" 500 && eq "$own" 0 \
+  && printf '%s' "$OUT" | grep -q 'відновлення відкату ВПАЛО: таблицю НЕ повернуто' \
+  && ! printf '%s' "$OUT" | grep -q 'відрізняється від стану до заміни'
+r=$?
+ok "$r" '🔴 відкат упав при ЗБІЖНИХ лічильниках (500 і 500): код 4, ВІДКАТ НЕ ЗВІРИВСЯ, «повернуто» не друкується; прод справді не повернуто (0 власних рядків); діфа немає, тож і заголовка «відрізняється» немає' "pre=$pre_ok rc=$RC rows=$(rows) власних=$own $OUT"
+
 echo '— копія не відновлюється в чистій базі: заміну не робимо'
 # 🔴 Ворота репетиції. Прод залежить від типу, якого в чистій репетиційній базі
 # немає (pg_dump -t типів не везе), тож копія відновлюється з 0 рядків. Скрипт
@@ -620,6 +735,52 @@ run "$TABLE" --apply
   && eq "$(dst "select count(*) from information_schema.columns where table_name='$TABLE' and column_name='mood'")" 1
 r=$?
 ok "$r" 'порожній прод + копія, що не відновлюється: код 1, прод не торкнуто (0 рядків, колонка mood на місці)' "rc=$RC rows=$(rows) $OUT"
+
+echo '— ворота відчинені (сайт відкритий): скрипт відмовляється й нічого не робить'
+# 🔴 Заміна тримає ACCESS EXCLUSIVE десятки секунд (заміряно: 28 с на 2,27 млн рядків).
+# На відкритому сайті це аварія на сторінках маршрутів; коментар запобіжником не є.
+# Доказ відмови — СТАН: прод цілий і навіть `backups` не створено (перша перевірка стоїть
+# ДО копії; якби лишилась лише друга, копія вже лежала б).
+build_world
+rm -rf "$BASE/backups"
+before_fp="$(fp "$DST_DB")"
+set_gate open; run "$TABLE" --apply; set_gate closed
+[ "$before_fp" = "$FULL" ] && eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'ВІДМОВА (до початку): ворота «open»' \
+  && printf '%s' "$OUT" | grep -q -- '--allow-open-site' && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$FULL" ] \
+  && [ -z "$(ls "$BASE/backups" 2>/dev/null)" ]
+r=$?
+ok "$r" '🔴 відчинені ворота: відмова (код 1), підказка про --allow-open-site, прод цілий (300 рядків, структура, власник, гранти), копії навіть не знімали' "rc=$RC rows=$(rows) fp=$(fp "$DST_DB") $OUT"
+
+echo '— gate.conf показує на чужий файл: закритості не доведено, відмова'
+# Закритим вважається лише gate-closed.conf. Рукописний файл чи чужа ціль — не доказ.
+build_world
+rm -rf "$BASE/backups"
+ln -sfn "$GATE_DIR/gate-foreign.conf" "$GATE_DIR/gate.conf"; run "$TABLE" --apply; set_gate closed
+eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'ВІДМОВА (до початку): ворота «чуже»' && eq "$(rows)" 300 \
+  && [ "$(fp "$DST_DB")" = "$FULL" ] && [ -z "$(ls "$BASE/backups" 2>/dev/null)" ]
+r=$?
+ok "$r" 'чужа ціль gate.conf: відмова (код 1), прод цілий, копії не знімали' "rc=$RC rows=$(rows) $OUT"
+
+echo '— ворота відчинили, поки скрипт робив копію й репетицію: друга перевірка зупиняє заміну'
+# 🔴 Між першою перевіркою й заміною — копія, createdb і репетиція, тобто хвилини. Ворота
+# відчиняє окремий процес, коли копія вже лежить; без другої перевірки заміна пройшла б.
+# Відмова чиста: прод не торкнуто, а копія вже є (це й доводить, що спрацювала саме друга).
+build_world
+rm -rf "$BASE/backups"
+( wait_for_backup && set_gate open ) & wp=$!
+run "$TABLE" --apply; wait "$wp" 2>/dev/null; set_gate closed
+eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'ВІДМОВА (перед заміною): ворота «open»' && ! printf '%s' "$OUT" | grep -q 'ВІДМОВА (до початку)' \
+  && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$FULL" ] && ls "$BASE/backups/$TABLE-before-"*.dump >/dev/null 2>&1
+r=$?
+ok "$r" '🔴 ворота відчинились посеред роботи: відмова перед заміною (код 1), прод цілий (300 рядків, структура, власник, гранти)' "rc=$RC rows=$(rows) fp=$(fp "$DST_DB") $OUT"
+
+echo '— ворота відчинені, але --allow-open-site: свідоме перекриття'
+build_world
+rm -rf "$BASE/backups"
+set_gate open; run "$TABLE" --apply --allow-open-site; set_gate closed
+eq "$RC" 0 && printf '%s' "$OUT" | grep -q '⚠ ворота «open».*--allow-open-site (до початку)' && eq "$(rows)" 500 && [ "$(fp "$DST_DB")" = "$FULL" ]
+r=$?
+ok "$r" 'відчинені ворота + --allow-open-site: заміна пройшла (код 0, 500 рядків), попередження надруковано' "rc=$RC rows=$(rows) $OUT"
 
 printf '\n%s\n' "$PASS passed, $FAIL failed"
 if [ "$RUN" != "$EXPECTED" ]; then
