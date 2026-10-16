@@ -149,8 +149,9 @@ export function DeleteFormView({
             </label>
           ))}
           <p className="mt-1 text-[12.5px] leading-[1.5] text-ink-2">
-            Your choice is applied straight away. Signing back in later restores your account — not
-            the photos.
+            Your choice is applied straight away. Signing back in later restores your account and
+            your routes — but not your reviews, and not the photos. Your own words are deleted with
+            the account, whichever choice you make here.
           </p>
         </fieldset>
 
@@ -279,8 +280,9 @@ export function DeletedView({ restorableUntil }: { restorableUntil: string }) {
           erased for good.
         </p>
         <p className="mt-2 text-[13px] leading-[1.6] text-ink-2">
-          What we keep regardless is described on the previous screen. Your choice about photos has
-          been applied and is not undone if you sign back in.
+          What we keep regardless is described on the previous screen. Your reviews are already
+          deleted, and your choice about photos has been applied. Neither is undone if you sign back
+          in; your routes are.
         </p>
         <p className="mt-3 text-sm">
           <Link className="underline" href="/">

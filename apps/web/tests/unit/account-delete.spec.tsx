@@ -284,7 +284,7 @@ test.describe('решта екрана', () => {
 
   test('чесно каже, що вибір фото застосовується одразу і вхід його не повертає', () => {
     expect(visibleText(served())).toContain(
-      'Your choice is applied straight away. Signing back in later restores your account — not the photos.',
+      'Your choice is applied straight away. Signing back in later restores your account and your routes — but not your reviews, and not the photos. Your own words are deleted with the account, whichever choice you make here.',
     );
   });
 
@@ -340,7 +340,8 @@ test.describe('решта екрана', () => {
     expect(text).toContain('Access ended just now and you have been signed out everywhere.');
     expect(text).toContain('15 November 2026, 12:00 UTC');
     expect(text).toContain('signing in with the same password');
-    expect(text).toContain('not undone if you sign back in');
+    expect(text).toContain('Your reviews are already deleted');
+    expect(text).toContain('Neither is undone if you sign back in; your routes are.');
     expect(html).toContain('role="status"');
   });
 });
@@ -353,7 +354,12 @@ test.describe('🔴 вхід, що скасував видалення, каже
     const text = visibleText(html);
     expect(text).toContain(NOTICE);
     expect(text).toContain('Signing in has cancelled that: your profile and routes are back.');
-    expect(text).toContain('signing in restores the account, not the photos');
+    // 🔴 Рецензія #266 заміряла: після входу `trips:1`, але `reviews:0`. Три
+    // екрани називали фото ЄДИНИМ винятком, а відгуки стираються назавжди —
+    // `account-rights.service.ts:425`, `DELETE FROM reviews`, навмисно («their
+    // own words are theirs»). Поведінка правильна, мовчання про неї — ні.
+    expect(text).toContain('Your reviews are not');
+    expect(text).toContain('signing in does not bring them back');
     expect(html).toContain('role="status"');
     expect(html).toContain('href="/account"');
   });

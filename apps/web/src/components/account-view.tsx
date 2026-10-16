@@ -436,9 +436,9 @@ export function LoginDoneView({
         >
           <p className="font-semibold text-heading">Your account was scheduled for deletion.</p>
           <p className="mt-1">
-            Signing in has cancelled that: your profile and routes are back. What you chose for your
-            photos has already been applied and stays — signing in restores the account, not the
-            photos.
+            Signing in has cancelled that: your profile and routes are back. Your reviews are not —
+            they were deleted with the account, and signing in does not bring them back. What you
+            chose for your photos has already been applied and stays too.
           </p>
         </div>
       )}
