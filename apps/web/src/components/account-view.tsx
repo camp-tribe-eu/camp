@@ -6,6 +6,7 @@ import {
   clock,
   type Outcome,
 } from '@/lib/account';
+import { DEFAULT_RETURN, safeReturnPath } from '@/lib/return-path';
 
 // CAMP-228 — те, що малюють сторінки акаунта: форми й стани «Перевірте
 // пошту», «Підтвердьте пошту», «Посилання застаріло».
@@ -81,7 +82,7 @@ function ReadyNote({ ready }: { ready: boolean }) {
   );
 }
 
-function Shell({ title, children }: { title: string; children: ReactNode }) {
+export function Shell({ title, children }: { title: string; children: ReactNode }) {
   return (
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
       <h1 className="text-3xl font-bold leading-tight md:text-[42px]">{title}</h1>
@@ -283,12 +284,15 @@ export function SignupDoneView({
   busy,
   error,
   onResend,
+  continueTo = DEFAULT_RETURN,
 }: {
   email: string;
   secondsLeft: number;
   busy: boolean;
   error: Outcome | null;
   onResend: () => void;
+  /** Куди веде «Continue»: місце повернення, яке запамʼятав кабінет (CAMP-229). */
+  continueTo?: string;
 }) {
   return (
     <Shell title="Confirm your email">
@@ -308,7 +312,9 @@ export function SignupDoneView({
         </p>
       </div>
       <p className="mt-4 text-sm text-ink-2">
-        <Link className={LINK} href="/">
+        {/* 🔴 Через `safeReturnPath` ще раз: цей компонент не знає, звідки
+            прийшло значення, і не вірить, що воно вже перевірене. */}
+        <Link className={LINK} href={safeReturnPath(continueTo)}>
           Continue to the site
         </Link>
       </p>
@@ -394,11 +400,16 @@ export function LoginFormView({
   );
 }
 
-export function LoginDoneView() {
+/**
+ * Після входу. Людину вже відправлено туди, де вона була (CAMP-229); цей екран
+ * видно лише мить, а лишається він для випадку, коли перехід не стався: посилання
+ * веде в те саме місце, не на головну.
+ */
+export function LoginDoneView({ to = DEFAULT_RETURN }: { to?: string }) {
   return (
     <Shell title="You are signed in">
       <p className="mt-4 text-ink-2">
-        <Link className={LINK} href="/">
+        <Link className={LINK} href={safeReturnPath(to)}>
           Continue to the site
         </Link>
       </p>

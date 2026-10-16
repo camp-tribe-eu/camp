@@ -1117,6 +1117,254 @@ describe('🔴 an unconfirmed address does not block what the person came to do'
   });
 });
 
+// ── CAMP-229: who is signed in ───────────────────────────────────────────
+
+describe('🔴 GET /auth/me — who the account page is talking to', () => {
+  /** The names the page may receive, written out. The oracle, not read back. */
+  const FIELDS = ['displayName', 'email', 'emailVerified'];
+
+  it('tells a signed-in person their own address, an empty name and an unconfirmed address', async () => {
+    const { res } = await register();
+    const me = await get('/auth/me', res.json.token);
+    expect(me.status).toBe(200);
+    expect(me.json).toEqual({
+      email: res.json.email,
+      displayName: null,
+      emailVerified: false,
+    });
+  });
+
+  it('says confirmed after the link is followed, and uses the name once there is one', async () => {
+    const { email, res } = await register();
+    await post('/auth/verify-email', {
+      token: tokenIn(lettersTo(email, 'verify_email')[0]),
+    });
+    await db.query('UPDATE users SET display_name = $2 WHERE email = $1', [
+      email,
+      'Anna',
+    ]);
+    const me = await get('/auth/me', res.json.token);
+    expect(me.json).toEqual({
+      email,
+      displayName: 'Anna',
+      emailVerified: true,
+    });
+  });
+
+  // 🔴 TWO ACCOUNTS, so "the first row" and "this row" are different answers.
+  // With one account in the table a lookup that forgot its WHERE would still
+  // be right.
+  it('answers each person with their own account, not the first one in the table', async () => {
+    const a = await register();
+    const b = await register();
+    expect((await get('/auth/me', a.res.json.token)).json.email).toBe(
+      a.email.toLowerCase(),
+    );
+    expect((await get('/auth/me', b.res.json.token)).json.email).toBe(
+      b.email.toLowerCase(),
+    );
+    expect(a.email).not.toBe(b.email);
+  });
+
+  // 🔴 THE CORPUS IS THE STORED HASH ITSELF, read out of the table by this
+  // test and then searched for in the raw bytes of the answer. Checking the
+  // response for the word "password" would only prove the response does not
+  // contain a word; this proves it does not contain THAT value. The keys are
+  // compared with a literal list for the same reason: an object spread of the
+  // row would add `id` and `emailVerifiedAt` and still contain no hash, and
+  // only the literal notices.
+  it('never carries the password hash, the id, or any field outside the three', async () => {
+    const { email, res } = await register({ newsletter: true });
+    const stored = await row(email.toLowerCase());
+    expect(stored.password_hash).toMatch(/^scrypt\$/);
+    expect(stored.marketing_consent_at).not.toBeNull();
+
+    const me = await get('/auth/me', res.json.token);
+    expect(me.status).toBe(200);
+    expect(Object.keys(me.json).sort()).toEqual(FIELDS);
+    expect(me.text).not.toContain(stored.password_hash);
+    expect(me.text).not.toContain(stored.id);
+    expect(me.text).not.toMatch(/scrypt|password|hash|consent/i);
+  });
+
+  // The refusals. Every one is 401 with the SAME body, and none is a 200 with
+  // something empty in it — the failure the card names.
+  const NO_SESSION = {
+    code: 'no_session',
+    message: 'You are not signed in.',
+  };
+
+  async function expectRefused(headers: Record<string, string>) {
+    const res = await send('GET', '/auth/me', undefined, headers);
+    expect(res.status).toBe(401);
+    expect(res.json).toEqual(NO_SESSION);
+    return res;
+  }
+
+  it('refuses a request with no credential at all', async () => {
+    await expectRefused({});
+  });
+
+  it.each([
+    ['a token nobody issued', 'Bearer ' + 'A'.repeat(43)],
+    ['an empty token', 'Bearer '],
+    ['a header with no token in it', 'Bearer'],
+    ['the wrong scheme with a real-looking token', 'Basic ' + 'A'.repeat(43)],
+    ['junk', 'not an authorization header'],
+  ])('refuses %s, in the same words', async (_what, authorization) => {
+    await expectRefused({ authorization });
+  });
+
+  it('refuses the token of a session that has expired, and honoured it a second before', async () => {
+    const { res } = await register();
+    const token = res.json.token as string;
+    const hash = sha256(token);
+    const setExpiry = (sql: string) =>
+      db.query(
+        `UPDATE sessions SET expires_at = ${sql} WHERE token_hash = $1`,
+        [hash],
+      );
+
+    await setExpiry(`now() + interval '5 seconds'`);
+    expect((await get('/auth/me', token)).status).toBe(200);
+
+    await setExpiry(`now() - interval '1 second'`);
+    const refused = await get('/auth/me', token);
+    expect(refused.status).toBe(401);
+    expect(refused.json).toEqual(NO_SESSION);
+  });
+
+  it('refuses a token after the person signed out with it', async () => {
+    const { res } = await register();
+    const token = res.json.token as string;
+    expect((await get('/auth/me', token)).status).toBe(200);
+    const out = await send(
+      'POST',
+      '/auth/logout',
+      {},
+      { authorization: `Bearer ${token}` },
+    );
+    expect(out.status).toBe(204);
+    expect((await get('/auth/me', token)).status).toBe(401);
+  });
+
+  it('refuses a session after the password was reset, which closes them all', async () => {
+    const { email, res } = await register();
+    await post('/auth/forgot', { email });
+    await settle();
+    const reset = tokenIn(lettersTo(email, 'reset_password')[0]);
+    await post('/auth/reset-password', {
+      token: reset,
+      password: 'another long password',
+    });
+    expect((await get('/auth/me', res.json.token)).status).toBe(401);
+  });
+
+  // 🔴 THE REFUSAL NOTHING ELSE REACHES: a session that is still live, for an
+  // account that is not. `sessions.user_id` cascades on delete, so in a
+  // database as migrated this state cannot arise — a deleted account takes its
+  // sessions with it and the first line of the handler answers instead. That
+  // is why the controller line that answers THIS state could be deleted, or
+  // given another body, without a single wire-level test noticing (the unit
+  // test in `auth.spec.ts` sees the exception, not the response).
+  //
+  // So the state is built by hand, in this file's own scratch database: the
+  // constraint is read back out of the catalog, dropped, the account deleted,
+  // and the constraint put back exactly as it was in `finally`, so a failing
+  // assertion cannot leave the later tests running on a schema that differs
+  // from production. The two facts that make the request reach the second
+  // line — the session row is there, the account row is not — are asserted
+  // from the table before it is sent: without them this test would pass
+  // through the FIRST line (no viewer) and prove nothing about the second.
+  //
+  // The answer is compared with the one a caller with no credential gets, on
+  // the wire: status, every byte of the body, every header but the clock. One
+  // answer for every reason is the property; a body of its own for "the
+  // account is gone" would tell a guesser that a token was once real.
+  it('refuses a live session whose account is gone with the very same 401 as nobody at all', async () => {
+    const { res } = await register();
+    const token = res.json.token as string;
+    expect((await get('/auth/me', token)).status).toBe(200);
+    const nobody = await get('/auth/me');
+    expect(nobody.status).toBe(401);
+
+    const fks = (
+      await db.query(
+        `SELECT conname, pg_get_constraintdef(oid) AS def
+           FROM pg_constraint
+          WHERE conrelid = 'sessions'::regclass
+            AND confrelid = 'users'::regclass
+            AND contype = 'f'`,
+      )
+    ).rows;
+    expect(fks).toHaveLength(1);
+    const { conname, def } = fks[0] as { conname: string; def: string };
+
+    let gone: Reply;
+    await db.query(`ALTER TABLE sessions DROP CONSTRAINT "${conname}"`);
+    try {
+      await db.query('DELETE FROM users WHERE email = $1', [res.json.email]);
+      const stored = await db.query(
+        `SELECT
+           (SELECT count(*) FROM sessions WHERE token_hash = $1)::int AS sessions,
+           (SELECT count(*) FROM users WHERE email = $2)::int AS users`,
+        [sha256(token), res.json.email],
+      );
+      expect(stored.rows[0]).toEqual({ sessions: 1, users: 0 });
+      gone = await get('/auth/me', token);
+    } finally {
+      await db.query(
+        'DELETE FROM sessions WHERE user_id NOT IN (SELECT id FROM users)',
+      );
+      await db.query(`ALTER TABLE sessions ADD CONSTRAINT "${conname}" ${def}`);
+    }
+
+    // Read the wire, not the exception: this is what the page receives.
+    const wire = (r: Reply) =>
+      [...r.headers.entries()]
+        .filter(([name]) => name !== 'date')
+        .sort(([a], [b]) => (a < b ? -1 : 1));
+    expect(gone.status).toBe(401);
+    expect(gone.json).toEqual(NO_SESSION);
+    expect(gone.text).toBe(nobody.text);
+    expect(wire(gone)).toEqual(wire(nobody));
+    expect(gone.headers.get('cache-control')).toBe('no-store');
+  });
+
+  // 🔴 READ OFF THE WIRE, on both outcomes. A comment in the controller says
+  // the header rides on the refusal too; this is where that sentence is
+  // checked rather than believed.
+  it('forbids any cache from keeping the answer — the 200 and the 401', async () => {
+    const { res } = await register();
+    const ok = await get('/auth/me', res.json.token);
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get('cache-control')).toBe('no-store');
+    const refused = await get('/auth/me');
+    expect(refused.status).toBe(401);
+    expect(refused.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('is an ordinary read: thirty calls do not spend the sign-in bucket', async () => {
+    const { email, res } = await register();
+    const caller = nextCaller();
+    for (let i = 0; i < 30; i++) {
+      const r = await send('GET', '/auth/me', undefined, {
+        authorization: `Bearer ${res.json.token}`,
+        'cf-connecting-ip': caller,
+      });
+      expect(r.status).toBe(200);
+    }
+    // Same caller, and sign-in still answers as itself, not with a 429.
+    const login = await send(
+      'POST',
+      '/auth/login',
+      { email, password: PASSWORD },
+      { 'cf-connecting-ip': caller },
+    );
+    expect(login.status).toBe(200);
+  });
+});
+
 // ── mail that cannot be sent ─────────────────────────────────────────────
 
 describe('when this process cannot send mail', () => {

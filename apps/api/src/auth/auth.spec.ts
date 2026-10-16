@@ -1,8 +1,11 @@
+import { UnauthorizedException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { DEFAULT_LIMIT, LOGIN_LIMIT, bucketOf } from '../throttle';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
-import { AuthService } from './auth.service';
+import { AccountService } from './account.service';
+import { AuthController } from './auth.controller';
+import { AuthService, type Profile } from './auth.service';
 import { hashPassword, looksLikeStoredHash } from './password';
 import { expiryFrom, tokenHash } from './session';
 
@@ -333,5 +336,138 @@ describe('a stored value that is not a hash costs what a miss costs', () => {
     const empty = '';
     expect(empty ?? 'decoy').toBe('');
     expect(looksLikeStoredHash(empty)).toBe(false);
+  });
+});
+
+// ── CAMP-229: what the account page is told ───────────────────────────────
+
+describe('profile', () => {
+  const ROW = {
+    id: USER_ID,
+    email: 'anna@example.com',
+    displayName: 'Anna',
+    emailVerifiedAt: new Date('2026-10-01T10:00:00Z'),
+    // 🔴 Present on the row the stub returns on purpose. The real repository
+    // would not return it for a query that names its columns, but a test whose
+    // stub already omitted it would pass whatever the service did with it.
+    passwordHash: 'scrypt$LEAK-CANARY',
+    marketingConsentAt: new Date('2026-10-01T10:00:00Z'),
+  } as unknown as User;
+
+  const serviceFor = (row: User | null) => {
+    const users = usersOf(row);
+    return { users, service: new AuthService(users, sessionsOf(null)) };
+  };
+
+  it('answers with exactly the three fields the page renders', async () => {
+    const { service } = serviceFor(ROW);
+    expect(await service.profile(USER_ID)).toEqual({
+      email: 'anna@example.com',
+      displayName: 'Anna',
+      emailVerified: true,
+    });
+  });
+
+  // 🔴 The answer is built field by field, so even a repository that DID hand
+  // back the hash and the consent timestamp cannot get them into the JSON.
+  it('carries nothing else from the row, however much the row held', async () => {
+    const { service } = serviceFor(ROW);
+    const out = await service.profile(USER_ID);
+    expect(Object.keys(out!).sort()).toEqual([
+      'displayName',
+      'email',
+      'emailVerified',
+    ]);
+    expect(JSON.stringify(out)).not.toContain('LEAK-CANARY');
+  });
+
+  // 🔴 The other half: the query itself must not ask for the hash. This reads
+  // what the service SENT to the repository, not what came back, because the
+  // stub returns whatever it was given.
+  it('does not ask the database for the password hash at all', async () => {
+    const { users, service } = serviceFor(ROW);
+    await service.profile(USER_ID);
+    const options = (users.findOne as jest.Mock).mock.calls[0][0] as {
+      where: unknown;
+      select?: Record<string, boolean>;
+    };
+    expect(options.where).toEqual({ id: USER_ID });
+    expect(options.select).toBeDefined();
+    expect(options.select).not.toHaveProperty('passwordHash');
+    expect(Object.keys(options.select!).sort()).toEqual([
+      'displayName',
+      'email',
+      'emailVerifiedAt',
+    ]);
+  });
+
+  it('says null for a missing name and false for an unconfirmed address', async () => {
+    const { service } = serviceFor({
+      ...ROW,
+      displayName: undefined,
+      emailVerifiedAt: null,
+    } as unknown as User);
+    expect(await service.profile(USER_ID)).toEqual({
+      email: 'anna@example.com',
+      displayName: null,
+      emailVerified: false,
+    });
+  });
+
+  it('is null when the account is gone, not an error and not an empty profile', async () => {
+    const { service } = serviceFor(null);
+    expect(await service.profile(USER_ID)).toBeNull();
+  });
+});
+
+// ── CAMP-229: the route in front of it ────────────────────────────────────
+//
+// 🔴 THE TWO REFUSAL BRANCHES, one by one. Over HTTP the second of them cannot
+// be reached: `sessions.user_id` cascades on delete, so a session without an
+// account does not exist in a real database, and `account.db.spec.ts` can only
+// ever exercise the first. A controller line that nothing can reach is a line
+// that can be deleted without a single test noticing — and the card's sentence
+// is "401, not an empty object".
+
+describe('GET /auth/me, the controller alone', () => {
+  const PROFILE: Profile = {
+    email: 'anna@example.com',
+    displayName: 'Anna',
+    emailVerified: true,
+  };
+  const NO_SESSION = { code: 'no_session', message: 'You are not signed in.' };
+
+  const controllerFor = (profile: Profile | null) => {
+    const auth = { profile: jest.fn().mockResolvedValue(profile) };
+    return {
+      auth,
+      controller: new AuthController(
+        auth as unknown as AuthService,
+        {} as AccountService,
+      ),
+    };
+  };
+
+  it('answers the profile for a viewer whose account exists', async () => {
+    const { auth, controller } = controllerFor(PROFILE);
+    await expect(controller.me({ id: USER_ID })).resolves.toEqual(PROFILE);
+    expect(auth.profile).toHaveBeenCalledWith(USER_ID);
+  });
+
+  it('refuses nobody with the 401 body, and never asks for a profile', async () => {
+    const { auth, controller } = controllerFor(PROFILE);
+    const err = await controller.me(null).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnauthorizedException);
+    expect((err as UnauthorizedException).getStatus()).toBe(401);
+    expect((err as UnauthorizedException).getResponse()).toEqual(NO_SESSION);
+    expect(auth.profile).not.toHaveBeenCalled();
+  });
+
+  it('refuses a viewer whose account is gone with the same 401, not a 200 with null', async () => {
+    const { controller } = controllerFor(null);
+    const err = await controller.me({ id: USER_ID }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnauthorizedException);
+    expect((err as UnauthorizedException).getStatus()).toBe(401);
+    expect((err as UnauthorizedException).getResponse()).toEqual(NO_SESSION);
   });
 });

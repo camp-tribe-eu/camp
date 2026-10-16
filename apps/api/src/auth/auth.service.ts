@@ -12,6 +12,26 @@ import { expiryFrom, isExpired, newToken, tokenHash } from './session';
 /** What a successful sign-in hands back. The token is shown once. */
 export type SignedIn = { token: string; expiresAt: Date };
 
+/**
+ * What the account page is told about the person signed in. CAMP-229.
+ *
+ * 🔴 THREE FIELDS, WRITTEN OUT, AND THAT IS THE CONTRACT. The page needs a
+ * name to greet, an address to show, and whether the address is confirmed.
+ * It does not need the id (nothing it renders is addressed by it), the
+ * creation date, or the newsletter timestamp — the settings page asks for
+ * the last one when it exists, and until then it has no reason to cross the
+ * wire. A field that is not here cannot leak, and cannot be rendered by a
+ * page that was handed it "just in case".
+ *
+ * `emailVerified` is a boolean, not the timestamp: the page's only question
+ * is yes or no, and the moment somebody confirmed is not its business.
+ */
+export type Profile = {
+  email: string;
+  displayName: string | null;
+  emailVerified: boolean;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -138,6 +158,32 @@ export class AuthService {
     });
     if (!session || isExpired(session.expiresAt, now)) return null;
     return { id: session.userId };
+  }
+
+  /**
+   * The account behind a session, shaped for the account page, or null.
+   *
+   * 🔴 THE PASSWORD HASH NEVER LEAVES THE DATABASE FOR THIS ROUTE, by two
+   * independent means, because each is cheap and either alone can be
+   * removed by someone tidying: the query names the columns it wants, and
+   * the answer is built field by field instead of returning the row. A row
+   * returned as it is would carry `passwordHash` into the JSON the moment
+   * anyone added a column to `select` — or removed `select`.
+   *
+   * null when the account is gone. A session whose account was deleted is a
+   * session nobody holds, and the route answers it as "not signed in".
+   */
+  async profile(userId: string): Promise<Profile | null> {
+    const user = await this.users.findOne({
+      where: { id: userId },
+      select: { email: true, displayName: true, emailVerifiedAt: true },
+    });
+    if (!user) return null;
+    return {
+      email: user.email,
+      displayName: user.displayName ?? null,
+      emailVerified: user.emailVerifiedAt != null,
+    };
   }
 
   /** Sign out this one session. Unknown tokens are a no-op, not an error. */

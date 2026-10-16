@@ -61,3 +61,47 @@ export function clearSession(
     return false;
   }
 }
+
+/**
+ * Сесія, яку зберіг цей браузер, або `null`.
+ *
+ * `null` — для всього, що не є справною сесією: нічого не збережено,
+ * сховища немає, JSON зіпсований, поля не тієї форми, строк уже минув.
+ * Кабінет ставить одне питання — «чи є що показати серверу» — і всі ці
+ * випадки для нього одна відповідь.
+ *
+ * 🔴 ЦЕ ЛИШЕ ЧИТАННЯ, І ВОНО НІЧОГО НЕ РІШАЄ. Токен у сховищі може бути
+ * мертвий, хоч його строк не минув (скинули пароль, вийшли в іншому
+ * браузері): вирішує сервер, `GET /auth/me`. Власний годинник тут — лише
+ * щоб не робити запиту, відповідь на який відома. `now` приходить
+ * параметром, щоб межу можна було перевірити без очікування.
+ *
+ * Строк, що не розбирається, — теж минулий: рядок, чий вік ми прочитати
+ * не вміємо, не годиться приймати «на віру».
+ */
+export function readSession(
+  storage: Pick<Storage, 'getItem'> | null = browserStorage(),
+  now: number = Date.now(),
+): StoredSession | null {
+  let raw: string | null;
+  try {
+    raw = storage?.getItem(SESSION_KEY) ?? null;
+  } catch {
+    return null;
+  }
+  if (raw === null) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof value !== 'object' || value === null) return null;
+  const { token, expiresAt, email } = value as Record<string, unknown>;
+  if (typeof token !== 'string' || token === '') return null;
+  if (typeof expiresAt !== 'string') return null;
+  if (typeof email !== 'string') return null;
+  const end = Date.parse(expiresAt);
+  if (!Number.isFinite(end) || now >= end) return null;
+  return { token, expiresAt, email };
+}

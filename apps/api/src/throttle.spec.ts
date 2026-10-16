@@ -491,12 +491,18 @@ describe('🔴 the mail bucket (CAMP-228)', () => {
   // This pins it so a "tidy-up" that moves them into mail (and lets ten wrong
   // clicks lock out sign-up) is a red test and not a surprise — and so that
   // anyone who wants them elsewhere has to read the three lines above first.
-  it.each(['/auth/verify-email', '/auth/reset-password', '/auth/logout'])(
-    'leaves %s in the ordinary bucket',
-    (path) => {
-      expect(bucketOf(path)).toBe('ordinary');
-    },
-  );
+  // CAMP-229 adds `/auth/me`: the account page asks it once per visit, and it
+  // must not share a counter with password guessing, or a person who opens
+  // their cabinet four times in a minute would be spending the budget that
+  // exists to stop someone else guessing their password.
+  it.each([
+    '/auth/verify-email',
+    '/auth/reset-password',
+    '/auth/logout',
+    '/auth/me',
+  ])('leaves %s in the ordinary bucket', (path) => {
+    expect(bucketOf(path)).toBe('ordinary');
+  });
 
   it('allows ten in ten minutes — written out, not read back', () => {
     expect(MAIL_LIMIT.limit).toBe(10);

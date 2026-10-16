@@ -9,7 +9,9 @@ import { test as base, type APIRequestContext } from '@playwright/test';
 // to the test runner. A page then sends `x-build-token` on its
 // cross-origin POST to /client-errors, which turns a simple request into
 // a preflighted one — and our CORS allowlist is deliberately narrow
-// (`allowedHeaders: ['Content-Type']`). The preflight was refused, the
+// (`Content-Type` only then; since CAMP-229 also `Authorization`, for the
+// account page — see apps/api/src/cors.ts. `x-build-token` is still not
+// allowed, which is the point of this file). The preflight was refused, the
 // error reports never arrived, and the failure read as "the error
 // reporter is broken" rather than "the test harness added a header".
 //
