@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, IsNull, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import { AuthToken, AuthTokenKind } from '../entities/auth-token.entity';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
@@ -254,10 +254,23 @@ export class AccountService implements BeforeApplicationShutdown {
       // токени, тож ця транзакція й та брали замки навхрест.
       //
       // Рецензія відтворила: 30 пар із 30 дали `deadlock detected`
-      // (40P01) і HTTP 500. Правило «спершу рядок людини» тепер діє на
-      // КОЖНОМУ шляху, що пише і в `users`, і в `auth_tokens`, і саме
-      // тому воно більше не залежить від того, які види токенів хто
-      // чіпає.
+      // (40P01) і HTTP 500.
+      //
+      // 🔴 ПЕРЕЛІК ШЛЯХІВ, ЩО ПИШУТЬ І В `users`, І В `auth_tokens` —
+      // щоб наступний читач ПЕРЕВІРИВ, а не повірив:
+      //
+      //   verifyEmail          цей рядок нижче
+      //   confirmEmailChange   `SELECT … FOR UPDATE` перед claim
+      //   changePassword       те саме
+      //   resetWith            те саме
+      //   deleteAccount        account-rights.service.ts:366, на початку
+      //                        тієї ж транзакції, що видаляє токени на :433
+      //
+      // Усі пʼять беруть рядок людини ПЕРШИМ, тож гарантія більше не
+      // залежить від того, які види токенів хто чіпає. Рецензія другого
+      // кола стверджувала, що `deleteAccount` цього не робить — вона
+      // дивилась на порядок ЗАПИСІВ, а не на взяття замка; її ж вимір по
+      // HTTP (20 пар, 0 × 500) це й підтвердив.
       await m.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [
         row.userId,
       ]);
@@ -356,17 +369,27 @@ export class AccountService implements BeforeApplicationShutdown {
       await m.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [user.id]);
       await this.claim(m, row, now);
       await m.update(User, { id: user.id }, { passwordHash });
-      // 🔴 УСІ невикористані посилання цієї людини, А НЕ ЛИШЕ НА СКИДАННЯ.
+      // 🔴 ПОСИЛАННЯ, ЩО ДАЮТЬ ДОСТУП, А НЕ ВСІ ПІДРЯД.
       // Тут стояв фільтр `kind: 'reset_password'`, і це був шлях до повного
       // захоплення акаунта: зловмисник, що мав пароль, просив переїзд на
       // свою адресу; жертва робила рівно те, що радить кожен («мене
       // зламали — міняю пароль»), і посилання переїзду лишалось робочим.
       // Рецензія заміряла: після зміни пароля та після скидання за листом
       // `change_email`-посилання відповідало 204 і пошта ставала
-      // зловмисниковою. Видалення акаунта робило це правильно від початку.
+      // зловмисниковою.
+      //
+      // 🔴 АЛЕ НЕ `verify_email`. Спершу я гасив тут УСЕ, і підтвердження
+      // адреси, надіслане хвилину тому, мовчки вмирало: людина клікала й
+      // діставала 410, а жоден екран про це не попереджав. Безпекової
+      // користі нуль — те посилання лише підтверджує адресу, яка вже на
+      // акаунті, і нічого нікуди не переносить.
       await m.update(
         AuthToken,
-        { userId: user.id, usedAt: IsNull() },
+        {
+          userId: user.id,
+          kind: In(['reset_password', 'change_email']),
+          usedAt: IsNull(),
+        },
         { usedAt: now },
       );
       // 🔴 And every session. A reset that leaves the old sessions alive
@@ -442,13 +465,16 @@ export class AccountService implements BeforeApplicationShutdown {
       // Порядок блокувань той самий, що й у `resetWith`: спершу рядок людини.
       await m.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [user.id]);
       await m.update(User, { id: user.id }, { passwordHash });
-      // 🔴 УСІ невикористані посилання цієї людини — і на скидання, і на
-      // переїзд. Та сама причина, що й у `resetWith`: канонічний засіб
-      // жертви мусить закривати ВСЕ, що вже надіслано, інакше він лікує
-      // половину нападу й залишає другу.
+      // 🔴 Ті самі два види, що й у `resetWith`, і з тієї ж причини:
+      // канонічний засіб жертви мусить закривати все, що ДАЄ ДОСТУП, —
+      // але не підтвердження адреси, яке доступу не дає.
       await m.update(
         AuthToken,
-        { userId: user.id, usedAt: IsNull() },
+        {
+          userId: user.id,
+          kind: In(['reset_password', 'change_email']),
+          usedAt: IsNull(),
+        },
         { usedAt: now },
       );
       await m.delete(Session, { userId: user.id });
@@ -514,8 +540,22 @@ export class AccountService implements BeforeApplicationShutdown {
         { userId: user.id, kind: 'change_email', usedAt: IsNull() },
         { usedAt: now },
       );
-      if (taken) return;
-      await this.issue('change_email', user, now, email);
+      // 🔴 РЯДОК ЗАВОДИМО ЗАВЖДИ, ЛИСТ ШЛЕМО ВИБІРКОВО — І ЦЕ ДРУГА СПРОБА
+      // ЗАКРИТИ ОДИН І ТОЙ САМИЙ ВИТІК. Спершу тут стояло `if (taken)
+      // return;` перед інвалідацією, і зайнята адреса лишала попереднє
+      // посилання живим. Я переставив рядки — і витік ПЕРЕЇХАВ: вільна
+      // ціль лишала по собі зайвий ЖИВИЙ рядок токена, зайнята — ні.
+      //
+      // Видно це було без жодних привілеїв, власним архівом за статтею 15:
+      // після зайнятої цілі 2 рядки, після вільної 3. Тобто «однакова
+      // відповідь» нічого не варта, поки стан розрізняється хоч у чомусь,
+      // що людина може прочитати про СЕБЕ.
+      //
+      // Тепер обидві гілки лишають однакову кількість однакових рядків, а
+      // відрізняється лише те, чого той, хто питав, побачити не може:
+      // надісланий лист. Невідправлений токен нікому не дістанеться —
+      // сирий рядок існує тільки в листі — і за годину помре сам.
+      await this.issue('change_email', user, now, email, !taken);
     });
   }
 
@@ -667,6 +707,12 @@ export class AccountService implements BeforeApplicationShutdown {
      * як запит на зміну пошти, якого ніхто не робив.
      */
     newEmail?: string,
+    /**
+     * 🔴 `false` — завести рядок і НЕ слати. Єдиний випадок: адреса вже
+     * чужа. Пропустити разом із листом і сам рядок означало б лишити
+     * різницю в стані там, де відповідь навмисно однакова.
+     */
+    send: boolean = true,
   ): Promise<void> {
     const mailer = this.mailer as Mailer;
     // 🔴 256 bits, 43 URL-safe characters, and that is the ONLY thing between
@@ -684,6 +730,7 @@ export class AccountService implements BeforeApplicationShutdown {
         newEmail: kind === 'change_email' ? (newEmail ?? null) : null,
       }),
     );
+    if (!send) return;
     const link = linkFor(mailer.webBase, kind, token);
     // 🔴 Лист про переїзд іде на НОВУ адресу, решта — на чинну. Переплутати
     // тут означало б надіслати підтвердження тому, хто й так уже власник,

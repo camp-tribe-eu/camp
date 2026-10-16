@@ -155,7 +155,11 @@ const lettersTo = (email: string, kind?: MailMessage['kind']) =>
   box.sent.filter((m) => m.to === email && (!kind || m.kind === kind));
 
 /** Сирий токен усередині посилання — те, що надіслав би клік людини. */
-const tokenIn = (letter: MailMessage): string => {
+const tokenIn = (letter: MailMessage | undefined): string => {
+  // 🔴 Падіння мусить мати імʼя. Без цього рядка відсутній лист приходив
+  // би як `Cannot read properties of undefined (reading 'text')` з глибини
+  // помічника — і наступного разу я б шукав причину там, де її немає.
+  if (!letter) throw new Error('листа немає: tokenIn дістав undefined');
   const link = /https?:\/\/\S+/.exec(letter.text)![0];
   return new URL(link).searchParams.get('t')!;
 };
@@ -454,6 +458,68 @@ describe('🔴 сліди, а не лише відповіді', () => {
       token: bToken,
     });
     expect([afterFree.status, afterTaken.status]).toEqual([410, 410]);
+  });
+
+  it('🔴 слід у БАЗІ однаковий: стільки ж рядків після зайнятої, скільки після вільної', async () => {
+    // Рецензія показала, що мого першого виправлення було мало: я вирівняв
+    // статус попереднього посилання, а витік переїхав на КІЛЬКІСТЬ рядків —
+    // вільна ціль лишала зайвий живий токен, зайнята ні. Видно було без
+    // жодних привілеїв, власним архівом за статтею 15: 2 рядки проти 3.
+    //
+    // Тому міряємо не відповідь і не статус, а те, що лишилось у базі.
+    const other = await makeUser();
+    const rowsFor = async (email: string) =>
+      Number(
+        (
+          await db.query(
+            `SELECT count(*)::int AS n FROM auth_tokens t
+               JOIN users u ON u.id = t.user_id WHERE u.email = $1`,
+            [email],
+          )
+        ).rows[0].n,
+      );
+
+    const free = await makeUser();
+    await post(
+      '/account/email',
+      { password: PASSWORD, email: unique() },
+      asUser(free.token),
+    );
+    await settle();
+
+    const taken = await makeUser();
+    await post(
+      '/account/email',
+      { password: PASSWORD, email: other.email },
+      asUser(taken.token),
+    );
+    await settle();
+
+    expect(await rowsFor(taken.email)).toBe(await rowsFor(free.email));
+  });
+
+  it('🔴 законне підтвердження адреси зміну пароля ПЕРЕЖИВАЄ', async () => {
+    // Спершу я гасив тут усі види підряд, і лист підтвердження, надісланий
+    // хвилину тому, мовчки вмирав: людина клікала й діставала 410, а
+    // жоден екран про це не попереджав. Безпекової користі нуль — таке
+    // посилання лише підтверджує адресу, яка вже на акаунті.
+    const email = unique();
+    const signup = await post('/auth/signup', { email, password: PASSWORD });
+    await settle();
+    const verify = tokenIn(lettersTo(email, 'verify_email')[0]);
+
+    const changed = await post(
+      '/account/password',
+      { currentPassword: PASSWORD, newPassword: 'a different long password' },
+      asUser(signup.json.token),
+    );
+    expect(changed.status).toBe(200);
+
+    // 200, а не 204: саме так відповідає `POST /auth/verify-email`. Моє
+    // перше очікування було 204 — і тест упав на мені, не на коді.
+    expect((await post('/auth/verify-email', { token: verify })).status).toBe(
+      200,
+    );
   });
 
   it('🔴 зміна пароля відкликає вже надіслане посилання переїзду', async () => {
