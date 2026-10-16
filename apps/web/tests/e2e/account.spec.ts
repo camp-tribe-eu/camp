@@ -86,7 +86,7 @@ test.describe('🔴 /signup: що сказано у виданому докум�
   test('Умови — рядок тексту з лінками на сторінки, що існують', async ({ request }) => {
     const html = await (await request.get('/signup')).text();
     expect(visibleText(html)).toContain(
-      'By creating an account you accept the Terms and the Privacy Policy.',
+      'By creating an account you confirm that you are eighteen or older, and you accept the Terms and the Privacy Policy.',
     );
     for (const href of ['/legal/terms', '/legal/privacy']) {
       expect(html).toContain(`href="${href}"`);
