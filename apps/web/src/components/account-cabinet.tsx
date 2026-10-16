@@ -1,10 +1,11 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { loadCabinet, type CabinetState } from '@/lib/cabinet';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { loadCabinet, type CabinetState, type Profile } from '@/lib/cabinet';
 import { rememberReturn } from '@/lib/return-path';
 import {
+  CABINET_TITLE,
   CabinetErrorView,
   CabinetView,
   CheckingView,
@@ -27,7 +28,21 @@ import {
 // кому JS не виконався: ні чужих даних, ні порожнього кабінету, що вдає, ніби
 // людина ввійшла.
 
-export function AccountCabinet() {
+// 🔴 CAMP-229 (3/3): ЦЕЙ СТАН — ВОРОТА, А НЕ ЛИШЕ КАБІНЕТ. Дві нові сторінки
+// («Ваші дані», «Видалити акаунт») мають той самий захист: нічого не малювати, доки
+// сервер не назвав людину; без сесії — запамʼятати, звідки, і на /login. Друга копія
+// цієї логіки була б другим місцем, що пише місце повернення; тож вона одна, тут, а
+// кабінет і дві нові сторінки — три відповіді на питання «що показати, коли людину
+// названо». Заголовок станів «перевіряємо / не ввійшли / помилка» — заголовок
+// СТОРІНКИ, на якій ворота стоять: виданий `<h1>` мусить дорівнювати хлібній крихті.
+
+export function AccountGate({
+  title = CABINET_TITLE,
+  children,
+}: {
+  title?: string;
+  children: (profile: Profile) => ReactNode;
+}) {
   const router = useRouter();
   // В ref, а не в залежностях ефекту: щоб зміна обʼєкта роутера не повторювала
   // запит до API. Ефект залежить лише від того, що справді вимагає нового запиту.
@@ -62,13 +77,17 @@ export function AccountCabinet() {
 
   switch (state.kind) {
     case 'ready':
-      return <CabinetView profile={state.profile} />;
+      return <>{children(state.profile)}</>;
     case 'signed-out':
-      return <SignedOutView />;
+      return <SignedOutView title={title} />;
     case 'unavailable':
     case 'failed':
-      return <CabinetErrorView kind={state.kind} onRetry={retry} />;
+      return <CabinetErrorView kind={state.kind} onRetry={retry} title={title} />;
     case 'checking':
-      return <CheckingView />;
+      return <CheckingView title={title} />;
   }
+}
+
+export function AccountCabinet() {
+  return <AccountGate>{(profile) => <CabinetView profile={profile} />}</AccountGate>;
 }
