@@ -76,17 +76,17 @@ export const LEGAL_PAGES: LegalPage[] = [
     slug: 'terms',
     title: 'Terms of use',
     summary:
-      'What CampTribe is, what it is not, and what you can rely on.',
-    version: '1.0',
-    effectiveFrom: '2026-09-23',
+      'What CampTribe is, what it is not, what you can rely on, and who may open an account.',
+    version: '1.1',
+    effectiveFrom: '2026-10-16',
   },
   {
     slug: 'privacy',
     title: 'Privacy',
     summary:
-      'What we know about you — which is very little — and what you can make us do about it.',
-    version: '1.0',
-    effectiveFrom: '2026-09-23',
+      'What we hold about you, who else touches it, and the two things you can do yourself without asking us.',
+    version: '2.0',
+    effectiveFrom: '2026-10-16',
   },
   {
     slug: 'cookies',

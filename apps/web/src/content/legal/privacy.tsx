@@ -1,19 +1,48 @@
 import { COMPANY } from '@/lib/legal';
 import { A, B, Callout, H2, H3, P, UL } from './prose';
 
-// CAMP-56 — Privacy.
+// CAMP-56 — Privacy. Rewritten for CAMP-324.
 //
-// 🔴 The strongest privacy policy is a short one, and it is short because
-// of a design decision rather than a drafting one: we do not collect what
-// we do not need. There are no accounts, no tracking pixels, no
-// advertising network and no third-party analytics. Data we never hold is
-// data we cannot lose, cannot be asked for, and cannot be fined over.
+// 🔴 THIS DOCUMENT MUST DESCRIBE WHAT THE SITE ACTUALLY DOES ON THE DAY IT
+// IS PUBLISHED — not what it is planned to do, and not what it used to do.
+// A privacy policy describing processing that does not happen is a false
+// statement about processing, which is its own breach. It cuts both ways:
+// denying accounts that exist is the same defect as announcing analytics
+// that are switched off.
 //
-// 🔴 This document must describe what the site ACTUALLY does on the day
-// it is published — not what it is planned to do. A privacy policy
-// describing analytics we have not switched on is a false statement about
-// processing, which is its own breach. When CAMP-57 lands, this page
-// changes in the same commit.
+// 🔴 WHAT CHANGED AND WHY (16.10.2026). Two statements here had stopped
+// being true:
+//
+//   1. The old text DENIED THAT ACCOUNTS EXIST. Sign-in shipped with
+//      CAMP-50, registration with CAMP-228, and the owner decided on 15.10
+//      that accounts are part of the launch. Everything that leaned on that
+//      denial — that we cannot know who you are, that there is nothing to
+//      sign up to — leaned on nothing.
+//   2. The old text NAMED THE CDN AS THE HOSTING PROVIDER. Cloudflare
+//      Pages was ruled out (CAMP-61). Our own machine serves the pages;
+//      Cloudflare sits in front of it as a CDN and reverse proxy. The
+//      document named the wrong processor in that role and left the real
+//      one — the server provider — out entirely.
+//
+// 🔴 THE CARD'S OWN CHECK WAS WRONG TWICE, AND BOTH WAYS ARE WORTH KNOWING.
+// It asked for a grep over the CDN's company name to return nothing. But
+// this document now names that company correctly, twice, in its real role.
+// A guard built on the bare name stays red over true text, and the obvious
+// way to make it green is to delete the truth.
+//
+// Narrowing the pattern to the two false claims is not enough either: a
+// grep reads this comment block as readily as it reads the document, so
+// explaining the defect here reintroduces it. Any check of this file must
+// read the RENDERED PROSE, or at minimum strip comments first. That is why
+// neither false claim is reproduced anywhere above.
+//
+// 🔴 A TRAP WORTH NAMING. The old text said we "do not receive these logs,
+// do not store them and cannot search them" — true of someone else's
+// infrastructure, and the web server is now ours. On 15.10 the measurement
+// was that /var/log/caddy/access.log exists and is EMPTY: request logging
+// is off. But a sentence whose truth depends on one line of unguarded
+// server config will go stale without a single code change. So the wording
+// below describes the arrangement, not a promise no test can keep.
 
 export default function Privacy() {
   return (
@@ -21,41 +50,98 @@ export default function Privacy() {
       <H2 id="who">Who is responsible</H2>
       <P>
         {COMPANY.name}, {COMPANY.city}, {COMPANY.country}, is the controller
-        for any personal data processed through this site. You can reach a
+        for personal data processed through this site. You can reach a
         person at <A href={`mailto:${COMPANY.email}`}>{COMPANY.email}</A>.
       </P>
 
       <Callout>
-        <B>The short version.</B> There are no accounts on this site, no
-        advertising, no tracking pixels and no profiling. We do not sell or
-        share personal data with anyone. Unless you write to us, we do not
-        know who you are.
+        <B>The short version.</B> You can use almost all of this site
+        without an account, and we would rather you did. If you make one, we
+        hold your email address, a one-way hash of your password, and
+        whatever you save — trips, places, photos. No advertising, no
+        tracking pixels, no third-party analytics, and nothing sold or
+        shared. You can download everything we hold, or delete the account,
+        from your account pages, without asking us.
       </Callout>
 
       <H2 id="what">What we process, and why</H2>
 
       <H3>Serving the pages</H3>
       <P>
-        When your browser asks for a page, our hosting provider handles the
-        request and records technical information about it — including your
-        IP address, the page requested, the time, and your browser&rsquo;s
-        user-agent string. This is how any website works, and it is what
-        lets us keep the site available and fend off abuse.
+        A page request passes through two hands. Cloudflare receives it
+        first, as our content delivery network and reverse proxy, and it
+        necessarily sees your IP address, the page asked for and your
+        browser&rsquo;s user-agent string. It then forwards the request to
+        our own server, which is where the site is actually hosted and which
+        sees the same information in order to answer.
       </P>
       <UL>
         <li>
-          <B>Who does it:</B> Cloudflare, Inc., as our hosting provider and
-          processor.
+          <B>Who does it:</B> Cloudflare, Inc. as CDN and proxy, and Hetzner
+          Online GmbH (Germany) as the provider of the machine that serves
+          the site. Both act as our processors under Article 28 GDPR.
         </li>
         <li>
-          <B>Legal basis:</B> our legitimate interests in operating and
-          securing the service — Article 6(1)(f) GDPR.
+          <B>Legal basis:</B> our legitimate interests in operating the
+          service and defending it from abuse — Article 6(1)(f) GDPR.
         </li>
         <li>
-          <B>Kept for:</B> we do not receive these logs, do not store them
-          and cannot search them. They exist inside our provider&rsquo;s
-          infrastructure under its own retention policy, for operational
-          and security purposes only.
+          <B>Kept for:</B> request logging on our own web server is switched
+          off, so no access log accumulates there. Cloudflare keeps its own
+          operational logs inside its platform under its retention policy;
+          we do not export them, build profiles from them, or use them for
+          anything but keeping the site up.
+        </li>
+      </UL>
+
+      <H3>Your account, if you make one</H3>
+      <P>
+        An account exists so that what you save stays yours across devices.
+        We hold the following, and nothing else:
+      </P>
+      <UL>
+        <li>
+          your email address, and whether you have confirmed it;
+        </li>
+        <li>
+          a <B>hash</B> of your password — a one-way transformation, not the
+          password. We cannot read it, recover it or tell you what it was;
+        </li>
+        <li>
+          whether and when you agreed to receive our emails, recorded
+          separately so that consent can be proven and withdrawn;
+        </li>
+        <li>
+          sessions — the fact that a browser is signed in, and until when;
+        </li>
+        <li>
+          what you saved: trips and their stops, saved places, photos you
+          submitted, reviews you wrote.
+        </li>
+      </UL>
+      <UL>
+        <li>
+          <B>Legal basis:</B> performance of the contract you entered into
+          by creating the account — Article 6(1)(b) GDPR. For the newsletter
+          flag specifically, your consent — Article 6(1)(a).
+        </li>
+      </UL>
+
+      <H3>Email we send you</H3>
+      <P>
+        Confirming your address and resetting your password require us to
+        send you an email, so your address passes to the mail system that
+        carries it.
+      </P>
+      <UL>
+        <li>
+          <B>Who does it:</B> Hetzner Online GmbH (Germany), which operates
+          our mailboxes and carries outgoing mail.
+        </li>
+        <li>
+          <B>Legal basis:</B> performance of the contract — Article 6(1)(b)
+          GDPR — for account mail; consent for anything we send you because
+          you asked to hear from us.
         </li>
       </UL>
 
@@ -84,8 +170,10 @@ export default function Privacy() {
       <UL>
         <li>No advertising and no advertising networks.</li>
         <li>
-          No profiling, and no automated decision-making that produces legal
-          or similarly significant effects — Article 22 GDPR does not arise.
+          No automated decision-making that produces legal or similarly
+          significant effects, and no profiling of you as a person —
+          Article 22 GDPR does not arise. What you save is shown back to
+          you; it is not used to score or categorise you.
         </li>
         <li>No selling, renting or sharing of personal data.</li>
         <li>
@@ -96,12 +184,22 @@ export default function Privacy() {
 
       <H2 id="who-else">Who else sees it</H2>
       <P>
-        <B>Cloudflare, Inc.</B> hosts this site and processes data on our
-        behalf, under a contract that obliges it to act only on our
-        instructions — Article 28 GDPR. Where that involves a transfer
-        outside the European Economic Area, it is covered by the European
-        Commission&rsquo;s Standard Contractual Clauses.
+        Three processors, each acting only on our instructions under a
+        contract that says so — Article 28 GDPR:
       </P>
+      <UL>
+        <li>
+          <B>Hetzner Online GmbH</B>, Germany — the server that hosts the
+          site and the database, and the mail system. Inside the EU, so no
+          transfer question arises.
+        </li>
+        <li>
+          <B>Cloudflare, Inc.</B> — content delivery network and reverse
+          proxy in front of that server. Where this involves a transfer
+          outside the European Economic Area, it is covered by the European
+          Commission&rsquo;s Standard Contractual Clauses.
+        </li>
+      </UL>
       <P>
         That is the complete list. Nobody else receives personal data from
         this site, except where we are legally required to disclose it — and
@@ -119,21 +217,57 @@ export default function Privacy() {
         the map, and you can switch it.
       </P>
 
+      <H2 id="keep">How long we keep it</H2>
+      <UL>
+        <li>
+          <B>Account data:</B> until you delete the account. We do not
+          expire accounts for inactivity.
+        </li>
+        <li>
+          <B>Sessions:</B> thirty days, then they expire on their own.
+          Signing out ends one immediately; changing your password ends all
+          of them.
+        </li>
+        <li>
+          <B>Links we email you</B> — confirmation and password reset:
+          one hour, and single-use.
+        </li>
+      </UL>
+
       <H2 id="rights">Your rights</H2>
       <P>
         Under the GDPR you may ask us to give you a copy of your personal
         data, correct it, delete it, restrict or object to our use of it, or
         hand it to someone else in a portable form. Where we rely on your
-        consent — the analytics cookies, if we ever set any — you can
-        withdraw it at any time, and withdrawing is as easy as giving it.
+        consent you can withdraw it at any time, and withdrawing is as easy
+        as giving it.
       </P>
       <P>
-        Write to <A href={`mailto:${COMPANY.email}`}>{COMPANY.email}</A>. We
-        answer within one month, and if a request is complex enough to need
-        longer we will tell you inside that month and say why — which is what
-        Article 12(3) allows and requires. In practice the honest answer to
-        most such requests will be that we hold nothing about you, because we
-        do not.
+        For two of those you do not have to ask us at all. If you have an
+        account, you can <B>download a file containing everything we hold
+        about you</B> and you can <B>delete the account</B>, both from your
+        account pages. Deleting ends your access in the same request — not
+        in thirty days.
+      </P>
+      <Callout>
+        <B>What deletion does not reach, and why.</B> One record survives:
+        that a photo or a review was rejected, why, when, and for which
+        place. It carries nothing that points back to you — no name, no
+        address, not even a reference to the account that was deleted.
+        Because no part of it identifies a person, it has stopped being
+        personal data, and the right to erasure has nothing left to reach.
+        We keep it to be able to account for our own moderation decisions.
+        Separately, the licence you granted for photographs already
+        published is a contract rather than personal data, so those
+        photographs may remain — but your name comes off them on request.
+        We would rather tell you where the line is than let you discover it.
+      </Callout>
+      <P>
+        For anything else, write to{' '}
+        <A href={`mailto:${COMPANY.email}`}>{COMPANY.email}</A>. We answer
+        within one month, and if a request is complex enough to need longer
+        we will tell you inside that month and say why — which is what
+        Article 12(3) allows and requires.
       </P>
 
       <Callout>
@@ -148,8 +282,16 @@ export default function Privacy() {
 
       <H2 id="children">Children</H2>
       <P>
-        This site is not aimed at children and we do not knowingly collect
-        anything from them. There is nothing here to sign up to.
+        Reading this site needs no account and no age. Opening one requires
+        you to be eighteen, and we ask you to confirm that rather than
+        asking for your date of birth — a date we would then be holding and
+        would have to protect, to answer a question that a yes already
+        answers.
+      </P>
+      <P>
+        This site is not aimed at children, and we do not knowingly open
+        accounts for them or collect anything from them. If you believe a
+        child has given us personal data, write to us and we will remove it.
       </P>
 
       <H2 id="changes">Changes</H2>

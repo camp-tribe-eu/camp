@@ -103,6 +103,22 @@ export default function Terms() {
       </P>
 
       <H2 id="use">4. Using the site</H2>
+
+      <H3>Accounts are for adults</H3>
+      <P>
+        You must be eighteen to open an account. Reading the site needs
+        neither an account nor an age — we ask this only of people who
+        register, because an account is a contract and because what we help
+        you plan is a journey by road.
+      </P>
+      <P>
+        We ask you to confirm your age. We do not ask for your date of
+        birth, because we would then be holding it, and the least data that
+        answers the question is the right amount. If we learn that an
+        account belongs to someone under eighteen, we will close it.
+      </P>
+
+      <H3>What you may and may not do</H3>
       <P>You may read, search, link to and share anything here. You may not:</P>
       <UL>
         <li>
