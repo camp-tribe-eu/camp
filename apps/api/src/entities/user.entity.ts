@@ -44,6 +44,19 @@ export class User {
   @Column({ name: 'marketing_consent_at', type: 'timestamptz', nullable: true })
   marketingConsentAt?: Date | null;
 
+  /**
+   * When the person asked to delete the account, or null for everyone alive.
+   *
+   * 🔴 NOT A FLAG THE REST OF THE CODE MAY IGNORE. Access ends in the request
+   * that sets this (the sessions are deleted with it); the row stays for
+   * `DELETION_WINDOW_DAYS` so that signing in with the same password can undo a
+   * mistake, and `AuthService.signIn` is the only reader that treats it as
+   * anything but "this person is gone": a reset letter is not sent, a link is
+   * not honoured. After the window `AccountRightsService.purge` deletes the row.
+   */
+  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

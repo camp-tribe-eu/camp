@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthToken } from '../entities/auth-token.entity';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
+import { AccountRightsController } from './account-rights.controller';
+import { AccountRightsService } from './account-rights.service';
 import { AccountService, MAILER } from './account.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -11,11 +13,13 @@ import { ViewerMiddleware } from './viewer.middleware';
 
 @Module({
   imports: [TypeOrmModule.forFeature([User, Session, AuthToken])],
-  controllers: [AuthController],
+  controllers: [AuthController, AccountRightsController],
   providers: [
     AuthService,
     ViewerMiddleware,
     AccountService,
+    // CAMP-229 (3/3): export (Art. 15) and erasure (Art. 17).
+    AccountRightsService,
     {
       // 🔴 Decided once, at boot, and SAID. The mail provider is not set up
       // yet (CAMP-110), so in a deployment nobody configured, sign-up and the

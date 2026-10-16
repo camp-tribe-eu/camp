@@ -126,7 +126,14 @@ export function isMailPath(path: string): boolean {
  * was typed in the controller — confirmed the spelling and nothing else.
  * `throttle.spec.ts` now asserts the KEY instead.
  */
-export const LOGIN_ROUTES = ['auth/login'] as const;
+export const LOGIN_ROUTES = [
+  'auth/login',
+  // 🔴 CAMP-229 (3/3). Deleting an account asks for the password again, so it is
+  // a second place to guess one — and with a stolen session token the cheapest:
+  // the default would allow 120 a minute. It shares sign-in's counter, so ten
+  // wrong passwords across the two are ten, not twenty.
+  'account/delete',
+] as const;
 
 /** Is this the sign-in route? Normalised like isBulkPath, and for the same reasons. */
 export function isLoginPath(path: string): boolean {

@@ -1,16 +1,24 @@
 import { randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { MoreThan, Repository } from 'typeorm';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
+import { DELETION_WINDOW_MS } from './account-deletion';
 import { hashPassword, looksLikeStoredHash, verifyPassword } from './password';
 import { normalizeEmail } from './email';
 import { Viewer } from './ownership';
 import { expiryFrom, isExpired, newToken, tokenHash } from './session';
 
-/** What a successful sign-in hands back. The token is shown once. */
-export type SignedIn = { token: string; expiresAt: Date };
+/**
+ * What a successful sign-in hands back. The token is shown once.
+ *
+ * `restored: true` appears only when this sign-in CANCELLED a deletion the
+ * person had asked for (CAMP-229). It is there so that the page can say so:
+ * a sign-in that quietly undid "delete my account" would leave a person
+ * believing the data is gone while we keep it.
+ */
+export type SignedIn = { token: string; expiresAt: Date; restored?: true };
 
 /**
  * What the account page is told about the person signed in. CAMP-229.
@@ -113,7 +121,25 @@ export class AuthService {
     const hash = looksLikeStoredHash(stored) ? stored : await decoyHash();
     const ok = await verifyPassword(password, hash);
     if (!ok || !user) return null;
-    return this.startSession(user.id, now);
+
+    // 🔴 CAMP-229: AN ACCOUNT THAT WAS ASKED TO BE DELETED COMES BACK BY THIS
+    // DOOR AND NO OTHER, with the same password, inside the window. One
+    // `UPDATE … WHERE deleted_at > cutoff` decides, so that an account whose
+    // window has run out and which the sweep has not removed yet is refused
+    // exactly as a wrong password is (the same `null`, after the same scrypt),
+    // and two sign-ins at once cannot both claim to have restored it.
+    let restored = false;
+    if (user.deletedAt) {
+      const cutoff = new Date(now.getTime() - DELETION_WINDOW_MS);
+      const back = await this.users.update(
+        { id: user.id, deletedAt: MoreThan(cutoff) },
+        { deletedAt: null },
+      );
+      if (back.affected !== 1) return null;
+      restored = true;
+    }
+    const session = await this.startSession(user.id, now);
+    return restored ? { ...session, restored: true } : session;
   }
 
   /**
