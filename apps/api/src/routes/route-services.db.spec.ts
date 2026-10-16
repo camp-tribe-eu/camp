@@ -5,7 +5,8 @@ import type { QueryRunner } from 'typeorm';
 import { FuelStationPrices1790662801000 } from '../migrations/1790662801000-FuelStationPrices';
 import { RoutePoi1790572800000 } from '../migrations/1790572800000-RoutePoi';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
-import { ROUTE_POI_KINDS } from '../osm/route-poi';
+import { RoutePoiGas1791700000000 } from '../migrations/1791700000000-RoutePoiGas';
+import { ROUTE_POI_KINDS, STORED_POI_KINDS } from '../osm/route-poi';
 import {
   buildServicesSql,
   FACILITY_FIELDS,
@@ -75,6 +76,7 @@ beforeAll(async () => {
   await new RoutePoi1790572800000().up(runner());
   await new FuelStationPrices1790662801000().up(runner());
   await new RoutePoiFacilities1791400000000().up(runner());
+  await new RoutePoiGas1791700000000().up(runner());
 
   // The query point is (lon 14, lat 45). Distances below are written by
   // hand from the coordinates: 0.01° of latitude is about 1.11 km, and
@@ -128,6 +130,16 @@ beforeAll(async () => {
   // come out of the endpoint carrying one.
   await poi('n30', 'fuel', 14.0, 45.002, { toilets: 'yes' });
   await poi('n31', 'dump', 14.0, 45.003, { fee: 'yes' });
+  // CAMP-258: a gas shop NEARER than anything else — 111 m from the query
+  // point. It is stored and not served, so no stage may ever return it; if
+  // it came out it would be the nearest thing on the page.
+  await poi('n32', 'gas_exchange', 14.0, 45.001, {
+    lpg: 'yes',
+    cylinder_swap: 'yes',
+  });
+  // …and a forecourt that is ALSO a gas shop: a fuel station (22 km north,
+  // so n30 is still the nearest fuel) that says cylinders are swapped there
+  await poi('n33', 'fuel', 14.0, 45.2, { cylinder_swap: 'yes' });
 
   // A second query point, (lon 16, lat 45), with ONE rest area 33 km away
   // — outside the 25 km radius the page asks for.
@@ -385,6 +397,198 @@ describe('CAMP-119: every kind the endpoint asks about has its partial GiST inde
     });
     expect(unused).toEqual([]);
     expect(seqScans).toEqual([]);
+  });
+});
+
+// ── CAMP-258: THE KIND THE TABLE HOLDS AND NO PAGE ASKS FOR ─────────────
+//
+// 🔴 TWO THINGS, EACH ASKED OF POSTGRESQL. First that the new kind has the
+// partial index the other nine have — the owner lost 4 minutes 42 seconds on
+// the map query for it before the index and had it in 547 ms with it, and a
+// kind without its index does not fail, it gets slow. Second that it is
+// stored and NOT served: `n32` above is the nearest object to the query
+// point by a long way, and a stage must not carry it.
+//
+// 🔴 THE LIST BEING CHECKED IS THE TABLE'S, `STORED_POI_KINDS`, NOT THE
+// ENDPOINT'S. The block above asks the endpoint's kinds, and `gas_exchange`
+// is by design not one of them — so that block cannot see a missing index
+// for it, and read alone it would stay green with the index gone.
+describe('CAMP-258: every kind the table holds has its partial GiST index', () => {
+  it('the catalog holds one on location, partial on the kind, for each stored kind', async () => {
+    const { byKind } = await partialGistIndexes();
+    // Anchors: there are kinds, and one of them is the one no page asks for.
+    expect(STORED_POI_KINDS).toContain('gas_exchange');
+    expect(
+      (STORED_POI_KINDS as readonly string[]).filter(
+        (k) => !(ROUTE_POI_KINDS as readonly string[]).includes(k),
+      ),
+    ).toEqual(['gas_exchange']);
+    const missing = STORED_POI_KINDS.filter((kind) => !byKind.has(kind));
+    expect(missing).toEqual([]);
+  });
+
+  // The three shapes a map reads this kind in: the nearest, every one in a
+  // box, every one within a distance. The kind is a literal in each, as the
+  // first migration's header requires, and sequential scans are switched off
+  // so the answer does not depend on how many rows the spec's table has.
+  it.each([
+    [
+      'the nearest',
+      `SELECT osm_ref FROM osm_route_poi
+        WHERE kind = 'gas_exchange'
+        ORDER BY location <-> ST_SetSRID(ST_MakePoint(14, 45), 4326) LIMIT 5`,
+    ],
+    [
+      'every one in a box',
+      `SELECT osm_ref FROM osm_route_poi
+        WHERE kind = 'gas_exchange'
+          AND location && ST_MakeEnvelope(13, 44, 15, 46, 4326)`,
+    ],
+    [
+      'every one within a distance',
+      `SELECT osm_ref FROM osm_route_poi
+        WHERE kind = 'gas_exchange'
+          AND ST_DWithin(location, ST_SetSRID(ST_MakePoint(14, 45), 4326), 0.5)`,
+    ],
+  ])(
+    'a query for %s plans an index scan on its own index',
+    async (_name, sql) => {
+      const { byKind } = await partialGistIndexes();
+      const index = byKind.get('gas_exchange');
+      expect(index).toBe('idx_osm_route_poi_gas_exchange');
+      await db.query('SET enable_seqscan = off');
+      let plan: PlanNode;
+      try {
+        const res = await db.query(`EXPLAIN (FORMAT JSON) ${sql}`);
+        plan = res.rows[0]['QUERY PLAN'][0].Plan;
+      } finally {
+        await db.query('RESET enable_seqscan');
+      }
+      const used = new Set<string>();
+      const seqScans: string[] = [];
+      walkPlan(plan, (n) => {
+        if (n['Index Name']) used.add(n['Index Name']);
+        if (
+          n['Node Type'] === 'Seq Scan' &&
+          n['Relation Name'] === 'osm_route_poi'
+        ) {
+          seqScans.push(n['Relation Name']);
+        }
+      });
+      expect([...used]).toEqual([index]);
+      expect(seqScans).toEqual([]);
+    },
+  );
+});
+
+// ── CAMP-258: THE FLAG HAS ITS INDEX TOO ────────────────────────────────
+//
+// 🔴 `kind = 'gas_exchange'` is one half of the gas layer; the other half is
+// `cylinder_swap = 'yes'` on rows of ANOTHER kind (about 4 000 forecourts out
+// of 2.27 million rows). The first half has the kind's index; the second would
+// be a walk over the whole table without a partial index of its own, which is
+// the 4 minutes 42 seconds again for the half nobody remembered. Asked of the
+// catalog, and of the plan of the layer query in the shapes a map uses.
+describe('CAMP-258: the gas layer is index scans, in both halves', () => {
+  async function flagIndexes(): Promise<string[]> {
+    const { rows } = await db.query<{ indexname: string; indexdef: string }>(
+      `SELECT indexname, indexdef FROM pg_indexes
+        WHERE schemaname = current_schema() AND tablename = 'osm_route_poi'`,
+    );
+    return rows
+      .filter((r) =>
+        /USING gist \(location\) WHERE \(cylinder_swap = 'yes'::text\)$/.test(
+          r.indexdef,
+        ),
+      )
+      .map((r) => r.indexname);
+  }
+
+  // 🔴 MUTATION: delete the CREATE INDEX for the flag from up(), or make its
+  // predicate `cylinder_swap <> 'unknown'`.
+  it('the catalog holds a partial GiST index on the flag', async () => {
+    expect(await flagIndexes()).toEqual(['idx_osm_route_poi_cylinder_swap']);
+  });
+
+  it.each([
+    [
+      'the layer in a box',
+      `SELECT osm_ref FROM osm_route_poi
+        WHERE (kind = 'gas_exchange' OR cylinder_swap = 'yes')
+          AND location && ST_MakeEnvelope(13, 44, 15, 46, 4326)`,
+      ['idx_osm_route_poi_cylinder_swap', 'idx_osm_route_poi_gas_exchange'],
+    ],
+    [
+      'the layer within a distance',
+      `SELECT osm_ref FROM osm_route_poi
+        WHERE (kind = 'gas_exchange' OR cylinder_swap = 'yes')
+          AND ST_DWithin(location, ST_SetSRID(ST_MakePoint(14, 45), 4326), 0.5)`,
+      ['idx_osm_route_poi_cylinder_swap', 'idx_osm_route_poi_gas_exchange'],
+    ],
+    [
+      'the flag alone, nearest first',
+      `SELECT osm_ref FROM osm_route_poi
+        WHERE cylinder_swap = 'yes'
+        ORDER BY location <-> ST_SetSRID(ST_MakePoint(14, 45), 4326) LIMIT 5`,
+      ['idx_osm_route_poi_cylinder_swap'],
+    ],
+  ])(
+    'a query for %s reads no sequential scan and names its indexes',
+    async (_name, sql, indexes) => {
+      await db.query('SET enable_seqscan = off');
+      let plan: PlanNode;
+      try {
+        const res = await db.query(`EXPLAIN (FORMAT JSON) ${sql}`);
+        plan = res.rows[0]['QUERY PLAN'][0].Plan;
+      } finally {
+        await db.query('RESET enable_seqscan');
+      }
+      const used = new Set<string>();
+      const seqScans: string[] = [];
+      walkPlan(plan, (n) => {
+        if (n['Index Name']) used.add(n['Index Name']);
+        if (
+          n['Node Type'] === 'Seq Scan' &&
+          n['Relation Name'] === 'osm_route_poi'
+        ) {
+          seqScans.push(n['Relation Name']);
+        }
+      });
+      expect([...used].sort()).toEqual(indexes);
+      expect(seqScans).toEqual([]);
+    },
+  );
+
+  // 🔴 MUTATION: write the flag for the kind only. The fuel row `n33` is the
+  // forecourt: it is in the layer by its flag and in no other way.
+  it('returns the forecourt as well as the lone gas shop', async () => {
+    const rows = (
+      await db.query(
+        `SELECT osm_ref, kind FROM osm_route_poi
+          WHERE kind = 'gas_exchange' OR cylinder_swap = 'yes' ORDER BY 1`,
+      )
+    ).rows;
+    expect(rows).toEqual([
+      { osm_ref: 'n32', kind: 'gas_exchange' },
+      { osm_ref: 'n33', kind: 'fuel' },
+    ]);
+  });
+});
+
+describe('CAMP-258: a stored kind is not a served one', () => {
+  // 🔴 MUTATION: add 'gas_exchange' to ROUTE_POI_KINDS. `n32` is 111 m from
+  // the query point and the nearest thing there is; the page would grow a
+  // tenth kind, MAX_SERVICE_POINTS would fall to 6 and the ODbL arithmetic
+  // would move — none of which is this card's decision.
+  it('never comes out of a stage query, though it is the nearest object', async () => {
+    const services = await stage(14.0, 45.0);
+    expect(services.map((s) => s.kind)).not.toContain('gas_exchange');
+    expect(services.map((s) => s.osmRef)).not.toContain('n32');
+    // …and it IS in the table, so the absence is not an empty table.
+    const stored = await db.query(
+      `SELECT lpg FROM osm_route_poi WHERE osm_ref = 'n32' AND kind = 'gas_exchange'`,
+    );
+    expect(stored.rows).toEqual([{ lpg: 'yes' }]);
   });
 });
 
