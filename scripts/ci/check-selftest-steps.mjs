@@ -104,11 +104,29 @@ export function commandsIn(run) {
 
 const SCRIPT_TOKEN = /^["']?([^"']*\.(?:mjs|cjs|js|ts|sh))["']?$/;
 
-/** The scripts a step runs with `--self-test`, by path. */
+/**
+ * The flags that mean "run your self-test": the plain one, and (CAMP-332)
+ * `--self-test-db`, the one that needs a PostgreSQL to read a table back
+ * from. Both print a line named after the script, and a step that runs
+ * either must read it.
+ *
+ * 🔴 A LIST, NOT A PREFIX. The tripwire below counts every `--self-test`
+ * written in a workflow, `--self-test-db` included, as text. When the
+ * parser knew only the exact token, the new step was counted and not
+ * attributed — 57 written, 56 read — and the check refused ci.yml. That
+ * was the check working. The answer is to teach it the sibling, not to
+ * rename the flag out of its sight: a step the survey cannot see is a step
+ * nobody has made read its own output. A flag that is NOT in this list
+ * still trips the same count, which is how the next sibling will announce
+ * itself.
+ */
+const SELF_TEST_FLAGS = ['--self-test', '--self-test-db'];
+
+/** The scripts a step runs with a self-test flag, by path. */
 export function selfTested(run) {
   const found = [];
   for (const tokens of commandsIn(run)) {
-    if (!tokens.includes('--self-test')) continue;
+    if (!tokens.some((t) => SELF_TEST_FLAGS.includes(t))) continue;
     const script = tokens
       .map((t) => SCRIPT_TOKEN.exec(t)?.[1]?.replace(/^\.\//, ''))
       .find(Boolean);
@@ -400,6 +418,11 @@ const CASES = [
   ['a self-test inside a pipeline is seen', () => selfTested("node a.mjs --self-test | tee /dev/stderr | grep -q 'a self-test:'")[0] === 'a.mjs'],
   ['two invocations on one line are both seen', () => selfTested('node a.mjs --self-test && node b.mjs --self-test').length === 2],
   ['a step that runs no self-test is not a subject', () => selfTested('node a.mjs --update').length === 0],
+  ['🔴 the database self-test is a self-test: its step is seen, and attributed to its script', () =>
+    selfTested('node scripts/osm-pipeline/a.mjs --self-test-db')[0] === 'scripts/osm-pipeline/a.mjs'],
+  ['🔴 …but a flag nobody listed is not, and the mention count still sees it', () =>
+    selfTested('node a.mjs --self-test-x').length === 0 &&
+    selfTestMentions('      run: node a.mjs --self-test-x\n') === 1],
   ['🔴 every --self-test in the real ci.yml is attributed to a script', () => {
     // 🔴 An equality, after review found this case asserting `>= 35`
     // against a real value of 41: six steps of slack, so the defect it
@@ -480,7 +503,7 @@ const CASES = [
     auditStep({ name: 'X', run: "set -o pipefail\nnode dir/check-eu-scope.mjs --self-test | grep -c 'check-eu-scope self-test:' >/dev/null", scripts: ['dir/check-eu-scope.mjs'] }) === null],
 ];
 
-const EXPECTED_CASES = 28;
+const EXPECTED_CASES = 30;
 
 function selfTest() {
   let failed = 0;
