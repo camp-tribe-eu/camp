@@ -1340,10 +1340,23 @@ describe('🔴 deleting: thirty days to come back, with the same password, and n
   it('is done once when asked twice at once', async () => {
     const p = await person();
     await seedPhoto(p.id, { status: 'rejected', reason: 'twice?' });
-    const [a, b] = await Promise.all([
-      post('/account/delete', goodDelete({ photos: 'delete' }), auth(p.token)),
-      post('/account/delete', goodDelete({ photos: 'delete' }), auth(p.token)),
-    ]);
+    // The second request starts 40 ms after the first: far inside the first one's 200 ms
+    // password check, so both are in flight, and far enough apart that their clocks
+    // differ — two `new Date()` taken in the same millisecond would make the deadlines
+    // equal even if the second request redid the work (a mutation of exactly that slipped
+    // through once, 1 run in 2).
+    const first = post(
+      '/account/delete',
+      goodDelete({ photos: 'delete' }),
+      auth(p.token),
+    );
+    await new Promise((r) => setTimeout(r, 40));
+    const second = post(
+      '/account/delete',
+      goodDelete({ photos: 'delete' }),
+      auth(p.token),
+    );
+    const [a, b] = await Promise.all([first, second]);
     // Both were past viewer lookup and their 200 ms password check before either
     // committed, so both are 200 — and the one that waited on the account's row lock
     // reports the SAME deadline as the first, instead of pushing it further out.
