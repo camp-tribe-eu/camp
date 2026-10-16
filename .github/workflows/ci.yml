@@ -950,6 +950,27 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      # 🔴 CAMP-332. The OSM import no longer needs `gh` or `ogr2ogr`: it
+      # reads the release as a stream and hands psql one COPY. ogr2ogr never
+      # ran in CI (no GDAL here), so the shape of the staging table that
+      # import-spots.ts reads was pinned by nothing at all. This runs the
+      # loader against a REAL PostGIS and reads the table back — columns,
+      # types, values, and that a failed load leaves the previous table as
+      # it was. Node 22 because that is what the server runs.
+      #
+      # It makes and drops its own `camp332_*` database; the service's
+      # `postgres` user may. A missing database is a FAILURE, not a skip.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: The OSM staging loader writes the table the importer reads
+        env:
+          CAMP_TEST_DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          node scripts/osm-pipeline/import-release.mjs --self-test-db | tee /dev/stderr \
+            | grep -c 'import-release db self-test:' >/dev/null
+
       - uses: ./.github/actions/build-site
         with:
           site-mode: closed
