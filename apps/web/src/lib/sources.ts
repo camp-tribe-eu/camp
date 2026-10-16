@@ -95,6 +95,30 @@ export type SourceInfo = {
    *                reader's clock.
    */
   cadence: 'continuous' | 'annual' | 'hourly';
+  /**
+   * 🔴 CAMP-256: WHAT `SpotSource.updatedAt` IS, for this source.
+   *
+   * The same field name holds three different facts, and printing one of
+   * them under another's label is the card's named failure:
+   *
+   *   `edited`   the SOURCE's own date for the last change of the record.
+   *              DATAtourisme: the feed's `Date_de_mise_a_jour`, which is the
+   *              field its own record pages call "Date de mise à jour dans
+   *              l'entrepôt source" — NOT the platform's separate "dernière
+   *              mise à jour dans DATAtourisme" (a timestamp that moves when
+   *              the platform re-ingests). Checked on 15.10.2026 against 15
+   *              records' own pages: 11 identical, 3 later at the source
+   *              (updated after our snapshot), 1 one day earlier (re-ingested
+   *              the same day). 732 distinct dates across 8 752 records,
+   *              2002-05-24 to 2026-09-24, so it is not our import date.
+   *   `checked`  the day OUR importer last looked. OpenStreetMap: it moves
+   *              every week for every campsite and says nothing about when a
+   *              mapper last edited — that is `osmRecordEditedAt`.
+   *   `other`    a publication or reading date (the EEA sources).
+   *
+   * Only `edited` may be printed as "Record last edited" (lib/record-age.ts).
+   */
+  datesAre: 'edited' | 'checked' | 'other';
 };
 
 /**
@@ -135,6 +159,7 @@ export const SOURCES: Record<string, SourceInfo> = {
     // We know when WE last looked, never when a mapper last edited.
     dateLabel: 'Last checked against this source on',
     cadence: 'continuous',
+    datesAre: 'checked',
   },
   datatourisme: {
     id: 'datatourisme',
@@ -146,6 +171,7 @@ export const SOURCES: Record<string, SourceInfo> = {
       'France’s national tourism data platform. The records are written by regional tourist offices, which is also why the star rating is the official one.',
     dateLabel: 'Last updated by the source on',
     cadence: 'continuous',
+    datesAre: 'edited',
   },
   // CAMP-168. The EU's officially designated bathing waters and their
   // classification, one edition per bathing season.
@@ -174,6 +200,7 @@ export const SOURCES: Record<string, SourceInfo> = {
     // record" — and the season it describes is the year on the page.
     dateLabel: 'Classification for the season published on',
     cadence: 'annual',
+    datesAre: 'other',
   },
   // CAMP-164. The EEA's European Air Quality Index: an hourly index per
   // monitoring station, from data the member states report to the EEA,
@@ -200,6 +227,7 @@ export const SOURCES: Record<string, SourceInfo> = {
     // EEA's file.
     dateLabel: 'Read from the EEA on',
     cadence: 'hourly',
+    datesAre: 'other',
   },
 };
 

@@ -601,6 +601,26 @@ jobs:
           node scripts/osm-pipeline/normalise-export.mjs --self-test | tee /dev/stderr \
             | grep -c 'normalise-export self-test:' >/dev/null
 
+      # 🔴 CAMP-256. The date of the last OSM edit reaches the database only
+      # if `extract-campsites.sh` asks osmium for it (`-a timestamp,version`),
+      # and when it does not NOTHING fails: the campsites load, the counts
+      # match, and every page says "Not known". The normaliser's self-test
+      # above is handed a file and cannot see that; this builds a PBF from a
+      # few lines of OPL and runs the real script on the real tool — and then
+      # runs a copy with the flag removed and requires it to fail. osmium is
+      # installed rather than shimmed because a shim that "supports -a"
+      # would test the shim; the suite FAILS without it instead of skipping.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: Install osmium for the extract self-test
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends osmium-tool
+
+      - name: The extract carries each campsite's edit date, and refuses to load without it
+        run: |
+          set -o pipefail
+          ./scripts/osm-pipeline/extract-campsites.selftest.sh | tee /dev/stderr \
+            | grep -c 'extract-campsites self-test:' >/dev/null
+
       # 🔴 CAMP-119. The raw-extract counter is the oracle the stopping-place
       # import is reconciled against, so the thing that must not be wrong in
       # silence is how it reads OPL — `%2c%` taken for a URL escape comes
