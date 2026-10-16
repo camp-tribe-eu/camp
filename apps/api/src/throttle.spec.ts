@@ -504,6 +504,23 @@ describe('🔴 the mail bucket (CAMP-228)', () => {
     expect(bucketOf(path)).toBe('ordinary');
   });
 
+  // CAMP-229 (3/3). Deleting an account checks a password, so it is counted
+  // WITH sign-in; the export routes cost a few indexed reads and a status poll
+  // every second or two, so they are ordinary.
+  it.each(['/account/delete', '/ACCOUNT/DELETE/', '/account/delete?x=1'])(
+    'files %s with sign-in, not with ordinary reading',
+    (path) => {
+      expect(bucketOf(path)).toBe('login');
+    },
+  );
+
+  it.each(['/account/export', '/account/export/file', '/account'])(
+    'leaves %s in the ordinary bucket',
+    (path) => {
+      expect(bucketOf(path)).toBe('ordinary');
+    },
+  );
+
   it('allows ten in ten minutes — written out, not read back', () => {
     expect(MAIL_LIMIT.limit).toBe(10);
     expect(MAIL_LIMIT.ttl).toBe(600_000);

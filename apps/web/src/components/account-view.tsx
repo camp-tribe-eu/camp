@@ -202,12 +202,25 @@ export function SignupFormView({
           </label>
         </div>
 
-        {/* 🔴 УМОВИ — РЯДОК ТЕКСТУ З ЛІНКАМИ, І ГАЛОЧКИ ТУТ НЕМАЄ НАВМИСНО.
+        {/* 🔴 УМОВИ Й ВІК — РЯДОК ТЕКСТУ З ЛІНКАМИ, І ГАЛОЧКИ ТУТ НЕМАЄ НАВМИСНО.
             Підстава — не згода, а договір (GDPR ст. 6(1)(b)): без нього
             акаунта немає. Галочка на обовʼязковому створює ілюзію вибору
-            там, де вибору нема. Це контрінтуїтивно, і саме тому записано. */}
+            там, де вибору нема. Це контрінтуїтивно, і саме тому записано.
+
+            🔴 ВІК ЖИВЕ ТУТ САМЕ ТОМУ. Рішення власника 16.10.2026 — акаунт
+            від 18 років (відповідальність настає, і це вік прав на авто, а
+            планується саме подорож автом). Вісімнадцять так само НЕ вибір:
+            без нього акаунта немає. Тож галочка «мені є 18» була б тією
+            самою ілюзією, і я її не додаю — це твердження, зроблене тією
+            самою дією, що й прийняття умов.
+
+            🔴 І дати народження не питаємо. Найменший обсяг даних, що дає
+            відповідь, і є правильним: дату довелося б зберігати й
+            захищати, щоб відповісти на питання, на яке вже відповідає
+            «так». Умови, §4 «Accounts are for adults». */}
         <p className="mt-5 text-sm text-ink-2">
-          By creating an account you accept the{' '}
+          By creating an account you confirm that you are eighteen or older,
+          and you accept the{' '}
           <Link className={LINK} href="/legal/terms">
             Terms
           </Link>{' '}
@@ -405,9 +418,30 @@ export function LoginFormView({
  * видно лише мить, а лишається він для випадку, коли перехід не стався: посилання
  * веде в те саме місце, не на головну.
  */
-export function LoginDoneView({ to = DEFAULT_RETURN }: { to?: string }) {
+export function LoginDoneView({
+  to = DEFAULT_RETURN,
+  restored = false,
+}: {
+  to?: string;
+  restored?: boolean;
+}) {
   return (
     <Shell title="You are signed in">
+      {/* CAMP-229 (3/3): лише коли цей вхід скасував видалення. Що сталося з фото — правда
+          про те, що вже зроблено: вибір застосовується одразу й не скасовується. */}
+      {restored && (
+        <div
+          role="status"
+          className="mt-4 max-w-md rounded border border-line-2 bg-surface-2 p-4 text-sm text-ink"
+        >
+          <p className="font-semibold text-heading">Your account was scheduled for deletion.</p>
+          <p className="mt-1">
+            Signing in has cancelled that: your profile and routes are back. Your reviews are not —
+            they were deleted with the account, and signing in does not bring them back. What you
+            chose for your photos has already been applied and stays too.
+          </p>
+        </div>
+      )}
       <p className="mt-4 text-ink-2">
         <Link className={LINK} href={safeReturnPath(to)}>
           Continue to the site

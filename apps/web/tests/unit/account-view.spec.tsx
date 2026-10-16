@@ -106,11 +106,31 @@ test.describe('🔴 реєстрація: галочка розсилки пор
   });
 });
 
-test.describe('🔴 реєстрація: Умови — рядок тексту з лінками, без галочки', () => {
+test.describe('🔴 реєстрація: Умови й вік — рядок тексту з лінками, без галочки', () => {
   test('видимий рядок називає Умови й Політику приватності', () => {
     expect(visibleText(servedSignup())).toContain(
-      'By creating an account you accept the Terms and the Privacy Policy.',
+      'By creating an account you confirm that you are eighteen or older, and you accept the Terms and the Privacy Policy.',
     );
+  });
+
+  test('🔴 вік названо ТВЕРДЖЕННЯМ, а не галочкою: вісімнадцять у видимому тексті', () => {
+    // ПОЗИТИВНЕ: поріг названо, і саме в рядку про створення акаунта.
+    const text = visibleText(servedSignup());
+    expect(text).toContain('you confirm that you are eighteen or older');
+
+    // 🔴 ПАРНЕ ЗАПЕРЕЧЕННЯ. Галочка на обовʼязковому створює ілюзію вибору
+    // там, де вибору нема — це вже записане рішення проєкту для Умов, і вік
+    // підпадає під нього з тієї ж причини: без вісімнадцяти акаунта немає.
+    // Саме заперечення тут не стоїть само: порожня форма задовольнила б
+    // його так само, як правильна, тому воно йде поряд із вимогою вище.
+    const html = servedSignup();
+    const boxes = html.match(/<input[^>]*type="checkbox"[^>]*>/g) ?? [];
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]).toMatch(/\bname="newsletter"/);
+
+    // І дати народження не питаємо — поля для неї немає взагалі.
+    expect(html).not.toMatch(/type="date"/);
+    expect(html).not.toMatch(/name="(?:birth|dob|birthdate|age)"/);
   });
 
   test('обидва слова — посилання на справжні сторінки', () => {

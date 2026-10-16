@@ -1,5 +1,5 @@
 import { UnauthorizedException } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { DEFAULT_LIMIT, LOGIN_LIMIT, bucketOf } from '../throttle';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
@@ -118,8 +118,14 @@ describe('resolveViewer', () => {
   it('looks the session up by the HASH of the token, not the token', async () => {
     const sessions = sessionsOf(live);
     await new AuthService(usersOf(account), sessions).resolveViewer('a-token');
-    expect((sessions.findOne as jest.Mock).mock.calls[0][0].where).toEqual({
+    const { where } = (sessions.findOne as jest.Mock).mock.calls[0][0];
+    expect(where.tokenHash).toBe(tokenHash('a-token'));
+    // CAMP-229 (3/3): and only the sessions of accounts that are not being deleted.
+    // The behaviour is proved over HTTP in `account-rights.db.spec.ts`; this is the
+    // shape of the question, so that dropping the filter is red here too.
+    expect(where).toEqual({
       tokenHash: tokenHash('a-token'),
+      user: { deletedAt: IsNull() },
     });
   });
 

@@ -138,8 +138,22 @@ test.describe('🔴 порожні стани: той текст, що в мак
   test('кожна намальована кнопка веде на сторінку, яка є в застосунку', () => {
     const app = join(__dirname, '..', '..', 'src', 'app');
     const hrefs = links(html).map((l) => l.href);
-    expect(hrefs.slice().sort()).toEqual(['/map', '/plan', '/routes']);
+    // CAMP-229 (3/3): the three empty cards' buttons, and the one way into «Your data».
+    expect(hrefs.slice().sort()).toEqual(['/account/data', '/map', '/plan', '/routes']);
     for (const href of hrefs) expect(existsSync(join(app, href, 'page.tsx')), href).toBe(true);
+  });
+});
+
+test.describe('🔴 вхід у вивантаження й видалення (CAMP-229, частина 3)', () => {
+  test('кабінет має рівно одне посилання на «Your data», і воно не в жодній із трьох порожніх карток', () => {
+    const html = cabinet(ANNA);
+    const found = links(html).filter((l) => l.href === '/account/data');
+    expect(found).toEqual([
+      { href: '/account/data', text: 'Your data — download a copy, or delete your account' },
+    ]);
+    // Три порожні картки лишаються тими, що в макеті: посилання не стало четвертою.
+    expect(sections(html).slice(1)).toHaveLength(3);
+    for (const s of sections(html)) expect(s.links.map((l) => l.href)).not.toContain('/account/data');
   });
 });
 
@@ -282,6 +296,9 @@ test.describe('🔴 /account: noindex метатегом, а не robots.txt (м
     const rules = robotsFor(true).rules as { disallow: string[] };
     const blocked = (path: string) => rules.disallow.some((d) => path.startsWith(d));
     expect(blocked('/account')).toBe(false);
+    // CAMP-229 (3/3): і дві нові сторінки, з тієї ж причини.
+    expect(blocked('/account/data')).toBe(false);
+    expect(blocked('/account/delete')).toBe(false);
     // Щоб відсутність щось означала: правило, яке справді є, спрацьовує.
     expect(blocked('/trips/abc')).toBe(true);
   });
@@ -291,5 +308,8 @@ test.describe('🔴 /account: noindex метатегом, а не robots.txt (м
     expect(listed.length).toBeGreaterThan(3);
     expect(listed).toContain('/camping');
     expect(listed).not.toContain('/account');
+    // CAMP-229 (3/3): ні вивантаження, ні видалення теж.
+    expect(listed).not.toContain('/account/data');
+    expect(listed).not.toContain('/account/delete');
   });
 });

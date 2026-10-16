@@ -221,7 +221,17 @@ export class AccountService implements BeforeApplicationShutdown {
     const user = await this.users.findOne({ where: { email } });
     // A confirmation letter is for an address not yet confirmed; a reset is
     // for anyone. Both are decided here but only ACTED on after the response.
-    if (user && (kind === 'reset_password' || !user.emailVerifiedAt))
+    //
+    // 🔴 CAMP-229: NOT FOR AN ACCOUNT THAT IS BEING DELETED. A reset link would
+    // be a way back that the screen says does not exist ("only by signing in
+    // with the same password"), and a confirmation letter to someone who has
+    // just asked us to forget them would be the opposite of what they asked.
+    // The answer the caller sees is unchanged: the decision is made after it.
+    if (
+      user &&
+      !user.deletedAt &&
+      (kind === 'reset_password' || !user.emailVerifiedAt)
+    )
       this.later(() => this.issue(kind, user, now));
   }
 

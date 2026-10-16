@@ -149,7 +149,12 @@ export class AuthController {
     // Anything that tells them apart turns this form into a test for
     // whether an address is registered with us.
     if (!session) throw new UnauthorizedException(FAILED);
-    return { token: session.token, expiresAt: session.expiresAt.toISOString() };
+    return {
+      token: session.token,
+      expiresAt: session.expiresAt.toISOString(),
+      // Only when this sign-in cancelled a deletion; see `SignedIn`.
+      ...(session.restored ? { restored: true } : {}),
+    };
   }
 
   /**

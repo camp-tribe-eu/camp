@@ -142,6 +142,13 @@ export function CabinetView({ profile }: { profile: Profile }) {
           <EmptyCard key={s.id} state={s} />
         ))}
       </div>
+      {/* CAMP-229 (3/3): вхід у вивантаження й видалення. Це `<nav>`, а не `<section>`:
+          розділи кабінету — три порожні стани, і тести читають саме їх. */}
+      <nav aria-label="Your data" className="mt-6 text-sm">
+        <Link className="underline" href="/account/data">
+          Your data — download a copy, or delete your account
+        </Link>
+      </nav>
     </Shell>
   );
 }
@@ -149,9 +156,9 @@ export function CabinetView({ profile }: { profile: Profile }) {
 // ── Стани до профілю ────────────────────────────────────────────────────
 
 /** Поки відповіді немає. Це й те, що лежить у виданому HTML до гідратації. */
-export function CheckingView() {
+export function CheckingView({ title = CABINET_TITLE }: { title?: string }) {
   return (
-    <Shell title={CABINET_TITLE}>
+    <Shell title={title}>
       <p role="status" className="mt-4 text-ink-2">
         Checking your sign-in…
       </p>
@@ -160,9 +167,9 @@ export function CheckingView() {
 }
 
 /** Сервер сказав «ви не ввійшли»; сторінка веде на /login, а посилання — про всяк випадок. */
-export function SignedOutView() {
+export function SignedOutView({ title = CABINET_TITLE }: { title?: string }) {
   return (
-    <Shell title={CABINET_TITLE}>
+    <Shell title={title}>
       <p role="status" className="mt-4 text-ink-2">
         You are not signed in. Taking you to the sign-in page…{' '}
         <Link className="underline" href="/login">
@@ -177,12 +184,14 @@ export function SignedOutView() {
 export function CabinetErrorView({
   kind,
   onRetry,
+  title = CABINET_TITLE,
 }: {
   kind: 'unavailable' | 'failed';
   onRetry: () => void;
+  title?: string;
 }): ReactNode {
   return (
-    <Shell title={CABINET_TITLE}>
+    <Shell title={title}>
       <div
         role="alert"
         className="mt-4 max-w-md rounded border border-warn/40 bg-warn/5 p-4 text-sm text-ink"
