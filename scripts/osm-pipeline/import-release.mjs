@@ -61,6 +61,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
@@ -1845,7 +1846,25 @@ async function selfTest() {
     const dir = mkdtempSync(join(tmpdir(), 'camptribe-nodist-'));
     const real = realpathSync(dir);
     const copy = copyOfThisFile(dir);
-    const nodeOnly = { PATH: dirname(process.execPath) };
+    // 🔴 PATH, У ЯКОМУ Є ЛИШЕ `node` І НІЧОГО БІЛЬШЕ.
+    //
+    // Раніше тут стояло `{ PATH: dirname(process.execPath) }`, і воно
+    // ізолювало `psql` ЛИШЕ на машині розробника. На ноуті node живе в
+    // nvm (`~/.nvm/versions/node/…/bin`), а psql — в `/opt/homebrew/bin`,
+    // тож тека node справді його не містить.
+    //
+    // 🔴 НА СЕРВЕРІ ОБИДВА В `/usr/bin`. Заміряно 16.10.2026 на проді:
+    // `command -v node` → /usr/bin/node, `command -v psql` → /usr/bin/psql.
+    // Тобто PATH із теки node містив і psql, скрипт на ньому не
+    // зупинявся, і випадок нижче падав — на тій самій машині, заради
+    // якої він і написаний. Сторож був червоний саме там, де потрібен.
+    //
+    // Тека з одним симлінком не залежить від того, де в системі лежать
+    // бінарники: чого в ній немає, того немає напевно.
+    const binDir = join(real, '.only-node');
+    mkdirSync(binDir, { recursive: true });
+    symlinkSync(process.execPath, join(binDir, 'node'));
+    const nodeOnly = { PATH: binDir };
     ok('with no compiled importer the script exits non-zero, names the path, and says how to build it', (() => {
       try {
         run('node', [copy, '--tag', 'osm-2026-10-16', 'mt'], { env: nodeOnly });
