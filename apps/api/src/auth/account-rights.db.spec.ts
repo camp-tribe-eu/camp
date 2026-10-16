@@ -722,6 +722,37 @@ describe('🔴 deleting: access ends in THE SAME REQUEST', () => {
     expect((await get('/auth/me', other.json.token)).status).toBe(401);
   });
 
+  // 🔴 THE SECOND GUARD, ISOLATED. Deleting removes the sessions (the first guard, and
+  // the `count … = 0` above is its witness). This is the one the first cannot cover: a
+  // sign-in that had read the account before the deletion committed writes its session
+  // after it. The row is written straight into the table here, after the deletion, so
+  // that it exists and the ONLY thing between it and the cabinet is `resolveViewer`.
+  it('a session that appears AFTER the deletion opens nothing — and the same row opens an account that is alive', async () => {
+    const insert = (id: string, token: string) =>
+      db.query(
+        `INSERT INTO sessions (user_id, token_hash, expires_at)
+         VALUES ($1, $2, now() + interval '1 hour')`,
+        [id, sha256(token)],
+      );
+    const alive = await person();
+    const control = 'C'.repeat(43);
+    await insert(alive.id, control);
+    // The control: exactly this kind of row DOES open an account that is alive.
+    expect((await get('/auth/me', control)).status).toBe(200);
+
+    const p = await person();
+    await post('/account/delete', goodDelete(), auth(p.token));
+    const late = 'L'.repeat(43);
+    await insert(p.id, late);
+    expect(
+      await count('SELECT count(*) n FROM sessions WHERE user_id = $1', [p.id]),
+    ).toBe(1);
+    const me = await get('/auth/me', late);
+    expect(me.status).toBe(401);
+    expect(me.json.code).toBe('no_session');
+    expect((await get('/account/export', late)).status).toBe(401);
+  });
+
   it('answers with the last day it can be undone: 30 days from now', async () => {
     const p = await person();
     const before = Date.now();

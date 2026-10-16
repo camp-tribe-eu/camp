@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThan, Repository } from 'typeorm';
+import { IsNull, MoreThan, Repository } from 'typeorm';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
 import { DELETION_WINDOW_MS } from './account-deletion';
@@ -179,8 +179,15 @@ export class AuthService {
     now: Date = new Date(),
   ): Promise<Viewer> {
     if (!token) return null;
+    // 🔴 CAMP-229 (3/3): A SESSION OF AN ACCOUNT THAT IS BEING DELETED IS NOT A
+    // SESSION, whatever the sessions table says. Deleting an account removes its
+    // sessions in the same transaction, and that is the guard that ends access; this
+    // is the second, for the one thing the first cannot see — a sign-in that read
+    // the account BEFORE the deletion committed and wrote its session AFTER it (the
+    // scrypt in between is 200 ms). The filter is part of the one indexed lookup, a
+    // join on the account's key, not an extra query.
     const session = await this.sessions.findOne({
-      where: { tokenHash: tokenHash(token) },
+      where: { tokenHash: tokenHash(token), user: { deletedAt: IsNull() } },
     });
     if (!session || isExpired(session.expiresAt, now)) return null;
     return { id: session.userId };
