@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { corsOptions } from './cors';
 
 // CAMP-32 made this necessary: until now every call to the API came from
 // the Next build on the server, and the browser never spoke to it. The
@@ -25,23 +26,9 @@ async function bootstrap() {
 
   const origins = corsOrigins();
   if (origins.length > 0) {
-    app.enableCors({
-      origin: origins,
-      // 🔴 POST is here for exactly one route: CAMP-92's client-error
-      // report, which a broken page sends from the reader's browser.
-      // It is safe to add only because the allowlist above is still the
-      // gate — a POST from an origin we did not list never reaches the
-      // handler — and because the endpoint itself validates, truncates
-      // and rate-limits everything it accepts. If a future route needs
-      // a wider method set, it needs its own reasoning, not this one.
-      methods: ['GET', 'POST'],
-      allowedHeaders: ['Content-Type'],
-      // We send no cookies and no Authorization, so credentials must stay
-      // off — turning them on is what makes a mistaken allowlist entry
-      // dangerous rather than merely wrong.
-      credentials: false,
-      maxAge: 86_400,
-    });
+    // The options live in cors.ts, where a test can reach them. Read there
+    // before changing anything here: `Authorization` is allowed on purpose.
+    app.enableCors(corsOptions(origins));
   }
 
   // CAMP-142: say out loud whether the build may bypass the rate limit.

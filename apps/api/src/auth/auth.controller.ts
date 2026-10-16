@@ -1,6 +1,8 @@
 import {
   Body,
   Controller,
+  Get,
+  Header,
   HttpCode,
   HttpException,
   Post,
@@ -21,6 +23,8 @@ import {
 } from './account.service';
 import { AuthService } from './auth.service';
 import { LOGIN_LIMIT, MAIL_LIMIT } from '../throttle';
+import { CurrentViewer } from './current-viewer.decorator';
+import type { Viewer } from './ownership';
 import { parseBearer } from './session';
 import type { WithViewer } from './viewer.middleware';
 
@@ -255,6 +259,39 @@ export class AuthController {
   }
 
   /**
+   * Who is signed in. CAMP-229.
+   *
+   * 🔴 401, NEVER 200 WITH AN EMPTY OBJECT. The account page decides between
+   * "show the cabinet" and "send to /login" on this status alone, and an
+   * empty 200 is a status that reads as success. Every way a caller can fail
+   * to be somebody — no header, a malformed one, a token nobody issued, an
+   * expired one, a signed-out one, an account that no longer exists — reaches
+   * the same answer by the same line: `viewer` is null, or `profile` is.
+   * That is also why one body serves them all: a different message for
+   * "expired" and "unknown" is a way to learn whether a guessed token was ever
+   * real.
+   *
+   * 🔴 `no-store`, on the 401 as well as the 200. This answer is one person's
+   * private data, and a shared cache that kept it would hand it to the next
+   * caller who asked the same URL with a different — or no — token. The
+   * header is set before the handler runs, so it rides on the refusal too;
+   * `account.db.spec.ts` reads it off both.
+   *
+   * Throttled with everything ordinary (120 a minute): the page calls it once
+   * per visit, and the lookup is one indexed read. It must NOT sit in the
+   * login bucket, where a few page loads would eat the budget for guessing
+   * passwords; `throttle.spec.ts` pins the bucket.
+   */
+  @Get('me')
+  @Header('Cache-Control', 'no-store')
+  async me(@CurrentViewer() viewer: Viewer) {
+    if (!viewer) throw new UnauthorizedException(NO_SESSION);
+    const profile = await this.auth.profile(viewer.id);
+    if (!profile) throw new UnauthorizedException(NO_SESSION);
+    return profile;
+  }
+
+  /**
    * Sign out this session.
    *
    * 🔴 204 whether or not the token was real. A logout that answers
@@ -270,3 +307,12 @@ export class AuthController {
 
 /** The single sentence every failed sign-in gets. */
 const FAILED = 'Email or password is wrong.';
+
+/**
+ * The one body every refusal of `GET /auth/me` gets, in the `{ code, message }`
+ * shape the rest of this controller uses so a page can branch on `code`.
+ */
+const NO_SESSION = {
+  code: 'no_session',
+  message: 'You are not signed in.',
+} as const;

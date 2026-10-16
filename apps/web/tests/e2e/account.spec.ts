@@ -1,5 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from './api-request';
+import { EMPTY_STATES } from '@/components/account-cabinet-view';
+import { RETURN_KEY } from '@/lib/return-path';
 import { visibleText } from '../unit/rendered-text';
 
 // CAMP-228 — сторінки акаунта, як їх зустрічає читач, з ВИДАНОГО документа.
@@ -113,4 +115,86 @@ test.describe('доступність і консоль', () => {
       expect(errors).toEqual([]);
     });
   }
+});
+
+// ── CAMP-229: /account ───────────────────────────────────────────────────
+//
+// 🔴 Що ТУТ можна довести, а що ні. Збірка CI не має `NEXT_PUBLIC_API_BASE_URL`,
+// тож кабінет там не може спитати сервер, хто це, і справжній кабінет (профіль,
+// три порожні картки) побачити в CI неможливо. Це не прогалина тесту, а факт
+// збірки: розмітку кабінету читає `tests/unit/account-cabinet.spec.tsx` на
+// ВИДАНОМУ HTML, розмову з API — `tests/unit/cabinet.spec.ts`, а повний шлях
+// у браузері з живим API (вхід, повернення, консоль, 375 і 1024 px, axe) прогнано
+// руками й записано в описі PR.
+//
+// Те, що без API довести МОЖНА, і що тут доведено: виданий документ, і те, що
+// людину без сесії дійсно відправляють на /login, запам'ятавши, звідки.
+
+test.describe('🔴 /account: виданий документ', () => {
+  test('200, noindex+nofollow у HTML, один <h1>, і ЖОДНОГО кабінету до того, як сервер назвав людину', async ({
+    request,
+  }) => {
+    const res = await request.get('/account');
+    expect(res.status()).toBe(200);
+    const html = await res.text();
+    expect(html).toMatch(/<meta name="robots"[^>]*content="[^"]*noindex[^"]*nofollow/i);
+    const h1 = [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)].map((m) => visibleText(m[1]));
+    expect(h1).toEqual(['Your account']);
+    // Що бачить кожен, кому JS не виконався: заголовок і «перевіряємо», не профіль
+    // і не порожній кабінет, що вдає, ніби людина ввійшла.
+    const text = visibleText(html);
+    expect(text).toContain('Checking your sign-in…');
+    for (const s of EMPTY_STATES) expect(text, s.title).not.toContain(s.title);
+  });
+
+  test('хлібні крихти JSON-LD ведуть сюди й називаються як <h1>', async ({ request }) => {
+    const html = await (await request.get('/account')).text();
+    const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(
+      (m) => JSON.parse(m[1]),
+    );
+    const crumbs = blocks.find((b) => b['@type'] === 'BreadcrumbList');
+    expect(crumbs, 'немає BreadcrumbList').toBeDefined();
+    const items = crumbs.itemListElement as { position: number; name: string; item: string }[];
+    expect(new URL(items[1].item).pathname).toBe('/account');
+    expect(items[1].name).toBe('Your account');
+  });
+});
+
+test.describe('🔴 /account: не ввійшов — на /login, і сторінка запам\'ятовує, звідки', () => {
+  test('людина без сесії потрапляє на /login, а в сховищі вкладки лежить рівно `/account`', async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+    page.on('pageerror', (e) => errors.push(e.message));
+
+    await page.goto('/account');
+    await page.waitForURL('**/login');
+    expect(new URL(page.url()).pathname).toBe('/login');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sign in');
+
+    const stored = await page.evaluate((key) => window.sessionStorage.getItem(key), RETURN_KEY);
+    expect(stored, 'місце повернення записано').not.toBeNull();
+    expect(JSON.parse(stored!).path).toBe('/account');
+    expect(errors).toEqual([]);
+  });
+
+  test('запит у адресі, що годиться (?tab=photos), переживає перехід на /login', async ({
+    page,
+  }) => {
+    await page.goto('/account?tab=photos');
+    await page.waitForURL('**/login');
+    const kept = await page.evaluate((key) => window.sessionStorage.getItem(key), RETURN_KEY);
+    expect(JSON.parse(kept!).path).toBe('/account?tab=photos');
+  });
+
+  test('🔴 запит, що не годиться як місце повернення, не записується взагалі', async ({ page }) => {
+    // `//evil.com` у запиті: сторінка за логіном не вибирає, що з адреси брати, а
+    // кладе в сховище все або нічого. «Нічого» означає, що після входу людина піде
+    // на типове місце, а не туди, куди показує лист.
+    await page.goto('/account?next=//evil.com');
+    await page.waitForURL('**/login');
+    const kept = await page.evaluate((key) => window.sessionStorage.getItem(key), RETURN_KEY);
+    expect(kept).toBeNull();
+  });
 });

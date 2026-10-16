@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import {
   RESEND_SECONDS,
@@ -18,6 +19,7 @@ import {
   waitUntil,
   type Outcome,
 } from '@/lib/account';
+import { takeReturn } from '@/lib/return-path';
 import { clearSession, saveSession } from '@/lib/session-store';
 import {
   EMPTY_SIGNUP,
@@ -77,7 +79,7 @@ export function SignupForm() {
   const [draft, setDraft] = useState<SignupDraft>(EMPTY_SIGNUP);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Outcome | null>(null);
-  const [done, setDone] = useState<{ email: string; until: number } | null>(null);
+  const [done, setDone] = useState<{ email: string; until: number; to: string } | null>(null);
   const [resendError, setResendError] = useState<Outcome | null>(null);
   const left = useCountdown(done?.until ?? null);
 
@@ -93,7 +95,11 @@ export function SignupForm() {
       email: string;
     };
     saveSession({ token, expiresAt, email });
-    setDone({ email, until: Date.now() + RESEND_SECONDS * 1000 });
+    // 🔴 Реєстрація теж вхід: людина, яку кабінет відправив на /login і яка
+    // обрала «Create one», не мусить губити, де була. Тут вона НЕ перенаправляється
+    // сама — екран «Confirm your email» треба прочитати, — а «Continue» веде туди,
+    // де вона була. Те саме правило, що й у формі входу: з того, що записав кабінет.
+    setDone({ email, until: Date.now() + RESEND_SECONDS * 1000, to: takeReturn() });
   }
 
   async function resend() {
@@ -114,6 +120,7 @@ export function SignupForm() {
         busy={busy}
         error={resendError}
         onResend={resend}
+        continueTo={done.to}
       />
     );
   return (
@@ -130,12 +137,19 @@ export function SignupForm() {
 
 // ── Вхід ──────────────────────────────────────────────────────────────
 
+// 🔴 ПОВЕРНЕННЯ ПІСЛЯ ВХОДУ (CAMP-229). Куди йти, вирішує `takeReturn()` — і
+// ТІЛЬКИ вона: з того, що записала сторінка за логіном у сховище цієї вкладки,
+// за 15 хвилин, перевірене ще раз. Ця форма НЕ ЧИТАЄ адреси сторінки: ні
+// `?next=`, ні `location`, ні хеша. Посилання з листа не має чим сказати їй,
+// куди йти, і тому `/login?next=https://evil` для неї те саме, що `/login`.
+// Нема куди повернути — `DEFAULT_RETURN`. Докладно — lib/return-path.ts.
 export function LoginForm() {
+  const router = useRouter();
   const ready = useReady();
   const [draft, setDraft] = useState({ email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Outcome | null>(null);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
 
   async function submit() {
     setBusy(true);
@@ -145,10 +159,13 @@ export function LoginForm() {
     if (out.kind !== 'ok' || !out.body) return setError(out);
     const { token, expiresAt } = out.body as { token: string; expiresAt: string };
     saveSession({ token, expiresAt, email: draft.email.trim().toLowerCase() });
-    setDone(true);
+    // Спершу забрати й стерти запис, потім іти: невдалий перехід не зациклить.
+    const to = takeReturn();
+    setDone(to);
+    router.replace(to);
   }
 
-  if (done) return <LoginDoneView />;
+  if (done !== null) return <LoginDoneView to={done} />;
   return (
     <LoginFormView
       draft={draft}
