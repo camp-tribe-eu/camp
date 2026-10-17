@@ -200,10 +200,79 @@ release built at 20:08–20:16 UTC that evening. Any plan that ends at
 "the import succeeded" ends one step early — the data reaches readers at
 the next build, and nowhere before it.
 
-**What this does not yet cover.** One country, run by hand from a laptop
-over SSH. The weekly workflow that publishes per-country assets, and the
-machine pulling them on a schedule, are still CAMP-97 and CAMP-99. The
-difference now is that the last mile is measured rather than assumed.
+**What this does not yet cover.** The weekly workflow that publishes
+per-country assets, and the machine pulling them on a schedule, are still
+CAMP-97 and CAMP-99. The difference now is that the last mile is measured
+rather than assumed.
+
+## The full EU-27 run (17.10.2026)
+
+Release `osm-2026-10-16`, run on the machine by hand. **23 of 27 in 312
+seconds**; the other four came in on a retry a minute later.
+
+| | before | after |
+| --- | --- | --- |
+| rows in `camping_spots` | 63 031 | 63 159 |
+| rows carrying an OSM edit date | **301** | **47 534 (75.3%)** |
+
+🔴 **FOUR COUNTRIES FAILED, AND SIZE DOES NOT EXPLAIN WHICH FOUR.**
+`DK`, `ES`, `IT` and `FR` each answered `fetch failed`. Three of them are
+among our five biggest — so the tempting sentence is "the big ones time
+out". It is wrong: `DK` is **8th of 27 with 2 055 rows**, while `DE`
+(2nd, 9 690), `NL` (4th, 3 894) and `SE` (6th, 2 369) all came through in
+the same run. What the four do share is position — 21st, 23rd, 25th and
+27th of 27, interleaved with those successes — and that every one of them
+succeeded when asked again a minute later.
+
+The operational conclusion does not depend on knowing the cause:
+**a retry is not optional.** Measured on this run — after the first pass
+the table held 25 360 dated rows (40.2%); the retry of those four took it
+to 47 534 (75.3%). **22 174 of the dates, 47% of everything we have, came
+from the retry alone.** Without one, the night a timer fires is the night
+France — 23 887 campsites, 38% of the table — silently keeps yesterday's
+data.
+
+🔴 **AND THE EXIT CODE IS RIGHT; THE WAY I READ IT WAS NOT.**
+`import-release.mjs` sets `process.exitCode = 1` when any state failed
+(line ~2759). I ran it as `node … | tail | sed`, read `$?`, saw `0`, and
+nearly filed a defect against the script. A pipeline reports its LAST
+command's code. Measured on the spot, with a tag that does not exist:
+
+```
+node … | tail >/dev/null                    -> 0
+( set -o pipefail; node … | tail >/dev/null ) -> 1
+node … >/dev/null                            -> 1
+```
+
+CI already knows this: both self-test steps in `ci.yml` open with
+`set -o pipefail` and a comment saying Actions runs `bash -e {0}` without
+it. Anyone running this by hand needs the same.
+
+**Where the remaining 25 625 rows without a date come from**, so that the
+number is not mistaken for a defect:
+
+* **8 752 have no `osm_ref` at all** — they did not come from OSM
+  (DATAtourisme and the rest). There is no date to carry.
+* **6 873 have an `osm_ref` but were not touched by this run** — their
+  object is no longer in the current extract. Deleted or retagged in OSM
+  since we first saw it; related to CAMP-279.
+
+**The distribution reproduces what CAMP-256 measured in September**, which
+is the point of that card's check — if an import had stamped the download
+date instead of the OSM one, 2026 would be 100%:
+
+| last edited | card (25.09, 47 603) | now (16.10, 47 534) |
+| --- | --- | --- |
+| 2026 | 12 398 (26.0%) | 13 089 (27.5%) |
+| 2025 | 10 889 (22.9%) | 10 579 (22.3%) |
+| untouched 2 years+ | 15 129 (31.8%) | 14 866 (31.3%) |
+| untouched 5 years+ | 5 874 (12.3%) | 5 700 (12.0%) |
+
+🔴 The right-hand column counts CALENDAR years (`< 2024`). Counting "two
+years back from today" over the same rows gives **45.6%** instead of
+31.3% — a different question with a similar-looking answer. Check which
+of the two a card means before quoting a number at it; both are true and
+only one answers the question asked.
 
 **Publishing the computed context.** The raw extract in the release is
 OpenStreetMap data under ODbL and belongs in public. The computed context
