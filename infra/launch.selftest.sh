@@ -24,7 +24,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LAUNCH="${CAMPTRIBE_LAUNCH_BIN:-$HERE/bin/camptribe-launch}"
-EXPECTED=42
+EXPECTED=45
 
 [ -f "$LAUNCH" ] || { echo "немає $LAUNCH" >&2; exit 1; }
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-launch-selftest.XXXXXX")"
@@ -184,42 +184,49 @@ if [ "$WANT_CODE" = 1 ]; then printf '%s' "$CODE"; exit 0; fi
 if [ "$WANT_HDR" = 1 ]; then printf '%s\n\n' "$HDR"; exit 0; fi
 printf '%s\n' "$BODY"
 STUBCURL
-# CAMP-339 — підмінник `sudo -u <user> test -r <file>`.
+# CAMP-339 — підмінник `sudo`.
 #
-# 🔴 ВІДДАЄ СИРЕ, як і решта підмінників тут: дивиться СПРАВЖНІ права
-# СПРАВЖНЬОГО файла, а не заздалегідь записану відповідь. Тому `chmod 600`
-# у випадку нижче справді робить відповідь негативною, і перевірка
-# червоніє через те саме, через що лягав прод, — а не тому, що їй так
-# сказали.
+# 🔴 ПІДМІНЮЄМО ЗОВНІШНЮ КОМАНДУ, А НЕ ФУНКЦІЮ. Перша редакція підміняла
+# всю `readable_by_caddy` через CAMPTRIBE_READCHECK, і самотест задавав її
+# ЗАВЖДИ — тобто рядок `sudo -u caddy test -r`, єдиний, що справді їде на
+# машину, не виконувався в наборі жодного разу. Мутація «прибрати
+# `sudo -u $CADDY_USER`» лишала 42 з 42 зеленими, хоч на сервері скрипт
+# іде від root, root читає все, і вся CAMP-339 ставала порожньою.
 #
-# Користувача `caddy` в пісочниці немає й бути не може, тож питання
-# зводиться до того самого, що вирішує ядро для БУДЬ-ЯКОГО чужого
-# користувача: чи дає режим файла читання групі або всім. Власником усіх
-# цих файлів на машині є root, а Caddy — ніколи не власник.
+# 🔴 І ПЕРЕВІРЯЄ ФОРМУ ВИКЛИКУ, не лише відповідає. Код 64 на будь-яке
+# інше написання: так «перестали питати від імені користувача» і
+# «перестали питати про читання» мають свій спосіб почервоніти.
 #
-# 🔴 GNU ПЕРШИМ, І ЦЕ НЕ СМАК. У coreutils `-f` це `--file-system`, цілком
-# чинний прапорець з іншим значенням: на невідому директиву він друкує `?`
-# і **виходить 0**, тож `||` до форми `-c` не доходить ніколи. Підмінник,
-# написаний у порядку BSD→GNU, на Linux ставав константою «не читає» —
-# 41/0 на макбуку, 27/14 на раннері. BSD чесно відкидає `-c` кодом 1, тому
-# GNU→BSD правильний на обох. Та сама пастка описана в
-# `scripts/osm-pipeline/load-context.sh` із посиланням на `src/stat.c`;
-# я написав її вдруге, маючи готове попередження в сусідньому файлі.
+# Відповідь — СИРА: дивиться справжні права справжнього файла. Користувача
+# `caddy` в пісочниці немає, тож питання зводиться до того, що вирішує
+# ядро для будь-якого чужого користувача: чи дає режим читання групі або
+# всім. Власником цих файлів на машині є root, Caddy — ніколи не власник.
 #
-# `-L` — бо `gate.conf` сам є симлінком, а `stat` без нього прочитав би
-# права САМОГО симлінка (0777 завжди) і сказав «читається» там, де
-# `sudo -u caddy test -r` сказав би «ні».
-cat > "$STUB/readcheck" <<'STUBREAD'
+# 🔴 GNU ПЕРШИМ, І ЦЕ НЕ СМАК. У coreutils `-f` це `--file-system`: на
+# невідому директиву друкує `?` і ВИХОДИТЬ 0, тож `||` до форми `-c` не
+# доходить ніколи, і підмінник стає константою «не читає» — 42/0 на
+# макбуку, 27/14 на раннері. BSD чесно відкидає `-c` кодом 1 (заміряно),
+# тому GNU→BSD правильний на обох. Та сама пастка описана в
+# `scripts/osm-pipeline/load-context.sh` із посиланням на `src/stat.c`.
+#
+# `-L` — бо `gate.conf` сам симлінк, а `stat` без нього читає права
+# САМОГО симлінка (0777 завжди) і каже «читається» там, де `test -r`
+# сказав би «ні».
+cat > "$STUB/sudo" <<'STUBSUDO'
 #!/usr/bin/env bash
-f="$2"
+[ "$1" = "-u" ] || { echo "sudo-підмінник: очікував -u, дістав: $*" >&2; exit 64; }
+user="$2"; shift 2
+[ "$user" = "${CAMPTRIBE_CADDY_USER:-caddy}" ] || { echo "sudo-підмінник: чужий користувач «$user»" >&2; exit 64; }
+[ "$1" = "test" ] && [ "$2" = "-r" ] || { echo "sudo-підмінник: очікував test -r, дістав: $*" >&2; exit 64; }
+f="$3"
 [ -f "$f" ] || exit 1
 m=$(stat -L -c '%a' "$f" 2>/dev/null) || m=$(stat -L -f '%Lp' "$f" 2>/dev/null) || exit 1
 m=$(printf '%03d' "$((10#$m))")
 g=${m:1:1}; o=${m:2:1}
 if [ $(( g & 4 )) -ne 0 ] || [ $(( o & 4 )) -ne 0 ]; then exit 0; fi
 exit 1
-STUBREAD
-chmod +x "$STUB/caddy" "$STUB/curl" "$STUB/readcheck"
+STUBSUDO
+chmod +x "$STUB/caddy" "$STUB/curl" "$STUB/sudo"
 
 # Замок народився з файлів, які створює людина від root. Відтворюємо саме
 # це: 640 root:caddy на закритому (як виправлено на проді 16.10) і 644 на
@@ -236,7 +243,7 @@ export GATE_PATH="$CADDY/gate.conf" GATE_CLOSED_PATH="$CADDY/gate-closed.conf" C
 run() { # прапорці скрипта → вивід у $OUT, код у $RC
   OUT="$(CAMPTRIBE_ROOT="$ROOT" CAMPTRIBE_CADDY_DIR="$CADDY" \
         CAMPTRIBE_CADDY_BIN="$STUB/caddy" CAMPTRIBE_CURL="$STUB/curl" \
-        CAMPTRIBE_READCHECK="$STUB/readcheck" CAMPTRIBE_CADDY_USER=caddy \
+        CAMPTRIBE_SUDO="$STUB/sudo" CAMPTRIBE_CADDY_USER=caddy \
         CAMPTRIBE_WEB_URL="$WEB_ORIGIN" CAMPTRIBE_SITE_URL="$SITE_ORIGIN" \
         CAMPTRIBE_VERIFY_TRIES=2 CAMPTRIBE_VERIFY_SLEEP=0 \
         bash "$LAUNCH" "$@" 2>&1)"; RC=$?
@@ -469,21 +476,48 @@ run close --apply
 [ "$RC" != 0 ] && [ "$(gate_now)" = open ] && printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
 ok $? 'close не йде, коли НЕЧИТАБЕЛЬНА САМЕ ЦІЛЬ' "rc=$RC gate=$(gate_now) $OUT"
 
-# 🔴 А ось протилежне, і перша редакція тут помилялась. Нечитабельний
-# файл, який ми ПОКИДАЄМО, перехід не спиняє: Caddyfile імпортує лише
-# gate.conf. Валити через нього означало б заглушити аварійний важіль —
-# те саме, від чого картка й захищає.
+# 🔴 ЦІЛЬ ВІДКАТУ. Ціль переходу (gate-open.conf) читається, зламаний
+# лише gate-closed.conf — і перша редакція вважала це приводом для
+# попередження. Хибно: `caddy_apply … "$GATE_CLOSED"` і
+# `point_gate "$GATE_CLOSED"` вертають саме туди, хай що ми відкривали.
+# Тобто невдале відкриття поклало б gate.conf на файл, якого служба не
+# прочитає, і скрипт назвав би це «повернуто під пароль, і це перевірено».
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+chmod 600 "$CADDY/gate-closed.conf"
 run open --apply
-[ "$RC" = 0 ] && [ "$(gate_now)" = open ] && printf '%s' "$OUT" | grep -q 'шлях назад зламаний'
-ok $? 'зламаний ШЛЯХ НАЗАД попереджає, але переходу не спиняє' "rc=$RC gate=$(gate_now) $OUT"
+[ "$RC" != 0 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'саме туди цей запуск відкотиться'
+ok $? 'open не йде, коли нечитабельна ЦІЛЬ ВІДКАТУ, хоч сама ціль читається' "rc=$RC gate=$(gate_now) $OUT"
 chmod 640 "$CADDY/gate-closed.conf"
 
-# Та сама мутація на другому файлі, коли ВІН є ціллю.
+# А ось де попередження справді доречне: закриваємось, і нечитабельний
+# саме той файл, який Caddy після цього взагалі не читає. Спиняти через
+# нього означало б заглушити аварійний важіль.
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+chmod 600 "$CADDY/gate-open.conf"
+run close --apply
+[ "$RC" = 0 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'не читає'
+ok $? 'close ІДЕ з попередженням, коли зламаний лише покинутий файл' "rc=$RC gate=$(gate_now) $OUT"
+
+# Сухий прогін не має казати обидві речі одразу.
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+run close
+printf '%s' "$OUT" | grep -q 'не читає' && ! printf '%s' "$OUT" | grep -q 'читає обидва файли'
+ok $? 'сухий прогін не каже «читає обидва» після власного попередження' "rc=$RC $OUT"
+chmod 644 "$CADDY/gate-open.conf"
+
+# Відсутній покинутий файл — теж попередження, і воно має бути своє.
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+mv "$CADDY/gate-open.conf" "$CADDY/gate-open.keep"
+run close --apply
+[ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'ШЛЯХУ НАЗАД НЕ ІСНУЄ'
+ok $? 'відсутній покинутий файл названий окремо, а не мовчки пропущений' "rc=$RC $OUT"
+mv "$CADDY/gate-open.keep" "$CADDY/gate-open.conf"
+
+# Та сама мутація на gate-open.conf, коли ВІН є ціллю.
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 chmod 600 "$CADDY/gate-open.conf"
 run open --apply
-[ "$RC" != 0 ] && [ "$(gate_now)" = closed ]
+[ "$RC" != 0 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
 ok $? 'open не йде, коли нечитабельний gate-open.conf як ціль' "rc=$RC gate=$(gate_now) $OUT"
 chmod 644 "$CADDY/gate-open.conf"
 
