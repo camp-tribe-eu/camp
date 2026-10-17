@@ -47,6 +47,8 @@ GATE_CLOSED="${CAMPTRIBE_GATE_CLOSED:-$CADDY_DIR/gate-closed.conf}"
 WEB_URL="${CAMPTRIBE_WEB_URL:-http://127.0.0.1:3000}"
 SITE_URL="${CAMPTRIBE_SITE_URL:-https://camptribe.eu}"
 CURL="${CAMPTRIBE_CURL:-curl}"
+CADDY_USER="${CAMPTRIBE_CADDY_USER:-caddy}"
+READCHECK="${CAMPTRIBE_READCHECK:-}"
 VERIFY_TRIES="${CAMPTRIBE_VERIFY_TRIES:-10}"
 VERIFY_SLEEP="${CAMPTRIBE_VERIFY_SLEEP:-3}"
 
@@ -120,7 +122,28 @@ status() {
   say "2. збірка віддає robots/X-Robots: $b      ($WEB_URL)"
   say "3. Caddy  gate.conf              : $g      ($GATE)"
   say "4. ззовні                        : $p      ($SITE_URL)"
+
+  # 🔴 CAMP-339: ПʼЯТИЙ рядок, і він єдиний ловить саму аварію 15–16.10.2026.
+  # Її не було видно жодному з чотирьох вище: права на gate-closed.conf
+  # виставили о 14:50, перемикання НЕ відбувалось, усі замки показували
+  # правильне, сайт працював — бо Caddy тримав уже прочитану копію в
+  # памʼяті. Лягло воно через добу, на першому перезапуску.
+  # Сторож, який питає лише під час перемикання, цього випадку не бачить:
+  # перемикання тут не було взагалі.
+  local f bad=0
+  for f in "$GATE_OPEN" "$GATE_CLOSED"; do
+    [ -f "$f" ] || continue
+    readable_by_caddy "$f" || { bad=1; say "5. права  🔴 «$CADDY_USER» НЕ ЧИТАЄ $f"; }
+  done
+  [ "$bad" = 0 ] && say "5. права  обидва файли замка читає «$CADDY_USER»"
   say ''
+  if [ "$bad" != 0 ]; then
+    say '🔴 ЗАМОК ОДНОРАЗОВИЙ. Поки це так, перемикання вдасться, а Caddy не'
+    say '   підніметься при наступному перезапуску — і причина буде за добу'
+    say '   від дії. Полагодь обидва:'
+    say "     chown root:$CADDY_USER <файл> && chmod 640 <файл>"
+    return 1
+  fi
   if [ "$e" = closed ] && [ "$b" = closed ] && [ "$g" = closed ] && [ "$p" = 'пароль' ]; then
     say 'ЗАКРИТО — всі три замки на місці, ззовні пароль.'; return 0
   fi
@@ -176,6 +199,22 @@ caddy_apply() { # «що робимо» для повідомлення, куд�
 # ганяється і на macOS. Ціль завжди файл, тож -n досить.
 point_gate() { ln -sfn "$1" "$GATE"; }
 
+# CAMP-339: чи може ПРОЧИТАТИ цей файл користувач, від якого працює Caddy.
+#
+# 🔴 НЕ «чи існує» і не «які там права». Саме читання тим користувачем —
+# бо все інше бреше одразу в три боки:
+#   * `[ -f ]` від root бачить файл, якого служба не бачить;
+#   * `caddy validate` теж виконується від root і каже «Valid configuration»;
+#   * `caddy reload` віддає вже РОЗІБРАНИЙ конфіг в admin API, тож робочий
+#     процес файла не торкається — перемикання «вдається», а сайт лягає
+#     при наступному перезапуску, через добу й без видимої причини.
+# Саме так воно й сталось 15–16.10.2026: права виставили о 14:50, а впало
+# на перезапуску наступного дня.
+readable_by_caddy() { # файл
+  if [ -n "$READCHECK" ]; then "$READCHECK" "$CADDY_USER" "$1"; return $?; fi
+  sudo -u "$CADDY_USER" test -r "$1"
+}
+
 switch_gate() { # open|closed
   local want="$1" target cur expect
   cur="$(lock_gate)"
@@ -190,9 +229,27 @@ switch_gate() { # open|closed
     [ "$b" = public ] || die "збірка віддає «$b»: зняти пароль зараз означає пустити робота на сайт, який сам просить себе не індексувати. Спершу env --public і повна викладка"
   fi
 
+  # 🔴 CAMP-339: ОБИДВА файли, не лише цільовий, і ДО перемикання.
+  #
+  # Обидва — бо дефектом була саме АСИМЕТРІЯ: `gate-open.conf` мав 644 і
+  # читався, `gate-closed.conf` мав 600 root:root і ні. Тобто відкрити
+  # вдавалось, а закрити назад поклало б сайт зовсім — зламаним був
+  # аварійний бік перемикача, той, яким користуються, коли вже погано.
+  # Перевіряти лише ціль означало б лишити другу половину пастки на місці.
+  #
+  # До перемикання — бо після нього відмова лишає машину в стані, який
+  # треба описувати словами «невідомо». Тут ще нічого не зроблено.
+  local f
+  for f in "$GATE_OPEN" "$GATE_CLOSED"; do
+    [ -f "$f" ] || continue
+    readable_by_caddy "$f" || die "користувач «$CADDY_USER» НЕ МОЖЕ прочитати $f — Caddy не підніметься при наступному перезапуску, хоч reload і validate цього не покажуть. Полагодь і повтори:
+     chown root:$CADDY_USER $f && chmod 640 $f"
+  done
+
   if [ "$APPLY" != 1 ]; then
     say "  [сухий] gate.conf: $cur → $want ($target)"
     say "  [сухий] далі: caddy validate && caddy reload, тоді перевірка ззовні ($SITE_URL)"
+    say "  [сухий] права: «$CADDY_USER» читає обидва файли замка"
     return 0
   fi
 

@@ -24,7 +24,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LAUNCH="${CAMPTRIBE_LAUNCH_BIN:-$HERE/bin/camptribe-launch}"
-EXPECTED=35
+EXPECTED=41
 
 [ -f "$LAUNCH" ] || { echo "немає $LAUNCH" >&2; exit 1; }
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-launch-selftest.XXXXXX")"
@@ -184,7 +184,35 @@ if [ "$WANT_CODE" = 1 ]; then printf '%s' "$CODE"; exit 0; fi
 if [ "$WANT_HDR" = 1 ]; then printf '%s\n\n' "$HDR"; exit 0; fi
 printf '%s\n' "$BODY"
 STUBCURL
-chmod +x "$STUB/caddy" "$STUB/curl"
+# CAMP-339 — підмінник `sudo -u <user> test -r <file>`.
+#
+# 🔴 ВІДДАЄ СИРЕ, як і решта підмінників тут: дивиться СПРАВЖНІ права
+# СПРАВЖНЬОГО файла, а не заздалегідь записану відповідь. Тому `chmod 600`
+# у випадку нижче справді робить відповідь негативною, і перевірка
+# червоніє через те саме, через що лягав прод, — а не тому, що їй так
+# сказали.
+#
+# Користувача `caddy` в пісочниці немає й бути не може, тож питання
+# зводиться до того самого, що вирішує ядро для БУДЬ-ЯКОГО чужого
+# користувача: чи дає режим файла читання групі або всім. Власником усіх
+# цих файлів на машині є root, а Caddy — ніколи не власник.
+cat > "$STUB/readcheck" <<'STUBREAD'
+#!/usr/bin/env bash
+f="$2"
+[ -f "$f" ] || exit 1
+m=$(stat -f '%Lp' "$f" 2>/dev/null || stat -c '%a' "$f" 2>/dev/null) || exit 1
+m=$(printf '%03d' "$((10#$m))")
+g=${m:1:1}; o=${m:2:1}
+if [ $(( g & 4 )) -ne 0 ] || [ $(( o & 4 )) -ne 0 ]; then exit 0; fi
+exit 1
+STUBREAD
+chmod +x "$STUB/caddy" "$STUB/curl" "$STUB/readcheck"
+
+# Замок народився з файлів, які створює людина від root. Відтворюємо саме
+# це: 640 root:caddy на закритому (як виправлено на проді 16.10) і 644 на
+# відкритому.
+chmod 640 "$CADDY/gate-closed.conf" 2>/dev/null || true
+chmod 644 "$CADDY/gate-open.conf" 2>/dev/null || true
 
 export CADDY_LOG="$BASE/caddy.log"; : > "$CADDY_LOG"
 export CADDY_VALIDATE_FAILS="$BASE/no-validate" CADDY_RELOAD_FAILS="$BASE/no-reload"
@@ -195,6 +223,7 @@ export GATE_PATH="$CADDY/gate.conf" GATE_CLOSED_PATH="$CADDY/gate-closed.conf" C
 run() { # прапорці скрипта → вивід у $OUT, код у $RC
   OUT="$(CAMPTRIBE_ROOT="$ROOT" CAMPTRIBE_CADDY_DIR="$CADDY" \
         CAMPTRIBE_CADDY_BIN="$STUB/caddy" CAMPTRIBE_CURL="$STUB/curl" \
+        CAMPTRIBE_READCHECK="$STUB/readcheck" CAMPTRIBE_CADDY_USER=caddy \
         CAMPTRIBE_WEB_URL="$WEB_ORIGIN" CAMPTRIBE_SITE_URL="$SITE_ORIGIN" \
         CAMPTRIBE_VERIFY_TRIES=2 CAMPTRIBE_VERIFY_SLEEP=0 \
         bash "$LAUNCH" "$@" 2>&1)"; RC=$?
@@ -386,6 +415,52 @@ ok $? 'пароля немає, а збірка просить noindex — зз�
 [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'повна викладка'
 ok $? 'і це НЕУЗГОДЖЕНО з вимогою зібрати заново, а не «відкрито»' "rc=$RC $OUT"
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"; printf 'public\n' > "$W/build-mode"
+
+echo '— CAMP-339: права на файлах замка, і асиметрія в ОБИДВА боки'
+# 🔴 ПЕРШИЙ ВИПАДОК — САМА АВАРІЯ, і перемикання в ній НЕМАЄ.
+# 15.10 о 14:50 виставили права, нічого не перемикали, усі чотири замки
+# показували правильне, сайт працював. Ліг через добу на перезапуску.
+# Сторож, що питає лише при перемиканні, цього не бачить — тому питає
+# ще й `status`.
+chmod 600 "$CADDY/gate-closed.conf"
+run status
+[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'НЕ ЧИТАЄ'
+ok $? 'status показує зламані права БЕЗ жодного перемикання' "rc=$RC $OUT"
+
+# Далі — перемикання. Закривати треба з відкритого, інакше це не перехід.
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+run close --apply
+[ "$RC" != 0 ] && [ "$(gate_now)" = open ] && printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+ok $? 'close --apply не йде, коли caddy не читає gate-closed.conf' "rc=$RC gate=$(gate_now) $OUT"
+
+# 🔴 ГОЛОВНИЙ ВИПАДОК, і саме він лягав у житті. Ціль — ВІДКРИТИЙ файл,
+# він читається; зламаний лише той, куди довелось би вертатись. Перевірка,
+# що дивиться на ціль, тут зелена, а сайт уже приречений: натиснеш «назад»
+# — і Caddy не підніметься.
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+run open --apply
+[ "$RC" != 0 ] && [ "$(gate_now)" = closed ]
+ok $? 'open --apply не йде, коли зламаний ШЛЯХ НАЗАД, а не ціль' "rc=$RC gate=$(gate_now) $OUT"
+
+# І сухий прогін каже це ДО того, як щось міняти.
+run open
+printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+ok $? 'сухий прогін попереджає про права, а не мовчить до --apply' "rc=$RC $OUT"
+chmod 640 "$CADDY/gate-closed.conf"
+
+# Та сама мутація на ДРУГОМУ файлі — дозволяти асиметрію в інший бік
+# теж не можна, інакше дефект просто переїде.
+chmod 600 "$CADDY/gate-open.conf"
+run open --apply
+[ "$RC" != 0 ] && [ "$(gate_now)" = closed ]
+ok $? 'open --apply не йде, коли caddy не читає gate-open.conf' "rc=$RC gate=$(gate_now) $OUT"
+chmod 644 "$CADDY/gate-open.conf"
+
+# 🔴 І перевірка вміє зеленіти: інакше вона була б просто «завжди ні».
+run open --apply
+[ "$RC" = 0 ] && [ "$(gate_now)" = open ]
+ok $? 'із правильними правами перемикання відбувається' "rc=$RC gate=$(gate_now) $OUT"
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 
 printf '\n%s\n' "$PASS passed, $FAIL failed"
 if [ "$RUN" != "$EXPECTED" ]; then
