@@ -24,7 +24,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LAUNCH="${CAMPTRIBE_LAUNCH_BIN:-$HERE/bin/camptribe-launch}"
-EXPECTED=45
+EXPECTED=49
 
 [ -f "$LAUNCH" ] || { echo "немає $LAUNCH" >&2; exit 1; }
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-launch-selftest.XXXXXX")"
@@ -243,7 +243,7 @@ export GATE_PATH="$CADDY/gate.conf" GATE_CLOSED_PATH="$CADDY/gate-closed.conf" C
 run() { # прапорці скрипта → вивід у $OUT, код у $RC
   OUT="$(CAMPTRIBE_ROOT="$ROOT" CAMPTRIBE_CADDY_DIR="$CADDY" \
         CAMPTRIBE_CADDY_BIN="$STUB/caddy" CAMPTRIBE_CURL="$STUB/curl" \
-        CAMPTRIBE_SUDO="$STUB/sudo" CAMPTRIBE_CADDY_USER=caddy \
+        CAMPTRIBE_SUDO="$STUB/sudo" \
         CAMPTRIBE_WEB_URL="$WEB_ORIGIN" CAMPTRIBE_SITE_URL="$SITE_ORIGIN" \
         CAMPTRIBE_VERIFY_TRIES=2 CAMPTRIBE_VERIFY_SLEEP=0 \
         bash "$LAUNCH" "$@" 2>&1)"; RC=$?
@@ -520,6 +520,45 @@ run open --apply
 [ "$RC" != 0 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
 ok $? 'open не йде, коли нечитабельний gate-open.conf як ціль' "rc=$RC gate=$(gate_now) $OUT"
 chmod 644 "$CADDY/gate-open.conf"
+
+# 🔴 «УЖЕ В ЦЬОМУ СТАНІ» — не привід мовчати. Саме так виглядала аварія:
+# перемикати нічого не треба, а файл, який Caddy імпортує прямо зараз,
+# він не читає. Оператор тисне аварійний важіль і дістає 0.
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+chmod 600 "$CADDY/gate-closed.conf"
+run close --apply
+[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+ok $? 'close --apply на ВЖЕ закритому сайті не мовчить про зламані права' "rc=$RC $OUT"
+
+# Сухий прогін у напрямку open мусить казати про ціль ВІДКАТУ: єдиний
+# інший сухий випадок — close, де ціль і ціль відкату збігаються, тож
+# гілка в ньому не виконується взагалі.
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+run open
+[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'саме туди цей запуск відкотиться'
+ok $? 'сухий open попереджає про ціль відкату, не лише --apply' "rc=$RC $OUT"
+chmod 640 "$CADDY/gate-closed.conf"
+
+# Порада має бути здійсненною: на ВІДСУТНЬОМУ файлі chown не допоможе.
+mv "$CADDY/gate-closed.conf" "$CADDY/gate-closed.keep"
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+run open --apply
+printf '%s' "$OUT" | grep -q 'немає' && ! printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+ok $? 'відсутня ціль відкату: сказано «немає», а не «полагодь права»' "rc=$RC $OUT"
+mv "$CADDY/gate-closed.keep" "$CADDY/gate-closed.conf"
+
+# 🔴 ТРЕТІЙ ФАЙЛ. gate.conf може вказувати не на жоден із двох відомих —
+# код це визнає, `lock_gate` має для такого вердикт «чуже». Перевірка, що
+# ходить лише по двох іменах, у цьому стані друкує «обидва читає caddy»,
+# тоді як Caddy імпортує саме той третій.
+cp "$CADDY/gate-closed.conf" "$CADDY/gate-maint.conf"
+chmod 600 "$CADDY/gate-maint.conf"
+ln -sfn "$CADDY/gate-maint.conf" "$CADDY/gate.conf"
+run status
+printf '%s' "$OUT" | grep -q 'gate-maint.conf'
+ok $? 'status перевіряє той файл, на який gate.conf вказує НАСПРАВДІ' "rc=$RC $OUT"
+rm -f "$CADDY/gate-maint.conf"
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 
 # І перевірка вміє зеленіти — інакше вона просто «завжди ні».
 run open --apply

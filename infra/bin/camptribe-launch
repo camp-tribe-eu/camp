@@ -116,7 +116,7 @@ lock_public() {
 }
 
 status() {
-  local e b g p
+  local e b g p seen_files=""
   e="$(lock_env)"; b="$(lock_build)"; g="$(lock_gate)"; p="$(lock_public)"
   say "1. .env   NEXT_PUBLIC_SITE_MODE : $e      ($(envfile))"
   say "2. збірка віддає robots/X-Robots: $b      ($WEB_URL)"
@@ -136,8 +136,17 @@ status() {
   # і виходив 0 — про файл, якого немає. А він і справді може бути
   # відсутнім: його збирають на машині з `.example`, у репозиторії його
   # нема. «Немає» і «читається» — це не одне й те саме твердження.
-  local f bad=0
-  for f in "$GATE_OPEN" "$GATE_CLOSED"; do
+  # 🔴 І ТРЕТІЙ ФАЙЛ — ТОЙ, НА ЯКИЙ gate.conf ВКАЗУЄ НАСПРАВДІ. Перша
+  # редакція ходила тільки по двох відомих іменах, тож при gate.conf,
+  # наведеному на щось стороннє, рядок друкував «обидва читає caddy», а
+  # Caddy імпортував саме той третій, нечитабельний. Що такий стан буває,
+  # знає й решта коду: `lock_gate` має для нього окремий вердикт «чуже».
+  local f bad=0 live
+  live="$(readlink -f "$GATE" 2>/dev/null || true)"
+  for f in "$GATE_OPEN" "$GATE_CLOSED" "$live"; do
+    [ -n "$f" ] || continue
+    case " $seen_files " in *" $f "*) continue ;; esac
+    seen_files="${seen_files-} $f"
     if [ ! -e "$f" ]; then
       bad=1; say "5. права  🔴 НЕМАЄ $f"
     elif ! readable_by_caddy "$f"; then
@@ -237,13 +246,12 @@ switch_gate() { # open|closed
   [ -f "$target" ] || die "немає $target"
   [ "$want" = open ] && expect='відкрито' || expect='пароль'
 
-  if [ "$cur" = "$want" ]; then say "  gate.conf уже «$want» — нічого не міняю"; return 0; fi
-
-  if [ "$want" = open ]; then
-    local b; b="$(lock_build)"
-    [ "$b" = public ] || die "збірка віддає «$b»: зняти пароль зараз означає пустити робота на сайт, який сам просить себе не індексувати. Спершу env --public і повна викладка"
-  fi
-
+  # 🔴 ПЕРЕВІРКИ СТОЯТЬ ДО «вже в цьому стані». Перша редакція ставила їх
+  # нижче, і `close --apply` на вже закритому сайті віддавав 0 без жодної
+  # скарги — навіть коли файл, який Caddy імпортує ПРЯМО ЗАРАЗ, він
+  # прочитати не може. Це дослівно форма аварії 15–16.10: перемикання
+  # немає, усе зелене, лягає на перезапуску. Тільки гірше: оператор тисне
+  # аварійний важіль, бачить 0 і йде спати.
   # 🔴 CAMP-339. Тут легко помилитись у ОБИДВА боки, і я помилився в обидва.
   #
   # ЖОРСТКО НА ЦІЛІ — її Caddy читатиме після перемикання.
@@ -258,6 +266,7 @@ switch_gate() { # open|closed
   # пароль, і це перевірено». Попередження тут замало: це не «колись
   # знадобиться», це ціль відкату ЦЬОГО запуску.
   if [ "$target" != "$GATE_CLOSED" ]; then
+    [ -e "$GATE_CLOSED" ] || die "немає $GATE_CLOSED — а саме туди цей запуск відкотиться, якщо перевірка ззовні не пройде. Зібери його з $GATE_CLOSED.example за docs/launch-switch.md і повтори"
     readable_by_caddy "$GATE_CLOSED" || die "користувач «$CADDY_USER» НЕ МОЖЕ прочитати $GATE_CLOSED — а саме туди цей запуск відкотиться, якщо перевірка ззовні не пройде. Відкрити зараз означає лишити машину без робочого шляху назад. Полагодь і повтори:
      chown root:$CADDY_USER $GATE_CLOSED && chmod 640 $GATE_CLOSED"
   fi
@@ -276,6 +285,13 @@ switch_gate() { # open|closed
       say "  ⚠ «$CADDY_USER» не читає $other — назад перемкнути вдасться, але Caddy впаде на наступному перезапуску:"
       say "     chown root:$CADDY_USER $other && chmod 640 $other"
     fi
+  fi
+
+  if [ "$cur" = "$want" ]; then say "  gate.conf уже «$want» — нічого не міняю"; return 0; fi
+
+  if [ "$want" = open ]; then
+    local b; b="$(lock_build)"
+    [ "$b" = public ] || die "збірка віддає «$b»: зняти пароль зараз означає пустити робота на сайт, який сам просить себе не індексувати. Спершу env --public і повна викладка"
   fi
 
   if [ "$APPLY" != 1 ]; then
