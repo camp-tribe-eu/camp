@@ -94,55 +94,121 @@ const WHO = 'check-pipe-to-grep-q';
 /**
  * A pipe (not `||`) feeding a `grep` that is asked to be quiet.
  *
- * `-q`, `--quiet` and `--silent` all mean the same thing to grep, and
- * the short flag can be bundled (`-qE`, `-qi`, `-qx`) or carry its
- * pattern after a `--`. The lookbehind is what keeps `cmd || grep -q 'x'
- * <<<"$v"` — a herestring on the right of an OR — out of the net.
+ * 🔴 EVERY PIECE OF THIS WAS A REVIEW FINDING. The first version read
+ * `\|[ \t]*grep -q`, which is the ONE spelling this repository happened
+ * to use. Measured against it, all of these walked past:
+ *
+ *     grep -E -q      grep -i -q      grep -e 'x' -q
+ *     grep --color=never -q           command grep -q
+ *     /usr/bin/grep -q                LC_ALL=C grep -q
+ *     sudo grep -q                    env grep -q
+ *     egrep -q        fgrep -q
+ *
+ * A rule that only recognises the spelling already in the tree stops
+ * nothing — it is a list of forbidden words, not a property. So: after
+ * the pipe, any number of VAR=value assignments and wrapper commands,
+ * an optional path, any `*grep`, then any number of flags and quoted
+ * patterns, then the quiet flag in any of its three spellings.
+ *
+ * The run of "other tokens" is deliberately limited to things that look
+ * like flags or quoted literals. Widening it to any word made
+ * `cmd | grep 'x' && y -q` a false positive.
  */
-const PIPE_TO_QUIET_GREP = /(?<!\|)\|&?[ \t]*grep[ \t]+(?:-[a-zA-Z]*q|--quiet|--silent)/;
+const QUIET_GREP_AFTER_PIPE = new RegExp(
+  '(?<!\\|)\\|&?(?!\\|)[ \\t]*' +
+    '(?:[A-Za-z_][A-Za-z_0-9]*=[^ \\t]*[ \\t]+)*' +
+    '(?:(?:command|env|sudo|nice|ionice|stdbuf|xargs)[ \\t]+(?:-[^ \\t]+[ \\t]+)*)*' +
+    '(?:[^ \\t|]*/)?[a-z]*grep[ \\t]+' +
+    '(?:(?:-[^ \\t]+|\'[^\']*\'|"[^"]*")[ \\t]+)*?' +
+    '(?:-[a-zA-Z]*q[a-zA-Z]*|--quiet|--silent)(?![a-zA-Z=-])',
+);
 
-/** A line with its full-line comment removed, or '' if that is all it was. */
-function code(line) {
-  return /^[ \t]*#/.test(line) ? '' : line;
+/**
+ * A line with its comment removed.
+ *
+ * 🔴 Only from the first `#` that starts a word and is not inside
+ * quotes. Cutting at any `#` would blind the rule to
+ * `echo "$O" | grep -q 'x'  # why`, and a mutation proved it: turning
+ * this into /#/ left every case green.
+ */
+export function code(line) {
+  let q = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) { if (c === q) q = null; continue; }
+    if (c === "'" || c === '"') { q = c; continue; }
+    if (c === '#' && (i === 0 || /[ \t;&|]/.test(line[i - 1]))) return line.slice(0, i);
+  }
+  return line;
 }
 
 /**
- * Every offending line in a shell source, as {line, text}.
+ * Physical lines joined into the commands they actually form.
  *
- * Takes text rather than a path so the cases below can state a source in
- * one string instead of a fixture file nobody reads.
+ * A pipeline may be written over several lines — `cmd | \` or a line
+ * that simply ends in `|`. Scanning physical lines misses both, and the
+ * review found both. The number reported is the line the command STARTS
+ * on, which is where somebody reading the error has to look.
  */
-export function offences(source) {
+export function logicalLines(source) {
+  const raw = source.split('\n');
   const out = [];
-  source.split('\n').forEach((line, i) => {
-    if (PIPE_TO_QUIET_GREP.test(code(line))) out.push({ line: i + 1, text: line.trim() });
-  });
+  let buf = null;
+  let at = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const text = code(raw[i]);
+    const piece = text.replace(/\\$/, '');
+    if (buf === null) { at = i + 1; buf = piece; } else { buf += ' ' + piece.trim(); }
+    if (/\\$/.test(text) || /\|&?[ \t]*$/.test(text)) continue;
+    out.push({ line: at, text: buf });
+    buf = null;
+  }
+  if (buf !== null) out.push({ line: at, text: buf });
   return out;
 }
 
+/** Every offending line in a shell source, as {line, text}. */
+export function offences(source) {
+  return logicalLines(source)
+    .filter(({ text }) => QUIET_GREP_AFTER_PIPE.test(text))
+    .map(({ line, text }) => ({ line, text: text.trim() }));
+}
+
 /**
- * The `run:` blocks of a workflow, flattened into one scannable text
- * with the original line numbers kept.
+ * The shell a YAML file runs, as {line, text}.
  *
- * A workflow is YAML, so a `run: |` block is the only place a shell line
- * can live; everything else is keys, and `grep -q` in a key would be a
- * string, not a command.
+ * 🔴 THE BODY INDENT COMES FROM THE BODY, not from the key. Reading it
+ * from the `run:` key let `env:` and the YAML strings under it fall
+ * inside the block — a step's `env: { FOO: "a | grep -q b" }` would
+ * have been reported as shell. A block scalar ends at the first
+ * non-blank line indented less than its own first line.
+ *
+ * 🔴 AND A ONE-LINE `run:` IS SHELL TOO. Skipping it was not a
+ * simplification: `- run: echo "$O" | grep -q 'x'` is a real step that
+ * the first version could not see, and the case asserting it was
+ * skipped could not go red under any mutation — green by construction.
  */
 export function runBlocks(yaml) {
   const lines = yaml.split('\n');
   const out = [];
-  let indent = null;
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (indent === null) {
-      const m = /^([ \t]*)(?:- )?run:[ \t]*[|>]/.exec(line);
-      if (m) indent = m[1].length;
+    const block = /^([ \t]*)(?:- )?run:[ \t]*[|>][-+0-9]*[ \t]*$/.exec(lines[i]);
+    if (!block) {
+      const inline = /^[ \t]*(?:- )?run:[ \t]*(\S.*)$/.exec(lines[i]);
+      if (inline) out.push({ line: i + 1, text: inline[1] });
       continue;
     }
-    const lead = /^[ \t]*/.exec(line)[0].length;
-    if (line.trim() !== '' && lead <= indent) { indent = null; i--; continue; }
-    if (line.trim() === '') continue;
-    out.push({ line: i + 1, text: line });
+    let body = null;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].trim() === '') continue;
+      const lead = /^[ \t]*/.exec(lines[j])[0].length;
+      if (body === null) {
+        if (lead <= block[1].length) break;
+        body = lead;
+      } else if (lead < body) break;
+      out.push({ line: j + 1, text: lines[j] });
+      i = j;
+    }
   }
   return out;
 }
@@ -152,35 +218,65 @@ export function shellFiles(list) {
   return list.filter((f) => f.endsWith('.sh') || f.startsWith('infra/bin/'));
 }
 
-/** Workflows this rule applies to. */
-export function workflowFiles(list) {
-  return list.filter((f) => /^\.github\/workflows\/.*\.ya?ml$/.test(f));
+/**
+ * YAML this rule applies to.
+ *
+ * 🔴 Composite actions too. `.github/actions/build-site/action.yml`
+ * holds 8 `shell: bash` steps and the first version never opened it.
+ */
+export function yamlFiles(list) {
+  return list.filter((f) => /^\.github\/(?:workflows\/[^/]+|actions\/.+)\.ya?ml$/.test(f));
 }
 
-function tracked() {
-  return execFileSync('git', ['ls-files'], { encoding: 'utf8' }).split('\n').filter(Boolean);
+/** The repository root, so the inventory does not depend on the CWD. */
+function repoRoot() {
+  return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+}
+
+function tracked(root) {
+  return execFileSync('git', ['-C', root, 'ls-files'], { encoding: 'utf8' }).split('\n').filter(Boolean);
+}
+
+// 🔴 Floors, not a hand-written list. A tree that suddenly reads seven
+// files instead of twenty-nine is not a clean tree, and `git ls-files`
+// counts from the CWD, so running this from infra/ used to print a ✓
+// over 22 unread shell files and every workflow. These numbers may be
+// raised when the tree grows; they may not quietly fall.
+const MIN_SHELL_FILES = 25;
+const MIN_YAML_FILES = 7;
+
+/**
+ * Whether the run read enough of the tree to mean anything.
+ *
+ * A pure function because the review found the floor unreachable from
+ * the self-test: `main()` held it inline, no case could touch it, and
+ * deleting it left every case green — a lock nothing rehearses.
+ */
+export function inventoryOk(shells, yamls) {
+  return shells >= MIN_SHELL_FILES && yamls >= MIN_YAML_FILES;
 }
 
 function main() {
-  const all = tracked();
+  const root = repoRoot();
+  const all = tracked(root);
   const shells = shellFiles(all);
-  const flows = workflowFiles(all);
+  const yamls = yamlFiles(all);
   const found = [];
 
   for (const f of shells) {
-    for (const o of offences(readFileSync(f, 'utf8'))) found.push({ file: f, ...o });
+    for (const o of offences(readFileSync(`${root}/${f}`, 'utf8'))) found.push({ file: f, ...o });
   }
-  for (const f of flows) {
-    const yaml = readFileSync(f, 'utf8');
-    for (const { line, text } of runBlocks(yaml)) {
-      if (PIPE_TO_QUIET_GREP.test(code(text))) found.push({ file: f, line, text: text.trim() });
+  for (const f of yamls) {
+    for (const { line, text } of runBlocks(readFileSync(`${root}/${f}`, 'utf8'))) {
+      if (QUIET_GREP_AFTER_PIPE.test(code(text))) found.push({ file: f, line, text: text.trim() });
     }
   }
 
-  // 🔴 The inventory is reconciled, not assumed: a tree with no shell
-  // files at all would otherwise print the same ✓ as a clean one.
-  if (shells.length === 0) {
-    console.log(`::error::${WHO}: found no shell files to read. The rule is not running.`);
+  if (!inventoryOk(shells.length, yamls.length)) {
+    console.log(
+      `::error::${WHO}: read ${shells.length} shell file(s) and ${yamls.length} yaml file(s), ` +
+        `expected at least ${MIN_SHELL_FILES} and ${MIN_YAML_FILES}. The rule is not running over the tree.`,
+    );
     process.exit(1);
   }
 
@@ -196,7 +292,7 @@ function main() {
     );
     process.exit(1);
   }
-  console.log(`✓ ${WHO}: ${shells.length} shell file(s), ${flows.length} workflow(s), no pipe into grep -q`);
+  console.log(`✓ ${WHO}: ${shells.length} shell file(s), ${yamls.length} yaml file(s), no pipe into grep -q`);
 }
 
 const CASES = [
@@ -211,12 +307,28 @@ const CASES = [
   ['bundled flags are caught: -qE', () => offences(`echo "$O" | grep -qE '^[0-9]+$'`).length === 1],
   ['🔴 the flags in the OTHER order: -Eq — three real ones hid there', () =>
     offences(`printf '%s' "$b" | grep -Eq '^x$'`).length === 1],
-  ['bundled flags are caught: -qi', () => offences(`echo "$O" | grep -qi 'x'`).length === 1],
-  ['bundled flags are caught: -qx', () => offences(`echo "$O" | grep -qx 'x'`).length === 1],
+  ['🔴 …and SEPARATED: -E -q, -i -q, -F -q, -x -q', () =>
+    [`-E -q`, `-i -q`, `-F -q`, `-x -q`].every((f) => offences(`echo "$O" | grep ${f} 'x'`).length === 1)],
+  ['🔴 a long flag before the quiet one does not hide it', () =>
+    offences(`echo "$O" | grep --color=never -q 'x'`).length === 1],
+  ['🔴 a pattern given with -e, then -q', () =>
+    offences(`echo "$O" | grep -e 'x' -q`).length === 1],
   ['a `--` separator does not hide it', () => offences(`echo "$O" | grep -q -- '--flag'`).length === 1],
   ['--quiet is the same flag spelled out', () => offences(`echo "$O" | grep --quiet 'x'`).length === 1],
   ['--silent likewise', () => offences(`echo "$O" | grep --silent 'x'`).length === 1],
+  ['🔴 egrep and fgrep are grep', () =>
+    offences(`echo "$O" | egrep -q 'x'`).length === 1 && offences(`echo "$O" | fgrep -q 'x'`).length === 1],
+  ['🔴 a full path does not hide it', () => offences(`echo "$O" | /usr/bin/grep -q 'x'`).length === 1],
+  ['🔴 nor a wrapper: command, env, sudo', () =>
+    [`command`, `env`, `sudo`].every((w) => offences(`echo "$O" | ${w} grep -q 'x'`).length === 1)],
+  ['🔴 nor a VAR=value in front', () => offences(`echo "$O" | LC_ALL=C grep -q 'x'`).length === 1],
   ['🔴 |& is a pipe too', () => offences(`cmd |& grep -q 'x'`).length === 1],
+  ['🔴 a pipeline split over two lines, with a backslash', () =>
+    offences(`echo "$O" | \\\n  grep -q 'x'`).length === 1],
+  ['🔴 …and split after a bare trailing pipe', () => {
+    const got = offences(`echo "$O" |\n  grep -q 'x'`);
+    return got.length === 1 && got[0].line === 1;
+  }],
   ['🔴 the writer is not only printf', () =>
     offences(`readlink "$p" | grep -q 'x'`).length === 1 &&
     offences(`curl -s "$u" | grep -q 'x'`).length === 1 &&
@@ -227,20 +339,32 @@ const CASES = [
     offences(`echo "$O" | grep -o 'x'`).length === 0 &&
     offences(`echo "$O" | grep -v 'x'`).length === 0 &&
     offences(`echo "$O" | grep -E 'x'`).length === 0],
-  ['🔴 a flag merely containing q is not -q', () =>
-    offences(`echo "$O" | grep --regexp='q' 'x'`).length === 0],
+  ['🔴 a long flag merely starting with q is not --quiet', () =>
+    offences(`echo "$O" | grep --quiet-ish 'x'`).length === 0],
+  ['🔴 a quoted pattern then an unrelated -q is not grep -q', () =>
+    offences(`cmd | grep 'x' && other -q`).length === 0],
   ['🔴 a full-line comment is prose, not code', () =>
-    offences(`# not \`osmium … | grep -q\` — it exits on the first hit`).length === 0],
-  ['…but an indented comment too', () =>
+    offences('# not `osmium … | grep -q` — it exits on the first hit').length === 0],
+  ['…and an indented comment too', () =>
     offences(`    # echo "$O" | grep -q 'x'`).length === 0],
+  ['🔴 but a TRAILING comment does not blind the line before it', () =>
+    offences(`echo "$O" | grep -q 'x'  # why`).length === 1],
+  ['🔴 and a # inside quotes is not a comment', () =>
+    offences(`echo "$O" | grep -q '#tag'`).length === 1],
+  ['🔴 …even when a space precedes it inside the quotes', () =>
+    offences(`echo "$O" | grep -q 'x #y'`).length === 1],
+  ['🔴 a # inside an EARLIER quoted word must not swallow the pipe after it', () =>
+    offences(`echo 'a # b' | grep -q 'x'`).length === 1],
+  ['🔴 a # inside a WORD is not a comment either — a URL fragment is not prose', () =>
+    offences(`curl -s https://x/y#frag | grep -q 'z'`).length === 1],
+  ['🔴 a run: | with nothing indented under it has no body', () =>
+    runBlocks('      - run: |\n      - name: Y\n          echo hi\n').length === 0],
   ['🔴 a real line after a comment is still read', () =>
     offences(`# echo "$O" | grep -q 'x'\necho "$O" | grep -q 'y'`).length === 1],
   ['every offence on a multi-grep line is one report, by line', () =>
     offences(`a | grep -q 'x' && b | grep -q 'y'`).length === 1],
   ['two offending lines are two reports', () =>
     offences(`a | grep -q 'x'\nb | grep -q 'y'`).length === 2],
-  ['the reported text is the line, trimmed', () =>
-    offences(`   echo "$O" | grep -q 'x'   `)[0].text === `echo "$O" | grep -q 'x'`],
   ['a run: block is found', () =>
     runBlocks('jobs:\n  a:\n    steps:\n      - name: X\n        run: |\n          echo hi\n').length === 1],
   ['🔴 two run: blocks in a row: the second is not eaten by the first', () => {
@@ -248,26 +372,42 @@ const CASES = [
     return got.length === 2 && got[1].text.trim() === 'b';
   }],
   ['🔴 a run: block ends where the indent returns', () => {
-    const got = runBlocks('      - run: |\n          echo hi\n      - name: Y\n        run: echo no\n');
+    const got = runBlocks('      - run: |\n          echo hi\n      - name: Y\n');
     return got.length === 1 && got[0].text.trim() === 'echo hi';
   }],
-  ['🔴 a blank line inside a run: block does not end it', () => {
-    const got = runBlocks('      - run: |\n          a\n\n          b\n');
-    return got.filter((l) => l.text.trim()).length === 2;
+  ['🔴 a sibling key under the SAME step ends the block', () => {
+    const got = runBlocks('      - run: |\n          echo hi\n        env:\n          FOO: "a | grep -q b"\n');
+    return got.length === 1 && got[0].text.trim() === 'echo hi';
   }],
+  ['🔴 a blank line inside a run: block does not end it', () =>
+    runBlocks('      - run: |\n          a\n\n          b\n').length === 2],
   ['a `run: >` block is read the same way', () =>
     runBlocks('      - run: >\n          echo hi\n').length === 1],
-  ['🔴 a single-line `run:` is not a block, so its text is not shell we read', () =>
-    runBlocks('      - run: echo "$O" | grep -q \'x\'\n').length === 0],
+  ['a chomping indicator is still a block', () =>
+    runBlocks('      - run: |-\n          echo hi\n').length === 1],
+  ['🔴 a single-line `run:` is shell and IS read', () => {
+    const got = runBlocks(`      - run: echo "$O" | grep -q 'x'\n`);
+    return got.length === 1 && QUIET_GREP_AFTER_PIPE.test(got[0].text);
+  }],
   ['🔴 the file list is a glob over git, so a new sibling joins by itself', () =>
     shellFiles(['a.sh', 'b/c.sh', 'infra/bin/x', 'd.mjs', 'e.yml']).join(',') === 'a.sh,b/c.sh,infra/bin/x'],
   ['…and .mjs is deliberately outside it', () =>
     shellFiles(['scripts/ci/check-selftest-steps.mjs']).length === 0],
   ['workflows are picked by path, both spellings', () =>
-    workflowFiles(['.github/workflows/ci.yml', '.github/workflows/a.yaml', '.github/actions/b.yml']).length === 2],
+    yamlFiles(['.github/workflows/ci.yml', '.github/workflows/a.yaml']).length === 2],
+  ['🔴 composite actions are read too, and nothing else under .github', () =>
+    yamlFiles(['.github/actions/build-site/action.yml', '.github/dependabot.yml']).join(',') ===
+      '.github/actions/build-site/action.yml'],
+  ['🔴 the whole tree read is a pass', () => inventoryOk(29, 8) === true],
+  ['🔴 …and a run that saw only infra/ is a FAILURE, not a ✓', () =>
+    inventoryOk(7, 0) === false],
+  ['🔴 shell files alone are not enough: the yaml floor stands on its own', () =>
+    inventoryOk(29, 0) === false],
+  ['…and the yaml alone likewise', () => inventoryOk(0, 8) === false],
 ];
 
-const EXPECTED_CASES = 33;
+const EXPECTED_CASES = 53;
+
 
 function selfTest() {
   let failed = 0;
