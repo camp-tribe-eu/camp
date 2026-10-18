@@ -269,9 +269,9 @@ echo '— сухий прогін'
 build_world bare
 bare_fp="$(fp "$DST_DB")"
 run "$TABLE"
-eq "$RC" 0 && printf '%s' "$OUT" | grep -q 'СУХИЙ ПРОГІН'; ok $? 'без --apply: каже «сухий прогін»' "rc=$RC $OUT"
+eq "$RC" 0 && grep -q 'СУХИЙ ПРОГІН' <<<"$OUT"; ok $? 'без --apply: каже «сухий прогін»' "rc=$RC $OUT"
 eq "$(rows)" 300; ok $? 'без --apply: бойова таблиця не змінилась' "$(rows)"
-printf '%s' "$OUT" | grep -q 'джерело (.*): 500 рядків'
+grep -q 'джерело (.*): 500 рядків' <<<"$OUT"
 ok $? 'сухий прогін називає, скільки рядків їде: 500' "$OUT"
 
 echo '— lock_timeout без одиниці: Postgres читає голе число як МІЛІСЕКУНДИ'
@@ -284,12 +284,12 @@ echo '— lock_timeout без одиниці: Postgres читає голе чи�
 # окремий build_world зсунув би стан, на який спираються наступні випадки.
 echo "    (Postgres читає '120' як $(pg_ms 120) мс — звідси відмова)"
 T_LOCK=120; run "$TABLE"; T_LOCK=
-[ "$RC" = 2 ] && printf '%s' "$OUT" | grep -q '^CAMPTRIBE_LOCK_TIMEOUT: ' && ! printf '%s' "$OUT" | grep -q 'ROLLBACK' \
-  && ! printf '%s' "$OUT" | grep -q 'СУХИЙ ПРОГІН'
+[ "$RC" = 2 ] && grep -q '^CAMPTRIBE_LOCK_TIMEOUT: ' <<<"$OUT" && ! grep -q 'ROLLBACK' <<<"$OUT" \
+  && ! grep -q 'СУХИЙ ПРОГІН' <<<"$OUT"
 ok $? 'CAMPTRIBE_LOCK_TIMEOUT=120 без одиниці: код 2, названо саме її, нічого не запущено' "rc=$RC $OUT"
 T_RBLOCK=120; run "$TABLE"; T_RBLOCK=
-[ "$RC" = 2 ] && printf '%s' "$OUT" | grep -q '^CAMPTRIBE_ROLLBACK_LOCK_TIMEOUT: ' && ! printf '%s' "$OUT" | grep -q '^CAMPTRIBE_LOCK_TIMEOUT' \
-  && ! printf '%s' "$OUT" | grep -q 'СУХИЙ ПРОГІН'
+[ "$RC" = 2 ] && grep -q '^CAMPTRIBE_ROLLBACK_LOCK_TIMEOUT: ' <<<"$OUT" && ! grep -q '^CAMPTRIBE_LOCK_TIMEOUT' <<<"$OUT" \
+  && ! grep -q 'СУХИЙ ПРОГІН' <<<"$OUT"
 ok $? 'CAMPTRIBE_ROLLBACK_LOCK_TIMEOUT=120 без одиниці: код 2, названо саме її, нічого не запущено' "rc=$RC $OUT"
 # Нуль Postgres читає як «без ліміту» — те, від чого цей параметр захищає.
 bad=''
@@ -312,7 +312,7 @@ for pair in '5s:5000' '1500ms:1500' '2min:120000'; do
   v="${pair%%:*}"; want="${pair#*:}"
   T_LOCK="$v"; T_RBLOCK="$v"; run "$TABLE"; T_LOCK=; T_RBLOCK=
   got="$(pg_ms "$v")"
-  { [ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'СУХИЙ ПРОГІН' && [ "$got" = "$want" ]; } \
+  { [ "$RC" = 0 ] && grep -q 'СУХИЙ ПРОГІН' <<<"$OUT" && [ "$got" = "$want" ]; } \
     || bad="$bad $v(код $RC; Postgres читає $got мс, очікувалось $want)"
 done
 eq "$bad" ""; ok $? 'приймається 5s, 1500ms, 2min — і Postgres читає їх як 5000, 1500, 120000 мс, тобто так, як написано' "розбіжність:$bad"
@@ -324,8 +324,8 @@ eq "$RC" 0; ok $? '--apply: код 0' "rc=$RC $OUT"
 # Ворота закриті (стан за замовчуванням): скрипт це бачить і називає в обох місцях перевірки.
 # Чесна межа: сам вивід нічого не доводить — це пара до випадків про відчинені ворота нижче,
 # де за тим самим кодом стоїть відмова; червоніє цей випадок лише на скрипті, що воріт не знає.
-printf '%s' "$OUT" | grep -q 'ворота: gate.conf → gate-closed.conf, сайт закритий (до початку)' \
-  && printf '%s' "$OUT" | grep -q 'ворота: gate.conf → gate-closed.conf, сайт закритий (перед заміною)'
+grep -q 'ворота: gate.conf → gate-closed.conf, сайт закритий (до початку)' <<<"$OUT" \
+  && grep -q 'ворота: gate.conf → gate-closed.conf, сайт закритий (перед заміною)' <<<"$OUT"
 ok $? 'ворота закриті: заміна пройшла, скрипт назвав ворота і на початку, і перед самою заміною' "$OUT"
 eq "$(rows)" 500; ok $? 'рядки приїхали: 500' "$(rows)"
 # 🔴 Нова таблиця стартує без статистики (заміряно на 2,27 млн рядків: pg_stats 0 рядків,
@@ -382,7 +382,7 @@ rm -f "$BASE/appname.seen"
   : > "$BASE/appname.seen" ) & ww=$!
 run "$TABLE" --apply
 wait "$ww" 2>/dev/null; kill "$ww" 2>/dev/null
-eq "$RC" 0 && eq "$(rows)" 500 && printf '%s' "$OUT" | grep -q 'репетиція відкату: [0-9]* с, 150300 рядків'
+eq "$RC" 0 && eq "$(rows)" 500 && grep -q 'репетиція відкату: [0-9]* с, 150300 рядків' <<<"$OUT"
 r=$?
 ok "$r" 'великий прод (150300 рядків): репетиція відновила їх усі, заміна пройшла, код 0' "rc=$RC rows=$(rows) $OUT"
 ls "$BASE/appname.seen" >/dev/null 2>&1
@@ -391,7 +391,7 @@ ok $? '🔴 параметри підключення з URL прода дійш
 echo '— порожнє джерело не має шансу стерти прод'
 psql -q -d "$SRC_DB" -c "TRUNCATE $TABLE"
 run "$TABLE" --apply
-[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'нуль рядків' && eq "$(rows)" 500
+[ "$RC" != 0 ] && grep -q 'нуль рядків' <<<"$OUT" && eq "$(rows)" 500
 ok $? 'нуль рядків у джерелі: відмова саме з цієї причини, прод цілий' "rc=$RC dst=$(rows) $OUT"
 
 echo '— чужа назва таблиці'
@@ -405,11 +405,11 @@ echo '— великі літери в назві: фільтр не залеж�
 # там старий шаблон був би зеленим і так — набір на CI цього дефекту не ловить,
 # ловить лише на bash 3.2/4. Нижче друкується, яким є поточний bash.
 LOCALE=C; run 'RV_UP' --apply; LOCALE=
-[ "$RC" = 2 ] && printf '%s' "$OUT" | grep -q 'назва таблиці мусить бути'
+[ "$RC" = 2 ] && grep -q 'назва таблиці мусить бути' <<<"$OUT"
 ok $? 'RV_UP під LC_ALL=C: код 2' "rc=$RC $OUT"
 if [ "$(LC_ALL=en_US.UTF-8 locale charmap 2>/dev/null)" = UTF-8 ]; then
   LOCALE=en_US.UTF-8; run 'RV_UP' --apply; LOCALE=
-  [ "$RC" = 2 ] && printf '%s' "$OUT" | grep -q 'назва таблиці мусить бути'
+  [ "$RC" = 2 ] && grep -q 'назва таблиці мусить бути' <<<"$OUT"
   ok $? 'RV_UP під LC_ALL=en_US.UTF-8: код 2' "rc=$RC $OUT"
   if LC_ALL=en_US.UTF-8 bash -c 'case RV_UP in *[!a-z0-9_]*) exit 1;; esac'; then
     echo '    (цей bash під en_US.UTF-8 пропускає `[a-z]` над RV_UP — випадок здатен зловити старий шаблон)'
@@ -424,7 +424,7 @@ fi
 
 echo '— таблиці немає в джерелі'
 run 'mv_absent' --apply
-[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'не читається' && eq "$(rows)" 500
+[ "$RC" != 0 ] && grep -q 'не читається' <<<"$OUT" && eq "$(rows)" 500
 ok $? 'немає такої таблиці в джерелі: відмова саме з цієї причини, прод цілий' "rc=$RC $OUT"
 
 echo '— таблиці ще немає на проді'
@@ -436,7 +436,7 @@ echo '— таблиці ще немає на проді'
 build_world
 psql -q -d "$SRC_DB" -c "CREATE TABLE mv_new (ref text PRIMARY KEY); INSERT INTO mv_new VALUES ('a')"
 run mv_new --apply
-[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'копію зняти не вдалось' && eq "$(rows)" 300
+[ "$RC" != 0 ] && grep -q 'копію зняти не вдалось' <<<"$OUT" && eq "$(rows)" 300
 ok $? 'таблиці немає на проді: зупинився на копії, сусідня таблиця ціла' "rc=$RC $OUT"
 
 echo '— на проді є подання, що залежить від таблиці (ДО початку)'
@@ -448,7 +448,7 @@ psql -q -d "$DST_DB" -c "CREATE VIEW mv_probe_v AS SELECT ref FROM $TABLE"
 before_fp="$(fp "$DST_DB")"
 rm -rf "$BASE/backups"
 run "$TABLE" --apply
-eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'DROP TABLE на проді не пройде' && printf '%s' "$OUT" | grep -q 'mv_probe_v' \
+eq "$RC" 1 && grep -q 'DROP TABLE на проді не пройде' <<<"$OUT" && grep -q 'mv_probe_v' <<<"$OUT" \
   && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$before_fp" ] && [ -z "$(ls "$BASE/backups" 2>/dev/null)" ]
 r=$?
 ok "$r" 'подання блокує DROP: код 1, прод цілий (300 рядків, структура та сама), копії навіть не знімали' "rc=$RC rows=$(rows) fp=$(fp "$DST_DB") $OUT"
@@ -459,7 +459,7 @@ psql -q -d "$DST_DB" -c "CREATE TABLE mv_child (ref text REFERENCES $TABLE (ref)
 before_fp="$(fp "$DST_DB")"
 rm -rf "$BASE/backups"
 run "$TABLE" --apply
-eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'DROP TABLE на проді не пройде' && printf '%s' "$OUT" | grep -q 'mv_child' \
+eq "$RC" 1 && grep -q 'DROP TABLE на проді не пройде' <<<"$OUT" && grep -q 'mv_child' <<<"$OUT" \
   && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$before_fp" ] && [ -z "$(ls "$BASE/backups" 2>/dev/null)" ]
 r=$?
 ok "$r" 'чужий зовнішній ключ блокує DROP: код 1, прод цілий, копії не знімали' "rc=$RC rows=$(rows) fp=$(fp "$DST_DB") $OUT"
@@ -474,7 +474,7 @@ reader 8 & rp=$!
 wait_reader_holds
 T_LOCK=1s; t0=$(date +%s); run "$TABLE" --apply; t1=$(date +%s); T_LOCK=
 stop_readers; wait "$rp" 2>/dev/null
-eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'DROP TABLE на проді не пройде' && eq "$(rows)" 300 && [ -z "$(ls "$BASE/backups" 2>/dev/null)" ]
+eq "$RC" 1 && grep -q 'DROP TABLE на проді не пройде' <<<"$OUT" && eq "$(rows)" 300 && [ -z "$(ls "$BASE/backups" 2>/dev/null)" ]
 ok $? 'проба DROP не чекає читача довше за lock_timeout: код 1, копії не знімали' "rc=$RC rows=$(rows) за $((t1 - t0)) с $OUT"
 
 echo '— подання з'"'"'являється ПІСЛЯ проби, а прод уже такий самий, як джерело'
@@ -495,8 +495,8 @@ rm -rf "$BASE/backups"
 run "$TABLE" --apply
 wait "$wp"
 view_there="$(dst "select count(*) from pg_views where viewname='mv_probe_v'")"
-[ "$pre_ok" = 0 ] && [ "$view_there" = 1 ] && eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'заміна не відбулась' \
-  && ! printf '%s' "$OUT" | grep -q 'DROP TABLE на проді не пройде' && eq "$(rows)" 500 && [ "$(fp "$DST_DB")" = "$FULL" ]
+[ "$pre_ok" = 0 ] && [ "$view_there" = 1 ] && eq "$RC" 1 && grep -q 'заміна не відбулась' <<<"$OUT" \
+  && ! grep -q 'DROP TABLE на проді не пройде' <<<"$OUT" && eq "$(rows)" 500 && [ "$(fp "$DST_DB")" = "$FULL" ]
 r=$?
 ok "$r" '🔴 подання з'"'"'явилось у вікні: заміна не відбулась, код 1, прод цілий (500 рядків, усі 5 індексів), а не 1000 і 0 індексів' "pre=$pre_ok view=$view_there rc=$RC rows=$(rows) fp=$(fp "$DST_DB") $OUT"
 
@@ -510,7 +510,7 @@ rm -rf "$BASE/backups"
 ( wait_for_backup && reader 8 ) & wp=$!
 T_LOCK=1s; t0=$(date +%s); run "$TABLE" --apply; t1=$(date +%s); T_LOCK=
 stop_readers; wait "$wp" 2>/dev/null
-eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'заміна не відбулась' && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$FULL" ]
+eq "$RC" 1 && grep -q 'заміна не відбулась' <<<"$OUT" && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$FULL" ]
 r=$?
 ok "$r" 'заміна не чекає читача довше за lock_timeout: код 1, прод цілий (300 рядків, структура, власник і гранти ті самі)' "rc=$RC rows=$(rows) fp=$(fp "$DST_DB") за $((t1 - t0)) с $OUT"
 
@@ -523,7 +523,7 @@ rm -rf "$BASE/backups"
 ( wait_for_backup && { reader 8 & ra=$!; wait_waiter AccessExclusiveLock && psql -q -d "$DST_DB" -c "CREATE INDEX mv_probe_extra ON $TABLE (kind)"; wait "$ra"; } ) & wp=$!
 T_LOCK=1s; run "$TABLE" --apply; T_LOCK=
 stop_readers; wait "$wp" 2>/dev/null
-eq "$RC" 4 && printf '%s' "$OUT" | grep -q '^+CREATE INDEX mv_probe_extra' && printf '%s' "$OUT" | grep -q 'відрізняється від стану до спроби' \
+eq "$RC" 4 && grep -q '^+CREATE INDEX mv_probe_extra' <<<"$OUT" && grep -q 'відрізняється від стану до спроби' <<<"$OUT" \
   && eq "$(rows)" 300
 r=$?
 ok "$r" 'структуру змінили під час спроби: код 4, діф називає чужий індекс, відкат НЕ роблять (нічого було відкочувати)' "rc=$RC $OUT"
@@ -538,7 +538,7 @@ psql -q -d "$SRC_DB" -c "CREATE TYPE mv_mood AS ENUM ('calm','wild')" -c "ALTER 
 before_fp="$(fp "$DST_DB")"
 run "$TABLE" --apply
 ins="$(app_insert "$DST_DB")"
-[ "$before_fp" = "$FULL" ] && eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'відновлення вийшло з кодом' && printf '%s' "$OUT" | grep -q 'заміна не відбулась' \
+[ "$before_fp" = "$FULL" ] && eq "$RC" 1 && grep -q 'відновлення вийшло з кодом' <<<"$OUT" && grep -q 'заміна не відбулась' <<<"$OUT" \
   && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$FULL" ] && eq "$ins" '301|true'
 r=$?
 ok "$r" '🔴 заміна не пройшла: код 1, прод цілий (300 рядків, 5 індексів, послідовність, власник, гранти), INSERT дає id=301' "до=$before_fp після=$(fp "$DST_DB") rc=$RC insert=$ins $OUT"
@@ -551,7 +551,7 @@ build_world
 psql -q -d "$DST_DB" -c "DROP TRIGGER ${TABLE}_touch ON $TABLE" -c 'DROP FUNCTION mv_touch()'
 before_fp="$(fp "$DST_DB")"
 run "$TABLE" --apply
-[ "$before_fp" = "${FULL/trg=1/trg=0}" ] && eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'відновлення вийшло з кодом' && printf '%s' "$OUT" | grep -q 'mv_touch' \
+[ "$before_fp" = "${FULL/trg=1/trg=0}" ] && eq "$RC" 1 && grep -q 'відновлення вийшло з кодом' <<<"$OUT" && grep -q 'mv_touch' <<<"$OUT" \
   && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$before_fp" ]
 r=$?
 ok "$r" 'функції тригера немає: код 1, помилка називає функцію, прод цілий і без тригера, як був' "до=$before_fp після=$(fp "$DST_DB") rc=$RC $OUT"
@@ -565,9 +565,9 @@ psql -q -d "$SRC_DB" -c "CREATE TABLE ${TABLE}_child () INHERITS ($TABLE)" \
   -c "INSERT INTO ${TABLE}_child (ref,kind,n,rng) SELECT 'c'||i, 'a', 1000+i, int4range(5000+i,5001+i) FROM generate_series(1,100) i"
 before_fp="$(fp "$DST_DB")"
 run "$TABLE" --apply
-[ "$before_fp" = "$FULL" ] && eq "$RC" 3 && printf '%s' "$OUT" | grep -q 'рядків 500 проти 600 у джерелі' \
-  && ! printf '%s' "$OUT" | grep -q 'відновлення вийшло з кодом [1-9]' && ! printf '%s' "$OUT" | grep -q 'структура прода не збігається' \
-  && printf '%s' "$OUT" | grep -q 'повернуто й звірено' && eq "$(rows)" 300
+[ "$before_fp" = "$FULL" ] && eq "$RC" 3 && grep -q 'рядків 500 проти 600 у джерелі' <<<"$OUT" \
+  && ! grep -q 'відновлення вийшло з кодом [1-9]' <<<"$OUT" && ! grep -q 'структура прода не збігається' <<<"$OUT" \
+  && grep -q 'повернуто й звірено' <<<"$OUT" && eq "$(rows)" 300
 r=$?
 ok "$r" 'розійшлись лише рядки (500 проти 600): таблицю замінено, відкат, код 3, 300 рядків' "до=$before_fp rc=$RC rows=$(rows) $OUT"
 rd="$(api_read)"; ins="$(app_insert "$DST_DB")"
@@ -588,9 +588,9 @@ build_world
 psql -q -d "$DST_DB" -c "CREATE FUNCTION mv_harden() RETURNS event_trigger LANGUAGE plpgsql AS \$f\$ DECLARE r record; BEGIN FOR r IN SELECT * FROM pg_event_trigger_ddl_commands() WHERE object_type='table' LOOP EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY', r.object_identity); END LOOP; END \$f\$" \
   -c "CREATE EVENT TRIGGER mv_harden_new_tables ON ddl_command_end WHEN TAG IN ('CREATE TABLE') EXECUTE FUNCTION mv_harden()"
 run "$TABLE" --apply
-eq "$RC" 4 && printf '%s' "$OUT" | grep -q '^+ALTER TABLE public.mv_probe ENABLE ROW LEVEL SECURITY' \
-  && printf '%s' "$OUT" | grep -q 'структура прода не збігається з джерелом' && printf '%s' "$OUT" | grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ' \
-  && ! printf '%s' "$OUT" | grep -q 'повернуто й звірено'
+eq "$RC" 4 && grep -q '^+ALTER TABLE public.mv_probe ENABLE ROW LEVEL SECURITY' <<<"$OUT" \
+  && grep -q 'структура прода не збігається з джерелом' <<<"$OUT" && grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ' <<<"$OUT" \
+  && ! grep -q 'повернуто й звірено' <<<"$OUT"
 r=$?
 ok "$r" '🔴 схема розійшлась при коді 0 відновлення; відкат теж не відтворює стан: код 4, діф називає RLS, «повернуто» не друкується' "rc=$RC $OUT"
 
@@ -604,9 +604,9 @@ build_world
 psql -q -d "$DST_DB" -c "CREATE FUNCTION mv_nokill() RETURNS event_trigger LANGUAGE plpgsql AS \$f\$ DECLARE r record; BEGIN FOR r IN SELECT * FROM pg_event_trigger_ddl_commands() WHERE command_tag='CREATE TRIGGER' LOOP EXECUTE format('DROP TRIGGER %s', r.object_identity); END LOOP; END \$f\$" \
   -c "CREATE EVENT TRIGGER mv_no_triggers ON ddl_command_end WHEN TAG IN ('CREATE TRIGGER') EXECUTE FUNCTION mv_nokill()"
 run "$TABLE" --apply
-eq "$RC" 4 && printf '%s' "$OUT" | grep -q 'після заміни: 500 рядків, відновлення вийшло з кодом 0' \
-  && printf '%s' "$OUT" | grep -q '^-CREATE TRIGGER mv_probe_touch' && printf '%s' "$OUT" | grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ' \
-  && ! printf '%s' "$OUT" | grep -q 'повернуто й звірено'
+eq "$RC" 4 && grep -q 'після заміни: 500 рядків, відновлення вийшло з кодом 0' <<<"$OUT" \
+  && grep -q '^-CREATE TRIGGER mv_probe_touch' <<<"$OUT" && grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ' <<<"$OUT" \
+  && ! grep -q 'повернуто й звірено' <<<"$OUT"
 r=$?
 ok "$r" '🔴 тригера немає, а відновлення вийшло з кодом 0: діф називає тригер, відкат теж його не повертає: код 4' "rc=$RC $OUT"
 
@@ -619,8 +619,8 @@ build_world
 psql -q -d "$DST_DB" -c "CREATE FUNCTION mv_grantguard() RETURNS event_trigger LANGUAGE plpgsql AS \$f\$ BEGIN EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA public FROM %I', '$ROLE_API'); END \$f\$" \
   -c "CREATE EVENT TRIGGER mv_grant_guard ON ddl_command_end WHEN TAG IN ('GRANT') EXECUTE FUNCTION mv_grantguard()"
 run "$TABLE" --apply
-eq "$RC" 4 && printf '%s' "$OUT" | grep -q 'власник чи права, які мав прод до заміни, загублено' && printf '%s' "$OUT" | grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ' \
-  && ! printf '%s' "$OUT" | grep -q 'структура прода не збігається' && ! printf '%s' "$OUT" | grep -q 'повернуто й звірено'
+eq "$RC" 4 && grep -q 'власник чи права, які мав прод до заміни, загублено' <<<"$OUT" && grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ' <<<"$OUT" \
+  && ! grep -q 'структура прода не збігається' <<<"$OUT" && ! grep -q 'повернуто й звірено' <<<"$OUT"
 r=$?
 ok "$r" '🔴 заміна закомітилась без помилок, але грант роли застосунку зник: код 4, названо втрату прав (схема й рядки мовчать)' "rc=$RC $OUT"
 
@@ -640,8 +640,8 @@ wait_reader_holds
 ( wait_waiter AccessExclusiveLock && psql -q -d "$DST_DB" -c "INSERT INTO $TABLE (ref,kind,n,rng) VALUES ('late','b',999,int4range(9000,9001))" ) & wp=$!
 T_LOCK=10s; run "$TABLE" --apply; T_LOCK=
 wait "$wp" 2>/dev/null; stop_readers; wait "$rp" 2>/dev/null
-printf '%s' "$OUT" | grep -q 'прод до заміни: 300 рядків' && printf '%s' "$OUT" | grep -q 'репетиція відкату: [0-9]* с, 301 рядків' \
-  && eq "$RC" 3 && printf '%s' "$OUT" | grep -q 'повернуто й звірено: 301 рядків' && eq "$(rows)" 301
+grep -q 'прод до заміни: 300 рядків' <<<"$OUT" && grep -q 'репетиція відкату: [0-9]* с, 301 рядків' <<<"$OUT" \
+  && eq "$RC" 3 && grep -q 'повернуто й звірено: 301 рядків' <<<"$OUT" && eq "$(rows)" 301
 r=$?
 ok "$r" 'запис між підрахунком і копією: лічильник 300, у копії 301; відкат звіряється з копією — код 3, а не хибний 4' "rc=$RC rows=$(rows) $OUT"
 
@@ -666,8 +666,8 @@ rm -rf "$BASE/backups"
   } ) & wp=$!
 T_LOCK=10s; T_RBLOCK=1s; t0=$(date +%s); run "$TABLE" --apply; t1=$(date +%s); T_LOCK=; T_RBLOCK=
 stop_readers; wait "$wp" 2>/dev/null
-eq "$RC" 4 && printf '%s' "$OUT" | grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ' && printf '%s' "$OUT" | grep -q 'рядків 500 проти 600 у джерелі' \
-  && ! printf '%s' "$OUT" | grep -q 'повернуто й звірено' && eq "$(rows)" 500
+eq "$RC" 4 && grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ' <<<"$OUT" && grep -q 'рядків 500 проти 600 у джерелі' <<<"$OUT" \
+  && ! grep -q 'повернуто й звірено' <<<"$OUT" && eq "$(rows)" 500
 r=$?
 ok "$r" "відкат не дочекався читача: код 4, 🔴 ВІДКАТ НЕ ЗВІРИВСЯ (а не «повернуто» після його 6 с), прод лишився на замінених 500" "rc=$RC за $((t1 - t0)) с rows=$(rows) $OUT"
 
@@ -699,12 +699,12 @@ rm -rf "$BASE/backups"
 T_LOCK=10s; T_RBLOCK=1s; run "$TABLE" --apply; T_LOCK=; T_RBLOCK=
 stop_readers; wait "$wp" 2>/dev/null
 own="$(dst "select count(*) from $TABLE where ref like 'p%'")"
-[ "$pre_ok" = 0 ] && printf '%s' "$OUT" | grep -q 'рядків 500 проти 600 у джерелі' \
-  && printf '%s' "$OUT" | grep -q 'після заміни: 500 рядків' && printf '%s' "$OUT" | grep -q 'репетиція відкату: [0-9]* с, 500 рядків' \
-  && eq "$RC" 4 && printf '%s' "$OUT" | grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ (відновлення відкату: код [1-9]' \
-  && ! printf '%s' "$OUT" | grep -q 'повернуто й звірено' && eq "$(rows)" 500 && eq "$own" 0 \
-  && printf '%s' "$OUT" | grep -q 'відновлення відкату ВПАЛО: таблицю НЕ повернуто' \
-  && ! printf '%s' "$OUT" | grep -q 'відрізняється від стану до заміни'
+[ "$pre_ok" = 0 ] && grep -q 'рядків 500 проти 600 у джерелі' <<<"$OUT" \
+  && grep -q 'після заміни: 500 рядків' <<<"$OUT" && grep -q 'репетиція відкату: [0-9]* с, 500 рядків' <<<"$OUT" \
+  && eq "$RC" 4 && grep -q 'ВІДКАТ НЕ ЗВІРИВСЯ (відновлення відкату: код [1-9]' <<<"$OUT" \
+  && ! grep -q 'повернуто й звірено' <<<"$OUT" && eq "$(rows)" 500 && eq "$own" 0 \
+  && grep -q 'відновлення відкату ВПАЛО: таблицю НЕ повернуто' <<<"$OUT" \
+  && ! grep -q 'відрізняється від стану до заміни' <<<"$OUT"
 r=$?
 ok "$r" '🔴 відкат упав при ЗБІЖНИХ лічильниках (500 і 500): код 4, ВІДКАТ НЕ ЗВІРИВСЯ, «повернуто» не друкується; прод справді не повернуто (0 власних рядків); діфа немає, тож і заголовка «відрізняється» немає' "pre=$pre_ok rc=$RC rows=$(rows) власних=$own $OUT"
 
@@ -717,7 +717,7 @@ build_world
 psql -q -d "$DST_DB" -c "CREATE TYPE mv_mood AS ENUM ('calm','wild')" -c "ALTER TABLE $TABLE ADD COLUMN mood mv_mood"
 before_fp="$(fp "$DST_DB")"
 run "$TABLE" --apply
-[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'репетиція відкату: [0-9]* с, 0 рядків' && printf '%s' "$OUT" | grep -q 'заміну НЕ роблю' \
+[ "$RC" = 1 ] && grep -q 'репетиція відкату: [0-9]* с, 0 рядків' <<<"$OUT" && grep -q 'заміну НЕ роблю' <<<"$OUT" \
   && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$before_fp" ] \
   && eq "$(dst "select count(*) from information_schema.columns where table_name='$TABLE' and column_name='mood'")" 1
 r=$?
@@ -731,7 +731,7 @@ build_world
 psql -q -d "$DST_DB" -c "CREATE TYPE mv_mood AS ENUM ('calm','wild')" -c "ALTER TABLE $TABLE ADD COLUMN mood mv_mood" -c "TRUNCATE $TABLE"
 before_fp="$(fp "$DST_DB")"
 run "$TABLE" --apply
-[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'заміну НЕ роблю' && eq "$(rows)" 0 && [ "$(fp "$DST_DB")" = "$before_fp" ] \
+[ "$RC" = 1 ] && grep -q 'заміну НЕ роблю' <<<"$OUT" && eq "$(rows)" 0 && [ "$(fp "$DST_DB")" = "$before_fp" ] \
   && eq "$(dst "select count(*) from information_schema.columns where table_name='$TABLE' and column_name='mood'")" 1
 r=$?
 ok "$r" 'порожній прод + копія, що не відновлюється: код 1, прод не торкнуто (0 рядків, колонка mood на місці)' "rc=$RC rows=$(rows) $OUT"
@@ -745,8 +745,8 @@ build_world
 rm -rf "$BASE/backups"
 before_fp="$(fp "$DST_DB")"
 set_gate open; run "$TABLE" --apply; set_gate closed
-[ "$before_fp" = "$FULL" ] && eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'ВІДМОВА (до початку): ворота «open»' \
-  && printf '%s' "$OUT" | grep -q -- '--allow-open-site' && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$FULL" ] \
+[ "$before_fp" = "$FULL" ] && eq "$RC" 1 && grep -q 'ВІДМОВА (до початку): ворота «open»' <<<"$OUT" \
+  && grep -q -- '--allow-open-site' <<<"$OUT" && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$FULL" ] \
   && [ -z "$(ls "$BASE/backups" 2>/dev/null)" ]
 r=$?
 ok "$r" '🔴 відчинені ворота: відмова (код 1), підказка про --allow-open-site, прод цілий (300 рядків, структура, власник, гранти), копії навіть не знімали' "rc=$RC rows=$(rows) fp=$(fp "$DST_DB") $OUT"
@@ -756,7 +756,7 @@ echo '— gate.conf показує на чужий файл: закритост�
 build_world
 rm -rf "$BASE/backups"
 ln -sfn "$GATE_DIR/gate-foreign.conf" "$GATE_DIR/gate.conf"; run "$TABLE" --apply; set_gate closed
-eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'ВІДМОВА (до початку): ворота «чуже»' && eq "$(rows)" 300 \
+eq "$RC" 1 && grep -q 'ВІДМОВА (до початку): ворота «чуже»' <<<"$OUT" && eq "$(rows)" 300 \
   && [ "$(fp "$DST_DB")" = "$FULL" ] && [ -z "$(ls "$BASE/backups" 2>/dev/null)" ]
 r=$?
 ok "$r" 'чужа ціль gate.conf: відмова (код 1), прод цілий, копії не знімали' "rc=$RC rows=$(rows) $OUT"
@@ -769,7 +769,7 @@ build_world
 rm -rf "$BASE/backups"
 ( wait_for_backup && set_gate open ) & wp=$!
 run "$TABLE" --apply; wait "$wp" 2>/dev/null; set_gate closed
-eq "$RC" 1 && printf '%s' "$OUT" | grep -q 'ВІДМОВА (перед заміною): ворота «open»' && ! printf '%s' "$OUT" | grep -q 'ВІДМОВА (до початку)' \
+eq "$RC" 1 && grep -q 'ВІДМОВА (перед заміною): ворота «open»' <<<"$OUT" && ! grep -q 'ВІДМОВА (до початку)' <<<"$OUT" \
   && eq "$(rows)" 300 && [ "$(fp "$DST_DB")" = "$FULL" ] && ls "$BASE/backups/$TABLE-before-"*.dump >/dev/null 2>&1
 r=$?
 ok "$r" '🔴 ворота відчинились посеред роботи: відмова перед заміною (код 1), прод цілий (300 рядків, структура, власник, гранти)' "rc=$RC rows=$(rows) fp=$(fp "$DST_DB") $OUT"
@@ -778,7 +778,7 @@ echo '— ворота відчинені, але --allow-open-site: свідо�
 build_world
 rm -rf "$BASE/backups"
 set_gate open; run "$TABLE" --apply --allow-open-site; set_gate closed
-eq "$RC" 0 && printf '%s' "$OUT" | grep -q '⚠ ворота «open».*--allow-open-site (до початку)' && eq "$(rows)" 500 && [ "$(fp "$DST_DB")" = "$FULL" ]
+eq "$RC" 0 && grep -q '⚠ ворота «open».*--allow-open-site (до початку)' <<<"$OUT" && eq "$(rows)" 500 && [ "$(fp "$DST_DB")" = "$FULL" ]
 r=$?
 ok "$r" 'відчинені ворота + --allow-open-site: заміна пройшла (код 0, 500 рядків), попередження надруковано' "rc=$RC rows=$(rows) $OUT"
 

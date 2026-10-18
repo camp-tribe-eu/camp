@@ -253,9 +253,9 @@ envline()  { grep -c '^NEXT_PUBLIC_SITE_MODE=public$' "$ROOT/releases/r1/apps/ap
 
 echo '— замкнений світ: status читає всі чотири замки'
 run status
-[ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'ЗАКРИТО'
+[ "$RC" = 0 ] && grep -q 'ЗАКРИТО' <<<"$OUT"
 ok $? 'status на закритому світі: код 0 і слово ЗАКРИТО' "rc=$RC $OUT"
-printf '%s' "$OUT" | grep -q 'ззовні                        : пароль'; ok $? 'status бачить 401 ЗЗОВНІ, а не на 127.0.0.1' "$OUT"
+grep -q 'ззовні                        : пароль' <<<"$OUT"; ok $? 'status бачить 401 ЗЗОВНІ, а не на 127.0.0.1' "$OUT"
 
 echo '— .env'
 # 🔴 Якір `^` у lock_env. Без нього закоментований рядок читається як
@@ -264,21 +264,21 @@ echo '— .env'
 # інакше перевірка зелена незалежно від якоря.
 printf '#NEXT_PUBLIC_SITE_MODE=public\n' >> "$ROOT/releases/r1/apps/api/.env"
 run status
-printf '%s' "$OUT" | grep -q 'NEXT_PUBLIC_SITE_MODE : closed'
+grep -q 'NEXT_PUBLIC_SITE_MODE : closed' <<<"$OUT"
 ok $? 'закоментований рядок у .env не рахується за ввімкнений' "$OUT"
 sed -i.bak '/^#NEXT_PUBLIC_SITE_MODE/d' "$ROOT/releases/r1/apps/api/.env"
 rm -f "$ROOT/releases/r1/apps/api/.env.bak"
 run env --public
-[ "$RC" = 0 ] && [ "$(envline)" = 0 ] && printf '%s' "$OUT" | grep -q 'СУХИЙ ПРОГІН'
+[ "$RC" = 0 ] && [ "$(envline)" = 0 ] && grep -q 'СУХИЙ ПРОГІН' <<<"$OUT"
 ok $? 'env --public без --apply: .env не змінено' "rc=$RC env=$(envline) $OUT"
 run env --public --apply
 [ "$RC" = 0 ] && [ "$(envline)" = 1 ]; ok $? 'env --public --apply: рядок зʼявився' "rc=$RC env=$(envline) $OUT"
-printf '%s' "$OUT" | grep -q 'НІЧОГО НЕ ЗМІНИЛО'; ok $? 'env --apply каже прямо, що саме по собі це нічого не відкрило' "$OUT"
+grep -q 'НІЧОГО НЕ ЗМІНИЛО' <<<"$OUT"; ok $? 'env --apply каже прямо, що саме по собі це нічого не відкрило' "$OUT"
 run env --public --apply
 # 🔴 Не лише «рядок один». Запис у .env іде через тимчасовий файл, і
 # перевірка, яка дивиться тільки на свій рядок, однаково зелена над
 # файлом, з якого зникли DATABASE_URL і PORT.
-[ "$RC" = 0 ] && [ "$(envline)" = 1 ] && printf '%s' "$OUT" | grep -q 'уже' \
+[ "$RC" = 0 ] && [ "$(envline)" = 1 ] && grep -q 'уже' <<<"$OUT" \
   && [ "$(wc -l < "$ROOT/releases/r1/apps/api/.env" | tr -d " ")" = 3 ] \
   && grep -q '^DATABASE_URL=' "$ROOT/releases/r1/apps/api/.env" \
   && grep -q '^PORT=3001$' "$ROOT/releases/r1/apps/api/.env"
@@ -289,18 +289,18 @@ run status --bogus; [ "$RC" = 2 ]; ok $? 'невідомий прапорець:
 
 echo '— головне: зняти пароль над закритою збіркою НЕ МОЖНА'
 run status
-[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'повна викладка'
+[ "$RC" = 1 ] && grep -q 'повна викладка' <<<"$OUT"
 ok $? 'env=public, збірка=closed → status 1 і просить викладку, а не open' "rc=$RC $OUT"
 run open --apply
 [ "$RC" = 1 ] && [ "$(gate_now)" = closed ]
 ok $? 'open --apply при закритій збірці: відмова, gate не рушив' "rc=$RC gate=$(gate_now) $OUT"
-printf '%s' "$OUT" | grep -q 'сам просить себе не індексувати'; ok $? 'відмова називає ПРИЧИНУ (robots.txt із Disallow)' "$OUT"
+grep -q 'сам просить себе не індексувати' <<<"$OUT"; ok $? 'відмова називає ПРИЧИНУ (robots.txt із Disallow)' "$OUT"
 [ ! -s "$CADDY_LOG" ]; ok $? 'при відмові caddy не викликали жодного разу' "log=$(cat "$CADDY_LOG")"
 
 echo '— збірка стала публічною'
 printf 'public\n' > "$W/build-mode"
 run status
-[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'camptribe-launch open --apply'
+[ "$RC" = 1 ] && grep -q 'camptribe-launch open --apply' <<<"$OUT"
 ok $? 'env+збірка public, gate closed → status 1 і просить саме open' "rc=$RC $OUT"
 run open
 [ "$RC" = 0 ] && [ "$(gate_now)" = closed ] && ! grep -q . "$CADDY_LOG"
@@ -314,7 +314,7 @@ RL="$(grep -n '^reload ' "$CADDY_LOG" | head -1 | cut -d: -f1)"
 [ -n "$VL" ] && [ -n "$RL" ] && [ "$VL" -lt "$RL" ]
 ok $? 'open --apply: validate стоїть ПЕРЕД reload, а не просто поруч' "validate=$VL reload=$RL log=$(cat "$CADDY_LOG")"
 run status
-[ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'ВІДКРИТО'; ok $? 'status після open: ВІДКРИТО, код 0' "rc=$RC $OUT"
+[ "$RC" = 0 ] && grep -q 'ВІДКРИТО' <<<"$OUT"; ok $? 'status після open: ВІДКРИТО, код 0' "rc=$RC $OUT"
 
 echo '— назад під пароль'
 run close --apply
@@ -324,13 +324,13 @@ run close --apply
 # має називати це ЗАКРИТО, бо наступна ж викладка без пароля відкриє сайт
 # несподівано для того, хто читав цей рядок.
 run status
-[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'НЕУЗГОДЖЕНО'
+[ "$RC" = 1 ] && grep -q 'НЕУЗГОДЖЕНО' <<<"$OUT"
 ok $? 'closed gate над public збіркою: НЕУЗГОДЖЕНО, а не ЗАКРИТО' "rc=$RC $OUT"
 printf 'closed\n' > "$W/build-mode"
 run env --closed --apply
 [ "$RC" = 0 ] && [ "$(envline)" = 0 ]; ok $? 'env --closed --apply: рядок прибрано' "rc=$RC env=$(envline) $OUT"
 run status
-[ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'ЗАКРИТО'; ok $? 'світ повернуто в передзапуск: ЗАКРИТО' "rc=$RC $OUT"
+[ "$RC" = 0 ] && grep -q 'ЗАКРИТО' <<<"$OUT"; ok $? 'світ повернуто в передзапуск: ЗАКРИТО' "rc=$RC $OUT"
 
 echo '— зовнішня перевірка не пройшла (кеш Cloudflare віддає старе)'
 printf 'public\n' > "$W/build-mode"
@@ -338,7 +338,7 @@ printf 'public\n' > "$W/build-mode"
 run open --apply
 [ "$RC" = 3 ] && [ "$(gate_now)" = closed ]
 ok $? 'ззовні досі пароль → код 3 і gate повернуто в closed' "rc=$RC gate=$(gate_now) $OUT"
-printf '%s' "$OUT" | grep -q 'повертаю'; ok $? 'повернення назване вголос' "$OUT"
+grep -q 'повертаю' <<<"$OUT"; ok $? 'повернення назване вголос' "$OUT"
 rm -f "$CF_STALE"
 
 echo '— caddy validate падає'
@@ -354,7 +354,7 @@ echo '— gate.conf показує на те, чого немає'
 run env --public --apply; printf 'public\n' > "$W/build-mode"
 ln -sfn "$CADDY/gate-missing.conf" "$CADDY/gate.conf"
 run status
-[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'gate.conf              : чуже'
+[ "$RC" = 1 ] && grep -q 'gate.conf              : чуже' <<<"$OUT"
 ok $? 'чужа ціль gate.conf: названа «чуже», і стан не цілісний' "rc=$RC $OUT"
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 
@@ -399,7 +399,7 @@ ok $? 'перекриття маршрутів: /api/auth/* бере вужчи�
 echo '— збірка мовчить (Next лежить)'
 : > "$WEB_DOWN"; : > "$CADDY_LOG"
 run open --apply
-[ "$RC" = 1 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'невідомо'
+[ "$RC" = 1 ] && [ "$(gate_now)" = closed ] && grep -q 'невідомо' <<<"$OUT"
 ok $? 'збірка «невідомо»: open --apply відмовляється, а не вважає це публічним' "rc=$RC gate=$(gate_now) $OUT"
 rm -f "$WEB_DOWN"
 
@@ -415,7 +415,7 @@ rm -f "$CADDY/gate.conf"; ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 echo '— CDN відповідає сам: 503 це не «відкрито»'
 : > "$SITE_5XX"
 run status
-[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'ззовні                        : код-503'
+[ "$RC" = 1 ] && grep -q 'ззовні                        : код-503' <<<"$OUT"
 ok $? '503 від CDN читається як «код-503», а не як відкритий сайт' "rc=$RC $OUT"
 # 🔴 Головний регрес: close під недосяжною публічною адресою. Перша
 # редакція вертала «туди, де були», тобто ВІДКРИВАЛА сайт командою,
@@ -430,9 +430,9 @@ echo '— відкат релізу повернув закриту збірку
 ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
 printf 'closed\n' > "$W/build-mode"
 run status
-printf '%s' "$OUT" | grep -q 'ззовні                        : noindex'
+grep -q 'ззовні                        : noindex' <<<"$OUT"
 ok $? 'пароля немає, а збірка просить noindex — ззовні саме noindex' "$OUT"
-[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'повна викладка'
+[ "$RC" = 1 ] && grep -q 'повна викладка' <<<"$OUT"
 ok $? 'і це НЕУЗГОДЖЕНО з вимогою зібрати заново, а не «відкрито»' "rc=$RC $OUT"
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"; printf 'public\n' > "$W/build-mode"
 
@@ -446,7 +446,7 @@ ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 printf 'closed\n' > "$W/build-mode"
 run env --closed --apply
 run status
-[ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'ЗАКРИТО'
+[ "$RC" = 0 ] && grep -q 'ЗАКРИТО' <<<"$OUT"
 ok $? 'контроль: у цьому світі status віддає 0 і ЗАКРИТО' "rc=$RC $OUT"
 
 # 🔴 І САМА АВАРІЯ: перемикання НЕМАЄ, світ узгоджений, зламано
@@ -455,7 +455,7 @@ ok $? 'контроль: у цьому світі status віддає 0 і ЗА�
 # Файл навмисно неактивний: інакше «обидва» в циклі не перевіряє ніхто.
 chmod 600 "$CADDY/gate-open.conf"
 run status
-[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'ЗАМОК ОДНОРАЗОВИЙ'
+[ "$RC" = 1 ] && grep -q 'ЗАМОК ОДНОРАЗОВИЙ' <<<"$OUT"
 ok $? 'зламані права на НЕАКТИВНОМУ файлі: код 1 у світі, що віддавав 0' "rc=$RC $OUT"
 chmod 644 "$CADDY/gate-open.conf"
 
@@ -464,7 +464,7 @@ chmod 644 "$CADDY/gate-open.conf"
 mv "$CADDY/gate-closed.conf" "$CADDY/gate-closed.keep"
 ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
 run status
-[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'НЕМАЄ'
+[ "$RC" != 0 ] && grep -q 'НЕМАЄ' <<<"$OUT"
 ok $? 'відсутній файл замка названий, а не пропущений' "rc=$RC $OUT"
 mv "$CADDY/gate-closed.keep" "$CADDY/gate-closed.conf"
 printf 'public\n' > "$W/build-mode"; run env --public --apply
@@ -473,7 +473,7 @@ printf 'public\n' > "$W/build-mode"; run env --public --apply
 ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
 chmod 600 "$CADDY/gate-closed.conf"
 run close --apply
-[ "$RC" != 0 ] && [ "$(gate_now)" = open ] && printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+[ "$RC" != 0 ] && [ "$(gate_now)" = open ] && grep -q 'НЕ МОЖЕ прочитати' <<<"$OUT"
 ok $? 'close не йде, коли НЕЧИТАБЕЛЬНА САМЕ ЦІЛЬ' "rc=$RC gate=$(gate_now) $OUT"
 
 # 🔴 ЦІЛЬ ВІДКАТУ. Ціль переходу (gate-open.conf) читається, зламаний
@@ -485,7 +485,7 @@ ok $? 'close не йде, коли НЕЧИТАБЕЛЬНА САМЕ ЦІЛЬ' "
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 chmod 600 "$CADDY/gate-closed.conf"
 run open --apply
-[ "$RC" != 0 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'саме туди цей запуск відкотиться'
+[ "$RC" != 0 ] && [ "$(gate_now)" = closed ] && grep -q 'саме туди цей запуск відкотиться' <<<"$OUT"
 ok $? 'open не йде, коли нечитабельна ЦІЛЬ ВІДКАТУ, хоч сама ціль читається' "rc=$RC gate=$(gate_now) $OUT"
 chmod 640 "$CADDY/gate-closed.conf"
 
@@ -495,13 +495,13 @@ chmod 640 "$CADDY/gate-closed.conf"
 ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
 chmod 600 "$CADDY/gate-open.conf"
 run close --apply
-[ "$RC" = 0 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'не читає'
+[ "$RC" = 0 ] && [ "$(gate_now)" = closed ] && grep -q 'не читає' <<<"$OUT"
 ok $? 'close ІДЕ з попередженням, коли зламаний лише покинутий файл' "rc=$RC gate=$(gate_now) $OUT"
 
 # Сухий прогін не має казати обидві речі одразу.
 ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
 run close
-printf '%s' "$OUT" | grep -q 'не читає' && ! printf '%s' "$OUT" | grep -q 'читає обидва файли'
+grep -q 'не читає' <<<"$OUT" && ! grep -q 'читає обидва файли' <<<"$OUT"
 ok $? 'сухий прогін не каже «читає обидва» після власного попередження' "rc=$RC $OUT"
 chmod 644 "$CADDY/gate-open.conf"
 
@@ -509,7 +509,7 @@ chmod 644 "$CADDY/gate-open.conf"
 ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
 mv "$CADDY/gate-open.conf" "$CADDY/gate-open.keep"
 run close --apply
-[ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'ШЛЯХУ НАЗАД НЕ ІСНУЄ'
+[ "$RC" = 0 ] && grep -q 'ШЛЯХУ НАЗАД НЕ ІСНУЄ' <<<"$OUT"
 ok $? 'відсутній покинутий файл названий окремо, а не мовчки пропущений' "rc=$RC $OUT"
 mv "$CADDY/gate-open.keep" "$CADDY/gate-open.conf"
 
@@ -517,7 +517,7 @@ mv "$CADDY/gate-open.keep" "$CADDY/gate-open.conf"
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 chmod 600 "$CADDY/gate-open.conf"
 run open --apply
-[ "$RC" != 0 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+[ "$RC" != 0 ] && [ "$(gate_now)" = closed ] && grep -q 'НЕ МОЖЕ прочитати' <<<"$OUT"
 ok $? 'open не йде, коли нечитабельний gate-open.conf як ціль' "rc=$RC gate=$(gate_now) $OUT"
 chmod 644 "$CADDY/gate-open.conf"
 
@@ -527,7 +527,7 @@ chmod 644 "$CADDY/gate-open.conf"
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 chmod 600 "$CADDY/gate-closed.conf"
 run close --apply
-[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+[ "$RC" != 0 ] && grep -q 'НЕ МОЖЕ прочитати' <<<"$OUT"
 ok $? 'close --apply на ВЖЕ закритому сайті не мовчить про зламані права' "rc=$RC $OUT"
 
 # Сухий прогін у напрямку open мусить казати про ціль ВІДКАТУ: єдиний
@@ -535,7 +535,7 @@ ok $? 'close --apply на ВЖЕ закритому сайті не мовчит
 # гілка в ньому не виконується взагалі.
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 run open
-[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'саме туди цей запуск відкотиться'
+[ "$RC" != 0 ] && grep -q 'саме туди цей запуск відкотиться' <<<"$OUT"
 ok $? 'сухий open попереджає про ціль відкату, не лише --apply' "rc=$RC $OUT"
 chmod 640 "$CADDY/gate-closed.conf"
 
@@ -543,7 +543,7 @@ chmod 640 "$CADDY/gate-closed.conf"
 mv "$CADDY/gate-closed.conf" "$CADDY/gate-closed.keep"
 ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
 run open --apply
-printf '%s' "$OUT" | grep -q 'немає' && ! printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+grep -q 'немає' <<<"$OUT" && ! grep -q 'НЕ МОЖЕ прочитати' <<<"$OUT"
 ok $? 'відсутня ціль відкату: сказано «немає», а не «полагодь права»' "rc=$RC $OUT"
 mv "$CADDY/gate-closed.keep" "$CADDY/gate-closed.conf"
 
@@ -555,7 +555,7 @@ cp "$CADDY/gate-closed.conf" "$CADDY/gate-maint.conf"
 chmod 600 "$CADDY/gate-maint.conf"
 ln -sfn "$CADDY/gate-maint.conf" "$CADDY/gate.conf"
 run status
-printf '%s' "$OUT" | grep -q 'gate-maint.conf'
+grep -q 'gate-maint.conf' <<<"$OUT"
 ok $? 'status перевіряє той файл, на який gate.conf вказує НАСПРАВДІ' "rc=$RC $OUT"
 rm -f "$CADDY/gate-maint.conf"
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"

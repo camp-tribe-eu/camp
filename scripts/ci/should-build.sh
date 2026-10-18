@@ -37,7 +37,7 @@ decide() {
   # 🔴 ПРИ ПОМИЛЦІ — БУДУЄМО. Ворота, що мовчки кажуть «ні», зупиняють
   # CI не падаючи, а це та сама тиха форма, яку цей репозиторій ловить
   # у своїх запобіжниках знову й знову.
-  if ! printf '%s' "$n" | grep -qE '^[0-9]+$'; then echo yes; return 0; fi
+  if ! grep -qE '^[0-9]+$' <<<"$n"; then echo yes; return 0; fi
   if [ "$n" -gt 0 ]; then echo no; else echo yes; fi
 }
 

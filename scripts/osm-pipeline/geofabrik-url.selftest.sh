@@ -29,7 +29,7 @@ check() { # опис, очікуваний код, очікуваний фраг
   # Порожній $wantmsg означає «stderr не перевіряємо». Без цієї гілки
   # `grep -q ""` по порожньому stderr повертає 1, і випадок, де все
   # правильно, читається як падіння — тобто сам стенд бреше.
-  if [ "$gotrc" = "$wantrc" ] && { [ -z "$wantmsg" ] || printf '%s' "$goterr" | grep -q "$wantmsg"; }; then
+  if [ "$gotrc" = "$wantrc" ] && { [ -z "$wantmsg" ] || grep -q "$wantmsg" <<<"$goterr"; }; then
     echo "  ✓ $what"; pass=$((pass+1))
   else
     echo "  ✗ $what — код $gotrc (чекав $wantrc), stderr: $(printf '%s' "$goterr" | head -1)"; fail=$((fail+1))

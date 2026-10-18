@@ -79,8 +79,8 @@ lock_build() {
   body="$($CURL -fsS --max-time 10 "$WEB_URL/robots.txt" 2>/dev/null || true)"
   [ -n "$body" ] || { echo 'невідомо'; return; }
   hdr="$($CURL -fsS --max-time 10 -o /dev/null -D - "$WEB_URL/robots.txt" 2>/dev/null || true)"
-  if printf '%s' "$body" | grep -Eq '^[[:space:]]*Disallow:[[:space:]]*/[[:space:]]*$' \
-     || printf '%s' "$hdr" | grep -qi 'x-robots-tag:.*noindex'
+  if grep -Eq '^[[:space:]]*Disallow:[[:space:]]*/[[:space:]]*$' <<<"$body" \
+     || grep -qi 'x-robots-tag:.*noindex' <<<"$hdr"
   then echo 'closed'; else echo 'public'; fi
 }
 
@@ -109,9 +109,9 @@ lock_public() {
   # насправді лежить. Відкрито — це саме 200 і нічого іншого.
   [ "$code" = 200 ] || { echo "код-$code"; return; }
   hdr="$($CURL -s --max-time 20 -o /dev/null -D - "$SITE_URL/?nocache=$bust" 2>/dev/null || true)"
-  printf '%s' "$hdr" | grep -qi 'x-robots-tag:.*noindex' && { echo 'noindex'; return; }
+  grep -qi 'x-robots-tag:.*noindex' <<<"$hdr" && { echo 'noindex'; return; }
   body="$($CURL -s --max-time 20 "$SITE_URL/robots.txt?nocache=$bust" 2>/dev/null || true)"
-  printf '%s' "$body" | grep -Eq '^[[:space:]]*Disallow:[[:space:]]*/[[:space:]]*$' && { echo 'robots-disallow'; return; }
+  grep -Eq '^[[:space:]]*Disallow:[[:space:]]*/[[:space:]]*$' <<<"$body" && { echo 'robots-disallow'; return; }
   echo 'відкрито'
 }
 

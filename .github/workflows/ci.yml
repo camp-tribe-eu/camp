@@ -710,6 +710,25 @@ jobs:
       - name: No script runs itself when a test imports it
         run: node scripts/ci/check-script-entrypoints.mjs
 
+      # 🔴 CAMP-333. `grep -q` exits at the first match and closes the
+      # pipe; the writer takes SIGPIPE; `pipefail` then reports the worst
+      # code in the pipeline, so a successful match reads as a failure.
+      # One run in ~1500 of move-table.selftest.sh went red that way on
+      # 16.10.2026. Reproduced deliberately before the fix: above the
+      # 65 536-byte pipe buffer it is 400 of 400, below it 0 of 400,
+      # idle or under load. check-selftest-steps.mjs already refuses the
+      # pattern in a workflow STEP; these two steps extend the same rule
+      # to the 29 shell files and 7 workflows it never looked at, where 226
+      # of them were.
+      - name: The pipe-into-grep-q guard still tells a pipe from a herestring
+        run: |
+          set -o pipefail
+          node scripts/ci/check-pipe-to-grep-q.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-pipe-to-grep-q self-test:' >/dev/null
+
+      - name: Nothing in a shell file pipes into grep -q
+        run: node scripts/ci/check-pipe-to-grep-q.mjs
+
       # 🔴 CAMP-221. The satellite base layer serves somebody else's
       # photographs. The mockup settled the policy — Esri, Bing and Google
       # are closed to us, orthophotos come from national open sources —
