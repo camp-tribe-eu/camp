@@ -115,168 +115,191 @@ const WHO = 'check-pipe-to-grep-q';
  * `cmd | grep 'x' && y -q` a false positive.
  */
 const GREPS = new Set(['grep', 'egrep', 'fgrep', 'rgrep']);
-const WRAPPER_END = new Set(['&&', '||', ';', '&', ')', '}', '|']);
+
+// Operators that end the command a pipe feeds.
+//
+// 🔴 NEITHER `|` NOR THE `||` MARK IS HERE, AND THAT IS DELIBERATE. A
+// segment handed to isQuietGrep has already been split on every pipe
+// and cut at the first `||`, so neither can appear in it. Both were in
+// this set once, and the mutation matrix showed what that costs: with
+// two guards for one hazard, removing either one left all cases green,
+// because the other still covered it. A lock nothing can rehearse is
+// not a lock.
+const COMMAND_END = new Set(['&&', ';', '&', ')', '}']);
+
+// grep flags that swallow the NEXT token. Without this, `grep -e -q f`
+// reads as quiet when `-q` is the PATTERN — a false positive the review
+// found while the file was busy boasting about catching `grep -- -q`.
+const TAKES_VALUE = new Set([
+  '-e', '-f', '-m', '-A', '-B', '-C', '-d', '-D',
+  '--regexp', '--file', '--max-count', '--after-context',
+  '--before-context', '--context', '--devices', '--directories',
+]);
 
 /**
  * A token asking grep to be quiet.
  *
- * Short flags bundle in either order (`-qE`, `-Eq`, `-qi`, `-qx`) and
- * the long form has three spellings. `--quiet-ish` is not one of them.
+ * 🔴 NO `$` ANCHOR, AND THAT WAS A REGRESSION. Requiring the token to
+ * be nothing but letters lost `grep -q'x'` and `grep -qE'^x$'` — the
+ * flag written against its pattern, which is valid shell and which the
+ * regex version did catch.
+ *
+ * A token beginning `-e`/`-f` with more after it is that flag's glued
+ * VALUE, not a bundle: `grep -eq` searches for "q".
  */
 function isQuietFlag(token) {
-  return /^-[a-zA-Z]*q[a-zA-Z]*$/.test(token) || token === '--quiet' || token === '--silent';
+  if (/^-[ef]./.test(token)) return false;
+  return /^-[a-zA-Z]*q/.test(token) || token === '--quiet' || token === '--silent';
 }
 
 /** A command token reduced to the name it will actually run. */
 function commandName(token) {
-  const bare = token.replace(/\\/g, '').replace(/^['"]|['"]$/g, '');
+  const bare = token.replace(/\\/g, '').replace(/^[({!]+/, '').replace(/^['"]|['"]$/g, '');
   return bare.slice(bare.lastIndexOf('/') + 1);
 }
 
 /**
  * Whether this pipeline segment runs a grep that is asked to be quiet.
  *
- * 🔴 TOKENS, NOT A REGEX, AND THAT WAS THE SECOND REVIEW ROUND. The
- * regex version recognised a closed list of wrappers
- * (`command|env|sudo|…`) — which is the same forbidden-word list the
- * first version was, one layer up: `timeout 5 grep -q`, `exec grep -q`,
+ * 🔴 TOKENS, NOT A REGEX. The regex version recognised a closed list of
+ * wrappers (`command|env|sudo|…`) — the same forbidden-word list the
+ * first version was, one layer up: `timeout 5 grep -q`, `exec`,
  * `nohup`, `time`, `doas`, `busybox` all walked past it, as did
- * `\grep -q` (the alias-dodging idiom), `"grep" -q` and `'grep' -q`.
+ * `\grep -q`, `"grep" -q` and `'grep' -q`.
  *
- * So the question asked here is not "which wrapper is this" but "does
- * any token in this segment RUN a grep, and is it handed a quiet flag
- * before the segment ends". No list of wrappers is needed, and
- * `$GREP -q` is the one shape that stays invisible — a variable this
- * file cannot resolve. It is documented rather than guessed at.
- *
- * Two refusals that were false positives in the regex version:
- * `pgrep -q` (a different program whose name merely ends in grep) and
- * `grep -- -q file` (after `--`, `-q` is the PATTERN, and grep is not
- * quiet at all).
+ * So the question is not "which wrapper is this" but "does any token
+ * here RUN a grep, and is it handed a quiet flag before the command
+ * ends". No list of wrappers is needed. `$GREP -q` is the one shape
+ * that stays invisible — a variable this file cannot resolve, written
+ * down rather than guessed at.
  */
 export function isQuietGrep(segment) {
   const tokens = segment.trim().split(/\s+/).filter(Boolean);
   let i = 0;
   while (i < tokens.length && /^[A-Za-z_][A-Za-z_0-9]*=/.test(tokens[i])) i++;
   for (; i < tokens.length; i++) {
-    if (WRAPPER_END.has(tokens[i])) return false;
+    if (COMMAND_END.has(tokens[i])) return false;
     if (GREPS.has(commandName(tokens[i]))) break;
   }
   if (i >= tokens.length) return false;
   for (let j = i + 1; j < tokens.length; j++) {
     const t = tokens[j];
-    if (t === '--' || WRAPPER_END.has(t)) return false;
+    if (t === '--' || COMMAND_END.has(t)) return false;
+    if (TAKES_VALUE.has(t)) { j++; continue; }
     if (isQuietFlag(t)) return true;
   }
   return false;
 }
 
 /**
- * A line with its comment removed — only a `#` that starts a word and
- * sits outside quotes.
+ * One stateful walk of a shell source: comments removed, the CONTENTS
+ * of quoted runs blanked, heredoc bodies marked.
  *
- * Cutting at any `#` blinds the rule to `… | grep -q 'x'  # why` and to
- * a URL fragment; not tracking quotes lets `echo 'a # b' | grep -q 'x'`
- * lose its own pipe. Both were mutations that had to go red.
+ * 🔴 ONE WALK, BECAUSE THREE SEPARATE PASSES DISAGREED WITH EACH OTHER.
+ * Heredoc detection used to read the RAW line, so a `<<SQL` inside a
+ * comment opened a heredoc that was never closed. Measured live:
+ * `scripts/osm-pipeline/backup-local.sh:254` mentions
+ * "`gzip -dc … | psql <<SQL`" in prose, and 154 of that file's 518
+ * lines were then marked as heredoc body — including two real `cat
+ * <<'HEAD'` blocks, so every later delimiter was out of step.
+ *
+ * Quote state also has to carry ACROSS lines. A shell string written
+ * over several lines was read as code, so
+ *
+ *     msg="do not write:
+ *     cmd | grep -q 'x'
+ *     "
+ *
+ * was reported as an offence on line 2.
+ *
+ * Heredocs: `<<<` is a herestring and opens nothing; a line may open
+ * more than one (`cat <<A <<B`), so they queue; and without `<<-` the
+ * terminator must sit in column zero, which is why an indented `EOF`
+ * does not close it.
  */
-export function code(line) {
-  let q = null;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (q) { if (c === q) q = null; continue; }
-    if (c === "'" || c === '"') { q = c; continue; }
-    if (c === '#' && (i === 0 || /[ \t;&|]/.test(line[i - 1]))) return line.slice(0, i);
-  }
-  return line;
-}
-
-/**
- * The same line with the CONTENTS of every quoted run replaced by a
- * placeholder.
- *
- * 🔴 Review found the rule firing on prose: `die "не лий у | grep -q —
- * пиши herestring"` and `case $x in *"| grep -q"*)` were both reported
- * as offences. That is exactly the harm this file cites when it refuses
- * to read .mjs — a guard that reads prose stops somebody's correct PR —
- * and for .sh the hole was still open.
- */
-export function blankQuotes(line) {
-  let out = '';
-  let q = null;
-  for (const c of line) {
-    if (q) { if (c === q) { out += q; q = null; } else out += '·'; continue; }
-    if (c === "'" || c === '"') { q = c; out += c; continue; }
-    out += c;
-  }
-  return out;
-}
-
-/**
- * Which lines sit inside a heredoc body.
- *
- * 🔴 A REGRESSION THE REVIEW CAUGHT, AND THE OBVIOUS FIX WAS TOO BIG.
- * Joining continuation lines (added to see `cmd | \` + newline +
- * `grep -q`) made this input report an offence that exists nowhere in
- * the file:
- *
- *     cat <<'EOF' > /etc/motd
- *     колонка |
- *     grep -q це заборонено
- *     EOF
- *
- * Dropping heredoc bodies outright fixes it — and loses real code with
- * them. Measured on main: `infra/deploy.selftest.sh:162` is a genuine
- * `readlink … | grep -q …` that lives inside the heredoc writing the
- * systemctl stub, and dropping bodies took the tree's count from 150 to
- * 149 by hiding exactly that line.
- *
- * So the narrow fix: a heredoc body is still READ, line by line, but
- * nothing JOINS across it. The motd above then has no line that is a
- * pipeline on its own, and the stub keeps its offence.
- *
- * `<<<` is a herestring, not a heredoc, and must not open one.
- */
-export function heredocLines(source) {
+export function scan(source) {
   const lines = source.split('\n');
-  const inside = new Set();
-  let delim = null;
+  const rows = [];
+  let quote = null;
+  const queue = [];
+  let active = null;
   for (let i = 0; i < lines.length; i++) {
-    if (delim !== null) {
-      if (lines[i].trim() === delim) delim = null;
-      else inside.add(i + 1);
+    const raw = lines[i].replace(/\r$/, '');
+    if (active) {
+      const closes = active.dash ? raw.trim() === active.delim : raw === active.delim;
+      rows.push({ line: i + 1, text: closes ? '' : raw, data: true });
+      if (closes) active = queue.shift() ?? null;
       continue;
     }
-    const m = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z_0-9]*)\1(?!<)/.exec(lines[i].replace(/<<</g, '  '));
-    if (m) delim = m[2];
+    let text = '';
+    for (let j = 0; j < raw.length; j++) {
+      const c = raw[j];
+      // 🔴 A BACKSLASH ESCAPES, EXCEPT INSIDE '…'. Measured live:
+      // scripts/osm-pipeline/backup-local.sh:266 is
+      //   *\\'*) die "the backup path contains a quote…"
+      // and reading that `\\'` as an opening quote put everything after it
+      // inside a string — including the real `cat <<'HEAD'` at :283,
+      // whose heredoc then never opened at all.
+      if (c === '\\' && quote !== "'" && j + 1 < raw.length) {
+        text += quote ? '··' : raw.slice(j, j + 2);
+        j++;
+        continue;
+      }
+      if (quote) {
+        text += c === quote ? c : '·';
+        if (c === quote) quote = null;
+        continue;
+      }
+      if (c === "'" || c === '"') { quote = c; text += c; continue; }
+      if (c === '#' && (j === 0 || /[ \t;&|(]/.test(raw[j - 1]))) break;
+      if (c === '<' && raw[j - 1] !== '<' && raw[j + 1] === '<' && raw[j + 2] !== '<') {
+        const m = /^<<(-?)[ \t]*(['"]?)([A-Za-z_][A-Za-z_0-9]*)\2/.exec(raw.slice(j));
+        if (m) {
+          queue.push({ delim: m[3], dash: m[1] === '-' });
+          text += m[0];
+          j += m[0].length - 1;
+          continue;
+        }
+      }
+      text += c;
+    }
+    rows.push({ line: i + 1, text, data: false });
+    if (queue.length > 0) active = queue.shift();
   }
-  return inside;
+  return rows;
+}
+
+/** Which lines sit inside a heredoc body. */
+export function heredocLines(source) {
+  return new Set(scan(source).filter((r) => r.data).map((r) => r.line));
 }
 
 /**
- * The commands a shell source actually forms: comments gone, heredoc
- * bodies gone, quoted contents blanked, continuations joined.
+ * The commands a shell source actually forms.
  *
  * A pipeline may be written over several lines — `cmd | \`, or a line
  * ending in a bare `|`, with blank lines or comments in between. The
- * number reported is the line the command STARTS on, which is where
- * somebody reading the error has to look.
+ * number reported is the line the command STARTS on.
+ *
+ * 🔴 NOTHING JOINS ACROSS A HEREDOC BODY, but the body is still read.
+ * Joining made `cat <<'EOF'` / `колонка |` / `grep -q це заборонено`
+ * report an offence that exists nowhere in the file. Dropping bodies
+ * outright fixed that and lost real code with it: measured on main,
+ * `infra/deploy.selftest.sh:162` is a genuine `readlink … | grep -q …`
+ * inside the heredoc that writes the systemctl stub, and dropping
+ * bodies took the tree from 150 offences to 149 by hiding exactly it.
  */
 export function logicalLines(source) {
-  const heredoc = heredocLines(source);
-  const rows = source
-    .split('\n')
-    .map((text, i) => ({ line: i + 1, text: blankQuotes(code(text)), data: heredoc.has(i + 1) }));
   const out = [];
   let buf = null;
   let at = 0;
-  for (const { line, text, data } of rows) {
-    const piece = text.replace(/\\$/, '');
+  for (const { line, text, data } of scan(source)) {
     if (data) {
-      // Inside a heredoc: read the line, join nothing to it.
       if (buf !== null) { out.push({ line: at, text: buf }); buf = null; }
       if (text.trim() !== '') out.push({ line, text });
       continue;
     }
+    const piece = text.replace(/\\$/, '');
     if (buf === null) {
       if (text.trim() === '') continue;
       at = line;
@@ -292,13 +315,20 @@ export function logicalLines(source) {
   return out;
 }
 
-/** The segments a logical line pipes into, `||` not being a pipe. */
+/**
+ * The segments a logical line pipes into.
+ *
+ * `||` is not a pipe, and it also ENDS the command a pipe feeds:
+ * `cmd | tee f || grep -q 'x' <<<"$v"` hands grep the shell's stdin,
+ * not the pipe. Marking `||` and cutting each segment there says both
+ * at once.
+ */
 export function pipeTargets(text) {
   return text
     .replace(/\|\|/g, '\u0000')
     .split('|')
     .slice(1)
-    .map((s) => s.replace(/^&/, ''));
+    .map((s) => s.replace(/^&/, '').split('\u0000')[0]);
 }
 
 /** Every offending line in a shell source, as {line, text}. */
@@ -315,8 +345,8 @@ export function offences(source) {
  * reading it from the key let `env:` and its YAML strings fall inside
  * the block. A one-line `run:` is shell too — skipping it left a case
  * that could not go red under any mutation. And the block indicator may
- * carry a trailing comment (`run: | # why`), which the first version
- * mistook for a one-line body and so never opened the step at all.
+ * carry a trailing comment (`run: | # why`), which an earlier version
+ * mistook for a one-line body and so never opened the step.
  */
 export function runBlocks(yaml) {
   const lines = yaml.split('\n');
@@ -400,8 +430,7 @@ function main() {
   }
   for (const f of yamls) {
     for (const { line, text } of runBlocks(readFileSync(`${root}/${f}`, 'utf8'))) {
-      const line_ = blankQuotes(code(text));
-      if (pipeTargets(line_).some(isQuietGrep)) found.push({ file: f, line, text: text.trim() });
+      if (offences(text).length > 0) found.push({ file: f, line, text: text.trim() });
     }
   }
 
@@ -486,6 +515,34 @@ const CASES = [
     offences(`echo "$O" | grep -q '#tag'`).length === 1],
   ['🔴 …even when a space precedes it inside the quotes', () =>
     offences(`echo "$O" | grep -q 'x #y'`).length === 1],
+  ['🔴 an escaped quote does not open a string (backup-local.sh:266)', () =>
+    offences(`case $p in *\\'*) die "has a quote" ;; esac\ncmd | grep -q 'x'`).length === 1],
+  ['🔴 a shell string written over SEVERAL lines is not code', () =>
+    offences(`msg="не роби так:\ncmd | grep -q 'x'\n"`).length === 0],
+  ['🔴 a <<WORD mentioned inside a COMMENT opens no heredoc (backup-local.sh:254)', () =>
+    offences(`# gzip -dc … | psql <<SQL … \ncmd | grep -q 'x'`).length === 1],
+  ['🔴 …nor one mentioned inside quotes', () =>
+    offences(`echo "використай <<EOF так"\ncmd | grep -q 'x'`).length === 1],
+  ['🔴 two heredocs opened on one line queue up', () => {
+    const inside = heredocLines(`cat <<A <<B\n1 |\ngrep -q x\nA\n2 |\ngrep -q y\nB\n`);
+    return inside.has(2) && inside.has(5);
+  }],
+  ['🔴 without <<- the terminator must be in column zero, so this body never ends', () =>
+    offences(`cat <<EOF\n  EOF\nreal |\ngrep -q 'x'\nEOF\n`).length === 0],
+  ['…and with <<- an indented terminator does close it, so the pipeline joins', () =>
+    offences(`cat <<-EOF\n  EOF\nreal |\ngrep -q 'x'\n`).length === 1],
+  ['🔴 the flag written against its pattern: grep -q\'x\'', () =>
+    offences(`echo "$O" | grep -q'x'`).length === 1],
+  ['🔴 …and grep -qE\'^x$\'', () => offences(`echo "$O" | grep -qE'^x$'`).length === 1],
+  ['🔴 -e eats the next token, so -q there is a PATTERN', () =>
+    isQuietGrep(` grep -e -q file`) === false],
+  ['🔴 -eq is -e with a glued value, not a bundle', () =>
+    isQuietGrep(` grep -eq file`) === false],
+  ['🔴 a grep in a subshell is still a grep', () =>
+    isQuietGrep(` (grep -q 'x')`) === true],
+  ['🔴 rgrep counts too', () => isQuietGrep(` rgrep -q 'x'`) === true],
+  ['🔴 `||` AFTER the pipe ends the command the pipe feeds', () =>
+    offences(`cmd | tee f || grep -q 'x' <<<"$v"`).length === 0],
   ['🔴 a # inside an EARLIER quoted word must not swallow the pipe after it', () =>
     offences(`echo 'a # b' | grep -q 'x'`).length === 1],
   ['🔴 a # inside a WORD is not a comment either — a URL fragment is not prose', () =>
@@ -582,11 +639,11 @@ const CASES = [
     offences(`echo "$O" |\n  # чому\n  grep -q 'x'`).length === 1],
   ['🔴 a block indicator with a trailing comment still opens the step', () => {
     const got = runBlocks('      - run: | # чому\n          curl -s x | grep -q bad\n');
-    return got.length === 1 && pipeTargets(blankQuotes(code(got[0].text))).some(isQuietGrep);
+    return got.length === 1 && offences(got[0].text).length === 1;
   }],
 ];
 
-const EXPECTED_CASES = 77;
+const EXPECTED_CASES = 91;
 
 
 function selfTest() {
