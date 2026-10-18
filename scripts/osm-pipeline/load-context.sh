@@ -247,7 +247,7 @@ for REGION in "${REGIONS[@]}"; do
   # before the script gives up with the wrong reason.
   EXPECT_MD5=$(curl -fsSL --retry 3 --retry-delay 5 --max-time 60 "$URL.md5" |
     awk '{print $1}') || EXPECT_MD5=''
-  if ! printf '%s' "$EXPECT_MD5" | grep -qE '^[0-9a-f]{32}$'; then
+  if ! grep -qE '^[0-9a-f]{32}$' <<<"$EXPECT_MD5"; then
     echo "::error::no usable .md5 for $REGION — refusing to trust the download" >&2
     exit 1
   fi

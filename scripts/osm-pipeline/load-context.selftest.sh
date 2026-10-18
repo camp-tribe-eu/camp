@@ -169,7 +169,7 @@ chmod +x "$ROOT/gnu-stat" "$ROOT/broken-stat"
 # printed "the script wrote '? ?'", which is a true sentence about the
 # wrong program. A fixture that can lie has to be asked first.
 fp=$("$ROOT/gnu-stat" -c '%s %Y' "$GOOD")
-if ! printf '%s' "$fp" | grep -qE '^[0-9]+ [0-9]+$'; then
+if ! grep -qE '^[0-9]+ [0-9]+$' <<<"$fp"; then
   echo "::error::the GNU stat shim answers -c with '$fp', not two numbers." >&2
   echo "          That is a broken fixture, not a broken script." >&2
   exit 1

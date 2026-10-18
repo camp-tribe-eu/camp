@@ -152,7 +152,7 @@ jobs:
           # the second half of the injection defence: whatever arrives,
           # what reaches a URL is [a-z-]/[a-z-].
           for R in "${REGIONS[@]}"; do
-            if ! printf '%s' "$R" | grep -Eq '^[a-z-]+/[a-z-]+$'; then
+            if ! grep -Eq '^[a-z-]+/[a-z-]+$' <<<"$R"; then
               echo "::error::'$R' is not a Geofabrik path like europe/croatia"
               exit 1
             fi
@@ -236,7 +236,7 @@ jobs:
           # shape asserted so an error body cannot be one either.
           EXPECT=$(curl -fsSL --retry 3 --retry-delay 10 --max-time 60 "$URL.md5" \
                      | awk '{print $1}') || EXPECT=''
-          if ! printf '%s' "$EXPECT" | grep -qE '^[0-9a-f]{32}$'; then
+          if ! grep -qE '^[0-9a-f]{32}$' <<<"$EXPECT"; then
             echo "::error::no usable .md5 for $REGION — refusing to trust the download"
             exit 1
           fi

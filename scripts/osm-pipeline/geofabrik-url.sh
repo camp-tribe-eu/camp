@@ -83,7 +83,7 @@ for d in $(seq 0 "$BACK"); do
   # is the same collapse review caught one layer down. The first
   # mismatch is kept and named at the end, so the message says what was
   # actually seen.
-  if ! printf '%s' "$FINAL" | grep -qE "/${BASE}-${YMD}\.osm\.pbf$"; then
+  if ! grep -qE "/${BASE}-${YMD}\.osm\.pbf$" <<<"$FINAL"; then
     [ -z "${MISMATCH:-}" ] && MISMATCH="$FINAL"
     continue
   fi
