@@ -98,7 +98,7 @@ export default function CookieConsent() {
       role="dialog"
       aria-labelledby="cookie-title"
       data-testid="cookie-banner"
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-line-2 bg-surface p-3 shadow-lg sm:p-4"
+      className="fixed inset-x-0 bottom-0 z-[var(--layer-temporary)] border-t border-line-2 bg-surface p-3 shadow-lg sm:p-4"
     >
       <div className="mx-auto flex max-w-wrap flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         {/* 🔴 Short on purpose, and the shortness is a compliance

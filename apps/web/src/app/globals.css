@@ -125,6 +125,31 @@
      when somebody reorders the file. */
   --font-sans: var(--font-sans-stack);
   --font-narrow: var(--font-narrow-stack);
+
+  /* CAMP-345. Криві руху теми Fuse, зняті з живого демо-стора
+     (Facts/design-tokens.md). Це namespace Tailwind `--ease-*`, тож
+     `ease-out` в утиліті означає саме цю криву, а не стокову.
+
+     🔴 ease-out тут НЕ стандартна: (0,0,.09,1) гальмує різкіше за
+     típову (0,0,.58,1). Саме вона дає темі відчуття «клац», і підміна
+     її стоковою — найтихіший спосіб зробити рух чужим. */
+  --ease-linear: cubic-bezier(0, 0, 1, 1);
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-in: cubic-bezier(0.42, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.09, 1);
+  --ease-in-out: cubic-bezier(0.42, 0, 0.58, 1);
+
+  /* 🔴 І ЦЕ РЯДКИ, ЩО РОБЛЯТЬ УСЕ ВИЩЕ ДІЄВИМ. Оголосити `--ease-*` і
+     спинитись — означає лишити декорацію: Tailwind викидає невжиті
+     значення теми, а всі наявні `transition-*` у компонентах далі
+     беруть стокову криву `cubic-bezier(.4,0,.2,1)`. Заміряно: після
+     першої редакції в зібраному CSS було нуль входжень `0.09`.
+
+     Тривалість за замовчуванням — `--timing-short` (.2s), не `base`
+     (.4s): база в темі застосовується до перехресного згасання
+     зображень, а .4s на кожне наведення відчувається вʼязко. */
+  --default-transition-duration: 0.2s;
+  --default-transition-timing-function: cubic-bezier(0, 0, 0.09, 1);
 }
 
 /*
@@ -215,6 +240,41 @@
  * (Facts/design-tokens.md, 177 variables).
  */
   :root {
+    /* CAMP-345 — РУХ. Пʼять тривалостей теми, не одна.
+       Доти в проєкті не було жодної, і кожен перехід писався числом у
+       компоненті. Числа звідси: Facts/design-tokens.md.
+
+       До чого вони чіпляються, заміряно на сторінці товару демо-стора
+       18.10.2026: `.product-media__image` міняється через `opacity .5s`,
+       стрілки каруселі — `opacity .4s`. Тобто базова тривалість у темі
+       застосовується до прозорості, а не до розмірів. */
+    --timing-micro: 0.1s;
+    --timing-short: 0.2s;
+    --timing-base: 0.4s;
+    --timing-long: 0.7s;
+    --timing-second: 1s;
+
+    --animate-time: 0.8s;
+    --animate-delay: 0.3s;
+    --animate-img-scale: 0.6s;
+
+    /* CAMP-345 — ШАРИ. Одинадцять іменованих рівнів замість чисел.
+       🔴 До цього в усьому `apps/web/src` був РІВНО ОДИН z-index —
+       `z-50`, вписаний числом. Перший же модальний елемент поряд із
+       липкою шапкою вимагав би другого числа, і далі це росте як
+       завгодно. Імена не дають двом різним речам випадково зрівнятись. */
+    --layer-negative: -1;
+    --layer-base: 0;
+    --layer-flat: 1;
+    --layer-raised: 2;
+    --layer-sticky-btn: 7;
+    --layer-sticky: 11;
+    --layer-overlay: 14;
+    --layer-temporary: 16;
+    --layer-pop-out: 24;
+    --layer-pop-out-overlay: 25;
+    --layer-pop-out-overlay-loader: 26;
+
     --bg: #f0f2f4;
     --surface: #ffffff;
     --surface-2: #f8f8f9;
