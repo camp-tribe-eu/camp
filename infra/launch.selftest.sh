@@ -24,7 +24,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LAUNCH="${CAMPTRIBE_LAUNCH_BIN:-$HERE/bin/camptribe-launch}"
-EXPECTED=35
+EXPECTED=49
 
 [ -f "$LAUNCH" ] || { echo "немає $LAUNCH" >&2; exit 1; }
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-launch-selftest.XXXXXX")"
@@ -184,7 +184,55 @@ if [ "$WANT_CODE" = 1 ]; then printf '%s' "$CODE"; exit 0; fi
 if [ "$WANT_HDR" = 1 ]; then printf '%s\n\n' "$HDR"; exit 0; fi
 printf '%s\n' "$BODY"
 STUBCURL
-chmod +x "$STUB/caddy" "$STUB/curl"
+# CAMP-339 — підмінник `sudo`.
+#
+# 🔴 ПІДМІНЮЄМО ЗОВНІШНЮ КОМАНДУ, А НЕ ФУНКЦІЮ. Перша редакція підміняла
+# всю `readable_by_caddy` через CAMPTRIBE_READCHECK, і самотест задавав її
+# ЗАВЖДИ — тобто рядок `sudo -u caddy test -r`, єдиний, що справді їде на
+# машину, не виконувався в наборі жодного разу. Мутація «прибрати
+# `sudo -u $CADDY_USER`» лишала 42 з 42 зеленими, хоч на сервері скрипт
+# іде від root, root читає все, і вся CAMP-339 ставала порожньою.
+#
+# 🔴 І ПЕРЕВІРЯЄ ФОРМУ ВИКЛИКУ, не лише відповідає. Код 64 на будь-яке
+# інше написання: так «перестали питати від імені користувача» і
+# «перестали питати про читання» мають свій спосіб почервоніти.
+#
+# Відповідь — СИРА: дивиться справжні права справжнього файла. Користувача
+# `caddy` в пісочниці немає, тож питання зводиться до того, що вирішує
+# ядро для будь-якого чужого користувача: чи дає режим читання групі або
+# всім. Власником цих файлів на машині є root, Caddy — ніколи не власник.
+#
+# 🔴 GNU ПЕРШИМ, І ЦЕ НЕ СМАК. У coreutils `-f` це `--file-system`: на
+# невідому директиву друкує `?` і ВИХОДИТЬ 0, тож `||` до форми `-c` не
+# доходить ніколи, і підмінник стає константою «не читає» — 42/0 на
+# макбуку, 27/14 на раннері. BSD чесно відкидає `-c` кодом 1 (заміряно),
+# тому GNU→BSD правильний на обох. Та сама пастка описана в
+# `scripts/osm-pipeline/load-context.sh` із посиланням на `src/stat.c`.
+#
+# `-L` — бо `gate.conf` сам симлінк, а `stat` без нього читає права
+# САМОГО симлінка (0777 завжди) і каже «читається» там, де `test -r`
+# сказав би «ні».
+cat > "$STUB/sudo" <<'STUBSUDO'
+#!/usr/bin/env bash
+[ "$1" = "-u" ] || { echo "sudo-підмінник: очікував -u, дістав: $*" >&2; exit 64; }
+user="$2"; shift 2
+[ "$user" = "${CAMPTRIBE_CADDY_USER:-caddy}" ] || { echo "sudo-підмінник: чужий користувач «$user»" >&2; exit 64; }
+[ "$1" = "test" ] && [ "$2" = "-r" ] || { echo "sudo-підмінник: очікував test -r, дістав: $*" >&2; exit 64; }
+f="$3"
+[ -f "$f" ] || exit 1
+m=$(stat -L -c '%a' "$f" 2>/dev/null) || m=$(stat -L -f '%Lp' "$f" 2>/dev/null) || exit 1
+m=$(printf '%03d' "$((10#$m))")
+g=${m:1:1}; o=${m:2:1}
+if [ $(( g & 4 )) -ne 0 ] || [ $(( o & 4 )) -ne 0 ]; then exit 0; fi
+exit 1
+STUBSUDO
+chmod +x "$STUB/caddy" "$STUB/curl" "$STUB/sudo"
+
+# Замок народився з файлів, які створює людина від root. Відтворюємо саме
+# це: 640 root:caddy на закритому (як виправлено на проді 16.10) і 644 на
+# відкритому.
+chmod 640 "$CADDY/gate-closed.conf" 2>/dev/null || true
+chmod 644 "$CADDY/gate-open.conf" 2>/dev/null || true
 
 export CADDY_LOG="$BASE/caddy.log"; : > "$CADDY_LOG"
 export CADDY_VALIDATE_FAILS="$BASE/no-validate" CADDY_RELOAD_FAILS="$BASE/no-reload"
@@ -195,6 +243,7 @@ export GATE_PATH="$CADDY/gate.conf" GATE_CLOSED_PATH="$CADDY/gate-closed.conf" C
 run() { # прапорці скрипта → вивід у $OUT, код у $RC
   OUT="$(CAMPTRIBE_ROOT="$ROOT" CAMPTRIBE_CADDY_DIR="$CADDY" \
         CAMPTRIBE_CADDY_BIN="$STUB/caddy" CAMPTRIBE_CURL="$STUB/curl" \
+        CAMPTRIBE_SUDO="$STUB/sudo" \
         CAMPTRIBE_WEB_URL="$WEB_ORIGIN" CAMPTRIBE_SITE_URL="$SITE_ORIGIN" \
         CAMPTRIBE_VERIFY_TRIES=2 CAMPTRIBE_VERIFY_SLEEP=0 \
         bash "$LAUNCH" "$@" 2>&1)"; RC=$?
@@ -386,6 +435,136 @@ ok $? 'пароля немає, а збірка просить noindex — зз�
 [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'повна викладка'
 ok $? 'і це НЕУЗГОДЖЕНО з вимогою зібрати заново, а не «відкрито»' "rc=$RC $OUT"
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"; printf 'public\n' > "$W/build-mode"
+
+echo '— CAMP-339: права на файлах замка'
+
+# 🔴 КОНТРОЛЬ. Світ, у якому status без проблем із правами віддає 0.
+# Без нього наступний випадок нічого не доводить: код 1 тут буває й від
+# неузгодженості замків, тож «не нуль» задовольнялось би вже наявною
+# причиною, а не новою перевіркою.
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+printf 'closed\n' > "$W/build-mode"
+run env --closed --apply
+run status
+[ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'ЗАКРИТО'
+ok $? 'контроль: у цьому світі status віддає 0 і ЗАКРИТО' "rc=$RC $OUT"
+
+# 🔴 І САМА АВАРІЯ: перемикання НЕМАЄ, світ узгоджений, зламано
+# НЕАКТИВНИЙ файл. 15.10 о 14:50 виставили права, нічого не чіпали, усі
+# замки показували правильне — лягло через добу на перезапуску.
+# Файл навмисно неактивний: інакше «обидва» в циклі не перевіряє ніхто.
+chmod 600 "$CADDY/gate-open.conf"
+run status
+[ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q 'ЗАМОК ОДНОРАЗОВИЙ'
+ok $? 'зламані права на НЕАКТИВНОМУ файлі: код 1 у світі, що віддавав 0' "rc=$RC $OUT"
+chmod 644 "$CADDY/gate-open.conf"
+
+# «Немає» і «читається» — різні твердження. Файл справді буває відсутнім:
+# його збирають на машині з .example, у репозиторії його нема.
+mv "$CADDY/gate-closed.conf" "$CADDY/gate-closed.keep"
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+run status
+[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'НЕМАЄ'
+ok $? 'відсутній файл замка названий, а не пропущений' "rc=$RC $OUT"
+mv "$CADDY/gate-closed.keep" "$CADDY/gate-closed.conf"
+printf 'public\n' > "$W/build-mode"; run env --public --apply
+
+# Ціль нечитабельна — перехід не йде.
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+chmod 600 "$CADDY/gate-closed.conf"
+run close --apply
+[ "$RC" != 0 ] && [ "$(gate_now)" = open ] && printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+ok $? 'close не йде, коли НЕЧИТАБЕЛЬНА САМЕ ЦІЛЬ' "rc=$RC gate=$(gate_now) $OUT"
+
+# 🔴 ЦІЛЬ ВІДКАТУ. Ціль переходу (gate-open.conf) читається, зламаний
+# лише gate-closed.conf — і перша редакція вважала це приводом для
+# попередження. Хибно: `caddy_apply … "$GATE_CLOSED"` і
+# `point_gate "$GATE_CLOSED"` вертають саме туди, хай що ми відкривали.
+# Тобто невдале відкриття поклало б gate.conf на файл, якого служба не
+# прочитає, і скрипт назвав би це «повернуто під пароль, і це перевірено».
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+chmod 600 "$CADDY/gate-closed.conf"
+run open --apply
+[ "$RC" != 0 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'саме туди цей запуск відкотиться'
+ok $? 'open не йде, коли нечитабельна ЦІЛЬ ВІДКАТУ, хоч сама ціль читається' "rc=$RC gate=$(gate_now) $OUT"
+chmod 640 "$CADDY/gate-closed.conf"
+
+# А ось де попередження справді доречне: закриваємось, і нечитабельний
+# саме той файл, який Caddy після цього взагалі не читає. Спиняти через
+# нього означало б заглушити аварійний важіль.
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+chmod 600 "$CADDY/gate-open.conf"
+run close --apply
+[ "$RC" = 0 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'не читає'
+ok $? 'close ІДЕ з попередженням, коли зламаний лише покинутий файл' "rc=$RC gate=$(gate_now) $OUT"
+
+# Сухий прогін не має казати обидві речі одразу.
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+run close
+printf '%s' "$OUT" | grep -q 'не читає' && ! printf '%s' "$OUT" | grep -q 'читає обидва файли'
+ok $? 'сухий прогін не каже «читає обидва» після власного попередження' "rc=$RC $OUT"
+chmod 644 "$CADDY/gate-open.conf"
+
+# Відсутній покинутий файл — теж попередження, і воно має бути своє.
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+mv "$CADDY/gate-open.conf" "$CADDY/gate-open.keep"
+run close --apply
+[ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q 'ШЛЯХУ НАЗАД НЕ ІСНУЄ'
+ok $? 'відсутній покинутий файл названий окремо, а не мовчки пропущений' "rc=$RC $OUT"
+mv "$CADDY/gate-open.keep" "$CADDY/gate-open.conf"
+
+# Та сама мутація на gate-open.conf, коли ВІН є ціллю.
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+chmod 600 "$CADDY/gate-open.conf"
+run open --apply
+[ "$RC" != 0 ] && [ "$(gate_now)" = closed ] && printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+ok $? 'open не йде, коли нечитабельний gate-open.conf як ціль' "rc=$RC gate=$(gate_now) $OUT"
+chmod 644 "$CADDY/gate-open.conf"
+
+# 🔴 «УЖЕ В ЦЬОМУ СТАНІ» — не привід мовчати. Саме так виглядала аварія:
+# перемикати нічого не треба, а файл, який Caddy імпортує прямо зараз,
+# він не читає. Оператор тисне аварійний важіль і дістає 0.
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+chmod 600 "$CADDY/gate-closed.conf"
+run close --apply
+[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+ok $? 'close --apply на ВЖЕ закритому сайті не мовчить про зламані права' "rc=$RC $OUT"
+
+# Сухий прогін у напрямку open мусить казати про ціль ВІДКАТУ: єдиний
+# інший сухий випадок — close, де ціль і ціль відкату збігаються, тож
+# гілка в ньому не виконується взагалі.
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+run open
+[ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'саме туди цей запуск відкотиться'
+ok $? 'сухий open попереджає про ціль відкату, не лише --apply' "rc=$RC $OUT"
+chmod 640 "$CADDY/gate-closed.conf"
+
+# Порада має бути здійсненною: на ВІДСУТНЬОМУ файлі chown не допоможе.
+mv "$CADDY/gate-closed.conf" "$CADDY/gate-closed.keep"
+ln -sfn "$CADDY/gate-open.conf" "$CADDY/gate.conf"
+run open --apply
+printf '%s' "$OUT" | grep -q 'немає' && ! printf '%s' "$OUT" | grep -q 'НЕ МОЖЕ прочитати'
+ok $? 'відсутня ціль відкату: сказано «немає», а не «полагодь права»' "rc=$RC $OUT"
+mv "$CADDY/gate-closed.keep" "$CADDY/gate-closed.conf"
+
+# 🔴 ТРЕТІЙ ФАЙЛ. gate.conf може вказувати не на жоден із двох відомих —
+# код це визнає, `lock_gate` має для такого вердикт «чуже». Перевірка, що
+# ходить лише по двох іменах, у цьому стані друкує «обидва читає caddy»,
+# тоді як Caddy імпортує саме той третій.
+cp "$CADDY/gate-closed.conf" "$CADDY/gate-maint.conf"
+chmod 600 "$CADDY/gate-maint.conf"
+ln -sfn "$CADDY/gate-maint.conf" "$CADDY/gate.conf"
+run status
+printf '%s' "$OUT" | grep -q 'gate-maint.conf'
+ok $? 'status перевіряє той файл, на який gate.conf вказує НАСПРАВДІ' "rc=$RC $OUT"
+rm -f "$CADDY/gate-maint.conf"
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
+
+# І перевірка вміє зеленіти — інакше вона просто «завжди ні».
+run open --apply
+[ "$RC" = 0 ] && [ "$(gate_now)" = open ]
+ok $? 'із правильними правами перемикання відбувається' "rc=$RC gate=$(gate_now) $OUT"
+ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 
 printf '\n%s\n' "$PASS passed, $FAIL failed"
 if [ "$RUN" != "$EXPECTED" ]; then
