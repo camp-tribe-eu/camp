@@ -518,6 +518,75 @@ test.describe('what else the served HTML must not do', () => {
 // In a browser: the clock.
 // ---------------------------------------------------------------------
 
+/**
+ * 🔴 ШУМ ЗВІДУСІЛЬ, КРІМ НАШОГО КОДУ.
+ *
+ * CAMP-344 поставив на сторінку кемпінгу мапу, і разом із нею в консоль
+ * прийшло те, чого ми не писали. Дві родини:
+ *
+ *   1. Графічний стек раннера — Chromium скаржиться на затримку GPU,
+ *      headless Firefox без GPU взагалі не створює контексту WebGL.
+ *      Друге навіть не дефект: саме на цей випадок `site-map.tsx` має
+ *      запасний вигляд, і `map.spec.ts` окремо це перевіряє.
+ *
+ *   2. Чужий стиль мапи — `OpenFreeMap/liberty` (`lib/map-sources.ts`).
+ *      MapLibre перевіряє стиль при завантаженні й повідомляє про його
+ *      хиби: зламані фільтри в шарах американських дорожніх щитів,
+ *      відсутня картинка у спрайті. Ми цей стиль не пишемо.
+ *
+ * 🔴 ПЕРША РЕДАКЦІЯ БУЛА СПИСКОМ СЛІВ, І ЙОГО ОБІЙШЛИ З ПЕРШОГО РАЗУ.
+ * Я вписав один шар — `highway-shield-non-us` — і наступний прогін
+ * приніс `highway-shield-us-interstate`, `road_shield_us` і картинку
+ * «gate». Перелік заборонених слів обходять новим словом; питати треба
+ * те, чого дефект не може задовольнити.
+ *
+ * Питання тут: **чи йдеться про шар, якого МИ не створювали?** Наш код
+ * додає рівно шість шарів, усі з `route-`, і жодного `addImage` у
+ * `apps/web/src` немає взагалі. Тому скарга на будь-який інший шар і
+ * будь-яку картинку стилю — чужа; скарга на наш шар лишається дефектом
+ * і валить тест.
+ */
+const OUR_LAYERS = [
+  'route-leg-line',
+  'route-road-casing',
+  'route-road-line',
+  'route-spot-points',
+  'route-stage-circles',
+  'route-stage-labels',
+];
+
+export function isForeignNoise(text: string): boolean {
+  if (/^\[\.WebGL-0x[0-9a-f]+\]GL Driver Message \(/.test(text)) return true;
+  if (/Failed to create WebGL context/.test(text)) return true;
+  const layer = /^layers\[([^\]]+)\]/.exec(text);
+  if (layer) return !OUR_LAYERS.includes(layer[1]);
+  // Спрайт стилю. `addImage` у нашому коді не викликається ніде, тож
+  // будь-яка відсутня картинка приходить із чужого стилю.
+  return /^Image "[^"]+" could not be loaded\./.test(text);
+}
+
+// 🔴 Сторож без власного тесту — це галочка. Пара тверджень: шум має
+// ловитись, а скарга на НАШ шар — проходити далі й валити прогін.
+test('фільтр шуму відрізняє чужий стиль від нашого шару', () => {
+  const foreign = [
+    '[.WebGL-0x1d8]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall',
+    '[JavaScript Warning: "Failed to create WebGL context: WebGL creation failed"]',
+    'layers[highway-shield-non-us].filter[1]: Expected value to be of type number, but found null instead.',
+    'layers[highway-shield-us-interstate].filter[1]: Expected value to be of type number, but found null instead.',
+    'layers[road_shield_us].filter[1]: Expected value to be of type number, but found null instead.',
+    'Image "gate" could not be loaded. Please make sure you have added the image before it is needed',
+  ];
+  const ours = [
+    'layers[route-spot-points].filter[1]: Expected value to be of type number, but found null instead.',
+    'layers[route-stage-labels].paint: broken',
+    'Failed to load map style: 404',
+    'WebGL context lost',
+    'Warning: Text content did not match. Server: "Fair" Client: "Good"',
+  ];
+  expect(foreign.filter((t) => !isForeignNoise(t)), 'чужий шум не спіймано').toEqual([]);
+  expect(ours.filter((t) => isForeignNoise(t)), 'наше проковтнуто як чуже').toEqual([]);
+});
+
 test.describe('in a browser', () => {
   const path = () => named(S1).find((p) => p.text.includes('3.2 km'))!.path;
 
@@ -534,6 +603,7 @@ test.describe('in a browser', () => {
     page.on('console', (m) => {
       if (m.type() !== 'error' && m.type() !== 'warning') return;
       if (m.location().url.includes('/owner/claim')) return;
+      if (isForeignNoise(m.text())) return;
       bad.push(m.text());
     });
     page.on('pageerror', (e) => bad.push(e.message));
@@ -576,13 +646,48 @@ test.describe('in a browser', () => {
   });
 
   test('a page left open turns stale by itself as the clock runs on', async ({ page }) => {
+    // 🔴 ПРИЛАД, А НЕ ЧЕТВЕРТА ЗДОГАДКА. Цей тест двічі впав у CI на
+    // firefox-desktop із «element(s) not found» — ПІСЛЯ того, як той
+    // самий елемент знайшовся рядком вище. Панель рендерить
+    // `data-testid` у всіх своїх станах (жодного раннього `return`),
+    // тож зникнути вона може лише разом із деревом, тобто через
+    // помилку на сторінці. Сам звіт Playwright її не показує.
+    //
+    // `watch()` уже збирає `pageerror` — лишалось донести зібране до
+    // повідомлення про провал. Твердження при цьому НЕ змінилось.
+    const bad = watch(page);
     await page.clock.install({ time: new Date(Date.now() + 1 * 3_600_000) });
     await page.goto(path());
     const section = page.locator('[data-testid="air-quality"]');
     await expect(section).toHaveAttribute('data-state', 'reported');
+
+    // 🔴 СПЕРШУ ДОЧЕКАТИСЬ МАПИ, ПОТІМ РУХАТИ ГОДИННИК — І ЦЕ НЕ
+    // ПІДГОНКА ПІД ТЕСТ. Прилад, доданий попереднім комітом, назвав
+    // причину прямо: `ChunkLoadError: Loading chunk 4670 failed`.
+    //
+    // Мапа кемпінгу тягнеться через `next/dynamic`, а завантажувач
+    // чанків webpack ставить на імпорт СВІЙ таймаут. `fastForward` на
+    // чотири години підриває його негайно — імпорт відхиляється, хоча
+    // чанк цілий, і падіння забирає все дерево React разом із панеллю
+    // якості повітря. Звідси «element(s) not found» після того, як той
+    // самий елемент знайшовся рядком вище.
+    //
+    // Жоден читач не переводить годинник на чотири години посеред
+    // сторінки. Дочекатись, доки сторінка добудеться, — це привести
+    // прогін до стану, який тест і має міряти, а не послабити його:
+    // твердження про `no-fresh-data` нижче лишилось те саме.
+    await page.locator('[data-testid="site-map"], [data-testid="site-map-fallback"]').first().waitFor();
+
     // Four hours pass in a browser that has not been reloaded.
     await page.clock.fastForward('04:00:00');
-    await expect(section).toHaveAttribute('data-state', 'no-fresh-data');
+    try {
+      await expect(section).toHaveAttribute('data-state', 'no-fresh-data');
+    } catch (e) {
+      throw new Error(
+        `${(e as Error).message}\n\n🔴 Сторінка за час прогону кинула:\n` +
+          `${bad.length > 0 ? bad.join('\n') : '(нічого — отже дерево зникло з іншої причини)'}`,
+      );
+    }
   });
 
   test('a model value turns stale too', async ({ page }) => {

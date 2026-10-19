@@ -3,6 +3,7 @@ import CampsitePage from '@/app/camping/[country]/[region]/[slug]/page';
 import CountryHub from '@/app/camping/[country]/page';
 import { renderAsyncComponent } from './render-component';
 import { visibleText } from './rendered-text';
+import { CLIENT_ISLANDS } from './client-islands';
 
 // CAMP-255 — what the PAGES say about staying the night.
 //
@@ -96,9 +97,11 @@ async function pageText(overnight: unknown): Promise<string> {
         ? json({ spot: spot(overnight), nearby: [] })
         : json({}, 404),
     async () => {
-      html = await renderAsyncComponent(CampsitePage, {
-        params: Promise.resolve(PARAMS),
-      });
+      html = await renderAsyncComponent(
+        CampsitePage,
+        { params: Promise.resolve(PARAMS) },
+        { omit: CLIENT_ISLANDS },
+      );
     },
   );
   return visibleText(html);
@@ -220,9 +223,11 @@ test.describe('a campsite page says the answer outright', () => {
             })
           : json({}, 404),
       async () => {
-        html = await renderAsyncComponent(CampsitePage, {
-          params: Promise.resolve(PARAMS),
-        });
+        html = await renderAsyncComponent(
+          CampsitePage,
+          { params: Promise.resolve(PARAMS) },
+          { omit: CLIENT_ISLANDS },
+        );
       },
     );
     // The whole credited list, in the order the page prints it — not the

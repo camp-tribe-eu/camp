@@ -37,6 +37,7 @@ import { settingParagraph } from '@/lib/setting';
 import { droughtAtBuild } from '@/lib/drought-build';
 import { WebcamNote } from '@/components/webcam-panel';
 import { ButtonLink } from '@/components/button';
+import { CampsiteMedia, type Photo } from '@/components/campsite-media';
 
 // CAMP-34 — the campsite page.
 //
@@ -149,21 +150,35 @@ export async function generateMetadata(
  * `rel="nofollow ugc"` says what it is to a crawler: user-generated,
  * not an endorsement.
  */
+/**
+ * Чи є в `Contact` що показати.
+ *
+ * 🔴 ВИНЕСЕНО, БО ЦЕ ПИТАННЯ СТАВИТЬ НЕ ЛИШЕ САМ `Contact`. Розкладка в
+ * дві колонки має сенс тільки тоді, коли в лівій щось є; інакше читач
+ * бачить 426 px порожнечі поруч із мапою. Два окремі переліки полів
+ * розійшлись би першого ж дня, коли до контактів додадуть ще одне.
+ */
+// 🔴 БЕЗ `export`. `page.tsx` у Next приймає лише свій перелік
+// експортів (`default`, `metadata`, `generateStaticParams` і далі), і
+// зайвий валить збірку — але `tsc` мовчить про це, доки немає
+// `.next/types`. Я на це вже наступав.
+function hasContact(spot: Spot): boolean {
+  const contact = spot.contact ?? {};
+  const site = spot.website ?? contact.website ?? null;
+  const { phone, email, openingHours, operator, address } = contact;
+  const city = [address?.postcode, address?.city].filter(Boolean).join(' ');
+  return Boolean(
+    site || phone || email || openingHours || operator || address?.street || city,
+  );
+}
+
 function Contact({ spot }: { spot: Spot }) {
   const contact = spot.contact ?? {};
   const site = spot.website ?? contact.website ?? null;
   const { phone, email, openingHours, operator, address } = contact;
   const city = [address?.postcode, address?.city].filter(Boolean).join(' ');
   const street = address?.street;
-  if (
-    !site &&
-    !phone &&
-    !email &&
-    !openingHours &&
-    !operator &&
-    !street &&
-    !city
-  ) {
+  if (!hasContact(spot)) {
     // 🔴 `capacity` is deliberately NOT in this test.
     //
     // It was, and review found the result: 306 campsites rendered a
@@ -272,6 +287,22 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
     { name: name ?? SPOT_TYPE_LABEL[spot.type], path },
   ];
 
+  // 🔴 ДВІ КОЛОНКИ ЛИШЕ ТОДІ, КОЛИ В ЛІВІЙ ЩОСЬ Є.
+  //
+  // Рецензія заміряла ціну першої редакції: у фікстурі CI опис має ОДИН
+  // рядок із 73, а `spots[0]` — ні опису, ні контактів. Тобто на
+  // типовій сторінці ліва колонка була порожня, і читач бачив ~426 px
+  // пустки поруч із мапою. Тест при цьому «доводив розкладку»,
+  // порівнюючи ширину двох доріжок, одна з яких ні про що.
+  //
+  // Коли показувати нічого — мапа займає всю ширину, і це не деградація,
+  // а правильний вигляд сторінки, про яку ми знаємо лише де вона.
+  const hasAside = Boolean(spot.description) || hasContact(spot);
+  // Поки джерела фото немає (CAMP-342, CAMP-233, CAMP-232), це завжди
+  // порожньо — але умова стоїть в одному місці, а не в двох.
+  const photos: Photo[] = [];
+  const hasPhotos = photos.length > 0;
+
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
       {/* CAMP-37. Separate blocks rather than one @graph: Google reads
@@ -369,6 +400,33 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
 
       {spot.missingSince && <MissingNotice since={spot.missingSince} />}
 
+      {/* 🔴 CAMP-344 — ДВІ КОЛОНКИ, І МЕДІА ШИРШЕ ЗА ОПИС.
+          
+          Так каже Figma (`Shopify Theme #7`, вузол 1079:16220): ліва
+          колонка ≈375 px, права ≈1275 px. Тобто медіа — домінанта
+          сторінки, а опис вузька бічна колонка. До цієї картки сторінка
+          була одноколонковим стеком без жодного `col-span`.
+          
+          Пропорція тут 1 : 1.6, а не 1 : 3.4 як у макеті: у нас ліва
+          колонка несе не артикул і колір, а цитату опису й контакти —
+          текст, який на 375 px перетворюється на колодязь із двох слів
+          у рядку. Число підігнано під наш вміст, і це свідоме
+          розходження, а не недогляд.
+          
+          🔴 На телефоні медіа йде ПЕРШИМ (`order-first`), але картка
+          вимагає, щоб воно не займало перший екран цілком — тому мапа
+          має `min-h-[260px]`, а не висоту екрана. На 812 px це ~32%,
+          і під нею видно початок тексту. */}
+      <div
+        data-testid="campsite-hero"
+        data-columns={hasAside ? 'two' : 'one'}
+        className={
+          'mt-6 grid items-start gap-6' +
+          (hasAside ? ' lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]' : '')
+        }
+      >
+        <div className="min-w-0 empty:hidden">
+
       {/* 🔴 The operator's own description, as a quotation and in their
           own language.
           
@@ -408,8 +466,39 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           it tells a reader we lost their data; no heading tells them we
           never had it, which is the truth. */}
       <Contact spot={spot} />
+        </div>
 
-      <NoPhotos />
+        {/* 🔴 МЕДІАСЛОТ. Пріоритет — рішення власника 18.10.2026: фото
+            власника, інакше фото користувачів, інакше мапа. `photos`
+            поки завжди порожній: канал власника (CAMP-233/232) і реєстр
+            прав (CAMP-342) ще не зроблені, тож на живих сторінках
+            працює третій рівень. Порядок перших двох доведено тестом
+            `choosePhoto`, а не обіцянкою. */}
+        {/* 🔴 БЕЗ `order-first`. Він міняв лише ВИДИМИЙ порядок, а в
+            DOM медіа лишалось після опису — тож на телефоні картинка
+            стояла зверху, а таб із кнопок мапи стрибав назад до тексту
+            над нею. Тепер порядок один і той самий для ока й для
+            клавіатури: де опис є, він іде першим; де його немає, ліва
+            колонка зникає (`empty:hidden`) і мапа й так одразу під
+            заголовком. */}
+        <div className="min-w-0">
+          <CampsiteMedia
+            photos={photos}
+            lat={spot.lat}
+            lon={spot.lon}
+            type={spot.type}
+            label={name ?? `${SPOT_TYPE_LABEL[spot.type]} near ${spot.region}`}
+          />
+        </div>
+      </div>
+
+      {/* 🔴 УМОВНО, А НЕ ЗАВЖДИ. Сьогодні фото немає в жодного
+          кемпінгу, тож видно це завжди — і саме тому помилку легко не
+          помітити. Коли приїде CAMP-233, сторінка з фотографією
+          показувала б під нею прохання надіслати фотографію, а
+          `campsite.spec.ts` («у main жодного img, крім вебкаму»)
+          почервонів би вже не через це. */}
+      {!hasPhotos && <NoPhotos />}
 
       <Around spot={spot} />
 

@@ -6,6 +6,7 @@ import Attribution from '@/content/legal/attribution';
 import Database from '@/content/legal/database';
 import { renderAsyncComponent, renderComponent } from './render-component';
 import { visibleText } from './rendered-text';
+import { CLIENT_ISLANDS } from './client-islands';
 
 // CAMP-325 — `context.station` is `railway=station` OR `railway=halt`, and
 // 3 163 of 9 838 entries (32.1%, `camptribe_dev`, 15.10.2026) stand on a
@@ -107,9 +108,11 @@ async function renderPage(station: Station) {
         ? json({ spot: spot(station), nearby: [] })
         : json({}, 404),
     () =>
-      renderAsyncComponent(CampsitePage, {
-        params: Promise.resolve(PARAMS),
-      }),
+      renderAsyncComponent(
+        CampsitePage,
+        { params: Promise.resolve(PARAMS) },
+        { omit: CLIENT_ISLANDS },
+      ),
   );
   // Every string in every JSON-LD block in the HTML — the markup a crawler
   // reads, as the page printed it, not as jsonld.ts builds it.
