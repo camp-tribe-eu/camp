@@ -22,7 +22,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="${CAMPTRIBE_FIREWALL_BIN:-$HERE/bin/camptribe-firewall}"
-EXPECTED=22
+EXPECTED=23
 
 [ -x "$BIN" ] || { echo "немає $BIN" >&2; exit 1; }
 
@@ -69,12 +69,21 @@ case "${1:-}" in
     if [ "${3:-}" = from ]; then
       to="${8:-}/tcp"; from="$4"
     else
+      # 🔴 Справжній ufw не знає команди `delete allow 80/tcp (v6)`:
+      # v4 і v6 — один rule spec. Підмінник, який мовчки це приймав,
+      # сховав дефект, що виліз аж на сухому прогоні прода.
+      [ "$#" = 3 ] || { echo "stub ufw: зайвий аргумент: $*" >&2; exit 64; }
       to="${3:-}"; from="Anywhere"
     fi
     tmp="$(mktemp)"
     removed=0
     while IFS='|' read -r t f; do
-      if [ "$removed" = 0 ] && [ "$t" = "$to" ] && { [ "$f" = "$from" ] || { [ "$from" = Anywhere ] && case "$f" in Anywhere*) true ;; *) false ;; esac; }; }; then
+      # 🔴 Один rule spec — два рядки. Справжній `ufw delete allow
+      # 80/tcp` знімає і v4, і v6; підмінник, що знімав лише перший
+      # збіг, лишав v6 живим і робив набір добрішим за прод.
+      if [ "$from" = Anywhere ]; then
+        case "$t" in "$to"|"$to (v6)") case "$f" in Anywhere*) removed=1; continue ;; esac ;; esac
+      elif [ "$removed" = 0 ] && [ "$t" = "$to" ] && [ "$f" = "$from" ]; then
         removed=1; continue
       fi
       printf '%s|%s\n' "$t" "$f" >> "$tmp"
@@ -135,6 +144,14 @@ eq_rc=$RC
 ok $? 'сухий прогін нічого не змінює і каже про це' "rc=$eq_rc $OUT"
 grep -q 'ufw allow' "$W/log"; [ $? = 1 ]
 ok $? 'сухий прогін не кликав ufw на зміну' "$(cat "$W/log")"
+
+echo '— 🔴 план знімає загальний дозвіл ОДНИМ правилом на порт, без (v6)'
+mk_v4 15; mk_v6 7; reset_world
+run sync
+{ [ "$(grep -c 'delete allow 80/tcp' <<<"$OUT" || true)" = 1 ] \
+  && [ "$(grep -c 'delete allow 443/tcp' <<<"$OUT" || true)" = 1 ] \
+  && ! grep -q '(v6)' <<<"$OUT"; }
+ok $? '🔴 у плані рівно два зняття і жодного «(v6)»' "$OUT"
 
 echo '— застосування'
 run sync --apply
