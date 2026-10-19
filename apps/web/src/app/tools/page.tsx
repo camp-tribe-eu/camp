@@ -4,6 +4,7 @@ import Breadcrumbs from '@/components/breadcrumbs';
 import { FUEL, FUEL_COUNTRIES, longDate } from '@/lib/fuel';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import { ButtonLink } from '@/components/button';
 
 // CAMP-55 — the tools section.
 //
@@ -159,15 +160,13 @@ export default function ToolsIndex() {
           with that country&rsquo;s fuel for the week of{' '}
           {longDate(FUEL.bulletinDate)}.
         </p>
-        <ul className="mt-4 flex flex-wrap gap-2">
+        <ul className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
           {countries.map((c) => (
             <li key={c.code}>
-              <Link
-                href={`/tools/camper-trip-cost/${c.code.toLowerCase()}`}
-                className="inline-flex h-9 items-center rounded-sm border border-line-2 bg-surface px-3 text-sm text-heading hover:border-line-blue"
-              >
+              <ButtonLink
+                href={`/tools/camper-trip-cost/${c.code.toLowerCase()}`} size="sm">
                 {c.name}
-              </Link>
+              </ButtonLink>
             </li>
           ))}
         </ul>

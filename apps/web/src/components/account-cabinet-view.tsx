@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Shell } from '@/components/account-view';
 import type { Profile } from '@/lib/cabinet';
+import { Button, ButtonLink } from '@/components/button';
 
 // CAMP-229 — що малює кабінет `/account`: профіль і три розділи.
 //
@@ -87,10 +88,11 @@ const CARD = 'rounded-card border border-line-2 bg-surface';
 // (сторінка кемпінгу, калькулятор); другорядна — біла з рамкою, як `btn-s`.
 // Форми входу й реєстрації (CAMP-228) стоять на світлішій `accent-surface`;
 // це інша роль — поле форми, а не заклик до дії на порожньому екрані.
-// Висота 44 px: це ціль для пальця на 375 px, якої макет (`btn-sm`) не мав.
-const BUTTON = 'inline-flex h-11 items-center rounded-sm px-4 text-sm font-semibold';
-const PRIMARY = `${BUTTON} bg-btn text-btn-ink transition-colors hover:bg-btn-hover`;
-const SECONDARY = `${BUTTON} border border-line-2 bg-surface text-heading hover:border-line-blue`;
+// 🔴 ТУТ РАНІШЕ СТОЯЛО «Висота 44 px: це ціль для пальця на 375 px».
+// Число було взяте зі стелі й не збігалося ні з темою, ні з сусіднім
+// `map-filters`, який називав ціллю 36 px. Обидва тепер ходять через
+// `Button` (CAMP-345): 48 px, бо саме ця висота в архіві Fuse
+// трапляється найчастіше і вона ж є мінімальною зоною натискання.
 
 function EmptyCard({ state }: { state: EmptyState }) {
   const heading = `empty-${state.id}`;
@@ -110,9 +112,13 @@ function EmptyCard({ state }: { state: EmptyState }) {
         {state.actions.length > 0 && (
           <div className="mt-3.5 flex flex-wrap justify-center gap-2">
             {state.actions.map((a) => (
-              <Link key={a.href} href={a.href} className={a.primary ? PRIMARY : SECONDARY}>
+              <ButtonLink
+                key={a.href}
+                href={a.href}
+                variant={a.primary ? 'primary' : 'secondary'}
+              >
                 {a.label}
-              </Link>
+              </ButtonLink>
             ))}
           </div>
         )}
@@ -209,9 +215,14 @@ export function CabinetErrorView({
         </p>
       </div>
       {kind === 'failed' && (
-        <button type="button" onClick={onRetry} className={`${PRIMARY} mt-4`}>
+        <Button
+          variant="primary"
+          type="button"
+          onClick={onRetry}
+          className="mt-4"
+        >
           Try again
-        </button>
+        </Button>
       )}
     </Shell>
   );

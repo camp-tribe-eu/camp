@@ -21,6 +21,7 @@ import {
   overnightCountLabel,
   type MapDataState,
 } from '@/lib/map-chunks';
+import { Button } from '@/components/button';
 
 // CAMP-35 / CAMP-25 — the filter panel.
 //
@@ -565,7 +566,14 @@ function Group({
           </span>
         )}
       </legend>
-      <div className="flex flex-wrap gap-1.5">{children}</div>
+      {/* 🔴 `gap-y-3` (12 px), а не 6: чип має 36 px висоти, зона
+          натискання — 48, тобто розсувається на 6 px у кожен бік.
+          При проміжку 6 px зони сусідніх РЯДКІВ перекривались на
+          6 px, і в смузі перекриття клік діставався тому чипу, що
+          пізніше в DOM. Заміряно сторожем `touch-targets.spec.ts`:
+          12 таких пар у фільтрах. По горизонталі 6 px лишаються —
+          чип із текстом ширший за 48, тож там зона не росте. */}
+      <div className="flex flex-wrap gap-x-1.5 gap-y-3">{children}</div>
     </fieldset>
   );
 }
@@ -622,22 +630,25 @@ function Chip({
   testId: string;
 }) {
   return (
-    <button
+    /* 🔴 Розмір однаковий на будь-якій ширині: контрол, що зменшується
+       заради економії рядка на телефоні, це контрол, у який
+       промахуються.
+
+       🔴 ТУТ РАНІШЕ СТОЯЛО «36 px — найменше, що надійно не
+       промахується». Це було неправдою і, гірше, читалось як рішення:
+       наступний, хто сюди зазирне, успадкував би число. Мінімум —
+       48 px (CAMP-345, і це число самої теми Fuse). `size="sm"` лишає
+       36 px на вигляд, бо ряд фільтрів на 375 px інакше розлізається,
+       але зона натискання в нього — 48×48. */
+    <Button
       type="button"
       data-testid={testId}
       aria-pressed={pressed}
       onClick={onClick}
-      // 🔴 h-9 and the padding are the same at every width. A control
-      // that shrinks to save a row on a phone is a control that gets
-      // mis-tapped; 36 px is the smallest that reliably does not.
-      className={
-        'inline-flex h-9 items-center rounded-sm border px-3 text-sm transition-colors ' +
-        (pressed
-          ? 'border-line-blue bg-accent-surface font-semibold text-heading'
-          : 'border-line-2 bg-surface text-ink-2 hover:border-line-blue hover:text-heading')
-      }
+      variant={pressed ? 'accent' : 'chip'}
+      size="sm"
     >
       {label}
-    </button>
+    </Button>
   );
 }

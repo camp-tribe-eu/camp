@@ -13,6 +13,7 @@ import {
 import { heroLead, printable } from '@/lib/campsite-count';
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import { ButtonLink } from '@/components/button';
 
 // CAMP-41 — the home page.
 //
@@ -107,16 +108,14 @@ function Hero({
             <p className="mt-1 text-sm text-ink-2">
               Pick a country to see its regions and campsites.
             </p>
-            <ul className="mt-4 flex flex-wrap gap-2">
+            <ul className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
               {countries.map((c) => (
                 <li key={c.country}>
-                  <Link
-                    href={`/camping/${c.country}`}
-                    className="inline-flex h-10 items-center gap-2 rounded border border-line bg-surface px-3 text-sm font-medium text-heading transition-colors hover:border-line-blue"
-                  >
+                  <ButtonLink
+                    href={`/camping/${c.country}`} size="sm">
                     {countryName(c.country)}
                     <span className="tabular-nums text-ink-2">{c.spots}</span>
-                  </Link>
+                  </ButtonLink>
                 </li>
               ))}
             </ul>

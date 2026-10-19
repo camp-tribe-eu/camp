@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { alternatesFor } from '@/lib/i18n';
 import { breadcrumbList, jsonLdProps } from '@/lib/jsonld';
 import { COMPANY, CONTACT_EMAIL } from '@/lib/legal';
+import { ButtonLink } from '@/components/button';
 
 // CAMP-209. Сторінка була в карті сайту й не була замовлена жодною
 // карткою — тобто існувала як намір і не існувала як адреса.
@@ -77,13 +78,11 @@ export default function About() {
 
       {/* Своя CTA: кожна глибока сторінка це окремий лендинг. */}
       <div className="mt-8 flex flex-wrap items-center gap-3">
-        <Link
+        <ButtonLink
           data-testid="about-cta"
-          href="/map"
-          className="inline-flex h-11 items-center rounded-sm border border-line-blue bg-surface px-4 text-sm font-semibold text-heading hover:border-line-2"
-        >
+          href="/map" variant="primary">
           Open the campsite map
-        </Link>
+        </ButtonLink>
         <a className="text-sm underline text-ink-2" href={`mailto:${CONTACT_EMAIL}`}>
           Or write to us
         </a>

@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { apiFetch, countryName, getCountries } from '@/lib/api';
 import MapEmbed from '@/components/map-embed';
 import { memberStateCount } from '@/lib/campsite-count';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import type { RegionSummary } from '@/lib/map-chunks';
+import { ButtonLink } from '@/components/button';
 
 // CAMP-31 — /map.
 //
@@ -137,16 +137,14 @@ export default async function MapPage() {
             recorded yet, so they are on the map but have no page to browse to.
           </p>
         )}
-        <ul className="mt-3 flex flex-wrap gap-2">
+        <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
           {countries.map((c) => (
             <li key={c.country}>
-              <Link
-                href={`/camping/${c.country}`}
-                className="inline-flex h-9 items-center gap-2 rounded-sm border border-line-2 bg-surface px-3 text-sm text-heading hover:border-line-blue"
-              >
+              <ButtonLink
+                href={`/camping/${c.country}`} size="sm">
                 {countryName(c.country)}
                 <span className="tabular-nums text-ink-2">{c.spots}</span>
-              </Link>
+              </ButtonLink>
             </li>
           ))}
         </ul>

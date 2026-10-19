@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { alternatesFor } from '@/lib/i18n';
 import { breadcrumbList, jsonLdProps } from '@/lib/jsonld';
 import { COMPANY, CONTACT_EMAIL } from '@/lib/legal';
+import { buttonClasses } from '@/components/button';
 
 // CAMP-209. Для бельгійської юрособи контакт — не ввічливість, а
 // вимога (CAMP-188 про адресу в підвалі). І афіліат-мережа, яка
@@ -84,7 +85,7 @@ export default function Contact() {
         <a
           data-testid="contact-cta"
           href={`mailto:${CONTACT_EMAIL}`}
-          className="inline-flex h-11 items-center rounded-sm border border-line-blue bg-surface px-4 text-sm font-semibold text-heading hover:border-line-2"
+          className={buttonClasses('primary')}
         >
           Email {CONTACT_EMAIL}
         </a>

@@ -1,8 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { Place } from '@/lib/api';
+import { ButtonLink } from '@/components/button';
 
 // CAMP-73: work out what the reader was probably looking for.
 //
@@ -96,21 +96,17 @@ export default function PathRecovery() {
           ? `That campsite is not one we hold, but we have ${region.spots} in ${region.name}.`
           : `That address does not match a campsite we hold. Here is everything we have in ${country.name}.`}
       </p>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
         {region && (
-          <Link
-            href={`/camping/${country.country}/${region.slug}`}
-            className="inline-flex h-9 items-center rounded-sm border border-line-blue bg-accent-surface px-3 text-sm font-semibold text-heading"
-          >
+          <ButtonLink
+            href={`/camping/${country.country}/${region.slug}`} variant="accent" size="sm">
             {region.name} · {region.spots}
-          </Link>
+          </ButtonLink>
         )}
-        <Link
-          href={`/camping/${country.country}`}
-          className="inline-flex h-9 items-center rounded-sm border border-line-2 bg-surface px-3 text-sm text-heading hover:border-line-blue"
-        >
+        <ButtonLink
+          href={`/camping/${country.country}`} size="sm">
           All of {country.name}
-        </Link>
+        </ButtonLink>
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ import {
   formatWhen,
   type ArchiveState,
 } from '@/lib/rights';
+import { Button, ButtonLink } from '@/components/button';
 
 // CAMP-229 (3/3) — що малює сторінка «Ваші дані»: вивантаження (ст. 15 і 20) і
 // вхід у видалення (ст. 17).
@@ -34,9 +35,6 @@ export const DATA_TITLE = 'Your data';
 export type DownloadProblem = 'gone' | 'failed' | 'throttled' | null;
 
 const CARD = 'rounded-card border border-line-2 bg-surface';
-const BUTTON = 'inline-flex h-11 items-center rounded-sm px-4 text-sm font-semibold';
-const PRIMARY = `${BUTTON} bg-btn text-btn-ink transition-colors hover:bg-btn-hover disabled:opacity-60`;
-const SECONDARY = `${BUTTON} border border-line-2 bg-surface text-heading hover:border-line-blue`;
 const LEGAL = 'text-xs font-semibold uppercase tracking-wide text-ink-2';
 
 function Spinner() {
@@ -109,15 +107,16 @@ function ExportBlock({
       )}
 
       {archive.kind === 'none' && (
-        <button
+        <Button
+          variant="primary"
           type="button"
-          className={`${PRIMARY} mt-3.5`}
+          className="mt-3.5"
           disabled={busy || !ready}
           onClick={onPrepare}
         >
           {/* макет: «Підготувати архів» */}
           Prepare my archive
-        </button>
+        </Button>
       )}
 
       {archive.kind === 'preparing' && (
@@ -144,14 +143,15 @@ function ExportBlock({
             <b className="font-semibold text-heading">{formatWhen(archive.expiresAt)}</b> ({EXPORT_HOURS}{' '}
             hours after it was prepared); after that it is deleted.
           </p>
-          <button
+          <Button
+            variant="primary"
             type="button"
-            className={`${PRIMARY} mt-3.5`}
+            className="mt-3.5"
             disabled={busy || !ready}
             onClick={onDownload}
           >
             Download (JSON)
-          </button>
+          </Button>
         </>
       )}
 
@@ -164,14 +164,15 @@ function ExportBlock({
             <span className="font-semibold">Error:</span> We could not check on your archive.
             Nothing was changed — try again.
           </div>
-          <button
+          <Button
+            variant="primary"
             type="button"
-            className={`${PRIMARY} mt-3.5`}
+            className="mt-3.5"
             disabled={busy || !ready}
             onClick={onRetry}
           >
             Try again
-          </button>
+          </Button>
         </>
       )}
 
@@ -184,14 +185,15 @@ function ExportBlock({
             <span className="font-semibold">Error:</span> We could not prepare your archive. Nothing
             was changed — try again.
           </div>
-          <button
+          <Button
+            variant="primary"
             type="button"
-            className={`${PRIMARY} mt-3.5`}
+            className="mt-3.5"
             disabled={busy || !ready}
             onClick={onPrepare}
           >
             Try again
-          </button>
+          </Button>
         </>
       )}
 
@@ -251,12 +253,13 @@ export function DataView({
           Before you confirm, we show what disappears and what stays, by law and because of the
           licence you gave on photos.
         </p>
-        <Link
+        <ButtonLink
           href="/account/delete"
-          className={`${SECONDARY} mt-3.5 border-warn text-warn hover:border-warn`}
+          variant="danger-soft"
+          className="mt-3.5"
         >
           Delete account…
-        </Link>
+        </ButtonLink>
       </section>
 
       <p className="mt-6 text-sm">

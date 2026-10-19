@@ -7,6 +7,7 @@ import {
   type Outcome,
 } from '@/lib/account';
 import { DEFAULT_RETURN, safeReturnPath } from '@/lib/return-path';
+import { Button } from '@/components/button';
 
 // CAMP-228 — те, що малюють сторінки акаунта: форми й стани «Перевірте
 // пошту», «Підтвердьте пошту», «Посилання застаріло».
@@ -26,8 +27,6 @@ const LABEL = 'block text-sm font-medium text-ink-2';
 const HINT = 'mt-1 text-sm text-ink-2';
 const FIELD =
   'mt-1 w-full rounded border border-line-2 bg-surface px-3 py-2 text-ink focus:border-line-blue';
-const BUTTON =
-  'mt-5 inline-flex h-11 items-center rounded-sm border border-line-blue bg-accent-surface px-4 text-sm font-semibold text-heading hover:border-line-2 disabled:opacity-60';
 const LINK = 'underline';
 const PANEL = 'mt-6 max-w-md rounded-card border border-line-2 bg-surface-2 p-5';
 
@@ -231,9 +230,9 @@ export function SignupFormView({
           .
         </p>
 
-        <button type="submit" disabled={!ready || busy} className={BUTTON}>
+        <Button variant="accent" type="submit" disabled={!ready || busy} className="mt-5">
           Create account
-        </button>
+        </Button>
       </form>
       <p className="mt-4 text-sm text-ink-2">
         Already have an account?{' '}
@@ -396,9 +395,9 @@ export function LoginFormView({
             className={FIELD}
           />
         </div>
-        <button type="submit" disabled={!ready || busy} className={BUTTON}>
+        <Button variant="accent" type="submit" disabled={!ready || busy} className="mt-5">
           Sign in
-        </button>
+        </Button>
       </form>
       <p className="mt-4 text-sm text-ink-2">
         <Link className={LINK} href="/forgot-password">
@@ -496,9 +495,9 @@ export function ForgotFormView({
             className={FIELD}
           />
         </div>
-        <button type="submit" disabled={!ready || busy} className={BUTTON}>
+        <Button variant="accent" type="submit" disabled={!ready || busy} className="mt-5">
           Send link
-        </button>
+        </Button>
       </form>
       <p className="mt-4 text-sm text-ink-2">
         Remembered it?{' '}
@@ -593,9 +592,9 @@ export function ResetFormView({
             everywhere else.
           </p>
         </div>
-        <button type="submit" disabled={!ready || busy} className={BUTTON}>
+        <Button variant="accent" type="submit" disabled={!ready || busy} className="mt-5">
           Set new password
-        </button>
+        </Button>
       </form>
     </Shell>
   );
@@ -780,9 +779,9 @@ export function ResendVerificationView({
         onChange={(e) => onEdit(e.target.value)}
         className={FIELD}
       />
-      <button type="submit" disabled={!ready || busy} className={BUTTON}>
+      <Button variant="accent" type="submit" disabled={!ready || busy} className="mt-5">
         Send a new email
-      </button>
+      </Button>
     </form>
   );
 }

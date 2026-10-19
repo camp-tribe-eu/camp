@@ -12,6 +12,7 @@ import Breadcrumbs from '@/components/breadcrumbs';
 import SearchEmbed from '@/components/search-embed';
 import { abs, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
 import { getRoutes } from '@/lib/routes';
+import { ButtonLink } from '@/components/button';
 
 // CAMP-67 — /search.
 //
@@ -95,15 +96,13 @@ export default async function SearchPage() {
         <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-2">
           Or browse by country
         </h2>
-        <ul className="mt-3 flex flex-wrap gap-2">
+        <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
           {countries.map((c) => (
             <li key={c.country}>
-              <Link
-                href={`/camping/${c.country}`}
-                className="inline-flex h-9 items-center rounded-sm border border-line-2 bg-surface px-3 text-sm text-heading hover:border-line-blue"
-              >
+              <ButtonLink
+                href={`/camping/${c.country}`} size="sm">
                 {countryName(c.country)} · {c.spots.toLocaleString('en-GB')}
-              </Link>
+              </ButtonLink>
             </li>
           ))}
         </ul>

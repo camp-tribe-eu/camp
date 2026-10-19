@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect } from 'react';
+import { Button, ButtonLink } from '@/components/button';
 
 // CAMP-73 — what a reader sees when something on our side breaks.
 //
@@ -63,25 +63,19 @@ export default function Error({
       )}
 
       <div className="mt-6 flex flex-wrap gap-2">
-        <button
+        <Button
           type="button"
-          onClick={reset}
-          className="inline-flex h-10 items-center rounded-sm border border-line-blue bg-accent-surface px-4 text-sm font-semibold text-heading"
-        >
+          onClick={reset} variant="accent">
           Try again
-        </button>
-        <Link
-          href="/camping"
-          className="inline-flex h-10 items-center rounded-sm border border-line-2 bg-surface px-4 text-sm text-heading hover:border-line-blue"
-        >
+        </Button>
+        <ButtonLink
+          href="/camping">
           All campsites
-        </Link>
-        <Link
-          href="/map"
-          className="inline-flex h-10 items-center rounded-sm border border-line-2 bg-surface px-4 text-sm text-heading hover:border-line-blue"
-        >
+        </ButtonLink>
+        <ButtonLink
+          href="/map">
           The map
-        </Link>
+        </ButtonLink>
       </div>
     </main>
   );

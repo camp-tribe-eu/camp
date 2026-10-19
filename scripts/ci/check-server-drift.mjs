@@ -203,6 +203,44 @@ export function drift(pairs) {
     }));
 }
 
+/**
+ * Чи протух щонічний бекап (CAMP-349, пункт 3).
+ *
+ * 🔴 ЦЕ ТЕ, ЧОГО НЕ ПИТАВ НІХТО, І САМЕ ТОМУ ТРИ НОЧІ ПІДРЯД МИНУЛИ
+ * НЕПОМІЧЕНИМИ. `backup-verify.yml` репетирує повний цикл
+ * «зберегти → знищити → відновити», але на фікстурі всередині CI: він
+ * питає «чи відновлюється дамп», а не «чи зʼявився новий». 19.10.2026
+ * він був зелений о 03:22Z, тоді як останній справжній бекап був від
+ * 16.10 — тобто зелена перевірка бекапів при відсутніх бекапах.
+ *
+ * 🔴 ЧОМУ САМЕ ТУТ, А НЕ В CI. У жодного workflow немає доступу до
+ * машини — у репозиторії навмисно немає ні адреси, ні ключа, бо репо
+ * публічне. Додавати CI ключ заради цієї перевірки означало б розширити
+ * площу ураження заради одного питання. А цей сторож ключем уже ходить,
+ * тож питання лягає туди, де з'єднання вже є.
+ *
+ * 🔴 ЩО ВВАЖАЄТЬСЯ БЕКАПОМ. Тільки теки виду `YYYY-MM-DD` — це те, що
+ * кладе щонічний `camptribe-backup`. Файли `predeploy-*.dump` поруч НЕ
+ * рахуються: це знімки, які робить деплой перед собою, і їх наявність
+ * якраз і створювала враження, що бекапи йдуть. 16.10 їх було три, а
+ * щонічного — жодного.
+ *
+ * `entries`: `[{ name, mtime }]`, mtime в секундах епохи.
+ * Поріг 30 годин, а не 24: таймер б'є раз на добу о 03:30 UTC, тож
+ * нормальний вік бекапу коливається від 0 до 24 годин, і 24 рівно дало
+ * б хибну тривогу щоранку перед самим прогоном.
+ */
+export function staleBackup(entries, nowEpoch, maxAgeHours = 30) {
+  const dated = entries.filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.name));
+  if (dated.length === 0) return { stale: true, why: 'жодного щонічного бекапу немає', ageHours: null };
+  const newest = dated.reduce((a, b) => (a.mtime >= b.mtime ? a : b));
+  const ageHours = (nowEpoch - newest.mtime) / 3600;
+  if (ageHours > maxAgeHours) {
+    return { stale: true, why: `останній бекап ${newest.name}`, ageHours };
+  }
+  return { stale: false, why: null, ageHours };
+}
+
 const ssh = (cmd) =>
   execFileSync('ssh', ['-i', SSH_KEY, '-o', 'ConnectTimeout=10', SSH_HOST, cmd], {
     encoding: 'utf8',
@@ -267,15 +305,43 @@ function live() {
     const mark = p.actual === null ? '—' : p.expected === p.actual ? '=' : '≠';
     console.log(`${mark} ${p.remote}`);
   }
+  // 🔴 Свіжість бекапу — окреме питання від дрейфу файлів, і окремий
+  // замок. Файли можуть збігатися з git ідеально, а бекапів не бути.
+  let backup = { stale: false, why: null, ageHours: null };
+  try {
+    const raw = ssh(
+      "find /srv/camptribe/backups -maxdepth 1 -mindepth 1 -type d -printf '%f %T@\\n' 2>/dev/null || true",
+    );
+    const entries = raw
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        const [name, t] = l.split(/\s+/);
+        return { name, mtime: Number(t) };
+      });
+    backup = staleBackup(entries, Date.now() / 1000);
+  } catch {
+    backup = { stale: true, why: 'не вдалося прочитати теку бекапів', ageHours: null };
+  }
+
   if (failed !== '') {
     console.error(`\n✗ сліди падінь на машині: ${failed.split('\n').join(', ')}`);
+  }
+  if (backup.stale) {
+    console.error(
+      `\n✗ бекап протух: ${backup.why}` +
+        (backup.ageHours === null ? '' : ` (${backup.ageHours.toFixed(1)} год тому)`),
+    );
+  } else {
+    console.log(`\n✓ бекап свіжий: ${backup.ageHours.toFixed(1)} год тому`);
   }
   if (bad.length > 0) {
     console.error('\n✗ дрейф:');
     for (const b of bad) console.error(`  ${b.remote}: ${b.why}`);
   }
-  if (bad.length === 0 && failed === '') {
-    console.log('\n✓ машина збігається з git, слідів падінь немає');
+  if (bad.length === 0 && failed === '' && !backup.stale) {
+    console.log('✓ машина збігається з git, слідів падінь немає');
     return 0;
   }
   return 1;
@@ -427,7 +493,44 @@ function selfTest() {
   is('🔴 .env.production більше не ковтається',
     real('EnvironmentFile=/srv/camptribe/current/.env.production\n').length, 1);
 
-  const EXPECTED_CASES = 23;
+  // 🔴 CAMP-349, пункт 3: «перевірка мусить ЧЕРВОНІТИ, коли свіжого
+  // бекапу немає». Нижче — рівно той стан машини, що був 19.10.2026,
+  // коли все виглядало гаразд.
+  const H = 3600;
+  const now = 1_760_000_000;
+  const ok = [{ name: '2026-10-19', mtime: now - 2 * H }];
+  is('свіжий бекап не тривожить', staleBackup(ok, now).stale, false);
+  is('бекап за 29 год ще нормальний',
+    staleBackup([{ name: '2026-10-18', mtime: now - 29 * H }], now).stale, false);
+  is('🔴 бекап за 31 год — тривога',
+    staleBackup([{ name: '2026-10-18', mtime: now - 31 * H }], now).stale, true);
+  is('🔴 три пропущені ночі — тривога',
+    staleBackup([{ name: '2026-10-16', mtime: now - 72 * H }], now).stale, true);
+  is('🔴 порожня тека — тривога, а не тиша',
+    staleBackup([], now).stale, true);
+  // 🔴 ЦЕ ВИПАДОК, ЩО ВІДТВОРЮЄ САМ ДЕФЕКТ. 16.10 поруч лежали три
+  // свіжі `predeploy-*.dump`, і саме вони створювали враження, що
+  // бекапи йдуть. Якщо їх рахувати — перевірка лишиться зеленою.
+  is('🔴 predeploy-дампи не вважаються щонічним бекапом',
+    staleBackup(
+      [
+        { name: '2026-10-16', mtime: now - 72 * H },
+        { name: 'predeploy-61142c4-20261016T230718Z.dump', mtime: now - 1 * H },
+      ],
+      now,
+    ).stale,
+    true);
+  is('найсвіжіша тека вирішує, а не перша в переліку',
+    staleBackup(
+      [
+        { name: '2026-10-16', mtime: now - 72 * H },
+        { name: '2026-10-19', mtime: now - 2 * H },
+      ],
+      now,
+    ).stale,
+    false);
+
+  const EXPECTED_CASES = 30;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;

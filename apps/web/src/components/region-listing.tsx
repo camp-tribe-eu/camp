@@ -11,6 +11,7 @@ import {
   type SpotCard,
 } from '@/lib/api';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
+import { ButtonLink } from '@/components/button';
 
 // CAMP-71, level 2: the region hub. Shared by /camping/{c}/{r} and
 // /camping/{c}/{r}/page/{n} so the first page and the rest cannot drift.
@@ -159,20 +160,14 @@ function Pagination({
 }) {
   const href = (n: number) => (n === 1 ? base : `${base}/page/${n}`);
   return (
-    <nav aria-label="Pagination" className="mt-8 flex flex-wrap gap-2">
+    <nav aria-label="Pagination" className="mt-8 flex flex-wrap gap-x-2 gap-y-3">
       {Array.from({ length: pages }, (_, i) => i + 1).map((n) => (
-        <Link
+        <ButtonLink
           key={n}
           href={href(n)}
-          aria-current={n === page ? 'page' : undefined}
-          className={`inline-flex h-9 min-w-9 items-center justify-center rounded-sm border px-3 text-sm tabular-nums ${
-            n === page
-              ? 'border-line-blue bg-accent-surface font-semibold text-heading'
-              : 'border-line-2 bg-surface text-ink-2 hover:border-line-blue'
-          }`}
-        >
+          aria-current={n === page ? 'page' : undefined} variant={n === page ? 'accent' : 'chip'} size="sm" className="min-w-12 tabular-nums">
           {n}
-        </Link>
+        </ButtonLink>
       ))}
     </nav>
   );
@@ -203,16 +198,14 @@ async function RegionNeighbours({
       <h2 className="text-xl font-bold md:text-[25px]">
         Other regions in {cName}
       </h2>
-      <ul className="mt-3 flex flex-wrap gap-2">
+      <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
         {others.map((r) => (
           <li key={r.slug}>
-            <Link
-              href={`/camping/${country}/${r.slug}`}
-              className="inline-flex h-9 items-center gap-2 rounded-sm border border-line-2 bg-surface px-3 text-sm text-heading hover:border-line-blue"
-            >
+            <ButtonLink
+              href={`/camping/${country}/${r.slug}`} size="sm">
               {r.region}
               <span className="tabular-nums text-ink-2">{r.spots}</span>
-            </Link>
+            </ButtonLink>
           </li>
         ))}
       </ul>

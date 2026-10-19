@@ -36,6 +36,7 @@ import { WarningsForSpot } from '@/components/warnings-for-spot';
 import { settingParagraph } from '@/lib/setting';
 import { droughtAtBuild } from '@/lib/drought-build';
 import { WebcamNote } from '@/components/webcam-panel';
+import { ButtonLink } from '@/components/button';
 
 // CAMP-34 — the campsite page.
 //
@@ -905,12 +906,10 @@ function NoPhotos() {
         it, and the date it was taken is shown next to it.
       </p>
       <p className="mt-4 text-sm">
-        <Link
-          href="/contact"
-          className="inline-flex h-10 items-center rounded bg-btn px-4 font-semibold text-btn-ink transition-colors hover:bg-btn-hover"
-        >
+        <ButtonLink
+          href="/contact" variant="primary">
           You own this site? Add your photos
-        </Link>
+        </ButtonLink>
       </p>
     </section>
   );
