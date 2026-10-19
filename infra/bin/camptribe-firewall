@@ -97,7 +97,9 @@ fetch_list() {
     [ -n "$line" ] || continue
     case "$want" in
       v4) [[ "$line" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || return 4 ;;
-      v6) [[ "$line" =~ ^[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4})+/[0-9]{1,3}$ ]] || return 4 ;;
+      v6) [[ "$line" =~ ^[0-9a-fA-F:]+/[0-9]{1,3}$ ]] || return 4
+          [[ "$line" == *:::* ]] && return 4
+          [ "${line##*/}" -le 128 ] || return 4 ;;
     esac
     echo "$line"
   done <<<"$out"
@@ -131,15 +133,28 @@ ufw_status() { "$UFW" status numbered 2>/dev/null || die "не вдалось п
 # 🔴 ПО КОЛОНКАХ, А НЕ ГРЕПОМ ПО РЯДКУ. Перша версія шукала « ALLOW IN »
 # будь-де в рядку — і казала «SSH дозволено» на
 #   22/tcp   DENY IN   Anywhere   # ALLOW IN only via VPN
-# тобто готова була замкнути машину, прочитавши чийсь коментар. Тут
-# коментар зрізається першим, а дія читається як КОЛОНКА.
+# тобто готова була замкнути машину, прочитавши чийсь коментар.
 #
-# Формат `ufw status numbered`: "[ن] <To>  <ACTION IN|OUT|FWD>  <From>".
-# `To` може містити пробіли (`80/tcp (v6)`, `Nginx Full`), тож ріжемо по
-# самій дії, а не по пробілах.
+# 🔴 І НАПРЯМОК — ЧАСТИНА ДІЇ, А НЕ ПРИКРАСА. Друга версія читала дію як
+# колонку, але викидала `IN|OUT|FWD`. На стані
+#   22/tcp  ALLOW OUT  Anywhere (out)
+#   80/tcp  ALLOW IN   Anywhere
+# вона вважала SSH дозволеним, знімала обидва загальні дозволи й
+# виходила нулем — лишивши машину без ЖОДНОГО вхідного правила SSH.
+# Напрямок тепер окрема колонка, і всі троє споживачів вимагають `IN`.
+#
+# 🔴 РЯДОК, ЯКОГО НЕ ВДАЛОСЬ РОЗІБРАТИ, — ЦЕ ПОМИЛКА. Мовчазне
+# відкидання незбіглих рядків зробило випадок про `LIMIT` зеленим за
+# побудовою: підмінник друкував `LIMIT` без напряму, рядок зникав
+# цілком, і дві мутації підряд лишали набір зеленим. Тепер нерозібрані
+# рядки лічаться й називаються.
 ufw_rows() {
   sed -E 's/^\[[ 0-9]+\][[:space:]]*//; s/[[:space:]]*#.*$//' <<<"$1" \
     | awk '
+        /^[[:space:]]*$/                      { next }
+        /^[[:space:]]*Status:/                { next }
+        /^[[:space:]]*To[[:space:]]+Action/   { next }
+        /^[[:space:]]*-+[[:space:]]+-+/       { next }
         match($0, / (ALLOW|DENY|REJECT|LIMIT) (IN|OUT|FWD) /) {
           to = substr($0, 1, RSTART - 1)
           act = substr($0, RSTART + 1, RLENGTH - 2)
@@ -147,63 +162,100 @@ ufw_rows() {
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", to)
           gsub(/^[[:space:]]+|[[:space:]]+$/, "", from)
           sub(/ \(v6\)$/, "", to)
-          print to "\t" act "\t" from
-        }'
+          split(act, a, " ")
+          print to "\t" a[1] "\t" a[2] "\t" from
+          next
+        }
+        { print "?\t?\t?\t" $0 }'
 }
 
-is_anywhere() { case "$1" in Anywhere|"Anywhere (v6)") return 0 ;; *) return 1 ;; esac; }
+# `From` без хвоста, який ufw дописує ПІСЛЯ колонки: `Anywhere   (log)`,
+# `Anywhere (out)`, `Anywhere (v6) (log-all)`. `backend_iptables` ліпить
+# ці ознаки рядком, і порівняння «дорівнює Anywhere» на них падало —
+# загальний дозвіл `ufw allow log 80/tcp` не рахувався взагалі.
+is_anywhere() {
+  local f="$1"
+  f="$(sed -E 's/[[:space:]]*\((log|log-all|out|v6)(, ?(log|log-all|out|v6))*\)[[:space:]]*$//' <<<"$f")"
+  f="$(sed -E 's/[[:space:]]*\(v6\)[[:space:]]*$//; s/[[:space:]]+$//' <<<"$f")"
+  [ "$f" = "Anywhere" ]
+}
 
-# Чи відкриває цей `To` котрийсь із наших портів усім.
+# 🔴 Профілі ufw — це НЕ порт. `ufw allow "Nginx Full"` друкує назву, і
+# перша версія читала її як «не наші порти», друкуючи «origin приймає
+# лише Cloudflare» над відкритим 80. Відомі профілі розгортаються тут;
+# НЕВІДОМИЙ — це die, а не тиша. Список узятий з пакетів, що ставлять
+# профілі в /etc/ufw/applications.d, а не вигаданий.
+profile_ports() {
+  case "$1" in
+    OpenSSH) echo "22/tcp" ;;
+    "Nginx Full"|"Apache Full"|"WWW Full"|"Caddy") echo "80,443/tcp" ;;
+    "Nginx HTTP"|Apache|WWW) echo "80/tcp" ;;
+    "Nginx HTTPS"|"Apache Secure"|"WWW Secure") echo "443/tcp" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Чи відкриває цей `To` котрийсь із наших портів.
 #
-# 🔴 НЕРОЗПІЗНАНА ФОРМА — ЦЕ ПОМИЛКА, А НЕ ТИША. `ufw allow 80` друкує
-# просто `80`; `ufw allow 'Nginx Full'` — назву профілю; бувають
-# `80:443/tcp` і `LIMIT IN`. Перша версія шукала `^(80|443)/tcp` і над
-# станом із `Nginx Full ALLOW IN Anywhere` друкувала «origin приймає
-# лише Cloudflare» з кодом 0. Те, чого скрипт не вміє прочитати, він
-# мусить НАЗВАТИ, а не промовчати.
+# 🔴 ЧИСЛАМИ, А НЕ РЯДКАМИ, І ВСІ ЕЛЕМЕНТИ. `man 8 ufw` документує
+# `port 80,443,8080:8090`, тобто список, у якому елемент може бути
+# діапазоном. Перша версія брала гілку `*,*` раніше за `*:*` і
+# порівнювала елементи як РЯДКИ — `22,80:443/tcp` читалось як «не наші
+# порти», тобто відкритий усьому світу 443 давав зелене.
+#
+# Протокол має значення: ми керуємо tcp. `443/udp` — це інша експозиція
+# (HTTP/3 повз Cloudflare), і закривати її цим скриптом означало б
+# мовчки міняти те, чого картка не обіцяла; вона названа в README як
+# окремий крок, а не проковтнута тут.
 opens_our_ports() {
-  local to="$1" p ports base
-  base="${to%%/*}"
+  local to="$1" spec proto base p elem lo hi
+  if spec="$(profile_ports "$to")"; then to="$spec"; fi
   case "$to" in
-    *[0-9]/tcp|*[0-9]) ;;
-    *) return 2 ;;   # не число і не число/tcp — не беруся судити
+    */*) base="${to%/*}"; proto="${to##*/}" ;;
+    *)   base="$to"; proto=both ;;
   esac
-  case "$base" in
-    *[!0-9,:]*) return 2 ;;
-  esac
+  case "$proto" in tcp|both) ;; udp) return 1 ;; *) return 2 ;; esac
+  case "$base" in ''|*[!0-9,:]*) return 2 ;; esac
   for p in ${PORTS//,/ }; do
-    case "$base" in
-      "$p") return 0 ;;
-      *,*) IFS=, read -ra ports <<<"$base"
-           for q in "${ports[@]}"; do [ "$q" = "$p" ] && return 0; done ;;
-      *:*) [ "$p" -ge "${base%%:*}" ] && [ "$p" -le "${base##*:}" ] && return 0 ;;
-    esac
+    local IFS=,
+    for elem in $base; do
+      case "$elem" in
+        *:*) lo="${elem%%:*}"; hi="${elem##*:}"
+             [ -n "$lo" ] && [ -n "$hi" ] || return 2
+             [ "$p" -ge "$lo" ] && [ "$p" -le "$hi" ] && return 0 ;;
+        *)   [ "$elem" = "$p" ] && return 0 ;;
+      esac
+    done
   done
   return 1
 }
 
+# 🔴 Нерозібраний рядок зупиняє роботу. Інакше невідома форма виглядає
+# точно так само, як її відсутність.
+refuse_unparsed() {
+  local to act dir from
+  while IFS=$'\t' read -r to act dir from; do
+    [ "$to" = '?' ] || continue
+    die "не розібрав рядок ufw: «$from» — розберись руками, нічого не міняю"
+  done < <(ufw_rows "$1")
+}
+
 # Діапазони, яким ЗАРАЗ дозволені рівно наші порти.
 current_allowed() {
-  local to act from
-  while IFS=$'\t' read -r to act from; do
-    [ -n "$to" ] || continue
-    case "$act" in ALLOW*) ;; *) continue ;; esac
+  local to act dir from
+  while IFS=$'\t' read -r to act dir from; do
+    [ "$act" = ALLOW ] && [ "$dir" = IN ] || continue
     [ "$to" = "$PORTS/tcp" ] || continue
     is_anywhere "$from" && continue
-    echo "$from"
+    sed -E 's/[[:space:]]*\((log|log-all|out|v6)(, ?[a-z-]+)*\)[[:space:]]*$//; s/[[:space:]]+$//' <<<"$from"
   done < <(ufw_rows "$1") | sort -u
 }
 
 # Загальні дозволи на наші порти — те, що ми знімаємо.
-#
-# Без « (v6)»: `ufw status` друкує v4 і v6 двома рядками, але правило
-# ОДНЕ — `ufw delete allow 80/tcp` знімає обидва, а команди
-# `ufw delete allow 80/tcp (v6)` не існує.
 blanket_rules() {
-  local to act from
-  while IFS=$'\t' read -r to act from; do
-    [ -n "$to" ] || continue
-    case "$act" in ALLOW*|LIMIT*) ;; *) continue ;; esac
+  local to act dir from
+  while IFS=$'\t' read -r to act dir from; do
+    { [ "$act" = ALLOW ] || [ "$act" = LIMIT ]; } && [ "$dir" = IN ] || continue
     is_anywhere "$from" || continue
     opens_our_ports "$to"
     case $? in
@@ -214,9 +266,10 @@ blanket_rules() {
 }
 
 ssh_is_allowed() {
-  local to act from
-  while IFS=$'\t' read -r to act from; do
-    case "$act" in ALLOW*|LIMIT*) ;; *) continue ;; esac
+  local to act dir from spec
+  while IFS=$'\t' read -r to act dir from; do
+    { [ "$act" = ALLOW ] || [ "$act" = LIMIT ]; } && [ "$dir" = IN ] || continue
+    if spec="$(profile_ports "$to")"; then to="$spec"; fi
     case "$to" in "$SSH_PORT"|"$SSH_PORT/tcp") return 0 ;; esac
   done < <(ufw_rows "$1")
   return 1
@@ -226,6 +279,7 @@ ssh_is_allowed() {
 main() {
   local st want have add drop blanket
   st="$(ufw_status)"
+  refuse_unparsed "$st"
 
   # 🔴 Перший замок — і він стоїть ДО читання чого завгодно з мережі.
   ssh_is_allowed "$st" \

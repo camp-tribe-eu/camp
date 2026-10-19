@@ -22,7 +22,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="${CAMPTRIBE_FIREWALL_BIN:-$HERE/bin/camptribe-firewall}"
-EXPECTED=32
+EXPECTED=42
 
 [ -x "$BIN" ] || { echo "немає $BIN" >&2; exit 1; }
 
@@ -60,6 +60,10 @@ case "${1:-}" in
     done < "$S"
     ;;
   allow)
+    # 🔴 Глухий allow: ufw сказав «додано», а правила немає. Без цього
+    # режиму половину звірки ПІСЛЯ зміни (`have != want`) не перевіряв
+    # жоден випадок.
+    if [ "${UFW_MUTE_ALLOW:-0}" = 1 ]; then echo "Rule added"; exit 0; fi
     # allow from CIDR to any port P proto tcp   |   allow P/tcp
     if [ "${2:-}" = from ]; then
       printf '%s|%s\n' "${7:-}/tcp" "$3" >> "$S"
@@ -235,24 +239,45 @@ ok $? '…лишивши загальні дозволи на місці' "$(cat
 
 echo '— 🔴 форми, якими 80/443 відкривають, крім «80/tcp»'
 mk_v4 15; mk_v6 7
-for form in '80|Anywhere' '80:443/tcp|Anywhere' 'Nginx Full|Anywhere'; do
+blanket_says() { sed -n 's/^загальних дозволів на [^:]*: *//p' <<<"$OUT" | tr -d ' '; }
+for form in '80|Anywhere' '80:443/tcp|Anywhere' 'Nginx Full|Anywhere' \
+            '22,80:443/tcp|Anywhere' '80/tcp|Anywhere   (log)' '80/tcp|Anywhere|LIMIT IN'; do
   printf '%s' $'22/tcp|Anywhere\n' > "$W/state"
   printf '%s\n' "$form" >> "$W/state"
   run status
-  case "$form" in
-    'Nginx Full|Anywhere')
-      { [ "$RC" != 0 ] && grep -q 'не вмію прочитати' <<<"$OUT"; }
-      ok $? "🔴 «${form%%|*}»: нерозпізнана форма — відмова з назвою, а не тиша" "rc=$RC $OUT" ;;
-    *)
-      { [ "$RC" = 1 ] && grep -q 'РОЗБІЖНІСТЬ' <<<"$OUT" && ! grep -q 'загальних дозволів на 80,443:       0' <<<"$OUT"; }
-      ok $? "🔴 «${form%%|*}» зараховано як загальний дозвіл" "rc=$RC $OUT" ;;
-  esac
+  { [ "$RC" = 1 ] && [ "$(blanket_says)" = 1 ]; }
+  ok $? "🔴 «${form}» зараховано як загальний дозвіл" "rc=$RC загальних=$(blanket_says) $OUT"
 done
-printf '%s' $'22/tcp|Anywhere\n80/tcp|Anywhere\n' > "$W/state"
-sed -i.bak 's/^80\/tcp|Anywhere$/80\/tcp|Anywhere|LIMIT/' "$W/state" 2>/dev/null; rm -f "$W/state.bak"
+
+printf '%s' $'22/tcp|Anywhere\n443/udp|Anywhere\n' > "$W/state"
 run status
-{ [ "$RC" = 1 ]; }
-ok $? 'LIMIT на 80 теж відкриває порт усім' "rc=$RC $OUT"
+{ [ "$RC" = 1 ] && [ "$(blanket_says)" = 0 ]; }
+ok $? '🔴 443/udp — інший протокол: не наш дозвіл і НЕ привід відмовляти' "rc=$RC $OUT"
+
+printf '%s' $'22/tcp|Anywhere\nДивний Профіль|Anywhere\n' > "$W/state"
+run status
+{ [ "$RC" != 0 ] && grep -q 'не вмію прочитати' <<<"$OUT"; }
+ok $? '🔴 невідомий профіль — відмова з назвою, а не тиша' "rc=$RC $OUT"
+
+printf '%s' $'OpenSSH|Anywhere\n80/tcp|Anywhere\n' > "$W/state"
+run status
+{ [ "$RC" = 1 ] && ! grep -q 'немає дозволу на 22' <<<"$OUT"; }
+ok $? '🔴 стоковий профіль OpenSSH рахується як дозвіл на SSH' "rc=$RC $OUT"
+
+echo '— 🔴 напрямок — частина дії'
+printf '%s' $'22/tcp|Anywhere   (out)|ALLOW OUT\n80/tcp|Anywhere\n443/tcp|Anywhere\n' > "$W/state"
+: > "$W/log"; run sync --apply
+{ [ "$RC" != 0 ] && grep -q 'немає дозволу на 22/tcp' <<<"$OUT"; }
+ok $? '🔴 «22/tcp ALLOW OUT» — це НЕ вхідний дозвіл на SSH' "rc=$RC $OUT"
+grep -q 'ufw allow' "$W/log"; [ $? = 1 ]
+ok $? '…і машина лишилась недоторканою' "$(cat "$W/log")"
+
+echo '— 🔴 рядок, якого не вдалось розібрати'
+printf '%s' $'22/tcp|Anywhere\n80/tcp|Anywhere\n' > "$W/state"
+printf 'якась/форма|Anywhere|МАЯЧНЯ\n' >> "$W/state"
+run status
+{ [ "$RC" != 0 ] && grep -q 'не розібрав рядок ufw' <<<"$OUT"; }
+ok $? '🔴 нерозбірний рядок зупиняє роботу, а не зникає' "rc=$RC $OUT"
 
 echo '— 🔴 коментар у правилі не має керувати висновком'
 mk_v4 15; mk_v6 7
@@ -290,6 +315,21 @@ OUT="$(env PATH="$W/bin:$PATH" UFW_STATE="$W/state" UFW_LOG="$W/log" UFW_DEAF=1 
   "$BIN" sync --apply 2>&1)"; RC=$?
 { [ "$RC" != 0 ] && grep -q 'ЗВІРКА НЕ ЗІЙШЛАСЬ' <<<"$OUT"; }
 ok $? '🔴 глухий ufw не дає зеленого: звірка читає стан заново' "rc=$RC $OUT"
+
+echo '— 🔴 звірка ПІСЛЯ зміни ловить і другу половину'
+mk_v4 15; mk_v6 7; reset_world
+OUT="$(env PATH="$W/bin:$PATH" UFW_STATE="$W/state" UFW_LOG="$W/log" UFW_MUTE_ALLOW=1 \
+  CF_V4_FILE="$W/v4" CF_V6_FILE="$W/v6" \
+  CAMPTRIBE_UFW_BIN="$W/bin/ufw" CAMPTRIBE_CURL_BIN="$W/bin/curl" \
+  "$BIN" sync --apply 2>&1)"; RC=$?
+{ [ "$RC" != 0 ] && grep -q 'ЗВІРКА НЕ ЗІЙШЛАСЬ' <<<"$OUT"; }
+ok $? '🔴 ufw сказав «додано», але не додав — звірка це бачить' "rc=$RC $OUT"
+
+echo '— 🔴 замок SSH стоїть ПЕРЕД мережею'
+printf '%s' $'80/tcp|Anywhere\n' > "$W/state"; rm -f "$W/v4" "$W/v6"; : > "$W/log"
+run sync --apply
+{ [ "$RC" != 0 ] && grep -q 'немає дозволу на 22/tcp' <<<"$OUT" && ! grep -q 'не вдалось прочитати' <<<"$OUT"; }
+ok $? '🔴 зламано і SSH, і списки — скарга саме на SSH' "rc=$RC $OUT"
 
 echo '— status і виклик'
 mk_v4 15; mk_v6 7; reset_world
