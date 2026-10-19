@@ -22,7 +22,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="${CAMPTRIBE_FIREWALL_BIN:-$HERE/bin/camptribe-firewall}"
-EXPECTED=42
+EXPECTED=47
 
 [ -x "$BIN" ] || { echo "немає $BIN" >&2; exit 1; }
 
@@ -240,8 +240,11 @@ ok $? '…лишивши загальні дозволи на місці' "$(cat
 echo '— 🔴 форми, якими 80/443 відкривають, крім «80/tcp»'
 mk_v4 15; mk_v6 7
 blanket_says() { sed -n 's/^загальних дозволів на [^:]*: *//p' <<<"$OUT" | tr -d ' '; }
-for form in '80|Anywhere' '80:443/tcp|Anywhere' 'Nginx Full|Anywhere' \
-            '22,80:443/tcp|Anywhere' '80/tcp|Anywhere   (log)' '80/tcp|Anywhere|LIMIT IN'; do
+# 🔴 `443/tcp` окремо, бо це ДРУГА ітерація по `$PORTS`: усі попередні
+# форми били в 80, тобто в першу, і шлях для другої не перевіряв ніхто.
+for form in '80|Anywhere' '443/tcp|Anywhere' '80:443/tcp|Anywhere' 'Nginx Full|Anywhere' \
+            '22,80:443/tcp|Anywhere' '80/tcp|Anywhere   (log)' '80/tcp|Anywhere|LIMIT IN' \
+            'Anywhere|Anywhere|ALLOW IN'; do
   printf '%s' $'22/tcp|Anywhere\n' > "$W/state"
   printf '%s\n' "$form" >> "$W/state"
   run status
@@ -254,6 +257,13 @@ run status
 { [ "$RC" = 1 ] && [ "$(blanket_says)" = 0 ]; }
 ok $? '🔴 443/udp — інший протокол: не наш дозвіл і НЕ привід відмовляти' "rc=$RC $OUT"
 
+for broken in '80:' ':443' 'Дивний Профіль'; do
+  printf '%s' $'22/tcp|Anywhere\n' > "$W/state"
+  printf '%s|Anywhere\n' "$broken" >> "$W/state"
+  run status
+  { [ "$RC" != 0 ] && grep -q 'не вмію прочитати' <<<"$OUT"; }
+  ok $? "🔴 «$broken» — відмова з назвою, а не тиша" "rc=$RC $OUT"
+done
 printf '%s' $'22/tcp|Anywhere\nДивний Профіль|Anywhere\n' > "$W/state"
 run status
 { [ "$RC" != 0 ] && grep -q 'не вмію прочитати' <<<"$OUT"; }

@@ -210,6 +210,11 @@ profile_ports() {
 opens_our_ports() {
   local to="$1" spec proto base p elem lo hi
   if spec="$(profile_ports "$to")"; then to="$spec"; fi
+  # 🔴 `ufw allow from any to any` друкує `To = Anywhere` — це КОЖЕН
+  # порт, зокрема наші. Перша версія віддавала на це `die «не вмію
+  # прочитати»`: безпечно, але безглуздо — форма цілком зрозуміла, і
+  # вона найширша з можливих.
+  [ "$to" = Anywhere ] && return 0
   case "$to" in
     */*) base="${to%/*}"; proto="${to##*/}" ;;
     *)   base="$to"; proto=both ;;
