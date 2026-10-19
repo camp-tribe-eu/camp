@@ -13,13 +13,28 @@ import { test, expect, type Page } from '@playwright/test';
  * захоче «щоб не було порожньо».
  */
 
+/**
+ * Перший кемпінг із індексу, відкритий у браузері.
+ *
+ * 🔴 ВІДМОВА І ПОРОЖНЕЧА — ДВА РІЗНІ ПРОВАЛИ, І ЇХ ТРЕБА НАЗИВАТИ
+ * ПО-РІЗНОМУ. Перша редакція читала `.json()` одразу й падала на
+ * `spots.length === undefined` зі словами «API не віддав жодного
+ * кемпінгу». Насправді API віддавав `429 ThrottlerException` — тобто
+ * повідомлення вказувало на дані, а причина була в лімітах. Я витратив
+ * на це окремий прогін.
+ */
 async function anySpot(page: Page, request: Page['request']) {
-  const spots: { country: string; region: string; slug: string }[] = await (
-    await request.get(
-      `${process.env.API_BASE_URL ?? 'http://localhost:3001'}/spots/index`,
-    )
-  ).json();
-  expect(spots.length, 'API не віддав жодного кемпінгу').toBeGreaterThan(0);
+  const res = await request.get(
+    `${process.env.API_BASE_URL ?? 'http://localhost:3001'}/spots/index`,
+  );
+  expect(res.status(), `API відмовив: ${res.status()} ${res.statusText()}`).toBe(200);
+  const body: unknown = await res.json();
+  expect(
+    Array.isArray(body),
+    `API віддав не масив: ${JSON.stringify(body).slice(0, 120)}`,
+  ).toBe(true);
+  const spots = body as { country: string; region: string; slug: string }[];
+  expect(spots.length, 'індекс кемпінгів порожній').toBeGreaterThan(0);
   const s = spots[0];
   await page.goto(`/camping/${s.country}/${s.region}/${s.slug}`);
   return s;
