@@ -541,6 +541,22 @@ test.describe('what else the served HTML must not do', () => {
 const GRAPHICS_STACK = [
   /^\[\.WebGL-0x[0-9a-f]+\]GL Driver Message \(/,
   /Failed to create WebGL context/,
+  // 🔴 ТРЕТЄ — І ВОНО З ЧУЖОГО СТИЛЮ МАПИ, А НЕ З РАННЕРА. CI на
+  // chromium показав:
+  //
+  //   layers[highway-shield-non-us].filter[1]: Expected value to be of
+  //   type number, but found null instead. Falling back to false.
+  //
+  // Стиль — `OpenFreeMap/liberty` (`lib/map-sources.ts`), ми його не
+  // пишемо й виправити в ньому нічого не можемо. Шар про американські
+  // дорожні щити до кемпінгів ЄС-27 стосунку не має, і MapLibre сам
+  // відкочує цей фільтр у `false`, тобто поведінка визначена.
+  //
+  // Шаблон називає КОНКРЕТНИЙ шар і конкретну претензію. Відкинути все,
+  // що починається з `layers[`, було б зручно — і тоді зламаний стиль
+  // нашої власної збірки тайлів (слот `NEXT_PUBLIC_SELF_TILES_URL`)
+  // проїхав би зеленим.
+  /^layers\[highway-shield-non-us\]\.filter\[1\]: Expected value to be of type number/,
 ];
 
 test.describe('in a browser', () => {
