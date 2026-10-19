@@ -518,6 +518,31 @@ test.describe('what else the served HTML must not do', () => {
 // In a browser: the clock.
 // ---------------------------------------------------------------------
 
+/**
+ * 🔴 ДВА ПОВІДОМЛЕННЯ ВІД ГРАФІЧНОГО СТЕКУ РАННЕРА, А НЕ ВІД НАШОГО КОДУ.
+ *
+ * CAMP-344 поставив на сторінку кемпінгу мапу, і разом із нею в консоль
+ * прийшло те, що пише сам браузер:
+ *
+ *   Chromium — «[.WebGL-0x…]GL Driver Message (OpenGL, Performance,
+ *   GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels»;
+ *   Firefox на раннері без GPU — «Failed to create WebGL context».
+ *
+ * Друге навіть не є дефектом: саме на цей випадок `site-map.tsx` і має
+ * запасний вигляд, і `map.spec.ts` окремо перевіряє, що сторінка в
+ * такому браузері лишається сторінкою.
+ *
+ * 🔴 ШАБЛОНИ НАВМИСНО ВУЗЬКІ. Спокусливо було б відкинути все, де є
+ * «WebGL», але тоді загубились би і втрата контексту, і помилка стилю
+ * мапи, і будь-яка наша майбутня. Ці два рядки не змінюються від наших
+ * правок; усе інше, включно з розбіжністю гідратації — заради чого цей
+ * сторож і живе, — рахується далі.
+ */
+const GRAPHICS_STACK = [
+  /^\[\.WebGL-0x[0-9a-f]+\]GL Driver Message \(/,
+  /Failed to create WebGL context/,
+];
+
 test.describe('in a browser', () => {
   const path = () => named(S1).find((p) => p.text.includes('3.2 km'))!.path;
 
@@ -534,6 +559,7 @@ test.describe('in a browser', () => {
     page.on('console', (m) => {
       if (m.type() !== 'error' && m.type() !== 'warning') return;
       if (m.location().url.includes('/owner/claim')) return;
+      if (GRAPHICS_STACK.some((re) => re.test(m.text()))) return;
       bad.push(m.text());
     });
     page.on('pageerror', (e) => bad.push(e.message));
