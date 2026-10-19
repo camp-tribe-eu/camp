@@ -53,11 +53,17 @@ cd "$(dirname "$0")/../.."
 # false test at the top level ends the script: with no apps/api/.env — CI,
 # or a fresh clone — the whole thing would have exited 0 having done
 # nothing, which is the quietest possible way for a backup to fail.
+#
+# 🔴 ЧИТАЄМО, А НЕ ВИКОНУЄМО. Тут стояло `set -a; . apps/api/.env`, і
+# 17.10.2026 у файлі зʼявився пароль із `)`. Читання почало падати з
+# `syntax error near unexpected token ')'`, і бекап не робився ТРИ НОЧІ,
+# поки сайт працював — бо systemd читає той самий файл через
+# `EnvironmentFile=`, а воно не оболонка. Формат `.env` ніколи й не був
+# шел-скриптом; ним його зробили ми (CAMP-349).
 if [ -z "${DATABASE_URL:-}" ] && [ -f apps/api/.env ]; then
-  set -a
-  # shellcheck source=/dev/null
-  . apps/api/.env
-  set +a
+  # shellcheck source=../../infra/lib/env-value.sh
+  . "$(dirname "$0")/../../infra/lib/env-value.sh"
+  DATABASE_URL="$(env_value apps/api/.env DATABASE_URL || true)"
 fi
 DB="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"
 

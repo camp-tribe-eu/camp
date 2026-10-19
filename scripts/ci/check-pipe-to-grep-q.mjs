@@ -404,7 +404,7 @@ function tracked(root) {
 // which left four shell files and a workflow free to vanish in silence.
 // A floor that does not reconcile with the raw count is a label.
 // Raise them when the tree grows; they may never quietly fall.
-const MIN_SHELL_FILES = 31;
+const MIN_SHELL_FILES = 33;
 const MIN_YAML_FILES = 8;
 
 /**
@@ -588,15 +588,15 @@ const CASES = [
   ['🔴 composite actions are read too, and nothing else under .github', () =>
     yamlFiles(['.github/actions/build-site/action.yml', '.github/dependabot.yml']).join(',') ===
       '.github/actions/build-site/action.yml'],
-  ['🔴 the whole tree read is a pass', () => inventoryOk(31, 8) === true],
+  ['🔴 the whole tree read is a pass', () => inventoryOk(33, 8) === true],
   ['🔴 …and a run that saw only infra/ is a FAILURE, not a ✓', () =>
     inventoryOk(7, 0) === false],
   ['🔴 shell files alone are not enough: the yaml floor stands on its own', () =>
-    inventoryOk(31, 0) === false],
+    inventoryOk(33, 0) === false],
   ['…and the yaml alone likewise', () => inventoryOk(0, 8) === false],
   ['🔴 ONE shell file missing is a failure — the floor pins the value, not its existence', () =>
-    inventoryOk(30, 8) === false],
-  ['🔴 …and one yaml file missing likewise', () => inventoryOk(31, 7) === false],
+    inventoryOk(32, 8) === false],
+  ['🔴 …and one yaml file missing likewise', () => inventoryOk(33, 7) === false],
   // 🔴 isQuietGrep, asked directly: the review walked 14 forms past the
   // regex that replaced the first word list, and read 6 as offences
   // that were not.

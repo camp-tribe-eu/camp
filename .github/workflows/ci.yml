@@ -522,6 +522,19 @@ jobs:
           ./infra/firewall.selftest.sh | tee /dev/stderr \
             | grep -c 'firewall self-test: усе гаразд' >/dev/null
 
+      # 🔴 CAMP-349. `.env` — це НЕ шел-скрипт, і ми роками поводились із
+      # ним як зі скриптом. 17.10.2026 у файлі зʼявився пароль із `)`, і
+      # щонічний бекап не робився ТРИ НОЧІ, поки сайт спокійно працював:
+      # systemd читає той самий файл через `EnvironmentFile=`, а воно не
+      # оболонка. Головний випадок набору — не «чи прочитало», а «чи НЕ
+      # виконало»: значення з `$(…)` мусить повернутись текстом, а слід
+      # від виконання не зʼявитись.
+      - name: .env is read, never executed
+        run: |
+          set -o pipefail
+          ./infra/env-value.selftest.sh | tee /dev/stderr \
+            | grep -c 'env-value self-test: усе гаразд' >/dev/null
+
       # 🔴 CAMP-318. Кнопка «You own this site? Add your photos» вела на
       # `/owner/claim`, якого ніколи не існувало — 404 для рівно тієї
       # людини, яку ми просимо про допомогу, майже на кожній сторінці

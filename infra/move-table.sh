@@ -189,14 +189,20 @@ say "дамп: $(( $(wc -c < "$WORK/table.dump") / 1048576 )) МБ"
   || die 'не вдалось доставити еталон схеми'
 
 # --- 3. усе інше робиться НА МАШИНІ, одним скриптом ----------------------
-cat > "$WORK/remote.sh" <<'REMOTE'
-#!/usr/bin/env bash
-set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 🔴 Функція читання .env ВШИВАЄТЬСЯ сюди з `infra/lib/env-value.sh`, а
+# не дублюється: на машині немає нашого репозиторію, туди їде лише цей
+# один файл. Одне означення, два споживачі (CAMP-349).
+{
+  printf '%s\n' '#!/usr/bin/env bash' 'set -uo pipefail'
+  cat "$HERE/lib/env-value.sh"
+  cat <<'REMOTE'
 TABLE="$1"; SRC_ROWS="$2"; BACKUP_DIR="$3"; ENVF="$4"; RTMP="$5"; LOCK_TIMEOUT="$6"; RB_LOCK_TIMEOUT="$7"; ALLOW_OPEN="${8:-0}"
-set -a
-# shellcheck source=/dev/null
-. "$ENVF"
-set +a
+# 🔴 Читаємо, а не виконуємо: пароль із `)` у .env клав цей скрипт так
+# само, як клав щонічний бекап три ночі поспіль.
+DATABASE_URL="$(env_value "$ENVF" DATABASE_URL)" \
+  || { echo "у $ENVF немає DATABASE_URL" >&2; exit 2; }
+export DATABASE_URL
 # 🔴 Створення бази під репетицію винесено в змінні: на бойовій машині це
 # суперкористувач (прикладний користувач права не має й не повинен), а в
 # самоперевірці — звичайний createdb. Без цього самоперевірка ганяла б не
@@ -481,6 +487,7 @@ fi
 analyze_table
 echo "✓ відновлення без помилок, $rows рядків, структура збігається з джерелом, власник і права на місці"
 REMOTE
+} > "$WORK/remote.sh"
 
 "$SCP" -i "$KEY" -o BatchMode=yes "$WORK/remote.sh" "$HOST:$RTMP/camptribe-move-remote.sh" >/dev/null \
   || die 'не вдалось доставити виконавця'
