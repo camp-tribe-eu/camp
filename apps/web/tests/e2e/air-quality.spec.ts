@@ -602,13 +602,30 @@ test.describe('in a browser', () => {
   });
 
   test('a page left open turns stale by itself as the clock runs on', async ({ page }) => {
+    // 🔴 ПРИЛАД, А НЕ ЧЕТВЕРТА ЗДОГАДКА. Цей тест двічі впав у CI на
+    // firefox-desktop із «element(s) not found» — ПІСЛЯ того, як той
+    // самий елемент знайшовся рядком вище. Панель рендерить
+    // `data-testid` у всіх своїх станах (жодного раннього `return`),
+    // тож зникнути вона може лише разом із деревом, тобто через
+    // помилку на сторінці. Сам звіт Playwright її не показує.
+    //
+    // `watch()` уже збирає `pageerror` — лишалось донести зібране до
+    // повідомлення про провал. Твердження при цьому НЕ змінилось.
+    const bad = watch(page);
     await page.clock.install({ time: new Date(Date.now() + 1 * 3_600_000) });
     await page.goto(path());
     const section = page.locator('[data-testid="air-quality"]');
     await expect(section).toHaveAttribute('data-state', 'reported');
     // Four hours pass in a browser that has not been reloaded.
     await page.clock.fastForward('04:00:00');
-    await expect(section).toHaveAttribute('data-state', 'no-fresh-data');
+    try {
+      await expect(section).toHaveAttribute('data-state', 'no-fresh-data');
+    } catch (e) {
+      throw new Error(
+        `${(e as Error).message}\n\n🔴 Сторінка за час прогону кинула:\n` +
+          `${bad.length > 0 ? bad.join('\n') : '(нічого — отже дерево зникло з іншої причини)'}`,
+      );
+    }
   });
 
   test('a model value turns stale too', async ({ page }) => {
