@@ -507,11 +507,27 @@ jobs:
     permissions:
       issues: write
     steps:
+      # 🔴 GH_REPO, because this job does not check the repository out.
+      #
+      # `gh` resolves the repository from the git remote, not from
+      # GITHUB_REPOSITORY. Without either a checkout or this variable
+      # every call dies with "not a git repository" — and the alarm about
+      # a broken extract says nothing at all.
+      #
+      # This is not a hypothetical. The job's `if:` only fires on a
+      # failure, every earlier run of this workflow was green, so it had
+      # never run once. On 19.10.2026 at 04:37 UTC it ran for the first
+      # time (run 39199081913, 23 of 27 regions timed out on Geofabrik)
+      # and died on its first `gh` call. backup-verify.yml:265 had
+      # carried the fix and the explanation since CAMP-58; this file was
+      # written without it (CAMP-347).
       - name: Open or update the failure issue
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          set -euo pipefail
           TITLE='🔴 Weekly OSM extract is failing'
           EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
             --json number --jq '.[0].number // empty')
@@ -529,5 +545,12 @@ jobs:
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --body "$BODY"
           else
-            gh issue create --title "$TITLE" --body "$BODY" --label ci
+            # 🔴 No --label. This repository has no `ci` label and
+            # `gh issue create` aborts on one it cannot resolve, so the
+            # branch that runs on the FIRST failure — when there is no
+            # issue to comment on — is exactly the branch that would
+            # fail. Measured 19.10.2026: `gh label list` returns 14
+            # labels and `ci` is not among them. backup-verify.yml:294
+            # says the same thing; this file did not.
+            gh issue create --title "$TITLE" --body "$BODY"
           fi
