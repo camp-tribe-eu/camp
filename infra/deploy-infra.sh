@@ -34,12 +34,17 @@ changed=0
 # 🔴 `lib/` теж їде: `camptribe-deploy` тепер читає `.env` ТИМ САМИМ
 # `env_value`, що й бекап із переносом таблиць. Без цього рядка на
 # машині лежав би скрипт, якому нема чим читати (CAMP-349).
-for local in "$HERE"/systemd/* "$HERE"/bin/* "$HERE"/lib/*; do
+for local in "$HERE"/systemd/* "$HERE"/bin/* "$HERE"/lib/* "$HERE"/logrotate/* "$HERE"/fail2ban/*; do
   name="$(basename "$local")"
   case "$local" in
     */systemd/*) remote="/etc/systemd/system/$name" ;;
     */bin/*)     remote="/usr/local/bin/$name" ;;
     */lib/*)     remote="/usr/local/lib/camptribe/$name" ;;
+    # CAMP-353: строк зберігання безпекового журналу рахує logrotate, і
+    # тепер він їде з репозиторію, а не живе лише на машині.
+    */logrotate/*) remote="/etc/logrotate.d/$name" ;;
+    # CAMP-353: обмеження спроб входу по SSH.
+    */fail2ban/*) remote="/etc/fail2ban/jail.d/$name" ;;
   esac
   if ssh_ "cat $remote 2>/dev/null" | diff -q - "$local" >/dev/null 2>&1; then
     echo "=  $remote"
@@ -78,6 +83,13 @@ ssh_ 'systemctl daemon-reload'
 # 🔴 Перевірити ПІСЛЯ перезавантаження: юніт із помилкою синтаксису
 # приймається файловою системою й відмовляє лише на запуску.
 ssh_ 'systemd-analyze verify /etc/systemd/system/camptribe-*.service'
+
+# 🔴 ТЕ САМЕ ДЛЯ logrotate, І З ТІЄЇ Ж ПРИЧИНИ. Конфіг із помилкою
+# приймається файловою системою мовчки, а `logrotate` при щодобовому
+# прогоні пропускає ВЕСЬ файл — тобто журнал просто перестає
+# ротуватись, і дізнаємось ми про це з переповненого диска або з
+# прострочених рядків. `-d` розбирає й нічого не чіпає.
+ssh_ 'logrotate -d /etc/logrotate.d/camptribe-caddy >/dev/null'
 
 # 🔴 СКОПІЙОВАНИЙ ТАЙМЕР НЕ Є УВІМКНЕНИМ ТАЙМЕРОМ, і до 14.10.2026 цей
 # скрипт цієї різниці не знав. Файл лягає на машину, `daemon-reload`

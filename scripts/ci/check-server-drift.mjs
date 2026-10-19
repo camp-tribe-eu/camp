@@ -40,6 +40,13 @@ const INFRA = path.join(ROOT, 'infra');
 export const DESTINATION = Object.freeze({
   systemd: '/etc/systemd/system',
   bin: '/usr/local/bin',
+  // CAMP-353: строк зберігання безпекового журналу. Якщо цей файл на
+  // машині розійдеться з репозиторієм, ми публікуємо в політиці
+  // приватності строк, якого не дотримуємось, — і помітити це нічим.
+  logrotate: '/etc/logrotate.d',
+  // CAMP-353: камера над SSH. Розійдеться — перебір паролів знову
+  // нікого не турбує, і дізнаємось ми про це з чужого входу.
+  fail2ban: '/etc/fail2ban/jail.d',
 });
 
 /**
@@ -57,7 +64,7 @@ export function managedFiles(readDir = readdirSync) {
   const out = [];
   for (const [dir, dest] of Object.entries(DESTINATION)) {
     for (const name of readDir(path.join(INFRA, dir))) {
-      out.push({ name, local: path.join(INFRA, dir, name), remote: `${dest}/${name}` });
+      out.push({ kind: dir, name, local: path.join(INFRA, dir, name), remote: `${dest}/${name}` });
     }
   }
   return out.sort((a, b) => a.remote.localeCompare(b.remote));
@@ -180,7 +187,12 @@ export function missingReleasePaths(files, opts = {}) {
  * Один прогін у CI, без мережі й без ключа.
  */
 export function danglingReferences(files, read = (p) => readFileSync(p, 'utf8')) {
-  const have = new Set(files.map((f) => `${f.remote.startsWith(DESTINATION.bin) ? 'bin' : 'systemd'}:${f.name}`));
+  // 🔴 РІД БЕРЕТЬСЯ З `kind`, А НЕ ВГАДУЄТЬСЯ ЗА ПРЕФІКСОМ. Тут стояло
+  // `startsWith(DESTINATION.bin) ? 'bin' : 'systemd'` — двійковий вибір
+  // при двох теках. CAMP-353 додав третю, і цей рядок мовчки зарахував
+  // би конфіг logrotate до юнітів systemd: не впав би, не попередив,
+  // просто відповідав би на інше питання.
+  const have = new Set(files.map((f) => `${f.kind}:${f.name}`));
   const bad = [];
   for (const f of files) {
     if (!f.name.endsWith('.service') && !f.name.endsWith('.timer')) continue;
@@ -358,6 +370,29 @@ function selfTest() {
     }
   };
 
+  // 🔴 ТРЕТЯ ТЕКА МУСИТЬ ЛИШАТИСЬ ТРЕТЬОЮ. Саме на цьому рядку
+  // спіткнувся CAMP-353: `danglingReferences` ділив світ навпіл —
+  // «це bin, решта systemd» — і конфіг logrotate став би юнітом
+  // systemd мовчки. Перевірка нижче червоніє, щойно рід знову почнуть
+  // вгадувати за шляхом замість читати з теки.
+  {
+    // 🔴 ФІКСТУРА БУДУЄТЬСЯ З `DESTINATION`, А НЕ ПЕРЕЛІЧУЄ ТЕКИ. Перша
+    // редакція перелічувала — і впала тієї ж години, щойно CAMP-353
+    // додав `fail2ban`: стаб віддав `undefined`, і тест не почервонів, а
+    // ВПАВ зі стеком. Падіння й спіймана мутація виглядають по-різному
+    // лише тоді, коли на них дивишся; у CI це однаково «не зелено».
+    // Тепер нова тека автоматично стає ще одним випадком.
+    const stub = (dir) => [`${path.basename(dir)}-fixture`];
+    const got = managedFiles(stub);
+    is('кожна тека лишається собою',
+      got.map((f) => `${f.kind}:${f.remote}`).sort(),
+      Object.entries(DESTINATION).map(([k, d]) => `${k}:${d}/${k}-fixture`).sort());
+    is('жодна тека не загубилась',
+      got.length, Object.keys(DESTINATION).length);
+    is('рід не збігається в купу',
+      new Set(got.map((f) => f.kind)).size, Object.keys(DESTINATION).length);
+  }
+
   // 🔴 Форма, що вбила бекап: рядок у юніті, який нікуди не веде.
   const unit = (body) => body;
   //
@@ -365,11 +400,18 @@ function selfTest() {
   // обробник посилається на `/usr/local/bin/camptribe-failed`, якого я
   // в список не поклав. Він мав рацію — це рівно той дефект, який він
   // шукає, тільки в моєму тесті.
+  //
+  // 🔴 `kind` ТУТ ОБОВʼЯЗКОВИЙ, І ЦЕ ДРУГИЙ РАЗ, КОЛИ ЦІ ФІКСТУРИ БУЛИ
+  // НЕПОВНІ. Поки рід вгадувався за префіксом шляху, його можна було не
+  // писати — і чотири перевірки нижче зеленіли над записами, яких
+  // `managedFiles()` ніколи не віддає. Фікстура, що відрізняється від
+  // справжніх даних саме тим полем, яке читає перевірка, доводить лише
+  // саму себе.
   const files = [
-    { name: 'a.service', local: 'a', remote: '/etc/systemd/system/a.service' },
-    { name: 'camptribe-failed@.service', local: 'h', remote: '/etc/systemd/system/camptribe-failed@.service' },
-    { name: 'camptribe-backup', local: 'b', remote: '/usr/local/bin/camptribe-backup' },
-    { name: 'camptribe-failed', local: 'f', remote: '/usr/local/bin/camptribe-failed' },
+    { kind: 'systemd', name: 'a.service', local: 'a', remote: '/etc/systemd/system/a.service' },
+    { kind: 'systemd', name: 'camptribe-failed@.service', local: 'h', remote: '/etc/systemd/system/camptribe-failed@.service' },
+    { kind: 'bin', name: 'camptribe-backup', local: 'b', remote: '/usr/local/bin/camptribe-backup' },
+    { kind: 'bin', name: 'camptribe-failed', local: 'f', remote: '/usr/local/bin/camptribe-failed' },
   ];
   const texts = {
     a: unit('[Service]\nExecStart=/usr/local/bin/camptribe-backup\n'),
@@ -378,6 +420,21 @@ function selfTest() {
     f: '#!/bin/bash\n',
   };
   const read = (p) => texts[p];
+
+  // 🔴 ВИПАДОК НАВМИСНО ШТУЧНИЙ, І ЦЕ ЄДИНА ЙОГО ФОРМА. Мутаційний
+  // прогін 19.10.2026 показав, що повернення старого рядка
+  // (`startsWith(DESTINATION.bin) ? 'bin' : 'systemd'`) переживає всі
+  // 32 випадки: на теках `systemd` і `bin` обидві реалізації дають те
+  // саме. Розрізняє їх лише файл ЧУЖОГО роду з імʼям юніта — тоді
+  // старий рядок каже «systemd», і посилання на неіснуючий юніт
+  // виглядає задоволеним. Перевірка без жодної мутації, яка її валить,
+  // — це галочка, зелена за побудовою.
+  is('файл чужого роду не вдає юніт',
+    danglingReferences(
+      [files[0], files[2], { kind: 'logrotate', name: 'camptribe-failed@.service', local: 'r', remote: '/etc/logrotate.d/camptribe-failed@.service' }],
+      (q) => (q === 'a' ? '[Unit]\nOnFailure=camptribe-failed@%n.service\n[Service]\nExecStart=/usr/local/bin/camptribe-backup\n' : '#!/bin/bash\n'),
+    ).map((b) => b.missing),
+    ['systemd/camptribe-failed@.service']);
 
   is('усе на місці — скарг немає', danglingReferences(files, read), []);
   is('скрипт, якого немає в репозиторії',
@@ -530,7 +587,7 @@ function selfTest() {
     ).stale,
     false);
 
-  const EXPECTED_CASES = 30;
+  const EXPECTED_CASES = 34;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;
