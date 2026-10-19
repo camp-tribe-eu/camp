@@ -42,6 +42,14 @@
 #   2  неправильний виклик
 set -euo pipefail
 
+# 🔴 `${x}`, А НЕ `$x`, ПЕРЕД НЕ-ASCII. У повідомленнях тут українські
+# лапки «…», і `"«$to»"` у деяких середовищах bash читає як імʼя змінної
+# `to»` — байти 0xC2 0xBB прилипають до ідентифікатора. Під `set -u` це
+# «unbound variable», тобто скрипт падає рівно в тому рядку, яким мав
+# пояснити, що сталось. Заміряно: самоперевірка падала на 280-му рядку
+# замість того, щоб почервоніти, а краху від спійманої мутації не
+# відрізнити.
+
 UFW="${CAMPTRIBE_UFW_BIN:-ufw}"
 CURL="${CAMPTRIBE_CURL_BIN:-curl}"
 V4_URL="${CAMPTRIBE_CF_V4_URL:-https://www.cloudflare.com/ips-v4}"
@@ -237,11 +245,31 @@ opens_our_ports() {
 
 # 🔴 Нерозібраний рядок зупиняє роботу. Інакше невідома форма виглядає
 # точно так само, як її відсутність.
+#
+# 🔴 І ЦІ ДВІ ВІДМОВИ СТОЯТЬ ПОЗА КОНВЕЄРОМ. Коли `die` живе всередині
+# `while … | sort -u`, його `exit` гине в підоболонці, і вся відмова
+# тримається на одному прапорці `pipefail`: зняти його — і
+# `ufw allow from any to any` дає код 0 з висновком «origin приймає
+# лише Cloudflare». Замок, що тримається на прапорці в рядку 43, — не
+# замок.
 refuse_unparsed() {
   local to act dir from
   while IFS=$'\t' read -r to act dir from; do
     [ "$to" = '?' ] || continue
-    die "не розібрав рядок ufw: «$from» — розберись руками, нічого не міняю"
+    die "не розібрав рядок ufw: «${from}» — розберись руками, нічого не міняю"
+  done < <(ufw_rows "$1")
+}
+
+refuse_unknown_to() {
+  local to act dir from rc
+  while IFS=$'\t' read -r to act dir from; do
+    { [ "$act" = ALLOW ] || [ "$act" = LIMIT ]; } && [ "$dir" = IN ] || continue
+    is_anywhere "$from" || continue
+    # 🔴 `|| rc=$?`, бо під `set -e` окремий виклик, що повернув ненуль,
+    # убиває скрипт мовчки — рівно це й сталось при першій спробі.
+    rc=0; opens_our_ports "$to" || rc=$?
+    [ "$rc" = 2 ] || continue
+    die "у ufw є дозвіл усім на «${to}», і я не вмію прочитати, які це порти — розберись руками, нічого не міняю"
   done < <(ufw_rows "$1")
 }
 
@@ -257,16 +285,22 @@ current_allowed() {
 }
 
 # Загальні дозволи на наші порти — те, що ми знімаємо.
+#
+# 🔴 ВІДДАЄ ДІЮ РАЗОМ ІЗ ПОРТОМ, бо `ufw delete` знімає правило лише
+# коли дія ЗБІГАЄТЬСЯ: `UFWRule.match()` порівнює action, і `delete
+# allow 80/tcp` над правилом `LIMIT` повертає -1, тобто правило
+# ЛИШАЄТЬСЯ. Перша версія віддавала самий порт, знімала все як `allow`,
+# падала на `Could not delete non-existent rule` — і порт 80 лишався
+# відкритим світу, а звірка «ПІСЛЯ» навіть не доходила, бо `set -e`
+# убивав скрипт на цьому ж delete.
 blanket_rules() {
   local to act dir from
   while IFS=$'\t' read -r to act dir from; do
     { [ "$act" = ALLOW ] || [ "$act" = LIMIT ]; } && [ "$dir" = IN ] || continue
     is_anywhere "$from" || continue
-    opens_our_ports "$to"
-    case $? in
-      0) echo "$to" ;;
-      2) die "у ufw є дозвіл усім на «$to», і я не вмію прочитати, які це порти — розберись руками, нічого не міняю" ;;
-    esac
+    if opens_our_ports "$to"; then
+      case "$act" in ALLOW) echo "allow	$to" ;; LIMIT) echo "limit	$to" ;; esac
+    fi
   done < <(ufw_rows "$1") | sort -u
 }
 
@@ -285,6 +319,7 @@ main() {
   local st want have add drop blanket
   st="$(ufw_status)"
   refuse_unparsed "$st"
+  refuse_unknown_to "$st"
 
   # 🔴 Перший замок — і він стоїть ДО читання чого завгодно з мережі.
   ssh_is_allowed "$st" \
@@ -326,7 +361,7 @@ main() {
     echo "СУХИЙ ПРОГІН — нічого не змінено; додай --apply"
     while IFS= read -r c; do [ -n "$c" ] && echo "  + allow from $c to any port $PORTS proto tcp"; done <<<"$add"
     while IFS= read -r c; do [ -n "$c" ] && echo "  - delete allow from $c to any port $PORTS proto tcp"; done <<<"$drop"
-    while IFS= read -r r; do [ -n "$r" ] && echo "  - delete allow $r   (загальний дозвіл)"; done <<<"$blanket"
+    while IFS=$'\t' read -r a r; do [ -n "$r" ] && echo "  - delete $a $r   (загальний дозвіл)"; done <<<"$blanket"
     return 0
   fi
 
@@ -342,9 +377,9 @@ main() {
   done <<<"$drop"
 
   # І аж тепер — загальний дозвіл, заради якого все й робилось.
-  while IFS= read -r r; do
+  while IFS=$'\t' read -r a r; do
     [ -n "$r" ] || continue
-    "$UFW" delete allow "$r" >/dev/null
+    "$UFW" delete "$a" "$r" >/dev/null
   done <<<"$blanket"
 
   # 🔴 Звіряємо ПІСЛЯ, зі свіжим читанням, а не з власного плану.

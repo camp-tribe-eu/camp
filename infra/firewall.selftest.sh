@@ -22,7 +22,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="${CAMPTRIBE_FIREWALL_BIN:-$HERE/bin/camptribe-firewall}"
-EXPECTED=47
+EXPECTED=58
 
 [ -x "$BIN" ] || { echo "немає $BIN" >&2; exit 1; }
 
@@ -60,6 +60,14 @@ case "${1:-}" in
     done < "$S"
     ;;
   allow)
+    # 🔴 Зʼїсти SSH: машина, на якій правило SSH зникло посеред роботи.
+    # Без цього переперевірка SSH ПІСЛЯ зміни не мала чим червоніти.
+    if [ "${UFW_EAT_SSH:-0}" = 1 ]; then
+      # 🔴 І v4, і v6: рядок `22/tcp (v6)` теж є дозволом на SSH — скрипт
+      # нормалізує « (v6)» і правильно його бачить, тож зʼїсти треба
+      # обидва, інакше випадок перевіряє не те, що каже.
+      grep -v '^22/tcp' "$S" > "$S.t" 2>/dev/null || true; mv "$S.t" "$S"
+    fi
     # 🔴 Глухий allow: ufw сказав «додано», а правила немає. Без цього
     # режиму половину звірки ПІСЛЯ зміни (`have != want`) не перевіряв
     # жоден випадок.
@@ -73,7 +81,13 @@ case "${1:-}" in
     echo "Rule added"
     ;;
   delete)
-    [ "${2:-}" = allow ] || { echo "stub ufw: не вмію: $*" >&2; exit 64; }
+    # 🔴 Справжній ufw знімає правило лише коли ДІЯ збігається:
+    # `UFWRule.match()` порівнює action, і `delete allow 80/tcp` над
+    # правилом LIMIT повертає -1, тобто правило лишається. Підмінник,
+    # який дію ігнорував, ховав саме цей дефект.
+    case "${2:-}" in allow|limit) want_act="$(tr '[:lower:]' '[:upper:]' <<<"$2") IN" ;;
+      *) echo "stub ufw: не вмію: $*" >&2; exit 64 ;; esac
+    set -- "$1" allow "${@:3}"
     # 🔴 Глухий режим: справжній ufw мовчки нічого не знімає, якщо rule
     # spec не збігається з тим, як правило створювали. Саме для цього
     # існує звірка ПІСЛЯ зміни — без цього режиму її не було чим
@@ -90,16 +104,17 @@ case "${1:-}" in
     fi
     tmp="$(mktemp)"
     removed=0
-    while IFS='|' read -r t f; do
+    while IFS='|' read -r t f a note; do
       # 🔴 Один rule spec — два рядки. Справжній `ufw delete allow
       # 80/tcp` знімає і v4, і v6; підмінник, що знімав лише перший
       # збіг, лишав v6 живим і робив набір добрішим за прод.
-      if [ "$from" = Anywhere ]; then
+      cur_act="${a:-ALLOW IN}"
+      if [ "$from" = Anywhere ] && [ "$cur_act" = "$want_act" ]; then
         case "$t" in "$to"|"$to (v6)") case "$f" in Anywhere*) removed=1; continue ;; esac ;; esac
       elif [ "$removed" = 0 ] && [ "$t" = "$to" ] && [ "$f" = "$from" ]; then
         removed=1; continue
       fi
-      printf '%s|%s\n' "$t" "$f" >> "$tmp"
+      printf '%s|%s%s%s\n' "$t" "$f" "${a:+|$a}" "${note:+|$note}" >> "$tmp"
     done < "$S"
     mv "$tmp" "$S"
     [ "$removed" = 1 ] && echo "Rule deleted" || { echo "Could not delete non-existent rule" >&2; exit 1; }
@@ -262,7 +277,7 @@ for broken in '80:' ':443' 'Дивний Профіль'; do
   printf '%s|Anywhere\n' "$broken" >> "$W/state"
   run status
   { [ "$RC" != 0 ] && grep -q 'не вмію прочитати' <<<"$OUT"; }
-  ok $? "🔴 «$broken» — відмова з назвою, а не тиша" "rc=$RC $OUT"
+  ok $? "🔴 «${broken}» — відмова з назвою, а не тиша" "rc=$RC $OUT"
 done
 printf '%s' $'22/tcp|Anywhere\nДивний Профіль|Anywhere\n' > "$W/state"
 run status
@@ -340,6 +355,70 @@ printf '%s' $'80/tcp|Anywhere\n' > "$W/state"; rm -f "$W/v4" "$W/v6"; : > "$W/lo
 run sync --apply
 { [ "$RC" != 0 ] && grep -q 'немає дозволу на 22/tcp' <<<"$OUT" && ! grep -q 'не вдалось прочитати' <<<"$OUT"; }
 ok $? '🔴 зламано і SSH, і списки — скарга саме на SSH' "rc=$RC $OUT"
+
+echo '— 🔴 ЦЕНТРАЛЬНА ТЕЗА status: зведений список + загальний дозвіл'
+mk_v4 15; mk_v6 7; reset_world; run sync --apply
+printf '80/tcp|Anywhere\n' >> "$W/state"
+run status
+{ [ "$RC" = 1 ] && grep -q 'РОЗБІЖНІСТЬ' <<<"$OUT" && [ "$(blanket_says)" = 1 ]; }
+ok $? '🔴 усі 22 на місці, але 80 відкритий усім — це НЕ «лише Cloudflare»' "rc=$RC $OUT"
+
+echo '— 🔴 LIMIT знімається як limit, а не як allow'
+mk_v4 15; mk_v6 7; reset_world; run sync --apply
+printf '80/tcp|Anywhere|LIMIT IN\n' >> "$W/state"
+: > "$W/log"; run sync --apply
+{ [ "$RC" = 0 ] && [ "$(blanket_count)" = 0 ]; }
+ok $? '🔴 загальний LIMIT на 80 справді знято' "rc=$RC $(cat "$W/state" | tail -3)"
+grep -q 'ufw delete limit 80/tcp' "$W/log"
+ok $? '…саме командою `delete limit`, бо ufw звіряє дію' "$(grep delete "$W/log")"
+
+echo '— 🔴 верхня межа діапазону: 20:30 це НЕ наші порти'
+printf '%s' $'22/tcp|Anywhere\n20:30/tcp|Anywhere\n' > "$W/state"
+run status
+{ [ "$RC" = 1 ] && [ "$(blanket_says)" = 0 ]; }
+ok $? '🔴 20:30/tcp не зараховано — інакше його б ЗНЯЛИ' "rc=$RC $OUT"
+
+echo '— 🔴 напрям у current_allowed: третій споживач'
+printf '%s' $'22/tcp|Anywhere\n80,443/tcp|10.0.0.0/20|ALLOW OUT\n' > "$W/state"
+run status
+grep -q 'уже дозволено:                      0' <<<"$OUT"
+ok $? '🔴 «ALLOW OUT» на діапазон CF не рахується як дозволений вхід' "$OUT"
+
+echo '— 🔴 ознаки у From: Anywhere (v6) (log)'
+printf '%s' $'22/tcp|Anywhere\n80/tcp|Anywhere (v6) (log)\n' > "$W/state"
+run status
+{ [ "$RC" = 1 ] && [ "$(blanket_says)" = 1 ]; }
+ok $? '🔴 «Anywhere (v6) (log)» — це Anywhere' "rc=$RC $OUT"
+printf '%s' $'22/tcp|Anywhere\n80/tcp|Anywhere on eth0\n' > "$W/state"
+run status
+{ [ "$RC" = 1 ] && [ "$(blanket_says)" = 0 ]; }
+ok $? '…а «Anywhere on eth0» — звужено, і це НЕ загальний дозвіл' "rc=$RC $OUT"
+
+echo '— 🔴 профіль розгортається у ЗНАЧЕННЯ, не лише у форму'
+printf '%s' $'22/tcp|Anywhere\nNginx HTTPS|Anywhere\n' > "$W/state"
+OUT="$(env PATH="$W/bin:$PATH" UFW_STATE="$W/state" UFW_LOG="$W/log" \
+  CF_V4_FILE="$W/v4" CF_V6_FILE="$W/v6" CAMPTRIBE_PORTS=80 \
+  CAMPTRIBE_UFW_BIN="$W/bin/ufw" CAMPTRIBE_CURL_BIN="$W/bin/curl" "$BIN" status 2>&1)"; RC=$?
+grep -q 'загальних дозволів на 80: *0' <<<"$OUT"
+ok $? '🔴 «Nginx HTTPS» це 443, тож при PORTS=80 він не наш' "rc=$RC $OUT"
+
+echo '— 🔴 поламані мережі IPv6'
+mk_v4 15
+for bad in '2400:::cb00::/32' '2400:cb00::/129'; do
+  printf '%s\n' "$bad" > "$W/v6"; for i in $(seq 2 7); do echo "2400:cb00:$i::/32" >> "$W/v6"; done
+  reset_world; before="$(cat "$W/state")"
+  run sync --apply
+  { [ "$RC" != 0 ] && grep -q 'не схожий на мережу IPv6' <<<"$OUT" && [ "$(cat "$W/state")" = "$before" ]; }
+  ok $? "🔴 «${bad}» відкинуто" "rc=$RC $OUT"
+done
+
+echo '— 🔴 після зміни зник дозвіл на SSH'
+mk_v4 15; mk_v6 7; reset_world
+OUT="$(env PATH="$W/bin:$PATH" UFW_STATE="$W/state" UFW_LOG="$W/log" UFW_EAT_SSH=1 \
+  CF_V4_FILE="$W/v4" CF_V6_FILE="$W/v6" \
+  CAMPTRIBE_UFW_BIN="$W/bin/ufw" CAMPTRIBE_CURL_BIN="$W/bin/curl" "$BIN" sync --apply 2>&1)"; RC=$?
+{ [ "$RC" != 0 ] && grep -q 'зник дозвіл на 22/tcp' <<<"$OUT"; }
+ok $? '🔴 якщо SSH зник дорогою — це аварія, а не успіх' "rc=$RC $OUT"
 
 echo '— status і виклик'
 mk_v4 15; mk_v6 7; reset_world
