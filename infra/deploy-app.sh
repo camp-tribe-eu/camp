@@ -113,7 +113,17 @@ args+=(--deployer "$deployer")
 remote="$(ssh_ "f=\$(mktemp $REMOTE_TMP/camptribe-deploy.XXXXXX) && cat > \"\$f\" && chmod 700 \"\$f\" && echo \"\$f\"" < "$EXECUTOR")" \
   || die "не вдалось покласти виконавця на машину"
 [ -n "$remote" ] || die "машина не назвала шлях до виконавця"
-trap 'ssh_ rm -f "$remote" >/dev/null 2>&1 || true' EXIT
+
+# 🔴 ПОРУЧ ІЗ ВИКОНАВЦЕМ ЇДЕ ЙОГО ЛІБКА. Виконавець читає `.env` тим
+# самим `env_value`, що бекап і перенос таблиць (CAMP-349), а на машині
+# він лежить самотнім тимчасовим файлом — сусідньої `lib/` там немає.
+# Тому кладемо пару: `<виконавець>` і `<виконавець>.lib`, і скрипт шукає
+# другий за власним шляхом.
+LIB_SRC="$HERE/lib/env-value.sh"
+[ -f "$LIB_SRC" ] || die "немає $LIB_SRC — виконавцю нічим читати .env"
+ssh_ "cat > \"$remote.lib\" && chmod 600 \"$remote.lib\"" < "$LIB_SRC" \
+  || die "не вдалось покласти lib/env-value.sh поруч із виконавцем"
+trap 'ssh_ rm -f "$remote" "$remote.lib" >/dev/null 2>&1 || true' EXIT
 
 quoted=""
 for a in "${args[@]}"; do quoted+=" $(printf '%q' "$a")"; done

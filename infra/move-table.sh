@@ -202,6 +202,10 @@ TABLE="$1"; SRC_ROWS="$2"; BACKUP_DIR="$3"; ENVF="$4"; RTMP="$5"; LOCK_TIMEOUT="
 # само, як клав щонічний бекап три ночі поспіль.
 DATABASE_URL="$(env_value "$ENVF" DATABASE_URL)" \
   || { echo "у $ENVF немає DATABASE_URL" >&2; exit 2; }
+# 🔴 Порожнє значення — теж «немає». `DATABASE_URL=` дає код 0, і далі
+# `psql ""` пішов би в типову базу libpq, тобто не туди. Сторож, що
+# обіцяє саме цей випадок, мусить його ловити.
+[ -n "$DATABASE_URL" ] || { echo "у $ENVF порожній DATABASE_URL" >&2; exit 2; }
 export DATABASE_URL
 # 🔴 Створення бази під репетицію винесено в змінні: на бойовій машині це
 # суперкористувач (прикладний користувач права не має й не повинен), а в
@@ -488,6 +492,13 @@ analyze_table
 echo "✓ відновлення без помилок, $rows рядків, структура збігається з джерелом, власник і права на місці"
 REMOTE
 } > "$WORK/remote.sh"
+# 🔴 ДОВЕСТИ, ЩО ФУНКЦІЯ ДОЇХАЛА. Скрипт під `set -uo pipefail` без
+# `-e`: якщо `cat lib/env-value.sh` упаде, генерація все одно віддасть
+# код 0 і запише СИНТАКСИЧНО ВАЛІДНИЙ `remote.sh` без `env_value` — а на
+# машині це 127, яке спрацювало б як «у .env немає DATABASE_URL», тобто
+# з хибною причиною. Заміряно рецензією.
+grep -q '^env_value()' "$WORK/remote.sh" \
+  || die 'у згенерованому remote.sh немає env_value — вшивання lib/env-value.sh не вдалось' 
 
 "$SCP" -i "$KEY" -o BatchMode=yes "$WORK/remote.sh" "$HOST:$RTMP/camptribe-move-remote.sh" >/dev/null \
   || die 'не вдалось доставити виконавця'

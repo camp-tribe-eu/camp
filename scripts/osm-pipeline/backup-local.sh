@@ -45,7 +45,12 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")/../.."
+# 🔴 Корінь рахуємо ДО `cd`, бо після нього `$0` вже відносний і
+# `dirname "$0"` вказує не туди. Рецензія заміряла: виклик
+# `./backup-local.sh` із власної теки скрипта давав
+# `./../../infra/lib/env-value.sh: No such file or directory`.
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$REPO_ROOT"
 
 # 🔴 An explicit DATABASE_URL wins, and the .env is only a fallback.
 #
@@ -62,7 +67,8 @@ cd "$(dirname "$0")/../.."
 # шел-скриптом; ним його зробили ми (CAMP-349).
 if [ -z "${DATABASE_URL:-}" ] && [ -f apps/api/.env ]; then
   # shellcheck source=../../infra/lib/env-value.sh
-  . "$(dirname "$0")/../../infra/lib/env-value.sh"
+  . "$REPO_ROOT/infra/lib/env-value.sh" \
+    || { echo "немає $REPO_ROOT/infra/lib/env-value.sh — читати .env нічим" >&2; exit 1; }
   DATABASE_URL="$(env_value apps/api/.env DATABASE_URL || true)"
 fi
 DB="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"

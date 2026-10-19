@@ -1198,7 +1198,13 @@ SH
   new_world g1
   # Обгортка працює над КЛОНОМ: їй потрібен git із origin, а виконавець лежить поруч за тим самим розташуванням, що й у репо.
   W_REPO="$BASE/wrapperclone"; git clone -q "$REPO" "$W_REPO"; git -C "$W_REPO" config user.email tester@example.test
-  mkdir -p "$W_REPO/infra/bin"; cp "$DEPLOY" "$W_REPO/infra/bin/camptribe-deploy"; cp "$WRAPPER" "$W_REPO/infra/deploy-app.sh"
+  # 🔴 Разом зі скриптом їде й `lib/`: на машині він читає `.env` тим
+  # самим `env_value`, що бекап і перенос таблиць (CAMP-349). Без цієї
+  # теки підроблений репозиторій відрізнявся б від справжнього саме тим,
+  # що перевіряється.
+  mkdir -p "$W_REPO/infra/bin" "$W_REPO/infra/lib"
+  cp "$DEPLOY" "$W_REPO/infra/bin/camptribe-deploy"; cp "$WRAPPER" "$W_REPO/infra/deploy-app.sh"
+  cp "$HERE/lib/env-value.sh" "$W_REPO/infra/lib/env-value.sh"
   WRAP_LOG="$BASE/wrap.log"; : > "$WRAP_LOG"; export WRAP_LOG
   WRAPX() {
     OUT=$(cd "$W_REPO" && env PATH="$BASE/wbin:$PATH" CAMPTRIBE_HOST=root@selftest.invalid CAMPTRIBE_KEY=/dev/null CAMPTRIBE_REMOTE_TMP="$BASE" \
