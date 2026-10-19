@@ -729,6 +729,23 @@ jobs:
       - name: Nothing in a shell file pipes into grep -q
         run: node scripts/ci/check-pipe-to-grep-q.mjs
 
+      # 🔴 CAMP-347. `gh` resolves the repository from the GIT REMOTE,
+      # not from GITHUB_REPOSITORY, so a job with no checkout, no
+      # GH_REPO and no --repo dies on its first call with "not a git
+      # repository". The jobs that do this are ALARMS, gated on a
+      # failure — so the defect waits until the day it matters. Measured:
+      # osm-weekly.yml's alert job had never run (every earlier run was
+      # green), ran for the first time on 19.10.2026 and died, and the
+      # issue it exists to open was never opened.
+      - name: The gh-needs-repo guard still tells a covered job from a bare one
+        run: |
+          set -o pipefail
+          node scripts/ci/check-gh-needs-repo.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-gh-needs-repo self-test:' >/dev/null
+
+      - name: Every job that calls gh can name its repository
+        run: node scripts/ci/check-gh-needs-repo.mjs
+
       # 🔴 CAMP-221. The satellite base layer serves somebody else's
       # photographs. The mockup settled the policy — Esri, Bing and Google
       # are closed to us, orthophotos come from national open sources —
