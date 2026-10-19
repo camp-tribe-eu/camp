@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { COMPANY, LEGAL_PAGES, legalPath } from '@/lib/legal';
 import { CookieSettingsLink } from './cookie-consent';
+import { SiteNavDrawer } from './site-nav-drawer';
 
 // CAMP-41: the header and footer every page wears.
 //
@@ -71,10 +72,17 @@ export function SiteHeader() {
           CampTribe
         </Link>
 
-        <nav aria-label="Main" className="ml-auto">
-          {/* Wraps too, so the row that wraps can itself wrap once the
-              fifth and sixth links arrive. */}
-          <ul className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm font-medium text-ink-2">
+        {/* 🔴 ВІД 1200 px І ВИЩЕ — горизонтальне меню; нижче його немає
+            зовсім, там працює шухляда. Межа взята з архіву теми, де
+            `.header__burger-menu-button--desktop` живе під
+            `(max-width: 1199.98px)`, а `--mobile` під
+            `(min-width: 1200px)`. У нас це `--breakpoint-xl`.
+
+            Коментар вище казав: «⚠️ This is the honest minimum, not a
+            mobile header. Seven links will need a real one». Саме це й
+            відбувається — CAMP-350. */}
+        <nav aria-label="Main" className="ml-auto hidden xl:block">
+          <ul className="flex items-center gap-x-5 text-sm font-medium text-ink-2">
             {NAV.map((item) => (
               <li key={item.href}>
                 <Link href={item.href} className="hover:text-heading">
@@ -84,6 +92,8 @@ export function SiteHeader() {
             ))}
           </ul>
         </nav>
+
+        <SiteNavDrawer items={NAV} />
       </div>
     </header>
   );
@@ -129,11 +139,27 @@ export function SiteFooter() {
             the operator to be identifiable without hunting. Built from
             LEGAL_PAGES, so a page added to that list cannot be one the
             footer forgets. */}
-        <nav aria-label="Legal" className="mt-4">
-          <ul className="flex flex-wrap gap-x-4 gap-y-1">
+        {/* 🔴 ЦЕ РЯД НАВІГАЦІЇ, А НЕ ТЕКСТ У РЕЧЕННІ, тож під правило
+            48 px він підпадає. Заміряно 19.10.2026 на 375 px: усі
+            дванадцять посилань підвалу були нижчі за 48, здебільшого
+            13 px — тобто висота самого рядка тексту.
+
+            Посилання всередині абзаців вище лишаються як були:
+            «OpenStreetMap contributors» у реченні — це текст, і робити
+            його 48 px заввишки було б неправильно.
+
+            `gap-y-1` (4 px) замінено на `gap-y-0`, бо висота тепер у
+            самих пунктах: при `min-h-12` і проміжку 4 px зони не
+            перекриваються, але й зайвий відступ між рядками вже не
+            потрібен. */}
+        <nav aria-label="Legal" className="mt-2">
+          <ul className="flex flex-wrap items-center gap-x-4">
             {LEGAL_PAGES.map((p) => (
               <li key={p.slug}>
-                <Link href={legalPath(p.slug)} className="underline">
+                <Link
+                  href={legalPath(p.slug)}
+                  className="flex min-h-12 items-center underline"
+                >
                   {p.title}
                 </Link>
               </li>
