@@ -17,7 +17,7 @@ import { test, expect } from '@playwright/test';
 test.use({ viewport: { width: 375, height: 812 } });
 
 /** Прямокутник, у який реально треба влучити пальцем. */
-type Touch = { name: string; x0: number; y0: number; x1: number; y1: number; w: number; h: number };
+type Touch = { name: string; group: string; x0: number; y0: number; x1: number; y1: number; w: number; h: number };
 
 /**
  * 🔴 Рахується з `::after`, а не з рамки елемента. Саме в цьому суть
@@ -38,6 +38,13 @@ const COLLECT = `(() => {
     const cy = r.top + r.height / 2;
     out.push({
       name: (el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 30) || el.tagName,
+      // 🔴 Хто батько — щоб порівнювати СУСІДІВ, а не все з усім.
+      group: el.parentElement
+        ? [...el.parentElement.children].indexOf(el) >= 0
+          ? (el.parentElement.closest('[data-ct-row]') || el.parentElement).tagName +
+            ':' + ((el.parentElement.className || '') + '').slice(0, 40)
+          : 'x'
+        : 'x',
       x0: cx - w / 2, x1: cx + w / 2,
       y0: cy - h / 2, y1: cy + h / 2,
       w, h,
@@ -50,10 +57,28 @@ async function touchBoxes(page: import('@playwright/test').Page): Promise<Touch[
   return page.evaluate(COLLECT);
 }
 
+/**
+ * Відкрити /map і дочекатись, поки зʼявляться ЙОГО кнопки.
+ *
+ * 🔴 ЧЕКАТИ ТРЕБА НА ЧИП МАПИ, А НЕ НА «ПЕРШУ КНОПКУ». Перша редакція
+ * цього файлу робила саме так — і CI знайшов 4 кнопки замість 7, бо
+ * першою на сторінці стоїть банер згоди, який рендериться одразу з
+ * сервера. Умова справджувалась ще до того, як перемикачі шарів і стилів
+ * узагалі змонтувались, і замір виходив із чотирьох чужих кнопок.
+ *
+ * `[data-source]` — це перемикач стилю мапи (`MAP_SOURCES`), статичний
+ * перелік у коді. Він не залежить від того, скільки рядків у базі, тож
+ * однаково зʼявляється і на фікстурі CI у 72 кемпінги, і на повній базі.
+ */
+async function openMap(page: import('@playwright/test').Page) {
+  await page.goto('/map');
+  await page.locator('[data-source]').first().waitFor();
+  await page.locator('[data-layer]').first().waitFor();
+}
+
 test.describe('🔴 CAMP-345 — зона натискання на 375 px', () => {
   test('жодна кнопка не має зони натискання меншої за 48 px', async ({ page }) => {
-    await page.goto('/map');
-    await page.locator('[data-ct-button]').first().waitFor();
+    await openMap(page);
     const boxes = await touchBoxes(page);
 
     // 🔴 ПАРА ДО ТВЕРДЖЕННЯ НИЖЧЕ. «Жодна не менша за 48» справдилось би
@@ -72,10 +97,9 @@ test.describe('🔴 CAMP-345 — зона натискання на 375 px', () 
   });
 
   test('зони натискання сусідніх кнопок не перекриваються', async ({ page }) => {
-    await page.goto('/map');
-    await page.locator('[data-ct-button]').first().waitFor();
+    await openMap(page);
     const boxes = await touchBoxes(page);
-    expect(boxes.length).toBeGreaterThanOrEqual(7);
+    expect(boxes.length, 'кнопок не знайдено').toBeGreaterThanOrEqual(7);
 
     // 🔴 ЦЕ НЕ ПРИДИРКА, А ЗАМІРЯНИЙ ДЕФЕКТ. До рецензії кнопка
     // пагінації мала `min-w-9` (36 px) при `gap-2` (8 px): зона
@@ -88,6 +112,13 @@ test.describe('🔴 CAMP-345 — зона натискання на 375 px', () 
       for (let j = i + 1; j < boxes.length; j++) {
         const a = boxes[i];
         const b = boxes[j];
+        // 🔴 ЛИШЕ СУСІДИ В ОДНОМУ РЯДУ. Банер згоди — `position: fixed`,
+        // він лежить ПОВЕРХ вмісту сторінки навмисно, і його зона
+        // законно накриває чипи під ним: клік дістається банеру, бо він
+        // вище. Порівнювати все з усім означало б звати це дефектом.
+        // Правило стосується сусідів у списку, де обидва мають бути
+        // досяжні.
+        if (a.group !== b.group) continue;
         const dx = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
         const dy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
         if (dx > 0.5 && dy > 0.5) {
@@ -107,7 +138,7 @@ test.describe('🔴 CAMP-345 — зона натискання на 375 px', () 
       .getAttribute('href');
     expect(href, 'на /camping немає жодного посилання вглиб').toBeTruthy();
 
-    await page.goto('/map');
+    await openMap(page);
     const [w, sw] = await page.evaluate(() => [
       document.documentElement.clientWidth,
       document.documentElement.scrollWidth,
