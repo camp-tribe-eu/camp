@@ -81,6 +81,22 @@ export function SiteHeader() {
             Коментар вище казав: «⚠️ This is the honest minimum, not a
             mobile header. Seven links will need a real one». Саме це й
             відбувається — CAMP-350. */}
+        {/* 🔴 БЕЗ JS НИЖЧЕ 1200 px НАВІГАЦІЯ БУЛА НЕДОСЯЖНА — знайдено
+            рецензією. Посилання лишаються в HTML (тож пошуковик їх
+            бачить і ходить ними), але `display: none` ховає їх від
+            людини, а кнопка бургера без скрипта нічого не відкриває.
+
+            `<noscript>` повертає горизонтальне меню на всіх ширинах і
+            прибирає кнопку, яка однаково не працює. Два рядки замість
+            «ну, без JS сайт і так не той»: шість посилань — це вся
+            навігація, а не прикраса. */}
+        <noscript>
+          <style>{`
+            header nav[aria-label='Main'] { display: block !important }
+            header [data-testid='burger-open'] { display: none !important }
+          `}</style>
+        </noscript>
+
         <nav aria-label="Main" className="ml-auto hidden xl:block">
           <ul className="flex items-center gap-x-5 text-sm font-medium text-ink-2">
             {NAV.map((item) => (

@@ -69,6 +69,13 @@ test.describe('the page', () => {
       // Шапка одна на весь сайт, тож «вхід із /map» — це вхід із будь-якої
       // сторінки. Стартові сторінки тут ті, що не потребують API.
       await page.goto(from);
+      // 🔴 CAMP-350: нижче 1200 px шапка веде через бургер, а не
+      // горизонтальне меню — тож «вхід із шапки» на телефоні означає
+      // відкрити шухляду. Без цього рядка тест червонів би на
+      // `mobile-chrome` (Pixel 7, 412 px): landmark `Main` там
+      // `display: none`, і `getByRole` його не бачить.
+      const burger = page.getByTestId('burger-open');
+      if (await burger.isVisible()) await burger.click();
       await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Plan a trip' }).click();
       await expect(page).toHaveURL(/\/plan$/);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Trip planner');

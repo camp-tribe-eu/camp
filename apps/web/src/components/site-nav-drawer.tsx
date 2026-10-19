@@ -33,6 +33,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  *   проміжок пункту   12px
  *   рух               --timing-base (0.4s), токен уже є з CAMP-345
  *
+ * 🔴 Про рух: у першій редакції цей рядок був НЕПРАВДОЮ — коментар
+ * обіцяв `--timing-base`, а переходу не було зовсім, бо панель
+ * рендериться умовно (`{open && …}`), і звичайний `transition` на
+ * монтуванні не спрацьовує. Тепер це `@keyframes` у globals.css, і
+ * тривалість справді береться з токена.
+ *
  * 🔴 Вкладеності тут НЕМАЄ, і це не спрощення з ліні. `NavItem` у
  * `site-chrome.tsx` оголошений як `{ href, label }` — поля для дітей не
  * існує, усі шість пунктів плоскі. Зібрати другий рівень і мега-меню
@@ -57,6 +63,29 @@ export function SiteNavDrawer({ items }: { items: Item[] }) {
   // 🔴 Escape, повернення фокуса і замок прокрутки — разом, бо поодинці
   // кожне з них лишає шухляду наполовину модальною. Відкрита панель, під
   // якою сторінка їде від коліщатка, це не панель, а накладка.
+  // 🔴 ДЕФЕКТ, ЗНАЙДЕНИЙ РЕЦЕНЗІЄЮ: сторінка лишалась замкненою без
+  // жодного видимого контролю. `xl:hidden` — це CSS: перетягни вікно
+  // через 1200 px при відкритій шухляді, і панель зникає разом із
+  // кнопкою закриття, а `body { overflow: hidden }` лишається, бо його
+  // знімає тільки прибирання ефекту. Заміряно 412 → 1280:
+  // `{ bodyOverflow: "hidden", overlayVisible: false, burgerVisible:
+  // false }`, коліщатко не рухає сторінку. На планшеті це просто
+  // поворот екрана — 1024 портрет → 1366 ландшафт, і там навіть Escape
+  // немає.
+  //
+  // Межа тут ТА САМА, що в класах: 1200 px. Якщо колись розійдуться —
+  // розійдуться мовчки, тому число названо один раз.
+  useEffect(() => {
+    if (!open) return;
+    const wide = window.matchMedia('(min-width: 1200px)');
+    const onWide = () => {
+      if (wide.matches) close();
+    };
+    onWide();
+    wide.addEventListener('change', onWide);
+    return () => wide.removeEventListener('change', onWide);
+  }, [open, close]);
+
   useEffect(() => {
     if (!open) return;
     // 🔴 Знімок ref ВСЕРЕДИНІ ефекту, не в прибиранні. Кнопка-відкривач
@@ -65,7 +94,31 @@ export function SiteNavDrawer({ items }: { items: Item[] }) {
     // «у нас воно не станеться» означає лишити пастку наступному.
     const toFocus = opener.current;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
+      if (e.key === 'Escape') {
+        close();
+        return;
+      }
+      // 🔴 ПАСТКА ФОКУСА. Без неї Tab з останнього пункту йде у вміст
+      // сторінки, який зараз накритий затемненням І не прокручується —
+      // тобто фокус опиняється там, де його не видно й куди не
+      // доїхати. Гірше за звичайну втрату фокуса: панель рендериться
+      // всередині <header>, тобто ПЕРЕД <main>, тож «далі» означає всю
+      // сторінку.
+      //
+      // Вісім рядків замість бібліотеки: цикл по тому, що справді є в
+      // панелі, а не по припущенню про її вміст.
+      if (e.key !== 'Tab') return;
+      const stops = panel.current?.querySelectorAll<HTMLElement>('a[href],button');
+      if (!stops || stops.length === 0) return;
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -122,7 +175,7 @@ export function SiteNavDrawer({ items }: { items: Item[] }) {
             aria-modal="true"
             aria-label="Main menu"
             data-testid="burger-panel"
-            className="absolute inset-y-0 left-0 flex w-[min(100%,22rem)] flex-col bg-surface pb-3 shadow-[var(--shadow-pop)]"
+            className="ct-drawer absolute inset-y-0 left-0 flex w-[min(100%,22rem)] flex-col bg-surface pb-3 shadow-[var(--shadow-pop)]"
           >
             <div className="flex p-3">
               <button

@@ -1,6 +1,31 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
+ * Покрутити СПРАВЖНІМ коліщатком і сказати, куди доїхала сторінка.
+ *
+ * 🔴 ТРИ РЕЧІ, КОЖНА З ЯКИХ РОБИЛА ЦЮ ПРОБУ ПОРОЖНЬОЮ, доки не
+ * заміряно:
+ *
+ * 1. `page.mouse.wheel` сам по собі нічого не крутить, бо курсор
+ *    стоїть у (0,0) — треба спершу підвести його на сторінку.
+ * 2. Прокрутка асинхронна: читати `scrollY` одразу після події —
+ *    значить читати нуль у будь-якому разі.
+ * 3. `window.scrollTo` сюди НЕ годиться взагалі: `overflow: hidden`
+ *    забороняє прокрутку користувачеві, а не скриптові. Заміряно —
+ *    під замком `scrollTo(0, 500)` чесно дає `scrollY === 500`. Проба,
+ *    що цього не знає, каже «замка немає» там, де він є.
+ *
+ * Перевірено з обох боків на живій сторінці: з відкритою панеллю той
+ * самий рух дає 0, із закритою — 1000.
+ */
+async function wheelTo(page: Page, dy: number) {
+  await page.mouse.move(200, 400);
+  await page.mouse.wheel(0, dy);
+  await page.waitForTimeout(300);
+  return page.evaluate(() => window.scrollY);
+}
+
+/**
  * CAMP-350 — навігація нижче 1200 px.
  *
  * 🔴 МЕЖА 1200 px НЕ ВИГАДАНА. В архіві теми Fuse
@@ -94,7 +119,16 @@ test.describe('🔴 CAMP-350 — шухляда', () => {
     // а не панель; а той, хто ходить клавіатурою, після закриття має
     // опинитись там, звідки прийшов, інакше він губиться на початку
     // сторінки.
-    expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe('hidden');
+    // 🔴 ТУТ БУЛО `getComputedStyle(document.body).overflow === 'hidden'`
+    // — тобто перевірка читала РІВНО ТЕ ПОЛЕ, яке пише компонент, і
+    // погоджувалась із ним за побудовою. Рецензія заміряла ціну: додай
+    // `html { overflow-y: scroll }` (звичайне виправлення стрибка
+    // смуги прокрутки) — і сторінка їде на 1200 px під відкритою
+    // панеллю, доки це твердження досі каже «hidden».
+    //
+    // Чесна форма питає НАСЛІДОК: покрути коліщатком і подивись, чи
+    // зрушила сторінка.
+    expect(await wheelTo(page, 1200), 'сторінка їде під відкритою панеллю').toBe(0);
     expect(
       await page.evaluate(() => {
         const p = document.querySelector('[data-testid="burger-panel"]');
@@ -105,7 +139,11 @@ test.describe('🔴 CAMP-350 — шухляда', () => {
 
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('burger-panel')).toHaveCount(0);
-    expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe('hidden');
+    // Парне твердження: після закриття сторінка знову їде.
+    expect(
+      await wheelTo(page, 600),
+      'сторінка не прокручується після закриття',
+    ).toBeGreaterThan(0);
     expect(
       await page.evaluate(() => document.activeElement?.getAttribute('data-testid')),
       'фокус не повернувся на кнопку',
@@ -121,6 +159,30 @@ test.describe('🔴 CAMP-350 — шухляда', () => {
   });
 });
 
+test.describe('🔴 CAMP-350 — межа при відкритій шухляді', () => {
+  test('розширення вікна до 1200 px не лишає сторінку замкненою', async ({ page }) => {
+    // 🔴 ЦЕ БУВ СПРАВЖНІЙ ДЕФЕКТ, ЗНАЙДЕНИЙ РЕЦЕНЗІЄЮ. `xl:hidden` —
+    // це CSS: при переході через 1200 px панель зникала разом із
+    // кнопкою закриття, а `body { overflow: hidden }` лишався, бо його
+    // знімало лише прибирання ефекту. Читач опинявся на сторінці, яка
+    // не прокручується, без жодного видимого контролю — а на планшеті
+    // це просто поворот екрана, де немає навіть Escape.
+    await page.setViewportSize({ width: 412, height: 800 });
+    await page.goto('/');
+    await page.getByTestId('burger-open').click();
+    await page.getByTestId('burger-panel').waitFor();
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('burger-panel')).toHaveCount(0);
+
+    // Наслідок, а не поле: сторінка мусить їхати.
+    expect(
+      await wheelTo(page, 800),
+      'сторінка лишилась замкненою після переходу через 1200 px',
+    ).toBeGreaterThan(0);
+  });
+});
+
 test.describe('🔴 CAMP-350 — підвал', () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
@@ -132,7 +194,10 @@ test.describe('🔴 CAMP-350 — підвал', () => {
       ),
     );
     // Пара: порожній ряд задовольнив би заборону.
-    expect(heights.length, 'юридичного ряду немає').toBeGreaterThanOrEqual(4);
+    // 🔴 `toBe`, а не `toBeGreaterThanOrEqual(4)`: сім сторінок із
+    // LEGAL_PAGES плюс кнопка «Cookie settings». З порогом «не менше 4»
+    // половина ряду могла зникнути, лишивши тест зеленим.
+    expect(heights.length, 'юридичний ряд змінив склад').toBe(8);
     expect(
       heights.filter((h) => h < 48).length,
       `${heights.filter((h) => h < 48).length} із ${heights.length} нижчі за 48 px`,
