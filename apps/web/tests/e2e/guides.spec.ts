@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "./api-request";
+import { openHeaderNav } from './header-nav';
 
 // CAMP-66 — the guides section, on real pages.
 //
@@ -26,9 +27,10 @@ async function guides(request: APIRequestContext): Promise<Guide[]> {
 test.describe("the section the header points at", () => {
   test("Guides is in the header and leads somewhere", async ({ page }) => {
     await page.goto("/");
-    const link = page
-      .getByRole("navigation")
-      .getByRole("link", { name: "Guides" });
+    // 🔴 CAMP-350: нижче 1200 px меню живе в шухляді, тож «у шапці»
+    // означає «в шапці, яку треба відкрити».
+    const nav = await openHeaderNav(page);
+    const link = nav.getByRole("link", { name: "Guides" });
     await expect(link).toBeVisible();
     await link.click();
     await expect(page).toHaveURL(/\/guides$/);
