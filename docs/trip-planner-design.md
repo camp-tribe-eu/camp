@@ -572,7 +572,7 @@ export function segment(C: Cand[], D: number, band: [number, number], L: number)
 перевірено, обома сторонами:
 
 ```
-ssh -i ~/.ssh/id_ed25519_camptribe_server root@159.69.41.48 'free -g; nproc; df -h /'
+ssh -i ~/.ssh/id_ed25519_camptribe_server "$CAMPTRIBE_HOST" 'free -g; nproc; df -h /'
 Mem: total 7, available 6 · 4 ядра · /dev/sda1 150G, вільно 115G
 ```
 

@@ -32,6 +32,11 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { chooseAction } from '../lib/entrypoint.mjs';
+// 🔴 КЛАСИФІКАТОР АДРЕС — ОДИН НА ДВОХ СТОРОЖІВ. Своя копія тут уже
+// коштувала: у ній лежали адреса нашого сервера й адреса оператора,
+// і знайшов їх не я, а сторож CAMP-355. Два списки одного правила
+// розходяться мовчки.
+import { isRealAddress, isRealV6, realAddressesIn } from '../lib/ip.mjs';
 
 /** Імена, під якими копія журналу лягає на диск. */
 export const MIRROR_NAME = /^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}\.log(\.gz)?$/;
@@ -96,72 +101,8 @@ export function verdict({ findings, examined }) {
   return { rc: 0, why: `оглянуто ${examined} журнальний(их) файл(ів), справжніх адрес немає` };
 }
 
-const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
 
-/**
- * IPv6 у тексті.
- *
- * 🔴 ЦЬОГО НЕ БУЛО ВЗАГАЛІ, І ЦЕ БУВ ЗЕЛЕНИЙ ШЛЯХ ДЛЯ ПЕРСОНАЛЬНИХ
- * ДАНИХ. Рецензія 19.10.2026 поклала в індекс файл із рядком журналу,
- * де `client_ip` — справжня IPv6-адреса читача: `isLogShaped` сказав
- * «так», `examined` став одиницею (отже й пара до вироку була
- * задоволена), і сторож надрукував «справжніх адрес немає», rc=0.
- *
- * За Cloudflare `Cf-Connecting-Ip` для читача з IPv6 — це саме IPv6,
- * тобто випадок не рідкісний, а щоденний.
- */
-const IPV6 = /\b(?:[0-9a-fA-F]{1,4}:){2,7}(?::|[0-9a-fA-F]{1,4})(?:%[0-9a-zA-Z]+)?\b/g;
 
-/**
- * Чи належить ця IPv6-адреса комусь насправді.
- *
- * `false` для `2001:db8::/32` (RFC 3849, для документації), `fc00::/7`
- * (локальні), `fe80::/10` (link-local), `::1` і `::`.
- */
-export function isRealV6(ip) {
-  const a = ip.split('%')[0].toLowerCase();
-  if (a === '::1' || a === '::') return false;
-  const head = a.split(':')[0];
-  if (a.startsWith('2001:db8:') || a === '2001:db8::') return false;
-  // fc00::/7 — перші сім бітів 1111110
-  if (/^f[cd][0-9a-f]{0,2}$/.test(head)) return false;
-  // fe80::/10
-  if (/^fe[89ab][0-9a-f]?$/.test(head)) return false;
-  // Має бути схоже на адресу, а не на час `12:34` чи на ключ у JSON.
-  return a.includes('::') || a.split(':').length === 8;
-}
-
-/**
- * Чи належить адреса комусь насправді.
- *
- * 🔴 ЗА ЗАМОВЧУВАННЯМ — «так». Невідомий діапазон має читатись як
- * чужа адреса, інакше кожна нова підмережа тихо стає дозволеною.
- */
-export function isRealAddress(ip) {
-  const o = ip.split('.').map(Number);
-  if (o.length !== 4 || o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
-  const [a, b, c] = o;
-  // RFC 5737 — для документації, не належать нікому.
-  if (a === 192 && b === 0 && c === 2) return false;
-  if (a === 198 && b === 51 && c === 100) return false;
-  if (a === 203 && b === 0 && c === 113) return false;
-  // Приватні, loopback, link-local, службові.
-  if (a === 10 || a === 127 || a === 0) return false;
-  if (a === 192 && b === 168) return false;
-  if (a === 172 && b >= 16 && b <= 31) return false;
-  if (a === 169 && b === 254) return false;
-  if (a === 255) return false;
-  if (a >= 224) return false;
-  return true;
-}
-
-/** Адреси, які в цьому тексті належать комусь — обох родин. */
-export function realAddressesIn(text) {
-  const out = new Set();
-  for (const m of text.matchAll(IPV4)) if (isRealAddress(m[0])) out.add(m[0]);
-  for (const m of text.matchAll(IPV6)) if (isRealV6(m[0])) out.add(m[0]);
-  return [...out];
-}
 
 /**
  * Текст файла, навіть якщо він стиснутий.
@@ -263,8 +204,13 @@ function selfTest() {
     isRealAddress('10.0.0.1'), isRealAddress('127.0.0.1'), isRealAddress('192.168.1.1'),
     isRealAddress('172.20.0.5'), isRealAddress('169.254.1.1'), isRealAddress('224.0.0.1'),
   ], [false, false, false, false, false, false]);
+  // 🔴 ТУТ СТОЯЛИ АДРЕСА НАШОГО СЕРВЕРА Й АДРЕСА ОПЕРАТОРА, і сторож
+  // CAMP-355 знайшов їх за кілька годин після злиття цього файла.
+  // Фікстурі потрібні адреси, які класифікатор визнає чужими, — але
+  // «чужа» не означає «наша». Приклади тепер сторонні й загальновідомі,
+  // а перевірка від цього не змінилась ні на крок.
   is('публічні — чиїсь', [
-    isRealAddress('94.227.133.206'), isRealAddress('159.69.41.48'), isRealAddress('8.8.8.8'),
+    isRealAddress('8.8.4.4'), isRealAddress('1.1.1.1'), isRealAddress('8.8.8.8'),
     isRealAddress('172.32.0.1'),
   ], [true, true, true, true]);
   is('сміття не є адресою', [isRealAddress('999.1.1.1'), isRealAddress('1.2.3')], [false, false]);
@@ -273,9 +219,9 @@ function selfTest() {
   is('знеособлений зразок проходить',
     inspect(['f.json'], () => line('198.51.100.23')), { findings: [], examined: 1 });
   is('справжня адреса в журнальному файлі — провал',
-    inspect(['f.json'], () => line('94.227.133.206')).findings.map((x) => x.file), ['f.json']);
+    inspect(['f.json'], () => line('8.8.4.4')).findings.map((x) => x.file), ['f.json']);
   is('файл не журнальної форми не чіпаємо',
-    inspect(['readme.md'], () => 'сервер 94.227.133.206 у тексті'), { findings: [], examined: 0 });
+    inspect(['readme.md'], () => 'сервер 8.8.4.4 у тексті'), { findings: [], examined: 0 });
   is('копію журналу ловимо за імʼям, хай там що всередині',
     inspect(['x/2026-10-19-2b0853ac.log'], () => 'порожньо').findings.length, 1);
   is('і стиснуту теж',
@@ -287,10 +233,10 @@ function selfTest() {
   // зробить її червоною.
   is('згадка про журнал — не журнал',
     inspect(['guard.mjs'], () =>
-      'const RE = /"msg": "handled request"/; // приклад: 94.227.133.206'),
+      'const RE = /"msg": "handled request"/; // приклад: 8.8.4.4'),
     { findings: [], examined: 0 });
   is('копія у вигляді JSON-рядків ловиться за першим рядком',
-    inspect(['dump.txt'], () => `${line('94.227.133.206')}\n${line('8.8.8.8')}\n`).findings.length, 1);
+    inspect(['dump.txt'], () => `${line('8.8.4.4')}\n${line('8.8.8.8')}\n`).findings.length, 1);
 
   // ── Те, що рецензія 19.10.2026 назвала непокритим ──
 
@@ -301,11 +247,11 @@ function selfTest() {
   is('локальні й link-local не чиїсь',
     ['::1', '::', 'fd00::1', 'fc00::abcd', 'fe80::1%en0'].map(isRealV6), [false, false, false, false, false]);
   is('справжня IPv6 — чиясь',
-    isRealV6('2a02:810d:af40:2d00:1c9b:2e4f:11a1:33c0'), true);
+    isRealV6('2001:4860:4860::8888'), true);
   is('час і ключі не є адресами', ['12:34', 'a:b'].map(isRealV6), [false, false]);
   is('IPv6 у журнальному файлі — провал',
     inspect(['v6.json'], () =>
-      '{"msg":"handled request","request":{"client_ip":"2a02:810d:af40:2d00:1c9b:2e4f:11a1:33c0"}}')
+      '{"msg":"handled request","request":{"client_ip":"2001:4860:4860::8888"}}')
       .findings.length, 1);
 
   // 🔴 `out.add(m[0])` → `m[1]` давало перший октет замість адреси.
