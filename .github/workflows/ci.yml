@@ -535,6 +535,23 @@ jobs:
           ./infra/env-value.selftest.sh | tee /dev/stderr \
             | grep -c 'env-value self-test: усе гаразд' >/dev/null
 
+      # 🔴 CAMP-349. `"«$v»"` — байти `»` (0xC2 0xBB) прилипають до імені
+      # змінної, під `set -u` це «unbound variable», і скрипт падає ТИМ
+      # САМИМ рядком, яким мав пояснити помилку. У матриці мутацій крах
+      # самоперевірки не відрізнити від спійманої мутації: ненульовий код,
+      # нуль червоних рядків. 19.10.2026 я так двічі записав мутацію як
+      # «вбиту», а набір просто до неї не дожив — і це сталось тричі за
+      # день у трьох різних файлах. Сторож знайшов ще 17 живих випадків,
+      # зокрема у вимикачі відкриття й у переносі таблиць на прод.
+      - name: No bare $var right before a non-ASCII character
+        run: |
+          set -o pipefail
+          node scripts/ci/check-var-before-nonascii.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-var-before-nonascii self-test:' >/dev/null
+
+      - name: Shell files write ${var} where the next byte is not ASCII
+        run: node scripts/ci/check-var-before-nonascii.mjs
+
       # 🔴 CAMP-318. Кнопка «You own this site? Add your photos» вела на
       # `/owner/claim`, якого ніколи не існувало — 404 для рівно тієї
       # людини, яку ми просимо про допомогу, майже на кожній сторінці

@@ -150,10 +150,10 @@ status() {
     if [ ! -e "$f" ]; then
       bad=1; say "5. права  🔴 НЕМАЄ $f"
     elif ! readable_by_caddy "$f"; then
-      bad=1; say "5. права  🔴 «$CADDY_USER» НЕ ЧИТАЄ $f"
+      bad=1; say "5. права  🔴 «${CADDY_USER}» НЕ ЧИТАЄ $f"
     fi
   done
-  [ "$bad" = 0 ] && say "5. права  обидва файли замка читає «$CADDY_USER»"
+  [ "$bad" = 0 ] && say "5. права  обидва файли замка читає «${CADDY_USER}»"
   say ''
   if [ "$bad" != 0 ]; then
     say '🔴 ЗАМОК ОДНОРАЗОВИЙ. Поки це так, перемикання вдасться, а Caddy не'
@@ -172,7 +172,7 @@ status() {
   [ "$e" != public ] && { say '   camptribe-launch env --public --apply'; return 1; }
   [ "$b" != public ] && { say '   повна викладка (infra/deploy-app.sh --apply): змінна запікається на збірці'; return 1; }
   [ "$g" != open ]   && { say '   camptribe-launch open --apply'; return 1; }
-  say "   замки зняті, а ззовні «$p» — дивись кеш Cloudflare (Purge Everything) і docs/launch-switch.md"
+  say "   замки зняті, а ззовні «${p}» — дивись кеш Cloudflare (Purge Everything) і docs/launch-switch.md"
   return 1
 }
 
@@ -181,7 +181,7 @@ set_env() { # public|closed
   local want="$1" f cur
   f="$(envfile)"; cur="$(lock_env)"
   [ -f "$f" ] || die "немає $f"
-  if [ "$cur" = "$want" ]; then say "  .env уже «$want» — нічого не міняю"; return 0; fi
+  if [ "$cur" = "$want" ]; then say "  .env уже «${want}» — нічого не міняю"; return 0; fi
   if [ "$APPLY" != 1 ]; then say "  [сухий] .env: $cur → $want ($f)"; return 0; fi
   cp -p "$f" "$f.bak.$(date +%Y%m%d-%H%M%S)"
   local tmp; tmp="$(mktemp)"
@@ -255,7 +255,7 @@ switch_gate() { # open|closed
   # 🔴 CAMP-339. Тут легко помилитись у ОБИДВА боки, і я помилився в обидва.
   #
   # ЖОРСТКО НА ЦІЛІ — її Caddy читатиме після перемикання.
-  readable_by_caddy "$target" || die "користувач «$CADDY_USER» НЕ МОЖЕ прочитати $target — Caddy не підніметься при наступному перезапуску, хоч reload і validate цього не покажуть. Полагодь і повтори:
+  readable_by_caddy "$target" || die "користувач «${CADDY_USER}» НЕ МОЖЕ прочитати $target — Caddy не підніметься при наступному перезапуску, хоч reload і validate цього не покажуть. Полагодь і повтори:
      chown root:$CADDY_USER $target && chmod 640 $target"
 
   # 🔴 І ЖОРСТКО НА gate-closed.conf, НАВІТЬ КОЛИ ЦІЛЬ ІНША. Відкат у цьому
@@ -267,7 +267,7 @@ switch_gate() { # open|closed
   # знадобиться», це ціль відкату ЦЬОГО запуску.
   if [ "$target" != "$GATE_CLOSED" ]; then
     [ -e "$GATE_CLOSED" ] || die "немає $GATE_CLOSED — а саме туди цей запуск відкотиться, якщо перевірка ззовні не пройде. Зібери його з $GATE_CLOSED.example за docs/launch-switch.md і повтори"
-    readable_by_caddy "$GATE_CLOSED" || die "користувач «$CADDY_USER» НЕ МОЖЕ прочитати $GATE_CLOSED — а саме туди цей запуск відкотиться, якщо перевірка ззовні не пройде. Відкрити зараз означає лишити машину без робочого шляху назад. Полагодь і повтори:
+    readable_by_caddy "$GATE_CLOSED" || die "користувач «${CADDY_USER}» НЕ МОЖЕ прочитати $GATE_CLOSED — а саме туди цей запуск відкотиться, якщо перевірка ззовні не пройде. Відкрити зараз означає лишити машину без робочого шляху назад. Полагодь і повтори:
      chown root:$CADDY_USER $GATE_CLOSED && chmod 640 $GATE_CLOSED"
   fi
 
@@ -282,16 +282,16 @@ switch_gate() { # open|closed
       gate_warn=1; say "  ⚠ немає $other — ШЛЯХУ НАЗАД НЕ ІСНУЄ"
     elif ! readable_by_caddy "$other"; then
       gate_warn=1
-      say "  ⚠ «$CADDY_USER» не читає $other — назад перемкнути вдасться, але Caddy впаде на наступному перезапуску:"
+      say "  ⚠ «${CADDY_USER}» не читає $other — назад перемкнути вдасться, але Caddy впаде на наступному перезапуску:"
       say "     chown root:$CADDY_USER $other && chmod 640 $other"
     fi
   fi
 
-  if [ "$cur" = "$want" ]; then say "  gate.conf уже «$want» — нічого не міняю"; return 0; fi
+  if [ "$cur" = "$want" ]; then say "  gate.conf уже «${want}» — нічого не міняю"; return 0; fi
 
   if [ "$want" = open ]; then
     local b; b="$(lock_build)"
-    [ "$b" = public ] || die "збірка віддає «$b»: зняти пароль зараз означає пустити робота на сайт, який сам просить себе не індексувати. Спершу env --public і повна викладка"
+    [ "$b" = public ] || die "збірка віддає «${b}»: зняти пароль зараз означає пустити робота на сайт, який сам просить себе не індексувати. Спершу env --public і повна викладка"
   fi
 
   if [ "$APPLY" != 1 ]; then
@@ -299,7 +299,7 @@ switch_gate() { # open|closed
     say "  [сухий] далі: caddy validate && caddy reload, тоді перевірка ззовні ($SITE_URL)"
     # 🔴 Не друкуємо «читає обидва», якщо щойно попередили про протилежне:
     # перша редакція казала обидві речі через два рядки одна від одної.
-    [ "$gate_warn" = 0 ] && say "  [сухий] права: «$CADDY_USER» читає обидва файли замка"
+    [ "$gate_warn" = 0 ] && say "  [сухий] права: «${CADDY_USER}» читає обидва файли замка"
     return 0
   fi
 
@@ -325,7 +325,7 @@ switch_gate() { # open|closed
   # при недосяжній публічній адресі лишала сайт відкритим і друкувала
   # «стан повернуто й перевірено». Безпечний стан тут один, і він не
   # залежить від напрямку.
-  warn "ззовні «$seen», чекали «$expect» — повертаю під пароль"
+  warn "ззовні «${seen}», чекали «${expect}» — повертаю під пароль"
   point_gate "$GATE_CLOSED"
   if "$CADDY_BIN" validate --config "$CADDYFILE" >/dev/null 2>&1 \
      && "$CADDY_BIN" reload --config "$CADDYFILE" >/dev/null 2>&1 \

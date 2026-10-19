@@ -79,7 +79,7 @@ STUB
   t() { # опис, очікуване, подія, STUB, ref, base
     local got; got=$(STUB="$4" decide "$3" r/r deadbeef "${5:-feature}" "${6:-main}")
     if [ "$got" = "$2" ]; then echo "  ✓ $1"; pass=$((pass+1));
-    else echo "  ✗ $1 — дало «$got», чекав «$2»"; fail=$((fail+1)); fi
+    else echo "  ✗ $1 — дало «${got}», чекав «$2»"; fail=$((fail+1)); fi
   }
   t 'pull_request будується завжди' yes pull_request open
   t 'workflow_dispatch будується завжди' yes workflow_dispatch open
