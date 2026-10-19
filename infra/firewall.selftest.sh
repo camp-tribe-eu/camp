@@ -22,7 +22,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="${CAMPTRIBE_FIREWALL_BIN:-$HERE/bin/camptribe-firewall}"
-EXPECTED=23
+EXPECTED=32
 
 [ -x "$BIN" ] || { echo "немає $BIN" >&2; exit 1; }
 
@@ -49,10 +49,14 @@ case "${1:-}" in
     echo "Status: active"; echo; echo "     To                         Action      From"
     echo "     --                         ------      ----"
     n=0
-    while IFS='|' read -r to from; do
+    # Стан: "<to>|<from>" або "<to>|<from>|<ACTION IN>[ # коментар]".
+    # Третє поле є, щоб набір міг подати DENY, LIMIT і коментар — тобто
+    # рівно ті рядки, на яких перша версія розбору помилялась.
+    while IFS='|' read -r to from act note; do
       [ -n "$to" ] || continue
       n=$((n + 1))
-      printf '[%2d] %-26s ALLOW IN    %s\n' "$n" "$to" "$from"
+      printf '[%2d] %-26s %-11s %s%s\n' "$n" "$to" "${act:-ALLOW IN}" "$from" \
+        "${note:+  # $note}"
     done < "$S"
     ;;
   allow)
@@ -66,6 +70,11 @@ case "${1:-}" in
     ;;
   delete)
     [ "${2:-}" = allow ] || { echo "stub ufw: не вмію: $*" >&2; exit 64; }
+    # 🔴 Глухий режим: справжній ufw мовчки нічого не знімає, якщо rule
+    # spec не збігається з тим, як правило створювали. Саме для цього
+    # існує звірка ПІСЛЯ зміни — без цього режиму її не було чим
+    # перевірити, і мутація «викинути всю звірку» лишала набір зеленим.
+    if [ "${UFW_DEAF:-0}" = 1 ]; then echo "Rule deleted"; exit 0; fi
     if [ "${3:-}" = from ]; then
       to="${8:-}/tcp"; from="$4"
     else
@@ -223,6 +232,64 @@ grep -q 'ufw allow' "$W/log"; [ $? = 1 ]
 ok $? '…і зупиняється ДО будь-якої зміни' "$(cat "$W/log")"
 grep -qE '^(80|443)/tcp\|Anywhere' "$W/state"
 ok $? '…лишивши загальні дозволи на місці' "$(cat "$W/state")"
+
+echo '— 🔴 форми, якими 80/443 відкривають, крім «80/tcp»'
+mk_v4 15; mk_v6 7
+for form in '80|Anywhere' '80:443/tcp|Anywhere' 'Nginx Full|Anywhere'; do
+  printf '%s' $'22/tcp|Anywhere\n' > "$W/state"
+  printf '%s\n' "$form" >> "$W/state"
+  run status
+  case "$form" in
+    'Nginx Full|Anywhere')
+      { [ "$RC" != 0 ] && grep -q 'не вмію прочитати' <<<"$OUT"; }
+      ok $? "🔴 «${form%%|*}»: нерозпізнана форма — відмова з назвою, а не тиша" "rc=$RC $OUT" ;;
+    *)
+      { [ "$RC" = 1 ] && grep -q 'РОЗБІЖНІСТЬ' <<<"$OUT" && ! grep -q 'загальних дозволів на 80,443:       0' <<<"$OUT"; }
+      ok $? "🔴 «${form%%|*}» зараховано як загальний дозвіл" "rc=$RC $OUT" ;;
+  esac
+done
+printf '%s' $'22/tcp|Anywhere\n80/tcp|Anywhere\n' > "$W/state"
+sed -i.bak 's/^80\/tcp|Anywhere$/80\/tcp|Anywhere|LIMIT/' "$W/state" 2>/dev/null; rm -f "$W/state.bak"
+run status
+{ [ "$RC" = 1 ]; }
+ok $? 'LIMIT на 80 теж відкриває порт усім' "rc=$RC $OUT"
+
+echo '— 🔴 коментар у правилі не має керувати висновком'
+mk_v4 15; mk_v6 7
+printf '%s' $'22/tcp|Anywhere|DENY IN|ALLOW IN only via VPN\n80/tcp|Anywhere\n' > "$W/state"
+: > "$W/log"; run sync --apply
+{ [ "$RC" != 0 ] && grep -q "немає дозволу на 22/tcp" <<<"$OUT"; }
+ok $? '🔴 «22/tcp DENY # ALLOW IN only via VPN» — це НЕ дозвіл на SSH' "rc=$RC $OUT"
+
+printf '%s' $'22/tcp|Anywhere\n80,443/tcp|10.0.0.0/20|ALLOW IN|cloudflare\n' > "$W/state"
+run status
+grep -q 'уже дозволено:                      1' <<<"$OUT"
+ok $? '🔴 правило з коментарем впізнається, інакше його додавали б вічно' "$OUT"
+
+echo '— 🔴 дублікати в списку: підлога мусить міряти РІЗНІ мережі'
+: > "$W/v4"; for i in $(seq 1 12); do echo '173.245.48.0/20' >> "$W/v4"; done
+echo '103.21.244.0/22' >> "$W/v4"; mk_v6 7; reset_world
+before="$(cat "$W/state")"
+run sync --apply
+{ [ "$RC" != 0 ] && grep -q 'РІЗНИХ діапазонів IPv4' <<<"$OUT" && [ "$(cat "$W/state")" = "$before" ]; }
+ok $? '🔴 13 рядків із двох мереж — відмова, а не «поставити два правила»' "rc=$RC $OUT"
+
+echo '— 🔴 форма IPv6 перевіряється так само, як IPv4'
+mk_v4 15
+printf '%s\n' '<!DOCTYPE html>' '<html>' '<body>' '502 Bad Gateway' '</body>' '</html>' '<!-- end -->' > "$W/v6"
+reset_world; before="$(cat "$W/state")"
+run sync --apply
+{ [ "$RC" != 0 ] && grep -q 'не схожий на мережу IPv6' <<<"$OUT" && [ "$(cat "$W/state")" = "$before" ]; }
+ok $? '🔴 502-сторінка на /ips-v6 — відмова, а не 6 правил із HTML' "rc=$RC $OUT"
+
+echo '— 🔴 звірка ПІСЛЯ зміни: ufw сказав «зроблено», а не зробив'
+mk_v4 15; mk_v6 7; reset_world
+OUT="$(env PATH="$W/bin:$PATH" UFW_STATE="$W/state" UFW_LOG="$W/log" UFW_DEAF=1 \
+  CF_V4_FILE="$W/v4" CF_V6_FILE="$W/v6" \
+  CAMPTRIBE_UFW_BIN="$W/bin/ufw" CAMPTRIBE_CURL_BIN="$W/bin/curl" \
+  "$BIN" sync --apply 2>&1)"; RC=$?
+{ [ "$RC" != 0 ] && grep -q 'ЗВІРКА НЕ ЗІЙШЛАСЬ' <<<"$OUT"; }
+ok $? '🔴 глухий ufw не дає зеленого: звірка читає стан заново' "rc=$RC $OUT"
 
 echo '— status і виклик'
 mk_v4 15; mk_v6 7; reset_world

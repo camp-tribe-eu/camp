@@ -55,8 +55,12 @@ PORTS="${CAMPTRIBE_PORTS:-80,443}"
 # роками публікує 15 діапазонів IPv4 і 7 IPv6; підлоги взяті нижче з
 # запасом, щоб скрипт пережив звичайну зміну списку, але не пережив
 # його зникнення.
-MIN_V4="${CAMPTRIBE_MIN_V4:-10}"
-MIN_V6="${CAMPTRIBE_MIN_V6:-4}"
+# Справжні числа, зміряні 19.10.2026: 15 діапазонів IPv4 і 7 IPv6.
+# Підлоги 10/4 дозволяли мовчки втратити третину списку — рецензія
+# назвала це числом: 33% v4 і 43% v6. 12/6 лишає запас на звичайну
+# зміну (мінус три мережі v4, мінус одна v6) і не пускає обвал.
+MIN_V4="${CAMPTRIBE_MIN_V4:-12}"
+MIN_V6="${CAMPTRIBE_MIN_V6:-6}"
 
 die() { echo "$*" >&2; exit 1; }
 usage() { echo "camptribe-firewall status | sync [--apply]" >&2; exit 2; }
@@ -74,78 +78,148 @@ case "$CMD" in status|sync) ;; *) usage ;; esac
 # ── опубліковані діапазони ────────────────────────────────────────────
 #
 # 🔴 Перевіряємо ФОРМУ кожного рядка, а не лише кількість. Сторінка
-# помилки Cloudflare — теж текст, і теж має рядки.
+# помилки Cloudflare — теж текст, і теж має рядки. Форма перевіряється
+# ОКРЕМО для v4 і v6: рецензія показала, що набір бачив лише перевірку
+# v4, і мутація «форма IPv6 → будь-що» лишала всі випадки зеленими,
+# після чого 502-сторінка їхала в `ufw allow from "<h1>502 Bad…"`.
+#
+# 🔴 СТАТУС ПЕРЕВІРЯЄТЬСЯ ЯВНО, А НЕ ЧЕРЕЗ `set -e`. У bash 3.2 (macOS)
+# `exit` усередині `$( )` НЕ зупиняє зовнішній скрипт на присвоєнні, у
+# bash ≥ 4.1 (Ubuntu, CI) — зупиняє. Тобто той самий набір давав різний
+# вердикт на ноутбуці й на раннері, і ніде це не було сказано. Тому
+# кожен шлях відмови тут — явна перевірка коду, а не надія на прапорець.
 fetch_list() {
-  local url="$1" want="$2" out line n=0
-  out="$("$CURL" -fsSL --max-time 20 --retry 2 "$url")" \
-    || die "не вдалось прочитати $url — нічого не міняю"
+  local url="$1" want="$2" out line
+  out="$("$CURL" -fsSL --max-time 20 --retry 2 "$url")" || return 3
   while IFS= read -r line; do
     line="${line%%$'\r'}"
+    line="${line#"${line%%[![:space:]]*}"}"
     [ -n "$line" ] || continue
     case "$want" in
-      v4) [[ "$line" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] \
-            || die "у $url рядок не схожий на мережу IPv4: «$line» — нічого не міняю" ;;
-      v6) [[ "$line" =~ ^[0-9a-fA-F:]+/[0-9]{1,3}$ ]] \
-            || die "у $url рядок не схожий на мережу IPv6: «$line» — нічого не міняю" ;;
+      v4) [[ "$line" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || return 4 ;;
+      v6) [[ "$line" =~ ^[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4})+/[0-9]{1,3}$ ]] || return 4 ;;
     esac
     echo "$line"
-    n=$((n + 1))
   done <<<"$out"
-  [ "$n" -gt 0 ] || die "у $url жодного діапазону — нічого не міняю"
 }
 
+# 🔴 ЛІЧИМО ПІСЛЯ ДЕДУПЛІКАЦІЇ, І ЦЕ БУВ ДЕФЕКТ. Підлога міряла сирі
+# рядки, а застосовувався `sort -u`. Список із 12 однакових мереж плюс
+# одна проходив «13 ≥ 10», друкував «опубліковано: 3», ставив три
+# правила, знімав загальні дозволи й виходив НУЛЕМ — 12 із 15 справжніх
+# мереж Cloudflare відрізано, і жодного червоного. Підлога мусить міряти
+# той самий корпус, що й дія.
 published() {
-  local v4 v6 n4 n6
-  v4="$(fetch_list "$V4_URL" v4)"
-  v6="$(fetch_list "$V6_URL" v6)"
-  n4="$(grep -c . <<<"$v4" || true)"
-  n6="$(grep -c . <<<"$v6" || true)"
+  local v4 v6 n4 n6 rc
+  v4="$(fetch_list "$V4_URL" v4)"; rc=$?
+  [ "$rc" = 0 ] || die "$V4_URL: $([ "$rc" = 3 ] && echo 'не вдалось прочитати' || echo 'рядок не схожий на мережу IPv4') — нічого не міняю"
+  v6="$(fetch_list "$V6_URL" v6)"; rc=$?
+  [ "$rc" = 0 ] || die "$V6_URL: $([ "$rc" = 3 ] && echo 'не вдалось прочитати' || echo 'рядок не схожий на мережу IPv6') — нічого не міняю"
+  v4="$(sort -u <<<"$v4")"; v6="$(sort -u <<<"$v6")"
+  n4="$(grep -c . <<<"$v4" || true)"; n6="$(grep -c . <<<"$v6" || true)"
   [ "$n4" -ge "$MIN_V4" ] \
-    || die "Cloudflare віддав лише $n4 діапазонів IPv4 (чекали щонайменше $MIN_V4) — нічого не міняю"
+    || die "Cloudflare віддав $n4 РІЗНИХ діапазонів IPv4 (чекали щонайменше $MIN_V4) — нічого не міняю"
   [ "$n6" -ge "$MIN_V6" ] \
-    || die "Cloudflare віддав лише $n6 діапазонів IPv6 (чекали щонайменше $MIN_V6) — нічого не міняю"
+    || die "Cloudflare віддав $n6 РІЗНИХ діапазонів IPv6 (чекали щонайменше $MIN_V6) — нічого не міняю"
   printf '%s\n%s\n' "$v4" "$v6" | sort -u
 }
 
-# ── поточний стан ufw ─────────────────────────────────────────────────
 ufw_status() { "$UFW" status numbered 2>/dev/null || die "не вдалось прочитати стан ufw"; }
 
-# Діапазони, яким ЗАРАЗ дозволені наші порти.
-current_allowed() {
-  local st="$1"
-  awk -v ports="$PORTS" '
-    $0 ~ ports && / ALLOW IN / {
-      sub(/.* ALLOW IN +/, ""); sub(/ +$/, "");
-      if ($0 != "Anywhere" && $0 != "Anywhere (v6)") print $0
-    }' <<<"$st" | sort -u
+# ── розбір виводу ufw ─────────────────────────────────────────────────
+#
+# 🔴 ПО КОЛОНКАХ, А НЕ ГРЕПОМ ПО РЯДКУ. Перша версія шукала « ALLOW IN »
+# будь-де в рядку — і казала «SSH дозволено» на
+#   22/tcp   DENY IN   Anywhere   # ALLOW IN only via VPN
+# тобто готова була замкнути машину, прочитавши чийсь коментар. Тут
+# коментар зрізається першим, а дія читається як КОЛОНКА.
+#
+# Формат `ufw status numbered`: "[ن] <To>  <ACTION IN|OUT|FWD>  <From>".
+# `To` може містити пробіли (`80/tcp (v6)`, `Nginx Full`), тож ріжемо по
+# самій дії, а не по пробілах.
+ufw_rows() {
+  sed -E 's/^\[[ 0-9]+\][[:space:]]*//; s/[[:space:]]*#.*$//' <<<"$1" \
+    | awk '
+        match($0, / (ALLOW|DENY|REJECT|LIMIT) (IN|OUT|FWD) /) {
+          to = substr($0, 1, RSTART - 1)
+          act = substr($0, RSTART + 1, RLENGTH - 2)
+          from = substr($0, RSTART + RLENGTH)
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", to)
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", from)
+          sub(/ \(v6\)$/, "", to)
+          print to "\t" act "\t" from
+        }'
 }
 
-# Чи лишився загальний дозвіл на наші порти (те, що ми й знімаємо).
+is_anywhere() { case "$1" in Anywhere|"Anywhere (v6)") return 0 ;; *) return 1 ;; esac; }
+
+# Чи відкриває цей `To` котрийсь із наших портів усім.
 #
-# 🔴 БЕЗ « (v6)», І ЦЕ НЕ КОСМЕТИКА. `ufw status` друкує v4 і v6 як два
-# рядки — `80/tcp` і `80/tcp (v6)`, — але правило ОДНЕ: `ufw allow
-# 80/tcp` створює обидва, `ufw delete allow 80/tcp` знімає обидва.
-# Команди `ufw delete allow 80/tcp (v6)` не існує. Перший варіант цієї
-# функції віддавав чотири рядки замість двох, і план на проді містив
-# два виклики, які справжній ufw відкинув би. Знайшов це сухий прогін
-# на бойовій машині, а не набір: підмінник був ДОБРІШИЙ за справжній ufw
-# і мовчки приймав зайвий аргумент. Підмінник виправлено теж.
+# 🔴 НЕРОЗПІЗНАНА ФОРМА — ЦЕ ПОМИЛКА, А НЕ ТИША. `ufw allow 80` друкує
+# просто `80`; `ufw allow 'Nginx Full'` — назву профілю; бувають
+# `80:443/tcp` і `LIMIT IN`. Перша версія шукала `^(80|443)/tcp` і над
+# станом із `Nginx Full ALLOW IN Anywhere` друкувала «origin приймає
+# лише Cloudflare» з кодом 0. Те, чого скрипт не вміє прочитати, він
+# мусить НАЗВАТИ, а не промовчати.
+opens_our_ports() {
+  local to="$1" p ports base
+  base="${to%%/*}"
+  case "$to" in
+    *[0-9]/tcp|*[0-9]) ;;
+    *) return 2 ;;   # не число і не число/tcp — не беруся судити
+  esac
+  case "$base" in
+    *[!0-9,:]*) return 2 ;;
+  esac
+  for p in ${PORTS//,/ }; do
+    case "$base" in
+      "$p") return 0 ;;
+      *,*) IFS=, read -ra ports <<<"$base"
+           for q in "${ports[@]}"; do [ "$q" = "$p" ] && return 0; done ;;
+      *:*) [ "$p" -ge "${base%%:*}" ] && [ "$p" -le "${base##*:}" ] && return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# Діапазони, яким ЗАРАЗ дозволені рівно наші порти.
+current_allowed() {
+  local to act from
+  while IFS=$'\t' read -r to act from; do
+    [ -n "$to" ] || continue
+    case "$act" in ALLOW*) ;; *) continue ;; esac
+    [ "$to" = "$PORTS/tcp" ] || continue
+    is_anywhere "$from" && continue
+    echo "$from"
+  done < <(ufw_rows "$1") | sort -u
+}
+
+# Загальні дозволи на наші порти — те, що ми знімаємо.
+#
+# Без « (v6)»: `ufw status` друкує v4 і v6 двома рядками, але правило
+# ОДНЕ — `ufw delete allow 80/tcp` знімає обидва, а команди
+# `ufw delete allow 80/tcp (v6)` не існує.
 blanket_rules() {
-  local st="$1"
-  awk '
-    / ALLOW IN +Anywhere/ {
-      to = $0; sub(/ +ALLOW IN.*/, "", to); sub(/^\[[ 0-9]*\] +/, "", to);
-      sub(/ +\(v6\)$/, "", to);
-      if (to ~ /^(80|443)\/tcp$/) print to
-    }' <<<"$st" | sort -u
+  local to act from
+  while IFS=$'\t' read -r to act from; do
+    [ -n "$to" ] || continue
+    case "$act" in ALLOW*|LIMIT*) ;; *) continue ;; esac
+    is_anywhere "$from" || continue
+    opens_our_ports "$to"
+    case $? in
+      0) echo "$to" ;;
+      2) die "у ufw є дозвіл усім на «$to», і я не вмію прочитати, які це порти — розберись руками, нічого не міняю" ;;
+    esac
+  done < <(ufw_rows "$1") | sort -u
 }
 
 ssh_is_allowed() {
-  local st="$1"
-  awk -v p="$SSH_PORT" '
-    / ALLOW IN / { to = $0; sub(/ +ALLOW IN.*/, "", to); sub(/^\[[ 0-9]*\] +/, "", to);
-      if (to ~ "^" p "/tcp") found = 1 }
-    END { exit found ? 0 : 1 }' <<<"$st"
+  local to act from
+  while IFS=$'\t' read -r to act from; do
+    case "$act" in ALLOW*|LIMIT*) ;; *) continue ;; esac
+    case "$to" in "$SSH_PORT"|"$SSH_PORT/tcp") return 0 ;; esac
+  done < <(ufw_rows "$1")
+  return 1
 }
 
 # ── план ──────────────────────────────────────────────────────────────
