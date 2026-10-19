@@ -216,7 +216,7 @@ cat > "$STUB/sudo" <<'STUBSUDO'
 #!/usr/bin/env bash
 [ "$1" = "-u" ] || { echo "sudo-підмінник: очікував -u, дістав: $*" >&2; exit 64; }
 user="$2"; shift 2
-[ "$user" = "${CAMPTRIBE_CADDY_USER:-caddy}" ] || { echo "sudo-підмінник: чужий користувач «$user»" >&2; exit 64; }
+[ "$user" = "${CAMPTRIBE_CADDY_USER:-caddy}" ] || { echo "sudo-підмінник: чужий користувач «${user}»" >&2; exit 64; }
 [ "$1" = "test" ] && [ "$2" = "-r" ] || { echo "sudo-підмінник: очікував test -r, дістав: $*" >&2; exit 64; }
 f="$3"
 [ -f "$f" ] || exit 1

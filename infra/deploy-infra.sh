@@ -31,11 +31,15 @@ done
 ssh_() { ssh -i "$KEY" -o ConnectTimeout=10 "$HOST" "$@"; }
 
 changed=0
-for local in "$HERE"/systemd/* "$HERE"/bin/*; do
+# 🔴 `lib/` теж їде: `camptribe-deploy` тепер читає `.env` ТИМ САМИМ
+# `env_value`, що й бекап із переносом таблиць. Без цього рядка на
+# машині лежав би скрипт, якому нема чим читати (CAMP-349).
+for local in "$HERE"/systemd/* "$HERE"/bin/* "$HERE"/lib/*; do
   name="$(basename "$local")"
   case "$local" in
     */systemd/*) remote="/etc/systemd/system/$name" ;;
     */bin/*)     remote="/usr/local/bin/$name" ;;
+    */lib/*)     remote="/usr/local/lib/camptribe/$name" ;;
   esac
   if ssh_ "cat $remote 2>/dev/null" | diff -q - "$local" >/dev/null 2>&1; then
     echo "=  $remote"
@@ -47,6 +51,7 @@ for local in "$HERE"/systemd/* "$HERE"/bin/*; do
   # 🔴 Копія того, що перезаписуємо, із датою. Відкотити мусить бути
   # можливо без git на машині, де git може й не бути.
   ssh_ "mkdir -p /root/infra-backups && [ -f $remote ] && cp -a $remote /root/infra-backups/$name.$(date -u +%Y%m%dT%H%M%SZ) || true"
+  case "$remote" in */lib/camptribe/*) ssh_ "mkdir -p /usr/local/lib/camptribe" ;; esac
   scp -q -i "$KEY" "$local" "$HOST:$remote"
   case "$local" in */bin/*) ssh_ "chmod +x $remote" ;; esac
 done

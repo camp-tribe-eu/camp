@@ -123,7 +123,7 @@ RB_LOCK_TIMEOUT="${CAMPTRIBE_ROLLBACK_LOCK_TIMEOUT:-60s}"
 for pair in "CAMPTRIBE_LOCK_TIMEOUT=$LOCK_TIMEOUT" "CAMPTRIBE_ROLLBACK_LOCK_TIMEOUT=$RB_LOCK_TIMEOUT"; do
   v="${pair#*=}"
   [[ $v =~ ^[0-9]+(ms|s|min)$ ]] && ! [[ $v =~ ^0+(ms|s|min)$ ]] \
-    || { echo "${pair%%=*}: потрібне число з ОДИНИЦЕЮ (ms, s, min) і більше нуля, а не «$v» (голе число Postgres читає як мілісекунди, нуль знімає ліміт)" >&2; exit 2; }
+    || { echo "${pair%%=*}: потрібне число з ОДИНИЦЕЮ (ms, s, min) і більше нуля, а не «${v}» (голе число Postgres читає як мілісекунди, нуль знімає ліміт)" >&2; exit 2; }
 done
 # Куди на машині класти те, що їде з ноутбука. На проді /tmp; самоперевірка
 # підставляє свою теку, щоб два прогони поруч не топтали файли один одного.
@@ -189,14 +189,24 @@ say "дамп: $(( $(wc -c < "$WORK/table.dump") / 1048576 )) МБ"
   || die 'не вдалось доставити еталон схеми'
 
 # --- 3. усе інше робиться НА МАШИНІ, одним скриптом ----------------------
-cat > "$WORK/remote.sh" <<'REMOTE'
-#!/usr/bin/env bash
-set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 🔴 Функція читання .env ВШИВАЄТЬСЯ сюди з `infra/lib/env-value.sh`, а
+# не дублюється: на машині немає нашого репозиторію, туди їде лише цей
+# один файл. Одне означення, два споживачі (CAMP-349).
+{
+  printf '%s\n' '#!/usr/bin/env bash' 'set -uo pipefail'
+  cat "$HERE/lib/env-value.sh"
+  cat <<'REMOTE'
 TABLE="$1"; SRC_ROWS="$2"; BACKUP_DIR="$3"; ENVF="$4"; RTMP="$5"; LOCK_TIMEOUT="$6"; RB_LOCK_TIMEOUT="$7"; ALLOW_OPEN="${8:-0}"
-set -a
-# shellcheck source=/dev/null
-. "$ENVF"
-set +a
+# 🔴 Читаємо, а не виконуємо: пароль із `)` у .env клав цей скрипт так
+# само, як клав щонічний бекап три ночі поспіль.
+DATABASE_URL="$(env_value "$ENVF" DATABASE_URL)" \
+  || { echo "у $ENVF немає DATABASE_URL" >&2; exit 2; }
+# 🔴 Порожнє значення — теж «немає». `DATABASE_URL=` дає код 0, і далі
+# `psql ""` пішов би в типову базу libpq, тобто не туди. Сторож, що
+# обіцяє саме цей випадок, мусить його ловити.
+[ -n "$DATABASE_URL" ] || { echo "у $ENVF порожній DATABASE_URL" >&2; exit 2; }
+export DATABASE_URL
 # 🔴 Створення бази під репетицію винесено в змінні: на бойовій машині це
 # суперкористувач (прикладний користувач права не має й не повинен), а в
 # самоперевірці — звичайний createdb. Без цього самоперевірка ганяла б не
@@ -235,9 +245,9 @@ need_closed_gate() {
     echo "ворота: gate.conf → gate-closed.conf, сайт закритий ($1)"; return 0
   fi
   if [ "$ALLOW_OPEN" = 1 ]; then
-    echo "⚠ ворота «$g» ($GATE), але задано --allow-open-site ($1): продовжую; читачі таблиці чекатимуть на ACCESS EXCLUSIVE"; return 0
+    echo "⚠ ворота «${g}» ($GATE), але задано --allow-open-site ($1): продовжую; читачі таблиці чекатимуть на ACCESS EXCLUSIVE"; return 0
   fi
-  echo "✗ ВІДМОВА ($1): ворота «$g» ($GATE) — закритості сайту не доведено."
+  echo "✗ ВІДМОВА ($1): ворота «${g}» ($GATE) — закритості сайту не доведено."
   echo "  Заміна тримає ACCESS EXCLUSIVE на таблиці десятки секунд (на 2,27 млн рядків заміряно 28–45 с, на VPS більше):"
   echo '  на відкритому сайті сторінки, що читають цю таблицю, у цей час не відповідають.'
   echo '  Свідомо перекрити: додай --allow-open-site (і переконайся, що читачі таблиці це витримають).'
@@ -481,6 +491,14 @@ fi
 analyze_table
 echo "✓ відновлення без помилок, $rows рядків, структура збігається з джерелом, власник і права на місці"
 REMOTE
+} > "$WORK/remote.sh"
+# 🔴 ДОВЕСТИ, ЩО ФУНКЦІЯ ДОЇХАЛА. Скрипт під `set -uo pipefail` без
+# `-e`: якщо `cat lib/env-value.sh` упаде, генерація все одно віддасть
+# код 0 і запише СИНТАКСИЧНО ВАЛІДНИЙ `remote.sh` без `env_value` — а на
+# машині це 127, яке спрацювало б як «у .env немає DATABASE_URL», тобто
+# з хибною причиною. Заміряно рецензією.
+grep -q '^env_value()' "$WORK/remote.sh" \
+  || die 'у згенерованому remote.sh немає env_value — вшивання lib/env-value.sh не вдалось' 
 
 "$SCP" -i "$KEY" -o BatchMode=yes "$WORK/remote.sh" "$HOST:$RTMP/camptribe-move-remote.sh" >/dev/null \
   || die 'не вдалось доставити виконавця'
