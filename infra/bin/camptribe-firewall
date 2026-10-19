@@ -1,0 +1,397 @@
+#!/usr/bin/env bash
+# CampTribe — origin приймає зʼєднання ЛИШЕ від Cloudflare (CAMP-337).
+# Виконується НА СЕРВЕРІ.
+#
+#   camptribe-firewall status           # лише читає; друкує розбіжності
+#   camptribe-firewall sync [--apply]   # привести ufw до опублікованих діапазонів
+#
+# 🔴 НАВІЩО. Заміряно 16.10 і підтверджено 17.10.2026: запит із
+# підстановкою адреси повз Cloudflare доходить до origin і дістає
+# відповідь Caddy. Сьогодні обидва шляхи впираються в передзапусковий
+# пароль, тож обхід нічого не дає. У день відкриття пароль знімуть — і
+# все, заради чого тримають Cloudflare (WAF, обмеження частоти, захист
+# від ботів, поглинання обсягу), стане для нападника НЕОБОВʼЯЗКОВИМ.
+# Дефект уже є; його наслідок зʼявиться рівно в день запуску.
+#
+# 🔴 СЕРТИФІКАТ ЦИМ НЕ ЛАМАЄТЬСЯ, і це доведено, а не припущено. У
+# журналі Caddy за 12.10.2026: `tls-alpn-01` ПАДАЄ з «Cannot negotiate
+# ALPN protocol acme-tls/1» — тобто TLS термінує хтось посередині, —
+# а наступним рядком проходить `http-01`. Отже перевірка Let's Encrypt
+# уже сьогодні йде ЧЕРЕЗ Cloudflare, а не повз нього, і обмеження
+# діапазонами її не зачіпає.
+#
+# ⚠️ Ціна, яку треба знати: після обмеження не можна тимчасово знімати
+# проксі Cloudflare (сіра хмарка) — поновлення сертифіката зламається
+# саме тоді, а побачимо ми це через вісім тижнів.
+#
+# 🔴 ЧОГО ЦЕЙ СКРИПТ НЕ РОБИТЬ: не чіпає SSH і взагалі жодного порту,
+# крім 80 і 443. Правило SSH він не створює, не видаляє і не переписує;
+# якщо дозволу на SSH у поточному стані НЕМА, скрипт зупиняється до
+# будь-якої зміни — такий стан означає, що машина налаштована не так,
+# як він думає, і наосліп її замикати не можна.
+#
+# 🔴 ДОДАЄМО ПЕРЕД ТИМ, ЯК ВИДАЛЯТИ. Якщо спершу зняти загальний дозвіл,
+# а потім впасти, сайт лишиться недосяжним і для Cloudflare. Порядок
+# зворотний: спершу всі дозволи діапазонам, і лише потім зняття
+# загального. Між цими кроками сайт доступний обома шляхами — зайве
+# вікно відкритості коротше за вікно недоступності.
+#
+# Коди виходу:
+#   0  зроблено (або сухий прогін показав план); для status — усе збігається
+#   1  зупинка ДО зміни; для status — є розбіжність
+#   2  неправильний виклик
+set -euo pipefail
+
+# 🔴 `${x}`, А НЕ `$x`, ПЕРЕД НЕ-ASCII. У повідомленнях тут українські
+# лапки «…», і `"«$to»"` у деяких середовищах bash читає як імʼя змінної
+# `to»` — байти 0xC2 0xBB прилипають до ідентифікатора. Під `set -u` це
+# «unbound variable», тобто скрипт падає рівно в тому рядку, яким мав
+# пояснити, що сталось. Заміряно: самоперевірка падала на 280-му рядку
+# замість того, щоб почервоніти, а краху від спійманої мутації не
+# відрізнити.
+
+UFW="${CAMPTRIBE_UFW_BIN:-ufw}"
+CURL="${CAMPTRIBE_CURL_BIN:-curl}"
+V4_URL="${CAMPTRIBE_CF_V4_URL:-https://www.cloudflare.com/ips-v4}"
+V6_URL="${CAMPTRIBE_CF_V6_URL:-https://www.cloudflare.com/ips-v6}"
+SSH_PORT="${CAMPTRIBE_SSH_PORT:-22}"
+PORTS="${CAMPTRIBE_PORTS:-80,443}"
+
+# 🔴 ПІДЛОГИ, А НЕ «СКІЛЬКИ ПРИЙШЛО». Порожня відповідь, сторінка
+# помилки або обрізаний список — це ВІДМОВА, а не «застосувати нуль
+# правил». Нуль правил тут означає закритий для всіх сайт. Cloudflare
+# роками публікує 15 діапазонів IPv4 і 7 IPv6; підлоги взяті нижче з
+# запасом, щоб скрипт пережив звичайну зміну списку, але не пережив
+# його зникнення.
+# Справжні числа, зміряні 19.10.2026: 15 діапазонів IPv4 і 7 IPv6.
+# Підлоги 10/4 дозволяли мовчки втратити третину списку — рецензія
+# назвала це числом: 33% v4 і 43% v6. 12/6 лишає запас на звичайну
+# зміну (мінус три мережі v4, мінус одна v6) і не пускає обвал.
+MIN_V4="${CAMPTRIBE_MIN_V4:-12}"
+MIN_V6="${CAMPTRIBE_MIN_V6:-6}"
+
+die() { echo "$*" >&2; exit 1; }
+usage() { echo "camptribe-firewall status | sync [--apply]" >&2; exit 2; }
+
+CMD="${1:-}"; shift || true
+APPLY=0
+for a in "$@"; do
+  case "$a" in
+    --apply) APPLY=1 ;;
+    *) usage ;;
+  esac
+done
+case "$CMD" in status|sync) ;; *) usage ;; esac
+
+# ── опубліковані діапазони ────────────────────────────────────────────
+#
+# 🔴 Перевіряємо ФОРМУ кожного рядка, а не лише кількість. Сторінка
+# помилки Cloudflare — теж текст, і теж має рядки. Форма перевіряється
+# ОКРЕМО для v4 і v6: рецензія показала, що набір бачив лише перевірку
+# v4, і мутація «форма IPv6 → будь-що» лишала всі випадки зеленими,
+# після чого 502-сторінка їхала в `ufw allow from "<h1>502 Bad…"`.
+#
+# 🔴 СТАТУС ПЕРЕВІРЯЄТЬСЯ ЯВНО, А НЕ ЧЕРЕЗ `set -e`. У bash 3.2 (macOS)
+# `exit` усередині `$( )` НЕ зупиняє зовнішній скрипт на присвоєнні, у
+# bash ≥ 4.1 (Ubuntu, CI) — зупиняє. Тобто той самий набір давав різний
+# вердикт на ноутбуці й на раннері, і ніде це не було сказано. Тому
+# кожен шлях відмови тут — явна перевірка коду, а не надія на прапорець.
+fetch_list() {
+  local url="$1" want="$2" out line
+  out="$("$CURL" -fsSL --max-time 20 --retry 2 "$url")" || return 3
+  while IFS= read -r line; do
+    line="${line%%$'\r'}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    [ -n "$line" ] || continue
+    case "$want" in
+      v4) [[ "$line" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || return 4 ;;
+      v6) [[ "$line" =~ ^[0-9a-fA-F:]+/[0-9]{1,3}$ ]] || return 4
+          [[ "$line" == *:::* ]] && return 4
+          [ "${line##*/}" -le 128 ] || return 4 ;;
+    esac
+    echo "$line"
+  done <<<"$out"
+}
+
+# 🔴 ЛІЧИМО ПІСЛЯ ДЕДУПЛІКАЦІЇ, І ЦЕ БУВ ДЕФЕКТ. Підлога міряла сирі
+# рядки, а застосовувався `sort -u`. Список із 12 однакових мереж плюс
+# одна проходив «13 ≥ 10», друкував «опубліковано: 3», ставив три
+# правила, знімав загальні дозволи й виходив НУЛЕМ — 12 із 15 справжніх
+# мереж Cloudflare відрізано, і жодного червоного. Підлога мусить міряти
+# той самий корпус, що й дія.
+published() {
+  local v4 v6 n4 n6 rc
+  v4="$(fetch_list "$V4_URL" v4)"; rc=$?
+  [ "$rc" = 0 ] || die "$V4_URL: $([ "$rc" = 3 ] && echo 'не вдалось прочитати' || echo 'рядок не схожий на мережу IPv4') — нічого не міняю"
+  v6="$(fetch_list "$V6_URL" v6)"; rc=$?
+  [ "$rc" = 0 ] || die "$V6_URL: $([ "$rc" = 3 ] && echo 'не вдалось прочитати' || echo 'рядок не схожий на мережу IPv6') — нічого не міняю"
+  v4="$(sort -u <<<"$v4")"; v6="$(sort -u <<<"$v6")"
+  n4="$(grep -c . <<<"$v4" || true)"; n6="$(grep -c . <<<"$v6" || true)"
+  [ "$n4" -ge "$MIN_V4" ] \
+    || die "Cloudflare віддав $n4 РІЗНИХ діапазонів IPv4 (чекали щонайменше $MIN_V4) — нічого не міняю"
+  [ "$n6" -ge "$MIN_V6" ] \
+    || die "Cloudflare віддав $n6 РІЗНИХ діапазонів IPv6 (чекали щонайменше $MIN_V6) — нічого не міняю"
+  printf '%s\n%s\n' "$v4" "$v6" | sort -u
+}
+
+ufw_status() { "$UFW" status numbered 2>/dev/null || die "не вдалось прочитати стан ufw"; }
+
+# ── розбір виводу ufw ─────────────────────────────────────────────────
+#
+# 🔴 ПО КОЛОНКАХ, А НЕ ГРЕПОМ ПО РЯДКУ. Перша версія шукала « ALLOW IN »
+# будь-де в рядку — і казала «SSH дозволено» на
+#   22/tcp   DENY IN   Anywhere   # ALLOW IN only via VPN
+# тобто готова була замкнути машину, прочитавши чийсь коментар.
+#
+# 🔴 І НАПРЯМОК — ЧАСТИНА ДІЇ, А НЕ ПРИКРАСА. Друга версія читала дію як
+# колонку, але викидала `IN|OUT|FWD`. На стані
+#   22/tcp  ALLOW OUT  Anywhere (out)
+#   80/tcp  ALLOW IN   Anywhere
+# вона вважала SSH дозволеним, знімала обидва загальні дозволи й
+# виходила нулем — лишивши машину без ЖОДНОГО вхідного правила SSH.
+# Напрямок тепер окрема колонка, і всі троє споживачів вимагають `IN`.
+#
+# 🔴 РЯДОК, ЯКОГО НЕ ВДАЛОСЬ РОЗІБРАТИ, — ЦЕ ПОМИЛКА. Мовчазне
+# відкидання незбіглих рядків зробило випадок про `LIMIT` зеленим за
+# побудовою: підмінник друкував `LIMIT` без напряму, рядок зникав
+# цілком, і дві мутації підряд лишали набір зеленим. Тепер нерозібрані
+# рядки лічаться й називаються.
+ufw_rows() {
+  sed -E 's/^\[[ 0-9]+\][[:space:]]*//; s/[[:space:]]*#.*$//' <<<"$1" \
+    | awk '
+        /^[[:space:]]*$/                      { next }
+        /^[[:space:]]*Status:/                { next }
+        /^[[:space:]]*To[[:space:]]+Action/   { next }
+        /^[[:space:]]*-+[[:space:]]+-+/       { next }
+        match($0, / (ALLOW|DENY|REJECT|LIMIT) (IN|OUT|FWD) /) {
+          to = substr($0, 1, RSTART - 1)
+          act = substr($0, RSTART + 1, RLENGTH - 2)
+          from = substr($0, RSTART + RLENGTH)
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", to)
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", from)
+          sub(/ \(v6\)$/, "", to)
+          split(act, a, " ")
+          print to "\t" a[1] "\t" a[2] "\t" from
+          next
+        }
+        { print "?\t?\t?\t" $0 }'
+}
+
+# `From` без хвоста, який ufw дописує ПІСЛЯ колонки: `Anywhere   (log)`,
+# `Anywhere (out)`, `Anywhere (v6) (log-all)`. `backend_iptables` ліпить
+# ці ознаки рядком, і порівняння «дорівнює Anywhere» на них падало —
+# загальний дозвіл `ufw allow log 80/tcp` не рахувався взагалі.
+is_anywhere() {
+  local f="$1"
+  f="$(sed -E 's/[[:space:]]*\((log|log-all|out|v6)(, ?(log|log-all|out|v6))*\)[[:space:]]*$//' <<<"$f")"
+  f="$(sed -E 's/[[:space:]]*\(v6\)[[:space:]]*$//; s/[[:space:]]+$//' <<<"$f")"
+  [ "$f" = "Anywhere" ]
+}
+
+# 🔴 Профілі ufw — це НЕ порт. `ufw allow "Nginx Full"` друкує назву, і
+# перша версія читала її як «не наші порти», друкуючи «origin приймає
+# лише Cloudflare» над відкритим 80. Відомі профілі розгортаються тут;
+# НЕВІДОМИЙ — це die, а не тиша. Список узятий з пакетів, що ставлять
+# профілі в /etc/ufw/applications.d, а не вигаданий.
+profile_ports() {
+  case "$1" in
+    OpenSSH) echo "22/tcp" ;;
+    "Nginx Full"|"Apache Full"|"WWW Full"|"Caddy") echo "80,443/tcp" ;;
+    "Nginx HTTP"|Apache|WWW) echo "80/tcp" ;;
+    "Nginx HTTPS"|"Apache Secure"|"WWW Secure") echo "443/tcp" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Чи відкриває цей `To` котрийсь із наших портів.
+#
+# 🔴 ЧИСЛАМИ, А НЕ РЯДКАМИ, І ВСІ ЕЛЕМЕНТИ. `man 8 ufw` документує
+# `port 80,443,8080:8090`, тобто список, у якому елемент може бути
+# діапазоном. Перша версія брала гілку `*,*` раніше за `*:*` і
+# порівнювала елементи як РЯДКИ — `22,80:443/tcp` читалось як «не наші
+# порти», тобто відкритий усьому світу 443 давав зелене.
+#
+# Протокол має значення: ми керуємо tcp. `443/udp` — це інша експозиція
+# (HTTP/3 повз Cloudflare), і закривати її цим скриптом означало б
+# мовчки міняти те, чого картка не обіцяла; вона названа в README як
+# окремий крок, а не проковтнута тут.
+opens_our_ports() {
+  local to="$1" spec proto base p elem lo hi
+  if spec="$(profile_ports "$to")"; then to="$spec"; fi
+  # 🔴 `ufw allow from any to any` друкує `To = Anywhere` — це КОЖЕН
+  # порт, зокрема наші. Перша версія віддавала на це `die «не вмію
+  # прочитати»`: безпечно, але безглуздо — форма цілком зрозуміла, і
+  # вона найширша з можливих.
+  [ "$to" = Anywhere ] && return 0
+  case "$to" in
+    */*) base="${to%/*}"; proto="${to##*/}" ;;
+    *)   base="$to"; proto=both ;;
+  esac
+  case "$proto" in tcp|both) ;; udp) return 1 ;; *) return 2 ;; esac
+  case "$base" in ''|*[!0-9,:]*) return 2 ;; esac
+  for p in ${PORTS//,/ }; do
+    local IFS=,
+    for elem in $base; do
+      case "$elem" in
+        *:*) lo="${elem%%:*}"; hi="${elem##*:}"
+             [ -n "$lo" ] && [ -n "$hi" ] || return 2
+             [ "$p" -ge "$lo" ] && [ "$p" -le "$hi" ] && return 0 ;;
+        *)   [ "$elem" = "$p" ] && return 0 ;;
+      esac
+    done
+  done
+  return 1
+}
+
+# 🔴 Нерозібраний рядок зупиняє роботу. Інакше невідома форма виглядає
+# точно так само, як її відсутність.
+#
+# 🔴 І ЦІ ДВІ ВІДМОВИ СТОЯТЬ ПОЗА КОНВЕЄРОМ. Коли `die` живе всередині
+# `while … | sort -u`, його `exit` гине в підоболонці, і вся відмова
+# тримається на одному прапорці `pipefail`: зняти його — і
+# `ufw allow from any to any` дає код 0 з висновком «origin приймає
+# лише Cloudflare». Замок, що тримається на прапорці в рядку 43, — не
+# замок.
+refuse_unparsed() {
+  local to act dir from
+  while IFS=$'\t' read -r to act dir from; do
+    [ "$to" = '?' ] || continue
+    die "не розібрав рядок ufw: «${from}» — розберись руками, нічого не міняю"
+  done < <(ufw_rows "$1")
+}
+
+refuse_unknown_to() {
+  local to act dir from rc
+  while IFS=$'\t' read -r to act dir from; do
+    { [ "$act" = ALLOW ] || [ "$act" = LIMIT ]; } && [ "$dir" = IN ] || continue
+    is_anywhere "$from" || continue
+    # 🔴 `|| rc=$?`, бо під `set -e` окремий виклик, що повернув ненуль,
+    # убиває скрипт мовчки — рівно це й сталось при першій спробі.
+    rc=0; opens_our_ports "$to" || rc=$?
+    [ "$rc" = 2 ] || continue
+    die "у ufw є дозвіл усім на «${to}», і я не вмію прочитати, які це порти — розберись руками, нічого не міняю"
+  done < <(ufw_rows "$1")
+}
+
+# Діапазони, яким ЗАРАЗ дозволені рівно наші порти.
+current_allowed() {
+  local to act dir from
+  while IFS=$'\t' read -r to act dir from; do
+    [ "$act" = ALLOW ] && [ "$dir" = IN ] || continue
+    [ "$to" = "$PORTS/tcp" ] || continue
+    is_anywhere "$from" && continue
+    sed -E 's/[[:space:]]*\((log|log-all|out|v6)(, ?[a-z-]+)*\)[[:space:]]*$//; s/[[:space:]]+$//' <<<"$from"
+  done < <(ufw_rows "$1") | sort -u
+}
+
+# Загальні дозволи на наші порти — те, що ми знімаємо.
+#
+# 🔴 ВІДДАЄ ДІЮ РАЗОМ ІЗ ПОРТОМ, бо `ufw delete` знімає правило лише
+# коли дія ЗБІГАЄТЬСЯ: `UFWRule.match()` порівнює action, і `delete
+# allow 80/tcp` над правилом `LIMIT` повертає -1, тобто правило
+# ЛИШАЄТЬСЯ. Перша версія віддавала самий порт, знімала все як `allow`,
+# падала на `Could not delete non-existent rule` — і порт 80 лишався
+# відкритим світу, а звірка «ПІСЛЯ» навіть не доходила, бо `set -e`
+# убивав скрипт на цьому ж delete.
+blanket_rules() {
+  local to act dir from
+  while IFS=$'\t' read -r to act dir from; do
+    { [ "$act" = ALLOW ] || [ "$act" = LIMIT ]; } && [ "$dir" = IN ] || continue
+    is_anywhere "$from" || continue
+    if opens_our_ports "$to"; then
+      case "$act" in ALLOW) echo "allow	$to" ;; LIMIT) echo "limit	$to" ;; esac
+    fi
+  done < <(ufw_rows "$1") | sort -u
+}
+
+ssh_is_allowed() {
+  local to act dir from spec
+  while IFS=$'\t' read -r to act dir from; do
+    { [ "$act" = ALLOW ] || [ "$act" = LIMIT ]; } && [ "$dir" = IN ] || continue
+    if spec="$(profile_ports "$to")"; then to="$spec"; fi
+    case "$to" in "$SSH_PORT"|"$SSH_PORT/tcp") return 0 ;; esac
+  done < <(ufw_rows "$1")
+  return 1
+}
+
+# ── план ──────────────────────────────────────────────────────────────
+main() {
+  local st want have add drop blanket
+  st="$(ufw_status)"
+  refuse_unparsed "$st"
+  refuse_unknown_to "$st"
+
+  # 🔴 Перший замок — і він стоїть ДО читання чого завгодно з мережі.
+  ssh_is_allowed "$st" \
+    || die "у ufw немає дозволу на $SSH_PORT/tcp — машина налаштована не так, як я думаю; нічого не міняю"
+
+  want="$(published)"
+  have="$(current_allowed "$st")"
+  blanket="$(blanket_rules "$st")"
+
+  add="$(comm -23 <(echo "$want") <(echo "$have") || true)"
+  drop="$(comm -13 <(echo "$want") <(echo "$have") || true)"
+
+  local n_add n_drop n_blanket
+  n_add="$(grep -c . <<<"$add" || true)"
+  n_drop="$(grep -c . <<<"$drop" || true)"
+  n_blanket="$(grep -c . <<<"$blanket" || true)"
+
+  echo "діапазонів Cloudflare опубліковано: $(grep -c . <<<"$want")"
+  echo "уже дозволено:                      $(grep -c . <<<"$have")"
+  echo "додати:                             $n_add"
+  echo "зняти (більше не публікуються):     $n_drop"
+  echo "загальних дозволів на $PORTS:       $n_blanket"
+
+  if [ "$CMD" = status ]; then
+    if [ "$n_add" = 0 ] && [ "$n_drop" = 0 ] && [ "$n_blanket" = 0 ]; then
+      echo "ВИСНОВОК: origin приймає лише Cloudflare"
+      return 0
+    fi
+    echo "ВИСНОВОК: РОЗБІЖНІСТЬ"
+    return 1
+  fi
+
+  if [ "$n_add" = 0 ] && [ "$n_drop" = 0 ] && [ "$n_blanket" = 0 ]; then
+    echo "нічого робити"
+    return 0
+  fi
+
+  if [ "$APPLY" = 0 ]; then
+    echo "СУХИЙ ПРОГІН — нічого не змінено; додай --apply"
+    while IFS= read -r c; do [ -n "$c" ] && echo "  + allow from $c to any port $PORTS proto tcp"; done <<<"$add"
+    while IFS= read -r c; do [ -n "$c" ] && echo "  - delete allow from $c to any port $PORTS proto tcp"; done <<<"$drop"
+    while IFS=$'\t' read -r a r; do [ -n "$r" ] && echo "  - delete $a $r   (загальний дозвіл)"; done <<<"$blanket"
+    return 0
+  fi
+
+  # 🔴 ДОДАЄМО ПЕРШИМИ. Падіння посеред цього лишає сайт досяжним.
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    "$UFW" allow from "$c" to any port "$PORTS" proto tcp >/dev/null
+  done <<<"$add"
+
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    "$UFW" delete allow from "$c" to any port "$PORTS" proto tcp >/dev/null
+  done <<<"$drop"
+
+  # І аж тепер — загальний дозвіл, заради якого все й робилось.
+  while IFS=$'\t' read -r a r; do
+    [ -n "$r" ] || continue
+    "$UFW" delete "$a" "$r" >/dev/null
+  done <<<"$blanket"
+
+  # 🔴 Звіряємо ПІСЛЯ, зі свіжим читанням, а не з власного плану.
+  st="$(ufw_status)"
+  ssh_is_allowed "$st" || die "після зміни зник дозвіл на $SSH_PORT/tcp — це аварія, дивись ufw status"
+  have="$(current_allowed "$st")"
+  blanket="$(blanket_rules "$st")"
+  if [ "$(sort -u <<<"$have")" != "$(sort -u <<<"$want")" ] || [ -n "$blanket" ]; then
+    echo "ЗАСТОСОВАНО, АЛЕ ЗВІРКА НЕ ЗІЙШЛАСЬ — дивись ufw status numbered" >&2
+    return 1
+  fi
+  echo "ЗАСТОСОВАНО: дозволено $(grep -c . <<<"$have") діапазонів, загальних дозволів 0"
+}
+
+main

@@ -1,0 +1,11 @@
+[Unit]
+Description=CampTribe origin firewall sync, weekly
+[Timer]
+# Щотижня: Cloudflare міняє опубліковані мережі рідко, роками тримаючи
+# 15 діапазонів IPv4 і 7 IPv6. Щодня було б шумом, щомісяця — вікном.
+# Понеділок 04:17 UTC: після нічного бекапу (03:30) і до OSM (04:21),
+# щоб три юніти не прокидались разом.
+OnCalendar=Mon *-*-* 04:17:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target
