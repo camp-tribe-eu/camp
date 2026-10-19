@@ -36,13 +36,25 @@ import { A, B, Callout, H2, H3, P, UL } from './prose';
 // read the RENDERED PROSE, or at minimum strip comments first. That is why
 // neither false claim is reproduced anywhere above.
 //
-// 🔴 A TRAP WORTH NAMING. The old text said we "do not receive these logs,
-// do not store them and cannot search them" — true of someone else's
-// infrastructure, and the web server is now ours. On 15.10 the measurement
-// was that /var/log/caddy/access.log exists and is EMPTY: request logging
-// is off. But a sentence whose truth depends on one line of unguarded
-// server config will go stale without a single code change. So the wording
-// below describes the arrangement, not a promise no test can keep.
+// 🔴 A TRAP WORTH NAMING, AND IT SPRANG ON 19.10.2026. The text before
+// 16.10 said we "do not receive these logs, do not store them and cannot
+// search them" — true of someone else's infrastructure, and the web
+// server is ours. That was replaced by "request logging on our own web
+// server is switched off", which was measured and true on 15.10.
+//
+// It stopped being true on 19.10, when the owner decided to turn request
+// logging on (CAMP-353). Not one line of application code changed: a
+// sentence whose truth lives in server config goes stale in silence, and
+// a privacy policy describing processing that does not happen is the same
+// defect as one hiding processing that does.
+//
+// 🔴 THE RETENTION NUMBER BELOW EXISTS IN TWO PLACES. "Fourteen days"
+// here, and `rotate 13` plus `daily` in infra/logrotate/camptribe-caddy
+// (thirteen rotated files plus the active one). Change one and you have
+// published a period we do not keep. The first draft of that config used
+// the web server's own size-based rolling, which would have let a line
+// live for months on quiet traffic while this page promised fourteen
+// days.
 
 export default function Privacy() {
   return (
@@ -86,13 +98,95 @@ export default function Privacy() {
           service and defending it from abuse — Article 6(1)(f) GDPR.
         </li>
         <li>
-          <B>Kept for:</B> request logging on our own web server is switched
-          off, so no access log accumulates there. Cloudflare keeps its own
-          operational logs inside its platform under its retention policy;
-          we do not export them, build profiles from them, or use them for
-          anything but keeping the site up.
+          <B>Kept for:</B> fourteen days on our own server, in the security
+          log described next. Cloudflare keeps its own operational logs
+          inside its platform under its retention policy; we do not export
+          them, build profiles from them, or use them for anything but
+          keeping the site up.
         </li>
       </UL>
+
+      <H3>The security log</H3>
+      <P>
+        Our web server writes one line for every request it answers. We
+        turned this on deliberately, and it is the one place on our machine
+        where your IP address is written down. Sites get attacked; a log is
+        the difference between knowing what happened and guessing.
+      </P>
+      <P>Each line holds:</P>
+      <UL>
+        <li>the time, to the second;</li>
+        <li>
+          your IP address as our content delivery network passes it to us,
+          and the two-letter country code it derives from that address;
+        </li>
+        <li>
+          the address of the page you asked for, the method, and the status
+          we answered with;
+        </li>
+        <li>
+          your browser&rsquo;s user-agent string, the TLS version and cipher
+          it negotiated, how many bytes we sent, and how long we took.
+        </li>
+      </UL>
+      <P>
+        The rest of each line is about the connection rather than about
+        you: which name the request arrived under, what your browser said
+        it could accept, and the identifiers our content delivery network
+        uses to trace a request through its own machines.
+      </P>
+      <P>
+        It does <B>not</B> hold the contents of your cookies or of any
+        authorisation header. The server writes the word REDACTED in their
+        place before the line reaches the file, so a copy of this log is
+        not a way to sign in as you.
+      </P>
+      <P>
+        One thing it does hold is worth saying plainly, because it is easy
+        to miss. Several tools on this site keep their state in the page
+        address, so that a link can be reloaded or sent to someone: what
+        you type into the site search, the filters you set on the map, and
+        the answers you give the packing list and the trip cost
+        calculator. While you are using them nothing is sent to us &mdash;
+        they run in your browser. That address reaches us, and this log,
+        when the page is <B>loaded</B> with it: because you reloaded, or
+        because you or somebody else opened a saved link. Then whatever is
+        in the address is written down with the rest of the line, and it
+        goes when that line goes.
+      </P>
+      <UL>
+        <li>
+          <B>Who does it:</B> us, on our own server. The file can be read
+          only by the account the web server runs as and by whoever
+          administers the machine &mdash; not by the application that serves
+          you &mdash; and it is appended to, never rewritten. Nothing copies
+          it to anyone else.
+        </li>
+        <li>
+          <B>Legal basis:</B> our legitimate interest in keeping this
+          service secure &mdash; Article 6(1)(f) GDPR. Recital 49 names
+          network and information security as exactly that kind of
+          interest, and Article 32 requires us to take measures of this
+          sort. We do not ask for your consent here, and saying so plainly
+          is part of being honest about it: a security log that stops
+          recording for whoever declines would not be a security log.
+        </li>
+        <li>
+          <B>Kept for:</B> fourteen days. The server deletes older lines by
+          itself, on a schedule, rather than waiting for someone to
+          remember.
+        </li>
+        <li>
+          <B>Not used for:</B> analytics, audience measurement, advertising,
+          profiling, or any decision about you. It is read when something
+          looks wrong, and otherwise it is not read at all.
+        </li>
+      </UL>
+      <P>
+        You can object to this under Article 21 GDPR by writing to us. We
+        will weigh your objection against the security interest and tell you
+        what we decided and why.
+      </P>
 
       <H3>Your account, if you make one</H3>
       <P>

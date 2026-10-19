@@ -40,7 +40,76 @@ const INFRA = path.join(ROOT, 'infra');
 export const DESTINATION = Object.freeze({
   systemd: '/etc/systemd/system',
   bin: '/usr/local/bin',
+  // 🔴 ЦЬОГО РЯДКА НЕ БУЛО ВІД САМОГО ПОЧАТКУ, і знайшлось воно не
+  // оком, а підрахунком: 19 файлів у репозиторії проти 18 порівняних.
+  // `deploy-infra.sh` розкладав `infra/lib/` із CAMP-349, а сторож про
+  // цю теку не знав — тобто `env-value.sh`, яким бекап і перенос
+  // таблиць читають `.env`, міг розійтися з машиною мовчки.
+  lib: '/usr/local/lib/camptribe',
+  // CAMP-353: строк зберігання безпекового журналу. Якщо цей файл на
+  // машині розійдеться з репозиторієм, ми публікуємо в політиці
+  // приватності строк, якого не дотримуємось, — і помітити це нічим.
+  logrotate: '/etc/logrotate.d',
+  // CAMP-353: камера над SSH. Розійдеться — перебір паролів знову
+  // нікого не турбує, і дізнаємось ми про це з чужого входу.
+  fail2ban: '/etc/fail2ban/jail.d',
 });
+
+/**
+ * Файли, що лежать у репозиторії під ОДНИМ іменем, а на машині під
+ * іншим. Теками їх не опишеш, тому вони перелічені парами.
+ *
+ * 🔴 ЦЬОГО НЕ БУЛО, І САМЕ ЦЕЙ ФАЙЛ ЗРОБИВ ПОЛІТИКУ НЕПРАВДОЮ. Конфіг
+ * веб-сервера правився руками на машині й не звірявся ніколи: зміна в
+ * один рядок 15.10 вимкнула журналювання, а опублікований текст про це
+ * не дізнався. Рецензія CAMP-353 назвала це прямо — підрахунок «19
+ * проти 18», яким я пишався, не бачив цілої теки.
+ *
+ * 🔴 `gate-closed.conf` ТУТ НЕМАЄ НАВМИСНО: у ньому пароль гейта, якого
+ * в git немає. `assertNoSecretTarget` нижче стежить, щоб він сюди не
+ * потрапив ні через неуважність, ні через зручність.
+ */
+export const NAMED = Object.freeze([
+  { kind: 'caddy', name: 'camptribe.eu.caddyfile', remote: '/etc/caddy/Caddyfile' },
+  { kind: 'caddy', name: 'gate-open.conf', remote: '/etc/caddy/gate-open.conf' },
+  { kind: 'caddy', name: 'gate-closed.conf.example', remote: '/etc/caddy/gate-closed.conf.example' },
+]);
+
+/** Шлях, якого розкладка не сміє торкатись за жодних обставин. */
+export const FORBIDDEN_TARGET = '/etc/caddy/gate-closed.conf';
+
+/**
+ * Пари, які РЕАЛЬНО розкладає `deploy-infra.sh` — прочитані з нього.
+ *
+ * 🔴 ЧИТАЄТЬСЯ ДАНИЙ БЛОК, А НЕ КОМЕНТАР. Сторож, що звіряється з
+ * поясненням, підтверджує пояснення. Тут розбирається рядок
+ * `CADDY_PAIRS="…"`, тобто саме те, чим скрипт користується.
+ */
+export function deployedPairs(text) {
+  // 🔴 ДРУГЕ ПРИСВОЄННЯ — ЦЕ ПРОВАЛ, А НЕ «ВІЗЬМУ ПЕРШЕ». Рецензія
+  // 19.10.2026 показала форму атаки: нижче за дві стрічки дописати
+  //     CADDY_PAIRS+="\ngate-closed.conf:/etc/caddy/gate-closed.conf"
+  // і розкладка понесе на машину пароль гейта, а сторож лишиться
+  // зеленим 39/39 — бо `match` без прапорця бере ПЕРШЕ входження й
+  // бачить ті самі три безпечні пари. `FORBIDDEN_TARGET` при цьому
+  // дивиться на розібране, а не на розкладене.
+  //
+  // Тому питання не «що в першому присвоєнні», а «скільки разів цю
+  // змінну взагалі пишуть». Один раз — розбираємо; інакше жодної
+  // відповіді, і виклик нагорі читає це як провал.
+  const writes = text.match(/^\s*CADDY_PAIRS\s*\+?=/gm) ?? [];
+  if (writes.length !== 1) return null;
+  const m = text.match(/^CADDY_PAIRS="([^"]*)"/m);
+  if (!m) return null;
+  return m[1]
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const i = l.indexOf(':');
+      return { name: l.slice(0, i), remote: l.slice(i + 1) };
+    });
+}
 
 /**
  * 🔴 БЕЗ ЗНАЧЕННЯ ЗА ЗАМОВЧУВАННЯМ, І ЦЕ НАВМИСНО. Репозиторій
@@ -57,8 +126,11 @@ export function managedFiles(readDir = readdirSync) {
   const out = [];
   for (const [dir, dest] of Object.entries(DESTINATION)) {
     for (const name of readDir(path.join(INFRA, dir))) {
-      out.push({ name, local: path.join(INFRA, dir, name), remote: `${dest}/${name}` });
+      out.push({ kind: dir, name, local: path.join(INFRA, dir, name), remote: `${dest}/${name}` });
     }
+  }
+  for (const f of NAMED) {
+    out.push({ kind: f.kind, name: f.name, local: path.join(INFRA, f.kind, f.name), remote: f.remote });
   }
   return out.sort((a, b) => a.remote.localeCompare(b.remote));
 }
@@ -180,7 +252,12 @@ export function missingReleasePaths(files, opts = {}) {
  * Один прогін у CI, без мережі й без ключа.
  */
 export function danglingReferences(files, read = (p) => readFileSync(p, 'utf8')) {
-  const have = new Set(files.map((f) => `${f.remote.startsWith(DESTINATION.bin) ? 'bin' : 'systemd'}:${f.name}`));
+  // 🔴 РІД БЕРЕТЬСЯ З `kind`, А НЕ ВГАДУЄТЬСЯ ЗА ПРЕФІКСОМ. Тут стояло
+  // `startsWith(DESTINATION.bin) ? 'bin' : 'systemd'` — двійковий вибір
+  // при двох теках. CAMP-353 додав третю, і цей рядок мовчки зарахував
+  // би конфіг logrotate до юнітів systemd: не впав би, не попередив,
+  // просто відповідав би на інше питання.
+  const have = new Set(files.map((f) => `${f.kind}:${f.name}`));
   const bad = [];
   for (const f of files) {
     if (!f.name.endsWith('.service') && !f.name.endsWith('.timer')) continue;
@@ -358,6 +435,61 @@ function selfTest() {
     }
   };
 
+  // 🔴 ТРЕТЯ ТЕКА МУСИТЬ ЛИШАТИСЬ ТРЕТЬОЮ. Саме на цьому рядку
+  // спіткнувся CAMP-353: `danglingReferences` ділив світ навпіл —
+  // «це bin, решта systemd» — і конфіг logrotate став би юнітом
+  // systemd мовчки. Перевірка нижче червоніє, щойно рід знову почнуть
+  // вгадувати за шляхом замість читати з теки.
+  {
+    // 🔴 ФІКСТУРА БУДУЄТЬСЯ З `DESTINATION`, А НЕ ПЕРЕЛІЧУЄ ТЕКИ. Перша
+    // редакція перелічувала — і впала тієї ж години, щойно CAMP-353
+    // додав `fail2ban`: стаб віддав `undefined`, і тест не почервонів, а
+    // ВПАВ зі стеком. Падіння й спіймана мутація виглядають по-різному
+    // лише тоді, коли на них дивишся; у CI це однаково «не зелено».
+    // Тепер нова тека автоматично стає ще одним випадком.
+    const stub = (dir) => [`${path.basename(dir)}-fixture`];
+    const got = managedFiles(stub);
+    is('кожна тека лишається собою',
+      got.map((f) => `${f.kind}:${f.remote}`).sort(),
+      [
+        ...Object.entries(DESTINATION).map(([k, d]) => `${k}:${d}/${k}-fixture`),
+        ...NAMED.map((f) => `${f.kind}:${f.remote}`),
+      ].sort());
+    is('жодна тека не загубилась',
+      got.length, Object.keys(DESTINATION).length + NAMED.length);
+    is('рід не збігається в купу',
+      new Set(got.map((f) => f.kind)).size, Object.keys(DESTINATION).length + 1);
+  }
+
+  // 🔴 СТОРОЖ І РОЗКЛАДКА МУСЯТЬ НАЗИВАТИ ОДНЕ Й ТЕ САМЕ. Два переліки
+  // тих самих файлів у двох мовах — це рівно та форма, якою дрейф і
+  // заходить: один оновили, другий ні, і обидва впевнені в собі.
+  // Читається БЛОК ДАНИХ `CADDY_PAIRS` із bash-скрипта, тобто те, чим
+  // він користується, а не коментар поруч.
+  {
+    const script = readFileSync(path.join(INFRA, 'deploy-infra.sh'), 'utf8');
+    const pairs = deployedPairs(script);
+    is('розкладка взагалі оголошує пари', Array.isArray(pairs), true);
+    is('сторож і розкладка згодні щодо Caddy',
+      (pairs ?? []).map((x) => `${x.name}:${x.remote}`).sort(),
+      NAMED.map((x) => `${x.name}:${x.remote}`).sort());
+    // 🔴 Пара до попереднього: порожній перелік задовольнив би збіг,
+    // якби NAMED теж колись спорожнів.
+    is('пар не нуль', (pairs ?? []).length > 0, true);
+    // 🔴 Доданий рядок до тієї ж змінної має валити розбір, а не
+    // «не помітитись». Саме так пароль гейта потрапив би на машину.
+    is('друге присвоєння CADDY_PAIRS робить розбір неможливим',
+      deployedPairs(`${script}\nCADDY_PAIRS+="\\ngate-closed.conf:/etc/caddy/gate-closed.conf"\n`),
+      null);
+    is('порожній скрипт теж не дає пар', deployedPairs('echo привіт\n'), null);
+    is('пароль гейта не є ціллю розкладки',
+      [...(pairs ?? []).map((x) => x.remote), ...NAMED.map((x) => x.remote)]
+        .filter((r) => r === FORBIDDEN_TARGET),
+      []);
+    is('приклад і справжній гейт — різні файли',
+      NAMED.some((f) => f.remote === `${FORBIDDEN_TARGET}.example`), true);
+  }
+
   // 🔴 Форма, що вбила бекап: рядок у юніті, який нікуди не веде.
   const unit = (body) => body;
   //
@@ -365,11 +497,18 @@ function selfTest() {
   // обробник посилається на `/usr/local/bin/camptribe-failed`, якого я
   // в список не поклав. Він мав рацію — це рівно той дефект, який він
   // шукає, тільки в моєму тесті.
+  //
+  // 🔴 `kind` ТУТ ОБОВʼЯЗКОВИЙ, І ЦЕ ДРУГИЙ РАЗ, КОЛИ ЦІ ФІКСТУРИ БУЛИ
+  // НЕПОВНІ. Поки рід вгадувався за префіксом шляху, його можна було не
+  // писати — і чотири перевірки нижче зеленіли над записами, яких
+  // `managedFiles()` ніколи не віддає. Фікстура, що відрізняється від
+  // справжніх даних саме тим полем, яке читає перевірка, доводить лише
+  // саму себе.
   const files = [
-    { name: 'a.service', local: 'a', remote: '/etc/systemd/system/a.service' },
-    { name: 'camptribe-failed@.service', local: 'h', remote: '/etc/systemd/system/camptribe-failed@.service' },
-    { name: 'camptribe-backup', local: 'b', remote: '/usr/local/bin/camptribe-backup' },
-    { name: 'camptribe-failed', local: 'f', remote: '/usr/local/bin/camptribe-failed' },
+    { kind: 'systemd', name: 'a.service', local: 'a', remote: '/etc/systemd/system/a.service' },
+    { kind: 'systemd', name: 'camptribe-failed@.service', local: 'h', remote: '/etc/systemd/system/camptribe-failed@.service' },
+    { kind: 'bin', name: 'camptribe-backup', local: 'b', remote: '/usr/local/bin/camptribe-backup' },
+    { kind: 'bin', name: 'camptribe-failed', local: 'f', remote: '/usr/local/bin/camptribe-failed' },
   ];
   const texts = {
     a: unit('[Service]\nExecStart=/usr/local/bin/camptribe-backup\n'),
@@ -378,6 +517,21 @@ function selfTest() {
     f: '#!/bin/bash\n',
   };
   const read = (p) => texts[p];
+
+  // 🔴 ВИПАДОК НАВМИСНО ШТУЧНИЙ, І ЦЕ ЄДИНА ЙОГО ФОРМА. Мутаційний
+  // прогін 19.10.2026 показав, що повернення старого рядка
+  // (`startsWith(DESTINATION.bin) ? 'bin' : 'systemd'`) переживає всі
+  // 32 випадки: на теках `systemd` і `bin` обидві реалізації дають те
+  // саме. Розрізняє їх лише файл ЧУЖОГО роду з імʼям юніта — тоді
+  // старий рядок каже «systemd», і посилання на неіснуючий юніт
+  // виглядає задоволеним. Перевірка без жодної мутації, яка її валить,
+  // — це галочка, зелена за побудовою.
+  is('файл чужого роду не вдає юніт',
+    danglingReferences(
+      [files[0], files[2], { kind: 'logrotate', name: 'camptribe-failed@.service', local: 'r', remote: '/etc/logrotate.d/camptribe-failed@.service' }],
+      (q) => (q === 'a' ? '[Unit]\nOnFailure=camptribe-failed@%n.service\n[Service]\nExecStart=/usr/local/bin/camptribe-backup\n' : '#!/bin/bash\n'),
+    ).map((b) => b.missing),
+    ['systemd/camptribe-failed@.service']);
 
   is('усе на місці — скарг немає', danglingReferences(files, read), []);
   is('скрипт, якого немає в репозиторії',
@@ -530,7 +684,7 @@ function selfTest() {
     ).stale,
     false);
 
-  const EXPECTED_CASES = 30;
+  const EXPECTED_CASES = 41;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;

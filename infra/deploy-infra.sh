@@ -28,33 +28,81 @@ for a in "$@"; do
   esac
 done
 
-ssh_() { ssh -i "$KEY" -o ConnectTimeout=10 "$HOST" "$@"; }
+# 🔴 `-n` ОБОВʼЯЗКОВЕ, І ЦЕ НЕ ОБЕРЕЖНІСТЬ, А ВИПРАВЛЕННЯ. Без нього
+# ssh читає СВІЙ stdin — тобто з'їдає те, чим годують цикл навколо. Пари
+# Caddy подаються через heredoc, і перший же виклик `ssh_` всередині
+# циклу проковтнув два рядки з трьох: розкладка надрукувала один файл
+# замість трьох і вийшла нулем. Помічено підрахунком імен, не оком.
+ssh_() { ssh -n -i "$KEY" -o ConnectTimeout=10 "$HOST" "$@"; }
 
 changed=0
+
+# Покласти ОДИН файл. Винесено у функцію, бо Caddy їде не теками, а
+# парами «тут зветься так, там інакше», і робити це другим шматком коду
+# означало б мати два способи класти файли на машину.
+place() {
+  local local_path="$1" remote="$2" name
+  name="$(basename "$local_path")"
+  if ssh_ "cat $remote 2>/dev/null" | diff -q - "$local_path" >/dev/null 2>&1; then
+    echo "=  $remote"
+    return 0
+  fi
+  changed=$((changed + 1))
+  echo "→  $remote"
+  [ "$APPLY" = yes ] || return 0
+  # 🔴 Копія того, що перезаписуємо, із датою. Відкотити мусить бути
+  # можливо без git на машині, де git може й не бути.
+  ssh_ "mkdir -p /root/infra-backups && [ -f $remote ] && cp -a $remote /root/infra-backups/$name.$(date -u +%Y%m%dT%H%M%SZ) || true"
+  case "$remote" in */lib/camptribe/*) ssh_ "mkdir -p /usr/local/lib/camptribe" ;; esac
+  scp -q -i "$KEY" "$local_path" "$HOST:$remote"
+  case "$local_path" in */bin/*) ssh_ "chmod +x $remote" ;; esac
+}
+
 # 🔴 `lib/` теж їде: `camptribe-deploy` тепер читає `.env` ТИМ САМИМ
 # `env_value`, що й бекап із переносом таблиць. Без цього рядка на
 # машині лежав би скрипт, якому нема чим читати (CAMP-349).
-for local in "$HERE"/systemd/* "$HERE"/bin/* "$HERE"/lib/*; do
+for local in "$HERE"/systemd/* "$HERE"/bin/* "$HERE"/lib/* "$HERE"/logrotate/* "$HERE"/fail2ban/*; do
   name="$(basename "$local")"
   case "$local" in
     */systemd/*) remote="/etc/systemd/system/$name" ;;
     */bin/*)     remote="/usr/local/bin/$name" ;;
     */lib/*)     remote="/usr/local/lib/camptribe/$name" ;;
+    # CAMP-353: строк зберігання безпекового журналу рахує logrotate, і
+    # тепер він їде з репозиторію, а не живе лише на машині.
+    */logrotate/*) remote="/etc/logrotate.d/$name" ;;
+    # CAMP-353: обмеження спроб входу по SSH.
+    */fail2ban/*) remote="/etc/fail2ban/jail.d/$name" ;;
   esac
-  if ssh_ "cat $remote 2>/dev/null" | diff -q - "$local" >/dev/null 2>&1; then
-    echo "=  $remote"
-    continue
-  fi
-  changed=$((changed + 1))
-  echo "→  $remote"
-  [ "$APPLY" = yes ] || continue
-  # 🔴 Копія того, що перезаписуємо, із датою. Відкотити мусить бути
-  # можливо без git на машині, де git може й не бути.
-  ssh_ "mkdir -p /root/infra-backups && [ -f $remote ] && cp -a $remote /root/infra-backups/$name.$(date -u +%Y%m%dT%H%M%SZ) || true"
-  case "$remote" in */lib/camptribe/*) ssh_ "mkdir -p /usr/local/lib/camptribe" ;; esac
-  scp -q -i "$KEY" "$local" "$HOST:$remote"
-  case "$local" in */bin/*) ssh_ "chmod +x $remote" ;; esac
+  place "$local" "$remote"
 done
+
+# 🔴 CADDY — ОКРЕМИМИ ПАРАМИ, БО ІМЕНА НЕ ЗБІГАЮТЬСЯ. У репозиторії файл
+# зветься `camptribe.eu.caddyfile`, на машині — `/etc/caddy/Caddyfile`.
+# Саме тому тека `infra/caddy/` не потрапила в цикл вище, і саме тому до
+# 19.10.2026 конфіг веб-сервера правився руками й не звірявся ніколи.
+# Рецензія CAMP-353 назвала це прямо: файл, чия зміна в ОДИН рядок
+# зробила політику приватності неправдою, лишався неспостережуваним.
+#
+# 🔴 `gate-closed.conf` ТУТ НЕМАЄ І НЕ БУДЕ. У ньому пароль гейта, якого
+# в git немає навмисно. Поруч лежить `gate-closed.conf.example`, і
+# сплутати їх означало б затерти пароль прикладом, тобто відкрити сайт.
+CADDY_PAIRS="camptribe.eu.caddyfile:/etc/caddy/Caddyfile
+gate-open.conf:/etc/caddy/gate-open.conf
+gate-closed.conf.example:/etc/caddy/gate-closed.conf.example"
+caddy_seen=0
+while IFS=: read -r name remote; do
+  [ -n "$name" ] || continue
+  place "$HERE/caddy/$name" "$remote"
+  caddy_seen=$((caddy_seen + 1))
+done <<EOF
+$CADDY_PAIRS
+EOF
+# 🔴 ПІДРАХУНОК, А НЕ ДОВІРА. Саме він показав, що цикл обробляв одну
+# пару з трьох: мовчазний недоробіток виглядає точно так само, як
+# успіх, якщо ніхто не рахує.
+caddy_want=$(printf '%s\n' "$CADDY_PAIRS" | grep -c .)
+[ "$caddy_seen" = "$caddy_want" ] || {
+  echo "розкладка Caddy: оброблено $caddy_seen пар із $caddy_want" >&2; exit 1; }
 
 if [ "$APPLY" != yes ]; then
   if [ "$changed" -eq 0 ]; then
@@ -78,6 +126,73 @@ ssh_ 'systemctl daemon-reload'
 # 🔴 Перевірити ПІСЛЯ перезавантаження: юніт із помилкою синтаксису
 # приймається файловою системою й відмовляє лише на запуску.
 ssh_ 'systemd-analyze verify /etc/systemd/system/camptribe-*.service'
+
+# 🔴 ТЕ САМЕ ДЛЯ logrotate, І З ТІЄЇ Ж ПРИЧИНИ. Конфіг із помилкою
+# приймається файловою системою мовчки, а `logrotate` при щодобовому
+# прогоні пропускає ВЕСЬ файл — тобто журнал просто перестає
+# ротуватись, і дізнаємось ми про це з переповненого диска або з
+# прострочених рядків. `-d` розбирає й нічого не чіпає.
+# 🔴 РОЗБИРАЄМО ВСЮ ТЕКУ, А НЕ НАШ ОДИН ФАЙЛ. Тут стояло
+# `logrotate -d /etc/logrotate.d/camptribe-caddy`, і рецензія 19.10.2026
+# назвала, чого воно не побачить: найімовірніший реальний провал — це
+# `duplicate log entry`, коли пакет колись покладе поруч свій
+# `/etc/logrotate.d/caddy` з глобом `/var/log/caddy/*.log`. Наш файл в
+# ізоляції при цьому бездоганний, а ротація не відбувається взагалі.
+#
+# Другий бік тієї ж монети: перевірка мусить ДОВЕСТИ, що наш конфіг
+# узагалі прочитано. Розбір, який мовчки пропустив файл, виглядає так
+# само успішно, як розбір, що його прийняв.
+ssh_ 'if out=$(logrotate -d /etc/logrotate.conf 2>&1); then :; else
+        echo "logrotate: розбір конфігурації впав" >&2
+        echo "$out" | tail -20 >&2
+        exit 1
+      fi
+      if echo "$out" | grep -qi "duplicate log entry"; then
+        echo "logrotate: той самий файл заявлено двічі" >&2
+        echo "$out" | grep -i -B2 "duplicate log entry" >&2
+        exit 1
+      fi
+      echo "$out" | grep -q "camptribe-caddy" || {
+        echo "logrotate: наш конфіг не потрапив у розбір" >&2; exit 1; }
+      echo "$out" | grep -q "/var/log/caddy/access.log" || {
+        echo "logrotate: журнал не названо в розборі" >&2; exit 1; }'
+
+# 🔴 КОНФІГ CADDY ПЕРЕВІРЯЄМО Й ПЕРЕЗАВАНТАЖУЄМО. До CAMP-353 цей
+# скрипт його не чіпав узагалі, бо й не розкладав. Порядок саме такий:
+# спершу `validate`, бо зламаний конфіг приймається файловою системою
+# мовчки, а `reload` із ним лишить машину на СТАРОМУ конфігу — тобто
+# розкладка «вдалась», а працює попереднє.
+ssh_ 'out=$(caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1)
+      echo "$out" | grep -q "Valid configuration" || { echo "$out" >&2; exit 1; }'
+ssh_ 'systemctl reload caddy && systemctl is-active --quiet caddy'
+
+# 🔴 СКОПІЙОВАНА КАМЕРА НЕ Є УВІМКНЕНОЮ КАМЕРОЮ — той самий урок, що з
+# таймерами трьома рядками нижче, і я наступив на нього вдруге: файл
+# лягав у `jail.d`, а `fail2ban` про це не дізнавався до наступного
+# перезапуску. Знайдено рецензією.
+#
+# Число звіряється з РЕПОЗИТОРІЄМ, а не вписане тут: інакше це був би
+# третій екземпляр того самого значення, який розійдеться з рештою.
+# 🔴 СВІДКОМ Є `bantime`, А НЕ `maxretry`, І ЦЕ ВИПРАВЛЕННЯ РЕЦЕНЗІЇ.
+# Перша редакція звіряла `maxretry`. Але в upstream `jail.conf` у
+# `[DEFAULT]` теж стоїть `maxretry = 5` — тобто та сама пʼятірка
+# повернулась би й тоді, коли нашого файла на машині немає або його не
+# прочитали. Свідок, що однаково задоволений обома світами, не свідчить
+# ні про що (звірено з першоджерелом fail2ban 1.1.0).
+#
+# `bantime` розрізняє: у нас година, у дистрибутива 10 хвилин.
+f2b_want="$(awk -F= '/^bantime/ {gsub(/[ \t]/, "", $2); print $2}' "$HERE/fail2ban/zz-camptribe.local")"
+[ -n "$f2b_want" ] || { echo "у zz-camptribe.local немає bantime" >&2; exit 1; }
+# `1h` у конфігу, секунди у відповіді демона.
+case "$f2b_want" in
+  *h) f2b_want_s=$(( ${f2b_want%h} * 3600 )) ;;
+  *m) f2b_want_s=$(( ${f2b_want%m} * 60 )) ;;
+  *)  f2b_want_s="$f2b_want" ;;
+esac
+ssh_ 'fail2ban-client reload >/dev/null'
+ssh_ "got=\$(fail2ban-client get sshd bantime 2>&1)
+      [ \"\$got\" = \"$f2b_want_s\" ] || {
+        echo \"fail2ban: bantime=\$got, а в репозиторії $f2b_want ($f2b_want_s с)\" >&2; exit 1; }" 
 
 # 🔴 СКОПІЙОВАНИЙ ТАЙМЕР НЕ Є УВІМКНЕНИМ ТАЙМЕРОМ, і до 14.10.2026 цей
 # скрипт цієї різниці не знав. Файл лягає на машину, `daemon-reload`
