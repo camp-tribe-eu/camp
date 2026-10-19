@@ -99,6 +99,7 @@ import {
   type WildfireFeature,
   type WildfireState,
 } from "@/lib/wildfires";
+import { Button } from '@/components/button';
 
 /** One campsite in the collection the map draws. */
 interface SpotFeature {
@@ -2434,20 +2435,14 @@ export default function CampsiteMap() {
           className="flex flex-wrap gap-1.5"
         >
           {MAP_SOURCES.map((s: MapSource) => (
-            <button
+            <Button
               key={s.id}
               type="button"
               onClick={() => setSourceId(s.id)}
               aria-pressed={s.id === sourceId}
-              data-source={s.id}
-              className={`inline-flex h-8 items-center rounded-sm border px-3 text-sm transition-colors ${
-                s.id === sourceId
-                  ? "border-line-blue bg-accent-surface font-semibold text-heading"
-                  : "border-line-2 bg-surface text-ink-2 hover:border-line-blue"
-              }`}
-            >
+              data-source={s.id} variant={s.id === sourceId ? 'accent' : 'chip'} size="sm">
               {s.label}
-            </button>
+            </Button>
           ))}
 
           {/* CAMP-221 — Satellite, beside the cartographic styles because
@@ -2466,7 +2461,7 @@ export default function CampsiteMap() {
               does nothing when pressed, and points at the sentence below
               with `aria-describedby`, so the reason is read out with the
               button rather than hidden behind a hover. */}
-          <button
+          <Button
             type="button"
             onClick={() => {
               if (satelliteSource) setSatelliteOn((on) => !on);
@@ -2476,17 +2471,9 @@ export default function CampsiteMap() {
             aria-describedby={
               satelliteSource === null ? SATELLITE_WHY_ID : undefined
             }
-            data-source="satellite"
-            className={`inline-flex h-8 items-center rounded-sm border px-3 text-sm transition-colors ${
-              satelliteSource === null
-                ? "cursor-not-allowed border-line-2 bg-surface text-ink-2 opacity-50"
-                : satelliteOn
-                  ? "border-line-blue bg-accent-surface font-semibold text-heading"
-                  : "border-line-2 bg-surface text-ink-2 hover:border-line-blue"
-            }`}
-          >
+            data-source="satellite" variant={satelliteOn && satelliteSource !== null ? 'accent' : 'chip'} size="sm">
             Satellite
-          </button>
+          </Button>
         </div>
         {satelliteSource === null && (
           <p id={SATELLITE_WHY_ID} className="w-full text-xs text-ink-2">

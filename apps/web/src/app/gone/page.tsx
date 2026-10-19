@@ -8,6 +8,7 @@ import { countryName, getCountries, type GoneSpot } from '@/lib/api';
 // written once per build, cannot disagree with itself.
 import GONE from '@/generated/gone.json';
 import GoneNotice from '@/components/gone-notice';
+import { ButtonLink } from '@/components/button';
 
 // CAMP-73 — the body served, with a 410, at the address of a campsite
 // that no longer exists.
@@ -55,13 +56,11 @@ export default async function GonePage() {
         <ul className="mt-3 flex flex-wrap gap-2">
           {countries.map((c) => (
             <li key={c.country}>
-              <Link
-                href={`/camping/${c.country}`}
-                className="inline-flex h-9 items-center gap-2 rounded-sm border border-line-2 bg-surface px-3 text-sm text-heading hover:border-line-blue"
-              >
+              <ButtonLink
+                href={`/camping/${c.country}`} size="sm">
                 {countryName(c.country)}
                 <span className="tabular-nums text-ink-2">{c.spots}</span>
-              </Link>
+              </ButtonLink>
             </li>
           ))}
         </ul>

@@ -8,6 +8,7 @@ import {
   type DeleteDraft,
   type PhotoChoice,
 } from '@/lib/rights';
+import { Button, ButtonLink } from '@/components/button';
 
 // CAMP-229 (3/3) — екран видалення акаунта (ст. 17). Макет називає його «найчеснішим
 // екраном на сайті» (Design/07-account.html, «ВИДАЛЕННЯ АКАУНТУ»).
@@ -35,8 +36,6 @@ import {
 export const DELETE_TITLE = 'Delete your account';
 
 const CARD = 'rounded-card border border-line-2 bg-surface';
-const BUTTON = 'inline-flex h-11 items-center rounded-sm px-4 text-sm font-semibold';
-const SECONDARY = `${BUTTON} border border-line-2 bg-surface text-heading hover:border-line-blue`;
 const FIELD =
   'mt-1 w-full max-w-sm rounded border border-line-2 bg-surface px-3 py-2 text-ink focus:border-line-blue';
 
@@ -222,17 +221,16 @@ export function DeleteFormView({
 
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           {/* макет: «Скасувати» */}
-          <Link href="/account/data" className={SECONDARY}>
-            Cancel
-          </Link>
+          <ButtonLink href="/account/data">Cancel</ButtonLink>
           {/* макет: «Видалити акаунт» — `btn-d off`: неактивна, доки людина не обрала сама. */}
-          <button
+          <Button
+            variant="danger"
             type="submit"
             disabled={!ready || busy || !canDelete(draft)}
-            className={`${BUTTON} bg-warn text-white disabled:cursor-not-allowed disabled:border disabled:border-line-2 disabled:bg-surface-2 disabled:text-ink-3`}
+            className="disabled:cursor-not-allowed disabled:border-line-2 disabled:bg-surface-2 disabled:text-ink-3"
           >
             Delete account
-          </button>
+          </Button>
         </div>
       </form>
 

@@ -12,6 +12,8 @@
 //
 // Nothing about the markup changed in the move.
 
+import { Button } from '@/components/button';
+
 export function LayerChip({
   layer,
   on,
@@ -22,19 +24,13 @@ export function LayerChip({
   onToggle: () => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
       onClick={onToggle}
       aria-pressed={on}
       title={layer.description}
-      data-layer={layer.id}
-      className={`inline-flex h-8 items-center rounded-sm border px-3 text-sm transition-colors ${
-        on
-          ? 'border-line-blue bg-accent-surface font-semibold text-heading'
-          : 'border-line-2 bg-surface text-ink-2 hover:border-line-blue'
-      }`}
-    >
+      data-layer={layer.id} variant={on ? 'accent' : 'chip'} size="sm">
       {layer.label}
-    </button>
+    </Button>
   );
 }

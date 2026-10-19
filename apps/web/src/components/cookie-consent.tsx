@@ -9,6 +9,7 @@ import {
   REOPEN_EVENT,
   type ConsentChoice,
 } from '@/lib/consent';
+import { Button } from '@/components/button';
 
 // CAMP-56 — the cookie banner.
 //
@@ -128,22 +129,18 @@ export default function CookieConsent() {
             and a screen reader. Same classes on both: if one ever gains a
             style the other lacks, that is the banner becoming a nudge. */}
         <div className="flex shrink-0 gap-2">
-          <button
+          <Button
             type="button"
             data-testid="cookie-reject"
-            onClick={() => answer('rejected')}
-            className="inline-flex h-10 flex-1 items-center justify-center rounded-sm border border-line-2 bg-surface px-5 text-sm font-semibold text-heading hover:border-line-blue sm:flex-none"
-          >
+            onClick={() => answer('rejected')} className="flex-1 font-semibold sm:flex-none">
             Reject
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             data-testid="cookie-accept"
-            onClick={() => answer('accepted')}
-            className="inline-flex h-10 flex-1 items-center justify-center rounded-sm border border-line-2 bg-surface px-5 text-sm font-semibold text-heading hover:border-line-blue sm:flex-none"
-          >
+            onClick={() => answer('accepted')} className="flex-1 font-semibold sm:flex-none">
             Accept
-          </button>
+          </Button>
         </div>
       </div>
     </div>

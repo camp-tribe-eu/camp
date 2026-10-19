@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { countryName, getCountries } from '@/lib/api';
 import PathRecovery from '@/components/path-recovery';
+import { ButtonLink } from '@/components/button';
 
 // CAMP-73 — the 404.
 //
@@ -75,13 +76,11 @@ export default async function NotFound() {
         <ul className="mt-3 flex flex-wrap gap-2">
           {countries.map((c) => (
             <li key={c.country}>
-              <Link
-                href={`/camping/${c.country}`}
-                className="inline-flex h-9 items-center gap-2 rounded-sm border border-line-2 bg-surface px-3 text-sm text-heading hover:border-line-blue"
-              >
+              <ButtonLink
+                href={`/camping/${c.country}`} size="sm">
                 {countryName(c.country)}
                 <span className="tabular-nums text-ink-2">{c.spots}</span>
-              </Link>
+              </ButtonLink>
             </li>
           ))}
         </ul>

@@ -10,6 +10,7 @@ import {
   type PlanRequest,
   type PlanRun,
 } from '@/lib/plan';
+import { Button } from '@/components/button';
 
 // CAMP-205 — те, що /plan малює: форма й панель відповіді.
 //
@@ -263,13 +264,11 @@ export function PlanFormView({
         </div>
       </div>
 
-      <button
+      <Button
         type="submit"
-        disabled={!ready}
-        className="mt-5 inline-flex h-11 items-center rounded-sm border border-line-blue bg-accent-surface px-4 text-sm font-semibold text-heading hover:border-line-2 disabled:opacity-60"
-      >
+        disabled={!ready} variant="accent" className="mt-5">
         Check my trip
-      </button>
+      </Button>
     </form>
   );
 }
