@@ -3,11 +3,10 @@
   "configurations": [
     {
       "name": "api",
-      "runtimeExecutable": "npm",
+      "runtimeExecutable": "sh",
       "runtimeArgs": [
-        "run",
-        "start:dev",
-        "--workspace=apps/api"
+        "-c",
+        "PORT=3001 npm run start:dev --workspace=apps/api"
       ],
       "port": 3001
     },
@@ -29,6 +28,13 @@
     "heading level, and a sentence claiming no webcam exists within 25 km on every",
     "campsite in Europe because the catalogue had not been imported.",
     "",
-    "api must be up before web: the pages are built from it."
+    "api must be up before web: the pages are built from it.",
+    "",
+    "🔴 PORT=3001 ЗАДАЄТЬСЯ ЯВНО. apps/api/src/main.ts слухає",
+    "`process.env.PORT ?? 3000`, а поле \"port\" вище лише каже панелі, куди",
+    "дивитись — воно нічого не налаштовує. Без цього API сідав на 3000,",
+    "забирав порт у web, і predev падав із \"Could not reach the API at",
+    "http://localhost:3001\" — тобто рівно тією задачею налаштування, якої",
+    "цей файл мав позбавити. Заміряно 19.10.2026."
   ]
 }

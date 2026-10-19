@@ -62,6 +62,11 @@
   );
   --color-ok: color-mix(in srgb, var(--ok) calc(1 * 100%), transparent);
   --color-warn: color-mix(in srgb, var(--warn) calc(1 * 100%), transparent);
+  --color-warn-hover: color-mix(
+    in srgb,
+    var(--warn-hover) calc(1 * 100%),
+    transparent
+  );
   --color-amber: color-mix(in srgb, var(--amber) calc(1 * 100%), transparent);
   --color-btn: color-mix(in srgb, var(--btn) calc(1 * 100%), transparent);
   --color-btn-hover: color-mix(
@@ -300,6 +305,16 @@
     --line-blue: #7c92b7;
     --ok: #4ba883;
     --warn: #c83d28;
+    /* 🔴 CAMP-345. Наведення для руйнівної дії.
+       Його не було, тому кнопка «видалити акаунт» — єдина незворотна на
+       сайті — під курсором не змінювалась узагалі.
+
+       Напрямок узятий із самої теми, не з голови: `button_background_
+       color_secondary` там #404B62, а її ж `_hover` #2F384A, тобто
+       світла тема ТЕМНІШАЄ під курсором. Ці два числа в нас уже живуть
+       як `--btn` і `--btn-hover`; `--warn-hover` повторює той самий
+       крок для червоного. */
+    --warn-hover: #a8321f;
     --amber: #ffc83c;
     --btn: #404b62;
     --btn-hover: #2f384a;
@@ -392,6 +407,7 @@
       --line-blue: #5a6e92;
       --ok: #5fbf98;
       --warn: #e4715c;
+      --warn-hover: #ef8470;
       --amber: #ffd36b;
       --btn: #4c5a76;
       --btn-hover: #5c6c8c;
@@ -421,6 +437,7 @@
     --line-blue: #5a6e92;
     --ok: #5fbf98;
     --warn: #e4715c;
+    --warn-hover: #ef8470;
     --amber: #ffd36b;
     --btn: #4c5a76;
     --btn-hover: #5c6c8c;

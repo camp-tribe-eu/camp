@@ -37,6 +37,27 @@ import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'reac
  */
 
 /**
+ * Шість скінів, і В КОЖНОГО Є ВИДИМЕ НАВЕДЕННЯ — заміряно в браузері
+ * 19.10.2026, обчисленим стилем під курсором, а не прочитанням коду:
+ *
+ *   primary      тло  #404B62 → #2F384A
+ *   secondary    рамка #D4D4D4 → --line-blue
+ *   accent       рамка --line-blue → --heading
+ *   chip         рамка --line-blue, і текст --ink-2 → --heading
+ *   danger       тло  #C83D28 → #A8321F
+ *   danger-soft  тло  #FFFFFF → #F8F8F9
+ *
+ * 🔴 Трьом із них наведення довелось ДОДАТИ: `accent`, `danger` і
+ * `danger-soft` його не мали зовсім. Тобто кнопка «видалити акаунт» —
+ * єдина незворотна дія на сайті — під курсором не змінювалась ніяк.
+ *
+ * 🔴 І окремо про саму тему: її «пʼять варіантів, у кожного стан
+ * hover» — лише наполовину правда. У `config/settings_schema.json`
+ * значення `button_background_color_primary` і `..._primary_hover`
+ * однакові (#F8F8F9), і так само в `thirdly`. Тобто два з пʼяти її
+ * варіантів оголошують наведення, якого не видно. Ми повторили її
+ * НАПРЯМОК (світла тема темнішає, темна світлішає), а не цю ваду.
+ *
  * Шість скінів.
  *
  * 🔴 І ЦЕ ВЖЕ ВДРУГЕ ВИПРАВЛЕНЕ ЧИСЛО. Спершу я написав «три», потім
@@ -114,10 +135,10 @@ const VARIANT: Record<Variant, string> = {
   secondary:
     'border-line-2 bg-surface text-heading hover:border-line-blue disabled:opacity-60',
   accent:
-    'border-line-blue bg-accent-surface font-semibold text-heading disabled:opacity-60',
+    'border-line-blue bg-accent-surface font-semibold text-heading hover:border-heading disabled:opacity-60',
   chip: 'border-line-2 bg-surface text-ink-2 hover:border-line-blue hover:text-heading disabled:opacity-60',
-  danger: 'border-transparent bg-warn font-semibold text-white',
-  'danger-soft': 'border-warn bg-surface text-warn hover:border-warn',
+  danger: 'border-transparent bg-warn font-semibold text-white hover:bg-warn-hover',
+  'danger-soft': 'border-warn bg-surface text-warn hover:bg-surface-2',
 };
 
 const SIZE: Record<Size, string> = {
