@@ -110,14 +110,33 @@ ssh_() { ssh -n -i "$KEY" -o ConnectTimeout=10 "$HOST" "$@"; }
 # строк колись змінять, копія поїде за ним, а не лишиться довшою.
 remote_days() {
   local r
-  r="$(ssh_ "awk '/^[[:space:]]*maxage[[:space:]]/ {print \$2}' /etc/logrotate.d/camptribe-caddy" 2>/dev/null | tr -d '[:space:]')"
-  [[ "$r" =~ ^[0-9]+$ ]] && echo "$r" || echo "$DAYS"
+  # 🔴 `head -1`, А НЕ СКЛЕЮВАННЯ. Перша редакція пропускала вивід awk
+  # через `tr -d '[:space:]'` — і якби в конфігу колись стало ДВА блоки
+  # `maxage`, два числа злиплись би в одне (14 і 30 → `1430`). Воно
+  # проходить `^[0-9]+$`, cutoff їде на десять років назад, і прибирання
+  # мовчки перестає прибирати. Знайдено рецензією 19.10.2026.
+  r="$(ssh_ "awk '/^[[:space:]]*maxage[[:space:]]/ {print \$2; exit}' /etc/logrotate.d/camptribe-caddy" 2>/dev/null | tr -d '\r\n[:space:]')"
+  # Межа згори теж потрібна: строк, якого ми не очікували, краще
+  # прочитати як помилку, ніж тихо подовжити зберігання вдвічі.
+  if [[ "$r" =~ ^[0-9]{1,3}$ ]] && [ "$r" -ge 1 ] && [ "$r" -le 90 ]; then
+    echo "$r"
+  else
+    echo "$DAYS"
+  fi
 }
 
 prune() {
   # Імʼя файла несе дату: 2026-10-19-<хеш>.log
-  local cutoff
-  cutoff="$(date -u -v-"${DAYS}"d +%Y-%m-%d 2>/dev/null || date -u -d "$DAYS days ago" +%Y-%m-%d)"
+  #
+  # 🔴 `DAYS - 1`, А НЕ `DAYS`, І ЦЕ ВИПРАВЛЕННЯ РЕЦЕНЗІЇ. Строк 14 діб
+  # означає, що зберігаються ДНІ `today-13 … today` — рівно чотирнадцять
+  # штук. Межа `today-14` зі строгим `<` лишала файл за `today-14`
+  # живим ще добу, тобто 15. Сусідній `infra/logrotate/camptribe-caddy`
+  # обирає `rotate 13` саме з цієї причини, і копія мусить рахувати так
+  # само, інакше вона переживає оригінал.
+  local cutoff back
+  back=$(( DAYS - 1 ))
+  cutoff="$(date -u -v-"${back}"d +%Y-%m-%d 2>/dev/null || date -u -d "$back days ago" +%Y-%m-%d)"
   local removed=0
   for f in "$DEST"/*.log "$DEST"/*.log.gz; do
     [ -e "$f" ] || continue
@@ -128,10 +147,16 @@ prune() {
   echo "$removed"
 }
 
+# 🔴 ДИВИТИСЬ ТРЕБА НА ВМІСТ, А НЕ НА ІМʼЯ. Перша редакція брала
+# найсвіжіше імʼя — і `--check` зеленів над файлом у НУЛЬ байтів, тобто
+# рівно тоді, коли копії фактично немає. Імʼя — це підпис, не перевірка.
 newest_date() {
-  local n
-  n="$(ls -1 "$DEST" 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}-' | sort | tail -1)"
-  [ -n "$n" ] && echo "${n:0:10}" || echo ""
+  local n best=""
+  while IFS= read -r n; do
+    [ -s "$DEST/$n" ] || continue
+    best="$n"
+  done < <(ls -1 "$DEST" 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}-' | sort)
+  [ -n "$best" ] && echo "${best:0:10}" || echo ""
 }
 
 if [ "$CHECK" = yes ]; then
@@ -177,7 +202,18 @@ for name in access.log access.log.1.gz; do
   day="$(echo "$meta" | sed -n 1p)"
   hash="$(echo "$meta" | sed -n 2p)"
   [ -n "$day" ] && [ -n "$hash" ] || continue
-  case "$name" in *.gz) ext=log.gz ;; *) ext=log ;; esac
+  case "$name" in
+    *.gz)
+      ext=log.gz
+      # 🔴 ВІДРОТОВАНИЙ ФАЙЛ МОЛОДШИЙ ЗА СВІЙ ВМІСТ НА ДОБУ. Його
+      # `mtime` — це момент ротації, тобто СЬОГОДНІ, а рядки в ньому
+      # вчорашні. Підписати його сьогоднішньою датою означало б
+      # тримати вчорашній вміст на добу довше за строк — рецензія
+      # нарахувала так 16 діб замість 14.
+      day="$(date -u -v-1d -j -f %Y-%m-%d "$day" +%Y-%m-%d 2>/dev/null || date -u -d "$day -1 day" +%Y-%m-%d)"
+      ;;
+    *) ext=log ;;
+  esac
   out="$DEST/$day-$hash.$ext"
   if [ -e "$out" ]; then
     echo "=  $(basename "$out")"

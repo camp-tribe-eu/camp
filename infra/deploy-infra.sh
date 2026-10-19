@@ -142,7 +142,11 @@ ssh_ 'systemd-analyze verify /etc/systemd/system/camptribe-*.service'
 # Другий бік тієї ж монети: перевірка мусить ДОВЕСТИ, що наш конфіг
 # узагалі прочитано. Розбір, який мовчки пропустив файл, виглядає так
 # само успішно, як розбір, що його прийняв.
-ssh_ 'out=$(logrotate -d /etc/logrotate.conf 2>&1)
+ssh_ 'if out=$(logrotate -d /etc/logrotate.conf 2>&1); then :; else
+        echo "logrotate: розбір конфігурації впав" >&2
+        echo "$out" | tail -20 >&2
+        exit 1
+      fi
       if echo "$out" | grep -qi "duplicate log entry"; then
         echo "logrotate: той самий файл заявлено двічі" >&2
         echo "$out" | grep -i -B2 "duplicate log entry" >&2
@@ -169,12 +173,26 @@ ssh_ 'systemctl reload caddy && systemctl is-active --quiet caddy'
 #
 # Число звіряється з РЕПОЗИТОРІЄМ, а не вписане тут: інакше це був би
 # третій екземпляр того самого значення, який розійдеться з рештою.
-f2b_want="$(awk -F= '/^maxretry/ {gsub(/[ \t]/, "", $2); print $2}' "$HERE/fail2ban/zz-camptribe.local")"
-[ -n "$f2b_want" ] || { echo "у zz-camptribe.local немає maxretry" >&2; exit 1; }
+# 🔴 СВІДКОМ Є `bantime`, А НЕ `maxretry`, І ЦЕ ВИПРАВЛЕННЯ РЕЦЕНЗІЇ.
+# Перша редакція звіряла `maxretry`. Але в upstream `jail.conf` у
+# `[DEFAULT]` теж стоїть `maxretry = 5` — тобто та сама пʼятірка
+# повернулась би й тоді, коли нашого файла на машині немає або його не
+# прочитали. Свідок, що однаково задоволений обома світами, не свідчить
+# ні про що (звірено з першоджерелом fail2ban 1.1.0).
+#
+# `bantime` розрізняє: у нас година, у дистрибутива 10 хвилин.
+f2b_want="$(awk -F= '/^bantime/ {gsub(/[ \t]/, "", $2); print $2}' "$HERE/fail2ban/zz-camptribe.local")"
+[ -n "$f2b_want" ] || { echo "у zz-camptribe.local немає bantime" >&2; exit 1; }
+# `1h` у конфігу, секунди у відповіді демона.
+case "$f2b_want" in
+  *h) f2b_want_s=$(( ${f2b_want%h} * 3600 )) ;;
+  *m) f2b_want_s=$(( ${f2b_want%m} * 60 )) ;;
+  *)  f2b_want_s="$f2b_want" ;;
+esac
 ssh_ 'fail2ban-client reload >/dev/null'
-ssh_ "got=\$(fail2ban-client get sshd maxretry 2>&1)
-      [ \"\$got\" = \"$f2b_want\" ] || {
-        echo \"fail2ban: maxretry=\$got, а в репозиторії $f2b_want\" >&2; exit 1; }" 
+ssh_ "got=\$(fail2ban-client get sshd bantime 2>&1)
+      [ \"\$got\" = \"$f2b_want_s\" ] || {
+        echo \"fail2ban: bantime=\$got, а в репозиторії $f2b_want ($f2b_want_s с)\" >&2; exit 1; }" 
 
 # 🔴 СКОПІЙОВАНИЙ ТАЙМЕР НЕ Є УВІМКНЕНИМ ТАЙМЕРОМ, і до 14.10.2026 цей
 # скрипт цієї різниці не знав. Файл лягає на машину, `daemon-reload`

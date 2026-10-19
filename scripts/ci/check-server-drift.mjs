@@ -86,6 +86,19 @@ export const FORBIDDEN_TARGET = '/etc/caddy/gate-closed.conf';
  * `CADDY_PAIRS="…"`, тобто саме те, чим скрипт користується.
  */
 export function deployedPairs(text) {
+  // 🔴 ДРУГЕ ПРИСВОЄННЯ — ЦЕ ПРОВАЛ, А НЕ «ВІЗЬМУ ПЕРШЕ». Рецензія
+  // 19.10.2026 показала форму атаки: нижче за дві стрічки дописати
+  //     CADDY_PAIRS+="\ngate-closed.conf:/etc/caddy/gate-closed.conf"
+  // і розкладка понесе на машину пароль гейта, а сторож лишиться
+  // зеленим 39/39 — бо `match` без прапорця бере ПЕРШЕ входження й
+  // бачить ті самі три безпечні пари. `FORBIDDEN_TARGET` при цьому
+  // дивиться на розібране, а не на розкладене.
+  //
+  // Тому питання не «що в першому присвоєнні», а «скільки разів цю
+  // змінну взагалі пишуть». Один раз — розбираємо; інакше жодної
+  // відповіді, і виклик нагорі читає це як провал.
+  const writes = text.match(/^\s*CADDY_PAIRS\s*\+?=/gm) ?? [];
+  if (writes.length !== 1) return null;
   const m = text.match(/^CADDY_PAIRS="([^"]*)"/m);
   if (!m) return null;
   return m[1]
@@ -463,6 +476,12 @@ function selfTest() {
     // 🔴 Пара до попереднього: порожній перелік задовольнив би збіг,
     // якби NAMED теж колись спорожнів.
     is('пар не нуль', (pairs ?? []).length > 0, true);
+    // 🔴 Доданий рядок до тієї ж змінної має валити розбір, а не
+    // «не помітитись». Саме так пароль гейта потрапив би на машину.
+    is('друге присвоєння CADDY_PAIRS робить розбір неможливим',
+      deployedPairs(`${script}\nCADDY_PAIRS+="\\ngate-closed.conf:/etc/caddy/gate-closed.conf"\n`),
+      null);
+    is('порожній скрипт теж не дає пар', deployedPairs('echo привіт\n'), null);
     is('пароль гейта не є ціллю розкладки',
       [...(pairs ?? []).map((x) => x.remote), ...NAMED.map((x) => x.remote)]
         .filter((r) => r === FORBIDDEN_TARGET),
@@ -665,7 +684,7 @@ function selfTest() {
     ).stale,
     false);
 
-  const EXPECTED_CASES = 39;
+  const EXPECTED_CASES = 41;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;
