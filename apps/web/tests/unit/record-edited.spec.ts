@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import CampsitePage from '@/app/camping/[country]/[region]/[slug]/page';
 import { renderAsyncComponent } from './render-component';
 import { visibleText } from './rendered-text';
+import { CLIENT_ISLANDS } from './client-islands';
 
 // CAMP-256 — what the CAMPSITE PAGE says about when its record was last
 // edited in OpenStreetMap.
@@ -107,9 +108,11 @@ async function pageText(extra: Record<string, unknown>): Promise<string> {
         ? json({ spot: spot(extra), nearby: [] })
         : json({}, 404),
     async () => {
-      html = await renderAsyncComponent(CampsitePage, {
-        params: Promise.resolve(PARAMS),
-      });
+      html = await renderAsyncComponent(
+        CampsitePage,
+        { params: Promise.resolve(PARAMS) },
+        { omit: CLIENT_ISLANDS },
+      );
     },
   );
   return visibleText(html);
