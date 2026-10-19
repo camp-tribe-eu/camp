@@ -130,11 +130,29 @@ export default function Privacy() {
         </li>
       </UL>
       <P>
+        The rest of each line is about the connection rather than about
+        you: which name the request arrived under, what your browser said
+        it could accept, and the identifiers our content delivery network
+        uses to trace a request through its own machines.
+      </P>
+      <P>
         It does <B>not</B> hold the contents of your cookies or of any
         authorisation header. The server writes the word REDACTED in their
         place before the line reaches the file, so a copy of this log is
-        not a way to sign in as you. Our own pages carry nothing about you
-        in the address itself &mdash; no search terms, no identifiers.
+        not a way to sign in as you.
+      </P>
+      <P>
+        One thing it does hold is worth saying plainly, because it is easy
+        to miss. Several tools on this site keep their state in the page
+        address, so that a link can be reloaded or sent to someone: what
+        you type into the site search, the filters you set on the map, and
+        the answers you give the packing list and the trip cost
+        calculator. While you are using them nothing is sent to us &mdash;
+        they run in your browser. That address reaches us, and this log,
+        when the page is <B>loaded</B> with it: because you reloaded, or
+        because you or somebody else opened a saved link. Then whatever is
+        in the address is written down with the rest of the line, and it
+        goes when that line goes.
       </P>
       <UL>
         <li>

@@ -36,16 +36,33 @@
 # ротації і повертається одразу після. Якщо `postrotate` колись не
 # виконається, файл лишиться без `+a` — і це видно в `lsattr`, тобто
 # провал гучний, а не тихий.
+# 🔴 `maxage` — ДРУГИЙ ЗАМОК, І ВІН ПРО ІНШЕ, НІЖ `rotate`. `daily`
+# означає «не частіше ніж раз на добу», а не «щонайменше раз»: якщо
+# таймер logrotate не відпрацює N діб, усі ці доби складуться в одну
+# `.1`, яка потім проживе ще 13 ротацій. `rotate` рахує ФАЙЛИ, `maxage`
+# рахує ДНІ. Знайдено рецензією 19.10.2026.
+#
+# 🔴 ПАРА `chattr` БЕЗ `|| true`, І ЦЕ ТЕЖ ВИПРАВЛЕННЯ РЕЦЕНЗІЇ. Було
+# `2>/dev/null || true` на обох — тобто провал ховався за побудовою, при
+# тому що коментар поруч обіцяв «провал гучний». Сторож дрейфу звіряє
+# ВМІСТ файлів і атрибутів не читає, тож побачити це не могло ніщо.
+#
+# Тепер: `prerotate` падає → logrotate скасовує ротацію і скаржиться;
+# `postrotate` не просто ставить атрибут, а ПЕРЕВІРЯЄ, що той став, і
+# валить прогін, якщо ні. Журнал без `+a` — це журнал, який зломщик
+# може переписати, і дізнатись про це з тиші неможливо.
 /var/log/caddy/access.log {
 	daily
 	rotate 13
+	maxage 14
 	missingok
 	compress
 	copytruncate
 	prerotate
-		/usr/bin/chattr -a /var/log/caddy/access.log 2>/dev/null || true
+		/usr/bin/chattr -a /var/log/caddy/access.log
 	endscript
 	postrotate
-		/usr/bin/chattr +a /var/log/caddy/access.log 2>/dev/null || true
+		/usr/bin/chattr +a /var/log/caddy/access.log
+		/usr/bin/lsattr /var/log/caddy/access.log | cut -d' ' -f1 | grep -q a || { echo "CAMP-353: append-only не повернувся на access.log" >&2; exit 1; }
 	endscript
 }

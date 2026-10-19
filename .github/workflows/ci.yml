@@ -192,6 +192,19 @@ jobs:
       - name: No secrets in tracked files
         run: node scripts/security/check-secrets.mjs
 
+      # CAMP-353. Копія безпекового журналу живе на ноутбуці власника, а
+      # не в репозиторії; у її рядках справжні адреси читачів. Сторож
+      # дивиться в ІНДЕКС git, бо `.gitignore` описує намір, а не стан.
+      # `grep -c` на іменований рядок — бо «самотест не стартував» і
+      # «всі випадки пройшли» друкують однакове: нічого.
+      - name: Log guard still catches a planted address
+        run: |
+          set -o pipefail
+          node scripts/ci/check-no-log-in-git.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-no-log-in-git self-test:' >/dev/null
+      - name: No security-log data in tracked files
+        run: node scripts/ci/check-no-log-in-git.mjs
+
       # Fails on an advisory nobody has looked at, not on every known
       # one — the reasoning is in scripts/security/known-advisories.json.
       #

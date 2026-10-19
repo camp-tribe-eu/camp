@@ -56,6 +56,49 @@ export const DESTINATION = Object.freeze({
 });
 
 /**
+ * Файли, що лежать у репозиторії під ОДНИМ іменем, а на машині під
+ * іншим. Теками їх не опишеш, тому вони перелічені парами.
+ *
+ * 🔴 ЦЬОГО НЕ БУЛО, І САМЕ ЦЕЙ ФАЙЛ ЗРОБИВ ПОЛІТИКУ НЕПРАВДОЮ. Конфіг
+ * веб-сервера правився руками на машині й не звірявся ніколи: зміна в
+ * один рядок 15.10 вимкнула журналювання, а опублікований текст про це
+ * не дізнався. Рецензія CAMP-353 назвала це прямо — підрахунок «19
+ * проти 18», яким я пишався, не бачив цілої теки.
+ *
+ * 🔴 `gate-closed.conf` ТУТ НЕМАЄ НАВМИСНО: у ньому пароль гейта, якого
+ * в git немає. `assertNoSecretTarget` нижче стежить, щоб він сюди не
+ * потрапив ні через неуважність, ні через зручність.
+ */
+export const NAMED = Object.freeze([
+  { kind: 'caddy', name: 'camptribe.eu.caddyfile', remote: '/etc/caddy/Caddyfile' },
+  { kind: 'caddy', name: 'gate-open.conf', remote: '/etc/caddy/gate-open.conf' },
+  { kind: 'caddy', name: 'gate-closed.conf.example', remote: '/etc/caddy/gate-closed.conf.example' },
+]);
+
+/** Шлях, якого розкладка не сміє торкатись за жодних обставин. */
+export const FORBIDDEN_TARGET = '/etc/caddy/gate-closed.conf';
+
+/**
+ * Пари, які РЕАЛЬНО розкладає `deploy-infra.sh` — прочитані з нього.
+ *
+ * 🔴 ЧИТАЄТЬСЯ ДАНИЙ БЛОК, А НЕ КОМЕНТАР. Сторож, що звіряється з
+ * поясненням, підтверджує пояснення. Тут розбирається рядок
+ * `CADDY_PAIRS="…"`, тобто саме те, чим скрипт користується.
+ */
+export function deployedPairs(text) {
+  const m = text.match(/^CADDY_PAIRS="([^"]*)"/m);
+  if (!m) return null;
+  return m[1]
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const i = l.indexOf(':');
+      return { name: l.slice(0, i), remote: l.slice(i + 1) };
+    });
+}
+
+/**
  * 🔴 БЕЗ ЗНАЧЕННЯ ЗА ЗАМОВЧУВАННЯМ, І ЦЕ НАВМИСНО. Репозиторій
  * публічний; адреси продакшн-машини в ньому ще немає, і класти її туди
  * заради зручності означало б звузити роботу тому, хто її шукає.
@@ -72,6 +115,9 @@ export function managedFiles(readDir = readdirSync) {
     for (const name of readDir(path.join(INFRA, dir))) {
       out.push({ kind: dir, name, local: path.join(INFRA, dir, name), remote: `${dest}/${name}` });
     }
+  }
+  for (const f of NAMED) {
+    out.push({ kind: f.kind, name: f.name, local: path.join(INFRA, f.kind, f.name), remote: f.remote });
   }
   return out.sort((a, b) => a.remote.localeCompare(b.remote));
 }
@@ -392,11 +438,37 @@ function selfTest() {
     const got = managedFiles(stub);
     is('кожна тека лишається собою',
       got.map((f) => `${f.kind}:${f.remote}`).sort(),
-      Object.entries(DESTINATION).map(([k, d]) => `${k}:${d}/${k}-fixture`).sort());
+      [
+        ...Object.entries(DESTINATION).map(([k, d]) => `${k}:${d}/${k}-fixture`),
+        ...NAMED.map((f) => `${f.kind}:${f.remote}`),
+      ].sort());
     is('жодна тека не загубилась',
-      got.length, Object.keys(DESTINATION).length);
+      got.length, Object.keys(DESTINATION).length + NAMED.length);
     is('рід не збігається в купу',
-      new Set(got.map((f) => f.kind)).size, Object.keys(DESTINATION).length);
+      new Set(got.map((f) => f.kind)).size, Object.keys(DESTINATION).length + 1);
+  }
+
+  // 🔴 СТОРОЖ І РОЗКЛАДКА МУСЯТЬ НАЗИВАТИ ОДНЕ Й ТЕ САМЕ. Два переліки
+  // тих самих файлів у двох мовах — це рівно та форма, якою дрейф і
+  // заходить: один оновили, другий ні, і обидва впевнені в собі.
+  // Читається БЛОК ДАНИХ `CADDY_PAIRS` із bash-скрипта, тобто те, чим
+  // він користується, а не коментар поруч.
+  {
+    const script = readFileSync(path.join(INFRA, 'deploy-infra.sh'), 'utf8');
+    const pairs = deployedPairs(script);
+    is('розкладка взагалі оголошує пари', Array.isArray(pairs), true);
+    is('сторож і розкладка згодні щодо Caddy',
+      (pairs ?? []).map((x) => `${x.name}:${x.remote}`).sort(),
+      NAMED.map((x) => `${x.name}:${x.remote}`).sort());
+    // 🔴 Пара до попереднього: порожній перелік задовольнив би збіг,
+    // якби NAMED теж колись спорожнів.
+    is('пар не нуль', (pairs ?? []).length > 0, true);
+    is('пароль гейта не є ціллю розкладки',
+      [...(pairs ?? []).map((x) => x.remote), ...NAMED.map((x) => x.remote)]
+        .filter((r) => r === FORBIDDEN_TARGET),
+      []);
+    is('приклад і справжній гейт — різні файли',
+      NAMED.some((f) => f.remote === `${FORBIDDEN_TARGET}.example`), true);
   }
 
   // 🔴 Форма, що вбила бекап: рядок у юніті, який нікуди не веде.
@@ -593,7 +665,7 @@ function selfTest() {
     ).stale,
     false);
 
-  const EXPECTED_CASES = 34;
+  const EXPECTED_CASES = 39;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;

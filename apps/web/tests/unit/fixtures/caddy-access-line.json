@@ -1,0 +1,80 @@
+{
+  "level": "info",
+  "ts": 1792435750.381277,
+  "logger": "http.log.access.log0",
+  "msg": "handled request",
+  "request": {
+    "remote_ip": "203.0.113.10",
+    "remote_port": "54321",
+    "client_ip": "198.51.100.23",
+    "proto": "HTTP/2.0",
+    "method": "GET",
+    "host": "camptribe.eu",
+    "uri": "/camping/france",
+    "headers": {
+      "Accept-Encoding": [
+        "gzip, br"
+      ],
+      "X-Forwarded-For": [
+        "198.51.100.23"
+      ],
+      "Authorization": [
+        "REDACTED"
+      ],
+      "User-Agent": [
+        "curl/8.7.1"
+      ],
+      "Cf-Ipcountry": [
+        "FR"
+      ],
+      "Accept": [
+        "*/*"
+      ],
+      "Cf-Visitor": [
+        "{\"scheme\":\"https\"}"
+      ],
+      "X-Forwarded-Proto": [
+        "https"
+      ],
+      "Cdn-Loop": [
+        "cloudflare; loops=1"
+      ],
+      "Cf-Connecting-Ip": [
+        "198.51.100.23"
+      ],
+      "Cookie": [
+        "REDACTED"
+      ],
+      "Cf-Ray": [
+        "0000000000000000-XXX"
+      ]
+    },
+    "tls": {
+      "resumed": false,
+      "version": 772,
+      "cipher_suite": 4865,
+      "proto": "h2",
+      "server_name": "camptribe.eu",
+      "ech": false
+    }
+  },
+  "bytes_read": 0,
+  "user_id": "",
+  "duration": 0.000171159,
+  "size": 0,
+  "status": 401,
+  "resp_headers": {
+    "X-Robots-Tag": [
+      "noindex, nofollow, noarchive, nosnippet, noimageindex"
+    ],
+    "Www-Authenticate": [
+      "Basic realm=\"restricted\""
+    ],
+    "Server": [
+      "Caddy"
+    ],
+    "Alt-Svc": [
+      "h3=\":443\"; ma=2592000"
+    ]
+  }
+}
