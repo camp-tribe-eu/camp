@@ -204,6 +204,27 @@ jobs:
             | grep -c 'check-no-log-in-git self-test:' >/dev/null
       - name: No security-log data in tracked files
         run: node scripts/ci/check-no-log-in-git.mjs
+      # CAMP-355. Адреса продакшн-машини лежала в трьох файлах публічного
+      # репозиторію, а сторож дрейфу двічі пояснював, чому її там «немає».
+      # Правило поставлене навпаки — не «заборонити цей рядок» (тоді сам
+      # сторож став би місцем, де адреса записана), а «кожна публічна
+      # адреса названа з причиною». Нашої в переліку немає й не буде.
+      # Два окремі кроки, по одному самотесту в кожному: сторож
+      # check-selftest-steps читає крок як ціле й не може приписати
+      # другий виклик, а невидимий йому крок — це крок, що лишив огляд
+      # у тиші.
+      - name: Address classifier still tells ours from documentation
+        run: |
+          set -o pipefail
+          node scripts/lib/ip.mjs --self-test | tee /dev/stderr \
+            | grep -c 'ip self-test:' >/dev/null
+      - name: Address guard still catches an unlisted address
+        run: |
+          set -o pipefail
+          node scripts/ci/check-public-addresses.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-public-addresses self-test:' >/dev/null
+      - name: Every public address in the tree is accounted for
+        run: node scripts/ci/check-public-addresses.mjs
 
       # Fails on an advisory nobody has looked at, not on every known
       # one — the reasoning is in scripts/security/known-advisories.json.
