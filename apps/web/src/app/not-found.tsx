@@ -73,7 +73,7 @@ export default async function NotFound() {
 
       <section className="mt-8">
         <h2 className="text-xl font-bold md:text-[25px]">Browse by country</h2>
-        <ul className="mt-3 flex flex-wrap gap-2">
+        <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
           {countries.map((c) => (
             <li key={c.country}>
               <ButtonLink

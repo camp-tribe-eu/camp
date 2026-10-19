@@ -96,7 +96,7 @@ export default async function SearchPage() {
         <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-2">
           Or browse by country
         </h2>
-        <ul className="mt-3 flex flex-wrap gap-2">
+        <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
           {countries.map((c) => (
             <li key={c.country}>
               <ButtonLink

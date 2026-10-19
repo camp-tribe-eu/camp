@@ -2403,7 +2403,7 @@ export default function CampsiteMap() {
           them a real switch means a new data state in map-chunks.ts and a
           sentence for it, which is CAMP-122's work and not this card's to
           do badly. */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-3">
         <span className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-2">
           Layers
         </span>
@@ -2425,7 +2425,7 @@ export default function CampsiteMap() {
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-3">
         <span className="text-xs font-semibold uppercase tracking-widest text-ink-2">
           Map style
         </span>

@@ -96,7 +96,7 @@ export default function PathRecovery() {
           ? `That campsite is not one we hold, but we have ${region.spots} in ${region.name}.`
           : `That address does not match a campsite we hold. Here is everything we have in ${country.name}.`}
       </p>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
         {region && (
           <ButtonLink
             href={`/camping/${country.country}/${region.slug}`} variant="accent" size="sm">

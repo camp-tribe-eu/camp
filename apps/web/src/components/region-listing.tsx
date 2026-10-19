@@ -160,12 +160,12 @@ function Pagination({
 }) {
   const href = (n: number) => (n === 1 ? base : `${base}/page/${n}`);
   return (
-    <nav aria-label="Pagination" className="mt-8 flex flex-wrap gap-2">
+    <nav aria-label="Pagination" className="mt-8 flex flex-wrap gap-x-2 gap-y-3">
       {Array.from({ length: pages }, (_, i) => i + 1).map((n) => (
         <ButtonLink
           key={n}
           href={href(n)}
-          aria-current={n === page ? 'page' : undefined} variant={n === page ? 'accent' : 'chip'} size="sm" className="min-w-9 tabular-nums">
+          aria-current={n === page ? 'page' : undefined} variant={n === page ? 'accent' : 'chip'} size="sm" className="min-w-12 tabular-nums">
           {n}
         </ButtonLink>
       ))}
@@ -198,7 +198,7 @@ async function RegionNeighbours({
       <h2 className="text-xl font-bold md:text-[25px]">
         Other regions in {cName}
       </h2>
-      <ul className="mt-3 flex flex-wrap gap-2">
+      <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
         {others.map((r) => (
           <li key={r.slug}>
             <ButtonLink

@@ -160,7 +160,7 @@ export default function ToolsIndex() {
           with that country&rsquo;s fuel for the week of{' '}
           {longDate(FUEL.bulletinDate)}.
         </p>
-        <ul className="mt-4 flex flex-wrap gap-2">
+        <ul className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
           {countries.map((c) => (
             <li key={c.code}>
               <ButtonLink

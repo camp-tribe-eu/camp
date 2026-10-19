@@ -137,7 +137,7 @@ export default async function MapPage() {
             recorded yet, so they are on the map but have no page to browse to.
           </p>
         )}
-        <ul className="mt-3 flex flex-wrap gap-2">
+        <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
           {countries.map((c) => (
             <li key={c.country}>
               <ButtonLink

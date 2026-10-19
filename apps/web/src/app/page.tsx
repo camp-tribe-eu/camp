@@ -108,7 +108,7 @@ function Hero({
             <p className="mt-1 text-sm text-ink-2">
               Pick a country to see its regions and campsites.
             </p>
-            <ul className="mt-4 flex flex-wrap gap-2">
+            <ul className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
               {countries.map((c) => (
                 <li key={c.country}>
                   <ButtonLink

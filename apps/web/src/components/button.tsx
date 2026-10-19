@@ -4,6 +4,20 @@ import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'reac
 /**
  * Кнопка — одна на весь застосунок (CAMP-345).
  *
+ * 🔴 `data-ct-button` — НЕ прикраса і не для стилів. Поки його не було,
+ * головне правило цієї картки не охороняло ніщо: прибери
+ * `touch-target` із `SIZE.sm` — і всі 104 файли тестів лишаться
+ * зеленими. `playwright.config.ts` каже про це прямо вже давно: «жоден
+ * із 286 тестів не звертається до дотику чи ширини екрана».
+ *
+ * Мітка дає `tests/e2e/touch-targets.spec.ts` ціль, яку не можна
+ * сплутати з випадковим `inline-flex`, і яка ПЕРЕЖИВАЄ мутацію: якщо
+ * хтось прибере зону натискання, кнопка лишиться знайденою — і тест
+ * почервоніє, а не перестане нічого бачити.
+ *
+ * Сирий `<a>` з `buttonClasses()` на /contact мітки не має й під
+ * сторожа не підпадає; він розміру `md`, тобто 48 px власною висотою.
+ *
  * 🔴 СКІНИ ЗАМІРЯНІ, НЕ ВИГАДАНІ. 19.10.2026 я перебрав усі `.tsx` у
  * `apps/web/src` і витяг кожен елемент із `inline-flex` і заданою
  * висотою: 27 означень у 21 файлі. Чотири скіни нижче — це вони,
@@ -72,6 +86,16 @@ import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'reac
  *               а стан «вибрано» у перемикачах і наголос у формах.
  * `danger`    — залита `warn`. Рівно одна в проєкті: «видалити акаунт».
  * `danger-soft` — контурна `warn`. Теж одна: «видалити мої дані».
+ * 🔴 `chip` несе наведення під `not-aria-disabled:`, і це не прикраса.
+ * Перемикач «Satellite» на мапі має ТРИ стани, і третій — «шару для цієї
+ * країни немає» — навмисно лишається у фокусі через `aria-disabled`, а
+ * не `disabled` (інакше той, хто ходить клавіатурою, не дізнається, що
+ * контрол існує, і не почує пояснення, чому він вимкнений). Через це
+ * варіанти `disabled:*` його не бачать, і проста `hover:` змусила б
+ * недоступну кнопку видимо відгукуватись на курсор. До цього PR у неї
+ * просто не було hover-класів; `not-aria-disabled:` повертає ту саму
+ * поведінку, але одним правилом, а не відсутністю правила.
+ *
  * `chip`      — та сама рамка, що в `secondary`, але притемнений текст
  *               (`text-ink-2`). Це невибраний бік перемикача; він
  *               ЗАВЖДИ ходить у парі з `accent` і наодинці не
@@ -117,6 +141,14 @@ type Size = 'sm' | 'md';
  * прозорість наклалась би поверх і притемнила те, що вже свідомо
  * знебарвлене. Тому прозорість живе у тих скінах, яким вона потрібна.
  *
+ * 🔴 `disabled:pointer-events-none` ТУТ ТЕЖ НЕМАЄ, і це виправлення, а
+ * не вподобання. Я був його додав — і тим зробив мертвим
+ * `disabled:cursor-not-allowed`, який `account-delete-view` ставить на
+ * кнопку «видалити акаунт»: без подій вказівника курсор не
+ * застосовується взагалі. Тобто єдина незворотна кнопка сайту втратила
+ * єдиний сигнал, що вона зараз не працює. Справжній `disabled` і так не
+ * дає кліку — `pointer-events` тут нічого не стеріг.
+ *
  * 🔴 `aria-disabled`, а не лише `disabled`: перемикач супутника на мапі
  * лишається у фокусі навмисно — без цього той, хто ходить клавіатурою,
  * не дізнається, що контрол існує, і не почує пояснення, чому він
@@ -125,7 +157,7 @@ type Size = 'sm' | 'md';
  */
 const BASE =
   'relative inline-flex items-center justify-center gap-2 rounded-sm border ' +
-  'text-sm transition-colors disabled:pointer-events-none ' +
+  'text-sm transition-colors ' +
   'aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ' +
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-blue';
 
@@ -136,7 +168,8 @@ const VARIANT: Record<Variant, string> = {
     'border-line-2 bg-surface text-heading hover:border-line-blue disabled:opacity-60',
   accent:
     'border-line-blue bg-accent-surface font-semibold text-heading hover:border-heading disabled:opacity-60',
-  chip: 'border-line-2 bg-surface text-ink-2 hover:border-line-blue hover:text-heading disabled:opacity-60',
+  chip:
+    'border-line-2 bg-surface text-ink-2 not-aria-disabled:hover:border-line-blue not-aria-disabled:hover:text-heading disabled:opacity-60',
   danger: 'border-transparent bg-warn font-semibold text-white hover:bg-warn-hover',
   'danger-soft': 'border-warn bg-surface text-warn hover:bg-surface-2',
 };
@@ -178,7 +211,11 @@ export function Button({
   ...rest
 }: Common & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button className={classesFor(variant, size, className)} {...rest}>
+    <button
+      data-ct-button={variant}
+      className={classesFor(variant, size, className)}
+      {...rest}
+    >
       {children}
     </button>
   );
@@ -203,7 +240,12 @@ export function ButtonLink({
   ...rest
 }: Common & { href: string } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'>) {
   return (
-    <Link href={href} className={classesFor(variant, size, className)} {...rest}>
+    <Link
+      href={href}
+      data-ct-button={variant}
+      className={classesFor(variant, size, className)}
+      {...rest}
+    >
       {children}
     </Link>
   );
