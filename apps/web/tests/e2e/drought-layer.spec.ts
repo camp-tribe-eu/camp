@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { openMapRetryingThrottle } from './open-map';
 import { INITIAL_VIEW } from '@/lib/map-sources';
 
 // CAMP-200, in a browser, because the things that matter here are only true
@@ -177,17 +178,14 @@ async function skipWithoutWebGL(page: Page) {
   test.skip(!ok, 'no WebGL2 in this browser — the map, and so the drought layer, cannot render');
 }
 
-/** Open /map, retrying only when the page itself did not render (the API rate-limits). */
+/**
+ * Open /map, retrying only when the page itself did not render (the API
+ * rate-limits). Вікно повторів зв'язане ЧАСОМ — чому саме так, написано
+ * в `open-map.ts`.
+ */
 async function openMap(page: Page, land: string = STUB_LAND) {
   await stubStyles(page, land);
-  for (let attempt = 0; attempt < 8; attempt++) {
-    await page.goto('/map');
-    await skipWithoutWebGL(page);
-    if ((await page.locator(MAP).count()) > 0) return;
-    if ((await page.getByText('This page did not load properly').count()) === 0) return;
-    await page.waitForTimeout(3000 * (attempt + 1));
-  }
-  throw new Error('/map never rendered: the API kept refusing the region index');
+  await openMapRetryingThrottle(page, { mapSelector: MAP, afterGoto: skipWithoutWebGL });
 }
 
 /** Wait until the map has stopped fetching and drawn. */
