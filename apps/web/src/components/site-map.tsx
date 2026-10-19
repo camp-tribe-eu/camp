@@ -53,6 +53,9 @@ export default function SiteMap({
 
   useEffect(() => {
     if (!box.current) return;
+    // Нова точка — новий шанс. Без цього рядка `failed` з попереднього
+    // кемпінгу перенісся б на наступний.
+    setFailed(false);
     let map: MapLibreMap | null = null;
     try {
       map = new MapLibreMap({
@@ -91,6 +94,29 @@ export default function SiteMap({
       map.on('error', () => {
         if (!ready) setFailed(true);
       });
+
+      // 🔴 `data-ready` СТАВИТЬСЯ ЗА НАМАЛЬОВАНИМ, А НЕ ЗА ПОДІЄЮ, і це
+      // єдиний спосіб помітити найтихішу поломку цієї бібліотеки.
+      //
+      // Якщо не покликати `setWorkerUrl`, MapLibre шукає воркер за
+      // `import.meta.url`, тобто всередині чанка Next, отримує 404 у
+      // вигляді HTML і відмовляється його виконувати. Наслідок описаний
+      // у `campsite-map.tsx:160`: мапа зʼявляється, контроли працюють,
+      // помилки до `load` немає — і ЖОДЕН векторний шар не малюється,
+      // бо розбір векторних плиток це вся робота воркера.
+      //
+      // Канвас при цьому існує. Подія `error` не спрацьовує. Тобто
+      // перевірка «чи є канвас» і перевірка «чи не показано запасний
+      // текст» проходять ОБИДВІ — я це заміряв мутацією, і сторож
+      // лишився зеленим.
+      //
+      // `queryRenderedFeatures()` питає інше: чи щось справді
+      // намальовано. Порожня мапа цього задовольнити не може.
+      map.on('idle', () => {
+        if (map && map.queryRenderedFeatures().length > 0) {
+          box.current?.setAttribute('data-ready', 'true');
+        }
+      });
     } catch {
       // 🔴 Без WebGL MapLibre кидає ще на конструкторі. Сторінка
       // кемпінгу не має через це зникати — на раннері CI, у старому
@@ -101,26 +127,31 @@ export default function SiteMap({
     return () => map?.remove();
   }, [lat, lon, type]);
 
-  if (failed) {
-    return (
-      <div
-        data-testid="site-map-fallback"
-        className="flex h-full w-full items-center justify-center rounded-card border border-line-2 bg-surface-2 p-6 text-center text-sm text-ink-2"
-      >
-        The map needs WebGL, which this browser did not give us.
-        <br />
-        {label} is at {lat.toFixed(5)}, {lon.toFixed(5)}.
-      </div>
-    );
-  }
-
+  // 🔴 КОНТЕЙНЕР РЕНДЕРИТЬСЯ ЗАВЖДИ, А ЗАПАСНИЙ ТЕКСТ ЛЯГАЄ ПОВЕРХ.
+  // Перша редакція повертала при `failed` зовсім іншу гілку — БЕЗ `ref`.
+  // Наслідок знайшла рецензія і він гірший, ніж здається: `failed`
+  // ніде не скидався, тож ефект при зміні координат виходив одразу на
+  // `if (!box.current) return`, і мапи не було вже НІКОЛИ. Одна помилка
+  // стилю чи воркера на першому кемпінгу — і всі наступні переходи
+  // всередині сайту показували «потрібен WebGL» у браузері, де WebGL є.
+  //
+  // `role` немає навмисно: велика мапа репозиторію його теж не ставить.
+  // Перша редакція мала `role="img"`, а це листова роль — нащадки
+  // стають презентаційними, і дві кнопки зуму лишаються в таб-порядку
+  // без ролі й без імені для читача екрана.
   return (
-    <div
-      ref={box}
-      data-testid="site-map"
-      aria-label={`Map showing ${label}`}
-      role="img"
-      className="h-full w-full rounded-card"
-    />
+    <div className="relative h-full w-full">
+      <div ref={box} data-testid="site-map" className="h-full w-full rounded-card" />
+      {failed && (
+        <div
+          data-testid="site-map-fallback"
+          className="absolute inset-0 flex items-center justify-center rounded-card border border-line-2 bg-surface-2 p-6 text-center text-sm text-ink-2"
+        >
+          The map needs WebGL, which this browser did not give us.
+          <br />
+          {label} is at {lat.toFixed(5)}, {lon.toFixed(5)}.
+        </div>
+      )}
+    </div>
   );
 }
