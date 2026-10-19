@@ -632,6 +632,24 @@ test.describe('in a browser', () => {
     await page.goto(path());
     const section = page.locator('[data-testid="air-quality"]');
     await expect(section).toHaveAttribute('data-state', 'reported');
+
+    // 🔴 СПЕРШУ ДОЧЕКАТИСЬ МАПИ, ПОТІМ РУХАТИ ГОДИННИК — І ЦЕ НЕ
+    // ПІДГОНКА ПІД ТЕСТ. Прилад, доданий попереднім комітом, назвав
+    // причину прямо: `ChunkLoadError: Loading chunk 4670 failed`.
+    //
+    // Мапа кемпінгу тягнеться через `next/dynamic`, а завантажувач
+    // чанків webpack ставить на імпорт СВІЙ таймаут. `fastForward` на
+    // чотири години підриває його негайно — імпорт відхиляється, хоча
+    // чанк цілий, і падіння забирає все дерево React разом із панеллю
+    // якості повітря. Звідси «element(s) not found» після того, як той
+    // самий елемент знайшовся рядком вище.
+    //
+    // Жоден читач не переводить годинник на чотири години посеред
+    // сторінки. Дочекатись, доки сторінка добудеться, — це привести
+    // прогін до стану, який тест і має міряти, а не послабити його:
+    // твердження про `no-fresh-data` нижче лишилось те саме.
+    await page.locator('[data-testid="site-map"], [data-testid="site-map-fallback"]').first().waitFor();
+
     // Four hours pass in a browser that has not been reloaded.
     await page.clock.fastForward('04:00:00');
     try {
