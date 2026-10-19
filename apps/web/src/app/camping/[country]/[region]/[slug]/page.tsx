@@ -37,6 +37,7 @@ import { settingParagraph } from '@/lib/setting';
 import { droughtAtBuild } from '@/lib/drought-build';
 import { WebcamNote } from '@/components/webcam-panel';
 import { ButtonLink } from '@/components/button';
+import { CampsiteMedia } from '@/components/campsite-media';
 
 // CAMP-34 — the campsite page.
 //
@@ -369,6 +370,26 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
 
       {spot.missingSince && <MissingNotice since={spot.missingSince} />}
 
+      {/* 🔴 CAMP-344 — ДВІ КОЛОНКИ, І МЕДІА ШИРШЕ ЗА ОПИС.
+          
+          Так каже Figma (`Shopify Theme #7`, вузол 1079:16220): ліва
+          колонка ≈375 px, права ≈1275 px. Тобто медіа — домінанта
+          сторінки, а опис вузька бічна колонка. До цієї картки сторінка
+          була одноколонковим стеком без жодного `col-span`.
+          
+          Пропорція тут 1 : 1.6, а не 1 : 3.4 як у макеті: у нас ліва
+          колонка несе не артикул і колір, а цитату опису й контакти —
+          текст, який на 375 px перетворюється на колодязь із двох слів
+          у рядку. Число підігнано під наш вміст, і це свідоме
+          розходження, а не недогляд.
+          
+          🔴 На телефоні медіа йде ПЕРШИМ (`order-first`), але картка
+          вимагає, щоб воно не займало перший екран цілком — тому мапа
+          має `min-h-[260px]`, а не висоту екрана. На 812 px це ~32%,
+          і під нею видно початок тексту. */}
+      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
+        <div className="min-w-0">
+
       {/* 🔴 The operator's own description, as a quotation and in their
           own language.
           
@@ -408,6 +429,24 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           it tells a reader we lost their data; no heading tells them we
           never had it, which is the truth. */}
       <Contact spot={spot} />
+        </div>
+
+        {/* 🔴 МЕДІАСЛОТ. Пріоритет — рішення власника 18.10.2026: фото
+            власника, інакше фото користувачів, інакше мапа. `photos`
+            поки завжди порожній: канал власника (CAMP-233/232) і реєстр
+            прав (CAMP-342) ще не зроблені, тож на живих сторінках
+            працює третій рівень. Порядок перших двох доведено тестом
+            `choosePhoto`, а не обіцянкою. */}
+        <div className="order-first min-w-0 lg:order-none">
+          <CampsiteMedia
+            photos={[]}
+            lat={spot.lat}
+            lon={spot.lon}
+            type={spot.type}
+            label={name ?? `${SPOT_TYPE_LABEL[spot.type]} near ${spot.region}`}
+          />
+        </div>
+      </div>
 
       <NoPhotos />
 
