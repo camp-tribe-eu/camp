@@ -10,7 +10,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/env-value.sh
 . "$HERE/lib/env-value.sh"
-EXPECTED=29
+EXPECTED=31
 
 W="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-envval.XXXXXX")"
 trap 'rm -rf "$W"' EXIT
@@ -69,6 +69,13 @@ eq "$(env_value "$F" K)" "тільки-справа'"; ok $? '🔴 лапка л
 echo '— форма файла'
 printf '# K=закоментовано\nK=справжнє\n' > "$F"
 eq "$(env_value "$F" K)" 'справжнє'; ok $? 'закоментований рядок пропущено' "$(env_value "$F" K)"
+# 🔴 Пробіл попереду — четверта з форм, якими `camptribe-deploy`
+# обґрунтовує заміну правила, і єдина, що не мала фікстури: мутація
+# `^[[:space:]]*` → `^` лишала всі випадки зеленими.
+printf '  K=з-пробілом\n' > "$F"
+eq "$(env_value "$F" K)" 'з-пробілом'; ok $? '🔴 пробіли перед ключем не ховають його' "$(env_value "$F" K)"
+printf '\tK=з-табом\n' > "$F"
+eq "$(env_value "$F" K)" 'з-табом'; ok $? '…і таб теж' "$(env_value "$F" K)"
 printf 'export K=через-export\n' > "$F"
 eq "$(env_value "$F" K)" 'через-export'; ok $? '`export KEY=` приймається' "$(env_value "$F" K)"
 printf 'K=перше\nK=останнє\n' > "$F"

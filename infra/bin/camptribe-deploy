@@ -204,6 +204,14 @@ done
 [ -n "$_lib" ] || { echo 'немає lib/env-value.sh — читати .env нічим' >&2; exit 1; }
 # shellcheck source=../lib/env-value.sh
 . "$_lib"
+# 🔴 ФАЙЛ ІСНУЄ ≠ ФУНКЦІЯ Є. Порожній або обрізаний кандидат проходив
+# `[ -f ]`, сорсився без помилки, а далі `env_value` давав 127, який
+# `|| true` ковтав — і deploy падав із ХИБНОЮ причиною: «у .env немає
+# DATABASE_URL» при цілком справному файлі. Те саме, що PR полагодив у
+# `move-table.sh` (grep '^env_value()') і в `backup-local.sh`, і що
+# лишалось у третьому читачі. Рецензія це відтворила.
+declare -F env_value >/dev/null \
+  || { echo "у $_lib немає env_value — читати .env нічим" >&2; exit 1; }
 unset _lib _c _self
 
 env_get() { env_value "$1" "$2" || true; }
