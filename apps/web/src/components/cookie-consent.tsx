@@ -154,7 +154,11 @@ export function CookieSettingsLink() {
       type="button"
       data-testid="cookie-settings"
       onClick={() => window.dispatchEvent(new Event(REOPEN_EVENT))}
-      className="underline"
+      // 🔴 `min-h-12` — та сама зона 48 px, що й у сусідів по ряду
+      // (CAMP-350). Заміряно 19.10.2026: ця кнопка мала 16 px висоти,
+      // найменшу з усіх інтерактивних елементів сторінки. Контрол, яким
+      // людина відкликає згоду, не має бути найважчим для влучання.
+      className="flex min-h-12 items-center underline"
     >
       Cookie settings
     </button>

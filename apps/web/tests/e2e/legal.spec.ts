@@ -207,7 +207,13 @@ test.describe('cookie consent', () => {
 
     // No overlay, no scroll lock: an ordinary link still works with the
     // banner up. Ignoring it is a valid state, and it is not consent.
-    await page.getByRole('link', { name: 'Campsites' }).first().click();
+    // 🔴 `main`, а не вся сторінка. До CAMP-350 `.first()` брав
+    // посилання з шапки; відколи нижче 1200 px її меню сховане,
+    // той самий рядок мовчки почав клікати ІНШЕ посилання —
+    // «All campsites» у тілі сторінки. Тест лишався зеленим і
+    // перевіряв не те, що називає. Тепер ціль названа однозначно
+    // й однакова на будь-якій ширині.
+    await page.locator('main').getByRole('link', { name: /campsites/i }).first().click();
     await expect(page).toHaveURL(/\/camping/);
     expect((await stored(page)).consent).toBeNull();
   });

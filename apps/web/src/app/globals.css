@@ -611,6 +611,39 @@ a.ct-popup-title:hover {
   }
 }
 
+/* 🔴 CAMP-350. Виїзд шухляди меню.
+
+   Чому `@keyframes`, а не `transition`: панель рендериться умовно
+   (`{open && …}` у site-nav-drawer.tsx), тож на момент появи їй немає
+   від чого переходити — звичайний `transition` на монтуванні не
+   спрацьовує взагалі. Перша редакція компонента обіцяла рух у
+   коментарі й не мала його в коді; це виправлення тієї неправди.
+
+   Тривалість — `--timing-base` (0.4s), крива — `--ease-out` теми
+   (0,0,.09,1). Обидва вже є з CAMP-345, тож рух успадковується, а не
+   вигадується тут удруге.
+
+   `prefers-reduced-motion` вимикає виїзд повністю: людині, яка про це
+   попросила, панель просто зʼявляється. */
+.ct-drawer {
+  animation: ct-drawer-in var(--timing-base) var(--ease-out) both;
+}
+
+@keyframes ct-drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-drawer {
+    animation: none;
+  }
+}
+
 /* 🔴 CAMP-345. ЗОНА НАТИСКАННЯ 48×48 ДЛЯ ДРІБНИХ КОНТРОЛІВ.
 
    Заміряно 19.10.2026: з 22 кнопок у `apps/web/src` найчастіша має

@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from './api-request';
 import { visibleText } from '../unit/rendered-text';
 import type { Page } from '@playwright/test';
+import { openHeaderNav } from './header-nav';
 
 // CAMP-205 — /plan, як її зустрічає читач.
 //
@@ -69,7 +70,11 @@ test.describe('the page', () => {
       // Шапка одна на весь сайт, тож «вхід із /map» — це вхід із будь-якої
       // сторінки. Стартові сторінки тут ті, що не потребують API.
       await page.goto(from);
-      await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Plan a trip' }).click();
+      // 🔴 CAMP-350: нижче 1200 px шапка веде через бургер. Спосіб
+      // дістатись меню винесений у `openHeaderNav` після того, як та
+      // сама помилка вилізла вдруге — у `guides.spec.ts`.
+      const nav = await openHeaderNav(page);
+      await nav.getByRole('link', { name: 'Plan a trip' }).click();
       await expect(page).toHaveURL(/\/plan$/);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Trip planner');
     });
