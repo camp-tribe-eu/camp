@@ -58,92 +58,145 @@ async function touchBoxes(page: import('@playwright/test').Page): Promise<Touch[
 }
 
 /**
- * Відкрити /map і дочекатись, поки зʼявляться ЙОГО кнопки.
+ * Сторінки, на яких міряємо.
+ *
+ * 🔴 МАПА — НЕ ЄДИНА, І ЦЕ ВИПРАВЛЕННЯ ПІСЛЯ CI. Перша редакція міряла
+ * лише `/map`, і на `firefox-desktop` усі три тести впали за таймаутом:
+ * headless Firefox на раннері без GPU не має контексту WebGL2, тож
+ * MapLibre не стартує, а разом із ним не зʼявляються й перемикачі шарів
+ * і стилів. Репозиторій знає про це давно — `map.spec.ts:189`,
+ * `skipWithoutWebGL`.
+ *
+ * 🔴 Але просто пропустити на Firefox означало б лишити сторожа без
+ * роботи на цілому рушії, а пропущений тест виглядає так само зелено, як
+ * пройдений. Тому мапа вимагає WebGL, а дві сторінки нижче — ні: їхні
+ * кнопки приходять уже в HTML із сервера. На будь-якому рушії
+ * перевіряється щонайменше щось.
+ */
+const PAGES = [
+  { path: '/camping', needsWebGL: false },
+  { path: '/', needsWebGL: false },
+  { path: '/map', needsWebGL: true },
+];
+
+/** Чи є в цього рушія WebGL2 — те саме питання, що в `map.spec.ts`. */
+async function hasWebGL(page: import('@playwright/test').Page) {
+  return page.evaluate(() => {
+    try {
+      return !!document.createElement('canvas').getContext('webgl2');
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Зібрати зони з усіх доступних сторінок.
  *
  * 🔴 ЧЕКАТИ ТРЕБА НА ЧИП МАПИ, А НЕ НА «ПЕРШУ КНОПКУ». Перша редакція
- * цього файлу робила саме так — і CI знайшов 4 кнопки замість 7, бо
- * першою на сторінці стоїть банер згоди, який рендериться одразу з
- * сервера. Умова справджувалась ще до того, як перемикачі шарів і стилів
- * узагалі змонтувались, і замір виходив із чотирьох чужих кнопок.
- *
- * `[data-source]` — це перемикач стилю мапи (`MAP_SOURCES`), статичний
- * перелік у коді. Він не залежить від того, скільки рядків у базі, тож
- * однаково зʼявляється і на фікстурі CI у 72 кемпінги, і на повній базі.
+ * робила саме так — і CI знайшов 4 кнопки замість 7, бо першою на
+ * сторінці стоїть банер згоди, що рендериться з сервера. Умова
+ * справджувалась ще до того, як перемикачі мапи змонтувались.
  */
-async function openMap(page: import('@playwright/test').Page) {
-  await page.goto('/map');
-  await page.locator('[data-source]').first().waitFor();
-  await page.locator('[data-layer]').first().waitFor();
+async function collectAll(page: import('@playwright/test').Page) {
+  const perPage: { path: string; boxes: Touch[] }[] = [];
+  for (const spec of PAGES) {
+    await page.goto(spec.path);
+    if (spec.needsWebGL) {
+      if (!(await hasWebGL(page))) continue;
+      await page.locator('[data-source]').first().waitFor();
+      await page.locator('[data-layer]').first().waitFor();
+    } else {
+      await page.locator('[data-ct-button]').first().waitFor();
+    }
+    perPage.push({ path: spec.path, boxes: await touchBoxes(page) });
+  }
+  return perPage;
+}
+
+/**
+ * 🔴 ПАРА ДО КОЖНОГО ТВЕРДЖЕННЯ НИЖЧЕ. «Жодна не менша за 48» і «ніщо не
+ * перекривається» справдились би й над порожнечею — а саме так виглядав
+ * би зламаний селектор або сторінка, що не відрендерилась.
+ *
+ * Чотири — це мінімум, який тримається на фікстурі CI у 72 кемпінги:
+ * дві країни в переліку плюс дві кнопки банера згоди. На повній базі їх
+ * десятки, але поріг має бути правдою в найгіршому випадку, а не в
+ * типовому.
+ */
+function assertNotEmpty(perPage: { path: string; boxes: Touch[] }[]) {
+  expect(perPage.length, 'жодної сторінки не виміряно').toBeGreaterThanOrEqual(2);
+  for (const p of perPage) {
+    expect(p.boxes.length, `${p.path}: кнопок не знайдено`).toBeGreaterThanOrEqual(1);
+  }
+  const total = perPage.reduce((n, p) => n + p.boxes.length, 0);
+  expect(total, 'разом замало кнопок, щоб це щось доводило').toBeGreaterThanOrEqual(4);
 }
 
 test.describe('🔴 CAMP-345 — зона натискання на 375 px', () => {
   test('жодна кнопка не має зони натискання меншої за 48 px', async ({ page }) => {
-    await openMap(page);
-    const boxes = await touchBoxes(page);
+    const perPage = await collectAll(page);
+    assertNotEmpty(perPage);
 
-    // 🔴 ПАРА ДО ТВЕРДЖЕННЯ НИЖЧЕ. «Жодна не менша за 48» справдилось би
-    // й тоді, коли кнопок немає зовсім — а саме так виглядав би зламаний
-    // селектор або сторінка, що не відрендерилась. Сім — це статичні
-    // чипи мапи: три шари (Wildfire, Drought, Weather warnings) і чотири
-    // стилі (Standard, Bright, Muted, Satellite). Вони не залежать від
-    // того, скільки рядків у базі, тож число тримається і на фікстурі CI.
-    expect(boxes.length, 'кнопок не знайдено — селектор або сторінка зламані').toBeGreaterThanOrEqual(7);
-
-    const small = boxes.filter((b) => b.w < 48 || b.h < 48);
-    expect(
-      small.map((b) => `${b.name}: ${Math.round(b.w)}×${Math.round(b.h)}`),
-      'зона натискання менша за 48 px',
-    ).toEqual([]);
+    const small = perPage.flatMap((p) =>
+      p.boxes
+        .filter((b) => b.w < 48 || b.h < 48)
+        .map((b) => `${p.path} ${b.name}: ${Math.round(b.w)}×${Math.round(b.h)}`),
+    );
+    expect(small, 'зона натискання менша за 48 px').toEqual([]);
   });
 
   test('зони натискання сусідніх кнопок не перекриваються', async ({ page }) => {
-    await openMap(page);
-    const boxes = await touchBoxes(page);
-    expect(boxes.length, 'кнопок не знайдено').toBeGreaterThanOrEqual(7);
+    const perPage = await collectAll(page);
+    assertNotEmpty(perPage);
 
-    // 🔴 ЦЕ НЕ ПРИДИРКА, А ЗАМІРЯНИЙ ДЕФЕКТ. До рецензії кнопка
-    // пагінації мала `min-w-9` (36 px) при `gap-2` (8 px): зона
-    // розсувалась на 6 px у кожен бік, щілини було 8, і 4 px зон
-    // перекривались. У смузі перекриття клік дістається тому елементу,
-    // що пізніше в DOM, — тобто дрібна ціль перетворюється на ціль, яка
-    // ловить не те. Це гірше за початковий стан, а не краще.
+    // 🔴 ЦЕ НЕ ПРИДИРКА, А ЗАМІРЯНІ ДЕФЕКТИ — ТРИ ШТУКИ, І ВСІ ТРИ
+    // ЗНАЙДЕНІ САМЕ ЦИМ ТЕСТОМ, А НЕ ОКОМ:
+    //   пагінація   `min-w-9` (36 px) при `gap-2` → 4 px по горизонталі;
+    //   чипи країн  36 px при `gap-2` між рядками → 4 px по вертикалі;
+    //   фільтри     36 px при `gap-1.5` (6 px)    → 6 px, 12 пар.
+    // У смузі перекриття клік дістається тому елементу, що пізніше в
+    // DOM, тобто дрібна ціль перетворюється на ціль, яка ловить не те.
     const overlaps: string[] = [];
-    for (let i = 0; i < boxes.length; i++) {
-      for (let j = i + 1; j < boxes.length; j++) {
-        const a = boxes[i];
-        const b = boxes[j];
-        // 🔴 ЛИШЕ СУСІДИ В ОДНОМУ РЯДУ. Банер згоди — `position: fixed`,
-        // він лежить ПОВЕРХ вмісту сторінки навмисно, і його зона
-        // законно накриває чипи під ним: клік дістається банеру, бо він
-        // вище. Порівнювати все з усім означало б звати це дефектом.
-        // Правило стосується сусідів у списку, де обидва мають бути
-        // досяжні.
-        if (a.group !== b.group) continue;
-        const dx = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
-        const dy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
-        if (dx > 0.5 && dy > 0.5) {
-          overlaps.push(`${a.name} ↔ ${b.name}: ${Math.round(dx)}×${Math.round(dy)} px`);
+    for (const { path, boxes } of perPage) {
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          const a = boxes[i];
+          const b = boxes[j];
+          // 🔴 ЛИШЕ СУСІДИ В ОДНОМУ КОНТЕЙНЕРІ. Банер згоди —
+          // `position: fixed`, він лежить ПОВЕРХ вмісту навмисно, і його
+          // зона законно накриває те, що під ним: клік дістається
+          // банеру, бо він вище. Порівнювати все з усім означало б звати
+          // це дефектом. Правило стосується сусідів у ряду, де обидва
+          // мають лишатись досяжними.
+          if (a.group !== b.group) continue;
+          const dx = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+          const dy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+          if (dx > 0.5 && dy > 0.5) {
+            overlaps.push(`${path} ${a.name} ↔ ${b.name}: ${Math.round(dx)}×${Math.round(dy)} px`);
+          }
         }
       }
     }
     expect(overlaps, 'зони натискання накладаються одна на одну').toEqual([]);
   });
 
-  test('сторінка кемпінгу на 375 px не має горизонтального скролу', async ({ page }) => {
-    // Пункт 4 «Способу перевірки» називає саме сторінку кемпінгу.
+  test('сторінки на 375 px не мають горизонтального скролу', async ({ page }) => {
+    // Пункт 4 «Способу перевірки» називає сторінку кемпінгу, тож шлях до
+    // неї починається з переліку — і те, що перелік не порожній, теж
+    // твердження, а не припущення.
     await page.goto('/camping');
-    const href = await page
-      .locator('a[href^="/camping/"]')
-      .first()
-      .getAttribute('href');
+    const href = await page.locator('a[href^="/camping/"]').first().getAttribute('href');
     expect(href, 'на /camping немає жодного посилання вглиб').toBeTruthy();
 
-    await openMap(page);
-    const [w, sw] = await page.evaluate(() => [
-      document.documentElement.clientWidth,
-      document.documentElement.scrollWidth,
-    ]);
-    expect(w).toBe(375);
-    expect(sw, 'горизонтальний скрол на 375 px').toBeLessThanOrEqual(w);
+    for (const path of [href as string, '/camping', '/']) {
+      await page.goto(path);
+      const [w, sw] = await page.evaluate(() => [
+        document.documentElement.clientWidth,
+        document.documentElement.scrollWidth,
+      ]);
+      expect(w, `${path}: ширина вікна`).toBe(375);
+      expect(sw, `${path}: горизонтальний скрол на 375 px`).toBeLessThanOrEqual(w);
+    }
   });
 });
