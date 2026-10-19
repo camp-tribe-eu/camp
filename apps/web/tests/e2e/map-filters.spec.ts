@@ -359,7 +359,15 @@ test.describe('/map filters', () => {
   // cross while working correctly turns `check-flaky.mjs` into a red
   // `main`. This is above the worst honest measurement, and a genuinely
   // broken map still fails in seconds with a clear message.
-  test.describe.configure({ timeout: 90_000 });
+  // 🔴 ПОТРІЙНИЙ БЮДЖЕТ, А НЕ АБСОЛЮТНІ 90 СЕКУНД (CAMP-304): число
+  // перекривало б множник рушія. `test.slow()` потроює чинний бюджет
+  // проєкту, тож chromium і mobile лишаються з 90 с, webkit отримує
+  // 270. Замір 20.10.2026 показав, що саме цей набір найважчий:
+  // медіана пари «panel counts the visible area» — 48,0 с на
+  // mobile-chrome і 30,2 с на chromium (n=23 кожна).
+  test.beforeEach(() => {
+    test.slow();
+  });
 
   test('every filter is present, at this browser and this width', async ({
     page,

@@ -218,7 +218,15 @@ const RESERVED = /\b(warning|danger|dangerous|risk|risky|alert|evacuate|evacuati
 /** WebKit on Linux cannot photograph a WebGL canvas reliably; see wildfire-layer.spec.ts. */
 const cameraUnreliable = (browserName: string) => browserName === 'webkit' && process.platform === 'linux';
 
-test.describe.configure({ timeout: 90_000 });
+// 🔴 ПОТРІЙНИЙ БЮДЖЕТ, А НЕ АБСОЛЮТНІ 90 СЕКУНД (CAMP-304). Тут
+// стояло `test.describe.configure({ timeout: 90_000 })` — число, яке
+// перекривало бюджет рушія й тим скасовувало множник, виміряний для
+// webkit. `test.slow()` потроює ТОЙ бюджет, що чинний для проєкту:
+// chromium лишається з 90 с, webkit отримує 270. Намір автора («утричі
+// більше за норму») збережено, а норма тепер залежить від браузера.
+test.beforeEach(() => {
+  test.slow();
+});
 
 // ── off means off ────────────────────────────────────────────────────────
 

@@ -201,7 +201,15 @@ test.describe('/map', () => {
   // The same budget as the filter suite, and for the same measured
   // reason: a map test now includes zooming to detail and fetching one
   // file per region in view.
-  test.describe.configure({ timeout: 90_000 });
+  // 🔴 ПОТРІЙНИЙ БЮДЖЕТ, А НЕ АБСОЛЮТНІ 90 СЕКУНД (CAMP-304). Тут
+  // стояло `test.describe.configure({ timeout: 90_000 })` — число, яке
+  // перекривало бюджет рушія й тим скасовувало множник, виміряний для
+  // webkit. `test.slow()` потроює ТОЙ бюджет, що чинний для проєкту:
+  // chromium лишається з 90 с, webkit отримує 270. Намір автора («утричі
+  // більше за норму») збережено, а норма тепер залежить від браузера.
+  test.beforeEach(() => {
+    test.slow();
+  });
 
   // 🔴 The regression that cost the most time on this card, and the
   // reason it is the first test.
