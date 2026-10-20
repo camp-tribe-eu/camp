@@ -160,6 +160,7 @@ export function dedupe(rows: StagingRow[]): StagingRow[] {
         // 🔴 CAMP-256: the tags above are a UNION, so the date is the newest
         // of the objects that contributed to it (see mergedRecord).
         winner.record = mergedRecord(winner.record, loser.record);
+        adoptOutline(winner, loser);
       }
       out.push(winner);
     }
@@ -183,6 +184,47 @@ const isPolygon = (ref: string) => !ref.startsWith('n');
  * guaranteed stable — so the same data could elect a different winner on
  * a later run and move a published URL.
  */
+/**
+ * 🔴 CAMP-352. Контур переможця може лежати у програвшого.
+ *
+ * Переможця обирає `isPolygon`, а він питає про ПРЕФІКС:
+ * `!ref.startsWith('n')`. Для контуру це інше питання, і відповідь інша.
+ * `normalise-export.mjs:11`: `osmium export` віддає закритий way ДВІЧІ —
+ * LineString під `w…` і полігон під `a…`, — а ранжування лишає полігон.
+ * Отже вижилий `w…` це лінія: префікс «полігонний», контуру нема. Теги
+ * ми обʼєднуємо, а геометрію досі ні, тож контур сусіда зникав мовчки.
+ *
+ * Виміряно 20.10.2026 на `camptribe_dev` (2 280 рядків staging): 44
+ * кластери-дублікати, з них 0 втрачають контур — у подвійного викиду
+ * теги однакові, і `localeCompare` віддає перемогу `a…`. Тобто на цьому
+ * корпусі дефект не стріляє. Він структурний, а не статистичний: корпус
+ * це одна країна з двадцяти семи, і наступна може мати `w…` з зайвим
+ * тегом поруч із полігоном.
+ *
+ * 🔴 ТОЧКА ЙДЕ РАЗОМ ІЗ КОНТУРОМ. Міграція вимагає
+ * `ST_DWithin(outline, location, 0.0001)` — близько 11 м, а сусідами тут
+ * вважаються рядки за 50 м (без назви) і 200 м (з назвою). Узяти чужий
+ * контур, лишивши свою точку, означало б із певністю впертись у власне
+ * обмеження на вставці.
+ *
+ * 🔴 І САМЕ ТОМУ — ЛИШЕ В МЕЖАХ ОДНОГО РЕГІОНУ. `admin_region`,
+ * `admin_country` і `raw_country` рахуються в staging-запиті з ТІЄЇ
+ * САМОЇ точки, тож перенести точку означає перенести і їх. А вони — два
+ * сегменти опублікованого URL (`/camping/{country}/{region}/{slug}`),
+ * який CAMP-87 забороняє рухати. Коли регіон збігається, переїзд точки
+ * не видно в URL: `osm_ref` і назва не змінились, отже slug той самий, а
+ * шпилька лише переїхала НА ділянку. Коли не збігається — лишаємось без
+ * контуру. Втратити обрис дешевше, ніж зрушити адресу сторінки.
+ */
+function adoptOutline(keep: StagingRow, drop: StagingRow): void {
+  if (keep.outline_wkt || !drop.outline_wkt) return;
+  if (keep.admin_region !== drop.admin_region) return;
+  if (keep.admin_country !== drop.admin_country) return;
+  keep.outline_wkt = drop.outline_wkt;
+  keep.point_wkt = drop.point_wkt;
+  keep.raw_country = drop.raw_country;
+}
+
 function betterRow(a: StagingRow, b: StagingRow): StagingRow {
   if (isPolygon(a.osm_ref) !== isPolygon(b.osm_ref)) {
     return isPolygon(a.osm_ref) ? a : b;
@@ -245,6 +287,7 @@ export function mergeUnnamed(rows: StagingRow[]): StagingRow[] {
       // 🔴 CAMP-256: as in dedupe() — the merged row is dated by the newest
       // object it was built from.
       keep.record = mergedRecord(keep.record, drop.record);
+      adoptOutline(keep, drop);
       winner = keep;
     }
 
@@ -323,11 +366,130 @@ export const MARK_GONE_SQL = `UPDATE camping_spots
     )
   RETURNING osm_ref`;
 
+/**
+ * 🔴 CAMP-352. Винесено з main() рівно для того, щоб це можна було
+ * перевірити тестом.
+ *
+ * Мутація «брати контур за префіксом osm_ref, а не за типом геометрії»
+ * вижила в матриці 20.10.2026 — найважливіший рядок імпорту не пінило
+ * ніщо, бо запит жив усередині функції на 1100 рядків. Його ціна
+ * названа тут же в коментарі: ST_Multi(LineString) = MULTILINESTRING і
+ * відмова на typmod колонки.
+ */
+export const stagingSelectSql = (table: string) =>
+  `WITH pts AS (
+       SELECT s.*,
+              CASE WHEN GeometryType(s.geom) = 'POINT'
+                   THEN s.geom
+                   ELSE ST_PointOnSurface(s.geom) END AS pt
+         FROM "${table}" s
+        WHERE s.id IS NOT NULL
+     )
+     SELECT p.id AS osm_ref,
+            ST_AsText(p.pt) AS point_wkt,
+            -- 🔴 CAMP-352. Контур беремо ЗА ТИПОМ ГЕОМЕТРІЇ, а не за
+            -- префіксом osm_ref, і це не дрібниця. Картка вважала, що
+            -- w... теж має контур; normalise-export.mjs:11 пояснює,
+            -- чому ні: osmium export віддає закритий way ДВІЧІ — як
+            -- LineString під w<id> і як Polygon під a<id>, — а
+            -- ранжування лишає полігон. Отже w..., що вижив, це лінія.
+            --
+            -- Якби відбір ішов за префіксом, сюди потрапив би
+            -- ST_Multi(LineString) = MULTILINESTRING і впав би на
+            -- typmod колонки на 856 рядках.
+            --
+            -- ST_Multi обовʼязковий: колонка оголошена MultiPolygon, і
+            -- звичайний POLYGON вона не прийме.
+            CASE WHEN GeometryType(p.geom) IN ('POLYGON', 'MULTIPOLYGON')
+                 THEN ST_AsText(ST_Multi(p.geom))
+                 ELSE NULL END AS outline_wkt,
+            -- 🔴 Natural Earth writes -1 where it has no ISO code, and
+            -- that is "unknown", not "not a country".
+            --
+            -- Measured 24.09.2026 on the released Cyprus extract: of 60
+            -- imported campsites, 34 fall in the polygon called Northern
+            -- Cyprus and 2 in Dhekelia, both coded -1. Read literally,
+            -- the EU filter below then throws 60% of Cyprus away as
+            -- foreign — from the extract of a member state, which is the
+            -- one place it cannot be right. (Some Natural Earth builds
+            -- use -99 for the same thing; the pattern catches both.)
+            --
+            -- 🔴 THE REGION GOES WITH IT, and that is the whole point of
+            -- doing this in one CASE rather than two.
+            --
+            -- The first version cleared only the country. Review caught
+            -- what that shipped: "region" still came from the sentinel
+            -- polygon, so 34 campsites would have been published at
+            -- /camping/cy/northern-cyprus/… with a region hub page to
+            -- match, and 2 at /camping/cy/dhekelia/… — a political
+            -- attribution nobody decided, made permanent by CAMP-87,
+            -- which forbids moving a published URL afterwards. Dhekelia
+            -- and Akrotiri are British Sovereign Base Areas, so that
+            -- second URL would also have put UK ground under "cy" in the
+            -- very commit that added the EU-27 filter.
+            --
+            -- So a point in a polygon with no ISO code keeps its place
+            -- on the map and loses only its page: country falls back to
+            -- the extract being imported, region stays NULL, and the
+            -- count is printed every run. It is the same treatment as a
+            -- point in the sea, for the same reason — we do not know,
+            -- and not knowing is not a licence to name it. What these
+            -- campsites are finally called is CAMP-125, for the owner.
+            CASE WHEN a.iso_a2 ~ '^[A-Za-z]{2}$' THEN a.name END
+              AS admin_region,
+            CASE WHEN a.iso_a2 ~ '^[A-Za-z]{2}$' THEN a.iso_a2 END
+              AS admin_country,
+            a.iso_a2 AS raw_country,
+            p.*
+       FROM pts p
+       LEFT JOIN LATERAL (
+         -- 🔴 Containment first, nearest polygon second — and the second
+         -- is not a nicety.
+         --
+         -- Natural Earth is 1:10m, so its coastline is generalised. The
+         -- first Croatian import put 367 campsites of 778 — 47% — outside
+         -- every admin-1 polygon, and without a region a campsite gets no
+         -- page URL at all. Measured, every one of them was within
+         -- 3.85 km of a Croatian polygon; the average was 593 m and the
+         -- closest 8 m. They are not in the sea: they are on a shore or a
+         -- small island that the generalised outline smooths away, and
+         -- Croatia's campsites are overwhelmingly coastal.
+         --
+         -- So a point that falls in nothing takes the nearest polygon of
+         -- a country, within a hard limit. The limit is what keeps this
+         -- honest: beyond it the row keeps no region and gets no page,
+         -- rather than being assigned a county by a guess.
+         --
+         -- 🔴 Two steps, because one was unusably slow. Casting every
+         -- polygon to geography to measure a distance defeats the GiST
+         -- index, and the query then compared each point against all
+         -- 4,594 admin-1 polygons on Earth. First the index narrows to a
+         -- handful of candidates by bounding box and KNN; only those few
+         -- are measured exactly.
+         SELECT c.name, c.iso_a2
+           FROM (
+             SELECT name, iso_a2, geom, ST_Contains(geom, p.pt) AS inside
+               FROM ne_admin1
+              WHERE geom && ST_Expand(p.pt, 0.1)
+              ORDER BY geom <-> p.pt
+              LIMIT 8
+           ) c
+          WHERE c.inside
+             OR ST_DWithin(c.geom::geography, p.pt::geography, 5000)
+          -- Containment always wins; among near misses the closest wins.
+          -- 🔴 name breaks the tie, because two polygons can be
+          -- equidistant and an undetermined winner would move a published
+          -- URL between runs (the lesson of CAMP-39).
+          ORDER BY c.inside DESC, c.geom <-> p.pt, c.name
+          LIMIT 1
+       ) a ON true
+      ORDER BY p.id`;
+
 export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            (name, country, region, slug, type, amenities, location,
             osm_ref, last_seen_at, missing_since, content_changed_at, sources,
             contact, overnight_status, overnight_source, overnight_checked_at,
-            osm_record_edited_at, osm_record_version, osm_record_ref)
+            osm_record_edited_at, osm_record_version, osm_record_ref, outline)
          -- 🔴 $8::text in BOTH places, not just in the JSON below.
          --
          -- osm_ref is character varying, so an uncast $8 here made
@@ -383,7 +545,8 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
                  -- time, because the three are one fact. It is osm_ref except
                  -- where the importer built this row from several objects and
                  -- the newest of them is not the one the row is keyed on.
-                 $13::timestamptz, $14::integer, $15::text)
+                 $13::timestamptz, $14::integer, $15::text,
+                 ST_GeomFromText($16, 4326))
          ON CONFLICT (osm_ref) DO UPDATE SET
            name          = EXCLUDED.name,
            country       = EXCLUDED.country,
@@ -416,6 +579,17 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            osm_record_version   = EXCLUDED.osm_record_version,
            osm_record_ref       = EXCLUDED.osm_record_ref,
            location      = EXCLUDED.location,
+           -- 🔴 CAMP-352. Контур оновлюється РАЗОМ із точкою, і це
+           -- умова, а не стиль: location це ST_PointOnSurface тієї ж
+           -- фігури, а міграція вимагає, щоб точка лежала НА контурі.
+           -- Оновити одне без іншого означало б зібрати рядок із двох
+           -- різних імпортів і впертись у власне обмеження.
+           --
+           -- NULL тут законний і перезаписує попереднє значення: якщо
+           -- обʼєкт в OSM із площі став крапкою, старий обрис більше не
+           -- описує нічого, і лишати його означало б показувати
+           -- читачеві форму, якої вже немає.
+           outline       = EXCLUDED.outline,
            last_seen_at  = EXCLUDED.last_seen_at,
            missing_since = NULL,
            -- 🔴 CAMP-101. Replace only OUR entry; keep every other
@@ -460,6 +634,26 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
                    EXCLUDED.overnight_status,
                    EXCLUDED.overnight_source)
                OR NOT ST_Equals(camping_spots.location, EXCLUDED.location)
+             -- 🔴 CAMP-352. Контур у порівнянні Є, але лише КОЛИ ВІН УЖЕ
+             -- БУВ. Сторінка малює обрис, тож перемальований мапером
+             -- контур це видима зміна, і <lastmod> мусить її показати.
+             --
+             -- А от сторож IS NOT NULL — це дослівно урок CAMP-256 на
+             -- сусідніх рядках. Перший прогін після цієї міграції
+             -- перетворює NULL на геометрію в КОЖНОМУ полігонному рядку
+             -- (68% екстракту — площі), і без сторожа один імпорт
+             -- перештампував би <lastmod> десяткам тисяч сторінок за
+             -- появу колонки, а не за зміну кемпінгу. Саме та churn,
+             -- заради якої цей CASE і написаний.
+             --
+             -- Зникнення контуру (площу перемалювали в точку) рахується
+             -- зміною: обрис зі сторінки щез. Тому порівняння написане
+             -- через явний NULL-випадок, а не через ST_Equals — він на
+             -- NULL віддає NULL, і втрата контуру пройшла б непоміченою.
+               OR (camping_spots.outline IS NOT NULL
+                   AND (EXCLUDED.outline IS NULL
+                        OR NOT ST_Equals(camping_spots.outline,
+                                         EXCLUDED.outline)))
              THEN EXCLUDED.last_seen_at
              ELSE camping_spots.content_changed_at
            END
@@ -474,6 +668,8 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
 interface StagingRow {
   osm_ref: string;
   point_wkt: string;
+  /** `MULTIPOLYGON(...)` або `null` — контур ділянки, коли він є. */
+  outline_wkt: string | null;
   /** Admin-1 name the point falls inside, e.g. "Bled". Null outside coverage. */
   admin_region: string | null;
   /** ISO-3166-1 alpha-2 of that polygon - overrides the CLI argument. */
@@ -529,6 +725,8 @@ export interface UpsertSpotValues {
   slug: string;
   type: string;
   amenities: unknown;
+  /** `MULTIPOLYGON(...)` or null — the plot outline, when OSM has one. */
+  outlineWkt?: string | null;
   /** `POINT(lon lat)` — what ST_GeomFromText reads. */
   pointWkt: string;
   osmRef: string;
@@ -562,6 +760,12 @@ export function upsertSpotParams(v: UpsertSpotValues): unknown[] {
     v.record?.editedAt ?? null,
     v.record?.version ?? null,
     v.record?.ref ?? null,
+    // 🔴 $16 — ДОПИСАНИЙ У КІНЕЦЬ НАВМИСНО. Вставити контур поруч із
+    // точкою означало б зсунути нумерацію всіх параметрів після нього,
+    // а вони розкидані по statement у кількох місцях ($8 і $9 вжиті
+    // двічі кожен). Зсув, який компілятор не бачить, — найдешевший
+    // спосіб переплутати країну з регіоном.
+    v.outlineWkt ?? null,
   ];
 }
 
@@ -659,101 +863,15 @@ async function main(): Promise<void> {
   // mapped as areas. ST_PointOnSurface, not ST_Centroid: the centroid of a
   // concave or ring-shaped site can land outside it, which would put the
   // pin in a neighbouring field.
-  const rows = await db.query(
-    `WITH pts AS (
-       SELECT s.*,
-              CASE WHEN GeometryType(s.geom) = 'POINT'
-                   THEN s.geom
-                   ELSE ST_PointOnSurface(s.geom) END AS pt
-         FROM "${TABLE}" s
-        WHERE s.id IS NOT NULL
-     )
-     SELECT p.id AS osm_ref,
-            ST_AsText(p.pt) AS point_wkt,
-            -- 🔴 Natural Earth writes -1 where it has no ISO code, and
-            -- that is "unknown", not "not a country".
-            --
-            -- Measured 24.09.2026 on the released Cyprus extract: of 60
-            -- imported campsites, 34 fall in the polygon called Northern
-            -- Cyprus and 2 in Dhekelia, both coded -1. Read literally,
-            -- the EU filter below then throws 60% of Cyprus away as
-            -- foreign — from the extract of a member state, which is the
-            -- one place it cannot be right. (Some Natural Earth builds
-            -- use -99 for the same thing; the pattern catches both.)
-            --
-            -- 🔴 THE REGION GOES WITH IT, and that is the whole point of
-            -- doing this in one CASE rather than two.
-            --
-            -- The first version cleared only the country. Review caught
-            -- what that shipped: "region" still came from the sentinel
-            -- polygon, so 34 campsites would have been published at
-            -- /camping/cy/northern-cyprus/… with a region hub page to
-            -- match, and 2 at /camping/cy/dhekelia/… — a political
-            -- attribution nobody decided, made permanent by CAMP-87,
-            -- which forbids moving a published URL afterwards. Dhekelia
-            -- and Akrotiri are British Sovereign Base Areas, so that
-            -- second URL would also have put UK ground under "cy" in the
-            -- very commit that added the EU-27 filter.
-            --
-            -- So a point in a polygon with no ISO code keeps its place
-            -- on the map and loses only its page: country falls back to
-            -- the extract being imported, region stays NULL, and the
-            -- count is printed every run. It is the same treatment as a
-            -- point in the sea, for the same reason — we do not know,
-            -- and not knowing is not a licence to name it. What these
-            -- campsites are finally called is CAMP-125, for the owner.
-            CASE WHEN a.iso_a2 ~ '^[A-Za-z]{2}$' THEN a.name END
-              AS admin_region,
-            CASE WHEN a.iso_a2 ~ '^[A-Za-z]{2}$' THEN a.iso_a2 END
-              AS admin_country,
-            a.iso_a2 AS raw_country,
-            p.*
-       FROM pts p
-       LEFT JOIN LATERAL (
-         -- 🔴 Containment first, nearest polygon second — and the second
-         -- is not a nicety.
-         --
-         -- Natural Earth is 1:10m, so its coastline is generalised. The
-         -- first Croatian import put 367 campsites of 778 — 47% — outside
-         -- every admin-1 polygon, and without a region a campsite gets no
-         -- page URL at all. Measured, every one of them was within
-         -- 3.85 km of a Croatian polygon; the average was 593 m and the
-         -- closest 8 m. They are not in the sea: they are on a shore or a
-         -- small island that the generalised outline smooths away, and
-         -- Croatia's campsites are overwhelmingly coastal.
-         --
-         -- So a point that falls in nothing takes the nearest polygon of
-         -- a country, within a hard limit. The limit is what keeps this
-         -- honest: beyond it the row keeps no region and gets no page,
-         -- rather than being assigned a county by a guess.
-         --
-         -- 🔴 Two steps, because one was unusably slow. Casting every
-         -- polygon to geography to measure a distance defeats the GiST
-         -- index, and the query then compared each point against all
-         -- 4,594 admin-1 polygons on Earth. First the index narrows to a
-         -- handful of candidates by bounding box and KNN; only those few
-         -- are measured exactly.
-         SELECT c.name, c.iso_a2
-           FROM (
-             SELECT name, iso_a2, geom, ST_Contains(geom, p.pt) AS inside
-               FROM ne_admin1
-              WHERE geom && ST_Expand(p.pt, 0.1)
-              ORDER BY geom <-> p.pt
-              LIMIT 8
-           ) c
-          WHERE c.inside
-             OR ST_DWithin(c.geom::geography, p.pt::geography, 5000)
-          -- Containment always wins; among near misses the closest wins.
-          -- 🔴 name breaks the tie, because two polygons can be
-          -- equidistant and an undetermined winner would move a published
-          -- URL between runs (the lesson of CAMP-39).
-          ORDER BY c.inside DESC, c.geom <-> p.pt, c.name
-          LIMIT 1
-       ) a ON true
-      ORDER BY p.id`,
-  );
+  const rows = await db.query(stagingSelectSql(TABLE));
 
-  const staged: StagingRow[] = rows.rows.map((row) => {
+  // 🔴 Тип НА КОЛБЕКУ, не лише на змінній. `db.query` без генерика віддає
+  // `any`, тож `rows.rows.map(...)` теж `any`, і анотація `StagingRow[]`
+  // зліва не перевіряє нічого: 20.10.2026 ця мапа не копіювала
+  // `outline_wkt`, tsc мовчав із кодом 0, юніт-тести були зелені, а
+  // колонка лишалась порожньою на кожному рядку. Анотація повернення
+  // колбека перевіряється навіть над `any`.
+  const staged: StagingRow[] = rows.rows.map((row): StagingRow => {
     const tags: OsmTags = {};
     for (const col of tagColumns) {
       const v = row[col];
@@ -762,6 +880,7 @@ async function main(): Promise<void> {
     return {
       osm_ref: row.osm_ref,
       point_wkt: row.point_wkt,
+      outline_wkt: row.outline_wkt ?? null,
       admin_region: row.admin_region ?? null,
       admin_country: row.admin_country ?? null,
       raw_country: row.raw_country ?? null,
@@ -950,6 +1069,7 @@ async function main(): Promise<void> {
           type,
           amenities,
           pointWkt: row.point_wkt,
+          outlineWkt: row.outline_wkt,
           osmRef: row.osm_ref,
           seenAt: startedAt,
           contact,

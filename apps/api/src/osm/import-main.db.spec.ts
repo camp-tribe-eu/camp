@@ -4,6 +4,7 @@ import { Client } from 'pg';
 import type { QueryRunner } from 'typeorm';
 import { SpotOvernight1791500000000 } from '../migrations/1791500000000-SpotOvernight';
 import { SpotRecordEdited1791800000000 } from '../migrations/1791800000000-SpotRecordEdited';
+import { SpotOutline1792100000000 } from '../migrations/1792100000000-SpotOutline';
 
 // CAMP-256 — the importer's `main()`, RUN.
 //
@@ -95,6 +96,11 @@ beforeAll(async () => {
       ST_Multi(ST_GeomFromText('POLYGON((13 44, 17 44, 17 47, 13 47, 13 44))', 4326)));`);
   await new SpotOvernight1791500000000().up(runner());
   await new SpotRecordEdited1791800000000().up(runner());
+  // 🔴 CAMP-352. Схема тут пишеться руками, а міграції прикладаються
+  // ПОІМЕННО, тож нова до списку сама не вступає. Коли імпортер почав
+  // писати outline, усі вісім тестів упали зі статусом 1 — не тому, що
+  // зламався імпортер, а тому, що в цій таблиці не було колонки.
+  await new SpotOutline1792100000000().up(runner());
 });
 
 afterAll(async () => {
@@ -412,5 +418,60 @@ describe("🔴 the importer, run on a campsite mapped twice: the date, the versi
     expect(await rowsOf('w-undated')).toEqual([
       { osm_ref: 'w-undated-2', ref: null, v: null, edited: null },
     ]);
+  });
+});
+
+// CAMP-352. Контур ділянки, наскрізно: від staging до колонки.
+//
+// 🔴 geom тут geometry(Geometry), а не geometry(Point), і це вся суть
+// фікстури. Решта staging-таблиць у цьому файлі тримають самі точки, тож
+// полігонна гілка на них не виконується жодного разу — вони б лишились
+// зеленими і тоді, коли контур не пишеться взагалі.
+describe('🔴 CAMP-352: імпортер пише контур ділянки', () => {
+  const TABLE = 'outline_mix';
+
+  beforeAll(async () => {
+    await db.query(
+      `CREATE TABLE ${TABLE} (
+         id varchar, geom geometry(Geometry, 4326), name varchar,
+         tourism varchar, "@timestamp" integer, "@version" integer)`,
+    );
+    await db.query(
+      `INSERT INTO ${TABLE} VALUES
+         ('a-outline-1',
+          ST_GeomFromText(
+            'POLYGON((14 45,14.002 45,14.002 45.002,14 45.002,14 45))', 4326),
+          'Camp Area', 'camp_site', 1700000000, 3),
+         ('n-outline-2',
+          ST_SetSRID(ST_MakePoint(15, 45), 4326),
+          'Camp Node', 'camp_site', 1700000000, 3)`,
+    );
+  });
+
+  it('🔴 площа отримує MULTIPOLYGON, точка не отримує нічого', async () => {
+    const r = runImporter(TABLE);
+    expect(r.status).toBe(0);
+    const rows = await db.query(
+      `SELECT osm_ref, GeometryType(outline) AS t
+         FROM camping_spots WHERE osm_ref LIKE '%-outline-%'
+        ORDER BY osm_ref`,
+    );
+    expect(rows.rows).toEqual([
+      { osm_ref: 'a-outline-1', t: 'MULTIPOLYGON' },
+      { osm_ref: 'n-outline-2', t: null },
+    ]);
+  });
+
+  it('🔴 збережена точка лежить НА збереженому контурі', async () => {
+    // Не формальність: CHECK міграції порівнює з допуском 0.0001 градуса,
+    // тобто пропустив би точку за ~11 м від ділянки. Тут питаємо саму
+    // відстань, і вона мусить бути нулем — ST_PointOnSurface інакше не
+    // буває, а будь-яке інше число означає, що пару зібрано з двох різних
+    // обʼєктів.
+    const r = await db.query(
+      `SELECT ST_Distance(outline, location) AS d
+         FROM camping_spots WHERE osm_ref = 'a-outline-1'`,
+    );
+    expect(Number(r.rows[0].d)).toBe(0);
   });
 });

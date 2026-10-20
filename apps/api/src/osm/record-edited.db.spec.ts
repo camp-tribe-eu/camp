@@ -4,6 +4,7 @@ import { Client } from 'pg';
 import type { QueryRunner } from 'typeorm';
 import { SpotOvernight1791500000000 } from '../migrations/1791500000000-SpotOvernight';
 import { SpotRecordEdited1791800000000 } from '../migrations/1791800000000-SpotRecordEdited';
+import { SpotOutline1792100000000 } from '../migrations/1792100000000-SpotOutline';
 import {
   assertStoredEditDates,
   UPSERT_SPOT_SQL,
@@ -101,6 +102,11 @@ beforeAll(async () => {
   );
   await new SpotOvernight1791500000000().up(runner());
   await MIGRATION.up(runner());
+  // 🔴 CAMP-352. Третій файл із власним РУЧНИМ списком міграцій. Жоден
+  // із них не падає, коли міграція не дописана, — він падає пізніше й
+  // деінде: вісім тестів імпортера впали зі статусом 1 за відсутню
+  // колонку, і причина читалась як поломка імпортера.
+  await new SpotOutline1792100000000().up(runner());
 });
 
 afterAll(async () => {

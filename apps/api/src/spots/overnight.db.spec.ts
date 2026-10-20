@@ -2,6 +2,7 @@ import { Client } from 'pg';
 import type { DataSource, QueryRunner } from 'typeorm';
 import { SpotOvernight1791500000000 } from '../migrations/1791500000000-SpotOvernight';
 import { SpotRecordEdited1791800000000 } from '../migrations/1791800000000-SpotRecordEdited';
+import { SpotOutline1792100000000 } from '../migrations/1792100000000-SpotOutline';
 import { UPSERT_SPOT_SQL, upsertSpotParams } from '../osm/import-spots';
 import { mapOvernight } from '../osm/tag-mapping';
 import { MapQueryService } from './map.service';
@@ -108,6 +109,11 @@ beforeAll(async () => {
       unlinked_at timestamptz, created_at timestamptz DEFAULT now());`);
   await MIGRATION.up(runner());
   await RECORD_MIGRATION.up(runner());
+  // 🔴 CAMP-352. Третій файл із власним РУЧНИМ списком міграцій. Жоден
+  // із них не падає, коли міграція не дописана, — він падає пізніше й
+  // деінде: вісім тестів імпортера впали зі статусом 1 за відсутню
+  // колонку, і причина читалась як поломка імпортера.
+  await new SpotOutline1792100000000().up(runner());
 });
 
 afterAll(async () => {
