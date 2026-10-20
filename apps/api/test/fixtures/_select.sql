@@ -153,12 +153,19 @@ picked AS (
      AND (region IN (SELECT region FROM big) OR region IN (SELECT region FROM thin)))
 SELECT * FROM picked;
 
-SELECT 'INSERT INTO camping_spots (id, name, country, region, slug, type, amenities, location, osm_ref, owner_overrides, last_seen_at, missing_since, created_at, context, content_changed_at) VALUES ('
+SELECT 'INSERT INTO camping_spots (id, name, country, region, slug, type, amenities, location, outline, osm_ref, owner_overrides, last_seen_at, missing_since, created_at, context, content_changed_at) VALUES ('
   || quote_literal(id) || ', ' || coalesce(quote_literal(name),'NULL') || ', '
   || quote_literal(country) || ', ' || coalesce(quote_literal(region),'NULL') || ', '
   || quote_literal(slug) || ', ' || quote_literal(type::text) || '::camping_spots_type_enum, '
   || quote_literal(amenities::text) || '::jsonb, '
   || 'ST_GeomFromText(' || quote_literal(ST_AsText(location)) || ', 4326), '
+  -- 🔴 CAMP-352. Перелік колонок тут ПРИБИТИЙ ТЕКСТОМ, тож нова колонка
+  -- до нього сама не вступає — і рецензія це зловила: без цього рядка
+  -- жоден рядок фікстури не має обрису, а отже вся гілка «контур є»
+  -- (підпис, шари мапи, кадрування) не має В БРАУЗЕРІ ЖОДНОГО покриття.
+  -- Перегенерація фікстури цього б не виправила, бо список не зчитується
+  -- зі схеми.
+  || coalesce('ST_GeomFromText(' || quote_literal(ST_AsText(outline)) || ', 4326)', 'NULL') || ', '
   || quote_literal(osm_ref) || ', ' || quote_literal(owner_overrides::text) || '::jsonb, '
   || quote_literal(last_seen_at::text) || ', NULL, ' || quote_literal(created_at::text) || ', '
   || quote_literal(context::text) || '::jsonb, ' || quote_literal(content_changed_at::text) || ');'

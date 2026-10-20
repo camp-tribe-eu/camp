@@ -283,6 +283,11 @@ export const TERRAIN_LABEL: Record<TerrainType, string> = {
   mountainous: 'Mountainous',
 };
 
+// 🔴 Один тип на весь проєкт. Оголошений двічі, він розійшовся б при
+// першій же зміні форми — і розбіжність між API та мапою не впіймав би
+// жоден тест, бо обидва боки компілювались би окремо.
+export type { Outline } from '@/lib/outline';
+
 export interface Spot {
   slug: string;
   name: string | null;
@@ -291,6 +296,15 @@ export interface Spot {
   type: 'free' | 'paid' | 'wild' | 'camper_stop' | 'rv_park';
   lat: number;
   lon: number;
+  /**
+   * CAMP-352. Обрис ділянки з OpenStreetMap, або `null`.
+   *
+   * 🔴 `null` означає «в OSM це крапка», а не «ми не знаємо». Заміряно
+   * 19.10.2026 по 63 159 кемпінгах: обрис мають 55,1%. Малювати межу
+   * там, де першоджерело її не знає, — вигадка, а сторінка кемпінгу
+   * саме тим і торгує, що нічого не вигадує.
+   */
+  outline?: import('@/lib/outline').Outline | null;
   amenities: Amenities;
   ownerOverrides: Record<string, unknown>;
   /**
