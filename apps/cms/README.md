@@ -1,4 +1,52 @@
-# The CMS that is not here yet
+# The CMS, back on purpose — and kept at arm's length
+
+**Directus is here again since 20 October 2026 (CAMP-361).** It was removed on
+24 September and brought back for a reason that outweighed the one for removing
+it: without an admin panel nobody but a developer can run the project, and that
+made the project unmaintainable by its own owner.
+
+Both decisions stand on one condition, and `scripts/ci/check-cms-hardening.mjs`
+enforces it: **`apps/cms` is NOT an npm workspace.** Measured 20.10.2026 —
+
+| tree | packages | advisories | critical |
+|---|---|---|---|
+| ours (`apps/api` + `apps/web`) | 1 208 | 27 | **0** |
+| `apps/cms` on its own | 1 200 | 35 | 1 (`tar`) |
+
+One word in `workspaces` merges those back into 62 with a critical inside, and
+nothing else in the repository would notice. Install it with
+`npm --prefix apps/cms install`, never from the root.
+
+🔴 **Node 24 needs an override.** `@directus/api` pins `isolated-vm` at exactly
+`5.0.3`, which does not compile against Node 24's V8 headers ("C++20 or later
+required"). `isolated-vm@7.0.1` ships prebuilt binaries and works — verified by
+evaluating code inside an isolate on Node 24.18.0. The override lives in
+`apps/cms/package.json`, not the root: in this monorepo a root override of this
+exact pin does not apply (npm 11.16.0, measured both ways).
+
+🔴 **Extensions are not installed, ever.** The one critical advisory is `tar`
+inside `@directus/api`, and npm's only "fix" is a downgrade to 10.9.3. The sole
+thing that unpacks a foreign archive is the Marketplace. Directus has **no**
+variable that turns it off, so `MARKETPLACE_TRUST` and `EXTENSIONS_LIMIT` are
+set explicitly rather than left to a default the vendor may change.
+
+🔴 **`EXTENSIONS_LIMIT=0` means "no limit", not "no extensions".** The vendor
+reads it as `env[...] ? Number(env[...]) : null` and runs the check only when
+the value is truthy; `@directus/env` guesses `"0"` as JSON and hands back the
+number `0`, which is falsy, so the gate opens. The value is `string:0` — the
+prefix forces a string, which is truthy, and the limit becomes a real `0`.
+Measured 20.10.2026 in a fresh process per value, and pinned by
+`check-cms-hardening.mjs`, which encodes the vendor's rule rather than the
+variable's name. I got this wrong from the name; review caught it.
+
+🔴 **Five activations, bound to database + `PUBLIC_URL`.** Destroying an instance
+without deactivating keeps the slot forever. Locally we run on Core with **no
+key** — check with `GET /server/info`: `license.source === null` means Core, and
+that read needs no credentials and reveals nothing.
+
+---
+
+## The history, kept because the reasoning still applies
 
 Directus lived here until **24 September 2026** and was removed on purpose.
 This file is the whole of what is left, because a folder that vanishes

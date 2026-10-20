@@ -94,6 +94,34 @@ function readJson(file) {
 }
 
 /**
+ * 🔴 Apps that exist on disk and are NOT npm workspaces, each with the
+ * reason — CAMP-361.
+ *
+ * The question this answers is not "which apps are workspaces" (that is
+ * `package.json`, and it cannot be wrong about itself). It is: did
+ * somebody add an app and forget to wire it in? A new `apps/foo` that is
+ * neither a workspace nor named here fails the self-test, which is the
+ * direction this guard exists to catch.
+ *
+ * `apps/cms` is excluded on purpose, and the purpose is measured:
+ * 20.10.2026 our tree carried 1 208 packages / 27 advisories / 0 critical
+ * while `apps/cms` on its own carried 1 200 / 35 / 1 critical. Merging
+ * them back makes the honest answer to "how many vulnerabilities do we
+ * have" 62 with a critical inside — which is exactly why Directus was
+ * removed in the first place (CAMP-106).
+ *
+ * 🔴 Excluded from the INSTALL is not excluded from the WATCH. Right now
+ * nothing audits the CMS tree at all, and that blind spot is CAMP-366.
+ * This comment is here so the next reader does not mistake the silence
+ * for safety.
+ */
+export const NOT_A_WORKSPACE = {
+  'apps/cms':
+    'Directus, installed on its own (`npm --prefix apps/cms install`) so its ' +
+    '35 advisories never merge into ours. Audited separately — CAMP-366.',
+};
+
+/**
  * Every workspace npm would install, read from the same `workspaces`
  * declaration npm reads. Only a single `*` segment is supported, which
  * is what the declaration uses; anything fancier should fail loudly
@@ -289,10 +317,19 @@ function selfTest() {
     .filter((d) => readJson(path.join(ROOT, 'apps', d, 'package.json')))
     .map((d) => `apps/${d}`)
     .sort();
+  const excluded = Object.keys(NOT_A_WORKSPACE).sort();
   check(
-    'the real repository resolves exactly the workspaces on disk',
+    'every app on disk is a workspace, or named here as deliberately not one',
     discoverWorkspaces(ROOT, readJson, (d) => readdirSync(d)),
-    onDisk,
+    onDisk.filter((a) => !NOT_A_WORKSPACE[a]),
+  );
+  // 🔴 Closed from BOTH sides, like the address register. An entry for a
+  // directory that no longer exists turns this table into a list of
+  // wishes, and "deliberately excluded" stops meaning anything.
+  check(
+    'and nothing is excused that is not on disk',
+    excluded.filter((a) => !onDisk.includes(a)),
+    [],
   );
   check(
     'and there is at least one, so the comparison is not two empty lists',
@@ -396,7 +433,7 @@ function selfTest() {
 
   // 🔴 The count is asserted, because a case that stopped being reached
   // prints exactly what a case that passed prints: nothing.
-  const EXPECTED_CASES = 13;
+  const EXPECTED_CASES = 14;
   if (cases !== EXPECTED_CASES) {
     console.error(`  ✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
     failures++;
