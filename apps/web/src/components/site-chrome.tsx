@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { COMPANY, LEGAL_PAGES, legalPath } from '@/lib/legal';
 import { CookieSettingsLink } from './cookie-consent';
+import { CurrentYear } from './current-year';
 import { SiteNavDrawer } from './site-nav-drawer';
 
 // CAMP-41: the header and footer every page wears.
@@ -186,19 +187,18 @@ export function SiteFooter() {
           </ul>
         </nav>
 
-        {/* 🔴 ІДЕНТИФІКАЦІЯ ПІДПРИЄМСТВА, А НЕ ПРОСТО КОПІРАЙТ.
-            Стаття 5 Директиви про е-комерцію (2000/31/EC), у Бельгії —
-            книга XII Wetboek van economisch recht, вимагає назву,
-            адресу осідку й номер торгового реєстру. Номер тут зʼявився
-            20.10.2026; вулиця й далі не друкується за чинною вказівкою
-            власника — чому саме, пояснює сторінка правової інформації,
-            і пояснює чесно, а не відмовкою. */}
+        {/* 🔴 У ПІДВАЛІ — НАЗВА, РІК І ПРАВА. БІЛЬШЕ НІЧОГО.
+            Рішення власника 20.10.2026: адреса й номер підприємства
+            публікуються, але на правових сторінках, а не під кожною
+            сторінкою сайту. Обовʼязок — опублікувати; показувати осідок
+            під кожною фотографією обовʼязком не є, а осідок це його дім.
+            Посилання на правову інформацію стоїть рядком вище, тож шлях
+            до даних короткий і очевидний.
+
+            Рік рахує `CurrentYear` у браузері, а не розмітка на збірці —
+            чому саме так, пояснено в тому компоненті. */}
         <p className="mt-4">
-          © {new Date().getFullYear()} CampTribe — {COMPANY.name},{' '}
-          {COMPANY.city}, {COMPANY.country} · {COMPANY.enterpriseNumber} ·{' '}
-          <a href={`mailto:${COMPANY.email}`} className="underline">
-            {COMPANY.email}
-          </a>
+          © <CurrentYear />. {COMPANY.name}. All rights reserved.
         </p>
       </div>
     </footer>

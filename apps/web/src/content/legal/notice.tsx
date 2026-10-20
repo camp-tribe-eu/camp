@@ -10,27 +10,32 @@ import { A, B, Callout, H2, P } from './prose';
 // commercial site for the geographic address at which the provider is
 // established and for its trade-register number.
 //
-// 🔴 20.10.2026: the trade-register half is now satisfied — the owner
-// supplied the enterprise number and it is published above. The STREET is
-// still withheld, at his standing instruction, because the registered
-// seat is his home; that instruction has not been revoked.
+// 🔴 20.10.2026 — BOTH ARE NOW HERE, AND THIS FILE NO LONGER RECORDS A
+// SHORTFALL. For months it did: the street was withheld because the
+// registered seat is the owner's home, and this comment argued that the
+// omission cost compliance without buying confidentiality, since a
+// Belgian company's registered address is public in the Kruispuntbank
+// van Ondernemingen and findable by NAME, which we always published.
 //
-// The owner has been told, and it is repeated here so the next person
-// does not have to rediscover it: withholding the street does not make it
-// private. A Belgian company's registered address and enterprise number
-// are published in the Kruispuntbank van Ondernemingen and anyone can
-// look them up by name in seconds. So the omission costs compliance
-// without buying confidentiality. The cheap fix is a business address —
-// an accountant's or a registered-office service — which is both
-// publishable and not his home.
+// The owner read that argument, agreed with it in his own words — the
+// address is findable from the enterprise number anyway — and supplied
+// the data.
+//
+// 🔴 IT LIVES HERE AND NOT IN THE FOOTER, AND THAT IS ALSO HIS DECISION.
+// Publishing it is the duty; printing a home address under every page of
+// the site is not. The footer carries the company name, the year and the
+// rights line, and links here.
 
 export default function Notice() {
   return (
     <>
       <H2 id="operator">Who operates this site</H2>
       <P>
-        CampTribe is operated by <B>{COMPANY.name}</B>, {COMPANY.city},{' '}
-        {COMPANY.country}.
+        CampTribe is operated by <B>{COMPANY.name}</B>.
+      </P>
+      <P>
+        Registered office: <B>{COMPANY.street}</B>, {COMPANY.city},{' '}
+        {COMPANY.country}
       </P>
       <P>
         Enterprise number (KBO) and VAT number:{' '}

@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
 
 import Notice from '@/content/legal/notice';
-import { COMPANY } from '@/lib/legal';
+import Privacy from '@/content/legal/privacy';
+import { SiteFooter } from '@/components/site-chrome';
+import { COMPANY, COMPANY_ADDRESS } from '@/lib/legal';
 import { renderComponent } from './render-component';
 import { visibleText } from './rendered-text';
 
@@ -45,15 +47,42 @@ test('🔴 номер має вигляд бельгійського, а не з
   expect(COMPANY.enterpriseNumber).toMatch(/^BE [01]\d{3}\.\d{3}\.\d{3}$/);
 });
 
-// 🔴 І ЗАПИСАНА НЕПОВНОТА ЛИШАЄТЬСЯ НАЗВАНОЮ. Вулиця не друкується за
-// чинною вказівкою власника — осідок це його дім. Доки так, сторінка
-// мусить це пояснювати, а не мовчати: мовчання читається як недогляд, і
-// наступний розробник «виправить» його, опублікувавши адресу.
-//
-// Коли власник дасть ділову адресу, цей тест упаде — і це правильно:
-// він тримає пояснення рівно доти, доки воно є правдою.
-test('🔴 поки вулиці немає, сторінка пояснює чому', () => {
+// 🔴 АДРЕСА ОСІДКУ НАЗВАНА ПОВНІСТЮ. Рішення власника 20.10.2026: вона
+// публікується, бо з номера підприємства знаходиться й так. До того тут
+// стояв зворотний тест — «вулиці немає, і сторінка пояснює чому». Він
+// упав, щойно адреса зʼявилась, і це була його робота: він тримав
+// пояснення рівно доти, доки воно було правдою.
+test('🔴 сторінка називає адресу осідку, а не саме лише місто', () => {
   const text = visibleText(renderComponent(Notice, {}));
-  expect(text).not.toMatch(/Kapucinessenstraat/i);
-  expect(text).toMatch(/address/i);
+  expect(text).toContain(COMPANY.street);
+  expect(text).toContain(COMPANY.city);
+  expect(text).toMatch(/registered office/i);
+});
+
+// 🔴 ПОЛІТИКА ПРИВАТНОСТІ НАЗИВАЄ КОНТРОЛЕРА ПОВНІСТЮ. Стаття 13 GDPR
+// вимагає ОСОБУ контролера, а «UTD BV, Антверпен» це натяк, не особа.
+// Окремий тест, бо це окрема сторінка й окрема норма: виправлення
+// правової сторінки не мусить мовчки лишати політику старою.
+test('🔴 політика приватності називає контролера з адресою', () => {
+  const text = visibleText(renderComponent(Privacy, {}));
+  expect(text).toContain(COMPANY_ADDRESS);
+  expect(text).toMatch(/controller/i);
+});
+
+// 🔴 ПІДВАЛ НЕСЕ НАЗВУ Й ПРАВА — І НЕ НЕСЕ АДРЕСИ.
+//
+// Це теж рішення власника, і воно симетричне попередньому: опублікувати
+// адресу — обовʼязок, друкувати осідок під кожною сторінкою — ні.
+// Без цього тесту наступне «уніфікуємо підвал» поверне її туди, і
+// помітить це не розробник, а власник.
+//
+// Рік тут НЕ перевіряється рядком: `CurrentYear` навмисно розходиться
+// між збіркою та браузером, тож твердження про конкретне число було б
+// тестом, який ламається 1 січня без жодного дефекту.
+test('🔴 у підвалі немає адреси — лише назва, рік і права', () => {
+  const text = visibleText(renderComponent(SiteFooter, {}));
+  expect(text).toContain(COMPANY.name);
+  expect(text).toMatch(/All rights reserved/i);
+  expect(text).not.toContain(COMPANY.street);
+  expect(text).not.toContain(COMPANY.enterpriseNumber);
 });
