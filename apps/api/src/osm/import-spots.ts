@@ -185,6 +185,47 @@ const isPolygon = (ref: string) => !ref.startsWith('n');
  * a later run and move a published URL.
  */
 /**
+ * 🔴 CAMP-352: скільки рядків справді мають контур — і чи кожен із них
+ * тримає СВОЮ точку.
+ *
+ * CHECK міграції питає `ST_DWithin(outline, location, 0.0001)`, тобто
+ * пропустить точку за ~11 м від ділянки. Наша побудова дає нуль:
+ * `location` це `ST_PointOnSurface` тієї самої фігури, а `adoptOutline`
+ * переносить точку разом із контуром. Будь-яке інше число означає, що
+ * рядок зібрано з двох різних обʼєктів — помилка, яку CHECK пропустить,
+ * бо його допуск ширший за нашу обіцянку.
+ *
+ * Читається з ТАБЛИЦІ й до COMMIT, з тієї ж причини, що й
+ * assertStoredEditDates: перевірка входу не бачить підміни, зробленої
+ * між входом і таблицею.
+ */
+export async function assertStoredOutlines(
+  db: { query: (q: string, v?: unknown[]) => Promise<{ rows: unknown[] }> },
+  startedAt: Date,
+  country: string,
+): Promise<number> {
+  const r = (await db.query(
+    `SELECT count(*) FILTER (WHERE outline IS NOT NULL) AS n,
+            count(*) FILTER (WHERE outline IS NOT NULL
+                               AND ST_Distance(outline, location) <> 0) AS off
+       FROM camping_spots
+      WHERE country = $1 AND last_seen_at = $2`,
+    [country, startedAt],
+  )) as { rows: { n: string; off: string }[] };
+  const off = Number(r.rows[0]?.off ?? 0);
+  if (off > 0) {
+    throw new Error(
+      `${off} rows carry an outline their own location is not on.\n` +
+        'The migration CHECK allows 0.0001 degrees (~11 m); this import ' +
+        'promises 0, because the point is ST_PointOnSurface of that same ' +
+        'shape. A non-zero distance means the pair was assembled from two ' +
+        'different objects.',
+    );
+  }
+  return Number(r.rows[0]?.n ?? 0);
+}
+
+/**
  * 🔴 CAMP-352. Контур переможця може лежати у програвшого.
  *
  * Переможця обирає `isPolygon`, а він питає про ПРЕФІКС:
@@ -267,14 +308,30 @@ export function mergeUnnamed(rows: StagingRow[]): StagingRow[] {
   for (let i = 0; i < rows.length; i++) {
     if (taken.has(i)) continue;
     let winner = rows[i];
+    // 🔴 CAMP-352. Якір сусідства — ОКРЕМО від збереженої точки.
+    //
+    // adoptOutline() рухає `winner.point_wkt` на точку програвшого, бо
+    // цього вимагає CHECK міграції. Але цей самий цикл наступною
+    // ітерацією міряє відстань ВІД переможця — і зсунута точка робить
+    // сусідом того, хто сусідом не був.
+    //
+    // Заміряно 20.10.2026 на трьох безіменних рядках через 31 м і 31 м
+    // (разом 62 м, тобто поза радіусом): порядок [w1,a2,a3] дав ОДИН
+    // рядок, порядок [w1,a3,a2] — ДВА. Тобто кількість кемпінгів почала
+    // залежати від `ORDER BY p.id`, а з нею й те, яка сторінка виживе.
+    // Це дослівно нестабільність CAMP-39, через яку Camping Bled
+    // перестрибував між `camping-bled` і `camping-bled-2`.
+    //
+    // Тому якір оновлюється ВЛАСНОЮ точкою переможця — до перенесення
+    // контуру. Межа «безіменні зливаються в 50 м» тоді знову міряється
+    // від реального обʼєкта, а не від місця, куди його перемістив
+    // попередній крок.
+    let anchor = winner.point_wkt;
 
     for (let j = i + 1; j < rows.length; j++) {
       if (taken.has(j)) continue;
       const other = rows[j];
-      if (
-        metresApart(winner.point_wkt, other.point_wkt) >
-        UNNAMED_DUPLICATE_RADIUS_M
-      ) {
+      if (metresApart(anchor, other.point_wkt) > UNNAMED_DUPLICATE_RADIUS_M) {
         continue;
       }
 
@@ -287,6 +344,7 @@ export function mergeUnnamed(rows: StagingRow[]): StagingRow[] {
       // 🔴 CAMP-256: as in dedupe() — the merged row is dated by the newest
       // object it was built from.
       keep.record = mergedRecord(keep.record, drop.record);
+      anchor = keep.point_wkt;
       adoptOutline(keep, drop);
       winner = keep;
     }
@@ -919,6 +977,7 @@ async function main(): Promise<void> {
   let updated = 0;
   let unnamed = 0;
   let fromPolygon = 0;
+  let withOutline = 0;
   /** Points whose polygon says a different country than the argument. */
   let outsideExtent = 0;
   /** Points that resolved to a country outside the European Union. */
@@ -1114,6 +1173,7 @@ async function main(): Promise<void> {
     // 🔴 CAMP-256: what the table now holds, judged before COMMIT — see
     // assertStoredEditDates for why it reads the table and not the input.
     storedEditDates = await assertStoredEditDates(db, startedAt, COUNTRY);
+    withOutline = await assertStoredOutlines(db, startedAt, COUNTRY);
 
     await db.query('COMMIT');
 
@@ -1149,6 +1209,15 @@ async function main(): Promise<void> {
       `\n  without a name     ${unnamed}  (pin shown, name honestly unknown)`,
     );
     console.log(`  mapped as areas    ${fromPolygon}  (ST_PointOnSurface)`);
+    // 🔴 Рахується з ТАБЛИЦІ, а не зі staging, і це не те саме число.
+    // `mapped as areas` вище міряє вхід і зараховує LINESTRING та
+    // GEOMETRYCOLLECTION, які контуру не отримують, — тобто тим рядком
+    // не видно, чи контур узагалі записався. 20.10.2026 він і не
+    // записувався: мапа не копіювала поле, а цей рядок показував би ті
+    // самі площі.
+    console.log(
+      `  with an outline    ${withOutline}  (read back from the table)`,
+    );
     console.log(
       `  outside ${COUNTRY.padEnd(2)}         ${outsideExtent}  (extent overlaps the border; country taken from geometry)`,
     );

@@ -2,6 +2,7 @@ import {
   dedupe,
   mergeUnnamed,
   stagingSelectSql,
+  assertStoredOutlines,
   MARK_GONE_SQL,
   UPSERT_SPOT_SQL,
   upsertSpotParams,
@@ -512,6 +513,8 @@ describe('🔴 CAMP-352: контур ділянки', () => {
   const doUpdate = code.slice(code.indexOf('DO UPDATE SET'));
   const RING =
     'MULTIPOLYGON(((14 46,14.001 46,14.001 46.001,14 46.001,14 46)))';
+  const RING2 =
+    'MULTIPOLYGON(((15 46,15.001 46,15.001 46.001,15 46.001,15 46)))';
 
   it('пишеться своїм плейсхолдером і як геометрія, а не як текст', () => {
     expect(code).toMatch(/ST_GeomFromText\(\$16,\s*4326\)/);
@@ -547,11 +550,13 @@ describe('🔴 CAMP-352: контур ділянки', () => {
     lon = 14,
     admin_region: string | null = 'Bovec',
     admin_country: string | null = 'SI',
+    raw_country: string | null = 'SI',
   ) => ({
     osm_ref,
     point_wkt: `POINT(${lon} 46)`,
     admin_region,
     admin_country,
+    raw_country,
     outline_wkt,
     tags,
   });
@@ -618,6 +623,52 @@ describe('🔴 CAMP-352: контур ділянки', () => {
     expect(out[0].point_wkt).toBe('POINT(14 46)');
   });
 
+  it('🔴 результат НЕ залежить від порядку рядків (урок CAMP-39)', () => {
+    // adoptOutline рухає точку переможця — цього вимагає CHECK міграції.
+    // Якщо тим самим числом міряти сусідство, ланцюжок 31 м + 31 м
+    // схлопується транзитивно: заміряно 20.10.2026, порядок [w1,a2,a3]
+    // давав ОДИН рядок, [w1,a3,a2] — ДВА. Кількість кемпінгів починала
+    // залежати від `ORDER BY p.id`, а з нею й те, яка сторінка виживе.
+    //
+    // 🔴 Рядки будуються заново на кожен виклик: mergeUnnamed мутує їх.
+    const trio = () => [
+      spot('w1', { shower: 'yes', wifi: 'yes' }, null, 14),
+      spot('a2', {}, RING, 14.0004),
+      spot('a3', {}, RING2, 14.0008),
+    ];
+    const [p1, p2, p3] = trio();
+    const forward = mergeUnnamed([p1, p2, p3]).map((r) => r.osm_ref);
+    const [q1, q2, q3] = trio();
+    const swapped = mergeUnnamed([q1, q3, q2]).map((r) => r.osm_ref);
+
+    expect(forward).toEqual(swapped);
+    // Крайні за 62 м один від одного — тобто поза радіусом 50 м.
+    expect(forward).toHaveLength(2);
+  });
+
+  it('🔴 raw_country їде разом із точкою, бо рахується з неї ж', () => {
+    // Обидва рядки стоять у полігоні без ISO-коду, тож region і country
+    // однаково NULL і сторожі пропускають. Але raw_country — це те, що
+    // Natural Earth написав ДЛЯ ЦІЄЇ ТОЧКИ, і лічильник полігонів без
+    // коду рахує саме його. Лишити старе значення означало б віднести
+    // рядок до чужого полігона.
+    const out = dedupe([
+      spot(
+        'w1',
+        { name: 'X', shower: 'yes', wifi: 'yes' },
+        null,
+        14,
+        null,
+        null,
+        '-1',
+      ),
+      spot('a2', { name: 'X' }, RING, 14.0005, null, null, '-99'),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].outline_wkt).toBe(RING);
+    expect(out[0].raw_country).toBe('-99');
+  });
+
   it('🔴 те саме на безіменній гілці — вона має власне злиття', () => {
     // mergeUnnamed() це окремий прохід із власним betterRow(); виправити
     // один шлях і лишити другий означало б полагодити половину.
@@ -653,5 +704,30 @@ describe('🔴 CAMP-352: staging віддає контур за ТИПОМ ге�
   it('підставляє саме ту таблицю, яку просили', () => {
     expect(stagingSelectSql('zzz_staging')).toContain('"zzz_staging"');
     expect(stagingSelectSql('zzz_staging')).not.toContain('${TABLE}');
+  });
+});
+
+// Сам SELECT тут не виконується — його поведінку пінить db-спек. Тут
+// пінимо ВИРОК: свідок, який лише рахує й ніколи не кидає, не стереже.
+describe('🔴 CAMP-352: свідок записаних контурів', () => {
+  const fake = (n: string, off: string) => ({
+    query: async () => ({ rows: [{ n, off }] }),
+  });
+  const run = (n: string, off: string) =>
+    assertStoredOutlines(fake(n, off), new Date('2026-10-20T05:00:00Z'), 'SI');
+
+  it('віддає кількість рядків із контуром', async () => {
+    await expect(run('1303', '0')).resolves.toBe(1303);
+  });
+
+  it('🔴 кидає, коли хоч один рядок не стоїть на власному контурі', async () => {
+    // CHECK міграції пропускає 0.0001 градуса (~11 м), а наша побудова
+    // обіцяє нуль. Рядок у цій щілині означає пару, зібрану з двох різних
+    // обʼєктів, і CHECK про неї не скаже нічого.
+    await expect(run('1303', '2')).rejects.toThrow(/2 rows carry an outline/);
+  });
+
+  it('нуль контурів — це не помилка', async () => {
+    await expect(run('0', '0')).resolves.toBe(0);
   });
 });
