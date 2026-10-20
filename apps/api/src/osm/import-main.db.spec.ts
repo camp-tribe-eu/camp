@@ -4,6 +4,8 @@ import { Client } from 'pg';
 import type { QueryRunner } from 'typeorm';
 import { SpotOvernight1791500000000 } from '../migrations/1791500000000-SpotOvernight';
 import { SpotRecordEdited1791800000000 } from '../migrations/1791800000000-SpotRecordEdited';
+import { SpotOutline1792100000000 } from '../migrations/1792100000000-SpotOutline';
+import { assertStoredOutlines } from './import-spots';
 
 // CAMP-256 — the importer's `main()`, RUN.
 //
@@ -95,6 +97,11 @@ beforeAll(async () => {
       ST_Multi(ST_GeomFromText('POLYGON((13 44, 17 44, 17 47, 13 47, 13 44))', 4326)));`);
   await new SpotOvernight1791500000000().up(runner());
   await new SpotRecordEdited1791800000000().up(runner());
+  // 🔴 CAMP-352. Схема тут пишеться руками, а міграції прикладаються
+  // ПОІМЕННО, тож нова до списку сама не вступає. Коли імпортер почав
+  // писати outline, усі вісім тестів упали зі статусом 1 — не тому, що
+  // зламався імпортер, а тому, що в цій таблиці не було колонки.
+  await new SpotOutline1792100000000().up(runner());
 });
 
 afterAll(async () => {
@@ -412,5 +419,264 @@ describe("🔴 the importer, run on a campsite mapped twice: the date, the versi
     expect(await rowsOf('w-undated')).toEqual([
       { osm_ref: 'w-undated-2', ref: null, v: null, edited: null },
     ]);
+  });
+});
+
+// CAMP-352. Контур ділянки, наскрізно: від staging до колонки.
+//
+// 🔴 geom тут geometry(Geometry), а не geometry(Point), і це вся суть
+// фікстури. Решта staging-таблиць у цьому файлі тримають самі точки, тож
+// полігонна гілка на них не виконується жодного разу — вони б лишились
+// зеленими і тоді, коли контур не пишеться взагалі.
+describe('🔴 CAMP-352: імпортер пише контур ділянки', () => {
+  const TABLE = 'outline_mix';
+
+  beforeAll(async () => {
+    await db.query(
+      `CREATE TABLE ${TABLE} (
+         id varchar, geom geometry(Geometry, 4326), name varchar,
+         tourism varchar, "@timestamp" integer, "@version" integer)`,
+    );
+    await db.query(
+      `INSERT INTO ${TABLE} VALUES
+         ('a-outline-1',
+          ST_GeomFromText(
+            'POLYGON((14 45,14.002 45,14.002 45.002,14 45.002,14 45))', 4326),
+          'Camp Area', 'camp_site', 1700000000, 3),
+         ('n-outline-2',
+          ST_SetSRID(ST_MakePoint(15, 45), 4326),
+          'Camp Node', 'camp_site', 1700000000, 3),
+         -- 🔴 Третій рядок — ПЕРЕДУМОВА всієї картки, і без нього
+         -- фікстура не розрізняла правило, заради якого написана.
+         -- osmium export віддає закритий way двічі, і коли площа вижила
+         -- під a..., вижилий w... це LineString. Відбір «усе, що не
+         -- вузол» (тобто isPolygon) дав би йому ST_Multi(LineString) =
+         -- MULTILINESTRING і завалив би імпорт на typmod колонки —
+         -- рівно та помилка, що названа в картці. З самими лише POLYGON
+         -- і POINT префікс і тип геометрії збігаються, і мутація
+         -- проходила непоміченою.
+         ('w-outline-3',
+          ST_GeomFromText('LINESTRING(14.5 45, 14.52 45.01)', 4326),
+          'Camp Line', 'camp_site', 1700000000, 3)`,
+    );
+  });
+
+  it('🔴 площа отримує MULTIPOLYGON, точка не отримує нічого', async () => {
+    const r = runImporter(TABLE);
+    expect(r.status).toBe(0);
+    // 🔴 Прибито до ВИКЛИКУ, а не лише до функції. Рецензія показала, що
+    // підміна `withOutline = await assertStoredOutlines(...)` на `= 0`
+    // лишала всі тести зеленими: сторож був доведений, а його виклик —
+    // ні. Сусідній assertStoredEditDates приколотий так само, через
+    // рядок у виводі. Один рядок із трьох має контур.
+    expect(r.out).toMatch(/with an outline\s+1\b/);
+    const rows = await db.query(
+      `SELECT osm_ref, GeometryType(outline) AS t
+         FROM camping_spots WHERE osm_ref LIKE '%-outline-%'
+        ORDER BY osm_ref`,
+    );
+    expect(rows.rows).toEqual([
+      { osm_ref: 'a-outline-1', t: 'MULTIPOLYGON' },
+      { osm_ref: 'n-outline-2', t: null },
+      { osm_ref: 'w-outline-3', t: null },
+    ]);
+  });
+
+  it('🔴 збережена точка лежить НА збереженому контурі', async () => {
+    // Не формальність: CHECK міграції порівнює з допуском 0.0001 градуса,
+    // тобто пропустив би точку за ~11 м від ділянки. Тут питаємо саму
+    // відстань, і вона мусить бути нулем — ST_PointOnSurface інакше не
+    // буває, а будь-яке інше число означає, що пару зібрано з двох різних
+    // обʼєктів.
+    const r = await db.query(
+      `SELECT ST_Distance(outline, location) AS d
+         FROM camping_spots WHERE osm_ref = 'a-outline-1'`,
+    );
+    expect(Number(r.rows[0].d)).toBe(0);
+  });
+});
+
+// 🔴 CAMP-352. Поведінкова пара до текстових сторожів у юніт-спеці.
+//
+// Ті читають ТЕКСТ statement, і цього мало: заміна `OR NOT ST_Equals(…)`
+// на `AND NOT ST_Equals(…)` лишає обидва regex збіжними, а умову —
+// назавжди не-істинною (`ST_Equals(x, NULL)` віддає NULL). Перемальований
+// мапером контур тоді вже ніколи не рухав би <lastmod>, і жоден тест про
+// це не сказав би. CAMP-256 на сусідніх рядках має таку пару; тепер має і
+// CAMP-352.
+describe('🔴 CAMP-352: контур і <lastmod>', () => {
+  const T = 'outline_lastmod';
+  const REF = 'a-lastmod-1';
+  // Більший полігон, що МІСТИТЬ точку на поверхні першого, тож CHECK
+  // міграції його приймає. Міняється лише контур — точка стоїть.
+  const WIDER =
+    'POLYGON((14.29 44.99,14.31 44.99,14.31 45.01,14.29 45.01,14.29 44.99))';
+
+  /**
+   * 🔴 Питаємо ВЛАСТИВІСТЬ, а не дві мітки часу.
+   *
+   * Перша версія порівнювала content_changed_at до і після прогону,
+   * обрізаний до секунди, — і флейкувала у 2 прогонах із 5. Критерій був
+   * мій, і він був хибний: <lastmod> ставиться РІВНО в last_seen_at того
+   * прогону, який побачив зміну. Тож питання не «чи відрізняється від
+   * попереднього значення», а «чи дорівнює стемпу ЦЬОГО прогону» — а це
+   * не залежить ні від роздільності годинника, ні від того, скільки
+   * тривав попередній крок.
+   */
+  const movedThisRun = async () =>
+    (
+      await db.query<{ moved: boolean }>(
+        `SELECT content_changed_at = last_seen_at AS moved
+           FROM camping_spots WHERE osm_ref = $1`,
+        [REF],
+      )
+    ).rows[0].moved;
+
+  const outlineType = async () =>
+    (
+      await db.query<{ t: string | null }>(
+        `SELECT GeometryType(outline) AS t
+           FROM camping_spots WHERE osm_ref = $1`,
+        [REF],
+      )
+    ).rows[0].t;
+
+  beforeAll(async () => {
+    await db.query(
+      `CREATE TABLE ${T} (
+         id varchar, geom geometry(Geometry, 4326), name varchar,
+         tourism varchar, "@timestamp" integer, "@version" integer)`,
+    );
+    await db.query(
+      `INSERT INTO ${T} VALUES ($1,
+         ST_GeomFromText(
+           'POLYGON((14.3 45,14.302 45,14.302 45.002,14.3 45.002,14.3 45))',
+           4326),
+         'Camp Lastmod', 'camp_site', 1700000000, 3)`,
+      [REF],
+    );
+    expect(runImporter(T).status).toBe(0);
+  });
+
+  it('🔴 ПЕРШЕ заповнення контуру не рухає <lastmod>', async () => {
+    // Стан після міграції #289: точка вже порахована з тієї ж фігури,
+    // колонка порожня, бо її не існувало. Рухаємо РІВНО одну змінну —
+    // перша версія цієї перевірки рухала ще й точку, і <lastmod> зсувався
+    // через location, не через контур.
+    await db.query(
+      `UPDATE camping_spots SET outline = NULL WHERE osm_ref = $1`,
+      [REF],
+    );
+    expect(runImporter(T).status).toBe(0);
+
+    expect(await outlineType()).toBe('MULTIPOLYGON');
+    expect(await movedThisRun()).toBe(false);
+  });
+
+  it('🔴 ПЕРЕМАЛЬОВАНИЙ контур рухає <lastmod>', async () => {
+    await db.query(
+      `UPDATE camping_spots
+          SET outline = ST_Multi(ST_GeomFromText($2, 4326))
+        WHERE osm_ref = $1`,
+      [REF, WIDER],
+    );
+    expect(runImporter(T).status).toBe(0);
+
+    expect(await outlineType()).toBe('MULTIPOLYGON');
+    expect(await movedThisRun()).toBe(true);
+  });
+
+  it('🔴 ТОЙ САМИЙ контур удруге НЕ рухає <lastmod>', async () => {
+    // Прогалина, яку назвала рецензія: три попередні випадки міняли
+    // контур, тож хибний ПОЗИТИВ — щотижневий перезапис тієї самої
+    // фігури — не перевіряв ніхто. Жодних UPDATE перед прогоном: і
+    // staging, і таблиця лишаються як є.
+    expect(runImporter(T).status).toBe(0);
+
+    expect(await outlineType()).toBe('MULTIPOLYGON');
+    expect(await movedThisRun()).toBe(false);
+  });
+
+  it('🔴 ЗНИКЛИЙ контур рухає <lastmod> — обрис зі сторінки щез', async () => {
+    // Площу перемалювали в крапку. Точка береться та сама, щоб
+    // зрушив саме контур: ST_PointOnSurface(POINT) це той самий POINT.
+    await db.query(
+      `UPDATE ${T} SET geom = (SELECT location FROM camping_spots
+                                WHERE osm_ref = $1) WHERE id = $1`,
+      [REF],
+    );
+    expect(runImporter(T).status).toBe(0);
+
+    expect(await outlineType()).toBeNull();
+    expect(await movedThisRun()).toBe(true);
+  });
+});
+
+// 🔴 CAMP-352. РЕПЕТИЦІЯ сторожа, а не його переказ.
+//
+// Перша версія годувала підмінник, що віддавав готові {n, off} — тобто
+// відповідь, а не сирі рядки, — і SQL із ST_Distance не виконувався
+// ніде. Сторож, якого жодного разу не змусили спрацювати, не доведений:
+// з таким самим успіхом він міг би рахувати не ту множину або впасти на
+// синтаксисі. Прецедент поруч робить це правильно — assertStoredEditDates
+// репетирується на справжній базі.
+describe('🔴 CAMP-352: сторож збережених контурів', () => {
+  const STAMP = new Date('2026-03-03T03:03:03.000Z');
+  const BOX = 'POLYGON((14.3 45,14.302 45,14.302 45.002,14.3 45.002,14.3 45))';
+
+  const plant = async (ref: string, lon: number, lat: number) => {
+    await db.query(
+      `INSERT INTO camping_spots
+         (osm_ref, name, country, region, slug, type, location, outline,
+          last_seen_at)
+       VALUES ($1, 'Сторож', 'HR', 'Istria', $2, 'paid',
+               ST_SetSRID(ST_MakePoint($3, $4), 4326),
+               ST_Multi(ST_GeomFromText($5, 4326)), $6)`,
+      [ref, ref, lon, lat, BOX, STAMP],
+    );
+  };
+
+  afterAll(async () => {
+    await db.query(`DELETE FROM camping_spots WHERE last_seen_at = $1`, [
+      STAMP,
+    ]);
+  });
+
+  it('рахує лише рядки ЦЬОГО прогону і лише ті, що мають контур', async () => {
+    await plant('guard-ok-1', 14.301, 45.001);
+    await db.query(
+      `INSERT INTO camping_spots
+         (osm_ref, name, country, region, slug, type, location, last_seen_at)
+       VALUES ('guard-nil-2', 'Без контуру', 'HR', 'Istria', 'guard-nil-2',
+               'paid', ST_SetSRID(ST_MakePoint(14.9, 45), 4326), $1)`,
+      [STAMP],
+    );
+    await expect(assertStoredOutlines(db, STAMP)).resolves.toBe(1);
+    // Чужий прогін — не наша справа.
+    await expect(
+      assertStoredOutlines(db, new Date('2026-03-04T03:03:03.000Z')),
+    ).resolves.toBe(0);
+  });
+
+  it('🔴 кидає на парі, яку CHECK міграції пропускає', async () => {
+    // 0,00005 градуса за межею ділянки: ST_DWithin(…, 0.0001) ІСТИННИЙ,
+    // тобто обмеження бази таку пару приймає мовчки. Саме цю щілину
+    // сторож і закриває — інакше «точка на контурі» це обіцянка, яку
+    // ніхто не перевіряє.
+    await plant('guard-off-3', 14.30205, 45.001);
+    await expect(assertStoredOutlines(db, STAMP)).rejects.toThrow(
+      /1 rows carry an outline/,
+    );
+  });
+
+  it('🔴 бере й рядки, що лягли під ЧУЖИМ кодом країни', async () => {
+    // Прикордонна смуга екстракту: country тут не CLI-аргумент, а те,
+    // що сказала геометрія. Фільтр по країні лишив би ці рядки поза
+    // сторожем — а це найімовірніше місце для зібраної пари.
+    await db.query(`DELETE FROM camping_spots WHERE osm_ref = 'guard-off-3'`);
+    await db.query(
+      `UPDATE camping_spots SET country = 'SI' WHERE osm_ref = 'guard-ok-1'`,
+    );
+    await expect(assertStoredOutlines(db, STAMP)).resolves.toBe(1);
   });
 });

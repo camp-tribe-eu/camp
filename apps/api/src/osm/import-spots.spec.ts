@@ -1,5 +1,7 @@
 import {
   dedupe,
+  mergeUnnamed,
+  stagingSelectSql,
   MARK_GONE_SQL,
   UPSERT_SPOT_SQL,
   upsertSpotParams,
@@ -114,11 +116,13 @@ describe('dedupe (CAMP-71)', () => {
     lon: number,
     lat: number,
     tags: Record<string, string>,
+    outline_wkt: string | null = null,
   ) => ({
     osm_ref,
     point_wkt: `POINT(${lon} ${lat})`,
     admin_region: 'Bovec',
     admin_country: 'SI',
+    outline_wkt,
     tags,
   });
 
@@ -187,6 +191,7 @@ describe('🔴 dedupe is deterministic (CAMP-39)', () => {
     point_wkt: `POINT(${lon} ${lat})`,
     admin_region: 'Bled',
     admin_country: 'SI',
+    outline_wkt: null,
     tags,
   });
 
@@ -263,7 +268,7 @@ describe('🔴 CAMP-256: the OSM edit date in the weekly upsert', () => {
     const highest = Math.max(
       ...[...code.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])),
     );
-    expect(highest).toBe(15);
+    expect(highest).toBe(16);
     expect(upsertSpotParams(values)).toHaveLength(highest);
   });
 
@@ -353,6 +358,7 @@ describe('🔴 CAMP-256: the OSM edit date in the weekly upsert', () => {
       point_wkt: `POINT(${lon} 46)`,
       admin_region: 'Bovec',
       admin_country: 'SI',
+      outline_wkt: null,
       // Built the way main() builds it: each object's record names ITSELF.
       record: {
         edit:
@@ -494,5 +500,261 @@ describe('🔴 CAMP-256: the OSM edit date in the weekly upsert', () => {
       });
       expect(out[0].record?.edit?.ref).toBe(out[0].osm_ref);
     });
+  });
+});
+
+// CAMP-352. Контур ділянки. Картка просить намалювати обрис там, де він
+// є, тож спершу його треба донести живим від staging до таблиці — через
+// злиття дублікатів, яке досі обʼєднувало теги й мовчки губило геометрію.
+describe('🔴 CAMP-352: контур ділянки', () => {
+  /** Statement без `--` коментарів: плейсхолдер, названий у прозі, не рахується. */
+  const code = UPSERT_SPOT_SQL.replace(/--[^\n]*/g, '');
+  const doUpdate = code.slice(code.indexOf('DO UPDATE SET'));
+  const RING =
+    'MULTIPOLYGON(((14 46,14.001 46,14.001 46.001,14 46.001,14 46)))';
+
+  it('пишеться своїм плейсхолдером і як геометрія, а не як текст', () => {
+    expect(code).toMatch(/ST_GeomFromText\(\$16,\s*4326\)/);
+  });
+
+  it('🔴 оновлюється РАЗОМ із точкою, бо міграція вимагає точку НА контурі', () => {
+    // CAMP-352 крок 1 поставив CHECK ST_DWithin(outline, location, 0.0001).
+    // Рядок, зібраний із двох прогонів — цьоготижнева точка і торішній
+    // контур, — не пройде його на вставці, і вся країна відкотиться.
+    expect(doUpdate).toMatch(/location\s*=\s*EXCLUDED\.location/);
+    expect(doUpdate).toMatch(/outline\s*=\s*EXCLUDED\.outline/);
+  });
+
+  it('🔴 змінений контур рухає <lastmod>, а його ПЕРШЕ заповнення — ні', () => {
+    const when = doUpdate.slice(doUpdate.indexOf('content_changed_at'));
+    // Без цього сторожа перший прогін після міграції перетворює NULL на
+    // геометрію в кожному полігонному рядку і перештампує десятки тисяч
+    // сторінок за появу колонки. Це дослівно помилка CAMP-256.
+    expect(when).toMatch(/camping_spots\.outline\s+IS\s+NOT\s+NULL/);
+    // А зникнення контуру рахується зміною: ST_Equals на NULL віддає
+    // NULL, тож без явного випадку втрата обрису пройшла б непоміченою.
+    expect(when).toMatch(/EXCLUDED\.outline\s+IS\s+NULL/);
+  });
+
+  // Переможця злиття обирає isPolygon(ref) = !ref.startsWith('n'), а це
+  // питання про ПРЕФІКС, не про геометрію: вижилий `w…` — LineString без
+  // контуру (normalise-export.mjs:11). Отже переможець може не мати
+  // контуру, тоді як програвший поруч має.
+  const spot = (
+    osm_ref: string,
+    tags: Record<string, string>,
+    outline_wkt: string | null,
+    lon = 14,
+    admin_region: string | null = 'Bovec',
+    admin_country: string | null = 'SI',
+    raw_country: string | null = 'SI',
+  ) => ({
+    osm_ref,
+    point_wkt: `POINT(${lon} 46)`,
+    admin_region,
+    admin_country,
+    raw_country,
+    outline_wkt,
+    tags,
+  });
+
+  it('🔴 переможець без контуру успадковує контур програвшого — РАЗОМ із точкою', () => {
+    // w1 виграє за кількістю тегів (3 проти 1), хоч контур є лише в a2.
+    const out = dedupe([
+      spot('w1', { name: 'X', shower: 'yes', wifi: 'yes' }, null, 14),
+      spot('a2', { name: 'X' }, RING, 14.0005),
+    ]);
+    expect(out).toHaveLength(1);
+    // URL не зрушив: ранжування лишилось тим самим, отже slug теж (CAMP-87).
+    expect(out[0].osm_ref).toBe('w1');
+    expect(out[0].outline_wkt).toBe(RING);
+    // І точка переїхала з контуром — інакше CHECK міграції відмовить.
+    expect(out[0].point_wkt).toBe('POINT(14.0005 46)');
+  });
+
+  it('🔴 через межу регіону контур НЕ переноситься — адреса сторінки дорожча', () => {
+    // Точка несе з собою admin_region, а він сегмент опублікованого URL.
+    const out = dedupe([
+      spot('w1', { name: 'X', shower: 'yes', wifi: 'yes' }, null, 14),
+      spot('a2', { name: 'X' }, RING, 14.0005, 'Kranj'),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].admin_region).toBe('Bovec');
+    expect(out[0].outline_wkt).toBeNull();
+    expect(out[0].point_wkt).toBe('POINT(14 46)');
+  });
+
+  it('🔴 через кордон теж НЕ переноситься, навіть коли регіон однаково NULL', () => {
+    // Це не вигаданий випадок. Екстракт Geofabrik несе смугу за кордоном
+    // (коментар у staging-запиті: девʼять точок зі словенського файлу
+    // стоять у Хорватії та Австрії), а точка в полігоні без ISO-коду
+    // лишається з region = NULL (CAMP-125). Тоді NULL === NULL проходить
+    // сторож регіону, і єдине, що тримає сторінку в її країні, — це
+    // сторож країни. Без нього контур тягне за собою точку, а точка —
+    // перший сегмент URL.
+    const out = dedupe([
+      spot(
+        'w1',
+        { name: 'X', shower: 'yes', wifi: 'yes' },
+        null,
+        14,
+        null,
+        'SI',
+      ),
+      spot('a2', { name: 'X' }, RING, 14.0005, null, 'HR'),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].admin_country).toBe('SI');
+    expect(out[0].outline_wkt).toBeNull();
+    expect(out[0].point_wkt).toBe('POINT(14 46)');
+  });
+
+  it('переможець із власним контуром лишає свій, а не бере чужий', () => {
+    const other =
+      'MULTIPOLYGON(((15 46,15.001 46,15.001 46.001,15 46.001,15 46)))';
+    const out = dedupe([
+      spot('a1', { name: 'X', shower: 'yes', wifi: 'yes' }, RING, 14),
+      spot('a2', { name: 'X' }, other, 14.0005),
+    ]);
+    expect(out[0].outline_wkt).toBe(RING);
+    expect(out[0].point_wkt).toBe('POINT(14 46)');
+  });
+
+  it('🔴 контур НЕ впливає на те, які рядки зливаються', () => {
+    // Це властивість, а не випадок, і саме тому тест переписаний.
+    //
+    // Перша версія брала трійку з конкретного заміру — і була сліпа на
+    // те, що рецензія знайшла далі: `anchor = keep.point_wkt` відкладав
+    // зараження рівно на ОДНЕ злиття, тож для прояву потрібні чотири
+    // рядки, а не три. Закріплювати виправлений випадок означало б
+    // ловити саме ту помилку, яку я вже зробив, і жодної сусідньої.
+    //
+    // Питаємо натомість те, чого дефект не може задовольнити: adoptOutline
+    // рухає точку переможця, і ця точка не сміє вирішувати, хто з ким
+    // сусід. Отже ті самі рядки БЕЗ контурів мусять дати той самий набір
+    // вижилих — за будь-якого порядку.
+    //
+    // 🔴 Порівнюємо «з контурами» проти «без», а НЕ порядок проти
+    // порядку: ланцюжок 31 м + 31 м + 31 м законно групується по-різному
+    // залежно від того, хто став зерном, і таке порівняння червоніло б і
+    // на справному коді.
+    const shape = (o: string | null) => [
+      // 🔴 Переможець — БЕЗ контуру, інакше фікстура нічого не перевіряє:
+      // adoptOutline виходить одразу, коли в переможця контур уже є, і
+      // точка не рухається взагалі. Перша версія давала контур і w1 —
+      // напів-виправлення проходило її зеленим.
+      spot('w1', { a: '1', b: '2', c: '3', d: '4' }, null, 14),
+      spot('a2', {}, o, 14.0004),
+      spot('a3', {}, null, 14.0004),
+      spot('a4', {}, o, 14.0008),
+    ];
+    const permute = <T>(xs: T[]): T[][] =>
+      xs.length <= 1
+        ? [xs]
+        : xs.flatMap((x, i) =>
+            permute([...xs.slice(0, i), ...xs.slice(i + 1)]).map((r) => [
+              x,
+              ...r,
+            ]),
+          );
+    const refs = (rows: ReturnType<typeof shape>) =>
+      mergeUnnamed(rows)
+        .map((r) => r.osm_ref)
+        .sort()
+        .join(',');
+
+    let merged = 0;
+    for (const order of permute([0, 1, 2, 3])) {
+      const withOutlines = order.map((i) => shape(RING)[i]);
+      const without = order.map((i) => shape(null)[i]);
+      const got = refs(withOutlines);
+      expect(got).toBe(refs(without));
+      if (got.split(',').length < 4) merged++;
+    }
+    // 🔴 Інакше властивість була б істинною порожньо: якби жодна
+    // перестановка нічого не злила, тест не торкнувся б adoptOutline.
+    expect(permute([0, 1, 2, 3])).toHaveLength(24);
+    expect(merged).toBe(24);
+  });
+
+  it('🔴 якір переїжджає до НОВОГО переможця, коли той змінився', () => {
+    // Знайшла рецензія фузом: цей рядок не пінило ніщо. Властивість
+    // «з контурами = без контурів» на нього сліпа за побудовою — він
+    // однаковий в обох гілках, бо до adoptOutline стосунку не має. А
+    // підміна `origin[j]` на `origin[i]` давала 279 розходжень із main
+    // на 4 000 випадкових входів при 68 зелених тестах.
+    //
+    // Вхід: вузол-зерно, площа за 31 м (вона переможе — площа б'є
+    // вузол), і третій рядок за 31 м від ПЛОЩІ, тобто за 62 м від
+    // зерна. Правильно — усі троє один кемпінг, бо після зміни
+    // переможця міряємо від його точки. Якір, що лишився на зерні,
+    // третього не дістане.
+    const out = mergeUnnamed([
+      spot('n0', {}, null, 14),
+      spot('a1', {}, RING, 14.0004),
+      spot('a2', {}, null, 14.0008),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].osm_ref).toBe('a1');
+  });
+
+  it('🔴 raw_country їде разом із точкою, бо рахується з неї ж', () => {
+    // Обидва рядки стоять у полігоні без ISO-коду, тож region і country
+    // однаково NULL і сторожі пропускають. Але raw_country — це те, що
+    // Natural Earth написав ДЛЯ ЦІЄЇ ТОЧКИ, і лічильник полігонів без
+    // коду рахує саме його. Лишити старе значення означало б віднести
+    // рядок до чужого полігона.
+    const out = dedupe([
+      spot(
+        'w1',
+        { name: 'X', shower: 'yes', wifi: 'yes' },
+        null,
+        14,
+        null,
+        null,
+        '-1',
+      ),
+      spot('a2', { name: 'X' }, RING, 14.0005, null, null, '-99'),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].outline_wkt).toBe(RING);
+    expect(out[0].raw_country).toBe('-99');
+  });
+
+  it('🔴 те саме на безіменній гілці — вона має власне злиття', () => {
+    // mergeUnnamed() це окремий прохід із власним betterRow(); виправити
+    // один шлях і лишити другий означало б полагодити половину.
+    const out = mergeUnnamed([
+      spot('w1', { shower: 'yes', wifi: 'yes' }, null, 14),
+      spot('a2', {}, RING, 14.0002),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].osm_ref).toBe('w1');
+    expect(out[0].outline_wkt).toBe(RING);
+    expect(out[0].point_wkt).toBe('POINT(14.0002 46)');
+  });
+});
+
+// 🔴 Винесено з main() саме заради цього блоку: у матриці 20.10.2026
+// мутація «брати контур за префіксом» вижила — найдорожчий рядок
+// імпорту не пінило ніщо.
+describe('🔴 CAMP-352: staging віддає контур за ТИПОМ геометрії', () => {
+  /** Без `--` коментарів: сторож на текст мусить читати код, а не прозу поруч. */
+  const sql = stagingSelectSql('osm_camping_staging').replace(/--[^\n]*/g, '');
+
+  it('🔴 питає GeometryType, а не префікс osm_ref', () => {
+    expect(sql).toMatch(
+      /GeometryType\(p\.geom\)\s+IN\s+\('POLYGON',\s*'MULTIPOLYGON'\)/,
+    );
+  });
+
+  it('🔴 загортає в ST_Multi — колонка оголошена MultiPolygon', () => {
+    // Без ST_Multi звичайний POLYGON не пройде typmod колонки.
+    expect(sql).toMatch(/ST_AsText\(ST_Multi\(p\.geom\)\)/);
+  });
+
+  it('підставляє саме ту таблицю, яку просили', () => {
+    expect(stagingSelectSql('zzz_staging')).toContain('"zzz_staging"');
+    expect(stagingSelectSql('zzz_staging')).not.toContain('${TABLE}');
   });
 });
