@@ -59,25 +59,55 @@ import { chooseAction } from '../lib/entrypoint.mjs';
  *     «-1»       → number -1 → limit=-1   → заблоковано
  *     «string:0» → string 0  → limit=0    → заблоковано
  *
- * Блокування спрацьовує при `встановлено + у наборі >= limit`, тож при
- * нулі встановлених будь-який limit ≤ 1 зупиняє перше ж розширення.
+ * 🔴 МЕЖА — НУЛЬ, А НЕ ОДИНИЦЯ. Вендор пише
+ * `extensions.length + (version.bundled.length ?? 1) >= limit`, і для
+ * НЕбандлового розширення `bundled` це порожній масив, тобто довжина 0,
+ * а `?? 1` на нуль не спрацьовує (нуль не nullish). При нулі
+ * встановлених виходить `0 + 0 >= limit` — хибне для limit=1. Заміряно:
+ *
+ *     limit=0 → ЗАБЛОКОВАНО завжди
+ *     limit=1 → 🔴 ДОЗВОЛЕНО, якщо розширення не бандл
+ *
+ * Першу редакцію цього сторожа я написав із межею ≤ 1, тобто сам вклав
+ * у нього дірку, яку він мав ловити. Знайшла рецензія.
  *
  * 🔴 Префікс `string:` тут ОБОВʼЯЗКОВИЙ і не є охайністю: без нього
  * значення стає числом 0, тобто хибним, і шлюз мовчки відчиняється.
  * Наступний читач спокусився б «прибрати зайве» — цей сторож не дасть.
  */
 export function effectiveLimit(rawValue) {
-  if (rawValue.startsWith('string:')) {
-    const asString = rawValue.slice('string:'.length);
-    return asString ? Number(asString) : null;
+  // 🔴 Спершу лапки, бо їх знімає dotenv ДО того, як значення побачить
+  // @directus/env. Без цього `EXTENSIONS_LIMIT="0"` читалось би як
+  // рядок «0» (правдивий, limit=0, безпечний), тоді як насправді воно
+  // стає числом 0 — хибним, тобто шлюзом навстіж.
+  const unquoted = rawValue.replace(/^(["'])([\s\S]*)\1$/, '$2');
+
+  // Префікс типу. `string:` дає ПРАВДИВИЙ рядок і тому єдиний безпечний;
+  // `number:`, `json:`, `boolean:` повертають нас до хибного нуля.
+  const typed = unquoted.match(/^([a-z]+):([\s\S]*)$/);
+  let guessed;
+  if (typed && typed[1] === 'string') {
+    guessed = typed[2];
+  } else if (typed) {
+    // Інший префікс — лишаємо як є; нижче воно дасть NaN і буде
+    // відхилене, що й правильно: такі записи шлюз не закривають.
+    guessed = unquoted;
+  } else {
+    guessed = unquoted;
+    try {
+      guessed = JSON.parse(unquoted);
+    } catch {
+      /* лишається рядком — так само, як у @directus/env */
+    }
   }
-  let guessed = rawValue;
-  try {
-    guessed = JSON.parse(rawValue);
-  } catch {
-    /* лишається рядком — так само, як у @directus/env */
-  }
-  return guessed ? Number(guessed) : null;
+
+  if (!guessed) return null;
+  const n = Number(guessed);
+  // 🔴 NaN не є лімітом. Вендор порівняв би `0 + 0 >= NaN`, що хибне,
+  // тобто розширення пройшло б. Перша редакція віддавала NaN, і він
+  // мовчки проходив обидві перевірки: `NaN !== null` істинне, `NaN > 0`
+  // хибне. Зелено над відчиненим шлюзом.
+  return Number.isNaN(n) ? null : n;
 }
 
 /**
@@ -93,6 +123,10 @@ export const RUNS_DIRECTUS = new RegExp(
     String.raw`--prefix[=\s]+["']?apps/cms`,
     // cd apps/cms && npm start
     String.raw`cd\s+["']?apps/cms`,
+    // 🔴 Ідіоматична форма GitHub Actions: крок `run: npm start` із
+    // `working-directory: apps/cms`. Жодного слова «directus» у кроці
+    // немає, і перша редакція її не бачила.
+    String.raw`working-directory:\s*["']?\.?/?apps/cms`,
     // образ у контейнері теж піднімає Directus
     String.raw`\bdirectus/directus\b`,
   ].join('|'),
@@ -144,8 +178,12 @@ export function verdict({ workspaces, rootLockPaths, cmsEnvExample, workflowsRun
           '(@directus/api/dist/services/extensions.js: `env[...] ? Number(...) : null`) — ' +
           'потрібне значення, яке дає ненульовий limit, напр. string:0',
       );
-    } else if (limit > 1) {
-      problems.push(`EXTENSIONS_LIMIT дає limit=${limit} — перше розширення пройде`);
+    } else if (limit > 0) {
+      problems.push(
+        `EXTENSIONS_LIMIT дає limit=${limit} — перше розширення пройде: ` +
+          'вендор рахує `встановлено + у наборі >= limit`, а небандлове ' +
+          'розширення додає НУЛЬ, тож блокує лише limit ≤ 0',
+      );
     }
   }
 
@@ -290,6 +328,30 @@ function selfTest() {
   is('effectiveLimit: «string:0» дає 0', effectiveLimit('string:0'), 0);
   is('effectiveLimit: «-1» дає -1', effectiveLimit('-1'), -1);
   is('effectiveLimit: порожнє вимикає перевірку', effectiveLimit(''), null);
+  // 🔴 Випадки, які я пропускав і які знайшла рецензія.
+  is('🔴 string:1 ПРОПУСКАЄ перше розширення — межа нуль, не одиниця',
+    verdict({ ...GOOD, cmsEnvExample: 'MARKETPLACE_TRUST=sandbox\nEXTENSIONS_LIMIT=string:1\n' }).length, 1);
+  is('лапки знімає dotenv, тож "0" це той самий хибний нуль',
+    verdict({ ...GOOD, cmsEnvExample: 'MARKETPLACE_TRUST=sandbox\nEXTENSIONS_LIMIT="0"\n' }).length, 1);
+  is("і одинарні теж",
+    verdict({ ...GOOD, cmsEnvExample: "MARKETPLACE_TRUST=sandbox\nEXTENSIONS_LIMIT='0'\n" }).length, 1);
+  is('effectiveLimit: number:0 не закриває шлюз', effectiveLimit('number:0'), null);
+  is('effectiveLimit: json:0 теж', effectiveLimit('json:0'), null);
+  is('effectiveLimit: STRING:0 — великі літери не є префіксом', effectiveLimit('STRING:0'), null);
+  is('effectiveLimit: «1,2» не є числом', effectiveLimit('1,2'), null);
+  is('effectiveLimit: «string:-1» лишається робочим', effectiveLimit('string:-1'), -1);
+  // 🔴 ОКРЕМЕ ТВЕРДЖЕННЯ ПРО NaN, бо порівняння вище його не бачить:
+  // `is()` звіряє через JSON.stringify, а `JSON.stringify(NaN)` дає
+  // рядок «null». Тобто NaN і null у ньому нерозрізненні, і мутація
+  // «віддавати NaN замість null» проходила всі випадки зеленою.
+  // Знайдено мутацією, не оком.
+  for (const bad of ['number:0', 'json:0', 'STRING:0', '1,2', 'хтозна']) {
+    is(
+      `effectiveLimit('${bad}') не NaN — інакше вендор пропустить`,
+      Number.isNaN(effectiveLimit(bad)),
+      false,
+    );
+  }
   is(
     'workflow запускає Directus',
     verdict({ ...GOOD, workflowsRunningDirectus: ['ci.yml'] }).length,
@@ -321,6 +383,9 @@ function selfTest() {
   is('--prefix "apps/cms"', RUNS_DIRECTUS.test('run: npm --prefix "apps/cms" start'), true);
   is('cd apps/cms && npm start', RUNS_DIRECTUS.test('run: cd apps/cms && npm start'), true);
   is('образ directus/directus', RUNS_DIRECTUS.test('image: directus/directus:12.5.0'), true);
+  is('working-directory: apps/cms', RUNS_DIRECTUS.test('    working-directory: apps/cms'), true);
+  is('working-directory: ./apps/cms', RUNS_DIRECTUS.test('    working-directory: ./apps/cms'), true);
+  is('а working-directory: apps/web — ні', RUNS_DIRECTUS.test('    working-directory: apps/web'), false);
   // Усі правила незалежні: зламавши все, маємо пʼять скарг, а не одну.
   // Саме пʼять, а не чотири: порожній env ламає ДВА правила —
   // MARKETPLACE_TRUST і EXTENSIONS_LIMIT. Назва, що каже «чотири», була
@@ -336,7 +401,7 @@ function selfTest() {
     5,
   );
 
-  const EXPECTED_CASES = 26;
+  const EXPECTED_CASES = 42;
   let rc = 0;
   if (cases.some((c) => !c)) rc = 1;
   if (cases.length !== EXPECTED_CASES) {

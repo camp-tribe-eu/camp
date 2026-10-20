@@ -154,6 +154,14 @@ async function main() {
   console.log(
     `\n${failed.length === 0 ? '✅' : '❌'} ${results.length - failed.length}/${results.length} checks passed\n`,
   );
+  // 🔴 Назвати, чого тут НЕМАЄ. Цей скрипт входить лише під Editor, і
+  // «N/N passed» без цього рядка читається як «ролі перевірено», хоча
+  // Moderator не торкнувся жоден чек. Свідок, який мовчить про межі
+  // свого погляду, створює хибне відчуття покриття — CAMP-362 додає
+  // решту ролей, а до того цей рядок тримає читача в правді.
+  console.log(
+    '   ⚠️  Covered: Editor only. Moderator is NOT verified here — CAMP-362.\n',
+  );
   if (failed.length) process.exitCode = 1;
 }
 
