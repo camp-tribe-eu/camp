@@ -475,6 +475,31 @@ async function main() {
     }
   }
 
+  // 🔴 ПРИБИРАЄМО УМОВИ, ЯКІ РАНІШЕ ПОСТАВИВ ЦЕЙ-ТАКИ СКРИПТ.
+  //
+  // Прибрати запис у коді — це половина виправлення: на інстансах, де
+  // скрипт уже відпрацював, мертві умови ЛИШАЮТЬСЯ. Заміряно 20.10.2026
+  // на живому Directus — обидві на місці:
+  //   page_section_translations.items     → rule {"type":{"_in":["hero"]}}
+  //   page_section_translations.cta_label → rule {"type":{"_in":["faq"]}}
+  //
+  // Вони нешкідливі рівно тому, що не спрацьовують ніколи (колонки
+  // `type` у перекладі немає). Але людина, яка відкриє налаштування
+  // поля, побачить умову й вирішить, що та працює — тобто стан інстанса
+  // суперечив би і коду, і картці. Конфігурація, яку запускають
+  // повторно, мусить приводити інстанс до наміру, а не лише перестати
+  // псувати його далі.
+  const translationFields = await realFields('page_section_translations');
+  if (translationFields) {
+    for (const field of ['items', 'cta_label']) {
+      if (!translationFields.has(field)) continue;
+      await api('PATCH', `/fields/page_section_translations/${field}`, {
+        meta: { conditions: null },
+      });
+      console.log(`   page_section_translations.${field} — мертву умову знято`);
+    }
+  }
+
   // 🔴 ЛІЧИМО ЗРОБЛЕНЕ І ЗВІРЯЄМО З НАМІРОМ, А НЕ ДРУКУЄМО ПІДСУМОК.
   //
   // Рядок «hidden for: faq» друкувався б і тоді, коли `PATCH` завів
