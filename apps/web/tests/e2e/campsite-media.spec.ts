@@ -40,6 +40,29 @@ async function anySpot(page: Page, request: Page['request']) {
   return s;
 }
 
+/**
+ * 🔴 ЧИ ВМІЄ ЦЕЙ БРАУЗЕР МАЛЮВАТИ МАПУ ВЗАГАЛІ.
+ *
+ * headless Firefox на раннері GitHub не має GPU, отже не має WebGL2, отже
+ * MapLibre кидає ще на конструкторі й сторінка чесно показує запасний
+ * текст із координатами. Це ПРАВИЛЬНА поведінка, а не дефект.
+ *
+ * Зонд був написаний один раз для тесту медіаслота, а мій тест обрису
+ * його не покликав — і вимагав атрибутів мапи там, де мапи бути не може.
+ * Наслідок: e2e падав рівно на firefox-desktop 26 хвилин поспіль, і
+ * причина в повідомленні звучала як дефект обрису. Винесено сюди, щоб
+ * означення було одне, а не два.
+ */
+async function hasWebGl(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    try {
+      return !!document.createElement('canvas').getContext('webgl2');
+    } catch {
+      return false;
+    }
+  });
+}
+
 test.describe('🔴 CAMP-344 — що стоїть у медіаслоті', () => {
   test('без фото показано мапу, і в слоті НЕМАЄ жодного зображення', async ({
     page,
@@ -65,13 +88,7 @@ test.describe('🔴 CAMP-344 — що стоїть у медіаслоті', () 
     // WebGL справді немає (headless Firefox на раннері без GPU — див.
     // `map.spec.ts:189`), питання ставиться ДИФЕРЕНЦІЙНО: якщо браузер
     // уміє WebGL2, канвас мусить бути.
-    const webgl = await page.evaluate(() => {
-      try {
-        return !!document.createElement('canvas').getContext('webgl2');
-      } catch {
-        return false;
-      }
-    });
+    const webgl = await hasWebGl(page);
 
     if (webgl) {
       // 🔴 НЕ «ЧИ Є КАНВАС». Заміряно мутацією: прибери `setWorkerUrl` —
@@ -193,6 +210,10 @@ test.describe('🔴 CAMP-344 — що стоїть у медіаслоті', () 
       'у фікстурі кожен кемпінг має обрис — гілка «контуру немає» недосяжна',
     ).not.toBeNull();
 
+    // 🔴 Без WebGL мапи не буде взагалі — див. `hasWebGl`. Питаємо ОДИН
+    // раз: у межах прогону браузер не міняється.
+    const webgl = await hasWebGl(page);
+
     for (const [spot, expected] of [
       [withOutline!, 'yes'],
       [without!, 'no'],
@@ -220,10 +241,26 @@ test.describe('🔴 CAMP-344 — що стоїть у медіаслоті', () 
         // Питаємо саме НАМАЛЬОВАНЕ: `queryRenderedFeatures` на нашому
         // шарі. Порожня мапа цього задовольнити не може, і механізм уже
         // є — компонент тим самим викликом ставить `data-ready`.
+        //
+        // 🔴 АЛЕ ЛИШЕ ТАМ, ДЕ МАПА ВЗАГАЛІ МОЖЕ ІСНУВАТИ. На firefox без
+        // WebGL атрибута не буде за побудовою, і вимога його означала б
+        // червоніти на правильній поведінці — я на це вже наступав двічі
+        // в цій самій картці.
+        //
+        // Де WebGL немає, стверджуємо не мовчання, а ПРИСУТНІСТЬ
+        // запасного тексту: інакше гілка перетворилась би на пропуск,
+        // який нічого не доводить.
         const box = page.getByTestId('site-map');
-        await expect(box).toHaveAttribute('data-outline-layer', 'true', {
-          timeout: 30_000,
-        });
+        if (webgl) {
+          await expect(box).toHaveAttribute('data-outline-layer', 'true', {
+            timeout: 30_000,
+          });
+        } else {
+          await expect(
+            page.getByTestId('site-map-fallback'),
+            'без WebGL мусить лишатись текст із координатами',
+          ).toHaveCount(1);
+        }
       } else {
         // 🔴 І ЗВОРОТНИЙ БІК: там, де обрису немає, шар не має зʼявитись.
         // Без цього твердження «малюємо завжди» пройшло б половину
@@ -257,10 +294,17 @@ test.describe('🔴 CAMP-344 — що стоїть у медіаслоті', () 
         // задовольнити не може: його ставить той самий обробник, що
         // поставив би `'true'`.
         const box = page.getByTestId('site-map');
-        await expect(box).toHaveAttribute('data-outline-layer', 'false', {
-          timeout: 30_000,
-        });
-        await expect(page.getByTestId('site-map-fallback')).toHaveCount(0);
+        if (webgl) {
+          await expect(box).toHaveAttribute('data-outline-layer', 'false', {
+            timeout: 30_000,
+          });
+          await expect(page.getByTestId('site-map-fallback')).toHaveCount(0);
+        } else {
+          await expect(
+            page.getByTestId('site-map-fallback'),
+            'без WebGL мусить лишатись текст із координатами',
+          ).toHaveCount(1);
+        }
 
         // 🔴 А тут його немає, і обіцяти його означало б збрехати саме
         // на тій сторінці, яка пояснює, чому ми не показуємо чужих фото.
