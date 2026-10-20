@@ -16,18 +16,32 @@ describe('🔴 CAMP-352: контур у відповіді API', () => {
   // і сім тестів лишались зеленими, тоді як `row.outline` ставав
   // undefined на ВСІХ сторінках, а підпис далі обіцяв обрис. Сторож на
   // текст мусить читати код, а не прозу поруч.
-  const code = SPOT_DETAIL_SQL.replace(/--[^\n]*/g, '');
+  const code = SPOT_DETAIL_SQL.replace(/--[^\n]*/g, '').replace(
+    /\/\*[\s\S]*?\*\//g,
+    '',
+  );
 
+  // 🔴 Дві форми, якими рецензія обійшла першу редакцію цього сторожа:
+  // блоковий коментар `/* … */` (знімалась лише рискова форма) і
+  // перейменування в `AS outline_wkt` (regex не мав межі після `outline`,
+  // тож матчив префіксом). Обидві лишали 7 тестів зеленими, тоді як
+  // `row.outline` ставав undefined на ВСІХ сторінках.
   it('віддається з колонки як GeoJSON, а не як сира геометрія', () => {
     // Сира колонка приїхала б як WKB-рядок і не була б GeoJSON узагалі.
-    expect(code).toMatch(/ST_AsGeoJSON\(s\.outline\)\s+AS\s+outline/);
+    expect(code).toMatch(/ST_AsGeoJSON\(s\.outline\)\s+AS\s+outline\s*,/);
   });
 
   it('🔴 береться з s.outline, а не з s.location', () => {
     // Різниця не академічна: `ST_AsGeoJSON(s.location)` теж валідний
     // GeoJSON і теж намалювався б — крапкою, яку читач прочитав би як
     // «ділянка завбільшки нуль».
-    expect(code).not.toMatch(/ST_AsGeoJSON\(s\.location\)\s+AS\s+outline/);
+    expect(code).not.toMatch(/ST_AsGeoJSON\(s\.location\)\s+AS\s+outline\s*,/);
+  });
+
+  it('🔴 і це колонка саме `outline`, а не щось, що з неї починається', () => {
+    // `AS outline_wkt` матчив би regex без межі — і `row.outline` був би
+    // undefined скрізь.
+    expect(code).not.toMatch(/AS\s+outline_/);
   });
 
   it('розбирає MultiPolygon у обʼєкт', () => {

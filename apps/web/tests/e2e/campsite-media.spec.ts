@@ -122,33 +122,71 @@ test.describe('🔴 CAMP-344 — що стоїть у медіаслоті', () 
     expect(stray, 'у слоті є зображення, якого там бути не має').toEqual([]);
   });
 
-  test('підпис обіцяє контур рівно тоді, коли контур є', async ({ page, request }) => {
-    await anySpot(page, request);
-    const caption = page.getByTestId('campsite-media').locator('figcaption');
-
-    // Умова ліцензії: атрибуція мусить бути видимою на самій сторінці.
-    await expect(caption).toContainText('OpenStreetMap');
-
-    // 🔴 ЦЕЙ ТЕСТ РАНІШЕ ЗАБОРОНЯВ СЛОВО «outline» ЗОВСІМ, і це було
-    // правильно рівно доти, доки контуру не існувало в базі. CAMP-352
-    // його довіз — і заборона стала хибною на 55,1% сторінок, тобто
-    // тест червонів би на ПРАВИЛЬНІЙ поведінці. Зеленим він лишався
-    // тільки тому, що у фікстурі CI жоден рядок не має обрису, а
-    // `anySpot` бере перший-ліпший: лотерея, а не перевірка.
+  test('🔴 обидві гілки підпису справді проходяться', async ({ page, request }) => {
+    // 🔴 ПОПЕРЕДНЯ РЕДАКЦІЯ ЦЬОГО ТЕСТУ БРАЛА ПЕРШИЙ-ЛІПШИЙ КЕМПІНГ — і
+    // через це гілка «контур є» не виконувалась ЖОДНОГО разу: у фікстурі
+    // обрис має один рядок, а `spots[0]` це інший. Тест був зелений і
+    // нічого не перевіряв. Знайшла рецензія PR #292.
     //
-    // Тепер перевіряється ВЛАСТИВІСТЬ, яка тримається на будь-якій
-    // сторінці: обіцянка контуру і його наявність — це одне й те саме.
-    // Заміряно 19.10.2026 по 63 159 кемпінгах: обрис є у 55,1%, у 31,1%
-    // це вузол, у 13,9% немає навіть osm_ref. Обіцяти «outline» там, де
-    // першоджерело знає лише крапку, означало б збрехати саме на тій
-    // сторінці, яка пояснює, чому ми не показуємо чужих фото.
-    const promisesOutline = await caption.getAttribute('data-outline');
-    expect(promisesOutline === 'yes' || promisesOutline === 'no').toBe(true);
+    // Тепер тест сам знаходить обидва випадки й падає, якщо котрогось
+    // немає — тобто стереже ще й досяжність гілок у фікстурі.
+    const base = process.env.API_BASE_URL ?? 'http://localhost:3001';
+    const index = await request.get(`${base}/spots/index`);
+    expect(index.status()).toBe(200);
+    const spots = (await index.json()) as {
+      country: string;
+      region: string;
+      slug: string;
+    }[];
+    expect(spots.length, 'індекс кемпінгів порожній').toBeGreaterThan(0);
 
-    if (promisesOutline === 'yes') {
-      await expect(caption).toContainText(/outline/i);
-    } else {
-      await expect(caption).not.toContainText(/outline/i);
+    let withOutline: (typeof spots)[number] | null = null;
+    let without: (typeof spots)[number] | null = null;
+    // Межа — щоб тест не ходив по всьому каталогу, якщо фікстура зміниться.
+    for (const s of spots.slice(0, 40)) {
+      if (withOutline && without) break;
+      const detail = await request.get(
+        `${base}/spots/${s.country}/${s.region}/${s.slug}`,
+      );
+      if (detail.status() !== 200) continue;
+      const body = (await detail.json()) as { spot?: { outline?: unknown } };
+      const has = body.spot?.outline != null;
+      if (has && !withOutline) withOutline = s;
+      if (!has && !without) without = s;
+    }
+
+    expect(
+      withOutline,
+      'у фікстурі жоден кемпінг не має обрису — гілка «контур є» недосяжна',
+    ).not.toBeNull();
+    expect(
+      without,
+      'у фікстурі кожен кемпінг має обрис — гілка «контуру немає» недосяжна',
+    ).not.toBeNull();
+
+    for (const [spot, expected] of [
+      [withOutline!, 'yes'],
+      [without!, 'no'],
+    ] as const) {
+      await page.goto(
+        `/camping/${spot.country}/${spot.region}/${spot.slug}`,
+      );
+      const caption = page.getByTestId('campsite-media').locator('figcaption');
+
+      // Умова ліцензії: атрибуція мусить бути видимою на самій сторінці.
+      await expect(caption).toContainText('OpenStreetMap');
+      await expect(caption).toHaveAttribute('data-outline', expected);
+
+      if (expected === 'yes') {
+        // Обрис є в першоджерелі — підпис мусить це сказати.
+        await expect(caption).toContainText(/outline/i);
+      } else {
+        // 🔴 А тут його немає, і обіцяти його означало б збрехати саме
+        // на тій сторінці, яка пояснює, чому ми не показуємо чужих фото.
+        // Заміряно 19.10.2026: обрис є у 55,1% кемпінгів, у 31,1% це
+        // вузол, у 13,9% немає навіть osm_ref.
+        await expect(caption).not.toContainText(/outline/i);
+      }
     }
   });
 });

@@ -130,3 +130,23 @@ test('а коли контуру немає — мапа отримує саме
   const tree = CampsiteMedia({ ...base, outline: null });
   expect(propsOfIsland(tree, SiteMapEmbed)?.outline).toBeNull();
 });
+
+// 🔴 ЛАНЦЮГ МАЄ ТРИ ЛАНКИ, А СТЕРІГ Я ОДНУ. Рецензія довела мутацією:
+// замінити в `site-map-embed.tsx` розгортання `{...props}` на чотири
+// названі пропи без `outline` — і 1 829 тестів лишались зеленими, tsc
+// теж, підпис і далі обіцяв обрис, а мапа його не бачила.
+//
+// Перевіряти «проп дійшов» на першій ланці й лишати другу голою означає
+// стерегти двері, лишивши вікно.
+test('🔴 і ДРУГА ланка: embed передає контур далі, а не губить його', () => {
+  const node = SiteMapEmbed({ ...base, outline: SQUARE }) as {
+    props?: Record<string, unknown>;
+  };
+  expect(node.props?.outline).toEqual(SQUARE);
+  // І решта пропів теж не загубилась — інакше «передає» означало б
+  // «передає лише те, про що є тест».
+  expect(node.props?.lat).toBe(base.lat);
+  expect(node.props?.lon).toBe(base.lon);
+  expect(node.props?.type).toBe(base.type);
+  expect(node.props?.label).toBe(base.label);
+});
