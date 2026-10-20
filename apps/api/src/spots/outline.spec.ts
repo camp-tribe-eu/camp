@@ -1,4 +1,4 @@
-import { readOutline } from './spots.service';
+import { readOutline, toView } from './spots.service';
 import { SPOT_DETAIL_SQL } from './detail-query';
 
 // CAMP-352, крок 4 — контур доходить до сторінки або не доходить узагалі.
@@ -42,6 +42,42 @@ describe('🔴 CAMP-352: контур у відповіді API', () => {
     // `AS outline_wkt` матчив би regex без межі — і `row.outline` був би
     // undefined скрізь.
     expect(code).not.toMatch(/AS\s+outline_/);
+  });
+
+  it('🔴 toView переносить контур у відповідь, а не губить по дорозі', () => {
+    // Ланка `SQL → toView` була голою: рецензія довела мутацією
+    // `outline: null`, що 13 тестів лишались зеленими, tsc код 0, а фіча
+    // мертва на кожній сторінці. Проп, розібраний рядок і поле у
+    // відповіді — це три різні питання.
+    const raw =
+      '{"type":"MultiPolygon","coordinates":[[[[14,46],[14,47],[15,47],[14,46]]]]}';
+    const view = toView({
+      slug: 's',
+      name: null,
+      country: 'SE',
+      region: 'Dalarna',
+      type: 'paid',
+      lat: 46,
+      lon: 14,
+      outline: raw,
+      amenities: {},
+    });
+    expect(view.outline?.type).toBe('MultiPolygon');
+  });
+
+  it('а коли колонка порожня — у відповіді саме null', () => {
+    const view = toView({
+      slug: 's',
+      name: null,
+      country: 'SE',
+      region: 'Dalarna',
+      type: 'paid',
+      lat: 46,
+      lon: 14,
+      outline: null,
+      amenities: {},
+    });
+    expect(view.outline).toBeNull();
   });
 
   it('розбирає MultiPolygon у обʼєкт', () => {

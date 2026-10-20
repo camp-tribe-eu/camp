@@ -852,7 +852,11 @@ export function readOutline(value: unknown): GeoJsonPolygon | null {
   return null;
 }
 
-function toView(row: Record<string, unknown>): SpotView {
+// 🔴 Експортовано заради тесту, і це виправдано: ланцюг
+// `SQL → toView → SpotView` був голий, і мутація `outline: null` саме
+// тут лишала 13 тестів зеленими при мертвій фічі на всіх сторінках.
+// Перевіряти кінець ланцюга через HTTP було б дорожче й повільніше.
+export function toView(row: Record<string, unknown>): SpotView {
   const amenities = readAmenities(row.amenities);
 
   return {

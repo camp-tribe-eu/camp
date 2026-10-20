@@ -506,13 +506,30 @@ $$;
 -- `ST_DWithin(outline, location, 0.0001)`, і квадрат навколо власної
 -- точки задовольняє це за побудовою. Вписані координати розійшлися б із
 -- точкою першої ж перегенерації.
+-- 🔴 ПРЕДИКАТ МУСИТЬ ЗБІГАТИСЯ З ІНДЕКСОМ, А НЕ БУТИ СХОЖИМ НА НЬОГО.
+-- `/spots/index` відбирає ще й `NOT isSecondarySql(s)` — кемпінг, злитий
+-- як вторинний у пару (CAMP-144/280), в індексі не зʼявляється. Перша
+-- редакція цього UPDATE цієї умови не мала й збігалася з індексом лише
+-- випадково: у фікстурі `spot_links` порожній. Щойно зʼявиться перший
+-- лінк, обрис міг би дістатись рядку, якого e2e не бачить, — і тест
+-- упав би з ХИБНОЮ назвою причини («гілка недосяжна» замість «рядок не
+-- в індексі»). Знайшла рецензія PR #292.
 UPDATE camping_spots
    SET outline = ST_Multi(ST_Envelope(ST_Buffer(location, 0.0005)))
  WHERE outline IS NULL
    AND id = (
-     SELECT id FROM camping_spots
-      WHERE missing_since IS NULL AND region IS NOT NULL
-      ORDER BY country, region, slug
+     SELECT s.id FROM camping_spots s
+      WHERE s.missing_since IS NULL
+        AND s.region IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM spot_links l
+            JOIN camping_spots lp ON lp.id = l.primary_id
+           WHERE l.secondary_id = s.id
+             AND l.unlinked_at IS NULL
+             AND lp.missing_since IS NULL
+             AND lp.region IS NOT NULL
+        )
+      ORDER BY s.country, s.region, s.slug
       LIMIT 1
    );
 

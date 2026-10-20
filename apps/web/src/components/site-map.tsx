@@ -157,8 +157,28 @@ export default function SiteMap({
       // `queryRenderedFeatures()` питає інше: чи щось справді
       // намальовано. Порожня мапа цього задовольнити не може.
       map.on('idle', () => {
-        if (map && map.queryRenderedFeatures().length > 0) {
+        if (!map) return;
+        if (map.queryRenderedFeatures().length > 0) {
           box.current?.setAttribute('data-ready', 'true');
+        }
+        // 🔴 CAMP-352. Окремо — чи намальовано САМЕ НАШ шар.
+        //
+        // Підпис під мапою береться з пропа, тож він скаже «обрис є»
+        // навіть тоді, коли до `addSource` проп не дійшов: рецензія
+        // довела це мутацією `const drawn = outline` → `null`, яка
+        // лишила всі 1 830 тестів зеленими. Проп і намальоване — різні
+        // питання, і друге треба ставити мапі.
+        //
+        // `queryRenderedFeatures` із переліком шарів відповідає саме на
+        // нього. Порожня мапа цього задовольнити не може. Механізм той
+        // самий, що вже стоїть вище для `data-ready`.
+        if (map.getLayer('site-outline-fill')) {
+          const painted = map.queryRenderedFeatures({
+            layers: ['site-outline-fill'],
+          });
+          if (painted.length > 0) {
+            box.current?.setAttribute('data-outline-drawn', 'true');
+          }
         }
       });
     } catch {
