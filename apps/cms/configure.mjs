@@ -25,10 +25,42 @@ const BASE = process.env.PUBLIC_URL ?? 'http://localhost:8055';
 const HIDDEN = {
   users: 'Site visitors — password hashes. Managed by the API, never here.',
   trips: 'Private user data. Managed by the API.',
-  trip_stops: 'Private user data. Managed by the API.',
-  migrations: 'TypeORM bookkeeping.',
-  osm_camping_staging: 'Raw OSM import staging. Rebuilt weekly by the pipeline.',
-  spatial_ref_sys: 'PostGIS internals.',
+};
+
+/**
+ * 🔴 ТАБЛИЦІ, ЯКІ МИ НАВМИСНО НЕ РЕЄСТРУЄМО ВЗАГАЛІ.
+ *
+ * Заміряно 20.10.2026 на живому Directus: приховування таблиці її
+ * РЕЄСТРУЄ, тобто кожен рядок у `HIDDEN` коштує місця в ліміті. Із
+ * вісьмома колекціями моделі контенту (CAMP-362) вийшло 28 при стелі
+ * Core 25 — перебір на три.
+ *
+ * Ці три не дають нічого, що варте місця: редактор їх не бачить ні так,
+ * ні так, а адмін і без реєстрації знайде їх у Data Model.
+ *
+ * 🔴 І ДОСТУП ВІД РЕЄСТРАЦІЇ НЕ ЗАЛЕЖИТЬ. Заміряно там само:
+ * `directus_permissions` має 40 рядків на 15 колекцій, і для жодної з
+ * цих таблиць немає ЖОДНОГО гранта — Directus відмовляє за
+ * замовчуванням. Саме тому `osm_camping_staging` і віддавав 403, а не
+ * через прапорець `hidden`. `verify-permissions.mjs` тепер перевіряє це
+ * прогоном, разом із `auth_tokens` і `sessions`, які незареєстровані від
+ * початку.
+ *
+ * 🔴 НА ВЖЕ НАЛАШТОВАНОМУ ІНСТАНСІ цього замало: там вони лишаються
+ * зареєстрованими, бо скрипт просто їх не чіпає. Зняти реєстрацію можна
+ * ЛИШЕ видаленням рядка в `directus_collections` напряму:
+ *
+ *   DELETE FROM directus_collections
+ *    WHERE collection IN ('migrations','osm_camping_staging','trip_stops');
+ *
+ * Вендорським `DELETE /collections/:key` — НІ: він дропає таблицю разом
+ * із даними. Див. попередження в кроці 1.
+ */
+const NOT_REGISTERED = {
+  trip_stops: 'Private user data, and `trips` beside it is already hidden.',
+  migrations: 'TypeORM bookkeeping. Nobody edits it, nobody reads it here.',
+  osm_camping_staging: 'Raw OSM staging, rebuilt weekly by the pipeline.',
+  spatial_ref_sys: 'PostGIS internals — Directus does not even detect it.',
 };
 
 /** Editorial collections, with the icon and note an editor actually sees. */
@@ -43,6 +75,40 @@ const CONTENT = {
   rental_city_translations: { icon: 'translate', note: 'Local tips are the third leg of the publication threshold.' },
   featured_blocks: { icon: 'push_pin', note: 'Editorial picks for the home page.' },
   languages: { icon: 'language', note: 'A row here is not a launched locale.' },
+
+  // ── CAMP-362: сторінки зі СЕКЦІЙ ─────────────────────────────────
+  //
+  // 🔴 Вісім колекцій, і це найбільший приріст за раз. Чому не менше:
+  // кожна таблиця перекладів МУСИТЬ бути зареєстрована окремо, бо
+  // інтерфейс Translations у Directus будується на звʼязку з
+  // колекцією, а не з таблицею. Поля такого обмеження не мають — саме
+  // тому типи секцій живуть полем `type` в ОДНІЙ `page_sections`, а не
+  // дванадцятьма колекціями, як радить туторіал вендора.
+  pages: { icon: 'web', note: 'Сторінки й дописи. Тип розрізняє їх, верстка та сама.' },
+  page_translations: { icon: 'translate', note: 'Заголовок і опис — по рядку на мову.' },
+  page_sections: {
+    icon: 'view_agenda',
+    note: 'Універсальні секції. Нового типу НЕ треба міграції — лише значення в `type`.',
+  },
+  page_section_translations: {
+    icon: 'translate',
+    note: 'Увесь текст секції, разом із повторюваними блоками в `items`.',
+  },
+  navigation: { icon: 'menu', note: 'Меню: шапка, підвал, мобільне. Пункт не може бути власним батьком.' },
+  navigation_translations: { icon: 'translate', note: 'Підпис пункту — по рядку на мову.' },
+  site_settings: {
+    icon: 'settings',
+    // 🔴 РІВНО ОДИН РЯДОК, і це тримає база: `UNIQUE(singleton)` плюс
+    // `CHECK(singleton)`. `singleton: true` тут лише щоб адмінка
+    // показувала форму, а не список із одного елемента — обмеження
+    // живе в схемі, не в цьому прапорці.
+    singleton: true,
+    note: 'Пошта, соцмережі, підпис у підвалі. Рядок рівно один — так тримає база.',
+  },
+  site_settings_translations: {
+    icon: 'translate',
+    note: 'Слоган і примітка в підвалі — по рядку на мову.',
+  },
 };
 
 /** Read-only for editors: produced by the pipeline, not by hand. */
@@ -93,18 +159,47 @@ async function login() {
   token = json.data.access_token;
 }
 
+/**
+ * 🔴 СПЕРШУ ПЕРЕКОНАТИСЬ, ЩО ЗА ІМЕНЕМ СТОЇТЬ ТАБЛИЦЯ.
+ *
+ * Заміряно 20.10.2026. Попередня редакція покладалась на 404 — і
+ * коментар казав «таблиці ще немає, це не помилка, пропускаємо». Вендор
+ * так не поводиться: `PATCH /collections/<ім'я>` для НЕІСНУЮЧОЇ таблиці
+ * 404 не віддає, а створює колекцію-порожнявку (meta без schema).
+ *
+ * Як це виявилось: на свіжій базі в списку зареєстрованих опинився
+ * `osm_camping_staging`, хоча таблиці там немає — її створює конвеєр
+ * OSM, а не міграції. Тобто скрипт сам її й вигадав.
+ *
+ * 🔴 Ціна не в ліміті — там я помилявся, і рецензія PR #296 це
+ * заміряла: вендор порожнявок не рахує (`isFolder = schema === null`).
+ * Ціна в іншому: в адмінці зʼявляється ім'я без таблиці, за яким нічого
+ * немає, а наш власний лічильник через нього розходився з вендорським.
+ *
+ * Тому: читаємо колекцію ДО запису й пропускаємо, коли `schema` порожня.
+ */
 async function setCollectionMeta(name, meta) {
+  let existing;
   try {
-    await api('PATCH', `/collections/${name}`, { meta });
-    return true;
+    existing = await api('GET', `/collections/${name}`);
   } catch (err) {
-    // A table that is not there yet is not an error worth stopping for.
     if (String(err).includes('404')) {
-      console.log(`   ⏭  ${name} — no such collection, skipped`);
+      console.log(`   ⏭  ${name} — no such table, skipped`);
       return false;
     }
     throw err;
   }
+
+  // 🔴 `schema: null` означає «Directus знає ім'я, але таблиці за ним
+  // немає». Реєструвати таке — означає створити порожнявку, яка коштує
+  // місця в ліміті й не дає нічого.
+  if (!existing?.schema) {
+    console.log(`   ⏭  ${name} — meta without a table, skipped`);
+    return false;
+  }
+
+  await api('PATCH', `/collections/${name}`, { meta });
+  return true;
 }
 
 /** Finds an existing row by a field, so re-runs update instead of duplicating. */
@@ -202,6 +297,34 @@ async function main() {
   await login();
   console.log('✅ admin login\n');
 
+  // 🔴 ТУТ ХОЧЕТЬСЯ ДОПИСАТИ «А ЗАЙВІ РЕЄСТРАЦІЇ ВИДАЛИТИ». НЕ ДОПИСУЙ.
+  //
+  // Я збирався це зробити 20.10.2026, рахуючи бюджет колекцій (ліміт
+  // Core — 25, заміряно 21 зареєстровану; шість нових колекцій моделі
+  // контенту дають 27). Три службові таблиці виглядали як очевидні
+  // кандидати на звільнення місця: `migrations`, `osm_camping_staging`,
+  // `spatial_ref_sys`.
+  //
+  // Код вендора каже інше — `@directus/api`, `services/collections.js`,
+  // `deleteOne()`, і це його власний коментар:
+  //
+  //     Delete a single collection This will delete the table and all
+  //     records within.
+  //
+  //     if (collectionToBeDeleted.schema)
+  //       await trx.schema.dropTable(collectionKey);
+  //
+  // Тобто `DELETE /collections/:key` ДРОПАЄ ТАБЛИЦЮ. Прапорця «зняти
+  // лише реєстрацію» немає. Цей скрипт ідемпотентний і в заголовку
+  // запрошує запускати його скільки завгодно разів — отже такий крок
+  // зніс би журнал міграцій TypeORM, проміжну таблицю імпорту OSM і
+  // нутрощі PostGIS на ПЕРШОМУ ж прогоні, мовчки й успішно.
+  //
+  // Реєстрацію можна зняти лише видаленням рядка в
+  // `directus_collections` напряму, і це окреме рішення: ми лізли б у
+  // чужий стан. Доступ від реєстрації не залежить — його тримають явні
+  // гранти (`directus_permissions`: 40 рядків на 15 колекцій, і для
+  // жодної службової таблиці немає жодного).
   console.log('1. Hiding collections nobody should edit here');
   for (const [name, note] of Object.entries(HIDDEN)) {
     const ok = await setCollectionMeta(name, { hidden: true, note });
@@ -279,11 +402,136 @@ async function main() {
   }
 
   const all = await api('GET', '/collections');
-  const visible = all.filter(
-    (c) => !c.collection.startsWith('directus_') && !c.meta?.hidden,
-  ).length;
-  const total = all.filter((c) => !c.collection.startsWith('directus_')).length;
-  console.log(`\n✅ done — ${visible} visible collections of ${total} tables\n`);
+  const ours = all.filter((c) => !c.collection.startsWith('directus_'));
+
+  // 🔴 `!c.meta?.hidden` ІСТИННЕ ДЛЯ НЕЗАРЕЄСТРОВАНОЇ ТАБЛИЦІ, бо
+  // `undefined?.hidden` це `undefined`. Попередня редакція через це
+  // рахувала незареєстровані як «видимі» й друкувала 39 там, де
+  // насправді 23 — рівно той клас помилки, який коментар нижче
+  // оголошував виправленим. Знайшла рецензія PR #296.
+  //
+  // «Видима» має сенс лише для зареєстрованої: незареєстрована не
+  // видима й не прихована, її в адмінці просто немає.
+  const visible = ours.filter((c) => c.meta && !c.meta.hidden).length;
+
+  // 🔴 ЗАРЕЄСТРОВАНІ — ЦЕ НЕ ТАБЛИЦІ. Попередня редакція друкувала
+  // «N visible collections of M tables», де M це всі не-directus
+  // таблиці. Ліміт ліцензії рахує інше: лише ті, що МАЮТЬ рядок у
+  // `directus_collections`, тобто `meta !== null`. Заміряно 20.10.2026
+  // на локальній базі: 41 таблиця, з них зареєстровано 21.
+  //
+  // Різниця не академічна: за старим числом ми б думали, що впираємось
+  // у ліміт удвічі раніше, ніж насправді, — і навпаки, після переїзду
+  // таблиць у базу без реєстрації не помітили б запасу.
+  // 🔴 РАХУЄМО ТЕ САМЕ, ЩО Й ВЕНДОР, А НЕ СХОЖЕ.
+  //
+  // Ліміт перевіряє `getActiveCollections` у
+  // `@directus/api/.../license/entitlements/lib/collections.js`, і він
+  // відкидає «папки»: `isFolder = collection.schema === null`. Тобто
+  // колекція-порожнявка (meta є, таблиці немає) місця в ліміті НЕ
+  // займає.
+  //
+  // Попередня редакція рахувала за самим лише `c.meta` і завищувала.
+  // Рецензія PR #296 заміряла на одному інстансі в один момент: мій
+  // лічильник казав 28 і «перебір на 3», вендорський — 27. При одній
+  // порожнявці на стелі скрипт падав би на стані, який ліцензія
+  // дозволяє, і число «на скільки перебір» в інструкції оператору було
+  // б неправильним.
+  //
+  // Мій же коментар вище стверджував протилежне — що порожнявка
+  // з'їдає місце «точно так само». Це було неправдою, і сторож її
+  // успадкував.
+  const registered = ours
+    .filter((c) => c.meta && c.schema)
+    .map((c) => c.collection);
+
+  // Порожнявки все одно варто назвати: вони нічого не коштують, але
+  // означають, що хтось зареєстрував ім'я без таблиці.
+  const folders = ours.filter((c) => c.meta && !c.schema).map((c) => c.collection);
+  if (folders.length > 0) {
+    console.warn(
+      `   ⚠️  ${folders.length} registered name(s) without a table ` +
+      `(not counted against the licence): ${folders.join(', ')}`,
+    );
+  }
+
+  // 🔴 ЦЕ ВИМІР, А НЕ ПІДПИС. Попередня редакція друкувала
+  // `Object.keys(NOT_REGISTERED).length` — тобто скільки імен я ВПИСАВ,
+  // а не скільки їх справді поза реєстром. На оновленні вже
+  // налаштованого інстансу вона буквально казала «4 deliberately
+  // unregistered» і за два рядки перелічувала три з них серед
+  // зареєстрованих. Знайшла рецензія PR #296; у мене про цей клас є
+  // власний запис, і я все одно його повторив.
+  const stillRegistered = Object.keys(NOT_REGISTERED).filter((n) =>
+    registered.includes(n),
+  );
+
+  console.log(
+    `\n✅ done — ${visible} visible, ${registered.length} registered, ` +
+    `${ours.length} tables, ` +
+    `${Object.keys(NOT_REGISTERED).length - stillRegistered.length} ` +
+    `of ${Object.keys(NOT_REGISTERED).length} deliberately unregistered\n`,
+  );
+
+  if (stillRegistered.length > 0) {
+    console.warn(
+      `   ⚠️  ${stillRegistered.length} meant to be unregistered but still ` +
+      `are: ${stillRegistered.join(', ')}\n` +
+      `      This script cannot unregister them — the vendor's DELETE\n` +
+      `      drops the table. Remove the row directly:\n` +
+      `        DELETE FROM directus_collections WHERE collection IN (...);`,
+    );
+  }
+
+  // 🔴 СТЕЛЯ ПЕРЕВІРЯЄТЬСЯ ЛИШЕ ТОДІ, КОЛИ ВОНА ДІЄ.
+  //
+  // MSCL Core дає 25 колекцій. Схвалений Open Innovation Grant її
+  // знімає — отже падати при 27 на ліцензованому інстансі означало б
+  // червоніти на правильному стані.
+  //
+  // Але й мовчати не можна: §2.2 і §5.3 угоди кажуть, що ключ помирає
+  // разом із нею, і на реакцію є 10 днів. День, коли ключ відпаде, не
+  // має бути днем, коли ми вперше дізнаємось, що половина адмінки
+  // перетворилась на Inactive.
+  //
+  // Тому: без ліцензії й понад стелю — ПАДАЄМО з переліком імен; із
+  // ліцензією й понад стелю — попереджаємо і називаємо, на скільки
+  // саме перебір. `GET /server/info` публічний, облікових даних не
+  // потребує й значень не розкриває.
+  const CORE_COLLECTION_CAP = 25;
+  let licensed = false;
+  try {
+    const info = await api('GET', '/server/info');
+    licensed = Boolean(info?.license?.source);
+  } catch {
+    // Недоступний `/server/info` — поводимось як без ліцензії, бо
+    // запасний шлях мусить падати в бік помітного.
+    licensed = false;
+  }
+
+  if (registered.length > CORE_COLLECTION_CAP) {
+    const over = registered.length - CORE_COLLECTION_CAP;
+    const names = registered.sort().join(', ');
+    if (licensed) {
+      console.warn(
+        `   ⚠️  ${registered.length} registered collections — ` +
+        `${over} over the Core cap of ${CORE_COLLECTION_CAP}.\n` +
+        `      The grant lifts the cap, so this run is fine. But the day\n` +
+        `      the key lapses, ${over} of these stop working:\n        ${names}`,
+      );
+    } else {
+      console.error(
+        `\n   🔴 ${registered.length} registered collections on an\n` +
+        `      UNLICENSED instance — the Core cap is ${CORE_COLLECTION_CAP}.\n` +
+        `      ${over} collection(s) over. Registered:\n        ${names}\n` +
+        `\n      🔴 DO NOT free space by deleting collections: the vendor's\n` +
+        `      DELETE /collections/:key drops the TABLE (see the note in\n` +
+        `      step 1). Unregister by removing the row in\n` +
+        `      directus_collections, or set LICENSE_KEY.`,
+      );
+      process.exitCode = 1;
+    }
+  }
 }
 
 main().catch((err) => {
