@@ -33,16 +33,36 @@ export const CONTACT_EMAIL = 'hello@camptribe.eu';
  * The E-Commerce Directive (2000/31/EC, Art. 5), implemented in Belgium
  * in Book XII of the Wetboek van economisch recht, asks a commercial site
  * for the geographic address of establishment and the trade-register
- * number. We publish the city and the country but not the street, at the
- * owner's instruction, because the registered seat is his home.
+ * number.
  *
- * That is a deliberate, recorded shortfall rather than an oversight —
- * see the note printed on the legal-notice page itself.
+ * 🔴 20.10.2026 — HALF OF THE SHORTFALL IS CLOSED. The owner supplied the
+ * enterprise number (KBO / BTW), so the trade-register half of Article 5
+ * is now satisfied. It is published here and on the legal-notice page.
+ *
+ * The STREET is still withheld, at the owner's standing instruction,
+ * because the registered seat is his home. That instruction predates this
+ * change and has not been revoked, so the city and country stay as they
+ * were.
+ *
+ * The number does not weaken that: as the note on the legal-notice page
+ * has said all along, a Belgian company's registered address is public in
+ * the Kruispuntbank van Ondernemingen and findable by NAME, which we
+ * already publish. The number makes nothing findable that the name did
+ * not.
+ *
+ * That remaining omission is a deliberate, recorded shortfall rather than
+ * an oversight — see the note printed on the legal-notice page itself.
  */
 export const COMPANY = {
   name: 'UTD BV',
   city: '2000 Antwerpen',
   country: 'Belgium',
+  /**
+   * Enterprise number, which is also the VAT number in Belgium — the
+   * owner's own note labels it «Ondernemingsnummer (KBO / BTW)», so one
+   * field carries both rather than pretending they are two.
+   */
+  enterpriseNumber: 'BE 0799.245.752',
   email: CONTACT_EMAIL,
 } as const;
 

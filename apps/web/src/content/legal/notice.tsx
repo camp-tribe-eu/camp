@@ -8,9 +8,12 @@ import { A, B, Callout, H2, P } from './prose';
 // Article 5 of the E-Commerce Directive (2000/31/EC), implemented in
 // Belgium in Book XII of the Wetboek van economisch recht, asks a
 // commercial site for the geographic address at which the provider is
-// established and for its trade-register number. We publish the city and
-// country but not the street, at the owner's instruction, because the
-// registered seat is his home.
+// established and for its trade-register number.
+//
+// 🔴 20.10.2026: the trade-register half is now satisfied — the owner
+// supplied the enterprise number and it is published above. The STREET is
+// still withheld, at his standing instruction, because the registered
+// seat is his home; that instruction has not been revoked.
 //
 // The owner has been told, and it is repeated here so the next person
 // does not have to rediscover it: withholding the street does not make it
@@ -28,6 +31,10 @@ export default function Notice() {
       <P>
         CampTribe is operated by <B>{COMPANY.name}</B>, {COMPANY.city},{' '}
         {COMPANY.country}.
+      </P>
+      <P>
+        Enterprise number (KBO) and VAT number:{' '}
+        <B>{COMPANY.enterpriseNumber}</B>
       </P>
       <P>
         Email: <A href={`mailto:${COMPANY.email}`}>{COMPANY.email}</A>

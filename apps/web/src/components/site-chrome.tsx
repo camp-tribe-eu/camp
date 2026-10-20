@@ -186,9 +186,16 @@ export function SiteFooter() {
           </ul>
         </nav>
 
+        {/* 🔴 ІДЕНТИФІКАЦІЯ ПІДПРИЄМСТВА, А НЕ ПРОСТО КОПІРАЙТ.
+            Стаття 5 Директиви про е-комерцію (2000/31/EC), у Бельгії —
+            книга XII Wetboek van economisch recht, вимагає назву,
+            адресу осідку й номер торгового реєстру. Номер тут зʼявився
+            20.10.2026; вулиця й далі не друкується за чинною вказівкою
+            власника — чому саме, пояснює сторінка правової інформації,
+            і пояснює чесно, а не відмовкою. */}
         <p className="mt-4">
           © {new Date().getFullYear()} CampTribe — {COMPANY.name},{' '}
-          {COMPANY.city}, {COMPANY.country} ·{' '}
+          {COMPANY.city}, {COMPANY.country} · {COMPANY.enterpriseNumber} ·{' '}
           <a href={`mailto:${COMPANY.email}`} className="underline">
             {COMPANY.email}
           </a>
