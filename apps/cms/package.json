@@ -12,6 +12,9 @@
     "directus": "12.5.0"
   },
   "overrides": {
-    "isolated-vm": "^7.0.1"
+    "isolated-vm": "^7.0.1",
+    "tar": "^7.5.22",
+    "basic-ftp": "^6.2.3",
+    "js-yaml": "^4.3.2"
   }
 }
