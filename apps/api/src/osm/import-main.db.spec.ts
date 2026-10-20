@@ -464,6 +464,12 @@ describe('🔴 CAMP-352: імпортер пише контур ділянки',
   it('🔴 площа отримує MULTIPOLYGON, точка не отримує нічого', async () => {
     const r = runImporter(TABLE);
     expect(r.status).toBe(0);
+    // 🔴 Прибито до ВИКЛИКУ, а не лише до функції. Рецензія показала, що
+    // підміна `withOutline = await assertStoredOutlines(...)` на `= 0`
+    // лишала всі тести зеленими: сторож був доведений, а його виклик —
+    // ні. Сусідній assertStoredEditDates приколотий так само, через
+    // рядок у виводі. Один рядок із трьох має контур.
+    expect(r.out).toMatch(/with an outline\s+1\b/);
     const rows = await db.query(
       `SELECT osm_ref, GeometryType(outline) AS t
          FROM camping_spots WHERE osm_ref LIKE '%-outline-%'
