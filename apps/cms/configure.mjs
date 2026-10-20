@@ -25,10 +25,42 @@ const BASE = process.env.PUBLIC_URL ?? 'http://localhost:8055';
 const HIDDEN = {
   users: 'Site visitors — password hashes. Managed by the API, never here.',
   trips: 'Private user data. Managed by the API.',
-  trip_stops: 'Private user data. Managed by the API.',
-  migrations: 'TypeORM bookkeeping.',
-  osm_camping_staging: 'Raw OSM import staging. Rebuilt weekly by the pipeline.',
-  spatial_ref_sys: 'PostGIS internals.',
+};
+
+/**
+ * 🔴 ТАБЛИЦІ, ЯКІ МИ НАВМИСНО НЕ РЕЄСТРУЄМО ВЗАГАЛІ.
+ *
+ * Заміряно 20.10.2026 на живому Directus: приховування таблиці її
+ * РЕЄСТРУЄ, тобто кожен рядок у `HIDDEN` коштує місця в ліміті. Із
+ * вісьмома колекціями моделі контенту (CAMP-362) вийшло 28 при стелі
+ * Core 25 — перебір на три.
+ *
+ * Ці три не дають нічого, що варте місця: редактор їх не бачить ні так,
+ * ні так, а адмін і без реєстрації знайде їх у Data Model.
+ *
+ * 🔴 І ДОСТУП ВІД РЕЄСТРАЦІЇ НЕ ЗАЛЕЖИТЬ. Заміряно там само:
+ * `directus_permissions` має 40 рядків на 15 колекцій, і для жодної з
+ * цих таблиць немає ЖОДНОГО гранта — Directus відмовляє за
+ * замовчуванням. Саме тому `osm_camping_staging` і віддавав 403, а не
+ * через прапорець `hidden`. `verify-permissions.mjs` тепер перевіряє це
+ * прогоном, разом із `auth_tokens` і `sessions`, які незареєстровані від
+ * початку.
+ *
+ * 🔴 НА ВЖЕ НАЛАШТОВАНОМУ ІНСТАНСІ цього замало: там вони лишаються
+ * зареєстрованими, бо скрипт просто їх не чіпає. Зняти реєстрацію можна
+ * ЛИШЕ видаленням рядка в `directus_collections` напряму:
+ *
+ *   DELETE FROM directus_collections
+ *    WHERE collection IN ('migrations','osm_camping_staging','trip_stops');
+ *
+ * Вендорським `DELETE /collections/:key` — НІ: він дропає таблицю разом
+ * із даними. Див. попередження в кроці 1.
+ */
+const NOT_REGISTERED = {
+  trip_stops: 'Private user data, and `trips` beside it is already hidden.',
+  migrations: 'TypeORM bookkeeping. Nobody edits it, nobody reads it here.',
+  osm_camping_staging: 'Raw OSM staging, rebuilt weekly by the pipeline.',
+  spatial_ref_sys: 'PostGIS internals — Directus does not even detect it.',
 };
 
 /** Editorial collections, with the icon and note an editor actually sees. */
@@ -43,6 +75,40 @@ const CONTENT = {
   rental_city_translations: { icon: 'translate', note: 'Local tips are the third leg of the publication threshold.' },
   featured_blocks: { icon: 'push_pin', note: 'Editorial picks for the home page.' },
   languages: { icon: 'language', note: 'A row here is not a launched locale.' },
+
+  // ── CAMP-362: сторінки зі СЕКЦІЙ ─────────────────────────────────
+  //
+  // 🔴 Вісім колекцій, і це найбільший приріст за раз. Чому не менше:
+  // кожна таблиця перекладів МУСИТЬ бути зареєстрована окремо, бо
+  // інтерфейс Translations у Directus будується на звʼязку з
+  // колекцією, а не з таблицею. Поля такого обмеження не мають — саме
+  // тому типи секцій живуть полем `type` в ОДНІЙ `page_sections`, а не
+  // дванадцятьма колекціями, як радить туторіал вендора.
+  pages: { icon: 'web', note: 'Сторінки й дописи. Тип розрізняє їх, верстка та сама.' },
+  page_translations: { icon: 'translate', note: 'Заголовок і опис — по рядку на мову.' },
+  page_sections: {
+    icon: 'view_agenda',
+    note: 'Універсальні секції. Нового типу НЕ треба міграції — лише значення в `type`.',
+  },
+  page_section_translations: {
+    icon: 'translate',
+    note: 'Увесь текст секції, разом із повторюваними блоками в `items`.',
+  },
+  navigation: { icon: 'menu', note: 'Меню: шапка, підвал, мобільне. Пункт не може бути власним батьком.' },
+  navigation_translations: { icon: 'translate', note: 'Підпис пункту — по рядку на мову.' },
+  site_settings: {
+    icon: 'settings',
+    // 🔴 РІВНО ОДИН РЯДОК, і це тримає база: `UNIQUE(singleton)` плюс
+    // `CHECK(singleton)`. `singleton: true` тут лише щоб адмінка
+    // показувала форму, а не список із одного елемента — обмеження
+    // живе в схемі, не в цьому прапорці.
+    singleton: true,
+    note: 'Пошта, соцмережі, підпис у підвалі. Рядок рівно один — так тримає база.',
+  },
+  site_settings_translations: {
+    icon: 'translate',
+    note: 'Слоган і примітка в підвалі — по рядку на мову.',
+  },
 };
 
 /** Read-only for editors: produced by the pipeline, not by hand. */
@@ -93,18 +159,46 @@ async function login() {
   token = json.data.access_token;
 }
 
+/**
+ * 🔴 СПЕРШУ ПЕРЕКОНАТИСЬ, ЩО ЗА ІМЕНЕМ СТОЇТЬ ТАБЛИЦЯ.
+ *
+ * Заміряно 20.10.2026. Попередня редакція покладалась на 404 — і
+ * коментар казав «таблиці ще немає, це не помилка, пропускаємо». Вендор
+ * так не поводиться: `PATCH /collections/<ім'я>` для НЕІСНУЮЧОЇ таблиці
+ * 404 не віддає, а створює колекцію-порожнявку (meta без schema).
+ *
+ * Як це виявилось: на свіжій базі в списку зареєстрованих опинився
+ * `osm_camping_staging`, хоча таблиці там немає — її створює конвеєр
+ * OSM, а не міграції. Тобто скрипт сам її й вигадав.
+ *
+ * Ціна помилки не косметична: порожнявка з'їдає місце в ліміті колекцій
+ * (Core — 25) точно так само, як справжня, і при цьому не несе нічого.
+ * Наш же сторож стелі рахував би її як роботу.
+ *
+ * Тому: читаємо колекцію ДО запису й пропускаємо, коли `schema` порожня.
+ */
 async function setCollectionMeta(name, meta) {
+  let existing;
   try {
-    await api('PATCH', `/collections/${name}`, { meta });
-    return true;
+    existing = await api('GET', `/collections/${name}`);
   } catch (err) {
-    // A table that is not there yet is not an error worth stopping for.
     if (String(err).includes('404')) {
-      console.log(`   ⏭  ${name} — no such collection, skipped`);
+      console.log(`   ⏭  ${name} — no such table, skipped`);
       return false;
     }
     throw err;
   }
+
+  // 🔴 `schema: null` означає «Directus знає ім'я, але таблиці за ним
+  // немає». Реєструвати таке — означає створити порожнявку, яка коштує
+  // місця в ліміті й не дає нічого.
+  if (!existing?.schema) {
+    console.log(`   ⏭  ${name} — meta without a table, skipped`);
+    return false;
+  }
+
+  await api('PATCH', `/collections/${name}`, { meta });
+  return true;
 }
 
 /** Finds an existing row by a field, so re-runs update instead of duplicating. */
@@ -323,7 +417,8 @@ async function main() {
 
   console.log(
     `\n✅ done — ${visible} visible, ${registered.length} registered, ` +
-    `${ours.length} tables\n`,
+    `${ours.length} tables, ` +
+    `${Object.keys(NOT_REGISTERED).length} deliberately unregistered\n`,
   );
 
   // 🔴 СТЕЛЯ ПЕРЕВІРЯЄТЬСЯ ЛИШЕ ТОДІ, КОЛИ ВОНА ДІЄ.
