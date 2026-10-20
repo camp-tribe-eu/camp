@@ -1,4 +1,4 @@
-import type { Page, Locator } from '@playwright/test';
+import { expect, type Page, type Locator } from '@playwright/test';
 
 /**
  * Головна навігація сайту, якою б не була ширина (CAMP-350).
@@ -20,19 +20,29 @@ import type { Page, Locator } from '@playwright/test';
  */
 export async function openHeaderNav(page: Page): Promise<Locator> {
   const burger = page.getByTestId('burger-open');
-  // 🔴 `aria-expanded`, а не просто «видима». Кнопка лишається в DOM під
-  // затемненням, коли шухляда вже відкрита, тож повторний клік по ній
-  // Playwright не доведе до кінця: затемнення перехоплює вказівник, і
-  // виклик крутиться до таймауту. Саме так воно й упало, коли в
-  // `plan.spec.ts` на мить лишились і вбудований фікс, і цей помічник.
-  if (
-    (await burger.isVisible()) &&
-    (await burger.getAttribute('aria-expanded')) !== 'true'
-  ) {
-    await burger.click();
-  }
-  if (await page.getByTestId('burger-panel').count()) {
-    await page.getByTestId('burger-panel').waitFor();
+  if (await burger.isVisible()) {
+    const panel = page.getByTestId('burger-panel');
+
+    // 🔴 КЛІК ПОВТОРЮЄТЬСЯ, І ЦЕ НЕ ПЕРЕСТРАХОВКА.
+    //
+    // Кнопка приїжджає з сервера в розмітці, а відкриває шухляду
+    // `onClick` — тобто вже після гідрації. Клік, що прилетів раніше, не
+    // «чекає»: він пропадає назавжди, і далі тест падає за таймаутом,
+    // звинувачуючи шухляду замість моменту кліку. Рівно цей клас дефекту
+    // зʼїв 95 і 275 секунд CI 20.10.2026 — див. CAMP-334.
+    //
+    // 🔴 `aria-expanded` лишається умовою САМОГО кліку, а не входу в
+    // цикл. Коли шухляда вже відкрита, кнопка лишається в DOM під
+    // затемненням, і повторний клік Playwright не доведе до кінця:
+    // затемнення перехоплює вказівник, і виклик крутиться до таймауту.
+    // Саме так воно й упало, коли в `plan.spec.ts` на мить лишились і
+    // вбудований фікс, і цей помічник.
+    await expect(async () => {
+      if ((await burger.getAttribute('aria-expanded')) !== 'true') {
+        await burger.click();
+      }
+      await expect(panel).toBeVisible({ timeout: 1000 });
+    }, 'бургер не відкрив шухляду').toPass({ timeout: 15_000 });
   }
   return page.getByRole('navigation', { name: 'Main' });
 }

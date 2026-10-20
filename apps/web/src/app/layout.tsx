@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { isPublic } from "@/lib/environment";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
+import { headerNav } from "@/lib/navigation";
 import { DEFAULT_LOCALE } from "@/lib/i18n";
 import CookieConsent from "@/components/cookie-consent";
 import ErrorReporter from "@/components/error-reporter";
@@ -25,7 +26,11 @@ export const metadata: Metadata = {
   // children only ever say noindex.
   robots: isPublic
     ? { index: true, follow: true, googleBot: { index: true, follow: true } }
-    : { index: false, follow: false, googleBot: { index: false, follow: false } },
+    : {
+        index: false,
+        follow: false,
+        googleBot: { index: false, follow: false },
+      },
   openGraph: {
     type: "website",
     siteName: "CampTribe",
@@ -42,11 +47,24 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+// 🔴 CAMP-365: МАКЕТ — ЄДИНЕ МІСЦЕ, ЯКЕ ХОДИТЬ ПО МЕНЮ.
+//
+// Шапка одна на весь сайт, тож і запит один: `headerNav()` кешується на
+// 60 секунд (`NAV_REVALIDATE_SECONDS`), і скільки б сторінок не
+// віддавалось, у базу йде один запит на хвилину. Якби по дані ходила
+// сама шапка, вона перестала б бути чистою, і юніт-тест не намалював би
+// її без мережі.
+//
+// 🔴 ЗАПАСНОГО МЕНЮ В КОДІ НЕМАЄ: `headerNav()` кидає, якщо база
+// недосяжна або пунктів нема. Збірка тоді падає гучно замість викласти
+// сайт без навігації, а на живому сервері Next лишає попередню справну
+// сторінку — читач бачить старе меню, не порожнє.
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const nav = await headerNav();
   // 🔴 CAMP-40: the language comes from the registry, not from a string
   // written here. This attribute and the `hreflang` on every page have to
   // agree about what language the document is in, and two hand-written
@@ -86,7 +104,7 @@ export default function RootLayout({
       <body className="flex min-h-screen flex-col antialiased">
         {/* Drains what the head script caught. Renders null. */}
         <ErrorReporter />
-        <SiteHeader />
+        <SiteHeader nav={nav} />
         <div className="flex-1">{children}</div>
         <SiteFooter />
         {/* 🔴 Last in the document, and it blocks nothing above it. The

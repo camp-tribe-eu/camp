@@ -1,43 +1,31 @@
-import Link from 'next/link';
-import { COMPANY, LEGAL_PAGES, legalPath } from '@/lib/legal';
-import { CookieSettingsLink } from './cookie-consent';
-import { CurrentYear } from './current-year';
-import { SiteNavDrawer } from './site-nav-drawer';
+import Link from "next/link";
+import { COMPANY, LEGAL_PAGES, legalPath } from "@/lib/legal";
+import { CookieSettingsLink } from "./cookie-consent";
+import { CurrentYear } from "./current-year";
+import { SiteNavDrawer } from "./site-nav-drawer";
+import type { NavItem } from "@/lib/navigation";
 
 // CAMP-41: the header and footer every page wears.
 //
-// 🔴 The navigation lists only destinations that exist.
+// 🔴 CAMP-365: ПЕРЕЛІК ПУНКТІВ БІЛЬШЕ НЕ ЖИВЕ ТУТ.
 //
-// The design (CAMP-81) draws five: Map, Routes, Trip Planner, Rentals,
-// Guides. Four of them have no page yet — CAMP-31, CAMP-45, CAMP-46,
-// CAMP-54, CAMP-66 — and a header full of links to nothing is a worse
-// first impression than a short one. It also wastes the crawler's time
-// on 404s and teaches a reader that our links are unreliable.
+// Доти в цьому файлі стояв масив `NAV`, і поруч — пояснення, чому в
+// ньому лише ті сторінки, що вже існують: «список це дані, і сторінка
+// приєднується до нього в день, коли виходить». Думка була правильна,
+// а місце — ні. Щоб додати пункт, власникові треба було попросити мене
+// змінити код.
 //
-// So the list is data, and a page joins it the day it ships. That is one
-// line of diff, and it is deliberately harder to forget than it is to
-// add a dead link now and remember to fix it later.
-
-interface NavItem {
-  href: string;
-  label: string;
-}
-
-const NAV: NavItem[] = [
-  { href: '/map', label: 'Map' },
-  { href: '/camping', label: 'Campsites' },
-  { href: '/search', label: 'Search' },
-  // 🔴 CAMP-205: сторінка відкривається, тож пункт з'явився. Вона
-  // каже, що алгоритм (CAMP-46) ще не рахує, — див. app/plan/page.tsx.
-  { href: '/plan', label: 'Plan a trip' },
-  // Added as each ships, not before:
-  //   { href: '/routes',  label: 'Routes' },     CAMP-45
-  //   { href: '/rentals', label: 'Rentals' },    CAMP-54
-  { href: '/guides', label: 'Guides' }, // CAMP-66
-  { href: '/tools', label: 'Tools' }, // CAMP-55
-];
-
-export function SiteHeader() {
+// Тепер меню приходить із бази. Та властивість, заради якої масив і
+// жив у коді — **мертве посилання в меню неможливе**, бо файл читає
+// рецензія й CI, — переїздом губиться. Її відновлює сторож
+// `tests/e2e/navigation.spec.ts`, який бере КОЖЕН пункт із бази й
+// доводить, що той відкривається і що читач до нього дістанеться.
+//
+// 🔴 ШАПКА НЕ ХОДИТЬ ПО ДАНІ САМА, І ЦЕ НАВМИСНО. Вона отримує їх
+// пропом, лишаючись чистою: тоді юніт-тест малює її без мережі й без
+// бази, а єдине місце, яке знає про API, — макет. Запит там один на
+// весь сайт, бо шапка одна.
+export function SiteHeader({ nav }: { nav: NavItem[] }) {
   return (
     <header className="border-b border-line-2 bg-surface">
       {/* 🔴 Wraps below `sm`, and the height grows with it.
@@ -100,7 +88,7 @@ export function SiteHeader() {
 
         <nav aria-label="Main" className="ml-auto hidden xl:block">
           <ul className="flex items-center gap-x-5 text-sm font-medium text-ink-2">
-            {NAV.map((item) => (
+            {nav.map((item) => (
               <li key={item.href}>
                 <Link href={item.href} className="hover:text-heading">
                   {item.label}
@@ -110,7 +98,7 @@ export function SiteHeader() {
           </ul>
         </nav>
 
-        <SiteNavDrawer items={NAV} />
+        <SiteNavDrawer items={nav} />
       </div>
     </header>
   );
@@ -126,7 +114,7 @@ export function SiteFooter() {
     <footer className="mt-16 border-t border-line-2 bg-surface">
       <div className="mx-auto max-w-wrap px-4 py-8 text-xs text-ink-2 xl:px-6">
         <p className="max-w-prose">
-          Campsite data ©{' '}
+          Campsite data ©{" "}
           <a
             href="https://www.openstreetmap.org/copyright"
             className="underline"
@@ -134,7 +122,7 @@ export function SiteFooter() {
           >
             OpenStreetMap contributors
           </a>
-          , available under the{' '}
+          , available under the{" "}
           <a
             href="https://opendatacommons.org/licenses/odbl/"
             className="underline"
@@ -142,9 +130,8 @@ export function SiteFooter() {
           >
             Open Database License
           </a>
-          . Boundaries from Natural Earth. Elevation from the Copernicus
-          DEM. Distances and terrain are calculated by CampTribe from that
-          data —{' '}
+          . Boundaries from Natural Earth. Elevation from the Copernicus DEM.
+          Distances and terrain are calculated by CampTribe from that data —{" "}
           <Link href="/legal/attribution" className="underline">
             full sources and licences
           </Link>
@@ -202,8 +189,8 @@ export function SiteFooter() {
               читача без JS; справжній рік ставить браузер. Чому саме
               так — у самому компоненті, і це не стиль, а виправлений
               дефект. */}
-          © <CurrentYear fallback={new Date().getFullYear()} />.{' '}
-          {COMPANY.name}. All rights reserved.
+          © <CurrentYear fallback={new Date().getFullYear()} />. {COMPANY.name}.
+          All rights reserved.
         </p>
       </div>
     </footer>
