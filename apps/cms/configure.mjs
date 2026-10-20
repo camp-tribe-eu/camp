@@ -291,6 +291,77 @@ async function setPermissions(policyId, grants) {
   return refused;
 }
 
+/**
+ * 🔴 УМОВНІ ПОЛЯ — ТЕ, ЗАРАДИ ЧОГО ОДНА КОЛЕКЦІЯ ЗАМІСТЬ ДВАНАДЦЯТИ.
+ *
+ * Пункт 3 «Способу перевірки» CAMP-362: обрав `type=faq` — поля hero
+ * сховані. Без цього «універсальні секції» означали б форму, де
+ * редактор бачить усі поля всіх типів одразу й сам здогадується, які
+ * з них стосуються обраного. Тобто ми заощадили б колекції ціною того,
+ * що адмінка стала б гіршою за патерн вендора — а сенс був зворотний.
+ *
+ * Формат умови в Directus: масив `{ rule, hidden }`, де `rule` це
+ * звичайний фільтр по полях ТОГО Ж рядка.
+ *
+ * 🔴 Ховаємо, а не робимо обовʼязковими: приховане поле зберігає
+ * значення, якщо воно там уже є. Редактор, що помилився типом і
+ * повернув його назад, нічого не втрачає.
+ */
+const SECTION_FIELD_CONDITIONS = {
+  image_url: {
+    hiddenFor: ['faq', 'cards'],
+    note: 'Картинка — у hero та медіа-секціях; у FAQ і картках її немає.',
+  },
+  cta_href: {
+    hiddenFor: ['faq'],
+    note: 'Кнопка з посиланням; у FAQ її немає.',
+  },
+};
+
+/** Те саме для перекладів: текстові поля залежать від типу так само. */
+const SECTION_TRANSLATION_CONDITIONS = {
+  items: {
+    hiddenFor: ['hero'],
+    note: 'Повторювані блоки — питання FAQ, картки. У hero їх немає.',
+  },
+  cta_label: {
+    hiddenFor: ['faq'],
+    note: 'Підпис кнопки; у FAQ кнопки немає.',
+  },
+};
+
+/**
+ * Записує умову на поле.
+ *
+ * 🔴 `PATCH /fields/<колекція>/<поле>` створює метадані, якщо їх ще
+ * немає: Directus бачить колонку в базі, але рядка в
+ * `directus_fields` для неї не заводить, доки поле не налаштують.
+ * Заміряно 20.10.2026: до цього кроку `directus_fields` для
+ * `page_sections` була порожня.
+ */
+async function setFieldConditions(collection, field, hiddenFor, note) {
+  const conditions = [
+    {
+      name: `Сховати для: ${hiddenFor.join(', ')}`,
+      rule: { type: { _in: hiddenFor } },
+      hidden: true,
+    },
+  ];
+  try {
+    await api('PATCH', `/fields/${collection}/${field}`, {
+      meta: { conditions, note },
+    });
+    return true;
+  } catch (err) {
+    if (String(err).includes('404')) {
+      console.log(`   ⏭  ${collection}.${field} — no such field, skipped`);
+      return false;
+    }
+    throw err;
+  }
+}
+
+
 const READ_WRITE = ['read', 'create', 'update'];
 
 async function main() {
@@ -343,7 +414,28 @@ async function main() {
     }
   }
 
-  console.log('\n3. Policies and roles');
+  console.log('\n3. Conditional fields — one collection, many section types');
+  for (const [field, { hiddenFor, note }] of Object.entries(SECTION_FIELD_CONDITIONS)) {
+    const ok = await setFieldConditions('page_sections', field, hiddenFor, note);
+    if (ok) console.log(`   page_sections.${field} hidden for: ${hiddenFor.join(', ')}`);
+  }
+  for (const [field, { hiddenFor, note }] of Object.entries(
+    SECTION_TRANSLATION_CONDITIONS,
+  )) {
+    const ok = await setFieldConditions(
+      'page_section_translations',
+      field,
+      hiddenFor,
+      note,
+    );
+    if (ok) {
+      console.log(
+        `   page_section_translations.${field} hidden for: ${hiddenFor.join(', ')}`,
+      );
+    }
+  }
+
+  console.log('\n4. Policies and roles');
 
   // --- Editor -------------------------------------------------------------
   const editorPolicy = await upsertPolicy(
