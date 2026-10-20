@@ -2,6 +2,7 @@ import { RESERVED_WORDS } from '@/lib/cems';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
+import { openMapRetryingThrottle } from './open-map';
 import { INITIAL_VIEW } from '@/lib/map-sources';
 
 // CAMP-153, in a browser, because the two things that matter here are
@@ -35,16 +36,14 @@ const NOTE = '[data-testid="wildfire-note"]';
  */
 async function openMap(page: Page) {
   await stubStyles(page);
-  // The limit refills over a minute, so the waits add up to more than one.
-  for (let attempt = 0; attempt < 8; attempt++) {
-    await page.goto('/map');
-    await skipWithoutWebGL(page);
-    if ((await page.locator('[data-testid="map"]').count()) > 0) return;
-    const broke = await page.getByText('This page did not load properly').count();
-    if (broke === 0) return; // something else is wrong — let the test say so
-    await page.waitForTimeout(3000 * (attempt + 1));
-  }
-  throw new Error('/map never rendered: the API kept refusing the region index');
+  // 🔴 ТА САМА КОПІЯ ЦИКЛУ ЖИЛА Й ТУТ, і рецензія CAMP-304 знайшла її
+  // ПОЗА дифом: конфіг піднімав webkit із 30 до 90 секунд, тобто з ~3
+  // досяжних спроб до ~5, у файлі, якого я не відкривав. Два списки
+  // одного правила розходяться мовчки, тож цикл тепер один.
+  await openMapRetryingThrottle(page, {
+    mapSelector: '[data-testid="map"]',
+    afterGoto: skipWithoutWebGL,
+  });
 }
 
 /**

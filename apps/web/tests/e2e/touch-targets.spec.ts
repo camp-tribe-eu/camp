@@ -16,6 +16,41 @@ import { test, expect } from '@playwright/test';
  */
 test.use({ viewport: { width: 375, height: 812 } });
 
+/**
+ * Відкрити сторінку для ЗАМІРУ РОЗКЛАДКИ.
+ *
+ * 🔴 НЕ ЧЕКАТИ НА `load`, І ЦЕ НЕ ПОСЛАБЛЕННЯ. CI 20.10.2026: цей файл
+ * двічі вичерпав таймаут на webkit — спершу 30 с, потім, уже після
+ * підняття бюджету, 90 с. Тобто справа не в тому, що webkit повільний.
+ *
+ * `page.goto` за замовчуванням чекає на подію `load`, тобто на ВСІ
+ * ресурси. Відучора (CAMP-344) сторінка кемпінгу має живу мапу, а
+ * MapLibre довантажує тайли, доки дивиться: на рушії без GPU подія
+ * `load` може не настати взагалі. Бюджет тут ні до чого — його можна
+ * піднімати й далі з тим самим наслідком.
+ *
+ * Але ЧЕКАТИ ЩОСЬ ТРЕБА: горизонтальний скрол створює й зображення, що
+ * доїхало пізніше, тож міряти одразу після розбору HTML означало б
+ * проґавити саме той дефект, який шукаємо.
+ *
+ * Тому чекаємо рівно на те, що впливає на ширину, і не чекаємо на те,
+ * що не впливає й не закінчується.
+ *
+ * 🔴 ЗОБРАЖЕНЬ МОЖЕ НЕ БУТИ ЗОВСІМ, і тоді чекання на них порожнє — а
+ * порожнє чекання задовольняється будь-чим. Тому їх ДВА: зображення й
+ * шрифти. Шрифт, що доїхав пізніше, змінює ширину тексту, тобто теж
+ * здатен створити скрол, і `document.fonts.ready` завершується завжди.
+ *
+ * Чому мапа тут не впливає на ширину документа: її контейнер має
+ * `w-full` і `overflow-hidden` (`campsite-media.tsx`), тож полотно
+ * фізично не може розсунути сторінку — воно обрізається.
+ */
+async function openForLayout(page: import('@playwright/test').Page, path: string) {
+  await page.goto(path, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+}
+
 /** Прямокутник, у який реально треба влучити пальцем. */
 type Touch = { name: string; group: string; x0: number; y0: number; x1: number; y1: number; w: number; h: number };
 
@@ -101,7 +136,7 @@ async function hasWebGL(page: import('@playwright/test').Page) {
 async function collectAll(page: import('@playwright/test').Page) {
   const perPage: { path: string; boxes: Touch[] }[] = [];
   for (const spec of PAGES) {
-    await page.goto(spec.path);
+    await openForLayout(page, spec.path);
     if (spec.needsWebGL) {
       if (!(await hasWebGL(page))) continue;
       await page.locator('[data-source]').first().waitFor();
@@ -134,6 +169,25 @@ function assertNotEmpty(perPage: { path: string; boxes: Touch[] }[]) {
 }
 
 test.describe('🔴 CAMP-345 — зона натискання на 375 px', () => {
+  // 🔴 ЦЕЙ ФАЙЛ НЕ МАЄ ВЛАСНОГО `test.slow()`, І ЦЕ НАВМИСНО.
+  //
+  // Я був написав його тут після падіння на webkit — тобто латав
+  // ВИПАДОК. Потім замір показав, що це третій випадок одного класу, і
+  // правило переїхало в `playwright.config.ts`: бюджет на рушій.
+  //
+  // Попередня редакція цього коментаря казала «тут був `test.slow()` і
+  // його прибрано». Рецензія 20.10.2026 показала, що проти `main` це
+  // неправда: він жив лише на гілці й у злитий код не потрапляв ніколи.
+  // Коментар, який переказує історію гілки як історію файла, бреше
+  // наступному читачеві.
+  //
+  // Числа, заміряні за 21 прогін: найдовше тут бачили 35,1 с
+  // (webkit, таймаут) і 30,1 с медіани (firefox). Обидва тепер із
+  // запасом: webkit 90, firefox 60. У chromium і mobile-chrome за ті
+  // самі 21 прогін НЕ БУЛО ЖОДНОГО таймаута, тож їхні 30 с лишаються —
+  // піднімати бюджет там, де нічого не падало, означало б послабити
+  // перевірку без причини.
+
   test('жодна кнопка не має зони натискання меншої за 48 px', async ({ page }) => {
     const perPage = await collectAll(page);
     assertNotEmpty(perPage);
@@ -185,12 +239,12 @@ test.describe('🔴 CAMP-345 — зона натискання на 375 px', () 
     // Пункт 4 «Способу перевірки» називає сторінку кемпінгу, тож шлях до
     // неї починається з переліку — і те, що перелік не порожній, теж
     // твердження, а не припущення.
-    await page.goto('/camping');
+    await openForLayout(page, '/camping');
     const href = await page.locator('a[href^="/camping/"]').first().getAttribute('href');
     expect(href, 'на /camping немає жодного посилання вглиб').toBeTruthy();
 
     for (const path of [href as string, '/camping', '/']) {
-      await page.goto(path);
+      await openForLayout(page, path);
       const [w, sw] = await page.evaluate(() => [
         document.documentElement.clientWidth,
         document.documentElement.scrollWidth,

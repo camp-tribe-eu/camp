@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { openMapRetryingThrottle } from './open-map';
 import { INITIAL_VIEW } from '@/lib/map-sources';
 
 // CAMP-200, in a browser, because the things that matter here are only true
@@ -177,17 +178,14 @@ async function skipWithoutWebGL(page: Page) {
   test.skip(!ok, 'no WebGL2 in this browser — the map, and so the drought layer, cannot render');
 }
 
-/** Open /map, retrying only when the page itself did not render (the API rate-limits). */
+/**
+ * Open /map, retrying only when the page itself did not render (the API
+ * rate-limits). Вікно повторів зв'язане ЧАСОМ — чому саме так, написано
+ * в `open-map.ts`.
+ */
 async function openMap(page: Page, land: string = STUB_LAND) {
   await stubStyles(page, land);
-  for (let attempt = 0; attempt < 8; attempt++) {
-    await page.goto('/map');
-    await skipWithoutWebGL(page);
-    if ((await page.locator(MAP).count()) > 0) return;
-    if ((await page.getByText('This page did not load properly').count()) === 0) return;
-    await page.waitForTimeout(3000 * (attempt + 1));
-  }
-  throw new Error('/map never rendered: the API kept refusing the region index');
+  await openMapRetryingThrottle(page, { mapSelector: MAP, afterGoto: skipWithoutWebGL });
 }
 
 /** Wait until the map has stopped fetching and drawn. */
@@ -218,7 +216,15 @@ const RESERVED = /\b(warning|danger|dangerous|risk|risky|alert|evacuate|evacuati
 /** WebKit on Linux cannot photograph a WebGL canvas reliably; see wildfire-layer.spec.ts. */
 const cameraUnreliable = (browserName: string) => browserName === 'webkit' && process.platform === 'linux';
 
-test.describe.configure({ timeout: 90_000 });
+// 🔴 ПОТРІЙНИЙ БЮДЖЕТ, А НЕ АБСОЛЮТНІ 90 СЕКУНД (CAMP-304). Тут
+// стояло `test.describe.configure({ timeout: 90_000 })` — число, яке
+// перекривало бюджет рушія й тим скасовувало множник, виміряний для
+// webkit. `test.slow()` потроює ТОЙ бюджет, що чинний для проєкту:
+// chromium лишається з 90 с, webkit отримує 270. Намір автора («утричі
+// більше за норму») збережено, а норма тепер залежить від браузера.
+test.beforeEach(() => {
+  test.slow();
+});
 
 // ── off means off ────────────────────────────────────────────────────────
 
