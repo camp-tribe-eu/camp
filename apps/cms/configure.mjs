@@ -307,11 +307,74 @@ async function main() {
   }
 
   const all = await api('GET', '/collections');
-  const visible = all.filter(
-    (c) => !c.collection.startsWith('directus_') && !c.meta?.hidden,
-  ).length;
-  const total = all.filter((c) => !c.collection.startsWith('directus_')).length;
-  console.log(`\n✅ done — ${visible} visible collections of ${total} tables\n`);
+  const ours = all.filter((c) => !c.collection.startsWith('directus_'));
+  const visible = ours.filter((c) => !c.meta?.hidden).length;
+
+  // 🔴 ЗАРЕЄСТРОВАНІ — ЦЕ НЕ ТАБЛИЦІ. Попередня редакція друкувала
+  // «N visible collections of M tables», де M це всі не-directus
+  // таблиці. Ліміт ліцензії рахує інше: лише ті, що МАЮТЬ рядок у
+  // `directus_collections`, тобто `meta !== null`. Заміряно 20.10.2026
+  // на локальній базі: 41 таблиця, з них зареєстровано 21.
+  //
+  // Різниця не академічна: за старим числом ми б думали, що впираємось
+  // у ліміт удвічі раніше, ніж насправді, — і навпаки, після переїзду
+  // таблиць у базу без реєстрації не помітили б запасу.
+  const registered = ours.filter((c) => c.meta).map((c) => c.collection);
+
+  console.log(
+    `\n✅ done — ${visible} visible, ${registered.length} registered, ` +
+    `${ours.length} tables\n`,
+  );
+
+  // 🔴 СТЕЛЯ ПЕРЕВІРЯЄТЬСЯ ЛИШЕ ТОДІ, КОЛИ ВОНА ДІЄ.
+  //
+  // MSCL Core дає 25 колекцій. Схвалений Open Innovation Grant її
+  // знімає — отже падати при 27 на ліцензованому інстансі означало б
+  // червоніти на правильному стані.
+  //
+  // Але й мовчати не можна: §2.2 і §5.3 угоди кажуть, що ключ помирає
+  // разом із нею, і на реакцію є 10 днів. День, коли ключ відпаде, не
+  // має бути днем, коли ми вперше дізнаємось, що половина адмінки
+  // перетворилась на Inactive.
+  //
+  // Тому: без ліцензії й понад стелю — ПАДАЄМО з переліком імен; із
+  // ліцензією й понад стелю — попереджаємо і називаємо, на скільки
+  // саме перебір. `GET /server/info` публічний, облікових даних не
+  // потребує й значень не розкриває.
+  const CORE_COLLECTION_CAP = 25;
+  let licensed = false;
+  try {
+    const info = await api('GET', '/server/info');
+    licensed = Boolean(info?.license?.source);
+  } catch {
+    // Недоступний `/server/info` — поводимось як без ліцензії, бо
+    // запасний шлях мусить падати в бік помітного.
+    licensed = false;
+  }
+
+  if (registered.length > CORE_COLLECTION_CAP) {
+    const over = registered.length - CORE_COLLECTION_CAP;
+    const names = registered.sort().join(', ');
+    if (licensed) {
+      console.warn(
+        `   ⚠️  ${registered.length} registered collections — ` +
+        `${over} over the Core cap of ${CORE_COLLECTION_CAP}.\n` +
+        `      The grant lifts the cap, so this run is fine. But the day\n` +
+        `      the key lapses, ${over} of these stop working:\n        ${names}`,
+      );
+    } else {
+      console.error(
+        `\n   🔴 ${registered.length} registered collections on an\n` +
+        `      UNLICENSED instance — the Core cap is ${CORE_COLLECTION_CAP}.\n` +
+        `      ${over} collection(s) over. Registered:\n        ${names}\n` +
+        `\n      🔴 DO NOT free space by deleting collections: the vendor's\n` +
+        `      DELETE /collections/:key drops the TABLE (see the note in\n` +
+        `      step 1). Unregister by removing the row in\n` +
+        `      directus_collections, or set LICENSE_KEY.`,
+      );
+      process.exitCode = 1;
+    }
+  }
 }
 
 main().catch((err) => {
