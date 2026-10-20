@@ -298,6 +298,17 @@ jobs:
             | grep -c 'check-selftest-steps self-test:' >/dev/null
       - name: The list of unlocked self-test steps has not grown
         run: node scripts/ci/check-selftest-steps.mjs
+      # 🔴 CAMP-361. Directus повернувся, але ПОРУЧ із нами, не всередині.
+      # Заміряно 20.10.2026: наше дерево 27 попереджень і 0 critical,
+      # дерево CMS — 35 і 1 critical. Одне слово в `workspaces` зливає
+      # їх назад, і це не падає ніде, крім цього сторожа.
+      - name: CMS isolation guard still catches a merged tree
+        run: |
+          set -o pipefail
+          node scripts/ci/check-cms-hardening.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-cms-hardening self-test:' >/dev/null
+      - name: Directus stays out of our dependency tree and out of CI
+        run: node scripts/ci/check-cms-hardening.mjs
       - name: The import list is the Union, and nothing else
         run: node scripts/ci/check-eu-scope.mjs
       # 🔴 CAMP-178. A job running a Node nobody chose is how a version

@@ -1,0 +1,17 @@
+{
+  "name": "cms",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "bootstrap": "directus bootstrap",
+    "start": "directus start",
+    "configure": "node configure.mjs",
+    "verify:permissions": "node verify-permissions.mjs"
+  },
+  "dependencies": {
+    "directus": "12.5.0"
+  },
+  "overrides": {
+    "isolated-vm": "^7.0.1"
+  }
+}
