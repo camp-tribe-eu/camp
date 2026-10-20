@@ -1,4 +1,5 @@
 import SiteMapEmbed from './site-map-embed';
+import type { Outline } from '@/lib/outline';
 
 /**
  * Медіаслот сторінки кемпінгу (CAMP-344).
@@ -27,10 +28,12 @@ import SiteMapEmbed from './site-map-embed';
  * тій сторінці, яка пояснює, чому ми не показуємо чужих фото. Тож
  * підпис каже те, що видно: місце і його околиці.
  *
- * Самого контуру поки немає й у базі — `camping_spots.location` це
- * `geometry(POINT, 4326)`. Довезти його можна (кожен рядок має
- * `osm_ref`), але це окрема робота: колонка, зміна імпорту й перерахунок
- * 63 159 рядків.
+ * 🔴 ОНОВЛЕНО 20.10.2026 (CAMP-352). Контур тепер У БАЗІ: колонка
+ * `camping_spots.outline`, імпортер її заповнює, і CHECK міграції
+ * вимагає, щоб точка лежала на обрисі. Тож підпис став УМОВНИМ — він
+ * обіцяє контур рівно там, де контур є, і мовчить там, де в OSM крапка.
+ * Числа вище лишаються чинними: обіцяти обрис усім 100% сторінок було б
+ * неправдою на 45% із них.
  */
 
 export type Photo = {
@@ -76,12 +79,14 @@ export function CampsiteMedia({
   lon,
   type,
   label,
+  outline = null,
 }: {
   photos: readonly Photo[];
   lat: number;
   lon: number;
   type: string;
   label: string;
+  outline?: Outline | null;
 }) {
   const chosen = choosePhoto(photos);
 
@@ -112,12 +117,26 @@ export function CampsiteMedia({
           4:3 тримає мапу читабельною і на телефоні не зʼїдає перший
           екран: на 375 px це 281 px, тобто третина від 812. */}
       <div className="aspect-[4/3] min-h-[260px] w-full overflow-hidden rounded-card border border-line-2">
-        <SiteMapEmbed lat={lat} lon={lon} type={type} label={label} />
+        <SiteMapEmbed
+          lat={lat}
+          lon={lon}
+          type={type}
+          label={label}
+          outline={outline}
+        />
       </div>
-      <figcaption className="mt-2 text-xs text-ink-2">
+      <figcaption className="mt-2 text-xs text-ink-2" data-outline={outline ? 'yes' : 'no'}>
         {/* 🔴 Два речення, і друге — причина. Без нього мапа читається як
-            «фото не завантажилось». */}
-        No verified photographs of this site yet. This is where it is —{' '}
+            «фото не завантажилось».
+
+            Перше речення УМОВНЕ: обрис обіцяємо лише там, де він є.
+            Для 45% кемпінгів OSM знає тільки крапку, і написати там
+            «контур ділянки» означало б збрехати рівно на тій сторінці,
+            що пояснює, чому ми не показуємо чужих фото. */}
+        No verified photographs of this site yet.{' '}
+        {outline
+          ? 'The outline is the site itself, as mapped in OpenStreetMap — '
+          : 'This is where it is — '}
         <span className="whitespace-nowrap">OpenFreeMap © OpenMapTiles</span>, data
         from OpenStreetMap.
       </figcaption>

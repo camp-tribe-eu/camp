@@ -15,6 +15,8 @@ import dynamic from 'next/dynamic';
  * WebGL-канвасу в момент імпорту, і рендер на сервері валить увесь
  * пререндер сторінки.
  */
+import type { Outline } from '@/lib/outline';
+
 const SiteMap = dynamic(() => import('@/components/site-map'), {
   ssr: false,
   loading: () => (
@@ -27,6 +29,7 @@ export default function SiteMapEmbed(props: {
   lon: number;
   type: string;
   label: string;
+  outline?: Outline | null;
 }) {
   return <SiteMap {...props} />;
 }

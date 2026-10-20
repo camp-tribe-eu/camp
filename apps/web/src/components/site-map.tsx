@@ -10,6 +10,12 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MAP_SOURCES } from '@/lib/map-sources';
 import { TYPE_COLOUR } from '@/lib/map-palette';
+import {
+  outlineBounds,
+  OUTLINE_FILL_OPACITY,
+  OUTLINE_LINE_WIDTH,
+  type Outline,
+} from '@/lib/outline';
 
 /**
  * Мапа ОДНОГО кемпінгу (CAMP-344).
@@ -37,22 +43,51 @@ setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
 /** Zoom, на якому видно ділянку і дорогу до неї, але ще читається село. */
 const ZOOM = 15;
 
+
 export default function SiteMap({
   lat,
   lon,
   type,
   label,
+  outline = null,
 }: {
   lat: number;
   lon: number;
   type: string;
   label: string;
+  outline?: Outline | null;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
 
+  // 🔴 КЛЮЧ, А НЕ ОБʼЄКТ, У ЗАЛЕЖНОСТЯХ ЕФЕКТУ.
+  //
+  // `outline` приходить розібраним обʼєктом, тобто новим за посиланням
+  // на кожному рендері батька. У масиві залежностей це означає: ефект
+  // перезапускається без причини, `map.remove()` зносить мапу й вона
+  // будується наново — на контурі, який не змінився ні на кому.
+  //
+  // Рядок порівнюється за ЗНАЧЕННЯМ, тож перезапуск стається тоді й
+  // лише тоді, коли контур справді інший.
+  //
+  // Чесно про межі цього твердження: я НЕ спостерігав тут такого збою.
+  // Симптом, через який я сюди поліз — порожні атрибути при живому
+  // канвасі — виявився закешованим `module not found` у dev-сервері
+  // після переїзду файла між worktree; після перезапуску все три
+  // атрибути на місці. Ключ лишається як запобіжник, а не як ліки від
+  // доведеної хвороби.
+  const outlineKey = outline ? JSON.stringify(outline) : '';
+
   useEffect(() => {
     if (!box.current) return;
+    // 🔴 СТАРІ СИГНАЛИ ЗНІМАЮТЬСЯ ПЕРЕД ПОБУДОВОЮ. `map.remove()`
+    // атрибутів не чіпає, а React при клієнтському переході лишає
+    // той самий вузол: без цього кемпінг БЕЗ обрису успадкував би
+    // `data-outline-layer="true"` від попереднього. Назвала рецензія
+    // PR #292; e2e цього не бачить, бо ходить `page.goto()`.
+    box.current.removeAttribute('data-outline-layer');
+    box.current.removeAttribute('data-map-loaded');
+    box.current.removeAttribute('data-ready');
     // Нова точка — новий шанс. Без цього рядка `failed` з попереднього
     // кемпінгу перенісся б на наступний.
     setFailed(false);
@@ -76,6 +111,106 @@ export default function SiteMap({
         ],
       });
       map.addControl(new NavigationControl({ showCompass: false }), 'top-right');
+
+      // 🔴 CAMP-352. Обрис ділянки — лише там, де він Є в OpenStreetMap.
+      //
+      // Заміряно 19.10.2026 по 63 159 кемпінгах: контур має 55,1%, у
+      // 31,1% це крапка, у 13,9% немає навіть osm_ref. Намальована «межа»
+      // там, де її не знає першоджерело, була б вигадкою на сторінці,
+      // яка пояснює, чому ми не показуємо чужих фото.
+      const drawn = outline;
+      // 🔴 ОБРОБНИК РЕЄСТРУЄТЬСЯ ЗАВЖДИ, І АТРИБУТ ЗАВЖДИ ДІСТАЄ
+      // ЗНАЧЕННЯ — 'true' або 'false', ніколи «немає».
+      //
+      // Попередня редакція реєструвала його лише за наявності
+      // контуру, а заборона в e2e спиралась на ВІДСУТНІСТЬ атрибута
+      // й на те, що якір `data-map-loaded` із сусіднього обробника
+      // спрацює пізніше. Це трималось на порядку реєстрації
+      // слухачів MapLibre — ніде не заявленому. Перенести сусідній
+      // обробник вище, і заборона стала б порожньою, не почервонівши
+      // жодного разу. Назвала рецензія PR #292.
+      //
+      // Визначене значення знімає і це, і застарілий атрибут при
+      // клієнтському переході «з обрисом → без»: ефект перезапускається
+      // й переписує його, а не лишає чужу правду від попереднього кемпінгу.
+      map.on('load', () => {
+        if (!map) return;
+        if (!drawn) {
+          box.current?.setAttribute('data-outline-layer', 'false');
+          return;
+        }
+        {
+          map.addSource('site-outline', {
+            type: 'geojson',
+            data: { type: 'Feature', properties: {}, geometry: drawn },
+          });
+          const colour = TYPE_COLOUR[type] ?? TYPE_COLOUR.paid;
+          map.addLayer({
+            id: 'site-outline-fill',
+            type: 'fill',
+            source: 'site-outline',
+            paint: { 'fill-color': colour, 'fill-opacity': OUTLINE_FILL_OPACITY },
+          });
+          map.addLayer({
+            id: 'site-outline-line',
+            type: 'line',
+            source: 'site-outline',
+            paint: { 'line-color': colour, 'line-width': OUTLINE_LINE_WIDTH },
+          });
+          // Кадр по ділянці, а не по точці: інакше велика площа вилазить
+          // за край і сторінка читається як поломка.
+          const bounds = outlineBounds(drawn);
+          // 🔴 maxZoom: ZOOM — кадруємо лише НАЗОВНІ. Без нього мала
+          // ділянка затягує мапу на z19+, і обіцянка сусіднього
+          // коментаря («видно ділянку і дорогу до неї, але ще читається
+          // село») перестає триматись на 55% сторінок. Знайшла рецензія.
+          //
+          // 🔴 `return`, А НЕ `if (bounds) { … }`: порожня геометрія
+          // (`coordinates: []`) проходить `addSource` і `addLayer`, не
+          // малює нічого, і попередня редакція все одно ставила атрибут
+          // — зелено над порожнечею. Межі порожньої геометрії це `null`,
+          // тож тепер такий випадок до сигналу просто не доходить.
+          // Назвала рецензія.
+          if (!bounds) {
+            box.current?.setAttribute('data-outline-layer', 'false');
+            return;
+          }
+          map.fitBounds(bounds, { padding: 28, animate: false, maxZoom: ZOOM });
+          // 🔴 СИГНАЛ ПРО СТАН МАПИ, А НЕ ПРО ПІКСЕЛІ.
+          //
+          // Перша редакція ставила його через `queryRenderedFeatures` по
+          // нашому шару — і на firefox-desktop атрибут не зʼявився
+          // жодного разу за 61 опитування (30 с). Рендер залежить від
+          // рушія й від того, чи є на раннері апаратний WebGL; будувати
+          // на ньому перевірку означає червоніти на правильному коді.
+          // Я це вже знав — годиною раніше з тієї ж причини відмовився
+          // спиратись на `data-ready` — і все одно вступив удруге.
+          //
+          // Питання, яке справді треба поставити, інше: чи дійшов проп
+          // до `addSource`. Це стан, однаковий у всіх рушіях, і саме
+          // його вбиває мутація `const drawn = outline` → `null`. Чи
+          // намалювався піксель — відповідальність MapLibre.
+          // 🔴 ПИТАЄМО МАПУ, А НЕ ВЛАСНУ ПАМʼЯТЬ. Рецензія PR #292
+          // довела мутацією, що `fill-opacity: 0` + `line-width: 0`
+          // лишає обрис цілком невидимим при зелених тестах: шари
+          // існують, джерело додане, і перевірка «шар є» це
+          // підтверджує. Вона підтвердила б і порожнечу.
+          //
+          // `getPaintProperty` читає те, що мапа СПРАВДІ застосувала.
+          // Це все ще стан, а не піксель: рушій і WebGL тут ні до
+          // чого, тож firefox не почервоніє на правильному коді —
+          // помилка, якої я в цій картці припустився вже двічі.
+          const visible =
+            !!map.getLayer('site-outline-fill') &&
+            !!map.getLayer('site-outline-line') &&
+            Number(map.getPaintProperty('site-outline-fill', 'fill-opacity')) > 0 &&
+            Number(map.getPaintProperty('site-outline-line', 'line-width')) > 0;
+          box.current?.setAttribute(
+            'data-outline-layer',
+            visible ? 'true' : 'false',
+          );
+        }
+      });
       new Marker({ color: TYPE_COLOUR[type] ?? TYPE_COLOUR.paid })
         .setLngLat([lon, lat])
         .addTo(map);
@@ -90,6 +225,17 @@ export default function SiteMap({
       let ready = false;
       map.on('load', () => {
         ready = true;
+        // 🔴 ЯКІР ДЛЯ ЗАБОРОН. Перевірка «обрису НЕ намальовано» нічого
+        // не варта, якщо зробити її до того, як обрис МІГ БИ зʼявитись:
+        // шар додається у власному обробнику `load`, тобто помітно
+        // пізніше за появу контейнера. Рецензія показала, що мутація
+        // «малюємо завжди» пережила б таку заборону.
+        //
+        // Цей атрибут каже «стиль завантажено», тобто подію, а не
+        // піксель — однаково в усіх рушіях. На відміну від `data-ready`,
+        // який залежить від намальованого й на частині сторінок не
+        // зʼявляється зовсім (перевірено на кемпінгу в Мальті).
+        box.current?.setAttribute('data-map-loaded', 'true');
       });
       map.on('error', () => {
         if (!ready) setFailed(true);
@@ -113,7 +259,8 @@ export default function SiteMap({
       // `queryRenderedFeatures()` питає інше: чи щось справді
       // намальовано. Порожня мапа цього задовольнити не може.
       map.on('idle', () => {
-        if (map && map.queryRenderedFeatures().length > 0) {
+        if (!map) return;
+        if (map.queryRenderedFeatures().length > 0) {
           box.current?.setAttribute('data-ready', 'true');
         }
       });
@@ -125,7 +272,12 @@ export default function SiteMap({
       setFailed(true);
     }
     return () => map?.remove();
-  }, [lat, lon, type]);
+    // `outline` навмисно замінено на `outlineKey`: обʼєкт у залежностях
+    // перестворював би мапу на кожному ререндері батька — див. коментар
+    // біля оголошення ключа. Значення читається із замикання, і воно те
+    // саме, бо ключ міняється рівно тоді, коли міняється обʼєкт.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lat, lon, type, outlineKey]);
 
   // 🔴 КОНТЕЙНЕР РЕНДЕРИТЬСЯ ЗАВЖДИ, А ЗАПАСНИЙ ТЕКСТ ЛЯГАЄ ПОВЕРХ.
   // Перша редакція повертала при `failed` зовсім іншу гілку — БЕЗ `ref`.

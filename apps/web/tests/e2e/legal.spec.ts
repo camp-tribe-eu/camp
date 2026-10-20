@@ -359,11 +359,34 @@ test.describe('the legal pages', () => {
     }
   });
 
+  // 🔴 ТЕЗА ТА САМА, ШЛЯХ ІНШИЙ. Раніше тут стояло
+  // `toContainText('Belgium')`, бо підвал ніс місто й країну. 20.10.2026
+  // власник вирішив, що адреса й номер живуть на правових сторінках, а
+  // не під кожною сторінкою сайту — осідок це його дім.
+  //
+  // Вимога статті 5 від цього не зникла: оператора мусить бути видно
+  // звідусіль. Але «видно» тепер означає ЛАНЦЮГ — назва в підвалі плюс
+  // посилання, яке веде до повних даних. Тож перевіряємо ланцюг, а не
+  // окреме слово: інакше тест або впав би на правильній поведінці, або
+  // (гірше) був би «виправлений» поверненням адреси в підвал.
   test('the operator is identifiable from any page', async ({ page }) => {
     await page.goto('/camping');
     const footer = page.locator('footer');
     await expect(footer).toContainText('UTD BV');
-    await expect(footer).toContainText('Belgium');
+
+    // Ланка друга: звідси є шлях до правової інформації.
+    const notice = footer.getByRole('link', { name: /legal notice/i }).first();
+    await expect(notice).toHaveAttribute('href', '/legal/notice');
+
+    // Ланка третя: там справді лежать дані, яких у підвалі немає.
+    await notice.click();
+    await expect(page.locator('main')).toContainText('Kapucinessenstraat');
+    await expect(page.locator('main')).toContainText('BE 0799.245.752');
+
+    // 🔴 І зворотний бік: у підвалі їх немає, бо саме цього просив
+    // власник. Без цього твердження «перенесли на правову сторінку»
+    // задовольнялося б і тим, що адреса стоїть в обох місцях.
+    await expect(page.locator('footer')).not.toContainText('Kapucinessenstraat');
   });
 });
 

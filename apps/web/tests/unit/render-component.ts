@@ -102,8 +102,18 @@ function toReact(node: unknown): unknown {
 export function renderComponent<P>(
   Component: (props: P) => unknown,
   props: P,
+  // 🔴 Та сама опція, що й у асинхронного брата нижче, і з тієї ж
+  // причини: компонент мапи тягне MapLibre, який у статичному рендері
+  // не живе. Без неї синхронний компонент із мапою всередині взагалі не
+  // можна перевірити рендером — а саме рендер і треба перевіряти.
+  options: { omit?: unknown[] } = {},
 ): string {
-  return renderToStaticMarkup(toReact(Component(props)) as ReactElement);
+  omitted = new Set(options.omit ?? []);
+  try {
+    return renderToStaticMarkup(toReact(Component(props)) as ReactElement);
+  } finally {
+    omitted = new Set();
+  }
 }
 
 /**

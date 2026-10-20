@@ -488,6 +488,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
             lon={spot.lon}
             type={spot.type}
             label={name ?? `${SPOT_TYPE_LABEL[spot.type]} near ${spot.region}`}
+            outline={spot.outline ?? null}
           />
         </div>
       </div>
