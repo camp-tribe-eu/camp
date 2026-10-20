@@ -489,15 +489,59 @@ async function main() {
   // суперечив би і коду, і картці. Конфігурація, яку запускають
   // повторно, мусить приводити інстанс до наміру, а не лише перестати
   // псувати його далі.
+  // 🔴 І `note` РАЗОМ З УМОВОЮ, А НЕ САМУ УМОВУ.
+  //
+  // Перша редакція цього блоку знімала лише `conditions` — і це було
+  // гірше за половину виправлення. Та сама перша редакція писала
+  // ОБИДВА поля одним PATCH (`meta: { conditions, note }`), а у
+  // `directus_fields` це РІЗНІ колонки, тож часткове оновлення
+  // (`updateField` → `itemsService.updateOne`) лишає `note` на місці.
+  //
+  // Заміряно після зняття самих умов:
+  //   items     conditions=null  note="…У hero їх немає."
+  //   cta_label conditions=null  note="Підпис кнопки; у FAQ кнопки немає."
+  //
+  // Тобто я прибирав артефакт, який видно лише адміну в Data Model, і
+  // лишав той, який бачить КОЖЕН редактор у формі: поле `items` тепер
+  // видиме завжди, а під ним підказка «у hero їх немає». Підказка, що
+  // суперечить тому, що людина бачить очима, гірша за її відсутність.
+  const DEAD_ON_TRANSLATIONS = ['items', 'cta_label'];
   const translationFields = await realFields('page_section_translations');
+  let cleared = 0;
   if (translationFields) {
-    for (const field of ['items', 'cta_label']) {
-      if (!translationFields.has(field)) continue;
+    for (const field of DEAD_ON_TRANSLATIONS) {
+      // 🔴 ВІДСУТНЄ ПОЛЕ — ЦЕ ПОДІЯ, А НЕ `continue`.
+      //
+      // Єдиний випадок, заради якого цей блок існує, — інстанс
+      // розійшовся з кодом. Тихо пропустити його означало б мовчки
+      // лишити мертву умову саме там, де вона найімовірніша.
+      if (!translationFields.has(field)) {
+        conditionsSkipped.push(`page_section_translations.${field} (немає)`);
+        console.error(
+          `   🔴 page_section_translations.${field}: такої колонки немає — ` +
+            'мертву умову не знято',
+        );
+        continue;
+      }
       await api('PATCH', `/fields/page_section_translations/${field}`, {
-        meta: { conditions: null },
+        meta: { conditions: null, note: null },
       });
-      console.log(`   page_section_translations.${field} — мертву умову знято`);
+      cleared += 1;
     }
+  }
+
+  // 🔴 ЛІЧИЛЬНИК, А НЕ РЯДОК «ЗНЯТО». Друкований рядок зʼявлявся після
+  // будь-якого 200 — зокрема на свіжому інстансі, де умови не було
+  // ніколи. Це рівно те, що забороняє коментар нижче.
+  if (translationFields && cleared !== DEAD_ON_TRANSLATIONS.length) {
+    conditionsSkipped.push(
+      `знято ${cleared} мертвих умов із ${DEAD_ON_TRANSLATIONS.length}`,
+    );
+  } else if (translationFields) {
+    console.log(
+      `   page_section_translations: знято ${cleared} мертвих умов ` +
+        `(conditions + note) із ${DEAD_ON_TRANSLATIONS.length}`,
+    );
   }
 
   // 🔴 ЛІЧИМО ЗРОБЛЕНЕ І ЗВІРЯЄМО З НАМІРОМ, А НЕ ДРУКУЄМО ПІДСУМОК.
@@ -710,7 +754,7 @@ async function main() {
   // гіршим за обидва варіанти.
   if (conditionsSkipped.length) {
     console.error(
-      `\n   🔴 Умовні поля виставлено НЕ ПОВНІСТЮ (${conditionsSkipped.length}):\n` +
+      `\n   🔴 Крок умовних полів виконано НЕ ПОВНІСТЮ (${conditionsSkipped.length}):\n` +
         conditionsSkipped.map((x) => `        ${x}`).join('\n') +
         '\n      Крок 4 виконано. Прогін червоний саме через це.',
     );
