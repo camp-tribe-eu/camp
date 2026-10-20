@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { renderComponent } from './render-component';
+import { renderComponent, walkJsx } from './render-component';
 import { CampsiteMedia } from '@/components/campsite-media';
 import SiteMapEmbed from '@/components/site-map-embed';
 import { CLIENT_ISLANDS } from './client-islands';
@@ -110,18 +110,14 @@ test('порожні координати не дають кадру з Infinity
  * Тому дивимось у ДЕРЕВО елементів, а не в розмітку: шукаємо вузол
  * мапи й питаємо, що йому передали.
  */
+// 🔴 ОБХІД — СПІЛЬНИЙ, а не свій. Тут була третя копія, і вона
+// пережила підйом Playwright лише завдяки качиній типізації по
+// `type`/`props.children`. Рецензія PR #297 показала, що від переносу
+// `children` вона померла б так само мовчки, як померла копія в
+// `map-overnight.spec.ts`. Знання про чужий формат має жити в одному
+// місці — там, де над ним стоїть канарка.
 function propsOfIsland(node: unknown, island: unknown): Record<string, unknown> | null {
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      const found = propsOfIsland(child, island);
-      if (found) return found;
-    }
-    return null;
-  }
-  if (!node || typeof node !== 'object') return null;
-  const n = node as { type?: unknown; props?: Record<string, unknown> };
-  if (n.type === island) return n.props ?? {};
-  return n.props ? propsOfIsland(n.props.children, island) : null;
+  return walkJsx(node).find((n) => n.type === island)?.props ?? null;
 }
 
 test('🔴 контур ДОХОДИТЬ до компонента мапи, а не лише до підпису', () => {
