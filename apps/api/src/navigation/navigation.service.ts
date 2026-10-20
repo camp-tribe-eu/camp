@@ -30,7 +30,7 @@ export interface NavItemView {
   children: NavItemView[];
 }
 
-interface NavRow {
+export interface NavRow {
   id: string;
   parent_id: string | null;
   href: string;
@@ -91,23 +91,48 @@ export class NavigationService {
    *
    * Тут цикл неможливий за побудовою: кожен рядок додається до
    * результату РІВНО один раз, бо ми йдемо списком, а не посиланнями.
-   * Пункт, чий батько не потрапив у вибірку (прихований або без
-   * підпису), стає кореневим — інакше він зник би мовчки разом із
-   * батьком, і власник не зрозумів би, куди подівся.
+   *
+   * 🔴 ПУНКТ БЕЗ БАТЬКА У ВИБІРЦІ ВИПАДАЄ, А НЕ СТАЄ КОРЕНЕВИМ.
+   *
+   * Перша редакція робила навпаки, і міркування здавалось турботливим:
+   * «інакше він зник би мовчки разом із батьком, і власник не зрозумів
+   * би, куди подівся». Рецензія показала наслідок, якого я не побачив:
+   * батько випадає з вибірки саме тоді, коли власник зняв `visible` або
+   * не переклав підпис. Тобто ХОВАЮЧИ розділ, власник ОПУБЛІКУВАВ би
+   * усі його підпункти — і вони поїхали б у шапку верхнім рівнем, поруч
+   * із головними. Це протилежне тому, що він натиснув.
+   *
+   * Сховати гілку означає сховати гілку. А щоб зникнення не було
+   * мовчазним, є сторож `navigation.spec.ts`, який звіряє базу з
+   * розміткою, і сама адмінка, де видно `visible = false`.
    */
   private toTree(rows: NavRow[]): NavItemView[] {
-    const byId = new Map<string, NavItemView>();
-    for (const r of rows) {
-      byId.set(r.id, { href: r.href, label: r.label ?? '', children: [] });
-    }
-
-    const roots: NavItemView[] = [];
-    for (const r of rows) {
-      const node = byId.get(r.id)!;
-      const parent = r.parent_id ? byId.get(r.parent_id) : undefined;
-      if (parent) parent.children.push(node);
-      else roots.push(node);
-    }
-    return roots;
+    return buildNavTree(rows);
   }
+}
+
+/**
+ * Побудова дерева — ЧИСТА ФУНКЦІЯ І ЕКСПОРТОВАНА, щоб її можна було
+ * перевірити без бази, Nest і мережі. Доки вона була приватним методом,
+ * дефект нижче ніхто не міг накрити тестом дешевше, ніж підняттям
+ * усього застосунку.
+ */
+export function buildNavTree(rows: NavRow[]): NavItemView[] {
+  const byId = new Map<string, NavItemView>();
+  for (const r of rows) {
+    byId.set(r.id, { href: r.href, label: r.label ?? '', children: [] });
+  }
+
+  const roots: NavItemView[] = [];
+  for (const r of rows) {
+    const node = byId.get(r.id)!;
+    if (!r.parent_id) {
+      roots.push(node);
+      continue;
+    }
+    // Батька у вибірці немає → він прихований або без підпису, тож уся
+    // гілка під ним ховається разом із ним.
+    byId.get(r.parent_id)?.children.push(node);
+  }
+  return roots;
 }
