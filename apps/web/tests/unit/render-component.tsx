@@ -163,3 +163,69 @@ export function rendersNothing<P>(
   const out = Component(props);
   return (out === null || out === undefined) && renderComponent(Component, props) === '';
 }
+
+/**
+ * 🔴 КАНАРКА НА ВНУТРІШНЮ ПОЗНАЧКУ PLAYWRIGHT.
+ *
+ * Усе, що нижче цього файла, тримається на тому, що Playwright
+ * позначає скомпільований JSX як `__pw_type: 'jsx'`. Це його ВНУТРІШНЄ
+ * представлення, не оголошений інтерфейс — отже воно може поїхати на
+ * будь-якому підйомі версії, і ми на це не маємо права скаржитись.
+ *
+ * Заміряно 20.10.2026 під час CAMP-351: перегенерація lock-файла
+ * підняла Playwright 1.63 → 1.64, і два тести впали з
+ * `Received: undefined` — повідомленням, яке нічого не каже про
+ * причину. Я півгодини шукав дефект у залежностях продукту, а він був
+ * у нашому ж хелпері.
+ *
+ * Ця функція перетворює той тихий провал на гучний: вона падає з
+ * діагнозом у тексті, а не лишає порожні вузли мандрувати далі.
+ *
+ * 🔴 Чому саме тут, а не окремим тестом: окремий тест можна не
+ * запустити. Ця перевірка виконується при ІМПОРТІ хелпера, тобто в
+ * кожному тесті, який ним користується.
+ */
+function assertPlaywrightJsxShape(): void {
+  const probe = <span data-probe="1" /> as unknown;
+  if (isPwNode(probe)) return;
+
+  const keys =
+    probe && typeof probe === 'object'
+      ? Object.keys(probe as Record<string, unknown>).join(', ')
+      : typeof probe;
+  throw new Error(
+    'render-component: Playwright більше не позначає JSX як ' +
+      `__pw_type: 'jsx' (отримано ключі: ${keys}).\n` +
+      'Це НЕ дефект компонента й не дефект тесту, що впав поруч: це ' +
+      'зміна внутрішнього представлення Playwright.\n' +
+      'Полагодити — у цьому файлі, в `isPwNode`, і більше ніде: усі ' +
+      'інші місця ходять через нього. Див. CAMP-351.',
+  );
+}
+
+assertPlaywrightJsxShape();
+
+/**
+ * Усі вузли дерева, у глибину. Єдиний обхід на весь набір тестів —
+ * щоб знання про формат Playwright жило в одному місці.
+ *
+ * 🔴 `map-overnight.spec.ts` мав власну копію цього обходу з власною
+ * перевіркою `__pw_type`, і саме вона мовчки зламалась на підйомі
+ * 1.63 → 1.64. Дублювання тут коштувало двох годин пошуку не там.
+ */
+export function walkJsx(node: unknown, out: PwNode[] = []): PwNode[] {
+  if (Array.isArray(node)) {
+    for (const n of node) walkJsx(n, out);
+  } else if (isPwNode(node)) {
+    out.push(node);
+    walkJsx(node.props?.children, out);
+  }
+  return out;
+}
+
+/** Перший вузол із цим `data-testid` (або пропом `testId`). */
+export function byTestId(tree: unknown, id: string): PwNode | undefined {
+  return walkJsx(tree).find(
+    (n) => n.props?.['data-testid'] === id || n.props?.testId === id,
+  );
+}

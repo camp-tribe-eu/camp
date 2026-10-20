@@ -21,7 +21,7 @@ import {
   type MapDataState,
 } from '@/lib/map-chunks';
 import { AMENITY_KEYS, SPOT_TYPES } from '@/lib/api';
-import { renderComponent } from './render-component';
+import { byTestId, renderComponent } from './render-component';
 import { visibleText } from './rendered-text';
 
 // CAMP-255 — the map's overnight filter, and the number beside it.
@@ -248,20 +248,16 @@ test.describe('the chunk file', () => {
 
 // ── what the panel and the counter say ────────────────────────────────────
 
-type Node = { __pw_type?: string; type?: unknown; props?: Record<string, unknown> };
-
-/** Every element in a component's returned tree, depth first. */
-function walk(node: unknown, out: Node[] = []): Node[] {
-  if (Array.isArray(node)) {
-    for (const n of node) walk(n, out);
-  } else if (node && typeof node === 'object' && (node as Node).__pw_type === 'jsx') {
-    out.push(node as Node);
-    walk((node as Node).props?.children, out);
-  }
-  return out;
-}
-const byTestId = (tree: unknown, id: string) =>
-  walk(tree).find((n) => n.props?.['data-testid'] === id || n.props?.testId === id);
+// 🔴 ОБХІД ДЕРЕВА ЖИВЕ В `render-component`, А НЕ ТУТ.
+//
+// Тут була власна копія: свій `walk`, своя перевірка `__pw_type`. Вона
+// мовчки зламалась, коли Playwright поїхав 1.63 → 1.64 — два тести
+// нижче впали з `Received: undefined`, і причина не була видна ні з
+// повідомлення, ні з коду. Заміряно під час CAMP-351.
+//
+// Дублювати обхід означало дублювати знання про внутрішній формат
+// чужої бібліотеки. Тепер воно в одному місці, і там же стоїть канарка,
+// яка падає з діагнозом, щойно формат зміниться.
 
 const panelProps = (s: MapFilterState, onChange: (n: MapFilterState) => void = () => {}) => ({
   state: s,
