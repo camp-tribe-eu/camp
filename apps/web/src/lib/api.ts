@@ -283,6 +283,10 @@ export const TERRAIN_LABEL: Record<TerrainType, string> = {
   mountainous: 'Mountainous',
 };
 
+export type Outline =
+  | { type: 'Polygon'; coordinates: number[][][] }
+  | { type: 'MultiPolygon'; coordinates: number[][][][] };
+
 export interface Spot {
   slug: string;
   name: string | null;
@@ -291,6 +295,15 @@ export interface Spot {
   type: 'free' | 'paid' | 'wild' | 'camper_stop' | 'rv_park';
   lat: number;
   lon: number;
+  /**
+   * CAMP-352. Обрис ділянки з OpenStreetMap, або `null`.
+   *
+   * 🔴 `null` означає «в OSM це крапка», а не «ми не знаємо». Заміряно
+   * 19.10.2026 по 63 159 кемпінгах: обрис мають 55,1%. Малювати межу
+   * там, де першоджерело її не знає, — вигадка, а сторінка кемпінгу
+   * саме тим і торгує, що нічого не вигадує.
+   */
+  outline?: Outline | null;
   amenities: Amenities;
   ownerOverrides: Record<string, unknown>;
   /**

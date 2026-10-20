@@ -10,6 +10,7 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MAP_SOURCES } from '@/lib/map-sources';
 import { TYPE_COLOUR } from '@/lib/map-palette';
+import { outlineBounds, type Outline } from '@/lib/outline';
 
 /**
  * Мапа ОДНОГО кемпінгу (CAMP-344).
@@ -37,16 +38,19 @@ setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
 /** Zoom, на якому видно ділянку і дорогу до неї, але ще читається село. */
 const ZOOM = 15;
 
+
 export default function SiteMap({
   lat,
   lon,
   type,
   label,
+  outline = null,
 }: {
   lat: number;
   lon: number;
   type: string;
   label: string;
+  outline?: Outline | null;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
@@ -76,6 +80,40 @@ export default function SiteMap({
         ],
       });
       map.addControl(new NavigationControl({ showCompass: false }), 'top-right');
+
+      // 🔴 CAMP-352. Обрис ділянки — лише там, де він Є в OpenStreetMap.
+      //
+      // Заміряно 19.10.2026 по 63 159 кемпінгах: контур має 55,1%, у
+      // 31,1% це крапка, у 13,9% немає навіть osm_ref. Намальована «межа»
+      // там, де її не знає першоджерело, була б вигадкою на сторінці,
+      // яка пояснює, чому ми не показуємо чужих фото.
+      const drawn = outline;
+      if (drawn) {
+        map.on('load', () => {
+          if (!map) return;
+          map.addSource('site-outline', {
+            type: 'geojson',
+            data: { type: 'Feature', properties: {}, geometry: drawn },
+          });
+          const colour = TYPE_COLOUR[type] ?? TYPE_COLOUR.paid;
+          map.addLayer({
+            id: 'site-outline-fill',
+            type: 'fill',
+            source: 'site-outline',
+            paint: { 'fill-color': colour, 'fill-opacity': 0.14 },
+          });
+          map.addLayer({
+            id: 'site-outline-line',
+            type: 'line',
+            source: 'site-outline',
+            paint: { 'line-color': colour, 'line-width': 2 },
+          });
+          // Кадр по ділянці, а не по точці: інакше велика площа вилазить
+          // за край і сторінка читається як поломка.
+          const bounds = outlineBounds(drawn);
+          if (bounds) map.fitBounds(bounds, { padding: 28, animate: false });
+        });
+      }
       new Marker({ color: TYPE_COLOUR[type] ?? TYPE_COLOUR.paid })
         .setLngLat([lon, lat])
         .addTo(map);
@@ -125,7 +163,7 @@ export default function SiteMap({
       setFailed(true);
     }
     return () => map?.remove();
-  }, [lat, lon, type]);
+  }, [lat, lon, type, outline]);
 
   // 🔴 КОНТЕЙНЕР РЕНДЕРИТЬСЯ ЗАВЖДИ, А ЗАПАСНИЙ ТЕКСТ ЛЯГАЄ ПОВЕРХ.
   // Перша редакція повертала при `failed` зовсім іншу гілку — БЕЗ `ref`.

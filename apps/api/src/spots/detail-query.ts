@@ -56,6 +56,17 @@ export const NOTHING_TO_SAY_SQL = `(
 export const SPOT_DETAIL_SQL = `SELECT s.slug, s.name, s.country, s.region, s.type,
               ST_Y(s.location::geometry) AS lat,
               ST_X(s.location::geometry) AS lon,
+              -- CAMP-352. Обрис ділянки, коли він є; NULL, коли кемпінг
+              -- у OSM позначений крапкою.
+              --
+              -- 🔴 Віддаємо БЕЗ спрощення. Спокуса пропустити через
+              -- ST_SimplifyPreserveTopology є завжди, але заміряно
+              -- 20.10.2026 на 1 292 контурах: у середньому 614 байт і 24
+              -- вершини, найбільший 12 308 байт і 515 вершин. Це мало,
+              -- тож спрощення лише спотворило б форму ділянки заради
+              -- економії, якої не видно. Якщо числа колись виростуть —
+              -- спершу переміряти, а не вгадати.
+              ST_AsGeoJSON(s.outline) AS outline,
               s.amenities, s.owner_overrides, s.last_seen_at, s.missing_since,
               s.context, s.description, s.description_lang, s.stars,
               s.website, s.contact, s.sources,

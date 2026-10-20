@@ -48,6 +48,11 @@ import {
 import type { SpotSource } from '../entities/camping-spot.entity';
 
 /** One campsite as a page needs it. Geometry is already reduced to lat/lon. */
+/** Те, що віддає `ST_AsGeoJSON` для MultiPolygon-колонки. */
+export type GeoJsonPolygon =
+  | { type: 'Polygon'; coordinates: number[][][] }
+  | { type: 'MultiPolygon'; coordinates: number[][][][] };
+
 export interface SpotView {
   slug: string;
   name: string | null;
@@ -56,6 +61,15 @@ export interface SpotView {
   type: string;
   lat: number;
   lon: number;
+  /**
+   * CAMP-352. Обрис ділянки як GeoJSON-геометрія, або `null`.
+   *
+   * 🔴 `null` означає «цей кемпінг у OSM позначений крапкою», а не
+   * «ми не знаємо». Сторінка має малювати обрис лише там, де він є, і
+   * мовчати там, де його немає, — вигадана межа ділянки гірша за її
+   * відсутність.
+   */
+  outline: GeoJsonPolygon | null;
   amenities: CampingSpotAmenities;
   /** Owner-corrected fields win over OSM at read time (CAMP-86). */
   ownerOverrides: Record<string, unknown>;
@@ -810,6 +824,34 @@ export const REGION_INDEX_THRESHOLD = 3;
  */
 
 /** Region names carry diacritics and spaces; URLs must not. */
+/**
+ * `ST_AsGeoJSON` віддає РЯДОК, і це важливо: без розбору він поїхав би на
+ * сторінку як текст, а `JSON.stringify` обгорнув би його в лапки — мапа
+ * отримала б рядок там, де чекає геометрію, і не намалювала б нічого, не
+ * сказавши ані слова.
+ *
+ * 🔴 Непрочитане значення стає `null`, а не напівфабрикатом: краще не
+ * намалювати обрис, ніж намалювати зіпсований.
+ */
+export function readOutline(value: unknown): GeoJsonPolygon | null {
+  if (typeof value !== 'string' || value === '') return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'type' in parsed &&
+      'coordinates' in parsed &&
+      Array.isArray((parsed as { coordinates: unknown }).coordinates)
+    ) {
+      return parsed as GeoJsonPolygon;
+    }
+  } catch {
+    /* не GeoJSON — мовчимо й не малюємо */
+  }
+  return null;
+}
+
 function toView(row: Record<string, unknown>): SpotView {
   const amenities = readAmenities(row.amenities);
 
@@ -821,6 +863,7 @@ function toView(row: Record<string, unknown>): SpotView {
     type: row.type as string,
     lat: Number(row.lat),
     lon: Number(row.lon),
+    outline: readOutline(row.outline),
     amenities,
     ownerOverrides: (row.owner_overrides ?? {}) as Record<string, unknown>,
     lastSeenAt: (row.last_seen_at as Date) ?? null,
