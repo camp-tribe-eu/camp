@@ -87,7 +87,29 @@ async function main() {
 
   // --- what they must NOT reach ------------------------------------------
   console.log('Must be invisible:');
-  for (const collection of ['users', 'trips', 'trip_stops', 'osm_camping_staging']) {
+  // 🔴 ДВА ОСТАННІ — НЕЗАРЕЄСТРОВАНІ, І САМЕ ТОМУ ВОНИ ТУТ.
+  //
+  // Заміряно 20.10.2026 на локальній базі: з 41 не-directus таблиці 21
+  // зареєстрована (має рядок у `directus_collections`), 20 — ні. Серед
+  // тих 20 лежать `auth_tokens` і `sessions`, тобто найчутливіше, що
+  // в нас є, — а перелік цього сторожа містив лише ЗАРЕЄСТРОВАНІ й
+  // приховані таблиці. Тобто він доводив один шлях і мовчав про другий.
+  //
+  // Механізм, схоже, спільний: `directus_permissions` має 40 рядків на
+  // 15 колекцій, і для жодної з перелічених тут немає ЖОДНОГО гранта,
+  // а Directus відмовляє за замовчуванням. Але «схоже» це висновок із
+  // будови, не прогін. Нехай тепер буде прогін.
+  //
+  // Якщо котрась із двох колись віддасть 200 — це не косметика й не
+  // питання ліміту колекцій: це відкриті токени сесій.
+  for (const collection of [
+    'users',
+    'trips',
+    'trip_stops',
+    'osm_camping_staging',
+    'auth_tokens',
+    'sessions',
+  ]) {
     const r = await call('GET', `/items/${collection}?limit=1`, { token });
     check(
       `cannot read ${collection}`,
