@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from "@playwright/test";
 
 // CAMP-365 — меню переїхало з коду в базу, і цей файл повертає те, що
 // ми переїздом втратили.
@@ -19,7 +19,7 @@ import { expect, test } from '@playwright/test';
 // КОЖЕН пункт із бази, а не вибірка й не ті шість, що я переніс
 // міграцією: наступний додасть власник, і його ніхто не рецензує.
 
-const API = process.env.API_BASE_URL ?? 'http://localhost:3001';
+const API = process.env.API_BASE_URL ?? "http://localhost:3001";
 
 interface NavItem {
   href: string;
@@ -36,8 +36,8 @@ function flatten(items: NavItem[], out: NavItem[] = []): NavItem[] {
   return out;
 }
 
-test.describe('🔴 CAMP-365 — меню з бази', () => {
-  test('кожен пункт меню веде на сторінку, яка відкривається', async ({
+test.describe("🔴 CAMP-365 — меню з бази", () => {
+  test("кожен пункт меню веде на сторінку, яка відкривається", async ({
     page,
     request,
   }) => {
@@ -61,18 +61,18 @@ test.describe('🔴 CAMP-365 — меню з бази', () => {
     // раніше за нас. Тож спершу стверджуємо, що воно є.
     expect(
       all.length,
-      'меню порожнє — або база не наповнена, або запит бере не те',
+      "меню порожнє — або база не наповнена, або запит бере не те",
     ).toBeGreaterThan(0);
 
     for (const item of all) {
       expect(
         item.label.trim(),
         `пункт ${item.href} без підпису — читач побачить порожнє місце`,
-      ).not.toBe('');
+      ).not.toBe("");
 
       // Зовнішні посилання не наші, їх не перевіряємо: чужий сайт може
       // лежати з причин, до яких ми не маємо стосунку.
-      if (!item.href.startsWith('/')) continue;
+      if (!item.href.startsWith("/")) continue;
 
       const page404 = await request.get(item.href, { failOnStatusCode: false });
       expect(
@@ -86,13 +86,63 @@ test.describe('🔴 CAMP-365 — меню з бази', () => {
     // 🔴 І ТЕ САМЕ ОЧИМА ЧИТАЧА, а не лише в API. Пункт може бути в
     // базі й не доїхати до розмітки — саме цей клас дефекту ми ловили
     // в CAMP-352, коли проп доходив до підпису, але не до мапи.
-    await page.goto('/camping');
-    const header = page.locator('header');
+    await page.goto("/camping");
+
+    // 🔴 ЧОМУ ТУТ ДВА ШЛЯХИ, А НЕ ОДИН.
+    //
+    // Перша редакція шукала пункти просто в `<header>` і впала на
+    // mobile-chrome: «пункт „Map“ є в базі, але його немає в шапці».
+    // Формально тест мав рацію, по суті — ні: нижче 1200 px
+    // горизонтального меню НЕМАЄ за задумом (`hidden xl:block`), там
+    // працює шухляда, і межу взято з архіву теми. Тобто я стверджував
+    // властивість, хибну на телефоні за побудовою, — і це був дефект
+    // мого ж критерію, а не продукту.
+    //
+    // 🔴 І ЧОМУ МЕЖА НЕ ЗАШИТА ЧИСЛОМ. 1200 px живе в CSS
+    // (`--breakpoint-xl: 75rem`). Копія константи тут розійшлась би з
+    // нею мовчки при першій зміні макета, і тест перевіряв би не той
+    // шлях, лишаючись зеленим. Тому він питає БРАУЗЕР, що читач бачить.
+    const nav = page.locator('header nav[aria-label="Main"]');
+    const burger = page.getByTestId("burger-open");
+    const navShown = await nav.isVisible();
+    const burgerShown = await burger.isVisible();
+
+    // 🔴 ПАРА ДО РОЗГАЛУЖЕННЯ. Без цього рядка ОБИДВІ гілки зеленіли б
+    // над шапкою, де немає ні меню, ні бургера. Це найгірший можливий
+    // стан — навігації не існує зовсім, — і саме його розгалуження
+    // приховало б найкраще.
+    expect(
+      [navShown, burgerShown].filter(Boolean).length,
+      `до меню має вести рівно один шлях, а видно: меню=${navShown}, ` +
+        `бургер=${burgerShown}`,
+    ).toBe(1);
+
+    let menu = nav;
+    if (burgerShown) {
+      menu = page.getByTestId("burger-panel");
+
+      // 🔴 КЛІК ПОВТОРЮЄТЬСЯ, І ЦЕ НЕ ПЕРЕСТРАХОВКА.
+      //
+      // Кнопка приїжджає з сервера в розмітці, а відкриває шухляду
+      // `onClick`, тобто вже після гідрації. Клік, що прилетів раніше,
+      // не «чекає» — він пропадає назавжди, і далі тест падає за
+      // таймаутом, звинувачуючи шухляду замість моменту кліку. Саме цей
+      // клас дефекту з'їв 95 і 275 секунд CI 20.10.2026 (CAMP-334), і
+      // додавати до нього ще один я не збираюсь.
+      //
+      // `setOpen(true)` ідемпотентний, тож повтор нічого не перемикає
+      // назад.
+      await expect(async () => {
+        await burger.click();
+        await expect(menu).toBeVisible({ timeout: 1000 });
+      }, "бургер не відкрив шухляду").toPass({ timeout: 15_000 });
+    }
+
     for (const item of body.header ?? []) {
       await expect(
-        header.getByRole('link', { name: item.label, exact: true }).first(),
-        `пункт «${item.label}» є в базі, але його немає в шапці`,
-      ).toHaveAttribute('href', item.href);
+        menu.getByRole("link", { name: item.label, exact: true }).first(),
+        `пункт «${item.label}» є в базі, але читач до нього не дістанеться`,
+      ).toHaveAttribute("href", item.href);
     }
   });
 });
