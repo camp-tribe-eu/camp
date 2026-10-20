@@ -2,7 +2,6 @@ import {
   dedupe,
   mergeUnnamed,
   stagingSelectSql,
-  assertStoredOutlines,
   MARK_GONE_SQL,
   UPSERT_SPOT_SQL,
   upsertSpotParams,
@@ -513,8 +512,6 @@ describe('🔴 CAMP-352: контур ділянки', () => {
   const doUpdate = code.slice(code.indexOf('DO UPDATE SET'));
   const RING =
     'MULTIPOLYGON(((14 46,14.001 46,14.001 46.001,14 46.001,14 46)))';
-  const RING2 =
-    'MULTIPOLYGON(((15 46,15.001 46,15.001 46.001,15 46.001,15 46)))';
 
   it('пишеться своїм плейсхолдером і як геометрія, а не як текст', () => {
     expect(code).toMatch(/ST_GeomFromText\(\$16,\s*4326\)/);
@@ -623,27 +620,61 @@ describe('🔴 CAMP-352: контур ділянки', () => {
     expect(out[0].point_wkt).toBe('POINT(14 46)');
   });
 
-  it('🔴 результат НЕ залежить від порядку рядків (урок CAMP-39)', () => {
-    // adoptOutline рухає точку переможця — цього вимагає CHECK міграції.
-    // Якщо тим самим числом міряти сусідство, ланцюжок 31 м + 31 м
-    // схлопується транзитивно: заміряно 20.10.2026, порядок [w1,a2,a3]
-    // давав ОДИН рядок, [w1,a3,a2] — ДВА. Кількість кемпінгів починала
-    // залежати від `ORDER BY p.id`, а з нею й те, яка сторінка виживе.
+  it('🔴 контур НЕ впливає на те, які рядки зливаються', () => {
+    // Це властивість, а не випадок, і саме тому тест переписаний.
     //
-    // 🔴 Рядки будуються заново на кожен виклик: mergeUnnamed мутує їх.
-    const trio = () => [
-      spot('w1', { shower: 'yes', wifi: 'yes' }, null, 14),
-      spot('a2', {}, RING, 14.0004),
-      spot('a3', {}, RING2, 14.0008),
+    // Перша версія брала трійку з конкретного заміру — і була сліпа на
+    // те, що рецензія знайшла далі: `anchor = keep.point_wkt` відкладав
+    // зараження рівно на ОДНЕ злиття, тож для прояву потрібні чотири
+    // рядки, а не три. Закріплювати виправлений випадок означало б
+    // ловити саме ту помилку, яку я вже зробив, і жодної сусідньої.
+    //
+    // Питаємо натомість те, чого дефект не може задовольнити: adoptOutline
+    // рухає точку переможця, і ця точка не сміє вирішувати, хто з ким
+    // сусід. Отже ті самі рядки БЕЗ контурів мусять дати той самий набір
+    // вижилих — за будь-якого порядку.
+    //
+    // 🔴 Порівнюємо «з контурами» проти «без», а НЕ порядок проти
+    // порядку: ланцюжок 31 м + 31 м + 31 м законно групується по-різному
+    // залежно від того, хто став зерном, і таке порівняння червоніло б і
+    // на справному коді.
+    const shape = (o: string | null) => [
+      // 🔴 Переможець — БЕЗ контуру, інакше фікстура нічого не перевіряє:
+      // adoptOutline виходить одразу, коли в переможця контур уже є, і
+      // точка не рухається взагалі. Перша версія давала контур і w1 —
+      // напів-виправлення проходило її зеленим.
+      spot('w1', { a: '1', b: '2', c: '3', d: '4' }, null, 14),
+      spot('a2', {}, o, 14.0004),
+      spot('a3', {}, null, 14.0004),
+      spot('a4', {}, o, 14.0008),
     ];
-    const [p1, p2, p3] = trio();
-    const forward = mergeUnnamed([p1, p2, p3]).map((r) => r.osm_ref);
-    const [q1, q2, q3] = trio();
-    const swapped = mergeUnnamed([q1, q3, q2]).map((r) => r.osm_ref);
+    const permute = <T>(xs: T[]): T[][] =>
+      xs.length <= 1
+        ? [xs]
+        : xs.flatMap((x, i) =>
+            permute([...xs.slice(0, i), ...xs.slice(i + 1)]).map((r) => [
+              x,
+              ...r,
+            ]),
+          );
+    const refs = (rows: ReturnType<typeof shape>) =>
+      mergeUnnamed(rows)
+        .map((r) => r.osm_ref)
+        .sort()
+        .join(',');
 
-    expect(forward).toEqual(swapped);
-    // Крайні за 62 м один від одного — тобто поза радіусом 50 м.
-    expect(forward).toHaveLength(2);
+    let merged = 0;
+    for (const order of permute([0, 1, 2, 3])) {
+      const withOutlines = order.map((i) => shape(RING)[i]);
+      const without = order.map((i) => shape(null)[i]);
+      const got = refs(withOutlines);
+      expect(got).toBe(refs(without));
+      if (got.split(',').length < 4) merged++;
+    }
+    // 🔴 Інакше властивість була б істинною порожньо: якби жодна
+    // перестановка нічого не злила, тест не торкнувся б adoptOutline.
+    expect(permute([0, 1, 2, 3])).toHaveLength(24);
+    expect(merged).toBe(24);
   });
 
   it('🔴 raw_country їде разом із точкою, бо рахується з неї ж', () => {
@@ -704,30 +735,5 @@ describe('🔴 CAMP-352: staging віддає контур за ТИПОМ ге�
   it('підставляє саме ту таблицю, яку просили', () => {
     expect(stagingSelectSql('zzz_staging')).toContain('"zzz_staging"');
     expect(stagingSelectSql('zzz_staging')).not.toContain('${TABLE}');
-  });
-});
-
-// Сам SELECT тут не виконується — його поведінку пінить db-спек. Тут
-// пінимо ВИРОК: свідок, який лише рахує й ніколи не кидає, не стереже.
-describe('🔴 CAMP-352: свідок записаних контурів', () => {
-  const fake = (n: string, off: string) => ({
-    query: async () => ({ rows: [{ n, off }] }),
-  });
-  const run = (n: string, off: string) =>
-    assertStoredOutlines(fake(n, off), new Date('2026-10-20T05:00:00Z'), 'SI');
-
-  it('віддає кількість рядків із контуром', async () => {
-    await expect(run('1303', '0')).resolves.toBe(1303);
-  });
-
-  it('🔴 кидає, коли хоч один рядок не стоїть на власному контурі', async () => {
-    // CHECK міграції пропускає 0.0001 градуса (~11 м), а наша побудова
-    // обіцяє нуль. Рядок у цій щілині означає пару, зібрану з двох різних
-    // обʼєктів, і CHECK про неї не скаже нічого.
-    await expect(run('1303', '2')).rejects.toThrow(/2 rows carry an outline/);
-  });
-
-  it('нуль контурів — це не помилка', async () => {
-    await expect(run('0', '0')).resolves.toBe(0);
   });
 });

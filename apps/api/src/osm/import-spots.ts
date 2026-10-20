@@ -198,19 +198,26 @@ const isPolygon = (ref: string) => !ref.startsWith('n');
  * Читається з ТАБЛИЦІ й до COMMIT, з тієї ж причини, що й
  * assertStoredEditDates: перевірка входу не бачить підміни, зробленої
  * між входом і таблицею.
+ *
+ * 🔴 Межа — `last_seen_at`, а НЕ країна. Рядок пишеться з
+ * `row.admin_country ?? COUNTRY`, тож прикордонна смуга чужого екстракту
+ * (та сама, що рахується в `outsideExtent`) лягає під іншим кодом країни
+ * і з фільтром по CLI-аргументу випала б зі сторожа — саме та частина
+ * даних, де пара «точка+контур» найімовірніше зібрана з двох обʼєктів.
+ * Знайшла рецензія. `last_seen_at` дорівнює стемпу прогону рівно для
+ * рядків, які цей прогін записав, незалежно від країни.
  */
 export async function assertStoredOutlines(
   db: { query: (q: string, v?: unknown[]) => Promise<{ rows: unknown[] }> },
   startedAt: Date,
-  country: string,
 ): Promise<number> {
   const r = (await db.query(
     `SELECT count(*) FILTER (WHERE outline IS NOT NULL) AS n,
             count(*) FILTER (WHERE outline IS NOT NULL
                                AND ST_Distance(outline, location) <> 0) AS off
        FROM camping_spots
-      WHERE country = $1 AND last_seen_at = $2`,
-    [country, startedAt],
+      WHERE last_seen_at = $1`,
+    [startedAt],
   )) as { rows: { n: string; off: string }[] };
   const off = Number(r.rows[0]?.off ?? 0);
   if (off > 0) {
@@ -304,34 +311,39 @@ function betterRow(a: StagingRow, b: StagingRow): StagingRow {
 export function mergeUnnamed(rows: StagingRow[]): StagingRow[] {
   const out: StagingRow[] = [];
   const taken = new Set<number>();
+  // 🔴 CAMP-352. Точки, ЯКИМИ ВОНИ ПРИЙШЛИ ЗІ STAGING — знімок до будь-якого
+  // злиття. Сусідство міряється лише по них; див. коментар у циклі.
+  const origin = rows.map((r) => r.point_wkt);
 
   for (let i = 0; i < rows.length; i++) {
     if (taken.has(i)) continue;
     let winner = rows[i];
-    // 🔴 CAMP-352. Якір сусідства — ОКРЕМО від збереженої точки.
+    // 🔴 CAMP-352. Сусідство міряється ТІЛЬКИ по знімку `origin`.
     //
     // adoptOutline() рухає `winner.point_wkt` на точку програвшого, бо
-    // цього вимагає CHECK міграції. Але цей самий цикл наступною
-    // ітерацією міряє відстань ВІД переможця — і зсунута точка робить
-    // сусідом того, хто сусідом не був.
+    // цього вимагає CHECK міграції. Якщо цим же числом міряти, хто
+    // сусід, межа «безіменні зливаються в 50 м» перестає бути межею:
+    // ланцюжок схлопується транзитивно, і кількість кемпінгів починає
+    // залежати від `ORDER BY p.id`. Це дослівно нестабільність CAMP-39,
+    // через яку Camping Bled стрибав між `camping-bled` і
+    // `camping-bled-2`.
     //
-    // Заміряно 20.10.2026 на трьох безіменних рядках через 31 м і 31 м
-    // (разом 62 м, тобто поза радіусом): порядок [w1,a2,a3] дав ОДИН
-    // рядок, порядок [w1,a3,a2] — ДВА. Тобто кількість кемпінгів почала
-    // залежати від `ORDER BY p.id`, а з нею й те, яка сторінка виживе.
-    // Це дослівно нестабільність CAMP-39, через яку Camping Bled
-    // перестрибував між `camping-bled` і `camping-bled-2`.
+    // 🔴 ПЕРША СПРОБА ЦЕ ЛАГОДИЛА НАПІВ. Я брав `keep.point_wkt` перед
+    // викликом adoptOutline — і на ДРУГОМУ успішному злитті читав
+    // точку, яку зрушило ПОПЕРЕДНЄ. Зараження не зникало, лише
+    // відкладалось на один крок, і трирядковий тест цього не бачив.
+    // Знайшла рецензія, заміряно на чотирьох: w1(14.0000, 4 теги),
+    // a2(14.0004, з контуром), a3(14.0004), a4(14.0008) — порядок
+    // [w1,a2,a3,a4] давав ОДИН рядок, [w1,a2,a4,a3] — ДВА, хоча a4
+    // стоїть за 62 м від власної точки w1, тобто поза радіусом.
     //
-    // Тому якір оновлюється ВЛАСНОЮ точкою переможця — до перенесення
-    // контуру. Межа «безіменні зливаються в 50 м» тоді знову міряється
-    // від реального обʼєкта, а не від місця, куди його перемістив
-    // попередній крок.
-    let anchor = winner.point_wkt;
+    // Тому якір береться зі знімка й ніколи не з живого рядка.
+    let anchor = origin[i];
 
     for (let j = i + 1; j < rows.length; j++) {
       if (taken.has(j)) continue;
       const other = rows[j];
-      if (metresApart(anchor, other.point_wkt) > UNNAMED_DUPLICATE_RADIUS_M) {
+      if (metresApart(anchor, origin[j]) > UNNAMED_DUPLICATE_RADIUS_M) {
         continue;
       }
 
@@ -344,7 +356,8 @@ export function mergeUnnamed(rows: StagingRow[]): StagingRow[] {
       // 🔴 CAMP-256: as in dedupe() — the merged row is dated by the newest
       // object it was built from.
       keep.record = mergedRecord(keep.record, drop.record);
-      anchor = keep.point_wkt;
+      // Переможець змінився — міряємо від ЙОГО початкової точки.
+      if (keep !== winner) anchor = origin[j];
       adoptOutline(keep, drop);
       winner = keep;
     }
@@ -1173,7 +1186,7 @@ async function main(): Promise<void> {
     // 🔴 CAMP-256: what the table now holds, judged before COMMIT — see
     // assertStoredEditDates for why it reads the table and not the input.
     storedEditDates = await assertStoredEditDates(db, startedAt, COUNTRY);
-    withOutline = await assertStoredOutlines(db, startedAt, COUNTRY);
+    withOutline = await assertStoredOutlines(db, startedAt);
 
     await db.query('COMMIT');
 

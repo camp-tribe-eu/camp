@@ -5,6 +5,7 @@ import type { QueryRunner } from 'typeorm';
 import { SpotOvernight1791500000000 } from '../migrations/1791500000000-SpotOvernight';
 import { SpotRecordEdited1791800000000 } from '../migrations/1791800000000-SpotRecordEdited';
 import { SpotOutline1792100000000 } from '../migrations/1792100000000-SpotOutline';
+import { assertStoredOutlines } from './import-spots';
 
 // CAMP-256 — the importer's `main()`, RUN.
 //
@@ -579,6 +580,17 @@ describe('🔴 CAMP-352: контур і <lastmod>', () => {
     expect(await movedThisRun()).toBe(true);
   });
 
+  it('🔴 ТОЙ САМИЙ контур удруге НЕ рухає <lastmod>', async () => {
+    // Прогалина, яку назвала рецензія: три попередні випадки міняли
+    // контур, тож хибний ПОЗИТИВ — щотижневий перезапис тієї самої
+    // фігури — не перевіряв ніхто. Жодних UPDATE перед прогоном: і
+    // staging, і таблиця лишаються як є.
+    expect(runImporter(T).status).toBe(0);
+
+    expect(await outlineType()).toBe('MULTIPOLYGON');
+    expect(await movedThisRun()).toBe(false);
+  });
+
   it('🔴 ЗНИКЛИЙ контур рухає <lastmod> — обрис зі сторінки щез', async () => {
     // Площу перемалювали в крапку. Точка береться та сама, щоб
     // зрушив саме контур: ST_PointOnSurface(POINT) це той самий POINT.
@@ -591,5 +603,74 @@ describe('🔴 CAMP-352: контур і <lastmod>', () => {
 
     expect(await outlineType()).toBeNull();
     expect(await movedThisRun()).toBe(true);
+  });
+});
+
+// 🔴 CAMP-352. РЕПЕТИЦІЯ сторожа, а не його переказ.
+//
+// Перша версія годувала підмінник, що віддавав готові {n, off} — тобто
+// відповідь, а не сирі рядки, — і SQL із ST_Distance не виконувався
+// ніде. Сторож, якого жодного разу не змусили спрацювати, не доведений:
+// з таким самим успіхом він міг би рахувати не ту множину або впасти на
+// синтаксисі. Прецедент поруч робить це правильно — assertStoredEditDates
+// репетирується на справжній базі.
+describe('🔴 CAMP-352: сторож збережених контурів', () => {
+  const STAMP = new Date('2026-03-03T03:03:03.000Z');
+  const BOX = 'POLYGON((14.3 45,14.302 45,14.302 45.002,14.3 45.002,14.3 45))';
+
+  const plant = async (ref: string, lon: number, lat: number) => {
+    await db.query(
+      `INSERT INTO camping_spots
+         (osm_ref, name, country, region, slug, type, location, outline,
+          last_seen_at)
+       VALUES ($1, 'Сторож', 'HR', 'Istria', $2, 'paid',
+               ST_SetSRID(ST_MakePoint($3, $4), 4326),
+               ST_Multi(ST_GeomFromText($5, 4326)), $6)`,
+      [ref, ref, lon, lat, BOX, STAMP],
+    );
+  };
+
+  afterAll(async () => {
+    await db.query(`DELETE FROM camping_spots WHERE last_seen_at = $1`, [
+      STAMP,
+    ]);
+  });
+
+  it('рахує лише рядки ЦЬОГО прогону і лише ті, що мають контур', async () => {
+    await plant('guard-ok-1', 14.301, 45.001);
+    await db.query(
+      `INSERT INTO camping_spots
+         (osm_ref, name, country, region, slug, type, location, last_seen_at)
+       VALUES ('guard-nil-2', 'Без контуру', 'HR', 'Istria', 'guard-nil-2',
+               'paid', ST_SetSRID(ST_MakePoint(14.9, 45), 4326), $1)`,
+      [STAMP],
+    );
+    await expect(assertStoredOutlines(db, STAMP)).resolves.toBe(1);
+    // Чужий прогін — не наша справа.
+    await expect(
+      assertStoredOutlines(db, new Date('2026-03-04T03:03:03.000Z')),
+    ).resolves.toBe(0);
+  });
+
+  it('🔴 кидає на парі, яку CHECK міграції пропускає', async () => {
+    // 0,00005 градуса за межею ділянки: ST_DWithin(…, 0.0001) ІСТИННИЙ,
+    // тобто обмеження бази таку пару приймає мовчки. Саме цю щілину
+    // сторож і закриває — інакше «точка на контурі» це обіцянка, яку
+    // ніхто не перевіряє.
+    await plant('guard-off-3', 14.30205, 45.001);
+    await expect(assertStoredOutlines(db, STAMP)).rejects.toThrow(
+      /1 rows carry an outline/,
+    );
+  });
+
+  it('🔴 бере й рядки, що лягли під ЧУЖИМ кодом країни', async () => {
+    // Прикордонна смуга екстракту: country тут не CLI-аргумент, а те,
+    // що сказала геометрія. Фільтр по країні лишив би ці рядки поза
+    // сторожем — а це найімовірніше місце для зібраної пари.
+    await db.query(`DELETE FROM camping_spots WHERE osm_ref = 'guard-off-3'`);
+    await db.query(
+      `UPDATE camping_spots SET country = 'SI' WHERE osm_ref = 'guard-ok-1'`,
+    );
+    await expect(assertStoredOutlines(db, STAMP)).resolves.toBe(1);
   });
 });
