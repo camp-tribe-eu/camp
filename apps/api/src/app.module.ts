@@ -17,6 +17,7 @@ import { SpotsModule } from './spots/spots.module';
 import { RoutesModule } from './routes/routes.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { GuidesModule } from './guides/guides.module';
+import { NavigationModule } from './navigation/navigation.module';
 import { AuthModule } from './auth/auth.module';
 import { TripsModule } from './trips/trips.module';
 import { HealthModule } from './health/health.module';
@@ -105,6 +106,7 @@ export const REASONS = loadMeasuredReasons();
     // caller we want hitting us constantly.
     TelemetryModule,
     GuidesModule,
+    NavigationModule,
     // CAMP-50: sessions, and the first routes whose answer depends on
     // who is asking.
     AuthModule,
