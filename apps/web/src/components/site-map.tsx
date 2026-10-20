@@ -111,7 +111,13 @@ export default function SiteMap({
           // Кадр по ділянці, а не по точці: інакше велика площа вилазить
           // за край і сторінка читається як поломка.
           const bounds = outlineBounds(drawn);
-          if (bounds) map.fitBounds(bounds, { padding: 28, animate: false });
+          // 🔴 maxZoom: ZOOM — кадруємо лише НАЗОВНІ. Без нього мала
+          // ділянка затягує мапу на z19+, і обіцянка сусіднього
+          // коментаря («видно ділянку і дорогу до неї, але ще читається
+          // село») перестає триматись на 55% сторінок. Знайшла рецензія.
+          if (bounds) {
+            map.fitBounds(bounds, { padding: 28, animate: false, maxZoom: ZOOM });
+          }
         });
       }
       new Marker({ color: TYPE_COLOUR[type] ?? TYPE_COLOUR.paid })

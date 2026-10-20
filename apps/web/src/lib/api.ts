@@ -283,9 +283,10 @@ export const TERRAIN_LABEL: Record<TerrainType, string> = {
   mountainous: 'Mountainous',
 };
 
-export type Outline =
-  | { type: 'Polygon'; coordinates: number[][][] }
-  | { type: 'MultiPolygon'; coordinates: number[][][][] };
+// 🔴 Один тип на весь проєкт. Оголошений двічі, він розійшовся б при
+// першій же зміні форми — і розбіжність між API та мапою не впіймав би
+// жоден тест, бо обидва боки компілювались би окремо.
+export type { Outline } from '@/lib/outline';
 
 export interface Spot {
   slug: string;
@@ -303,7 +304,7 @@ export interface Spot {
    * там, де першоджерело її не знає, — вигадка, а сторінка кемпінгу
    * саме тим і торгує, що нічого не вигадує.
    */
-  outline?: Outline | null;
+  outline?: import('@/lib/outline').Outline | null;
   amenities: Amenities;
   ownerOverrides: Record<string, unknown>;
   /**

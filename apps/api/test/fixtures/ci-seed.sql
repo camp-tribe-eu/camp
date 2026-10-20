@@ -776,3 +776,40 @@ BEGIN
   END IF;
   RAISE NOTICE 'CI fixture: 3 webcams seeded, 1 of them past the freshness line';
 END $$;
+
+-- 🔴 CAMP-352: рівно ОДИН кемпінг фікстури отримує обрис ділянки.
+--
+-- Без цього гілка «контур є» не виконується в браузері жодного разу:
+-- рецензія PR #292 показала, що підпис, шари `site-outline-*` і
+-- кадрування не мали ЖОДНОГО e2e-покриття, бо в фікстурі 72 рядки й
+-- у всіх `outline IS NULL`. Тест при цьому був зелений — він просто
+-- щоразу потрапляв у гілку «контуру немає».
+--
+-- Обрис будується ВІД ТОЧКИ цього ж рядка, а не вписується числами:
+-- міграція вимагає `ST_DWithin(outline, location, 0.0001)`, і квадрат
+-- навколо власної точки задовольняє це за побудовою. Вписані координати
+-- розійшлися б із точкою першої ж перегенерації фікстури.
+--
+-- Один, а не всі: друга гілка («в OSM це крапка») покриває решту 71, і
+-- втратити її покриття було б рівно тією самою помилкою навпаки.
+UPDATE camping_spots
+   SET outline = ST_Multi(ST_Envelope(ST_Buffer(location, 0.0005)))
+ WHERE slug = (SELECT slug FROM camping_spots ORDER BY slug LIMIT 1);
+
+DO $$
+DECLARE n int;
+BEGIN
+  SELECT count(*) INTO n FROM camping_spots WHERE outline IS NOT NULL;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'CI fixture: expected exactly 1 campsite with an outline, got %', n;
+  END IF;
+  -- 🔴 І точка мусить лежати НА обрисі, інакше перевірка імпортера
+  -- (`assertStoredOutlines`) впала б на власній фікстурі.
+  SELECT count(*) INTO n
+    FROM camping_spots
+   WHERE outline IS NOT NULL AND ST_Distance(outline, location) <> 0;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'CI fixture: % outline(s) do not contain their own point', n;
+  END IF;
+  RAISE NOTICE 'CI fixture: 1 campsite carries a site outline, its point on it';
+END $$;

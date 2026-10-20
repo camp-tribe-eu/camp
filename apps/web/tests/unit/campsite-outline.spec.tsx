@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { renderComponent } from './render-component';
 import { CampsiteMedia } from '@/components/campsite-media';
 import SiteMapEmbed from '@/components/site-map-embed';
+import { CLIENT_ISLANDS } from './client-islands';
 import { outlineBounds, type Outline } from '@/lib/outline';
 
 // CAMP-352, крок 4 — обрис ділянки на сторінці кемпінгу.
@@ -32,7 +33,7 @@ const base = {
 };
 
 test('🔴 з обрисом підпис називає його, і це видно читачеві', () => {
-  const html = renderComponent(CampsiteMedia, { ...base, outline: SQUARE }, { omit: [SiteMapEmbed] });
+  const html = renderComponent(CampsiteMedia, { ...base, outline: SQUARE }, { omit: CLIENT_ISLANDS });
   expect(html).toContain('data-outline="yes"');
   expect(html).toContain('as mapped in OpenStreetMap');
   // Атрибуція лишається незалежно від обрису — це умова ліцензії.
@@ -40,7 +41,7 @@ test('🔴 з обрисом підпис називає його, і це ви�
 });
 
 test('🔴 БЕЗ обрису сторінка його не обіцяє', () => {
-  const html = renderComponent(CampsiteMedia, { ...base, outline: null }, { omit: [SiteMapEmbed] });
+  const html = renderComponent(CampsiteMedia, { ...base, outline: null }, { omit: CLIENT_ISLANDS });
   expect(html).toContain('data-outline="no"');
   // Саме цього речення там бути не може: обрису не існує в OSM.
   expect(html).not.toContain('as mapped in OpenStreetMap');
@@ -49,7 +50,7 @@ test('🔴 БЕЗ обрису сторінка його не обіцяє', () 
 });
 
 test('проп не переданий читається як «обрису немає», а не як помилка', () => {
-  const html = renderComponent(CampsiteMedia, { ...base }, { omit: [SiteMapEmbed] });
+  const html = renderComponent(CampsiteMedia, { ...base }, { omit: CLIENT_ISLANDS });
   expect(html).toContain('data-outline="no"');
   expect(html).not.toContain('as mapped in OpenStreetMap');
 });
@@ -92,4 +93,40 @@ test('порожні координати не дають кадру з Infinity
   // `fitBounds` на Infinity кидає, і мапа зникла б цілком. Краще
   // лишитись на точці, ніж втратити мапу.
   expect(outlineBounds({ type: 'MultiPolygon', coordinates: [] })).toBeNull();
+});
+
+/**
+ * 🔴 ПРОП, А НЕ HTML. Рендер-тести вище пропускають острів мапи
+ * (`CLIENT_ISLANDS`), тож структурно НЕ МОЖУТЬ побачити, чи дійшов до
+ * нього контур. Рецензія це довела мутацією: прибрати `outline={outline}`
+ * з `<SiteMapEmbed>` — і всі шість тестів лишались зеленими, підпис
+ * і далі обіцяв обрис, а мапа його не отримувала.
+ *
+ * Тому дивимось у ДЕРЕВО елементів, а не в розмітку: шукаємо вузол
+ * мапи й питаємо, що йому передали.
+ */
+function propsOfIsland(node: unknown, island: unknown): Record<string, unknown> | null {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = propsOfIsland(child, island);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!node || typeof node !== 'object') return null;
+  const n = node as { type?: unknown; props?: Record<string, unknown> };
+  if (n.type === island) return n.props ?? {};
+  return n.props ? propsOfIsland(n.props.children, island) : null;
+}
+
+test('🔴 контур ДОХОДИТЬ до компонента мапи, а не лише до підпису', () => {
+  const tree = CampsiteMedia({ ...base, outline: SQUARE });
+  const props = propsOfIsland(tree, SiteMapEmbed);
+  expect(props).not.toBeNull();
+  expect(props?.outline).toEqual(SQUARE);
+});
+
+test('а коли контуру немає — мапа отримує саме null', () => {
+  const tree = CampsiteMedia({ ...base, outline: null });
+  expect(propsOfIsland(tree, SiteMapEmbed)?.outline).toBeNull();
 });

@@ -11,20 +11,23 @@ import { SPOT_DETAIL_SQL } from './detail-query';
 // ловить.
 
 describe('🔴 CAMP-352: контур у відповіді API', () => {
+  // 🔴 Statement БЕЗ `--` коментарів. Перша редакція матчила сирий текст,
+  // і рецензія це зламала однією рискою: дописати `-- ` перед колонкою —
+  // і сім тестів лишались зеленими, тоді як `row.outline` ставав
+  // undefined на ВСІХ сторінках, а підпис далі обіцяв обрис. Сторож на
+  // текст мусить читати код, а не прозу поруч.
+  const code = SPOT_DETAIL_SQL.replace(/--[^\n]*/g, '');
+
   it('віддається з колонки як GeoJSON, а не як сира геометрія', () => {
     // Сира колонка приїхала б як WKB-рядок і не була б GeoJSON узагалі.
-    expect(SPOT_DETAIL_SQL).toMatch(
-      /ST_AsGeoJSON\(s\.outline\)\s+AS\s+outline/,
-    );
+    expect(code).toMatch(/ST_AsGeoJSON\(s\.outline\)\s+AS\s+outline/);
   });
 
   it('🔴 береться з s.outline, а не з s.location', () => {
     // Різниця не академічна: `ST_AsGeoJSON(s.location)` теж валідний
     // GeoJSON і теж намалювався б — крапкою, яку читач прочитав би як
     // «ділянка завбільшки нуль».
-    expect(SPOT_DETAIL_SQL).not.toMatch(
-      /ST_AsGeoJSON\(s\.location\)\s+AS\s+outline/,
-    );
+    expect(code).not.toMatch(/ST_AsGeoJSON\(s\.location\)\s+AS\s+outline/);
   });
 
   it('розбирає MultiPolygon у обʼєкт', () => {
