@@ -318,28 +318,74 @@ const SECTION_FIELD_CONDITIONS = {
   },
 };
 
-/** Те саме для перекладів: текстові поля залежать від типу так само. */
-const SECTION_TRANSLATION_CONDITIONS = {
-  items: {
-    hiddenFor: ['hero'],
-    note: 'Повторювані блоки — питання FAQ, картки. У hero їх немає.',
-  },
-  cta_label: {
-    hiddenFor: ['faq'],
-    note: 'Підпис кнопки; у FAQ кнопки немає.',
-  },
-};
+/**
+ * 🔴 УМОВ НА `page_section_translations` НЕМАЄ, І ЦЕ НЕ НЕДОРОБКА.
+ *
+ * Перша редакція ставила ті самі умови ще й на переклади — і вони не
+ * могли спрацювати НІКОЛИ. Правило написане двадцятьма рядками вище:
+ * `rule` це фільтр по полях ТОГО Ж рядка. А в рядку перекладу колонки
+ * `type` немає зовсім — `1792200000000-ContentModel.ts` дає йому
+ * id, section_id, language_code, heading, subheading, body, image_alt,
+ * cta_label, items. Тип живе в БАТЬКІВСЬКОМУ рядку.
+ *
+ * Заміряно вендорським валідатором, яким адмінка й вирішує, ховати
+ * поле (`@directus/utils`, `validatePayload(parseFilter(rule), values,
+ * { requireAll: true }).length === 0`):
+ *   page_sections, type=faq          → hidden = true
+ *   переклад без колонки `type`      → hidden = false
+ * `requireAll` робить кожен ключ обовʼязковим, тож відсутнє поле це не
+ * «умова не підійшла», а «умова не виконалась» — завжди.
+ *
+ * Тобто форма перекладу показувала б `items` і `cta_label` при будь-якому
+ * типі, а скрипт друкував би, що сховав їх. Друкований рядок — підпис,
+ * а не перевірка.
+ *
+ * Наслідок для картки сказано вголос, а не замовчано: пункт 3 «Способу
+ * перевірки» виконується для полів СЕКЦІЇ (`image_url`, `cta_href`) і
+ * НЕ виконується для полів перекладу. Щоб виконувався, тип мусив би
+ * лежати в рядку перекладу — це зміна моделі даних, не цього скрипта.
+ */
+
+/** Пропущене на кроці 3 — щоб прогін почервонів, але після кроку 4. */
+const conditionsSkipped = [];
 
 /**
- * Записує умову на поле.
+ * Поля колекції, які справді мають колонку в базі.
  *
- * 🔴 `PATCH /fields/<колекція>/<поле>` створює метадані, якщо їх ще
- * немає: Directus бачить колонку в базі, але рядка в
- * `directus_fields` для неї не заводить, доки поле не налаштують.
- * Заміряно 20.10.2026: до цього кроку `directus_fields` для
- * `page_sections` була порожня.
+ * 🔴 ЧОМУ ЧИТАЄМО ПЕРЕД ЗАПИСОМ, А НЕ ЛОВИМО 404.
+ *
+ * `PATCH /fields/<колекція>/<поле>` для неіснуючої КОЛОНКИ не віддає
+ * 404 — він віддає 200 і заводить рядок у `directus_fields`. Тобто
+ * гілка «no such field, skipped» була мертвим кодом, а в адмінці
+ * зʼявилось би поле, якому нема куди писати. Це той самий вендорський
+ * почерк, що й у `PATCH /collections/<name>`, який замість 404 створює
+ * meta-only «папку», — і `setCollectionMeta` нижче вже читає перед
+ * записом саме тому.
+ *
+ * 🔴 А неіснуюча КОЛЕКЦІЯ дає 403, а не 404 (`collection-exists`
+ * піднімає ForbiddenError). Тобто перевірка `includes('404')` не
+ * спіймала б і її: виняток летів би далі й валив `main()` ДО кроку 4,
+ * лишаючи політики й ролі неоновленими. Саме так поводився б інстанс,
+ * що відстав на одну міграцію.
  */
-async function setFieldConditions(collection, field, hiddenFor, note) {
+async function realFields(collection) {
+  try {
+    const list = await api('GET', `/fields/${collection}`);
+    return new Set((list ?? []).filter((f) => f.schema).map((f) => f.field));
+  } catch (err) {
+    conditionsSkipped.push(`${collection} (${String(err).slice(0, 80)})`);
+    console.error(`   🔴 ${collection}: колекції немає — умови пропущено`);
+    return null;
+  }
+}
+
+/** Записує умову на поле, яке ТОЧНО існує (перелік дає `realFields`). */
+async function setFieldConditions(collection, fields, field, hiddenFor, note) {
+  if (!fields.has(field)) {
+    conditionsSkipped.push(`${collection}.${field}`);
+    console.error(`   🔴 ${collection}.${field}: такої колонки немає`);
+    return false;
+  }
   const conditions = [
     {
       name: `Сховати для: ${hiddenFor.join(', ')}`,
@@ -347,18 +393,10 @@ async function setFieldConditions(collection, field, hiddenFor, note) {
       hidden: true,
     },
   ];
-  try {
-    await api('PATCH', `/fields/${collection}/${field}`, {
-      meta: { conditions, note },
-    });
-    return true;
-  } catch (err) {
-    if (String(err).includes('404')) {
-      console.log(`   ⏭  ${collection}.${field} — no such field, skipped`);
-      return false;
-    }
-    throw err;
-  }
+  await api('PATCH', `/fields/${collection}/${field}`, {
+    meta: { conditions, note },
+  });
+  return true;
 }
 
 
@@ -415,24 +453,37 @@ async function main() {
   }
 
   console.log('\n3. Conditional fields — one collection, many section types');
-  for (const [field, { hiddenFor, note }] of Object.entries(SECTION_FIELD_CONDITIONS)) {
-    const ok = await setFieldConditions('page_sections', field, hiddenFor, note);
-    if (ok) console.log(`   page_sections.${field} hidden for: ${hiddenFor.join(', ')}`);
-  }
-  for (const [field, { hiddenFor, note }] of Object.entries(
-    SECTION_TRANSLATION_CONDITIONS,
-  )) {
-    const ok = await setFieldConditions(
-      'page_section_translations',
-      field,
-      hiddenFor,
-      note,
-    );
-    if (ok) {
-      console.log(
-        `   page_section_translations.${field} hidden for: ${hiddenFor.join(', ')}`,
+  const sectionFields = await realFields('page_sections');
+  let applied = 0;
+  if (sectionFields) {
+    for (const [field, { hiddenFor, note }] of Object.entries(
+      SECTION_FIELD_CONDITIONS,
+    )) {
+      const ok = await setFieldConditions(
+        'page_sections',
+        sectionFields,
+        field,
+        hiddenFor,
+        note,
       );
+      if (ok) {
+        applied += 1;
+        console.log(
+          `   page_sections.${field} hidden for: ${hiddenFor.join(', ')}`,
+        );
+      }
     }
+  }
+
+  // 🔴 ЛІЧИМО ЗРОБЛЕНЕ І ЗВІРЯЄМО З НАМІРОМ, А НЕ ДРУКУЄМО ПІДСУМОК.
+  //
+  // Рядок «hidden for: faq» друкувався б і тоді, коли `PATCH` завів
+  // поле-привид замість налаштувати наявне. Друкований підсумок — це
+  // підпис, а не перевірка; перевірка це ЛІЧИЛЬНИК, звірений із
+  // константою, з якої й будувався перелік.
+  const wanted = Object.keys(SECTION_FIELD_CONDITIONS).length;
+  if (sectionFields && applied !== wanted) {
+    conditionsSkipped.push(`виставлено ${applied} умов із ${wanted}`);
   }
 
   console.log('\n4. Policies and roles');
@@ -623,6 +674,22 @@ async function main() {
       );
       process.exitCode = 1;
     }
+  }
+
+  // 🔴 ПРОПУЩЕНЕ НА КРОЦІ 3 ЧЕРВОНИТЬ ПРОГІН — АЛЕ ПІСЛЯ КРОКУ 4.
+  //
+  // Кинути виняток одразу означало б лишити політики й ролі
+  // неоновленими через те, що відстала одна міграція. Тому крок 3 не
+  // валить прогін на місці, а запамʼятовує; робота доводиться до кінця,
+  // і лише тоді прогін оголошується невдалим. Мовчазний пропуск був би
+  // гіршим за обидва варіанти.
+  if (conditionsSkipped.length) {
+    console.error(
+      `\n   🔴 Умовні поля виставлено НЕ ПОВНІСТЮ (${conditionsSkipped.length}):\n` +
+        conditionsSkipped.map((x) => `        ${x}`).join('\n') +
+        '\n      Крок 4 виконано. Прогін червоний саме через це.',
+    );
+    process.exitCode = 1;
   }
 }
 
