@@ -10,7 +10,12 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MAP_SOURCES } from '@/lib/map-sources';
 import { TYPE_COLOUR } from '@/lib/map-palette';
-import { outlineBounds, type Outline } from '@/lib/outline';
+import {
+  outlineBounds,
+  OUTLINE_FILL_OPACITY,
+  OUTLINE_LINE_WIDTH,
+  type Outline,
+} from '@/lib/outline';
 
 /**
  * Мапа ОДНОГО кемпінгу (CAMP-344).
@@ -75,6 +80,14 @@ export default function SiteMap({
 
   useEffect(() => {
     if (!box.current) return;
+    // 🔴 СТАРІ СИГНАЛИ ЗНІМАЮТЬСЯ ПЕРЕД ПОБУДОВОЮ. `map.remove()`
+    // атрибутів не чіпає, а React при клієнтському переході лишає
+    // той самий вузол: без цього кемпінг БЕЗ обрису успадкував би
+    // `data-outline-layer="true"` від попереднього. Назвала рецензія
+    // PR #292; e2e цього не бачить, бо ходить `page.goto()`.
+    box.current.removeAttribute('data-outline-layer');
+    box.current.removeAttribute('data-map-loaded');
+    box.current.removeAttribute('data-ready');
     // Нова точка — новий шанс. Без цього рядка `failed` з попереднього
     // кемпінгу перенісся б на наступний.
     setFailed(false);
@@ -106,9 +119,27 @@ export default function SiteMap({
       // там, де її не знає першоджерело, була б вигадкою на сторінці,
       // яка пояснює, чому ми не показуємо чужих фото.
       const drawn = outline;
-      if (drawn) {
-        map.on('load', () => {
-          if (!map) return;
+      // 🔴 ОБРОБНИК РЕЄСТРУЄТЬСЯ ЗАВЖДИ, І АТРИБУТ ЗАВЖДИ ДІСТАЄ
+      // ЗНАЧЕННЯ — 'true' або 'false', ніколи «немає».
+      //
+      // Попередня редакція реєструвала його лише за наявності
+      // контуру, а заборона в e2e спиралась на ВІДСУТНІСТЬ атрибута
+      // й на те, що якір `data-map-loaded` із сусіднього обробника
+      // спрацює пізніше. Це трималось на порядку реєстрації
+      // слухачів MapLibre — ніде не заявленому. Перенести сусідній
+      // обробник вище, і заборона стала б порожньою, не почервонівши
+      // жодного разу. Назвала рецензія PR #292.
+      //
+      // Визначене значення знімає і це, і застарілий атрибут при
+      // клієнтському переході «з обрисом → без»: ефект перезапускається
+      // й переписує його, а не лишає чужу правду від попереднього кемпінгу.
+      map.on('load', () => {
+        if (!map) return;
+        if (!drawn) {
+          box.current?.setAttribute('data-outline-layer', 'false');
+          return;
+        }
+        {
           map.addSource('site-outline', {
             type: 'geojson',
             data: { type: 'Feature', properties: {}, geometry: drawn },
@@ -118,13 +149,13 @@ export default function SiteMap({
             id: 'site-outline-fill',
             type: 'fill',
             source: 'site-outline',
-            paint: { 'fill-color': colour, 'fill-opacity': 0.14 },
+            paint: { 'fill-color': colour, 'fill-opacity': OUTLINE_FILL_OPACITY },
           });
           map.addLayer({
             id: 'site-outline-line',
             type: 'line',
             source: 'site-outline',
-            paint: { 'line-color': colour, 'line-width': 2 },
+            paint: { 'line-color': colour, 'line-width': OUTLINE_LINE_WIDTH },
           });
           // Кадр по ділянці, а не по точці: інакше велика площа вилазить
           // за край і сторінка читається як поломка.
@@ -140,7 +171,10 @@ export default function SiteMap({
           // — зелено над порожнечею. Межі порожньої геометрії це `null`,
           // тож тепер такий випадок до сигналу просто не доходить.
           // Назвала рецензія.
-          if (!bounds) return;
+          if (!bounds) {
+            box.current?.setAttribute('data-outline-layer', 'false');
+            return;
+          }
           map.fitBounds(bounds, { padding: 28, animate: false, maxZoom: ZOOM });
           // 🔴 СИГНАЛ ПРО СТАН МАПИ, А НЕ ПРО ПІКСЕЛІ.
           //
@@ -156,9 +190,27 @@ export default function SiteMap({
           // до `addSource`. Це стан, однаковий у всіх рушіях, і саме
           // його вбиває мутація `const drawn = outline` → `null`. Чи
           // намалювався піксель — відповідальність MapLibre.
-          box.current?.setAttribute('data-outline-layer', 'true');
-        });
-      }
+          // 🔴 ПИТАЄМО МАПУ, А НЕ ВЛАСНУ ПАМʼЯТЬ. Рецензія PR #292
+          // довела мутацією, що `fill-opacity: 0` + `line-width: 0`
+          // лишає обрис цілком невидимим при зелених тестах: шари
+          // існують, джерело додане, і перевірка «шар є» це
+          // підтверджує. Вона підтвердила б і порожнечу.
+          //
+          // `getPaintProperty` читає те, що мапа СПРАВДІ застосувала.
+          // Це все ще стан, а не піксель: рушій і WebGL тут ні до
+          // чого, тож firefox не почервоніє на правильному коді —
+          // помилка, якої я в цій картці припустився вже двічі.
+          const visible =
+            !!map.getLayer('site-outline-fill') &&
+            !!map.getLayer('site-outline-line') &&
+            Number(map.getPaintProperty('site-outline-fill', 'fill-opacity')) > 0 &&
+            Number(map.getPaintProperty('site-outline-line', 'line-width')) > 0;
+          box.current?.setAttribute(
+            'data-outline-layer',
+            visible ? 'true' : 'false',
+          );
+        }
+      });
       new Marker({ color: TYPE_COLOUR[type] ?? TYPE_COLOUR.paid })
         .setLngLat([lon, lat])
         .addTo(map);

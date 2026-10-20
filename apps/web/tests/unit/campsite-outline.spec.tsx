@@ -3,7 +3,12 @@ import { renderComponent } from './render-component';
 import { CampsiteMedia } from '@/components/campsite-media';
 import SiteMapEmbed from '@/components/site-map-embed';
 import { CLIENT_ISLANDS } from './client-islands';
-import { outlineBounds, type Outline } from '@/lib/outline';
+import {
+  outlineBounds,
+  OUTLINE_FILL_OPACITY,
+  OUTLINE_LINE_WIDTH,
+  type Outline,
+} from '@/lib/outline';
 
 // CAMP-352, крок 4 — обрис ділянки на сторінці кемпінгу.
 //
@@ -149,4 +154,18 @@ test('🔴 і ДРУГА ланка: embed передає контур далі,
   expect(node.props?.lon).toBe(base.lon);
   expect(node.props?.type).toBe(base.type);
   expect(node.props?.label).toBe(base.label);
+});
+
+// 🔴 ВИДИМИЙ ОБРИС — ЦЕ ТЕЖ ВИМОГА, А НЕ ОЗДОБА.
+//
+// Рецензія PR #292 довела мутацією: `fill-opacity: 0.14 → 0` разом із
+// `line-width: 2 → 0` лишає обрис цілком невидимим, а геть усе — зеленим.
+// Шари існують, джерело додане, пропси доходять, підпис обіцяє контур —
+// і під ним порожня мапа на 54% сторінок.
+//
+// Це та сама форма дефекту, що й решта цього файла: нічого не падає,
+// просто сторінка каже неправду. Тут вона коштує один рядок.
+test('🔴 фарба обрису лишається видимою — нуль тут робить мапу порожньою', () => {
+  expect(OUTLINE_FILL_OPACITY).toBeGreaterThan(0);
+  expect(OUTLINE_LINE_WIDTH).toBeGreaterThan(0);
 });
