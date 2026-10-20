@@ -10,7 +10,11 @@ import { buildNavTree, type NavRow } from './navigation.service';
 // ХОВАЮЧИ розділ, власник ОПУБЛІКУВАВ би всі його підпункти — поруч із
 // головними, верхнім рівнем.
 
-const row = (id: string, href: string, parent: string | null = null): NavRow => ({
+const row = (
+  id: string,
+  href: string,
+  parent: string | null = null,
+): NavRow => ({
   id,
   parent_id: parent,
   href,
