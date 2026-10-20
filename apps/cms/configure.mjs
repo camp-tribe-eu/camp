@@ -202,6 +202,34 @@ async function main() {
   await login();
   console.log('✅ admin login\n');
 
+  // 🔴 ТУТ ХОЧЕТЬСЯ ДОПИСАТИ «А ЗАЙВІ РЕЄСТРАЦІЇ ВИДАЛИТИ». НЕ ДОПИСУЙ.
+  //
+  // Я збирався це зробити 20.10.2026, рахуючи бюджет колекцій (ліміт
+  // Core — 25, заміряно 21 зареєстровану; шість нових колекцій моделі
+  // контенту дають 27). Три службові таблиці виглядали як очевидні
+  // кандидати на звільнення місця: `migrations`, `osm_camping_staging`,
+  // `spatial_ref_sys`.
+  //
+  // Код вендора каже інше — `@directus/api`, `services/collections.js`,
+  // `deleteOne()`, і це його власний коментар:
+  //
+  //     Delete a single collection This will delete the table and all
+  //     records within.
+  //
+  //     if (collectionToBeDeleted.schema)
+  //       await trx.schema.dropTable(collectionKey);
+  //
+  // Тобто `DELETE /collections/:key` ДРОПАЄ ТАБЛИЦЮ. Прапорця «зняти
+  // лише реєстрацію» немає. Цей скрипт ідемпотентний і в заголовку
+  // запрошує запускати його скільки завгодно разів — отже такий крок
+  // зніс би журнал міграцій TypeORM, проміжну таблицю імпорту OSM і
+  // нутрощі PostGIS на ПЕРШОМУ ж прогоні, мовчки й успішно.
+  //
+  // Реєстрацію можна зняти лише видаленням рядка в
+  // `directus_collections` напряму, і це окреме рішення: ми лізли б у
+  // чужий стан. Доступ від реєстрації не залежить — його тримають явні
+  // гранти (`directus_permissions`: 40 рядків на 15 колекцій, і для
+  // жодної службової таблиці немає жодного).
   console.log('1. Hiding collections nobody should edit here');
   for (const [name, note] of Object.entries(HIDDEN)) {
     const ok = await setCollectionMeta(name, { hidden: true, note });
