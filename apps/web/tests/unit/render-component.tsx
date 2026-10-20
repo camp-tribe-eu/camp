@@ -11,12 +11,23 @@ import { renderToStaticMarkup } from 'react-dom/server';
 // 🔴 WHY THIS BRIDGE HAS TO EXIST, so nobody deletes it as clever.
 //
 // Playwright compiles JSX with its OWN runtime, and not by choice of
-// ours: `jsxImportSource` is hard-coded to the playwright package in
+// ours: on the version this lock pins (1.63.0) `jsxImportSource` is
+// hard-coded to the playwright package in
 // `playwright/lib/common/index.js`, with no tsconfig input. Both
 // `apps/web/tests/tsconfig.json` and `apps/web/src/tsconfig.json` with
 // `"jsx": "react-jsx"` were tried and changed nothing. So every `<div>`
 // in the component comes out as `{__pw_type: 'jsx', type, props, key}`
 // and React answers "Objects are not valid as a React child".
+//
+// 🔴 ЦЕ ТВЕРДЖЕННЯ МАЄ ВЕРСІЮ, І ВОНА ВЖЕ НЕ ОСТАННЯ. Рецензія
+// PR #297 розпакувала 1.64.1: там `jsx-runtime.js` НЕМАЄ зовсім, а
+// `lib/common/index.js` читає `jsxImportSource` із tsconfig. Тобто
+// під 1.64 цей міст стає тотожним прокиданням і більше не потрібен —
+// а канарка нижче наказує «лагодити в isPwNode», тобто його зберегти.
+//
+// Коли дійде до підйому Playwright, рішення буде не «полагодити
+// isPwNode», а «перевірити, чи міст іще потрібен». Записано тут, бо
+// саме цей абзац читають першим.
 //
 // The alternatives were worse. Adding jest or vitest to apps/web is a
 // new test runner and new dependencies in a public repository that gates
@@ -186,20 +197,46 @@ export function rendersNothing<P>(
  * кожному тесті, який ним користується.
  */
 function assertPlaywrightJsxShape(): void {
-  const probe = <span data-probe="1" /> as unknown;
-  if (isPwNode(probe)) return;
+  // 🔴 ЗОНД ПОВЕДІНКОВИЙ, А НЕ НА ПОЗНАЧКУ.
+  //
+  // Перша редакція питала лише `isPwNode(probe)`. Рецензія PR #297
+  // довела матрицею, що цього мало: зміна, яка ЛИШАЄ `__pw_type: 'jsx'`,
+  // але переносить `children` з `props` на сам вузол, канарку не
+  // чіпає — а набір потім падає в `security-log-policy.spec.ts` із
+  // «у політиці немає розділу The security log». Тобто рівно той хибний
+  // діагноз, заради якого ця канарка й існує.
+  //
+  // Тому зонд має вкладену дитину й перевіряє ВЕСЬ шлях, яким
+  // користуються тести: позначка → обхід → пошук за testId.
+  const probe = (
+    <span data-probe="outer">
+      <em data-testid="probe-inner" />
+    </span>
+  ) as unknown;
 
-  const keys =
-    probe && typeof probe === 'object'
-      ? Object.keys(probe as Record<string, unknown>).join(', ')
-      : typeof probe;
+  const markerOk = isPwNode(probe);
+  const walkOk = markerOk && walkJsx(probe).length === 2;
+  const findOk = walkOk && !!byTestId(probe, 'probe-inner');
+  if (findOk) return;
+
+  // 🔴 ДРУКУЄМО ЗНАЧЕННЯ ПОЗНАЧКИ, А НЕ ПЕРЕЛІК КЛЮЧІВ.
+  //
+  // Перша редакція друкувала `Object.keys`, і при зміні самого
+  // ЗНАЧЕННЯ повідомлення суперечило собі: «більше не позначає як
+  // __pw_type: 'jsx' (отримано ключі: __pw_type, type, props, key)».
+  // Доказ заперечував твердження. Назвала рецензія.
+  const o = probe && typeof probe === 'object' ? (probe as Record<string, unknown>) : null;
+  const marker = o ? JSON.stringify(o.__pw_type) : typeof probe;
+  const keys = o ? Object.keys(o).join(', ') : '—';
+  const stage = !markerOk ? 'позначка' : !walkOk ? 'обхід дерева' : 'пошук за testId';
+
   throw new Error(
-    'render-component: Playwright більше не позначає JSX як ' +
-      `__pw_type: 'jsx' (отримано ключі: ${keys}).\n` +
-      'Це НЕ дефект компонента й не дефект тесту, що впав поруч: це ' +
-      'зміна внутрішнього представлення Playwright.\n' +
-      'Полагодити — у цьому файлі, в `isPwNode`, і більше ніде: усі ' +
-      'інші місця ходять через нього. Див. CAMP-351.',
+    `render-component: форма JSX від Playwright змінилась — зламано на кроці «${stage}».\n` +
+      `  __pw_type = ${marker}; ключі вузла: ${keys}\n` +
+      `  вузлів у зонді: ${markerOk ? walkJsx(probe).length : 0} (очікували 2)\n` +
+      'Це НЕ дефект компонента й не дефект тесту, що впав поруч.\n' +
+      'Полагодити — у цьому файлі (`isPwNode`, `walkJsx`), і більше ' +
+      'ніде: решта місць ходить через них. Див. CAMP-351.',
   );
 }
 
