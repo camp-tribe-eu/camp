@@ -136,9 +136,35 @@ async function main() {
   // --- what they must be able to do --------------------------------------
   console.log('\nEditorial work must succeed:');
   const slug = `camp89-verify-${Date.now()}`;
+  // 🔴 `provenance` ОБОВʼЯЗКОВЕ, і без нього це 400, а не 403.
+  //
+  // Заміряно 20.10.2026 на живому Directus: ця перевірка падала з
+  // `status 400`, і виглядало це як проблема дозволів. Насправді
+  // міграція `1790313600000-GuideProvenance` зробила колонку NOT NULL
+  // без значення за замовчуванням — свідомо, бо «гайд без походження це
+  // гайд, який нам не можна публікувати» (ст. 50 AI Act).
+  //
+  // Тобто сторож був зламаний відтоді й доти, бо його НІХТО НЕ
+  // ЗАПУСКАВ: у `.github/workflows/` він не згадується жодного разу,
+  // лише в README. Перевірка, яку треба згадати запустити, — це не
+  // перевірка. Винесено в CAMP-362 окремим пунктом.
   const created = await call('POST', '/items/guides', {
     token,
-    body: { slug, category: 'verification', status: 'draft' },
+    body: {
+      slug,
+      category: 'verification',
+      status: 'draft',
+      // 🔴 І ЦЬОГО ТЕЖ МАЛО. Поверх NOT NULL стоїть CHECK
+      // `CHK_guides_provenance_is_accountable`: при `human` обовʼязковий
+      // `author_name`, інакше — `generator`. Тобто схема не дає створити
+      // гайд, за який ніхто не відповідає.
+      //
+      // Беремо НЕлюдську гілку, бо це правда: рядок створює скрипт.
+      // Вдавати `human` з вигаданим автором означало б обійти саме те
+      // обмеження, яке ми тут і перевіряємо.
+      provenance: 'ai-generated',
+      generator: 'verify-permissions.mjs',
+    },
   });
   check('can create a guide', created.status === 200, `status ${created.status}`);
 
