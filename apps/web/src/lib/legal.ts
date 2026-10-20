@@ -32,19 +32,54 @@ export const CONTACT_EMAIL = 'hello@camptribe.eu';
  *
  * The E-Commerce Directive (2000/31/EC, Art. 5), implemented in Belgium
  * in Book XII of the Wetboek van economisch recht, asks a commercial site
- * for the geographic address of establishment and the trade-register
- * number. We publish the city and the country but not the street, at the
- * owner's instruction, because the registered seat is his home.
+ * for the geographic address at which the provider is established and for
+ * its trade-register number. GDPR Art. 13 separately wants the
+ * controller's identity and contact details in the privacy notice.
  *
- * That is a deliberate, recorded shortfall rather than an oversight —
- * see the note printed on the legal-notice page itself.
+ * 🔴 20.10.2026 — THE SHORTFALL IS CLOSED. For months this file recorded
+ * a deliberate omission: the street was withheld because the registered
+ * seat is the owner's home. He supplied the full data and decided to
+ * publish it, with his own reasoning: the address is findable from the
+ * enterprise number anyway, so withholding it bought nothing.
+ *
+ * That matches what the legal-notice page had argued all along — a
+ * Belgian company's registered address is public in the Kruispuntbank van
+ * Ondernemingen and findable by NAME, which we always published.
+ *
+ * 🔴 WHERE IT APPEARS IS ALSO HIS DECISION, AND IT IS NOT THE FOOTER.
+ * The address and the number live on the legal pages, which is where
+ * someone looking for them goes. The footer carries the company name, the
+ * year and the rights line — nothing that reads as a home address to a
+ * casual reader. Publishing is a legal duty; putting it under every
+ * photograph on the site is not.
  */
 export const COMPANY = {
   name: 'UTD BV',
+  street: 'Kapucinessenstraat 6',
   city: '2000 Antwerpen',
   country: 'Belgium',
+  /**
+   * Enterprise number, which is also the VAT number in Belgium — the
+   * owner's own note labels it «Ondernemingsnummer (KBO / BTW)», so one
+   * field carries both rather than pretending they are two.
+   */
+  enterpriseNumber: 'BE 0799.245.752',
   email: CONTACT_EMAIL,
 } as const;
+
+/**
+ * The full postal address, in the order a Belgian reader expects it.
+ *
+ * 🔴 Built here rather than written out at each call site: three copies
+ * of an address drift, and the one that drifts is the one nobody reads
+ * until it matters.
+ */
+export const COMPANY_ADDRESS = [
+  COMPANY.name,
+  COMPANY.street,
+  COMPANY.city,
+  COMPANY.country,
+].join(', ');
 
 export interface LegalPage {
   slug: string;

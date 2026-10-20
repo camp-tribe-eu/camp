@@ -1,4 +1,4 @@
-import { COMPANY } from '@/lib/legal';
+import { COMPANY, COMPANY_ADDRESS } from '@/lib/legal';
 import { A, B, Callout, H2, H3, P, UL } from './prose';
 
 // CAMP-56 — Privacy. Rewritten for CAMP-324.
@@ -61,7 +61,11 @@ export default function Privacy() {
     <>
       <H2 id="who">Who is responsible</H2>
       <P>
-        {COMPANY.name}, {COMPANY.city}, {COMPANY.country}, is the controller
+        {/* 🔴 ПОВНА АДРЕСА, А НЕ ЛИШЕ МІСТО: ст. 13 GDPR вимагає
+            особу контролера, і «UTD BV, Антверпен» це не особа, а
+            натяк. Складена в `COMPANY_ADDRESS`, щоб три копії адреси
+            не розʼїхались. */}
+        {COMPANY_ADDRESS} is the controller
         for personal data processed through this site. You can reach a
         person at <A href={`mailto:${COMPANY.email}`}>{COMPANY.email}</A>.
       </P>
