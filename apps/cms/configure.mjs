@@ -171,9 +171,10 @@ async function login() {
  * `osm_camping_staging`, хоча таблиці там немає — її створює конвеєр
  * OSM, а не міграції. Тобто скрипт сам її й вигадав.
  *
- * Ціна помилки не косметична: порожнявка з'їдає місце в ліміті колекцій
- * (Core — 25) точно так само, як справжня, і при цьому не несе нічого.
- * Наш же сторож стелі рахував би її як роботу.
+ * 🔴 Ціна не в ліміті — там я помилявся, і рецензія PR #296 це
+ * заміряла: вендор порожнявок не рахує (`isFolder = schema === null`).
+ * Ціна в іншому: в адмінці зʼявляється ім'я без таблиці, за яким нічого
+ * немає, а наш власний лічильник через нього розходився з вендорським.
  *
  * Тому: читаємо колекцію ДО запису й пропускаємо, коли `schema` порожня.
  */
@@ -402,7 +403,16 @@ async function main() {
 
   const all = await api('GET', '/collections');
   const ours = all.filter((c) => !c.collection.startsWith('directus_'));
-  const visible = ours.filter((c) => !c.meta?.hidden).length;
+
+  // 🔴 `!c.meta?.hidden` ІСТИННЕ ДЛЯ НЕЗАРЕЄСТРОВАНОЇ ТАБЛИЦІ, бо
+  // `undefined?.hidden` це `undefined`. Попередня редакція через це
+  // рахувала незареєстровані як «видимі» й друкувала 39 там, де
+  // насправді 23 — рівно той клас помилки, який коментар нижче
+  // оголошував виправленим. Знайшла рецензія PR #296.
+  //
+  // «Видима» має сенс лише для зареєстрованої: незареєстрована не
+  // видима й не прихована, її в адмінці просто немає.
+  const visible = ours.filter((c) => c.meta && !c.meta.hidden).length;
 
   // 🔴 ЗАРЕЄСТРОВАНІ — ЦЕ НЕ ТАБЛИЦІ. Попередня редакція друкувала
   // «N visible collections of M tables», де M це всі не-directus
@@ -413,13 +423,65 @@ async function main() {
   // Різниця не академічна: за старим числом ми б думали, що впираємось
   // у ліміт удвічі раніше, ніж насправді, — і навпаки, після переїзду
   // таблиць у базу без реєстрації не помітили б запасу.
-  const registered = ours.filter((c) => c.meta).map((c) => c.collection);
+  // 🔴 РАХУЄМО ТЕ САМЕ, ЩО Й ВЕНДОР, А НЕ СХОЖЕ.
+  //
+  // Ліміт перевіряє `getActiveCollections` у
+  // `@directus/api/.../license/entitlements/lib/collections.js`, і він
+  // відкидає «папки»: `isFolder = collection.schema === null`. Тобто
+  // колекція-порожнявка (meta є, таблиці немає) місця в ліміті НЕ
+  // займає.
+  //
+  // Попередня редакція рахувала за самим лише `c.meta` і завищувала.
+  // Рецензія PR #296 заміряла на одному інстансі в один момент: мій
+  // лічильник казав 28 і «перебір на 3», вендорський — 27. При одній
+  // порожнявці на стелі скрипт падав би на стані, який ліцензія
+  // дозволяє, і число «на скільки перебір» в інструкції оператору було
+  // б неправильним.
+  //
+  // Мій же коментар вище стверджував протилежне — що порожнявка
+  // з'їдає місце «точно так само». Це було неправдою, і сторож її
+  // успадкував.
+  const registered = ours
+    .filter((c) => c.meta && c.schema)
+    .map((c) => c.collection);
+
+  // Порожнявки все одно варто назвати: вони нічого не коштують, але
+  // означають, що хтось зареєстрував ім'я без таблиці.
+  const folders = ours.filter((c) => c.meta && !c.schema).map((c) => c.collection);
+  if (folders.length > 0) {
+    console.warn(
+      `   ⚠️  ${folders.length} registered name(s) without a table ` +
+      `(not counted against the licence): ${folders.join(', ')}`,
+    );
+  }
+
+  // 🔴 ЦЕ ВИМІР, А НЕ ПІДПИС. Попередня редакція друкувала
+  // `Object.keys(NOT_REGISTERED).length` — тобто скільки імен я ВПИСАВ,
+  // а не скільки їх справді поза реєстром. На оновленні вже
+  // налаштованого інстансу вона буквально казала «4 deliberately
+  // unregistered» і за два рядки перелічувала три з них серед
+  // зареєстрованих. Знайшла рецензія PR #296; у мене про цей клас є
+  // власний запис, і я все одно його повторив.
+  const stillRegistered = Object.keys(NOT_REGISTERED).filter((n) =>
+    registered.includes(n),
+  );
 
   console.log(
     `\n✅ done — ${visible} visible, ${registered.length} registered, ` +
     `${ours.length} tables, ` +
-    `${Object.keys(NOT_REGISTERED).length} deliberately unregistered\n`,
+    `${Object.keys(NOT_REGISTERED).length - stillRegistered.length} ` +
+    `of ${Object.keys(NOT_REGISTERED).length} deliberately unregistered\n`,
   );
+
+  if (stillRegistered.length > 0) {
+    console.warn(
+      `   ⚠️  ${stillRegistered.length} meant to be unregistered but still ` +
+      `are: ${stillRegistered.join(', ')}\n` +
+      `      This script cannot unregister them — the vendor's DELETE\n` +
+      `      drops the table. Remove the row directly:\n` +
+      `        DELETE FROM directus_collections WHERE collection IN (...);`,
+    );
+  }
 
   // 🔴 СТЕЛЯ ПЕРЕВІРЯЄТЬСЯ ЛИШЕ ТОДІ, КОЛИ ВОНА ДІЄ.
   //
