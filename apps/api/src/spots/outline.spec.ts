@@ -1,5 +1,8 @@
 import { readOutline, toView } from './spots.service';
 import { SPOT_DETAIL_SQL } from './detail-query';
+import { isSecondarySql } from './links';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 // CAMP-352, крок 4 — контур доходить до сторінки або не доходить узагалі.
 //
@@ -117,5 +120,30 @@ describe('🔴 CAMP-352: контур у відповіді API', () => {
     // сховало б зміну поведінки драйвера. Нехай краще обрис зникне й
     // це стане помітно.
     expect(readOutline({ type: 'MultiPolygon', coordinates: [] })).toBeNull();
+  });
+});
+
+// 🔴 Правило «який рядок бере обрис» тепер живе у ДВОХ місцях: у
+// `isSecondarySql()` і дослівною копією в `ci-seed-page-outline.sql`.
+// SQL-фікстура не може імпортувати TS-хелпер, тож дублювання тут —
+// ціна, а не недбалість. Але дублювання без сторожа це розходження, яке
+// чекає нагоди: наступна зміна хелпера лишила б фікстуру зі старим
+// правилом, і e2e упав би з ХИБНОЮ назвою причини («гілка недосяжна»
+// замість «рядок не в індексі»). Назвала рецензія PR #292.
+describe('🔴 CAMP-352: фікстура обрису бере той самий рядок, що й індекс', () => {
+  const fixture = readFileSync(
+    join(__dirname, '../../test/fixtures/ci-seed-page-outline.sql'),
+    'utf8',
+  );
+  const squash = (x: string) => x.replace(/\s+/g, ' ').trim();
+
+  it('містить предикат isSecondarySql дослівно', () => {
+    // `isSecondarySql` повертає `EXISTS (…)`; у фікстурі він стоїть під
+    // `NOT`, тож звіряємо саме тіло.
+    expect(squash(fixture)).toContain(squash(isSecondarySql('s')));
+  });
+
+  it('і стоїть саме під запереченням — інакше правило перевернуте', () => {
+    expect(squash(fixture)).toContain('AND NOT ' + squash(isSecondarySql('s')));
   });
 });

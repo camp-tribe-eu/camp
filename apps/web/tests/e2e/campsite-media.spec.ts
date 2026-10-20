@@ -226,11 +226,21 @@ test.describe('🔴 CAMP-344 — що стоїть у медіаслоті', () 
         // понад 20 секунд, тобто цей атрибут не зʼявляється на частині
         // реальних сторінок. Вимагати його означало б червоніти на
         // правильній поведінці цієї перевірки.
-        await expect(page.getByTestId('site-map')).toBeVisible();
+        // 🔴 СПЕРШУ ДОЧЕКАТИСЬ, ПОТІМ ЗАБОРОНЯТИ. Попередня редакція
+        // перевіряла відсутність атрибута одразу після `toBeVisible()`,
+        // а ставиться він у обробнику `load` — помітно пізніше. Тобто
+        // заборона встигала пройти ДО того, як заборонене могло
+        // статись, і мутація «малюємо завжди» її пережила б. Знайшла
+        // рецензія.
+        //
+        // `data-map-loaded` — подія завантаження стилю, не піксель, тож
+        // надійна в усіх рушіях.
+        const box = page.getByTestId('site-map');
+        await expect(box).toHaveAttribute('data-map-loaded', 'true', {
+          timeout: 30_000,
+        });
         await expect(page.getByTestId('site-map-fallback')).toHaveCount(0);
-        await expect(
-          page.getByTestId('site-map'),
-        ).not.toHaveAttribute('data-outline-layer', 'true');
+        await expect(box).not.toHaveAttribute('data-outline-layer', 'true');
 
         // 🔴 А тут його немає, і обіцяти його означало б збрехати саме
         // на тій сторінці, яка пояснює, чому ми не показуємо чужих фото.

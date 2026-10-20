@@ -32,14 +32,12 @@ UPDATE camping_spots
      SELECT s.id FROM camping_spots s
       WHERE s.missing_since IS NULL
         AND s.region IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM spot_links l
-            JOIN camping_spots lp ON lp.id = l.primary_id
-           WHERE l.secondary_id = s.id
-             AND l.unlinked_at IS NULL
-             AND lp.missing_since IS NULL
-             AND lp.region IS NOT NULL
-        )
+        AND NOT EXISTS (SELECT 1 FROM spot_links l
+                    JOIN camping_spots lp ON lp.id = l.primary_id
+                   WHERE l.secondary_id = s.id
+                     AND l.unlinked_at IS NULL
+                     AND lp.missing_since IS NULL
+                     AND lp.region IS NOT NULL)
       ORDER BY s.country, s.region, s.slug
       LIMIT 1
    );
