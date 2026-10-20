@@ -207,7 +207,7 @@ test.describe('🔴 CAMP-344 — що стоїть у медіаслоті', () 
         // шарі. Порожня мапа цього задовольнити не може, і механізм уже
         // є — компонент тим самим викликом ставить `data-ready`.
         const box = page.getByTestId('site-map');
-        await expect(box).toHaveAttribute('data-outline-drawn', 'true', {
+        await expect(box).toHaveAttribute('data-outline-layer', 'true', {
           timeout: 30_000,
         });
       } else {
@@ -230,7 +230,7 @@ test.describe('🔴 CAMP-344 — що стоїть у медіаслоті', () 
         await expect(page.getByTestId('site-map-fallback')).toHaveCount(0);
         await expect(
           page.getByTestId('site-map'),
-        ).not.toHaveAttribute('data-outline-drawn', 'true');
+        ).not.toHaveAttribute('data-outline-layer', 'true');
 
         // 🔴 А тут його немає, і обіцяти його означало б збрехати саме
         // на тій сторінці, яка пояснює, чому ми не показуємо чужих фото.

@@ -118,6 +118,21 @@ export default function SiteMap({
           if (bounds) {
             map.fitBounds(bounds, { padding: 28, animate: false, maxZoom: ZOOM });
           }
+          // 🔴 СИГНАЛ ПРО СТАН МАПИ, А НЕ ПРО ПІКСЕЛІ.
+          //
+          // Перша редакція ставила його через `queryRenderedFeatures` по
+          // нашому шару — і на firefox-desktop атрибут не зʼявився
+          // жодного разу за 61 опитування (30 с). Рендер залежить від
+          // рушія й від того, чи є на раннері апаратний WebGL; будувати
+          // на ньому перевірку означає червоніти на правильному коді.
+          // Я це вже знав — годиною раніше з тієї ж причини відмовився
+          // спиратись на `data-ready` — і все одно вступив удруге.
+          //
+          // Питання, яке справді треба поставити, інше: чи дійшов проп
+          // до `addSource`. Це стан, однаковий у всіх рушіях, і саме
+          // його вбиває мутація `const drawn = outline` → `null`. Чи
+          // намалювався піксель — відповідальність MapLibre.
+          box.current?.setAttribute('data-outline-layer', 'true');
         });
       }
       new Marker({ color: TYPE_COLOUR[type] ?? TYPE_COLOUR.paid })
@@ -160,25 +175,6 @@ export default function SiteMap({
         if (!map) return;
         if (map.queryRenderedFeatures().length > 0) {
           box.current?.setAttribute('data-ready', 'true');
-        }
-        // 🔴 CAMP-352. Окремо — чи намальовано САМЕ НАШ шар.
-        //
-        // Підпис під мапою береться з пропа, тож він скаже «обрис є»
-        // навіть тоді, коли до `addSource` проп не дійшов: рецензія
-        // довела це мутацією `const drawn = outline` → `null`, яка
-        // лишила всі 1 830 тестів зеленими. Проп і намальоване — різні
-        // питання, і друге треба ставити мапі.
-        //
-        // `queryRenderedFeatures` із переліком шарів відповідає саме на
-        // нього. Порожня мапа цього задовольнити не може. Механізм той
-        // самий, що вже стоїть вище для `data-ready`.
-        if (map.getLayer('site-outline-fill')) {
-          const painted = map.queryRenderedFeatures({
-            layers: ['site-outline-fill'],
-          });
-          if (painted.length > 0) {
-            box.current?.setAttribute('data-outline-drawn', 'true');
-          }
         }
       });
     } catch {
