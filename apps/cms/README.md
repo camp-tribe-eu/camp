@@ -27,8 +27,17 @@ exact pin does not apply (npm 11.16.0, measured both ways).
 🔴 **Extensions are not installed, ever.** The one critical advisory is `tar`
 inside `@directus/api`, and npm's only "fix" is a downgrade to 10.9.3. The sole
 thing that unpacks a foreign archive is the Marketplace. Directus has **no**
-variable that turns it off, so `MARKETPLACE_TRUST` and `EXTENSIONS_LIMIT=0` are
+variable that turns it off, so `MARKETPLACE_TRUST` and `EXTENSIONS_LIMIT` are
 set explicitly rather than left to a default the vendor may change.
+
+🔴 **`EXTENSIONS_LIMIT=0` means "no limit", not "no extensions".** The vendor
+reads it as `env[...] ? Number(env[...]) : null` and runs the check only when
+the value is truthy; `@directus/env` guesses `"0"` as JSON and hands back the
+number `0`, which is falsy, so the gate opens. The value is `string:0` — the
+prefix forces a string, which is truthy, and the limit becomes a real `0`.
+Measured 20.10.2026 in a fresh process per value, and pinned by
+`check-cms-hardening.mjs`, which encodes the vendor's rule rather than the
+variable's name. I got this wrong from the name; review caught it.
 
 🔴 **Five activations, bound to database + `PUBLIC_URL`.** Destroying an instance
 without deactivating keeps the slot forever. Locally we run on Core with **no

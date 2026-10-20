@@ -157,7 +157,7 @@ async function setPermissions(policyId, grants) {
   for (const p of existing ?? []) {
     await api('DELETE', `/permissions/${p.id}`);
   }
-  let downgraded = 0;
+  const refused = [];
   for (const g of grants) {
     const body = {
       policy: policyId,
@@ -174,19 +174,26 @@ async function setPermissions(policyId, grants) {
       // On the free Core tier the server answers
       //   "custom_permission_rules_enabled is a restricted resource".
       //
-      // We do not silently drop the grant and we do not crash: we widen it
-      // to the whole collection, count it, and say so at the end. Locally
-      // that is acceptable; on staging and production the licence key is
-      // set, the precise rule applies, and this counter reads zero.
+      // 🔴 THIS USED TO WIDEN THE GRANT TO `fields: ['*']` AND COUNT IT.
+      // Review (CAMP-361) named the consequence: a Moderator meant to edit
+      // `status` and `rejection_reason` would get every field of `reviews`
+      // and `photo_submissions` instead — including whatever a later
+      // migration adds. The comment said "locally that is acceptable", and
+      // the README says we run locally WITHOUT a key, so the widened state
+      // was the normal one, not the exception.
+      //
+      // A fallback must fail toward the state somebody NOTICES. A missing
+      // permission is loud: the moderator opens the screen and cannot
+      // save. A widened one is silent and stays silent until it is abused.
+      // So: create nothing, count it, and make the run fail.
       const restricted =
         String(err).includes('custom_permission_rules_enabled') ||
         String(err).includes('restricted resource');
       if (!restricted || !g.fields) throw err;
-      await api('POST', '/permissions', { ...body, fields: ['*'] });
-      downgraded++;
+      refused.push(`${g.collection}.${g.action} (${g.fields.join(', ')})`);
     }
   }
-  return downgraded;
+  return refused;
 }
 
 const READ_WRITE = ['read', 'create', 'update'];
@@ -226,7 +233,7 @@ async function main() {
     ),
     ...Object.keys(READ_ONLY).map((c) => ({ collection: c, action: 'read' })),
   ];
-  const editorDowngraded = await setPermissions(editorPolicy, editorGrants);
+  const editorRefused = await setPermissions(editorPolicy, editorGrants);
   const editorRole = await upsertRole('Editor', 'Editorial content');
   await linkPolicy(editorRole, editorPolicy);
   console.log(`   Editor    ${editorGrants.length} grants`);
@@ -250,19 +257,25 @@ async function main() {
     ]),
     ...Object.keys(READ_ONLY).map((c) => ({ collection: c, action: 'read' })),
   ];
-  const modDowngraded = await setPermissions(modPolicy, modGrants);
+  const modRefused = await setPermissions(modPolicy, modGrants);
   const modRole = await upsertRole('Moderator', 'Photo and review moderation');
   await linkPolicy(modRole, modPolicy);
   console.log(`   Moderator ${modGrants.length} grants`);
 
-  const downgraded = editorDowngraded + modDowngraded;
-  if (downgraded > 0) {
-    console.log(
-      `\n   ⚠️  ${downgraded} field-level grant(s) widened to the whole collection.\n` +
-      `      Narrowing permissions to named fields needs the licence key;\n` +
-      `      this run is on the free Core tier. On staging and production\n` +
-      `      (LICENSE_KEY set) this number must read 0.`,
+  const refused = [...editorRefused, ...modRefused];
+  if (refused.length > 0) {
+    console.error(
+      `\n   🔴 ${refused.length} field-level grant(s) NOT created:\n` +
+      refused.map((r) => `        ${r}\n`).join('') +
+      `\n      Narrowing a permission to named fields needs the licence key,\n` +
+      `      and this run has none (free Core tier). The previous version of\n` +
+      `      this script widened them to the whole collection instead — which\n` +
+      `      gave a moderator every field, quietly. We now refuse instead.\n` +
+      `\n      Fix it one of two ways, not by ignoring this:\n` +
+      `        • set LICENSE_KEY (the grant is approved — CAMP-62), or\n` +
+      `        • decide those roles do not exist on this environment.`,
     );
+    process.exitCode = 1;
   }
 
   const all = await api('GET', '/collections');
