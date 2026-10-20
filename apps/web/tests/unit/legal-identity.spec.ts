@@ -4,6 +4,9 @@ import Notice from '@/content/legal/notice';
 import Privacy from '@/content/legal/privacy';
 import { SiteFooter } from '@/components/site-chrome';
 import { COMPANY, COMPANY_ADDRESS } from '@/lib/legal';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { renderComponent } from './render-component';
 import { visibleText } from './rendered-text';
 
@@ -47,6 +50,28 @@ test('🔴 номер має вигляд бельгійського, а не з
   expect(COMPANY.enterpriseNumber).toMatch(/^BE [01]\d{3}\.\d{3}\.\d{3}$/);
 });
 
+// 🔴 І ВУЛИЦЯ ТЕЖ МУСИТЬ МАТИ ФОРМУ. Рецензія PR #294 довела мутацією
+// `street: 'TODO'`, що всі шість тестів лишались зеленими: сторінка
+// чесно друкувала «Registered office: TODO, 2000 Antwerpen», а перевірка
+// «текст містить COMPANY.street» порівнювала сторінку саму з собою.
+//
+// Корпус доказу не сміє ділити поле з тим, що міряє. Тут питаємо те,
+// чого заповнювач задовольнити не може: назва вулиці плюс номер будинку.
+test('🔴 вулиця має форму адреси, а не заповнювача', () => {
+  expect(COMPANY.street).toMatch(/^\p{Lu}[\p{L}'\-\s]{3,} \d+[a-zA-Z]?$/u);
+});
+
+// 🔴 І СКЛЕЄНА АДРЕСА НЕ СМІЄ БУТИ ПОРОЖНЬОЮ АБО СКЛЕЄНОЮ ВПРИТУЛ.
+// Мутації `COMPANY_ADDRESS = ''` і `join('')` обидві проходили шість
+// тестів: приватність читала « is the controller», тобто ст. 13 GDPR не
+// виконана, а тест звіряв сторінку з тим самим порожнім рядком.
+test('🔴 склеєна адреса містить усі чотири частини, розділені комами', () => {
+  for (const part of [COMPANY.name, COMPANY.street, COMPANY.city, COMPANY.country]) {
+    expect(COMPANY_ADDRESS).toContain(part);
+  }
+  expect(COMPANY_ADDRESS.split(', ')).toHaveLength(4);
+});
+
 // 🔴 АДРЕСА ОСІДКУ НАЗВАНА ПОВНІСТЮ. Рішення власника 20.10.2026: вона
 // публікується, бо з номера підприємства знаходиться й так. До того тут
 // стояв зворотний тест — «вулиці немає, і сторінка пояснює чому». Він
@@ -83,6 +108,63 @@ test('🔴 у підвалі немає адреси — лише назва, р
   const text = visibleText(renderComponent(SiteFooter, {}));
   expect(text).toContain(COMPANY.name);
   expect(text).toMatch(/All rights reserved/i);
-  expect(text).not.toContain(COMPANY.street);
-  expect(text).not.toContain(COMPANY.enterpriseNumber);
+  // 🔴 НЕ `not.toContain(COMPANY.street)`. Рецензія показала: при
+  // `street: ''` це твердження хибне для БУДЬ-ЯКОГО тексту, тож тест
+  // «ловив» мутацію з неправильної причини й створював враження, що
+  // стереже вулицю. Питаємо літерал — його порожнім не зробиш.
+  expect(text).not.toMatch(/Kapucinessenstraat/i);
+  expect(text).not.toMatch(/BE ?0799/);
+
+  // 🔴 І РІК МУСИТЬ БУТИ. Рецензія довела мутаціями M5 (рік прибрано) і
+  // M12 (`CurrentYear` повертає null), що попередня редакція цього тесту
+  // про рік не стверджувала нічого — підвал читався «© . UTD BV», тобто
+  // поломка, від якої відмовляється коментар самого компонента.
+  //
+  // Конкретне число НЕ перевіряємо: воно законно різне між збіркою та
+  // браузером, і тест на нього ламався б 1 січня без жодного дефекту.
+  expect(text).toMatch(/©\s*\d{4}\./);
+});
+
+// 🔴 НАЙВАЖЛИВІША МУТАЦІЯ, ЯКУ НЕ ЛОВИТЬ ЖОДЕН РЕНДЕР.
+//
+// Замінити `<CurrentYear fallback={…} />` на `{new Date().getFullYear()}`
+// просто в розмітці — і підвал далі друкує рік, усі рендер-тести
+// зелені, а дефект повернувся: у статичній збірці це рік ЗБІРКИ, тобто
+// «© 2026» 1 січня 2027. Рецензія PR #294 провела цю мутацію повз шість
+// тестів.
+//
+// Значенням цього не спіймати: у CI рік збірки ДОРІВНЮЄ поточному, тож
+// обидві редакції дають те саме число. Відрізняє їх тільки те, ДЕ
+// обчислення відбувається — отже питаємо саме це, читаючи код.
+//
+// 🔴 Коментарі знімаються перед пошуком: інакше сторож матчив би прозу
+// про себе самого, і дописаний рядок «не використовуй new Date() тут»
+// задовольнив би його.
+const codeOf = (rel: string) =>
+  readFileSync(join(__dirname, '../../src', rel), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+    .replace(/^\s*\/\/[^\n]*$/gm, '');
+
+test('🔴 рік у підвалі рахує клієнтський компонент, а не розмітка', () => {
+  const chrome = codeOf('components/site-chrome.tsx');
+  expect(chrome).toMatch(/<CurrentYear\s+fallback=\{/);
+  // Єдиний дозволений `new Date()` тут — той, що віддає ЗАПАСНИЙ рік у
+  // проп. Будь-який інший означає рік збірки в розмітці.
+  const dates = chrome.match(/new Date\(\)/g) ?? [];
+  expect(dates).toHaveLength(1);
+  expect(chrome).toMatch(/fallback=\{new Date\(\)\.getFullYear\(\)\}/);
+});
+
+test('🔴 і цей компонент справді клієнтський, інакше він рахує на збірці', () => {
+  const src = readFileSync(
+    join(__dirname, '../../src/components/current-year.tsx'),
+    'utf8',
+  );
+  expect(src.trimStart().startsWith("'use client'")).toBe(true);
+  // Ефект мусить перевстановлювати рік — без цього клієнтський
+  // компонент лишається на запасному значенні назавжди (мутація M13).
+  expect(codeOf('components/current-year.tsx')).toMatch(
+    /useEffect\([\s\S]*setYear\(new Date\(\)\.getFullYear\(\)\)/,
+  );
 });

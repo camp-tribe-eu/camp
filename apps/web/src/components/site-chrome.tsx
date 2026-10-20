@@ -198,7 +198,12 @@ export function SiteFooter() {
             Рік рахує `CurrentYear` у браузері, а не розмітка на збірці —
             чому саме так, пояснено в тому компоненті. */}
         <p className="mt-4">
-          © <CurrentYear />. {COMPANY.name}. All rights reserved.
+          {/* Рік збірки йде пропом і служить запасним значенням для
+              читача без JS; справжній рік ставить браузер. Чому саме
+              так — у самому компоненті, і це не стиль, а виправлений
+              дефект. */}
+          © <CurrentYear fallback={new Date().getFullYear()} />.{' '}
+          {COMPANY.name}. All rights reserved.
         </p>
       </div>
     </footer>
