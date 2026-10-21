@@ -68,6 +68,21 @@ test.describe("🔴 CAMP-374 — шапка лишається з читачем
     });
   }
 
+  // 🔴 ЦЕЙ ВИПАДОК БУВ ЗЕЛЕНИЙ І БЕЗ ЛИПКОЇ ШАПКИ — тобто стеріг
+  // головну тезу картки й не міг почервоніти. Заміряно рецензією:
+  // прибери `sticky top-0`, і він усе одно проходить. Дві причини, і
+  // обидві треба було закрити:
+  //
+  //   • `toBeVisible()` НЕ ЗНАЄ ПРО ВІКНО. Воно питає коробку й
+  //     відсутність `display:none`. Унизу /legal/terms бургер мав
+  //     `top = -4071` — на чотири тисячі пікселів вище екрана — і
+  //     лишався «видимим».
+  //   • `click()` САМ ПРОКРУЧУЄ до елемента. `scrollY` падав 4079 → 0,
+  //     тобто Playwright робив рівно те «прокрутити назад угору», чого
+  //     читач, за словами цієї ж картки, робити не має.
+  //
+  // Тепер питаємо те, чого дефект задовольнити не може: бургер у межах
+  // вікна, він топовий елемент у своїй точці, і клік не зрушив сторінку.
   test("🔴 бургер досяжний саме ПІСЛЯ прокручування", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto(LONG);
@@ -75,7 +90,33 @@ test.describe("🔴 CAMP-374 — шапка лишається з читачем
 
     const burger = page.getByTestId("burger-open");
     await expect(burger, "бургера не видно після прокручування").toBeVisible();
+
+    const box = await burger.boundingBox();
+    expect(box, "у бургера немає коробки").not.toBeNull();
+    const height = page.viewportSize()!.height;
+    expect(box!.y, `бургер вище вікна: top=${box!.y}`).toBeGreaterThanOrEqual(0);
+    expect(
+      box!.y + box!.height,
+      `бургер нижче вікна: bottom=${box!.y + box!.height} при ${height}`,
+    ).toBeLessThanOrEqual(height);
+
+    // Чи справді в нього можна поцілити: щось інше могло лягти зверху.
+    const onTop = await page.evaluate(
+      ([x, y]) => {
+        const el = document.elementFromPoint(x, y);
+        return !!el?.closest('[data-testid="burger-open"]');
+      },
+      [box!.x + box!.width / 2, box!.y + box!.height / 2] as const,
+    );
+    expect(onTop, "у точці бургера лежить щось інше").toBe(true);
+
+    const before = await page.evaluate(() => window.scrollY);
     await burger.click();
+    expect(
+      await page.evaluate(() => window.scrollY),
+      "клік прокрутив сторінку — значить, бургера на екрані не було",
+    ).toBe(before);
+
     await expect(
       page.getByTestId("burger-panel"),
       "бургер не відкрив меню",
@@ -129,22 +170,88 @@ test.describe("🔴 CAMP-374 — скло й кнопки в РЕНДЕРІ, н�
     ).toMatch(/blur\(/);
   });
 
-  test("велика кнопка має числа теми", async ({ page }) => {
-    await page.goto("/camping");
-    const btn = page.locator("[data-ct-button]").first();
-    await expect(btn, "на сторінці немає жодної кнопки").toHaveCount(1);
-    const got = await btn.evaluate((el) => {
+  // 🔴 ТРИ З ЧОТИРЬОХ ТВЕРДЖЕНЬ ТУТ БУЛИ ЗЕЛЕНІ ЗА ПОБУДОВОЮ, і
+  // рецензія заміряла кожне:
+  //
+  //   • `[data-ct-button]` без межі ловив ПЛАШКУ ЗГОДИ: на фікстурі CI
+  //     /camping мав рівно дві такі кнопки, обидві банера, і `.first()`
+  //     віддавав «Reject». Плюс `.first()` разом із `toHaveCount(1)` —
+  //     тавтологія: перший елемент завжди один.
+  //   • тривалість 0.2s віддає `--default-transition-duration` у
+  //     globals.css НЕЗАЛЕЖНО від нашого класу. Заміряно: заміни
+  //     `ct-button-motion` на `transition-colors` — усі вісім тестів
+  //     лишались зелені.
+  //   • насиченість 600 приходила з власного `font-semibold` кнопки
+  //     банера, а 16px — це типовий `--text-base` Tailwind, не наш
+  //     токен (`--text-*` у темі не визначений узагалі).
+  //
+  // Лишилось те, що СПРАВДІ від нас: радіус із `--radius → --r-sm` і
+  // перелік властивостей переходу, у якому є `opacity` — саме ним
+  // гасне вимкнена кнопка, і саме його `transition-colors` не має.
+  test("кнопка бере радіус із теми й гасне плавно", async ({ page }) => {
+    // /tools: 27 кнопок країн будуються зі сталої `FUEL_COUNTRIES`,
+    // тобто є незалежно від того, скільки рядків у фікстурі.
+    await page.goto("/tools");
+    const buttons = page.locator("main [data-ct-button]");
+    const found = await buttons.count();
+    expect(found, "у вмісті /tools немає жодної нашої кнопки").toBeGreaterThan(
+      0,
+    );
+
+    const got = await buttons.first().evaluate((el) => {
       const s = getComputedStyle(el);
       return {
         radius: s.borderTopLeftRadius,
-        size: s.fontSize,
-        weight: s.fontWeight,
+        property: s.transitionProperty,
         duration: s.transitionDuration,
       };
     });
     expect(got.radius, "радіус не з теми").toBe("12px");
-    expect(got.size, "шрифт не з теми").toBe("16px");
-    expect(got.weight, "насиченість не з теми").toBe("600");
-    expect(got.duration, "тривалість не з токена").toContain("0.2s");
+    expect(
+      got.property,
+      `перехід не чіпає opacity — вимкнена кнопка клацатиме: «${got.property}»`,
+    ).toContain("opacity");
+    expect(got.duration, "тривалість переходу не задана").toContain("0.2s");
+  });
+});
+
+// 🔴 CAMP-374 — шари мапи не сміють вилазити на шапку.
+//
+// Заміряно рецензією: `maplibre-gl.css` дає завісі «прокрутка з Ctrl»
+// `z-index: 99999`, а контейнер мапи власного контексту накладання не
+// створював. Один рух коліщатка над мапою — і шапка з усіма шістьма
+// пунктами меню опинялась під сірою плівкою. Жоден наш токен цього б не
+// перебив: іменована шкала закінчується на 26.
+test.describe("🔴 CAMP-374 — мапа не накриває шапку", () => {
+  test("завіса жесту лишається в межах мапи", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/routes");
+    const first = page.locator('main a[href^="/routes/"]').first();
+    await expect(first, "у фікстурі немає жодного маршруту").toHaveCount(1);
+    await first.click();
+
+    const map = page.getByTestId("route-map");
+    await expect(map, "на сторінці маршруту немає мапи").toBeVisible();
+
+    // Коліщатко без Ctrl — саме те, що викликає завісу.
+    const box = (await map.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 120);
+
+    const header = (await page.getByTestId("site-header").boundingBox())!;
+    const covered = await page.evaluate(
+      ([x, y]) => {
+        const el = document.elementFromPoint(x, y);
+        return {
+          inHeader: !!el?.closest('[data-testid="site-header"]'),
+          what: el?.className?.toString().slice(0, 60) ?? "—",
+        };
+      },
+      [header.x + header.width / 2, header.y + header.height / 2] as const,
+    );
+    expect(
+      covered.inHeader,
+      `шапку накрило: у її центрі лежить «${covered.what}»`,
+    ).toBe(true);
   });
 });
