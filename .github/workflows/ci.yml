@@ -1750,26 +1750,9 @@ jobs:
       # viewports) + accessibility (axe-core, WCAG AA) + console-error capture — CAMP-13.
       # The API is still running from build-site: the tests resolve their
       # own fixtures from it rather than naming slugs (CAMP-39).
-      # 🔴 CAMP-334. ПОВНА МАТРИЦЯ — НА ЗЛИТТІ, НЕ НА КОЖНОМУ ПУШІ.
-      #
-      # Заміряно за 7 діб (51 червоний прогін, 144 рядки падінь, 38
-      # флуктуацій), по унікальних дефектах, які проєкт зловив сам-один:
-      #
-      #   mobile-chrome      4 дефекти    4 флуктуації
-      #   firefox-desktop    3            2
-      #   chromium-desktop   1            1
-      #   webkit-desktop     0           31
-      #
-      # Жодного webkit-тільки дефекту за тиждень — і 82% усіх
-      # флуктуацій, переважно таймаутами. Кожна червонить `check-flaky`
-      # і коштує повний цикл CI.
-      #
-      # На `main` і на ручному запуску матриця повна, тож Safari-дефект
-      # знайдеться перед деплоєм. На PR webkit мовчить.
       - run: npm run test:e2e --workspace=apps/web
         env:
           CI: true
-          FULL_MATRIX: ${{ (github.ref_name == 'main' || github.event_name == 'workflow_dispatch') && '1' || '' }}
           API_BASE_URL: http://localhost:3001
           # CAMP-92. Reading client errors back is token-guarded; this is
           # the same throwaway value build-site gives the API it starts.
