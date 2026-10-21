@@ -10,7 +10,33 @@ import { expect, test } from "@playwright/test";
 // міряє ЖИВУ сторінку, а не токен: значення, що існує в CSS і не доїхало
 // до розмітки, — рівно той клас дефекту, яким була CAMP-352.
 
-const SCROLL = 1200;
+// 🔴 СТОРІНКА, ЯКА ДОВГА ЗАВЖДИ — І ЧОМУ НЕ `/camping`.
+//
+// Перша редакція прокручувала `/camping` на 1200 px. На фікстурі CI там
+// 72 кемпінги, тож сторінка коротка: заміряно в прогоні — `scrollY`
+// вийшов 199 на десктопі й НУЛЬ на телефоні. Головне твердження
+// («шапка лишилась на верхівці») було б при цьому ЗЕЛЕНИМ НІ ПРО ЩО.
+//
+// Спіймала це пара, яку я поставив поруч саме на такий випадок — і це
+// єдина причина, чому я про це дізнався. Тепер беремо правову сторінку
+// (суцільний текст, довгий за будь-яких даних) і рахуємо запас
+// прокрутки З САМОЇ СТОРІНКИ, а не вгадуємо число.
+const LONG = "/legal/terms";
+
+async function scrollToEnd(page: import("@playwright/test").Page) {
+  const max = await page.evaluate(
+    () => document.documentElement.scrollHeight - window.innerHeight,
+  );
+  expect(
+    max,
+    `${LONG} не прокручується на цьому розмірі — твердження нижче безпредметні`,
+  ).toBeGreaterThan(200);
+  await page.evaluate((y) => window.scrollTo(0, y), max);
+  expect(
+    await page.evaluate(() => window.scrollY),
+    "сторінка не прокрутилась",
+  ).toBeGreaterThan(200);
+}
 
 test.describe("🔴 CAMP-374 — шапка лишається з читачем", () => {
   for (const [name, width, height] of [
@@ -19,28 +45,21 @@ test.describe("🔴 CAMP-374 — шапка лишається з читачем
   ] as const) {
     test(`${name}: після прокручування шапка на місці`, async ({ page }) => {
       await page.setViewportSize({ width, height });
-      await page.goto("/camping");
+      await page.goto(LONG);
 
       const top = async () =>
         page.locator("header").evaluate((el) => el.getBoundingClientRect().top);
 
       expect(await top(), "шапка не на верхівці до прокручування").toBe(0);
-      await page.evaluate((y) => window.scrollTo(0, y), SCROLL);
-      // 🔴 Пара: сторінка справді прокрутилась. Без цього твердження
-      // «шапка на місці» було б істинним і над сторінкою, що не
-      // прокручується взагалі.
-      expect(
-        await page.evaluate(() => window.scrollY),
-        "сторінка не прокрутилась — твердження нижче безпредметне",
-      ).toBeGreaterThan(200);
+      await scrollToEnd(page);
       expect(await top(), "шапка поїхала геть при прокручуванні").toBe(0);
     });
   }
 
   test("🔴 бургер досяжний саме ПІСЛЯ прокручування", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto("/camping");
-    await page.evaluate((y) => window.scrollTo(0, y), SCROLL);
+    await page.goto(LONG);
+    await scrollToEnd(page);
 
     const burger = page.getByTestId("burger-open");
     await expect(burger, "бургера не видно після прокручування").toBeVisible();
