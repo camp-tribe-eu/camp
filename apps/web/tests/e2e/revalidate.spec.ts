@@ -73,3 +73,38 @@ test.describe("🔴 CAMP-365 — скидання кешу меню", () => {
     );
   });
 });
+
+// 🔴 CAMP-364 — мітка `pages` мусить БУТИ дозволеною.
+//
+// Заміряно рецензією #308: `?tag=pages` віддавав
+// `400 {"allowed":["navigation"]}`, і жоден виклик у репозиторії цю
+// мітку не згадував. Тобто ввесь текст CMS — сторінки, правові
+// документи, дописи — оновлювався виключно витримкою 86 400 с, тоді як
+// коментар у `lib/posts.ts` стверджував протилежне. Мітка існувала, і
+// скинути її не міг ніхто.
+test.describe("🔴 CAMP-364 — мітка сторінок і дописів", () => {
+  test("«pages» відома обробнику, а вигадана — ні", async ({ request }) => {
+    const ask = async (tag: string) => {
+      const res = await request.post(`/api/revalidate?tag=${tag}`, {
+        failOnStatusCode: false,
+      });
+      return { status: res.status(), body: (await res.json()) as
+        { error?: string; allowed?: string[] } };
+    };
+
+    // Без секрету скидання не станеться — але відповідь РОЗРІЗНЯЄ
+    // «мітка невідома» і «секрет не той». Саме це й перевіряємо: 400
+    // про мітку означало б, що `pages` і далі поза переліком.
+    const known = await ask("pages");
+    expect(
+      known.body.error ?? "",
+      `«pages» усе ще не в переліку: ${JSON.stringify(known.body.allowed)}`,
+    ).not.toContain("не дозволена");
+
+    const made_up = await ask("definitely-not-a-tag");
+    expect(made_up.status, "вигадана мітка не відхилена").toBe(400);
+    expect(made_up.body.allowed, "обробник не назвав дозволених").toContain(
+      "pages",
+    );
+  });
+});

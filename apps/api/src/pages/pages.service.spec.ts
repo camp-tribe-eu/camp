@@ -85,21 +85,21 @@ describe('PagesService.posts: що саме видно читачеві', () => 
     await qr.release();
   });
 
-  const slugs = async () => (await pages.posts('en')).map((p) => p.slug);
+  const slugsOf = async () => (await pages.posts('en')).map((p) => p.slug);
 
   it('опублікований у минулому — видно', async () => {
-    expect(await slugs()).toContain('camp364-past');
+    expect(await slugsOf()).toContain('camp364-past');
   });
 
   it('🔴 опублікований МАЙБУТНЬОЮ датою — не видно', async () => {
-    const got = await slugs();
+    const got = await slugsOf();
     expect(got).not.toContain('camp364-future');
     // Пара: перелік не порожній, інакше твердження вище зелене ні про що.
     expect(got).toContain('camp364-past');
   });
 
   it('чернетка — не видно', async () => {
-    expect(await slugs()).not.toContain('camp364-draft');
+    expect(await slugsOf()).not.toContain('camp364-draft');
   });
 
   /**
@@ -136,6 +136,34 @@ describe('PagesService.posts: що саме видно читачеві', () => 
     expect(await pages.bySlug('camp364-past', 'en', 'post')).not.toBeNull();
     expect(await pages.bySlug('camp364-future', 'en', 'post')).toBeNull();
     expect(await pages.bySlug('camp364-draft', 'en', 'post')).toBeNull();
+  });
+
+  /**
+   * 🔴 НАЛЕЖНІСТЬ — ЦЕ НЕ МНОЖИНА, І САМЕ ЦЕ ПРОПУСТИЛО МУТАЦІЮ.
+   *
+   * Рецензія #308 прибрала `WHERE p.type = 'post'` із `posts()` — і всі
+   * сім випадків лишились зеленими. Бо кожен із них питає
+   * `toContain` / `not.toContain` по конкретному слагу, тобто
+   * НАЛЕЖНІСТЬ, а жоден не питає «і більше нікого».
+   *
+   * Наслідок заміряно на базі: без того фільтра перелік блогу віддавав
+   * `about, contact, home, tools` поруч із дописом — тобто всі сторінки
+   * CMS поїхали б у блог, у `generateStaticParams`, у карту сайту
+   * (`/blog/about`) і в `llms.txt`.
+   *
+   * Питаємо те, чого дефект задовольнити не може: КОЖЕН рядок, який
+   * віддав `posts()`, мусить мати в базі `type = 'post'`.
+   */
+  it('🔴 усе, що віддав `posts()`, справді має тип post', async () => {
+    const slugs = await slugsOf();
+    expect(slugs.length).toBeGreaterThan(0);
+
+    const rows = (await qr.query(
+      `SELECT DISTINCT type::text AS type FROM pages WHERE slug = ANY($1)`,
+      [slugs],
+    )) as Array<{ type: string }>;
+
+    expect(rows.map((r) => r.type).sort()).toEqual(['post']);
   });
 
   it('`slugs` для дописів теж бачить ту саму множину', async () => {

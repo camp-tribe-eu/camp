@@ -145,8 +145,8 @@ async function renderSearch(): Promise<string> {
       }
       if (url.endsWith("/spots/countries")) return json(API_COUNTRIES);
       // CAMP-364: llms.txt і карта сайту питають дописи. Порожній
-            // перелік — це «блог порожній», і саме так тут і є.
-            if (url.includes("/posts")) return json({ posts: [] });
+      // перелік — це «блог порожній», і саме так тут і є.
+      if (url.includes("/posts")) return json({ posts: [] });
       throw new Error(`unexpected request in a unit test: ${url}`);
     },
     async () => {
@@ -440,8 +440,8 @@ test.describe("/routes", () => {
           });
         }
         // CAMP-364: llms.txt і карта сайту питають дописи. Порожній
-              // перелік — це «блог порожній», і саме так тут і є.
-              if (url.includes("/posts")) return json({ posts: [] });
+        // перелік — це «блог порожній», і саме так тут і є.
+        if (url.includes("/posts")) return json({ posts: [] });
         throw new Error(`unexpected request in a unit test: ${url}`);
       },
       async () => {
@@ -628,8 +628,8 @@ async function renderCamping(): Promise<string> {
     (url) => {
       if (url.endsWith("/spots/countries")) return json(API_COUNTRIES);
       // CAMP-364: llms.txt і карта сайту питають дописи. Порожній
-            // перелік — це «блог порожній», і саме так тут і є.
-            if (url.includes("/posts")) return json({ posts: [] });
+      // перелік — це «блог порожній», і саме так тут і є.
+      if (url.includes("/posts")) return json({ posts: [] });
       throw new Error(`unexpected request in a unit test: ${url}`);
     },
     async () => {
@@ -651,8 +651,8 @@ async function renderMap(): Promise<string> {
       }
       if (url.endsWith("/spots/countries")) return json(API_COUNTRIES);
       // CAMP-364: llms.txt і карта сайту питають дописи. Порожній
-            // перелік — це «блог порожній», і саме так тут і є.
-            if (url.includes("/posts")) return json({ posts: [] });
+      // перелік — це «блог порожній», і саме так тут і є.
+      if (url.includes("/posts")) return json({ posts: [] });
       throw new Error(`unexpected request in a unit test: ${url}`);
     },
     async () => {
@@ -671,8 +671,8 @@ async function renderLlmsTxt(): Promise<string> {
       if (/\/spots\/[a-z]{2}\/regions(\?|$)/.test(url)) return json([]);
       if (url.endsWith("/guides")) return json([]);
       // CAMP-364: llms.txt і карта сайту питають дописи. Порожній
-            // перелік — це «блог порожній», і саме так тут і є.
-            if (url.includes("/posts")) return json({ posts: [] });
+      // перелік — це «блог порожній», і саме так тут і є.
+      if (url.includes("/posts")) return json({ posts: [] });
       throw new Error(`unexpected request in a unit test: ${url}`);
     },
     async () => {
