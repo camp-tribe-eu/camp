@@ -150,7 +150,7 @@ test.describe("🔴 CAMP-374 — скло й кнопки в РЕНДЕРІ, н�
   test("шапка справді розмиває те, що під нею", async ({ page }) => {
     await page.goto("/camping");
     const filter = await page
-      .getByTestId("site-header")
+      .getByTestId("site-glass")
       .evaluate((el) => getComputedStyle(el).backdropFilter);
     // 🔴 ЧИТАЄМО ОБИДВІ ФОРМИ, І ЦЕ НЕ ПЕРЕСТРАХОВКА. Саме цей тест
     // спіймав, що в зібраному CSS лишалась ТІЛЬКИ префіксна форма, якої
@@ -158,7 +158,7 @@ test.describe("🔴 CAMP-374 — скло й кнопки в РЕНДЕРІ, н�
     // `none` — тобто скла не було в Chrome і Firefox, а в Safari було.
     // Знімки цього не побачили.
     const webkit = await page
-      .getByTestId("site-header")
+      .getByTestId("site-glass")
       .evaluate(
         (el) =>
           (getComputedStyle(el) as unknown as Record<string, string>)
@@ -230,6 +230,20 @@ test.describe("🔴 CAMP-374 — мапа не накриває шапку", () 
     await expect(first, "у фікстурі немає жодного маршруту").toHaveCount(1);
     await first.click();
 
+    // 🔴 WebGL Є НЕ СКРІЗЬ, І ЦЕ НЕ ПРИВІД СТВЕРДЖУВАТИ ПРО МАПУ.
+    //
+    // Заміряно: firefox на раннері CI не має WebGL, тож `route-map.tsx`
+    // свідомо малює запасний блок замість полотна. Перша редакція цього
+    // випадку вимагала мапи й червоніла з хибним діагнозом «на сторінці
+    // маршруту немає мапи», тоді як сторінка поводилась правильно.
+    //
+    // Пропускаємо саме за ВИДИМОЮ ознакою запасного шляху, а не за
+    // іменем браузера: ознака не бреше, а перелік браузерів застаріє.
+    const unsupported = page.getByTestId("route-map-unsupported");
+    if (await unsupported.isVisible()) {
+      test.skip(true, "браузер без WebGL: мапи немає, накривати нічим");
+    }
+
     const map = page.getByTestId("route-map");
     await expect(map, "на сторінці маршруту немає мапи").toBeVisible();
 
@@ -253,5 +267,44 @@ test.describe("🔴 CAMP-374 — мапа не накриває шапку", () 
       covered.inHeader,
       `шапку накрило: у її центрі лежить «${covered.what}»`,
     ).toBe(true);
+  });
+});
+
+// 🔴 CAMP-374 — скло не сміє з'їдати вікно у шухляди.
+//
+// `backdrop-filter` робить елемент КОНТЕЙНЕРОМ для нащадків із
+// `position: fixed`. Шухляда меню — `fixed inset-0` усередині шапки, тож
+// щойно скло ожило в Chromium, затемнення й панель стиснулись у смужку
+// заввишки з шапку. Заміряно в браузері на синтетичному випадку:
+//
+//   без backdrop-filter → fixed-нащадок 1024×768 (усе вікно)
+//   з  backdrop-filter → fixed-нащадок 1024×64  (коробка шапки)
+//
+// Упало в трьох браузерах одразу — і жоден зі сторожів цієї картки
+// цього не бачив, бо всі вони дивились на саму шапку, а не на те, що в
+// ній живе.
+test.describe("🔴 CAMP-374 — шухляда отримує все вікно, а не шапку", () => {
+  test("затемнення шухляди заввишки з екран", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto("/legal/terms");
+    await page.getByTestId("burger-open").click();
+
+    const scrim = await page.getByTestId("burger-scrim").boundingBox();
+    expect(scrim, "затемнення не намалювалось").not.toBeNull();
+    const view = page.viewportSize()!;
+    expect(
+      Math.round(scrim!.height),
+      `затемнення ${Math.round(scrim!.height)} px при вікні ${view.height} px ` +
+        "— шапка стала контейнером для fixed",
+    ).toBe(view.height);
+    expect(Math.round(scrim!.width)).toBe(view.width);
+
+    // Пара: панель теж має бути на весь екран, інакше «затемнення
+    // правильне» нічого не каже про те, куди можна клікнути.
+    const panel = await page.getByTestId("burger-panel").boundingBox();
+    expect(panel, "панель не намалювалась").not.toBeNull();
+    expect(Math.round(panel!.height), "панель коротша за екран").toBe(
+      view.height,
+    );
   });
 });

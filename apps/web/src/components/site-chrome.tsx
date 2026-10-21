@@ -53,9 +53,31 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
        світлому тлі (пояснено в globals.css). */
     <header
       data-testid="site-header"
-      className="ct-glass sticky top-0 border-b border-line-2"
+      className="sticky top-0 border-b border-line-2"
       style={{ zIndex: "var(--layer-sticky)" }}
     >
+      {/* 🔴 СКЛО — НА ОКРЕМОМУ ШАРІ, А НЕ НА САМІЙ `<header>`, І ЦЕ НЕ
+          стиль, а виправлення регресії, яку я ж і завіз.
+
+          `backdrop-filter` робить елемент КОНТЕЙНЕРОМ для нащадків із
+          `position: fixed`. Шухляда меню — `fixed inset-0` усередині
+          цієї шапки. Заміряно в браузері:
+
+            без backdrop-filter → fixed-нащадок 1024×768 (усе вікно)
+            з  backdrop-filter → fixed-нащадок 1024×64  (коробка шапки)
+
+          Тобто затемнення й панель стискались у смужку 64 px, і клік по
+          пункту меню не доходив. Упало в ТРЬОХ браузерах одразу, і
+          зʼявилось лише тепер: доки скло не працювало в Chromium,
+          контейнера не виникало.
+
+          Шар лежить ПІД вмістом і НЕ містить шухляди, тож вікно знову
+          є вікном. */}
+      <div
+        aria-hidden="true"
+        data-testid="site-glass"
+        className="ct-glass pointer-events-none absolute inset-0"
+      />
       {/* 🔴 Wraps below `sm`, and the height grows with it.
 
           The fixed 62px row fitted three links by luck, not by design.
@@ -75,7 +97,10 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
           links will need a real one — that belongs to the design card
           CAMP-81, not here. From `sm` up nothing changes at all, so the
           visual baselines are untouched. */}
-      <div className="mx-auto flex min-h-[62px] max-w-wrap flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2 sm:h-[62px] sm:flex-nowrap sm:py-0 xl:px-6">
+      {/* 🔴 `relative` обовʼязковий: шар скла позиційований, а
+          позиційовані елементи малюються ПОВЕРХ непозиційованого
+          вмісту. Без цього скло лягло б на самі пункти меню. */}
+      <div className="relative mx-auto flex min-h-[62px] max-w-wrap flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2 sm:h-[62px] sm:flex-nowrap sm:py-0 xl:px-6">
         <Link
           href="/"
           className="flex items-center gap-2 font-narrow text-[19px] font-bold text-heading"
