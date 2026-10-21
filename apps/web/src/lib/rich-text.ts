@@ -32,12 +32,29 @@
 export type Inline =
   | { kind: "text"; text: string }
   | { kind: "strong"; text: string }
+  /**
+   * Наголос. Один-єдиний випадок у семи правових сторінках — і він не
+   * декоративний: «something produced *from* the data» протиставляє
+   * похідний твір адаптованій базі, тобто саме те місце, де ODbL
+   * вимагає різного. Втратити курсив тут значить зрівняти два різні
+   * юридичні наслідки.
+   */
+  | { kind: "em"; text: string }
   | { kind: "link"; text: string; href: string };
 
 /** Блок: абзац, підзаголовок або список. */
 export type Block =
   | { kind: "p"; spans: Inline[] }
-  | { kind: "h2"; spans: Inline[] }
+  | { kind: "h2"; spans: Inline[]; id: string | null }
+  | { kind: "h3"; spans: Inline[]; id: string | null }
+  /**
+   * Виділена рамка. У правових сторінках це не прикраса: 13 разів із
+   * 13 вона несе речення, яке читач мусить побачити, навіть якщо
+   * пробіг решту — «ми не бюро подорожей», «перевірте перед поїздкою»,
+   * «це не обмежує ваших прав». Абзац замість неї втратив би не слово,
+   * а наголос.
+   */
+  | { kind: "callout"; paragraphs: Inline[][] }
   | { kind: "ul"; items: Inline[][] };
 
 /**
@@ -168,8 +185,26 @@ export function isInternalHref(href: string): boolean {
  */
 export function parseInline(line: string): Inline[] {
   const out: Inline[] = [];
-  // Один прохід, два візерунки: `[текст](адреса)` і `**текст**`.
-  const re = /\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*/g;
+  // Один прохід, три візерунки: `[текст](адреса)`, `**виділення**` і
+  // `*наголос*`.
+  //
+  // 🔴 ПОРЯДОК ГІЛОК — ЦЕ І Є РІЗНИЦЯ МІЖ ДВОМА. Чергування в JS
+  // впорядковане: на позиції першої зірочки `**жирний**` збігається з
+  // гілкою подвійної зірочки РАНІШЕ, ніж із гілкою одинарної. Постав
+  // одинарну вперед — і кожне виділення стане наголосом із зірочками
+  // обабіч у тексті.
+  //
+  // 🔴 І ЗВОРОТНА СКІСНА — ЩОБ ТЕКСТ МІГ СКАЗАТИ «ЗІРОЧКА». Доки її не
+  // було, `a * b * c` у полі CMS мовчки ставало `a <em> b </em> c`. У
+  // семи правових сторінках літеральних зірочок нуль, тож це не лікує
+  // сьогоднішній дефект — воно прибирає спосіб зробити завтрашній
+  // РУКАМИ ВЛАСНИКА, у тексті, який він же й редагує.
+  //
+  // Гілка стоїть ОСТАННЬОЮ навмисно: на позиції `\` жодна з попередніх
+  // не збігається, тож черга дійде, а номери груп 1–4 лишаються на
+  // місці. Поставити її першою означало б перенумерувати все інше.
+  const re =
+    /\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*|\\([*[\]\\])/g;
   let last = 0;
   let m: RegExpExecArray | null;
 
@@ -178,6 +213,10 @@ export function parseInline(line: string): Inline[] {
       out.push({ kind: "text", text: line.slice(last, m.index) });
     if (m[3] !== undefined) {
       out.push({ kind: "strong", text: m[3] });
+    } else if (m[4] !== undefined) {
+      out.push({ kind: "em", text: m[4] });
+    } else if (m[5] !== undefined) {
+      out.push({ kind: "text", text: m[5] });
     } else {
       const href = m[2];
       if (!isAllowedHref(href)) {
@@ -198,9 +237,46 @@ export function parseInline(line: string): Inline[] {
 
 /**
  * Текст → блоки. Формат той самий, що вже читає сторінка гайда:
- * порожній рядок ділить блоки, «- » робить список. Додано «## » для
- * підзаголовка.
+ * порожній рядок ділить блоки, «- » робить список, «## » — підзаголовок.
+ *
+ * CAMP-365 додала «### » і «> » — і обидва взяті з ЗАМІРУ, а не з
+ * бажання мати більше розмітки. У семи правових сторінках, які сюди
+ * переїжджають, заміряно: H2 42 рази, H3 14, список 16, рамка 13.
+ * Без третього рівня чотирнадцять підрозділів злились би з розділами,
+ * тобто документ змінив би структуру — у тексті, де структура і є
+ * змістом.
  */
+/**
+ * 🔴 ЯКІР ЗАГОЛОВКА ПИШЕТЬСЯ ЯВНО, І ЗІ СЛАГУ ЙОГО НЕ ВІДТВОРИТИ.
+ *
+ * У семи правових сторінках 42 заголовки й 42 `id`, і всі підібрані
+ * рукою: `what`, `who-else`, `tiles`, `not`. Жоден не є слагом свого
+ * тексту — `id="links"` стоїть на «Links to other sites and to the
+ * places we list». Якби їх вираховувати з тексту, усі 42 змінились би
+ * мовчки, а разом із ними — чотири наші посилання і будь-яке чуже
+ * цитування опублікованої політики.
+ *
+ * Тому форма така: `## Заголовок {#id}`. Невірний `id` — помилка, а не
+ * тихо пропущений: у правовому документі зламаний якір це сторінка,
+ * яка не відкривається на тому місці, на яке посилались.
+ */
+const HEADING_ID = /\s*\{#([a-z0-9][a-z0-9-]*)\}\s*$/;
+
+function heading(raw: string): { text: string; id: string | null } {
+  const line = raw.trim();
+  const m = HEADING_ID.exec(line);
+  if (!m) {
+    if (/\{#/.test(line)) {
+      throw new Error(
+        `rich-text: заголовок «${line.slice(0, 48)}» має зіпсований якір. ` +
+          "Форма — `{#малі-літери-і-дефіси}` у самому кінці рядка.",
+      );
+    }
+    return { text: line, id: null };
+  }
+  return { text: line.slice(0, m.index).trim(), id: m[1] };
+}
+
 export function parseBlocks(text: string): Block[] {
   const blocks: Block[] = [];
   for (const raw of text.split(/\n\s*\n/)) {
@@ -219,8 +295,47 @@ export function parseBlocks(text: string): Block[] {
       continue;
     }
 
+    if (block.startsWith("### ")) {
+      const h = heading(block.slice(4));
+      blocks.push({ kind: "h3", spans: parseInline(h.text), id: h.id });
+      continue;
+    }
+
     if (block.startsWith("## ")) {
-      blocks.push({ kind: "h2", spans: parseInline(block.slice(3).trim()) });
+      const h = heading(block.slice(3));
+      blocks.push({ kind: "h2", spans: parseInline(h.text), id: h.id });
+      continue;
+    }
+
+    // 🔴 РАМКА ТРИМАЄ КІЛЬКА АБЗАЦІВ, І ЦЕ НЕ ЗАПАС НА МАЙБУТНЄ.
+    //
+    // У `attribution.tsx` рамка про ODbL складається з ТРЬОХ абзаців,
+    // розділених `<br /><br />`: що саме ви винні, що буває з
+    // адаптованою базою проти похідного твору, і що ці умови однаково
+    // звʼязують нас. Склеїти їх в один абзац означало б зробити з
+    // трьох окремих умов одну стіну тексту — у документі, який
+    // зобовʼязує.
+    //
+    // Порожній рядок рамку б ЗАКІНЧИВ (блоки ділить саме він), тож
+    // абзаци всередині розділяє рядок з одного «>».
+    if (block.startsWith("> ")) {
+      const paragraphs: Inline[][] = [];
+      let current: string[] = [];
+      const flush = () => {
+        const text = current.join(" ").trim();
+        if (text) paragraphs.push(parseInline(text));
+        current = [];
+      };
+      for (const line of block.split("\n")) {
+        const body = line.replace(/^>\s?/, "").trim();
+        if (body === "") flush();
+        else current.push(body);
+      }
+      flush();
+      if (paragraphs.length === 0) {
+        throw new Error("rich-text: порожня рамка — «> » без тексту.");
+      }
+      blocks.push({ kind: "callout", paragraphs });
       continue;
     }
 
@@ -228,5 +343,43 @@ export function parseBlocks(text: string): Block[] {
     // CMS вони зʼявляються від ширини вікна редактора, не від наміру.
     blocks.push({ kind: "p", spans: parseInline(block.replace(/\n/g, " ")) });
   }
+  assertUniqueAnchors([blocks], "блоці");
+
   return blocks;
 }
+
+/**
+ * 🔴 ЯКІР УНІКАЛЬНИЙ У МЕЖАХ СТОРІНКИ, А НЕ БЛОКУ ТЕКСТУ.
+ *
+ * Рецензія заміряла дірку: `parseBlocks` тримав `seen` у межах одного
+ * виклику, а сторінка CMS — це СПИСОК секцій, і кожна `prose` кличе
+ * свій `RichText`, тобто свій розбір. Дві секції з `{#what}` давали
+ * два однакові `id` у розмітці й жодного кидка — рівно те «браузер
+ * піде до першого, мовчки», заради чого правило й написане.
+ *
+ * Ризик не уявний: серед 42 якорів правових сторінок `what` трапляється
+ * чотири рази, `tiles`, `who` і `changes` — по два. Сторінка, зібрана з
+ * двох таких секцій, зламала б посилання без жодного сигналу.
+ *
+ * Тому перевірка винесена сюди й приймає РОЗІБРАНІ блоки кількох
+ * джерел: її кличе і сам розбір (для одного блоку), і рендер сторінки
+ * (для всіх її секцій разом).
+ */
+export function assertUniqueAnchors(groups: Block[][], where: string): void {
+  const seen = new Set<string>();
+  for (const blocks of groups) {
+    for (const b of blocks) {
+      if (b.kind !== "h2" && b.kind !== "h3") continue;
+      if (b.id === null) continue;
+      if (seen.has(b.id)) {
+        throw new Error(
+          `rich-text: якір «#${b.id}» трапився двічі в одному ${where}. ` +
+            "Посилання на нього вело б до першого заголовка, а не до " +
+            "того, що мали на увазі.",
+        );
+      }
+      seen.add(b.id);
+    }
+  }
+}
+

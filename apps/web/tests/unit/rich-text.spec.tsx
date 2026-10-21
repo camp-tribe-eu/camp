@@ -3,7 +3,12 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { renderComponent } from "./render-component";
 import { RichText } from "@/components/rich-text";
-import { parseBlocks, parseInline, substitute } from "@/lib/rich-text";
+import {
+  assertUniqueAnchors,
+  parseBlocks,
+  parseInline,
+  substitute,
+} from "@/lib/rich-text";
 
 // CAMP-365 — текст із CMS. Файл стереже дві різні речі, і плутати їх
 // не можна: ЩО читач бачить, і чого браузер НЕ виконає.
@@ -101,14 +106,48 @@ test.describe("🔴 чого браузер не виконає", () => {
   // гілці `strong` лишила всі 15 тестів зеленими, а в розмітку поїхав
   // живий `<img onerror=…>`. Тому payload тепер іде в КОЖНУ позицію,
   // яку малює свій вузол.
+  // 🔴 І ПЕРЕЛІК ПОЗИЦІЙ ЗВІРЯЄТЬСЯ З РЕНДЕРОМ, А НЕ ПИШЕТЬСЯ РУКОЮ.
+  //
+  // Рецензія #307 заміряла, чого це коштує. Той самий обчислений проп
+  // (`["dangerously","Set","Inner","HTML"].join("")`), поставлений у
+  // щойно додану гілку `em`, лишив УВЕСЬ юніт-проєкт байт у байт на
+  // базовій лінії — 1892 passed, 10 skipped — і віддав у розмітку
+  // живий `<img onerror=…>`. Бо перелік нижче мав пʼять позицій, а
+  // рендер відростив три нові вузли: `em`, `h3` і абзац рамки.
+  //
+  // Це третій раз, коли новий побратим не вступає в інвентар сторожа,
+  // тож перелік більше не є списком: нижче він ЗВІРЯЄТЬСЯ з мітками
+  // `case` самого рендера, і гілка без випадку валить тест на імені.
+  /**
+   * Код рендера БЕЗ коментарів. Окремою функцією, бо його читають два
+   * сторожі, а сторож, який матчить коментар, уже був: згадка «тут
+   * немає dangerouslySetInnerHTML» колись сама задовольняла перевірку.
+   */
+  const rendererCode = () =>
+    readFileSync(
+      path.join(__dirname, "..", "..", "src", "components", "rich-text.tsx"),
+      "utf8",
+    )
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+
   const EVIL = "<img src=x onerror=alert(1)>";
-  for (const [where, text] of [
-    ["звичайний текст", EVIL],
-    ["виділення", `**${EVIL}**`],
-    ["підпис посилання", `[${EVIL}](/x)`],
-    ["підзаголовок", `## ${EVIL}`],
-    ["пункт списку", `- ${EVIL}`],
-  ] as const) {
+  const POSITIONS: ReadonlyArray<{
+    where: string;
+    text: string;
+    covers: readonly string[];
+  }> = [
+    { where: "звичайний текст", text: EVIL, covers: ["p", "text"] },
+    { where: "виділення", text: `**${EVIL}**`, covers: ["strong"] },
+    { where: "наголос", text: `*${EVIL}*`, covers: ["em"] },
+    { where: "підпис посилання", text: `[${EVIL}](/x)`, covers: ["link"] },
+    { where: "підзаголовок", text: `## ${EVIL}`, covers: ["h2"] },
+    { where: "третій рівень", text: `### ${EVIL}`, covers: ["h3"] },
+    { where: "рамка", text: `> ${EVIL}`, covers: ["callout"] },
+    { where: "пункт списку", text: `- ${EVIL}`, covers: ["ul"] },
+  ];
+
+  for (const { where, text } of POSITIONS) {
     test(`розмітка в позиції «${where}» лишається текстом`, () => {
       const html = renderComponent(RichText, { text });
       expect(html, `у «${where}» зʼявився живий <img`).not.toContain("<img");
@@ -121,16 +160,32 @@ test.describe("🔴 чого браузер не виконає", () => {
     });
   }
 
+  // 🔴 ЗВІРКА ПЕРЕЛІКУ З РЕНДЕРОМ. Без неї попередні вісім випадків
+  // лишаються просто списком, який хтось колись забуде доповнити — і
+  // підсумок «8 passed» виглядатиме так само зелено.
+  test("🔴 кожна гілка рендера має свою позицію в матриці", () => {
+    const code = rendererCode();
+    const labels = new Set(
+      [...code.matchAll(/case "([a-z0-9-]+)":/g)].map((m) => m[1]),
+    );
+    const covered = new Set(POSITIONS.flatMap((p) => p.covers));
+
+    expect(labels.size, "у рендері не знайдено жодної гілки — розбір зламався")
+      .toBeGreaterThan(5);
+    expect(
+      [...labels].filter((l) => !covered.has(l)).sort(),
+      "рендер малює вузол, якого немає в матриці екранування",
+    ).toEqual([]);
+    expect(
+      [...covered].filter((c) => !labels.has(c)).sort(),
+      "матриця називає вузол, якого рендер не малює",
+    ).toEqual([]);
+  });
+
   test("у рендері немає жодного способу віддати сирий HTML", () => {
     // Сторож на СПОСІБ лишається, але він тепер другий рубіж, а не
     // перший: властивість вище ловить і те, чого цей не бачить.
-    const raw = readFileSync(
-      path.join(__dirname, "..", "..", "src", "components", "rich-text.tsx"),
-      "utf8",
-    );
-    const code = raw
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^\s*\/\/.*$/gm, "");
+    const code = rendererCode();
 
     expect(code, "у рендері зʼявився dangerouslySetInnerHTML").not.toContain(
       "dangerouslySetInnerHTML",
@@ -186,5 +241,167 @@ test.describe("підстановки", () => {
       out = "кинуло";
     }
     expect(out).toBe("кинуло");
+  });
+});
+
+// CAMP-365 — третій рівень, рамка і якорі. Усе троє додано під переїзд
+// семи правових сторінок, і кожне твердження нижче стоїть на замірі з
+// тих сторінок, а не на бажанні мати ширшу розмітку.
+test.describe("правова розмітка", () => {
+  test("«### » дає h3, а не абзац і не h2", () => {
+    const blocks = parseBlocks("### Підрозділ");
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].kind, "третій рівень злився з чимось іншим").toBe("h3");
+    const html = renderComponent(RichText, { text: "### Підрозділ" });
+    expect(html).toContain("<h3");
+    expect(html, "h3 намальовано як h2").not.toContain("<h2");
+  });
+
+  test("«> » дає рамку, і позначка не лишається у видимому тексті", () => {
+    const html = renderComponent(RichText, {
+      text: "> **Перевірте.** Дані можуть бути застарілі.\n> Телефонуйте на місце.",
+    });
+    expect(html).toContain("accent-surface");
+    expect(html, "рамка перетворилась на цитату з видимим «>»").not.toMatch(
+      /&gt;|>\s*\*\*/,
+    );
+    expect(html).toContain("Перевірте.");
+    expect(html, "другий рядок рамки загубився").toContain(
+      "Телефонуйте на місце.",
+    );
+  });
+
+  // 🔴 Рамка про ODbL у `attribution.tsx` складається з ТРЬОХ абзаців,
+  // розділених `<br /><br />`. Якби рамка вміла один, переїзд склеїв би
+  // три окремі умови в стіну тексту — мовчки й без втрати жодного слова,
+  // тобто посимвольна звірка тексту цього б не побачила.
+  test("🔴 рамка тримає кілька абзаців, розділених рядком з одного «>»", () => {
+    const blocks = parseBlocks(
+      "> перший\n>\n> другий\n>\n> третій",
+    );
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ kind: "callout" });
+    const callout = blocks[0] as { kind: "callout"; paragraphs: unknown[] };
+    expect(callout.paragraphs, "абзаців у рамці не три").toHaveLength(3);
+
+    const html = renderComponent(RichText, {
+      text: "> перший\n>\n> другий\n>\n> третій",
+    });
+    expect(
+      (html.match(/<p/g) ?? []).length,
+      "абзаци рамки злились в один",
+    ).toBe(3);
+  });
+
+  test("рамка без тексту кидає, а не малює порожню коробку", () => {
+    expect(() => parseBlocks("> \n>")).toThrow(/рамка/);
+  });
+
+  // 🔴 ЄДИНИЙ КУРСИВ У СЕМИ СТОРІНКАХ, І ВІН НЕСЕ ПРАВОВУ РІЗНИЦЮ:
+  // «something produced *from* the data» протиставляє похідний твір
+  // адаптованій базі — там, де ODbL вимагає різного.
+  test("🔴 «*слово*» дає наголос, а «**слово**» лишається виділенням", () => {
+    const html = renderComponent(RichText, {
+      text: "produced *from* the data, not a **database**",
+    });
+    expect(html, "наголосу немає").toContain("<em>from</em>");
+    expect(html).toContain("<strong");
+    expect(html, "зірочки видно читачеві").not.toContain("*");
+  });
+
+  test("🔴 порядок гілок: подвійна зірочка не читається як дві одинарні", () => {
+    const spans = parseInline("**жирний**");
+    expect(spans).toHaveLength(1);
+    expect(spans[0], "виділення стало наголосом").toMatchObject({
+      kind: "strong",
+      text: "жирний",
+    });
+  });
+
+  test("🔴 якір заголовка — той, що написано, а не вирахуваний із тексту", () => {
+    const blocks = parseBlocks("## Links to other sites {#links}");
+    expect(blocks[0]).toMatchObject({ kind: "h2", id: "links" });
+    const html = renderComponent(RichText, {
+      text: "## Links to other sites {#links}",
+    });
+    expect(html, "якоря немає в розмітці").toContain('id="links"');
+    expect(html, "позначка якоря видима читачеві").not.toContain("{#links}");
+    expect(html).toContain("Links to other sites");
+  });
+
+  test("заголовок без якоря лишається без id, а не дістає вигаданий", () => {
+    const blocks = parseBlocks("## Просто заголовок");
+    expect(blocks[0]).toMatchObject({ kind: "h2", id: null });
+    const html = renderComponent(RichText, { text: "## Просто заголовок" });
+    expect(html).not.toContain("id=");
+  });
+
+  // 🔴 Обидві негативні перевірки вище зелені й тоді, коли не
+  // друкується НІЧОГО. Тому поруч — випадки, де мовчання не рятує:
+  // зіпсована форма й повтор мусять КИНУТИ.
+  test("🔴 зіпсований якір кидає, а не губиться", () => {
+    expect(() => parseBlocks("## Заголовок {#Links}")).toThrow(/якір/);
+    expect(() => parseBlocks("## Заголовок {#}")).toThrow(/якір/);
+    expect(() => parseBlocks("## Заголовок {# links}")).toThrow(/якір/);
+  });
+
+  test("🔴 два однакові якорі кидають", () => {
+    expect(() =>
+      parseBlocks("## Один {#same}\n\n## Другий {#same}"),
+    ).toThrow(/#same/);
+    // а різні — ні, інакше попереднє твердження було б зелене завжди
+    expect(() =>
+      parseBlocks("## Один {#a}\n\n## Другий {#b}"),
+    ).not.toThrow();
+  });
+
+  test("🔴 h3 теж несе якір — інакше рівень вирішував би, чи працює посилання", () => {
+    const blocks = parseBlocks("### Підрозділ {#sub}");
+    expect(blocks[0]).toMatchObject({ kind: "h3", id: "sub" });
+  });
+});
+
+// 🔴 CAMP-365 — дві дірки, які знайшла рецензія #307.
+test.describe("межі формату", () => {
+  // Без екранування `a * b * c` у полі CMS мовчки ставало курсивом.
+  test("🔴 зворотна скісна робить зірочку просто зірочкою", () => {
+    const spans = parseInline("знижка 5\\* і ще 10\\*");
+    expect(
+      spans.every((x) => x.kind === "text"),
+      `щось стало розміткою: ${JSON.stringify(spans)}`,
+    ).toBe(true);
+    expect(spans.map((x) => x.text).join("")).toBe("знижка 5* і ще 10*");
+  });
+
+  test("екранується і квадратна дужка, і сама скісна", () => {
+    expect(parseInline("\\[не посилання\\]").map((x) => x.text).join("")).toBe(
+      "[не посилання]",
+    );
+    expect(parseInline("шлях C:\\\\").map((x) => x.text).join("")).toBe(
+      "шлях C:\\",
+    );
+  });
+
+  // Пара до попереднього: без неї «усе стало текстом» було б зеленим і
+  // тоді, коли розмітка перестала працювати взагалі.
+  test("екранування не вимикає звичайної розмітки поруч", () => {
+    const spans = parseInline("5\\* це **багато**");
+    expect(spans.some((x) => x.kind === "strong")).toBe(true);
+    expect(spans.map((x) => x.text).join("")).toBe("5* це багато");
+  });
+
+  // 🔴 Якір унікальний у межах СТОРІНКИ. Кожна секція CMS розбирається
+  // окремо, тож перевірка всередині одного розбору не бачить сусідньої
+  // секції — а `what` трапляється в правових сторінках чотири рази.
+  test("🔴 однакові якорі в РІЗНИХ секціях кидають", () => {
+    const a = parseBlocks("## Перша {#what}");
+    const b = parseBlocks("## Друга {#what}");
+    expect(() => assertUniqueAnchors([a, b], "сторінці")).toThrow(/#what/);
+  });
+
+  test("різні якорі в різних секціях не кидають", () => {
+    const a = parseBlocks("## Перша {#one}");
+    const b = parseBlocks("## Друга {#two}");
+    expect(() => assertUniqueAnchors([a, b], "сторінці")).not.toThrow();
   });
 });
