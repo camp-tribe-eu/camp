@@ -219,55 +219,98 @@ test.describe("🔴 CAMP-374 — скло й кнопки в РЕНДЕРІ, н�
 //
 // Заміряно рецензією: `maplibre-gl.css` дає завісі «прокрутка з Ctrl»
 // `z-index: 99999`, а контейнер мапи власного контексту накладання не
-// створював. Один рух коліщатка над мапою — і шапка з усіма шістьма
-// пунктами меню опинялась під сірою плівкою. Жоден наш токен цього б не
-// перебив: іменована шкала закінчується на 26.
+// створював (`overflow: hidden` його не створює). Один рух коліщатка над
+// мапою — і шапка з усіма шістьма пунктами меню опинялась під сірою
+// плівкою. Жоден наш токен цього б не перебив: іменована шкала
+// закінчується на 26. Лік — `.maplibregl-map { isolation: isolate }`.
+//
+// 🔴 ЧОМУ СИНТЕТИЧНИЙ ВИПАДОК, А НЕ СПРАВЖНЯ МАПА. Перша редакція
+// ходила на сторінку маршруту й крутила коліщатком. Вона падала на
+// firefox-раннері, і діагноз був хибний: мапа вантажиться
+// `dynamic(() => import('./route-map'), { ssr: false })`, тож на момент
+// перевірки в розмітці не було НІ полотна, ні запасного блоку —
+// «на сторінці маршруту немає мапи» казало про швидкість завантаження
+// чанка, а не про шари.
+//
+// Властивість, яку треба стерегти, вендорного полотна не потребує: це
+// контракт між ЙОГО класом і НАШИМ правилом. Тому кладемо елемент із
+// тим класом і нащадком на 99999 самі.
+//
+// Що клас справді наш — заміряно окремо, на /map у браузері:
+// `document.querySelectorAll('.maplibregl-map').length === 1`, і це той
+// самий контейнер, якому ми даємо свої класи. MapLibre вішає його сам
+// під час ініціалізації.
 test.describe("🔴 CAMP-374 — мапа не накриває шапку", () => {
-  test("завіса жесту лишається в межах мапи", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto("/routes");
-    const first = page.locator('main a[href^="/routes/"]').first();
-    await expect(first, "у фікстурі немає жодного маршруту").toHaveCount(1);
-    await first.click();
+  for (const [name, width, height] of [
+    ["телефон", 375, 812],
+    ["десктоп", 1280, 800],
+  ] as const) {
+    test(`${name}: шар з мапи лишається в її межах`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto("/camping");
 
-    // 🔴 WebGL Є НЕ СКРІЗЬ, І ЦЕ НЕ ПРИВІД СТВЕРДЖУВАТИ ПРО МАПУ.
-    //
-    // Заміряно: firefox на раннері CI не має WebGL, тож `route-map.tsx`
-    // свідомо малює запасний блок замість полотна. Перша редакція цього
-    // випадку вимагала мапи й червоніла з хибним діагнозом «на сторінці
-    // маршруту немає мапи», тоді як сторінка поводилась правильно.
-    //
-    // Пропускаємо саме за ВИДИМОЮ ознакою запасного шляху, а не за
-    // іменем браузера: ознака не бреше, а перелік браузерів застаріє.
-    const unsupported = page.getByTestId("route-map-unsupported");
-    if (await unsupported.isVisible()) {
-      test.skip(true, "браузер без WebGL: мапи немає, накривати нічим");
-    }
+      const header = (await page.getByTestId("site-header").boundingBox())!;
+      expect(header, "шапки немає — міряємо не те").not.toBeNull();
+      expect(header.height, "шапка нульової висоти").toBeGreaterThan(10);
 
-    const map = page.getByTestId("route-map");
-    await expect(map, "на сторінці маршруту немає мапи").toBeVisible();
+      // 🔴 СЦЕНА ВІДТВОРЮЄ СПРАВЖНЮ, А НЕ «ЩОСЬ ІЗ ВЕЛИКИМ z-index».
+      //
+      // Перша редакція цього випадку була ЗЕЛЕНА ЗА ПОБУДОВОЮ: я клав
+      // завісу в контейнер, якого шапка не перекривала, і вона нічого
+      // не накривала й без правила. Заміряно в браузері — обидва боки
+      // давали ту саму відповідь, тобто сторож не розрізняв.
+      //
+      // Справжню структуру зняв із живої сторінки маршруту:
+      //   .maplibregl-map              position: relative, overflow: hidden
+      //     .maplibregl-canvas-container  static
+      //       .maplibregl-cooperative-gesture-screen  absolute, z-index 99999
+      // Контейнер із класом `maplibregl-map` — це НАШ div, клас вішає
+      // MapLibre при ініціалізації.
+      //
+      // І головне: дефект видно лише там, де липка шапка ПЕРЕКРИВАЄ
+      // коробку мапи. Після виправлення геометрії сцена розрізняє —
+      // заміряно в браузері:
+      //   без isolation: isolate → зверху «probe-scrim»
+      //   з  isolation: isolate → зверху «probe-bar»
+      await page.evaluate(() => {
+        const map = document.createElement("div");
+        map.className = "maplibregl-map";
+        map.setAttribute("data-testid", "fake-map");
+        map.style.cssText =
+          "position:fixed;top:0;left:0;right:0;height:300px;overflow:hidden";
+        const canvasWrap = document.createElement("div");
+        const scrim = document.createElement("div");
+        scrim.setAttribute("data-testid", "fake-scrim");
+        scrim.style.cssText =
+          "position:absolute;inset:0;background:rgba(0,0,0,.4);z-index:99999";
+        canvasWrap.appendChild(scrim);
+        map.appendChild(canvasWrap);
+        document.body.appendChild(map);
+      });
 
-    // Коліщатко без Ctrl — саме те, що викликає завісу.
-    const box = (await map.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.wheel(0, 120);
+      // Пара: сам нащадок таки намальований, інакше «шапка зверху» було
+      // б істинним і над відсутнім шаром.
+      await expect(
+        page.getByTestId("fake-scrim"),
+        "підставний шар не намалювався — випадок безпредметний",
+      ).toBeVisible();
 
-    const header = (await page.getByTestId("site-header").boundingBox())!;
-    const covered = await page.evaluate(
-      ([x, y]) => {
-        const el = document.elementFromPoint(x, y);
-        return {
-          inHeader: !!el?.closest('[data-testid="site-header"]'),
-          what: el?.className?.toString().slice(0, 60) ?? "—",
-        };
-      },
-      [header.x + header.width / 2, header.y + header.height / 2] as const,
-    );
-    expect(
-      covered.inHeader,
-      `шапку накрило: у її центрі лежить «${covered.what}»`,
-    ).toBe(true);
-  });
+      const onTop = await page.evaluate(
+        ([x, y]) => {
+          const el = document.elementFromPoint(x, y);
+          return {
+            inHeader: !!el?.closest('[data-testid="site-header"]'),
+            what: el?.getAttribute("data-testid") ?? el?.tagName ?? "—",
+          };
+        },
+        [header.x + header.width / 2, header.y + header.height / 2] as const,
+      );
+      expect(
+        onTop.inHeader,
+        `шапку накрило: у її центрі лежить «${onTop.what}»`,
+      ).toBe(true);
+    });
+  }
 });
 
 // 🔴 CAMP-374 — скло не сміє з'їдати вікно у шухляди.
