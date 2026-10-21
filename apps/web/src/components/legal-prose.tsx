@@ -91,7 +91,7 @@ export function LegalProse({
             );
           case "h3":
             return (
-              <H3 key={i}>
+              <H3 key={i} id={b.id ?? undefined}>
                 <Spans spans={b.spans} />
               </H3>
             );
