@@ -65,7 +65,19 @@ step "тести api" \
 # 🔴 ДВА ЛІНТИ, А НЕ ОДИН. У apps/api prettier обовʼязковий через
 # eslint, у apps/web його немає зовсім. 21.10 я прогнав лише web і
 # дістав червоний CI на відступах у міграції.
-step "лінт web" bash -c 'cd apps/web && npx eslint src'
+# 🔴 D2 З РЕЦЕНЗІЇ: БЕЗ ЦЬОГО СКРИПТ ДАВАВ ЗЕЛЕНЕ НА ДЕРЕВІ, ЯКЕ CI
+# ВІДХИЛЯЄ. Рецензент дописав `const X: number = "рядок"` у файл цього
+# ж PR: юніти зелені, eslint зелений, а `tsc --noEmit` — одна помилка з
+# назвою файла. Саме той клас «неповного прогону», який цей скрипт
+# оголошує закритим у власній шапці.
+step "типи web" bash -c 'cd apps/web && npx tsc --noEmit'
+step "типи api" bash -c 'cd apps/api && npx tsc --noEmit -p tsconfig.json'
+
+# 🔴 D3: `--max-warnings=0`, ЯК У CI. Без прапорця попередження дає код
+# 0 локально і код 1 у CI — заміряно рецензією на підсадженій
+# невикористаній змінній. Для apps/api прапорець стояв, для web ні,
+# хоч коментар обіцяв дзеркало CI.
+step "лінт web" bash -c 'cd apps/web && npx eslint src --max-warnings=0'
 step "лінт api (prettier усередині)" \
   bash -c 'cd apps/api && npx eslint "src/**/*.ts" --max-warnings=0'
 

@@ -27,13 +27,49 @@ import type { Page } from "@playwright/test";
  * невидимим, а не полагодженим. Спершу нехай наступне падіння назве
  * вузол.
  */
-const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] as const;
+/**
+ * 🔴 ЕКСПОРТОВАНО НАВМИСНО: це єдиний рядок, від якого тепер залежать
+ * усі пʼять перевірок доступності, і він мусить мати сторожа.
+ * Заміряно рецензією: одна зайва літера в назві тега дає НУЛЬ порушень
+ * і жодної помилки — тобто сліпота без жодного сигналу.
+ */
+export const WCAG_TAGS = [
+  "wcag2a",
+  "wcag2aa",
+  "wcag21a",
+  "wcag21aa",
+] as const;
+
+/**
+ * Теги правил axe, які ми взагалі вміємо просити.
+ *
+ * 🔴 Сторож живе ТУТ, а не лише в тесті над `WCAG_TAGS`, бо виклик має
+ * обхід: `drought-layer.spec.ts` передає свій, вужчий перелік. Тест над
+ * константою не побачив би друкарської помилки в ньому.
+ */
+const WCAG_TAG_SHAPE = /^wcag2[01]?a{1,2}$/;
+
+export function assertWcagTags(tags: readonly string[]): readonly string[] {
+  if (tags.length === 0) {
+    throw new Error("axeViolations: порожній перелік тегів нічого не перевіряє");
+  }
+  const bad = tags.filter((t) => !WCAG_TAG_SHAPE.test(t));
+  if (bad.length > 0) {
+    throw new Error(
+      `axeViolations: теги ${JSON.stringify(bad)} не є правилами WCAG — ` +
+        `axe мовчки поверне НУЛЬ порушень. Дозволено: ${WCAG_TAG_SHAPE}`,
+    );
+  }
+  return tags;
+}
 
 export async function axeViolations(
   page: Page,
   opts: { tags?: readonly string[]; include?: string } = {},
 ): Promise<string[]> {
-  let builder = new AxeBuilder({ page }).withTags([...(opts.tags ?? WCAG)]);
+  let builder = new AxeBuilder({ page }).withTags([
+    ...assertWcagTags(opts.tags ?? WCAG_TAGS),
+  ]);
   // `include` звужує огляд до одного вузла — так робить перевірка шару
   // посухи, де решта мапи не її предмет.
   if (opts.include) builder = builder.include(opts.include);
