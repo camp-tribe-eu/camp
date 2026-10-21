@@ -1,7 +1,6 @@
 import { revalidateTag } from "next/cache";
 import { timingSafeEqual } from "node:crypto";
-import { NAV_TAG } from "@/lib/navigation";
-import { PAGE_TAG } from "@/lib/page-content";
+import { ALLOWED_TAGS } from "@/lib/revalidate-tags";
 
 // CAMP-365 / CAMP-363 — скидання кешу за міткою, щоб правка в CMS
 // з'являлась за секунди, а не за добу.
@@ -13,24 +12,7 @@ import { PAGE_TAG } from "@/lib/page-content";
 // опускала б її всьому сайту — див. `lib/navigation.ts`, там заміряно.
 // Мітка цієї ціни не має: вона нічого не опускає, її скидає цей виклик.
 
-/**
- * Що дозволено скидати. Довільну мітку приймати не можна.
- *
- * 🔴 `pages` ДОДАНО, БО БЕЗ НЕЇ КОМЕНТАР ВИЩЕ БУВ НЕПРАВДОЮ.
- *
- * Заміряно рецензією #308: `POST /api/revalidate?tag=pages` віддавав
- * `400 {"allowed":["navigation"]}`, і жоден виклик у репозиторії цю
- * мітку не згадував. Тобто ВЕСЬ текст CMS — сторінки, правові
- * документи, дописи блогу — оновлювався виключно витримкою 86 400 с,
- * тоді як сусідній файл `lib/posts.ts` стверджував «одна мітка — один
- * вебхук, який не можна налаштувати наполовину».
- *
- * Мітка існувала, і скинути її не міг ніхто.
- */
-const ALLOWED = new Map([
-  ["navigation", NAV_TAG],
-  ["pages", PAGE_TAG],
-]);
+
 
 /**
  * 🔴 ПОРІВНЯННЯ СТАЛОГО ЧАСУ, І ДОВЖИНУ ТЕЖ ТРЕБА ХОВАТИ.
@@ -78,12 +60,12 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const name = new URL(request.url).searchParams.get("tag") ?? "";
-  const tag = ALLOWED.get(name);
+  const tag = ALLOWED_TAGS.get(name);
   if (!tag) {
     return Response.json(
       {
         error: `мітка «${name}» не дозволена`,
-        allowed: [...ALLOWED.keys()],
+        allowed: [...ALLOWED_TAGS.keys()],
       },
       { status: 400 },
     );
