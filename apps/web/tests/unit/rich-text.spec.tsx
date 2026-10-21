@@ -3,7 +3,12 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { renderComponent } from "./render-component";
 import { RichText } from "@/components/rich-text";
-import { parseBlocks, parseInline, substitute } from "@/lib/rich-text";
+import {
+  assertUniqueAnchors,
+  parseBlocks,
+  parseInline,
+  substitute,
+} from "@/lib/rich-text";
 
 // CAMP-365 — текст із CMS. Файл стереже дві різні речі, і плутати їх
 // не можна: ЩО читач бачить, і чого браузер НЕ виконає.
@@ -101,14 +106,48 @@ test.describe("🔴 чого браузер не виконає", () => {
   // гілці `strong` лишила всі 15 тестів зеленими, а в розмітку поїхав
   // живий `<img onerror=…>`. Тому payload тепер іде в КОЖНУ позицію,
   // яку малює свій вузол.
+  // 🔴 І ПЕРЕЛІК ПОЗИЦІЙ ЗВІРЯЄТЬСЯ З РЕНДЕРОМ, А НЕ ПИШЕТЬСЯ РУКОЮ.
+  //
+  // Рецензія #307 заміряла, чого це коштує. Той самий обчислений проп
+  // (`["dangerously","Set","Inner","HTML"].join("")`), поставлений у
+  // щойно додану гілку `em`, лишив УВЕСЬ юніт-проєкт байт у байт на
+  // базовій лінії — 1892 passed, 10 skipped — і віддав у розмітку
+  // живий `<img onerror=…>`. Бо перелік нижче мав пʼять позицій, а
+  // рендер відростив три нові вузли: `em`, `h3` і абзац рамки.
+  //
+  // Це третій раз, коли новий побратим не вступає в інвентар сторожа,
+  // тож перелік більше не є списком: нижче він ЗВІРЯЄТЬСЯ з мітками
+  // `case` самого рендера, і гілка без випадку валить тест на імені.
+  /**
+   * Код рендера БЕЗ коментарів. Окремою функцією, бо його читають два
+   * сторожі, а сторож, який матчить коментар, уже був: згадка «тут
+   * немає dangerouslySetInnerHTML» колись сама задовольняла перевірку.
+   */
+  const rendererCode = () =>
+    readFileSync(
+      path.join(__dirname, "..", "..", "src", "components", "rich-text.tsx"),
+      "utf8",
+    )
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+
   const EVIL = "<img src=x onerror=alert(1)>";
-  for (const [where, text] of [
-    ["звичайний текст", EVIL],
-    ["виділення", `**${EVIL}**`],
-    ["підпис посилання", `[${EVIL}](/x)`],
-    ["підзаголовок", `## ${EVIL}`],
-    ["пункт списку", `- ${EVIL}`],
-  ] as const) {
+  const POSITIONS: ReadonlyArray<{
+    where: string;
+    text: string;
+    covers: readonly string[];
+  }> = [
+    { where: "звичайний текст", text: EVIL, covers: ["p", "text"] },
+    { where: "виділення", text: `**${EVIL}**`, covers: ["strong"] },
+    { where: "наголос", text: `*${EVIL}*`, covers: ["em"] },
+    { where: "підпис посилання", text: `[${EVIL}](/x)`, covers: ["link"] },
+    { where: "підзаголовок", text: `## ${EVIL}`, covers: ["h2"] },
+    { where: "третій рівень", text: `### ${EVIL}`, covers: ["h3"] },
+    { where: "рамка", text: `> ${EVIL}`, covers: ["callout"] },
+    { where: "пункт списку", text: `- ${EVIL}`, covers: ["ul"] },
+  ];
+
+  for (const { where, text } of POSITIONS) {
     test(`розмітка в позиції «${where}» лишається текстом`, () => {
       const html = renderComponent(RichText, { text });
       expect(html, `у «${where}» зʼявився живий <img`).not.toContain("<img");
@@ -121,16 +160,32 @@ test.describe("🔴 чого браузер не виконає", () => {
     });
   }
 
+  // 🔴 ЗВІРКА ПЕРЕЛІКУ З РЕНДЕРОМ. Без неї попередні вісім випадків
+  // лишаються просто списком, який хтось колись забуде доповнити — і
+  // підсумок «8 passed» виглядатиме так само зелено.
+  test("🔴 кожна гілка рендера має свою позицію в матриці", () => {
+    const code = rendererCode();
+    const labels = new Set(
+      [...code.matchAll(/case "([a-z0-9-]+)":/g)].map((m) => m[1]),
+    );
+    const covered = new Set(POSITIONS.flatMap((p) => p.covers));
+
+    expect(labels.size, "у рендері не знайдено жодної гілки — розбір зламався")
+      .toBeGreaterThan(5);
+    expect(
+      [...labels].filter((l) => !covered.has(l)).sort(),
+      "рендер малює вузол, якого немає в матриці екранування",
+    ).toEqual([]);
+    expect(
+      [...covered].filter((c) => !labels.has(c)).sort(),
+      "матриця називає вузол, якого рендер не малює",
+    ).toEqual([]);
+  });
+
   test("у рендері немає жодного способу віддати сирий HTML", () => {
     // Сторож на СПОСІБ лишається, але він тепер другий рубіж, а не
     // перший: властивість вище ловить і те, чого цей не бачить.
-    const raw = readFileSync(
-      path.join(__dirname, "..", "..", "src", "components", "rich-text.tsx"),
-      "utf8",
-    );
-    const code = raw
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^\s*\/\/.*$/gm, "");
+    const code = rendererCode();
 
     expect(code, "у рендері зʼявився dangerouslySetInnerHTML").not.toContain(
       "dangerouslySetInnerHTML",
@@ -303,5 +358,50 @@ test.describe("правова розмітка", () => {
   test("🔴 h3 теж несе якір — інакше рівень вирішував би, чи працює посилання", () => {
     const blocks = parseBlocks("### Підрозділ {#sub}");
     expect(blocks[0]).toMatchObject({ kind: "h3", id: "sub" });
+  });
+});
+
+// 🔴 CAMP-365 — дві дірки, які знайшла рецензія #307.
+test.describe("межі формату", () => {
+  // Без екранування `a * b * c` у полі CMS мовчки ставало курсивом.
+  test("🔴 зворотна скісна робить зірочку просто зірочкою", () => {
+    const spans = parseInline("знижка 5\\* і ще 10\\*");
+    expect(
+      spans.every((x) => x.kind === "text"),
+      `щось стало розміткою: ${JSON.stringify(spans)}`,
+    ).toBe(true);
+    expect(spans.map((x) => x.text).join("")).toBe("знижка 5* і ще 10*");
+  });
+
+  test("екранується і квадратна дужка, і сама скісна", () => {
+    expect(parseInline("\\[не посилання\\]").map((x) => x.text).join("")).toBe(
+      "[не посилання]",
+    );
+    expect(parseInline("шлях C:\\\\").map((x) => x.text).join("")).toBe(
+      "шлях C:\\",
+    );
+  });
+
+  // Пара до попереднього: без неї «усе стало текстом» було б зеленим і
+  // тоді, коли розмітка перестала працювати взагалі.
+  test("екранування не вимикає звичайної розмітки поруч", () => {
+    const spans = parseInline("5\\* це **багато**");
+    expect(spans.some((x) => x.kind === "strong")).toBe(true);
+    expect(spans.map((x) => x.text).join("")).toBe("5* це багато");
+  });
+
+  // 🔴 Якір унікальний у межах СТОРІНКИ. Кожна секція CMS розбирається
+  // окремо, тож перевірка всередині одного розбору не бачить сусідньої
+  // секції — а `what` трапляється в правових сторінках чотири рази.
+  test("🔴 однакові якорі в РІЗНИХ секціях кидають", () => {
+    const a = parseBlocks("## Перша {#what}");
+    const b = parseBlocks("## Друга {#what}");
+    expect(() => assertUniqueAnchors([a, b], "сторінці")).toThrow(/#what/);
+  });
+
+  test("різні якорі в різних секціях не кидають", () => {
+    const a = parseBlocks("## Перша {#one}");
+    const b = parseBlocks("## Друга {#two}");
+    expect(() => assertUniqueAnchors([a, b], "сторінці")).not.toThrow();
   });
 });
