@@ -89,7 +89,12 @@ export class SeedHomePage1792700000000 implements MigrationInterface {
         `INSERT INTO page_section_translations
            (section_id, language_code, heading, body, items)
          VALUES ($1, 'en', $2, $3, $4)`,
-        [row[0].id, t.heading ?? null, t.body ?? null, JSON.stringify(t.items ?? [])],
+        [
+          row[0].id,
+          t.heading ?? null,
+          t.body ?? null,
+          JSON.stringify(t.items ?? []),
+        ],
       );
     };
 
