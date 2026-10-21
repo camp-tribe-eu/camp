@@ -1,5 +1,6 @@
 import { apiFetch } from "./api";
 import { COMPANY, CONTACT_EMAIL } from "./legal";
+import { substitute } from "./rich-text";
 
 // CAMP-365 — сторінка, зібрана з універсальних секцій (модель CAMP-362).
 
@@ -63,5 +64,41 @@ export async function pageContent(slug: string): Promise<PageView | null> {
         "Текст сторінки живе в CMS, тож без відповіді її нема з чого зібрати.",
     );
   }
-  return (await res.json()) as PageView;
+  return withValues((await res.json()) as PageView);
+}
+
+/**
+ * 🔴 ПІДСТАНОВКИ РОЗГОРТАЮТЬСЯ В УСІХ ТЕКСТОВИХ ПОЛЯХ, А НЕ ЛИШЕ В ТІЛІ.
+ *
+ * Перша редакція покладалась на те, що `substitute` живе всередині
+ * `RichText`, — тобто доходив тільки `body`. Рецензія заміряла наслідок:
+ * `cta_href = "mailto:{{contact.email}}"` їхав у `href` ДОСЛІВНО, а
+ * сторож «жодної {{ на сторінці» його не бачив, бо читає видимий текст,
+ * а не атрибути. `title` і `meta_description` не були покриті нічим.
+ *
+ * Тобто коментар вище («усе, чого немає в цьому обʼєкті, кидає при
+ * розборі») був неправдою для пʼяти полів із семи. Тепер він правда:
+ * кожне текстове поле проходить через той самий білий список, і
+ * невідомий ключ кидає, де б він не стояв.
+ *
+ * `body` лишається `RichText`-у: там підстановка має статись ДО розбору
+ * розмітки, інакше `[текст]({{...}})` не склеїться в посилання.
+ */
+function withValues(page: PageView): PageView {
+  const sub = (v: string | null) =>
+    v === null ? null : substitute(v, PAGE_VALUES);
+  return {
+    ...page,
+    title: substitute(page.title, PAGE_VALUES),
+    metaDescription: sub(page.metaDescription),
+    sections: page.sections.map((s) => ({
+      ...s,
+      heading: sub(s.heading),
+      subheading: sub(s.subheading),
+      imageAlt: sub(s.imageAlt),
+      imageUrl: sub(s.imageUrl),
+      ctaHref: sub(s.ctaHref),
+      ctaLabel: sub(s.ctaLabel),
+    })),
+  };
 }

@@ -48,12 +48,22 @@ test("🔴 невідомий тип падає гучно, а не зникає
 });
 
 test("🔴 перелік відомих типів не порожній і названий у помилці", () => {
-  // Пара до тесту вище: якби `SECTION_TYPES` став порожнім, помилка
-  // лишилась би, але корисною бути перестала.
+  // 🔴 ПЕРША РЕДАКЦІЯ ЦЬОГО ТЕСТУ БУЛА ПОРОЖНЬОЮ.
+  //
+  // Твердження стояли ВСЕРЕДИНІ `catch`, без жодної перевірки, що
+  // кидок узагалі стався. Рецензія заміряла: заміна `throw` на
+  // `return null` лишала цей тест зеленим над НУЛЕМ перевірок — тобто
+  // він підтверджував сам факт свого запуску, і нічого більше.
   expect(SECTION_TYPES.length).toBeGreaterThan(1);
+
+  let msg = "";
   try {
     renderComponent(PageSections, { sections: [section({ type: "nope" })] });
   } catch (e) {
-    for (const t of SECTION_TYPES) expect(String(e)).toContain(t);
+    msg = String(e);
   }
+
+  // Пара до циклу нижче: без неї порожній `msg` задовольнив би все.
+  expect(msg, "рендер не кинув на невідомий тип").not.toBe("");
+  for (const t of SECTION_TYPES) expect(msg).toContain(t);
 });

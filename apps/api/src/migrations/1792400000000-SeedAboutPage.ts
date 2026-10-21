@@ -46,8 +46,16 @@ export class SeedAboutPage1792400000000 implements MigrationInterface {
     );
     if (Number(existing[0]?.count ?? 0) > 0) return;
 
+    // 🔴 `type` І `status` ЗАДАЮТЬСЯ ЯВНО.
+    //
+    // Перша редакція перелічувала лише (slug, sort, noindex), тож
+    // `status` брав DEFAULT `'draft'`, а `type` — свій DEFAULT. Сторінка
+    // їхала читачеві чернеткою, і помітив це лише рецензент. Поля, від
+    // яких залежить видимість, не можна лишати на замовчування.
     const page: Array<{ id: string }> = await queryRunner.query(
-      `INSERT INTO pages (slug, sort, noindex) VALUES ($1, 0, false) RETURNING id`,
+      `INSERT INTO pages (slug, type, status, published_at, sort, noindex)
+       VALUES ($1, 'page', 'published', now(), 0, false)
+       RETURNING id`,
       [this.slug],
     );
     const pageId = page[0].id;

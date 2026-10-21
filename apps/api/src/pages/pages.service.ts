@@ -32,6 +32,20 @@ export class PagesService {
   /**
    * Сторінка з секціями, або `null`, якщо її немає.
    *
+   * 🔴 ЛИШЕ `published`, І ЛИШЕ ЗАПИТАНОГО ТИПУ.
+   *
+   * Перша редакція не мала предиката на `status` ВЗАГАЛІ — і це не
+   * дрібниця: сид клав сторінку з DEFAULT `'draft'`, тож чернетка
+   * їхала читачеві й у `generateStaticParams`. Рецензія заміряла:
+   * `status='archived'` віддавалось так само. Сусідній
+   * `guides.service.ts:62` робить це правильно з коментарем «Only
+   * published rows ever leave this file» — я мав його поруч і не
+   * подивився.
+   *
+   * 🔴 І `type`: `ContentModel` обіцяє, що сторінка й допис з однаковим
+   * слагом «зіткнутись не можуть», а запит без типу мав `LIMIT 1` без
+   * `ORDER BY` — тобто переможець довільний. Тепер тип питається явно.
+   *
    * 🔴 `null` ОЗНАЧАЄ «НЕМАЄ», А НЕ «ПОРОЖНЯ». Сторінка без перекладу
    * обраною мовою — це теж «немає»: показати заголовок без тексту
    * гірше, ніж чесний 404, бо читач вирішить, що сторінка зламана, а
@@ -41,7 +55,11 @@ export class PagesService {
    * міркування на рівень нижче: порожня секція це дірка в сторінці, а
    * не секція.
    */
-  async bySlug(slug: string, language: string): Promise<PageView | null> {
+  async bySlug(
+    slug: string,
+    language: string,
+    type: 'page' | 'post' = 'page',
+  ): Promise<PageView | null> {
     const pages = await this.db.query<
       Array<{
         id: string;
@@ -58,9 +76,11 @@ export class PagesService {
           ON t.page_id = p.id
          AND t.language_code = $2
        WHERE p.slug = $1
+         AND p.type = $3
+         AND p.status = 'published'
        LIMIT 1
       `,
-      [slug, language],
+      [slug, language, type],
     );
 
     const page = pages[0];
@@ -114,15 +134,27 @@ export class PagesService {
     };
   }
 
-  /** Слаги всіх сторінок — для `generateStaticParams`. */
-  async slugs(language: string): Promise<string[]> {
+  /**
+   * Слаги опублікованих сторінок — для `generateStaticParams`.
+   *
+   * 🔴 Той самий фільтр, що й у `bySlug`, і це НЕ дублювання заради
+   * симетрії: без нього збірка згенерувала б сторінку з чернетки, а
+   * `bySlug` потім віддав би на неї 404. Два запити мусять бачити одну
+   * множину, інакше ми самі собі зробимо мертві адреси.
+   */
+  async slugs(
+    language: string,
+    type: 'page' | 'post' = 'page',
+  ): Promise<string[]> {
     const rows = await this.db.query<Array<{ slug: string }>>(
       `SELECT p.slug
          FROM pages p
          JOIN page_translations t
            ON t.page_id = p.id AND t.language_code = $1
+        WHERE p.type = $2
+          AND p.status = 'published'
         ORDER BY p.sort, p.slug`,
-      [language],
+      [language, type],
     );
     return rows.map((r) => r.slug);
   }

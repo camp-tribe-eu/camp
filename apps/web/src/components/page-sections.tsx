@@ -11,8 +11,16 @@ import { PAGE_VALUES, type SectionView } from "@/lib/page-content";
 // це й дає обіцянку CAMP-362: новий тип секції не потребує ні міграції,
 // ні нової колекції. Ціна тієї обіцянки — база може віддати тип, якого
 // рендер не знає.
-export const SECTION_TYPES = ["prose", "cta"] as const;
-export type SectionType = (typeof SECTION_TYPES)[number];
+// 🔴 ПЕРЕЛІК ТИПІВ — ЦЕ КЛЮЧІ КАРТИ РЕНДЕРІВ, А НЕ ДРУГИЙ СПИСОК.
+//
+// Перша редакція тримала `SECTION_TYPES = ["prose","cta"]` поруч із
+// ланцюжком `if`. Рецензія провела мутацію: додала `"faq"` у перелік,
+// не додавши рендера, — і ВСІ 4 тести лишились зеленими, а повідомлення
+// про помилку почало називати `faq` серед «Відомих». Тобто сторож
+// підказував би тип, якого намалювати не вміє.
+//
+// Тепер розійтись неможливо за побудовою: перелік ВИВОДИТЬСЯ з карти
+// (нижче, після самих рендерів).
 
 function Prose({ section }: { section: SectionView }) {
   return (
@@ -63,12 +71,22 @@ function Cta({ section }: { section: SectionView }) {
  * сервері Next лишає попередню справну сторінку. Обидва наслідки
  * кращі за мовчазну дірку в тексті.
  */
+const RENDERERS = {
+  prose: Prose,
+  cta: Cta,
+} as const;
+
+export const SECTION_TYPES = Object.keys(RENDERERS) as Array<
+  keyof typeof RENDERERS
+>;
+export type SectionType = keyof typeof RENDERERS;
+
 export function PageSections({ sections }: { sections: SectionView[] }) {
   return (
     <>
       {sections.map((s, i) => {
-        if (s.type === "prose") return <Prose key={i} section={s} />;
-        if (s.type === "cta") return <Cta key={i} section={s} />;
+        const Render = RENDERERS[s.type as SectionType];
+        if (Render) return <Render key={i} section={s} />;
         throw new Error(
           `page-sections: невідомий тип секції «${s.type}». Відомі: ` +
             `${SECTION_TYPES.join(", ")}. Тип у базі зʼявився без рендера — ` +

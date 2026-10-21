@@ -69,6 +69,40 @@ test.describe("🔴 CAMP-365 — /about із CMS", () => {
     );
   });
 
+  // 🔴 ПЕРЕЇХАЛО З `tests/unit/about-contact.spec.ts`.
+  //
+  // Доки текст жив у коді, ці два твердження були юніт-тестом над
+  // компонентом. CAMP-365 забрала текст у CMS, компонент став
+  // асинхронним, і юніт на ньому падає. Тут вони сильніші: доводять не
+  // те, що компонент МІСТИТЬ рядок, а те, що читач його БАЧИТЬ.
+
+  test("🔴 має власні хлібні крихти, що ведуть на себе", async ({ page }) => {
+    await page.goto("/about");
+    const ld = await page
+      .locator('script[type="application/ld+json"]')
+      .allTextContents();
+    const all = ld.join(" ");
+    expect(all, "немає BreadcrumbList").toContain("BreadcrumbList");
+    expect(all, "крихта не веде на себе").toContain("/about");
+  });
+
+  test("🔴 НЕМАЄ зашитого числа кемпінгів", async ({ page }) => {
+    // По сайту розсипане `61 422`, заміряне 27.09.2026 і зашите в текст
+    // для людини та в метадані для пошуковика. Переїзд у CMS цю пастку
+    // не прибирає — він переносить її туди, де текст редагує власник.
+    // Тож сторож їде разом із текстом.
+    //
+    // 🔴 Перша редакція забороняла БУДЬ-ЯКЕ число з чотирьох знаків і
+    // падала на поштовому індексі «2000 Antwerpen»: твердження було
+    // ширше за намір.
+    await page.goto("/about");
+    const said = await page.locator("main").innerText();
+    for (const stale of ["61 422", "61422", "48 970", "87 505"]) {
+      expect(said, `на сторінці зашито ${stale}`).not.toContain(stale);
+    }
+    expect(said).not.toMatch(/[\d\s]{4,}\s*campsites/i);
+  });
+
   test("обидві дії лишились: кнопка на мапу і лист", async ({ page }) => {
     await page.goto("/about");
     await expect(page.locator('main a[href="/map"]')).toHaveText(
