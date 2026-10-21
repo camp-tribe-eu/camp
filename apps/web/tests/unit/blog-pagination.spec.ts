@@ -144,3 +144,42 @@ test.describe("слаг, зайнятий маршрутом пагінації"
     );
   });
 });
+
+// ── Пункт 5 «Способу перевірки» CAMP-364 ─────────────────────────────
+//
+// «Мутація: прибрати noindex з чернетки → тест мусить почервоніти.»
+//
+// 🔴 ЦЬОГО СТОРОЖА НЕ БУЛО. Чернетка й запланований допис уже віддають
+// 404 (`blog.spec.ts`), але ПОРОЖНІЙ КАТАЛОГ віддає 200, і єдине, що
+// тримає його поза індексом, — один тернарний вираз у
+// `generateMetadata`. Прибрати його означало б віддати пошуковику
+// сторінку з реченням «нічого ще не опубліковано» під назвою «Blog».
+test.describe("порожній каталог не йде в індекс", () => {
+  const meta = async (posts: unknown[]) => {
+    const { generateMetadata } = await import("@/app/blog/page");
+    let out: Awaited<ReturnType<typeof generateMetadata>> | null = null;
+    await withApi({ "/posts": { body: { posts } } }, async () => {
+      out = await generateMetadata();
+    });
+    return out!;
+  };
+
+  test("без дописів — robots.index === false", async () => {
+    expect((await meta([])).robots).toEqual({ index: false, follow: true });
+  });
+
+  // 🔴 І ЗВОРОТНА ПОЛОВИНА. Без неї мутація «ставити noindex ЗАВЖДИ»
+  // лишилась би зеленою, а блог ніколи б не потрапив у пошук.
+  test("з дописом — жодного noindex", async () => {
+    const m = await meta([
+      {
+        slug: "a",
+        title: "T",
+        summary: null,
+        publishedAt: "2026-10-01T00:00:00.000Z",
+        authorName: null,
+      },
+    ]);
+    expect(m.robots ?? null).toBeNull();
+  });
+});
