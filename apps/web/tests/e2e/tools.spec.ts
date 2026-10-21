@@ -1,6 +1,25 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { visibleText } from "../unit/rendered-text";
+
+// 🔴 ТОЙ САМИЙ ВИДОБУВАЧ ТЕКСТУ, ЩО Й У ЮНІТІ — І ЦЕ НЕ ЗРУЧНІСТЬ.
+//
+// Ці твердження прийшли з `thin-pages.spec.tsx`, де текст діставав
+// `visibleText()`: він ставить пробіл на межі блокових тегів і не
+// ставить на рядкових, тобто читає так, як бачить людина.
+//
+// Перенісши їх, я двічі змінив поверхню виміру й двічі отримав червоний
+// CI:
+//   • `innerText` — не бачить тексту `<option>` у закритому `<select>`,
+//     тож «Campervan» зникав;
+//   • `textContent` — бачить усе, але склеює вузли БЕЗ роздільника:
+//     «…(Euro-super 95)VehicleCampervan…», і взірець `/\bVehicle\b/`
+//     не знаходив межі слова. Заміряно на справжній розмітці:
+//       склеєно    → "trol (Euro-super 95)VehicleCampe"  → false
+//       visibleText → "rol (Euro-super 95) Vehicle Camp" → true
+//
+// Третьої копії видобування тут не буде: беремо наявну.
 
 // CAMP-365 — /tools переїхала в CMS частково, і її сторожі переїхали
 // разом із текстом.
@@ -130,18 +149,10 @@ test.describe("🔴 CAMP-365 — /tools", () => {
     const costGives = await gives("/tools/camper-trip-cost");
     const packGives = await gives("/tools/camper-packing-list");
 
-    // 🔴 `textContent`, А НЕ `innerText` — І ЦЕ НЕ ПРИДИРКА.
-    //
-    // Поля «Travelling in», «Fuel» це `<select>`, а їхні значення —
-    // `<option>`. `innerText` віддає ВИДИМИЙ текст, і текст пунктів
-    // закритого списку в нього не входить (firefox показав це першим).
-    // Юніт-версія цього сторожа читала повний рендер компонента, тож
-    // бачила все; перенісши його в e2e, я змінив поверхню виміру й не
-    // перевірив. `textContent` бере всі текстові вузли.
     await page.goto("/tools/camper-trip-cost");
-    const cost = (await page.locator("main").textContent()) ?? "";
+    const cost = visibleText(await page.locator("main").innerHTML());
     await page.goto("/tools/camper-packing-list");
-    const pack = (await page.locator("main").textContent()) ?? "";
+    const pack = visibleText(await page.locator("main").innerHTML());
 
     // Форма, що не відрендерилась, зробила б кожен рядок нижче
     // безпредметним — тож спершу стверджуємо, що вона є.
