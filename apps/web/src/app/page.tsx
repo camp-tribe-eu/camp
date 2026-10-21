@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import {
   AMENITY_KEYS,
@@ -16,7 +15,12 @@ import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import { ButtonLink } from '@/components/button';
 import { pageContent, type SectionView } from '@/lib/page-content';
-import { PageSections, sectionOf } from '@/components/page-sections';
+import {
+  PageSections,
+  assertAllSectionsUsed,
+  sectionOf,
+} from '@/components/page-sections';
+import { BRAND_DESCRIPTION, BRAND_TITLE } from '@/lib/brand';
 
 // CAMP-41 — the home page.
 //
@@ -61,12 +65,43 @@ import { PageSections, sectionOf } from '@/components/page-sections';
 
 const SLUG = 'home';
 
+/** Типи секцій, яким головна має місце в макеті. */
+const HOME_SECTIONS = ['hero', 'steps'] as const;
+
+/**
+ * 🔴 КОРІНЬ НЕ БЕРЕ ЗАГОЛОВОК ІЗ `title` СТОРІНКИ, І ЦЕ НЕ НЕДОГЛЯД.
+ *
+ * Перша редакція ставила `title: page.metaTitle ?? page.title` — як на
+ * /about і /tools. Рецензія заміряла наслідок A/B на одній базі:
+ *
+ *   main: <title>CampTribe — Plan Better. Camp Smarter.</title>
+ *   було: <title>Every campsite, and what is around it</title>
+ *
+ * Бренд зник із заголовка КОРЕНЕВОЇ адреси. Шаблон `"%s | CampTribe"`
+ * його не повернув би: Next застосовує шаблон до ДОЧІРНІХ сегментів, а
+ * `app/page.tsx` живе в тому самому сегменті, що й макет, який шаблон
+ * оголошує. Гірше: `og:title` лишався брендовим, тобто сторінка
+ * суперечила власній картці для соцмереж.
+ *
+ * Тому заголовок кореня — брендовий, доки власник не поставить
+ * `meta_title` явно. А коли поставить, той самий рядок їде і в
+ * `openGraph`, і в `twitter`: розійтись їм більше нема як.
+ *
+ * 🔴 І ПИШЕМО ЇХ ЗАВЖДИ, А НЕ ЛИШЕ ПРИ ПЕРЕВИЗНАЧЕННІ. Next не зливає
+ * `openGraph` углиб: обʼєкт сторінки ЗАМІНЮЄ обʼєкт макета. Тобто
+ * «поставити лише опис» означало б стерти `og:title`. Тому обидва поля
+ * беруться з CMS або з бренду, і жодне не лишається напів-заданим.
+ */
 export async function generateMetadata(): Promise<Metadata> {
   const page = await pageContent(SLUG);
   if (!page) return { title: 'Not found' };
+  const title = page.metaTitle ?? BRAND_TITLE;
+  const description = page.metaDescription ?? BRAND_DESCRIPTION;
   return {
-    title: page.metaTitle ?? page.title,
-    description: page.metaDescription ?? undefined,
+    title,
+    description,
+    openGraph: { type: 'website', siteName: 'CampTribe', title, description },
+    twitter: { card: 'summary_large_image', title, description },
     alternates: alternatesFor('/'),
     ...(page.noindex ? { robots: { index: false, follow: true } } : {}),
   };
@@ -79,7 +114,23 @@ export default async function Home() {
     getCountries(),
     getNotable(),
   ]);
-  if (!page) notFound();
+  // 🔴 КОРІНЬ НЕ СМІЄ СТАТИ 404 МОВЧКИ.
+  //
+  // Перша редакція кликала `notFound()`, як роблять /about і /tools. На
+  // них це правильно: немає рядка — немає сторінки. Для КОРЕНЯ це інша
+  // подія: заміряно рецензією — підміна API на 404 дає `GET / 404`,
+  // тобто збірка успішно випускає сайт, у якого головна мертва, і
+  // жодна помилка про це не каже.
+  //
+  // Тому тут кидаємо. Збірка, яка не знайшла вміст головної, не має
+  // права віддати сайт — запасний шлях мусить падати в бік помітного.
+  if (!page) {
+    throw new Error(
+      `головна: GET /pages/${SLUG} не віддав сторінки. Її текст живе в ` +
+        'CMS, тож без рядка в базі корінь сайту був би 404 — а це не ' +
+        'подія, яку можна пропустити мовчки.',
+    );
+  }
 
   // 🔴 `{{lead}}` РАХУЄТЬСЯ ТУТ, А НЕ ЛЕЖИТЬ У БАЗІ.
   //
@@ -91,6 +142,10 @@ export default async function Home() {
   const values = {
     lead: heroLead(printable(summary.spots), printable(summary.regions)),
   };
+
+  // 🔴 Зайва секція не зникає мовчки: головна розкладає макет сама,
+  // тож рендер не побачить того, чого їй не передали.
+  assertAllSectionsUsed(page.sections, HOME_SECTIONS, 'головна');
 
   return (
     <main>
@@ -107,12 +162,12 @@ export default async function Home() {
       />
 
       <Hero
-        section={sectionOf(page.sections, 'hero', 'головної')}
+        section={sectionOf(page.sections, HOME_SECTIONS[0], 'головної')}
         values={values}
         countries={countries}
       />
       <PageSections
-        sections={[sectionOf(page.sections, 'steps', 'головної')]}
+        sections={[sectionOf(page.sections, HOME_SECTIONS[1], 'головної')]}
         values={values}
       />
       <Countries countries={countries} />

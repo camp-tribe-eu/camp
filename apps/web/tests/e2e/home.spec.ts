@@ -28,13 +28,21 @@ test.describe("🔴 CAMP-365 — головна", () => {
     const lead = await page.locator("main p").first().innerText();
     expect(lead, "вступ не закінчується рядком із бази").toContain(LEAD_TAIL);
 
-    // 🔴 Початок вступу РАХУЄТЬСЯ (`heroLead`), і саме тому він має
-    // виглядати як одне з двох: речення з числом або — коли API відповів
-    // нулями — те саме речення БЕЗ чисел (CAMP-308). Третього не буває,
-    // і «0 campsites» зокрема.
+    // 🔴 Початок вступу РАХУЄТЬСЯ (`heroLead`), і він має ЧОТИРИ форми,
+    // не дві. Перша редакція цього взірця приймала рівно одну з них, а
+    // коментар обіцяв, що приймає й вироджену — заміряно рецензією: усі
+    // три вироджені гілки падали. Тобто при 500 від API сторінка
+    // надрукувала б правильно, а сторож почервонів би з хибним
+    // діагнозом.
+    //
+    // Форми `heroLead`, дослівно з `lib/campsite-count.ts`:
+    //   Campsites and motorhome parks across Europe        (обидва нулі)
+    //   N campsites and motorhome parks                    (немає регіонів)
+    //   Campsites and motorhome parks across N regions     (немає місць)
+    //   N campsites and motorhome parks across N regions   (усе є)
     expect(lead, "вступ друкує нуль як число").not.toMatch(/\b0 campsites\b/);
     expect(lead).toMatch(
-      /^(Campsites and motorhome parks|[\d,]+ campsites and motorhome parks across [\d,]+ regions),/,
+      /^(?:[\d,]+ campsites|Campsites) and motorhome parks(?: across (?:Europe|[\d,]+ regions))?,/,
     );
   });
 
@@ -91,5 +99,43 @@ test.describe("🔴 CAMP-365 — головна", () => {
       await countryLinks.count(),
       "жодного посилання в країну — перелік із бази зник",
     ).toBeGreaterThan(0);
+  });
+});
+
+// 🔴 CAMP-365 — голова документа, якої не бачив жоден сторож.
+//
+// Рецензія #306 заміряла A/B на одній базі: переїзд мовчки замінив
+// `<title>` кореня з брендового на заголовок сторінки, і `og:title`
+// лишився брендовим — сторінка суперечила власній картці для соцмереж.
+// Доказ «різниця в усьому <main> — 8 символів» цього побачити не міг:
+// уся зміна була в `<head>`.
+test.describe("🔴 CAMP-365 — голова головної", () => {
+  test("корінь лишається брендовим і не сперечається сам із собою", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    const title = await page.title();
+    expect(title, "бренд зник із заголовка кореневої адреси").toContain(
+      "CampTribe",
+    );
+
+    const og = await page
+      .locator('meta[property="og:title"]')
+      .getAttribute("content");
+    expect(og, "немає og:title").not.toBeNull();
+    expect(
+      og,
+      `og:title («${og}») розійшовся з <title> («${title}»)`,
+    ).toBe(title);
+
+    const desc = await page
+      .locator('meta[name="description"]')
+      .getAttribute("content");
+    const ogDesc = await page
+      .locator('meta[property="og:description"]')
+      .getAttribute("content");
+    expect(desc, "немає опису").not.toBeNull();
+    expect(ogDesc, "og:description розійшовся з description").toBe(desc);
   });
 });

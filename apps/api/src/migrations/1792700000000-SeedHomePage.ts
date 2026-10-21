@@ -32,6 +32,9 @@ export class SeedHomePage1792700000000 implements MigrationInterface {
   /** Дослівно з попереднього `app/page.tsx`. */
   private readonly h1 = 'Every campsite, and what is around it';
 
+  private readonly metaDescription =
+    'Campsites, motorhome parks and camper stops across the EU-27, with what is around each one.';
+
   private readonly lead =
     '{{lead}}, each with the distance to water, to the nearest town and to a railway stop, its elevation and its terrain — calculated by us, published by nobody else.';
 
@@ -51,8 +54,16 @@ export class SeedHomePage1792700000000 implements MigrationInterface {
   ];
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // 🔴 СТОРОЖ ДИВИТЬСЯ НА `(type, slug)`, А НЕ НА САМИЙ `slug`.
+    //
+    // Унікальний індекс таблиці — `IDX_pages_type_slug`, і `bySlug`
+    // фільтрує `type` теж. Заміряно рецензією: доки тут було
+    // `WHERE slug = $1`, ДОПИС зі слагом `home` змушував міграцію
+    // позначитись виконаною, вставивши нуль перекладів і нуль секцій, —
+    // а корінь сайту після цього віддавав 404 без жодної помилки.
+    // Directus уже живий, тож такий допис може зʼявитись до деплою.
     const existing: Array<{ count: string }> = await queryRunner.query(
-      `SELECT count(*)::text AS count FROM pages WHERE slug = $1`,
+      `SELECT count(*)::text AS count FROM pages WHERE slug = $1 AND type = 'page'`,
       [this.slug],
     );
     if (Number(existing[0]?.count ?? 0) > 0) return;
@@ -68,11 +79,7 @@ export class SeedHomePage1792700000000 implements MigrationInterface {
     await queryRunner.query(
       `INSERT INTO page_translations (page_id, language_code, title, meta_description)
        VALUES ($1, 'en', $2, $3)`,
-      [
-        pageId,
-        this.h1,
-        'Campsites, motorhome parks and camper stops across the EU-27, with what is around each one.',
-      ],
+      [pageId, this.h1, this.metaDescription],
     );
 
     const add = async (
@@ -105,9 +112,12 @@ export class SeedHomePage1792700000000 implements MigrationInterface {
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `DELETE FROM page_translations
-        WHERE page_id IN (SELECT id FROM pages WHERE slug = $1)`,
+        WHERE page_id IN (SELECT id FROM pages WHERE slug = $1 AND type = 'page')`,
       [this.slug],
     );
-    await queryRunner.query(`DELETE FROM pages WHERE slug = $1`, [this.slug]);
+    await queryRunner.query(
+      `DELETE FROM pages WHERE slug = $1 AND type = 'page'`,
+      [this.slug],
+    );
   }
 }

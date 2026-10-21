@@ -166,7 +166,11 @@ export interface CardItem {
  * інакше повторилась би помилка з рецензії #303, де перевірка стояла в
  * одному місці з двох.
  */
-export function cardsOf(items: unknown, where: string): CardItem[] {
+export function cardsOf(
+  items: unknown,
+  where: string,
+  values: Values = PAGE_VALUES,
+): CardItem[] {
   // 🔴 НЕ-МАСИВ — ЦЕ ПОЛОМКА, А НЕ ПОРОЖНЬО.
   //
   // Сервіс раніше зводив усе не-масивне до `[]`, і найімовірніша
@@ -196,7 +200,7 @@ export function cardsOf(items: unknown, where: string): CardItem[] {
       }
       return v;
     };
-    const href = need("href");
+    const href = substitute(need("href"), values);
     if (!isInternalHref(href)) {
       throw new Error(
         `page-sections: картка ${i} у ${where} веде на «${href}» — ` +
@@ -226,15 +230,23 @@ export function cardsOf(items: unknown, where: string): CardItem[] {
         }
         return v;
       };
-      return { term: field("term"), text: field("text") };
+      return {
+        term: substitute(field("term"), values),
+        text: substitute(field("text"), values),
+      };
     });
 
-    return { title: need("title"), href, body: need("body"), terms };
+    return {
+      title: substitute(need("title"), values),
+      href,
+      body: substitute(need("body"), values),
+      terms,
+    };
   });
 }
 
-function Cards({ section }: RenderProps) {
-  const items = cardsOf(section.items, "секції cards");
+function Cards({ section, values }: RenderProps) {
+  const items = cardsOf(section.items, "секції cards", values);
   return (
     <ul className="mt-8 grid gap-6 md:grid-cols-2">
       {items.map((t) => (
@@ -381,8 +393,8 @@ function Hero({ section, values }: RenderProps) {
   );
 }
 
-function Steps({ section }: RenderProps) {
-  const items = termsOf(section.items, "секції steps");
+function Steps({ section, values }: RenderProps) {
+  const items = termsOf(section.items, "секції steps", values);
   return (
     <section className="mx-auto max-w-wrap px-4 py-12 xl:px-6">
       {section.heading && (
@@ -410,6 +422,11 @@ function Steps({ section }: RenderProps) {
 export function termsOf(
   items: unknown,
   where: string,
+  // 🔴 Типове значення — САМЕ `PAGE_VALUES`, і воно безпечне: єдиний
+  // ключ понад них на сьогодні це `{{lead}}` головної, і його
+  // відсутність КИДАЄ в `substitute`. Тобто виклик, який забув передати
+  // свої значення, падає гучно, а не друкує сміття.
+  values: Values = PAGE_VALUES,
 ): Array<{ term: string; text: string }> {
   if (!Array.isArray(items)) {
     throw new Error(
@@ -428,17 +445,36 @@ export function termsOf(
       }
       return v;
     };
-    return { term: field("term"), text: field("text") };
+    // 🔴 `items` ТЕЖ ПРОХОДЯТЬ ПІДСТАНОВКУ — ЦЕ ВИПРАВЛЕННЯ НЕПРАВДИ.
+    //
+    // `applyValues` покриває `title`, `metaTitle`, `metaDescription`,
+    // `heading` і `ctaHref`; `body` розгортає `RichText`. А `items` не
+    // чіпав ніхто. Заміряно рецензією #306: крок із текстом
+    // «Write to {{contact.email}}» друкувався ЧИТАЧЕВІ дослівно, і
+    // невідомий ключ теж друкувався замість кидати. Тобто червоне
+    // твердження вище в цьому ж файлі («мова одна… невідомий ключ кидає
+    // тут так само, як усюди») було хибним саме для `items`.
+    //
+    // Сторож «жодної {{ на сторінці» цього не бачив за побудовою: він
+    // читає ЗАСІЯНУ базу, а в засіві підстановок у кроках немає.
+    return {
+      term: substitute(field("term"), values),
+      text: substitute(field("text"), values),
+    };
   });
 }
 
 const CARDS = "cards" satisfies SectionType;
 
 /** Картки всіх секцій `cards` сторінки — для розмітки й для рендера. */
-export function cardsFrom(sections: SectionView[], where: string): CardItem[] {
+export function cardsFrom(
+  sections: SectionView[],
+  where: string,
+  values: Values = PAGE_VALUES,
+): CardItem[] {
   return sections
     .filter((s) => s.type === CARDS)
-    .flatMap((s) => cardsOf(s.items, where));
+    .flatMap((s) => cardsOf(s.items, where, values));
 }
 
 /**
@@ -463,6 +499,35 @@ export function sectionOf(
     );
   }
   return found[0];
+}
+
+/**
+ * 🔴 СЕКЦІЯ, ЯКУ МАКЕТ НЕ РОЗКЛАВ, НЕ СМІЄ ЗНИКНУТИ МОВЧКИ.
+ *
+ * `PageSections` чесний: невідомий ТИП він кидає. Але сторінка, яка
+ * розкладає секції сама (головна бере `hero` і `steps` і ставить між
+ * ними власний макет), передає рендеру не весь перелік — і зайва
+ * секція туди просто не доходить.
+ *
+ * Асиметрія, яку заміряла рецензія #306: СХОВАТИ секцію — вся сторінка
+ * падає (`sectionOf` кидає), ДОДАТИ — тиша. Власник додасть секцію в
+ * адмінці, не побачить її на сайті й вирішить, що зламалась CMS.
+ */
+export function assertAllSectionsUsed(
+  sections: SectionView[],
+  used: readonly SectionType[],
+  where: string,
+): void {
+  const extra = sections
+    .map((s) => s.type)
+    .filter((t) => !(used as readonly string[]).includes(t));
+  if (extra.length > 0) {
+    throw new Error(
+      `page-sections: ${where} — секції «${extra.join("», «")}» нікуди ` +
+        "не малюються. Макет цієї сторінки розкладає секції сам, тож " +
+        "нова секція потребує місця в розмітці; мовчки вона не зникне.",
+    );
+  }
 }
 
 export function PageSections({
