@@ -25,40 +25,18 @@ import { visibleText } from "./rendered-text";
 
 const contact = () => renderComponent(Contact, {});
 
-test("відкривається й має власний заголовок", () => {
-  expect(visibleText(contact())).toContain("Contact");
-});
-
-test("🔴 кожна має власні хлібні крихти, а не лише посилання «додому»", () => {
-  // Правило карти сайту: кожна глибока сторінка це окремий лендинг.
-  for (const [name, html, path] of [
-    ["contact", contact(), "/contact"],
-  ] as const) {
-    expect(html, `${name}: немає BreadcrumbList`).toContain("BreadcrumbList");
-    expect(html, `${name}: крихта не веде на себе`).toContain(path);
-  }
-});
-
-test("🔴 має власну CTA", () => {
-  expect(contact()).toContain('data-testid="contact-cta"');
-  // І вона веде кудись конкретно, а не в порожнечу.
-  expect(contact()).toContain(`mailto:${CONTACT_EMAIL}`);
-});
-
-test("🔴 контакти беруться з одного джерела, а не передруковуються", () => {
-  // Друга копія адреси розійшлась би з першою на першій же правці.
-  const html = contact();
-  expect(html).toContain(CONTACT_EMAIL);
-  expect(html).toContain(COMPANY.name);
-  expect(html).toContain(COMPANY.city);
-});
-
-test("🔴 контактна сторінка каже, чого ми НЕ можемо", () => {
-  // Інакше людина напише й чекатиме на бронювання або на правку в OSM.
-  const said = visibleText(contact());
-  expect(said).toContain("do not take bookings");
-  expect(said).toContain("OpenStreetMap");
-});
+// 🔴 УСЕ, ЩО МАЛЮВАЛО СТОРІНКИ, ПЕРЕЇХАЛО В E2E.
+//
+// CAMP-365 забрала текст обох сторінок у CMS, тож обидва компоненти
+// стали асинхронними й синхронний `renderComponent` на них падає. Цього
+// разу я спіймав це САМ, прогнавши весь проєкт `unit` перед пушем, а не
+// отримав від рецензента (як було з /about у PR #302).
+//
+// Твердження живі: `tests/e2e/about.spec.ts` і `tests/e2e/contact.spec.ts`
+// доводять те саме на справжніх сторінках — тобто сильніше, бо
+// перевіряють, що читач це БАЧИТЬ, а не що компонент містить рядок.
+//
+// Тут лишилось те, що сторінок не малює.
 
 test("🔴 обидві є в карті сайту — інакше вони існують для нікого", () => {
   // Саме цього бракувало: сторінки були в карті сайту як намір, а в

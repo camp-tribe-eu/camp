@@ -1,4 +1,4 @@
-import { ButtonLink } from "./button";
+import { ButtonLink, buttonClasses } from "./button";
 import { RichText } from "./rich-text";
 import { PAGE_VALUES, type SectionView } from "@/lib/page-content";
 
@@ -36,17 +36,12 @@ function Prose({ section }: { section: SectionView }) {
 }
 
 function Cta({ section }: { section: SectionView }) {
+  const href = section.ctaHref;
+  const label = section.ctaLabel;
+
   return (
     <div className="mt-8 flex flex-wrap items-center gap-3">
-      {section.ctaHref && section.ctaLabel && (
-        <ButtonLink
-          data-testid={`section-cta-${section.ctaHref.replace(/\W+/g, "-")}`}
-          href={section.ctaHref}
-          variant="primary"
-        >
-          {section.ctaLabel}
-        </ButtonLink>
-      )}
+      {href && label && <CtaButton href={href} label={label} />}
       {section.body && (
         <RichText
           text={section.body}
@@ -55,6 +50,41 @@ function Cta({ section }: { section: SectionView }) {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * 🔴 `next/link` НЕ ДЛЯ `mailto:`, І ДІМ ЦЕ ВЖЕ ЗНАВ.
+ *
+ * `ButtonLink` ходить через `next/link`, тобто вміє клієнтський перехід
+ * — для внутрішнього шляху це правильно. Але попередня сторінка
+ * `/contact` навмисно малювала свою кнопку ЗВИЧАЙНИМ якорем із тими
+ * самими класами (`buttonClasses('primary')`), бо її адреса — `mailto:`.
+ * Я б цього не помітив, якби не перечитав сторінку перед переїздом:
+ * мій перший рендер секції віддавав усе через `ButtonLink`.
+ *
+ * Отже розрізняємо за тим самим правилом, що й у `rich-text`: шлях від
+ * кореня — внутрішній, решта — ні.
+ */
+function CtaButton({ href, label }: { href: string; label: string }) {
+  const testId = `section-cta-${href.replace(/\W+/g, "-")}`;
+
+  if (href.startsWith("/")) {
+    return (
+      <ButtonLink data-testid={testId} href={href} variant="primary">
+        {label}
+      </ButtonLink>
+    );
+  }
+  return (
+    <a
+      data-testid={testId}
+      href={href}
+      className={buttonClasses("primary")}
+      data-ct-button="primary"
+    >
+      {label}
+    </a>
   );
 }
 

@@ -20,6 +20,8 @@ export interface SectionView {
 export interface PageView {
   slug: string;
   title: string;
+  /** Заголовок для пошуковика; `null` → береться `title`. */
+  metaTitle: string | null;
   metaDescription: string | null;
   noindex: boolean;
   sections: SectionView[];
@@ -90,6 +92,7 @@ function withValues(page: PageView): PageView {
   return {
     ...page,
     title: substitute(page.title, PAGE_VALUES),
+    metaTitle: sub(page.metaTitle),
     metaDescription: sub(page.metaDescription),
     sections: page.sections.map((s) => ({
       ...s,
