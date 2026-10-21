@@ -1,4 +1,5 @@
 import { RESERVED_WORDS } from '@/lib/cems';
+import { MAP_DRAWN, waitForMapState } from '../map-ready';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
@@ -249,11 +250,10 @@ async function settle(page: Page) {
   await page.waitForSelector('[data-testid="map"]');
   await expect(page.locator(NOTE)).toBeVisible();
   await expect(page.locator(NOTE)).not.toHaveAttribute('data-state', 'loading');
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="map"]')?.getAttribute('data-map-state') !== 'loading',
-    undefined,
-    { timeout: 30_000 },
-  );
+  // 🔴 CAMP-382: було `!== 'loading'`, і помилка в назві атрибута робила
+  // це чекання порожнім — `null !== 'loading'` істинне негайно. Заміряно:
+  // 309 мс і зелено, замість 20 000 мс і червоно.
+  await waitForMapState(page, MAP_DRAWN, 30_000);
   // One more frame after the last data event, so the canvas has painted.
   await page.waitForTimeout(1500);
 }

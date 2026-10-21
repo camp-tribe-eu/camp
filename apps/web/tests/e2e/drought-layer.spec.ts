@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { MAP_DRAWN, waitForMapState } from '../map-ready';
 import { axeViolations } from './axe';
 import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -191,11 +192,10 @@ async function openMap(page: Page, land: string = STUB_LAND) {
 /** Wait until the map has stopped fetching and drawn. */
 async function mapReady(page: Page) {
   await page.waitForSelector(MAP);
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="map"]')?.getAttribute('data-map-state') !== 'loading',
-    undefined,
-    { timeout: 30_000 },
-  );
+  // 🔴 CAMP-382: було `!== 'loading'`, і помилка в назві атрибута робила
+  // це чекання порожнім — `null !== 'loading'` істинне негайно. Заміряно:
+  // 309 мс і зелено, замість 20 000 мс і червоно.
+  await waitForMapState(page, MAP_DRAWN, 30_000);
   await page.waitForTimeout(1500);
 }
 

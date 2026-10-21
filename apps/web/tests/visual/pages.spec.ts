@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { waitForMapState } from '../map-ready';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -136,14 +137,39 @@ async function pinFireLayer(page: Page) {
   );
 }
 
-async function settle(page: Page) {
+async function settle(page: Page, subject?: string) {
   // Fonts decide layout. A screenshot taken before they load captures
   // the fallback metrics and differs from every later run.
   await page.evaluate(() => document.fonts.ready);
-  // And give the map its chance to either draw or not — either way the
-  // canvas is masked, but a half-built control bar is not.
+
+  // 🔴 CAMP-382. `networkidle` НА СТОРІНЦІ З МАПОЮ — ЦЕ ТАЙМЕР, А НЕ
+  // ПОДІЯ, І ЙОГО ПОМИЛКА БУЛА ПРОКОВТНУТА.
+  //
+  // MapLibre тягне тайли доки рухається камера й доки довантажуються
+  // джерела, тож мережа на `/map` не затихає в межах бюджету. Рядок
+  // `waitForLoadState('networkidle').catch(() => {})` через це не
+  // «чекав, поки сторінка заспокоїться» — він просто висів до
+  // навігаційної межі, ковтав помилку й віддавав решту бюджету двом
+  // повноформатним знімкам WebGL-полотна.
+  //
+  // Заміряно по 60 прогонах CI за добу (21.10.2026): `phone › map` і
+  // `laptop › map` впали «Test timeout of 30000ms exceeded» чотири рази,
+  // щоразу зеленіючи з повтору. Жодна інша сторінка не мигтіла — бо на
+  // жодній іншій мережа затихає.
+  //
+  // Мапа вміє сказати про себе сама: `data-map-state` стає не-`loading`,
+  // коли дані перестали приходити. Тим самим сигналом уже користується
+  // `drought-layer.spec.ts`. Чекаємо на ПОДІЮ й даємо їй ВЛАСНУ межу —
+  // тобто падіння приходить із назвою стану, а не з «бюджет вичерпано».
+  if (subject === 'map') {
+    await waitForMapState(page);
+    return;
+  }
+
+  // Решті сторінок `networkidle` підходить: там мережа справді затихає.
   await page.waitForLoadState('networkidle').catch(() => {});
 }
+
 
 
 /**
@@ -268,7 +294,7 @@ for (const viewport of VIEWPORTS) {
       test(`${subject.name} looks the way it did`, async ({ page }, testInfo) => {
         if (subject.name === 'map') await pinFireLayer(page);
         await page.goto(subject.path);
-        await settle(page);
+        await settle(page, subject.name);
 
         const shot = `${subject.name}-${viewport.name}.png`;
         await expect(page).toHaveScreenshot(shot, {
