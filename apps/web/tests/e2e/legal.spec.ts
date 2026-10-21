@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './api-request';
-import AxeBuilder from '@axe-core/playwright';
+import { axeViolations } from './axe';
 import { LEGAL_PAGES, legalPath } from '@/lib/legal';
 import { CONSENT_KEY } from '@/lib/consent';
 
@@ -425,12 +425,8 @@ test.describe('the banner is usable without a mouse', () => {
     await page.goto('/');
     await expect(page.getByTestId('cookie-banner')).toBeVisible();
 
-    const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-      .analyze();
-
     expect(
-      results.violations.map((v) => `${v.id}: ${v.description}`),
+      await axeViolations(page),
       'the cookie banner introduced accessibility violations',
     ).toEqual([]);
   });

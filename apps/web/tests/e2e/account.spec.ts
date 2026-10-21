@@ -1,5 +1,5 @@
-import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from './api-request';
+import { axeViolations } from './axe';
 import { EMPTY_STATES } from '@/components/account-cabinet-view';
 import { RETURN_KEY } from '@/lib/return-path';
 import { visibleText } from '../unit/rendered-text';
@@ -108,10 +108,7 @@ test.describe('доступність і консоль', () => {
       await page.waitForFunction(() => !document.querySelector('input:disabled'), null, {
         timeout: 15_000,
       });
-      const result = await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-        .analyze();
-      expect(result.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+      expect(await axeViolations(page)).toEqual([]);
       expect(errors).toEqual([]);
     });
   }

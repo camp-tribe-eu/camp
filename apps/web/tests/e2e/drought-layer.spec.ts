@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
+import { axeViolations } from './axe';
 import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { openMapRetryingThrottle } from './open-map';
 import { INITIAL_VIEW } from '@/lib/map-sources';
@@ -354,11 +354,12 @@ test.describe('the note under the map', () => {
     await openMap(page);
     await mapReady(page);
     await switchOn(page);
-    const result = await new AxeBuilder({ page })
-      .include(NOTE)
-      .withTags(['wcag2a', 'wcag2aa'])
-      .analyze();
-    expect(result.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+    expect(
+      await axeViolations(page, {
+        tags: ['wcag2a', 'wcag2aa'],
+        include: NOTE,
+      }),
+    ).toEqual([]);
   });
 
   test('🔴 nothing in the console: no policy violation, no error, while the layer draws, goes off and comes back', async ({ page }) => {
