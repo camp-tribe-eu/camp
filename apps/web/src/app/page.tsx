@@ -14,6 +14,13 @@ import { heroLead, printable } from '@/lib/campsite-count';
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import { ButtonLink } from '@/components/button';
+import { pageContent, type SectionView } from '@/lib/page-content';
+import {
+  PageSections,
+  assertAllSectionsUsed,
+  sectionOf,
+} from '@/components/page-sections';
+import { BRAND_DESCRIPTION, BRAND_TITLE } from '@/lib/brand';
 
 // CAMP-41 — the home page.
 //
@@ -39,17 +46,106 @@ import { ButtonLink } from '@/components/button';
 // have no pages behind them (CAMP-45, CAMP-54, CAMP-66). A section that
 // describes something a reader cannot reach is an advertisement for our
 // own backlog.
+//
+// CAMP-365 забрала звідси редакційний текст — заголовок, вступ і три
+// кроки «як це працює» лежать у CMS.
+//
+// 🔴 ПЕРЕЇХАЛО НЕ ВСЕ, І МЕЖА ТУТ ПРЕДМЕТНА — ТА САМА, ЩО НА /tools:
+// текст, який ОПИСУЄ, їде в CMS; те, що РАХУЄ або ПЕРЕЛІЧУЄ
+// згенероване, лишається з генератором. Перелік країн, картки місць і
+// числа кемпінгів будуються з відповіді API; у базі їм нічого робити.
+//
+// 🔴 БЛОК ДВОХ ЛІЙОК ЛИШИВСЯ В КОДІ ЦІЛКОМ, РАЗОМ ІЗ ТЕКСТОМ. Дві
+// причини, обидві предметні. Ліва картка — це перелік країн із бази в
+// обгортці з двох рядків, тобто саме «ПЕРЕЛІЧУЄ згенероване». Права —
+// абзац, який живе рівно доти, доки оренди немає: коли CAMP-54 вийде,
+// підуть і він, і пунктирна рамка довкола нього. Текст, що вмирає
+// разом зі своїм макетом, не виграє від того, що його можна правити
+// окремо.
 
-export const metadata: Metadata = {
-  alternates: alternatesFor('/'),
-};
+const SLUG = 'home';
+
+/** Типи секцій, яким головна має місце в макеті. */
+const HOME_SECTIONS = ['hero', 'steps'] as const;
+
+/**
+ * 🔴 КОРІНЬ НЕ БЕРЕ ЗАГОЛОВОК ІЗ `title` СТОРІНКИ, І ЦЕ НЕ НЕДОГЛЯД.
+ *
+ * Перша редакція ставила `title: page.metaTitle ?? page.title` — як на
+ * /about і /tools. Рецензія заміряла наслідок A/B на одній базі:
+ *
+ *   main: <title>CampTribe — Plan Better. Camp Smarter.</title>
+ *   було: <title>Every campsite, and what is around it</title>
+ *
+ * Бренд зник із заголовка КОРЕНЕВОЇ адреси. Шаблон `"%s | CampTribe"`
+ * його не повернув би: Next застосовує шаблон до ДОЧІРНІХ сегментів, а
+ * `app/page.tsx` живе в тому самому сегменті, що й макет, який шаблон
+ * оголошує. Гірше: `og:title` лишався брендовим, тобто сторінка
+ * суперечила власній картці для соцмереж.
+ *
+ * Тому заголовок кореня — брендовий, доки власник не поставить
+ * `meta_title` явно. А коли поставить, той самий рядок їде і в
+ * `openGraph`, і в `twitter`: розійтись їм більше нема як.
+ *
+ * 🔴 І ПИШЕМО ЇХ ЗАВЖДИ, А НЕ ЛИШЕ ПРИ ПЕРЕВИЗНАЧЕННІ. Next не зливає
+ * `openGraph` углиб: обʼєкт сторінки ЗАМІНЮЄ обʼєкт макета. Тобто
+ * «поставити лише опис» означало б стерти `og:title`. Тому обидва поля
+ * беруться з CMS або з бренду, і жодне не лишається напів-заданим.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const page = await pageContent(SLUG);
+  if (!page) return { title: 'Not found' };
+  const title = page.metaTitle ?? BRAND_TITLE;
+  const description = page.metaDescription ?? BRAND_DESCRIPTION;
+  return {
+    title,
+    description,
+    openGraph: { type: 'website', siteName: 'CampTribe', title, description },
+    twitter: { card: 'summary_large_image', title, description },
+    alternates: alternatesFor('/'),
+    ...(page.noindex ? { robots: { index: false, follow: true } } : {}),
+  };
+}
 
 export default async function Home() {
-  const [summary, countries, notable] = await Promise.all([
+  const [page, summary, countries, notable] = await Promise.all([
+    pageContent(SLUG),
     getSummary(),
     getCountries(),
     getNotable(),
   ]);
+  // 🔴 КОРІНЬ НЕ СМІЄ СТАТИ 404 МОВЧКИ.
+  //
+  // Перша редакція кликала `notFound()`, як роблять /about і /tools. На
+  // них це правильно: немає рядка — немає сторінки. Для КОРЕНЯ це інша
+  // подія: заміряно рецензією — підміна API на 404 дає `GET / 404`,
+  // тобто збірка успішно випускає сайт, у якого головна мертва, і
+  // жодна помилка про це не каже.
+  //
+  // Тому тут кидаємо. Збірка, яка не знайшла вміст головної, не має
+  // права віддати сайт — запасний шлях мусить падати в бік помітного.
+  if (!page) {
+    throw new Error(
+      `головна: GET /pages/${SLUG} не віддав сторінки. Її текст живе в ` +
+        'CMS, тож без рядка в базі корінь сайту був би 404 — а це не ' +
+        'подія, яку можна пропустити мовчки.',
+    );
+  }
+
+  // 🔴 `{{lead}}` РАХУЄТЬСЯ ТУТ, А НЕ ЛЕЖИТЬ У БАЗІ.
+  //
+  // `heroLead` свідомо не друкує чисел, коли API віддав нулі (CAMP-308):
+  // «61 422» колись застигло в тексті й лишалось там після того, як
+  // база змінилась. Якби ціле речення переїхало в CMS, цей запобіжник
+  // зник би — редактор побачив би поле з числом і правив би число.
+  // У базі лежить тільки хвіст речення.
+  const values = {
+    lead: heroLead(printable(summary.spots), printable(summary.regions)),
+  };
+
+  // 🔴 Зайва секція не зникає мовчки: головна розкладає макет сама,
+  // тож рендер не побачить того, чого їй не передали.
+  assertAllSectionsUsed(page.sections, HOME_SECTIONS, 'головна');
 
   return (
     <main>
@@ -65,8 +161,15 @@ export default async function Home() {
         })}
       />
 
-      <Hero summary={summary} countries={countries} />
-      <HowItWorks />
+      <Hero
+        section={sectionOf(page.sections, HOME_SECTIONS[0], 'головної')}
+        values={values}
+        countries={countries}
+      />
+      <PageSections
+        sections={[sectionOf(page.sections, HOME_SECTIONS[1], 'головної')]}
+        values={values}
+      />
       <Countries countries={countries} />
       <Notable spots={notable} />
     </main>
@@ -74,30 +177,19 @@ export default async function Home() {
 }
 
 function Hero({
-  summary,
+  section,
+  values,
   countries,
 }: {
-  summary: Awaited<ReturnType<typeof getSummary>>;
+  section: SectionView;
+  values: Readonly<Record<string, string>>;
   countries: Awaited<ReturnType<typeof getCountries>>;
 }) {
   return (
     <section className="border-b border-line-2 bg-surface">
       <div className="mx-auto max-w-wrap px-4 py-12 md:py-16 xl:px-6">
-        <h1 className="max-w-[18ch] text-3xl font-bold leading-tight md:text-[42px]">
-          Every campsite, and what is around it
-        </h1>
-        <p className="mt-4 max-w-prose text-ink-2">
-          {/* The real count, from the database. It reads as small today
-              and that is correct — it is the number we can stand behind.
-              🔴 And when we cannot stand behind it — the API answered with
-              an error and `getSummary` filled in zeros — the clause is
-              written without the figures rather than claiming nought
-              (CAMP-308). */}
-          {heroLead(printable(summary.spots), printable(summary.regions))}, each
-          with the distance to water, to the nearest town and to a railway
-          stop, its elevation and its terrain — calculated by us, published
-          by nobody else.
-        </p>
+        {/* Заголовок і вступ — із CMS. Решта блоку нижче — макет. */}
+        <PageSections sections={[section]} values={values} />
 
         {/* 🔴 The two funnels as separate cards, not tabs. A tab hides one
             of them behind a click, and the mock-up's own note (CAMP-81) is
@@ -142,43 +234,6 @@ function Hero({
           </div>
         </div>
       </div>
-    </section>
-  );
-}
-
-function HowItWorks() {
-  const steps = [
-    {
-      title: 'Find places',
-      body:
-        'Campsites from OpenStreetMap, refreshed weekly, with the gaps shown as gaps rather than filled in with guesses.',
-    },
-    {
-      title: 'See the surroundings',
-      body:
-        'How far the lake is, how high the site sits, whether a train stops within walking distance — computed for every campsite.',
-    },
-    {
-      title: 'Plan the drive',
-      body:
-        'Route planning and weather along the way are being built. Nothing here pretends they are ready.',
-    },
-  ];
-
-  return (
-    <section className="mx-auto max-w-wrap px-4 py-12 xl:px-6">
-      <h2 className="text-xl font-bold md:text-[25px]">How this works</h2>
-      <ol className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-3">
-        {steps.map((s, i) => (
-          <li key={s.title}>
-            <span className="text-xs font-semibold uppercase tracking-widest text-ink-2">
-              Step {i + 1}
-            </span>
-            <h3 className="mt-1 text-base font-semibold">{s.title}</h3>
-            <p className="mt-1 max-w-prose text-sm text-ink-2">{s.body}</p>
-          </li>
-        ))}
-      </ol>
     </section>
   );
 }

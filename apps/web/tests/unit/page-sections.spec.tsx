@@ -3,6 +3,7 @@ import { renderComponent } from "./render-component";
 import {
   PageSections,
   SECTION_TYPES,
+  assertAllSectionsUsed,
   cardsOf,
 } from "@/components/page-sections";
 import type { SectionView } from "@/lib/page-content";
@@ -130,4 +131,107 @@ test("справна картка проходить і зберігає ряд�
   );
   expect(out).toHaveLength(1);
   expect(out[0].terms).toEqual([{ term: "Дає", text: "Число" }]);
+});
+
+// 🔴 CAMP-365 — підстановки в `items`, яких не робив ніхто.
+//
+// Заміряно рецензією #306 на справжній головній: крок із текстом
+// «Write to {{contact.email}}» друкувався ЧИТАЧЕВІ дослівно, а
+// невідомий ключ друкувався замість кидати. `applyValues` покриває
+// `title`, `metaTitle`, `metaDescription`, `heading` і `ctaHref`,
+// `body` розгортає `RichText`, а `items` не чіпав ніхто — і червоне
+// твердження у файлі («мова одна… невідомий ключ кидає тут так само,
+// як усюди») було хибним саме для них.
+test.describe("🔴 підстановки доходять і в items", () => {
+  const steps = (term: string, text: string) =>
+    section({
+      type: "steps",
+      heading: "Як це працює",
+      items: [{ term, text }],
+    });
+
+  test("відомий ключ у кроці розгортається, а не друкується", () => {
+    const html = renderComponent(PageSections, {
+      sections: [steps("Напишіть", "Write to {{contact.email}}")],
+    });
+    expect(html, "підстановка поїхала читачеві дослівно").not.toContain("{{");
+    expect(html, "значення не підставилось").toContain("@");
+  });
+
+  test("підстановка в НАЗВІ кроку теж розгортається", () => {
+    const html = renderComponent(PageSections, {
+      sections: [steps("{{company.name}}", "текст")],
+    });
+    expect(html).not.toContain("{{");
+  });
+
+  // 🔴 Пара: «не містить {{» істинне й тоді, коли не друкується нічого.
+  // Невідомий ключ мусить КИНУТИ, як усюди.
+  test("🔴 невідомий ключ у кроці кидає, а не малює сміття", () => {
+    expect(() =>
+      renderComponent(PageSections, {
+        sections: [steps("Назва", "{{no_such_key}}")],
+      }),
+    ).toThrow(/no_such_key/);
+  });
+
+  test("🔴 невідомий ключ у картці теж кидає", () => {
+    expect(() =>
+      cardsOf(
+        [
+          {
+            title: "т",
+            href: "/x",
+            body: "{{no_such_key}}",
+            terms: [],
+          },
+        ],
+        "картках",
+      ),
+    ).toThrow(/no_such_key/);
+  });
+});
+
+// 🔴 CAMP-365 — зайва секція не зникає мовчки.
+test.describe("🔴 секція, якій немає місця в макеті", () => {
+  test("кидає й називає тип", () => {
+    expect(() =>
+      assertAllSectionsUsed(
+        [section({ type: "hero" }), section({ type: "prose" })],
+        ["hero", "steps"],
+        "головна",
+      ),
+    ).toThrow(/prose/);
+  });
+
+  test("кілька зайвих — названі всі, а не перша", () => {
+    let message = "";
+    try {
+      assertAllSectionsUsed(
+        [section({ type: "cards" }), section({ type: "cta" })],
+        ["hero"],
+        "головна",
+      );
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain("cards");
+    expect(message, "названо лише перший зайвий тип").toContain("cta");
+  });
+
+  // 🔴 Пара: без неї «кидає» було б істинним і для функції, що кидає
+  // завжди — тобто перевірка не відрізняла б зайвого від звичайного.
+  test("перелік рівно з дозволених не кидає", () => {
+    expect(() =>
+      assertAllSectionsUsed(
+        [section({ type: "hero" }), section({ type: "steps" })],
+        ["hero", "steps"],
+        "головна",
+      ),
+    ).not.toThrow();
+  });
+
+  test("порожній перелік секцій не кидає", () => {
+    expect(() => assertAllSectionsUsed([], ["hero"], "головна")).not.toThrow();
+  });
 });

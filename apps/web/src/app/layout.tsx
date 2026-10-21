@@ -7,6 +7,7 @@ import { DEFAULT_LOCALE } from "@/lib/i18n";
 import CookieConsent from "@/components/cookie-consent";
 import ErrorReporter from "@/components/error-reporter";
 import { BOOTSTRAP } from "@/lib/error-bootstrap";
+import { BRAND_DESCRIPTION, BRAND_TITLE } from "@/lib/brand";
 
 // Canonical domain from Facts/project-identity.md in the Camping brain.
 // Overridable via env so staging/preview deploys don't claim the production URL.
@@ -15,11 +16,11 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://camptribe.eu";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "CampTribe — Plan Better. Camp Smarter.",
+    default: BRAND_TITLE,
     template: "%s | CampTribe",
   },
   description:
-    "Find campsites, plan routes and book camper rentals across Europe in one place.",
+    BRAND_DESCRIPTION,
   // CAMP-90. Site-wide, from the one flag. A page may still narrow this
   // further (a thin hub, a campsite OSM has dropped) — it can never
   // widen it, because Next merges child metadata over the root and the
@@ -34,16 +35,16 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "CampTribe",
-    title: "CampTribe — Plan Better. Camp Smarter.",
+    title: BRAND_TITLE,
     description:
-      "Find campsites, plan routes and book camper rentals across Europe in one place.",
+      BRAND_DESCRIPTION,
     url: siteUrl,
   },
   twitter: {
     card: "summary_large_image",
-    title: "CampTribe — Plan Better. Camp Smarter.",
+    title: BRAND_TITLE,
     description:
-      "Find campsites, plan routes and book camper rentals across Europe in one place.",
+      BRAND_DESCRIPTION,
   },
 };
 

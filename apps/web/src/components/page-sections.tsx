@@ -38,13 +38,29 @@ import { FUEL, FUEL_COUNTRIES, longDate } from "@/lib/fuel";
  * сторінки. Тому варіанти живуть тут, у коді, а не класами в базі —
  * клас у полі CMS це розмітка, яку редактор зламає мовчки.
  */
+/**
+ * 🔴 ПІДСТАНОВКИ ПРИХОДЯТЬ ЗГОРИ, А НЕ БЕРУТЬСЯ З МОДУЛЯ.
+ *
+ * `PAGE_VALUES` — це сталі сайту (назва компанії, місто, пошта). На
+ * головній зʼявилось значення, якого модуль знати не може: перше
+ * речення вступу рахується з відповіді API вже під час рендера. Тому
+ * рендери більше не тягнуть білий список самі — його зливає `PageSections`
+ * в одному місці, а сторінка додає своє.
+ *
+ * Властивість, заради якої це робиться, лишається тією самою: невідомий
+ * ключ КИДАЄ (`substitute`). Сторінка, яка забула передати `lead`, не
+ * надрукує «{{lead}}» читачеві — вона завалить збірку.
+ */
+type Values = Readonly<Record<string, string>>;
+type RenderProps = { section: SectionView; values: Values };
+
 const PROSE_VARIANTS: Record<string, string> = {
   // Як було на /tools: відбитий донизу, приглушений.
   aside: "mt-10 max-w-prose text-ink-3",
 };
 const PROSE_DEFAULT = "max-w-prose space-y-4 text-ink-2";
 
-function Prose({ section }: { section: SectionView }) {
+function Prose({ section, values }: RenderProps) {
   const className =
     (section.variant && PROSE_VARIANTS[section.variant]) || PROSE_DEFAULT;
   return (
@@ -57,7 +73,7 @@ function Prose({ section }: { section: SectionView }) {
       {section.body && (
         <RichText
           text={section.body}
-          values={PAGE_VALUES}
+          values={values}
           className={className}
         />
       )}
@@ -65,7 +81,7 @@ function Prose({ section }: { section: SectionView }) {
   );
 }
 
-function Cta({ section }: { section: SectionView }) {
+function Cta({ section, values }: RenderProps) {
   const href = section.ctaHref;
   const label = section.ctaLabel;
 
@@ -75,7 +91,7 @@ function Cta({ section }: { section: SectionView }) {
       {section.body && (
         <RichText
           text={section.body}
-          values={PAGE_VALUES}
+          values={values}
           className="text-sm text-ink-2"
         />
       )}
@@ -150,7 +166,11 @@ export interface CardItem {
  * інакше повторилась би помилка з рецензії #303, де перевірка стояла в
  * одному місці з двох.
  */
-export function cardsOf(items: unknown, where: string): CardItem[] {
+export function cardsOf(
+  items: unknown,
+  where: string,
+  values: Values = PAGE_VALUES,
+): CardItem[] {
   // 🔴 НЕ-МАСИВ — ЦЕ ПОЛОМКА, А НЕ ПОРОЖНЬО.
   //
   // Сервіс раніше зводив усе не-масивне до `[]`, і найімовірніша
@@ -180,7 +200,7 @@ export function cardsOf(items: unknown, where: string): CardItem[] {
       }
       return v;
     };
-    const href = need("href");
+    const href = substitute(need("href"), values);
     if (!isInternalHref(href)) {
       throw new Error(
         `page-sections: картка ${i} у ${where} веде на «${href}» — ` +
@@ -210,15 +230,23 @@ export function cardsOf(items: unknown, where: string): CardItem[] {
         }
         return v;
       };
-      return { term: field("term"), text: field("text") };
+      return {
+        term: substitute(field("term"), values),
+        text: substitute(field("text"), values),
+      };
     });
 
-    return { title: need("title"), href, body: need("body"), terms };
+    return {
+      title: substitute(need("title"), values),
+      href,
+      body: substitute(need("body"), values),
+      terms,
+    };
   });
 }
 
-function Cards({ section }: { section: SectionView }) {
-  const items = cardsOf(section.items, "секції cards");
+function Cards({ section, values }: RenderProps) {
+  const items = cardsOf(section.items, "секції cards", values);
   return (
     <ul className="mt-8 grid gap-6 md:grid-cols-2">
       {items.map((t) => (
@@ -265,7 +293,7 @@ function Cards({ section }: { section: SectionView }) {
  * `{{count}}` і `{{bulletin}}` підставляє САМЕ цей рендер — бо лише він
  * знає, скільки їх сьогодні.
  */
-function FuelCountries({ section }: { section: SectionView }) {
+function FuelCountries({ section, values }: RenderProps) {
   const countries = FUEL_COUNTRIES.map((code) => ({
     code,
     name: FUEL.countries[code].name,
@@ -284,7 +312,7 @@ function FuelCountries({ section }: { section: SectionView }) {
   // білим списком, і невідомий ключ кидає тут так само, як усюди.
   const note = section.body
     ? substitute(section.body, {
-        ...PAGE_VALUES,
+        ...values,
         count: String(countries.length),
         bulletin: longDate(FUEL.bulletinDate),
       })
@@ -317,6 +345,8 @@ const RENDERERS = {
   cta: Cta,
   cards: Cards,
   "fuel-countries": FuelCountries,
+  hero: Hero,
+  steps: Steps,
 } as const;
 
 export const SECTION_TYPES = Object.keys(RENDERERS) as Array<
@@ -333,21 +363,186 @@ export type SectionType = keyof typeof RENDERERS;
  * малювала б картки. `satisfies` привʼязує константу до карти рендерів:
  * імʼя, якого там немає, не скомпілюється.
  */
+/**
+ * 🔴 ГОЛОВНА — ЦЕ МАКЕТ, А НЕ ДОКУМЕНТ, І ТИПИ НИЖЧЕ ЦЕ ВИЗНАЮТЬ.
+ *
+ * На /about і /contact текст був суцільним, тож вистачало `prose`. На
+ * головній редакційні рядки вплетені в ОБЧИСЛЕНЕ: перелік країн,
+ * картки місць, числа кемпінгів. Межа та сама, що й на /tools — текст,
+ * який ОПИСУЄ, їде в CMS; те, що РАХУЄ або ПЕРЕЛІЧУЄ згенероване,
+ * лишається з генератором.
+ *
+ * Тому `hero`, `steps` — універсальні (будь-який лендинг їх матиме), а
+ * `country-grid` і `notable-spots` тримають у базі лише заголовок, а
+ * самі переліки малює сторінка.
+ */
+function Hero({ section, values }: RenderProps) {
+  return (
+    <>
+      {section.heading && (
+        <h1 className="max-w-[18ch] text-3xl font-bold leading-tight md:text-[42px]">
+          {section.heading}
+        </h1>
+      )}
+      {section.body && (
+        <p className="mt-4 max-w-prose text-ink-2">
+          {substitute(section.body, values)}
+        </p>
+      )}
+    </>
+  );
+}
+
+function Steps({ section, values }: RenderProps) {
+  const items = termsOf(section.items, "секції steps", values);
+  return (
+    <section className="mx-auto max-w-wrap px-4 py-12 xl:px-6">
+      {section.heading && (
+        <h2 className="text-xl font-bold md:text-[25px]">{section.heading}</h2>
+      )}
+      <ol className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-3">
+        {items.map((s, i) => (
+          <li key={s.term}>
+            <span className="text-xs font-semibold uppercase tracking-widest text-ink-2">
+              Step {i + 1}
+            </span>
+            <h3 className="mt-1 text-base font-semibold">{s.term}</h3>
+            <p className="mt-1 max-w-prose text-sm text-ink-2">{s.text}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/**
+ * Пари «назва — текст» із `items`, із тією самою суворістю, що й картки:
+ * порожній рядок у списку виглядає як дефект рендера, тож падаємо тут.
+ */
+export function termsOf(
+  items: unknown,
+  where: string,
+  // 🔴 Типове значення — САМЕ `PAGE_VALUES`, і воно безпечне: єдиний
+  // ключ понад них на сьогодні це `{{lead}}` головної, і його
+  // відсутність КИДАЄ в `substitute`. Тобто виклик, який забув передати
+  // свої значення, падає гучно, а не друкує сміття.
+  values: Values = PAGE_VALUES,
+): Array<{ term: string; text: string }> {
+  if (!Array.isArray(items)) {
+    throw new Error(
+      `page-sections: ${where} — \`items\` не масив, а ` +
+        `${items === null ? "null" : typeof items}.`,
+    );
+  }
+  return items.map((raw, i) => {
+    const o = (raw ?? {}) as Record<string, unknown>;
+    const field = (k: string) => {
+      const v = o[k];
+      if (typeof v !== "string" || v.trim() === "") {
+        throw new Error(
+          `page-sections: рядок ${i} у ${where} не має поля «${k}».`,
+        );
+      }
+      return v;
+    };
+    // 🔴 `items` ТЕЖ ПРОХОДЯТЬ ПІДСТАНОВКУ — ЦЕ ВИПРАВЛЕННЯ НЕПРАВДИ.
+    //
+    // `applyValues` покриває `title`, `metaTitle`, `metaDescription`,
+    // `heading` і `ctaHref`; `body` розгортає `RichText`. А `items` не
+    // чіпав ніхто. Заміряно рецензією #306: крок із текстом
+    // «Write to {{contact.email}}» друкувався ЧИТАЧЕВІ дослівно, і
+    // невідомий ключ теж друкувався замість кидати. Тобто червоне
+    // твердження вище в цьому ж файлі («мова одна… невідомий ключ кидає
+    // тут так само, як усюди») було хибним саме для `items`.
+    //
+    // Сторож «жодної {{ на сторінці» цього не бачив за побудовою: він
+    // читає ЗАСІЯНУ базу, а в засіві підстановок у кроках немає.
+    return {
+      term: substitute(field("term"), values),
+      text: substitute(field("text"), values),
+    };
+  });
+}
+
 const CARDS = "cards" satisfies SectionType;
 
 /** Картки всіх секцій `cards` сторінки — для розмітки й для рендера. */
-export function cardsFrom(sections: SectionView[], where: string): CardItem[] {
+export function cardsFrom(
+  sections: SectionView[],
+  where: string,
+  values: Values = PAGE_VALUES,
+): CardItem[] {
   return sections
     .filter((s) => s.type === CARDS)
-    .flatMap((s) => cardsOf(s.items, where));
+    .flatMap((s) => cardsOf(s.items, where, values));
 }
 
-export function PageSections({ sections }: { sections: SectionView[] }) {
+/**
+ * Одна секція названого типу — і гучно, якщо її немає або їх більше.
+ *
+ * 🔴 Потрібне там, де СТОРІНКА керує макетом, а не перелік секцій:
+ * на головній блок двох лійок стоїть ВСЕРЕДИНІ вступного блоку, між
+ * заголовком і наступною секцією. Без цієї перевірки порожній результат
+ * фільтра просто нічого б не намалював — головна лишилась би без `h1`,
+ * і жоден тип не заперечив би.
+ */
+export function sectionOf(
+  sections: SectionView[],
+  type: SectionType,
+  where: string,
+): SectionView {
+  const found = sections.filter((s) => s.type === type);
+  if (found.length !== 1) {
+    throw new Error(
+      `page-sections: ${where} — очікувалась рівно одна секція «${type}», ` +
+        `а їх ${found.length}.`,
+    );
+  }
+  return found[0];
+}
+
+/**
+ * 🔴 СЕКЦІЯ, ЯКУ МАКЕТ НЕ РОЗКЛАВ, НЕ СМІЄ ЗНИКНУТИ МОВЧКИ.
+ *
+ * `PageSections` чесний: невідомий ТИП він кидає. Але сторінка, яка
+ * розкладає секції сама (головна бере `hero` і `steps` і ставить між
+ * ними власний макет), передає рендеру не весь перелік — і зайва
+ * секція туди просто не доходить.
+ *
+ * Асиметрія, яку заміряла рецензія #306: СХОВАТИ секцію — вся сторінка
+ * падає (`sectionOf` кидає), ДОДАТИ — тиша. Власник додасть секцію в
+ * адмінці, не побачить її на сайті й вирішить, що зламалась CMS.
+ */
+export function assertAllSectionsUsed(
+  sections: SectionView[],
+  used: readonly SectionType[],
+  where: string,
+): void {
+  const extra = sections
+    .map((s) => s.type)
+    .filter((t) => !(used as readonly string[]).includes(t));
+  if (extra.length > 0) {
+    throw new Error(
+      `page-sections: ${where} — секції «${extra.join("», «")}» нікуди ` +
+        "не малюються. Макет цієї сторінки розкладає секції сам, тож " +
+        "нова секція потребує місця в розмітці; мовчки вона не зникне.",
+    );
+  }
+}
+
+export function PageSections({
+  sections,
+  values,
+}: {
+  sections: SectionView[];
+  values?: Values;
+}) {
+  const all: Values = values ? { ...PAGE_VALUES, ...values } : PAGE_VALUES;
   return (
     <>
       {sections.map((s, i) => {
         const Render = RENDERERS[s.type as SectionType];
-        if (Render) return <Render key={i} section={s} />;
+        if (Render) return <Render key={i} section={s} values={all} />;
         throw new Error(
           `page-sections: невідомий тип секції «${s.type}». Відомі: ` +
             `${SECTION_TYPES.join(", ")}. Тип у базі зʼявився без рендера — ` +
