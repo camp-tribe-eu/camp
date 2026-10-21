@@ -130,10 +130,18 @@ test.describe("🔴 CAMP-365 — /tools", () => {
     const costGives = await gives("/tools/camper-trip-cost");
     const packGives = await gives("/tools/camper-packing-list");
 
+    // 🔴 `textContent`, А НЕ `innerText` — І ЦЕ НЕ ПРИДИРКА.
+    //
+    // Поля «Travelling in», «Fuel» це `<select>`, а їхні значення —
+    // `<option>`. `innerText` віддає ВИДИМИЙ текст, і текст пунктів
+    // закритого списку в нього не входить (firefox показав це першим).
+    // Юніт-версія цього сторожа читала повний рендер компонента, тож
+    // бачила все; перенісши його в e2e, я змінив поверхню виміру й не
+    // перевірив. `textContent` бере всі текстові вузли.
     await page.goto("/tools/camper-trip-cost");
-    const cost = await page.locator("main").innerText();
+    const cost = (await page.locator("main").textContent()) ?? "";
     await page.goto("/tools/camper-packing-list");
-    const pack = await page.locator("main").innerText();
+    const pack = (await page.locator("main").textContent()) ?? "";
 
     // Форма, що не відрендерилась, зробила б кожен рядок нижче
     // безпредметним — тож спершу стверджуємо, що вона є.
