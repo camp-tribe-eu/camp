@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { renderComponent } from "./render-component";
-import { PageSections, SECTION_TYPES } from "@/components/page-sections";
+import {
+  PageSections,
+  SECTION_TYPES,
+  cardsOf,
+} from "@/components/page-sections";
 import type { SectionView } from "@/lib/page-content";
 
 const section = (over: Partial<SectionView>): SectionView => ({
@@ -66,4 +70,64 @@ test("🔴 перелік відомих типів не порожній і н�
   // Пара до циклу нижче: без неї порожній `msg` задовольнив би все.
   expect(msg, "рендер не кинув на невідомий тип").not.toBe("");
   for (const t of SECTION_TYPES) expect(msg).toContain(t);
+});
+
+// ── картки: що саме падає, а що малюється ──────────────────────────────
+//
+// 🔴 Усі чотири випадки нижче знайшла рецензія #304, і всі вони раніше
+// НЕ падали: обʼєкт замість масиву ставав порожнім переліком, а порожні
+// `terms` — порожніми `<dt>`/`<dd>`. Тобто «падає тут, а не малює дірку»
+// було неправдою саме для найімовірніших поломок.
+
+const card = (over: Record<string, unknown> = {}) => ({
+  title: "Назва",
+  href: "/tools/x",
+  body: "Текст",
+  ...over,
+});
+
+test("🔴 `items` обʼєктом замість масиву — поломка, а не порожньо", () => {
+  // Звичайний наслідок правки jsonb у Directus: масив стає {"0":{…}}.
+  expect(() => cardsOf({ "0": card() }, "тест")).toThrow(/не масив/);
+  expect(() => cardsOf(null, "тест")).toThrow(/не масив/);
+});
+
+test("порожній масив — це порожньо, і це нормально", () => {
+  expect(cardsOf([], "тест")).toEqual([]);
+});
+
+test("🔴 картка без обовʼязкового поля падає, називаючи поле", () => {
+  for (const k of ["title", "href", "body"]) {
+    const bad = card({ [k]: "" });
+    expect(() => cardsOf([bad], "тест"), `порожнє «${k}» пропущено`).toThrow(
+      new RegExp(`«${k}»`),
+    );
+  }
+});
+
+test("🔴 порожній `terms` не стає порожніми рядками списку", () => {
+  expect(() => cardsOf([card({ terms: [{}] })], "тест")).toThrow(/«term»/);
+  expect(() => cardsOf([card({ terms: ["junk"] })], "тест")).toThrow(/«term»/);
+  expect(() => cardsOf([card({ terms: "не масив" })], "тест")).toThrow(
+    /не масив/,
+  );
+});
+
+test("🔴 картка веде лише на нашу сторінку", () => {
+  for (const href of [
+    "https://evil.example",
+    "javascript:alert(1)",
+    "//evil",
+  ]) {
+    expect(() => cardsOf([card({ href })], "тест")).toThrow(/лише на наші/);
+  }
+});
+
+test("справна картка проходить і зберігає рядки", () => {
+  const out = cardsOf(
+    [card({ terms: [{ term: "Дає", text: "Число" }] })],
+    "тест",
+  );
+  expect(out).toHaveLength(1);
+  expect(out[0].terms).toEqual([{ term: "Дає", text: "Число" }]);
 });

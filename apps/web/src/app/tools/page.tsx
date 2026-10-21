@@ -5,7 +5,7 @@ import Breadcrumbs from "@/components/breadcrumbs";
 import { breadcrumbList, collectionGraph, jsonLdProps } from "@/lib/jsonld";
 import { alternatesFor } from "@/lib/i18n";
 import { pageContent } from "@/lib/page-content";
-import { PageSections, cardsOf } from "@/components/page-sections";
+import { PageSections, cardsFrom } from "@/components/page-sections";
 
 // CAMP-55 завела цей розділ, CAMP-365 забрала з нього текст.
 //
@@ -51,9 +51,11 @@ export default async function ToolsIndex() {
   // 🔴 Той самий розбір, що й у рендера карток: якщо форма в базі
   // зіпсується, впаде і тут, і там — однаково й гучно, а не так, що
   // розмітка каже одне, а сторінка показує інше.
-  const cards = page.sections
-    .filter((s) => s.type === "cards")
-    .flatMap((s) => cardsOf(s.items, "колекції /tools"));
+  // 🔴 Той самий розбір, що й у рендера карток, і те саме імʼя типу —
+  // один раз. Якщо форма в базі зіпсується, впаде і тут, і там:
+  // однаково й гучно, а не так, що розмітка каже одне, а сторінка
+  // показує інше.
+  const cards = cardsFrom(page.sections, "секції cards на /tools");
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">

@@ -289,11 +289,27 @@ test.describe("🔴 CAMP-365 — /tools", () => {
   });
 
   test("🔴 має хлібні крихти, що ведуть на себе", async ({ page }) => {
+    // 🔴 ПЕРША РЕДАКЦІЯ БУЛА ЗЕЛЕНА ЗА ПОБУДОВОЮ. Вона склеювала ВСІ
+    // блоки JSON-LD в один рядок і питала `includes("/tools")` — а
+    // `/tools` є підрядком `…/tools/camper-trip-cost` у колекції. Тест
+    // із назвою «ведуть на себе» червонів би лише тоді, коли блок
+    // крихт прибрано цілком. Заміряно рецензією #304.
     await page.goto("/tools");
-    const ld = (
-      await page.locator('script[type="application/ld+json"]').allTextContents()
-    ).join(" ");
-    expect(ld).toContain("BreadcrumbList");
-    expect(ld).toContain("/tools");
+    const crumbs = (await jsonLdBlocks(page)).find(
+      (b) => b["@type"] === "BreadcrumbList",
+    ) as {
+      itemListElement: Array<{
+        position: number;
+        item?: string;
+        name?: string;
+      }>;
+    };
+
+    expect(crumbs, "немає BreadcrumbList").toBeTruthy();
+    const last = crumbs.itemListElement[crumbs.itemListElement.length - 1];
+    expect(
+      String(last.item ?? ""),
+      "остання крихта веде не на цю сторінку",
+    ).toBe(`${ORIGIN}/tools`);
   });
 });

@@ -15,7 +15,8 @@ export interface SectionView {
   imageAlt: string | null;
   ctaHref: string | null;
   ctaLabel: string | null;
-  items: unknown[];
+  /** Сире значення `jsonb`: перевіряє рендер. */
+  items: unknown;
 }
 
 export interface PageView {

@@ -103,12 +103,12 @@ export class SeedToolsPage1792600000000 implements MigrationInterface {
     const add = async (
       sort: number,
       type: string,
-      t: { body?: string; heading?: string; items?: unknown },
+      t: { body?: string; heading?: string; items?: unknown; variant?: string },
     ) => {
       const row: Array<{ id: string }> = await queryRunner.query(
-        `INSERT INTO page_sections (page_id, sort, type, visible)
-         VALUES ($1, $2, $3, true) RETURNING id`,
-        [pageId, sort, type],
+        `INSERT INTO page_sections (page_id, sort, type, variant, visible)
+         VALUES ($1, $2, $3, $4, true) RETURNING id`,
+        [pageId, sort, type, t.variant ?? null],
       );
       await queryRunner.query(
         `INSERT INTO page_section_translations
@@ -129,7 +129,11 @@ export class SeedToolsPage1792600000000 implements MigrationInterface {
       heading: 'Fuel prices, country by country',
       body: 'One page for each of the {{count}} member states, priced with that country’s fuel for the week of {{bulletin}}.',
     });
-    await add(3, 'prose', { body: this.closing });
+    // 🔴 `variant: 'aside'` — щоб абзац лишився таким, як був:
+    // відбитим донизу й приглушеним (`mt-10 … text-ink-3`). Без нього
+    // він дістав би типові класи й опинився впритул до переліку країн.
+    // Посимвольна звірка цього не ловить: текст той самий, вигляд ні.
+    await add(3, 'prose', { body: this.closing, variant: 'aside' });
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

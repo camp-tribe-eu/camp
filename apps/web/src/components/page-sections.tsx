@@ -1,7 +1,7 @@
 import { ButtonLink, buttonClasses } from "./button";
 import { RichText } from "./rich-text";
 import { PAGE_VALUES, type SectionView } from "@/lib/page-content";
-import { isInternalHref } from "@/lib/rich-text";
+import { isInternalHref, substitute } from "@/lib/rich-text";
 import Link from "next/link";
 import { FUEL, FUEL_COUNTRIES, longDate } from "@/lib/fuel";
 
@@ -25,7 +25,28 @@ import { FUEL, FUEL_COUNTRIES, longDate } from "@/lib/fuel";
 // Тепер розійтись неможливо за побудовою: перелік ВИВОДИТЬСЯ з карти
 // (нижче, після самих рендерів).
 
+/**
+ * 🔴 `variant` — НЕ ПРИКРАСА. Заміряно рецензією #304: завершальний
+ * абзац /tools мав `mt-10 max-w-prose text-ink-3`, а після переїзду
+ * дістав типові `max-w-prose space-y-4 text-ink-2` — тобто втратив
+ * верхній відступ і приглушений колір, опинившись упритул до переліку
+ * 27 країн.
+ *
+ * 🔴 І ПОСИМВОЛЬНА ЗВІРКА ЦЬОГО НЕ ЛОВИТЬ. Вона порівнює ТЕКСТ, а
+ * змінився ВИГЛЯД. Мій доказ «2072 символи збіглись» був правдою й
+ * одночасно недостатнім: однаковий текст не означає однакової
+ * сторінки. Тому варіанти живуть тут, у коді, а не класами в базі —
+ * клас у полі CMS це розмітка, яку редактор зламає мовчки.
+ */
+const PROSE_VARIANTS: Record<string, string> = {
+  // Як було на /tools: відбитий донизу, приглушений.
+  aside: "mt-10 max-w-prose text-ink-3",
+};
+const PROSE_DEFAULT = "max-w-prose space-y-4 text-ink-2";
+
 function Prose({ section }: { section: SectionView }) {
+  const className =
+    (section.variant && PROSE_VARIANTS[section.variant]) || PROSE_DEFAULT;
   return (
     <>
       {section.heading && (
@@ -33,7 +54,13 @@ function Prose({ section }: { section: SectionView }) {
           {section.heading}
         </h2>
       )}
-      {section.body && <RichText text={section.body} values={PAGE_VALUES} />}
+      {section.body && (
+        <RichText
+          text={section.body}
+          values={PAGE_VALUES}
+          className={className}
+        />
+      )}
     </>
   );
 }
@@ -123,14 +150,30 @@ export interface CardItem {
  * інакше повторилась би помилка з рецензії #303, де перевірка стояла в
  * одному місці з двох.
  */
-export function cardsOf(items: unknown[], where: string): CardItem[] {
+export function cardsOf(items: unknown, where: string): CardItem[] {
+  // 🔴 НЕ-МАСИВ — ЦЕ ПОЛОМКА, А НЕ ПОРОЖНЬО.
+  //
+  // Сервіс раніше зводив усе не-масивне до `[]`, і найімовірніша
+  // поломка — правка `jsonb` у Directus, що перетворює масив на
+  // обʼєкт `{"0":{…}}`, — давала ПОРОЖНІЙ `<ul>` і `numberOfItems: 0`
+  // у розмітці. Тобто обіцянка «падає тут, а не малює дірку» була
+  // хибною саме для того випадку, заради якого існувала.
+  if (!Array.isArray(items)) {
+    throw new Error(
+      `page-sections: ${where} — \`items\` не масив, а ` +
+        `${items === null ? "null" : typeof items}. Так виглядає правка ` +
+        "jsonb, що перетворила масив на обʼєкт; порожній перелік і " +
+        "зламаний перелік не можна плутати.",
+    );
+  }
+
   return items.map((raw, i) => {
     const o = (raw ?? {}) as Record<string, unknown>;
-    const need = (k: string) => {
+    const need = (k: string, scope = `картка ${i} у ${where}`) => {
       const v = o[k];
       if (typeof v !== "string" || v.trim() === "") {
         throw new Error(
-          `page-sections: картка ${i} у ${where} не має поля «${k}». ` +
+          `page-sections: ${scope} не має поля «${k}». ` +
             "Порожня картка на сторінці виглядає як дефект рендера, " +
             "тож секція падає тут, а не малює дірку.",
         );
@@ -144,15 +187,32 @@ export function cardsOf(items: unknown[], where: string): CardItem[] {
           "картки ведуть лише на наші сторінки.",
       );
     }
-    const terms = Array.isArray(o.terms)
-      ? (o.terms as unknown[]).map((t) => {
-          const x = (t ?? {}) as Record<string, unknown>;
-          return {
-            term: String(x.term ?? ""),
-            text: String(x.text ?? ""),
-          };
-        })
-      : [];
+
+    // 🔴 `terms` ПРОХОДИТЬ ТУ САМУ ПЕРЕВІРКУ. Перша редакція зводила
+    // їх через `String(x.term ?? "")` — тобто `[{}, "junk"]` давало
+    // порожні `<dt>`/`<dd>`, рівно ту «порожню картку», яку коментар
+    // вище називає неможливою.
+    const rawTerms = o.terms ?? [];
+    if (!Array.isArray(rawTerms)) {
+      throw new Error(
+        `page-sections: картка ${i} у ${where} має \`terms\`, що не масив.`,
+      );
+    }
+    const terms = rawTerms.map((t, j) => {
+      const x = (t ?? {}) as Record<string, unknown>;
+      const field = (k: string) => {
+        const v = x[k];
+        if (typeof v !== "string" || v.trim() === "") {
+          throw new Error(
+            `page-sections: рядок ${j} картки ${i} у ${where} ` +
+              `не має поля «${k}».`,
+          );
+        }
+        return v;
+      };
+      return { term: field("term"), text: field("text") };
+    });
+
     return { title: need("title"), href, body: need("body"), terms };
   });
 }
@@ -211,9 +271,24 @@ function FuelCountries({ section }: { section: SectionView }) {
     name: FUEL.countries[code].name,
   })).sort((a, b) => a.name.localeCompare(b.name));
 
-  const note = (section.body ?? "")
-    .replace(/\{\{count\}\}/g, String(countries.length))
-    .replace(/\{\{bulletin\}\}/g, longDate(FUEL.bulletinDate));
+  // 🔴 ТОЙ САМИЙ МЕХАНІЗМ ПІДСТАНОВКИ, А НЕ ВЛАСНА ЗАМІНА РЯДКА.
+  //
+  // Перша редакція робила `.replace()` по двох ключах — і тим самим
+  // відкрила дірку: будь-який ІНШИЙ ключ друкувався читачеві замість
+  // кидати. Заміряно рецензією #304: `{{company.name}}` у підписі цієї
+  // секції виходив дослівно, тоді як у сусідньому `prose` той самий
+  // ключ коректно підставляється, а невідомий — валить збірку.
+  //
+  // Дві мови підстановок у сусідніх секціях — це форма, з якої тихі
+  // дірки й ростуть. Тепер мова одна: `substitute` із розширеним
+  // білим списком, і невідомий ключ кидає тут так само, як усюди.
+  const note = section.body
+    ? substitute(section.body, {
+        ...PAGE_VALUES,
+        count: String(countries.length),
+        bulletin: longDate(FUEL.bulletinDate),
+      })
+    : "";
 
   return (
     <section aria-labelledby="by-country-heading" className="mt-12">
@@ -248,6 +323,24 @@ export const SECTION_TYPES = Object.keys(RENDERERS) as Array<
   keyof typeof RENDERERS
 >;
 export type SectionType = keyof typeof RENDERERS;
+
+/**
+ * 🔴 ІМʼЯ ТИПУ НАЗИВАЄТЬСЯ ОДИН РАЗ.
+ *
+ * `tools/page.tsx` фільтрував секції рядком `"cards"` — тобто другим,
+ * зашитим записом того самого імені. Перейменування типу в CMS дало б
+ * тиху колекцію з нуля елементів у розмітці JSON-LD, тоді як сторінка
+ * малювала б картки. `satisfies` привʼязує константу до карти рендерів:
+ * імʼя, якого там немає, не скомпілюється.
+ */
+const CARDS = "cards" satisfies SectionType;
+
+/** Картки всіх секцій `cards` сторінки — для розмітки й для рендера. */
+export function cardsFrom(sections: SectionView[], where: string): CardItem[] {
+  return sections
+    .filter((s) => s.type === CARDS)
+    .flatMap((s) => cardsOf(s.items, where));
+}
 
 export function PageSections({ sections }: { sections: SectionView[] }) {
   return (
