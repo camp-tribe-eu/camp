@@ -1,6 +1,6 @@
 import { apiFetch } from "./api";
 import { COMPANY, CONTACT_EMAIL } from "./legal";
-import { substitute } from "./rich-text";
+import { isAllowedHref, substitute } from "./rich-text";
 
 // CAMP-365 — сторінка, зібрана з універсальних секцій (модель CAMP-362).
 
@@ -20,6 +20,8 @@ export interface SectionView {
 export interface PageView {
   slug: string;
   title: string;
+  /** Заголовок для пошуковика; `null` → береться `title`. */
+  metaTitle: string | null;
   metaDescription: string | null;
   noindex: boolean;
   sections: SectionView[];
@@ -64,7 +66,7 @@ export async function pageContent(slug: string): Promise<PageView | null> {
         "Текст сторінки живе в CMS, тож без відповіді її нема з чого зібрати.",
     );
   }
-  return withValues((await res.json()) as PageView);
+  return applyValues((await res.json()) as PageView);
 }
 
 /**
@@ -84,20 +86,55 @@ export async function pageContent(slug: string): Promise<PageView | null> {
  * `body` лишається `RichText`-у: там підстановка має статись ДО розбору
  * розмітки, інакше `[текст]({{...}})` не склеїться в посилання.
  */
-function withValues(page: PageView): PageView {
+// 🔴 ЕКСПОРТОВАНА НАВМИСНО: інакше перевірку адрес із CMS можна
+// накрити лише піднявши API і базу, тобто ніколи. Рецензія #303
+// показала, що мої сторожі не ловили жодного з трьох дефектів цього
+// шляху — чиста функція робить їх дешевими.
+export function applyValues(page: PageView): PageView {
   const sub = (v: string | null) =>
     v === null ? null : substitute(v, PAGE_VALUES);
+
+  /**
+   * 🔴 АДРЕСИ З CMS ПЕРЕВІРЯЮТЬСЯ ТУТ, А НЕ В РЕНДЕРІ.
+   *
+   * Рецензія #303 заміряла: `CtaButton` не відхиляв нічого — із десяти
+   * входів рендерились усі десять, зокрема `javascript:alert(1)`. Поле
+   * `cta_href` редагує людина в CMS, тож це шлях для виконання коду.
+   *
+   * Перевірка стоїть у ЦЬОМУ місці навмисно: рендерів буде більше
+   * (`cards` уже на черзі), і кожен новий забув би про неї. Тут її не
+   * обійде жоден — дані не доходять до розмітки неперевіреними.
+   *
+   * 🔴 Порожній рядок прирівнюється до відсутності. `meta_title=""`
+   * давав порожній `<title>`, а «стерли в CMS» і «не заповнювали»
+   * мусять означати одне: беремо запасне значення.
+   */
+  const empty = (v: string | null) =>
+    v === null || v.trim() === "" ? null : v;
+
+  const link = (v: string | null, where: string) => {
+    const out = empty(sub(v));
+    if (out !== null && !isAllowedHref(out)) {
+      throw new Error(
+        `page-content: адреса «${out}» у полі ${where} не дозволена. ` +
+          "Можна внутрішній шлях (/…), https:// або mailto:. " +
+          "Правило одне на весь застосунок — див. lib/rich-text.ts.",
+      );
+    }
+    return out;
+  };
   return {
     ...page,
     title: substitute(page.title, PAGE_VALUES),
-    metaDescription: sub(page.metaDescription),
+    metaTitle: empty(sub(page.metaTitle)),
+    metaDescription: empty(sub(page.metaDescription)),
     sections: page.sections.map((s) => ({
       ...s,
       heading: sub(s.heading),
       subheading: sub(s.subheading),
       imageAlt: sub(s.imageAlt),
-      imageUrl: sub(s.imageUrl),
-      ctaHref: sub(s.ctaHref),
+      imageUrl: link(s.imageUrl, "image_url"),
+      ctaHref: link(s.ctaHref, "cta_href"),
       ctaLabel: sub(s.ctaLabel),
     })),
   };

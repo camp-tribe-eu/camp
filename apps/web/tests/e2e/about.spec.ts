@@ -76,6 +76,16 @@ test.describe("🔴 CAMP-365 — /about із CMS", () => {
   // асинхронним, і юніт на ньому падає. Тут вони сильніші: доводять не
   // те, що компонент МІСТИТЬ рядок, а те, що читач його БАЧИТЬ.
 
+  test("🔴 порожній meta_title не робить порожнього заголовка", async ({
+    page,
+  }) => {
+    // На /about `meta_title` не заповнений, тож береться `title`.
+    // Рецензія #303: порожній РЯДОК давав порожній <title>, і ніщо про
+    // це не казало. Тепер порожнє й відсутнє — одне й те саме.
+    await page.goto("/about");
+    await expect(page).toHaveTitle("About CampTribe | CampTribe");
+  });
+
   test("🔴 має власні хлібні крихти, що ведуть на себе", async ({ page }) => {
     await page.goto("/about");
     const ld = await page

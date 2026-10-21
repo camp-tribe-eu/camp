@@ -20,6 +20,8 @@ export interface SectionView {
 export interface PageView {
   slug: string;
   title: string;
+  /** Заголовок для пошуковика; `null` → береться `title`. */
+  metaTitle: string | null;
   metaDescription: string | null;
   noindex: boolean;
   sections: SectionView[];
@@ -66,11 +68,12 @@ export class PagesService {
         slug: string;
         noindex: boolean;
         title: string;
+        meta_title: string | null;
         meta_description: string | null;
       }>
     >(
       `
-      SELECT p.id, p.slug, p.noindex, t.title, t.meta_description
+      SELECT p.id, p.slug, p.noindex, t.title, t.meta_title, t.meta_description
         FROM pages p
         JOIN page_translations t
           ON t.page_id = p.id
@@ -117,6 +120,7 @@ export class PagesService {
     return {
       slug: page.slug,
       title: page.title,
+      metaTitle: page.meta_title,
       metaDescription: page.meta_description,
       noindex: page.noindex,
       sections: rows.map((r) => ({

@@ -30,7 +30,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const page = await pageContent(SLUG);
   if (!page) return { title: "Not found" };
   return {
-    title: page.title,
+    title: page.metaTitle ?? page.title,
     description: page.metaDescription ?? undefined,
     alternates: alternatesFor(`/${SLUG}`),
     ...(page.noindex ? { robots: { index: false, follow: true } } : {}),
