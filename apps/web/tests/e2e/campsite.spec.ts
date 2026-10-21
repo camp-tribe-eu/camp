@@ -1,5 +1,5 @@
-import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type APIRequestContext } from './api-request';
+import { axeViolations } from './axe';
 import { API_BASE } from '@/lib/api';
 
 // CAMP-34. Two fixtures on purpose: a campsite where OSM knows plenty,
@@ -246,10 +246,7 @@ test.describe('campsite page', () => {
 
   test('has no detectable accessibility violations', async ({ page }) => {
     await page.goto(fx.empty);
-    const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-      .analyze();
-    expect(results.violations).toEqual([]);
+    expect(await axeViolations(page)).toEqual([]);
   });
 });
 

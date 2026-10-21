@@ -1,5 +1,5 @@
-import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from './api-request';
+import { axeViolations } from './axe';
 import { visibleText } from '../unit/rendered-text';
 import type { Page } from '@playwright/test';
 import { openHeaderNav } from './header-nav';
@@ -256,10 +256,7 @@ test.describe('what it does with what you type', () => {
 });
 
 test.describe('accessibility', () => {
-  const scan = async (page: Page) =>
-    (
-      await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
-    ).violations.map((v) => `${v.id}: ${v.description} — ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);
+  const scan = (page: Page) => axeViolations(page);
 
   for (const scheme of ['light', 'dark'] as const) {
     test(`🔴 no violations in ${scheme} mode: empty, with errors, and answered`, async ({ page }) => {
