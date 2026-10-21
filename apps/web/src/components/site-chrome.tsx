@@ -27,7 +27,57 @@ import type { NavItem } from "@/lib/navigation";
 // весь сайт, бо шапка одна.
 export function SiteHeader({ nav }: { nav: NavItem[] }) {
   return (
-    <header className="border-b border-line-2 bg-surface">
+    /* 🔴 CAMP-374 — `sticky`, А НЕ `fixed`, І ЦЕ СВІДОМО ІНАКШЕ, НІЖ У
+       ТЕМІ.
+
+       Демо-стор FUSE тримає шапку `fixed` (заміряно 20.10.2026:
+       `position: fixed`, `z-index: 13`, десктоп `top: 48px`, мобайл
+       `top: 0`, висота 89px). Там це виправдано: їхня шапка лежить над
+       героєм і має бути прозорою поверх нього.
+
+       У нас `fixed` купив би те саме — бургер завжди під рукою — але
+       разом із пасткою, яку називає сама картка: фіксована шапка
+       ВИХОДИТЬ ІЗ ПОТОКУ, тож перший елемент кожної сторінки сховався б
+       під нею, і це довелося б компенсувати відступом на `body`,
+       окремо на iOS через `env(safe-area-inset-top)`, і стежити, щоб
+       компенсація не розʼїхалась із висотою шапки, яка на вузькому
+       екрані переноситься в два рядки.
+
+       `sticky top-0` дає ту саму властивість — читач будь-де має меню —
+       і НЕ виходить із потоку: місце під шапку резервується саме,
+       компенсувати нема чого, ламати нема чого. Висота може мінятись
+       вільно.
+
+       Скло — з теми: `.ct-glass` бере `blur(8px)` звідти, а
+       непрозорість таку, за якої підпис лишається читабельним на
+       світлому тлі (пояснено в globals.css). */
+    <header
+      data-testid="site-header"
+      className="sticky top-0 border-b border-line-2"
+      style={{ zIndex: "var(--layer-sticky)" }}
+    >
+      {/* 🔴 СКЛО — НА ОКРЕМОМУ ШАРІ, А НЕ НА САМІЙ `<header>`, І ЦЕ НЕ
+          стиль, а виправлення регресії, яку я ж і завіз.
+
+          `backdrop-filter` робить елемент КОНТЕЙНЕРОМ для нащадків із
+          `position: fixed`. Шухляда меню — `fixed inset-0` усередині
+          цієї шапки. Заміряно в браузері:
+
+            без backdrop-filter → fixed-нащадок 1024×768 (усе вікно)
+            з  backdrop-filter → fixed-нащадок 1024×64  (коробка шапки)
+
+          Тобто затемнення й панель стискались у смужку 64 px, і клік по
+          пункту меню не доходив. Упало в ТРЬОХ браузерах одразу, і
+          зʼявилось лише тепер: доки скло не працювало в Chromium,
+          контейнера не виникало.
+
+          Шар лежить ПІД вмістом і НЕ містить шухляди, тож вікно знову
+          є вікном. */}
+      <div
+        aria-hidden="true"
+        data-testid="site-glass"
+        className="ct-glass pointer-events-none absolute inset-0"
+      />
       {/* 🔴 Wraps below `sm`, and the height grows with it.
 
           The fixed 62px row fitted three links by luck, not by design.
@@ -47,7 +97,10 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
           links will need a real one — that belongs to the design card
           CAMP-81, not here. From `sm` up nothing changes at all, so the
           visual baselines are untouched. */}
-      <div className="mx-auto flex min-h-[62px] max-w-wrap flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2 sm:h-[62px] sm:flex-nowrap sm:py-0 xl:px-6">
+      {/* 🔴 `relative` обовʼязковий: шар скла позиційований, а
+          позиційовані елементи малюються ПОВЕРХ непозиційованого
+          вмісту. Без цього скло лягло б на самі пункти меню. */}
+      <div className="relative mx-auto flex min-h-[62px] max-w-wrap flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2 sm:h-[62px] sm:flex-nowrap sm:py-0 xl:px-6">
         <Link
           href="/"
           className="flex items-center gap-2 font-narrow text-[19px] font-bold text-heading"

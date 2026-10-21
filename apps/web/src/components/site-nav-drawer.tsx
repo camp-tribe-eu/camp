@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * Бургер-меню нижче 1200 px (CAMP-350).
@@ -51,7 +51,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 type Item = { href: string; label: string };
 
 /** Висота рядка меню. 56 px — те саме число, що кнопка закриття в темі. */
-const ITEM = 'flex min-h-14 items-center text-[2rem] font-bold leading-tight text-heading';
+const ITEM =
+  "flex min-h-14 items-center text-[2rem] font-bold leading-tight text-heading";
 
 export function SiteNavDrawer({ items }: { items: Item[] }) {
   const [open, setOpen] = useState(false);
@@ -77,13 +78,13 @@ export function SiteNavDrawer({ items }: { items: Item[] }) {
   // розійдуться мовчки, тому число названо один раз.
   useEffect(() => {
     if (!open) return;
-    const wide = window.matchMedia('(min-width: 1200px)');
+    const wide = window.matchMedia("(min-width: 1200px)");
     const onWide = () => {
       if (wide.matches) close();
     };
     onWide();
-    wide.addEventListener('change', onWide);
-    return () => wide.removeEventListener('change', onWide);
+    wide.addEventListener("change", onWide);
+    return () => wide.removeEventListener("change", onWide);
   }, [open, close]);
 
   useEffect(() => {
@@ -94,7 +95,7 @@ export function SiteNavDrawer({ items }: { items: Item[] }) {
     // «у нас воно не станеться» означає лишити пастку наступному.
     const toFocus = opener.current;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         close();
         return;
       }
@@ -107,8 +108,9 @@ export function SiteNavDrawer({ items }: { items: Item[] }) {
       //
       // Вісім рядків замість бібліотеки: цикл по тому, що справді є в
       // панелі, а не по припущенню про її вміст.
-      if (e.key !== 'Tab') return;
-      const stops = panel.current?.querySelectorAll<HTMLElement>('a[href],button');
+      if (e.key !== "Tab") return;
+      const stops =
+        panel.current?.querySelectorAll<HTMLElement>("a[href],button");
       if (!stops || stops.length === 0) return;
       const first = stops[0];
       const last = stops[stops.length - 1];
@@ -121,20 +123,29 @@ export function SiteNavDrawer({ items }: { items: Item[] }) {
       }
     };
     const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKey);
     // Фокус усередину: без цього той, хто ходить клавіатурою, лишається
     // на кнопці позаду панелі й табає крізь сторінку, якої не бачить.
-    panel.current?.querySelector<HTMLElement>('a,button')?.focus();
+    panel.current?.querySelector<HTMLElement>("a,button")?.focus();
     return () => {
       document.body.style.overflow = prev;
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener("keydown", onKey);
       toFocus?.focus();
     };
   }, [open, close]);
 
   return (
     <>
+      {/* 🔴 CAMP-374 — радіус 16px (`rounded-card` → `--r`), як у теми
+          (заміряно: бургер демо-стора 48×48, radius 16px). Розмір у нас
+          56px і лишається: тема має 48, а 48 це РІВНО межа правила про
+          зону натискання, і звужувати до неї заради косметики означало б
+          стати на край.
+
+          Скла на самій кнопці немає навмисно: вона лежить НА скляній
+          шапці, і скло поверх скла нічого не додає — лише другий шар
+          розмиття там, де під ним уже розмито. */}
       <button
         ref={opener}
         type="button"
@@ -143,10 +154,21 @@ export function SiteNavDrawer({ items }: { items: Item[] }) {
         aria-controls="site-nav-drawer"
         aria-label="Open the menu"
         onClick={() => setOpen(true)}
-        className="ml-auto grid h-14 w-14 shrink-0 place-items-center rounded-sm text-heading transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-blue xl:hidden"
+        className="ml-auto grid h-14 w-14 shrink-0 place-items-center rounded-card text-heading ct-button-motion hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-blue xl:hidden"
       >
-        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" fill="none">
-          <path d="M2 5h16M2 10h16M2 15h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 20 20"
+          aria-hidden="true"
+          fill="none"
+        >
+          <path
+            d="M2 5h16M2 10h16M2 15h16"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
         </svg>
       </button>
 
@@ -157,7 +179,7 @@ export function SiteNavDrawer({ items }: { items: Item[] }) {
         <div
           id="site-nav-drawer"
           className="fixed inset-0 xl:hidden"
-          style={{ zIndex: 'var(--layer-pop-out-overlay)' }}
+          style={{ zIndex: "var(--layer-pop-out-overlay)" }}
         >
           {/* Затемнення. Клік по ньому закриває — як у темі. */}
           <button
@@ -183,15 +205,29 @@ export function SiteNavDrawer({ items }: { items: Item[] }) {
                 data-testid="burger-close"
                 onClick={close}
                 aria-label="Close the menu"
-                className="grid h-14 w-14 place-items-center rounded-sm text-heading transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-blue"
+                className="grid h-14 w-14 place-items-center rounded-card text-heading ct-button-motion hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-blue"
               >
-                <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" fill="none">
-                  <path d="M4 4l12 12M16 4L4 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
+                  aria-hidden="true"
+                  fill="none"
+                >
+                  <path
+                    d="M4 4l12 12M16 4L4 16"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
                 </svg>
               </button>
             </div>
 
-            <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto px-9">
+            <nav
+              aria-label="Main"
+              className="min-h-0 flex-1 overflow-y-auto px-9"
+            >
               <ul className="flex flex-col gap-3">
                 {items.map((item) => (
                   <li key={item.href}>
