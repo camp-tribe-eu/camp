@@ -52,6 +52,7 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
        непрозорість таку, за якої підпис лишається читабельним на
        світлому тлі (пояснено в globals.css). */
     <header
+      data-testid="site-header"
       className="ct-glass sticky top-0 border-b border-line-2"
       style={{ zIndex: "var(--layer-sticky)" }}
     >

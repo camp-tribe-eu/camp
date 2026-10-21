@@ -638,11 +638,27 @@ a.ct-popup-title:hover {
  * нього браузер без підтримки показав би напівпрозору шапку БЕЗ
  * розмиття — найгірший варіант: вміст просвічує, і ніщо його не глушить.
  * `@supports not` повертає суцільний фон.
+ *
+ * 🔴 І ЖОДНОГО `-webkit-` ТУТ РУКАМИ. Перша редакція писала обидві
+ * форми поруч — і саме це ламало скло в Chrome. LightningCSS (усередині
+ * Tailwind v4) вважає їх ОДНІЄЮ властивістю: побачивши дві, він лишив у
+ * збірці ТІЛЬКИ префіксну. Заміряно в зібраному CSS:
+ *
+ *   було:  .ct-glass{-webkit-backdrop-filter:blur(8px)saturate(180%)}
+ *   стало: .ct-glass{-webkit-backdrop-filter:…;backdrop-filter:…}
+ *
+ * А Chromium 152 префіксної форми вже НЕ РОЗУМІЄ —
+ * `CSS.supports('-webkit-backdrop-filter','blur(1px)')` віддає `false`,
+ * і `backdrop-filter` там рахувався як `none`. Тобто скла не було в
+ * браузера більшості наших читачів, тоді як у Safari воно було, і
+ * знімки це пройшли.
+ *
+ * Тому стандартна властивість пишеться одна, а префікси додає збірка —
+ * вона знає свої цілі, а я ні.
  */
 .ct-glass {
   background-color: color-mix(in srgb, var(--surface) 82%, transparent);
   backdrop-filter: blur(8px) saturate(180%);
-  -webkit-backdrop-filter: blur(8px) saturate(180%);
 }
 
 @supports not (

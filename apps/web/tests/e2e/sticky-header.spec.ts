@@ -38,6 +38,18 @@ async function scrollToEnd(page: import("@playwright/test").Page) {
   ).toBeGreaterThan(200);
 }
 
+// 🔴 ШАПКА САЙТУ НАЗИВАЄТЬСЯ `data-testid`, А НЕ ТЕГОМ `header`.
+//
+// Перша редакція брала `locator("header")` — і впала на `/legal/terms`
+// зі «strict mode violation: resolved to 2 elements». Другий `<header>`
+// там свій, у `legal/[slug]/page.tsx`: заголовок правового документа.
+// Те саме чекало б на сторінці кемпінгу і маршруту — обидві мають
+// власний `<header>`.
+//
+// Це не дрібниця розбору: якби Playwright мовчки брав перший, тест на
+// «шапка лишилась на верхівці» міряв би заголовок СТАТТІ, тобто був би
+// зеленим ні про що. Межа задана тим, ЩО міряємо, а не тим, що
+// трапилось першим у DOM.
 test.describe("🔴 CAMP-374 — шапка лишається з читачем", () => {
   for (const [name, width, height] of [
     ["телефон", 375, 812],
@@ -48,7 +60,7 @@ test.describe("🔴 CAMP-374 — шапка лишається з читачем
       await page.goto(LONG);
 
       const top = async () =>
-        page.locator("header").evaluate((el) => el.getBoundingClientRect().top);
+        page.getByTestId("site-header").evaluate((el) => el.getBoundingClientRect().top);
 
       expect(await top(), "шапка не на верхівці до прокручування").toBe(0);
       await scrollToEnd(page);
@@ -79,7 +91,7 @@ test.describe("🔴 CAMP-374 — шапка лишається з читачем
       await page.setViewportSize({ width: 375, height: 812 });
       await page.goto(path);
       const h = await page
-        .locator("header")
+        .getByTestId("site-header")
         .evaluate((el) => el.getBoundingClientRect().bottom);
       const first = await page
         .locator("main")
@@ -97,11 +109,15 @@ test.describe("🔴 CAMP-374 — скло й кнопки в РЕНДЕРІ, н�
   test("шапка справді розмиває те, що під нею", async ({ page }) => {
     await page.goto("/camping");
     const filter = await page
-      .locator("header")
+      .getByTestId("site-header")
       .evaluate((el) => getComputedStyle(el).backdropFilter);
-    // webkit віддає з префіксом; обидва варіанти означають те саме.
+    // 🔴 ЧИТАЄМО ОБИДВІ ФОРМИ, І ЦЕ НЕ ПЕРЕСТРАХОВКА. Саме цей тест
+    // спіймав, що в зібраному CSS лишалась ТІЛЬКИ префіксна форма, якої
+    // Chromium 152 уже не розуміє: `backdrop-filter` там рахувався
+    // `none` — тобто скла не було в Chrome і Firefox, а в Safari було.
+    // Знімки цього не побачили.
     const webkit = await page
-      .locator("header")
+      .getByTestId("site-header")
       .evaluate(
         (el) =>
           (getComputedStyle(el) as unknown as Record<string, string>)
