@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { readingMinutes, visibleWords } from "@/lib/posts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  COUNTED_SECTION_FIELDS,
+  readingMinutes,
+  visibleWords,
+} from "@/lib/posts";
 import type { SectionView } from "@/lib/page-content";
 
 // CAMP-364 — час читання.
@@ -45,7 +51,7 @@ test.describe("час читання", () => {
   test("лічаться всі чотири місця, де живе текст", () => {
     const parts: Array<Partial<SectionView>> = [
       { heading: words(300) },
-      { subheading: words(300) },
+      { ctaLabel: words(300) },
       { body: words(300) },
       { items: [{ text: words(300) }] },
     ];
@@ -73,12 +79,56 @@ test.describe("час читання", () => {
     expect(visibleWords([section({ body: "> alpha beta gamma" })])).toBe(plain);
   });
 
-  test("у посиланні читається підпис, а не адреса", () => {
+  // 🔴 ЦЕЙ ТЕСТ РАНІШЕ НАЗИВАВСЯ «у посиланні читається підпис, а не
+  // адреса» — і це була неправда про реалізацію. Заміряно рецензією
+  // #311: `[alpha beta](/a/b)` дає дві лексеми за БУДЬ-ЯКОЇ
+  // реалізації, бо в адресі немає пробілу. Зеленим його робила
+  // токенізація, а не виключення адрес, тож на цій властивості він
+  // почервоніти не міг.
+  //
+  // Нижче — те, що реалізація СПРАВДІ обіцяє: довга адреса не роздуває
+  // лічбу, бо це одна лексема, скільки б сегментів у ній не було.
+  test("довга адреса це одна лексема, а не десять", () => {
+    const short = visibleWords([section({ body: "see https://a.io/x" })]);
+    const long = visibleWords([
+      section({
+        body: "see https://example.com/camping/france/provence/verdon?page=2&sort=rating",
+      }),
+    ]);
+    expect(short).toBe(2);
+    expect(long, "сегменти адреси порахувались як окремі слова").toBe(short);
+  });
+
+  // 🔴 D2 З РЕЦЕНЗІЇ: половина предиката слова не була покрита. Мутація
+  // `\p{L}|\p{N}` → `\p{L}` лишала всі 33 випадки зеленими, бо кожне
+  // слово у фікстурах було літеральним «word». А наша проза числова:
+  // «48 970», «27», «2026».
+  test("суто числові лексеми це теж слова", () => {
+    expect(visibleWords([section({ body: "48970 27 2026" })])).toBe(3);
+    expect(visibleWords([section({ body: "alpha 2026 beta" })])).toBe(3);
+  });
+
+  // 🔴 D3 З РЕЦЕНЗІЇ: перелік полів звіряється з КОДОМ РЕНДЕРА, а не з
+  // моєю памʼяттю. Перша редакція лічила `subheading`, якого не читає
+  // жоден рендер, і не лічила `ctaLabel`, який читає `page-sections`.
+  test("лічаться рівно ті поля, які малює page-sections.tsx", () => {
+    // `__dirname`, а не `import.meta.url`: набір unit збирається в CJS,
+    // і `import.meta` там взагалі не компілюється. Так само читає
+    // чужий код `account.spec.ts:331`.
+    const renderer = readFileSync(
+      join(__dirname, "../../src/components/page-sections.tsx"),
+      "utf8",
+    );
+    for (const f of COUNTED_SECTION_FIELDS) {
+      expect(
+        new RegExp(`\\.${f}\\b`).test(renderer),
+        `лічимо «${f}», але page-sections.tsx його не малює`,
+      ).toBe(true);
+    }
     expect(
-      visibleWords([
-        section({ body: "[alpha beta](/camping/france?page=2&sort=rating)" }),
-      ]),
-    ).toBe(2);
+      /\.subheading\b/.test(renderer),
+      "subheading почали малювати — його треба додати в лічбу",
+    ).toBe(false);
   });
 
   test("адреса й іконка в items не є текстом", () => {

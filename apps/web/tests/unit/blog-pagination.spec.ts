@@ -107,43 +107,12 @@ test.describe("номер сторінки з адреси", () => {
   }
 });
 
-test.describe("слаг, зайнятий маршрутом пагінації", () => {
-  test("допис зі слагом «page» падає гучно й називає себе", async () => {
-    await withApi(
-      {
-        "/posts": {
-          body: {
-            posts: [
-              { slug: "page", title: "T", summary: null, publishedAt: null, authorName: null },
-            ],
-          },
-        },
-      },
-      async () => {
-        await expect(postList()).rejects.toThrow(/«page».*зарезервован/s);
-      },
-    );
-  });
-
-  test("звичайний слаг проходить", async () => {
-    await withApi(
-      {
-        "/posts": {
-          body: {
-            posts: [
-              { slug: "pages-are-fine", title: "T", summary: null, publishedAt: null, authorName: null },
-            ],
-          },
-        },
-      },
-      async () => {
-        expect((await postList()).map((p) => p.slug)).toEqual([
-          "pages-are-fine",
-        ]);
-      },
-    );
-  });
-});
+// 🔴 ТУТ БУЛИ ДВА ВИПАДКИ ПРО «ЗАЙНЯТИЙ СЛАГ» — ВИДАЛЕНІ РАЗОМ ІЗ
+// СТОРОЖЕМ. Вони перевіряли, що `postList()` кидає на дописі зі слагом
+// `page`. Заміряно на живому сервері 21.10.2026: такий допис працює
+// (`/blog/page` → 200), бо маршруту `/blog/page` не існує. Тобто обидва
+// випадки були зелені над хибним правилом — найгірший різновид
+// зеленого. Доказ лежить у докблоці `lib/posts.ts`.
 
 // ── Пункт 5 «Способу перевірки» CAMP-364 ─────────────────────────────
 //
