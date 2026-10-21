@@ -32,6 +32,14 @@
 export type Inline =
   | { kind: "text"; text: string }
   | { kind: "strong"; text: string }
+  /**
+   * Наголос. Один-єдиний випадок у семи правових сторінках — і він не
+   * декоративний: «something produced *from* the data» протиставляє
+   * похідний твір адаптованій базі, тобто саме те місце, де ODbL
+   * вимагає різного. Втратити курсив тут значить зрівняти два різні
+   * юридичні наслідки.
+   */
+  | { kind: "em"; text: string }
   | { kind: "link"; text: string; href: string };
 
 /** Блок: абзац, підзаголовок або список. */
@@ -46,7 +54,7 @@ export type Block =
    * «це не обмежує ваших прав». Абзац замість неї втратив би не слово,
    * а наголос.
    */
-  | { kind: "callout"; spans: Inline[] }
+  | { kind: "callout"; paragraphs: Inline[][] }
   | { kind: "ul"; items: Inline[][] };
 
 /**
@@ -177,8 +185,16 @@ export function isInternalHref(href: string): boolean {
  */
 export function parseInline(line: string): Inline[] {
   const out: Inline[] = [];
-  // Один прохід, два візерунки: `[текст](адреса)` і `**текст**`.
-  const re = /\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*/g;
+  // Один прохід, три візерунки: `[текст](адреса)`, `**виділення**` і
+  // `*наголос*`.
+  //
+  // 🔴 ПОРЯДОК ГІЛОК — ЦЕ І Є РІЗНИЦЯ МІЖ ДВОМА. Чергування в JS
+  // впорядковане: на позиції першої зірочки `**жирний**` збігається з
+  // гілкою подвійної зірочки РАНІШЕ, ніж із гілкою одинарної. Постав
+  // одинарну вперед — і кожне виділення стане наголосом із зірочками
+  // обабіч у тексті.
+  const re =
+    /\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*/g;
   let last = 0;
   let m: RegExpExecArray | null;
 
@@ -187,6 +203,8 @@ export function parseInline(line: string): Inline[] {
       out.push({ kind: "text", text: line.slice(last, m.index) });
     if (m[3] !== undefined) {
       out.push({ kind: "strong", text: m[3] });
+    } else if (m[4] !== undefined) {
+      out.push({ kind: "em", text: m[4] });
     } else {
       const href = m[2];
       if (!isAllowedHref(href)) {
@@ -277,20 +295,35 @@ export function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    // 🔴 Рамка може займати кілька рядків, і кожен несе свій «> ».
-    // Знімаємо позначку з КОЖНОГО рядка, а не лише з першого: інакше
-    // друга й далі лінії лишились би з видимим «>» у правовому тексті.
+    // 🔴 РАМКА ТРИМАЄ КІЛЬКА АБЗАЦІВ, І ЦЕ НЕ ЗАПАС НА МАЙБУТНЄ.
+    //
+    // У `attribution.tsx` рамка про ODbL складається з ТРЬОХ абзаців,
+    // розділених `<br /><br />`: що саме ви винні, що буває з
+    // адаптованою базою проти похідного твору, і що ці умови однаково
+    // звʼязують нас. Склеїти їх в один абзац означало б зробити з
+    // трьох окремих умов одну стіну тексту — у документі, який
+    // зобовʼязує.
+    //
+    // Порожній рядок рамку б ЗАКІНЧИВ (блоки ділить саме він), тож
+    // абзаци всередині розділяє рядок з одного «>».
     if (block.startsWith("> ")) {
-      blocks.push({
-        kind: "callout",
-        spans: parseInline(
-          block
-            .split("\n")
-            .map((l) => l.replace(/^>\s?/, ""))
-            .join(" ")
-            .trim(),
-        ),
-      });
+      const paragraphs: Inline[][] = [];
+      let current: string[] = [];
+      const flush = () => {
+        const text = current.join(" ").trim();
+        if (text) paragraphs.push(parseInline(text));
+        current = [];
+      };
+      for (const line of block.split("\n")) {
+        const body = line.replace(/^>\s?/, "").trim();
+        if (body === "") flush();
+        else current.push(body);
+      }
+      flush();
+      if (paragraphs.length === 0) {
+        throw new Error("rich-text: порожня рамка — «> » без тексту.");
+      }
+      blocks.push({ kind: "callout", paragraphs });
       continue;
     }
 

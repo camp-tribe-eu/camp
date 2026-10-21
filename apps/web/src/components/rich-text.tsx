@@ -15,28 +15,40 @@ function Spans({ spans }: { spans: Inline[] }) {
   return (
     <>
       {spans.map((s, i) => {
-        if (s.kind === "strong") {
-          return (
-            <strong key={i} className="text-heading">
-              {s.text}
-            </strong>
-          );
+        // 🔴 Вичерпно, з тієї ж причини, що й блоки нижче: доки в кінці
+        // стояв `return <span>`, новий вид тексту малювався б як
+        // звичайний — і саме так наголос зник би мовчки.
+        switch (s.kind) {
+          case "strong":
+            return (
+              <strong key={i} className="text-heading">
+                {s.text}
+              </strong>
+            );
+          case "em":
+            return <em key={i}>{s.text}</em>;
+          case "link":
+            // 🔴 Внутрішні — через `next/link`, щоб перехід лишався
+            // клієнтським, як на решті сайту. Зовнішні — звичайним `<a>`
+            // із `rel="noopener"`, як уже робить підвал.
+            return s.href.startsWith("/") ? (
+              <Link key={i} href={s.href} className="underline">
+                {s.text}
+              </Link>
+            ) : (
+              <a key={i} href={s.href} className="underline" rel="noopener">
+                {s.text}
+              </a>
+            );
+          case "text":
+            return <span key={i}>{s.text}</span>;
+          default: {
+            const never: never = s;
+            throw new Error(
+              `rich-text: немає рендера для ${JSON.stringify(never)}.`,
+            );
+          }
         }
-        if (s.kind === "link") {
-          // 🔴 Внутрішні — через `next/link`, щоб перехід лишався
-          // клієнтським, як на решті сайту. Зовнішні — звичайним `<a>`
-          // із `rel="noopener"`, як уже робить підвал.
-          return s.href.startsWith("/") ? (
-            <Link key={i} href={s.href} className="underline">
-              {s.text}
-            </Link>
-          ) : (
-            <a key={i} href={s.href} className="underline" rel="noopener">
-              {s.text}
-            </a>
-          );
-        }
-        return <span key={i}>{s.text}</span>;
       })}
     </>
   );
@@ -97,7 +109,11 @@ export function RichText({
                 key={i}
                 className="rounded-card border border-line-blue bg-accent-surface p-4 text-heading"
               >
-                <Spans spans={b.spans} />
+                {b.paragraphs.map((spans, j) => (
+                  <p key={j} className={j > 0 ? "mt-3" : undefined}>
+                    <Spans spans={spans} />
+                  </p>
+                ))}
               </div>
             );
           case "ul":

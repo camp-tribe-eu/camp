@@ -216,6 +216,53 @@ test.describe("правова розмітка", () => {
     );
   });
 
+  // 🔴 Рамка про ODbL у `attribution.tsx` складається з ТРЬОХ абзаців,
+  // розділених `<br /><br />`. Якби рамка вміла один, переїзд склеїв би
+  // три окремі умови в стіну тексту — мовчки й без втрати жодного слова,
+  // тобто посимвольна звірка тексту цього б не побачила.
+  test("🔴 рамка тримає кілька абзаців, розділених рядком з одного «>»", () => {
+    const blocks = parseBlocks(
+      "> перший\n>\n> другий\n>\n> третій",
+    );
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ kind: "callout" });
+    const callout = blocks[0] as { kind: "callout"; paragraphs: unknown[] };
+    expect(callout.paragraphs, "абзаців у рамці не три").toHaveLength(3);
+
+    const html = renderComponent(RichText, {
+      text: "> перший\n>\n> другий\n>\n> третій",
+    });
+    expect(
+      (html.match(/<p/g) ?? []).length,
+      "абзаци рамки злились в один",
+    ).toBe(3);
+  });
+
+  test("рамка без тексту кидає, а не малює порожню коробку", () => {
+    expect(() => parseBlocks("> \n>")).toThrow(/рамка/);
+  });
+
+  // 🔴 ЄДИНИЙ КУРСИВ У СЕМИ СТОРІНКАХ, І ВІН НЕСЕ ПРАВОВУ РІЗНИЦЮ:
+  // «something produced *from* the data» протиставляє похідний твір
+  // адаптованій базі — там, де ODbL вимагає різного.
+  test("🔴 «*слово*» дає наголос, а «**слово**» лишається виділенням", () => {
+    const html = renderComponent(RichText, {
+      text: "produced *from* the data, not a **database**",
+    });
+    expect(html, "наголосу немає").toContain("<em>from</em>");
+    expect(html).toContain("<strong");
+    expect(html, "зірочки видно читачеві").not.toContain("*");
+  });
+
+  test("🔴 порядок гілок: подвійна зірочка не читається як дві одинарні", () => {
+    const spans = parseInline("**жирний**");
+    expect(spans).toHaveLength(1);
+    expect(spans[0], "виділення стало наголосом").toMatchObject({
+      kind: "strong",
+      text: "жирний",
+    });
+  });
+
   test("🔴 якір заголовка — той, що написано, а не вирахуваний із тексту", () => {
     const blocks = parseBlocks("## Links to other sites {#links}");
     expect(blocks[0]).toMatchObject({ kind: "h2", id: "links" });
