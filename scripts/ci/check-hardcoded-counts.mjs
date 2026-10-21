@@ -165,6 +165,18 @@ export function typedCounts(unit) {
  * обхід бачить рядки, шаблони й JSX-текст, і нічого іншого.
  */
 export function textUnits(source, fileName = 'x.tsx') {
+  // 🔴 РОЗМІТКА — ЦЕ ВЕСЬ ФАЙЛ, А НЕ РЯДКОВІ ЛІТЕРАЛИ В НЬОМУ.
+  //
+  // Прогнати `.md` крізь розбірник TypeScript означало б дістати
+  // випадкові вузли з прози й пропустити решту. Тут кожен рядок —
+  // одиниця тексту, тож номер рядка лишається тим, що бачить людина у
+  // файлі.
+  if (fileName.endsWith('.md')) {
+    return source
+      .split('\n')
+      .map((text, i) => ({ text, line: i + 1, kind: 'markdown' }))
+      .filter((u) => u.text.trim() !== '');
+  }
   const kind = fileName.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kind);
   const lineAt = (pos) => sf.getLineAndCharacterOfPosition(pos).line + 1;
@@ -221,6 +233,13 @@ export function classify(rel) {
   const top = rel.split('/')[0];
   if (Object.hasOwn(EXCLUDED, top) && rel.includes('/')) return 'excluded';
   if (/\.tsx?$/.test(rel)) return 'code';
+  // 🔴 CAMP-365: розмітка CMS читається так само, як код. Текст
+  // правових сторінок переїхав із `.tsx` у `.md`, і якби тип лишився
+  // «не розібраний», сторож чесно впав би — він і впав. Але пропустити
+  // його було б гірше за падіння: сім документів, які читає людина й
+  // пошуковик, вийшли б з-під огляду МОВЧКИ, і саме той текст, заради
+  // якого цей сторож існує.
+  if (/\.md$/.test(rel)) return 'code';
   if (/\.(?:json|css|ico)$/.test(rel)) return 'skip';
   return 'unknown';
 }
@@ -451,6 +470,28 @@ function selfTest() {
   is('сторінка — код', classify('app/routes/page.tsx'), 'code');
   is('json — не текст сторінки', classify('generated/gone.json'), 'skip');
   is('🔴 невідомий тип — не мовчання', classify('content/guide.mdx'), 'unknown');
+  // CAMP-365: розмітка CMS читається як текст сторінки.
+  is('розмітка — код', classify('content/legal/markup/terms.md'), 'code');
+  is(
+    '🔴 .mdx усе ще невідомий — навчили саме .md, не «щось схоже»',
+    classify('content/x.mdx'),
+    'unknown',
+  );
+  is(
+    'у розмітці кожен непорожній рядок — одиниця тексту',
+    textUnits('перший рядок\n\nтретій рядок\n', 'a.md').map((u) => u.line),
+    [1, 3],
+  );
+  is(
+    '🔴 надруковане число кемпінгів у розмітці ЛОВИТЬСЯ',
+    findings('We list 61 422 campsites across Europe.', 'a.md').map((f) => f.number),
+    ['61 422'],
+  );
+  is(
+    'а звичайне речення в розмітці — ні',
+    findings('We list campsites across Europe.', 'a.md').length,
+    0,
+  );
 
   // 🔴 ВЕСЬ ШЛЯХ: від імені файлу до скарги. Випадки вище кличуть
   // `findings` напряму, і мутація «не розбирати файл» їх не торкається.
@@ -517,7 +558,7 @@ function selfTest() {
     is('нічого не знайдено — нічого й не друкується', report([], []), []);
   }
 
-  const EXPECTED_CASES = 61;
+  const EXPECTED_CASES = 66;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;
