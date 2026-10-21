@@ -6,6 +6,7 @@ import { visibleText } from './rendered-text';
 import { generateMetadata } from '@/app/routes/page';
 import { GET as llmsTxt } from '@/app/llms.txt/route';
 import Home from '@/app/page';
+import { HOME_PAGE } from './home-cms';
 import SearchPage from '@/app/search/page';
 import {
   heroLead,
@@ -213,7 +214,8 @@ test.describe('поверхні справді кличуть помічники
   const failing = { '/spots/summary': { status: 500, body: {} } };
 
   test('🔴 головна на помилці API не друкує «0 campsites»', async () => {
-    await withApi({ ...failing, '/spots/countries': { body: [] } }, async () => {
+    await withApi({ ...failing, '/spots/countries': { body: [] },
+      '/pages/home': { body: HOME_PAGE } }, async () => {
       const tree = await (Home as unknown as () => Promise<unknown>)();
       const text = visibleText(renderComponent(() => tree, {}));
       expect(text, `головна: «${text.slice(0, 140)}»`).not.toMatch(/\d+ campsites/);
@@ -222,7 +224,8 @@ test.describe('поверхні справді кличуть помічники
   });
 
   test('🔴 /search на помилці API не друкує «0 campsites»', async () => {
-    await withApi({ ...failing, '/spots/countries': { body: [] } }, async () => {
+    await withApi({ ...failing, '/spots/countries': { body: [] },
+      '/pages/home': { body: HOME_PAGE } }, async () => {
       const tree = await (SearchPage as unknown as () => Promise<unknown>)();
       const html = renderComponent(() => tree, {});
       const text = visibleText(html);
@@ -238,7 +241,8 @@ test.describe('поверхні справді кличуть помічники
   // різні твердження, і перше саме по собі задовольняє мовчун.
   test('🔴 коли API відповів — число на сторінці те саме, що в нього', async () => {
     await withApi(
-      { '/spots/summary': { body: SUMMARY }, '/spots/countries': { body: [] } },
+      { '/spots/summary': { body: SUMMARY }, '/spots/countries': { body: [] },
+      '/pages/home': { body: HOME_PAGE } },
       async () => {
         const homeTree = await (Home as unknown as () => Promise<unknown>)();
         const home = visibleText(renderComponent(() => homeTree, {}));

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import CampsitePage from '@/app/camping/[country]/[region]/[slug]/page';
 import Home from '@/app/page';
+import { HOME_PAGE } from './home-cms';
 import { GET as llmsTxt } from '@/app/llms.txt/route';
 import Attribution from '@/content/legal/attribution';
 import Database from '@/content/legal/database';
@@ -286,7 +287,9 @@ test.describe('the home page, which says what is computed for every campsite', (
             ? json([{ country: 'hr', spots: 10, regions: 2 }])
             : url.includes('/spots/notable')
               ? json([])
-              : json({}, 404),
+              : url.includes('/pages/home')
+                ? json(HOME_PAGE)
+                : json({}, 404),
       () => renderAsyncComponent(Home, undefined as never),
     );
     return visibleText(html);
