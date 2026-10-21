@@ -243,7 +243,12 @@ test.describe('/llms.txt, which AI assistants read, says railway stop and says w
       (url) =>
         url.includes('/spots/countries')
           ? json([{ country: 'hr', spots: 10, regions: 2 }])
-          : json({}, 404),
+          : // CAMP-364: llms.txt питає ще й дописи. Порожній перелік —
+            // це «блог порожній», і саме так тут і є; 404 означав би
+            // «блог зламаний», і файл чесно б упав.
+            url.includes('/posts')
+            ? json({ posts: [] })
+            : json({}, 404),
       () => llmsTxt(),
     );
     return res.text();

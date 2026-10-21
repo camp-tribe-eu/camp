@@ -121,6 +121,9 @@ test('🔴 /routes і llms.txt називають одне й те саме чи
   await withApi(
     {
       '/spots/summary': { body: SUMMARY },
+      // CAMP-364: llms.txt питає ще й дописи; порожній перелік це
+      // «блог порожній», а не «блог зламаний».
+      '/posts': { body: { posts: [] } },
       '/spots/countries': {
         body: [
           { country: 'hr', spots: 30000, regions: 7 },
