@@ -24,6 +24,7 @@ import {
 import { absoluteAlternates, liveLocales } from './i18n';
 import { byCountry, byTopic } from './guide-facets';
 import { getGuides } from './guides';
+import { postList } from './posts';
 import { getRoutes } from './routes';
 import { FUEL, FUEL_COUNTRIES } from './fuel';
 import { MEASURED, publishableCountries } from './rental';
@@ -169,6 +170,32 @@ export const STATIC_HUBS: readonly SitemapUrl[] = [
 /** Static pages plus every hub we actually want ranking. */
 export async function hubUrls(): Promise<SitemapUrl[]> {
   const urls: SitemapUrl[] = [...STATIC_HUBS];
+
+  // CAMP-364. Блог і кожен допис — але тільки якщо дописи є.
+  //
+  // 🔴 `/blog` НЕМАЄ в `STATIC_HUBS` навмисно. Порожній блог стоїть під
+  // `noindex` (див. `app/blog/page.tsx`), а карта сайту, яка кличе
+  // пошуковика на `noindex`-сторінку, — це ті самі «суперечливі вказівки
+  // про одну адресу», про які попереджає коментар на початку цього
+  // файла. Зʼявиться перший допис — зʼявиться й рядок.
+  //
+  // 🔴 `lastmod` — дата публікації допису, не дата збірки. Та сама
+  // причина, що в маршрутів нижче: штамп «змінено сьогодні» на кожному
+  // деплої вчить пошуковика не вірити цьому полю.
+  const posts = await postList();
+  if (posts.length > 0) {
+    urls.push({ loc: `${SITE}/blog`, changefreq: 'weekly', priority: '0.7' });
+    for (const post of posts) {
+      urls.push({
+        loc: `${SITE}/blog/${post.slug}`,
+        changefreq: 'monthly',
+        priority: '0.6',
+        ...(post.publishedAt
+          ? { lastmod: post.publishedAt.slice(0, 10) }
+          : {}),
+      });
+    }
+  }
 
   // CAMP-3 / CAMP-45: one entry per curated route.
   //

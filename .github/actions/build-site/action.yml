@@ -68,6 +68,27 @@ runs:
         echo "campsites: $(psql -h localhost -U postgres -d camptribe_test -t -A \
           -c 'SELECT count(*) FROM camping_spots;')"
 
+    # CAMP-364. Дописи блогу — фікстура тесту, не зліпок продакшну.
+    #
+    # 🔴 У проді блог виходить ПОРОЖНІМ: перший допис пише власник, і
+    # вигадувати його голосом я не буду. Але сторінка допису без жодного
+    # допису не перевіряється нічим, а `generateStaticParams` на
+    # порожньому переліку не дасть жодної адреси — головна фіча картки
+    # лишилась би непокритою. Тому рядок є тут і немає в міграції.
+    #
+    # Файл сам перевіряє, що посадив рівно двох (один із них майбутньою
+    # датою) і падає, якщо ні: фікстура, яка мовчки посадила нуль, це
+    # прогін, що «нічого не знайшов», а не прогін, що «все гаразд».
+    - name: Load the blog fixture
+      shell: bash
+      env:
+        PGPASSWORD: postgres
+      run: |
+        psql -h localhost -U postgres -d camptribe_test -v ON_ERROR_STOP=1 \
+          -f apps/api/test/fixtures/blog-post.sql
+        echo "posts: $(psql -h localhost -U postgres -d camptribe_test -t -A \
+          -c "SELECT count(*) FROM pages WHERE type = 'post';")"
+
     # CAMP-66. Guides are DERIVED from the campsites above, so they are
     # generated here rather than written into the fixture by hand.
     #

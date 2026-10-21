@@ -1377,13 +1377,25 @@ jobs:
         working-directory: apps/api
         run: npx eslint "src/**/*.ts" --max-warnings=0
 
-      - run: npm run test --workspace=apps/api
-
       - name: Migrate
         working-directory: apps/api
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
         run: npx typeorm-ts-node-commonjs migration:run -d src/data-source.ts
+
+      # 🔴 CAMP-364: тести ПІСЛЯ міграцій, а не перед.
+      #
+      # `pages.service.spec.ts` саджає допис із МАЙБУТНЬОЮ датою в
+      # транзакції й вимагає, щоб його не було видно — такий випадок не
+      # можна написати над ненакатаною базою. Перед міграціями крок
+      # падав би на відсутній таблиці, тобто на власній послідовності, а
+      # не на дефекті.
+      #
+      # Змінної тут НЕМАЄ навмисно: спек бере `CI_DATABASE_URL`, яку
+      # оголошено на рівні всього workflow — та сама конвенція, що в
+      # `osm/import-main.db.spec.ts`. Перша редакція додавала сюди
+      # `DATABASE_URL` і тим міняла середовище чужим тестам.
+      - run: npm run test --workspace=apps/api
 
       # CAMP-32. Two steps, as with the structured-data validator: first
       # prove the check still fails when the index is taken away, then

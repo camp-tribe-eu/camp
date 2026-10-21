@@ -3,6 +3,37 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 // CAMP-365 — сторінка, зібрана з універсальних секцій (модель CAMP-362).
+// CAMP-364 — дописи блогу їдуть тією самою моделлю, інший лише `type`.
+
+/**
+ * 🔴 «ВИДИМИЙ ЧИТАЧЕВІ» ОЗНАЧЕНО ОДИН РАЗ І ВСТАВЛЯЄТЬСЯ В УСІ ЗАПИТИ.
+ *
+ * Для сторінок вистачало `status = 'published'`. Для ДОПИСІВ цього
+ * мало: `published_at` існує саме щоб допис зʼявився в призначений
+ * час, і запит без цього предиката віддав би завтрашній допис уже
+ * сьогодні — тихо, бо на дошці він «опублікований».
+ *
+ * Предикат тут константою, а не трьома однаковими рядками в трьох
+ * запитах: перелік, сторінка і карта сайту МУСЯТЬ бачити одну множину.
+ * Розійдуться — дістанемо мертві адреси (сторінка є в переліку, а
+ * `bySlug` на неї віддає 404) або, гірше, ранній допис в індексі.
+ *
+ * `published_at IS NULL` лишається видимим: для сторінок дати немає й
+ * не передбачено, і вимагати її означало б сховати всі сторінки.
+ */
+const VISIBLE = `p.status = 'published'
+          AND (p.published_at IS NULL OR p.published_at <= now())`;
+
+/** Рядок переліку дописів — усе, що потрібно картці в блозі. */
+export interface PostSummary {
+  slug: string;
+  title: string;
+  /** Короткий опис; `meta_description` допису, якщо є. */
+  summary: string | null;
+  /** ISO-8601 або `null`, якщо дати немає. */
+  publishedAt: string | null;
+  authorName: string | null;
+}
 
 export interface SectionView {
   type: string;
@@ -81,7 +112,7 @@ export class PagesService {
          AND t.language_code = $2
        WHERE p.slug = $1
          AND p.type = $3
-         AND p.status = 'published'
+         AND ${VISIBLE}
        LIMIT 1
       `,
       [slug, language, type],
@@ -163,10 +194,48 @@ export class PagesService {
          JOIN page_translations t
            ON t.page_id = p.id AND t.language_code = $1
         WHERE p.type = $2
-          AND p.status = 'published'
+          AND ${VISIBLE}
         ORDER BY p.sort, p.slug`,
       [language, type],
     );
     return rows.map((r) => r.slug);
+  }
+
+  /**
+   * Дописи блогу, найсвіжіший першим.
+   *
+   * 🔴 ПОРЯДОК — ЗА ДАТОЮ, А НЕ ЗА `sort`. Сторінки впорядковує рука
+   * (`sort` у меню), дописи — час. Допис без дати стає в кінець, а не
+   * на початок: `NULLS LAST` сказано явно, бо типовий порядок Postgres
+   * для `DESC` ставить `NULL` ПЕРШИМИ, і найстаріший чернетковий допис
+   * очолив би блог.
+   */
+  async posts(language: string): Promise<PostSummary[]> {
+    const rows = await this.db.query<
+      Array<{
+        slug: string;
+        title: string;
+        meta_description: string | null;
+        published_at: Date | null;
+        author_name: string | null;
+      }>
+    >(
+      `SELECT p.slug, p.published_at, p.author_name,
+              t.title, t.meta_description
+         FROM pages p
+         JOIN page_translations t
+           ON t.page_id = p.id AND t.language_code = $1
+        WHERE p.type = 'post'
+          AND ${VISIBLE}
+        ORDER BY p.published_at DESC NULLS LAST, p.slug`,
+      [language],
+    );
+    return rows.map((r) => ({
+      slug: r.slug,
+      title: r.title,
+      summary: r.meta_description,
+      publishedAt: r.published_at ? r.published_at.toISOString() : null,
+      authorName: r.author_name,
+    }));
   }
 }
