@@ -1,6 +1,6 @@
 import { revalidateTag } from "next/cache";
 import { timingSafeEqual } from "node:crypto";
-import { NAV_TAG } from "@/lib/navigation";
+import { ALLOWED_TAGS } from "@/lib/revalidate-tags";
 
 // CAMP-365 / CAMP-363 — скидання кешу за міткою, щоб правка в CMS
 // з'являлась за секунди, а не за добу.
@@ -12,8 +12,7 @@ import { NAV_TAG } from "@/lib/navigation";
 // опускала б її всьому сайту — див. `lib/navigation.ts`, там заміряно.
 // Мітка цієї ціни не має: вона нічого не опускає, її скидає цей виклик.
 
-/** Що дозволено скидати. Довільну мітку приймати не можна. */
-const ALLOWED = new Map([["navigation", NAV_TAG]]);
+
 
 /**
  * 🔴 ПОРІВНЯННЯ СТАЛОГО ЧАСУ, І ДОВЖИНУ ТЕЖ ТРЕБА ХОВАТИ.
@@ -61,12 +60,12 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const name = new URL(request.url).searchParams.get("tag") ?? "";
-  const tag = ALLOWED.get(name);
+  const tag = ALLOWED_TAGS.get(name);
   if (!tag) {
     return Response.json(
       {
         error: `мітка «${name}» не дозволена`,
-        allowed: [...ALLOWED.keys()],
+        allowed: [...ALLOWED_TAGS.keys()],
       },
       { status: 400 },
     );

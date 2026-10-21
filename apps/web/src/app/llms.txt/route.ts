@@ -4,6 +4,7 @@ import { FUEL, FUEL_COUNTRIES } from '@/lib/fuel';
 import { getGuides } from '@/lib/guides';
 import { publishableCountries } from '@/lib/rental';
 import { getRoutes } from '@/lib/routes';
+import { postDate, postList } from '@/lib/posts';
 import { SITE } from '@/lib/sitemap';
 
 // CAMP-39: llms.txt — the site explained to an agent in one file.
@@ -221,6 +222,35 @@ export async function GET() {
       'states marked as such.',
   );
   lines.push('');
+
+  // 🔴 CAMP-364. Блог тут — ЗА ТІЄЮ САМОЮ УМОВОЮ, що й у карті сайту:
+  // тільки якщо дописи справді є.
+  //
+  // Сторож `check-sitemap.mjs` вимагає, щоб `llms.txt` називав КОЖЕН
+  // розділ карти сайту, і він упіймав мене: я додав `/blog` у карту й
+  // не згадав його тут. Але написати розділ беззастережно було б
+  // протилежною помилкою — агент пішов би на сторінку, яка сама про
+  // себе каже `noindex` і не має жодного допису.
+  //
+  // Умова ТА САМА і джерело ТЕ САМЕ (`postList()`), тож розійтись із
+  // картою сайту вони не можуть.
+  const posts = await postList();
+  if (posts.length > 0) {
+    lines.push('## Blog');
+    lines.push('');
+    lines.push(
+      `- [Blog](${SITE}/blog) — ${posts.length} ` +
+        `${posts.length === 1 ? 'post' : 'posts'}, newest first.`,
+    );
+    for (const post of posts) {
+      lines.push(
+        `- [${post.title}](${SITE}/blog/${post.slug})` +
+          (post.publishedAt ? `, ${postDate(post.publishedAt)}` : '') +
+          (post.summary ? `: ${post.summary}` : '.'),
+      );
+    }
+    lines.push('');
+  }
 
   lines.push('## Machine-readable');
   lines.push('');

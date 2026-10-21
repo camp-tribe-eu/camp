@@ -1219,6 +1219,42 @@ export function legalPageGraph(opts: {
   };
 }
 
+/**
+ * CAMP-364: один допис блогу для машин.
+ *
+ * 🔴 `datePublished` ОБОВʼЯЗКОВИЙ, І СХЕМА БАЗИ ЦЕ ГАРАНТУЄ. Обмеження
+ * `pages_post_published_has_date` не дає опублікувати допис без дати,
+ * тож тут немає гілки «а якщо дати немає»: вона була б кодом, який
+ * ніколи не виконається, і твердженням, яке ніколи не перевіриться.
+ *
+ * `author` — `Person`, коли імʼя є, інакше поле просто відсутнє:
+ * порожній автор гірший за жодного, бо валідатор прийме, а читач
+ * побачить порожнечу.
+ */
+export function blogPostingGraph(opts: {
+  name: string;
+  description: string | null;
+  path: string;
+  datePublished: string;
+  authorName: string | null;
+}) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    '@id': `${abs(opts.path)}#post`,
+    headline: opts.name,
+    ...(opts.description ? { description: opts.description } : {}),
+    url: abs(opts.path),
+    inLanguage: DEFAULT_LOCALE,
+    datePublished: opts.datePublished,
+    isPartOf: websiteNode(),
+    publisher: publisherNode(),
+    ...(opts.authorName
+      ? { author: { '@type': 'Person', name: opts.authorName } }
+      : {}),
+  };
+}
+
 /** One <script> tag's worth of JSON, escaped for embedding in HTML. */
 export function jsonLdProps(doc: unknown) {
   return {
