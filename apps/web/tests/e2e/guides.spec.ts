@@ -1,5 +1,7 @@
 import { expect, test, type APIRequestContext } from "./api-request";
 import { openHeaderNav } from './header-nav';
+import { facetBudgetMs } from './guides-budget';
+import { byCountry, byTopic } from '../../src/lib/guide-facets';
 
 // CAMP-66 — the guides section, on real pages.
 //
@@ -82,9 +84,22 @@ test.describe("the section the header points at", () => {
     // HTML колись розійдеться з DOM, впаде саме вона, а не одна з
     // тридцяти однієї сторінок навмання.
     //
-    // `test.slow()` лишається, але тепер це запас для ДВОХ браузерних
-    // завантажень, а не для тридцяти одного.
-    test.slow();
+    // 🔴 БЮДЖЕТ РАХУЄТЬСЯ ВІД КАТАЛОГУ, А НЕ СТОЇТЬ КОНСТАНТОЮ.
+    //
+    // Тут стояв `test.slow()` — потроєння сталої межі. Саме стала межа
+    // й була дефектом: тест падав двічі (13.10 на 30 000 мс, 16.10
+    // тричі вже на 90 000), бо вартість росте разом із каталогом, а
+    // межа не росте ніколи.
+    //
+    // Обхід N сторінок коштує Θ(N), і цього не обійти ніяким
+    // паралелізмом — заміряно 21.10.2026: пул на 8 проти послідовного
+    // дав 3 575 мс проти 3 935 мс на 31 фасеті, а зростання 31→62
+    // лишилось ×2,1 в обох випадках. Тож лікуємо не зростання, а те,
+    // що межа його не враховувала.
+    //
+    // Формула живе в `guides-budget.ts` і має власний модульний тест:
+    // тест у браузері не може перевірити свій таймаут, а функція може.
+    test.setTimeout(facetBudgetMs(0));
 
     const list = await guides(request);
     expect(list.length, "no guides are published").toBeGreaterThan(0);
@@ -103,6 +118,35 @@ test.describe("the section the header points at", () => {
     await page.goto("/guides");
     const facets = [...new Set(await hrefsOn(/^\/guides\/(country|topic)\//))];
     expect(facets.length, "the index links no facet pages").toBeGreaterThan(0);
+
+    // Тепер, коли відомо скільки їх, бюджет стає бюджетом цього каталогу.
+    test.setTimeout(facetBudgetMs(facets.length));
+
+    // 🔴 ХАБ МУСИТЬ НАЗИВАТИ РІВНО ТІ ФАСЕТИ, ЩО ВИВОДЯТЬСЯ З ГАЙДІВ.
+    //
+    // Картка просила іншого: «зробити одну тематичну сторінку порожньою
+    // й показати, що тест червоніє». Заміряно 21.10.2026 — так не
+    // вийде: хаб ВІДКИДАЄ порожні фасети (31 → 30), тож порожньої
+    // сторінки в переліку просто не буде, і `empty` нижче промовчить не
+    // через дірку, а через те, що перевіряти нічого.
+    //
+    // Дірка, яка справді лишалась відкритою, інша й гірша: хаб може
+    // ТИХО ЗАГУБИТИ фасет, у якого гайди є. `unreachable` цього не
+    // спіймає, бо кожен гайд лежить рівно на ДВОХ фасетах — своїй
+    // країні й своїй темі. Зникне сторінка країни — усі її гайди
+    // лишаться досяжними через теми, і всі перевірки нижче промовчать.
+    //
+    // Тому перелік хаба звіряється з переліком, виведеним із того, що
+    // API вважає опублікованим. Це дві різні дороги до одного числа:
+    // одна з розмітки, друга з даних.
+    const derived = [
+      ...byCountry(list).map((c) => `/guides/country/${c.country}`),
+      ...byTopic(list).map((t) => `/guides/topic/${t.topic}`),
+    ].sort();
+    expect(
+      [...facets].sort(),
+      'хаб і опубліковані гайди називають різні фасети',
+    ).toEqual(derived);
 
     // 🔴 A guide the parser cannot file is linked from the hub itself, in
     // "Not filed anywhere". Counting those here is what stops this test
