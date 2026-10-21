@@ -68,7 +68,18 @@ export type Block =
 const HREF_BASE = "https://camptribe.invalid/";
 const HREF_BASE_ORIGIN = "https://camptribe.invalid";
 
-function allowedHref(href: string): boolean {
+/**
+ * 🔴 ЦЕ ПРАВИЛО ЕКСПОРТУЄТЬСЯ, І ЦЕ НЕ ЗРУЧНІСТЬ, А ВИМОГА.
+ *
+ * Рецензія PR #303: я написав «те саме» правило ВДРУГЕ в `CtaButton`
+ * (`href.startsWith("/")`) — і друга редакція не відхиляла НІЧОГО.
+ * Заміряно на 10 входах: тут кидає 6, там рендерились усі 10, зокрема
+ * `javascript:alert(1)` в `href` кнопки, яку редагує власник у CMS.
+ *
+ * Два незалежні формулювання одного правила розходяться завжди; тут
+ * вони розійшлись одразу. Тому формулювання одне, і воно тут.
+ */
+export function isAllowedHref(href: string): boolean {
   // Шлях від кореня лишається внутрішнім, лише якщо після розбору він
   // НЕ поїхав на чужий origin. `//host` і `/\host` поїдуть.
   if (href.startsWith("/")) {
@@ -133,6 +144,15 @@ export function substitute(
 }
 
 /**
+ * Чи це ВНУТРІШНІЙ шлях — те саме питання, що й вище, але інша
+ * відповідь: не «чи можна», а «чи наш». Потрібне рендерам, щоб обрати
+ * між клієнтським переходом і звичайним якорем.
+ */
+export function isInternalHref(href: string): boolean {
+  return href.startsWith("/") && isAllowedHref(href);
+}
+
+/**
  * Розбирає один рядок на текст, виділення й посилання.
  *
  * ⚠️ РОЗБІР КВАДРАТИЧНИЙ НА ПАТОЛОГІЧНОМУ ВХОДІ, і це названо, а не
@@ -160,7 +180,7 @@ export function parseInline(line: string): Inline[] {
       out.push({ kind: "strong", text: m[3] });
     } else {
       const href = m[2];
-      if (!allowedHref(href)) {
+      if (!isAllowedHref(href)) {
         throw new Error(
           `rich-text: адреса «${href}» не дозволена. Можна внутрішній ` +
             "шлях (/…), https:// або mailto:. Схеми перелічені, а не " +

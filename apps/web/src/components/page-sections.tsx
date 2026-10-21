@@ -1,6 +1,7 @@
 import { ButtonLink, buttonClasses } from "./button";
 import { RichText } from "./rich-text";
 import { PAGE_VALUES, type SectionView } from "@/lib/page-content";
+import { isInternalHref } from "@/lib/rich-text";
 
 // CAMP-365 — рендер універсальних секцій (модель CAMP-362).
 //
@@ -69,7 +70,7 @@ function Cta({ section }: { section: SectionView }) {
 function CtaButton({ href, label }: { href: string; label: string }) {
   const testId = `section-cta-${href.replace(/\W+/g, "-")}`;
 
-  if (href.startsWith("/")) {
+  if (isInternalHref(href)) {
     return (
       <ButtonLink data-testid={testId} href={href} variant="primary">
         {label}

@@ -1,10 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import Contact from "@/app/contact/page";
-import { COMPANY, CONTACT_EMAIL } from "@/lib/legal";
 import { STATIC_HUBS } from "@/lib/sitemap";
-import { renderComponent } from "./render-component";
-import { visibleText } from "./rendered-text";
 
 // CAMP-209: чотири сторінки були в карті сайту й не існували як адреси.
 // Тут лишилась одна з них — `/contact`.
@@ -22,8 +18,6 @@ import { visibleText } from "./rendered-text";
 // 🔴 Знайдено рецензією PR #302, а не мною: я прогнав ЛИШЕ ті тести, що
 // написав сам, і зламав файл, якого не відкривав. Увесь проєкт `unit`
 // на тому коміті давав 1871 passed / 4 failed.
-
-const contact = () => renderComponent(Contact, {});
 
 // 🔴 УСЕ, ЩО МАЛЮВАЛО СТОРІНКИ, ПЕРЕЇХАЛО В E2E.
 //
