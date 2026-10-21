@@ -1,5 +1,9 @@
-import Link from 'next/link';
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'react';
+import Link from "next/link";
+import type {
+  AnchorHTMLAttributes,
+  ButtonHTMLAttributes,
+  ReactNode,
+} from "react";
 
 /**
  * Кнопка — одна на весь застосунок (CAMP-345).
@@ -109,12 +113,7 @@ import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'reac
  * пізніше. Це не те, на що можна спиратись.
  */
 type Variant =
-  | 'primary'
-  | 'secondary'
-  | 'accent'
-  | 'chip'
-  | 'danger'
-  | 'danger-soft';
+  "primary" | "secondary" | "accent" | "chip" | "danger" | "danger-soft";
 
 /**
  * Два розміри.
@@ -129,7 +128,7 @@ type Variant =
  * «кнопка має бути 48» стосується того, у що влучає палець, а не того,
  * що бачить око.
  */
-type Size = 'sm' | 'md';
+type Size = "sm" | "md";
 
 /** Спільне: форма, вирівнювання, рух, видимий фокус, вимкнений стан. */
 /**
@@ -155,28 +154,38 @@ type Size = 'sm' | 'md';
  * вимкнений. Такий елемент НЕ має `disabled`, тож варіанти `disabled:*`
  * його не бачать, і без рядка нижче він виглядав би звичайним.
  */
+// 🔴 CAMP-374 — радіус, шрифт і час узято з теми, а не з типових
+// значень Tailwind. Заміряно на демо-сторі 20.10.2026: текстова кнопка
+// має радіус 12px, шрифт 16px/600 і переходи 0.2s. У нас стояли
+// `rounded-sm` (8px — це `--radius-sm` → `--r-xs`), `text-sm` (14px) і
+// `transition-colors` без тривалості, тобто типові 150 мс, яких немає в
+// жодному токені.
+//
+// 🔴 Шрифт переїхав у РОЗМІР, а не лишився тут: 16px це про велику
+// кнопку (`md`, висота 48 — вона вже збігалася з темою). Дрібна (`sm`)
+// стоїть у переліку з 27 країн, і 16px розсунули б його.
 const BASE =
-  'relative inline-flex items-center justify-center gap-2 rounded-sm border ' +
-  'text-sm transition-colors ' +
-  'aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ' +
-  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-blue';
+  "relative inline-flex items-center justify-center gap-2 rounded border " +
+  "ct-button-motion " +
+  "aria-disabled:cursor-not-allowed aria-disabled:opacity-50 " +
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-blue";
 
 const VARIANT: Record<Variant, string> = {
   primary:
-    'border-transparent bg-btn font-semibold text-btn-ink hover:bg-btn-hover disabled:opacity-60',
+    "border-transparent bg-btn font-semibold text-btn-ink hover:bg-btn-hover disabled:opacity-60",
   secondary:
-    'border-line-2 bg-surface text-heading hover:border-line-blue disabled:opacity-60',
+    "border-line-2 bg-surface text-heading hover:border-line-blue disabled:opacity-60",
   accent:
-    'border-line-blue bg-accent-surface font-semibold text-heading hover:border-heading disabled:opacity-60',
-  chip:
-    'border-line-2 bg-surface text-ink-2 not-aria-disabled:hover:border-line-blue not-aria-disabled:hover:text-heading disabled:opacity-60',
-  danger: 'border-transparent bg-warn font-semibold text-white hover:bg-warn-hover',
-  'danger-soft': 'border-warn bg-surface text-warn hover:bg-surface-2',
+    "border-line-blue bg-accent-surface font-semibold text-heading hover:border-heading disabled:opacity-60",
+  chip: "border-line-2 bg-surface text-ink-2 not-aria-disabled:hover:border-line-blue not-aria-disabled:hover:text-heading disabled:opacity-60",
+  danger:
+    "border-transparent bg-warn font-semibold text-white hover:bg-warn-hover",
+  "danger-soft": "border-warn bg-surface text-warn hover:bg-surface-2",
 };
 
 const SIZE: Record<Size, string> = {
-  sm: 'h-9 px-3 touch-target',
-  md: 'h-12 px-5',
+  sm: "h-9 px-3 text-sm touch-target",
+  md: "h-12 px-4 text-base",
 };
 
 /**
@@ -189,10 +198,10 @@ const SIZE: Record<Size, string> = {
  * кнопку: джерело істини лишається одне.
  */
 export const buttonClasses = (
-  variant: Variant = 'secondary',
-  size: Size = 'md',
+  variant: Variant = "secondary",
+  size: Size = "md",
   extra?: string,
-) => [BASE, VARIANT[variant], SIZE[size], extra].filter(Boolean).join(' ');
+) => [BASE, VARIANT[variant], SIZE[size], extra].filter(Boolean).join(" ");
 
 const classesFor = buttonClasses;
 
@@ -204,8 +213,8 @@ type Common = {
 };
 
 export function Button({
-  variant = 'secondary',
-  size = 'md',
+  variant = "secondary",
+  size = "md",
   className,
   children,
   ...rest
@@ -232,13 +241,16 @@ export function Button({
  * коштувала б рівно тієї поведінки, якої ніхто не помічає, доки вона є.
  */
 export function ButtonLink({
-  variant = 'secondary',
-  size = 'md',
+  variant = "secondary",
+  size = "md",
   className,
   children,
   href,
   ...rest
-}: Common & { href: string } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'>) {
+}: Common & { href: string } & Omit<
+    AnchorHTMLAttributes<HTMLAnchorElement>,
+    "href"
+  >) {
   return (
     <Link
       href={href}

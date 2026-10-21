@@ -1,0 +1,115 @@
+import { expect, test } from "@playwright/test";
+
+// CAMP-374 — липка шапка, скло й кнопки за темою.
+//
+// 🔴 ЧОМУ ЦЕ НЕ «КОСМЕТИКА». Доки шапка була `static`, бургер їхав геть
+// разом із нею: читач на телефоні, прокрутивши перелік кемпінгів, не мав
+// доступу до меню взагалі, доки не прокрутить назад угору.
+//
+// Кожне твердження нижче — рядок зі «Способу перевірки» картки, і кожне
+// міряє ЖИВУ сторінку, а не токен: значення, що існує в CSS і не доїхало
+// до розмітки, — рівно той клас дефекту, яким була CAMP-352.
+
+const SCROLL = 1200;
+
+test.describe("🔴 CAMP-374 — шапка лишається з читачем", () => {
+  for (const [name, width, height] of [
+    ["телефон", 375, 812],
+    ["десктоп", 1280, 800],
+  ] as const) {
+    test(`${name}: після прокручування шапка на місці`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto("/camping");
+
+      const top = async () =>
+        page.locator("header").evaluate((el) => el.getBoundingClientRect().top);
+
+      expect(await top(), "шапка не на верхівці до прокручування").toBe(0);
+      await page.evaluate((y) => window.scrollTo(0, y), SCROLL);
+      // 🔴 Пара: сторінка справді прокрутилась. Без цього твердження
+      // «шапка на місці» було б істинним і над сторінкою, що не
+      // прокручується взагалі.
+      expect(
+        await page.evaluate(() => window.scrollY),
+        "сторінка не прокрутилась — твердження нижче безпредметне",
+      ).toBeGreaterThan(200);
+      expect(await top(), "шапка поїхала геть при прокручуванні").toBe(0);
+    });
+  }
+
+  test("🔴 бургер досяжний саме ПІСЛЯ прокручування", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto("/camping");
+    await page.evaluate((y) => window.scrollTo(0, y), SCROLL);
+
+    const burger = page.getByTestId("burger-open");
+    await expect(burger, "бургера не видно після прокручування").toBeVisible();
+    await burger.click();
+    await expect(
+      page.getByTestId("burger-panel"),
+      "бургер не відкрив меню",
+    ).toBeVisible();
+  });
+
+  // 🔴 ПАСТКА, ЯКУ НАЗИВАЄ САМА КАРТКА. Липка шапка не сміє накрити
+  // перший елемент сторінки. `sticky` (на відміну від `fixed`) лишається
+  // в потоці, тож місце резервується саме — але сказати це й перевірити
+  // це різні речі, і перевіряємо на ТРЬОХ сторінках, не на одній.
+  for (const path of ["/camping", "/guides", "/tools"]) {
+    test(`${path}: перший елемент не під шапкою`, async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 812 });
+      await page.goto(path);
+      const h = await page
+        .locator("header")
+        .evaluate((el) => el.getBoundingClientRect().bottom);
+      const first = await page
+        .locator("main")
+        .evaluate((el) => el.getBoundingClientRect().top);
+      expect(h, "шапка нульової висоти — міряємо не те").toBeGreaterThan(10);
+      expect(
+        first,
+        `${path}: вміст починається під шапкою`,
+      ).toBeGreaterThanOrEqual(h);
+    });
+  }
+});
+
+test.describe("🔴 CAMP-374 — скло й кнопки в РЕНДЕРІ, не в токені", () => {
+  test("шапка справді розмиває те, що під нею", async ({ page }) => {
+    await page.goto("/camping");
+    const filter = await page
+      .locator("header")
+      .evaluate((el) => getComputedStyle(el).backdropFilter);
+    // webkit віддає з префіксом; обидва варіанти означають те саме.
+    const webkit = await page
+      .locator("header")
+      .evaluate(
+        (el) =>
+          (getComputedStyle(el) as unknown as Record<string, string>)
+            .webkitBackdropFilter ?? "none",
+      );
+    expect(
+      `${filter} ${webkit}`,
+      "скла немає: значення є в CSS, але не доїхало до розмітки",
+    ).toMatch(/blur\(/);
+  });
+
+  test("велика кнопка має числа теми", async ({ page }) => {
+    await page.goto("/camping");
+    const btn = page.locator("[data-ct-button]").first();
+    await expect(btn, "на сторінці немає жодної кнопки").toHaveCount(1);
+    const got = await btn.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return {
+        radius: s.borderTopLeftRadius,
+        size: s.fontSize,
+        weight: s.fontWeight,
+        duration: s.transitionDuration,
+      };
+    });
+    expect(got.radius, "радіус не з теми").toBe("12px");
+    expect(got.size, "шрифт не з теми").toBe("16px");
+    expect(got.weight, "насиченість не з теми").toBe("600");
+    expect(got.duration, "тривалість не з токена").toContain("0.2s");
+  });
+});

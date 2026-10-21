@@ -625,6 +625,46 @@ a.ct-popup-title:hover {
 
    `prefers-reduced-motion` вимикає виїзд повністю: людині, яка про це
    попросила, панель просто зʼявляється. */
+/* CAMP-374 — скло з теми, і межі, у яких воно чесне.
+ *
+ * 🔴 ЧОМУ НЕ `rgba(255,255,255,0.04)`, ЯК У ДЕМО-СТОРІ. Там шапка лежить
+ * НАД темним героєм, тож майже прозорий білий читається як скло. У нас
+ * шапка стоїть над звичайним вмістом: та сама прозорість дала б текст,
+ * що просвічує крізь текст. Заміряно в них 20.10.2026 —
+ * `blur(8px) saturate(2)`; беремо саме розмиття, а непрозорість — таку,
+ * за якої підпис лишається читабельним.
+ *
+ * 🔴 І ЗАПАСНИЙ ШЛЯХ, бо `backdrop-filter` підтримують не всі. Без
+ * нього браузер без підтримки показав би напівпрозору шапку БЕЗ
+ * розмиття — найгірший варіант: вміст просвічує, і ніщо його не глушить.
+ * `@supports not` повертає суцільний фон.
+ */
+.ct-glass {
+  background-color: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(8px) saturate(180%);
+  -webkit-backdrop-filter: blur(8px) saturate(180%);
+}
+
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  .ct-glass {
+    background-color: var(--surface);
+  }
+}
+
+/* CAMP-374 — кнопки міняються за той самий час, що й решта руху.
+ *
+ * `transition-colors` без тривалості брав типові 150 мс Tailwind —
+ * число, якого немає в жодному токені. Тепер час із `--timing-short`
+ * (0.2 с), той самий, що в темі.
+ */
+.ct-button-motion {
+  transition-property: color, background-color, border-color, opacity;
+  transition-duration: var(--timing-short);
+  transition-timing-function: var(--ease);
+}
+
 .ct-drawer {
   animation: ct-drawer-in var(--timing-base) var(--ease-out) both;
 }
