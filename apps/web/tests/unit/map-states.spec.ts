@@ -23,16 +23,33 @@ test.describe("стани мапи", () => {
       src.indexOf("export type MapDataState"),
       src.indexOf("export function dataMessage"),
     );
-    const kinds = [...union.matchAll(/kind:\s*'([a-z]+)'/g)].map((m) => m[1]);
+    // 🔴 `[^']+`, А НЕ `[a-z]+`. Заміряно рецензією #313: при `[a-z]+`
+    // пʼятий стан `tooWide` або `too-wide` входив у джерело й лишав цей
+    // тест ЗЕЛЕНИМ (2 passed) — тобто сторож пропускав рівно те, заради
+    // чого існує, якщо хтось назве стан не самими малими літерами.
+    const kinds = [...union.matchAll(/kind:\s*'([^']+)'/g)].map((m) => m[1]);
     expect(kinds.length, "у джерелі не знайдено жодного стану").toBeGreaterThan(
       0,
     );
     expect([...MAP_STATES].sort()).toEqual([...new Set(kinds)].sort());
   });
 
-  test("«намальовано» це підмножина станів, і без loading та failed", () => {
-    for (const s of MAP_DRAWN) expect(MAP_STATES).toContain(s);
-    expect(MAP_DRAWN).not.toContain("loading");
-    expect(MAP_DRAWN).not.toContain("failed");
+  // 🔴 ПОРОЖНІЙ ПЕРЕЛІК ПРОХОДИВ ОБИДВА ТВЕРДЖЕННЯ. Заміряно рецензією
+  // #313: `MAP_DRAWN = []` давало 2 passed — цикл по порожньому не
+  // виконується, і два `not.toContain` на порожньому істинні. А саме ця
+  // мутація найгірша: `want.includes(v)` не істинне ніколи, тож КОЖЕН
+  // тест мапи згорає до таймауту. Сторож був зелений за побудовою.
+  test("«намальовано» не порожнє", () => {
+    expect(MAP_DRAWN.length).toBeGreaterThan(0);
+  });
+
+  // 🔴 І кожен стан, який НЕ loading і НЕ failed, мусить бути тут.
+  // Інакше пʼятий стан зʼявиться в коді, пройде сторож вище — і мовчки
+  // випаде з очікування, тобто чекання на нього висітиме весь бюджет.
+  test("«намальовано» це рівно ті стани, що не loading і не failed", () => {
+    const expected = MAP_STATES.filter(
+      (s) => s !== "loading" && s !== "failed",
+    );
+    expect([...MAP_DRAWN].sort()).toEqual([...expected].sort());
   });
 });

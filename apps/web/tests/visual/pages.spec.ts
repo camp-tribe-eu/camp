@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { waitForMapState } from '../map-ready';
+import { waitForMapState, waitForWildfireNote } from '../map-ready';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -163,6 +163,12 @@ async function settle(page: Page, subject?: string) {
   // тобто падіння приходить із назвою стану, а не з «бюджет вичерпано».
   if (subject === 'map') {
     await waitForMapState(page);
+    // 🔴 І НОТАТКА ПРО ПОЖЕЖІ ТЕЖ. `data-map-state` описує лише
+    // `/data/spots/*`, а нотатка живиться `/data/wildfires.json`, лежить
+    // у повносторінковому знімку й НЕ замаскована. `networkidle`, який
+    // тут стояв, покривав і її — прибрати його й не поставити цього
+    // означало б прибрати таймер і лишити гонку. Заміряно рецензією #313.
+    await waitForWildfireNote(page);
     return;
   }
 
