@@ -14,7 +14,8 @@ export interface SectionView {
   imageAlt: string | null;
   ctaHref: string | null;
   ctaLabel: string | null;
-  items: unknown[];
+  /** Сире значення `jsonb`: перевіряє рендер, а не цей файл. */
+  items: unknown;
 }
 
 export interface PageView {
@@ -133,7 +134,13 @@ export class PagesService {
         imageAlt: r.image_alt,
         ctaHref: r.cta_href,
         ctaLabel: r.cta_label,
-        items: Array.isArray(r.items) ? r.items : [],
+        // 🔴 НЕ ЗВОДИМО ДО МАСИВУ. Раніше тут стояло
+        // `Array.isArray(r.items) ? r.items : []`, і обʼєкт замість
+        // масиву (звичайний наслідок правки jsonb у Directus) тихо
+        // ставав порожнім переліком: картки зникали, розмітка казала
+        // «0 елементів», і нічого не падало. Сире значення йде далі,
+        // а розбирає його рендер — там, де є що сказати читачеві.
+        items: r.items,
       })),
     };
   }

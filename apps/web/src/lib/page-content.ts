@@ -1,5 +1,6 @@
 import { apiFetch } from "./api";
 import { COMPANY, CONTACT_EMAIL } from "./legal";
+import { FUEL, longDate } from "./fuel";
 import { isAllowedHref, substitute } from "./rich-text";
 
 // CAMP-365 — сторінка, зібрана з універсальних секцій (модель CAMP-362).
@@ -14,7 +15,8 @@ export interface SectionView {
   imageAlt: string | null;
   ctaHref: string | null;
   ctaLabel: string | null;
-  items: unknown[];
+  /** Сире значення `jsonb`: перевіряє рендер. */
+  items: unknown;
 }
 
 export interface PageView {
@@ -52,6 +54,12 @@ export const PAGE_VALUES: Readonly<Record<string, string>> = {
   "company.name": COMPANY.name,
   "company.city": COMPANY.city,
   "contact.email": CONTACT_EMAIL,
+  // 🔴 ЖИВЕ ЗНАЧЕННЯ, А НЕ КОНСТАНТА. Тиждень паливного бюлетеня
+  // змінюється щотижня, і текст, який на нього посилається, мусить
+  // їхати за ним. Тримати дату РЯДКОМ у базі означало б, що речення
+  // про «ціни за тиждень такий-то» застаріє мовчки — рівно той клас,
+  // через який CAMP-308 ловила зашите число кемпінгів.
+  "fuel.bulletin": longDate(FUEL.bulletinDate),
 };
 
 /** Сторінка з CMS, або `null`, якщо її немає. */
