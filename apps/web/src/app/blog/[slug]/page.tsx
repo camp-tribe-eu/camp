@@ -1,8 +1,15 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { alternatesFor } from '@/lib/i18n';
 import { blogPostingGraph, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
-import { postContent, postDate, postList } from '@/lib/posts';
+import type { PostSummary } from '@/lib/posts';
+import {
+  postContent,
+  postDate,
+  postList,
+  readingMinutes,
+} from '@/lib/posts';
 import { PageSections } from '@/components/page-sections';
 import Breadcrumbs from '@/components/breadcrumbs';
 
@@ -90,6 +97,21 @@ export default async function BlogPost({
     );
   }
 
+  const minutes = readingMinutes(post.sections);
+
+  // «Читати далі»: сусіди за датою в тому самому переліку, яким
+  // живиться каталог.
+  //
+  // 🔴 СУСІДИ БЕРУТЬСЯ З ПЕРЕЛІКУ, А НЕ З ОКРЕМОГО ЗАПИТУ. Другий
+  // запит з іншим упорядкуванням або іншим фільтром дав би блок
+  // «читати далі», який веде на допис, недосяжний із каталогу, —
+  // саме той клас розходження, через який вище стоїть перевірка
+  // `posts.find`.
+  const index = posts.findIndex((p) => p.slug === slug);
+  const neighbours = [posts[index - 1], posts[index + 1]].filter(
+    (p): p is PostSummary => Boolean(p),
+  );
+
   const path = `/blog/${slug}`;
   const crumbs = [
     { name: 'CampTribe', path: '/' },
@@ -122,20 +144,52 @@ export default async function BlogPost({
           <h1 className="text-3xl font-bold leading-tight md:text-[42px]">
             {post.title}
           </h1>
-          {(
-            <p className="mt-3 text-sm text-ink-2">
-              <time dateTime={publishedAt}>
-                {postDate(publishedAt)}
-              </time>
-              {summary.authorName ? ` · ${summary.authorName}` : ''}
-            </p>
-          )}
+          <p className="mt-3 text-sm text-ink-2">
+            <time dateTime={publishedAt}>{postDate(publishedAt)}</time>
+            {summary.authorName ? ` · ${summary.authorName}` : ''}
+            {` · `}
+            <span data-testid="reading-time">{minutes} min read</span>
+          </p>
         </header>
 
         <div className="mt-6 space-y-6">
           <PageSections sections={post.sections} />
         </div>
       </article>
+
+      {neighbours.length > 0 && (
+        <nav
+          aria-labelledby="read-next"
+          className="mt-10 border-t border-line-2 pt-6"
+          data-testid="read-next"
+        >
+          <h2 id="read-next" className="text-base font-semibold">
+            Read next
+          </h2>
+          <ul className="mt-4 grid gap-4 md:grid-cols-2">
+            {neighbours.map((p) => (
+              <li
+                key={p.slug}
+                className="rounded-card border border-line-2 bg-surface p-4 shadow-card"
+              >
+                <Link
+                  href={`/blog/${p.slug}`}
+                  className="text-sm font-semibold text-heading hover:underline"
+                >
+                  {p.title}
+                </Link>
+                {p.publishedAt && (
+                  <p className="mt-1 text-xs text-ink-2">
+                    <time dateTime={p.publishedAt}>
+                      {postDate(p.publishedAt)}
+                    </time>
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
     </main>
   );
 }
