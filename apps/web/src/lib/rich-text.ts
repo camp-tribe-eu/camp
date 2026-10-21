@@ -37,7 +37,16 @@ export type Inline =
 /** Блок: абзац, підзаголовок або список. */
 export type Block =
   | { kind: "p"; spans: Inline[] }
-  | { kind: "h2"; spans: Inline[] }
+  | { kind: "h2"; spans: Inline[]; id: string | null }
+  | { kind: "h3"; spans: Inline[]; id: string | null }
+  /**
+   * Виділена рамка. У правових сторінках це не прикраса: 13 разів із
+   * 13 вона несе речення, яке читач мусить побачити, навіть якщо
+   * пробіг решту — «ми не бюро подорожей», «перевірте перед поїздкою»,
+   * «це не обмежує ваших прав». Абзац замість неї втратив би не слово,
+   * а наголос.
+   */
+  | { kind: "callout"; spans: Inline[] }
   | { kind: "ul"; items: Inline[][] };
 
 /**
@@ -198,9 +207,46 @@ export function parseInline(line: string): Inline[] {
 
 /**
  * Текст → блоки. Формат той самий, що вже читає сторінка гайда:
- * порожній рядок ділить блоки, «- » робить список. Додано «## » для
- * підзаголовка.
+ * порожній рядок ділить блоки, «- » робить список, «## » — підзаголовок.
+ *
+ * CAMP-365 додала «### » і «> » — і обидва взяті з ЗАМІРУ, а не з
+ * бажання мати більше розмітки. У семи правових сторінках, які сюди
+ * переїжджають, заміряно: H2 42 рази, H3 14, список 16, рамка 13.
+ * Без третього рівня чотирнадцять підрозділів злились би з розділами,
+ * тобто документ змінив би структуру — у тексті, де структура і є
+ * змістом.
  */
+/**
+ * 🔴 ЯКІР ЗАГОЛОВКА ПИШЕТЬСЯ ЯВНО, І ЗІ СЛАГУ ЙОГО НЕ ВІДТВОРИТИ.
+ *
+ * У семи правових сторінках 42 заголовки й 42 `id`, і всі підібрані
+ * рукою: `what`, `who-else`, `tiles`, `not`. Жоден не є слагом свого
+ * тексту — `id="links"` стоїть на «Links to other sites and to the
+ * places we list». Якби їх вираховувати з тексту, усі 42 змінились би
+ * мовчки, а разом із ними — чотири наші посилання і будь-яке чуже
+ * цитування опублікованої політики.
+ *
+ * Тому форма така: `## Заголовок {#id}`. Невірний `id` — помилка, а не
+ * тихо пропущений: у правовому документі зламаний якір це сторінка,
+ * яка не відкривається на тому місці, на яке посилались.
+ */
+const HEADING_ID = /\s*\{#([a-z0-9][a-z0-9-]*)\}\s*$/;
+
+function heading(raw: string): { text: string; id: string | null } {
+  const line = raw.trim();
+  const m = HEADING_ID.exec(line);
+  if (!m) {
+    if (/\{#/.test(line)) {
+      throw new Error(
+        `rich-text: заголовок «${line.slice(0, 48)}» має зіпсований якір. ` +
+          "Форма — `{#малі-літери-і-дефіси}` у самому кінці рядка.",
+      );
+    }
+    return { text: line, id: null };
+  }
+  return { text: line.slice(0, m.index).trim(), id: m[1] };
+}
+
 export function parseBlocks(text: string): Block[] {
   const blocks: Block[] = [];
   for (const raw of text.split(/\n\s*\n/)) {
@@ -219,8 +265,32 @@ export function parseBlocks(text: string): Block[] {
       continue;
     }
 
+    if (block.startsWith("### ")) {
+      const h = heading(block.slice(4));
+      blocks.push({ kind: "h3", spans: parseInline(h.text), id: h.id });
+      continue;
+    }
+
     if (block.startsWith("## ")) {
-      blocks.push({ kind: "h2", spans: parseInline(block.slice(3).trim()) });
+      const h = heading(block.slice(3));
+      blocks.push({ kind: "h2", spans: parseInline(h.text), id: h.id });
+      continue;
+    }
+
+    // 🔴 Рамка може займати кілька рядків, і кожен несе свій «> ».
+    // Знімаємо позначку з КОЖНОГО рядка, а не лише з першого: інакше
+    // друга й далі лінії лишились би з видимим «>» у правовому тексті.
+    if (block.startsWith("> ")) {
+      blocks.push({
+        kind: "callout",
+        spans: parseInline(
+          block
+            .split("\n")
+            .map((l) => l.replace(/^>\s?/, ""))
+            .join(" ")
+            .trim(),
+        ),
+      });
       continue;
     }
 
@@ -228,5 +298,21 @@ export function parseBlocks(text: string): Block[] {
     // CMS вони зʼявляються від ширини вікна редактора, не від наміру.
     blocks.push({ kind: "p", spans: parseInline(block.replace(/\n/g, " ")) });
   }
+  // 🔴 ДВА ОДНАКОВІ ЯКОРІ — ЦЕ ЗЛАМАНЕ ПОСИЛАННЯ, А НЕ ДРІБНИЦЯ.
+  // Браузер піде до першого, і той, хто дав посилання на другий розділ
+  // правового документа, відправить читача не туди. Мовчки.
+  const seen = new Set<string>();
+  for (const b of blocks) {
+    if (b.kind !== "h2" && b.kind !== "h3") continue;
+    if (b.id === null) continue;
+    if (seen.has(b.id)) {
+      throw new Error(
+        `rich-text: якір «#${b.id}» трапився двічі. Посилання на нього ` +
+          "вело б до першого заголовка, а не до того, що мали на увазі.",
+      );
+    }
+    seen.add(b.id);
+  }
+
   return blocks;
 }

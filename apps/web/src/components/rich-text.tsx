@@ -63,29 +63,66 @@ export function RichText({
   return (
     <div className={className}>
       {blocks.map((b, i) => {
-        if (b.kind === "h2") {
-          return (
-            <h2 key={i} className="text-xl font-semibold text-heading">
-              <Spans spans={b.spans} />
-            </h2>
-          );
+        // 🔴 РОЗБІР ВИЧЕРПНИЙ, І ЦЕ НЕ СТИЛЬ, А ЗАПОБІЖНИК.
+        //
+        // Доки в кінці стояв `return <p>`, новий вид блоку малювався б
+        // ЯК АБЗАЦ — мовчки. Заміряно на собі: щойно доданий `h3`
+        // пройшов `tsc` зеленим і віддав би чотирнадцять підзаголовків
+        // правових сторінок звичайним текстом. `never` нижче перетворює
+        // цей клас дефекту на помилку складання.
+        switch (b.kind) {
+          case "h2":
+            return (
+              <h2
+                key={i}
+                id={b.id ?? undefined}
+                className="scroll-mt-24 text-xl font-semibold text-heading"
+              >
+                <Spans spans={b.spans} />
+              </h2>
+            );
+          case "h3":
+            return (
+              <h3
+                key={i}
+                id={b.id ?? undefined}
+                className="scroll-mt-24 text-base font-semibold text-heading"
+              >
+                <Spans spans={b.spans} />
+              </h3>
+            );
+          case "callout":
+            return (
+              <div
+                key={i}
+                className="rounded-card border border-line-blue bg-accent-surface p-4 text-heading"
+              >
+                <Spans spans={b.spans} />
+              </div>
+            );
+          case "ul":
+            return (
+              <ul key={i} className="list-disc space-y-1 pl-5">
+                {b.items.map((item, j) => (
+                  <li key={j}>
+                    <Spans spans={item} />
+                  </li>
+                ))}
+              </ul>
+            );
+          case "p":
+            return (
+              <p key={i}>
+                <Spans spans={b.spans} />
+              </p>
+            );
+          default: {
+            const never: never = b;
+            throw new Error(
+              `rich-text: немає рендера для блоку ${JSON.stringify(never)}.`,
+            );
+          }
         }
-        if (b.kind === "ul") {
-          return (
-            <ul key={i} className="list-disc space-y-1 pl-5">
-              {b.items.map((item, j) => (
-                <li key={j}>
-                  <Spans spans={item} />
-                </li>
-              ))}
-            </ul>
-          );
-        }
-        return (
-          <p key={i}>
-            <Spans spans={b.spans} />
-          </p>
-        );
       })}
     </div>
   );

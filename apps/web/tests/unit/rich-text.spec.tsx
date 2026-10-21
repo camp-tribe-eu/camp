@@ -188,3 +188,73 @@ test.describe("підстановки", () => {
     expect(out).toBe("кинуло");
   });
 });
+
+// CAMP-365 — третій рівень, рамка і якорі. Усе троє додано під переїзд
+// семи правових сторінок, і кожне твердження нижче стоїть на замірі з
+// тих сторінок, а не на бажанні мати ширшу розмітку.
+test.describe("правова розмітка", () => {
+  test("«### » дає h3, а не абзац і не h2", () => {
+    const blocks = parseBlocks("### Підрозділ");
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].kind, "третій рівень злився з чимось іншим").toBe("h3");
+    const html = renderComponent(RichText, { text: "### Підрозділ" });
+    expect(html).toContain("<h3");
+    expect(html, "h3 намальовано як h2").not.toContain("<h2");
+  });
+
+  test("«> » дає рамку, і позначка не лишається у видимому тексті", () => {
+    const html = renderComponent(RichText, {
+      text: "> **Перевірте.** Дані можуть бути застарілі.\n> Телефонуйте на місце.",
+    });
+    expect(html).toContain("accent-surface");
+    expect(html, "рамка перетворилась на цитату з видимим «>»").not.toMatch(
+      /&gt;|>\s*\*\*/,
+    );
+    expect(html).toContain("Перевірте.");
+    expect(html, "другий рядок рамки загубився").toContain(
+      "Телефонуйте на місце.",
+    );
+  });
+
+  test("🔴 якір заголовка — той, що написано, а не вирахуваний із тексту", () => {
+    const blocks = parseBlocks("## Links to other sites {#links}");
+    expect(blocks[0]).toMatchObject({ kind: "h2", id: "links" });
+    const html = renderComponent(RichText, {
+      text: "## Links to other sites {#links}",
+    });
+    expect(html, "якоря немає в розмітці").toContain('id="links"');
+    expect(html, "позначка якоря видима читачеві").not.toContain("{#links}");
+    expect(html).toContain("Links to other sites");
+  });
+
+  test("заголовок без якоря лишається без id, а не дістає вигаданий", () => {
+    const blocks = parseBlocks("## Просто заголовок");
+    expect(blocks[0]).toMatchObject({ kind: "h2", id: null });
+    const html = renderComponent(RichText, { text: "## Просто заголовок" });
+    expect(html).not.toContain("id=");
+  });
+
+  // 🔴 Обидві негативні перевірки вище зелені й тоді, коли не
+  // друкується НІЧОГО. Тому поруч — випадки, де мовчання не рятує:
+  // зіпсована форма й повтор мусять КИНУТИ.
+  test("🔴 зіпсований якір кидає, а не губиться", () => {
+    expect(() => parseBlocks("## Заголовок {#Links}")).toThrow(/якір/);
+    expect(() => parseBlocks("## Заголовок {#}")).toThrow(/якір/);
+    expect(() => parseBlocks("## Заголовок {# links}")).toThrow(/якір/);
+  });
+
+  test("🔴 два однакові якорі кидають", () => {
+    expect(() =>
+      parseBlocks("## Один {#same}\n\n## Другий {#same}"),
+    ).toThrow(/#same/);
+    // а різні — ні, інакше попереднє твердження було б зелене завжди
+    expect(() =>
+      parseBlocks("## Один {#a}\n\n## Другий {#b}"),
+    ).not.toThrow();
+  });
+
+  test("🔴 h3 теж несе якір — інакше рівень вирішував би, чи працює посилання", () => {
+    const blocks = parseBlocks("### Підрозділ {#sub}");
+    expect(blocks[0]).toMatchObject({ kind: "h3", id: "sub" });
+  });
+});
