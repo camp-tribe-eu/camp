@@ -69,9 +69,36 @@ need_src() {
 # код виходу 1 тоді означав і «CMS виставлена назовні», і «скрипт
 # помер», тобто монітор не розрізнив би аварію й тишу. Знайшла рецензія.
 listening_on_8055() {
-  local raw
-  raw="$(ss -ltnH 2>/dev/null || true)"
-  printf '%s\n' "$raw" | tr -s ' ' | cut -d' ' -f4 | { grep ':8055$' || true; } | paste -sd, -
+  # 🔴 ВІДПОВІДЬ РОЗРІЗНЯЄ ТРИ СТАНИ, А НЕ ДВА. Перша редакція ковтала
+  # будь-яке падіння `ss` через `|| true`, і порожній вивід читався як
+  # «ніхто не слухає» — тобто перевірка адреси ВІДМОВЛЯЛА У ВІДКРИТИЙ
+  # БІК: немає `ss` → код 0 → монітор бачить зелене. Той самий стан
+  # ядра давав то тривогу, то тишу, залежно від того, чи є утиліта.
+  # Знайшла рецензія. Тепер «не зміг перевірити» — окремий стан.
+  local raw rc found
+  command -v ss >/dev/null 2>&1 || { printf 'unknown:ss немає в PATH'; return 0; }
+  raw="$(ss -ltnH 2>/dev/null)"; rc=$?
+  [ "$rc" -eq 0 ] || { printf 'unknown:ss вийшов із кодом %s' "$rc"; return 0; }
+  found="$(printf '%s\n' "$raw" | tr -s ' ' | cut -d' ' -f4 | { grep ':8055$' || true; } | paste -sd, -)"
+  if [ -n "$found" ]; then printf 'ok:%s' "$found"; else printf 'none'; fi
+}
+
+# Петля — це і 127.0.0.1, і [::1]. Машина dual-stack слухає обидві, і
+# тривога на другій була б хибною: рецензія це відтворила.
+only_loopback() {
+  # 🔴 БЕЗ `| grep -q` І БЕЗ ПІДОБОЛОНКИ. Перша редакція робила
+  # `while … | grep -q no` — а це і заборонений у репозиторії патерн
+  # (scripts/ci/check-pipe-to-grep-q.mjs), і логічна пастка: `while` у
+  # конвеєрі крутиться в підоболонці, тож `return` з нього нічого не
+  # повертає назовні.
+  local rest="$1" item
+  [ -n "$rest" ] || return 1
+  while [ -n "$rest" ]; do
+    item="${rest%%,*}"
+    case "$item" in 127.0.0.1:8055|'[::1]':8055) ;; *) return 1 ;; esac
+    if [ "$item" = "$rest" ]; then rest=""; else rest="${rest#*,}"; fi
+  done
+  return 0
 }
 
 status() {
@@ -99,18 +126,35 @@ status() {
   # systemd (@directus/env, createEnv() — заміряно 22.10.2026).
   # Запобігти не можемо — питаємо ядро, на чому порт висить НАСПРАВДІ.
   bound="$(listening_on_8055)"
-  if [ -z "$bound" ]; then
-    say "адреса:        порт 8055 ніхто не слухає"
-  elif [ "$bound" = "127.0.0.1:8055" ]; then
-    say "адреса:        $bound  ✓ лише локально"
-  else
-    say "адреса:        $bound"
-    say "   🔴 CMS СЛУХАЄ НЕ ЛИШЕ 127.0.0.1. Очікувалось 127.0.0.1:8055."
-    say "      Майже напевно в $CMS_DIR/.env зʼявився HOST — він переважує юніт."
-    # 🔴 КОД 3, А НЕ 1: одиницею виходить і впалий скрипт, і `die`.
-    # Тривога, яку не відрізнити від аварії, — це половина тривоги.
-    rc=3
-  fi
+  case "$bound" in
+    unknown:*)
+      say "адреса:        НЕ ПЕРЕВІРЕНО — ${bound#unknown:}"
+      say "   🔴 ЦЕ НЕ «ВСЕ ГАРАЗД». Перевірка не виконалась, отже про адресу"
+      say "      не відомо нічого. Код 4 — щоб монітор не прийняв це за тишу."
+      rc=4
+      ;;
+    none)
+      say "адреса:        порт 8055 ніхто не слухає"
+      # 🔴 СУПЕРЕЧНІСТЬ, ЯКУ СКРИПТ ТРИМАЄ В РУКАХ І РАНІШЕ НЕ ВИКОРИСТОВУВАВ:
+      # якщо ping відповів, то хтось таки слухає, і «ніхто» — неправда.
+      if [ "$ping" = pong ]; then
+        say "   🔴 АЛЕ ping ВІДПОВІВ pong. Два твердження не можуть бути істинними"
+        say "      разом: або ss бачить не все, або відповідає не наш процес."
+        rc=4
+      fi
+      ;;
+    ok:*)
+      if only_loopback "${bound#ok:}"; then
+        say "адреса:        ${bound#ok:}  ✓ лише петля"
+      else
+        say "адреса:        ${bound#ok:}"
+        say "   🔴 CMS СЛУХАЄ НЕ ЛИШЕ ПЕТЛЮ. Очікувалось 127.0.0.1:8055 (і [::1]:8055)."
+        say "      Майже напевно в $CMS_DIR/.env зʼявився HOST — він переважує юніт."
+        # 🔴 КОД 3, А НЕ 1: одиницею виходить і впалий скрипт, і `die`.
+        rc=3
+      fi
+      ;;
+  esac
   return "$rc"
 }
 
@@ -174,11 +218,23 @@ snapshot_db() {
   user="$(env_value "$envf" DB_USER)" || die "у $envf немає DB_USER"
   host="$(env_value "$envf" DB_HOST || true)"; host="${host:-localhost}"
   port="$(env_value "$envf" DB_PORT || true)"; port="${port:-5432}"
-  PGPASSWORD="$(env_value "$envf" DB_PASSWORD || true)"; export PGPASSWORD
+  # 🔴 ПАРОЛЬ НЕ ЕКСПОРТУЄМО. Перша редакція робила `export PGPASSWORD`
+  # і не прибирала його — тобто пароль бази діставався КОЖНОМУ дочірньому
+  # процесу далі по скрипту: `npm ci` з усіма `postinstall` дерева
+  # залежностей, `node … migrate`. Рецензія це відтворила підмінним npm.
+  # Присвоєння перед командою видно лише їй.
+  local pw; pw="$(env_value "$envf" DB_PASSWORD || true)"
   dump="/srv/camptribe/backups/cms-pre-migration-$(date -u +%Y%m%dT%H%M%SZ).dump"
   say "знімок бази «${db}» → ${dump}"
-  pg_dump -Fc -h "$host" -p "$port" -U "$user" -d "$db" -f "$dump" \
+  # 🔴 umask У ПІДОБОЛОНЦІ: знімок несе хеші паролів із directus_users і
+  # дані сесій. Без цього він лягав із правами виклику — заміряно
+  # `-rw-r--r--`, тобто читати міг будь-хто на машині.
+  ( umask 077; PGPASSWORD="$pw" pg_dump -Fc -h "$host" -p "$port" -U "$user" -d "$db" -f "$dump" ) \
     || die "pg_dump не вдався — схему НЕ чіпаю"
+  case "$(ls -l "$dump" | cut -c1-10)" in
+    -rw-------) : ;;
+    *) die "знімок лягл із правами $(ls -l "$dump" | cut -c1-10), а не -rw------- — не лишаю його так" ;;
+  esac
   # 🔴 ФАЙЛ Є ≠ ЗНІМОК Є. Доводимо, що всередині лежить саме те, що
   # міграція змінюватиме: власні таблиці Directus.
   local n
@@ -230,7 +286,10 @@ install_cms() {
    цю платформу немає готового двійника, і тоді потрібні build-essential
    та python3. Локально 20.10.2026 це лікувалось \`npm rebuild isolated-vm\`."
   [ -f "$CMS_DIR/node_modules/directus/cli.js" ] || die "після npm ci немає node_modules/directus/cli.js — юніту нічого запускати"
-  say "✓ встановлено $(have_version)"
+  # 🔴 ЛІЧИЛЬНИК ЧИТАЄТЬСЯ. Він зʼявився як виправлення `return "$changed"`,
+  # але нікуди не виводився — тобто коментар подавав як виправлення те,
+  # чого не видно. Рецензія назвала це прямо.
+  say "✓ встановлено $(have_version); файлів покладено: $CHANGED"
   say
   say "🔴 ДАЛІ ПОТРІБЕН $CMS_DIR/.env — його цей скрипт не створює НІКОЛИ."
   say "   Зразок: $SRC_DIR/.env.example"
@@ -257,9 +316,22 @@ update_cms() {
   # живому Directus виймали ExecStart з-під ніг, а `Restart=always` із
   # `RestartSec=5` крутив би його в цей момент по колу.
   systemctl stop camptribe-cms.service
+  # 🔴 БУДЬ-ЯКЕ ПАДІННЯ ПІСЛЯ ЗУПИНКИ МУСИТЬ ПІДНЯТИ СЛУЖБУ НАЗАД.
+  # Перша редакція ловила лише падіння `npm ci`. Якщо ж падав
+  # `sync_manifest` (а він кличе `die`), скрипт виходив, і CMS лишалась
+  # зупиненою НАЗАВЖДИ — у повідомленні про це не було ні слова.
+  # Рецензія це відтворила: stop ×1, start ×0.
+  #
+  # Пастка знімається перед міграцією НАВМИСНО: якщо впаде вона, новий
+  # двійник над старою схемою — стан гірший за зупинену службу.
+  CMS_RESTORE=yes
+  trap 'if [ "${CMS_RESTORE:-no}" = yes ]; then
+          echo "↻ піднімаю CMS назад: схему не чіпали" >&2
+          systemctl start camptribe-cms.service || true
+        fi' EXIT
   sync_manifest
   ( cd "$CMS_DIR" && as_user npm ci --omit=dev --no-audit --no-fund ) \
-    || { systemctl start camptribe-cms.service; die "npm ci не вдався — схему не чіпав, службу підняв"; }
+    || die "npm ci не вдався — схему не чіпав"
   # 🔴 `start` МІГРАЦІЙ НЕ РОБИТЬ (заміряно: cli/index.js:28 → лише
   # startServer). Без цього рядка новий двійник просто працював би над
   # старою схемою, і дізнались би ми з дивних помилок, а не з падіння.
@@ -267,11 +339,13 @@ update_cms() {
   # 🔴 ЖОДНОГО `env $(...)`: розщеплення слів ламається на першому ж
   # значенні з пробілом, і ламається тихо. Не треба зовсім — Directus
   # читає .env сам із робочого каталогу (CONFIG_PATH = cwd()/.env).
+  CMS_RESTORE=no   # далі міграція: її падіння службу НЕ піднімає, і це свідомо
   ( cd "$CMS_DIR" && as_user node node_modules/directus/cli.js database migrate:latest ) \
     || die "міграція впала. Службу НЕ піднімаю: новий двійник над старою схемою —
-   нестійкий стан, який виглядає як робочий. Знімок: /srv/camptribe/backups/"
+   нестійкий стан, який виглядає як робочий. Знімок: ${dump:-/srv/camptribe/backups/}"
   systemctl start camptribe-cms.service
-  say "✓ оновлено до $(have_version), схему мігровано"
+  trap - EXIT
+  say "✓ оновлено до $(have_version), схему мігровано; файлів змінено: $CHANGED"
 }
 
 case "$cmd" in
