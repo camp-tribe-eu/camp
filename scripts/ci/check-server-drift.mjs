@@ -247,15 +247,64 @@ export const madeByDeploy = (rel) =>
   DEPLOY_CREATES.some((p) => (p.endsWith('/') ? rel.startsWith(p) : rel === p));
 
 /**
+ * ДРУГИЙ корінь: CMS (CAMP-384). Directus живе ПОРУЧ із релізами, а не
+ * всередині них, і це рішення, а не недогляд: корінь оголошує
+ * `workspaces: ["apps/api","apps/web"]`, тож `npm ci` релізу Directus не
+ * ставить узагалі, а відкат застосунку не сміє відкотити двійник під
+ * уже мігрованою базою.
+ *
+ * 🔴 ЦЕ НЕ ЗВІЛЬНЕННЯ ВІД ПЕРЕВІРКИ, А ДРУГИЙ ЇЇ ЕКЗЕМПЛЯР. Під цим
+ * коренем дозволено РІВНО те, що створює `infra/bin/camptribe-cms`, і
+ * кожен рядок названий кроком, який його створює. Будь-що інше —
+ * той самий рядок у порожнечу, що вбив бекап 13.10.2026.
+ *
+ * 🔴 І ЗВІЛЬНЕННЯ САМЕ СЕБЕ СКАСОВУЄ. Воно чинне лише доки в
+ * репозиторії лежить встановлювач, який ЦЕЙ корінь оголошує. Приберуть
+ * `camptribe-cms` або перейменують там `CMS_DIR` — юніт одразу стає
+ * посиланням у порожнечу, як і мав би. Інакше це була б дірка, що
+ * переживе свою причину.
+ */
+export const CMS_ROOT = '/srv/camptribe/cms';
+
+export const CMS_CREATES = Object.freeze([
+  '', // install -d — сам каталог
+  'package.json', // sync_manifest
+  'package-lock.json', // sync_manifest
+  'node_modules/', // npm ci --omit=dev
+  '.env', // 🔴 руками і тільки руками: SECRET, пароль бази, ключ ліцензії
+]);
+
+export const madeByCmsInstaller = (rel) =>
+  CMS_CREATES.some((p) => (p.endsWith('/') && p !== '' ? rel.startsWith(p) : rel === p));
+
+/** Чи оголошує встановлювач саме цей корінь. Без цього звільнення не діє. */
+export function cmsRootIsOwned(files, read) {
+  const inst = files.find((f) => f.kind === 'bin' && f.name === 'camptribe-cms');
+  if (inst === undefined) return false;
+  return new RegExp(`^CMS_DIR=${CMS_ROOT}$`, 'm').test(read(inst.local));
+}
+
+/**
  * Чи існує в репозиторії те, що юніт назвав під релізом.
  */
 export function missingReleasePaths(files, opts = {}) {
   const read = opts.read ?? ((f) => readFileSync(f, 'utf8'));
   const exists = opts.exists ?? ((rel) => existsSync(path.join(ROOT, rel)));
+  const cmsOwned = cmsRootIsOwned(files, read);
   const bad = [];
   for (const f of files) {
     if (!f.name.endsWith('.service') && !f.name.endsWith('.timer')) continue;
     for (const ref of releasePaths(read(f.local))) {
+      if (ref.abs === CMS_ROOT || ref.abs.startsWith(`${CMS_ROOT}/`)) {
+        if (!cmsOwned) {
+          bad.push({ unit: f.name, missing: `${ref.key}=${ref.abs} — ${CMS_ROOT} не оголошений у infra/bin/camptribe-cms` });
+          continue;
+        }
+        const cmsRel = ref.abs === CMS_ROOT ? '' : ref.abs.slice(CMS_ROOT.length + 1);
+        if (madeByCmsInstaller(cmsRel)) continue;
+        bad.push({ unit: f.name, missing: `${ref.key}=${ref.abs} — ${CMS_ROOT}/${cmsRel} ніхто не створює` });
+        continue;
+      }
       if (ref.abs !== RELEASE_ROOT && !ref.abs.startsWith(`${RELEASE_ROOT}/`)) {
         bad.push({ unit: f.name, missing: `${ref.key}=${ref.abs} — не під ${RELEASE_ROOT}` });
         continue;
@@ -668,6 +717,43 @@ function selfTest() {
   is('те, що деплой будує сам, відсутнє правильно',
     real('WorkingDirectory=/srv/camptribe/current/apps/api\nExecStart=/usr/bin/node dist/main\n'), []);
 
+  // ── ДРУГИЙ КОРІНЬ: CMS (CAMP-384) ─────────────────────────────────
+  //
+  // 🔴 КОЖЕН ВИПАДОК ТУТ МУСИТЬ УМІТИ ЧЕРВОНІТИ. Звільнення цілого
+  // кореня — найлегший спосіб зробити сторожа ввічливим, тож нижче
+  // перевіряється не лише «дозволене проходить», а й три способи, якими
+  // воно МАЄ ламатись: чужий шлях під коренем, відсутній встановлювач і
+  // встановлювач, що оголошує ІНШИЙ корінь.
+  const cmsFiles = (withInstaller) => (withInstaller
+    ? [{ kind: 'systemd', name: 'u.service', local: 'u' },
+       { kind: 'bin', name: 'camptribe-cms', local: 'i' }]
+    : [{ kind: 'systemd', name: 'u.service', local: 'u' }]);
+  const cmsProbe = (text, withInstaller, instText = `CMS_DIR=${CMS_ROOT}\n`) =>
+    missingReleasePaths(cmsFiles(withInstaller), {
+      read: (f) => (f === 'i' ? instText : text),
+      exists: () => true,
+    }).map((b) => b.missing);
+
+  is('CMS: дозволене під своїм коренем — мовчання',
+    cmsProbe('WorkingDirectory=/srv/camptribe/cms\n'
+      + 'EnvironmentFile=/srv/camptribe/cms/.env\n'
+      + 'ExecStart=/usr/bin/node node_modules/directus/cli.js start\n', true), []);
+  is('🔴 CMS: чужий шлях під коренем не прощається',
+    cmsProbe('WorkingDirectory=/srv/camptribe/cms\nEnvironmentFile=/srv/camptribe/cms/secrets/x\n', true),
+    ['EnvironmentFile=/srv/camptribe/cms/secrets/x — /srv/camptribe/cms/secrets/x ніхто не створює']);
+  is('🔴 CMS: без встановлювача звільнення НЕ діє',
+    cmsProbe('WorkingDirectory=/srv/camptribe/cms\n', false),
+    ['WorkingDirectory=/srv/camptribe/cms — /srv/camptribe/cms не оголошений у infra/bin/camptribe-cms']);
+  is('🔴 CMS: встановлювач із ІНШИМ коренем звільнення не дає',
+    cmsProbe('WorkingDirectory=/srv/camptribe/cms\n', true, 'CMS_DIR=/srv/other\n'),
+    ['WorkingDirectory=/srv/camptribe/cms — /srv/camptribe/cms не оголошений у infra/bin/camptribe-cms']);
+  // 🔴 І СПРАВЖНІ ФАЙЛИ, БЕЗ ЖОДНОГО ПІДМІННИКА: саме вони їдуть на машину.
+  is('CMS: справжній юніт репозиторію проходить',
+    missingReleasePaths([
+      { kind: 'systemd', name: 'camptribe-cms.service', local: path.join(ROOT, 'infra/systemd/camptribe-cms.service') },
+      { kind: 'bin', name: 'camptribe-cms', local: path.join(ROOT, 'infra/bin/camptribe-cms') },
+    ]).map((b) => b.missing), []);
+
   // 🔴 ТРИ ВХОДИ, ЯКІ `git check-ignore` ПРОПУСКАВ МОВЧКИ. Кожен тут
   // тому, що був заміряний як хибне проходження, а не вигаданий.
   is('🔴 out/ більше не ковтається',
@@ -714,7 +800,7 @@ function selfTest() {
     ).stale,
     false);
 
-  const EXPECTED_CASES = 44;   // CAMP-384: +3 (другий замок у FORBIDDEN_TARGETS)
+  const EXPECTED_CASES = 49;   // CAMP-384: 41 + 3 (другий замок) + 5 (другий корінь)
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;
