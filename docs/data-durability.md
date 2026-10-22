@@ -138,12 +138,20 @@ activation holds its slot forever.
 
 So every backup folder now also holds `camptribe.dump`, a `pg_dump -Fc`
 of the whole database, mode `0600` (it carries password hashes and the
-licence token). `verify` reads its **content**, not its presence:
-`pg_restore -l` must list `TABLE DATA` for `directus_settings` and
-`directus_flows`, or the folder does not verify — a dump that exists,
-checksums correctly and carries no Directus is the same defect with a
-new name. `scripts/osm-pipeline/backup-local.selftest.sh` hands `verify`
-exactly such dumps and requires red.
+licence token). Two checks, because they prove different things:
+
+- **Before the dump**, `backup` counts `directus_settings` and refuses on
+  zero — that is what proves there is a `project_id` row to keep.
+- **After it**, `verify` reads the dump's **content**, not its presence:
+  `pg_restore -l` must list `TABLE DATA` for `directus_settings` and
+  `directus_flows`, or the folder does not verify. `TABLE DATA` proves the
+  table's data section was dumped (a `--schema-only` dump has none); it
+  does **not** prove a row exists — it is present for an empty table too,
+  which is why the count above is separate. A dump that exists, checksums
+  correctly and carries no Directus is the same defect with a new name.
+
+`scripts/osm-pipeline/backup-local.selftest.sh` hands `verify` exactly
+such dumps, and `backup` an empty `directus_settings`, and requires red.
 
 The dump is for the other disaster — "the database is gone" — and it
 restores by replacement, not by merge, so only into an **empty** database:

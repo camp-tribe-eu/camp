@@ -27,13 +27,21 @@
 # жодного придатного бекапу (рецензія PR #318). Але ключ "dump" із
 # чимось не тим усередині — тверда відмова, як і була.
 #
+# 🔴 ТРИ РЕЧІ З РЕЦЕНЗІЇ PR #318, кожна з мутацією, яка червонить:
+#   · маніфест рахує ЗАПИСИ CSV, не фізичні рядки (повернення wc -l →
+#     червоний випадок із legal_page_translations);
+#   · режим fresh має свідка — скрипт джерелиться, write_manifest
+#     підміняється писачем старого зразка, do_backup мусить відмовити;
+#   · порожня directus_settings не дає знімка — TABLE DATA в TOC є і для
+#     порожньої таблиці, рядок доводиться лічильником до дампа.
+#
 # 🔴 ЛІЧИЛЬНИК. «N випадків» — підпис, а не перевірка. EXPECTED записано;
 # останній рядок друкується лише коли виконаних стільки ж і жоден не впав.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="${CAMPTRIBE_BACKUP_BIN:-$HERE/backup-local.sh}"
-EXPECTED=23
+EXPECTED=27
 # Де брати базу: локально сокет і поточний користувач, у CI — сервіс
 # postgres. Назви з префіксом, щоб два прогони поруч не скидали бази
 # одне одного.
@@ -81,6 +89,14 @@ INSERT INTO camping_spots (osm_ref, context, context_computed_at)
   VALUES ('n/1', '{"elevation": 900}', now());
 CREATE TABLE guides (id serial PRIMARY KEY, slug text NOT NULL);
 INSERT INTO guides (slug) VALUES ('rehearsal');
+-- 🔴 Правові сторінки: markdown із переводами рядків і лапками в полі.
+-- Три ЗАПИСИ, що займають набагато більше фізичних рядків у CSV — саме
+-- на цьому «Backup restore» на main червонів (386 рядків проти 7 записів).
+CREATE TABLE legal_page_translations (id serial PRIMARY KEY, body text NOT NULL);
+INSERT INTO legal_page_translations (body) VALUES
+  (E'# Privacy\n\nLine two, with "quotes" and a comma, here\nLine three'),
+  (E'Single line'),
+  (E'Last "quoted"\nparagraph\n\n\nwith blank lines');
 
 CREATE TABLE directus_settings (id integer PRIMARY KEY, project_name varchar(100), project_id uuid);
 INSERT INTO directus_settings (id, project_name, project_id) VALUES (1, 'CampTribe', gen_random_uuid());
@@ -177,6 +193,15 @@ C=$(gzip -dc "$DIR/camping_spots_context.csv.gz" | wc -l | tr -d ' ')
 [ "$G" = 2 ] && [ "$C" = 2 ]
 r=$?; ok "$r" 'CSV-половина не постраждала: guides і контекст кемпінгів — по одному рядку' "guides lines=$G context lines=$C"
 
+# 🔴 Рецензія PR #318: лічильник рахував фізичні рядки gzip, а запис із
+# переводом рядка в полі займає кілька. Маніфест мусить казати 3 — і
+# самотест ПЕРЕВІРЯЄ, що фізичних рядків більше, інакше випадок нічого
+# не розрізняє.
+L_ROWS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["files"]["legal_page_translations.csv.gz"]["rows"])' "$DIR/manifest.json")"
+L_LINES="$(gzip -dc "$DIR/legal_page_translations.csv.gz" | wc -l | tr -d ' ')"
+[ "$L_ROWS" = 3 ] && [ "$L_LINES" -gt 4 ]
+r=$?; ok "$r" "🔴 маніфест рахує ЗАПИСИ CSV, не рядки: legal_page_translations = 3 записи при $L_LINES фізичних рядках" "manifest rows=$L_ROWS lines=$L_LINES"
+
 run_verify "$DIR"
 [ "$RC" = 0 ] && [[ "$OUT" == *"TABLE DATA для directus_settings directus_flows"* ]]
 r=$?; ok "$r" 'verify проходить і НАЗИВАЄ, що знайшов у дампі' "rc=$RC $OUT"
@@ -257,11 +282,44 @@ run_verify "$DIR"
 [ "$RC" = 0 ] && [[ "$OUT" == *"зріз зроблено до CAMP-386"* ]] && [[ "$OUT" == *"CSV-половина ціла"* ]]
 r=$?; ok "$r" '🔴 маніфест без "dump" → verify виходить 0 і голосно попереджає, що directus_* не відновити' "rc=$RC $OUT"
 
-psql -q -v ON_ERROR_STOP=1 -d "$SRC_URL" -c 'TRUNCATE guides'
+psql -q -v ON_ERROR_STOP=1 -d "$SRC_URL" -c 'TRUNCATE guides, legal_page_translations'
 R_OUT="$(DATABASE_URL="$SRC_URL" "$SCRIPT" restore "$DIR" 2>&1)"; R_RC=$?
 G="$(psql -tAc 'SELECT count(*) FROM guides' -d "$SRC_URL")"
 [ "$R_RC" = 0 ] && [ "$G" = 1 ] && [[ "$R_OUT" == *"зріз зроблено до CAMP-386"* ]]
 r=$?; ok "$r" '🔴 restore зі старого зрізу ПРОХОДИТЬ: guides повернулись із CSV (1 рядок), попередження надруковано' "rc=$R_RC guides=$G $R_OUT"
+
+LB="$(psql -tAc "SELECT count(*) || '/' || count(*) FILTER (WHERE body LIKE E'%with \"quotes\"%' AND body LIKE E'%\nLine three') FROM legal_page_translations" -d "$SRC_URL")"
+[ "$R_RC" = 0 ] && [ "$LB" = '3/1' ]
+r=$?; ok "$r" 'багаторядкові записи повернулись цілими: 3 записи, лапки й переводи рядків у тілі на місці' "rc=$R_RC got=$LB"
+
+echo '— fresh має свідка: backup із маніфестом без ключа "dump" відмовляє'
+# 🔴 Рецензія PR #318 прибрала гілку fresh у verify_dump — набір лишився
+# зеленим. Тепер скрипт джерелиться в підоболонці, а write_manifest
+# підміняється писачем СТАРОГО зразка: усі CSV із правильними сумами й
+# жодного слова про дамп. Усе інше в do_backup справжнє — pg_dump, права,
+# do_verify. Єдине, що може відмовити, — fresh.
+DIR="$BASE/fresh"; rm -rf "$DIR"
+F_OUT="$(
+  DATABASE_URL="$SRC_URL"
+  # shellcheck source=backup-local.sh
+  . "$SCRIPT"
+  write_manifest() {
+    local d="$1" first=1 f
+    {
+      printf '{\n  "takenAt": "%s",\n  "files": {\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      for f in "$d"/*.csv.gz; do
+        [ "$first" = 1 ] || printf ',\n'
+        first=0
+        printf '    "%s": { "rows": %s, "sha256": "%s" }' "$(basename "$f")" "$(rows_in_gz "$f")" "$(sha "$f")"
+      done
+      printf '\n  }\n}\n'
+    } > "$d/manifest.json"
+  }
+  do_backup "$DIR" 2>&1
+)"; F_RC=$?
+HAS_KEY="$(python3 -c 'import json,sys; print("dump" in json.load(open(sys.argv[1])))' "$DIR/manifest.json" 2>/dev/null)"
+[ "$F_RC" != 0 ] && [ "$HAS_KEY" = False ] && [[ "$F_OUT" == *"щойно записаний маніфест не називає дампа"* ]]
+r=$?; ok "$r" '🔴 backup, чий маніфест записався без "dump" → ВІДМОВА (fresh), хоч CSV-половина бездоганна' "rc=$F_RC has_key=$HAS_KEY $F_OUT"
 
 echo '— права читаються ПІСЛЯ запису, а не виводяться з umask'
 # Заміряно 22.10.2026: pg_dump -f у файл, що ВЖЕ існує, лишає його права.
@@ -270,11 +328,19 @@ run_backup "$DIR"
 [ "$RC" != 0 ] && [[ "$OUT" == *"правами -rw-r--r--"* ]] && [ ! -e "$DIR/camptribe.dump" ]
 r=$?; ok "$r" '🔴 дамп поверх файла з 0644 → backup червоний, називає права й НЕ лишає такий файл' "rc=$RC exists=$([ -e "$DIR/camptribe.dump" ] && echo yes || echo no) $OUT"
 
-echo '— база без Directus не дає знімка'
+echo '— база без рядка project_id не дає знімка'
+# 🔴 Рецензія PR #318 заміряла: TABLE DATA в TOC є і для ПОРОЖНЬОЇ
+# таблиці — verify ставив ✓, а після відновлення count(*) = 0. Тому
+# рядок доводиться лічильником ДО дампа, і дамп на нулі не пишеться.
+psql -q -v ON_ERROR_STOP=1 -d "$SRC_URL" -c 'DELETE FROM directus_settings'
+DIR="$BASE/empty"; run_backup "$DIR"
+[ "$RC" != 0 ] && [[ "$OUT" == *"directus_settings 0 рядків"* ]] && [ ! -e "$DIR/camptribe.dump" ]
+r=$?; ok "$r" '🔴 порожня directus_settings → backup відмовляє ДО pg_dump, дампа на диску немає' "rc=$RC exists=$([ -e "$DIR/camptribe.dump" ] && echo yes || echo no) $OUT"
+
 psql -q -v ON_ERROR_STOP=1 -d "$SRC_URL" -c 'DROP TABLE directus_settings'
 DIR="$BASE/nocms"; run_backup "$DIR"
-[ "$RC" != 0 ] && [[ "$OUT" == *"немає TABLE DATA для directus_settings"* ]]
-r=$?; ok "$r" '🔴 у базі немає directus_settings → backup сам себе не зараховує' "rc=$RC $OUT"
+[ "$RC" != 0 ] && [[ "$OUT" == *"не зміг порахувати directus_settings"* ]] && [ ! -e "$DIR/camptribe.dump" ]
+r=$?; ok "$r" '🔴 у базі немає directus_settings → backup відмовляє: «не зміг порахувати» — не те саме, що нуль' "rc=$RC $OUT"
 
 printf '\n%s\n' "$PASS passed, $FAIL failed"
 if [ "$RUN" != "$EXPECTED" ]; then

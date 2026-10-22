@@ -142,13 +142,21 @@ TABLES=(
 SPOTS_COLUMNS="osm_ref, context, context_computed_at, owner_overrides, missing_since, content_changed_at"
 
 # 🔴 Імʼя дампа й те, без чого він не вважається дампом (CAMP-386).
-# Обидві таблиці мусять стояти в TOC як TABLE DATA: рядок
-# directus_settings несе project_id, до якого привʼязана активація
-# ліцензії; directus_flows — автоматизації, яких адмінка не відбудує.
-# Перевіряється саме TABLE DATA, а не TABLE: дамп зі схемою й без рядків
-# (`--schema-only`) має TABLE і теж нічого не рятує.
+# Обидві таблиці мусять стояти в TOC як TABLE DATA: directus_settings
+# тримає project_id, до якого привʼязана активація ліцензії;
+# directus_flows — автоматизації, яких адмінка не відбудує.
+#
+# 🔴 ЩО САМЕ ДОВОДИТЬ TABLE DATA, А ЩО НІ. Запис TABLE DATA в TOC означає,
+# що pg_dump вивантажив ДАНІ таблиці, а не лише схему (`--schema-only`
+# має TABLE і нічого не рятує). Він НЕ означає, що в таблиці є хоч один
+# рядок: рецензія PR #318 заміряла — порожня directus_settings дає той
+# самий ✓, а після відновлення count(*) = 0. Тому рядок із project_id
+# доводиться окремо й ДО дампа: dump_db рахує directus_settings і
+# відмовляє на нулі. Для directus_flows нуль рядків — законний стан
+# (флоу ще не заведені), тож там перевіряється лише, що таблиця в дампі.
 DUMP_NAME="camptribe.dump"
 DUMP_MUST_CARRY=(directus_settings directus_flows)
+DUMP_MUST_HAVE_ROWS=directus_settings
 
 say() { printf '%s\n' "$*" >&2; }
 die() { printf '✗ %s\n' "$*" >&2; exit 1; }
@@ -158,11 +166,30 @@ sha() {
   else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 
+# Записи CSV без заголовка — ЗАПИСИ, а не фізичні рядки файла.
+#
+# 🔴 Тут стояло `gzip -dc | wc -l` мінус один. Запис CSV із переводом
+# рядка всередині поля займає кілька фізичних рядків, а правові сторінки
+# — це markdown-тіла з переводами рядків. Рецензія PR #318 заміряла:
+# «Backup restore» на main червоний із 575a17d — `legal_page_translations:
+# manifest says 386 rows, database has 7`, і кожен крок після того
+# падіння в CI не виконувався. На проді зелено було лише тому, що
+# міграція з правовими сторінками туди ще не доїхала.
+#
+# Один лічильник і для маніфесту, і для verify — інакше вони розійдуться
+# знову. `csv` зі стандартної бібліотеки читає діалект Postgres (лапки
+# подвоюються, перевід рядка в лапках — частина поля) без власного
+# парсера; межу довжини поля піднято, бо тіло сторінки більше за 128 КБ
+# за замовчуванням — не гіпотеза, а 10 837 символів у найдовшому вже.
 rows_in_gz() {
-  # Rows in a CSV with a header — the header is not a row.
-  local n
-  n=$(gzip -dc "$1" | wc -l | tr -d ' ')
-  echo $(( n > 0 ? n - 1 : 0 ))
+  python3 -c '
+import csv, gzip, sys
+csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
+with gzip.open(sys.argv[1], "rt", encoding="utf-8", newline="") as f:
+    rows = csv.reader(f)
+    next(rows, None)  # заголовок — не запис
+    print(sum(1 for _ in rows))
+' "$1"
 }
 
 table_exists() {
@@ -174,8 +201,17 @@ table_exists() {
 # Підхід той самий, що в `camptribe-cms snapshot_db`: там цей дамп із
 # перевіркою вмісту вже стоїть перед міграцією схеми.
 dump_db() {
-  local dir="$1" dump="$1/$DUMP_NAME" mode
-  say "→ pg_dump -Fc → ${DUMP_NAME}"
+  local dir="$1" dump="$1/$DUMP_NAME" mode n
+  # 🔴 РЯДОК ІЗ project_id — ДО ДАМПА, ЛІЧИЛЬНИКОМ. TABLE DATA в TOC є і
+  # для порожньої таблиці (див. коментар до DUMP_MUST_CARRY), тож «дамп
+  # несе directus_settings» без цієї перевірки означало б і «несе нуль
+  # рядків». Помилка psql — теж відмова: не зміг порахувати ≠ порахував
+  # нуль, але обидва не дають права писати зріз.
+  n="$(psql "$DB" -tAc "SELECT count(*) FROM ${DUMP_MUST_HAVE_ROWS}")" \
+    || die "не зміг порахувати ${DUMP_MUST_HAVE_ROWS} — без цього не знаю, чи є що дампити"
+  [ "${n:-0}" -ge 1 ] \
+    || die "у ${DUMP_MUST_HAVE_ROWS} ${n:-0} рядків — немає project_id, який цей дамп існує зберегти"
+  say "→ pg_dump -Fc → ${DUMP_NAME} (${DUMP_MUST_HAVE_ROWS}: ${n} рядків)"
   # 🔴 umask У ПІДОБОЛОНЦІ: дамп несе хеші паролів directus_users, токени
   # сесій і license_token. Без umask він лягає з правами виклику —
   # у snapshot_db заміряно `-rw-r--r--`, тобто читати міг будь-хто на
@@ -297,24 +333,7 @@ do_backup() {
   # CAMP-386: повний дамп — ДО маніфесту, бо маніфест несе його суму.
   dump_db "$dir"
 
-  # A manifest so `verify` has something to check against, and so a
-  # human opening the folder in a year can tell what it is.
-  {
-    printf '{\n  "takenAt": "%s",\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    # 🔴 Дамп — окремим ключем, не в "files": "files" читає
-    # check-restore.mjs як «таблиця → рядки» й підставляє імʼя в SQL.
-    printf '  "dump": { "file": "%s", "bytes": %s, "sha256": "%s" },\n' \
-      "$DUMP_NAME" "$(wc -c < "$dir/$DUMP_NAME" | tr -d ' ')" "$(sha "$dir/$DUMP_NAME")"
-    printf '  "files": {\n'
-    local first=1
-    for f in "$dir"/*.csv.gz; do
-      [ "$first" = 1 ] || printf ',\n'
-      first=0
-      printf '    "%s": { "rows": %s, "sha256": "%s" }' \
-        "$(basename "$f")" "$(rows_in_gz "$f")" "$(sha "$f")"
-    done
-    printf '\n  }\n}\n'
-  } > "$dir/manifest.json"
+  write_manifest "$dir"
 
   say ""
   for f in "$dir"/*.csv.gz; do
@@ -333,6 +352,34 @@ do_backup() {
   # зроблених до CAMP-386, не сміє поширюватись на нові.
   say ""
   do_verify "$dir" fresh
+}
+
+# --------------------------------------------------------------------
+# A manifest so `verify` has something to check against, and so a
+# human opening the folder in a year can tell what it is.
+#
+# 🔴 ОКРЕМОЮ ФУНКЦІЄЮ, і не заради охайності: самотест джерелить цей
+# файл і підмінює саме її писачем старого зразка (без ключа "dump"), щоб
+# побачити, що `backup` ТАКИЙ зріз не зараховує. Без цього режим fresh
+# у verify_dump не мав свідка — рецензія PR #318 прибрала його гілку, і
+# набір лишився зеленим.
+write_manifest() {
+  local dir="$1" first=1 f
+  {
+    printf '{\n  "takenAt": "%s",\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    # 🔴 Дамп — окремим ключем, не в "files": "files" читає
+    # check-restore.mjs як «таблиця → рядки» й підставляє імʼя в SQL.
+    printf '  "dump": { "file": "%s", "bytes": %s, "sha256": "%s" },\n' \
+      "$DUMP_NAME" "$(wc -c < "$dir/$DUMP_NAME" | tr -d ' ')" "$(sha "$dir/$DUMP_NAME")"
+    printf '  "files": {\n'
+    for f in "$dir"/*.csv.gz; do
+      [ "$first" = 1 ] || printf ',\n'
+      first=0
+      printf '    "%s": { "rows": %s, "sha256": "%s" }' \
+        "$(basename "$f")" "$(rows_in_gz "$f")" "$(sha "$f")"
+    done
+    printf '\n  }\n}\n'
+  } > "$dir/manifest.json"
 }
 
 # --------------------------------------------------------------------
@@ -689,10 +736,15 @@ SQL
 }
 
 # --------------------------------------------------------------------
-case "${1:-}" in
-  backup)  do_backup "${2:-}" ;;
-  verify)  do_verify "${2:?usage: verify DIR}" ;;
-  restore) do_restore "${2:?usage: restore DIR}" ;;
-  --self-test|self-test) do_self_test ;;
-  *) die "usage: $0 backup [DIR] | verify DIR | restore DIR" ;;
-esac
+# 🔴 Диспетчер лише при ПРЯМОМУ запуску. Самотест джерелить файл
+# (`. backup-local.sh` у підоболонці), щоб підмінити write_manifest і
+# викликати do_backup зсередини; джерелення не сміє нічого запускати.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  case "${1:-}" in
+    backup)  do_backup "${2:-}" ;;
+    verify)  do_verify "${2:?usage: verify DIR}" ;;
+    restore) do_restore "${2:?usage: restore DIR}" ;;
+    --self-test|self-test) do_self_test ;;
+    *) die "usage: $0 backup [DIR] | verify DIR | restore DIR" ;;
+  esac
+fi
