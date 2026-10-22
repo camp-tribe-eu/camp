@@ -24,7 +24,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LAUNCH="${CAMPTRIBE_LAUNCH_BIN:-$HERE/bin/camptribe-launch}"
-EXPECTED=49
+EXPECTED=51   # CAMP-384: +2 — відсутній імпорт і повернення файлу
 
 [ -f "$LAUNCH" ] || { echo "немає $LAUNCH" >&2; exit 1; }
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-launch-selftest.XXXXXX")"
@@ -44,7 +44,32 @@ printf 'DATABASE_URL=postgres://x/y\nPORT=3001\n' > "$ROOT/releases/r1/apps/api/
 
 cp "$HERE/caddy/gate-open.conf" "$CADDY/gate-open.conf"
 sed 's/__HASH__/$2a$14$STUBSTUBSTUBSTUB/' "$HERE/caddy/gate-closed.conf.example" > "$CADDY/gate-closed.conf"
-sed "s#/etc/caddy/gate.conf#$CADDY/gate.conf#" "$HERE/caddy/camptribe.eu.caddyfile" > "$CADDY/Caddyfile"
+# CAMP-384: у Caddyfile зʼявився другий замок — для адмінки CMS. Фікстура
+# мусить нести його так само, інакше `caddy validate` падає на імпорті
+# неіснуючого файлу, а падає воно з повідомленням про ГЕЙТ САЙТУ — тобто
+# вказує не туди. Саме це й сталось 22.10.2026.
+sed 's/__HASH__/$2a$14$STUBSTUBSTUBSTUB/' "$HERE/caddy/cms-gate.conf.example" > "$CADDY/cms-gate.conf"
+
+# 🔴 ПІДМІНЯЄМО ВЕСЬ ПРЕФІКС, А НЕ ОДИН ФАЙЛ. Тут стояло
+# `s#/etc/caddy/gate.conf#…#` — рівно одне ім'я. Через це будь-який
+# НОВИЙ імпорт мовчки лишався абсолютним шляхом справжньої машини,
+# якого в CI немає. Префікс покриває і теперішні два, і майбутні.
+sed "s#/etc/caddy/#$CADDY/#g" "$HERE/caddy/camptribe.eu.caddyfile" > "$CADDY/Caddyfile"
+
+# 🔴 І ДОВОДИМО, ЩО ПІДМІНА СПРАЦЮВАЛА. Без цього наступний імпорт, який
+# sed не вхопить, дасть падіння валідації з повідомленням не про себе —
+# а шукати доведеться годину. Хай фікстура лається на себе сама.
+# 🔴 ШУКАЄМО ЗАЛИШОК, А НЕ ПІДМІНУ. Перша редакція цієї перевірки
+# грепала просто '/etc/caddy/' — і ловила САМУ ФІКСТУРУ, бо її шлях це
+# `$BASE/etc/caddy`. Тобто сторож червонів завжди й ні про що. Справжній
+# залишок — це `/etc/caddy/` НА ПОЧАТКУ шляху, тобто після пробілу або
+# на початку рядка; у фікстурному шляху перед ним завжди стоїть `…T/`.
+if grep -nE '(^|[[:space:]])/etc/caddy/' "$CADDY/Caddyfile" >/dev/null; then
+  echo "✗ у фікстурі лишились справжні шляхи /etc/caddy/ — підміна неповна:" >&2
+  grep -nE '(^|[[:space:]])/etc/caddy/' "$CADDY/Caddyfile" >&2
+  exit 1
+fi
+
 ln -sfn "$CADDY/gate-closed.conf" "$CADDY/gate.conf"
 
 # Збірка: те, що віддає Next. Керується файлом, який міняє тест.
@@ -60,6 +85,14 @@ case "$1" in
   validate)
     [ -f "$CFG" ] || exit 1
     while read -r line; do
+      # 🔴 КОМЕНТАРІ ПРОПУСКАЄМО, БО ЇХ ПРОПУСКАЄ СПРАВЖНІЙ CADDY.
+      # Підмінник цього не робив, і 22.10.2026 рядок коментаря
+      #     # `import /etc/caddy/gate.conf` і проксі на веб та API
+      # був прочитаний як СПРАВЖНІЙ імпорт: `f` дістав шлях разом із
+      # зворотною лапкою, файл не знайшовся, валідація впала. Дев'ять
+      # випадків почервоніли через текст, якого Caddy навіть не читає.
+      # Підмінник, суворіший за оригінал, свідчить не про оригінал.
+      case "$line" in [[:space:]]*\#*|\#*) continue ;; esac
       case "$line" in *import\ *) f="${line#*import }"; f="${f%% *}"; [ -e "$f" ] || exit 1 ;; esac
     done < "$CFG"
     [ -e "$CADDY_VALIDATE_FAILS" ] && exit 1
@@ -340,6 +373,30 @@ run open --apply
 ok $? 'ззовні досі пароль → код 3 і gate повернуто в closed' "rc=$RC gate=$(gate_now) $OUT"
 grep -q 'повертаю' <<<"$OUT"; ok $? 'повернення назване вголос' "$OUT"
 rm -f "$CF_STALE"
+
+# 🔴 CAMP-384. ІМПОРТОВАНОГО ФАЙЛУ НЕМАЄ — І ЦЕ МУСИТЬ ЗУПИНИТИ ВСЕ.
+#
+# Випадку не було, і я довів це мутацією 22.10.2026: якщо змусити
+# підмінник caddy пропускати ВСІ рядки (тобто не перевіряти імпорти
+# взагалі), самоперевірка лишається 49/49 зеленою. Перевірка існувала й
+# не мала жодного свідка — вперше вона про себе нагадала, коли хибно
+# впала на коментарі.
+#
+# А сценарій реальний: Caddyfile імпортує /etc/caddy/cms-gate.conf, у
+# якому пароль адмінки, і в git його немає навмисно. На чистій машині
+# його не буде. Заміряно на проді: справжній caddy у цьому випадку дає
+# «File to import not found» і код 1, тобто тверду помилку.
+echo '— імпортований файл зник (замок CMS не зібрано)'
+mv "$CADDY/cms-gate.conf" "$CADDY/cms-gate.conf.ПРИБРАНО"
+: > "$CADDY_LOG"
+run open --apply
+[ "$RC" != 0 ] && [ "$(gate_now)" = closed ] && ! grep -q '^reload ' "$CADDY_LOG"
+ok $? 'відсутній імпорт: відкриття НЕ відбулось, gate лишився closed, reload не кликали' "rc=$RC gate=$(gate_now) log=$(cat "$CADDY_LOG")"
+mv "$CADDY/cms-gate.conf.ПРИБРАНО" "$CADDY/cms-gate.conf"
+run open --apply
+[ "$RC" = 0 ] && [ "$(gate_now)" = open ]
+ok $? '…і щойно файл повернувся — відкриття проходить' "rc=$RC gate=$(gate_now) $OUT"
+run close --apply >/dev/null 2>&1 || true
 
 echo '— caddy validate падає'
 : > "$CADDY_VALIDATE_FAILS"; : > "$CADDY_LOG"
