@@ -839,6 +839,23 @@ jobs:
       - name: Nothing in a shell file pipes into grep -q
         run: node scripts/ci/check-pipe-to-grep-q.mjs
 
+      # 🔴 CAMP-385. 22.10.2026 `ss -ltn` на машині показав `*:3001`: API
+      # слухало всі інтерфейси, бо main.ts викликав `app.listen(port)` без
+      # адреси, а юніт поруч стверджував «слухає лише локально». Від
+      # інтернету його тримало одне правило ufw за замовчуванням — і
+      # маршрути /auth/*, що шлють справжню пошту, стояли за ним без Caddy
+      # і без гейта. Сторож читає виклик через AST і червоніє без адреси,
+      # на wildcard-рядку і на `??` (порожній HOST= у .env — заміряно —
+      # дає listen(port, ''), а це знову всі інтерфейси).
+      - name: The listen-address guard still tells a bare listen from a loopback one
+        run: |
+          set -o pipefail
+          node scripts/ci/check-api-binds-loopback.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-api-binds-loopback self-test:' >/dev/null
+
+      - name: The API never calls listen without an address
+        run: node scripts/ci/check-api-binds-loopback.mjs
+
       # 🔴 CAMP-347. `gh` resolves the repository from the GIT REMOTE,
       # not from GITHUB_REPOSITORY, so a job with no checkout, no
       # GH_REPO and no --repo dies on its first call with "not a git
