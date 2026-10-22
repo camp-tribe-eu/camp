@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./api-request";
 import { HOME_H1, HOME_LEAD, HOME_STEPS } from "../unit/home-cms";
 
 // CAMP-365 — головна бере заголовок, вступ і три кроки з CMS.
