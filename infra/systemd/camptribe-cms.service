@@ -1,0 +1,82 @@
+[Unit]
+Description=CampTribe CMS (Directus)
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=camptribe
+Group=camptribe
+
+# 🔴 НЕ `/srv/camptribe/current/apps/cms`, І ЦЕ ГОЛОВНЕ РІШЕННЯ ЦЬОГО ФАЙЛУ.
+# CMS живе ПОРУЧ із релізами, а не всередині них. Три причини, кожна
+# заміряна 22.10.2026:
+#
+#   1. Корінь оголошує `workspaces: ["apps/api","apps/web"]` — `apps/cms`
+#      там немає НАВМИСНО (коміт 4f2f373 так і зветься: «Directus
+#      повернувся — поруч із нами, не всередині»). Тому `npm ci` релізу
+#      не ставить Directus узагалі: на проді в
+#      /srv/camptribe/current/node_modules теки `directus` НЕМАЄ.
+#
+#   2. Перемикання релізу рухає симлінк `current` під працюючим процесом.
+#      Застосунок це переживає, бо його перезапускають; CMS мусить
+#      переживати викатку вебу НЕ ПОМІТИВШИ її.
+#
+#   3. Відкат застосунку на попередній реліз не сміє відкотити CMS:
+#      міграції Directus незворотні, і відкат двійника під мігрованою
+#      базою — це аварія, а не відкат.
+WorkingDirectory=/srv/camptribe/cms
+
+# 🔴 .env ЛЕЖИТЬ ПОРУЧ І НЕ ЇДЕ З РЕЛІЗОМ. `camptribe-deploy` копіює
+# вперед лише `apps/api/.env` (build_api); про cms він не знає нічого —
+# перевірено грепом. Файл у дереві релізу загубився б на першій викатці.
+EnvironmentFile=/srv/camptribe/cms/.env
+
+# 🔴 БЕЗ `HOST` DIRECTUS СЛУХАЄ ВЕСЬ СВІТ. Заміряно у вендорі:
+# @directus/env/dist/index.js:14 → `HOST: "0.0.0.0"`, :15 → `PORT: 8055`.
+# Назовні пускає Caddy, а не ядро.
+#
+# 🔴 ЦЕ ЗАМОВЧУВАННЯ, А НЕ ЗАПОБІЖНИК — І РІЗНИЦЮ ТРЕБА ЗНАТИ.
+# Перша редакція цього файлу стверджувала протилежне: мовляв, рядки
+# стоять ПІСЛЯ EnvironmentFile, systemd бере пізніший, тож правкою .env
+# адресу не розширити. Я це перевірив у вендорі, і виявилось навпаки —
+# @directus/env, createEnv():
+#
+#     const rawConfiguration = { ...baseConfiguration,    // process.env
+#                                ...fileConfiguration };  // .env ПЕРЕКРИВАЄ
+#
+# Directus читає `.env` САМ (CONFIG_PATH = cwd()/.env) і кладе його
+# ПОВЕРХ усього, що дав systemd. Тобто рядок `HOST=0.0.0.0` у
+# /srv/camptribe/cms/.env мовчки виставить CMS назовні, і цей файл того
+# не зупинить. Запобіжник, який не тримає, гірший за відсутній: він
+# змушує наступного не перевіряти.
+#
+# Справжня перевірка тому не тут, а в `camptribe-cms status`: вона
+# питає ядро, на чому СПРАВДІ висить 8055, і лається, якщо не на
+# 127.0.0.1. Запобігти не можемо — виявити мусимо.
+Environment=HOST=127.0.0.1
+Environment=PORT=8055
+
+# 🔴 ЗАПУСКАЄМО cli.js НАПРЯМУ, А НЕ `npx directus`. `node_modules/.bin/
+# directus` — симлінк на `../directus/cli.js` (перевірено), тож зайвий
+# пошук у PATH нічого не додає, зате додає ще один спосіб запустити не те.
+#
+# 🔴 `start` БАЗУ НЕ МІГРУЄ. Заміряно у вендорі: cli/index.js:28 вішає на
+# команду `start` рівно `startServer`, і більше нічого. Міграції є тільки
+# в `bootstrap` і `database migrate:*`. Отже підняти новий двійник над
+# старою схемою можна — і тоді він просто не працюватиме як слід, мовчки.
+# Оновлення версії = `camptribe-cms update`, який мігрує явно.
+ExecStart=/usr/bin/node node_modules/directus/cli.js start
+
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/camptribe
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

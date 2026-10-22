@@ -86,12 +86,55 @@ done
 # 🔴 `gate-closed.conf` ТУТ НЕМАЄ І НЕ БУДЕ. У ньому пароль гейта, якого
 # в git немає навмисно. Поруч лежить `gate-closed.conf.example`, і
 # сплутати їх означало б затерти пароль прикладом, тобто відкрити сайт.
-CADDY_PAIRS="camptribe.eu.caddyfile:/etc/caddy/Caddyfile
-gate-open.conf:/etc/caddy/gate-open.conf
-gate-closed.conf.example:/etc/caddy/gate-closed.conf.example"
+# 🔴 CAMP-384: замок CMS їде сюди ТАК САМО — лише прикладом. Справжній
+# cms-gate.conf із хешем пароля збирається на машині й у git не лежить.
+#
+# 🔴 ВСЕРЕДИНІ ЦЬОГО РЯДКА КОМЕНТАРІВ БУТИ НЕ МОЖЕ. Цикл нижче читає
+# кожен рядок як пару «ім'я:призначення» через `IFS=:`, тож «# CAMP-384»
+# стало б ІМЕНЕМ ФАЙЛУ. Я сам наступив на це 22.10.2026, додаючи пару.
+#
+# 🔴 CADDYFILE СТОЇТЬ ОСТАННІМ, І ЦЕ НЕ ОХАЙНІСТЬ, А ВИПРАВЛЕННЯ.
+# Він імпортує /etc/caddy/cms-gate.conf, якого в git немає навмисно
+# (там пароль) і якого на чистій машині ще не існує. Збирає його
+# `camptribe-cms gate --apply` — але З ПРИКЛАДУ, який кладе ось цей
+# цикл. Якщо Caddyfile поїде ПЕРШИМ, виходить коло: розкладка шле по
+# замок, а замок нема з чого зібрати.
+CADDY_PAIRS="gate-open.conf:/etc/caddy/gate-open.conf
+gate-closed.conf.example:/etc/caddy/gate-closed.conf.example
+cms-gate.conf.example:/etc/caddy/cms-gate.conf.example
+camptribe.eu.caddyfile:/etc/caddy/Caddyfile"
 caddy_seen=0
 while IFS=: read -r name remote; do
   [ -n "$name" ] || continue
+  # 🔴 ЗАМОК CMS ПЕРЕВІРЯЄМО РІВНО ПЕРЕД CADDYFILE, А НЕ НА ПОЧАТКУ.
+  #
+  # Перша редакція ставила цю перевірку на самому верху й писала
+  # «Нічого не розкладено». Обидва твердження були хибні, і рецензія
+  # це відтворила: на той момент на машину вже лягли 12 юнітів, 6
+  # скриптів, lib, logrotate і fail2ban — а `cms-gate.conf.example`,
+  # з якого замок і збирається, лежить У ЦЬОМУ ЦИКЛІ, тобто НИЖЧЕ.
+  # Виходило коло: розкладка шле по замок, а замок нема з чого
+  # зібрати. На чистій машині CAMP-384 не розгорнувся б узагалі.
+  #
+  # Тепер приклад уже на місці (він у переліку вище), і відмовляємось
+  # лише від ОДНОГО файлу — самого Caddyfile. Решта лишається
+  # розкладеною, і про це сказано вголос.
+  if [ "$remote" = /etc/caddy/Caddyfile ] \
+     && grep -q "import /etc/caddy/cms-gate.conf" "$HERE/caddy/camptribe.eu.caddyfile" \
+     && ! ssh_ "test -f /etc/caddy/cms-gate.conf"; then
+    echo "" >&2
+    echo "✗ Caddyfile НЕ розкладено: він імпортує /etc/caddy/cms-gate.conf, якого на машині немає." >&2
+    echo "  Усе інше вже лягло (юніти, скрипти, приклади конфігів) — див. перелік вище." >&2
+    echo "  Зібрати замок (пароль згенерується на машині й лишиться там):" >&2
+    echo "      ssh <машина> camptribe-cms gate --apply" >&2
+    echo "  Потім повторити цю розкладку — вона доробить Caddyfile." >&2
+    # 🔴 СУХИЙ ПРОГІН НЕ ВАЛИМО: його призначення — показати план, і
+    # відмова тут ховала б решту плану від того, хто саме його й питає.
+    [ "$APPLY" = yes ] && exit 1
+    echo "  (сухий прогін: це попередження, не відмова)" >&2
+    caddy_seen=$((caddy_seen + 1))
+    continue
+  fi
   place "$HERE/caddy/$name" "$remote"
   caddy_seen=$((caddy_seen + 1))
 done <<EOF
