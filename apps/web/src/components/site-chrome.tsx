@@ -132,12 +132,36 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
             прибирає кнопку, яка однаково не працює. Два рядки замість
             «ну, без JS сайт і так не той»: шість посилань — це вся
             навігація, а не прикраса. */}
-        <noscript>
-          <style>{`
-            header nav[aria-label='Main'] { display: block !important }
-            header [data-testid='burger-open'] { display: none !important }
-          `}</style>
-        </noscript>
+        {/* 🔴 ЧОМУ `dangerouslySetInnerHTML`, А НЕ `<style>` ДИТИНОЮ.
+            CAMP-383. Коли скрипт УВІМКНЕНО, браузер розбирає вміст
+            `<noscript>` як ОДИН ТЕКСТОВИЙ ВУЗОЛ, а не як розмітку.
+            Заміряно на живій сторінці, однаково в firefox і chromium:
+
+              childElementCount 0, childNodes.length 1, nodeType 3,
+              а текст цього вузла — літеральний рядок «<style>…</style>»
+
+            React же віддавав там ЕЛЕМЕНТ. Два різні дерева в одному
+            місці — і це рівно та розбіжність, яку він звітує як
+            помилку #418 «server rendered HTML didn't match the client».
+            Вона мигтіла в CI на /login, /plan, /routes/…, /account і
+            /camping — тобто на кожній сторінці, бо каркас спільний.
+
+            Доказ зняв свідок із цієї ж картки: у серверному HTML
+            `<noscript><style>…</style></noscript>` є, у DOM після
+            гідратації його немає.
+
+            Рядком React віддає те саме, що бачить браузер, і дерева
+            збігаються. Вміст CSS НЕ змінився — отже поведінка без JS
+            та сама. */}
+        <noscript
+          dangerouslySetInnerHTML={{
+            __html:
+              "<style>\n" +
+              "            header nav[aria-label='Main'] { display: block !important }\n" +
+              "            header [data-testid='burger-open'] { display: none !important }\n" +
+              "          </style>",
+          }}
+        />
 
         <nav aria-label="Main" className="ml-auto hidden xl:block">
           <ul className="flex items-center gap-x-5 text-sm font-medium text-ink-2">
