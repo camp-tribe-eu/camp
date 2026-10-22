@@ -12,7 +12,24 @@ EnvironmentFile=/srv/camptribe/current/apps/api/.env
 ExecStart=/usr/bin/node dist/main
 Restart=always
 RestartSec=5
-# Слухає лише локально — назовні його пускає Caddy, не ufw.
+# 🔴 ТУТ СТОЯЛО «Слухає лише локально — назовні його пускає Caddy, не
+# ufw», І ЦЕ БУЛО НЕПРАВДОЮ В ОБИДВА БОКИ. Заміряно на машині 22.10.2026:
+# `ss -ltn` показував `*:3001` — усі інтерфейси, бо main.ts викликав
+# `app.listen(port)` без адреси, а Nest без неї слухає 0.0.0.0. І тримав
+# API від інтернету саме ufw: у ньому не було дозволу на 3001, тож
+# спрацьовувала заборона за замовчуванням. Одне правило фаєрвола між
+# /auth/signup (шле справжню пошту на будь-яку адресу) і світом.
+# Коментар, що описує неіснуючий запобіжник, гірший за відсутній:
+# наступний читає його й не перевіряє.
+#
+# Що насправді робить код (CAMP-385, apps/api/src/main.ts):
+#   app.listen(PORT, process.env.HOST || '127.0.0.1')
+# Назовні пускає Caddy: `reverse_proxy 127.0.0.1:3001`. Цей файл адресу
+# НЕ задає навмисно — `.env` з EnvironmentFile вище читають і systemd, і
+# ConfigModule, і рядок `HOST=0.0.0.0` там розширить адресу, чого юніт не
+# зупинить (та сама форма, що в camptribe-cms.service).
+# Стежить сторож scripts/ci/check-api-binds-loopback.mjs за кодом; на
+# машині правда — у `ss -ltn`, і дивитись треба туди, а не сюди.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
