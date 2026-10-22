@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# CAMP-384: поставити, оновити й оглянути CMS (Directus) НА МАШИНІ.
+#
+#   camptribe-cms status              # що зараз стоїть і чи живе
+#   camptribe-cms install [--apply]   # перше встановлення
+#   camptribe-cms update  [--apply]   # нова версія + ЯВНА міграція схеми
+#
+# 🔴 СУХИЙ ПРОГІН ЗА ЗАМОВЧУВАННЯМ — як у решти скриптів цього проєкту.
+# Без `--apply` не змінюється нічого.
+#
+# 🔴 ЦЕЙ СКРИПТ НЕ ЧІПАЄ `.env` НІКОЛИ. Там SECRET, пароль бази й
+# ліцензійний ключ. Перезаписаний SECRET вибиває всі сесії; перезаписаний
+# ключ — це спалений слот активації з пʼяти наявних.
+set -euo pipefail
+
+CMS_DIR=/srv/camptribe/cms
+SRC_DIR="${CAMPTRIBE_CMS_SRC:-/srv/camptribe/current/apps/cms}"
+USER_=camptribe
+APPLY=no
+cmd="${1:-status}"; shift || true
+for a in "$@"; do
+  case "$a" in
+    --apply) APPLY=yes ;;
+    *) echo "невідомий прапорець: $a" >&2; exit 2 ;;
+  esac
+done
+
+die() { printf '✗ %s\n' "$*" >&2; exit 1; }
+say() { printf '%s\n' "$*"; }
+as_user() { if [ "$(id -u)" = 0 ]; then sudo -u "$USER_" "$@"; else "$@"; fi; }
+
+# Версія, оголошена в репозиторії (джерело правди), і версія, що реально
+# лежить у /srv/camptribe/cms. Їх треба РОЗРІЗНЯТИ: «написано 12.5.0» і
+# «працює 12.5.0» — різні твердження, і друге доводиться не першим.
+want_version() {
+  [ -f "$SRC_DIR/package.json" ] || return 1
+  node -p "require('$SRC_DIR/package.json').dependencies.directus" 2>/dev/null
+}
+have_version() {
+  [ -f "$CMS_DIR/node_modules/directus/package.json" ] || return 1
+  node -p "require('$CMS_DIR/node_modules/directus/package.json').version" 2>/dev/null
+}
+
+need_src() {
+  [ -f "$SRC_DIR/package.json" ] || die "немає $SRC_DIR/package.json.
+   Причина майже напевно одна: живий реліз СТАРІШИЙ за коміт 4f2f373,
+   яким apps/cms зʼявився в репозиторії. Перевір: readlink -f /srv/camptribe/current
+   Лікується викаткою свіжого релізу, а не правкою тут."
+  [ -f "$SRC_DIR/package-lock.json" ] || die "немає $SRC_DIR/package-lock.json — \`npm ci\` без нього не працює"
+}
+
+status() {
+  local w h unit ping lic
+  w="$(want_version || echo '?')"; h="$(have_version || echo '—')"
+  say "каталог:       $CMS_DIR"
+  say "джерело:       $SRC_DIR"
+  say "версія в репо: $w"
+  say "версія стоїть: $h"
+  [ "$w" = "$h" ] || say "   ⚠ розійшлись — \`camptribe-cms update --apply\`"
+  unit="$(systemctl is-active camptribe-cms.service 2>/dev/null || true)"
+  say "юніт:          ${unit:-невідомо}"
+  # 🔴 `/server/ping` БЕЗ АВТЕНТИФІКАЦІЇ — так радить вендор саме для
+  # проби живучості; `/server/health` вимагає токена й, цитуючи їхню
+  # документацію, «checking them is resource intensive».
+  ping="$(curl -s --max-time 5 http://127.0.0.1:8055/server/ping 2>/dev/null || true)"
+  say "ping:          ${ping:-немає відповіді}"
+  # 🔴 ЦЕ ЄДИНА СПРАВЖНЯ ПЕРЕВІРКА АДРЕСИ ПРОСЛУХОВУВАННЯ. Юніт її лише
+  # ЗАДАЄ, а не тримає: Directus читає .env САМ і кладе його поверх
+  # того, що дав systemd (@directus/env, createEnv() — заміряно
+  # 22.10.2026). Тобто `HOST=0.0.0.0` у .env переважить юніт мовчки.
+  # Запобігти не можемо — питаємо ядро, на чому порт висить НАСПРАВДІ.
+  local bound
+  # Без awk навмисно: вкладені лапки тут уже один раз тихо зʼїли $4.
+  bound="$(ss -ltnH 2>/dev/null | tr -s ' ' | cut -d' ' -f4 | grep ':8055$' | paste -sd, -)"
+  if [ -z "$bound" ]; then
+    say "адреса:        порт 8055 ніхто не слухає"
+  elif [ "$bound" = "127.0.0.1:8055" ]; then
+    say "адреса:        $bound  ✓ лише локально"
+  else
+    say "адреса:        $bound"
+    say "   🔴 CMS СЛУХАЄ НЕ ЛИШЕ 127.0.0.1. Очікувалось 127.0.0.1:8055."
+    say "      Майже напевно в $CMS_DIR/.env зʼявився HOST — він переважує юніт."
+    return 1
+  fi
+  # Джерело ліцензії видно публічно: null означає безкоштовний Core.
+  lic="$(curl -s --max-time 5 http://127.0.0.1:8055/server/info 2>/dev/null \
+         | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log(JSON.stringify(j.data?.license??null))}catch{console.log("?")}})' 2>/dev/null || true)"
+  say "ліцензія:      ${lic:-?}   (null = Core, тобто ключ не введено)"
+}
+
+sync_manifest() {
+  # Кладемо ЛИШЕ маніфести. Решта (configure.mjs тощо) запускається з
+  # дерева релізу — вона не потребує встановлення.
+  local changed=0 f
+  for f in package.json package-lock.json; do
+    if [ -f "$CMS_DIR/$f" ] && diff -q "$SRC_DIR/$f" "$CMS_DIR/$f" >/dev/null 2>&1; then
+      say "=  $CMS_DIR/$f"
+    else
+      say "→  $CMS_DIR/$f"
+      changed=$((changed + 1))
+      [ "$APPLY" = yes ] || continue
+      install -o "$USER_" -g "$USER_" -m 644 "$SRC_DIR/$f" "$CMS_DIR/$f"
+    fi
+  done
+  return "$changed"
+}
+
+install_cms() {
+  need_src
+  say "встановлення CMS: $(want_version)"
+  if [ "$APPLY" = yes ]; then
+    install -d -o "$USER_" -g "$USER_" -m 750 "$CMS_DIR"
+  else
+    say "→  mkdir $CMS_DIR"
+  fi
+  sync_manifest || true
+  if [ "$APPLY" != yes ]; then
+    say
+    say "Сухий прогін — нічого не змінено. Щоб поставити: camptribe-cms install --apply"
+    return 0
+  fi
+  # 🔴 `npm ci`, А НЕ `npm install`: ставимо РІВНО ту версію, що в
+  # package-lock. Це і є «пінити версію», яку вендор називає прямою
+  # вимогою для продакшну.
+  ( cd "$CMS_DIR" && as_user npm ci --omit=dev --no-audit --no-fund ) || die "npm ci не вдався.
+   Найімовірніша причина — isolated-vm: він збирається з джерел, якщо під
+   цю платформу немає готового двійника, і тоді потрібні build-essential
+   та python3. Локально 20.10.2026 це лікувалось \`npm rebuild isolated-vm\`."
+  [ -f "$CMS_DIR/node_modules/directus/cli.js" ] || die "після npm ci немає node_modules/directus/cli.js — юніту нічого запускати"
+  say "✓ встановлено $(have_version)"
+  say
+  say "🔴 ДАЛІ ПОТРІБЕН $CMS_DIR/.env — його цей скрипт не створює НІКОЛИ."
+  say "   Зразок: $SRC_DIR/.env.example"
+  say "   Обовʼязково: SECRET (інакше сесії не переживуть рестарт),"
+  say "   PUBLIC_URL=https://cms.camptribe.eu, DB_* на базу застосунку,"
+  say "   SESSION_COOKIE_SECURE=true, REFRESH_TOKEN_COOKIE_SECURE=true."
+}
+
+update_cms() {
+  need_src
+  local w h; w="$(want_version)"; h="$(have_version || echo '—')"
+  say "версія: $h → $w"
+  if [ "$w" = "$h" ]; then say "вже та сама — нічого робити"; return 0; fi
+  if [ "$APPLY" != yes ]; then
+    sync_manifest || true
+    say
+    say "Сухий прогін. Щоб оновити: camptribe-cms update --apply"
+    return 0
+  fi
+  # 🔴 БЕКАП ПЕРЕД МІГРАЦІЄЮ, І ЦЕ НЕ ПЕРЕСТРАХОВКА. Міграції Directus
+  # незворотні на практиці: `migrate:down` відкочує по одному кроку й
+  # не гарантує даних. Єдиний спосіб повернутись — знімок бази.
+  say "знімок бази перед міграцією…"
+  as_user /usr/local/bin/camptribe-backup || die "бекап не вдався — схему НЕ чіпаю"
+  sync_manifest || true
+  ( cd "$CMS_DIR" && as_user npm ci --omit=dev --no-audit --no-fund ) || die "npm ci не вдався — схему не чіпав"
+  # 🔴 `start` МІГРАЦІЙ НЕ РОБИТЬ (заміряно: cli/index.js:28 → startServer).
+  # Тобто без цього рядка новий двійник просто працював би над старою
+  # схемою, і дізнались би ми про це з дивних помилок, а не з падіння.
+  systemctl stop camptribe-cms.service
+  # 🔴 ЖОДНОГО `env $(...)`: розщеплення слів ламається на першому ж
+  # значенні з пробілом, і ламається ТИХО. Не треба зовсім — Directus
+  # читає .env сам із робочого каталогу (CONFIG_PATH = cwd()/.env,
+  # @directus/env:13), тож досить `cd`.
+  ( cd "$CMS_DIR" && as_user node node_modules/directus/cli.js database migrate:latest ) \
+    || { systemctl start camptribe-cms.service; die "міграція впала — CMS піднято на старій схемі з НОВИМ двійником, це нестійкий стан"; }
+  systemctl start camptribe-cms.service
+  say "✓ оновлено до $(have_version), схему мігровано"
+}
+
+case "$cmd" in
+  status)  status ;;
+  install) install_cms ;;
+  update)  update_cms ;;
+  *) echo "вживання: camptribe-cms {status|install|update} [--apply]" >&2; exit 2 ;;
+esac

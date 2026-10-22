@@ -86,9 +86,16 @@ done
 # 🔴 `gate-closed.conf` ТУТ НЕМАЄ І НЕ БУДЕ. У ньому пароль гейта, якого
 # в git немає навмисно. Поруч лежить `gate-closed.conf.example`, і
 # сплутати їх означало б затерти пароль прикладом, тобто відкрити сайт.
+# 🔴 CAMP-384: замок CMS їде сюди ТАК САМО — лише прикладом. Справжній
+# cms-gate.conf із хешем пароля збирається на машині й у git не лежить.
+#
+# 🔴 ВСЕРЕДИНІ ЦЬОГО РЯДКА КОМЕНТАРІВ БУТИ НЕ МОЖЕ. Цикл нижче читає
+# кожен рядок як пару «ім'я:призначення» через `IFS=:`, тож «# CAMP-384»
+# стало б ІМЕНЕМ ФАЙЛУ. Я сам наступив на це 22.10.2026, додаючи пару.
 CADDY_PAIRS="camptribe.eu.caddyfile:/etc/caddy/Caddyfile
 gate-open.conf:/etc/caddy/gate-open.conf
-gate-closed.conf.example:/etc/caddy/gate-closed.conf.example"
+gate-closed.conf.example:/etc/caddy/gate-closed.conf.example
+cms-gate.conf.example:/etc/caddy/cms-gate.conf.example"
 caddy_seen=0
 while IFS=: read -r name remote; do
   [ -n "$name" ] || continue
