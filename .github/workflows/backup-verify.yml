@@ -8,18 +8,24 @@ name: Backup restore
 # has not been tried since is the same assumption with a date on it, so
 # this runs every night.
 #
-# 🔴 What this job simulates, and why it is not "restore into an empty
-# database". backup-local.sh deliberately does NOT dump everything: most
-# of the database is a copy of OpenStreetMap that Geofabrik still has and
-# the weekly job rebuilds. What it saves is the part with no source to
-# rebuild from — the computed surroundings, the owner corrections, the
-# reviews, when a site was first and last seen.
+# 🔴 What this job simulates, and why the CSV half is not "restore into
+# an empty database". The CSV half of backup-local.sh deliberately does
+# NOT dump everything: most of the database is a copy of OpenStreetMap
+# that Geofabrik still has and the weekly job rebuilds. What it saves is
+# the part with no source to rebuild from — the computed surroundings,
+# the owner corrections, the reviews, when a site was first and last seen.
 #
-# So the disaster being rehearsed is not "the server is gone". It is
+# So the first disaster rehearsed is not "the server is gone". It is
 # "the database was rebuilt from OSM and everything we computed is
 # missing" — which is the likely one, and the one where the restore path
 # is a merge rather than a load. The steps below destroy exactly that,
 # check that it is really destroyed, and then bring it back.
+#
+# 🔴 CAMP-386: і друга аварія — «бази немає взагалі». Поруч із CSV
+# лягає повний pg_dump, бо CSV не возили жодної з 208 таблиць
+# directus_*, а активація ліцензії привʼязана до
+# directus_settings.project_id. Останній крок відновлює дамп у ПОРОЖНЮ
+# базу й вимагає того самого project_id.
 
 on:
   schedule:
@@ -168,6 +174,31 @@ jobs:
           fi
           echo "n=$N" >> "$GITHUB_OUTPUT"
 
+      # 🔴 CAMP-386. У CI немає Directus — його тут ніхто не bootstrap-ить,
+      # і ставити 1 200 пакетів заради двох таблиць коштувало б дорожче
+      # за дефект. Але verify тепер вимагає від дампа TABLE DATA для
+      # directus_settings і directus_flows — правильно для проду, де їх
+      # 208 обʼєктів, і без них бекап тут не пройде. Тож фікстура несе
+      # рівно ці дві таблиці в реальній формі колонок (project_id uuid).
+      # pg_dump байдуже, хто таблицю створив; те, що репетирується нижче
+      # — повернення project_id з дампа — від цього не залежить.
+      - name: Give the dump something to carry
+        id: directus
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
+            CREATE TABLE directus_settings (id integer PRIMARY KEY, project_name varchar(100), project_id uuid);
+            INSERT INTO directus_settings (id, project_name, project_id) VALUES (1, 'CampTribe', gen_random_uuid());
+            CREATE TABLE directus_flows (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name varchar(255) NOT NULL);
+            INSERT INTO directus_flows (name) VALUES ('backup-rehearsal');"
+          PID=$(psql "$DATABASE_URL" -tAc "SELECT project_id FROM directus_settings WHERE id = 1")
+          echo "project_id: $PID"
+          if [ -z "$PID" ]; then
+            echo "::error::no project_id to lose — the dump rehearsal would prove nothing" >&2
+            exit 1
+          fi
+          echo "project_id=$PID" >> "$GITHUB_OUTPUT"
+
       - name: Back up
         run: ./scripts/osm-pipeline/backup-local.sh backup "$RUNNER_TEMP/backup"
 
@@ -252,6 +283,29 @@ jobs:
             exit 1
           fi
 
+      # 🔴 CAMP-386: друга аварія — «бази немає взагалі». Дамп іде в
+      # ПОРОЖНЮ базу (не злиття — заміна), і єдине число, заради якого
+      # він існує, мусить збігтися: project_id, до якого привʼязана
+      # активація ліцензії. Інший project_id = спалений слот із пʼяти.
+      - name: The dump brings Directus back with the same project_id
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE camptribe_restored'
+          RESTORED="${DATABASE_URL%/*}/camptribe_restored"
+          pg_restore --no-owner --exit-on-error -d "$RESTORED" "$RUNNER_TEMP/backup/camptribe.dump"
+          GOT=$(psql "$RESTORED" -tAc "SELECT project_id FROM directus_settings WHERE id = 1")
+          echo "project_id before: ${{ steps.directus.outputs.project_id }}, after restore: $GOT"
+          if [ -z "$GOT" ] || [ "$GOT" != "${{ steps.directus.outputs.project_id }}" ]; then
+            echo "::error::project_id differs after restore — the licence slot would be burned" >&2
+            exit 1
+          fi
+          FLOWS=$(psql "$RESTORED" -tAc "SELECT count(*) FROM directus_flows")
+          echo "directus_flows after restore: $FLOWS"
+          if [ "$FLOWS" -lt 1 ]; then
+            echo "::error::directus_flows is empty after restore" >&2
+            exit 1
+          fi
+
   # 🔴 A failing nightly job that nobody is told about is a job that is
   # not running. The same shape as the watchdog: one issue, updated,
   # closed when it recovers.
@@ -285,7 +339,9 @@ jobs:
 
           What the job does: seeds a database, backs it up, destroys the
           computed context and owner corrections, restores, and checks the
-          rows came back and that PostGIS still answers on them."
+          rows came back and that PostGIS still answers on them — and
+          restores the full dump into an empty database and checks that
+          directus_settings.project_id is the same (CAMP-386)."
           EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
             --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
