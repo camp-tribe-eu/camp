@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./api-request";
 import { openHeaderNav } from "./header-nav";
 
 // CAMP-365 — меню переїхало з коду в базу, і цей файл повертає те, що

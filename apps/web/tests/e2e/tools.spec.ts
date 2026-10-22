@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./api-request";
 import { visibleText } from "../unit/rendered-text";
 
 // 🔴 ТОЙ САМИЙ ВИДОБУВАЧ ТЕКСТУ, ЩО Й У ЮНІТІ — І ЦЕ НЕ ЗРУЧНІСТЬ.

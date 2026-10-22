@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './api-request';
 
 /**
  * CAMP-345 — зона натискання на ширині, на якій збудований мобільний макет.

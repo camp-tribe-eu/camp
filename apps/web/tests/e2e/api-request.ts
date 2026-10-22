@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import { test as base, type APIRequestContext, type Page } from '@playwright/test';
 
 // CAMP-69 — the `request` fixture, carrying the build token.
@@ -59,30 +60,118 @@ const TOKEN = process.env.API_BUILD_TOKEN;
  * 🔴 І воно нічого не глушить. Помилка лишається в консолі, тест і далі
  * червоніє — збір доказів стоїть ПОРУЧ із падінням, а не замість нього.
  */
-const HYDRATION_ERROR = /Minified React error #(418|423|425)\b|Hydration failed/;
+/**
+ * 🔴 КОДИ ЗАМІРЯНО, А НЕ ВЗЯТО ЗІ СТЕЛІ.
+ *
+ * Перша редакція ловила 418, 423 і 425. Рецензія #314 прогнала кожен
+ * через справжній конвеєр Next (15.5.27 несе React 19.3, прод-збірка):
+ *
+ *   418 → 3 вкладення
+ *   423 → 0        422 → 0        425 → такого коду в React 19 немає
+ *
+ * Причина: 425 згорнуто в 418 аргументом `?"text":"HTML"`, а 422 і 423
+ * React будує як `Error(msg, { cause: value })` — і Next звітує саме
+ * `error.cause` (`react-client-callbacks/on-recoverable-error.js`), тож
+ * рядок «#423» на сторінку не потрапляє ніколи. Тобто дві третини мого
+ * переліку були декорацією.
+ *
+ * 424 додано: це відмова гідратувати корінь
+ * (`mountHostRootWithoutHydrating`), вона виходить із кодом неушкодженим
+ * і раніше пролітала повз.
+ */
+const HYDRATION_ERROR = /Minified React error #(418|424)\b|Hydration failed/;
 
+/**
+ * Зняти обидва боки розбіжності: DOM після гідратації і HTML, який
+ * віддав сервер.
+ *
+ * 🔴 ДОКАЗ ПРИВʼЯЗАНИЙ ДО АДРЕСИ, НА ЯКІЙ СТАЛАСЯ ПОМИЛКА. Рецензія
+ * заміряла: мʼякий перехід (саме те, що робить `next/link` — pushState
+ * і заміна DOM) між помилкою і знімком давав DOM ЗОВСІМ ІНШОГО
+ * маршруту при тому самому URL у заголовку. Тест зелений, три
+ * вкладення, і різниця виглядає як тотальна розбіжність, якої не було.
+ * Доказ, що бреше, гірший за відсутній.
+ *
+ * 🔴 І ПОРОЖНІЙ CATCH БІЛЬШЕ НЕ ВІДДАЄ ДОКАЗ, ЯКОГО НЕМАЄ. Було: при
+ * закритій сторінці вкладення лежали, а всередині — рядок «не вдалось
+ * зняти DOM». Виглядало як зібраний доказ. Тепер невдача не стає
+ * файлом: вона йде в примітку, яку видно у звіті.
+ *
+ * 🔴 І ФАЙЛАМИ, А НЕ ТІЛОМ. `attach({ body })` інлайнить base64 у
+ * `report.json` — 110 КБ сирих стають ~147 КБ, помножених на чотири
+ * браузерні проєкти, а `check-flaky.mjs` робить `JSON.parse` усього
+ * файла. `attach({ path })` кладе поруч і лишає звіт легким.
+ */
 async function captureHydrationEvidence(
   page: Page,
   message: string,
-  attach: (name: string, body: string) => Promise<void>,
+  urlAtError: string,
+  testInfo: { outputPath: (n: string) => string; attach: AttachFn },
 ): Promise<void> {
-  const url = page.url();
-  let dom = '(не вдалось зняти DOM)';
+  const note: string[] = [message, '', `URL на момент помилки: ${urlAtError}`];
+
+  const urlNow = page.url();
+  if (urlNow !== urlAtError) {
+    note.push(
+      `🔴 ДОКАЗ НЕ ЗНЯТО: сторінка вже на ${urlNow}.`,
+      'Знімок DOM належав би іншому маршруту, і різниця виглядала б як',
+      'тотальна розбіжність, якої не було.',
+    );
+    await writeNote(testInfo, note);
+    return;
+  }
+
+  let dom: string | null = null;
   try {
     dom = await page.evaluate(() => document.documentElement.outerHTML);
-  } catch {
-    /* сторінку могли вже закрити — тоді лишається серверний бік */
+  } catch (e) {
+    note.push(`🔴 DOM не знято: ${e instanceof Error ? e.message : String(e)}`);
   }
-  let served = '(не вдалось забрати серверний HTML)';
+  // Ще раз: `evaluate` чекається, і за цей час сторінка могла поїхати.
+  if (dom !== null && page.url() !== urlAtError) {
+    note.push(`🔴 DOM відкинуто: за час знімання сторінка пішла на ${page.url()}.`);
+    dom = null;
+  }
+
+  let served: string | null = null;
   try {
-    const res = await page.context().request.get(url);
-    served = await res.text();
-  } catch {
-    /* той самий випадок */
+    served = await (await page.context().request.get(urlAtError)).text();
+  } catch (e) {
+    note.push(
+      `🔴 серверний HTML не знято: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
-  await attach('hydration-error.txt', `${message}\n\nURL: ${url}\n`);
-  await attach('hydration-dom-after.html', dom);
-  await attach('hydration-served.html', served);
+
+  await writeNote(testInfo, note);
+  if (dom !== null) await attachFile(testInfo, 'hydration-dom-after.html', dom);
+  if (served !== null) {
+    await attachFile(testInfo, 'hydration-served.html', served);
+  }
+}
+
+type AttachFn = (
+  name: string,
+  opts: { path?: string; body?: string; contentType: string },
+) => Promise<void>;
+
+async function attachFile(
+  testInfo: { outputPath: (n: string) => string; attach: AttachFn },
+  name: string,
+  body: string,
+): Promise<void> {
+  const file = testInfo.outputPath(name);
+  await writeFile(file, body, 'utf8');
+  await testInfo.attach(name, { path: file, contentType: 'text/html' });
+}
+
+async function writeNote(
+  testInfo: { outputPath: (n: string) => string; attach: AttachFn },
+  lines: string[],
+): Promise<void> {
+  await testInfo.attach('hydration-error.txt', {
+    body: lines.join('\n') + '\n',
+    contentType: 'text/plain',
+  });
 }
 
 export const test = base.extend<{ request: APIRequestContext }>({
@@ -110,9 +199,7 @@ export const test = base.extend<{ request: APIRequestContext }>({
     const onError = (message: string) => {
       if (pending || !HYDRATION_ERROR.test(message)) return;
       // один доказ на тест: другий був би тією ж сторінкою
-      pending = captureHydrationEvidence(page, message, async (name, body) => {
-        await testInfo.attach(name, { body, contentType: 'text/plain' });
-      });
+      pending = captureHydrationEvidence(page, message, page.url(), testInfo);
     };
     page.on('pageerror', (e) => onError(e.message));
     page.on('console', (m) => {

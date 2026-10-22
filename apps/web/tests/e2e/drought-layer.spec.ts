@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './api-request';
 import { openMapRetryingThrottle } from './open-map';
 import { INITIAL_VIEW } from '@/lib/map-sources';
 

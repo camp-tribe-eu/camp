@@ -2,7 +2,7 @@ import { RESERVED_WORDS } from '@/lib/cems';
 import { MAP_DRAWN, waitForMapState } from '../map-ready';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './api-request';
 import { openMapRetryingThrottle } from './open-map';
 import { INITIAL_VIEW } from '@/lib/map-sources';
 
