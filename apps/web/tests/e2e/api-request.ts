@@ -133,6 +133,18 @@ async function captureHydrationEvidence(
     dom = null;
   }
 
+  let before: string | null = null;
+  try {
+    before = (await page.evaluate(
+      () =>
+        (window as unknown as Record<string, unknown>).__campPreHydration ??
+        null,
+    )) as string | null;
+    if (before === null) note.push('🔴 знімка ДО гідратації немає (сторінка не дійшла до DOMContentLoaded?)');
+  } catch (e) {
+    note.push(`🔴 знімок ДО гідратації не знято: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   let served: string | null = null;
   try {
     served = await (await page.context().request.get(urlAtError)).text();
@@ -143,6 +155,9 @@ async function captureHydrationEvidence(
   }
 
   await writeNote(testInfo, note);
+  if (before !== null) {
+    await attachFile(testInfo, 'hydration-dom-before.html', before);
+  }
   if (dom !== null) await attachFile(testInfo, 'hydration-dom-after.html', dom);
   if (served !== null) {
     await attachFile(testInfo, 'hydration-served.html', served);
@@ -190,6 +205,33 @@ export const test = base.extend<{ request: APIRequestContext }>({
   // Автофікстура: вішається на КОЖЕН тест, що бере `page`, без жодного
   // рядка в самих наборах.
   page: async ({ page }, use, testInfo) => {
+    // 🔴 ЗНІМОК ДО ГІДРАТАЦІЇ, бо знімок ПІСЛЯ запізнюється.
+    //
+    // Заміряно на справжньому спрацюванні в CI: у `dom-after` лишались
+    // тільки законні зміни — банер згоди, перевірка сесії, заповнення
+    // пошуку. React до того моменту вже перебудував дерево, і сама
+    // розбіжність зникла з кадру.
+    //
+    // Цей скрипт виконується ДО будь-якого коду сторінки й знімає
+    // розмітку такою, якою її розібрав БРАУЗЕР, ще до того, як React
+    // до неї торкнувся. Саме порівняння «сервер → браузер» показало
+    // попередню причину: `<style>` усередині `<noscript>` ставав
+    // текстовим вузлом.
+    await page.addInitScript(() => {
+      document.addEventListener(
+        'DOMContentLoaded',
+        () => {
+          try {
+            (window as unknown as Record<string, unknown>).__campPreHydration =
+              document.documentElement.outerHTML;
+          } catch {
+            /* знімок — не привід валити сторінку */
+          }
+        },
+        { once: true },
+      );
+    });
+
     // 🔴 ОБІЦЯНКУ ТРЕБА ДОЧЕКАТИСЬ, І ЦЕ НЕ ДРІБНИЦЯ. Перша редакція
     // запускала знімання через `void` — тобто воно гналось наввипередки
     // з завершенням тесту й не встигало ніколи. Заміряно: два випадки
