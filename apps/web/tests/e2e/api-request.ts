@@ -133,6 +133,15 @@ async function captureHydrationEvidence(
     dom = null;
   }
 
+  // 🔴 ЦЕ НЕ «ДО ГІДРАТАЦІЇ», І НАЗИВАТИ ЙОГО ТАК БУЛО НЕПРАВДОЮ.
+  // Заміряно 22.10.2026 справжнім Playwright на firefox проти живого
+  // сайту: на DOMContentLoaded (139 мс) `__next_f` уже мав 37 записів —
+  // тобто завантажувач React відпрацював РАНІШЕ. Кадр пізній завжди.
+  //
+  // Тому він тепер зветься тим, чим є: знімок НА DOMContentLoaded. Усе,
+  // чого в ньому бракує, означає «React уже встиг прибрати» рівно
+  // настільки ж, наскільки «браузер цього не отримав», і розрізняє їх
+  // лише стрічка подій поруч.
   let before: string | null = null;
   try {
     before = (await page.evaluate(
@@ -140,9 +149,49 @@ async function captureHydrationEvidence(
         (window as unknown as Record<string, unknown>).__campPreHydration ??
         null,
     )) as string | null;
-    if (before === null) note.push('🔴 знімка ДО гідратації немає (сторінка не дійшла до DOMContentLoaded?)');
+    if (before === null) note.push('🔴 знімка на DOMContentLoaded немає (сторінка туди не дійшла?)');
   } catch (e) {
-    note.push(`🔴 знімок ДО гідратації не знято: ${e instanceof Error ? e.message : String(e)}`);
+    note.push(`🔴 знімок на DOMContentLoaded не знято: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // 🔴 СТРІЧКА ПОДІЙ, І ВИРОК ПРО САМ КАДР. Без неї «before» — це
+  // документ невідомого віку, і будь-яка розбіжність у ньому читається
+  // двояко. Тут свідок свідчить сам про себе.
+  let timeline: unknown[] | null = null;
+  try {
+    timeline = (await page.evaluate(
+      () => (window as unknown as Record<string, unknown>).__campTimeline ?? null,
+    )) as unknown[] | null;
+  } catch (e) {
+    note.push(`🔴 стрічку подій не знято: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (timeline !== null) {
+    const at = timeline.find(
+      (r) => (r as Record<string, unknown>).label === 'DOMContentLoaded',
+    ) as Record<string, unknown> | undefined;
+    if (at === undefined) {
+      note.push('🔴 у стрічці немає DOMContentLoaded — кадр «before» невідомого віку.');
+    } else if (at.nextF !== null) {
+      note.push(
+        `🔴 КАДР «BEFORE» ПІЗНІЙ: на DOMContentLoaded (${String(at.ms)} мс) ` +
+          `навантаження React уже існувало (__next_f: ${String(at.nextF)}). ` +
+          'Отже брак будь-чого в цьому кадрі НЕ доводить, що браузер того не отримав — ' +
+          'React міг це вже прибрати.',
+      );
+    } else {
+      note.push(
+        `✓ кадр «before» ранній: на DOMContentLoaded (${String(at.ms)} мс) ` +
+          'навантаження React ще не існувало.',
+      );
+    }
+    const removed = timeline.filter(
+      (r) => (r as Record<string, unknown>).label === 'script-removed',
+    );
+    note.push(
+      removed.length === 0
+        ? '✓ жодного <script> із документа не прибирали.'
+        : `🔴 прибрано <script>: ${removed.length} — див. hydration-timeline.json`,
+    );
   }
 
   let served: string | null = null;
@@ -156,11 +205,18 @@ async function captureHydrationEvidence(
 
   await writeNote(testInfo, note);
   if (before !== null) {
-    await attachFile(testInfo, 'hydration-dom-before.html', before);
+    await attachFile(testInfo, 'hydration-dom-at-dcl.html', before);
   }
-  if (dom !== null) await attachFile(testInfo, 'hydration-dom-after.html', dom);
+  if (dom !== null) await attachFile(testInfo, 'hydration-dom-at-error.html', dom);
   if (served !== null) {
     await attachFile(testInfo, 'hydration-served.html', served);
+  }
+  if (timeline !== null) {
+    await attachFile(
+      testInfo,
+      'hydration-timeline.json',
+      JSON.stringify(timeline, null, 2),
+    );
   }
 }
 
@@ -176,7 +232,16 @@ async function attachFile(
 ): Promise<void> {
   const file = testInfo.outputPath(name);
   await writeFile(file, body, 'utf8');
-  await testInfo.attach(name, { path: file, contentType: 'text/html' });
+  // 🔴 ТИП БЕРЕТЬСЯ З ІМЕНІ, А НЕ ЗАШИТИЙ. Тут стояло `text/html` для
+  // всього; щойно поруч поїхала стрічка подій у JSON, звіт показував би
+  // її як розмітку — тобто доказ, що виглядає зламаним, і наступного
+  // разу його відкриють останнім.
+  const type = name.endsWith('.json')
+    ? 'application/json'
+    : name.endsWith('.txt')
+      ? 'text/plain'
+      : 'text/html';
+  await testInfo.attach(name, { path: file, contentType: type });
 }
 
 async function writeNote(
@@ -205,9 +270,11 @@ export const test = base.extend<{ request: APIRequestContext }>({
   // Автофікстура: вішається на КОЖЕН тест, що бере `page`, без жодного
   // рядка в самих наборах.
   page: async ({ page }, use, testInfo) => {
-    // 🔴 ЗНІМОК ДО ГІДРАТАЦІЇ, бо знімок ПІСЛЯ запізнюється.
+    // 🔴 ЗНІМОК НА DOMContentLoaded — найраніший повний документ,
+    // який тут узагалі можна взяти. Це НЕ «до гідратації»: React 19
+    // стрімить і починає роботу ще під час розбору.
     //
-    // Заміряно на справжньому спрацюванні в CI: у `dom-after` лишались
+    // Заміряно на справжньому спрацюванні в CI: у кадрі на момент помилки лишались
     // тільки законні зміни — банер згоди, перевірка сесії, заповнення
     // пошуку. React до того моменту вже перебудував дерево, і сама
     // розбіжність зникла з кадру.
@@ -217,19 +284,71 @@ export const test = base.extend<{ request: APIRequestContext }>({
     // до неї торкнувся. Саме порівняння «сервер → браузер» показало
     // попередню причину: `<style>` усередині `<noscript>` ставав
     // текстовим вузлом.
+    //
+    // 🔴 І САМ ЗНІМОК ТРЕБА БУЛО СПРОСТУВАТИ. Назва «ДО гідратації» була
+    // ПРИПУЩЕННЯМ, а не фактом: завантажувальний скрипт React async і
+    // цілком може виконатись РАНІШЕ за `DOMContentLoaded`. Тоді «before»
+    // — це вже частково гідратований документ, і все, чого в ньому
+    // бракує, означає не «браузер цього не отримав», а «React це
+    // прибрав». Два протилежні висновки з одного кадру.
+    //
+    // 22.10.2026 я на цьому й обпікся: побачив, що в «before» бракує
+    // двох тегів <script> із одинадцяти (серед них чанк layout), і
+    // мало не назвав це причиною. Довести момент зйомки було нічим.
+    //
+    // Тому кадр більше не їде сам: поруч їде стрічка подій із мітками
+    // часу, `readyState`, лічильником <script src> і записом про КОЖЕН
+    // прибраний вузол <script>. Вона й відповідає на питання «кадр
+    // ранній чи пізній» — а також на те, чи теги зникли, чи їх і не
+    // було.
     await page.addInitScript(() => {
+      const w = window as unknown as Record<string, unknown>;
+      const line: unknown[] = [];
+      w.__campTimeline = line;
+      const mark = (label: string, extra: Record<string, unknown> = {}) => {
+        try {
+          line.push({
+            ms: Math.round(performance.now()),
+            label,
+            readyState: document.readyState,
+            scripts: document.querySelectorAll('script[src]').length,
+            // Присутність RSC-навантаження — ознака, що завантажувач
+            // React уже виконувався.
+            nextF: Array.isArray(w.__next_f) ? (w.__next_f as unknown[]).length : null,
+            ...extra,
+          });
+        } catch {
+          /* стрічка — не привід валити сторінку */
+        }
+      };
+      mark('init');
+      try {
+        new MutationObserver((records) => {
+          for (const r of records) {
+            for (const n of Array.from(r.removedNodes)) {
+              if (n.nodeName !== 'SCRIPT') continue;
+              const src = (n as HTMLScriptElement).src;
+              mark('script-removed', { src: src === '' ? '(inline)' : src });
+            }
+          }
+        }).observe(document, { childList: true, subtree: true });
+      } catch {
+        /* спостерігач — не привід валити сторінку */
+      }
+      document.addEventListener('readystatechange', () => mark('readystatechange'));
       document.addEventListener(
         'DOMContentLoaded',
         () => {
+          mark('DOMContentLoaded');
           try {
-            (window as unknown as Record<string, unknown>).__campPreHydration =
-              document.documentElement.outerHTML;
+            w.__campPreHydration = document.documentElement.outerHTML;
           } catch {
             /* знімок — не привід валити сторінку */
           }
         },
         { once: true },
       );
+      window.addEventListener('load', () => mark('load'));
     });
 
     // 🔴 ОБІЦЯНКУ ТРЕБА ДОЧЕКАТИСЬ, І ЦЕ НЕ ДРІБНИЦЯ. Перша редакція
