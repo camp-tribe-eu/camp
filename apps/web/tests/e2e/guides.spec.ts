@@ -1,5 +1,7 @@
 import { expect, test, type APIRequestContext } from "./api-request";
 import { openHeaderNav } from './header-nav';
+import { facetBudgetExtraMs } from './guides-budget';
+import { TOPICS } from '../../src/lib/guide-facets';
 
 // CAMP-66 — the guides section, on real pages.
 //
@@ -10,6 +12,15 @@ import { openHeaderNav } from './header-nav';
 // because nobody re-reads thirty-six of them.
 
 const API = process.env.API_BASE_URL ?? "http://localhost:3001";
+
+/**
+ * Скільки фасетів очікуємо, поки хаб ще не прочитано.
+ *
+ * Потрібна, бо бюджет треба розширити ДО першого завантаження, а
+ * справжнє число відоме лише після нього. Заміряно 16.10.2026: 31.
+ * Якщо дійсність виявиться більшою, другий виклик додасть різницю.
+ */
+const FACET_BUDGET_GUESS = 31;
 
 type Guide = {
   slug: string;
@@ -82,9 +93,23 @@ test.describe("the section the header points at", () => {
     // HTML колись розійдеться з DOM, впаде саме вона, а не одна з
     // тридцяти однієї сторінок навмання.
     //
-    // `test.slow()` лишається, але тепер це запас для ДВОХ браузерних
-    // завантажень, а не для тридцяти одного.
-    test.slow();
+    // 🔴 БЮДЖЕТ РОЗШИРЮЄТЬСЯ ПІД КАТАЛОГ, А НЕ ЗАМІНЮЄТЬСЯ НИМ.
+    //
+    // Тут стояв `test.slow()` — потроєння сталої межі. Стала межа й була
+    // дефектом: тест падав двічі (13.10 на 30 000 мс, 16.10 тричі вже на
+    // 90 000), бо вартість росте разом із каталогом, а межа не росте.
+    //
+    // 🔴 І ПЕРША РЕДАКЦІЯ ВИПРАВЛЕННЯ БУЛА ГІРШОЮ ЗА ХВОРОБУ. Вона
+    // ставила `test.setTimeout(20_000 + 250 * n)`, тобто ЗАМІНЮВАЛА
+    // бюджет проєкту разом із множником рушія: webkit має 90 000, а
+    // діставав би 27 750 — у 9,7 раза менше на браузері, який цей самий
+    // конфіг міряє як у 2,79 раза повільніший. До того ж 27 750 менше за
+    // `navigationTimeout: 30 000`, тож зависла навігація не встигала б
+    // дійти до власної межі й верталось би безіменне «Test timeout
+    // exceeded» — рівно те, що #310 викорінював. Заміряно рецензією.
+    //
+    // Тому додаємо до того, що дав проєкт, замість підміняти.
+    test.setTimeout(test.info().timeout + facetBudgetExtraMs(FACET_BUDGET_GUESS));
 
     const list = await guides(request);
     expect(list.length, "no guides are published").toBeGreaterThan(0);
@@ -103,6 +128,81 @@ test.describe("the section the header points at", () => {
     await page.goto("/guides");
     const facets = [...new Set(await hrefsOn(/^\/guides\/(country|topic)\//))];
     expect(facets.length, "the index links no facet pages").toBeGreaterThan(0);
+
+    // Тепер, коли відомо скільки їх НАСПРАВДІ, підженемо додаток.
+    // Перший виклик вище дав запас на здогад; цей — на дійсність.
+    test.setTimeout(
+      test.info().timeout +
+        facetBudgetExtraMs(Math.max(0, facets.length - FACET_BUDGET_GUESS)),
+    );
+
+    // 🔴 ХАБ МУСИТЬ НАЗИВАТИ РІВНО ТІ ФАСЕТИ, ЩО ВИВОДЯТЬСЯ З ГАЙДІВ.
+    //
+    // Картка просила іншого: «зробити одну тематичну сторінку порожньою
+    // й показати, що тест червоніє». Заміряно 21.10.2026 — так не
+    // вийде: хаб ВІДКИДАЄ порожні фасети (31 → 30), тож порожньої
+    // сторінки в переліку просто не буде, і `empty` нижче промовчить не
+    // через дірку, а через те, що перевіряти нічого.
+    //
+    // Дірка, яка справді лишалась відкритою, інша й гірша: хаб може
+    // ТИХО ЗАГУБИТИ фасет, у якого гайди є. `unreachable` цього не
+    // спіймає, бо кожен гайд лежить рівно на ДВОХ фасетах — своїй
+    // країні й своїй темі. Зникне сторінка країни — усі її гайди
+    // лишаться досяжними через теми, і всі перевірки нижче промовчать.
+    //
+    // Тому перелік хаба звіряється з переліком, виведеним із того, що
+    // API вважає опублікованим. Це дві різні дороги до одного числа:
+    // одна з розмітки, друга з даних.
+    // 🔴 ДРУГА ДОРОГА МУСИТЬ БУТИ СПРАВДІ ІНШОЮ.
+    //
+    // Перша редакція будувала `derived` через `byCountry`/`byTopic` — ті
+    // самі функції, якими хаб малює свій перелік. Рецензія #312 довела
+    // прогоном, що це одна дорога: аловліст усередині `byCountry` губив
+    // `/guides/country/mt` на хабі І в `derived` одночасно, звірка
+    // лишалась зелена, а гайд `mt-gozo-water` тихо зникав із каталогу.
+    //
+    // Тут фасети виводяться зі СЛАГІВ, які віддав API: країна — перший
+    // сегмент, тема — останній. Спільного коду з хабом нема, тож
+    // помилка в групувальнику тепер розводить два переліки, а не зсуває
+    // обидва однаково.
+    // 🔴 РОЗБІР ТУТ ВЛАСНИЙ, А НЕ ПОЗИЧЕНИЙ. З `guide-facets.ts`
+    // береться лише TOPICS — перелік тем, тобто ДАНІ, а не код, яким
+    // хаб групує. `parseGuideSlug`, `byCountry` і `byTopic` на цьому
+    // шляху більше не стоять, тож помилка в них розводить два переліки
+    // замість зсувати обидва однаково.
+    //
+    // Правило повторює те, що задає схема слага: країна — два малі
+    // латинські символи на початку, тема — останній сегмент із TOPICS,
+    // між ними непорожній регіон.
+    //
+    // 🔴 Що ЛИШАЄТЬСЯ спільним і чому це прийнятно: сам перелік TOPICS.
+    // Він декларативний (пʼять рядків із підписами) і змінюється лише
+    // разом із новою темою; якби й він розійшовся, це спіймала б
+    // перевірка `empty` нижче, бо хаб запропонував би фасет, на якому
+    // немає жодного гайда.
+    const countries = new Set<string>();
+    const topics = new Set<string>();
+    const isTopicName = (v: string) =>
+      Object.prototype.hasOwnProperty.call(TOPICS, v);
+    for (const g of list) {
+      const parts = g.slug.split('-');
+      if (parts.length < 3) continue; // «не підшито нікуди»
+      const country = parts[0];
+      const topic = parts[parts.length - 1];
+      const region = parts.slice(1, -1).join('-');
+      if (!/^[a-z]{2}$/.test(country) || !isTopicName(topic) || region === '')
+        continue;
+      countries.add(country);
+      topics.add(topic);
+    }
+    const derived = [
+      ...[...countries].map((c) => `/guides/country/${c}`),
+      ...[...topics].map((t) => `/guides/topic/${t}`),
+    ].sort();
+    expect(
+      [...facets].sort(),
+      'хаб і опубліковані гайди називають різні фасети',
+    ).toEqual(derived);
 
     // 🔴 A guide the parser cannot file is linked from the hub itself, in
     // "Not filed anywhere". Counting those here is what stops this test
