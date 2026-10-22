@@ -1,4 +1,5 @@
-import { expect, request as playwrightRequest, test } from '@playwright/test';
+import { expect, test } from './api-request';
+import { request as playwrightRequest } from '@playwright/test';
 
 // CAMP-69 — the rate limit, on the running API.
 //

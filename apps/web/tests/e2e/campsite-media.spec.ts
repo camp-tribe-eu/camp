@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './api-request';
 
 /**
  * CAMP-344 — медіаслот сторінки кемпінгу.

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./api-request";
 
 // CAMP-365 — /about переїхала з коду в CMS.
 //

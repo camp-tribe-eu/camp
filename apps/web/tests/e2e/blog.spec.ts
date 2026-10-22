@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./api-request";
 
 // CAMP-364 — блог і сторінка допису.
 //
