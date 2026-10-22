@@ -158,6 +158,13 @@ The nightly `backup-verify.yml` does exactly this and compares
 `project_id` before and after. Retention is the same 14 daily folders as
 the CSVs, because the dump lives inside the folder.
 
+A folder made before CAMP-386 has no dump and no `"dump"` key in its
+manifest. `verify` says so loudly and still passes, and `restore` from it
+still works — for the CSV half only. A folder whose manifest *names* a
+dump that is missing, altered or empty of Directus fails hard; that
+distinction is what keeps the old folders usable without letting a new
+backup quietly lose its dump.
+
 To check a backup you already have:
 
 ```bash

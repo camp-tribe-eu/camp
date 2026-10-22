@@ -21,13 +21,19 @@
 # доводить, що запис є в TOC; що з нього повертається ТОЙ САМИЙ
 # project_id, доводить лише відновлення в порожню базу й порівняння.
 #
+# 🔴 І СТАРИЙ ЗРІЗ НЕ ЗАБОРОНЯЄТЬСЯ. Тека без ключа "dump" — це кожен
+# бекап, зроблений до картки; verify над нею попереджає й проходить, а
+# restore з неї повертає CSV. Падати тут означало б два тижні не мати
+# жодного придатного бекапу (рецензія PR #318). Але ключ "dump" із
+# чимось не тим усередині — тверда відмова, як і була.
+#
 # 🔴 ЛІЧИЛЬНИК. «N випадків» — підпис, а не перевірка. EXPECTED записано;
 # останній рядок друкується лише коли виконаних стільки ж і жоден не впав.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="${CAMPTRIBE_BACKUP_BIN:-$HERE/backup-local.sh}"
-EXPECTED=21
+EXPECTED=23
 # Де брати базу: локально сокет і поточний користувач, у CI — сервіс
 # postgres. Назви з префіксом, щоб два прогони поруч не скидали бази
 # одне одного.
@@ -113,6 +119,15 @@ import json, sys
 d = sys.argv[1]
 m = json.load(open(d + "/manifest.json"))
 m.pop("dump", None)
+json.dump(m, open(d + "/manifest.json", "w"), indent=2)
+PY
+}
+strip_manifest_dump_sha() {
+  python3 - "$1" <<'PY'
+import json, sys
+d = sys.argv[1]
+m = json.load(open(d + "/manifest.json"))
+m["dump"].pop("sha256", None)
 json.dump(m, open(d + "/manifest.json", "w"), indent=2)
 PY
 }
@@ -222,15 +237,31 @@ run_verify "$DIR"
 [ "$RC" != 0 ] && [[ "$OUT" == *"camptribe.dump is missing"* ]]
 r=$?; ok "$r" 'дамп прибрано, маніфест його називає → червоний' "rc=$RC $OUT"
 
-reset_mut; drop_manifest_dump "$DIR"
+reset_mut; strip_manifest_dump_sha "$DIR"
 run_verify "$DIR"
-[ "$RC" != 0 ] && [[ "$OUT" == *"не називає дампа"* ]]
-r=$?; ok "$r" 'маніфест без "dump" (зріз до CAMP-386) → червоний, і каже зробити новий backup' "rc=$RC $OUT"
+[ "$RC" != 0 ] && [[ "$OUT" == *"без імені чи суми"* ]]
+r=$?; ok "$r" 'ключ "dump" є, але без sha256 → червоний: зіпсований маніфест — не «старий зріз»' "rc=$RC $OUT"
 
 reset_mut; set_manifest_dump_file "$DIR" '../../etc/passwd'
 run_verify "$DIR"
 [ "$RC" != 0 ] && [[ "$OUT" == *"не імʼя файла в теці"* ]]
 r=$?; ok "$r" 'імʼя дампа зі шляхом у маніфесті → відмова до будь-якого читання' "rc=$RC $OUT"
+
+echo '— старий зріз (до CAMP-386): без ключа "dump" — попередження, не відмова'
+# 🔴 Рецензія PR #318: перша редакція тут падала, і `restore` з усіх
+# 14 наявних тек був заборонений на два тижні. Старий зріз — це тека
+# без ключа "dump" І без файла дампа; саме так виглядають усі зрізи,
+# зроблені до картки.
+reset_mut; drop_manifest_dump "$DIR"; rm -f "$DIR/camptribe.dump"
+run_verify "$DIR"
+[ "$RC" = 0 ] && [[ "$OUT" == *"зріз зроблено до CAMP-386"* ]] && [[ "$OUT" == *"CSV-половина ціла"* ]]
+r=$?; ok "$r" '🔴 маніфест без "dump" → verify виходить 0 і голосно попереджає, що directus_* не відновити' "rc=$RC $OUT"
+
+psql -q -v ON_ERROR_STOP=1 -d "$SRC_URL" -c 'TRUNCATE guides'
+R_OUT="$(DATABASE_URL="$SRC_URL" "$SCRIPT" restore "$DIR" 2>&1)"; R_RC=$?
+G="$(psql -tAc 'SELECT count(*) FROM guides' -d "$SRC_URL")"
+[ "$R_RC" = 0 ] && [ "$G" = 1 ] && [[ "$R_OUT" == *"зріз зроблено до CAMP-386"* ]]
+r=$?; ok "$r" '🔴 restore зі старого зрізу ПРОХОДИТЬ: guides повернулись із CSV (1 рядок), попередження надруковано' "rc=$R_RC guides=$G $R_OUT"
 
 echo '— права читаються ПІСЛЯ запису, а не виводяться з umask'
 # Заміряно 22.10.2026: pg_dump -f у файл, що ВЖЕ існує, лишає його права.

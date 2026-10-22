@@ -203,19 +203,52 @@ dump_db() {
 # імʼям: дамп, зроблений із `-T 'directus_*'`, існує, має правильну суму
 # й нічого не рятує. Повертає 1, а не вбиває: do_verify збирає всі
 # відмови разом, щоб людина побачила їх за один прогін.
+#
+# 🔴 ДВА СТАНИ — ДВА ПРИСУДИ (рецензія PR #318). Перша редакція падала й
+# тоді, коли ключа "dump" у маніфесті НЕМАЄ ВЗАГАЛІ — а це кожен зріз,
+# зроблений до CAMP-386, тобто всі 14 тек на машині в день викатки.
+# `restore` починається з `verify`, отже два тижні не можна було б
+# відновити CSV з ЖОДНОГО наявного бекапу: сторож забороняв відновлення
+# заради відновлення — площа ураження більша за дефект, який він ловить.
+#
+#   (а) ключа "dump" немає → старий зріз: попередити голосно, повернути 0.
+#       CSV-половина ціла, контент відновлюється; directus_* — ні.
+#   (б) ключ є, а дамп не такий (немає файла, сума розійшлась, не
+#       читається, бракує TABLE DATA) → тверда відмова, як і була.
+#
+# Чому (а) безпечно: НОВИЙ зріз без ключа неможливий — dump_db вбиває
+# прогін, якщо pg_dump не вдався, а маніфест пишеться після нього. Тож
+# відсутність ключа означає «старий зріз», а не «дамп тихо зник». А щоб
+# це лишалось правдою й після чиєїсь правки маніфесту, `backup` звіряє
+# щойно записаний зріз у режимі fresh, де (а) — теж відмова.
 verify_dump() {
-  local dir="$1" line file want dump got toc n t total
+  local dir="$1" mode="${2:-}" line file want dump got toc n t total rc=0
   # 🔴 Маніфест читаємо так само, як CSV-половину: збій читання — це
-  # відмова, а не «нічого не перевірили».
+  # відмова, а не «нічого не перевірили». Код 3 зарезервовано під
+  # «ключа немає», щоб відрізнити його від зіпсованого маніфесту.
   line=$(python3 -c '
 import json, sys
 m = json.load(open(sys.argv[1]))
-d = m.get("dump")
+if "dump" not in m:
+    sys.exit(3)
+d = m["dump"]
 if not isinstance(d, dict) or not d.get("file") or not d.get("sha256"):
-    sys.exit("manifest names no dump")
+    sys.exit("manifest names a dump without file or sha256")
 print("\t".join([d["file"], d["sha256"]]))
-' "$dir/manifest.json") \
-    || { say "  ✗ manifest.json не називає дампа — зріз без повного дампа (до CAMP-386) неповний; зроби новий backup"; return 1; }
+' "$dir/manifest.json" 2>/dev/null) || rc=$?
+  if [ "$rc" = 3 ]; then
+    if [ "$mode" = fresh ]; then
+      say "  ✗ щойно записаний маніфест не називає дампа — новий зріз без дампа не зараховується"
+      return 1
+    fi
+    say "  ⚠ зріз зроблено до CAMP-386: повного дампа в ньому немає, тож"
+    say "    directus_* із нього не відновити. CSV-половина ціла — відновлення"
+    say "    контенту працює. Зроби новий backup, щоб мати повне покриття."
+    return 0
+  elif [ "$rc" != 0 ]; then
+    say "  ✗ manifest.json називає дамп без імені чи суми — зріз не звіряється"
+    return 1
+  fi
   IFS=$'\t' read -r file want <<< "$line"
   # Імʼя з файла в теці бекапу підставляється в шлях — не даємо йому
   # вийти за теку, як check-restore.mjs не дає імені таблиці вийти в SQL.
@@ -294,13 +327,18 @@ do_backup() {
   # 🔴 Verify immediately. A backup nobody has read back is a folder, not
   # a backup, and the failure mode of an unverified one is that you find
   # out on the day it is the only copy left.
+  #
+  # 🔴 `fresh`: для щойно записаного зрізу відсутність дампа в маніфесті
+  # — відмова, а не «старий зріз» (див. verify_dump). Поблажка для тек,
+  # зроблених до CAMP-386, не сміє поширюватись на нові.
   say ""
-  do_verify "$dir"
+  do_verify "$dir" fresh
 }
 
 # --------------------------------------------------------------------
+# do_verify DIR [fresh] — `fresh` лише з do_backup, див. там.
 do_verify() {
-  local dir="$1"
+  local dir="$1" mode="${2:-}"
   [ -f "$dir/manifest.json" ] || die "no manifest.json in $dir"
 
   # 🔴 Read the manifest into a variable FIRST, so a failure to read it
@@ -358,10 +396,12 @@ for name, v in m["files"].items():
   # checksum proves the bytes are unchanged, not that they are a CSV.
   gzip -t "$dir"/*.csv.gz || { say "  ✗ an archive is corrupt"; bad=1; }
 
-  # 🔴 І повний дамп — за ВМІСТОМ, не за наявністю (CAMP-386). Зріз
-  # без дампа, або з дампом без directus_settings, не проходить, навіть
-  # якщо всі CSV бездоганні: саме така «бездоганна» тека й була дефектом.
-  verify_dump "$dir" || bad=1
+  # 🔴 І повний дамп — за ВМІСТОМ, не за наявністю (CAMP-386). Новий
+  # зріз без дампа, або будь-який із дампом без directus_settings, не
+  # проходить, навіть якщо всі CSV бездоганні: саме така «бездоганна»
+  # тека й була дефектом. Старий зріз (без ключа "dump") проходить із
+  # попередженням — інакше два тижні нічого не можна було б відновити.
+  verify_dump "$dir" "$mode" || bad=1
 
   [ "$bad" = 0 ] || die "backup in $dir does not verify"
   say ""
