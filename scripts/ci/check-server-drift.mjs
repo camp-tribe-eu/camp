@@ -73,10 +73,23 @@ export const NAMED = Object.freeze([
   { kind: 'caddy', name: 'camptribe.eu.caddyfile', remote: '/etc/caddy/Caddyfile' },
   { kind: 'caddy', name: 'gate-open.conf', remote: '/etc/caddy/gate-open.conf' },
   { kind: 'caddy', name: 'gate-closed.conf.example', remote: '/etc/caddy/gate-closed.conf.example' },
+  // CAMP-384: замок адмінки Directus. Їде лише приклад — так само, як у гейта сайту.
+  { kind: 'caddy', name: 'cms-gate.conf.example', remote: '/etc/caddy/cms-gate.conf.example' },
 ]);
 
-/** Шлях, якого розкладка не сміє торкатись за жодних обставин. */
-export const FORBIDDEN_TARGET = '/etc/caddy/gate-closed.conf';
+/**
+ * Шляхи, яких розкладка не сміє торкатись за жодних обставин: у кожному
+ * лежить пароль, якого в git немає й не буде.
+ *
+ * 🔴 СПИСОК, А НЕ ОДИН РЯДОК, І ЦЕ ВИПРАВЛЕННЯ. До CAMP-384 тут був
+ * єдиний шлях, тож коли зʼявився другий замок — для адмінки Directus —
+ * він автоматично опинився ПОЗА охороною. Форма дефекту знайома: сторож
+ * був правильний для світу, який щойно перестав існувати.
+ */
+export const FORBIDDEN_TARGETS = Object.freeze([
+  '/etc/caddy/gate-closed.conf',
+  '/etc/caddy/cms-gate.conf',
+]);
 
 /**
  * Пари, які РЕАЛЬНО розкладає `deploy-infra.sh` — прочитані з нього.
@@ -91,7 +104,7 @@ export function deployedPairs(text) {
   //     CADDY_PAIRS+="\ngate-closed.conf:/etc/caddy/gate-closed.conf"
   // і розкладка понесе на машину пароль гейта, а сторож лишиться
   // зеленим 39/39 — бо `match` без прапорця бере ПЕРШЕ входження й
-  // бачить ті самі три безпечні пари. `FORBIDDEN_TARGET` при цьому
+  // бачить ті самі безпечні пари. `FORBIDDEN_TARGETS` при цьому
   // дивиться на розібране, а не на розкладене.
   //
   // Тому питання не «що в першому присвоєнні», а «скільки разів цю
@@ -493,12 +506,18 @@ function selfTest() {
       deployedPairs(`${script}\nCADDY_PAIRS+="\\ngate-closed.conf:/etc/caddy/gate-closed.conf"\n`),
       null);
     is('порожній скрипт теж не дає пар', deployedPairs('echo привіт\n'), null);
-    is('пароль гейта не є ціллю розкладки',
-      [...(pairs ?? []).map((x) => x.remote), ...NAMED.map((x) => x.remote)]
-        .filter((r) => r === FORBIDDEN_TARGET),
-      []);
-    is('приклад і справжній гейт — різні файли',
-      NAMED.some((f) => f.remote === `${FORBIDDEN_TARGET}.example`), true);
+    // 🔴 ПЕРЕВІРЯЄМО КОЖЕН ЗАБОРОНЕНИЙ ШЛЯХ, А НЕ ПЕРШИЙ. Перевірка, що
+    // мовчки бере один елемент зі списку, зеленіє і тоді, коли другий
+    // замок лежить на машині беззахисним.
+    for (const forbidden of FORBIDDEN_TARGETS) {
+      is(`пароль не є ціллю розкладки: ${forbidden}`,
+        [...(pairs ?? []).map((x) => x.remote), ...NAMED.map((x) => x.remote)]
+          .filter((r) => r === forbidden),
+        []);
+      is(`приклад і справжній файл — різні: ${forbidden}`,
+        NAMED.some((f) => f.remote === `${forbidden}.example`), true);
+    }
+    is('заборонених цілей рівно стільки, скільки замків', FORBIDDEN_TARGETS.length, 2);
   }
 
   // 🔴 Форма, що вбила бекап: рядок у юніті, який нікуди не веде.
@@ -695,7 +714,7 @@ function selfTest() {
     ).stale,
     false);
 
-  const EXPECTED_CASES = 41;
+  const EXPECTED_CASES = 44;   // CAMP-384: +3 (другий замок у FORBIDDEN_TARGETS)
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;

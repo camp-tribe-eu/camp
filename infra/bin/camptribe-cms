@@ -1,22 +1,36 @@
 #!/usr/bin/env bash
 # CAMP-384: поставити, оновити й оглянути CMS (Directus) НА МАШИНІ.
 #
-#   camptribe-cms status              # що зараз стоїть і чи живе
+#   camptribe-cms status              # що стоїть, чи живе, НА ЧОМУ СЛУХАЄ
+#   camptribe-cms gate    [--apply]   # зібрати замок адмінки з прикладу
 #   camptribe-cms install [--apply]   # перше встановлення
 #   camptribe-cms update  [--apply]   # нова версія + ЯВНА міграція схеми
 #
-# 🔴 СУХИЙ ПРОГІН ЗА ЗАМОВЧУВАННЯМ — як у решти скриптів цього проєкту.
-# Без `--apply` не змінюється нічого.
+# 🔴 СУХИЙ ПРОГІН ЗА ЗАМОВЧУВАННЯМ — як у решти скриптів проєкту.
 #
 # 🔴 ЦЕЙ СКРИПТ НЕ ЧІПАЄ `.env` НІКОЛИ. Там SECRET, пароль бази й
 # ліцензійний ключ. Перезаписаний SECRET вибиває всі сесії; перезаписаний
-# ключ — це спалений слот активації з пʼяти наявних.
+# ключ — це спалений слот активації з п'яти наявних.
 set -euo pipefail
 
 CMS_DIR=/srv/camptribe/cms
 SRC_DIR="${CAMPTRIBE_CMS_SRC:-/srv/camptribe/current/apps/cms}"
+GATE=/etc/caddy/cms-gate.conf
+GATE_EXAMPLE=/etc/caddy/cms-gate.conf.example
+GATE_PASSWORD_FILE=/root/cms-gate-password.txt
 USER_=camptribe
 APPLY=no
+CHANGED=0
+
+# Читач `.env`, той самий, що в бекапа й переносу таблиць (CAMP-349):
+# дослівно, не виконуючи файл. Пароль із `$(…)` усередині лишається
+# паролем, а не командою.
+# shellcheck source=/dev/null
+for lib in /usr/local/lib/camptribe/env-value.sh "$(dirname "$0")/../lib/env-value.sh"; do
+  [ -f "$lib" ] && { . "$lib"; break; }
+done
+command -v env_value >/dev/null 2>&1 || { echo "✗ немає env-value.sh — нічим читати .env" >&2; exit 1; }
+
 cmd="${1:-status}"; shift || true
 for a in "$@"; do
   case "$a" in
@@ -29,9 +43,6 @@ die() { printf '✗ %s\n' "$*" >&2; exit 1; }
 say() { printf '%s\n' "$*"; }
 as_user() { if [ "$(id -u)" = 0 ]; then sudo -u "$USER_" "$@"; else "$@"; fi; }
 
-# Версія, оголошена в репозиторії (джерело правди), і версія, що реально
-# лежить у /srv/camptribe/cms. Їх треба РОЗРІЗНЯТИ: «написано 12.5.0» і
-# «працює 12.5.0» — різні твердження, і друге доводиться не першим.
 want_version() {
   [ -f "$SRC_DIR/package.json" ] || return 1
   node -p "require('$SRC_DIR/package.json').dependencies.directus" 2>/dev/null
@@ -49,8 +60,22 @@ need_src() {
   [ -f "$SRC_DIR/package-lock.json" ] || die "немає $SRC_DIR/package-lock.json — \`npm ci\` без нього не працює"
 }
 
+# ── Адреса прослуховування ───────────────────────────────────────────
+# 🔴 ОКРЕМОЮ ФУНКЦІЄЮ І БЕЗ ЖОДНОГО МІСЦЯ, ДЕ ВОНА МОЖЕ ВБИТИ СКРИПТ.
+# Перша редакція писала це одним конвеєром просто в `status`. Під
+# `set -euo pipefail` на ВІЛЬНОМУ порту `grep` виходить 1, `pipefail`
+# несе одиницю в присвоєння, `set -e` вбиває скрипт — і гілка «порт
+# ніхто не слухає» ставала мертвим кодом, до якого не дійти. Гірше:
+# код виходу 1 тоді означав і «CMS виставлена назовні», і «скрипт
+# помер», тобто монітор не розрізнив би аварію й тишу. Знайшла рецензія.
+listening_on_8055() {
+  local raw
+  raw="$(ss -ltnH 2>/dev/null || true)"
+  printf '%s\n' "$raw" | tr -s ' ' | cut -d' ' -f4 | { grep ':8055$' || true; } | paste -sd, -
+}
+
 status() {
-  local w h unit ping lic
+  local w h unit ping lic bound rc=0
   w="$(want_version || echo '?')"; h="$(have_version || echo '—')"
   say "каталог:       $CMS_DIR"
   say "джерело:       $SRC_DIR"
@@ -59,19 +84,21 @@ status() {
   [ "$w" = "$h" ] || say "   ⚠ розійшлись — \`camptribe-cms update --apply\`"
   unit="$(systemctl is-active camptribe-cms.service 2>/dev/null || true)"
   say "юніт:          ${unit:-невідомо}"
-  # 🔴 `/server/ping` БЕЗ АВТЕНТИФІКАЦІЇ — так радить вендор саме для
+  say "замок Caddy:   $([ -f "$GATE" ] && echo "$GATE є" || echo "🔴 $GATE ВІДСУТНІЙ")"
+  # 🔴 `/server/ping` БЕЗ автентифікації — так радить вендор саме для
   # проби живучості; `/server/health` вимагає токена й, цитуючи їхню
   # документацію, «checking them is resource intensive».
   ping="$(curl -s --max-time 5 http://127.0.0.1:8055/server/ping 2>/dev/null || true)"
   say "ping:          ${ping:-немає відповіді}"
-  # 🔴 ЦЕ ЄДИНА СПРАВЖНЯ ПЕРЕВІРКА АДРЕСИ ПРОСЛУХОВУВАННЯ. Юніт її лише
-  # ЗАДАЄ, а не тримає: Directus читає .env САМ і кладе його поверх
-  # того, що дав systemd (@directus/env, createEnv() — заміряно
-  # 22.10.2026). Тобто `HOST=0.0.0.0` у .env переважить юніт мовчки.
+  lic="$(curl -s --max-time 5 http://127.0.0.1:8055/server/info 2>/dev/null \
+         | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log(JSON.stringify(j.data?.license??null))}catch{console.log("?")}})' 2>/dev/null || true)"
+  say "ліцензія:      ${lic:-?}   (null = Core, тобто ключ не введено)"
+
+  # 🔴 ЦЕ ЄДИНА СПРАВЖНЯ ПЕРЕВІРКА АДРЕСИ. Юніт її лише ЗАДАЄ, а не
+  # тримає: Directus читає .env САМ і кладе його поверх того, що дав
+  # systemd (@directus/env, createEnv() — заміряно 22.10.2026).
   # Запобігти не можемо — питаємо ядро, на чому порт висить НАСПРАВДІ.
-  local bound
-  # Без awk навмисно: вкладені лапки тут уже один раз тихо зʼїли $4.
-  bound="$(ss -ltnH 2>/dev/null | tr -s ' ' | cut -d' ' -f4 | grep ':8055$' | paste -sd, -)"
+  bound="$(listening_on_8055)"
   if [ -z "$bound" ]; then
     say "адреса:        порт 8055 ніхто не слухає"
   elif [ "$bound" = "127.0.0.1:8055" ]; then
@@ -80,29 +107,107 @@ status() {
     say "адреса:        $bound"
     say "   🔴 CMS СЛУХАЄ НЕ ЛИШЕ 127.0.0.1. Очікувалось 127.0.0.1:8055."
     say "      Майже напевно в $CMS_DIR/.env зʼявився HOST — він переважує юніт."
-    return 1
+    # 🔴 КОД 3, А НЕ 1: одиницею виходить і впалий скрипт, і `die`.
+    # Тривога, яку не відрізнити від аварії, — це половина тривоги.
+    rc=3
   fi
-  # Джерело ліцензії видно публічно: null означає безкоштовний Core.
-  lic="$(curl -s --max-time 5 http://127.0.0.1:8055/server/info 2>/dev/null \
-         | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log(JSON.stringify(j.data?.license??null))}catch{console.log("?")}})' 2>/dev/null || true)"
-  say "ліцензія:      ${lic:-?}   (null = Core, тобто ключ не введено)"
+  return "$rc"
 }
 
+# ── Замок адмінки ────────────────────────────────────────────────────
+# 🔴 ЦЬОГО КРОКУ СПОЧАТКУ НЕ БУЛО, І ЦЕ НАЗИВАЛОСЬ «зроблю руками».
+# Caddyfile робить `import /etc/caddy/cms-gate.conf`, а створити цей
+# файл не вмів ніхто: у репозиторії лежав лише рецепт у коментарі.
+# Тобто розкладка на чистій машині поклала б конфіг із імпортом
+# неіснуючого файлу. Рецензія назвала обидві гілки поганими, і обидві
+# справді погані: або Caddy не стартує, або — якщо пропустить —
+# адмінка Directus стоїть в інтернеті без пароля й без noindex.
+make_gate() {
+  [ -f "$GATE_EXAMPLE" ] || die "немає $GATE_EXAMPLE — спершу ./infra/deploy-infra.sh --apply"
+  [ -f "$GATE" ] && die "$GATE уже існує. Я його не чіпаю: там пароль, який
+   хтось уже знає. Щоб змінити пароль — прибери файл свідомо й повтори."
+  if [ "$APPLY" != yes ]; then
+    say "→  $GATE   (з $GATE_EXAMPLE, пароль згенерується тут)"
+    say "→  $GATE_PASSWORD_FILE"
+    say; say "Сухий прогін. Щоб зібрати: camptribe-cms gate --apply"
+    return 0
+  fi
+  local pw hash
+  umask 077
+  pw="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)"
+  [ "${#pw}" -eq 24 ] || die "пароль вийшов ${#pw} символів замість 24"
+  # 🔴 \n обовʼязковий: без нього `caddy hash-password` падає з EOF.
+  # 🔴 Через stdin, а не --plaintext: аргумент видно в `ps` будь-кому.
+  hash="$(printf '%s\n' "$pw" | caddy hash-password --algorithm bcrypt)"
+  case "$hash" in \$2a\$*|\$2b\$*|\$2y\$*) : ;; *) die "caddy віддав не bcrypt-хеш" ;; esac
+  printf 'CMS — https://cms.camptribe.eu\nкористувач: camptribe\nпароль: %s\nстворено: %s\n' \
+    "$pw" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$GATE_PASSWORD_FILE"
+  chmod 600 "$GATE_PASSWORD_FILE"
+  sed "s#__HASH__#${hash}#" "$GATE_EXAMPLE" > "$GATE"
+  chown root:caddy "$GATE"
+  # 🔴 640 root:caddy, а не 600 root: під root Caddy файл НЕ ПРОЧИТАЄ, і
+  # 15.10.2026 рівно це поклало сайт без жодного рядка в журналі.
+  chmod 640 "$GATE"
+  case "$(cat "$GATE")" in *__HASH__*) die "заглушка лишилась у $GATE" ;; esac
+  say "✓ $GATE зібрано; пароль у $GATE_PASSWORD_FILE (лише root)"
+}
+
+# ── Знімок бази перед незворотною міграцією ──────────────────────────
+# 🔴 ТУТ СТОЯВ ВИКЛИК `camptribe-backup`, І ЦЕ БУЛА НЕПРАВДА ПРО ГОЛОВНЕ.
+# Коментар обіцяв «єдиний спосіб повернутись — знімок бази», а
+# `camptribe-backup` іде в scripts/osm-pipeline/backup-local.sh, чий
+# власний заголовок каже «Why this is not pg_dump»: він вивантажує
+# вісім контентних таблиць у CSV і НЕ зберігає ні DDL, ні жодної
+# таблиці `directus_*` (`grep -c directus` = 0). Тобто бекап не містив
+# нічого з того, що міграція змінює. Сторож зеленів, друкував «готово»,
+# шляху назад не було. Знайшла рецензія.
+#
+# 🔴 І ДРУГЕ: `camptribe-backup` безумовно робить
+# `rm -f /srv/camptribe/failed/camptribe-backup.service`, а цю теку
+# читає сторож дрейфу. Виклик звідси стирав би слід НІЧНОГО падіння
+# бекапа — тобто ховав чужу аварію. Його власний коментар це й
+# забороняє: «слід, який знімає чужий успіх, ховає чуже падіння».
+snapshot_db() {
+  local envf="$CMS_DIR/.env" db host port user dump
+  [ -f "$envf" ] || die "немає $envf — не знаю, яку базу знімати"
+  db="$(env_value "$envf" DB_DATABASE)" || die "у $envf немає DB_DATABASE"
+  user="$(env_value "$envf" DB_USER)" || die "у $envf немає DB_USER"
+  host="$(env_value "$envf" DB_HOST || true)"; host="${host:-localhost}"
+  port="$(env_value "$envf" DB_PORT || true)"; port="${port:-5432}"
+  PGPASSWORD="$(env_value "$envf" DB_PASSWORD || true)"; export PGPASSWORD
+  dump="/srv/camptribe/backups/cms-pre-migration-$(date -u +%Y%m%dT%H%M%SZ).dump"
+  say "знімок бази «${db}» → ${dump}"
+  pg_dump -Fc -h "$host" -p "$port" -U "$user" -d "$db" -f "$dump" \
+    || die "pg_dump не вдався — схему НЕ чіпаю"
+  # 🔴 ФАЙЛ Є ≠ ЗНІМОК Є. Доводимо, що всередині лежить саме те, що
+  # міграція змінюватиме: власні таблиці Directus.
+  local n
+  n="$(pg_restore -l "$dump" 2>/dev/null | { grep -c 'directus_' || true; })"
+  [ "${n:-0}" -gt 0 ] || die "у знімку НУЛЬ таблиць directus_* — він не покриває те, що мігрує"
+  say "✓ знімок містить $n обʼєктів directus_*"
+}
+
+# ── Маніфести ────────────────────────────────────────────────────────
+# 🔴 ТУТ БУЛО `return "$changed"` І ВИКЛИК `sync_manifest || true`.
+# Це ковтало падіння цілком: код повернення був ЛІЧИЛЬНИКОМ, тож «два
+# файли змінились» і «помилка» — те саме число, а `|| true` до того ж
+# знімав `set -e` з усього тіла функції. При недоступному каталозі
+# скрипт друкував обидва «→», йшов у `npm ci` зі СТАРИМ маніфестом і
+# виходив нулем. Відтворено рецензією. Тепер лічильник — у CHANGED, а
+# помилка падає.
 sync_manifest() {
-  # Кладемо ЛИШЕ маніфести. Решта (configure.mjs тощо) запускається з
-  # дерева релізу — вона не потребує встановлення.
-  local changed=0 f
+  local f
   for f in package.json package-lock.json; do
     if [ -f "$CMS_DIR/$f" ] && diff -q "$SRC_DIR/$f" "$CMS_DIR/$f" >/dev/null 2>&1; then
       say "=  $CMS_DIR/$f"
     else
       say "→  $CMS_DIR/$f"
-      changed=$((changed + 1))
+      CHANGED=$((CHANGED + 1))
       [ "$APPLY" = yes ] || continue
-      install -o "$USER_" -g "$USER_" -m 644 "$SRC_DIR/$f" "$CMS_DIR/$f"
+      install -o "$USER_" -g "$USER_" -m 644 "$SRC_DIR/$f" "$CMS_DIR/$f" \
+        || die "не вдалось покласти $f — далі не йду"
     fi
   done
-  return "$changed"
 }
 
 install_cms() {
@@ -113,15 +218,13 @@ install_cms() {
   else
     say "→  mkdir $CMS_DIR"
   fi
-  sync_manifest || true
+  sync_manifest
   if [ "$APPLY" != yes ]; then
-    say
-    say "Сухий прогін — нічого не змінено. Щоб поставити: camptribe-cms install --apply"
+    say; say "Сухий прогін — нічого не змінено. Щоб поставити: camptribe-cms install --apply"
     return 0
   fi
-  # 🔴 `npm ci`, А НЕ `npm install`: ставимо РІВНО ту версію, що в
-  # package-lock. Це і є «пінити версію», яку вендор називає прямою
-  # вимогою для продакшну.
+  # 🔴 `npm ci`, А НЕ `npm install`: ставимо РІВНО те, що в package-lock.
+  # Це і є «пінити версію», яку вендор називає вимогою для продакшну.
   ( cd "$CMS_DIR" && as_user npm ci --omit=dev --no-audit --no-fund ) || die "npm ci не вдався.
    Найімовірніша причина — isolated-vm: він збирається з джерел, якщо під
    цю платформу немає готового двійника, і тоді потрібні build-essential
@@ -131,8 +234,8 @@ install_cms() {
   say
   say "🔴 ДАЛІ ПОТРІБЕН $CMS_DIR/.env — його цей скрипт не створює НІКОЛИ."
   say "   Зразок: $SRC_DIR/.env.example"
-  say "   Обовʼязково: SECRET (інакше сесії не переживуть рестарт),"
-  say "   PUBLIC_URL=https://cms.camptribe.eu, DB_* на базу застосунку,"
+  say "   Обовʼязково: SECRET, PUBLIC_URL=https://cms.camptribe.eu,"
+  say "   HOST=127.0.0.1, DB_* на базу застосунку,"
   say "   SESSION_COOKIE_SECURE=true, REFRESH_TOKEN_COOKIE_SECURE=true."
 }
 
@@ -142,35 +245,39 @@ update_cms() {
   say "версія: $h → $w"
   if [ "$w" = "$h" ]; then say "вже та сама — нічого робити"; return 0; fi
   if [ "$APPLY" != yes ]; then
-    sync_manifest || true
-    say
-    say "Сухий прогін. Щоб оновити: camptribe-cms update --apply"
+    sync_manifest
+    say; say "Сухий прогін. Щоб оновити: camptribe-cms update --apply"
     return 0
   fi
-  # 🔴 БЕКАП ПЕРЕД МІГРАЦІЄЮ, І ЦЕ НЕ ПЕРЕСТРАХОВКА. Міграції Directus
-  # незворотні на практиці: `migrate:down` відкочує по одному кроку й
-  # не гарантує даних. Єдиний спосіб повернутись — знімок бази.
-  say "знімок бази перед міграцією…"
-  as_user /usr/local/bin/camptribe-backup || die "бекап не вдався — схему НЕ чіпаю"
-  sync_manifest || true
-  ( cd "$CMS_DIR" && as_user npm ci --omit=dev --no-audit --no-fund ) || die "npm ci не вдався — схему не чіпав"
-  # 🔴 `start` МІГРАЦІЙ НЕ РОБИТЬ (заміряно: cli/index.js:28 → startServer).
-  # Тобто без цього рядка новий двійник просто працював би над старою
-  # схемою, і дізнались би ми про це з дивних помилок, а не з падіння.
+  # 🔴 ЗНІМОК ПЕРШИЙ, ДО БУДЬ-ЯКОЇ ЗМІНИ. Міграції Directus незворотні
+  # на практиці: `migrate:down` відкочує по кроку й не гарантує даних.
+  snapshot_db
+  # 🔴 СЛУЖБУ ЗУПИНЯЄМО ПЕРЕД `npm ci`, А НЕ ПІСЛЯ. Тут було навпаки, і
+  # рецензія це заміряла: `npm ci` зносить наявний node_modules, тобто
+  # живому Directus виймали ExecStart з-під ніг, а `Restart=always` із
+  # `RestartSec=5` крутив би його в цей момент по колу.
   systemctl stop camptribe-cms.service
+  sync_manifest
+  ( cd "$CMS_DIR" && as_user npm ci --omit=dev --no-audit --no-fund ) \
+    || { systemctl start camptribe-cms.service; die "npm ci не вдався — схему не чіпав, службу підняв"; }
+  # 🔴 `start` МІГРАЦІЙ НЕ РОБИТЬ (заміряно: cli/index.js:28 → лише
+  # startServer). Без цього рядка новий двійник просто працював би над
+  # старою схемою, і дізнались би ми з дивних помилок, а не з падіння.
+  #
   # 🔴 ЖОДНОГО `env $(...)`: розщеплення слів ламається на першому ж
-  # значенні з пробілом, і ламається ТИХО. Не треба зовсім — Directus
-  # читає .env сам із робочого каталогу (CONFIG_PATH = cwd()/.env,
-  # @directus/env:13), тож досить `cd`.
+  # значенні з пробілом, і ламається тихо. Не треба зовсім — Directus
+  # читає .env сам із робочого каталогу (CONFIG_PATH = cwd()/.env).
   ( cd "$CMS_DIR" && as_user node node_modules/directus/cli.js database migrate:latest ) \
-    || { systemctl start camptribe-cms.service; die "міграція впала — CMS піднято на старій схемі з НОВИМ двійником, це нестійкий стан"; }
+    || die "міграція впала. Службу НЕ піднімаю: новий двійник над старою схемою —
+   нестійкий стан, який виглядає як робочий. Знімок: /srv/camptribe/backups/"
   systemctl start camptribe-cms.service
   say "✓ оновлено до $(have_version), схему мігровано"
 }
 
 case "$cmd" in
   status)  status ;;
+  gate)    make_gate ;;
   install) install_cms ;;
   update)  update_cms ;;
-  *) echo "вживання: camptribe-cms {status|install|update} [--apply]" >&2; exit 2 ;;
+  *) echo "вживання: camptribe-cms {status|gate|install|update} [--apply]" >&2; exit 2 ;;
 esac
