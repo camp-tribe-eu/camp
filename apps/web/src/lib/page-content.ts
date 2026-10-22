@@ -1,5 +1,5 @@
 import { apiFetch } from "./api";
-import { COMPANY, CONTACT_EMAIL } from "./legal";
+import { COMPANY, COMPANY_ADDRESS, CONTACT_EMAIL } from "./legal";
 import { FUEL, longDate } from "./fuel";
 import { isAllowedHref, substitute } from "./rich-text";
 
@@ -53,6 +53,18 @@ export const PAGE_REVALIDATE_SECONDS = 86_400;
 export const PAGE_VALUES: Readonly<Record<string, string>> = {
   "company.name": COMPANY.name,
   "company.city": COMPANY.city,
+  // 🔴 CAMP-365: решта реквізитів — для семи правових сторінок, які
+  // переїжджають у CMS. Заміряно по їхній розмітці, а не додано «про
+  // запас»: `{{company.email}}` трапляється 18 разів, решта по одному.
+  //
+  // Беруться з `COMPANY`, а не набираються тут удруге: адреса, написана
+  // в двох місцях, розходиться, і розходиться та копія, якої ніхто не
+  // читає, доки вона не знадобиться.
+  "company.street": COMPANY.street,
+  "company.country": COMPANY.country,
+  "company.enterpriseNumber": COMPANY.enterpriseNumber,
+  "company.email": COMPANY.email,
+  "company.address": COMPANY_ADDRESS,
   "contact.email": CONTACT_EMAIL,
   // 🔴 ЖИВЕ ЗНАЧЕННЯ, А НЕ КОНСТАНТА. Тиждень паливного бюлетеня
   // змінюється щотижня, і текст, який на нього посилається, мусить

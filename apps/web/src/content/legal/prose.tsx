@@ -22,9 +22,19 @@ export function H2({ id, children }: { id: string; children: ReactNode }) {
   );
 }
 
-export function H3({ children }: { children: ReactNode }) {
+export function H3({ children, id }: { children: ReactNode; id?: string }) {
+  // 🔴 `id` НЕОБОВʼЯЗКОВИЙ, І ЦЕ НЕ КОСМЕТИКА. Розбірник розмітки
+  // (`legal-prose.tsx`) приймає якір на `###` так само, як на `##`, і
+  // сторож унікальності якорів його ЗАЙМАЄ — але рендер його мовчки
+  // викидав, бо тут не було куди покласти. Тобто редактор CMS написав
+  // би `{#anchor}`, сторож заборонив би повтор цього імені, а
+  // посилання вело б у нікуди. Заміряно рецензією #309.
+  //
+  // Сторінки на JSX `id` не передають, тож їхня розмітка не змінилась.
   return (
-    <h3 className="mt-6 text-base font-semibold text-heading">{children}</h3>
+    <h3 id={id} className="mt-6 text-base font-semibold text-heading">
+      {children}
+    </h3>
   );
 }
 

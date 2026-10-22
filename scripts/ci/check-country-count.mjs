@@ -326,6 +326,15 @@ export function classify(rel) {
   const top = rel.split('/')[0];
   if (Object.hasOwn(EXCLUDED, top) && rel.includes('/')) return 'excluded';
   if (/\.tsx?$/.test(rel)) return 'code';
+  // 🔴 CAMP-365: розмітка CMS — СВІДОМИЙ `skip`, і це не те саме
+  // рішення, що в сусіднього сторожа.
+  //
+  // `check-hardcoded-counts.mjs` читає `.md`, бо його предмет — число,
+  // НАДРУКОВАНЕ в тексті, який бачить читач. Предмет цього сторожа
+  // інший: вираз `щось.length`, узятий за кількість країн. У прозі
+  // виразів немає, тож читати її тут нічого — а «не розібрано» було б
+  // неправдою про те, що ми не знаємо типу.
+  if (/\.md$/.test(rel)) return 'skip';
   if (/\.(?:json|css|ico|svg|txt|webmanifest)$/.test(rel)) return 'skip';
   return 'unknown';
 }
@@ -563,6 +572,13 @@ function selfTest() {
   is('сторінка — код', classify('app/camping/page.tsx'), 'code');
   is('json — не код', classify('generated/gone.json'), 'skip');
   is('🔴 невідомий тип — не мовчання', classify('content/guide.mdx'), 'unknown');
+  // CAMP-365: розмітка пропускається СВІДОМО — у прозі немає виразів.
+  is('розмітка — свідомий пропуск', classify('content/legal/markup/terms.md'), 'skip');
+  is(
+    '🔴 .mdx усе ще невідомий — пропускаємо саме .md',
+    classify('content/x.mdx'),
+    'unknown',
+  );
 
   // ── 🔴 ВЕСЬ ШЛЯХ: від імені файлу до скарги ──────────────────────
   // Випадки вище кличуть `findings` напряму, і мутація «не розбирати
@@ -626,7 +642,7 @@ function selfTest() {
     is('нічого не знайдено — нічого й не друкується', report([], []), []);
   }
 
-  const EXPECTED_CASES = 60;
+  const EXPECTED_CASES = 62;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;
