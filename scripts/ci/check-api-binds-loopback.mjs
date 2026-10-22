@@ -35,10 +35,22 @@
 // при `process.env.HOST ?? '127.0.0.1'` пройшов би як адреса. Тому запасне
 // значення мусить стояти за `||`, і запасне значення мусить бути петлею.
 //
-// 🔴 ЩО ЛИШАЄТЬСЯ НЕВИДИМИМ, ЗАПИСАНО, А НЕ ВГАДАНО: `const host =
-// '0.0.0.0'; app.listen(port, host)` — ідентифікатор сторож не розвʼязує.
-// Це межа, як `$GREP -q` у check-pipe-to-grep-q.mjs. Адреса в коді
-// пишеться на місці виклику — саме так, щоб її було видно.
+// 🔴 АДРЕСУ ТРЕБА ДОВЕСТИ, А НЕ ЛИШЕ ПЕРЕДАТИ. Рецензія PR #319
+// (22.10.2026) показала точну форму, якою дефект повернеться: хтось
+// прибере «зайвий» `|| '127.0.0.1'` і лишить `app.listen(port,
+// process.env.HOST)` — а `listen(port, undefined)` біндить `::` (заміряно
+// на Node 22.23.2 і 24.18.0), тобто знову `*:3001`. Перша редакція цього
+// файлу пропускала це як «ідентифікатор, який не розвʼязується», і то була
+// не межа, а дірка рівно по формі дефекту. Тому вираз без літерала
+// вважається НЕДОВЕДЕНИМ і червоніє: адресою є лише `'127.0.0.1'`, або
+// `<будь-що> || '127.0.0.1'`, або тернарник чи `host:` в опціях, де кожна
+// гілка доведена так само.
+//
+// 🔴 РІВНО `'127.0.0.1'`, НЕ `'localhost'` І НЕ `'::1'` — ЗАМІРЯНО:
+// `listen(0, 'localhost')` на Node 22.23.2 і 24.18.0 біндить ЛИШЕ `::1`, а
+// Caddy ходить на `127.0.0.1:3001` (infra/caddy/camptribe.eu.caddyfile).
+// `|| 'localhost'` був би зелений у CI і дав би 502 на всьому /api/* у
+// проді.
 //
 // 🔴 ПРОГІН, ЩО НЕ ЗНАЙШОВ ЖОДНОГО `listen`, — ПРОВАЛ, А НЕ ✓. Сторож існує
 // заради одного виклику в main.ts; якщо він його не прочитав, він читав не
@@ -71,6 +83,9 @@ export const THE_FILE = 'apps/api/src/main.ts';
  * публічним крізь `??`.
  */
 export const WILDCARDS = new Set(['', '0.0.0.0', '::', '::0', '0:0:0:0:0:0:0:0']);
+
+/** Єдина адреса, яку сторож приймає: та, на яку ходить Caddy. */
+export const LOOPBACK = '127.0.0.1';
 
 /** Чи належить файл до того, що сторож читає. */
 export function inScope(rel) {
@@ -117,19 +132,33 @@ function isListenCall(node) {
   return false;
 }
 
+// 🔴 `satisfies` і `!` — з рецензії PR #319: `'0.0.0.0' satisfies string`
+// і `(HOST ?? '127.0.0.1')!` проходили повз першу редакцію як «не літерал».
 function unwrap(node) {
-  while (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
+  while (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node)
+  ) {
     node = node.expression;
   }
   return node;
 }
 
 /**
- * Чому цей вираз НЕ є адресою — або `null`, якщо адресою він бути може.
+ * Чому цей вираз НЕ є доведеною адресою — або `null`, якщо доведена.
+ *
+ * Доведена адреса — це літерал `'127.0.0.1'`, або `<будь-що> || <доведена>`,
+ * або тернарник, де доведені обидві гілки. Усе інше — не «невідомо», а
+ * провал: `listen(port, undefined)` біндить `::`, і голий `process.env.HOST`
+ * — найімовірніша форма повернення дефекту (рецензія PR #319).
  *
  * 🔴 Запасне значення за `||` перевіряється ТИМ САМИМ правилом: саме воно
- * і біжить на машині, де змінну ніхто не задав. `a ? b : c` — обидві
- * гілки, бо одна wildcard-гілка — це wildcard.
+ * і біжить на машині, де змінну ніхто не задав. А непорожній рядковий
+ * літерал ЛІВОРУЧ від `||` завжди істинний, тож тоді біжить він, а не
+ * запасне: `'0.0.0.0' || '127.0.0.1'` є `'0.0.0.0'`.
  */
 export function whyNotAddress(expr, sf) {
   const e = unwrap(expr);
@@ -140,7 +169,11 @@ export function whyNotAddress(expr, sf) {
     return 'другий аргумент — число (backlog), адреси немає';
   }
   if (ts.isStringLiteralLike(e)) {
-    return WILDCARDS.has(e.text) ? `адреса ${JSON.stringify(e.text)} означає всі інтерфейси` : null;
+    if (WILDCARDS.has(e.text)) return `адреса ${JSON.stringify(e.text)} означає всі інтерфейси`;
+    if (e.text !== LOOPBACK) {
+      return `адреса ${JSON.stringify(e.text)} — не ${LOOPBACK}, куди ходить Caddy: 'localhost' біндить лише ::1 (заміряно 22.10.2026), і це 502 на всьому /api/*`;
+    }
+    return null;
   }
   if (e.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(e) && e.text === 'undefined')) {
     return 'адреса undefined/null — Node візьме всі інтерфейси';
@@ -153,15 +186,23 @@ export function whyNotAddress(expr, sf) {
       return "запасне значення за `??`: `HOST=` порожнім рядком у .env проходить як адреса, а listen(port, '') слухає все (заміряно 22.10.2026) — пиши `||`";
     }
     if (e.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
+      const left = unwrap(e.left);
+      if (ts.isStringLiteralLike(left) && left.text !== '') {
+        const why = whyNotAddress(left, sf);
+        return why === null ? null : `ліворуч від || завжди істинний рядок, запасне не біжить: ${why}`;
+      }
       const why = whyNotAddress(e.right, sf);
       return why === null ? null : `запасне значення: ${why}`;
     }
-    return null;
   }
   if (ts.isConditionalExpression(e)) {
     return whyNotAddress(e.whenTrue, sf) ?? whyNotAddress(e.whenFalse, sf);
   }
-  return null;
+  return (
+    `адресу не доведено: ${e.getText(sf)} без \`|| '${LOOPBACK}'\` — ` +
+    'listen(port, undefined) біндить :: (заміряно 22.10.2026), і саме так дефект ' +
+    'повернеться, коли хтось прибере «зайвий» запасний літерал'
+  );
 }
 
 /**
@@ -312,9 +353,13 @@ function selfTest() {
     why(`app.listen(3000, '');`), ['адреса "" означає всі інтерфейси']);
   is('🔴 undefined на місці адреси', why(`app.listen(3000, undefined);`).length, 1);
   is('🔴 null на місці адреси', why(`app.listen(3000, null);`).length, 1);
-  is("петля, localhost і ::1 — адреси",
-    why(`a.listen(1, '127.0.0.1'); b.listen(2, 'localhost'); c.listen(3, '::1');`),
-    [null, null, null]);
+  is("рівно '127.0.0.1' — адреса", why(`a.listen(1, '127.0.0.1');`), [null]);
+  // 🔴 Рецензія PR #319: `listen(0, 'localhost')` біндить ЛИШЕ ::1, а Caddy
+  // ходить на 127.0.0.1 — зелений CI і 502 на /api/* у проді.
+  is("🔴 'localhost' — не адреса: біндить лише ::1 (заміряно)",
+    why(`b.listen(2, 'localhost');`).map((w) => w !== null && w.includes('localhost')), [true]);
+  is("🔴 '::1' — ні, з тієї ж причини", why(`c.listen(3, '::1');`).length, 1);
+  is("🔴 `|| 'localhost'` червоніє", why(`app.listen(p, process.env.HOST || 'localhost');`).length, 1);
   is('три аргументи: адреса і колбек', why(`app.listen(3000, '127.0.0.1', () => {});`), [null]);
 
   // ── запасні значення ──
@@ -327,8 +372,8 @@ function selfTest() {
     ['запасне значення: адреса "0.0.0.0" означає всі інтерфейси']);
   is('🔴 тернарник з однією wildcard-гілкою',
     why(`app.listen(p, dev ? '0.0.0.0' : '127.0.0.1');`).length, 1);
-  is('тернарник з двома петлями проходить',
-    why(`app.listen(p, dev ? 'localhost' : '127.0.0.1');`), [null]);
+  is('тернарник з двома доведеними гілками проходить',
+    why(`app.listen(p, dev ? '127.0.0.1' : '127.0.0.1');`), [null]);
   is('🔴 spread: адреси не видно', why(`app.listen(...args);`).length, 1);
 
   // ── форма з опціями ──
@@ -348,8 +393,39 @@ function selfTest() {
     listenCalls(`const a = 1;\n\nawait app.listen(3000);`, 'x.ts').map((c) => c.line), [3]);
   is('listen без крапки — не метод, не наш', why(`listen(3000);`), []);
 
-  // ── межа, записана, а не вгадана ──
-  is('ідентифікатор не розвʼязується — це межа', why(`app.listen(p, host);`), [null]);
+  // ── 🔴 адресу треба довести (рецензія PR #319) ──
+  //
+  // Перша редакція приймала `app.listen(p, host)` як «межу». Рецензія
+  // показала, що це дірка рівно по формі дефекту: прибрати `|| '127.0.0.1'`
+  // — і сторож зелений, а рантайм на `::`.
+  is('🔴 голий process.env.HOST — точна форма повернення дефекту — червоніє',
+    why(`await app.listen(process.env.PORT ?? 3000, process.env.HOST);`)
+      .map((w) => w !== null && w.includes('не доведено')), [true]);
+  is('🔴 ідентифікатор без запасного — не доведено', why(`app.listen(p, host);`).length, 1);
+  is('🔴 `HOST || process.env.API_HOST` — запасне теж не доведено',
+    why(`app.listen(p, process.env.HOST || process.env.API_HOST);`).length, 1);
+  is("🔴 ConfigService.get('HOST') — не доведено",
+    why(`app.listen(p, app.get(ConfigService).get('HOST'));`).length, 1);
+  is("…а те саме з `|| '127.0.0.1'` — доведено",
+    why(`app.listen(p, app.get(ConfigService).get('HOST') || '127.0.0.1');`), [null]);
+  is('ланцюжок || із літералом наприкінці — доведено',
+    why(`app.listen(p, process.env.HOST || process.env.API_HOST || '127.0.0.1');`), [null]);
+  is("🔴 '0.0.0.0' || '127.0.0.1' — ліворуч істинний рядок, запасне не біжить",
+    why(`app.listen(p, '0.0.0.0' || '127.0.0.1');`).length, 1);
+  is("'' || '127.0.0.1' — порожній ліворуч, біжить запасне",
+    why(`app.listen(p, '' || '127.0.0.1');`), [null]);
+  is('🔴 тернарник із недоведеною гілкою',
+    why(`app.listen(p, dev ? process.env.HOST : '127.0.0.1');`).length, 1);
+  is('🔴 options із host: process.env.HOST — не доведено',
+    why(`server.listen({ port: 3000, host: process.env.HOST });`).length, 1);
+
+  // ── unwrap: satisfies і ! (рецензія PR #319) ──
+  is("🔴 '0.0.0.0' satisfies string — знайдено крізь satisfies",
+    why(`app.listen(p, '0.0.0.0' satisfies string);`).length, 1);
+  is("🔴 (HOST ?? '127.0.0.1')! — знайдено крізь !",
+    why(`app.listen(p, (process.env.HOST ?? '127.0.0.1')!);`).length, 1);
+  is("'127.0.0.1' satisfies string — доведено",
+    why(`app.listen(p, '127.0.0.1' satisfies string);`), [null]);
 
   // ── область ──
   is('main.ts у області', inScope('apps/api/src/main.ts'), true);
@@ -402,7 +478,9 @@ function selfTest() {
     for (const d of [bad, good, none]) rmSync(d, { recursive: true, force: true });
   }
 
-  const EXPECTED_CASES = 52;
+  // Рецензія PR #319: 52 − 2 (localhost/::1 як адреси; «межа» ідентифікатора)
+  // + 4 (рівно 127.0.0.1) + 10 (адресу треба довести) + 3 (satisfies, !).
+  const EXPECTED_CASES = 67;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;

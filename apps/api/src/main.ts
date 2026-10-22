@@ -74,7 +74,9 @@ async function bootstrap() {
   // `??` пройшов би як адреса. Порожнє мусить означати «не задано».
   //
   // Сторож: scripts/ci/check-api-binds-loopback.mjs — читає цей виклик
-  // через AST і червоніє без адреси, на wildcard і на `??`.
+  // через AST і червоніє без адреси, на wildcard, на `localhost` (біндить
+  // лише ::1, а Caddy ходить на 127.0.0.1), на `??` і на будь-якому виразі
+  // без `|| '127.0.0.1'` — голий `process.env.HOST` дає `::`.
   await app.listen(process.env.PORT ?? 3000, process.env.HOST || '127.0.0.1');
 }
 bootstrap();
