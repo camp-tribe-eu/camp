@@ -1121,7 +1121,7 @@ if ! grep -qE '(^|[^0-9])(3000|3001)([^0-9]|$)' "$R" \
    && ! grep -q '/srv/camptribe/' "$R" \
    && ! grep -q 'Слухає' "$R" \
    && ! grep -q 'крапка з комою' "$R" \
-   && grep -q '^# ЗГЕНЕРОВАНО з infra/systemd/tmpl.service' "$R" \
+   && grep -q '^# ЗГЕНЕРОВАНО з юніта tmpl.service' "$R" \
    && grep -q '^# Світ репетиції (CAMP-61): корінь /srv/camptribe-rehearsal, порти 3100 і 3101\.$' "$R" \
    && grep -q 'ExecStart=.*-p 3100' "$R" \
    && grep -qx 'ReadWritePaths=' "$R" \
