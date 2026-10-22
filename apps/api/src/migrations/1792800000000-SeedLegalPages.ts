@@ -3,10 +3,16 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 /**
  * CAMP-365 — сім правових документів переїжджають із коду в базу.
  *
- * 🔴 ТЕКСТ ВБУДОВАНО, А НЕ ПРОЧИТАНО З ФАЙЛУ. Міграція виконується з
- * `dist/`, куди `nest build` копіює лише JS; читання сусіднього .md у
- * рантаймі впало б на проді й не впало б локально. Правовий текст
- * мусить бути замороженим разом із кодом, який його поставив.
+ * 🔴 ТЕКСТ ВБУДОВАНО, А НЕ ПРОЧИТАНО З ФАЙЛУ — І ПРИЧИНА НЕ ТА, ЩО Я
+ * НАПИСАВ СПЕРШУ. Я стверджував, що міграції йдуть із `dist/`. Рецензія
+ * #315 перевірила всі чотири шляхи запуску (`ci.yml`, `build-site`,
+ * `backup-verify`, `camptribe-deploy`) — скрізь
+ * `typeorm-ts-node-commonjs -d src/data-source.ts`, тобто з `src`.
+ * Твердження було хибне.
+ *
+ * Справжня причина лишається: `apps/web` на хості API немає взагалі,
+ * тож читати .md у рантаймі ніде. І правовий текст мусить бути
+ * замороженим разом із кодом, який його поставив.
  *
  * 🔴 ДЖЕРЕЛО ТЕКСТУ — `src/content/legal/markup/*.md`, чия дослівна
  * рівність компонентам JSX доведена в #309 посимвольно (видимий текст)
@@ -469,31 +475,95 @@ The campsite information here comes from [open data sources](/legal/attribution)
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     for (const p of this.pages) {
-      // 🔴 Ідемпотентно: другий рядок із тим самим slug дав би читачеві
-      // два документи, а нам — зелений прогін.
-      const existing: Array<{ count: string }> = await queryRunner.query(
-        `SELECT count(*)::text AS count FROM legal_pages WHERE slug = $1`,
-        [p.slug],
-      );
-      if (Number(existing[0].count) > 0) continue;
+      // 🔴 «ПРОПУСТИТИ, ЯКЩО Є» — ЦЕ БУВ МОВЧАЗНИЙ ПРОВАЛ, І РЕЦЕНЗІЯ
+      // #315 довела його прогоном.
+      //
+      // `legal_pages` належить Directus (CAMP-89), тож на проді рядок
+      // може існувати ДО цієї міграції. Заміряно: рядок `terms` v0.9 із
+      // текстом «OUTDATED LEGAL TEXT» → міграція друкує «executed
+      // successfully» → база й далі віддає застарілий правовий
+      // документ. Гірше: сторінка з перекладом лише `nl` → англійський
+      // текст не зʼявляється НІКОЛИ, бо міграція вже позначена
+      // виконаною і вдруге не піде.
+      //
+      // Тому тепер три випадки, і жоден із них не тихий:
+      //   немає    → вставляємо;
+      //   є і ЗБІГАЄТЬСЯ → нічого не робимо (повторний прогін чистий);
+      //   є і РІЗНЕ → кидаємо, назвавши slug.
+      //
+      // Кинути означає зупинити деплой. Для правового документа це
+      // правильна ціна: людина мусить вирішити, чия версія чинна.
+      const rows: Array<{ id: string; body: string | null }> =
+        await queryRunner.query(
+          `SELECT lp.id, t.body
+             FROM legal_pages lp
+             LEFT JOIN legal_page_translations t
+               ON t.legal_page_id = lp.id AND t.language_code = 'en'
+            WHERE lp.slug = $1`,
+          [p.slug],
+        );
 
-      const inserted: Array<{ id: string }> = await queryRunner.query(
-        `INSERT INTO legal_pages (slug, version, effective_from, status)
-         VALUES ($1, $2, $3, 'published') RETURNING id`,
-        [p.slug, p.version, p.effectiveFrom],
-      );
-      await queryRunner.query(
-        `INSERT INTO legal_page_translations
-           (legal_page_id, language_code, title, plain_summary, body)
-         VALUES ($1, 'en', $2, $3, $4)`,
-        [inserted[0].id, p.title, p.summary, p.body],
-      );
+      if (rows.length === 0) {
+        const inserted: Array<{ id: string }> = await queryRunner.query(
+          `INSERT INTO legal_pages (slug, version, effective_from, status)
+           VALUES ($1, $2, $3, 'published') RETURNING id`,
+          [p.slug, p.version, p.effectiveFrom],
+        );
+        await queryRunner.query(
+          `INSERT INTO legal_page_translations
+             (legal_page_id, language_code, title, plain_summary, body)
+           VALUES ($1, 'en', $2, $3, $4)`,
+          [inserted[0].id, p.title, p.summary, p.body],
+        );
+        continue;
+      }
+
+      const [row] = rows;
+      if (row.body === null) {
+        // Сторінка є, англійського перекладу немає — саме той
+        // напівстан, який попередня редакція лишала назавжди.
+        await queryRunner.query(
+          `INSERT INTO legal_page_translations
+             (legal_page_id, language_code, title, plain_summary, body)
+           VALUES ($1, 'en', $2, $3, $4)`,
+          [row.id, p.title, p.summary, p.body],
+        );
+        continue;
+      }
+
+      if (row.body !== p.body) {
+        throw new Error(
+          `legal_pages «${p.slug}» уже містить ІНШИЙ англійський текст ` +
+            `(${row.body.length} символів проти ${p.body.length} у міграції). ` +
+            'Міграція не перезаписує правовий документ мовчки: вирішіть, ' +
+            'чия версія чинна, і або приведіть базу до коду, або ' +
+            'позначте цю міграцію виконаною вручну.',
+        );
+      }
+      // Збіглось — нічого робити, і це не привід мовчати про решту.
     }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DELETE FROM legal_pages WHERE slug = ANY($1)`, [
-      this.pages.map((p) => p.slug),
-    ]);
+    // 🔴 ВИДАЛЯЄМО ЛИШЕ ТЕ, ЩО ПОСАДИЛИ. Попередня редакція робила
+    // беззастережний DELETE і була асиметрична до `up()`: той
+    // відмовлявся чіпати чужий рядок, а цей його знищував. Заміряно
+    // рецензією на тій самій базі: відкат зніс рукотворний `terms`
+    // v0.9 і каскадом забрав голландський переклад `cookies`, якого
+    // міграція ніколи не створювала.
+    for (const p of this.pages) {
+      const rows: Array<{ id: string }> = await queryRunner.query(
+        `SELECT lp.id
+           FROM legal_pages lp
+           JOIN legal_page_translations t
+             ON t.legal_page_id = lp.id AND t.language_code = 'en'
+          WHERE lp.slug = $1 AND t.body = $2`,
+        [p.slug, p.body],
+      );
+      if (rows.length === 0) continue;
+      await queryRunner.query(`DELETE FROM legal_pages WHERE id = $1`, [
+        rows[0].id,
+      ]);
+    }
   }
 }
