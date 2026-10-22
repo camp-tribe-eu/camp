@@ -121,7 +121,42 @@ has read back is a folder, not a backup.
 
 Then copy that folder somewhere that is not this laptop. iCloud, an
 external disk, anywhere — the requirement is only that it is a second
-physical thing. 120 kB fits anywhere.
+physical thing. The CSV half is about 120 kB; the full dump beside it
+(below) is about 199 MB on production, measured 22.10.2026.
+
+### The full dump beside the CSVs (CAMP-386)
+
+The CSVs carry eight content tables and nothing else. Measured on a
+fresh production snapshot, 22.10.2026: the database also holds **208
+`directus_*` objects** — collections, fields, relations, flows,
+operations, users, roles, policies, permissions and settings — and none
+of them was in the backup. The expensive one is
+`directus_settings.project_id`: the Directus licence activation is bound
+to `project_id` + `PUBLIC_URL`, there are five activations, and a lost
+database restored from CSV gets a *new* `project_id`, so the old
+activation holds its slot forever.
+
+So every backup folder now also holds `camptribe.dump`, a `pg_dump -Fc`
+of the whole database, mode `0600` (it carries password hashes and the
+licence token). `verify` reads its **content**, not its presence:
+`pg_restore -l` must list `TABLE DATA` for `directus_settings` and
+`directus_flows`, or the folder does not verify — a dump that exists,
+checksums correctly and carries no Directus is the same defect with a
+new name. `scripts/osm-pipeline/backup-local.selftest.sh` hands `verify`
+exactly such dumps and requires red.
+
+The dump is for the other disaster — "the database is gone" — and it
+restores by replacement, not by merge, so only into an **empty** database:
+
+```bash
+createdb camptribe_restored
+pg_restore --no-owner --exit-on-error -d camptribe_restored ~/CampTribe-backups/2026-10-22/camptribe.dump
+psql camptribe_restored -tAc 'SELECT project_id FROM directus_settings'   # must be the old one
+```
+
+The nightly `backup-verify.yml` does exactly this and compares
+`project_id` before and after. Retention is the same 14 daily folders as
+the CSVs, because the dump lives inside the folder.
 
 To check a backup you already have:
 

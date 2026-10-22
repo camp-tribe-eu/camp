@@ -1352,6 +1352,25 @@ jobs:
           ./infra/move-table.selftest.sh | tee /dev/stderr \
             | grep -c 'move-table self-test: усе гаразд' >/dev/null
 
+      # 🔴 CAMP-386. Нічний бекап вивантажував вісім CSV і жодної з 208
+      # таблиць directus_* — а активація ліцензії Directus привʼязана до
+      # directus_settings.project_id, якого в CSV не було. Тепер поруч
+      # лягає повний pg_dump, і verify читає його ВМІСТ: набір підсовує
+      # перевірці дамп без directus_* (файл є, сума правильна) і вимагає
+      # червоного; відновлює дамп у другу базу й звіряє project_id.
+      # Крок читає надруковане: рядок із власною назвою друкується лише
+      # коли виконано рівно EXPECTED випадків і жоден не впав.
+      - name: The nightly dump carries Directus, and verify reads its content
+        env:
+          CAMPTRIBE_SELFTEST_PG_BASE: postgres://postgres:postgres@localhost:5432
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          ./scripts/osm-pipeline/backup-local.selftest.sh | tee /dev/stderr \
+            | grep -c 'backup-local dump self-test: усе гаразд' >/dev/null
+
       - run: npm ci
 
       # 🔴 CAMP-192: build TWICE and check it actually wrote files.

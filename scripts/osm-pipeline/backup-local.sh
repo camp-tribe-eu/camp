@@ -1,19 +1,48 @@
 #!/usr/bin/env bash
-# Back up the part of the database that cannot be rebuilt.
+# Back up the part of the database that cannot be rebuilt — and, since
+# CAMP-386, the whole database beside it.
 #
 #   ./scripts/osm-pipeline/backup-local.sh backup  [DIR]
 #   ./scripts/osm-pipeline/backup-local.sh verify   DIR
-#   ./scripts/osm-pipeline/backup-local.sh restore  DIR
+#   ./scripts/osm-pipeline/backup-local.sh restore  DIR   # CSV, злиттям
+#   ./scripts/osm-pipeline/backup-local.selftest.sh       # дамп і замок на ньому
 #
-# 🔴 Why this is not `pg_dump`.
+# Повне відновлення з дампа — руками й ТІЛЬКИ в порожню базу, бо це не
+# злиття, а заміна (рівно цю команду ганяє selftest і backup-verify.yml):
 #
-# Most of what is in the database is a copy of OpenStreetMap, and a copy
-# is not worth backing up: Geofabrik has the original, the weekly job
-# rebuilds it, and a dump of it is 80 MB of something we can download
-# again in four minutes. Backing up everything hides the thing that
-# matters inside the thing that does not.
+#   createdb camptribe_restored
+#   pg_restore --no-owner --exit-on-error -d camptribe_restored DIR/camptribe.dump
 #
-# What cannot be downloaded again:
+# 🔴 Дві половини, і жодна не замінює другу (CAMP-386).
+#
+# До 22.10.2026 тут стояло «Why this is not pg_dump»: більшість бази —
+# копія OpenStreetMap, яку Geofabrik і так тримає, а щотижневий імпорт
+# відбудовує. Це досі правда, і саме тому CSV лишаються: вони возять
+# лише те, чого нізвідки не завантажити, і відновлюються ВИБІРКОВО —
+# злиттям, яке не затирає новішу роботу (див. do_restore).
+#
+# Але «все інше відбудується» мовчки припускало, що все інше — це OSM.
+# Заміряно власником 22.10.2026 на свіжому знімку проду: 208 обʼєктів
+# directus_* — колекції, поля, звʼязки, флоу, операції, користувачі,
+# ролі, політики, права і НАЛАШТУВАННЯ, — і жодного з них у восьми CSV
+# не було. `grep -c -i directus backup-local.sh` давав 0.
+#
+# Найдорожче — directus_settings.project_id. Активація ліцензії Directus
+# привʼязана до пари project_id + PUBLIC_URL
+# (@directus/api/dist/license/manager.js:209); активацій пʼять, і
+# спалений слот не повертають. Сценарій: база втрачена → контент
+# відновлено з CSV → Directus згенерував НОВИЙ project_id → стара
+# активація тримає слот назавжди. Бекап рятував контент і не рятував
+# те, без чого адмінка не запуститься.
+#
+# Тому поруч із CSV лягає повний `pg_dump -Fc` (camptribe.dump): DDL,
+# directus_*, усе. Не замість CSV — з дампа не зіллєш учорашній контекст
+# у сьогоднішню базу, не затерши її, — а на другу аварію, «бази немає
+# взагалі». І `verify` перевіряє його ВМІСТ, а не наявність:
+# `pg_restore -l` мусить показати TABLE DATA для directus_settings і
+# directus_flows, інакше це не знімок (див. verify_dump).
+#
+# What the CSV half carries — what cannot be downloaded again:
 #
 #   camping_spots.context       what is AROUND each campsite — the water,
 #                               the town, the elevation, the terrain. It
@@ -112,6 +141,15 @@ TABLES=(
 
 SPOTS_COLUMNS="osm_ref, context, context_computed_at, owner_overrides, missing_since, content_changed_at"
 
+# 🔴 Імʼя дампа й те, без чого він не вважається дампом (CAMP-386).
+# Обидві таблиці мусять стояти в TOC як TABLE DATA: рядок
+# directus_settings несе project_id, до якого привʼязана активація
+# ліцензії; directus_flows — автоматизації, яких адмінка не відбудує.
+# Перевіряється саме TABLE DATA, а не TABLE: дамп зі схемою й без рядків
+# (`--schema-only`) має TABLE і теж нічого не рятує.
+DUMP_NAME="camptribe.dump"
+DUMP_MUST_CARRY=(directus_settings directus_flows)
+
 say() { printf '%s\n' "$*" >&2; }
 die() { printf '✗ %s\n' "$*" >&2; exit 1; }
 
@@ -129,6 +167,78 @@ rows_in_gz() {
 
 table_exists() {
   psql "$DB" -tAc "SELECT to_regclass('public.$1') IS NOT NULL"
+}
+
+# --------------------------------------------------------------------
+# Повний дамп бази поруч із CSV (CAMP-386). Чому саме так — у шапці.
+# Підхід той самий, що в `camptribe-cms snapshot_db`: там цей дамп із
+# перевіркою вмісту вже стоїть перед міграцією схеми.
+dump_db() {
+  local dir="$1" dump="$1/$DUMP_NAME" mode
+  say "→ pg_dump -Fc → ${DUMP_NAME}"
+  # 🔴 umask У ПІДОБОЛОНЦІ: дамп несе хеші паролів directus_users, токени
+  # сесій і license_token. Без umask він лягає з правами виклику —
+  # у snapshot_db заміряно `-rw-r--r--`, тобто читати міг будь-хто на
+  # машині. Пароль НЕ експортується: pg_dump дістає DATABASE_URL
+  # аргументом, рівно як кожен psql у цьому файлі (і так само видний у
+  # `ps` — self-check №12; не ширше, ніж було).
+  ( umask 077; pg_dump -Fc -d "$DB" -f "$dump" ) \
+    || { rm -f "$dump"; die "pg_dump не вдався — зріз без дампа не вважається зробленим"; }
+  # 🔴 ПРАВА ЧИТАЄМО ПІСЛЯ ЗАПИСУ, А НЕ ВИВОДИМО З umask. Заміряно
+  # 22.10.2026: `pg_dump -f` у файл, що ВЖЕ лежав із 0644, лишає 0644 —
+  # umask діє лише на створення файлу. «umask стоїть» ≠ «дамп закритий».
+  # Такий дамп не лишаємо: з хешами паролів йому не можна лежати ні
+  # ночі; CSV поруч цілі, а попередні зрізи — на місці.
+  mode="$(ls -l "$dump" | cut -c1-10)"
+  case "$mode" in
+    -rw-------) : ;;
+    *) rm -f "$dump"
+       die "дамп ліг із правами ${mode}, а не -rw------- — прибрав, бо з хешами паролів так лежати не можна" ;;
+  esac
+}
+
+# 🔴 ФАЙЛ Є ≠ ЗНІМОК Є. Перевіряємо ВМІСТ: TOC дампа мусить мати
+# TABLE DATA для кожної таблиці з DUMP_MUST_CARRY. Перевірка, що дивиться
+# на наявність файлу, — той самий дефект, що й до картки, лише з новим
+# імʼям: дамп, зроблений із `-T 'directus_*'`, існує, має правильну суму
+# й нічого не рятує. Повертає 1, а не вбиває: do_verify збирає всі
+# відмови разом, щоб людина побачила їх за один прогін.
+verify_dump() {
+  local dir="$1" line file want dump got toc n t total
+  # 🔴 Маніфест читаємо так само, як CSV-половину: збій читання — це
+  # відмова, а не «нічого не перевірили».
+  line=$(python3 -c '
+import json, sys
+m = json.load(open(sys.argv[1]))
+d = m.get("dump")
+if not isinstance(d, dict) or not d.get("file") or not d.get("sha256"):
+    sys.exit("manifest names no dump")
+print("\t".join([d["file"], d["sha256"]]))
+' "$dir/manifest.json") \
+    || { say "  ✗ manifest.json не називає дампа — зріз без повного дампа (до CAMP-386) неповний; зроби новий backup"; return 1; }
+  IFS=$'\t' read -r file want <<< "$line"
+  # Імʼя з файла в теці бекапу підставляється в шлях — не даємо йому
+  # вийти за теку, як check-restore.mjs не дає імені таблиці вийти в SQL.
+  case "$file" in
+    ''|*/*|.*) say "  ✗ маніфест називає дамп «${file}» — це не імʼя файла в теці"; return 1 ;;
+  esac
+  dump="$dir/$file"
+  [ -f "$dump" ] || { say "  ✗ $file is missing"; return 1; }
+  got=$(sha "$dump")
+  [ "$got" = "$want" ] || { say "  ✗ $file has changed since it was written"; return 1; }
+  # 🔴 У змінну, а не в конвеєр: pg_restore, що не зміг прочитати файл,
+  # мусить ЗУПИНИТИ перевірку, а не віддати grep порожнечу й нуль.
+  toc=$(pg_restore -l "$dump" 2>&1) \
+    || { say "  ✗ pg_restore -l не читає ${file} — це не дамп: ${toc}"; return 1; }
+  for t in "${DUMP_MUST_CARRY[@]}"; do
+    n=$(grep -cE " TABLE DATA [^ ]+ ${t} " <<< "$toc" || true)
+    if [ "${n:-0}" -lt 1 ]; then
+      say "  ✗ у дампі немає TABLE DATA для ${t} — він не покриває те, заради чого робиться"
+      return 1
+    fi
+  done
+  total=$(grep -c ' directus_' <<< "$toc" || true)
+  say "  ✓ $file — ${total} обʼєктів directus_*, серед них TABLE DATA для ${DUMP_MUST_CARRY[*]}"
 }
 
 # --------------------------------------------------------------------
@@ -151,10 +261,18 @@ do_backup() {
       | gzip -9 > "$dir/$t.csv.gz"
   done
 
+  # CAMP-386: повний дамп — ДО маніфесту, бо маніфест несе його суму.
+  dump_db "$dir"
+
   # A manifest so `verify` has something to check against, and so a
   # human opening the folder in a year can tell what it is.
   {
-    printf '{\n  "takenAt": "%s",\n  "files": {\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '{\n  "takenAt": "%s",\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    # 🔴 Дамп — окремим ключем, не в "files": "files" читає
+    # check-restore.mjs як «таблиця → рядки» й підставляє імʼя в SQL.
+    printf '  "dump": { "file": "%s", "bytes": %s, "sha256": "%s" },\n' \
+      "$DUMP_NAME" "$(wc -c < "$dir/$DUMP_NAME" | tr -d ' ')" "$(sha "$dir/$DUMP_NAME")"
+    printf '  "files": {\n'
     local first=1
     for f in "$dir"/*.csv.gz; do
       [ "$first" = 1 ] || printf ',\n'
@@ -170,6 +288,8 @@ do_backup() {
     printf '  %-32s %6s rows  %s\n' "$(basename "$f")" "$(rows_in_gz "$f")" \
       "$(du -h "$f" | awk '{print $1}')" >&2
   done
+  printf '  %-32s %6s       %s\n' "$DUMP_NAME" "" \
+    "$(du -h "$dir/$DUMP_NAME" | awk '{print $1}')" >&2
 
   # 🔴 Verify immediately. A backup nobody has read back is a folder, not
   # a backup, and the failure mode of an unverified one is that you find
@@ -238,6 +358,11 @@ for name, v in m["files"].items():
   # checksum proves the bytes are unchanged, not that they are a CSV.
   gzip -t "$dir"/*.csv.gz || { say "  ✗ an archive is corrupt"; bad=1; }
 
+  # 🔴 І повний дамп — за ВМІСТОМ, не за наявністю (CAMP-386). Зріз
+  # без дампа, або з дампом без directus_settings, не проходить, навіть
+  # якщо всі CSV бездоганні: саме така «бездоганна» тека й була дефектом.
+  verify_dump "$dir" || bad=1
+
   [ "$bad" = 0 ] || die "backup in $dir does not verify"
   say ""
   say "✓ $dir verifies"
@@ -252,6 +377,10 @@ do_restore() {
   say ""
   say "→ restoring into $DB"
 
+  # 🔴 Це CSV-половина: злиття в ЖИВУ базу. Повний дамп (camptribe.dump)
+  # звідси не відновлюється навмисно — він замінює, а не зливає, і йому
+  # місце лише в порожній базі; команда в шапці файла (CAMP-386).
+  #
   # 🔴 Restore must never be able to destroy newer work.
   #
   # The obvious implementation — UPDATE … SET context = incoming — turns

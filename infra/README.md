@@ -34,7 +34,7 @@ status=200/CHDIR
 | `systemd/camptribe-freshness.timer` | 06:00 UTC, `Persistent=true` |
 | `systemd/camptribe-coverage-drift.service` | 🔴 чи досі правда таблиця заповненості, на якій стоять ваги планувальника (CAMP-262): `measure-coverage.js --check` |
 | `systemd/camptribe-coverage-drift.timer` | 06:30 UTC, `Persistent=true` |
-| `bin/camptribe-backup` | бекап + **звірка** + 14 денних зрізів |
+| `bin/camptribe-backup` | бекап CSV + повний `pg_dump` (CAMP-386: інакше 208 обʼєктів `directus_*` і `project_id` ліцензії не бекапились) + **звірка вмісту** + 14 денних зрізів |
 | `bin/camptribe-failed` | лишає слід у `/srv/camptribe/failed/<юніт>` |
 | `bin/camptribe-deploy` | викладка, перевірка й відкат релізу (CAMP-61); зазвичай запускається з ноутбука через `deploy-app.sh` |
 
