@@ -116,7 +116,18 @@ test.describe('листи', () => {
     // показати правду, інакше перемикач бреше про стан згоди.
     const out = await setLetters(true, deps(signedIn(), s));
     expect(out).toEqual({ kind: 'ok', letters: false });
-    expect(JSON.parse(String(s.calls[0].init.body))).toEqual({ letters: true });
+    // CAMP-390: разом із перемикачем іде НОМЕР тексту, який відрендерила сторінка.
+    expect(JSON.parse(String(s.calls[0].init.body))).toEqual({ letters: true, wordingVersion: 1 });
+  });
+
+  test('🔴 409 `wording_changed` — окремий стан, а не «щось пішло не так»', async () => {
+    const s = server(() => json(409, { code: 'wording_changed', message: 'Reload the page.' }));
+    expect(await setLetters(true, deps(signedIn(), s))).toEqual({ kind: 'wording-changed' });
+  });
+
+  test('409 з іншим кодом чи без тіла — failed, не вигадана причина', async () => {
+    expect((await setLetters(true, deps(signedIn(), server(() => json(409, { code: 'other' }))))).kind).toBe('failed');
+    expect((await setLetters(true, deps(signedIn(), server(() => json(409, 'nope'))))).kind).toBe('failed');
   });
 
   test('тіло без булевого `letters` — failed', async () => {

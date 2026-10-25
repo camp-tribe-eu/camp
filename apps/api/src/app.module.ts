@@ -12,6 +12,7 @@ import { RoutePoint } from './entities/route-point.entity';
 import { Trip } from './entities/trip.entity';
 import { Session } from './entities/session.entity';
 import { AuthToken } from './entities/auth-token.entity';
+import { ConsentRecord } from './entities/consent-record.entity';
 import { TripStop } from './entities/trip-stop.entity';
 import { SpotsModule } from './spots/spots.module';
 import { RoutesModule } from './routes/routes.module';
@@ -89,6 +90,8 @@ export const REASONS = loadMeasuredReasons();
         TripStop,
         Session,
         AuthToken,
+        // CAMP-390: the journal of consents (GDPR Art. 7(1)), append-only.
+        ConsentRecord,
         ClientError,
         NotFoundHit,
         SpotTariff,

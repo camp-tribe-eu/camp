@@ -5,6 +5,8 @@ import {
   BULK_ROUTES,
   bucketOf,
   clientKey,
+  CONSENT_LIMIT,
+  CONSENT_ROUTES,
   DEFAULT_LIMIT,
   isBulkPath,
   isExempt,
@@ -380,7 +382,7 @@ describe('🔴 the decorator and the bucket list agree', () => {
 // the comment on `login()` says a test reads the controller, and the test
 // that did was replaced by one that asserts the bucket. So the comparison is
 // made here, with the same reading of the controllers, for both.
-describe('🔴 the login and mail decorators agree with their route lists', () => {
+describe('🔴 the login, mail and consent decorators agree with their route lists', () => {
   const controllers = (function find(dir: string): string[] {
     return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
       e.isDirectory()
@@ -429,6 +431,11 @@ describe('🔴 the login and mail decorators agree with their route lists', () =
   it('the controllers really were read', () => {
     expect(carrying('LOGIN')).not.toEqual([]);
     expect(carrying('MAIL')).not.toEqual([]);
+    expect(carrying('CONSENT')).not.toEqual([]);
+  });
+
+  it('every route marked CONSENT is in CONSENT_ROUTES, and nothing else is', () => {
+    expect(carrying('CONSENT')).toEqual([...CONSENT_ROUTES].sort());
   });
 
   it('every route marked LOGIN is in LOGIN_ROUTES, and nothing else is', () => {
@@ -532,5 +539,51 @@ describe('🔴 the mail bucket (CAMP-228)', () => {
   it('allows ten in ten minutes — written out, not read back', () => {
     expect(MAIL_LIMIT.limit).toBe(10);
     expect(MAIL_LIMIT.ttl).toBe(600_000);
+  });
+});
+
+// 🔴 CAMP-390: `POST /account/letters` appends a row to an append-only journal on
+// every accepted request. Under the default bucket one person could append 120
+// a minute; the bucket below caps it, and it is its OWN bucket for the CAMP-176
+// reason: the number and the counter are two statements about one route.
+describe('🔴 the consent bucket (CAMP-390)', () => {
+  it.each([
+    '/account/letters',
+    '/ACCOUNT/LETTERS/',
+    '/account/letters?x=1',
+    '//account/letters',
+  ])('files %s under consent', (path) => {
+    expect(bucketOf(path)).toBe('consent');
+  });
+
+  it('does not share a counter with sign-in, mail, ordinary reading or the bulk routes', () => {
+    const consent = bucketOf('/account/letters');
+    for (const other of [
+      '/auth/login',
+      '/account/password',
+      '/auth/signup',
+      '/account/email',
+      '/account/settings',
+      '/spots/countries',
+      '/spots/index',
+    ])
+      expect(bucketOf(other)).not.toBe(consent);
+    // The page that LOADS the switch is a plain GET and must stay ordinary: four
+    // visits to the settings page must not spend the toggling budget.
+    expect(bucketOf('/account/settings')).toBe('ordinary');
+  });
+
+  it('allows ten in ten minutes — written out, not read back', () => {
+    expect(CONSENT_LIMIT.limit).toBe(10);
+    expect(CONSENT_LIMIT.ttl).toBe(600_000);
+  });
+
+  it('and that is far below the default, or it is not a limit', () => {
+    // Per hour: what one caller can append.
+    const perHour = (CONSENT_LIMIT.limit * 3_600_000) / CONSENT_LIMIT.ttl;
+    const defaultPerHour =
+      (DEFAULT_LIMIT.limit * 3_600_000) / DEFAULT_LIMIT.ttl;
+    expect(perHour).toBe(60);
+    expect(perHour).toBeLessThan(defaultPerHour / 100);
   });
 });
