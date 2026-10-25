@@ -1,323 +1,102 @@
 #!/usr/bin/env node
-// CAMP-170: який із імпортерів мовчить — і чи він мовчить уперше.
+// Дані, які протухають мовчки, — це сайт, що бреше читачеві.
 //
-//   node scripts/ci/check-data-freshness.mjs              # звіт і вирок
-//   node scripts/ci/check-data-freshness.mjs --stale-only # тривога таймера
-//   node scripts/ci/check-data-freshness.mjs --self-test  # без бази
+// 🔴 ЧОМУ ЦЕЙ СТОРОЖ, І ЧОМУ САМЕ ТАК. Заміряно 25.10.2026: пожежі були
+// старші за свій бюджет на 27 днів, ціни пального на 34, посуха на 44.
+// Розкладу для них не існувало ВЗАГАЛІ — файли згенерували один раз
+// 05.10 і відтоді не чіпали. Сайт при цьому чесно писав читачеві «No
+// fresh wildfire data» і «These prices are out of date» — тобто код
+// відпрацював правильно, а не помітив ніхто.
 //
-// 🔴 ЦЕ ПРО ТЕ, ЩО ВИГЛЯДАЄ ЗДОРОВИМ. Жоден із цих імпортерів, зупинившись,
-// нічого не ламає помітно: сторінка покаже ціну, кемпінг, маршрут. Просто
-// числа будуть старі, і ніхто не дізнається, поки хтось не приїде на
-// заправку. Заміряно 13.10.2026 на живій базі:
-//
-//   камери Windy          0 рядків   НЕ ЗАПУСКАВСЯ ЖОДНОГО РАЗУ
-//   ціни станцій          0 рядків   НЕ ЗАПУСКАВСЯ ЖОДНОГО РАЗУ
-//   тарифи DATAtourisme   12 402     15 днів
-//   POI маршрутів         2 248 280  15 днів
-//   OSM кемпінги          63 031     1 день
-//   звʼязки OSM↔DT        4 459      1 день
-//   fuel-prices.json      —          19 днів (і цей файл їде до читача)
-//
-// 🔴 «НІКОЛИ» І «ДАВНО» — РІЗНІ ВІДПОВІДІ, і плутати їх не можна. Порожня
-// таблиця означає, що імпортера не налаштували; стара таблиця означає, що
-// він зупинився. Перше лагодить людина один раз, друге — розклад.
+// 🔴 БЮДЖЕТИ НЕ ВИГАДАНІ ТУТ. Вони вже оголошені в коді, який їх
+// споживає, і беруться звідти:
+//   wildfires  FRESH_FOR_HOURS = 72   (lib/wildfires.ts:120)
+//   fuel       STALE_AFTER_DAYS = 21  (lib/fuel.ts:86)
+// Друга копія числа розійшлася б із першою мовчки — саме той дефект,
+// проти якого стоять решта наших сторожів.
+import { readFileSync } from 'node:fs';
 
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+const SELF_TEST = process.argv.includes('--self-test');
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.join(HERE, '..', '..');
-const DB = process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
-
-/**
- * Шість імпортерів CAMP-170 плюс камери, і бюджет кожного — з частоти,
- * названої в картці, а не вигаданий тут.
- *
- * 🔴 Бюджет = частота + один пропущений прогін. Тижневий імпортер, що
- * мовчить 10 днів, уже пропустив один раз; це перше, що видно ззовні.
- */
-export const SOURCES = Object.freeze([
-  { name: 'OSM кемпінги', card: 'CAMP-28', budgetDays: 10,
-    sql: 'SELECT count(*) AS n, max(last_seen_at) AS t FROM camping_spots' },
-  { name: 'POI маршрутів', card: 'CAMP-113', budgetDays: 10,
-    sql: 'SELECT count(*) AS n, max(last_seen_at) AS t FROM osm_route_poi' },
-  { name: 'ціни станцій ES/FR/IT', card: 'CAMP-154', budgetDays: 2,
-    sql: 'SELECT count(*) AS n, max(fetched_at) AS t FROM fuel_station_prices' },
-  { name: 'тарифи DATAtourisme', card: 'CAMP-147', budgetDays: 10,
-    sql: 'SELECT count(*) AS n, max(created_at) AS t FROM spot_tariffs' },
-  { name: 'звʼязки OSM↔DATAtourisme', card: 'CAMP-144', budgetDays: 10,
-    sql: 'SELECT count(*) AS n, max(created_at) AS t FROM spot_links' },
-  { name: 'камери Windy', card: 'CAMP-190', budgetDays: 10,
-    sql: 'SELECT count(*) AS n, max(fetched_at) AS t FROM webcams' },
-  // 🔴 Цей не в базі, а у файлі, який КОМІТИТЬСЯ й їде до читача.
-  { name: 'середні ціни пального', card: 'CAMP-55', budgetDays: 10,
-    file: 'apps/web/src/data/fuel-prices.json', field: 'fetchedAt' },
-]);
-
-/** Скільки повних днів минуло. `null` — якщо дати немає взагалі. */
-export const daysSince = (iso, now) =>
-  iso === null || iso === undefined || iso === ''
-    ? null
-    : Math.floor((now.getTime() - new Date(iso).getTime()) / 86_400_000);
-
-/**
- * Вирок по одному джерелу.
- *
- * 🔴 `never` окремо від `stale`. Нуль рядків — це не «дуже стара дата», це
- * інша хвороба: імпортера не налаштували жодного разу, і розклад тут не
- * допоможе.
- */
-export function judge(source, reading, now) {
-  const { rows, at } = reading;
-  if (rows === 0 || at === null || at === undefined) {
-    return { ...source, state: 'never', days: null, rows: rows ?? 0 };
-  }
-  const days = daysSince(at, now);
-  return {
-    ...source,
-    rows,
-    days,
-    state: days > source.budgetDays ? 'stale' : 'ok',
-  };
-}
-
-export const verdict = (judged) => ({
-  never: judged.filter((j) => j.state === 'never'),
-  stale: judged.filter((j) => j.state === 'stale'),
-  ok: judged.filter((j) => j.state === 'ok'),
-});
-
-/**
- * 🔴 CAMP-170: ВИРОК І КОД ВИХОДУ — РІЗНІ РЕЧІ, і тут вони розійшлись
- * навмисно.
- *
- * Щоденний таймер на сервері підіймає тривогу кодом виходу. Але двоє з
- * семи джерел не запускались ЖОДНОГО РАЗУ (заміряно 13.10.2026: ціни
- * станцій і камери Windy — обидва 0 рядків). Якби `never` дзвонив,
- * лампа горіла б червоним із першого ж дня й до того дня, коли хтось
- * проведе налаштування — тобто перестала б бути сигналом рівно тоді,
- * коли вперше знадобиться.
- *
- * Тому таймер питає вужче: **що працювало й зупинилось**. Саме це
- * розклад і лагодить. «Не запускався» лишається у звіті, в journal і у
- * своїй картці — там, де в нього є адресат.
- *
- *   'any'   — звіт на вимогу: будь-яка біда це біда.
- *   'stale' — таймер: лише зупинка.
- */
-export const ALARM_MODES = Object.freeze(['any', 'stale']);
-
-export const exitCodeFor = (v, alarmOn) => {
-  const ringing = alarmOn === 'stale' ? v.stale : [...v.never, ...v.stale];
-  return ringing.length > 0 ? 1 : 0;
-};
-
-const psql = (sql) =>
-  execFileSync('psql', [DB, '-tAX', '-F', '|', '-c', sql], { encoding: 'utf8' }).trim();
-
-/** Одне вимірювання, живе. */
-function readLive(source) {
-  if (source.file) {
-    const full = path.join(ROOT, source.file);
-    if (!existsSync(full)) return { rows: 0, at: null };
-    try {
-      const data = JSON.parse(readFileSync(full, 'utf8'));
-      return { rows: 1, at: data?.[source.field] ?? null };
-    } catch {
-      return { rows: 0, at: null };
+/** Чисте ядро: приймає світ, віддає перелік скарг. Самотест міряє його. */
+export function audit(files, now) {
+  const problems = [];
+  for (const f of files) {
+    if (f.stamp === null || f.stamp === undefined) {
+      problems.push(`${f.name}: мітки часу немає — вік невідомий, отже недоведений`);
+      continue;
+    }
+    const t = Date.parse(f.stamp);
+    if (Number.isNaN(t)) {
+      problems.push(`${f.name}: мітка «${f.stamp}» не читається як дата`);
+      continue;
+    }
+    const hours = (now - t) / 36e5;
+    if (hours < 0) {
+      problems.push(`${f.name}: мітка в майбутньому (${f.stamp}) — годинник або збирач бреше`);
+      continue;
+    }
+    if (hours > f.budgetHours) {
+      const d = Math.floor(hours / 24);
+      problems.push(
+        `${f.name}: ${d} діб від ${f.stamp}, бюджет ${Math.round(f.budgetHours / 24)} діб`,
+      );
     }
   }
-  const [n, t] = psql(source.sql).split('|');
-  return { rows: Number(n), at: t === '' ? null : t };
+  return problems;
 }
 
-function run(now = new Date(), log = console, alarmOn = 'any', read = readLive) {
-  const judged = SOURCES.map((s) => judge(s, read(s), now));
-  const v = verdict(judged);
-
-  for (const j of judged) {
-    const mark = j.state === 'ok' ? '✓' : j.state === 'stale' ? '⚠' : '✗';
-    const age = j.state === 'never' ? 'НЕ ЗАПУСКАВСЯ ЖОДНОГО РАЗУ' : `${j.days} дн. (бюджет ${j.budgetDays})`;
-    log.log(`  ${mark} ${j.name.padEnd(26)} ${String(j.rows).padStart(9)} рядків  ${age}`);
-  }
-
-  if (v.never.length === 0 && v.stale.length === 0) {
-    log.log(`\n✓ усі ${judged.length} джерела в межах свого бюджету`);
-    return 0;
-  }
-  if (v.never.length > 0) {
-    log.error(
-      `\n✗ ${v.never.length} імпортер(ів) не запускались ЖОДНОГО РАЗУ: ` +
-        `${v.never.map((j) => `${j.name} (${j.card})`).join(', ')}. ` +
-        'Це не застарілість — це відсутній крок налаштування, і розклад його не полагодить.',
-    );
-  }
-  if (v.stale.length > 0) {
-    log.error(
-      `\n✗ ${v.stale.length} застаріли: ` +
-        `${v.stale.map((j) => `${j.name} ${j.days} дн. > ${j.budgetDays}`).join('; ')}. ` +
-        'Дані показуються читачеві як поточні.',
-    );
-  }
-  return exitCodeFor(v, alarmOn);
+function budgetFromSource(path, name) {
+  const src = readFileSync(path, 'utf8');
+  const m = src.match(new RegExp(`${name}\\s*=\\s*(\\d+)`));
+  if (!m) throw new Error(`не знайшов ${name} у ${path} — бюджет мусить жити там, де його читає код`);
+  return Number(m[1]);
 }
 
-/** Помилка вживання — на відміну від справжнього падіння, яке мусить кричати. */
-export class UsageError extends Error {}
-
-/**
- * 🔴 ЄДИНИЙ РЯДОК, ЩО ЗʼЄДНУЄ ПРАПОРЕЦЬ ІЗ ВИРОКОМ — І ДО РЕЦЕНЗІЇ
- * 14.10.2026 ЙОГО НЕ ПЕРЕВІРЯЛО НІЩО.
- *
- * `exitCodeFor` був покритий як чиста функція, та підміна виклику на
- * `run(…, 'any')` лишала всі 19 випадків зеленими — і новий крок CI
- * теж. На сьогоднішніх даних обидва режими дають 1 (три застарілих),
- * тож і живий прогін їх не розрізнив би. Дефект, який це ховало: лампа
- * дзвонить щодня на два ненастроєні імпортери, тобто рівно те, заради
- * чого прапорець і зʼявився.
- *
- * Тому плутанина режимів тепер живе в ОДНІЙ функції, яку самоперевірка
- * викликає цілком — від argv до коду виходу.
- */
-export function runWith(argv, now = new Date(), log = console, read = readLive) {
-  return run(now, log, alarmModeFrom(argv), read);
-}
-
-function selfTest() {
-  let rc = 0;
-  const cases = [];
-  const check = (cond, m) => {
-    cases.push(m);
-    if (!cond) { console.error(`✗ REHEARSAL FAILED: ${m}`); rc = 1; }
+if (SELF_TEST) {
+  const NOW = Date.parse('2026-10-25T00:00:00Z');
+  const ok = (s) => new Date(NOW - s * 36e5).toISOString();
+  let p = 0, f = 0;
+  const t = (what, got, want) => {
+    if (got === want) { p += 1; console.log(`  ✓ ${what}`); }
+    else { f += 1; console.error(`  ✗ ${what}: ${got}, мало бути ${want}`); }
   };
-  const NOW = new Date('2026-10-13T12:00:00Z');
-  const src = { name: 'x', card: 'C-1', budgetDays: 10 };
-
-  check(judge(src, { rows: 0, at: null }, NOW).state === 'never', 'нуль рядків — «не запускався»');
-  check(judge(src, { rows: 5, at: null }, NOW).state === 'never',
-    '🔴 рядки є, але дати немає — теж «не запускався», бо сказати нічого');
-  check(judge(src, { rows: 5, at: '2026-10-12T00:00:00Z' }, NOW).state === 'ok', 'учорашнє — в межах');
-  check(judge(src, { rows: 5, at: '2026-10-03T00:00:00Z' }, NOW).state === 'ok',
-    'рівно на межі бюджету — ще не застаріле');
-  check(judge(src, { rows: 5, at: '2026-10-02T00:00:00Z' }, NOW).state === 'stale',
-    '🔴 на день за межею — застаріле');
-  check(judge(src, { rows: 5, at: '2026-10-02T00:00:00Z' }, NOW).days === 11, 'вік рахується в повних днях');
-  // 🔴 Бюджет береться З ДЖЕРЕЛА, а не з константи в коді: інакше рядок
-  // про 2 дні для цін станцій нічого не вартий.
-  check(judge({ ...src, budgetDays: 2 }, { rows: 5, at: '2026-10-10T00:00:00Z' }, NOW).state === 'stale',
-    '🔴 вузький бюджет застосовується саме до свого джерела');
-  check(daysSince(null, NOW) === null, 'без дати вік не вигадується');
-
-  const v = verdict([
-    judge(src, { rows: 0, at: null }, NOW),
-    judge(src, { rows: 5, at: '2026-10-02T00:00:00Z' }, NOW),
-    judge(src, { rows: 5, at: '2026-10-12T00:00:00Z' }, NOW),
-  ]);
-  check(v.never.length === 1 && v.stale.length === 1 && v.ok.length === 1,
-    'три стани розкладаються по трьох кошиках');
-
-  check(SOURCES.length === 7, 'сім джерел у переліку');
-  check(SOURCES.every((s) => s.sql || s.file), 'кожне джерело вміє сказати, звідки його читати');
-  check(SOURCES.every((s) => s.budgetDays > 0 && s.card), 'у кожного є бюджет і картка, з якої він узятий');
-  // 🔴 Тут стояв ще один випадок — `typeof run === 'function'`. Він
-  // зелений ЗА ПОБУДОВОЮ: функція оголошена вище, отже не може не бути
-  // функцією. Прибрано, а не доналаштовано.
-
-  // 🔴 CAMP-170: сім випадків на те, ЩО САМЕ дзвонить і яку форму
-  // прапорця розбірник справді читає.
-  //
-  // Перші чотири ізолюють по одній гілці `exitCodeFor`: якби вона
-  // завжди дивилась лише на `stale`, упав би перший; якби завжди на
-  // обидва кошики — другий. Жоден із них не зелений за побудовою.
-  const bag = (never, stale, ok) => ({ never, stale, ok });
-  check(exitCodeFor(bag([1], [], []), 'any') === 1,
-    'звіт на вимогу: «не запускався» — це провал');
-  check(exitCodeFor(bag([1], [], []), 'stale') === 0,
-    '🔴 таймер: «не запускався» НЕ дзвонить — розклад цього не лагодить');
-  check(exitCodeFor(bag([], [1], []), 'stale') === 1,
-    '🔴 таймер: те, що працювало й зупинилось, дзвонить');
-  check(exitCodeFor(bag([], [], [1]), 'stale') === 0,
-    'таймер мовчить, коли все в межах бюджету');
-
-  check(alarmModeFrom(['--stale-only']) === 'stale', 'прапорець таймера прочитано');
-  check(alarmModeFrom([]) === 'any', 'без прапорця — повний звіт');
-  let rejected = false;
-  try {
-    alarmModeFrom(['--stale']);
-  } catch {
-    rejected = true;
-  }
-  check(rejected, '🔴 помилкове написання відкидається, а не ковтається мовчки');
-
-  // 🔴 ТРИ ВИПАДКИ НА САМЕ ЗʼЄДНАННЯ argv → ВИРОК, а не на чисті
-  // функції поруч. Рецензія 14.10.2026 показала: підміна виклику на
-  // `run(…, 'any')` лишала всі 19 попередніх випадків зеленими.
-  const silent = { log: () => {}, error: () => {} };
-  const fakeRead = (states) => (source) => {
-    const st = states[source.name] ?? 'ok';
-    if (st === 'never') return { rows: 0, at: null };
-    if (st === 'stale') return { rows: 5, at: '2026-09-01T00:00:00Z' };
-    return { rows: 5, at: '2026-10-12T00:00:00Z' };
-  };
-  const onlyNever = fakeRead({ 'камери Windy': 'never' });
-  const oneStale = fakeRead({ 'POI маршрутів': 'stale' });
-
-  check(runWith(['--stale-only'], NOW, silent, onlyNever) === 0,
-    '🔴 --stale-only доходить до коду виходу: ненастроєне НЕ дзвонить');
-  check(runWith([], NOW, silent, onlyNever) === 1,
-    '🔴 без прапорця те саме джерело дзвонить — отже режим справді передається');
-  check(runWith(['--stale-only'], NOW, silent, oneStale) === 1,
-    '🔴 зупинене дзвонить і через argv');
-
-  const EXPECTED_CASES = 22;
-  if (cases.length !== EXPECTED_CASES) {
-    console.error(`✗ ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
-    rc = 1;
-  }
-  if (rc === 0) console.log(`✓ check-data-freshness self-test: ${cases.length} cases`);
-  return rc;
+  t('свіжий файл не скаржиться',
+    audit([{ name: 'a', stamp: ok(10), budgetHours: 72 }], NOW).length, 0);
+  t('протухлий ловиться',
+    audit([{ name: 'a', stamp: ok(100), budgetHours: 72 }], NOW).length, 1);
+  t('рівно на межі ще проходить',
+    audit([{ name: 'a', stamp: ok(72), budgetHours: 72 }], NOW).length, 0);
+  t('відсутня мітка ловиться',
+    audit([{ name: 'a', stamp: null, budgetHours: 72 }], NOW).length, 1);
+  t('нечитана мітка ловиться',
+    audit([{ name: 'a', stamp: 'позавчора', budgetHours: 72 }], NOW).length, 1);
+  t('🔴 мітка в МАЙБУТНЬОМУ ловиться',
+    audit([{ name: 'a', stamp: ok(-50), budgetHours: 72 }], NOW).length, 1);
+  t('дві поломки дають дві скарги',
+    audit([{ name: 'a', stamp: ok(100), budgetHours: 72 },
+           { name: 'b', stamp: null, budgetHours: 24 }], NOW).length, 2);
+  console.log(`check-data-freshness self-test: ran ${p + f}, passed ${p}, failed ${f}`);
+  process.exit(f === 0 ? 0 : 1);
 }
 
-const invokedDirectly = (() => {
-  if (process.argv[1] === undefined) return false;
-  try {
-    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
-  } catch {
-    return false;
-  }
-})();
+const read = (p) => JSON.parse(readFileSync(p, 'utf8'));
+const FILES = [
+  { name: 'wildfires.json',
+    stamp: read('apps/web/src/data/wildfires.json')?.meta?.fetchedAt ?? null,
+    budgetHours: budgetFromSource('apps/web/src/lib/wildfires.ts', 'FRESH_FOR_HOURS') },
+  { name: 'fuel-prices.json',
+    stamp: read('apps/web/src/data/fuel-prices.json')?.fetchedAt ?? null,
+    budgetHours: budgetFromSource('apps/web/src/lib/fuel.ts', 'STALE_AFTER_DAYS') * 24 },
+];
 
-/**
- * 🔴 ПРИЙНЯТА ФОРМА МУСИТЬ БУТИ ПРОЧИТАНОЮ. Розбірник, що мовчки ковтає
- * невідомий аргумент, дає галочку над роботою, якої не було: юніт
- * systemd передав би `--stale-only`, скрипт запустився б у режимі
- * 'any', і щоденна тривога дзвонила б на те, на що не мала.
- */
-export const KNOWN_FLAGS = Object.freeze(['--self-test', '--stale-only']);
-
-export function alarmModeFrom(argv) {
-  const unknown = argv.filter((a) => a.startsWith('-') && !KNOWN_FLAGS.includes(a));
-  if (unknown.length > 0) {
-    throw new UsageError(
-      `невідомий аргумент: ${unknown.join(', ')}. Відомі: ${KNOWN_FLAGS.join(', ')}`,
-    );
-  }
-  return argv.includes('--stale-only') ? 'stale' : 'any';
+const problems = audit(FILES, Date.now());
+if (problems.length > 0) {
+  console.error('✗ Дані протухли:\n');
+  for (const p of problems) console.error(`  🔴 ${p}`);
+  console.error('\n  Сайт покаже читачеві «дані застаріли». Це не косметика:');
+  console.error('  мапа з протухлими пожежами гірша за мапу без шару пожеж.');
+  console.error('  Запусти збирач або перевір, чому розклад не спрацював.');
+  process.exit(1);
 }
-
-if (invokedDirectly) {
-  const argv = process.argv.slice(2);
-  if (argv.includes('--self-test')) process.exit(selfTest());
-  try {
-    process.exit(runWith(argv));
-  } catch (e) {
-    // 🔴 Лише помилка ВЖИВАННЯ глушиться. Справжнє падіння — база
-    // недоступна, psql немає — мусить вийти зі стеком, інакше таймер
-    // перетворить аварію на тихе «2».
-    if (!(e instanceof UsageError)) throw e;
-    console.error(`\u2717 ${e.message}`);
-    process.exit(2);
-  }
-}
+console.log(`✓ дані свіжі: ${FILES.map((f) => f.name).join(', ')}`);
