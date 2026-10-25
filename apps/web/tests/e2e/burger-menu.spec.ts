@@ -99,9 +99,12 @@ test.describe('🔴 CAMP-350 — шухляда', () => {
     // (`navigation`), власник може їх додавати, а тест падав би на кожній
     // такій зміні з повідомленням, що виглядає як регресія шухляди.
     // Абсолютне число як критерій протухає швидше за саму перевірку.
+    // 🔴 САМЕ `nav[aria-label="Main"]`, А НЕ `header nav`. Перша моя
+    // спроба брала `header nav a` — і рахувала ВДВІЧІ більше, бо шухляда
+    // живе всередині `<header>` і теж має `<nav>`. Тест порівнював
+    // шухляду сам із собою плюс шапку й бачив 20 замість 10.
     const headerCount = await page
-      .locator('header nav a, header nav button')
-      .filter({ hasNotText: /^$/ })
+      .locator('header nav[aria-label="Main"] a')
       .count();
     expect(boxes.length, 'шухляда не повторює шапку').toBe(headerCount);
     expect(boxes.length, 'у шухляді немає пунктів').toBeGreaterThan(0);
