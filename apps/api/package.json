@@ -31,7 +31,7 @@
     "@nestjs/throttler": "^6.7.1",
     "@nestjs/typeorm": "^12.0.2",
     "dotenv": "^17.4.2",
-    "nodemailer": "10.1.4",
+    "nodemailer": "10.2.1",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.1",
