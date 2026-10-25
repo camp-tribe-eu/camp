@@ -1,13 +1,12 @@
 import { expect, test } from '@playwright/test';
 
-import Notice from '@/content/legal/notice';
-import Privacy from '@/content/legal/privacy';
 import { SiteFooter } from '@/components/site-chrome';
 import { COMPANY, COMPANY_ADDRESS } from '@/lib/legal';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { renderComponent } from './render-component';
+import { seededHtml } from './legal-cms';
 import { visibleText } from './rendered-text';
 
 // CAMP-188 — ідентифікація підприємства на сайті.
@@ -28,7 +27,7 @@ import { visibleText } from './rendered-text';
 // значення нікуди не виводиться. Тому читаємо видимий текст сторінки.
 
 test('🔴 сторінка правової інформації називає номер підприємства', () => {
-  const text = visibleText(renderComponent(Notice, {}));
+  const text = visibleText(seededHtml('notice'));
   expect(text).toContain(COMPANY.enterpriseNumber);
   // І підписує його так, щоб читач зрозумів, що це за число.
   expect(text).toMatch(/enterprise number/i);
@@ -36,7 +35,7 @@ test('🔴 сторінка правової інформації називає
 });
 
 test('називає і саму компанію, і де вона', () => {
-  const text = visibleText(renderComponent(Notice, {}));
+  const text = visibleText(seededHtml('notice'));
   expect(text).toContain(COMPANY.name);
   expect(text).toContain(COMPANY.city);
   expect(text).toContain(COMPANY.country);
@@ -78,7 +77,7 @@ test('🔴 склеєна адреса містить усі чотири час
 // упав, щойно адреса зʼявилась, і це була його робота: він тримав
 // пояснення рівно доти, доки воно було правдою.
 test('🔴 сторінка називає адресу осідку, а не саме лише місто', () => {
-  const text = visibleText(renderComponent(Notice, {}));
+  const text = visibleText(seededHtml('notice'));
   expect(text).toContain(COMPANY.street);
   expect(text).toContain(COMPANY.city);
   expect(text).toMatch(/registered office/i);
@@ -89,7 +88,7 @@ test('🔴 сторінка називає адресу осідку, а не с
 // Окремий тест, бо це окрема сторінка й окрема норма: виправлення
 // правової сторінки не мусить мовчки лишати політику старою.
 test('🔴 політика приватності називає контролера з адресою', () => {
-  const text = visibleText(renderComponent(Privacy, {}));
+  const text = visibleText(seededHtml('privacy'));
   expect(text).toContain(COMPANY_ADDRESS);
   expect(text).toMatch(/controller/i);
 });

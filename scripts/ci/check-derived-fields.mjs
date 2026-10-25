@@ -9,7 +9,15 @@
 //    algorithm), including any additional Contents"
 //
 // instead of shipping the derived database itself. We chose that, and
-// `apps/web/src/content/legal/database.tsx` is it.
+// the legal document `database` is it.
+//
+// 🔴 CAMP-365: THAT DOCUMENT NO LONGER LIVES IN `apps/web/src`. It lives in
+// the database (`legal_pages`), and the one copy of its text a CI step with
+// no database can read is the one the seed migration inserts. This guard
+// reads THAT. What it therefore cannot see is an edit made later in the
+// CMS: a field described in the seed and deleted in the CMS passes here.
+// Said plainly rather than left for the next reader to discover — closing
+// it needs a check over the BUILT page, which is a job with the real data.
 //
 // A description that has fallen behind the code is not that file. It is
 // a page that looks like compliance — which is worse than no page,
@@ -30,7 +38,50 @@ import { chooseAction } from '../lib/entrypoint.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
 const TYPE_FILE = join(ROOT, 'apps', 'api', 'src', 'osm', 'spot-context.ts');
-const PAGE_FILE = join(ROOT, 'apps', 'web', 'src', 'content', 'legal', 'database.tsx');
+const SEED_FILE = join(
+  ROOT,
+  'apps',
+  'api',
+  'src',
+  'migrations',
+  '1792800000000-SeedLegalPages.ts',
+);
+
+/**
+ * The markup of one seeded legal document.
+ *
+ * 🔴 Cut out by position, not evaluated: the migration is TypeScript and
+ * this runs on the Node the CI job has, with no transpiler. That is
+ * faithful only while the body is a plain template literal — no escape,
+ * no `${}` — and the day it stops being one this REFUSES rather than
+ * quietly returning text that is not what the database holds.
+ *
+ * 🔴 The body is taken from the slug's OWN entry. Looking for the first
+ * `body: \`` after the slug and stopping there would read the NEXT
+ * document's text for a slug that has no body field of its own.
+ */
+export function seededBody(source, slug) {
+  const at = source.indexOf(`slug: '${slug}',`);
+  if (at < 0) throw new Error(`no document «${slug}» in the legal seed`);
+  const next = source.indexOf("slug: '", at + 1);
+  const open = source.indexOf('body: `', at);
+  if (open < 0 || (next >= 0 && open > next)) {
+    throw new Error(`document «${slug}» has no body in the legal seed`);
+  }
+  const start = open + 'body: `'.length;
+  const end = source.indexOf('`', start);
+  if (end < 0 || source[end + 1] !== ',') {
+    throw new Error(`the body of «${slug}» does not end where a template literal does`);
+  }
+  const body = source.slice(start, end);
+  if (/\\|\$\{/.test(body)) {
+    throw new Error(
+      `the body of «${slug}» holds a backslash or a template placeholder; ` +
+        'reading it by position would not give what the database holds',
+    );
+  }
+  return body;
+}
 
 /**
  * The property names `SpotContext` declares.
@@ -87,27 +138,25 @@ export function declaredFields(source) {
  * occur. `<B>name</B>` is the shape the list uses.
  */
 /**
- * 🔴 The page as a READER sees it, not as the file is written.
+ * 🔴 The page as a READER sees it, not as the markup is written.
  *
- * This tested the file's bytes. Review deleted the whole `<li>` that
- * describes `station` and left `<B>station</B>` inside a `//` comment:
- * rc=0, "✓ all 7", and not one word about `station` anywhere a reader
- * could reach it. That is the same defect this guard was built to catch
- * — a disclosure that exists only where nobody looks — moved up one
- * level into the guard itself.
- *
- * So comments are removed before the match, exactly as `declaredFields`
- * removes them from the type.
+ * With JSX this stripped comments: review deleted the whole `<li>` that
+ * describes `station` and left `<B>station</B>` in a `//` comment, and the
+ * guard said "✓ all 7" over a page that told a reader nothing. Markup has
+ * no comments — anything written in it renders — but it has two places
+ * where a name is written and not shown: a link's destination and a
+ * heading's `{#anchor}`. A field named only there is not described.
  */
 export function renderedPage(page) {
   return page
-    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, ' ')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/^\s*\/\/[^\n]*$/gm, ' ');
+    .replace(/\]\([^)\s]*\)/g, ']')
+    .replace(/\s*\{#[^}\n]*\}\s*$/gm, '');
 }
 
 export function namedInPage(field, page) {
-  return new RegExp(`<B>${field}</B>`).test(renderedPage(page));
+  // `$` is legal in an identifier and special in a pattern.
+  const name = field.replace(/[$]/g, '\\$&');
+  return new RegExp(`\\*\\*${name}\\*\\*`).test(renderedPage(page));
 }
 
 /**
@@ -214,11 +263,12 @@ function run(typeSrc, pageSrc, log = console) {
     log.error('✗ Computed fields missing from the ODbL §4.6 description:\n');
     for (const f of missing) log.error(`  ${f}`);
     log.error(
-      '\n  apps/web/src/content/legal/database.tsx is the file we offer\n' +
-        '  recipients INSTEAD of the derived database. A field it does not\n' +
-        '  name is a field we did not disclose. Describe what it holds and\n' +
-        '  how it is computed — not "and other fields", which is not a\n' +
-        '  method of making alterations.',
+      '\n  The legal document `database` (seeded by\n' +
+        '  apps/api/src/migrations/1792800000000-SeedLegalPages.ts) is what\n' +
+        '  we offer recipients INSTEAD of the derived database. A field it\n' +
+        '  does not name is a field we did not disclose. List it as\n' +
+        '  `- **name** — what it holds`, and say how it is computed — not\n' +
+        '  "and other fields", which is not a method of making alterations.',
     );
     return 1;
   }
@@ -269,11 +319,11 @@ export interface Other { notAField?: string; }
   // And a word that appears only in a comment is not a field.
   failIf(fields.includes('decoy'), 'a word from a comment was read as a field');
 
-  const full = '<B>water</B> <B>elevation</B> <B>at</B>';
+  const full = '- **water** — a\n- **elevation** — b\n- **at** — c';
   failIf(run(type, full, quiet) !== 0, 'a complete page was rejected');
 
   for (const drop of ['water', 'elevation', 'at']) {
-    const holed = full.replace(`<B>${drop}</B>`, '');
+    const holed = full.replace(`**${drop}**`, '');
     failIf(
       run(type, holed, quiet) !== 1,
       `a page missing "${drop}" was accepted`,
@@ -321,18 +371,22 @@ export interface SpotContext {
     `a modifier or a quoted key hid a field: read ${JSON.stringify(withModifiers)}`,
   );
 
-  // 🔴 And a field named ONLY in a comment is not described. Review
-  // deleted the whole entry for `station` and left `<B>station</B>` in a
-  // `//` comment; the guard said ✓ over a page that told a reader
-  // nothing.
-  for (const commented of [
-    '<B>water</B> <B>elevation</B> {/* <B>at</B> — elsewhere */}',
-    '<B>water</B> <B>elevation</B>\n// <B>at</B>\n',
-    '<B>water</B> <B>elevation</B> /* <B>at</B> */',
+  // 🔴 And a field named only where a reader is not shown it is not
+  // described. In JSX that was a comment (review deleted the whole entry
+  // for `station` and left `<B>station</B>` in a `//` one; the guard said ✓
+  // over a page that told a reader nothing). In markup it is a link's
+  // destination, an anchor, an escaped pair of asterisks, or a word in
+  // prose — each a way to have the NAME on the page without LISTING it.
+  for (const unlisted of [
+    '- **water** — a\n- **elevation** — b\n[x](/y/**at**)',
+    '- **water** — a\n- **elevation** — b\n## Heading {#**at**}',
+    '- **water** — a\n- **elevation** — b\n\\*\\*at\\*\\* is escaped, not bold',
+    '- **water** — a\n- **elevation** — b\nthe at field, in prose',
+    '- **water** — a\n- **elevation** — b\n*at* in italics only',
   ]) {
     failIf(
-      run(type, commented, quiet) !== 1,
-      `a field named only inside a comment was accepted: ${commented}`,
+      run(type, unlisted, quiet) !== 1,
+      `a field named only where a reader is not shown it was accepted: ${unlisted}`,
     );
   }
 
@@ -380,8 +434,48 @@ a: number;
     `the disagreement fixture no longer makes them disagree: both read ${main}`,
   );
   failIf(
-    run(disagree, '<B>water</B> <B>nested</B> <B>at</B>', quiet) !== 1,
+    run(disagree, '- **water** — a\n- **nested** — b\n- **at** — c', quiet) !== 1,
     'two readings that disagree were not refused',
+  );
+
+  // 🔴 THE EXTRACTOR READS THE RIGHT DOCUMENT, OR REFUSES. It cuts text out
+  // of a TypeScript file by position, so each way that goes wrong is a case:
+  // the neighbour's body, a missing slug, an escape, an unterminated body.
+  const seed = (...docs) =>
+    `class X {\n  private readonly pages = [\n${docs
+      .map((d) => `    {\n      slug: '${d[0]}',\n      title: 'T',\n${d[1]}    },\n`)
+      .join('')}  ];\n}\n`;
+  const withBody = (b) => `      body: \`${b}\`,\n`;
+  const throws = (fn) => {
+    try {
+      fn();
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  failIf(
+    seededBody(seed(['a', withBody('first')], ['database', withBody('- **at** — c')]), 'database') !==
+      '- **at** — c',
+    'the extractor did not return the requested document\'s own body',
+  );
+  failIf(
+    !throws(() => seededBody(seed(['database', ''], ['b', withBody('NEIGHBOUR')]), 'database')),
+    'a document with no body field was given its neighbour\'s body',
+  );
+  failIf(
+    !throws(() => seededBody(seed(['a', withBody('x')]), 'database')),
+    'an unknown slug was not refused',
+  );
+  failIf(
+    !throws(() => seededBody(seed(['database', withBody('a \\ b')]), 'database')),
+    'a body with a backslash was read by position instead of refused',
+  );
+  failIf(
+    !throws(() =>
+      seededBody("slug: 'database',\n      body: `never ends", 'database'),
+    ),
+    'a body that does not end like a template literal was not refused',
   );
 
   // The anti-emptiness guard, which every comparison above depends on.
@@ -393,7 +487,7 @@ a: number;
   // 🔴 A literal, never `cases.length`. Deriving the expectation from the
   // thing it checks makes the comparison true by construction — the exact
   // defect this count exists to catch.
-  const EXPECTED_CASES = 19;
+  const EXPECTED_CASES = 26;
   if (cases.length !== EXPECTED_CASES) {
     console.error(
       `✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`,
@@ -401,7 +495,7 @@ a: number;
     rc = 1;
   }
 
-  // 🔴 The line names this file. "19 cases passed" is a sentence several
+  // 🔴 The line names this file. "26 cases passed" is a sentence several
   // scripts could print, and a CI step grepping for it could be satisfied
   // by somebody else's self-test.
   console.log(
@@ -416,9 +510,11 @@ a: number;
         '  neighbouring interface, a function or a comment — a complete page\n' +
         '  passes, each missing field is reported, and a renamed interface\n' +
         '  fails instead of reading as "nothing is derived".\n' +
-        '  And the three shapes that got past it: a "}" inside a JSDoc, a\n' +
-        '  `readonly` or quoted key, and a field named only in a comment on\n' +
-        '  the page. Two independent readers of the type must agree.',
+        '  And the shapes that got past it: a "}" inside a JSDoc, a\n' +
+        '  `readonly` or quoted key, and a field named only where a reader\n' +
+        '  is not shown it (a link destination, an anchor, escaped asterisks,\n' +
+        '  plain prose). Two independent readers of the type must agree, and\n' +
+        '  the extractor reads the right document or refuses.',
     );
   }
   return rc;
@@ -447,6 +543,9 @@ if (!invokedDirectly) {
   if (action.has('--self-test')) process.exit(selfTest());
   else
     process.exit(
-      run(readFileSync(TYPE_FILE, 'utf8'), readFileSync(PAGE_FILE, 'utf8')),
+      run(
+        readFileSync(TYPE_FILE, 'utf8'),
+        seededBody(readFileSync(SEED_FILE, 'utf8'), 'database'),
+      ),
     );
 }
