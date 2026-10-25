@@ -3,10 +3,11 @@ import { expect, test } from '@playwright/test';
 import {
   checkDraft,
   EMPTY_DRAFT,
+  EXAMPLE,
   FIELD_ORDER,
   initialState,
   MAX_DAYS,
-  MAX_PLACE,
+  parsePoint,
   planReducer,
   settle,
   type PlanAction,
@@ -16,33 +17,115 @@ import {
   type PlanState,
   type Planner,
 } from '@/lib/plan';
-import { planRoute } from '@/lib/plan-source';
 
 // CAMP-205 — правила /plan, без браузера.
+// CAMP-391 — тепер поля місць — координати, а відповідь справжня.
 //
 // 🔴 Тут перевіряється те, що не видно, поки джерело відповідає
 // миттєво: що буде, коли воно стане повільним, впаде чи поверне сміття.
-// Сьогодні ці гілки недосяжні з браузера, тому й тримаються тут — кожна
+// Ці гілки важко відтворити з браузера, тому й тримаються тут — кожна
 // має мутацію, яка її червонить (див. PR).
 
-const GOOD: PlanDraft = { from: 'Ljubljana', to: 'Split', days: '7', vehicleId: 'motorhome' };
-const REQUEST: PlanRequest = { from: 'Ljubljana', to: 'Split', days: 7, vehicleId: 'motorhome' };
+const GOOD: PlanDraft = { from: '46.0569, 14.5058', to: '43.5081, 16.4402', days: '7' };
+const REQUEST: PlanRequest = {
+  from: { lat: 46.0569, lon: 14.5058 },
+  to: { lat: 43.5081, lon: 16.4402 },
+  days: 7,
+};
 
 const errorsOf = (draft: Partial<PlanDraft>) => {
   const r = checkDraft({ ...GOOD, ...draft });
   return r.ok ? {} : r.errors;
 };
 
-test.describe('checkDraft', () => {
-  test('правильна форма дає запит із обрізаними рядками й числом днів', () => {
-    const r = checkDraft({ from: '  Ljubljana ', to: ' Split', days: ' 007 ', vehicleId: 'campervan' });
-    expect(r).toEqual({
-      ok: true,
-      request: { from: 'Ljubljana', to: 'Split', days: 7, vehicleId: 'campervan' },
-    });
+test.describe('parsePoint — «широта, довгота»', () => {
+  const ok = (text: string) => {
+    const r = parsePoint(text);
+    return r.ok ? r.point : r.why;
+  };
+
+  test('🔴 що приймається: кома, крапка з комою, пробіл, градуси, мінус із мап', () => {
+    const want = { lat: 46.0569, lon: 14.5058 };
+    for (const text of [
+      '46.0569, 14.5058',
+      '46.0569,14.5058',
+      '46.0569 14.5058',
+      '46.0569;14.5058',
+      '46.0569 ; 14.5058',
+      '  46.0569  ,  14.5058  ',
+      '+46.0569, +14.5058',
+      '46.0569°, 14.5058°',
+      '46.0569\t14.5058',
+    ]) {
+      expect(ok(text), JSON.stringify(text)).toEqual(want);
+    }
+    // «−» (U+2212), яким копіюють деякі застосунки, — теж мінус.
+    expect(ok('\u221238.7223, \u22129.1393')).toEqual({ lat: -38.7223, lon: -9.1393 });
+    expect(ok('-38.7223, -9.1393')).toEqual({ lat: -38.7223, lon: -9.1393 });
+    expect(ok('46, 14')).toEqual({ lat: 46, lon: 14 });
   });
 
-  test('🔴 порожня форма скаржиться на всі чотири поля, а не на перше', () => {
+  test('межі земної кулі включно: ±90 і ±180', () => {
+    expect(ok('90, 180')).toEqual({ lat: 90, lon: 180 });
+    expect(ok('-90, -180')).toEqual({ lat: -90, lon: -180 });
+    expect(ok('0, 0')).toEqual({ lat: 0, lon: 0 });
+  });
+
+  test('🔴 не приймається, і це «format», а не вгадування', () => {
+    for (const text of [
+      'Ljubljana',
+      '46.0569',
+      // Кома як десятковий роздільник: два числа чи чотири? Не вгадуємо.
+      '46,0569 14,5058',
+      '46,0569, 14,5058',
+      '46.0569, 14.5058, 120',
+      '46.0569 N, 14.5058 E',
+      '1e2, 5',
+      '46.0569,, 14.5058',
+      ',',
+      '46.0569/14.5058',
+      '46.0569, abc',
+      '٤٦.٠٥٦٩, ١٤.٥٠٥٨',
+      '46.0569 -- 14.5058',
+      '4 6.0569, 14.5058',
+    ]) {
+      expect(ok(text), JSON.stringify(text)).toBe('format');
+    }
+  });
+
+  test('порожнє й самі пробіли — «empty»', () => {
+    expect(ok('')).toBe('empty');
+    expect(ok('   ')).toBe('empty');
+    expect(ok('°')).toBe('empty');
+  });
+
+  test('🔴 поза кулею — «range», зокрема число, що не вміщається в число', () => {
+    for (const text of ['91, 14', '-90.0001, 14', '46, 180.0001', '46, -181', `${'9'.repeat(400)}, 1`]) {
+      expect(ok(text), text.slice(0, 30)).toBe('range');
+    }
+  });
+
+  test('🔴 порядок — як надруковано: «широта перша» — це договір, а не вгадування', () => {
+    // Любляна навпаки — це 14.5058°N 46.0569°E, у межах кулі, тож форма її
+    // пропускає. Що це не Любляна, каже сервер (межі ЄС), і сторінка
+    // підказує про порядок.
+    expect(ok('14.5058, 46.0569')).toEqual({ lat: 14.5058, lon: 46.0569 });
+  });
+});
+
+test.describe('checkDraft', () => {
+  test('правильна форма дає запит із обрізаними рядками, числами й числом днів', () => {
+    const r = checkDraft({ from: '  46.0569 ,14.5058 ', to: ' 43.5081;16.4402', days: ' 007 ' });
+    expect(r).toEqual({ ok: true, request: REQUEST });
+  });
+
+  test('🔴 запит — рівно три ключі, і жодного транспорту: його ніхто не читає', () => {
+    const r = checkDraft(GOOD);
+    expect(r.ok && Object.keys(r.request).sort()).toEqual(['days', 'from', 'to']);
+    expect(r.ok && Object.keys(r.request.from).sort()).toEqual(['lat', 'lon']);
+  });
+
+  test('🔴 порожня форма скаржиться на всі три поля, а не на перше', () => {
     const r = checkDraft(EMPTY_DRAFT);
     expect(r.ok).toBe(false);
     if (r.ok) return;
@@ -53,19 +136,37 @@ test.describe('checkDraft', () => {
     // Підсумок помилок іде в цьому порядку; поле, якого тут немає,
     // мовчки випало б із підсумку.
     expect([...FIELD_ORDER].sort()).toEqual(Object.keys(EMPTY_DRAFT).sort());
+    expect([...FIELD_ORDER]).toEqual(['from', 'to', 'days']);
   });
 
-  test('🔴 пробіли замість назви — це порожньо', () => {
-    expect(errorsOf({ from: '   ' }).from).toMatch(/starts/);
-    expect(errorsOf({ to: '   ' }).to).toMatch(/ends/);
+  test('🔴 пробіли замість координат — це порожньо, і повідомлення називає приклад', () => {
+    expect(errorsOf({ from: '   ' }).from).toBe(
+      `Enter where the trip starts, as latitude and longitude, for example ${EXAMPLE.from}.`,
+    );
+    expect(errorsOf({ to: '   ' }).to).toBe(
+      `Enter where the trip ends, as latitude and longitude, for example ${EXAMPLE.to}.`,
+    );
   });
 
-  test('назва місця: 120 символів можна, 121 — ні, і рахується обрізане', () => {
-    expect(errorsOf({ from: 'a'.repeat(MAX_PLACE) }).from).toBeUndefined();
-    expect(errorsOf({ from: 'a'.repeat(MAX_PLACE + 1) }).from).toBe(`Use ${MAX_PLACE} characters or fewer.`);
-    expect(errorsOf({ to: 'a'.repeat(MAX_PLACE + 1) }).to).toBe(`Use ${MAX_PLACE} characters or fewer.`);
-    // Пробіли по краях не рахуються — отже, і не відмовляють.
-    expect(errorsOf({ from: ` ${'a'.repeat(MAX_PLACE)} ` }).from).toBeUndefined();
+  test('🔴 назва замість координат: прямо кажемо, що назва не шукається', () => {
+    expect(errorsOf({ from: 'Ljubljana' }).from).toBe(
+      `Write where the trip starts as two numbers, latitude then longitude, for example ${EXAMPLE.from}. A place name is not looked up.`,
+    );
+    expect(errorsOf({ to: 'Split' }).to).toContain('A place name is not looked up.');
+  });
+
+  test('поза кулею: порядок названо, бо це найчастіша помилка', () => {
+    expect(errorsOf({ from: '120, 14' }).from).toBe(
+      'Latitude goes from -90 to 90 and longitude from -180 to 180. Latitude comes first.',
+    );
+  });
+
+  test('приклад у підказці — це справжні координати Любляни й Сплита', () => {
+    // Перевірено проти пари, яку цей файл бере за правильну: інакше підказка
+    // могла б вчити формату, який сама ж відхиляє.
+    expect(checkDraft({ ...GOOD, from: EXAMPLE.from, to: EXAMPLE.to }).ok).toBe(true);
+    expect(parsePoint(EXAMPLE.from)).toEqual({ ok: true, point: { lat: 46.0569, lon: 14.5058 } });
+    expect(parsePoint(EXAMPLE.to)).toEqual({ ok: true, point: { lat: 43.5081, lon: 16.4402 } });
   });
 
   test('🔴 дні: межі 1 і MAX_DAYS включно, 0 і MAX_DAYS+1 — ні', () => {
@@ -73,6 +174,12 @@ test.describe('checkDraft', () => {
     expect(errorsOf({ days: String(MAX_DAYS) }).days).toBeUndefined();
     expect(errorsOf({ days: '0' }).days).toBe(`Days must be between 1 and ${MAX_DAYS}.`);
     expect(errorsOf({ days: String(MAX_DAYS + 1) }).days).toBe(`Days must be between 1 and ${MAX_DAYS}.`);
+  });
+
+  test('🔴 дні: 60 — це ліміт API, а не лише форми', () => {
+    // Дві копії одного числа: форма перевіряє раніше, сервер — остаточно.
+    // Звіряються тут, а не вважаються однаковими.
+    expect(MAX_DAYS).toBe(60);
   });
 
   test('🔴 дні: усе, що не ціле число, — окреме повідомлення, а не «між 1 і 60»', () => {
@@ -90,19 +197,13 @@ test.describe('checkDraft', () => {
     expect(r.errors.days).toBe(`Days must be between 1 and ${MAX_DAYS}.`);
   });
 
-  test('транспорт: порожній і невідомий однаково не проходять', () => {
-    expect(errorsOf({ vehicleId: '' }).vehicleId).toBe('Choose your vehicle.');
-    expect(errorsOf({ vehicleId: 'tank' }).vehicleId).toBe('Choose your vehicle.');
-    // І не з прототипа об'єкта.
-    expect(errorsOf({ vehicleId: 'constructor' }).vehicleId).toBe('Choose your vehicle.');
-  });
-
-  test('«звідки» дорівнює «куди» — це коло, а не помилка', () => {
-    expect(checkDraft({ ...GOOD, from: 'Bled', to: 'Bled' }).ok).toBe(true);
+  test('«звідки» дорівнює «куди» — це коло, а не помилка форми', () => {
+    expect(checkDraft({ ...GOOD, from: '46.0569, 14.5058', to: '46.0569 14.5058' }).ok).toBe(true);
   });
 
   test('один зіпсований рядок не ховає решту: помилка рівно в одному полі', () => {
     expect(Object.keys(errorsOf({ days: 'x' }))).toEqual(['days']);
+    expect(Object.keys(errorsOf({ to: 'x' }))).toEqual(['to']);
   });
 });
 
@@ -110,15 +211,21 @@ test.describe('settle — джерело не може зламати сторі
   const answers = (outcome: unknown): Planner => async () => outcome as PlanOutcome;
 
   test('чесні відповіді проходять без змін', async () => {
-    expect(await settle(answers({ status: 'unavailable' }), REQUEST)).toEqual({ status: 'unavailable' });
-    expect(await settle(answers({ status: 'failed' }), REQUEST)).toEqual({ status: 'failed' });
+    for (const outcome of [
+      { status: 'failed' },
+      { status: 'throttled' },
+      { status: 'outside-union', fields: ['from'] },
+      { status: 'refused', reason: 'round-trip' },
+    ] as PlanOutcome[]) {
+      expect(await settle(answers(outcome), REQUEST), outcome.status).toEqual(outcome);
+    }
   });
 
   test('🔴 запит доходить до джерела таким, яким пройшов перевірку', async () => {
     let seen: PlanRequest | undefined;
     await settle(async (r) => {
       seen = r;
-      return { status: 'unavailable' };
+      return { status: 'failed' };
     }, REQUEST);
     expect(seen).toEqual(REQUEST);
   });
@@ -135,9 +242,15 @@ test.describe('settle — джерело не може зламати сторі
   });
 
   test('🔴 сміття замість відповіді — failed, у всіх його видах', async () => {
-    for (const junk of [undefined, null, 0, 'unavailable', [], {}, { status: 7 }, { status: 'routed' }, { Status: 'unavailable' }]) {
+    for (const junk of [undefined, null, 0, 'planned', [], {}, { status: 7 }, { status: 'routed' }, { Status: 'failed' }]) {
       expect(await settle(answers(junk), REQUEST), JSON.stringify(junk)).toEqual({ status: 'failed' });
     }
+  });
+
+  test('🔴 «unavailable» більше не статус: планувальник рахує, і слова «не рахує» немає', async () => {
+    // Варіант, який казав «планувальник ще не рахує маршрути», зник разом із
+    // заглушкою (plan-source.ts обіцяв це). Відповідь із тим словом — сміття.
+    expect(await settle(answers({ status: 'unavailable' }), REQUEST)).toEqual({ status: 'failed' });
   });
 
   test('🔴 статус з прототипа об’єкта — не статус', async () => {
@@ -146,14 +259,6 @@ test.describe('settle — джерело не може зламати сторі
     for (const status of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
       expect(await settle(answers({ status }), REQUEST), status).toEqual({ status: 'failed' });
     }
-  });
-
-  test('джерело сьогодні: каже, що не рахує, — і це відповідь, а не збій', async () => {
-    // 🔴 Єдиний тест, який МАЄ змінитись, коли CAMP-46 зробить алгоритм.
-    // Він зафіксував сьогоднішній факт; коли факт зміниться, червоний
-    // тест — це нагадування, що речення «не рахує» на сторінці тепер
-    // неправда.
-    expect(await settle(planRoute, REQUEST)).toEqual({ status: 'unavailable' });
   });
 });
 
@@ -195,14 +300,13 @@ test.describe('planReducer', () => {
     expect(fixed.errors.days).toBeUndefined();
     expect(fixed.errors.from).toBeDefined();
     expect(fixed.errors.to).toBeDefined();
-    expect(fixed.errors.vehicleId).toBeDefined();
     expect(fixed.draft.days).toBe('7');
   });
 
   test('🔴 правило 1: змінив поле — результат зникає', () => {
-    const done = act(filled(), { type: 'submit' }, { type: 'settled', id: 1, outcome: { status: 'unavailable' } });
+    const done = act(filled(), { type: 'submit' }, { type: 'settled', id: 1, outcome: { status: 'throttled' } });
     expect(done.run.phase).toBe('done');
-    const edited = act(done, { type: 'edit', field: 'to', value: 'Zadar' });
+    const edited = act(done, { type: 'edit', field: 'to', value: '44.1194, 15.2314' });
     expect(edited.run).toEqual({ phase: 'idle' });
   });
 
@@ -211,27 +315,27 @@ test.describe('planReducer', () => {
     // і тільки тоді прийшла відповідь на запит 1.
     let s = act(filled(), { type: 'submit' });
     expect(s.run).toMatchObject({ phase: 'pending', id: 1 });
-    s = act(s, { type: 'edit', field: 'to', value: 'Zadar' }, { type: 'submit' });
+    s = act(s, { type: 'edit', field: 'to', value: '44.1194, 15.2314' }, { type: 'submit' });
     expect(s.run).toMatchObject({ phase: 'pending', id: 2 });
 
     const late = act(s, { type: 'settled', id: 1, outcome: { status: 'failed' } });
     expect(late).toBe(s); // не змінилось нічого, навіть посилання
-    const right = act(s, { type: 'settled', id: 2, outcome: { status: 'unavailable' } });
-    expect(right.run).toMatchObject({ phase: 'done', id: 2, outcome: { status: 'unavailable' } });
-    expect(right.run.phase === 'done' && right.run.request.to).toBe('Zadar');
+    const right = act(s, { type: 'settled', id: 2, outcome: { status: 'throttled' } });
+    expect(right.run).toMatchObject({ phase: 'done', id: 2, outcome: { status: 'throttled' } });
+    expect(right.run.phase === 'done' && right.run.request.to).toEqual({ lat: 44.1194, lon: 15.2314 });
   });
 
   test('🔴 відповідь на запит, який скасувало редагування, ігнорується', () => {
     const editing = act(filled(), { type: 'submit' }, { type: 'edit', field: 'days', value: '9' });
     expect(editing.run).toEqual({ phase: 'idle' });
-    const late = act(editing, { type: 'settled', id: 1, outcome: { status: 'unavailable' } });
+    const late = act(editing, { type: 'settled', id: 1, outcome: { status: 'throttled' } });
     expect(late).toBe(editing);
   });
 
   test('відповідь без запиту, і друга відповідь на той самий запит, ігноруються', () => {
     const idle = filled();
     expect(act(idle, { type: 'settled', id: 1, outcome: { status: 'failed' } })).toBe(idle);
-    const done = act(idle, { type: 'submit' }, { type: 'settled', id: 1, outcome: { status: 'unavailable' } });
+    const done = act(idle, { type: 'submit' }, { type: 'settled', id: 1, outcome: { status: 'throttled' } });
     // Дев-режим React викликає ефект двічі; друга відповідь не має права
     // змінити вже показане.
     expect(act(done, { type: 'settled', id: 1, outcome: { status: 'failed' } })).toBe(done);
@@ -243,10 +347,10 @@ test.describe('planReducer', () => {
   });
 
   test('номери запитів не повторюються, навіть коли відправляють те саме знову', () => {
-    let s = act(filled(), { type: 'submit' }, { type: 'settled', id: 1, outcome: { status: 'unavailable' } });
+    let s = act(filled(), { type: 'submit' }, { type: 'settled', id: 1, outcome: { status: 'throttled' } });
     s = act(s, { type: 'submit' });
     expect(s.run).toMatchObject({ phase: 'pending', id: 2 });
-    s = act(s, { type: 'settled', id: 2, outcome: { status: 'unavailable' } }, { type: 'submit' });
+    s = act(s, { type: 'settled', id: 2, outcome: { status: 'throttled' } }, { type: 'submit' });
     expect(s.run).toMatchObject({ phase: 'pending', id: 3 });
   });
 
@@ -265,10 +369,9 @@ test.describe('planReducer', () => {
     // Правильних значень більше, ніж хибних: інакше форма майже ніколи
     // не буває валідною, і половина інваріанта — про порожнечу.
     const values: Record<keyof PlanDraft, string[]> = {
-      from: ['', ' ', 'Bled', 'Zadar', 'Bled', 'Zadar', 'Bled'],
-      to: ['', 'Split', 'Bled', 'Split', 'Bled', 'Split'],
+      from: ['', ' ', 'Bled', '46.3683, 14.1146', '44.1194, 15.2314', '46.3683, 14.1146', '44.1194, 15.2314'],
+      to: ['', 'Split', '43.5081, 16.4402', '46.3683, 14.1146', '43.5081, 16.4402', '43.5081 16.4402'],
       days: ['', '0', '7', '7.5', '61', '14', '7', '14', '7'],
-      vehicleId: ['', 'tank', 'campervan', 'motorhome', 'campervan', 'motorhome'],
     };
     let submitted = 0;
     let shown = 0;
@@ -288,7 +391,7 @@ test.describe('planReducer', () => {
                   type: 'settled',
                   // Здебільшого відповідь на живий запит, інколи — на чужий.
                   id: s.run.phase === 'pending' && next() < 0.8 ? s.run.id : 1 + Math.floor(next() * 6),
-                  outcome: { status: 'unavailable' },
+                  outcome: { status: 'throttled' },
                 };
         if (action.type === 'edit') action.value = pick(values[action.field]);
         s = planReducer(s, action);

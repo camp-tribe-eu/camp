@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "body": {
+    "status": "infeasible",
+    "reason": "no-chain",
+    "measure": "straight",
+    "lengthM": 315346.88463898795,
+    "daysAsked": 7,
+    "candidates": 230,
+    "reachedNights": 3
+  }
+}
