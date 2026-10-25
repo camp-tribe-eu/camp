@@ -1,0 +1,14 @@
+{
+  "status": 400,
+  "body": {
+    "code": "invalid_plan_request",
+    "message": "This point is outside the European Union (the 27 member states), which is where the planner works.",
+    "errors": [
+      {
+        "field": "from",
+        "code": "outside_union",
+        "message": "This point is outside the European Union (the 27 member states), which is where the planner works."
+      }
+    ]
+  }
+}
