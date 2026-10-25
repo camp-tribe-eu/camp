@@ -38,7 +38,7 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-deploy-selftest.XXXXXX")"
 cleanup_all() { stop_world; rm -rf "$BASE"; }
 trap cleanup_all EXIT
 trap 'exit 130' INT TERM
-EXPECTED=134
+EXPECTED=135
 PASSED=0
 FAILED=0
 pass() { echo "  ✓ $1"; PASSED=$((PASSED + 1)); }
@@ -1089,6 +1089,45 @@ if ! grep -q '/srv/camptribe/' "$U" "$A" && ! grep -qE '(^|[^0-9])(3000|3001)([^
    && grep -qx 'ReadWritePaths=' "$U" && grep -qx 'ReadWritePaths=' "$A" && ! grep -q '^\[Install\]' "$U" "$A"; then
   pass "юніти репетиції з РЕАЛЬНИХ юнітів репо: жодного бойового шляху чи порту, лише читання, без [Install]"
 else fail "юніти репетиції з РЕАЛЬНИХ юнітів репо: жодного бойового шляху чи порту, лише читання, без [Install]" "$(cat "$U")"; fi
+
+# 🔴 Випадок заведено 22.10.2026, коли попередній упав НЕ на поведінці, а на
+# коментарі: CAMP-385 дописав у прод-юніт пояснення, що тричі називає 3001,
+# і sed копіював його в юніт репетиції дослівно. Юніт був функціонально
+# правильний — неправдою була проза. Тут перевіряється саме це: проза
+# прод-юніта не їде в згенерований файл, а заголовок про походження — їде.
+new_world f4b
+T="$BASE/tmpl.service"
+cat > "$T" <<'TMPL'
+[Unit]
+Description=camptribe api
+# Слухає 3001 на /srv/camptribe/current, назовні пускає Caddy.
+; крапка з комою теж коментар у systemd
+
+[Service]
+WorkingDirectory=/srv/camptribe/current/apps/web
+Environment=PORT=3000
+ExecStart=/usr/bin/npx next start -p 3000
+API_BASE_URL=http://localhost:3001
+ReadWritePaths=/srv/camptribe/shared
+
+[Install]
+WantedBy=multi-user.target
+TMPL
+# shellcheck disable=SC1090,SC2034
+( source "$DEPLOY"; ROOT=/srv/camptribe; LINK=current; WEB_PORT=3000; API_PORT=3001
+  render_rehearsal_unit "$T" /srv/camptribe-rehearsal 3100 3101 > "$BASE/unit.tmpl" ) >/dev/null 2>&1
+R="$BASE/unit.tmpl"
+if ! grep -qE '(^|[^0-9])(3000|3001)([^0-9]|$)' "$R" \
+   && ! grep -q '/srv/camptribe/' "$R" \
+   && ! grep -q 'Слухає' "$R" \
+   && ! grep -q 'крапка з комою' "$R" \
+   && grep -q '^# ЗГЕНЕРОВАНО з юніта tmpl.service' "$R" \
+   && grep -q '^# Світ репетиції (CAMP-61): корінь /srv/camptribe-rehearsal, порти 3100 і 3101\.$' "$R" \
+   && grep -q 'ExecStart=.*-p 3100' "$R" \
+   && grep -qx 'ReadWritePaths=' "$R" \
+   && grep -qx '\[Unit\]' "$R" && grep -qx '\[Service\]' "$R"; then
+  pass "юніт репетиції не несе прози прод-юніта: коментарі # і ; вирізано, секції й заголовок на місці"
+else fail "юніт репетиції не несе прози прод-юніта: коментарі # і ; вирізано, секції й заголовок на місці" "$(cat "$R")"; fi
 
 new_world f_camp340
 # 🔴 CAMP-340. Сторож «статика несе адресу API» мусить уміти почервоніти,
