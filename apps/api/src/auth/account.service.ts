@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, Repository } from 'typeorm';
+import { appendConsent } from '../consent/consent-journal';
 import { AuthToken, AuthTokenKind } from '../entities/auth-token.entity';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
@@ -152,19 +153,38 @@ export class AccountService implements BeforeApplicationShutdown {
     if (taken) throw new EmailTaken();
 
     const passwordHash = await hashPassword(input.password as string);
+    // 🔴 `=== true`, not truthiness. "on", 1, "true" and a missing field are
+    // all NOT consent; only the explicit boolean the form sends when the box
+    // was ticked by a person is. ONE decision feeds both writes below, so the
+    // flag and the journal cannot disagree about whether the box was ticked.
+    const consented = input.newsletter === true;
     let user: User;
     try {
-      user = await this.users.save(
-        this.users.create({
-          email,
-          passwordHash,
-          // 🔴 `=== true`, not truthiness. "on", 1, "true" and a missing
-          // field are all NOT consent; only the explicit boolean the form
-          // sends when the box was ticked by a person is.
-          marketingConsentAt: input.newsletter === true ? now : null,
-          emailVerifiedAt: null,
-        }),
-      );
+      // 🔴 CAMP-390: THE ACCOUNT AND THE PROOF OF ITS CONSENT ARE ONE
+      // TRANSACTION. `marketing_consent_at` says "some time"; the journal row
+      // says WHICH wording (Art. 7(1)). A person with the flag and no row
+      // would be mailed on a consent we cannot demonstrate, and a failed
+      // insert must not leave an account that nobody can finish creating.
+      // No tick → no row: an unticked box is the absence of a statement, not
+      // a recorded "no".
+      user = await this.users.manager.transaction(async (m) => {
+        const created = await m.save(
+          m.create(User, {
+            email,
+            passwordHash,
+            marketingConsentAt: consented ? now : null,
+            emailVerifiedAt: null,
+          }),
+        );
+        if (consented)
+          await appendConsent(m, {
+            userId: created.id,
+            wording: 'newsletter.signup',
+            granted: true,
+            now,
+          });
+        return created;
+      });
     } catch (e) {
       if (isUniqueViolation(e)) throw new EmailTaken();
       throw e;
@@ -648,11 +668,30 @@ export class AccountService implements BeforeApplicationShutdown {
     now: Date = new Date(),
   ): Promise<boolean> {
     const on = letters === true;
-    const done = await this.users.update(
-      { id: userId, deletedAt: IsNull() },
-      { marketingConsentAt: on ? now : null },
-    );
-    if (done.affected !== 1) throw new NoSuchAccount();
+    // 🔴 CAMP-390: КОЖЕН ПРИЙНЯТИЙ ЗАПИТ — РІВНО ОДИН НОВИЙ РЯДОК ЖУРНАЛУ, І В
+    // ТІЙ САМІЙ ТРАНЗАКЦІЇ, що прапорець. Запит переписує прапорець завжди
+    // (вмикає, вимикає, а `"true"` чи порожнє поле — це теж «вимкнено»), тож
+    // журнал, що писав би лише «зміни», розходився б із прапорцем саме на
+    // повторах. Вимкнення — НОВИЙ рядок `granted = false`; ввімкнення, що було
+    // раніше, лишається на місці, бо `appendConsent` лише додає.
+    // Прапорець за цим не змінюється: ні значення, ні момент.
+    await this.users.manager.transaction(async (m) => {
+      const done = await m.update(
+        User,
+        { id: userId, deletedAt: IsNull() },
+        { marketingConsentAt: on ? now : null },
+      );
+      // Нічого не оновлено — нічого й не записано: рядок журналу для
+      // акаунта, якого немає, не пройшов би FK, а для видаленого — був би
+      // згодою людини, що просила забути її.
+      if (done.affected !== 1) throw new NoSuchAccount();
+      await appendConsent(m, {
+        userId,
+        wording: 'newsletter.settings',
+        granted: on,
+        now,
+      });
+    });
     return on;
   }
 

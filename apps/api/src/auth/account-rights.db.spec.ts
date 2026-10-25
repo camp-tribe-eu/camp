@@ -525,6 +525,16 @@ describe('🔴 the export (Art. 15): a file that opens', () => {
         'reviewed_at',
         'created_at',
       ],
+      // CAMP-390: the journal of consents. Art. 15 without it is incomplete —
+      // the person is owed WHAT they agreed to, not only that they did.
+      consent_record: [
+        'kind',
+        'granted',
+        'wording_key',
+        'wording_version',
+        'source',
+        'recorded_at',
+      ],
     };
     // Left out ON PURPOSE, each with its reason.
     const left: Record<string, string[]> = {
@@ -543,6 +553,10 @@ describe('🔴 the export (Art. 15): a file that opens', () => {
         'reviewed_by_directus_id', // a moderator's id, not this person's
       ],
       reviews: ['author_id', 'reviewed_by_directus_id'],
+      consent_record: [
+        'id', // internal sequence, only orders the rows
+        'user_id', // the archive IS the user
+      ],
     };
     for (const table of Object.keys(included)) {
       const cols = (
