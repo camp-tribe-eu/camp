@@ -1,0 +1,389 @@
+{
+  "status": 200,
+  "body": {
+    "status": "ok",
+    "measure": "straight",
+    "lengthM": 531891.853300728,
+    "candidates": 1542,
+    "ranking": [
+      {
+        "id": "distance_fit",
+        "weight": 0.75
+      },
+      {
+        "id": "electricity",
+        "weight": 0.1
+      },
+      {
+        "id": "greyWater",
+        "weight": 0.1
+      },
+      {
+        "id": "stars",
+        "weight": 0.05
+      }
+    ],
+    "days": [
+      {
+        "day": 1,
+        "runM": 75981.48415866209,
+        "measure": "straight",
+        "night": {
+          "slug": "aire-de-camping-car-saint-bonnet-le-froid",
+          "name": "Aire de camping-car Saint-Bonnet-le-Froid",
+          "country": "FR",
+          "path": "/camping/fr/haute-loire/aire-de-camping-car-saint-bonnet-le-froid",
+          "lat": 45.141326,
+          "lon": 4.434487705025678,
+          "alongM": 75981.48415866209,
+          "offsetM": 376.1570675611449,
+          "targetAlongM": 75984.55047153258,
+          "fromTargetM": 376.16956515754896,
+          "amenities": {
+            "electricity": "yes",
+            "water": "yes",
+            "greyWater": "yes"
+          },
+          "stars": null,
+          "reasons": [
+            {
+              "field": "electricity",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records electricity at this campsite"
+            },
+            {
+              "field": "greyWater",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records grey-water disposal at this campsite"
+            },
+            {
+              "field": "context.water",
+              "value": 211,
+              "unit": "m",
+              "kind": "reservoir",
+              "weighed": false,
+              "text": "Reservoir 211 m away in a straight line"
+            }
+          ],
+          "sources": [
+            {
+              "id": "osm",
+              "updatedAt": "2026-10-16"
+            }
+          ]
+        }
+      },
+      {
+        "day": 2,
+        "runM": 58881.25053622559,
+        "measure": "straight",
+        "night": {
+          "slug": "camping-les-rives-de-l-ardeche-2",
+          "name": "Camping les Rives de l'Ardèche",
+          "country": "FR",
+          "path": "/camping/fr/ardeche/camping-les-rives-de-l-ardeche-2",
+          "lat": 44.669988450000005,
+          "lon": 4.091619462649867,
+          "alongM": 134862.73469488768,
+          "offsetM": 2622.842647560113,
+          "targetAlongM": 151969.10094306516,
+          "fromTargetM": 17306.272555655818,
+          "amenities": {
+            "electricity": "yes",
+            "wifi": "yes",
+            "greyWater": "yes",
+            "wheelchair": "yes",
+            "wheelchairFull": "yes"
+          },
+          "stars": 3,
+          "reasons": [
+            {
+              "field": "electricity",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records electricity at this campsite"
+            },
+            {
+              "field": "greyWater",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records grey-water disposal at this campsite"
+            },
+            {
+              "field": "context.water",
+              "value": 86,
+              "unit": "m",
+              "kind": "river",
+              "name": "L'Ardèche",
+              "weighed": false,
+              "text": "River (L'Ardèche) 86 m away in a straight line"
+            }
+          ],
+          "sources": [
+            {
+              "id": "osm",
+              "updatedAt": "2026-10-16"
+            },
+            {
+              "id": "datatourisme",
+              "updatedAt": "2025-10-13"
+            }
+          ]
+        }
+      },
+      {
+        "day": 3,
+        "runM": 86669.11800802365,
+        "measure": "straight",
+        "night": {
+          "slug": "aire-camping-car-park-aveze-le-pont-vieux",
+          "name": "Aire Camping-Car Park Avèze, Le Pont Vieux",
+          "country": "FR",
+          "path": "/camping/fr/gard/aire-camping-car-park-aveze-le-pont-vieux",
+          "lat": 43.974196250000006,
+          "lon": 3.597562941552671,
+          "alongM": 221531.85270291133,
+          "offsetM": 6984.588055570204,
+          "targetAlongM": 227953.65141459776,
+          "fromTargetM": 9488.096173597281,
+          "amenities": {
+            "electricity": "yes",
+            "dogFriendly": "yes",
+            "wifi": "yes",
+            "greyWater": "yes"
+          },
+          "stars": null,
+          "reasons": [
+            {
+              "field": "electricity",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records electricity at this campsite"
+            },
+            {
+              "field": "greyWater",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records grey-water disposal at this campsite"
+            },
+            {
+              "field": "context.water",
+              "value": 64,
+              "unit": "m",
+              "kind": "river",
+              "weighed": false,
+              "text": "River 64 m away in a straight line"
+            },
+            {
+              "field": "context.supermarket",
+              "value": 477,
+              "unit": "m",
+              "name": "Intermarché Super",
+              "weighed": false,
+              "text": "Supermarket (Intermarché Super) 477 m away in a straight line"
+            }
+          ],
+          "sources": [
+            {
+              "id": "osm",
+              "updatedAt": "2026-10-16"
+            }
+          ]
+        }
+      },
+      {
+        "day": 4,
+        "runM": 87634.2115246843,
+        "measure": "straight",
+        "night": {
+          "slug": "blue-bayou",
+          "name": "Blue Bayou",
+          "country": "FR",
+          "path": "/camping/fr/herault/blue-bayou",
+          "lat": 43.225877249999996,
+          "lon": 3.243806324956536,
+          "alongM": 309166.06422759563,
+          "offsetM": 462.4856238482864,
+          "targetAlongM": 303938.2018861303,
+          "fromTargetM": 5248.27949080244,
+          "amenities": {
+            "electricity": "yes",
+            "water": "yes",
+            "shower": "yes",
+            "toilets": "yes",
+            "wifi": "yes",
+            "greyWater": "yes",
+            "wheelchair": "yes",
+            "wheelchairFull": "no"
+          },
+          "stars": 5,
+          "reasons": [
+            {
+              "field": "electricity",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records electricity at this campsite"
+            },
+            {
+              "field": "greyWater",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records grey-water disposal at this campsite"
+            },
+            {
+              "field": "stars",
+              "value": 5,
+              "unit": "stars",
+              "weighed": true,
+              "text": "5-star official classification"
+            },
+            {
+              "field": "context.water",
+              "value": 849,
+              "unit": "m",
+              "kind": "sea",
+              "weighed": false,
+              "text": "Sea 849 m away in a straight line"
+            }
+          ],
+          "sources": [
+            {
+              "id": "osm",
+              "updatedAt": "2026-10-16"
+            },
+            {
+              "id": "datatourisme",
+              "updatedAt": "2026-09-07"
+            }
+          ]
+        }
+      },
+      {
+        "day": 5,
+        "runM": 66745.54156544642,
+        "measure": "straight",
+        "night": {
+          "slug": "mas-du-roc",
+          "name": "Mas du Roc",
+          "country": "FR",
+          "path": "/camping/fr/pyrenees-orientales/mas-du-roc",
+          "lat": 42.6606629,
+          "lon": 2.963068,
+          "alongM": 375911.60579304205,
+          "offsetM": 4611.469889242267,
+          "targetAlongM": 379922.7523576629,
+          "fromTargetM": 6111.869705929408,
+          "amenities": {
+            "electricity": "yes",
+            "shower": "yes",
+            "toilets": "no",
+            "wifi": "no",
+            "greyWater": "yes"
+          },
+          "stars": null,
+          "reasons": [
+            {
+              "field": "electricity",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records electricity at this campsite"
+            },
+            {
+              "field": "greyWater",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records grey-water disposal at this campsite"
+            },
+            {
+              "field": "context.water",
+              "value": 567,
+              "unit": "m",
+              "kind": "river",
+              "weighed": false,
+              "text": "River 567 m away in a straight line"
+            },
+            {
+              "field": "context.supermarket",
+              "value": 851,
+              "unit": "m",
+              "name": "Lidl",
+              "weighed": false,
+              "text": "Supermarket (Lidl) 851 m away in a straight line"
+            }
+          ],
+          "sources": [
+            {
+              "id": "osm",
+              "updatedAt": "2026-10-16"
+            }
+          ]
+        }
+      },
+      {
+        "day": 6,
+        "runM": 85798.5711857375,
+        "measure": "straight",
+        "night": {
+          "slug": "area-d-autocaravanes-de-tavertet",
+          "name": "Àrea d'autocaravanes de Tavertet",
+          "country": "ES",
+          "path": "/camping/es/barcelona/area-d-autocaravanes-de-tavertet",
+          "lat": 41.994703349999995,
+          "lon": 2.415788754982256,
+          "alongM": 461710.17697877955,
+          "offsetM": 7482.334601351623,
+          "targetAlongM": 455907.3028291955,
+          "fromTargetM": 9468.826721537067,
+          "amenities": {
+            "electricity": "yes",
+            "water": "yes",
+            "toilets": "yes",
+            "wifi": "no",
+            "greyWater": "yes"
+          },
+          "stars": null,
+          "reasons": [
+            {
+              "field": "electricity",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records electricity at this campsite"
+            },
+            {
+              "field": "greyWater",
+              "value": "yes",
+              "unit": null,
+              "weighed": true,
+              "text": "Our database records grey-water disposal at this campsite"
+            }
+          ],
+          "sources": [
+            {
+              "id": "osm",
+              "updatedAt": "2026-10-16"
+            }
+          ]
+        }
+      },
+      {
+        "day": 7,
+        "runM": 70181.67632194847,
+        "measure": "straight",
+        "night": null
+      }
+    ]
+  }
+}

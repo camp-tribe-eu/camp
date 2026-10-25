@@ -37,6 +37,7 @@ import { buildCorridor } from './corridor-source';
 import { LonLat } from './hard-constraints';
 import { ItineraryOutcome, planItinerary } from './itinerary';
 import { JOURNEYS } from './measure-constraints';
+import { BAND_SHARE, BUFFER_M, bandFor } from '../plan/plan-policy';
 import { inReadOnlyTransaction, Queryable } from './read-only';
 import { splitIntoDays } from './split-days';
 
@@ -46,9 +47,10 @@ export const SPHEROID_SLACK = 0.99;
 export const DAYS = 7;
 /** Float noise in a run that is a difference of two positions: a millimetre. */
 const RUN_EPSILON_M = 1e-3;
-/** Runs of 0.5 to 1.5 of an even day: a calm and a hurried day around the mean. */
-export const BAND_SHARE = { min: 0.5, max: 1.5 } as const;
-export const BUFFER_M = 30_000;
+// 🔴 CAMP-391: the band and the buffer are what `POST /plan` asks the planner
+// with, so they live in ONE place (plan/plan-policy.ts) and this measures that.
+// Re-exported, because the report below names them.
+export { BAND_SHARE, BUFFER_M };
 /** Every journey is planned this many times: the first is cold, the rest are not. */
 export const REPEATS = 5;
 
@@ -159,11 +161,7 @@ export async function measureTrips(
     // The band is a share of an even day, so it needs the corridor's length:
     // from the same source the planner takes it from.
     const lengthM = (await buildCorridor({ from: t.from, to: t.to })).metres;
-    const even = lengthM / DAYS;
-    const band = {
-      minM: even * BAND_SHARE.min,
-      maxM: even * BAND_SHARE.max,
-    };
+    const band = bandFor(lengthM, DAYS);
     for (let i = 0; i < repeats; i++) {
       const t0 = performance.now();
       last = await planItinerary(db, {

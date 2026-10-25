@@ -41,7 +41,7 @@ export default function PlanForm() {
   const jump = (field: PlanField) => document.getElementById(FIELD_ID[field])?.focus();
 
   return (
-    <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_360px]">
+    <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_360px] lg:items-start">
       <PlanFormView
         draft={state.draft}
         errors={state.errors}

@@ -22,6 +22,7 @@ import { NavigationModule } from './navigation/navigation.module';
 import { PagesModule } from './pages/pages.module';
 import { AuthModule } from './auth/auth.module';
 import { TripsModule } from './trips/trips.module';
+import { PlanModule } from './plan/plan.module';
 import { HealthModule } from './health/health.module';
 import { WarningsModule } from './warnings/warnings.module';
 import { ClientError } from './entities/client-error.entity';
@@ -117,6 +118,9 @@ export const REASONS = loadMeasuredReasons();
     AuthModule,
     TripsModule,
     WarningsModule,
+    // CAMP-391: the HTTP entry to the planner — `POST /plan`, in its own throttle
+    // bucket, over a read-only transaction.
+    PlanModule,
   ],
   controllers: [AppController],
   providers: [
