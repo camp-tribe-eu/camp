@@ -9,9 +9,12 @@ import {
   CONSENT_SOURCES,
   WORDINGS,
   WORDING_KEYS,
+  checkOffer,
   currentWording,
   latestOf,
+  versionSeenOrCurrent,
   wordingAt,
+  type Wording,
 } from './wordings';
 
 // CAMP-390 — реєстр формулювань згод, без бази й без сервера.
@@ -166,7 +169,128 @@ describe('«чинна» — це найбільша версія', () => {
   });
 });
 
-describe('🔴 текст бере сервер: `appendConsent` не слухає виклику про те, що було показано', () => {
+/** Піднімає версію ключа в реєстрі на час `run`, потім повертає як було. */
+function withRaised<T>(
+  key: 'newsletter.signup' | 'newsletter.settings',
+  run: (v2: Wording) => T,
+): T {
+  const prev = currentWording(key);
+  const v2: Wording = {
+    ...prev,
+    version: prev.version + 1,
+    text: `${prev.text} (revised)`,
+  };
+  const list = WORDINGS as unknown as Wording[];
+  list.push(v2);
+  try {
+    return run(v2);
+  } finally {
+    list.splice(list.indexOf(v2), 1);
+  }
+}
+
+describe('🔴 номер версії, який назвала сторінка: приймається лише чинний', () => {
+  it('чинний номер — прийнято, і запис формулювання той самий', () => {
+    const w = currentWording('newsletter.signup');
+    expect(checkOffer('newsletter.signup', w.version)).toEqual({
+      ok: true,
+      wording: w,
+    });
+  });
+
+  it('🔴 застарілий номер — `stale`, а не мовчазний запис нової версії', () => {
+    const v1 = currentWording('newsletter.signup');
+    withRaised('newsletter.signup', (v2) => {
+      // Реєстр уже на v2, а сторінка відрендерила v1.
+      expect(currentWording('newsletter.signup').version).toBe(v2.version);
+      expect(checkOffer('newsletter.signup', v1.version)).toEqual({
+        ok: false,
+        why: 'stale',
+      });
+      // …і саме v2 приймається.
+      expect(checkOffer('newsletter.signup', v2.version)).toEqual({
+        ok: true,
+        wording: v2,
+      });
+    });
+    // Після відкату чинна знову v1.
+    expect(checkOffer('newsletter.signup', v1.version).ok).toBe(true);
+  });
+
+  it('номер із майбутнього чи вигаданий — `unknown`', () => {
+    const w = currentWording('newsletter.signup');
+    expect(checkOffer('newsletter.signup', w.version + 1)).toEqual({
+      ok: false,
+      why: 'unknown',
+    });
+    expect(checkOffer('newsletter.signup', 99)).toEqual({
+      ok: false,
+      why: 'unknown',
+    });
+    expect(checkOffer('newsletter.signup', 0)).toEqual({
+      ok: false,
+      why: 'unknown',
+    });
+    expect(checkOffer('newsletter.signup', -1)).toEqual({
+      ok: false,
+      why: 'unknown',
+    });
+  });
+
+  it.each([
+    undefined,
+    null,
+    '1',
+    1.5,
+    NaN,
+    Infinity,
+    true,
+    [1],
+    { version: 1 },
+  ])('не число чи не ціле (%p) — `missing`', (offered) => {
+    expect(checkOffer('newsletter.signup', offered)).toEqual({
+      ok: false,
+      why: 'missing',
+    });
+  });
+
+  it('номер одного ключа не годиться для іншого, коли версії розійшлися', () => {
+    withRaised('newsletter.settings', (v2) => {
+      // v2 є лише в settings: для signup це «вигадана».
+      expect(checkOffer('newsletter.signup', v2.version)).toEqual({
+        ok: false,
+        why: 'unknown',
+      });
+    });
+  });
+});
+
+describe('🔴 відкликання: версія — та, яку назвала сторінка, якщо вона в реєстрі, інакше чинна', () => {
+  it('названа й існує — вона', () => {
+    const v1 = currentWording('newsletter.settings');
+    withRaised('newsletter.settings', (v2) => {
+      expect(versionSeenOrCurrent('newsletter.settings', v1.version)).toEqual(
+        v1,
+      );
+      expect(versionSeenOrCurrent('newsletter.settings', v2.version)).toEqual(
+        v2,
+      );
+    });
+  });
+
+  it.each([undefined, null, 99, 0, -3, '1', 1.5, NaN, true])(
+    'названа неправильно або вигадана (%p) — чинна, а не вигадана',
+    (offered) => {
+      withRaised('newsletter.settings', (v2) => {
+        expect(versionSeenOrCurrent('newsletter.settings', offered)).toEqual(
+          v2,
+        );
+      });
+    },
+  );
+});
+
+describe('🔴 `appendConsent` пише лише те, що є в реєстрі', () => {
   const insertedBy = async (entry: Record<string, unknown>) => {
     const calls: Array<[unknown, Record<string, unknown>]> = [];
     const m = {
@@ -182,12 +306,13 @@ describe('🔴 текст бере сервер: `appendConsent` не слуха
 
   const NOW = new Date('2026-10-25T12:00:00Z');
 
-  it('пише вид, версію й джерело з реєстру', async () => {
+  it('пише вид, версію й джерело із записаного формулювання', async () => {
     const w = currentWording('newsletter.settings');
     expect(
       await insertedBy({
         userId: 'u-1',
         wording: 'newsletter.settings',
+        version: w.version,
         granted: false,
         now: NOW,
       }),
@@ -202,22 +327,20 @@ describe('🔴 текст бере сервер: `appendConsent` не слуха
     });
   });
 
-  it('вигадані версія, вид, джерело й текст від виклику до рядка не доходять', async () => {
+  it('вигадані вид, джерело й текст від виклику до рядка не доходять', async () => {
     const w = currentWording('newsletter.signup');
     const row = await insertedBy({
       userId: 'u-1',
       wording: 'newsletter.signup',
+      version: w.version,
       granted: true,
       now: NOW,
       // усе, що міг би надіслати зловмисний клієнт, якби сервер його слухав
-      wordingVersion: 99,
-      version: 99,
       kind: 'photo_publish',
       source: 'moderation',
       text: 'I agree to everything.',
       wordingText: 'I agree to everything.',
     });
-    expect(row.wordingVersion).toBe(w.version);
     expect(row.kind).toBe(w.kind);
     expect(row.source).toBe(w.source);
     expect(JSON.stringify(row)).not.toContain('I agree to everything');
@@ -234,15 +357,30 @@ describe('🔴 текст бере сервер: `appendConsent` не слуха
     );
   });
 
+  it('🔴 версії, якої немає в реєстрі, не записує — навіть із валідним ключем', async () => {
+    const w = currentWording('newsletter.signup');
+    for (const version of [w.version + 1, 99, 0, -1, 1.5, undefined, '1'])
+      await expect(
+        insertedBy({
+          userId: 'u-1',
+          wording: 'newsletter.signup',
+          version,
+          granted: true,
+          now: NOW,
+        }),
+      ).rejects.toThrow(/in the registry/);
+  });
+
   it('ключа, якого немає в реєстрі, не записує', async () => {
     await expect(
       insertedBy({
         userId: 'u-1',
         wording: 'newsletter.invented',
+        version: 1,
         granted: true,
         now: NOW,
       }),
-    ).rejects.toThrow(/no wording registered/);
+    ).rejects.toThrow(/in the registry/);
   });
 });
 

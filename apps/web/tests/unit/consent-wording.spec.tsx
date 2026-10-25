@@ -7,7 +7,11 @@ import {
   type ConsentSource,
 } from '../../../api/src/consent/wordings';
 import { SignupForm } from '@/components/account-forms';
+import { messageFor } from '@/components/account-view';
 import { LettersCard, SettingsView } from '@/components/account-settings-view';
+import { signUp } from '@/lib/account';
+import { SESSION_KEY } from '@/lib/session-store';
+import { setLetters } from '@/lib/settings';
 import { renderComponent } from './render-component';
 import { visibleText } from './rendered-text';
 
@@ -34,6 +38,13 @@ import { visibleText } from './rendered-text';
 //
 // Версію тексту стереже окремо `consent-wordings.spec.ts` в API: змінити текст
 // ВСЮДИ без нової версії — теж розходження, тільки з боку часу.
+//
+// 🔴 (3) НОМЕР ВЕРСІЇ. Сторінка шле серверу номер тексту, який відрендерила, а
+// сервер приймає лише чинний (409 інакше): так вкладка, відкрита до зміни
+// формулювання, не запише нову версію під галочкою зі старим текстом. Номер —
+// ще одна копія тієї самої правди, тож він читається звідти, де його бачить
+// людина (атрибут біля галочки у виданій HTML) і звідки він іде на сервер
+// (тіло запиту), і обидва порівнюються з реєстром.
 
 type Tag = Record<string, string | true>;
 
@@ -43,7 +54,14 @@ const attrsOf = (raw: string): Tag => {
   return out;
 };
 
-type Box = { name: string | undefined; checked: boolean; label: string | null };
+type Box = {
+  name: string | undefined;
+  checked: boolean;
+  label: string | null;
+  /** `data-wording` і `data-wording-version` біля галочки, як у виданій HTML. */
+  wording: string | undefined;
+  version: string | undefined;
+};
 
 /**
  * Кожен checkbox виданої HTML з його видимим підписом: або `<label for=id>`, або
@@ -66,6 +84,11 @@ function checkboxes(html: string): Box[] {
       name: typeof attrs.name === 'string' ? attrs.name : undefined,
       checked: 'checked' in attrs,
       label: hit ? visibleText(hit.inner) : null,
+      wording: typeof attrs['data-wording'] === 'string' ? attrs['data-wording'] : undefined,
+      version:
+        typeof attrs['data-wording-version'] === 'string'
+          ? attrs['data-wording-version']
+          : undefined,
     };
   });
 }
@@ -168,12 +191,12 @@ test.describe('сторож бачить те, про що каже', () => {
   test('читає і `<label for>`, і `<label>` навколо checkbox', () => {
     const forLabel = '<input id="a" type="checkbox" name="x"><label for="a">One <b>two</b></label>';
     const wrapped = '<label class="c"><input type="checkbox" name="y" checked=""><span>Three  four</span></label>';
-    expect(checkboxes(forLabel)).toEqual([{ name: 'x', checked: false, label: 'One two' }]);
-    expect(checkboxes(wrapped)).toEqual([{ name: 'y', checked: true, label: 'Three four' }]);
+    expect(checkboxes(forLabel)).toMatchObject([{ name: 'x', checked: false, label: 'One two' }]);
+    expect(checkboxes(wrapped)).toMatchObject([{ name: 'y', checked: true, label: 'Three four' }]);
   });
 
   test('галочку без підпису не зараховує підписаною', () => {
-    expect(checkboxes('<input type="checkbox" name="z">')).toEqual([
+    expect(checkboxes('<input type="checkbox" name="z">')).toMatchObject([
       { name: 'z', checked: false, label: null },
     ]);
   });
@@ -196,5 +219,92 @@ test.describe('сторож бачить те, про що каже', () => {
     // …а ввімкнений стан у тій самій розмітці зʼявляється, тож відсутність щось означає.
     const on = renderComponent(LettersCard, { on: true, busy: false, note: null, onToggle: noop });
     expect(checkboxes(on)[0].checked).toBe(true);
+  });
+});
+
+test.describe('🔴 (3) номер версії: сторінка називає той, що відрендерила', () => {
+  const FAKE_SESSION = JSON.stringify({
+    token: 'T'.repeat(43),
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    email: 'anna@example.com',
+  });
+
+  /** Тіло, яке `signUp` справді шле. */
+  async function signupBody(): Promise<Record<string, unknown>> {
+    let body: Record<string, unknown> = {};
+    await signUp(
+      { email: 'a@b.co', password: 'p'.repeat(12), newsletter: true },
+      'https://api.example',
+      async (_url, init) => {
+        body = JSON.parse(String(init.body));
+        return new Response('{}', { status: 201 });
+      },
+    );
+    return body;
+  }
+
+  /** Тіло, яке `setLetters` справді шле. */
+  async function lettersBody(): Promise<Record<string, unknown>> {
+    let body: Record<string, unknown> = {};
+    await setLetters(true, {
+      base: 'https://api.example',
+      storage: {
+        getItem: (k) => (k === SESSION_KEY ? FAKE_SESSION : null),
+        removeItem: noop,
+      },
+      fetchImpl: async (_url, init) => {
+        body = JSON.parse(String(init.body));
+        return new Response('{"letters":true}', { status: 200 });
+      },
+    });
+    return body;
+  }
+
+  // Один тест на ключ реєстру: новий ключ — новий тест, червоний, поки екран
+  // не називає номера.
+  for (const key of WORDING_KEYS) {
+    test(`${key}: номер у виданій HTML і в тілі запиту = чинна версія реєстру`, async () => {
+      const w = currentWording(key);
+      const boxes = checkboxes(screenOf(w.source)).filter((b) => b.label === w.text);
+      expect(boxes).toHaveLength(1);
+      // Номер біля галочки, у виданій HTML — і той самий ключ.
+      expect(boxes[0].wording).toBe(key);
+      expect(boxes[0].version, `біля галочки «${key}» немає номера версії`).toBe(String(w.version));
+      // Номер у тілі запиту — той самий, що біля галочки.
+      const body = key === 'newsletter.signup' ? await signupBody() : await lettersBody();
+      expect(body.wordingVersion).toBe(w.version);
+      expect(body.wordingVersion).toBe(Number(boxes[0].version));
+    });
+  }
+
+  test('жодна галочка екрана згод не лишилась без номера', () => {
+    for (const source of Object.keys(SCREENS) as ConsentSource[])
+      for (const b of checkboxes(screenOf(source))) {
+        expect(b.wording, `галочка «${b.name}» без data-wording`).toBeDefined();
+        expect(b.version, `галочка «${b.name}» без data-wording-version`).toMatch(/^[1-9]\d*$/);
+      }
+  });
+
+  test('запит шле НОМЕР, а не текст: у тілі немає жодного поля з формулюванням', async () => {
+    for (const body of [await signupBody(), await lettersBody()]) {
+      const wire = JSON.stringify(body);
+      for (const w of WORDINGS) expect(wire).not.toContain(w.text);
+      expect(typeof body.wordingVersion).toBe('number');
+    }
+  });
+
+  test('сторож бачить те, про що каже: номер читається з розмітки, а не вгадується', () => {
+    const html =
+      '<label><input type="checkbox" data-wording="k" data-wording-version="7"><span>t</span></label>';
+    expect(checkboxes(html)).toMatchObject([{ wording: 'k', version: '7' }]);
+    expect(checkboxes('<label><input type="checkbox"><span>t</span></label>')).toMatchObject([
+      { wording: undefined, version: undefined },
+    ]);
+  });
+
+  test('409 `wording_changed` має власне речення про те, що робити', () => {
+    const text = messageFor({ kind: 'wording-changed' });
+    expect(text).toMatch(/Reload the page/);
+    expect(text).toMatch(/Nothing was saved/);
   });
 });

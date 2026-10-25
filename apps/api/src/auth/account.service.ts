@@ -7,6 +7,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import { appendConsent } from '../consent/consent-journal';
+import {
+  checkOffer,
+  versionSeenOrCurrent,
+  type Wording,
+} from '../consent/wordings';
 import { AuthToken, AuthTokenKind } from '../entities/auth-token.entity';
 import { Session } from '../entities/session.entity';
 import { User } from '../entities/user.entity';
@@ -45,6 +50,19 @@ export class MailUnavailable extends Error {}
 export class StaleLink extends Error {}
 /** Нова адреса збігається з чинною: тут мовчати нема про що. */
 export class SameEmail extends Error {}
+/**
+ * 🔴 CAMP-390. Людина надала згоду під текстом, якого більше немає: версія, яку
+ * назвала сторінка, не збігається з чинною (або не названа, або вигадана).
+ * Нічого не записано. Відповідь одна на всі три причини: «перезавантажте».
+ */
+export class WordingChanged extends Error {}
+
+/** Тіло 409 для `WordingChanged`: одне на всі причини, див. клас вище. */
+export const WORDING_CHANGED_BODY = {
+  code: 'wording_changed',
+  message:
+    'The text next to this box has changed since the page was opened. Reload the page, read it again, and then decide. Nothing was saved.',
+} as const;
 
 export class TooSoon extends Error {
   constructor(readonly retryAfterSec: number) {
@@ -133,7 +151,13 @@ export class AccountService implements BeforeApplicationShutdown {
    * choose, not mine.
    */
   async signUp(
-    input: { email: unknown; password: unknown; newsletter: unknown },
+    input: {
+      email: unknown;
+      password: unknown;
+      newsletter: unknown;
+      /** Версія тексту біля галочки, яку відрендерила сторінка. CAMP-390. */
+      wordingVersion?: unknown;
+    },
     now: Date = new Date(),
   ): Promise<SignedUp> {
     const email = normalizeEmail(input.email);
@@ -143,6 +167,19 @@ export class AccountService implements BeforeApplicationShutdown {
     // 🔴 Refused BEFORE the account exists. An account whose confirmation
     // letter can never be sent is an account nobody can finish creating.
     if (!this.mailer) throw new MailUnavailable();
+
+    // 🔴 CAMP-390: ТЕКСТ, ПІД ЯКИМ ПОСТАВЛЕНО ГАЛОЧКУ, МУСИТЬ БУТИ ЧИННИМ — і
+    // перевіряється ДО акаунта, до хешу й до будь-якого запису. Сторінка,
+    // відкрита до зміни формулювання, шле старий номер; без цієї перевірки
+    // сервер записав би НОВУ версію під галочкою, під якою людина прочитала
+    // стару. Без галочки версія нікого не стосується.
+    const consented = input.newsletter === true;
+    let offered: Wording | null = null;
+    if (consented) {
+      const offer = checkOffer('newsletter.signup', input.wordingVersion);
+      if (!offer.ok) throw new WordingChanged();
+      offered = offer.wording;
+    }
 
     // Checked first only to spare the ~200 ms hash; the unique index below is
     // what actually decides, and a race lands in the `catch`.
@@ -155,9 +192,9 @@ export class AccountService implements BeforeApplicationShutdown {
     const passwordHash = await hashPassword(input.password as string);
     // 🔴 `=== true`, not truthiness. "on", 1, "true" and a missing field are
     // all NOT consent; only the explicit boolean the form sends when the box
-    // was ticked by a person is. ONE decision feeds both writes below, so the
-    // flag and the journal cannot disagree about whether the box was ticked.
-    const consented = input.newsletter === true;
+    // was ticked by a person is. ONE decision (`consented`, above) feeds both
+    // writes below, so the flag and the journal cannot disagree about whether
+    // the box was ticked.
     let user: User;
     try {
       // 🔴 CAMP-390: THE ACCOUNT AND THE PROOF OF ITS CONSENT ARE ONE
@@ -176,10 +213,11 @@ export class AccountService implements BeforeApplicationShutdown {
             emailVerifiedAt: null,
           }),
         );
-        if (consented)
+        if (offered)
           await appendConsent(m, {
             userId: created.id,
             wording: 'newsletter.signup',
+            version: offered.version,
             granted: true,
             now,
           });
@@ -665,9 +703,27 @@ export class AccountService implements BeforeApplicationShutdown {
   async setLetters(
     userId: string,
     letters: unknown,
+    /** Версія тексту біля перемикача, яку відрендерила сторінка. CAMP-390. */
+    wordingVersion: unknown,
     now: Date = new Date(),
   ): Promise<boolean> {
     const on = letters === true;
+    // 🔴 CAMP-390: НАДАННЯ — ЛИШЕ ПІД ЧИННИМ ТЕКСТОМ (409 інакше, і нічого не
+    // записано); ВІДКЛИКАННЯ — ЗАВЖДИ ПРОХОДИТЬ. Знімати згоду мусить бути так
+    // само легко, як давати (ст. 7(3)): «ваша сторінка застаріла» на знятті
+    // галочки було б перешкодою відкликанню. Воно несе версію, яку назвав
+    // клієнт, якщо вона є в реєстрі, а інакше чинну.
+    let version: number;
+    if (on) {
+      const offer = checkOffer('newsletter.settings', wordingVersion);
+      if (!offer.ok) throw new WordingChanged();
+      version = offer.wording.version;
+    } else {
+      version = versionSeenOrCurrent(
+        'newsletter.settings',
+        wordingVersion,
+      ).version;
+    }
     // 🔴 CAMP-390: КОЖЕН ПРИЙНЯТИЙ ЗАПИТ — РІВНО ОДИН НОВИЙ РЯДОК ЖУРНАЛУ, І В
     // ТІЙ САМІЙ ТРАНЗАКЦІЇ, що прапорець. Запит переписує прапорець завжди
     // (вмикає, вимикає, а `"true"` чи порожнє поле — це теж «вимкнено»), тож
@@ -688,6 +744,7 @@ export class AccountService implements BeforeApplicationShutdown {
       await appendConsent(m, {
         userId,
         wording: 'newsletter.settings',
+        version,
         granted: on,
         now,
       });

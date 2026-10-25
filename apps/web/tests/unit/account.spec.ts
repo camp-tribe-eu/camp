@@ -67,6 +67,9 @@ test.describe('interpret: статус і код → стан сторінки',
   test('401 — відмова входу; 409 — зайнято; 410 — посилання застаріло', () => {
     expect(interpret(401, { message: 'Email or password is wrong.' })).toEqual({ kind: 'refused' });
     expect(interpret(409, { code: 'email_taken' })).toEqual({ kind: 'taken' });
+    // CAMP-390: той самий статус, інший код — інша сторінка («перезавантажте»).
+    expect(interpret(409, { code: 'wording_changed', message: 'M' })).toEqual({ kind: 'wording-changed' });
+    expect(interpret(409, null)).toEqual({ kind: 'taken' });
     expect(interpret(410, { code: 'link_stale' })).toEqual({ kind: 'stale' });
   });
 
@@ -148,12 +151,13 @@ test.describe('що саме відправляє кожен запит', () => 
     return { path, body };
   }
 
-  test('реєстрація: рівно email, password, newsletter — і ніякого поля «умови»', async () => {
+  test('реєстрація: email, password, newsletter, номер версії тексту — і ніякого поля «умови»', async () => {
     const r = await sent((f) =>
       signUp({ email: 'a@b.co', password: 'p'.repeat(12), newsletter: false }, 'https://api.example', f),
     );
     expect(r.path).toBe('/auth/signup');
-    expect(Object.keys(r.body).sort()).toEqual(['email', 'newsletter', 'password']);
+    // CAMP-390: `wordingVersion` — НОМЕР тексту біля галочки, не сам текст.
+    expect(Object.keys(r.body).sort()).toEqual(['email', 'newsletter', 'password', 'wordingVersion']);
     // Булеве як є: сервер рахує згодою лише справжнє `true`.
     expect(r.body.newsletter).toBe(false);
   });

@@ -19,7 +19,9 @@ import {
   MailUnavailable,
   StaleLink,
   TooSoon,
+  WORDING_CHANGED_BODY,
   WeakPassword,
+  WordingChanged,
 } from './account.service';
 import { AuthService } from './auth.service';
 import { LOGIN_LIMIT, MAIL_LIMIT } from '../throttle';
@@ -59,6 +61,11 @@ function httpFor(e: unknown, res?: Response): unknown {
       },
       400,
     );
+  // 🔴 CAMP-390: 409, як і «адреса зайнята», але ІНШИЙ `code`: сторінка
+  // розгалужується за кодом, а не за статусом, і «перезавантажте» не те саме,
+  // що «увійдіть».
+  if (e instanceof WordingChanged)
+    return new HttpException(WORDING_CHANGED_BODY, 409);
   if (e instanceof EmailTaken)
     return new HttpException(
       {
@@ -175,6 +182,8 @@ export class AuthController {
         email: body?.email,
         password: body?.password,
         newsletter: body?.newsletter,
+        // CAMP-390: версія тексту біля галочки, яку відрендерила сторінка.
+        wordingVersion: body?.wordingVersion,
       });
       return {
         token: out.token,

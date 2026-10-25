@@ -730,7 +730,7 @@ describe('листи про новини', () => {
     }
     const on = await post(
       '/account/letters',
-      { letters: true },
+      { letters: true, wordingVersion: 1 },
       asUser(u.token),
     );
     expect(on.json.letters).toBe(true);
@@ -738,7 +738,11 @@ describe('листи про новини', () => {
 
   it('зберігається МОМЕНТ, і вимкнення його прибирає', async () => {
     const u = await makeUser();
-    await post('/account/letters', { letters: true }, asUser(u.token));
+    await post(
+      '/account/letters',
+      { letters: true, wordingVersion: 1 },
+      asUser(u.token),
+    );
     const after = await db.query(
       'SELECT marketing_consent_at FROM users WHERE email = $1',
       [u.email],
@@ -765,7 +769,11 @@ describe('листи про новини', () => {
 describe('GET /account/settings', () => {
   it('віддає адресу, підтвердженість і стан листів — і нічого більше', async () => {
     const u = await makeUser();
-    await post('/account/letters', { letters: true }, asUser(u.token));
+    await post(
+      '/account/letters',
+      { letters: true, wordingVersion: 1 },
+      asUser(u.token),
+    );
     const r = await get('/account/settings', u.token);
     expect(r.status).toBe(200);
     expect(Object.keys(r.json).sort()).toEqual(

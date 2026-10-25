@@ -11,7 +11,7 @@ import { DevMailbox, MailMessage, MailSender } from '../auth/mail';
 import { hashPassword } from '../auth/password';
 import { ConsentRecord } from '../entities/consent-record.entity';
 import { WarningsService } from '../warnings/warnings.service';
-import { currentWording, wordingAt } from './wordings';
+import { WORDINGS, currentWording, wordingAt, type Wording } from './wordings';
 
 // CAMP-390 — журнал згод проти СПРАВЖНЬОЇ бази й СПРАВЖНЬОГО застосунку.
 //
@@ -177,6 +177,11 @@ const get = (p: string, token?: string) =>
 const asUser = (token: string) => ({ authorization: `Bearer ${token}` });
 
 const PASSWORD = 'a long enough password';
+
+// Номери, які відрендерили б сторінки зараз. Зняті на завантаженні модуля, до
+// того як хоч один тест підніме версію в реєстрі.
+const SIGNUP_V = currentWording('newsletter.signup').version;
+const SETTINGS_V = currentWording('newsletter.settings').version;
 let counter = 0;
 const unique = () => `c${++counter}.${process.pid}@example.com`;
 
@@ -185,6 +190,12 @@ async function signUp(over: Record<string, unknown> = {}) {
   const res = await post('/auth/signup', {
     email,
     password: PASSWORD,
+    // Сторінка, що відрендерила чинний текст, шле його номер разом із галочкою.
+    // Тест, який хоче НЕ слати номер (чи слати інший), каже це явно:
+    // `wordingVersion: undefined` (JSON таке поле губить) чи `wordingVersion: 7`.
+    ...(over.newsletter === true && !('wordingVersion' in over)
+      ? { wordingVersion: SIGNUP_V }
+      : {}),
     ...over,
   });
   return { email, res };
@@ -209,11 +220,23 @@ async function person(over: Record<string, unknown> = {}) {
   return { email, id: row.id as string, token: res.json.token as string };
 }
 
-const letters = (token: string, value: unknown) =>
-  post('/account/letters', { letters: value }, asUser(token));
+/** «Поле не надсилати зовсім»: `undefined` тут не годиться, бо спрацьовує типове значення. */
+const OMIT = Symbol('omit');
 
-const SIGNUP_V = currentWording('newsletter.signup').version;
-const SETTINGS_V = currentWording('newsletter.settings').version;
+/** Перемикач у налаштуваннях; `version` — що відрендерила сторінка. */
+const letters = (
+  token: string,
+  value: unknown,
+  version: unknown = SETTINGS_V,
+  headers: Record<string, string> = {},
+) =>
+  post(
+    '/account/letters',
+    version === OMIT
+      ? { letters: value }
+      : { letters: value, wordingVersion: version },
+    { ...asUser(token), ...headers },
+  );
 
 // ── 1. реєстрація ─────────────────────────────────────────────────────────
 
@@ -268,7 +291,6 @@ describe('1. реєстрація: з галочкою — рядок із ве�
   it('🔴 текст бере сервер: версію, вид, джерело й «текст» від клієнта запис не бере', async () => {
     const { email, res } = await signUp({
       newsletter: true,
-      wordingVersion: 99,
       version: 99,
       wordingKey: 'newsletter.settings',
       kind: 'photo_publish',
@@ -429,7 +451,7 @@ describe('2. налаштування: вимкнення — НОВИЙ ряд�
     await db.query('UPDATE users SET deleted_at = now() WHERE id = $1', [p.id]);
     const before = await journal(p.id);
     await expect(
-      app.get(AccountService).setLetters(p.id, true),
+      app.get(AccountService).setLetters(p.id, true, SETTINGS_V),
     ).rejects.toThrow();
     expect(await journal(p.id)).toEqual(before);
   });
@@ -460,6 +482,52 @@ describe('🔴 рядок додається, не переписується �
     ]) {
       await expect(db.query(sql, [p.id])).rejects.toThrow(/append-only/);
     }
+    expect(await journal(p.id)).toEqual([row]);
+  });
+
+  // 🟠 МЕЖА, ЯКУ НАЗВАНО ВГОЛОС, А НЕ ПРИХОВАНО. Тригер стереже від ПОМИЛКИ В
+  // КОДІ, а не від облікових даних: роль, під якою працює застосунок (і цей
+  // тест), ВОЛОДІЄ таблицею. Заміряно рецензією PR #335, і тут пінується числом
+  // «чотири з чотирьох проходять», за зразком `account.db.spec.ts`: закрити це
+  // (окрема роль із `SELECT, INSERT`) мусить бути свідомою зміною, а не тихою.
+  //
+  // 🔴 ЯКЩО ЦЕЙ ТЕСТ ПОЧЕРВОНІВ, бо рантайм отримав обмежену роль, — це добра
+  // новина: поправ `docs/GDPR-REGISTER.md`, розділ 8, рядок «захист», і коментар
+  // у `consent-record.entity.ts`, де сказано протилежне.
+  it('🟠 власник таблиці обходить тригер: DISABLE TRIGGER, DROP TRIGGER, DELETE, TRUNCATE — усі проходять', async () => {
+    const p = await person({ newsletter: true });
+    const [row] = await journal(p.id);
+    const bypasses: Array<[string, string[]]> = [
+      [
+        'DISABLE TRIGGER + UPDATE',
+        [
+          'ALTER TABLE consent_record DISABLE TRIGGER consent_record_append_only',
+          'UPDATE consent_record SET granted = false WHERE user_id = $1',
+        ],
+      ],
+      [
+        'DROP TRIGGER + UPDATE',
+        [
+          'DROP TRIGGER consent_record_append_only ON consent_record',
+          'UPDATE consent_record SET granted = false WHERE user_id = $1',
+        ],
+      ],
+      ['DELETE', ['DELETE FROM consent_record WHERE user_id = $1']],
+      ['TRUNCATE', ['TRUNCATE consent_record']],
+    ];
+    const passed: string[] = [];
+    for (const [label, statements] of bypasses) {
+      await db.query('BEGIN');
+      try {
+        for (const sql of statements)
+          await db.query(sql, sql.includes('$1') ? [p.id] : []);
+        passed.push(label);
+      } finally {
+        // Усе відкочується: цей тест нічого не ламає у спільній базі спека.
+        await db.query('ROLLBACK');
+      }
+    }
+    expect(passed).toEqual(bypasses.map(([label]) => label));
     expect(await journal(p.id)).toEqual([row]);
   });
 
@@ -721,5 +789,320 @@ describe('стирання акаунта (ст. 17) не впирається �
     ).toHaveLength(0);
     expect(await journal(gone.id)).toHaveLength(0);
     expect(await journal(stays.id)).toHaveLength(1);
+  });
+});
+
+// ── COMMIT падає ПІСЛЯ запису рядка ───────────────────────────────────────
+
+// 🔴 ЦЕЙ СПОСІБ — РЕЦЕНЗІЇ, І ВІН ПОТРІБЕН, бо мій перший тест на атомарність
+// пережив мутацію. «Вставка в журнал упала → прапорець відкотився» задовольняє й
+// код без транзакції, і код, де рядок іде окремим з'єднанням. Нічого не
+// перевіряє те, що транзакція й справді ОДНА: для цього падати мусить сам
+// COMMIT, коли ОБИДВА записи вже зроблено. `DEFERRABLE INITIALLY DEFERRED`
+// тригер спрацьовує в момент COMMIT, а не під час вставки чи оновлення.
+//
+// Що тут стереже кожна із чотирьох комбінацій (мутації — у PR):
+//   · тригер на `consent_record` ловить рядок, що пішов ОКРЕМИМ з'єднанням чи
+//     ПІСЛЯ коміту акаунта (рядок не зберігся, а акаунт/прапорець — так);
+//   · тригер на `users` ловить транзакцію, чий COMMIT падає, поки рядок уже
+//     зафіксовано поза нею (рядок лишився, прапорець — ні).
+// `INSERT … BEFORE`-тести вище ловлять протилежне: код без транзакції взагалі.
+async function whenCommitFails<T>(
+  table: 'users' | 'consent_record',
+  event: 'INSERT' | 'UPDATE',
+  run: () => Promise<T>,
+): Promise<T> {
+  const name = `test_commit_boom_${table}`;
+  await db.query(`
+    CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS
+    $$ BEGIN RAISE EXCEPTION 'commit boom'; END $$`);
+  await db.query(`
+    CREATE CONSTRAINT TRIGGER ${name} AFTER ${event} ON ${table}
+      DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${name}()`);
+  Logger.overrideLogger(false);
+  try {
+    return await run();
+  } finally {
+    Logger.overrideLogger(['log', 'error', 'warn']);
+    await db.query(`DROP TRIGGER ${name} ON ${table}`);
+    await db.query(`DROP FUNCTION ${name}()`);
+  }
+}
+
+const journalSize = async () =>
+  (await db.query('SELECT count(*)::int n FROM consent_record')).rows[0].n;
+
+describe('🔴 транзакція одна: COMMIT падає після запису — не лишається нічого', () => {
+  it.each([
+    ['consent_record', 'INSERT'],
+    ['users', 'INSERT'],
+  ] as const)(
+    'реєстрація, COMMIT падає на %s: ні акаунта, ні рядка',
+    async (table, event) => {
+      const rowsBefore = await journalSize();
+      const { email, res } = await whenCommitFails(table, event, () =>
+        signUp({ newsletter: true }),
+      );
+      expect(res.status).toBe(500);
+      expect(await userRow(email)).toBeUndefined();
+      expect(await journalSize()).toBe(rowsBefore);
+    },
+  );
+
+  it.each([
+    ['users', 'UPDATE'],
+    ['consent_record', 'INSERT'],
+  ] as const)(
+    'налаштування (вимкнення), COMMIT падає на %s: прапорець той самий, рядка нового немає',
+    async (table, event) => {
+      const p = await person({ newsletter: true });
+      const before = await journal(p.id);
+      const flagBefore = (await userRow(p.email)).marketing_consent_at;
+      expect(flagBefore).not.toBeNull();
+
+      const r = await whenCommitFails(table, event, () =>
+        letters(p.token, false),
+      );
+      expect(r.status).toBe(500);
+      expect((await userRow(p.email)).marketing_consent_at).toEqual(flagBefore);
+      expect(await journal(p.id)).toEqual(before);
+    },
+  );
+
+  it.each([
+    ['users', 'UPDATE'],
+    ['consent_record', 'INSERT'],
+  ] as const)(
+    'налаштування (ввімкнення), COMMIT падає на %s: прапорець лишається вимкненим, рядка немає',
+    async (table, event) => {
+      const p = await person();
+      const r = await whenCommitFails(table, event, () =>
+        letters(p.token, true),
+      );
+      expect(r.status).toBe(500);
+      expect((await userRow(p.email)).marketing_consent_at).toBeNull();
+      expect(await journal(p.id)).toHaveLength(0);
+    },
+  );
+
+  it('сторож бачить те, про що каже: той самий тригер без збою не заважає успіху', async () => {
+    // Позитивний контроль. Без нього всі «500» вище могли б бути від чогось
+    // іншого, а не від тригера, що валить саме COMMIT.
+    const p = await person();
+    expect((await letters(p.token, true)).status).toBe(200);
+    expect(await journal(p.id)).toHaveLength(1);
+  });
+});
+
+// ── версія, яку назвала сторінка ──────────────────────────────────────────
+
+/** Піднімає версію формулювання в реєстрі на час `run`, потім повертає як було. */
+async function withRaisedVersion<T>(
+  key: 'newsletter.signup' | 'newsletter.settings',
+  run: (raised: Wording) => Promise<T>,
+): Promise<T> {
+  const prev = currentWording(key);
+  const raised: Wording = {
+    ...prev,
+    version: prev.version + 1,
+    text: `${prev.text} (revised wording)`,
+  };
+  const list = WORDINGS as unknown as Wording[];
+  list.push(raised);
+  try {
+    return await run(raised);
+  } finally {
+    list.splice(list.indexOf(raised), 1);
+  }
+}
+
+describe('🔴 журнал не пише версію, якої людина не бачила (вкладка, відкрита до зміни тексту)', () => {
+  const WORDING_CHANGED = {
+    code: 'wording_changed',
+    message: expect.stringMatching(/Reload the page/),
+  };
+
+  it('🔴 реєстрація: сторінка відрендерила v1, текст піднято до v2 — 409, нічого не записано', async () => {
+    await withRaisedVersion('newsletter.signup', async (raised) => {
+      const rowsBefore = await journalSize();
+      // Сторінка відкрита ДО зміни: у ній v1 і номер 1.
+      const stale = await signUp({
+        newsletter: true,
+        wordingVersion: SIGNUP_V,
+      });
+      expect(stale.res.status).toBe(409);
+      expect(stale.res.json).toEqual(WORDING_CHANGED);
+      // Ні акаунта (людина не втратила адресу «зайнятою»), ні рядка.
+      expect(await userRow(stale.email)).toBeUndefined();
+      expect(await journalSize()).toBe(rowsBefore);
+
+      // Людина перезавантажила: нова сторінка шле v2 — і рядок несе саме v2.
+      const fresh = await signUp({
+        newsletter: true,
+        wordingVersion: raised.version,
+      });
+      expect(fresh.res.status).toBe(201);
+      const rows = await journal((await userRow(fresh.email)).id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        wording_key: 'newsletter.signup',
+        wording_version: SIGNUP_V + 1,
+        granted: true,
+      });
+    });
+  });
+
+  it('🔴 мовчазного запису чинної версії немає: без номера, з вигаданим, не цілим — 409', async () => {
+    const bodies: unknown[] = [];
+    const seen: Array<[string, number, boolean]> = [];
+    const rowsBefore = await journalSize();
+    for (const [label, v] of [
+      ['немає', undefined],
+      ['вигаданий', 99],
+      ['нуль', 0],
+      ['від’ємний', -1],
+      ['рядок', '1'],
+      ['дробове', 1.5],
+      ['null', null],
+      ['булеве', true],
+      ['масив', [1]],
+    ] as Array<[string, unknown]>) {
+      const r = await signUp({ newsletter: true, wordingVersion: v });
+      seen.push([label, r.res.status, (await userRow(r.email)) === undefined]);
+      bodies.push(r.res.json);
+    }
+    // Кожен випадок: 409 і жодного акаунта. Мітка в самому масиві, бо `expect`
+    // у `jest` повідомлення не приймає.
+    expect(seen.map(([label]) => [label, 409, true])).toEqual(
+      seen.map(([label, status, none]) => [label, status, none]),
+    );
+    // Одна відповідь на всі причини: підбирати номер нема чим.
+    expect(new Set(bodies.map((b) => JSON.stringify(b))).size).toBe(1);
+    expect(await journalSize()).toBe(rowsBefore);
+  });
+
+  it('без галочки номер версії нікого не стосується: реєстрація проходить, рядка немає', async () => {
+    const { email, res } = await signUp({
+      newsletter: false,
+      wordingVersion: 99,
+    });
+    expect(res.status).toBe(201);
+    expect(await journal((await userRow(email)).id)).toHaveLength(0);
+  });
+
+  it('🔴 налаштування (надання): сторінка відрендерила v1, піднято до v2 — 409, прапорець не ввімкнувся', async () => {
+    const p = await person();
+    await withRaisedVersion('newsletter.settings', async (raised) => {
+      const stale = await letters(p.token, true, SETTINGS_V);
+      expect(stale.status).toBe(409);
+      expect(stale.json).toEqual(WORDING_CHANGED);
+      expect((await userRow(p.email)).marketing_consent_at).toBeNull();
+      expect(await journal(p.id)).toHaveLength(0);
+
+      const fresh = await letters(p.token, true, raised.version);
+      expect(fresh.status).toBe(200);
+      expect(await journal(p.id)).toMatchObject([
+        {
+          wording_key: 'newsletter.settings',
+          wording_version: SETTINGS_V + 1,
+          granted: true,
+        },
+      ]);
+    });
+  });
+
+  it('налаштування: без номера, з вигаданим чи не цілим — 409 і нічого не записано', async () => {
+    const p = await person();
+    for (const v of [OMIT, 99, 0, '1', 1.5, null, true])
+      expect((await letters(p.token, true, v)).status).toBe(409);
+    expect(await journal(p.id)).toHaveLength(0);
+    expect((await userRow(p.email)).marketing_consent_at).toBeNull();
+  });
+
+  it('🔴 ВІДКЛИКАННЯ проходить завжди: навіть зі застарілим, вигаданим чи відсутнім номером', async () => {
+    const p = await person({ newsletter: true });
+    await withRaisedVersion('newsletter.settings', async (raised) => {
+      // Людина знімає галочку на застарілій сторінці: це не перешкода (ст. 7(3)),
+      // і рядок каже, під яким текстом вона це зробила — v1.
+      const stale = await letters(p.token, false, SETTINGS_V);
+      expect(stale.status).toBe(200);
+      expect(stale.json.letters).toBe(false);
+      let rows = await journal(p.id);
+      expect(rows[rows.length - 1]).toMatchObject({
+        granted: false,
+        wording_version: SETTINGS_V,
+      });
+
+      // Вигаданий чи відсутній номер при зніманні не відхиляється й не потрапляє
+      // в таблицю: пишеться чинна версія, а не вигадана.
+      for (const v of [99, OMIT, 'x', null]) {
+        await letters(p.token, true, raised.version);
+        const off = await letters(p.token, false, v);
+        expect(off.status).toBe(200);
+        rows = await journal(p.id);
+        expect(rows[rows.length - 1]).toMatchObject({
+          granted: false,
+          wording_version: raised.version,
+        });
+      }
+      // Усі версії в таблиці — ті, що існують у реєстрі (поки він піднятий).
+      for (const r of await journal(p.id))
+        expect(wordingAt(r.wording_key, r.wording_version)).toBeDefined();
+    });
+  });
+});
+
+// ── 🟡 кошик ──────────────────────────────────────────────────────────────
+
+describe('🔴 /account/letters має власний кошик: десять за десять хвилин', () => {
+  it('одинадцятий запит з однієї адреси — 429, а решту сайту це не зачіпає', async () => {
+    const p = await person();
+    const ip = { 'cf-connecting-ip': '203.0.113.77' };
+    for (let i = 0; i < 10; i++)
+      expect((await letters(p.token, i % 2 === 0, SETTINGS_V, ip)).status).toBe(
+        200,
+      );
+    expect((await letters(p.token, true, SETTINGS_V, ip)).status).toBe(429);
+    // Не більше десяти рядків на цю адресу.
+    expect(await journal(p.id)).toHaveLength(10);
+    // Інші двері з тієї самої адреси не заблоковано: ні читання налаштувань,
+    // ні вхід — кошик не позичає в них.
+    expect(
+      (
+        await send('GET', '/account/settings', undefined, {
+          ...asUser(p.token),
+          ...ip,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await send(
+          'POST',
+          '/auth/login',
+          { email: 'nobody@example.com', password: PASSWORD },
+          ip,
+        )
+      ).status,
+    ).not.toBe(429);
+  });
+});
+
+// ── 🟠 згоди ДО релізу ────────────────────────────────────────────────────
+
+describe('🟠 згода, дана до журналу, лишається без рядка, і вивантаження каже лише позначку часу', () => {
+  it('користувач із `marketing_consent_at` без рядка: `consentLog` порожній, `newsletterConsentAt` є', async () => {
+    // Так виглядає людина, що погодилась до цього релізу: прапорець є, рядка
+    // немає, бекфілу немає — ми не знаємо, який текст вона бачила.
+    const p = await person();
+    await db.query(
+      "UPDATE users SET marketing_consent_at = '2026-09-01T10:00:00Z' WHERE id = $1",
+      [p.id],
+    );
+    expect(await journal(p.id)).toHaveLength(0);
+
+    const { json } = await exportOf(p.token);
+    expect(json.consentLog).toEqual([]);
+    expect(json.account.newsletterConsentAt).toBe('2026-09-01T10:00:00.000Z');
   });
 });
