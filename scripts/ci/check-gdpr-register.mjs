@@ -24,6 +24,8 @@ const PERSONAL = new Map([
   ['not-found-hit', 'not-found-hit'],
   ['trip', 'trip'],
   ['trip-stop', 'trip-stop'],
+  // CAMP-390: журнал згод — хто, на що (версія формулювання), надав чи відкликав.
+  ['consent-record', 'consent-record'],
 ]);
 
 // Сутності БЕЗ даних про людину — довідники місць, погоди, тарифів.

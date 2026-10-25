@@ -6,6 +6,7 @@ import {
   clock,
   type Outcome,
 } from '@/lib/account';
+import { NEWSLETTER_SIGNUP_WORDING } from '@/lib/consent-wording';
 import { DEFAULT_RETURN, safeReturnPath } from '@/lib/return-path';
 import { Button } from '@/components/button';
 
@@ -39,6 +40,8 @@ export function messageFor(o: Outcome): string | null {
       return 'Email or password is wrong.';
     case 'taken':
       return 'An account with this email already exists.';
+    case 'wording-changed':
+      return 'The text next to the email box has changed since this page was opened. Reload the page, read it again, and then decide. Nothing was saved.';
     case 'stale':
       return 'This link has expired or has already been used.';
     case 'too-soon':
@@ -191,6 +194,8 @@ export function SignupFormView({
             id="signup-newsletter"
             name="newsletter"
             type="checkbox"
+            data-wording={NEWSLETTER_SIGNUP_WORDING.key}
+            data-wording-version={NEWSLETTER_SIGNUP_WORDING.version}
             checked={draft.newsletter}
             disabled={!ready || busy}
             onChange={(e) => onEdit('newsletter', e.target.checked)}

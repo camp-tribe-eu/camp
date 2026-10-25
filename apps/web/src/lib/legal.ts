@@ -1,22 +1,38 @@
-// CAMP-56: who we are, and the pages that say so.
+// CAMP-56: who we are, and the registry of the pages that say so.
 //
-// 🔴 Why this text lives in the repository and not in the CMS.
+// 🔴 CAMP-365: THE TEXT OF THESE PAGES NO LONGER LIVES IN THE REPOSITORY
+// TREE OF THE SITE. It lives in the database (`legal_pages`), the owner
+// edits it in the CMS, and the site reads it from our API AT BUILD TIME
+// and renders it statically (`lib/legal-content.ts`). What stays here is
+// the REGISTRY: which documents exist, in what order a reader needs them,
+// and — for now — their version and effective date.
 //
-// `legal_pages` exists in Directus (CAMP-89) and could hold these. It
-// deliberately does not, for three reasons that only apply to legal text:
+// The registry stays in code, not in the database, for reasons that are
+// still true:
 //
-//   1. Git is the audit trail. The question a regulator or a court asks
-//      is "which version was in force on the day this person used the
-//      site" — and a commit history answers that with a timestamp and an
-//      author. A CMS row that was edited in place cannot.
-//   2. A legal page must not change without review. In the repository a
-//      change is a pull request somebody reads; in a CMS it is a Save
-//      button at two in the morning.
-//   3. The site has to serve them with the backend switched off, which
-//      is how the whole web app already works (CAMP-39).
+//   · `consent.ts` reads the cookie policy's version SYNCHRONOUSLY from a
+//     CLIENT component, and a changed version voids a reader's saved
+//     consent at once. An asynchronous version, with a fallback for an
+//     unreachable database, would void it for everybody on one network
+//     blip.
+//   · `legal_pages` has no order column, and the order is deliberate.
 //
-// The CMS table stays where it is — translations of these pages are a
-// different problem and will want it.
+// 🔴 WHAT THAT COSTS, AND THE GUARD THAT PAYS FOR IT. The page prints the
+// version the DATABASE holds while consent is keyed by the version THIS
+// FILE holds. They are one fact kept in two places, so the build refuses
+// to proceed when they differ (`checkLegalDocument`) — the version moves
+// with the registry or not at all. Title and summary are NOT compared:
+// they feed the footer, and a different title in the CMS is a look, not a
+// falsehood.
+//
+// 🔴 WHAT THE MOVE GAVE UP. The earlier reasons for keeping the text in git
+// were that a commit history answers "which text was in force on the day"
+// with a timestamp and an author, and that a legal page must not change
+// without a pull request somebody reads. The text is now a row a person
+// can edit and save. That is the owner's decision (CAMP-365). What answers
+// "which text was in force on that day" is no longer git: it is the
+// `version` bumped by hand plus whatever revision history the CMS keeps —
+// and nothing here has verified that the CMS keeps one.
 //
 // 🔴 What this file is NOT. It is drafted to be as protective as the law
 // actually allows, which is a lot, and it has not been reviewed by a

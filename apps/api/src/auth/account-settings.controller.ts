@@ -9,14 +9,16 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { LOGIN_LIMIT, MAIL_LIMIT } from '../throttle';
+import { CONSENT_LIMIT, LOGIN_LIMIT, MAIL_LIMIT } from '../throttle';
 import {
   AccountService,
   BadEmail,
   MailUnavailable,
   SameEmail,
   TooSoon,
+  WORDING_CHANGED_BODY,
   WeakPassword,
+  WordingChanged,
 } from './account.service';
 import { NoSuchAccount, WrongPassword } from './account-rights.service';
 import { AuthService } from './auth.service';
@@ -26,6 +28,7 @@ import { PASSWORD_MESSAGE } from './password-policy';
 
 const LOGIN = { default: LOGIN_LIMIT };
 const MAIL = { default: MAIL_LIMIT };
+const CONSENT = { default: CONSENT_LIMIT };
 
 /** The one body every refusal for "not signed in" gets, as in `GET /auth/me`. */
 const NO_SESSION = {
@@ -169,7 +172,11 @@ export class AccountSettingsController {
    * вимкнена розсилка нікому не дає доступу, а зайвий пароль привчав би
    * вводити його там, де він не потрібен.
    */
+  // 🔴 CAMP-390: кожен прийнятий запит — новий рядок журналу згод, який не
+  // чиститься. Власний кошик (`CONSENT_ROUTES` у throttle.ts); `throttle.spec.ts`
+  // звіряє цей декоратор зі списком в обидва боки.
   @Post('letters')
+  @Throttle(CONSENT)
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
   async letters(@CurrentViewer() viewer: Viewer, @Body() body: unknown) {
@@ -179,7 +186,12 @@ export class AccountSettingsController {
       unknown
     >;
     try {
-      const on = await this.accounts.setLetters(viewer.id, b.letters);
+      const on = await this.accounts.setLetters(
+        viewer.id,
+        b.letters,
+        // CAMP-390: версія тексту біля перемикача, яку відрендерила сторінка.
+        b.wordingVersion,
+      );
       return { letters: on };
     } catch (e) {
       throw httpForSettings(e);
@@ -195,6 +207,9 @@ export class AccountSettingsController {
  * Сторінці треба відправити людину на вхід, а не показати «не знайдено».
  */
 function httpForSettings(e: unknown): unknown {
+  // 🔴 CAMP-390: надання згоди під застарілим текстом. Нічого не записано.
+  if (e instanceof WordingChanged)
+    return new HttpException(WORDING_CHANGED_BODY, 409);
   if (e instanceof WrongPassword)
     return new HttpException(
       {

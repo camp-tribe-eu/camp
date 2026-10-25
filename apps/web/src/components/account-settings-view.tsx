@@ -1,4 +1,5 @@
 import { Shell } from '@/components/account-view';
+import { NEWSLETTER_SETTINGS_WORDING } from '@/lib/consent-wording';
 
 // CAMP-229 — розмітка сторінки налаштувань. Лише вигляд: що саме станеться,
 // вирішує `lib/settings.ts`, а стан тримає `account-settings.tsx`.
@@ -186,6 +187,8 @@ export function LettersCard(s: LettersSection) {
         <input
           type="checkbox"
           className="mt-0.5"
+          data-wording={NEWSLETTER_SETTINGS_WORDING.key}
+          data-wording-version={NEWSLETTER_SETTINGS_WORDING.version}
           checked={s.on}
           disabled={s.busy}
           onChange={(e) => s.onToggle(e.target.checked)}

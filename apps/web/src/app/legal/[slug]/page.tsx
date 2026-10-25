@@ -1,43 +1,46 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { LegalProse } from '@/components/legal-prose';
 import { alternatesFor } from '@/lib/i18n';
 import { COMPANY, LEGAL_PAGES, legalPage, legalPath } from '@/lib/legal';
+import { legalDocument, legalSlugs } from '@/lib/legal-content';
 import { breadcrumbList, jsonLdProps, legalPageGraph } from '@/lib/jsonld';
-import Terms from '@/content/legal/terms';
-import Privacy from '@/content/legal/privacy';
-import Cookies from '@/content/legal/cookies';
-import Disclaimer from '@/content/legal/disclaimer';
-import Attribution from '@/content/legal/attribution';
-import Database from '@/content/legal/database';
-import Notice from '@/content/legal/notice';
 
-// CAMP-56 — the legal pages.
+// CAMP-56 — the legal pages. CAMP-365 — and their text comes from the CMS.
 //
-// 🔴 Prerendered like everything else, and listed here rather than
-// fetched. These are the pages that must still be readable when the
-// backend, the CMS or the database is down — and the moment somebody
-// needs them is disproportionately likely to be a moment when something
-// else has gone wrong.
+// 🔴 READ AT BUILD TIME, RENDERED STATICALLY. Two decisions meet here and
+// both are kept:
+//
+//   · CAMP-56: these are the pages that must still be readable when the
+//     backend, the CMS or the database is down — and the moment somebody
+//     needs them is disproportionately likely to be a moment when
+//     something else has gone wrong.
+//   · CAMP-365: the owner edits the text in the CMS.
+//
+// The owner edits → a rebuild (or ISR, CAMP-363) ships the new page. The
+// database goes down at runtime → the reader is served the last good
+// static page, because the reader never talks to the database at all.
+//
+// 🔴 AND THE OTHER HALF: IF THE DOCUMENT IS MISSING OR ITS BODY IS EMPTY,
+// THE BUILD FAILS, naming the document (see `lib/legal-content.ts`). An
+// empty legal document at a legal URL reads as "they have no terms",
+// which is worse than not having the URL. On a live server the same rule
+// means a failed regeneration leaves the reader the previous good page.
 //
 // 🔴 `dynamicParams = false` so /legal/anything-else is a real 404 rather
-// than a page that renders empty. A blank document at a legal URL reads
-// as "they have no terms", which is worse than not having the URL.
+// than a page that renders empty.
 
 export const dynamicParams = false;
 
-const BODIES: Record<string, () => React.JSX.Element> = {
-  terms: Terms,
-  privacy: Privacy,
-  cookies: Cookies,
-  disclaimer: Disclaimer,
-  attribution: Attribution,
-  database: Database,
-  notice: Notice,
-};
-
-export function generateStaticParams() {
-  return LEGAL_PAGES.map((p) => ({ slug: p.slug }));
+/**
+ * 🔴 The slugs come from the API — the same source as the text — and
+ * `legalSlugs` refuses a set that differs from the registry in
+ * `lib/legal.ts` in either direction. Taken from the API alone, a
+ * document the CMS had stopped serving would simply get no page.
+ */
+export async function generateStaticParams() {
+  return (await legalSlugs()).map((slug) => ({ slug }));
 }
 
 export async function generateMetadata({
@@ -46,12 +49,14 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const page = legalPage(slug);
-  if (!page) return {};
+  if (!legalPage(slug)) return {};
+  // 🔴 From the document, not from the registry: what the title bar and
+  // the search snippet say must be what the page says.
+  const doc = await legalDocument(slug);
   return {
-    title: page.title,
-    description: page.summary,
-    alternates: alternatesFor(legalPath(page.slug)),
+    title: doc.title,
+    description: doc.summary,
+    alternates: alternatesFor(legalPath(doc.slug)),
   };
 }
 
@@ -61,9 +66,9 @@ export default async function LegalPageRoute({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const page = legalPage(slug);
-  const Body = BODIES[slug];
-  if (!page || !Body) notFound();
+  if (!legalPage(slug)) notFound();
+  // Throws, naming the document, if it is missing or its body is empty.
+  const doc = await legalDocument(slug);
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
@@ -74,11 +79,11 @@ export default async function LegalPageRoute({
       <script
         {...jsonLdProps(
           legalPageGraph({
-            name: page.title,
-            description: page.summary,
-            path: legalPath(page.slug),
-            version: page.version,
-            effectiveFrom: page.effectiveFrom,
+            name: doc.title,
+            description: doc.summary,
+            path: legalPath(doc.slug),
+            version: doc.version,
+            effectiveFrom: doc.effectiveFrom,
             publisher: COMPANY.name,
           }),
         )}
@@ -87,7 +92,7 @@ export default async function LegalPageRoute({
         {...jsonLdProps(
           breadcrumbList([
             { name: 'CampTribe', path: '/' },
-            { name: page.title, path: legalPath(page.slug) },
+            { name: doc.title, path: legalPath(doc.slug) },
           ]),
         )}
       />
@@ -101,9 +106,9 @@ export default async function LegalPageRoute({
 
       <header className="mt-4 border-b border-line-2 pb-5">
         <h1 className="text-2xl font-bold text-heading sm:text-3xl">
-          {page.title}
+          {doc.title}
         </h1>
-        <p className="mt-2 max-w-prose text-sm text-ink-2">{page.summary}</p>
+        <p className="mt-2 max-w-prose text-sm text-ink-2">{doc.summary}</p>
 
         {/* 🔴 The version and its date, on the page rather than buried in
             a changelog. "Which text applied on the day I used the site"
@@ -113,9 +118,9 @@ export default async function LegalPageRoute({
           data-testid="legal-version"
           className="mt-3 text-xs text-ink-2"
         >
-          Version {page.version} · in force since{' '}
-          <time dateTime={page.effectiveFrom}>
-            {new Date(page.effectiveFrom).toLocaleDateString('en-GB', {
+          Version {doc.version} · in force since{' '}
+          <time dateTime={doc.effectiveFrom}>
+            {new Date(doc.effectiveFrom).toLocaleDateString('en-GB', {
               day: 'numeric',
               month: 'long',
               year: 'numeric',
@@ -125,7 +130,7 @@ export default async function LegalPageRoute({
       </header>
 
       <article className="mt-6">
-        <Body />
+        <LegalProse text={doc.body} />
       </article>
 
       <nav
@@ -136,7 +141,7 @@ export default async function LegalPageRoute({
           Also here
         </h2>
         <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-          {LEGAL_PAGES.filter((p) => p.slug !== page.slug).map((p) => (
+          {LEGAL_PAGES.filter((p) => p.slug !== doc.slug).map((p) => (
             <li key={p.slug}>
               <Link href={legalPath(p.slug)} className="underline text-ink-2">
                 {p.title}

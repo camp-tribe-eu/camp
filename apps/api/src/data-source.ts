@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { User } from './entities/user.entity';
+import { ConsentRecord } from './entities/consent-record.entity';
 import { CampingSpot } from './entities/camping-spot.entity';
 import { Route } from './entities/route.entity';
 import { RoutePoint } from './entities/route-point.entity';
@@ -33,6 +34,8 @@ export const AppDataSource = new DataSource({
   url: process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev',
   entities: [
     User,
+    // CAMP-390: the journal of consents (GDPR Art. 7(1)), append-only.
+    ConsentRecord,
     CampingSpot,
     Route,
     RoutePoint,

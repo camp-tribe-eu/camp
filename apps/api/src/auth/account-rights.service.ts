@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { wordingAt } from '../consent/wordings';
 import { User } from '../entities/user.entity';
 import {
   DELETION_WINDOW_DAYS,
@@ -270,6 +271,17 @@ export class AccountRightsService
           [trips.map((t) => t.id)],
         )
       : [];
+    // 🔴 CAMP-390 — ЖУРНАЛ ЗГОД ТУТ, бо стаття 15 без нього неповна: людина має
+    // право знати не лише «коли», а й НА ЩО погодилась, і чи відкликала.
+    // Усі рядки, у порядку запису, відкликання поруч із наданням. Текст
+    // формулювання дістається з реєстру за (ключем, версією), тобто той, що
+    // діяв тоді, а не чинний сьогодні.
+    const consentRows = await q(
+      `SELECT kind, granted, source, wording_key AS "wordingKey",
+              wording_version AS "wordingVersion",
+              ${tz('recorded_at')} AS "recordedAt"
+         FROM consent_record WHERE user_id = $1 ORDER BY recorded_at, id`,
+    );
     const photos = await q(
       `SELECT id, camping_spot_id AS "campsiteId", source, shot_on::text AS "shotOn",
               licence_publish AS "licencePublish",
@@ -301,6 +313,22 @@ export class AccountRightsService
         ],
       },
       account,
+      // 🔴 `wording.text` — `null`, а не пропуск і не падіння, коли реєстр не
+      // знає (ключа, версії) з рядка: один рядок, що посилається на втрачений
+      // текст, коштує одного `null`, а не всього вивантаження.
+      consentLog: consentRows.map((c) => ({
+        kind: c.kind,
+        granted: c.granted,
+        source: c.source,
+        recordedAt: c.recordedAt,
+        wording: {
+          key: c.wordingKey,
+          version: c.wordingVersion,
+          text:
+            wordingAt(c.wordingKey as string, c.wordingVersion as number)
+              ?.text ?? null,
+        },
+      })),
       sessions,
       emailLinks,
       trips: trips.map((t) => ({
