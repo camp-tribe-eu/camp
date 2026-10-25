@@ -25,6 +25,14 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * Версії й дати набуття чинності взяті з `LEGAL_PAGES` — того самого
  * реєстру, яким сьогодні живе маршрут.
+ *
+ * 🔴 ПРИПИСКА ВІД CAMP-365, ТІЛЬКИ КОМЕНТАР: коли сторінка перемкнулась на
+ * базу, файли `src/content/legal/markup/*.md` ВИДАЛЕНО разом із сімома
+ * компонентами JSX — з `apps/web/src` текст правових документів прибрано.
+ * Цей файл тепер ЄДИНИЙ відбиток засіяного тексту в репозиторії: з нього
+ * читають юніт-тести (`apps/web/tests/unit/legal-cms.ts`), сторож
+ * `scripts/ci/check-derived-fields.mjs` і `legal-seed.spec.ts`. Текст і
+ * код міграції цією приміткою не змінено.
  */
 export class SeedLegalPages1792800000000 implements MigrationInterface {
   name = 'SeedLegalPages1792800000000';
