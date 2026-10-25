@@ -38,7 +38,7 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-deploy-selftest.XXXXXX")"
 cleanup_all() { stop_world; rm -rf "$BASE"; }
 trap cleanup_all EXIT
 trap 'exit 130' INT TERM
-EXPECTED=135
+EXPECTED=138
 PASSED=0
 FAILED=0
 pass() { echo "  ✓ $1"; PASSED=$((PASSED + 1)); }
@@ -1312,6 +1312,48 @@ SH
 else
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do fail "обгортки ще немає ($WRAPPER)"; done
 fi
+# ═══════════════════════════════════════════════════════════════════
+# CAMP-227 — ВІДКРИТИЙ РЕДИРЕКТ НЕМОЖЛИВИЙ, І ОСЬ ЧИМ САМЕ.
+#
+# 🔴 Картка стверджувала, що редирект безпечний, бо призначення береться
+# зі згенерованої статичної мапи. Це правда про ШЛЯХ і неправда про ХОСТ:
+# publicOrigin() бере хост із x-forwarded-host БЕЗ списку дозволених, і
+# tests/unit/middleware-redirect.spec.ts:80 прямо закріплює це як вірне.
+#
+# Нас рятує не код веба, а три властивості краю, і кожна зникає тихо:
+#   1. Caddy за замовчуванням ІГНОРУЄ клієнтські X-Forwarded-* — дослівно
+#      "the proxy will ignore their values from incoming requests, to
+#      prevent spoofing" (docs/caddyfile/directives/reverse_proxy,
+#      звірено 25.10.2026) — доки ніхто не додасть trusted_proxies;
+#   2. у Caddyfile немає catch-all, тож запит із чужим Host до Next не
+#      доходить узагалі;
+#   3. ufw пускає на 80/443 лише діапазони Cloudflare.
+#
+# Тут стережемо перші дві; третю стереже firewall.selftest.sh. Без цього
+# один рядок trusted_proxies або один ":443 {" повертають відкритий
+# редирект на 4 455 адрес, і жоден тест веба цього не побачить.
+CF="$HERE/caddy/camptribe.eu.caddyfile"
+if [ -f "$CF" ]; then
+  CFB=$(grep -vE '^[[:space:]]*#' "$CF")
+  if ! grep -qE 'trusted_proxies' <<<"$CFB"; then
+    pass "CAMP-227: Caddy не довіряє клієнтським X-Forwarded-* (немає trusted_proxies)"
+  else
+    fail "CAMP-227: Caddy не довіряє клієнтським X-Forwarded-* (немає trusted_proxies)" "$(grep -nE 'trusted_proxies' <<<"$CFB")"
+  fi
+  if ! grep -qE '^[[:space:]]*(\*|:[0-9]+|https?://\*)[^{]*\{' <<<"$CFB"; then
+    pass "CAMP-227: у Caddyfile немає catch-all — чужий Host не доходить до Next"
+  else
+    fail "CAMP-227: у Caddyfile немає catch-all — чужий Host не доходить до Next" "$(grep -nE '^[[:space:]]*(\*|:[0-9]+)' <<<"$CFB")"
+  fi
+  if ! grep -qE 'header_up[[:space:]]+X-Forwarded-Host' <<<"$CFB"; then
+    pass "CAMP-227: ніхто не пробрасує X-Forwarded-Host руками"
+  else
+    fail "CAMP-227: ніхто не пробрасує X-Forwarded-Host руками" "$(grep -nE 'header_up[[:space:]]+X-Forwarded-Host' <<<"$CFB")"
+  fi
+else
+  for _ in 1 2 3; do fail "CAMP-227: Caddyfile не знайдено ($CF)"; done
+fi
+
 
 # ═══════════════════════════════════════════════════════════════════
 echo
