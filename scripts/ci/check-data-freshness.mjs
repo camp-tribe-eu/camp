@@ -22,6 +22,17 @@ const SELF_TEST = process.argv.includes('--self-test');
 export function audit(files, now) {
   const problems = [];
   for (const f of files) {
+    // 🔴 ПРИЙНЯТТЯ ЗІ СТРОКОМ, а не виняток назавжди. Та сама форма, що
+    // в `known-advisories.json`: протухлість лишається ВИДИМОЮ, має
+    // причину-замір і дату, після якої перевірка червоніє знову.
+    // Виняток без дати — це спосіб забути назавжди.
+    if (f.acceptedUntil) {
+      if (now < Date.parse(f.acceptedUntil)) continue;
+      problems.push(
+        `${f.name}: прийняття протухлості скінчилось ${f.acceptedUntil} — причина мусить бути переглянута`,
+      );
+      continue;
+    }
     if (f.stamp === null || f.stamp === undefined) {
       problems.push(`${f.name}: мітки часу немає — вік невідомий, отже недоведений`);
       continue;
@@ -73,6 +84,10 @@ if (SELF_TEST) {
     audit([{ name: 'a', stamp: 'позавчора', budgetHours: 72 }], NOW).length, 1);
   t('🔴 мітка в МАЙБУТНЬОМУ ловиться',
     audit([{ name: 'a', stamp: ok(-50), budgetHours: 72 }], NOW).length, 1);
+  t('прийняте зі строком у майбутньому не скаржиться',
+    audit([{ name: 'a', stamp: ok(1000), budgetHours: 72, acceptedUntil: '2026-12-31' }], NOW).length, 0);
+  t('🔴 прийняття, строк якого МИНУВ, ловиться',
+    audit([{ name: 'a', stamp: ok(1000), budgetHours: 72, acceptedUntil: '2026-10-01' }], NOW).length, 1);
   t('дві поломки дають дві скарги',
     audit([{ name: 'a', stamp: ok(100), budgetHours: 72 },
            { name: 'b', stamp: null, budgetHours: 24 }], NOW).length, 2);
@@ -87,7 +102,18 @@ const FILES = [
     budgetHours: budgetFromSource('apps/web/src/lib/wildfires.ts', 'FRESH_FOR_HOURS') },
   { name: 'fuel-prices.json',
     stamp: read('apps/web/src/data/fuel-prices.json')?.fetchedAt ?? null,
-    budgetHours: budgetFromSource('apps/web/src/lib/fuel.ts', 'STALE_AFTER_DAYS') * 24 },
+    budgetHours: budgetFromSource('apps/web/src/lib/fuel.ts', 'STALE_AFTER_DAYS') * 24,
+    // 🔴 ЧОМУ ПРИЙНЯТО, І ЧОМУ ЦЕ НЕ ЛІНОЩІ. Заміряно 25.10.2026:
+    // збирач НЕ зламаний — він відмовляється працювати, бо спіймав
+    // суперечність у самому джерелі ЄС:
+    //   "the spreadsheet's own date (2026-10-19) disagrees with its
+    //    filename (2026-09-21)"  (fetch-fuel-prices.mjs:389)
+    // Тобто назва файла і його вміст кажуть різне, і збирач відмовився
+    // публікувати неправду про дату. Це правильна поведінка.
+    // Яка з двох дат справжня — питання до джерела, не до нас, і
+    // вирішувати його мовчки означало б поставити на сайт дату, якої
+    // ніхто не перевіряв. Картка: CAMP-392.
+    acceptedUntil: '2026-11-30' },
 ];
 
 const problems = audit(FILES, Date.now());
