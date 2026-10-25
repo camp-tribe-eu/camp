@@ -3,7 +3,9 @@ import type { MailMessage, MailSender } from './mail';
 
 /**
  * The real sender (CAMP-110): SMTP submission to the Hetzner mail server,
- * through nodemailer, pinned at 10.0.13.
+ * through nodemailer, pinned at 10.1.4: the first release without the three
+ * addressparser advisories of 23.10.2026 (CAMP-388). Measured 25.10.2026, the
+ * parser is called 0 times on the path `send` takes — see the comment there.
  *
  * 🔴 EVERY MISSING SETTING IS A "NOT CONFIGURED", NEVER A GUESS. `smtpConfigFrom`
  * returns `config: null` plus the NAMES of what is not set, `mailerFrom` turns
