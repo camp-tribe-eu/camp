@@ -31,10 +31,10 @@
 
 Обидва написані **05.10.2026**, у двох різних комітах (`020f2d6` і `44360af`): другий
 дописав розділи для решти макетів, а рядок 7 першого ніхто не перечитав
-(`git blame -L7,7 -L1073,1073 docs/design-audit.md` на редакції до 25.10.2026).
+(`git blame 0c59303 -L7,7 -L1073,1073 -- docs/design-audit.md`).
 
 Це не одиничний збій, а наслідок того, як файл ріс: **десять комітів за дванадцять днів**
-(`git log --oneline -- docs/design-audit.md`, 05–16.10.2026), і кожен дописував розділ для
+(`git log --oneline 0c59303 -- docs/design-audit.md`, 05–16.10.2026), і кожен дописував розділ для
 своєї картки, не перечитуючи попередніх. Коли 25.10.2026 його вперше звірили з кодом
 цілком, знайшлося 23 хиби трьох різних класів (повний перелік — §17):
 
@@ -919,7 +919,7 @@ CAMP-229 просить повернення на сторінку за логі
 
 | потреба макета | у коді |
 |---|---|
-| HTTP-вхід планувальника | **0 контролерів** у `apps/api/src/planner` (`grep -rlE '@Controller\|@Post\|@Get' apps/api/src/planner` → 0). Алгоритм є як **бібліотека**: корідор, жорсткі правила, ділення на дні, скоринг, пояснення — **10 817 рядків** у 32 файлах (`find apps/api/src/planner -type f \| xargs cat \| wc -l`), з них **3 701** — логіка без тестів (`-name '*.ts' ! -name '*.spec.ts'`) |
+| HTTP-вхід планувальника | **0 контролерів** у `apps/api/src/planner` (`grep -rlE '@Controller\|@Post\|@Get' apps/api/src/planner` → 0). Алгоритм є як **бібліотека**: корідор, жорсткі правила, ділення на дні, скоринг, пояснення — **10 817 рядків** у 32 файлах (`K26`: `find apps/api/src/planner -type f \| xargs cat \| wc -l`), з них **3 701** — логіка без тестів (`-name '*.ts' ! -name '*.spec.ts'`) |
 | Стиль «до 2 год за кермом» | `planner/itinerary.ts:17`: «There are no hours in the outcome». Роутера немає: `planner/corridor.ts:4` — «THERE IS NO ROUTER»; збірка ЄС-27 «about 145 GB of disk and 63 GB of memory» (`corridor.ts:14`) |
 | Бюджет ночівлі | ціна є в `TariffTable` кемпінга лише там, де заповнена; **скільки таких сторінок — не переміряно 25.10.2026** (потрібна БД) |
 | «Перевірено габарити» | `maxheight` у POI «on almost nothing» (`osm/route-poi.ts:85`) |
@@ -1309,7 +1309,7 @@ CAMP-95 каже те саме своїми словами: *«статисти�
 
 | секція макета | стан | що виміряно |
 |---|---|---|
-| Шапка: Map, Routes, Plan Trip, Rentals, Guides; тема; Log in | 🟡 частково | Меню з бази (`GET /navigation`). На `main` (`8ca0fe7`) — шість пунктів (`SeedNavigation`: Map, Campsites, Search, Plan a trip, Guides, Tools), ще чотири — Routes, Camper rental, Blog, About — додає PR #337 (`NavAddFourLinks`). У макетах Routes є в 7 із 7 макетів, що мають навігацію, Rentals — у 5 із 7, Guides — у 5 із 7 (`K23`). **Перемикача теми й «Log in» у шапці немає** (`site-chrome.tsx`: єдина згадка `/login` — коментар на рядку 146) |
+| Шапка: Map, Routes, Plan Trip, Rentals, Guides; тема; Log in | 🟡 частково | Меню з бази (`GET /navigation`; `K11`). На `main` (`8ca0fe7`) — шість пунктів (`SeedNavigation`: Map, Campsites, Search, Plan a trip, Guides, Tools), ще чотири — Routes, Camper rental, Blog, About — додає PR #337 (`NavAddFourLinks`). У макетах Routes є в 7 із 7 макетів, що мають навігацію, Rentals — у 5 із 7, Guides — у 5 із 7 (`K23`). **Перемикача теми й «Log in» у шапці немає** (`site-chrome.tsx`: єдина згадка `/login` — коментар на рядку 146) |
 | Хлібні крихти Home / Країна / Регіон / Підрегіон / Назва | 🟡 частково | `Breadcrumbs` (`page.tsx:938`): Camping / Країна / Регіон. Без Home, без поточної сторінки, без підрегіону |
 | H1, лід, рядок із 4 фактів («від €/ніч · тип · сезон · висота») | 🟡 частково | H1, тип, регіон, абзац `setting` є (`page.tsx:326`, `:394`). Рядка фактів немає. Ціна лише в `TariffTable` (`:625`), і той «renders nothing at all when the source publishes no datable price — 57 236 of the 58 436 published pages» (коментар у коді, CAMP-147; число **з коментаря, 25.10.2026 не переміряно**, потрібна БД) |
 | Блок «No verified photos yet» + [Own this campsite? Add photos] [Report a problem] | 🟡 частково | Мапа з контуром OSM є (`campsite-media.tsx`), пояснення є (`page.tsx:987`–`1006`). Кнопка власника веде на `/contact` (`:1000`). «Report a problem» — 0 (`K10d`) |
@@ -1437,7 +1437,7 @@ CAMP-95 каже те саме своїми словами: *«статисти�
 
 | секція макета | стан | що виміряно |
 |---|---|---|
-| Три коди 301 / 410 / 404 | ✅ є | 301: `middleware.ts` — дублі `spot_links` (CAMP-144) і перейменування регіонів (CAMP-289); 410: лише після 4 поспіль імпортів = 28 днів (`spots.service.ts:317`, `interval '28 days'`), `serveGone` → 410; 404: `dynamicParams = false` у **16** файлах маршрутів (`grep -rlE 'dynamicParams\s*=\s*false' apps/web/src/app`). Таблиці «усіх слагів, що колись були» немає — і не потрібна, бо слаг заморожений при вставці (нижче) |
+| Три коди 301 / 410 / 404 | ✅ є | 301: `middleware.ts` — дублі `spot_links` (CAMP-144) і перейменування регіонів (CAMP-289); 410: лише після 4 поспіль імпортів = 28 днів (`spots.service.ts:317`, `interval '28 days'`), `serveGone` → 410; 404: `dynamicParams = false` у **16** файлах маршрутів (`K27`: `grep -rlE 'dynamicParams\s*=\s*false' apps/web/src/app`). Таблиці «усіх слагів, що колись були» немає — і не потрібна, бо слаг заморожений при вставці (нижче) |
 | Сторінка 404 | 🟡 частково | Пошук (GET-форма) є; `PathRecovery` (`components/path-recovery.tsx`) дає кнопки країни й регіону з URL. Списку найближчих кемпінгів за координатами, ⌘K, кнопки «Маршрути по Німеччині» немає |
 | Лог 404 з реферером | 🟡 частково | У API: таблиця `not_found_hits` **з колонкою `referrer`** (міграція `NotFoundHits`, CAMP-235), `POST /not-found` (токен збірки) і `GET /not-found/worst`. **Викликів із `apps/web`, `infra`, `scripts`: 0** (`K19`) — тобто лог є, а писати в нього нікому. Поза репозиторієм не перевірено |
 | Сторінка 410 | 🟡 частково | «Коли зник» і одна найближча є (`gone-notice.tsx`); «Що тут було», 2 «відкриті поруч», кнопки «Це помилка, кемпінг працює» немає |
@@ -1874,7 +1874,7 @@ card asked for is here as of CAMP-67». Тобто й герой-вибір кр
 **Що є під цим сьогодні** (§7.0.1):
 
 - алгоритм як **бібліотека**: корідор, жорсткі правила, ділення на дні, скоринг, пояснення —
-  `apps/api/src/planner`, **10 817 рядків у 32 файлах**, з них 3 701 логіка без тестів;
+  `apps/api/src/planner`, **10 817 рядків у 32 файлах**, з них 3 701 логіка без тестів (`K26`);
 - `GET /trips/mine` і `GET /trips/:id` (`apps/api/src/trips`, 334 рядки); таблиці `trips`,
   `trip_stops`, `route_points`, `routes`;
 - сторінка `/plan`: форма з 4 полями й чесний стан «планувальник ще не рахує маршрутів»;
@@ -1919,7 +1919,7 @@ card asked for is here as of CAMP-67». Тобто й герой-вибір кр
 
 | № | де (стара редакція) | що казала | що в коді 25.10.2026 | клас | як знайдено |
 |---|---|---|---|---|---|
-| 1 | рядки 7 і 1073 | «звірено 4 з 12» і «12 із 12» в одному файлі | 12 з 12: вісім переміряно, чотири раніше (§2) | A | `git blame -L7,7 -L1073,1073` — коміти `020f2d6` і `44360af`, обидва 05.10.2026 |
+| 1 | рядки 7 і 1073 | «звірено 4 з 12» і «12 із 12» в одному файлі | 12 з 12: вісім переміряно, чотири раніше (§2) | A | `git blame 0c59303 -L7,7 -L1073,1073 -- docs/design-audit.md` — коміти `020f2d6` і `44360af`, обидва 05.10.2026 |
 | 2 | §10, `01-campsite` | «✅ збігається»; Weather, Book a pitch, Reviews — наявні | Book a pitch / Check availability — **0**; секція Reviews — **0**; Weather — «Forecast is not connected yet.» (`page.tsx:716`); на коміті редакції `44360af` те саме: 0, 0, рядок 573 | C | `K10a`, `K10b`, `K10c` |
 | 3 | §5.6, `08-rental` | «FAQ немає — нуль збігів» | `FAQPage` ×1, `id="faq-heading"` ×1, 5 питань | B — 06.10.2026, `f0f4cae` (CAMP-226) | `K17`; `git log -S'faq-heading'` |
 | 4 | §5.7, `08-rental` | розкриття має колір `text-ink-2` | `text-ink` (`rental-disclosure.tsx:39,54`) | B — 06.10.2026, `f0f4cae` | `grep -n text-ink components/rental-disclosure.tsx` |
