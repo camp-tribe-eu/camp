@@ -1,4 +1,11 @@
 {
-  "apps/api": {},
+  "apps/api": {
+    "GHSA-q7qp-rjg7-q26m": {
+      "severity": "high",
+      "package": "multer",
+      "title": "multer vulnerable to Denial of Service via a pending asynchronous fileFilter after request",
+      "why": "CAMP-388, заміряно 25.10.2026 (через дві доби після публікації). ВРАЗЛИВІСТЬ ПОТРЕБУЄ multer ПЕРЕД ЗАПИТОМ І `fileFilter` НА ЗАВАНТАЖЕННІ; У НАС ЙОГО НІДЕ НЕ СТАВЛЯТЬ. (1) `grep -rnE \"FileInterceptor|FilesInterceptor|AnyFilesInterceptor|FileFieldsInterceptor|NoFilesInterceptor|MulterModule|UploadedFiles?|fileFilter|['\\\"]multer['\\\"]|Express\\.Multer\" apps/api/src --include='*.ts' --exclude='*.spec.ts'` → 0 збігів у 201 виробничому файлі. (2) `grep -rnE \"@(Post|Put|Patch|Delete)\\(\" apps/api/src --include='*.ts' --exclude='*.spec.ts' | wc -l` → 15 маршрутів із тілом (auth ×8, account-settings ×3, account-rights ×2, client-errors, not-found), жоден не приймає файл: інтерсептора завантаження не має жоден (пункт 1). ЧОМУ НЕ ПІДНЯТО: виправлено в multer 2.5.0 (22.10.2026), але `@nestjs/platform-express` закріплює multer ТОЧНО — `npm view @nestjs/platform-express@12.2.0 dependencies.multer` → 2.4.0, а 12.2.0 і є `latest` (19.10.2026), тож жодна версія Nest 12 не приносить 2.5.0. Через `overrides` теж ні: `\"multer\": \"2.5.0\"` у коренях + `npm install --package-lock-only` на наявному lock → 0 змін у lock (заміряно 25.10.2026; те саме, що записано в CAMP-159 і в коміті 71c6d16). ЩОБ ЦЯ ПІДСТАВА НЕ СТАЛА ХИБНОЮ МОВЧКИ: `apps/api/src/no-upload-routes.spec.ts` червоніє в день, коли в `apps/api/src` зʼявиться будь-яке з цих імен (CAMP-86, фото, буде першим). ВИКИНУТИ ЗАПИС: коли `npm view @nestjs/platform-express dependencies.multer` покаже ≥2.5.0 — сторож сам надрукує «fixed upstream, drop from the baseline»."
+    }
+  },
   "apps/web": {}
 }
