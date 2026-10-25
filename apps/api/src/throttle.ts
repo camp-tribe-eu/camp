@@ -95,6 +95,82 @@ export const LOGIN_LIMIT = { ttl: MINUTE, limit: 10 };
  */
 export const MAIL_LIMIT = { ttl: 10 * MINUTE, limit: 10 };
 
+/**
+ * 🔴 CAMP-390: the route that WRITES A ROW IN THE CONSENT JOURNAL on every
+ * accepted request, which is a different cost again.
+ *
+ * `POST /account/letters` is a switch. Each request is one new, never-edited
+ * row in `consent_record` (an append-only table that is deliberately not
+ * pruned), and under the default bucket one signed-in person could append 120
+ * of them a minute — 170 000 rows a day, kept for the life of the account, in
+ * the table whose rows are the proof of consent.
+ *
+ * It does NOT share the login bucket and it does NOT share the mail bucket,
+ * and the reason is the CAMP-176 lesson above: a person who toggles a switch
+ * four times must not be spending the budget that stops somebody guessing a
+ * password (10 a minute) or that caps letters into a stranger's mailbox (10 per
+ * ten minutes). Its own counter costs nothing and cannot be borrowed from.
+ *
+ * Ten per ten minutes. Argued, not measured: a person flips this switch once,
+ * perhaps three or four times while deciding, and a page left open across a
+ * wording change (409, reload, try again) adds two more. It caps what one caller
+ * can append at sixty rows an hour.
+ */
+export const CONSENT_LIMIT = { ttl: 10 * MINUTE, limit: 10 };
+
+/** The routes that spend the CONSENT bucket. Paths as the router sees them. */
+export const CONSENT_ROUTES = ['account/letters'] as const;
+
+/** Is this a route that appends to the consent journal? Normalised like isMailPath. */
+export function isConsentPath(path: string): boolean {
+  const clean = path
+    .split('?')[0]
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
+  return CONSENT_ROUTES.some((r) => clean === r);
+}
+
+/**
+ * 🔴 CAMP-391: the route that RUNS THE PLANNER, which is a different cost
+ * again — CPU and a read of the campsite table, per request, and the first
+ * route where one request is made of many.
+ *
+ * `POST /plan` cuts a corridor, reads every campsite within 30 km of it, and
+ * runs a dynamic programme over them on the API's one thread. Measured on the
+ * local copy of the table (25.10.2026, `measure-itinerary.ts`, 14 journeys
+ * over the Union): the median call is 15 ms and the worst 229 ms, the first
+ * of a cold run; and through HTTP, 60 calls over 12 journeys up to
+ * Lisbon → Helsinki (3 360 km, 3 572 candidates), same day: p50 19 ms, p95
+ * 77 ms, worst 151 ms. That is cheap for a reader and still not free for a loop:
+ * under the default bucket one caller could run 120 of them a minute, and the
+ * programme is synchronous, so each one is time in which nothing else the
+ * process serves moves.
+ *
+ * Its OWN bucket, for the CAMP-176 reason: a person who changes the number
+ * of days and presses the button four times must not be spending the budget
+ * that stops somebody walking the whole table (BULK) or guessing a password
+ * (LOGIN), and a person reading ten pages must not be spending this one.
+ *
+ * Ten a minute. Argued, not measured: a reader iterating on one trip (seven
+ * days, then eight, then a different end) makes a handful; ten leaves room
+ * for that and for a household behind one address, and caps one caller at
+ * ten corridors a minute — about 2.3 s of work at the measured worst, and
+ * about 0.15 s at the median.
+ */
+export const PLAN_LIMIT = { ttl: MINUTE, limit: 10 };
+
+/** The routes that spend the PLAN bucket. Paths as the router sees them. */
+export const PLAN_ROUTES = ['plan'] as const;
+
+/** Is this a route that runs the planner? Normalised like isConsentPath. */
+export function isPlanPath(path: string): boolean {
+  const clean = path
+    .split('?')[0]
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
+  return PLAN_ROUTES.some((r) => clean === r);
+}
+
 /** The routes that spend the MAIL bucket. Paths as the router sees them. */
 export const MAIL_ROUTES = [
   // CAMP-229: зміна пошти шле лист на вказану адресу, тож рахується тут, а
@@ -178,7 +254,7 @@ export function isLoginPath(path: string): boolean {
 /**
  * Which counter this request is spent from.
  *
- * 🔴 ONE function, exported, so the four buckets are a fact a test can
+ * 🔴 ONE function, exported, so the six buckets are a fact a test can
  * read rather than a ternary buried in a Nest guard. The bug review
  * found was precisely that the limit and the bucket were decided in two
  * different files and nothing compared them.
@@ -188,10 +264,14 @@ export function isLoginPath(path: string): boolean {
  * a list therefore lands in the ordinary bucket — generous, but never
  * silently sharing a scarce counter with something else.
  */
-export function bucketOf(path: string): 'bulk' | 'login' | 'mail' | 'ordinary' {
+export function bucketOf(
+  path: string,
+): 'bulk' | 'login' | 'mail' | 'consent' | 'plan' | 'ordinary' {
   if (isBulkPath(path)) return 'bulk';
   if (isLoginPath(path)) return 'login';
   if (isMailPath(path)) return 'mail';
+  if (isConsentPath(path)) return 'consent';
+  if (isPlanPath(path)) return 'plan';
   return 'ordinary';
 }
 

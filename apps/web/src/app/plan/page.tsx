@@ -4,34 +4,39 @@ import PlanForm from '@/components/plan-form';
 import { alternatesFor } from '@/lib/i18n';
 import { breadcrumbList, jsonLdProps } from '@/lib/jsonld';
 
-// CAMP-205 — /plan: каркас планувальника маршруту, без алгоритму.
+// CAMP-205 — /plan: форма планувальника маршруту.
+// CAMP-391 — і планувальник за нею: `POST /plan` (apps/api/src/plan/).
 //
-// 🔴 ЦЯ СТОРІНКА СКАЗАНА ПРЯМО: планувальник ще не рахує маршрути. Картка
-// (CAMP-205) прямо дозволяє зробити каркас, стани порожнечі, помилки й
-// форму до алгоритму (CAMP-46) і роутингу (CAMP-42). Те, що не можна:
-// малювати результат, якого ніхто не рахує, або словом «скоро» замінити
-// речення про те, чого немає.
+// 🔴 ЦЯ СТОРІНКА КАЖЕ ПРЯМО, ЩО ВОНА РОБИТЬ І ЧОГО НІ. Вона ріже пряму лінію
+// між двома точками на дні й обирає кемпінг на кожну ніч; вона не знає
+// доріг (маршрутизатора немає — `corridor-source.ts` віддає пряму), тож
+// усі відстані тут по прямій і годин за кермом немає; вона не знає
+// розміру вашого транспорту (даних про розміри майданчиків немає,
+// CAMP-247) і не знає, чи кемпінг відкритий у ваші дати (колонки сезону
+// немає). Назв місць вона теж не шукає: газетира немає, тож приймає
+// координати. Одне пряме речення про кожне, а не слово «скоро» й не
+// мовчання.
 //
 // Тон — як у решти сайту: «Nothing is drawn here, and that is a gap in
 // what we hold» на мапі, «we do not know, and we do not publish a number
-// we have not got» у калькуляторі. Одне пряме речення, без вибачень.
+// we have not got» у калькуляторі.
 //
-// 🔴 `noindex`, і це рішення, а не недогляд. Сторінка, яка нічого не
-// рахує, не має ранжуватись: вона була б тонкою за означенням, а перше,
-// що побачить людина з пошуку, — «не працює». Так само поводиться
-// /search (CAMP-67), і так само сторінка лишається повністю доступною
-// для обходу. Тому ж її немає в карті сайту й у llms.txt: «карта сайту
-// не містить noindex» — правило check-sitemap.mjs.
+// 🔴 `noindex`, і це рішення, а не недогляд: доки планувальник не дає
+// доріг, він не для пошуку. Перше, що побачила б людина з видачі, — план
+// без дороги, і вона вирішила б, що це маршрут. Так само поводиться /search
+// (CAMP-67), і так само сторінка лишається повністю доступною для обходу.
+// Тому ж її немає в карті сайту й у llms.txt: «карта сайту не містить
+// noindex» — правило check-sitemap.mjs.
 //
-// ⚠️ Коли планувальник справді рахуватиме, ТРИ речі міняються разом, і
+// ⚠️ Коли з'явиться маршрутизатор (CAMP-42), ТРИ речі міняються разом, і
 // всі три на цій сторінці чи поруч: прибрати `robots` нижче, додати
-// /plan до STATIC_HUBS у lib/sitemap.ts і до llms.txt, і переписати
-// блок `planner-status`, який тоді стане неправдою.
+// /plan до STATIC_HUBS у lib/sitemap.ts і до llms.txt, і переписати блок
+// `planner-status`, який тоді стане неправдою.
 
 export const metadata: Metadata = {
   title: 'Trip planner',
   description:
-    'The CampTribe trip planner does not calculate routes yet. This page says what it will show and points to what works today.',
+    'Plan a trip between two points in the EU, day by day: a campsite for each night and the reason it was chosen. Distances are straight lines, not roads.',
   alternates: alternatesFor('/plan'),
   robots: { index: false, follow: true },
 };
@@ -60,15 +65,17 @@ export default function PlanPage() {
         className="mt-6 max-w-prose rounded-card border border-amber bg-surface-2 p-4 text-ink"
       >
         <p>
-          <strong>This planner does not calculate routes yet.</strong> The
-          form below takes a start, a destination, a number of days and a
-          vehicle, and checks that they make sense. It does nothing more:
-          there is no route, no distance and no list of stops behind it.
+          <strong>This planner cuts a straight line into days.</strong> Give it
+          a start, a destination and a number of days, and it picks a campsite
+          from our database for each night, near where that day should end,
+          and says why.
         </p>
         <p className="mt-3">
-          When it works, this page will show your route drawn on a map, and
-          the stops along it. Until then we would rather say so than draw
-          something that looks like one.
+          <strong>What it does not know:</strong> the roads, so every distance
+          is a straight line and there are no driving times; the size of your
+          vehicle, because we hold no data on pitch sizes; and whether a
+          campsite is open on your dates. It takes coordinates, not place
+          names, because nothing looks names up yet.
         </p>
       </div>
 
@@ -76,7 +83,7 @@ export default function PlanPage() {
 
       <section className="mt-12" aria-labelledby="plan-today-heading">
         <h2 id="plan-today-heading" className="text-2xl font-bold text-heading">
-          What works today
+          Also on the site
         </h2>
         <ul className="mt-4 max-w-prose list-disc space-y-2 pl-5 text-ink-2">
           <li>

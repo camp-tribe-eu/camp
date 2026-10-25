@@ -138,6 +138,13 @@ function Inner() {
       setState((s) => (s === null ? s : { ...s, letters: out.letters }));
       return;
     }
+    // 🔴 CAMP-390: текст біля перемикача змінився, поки сторінка була відкрита.
+    // Перемикач лишається таким, яким його підтвердив сервер.
+    if (out.kind === 'wording-changed')
+      return setLettersNote({
+        tone: 'bad',
+        text: 'The text next to this switch has changed since the page was opened. Reload the page and read it again. Nothing was changed.',
+      });
     setLettersNote(commonNote(out.kind));
   }
 

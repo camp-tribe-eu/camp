@@ -5,12 +5,16 @@ import {
   BULK_ROUTES,
   bucketOf,
   clientKey,
+  CONSENT_LIMIT,
+  CONSENT_ROUTES,
   DEFAULT_LIMIT,
   isBulkPath,
   isExempt,
   LOGIN_ROUTES,
   MAIL_LIMIT,
   MAIL_ROUTES,
+  PLAN_LIMIT,
+  PLAN_ROUTES,
 } from './throttle';
 
 // CAMP-69 — the rate limit, checked without booting Nest.
@@ -380,7 +384,7 @@ describe('🔴 the decorator and the bucket list agree', () => {
 // the comment on `login()` says a test reads the controller, and the test
 // that did was replaced by one that asserts the bucket. So the comparison is
 // made here, with the same reading of the controllers, for both.
-describe('🔴 the login and mail decorators agree with their route lists', () => {
+describe('🔴 the login, mail, consent and plan decorators agree with their route lists', () => {
   const controllers = (function find(dir: string): string[] {
     return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
       e.isDirectory()
@@ -429,6 +433,18 @@ describe('🔴 the login and mail decorators agree with their route lists', () =
   it('the controllers really were read', () => {
     expect(carrying('LOGIN')).not.toEqual([]);
     expect(carrying('MAIL')).not.toEqual([]);
+    expect(carrying('CONSENT')).not.toEqual([]);
+    expect(carrying('PLAN')).not.toEqual([]);
+  });
+
+  // CAMP-391. `@Throttle(PLAN)` sets the number, `PLAN_ROUTES` sets the bucket:
+  // the same two statements about one route as the three above.
+  it('every route marked PLAN is in PLAN_ROUTES, and nothing else is', () => {
+    expect(carrying('PLAN')).toEqual([...PLAN_ROUTES].sort());
+  });
+
+  it('every route marked CONSENT is in CONSENT_ROUTES, and nothing else is', () => {
+    expect(carrying('CONSENT')).toEqual([...CONSENT_ROUTES].sort());
   });
 
   it('every route marked LOGIN is in LOGIN_ROUTES, and nothing else is', () => {
@@ -532,5 +548,107 @@ describe('🔴 the mail bucket (CAMP-228)', () => {
   it('allows ten in ten minutes — written out, not read back', () => {
     expect(MAIL_LIMIT.limit).toBe(10);
     expect(MAIL_LIMIT.ttl).toBe(600_000);
+  });
+});
+
+// 🔴 CAMP-390: `POST /account/letters` appends a row to an append-only journal on
+// every accepted request. Under the default bucket one person could append 120
+// a minute; the bucket below caps it, and it is its OWN bucket for the CAMP-176
+// reason: the number and the counter are two statements about one route.
+describe('🔴 the consent bucket (CAMP-390)', () => {
+  it.each([
+    '/account/letters',
+    '/ACCOUNT/LETTERS/',
+    '/account/letters?x=1',
+    '//account/letters',
+  ])('files %s under consent', (path) => {
+    expect(bucketOf(path)).toBe('consent');
+  });
+
+  it('does not share a counter with sign-in, mail, ordinary reading or the bulk routes', () => {
+    const consent = bucketOf('/account/letters');
+    for (const other of [
+      '/auth/login',
+      '/account/password',
+      '/auth/signup',
+      '/account/email',
+      '/account/settings',
+      '/spots/countries',
+      '/spots/index',
+    ])
+      expect(bucketOf(other)).not.toBe(consent);
+    // The page that LOADS the switch is a plain GET and must stay ordinary: four
+    // visits to the settings page must not spend the toggling budget.
+    expect(bucketOf('/account/settings')).toBe('ordinary');
+  });
+
+  it('allows ten in ten minutes — written out, not read back', () => {
+    expect(CONSENT_LIMIT.limit).toBe(10);
+    expect(CONSENT_LIMIT.ttl).toBe(600_000);
+  });
+
+  it('and that is far below the default, or it is not a limit', () => {
+    // Per hour: what one caller can append.
+    const perHour = (CONSENT_LIMIT.limit * 3_600_000) / CONSENT_LIMIT.ttl;
+    const defaultPerHour =
+      (DEFAULT_LIMIT.limit * 3_600_000) / DEFAULT_LIMIT.ttl;
+    expect(perHour).toBe(60);
+    expect(perHour).toBeLessThan(defaultPerHour / 100);
+  });
+});
+
+// 🔴 CAMP-391: `POST /plan` runs the planner — a corridor, a read of the
+// campsite table and a dynamic programme on the API's one thread. Its own
+// bucket, for the CAMP-176 reason: the number and the counter are two
+// statements about one route, and a person who presses the button four times
+// must not be spending what stops somebody guessing a password, or reading
+// ten pages what stops somebody planning.
+describe('🔴 the plan bucket (CAMP-391)', () => {
+  it.each(['/plan', '/PLAN', '/plan/', '/plan?x=1', '//plan', '/Plan/?a=b'])(
+    'files %s under plan',
+    (path) => {
+      expect(bucketOf(path)).toBe('plan');
+    },
+  );
+
+  it('does not share a counter with sign-in, mail, consent, ordinary reading or the bulk routes', () => {
+    const plan = bucketOf('/plan');
+    for (const other of [
+      '/auth/login',
+      '/auth/signup',
+      '/account/letters',
+      '/account/settings',
+      '/spots/countries',
+      '/routes/near',
+      '/spots/index',
+    ])
+      expect(bucketOf(other)).not.toBe(plan);
+  });
+
+  it('a path that merely starts like it is ordinary', () => {
+    for (const path of [
+      '/planner',
+      '/plan/x',
+      '/plans',
+      '/spots/plan',
+      '/trips/plan',
+    ]) {
+      expect(bucketOf(path)).toBe('ordinary');
+    }
+  });
+
+  it('allows ten a minute — written out, not read back', () => {
+    expect(PLAN_LIMIT.limit).toBe(10);
+    expect(PLAN_LIMIT.ttl).toBe(60_000);
+  });
+
+  it('and that is far below the default, or it is not a limit', () => {
+    expect(PLAN_LIMIT.limit).toBeLessThan(DEFAULT_LIMIT.limit / 10);
+    // …and room for a person trying seven days, then eight, then another end.
+    expect(PLAN_LIMIT.limit).toBeGreaterThanOrEqual(5);
+  });
+
+  it('the route list names the one route that runs the planner', () => {
+    expect([...PLAN_ROUTES]).toEqual(['plan']);
   });
 });

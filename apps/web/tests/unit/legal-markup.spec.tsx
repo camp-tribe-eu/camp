@@ -1,138 +1,179 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { renderComponent } from "./render-component";
 import { visibleText } from "./rendered-text";
 import { LegalProse } from "@/components/legal-prose";
-import Terms from "@/content/legal/terms";
-import Privacy from "@/content/legal/privacy";
-import Cookies from "@/content/legal/cookies";
-import Disclaimer from "@/content/legal/disclaimer";
-import Attribution from "@/content/legal/attribution";
-import Database from "@/content/legal/database";
-import Notice from "@/content/legal/notice";
+import { PAGE_VALUES } from "@/lib/page-content";
+import { SEEDED, seededBody } from "./legal-cms";
 
-// 🔴 CAMP-365 — СІМ ПРАВОВИХ ДОКУМЕНТІВ, ПЕРЕКЛАДЕНИХ У РОЗМІТКУ CMS,
-// І ДОКАЗ, ЩО ПЕРЕКЛАД НІЧОГО НЕ ЗМІНИВ.
+// 🔴 CAMP-365 — РОЗМІТКА НЕСЕ ПРАВОВІ ДОКУМЕНТИ БЕЗ ВТРАТ.
 //
 // Картка називає це пасткою номер один: «будь-яка втрата слова — це
 // неправда в юридичному документі. Звіряти посимвольно, а не оком».
 //
-// Тому порівнюються ДВІ різні речі, і жодної з них самої по собі не
-// досить:
+// 🔴 ЩО ЦЕЙ ФАЙЛ ДОВОДИТЬ, А ЩО НІ. Раніше тут стояло порівняння двох
+// рендерів: компонента JSX, який малював сторінку, і розмітки. Компонентів
+// більше немає — вони видалені в тому самому PR, який перемкнув сторінку
+// на базу, і порівнювати нема з чим. Дослівна рівність ТОДІШНЬОГО рендеру
+// і нинішнього доведена на збірці (до і після, усі сім сторінок), а не
+// цим тестом.
 //
-//   1. ВИДИМИЙ ТЕКСТ — посимвольно. Ловить втрачене чи додане слово.
-//   2. ПОСЛІДОВНІСТЬ ЕЛЕМЕНТІВ разом із якорями. Ловить те, чого текст
-//      не бачить: заголовок, що став абзацом; рамку, що стала текстом;
-//      список, що злився в речення; зниклий `id`, за яким цитують
-//      розділ. Рецензія #304 заміряла саме цей клас: 2072 символи
-//      збіглись, а абзац утратив відступ і колір.
+// Лишається те, що можна довести й без другого боку: ЗАКОН ЗБЕРЕЖЕННЯ.
+// Рендер не може ні загубити, ні вигадати текст, посилання чи якір, яких
+// не було в розмітці. Очікування виводяться з САМОЇ розмітки окремим,
+// написаним руками розбором — не з `parseBlocks`, бо порівнювати розбірник
+// із собою означало б довести, що він збігається з власним виходом.
 //
-// 🔴 ЦЕ НЕ ТЕСТ ПРО МОЮ КОПІЮ. Обидва боки беруться з РІЗНИХ джерел:
-// ліворуч компонент, який сьогодні малює сторінку, праворуч файл
-// розмітки, який її замінить. Якби я порівнював розмітку з розміткою,
-// доказ був би зроблений із того, що доводить.
-
-const PAGES = [
-  ["terms", Terms],
-  ["privacy", Privacy],
-  ["cookies", Cookies],
-  ["disclaimer", Disclaimer],
-  ["attribution", Attribution],
-  ["database", Database],
-  ["notice", Notice],
-] as const;
-
-const MARKUP = join(__dirname, "..", "..", "src", "content", "legal", "markup");
-
-const markupOf = (slug: string) =>
-  readFileSync(join(MARKUP, `${slug}.md`), "utf8");
+// 🔴 КОРПУС — ТЕКСТ ІЗ МІГРАЦІЇ (`legal-cms.ts`), тобто те, що лежить у базі
+// після засівання. Правка в CMS цим тестам невидима.
 
 /**
- * Кістяк документа: послідовність структурних елементів, із якорем у
- * заголовка.
+ * Видимий текст розмітки, виведений без розбірника.
  *
- * 🔴 `br` ТУТ НЕ ЗАРАДИ ПОВНОТИ. Рецензія #309 заміряла: прибрати два
- * рядки з одного `>` у `attribution.md` — і три умови ODbL («що ви
- * винні», «адаптована база проти похідного твору», «це звʼязує і нас»)
- * зливаються в одну стіну тексту, а **всі 16 випадків лишаються
- * зелені**. Абзаци всередині рамки не мають `<p>`, вони розділені
- * `<br><br>`; `visibleText` перетворює розрив на пробіл, а кістяк його
- * не бачив узагалі. Тобто єдина втрата, яку цей доказ мусив ловити в
- * рамці, пролітала повз обидві його половини.
- *
- * 🔴 І ПРО СТИЛІ ТУТ СТОЯЛА НЕПРАВДА. Коментар казав, що атрибути
- * стилю «звіряє окремий випадок нижче». Такого випадку немає: нижче
- * лише «жоден документ не порожній» і «розбір щось знаходить», і
- * жоден не читає жодного класу. Класи сьогодні збігаються лише тому,
- * що `LegalProse` перевикористовує компоненти `prose.tsx` — це
- * властивість реалізації, а не перевірка. Сказано як є.
+ * Правила грамматики (див. `lib/rich-text.ts`) переписані тут окремо: якби
+ * я викликав `parseBlocks`, закон збереження перевіряв би розбір самим
+ * розбором.
  */
-function skeleton(html: string): string[] {
-  const out: string[] = [];
-  const re =
-    /<(h2|h3|p|ul|li|strong|em|i|a|br)\b([^>]*)\/?>|<div([^>]*class="[^"]*accent-surface[^"]*")/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) {
-    if (m[1]) {
-      const id = / id="([^"]+)"/.exec(m[2] ?? "")?.[1];
-      const href = / href="([^"]+)"/.exec(m[2] ?? "")?.[1];
-      out.push(
-        m[1] === "i" ? "em" : m[1],
-      );
-      if (id) out[out.length - 1] += `#${id}`;
-      if (href) out[out.length - 1] += `→${href}`;
-    } else {
-      out.push("callout");
-    }
-  }
-  return out;
+function plainOf(markup: string): string {
+  return markup
+    .replace(/\{\{([a-z0-9_.]+)\}\}/gi, (_, k: string) => {
+      const v = PAGE_VALUES[k];
+      if (v === undefined) throw new Error(`немає значення для {{${k}}}`);
+      return v;
+    })
+    .replace(/^(#{2,3}) (.*?)(?:\s*\{#[a-z0-9][a-z0-9-]*\})?\s*$/gm, "$2")
+    .replace(/^>\s?/gm, "")
+    .replace(/^-\s+/gm, "")
+    .replace(/\[([^\]]+)\]\([^)\s]+\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/\\([*[\]\\])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-test.describe("🔴 CAMP-365 — розмітка несе правові сторінки без втрат", () => {
-  for (const [slug, Component] of PAGES) {
-    test(`${slug}: видимий текст збігається посимвольно`, () => {
-      const was = visibleText(renderComponent(Component, {}));
-      const now = visibleText(renderComponent(LegalProse, { text: markupOf(slug) }));
+/** Якорі, які розмітка обіцяє: `## Назва {#id}` і `### Назва {#id}`. */
+const anchorsOf = (markup: string): string[] =>
+  [...markup.matchAll(/^#{2,3} .*\{#([a-z0-9][a-z0-9-]*)\}\s*$/gm)].map(
+    (m) => m[1],
+  );
 
-      // Довжини — першими, бо повідомлення про розбіжність у 9000
-      // символів без них нечитабельне.
+/** Посилання розмітки в порядку появи, з підстановками. */
+const linksOf = (markup: string): string[] =>
+  [
+    ...markup
+      .replace(/\{\{([a-z0-9_.]+)\}\}/gi, (_, k: string) => PAGE_VALUES[k])
+      .matchAll(/\[([^\]]+)\]\(([^)\s]+)\)/g),
+  ].map((m) => m[2]);
+
+const htmlLinks = (html: string): string[] =>
+  [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map((m) =>
+    m[1].replace(/&amp;/g, "&"),
+  );
+const htmlIds = (html: string): string[] =>
+  [...html.matchAll(/<h[23]\b[^>]*\sid="([^"]+)"/g)].map((m) => m[1]);
+
+const blocksOf = (markup: string): string[] =>
+  markup.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean);
+
+const htmlOf = (slug: string) =>
+  renderComponent(LegalProse, { text: seededBody(slug) });
+
+test.describe("🔴 CAMP-365 — розмітка несе правові сторінки без втрат", () => {
+  // 🔴 ПЕРЕЛІК БЕРЕТЬСЯ З МІГРАЦІЇ, А НЕ ВПИСАНИЙ. Восьмий документ,
+  // доданий туди, потрапляє в усі випадки нижче без правки цього файла.
+  for (const { slug } of SEEDED) {
+    test(`${slug}: видимий текст дорівнює тексту розмітки без службових знаків`, () => {
+      const want = plainOf(seededBody(slug));
+      const got = visibleText(htmlOf(slug));
+      // Довжини першими: розбіжність у 9000 символів без них нечитабельна.
       expect(
-        now.length,
-        `${slug}: було ${was.length} символів, стало ${now.length}`,
-      ).toBe(was.length);
-      expect(now).toBe(was);
+        got.length,
+        `${slug}: розмітка дає ${want.length} символів, сторінка ${got.length}`,
+      ).toBe(want.length);
+      expect(got).toBe(want);
     });
 
-    test(`${slug}: структура й якорі ті самі`, () => {
-      const was = skeleton(renderComponent(Component, {}));
-      const now = skeleton(renderComponent(LegalProse, { text: markupOf(slug) }));
-      expect(now.length, `${slug}: елементів було ${was.length}, стало ${now.length}`)
-        .toBe(was.length);
-      expect(now).toEqual(was);
+    test(`${slug}: кожен якір розмітки є в сторінці рівно раз, і нічого зайвого`, () => {
+      expect(htmlIds(htmlOf(slug))).toEqual(anchorsOf(seededBody(slug)));
+    });
+
+    test(`${slug}: посилання ті самі, в тому самому порядку`, () => {
+      expect(htmlLinks(htmlOf(slug))).toEqual(linksOf(seededBody(slug)));
+    });
+
+    // 🔴 РАМКИ Й СПИСКИ — ОКРЕМО, бо їх не бачить жодне порівняння тексту:
+    // рамка, що стала абзацом, і список, що злився в речення, мають той
+    // самий видимий текст. Рецензія #309 довела це на рамці про ODbL.
+    test(`${slug}: рамок і списків стільки, скільки в розмітці`, () => {
+      const markup = seededBody(slug);
+      const html = htmlOf(slug);
+      const callouts = blocksOf(markup).filter((b) => b.startsWith("> "));
+      const lists = blocksOf(markup).filter((b) => b.startsWith("- "));
+      const items = lists.reduce((n, b) => n + b.split("\n").length, 0);
+
+      expect((html.match(/accent-surface/g) ?? []).length).toBe(callouts.length);
+      expect((html.match(/<ul\b/g) ?? []).length).toBe(lists.length);
+      expect((html.match(/<li\b/g) ?? []).length).toBe(items);
+      // Рамка з кількох абзаців: розрив між ними — `<br><br>`, і його
+      // кількість теж закон. Саме його втрата зливала три умови ODbL в
+      // одну стіну тексту при всіх зелених випадках.
+      const breaks = callouts.reduce(
+        (n, b) =>
+          n +
+          Math.max(
+            0,
+            b.split("\n").filter((l) => /^>\s*$/.test(l)).length,
+          ),
+        0,
+      );
+      expect((html.match(/<br\s*\/?>/g) ?? []).length).toBe(breaks * 2);
     });
   }
 
-  // 🔴 І пара до посимвольної звірки: вона істинна й над двома
-  // порожніми рядками. Документи мусять бути НЕ порожні, і то суттєво.
+  // 🔴 ВИДІЛЕННЯ — ТЕЖ ЗМІСТ, І ЙОГО НЕ БАЧИТЬ ЖОДНЕ ПОРІВНЯННЯ ТЕКСТУ.
+  // `*from*` у «something produced *from* the data» протиставляє похідний
+  // твір адаптованій базі — саме там, де ODbL вимагає різного; курсив, що
+  // став звичайним текстом, зрівняв би два юридичні наслідки при
+  // побуквено однаковому тексті.
+  for (const { slug } of SEEDED) {
+    test(`${slug}: жирного й курсиву стільки, скільки в розмітці`, () => {
+      const markup = seededBody(slug);
+      const html = htmlOf(slug);
+      const bold = [...markup.matchAll(/\*\*([^*]+)\*\*/g)].length;
+      const italic = [
+        ...markup.replace(/\*\*([^*]+)\*\*/g, "").matchAll(/\*([^*]+)\*/g),
+      ].length;
+      expect((html.match(/<strong\b/g) ?? []).length).toBe(bold);
+      expect((html.match(/<i\b|<em\b/g) ?? []).length).toBe(italic);
+    });
+  }
+
+  // 🔴 Пара до всього вище: закон збереження істинний і над порожнечею.
+  // Документи мусять бути НЕ порожні, і то суттєво.
   test("жоден документ не порожній", () => {
-    for (const [slug, Component] of PAGES) {
-      const text = visibleText(renderComponent(Component, {}));
-      expect(text.length, `${slug} порожній`).toBeGreaterThan(1000);
-      expect(markupOf(slug).length, `розмітка ${slug} порожня`).toBeGreaterThan(
+    expect(SEEDED.length).toBeGreaterThan(0);
+    for (const { slug } of SEEDED) {
+      expect(visibleText(htmlOf(slug)).length, `${slug} порожній`).toBeGreaterThan(
         1000,
       );
     }
   });
 
-  // 🔴 І сама звірка структури мусить уміти почервоніти: якщо
-  // `skeleton` нічого не знаходить, попередні випадки порівнюють два
-  // порожні масиви.
-  test("розбір структури справді щось знаходить", () => {
-    const sk = skeleton(renderComponent(Terms, {}));
-    expect(sk.filter((x) => x.startsWith("h2#")).length).toBeGreaterThan(5);
-    expect(sk.filter((x) => x === "callout").length).toBeGreaterThan(0);
-    expect(sk.filter((x) => x.startsWith("a→")).length).toBeGreaterThan(3);
+  // 🔴 І сам розбір очікувань мусить уміти знаходити: якщо він нічого не
+  // бачить, усі порівняння вище — порівняння порожнього з порожнім.
+  test("очікування справді щось знаходять у розмітці", () => {
+    const terms = seededBody("terms");
+    expect(anchorsOf(terms).length).toBeGreaterThan(5);
+    expect(linksOf(terms).length).toBeGreaterThan(3);
+    expect(blocksOf(terms).filter((b) => b.startsWith("> ")).length).toBeGreaterThan(0);
+    expect(plainOf(terms).length).toBeGreaterThan(3000);
+    // Закон про виділення теж мусить бачити виділене: серед семи документів
+    // є і жирне, і курсив (одне місце в attribution).
+    const all = SEEDED.map((d) => d.body).join("\n");
+    expect([...all.matchAll(/\*\*([^*]+)\*\*/g)].length).toBeGreaterThan(10);
+    expect(
+      [...all.replace(/\*\*([^*]+)\*\*/g, "").matchAll(/\*([^*]+)\*/g)].length,
+    ).toBeGreaterThan(0);
   });
 });
 

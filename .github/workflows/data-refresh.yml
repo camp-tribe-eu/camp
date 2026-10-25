@@ -1,0 +1,92 @@
+name: Data refresh
+
+# 🔴 ЧОМУ ЦЕЙ ПРОЦЕС З'ЯВИВСЯ ЛИШЕ 25.10.2026.
+#
+# Збирачі існували з початку — `scripts/effis`, `scripts/edo`,
+# `scripts/fuel`. Розкладу для них не було ЖОДНОГО. Файли згенерували
+# один раз 05.10 і відтоді не чіпали: пожежі протухли на 26 діб при
+# бюджеті 3, ціни пального на 31 при бюджеті 21.
+#
+# Сайт при цьому чесно писав читачеві «No fresh wildfire data» і «These
+# prices are out of date». Тобто код відпрацював правильно — не помітив
+# НІХТО, бо дивитись було нікому.
+#
+# 🔴 Пара до цього процесу — `scripts/ci/check-data-freshness.mjs` у CI.
+# Процес оновлює, сторож не дає відкритися зі старим. Поодинці кожен
+# безсилий: оновлювач може мовчки падати, а сторож сам нічого не лагодить.
+
+on:
+  schedule:
+    # Щодня о 04:17 UTC. Не о рівній годині: о 04:00 у Geofabrik і
+    # Copernicus пік чужих завдань.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: data-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 🔴 Кожен збирач окремим кроком із `continue-on-error`: падіння
+      # одного джерела не сміє забрати два інші. EFFIS лягає частіше за
+      # решту, і через нього ми б не оновлювали ціни пального.
+      - name: Wildfires (EFFIS)
+        id: fires
+        continue-on-error: true
+        run: node scripts/effis/fetch-wildfires.mjs
+
+      - name: Drought (EDO)
+        id: drought
+        continue-on-error: true
+        run: node scripts/edo/fetch-drought.mjs
+
+      - name: Fuel prices
+        id: fuel
+        continue-on-error: true
+        run: node scripts/fuel/fetch-fuel-prices.mjs
+
+      # 🔴 ЗБИРАЧ, ЩО ВПАВ, МУСИТЬ БУТИ ВИДИМИМ. Інакше ми повертаємось
+      # рівно туди, звідки прийшли: процес зелений, дані старі.
+      - name: Чи всі збирачі відпрацювали
+        run: |
+          set -u
+          BAD=""
+          [ "${{ steps.fires.outcome }}"   != "success" ] && BAD="$BAD wildfires(${{ steps.fires.outcome }})"
+          [ "${{ steps.drought.outcome }}" != "success" ] && BAD="$BAD drought(${{ steps.drought.outcome }})"
+          [ "${{ steps.fuel.outcome }}"    != "success" ] && BAD="$BAD fuel(${{ steps.fuel.outcome }})"
+          if [ -n "$BAD" ]; then
+            echo "::error::збирачі впали:$BAD — дані для них лишились старими"
+            exit 1
+          fi
+          echo "усі три збирачі відпрацювали"
+
+      - name: Чи дані свіжі після оновлення
+        run: node scripts/ci/check-data-freshness.mjs
+
+      # main під захистом гілки, тож прямого пуша немає: відкриваємо PR.
+      # Це навмисно — зміна даних проходить CI, як і будь-яка інша.
+      - name: PR, якщо щось змінилось
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: data/refresh
+          base: main
+          commit-message: 'Оновлення даних: пожежі, посуха, ціни пального'
+          title: 'Оновлення даних за розкладом'
+          body: |
+            Автоматичне оновлення: EFFIS (пожежі), EDO (посуха), ціни пального.
+
+            Сторож свіжості на цих даних зелений — інакше цей PR не з'явився б.
+          delete-branch: true

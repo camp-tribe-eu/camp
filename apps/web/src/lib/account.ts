@@ -12,6 +12,8 @@
 // `{ code, message }`; сторінка розгалужується за `code`, ніколи за
 // текстом. Невідомий код чи не-JSON — це `failed`, а не вигадана причина.
 
+import { NEWSLETTER_SIGNUP_WORDING } from '@/lib/consent-wording';
+
 /**
  * Адреса API з боку браузера. Порожня — акаунти вимкнені, і сторінка
  * каже про це прямо, а не шле запити на хост, якого немає (так само
@@ -44,6 +46,12 @@ export type Outcome =
   | { kind: 'refused' }
   /** 409: адреса зайнята (лише реєстрація). */
   | { kind: 'taken' }
+  /**
+   * 409 з `code: 'wording_changed'` (CAMP-390): текст біля галочки змінився, поки
+   * сторінка була відкрита. Нічого не збережено. Інший `code` за тим самим
+   * статусом, тож розрізняється за кодом, не за статусом.
+   */
+  | { kind: 'wording-changed' }
   /** 410: посилання прострочене, використане чи не те. */
   | { kind: 'stale' }
   /** 429 від лічильника «60 секунд»: скільки лишилось чекати. */
@@ -79,7 +87,8 @@ export function interpret(status: number, body: unknown): Outcome {
     return { kind: 'failed' };
   }
   if (status === 401) return { kind: 'refused' };
-  if (status === 409) return { kind: 'taken' };
+  if (status === 409)
+    return b?.code === 'wording_changed' ? { kind: 'wording-changed' } : { kind: 'taken' };
   if (status === 410) return { kind: 'stale' };
   if (status === 429) {
     if (b?.code === 'too_soon' && typeof b.retryAfter === 'number')
@@ -133,7 +142,17 @@ export type SignUpInput = { email: string; password: string; newsletter: boolean
 export const signUp = (input: SignUpInput, base?: string, f?: Fetch) =>
   // 🔴 `newsletter` іде булевим, як є. API рахує згодою лише справжнє
   // `true`; "on" чи 1 — не згода. Поля «умови» тут немає взагалі.
-  call('/auth/signup', input, base, f);
+  //
+  // 🔴 CAMP-390: `wordingVersion` — номер тексту біля галочки, який
+  // відрендерила ця сторінка. НОМЕР, не текст: текст бере сервер. Застарілий
+  // номер — 409 `wording_changed`, і нічого не збережено. Іде завжди, а сервер
+  // дивиться на нього лише коли галочку поставлено.
+  call(
+    '/auth/signup',
+    { ...input, wordingVersion: NEWSLETTER_SIGNUP_WORDING.version },
+    base,
+    f,
+  );
 
 export const logIn = (email: string, password: string, base?: string, f?: Fetch) =>
   call('/auth/login', { email, password }, base, f);

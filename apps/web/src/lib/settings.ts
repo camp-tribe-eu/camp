@@ -7,6 +7,7 @@
 // функції, що повертає готовий висновок.
 
 import { authed, readJson, type Deps, type Failure } from '@/lib/authed';
+import { NEWSLETTER_SETTINGS_WORDING } from '@/lib/consent-wording';
 import { saveSession } from '@/lib/session-store';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -52,7 +53,14 @@ export async function loadSettings(deps: Deps = {}): Promise<SettingsCall> {
 
 // ── листи ────────────────────────────────────────────────────────────────
 
-export type LettersCall = { kind: 'ok'; letters: boolean } | Failure;
+export type LettersCall =
+  | { kind: 'ok'; letters: boolean }
+  /**
+   * 409 `wording_changed` (CAMP-390): текст біля перемикача змінився, поки
+   * сторінка була відкрита. Нічого не збережено; перемикач лишається як був.
+   */
+  | { kind: 'wording-changed' }
+  | Failure;
 
 /**
  * 🔴 ВІДПОВІДЬ СЕРВЕРА, А НЕ ТЕ, ЩО МИ ПОПРОСИЛИ. Перемикач показує стан,
@@ -63,12 +71,25 @@ export async function setLetters(
   on: boolean,
   deps: Deps = {},
 ): Promise<LettersCall> {
+  // 🔴 CAMP-390: `wordingVersion` — НОМЕР тексту біля перемикача, який
+  // відрендерила ця сторінка (не сам текст: його бере сервер). Ввімкнення під
+  // застарілим номером сервер відхиляє 409 і нічого не пише; вимкнення
+  // проходить завжди.
   const out = await authed(
     '/account/letters',
-    { method: 'POST', body: { letters: on } },
+    {
+      method: 'POST',
+      body: { letters: on, wordingVersion: NEWSLETTER_SETTINGS_WORDING.version },
+    },
     deps,
   );
   if (out.kind !== 'response') return out;
+  if (out.res.status === 409) {
+    const refusal = await readJson(out.res);
+    if (isRecord(refusal) && refusal.code === 'wording_changed')
+      return { kind: 'wording-changed' };
+    return { kind: 'failed' };
+  }
   if (!out.res.ok) return { kind: 'failed' };
   const body = await readJson(out.res);
   if (!isRecord(body) || typeof body.letters !== 'boolean')

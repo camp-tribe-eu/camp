@@ -3,8 +3,7 @@ import path from 'node:path';
 
 import { expect, test } from '@playwright/test';
 
-import Privacy from '@/content/legal/privacy';
-import { renderComponent } from './render-component';
+import { seededHtml } from './legal-cms';
 import { visibleText } from './rendered-text';
 
 /**
@@ -17,12 +16,18 @@ import { visibleText } from './rendered-text';
  * 15.10 — і перестало бути правдою, коли на машині змінився ОДИН рядок
  * конфігу. Жодного рядка коду не торкнулись, жоден тест не почервонів.
  *
- * 🔴 ЧИТАЄТЬСЯ САМЕ ВІДРЕНДЕРЕНИЙ ТЕКСТ, А НЕ ФАЙЛ. Коментарі у
- * `privacy.tsx` пояснюють цей самий механізм і містять і «fourteen
- * days», і «rotate 13». Пошук по сирому файлу задовольнявся б
- * поясненням, а не обіцянкою — тобто перевіряв би сам себе. З тієї ж
- * причини з конфігу logrotate знімаються рядки `#`: у них теж є слово
- * `rotate`.
+ * 🔴 ЧИТАЄТЬСЯ САМЕ ВІДРЕНДЕРЕНИЙ ТЕКСТ, А НЕ РОЗМІТКА. Сира розмітка
+ * містить і якорі `{#…}`, і підстановки `{{…}}`; пошук по ній
+ * задовольнявся б службовим рядком, а не обіцянкою читачеві. Тому текст
+ * проходить крізь той самий `LegalProse`, що й сторінка, і береться
+ * ВИДИМЕ. З тієї ж причини з конфігу logrotate знімаються рядки `#`: у
+ * них теж є слово `rotate`.
+ *
+ * 🔴 CAMP-365: ТЕКСТ ПОЛІТИКИ ТЕПЕР ЖИВЕ В БАЗІ. Тут він береться з міграції,
+ * що її засіває (`legal-cms.ts`), і правка, зроблена потім у CMS, цьому
+ * файлу невидима. Що подана сторінка дорівнює засіяному тексту, доводить
+ * `tests/e2e/legal-content.spec.ts`; чи узгоджений із конфігом текст, який
+ * відредагували в CMS, не перевіряє ніщо — це названо, а не замовчано.
  */
 
 // `__dirname`, а не `import.meta`: Playwright компілює ці специфікації
@@ -103,7 +108,7 @@ const DAYS = rotate + 1;
  */
 const WORD: Record<number, string> = { 7: 'seven', 14: 'fourteen', 28: 'twenty-eight', 30: 'thirty' };
 
-const prose = visibleText(renderComponent(Privacy, {}));
+const prose = visibleText(seededHtml('privacy'));
 
 /**
  * Текст ОДНОГО розділу, від заголовка до наступного.

@@ -3,8 +3,7 @@ import CampsitePage from '@/app/camping/[country]/[region]/[slug]/page';
 import Home from '@/app/page';
 import { HOME_PAGE } from './home-cms';
 import { GET as llmsTxt } from '@/app/llms.txt/route';
-import Attribution from '@/content/legal/attribution';
-import Database from '@/content/legal/database';
+import { seededHtml } from './legal-cms';
 import { renderAsyncComponent, renderComponent } from './render-component';
 import { visibleText } from './rendered-text';
 import { CLIENT_ISLANDS } from './client-islands';
@@ -315,8 +314,8 @@ test.describe('the home page, which says what is computed for every campsite', (
 });
 
 test.describe('the legal pages describe what the field holds', () => {
-  const databaseText = () => visibleText(renderComponent(Database, {}));
-  const attributionText = () => visibleText(renderComponent(Attribution, {}));
+  const databaseText = () => visibleText(seededHtml('database'));
+  const attributionText = () => visibleText(seededHtml('attribution'));
 
   test('anchor: both pages render the paragraphs the lines below live in', () => {
     expect(databaseText()).toContain('The distances are ours; several of the names are not.');

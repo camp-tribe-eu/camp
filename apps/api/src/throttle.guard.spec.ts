@@ -6,6 +6,8 @@ import { Test } from '@nestjs/testing';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { PlanController } from './plan/plan.controller';
+import { PlanService } from './plan/plan.service';
 import { MapQueryService } from './spots/map.service';
 import { SpotsController } from './spots/spots.controller';
 import { SpotsService } from './spots/spots.service';
@@ -48,6 +50,8 @@ import { ApiThrottlerGuard } from './throttle.guard';
 const BULK_PER_MINUTE = 6;
 /** DEFAULT_LIMIT in throttle.ts: "120 a minute". */
 const ORDINARY_PER_MINUTE = 120;
+/** PLAN_LIMIT in throttle.ts: "ten a minute" — the number the card and the page say. */
+const PLAN_PER_MINUTE = 10;
 /** What apps/web/src/lib/api.ts writes on the wire — pinned to it below. */
 const HEADER = 'x-build-token';
 const TOKEN = 'dummy-build-token-for-this-suite-only';
@@ -59,6 +63,19 @@ const stubSpots = {
   countries: async () => [],
 };
 const stubMap = { points: async () => ({ points: [], truncated: false }) };
+// CAMP-391: the planner is the part that needs Postgres. What it answers is
+// beside the point here; that it is ASKED, once per request that got past the
+// limit, is not.
+const planCalls: unknown[] = [];
+const stubPlan = {
+  plan: async (req: unknown) => {
+    planCalls.push(req);
+    return {
+      ok: true,
+      response: { status: 'unsupported', reason: 'round-trip' },
+    };
+  },
+};
 
 let app: INestApplication;
 let base: string;
@@ -79,11 +96,12 @@ async function boot(env: { token?: string; trustProxy?: boolean } = {}) {
   // block in this file rather than trusted to stay in step.
   const moduleRef = await Test.createTestingModule({
     imports: [ThrottlerModule.forRoot([DEFAULT_LIMIT])],
-    controllers: [SpotsController, AppController],
+    controllers: [SpotsController, AppController, PlanController],
     providers: [
       AppService,
       { provide: SpotsService, useValue: stubSpots },
       { provide: MapQueryService, useValue: stubMap },
+      { provide: PlanService, useValue: stubPlan },
       { provide: APP_GUARD, useClass: ApiThrottlerGuard },
     ],
   }).compile();
@@ -136,6 +154,97 @@ describe('🔴 the limits bite, through the framework', () => {
     const got = await statuses(ORDINARY_PER_MINUTE + 1, '/spots/countries');
     expect(got.slice(0, ORDINARY_PER_MINUTE)).toEqual(ok(ORDINARY_PER_MINUTE));
     expect(got[ORDINARY_PER_MINUTE]).toBe(429);
+  });
+});
+
+const PLAN_BODY = JSON.stringify({
+  from: { lat: 46.0569, lon: 14.5058 },
+  to: { lat: 43.5081, lon: 16.4402 },
+  days: 7,
+});
+
+/** One POST /plan, as a reader's browser sends it. */
+async function planStatus(body = PLAN_BODY): Promise<number> {
+  const res = await fetch(base + '/plan', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body,
+  });
+  await res.arrayBuffer();
+  return res.status;
+}
+
+async function planStatuses(n: number, body = PLAN_BODY): Promise<number[]> {
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push(await planStatus(body));
+  return out;
+}
+
+// 🔴 CAMP-391: the planner is the first route whose request is made of many.
+describe('🔴 the plan limit bites, through the framework', () => {
+  beforeEach(() => {
+    planCalls.length = 0;
+  });
+
+  it('lets ten plans through and answers the eleventh with 429, without running it', async () => {
+    await boot();
+    const got = await planStatuses(PLAN_PER_MINUTE + 2);
+    expect(got).toEqual([...ok(PLAN_PER_MINUTE), 429, 429]);
+    // The limit is in FRONT of the work: a refused request never reached it.
+    expect(planCalls).toHaveLength(PLAN_PER_MINUTE);
+  });
+
+  it('counts a request the page would refuse too: a 400 is not free', async () => {
+    await boot();
+    const got = await planStatuses(PLAN_PER_MINUTE + 1, '{}');
+    expect(got).toEqual([...Array(PLAN_PER_MINUTE).fill(400), 429]);
+    expect(planCalls).toEqual([]);
+  });
+
+  it('🔴 its own bucket: twenty ordinary reads do not spend it, and a spent one does not stop reading', async () => {
+    await boot();
+    expect(await statuses(20, '/spots/countries')).toEqual(ok(20));
+    expect(await planStatuses(PLAN_PER_MINUTE)).toEqual(ok(PLAN_PER_MINUTE));
+    expect(await planStatus()).toBe(429);
+    // The reader who spent their plans can still read, and still sign in.
+    expect(await status('/spots/countries')).toBe(200);
+    expect(await status(BULK)).toBe(200);
+  });
+
+  it('the build token is not a way round it for a stranger: a wrong one buys nothing', async () => {
+    await boot({ token: TOKEN });
+    const res: number[] = [];
+    for (let i = 0; i < PLAN_PER_MINUTE + 1; i++) {
+      const r = await fetch(base + '/plan', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          [HEADER]: 'not-the-token',
+        },
+        body: PLAN_BODY,
+      });
+      await r.arrayBuffer();
+      res.push(r.status);
+    }
+    expect(res).toEqual([...ok(PLAN_PER_MINUTE), 429]);
+  });
+
+  it('one IPv6 /64 is one planner, however many addresses it writes', async () => {
+    await boot({ trustProxy: true });
+    const got: number[] = [];
+    for (let n = 1; n <= PLAN_PER_MINUTE + 1; n++) {
+      const r = await fetch(base + '/plan', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'cf-connecting-ip': `2001:db8:0:1::${n}`,
+        },
+        body: PLAN_BODY,
+      });
+      await r.arrayBuffer();
+      got.push(r.status);
+    }
+    expect(got).toEqual([...ok(PLAN_PER_MINUTE), 429]);
   });
 });
 
@@ -289,6 +398,13 @@ describe('the wiring this suite stands in for', () => {
     expect(appModule).toMatch(/ThrottlerModule\.forRoot\(\[DEFAULT_LIMIT\]\)/);
     expect(appModule).toMatch(
       /provide:\s*APP_GUARD,\s*useClass:\s*ApiThrottlerGuard/,
+    );
+  });
+
+  it('CAMP-391: app.module.ts mounts the module whose controller this suite uses', () => {
+    expect(source('app.module.ts')).toMatch(/imports:[\s\S]*\bPlanModule,/);
+    expect(source('plan/plan.module.ts')).toMatch(
+      /controllers:\s*\[PlanController\]/,
     );
   });
 

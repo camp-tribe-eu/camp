@@ -12,6 +12,7 @@ import { RoutePoint } from './entities/route-point.entity';
 import { Trip } from './entities/trip.entity';
 import { Session } from './entities/session.entity';
 import { AuthToken } from './entities/auth-token.entity';
+import { ConsentRecord } from './entities/consent-record.entity';
 import { TripStop } from './entities/trip-stop.entity';
 import { SpotsModule } from './spots/spots.module';
 import { RoutesModule } from './routes/routes.module';
@@ -21,6 +22,7 @@ import { NavigationModule } from './navigation/navigation.module';
 import { PagesModule } from './pages/pages.module';
 import { AuthModule } from './auth/auth.module';
 import { TripsModule } from './trips/trips.module';
+import { PlanModule } from './plan/plan.module';
 import { HealthModule } from './health/health.module';
 import { WarningsModule } from './warnings/warnings.module';
 import { ClientError } from './entities/client-error.entity';
@@ -89,6 +91,8 @@ export const REASONS = loadMeasuredReasons();
         TripStop,
         Session,
         AuthToken,
+        // CAMP-390: the journal of consents (GDPR Art. 7(1)), append-only.
+        ConsentRecord,
         ClientError,
         NotFoundHit,
         SpotTariff,
@@ -114,6 +118,9 @@ export const REASONS = loadMeasuredReasons();
     AuthModule,
     TripsModule,
     WarningsModule,
+    // CAMP-391: the HTTP entry to the planner — `POST /plan`, in its own throttle
+    // bucket, over a read-only transaction.
+    PlanModule,
   ],
   controllers: [AppController],
   providers: [

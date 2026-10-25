@@ -400,7 +400,7 @@ describe('🔴 the newsletter box is empty unless a person ticked it (Planet49)'
 
   it('records the moment of an explicit true', async () => {
     const before = Date.now();
-    const at = await consentOf({ newsletter: true });
+    const at = await consentOf({ newsletter: true, wordingVersion: 1 });
     expect(at).not.toBeNull();
     expect(new Date(at).getTime()).toBeGreaterThanOrEqual(before - 1000);
     expect(new Date(at).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
@@ -1174,7 +1174,10 @@ describe('🔴 GET /auth/me — who the account page is talking to', () => {
   // row would add `id` and `emailVerifiedAt` and still contain no hash, and
   // only the literal notices.
   it('never carries the password hash, the id, or any field outside the three', async () => {
-    const { email, res } = await register({ newsletter: true });
+    const { email, res } = await register({
+      newsletter: true,
+      wordingVersion: 1,
+    });
     const stored = await row(email.toLowerCase());
     expect(stored.password_hash).toMatch(/^scrypt\$/);
     expect(stored.marketing_consent_at).not.toBeNull();

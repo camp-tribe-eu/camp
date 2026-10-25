@@ -256,6 +256,16 @@ jobs:
       - name: Every entity with personal data is in the Article 30 register
         run: node scripts/ci/check-gdpr-register.mjs
 
+      # 🔴 Дані, що протухають мовчки, — це сайт, який бреше читачеві.
+      # Бюджети беруться з коду, який їх споживає, а не дублюються тут.
+      - name: Freshness guard still catches stale data
+        run: |
+          set -o pipefail
+          node scripts/ci/check-data-freshness.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-data-freshness self-test:' >/dev/null
+      - name: Shipped data is inside its freshness budget
+        run: node scripts/ci/check-data-freshness.mjs
+
       # Fails on an advisory nobody has looked at, not on every known
       # one — the reasoning is in scripts/security/known-advisories.json.
       #
