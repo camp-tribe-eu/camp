@@ -244,6 +244,18 @@ jobs:
       - name: Every public address in the tree is accounted for
         run: node scripts/ci/check-public-addresses.mjs
 
+      # 🔴 Реєстр за ст. 30 GDPR описує, що ми СПРАВДІ обробляємо. Його
+      # питає наглядовий орган, а не сторінку політики. Розбіжність між
+      # реєстром і сутностями — це неправда, а не неохайність, тому
+      # сторож стоїть у CI, а не в календарі вичитки.
+      - name: Register guard still catches an unlisted entity
+        run: |
+          set -o pipefail
+          node scripts/ci/check-gdpr-register.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-gdpr-register self-test:' >/dev/null
+      - name: Every entity with personal data is in the Article 30 register
+        run: node scripts/ci/check-gdpr-register.mjs
+
       # Fails on an advisory nobody has looked at, not on every known
       # one — the reasoning is in scripts/security/known-advisories.json.
       #
