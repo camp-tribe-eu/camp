@@ -22,9 +22,23 @@ Group=camptribe
 WorkingDirectory=/srv/camptribe/current
 # Секрет гачка і пароль передзапускових воріт — обидва тут, бо проба
 # мусить пройти той самий шлях, що й Directus.
-EnvironmentFile=/etc/camptribe/isr.env
-# Містить REVALIDATE_SECRET і CAMPTRIBE_GATE_BASIC_AUTH (user:pass воріт).
-# 🔴 НЕ CAMPTRIBE_GATE: та назва означає шлях до gate.conf в інших скриптах.
+# 🔴 ТОЙ САМИЙ ФАЙЛ, ЩО Й У ВЕБА, А НЕ КОПІЯ СЕКРЕТУ.
+#
+# `REVALIDATE_SECRET` живе в `apps/api/.env` — звідти його бере
+# `camptribe-web.service` (заміряно на машині 26.10.2026). Якби сторож
+# читав власну копію, дві копії розійшлися б мовчки, і розійшлася б саме
+# та, якої ніхто не читає: сторож світив би 401 на справному гачку.
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+#
+# Другий файл НЕОБОВ'ЯЗКОВИЙ (`-`) і містить лише те, чого в першому
+# нема: `CAMPTRIBE_GATE_BASIC_AUTH=camptribe:<пароль>` для
+# передзапускових воріт. Поки його немає, сторож чесно каже «перевірити
+# публічний шлях неможливо» і червоніє — це правильна поведінка, а не
+# привід підставити порожнє значення.
+#
+# 🔴 НЕ `CAMPTRIBE_GATE`: та назва вже означає ШЛЯХ до gate.conf
+# (`infra/bin/camptribe-launch:44`, `infra/move-table.sh:231`).
+EnvironmentFile=-/etc/camptribe/isr.env
 ExecStart=/usr/bin/node scripts/ci/check-isr-hook.mjs
 # 🔴 Слід знімається лише після УСПІШНОГО прогону: для Type=oneshot
 # ExecStartPost не біжить, якщо ExecStart повернув ненуль. Інакше
