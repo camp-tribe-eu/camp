@@ -12,7 +12,7 @@ test.describe("🔴 CAMP-365 — скидання кешу меню", () => {
   test("без секрету не скидає НІКОЛИ, і каже, чого бракує", async ({
     request,
   }) => {
-    const res = await request.post("/api/revalidate?tag=navigation", {
+    const res = await request.post("/internal/revalidate?tag=navigation", {
       failOnStatusCode: false,
     });
 
@@ -33,7 +33,7 @@ test.describe("🔴 CAMP-365 — скидання кешу меню", () => {
   });
 
   test("невідому мітку не приймає", async ({ request }) => {
-    const res = await request.post("/api/revalidate?tag=everything", {
+    const res = await request.post("/internal/revalidate?tag=everything", {
       failOnStatusCode: false,
     });
     expect(res.status(), "довільна мітка пройшла").not.toBe(200);

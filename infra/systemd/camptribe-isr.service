@@ -1,0 +1,30 @@
+# CAMP-363: чи справді правка власника доходить до читача.
+#
+# 🔴 ЦЕ ПРО ТЕ, ЩО ВИГЛЯДАЄ ЗДОРОВИМ. Зламаний гачок нічого не ламає
+# помітно: сайт відкривається, меню на місці, сторінки цілі. Просто вони
+# старі, і дізнатись про це можна лише тоді, коли власник збереже зміну й
+# піде дивитись — тобто тоді, коли вже витрачено його час.
+#
+# 🔴 ЗАМІРЯНО 26.10.2026, І САМЕ ТАК ВОНО Й БУЛО: обробник лежав під
+# /api/revalidate, увесь цей префікс Caddy віддає в Nest, тож гачок ходив
+# у чужий застосунок і діставав 404. Проба ходить ПУБЛІЧНОЮ адресою, а не
+# на localhost, бо локальна проба повз Caddy цього дефекту не бачить.
+
+[Unit]
+Description=CampTribe ISR hook check
+After=camptribe-web.service camptribe-api.service
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current
+# Секрет гачка і пароль передзапускових воріт — обидва тут, бо проба
+# мусить пройти той самий шлях, що й Directus.
+EnvironmentFile=/etc/camptribe/isr.env
+ExecStart=/usr/bin/node scripts/ci/check-isr-hook.mjs
+# 🔴 Слід знімається лише після УСПІШНОГО прогону: для Type=oneshot
+# ExecStartPost не біжить, якщо ExecStart повернув ненуль. Інакше
+# вчорашня тривога зникала б сама від того, що юніт просто стартував.
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-isr.service
