@@ -24,10 +24,14 @@ import {
   readdirSync,
   statSync,
 } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
 const SELF_TEST = process.argv.includes('--self-test');
 const DRY = process.argv.includes('--dry-run');
+const CHECK = process.argv.includes('--check');
+// Корінь, від якого резолвляться залежності релізу (npm їх туди піднімає).
+const RELEASE_ROOT = '/srv/camptribe/current/';
 
 const ENV_FILE = '/srv/camptribe/current/apps/api/.env';
 const FAILED_DIR = '/srv/camptribe/failed';
@@ -101,6 +105,48 @@ if (SELF_TEST) {
   process.exit(fail === 0 ? 0 : 1);
 }
 
+// ── --check: чи цей сповіщувач узагалі здатен надіслати ───────────────
+//
+// 🔴 ВСТАНОВЛЕНИЙ СПОВІЩУВАЧ НЕ Є ПРАЦЕЗДАТНИМ СПОВІЩУВАЧЕМ. Самоперевірка
+// вище зелена на 7 із 7 і НЕ ЧІПАЄ ні imports, ні .env — саме тому крізь
+// неї пройшов зашитий шлях `nodemailer/lib/…` від версії 6.x, якого в
+// встановленій 10.1.4 не існує. Перший справжній виклик — 26.10.2026,
+// падіння camptribe-isr — помер на ERR_MODULE_NOT_FOUND.
+//
+// Цей режим робить рівно те, що робить справжній лист, крім самого
+// надсилання: резолвить пакет і перелічує, яких ключів бракує. Ціна
+// ХИБНОГО спрацювання — впала розкладка інфраструктури тоді, коли
+// тривога справді не змогла б піти. Це саме та мить, коли ми хочемо
+// дізнатись.
+if (CHECK) {
+  const problems = [];
+  let where = null;
+  try {
+    const req = createRequire(RELEASE_ROOT);
+    req('nodemailer');
+    where = req.resolve('nodemailer');
+  } catch (e) {
+    problems.push(`nodemailer не резолвиться від ${RELEASE_ROOT}: ${e.message}`);
+  }
+  let env_ = {};
+  try {
+    env_ = parseEnv(readFileSync(ENV_FILE, 'utf8'));
+  } catch (e) {
+    problems.push(`${ENV_FILE} не читається: ${e.message}`);
+  }
+  // Значень не друкуємо — лише чи є ключ.
+  for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD']) {
+    if (!env_[k]) problems.push(`у ${ENV_FILE} немає ${k}`);
+  }
+  if (problems.length === 0) {
+    console.log(`✓ camptribe-notify --check: ${where}, ключі SMTP на місці`);
+    process.exit(0);
+  }
+  console.error('✗ camptribe-notify НЕ ЗМІГ БИ надіслати лист:');
+  for (const x of problems) console.error(`  • ${x}`);
+  process.exit(1);
+}
+
 // ── живий прогін ───────────────────────────────────────────────────────
 const markers = existsSync(FAILED_DIR)
   ? readdirSync(FAILED_DIR)
@@ -139,7 +185,29 @@ if (DRY) {
   process.exit(0);
 }
 
-const nodemailer = (await import('/srv/camptribe/current/node_modules/nodemailer/lib/nodemailer.js')).default;
+// 🔴 РЕЗОЛВИМО ПАКЕТ, А НЕ ФАЙЛ У НЬОМУ. Перша редакція зашивала
+// `…/nodemailer/lib/nodemailer.js` — розкладку nodemailer 6.x, узяту з
+// пам'яті. Встановлено 10.1.4, де вхід — `./dist/cjs/nodemailer.js`, а
+// теки `lib/` немає взагалі. Заміряно на проді 26.10.2026: ланцюг
+// тривоги падав із ERR_MODULE_NOT_FOUND, тобто був мертвий від
+// народження і жодного листа не надіслав ЖОДНОГО разу.
+//
+// `createRequire` від кореня релізу читає `main`/`exports` самого
+// пакета, тож наступна зміна його внутрішньої розкладки нас не чіпає.
+// Корінь — саме `current/`, бо туди npm і ставить залежності (hoisting);
+// в `apps/api/node_modules` пакета немає, хоч оголошений він в API.
+const require_ = createRequire(RELEASE_ROOT);
+let nodemailer;
+try {
+  nodemailer = require_('nodemailer');
+} catch (e) {
+  // Голосно й конкретно: мовчазна тривога гірша за відсутню.
+  console.error(
+    `✗ nodemailer не резолвиться від /srv/camptribe/current/: ${e.message}\n` +
+      '  Перевірити: ls /srv/camptribe/current/node_modules/nodemailer',
+  );
+  process.exit(1);
+}
 const tx = nodemailer.createTransport({
   host: env.SMTP_HOST,
   port: Number(env.SMTP_PORT ?? 587),
