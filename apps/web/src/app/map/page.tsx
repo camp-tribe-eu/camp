@@ -110,12 +110,30 @@ export default async function MapPage() {
       {/* Rendered by the server, so it is here with JavaScript off, and
           it is also a second route into the hubs for a crawler that
           reaches this page. */}
-      <noscript>
-        <p className="mt-3 rounded border border-line-2 bg-surface p-4 text-sm text-ink-2">
-          The map needs JavaScript. Everything on it is reachable without:
-          pick a country below.
-        </p>
-      </noscript>
+      {/* 🔴 ЧОМУ `dangerouslySetInnerHTML`, А НЕ `<p>` ДИТИНОЮ. CAMP-383.
+          Коли скрипт УВІМКНЕНО, браузер розбирає вміст `<noscript>` як ОДИН
+          ТЕКСТОВИЙ ВУЗОЛ, а не як розмітку. React же віддає там ЕЛЕМЕНТ — і
+          це два різні дерева в одному місці, тобто рівно та розбіжність,
+          яку він звітує як #418 «server rendered HTML didn't match the
+          client».
+
+          Це ДРУГИЙ екземпляр тієї самої причини. Перший —
+          `site-chrome.tsx:156` — полагоджено так само, і там замір записано
+          поіменно: у виданому HTML вузол є, у DOM після гідратації його
+          немає. Тут він лишився недобитим; перевірено грепом, інших
+          `<noscript>` у `apps/web/src` немає.
+
+          Рядком React віддає те саме, що бачить браузер, і дерева
+          збігаються. Вміст НЕ змінився — поведінка без JS та сама. */}
+      <noscript
+        dangerouslySetInnerHTML={{
+          __html:
+            '<p class="mt-3 rounded border border-line-2 bg-surface p-4 text-sm text-ink-2">' +
+            'The map needs JavaScript. Everything on it is reachable without: ' +
+            'pick a country below.' +
+            '</p>',
+        }}
+      />
 
       <section className="mt-8">
         <h2 className="text-xl font-bold md:text-[25px]">Browse instead</h2>
