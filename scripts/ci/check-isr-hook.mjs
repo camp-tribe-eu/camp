@@ -119,7 +119,11 @@ const SECRET = process.env.REVALIDATE_SECRET ?? '';
 // Передзапускові ворота в Caddy стоять НАД усім сайтом, тож проба мусить
 // нести і пароль воріт, і секрет гачка. Коли сайт відкриють, змінної не
 // стане, а заголовок просто перестане бути потрібним.
-const GATE = process.env.CAMPTRIBE_GATE ?? '';
+// 🔴 НЕ `CAMPTRIBE_GATE`. Ця назва вже зайнята й означає ШЛЯХ до
+// `gate.conf` (`infra/bin/camptribe-launch:44`, `infra/move-table.sh:231`,
+// де з нею роблять `readlink -f` і `ln -sfn`). Однакове ім'я з двома
+// несумісними типами в одному оточенні — міна, знайдена рецензією #344.
+const GATE = process.env.CAMPTRIBE_GATE_BASIC_AUTH ?? '';
 
 const headers = () => {
   const h = { 'x-revalidate-secret': SECRET };

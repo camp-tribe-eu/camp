@@ -23,6 +23,8 @@ WorkingDirectory=/srv/camptribe/current
 # Секрет гачка і пароль передзапускових воріт — обидва тут, бо проба
 # мусить пройти той самий шлях, що й Directus.
 EnvironmentFile=/etc/camptribe/isr.env
+# Містить REVALIDATE_SECRET і CAMPTRIBE_GATE_BASIC_AUTH (user:pass воріт).
+# 🔴 НЕ CAMPTRIBE_GATE: та назва означає шлях до gate.conf в інших скриптах.
 ExecStart=/usr/bin/node scripts/ci/check-isr-hook.mjs
 # 🔴 Слід знімається лише після УСПІШНОГО прогону: для Type=oneshot
 # ExecStartPost не біжить, якщо ExecStart повернув ненуль. Інакше

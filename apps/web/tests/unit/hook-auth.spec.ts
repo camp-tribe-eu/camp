@@ -20,6 +20,11 @@ import { authorizeHook, sameSecret } from "@/lib/hook-auth";
 // випадки українською і дістав три падіння замість трьох перевірок.
 // Звідси й вимога до самого секрету: він мусить бути ASCII, інакше
 // Directus не зможе його навіть надіслати.
+// Довші за поріг MIN_SECRET_LENGTH (24): інакше ворота справедливо
+// скажуть «не налаштовано», і тест перевірятиме не те, що думає.
+const RIGHT = "right-secret-0123456789abcdef";
+const WRONG = "wrong-secret-0123456789abcdef";
+
 const req = (secret?: string) =>
   new Request("https://example.test/internal/revalidate?tag=navigation", {
     method: "POST",
@@ -38,15 +43,15 @@ test.describe("ворота гачка", () => {
 
   test("чужий секрет — 401", () => {
     const before = process.env.REVALIDATE_SECRET;
-    process.env.REVALIDATE_SECRET = "right-secret";
-    expect(authorizeHook(req("wrong-secret"))?.status).toBe(401);
+    process.env.REVALIDATE_SECRET = RIGHT;
+    expect(authorizeHook(req(WRONG))?.status).toBe(401);
     if (before === undefined) delete process.env.REVALIDATE_SECRET;
     else process.env.REVALIDATE_SECRET = before;
   });
 
   test("заголовка немає зовсім — теж 401, а не прохід", () => {
     const before = process.env.REVALIDATE_SECRET;
-    process.env.REVALIDATE_SECRET = "right-secret";
+    process.env.REVALIDATE_SECRET = RIGHT;
     expect(authorizeHook(req())?.status).toBe(401);
     if (before === undefined) delete process.env.REVALIDATE_SECRET;
     else process.env.REVALIDATE_SECRET = before;
@@ -54,8 +59,8 @@ test.describe("ворота гачка", () => {
 
   test("свій секрет — `null`, тобто пускаємо", () => {
     const before = process.env.REVALIDATE_SECRET;
-    process.env.REVALIDATE_SECRET = "right-secret";
-    expect(authorizeHook(req("right-secret"))).toBeNull();
+    process.env.REVALIDATE_SECRET = RIGHT;
+    expect(authorizeHook(req(RIGHT))).toBeNull();
     if (before === undefined) delete process.env.REVALIDATE_SECRET;
     else process.env.REVALIDATE_SECRET = before;
   });
@@ -71,4 +76,32 @@ test.describe("ворота гачка", () => {
   test("однакові рядки збігаються", () => {
     expect(sameSecret("same-secret", "same-secret")).toBe(true);
   });
+
+  // 🔴 ЦІ ТРИ ВИПАДКИ ДОДАНО ПІСЛЯ РЕЦЕНЗІЇ #344, І ОСЬ ЧОМУ.
+  //
+  // Без них рядок, що тримає ворота, був накритий лише грубою мутацією
+  // (`if (false)`). Заміряно: заміна `!expected` на `expected === undefined`
+  // пережила всі шість тестів — і на такому коді порожній
+  // `REVALIDATE_SECRET` разом із відсутнім заголовком ВІДЧИНЯВ ворота, бо
+  // `timingSafeEqual(порожній, порожній)` повертає `true`.
+  for (const [name, value] of [
+    ["порожній рядок", ""],
+    ["самі пробіли", "   "],
+    ["закороткий, «тимчасовий»", "test123"],
+    // 🔴 ДОВШИЙ ЗА ПОРІГ, АЛЕ З САМИХ ПРОБІЛІВ. Без цього випадку `.trim()`
+    // у воротах не тримав нічого: його прибрання лишало всі тести
+    // зеленими (заміряно). Поріг довжини ловить «   », бо воно коротке, —
+    // а тридцять пробілів поріг пропускає.
+    ["тридцять пробілів", "                              "],
+  ] as const) {
+    test(`${name} — це «не налаштовано», тобто 503, а не прохід`, () => {
+      const before = process.env.REVALIDATE_SECRET;
+      process.env.REVALIDATE_SECRET = value;
+      // Саме БЕЗ заголовка: так виглядав прохід на мутованому коді.
+      expect(authorizeHook(req())?.status).toBe(503);
+      expect(authorizeHook(req(value))?.status).toBe(503);
+      if (before === undefined) delete process.env.REVALIDATE_SECRET;
+      else process.env.REVALIDATE_SECRET = before;
+    });
+  }
 });
