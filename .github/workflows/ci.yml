@@ -1798,6 +1798,17 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'yes'
     runs-on: ubuntu-latest
+    # 🔴 МЕЖА ЧАСУ, БО БЕЗ НЕЇ ЗАВИСАННЯ КОШТУЄ ШІСТЬ ГОДИН РАННЕРА.
+    #
+    # Заміряно 26.10.2026: на PR #337 крок `playwright install --with-deps`
+    # провисів 45+ хвилин замість звичних 40 СЕКУНД (замір на успішному
+    # прогоні main 40279780478). Джоба не мала жодного обмеження, тож
+    # мовчки йшла б до стандартної межі GitHub у 6 годин, і весь цей час
+    # PR виглядав би як «CI ще йде».
+    #
+    # 75 хвилин — удвічі більше за справжній прогін (37 хв: установка 40 с,
+    # збірка 83 с, самі тести 1996 с). Запас є, нескінченності немає.
+    timeout-minutes: 75
     services:
       postgres:
         image: postgis/postgis:16-3.4
@@ -1817,6 +1828,8 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
         working-directory: apps/web
+        # Заміряно: 40 с. Десять хвилин — це вже не «повільне дзеркало».
+        timeout-minutes: 10
       - uses: ./.github/actions/build-site
         with:
           site-mode: closed
