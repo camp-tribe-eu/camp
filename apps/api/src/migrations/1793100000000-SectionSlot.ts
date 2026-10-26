@@ -75,8 +75,7 @@ export class SectionSlot1793100000000 implements MigrationInterface {
       return;
     }
 
-    for (const [slot, sort, heading, body] of SectionSlot1793100000000
-      .BLOCKS) {
+    for (const [slot, sort, heading, body] of SectionSlot1793100000000.BLOCKS) {
       const row = (await queryRunner.query(
         `INSERT INTO page_sections (page_id, sort, type, variant, visible, slot)
          VALUES ($1, $2, 'prose', NULL, true, $3)
