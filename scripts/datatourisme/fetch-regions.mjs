@@ -142,7 +142,31 @@ async function download(entry, dir, fetchImpl = fetch) {
 
   const res = await fetchImpl(entry.url);
   if (!res.ok) throw new Error(`${entry.key}: HTTP ${res.status}`);
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(target));
+
+  // 🔴 CAMP-398: пишемо в `.part`, а не в цільовий файл.
+  //
+  // createWriteStream(target) зрізає ЦІЛЬОВИЙ файл до нуля ще до першого
+  // байта тіла. Обрив зʼєднання посеред передачі лишав на диску 0 байтів
+  // замість попереднього цілого CSV — відтворено самоперевіркою: тіло
+  // рветься після 100 байтів, файл 1 000 → 0.
+  //
+  // Перевірка `!res.ok` вище цього НЕ ловить, і вона не зайва: вона
+  // бачить лише рядок статусу. Обрив посеред тіла — це успішний 200, у
+  // якого закінчилось зʼєднання; помилку кидає вже pipeline, коли файл
+  // давно зрізано.
+  //
+  // rename у межах однієї файлової системи атомарний: на диску або
+  // старий цілий файл, або новий цілий, третього стану немає. `.part`
+  // лежить поруч із ціллю саме тому — з іншого розділу rename став би
+  // копіюванням, і вікно повернулось би.
+  const part = `${target}.part`;
+  try {
+    await pipeline(Readable.fromWeb(res.body), createWriteStream(part));
+    await rename(part, target);
+  } catch (err) {
+    await rm(part, { force: true });
+    throw err;
+  }
   const got = await stat(target);
   console.log(`  ${entry.key}  ${human(got.size)}`);
   return target;
