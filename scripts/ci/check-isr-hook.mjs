@@ -86,7 +86,12 @@ export function audit(probe) {
   // константу — рішення не проскочить мовчки.
   const EXPECTED = 400;
   for (const t of probe.tags) {
-    if (t.status === EXPECTED) continue;
+    // 🔴 ВОРОТА ПЕРШИМИ, І ЦЕ ВИПРАВЛЕННЯ, ЗНАЙДЕНЕ РЕЦЕНЗІЄЮ. Поки
+    // очікувалось 200, порядок був безпечний випадково: `gateRefused`
+    // означає «відповів не наш обробник», а ворота 200 не віддають.
+    // Для 400 цього інваріанта НЕМАЄ — 400 від воріт виглядав би точно
+    // як справна відмова гачка. Заміряно: audit({status:400,
+    // gateRefused:true}) давало НУЛЬ скарг.
     if (t.gateRefused) {
       problems.push(
         `ворота Caddy не пустили пробу ?tag=${t.name} (${t.status}) — ` +
@@ -96,17 +101,35 @@ export function audit(probe) {
     }
     if (t.status === 200) {
       problems.push(
-        `🔴 гачок ?tag=${t.name} відповів 200 — мітку повернули в ALLOWED_TAGS. ` +
-          'Поки меню лежить у кореневому макеті, один скид цієї мітки кладе ' +
-          'усі сторінки кемпінгів і гайдів у 404 (CAMP-396). Прибрати мітку ' +
-          'або спершу зняти причину.',
+        `🔴 гачок прийняв мітку «${t.name}», якої не існує — обробник роздає ` +
+          'скидання кешу всім підряд. Це гірше за будь-яку окрему мітку.',
       );
       continue;
     }
-    problems.push(
-      `гачок ?tag=${t.name} відповів ${t.status} замість ${EXPECTED}` +
-        (t.note ? ` (${t.note})` : ''),
-    );
+    if (t.status !== EXPECTED) {
+      problems.push(
+        `гачок ?tag=${t.name} відповів ${t.status} замість ${EXPECTED}` +
+          (t.note ? ` (${t.note})` : ''),
+      );
+      continue;
+    }
+    // 400 від НАШОГО обробника несе перелік дозволених міток. Це і є
+    // інваріант CAMP-396, прочитаний прямо, а не виведений із мовчання.
+    if (!Array.isArray(t.allowed)) {
+      problems.push(
+        `гачок ?tag=${t.name} відповів 400 без переліку allowed — ` +
+          'тіло не наше, відповів хтось перед Next',
+      );
+      continue;
+    }
+    if (t.allowed.length > 0) {
+      problems.push(
+        `🔴 у ALLOWED_TAGS повернули мітки: ${t.allowed.join(', ')}. ` +
+          'Поки меню лежить у кореневому макеті, один скид мітки `navigation` ' +
+          'кладе 55 269 сторінок кемпінгів і 1 256 гайдів у 404 до перезапуску ' +
+          'служби (CAMP-396). Прибрати мітку або спершу зняти причину.',
+      );
+    }
   }
 
   if (typeof probe.liveCount !== 'number') {
@@ -135,10 +158,16 @@ export function audit(probe) {
   }
 
   if (probe.servedHash !== probe.liveHash) {
+    // 🔴 ФОРМУЛЮВАННЯ ЗМІНЕНО РАЗОМ ІЗ ПРОБОЮ. Поки гачок скидав мітки,
+    // розбіжність означала «скид не спрацював». Тепер проба нічого не
+    // скидає (і не має), тож єдиний спосіб вирівняти кеш — деплой.
+    // Казати «скид не спрацював» означало б послати лагодити те, чого
+    // більше немає.
     problems.push(
-      'скидання мітки не спрацювало: після виклику гачка Next досі віддає ' +
-        `інший вміст, ніж джерело (кеш ${probe.servedHash.slice(0, 12)}…, ` +
-        `джерело ${String(probe.liveHash).slice(0, 12)}…)`,
+      'кеш розійшовся з джерелом: Next віддає інший вміст, ніж CMS ' +
+        `(кеш ${probe.servedHash.slice(0, 12)}…, джерело ` +
+        `${String(probe.liveHash).slice(0, 12)}…). Поки ALLOWED_TAGS ` +
+        'порожній, вирівняти це може лише деплой — скидання мітки немає.',
     );
   }
 
@@ -148,7 +177,8 @@ export function audit(probe) {
 // ── самотест ───────────────────────────────────────────────────────────
 if (SELF_TEST) {
   // Правильна відповідь роззброєного гачка — 400 (див. EXPECTED вище).
-  const ok = { name: 'navigation', status: 400 };
+  // Правильна відповідь: 400 від НАШОГО обробника з порожнім allowed.
+  const ok = { name: '__camptribe_probe__', status: 400, allowed: [] };
   const cases = [
     ['усе справне', { tags: [ok], servedHash: 'aa', liveHash: 'aa', liveCount: 6 }, 0],
     ['гачок 404 (той самий дефект, що знайдено 26.10)',
@@ -160,11 +190,21 @@ if (SELF_TEST) {
     ['дві мітки, зламана одна',
       { tags: [ok, { name: 'pages', status: 404 }], servedHash: 'aa', liveHash: 'aa', liveCount: 6 }, 1],
     // 🔴 Головний новий випадок: 200 більше не «справно», а тривога.
-    ['гачок ВІДПОВІВ 200 — мітку повернули, причину не зняли',
-      { tags: [{ name: 'navigation', status: 200 }], servedHash: 'aa', liveHash: 'aa', liveCount: 6 },
-      1, 'повернули в ALLOWED_TAGS'],
+    ['гачок прийняв НЕІСНУЮЧУ мітку — роздає скидання всім',
+      { tags: [{ name: '__camptribe_probe__', status: 200 }], servedHash: 'aa', liveHash: 'aa', liveCount: 6 },
+      1, 'якої не існує'],
+    // 🔴 Знайдено рецензією: 400 від ВОРІТ читалось як справність.
+    ['400, але від ВОРІТ — не плутати зі справною відмовою гачка',
+      { tags: [{ name: '__camptribe_probe__', status: 400, gateRefused: true }],
+        servedHash: 'aa', liveHash: 'aa', liveCount: 6 }, 1, 'ворота Caddy не пустили'],
+    ['400 без переліку allowed — тіло не наше',
+      { tags: [{ name: '__camptribe_probe__', status: 400 }],
+        servedHash: 'aa', liveHash: 'aa', liveCount: 6 }, 1, 'без переліку allowed'],
+    ['мітки ПОВЕРНУЛИ в перелік — видно БЕЗ жодного скидання',
+      { tags: [{ name: '__camptribe_probe__', status: 400, allowed: ['navigation'] }],
+        servedHash: 'aa', liveHash: 'aa', liveCount: 6 }, 1, 'повернули мітки: navigation'],
     ['гачок відмовив як належить, але кеш розійшовся з джерелом',
-      { tags: [ok], servedHash: 'aa', liveHash: 'bb', liveCount: 6 }, 1, 'скидання мітки не спрацювало'],
+      { tags: [ok], servedHash: 'aa', liveHash: 'bb', liveCount: 6 }, 1, 'кеш розійшовся з джерелом'],
     // 🔴 Три випадки про ворота. Без них гілка, що відрізняє відмову
     // воріт від відмови гачка, не перевірялась нічим — а саме вона
     // вирішує, куди власник піде лагодити.
@@ -183,7 +223,10 @@ if (SELF_TEST) {
       { tags: [ok], servedHash: 'aa', liveHash: 'aa', liveCount: 6, missingSections: [] }, 0],
     ['проб не зроблено — збір зламався', { tags: [] }, 1],
     ['джерело мовчить', { tags: [ok], servedHash: 'aa' }, 1],
-    ['джерело віддало порожнє меню', { tags: [ok], servedHash: 'aa', liveHash: 'bb', liveCount: 0 }, 1],
+    // 🔴 `mustSay` обовʼязковий: без нього мутація `liveCount === 0` → `false`
+    // виживала, бо рахунок тримала скарга про розбіжність хешів.
+    ['джерело віддало порожнє меню',
+      { tags: [ok], servedHash: 'aa', liveHash: 'bb', liveCount: 0 }, 1, '0 пунктів меню'],
     ['мітка стану недосяжна', { tags: [ok], liveHash: 'bb', liveCount: 6 }, 1],
   ];
   // 🔴 ЗВІРЯЄМО ТЕКСТ СКАРГИ, А НЕ ЛИШЕ КІЛЬКІСТЬ.
@@ -238,21 +281,43 @@ async function main() {
     process.exit(1);
   }
 
+  // 🔴 ПРОБА НЕІСНУЮЧОЮ МІТКОЮ, І ЦЕ НЕ ОХАЙНІСТЬ, А ВИПРАВЛЕННЯ ПЛОЩІ
+  // УРАЖЕННЯ. Попередня редакція POST-ила `navigation` і `pages` —
+  // справжні мітки. В обробнику `revalidateTag(tag)` стоїть ПЕРЕД
+  // відповіддю (`app/internal/revalidate/route.ts:53`), а цей сторож
+  // біжить ЩОГОДИНИ. Отже в ту саму годину, коли мітку повернули б у
+  // перелік, сторож САМ поклав би 55 269 сторінок кемпінгів у 404 — і
+  // лише потім доповів би про це. Сторож, площа ураження якого дорівнює
+  // площі дефекту, не вартий своєї ціни.
+  //
+  // Неіснуюча мітка дає рівно той самий доказ без жодного пострілу:
+  // відповідь 400 несе `allowed: [...]`, тобто сам перелік. Порожній —
+  // інваріант CAMP-396 тримається; непорожній — мітки повернули, і ми
+  // про це знаємо ДО того, як щось сталося.
+  const PROBE_TAG = '__camptribe_probe_never_allowed__';
   const tags = [];
-  for (const name of ['navigation', 'pages']) {
+  for (const name of [PROBE_TAG]) {
     try {
       const res = await fetch(`${SITE}/internal/revalidate?tag=${name}`, {
         method: 'POST',
         headers: headers(),
       });
-      // Наше тіло — JSON із `error` або `revalidated`. Усе інше при
-      // ненульовій відмові означає, що відповів не Next, а ворота перед ним.
+      // 🔴 `error` самого по собі МАЛО: обгортка помилок Nest теж має це
+      // поле, а /api Caddy віддає в Nest. Наше тіло при 400 несе ще й
+      // `allowed`, при 200 — `revalidated`. Саме за ними й розрізняємо.
       let ours = false;
+      let allowed;
       try {
         const b = await res.json();
-        ours = b !== null && typeof b === 'object' && ('error' in b || 'revalidated' in b);
-      } catch { ours = false; }
-      tags.push({ status: res.status, name, gateRefused: res.status !== 200 && !ours });
+        ours =
+          b !== null &&
+          typeof b === 'object' &&
+          (Array.isArray(b.allowed) || 'revalidated' in b);
+        if (Array.isArray(b?.allowed)) allowed = b.allowed;
+      } catch {
+        ours = false;
+      }
+      tags.push({ status: res.status, name, allowed, gateRefused: res.status !== 200 && !ours });
     } catch (e) {
       tags.push({ status: 0, name, note: e.message });
     }
