@@ -18,3 +18,17 @@ chown -R camptribe:camptribe "$DIR" 2>/dev/null || true
 printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DIR/$UNIT"
 # У journal теж, бо той, хто вже дивиться в journal, мусить це побачити.
 echo "camptribe: $UNIT впав, слід у $DIR/$UNIT" >&2
+
+# 🔴 І ЛИСТ, БО СЛІД У ТЕЦІ НІКОМУ НЕ ПОТРАПЛЯЄ НА ОЧІ (CAMP-394).
+#
+# Заміряно 26.10.2026: сторож свіжості падав щодня з 20.10, слід лежав
+# тут, і не дізнався НІХТО — бо єдиний його читач біжить у CI з
+# `--offline`. Тепер машина каже сама.
+#
+# 🔴 ЛИСТ НЕ МАЄ ПРАВА ЗАВАЛИТИ ЦЕЙ ЮНІТ. Якщо SMTP недоступний, слід усе
+# одно записаний — а це головне. Тому `|| true` і причина в journal.
+if [ -x /usr/local/bin/camptribe-notify ]; then
+  if ! /usr/local/bin/camptribe-notify >&2; then
+    echo "camptribe: лист про $UNIT НЕ надіслано — слід усе одно в $DIR/$UNIT" >&2
+  fi
+fi

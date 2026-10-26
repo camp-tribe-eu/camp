@@ -1,0 +1,158 @@
+#!/usr/bin/env node
+// Лист про те, що сторож упав — бо слід у теці нікому не потрапляє на очі.
+//
+// 🔴 НАВІЩО. CAMP-394: три юніти чесно лишають слід у /srv/camptribe/failed,
+// а читає його лише `check-server-drift.mjs`, який у CI біжить із
+// `--offline`, тобто до машини не ходить. Заміряно 26.10.2026: сторож
+// свіжості падав щодня з 20.10, і про це не дізнався НІХТО. Дані при цьому
+// показувались читачеві як поточні, застарілі на 12–32 дні.
+//
+// 🔴 ЧОМУ З МАШИНИ НАЗОВНІ, А НЕ CI ВСЕРЕДИНУ. Рішення власника
+// 26.10.2026: ключ від прода в секрети репозиторію не кладемо. Вкрадений
+// вихідний SMTP уміє «надіслати лист»; вкрадений SSH-ключ дає машину.
+// Площа ураження несиметрична, і це вирішує.
+//
+// 🔴 НОВОГО СЕКРЕТУ НЕ ЗАВОДИМО. Застосунок уже шле пошту акаунтів тим
+// самим SMTP; беремо ті самі дані з apps/api/.env. Другий секрет на ту
+// саму адресу розійшовся б із першим мовчки.
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from 'node:fs';
+import { join } from 'node:path';
+
+const SELF_TEST = process.argv.includes('--self-test');
+const DRY = process.argv.includes('--dry-run');
+
+const ENV_FILE = '/srv/camptribe/current/apps/api/.env';
+const FAILED_DIR = '/srv/camptribe/failed';
+const SENT_DIR = '/srv/camptribe/failed/.notified';
+/** Не частіше ніж раз на стільки годин про ТОЙ САМИЙ юніт. */
+const QUIET_HOURS = 12;
+
+/**
+ * Читає `.env` як ФАЙЛ ЗНАЧЕНЬ, а не як shell.
+ *
+ * 🔴 CAMP-349: цей файл уже ламав деплой тим, що його виконували як
+ * скрипт. Значення з `#`, пробілами чи лапками там законні.
+ */
+export function parseEnv(text) {
+  const out = {};
+  for (const line of String(text).split('\n')) {
+    const s = line.trim();
+    if (s === '' || s.startsWith('#')) continue;
+    const i = s.indexOf('=');
+    if (i <= 0) continue;
+    let v = s.slice(i + 1);
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+      v = v.slice(1, -1);
+    }
+    out[s.slice(0, i)] = v;
+  }
+  return out;
+}
+
+/** Чисте ядро: приймає стан, віддає що слати. */
+export function plan({ markers = [], notified = {}, now = Date.now(), quietHours = QUIET_HOURS } = {}) {
+  const quiet = quietHours * 3600_000;
+  const due = markers.filter((m) => {
+    const last = notified[m.unit];
+    return last === undefined || now - last >= quiet;
+  });
+  return {
+    send: due.length > 0,
+    units: due.map((m) => m.unit),
+    subject: due.length === 1
+      ? `CampTribe: ${due[0].unit} впав`
+      : `CampTribe: впало сторожів — ${due.length}`,
+  };
+}
+
+if (SELF_TEST) {
+  const H = 3600_000;
+  const cases = [
+    ['немає слідів — не шлемо', { markers: [] }, false, null],
+    ['новий слід — шлемо', { markers: [{ unit: 'a' }] }, true, 'a впав'],
+    ['той самий юніт 1 год тому — мовчимо', { markers: [{ unit: 'a' }], notified: { a: Date.now() - H }, now: Date.now() }, false, null],
+    ['той самий юніт 13 год тому — шлемо знову', { markers: [{ unit: 'a' }], notified: { a: Date.now() - 13 * H }, now: Date.now() }, true, 'a впав'],
+    ['двоє — тема про кількість', { markers: [{ unit: 'a' }, { unit: 'b' }] }, true, 'сторожів — 2'],
+    ['один новий серед замовклого — шлемо лише про нього', { markers: [{ unit: 'a' }, { unit: 'b' }], notified: { a: Date.now() }, now: Date.now() }, true, 'b впав'],
+    // 🔴 `.env` читається як значення, не як shell (CAMP-349).
+    ['значення з # усередині не обрізається', null, null, null],
+  ];
+  let pass = 0, fail = 0;
+  for (const [name, input, wantSend, mustSay] of cases) {
+    if (input === null) {
+      const e = parseEnv('SMTP_PASSWORD=a#b c\n# коментар\nX="y z"\n');
+      const ok = e.SMTP_PASSWORD === 'a#b c' && e.X === 'y z' && e['# коментар'] === undefined;
+      ok ? pass++ : (fail++, console.error(`  ✗ ${name}: ${JSON.stringify(e)}`));
+      continue;
+    }
+    const got = plan(input);
+    const ok = got.send === wantSend && (!mustSay || got.subject.includes(mustSay));
+    ok ? pass++ : (fail++, console.error(`  ✗ ${name}: send=${got.send} «${got.subject}»`));
+  }
+  console.log(`camptribe-notify self-test: ran ${pass + fail}, passed ${pass}, failed ${fail}`);
+  process.exit(fail === 0 ? 0 : 1);
+}
+
+// ── живий прогін ───────────────────────────────────────────────────────
+const markers = existsSync(FAILED_DIR)
+  ? readdirSync(FAILED_DIR)
+      .filter((n) => !n.startsWith('.'))
+      .map((unit) => ({ unit, at: statSync(join(FAILED_DIR, unit)).mtimeMs }))
+  : [];
+
+const notified = {};
+if (existsSync(SENT_DIR)) {
+  for (const n of readdirSync(SENT_DIR)) {
+    notified[n] = statSync(join(SENT_DIR, n)).mtimeMs;
+  }
+}
+
+const what = plan({ markers, notified });
+if (!what.send) {
+  console.log(`✓ camptribe-notify: слідів ${markers.length}, нового нема — лист не потрібен`);
+  process.exit(0);
+}
+
+const env = parseEnv(readFileSync(ENV_FILE, 'utf8'));
+const to = env.ALERT_EMAIL ?? 'camp.tribe.eu@gmail.com';
+const body =
+  `Ці сторожі впали на camptribe.eu:\n\n` +
+  what.units.map((u) => `  • ${u}`).join('\n') +
+  `\n\nПодробиці — на машині:\n` +
+  `  journalctl -u <юніт> -n 50 --no-pager\n` +
+  `  ls -l ${FAILED_DIR}\n\n` +
+  `🔴 Слід зникає сам лише після УСПІШНОГО прогону юніта.\n` +
+  `Повторно про той самий юніт цей лист прийде не раніше ніж через ${QUIET_HOURS} год.\n`;
+
+console.log(`→ ${to}: ${what.subject}`);
+if (DRY) {
+  console.log(body);
+  console.log('--dry-run: нічого не надіслано');
+  process.exit(0);
+}
+
+const nodemailer = (await import('/srv/camptribe/current/node_modules/nodemailer/lib/nodemailer.js')).default;
+const tx = nodemailer.createTransport({
+  host: env.SMTP_HOST,
+  port: Number(env.SMTP_PORT ?? 587),
+  secure: Number(env.SMTP_PORT) === 465,
+  auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
+});
+const info = await tx.sendMail({
+  from: env.MAIL_FROM ?? 'noreply@camptribe.eu',
+  to,
+  subject: what.subject,
+  text: body,
+});
+console.log(`✓ SMTP прийняв: ${info.response ?? '(без відповіді)'}`);
+// Позначка «про це вже писали»: далі той самий юніт мовчить QUIET_HOURS.
+mkdirSync(SENT_DIR, { recursive: true });
+for (const u of what.units) closeSync(openSync(join(SENT_DIR, u), 'w'));
