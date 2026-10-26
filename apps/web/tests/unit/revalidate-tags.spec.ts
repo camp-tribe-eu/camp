@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { ALLOWED_TAGS } from "@/lib/revalidate-tags";
-import { PAGE_TAG } from "@/lib/page-content";
-import { NAV_TAG } from "@/lib/navigation";
+import { PAGE_REVALIDATE_SECONDS, PAGE_TAG } from "@/lib/page-content";
+import { NAV_REVALIDATE_SECONDS, NAV_TAG } from "@/lib/navigation";
 
 // 🔴 CAMP-364 — мітку `pages` не міг скинути НІХТО.
 //
@@ -45,5 +45,20 @@ test.describe("🔴 мітки, які дозволено скидати", () =>
   test("вигадана мітка не приймається — як і будь-яка інша", () => {
     expect(ALLOWED_TAGS.get("everything")).toBeUndefined();
     expect(ALLOWED_TAGS.get("navigation")).toBeUndefined();
+  });
+});
+
+// CAMP-363 — обіцянка картки тепер тримається витримкою, не поштовхом.
+test.describe("витримка меню", () => {
+  // 🔴 ЧИСЛО ПІД ЗАМКОМ. Воно тягне за собою ВЕСЬ сайт: Next бере мінімум
+  // витримки по дереву, а меню живе в кореневому макеті. Підняти його —
+  // значить відсунути появу правки; опустити — змусити 56 525 сторінок
+  // перевидаватись частіше. Зміна має бути свідомою, тож вона ламає тест.
+  test("15 хвилин, і це заміряний компроміс", () => {
+    expect(NAV_REVALIDATE_SECONDS).toBe(900);
+  });
+
+  test("витримка сторінок не коротша за меню", () => {
+    expect(PAGE_REVALIDATE_SECONDS).toBeGreaterThanOrEqual(NAV_REVALIDATE_SECONDS);
   });
 });
