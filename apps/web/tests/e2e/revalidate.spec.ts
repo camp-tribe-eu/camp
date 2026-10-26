@@ -45,7 +45,7 @@ test.describe("🔴 CAMP-365 — скидання кешу меню", () => {
   // кеш, а вже потім віддає 401: побічна дія сталась, а код відповіді
   // про це не каже. Тож читаємо джерело й вимагаємо, щоб `revalidateTag`
   // стояв ПІСЛЯ обох перевірок.
-  test("🔴 revalidateTag кличеться лише після перевірки секрету", () => {
+  test("🔴 revalidateTag кличеться лише після воріт і після перевірки мітки", () => {
     const src = readFileSync(
       path.join(
         __dirname,
@@ -53,21 +53,28 @@ test.describe("🔴 CAMP-365 — скидання кешу меню", () => {
         "..",
         "src",
         "app",
-        "api",
+        "internal",
         "revalidate",
         "route.ts",
       ),
       "utf8",
     );
     const call = src.indexOf("revalidateTag(tag)");
-    const secret = src.indexOf("sameSecret(given, expected)");
-    const allowed = src.indexOf("ALLOWED.get(name)");
+    const gate = src.indexOf("authorizeHook(request)");
+    const allowed = src.indexOf("ALLOWED_TAGS.get(name)");
 
+    // 🔴 КОЖЕН ІНДЕКС ДОВОДИТЬСЯ ОКРЕМО, І ЦЕ НЕ ПЕДАНТИЗМ.
+    //
+    // Перша редакція цього тесту шукала рядок `ALLOWED.get(name)`, якого в
+    // коді немає ніколи (там `ALLOWED_TAGS.get(name)`). `indexOf` віддавав
+    // −1, а `expect(call).toBeGreaterThan(-1)` зелене завжди. Тобто
+    // перевірка порядку мітки не існувала, і виглядала як існуюча —
+    // заміряно 26.10.2026, коли переїзд маршруту зробив її помітною.
     expect(call, "виклику revalidateTag немає").toBeGreaterThan(-1);
-    expect(secret, "перевірки секрету немає").toBeGreaterThan(-1);
-    expect(call, "revalidateTag стоїть ДО перевірки секрету").toBeGreaterThan(
-      secret,
-    );
+    expect(gate, "виклику authorizeHook немає").toBeGreaterThan(-1);
+    expect(allowed, "перевірки переліку міток немає").toBeGreaterThan(-1);
+
+    expect(call, "revalidateTag стоїть ДО воріт секрету").toBeGreaterThan(gate);
     expect(call, "revalidateTag стоїть ДО перевірки мітки").toBeGreaterThan(
       allowed,
     );

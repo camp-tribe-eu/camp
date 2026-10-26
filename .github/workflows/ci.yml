@@ -896,6 +896,17 @@ jobs:
       - name: Every Next route handler is reachable through Caddy
         run: node scripts/ci/check-next-routes-reachable.mjs
 
+      # 🔴 CAMP-363. Сторож гачка ISR ходить на ЖИВИЙ сайт, тож повний
+      # прогін тут неможливий: ні адреси, ні секрета, ні воріт у CI немає.
+      # Але його ЯДРО — чисте, і саме воно вирішує, чи побачимо ми випадок
+      # «200 віддано, а кеш не скинувся». Без цього кроку ядро не
+      # перевіряється нічим, а сторож на машині мовчки зеленів би.
+      - name: The ISR-hook guard still catches a hook that answers 200 and changes nothing
+        run: |
+          set -o pipefail
+          node scripts/ci/check-isr-hook.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-isr-hook self-test:' >/dev/null
+
       # 🔴 CAMP-347. `gh` resolves the repository from the GIT REMOTE,
       # not from GITHUB_REPOSITORY, so a job with no checkout, no
       # GH_REPO and no --repo dies on its first call with "not a git
