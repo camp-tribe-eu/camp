@@ -1,5 +1,6 @@
 import { expect, test } from './api-request';
 import { axeViolations } from './axe';
+import { armHydrationTrap, attachHydrationEvidence } from './hydration-evidence';
 import { EMPTY_STATES } from '@/components/account-cabinet-view';
 import { RETURN_KEY } from '@/lib/return-path';
 import { visibleText } from '../unit/rendered-text';
@@ -97,10 +98,12 @@ test.describe('🔴 /signup: що сказано у виданому докум�
 
 test.describe('доступність і консоль', () => {
   for (const { path } of PAGES) {
-    test(`${path}: axe WCAG AA без порушень, консоль без помилок`, async ({ page }) => {
+    test(`${path}: axe WCAG AA без порушень, консоль без помилок`, async ({ page, request }, testInfo) => {
       const errors: string[] = [];
       page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
       page.on('pageerror', (e) => errors.push(e.message));
+      // CAMP-383 — ставиться ДО goto, інакше нічого не перехопить.
+      await armHydrationTrap(page);
       await page.goto(path);
       // Поля вимкнені, поки сторінка не ожила; чекаємо, а не вгадуємо.
       // 🔴 Без `.catch`: сторінка, що так і не ожила, — це провал, а не
@@ -108,7 +111,12 @@ test.describe('доступність і консоль', () => {
       await page.waitForFunction(() => !document.querySelector('input:disabled'), null, {
         timeout: 15_000,
       });
-      expect(await axeViolations(page)).toEqual([]);
+      const violations = await axeViolations(page);
+      // 🔴 Докази складаються ПЕРЕД expect: після провалу тест уже не виконується,
+      // а сторінку Playwright закриє. CAMP-383 ловиться раз на сотні прогонів —
+      // другого шансу зняти з неї розмітку не буде.
+      if (errors.length) await attachHydrationEvidence(page, request, path, testInfo);
+      expect(violations).toEqual([]);
       expect(errors).toEqual([]);
     });
   }
