@@ -8,6 +8,8 @@ import { isAllowedHref, substitute } from "./rich-text";
 export interface SectionView {
   type: string;
   variant: string | null;
+  /** Де секція стоїть на сторінці (CAMP-365). `null` — адресується типом. */
+  slot: string | null;
   heading: string | null;
   subheading: string | null;
   body: string | null;

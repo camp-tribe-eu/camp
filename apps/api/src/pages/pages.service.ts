@@ -38,6 +38,8 @@ export interface PostSummary {
 export interface SectionView {
   type: string;
   variant: string | null;
+  /** Де секція стоїть на сторінці (CAMP-365). `null` — адресується типом. */
+  slot: string | null;
   heading: string | null;
   subheading: string | null;
   body: string | null;
@@ -125,6 +127,7 @@ export class PagesService {
       Array<{
         type: string;
         variant: string | null;
+        slot: string | null;
         image_url: string | null;
         cta_href: string | null;
         heading: string | null;
@@ -136,7 +139,7 @@ export class PagesService {
       }>
     >(
       `
-      SELECT s.type, s.variant, s.image_url, s.cta_href,
+      SELECT s.type, s.variant, s.slot, s.image_url, s.cta_href,
              t.heading, t.subheading, t.body, t.image_alt, t.cta_label, t.items
         FROM page_sections s
         JOIN page_section_translations t
@@ -157,6 +160,7 @@ export class PagesService {
       noindex: page.noindex,
       sections: rows.map((r) => ({
         type: r.type,
+        slot: r.slot,
         variant: r.variant,
         heading: r.heading,
         subheading: r.subheading,

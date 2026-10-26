@@ -21,6 +21,7 @@ function section(over: Partial<SectionView> = {}): SectionView {
   return {
     type: "text",
     variant: null,
+  slot: null,
     heading: null,
     subheading: null,
     body: null,
