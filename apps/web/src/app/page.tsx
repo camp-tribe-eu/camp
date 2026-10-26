@@ -18,9 +18,9 @@ import { pageContent, type SectionView } from '@/lib/page-content';
 import {
   PageSections,
   assertAllSectionsUsed,
-  sectionOf,
 } from '@/components/page-sections';
 import { BRAND_DESCRIPTION, BRAND_TITLE } from '@/lib/brand';
+import { HOME_SECTIONS, findSection } from '@/lib/home-sections';
 
 // CAMP-41 — the home page.
 //
@@ -66,7 +66,7 @@ import { BRAND_DESCRIPTION, BRAND_TITLE } from '@/lib/brand';
 const SLUG = 'home';
 
 /** Типи секцій, яким головна має місце в макеті. */
-const HOME_SECTIONS = ['hero', 'steps'] as const;
+
 
 /**
  * 🔴 КОРІНЬ НЕ БЕРЕ ЗАГОЛОВОК ІЗ `title` СТОРІНКИ, І ЦЕ НЕ НЕДОГЛЯД.
@@ -146,6 +146,7 @@ export default async function Home() {
   // 🔴 Зайва секція не зникає мовчки: головна розкладає макет сама,
   // тож рендер не побачить того, чого їй не передали.
   assertAllSectionsUsed(page.sections, HOME_SECTIONS, 'головна');
+  const steps = findSection(page.sections, HOME_SECTIONS[1]);
 
   return (
     <main>
@@ -161,15 +162,22 @@ export default async function Home() {
         })}
       />
 
+      {/* 🔴 СЕКЦІЯ, ЯКОЇ НЕМАЄ, БІЛЬШЕ НЕ ВАЛИТЬ СТОРІНКУ (CAMP-365 п.3).
+          `sectionOf` кидав виняток на нулі секцій, тож варто було
+          власникові видалити блок у CMS — і головна переставала
+          збиратись. Картка каже прямо: «порожнє поле в CMS не має ламати
+          сторінку».
+
+          Відсутність при цьому НЕ стає тихою: `/internal/content-stamp`
+          називає, чого бракує, і сторож ISR це бачить. Інакше з
+          увімкненим ISR Next лишив би попередню справну сторінку, і про
+          зникнення блоку не дізнався б ніхто. */}
       <Hero
-        section={sectionOf(page.sections, HOME_SECTIONS[0], 'головної')}
+        section={findSection(page.sections, HOME_SECTIONS[0])}
         values={values}
         countries={countries}
       />
-      <PageSections
-        sections={[sectionOf(page.sections, HOME_SECTIONS[1], 'головної')]}
-        values={values}
-      />
+      {steps && <PageSections sections={[steps]} values={values} />}
       <Countries countries={countries} />
       <Notable spots={notable} />
     </main>
@@ -181,7 +189,7 @@ function Hero({
   values,
   countries,
 }: {
-  section: SectionView;
+  section: SectionView | null;
   values: Readonly<Record<string, string>>;
   countries: Awaited<ReturnType<typeof getCountries>>;
 }) {
@@ -189,7 +197,7 @@ function Hero({
     <section className="border-b border-line-2 bg-surface">
       <div className="mx-auto max-w-wrap px-4 py-12 md:py-16 xl:px-6">
         {/* Заголовок і вступ — із CMS. Решта блоку нижче — макет. */}
-        <PageSections sections={[section]} values={values} />
+        {section && <PageSections sections={[section]} values={values} />}
 
         {/* 🔴 The two funnels as separate cards, not tabs. A tab hides one
             of them behind a click, and the mock-up's own note (CAMP-81) is

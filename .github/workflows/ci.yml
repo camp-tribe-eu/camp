@@ -1855,10 +1855,25 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium firefox webkit
+      # 🔴 ПОВТОР, БО ЗАВИСАННЯ ВЖЕ НЕ ВИПАДКОВІСТЬ. Заміряно 26.10.2026:
+      # цей крок завис ДВІЧІ за день (на #337 і на #347), щоразу понад
+      # 10 хвилин, при нормі 40 секунд. `--with-deps` тягне apt, і саме
+      # там воно стає. Одна спроба з межею часу перетворює чужий збій на
+      # наш червоний CI; дві спроби по 5 хвилин дешевші за перезапуск
+      # усієї джоби руками.
+      - name: Install browsers (retried — the apt step hangs)
         working-directory: apps/web
-        # Заміряно: 40 с. Десять хвилин — це вже не «повільне дзеркало».
-        timeout-minutes: 10
+        timeout-minutes: 12
+        run: |
+          for i in 1 2; do
+            if timeout 300 npx playwright install --with-deps chromium firefox webkit; then
+              echo "браузери встановлено зі спроби $i"
+              exit 0
+            fi
+            echo "::warning::спроба $i встановити браузери не вдалась або зависла"
+          done
+          echo "::error::браузери не встановились за дві спроби по 5 хвилин"
+          exit 1
       - uses: ./.github/actions/build-site
         with:
           site-mode: closed

@@ -185,8 +185,33 @@ runs:
           fi
           sleep 1
         done
-        echo "::error::API did not start in 60s"
-        tail -40 /tmp/api.log
+        # 🔴 ПРОВАЛ МУСИТЬ СКАЗАТИ ЧОМУ. Заміряно 26.10.2026: цей крок
+        # упав, і `tail -40 /tmp/api.log` надрукував ПОРОЖНЕЧУ — бо
+        # `nest start` спершу компілює й доти не пише нічого. Діагностика
+        # мовчала рівно тоді, коли була потрібна, і це пройшло непоміченим,
+        # бо саме повідомлення про помилку було гучне.
+        #
+        # 🔴 Межу 60 с НЕ піднімаємо. Заміряно на чотирьох успішних
+        # прогонах: «API up after» = 6, 7, 8, 9 с. Шістдесят — це вже
+        # сімкратний запас, тож провал на ньому означає поламку, а не
+        # тісний бюджет. Піднімати межу тут — той самий хід, що двічі не
+        # спрацював у CAMP-334.
+        echo "::error::API did not start in 60s (нормально 6-9 с)"
+        echo "--- /tmp/api.log ---"
+        if [ ! -f /tmp/api.log ]; then
+          echo "🔴 файла немає взагалі: процес не стартував"
+        elif [ ! -s /tmp/api.log ]; then
+          echo "🔴 файл Є, але ПОРОЖНІЙ: процес живий і мовчить (найімовірніше, досі компілює)"
+        else
+          echo "розмір $(wc -c < /tmp/api.log) байт:"; tail -40 /tmp/api.log
+        fi
+        echo "--- чи живий процес ---"
+        pgrep -af 'nest|node' | head -5 || echo "жодного процесу node/nest"
+        echo "--- чи слухає 3001 ---"
+        (ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null) | grep 3001 || echo "на 3001 не слухає ніхто"
+        echo "--- остання відповідь ---"
+        curl -sS -o /dev/null -w 'curl → %{http_code} за %{time_total}с\n' --max-time 5 \
+          http://localhost:3001/spots/countries || echo "curl не дістався зовсім"
         exit 1
 
     - name: Build the web app
