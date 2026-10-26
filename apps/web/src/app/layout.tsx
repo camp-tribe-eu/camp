@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { isPublic } from "@/lib/environment";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
-import { headerNav } from "@/lib/navigation";
+import { footerNav, headerNav } from "@/lib/navigation";
 import { DEFAULT_LOCALE } from "@/lib/i18n";
 import CookieConsent from "@/components/cookie-consent";
 import ErrorReporter from "@/components/error-reporter";
@@ -65,7 +65,8 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const nav = await headerNav();
+  // Один запис кешу на обидва: та сама адреса й ті самі параметри.
+  const [nav, footerLinks] = await Promise.all([headerNav(), footerNav()]);
   // 🔴 CAMP-40: the language comes from the registry, not from a string
   // written here. This attribute and the `hreflang` on every page have to
   // agree about what language the document is in, and two hand-written
@@ -107,7 +108,7 @@ export default async function RootLayout({
         <ErrorReporter />
         <SiteHeader nav={nav} />
         <div className="flex-1">{children}</div>
-        <SiteFooter />
+        <SiteFooter nav={footerLinks} />
         {/* 🔴 Last in the document, and it blocks nothing above it. The
             banner must never be a gate: a reader who ignores it keeps the
             whole site, which is what makes any consent given freely

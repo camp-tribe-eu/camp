@@ -201,10 +201,35 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
  * the footer of every page rather than being repeated per template and
  * eventually forgotten on one of them.
  */
-export function SiteFooter() {
+export function SiteFooter({ nav = [] }: { nav?: NavItem[] }) {
   return (
     <footer className="mt-16 border-t border-line-2 bg-surface">
       <div className="mx-auto max-w-wrap px-4 py-8 text-xs text-ink-2 xl:px-6">
+        {/* 🔴 РОЗДІЛ `footer` ІЗ CMS, І ДО СЬОГОДНІ ЙОГО НЕ МАЛЮВАВ НІХТО.
+            Поле `location` у таблиці є, API віддає три розділи, а каркас
+            споживав лише `header`. Тобто рядок із `location='footer'`
+            можна було додати в базу й не отримати нічого — мовчки
+            (CAMP-397, знайшов власник).
+
+            🔴 Правові посилання нижче сюди НЕ переїжджають: вони
+            будуються з `LEGAL_PAGES` навмисно (CAMP-56), щоб жодне
+            обовʼязкове посилання не можна було випадково видалити з CMS. */}
+        {nav.length > 0 && (
+          <nav aria-label="More" className="mb-4">
+            <ul className="flex flex-wrap items-center gap-x-4">
+              {nav.map((item) => (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className="flex min-h-12 items-center underline"
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
         <p className="max-w-prose">
           Campsite data ©{" "}
           <a

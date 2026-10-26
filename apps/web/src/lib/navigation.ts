@@ -103,3 +103,27 @@ export async function headerNav(): Promise<NavItem[]> {
   }
   return items;
 }
+
+/**
+ * Пункти підвалу з CMS. Порожньо — припустимо.
+ *
+ * 🔴 ЧОМУ ТУТ НЕМАЄ КИДКА, А В `headerNav()` Є. Шапка без пунктів —
+ * зламаний сайт, тож там збірка зупиняється. Підвал без пунктів — просто
+ * підвал без додаткових посилань: правові сім лишаються, бо вони з коду
+ * (CAMP-56), а не звідси. Кидати тут означало б покласти весь сайт через
+ * необовʼязковий розділ.
+ *
+ * 🔴 ЗАПИТ ТОЙ САМИЙ, ЩО В `headerNav()` — та сама адреса й ті самі
+ * параметри, тож Next віддає ОДИН запис кешу на обидва виклики. Другого
+ * звернення до API не буде; перевірено тим, що ключ кешу Next будує з
+ * URL і параметрів.
+ */
+export async function footerNav(): Promise<NavItem[]> {
+  const res = await apiFetch("/navigation", {
+    next: { revalidate: NAV_REVALIDATE_SECONDS, tags: [NAV_TAG] },
+  });
+  if (!res.ok) return [];
+  const body = (await res.json()) as Record<string, NavItem[] | undefined>;
+  return body.footer ?? [];
+}
+
