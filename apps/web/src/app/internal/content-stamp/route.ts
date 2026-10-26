@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { authorizeHook } from "@/lib/hook-auth";
 import { headerNav } from "@/lib/navigation";
+import { missingHomeSections } from "@/lib/home-sections";
+import { pageContent } from "@/lib/page-content";
 
 // CAMP-363 — мітка того, що Next ЗАРАЗ віддає читачеві з кешу.
 //
@@ -28,9 +30,21 @@ export async function GET(request: Request): Promise<Response> {
   if (denied) return denied;
 
   const items = await headerNav();
+
+  // 🔴 ЧОГО БРАКУЄ — ТЕЖ ЧАСТИНА СТАНУ (CAMP-365 п.3).
+  //
+  // Сторінка більше не падає, коли власник видалив секцію: вона просто
+  // малює без неї. Саме по собі це тиша, а тиша тут найдорожча — з ISR
+  // Next лишив би попередню справну сторінку, і зникнення блоку не
+  // помітив би ніхто. Тож відсутність називається поіменно, і сторож
+  // `check-isr-hook` її бачить.
+  const home = await pageContent("home");
+  const missing = home ? missingHomeSections(home.sections) : ["(сторінки home немає)"];
+
   const canonical = JSON.stringify(items);
   return Response.json({
     navHash: createHash("sha256").update(canonical).digest("hex"),
     navCount: items.length,
+    missingSections: missing,
   });
 }

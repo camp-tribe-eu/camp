@@ -92,6 +92,15 @@ export function audit(probe) {
     return problems;
   }
 
+  // 🔴 Секція, якої бракує, — це не «порожньо», а зникла частина
+  // сторінки. Без цієї скарги вона зникала б мовчки (CAMP-365 п.3).
+  if (Array.isArray(probe.missingSections) && probe.missingSections.length > 0) {
+    problems.push(
+      `на сторінці бракує секцій: ${probe.missingSections.join(', ')} — ` +
+        'сторінка малюється без них, і без цього рядка про це не сказав би ніхто',
+    );
+  }
+
   if (probe.servedHash !== probe.liveHash) {
     problems.push(
       'скидання мітки не спрацювало: після виклику гачка Next досі віддає ' +
@@ -130,6 +139,10 @@ if (SELF_TEST) {
     ['401 від САМОГО гачка (тіло наше) — це вже про секрет',
       { tags: [{ name: 'navigation', status: 401, gateRefused: false }],
         servedHash: 'aa', liveHash: 'aa', liveCount: 6 }, 1, 'гачок ?tag=navigation відповів 401'],
+    ['секції бракує — скарга називає яку саме',
+      { tags: [ok], servedHash: 'aa', liveHash: 'aa', liveCount: 6, missingSections: ['hero'] }, 1, 'бракує секцій: hero'],
+    ['секцій не бракує — мовчимо',
+      { tags: [ok], servedHash: 'aa', liveHash: 'aa', liveCount: 6, missingSections: [] }, 0],
     ['проб не зроблено — збір зламався', { tags: [] }, 1],
     ['джерело мовчить', { tags: [ok], servedHash: 'aa' }, 1],
     ['джерело віддало порожнє меню', { tags: [ok], servedHash: 'aa', liveHash: 'bb', liveCount: 0 }, 1],
@@ -214,6 +227,7 @@ async function main() {
     if (res.ok) {
       const body = await res.json();
       probe.servedHash = body.navHash;
+      probe.missingSections = body.missingSections;
     }
   } catch { /* лишається undefined — ядро скаржиться саме на це */ }
 
