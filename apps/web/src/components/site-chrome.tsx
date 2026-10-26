@@ -163,8 +163,23 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
           }}
         />
 
+        {/* 🔴 `flex-wrap` ТУТ НЕ ПРИКРАСА, А ЄДИНЕ, ЩО ТРИМАЄ МЕНЮ БЕЗ JS.
+            Нижче `xl` цей ряд схований — але `<noscript>` вище повертає
+            його НА ВСІХ ширинах, бо без JS кнопка бургера не працює.
+            Тобто на телефоні без JS тут малюється весь перелік.
+
+            Заміряно 26.10.2026 на знімку падіння з CI (mobile-chrome,
+            ≈360 px CSS, `javaScriptEnabled: false` — hubs.spec.ts:66):
+            без переносу десять пунктів ішли за правий край, останнім
+            видимим був «Tools», а решта не діставалась ніяк. Із шістьма
+            пунктами воно вміщалось, тож дефект спав, поки ця картка не
+            додала чотири посилання.
+
+            🔴 На `xl` і ширше перенос не змінює нічого: там увесь ряд
+            однаково в один рядок. Ціна нуль — тому межі в `@media` тут
+            немає. */}
         <nav aria-label="Main" className="ml-auto hidden xl:block">
-          <ul className="flex items-center gap-x-5 text-sm font-medium text-ink-2">
+          <ul className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1 text-sm font-medium text-ink-2">
             {nav.map((item) => (
               <li key={item.href}>
                 <Link href={item.href} className="hover:text-heading">
