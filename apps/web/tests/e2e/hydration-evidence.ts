@@ -54,7 +54,13 @@ export async function armHydrationTrap(page: Page): Promise<void> {
 // 🔴 Заміряно 26.10 на /camping/*: увесь файл 34 399 байтів, без <script> —
 // 1 302. Саме через цей шум я одного разу «знайшов» 404 там, де його не було.
 export function stripScripts(html: string): string {
-  return html.replace(/<script\b[\s\S]*?<\/script>/gi, "<script/>");
+  // 🔴 `</script\s*>`, а не `</script>`: кінцевий тег за специфікацією може
+  // нести пробіли перед `>`, і CodeQL (js/bad-tag-filter) справедливо
+  // завалив першу редакцію саме на цьому. Регулярка, що пропустила б
+  // `</script >`, лишила б у «очищеній» розмітці цілий скрипт — тобто
+  // рівно той шум, заради якого вона тут і стоїть. Перевірено на чотирьох
+  // формах: звичайна, з пробілом, з атрибутами, у верхньому регістрі.
+  return html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, "<script/>");
 }
 
 function firstDivergence(
