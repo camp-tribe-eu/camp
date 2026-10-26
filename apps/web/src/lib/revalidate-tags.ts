@@ -1,6 +1,6 @@
-import { NAV_TAG } from "./navigation";
-import { PAGE_TAG } from "./page-content";
-
+// 🔴 Імпортів NAV_TAG і PAGE_TAG тут більше немає: перелік порожній
+// (CAMP-396), тож вони лишились би невжитими. Самі мітки живуть там,
+// де вживаються — `lib/navigation.ts` і `lib/page-content.ts`.
 /**
  * Мітки кешу, які дозволено скидати ззовні.
  *
