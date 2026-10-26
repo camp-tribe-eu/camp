@@ -11,6 +11,7 @@ import type { SectionView } from "@/lib/page-content";
 const section = (over: Partial<SectionView>): SectionView => ({
   type: "prose",
   variant: null,
+  slot: null,
   heading: null,
   subheading: null,
   body: null,

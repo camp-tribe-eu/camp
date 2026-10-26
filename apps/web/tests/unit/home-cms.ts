@@ -107,6 +107,7 @@ export const HOME_STEPS = [
 
 const section = (s: Partial<SectionView> & { type: string }): SectionView => ({
   variant: null,
+  slot: null,
   heading: null,
   subheading: null,
   body: null,

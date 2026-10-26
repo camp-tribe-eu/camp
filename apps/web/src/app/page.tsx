@@ -17,10 +17,15 @@ import { ButtonLink } from '@/components/button';
 import { pageContent, type SectionView } from '@/lib/page-content';
 import {
   PageSections,
-  assertAllSectionsUsed,
 } from '@/components/page-sections';
 import { BRAND_DESCRIPTION, BRAND_TITLE } from '@/lib/brand';
-import { HOME_SECTIONS, findSection } from '@/lib/home-sections';
+import {
+  HOME_SECTIONS,
+  HOME_SLOTS,
+  assertHomeSectionsUsed,
+  findSection,
+  sectionBySlot,
+} from '@/lib/home-sections';
 
 // CAMP-41 — the home page.
 //
@@ -145,8 +150,13 @@ export default async function Home() {
 
   // 🔴 Зайва секція не зникає мовчки: головна розкладає макет сама,
   // тож рендер не побачить того, чого їй не передали.
-  assertAllSectionsUsed(page.sections, HOME_SECTIONS, 'головна');
+  assertHomeSectionsUsed(page.sections);
   const steps = findSection(page.sections, HOME_SECTIONS[1]);
+  // Три підписи перед динамічними блоками — тепер із CMS, адресовані
+  // слотом, а не типом: `prose` їх три, і типом вони не розрізняються.
+  const stay = sectionBySlot(page.sections, HOME_SLOTS[0]);
+  const drive = sectionBySlot(page.sections, HOME_SLOTS[1]);
+  const notableText = sectionBySlot(page.sections, HOME_SLOTS[2]);
 
   return (
     <main>
@@ -173,23 +183,29 @@ export default async function Home() {
           увімкненим ISR Next лишив би попередню справну сторінку, і про
           зникнення блоку не дізнався б ніхто. */}
       <Hero
+        stay={stay}
+        drive={drive}
         section={findSection(page.sections, HOME_SECTIONS[0])}
         values={values}
         countries={countries}
       />
       {steps && <PageSections sections={[steps]} values={values} />}
       <Countries countries={countries} />
-      <Notable spots={notable} />
+      <Notable spots={notable} text={notableText} />
     </main>
   );
 }
 
 function Hero({
   section,
+  stay,
+  drive,
   values,
   countries,
 }: {
   section: SectionView | null;
+  stay: SectionView | null;
+  drive: SectionView | null;
   values: Readonly<Record<string, string>>;
   countries: Awaited<ReturnType<typeof getCountries>>;
 }) {
@@ -204,10 +220,13 @@ function Hero({
             that an inactive tab is not an entrance. */}
         <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="rounded-card border border-line-2 bg-bg p-5">
-            <h2 className="text-base font-semibold">Where to stay</h2>
-            <p className="mt-1 text-sm text-ink-2">
-              Pick a country to see its regions and campsites.
-            </p>
+            {/* 🔴 ТЕКСТ ІЗ CMS, ПЕРЕЛІК КРАЇН — НІ. Якщо власник прибрав
+                секцію, зникає підпис, а не навігація: посилання на країни
+                це дані, а не контент (CAMP-365 п.4). */}
+            {stay?.heading && (
+              <h2 className="text-base font-semibold">{stay.heading}</h2>
+            )}
+            {stay?.body && <p className="mt-1 text-sm text-ink-2">{stay.body}</p>}
             <ul className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
               {countries.map((c) => (
                 <li key={c.country}>
@@ -230,15 +249,12 @@ function Hero({
               hidden. Removing it would misrepresent what the site is for;
               inventing a rental listing would misrepresent what it has. */}
           <div className="rounded-card border border-dashed border-line bg-transparent p-5">
-            <h2 className="text-base font-semibold text-ink-2">
-              What to drive
-            </h2>
-            <p className="mt-1 max-w-prose text-sm text-ink-2">
-              Camper rental comparison is not built yet. When it is, it will
-              compare what actually decides a trip — licence category, weight
-              and whether the vehicle fits the campsite — not the price you
-              could already find elsewhere.
-            </p>
+            {drive?.heading && (
+              <h2 className="text-base font-semibold">{drive.heading}</h2>
+            )}
+            {drive?.body && (
+              <p className="mt-1 max-w-prose text-sm text-ink-2">{drive.body}</p>
+            )}
           </div>
         </div>
       </div>
@@ -300,18 +316,22 @@ function Countries({
  * amenities are actually recorded, and whether there is a named lake or
  * river nearby.
  */
-function Notable({ spots }: { spots: Awaited<ReturnType<typeof getNotable>> }) {
+function Notable({
+  spots,
+  text,
+}: {
+  spots: Awaited<ReturnType<typeof getNotable>>;
+  text: SectionView | null;
+}) {
   if (spots.length === 0) return null;
   return (
     <section className="mx-auto max-w-wrap px-4 py-12 xl:px-6">
-      <h2 className="text-xl font-bold md:text-[25px]">
-        The campsites we know most about
-      </h2>
-      <p className="mt-2 max-w-prose text-sm text-ink-2">
-        Ranked by how much has actually been recorded about them, not by any
-        opinion of ours — we have not been to any of them, and there are no
-        reviews on this site.
-      </p>
+      {text?.heading && (
+        <h2 className="text-xl font-bold md:text-[25px]">{text.heading}</h2>
+      )}
+      {text?.body && (
+        <p className="mt-2 max-w-prose text-sm text-ink-2">{text.body}</p>
+      )}
       <ul className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {spots.map((s) => {
           const region = (s.region ?? '')

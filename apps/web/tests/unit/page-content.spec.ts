@@ -21,6 +21,7 @@ const withCta = (ctaHref: string | null) =>
       {
         type: "cta",
         variant: null,
+        slot: null,
         heading: null,
         subheading: null,
         body: null,

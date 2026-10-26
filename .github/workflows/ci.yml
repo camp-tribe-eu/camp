@@ -1855,24 +1855,42 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # 🔴 ПОВТОР, БО ЗАВИСАННЯ ВЖЕ НЕ ВИПАДКОВІСТЬ. Заміряно 26.10.2026:
-      # цей крок завис ДВІЧІ за день (на #337 і на #347), щоразу понад
-      # 10 хвилин, при нормі 40 секунд. `--with-deps` тягне apt, і саме
-      # там воно стає. Одна спроба з межею часу перетворює чужий збій на
-      # наш червоний CI; дві спроби по 5 хвилин дешевші за перезапуск
-      # усієї джоби руками.
-      - name: Install browsers (retried — the apt step hangs)
+      # 🔴 APT І БРАУЗЕРИ РОЗДІЛЕНІ, БО ЗАВИСАЄ САМЕ APT.
+      #
+      # Заміряно 26.10.2026: `--with-deps` завис ТРИЧІ за день (#337, #347,
+      # #348), при нормі 40 секунд. Лог щоразу доходив до
+      # `Installing dependencies… Switching to root… Get:1
+      # file:/etc/apt/apt-mirrors.txt` і там ставав. Повтор усього кроку не
+      # допоміг — він повторював те саме зависання.
+      #
+      # Тому системні залежності тепер НЕ фатальні: образ ubuntu-latest від
+      # GitHub уже несе бібліотеки, яких Playwright потребує. Якщо їх таки
+      # забракне, браузер не запуститься — і це впаде ГУЧНО, на першому ж
+      # тесті, з власним зрозумілим повідомленням. Червоний CI від чужого
+      # дзеркала apt коштує дорожче за цей ризик.
+      - name: System deps for browsers (not fatal — the apt mirror hangs)
         working-directory: apps/web
-        timeout-minutes: 12
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          if timeout 240 npx playwright install-deps chromium firefox webkit; then
+            echo "системні залежності встановлено"
+          else
+            echo "::warning::apt не відповів за 4 хв — покладаємось на образ раннера. Якщо браузер не запуститься, причина тут."
+          fi
+
+      - name: Install browsers
+        working-directory: apps/web
+        timeout-minutes: 8
         run: |
           for i in 1 2; do
-            if timeout 300 npx playwright install --with-deps chromium firefox webkit; then
+            if timeout 210 npx playwright install chromium firefox webkit; then
               echo "браузери встановлено зі спроби $i"
               exit 0
             fi
-            echo "::warning::спроба $i встановити браузери не вдалась або зависла"
+            echo "::warning::спроба $i завантажити браузери не вдалась"
           done
-          echo "::error::браузери не встановились за дві спроби по 5 хвилин"
+          echo "::error::браузери не завантажились за дві спроби"
           exit 1
       - uses: ./.github/actions/build-site
         with:
@@ -1997,8 +2015,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # Та сама причина, що й у `e2e`: зависає apt, не завантаження.
+      - name: System deps for chromium (not fatal — see the e2e job)
         working-directory: apps/web
+        timeout-minutes: 6
+        continue-on-error: true
+        run: timeout 240 npx playwright install-deps chromium ||
+          echo "::warning::apt не відповів за 4 хв — покладаємось на образ раннера"
+      - run: timeout 210 npx playwright install chromium
+        working-directory: apps/web
+        timeout-minutes: 8
       - uses: ./.github/actions/build-site
         with:
           site-mode: closed
