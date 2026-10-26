@@ -353,6 +353,53 @@ export function checkColumns(grid) {
   }
 }
 
+/**
+ * Яку дату публікувати — і коли відмовитись.
+ *
+ * 🔴 ІМ'Я ФАЙЛА ДАТОЮ НЕ Є, І ЦЕ ЗАМІРЯНО, А НЕ ПРИПУЩЕНО. Комісія
+ * віддає бюлетень за стабільним ідентифікатором документа, а параметр
+ * `filename=` у посиланні заморожений на момент створення. 26.10.2026
+ * на сторінці бюлетеня лежали рівно чотири посилання .xlsx, і серед них:
+ *
+ *     Weekly Oil Bulletin Weekly prices with Taxes - 2026-09-21.xlsx
+ *     Weekly Oil Bulletin Weekly prices without taxes - 2024-02-19.xlsx
+ *
+ * Друге ім'я старше за два роки на сторінці ЩОТИЖНЕВОГО бюлетеня. Тобто
+ * ім'я не оновлюється взагалі, а документ під ним — оновлюється.
+ *
+ * Попередня редакція вимагала РІВНОСТІ імені та комірки A2 і через це
+ * відмовлялась працювати з 21.09.2026: ціни простояли місяць, а сторінка
+ * чесно писала читачеві «These prices are out of date». Гірше: вона ж
+ * публікувала `bulletinDate: link.date`, тобто поставила б на сайт дату
+ * з замороженої мітки, навіть якби пройшла.
+ *
+ * 🔴 ПЕРЕВІРКУ НЕ ПРИБРАНО, А ПОВЕРНУТО ДО ЇЇ СПРАВЖНЬОЇ МЕТИ. Вона
+ * писалась проти кешу, що віддає torішні числа під цьогорічним ім'ям —
+ * тобто проти вмісту СТАРШОГО за ім'я. Саме це й лишилось відмовою.
+ * Вміст новіший за ім'я — це нормальна робота джерела, а не аварія.
+ */
+export function bulletinDateFrom(inSheet, filenameDate, today) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(inSheet))) {
+    throw new Error(
+      `the spreadsheet has no usable date in A2: ${JSON.stringify(inSheet)}`,
+    );
+  }
+  if (inSheet > today) {
+    throw new Error(
+      `the spreadsheet is dated in the future (${inSheet} > ${today}) — ` +
+        'publishing it would date our prices after the day they were read',
+    );
+  }
+  if (filenameDate && inSheet < filenameDate) {
+    throw new Error(
+      `the spreadsheet (${inSheet}) is OLDER than the name it was served ` +
+        `under (${filenameDate}) — that is a cache handing us last week's ` +
+        'numbers under this week\'s name',
+    );
+  }
+  return inSheet;
+}
+
 export async function collect() {
   const notice = await text(LEGAL_NOTICE);
   for (const marker of LICENCE_MARKERS) {
@@ -384,12 +431,11 @@ export async function collect() {
   // last week's numbers under this week's name.
   checkColumns(grid);
 
-  const inSheet = excelDate(grid.get('A2'));
-  if (inSheet !== link.date) {
-    throw new Error(
-      `the spreadsheet's own date (${inSheet}) disagrees with its filename (${link.date})`,
-    );
-  }
+  const bulletinDate = bulletinDateFrom(
+    excelDate(grid.get('A2')),
+    link.date,
+    new Date().toISOString().slice(0, 10),
+  );
 
   const countries = {};
   let euAverage = null;
@@ -418,7 +464,11 @@ export async function collect() {
   if (!euAverage) throw new Error('no EU27 weighted average row found');
 
   return {
-    bulletinDate: link.date,
+    bulletinDate,
+    // 🔴 Ім'я, під яким файл віддали, лишається в артефакті — але вже як
+    // слід, а не як дата. Коли Комісія знову почне його оновлювати, це
+    // буде видно тут, і нікому не доведеться це перевідкривати.
+    servedUnderName: link.date,
     fetchedAt: new Date().toISOString().slice(0, 10),
     unit: 'EUR per litre, including taxes',
     source: BULLETIN_PAGE,
@@ -449,6 +499,50 @@ function selfTest() {
     }
   })());
 
+  // 🔴 ЗВІРЯЄМО ТЕКСТ, А НЕ ЛИШЕ ФАКТ ВИНЯТКУ. Сьогодні вже було: тест,
+  // що рахує тільки «кинуло / не кинуло», пропускає мутацію, бо рахунок
+  // тримає інша скарга. Тутешній `throws` нижче по файлу ще й не
+  // оголошений на цей момент (TDZ), тож помічник свій.
+  const throwsSaying = (fn, needle) => {
+    try {
+      fn();
+      return false;
+    } catch (e) {
+      return String(e.message).includes(needle);
+    }
+  };
+
+  // 🔴 Перевірку дати не накривав ЖОДЕН тест — саме тому вона місяць
+  // відмовлялась працювати, і ніхто цього не бачив до того, як ціни
+  // протухли на 31 добу. Тепер накрита, і кожен випадок названий.
+  ok(
+    'дата: імʼя й вміст збігаються — беремо вміст',
+    bulletinDateFrom('2026-09-21', '2026-09-21', '2026-10-26') === '2026-09-21',
+  );
+  ok(
+    'дата: вміст НОВІШИЙ за імʼя — це нормальна робота джерела',
+    bulletinDateFrom('2026-10-19', '2026-09-21', '2026-10-26') === '2026-10-19',
+  );
+  ok(
+    'дата: публікуємо вміст, а НЕ імʼя',
+    bulletinDateFrom('2026-10-19', '2026-09-21', '2026-10-26') !== '2026-09-21',
+  );
+  ok(
+    'дата: вміст СТАРШИЙ за імʼя — кеш підсунув торішні числа, відмова',
+    throwsSaying(() => bulletinDateFrom('2026-09-14', '2026-09-21', '2026-10-26'), 'OLDER'),
+  );
+  ok(
+    'дата: майбутнє — відмова',
+    throwsSaying(() => bulletinDateFrom('2026-11-02', '2026-09-21', '2026-10-26'), 'future'),
+  );
+  ok(
+    'дата: порожня A2 — відмова, а не «припустимо сьогодні»',
+    throwsSaying(() => bulletinDateFrom(undefined, '2026-09-21', '2026-10-26'), 'no usable date'),
+  );
+  ok(
+    'дата: сміття в A2 — відмова',
+    throwsSaying(() => bulletinDateFrom('21/09/2026', '2026-09-21', '2026-10-26'), 'no usable date'),
+  );
   ok('perLitre converts per-1000l', perLitre('2457') === 2.457, String(perLitre('2457')));
   ok('perLitre rejects a moved column', (() => {
     try {
