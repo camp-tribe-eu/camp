@@ -896,6 +896,18 @@ jobs:
       - name: Every Next route handler is reachable through Caddy
         run: node scripts/ci/check-next-routes-reachable.mjs
 
+      # 🔴 CAMP-396. `dynamicParams = false` несумісний зі скиданням кешу
+      # за міткою: заміряно на проді — один revalidateTag('navigation')
+      # поклав 56 525 сторінок у 404 до перезапуску служби.
+      - name: The dynamicParams guard still catches a page that cannot survive revalidation
+        run: |
+          set -o pipefail
+          node scripts/ci/check-dynamic-params.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-dynamic-params self-test:' >/dev/null
+
+      - name: No page sets dynamicParams = false
+        run: node scripts/ci/check-dynamic-params.mjs
+
       # 🔴 CAMP-363. Сторож гачка ISR ходить на ЖИВИЙ сайт, тож повний
       # прогін тут неможливий: ні адреси, ні секрета, ні воріт у CI немає.
       # Але його ЯДРО — чисте, і саме воно вирішує, чи побачимо ми випадок
