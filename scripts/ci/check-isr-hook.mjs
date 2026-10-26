@@ -46,13 +46,34 @@ export function audit(probe) {
     return problems;
   }
 
+  // 🔴 ВІДМОВА ВОРІТ І ВІДМОВА ГАЧКА — ЦЕ РІЗНІ ДІАГНОЗИ.
+  //
+  // Поки сайт закритий передзапусковим паролем, Caddy відповідає 401 ДО
+  // того, як запит побачить Next. Назвати це «невірний секрет» означало б
+  // відправити власника лагодити не те. Відрізняємо за тілом: наш обробник
+  // завжди віддає JSON із полем `error` або `revalidated`; ворота — ні.
+  if (probe.gateBlind) {
+    problems.push(
+      'ворота відмовили, а пароля воріт (CAMPTRIBE_GATE_BASIC_AUTH) немає — ' +
+        'публічний шлях перевірити НЕМОЖЛИВО. Це не «все добре», це ' +
+        'відсутність перевірки, тож провал.',
+    );
+    return problems;
+  }
+
   for (const t of probe.tags) {
-    if (t.status !== 200) {
+    if (t.status === 200) continue;
+    if (t.gateRefused) {
       problems.push(
-        `гачок ?tag=${t.name} відповів ${t.status} замість 200` +
-          (t.note ? ` (${t.note})` : ''),
+        `ворота Caddy не пустили пробу ?tag=${t.name} (${t.status}) — ` +
+          'лагодити треба пароль воріт, а не гачок',
       );
+      continue;
     }
+    problems.push(
+      `гачок ?tag=${t.name} відповів ${t.status} замість 200` +
+        (t.note ? ` (${t.note})` : ''),
+    );
   }
 
   if (typeof probe.liveCount !== 'number') {
@@ -96,17 +117,43 @@ if (SELF_TEST) {
     ['дві мітки, зламана одна',
       { tags: [ok, { name: 'pages', status: 400 }], servedHash: 'aa', liveHash: 'aa', liveCount: 6 }, 1],
     ['200 є, але кеш не скинувся — мовчазний провал',
-      { tags: [ok], servedHash: 'aa', liveHash: 'bb', liveCount: 6 }, 1],
+      { tags: [ok], servedHash: 'aa', liveHash: 'bb', liveCount: 6 }, 1, 'скидання мітки не спрацювало'],
+    // 🔴 Три випадки про ворота. Без них гілка, що відрізняє відмову
+    // воріт від відмови гачка, не перевірялась нічим — а саме вона
+    // вирішує, куди власник піде лагодити.
+    ['ворота відмовили, пароля воріт немає — перевірити НЕМОЖЛИВО',
+      { tags: [{ name: 'navigation', status: 401, gateRefused: true }], gateBlind: true,
+        servedHash: 'aa', liveHash: 'aa', liveCount: 6 }, 1, 'НЕМОЖЛИВО'],
+    ['ворота відмовили, але пароль заданий — скарга саме на ворота',
+      { tags: [{ name: 'navigation', status: 401, gateRefused: true }],
+        servedHash: 'aa', liveHash: 'aa', liveCount: 6 }, 1, 'ворота Caddy не пустили'],
+    ['401 від САМОГО гачка (тіло наше) — це вже про секрет',
+      { tags: [{ name: 'navigation', status: 401, gateRefused: false }],
+        servedHash: 'aa', liveHash: 'aa', liveCount: 6 }, 1, 'гачок ?tag=navigation відповів 401'],
     ['проб не зроблено — збір зламався', { tags: [] }, 1],
     ['джерело мовчить', { tags: [ok], servedHash: 'aa' }, 1],
     ['джерело віддало порожнє меню', { tags: [ok], servedHash: 'aa', liveHash: 'bb', liveCount: 0 }, 1],
     ['мітка стану недосяжна', { tags: [ok], liveHash: 'bb', liveCount: 6 }, 1],
   ];
+  // 🔴 ЗВІРЯЄМО ТЕКСТ СКАРГИ, А НЕ ЛИШЕ КІЛЬКІСТЬ.
+  //
+  // Перша редакція рахувала `problems.length`, і три випадки про ворота
+  // були СЛІПІ: кількість лишалась 1, хоч яка саме скарга спрацювала.
+  // Заміряно 26.10.2026 — обидві мутації (прибрати зупинку на `gateBlind`
+  // і назвати відмову воріт відмовою гачка) пережили зелений прогін
+  // 13/13. Рівно та пастка, яку рецензія #344 знайшла в сусідньому
+  // сторожі; я вступив у неї наступною ж правкою.
   let pass = 0, fail = 0;
-  for (const [name, probe, want] of cases) {
-    const got = audit(probe).length;
-    if (got === want) pass++;
-    else { fail++; console.error(`  ✗ ${name}: скарг ${got}, чекали ${want}`); }
+  for (const [name, probe, want, mustSay] of cases) {
+    const got = audit(probe);
+    const countOk = got.length === want;
+    const textOk = !mustSay || got.some((p) => p.includes(mustSay));
+    if (countOk && textOk) pass++;
+    else {
+      fail++;
+      if (!countOk) console.error(`  ✗ ${name}: скарг ${got.length}, чекали ${want}`);
+      else console.error(`  ✗ ${name}: жодна скарга не містить «${mustSay}» — було: ${got.join(' | ')}`);
+    }
   }
   console.log(`check-isr-hook self-test: ran ${pass + fail}, passed ${pass}, failed ${fail}`);
   process.exit(fail === 0 ? 0 : 1);
@@ -147,13 +194,20 @@ async function main() {
         method: 'POST',
         headers: headers(),
       });
-      tags.push({ status: res.status, name });
+      // Наше тіло — JSON із `error` або `revalidated`. Усе інше при
+      // ненульовій відмові означає, що відповів не Next, а ворота перед ним.
+      let ours = false;
+      try {
+        const b = await res.json();
+        ours = b !== null && typeof b === 'object' && ('error' in b || 'revalidated' in b);
+      } catch { ours = false; }
+      tags.push({ status: res.status, name, gateRefused: res.status !== 200 && !ours });
     } catch (e) {
       tags.push({ status: 0, name, note: e.message });
     }
   }
 
-  const probe = { tags };
+  const probe = { tags, gateBlind: GATE === '' && tags.some((t) => t.gateRefused) };
 
   try {
     const res = await fetch(`${SITE}/internal/content-stamp`, { headers: headers() });
