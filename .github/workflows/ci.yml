@@ -878,6 +878,35 @@ jobs:
       - name: The API never calls listen without an address
         run: node scripts/ci/check-api-binds-loopback.mjs
 
+      # 🔴 CAMP-363. Хук скидання кешу лежав у apps/web/src/app/api/
+      # revalidate/route.ts, а Caddy віддає ВЕСЬ префікс /api у Nest
+      # (infra/caddy/camptribe.eu.caddyfile). Запит до Next не доходив,
+      # Nest відповідав 404, і кеш мовчки не скидався: жодної помилки
+      # ніде, а тест маршруту ходив у Next напряму й був зелений.
+      # Сторож читає Caddyfile, бере порт Next із наскрізного handle (не
+      # з константи) і червоніє, якщо хоч один обробник Next опинився під
+      # префіксом, що йде в інший порт. Нуль префіксів чи нуль обробників
+      # — теж провал: це зламаний розбір, а не «чисто».
+      - name: The route-reachability guard still catches a route under a foreign prefix
+        run: |
+          set -o pipefail
+          node scripts/ci/check-next-routes-reachable.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-next-routes-reachable self-test:' >/dev/null
+
+      - name: Every Next route handler is reachable through Caddy
+        run: node scripts/ci/check-next-routes-reachable.mjs
+
+      # 🔴 CAMP-363. Сторож гачка ISR ходить на ЖИВИЙ сайт, тож повний
+      # прогін тут неможливий: ні адреси, ні секрета, ні воріт у CI немає.
+      # Але його ЯДРО — чисте, і саме воно вирішує, чи побачимо ми випадок
+      # «200 віддано, а кеш не скинувся». Без цього кроку ядро не
+      # перевіряється нічим, а сторож на машині мовчки зеленів би.
+      - name: The ISR-hook guard still catches a hook that answers 200 and changes nothing
+        run: |
+          set -o pipefail
+          node scripts/ci/check-isr-hook.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-isr-hook self-test:' >/dev/null
+
       # 🔴 CAMP-347. `gh` resolves the repository from the GIT REMOTE,
       # not from GITHUB_REPOSITORY, so a job with no checkout, no
       # GH_REPO and no --repo dies on its first call with "not a git

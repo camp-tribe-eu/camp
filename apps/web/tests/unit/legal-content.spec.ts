@@ -269,7 +269,7 @@ test.describe("legalSlugs і legalDocument поверх API", () => {
   });
 
   // 🔴 МІТКА Й ВИТРИМКА ПОВИННІ ДОЇХАТИ ДО ЗАПИТУ. Без мітки `pages` правка в
-  // CMS оновлюється лише добовою витримкою: `POST /api/revalidate?tag=pages`
+  // CMS оновлюється лише добовою витримкою: `POST /internal/revalidate?tag=pages`
   // не мав би що скидати. Читається те, з чим `fetch` справді викликано.
   test("🔴 запити несуть мітку pages і добову витримку", async () => {
     await withFetch(
