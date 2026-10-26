@@ -145,4 +145,35 @@ test.describe("🔴 CAMP-365 — меню з бази", () => {
       ).toHaveAttribute('href', item.href);
     }
   });
+
+  // 🔴 CAMP-397. Мало перевірити, що пункт підвалу ВІДКРИВАЄТЬСЯ — треба,
+  // щоб він був НАМАЛЬОВАНИЙ. До 26.10.2026 поле `location` у таблиці
+  // існувало, API віддавав три розділи, а каркас споживав лише `header`:
+  // рядок із `location='footer'` можна було додати в базу й не отримати
+  // нічого, мовчки. Саме так `/contact` і не було в жодному меню, хоч
+  // сторінка працювала.
+  test("кожен пункт розділу footer намальований у підвалі", async ({
+    page,
+    request,
+  }) => {
+    const res = await request.get(`${API}/navigation`);
+    expect(res.ok(), `GET ${API}/navigation → ${res.status()}`).toBe(true);
+    const body = (await res.json()) as Record<string, NavItem[] | undefined>;
+    const items = body.footer ?? [];
+    test.skip(items.length === 0, "у базі немає пунктів підвалу");
+
+    await page.goto("/");
+    const nav = page.locator('footer nav[aria-label="More"]');
+    await expect(
+      nav,
+      "підвал не малює розділ footer — поле в базі є, рендера немає",
+    ).toBeVisible();
+
+    for (const item of items) {
+      await expect(
+        nav.locator(`a[href="${item.href}"]`),
+        `пункт ${item.href} є в базі, але не намальований у підвалі`,
+      ).toBeVisible();
+    }
+  });
 });
