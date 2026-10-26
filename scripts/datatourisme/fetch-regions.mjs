@@ -26,8 +26,8 @@
 // not source code.
 
 import { createWriteStream } from 'node:fs';
-import { mkdir, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -121,7 +121,12 @@ function human(bytes) {
   return bytes == null ? '  ?' : `${(bytes / 1e6).toFixed(1)} MB`;
 }
 
-async function download(entry, dir) {
+/**
+ * `fetchImpl` підміняється лише в самоперевірці — як у
+ * apps/api/src/datatourisme/api-v1.ts (`catalogNodes(apiKey, fetchImpl)`).
+ * Типове значення `fetch` лишає поведінку скрипта як була.
+ */
+async function download(entry, dir, fetchImpl = fetch) {
   const target = join(dir, `${entry.key}.csv`);
   // Re-downloading 280 MB because a later region failed is a waste of
   // somebody else's bandwidth as much as of our time.
@@ -135,15 +140,39 @@ async function download(entry, dir) {
     /* not downloaded yet */
   }
 
-  const res = await fetch(entry.url);
+  const res = await fetchImpl(entry.url);
   if (!res.ok) throw new Error(`${entry.key}: HTTP ${res.status}`);
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(target));
+
+  // 🔴 CAMP-398: пишемо в `.part`, а не в цільовий файл.
+  //
+  // createWriteStream(target) зрізає ЦІЛЬОВИЙ файл до нуля ще до першого
+  // байта тіла. Обрив зʼєднання посеред передачі лишав на диску 0 байтів
+  // замість попереднього цілого CSV — відтворено самоперевіркою: тіло
+  // рветься після 100 байтів, файл 1 000 → 0.
+  //
+  // Перевірка `!res.ok` вище цього НЕ ловить, і вона не зайва: вона
+  // бачить лише рядок статусу. Обрив посеред тіла — це успішний 200, у
+  // якого закінчилось зʼєднання; помилку кидає вже pipeline, коли файл
+  // давно зрізано.
+  //
+  // rename у межах однієї файлової системи атомарний: на диску або
+  // старий цілий файл, або новий цілий, третього стану немає. `.part`
+  // лежить поруч із ціллю саме тому — з іншого розділу rename став би
+  // копіюванням, і вікно повернулось би.
+  const part = `${target}.part`;
+  try {
+    await pipeline(Readable.fromWeb(res.body), createWriteStream(part));
+    await rename(part, target);
+  } catch (err) {
+    await rm(part, { force: true });
+    throw err;
+  }
   const got = await stat(target);
   console.log(`  ${entry.key}  ${human(got.size)}`);
   return target;
 }
 
-function selfTest() {
+async function selfTest() {
   let bad = 0;
   const check = (name, got, want) => {
     const ok = JSON.stringify(got) === JSON.stringify(want);
@@ -193,6 +222,89 @@ function selfTest() {
     METROPOLITAN.filter((r) => r in OVERSEAS),
     [],
   );
+
+  // 🔴 CAMP-398: download() на підробленому fetch — справжніх 349 МБ
+  // самоперевірка не качає. Міряємо ДИСК (stat), а не те, що функція
+  // повернула: корпус не сміє ділити поле з тим, що міряє.
+  const dir = await mkdtemp(join(tmpdir(), 'camp-398-fetch-regions-'));
+  try {
+    const entry = (bytes) => ({ key: 'ara', url: 'u/ara', bytes });
+    const target = join(dir, 'ara.csv');
+    const part = `${target}.part`;
+    const sizeOf = async (p) => {
+      try {
+        return (await stat(p)).size;
+      } catch {
+        return null; // файла немає
+      }
+    };
+    const respond = (body, status = 200) => async () =>
+      new Response(body, { status });
+    const failure = async (e, fetchImpl) => {
+      try {
+        await download(e, dir, fetchImpl);
+        return null;
+      } catch (err) {
+        return err.message;
+      }
+    };
+    // Тіло, що віддає N байтів і рветься. Для fetch це успішний 200, у
+    // якого закінчилось зʼєднання, — не помилка статусу.
+    const bodyThatDiesAfter = (n) =>
+      new ReadableStream({
+        start(controller) {
+          if (n > 0) controller.enqueue(new Uint8Array(n).fill(0x78));
+          controller.error(new Error('ECONNRESET'));
+        },
+      });
+
+    const PRIOR = 1000; // попередній цілий файл
+    await writeFile(target, 'x'.repeat(PRIOR));
+    check(
+      'обрив тіла посеред передачі — це помилка, не «готово»',
+      await failure(entry(44), respond(bodyThatDiesAfter(100))),
+      'ECONNRESET',
+    );
+    check(
+      'обрив тіла не чіпає попередній цілий файл',
+      await sizeOf(target),
+      PRIOR,
+    );
+    check('після обриву .part на диску не лишається', await sizeOf(part), null);
+
+    const FRESH = 2345;
+    await download(entry(FRESH), dir, respond('y'.repeat(FRESH)));
+    check(
+      'успішне завантаження лишає файл правильного розміру',
+      await sizeOf(target),
+      FRESH,
+    );
+    check('після успіху .part на диску не лишається', await sizeOf(part), null);
+
+    let calls = 0;
+    const went = await failure(entry(FRESH), async () => {
+      calls++;
+      throw new Error('не мало ходити в мережу');
+    });
+    check(
+      '«вже завантажено» (розмір збігся) не ходить у мережу',
+      [calls, went],
+      [0, null],
+    );
+
+    check(
+      'HTTP-помилка названа кодом',
+      await failure(entry(1), respond('nope', 503)),
+      'ara: HTTP 503',
+    );
+    check(
+      'HTTP-помилка не чіпає попередній цілий файл',
+      await sizeOf(target),
+      FRESH,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 
   console.log(bad ? `\n✗ ${bad} self-test failure(s)` : '\n✓ self-test passed');
   process.exit(bad ? 1 : 0);
