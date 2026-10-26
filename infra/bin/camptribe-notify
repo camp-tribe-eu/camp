@@ -105,6 +105,23 @@ if (SELF_TEST) {
   process.exit(fail === 0 ? 0 : 1);
 }
 
+// 🔴 ОДНА фабрика на обидва шляхи. Якби `--check` будував транспорт
+// інакше, ніж справжній лист, він перевіряв би не те, що поїде.
+// 🔴 РЕЗОЛВ ЛІНИВИЙ І ВСЕРЕДИНІ ФАБРИКИ. Перша редакція читала
+// `nodemailer`, оголошений НИЖЧЕ блоку `--check`, і падала з
+// «Cannot access 'nodemailer' before initialization» — заміряно на
+// проді, бо локальна перевірка до резолву просто не доходить.
+let _nm;
+function nodemailerFor(e) {
+  _nm ??= createRequire(RELEASE_ROOT)('nodemailer');
+  return _nm.createTransport({
+    host: e.SMTP_HOST,
+    port: Number(e.SMTP_PORT ?? 587),
+    secure: Number(e.SMTP_PORT) === 465,
+    auth: { user: e.SMTP_USER, pass: e.SMTP_PASSWORD },
+  });
+}
+
 // ── --check: чи цей сповіщувач узагалі здатен надіслати ───────────────
 //
 // 🔴 ВСТАНОВЛЕНИЙ СПОВІЩУВАЧ НЕ Є ПРАЦЕЗДАТНИМ СПОВІЩУВАЧЕМ. Самоперевірка
@@ -138,13 +155,37 @@ if (CHECK) {
   for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD']) {
     if (!env_[k]) problems.push(`у ${ENV_FILE} немає ${k}`);
   }
-  if (problems.length === 0) {
-    console.log(`✓ camptribe-notify --check: ${where}, ключі SMTP на місці`);
-    process.exit(0);
+  if (problems.length > 0) {
+    console.error('✗ camptribe-notify НЕ ЗМІГ БИ надіслати лист:');
+    for (const x of problems) console.error(`  • ${x}`);
+    process.exit(1);
   }
-  console.error('✗ camptribe-notify НЕ ЗМІГ БИ надіслати лист:');
-  for (const x of problems) console.error(`  • ${x}`);
-  process.exit(1);
+
+  // 🔴 «Бібліотека вантажиться й ключі на місці» — це ще не «лист піде».
+  // Рецензія назвала це прямо: хибний пароль або закритий 587 лишали б
+  // і ✓, і фінальне «тривога жива» зеленими — той самий клас дефекту,
+  // що вбив канал у #352, лише іншим боком. `verify()` відкриває зʼєднання
+  // і робить AUTH, нічого не надсилаючи.
+  //
+  // 🔴 І ОКРЕМИЙ КОД ВИХОДУ, А НЕ ПРОВАЛ. Недосяжний SMTP — стан
+  // минущий і до розкладки інфраструктури стосунку не має. Валити на
+  // ньому деплой означає платити за чужу аварію простоєм свого
+  // конвеєра. Код 2 = «сповіщувач справний, канал зараз недосяжний»,
+  // і розкладка друкує це гучно, але не падає.
+  try {
+    const tx = nodemailerFor(env_);
+    await tx.verify();
+    console.log(`✓ camptribe-notify --check: ${where}, SMTP ${env_.SMTP_HOST} прийняв AUTH`);
+    process.exit(0);
+  } catch (e) {
+    console.error(
+      `🔴 сповіщувач справний (${where}), але SMTP ${env_.SMTP_HOST ?? '?'} ` +
+        `недосяжний: ${e.message}`,
+    );
+    // Паролів тут немає: nodemailer у повідомленнях їх не друкує, а самі
+    // значення ми не підставляємо.
+    process.exit(2);
+  }
 }
 
 // ── живий прогін ───────────────────────────────────────────────────────
@@ -196,24 +237,19 @@ if (DRY) {
 // пакета, тож наступна зміна його внутрішньої розкладки нас не чіпає.
 // Корінь — саме `current/`, бо туди npm і ставить залежності (hoisting);
 // в `apps/api/node_modules` пакета немає, хоч оголошений він в API.
-const require_ = createRequire(RELEASE_ROOT);
-let nodemailer;
+// Резолв той самий, що й у `--check` — через ту саму фабрику, щоб два
+// шляхи не могли розійтись. Пояснення, ЧОМУ резолвимо пакет, а не файл
+// у ньому, — вище над фабрикою.
+let tx;
 try {
-  nodemailer = require_('nodemailer');
+  tx = nodemailerFor(env);
 } catch (e) {
-  // Голосно й конкретно: мовчазна тривога гірша за відсутню.
   console.error(
-    `✗ nodemailer не резолвиться від /srv/camptribe/current/: ${e.message}\n` +
-      '  Перевірити: ls /srv/camptribe/current/node_modules/nodemailer',
+    `✗ nodemailer не резолвиться від ${RELEASE_ROOT}: ${e.message}\n` +
+      `  Перевірити: ls ${RELEASE_ROOT}node_modules/nodemailer`,
   );
   process.exit(1);
 }
-const tx = nodemailer.createTransport({
-  host: env.SMTP_HOST,
-  port: Number(env.SMTP_PORT ?? 587),
-  secure: Number(env.SMTP_PORT) === 465,
-  auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
-});
 const info = await tx.sendMail({
   from: env.MAIL_FROM ?? 'noreply@camptribe.eu',
   to,
