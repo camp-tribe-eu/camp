@@ -55,7 +55,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
-import { gzipSync, gunzipSync } from 'node:zlib';
+import { gzipSync, gunzipSync, inflateSync } from 'node:zlib';
 import { realpathSync } from 'node:fs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -207,11 +207,32 @@ export function checkWording(value, path = 'output') {
 
 /** `"2012-01-01 - 2026-09-11"` → `{ first, last }`. */
 export function parseRange(body) {
+  // 🔴 ДВА ФОРМАТИ, І ДРУГИЙ ЗʼЯВИВСЯ 26.10.2026.
+  //
+  // JRC відповів на наш звіт і привів WCS до стандарту OGC: замість
+  // власного JSON (`{"code":"DATE_OUT_OF_RANGE","details":{…}}`) сервіс
+  // тепер віддає `ows:ExceptionReport` у XML. Їхнє виправлення зламало
+  // нашу засновку — збирач упав із «did not report a range (HTTP 400)»,
+  // хоча діапазон у відповіді БУВ, просто іншими словами:
+  //
+  //   <ows:ExceptionText>Requested date 2030-01-01 is outside the
+  //   available coverage range for Combined Drought Indicator (CDI) v4.1.
+  //   Available range: 2012-01-01 - 2026-10-01.</ows:ExceptionText>
+  //
+  // Старий формат лишаємо: сервіс може віддавати його на інших шляхах, а
+  // прибрати гілку, не заміривши всі, означало б зламати те, що працює.
   const raw = typeof body === 'string' ? safeJson(body) : body;
-  const range = raw?.details?.available_range;
-  if (typeof range !== 'string') return null;
-  const m = /^(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})$/.exec(range.trim());
-  return m ? { first: m[1], last: m[2] } : null;
+  const json = raw?.details?.available_range;
+  if (typeof json === 'string') {
+    const m = /^(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})$/.exec(json.trim());
+    if (m) return { first: m[1], last: m[2] };
+  }
+  if (typeof body !== 'string') return null;
+  // 🔴 Прив'язка до слів «Available range», а не до «два перші числа в
+  // тексті»: у тому ж реченні вже стоїть запитана дата (2030-01-01), і
+  // жадібний пошук узяв би саме її за початок діапазону.
+  const x = /Available\s+range:\s*(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/i.exec(body);
+  return x ? { first: x[1], last: x[2] } : null;
 }
 
 function safeJson(s) {
@@ -316,9 +337,27 @@ export function parseGeoTiff(buf) {
   if (!width || !height || !offsets || !counts) throw new Error('TIFF is missing basic tags');
   if (bits !== 8) throw new Error(`expected an 8-bit band, got ${bits}`);
 
-  const px = Buffer.concat(
-    offsets.map((o, i) => d.subarray(o, o + counts[i])),
-  );
+  // 🔴 СТИСНЕННЯ ЧИТАЄТЬСЯ, А НЕ ПРИПУСКАЄТЬСЯ. Заміряно 26.10.2026.
+  //
+  // Декодер мовчки вважав смуги сирими. Коли JRC привів WCS до стандарту,
+  // покриття `cdiad` почало приходити з `Compression = 8` (Adobe Deflate),
+  // і збирач упав із «pixel data is 78456 bytes, expected 2188800».
+  //
+  // Я мало не відписав у JRC, що їхній GeoTIFF обрізаний. Файл був цілий:
+  // 1824×1200, 8 біт, просто стиснений — дефект був НАШ. Тому тег 259
+  // тепер читається, а невідоме стиснення падає з його НОМЕРОМ, а не з
+  // загадковим розміром: наступного разу діагноз має бути в повідомленні.
+  const compression = read(259)?.[0] ?? 1;
+  const strip = (o, i) => {
+    const raw = d.subarray(o, o + counts[i]);
+    if (compression === 1) return raw;
+    if (compression === 8 || compression === 32946) return inflateSync(raw);
+    throw new Error(
+      `unsupported TIFF compression ${compression} (tag 259); ` +
+        'only 1 (none) and 8/32946 (Deflate) are decoded here',
+    );
+  };
+  const px = Buffer.concat(offsets.map((o, i) => strip(o, i)));
   if (px.length !== width * height) {
     throw new Error(`pixel data is ${px.length} bytes, expected ${width * height}`);
   }
@@ -738,6 +777,37 @@ export function selfTest() {
     JSON.stringify(
       parseRange('{"code":"DATE_OUT_OF_RANGE","details":{"available_range":"2012-01-01 - 2026-09-11"}}'),
     ) === '{"first":"2012-01-01","last":"2026-09-11"}',
+  );
+  // 🔴 Новий формат JRC від 26.10.2026. Текст узято з ЖИВОЇ відповіді
+  // сервісу, не вигаданий: саме на ньому збирач упав.
+  const OWS =
+    '<?xml version="1.0" encoding="UTF-8"?>\n<ows:ExceptionReport version="2.0.0">' +
+    '<ows:Exception exceptionCode="InvalidParameterValue" locator="time">' +
+    '<ows:ExceptionText>Requested date 2030-01-01 is outside the available ' +
+    'coverage range for Combined Drought Indicator (CDI) v4.1. ' +
+    'Available range: 2012-01-01 - 2026-10-01.</ows:ExceptionText>' +
+    '</ows:Exception></ows:ExceptionReport>';
+  ok(
+    'parseRange reads the range out of the OGC XML exception too',
+    JSON.stringify(parseRange(OWS)) === JSON.stringify({ first: '2012-01-01', last: '2026-10-01' }),
+  );
+  // 🔴 ЦЕЙ ВИПАДОК ЗАМІНИВ ПОПЕРЕДНІЙ, ЯКИЙ НІЧОГО НЕ ДОВОДИВ.
+  //
+  // Спершу тут стояло «не плутає запитану дату з початком діапазону» на
+  // тексті вище. Мутація показала, що воно сліпе: у тому реченні
+  // `2030-01-01` не стоїть поруч із тире та іншою датою, тож і жадібний
+  // пошук `(дата) - (дата)` знайшов би правильну пару. Прибрати якір на
+  // слова можна було й лишитись зеленим.
+  //
+  // Цей вхід розрізняє: без слів «Available range» прив'язаний розбір
+  // мовчить, а жадібний — вигадав би діапазон із довільної пари дат.
+  ok(
+    'parseRange requires the words, not just two dates with a dash',
+    parseRange('<ows:ExceptionText>valid 2012-01-01 - 2026-10-01</ows:ExceptionText>') === null,
+  );
+  ok(
+    '…and reports nothing when the XML carries no range at all',
+    parseRange('<ows:ExceptionText>No such coverage: cdi.</ows:ExceptionText>') === null,
   );
   ok('…and reports nothing rather than a guess when the body is not that', parseRange('<html>') === null);
   ok('…including a body that has a range of the wrong shape', parseRange('{"details":{"available_range":"soon"}}') === null);
