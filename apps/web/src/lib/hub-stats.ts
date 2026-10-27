@@ -253,16 +253,25 @@ export function regionFaq(r: HubRegionStats): HubFaqItem[] {
 
   // `type` is recorded for every row, so this question always has its
   // answer — a zero here is a count, not a gap.
+  //
+  // 🔴 Four shapes, not two. "21 of the 21 sites … the other 0 are
+  // campsites" was printed on 8 regions (ee/Jõgeva, seven single-site
+  // regions of Latvia): when every site is free there is no "other", and
+  // the sentence says "all" — or, for one site, "the one site".
+  const free =
+    r.freeWild === 0
+      ? `None of the ${sites} carries a free-camping or wild-camping tag in OpenStreetMap.`
+      : r.freeWild === r.spots
+        ? r.spots === 1
+          ? `The one site we list in ${r.region} is a free campsite or a wild camping spot by its OpenStreetMap tag.`
+          : `All ${n(r.spots)} sites we list in ${r.region} are free campsites or wild camping spots by their OpenStreetMap tag.`
+        : `${n(r.freeWild)} of the ${sites} ${
+            r.freeWild === 1 ? 'is a free campsite or a wild camping spot' : 'are free campsites or wild camping spots'
+          } by their OpenStreetMap tag; the other ${n(r.spots - r.freeWild)} are campsites, motorhome parks or camper stops.`;
   out.push({
     key: 'free',
     question: `Are there free places to camp in ${r.region}?`,
-    answer:
-      (r.freeWild === 0
-        ? `None of the ${sites} carries a free-camping or wild-camping tag in OpenStreetMap.`
-        : `${n(r.freeWild)} of the ${sites} ${
-            r.freeWild === 1 ? 'is a free campsite or a wild camping spot' : 'are free campsites or wild camping spots'
-          } by their OpenStreetMap tag; the other ${n(r.spots - r.freeWild)} are campsites, motorhome parks or camper stops.`) +
-      tail,
+    answer: free + tail,
   });
 
   const ov = r.overnight.allowed + r.overnight.forbidden;

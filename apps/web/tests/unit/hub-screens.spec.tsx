@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import CountryHub from '@/app/camping/[country]/page';
 import RegionPage from '@/app/camping/[country]/[region]/page';
+import RegionListing from '@/components/region-listing';
 import {
   countryTiles,
   enoughRecorded,
@@ -129,7 +130,7 @@ function api(stats: unknown = STATS): Fetcher {
     if (url.endsWith('/spots/si/regions')) return json(REGIONS);
     if (url.endsWith('/spots/hub-stats/si')) return json(stats);
     for (const r of STATS) {
-      if (url.includes(`/spots/si/${r.slug}?page=1`)) return json(listing(r));
+      if (url.includes(`/spots/si/${r.slug}?page=`)) return json(listing(r));
     }
     return json({}, 404);
   };
@@ -154,6 +155,22 @@ async function regionHtml(slug: string, stats: unknown = STATS): Promise<string>
   });
   return html;
 }
+
+/**
+ * The words of the "Key figures" tiles ALONE — `visibleText` of the one
+ * `<section aria-label="Key figures">`, '' when there is none.
+ *
+ * 🔴 Why not the whole page: after the hub filters (#364) every region
+ * page prints "Electricity", "Showers", "Toilets" as filter chips, so
+ * "the page does not say Electricity" stopped meaning "no electricity
+ * tile". The section is found by its landmark, not by the shape of a
+ * tile, and every "does not say" on it below stands beside a "does say"
+ * on the same string, so an empty section cannot satisfy it.
+ */
+const tilesText = (html: string): string => {
+  const m = /<section[^>]*aria-label="Key figures"[^>]*>[\s\S]*?<\/section>/.exec(html);
+  return m ? visibleText(m[0]) : '';
+};
 
 const AS_OF_18 = 'Counted from our listings as of 18 October 2026.';
 const AS_OF_12 = 'Counted from our listings as of 12 October 2026.';
@@ -305,6 +322,31 @@ test.describe('the FAQ asks only what the data answers', () => {
     );
   });
 
+  // 🔴 Jõgeva (ee): 21 of 21 free — no "the other 0". Seven regions of
+  // Latvia list one site, and it is free — no "1 of the 1 site".
+  test('🔴 every site free: "All 21 sites", never "the other 0"', () => {
+    const faq = regionFaq({ ...BOVEC, region: 'Jõgeva', spots: 21, freeWild: 21, readAt: '2026-10-16' });
+    expect(faq[0].answer).toBe(
+      'All 21 sites we list in Jõgeva are free campsites or wild camping spots by their OpenStreetMap tag. Counted from our listings as of 16 October 2026.',
+    );
+    expect(faq[0].answer).not.toContain('other');
+    expect(faq[0].answer).not.toContain(' 0 ');
+  });
+
+  test('🔴 one site, and it is free: "The one site", never "1 of the 1"', () => {
+    const faq = regionFaq({ ...PTUJ, region: 'Alūksne', spots: 1, freeWild: 1, electricity: { yes: 0, no: 0 } });
+    expect(faq[0].answer).toBe(
+      'The one site we list in Alūksne is a free campsite or a wild camping spot by its OpenStreetMap tag.',
+    );
+    expect(faq[0].answer).not.toContain('other');
+  });
+
+  test('no site free: "None", with no count of others either', () => {
+    const [free] = regionFaq(KRANJ);
+    expect(free.answer).toMatch(/^None of the 40 sites we list in Kranj/);
+    expect(free.answer).not.toContain('other');
+  });
+
   test('three is the ceiling: a region with every answer asks three', () => {
     const faq = regionFaq({ ...BOVEC, overnight: { allowed: 20, forbidden: 0 } });
     expect(faq.map((f) => f.key)).toEqual(['free', 'overnight', 'electricity']);
@@ -429,10 +471,10 @@ test.describe('the region page', () => {
 
   test('🔴 Kranj: no electricity tile from 7 of 40, free & wild 0, overnight asked, electricity not', async () => {
     const html = await regionHtml('kranj');
-    const text = visibleText(html);
-    expect(text).toMatch(/Campsites\s+40\b/);
-    expect(text).toMatch(/Free & wild spots\s+0\b/);
-    expect(text).not.toContain('Electricity');
+    const tiles = tilesText(html);
+    expect(tiles).toMatch(/Campsites\s+40\b/);
+    expect(tiles).toMatch(/Free & wild spots\s+0\b/);
+    expect(tiles).not.toContain('Electricity');
     expect(html.match(/<details/g)?.length).toBe(2);
     expect(html).toContain('Can a motorhome stay overnight at campsites in Kranj?');
     expect(html).toContain(
@@ -449,8 +491,9 @@ test.describe('the region page', () => {
   test('Ptuj: one question, no electricity from 4 of 4, no day line', async () => {
     const html = await regionHtml('ptuj');
     const text = visibleText(html);
-    expect(text).toMatch(/Campsites\s+4\b/);
-    expect(text).not.toContain('Electricity');
+    const tiles = tilesText(html);
+    expect(tiles).toMatch(/Campsites\s+4\b/);
+    expect(tiles).not.toContain('Electricity');
     expect(text).not.toContain('Counted from our listings');
     expect(html.match(/<details/g)?.length).toBe(1);
     expect(html).toContain('Are there free places to camp in Ptuj?');
@@ -469,12 +512,76 @@ test.describe('the region page', () => {
   });
 });
 
+// ── б) and в) One address for the figures; an empty filter is an answer ─
+
+test.describe('the figures live on the base page only', () => {
+  const render = async (props: Parameters<typeof RegionListing>[0], fetcher: Fetcher = api()) => {
+    let html = '';
+    await withFetch(fetcher, async () => {
+      html = await renderNestedAsync(RegionListing, props);
+    });
+    return html;
+  };
+
+  test('anchor: page 1 of the base page has tiles, questions and the listing', async () => {
+    const html = await render({ country: 'si', region: 'bovec', page: 1 });
+    expect(html).toContain('<dl');
+    expect(html).toContain('<details');
+    expect(visibleText(html)).toContain('Camp 24');
+  });
+
+  test('🔴 page 2 has neither tiles nor questions', async () => {
+    const html = await render({ country: 'si', region: 'bovec', page: 2 });
+    expect(visibleText(html)).toContain('Camp 24');
+    expect(html).not.toContain('<dl');
+    expect(html).not.toContain('<details');
+    expect(visibleText(html)).not.toContain('Questions about camping');
+  });
+
+  test('🔴 a /filter?… address has neither tiles nor questions, and asks for no figures', async () => {
+    const asked: string[] = [];
+    const html = await render(
+      { country: 'si', region: 'bovec', page: 1, searchParams: { types: 'paid' }, live: true },
+      (url) => {
+        asked.push(url);
+        return api()(url);
+      },
+    );
+    expect(visibleText(html)).toContain('Camp 24');
+    expect(html).not.toContain('<dl');
+    expect(html).not.toContain('<details');
+    expect(asked.some((u) => u.includes('/spots/hub-stats/'))).toBe(false);
+  });
+
+  test('🔴 an empty filtered result is a page with three actions, not a 404', async () => {
+    const html = await render(
+      { country: 'si', region: 'bovec', page: 1, searchParams: { types: 'wild' }, live: true },
+      (url) =>
+        url.includes('/spots/si/bovec?page=1')
+          ? json({ region: 'Bovec', total: 100, matched: 0, unknownExcluded: 0, items: [], dropOne: [] })
+          : api()(url),
+    );
+    const text = visibleText(html);
+    expect(text).toContain('No wild camping spot is listed in Bovec');
+    expect(text).toContain('Clear all filters');
+    expect(text).toContain('Other regions in Slovenia');
+    expect(html).not.toContain('<dl');
+    expect(html).not.toContain('<details');
+  });
+});
+
 // ── г) The hub pages stay static ────────────────────────────────────────
 //
 // Nothing in the two pages or in anything they import may read a request:
-// no `headers()`, no `cookies()`, no `no-store`, no `searchParams`, no
-// `force-dynamic`. Walked through the import graph from the page files,
-// `@/` and relative imports only — packages are not ours to check.
+// no `headers()`, no `cookies()`, no `no-store`, no `force-dynamic`
+// anywhere in the graph — and no `searchParams` in the PAGE files, which
+// is where Next hands a request over (a page that reads that prop is
+// rendered on request, every request). Since the hub filters (#364) the
+// shared `RegionListing` and `lib/hub-filters.ts` take an object by that
+// name from the /filter route; the static pages pass nothing, so the word
+// in a parser is inert and only its use in a page can make a page dynamic.
+// Walked through the import graph from the page files, `@/` and relative
+// imports only — packages are not ours to check.
 
 test('🔴 the country and region pages and everything they import read no request', () => {
   const SRC = resolve(__dirname, '..', '..', 'src');
@@ -515,12 +622,17 @@ test('🔴 the country and region pages and everything they import read no reque
   expect(names).toContain('components/region-listing.tsx');
   expect(seen.size).toBeGreaterThan(10);
 
-  const FORBIDDEN = [/\bheaders\(\)/, /\bcookies\(\)/, /no-store/, /\bsearchParams\b/, /force-dynamic/];
+  const FORBIDDEN = [/\bheaders\(\)/, /\bcookies\(\)/, /no-store/, /force-dynamic/];
   const offenders: string[] = [];
   for (const file of seen) {
     const src = readFileSync(file, 'utf8');
     for (const re of FORBIDDEN) {
       if (re.test(src)) offenders.push(`${file.slice(SRC.length + 1)}: ${re.source}`);
+    }
+  }
+  for (const file of pages) {
+    if (/\bsearchParams\b/.test(readFileSync(file, 'utf8'))) {
+      offenders.push(`${file.slice(SRC.length + 1)}: searchParams in a page`);
     }
   }
   expect(offenders).toEqual([]);
