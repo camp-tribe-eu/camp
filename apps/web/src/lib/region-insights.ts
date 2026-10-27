@@ -19,6 +19,14 @@ import { formatOvernightDay } from './overnight';
 // lock on the threshold; the API sends raw counts. Removing it is the
 // mutation region-insights.spec.tsx exists to catch.
 //
+// 🔴 AND THE UNKNOWN ARE COUNTED TOO, IN THE SAME SENTENCE. "Of the 6
+// sites where OpenStreetMap records whether there are toilets, all 6 have
+// them" is honest about its 6 and silent about the 105 other sites of
+// Greater Poland — and a reader finishes the sentence for us as "toilets
+// everywhere". Review measured 57 regions like it. So whenever known <
+// spots the sentence ends with the number nobody has recorded: not a
+// percentage, not "no data" — the number.
+//
 // 🔴 NO PERCENTAGES, and every sentence carries the day its figures were
 // read — the same two rules as OvernightCoverage (CAMP-255).
 
@@ -198,15 +206,22 @@ export function regionInsightLines(i: RegionInsights): InsightLine[] {
       if (known < INSIGHT_MIN_KNOWN) continue;
       const w = AMENITY_WORDS[k];
       const head = `Of the ${n(known)} sites where OpenStreetMap records ${w.records}, `;
-      const tail =
+      const answer =
         no === 0
-          ? `all ${n(known)} have ${w.it}.`
+          ? `all ${n(known)} have ${w.it}`
           : yes === 0
-            ? `none has ${w.it}.`
+            ? `none has ${w.it}`
             : `${yes === 1 ? '1 has' : `${n(yes)} have`} ${w.it} and ${
                 no === 1 ? '1 does not' : `${n(no)} do not`
-              }.`;
-      out.push({ key: k, text: head + tail, asOf: i.readAt });
+              }`;
+      const unknown = i.spots - known;
+      const rest =
+        unknown <= 0
+          ? ''
+          : unknown === 1
+            ? '; for 1 other site nobody has recorded it'
+            : `; for the other ${n(unknown)} nobody has recorded it`;
+      out.push({ key: k, text: `${head}${answer}${rest}.`, asOf: i.readAt });
     }
   }
 

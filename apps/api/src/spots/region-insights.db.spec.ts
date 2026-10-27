@@ -1,11 +1,7 @@
 import { Client } from 'pg';
 import type { DataSource } from 'typeorm';
 import { SpotsService } from './spots.service';
-import {
-  countRegionInsights,
-  NEARBY_M,
-  STATION_ARTEFACT_M,
-} from './region-insights';
+import { countRegionInsights, NEARBY_M } from './region-insights';
 
 // "Camping in <region>" — the counts, against a REAL PostgreSQL.
 //
@@ -133,8 +129,9 @@ async function insert(r: Row): Promise<string> {
 //   b09   camper_stop  (absent)     unknown  unknown  (no context)              —
 //   b10   wild         unknown      unknown  unknown  (no context)              river, no name 50
 //
-//   * 150 000 m is over STATION_ARTEFACT_M: known for the supermarket,
-//     NOT known for the station.
+//   * 150 000 m: the per-country extract's "nearest station" artefact.
+//     For "within 2 km" it is a correct no, so it stays in the
+//     denominator — see the test on it.
 //
 // Rows that must NOT be counted, all with every amenity = yes:
 //   b-gone      Bovec, missing_since set
@@ -149,7 +146,7 @@ async function insert(r: Row): Promise<string> {
 //   shower      yes 2 (b01, b02), no 1 (b03)
 //   supermarket known 7 (b01-b07), within 2 000 m: b01 500, b02 1999,
 //     b03 2000, b07 300 → 4
-//   station known (≤ 100 000) 6: b01 b02 b03 b05 b06 b07; within 2 000:
+//   station known 7 (b01-b07, b04's 150 000 m included); within 2 000:
 //     b01 100, b02 1500, b07 400 → 3
 //   water named 7 (b01-b07); top "Lake Bohinj" 5 sites, 10 m … 1 500 m
 //   readAt = max(last_seen_at) = 2026-10-18 (b07 is the newest)
@@ -316,10 +313,16 @@ describe('countRegionInsights over Bovec', () => {
     expect(i.surroundings.supermarket).toEqual({ known: 7, within: 4 });
   });
 
-  it('🔴 station: a stop further than 100 km is not known, and 2 500 m is not within', async () => {
-    expect(STATION_ARTEFACT_M).toBe(100_000);
+  // 🔴 THE REVIEW'S FINDING. b04's nearest station is 150 km away — an
+  // extract artefact as a distance, but a correct "not within 2 km". The
+  // first version cut such rows from the denominator and printed, on
+  // fi/Lapland, "of the 63" where 173 rows were computed. The denominator
+  // must be the computed rows, the same 7 the supermarket has; a mutation
+  // that brings the 100 km cut back reads 6 here and turns this red.
+  it('🔴 station: a stop 150 km away stays in the denominator as a no; 2 500 m is not within', async () => {
     const i = await countRegionInsights(query, 'si', 'Bovec');
-    expect(i.surroundings.station).toEqual({ known: 6, within: 3 });
+    expect(i.surroundings.station).toEqual({ known: 7, within: 3 });
+    expect(i.surroundings.station.known).toBe(i.surroundings.supermarket.known);
   });
 
   it('water: only NAMED water is counted, and the top name carries its span', async () => {

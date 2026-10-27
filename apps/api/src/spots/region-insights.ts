@@ -15,9 +15,15 @@ import { notSecondarySql } from './links';
 // property, not a campsite one — so water is reported only by NAME, with
 // its distance.
 //
-// 🔴 A railway stop further than 100 km is an artefact of the
-// per-country extract (576 rows, max 1 888 km), not a fact about the
-// place: such rows are left out of the station denominator.
+// 🔴 "WITHIN 2 KM" KEEPS EVERY COMPUTED ROW IN ITS DENOMINATOR. A
+// nearest station 1 888 km away is an artefact of the per-country extract
+// (576 rows), and for a sentence "the nearest station is N km away" it
+// would be garbage — but for "within 2 km" it is a correct NO, and the
+// rows it would remove are exactly the ones with no station nearby.
+// Review of the first version measured the cut on fi/Lapland: 173 rows
+// computed, 63 printed, the share flattered in 15 regions. So the station
+// denominator is the same as the supermarket's: rows with the distance
+// computed at all.
 //
 // 🔴 RAW COUNTS, NOT SENTENCES. The one place that decides whether a
 // figure is large enough to print (five known values, the survey's
@@ -38,8 +44,6 @@ export type InsightSpotType = (typeof SPOT_TYPES)[number];
 
 /** Metres: "within walking distance" for a supermarket or a railway stop. */
 export const NEARBY_M = 2000;
-/** Metres: a nearest station further than this is an extract artefact. */
-export const STATION_ARTEFACT_M = 100_000;
 
 export interface RegionInsights {
   region: string;
@@ -90,7 +94,7 @@ export const REGION_INSIGHTS_SQL = `
            AS supermarket_known,
          count(*) FILTER (WHERE (s.context -> 'supermarket' ->> 'm')::numeric <= ${NEARBY_M})::int
            AS supermarket_within,
-         count(*) FILTER (WHERE (s.context -> 'station' ->> 'm')::numeric <= ${STATION_ARTEFACT_M})::int
+         count(*) FILTER (WHERE s.context -> 'station' ->> 'm' IS NOT NULL)::int
            AS station_known,
          count(*) FILTER (WHERE (s.context -> 'station' ->> 'm')::numeric <= ${NEARBY_M})::int
            AS station_within,

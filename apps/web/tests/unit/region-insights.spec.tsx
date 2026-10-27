@@ -110,7 +110,7 @@ test.describe('the region page says what is counted', () => {
   test('🔴 the denominator is the sites with a recorded answer (6), not the region (10)', async () => {
     const text = await pageText(payload());
     expect(text).toContain(
-      'Of the 6 sites where OpenStreetMap records whether there is electricity, 4 have it and 2 do not.',
+      'Of the 6 sites where OpenStreetMap records whether there is electricity, 4 have it and 2 do not; for the other 4 nobody has recorded it.',
     );
     expect(text).not.toContain('Of the 10 sites where OpenStreetMap');
   });
@@ -124,8 +124,31 @@ test.describe('the region page says what is counted', () => {
     expect(text).not.toContain('not enough');
     // toilets: yes 5 + no 0 = 5 → printed, as "all 5".
     expect(text).toContain(
-      'Of the 5 sites where OpenStreetMap records whether there are toilets, all 5 have them.',
+      'Of the 5 sites where OpenStreetMap records whether there are toilets, all 5 have them; for the other 5 nobody has recorded it.',
     );
+  });
+
+  // 🔴 THE REVIEW'S SECOND FINDING. "all 6 have them" over a region of 111
+  // reads as "toilets everywhere" unless the sentence itself says how
+  // many nobody recorded. The number is spots − known, typed in here from
+  // the payload (10 − 6 = 4, 10 − 5 = 5), and absent when known == spots.
+  test('🔴 the sentence counts the unrecorded sites too, and only when there are any', async () => {
+    const text = await pageText(payload());
+    expect(text).toContain('all 5 have them; for the other 5 nobody has recorded it.');
+    expect(text).toContain('4 have it and 2 do not; for the other 4 nobody has recorded it.');
+    // known == spots: 7 + 3 = 10 of 10 — no tail, the sentence ends on the answer.
+    const full = await pageText(
+      payload({ amenities: { electricity: { yes: 7, no: 3 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
+    );
+    expect(full).toContain(
+      'Of the 10 sites where OpenStreetMap records whether there is electricity, 7 have it and 3 do not.',
+    );
+    expect(full).not.toContain('nobody has recorded');
+    // one unrecorded site: singular.
+    const one = await pageText(
+      payload({ amenities: { electricity: { yes: 9, no: 0 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
+    );
+    expect(one).toContain('all 9 have it; for 1 other site nobody has recorded it.');
   });
 
   test('the same amenity at 4 and at 5, with nothing else changed', async () => {
@@ -137,7 +160,7 @@ test.describe('the region page says what is counted', () => {
       payload({ amenities: { electricity: { yes: 3, no: 2 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
     );
     expect(five).toContain(
-      'Of the 5 sites where OpenStreetMap records whether there is electricity, 3 have it and 2 do not.',
+      'Of the 5 sites where OpenStreetMap records whether there is electricity, 3 have it and 2 do not; for the other 5 nobody has recorded it.',
     );
   });
 
