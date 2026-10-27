@@ -4,7 +4,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { renderToReadableStream, renderToStaticMarkup } from 'react-dom/server';
 
 // CAMP-147: render a React component to HTML inside a Playwright test.
 //
@@ -63,7 +63,18 @@ const wrappers = new WeakMap<object, (props: unknown) => ReactNode>();
 function wrapType(fn: (props: unknown) => unknown): (p: unknown) => ReactNode {
   const seen = wrappers.get(fn);
   if (seen) return seen;
-  const wrapper = (props: unknown): ReactNode => toReact(fn(props)) as ReactNode;
+  // An ASYNC component hands back a promise of Playwright nodes; the
+  // conversion follows it, so Fizz (`renderNestedAsync`) receives React
+  // elements once it resolves. Under `renderToStaticMarkup` a promise
+  // still suspends, exactly as before.
+  const wrapper = (props: unknown): ReactNode => {
+    const out = fn(props);
+    return (
+      out && typeof (out as Promise<unknown>).then === 'function'
+        ? (out as Promise<unknown>).then(toReact)
+        : toReact(out)
+    ) as ReactNode;
+  };
   Object.defineProperty(wrapper, 'name', { value: fn.name || 'Component' });
   wrappers.set(fn, wrapper);
   return wrapper;
@@ -196,6 +207,32 @@ async function resolveAsync(node: unknown): Promise<unknown> {
     ...node,
     props: { ...node.props, children: await resolveAsync(children) },
   };
+}
+
+/**
+ * A page whose tree holds NESTED async server components — a region hub
+ * is `RegionPage` → async `RegionListing` → async `RegionNeighbours` —
+ * rendered through Fizz, which (unlike `renderToStaticMarkup`) can wait
+ * for a component that returns a promise. Streamed to completion, then
+ * read as one string: the HTML a reader is served, nothing less.
+ *
+ * `renderAsyncComponent` above awaits only the top level and stays the
+ * default; this exists for pages it cannot reach.
+ */
+export async function renderNestedAsync<P>(
+  Component: (props: P) => Promise<unknown>,
+  props: P,
+  options: { omit?: unknown[] } = {},
+): Promise<string> {
+  const tree = await Component(props);
+  omitted = new Set(options.omit ?? []);
+  try {
+    const stream = await renderToReadableStream(toReact(tree) as ReactElement);
+    await stream.allReady;
+    return await new Response(stream).text();
+  } finally {
+    omitted = new Set();
+  }
 }
 
 /**

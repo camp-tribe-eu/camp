@@ -1,4 +1,10 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { SpotsService } from './spots.service';
 import { MapQueryService, parseBbox, parseFilters } from './map.service';
@@ -153,6 +159,21 @@ export class SpotsController {
   @Get('links')
   links() {
     return this.spots.links();
+  }
+
+  /**
+   * "Camping in <region>": the counts behind the region page's block.
+   * Declared before `:country/:region/:slug`, as `map/region/…` is; a
+   * country code is two letters, so `insights` can never be one.
+   */
+  @Get('insights/:country/:region')
+  async regionInsights(
+    @Param('country') country: string,
+    @Param('region') region: string,
+  ) {
+    const out = await this.spots.regionInsights(country, region);
+    if (!out) throw new NotFoundException();
+    return out;
   }
 
   /** CAMP-71: countries for /camping. */
