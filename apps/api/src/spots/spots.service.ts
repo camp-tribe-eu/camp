@@ -33,6 +33,8 @@ import {
 } from './region-listing';
 import { countRegionInsights, type RegionInsights } from './region-insights';
 export type { RegionInsights } from './region-insights';
+import { countHubStats, type HubRegionStats } from './hub-stats';
+export type { HubRegionStats } from './hub-stats';
 export { NOTHING_TO_SAY_SQL } from './detail-query';
 import type { TariffView } from './tariffs';
 export type { TariffView } from './tariffs';
@@ -546,6 +548,21 @@ export class SpotsService {
         overnightReadAt: r.overnight_read_at,
       }),
     );
+  }
+
+  /**
+   * The hub pages' figures, one row per region of a country, over the
+   * SAME rows `regions` counts (see hub-stats.ts). The slug is added here
+   * with the one function the URLs are built with, as `regions` does.
+   */
+  async hubStats(
+    country: string,
+  ): Promise<(HubRegionStats & { slug: string })[]> {
+    const rows = await countHubStats(
+      (sql, params) => this.db.query(sql, params),
+      country,
+    );
+    return rows.map((r) => ({ ...r, slug: slugifyRegion(r.region) }));
   }
 
   /**
