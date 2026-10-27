@@ -1,5 +1,5 @@
 import { getRegionInsights } from '@/lib/api';
-import { formatInsightDay, regionInsightLines } from '@/lib/region-insights';
+import { regionInsightDates, regionInsightLines } from '@/lib/region-insights';
 
 // "Camping in <region>" — the one thing on a region page a competitor
 // cannot copy from the same OpenStreetMap rows: a context COUNTED from
@@ -45,16 +45,15 @@ export default async function RegionInsights({
         Counted from our own listings. Where OpenStreetMap has not recorded
         something, it is left out of the count rather than read as a no.
       </p>
-      <ul className="mt-3 space-y-2 text-sm text-ink-2">
+      <ul className="mt-3 space-y-1.5 text-sm text-ink-2">
         {lines.map((l) => (
           <li key={l.key} data-insight={l.key}>
-            {l.text}{' '}
-            <span className="text-ink-3">
-              Counted as of {formatInsightDay(l.asOf)}.
-            </span>
+            {l.text}
           </li>
         ))}
       </ul>
+      {/* The day, once: every line above was read on one of these two. */}
+      <p className="mt-2 text-sm text-ink-3">{regionInsightDates(lines)}</p>
     </section>
   );
 }

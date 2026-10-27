@@ -149,32 +149,39 @@ export function readRegionInsights(raw: unknown): RegionInsights | null {
 
 const n = (v: number) => v.toLocaleString('en-GB');
 
-/** The words of SPOT_TYPE_LABEL, as a sentence needs them. */
+/** The words of SPOT_TYPE_LABEL, as a list needs them. */
 const TYPE_WORDS: Record<InsightSpotType, [string, string]> = {
-  paid: ['a paid campsite', 'paid campsites'],
-  rv_park: ['a motorhome park', 'motorhome parks'],
-  camper_stop: ['a camper stop', 'camper stops'],
-  free: ['a free campsite', 'free campsites'],
-  wild: ['a wild camping spot', 'wild camping spots'],
+  paid: ['paid campsite', 'paid campsites'],
+  rv_park: ['motorhome park', 'motorhome parks'],
+  camper_stop: ['camper stop', 'camper stops'],
+  free: ['free campsite', 'free campsites'],
+  wild: ['wild camping spot', 'wild camping spots'],
 };
 
-const AMENITY_WORDS: Record<InsightAmenity, { records: string; it: string }> = {
-  electricity: { records: 'whether there is electricity', it: 'it' },
-  toilets: { records: 'whether there are toilets', it: 'them' },
-  shower: { records: 'whether there are showers', it: 'them' },
+const AMENITY_WORDS: Record<InsightAmenity, { label: string; it: string }> = {
+  electricity: { label: 'Electricity', it: 'it' },
+  toilets: { label: 'Toilets', it: 'them' },
+  shower: { label: 'Showers', it: 'them' },
 };
 
-/** "a, b and c" */
-const list = (parts: string[]) =>
-  parts.length <= 1
-    ? parts.join('')
-    : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+const SURROUNDINGS_KEYS = new Set(['supermarket', 'station', 'water']);
 
 /**
- * The sentences, in reading order. Each is printed only when the figure it
- * rests on has at least INSIGHT_MIN_KNOWN known values AND a day to be
- * read as of; a region with fewer gets no sentence for it, and a region
- * with none gets an empty list and no block.
+ * The lines, in reading order, SHORT: the block's intro says how the
+ * counting works once, and the date is said once at the foot
+ * (`regionInsightDates`), so a line carries its label and its numbers and
+ * nothing else. Review measured the first wording at 117–169 characters a
+ * line, six of them on the same frame with the same date three times over.
+ *
+ * Each is printed only when the figure it rests on has at least
+ * INSIGHT_MIN_KNOWN known values AND a day to be read as of; a region with
+ * fewer gets no line for it, and a region with none gets an empty list and
+ * no block.
+ *
+ * 🔴 EACH AMENITY KEEPS ITS OWN NUMBER OF UNRECORDED SITES. 96, 105 and
+ * 104 are three different numbers; one shared "the rest of the 111" would
+ * be tidier and false. The counted context is the one thing here a
+ * competitor does not have, and it is worth exactly its precision.
  */
 export function regionInsightLines(i: RegionInsights): InsightLine[] {
   const out: InsightLine[] = [];
@@ -185,16 +192,13 @@ export function regionInsightLines(i: RegionInsights): InsightLine[] {
     const present = INSIGHT_SPOT_TYPES.filter((t) => i.types[t] > 0);
     const sum = present.reduce((acc, t) => acc + i.types[t], 0);
     if (sum === i.spots && present.length > 0) {
+      const parts = present.map(
+        (t) => `${n(i.types[t])} ${TYPE_WORDS[t][i.types[t] === 1 ? 0 : 1]}`,
+      );
       const text =
         present.length === 1
-          ? `All ${n(i.spots)} sites we list in ${i.region} are ${TYPE_WORDS[present[0]][1]}.`
-          : `Of the ${n(i.spots)} sites we list in ${i.region}, ${list(
-              present.map((t) =>
-                i.types[t] === 1
-                  ? `1 is ${TYPE_WORDS[t][0]}`
-                  : `${n(i.types[t])} are ${TYPE_WORDS[t][1]}`,
-              ),
-            )}.`;
+          ? `${n(i.spots)} sites, all ${TYPE_WORDS[present[0]][1]}.`
+          : `${n(i.spots)} sites: ${parts.join(', ')}.`;
       out.push({ key: 'types', text, asOf: i.readAt });
     }
   }
@@ -205,33 +209,33 @@ export function regionInsightLines(i: RegionInsights): InsightLine[] {
       const known = yes + no;
       if (known < INSIGHT_MIN_KNOWN) continue;
       const w = AMENITY_WORDS[k];
-      const head = `Of the ${n(known)} sites where OpenStreetMap records ${w.records}, `;
+      const where = `of the ${n(known)} sites where this is recorded`;
       const answer =
         no === 0
-          ? `all ${n(known)} have ${w.it}`
+          ? `all ${n(known)} ${where}`
           : yes === 0
-            ? `none has ${w.it}`
-            : `${yes === 1 ? '1 has' : `${n(yes)} have`} ${w.it} and ${
-                no === 1 ? '1 does not' : `${n(no)} do not`
-              }`;
+            ? `none ${where}`
+            : `${n(yes)} ${where} ${yes === 1 ? 'has' : 'have'} ${w.it}, ${n(no)} ${
+                no === 1 ? 'does' : 'do'
+              } not`;
       const unknown = i.spots - known;
       const rest =
         unknown <= 0
           ? ''
           : unknown === 1
-            ? '; for 1 other site nobody has recorded it'
-            : `; for the other ${n(unknown)} nobody has recorded it`;
-      out.push({ key: k, text: `${head}${answer}${rest}.`, asOf: i.readAt });
+            ? '; 1 site has no record'
+            : `; ${n(unknown)} sites have no record`;
+      out.push({ key: k, text: `${w.label} — ${answer}${rest}.`, asOf: i.readAt });
     }
   }
 
   const s = i.surroundings;
   if (s.computedAt) {
-    const computed = 'sites whose surroundings we have computed';
+    const computed = 'sites with computed surroundings';
     if (s.supermarket.known >= INSIGHT_MIN_KNOWN) {
       out.push({
         key: 'supermarket',
-        text: `A supermarket is within 2 km for ${n(s.supermarket.within)} of the ${n(
+        text: `Supermarket within 2 km — ${n(s.supermarket.within)} of the ${n(
           s.supermarket.known,
         )} ${computed}.`,
         asOf: s.computedAt,
@@ -240,7 +244,7 @@ export function regionInsightLines(i: RegionInsights): InsightLine[] {
     if (s.station.known >= INSIGHT_MIN_KNOWN) {
       out.push({
         key: 'station',
-        text: `A railway stop is within 2 km for ${n(s.station.within)} of the ${n(
+        text: `Railway stop within 2 km — ${n(s.station.within)} of the ${n(
           s.station.known,
         )} ${computed}.`,
         asOf: s.computedAt,
@@ -254,15 +258,32 @@ export function regionInsightLines(i: RegionInsights): InsightLine[] {
           : `${formatDistance(top.nearestM)} to ${formatDistance(top.farthestM)} away`;
       out.push({
         key: 'water',
-        text: `Of the ${n(s.water.named)} sites whose nearest water has a name in OpenStreetMap, for ${n(
-          top.sites,
-        )} it is ${top.name}, ${span}.`,
+        text: `Nearest named water — ${top.name} for ${n(top.sites)} of the ${n(
+          s.water.named,
+        )} sites whose nearest water has a name, ${span}.`,
         asOf: s.computedAt,
       });
     }
   }
 
   return out;
+}
+
+/**
+ * The one date line under the block. Two readings can stand behind it —
+ * the OSM tags (`readAt`) and the computed surroundings (`computedAt`) —
+ * and each is named only if a printed line rests on it. Review checked
+ * that both are single per region, so this is at most two dates, once.
+ */
+export function regionInsightDates(lines: readonly InsightLine[]): string | null {
+  const tags = lines.find((l) => !SURROUNDINGS_KEYS.has(l.key))?.asOf ?? null;
+  const computed = lines.find((l) => SURROUNDINGS_KEYS.has(l.key))?.asOf ?? null;
+  if (tags && computed && tags !== computed) {
+    return `Counted as of ${formatInsightDay(tags)}; surroundings computed ${formatInsightDay(computed)}.`;
+  }
+  if (tags) return `Counted as of ${formatInsightDay(tags)}.`;
+  if (computed) return `Surroundings computed ${formatInsightDay(computed)}.`;
+  return null;
 }
 
 /** `2026-10-16` → "16 October 2026". */

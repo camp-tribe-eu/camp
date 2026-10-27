@@ -107,97 +107,99 @@ test.describe('the region page says what is counted', () => {
     expect(text.length).toBeGreaterThan(300);
   });
 
+  // 🔴 ASSERTIONS ON NUMBERS, NOT ON PROSE. The sentence frame was
+  // reworded once already (review: six lines on one frame, the date three
+  // times over); what a reader must get is each figure with its label, so
+  // that is what is asserted — the label, the numbers, their order.
   test('🔴 the denominator is the sites with a recorded answer (6), not the region (10)', async () => {
     const text = await pageText(payload());
-    expect(text).toContain(
-      'Of the 6 sites where OpenStreetMap records whether there is electricity, 4 have it and 2 do not; for the other 4 nobody has recorded it.',
-    );
-    expect(text).not.toContain('Of the 10 sites where OpenStreetMap');
+    expect(text).toMatch(/Electricity — 4 of the 6 sites where this is recorded have it, 2 do not/);
+    expect(text).not.toMatch(/Electricity — .*of the 10 sites where this is recorded/);
   });
 
-  test('🔴 four known values print nothing; five print the sentence', async () => {
+  test('🔴 four known values print nothing; five print the line', async () => {
     expect(INSIGHT_MIN_KNOWN).toBe(5);
     const text = await pageText(payload());
-    // shower: yes 3 + no 1 = 4 → no sentence about showers at all, not
-    // even one that says there is not enough data.
-    expect(text).not.toContain('showers');
+    // shower: yes 3 + no 1 = 4 → no line about showers at all, not even
+    // one that says there is not enough data.
+    expect(text).not.toContain('Showers');
     expect(text).not.toContain('not enough');
     // toilets: yes 5 + no 0 = 5 → printed, as "all 5".
-    expect(text).toContain(
-      'Of the 5 sites where OpenStreetMap records whether there are toilets, all 5 have them; for the other 5 nobody has recorded it.',
-    );
+    expect(text).toMatch(/Toilets — all 5 of the 5 sites where this is recorded/);
   });
 
-  // 🔴 THE REVIEW'S SECOND FINDING. "all 6 have them" over a region of 111
-  // reads as "toilets everywhere" unless the sentence itself says how
-  // many nobody recorded. The number is spots − known, typed in here from
-  // the payload (10 − 6 = 4, 10 − 5 = 5), and absent when known == spots.
-  test('🔴 the sentence counts the unrecorded sites too, and only when there are any', async () => {
+  // 🔴 THE REVIEW'S SECOND FINDING. "all 6 … where this is recorded" over a
+  // region of 111 reads as "toilets everywhere" unless the line itself says
+  // how many have no record. The number is spots − known, typed in here
+  // from the payload (10 − 6 = 4, 10 − 5 = 5), and absent when known ==
+  // spots. 🔴 And it is PER AMENITY: 4 and 5 here, never one shared rest.
+  test('🔴 each line counts its own unrecorded sites, and only when there are any', async () => {
     const text = await pageText(payload());
-    expect(text).toContain('all 5 have them; for the other 5 nobody has recorded it.');
-    expect(text).toContain('4 have it and 2 do not; for the other 4 nobody has recorded it.');
-    // known == spots: 7 + 3 = 10 of 10 — no tail, the sentence ends on the answer.
+    expect(text).toMatch(/Toilets — all 5 of the 5 sites where this is recorded; 5 sites have no record\./);
+    expect(text).toMatch(/Electricity — 4 of the 6 sites where this is recorded have it, 2 do not; 4 sites have no record\./);
+    // known == spots: 7 + 3 = 10 of 10 — no tail, the line ends on the answer.
     const full = await pageText(
       payload({ amenities: { electricity: { yes: 7, no: 3 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
     );
-    expect(full).toContain(
-      'Of the 10 sites where OpenStreetMap records whether there is electricity, 7 have it and 3 do not.',
-    );
-    expect(full).not.toContain('nobody has recorded');
+    expect(full).toMatch(/Electricity — 7 of the 10 sites where this is recorded have it, 3 do not\./);
+    expect(full).not.toContain('no record');
     // one unrecorded site: singular.
     const one = await pageText(
       payload({ amenities: { electricity: { yes: 9, no: 0 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
     );
-    expect(one).toContain('all 9 have it; for 1 other site nobody has recorded it.');
+    expect(one).toMatch(/Electricity — all 9 of the 9 sites where this is recorded; 1 site has no record\./);
+    // none: five explicit "no" tags are a recorded answer, not a gap.
+    const none = await pageText(
+      payload({ amenities: { electricity: { yes: 0, no: 5 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
+    );
+    expect(none).toMatch(/Electricity — none of the 5 sites where this is recorded; 5 sites have no record\./);
   });
 
   test('the same amenity at 4 and at 5, with nothing else changed', async () => {
     const four = await pageText(
       payload({ amenities: { electricity: { yes: 2, no: 2 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
     );
-    expect(four).not.toContain('whether there is electricity');
+    expect(four).not.toContain('Electricity');
     const five = await pageText(
       payload({ amenities: { electricity: { yes: 3, no: 2 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
     );
-    expect(five).toContain(
-      'Of the 5 sites where OpenStreetMap records whether there is electricity, 3 have it and 2 do not; for the other 5 nobody has recorded it.',
-    );
+    expect(five).toMatch(/Electricity — 3 of the 5 sites where this is recorded have it, 2 do not; 5 sites have no record\./);
   });
 
   test('types: the region count is the denominator only here, where every row has one', async () => {
     const text = await pageText(payload());
-    expect(text).toContain(
-      'Of the 10 sites we list in Bovec, 6 are paid campsites, 2 are motorhome parks, 1 is a camper stop and 1 is a wild camping spot.',
-    );
+    expect(text).toMatch(/10 sites: 6 paid campsites, 2 motorhome parks, 1 camper stop, 1 wild camping spot\./);
   });
 
   test('surroundings: distances with a number, water by its name, never "by a river"', async () => {
     const text = await pageText(payload());
-    expect(text).toContain(
-      'A supermarket is within 2 km for 4 of the 7 sites whose surroundings we have computed.',
-    );
-    expect(text).toContain(
-      'A railway stop is within 2 km for 3 of the 6 sites whose surroundings we have computed.',
-    );
-    expect(text).toContain(
-      'Of the 7 sites whose nearest water has a name in OpenStreetMap, for 5 it is Lake Bohinj, 10 m to 1.5 km away.',
-    );
+    expect(text).toMatch(/Supermarket within 2 km — 4 of the 7 sites with computed surroundings\./);
+    expect(text).toMatch(/Railway stop within 2 km — 3 of the 6 sites with computed surroundings\./);
+    expect(text).toMatch(/Nearest named water — Lake Bohinj for 5 of the 7 sites whose nearest water has a name, 10 m to 1\.5 km away\./);
     expect(text).not.toContain('by a river');
     expect(text).not.toContain('near a lake');
   });
 
-  test('🔴 every sentence carries the day it was counted, and none is a percentage', async () => {
+  // 🔴 The date ONCE per block, both readings named, not once per line —
+  // review counted the first version saying the same day three times over.
+  test('🔴 the two days are said once, at the foot, and nothing is a percentage', async () => {
     const text = await pageText(payload());
     const block = text.slice(text.indexOf('Camping in Bovec'), text.indexOf('Other regions'));
     expect(block.length).toBeGreaterThan(100);
-    // Six sentences print for this payload (types, electricity, toilets,
-    // supermarket, station, water); showers is under the threshold.
-    const days = block.match(/Counted as of \d+ \w+ \d{4}\./g) ?? [];
-    expect(days).toHaveLength(6);
-    expect(block.match(/Counted as of 18 October 2026\./g)).toHaveLength(3);
-    expect(block.match(/Counted as of 25 September 2026\./g)).toHaveLength(3);
+    expect(block.match(/Counted as of/g)).toHaveLength(1);
+    expect(block.match(/18 October 2026/g)).toHaveLength(1);
+    expect(block.match(/25 September 2026/g)).toHaveLength(1);
+    expect(block).toContain('Counted as of 18 October 2026; surroundings computed 25 September 2026.');
     expect(block).not.toContain('%');
     expect(block).not.toMatch(/per ?cent/i);
+    // Six lines print for this payload (types, electricity, toilets,
+    // supermarket, station, water); showers is under the threshold.
+    expect(block.match(/ — /g)).toHaveLength(5);
+    // One day only when both readings fall on it.
+    const same = await pageText(payload({ readAt: '2026-09-25' }));
+    expect(same).toContain('Counted as of 25 September 2026.');
+    expect(same.match(/25 September 2026/g)).toHaveLength(1);
+    expect(same).not.toContain('surroundings computed');
   });
 
   test('🔴 a region with nothing above the threshold gets no block at all', async () => {
@@ -220,12 +222,14 @@ test.describe('the region page says what is counted', () => {
     expect(text).not.toContain('no data');
   });
 
-  test('a figure without a day is not printed', async () => {
+  test('a figure without a day is not printed, and the foot names only the day that is', async () => {
     const text = await pageText(payload({ readAt: null }));
-    expect(text).not.toContain('whether there is electricity');
-    expect(text).not.toContain('we list in Bovec');
+    expect(text).not.toContain('Electricity');
+    expect(text).not.toMatch(/10 sites:/);
     // The surroundings still have their day.
-    expect(text).toContain('A supermarket is within 2 km for 4 of the 7');
+    expect(text).toMatch(/Supermarket within 2 km — 4 of the 7/);
+    expect(text).toContain('Surroundings computed 25 September 2026.');
+    expect(text).not.toContain('Counted as of');
   });
 
   test('an API without the route, or with a payload of the wrong shape, means no block — not a crash', async () => {
