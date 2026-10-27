@@ -96,6 +96,37 @@ async function pageText(insights: unknown, status = 200): Promise<string> {
   return visibleText(html);
 }
 
+/**
+ * The words of the "Camping in …" block ALONE — `visibleText` of the one
+ * `<section>` the component renders, '' when there is none.
+ *
+ * 🔴 Why not the whole page: after the hub filters (#364) the same page
+ * prints "Electricity", "Showers", "Toilets" as filter chips, so "the
+ * page does not say Showers" stopped meaning "the block prints no line
+ * about showers". The block is found by its landmark, not by the shape
+ * of a line, so a rewording of the lines cannot blind this; and every
+ * "does not say" below is paired with a "does say" on the SAME string,
+ * so an empty section cannot satisfy it either.
+ */
+async function blockText(insights: unknown, status = 200): Promise<string> {
+  let html = '';
+  await withFetch(
+    (url) => {
+      if (url.endsWith('/spots/si/regions')) return json([REGION]);
+      if (url.includes('/spots/si/bovec?page=1')) return json(LISTING);
+      if (url.endsWith('/spots/insights/si/bovec')) return json(insights, status);
+      return json({}, 404);
+    },
+    async () => {
+      html = await renderNestedAsync(RegionPage, {
+        params: Promise.resolve({ country: 'si', region: 'bovec' }),
+      });
+    },
+  );
+  const m = /<section[^>]*aria-labelledby="region-insights-heading"[^>]*>[\s\S]*?<\/section>/.exec(html);
+  return m ? visibleText(m[0]) : '';
+}
+
 test.describe('the region page says what is counted', () => {
   // 🔴 The anchor, first: the page renders with its listing AND the block.
   // Without this, every "does not say" below passes over an empty string.
@@ -119,9 +150,10 @@ test.describe('the region page says what is counted', () => {
 
   test('🔴 four known values print nothing; five print the line', async () => {
     expect(INSIGHT_MIN_KNOWN).toBe(5);
-    const text = await pageText(payload());
+    const text = await blockText(payload());
     // shower: yes 3 + no 1 = 4 → no line about showers at all, not even
-    // one that says there is not enough data.
+    // one that says there is not enough data. Read off the block, not
+    // the page: the filter chips above it say "Showers" on every page.
     expect(text).not.toContain('Showers');
     expect(text).not.toContain('not enough');
     // toilets: yes 5 + no 0 = 5 → printed, as "all 5".
@@ -156,11 +188,13 @@ test.describe('the region page says what is counted', () => {
   });
 
   test('the same amenity at 4 and at 5, with nothing else changed', async () => {
-    const four = await pageText(
+    const four = await blockText(
       payload({ amenities: { electricity: { yes: 2, no: 2 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
     );
+    // The block is there (its type line prints) and says nothing of electricity.
+    expect(four).toMatch(/10 sites:/);
     expect(four).not.toContain('Electricity');
-    const five = await pageText(
+    const five = await blockText(
       payload({ amenities: { electricity: { yes: 3, no: 2 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
     );
     expect(five).toMatch(/Electricity — 3 of the 5 sites where this is recorded have it, 2 do not; 5 sites have no record\./);
@@ -223,7 +257,7 @@ test.describe('the region page says what is counted', () => {
   });
 
   test('a figure without a day is not printed, and the foot names only the day that is', async () => {
-    const text = await pageText(payload({ readAt: null }));
+    const text = await blockText(payload({ readAt: null }));
     expect(text).not.toContain('Electricity');
     expect(text).not.toMatch(/10 sites:/);
     // The surroundings still have their day.
