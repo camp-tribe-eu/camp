@@ -149,13 +149,19 @@ test.describe('hub filters, every chip predicts its click', () => {
         );
       expect(chips.length, start).toBe(15);
       for (const chip of chips) {
-        // React leaves `<!-- -->` between adjacent text children, so the
-        // served markup reads `<b>23</b> <!-- -->sites match` and
-        // `30<!-- --> <!-- -->sites<!-- --> in`. Read it without them.
-        const html = (await (await request.get(chip.href)).text()).replace(/<!--\s*-->/g, '');
+        // Read from the served markup with `request.get` — navigating to
+        // each of the 30 targets doubled the run (0.96 s → 2.4 s for this
+        // test, measured 27.10). The number is matched where it lives,
+        // nothing is cut out of the string first: React leaves `<!-- -->`
+        // between adjacent text children, so the markup reads
+        // `<b>23</b> <!-- -->sites match` and `30<!-- --> <!-- -->sites<!-- --> in`,
+        // and the expressions step over those comment nodes explicitly.
+        // That is also why `textContent` of a locator would read fine
+        // while a naive regex over the raw string would not.
+        const html = await (await request.get(chip.href)).text();
         const said = chip.href.includes('/filter?')
-          ? /(\d+)<\/b> sites? match/.exec(html)?.[1]
-          : /(\d+) sites? in /.exec(html)?.[1];
+          ? /<b[^>]*>(\d+)<\/b>\s*(?:<!--\s*-->)?\s*sites? match/.exec(html)?.[1]
+          : /(\d+)(?:<!--\s*-->)?\s(?:<!--\s*-->)?sites?(?:<!--\s*-->)?\sin /.exec(html)?.[1];
         expect({ start, href: chip.href, count: chip.count }).toEqual({
           start,
           href: chip.href,
