@@ -570,14 +570,41 @@ export async function getRegions(country: string): Promise<RegionSummary[]> {
   return res.ok ? res.json() : [];
 }
 
+/**
+ * The hub's filtered answer. Everything past `items` is OPTIONAL because
+ * the API deploys separately: a payload without them is the unfiltered
+ * hub, and the page then draws no counts rather than wrong ones.
+ */
+export interface RegionListingData {
+  region: string | null;
+  /** Every live site in the region, filters ignored. */
+  total: number;
+  /** Sites that pass the filters — the "N sites match" number, counted in SQL. */
+  matched?: number;
+  /** Failed only for want of data: no requested amenity is a recorded no. */
+  unknownExcluded?: number;
+  items: SpotCard[];
+  facets?: {
+    types: Partial<Record<SpotType, number>>;
+    amenities: Partial<Record<AmenityKey, number>>;
+  };
+  /** One per active filter: how many match with only that one removed. */
+  dropOne?: { kind: 'type' | 'amenity'; key: string; matched: number }[];
+}
+
+/**
+ * @param search  the filter, sort and unknown parameters after `?page=N`,
+ *                from `hub-filters.ts` `apiSearch` — `''` for the plain hub.
+ */
 export async function getRegionSpots(
   country: string,
   region: string,
   page = 1,
-): Promise<{ region: string | null; total: number; items: SpotCard[] }> {
+  search = '',
+): Promise<RegionListingData> {
   const res = await apiFetch(`/spots/${encodeURIComponent(country)}/${encodeURIComponent(
       region,
-    )}?page=${page}`,
+    )}?page=${page}${search}`,
     { next: { revalidate: 86400 } },
   );
   if (!res.ok) return { region: null, total: 0, items: [] };

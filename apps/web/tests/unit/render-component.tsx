@@ -153,10 +153,48 @@ export async function renderAsyncComponent<P>(
   const tree = await Component(props);
   omitted = new Set(options.omit ?? []);
   try {
-    return renderToStaticMarkup(toReact(tree) as ReactElement);
+    return renderToStaticMarkup(
+      toReact(await resolveAsync(tree)) as ReactElement,
+    );
   } finally {
     omitted = new Set();
   }
+}
+
+/**
+ * Async server components NESTED in the tree, awaited before the render.
+ *
+ * `renderToStaticMarkup` is synchronous: a child that is itself an
+ * `async function` (the region hub's `RegionNeighbours`, which fetches
+ * the sibling regions) makes it throw "A component suspended while
+ * responding to synchronous input", and the page cannot be checked at
+ * all. This pass walks the Playwright-shaped tree, calls each async
+ * component with its props — so its own fetching runs for real, against
+ * whatever `fetch` the test swapped in, exactly as the page's does —
+ * and puts what it returned where the element stood. Omitted types are
+ * left alone for `toReact` to drop, so an omitted island is never run.
+ *
+ * 🔴 It cannot make a failing component pass, for the same reason the
+ * bridge above cannot: it only replaces an element with that element's
+ * own output.
+ */
+async function resolveAsync(node: unknown): Promise<unknown> {
+  if (Array.isArray(node)) return Promise.all(node.map(resolveAsync));
+  if (!isPwNode(node)) return node;
+  if (omitted.has(node.type)) return node;
+  const type = node.type as { constructor?: { name?: string } };
+  if (typeof type === 'function' && type.constructor?.name === 'AsyncFunction') {
+    const out = await (node.type as (p: unknown) => Promise<unknown>)(
+      node.props ?? {},
+    );
+    return resolveAsync(out);
+  }
+  const children = node.props?.children;
+  if (children === undefined) return node;
+  return {
+    ...node,
+    props: { ...node.props, children: await resolveAsync(children) },
+  };
 }
 
 /**
