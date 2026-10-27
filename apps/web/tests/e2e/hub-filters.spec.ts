@@ -149,9 +149,12 @@ test.describe('hub filters, every chip predicts its click', () => {
         );
       expect(chips.length, start).toBe(15);
       for (const chip of chips) {
-        const html = await (await request.get(chip.href)).text();
+        // React leaves `<!-- -->` between adjacent text children, so the
+        // served markup reads `<b>23</b> <!-- -->sites match` and
+        // `30<!-- --> <!-- -->sites<!-- --> in`. Read it without them.
+        const html = (await (await request.get(chip.href)).text()).replace(/<!--\s*-->/g, '');
         const said = chip.href.includes('/filter?')
-          ? /(\d+) sites? match/.exec(html)?.[1]
+          ? /(\d+)<\/b> sites? match/.exec(html)?.[1]
           : /(\d+) sites? in /.exec(html)?.[1];
         expect({ start, href: chip.href, count: chip.count }).toEqual({
           start,
