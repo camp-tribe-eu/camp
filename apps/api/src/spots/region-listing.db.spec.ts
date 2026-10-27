@@ -190,7 +190,7 @@ describe('listRegion: a filter narrows the same region', () => {
 });
 
 describe('listRegion: the numbers beside the chips', () => {
-  it('type facets count each type under the amenity filter', async () => {
+  it('type facets: with nothing chosen, each type under the amenity filter', async () => {
     const r = await listRegion(
       db,
       COUNTRY,
@@ -205,6 +205,73 @@ describe('listRegion: the numbers beside the chips', () => {
       rv_park: 0,
       wild: 0,
     });
+    // The chosen amenity's own chip predicts removing it: all five.
+    expect(r.facets.amenities.shower).toBe(5);
+    // The others predict adding them beside the shower: echo has both
+    // laundry and electricity, alpha has water.
+    expect(r.facets.amenities.laundry).toBe(1);
+    expect(r.facets.amenities.electricity).toBe(1);
+    expect(r.facets.amenities.water).toBe(1);
+  });
+
+  it('🔴 type facets with a type chosen: the chip ADDS, so the count adds', async () => {
+    const r = await listRegion(db, COUNTRY, REGION, q({ types: ['free'] }));
+    // Free is on: its chip removes it → all 5. Paid off: free + paid →
+    // bravo, charlie, alpha = 3. Wild → + delta = 3. Camper stop → + echo
+    // = 3. RV park → nobody → still the 2 free.
+    expect(r.facets.types).toEqual({
+      free: 5,
+      paid: 3,
+      camper_stop: 3,
+      rv_park: 2,
+      wild: 3,
+    });
+  });
+
+  it('🔴 every chip predicts its click: facet == matched of the toggled set', async () => {
+    const states: Partial<RegionQuery['filters']>[] = [
+      {},
+      { types: ['free'] },
+      { types: ['paid', 'wild'], amenities: ['shower'] },
+      { amenities: ['shower', 'water'] },
+    ];
+    // The toggle is written out here, not imported: on → drop, off → add.
+    const flip = <T>(list: T[], v: T) =>
+      list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+    for (const st of states) {
+      const r = await listRegion(db, COUNTRY, REGION, q(st));
+      const f = { ...NO_FILTERS, ...st };
+      for (const t of Object.keys(
+        r.facets.types,
+      ) as (keyof typeof r.facets.types)[]) {
+        const after = await listRegion(
+          db,
+          COUNTRY,
+          REGION,
+          q({ ...f, types: flip(f.types, t) }),
+        );
+        expect({ st, chip: t, count: r.facets.types[t] }).toEqual({
+          st,
+          chip: t,
+          count: after.matched,
+        });
+      }
+      for (const k of Object.keys(
+        r.facets.amenities,
+      ) as (keyof typeof r.facets.amenities)[]) {
+        const after = await listRegion(
+          db,
+          COUNTRY,
+          REGION,
+          q({ ...f, amenities: flip(f.amenities, k) }),
+        );
+        expect({ st, chip: k, count: r.facets.amenities[k] }).toEqual({
+          st,
+          chip: k,
+          count: after.matched,
+        });
+      }
+    }
   });
 
   it('amenity facets answer "how many if I add this"', async () => {
@@ -271,6 +338,16 @@ describe('listRegion: sort', () => {
     const r = await listRegion(db, COUNTRY, REGION, q({}, 'name', 2), 2);
     expect(slugs(r.items)).toEqual(['charlie', 'echo']);
     expect(r.matched).toBe(5);
+  });
+
+  it('a page past the set has no items and no database error', async () => {
+    // 3 pages of 2; page 4 is nothing, page 1e20 is page 1 at the parser.
+    const r = await listRegion(db, COUNTRY, REGION, q({}, 'name', 4), 2);
+    expect(r.items).toEqual([]);
+    expect(r.matched).toBe(5);
+    expect(parseRegionQuery({ page: '1e20' }).page).toBe(1);
+    expect(parseRegionQuery({ page: '99999999999999999999' }).page).toBe(1);
+    expect(parseRegionQuery({ page: '7' }).page).toBe(7);
   });
 });
 

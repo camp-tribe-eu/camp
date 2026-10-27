@@ -65,9 +65,16 @@ export function parseRegionSort(raw: unknown): RegionSort {
     : 'name';
 }
 
+/**
+ * A page number, or 1. `Number.isSafeInteger`, not `isFinite`: `1e20`
+ * passed the old check, became OFFSET 2.4e+21 and a Postgres bigint
+ * error — a 500 for a query string. Anything a reader cannot have been
+ * sent by this site is page 1; a page past the set is handled in
+ * `listRegion`, which answers with no items (a 404 on the page).
+ */
 export function parsePage(raw: unknown): number {
   const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
+  return Number.isSafeInteger(n) && n > 0 ? n : 1;
 }
 
 export interface RegionQuery {
@@ -92,16 +99,22 @@ export function parseRegionQuery(query: Record<string, unknown>): RegionQuery {
   };
 }
 
+/**
+ * 🔴 ONE RULE FOR EVERY NUMBER ON A CHIP: IT PREDICTS THE CLICK. A chip
+ * that is off links to the current filters WITH that value; a chip that
+ * is on links to the current filters WITHOUT it. The count is `matched`
+ * for exactly that set — the number the reader will see after clicking.
+ *
+ * The first version counted a type chip as that type ALONE, while the
+ * link added the type to the ones already chosen. Review measured it on
+ * the fixture: `?types=paid` showed "Free 0", and the click answered
+ * "23 sites match". A number that is not the result of its own click is
+ * a lie with a tabular font.
+ */
 export interface RegionFacets {
-  /**
-   * For each type: how many sites of that type pass the amenity filters.
-   * The number a reader would see after choosing that type alone.
-   */
+  /** For each type: `matched` after toggling that type. */
   types: Record<SpotType, number>;
-  /**
-   * For each amenity: how many would match with it added to the current
-   * filters. For one already chosen, this equals `matched`.
-   */
+  /** For each amenity: `matched` after toggling that amenity. */
   amenities: Record<AmenityKey, number>;
 }
 
@@ -198,6 +211,12 @@ export function orderBySql(
   }
 }
 
+function toggled<T>(list: T[], value: T): T[] {
+  return list.includes(value)
+    ? list.filter((x) => x !== value)
+    : [...list, value];
+}
+
 /**
  * The one counting statement: total, matched, lenient, every facet and
  * every drop-one, as `count(*) FILTER (WHERE …)` columns over the region.
@@ -228,14 +247,13 @@ export function countsSql(filters: MapFilters): {
   add('matched', filters);
   add('lenient', { ...filters, includeUnknown: true });
 
+  // The toggled set, as the chip's link builds it (hub-filters.ts
+  // `withType` / `withAmenity`): on → without, off → with.
   for (const t of SPOT_TYPES) {
-    add(`t:${t}`, { ...filters, types: [t] });
+    add(`t:${t}`, { ...filters, types: toggled(filters.types, t) });
   }
   for (const k of AMENITY_KEYS) {
-    const amenities = filters.amenities.includes(k)
-      ? filters.amenities
-      : [...filters.amenities, k];
-    add(`a:${k}`, { ...filters, amenities });
+    add(`a:${k}`, { ...filters, amenities: toggled(filters.amenities, k) });
   }
   for (const t of filters.types) {
     add(`drop:t:${t}`, {
@@ -312,6 +330,22 @@ export async function listRegion(
   const unknownExcluded = filters.includeUnknown
     ? 0
     : Math.max(0, num('lenient') - matched);
+
+  // A page past the set has no items — not an OFFSET the database has to
+  // refuse. The page turns that into a 404.
+  const pages = Math.max(1, Math.ceil(matched / perPage));
+  if (page > pages) {
+    return {
+      region,
+      total: num('total'),
+      matched,
+      unknownExcluded,
+      items: [],
+      facets: { types, amenities },
+      dropOne,
+      sort,
+    };
+  }
 
   const where = cond(filters, 2);
   const order = orderBySql(sort, 's', 2 + where.params.length);
