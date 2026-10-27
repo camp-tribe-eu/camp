@@ -129,6 +129,40 @@ test.describe('hub filters, no JavaScript', () => {
   });
 });
 
+test.describe('hub filters, every chip predicts its click', () => {
+  test.use({ javaScriptEnabled: false });
+
+  test('🔴 on the plain hub and on a filtered view, chip count == "N sites match" after the click', async ({
+    page,
+    request,
+  }) => {
+    const { hub, type } = await narrowable(request);
+    for (const start of [hubPath(hub), `${hubPath(hub)}/filter?types=${type}`]) {
+      await page.goto(start);
+      const chips = await page
+        .locator('nav[aria-label="Filter campsites"] a')
+        .evaluateAll((as) =>
+          as
+            .map((a) => ({ href: a.getAttribute('href') ?? '', text: a.textContent ?? '' }))
+            .filter((c) => /\d+\s*$/.test(c.text))
+            .map((c) => ({ href: c.href, count: Number(/(\d+)\s*$/.exec(c.text)![1]) })),
+        );
+      expect(chips.length, start).toBe(15);
+      for (const chip of chips) {
+        const html = await (await request.get(chip.href)).text();
+        const said = chip.href.includes('/filter?')
+          ? /(\d+) sites? match/.exec(html)?.[1]
+          : /(\d+) sites? in /.exec(html)?.[1];
+        expect({ start, href: chip.href, count: chip.count }).toEqual({
+          start,
+          href: chip.href,
+          count: Number(said),
+        });
+      }
+    }
+  });
+});
+
 test.describe('hub filters, indexing', () => {
   test('a filtered view is noindex, follow, with the region as canonical', async ({ request }) => {
     const { hub, type } = await narrowable(request);
@@ -144,6 +178,23 @@ test.describe('hub filters, indexing', () => {
     const res = await request.get(`${hubPath(hub)}/filter`, { maxRedirects: 0 });
     expect(res.status()).toBe(308);
     expect(res.headers()['location']).toMatch(new RegExp(`${hubPath(hub)}$`));
+  });
+
+  test('another spelling of a state is one 308 to its canonical address', async ({ request }) => {
+    const { hub, type } = await narrowable(request);
+    for (const spelling of [`types=${type}&page=1`, `types=${type}&sort=name`, `sort=name&types=${type}`]) {
+      const res = await request.get(`${hubPath(hub)}/filter?${spelling}`, { maxRedirects: 0 });
+      expect(res.status(), spelling).toBe(308);
+      expect(res.headers()['location'], spelling).toMatch(new RegExp(`${hubPath(hub)}/filter\\?types=${type}$`));
+    }
+  });
+
+  test('page=1e20 and a page past the set are not a 500', async ({ request }) => {
+    const { hub, type } = await narrowable(request);
+    const huge = await request.get(`${hubPath(hub)}/filter?types=${type}&page=1e20`, { maxRedirects: 0 });
+    expect(huge.status()).toBe(308);
+    const past = await request.get(`${hubPath(hub)}/filter?types=${type}&page=999`);
+    expect(past.status()).toBe(404);
   });
 
   test('an unknown region under /filter is a real 404 page, not a blank shell', async ({ request }) => {
