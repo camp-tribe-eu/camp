@@ -669,7 +669,7 @@ function selfTest() {
   const freshUnit =
     'WorkingDirectory=/srv/camptribe/current\n' +
     'EnvironmentFile=/srv/camptribe/current/apps/api/.env\n' +
-    'ExecStart=/usr/bin/node scripts/ci/x.mjs --stale-only\n' +
+    'ExecStart=/usr/bin/node scripts/ci/x.mjs --db --stale-only\n' +
     'ExecStartPost=/bin/rm -f /srv/camptribe/failed/u.service\n';
 
   is('робоча тека прочитана',
@@ -722,7 +722,8 @@ function selfTest() {
   const real = (text) => missingReleasePaths(files2, { read: () => text }).map((b) => b.missing);
 
   is('справжній файл репозиторію — мовчання',
-    real('ExecStart=/usr/bin/node scripts/ci/check-data-freshness.mjs --stale-only\n'), []);
+    // CAMP-399: рядок — той самий, що в infra/systemd/camptribe-freshness.service.
+    real('ExecStart=/usr/bin/node scripts/ci/check-data-freshness.mjs --db --stale-only\n'), []);
   is('🔴 справжньої відсутності не прощає',
     real('ExecStart=/usr/bin/node scripts/ci/nope.mjs\n'),
     ['Exec=/srv/camptribe/current/scripts/ci/nope.mjs — у репозиторії немає scripts/ci/nope.mjs']);
