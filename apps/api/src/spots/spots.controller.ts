@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import { SpotsService } from './spots.service';
 import { MapQueryService, parseBbox, parseFilters } from './map.service';
 import { parseLimit } from './viewport';
+import { parseRegionQuery } from './region-listing';
 import { BULK_LIMIT } from '../throttle';
 
 // 🔴 CAMP-69. Three routes here answer with the WHOLE dataset, and they
@@ -166,18 +167,18 @@ export class SpotsController {
     return this.spots.regions(country);
   }
 
+  /**
+   * The region hub. `page`, and — for the filtered hub — `types`,
+   * `amenities`, `unknown`, `sort`, in the map's vocabulary. Unknown
+   * values are dropped, never echoed (see `parseFilters`).
+   */
   @Get(':country/:region')
   region(
     @Param('country') country: string,
     @Param('region') region: string,
-    @Query('page') page?: string,
+    @Query() query: Record<string, string>,
   ) {
-    const n = Number(page);
-    return this.spots.regionSpots(
-      country,
-      region,
-      Number.isFinite(n) && n > 0 ? Math.floor(n) : 1,
-    );
+    return this.spots.regionSpots(country, region, parseRegionQuery(query));
   }
 
   @Get(':country/:region/:slug')
