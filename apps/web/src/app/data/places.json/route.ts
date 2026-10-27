@@ -38,7 +38,6 @@ export async function GET() {
   // 🔴 Said out loud on every build, like the search index beside it.
   // A number nobody prints is a number nobody notices growing — and the
   // whole point of this file is that its size used to be invisible.
-  // eslint-disable-next-line no-console
   console.log(
     `places: ${places.length} countries, ` +
       `${places.reduce((n, p) => n + p.regions.length, 0)} regions, ` +

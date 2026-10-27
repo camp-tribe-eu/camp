@@ -885,7 +885,12 @@ if (allErrors.length) {
 // campsite that no longer exists — the same case exactly: describing a
 // Campground there would assert in machine-readable form that a place
 // exists where we are telling the crawler it does not.
-const ERROR_PAGES = new Set(['_not-found', '404', '500', 'gone']);
+// `_global-error` з'явився з Next 16 (CAMP-383): це оболонка
+// `global-error.tsx`, яку збірка тепер пише як окремий HTML поруч із
+// `_not-found`. Та сама природа — сторінка про те, що щось НЕ існує або
+// зламалось, і JSON-LD там був би неправдою. Заміряно 27.10.2026: без
+// цього рядка перевірка червоніє на 16.2.12 рівно одним записом.
+const ERROR_PAGES = new Set(['_not-found', '_global-error', '404', '500', 'gone']);
 const missing = files
   .map((f) => path.relative(ROOT, f).replace(/\.html$/, ''))
   .filter(

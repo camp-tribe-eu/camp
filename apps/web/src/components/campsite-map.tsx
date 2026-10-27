@@ -2040,7 +2040,6 @@ export default function CampsiteMap() {
   // off — the canvas and the sentence are rebuilt together.
   useEffect(() => {
     drawFiresRef.current();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fireState, firesOn]);
 
   /**
@@ -2118,7 +2117,6 @@ export default function CampsiteMap() {
 
   useEffect(() => {
     drawDroughtRef.current();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [droughtStateNow, droughtOn]);
 
   // 🔴 Read through a ref inside the fetch above: that effect runs once,
@@ -2193,7 +2191,6 @@ export default function CampsiteMap() {
       ? `${window.location.pathname}?${qs}`
       : window.location.pathname;
     window.history.replaceState(null, "", url);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
   // 🔴 CAMP-169: `still` is written AFTER the commit that follows the stop.

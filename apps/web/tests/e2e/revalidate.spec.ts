@@ -59,7 +59,7 @@ test.describe("🔴 CAMP-365 — скидання кешу меню", () => {
       ),
       "utf8",
     );
-    const call = src.indexOf("revalidateTag(tag)");
+    const call = src.indexOf("revalidateTag(tag, ");
     const gate = src.indexOf("authorizeHook(request)");
     const allowed = src.indexOf("ALLOWED_TAGS.get(name)");
 
