@@ -31,6 +31,8 @@ import {
   type RegionListing,
   type RegionQuery,
 } from './region-listing';
+import { countRegionInsights, type RegionInsights } from './region-insights';
+export type { RegionInsights } from './region-insights';
 export { NOTHING_TO_SAY_SQL } from './detail-query';
 import type { TariffView } from './tariffs';
 export type { TariffView } from './tariffs';
@@ -584,6 +586,27 @@ export class SpotsService {
       };
     }
     return listRegion(this.db, country, region, query, perPage);
+  }
+
+  /**
+   * "Camping in <region>": raw counts for the region page's own block,
+   * over the SAME rows `regionSpots` lists (published, not secondary).
+   * `null` when the slug names no region. What is large enough to print
+   * is decided on the web side — see region-insights.ts.
+   */
+  async regionInsights(
+    country: string,
+    regionSlug: string,
+  ): Promise<RegionInsights | null> {
+    const region =
+      (await this.regions(country)).find((r) => r.slug === regionSlug)
+        ?.region ?? null;
+    if (!region) return null;
+    return countRegionInsights(
+      (sql, params) => this.db.query(sql, params),
+      country,
+      region,
+    );
   }
 
   /**

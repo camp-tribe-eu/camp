@@ -1,0 +1,222 @@
+import { expect, test } from '@playwright/test';
+import RegionPage from '@/app/camping/[country]/[region]/page';
+import { INSIGHT_MIN_KNOWN } from '@/lib/region-insights';
+import { renderNestedAsync } from './render-component';
+import { visibleText } from './rendered-text';
+
+// "Camping in <region>" — what the REGION PAGE says, read off the HTML it
+// renders, with `fetch` swapped for a canned API.
+//
+// 🔴 EVERY EXPECTED NUMBER BELOW IS A CONSTANT COUNTED BY HAND from the
+// payload as written, never computed here from the same fields the code
+// adds up. The payload says electricity yes 4, no 2 over a region of 10
+// sites; the sentence must say "Of the 6 sites" — the 6 is typed in, so a
+// page that printed the region's 10 is caught, and so is a test that
+// would have re-derived 6 with the code's own formula.
+//
+// 🔴 THE TWO MUTATIONS THE CARD NAMES are run against this file:
+//   · denominator = all campsites of the region  → "Of the 10 sites …"
+//   · the threshold of five removed               → the 4-known sentence prints
+// Both must turn this file red; the matrix is in the pull request.
+
+type Fetcher = (url: string) => Response | Promise<Response>;
+
+async function withFetch(impl: Fetcher, run: () => Promise<void>) {
+  const real = globalThis.fetch;
+  globalThis.fetch = ((url: string) =>
+    Promise.resolve().then(() => impl(String(url)))) as typeof fetch;
+  try {
+    await run();
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+
+const REGION = { region: 'Bovec', slug: 'bovec', spots: 10, indexable: true };
+
+const card = (i: number) => ({
+  slug: `camp-${i}`,
+  name: `Camp ${i}`,
+  country: 'si',
+  region: 'Bovec',
+  type: 'paid',
+  amenities: {},
+});
+
+const LISTING = {
+  region: 'Bovec',
+  total: 10,
+  items: Array.from({ length: 10 }, (_, i) => card(i + 1)),
+};
+
+/** The payload the API sends: 10 sites, counts as named in each test. */
+const payload = (over: Record<string, unknown> = {}) => ({
+  region: 'Bovec',
+  spots: 10,
+  readAt: '2026-10-18',
+  types: { paid: 6, rv_park: 2, camper_stop: 1, free: 0, wild: 1 },
+  amenities: {
+    electricity: { yes: 4, no: 2 }, // known 6
+    toilets: { yes: 5, no: 0 }, // known 5 — exactly the threshold
+    shower: { yes: 3, no: 1 }, // known 4 — one under it
+  },
+  surroundings: {
+    computedAt: '2026-09-25',
+    supermarket: { known: 7, within: 4 },
+    station: { known: 6, within: 3 },
+    water: {
+      named: 7,
+      top: { name: 'Lake Bohinj', sites: 5, nearestM: 10, farthestM: 1500 },
+    },
+  },
+  ...over,
+});
+
+async function pageText(insights: unknown, status = 200): Promise<string> {
+  let html = '';
+  await withFetch(
+    (url) => {
+      if (url.endsWith('/spots/si/regions')) return json([REGION]);
+      if (url.includes('/spots/si/bovec?page=1')) return json(LISTING);
+      if (url.endsWith('/spots/insights/si/bovec')) return json(insights, status);
+      return json({}, 404);
+    },
+    async () => {
+      html = await renderNestedAsync(RegionPage, {
+        params: Promise.resolve({ country: 'si', region: 'bovec' }),
+      });
+    },
+  );
+  return visibleText(html);
+}
+
+test.describe('the region page says what is counted', () => {
+  // 🔴 The anchor, first: the page renders with its listing AND the block.
+  // Without this, every "does not say" below passes over an empty string.
+  test('anchor: the page renders the listing and the block', async () => {
+    const text = await pageText(payload());
+    expect(text).toContain('Campsites in Bovec');
+    expect(text).toContain('Camp 10');
+    expect(text).toContain('Camping in Bovec');
+    expect(text.length).toBeGreaterThan(300);
+  });
+
+  test('🔴 the denominator is the sites with a recorded answer (6), not the region (10)', async () => {
+    const text = await pageText(payload());
+    expect(text).toContain(
+      'Of the 6 sites where OpenStreetMap records whether there is electricity, 4 have it and 2 do not.',
+    );
+    expect(text).not.toContain('Of the 10 sites where OpenStreetMap');
+  });
+
+  test('🔴 four known values print nothing; five print the sentence', async () => {
+    expect(INSIGHT_MIN_KNOWN).toBe(5);
+    const text = await pageText(payload());
+    // shower: yes 3 + no 1 = 4 → no sentence about showers at all, not
+    // even one that says there is not enough data.
+    expect(text).not.toContain('showers');
+    expect(text).not.toContain('not enough');
+    // toilets: yes 5 + no 0 = 5 → printed, as "all 5".
+    expect(text).toContain(
+      'Of the 5 sites where OpenStreetMap records whether there are toilets, all 5 have them.',
+    );
+  });
+
+  test('the same amenity at 4 and at 5, with nothing else changed', async () => {
+    const four = await pageText(
+      payload({ amenities: { electricity: { yes: 2, no: 2 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
+    );
+    expect(four).not.toContain('whether there is electricity');
+    const five = await pageText(
+      payload({ amenities: { electricity: { yes: 3, no: 2 }, toilets: { yes: 0, no: 0 }, shower: { yes: 0, no: 0 } } }),
+    );
+    expect(five).toContain(
+      'Of the 5 sites where OpenStreetMap records whether there is electricity, 3 have it and 2 do not.',
+    );
+  });
+
+  test('types: the region count is the denominator only here, where every row has one', async () => {
+    const text = await pageText(payload());
+    expect(text).toContain(
+      'Of the 10 sites we list in Bovec, 6 are paid campsites, 2 are motorhome parks, 1 is a camper stop and 1 is a wild camping spot.',
+    );
+  });
+
+  test('surroundings: distances with a number, water by its name, never "by a river"', async () => {
+    const text = await pageText(payload());
+    expect(text).toContain(
+      'A supermarket is within 2 km for 4 of the 7 sites whose surroundings we have computed.',
+    );
+    expect(text).toContain(
+      'A railway stop is within 2 km for 3 of the 6 sites whose surroundings we have computed.',
+    );
+    expect(text).toContain(
+      'Of the 7 sites whose nearest water has a name in OpenStreetMap, for 5 it is Lake Bohinj, 10 m to 1.5 km away.',
+    );
+    expect(text).not.toContain('by a river');
+    expect(text).not.toContain('near a lake');
+  });
+
+  test('🔴 every sentence carries the day it was counted, and none is a percentage', async () => {
+    const text = await pageText(payload());
+    const block = text.slice(text.indexOf('Camping in Bovec'), text.indexOf('Other regions'));
+    expect(block.length).toBeGreaterThan(100);
+    // Six sentences print for this payload (types, electricity, toilets,
+    // supermarket, station, water); showers is under the threshold.
+    const days = block.match(/Counted as of \d+ \w+ \d{4}\./g) ?? [];
+    expect(days).toHaveLength(6);
+    expect(block.match(/Counted as of 18 October 2026\./g)).toHaveLength(3);
+    expect(block.match(/Counted as of 25 September 2026\./g)).toHaveLength(3);
+    expect(block).not.toContain('%');
+    expect(block).not.toMatch(/per ?cent/i);
+  });
+
+  test('🔴 a region with nothing above the threshold gets no block at all', async () => {
+    const text = await pageText(
+      payload({
+        spots: 4,
+        types: { paid: 4, rv_park: 0, camper_stop: 0, free: 0, wild: 0 },
+        amenities: { electricity: { yes: 2, no: 2 }, toilets: { yes: 1, no: 0 }, shower: { yes: 0, no: 0 } },
+        surroundings: {
+          computedAt: '2026-09-25',
+          supermarket: { known: 4, within: 4 },
+          station: { known: 4, within: 0 },
+          water: { named: 4, top: { name: 'Soča', sites: 4, nearestM: 1, farthestM: 2 } },
+        },
+      }),
+    );
+    expect(text).toContain('Campsites in Bovec');
+    expect(text).not.toContain('Camping in Bovec');
+    expect(text).not.toContain('Counted as of');
+    expect(text).not.toContain('no data');
+  });
+
+  test('a figure without a day is not printed', async () => {
+    const text = await pageText(payload({ readAt: null }));
+    expect(text).not.toContain('whether there is electricity');
+    expect(text).not.toContain('we list in Bovec');
+    // The surroundings still have their day.
+    expect(text).toContain('A supermarket is within 2 km for 4 of the 7');
+  });
+
+  test('an API without the route, or with a payload of the wrong shape, means no block — not a crash', async () => {
+    for (const [body, status] of [
+      [{}, 404],
+      [{ region: 'Bovec' }, 200],
+      [payload({ amenities: { electricity: { yes: 'four', no: 2 } } }), 200],
+      [null, 200],
+      ['Bovec', 200],
+    ] as const) {
+      const text = await pageText(body, status);
+      expect([JSON.stringify(body), text.includes('Campsites in Bovec')]).toEqual([JSON.stringify(body), true]);
+      expect([JSON.stringify(body), text.includes('Camping in Bovec')]).toEqual([JSON.stringify(body), false]);
+      expect([JSON.stringify(body), text.includes('undefined')]).toEqual([JSON.stringify(body), false]);
+    }
+  });
+});

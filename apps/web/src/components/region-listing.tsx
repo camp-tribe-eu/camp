@@ -36,6 +36,7 @@ import {
 } from '@/lib/hub-filters';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { ButtonLink } from '@/components/button';
+import RegionInsights from '@/components/region-insights';
 
 // CAMP-71, level 2: the region hub. Shared by /camping/{c}/{r},
 // /camping/{c}/{r}/page/{n} and /camping/{c}/{r}/filter?… so the first
@@ -94,6 +95,10 @@ export default async function RegionListing({
   const cName = countryName(country);
   const base = `/camping/${country}/${region}`;
   const here = hubHref(base, q);
+  // 🔴 The one address a region's own prose may live at: its base URL,
+  // page 1, built statically. Not page 2, not /filter?… (rendered per
+  // request, `live`), not even /filter with every box unticked.
+  const baseFirstPage = page === 1 && !live && !hasState(q);
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
@@ -149,6 +154,12 @@ export default async function RegionListing({
       </p>
 
       <HubFilters base={base} q={q} data={data} pages={pages} />
+
+      {/* The base page of the region, page 1 only. A paragraph repeated
+          on every page — and on every /filter?… address, of which there
+          are hundreds of thousands — would be the same text under many
+          URLs. */}
+      {baseFirstPage && <RegionInsights country={country} region={region} />}
 
       {empty ? (
         <EmptyResult

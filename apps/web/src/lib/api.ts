@@ -12,6 +12,7 @@ import type { BathingWater } from './bathing';
 import type { AirQualityFacts } from './air-quality';
 // CAMP-255: may a motorhome stay the night here.
 import type { OvernightFacts } from './overnight';
+import { readRegionInsights, type RegionInsights } from './region-insights';
 
 export type { SpotSource };
 export type { Tariff };
@@ -630,6 +631,25 @@ export async function getRegionSpots(
 }
 
 export const REGION_PER_PAGE = 24;
+
+/**
+ * The counts behind "Camping in <region>" (region-insights.ts). A region
+ * the API does not know, an older API without the route, or a payload of
+ * the wrong shape all read as `null`: no block, never a sentence with a
+ * hole in it. Same cache hint as every other build-time read; nothing
+ * here makes the page dynamic.
+ */
+export async function getRegionInsights(
+  country: string,
+  region: string,
+): Promise<RegionInsights | null> {
+  const res = await apiFetch(
+    `/spots/insights/${encodeURIComponent(country)}/${encodeURIComponent(region)}`,
+    { next: { revalidate: 86400 } },
+  );
+  if (!res.ok) return null;
+  return readRegionInsights(await res.json());
+}
 
 // ── CAMP-41: the home page ───────────────────────────────────────────────
 
