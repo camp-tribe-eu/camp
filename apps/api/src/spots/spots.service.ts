@@ -24,6 +24,13 @@ import {
   type RegionRename,
 } from './region-renames';
 import { NOTHING_TO_SAY_SQL, SPOT_DETAIL_SQL } from './detail-query';
+import {
+  listRegion,
+  NO_FILTERS,
+  type RegionFacets,
+  type RegionListing,
+  type RegionQuery,
+} from './region-listing';
 export { NOTHING_TO_SAY_SQL } from './detail-query';
 import type { TariffView } from './tariffs';
 export type { TariffView } from './tariffs';
@@ -540,7 +547,8 @@ export class SpotsService {
   }
 
   /**
-   * Campsites of one region, a page at a time.
+   * Campsites of one region, a page at a time — filtered and sorted when
+   * the hub asks (see `region-listing.ts`).
    *
    * Named sites first: a list that opens with six "Campsite" rows tells the
    * reader nothing, even though those rows are honest. `region` is matched
@@ -549,9 +557,9 @@ export class SpotsService {
   async regionSpots(
     country: string,
     regionSlug: string,
-    page = 1,
+    query: RegionQuery = { page: 1, filters: NO_FILTERS, sort: 'name' },
     perPage = 24,
-  ): Promise<{ region: string | null; total: number; items: SpotCard[] }> {
+  ): Promise<RegionListing> {
     // The slug is resolved in JS, not in SQL. Postgres cannot strip
     // diacritics without the `unaccent` extension, and "Šentilj" has to
     // become "sentilj" the same way here and in the URL the page was built
@@ -560,29 +568,22 @@ export class SpotsService {
     const region =
       (await this.regions(country)).find((r) => r.slug === regionSlug)
         ?.region ?? null;
-    if (!region) return { region: null, total: 0, items: [] };
-
-    const [{ total }] = await this.db.query(
-      `SELECT count(*)::int AS total FROM camping_spots s
-        WHERE lower(country) = lower($1) AND region = $2
-          AND missing_since IS NULL
-          AND ${notSecondarySql('s')}`,
-      [country, region],
-    );
-
-    const items = await this.db.query(
-      `SELECT slug, ${mergedNameSql('s')} AS name,
-              country, region, type, amenities
-         FROM camping_spots s
-        WHERE lower(country) = lower($1) AND region = $2
-          AND missing_since IS NULL
-          AND ${notSecondarySql('s')}
-        ORDER BY (${mergedNameSql('s')} IS NULL), ${mergedNameSql('s')}, slug
-        LIMIT $3 OFFSET $4`,
-      [country, region, perPage, (page - 1) * perPage],
-    );
-
-    return { region, total, items };
+    if (!region) {
+      return {
+        region: null,
+        total: 0,
+        matched: 0,
+        unknownExcluded: 0,
+        items: [],
+        facets: {
+          types: {} as RegionFacets['types'],
+          amenities: {} as RegionFacets['amenities'],
+        },
+        dropOne: [],
+        sort: query.sort,
+      };
+    }
+    return listRegion(this.db, country, region, query, perPage);
   }
 
   /**
