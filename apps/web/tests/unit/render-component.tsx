@@ -182,11 +182,12 @@ async function resolveAsync(node: unknown): Promise<unknown> {
   if (Array.isArray(node)) return Promise.all(node.map(resolveAsync));
   if (!isPwNode(node)) return node;
   if (omitted.has(node.type)) return node;
-  const type = node.type as { constructor?: { name?: string } };
-  if (typeof type === 'function' && type.constructor?.name === 'AsyncFunction') {
-    const out = await (node.type as (p: unknown) => Promise<unknown>)(
-      node.props ?? {},
-    );
+  const fn = node.type as unknown;
+  if (
+    typeof fn === 'function' &&
+    (fn as { constructor: { name: string } }).constructor.name === 'AsyncFunction'
+  ) {
+    const out = await (fn as (p: unknown) => Promise<unknown>)(node.props ?? {});
     return resolveAsync(out);
   }
   const children = node.props?.children;

@@ -67,11 +67,11 @@ function stubFilter(url: URL) {
   const unknown = url.searchParams.get('unknown') === '1';
   const page = Number(url.searchParams.get('page') ?? '1');
 
+  const val = (r: Row, k: string) =>
+    (r.amenities as unknown as Record<string, string | undefined>)[k];
   const typeOk = (r: Row, ts: string[]) => ts.length === 0 || ts.includes(r.type);
-  const strict = (r: Row, as: string[]) =>
-    as.every((k) => (r.amenities as Record<string, string>)[k] === 'yes');
-  const lenient = (r: Row, as: string[]) =>
-    as.every((k) => (r.amenities as Record<string, string>)[k] !== 'no');
+  const strict = (r: Row, as: string[]) => as.every((k) => val(r, k) === 'yes');
+  const lenient = (r: Row, as: string[]) => as.every((k) => val(r, k) !== 'no');
   const pass = (r: Row, ts = types, as = amenities) =>
     typeOk(r, ts) && (unknown ? lenient(r, as) : strict(r, as));
 
