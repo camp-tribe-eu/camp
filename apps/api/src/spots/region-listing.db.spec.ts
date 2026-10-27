@@ -44,7 +44,12 @@ const ROWS: {
   amenities: Record<string, string>;
 }[] = [
   // paid, shower yes, water yes                → 2 recorded
-  { slug: 'alpha', name: 'Alpha', type: 'paid', amenities: { shower: 'yes', water: 'yes' } },
+  {
+    slug: 'alpha',
+    name: 'Alpha',
+    type: 'paid',
+    amenities: { shower: 'yes', water: 'yes' },
+  },
   // free, shower yes                           → 1 recorded
   { slug: 'bravo', name: 'Bravo', type: 'free', amenities: { shower: 'yes' } },
   // free, shower NOT recorded                  → 0 recorded; lenient-only for shower
@@ -76,7 +81,10 @@ beforeAll(async () => {
 
   // The real schema, from the real migrations — not a hand-made table
   // that could drift from the one the hub queries in production.
-  db = new DataSource({ ...AppDataSource.options, url: url.toString() } as never);
+  db = new DataSource({
+    ...AppDataSource.options,
+    url: url.toString(),
+  } as never);
   await db.initialize();
   await db.query('CREATE EXTENSION IF NOT EXISTS postgis');
   await db.runMigrations();
@@ -86,7 +94,15 @@ beforeAll(async () => {
       `INSERT INTO camping_spots (name, country, region, slug, type, amenities, location, osm_ref)
        VALUES ($1, $2, $3, $4, $5::camping_spots_type_enum, $6::jsonb,
                ST_SetSRID(ST_MakePoint(14.1, 46.1), 4326), $7)`,
-      [r.name, 'SI', REGION, r.slug, r.type, JSON.stringify(r.amenities), `t-${r.slug}`],
+      [
+        r.name,
+        'SI',
+        REGION,
+        r.slug,
+        r.type,
+        JSON.stringify(r.amenities),
+        `t-${r.slug}`,
+      ],
     );
   }
   // A row in another region, so a count that forgot the region shows.
@@ -103,7 +119,11 @@ afterAll(async () => {
   await admin?.end();
 });
 
-const q = (over: Partial<RegionQuery['filters']> = {}, sort: RegionQuery['sort'] = 'name', page = 1): RegionQuery => ({
+const q = (
+  over: Partial<RegionQuery['filters']> = {},
+  sort: RegionQuery['sort'] = 'name',
+  page = 1,
+): RegionQuery => ({
   page,
   sort,
   filters: { ...NO_FILTERS, ...over },
@@ -117,7 +137,13 @@ describe('listRegion: a filter narrows the same region', () => {
     expect(r.total).toBe(5);
     expect(r.matched).toBe(5);
     expect(r.unknownExcluded).toBe(0);
-    expect(slugs(r.items)).toEqual(['alpha', 'bravo', 'charlie', 'echo', 'delta']);
+    expect(slugs(r.items)).toEqual([
+      'alpha',
+      'bravo',
+      'charlie',
+      'echo',
+      'delta',
+    ]);
     expect(r.dropOne).toEqual([]);
   });
 
@@ -133,7 +159,12 @@ describe('listRegion: a filter narrows the same region', () => {
   });
 
   it('🔴 amenities=shower: strict 3, and 1 excluded only for want of data', async () => {
-    const r = await listRegion(db, COUNTRY, REGION, q({ amenities: ['shower'] }));
+    const r = await listRegion(
+      db,
+      COUNTRY,
+      REGION,
+      q({ amenities: ['shower'] }),
+    );
     expect(r.matched).toBe(3);
     expect(slugs(r.items).sort()).toEqual(['alpha', 'bravo', 'echo']);
     // Charlie: no record. Delta: a recorded no — not "unknown".
@@ -148,14 +179,24 @@ describe('listRegion: a filter narrows the same region', () => {
       q({ amenities: ['shower'], includeUnknown: true }),
     );
     expect(r.matched).toBe(4);
-    expect(slugs(r.items).sort()).toEqual(['alpha', 'bravo', 'charlie', 'echo']);
+    expect(slugs(r.items).sort()).toEqual([
+      'alpha',
+      'bravo',
+      'charlie',
+      'echo',
+    ]);
     expect(r.unknownExcluded).toBe(0);
   });
 });
 
 describe('listRegion: the numbers beside the chips', () => {
   it('type facets count each type under the amenity filter', async () => {
-    const r = await listRegion(db, COUNTRY, REGION, q({ amenities: ['shower'] }));
+    const r = await listRegion(
+      db,
+      COUNTRY,
+      REGION,
+      q({ amenities: ['shower'] }),
+    );
     // With a recorded shower: alpha (paid), bravo (free), echo (camper_stop).
     expect(r.facets.types).toEqual({
       free: 1,
@@ -206,12 +247,24 @@ describe('listRegion: sort', () => {
     const r = await listRegion(db, COUNTRY, REGION, q({}, 'facilities'));
     // echo 3, alpha 2, bravo 1, then charlie 0 and delta 0 — charlie is
     // named, so it comes before the nameless delta.
-    expect(slugs(r.items)).toEqual(['echo', 'alpha', 'bravo', 'charlie', 'delta']);
+    expect(slugs(r.items)).toEqual([
+      'echo',
+      'alpha',
+      'bravo',
+      'charlie',
+      'delta',
+    ]);
   });
 
   it("type: the card's order (free, paid, camper stop, RV park, wild)", async () => {
     const r = await listRegion(db, COUNTRY, REGION, q({}, 'type'));
-    expect(slugs(r.items)).toEqual(['bravo', 'charlie', 'alpha', 'echo', 'delta']);
+    expect(slugs(r.items)).toEqual([
+      'bravo',
+      'charlie',
+      'alpha',
+      'echo',
+      'delta',
+    ]);
   });
 
   it('pages: page 2 of 2-per-page, matched still the whole count', async () => {
@@ -244,7 +297,11 @@ describe('parseRegionQuery and countsSql (no database)', () => {
   });
 
   it('one statement carries one column per facet and per active filter', () => {
-    const c = countsSql({ ...NO_FILTERS, types: ['wild'], amenities: ['laundry'] });
+    const c = countsSql({
+      ...NO_FILTERS,
+      types: ['wild'],
+      amenities: ['laundry'],
+    });
     // total, matched, lenient, 5 types, 10 amenities, 2 drop-ones.
     expect(c.columns).toHaveLength(3 + 5 + 10 + 2);
     expect(c.columns).toContain('drop:t:wild');

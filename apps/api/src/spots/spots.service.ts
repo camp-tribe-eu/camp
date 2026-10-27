@@ -575,7 +575,10 @@ export class SpotsService {
         matched: 0,
         unknownExcluded: 0,
         items: [],
-        facets: { types: {} as RegionFacets['types'], amenities: {} as RegionFacets['amenities'] },
+        facets: {
+          types: {} as RegionFacets['types'],
+          amenities: {} as RegionFacets['amenities'],
+        },
         dropOne: [],
         sort: query.sort,
       };
