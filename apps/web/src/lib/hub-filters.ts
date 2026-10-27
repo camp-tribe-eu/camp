@@ -87,7 +87,9 @@ export function parseHubQuery(searchParams: SearchParams): HubQuery {
     sort: (REGION_SORTS as readonly string[]).includes(sort ?? '')
       ? (sort as RegionSort)
       : 'name',
-    page: Number.isInteger(page) && page > 1 ? page : 1,
+    // Safe integers only: `1e20` is a number and an integer, and as an
+    // OFFSET it was a 500. Anything this site never linked to is page 1.
+    page: Number.isSafeInteger(page) && page > 1 ? page : 1,
   };
 }
 
@@ -109,6 +111,21 @@ function params(q: HubQuery, withPage: boolean): URLSearchParams {
   if (q.sort !== 'name') p.set('sort', q.sort);
   if (withPage && q.page > 1) p.set('page', String(q.page));
   return p;
+}
+
+/**
+ * The query string exactly as it arrived, so a page can tell whether it
+ * was asked at its one canonical address or at a spelling of it
+ * (`&page=1`, `&sort=name`, parameters in another order, a value we
+ * dropped) — and redirect to the canonical one.
+ */
+export function receivedSearch(searchParams: SearchParams): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(searchParams)) {
+    const one = first(v);
+    if (one !== undefined) p.append(k, one);
+  }
+  return p.toString();
 }
 
 /**

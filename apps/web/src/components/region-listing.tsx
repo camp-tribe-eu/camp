@@ -51,6 +51,7 @@ export default async function RegionListing({
   region,
   page,
   searchParams,
+  live = false,
 }: {
   country: string;
   region: string;
@@ -60,10 +61,20 @@ export default async function RegionListing({
    * routes pass nothing; the page number always comes from `page`.
    */
   searchParams?: SearchParams;
+  /** Rendered per request (the filter route), not by the build. */
+  live?: boolean;
 }) {
   const q: HubQuery = { ...parseHubQuery(searchParams ?? {}), page };
-  const meta = await regionMeta(country, region);
-  const data = await getRegionSpots(country, region, page, apiSearch(q));
+  // Per request, an API that cannot be reached is answered like one that
+  // said 5xx — no region, a 404 — instead of a 500. Never at build time:
+  // see `getRegionSpots` for why a build must fail loudly here.
+  const meta = await regionMeta(country, region).catch((e: unknown) => {
+    if (!live) throw e;
+    return null;
+  });
+  const data = await getRegionSpots(country, region, page, apiSearch(q), {
+    live,
+  });
   if (!meta || !data.region) notFound();
 
   // 🔴 The number the page shows beside the filters is the API's count
@@ -132,10 +143,12 @@ export default async function RegionListing({
       <p className="mt-3 max-w-prose text-ink-2">
         {data.total} {data.total === 1 ? 'site' : 'sites'} in {data.region},{' '}
         {cName}
-        {pages > 1 && ` — page ${page} of ${pages}`}.
+        {/* The pages of the WHOLE region. A filtered set's pages are
+            counted from `matched` and said beside that number. */}
+        {!filtering && pages > 1 && ` — page ${page} of ${pages}`}.
       </p>
 
-      <HubFilters base={base} q={q} data={data} />
+      <HubFilters base={base} q={q} data={data} pages={pages} />
 
       {empty ? (
         <EmptyResult
@@ -194,10 +207,12 @@ function HubFilters({
   base,
   q,
   data,
+  pages,
 }: {
   base: string;
   q: HubQuery;
   data: RegionListingData;
+  pages: number;
 }) {
   const matched = data.matched;
   const unknown = data.unknownExcluded ?? 0;
@@ -255,13 +270,14 @@ function HubFilters({
           <p data-hub-match>
             <b className="text-heading tabular-nums">{matched}</b>{' '}
             {matched === 1 ? 'site matches' : 'sites match'}
+            {pages > 1 && ` · page ${q.page} of ${pages}`}
             {unknown > 0 && !q.includeUnknown && (
               <>
                 {' · '}
                 {unknown} more where nobody recorded {amenityList(q)} —{' '}
                 <Link
                   href={hubHref(base, withUnknown(q, true))}
-                  rel="nofollow"
+                  rel={relFor(hubHref(base, withUnknown(q, true)))}
                   className="text-line-blue underline"
                 >
                   include them
@@ -273,7 +289,7 @@ function HubFilters({
                 {' · '}
                 <Link
                   href={hubHref(base, withUnknown(q, false))}
-                  rel="nofollow"
+                  rel={relFor(hubHref(base, withUnknown(q, false)))}
                   className="text-line-blue underline"
                 >
                   only recorded
@@ -300,7 +316,10 @@ function HubFilters({
               ) : (
                 <Link
                   href={hubHref(base, withSort(q, s))}
-                  rel="nofollow"
+                  // relFor, not a bare "nofollow": with only a sort set,
+                  // "Name" IS the static region page — and the one link
+                  // back to it from here that a crawler may follow.
+                  rel={relFor(hubHref(base, withSort(q, s)))}
                   className="underline hover:text-heading"
                 >
                   {SORT_LABEL[s]}
@@ -416,7 +435,7 @@ function EmptyResult({
               variant="primary"
               size="sm"
               href={hubHref(base, withUnknown(q, true))}
-              rel="nofollow"
+              rel={relFor(hubHref(base, withUnknown(q, true)))}
             >
               Include the {unknown} unrecorded
             </ButtonLink>

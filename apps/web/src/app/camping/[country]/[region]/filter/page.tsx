@@ -6,6 +6,7 @@ import {
   describeQuery,
   hubHref,
   parseHubQuery,
+  receivedSearch,
   type SearchParams,
 } from '@/lib/hub-filters';
 
@@ -26,10 +27,12 @@ import {
 // each one is allowed to rank. `noindex, follow` here; the region page
 // itself keeps its CAMP-71 threshold rule. Same reasoning as page 2.
 //
-// 🔴 NO STATE → THE STATIC ADDRESS. `/filter` with nothing to filter is
-// the region page under a second URL, so it redirects (308) to the one
-// the build made; page N of nothing goes to `/page/N`. One address per
-// state, in both directions.
+// 🔴 ONE ADDRESS PER STATE, IN BOTH DIRECTIONS. `/filter` with nothing
+// to filter is the region page under a second URL, so it redirects (308)
+// to the one the build made; page N of nothing goes to `/page/N`. And a
+// state asked for under another spelling — `&page=1`, `&sort=name`, the
+// parameters in another order, a value we do not know — redirects to
+// its one canonical spelling, or there are two addresses for it after all.
 
 type Params = { country: string; region: string };
 
@@ -64,7 +67,9 @@ export default async function FilteredRegionPage(props: Props) {
   const base = `/camping/${params.country}/${params.region}`;
 
   const here = hubHref(base, q);
-  if (!here.startsWith(`${base}/filter`)) permanentRedirect(here);
+  if (here !== `${base}/filter?${receivedSearch(searchParams)}`) {
+    permanentRedirect(here);
+  }
 
   return (
     <RegionListing
@@ -72,6 +77,7 @@ export default async function FilteredRegionPage(props: Props) {
       region={params.region}
       page={q.page}
       searchParams={searchParams}
+      live
     />
   );
 }

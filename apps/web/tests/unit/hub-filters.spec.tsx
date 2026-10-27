@@ -59,6 +59,66 @@ expect(PAID).toBe(3);
 expect(SHOWER_YES).toBe(13);
 expect(SHOWER_UNRECORDED).toBe(8);
 
+/**
+ * Hand counts. A chip's count is what the reader gets after clicking it:
+ * an off chip ADDS its value to the current filters, an on chip REMOVES
+ * it. Rows: 26 free (10 shower yes, 8 no, 8 unrecorded), 3 paid (shower
+ * and water yes), 1 wild (shower no). Nobody has anything else.
+ */
+const zero = (keys: readonly string[], over: Record<string, number> = {}) =>
+  Object.fromEntries(keys.map((k) => [k, over[k] ?? 0]));
+const HAND: Record<
+  string,
+  {
+    facets: { types: Record<string, number>; amenities: Record<string, number> };
+    dropOne?: { kind: string; key: string; matched: number }[];
+  }
+> = {
+  // nothing chosen: each type alone; each amenity alone
+  '||0': {
+    facets: {
+      types: zero(SPOT_TYPES, { free: 26, paid: 3, wild: 1 }),
+      amenities: zero(AMENITY_KEYS, { shower: 13, water: 3 }),
+    },
+  },
+  // paid on: free → free+paid 29; paid → off → 30; wild → paid+wild 4;
+  // amenities with paid: shower 3, water 3
+  'paid||0': {
+    facets: {
+      types: zero(SPOT_TYPES, { free: 29, paid: 30, camper_stop: 3, rv_park: 3, wild: 4 }),
+      amenities: zero(AMENITY_KEYS, { shower: 3, water: 3 }),
+    },
+  },
+  // free on: off → 30; paid → 29; wild → 27; the others add nobody → 26;
+  // amenities with free: shower 10
+  'free||0': {
+    facets: {
+      types: zero(SPOT_TYPES, { free: 30, paid: 29, camper_stop: 26, rv_park: 26, wild: 27 }),
+      amenities: zero(AMENITY_KEYS, { shower: 10 }),
+    },
+  },
+  // shower on: types under shower: free 10, paid 3; shower → off → 30;
+  // water → shower+water → the 3 paid
+  '|shower|0': {
+    facets: {
+      types: zero(SPOT_TYPES, { free: 10, paid: 3 }),
+      amenities: zero(AMENITY_KEYS, { shower: 30, water: 3 }),
+    },
+  },
+  // wild + laundry: nobody has a laundry, so every type chip is 0 and so
+  // is wild's own (laundry alone); laundry's own → wild alone → 1
+  'wild|laundry|0': {
+    facets: {
+      types: zero(SPOT_TYPES),
+      amenities: zero(AMENITY_KEYS, { laundry: 1 }),
+    },
+    dropOne: [
+      { kind: 'type', key: 'wild', matched: 0 },
+      { kind: 'amenity', key: 'laundry', matched: 1 },
+    ],
+  },
+};
+
 /** The stub API's own filter. Its own `if`s, on purpose. */
 function stubFilter(url: URL) {
   const split = (v: string | null) => (v ? v.split(',') : []);
@@ -78,29 +138,17 @@ function stubFilter(url: URL) {
   const matched = ROWS.filter((r) => pass(r));
   const lenientCount = ROWS.filter((r) => typeOk(r, types) && lenient(r, amenities)).length;
 
-  const facets = {
-    types: Object.fromEntries(
-      SPOT_TYPES.map((t) => [t, ROWS.filter((r) => pass(r, [t])).length]),
-    ),
-    amenities: Object.fromEntries(
-      AMENITY_KEYS.map((k) => [
-        k,
-        ROWS.filter((r) => pass(r, types, amenities.includes(k) ? amenities : [...amenities, k])).length,
-      ]),
-    ),
-  };
-  const dropOne = [
-    ...types.map((t) => ({
-      kind: 'type',
-      key: t,
-      matched: ROWS.filter((r) => pass(r, types.filter((x) => x !== t))).length,
-    })),
-    ...amenities.map((k) => ({
-      kind: 'amenity',
-      key: k,
-      matched: ROWS.filter((r) => pass(r, types, amenities.filter((x) => x !== k))).length,
-    })),
-  ];
+  // 🔴 NOT COMPUTED. The chip counts and the drop-one counts are looked
+  // up in a table written by hand from the thirty rows above — never
+  // derived with a formula, because a formula here would be a copy of
+  // the implementation and would agree with its defects (review found
+  // exactly that: "Free 0" on a chip whose click gave 23). The page is
+  // right only if the number it prints beside a chip is the `matched`
+  // the stub's own filter gives for the chip's href.
+  const key = `${types.join(',')}|${amenities.join(',')}|${unknown ? 1 : 0}`;
+  const hand = HAND[key];
+  const facets = hand?.facets;
+  const dropOne = hand?.dropOne;
   const sorted = [...matched].sort(
     (a, b) =>
       Number(a.name === null) - Number(b.name === null) ||
@@ -112,8 +160,8 @@ function stubFilter(url: URL) {
     matched: matched.length,
     unknownExcluded: unknown ? 0 : lenientCount - matched.length,
     items: sorted.slice((page - 1) * 24, page * 24),
-    facets,
-    dropOne,
+    ...(facets ? { facets } : {}),
+    ...(dropOne ? { dropOne } : {}),
     sort: url.searchParams.get('sort') ?? 'name',
   };
 }
@@ -218,10 +266,11 @@ test('chips carry the API\'s counts and link to the toggled state', async () => 
   const html = await render({ types: 'paid' });
   const text = visibleText(html);
   // Counts under the current amenity filter (none): each type's own size.
-  // Chips are inline links, so the reading runs them together: "Free 26Paid 3".
-  expect(text).toMatch(new RegExp(`Free ${FREE}(?!\\d)`));
-  expect(text).toMatch(new RegExp(`Paid ${PAID}(?!\\d)`));
-  expect(text).toMatch(/Wild camping 1(?!\d)/);
+  // Chips are inline links, so the reading runs them together: "Free 29Paid 30".
+  // With paid on: Free adds (26 + 3), Paid removes itself (all 30).
+  expect(text).toMatch(/Free 29(?!\d)/);
+  expect(text).toMatch(/Paid 30(?!\d)/);
+  expect(text).toMatch(/Wild camping 4(?!\d)/);
   // "Showers" with paid on: the paid rows that have one.
   expect(text).toMatch(new RegExp(`Showers ${PAID}(?!\\d)`));
   const hrefs = hrefsIn(html);
@@ -245,6 +294,78 @@ test('sort is three plain links, the current one not a link', async () => {
   expect(hrefs).not.toContain(`${BASE}/page/2`);
 });
 
+// ── every chip predicts its own click ─────────────────────────────────────
+
+/** The chips of the filter bar: label, count and href, as rendered. */
+function chips(html: string): { label: string; count: number; href: string }[] {
+  const nav = /<nav aria-label="Filter campsites"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
+  return [...nav.matchAll(/<a\b[^>]*\bhref="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)]
+    .map((m) => ({ href: decodeEntities(m[1]), text: visibleText(m[2]) }))
+    .filter((c) => /\d+$/.test(c.text))
+    .map((c) => ({
+      href: c.href,
+      label: c.text.replace(/\s*\d+$/, ''),
+      count: Number(/(\d+)$/.exec(c.text)![1]),
+    }));
+}
+
+test('🔴 the number on every chip is what its link answers', async () => {
+  const states: Record<string, string>[] = [
+    {},
+    { types: 'paid' },
+    { types: 'free' },
+    { amenities: 'shower' },
+    { types: 'wild', amenities: 'laundry' },
+  ];
+  for (const sp of states) {
+    const html = await render(sp);
+    const all = chips(html);
+    expect(all.length, JSON.stringify(sp)).toBe(SPOT_TYPES.length + AMENITY_KEYS.length);
+    for (const chip of all) {
+      const target = new URL(chip.href, 'http://x');
+      const after = await render(Object.fromEntries(target.searchParams));
+      const said = visibleText(after);
+      const got = target.pathname.endsWith('/filter')
+        ? Number(/(\d+) sites? match/.exec(said)?.[1])
+        : Number(/(\d+) sites? in Testland/.exec(said)?.[1]);
+      expect({ from: sp, chip: chip.label, count: chip.count }).toEqual({
+        from: sp,
+        chip: chip.label,
+        count: got,
+      });
+    }
+  }
+});
+
+test('a filtered set says its pages beside its count, not in the region sentence', async () => {
+  const html = await render({ types: 'free' });
+  const text = visibleText(html);
+  expect(text).toContain(`${FREE} sites match · page 1 of 2`);
+  expect(text).toContain(`${ROWS.length} sites in Testland, Slovenia.`);
+  expect(text).not.toContain(`${ROWS.length} sites in Testland, Slovenia — page`);
+});
+
+test('a filtered page past its set is a 404; page=1e20 reads as page 1', async () => {
+  await expect(render({ types: 'paid', page: '3' })).rejects.toThrow(/404|NOT_FOUND/);
+  expect(parseHubQuery({ page: '1e20' }).page).toBe(1);
+  expect(parseHubQuery({ page: '99999999999999999999' }).page).toBe(1);
+});
+
+test('live: an API that cannot be reached is a 404, not a 500; at build time it throws', async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = (() => Promise.reject(new TypeError('fetch failed'))) as typeof fetch;
+  try {
+    await expect(
+      renderAsyncComponent(RegionListing, { country: COUNTRY, region: REGION, page: 1, searchParams: { types: 'paid' }, live: true }),
+    ).rejects.toThrow(/404|NOT_FOUND/);
+    await expect(
+      renderAsyncComponent(RegionListing, { country: COUNTRY, region: REGION, page: 1 }),
+    ).rejects.toThrow(/fetch failed/);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
 // ── the crawl stays off the filter combinations ───────────────────────────
 
 test('🔴 every link into /filter?… is rel="nofollow"; every other link is not', async () => {
@@ -253,6 +374,8 @@ test('🔴 every link into /filter?… is rel="nofollow"; every other link is no
     { types: 'paid' },
     { types: 'wild', amenities: 'laundry' },
     { types: 'free', sort: 'facilities' },
+    // Only a sort: "Name" leads to the static region — the one way back.
+    { sort: 'facilities' },
   ];
   for (const sp of cases) {
     const html = await render(sp);
@@ -266,6 +389,11 @@ test('🔴 every link into /filter?… is rel="nofollow"; every other link is no
     // And the chips really are the thing being checked: at least 14 of them lead into /filter.
     expect(anchors.filter((a) => /rel="nofollow"/.test(a)).length).toBeGreaterThanOrEqual(14);
   }
+  // Sort-only: the "Name" sort link is the plain region, and followable.
+  const sortOnly = await render({ sort: 'facilities' });
+  const sortRow = /<p>Sort:[\s\S]*?<\/p>/.exec(sortOnly)?.[0] ?? '';
+  expect(hrefsIn(sortRow)).toContain(BASE);
+  expect(/<a\b[^>]*\bhref="[^"]*testland"[^>]*rel="nofollow"/.test(sortRow)).toBe(false);
 });
 
 // ── the crawl path is intact ──────────────────────────────────────────────
@@ -323,6 +451,32 @@ test('/filter with nothing to filter redirects to the static address', async () 
   const page3 = { ...props, searchParams: Promise.resolve({ page: '3' }) };
   await expect(FilteredRegionPage(page3)).rejects.toMatchObject({
     digest: expect.stringContaining(`${BASE}/page/3;308`),
+  });
+});
+
+test('a state under another spelling redirects to its one address', async () => {
+  const canonical = `${BASE}/filter?types=paid&amenities=shower`;
+  for (const sp of [
+    { types: 'paid', amenities: 'shower', page: '1' },
+    { types: 'paid', amenities: 'shower', sort: 'name' },
+    { amenities: 'shower', types: 'paid' },
+    { types: 'paid,bogus', amenities: 'shower' },
+  ]) {
+    const props = {
+      params: Promise.resolve({ country: COUNTRY, region: REGION }),
+      searchParams: Promise.resolve(sp),
+    };
+    await expect(FilteredRegionPage(props), JSON.stringify(sp)).rejects.toMatchObject({
+      digest: expect.stringContaining(`${canonical};308`),
+    });
+  }
+  // And the canonical spelling itself renders rather than redirecting.
+  await withStub(async () => {
+    const out = await FilteredRegionPage({
+      params: Promise.resolve({ country: COUNTRY, region: REGION }),
+      searchParams: Promise.resolve({ types: 'paid', amenities: 'shower' }),
+    });
+    expect(out).toBeTruthy();
   });
 });
 

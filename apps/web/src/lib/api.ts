@@ -592,22 +592,40 @@ export interface RegionListingData {
   dropOne?: { kind: 'type' | 'amenity'; key: string; matched: number }[];
 }
 
+const NO_REGION: RegionListingData = { region: null, total: 0, items: [] };
+
 /**
  * @param search  the filter, sort and unknown parameters after `?page=N`,
  *                from `hub-filters.ts` `apiSearch` — `''` for the plain hub.
+ * @param live    the call is made on a reader's request (the `/filter`
+ *                route renders per request), so an API that cannot be
+ *                reached at all is answered like an API that said 5xx:
+ *                no region, which the page turns into a 404.
+ *
+ * 🔴 `live` is opt-in and the build never sets it. At build time a
+ * network failure MUST throw: `getSpot` returning null on a throttled
+ * API once produced 580 pages out of 9 830 with exit code 0 (see
+ * `apiFetch`), and a swallowed `fetch failed` here would do the same to
+ * every region hub.
  */
 export async function getRegionSpots(
   country: string,
   region: string,
   page = 1,
   search = '',
+  { live = false }: { live?: boolean } = {},
 ): Promise<RegionListingData> {
-  const res = await apiFetch(`/spots/${encodeURIComponent(country)}/${encodeURIComponent(
-      region,
-    )}?page=${page}${search}`,
-    { next: { revalidate: 86400 } },
-  );
-  if (!res.ok) return { region: null, total: 0, items: [] };
+  const path = `/spots/${encodeURIComponent(country)}/${encodeURIComponent(
+    region,
+  )}?page=${page}${search}`;
+  let res: Response;
+  try {
+    res = await apiFetch(path, { next: { revalidate: 86400 } });
+  } catch (e) {
+    if (!live) throw e;
+    return NO_REGION;
+  }
+  if (!res.ok) return NO_REGION;
   return res.json();
 }
 
