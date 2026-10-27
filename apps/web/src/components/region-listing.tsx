@@ -4,6 +4,7 @@ import {
   AMENITY_KEYS,
   AMENITY_LABEL_SHORT,
   countryName,
+  getHubStats,
   getRegions,
   getRegionSpots,
   REGION_PER_PAGE,
@@ -37,6 +38,8 @@ import {
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { ButtonLink } from '@/components/button';
 import RegionInsights from '@/components/region-insights';
+import { countedAsOf, regionFaq, regionTiles } from '@/lib/hub-stats';
+import { HubFaq, HubStatTiles } from '@/components/hub-stats';
 
 // CAMP-71, level 2: the region hub. Shared by /camping/{c}/{r},
 // /camping/{c}/{r}/page/{n} and /camping/{c}/{r}/filter?… so the first
@@ -69,14 +72,27 @@ export default async function RegionListing({
   // Per request, an API that cannot be reached is answered like one that
   // said 5xx — no region, a 404 — instead of a 500. Never at build time:
   // see `getRegionSpots` for why a build must fail loudly here.
-  const meta = await regionMeta(country, region).catch((e: unknown) => {
-    if (!live) throw e;
-    return null;
-  });
-  const data = await getRegionSpots(country, region, page, apiSearch(q), {
-    live,
-  });
+  // 🔴 The one address a region's own prose and figures may live at: its
+  // base URL, page 1, built statically. Not page 2, not /filter?…
+  // (rendered per request, `live`), not even /filter with every box
+  // unticked. Decided before anything is fetched, so the filter route —
+  // hundreds of thousands of addresses — never asks for the figures.
+  const baseFirstPage = page === 1 && !live && !hasState(q);
+  const [meta, data, stats] = await Promise.all([
+    regionMeta(country, region).catch((e: unknown) => {
+      if (!live) throw e;
+      return null;
+    }),
+    getRegionSpots(country, region, page, apiSearch(q), { live }),
+    baseFirstPage ? getHubStats(country) : Promise.resolve([]),
+  ]);
   if (!meta || !data.region) notFound();
+
+  // Design-audit §11, screen 2 and the FAQ: this region's own counts, or
+  // nothing at all when its row did not arrive (lib/hub-stats.ts).
+  const own = baseFirstPage ? (stats.find((r) => r.slug === region) ?? null) : null;
+  const tiles = own ? regionTiles(own) : [];
+  const faq = own ? regionFaq(own) : [];
 
   // 🔴 The number the page shows beside the filters is the API's count
   // over the whole filtered set, never the length of the page it holds —
@@ -95,10 +111,6 @@ export default async function RegionListing({
   const cName = countryName(country);
   const base = `/camping/${country}/${region}`;
   const here = hubHref(base, q);
-  // 🔴 The one address a region's own prose may live at: its base URL,
-  // page 1, built statically. Not page 2, not /filter?… (rendered per
-  // request, `live`), not even /filter with every box unticked.
-  const baseFirstPage = page === 1 && !live && !hasState(q);
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
@@ -153,6 +165,10 @@ export default async function RegionListing({
         {!filtering && pages > 1 && ` — page ${page} of ${pages}`}.
       </p>
 
+      {baseFirstPage && (
+        <HubStatTiles tiles={tiles} asOf={countedAsOf(own?.readAt ?? null)} />
+      )}
+
       <HubFilters base={base} q={q} data={data} pages={pages} />
 
       {/* The base page of the region, page 1 only. A paragraph repeated
@@ -188,6 +204,8 @@ export default async function RegionListing({
         ) : (
           <Pagination base={base} page={page} pages={pages} />
         ))}
+
+      {baseFirstPage && <HubFaq items={faq} region={data.region} />}
 
       <RegionNeighbours
         country={country}

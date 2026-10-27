@@ -176,6 +176,16 @@ export class SpotsController {
     return out;
   }
 
+  /**
+   * The stat tiles and FAQ of the hub pages: one row per region of a
+   * country. Declared before `:country/:region`, as `map/region/…` is; a
+   * country code is two letters, so `hub-stats` can never be one.
+   */
+  @Get('hub-stats/:country')
+  hubStats(@Param('country') country: string) {
+    return this.spots.hubStats(country);
+  }
+
   /** CAMP-71: countries for /camping. */
   @Get('countries')
   countries() {

@@ -236,6 +236,32 @@ export async function renderNestedAsync<P>(
 }
 
 /**
+ * A page whose tree holds NESTED async server components — a region hub
+ * is `RegionPage` → async `RegionListing` → async `RegionNeighbours` —
+ * rendered through Fizz, which (unlike `renderToStaticMarkup`) can wait
+ * for a component that returns a promise. Streamed to completion, then
+ * read as one string: the HTML a reader is served, nothing less.
+ *
+ * `renderAsyncComponent` above awaits only the top level and stays the
+ * default; this exists for pages it cannot reach.
+ */
+export async function renderNestedAsync<P>(
+  Component: (props: P) => Promise<unknown>,
+  props: P,
+  options: { omit?: unknown[] } = {},
+): Promise<string> {
+  const tree = await Component(props);
+  omitted = new Set(options.omit ?? []);
+  try {
+    const stream = await renderToReadableStream(toReact(tree) as ReactElement);
+    await stream.allReady;
+    return await new Response(stream).text();
+  } finally {
+    omitted = new Set();
+  }
+}
+
+/**
  * True when a component genuinely rendered nothing.
  *
  * 🔴 Asserting `=== ''` alone would also pass if this bridge were

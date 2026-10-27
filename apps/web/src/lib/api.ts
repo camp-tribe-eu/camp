@@ -13,6 +13,7 @@ import type { AirQualityFacts } from './air-quality';
 // CAMP-255: may a motorhome stay the night here.
 import type { OvernightFacts } from './overnight';
 import { readRegionInsights, type RegionInsights } from './region-insights';
+import { readHubStats, type HubRegionStats } from './hub-stats';
 
 export type { SpotSource };
 export type { Tariff };
@@ -649,6 +650,20 @@ export async function getRegionInsights(
   );
   if (!res.ok) return null;
   return readRegionInsights(await res.json());
+}
+
+/**
+ * The hub pages' figures, one row per region, validated row by row
+ * (`readHubStats`): a row that does not read is dropped, the rest stay.
+ * An API without the route — it deploys separately — yields no rows and
+ * so no tiles, which is the safe direction.
+ */
+export async function getHubStats(country: string): Promise<HubRegionStats[]> {
+  const res = await apiFetch(`/spots/hub-stats/${encodeURIComponent(country)}`, {
+    next: { revalidate: 86400 },
+  });
+  if (!res.ok) return [];
+  return readHubStats(await res.json());
 }
 
 // ── CAMP-41: the home page ───────────────────────────────────────────────

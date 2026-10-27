@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { countryName, getCountries, getRegions } from '@/lib/api';
+import { countryName, getCountries, getHubStats, getRegions } from '@/lib/api';
+import { countedAsOf, countryTiles, hubStatsReadAt } from '@/lib/hub-stats';
+import { HubStatTiles } from '@/components/hub-stats';
+import { ButtonLink } from '@/components/button';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import OvernightCoverage from '@/components/overnight-coverage';
@@ -47,11 +50,15 @@ export async function generateMetadata(
 
 export default async function CountryHub(props: { params: Promise<Params> }) {
   const params = await props.params;
-  const regions = await getRegions(params.country);
+  const [regions, stats] = await Promise.all([
+    getRegions(params.country),
+    getHubStats(params.country),
+  ]);
   if (regions.length === 0) notFound();
 
   const name = countryName(params.country);
   const spots = regions.reduce((n, r) => n + r.spots, 0);
+  const tiles = countryTiles(stats);
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
@@ -97,6 +104,17 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
         OpenStreetMap, and where nobody has recorded them we say so rather
         than guessing.
       </p>
+
+      {/* Design-audit §11, screen 1: the four figures and the two ways on.
+          Which figures are printed is decided in lib/hub-stats.ts — a
+          price appears only where enough sites carry one. */}
+      <HubStatTiles tiles={tiles} asOf={countedAsOf(hubStatsReadAt(stats))} />
+      <div className="mt-5 flex flex-wrap gap-2">
+        <ButtonLink href="/map" variant="accent">
+          Open on map
+        </ButtonLink>
+        <ButtonLink href="/plan">Plan a trip</ButtonLink>
+      </div>
 
       {/* 🔴 CAMP-255. Always rendered: a country where nothing is known
           says so in a sentence instead of saying nothing. */}
