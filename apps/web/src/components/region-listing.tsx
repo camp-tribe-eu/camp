@@ -23,6 +23,7 @@ import {
   isFiltering,
   parseHubQuery,
   REGION_SORTS,
+  relFor,
   SORT_LABEL,
   withAmenity,
   without,
@@ -184,6 +185,10 @@ export default async function RegionListing({
  *
  * Counts are the API's facets — how many a reader would see after
  * choosing that chip — and are drawn only when the API sent them.
+ *
+ * 🔴 Every link INTO `/filter?…` carries `rel="nofollow"` — see `relFor`
+ * in hub-filters.ts for why that, and not robots.txt. Links back to the
+ * static region stay plain.
  */
 function HubFilters({
   base,
@@ -256,6 +261,7 @@ function HubFilters({
                 {unknown} more where nobody recorded {amenityList(q)} —{' '}
                 <Link
                   href={hubHref(base, withUnknown(q, true))}
+                  rel="nofollow"
                   className="text-line-blue underline"
                 >
                   include them
@@ -267,6 +273,7 @@ function HubFilters({
                 {' · '}
                 <Link
                   href={hubHref(base, withUnknown(q, false))}
+                  rel="nofollow"
                   className="text-line-blue underline"
                 >
                   only recorded
@@ -293,6 +300,7 @@ function HubFilters({
               ) : (
                 <Link
                   href={hubHref(base, withSort(q, s))}
+                  rel="nofollow"
                   className="underline hover:text-heading"
                 >
                   {SORT_LABEL[s]}
@@ -320,6 +328,7 @@ function Chip({
   return (
     <ButtonLink
       href={href}
+      rel={relFor(href)}
       variant={on ? 'accent' : 'chip'}
       size="sm"
       aria-current={on ? 'true' : undefined}
@@ -397,6 +406,7 @@ function EmptyResult({
             variant="primary"
             size="sm"
             href={hubHref(base, without(q, best.kind, best.key))}
+            rel={relFor(hubHref(base, without(q, best.kind, best.key)))}
           >
             Remove &ldquo;{filterLabel(best.kind, best.key)}&rdquo;
           </ButtonLink>
@@ -406,6 +416,7 @@ function EmptyResult({
               variant="primary"
               size="sm"
               href={hubHref(base, withUnknown(q, true))}
+              rel="nofollow"
             >
               Include the {unknown} unrecorded
             </ButtonLink>
@@ -502,6 +513,7 @@ function FilteredPagination({
         <ButtonLink
           key={n}
           href={hubHref(base, withPage(q, n))}
+          rel={relFor(hubHref(base, withPage(q, n)))}
           aria-current={n === q.page ? 'page' : undefined}
           variant={n === q.page ? 'accent' : 'chip'}
           size="sm"

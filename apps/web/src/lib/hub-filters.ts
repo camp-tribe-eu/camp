@@ -120,6 +120,27 @@ export function hubHref(base: string, q: HubQuery): string {
 }
 
 /**
+ * `rel` for a link to a hub address: `nofollow` when it leads INTO a
+ * filtered view, nothing when it leads to a static page.
+ *
+ * 🔴 WHY NOFOLLOW AND NOT robots.txt. Per region there are ~196 000
+ * filter combinations, every chip on every hub links to fifteen of them
+ * and every filtered page to fifteen more: a crawl trap. A `Disallow`
+ * would stop the crawl — but, as `robots-rules.ts` records for the
+ * closed mode, a crawler that never fetches the page never reads its
+ * `noindex`, and a blocked URL linked from inside the site can still
+ * surface as a bare link. `nofollow` on the link keeps the crawler off
+ * the chips while leaving the `noindex` readable for anyone who arrives
+ * anyway. The standard answer for faceted navigation, not an invention.
+ *
+ * Links OUT of a filtered view — "clear filters", the region, its
+ * neighbours, the campsites — stay plain: those the crawler must follow.
+ */
+export function relFor(href: string): 'nofollow' | undefined {
+  return href.includes('/filter?') ? 'nofollow' : undefined;
+}
+
+/**
  * What the API is asked, after `?page=N`. Same names, same values — the
  * API's `parseRegionQuery` reads exactly this.
  */

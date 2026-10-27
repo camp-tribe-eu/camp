@@ -245,6 +245,29 @@ test('sort is three plain links, the current one not a link', async () => {
   expect(hrefs).not.toContain(`${BASE}/page/2`);
 });
 
+// ── the crawl stays off the filter combinations ───────────────────────────
+
+test('🔴 every link into /filter?… is rel="nofollow"; every other link is not', async () => {
+  const cases: Record<string, string>[] = [
+    {},
+    { types: 'paid' },
+    { types: 'wild', amenities: 'laundry' },
+    { types: 'free', sort: 'facilities' },
+  ];
+  for (const sp of cases) {
+    const html = await render(sp);
+    const anchors = [...html.matchAll(/<a\b[^>]*>/g)].map((m) => m[0]);
+    expect(anchors.length).toBeGreaterThan(20);
+    for (const a of anchors) {
+      const href = decodeEntities(/\bhref="([^"]+)"/.exec(a)?.[1] ?? '');
+      const nofollow = /\brel="nofollow"/.test(a);
+      expect(nofollow, `${JSON.stringify(sp)}: ${a}`).toBe(href.includes('/filter?'));
+    }
+    // And the chips really are the thing being checked: at least 14 of them lead into /filter.
+    expect(anchors.filter((a) => /rel="nofollow"/.test(a)).length).toBeGreaterThanOrEqual(14);
+  }
+});
+
 // ── the crawl path is intact ──────────────────────────────────────────────
 
 test('the first `main ul li a` is still a campsite, not a filter chip', async () => {
