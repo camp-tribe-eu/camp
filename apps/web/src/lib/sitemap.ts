@@ -354,7 +354,6 @@ export async function campsiteUrls(): Promise<SitemapUrl[]> {
   // surroundings and owners claim listings. If it climbs, something is
   // importing campsites faster than it is describing them.
   const thin = index.filter((s: SpotIndexEntry) => !s.indexable).length;
-  // eslint-disable-next-line no-console
   console.log(
     `campsite pages: ${index.length}, of which ${thin} carry nothing but a ` +
       `name (${((100 * thin) / (index.length || 1)).toFixed(1)}%) — noindex, ` +

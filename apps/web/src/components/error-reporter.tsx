@@ -126,7 +126,6 @@ export default function ErrorReporter() {
         if (ENDPOINT) void send(ENDPOINT, e);
         else if (process.env.NODE_ENV !== 'production') {
           // The console is the endpoint while there is no server.
-          // eslint-disable-next-line no-console
           console.warn('[error-reporter] would report:', e);
         }
       }

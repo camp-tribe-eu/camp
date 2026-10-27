@@ -109,7 +109,19 @@ if (!headers) {
 
 // ── 3. every built page ──────────────────────────────────────────────────
 const pages = [];
-for await (const f of glob(`${ROOT}/**/*.html`)) pages.push(f);
+for await (const f of glob(`${ROOT}/**/*.html`)) {
+  // 🔴 `_global-error.html` — оболонка Next 16 для фатальної помилки
+  // (CAMP-383). Її пише сам Next (`<html id="__next_error__">`, «500: This
+  // page couldn't load»), а НЕ наш `global-error.tsx` і не кореневий
+  // макет — тож мета-тега robots там немає й бути не може. Транспортний
+  // механізм (№ 2, X-Robots-Tag) її накриває: заміряно `curl -D -` на
+  // `next start` 16.2.12. Прибирається з переліку ЦІЛКОМ, а не лише з
+  // червоного списку: інакше в публічній збірці сторож «усі сторінки
+  // noindex» ніколи б не спрацював, бо одна сторінка без мета-тега є
+  // завжди.
+  if (path.relative(ROOT, f) === '_global-error.html') continue;
+  pages.push(f);
+}
 
 let noindexPages = 0;
 const wrong = [];

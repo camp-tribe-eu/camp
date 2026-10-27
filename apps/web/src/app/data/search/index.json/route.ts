@@ -58,7 +58,6 @@ export async function GET() {
   // is what their phone then has to parse and hold. CAMP-135 shipped
   // the compressed one and printed only the raw one, which is how a
   // budget goes unwatched for a second time.
-  // eslint-disable-next-line no-console
   console.log(
     `search index: ${plan.reduce((n, c) => n + c.docs.length, 0)} campsites in ` +
       `${index.chunks.length} files, ${(sent / 1_000_000).toFixed(2)} MB gzipped ` +
