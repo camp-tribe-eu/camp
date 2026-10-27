@@ -19,6 +19,27 @@ import {
 // source of truth in src/lib/environment.ts — and the pre-launch
 // checker verifies both agree.
 
+// 🔴 CAMP-383: БАНДЛЕР ЗБІРКИ — WEBPACK, ЯВНО (скрипт `build` у package.json
+// каже `next build --webpack`), І ОСЬ ЧОМУ.
+//
+// Next 16 мовчки робить Turbopack бандлером за замовчуванням, а цей файл
+// про бандлер не каже нічого — тобто без прапорця бандлер змінився б
+// непомітно. Наша продакшн-збірка — 57 507 сторінок на машині 4 CPU /
+// 7,7 ГБ під `--max-old-space-size=5120` (infra/bin/camptribe-deploy), і
+// для Turbopack відкриті vercel/next.js #97802 (збірка насичує 4 ГБ і
+// зависає або OOM) та #95745 (воркери ігнорують ліміт памʼяті).
+//
+// Заміряно 27.10.2026 на фікстурі CI (73 кемпінги, 183 HTML), 8 CPU /
+// 16 ГБ, пік RSS усього дерева процесів (sampler, 0,5 с):
+//   next 15.5.28 webpack     19 с   2 421 МБ
+//   next 16.2.12 --webpack   17 с   1 769 МБ
+//   next 16.2.12 Turbopack   11 с   2 236 МБ
+// Turbopack швидший, але бере на 26 % більше памʼяті вже на 183
+// сторінках, а як він поводиться на 57 507 — тут не заміряти. Тому
+// бандлер лишається тим, яким зібрано кожен реліз досі. Перехід на
+// Turbopack — окрема картка з повною збіркою на машині, не побічний
+// ефект оновлення фреймворку.
+
 const isPublic = process.env.NEXT_PUBLIC_SITE_MODE === 'public';
 
 const nextConfig = {
