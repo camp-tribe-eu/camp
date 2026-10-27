@@ -342,9 +342,19 @@ describe('listRegion: sort', () => {
 
   it('a page past the set has no items and no database error', async () => {
     // 3 pages of 2; page 4 is nothing, page 1e20 is page 1 at the parser.
-    const r = await listRegion(db, COUNTRY, REGION, q({}, 'name', 4), 2);
+    const sent: string[] = [];
+    const counting = {
+      query: async (sql: string, params?: unknown[]) => {
+        sent.push(sql);
+        return db.query(sql, params);
+      },
+    };
+    const r = await listRegion(counting, COUNTRY, REGION, q({}, 'name', 4), 2);
     expect(r.items).toEqual([]);
     expect(r.matched).toBe(5);
+    // Only the count ran: no OFFSET was ever sent for a page that is not there.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toMatch(/OFFSET/);
     expect(parseRegionQuery({ page: '1e20' }).page).toBe(1);
     expect(parseRegionQuery({ page: '99999999999999999999' }).page).toBe(1);
     expect(parseRegionQuery({ page: '7' }).page).toBe(7);
