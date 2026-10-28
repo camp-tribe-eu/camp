@@ -1874,7 +1874,7 @@ async function selfTest() {
       (await latest([])) === '' && (await latest({ message: 'Not Found' })) === '' && (await latest([{ draft: true, tag_name: 'x' }])) === '');
   }
 
-  // 🔴 CAMP-NEW: the age of a release, for an import nobody is watching.
+  // 🔴 The age of a release, for an import nobody is watching.
   {
     const latest = (list) => latestTag({ fetchImpl: async () => new Response(JSON.stringify(list), { status: 200 }), env: {} });
     ok('the latest DATA tag skips a newer release that is not one of ours',
