@@ -17,6 +17,15 @@
 // роботи побіжать, і порівнюємо з таблицею нижче. Cron, якого в таблиці
 // немає, — теж помилка: новий розклад мусить сказати, кого він будить.
 //
+// 🔴 `needs:` У ЦЬОМУ ФАЙЛІ ЗАБОРОНЕНО. GitHub пропускає роботу, чия
+// залежність пропущена, — а `quiet`, `stale-sources` і `dependabot-prs`
+// на тригодинному тіку саме пропускаються. Один рядок `needs: quiet` на
+// `uptime` тихо вимкнув би сторож доступності на КОЖНОМУ тригодинному
+// тіку, а перевірка `if:` цього не бачить (рецензія PR #370: мутація
+// пройшла зеленою). Заборона простіша й надійніша за прогін skip по графу
+// залежностей: той мав би моделювати `always()`, `!cancelled()` і
+// `skipped`, і кожне з них — ще одне місце, де сам сторож помилиться.
+//
 // Обчислювач `if:` навмисно куций (`==`, `!=`, `&&`, `||`, `!`, дужки,
 // рядки, `github.event_name`, `github.event.schedule`). Усе інше він
 // КИДАЄ, а не вгадує: функція чи контекст, яких він не знає, дали б
@@ -134,6 +143,16 @@ export function problems(text, expected = EXPECTED) {
   const jobs = wf?.jobs ?? {};
   const names = Object.keys(jobs);
   const out = [];
+  for (const n of names) {
+    if (jobs[n].needs !== undefined) {
+      const dep = [jobs[n].needs].flat().join(', ');
+      out.push(
+        `робота «${n}» має \`needs: ${dep}\` — у цьому файлі \`needs:\` заборонено: ` +
+          `залежність від пропущеної роботи робить пропущеною і цю. На тіку, де «${dep}» ` +
+          `не біжить, «${n}» теж не побіжить — тихо, зі статусом skipped`,
+      );
+    }
+  }
   const runs = (ctx) =>
     names.filter((n) => {
       const cond = jobs[n].if;
@@ -249,7 +268,16 @@ function selfTest() {
   const newCron = mutate('новий cron без договору', "    - cron: '0 8 * * *'\n", "    - cron: '0 8 * * *'\n    - cron: '5 5 * * 1'\n");
   is('новий cron, якого нема в договорі — червоніє', newCron.some((p) => p.includes('немає в договорі')), true);
 
-  const EXPECTED_CASES = 27;
+  // `needs:` — мутація, яку пропустила перша версія (рецензія PR #370).
+  const needsUptime = mutate('needs на uptime', '  uptime:\n', '  uptime:\n    needs: quiet\n');
+  is('`needs: quiet` на uptime — червоніє', needsUptime.length > 0, true);
+  is('…і називає роботу', needsUptime.some((p) => p.includes('«uptime»')), true);
+  is('…і називає залежність', needsUptime.some((p) => p.includes('needs: quiet')), true);
+  is('…і каже чому', needsUptime.some((p) => p.includes('пропущеною')), true);
+  const needsList = mutate('needs-список на щоденній', '  stale-sources:\n', '  stale-sources:\n    needs: [quiet, uptime]\n');
+  is('`needs` списком на щоденній роботі — теж червоніє', needsList.some((p) => p.includes('«stale-sources»')), true);
+
+  const EXPECTED_CASES = 34;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ виконано ${cases.length} випадків, очікувалось ${EXPECTED_CASES}`);
     rc = 1;
