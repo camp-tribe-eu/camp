@@ -483,6 +483,13 @@ jobs:
             echo "- regions: **${{ steps.check.outputs.got }} of ${{ needs.plan.outputs.count }}**"
             echo "- campsites: **${{ steps.check.outputs.total }}**"
             echo "- release: \`osm-$(date -u +%Y-%m-%d)\` (kept, not expiring)"
+            # 🔴 WHAT GREEN MEANS HERE. This run ends at the release: no step
+            # of it touches the database, by design (see the header). A green
+            # run therefore says "the extract was built", and 28.10.2026 showed
+            # it being read as "the data is updated" — `camping_spots` sat on
+            # 17.10 under a week of green runs because nothing took the release
+            # to the machine. The line says so where the person looks.
+            echo "- imported into the database: **not by this workflow.** The server's \`camptribe-osm-import.timer\` (infra/systemd) imports the newest release on Tuesdays at 04:30 UTC."
           } >> "$GITHUB_STEP_SUMMARY"
 
   # 🔴 A scheduled run that fails at 04:00 on a Monday fails to nobody.

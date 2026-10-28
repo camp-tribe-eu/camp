@@ -83,8 +83,8 @@ const args = process.argv.slice(2);
 // 🔴 Every flag this script acts on, and the positionals it takes: the
 // country codes, as in `import-release.mjs --tag osm-2026-09-24 fr si`
 // (osm-weekly.yml:403). Anything else is a typo (CAMP-286).
-const KNOWN_FLAGS = ['--self-test', '--self-test-db', '--tag'];
-const FLAGS_WITH_VALUES = ['--tag'];
+const KNOWN_FLAGS = ['--self-test', '--self-test-db', '--tag', '--max-age-days'];
+const FLAGS_WITH_VALUES = ['--tag', '--max-age-days'];
 const MAX_COUNTRIES = 27;
 /**
  * The value of a `--flag value` pair.
@@ -359,7 +359,10 @@ function httpFailure(res, url) {
     res.status === 403 || res.status === 429
       ? ' (rate limit? set GITHUB_TOKEN — it is sent to api.github.com and nowhere else)'
       : '';
-  return new Error(`GitHub answered HTTP ${res.status} for ${new URL(url).pathname}${hint}`);
+  const err = new Error(`GitHub answered HTTP ${res.status} for ${new URL(url).pathname}${hint}`);
+  // The number, as a number: `isTransient` must not read it back out of prose.
+  err.status = res.status;
+  return err;
 }
 
 /**
@@ -398,13 +401,146 @@ export async function downloadAsset(url, dest, { fetchImpl = fetch, timeoutMs = 
   return dest;
 }
 
-/** The tag of the newest release that is not a draft, or '' if there is none. */
+/**
+ * Is this failure worth another try? A dropped connection, a timeout, a 5xx
+ * or a 429 are the network having a moment; a 404 or a 403 will answer the
+ * same way every time, and trying again only delays the message.
+ */
+export function isTransient(err) {
+  const status = err?.status;
+  if (typeof status === 'number') return status >= 500 || status === 429 || status === 408;
+  return true;
+}
+
+/**
+ * `downloadAsset`, with a second and third chance for the network's bad moments.
+ *
+ * 🔴 MEASURED 28.10.2026, ON THE MACHINE THIS RUNS ON: 23 of 27 countries
+ * imported and four (DK, ES, IT, FR) died with the two words "fetch failed" —
+ * and a fresh download of the same four files a minute later worked, 200 each,
+ * 0.3 s. An attended run is rerun by the person who watched it fail. A timer
+ * has no such person: one dropped connection to GitHub's CDN would have
+ * cost a country its refresh for a week, and the unit would have said only
+ * that it failed.
+ *
+ * Only the DOWNLOAD is repeated, and only for a transient failure. The load
+ * and the import are not retried here: they write, and a write that failed
+ * halfway is a question for a person, not for a loop.
+ */
+export async function downloadWithRetry(url, dest, { attempts = 3, pauseMs = 2000, ...opts } = {}) {
+  let last;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await downloadAsset(url, dest, opts);
+    } catch (err) {
+      last = err;
+      if (!isTransient(err) || i === attempts) break;
+      await new Promise((resolve) => setTimeout(resolve, pauseMs * i));
+    }
+  }
+  throw last;
+}
+
+/**
+ * One line that says what went wrong, with the cause the runtime hides.
+ *
+ * 🔴 undici reports every network failure as `TypeError: fetch failed` and
+ * keeps the reason — a connect timeout, a reset, a DNS miss — in `.cause`.
+ * The four failures on 28.10.2026 were printed as "fetch failed" and nothing
+ * else, which is a message that cannot be acted on.
+ */
+export function failureReason(err) {
+  const base = String(err?.stderr || err?.message || err).split('\n')[0];
+  const c = err?.cause;
+  const cause = c?.code || c?.message;
+  return cause && !base.includes(String(cause)) ? `${base} (${cause})` : base;
+}
+
+/**
+ * The one tag shape the weekly workflow creates, and the same pattern its
+ * prune step uses (`osm-weekly.yml`, "Prune data releases").
+ */
+export const DATA_TAG = /^osm-(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * The tag of the newest DATA release that is not a draft, or '' if there is
+ * none.
+ *
+ * 🔴 "Newest release" became "newest release whose tag is a data tag". This
+ * is the call an unattended timer makes every week, and the repository can
+ * publish other things — a hand-made release, a deploy marker. The newest
+ * of those would have been taken for an extract, and the run would have
+ * failed 27 times on "asset not found": loud, but a week lost on a name.
+ */
 export async function latestTag(opts) {
   const list = await fetchJson(recentReleasesUrl(), opts);
   const first = Array.isArray(list)
-    ? list.find((r) => r && !r.draft && typeof r.tag_name === 'string')
+    ? list.find((r) => r && !r.draft && typeof r.tag_name === 'string' && DATA_TAG.test(r.tag_name))
     : undefined;
   return first?.tag_name ?? '';
+}
+
+/** Days from the release's UTC date to `now`, or null when the tag carries no date. */
+export function releaseAgeDays(tag, now = Date.now()) {
+  const m = String(tag).match(DATA_TAG);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = Date.UTC(y, mo - 1, d);
+  const back = new Date(t);
+  // Date.UTC rolls 31 February over to March; a tag naming it names no day.
+  if (back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d) return null;
+  return (now - t) / 86_400_000;
+}
+
+/** `--max-age-days` as a whole number of days, or null when it was not given. */
+export function parseMaxAge(raw) {
+  if (raw === null || raw === undefined) return null;
+  if (!/^[1-9][0-9]{0,2}$/.test(String(raw))) {
+    throw new Error(`--max-age-days wants a whole number of days (1 to 999), not ${JSON.stringify(String(raw).slice(0, 20))}`);
+  }
+  return Number(raw);
+}
+
+/**
+ * Refuse a release that is older than the weekly cycle allows.
+ *
+ * 🔴 WHY AN UNATTENDED IMPORT NEEDS THIS, AND AN ATTENDED ONE DOES NOT.
+ *
+ * Every row an import touches gets `last_seen_at = <the moment this run
+ * started>` — not the date of the extract. A person running it by hand has
+ * just read the release page and knows how old it is. A timer does not:
+ * if the Monday workflow fails for three weeks, the timer re-imports the
+ * same old release every week, stamps all 63 000 rows "seen just now", and
+ * the freshness check — which reads exactly that column — reports the
+ * campsites green while the data under it is a month old. The one number
+ * that is supposed to say "this is stale" would be written by the thing
+ * that makes it stale.
+ *
+ * So the age is the TAG's, which is the day the extract was built and is
+ * the only date this script can read before it downloads anything. Over the
+ * limit it stops, names the release, and exits non-zero — the unit fails,
+ * which is the alarm. Not given, nothing is checked: the by-hand run keeps
+ * working on any tag, including an old one on purpose.
+ */
+export function checkAge(tag, maxAgeDays, now = Date.now()) {
+  if (maxAgeDays === null || maxAgeDays === undefined) return;
+  const age = releaseAgeDays(tag, now);
+  if (age === null) {
+    throw new Error(
+      `cannot tell how old ${JSON.stringify(tag)} is (it is not osm-YYYY-MM-DD) — ` +
+        '--max-age-days was given, so an age that cannot be proved is a refusal',
+    );
+  }
+  if (age < 0) {
+    throw new Error(`release ${tag} is dated in the future (${age.toFixed(1)} days) — refusing`);
+  }
+  if (age > maxAgeDays) {
+    throw new Error(
+      `release ${tag} is ${age.toFixed(1)} days old, over the ${maxAgeDays}-day limit — the weekly ` +
+        'extract has not been published. Importing it would stamp last_seen_at "now" on old data ' +
+        'and the freshness check would call it fresh. Nothing has been imported.',
+    );
+  }
 }
 
 export async function assetSizes(tag, opts) {
@@ -1738,6 +1874,139 @@ async function selfTest() {
       (await latest([])) === '' && (await latest({ message: 'Not Found' })) === '' && (await latest([{ draft: true, tag_name: 'x' }])) === '');
   }
 
+  // 🔴 CAMP-NEW: the age of a release, for an import nobody is watching.
+  {
+    const latest = (list) => latestTag({ fetchImpl: async () => new Response(JSON.stringify(list), { status: 200 }), env: {} });
+    ok('the latest DATA tag skips a newer release that is not one of ours',
+      (await latest([{ tag_name: 'v1.2.0', draft: false }, { tag_name: 'deploy-2026-10-27', draft: false }, { tag_name: 'osm-2026-10-26', draft: false }, { tag_name: 'osm-2026-10-19' }])) === 'osm-2026-10-26');
+    ok('a list with no data release at all is the empty string, not a stranger’s tag',
+      (await latest([{ tag_name: 'v1.2.0', draft: false }])) === '');
+    const T = Date.UTC(2026, 9, 27, 4, 30); // Tuesday 04:30, the morning after the Monday build
+    ok('the age is counted from the tag’s own UTC date, in days',
+      Math.abs(releaseAgeDays('osm-2026-10-26', T) - (28.5 / 24)) < 1e-9, String(releaseAgeDays('osm-2026-10-26', T)));
+    ok('a tag with no date in it has no age', releaseAgeDays('v1.2.0', T) === null && releaseAgeDays('osm-2026-10-26-x', T) === null);
+    ok('a date that does not exist has no age — 31 February is not rolled into March', releaseAgeDays('osm-2026-02-31', T) === null);
+    const stale = (tag, max, now = T) => { try { checkAge(tag, max, now); return null; } catch (e) { return String(e.message); } };
+    ok('a release inside the limit passes', stale('osm-2026-10-26', 8) === null);
+    ok('…the limit itself passes: 8 days to the hour is not over 8', stale('osm-2026-10-19', 8, Date.UTC(2026, 9, 27, 0, 0)) === null);
+    ok('a release over the limit stops the run, names the tag and the age, and says nothing was imported',
+      /osm-2026-10-12 is 15\.2 days old, over the 8-day limit/.test(stale('osm-2026-10-12', 8) ?? '') &&
+        /Nothing has been imported/.test(stale('osm-2026-10-12', 8) ?? ''), String(stale('osm-2026-10-12', 8)));
+    ok('and says WHY: the stamp would be written now on old data', /last_seen_at/.test(stale('osm-2026-10-12', 8) ?? ''));
+    ok('with a limit, a tag whose age cannot be proved is refused, not waved through',
+      /cannot tell how old/.test(stale('v1.2.0', 8) ?? ''));
+    ok('a release dated in the future is refused', /future/.test(stale('osm-2026-11-30', 8) ?? ''));
+    ok('with no limit nothing is checked — the by-hand run may take any tag, however old',
+      stale('osm-2020-01-01', null) === null && stale('v1.2.0', undefined) === null);
+    ok('--max-age-days is a whole number of days', parseMaxAge('8') === 8 && parseMaxAge(null) === null && parseMaxAge(undefined) === null);
+    ok('…and anything else is refused, naming the flag',
+      ['', '0', '-1', '8d', '8.5', ' 8', 'abc', '1000'].every((v) => throws(() => parseMaxAge(v))) &&
+        /--max-age-days/.test((() => { try { parseMaxAge('abc'); } catch (e) { return e.message; } return ''; })()));
+    ok('--max-age-days is a flag this script KNOWS, and takes a value (an unknown flag is an error)',
+      KNOWN_FLAGS.includes('--max-age-days') && FLAGS_WITH_VALUES.includes('--max-age-days'));
+    // 🔴 THE REAL ENTRY POINT, run as a child — the helpers above prove the
+    // rule, this proves main() uses it before it touches the network. A copy
+    // in a temporary tree with an importer file and a psql that only
+    // answers --version; the tag is explicit, so no request is made for it,
+    // and a run that got past the age check would go on to ask GitHub.
+    // `8` after the flag must not be read as a stray country code.
+    {
+      const dir = realpathSync(mkdtempSync(join(tmpdir(), 'camptribe-age-')));
+      const copy = copyOfThisFile(dir);
+      mkdirSync(join(dir, 'apps', 'api', 'dist', 'osm'), { recursive: true });
+      writeFileSync(join(dir, 'apps', 'api', 'dist', 'osm', 'import-spots.js'), '');
+      const binDir = join(dir, '.bin');
+      mkdirSync(binDir, { recursive: true });
+      symlinkSync(process.execPath, join(binDir, 'node'));
+      writeFileSync(join(binDir, 'psql'), '#!/bin/sh\necho "psql (fake) 17.0"\n', { mode: 0o755 });
+      const child = (extra) => {
+        try {
+          return { status: 0, said: run('node', [copy, ...extra], { env: { PATH: binDir }, timeout: 20000 }) };
+        } catch (e) {
+          return { status: e.status, said: `${e.stdout}${e.stderr}` };
+        }
+      };
+      const old = child(['--tag', 'osm-2020-01-01', '--max-age-days', '8', 'mt']);
+      ok('an old release with --max-age-days exits non-zero, before any download, naming the age',
+        typeof old.status === 'number' && old.status !== 0 && /days old, over the 8-day limit/.test(old.said) &&
+          !/could not read asset sizes|member state\(s\)/.test(old.said), old.said.slice(0, 300));
+      ok('the value after --max-age-days is not taken for a country code',
+        !/is not a two-letter country code/.test(old.said), old.said.slice(0, 300));
+      const bad = child(['--tag', 'osm-2020-01-01', '--max-age-days', 'soon', 'mt']);
+      ok('a --max-age-days that is not a number stops the run, naming the flag',
+        typeof bad.status === 'number' && bad.status !== 0 && /--max-age-days wants a whole number/.test(bad.said), bad.said.slice(0, 300));
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // 🔴 A bad moment of the network costs a second chance, not a country's week.
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'camptribe-retry-'));
+    const scripted = (steps) => {
+      let n = 0;
+      return {
+        calls: () => n,
+        fetchImpl: async () => {
+          const step = steps[Math.min(n++, steps.length - 1)];
+          if (step instanceof Error) throw step;
+          if (typeof step === 'number') return new Response('no', { status: step });
+          return new Response(step);
+        },
+      };
+    };
+    const netErr = () => Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('Connect Timeout Error'), { code: 'UND_ERR_CONNECT_TIMEOUT' }) });
+    const dest = join(dir, 'a.gz');
+    const go = (steps, extra = {}) => {
+      const r = scripted(steps);
+      return { r, done: downloadWithRetry('https://github.com/o/r/releases/download/t/a.gz', dest, { fetchImpl: r.fetchImpl, pauseMs: 1, ...extra }) };
+    };
+    {
+      const { r, done } = go([netErr(), netErr(), 'the bytes']);
+      await done;
+      ok('a download that fails twice on the network and then works lands the file',
+        readFileSync(dest, 'utf8') === 'the bytes' && r.calls() === 3, `calls=${r.calls()}`);
+    }
+    {
+      const { r, done } = go([503, 'again']);
+      await done;
+      ok('a 503 is tried again', r.calls() === 2 && readFileSync(dest, 'utf8') === 'again');
+    }
+    {
+      const { r, done } = go([404, 'never reached']);
+      const e = await done.then(() => null, (x) => x);
+      ok('a 404 is NOT tried again — it would answer the same, only later',
+        e !== null && e.status === 404 && r.calls() === 1, `calls=${r.calls()}`);
+    }
+    {
+      const { r, done } = go([netErr()]);
+      const e = await done.then(() => null, (x) => x);
+      ok('a network that stays down stops after exactly the attempts it was given, and says why',
+        e !== null && r.calls() === 3 && /fetch failed/.test(e.message), `calls=${r.calls()}`);
+    }
+    {
+      const { r, done } = go([netErr()], { attempts: 1 });
+      await done.then(() => null, () => null);
+      ok('attempts: 1 means one', r.calls() === 1);
+    }
+    ok('a 5xx, a 429 and a request that never got an answer are transient; a 404 and a 403 are not',
+      isTransient({ status: 500 }) && isTransient({ status: 429 }) && isTransient({ status: 503 }) &&
+        isTransient(new TypeError('fetch failed')) && !isTransient({ status: 404 }) && !isTransient({ status: 403 }));
+    ok('the status of a failed request is a number on the error, not text to be read back',
+      await (async () => {
+        try {
+          await downloadAsset('https://github.com/x', join(dir, 'b.gz'), { fetchImpl: async () => new Response('', { status: 404 }) });
+          return false;
+        } catch (e) {
+          return e.status === 404;
+        }
+      })());
+    ok('a failure is printed with the cause the runtime hides behind "fetch failed"',
+      failureReason(netErr()) === 'fetch failed (UND_ERR_CONNECT_TIMEOUT)', failureReason(netErr()));
+    ok('…and a plain error is its first line, not a stack',
+      failureReason(new Error('boom\n    at x')) === 'boom' && failureReason({ stderr: 'child said\nmore' }) === 'child said');
+    rmSync(dir, { recursive: true, force: true });
+  }
+
   // …and the same functions over a real socket: a body that streams, a
   // redirect to a CDN, a 404, a connection cut halfway.
   {
@@ -2099,6 +2368,31 @@ async function selfTest() {
   // was no risk while this file imported only execFileSync; it imports
   // `spawn` now, from the same module, and `exec` is one word away from it.
   ok('exec is not used', !EXEC_CALL.test(source));
+  // 🔴 THE UNIT AND THE SCRIPT ARE TIED HERE, IN CI, NOT ONLY ON THE MACHINE.
+  // The freshness sentry's unit passed a flag its script did not know for
+  // three weeks (CAMP-399): the script swallowed it and the timer reported
+  // success over nothing. This script refuses an unknown flag with exit 2,
+  // so the same break would fail the first run — but a timer's first run is
+  // on a Tuesday at 04:30. Read the unit, here, before it ships.
+  {
+    const unit = readFileSync(new URL('../../infra/systemd/camptribe-osm-import.service', import.meta.url), 'utf8');
+    const line = unit.split('\n').find((l) => /^ExecStart=.*import-release\.mjs/.test(l));
+    const passed = line === undefined ? null : line.split('import-release.mjs')[1].trim().split(/\s+/).filter(Boolean);
+    const flags = passed === null ? null : passed.filter((a) => a.startsWith('-'));
+    ok('the systemd unit calls this script and passes only flags it knows',
+      flags !== null && flags.length > 0 && flags.every((f) => KNOWN_FLAGS.includes(f)), String(passed));
+    const at = passed === null ? -1 : passed.indexOf('--max-age-days');
+    ok('…and it passes --max-age-days with a value parseMaxAge accepts: the age guard is on in the unit that ships',
+      at >= 0 && parseMaxAge(passed[at + 1]) !== null, String(passed));
+    ok('…and what the unit names as the script is the file that runs (its path ends scripts/osm-pipeline/import-release.mjs)',
+      line !== undefined && /\/scripts\/osm-pipeline\/import-release\.mjs(\s|$)/.test(line), String(line));
+  }
+  // 🔴 THE HELPERS ARE ONLY AS GOOD AS main()'s USE OF THEM. A retry that is
+  // tested and not called is a guard that is green and absent.
+  ok('main() downloads through downloadWithRetry, not downloadAsset directly',
+    /await downloadWithRetry\(assetDownloadUrl\(/.test(source) && !/await downloadAsset\(assetDownloadUrl\(/.test(source));
+  ok('main() reports a failed country through failureReason, so the cause is printed',
+    /failures\.push\(\{ code, why: failureReason\(err\) \}\)/.test(source));
   // And the stripping must not blind the check: a trailing comment is
   // removed, a shell call on the same line is not.
   /* fixtures-not-code */
@@ -2147,7 +2441,7 @@ async function selfTest() {
   // records that `--self-test` printed "73/73 passed" for a week while
   // the import had not started at all — the number was never the
   // question, the line's owner was.
-  const EXPECTED_CASES = 173;
+  const EXPECTED_CASES = 205;
   if (checks.length !== EXPECTED_CASES) {
     failed += 1;
     console.log(`✗ ${checks.length} cases ran, expected ${EXPECTED_CASES}`);
@@ -2641,6 +2935,7 @@ if (invokedDirectly) {
     .filter((a) => !a.startsWith('-'))
     .filter((a, i, all) => all.indexOf(a) === i)
     .filter((a) => readOpt(args, 'tag', null) !== a)
+    .filter((a) => readOpt(args, 'max-age-days', null) !== a)
     .filter((a) => !/^[a-z]{2}$/i.test(a));
   if (strays.length > 0) {
     throw new Error(
@@ -2700,10 +2995,13 @@ async function main() {
   const { psql, importer } = preflight();
   console.log(`${psql}; importer ${importer}`);
 
+  // Read before any network call: a typo must stop the run at the door.
+  const maxAge = parseMaxAge(opt('max-age-days'));
   const tag = opt('tag') ?? (await latestTag());
   if (!tag) throw new Error('no release found');
   // Refused here, once, rather than 27 times as "could not download".
   checkTag(tag);
+  checkAge(tag, maxAge);
 
   console.log(`release ${tag}`);
   const countries = plan(
@@ -2722,7 +3020,7 @@ async function main() {
       process.stdout.write(`${code.toUpperCase()}  ${asset} … `);
       try {
         const gz = join(work, asset);
-        await downloadAsset(assetDownloadUrl(tag, asset), gz);
+        await downloadWithRetry(assetDownloadUrl(tag, asset), gz);
 
         // 🔴 One load, one transaction, and the COMMIT only after the last
         // feature. See loadStaging for what a bad record and a bad file cost.
@@ -2747,7 +3045,7 @@ async function main() {
         // the workflow's matrix uses, for the same reason: a night's work
         // must not be lost to one bad extract.
         console.log('FAILED');
-        failures.push({ code, why: String(err.stderr || err.message).split('\n')[0] });
+        failures.push({ code, why: failureReason(err) });
       }
     }
   } finally {

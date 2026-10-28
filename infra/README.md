@@ -34,6 +34,10 @@ status=200/CHDIR
 | `systemd/camptribe-freshness.timer` | 06:00 UTC, `Persistent=true` |
 | `systemd/camptribe-coverage-drift.service` | 🔴 чи досі правда таблиця заповненості, на якій стоять ваги планувальника (CAMP-262): `measure-coverage.js --check` |
 | `systemd/camptribe-coverage-drift.timer` | 06:30 UTC, `Persistent=true` |
+| `systemd/camptribe-osm-import.service` | 🔴 вівторок 04:30 UTC: `import-release.mjs --max-age-days 9` (останній реліз `osm-weekly` → `camping_spots`). `spot_links` тут немає навмисно — це вирок людини |
+| `systemd/camptribe-osm-import.timer` | вівторок 04:30 UTC, `Persistent=true` (понеділкове будування екстрактів + доба запасу) |
+| `systemd/camptribe-fuel-prices.service` | 🔴 щодня: `import-stations.js --report` (ES/FR/IT → `fuel_station_prices`) |
+| `systemd/camptribe-fuel-prices.timer` | 05:00 UTC, `Persistent=true` |
 | `bin/camptribe-backup` | бекап CSV + повний `pg_dump` (CAMP-386: інакше 208 обʼєктів `directus_*` і `project_id` ліцензії не бекапились) + **звірка вмісту** + 14 денних зрізів |
 | `bin/camptribe-failed` | лишає слід у `/srv/camptribe/failed/<юніт>` |
 | `bin/camptribe-deploy` | викладка, перевірка й відкат релізу (CAMP-61); зазвичай запускається з ноутбука через `deploy-app.sh` |

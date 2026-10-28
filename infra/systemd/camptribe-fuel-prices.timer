@@ -1,0 +1,11 @@
+[Unit]
+Description=CampTribe fuel station prices refresh, daily
+
+[Timer]
+# Після денного бекапу (03:30) і до сторожа свіжості (06:00), який о цій
+# порі вже бачить нові числа.
+OnCalendar=*-*-* 05:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
