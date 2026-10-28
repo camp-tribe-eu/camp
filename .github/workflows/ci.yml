@@ -1012,6 +1012,15 @@ jobs:
           node scripts/ci/check-schedule.mjs --self-test | tee /dev/stderr \
             | grep -c 'check-schedule self-test:' >/dev/null
 
+      # The uptime detector's own logic, before it ships to a schedule
+      # where nobody watches it run. Same file the watchdog runs.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output.
+      - name: Uptime watchdog still tells an outage from Basic Auth
+        run: |
+          set -o pipefail
+          node scripts/ci/check-uptime.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-uptime self-test:' >/dev/null
+
       # 🔴 CAMP-30. Fonts and sprites are NOT inside a PMTiles archive; a
       # style names them by URL, and the obvious one points at GitHub
       # Pages, whose terms forbid "an online business, e-commerce site".
