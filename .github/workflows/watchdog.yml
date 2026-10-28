@@ -28,6 +28,13 @@ on:
     # 08:00 UTC daily — four hours after the weekly job's slot, so a
     # Monday run has finished before the watchdog looks at it.
     - cron: '0 8 * * *'
+    # Uptime: every three hours, at :23 (not on the hour — the top of the
+    # hour is where GitHub's schedule queue is longest). 8 runs a day.
+    # 🔴 The string is repeated in the `if:` of every job below, and the
+    # two must match character for character: `github.event.schedule` is
+    # the cron text, and a job whose `if:` names a different string runs
+    # on EVERY tick instead of one.
+    - cron: '23 */3 * * *'
   workflow_dispatch:
 
 permissions:
@@ -36,6 +43,7 @@ permissions:
 jobs:
   quiet:
     runs-on: ubuntu-latest
+    if: github.event.schedule != '23 */3 * * *'
     permissions:
       # To read other workflows' run history.
       actions: read
@@ -128,6 +136,7 @@ jobs:
   # мовчазний cron і мовчазна метеослужба закривають одне одного.
   stale-sources:
     runs-on: ubuntu-latest
+    if: github.event.schedule != '23 */3 * * *'
     permissions:
       issues: write
     steps:
@@ -205,6 +214,7 @@ jobs:
   # такі — у scripts/ci/check-dependabot-prs.mjs.
   dependabot-prs:
     runs-on: ubuntu-latest
+    if: github.event.schedule != '23 */3 * * *'
     # Розклад і ручний запуск водночас створили б два коментарі раніше, ніж
     # котрийсь побачить другий. Другий чекає, а не скасовує першого.
     concurrency:
@@ -241,3 +251,102 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci/check-dependabot-prs.mjs --comment
+
+  # Is the site answering at all. Nothing checked this before: measured on
+  # 28.10.2026, `grep -rlE "curl.*camptribe\.eu|http_code"` over
+  # `.github/workflows/` and the production units found nothing.
+  #
+  # 🔴 SEPARATE JOB, THREE-HOURLY TICK. The three jobs above are daily
+  # questions; this one runs on its own cron and they skip that tick (see
+  # the `if:` on each). A skipped job is not billed. Cost, counted not
+  # guessed: 8 runs/day x 30.4 days = 243 runs a month, each billed as one
+  # minute (Actions rounds a job UP to the whole minute and this one takes
+  # seconds) = ~243 of the 2 000 minutes a private repository gets. Every
+  # hour would be ~730 (36%); every minute would be ~43 800 and gone in
+  # two days.
+  #
+  # What counts as down — and what does not — is in
+  # scripts/ci/check-uptime.mjs: 200 and 401 are alive (the site is behind
+  # Basic Auth today and answers 401; "expect 200" would shout daily and
+  # be switched off), 5xx / 404 / DNS / refused / timeout / Cloudflare 1016 are
+  # an outage.
+  uptime:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 */3 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Two overlapping runs would both fail to find the issue and open two.
+    concurrency:
+      group: watchdog-uptime
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # 🔴 CAMP-285/286: the step reads the self-test's own output.
+      # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it.
+      # The self-test serves 200/401/503/521/1016 from a local server and
+      # points the same `probe` at a dead port and a name that cannot
+      # resolve; a detector that has gone blind fails HERE, not in the
+      # silence after the first real outage.
+      - name: Prove the uptime detector bites
+        run: |
+          set -o pipefail
+          node scripts/ci/check-uptime.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-uptime self-test:' >/dev/null
+
+      - name: Ask the site whether it is there
+        id: uptime
+        run: node scripts/ci/check-uptime.mjs
+        continue-on-error: true
+
+      - name: Open or update the outage issue
+        if: steps.uptime.outputs.state == 'down'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ steps.uptime.outputs.body }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TITLE='🔴 camptribe.eu is not answering'
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number --jq '.[0].number // empty')
+          FULL="$BODY
+
+          Checked by: $RUN_URL"
+          # One issue per outage, a dated comment on each later failing
+          # check. The comments are the evidence that it is still down.
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$FULL"
+          else
+            gh issue create --title "$TITLE" --body "$FULL"
+          fi
+
+      # 🔴 Closes only on an explicit `up`, not on "not down". If the check
+      # itself crashed it wrote nothing, and `!= 'down'` would close a real
+      # outage's issue because the detector fell over.
+      - name: Close the outage issue once the site answers again
+        if: steps.uptime.outputs.state == 'up'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TITLE='🔴 camptribe.eu is not answering'
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" \
+              --comment "Обидві адреси знову відповідають (200 або 401). Закриваю."
+          fi
+
+      # The check crashed: no verdict either way. Say so with a red run
+      # rather than a green one that looks like "up".
+      - name: Fail if the check gave no verdict
+        if: steps.uptime.outputs.state != 'up' && steps.uptime.outputs.state != 'down'
+        run: |
+          echo "::error::check-uptime.mjs wrote no verdict - the check itself is broken, the site state is unknown"
+          exit 1
