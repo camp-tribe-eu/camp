@@ -2384,6 +2384,28 @@ async function selfTest() {
     const at = passed === null ? -1 : passed.indexOf('--max-age-days');
     ok('…and it passes --max-age-days with a value parseMaxAge accepts: the age guard is on in the unit that ships',
       at >= 0 && parseMaxAge(passed[at + 1]) !== null, String(passed));
+    // 🔴 THE LIMIT IS TIED TO THE BUDGET IT PROTECTS. The age guard exists so
+    // that the freshness sentry cannot be blinded by an import of old data; a
+    // limit as wide as the sentry's own budget (or wider — `90` passed every
+    // other case here) switches that off without anyone seeing it. The budget
+    // is READ from the sentry's own table, not typed here a second time: two
+    // copies of one number are two truths waiting to part.
+    //
+    // 🔴 THE MARGIN IS COMPUTED AND IT IS SMALL. The timer fires Tuesday 04:30;
+    // after one missed Monday the release is 8.19 days old (passes), but at
+    // Wednesday 00:30 it is 9.02 (refused). `Persistent=true` CAN land a run in
+    // that window — a machine that was down on Tuesday and boots on Wednesday —
+    // and the result is a loud false alarm, never a silent stale import. The
+    // limit cannot be raised a day: it has to stay under the 10-day budget.
+    {
+      const fresh = await import(new URL('../ci/check-data-freshness.mjs', import.meta.url).href);
+      const spots = fresh.DB_SOURCES.find((x) => x.table === 'camping_spots');
+      const budgetDays = typeof spots?.budgetHours === 'function' ? spots.budgetHours() / 24 : spots?.budgetHours / 24;
+      const days = at >= 0 ? Number(passed[at + 1]) : NaN;
+      ok('…and that limit is STRICTLY under the freshness budget of camping_spots, read from the sentry — else the guard guards nothing',
+        Number.isFinite(days) && Number.isFinite(budgetDays) && days < budgetDays,
+        `unit passes --max-age-days ${days}, freshness budget of camping_spots is ${budgetDays} days`);
+    }
     ok('…and what the unit names as the script is the file that runs (its path ends scripts/osm-pipeline/import-release.mjs)',
       line !== undefined && /\/scripts\/osm-pipeline\/import-release\.mjs(\s|$)/.test(line), String(line));
   }
@@ -2441,7 +2463,7 @@ async function selfTest() {
   // records that `--self-test` printed "73/73 passed" for a week while
   // the import had not started at all — the number was never the
   // question, the line's owner was.
-  const EXPECTED_CASES = 205;
+  const EXPECTED_CASES = 206;
   if (checks.length !== EXPECTED_CASES) {
     failed += 1;
     console.log(`✗ ${checks.length} cases ran, expected ${EXPECTED_CASES}`);
