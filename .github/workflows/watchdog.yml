@@ -268,7 +268,7 @@ jobs:
   # What counts as down — and what does not — is in
   # scripts/ci/check-uptime.mjs: 200 and 401 are alive (the site is behind
   # Basic Auth today and answers 401; "expect 200" would shout daily and
-  # be switched off), 5xx / DNS / refused / timeout / Cloudflare 1016 are
+  # be switched off), 5xx / 404 / DNS / refused / timeout / Cloudflare 1016 are
   # an outage.
   uptime:
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 */3 * * *'
