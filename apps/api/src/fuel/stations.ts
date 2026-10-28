@@ -387,11 +387,25 @@ export function decimal(raw: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** `28/09/2026 19:36:45` and `25/09/2026 20:00:07` — Spain and Italy. */
+/**
+ * `28/09/2026 19:36:45` and `25/09/2026 20:00:07` — Spain and Italy.
+ *
+ * 🔴 THE HOUR IS ONE OR TWO DIGITS, AND THAT IS A MEASUREMENT, NOT A
+ * LOOSENING. Spain's `Fecha` is .NET's `dd/MM/yyyy H:mm:ss`: day and
+ * month are padded, the hour is NOT. Fetched 28.10.2026 at 06:51 UTC the
+ * header read `28/10/2026 7:51:01`, and this pattern, written against a
+ * 19:36 sample, refused it. Every Spanish price then had "no usable
+ * snapshot date", Spain kept 0 of 11 423 stations, the floor
+ * (MIN_STATIONS) threw — correctly — and the whole import aborted before
+ * France and Italy were read. So the import worked in the afternoon and
+ * failed from midnight to 10:00 Madrid time, which is exactly when a
+ * timer would run it. Only the hour is relaxed: the other fields were
+ * seen padded.
+ */
 export function parseDmyDateTime(raw: unknown): Date | null {
   if (typeof raw !== 'string') return null;
   const m =
-    /^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(
+    /^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(
       raw.trim(),
     );
   if (!m) return null;

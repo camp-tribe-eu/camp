@@ -109,6 +109,43 @@ describe('dates, in the two shapes the feeds use', () => {
     );
   });
 
+  // 🔴 Spain's header is `dd/MM/yyyy H:mm:ss`: the hour is NOT padded.
+  // Fetched 28.10.2026 06:51 UTC it read `28/10/2026 7:51:01`, and the
+  // parser (written against `19:36:45`) refused it — Spain then kept 0
+  // of 11 423 stations and the import aborted every morning.
+  it('reads a single-digit hour, which is how Spain writes 07:51', () => {
+    expect(parseDmyDateTime('28/10/2026 7:51:01')?.toISOString()).toBe(
+      '2026-10-28T07:51:01.000Z',
+    );
+    expect(parseDmyDateTime('28/10/2026 0:05:09')?.toISOString()).toBe(
+      '2026-10-28T00:05:09.000Z',
+    );
+  });
+
+  // The read goes through the whole Spanish parser, not only the date
+  // helper: what failed on 28.10.2026 was the stations, not the helper.
+  it('keeps Spanish stations when the header hour is single-digit', () => {
+    const feed = (fecha: string) => ({
+      Fecha: fecha,
+      ListaEESSPrecio: [
+        {
+          IDEESS: '1',
+          Latitud: '39,211417',
+          'Longitud (WGS84)': '-1,539167',
+          'Precio Gasoleo A': '1,549',
+          'Precio Gasolina 95 E5': '1,649',
+        },
+      ],
+    });
+    const now = new Date('2026-10-28T07:00:00Z');
+    expect(parseSpain(feed('28/10/2026 7:51:01'), now).stations).toHaveLength(
+      1,
+    );
+    expect(parseSpain(feed('28/10/2026 19:51:01'), now).stations).toHaveLength(
+      1,
+    );
+  });
+
   // 🔴 `Date.UTC(2026, 1, 31)` silently becomes 3 March. A feed that
   // filed 31/02 would get a date two days in the future, and a price
   // dated in the future is the freshest thing on the page.

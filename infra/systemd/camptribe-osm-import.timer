@@ -1,0 +1,13 @@
+[Unit]
+Description=CampTribe weekly OSM campsite import
+
+[Timer]
+# Вівторок, а не понеділок: воркфлоу `osm-weekly` стартує в понеділок о 04:00
+# UTC і працює 15–50 хвилин (заміряно по останніх прогонах), а заплановані
+# запуски GitHub інколи запізнюються на години. Доба запасу коштує
+# одного дня віку даних при бюджеті в 10.
+OnCalendar=Tue *-*-* 04:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

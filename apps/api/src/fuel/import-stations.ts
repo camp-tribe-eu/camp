@@ -147,85 +147,199 @@ function itemise(rejections: Rejection[]): [string, number][] {
   return [...byReason.entries()].sort((a, b) => b[1] - a[1]);
 }
 
+/**
+ * Fetch, parse and VET one source: everything that can say "do not write
+ * this one". It throws on a failed fetch, on a feed that does not
+ * reconcile, and on a floor — and a throw here costs THAT source and no
+ * other (see `gatherSources`).
+ */
+async function loadAndVet(
+  source: (typeof SOURCES)[number],
+  fromDir: string | null,
+  now: Date,
+): Promise<ParseResult> {
+  const texts = await loadSource(source.id, fromDir);
+  const result = await parseSource(source.id, texts, now);
+
+  // 🔴 The reconciliation runs whether or not anybody asked for the
+  // report, and it throws. Kept + rejected must equal what the feed
+  // held; when it does not, some records went somewhere unnamed, and
+  // every coverage figure downstream is quoting a denominator nobody
+  // can account for.
+  const rejectedStations = countRejectedStations(result);
+  const accounted = result.stations.length + rejectedStations;
+  if (accounted !== result.feedRecords) {
+    throw new Error(
+      `${source.id}: ${result.stations.length} kept + ${rejectedStations} rejected ` +
+        `= ${accounted}, but the feed held ${result.feedRecords}`,
+    );
+  }
+
+  // 🔴 A second reconciliation for a source whose prices live in their
+  // own file. Italy's price list was checked against nothing at all;
+  // see the note in parseItaly.
+  if (result.priceRecords) {
+    const pr = result.priceRecords;
+    const seen = pr.kept + pr.unknownStation + pr.unknownProduct;
+    if (seen !== pr.rows) {
+      throw new Error(
+        `${source.id}: price file has ${pr.rows} rows but ${seen} were accounted for`,
+      );
+    }
+  }
+
+  // 🔴 And a floor, because the reconciliation above passes perfectly
+  // on an EMPTY feed: 0 kept + 0 rejected = 0 records. This import
+  // replaces the source's rows, so a ministry serving a truncated file
+  // would delete a country's prices and exit 0, and every page in
+  // that country would say we hold no price. See MIN_STATIONS.
+  const floor = MIN_STATIONS[source.id] ?? 0;
+  if (result.stations.length < floor) {
+    throw new Error(
+      `${source.id}: only ${result.stations.length} stations, below the floor of ` +
+        `${floor}. The endpoint answered, so this is a truncated or empty ` +
+        `payload rather than an outage — nothing has been written. ` +
+        `Check the feed before lowering this number.`,
+    );
+  }
+
+  // 🔴 AND A FLOOR PER GRADE. A forecourt survives losing half its
+  // prices, so the station floor above cannot see a grade disappear.
+  // Renaming Italy's `Benzina` upstream halved the price rows with
+  // every other counter unmoved. See MIN_PRICES_PER_GRADE.
+  const perGrade = countByGrade(result.stations);
+  const gradeFloors = MIN_PRICES_PER_GRADE[source.id];
+  if (gradeFloors) {
+    for (const grade of FUEL_GRADES) {
+      if (perGrade[grade] < gradeFloors[grade]) {
+        throw new Error(
+          `${source.id}: only ${perGrade[grade]} ${grade} prices, below the floor ` +
+            `of ${gradeFloors[grade]}. A grade does not halve on its own — check ` +
+            `whether the source renamed the product before lowering this number. ` +
+            `Nothing has been written.`,
+        );
+      }
+    }
+  }
+  return result;
+}
+
+/** Why a source failed, with the network error's own cause when it has one. */
+export function whyFailed(err: unknown): string {
+  const e = err as {
+    message?: string;
+    cause?: { message?: string; code?: string };
+  };
+  const base = String(e?.message ?? err).split('\n')[0];
+  const cause = e?.cause?.message ?? e?.cause?.code;
+  return cause ? `${base} (${cause})` : base;
+}
+
+/**
+ * 🔴 ONE SOURCE'S BAD DAY COSTS THAT SOURCE, NOT THE TABLE.
+ *
+ * Measured 28.10.2026 from the production machine: www.mimit.gov.it did
+ * not answer a TCP connection at all (curl: connect timeout, http and
+ * https, the site root too — from a second network as well). This loop
+ * used to be inline in main() and let that throw escape, so Italy being
+ * unreachable aborted the run before Spain and France were even read,
+ * and 39 800 forecourts went stale because of the other 42 000. The same
+ * rule the OSM workflow states for its matrix: one country's bad day
+ * costs that country only.
+ *
+ * A failed source is not written and not deleted: its old rows stay,
+ * dated, and the page already marks a price older than the stale line.
+ * It is NOT quiet, though — the caller prints it, and the freshness check
+ * reads the age of each source separately, so a source that stays unread
+ * goes red there when it passes its budget.
+ */
+export async function gatherSources<S extends { id: string }>(
+  sources: readonly S[],
+  vet: (source: S) => Promise<ParseResult>,
+): Promise<{
+  ok: { source: S; result: ParseResult }[];
+  failed: { source: S; why: string }[];
+}> {
+  const ok: { source: S; result: ParseResult }[] = [];
+  const failed: { source: S; why: string }[] = [];
+  for (const source of sources) {
+    try {
+      ok.push({ source, result: await vet(source) });
+    } catch (err) {
+      failed.push({ source, why: whyFailed(err) });
+    }
+  }
+  return { ok, failed };
+}
+
+/** A run that read nothing has nothing to write — and says so by throwing. */
+export function requireOneSource(
+  parsed: readonly unknown[],
+  failed: readonly { source: { id: string } }[],
+): void {
+  if (parsed.length > 0) return;
+  throw new Error(
+    `every source failed (${failed.map((f) => f.source.id).join(', ')}) — nothing has been written`,
+  );
+}
+
+/**
+ * The statement that makes room for a run's rows: only the sources that
+ * were just read successfully. The same statement with no WHERE would take
+ * a failed source's last good rows with it.
+ */
+export const DELETE_REFRESHED_SQL =
+  'DELETE FROM fuel_station_prices WHERE source = ANY($1::text[])';
+
+/** Every flag this script acts on. Anything else starting with `-` is a typo. */
+export const KNOWN_FLAGS = ['--report', '--dry-run', '--from-dir'] as const;
+
+/**
+ * The arguments that are neither a known flag nor the value of `--from-dir`.
+ *
+ * 🔴 `--dryrun` used to be read as no flag at all, and a run the person
+ * believed to write nothing replaced the table. The house rule (CAMP-285)
+ * is that a flag the script does not know is an error, not a shrug.
+ */
+export function unknownArgs(args: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--from-dir') {
+      i += 1; // its value, whatever it looks like
+      continue;
+    }
+    if ((KNOWN_FLAGS as readonly string[]).includes(a)) continue;
+    out.push(a);
+  }
+  return out;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  const stray = unknownArgs(args);
+  if (stray.length > 0) {
+    throw new Error(
+      `unknown argument(s): ${stray.join(' ')} — this script knows ${KNOWN_FLAGS.join(', ')}. ` +
+        'Nothing has been read or written.',
+    );
+  }
   const report = args.includes('--report');
   const dryRun = args.includes('--dry-run');
   const dirFlag = args.indexOf('--from-dir');
   const fromDir = dirFlag >= 0 ? args[dirFlag + 1] : null;
   const now = new Date();
 
-  const all: Station[] = [];
-  const parsed: { source: (typeof SOURCES)[number]; result: ParseResult }[] =
-    [];
-
-  for (const source of SOURCES) {
-    const texts = await loadSource(source.id, fromDir);
-    const result = await parseSource(source.id, texts, now);
-    all.push(...result.stations);
-    parsed.push({ source, result });
-
-    // 🔴 The reconciliation runs whether or not anybody asked for the
-    // report, and it throws. Kept + rejected must equal what the feed
-    // held; when it does not, some records went somewhere unnamed, and
-    // every coverage figure downstream is quoting a denominator nobody
-    // can account for.
-    const rejectedStations = countRejectedStations(result);
-    const accounted = result.stations.length + rejectedStations;
-    if (accounted !== result.feedRecords) {
-      throw new Error(
-        `${source.id}: ${result.stations.length} kept + ${rejectedStations} rejected ` +
-          `= ${accounted}, but the feed held ${result.feedRecords}`,
-      );
-    }
-
-    // 🔴 A second reconciliation for a source whose prices live in their
-    // own file. Italy's price list was checked against nothing at all;
-    // see the note in parseItaly.
-    if (result.priceRecords) {
-      const pr = result.priceRecords;
-      const seen = pr.kept + pr.unknownStation + pr.unknownProduct;
-      if (seen !== pr.rows) {
-        throw new Error(
-          `${source.id}: price file has ${pr.rows} rows but ${seen} were accounted for`,
-        );
-      }
-    }
-
-    // 🔴 And a floor, because the reconciliation above passes perfectly
-    // on an EMPTY feed: 0 kept + 0 rejected = 0 records. This import
-    // replaces the whole table, so a ministry serving a truncated file
-    // would delete a country's prices and exit 0, and every page in
-    // that country would say we hold no price. See MIN_STATIONS.
-    const floor = MIN_STATIONS[source.id] ?? 0;
-    if (result.stations.length < floor) {
-      throw new Error(
-        `${source.id}: only ${result.stations.length} stations, below the floor of ` +
-          `${floor}. The endpoint answered, so this is a truncated or empty ` +
-          `payload rather than an outage — nothing has been written. ` +
-          `Check the feed before lowering this number.`,
-      );
-    }
-
-    // 🔴 AND A FLOOR PER GRADE. A forecourt survives losing half its
-    // prices, so the station floor above cannot see a grade disappear.
-    // Renaming Italy's `Benzina` upstream halved the price rows with
-    // every other counter unmoved. See MIN_PRICES_PER_GRADE.
-    const perGrade = countByGrade(result.stations);
-    const gradeFloors = MIN_PRICES_PER_GRADE[source.id];
-    if (gradeFloors) {
-      for (const grade of FUEL_GRADES) {
-        if (perGrade[grade] < gradeFloors[grade]) {
-          throw new Error(
-            `${source.id}: only ${perGrade[grade]} ${grade} prices, below the floor ` +
-              `of ${gradeFloors[grade]}. A grade does not halve on its own — check ` +
-              `whether the source renamed the product before lowering this number. ` +
-              `Nothing has been written.`,
-          );
-        }
-      }
-    }
+  const { ok: parsed, failed } = await gatherSources(SOURCES, (source) =>
+    loadAndVet(source, fromDir, now),
+  );
+  for (const f of failed) {
+    console.error(
+      `✗ ${f.source.id}: ${f.why} — its rows are left as they were`,
+    );
   }
+  requireOneSource(parsed, failed);
+  const all: Station[] = parsed.flatMap((p) => p.result.stations);
 
   if (dryRun) {
     console.log(`\nDry run: parsed ${all.length} stations, wrote nothing.`);
@@ -391,7 +505,7 @@ async function main(): Promise<void> {
     // and nothing on the page says it was not refreshed — which is the
     // shape of a stale table that looks healthy. Readers see either the
     // old set or the new one, never a mixture.
-    await client.query('DELETE FROM fuel_station_prices');
+    await client.query(DELETE_REFRESHED_SQL, [parsed.map((p) => p.source.id)]);
 
     let written = 0;
     const rows: unknown[][] = [];
@@ -461,6 +575,22 @@ async function main(): Promise<void> {
           : '') +
         `.`,
     );
+    // 🔴 SAID AFTER THE COMMIT, LOUDLY, AND NOT AS AN EXIT CODE — on
+    // purpose. A source that stays unread is not a quiet day, but a
+    // transient outage of one ministry's server is not a failed run either:
+    // the other sources were written. What must not happen is that nobody
+    // learns Italy has been stale for a month, and that is the freshness
+    // check's job, per source (`check-data-freshness.mjs`, `groupBy`): it
+    // goes red when the OLDEST source is past its 2-day budget. Failing the
+    // unit as well would send the owner two letters a day about one
+    // outage, from two sentries, and the second would be read as noise.
+    if (failed.length > 0) {
+      console.error(
+        `\n${failed.length} of ${SOURCES.length} sources were NOT refreshed: ` +
+          failed.map((f) => f.source.id).join(', ') +
+          ' — their rows are as they were; the freshness check names the age',
+      );
+    }
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

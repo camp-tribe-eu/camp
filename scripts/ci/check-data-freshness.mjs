@@ -161,11 +161,12 @@ export function fileSources() {
  * Таблиці, що мають дату імпорту. Перелік — замір по
  * `apps/api/src/migrations` 27.10.2026, а не памʼять.
  *
- * 🔴 ЖОДЕН ІЗ ДЕВʼЯТИ ІМПОРТЕРІВ НЕ МАЄ РОЗКЛАДУ В РЕПОЗИТОРІЇ: їх
- * запускає людина (`osm-weekly.yml` лише публікує екстракт і ДРУКУЄ
- * команду імпорту; `air/import.ts` каже прямо «the refresh is not
- * scheduled»). Тому «застарів» тут означає «людина не запустила», а не
- * «cron упав», і адресат тривоги — людина.
+ * 🔴 ДВА ІЗ ДЕВʼЯТИ ІМПОРТЕРІВ МАЮТЬ РОЗКЛАД В РЕПОЗИТОРІЇ (з 28.10.2026):
+ * `camptribe-osm-import.timer` (camping_spots) і `camptribe-fuel-prices.timer`
+ * (fuel_station_prices). Решту запускає людина (`osm-weekly.yml` лише
+ * публікує екстракт і ДРУКУЄ команду імпорту; `air/import.ts` каже прямо
+ * «the refresh is not scheduled»). Тому для сімох «застарів» означає
+ * «людина не запустила», а не «cron упав», і адресат тривоги — людина.
  *
  * 🔴 БЕЗ ДАТИ, отже тут їх НЕМАЄ: `ne_admin`, `osm_ctx_poi`,
  * `osm_ctx_water`, `osm_ctx_place`, `osm_country_area`,
@@ -179,8 +180,16 @@ export const DB_SOURCES = Object.freeze([
     table: 'camping_spots', column: 'last_seen_at', budgetHours: 10 * 24 },
   { name: 'osm_route_poi (POI маршрутів)', card: 'CAMP-113',
     table: 'osm_route_poi', column: 'last_seen_at', budgetHours: 10 * 24 },
+  // 🔴 `groupBy: 'source'` — вік таблиці це вік НАЙСТАРІШОГО з трьох
+  // джерел, а не найсвіжішого. Імпортер пише кожне джерело окремо й не
+  // падає, коли одне недосяжне (28.10.2026 mimit.gov.it не відповідав з
+  // прода): Іспанія й Франція оновились, Італія стоїть на 13.10. З
+  // `max(fetched_at)` по всій таблиці це читалось би «свіже» — і рівно
+  // тоді, коли таймер перестав бити тривогу сам, сторож перестав би
+  // бачити застарілу країну.
   { name: 'fuel_station_prices (ціни станцій ES/FR/IT)', card: 'CAMP-154',
-    table: 'fuel_station_prices', column: 'fetched_at', budgetHours: 2 * 24 },
+    table: 'fuel_station_prices', column: 'fetched_at', budgetHours: 2 * 24,
+    groupBy: 'source' },
   { name: 'spot_tariffs (тарифи DATAtourisme)', card: 'CAMP-147',
     table: 'spot_tariffs', column: 'created_at', budgetHours: 10 * 24 },
   { name: 'spot_links (звʼязки OSM↔DATAtourisme)', card: 'CAMP-144',
@@ -200,9 +209,19 @@ export const DB_SOURCES = Object.freeze([
 
 const ISO = `'YYYY-MM-DD"T"HH24:MI:SS"Z"'`;
 
-/** Один запит на таблицю: скільки рядків і найновіша мітка, у UTC ISO. */
+/**
+ * Один запит на таблицю: скільки рядків і найновіша мітка, у UTC ISO.
+ *
+ * З `groupBy` — найновіша мітка КОЖНОЇ групи, і береться найстаріша з них:
+ * таблиця стара рівно настільки, наскільки стара її найзапущеніша частина.
+ * Порожня таблиця дає 0 рядків і NULL, як і без `groupBy`.
+ */
 export const probeSql = (s) =>
-  `SELECT count(*), to_char(max(${s.column}) AT TIME ZONE 'UTC', ${ISO}) FROM ${s.table}`;
+  s.groupBy
+    ? `SELECT (SELECT count(*) FROM ${s.table}), ` +
+      `to_char(min(m) AT TIME ZONE 'UTC', ${ISO}) ` +
+      `FROM (SELECT max(${s.column}) AS m FROM ${s.table} GROUP BY ${s.groupBy}) g`
+    : `SELECT count(*), to_char(max(${s.column}) AT TIME ZONE 'UTC', ${ISO}) FROM ${s.table}`;
 
 /** Живе читання через psql — він є на машині (Postgres локальний). */
 export function readDbLive(dbUrl) {
@@ -373,6 +392,15 @@ function selfTest() {
     DB_SOURCES.every((s) => s.table && s.column && s.card && hours(s.budgetHours) > 0), true);
   t('запит називає саме цю колонку й таблицю',
     probeSql({ table: 'tt', column: 'cc' }).includes('max(cc)') && probeSql({ table: 'tt', column: 'cc' }).endsWith('FROM tt'), true);
+  // 🔴 РЯДОК ЗАПИТУ — ЦЕ ЛИШЕ РЯДОК. Що саме він повертає (вік найстарішого
+  // джерела, а не найновішого рядка) доводиться на справжній таблиці в
+  // `apps/api/src/fuel/freshness-probe.db.spec.ts`, який бере цей запит із
+  // цього файлу, а не копіює.
+  const grouped = probeSql({ table: 'tt', column: 'cc', groupBy: 'g' });
+  t('🔴 запит із groupBy бере найстарішу з найновіших міток груп',
+    grouped.includes('min(m)') && grouped.includes('max(cc) AS m') && grouped.endsWith('GROUP BY g) g'), true);
+  t('🔴 ціни пального читаються по джерелах — інакше мертва Італія ховається за живою Іспанією',
+    DB_SOURCES.find((x) => x.table === 'fuel_station_prices')?.groupBy, 'source');
   t('бюджети файлів читаються з коду-споживача',
     fileSources().every((s) => s.budgetHours > 0), true);
   // 🔴 ЮНІТ І СКРИПТ ЗВʼЯЗАНІ ТУТ, У CI, а не лише на машині. Саме цей
@@ -386,7 +414,7 @@ function selfTest() {
 
   // 🔴 Лічильник стверджується, бо випадок, до якого не дійшло,
   // виглядає точно як випадок, що пройшов.
-  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 29);
+  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 31);
   console.log(`check-data-freshness self-test: ran ${p + f}, passed ${p}, failed ${f}`);
   return f === 0 ? 0 : 1;
 }
