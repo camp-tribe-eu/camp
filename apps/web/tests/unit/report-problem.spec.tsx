@@ -124,6 +124,29 @@ test.describe('the campsite page carries the form', () => {
     expect(text).toContain('The form comes alive when the page finishes loading.');
   });
 
+  // 🔴 Політика приватності 2.1 стверджує: «the form says the same beside
+  // the field». Це твердження про сторінку, тож воно читається З ВІДДАНОЇ
+  // сторінки — видимий текст, і що підказка привʼязана до поля опису через
+  // aria-describedby, а не стоїть десь поруч.
+  test('🔴 warns beside the description not to put personal details in — yours or anyone else’s', async () => {
+    const html = await pageHtml();
+    const text = visibleText(html);
+    expect(text).toContain(
+      'Please do not put personal details here — yours or anyone else’s: no names, phone numbers or addresses.',
+    );
+    expect(text).toContain('We do not filter what you write.');
+    expect(text).toContain('How reports are handled is in the privacy policy.');
+
+    const textarea = /<textarea\b[^>]*>/.exec(html)![0];
+    const described = /aria-describedby="([^"]+)"/.exec(textarea)?.[1];
+    expect(described, 'the textarea names no hint').toBeTruthy();
+    const hint = new RegExp(`<p\\b[^>]*\\bid="${described}"[^>]*>([\\s\\S]*?)</p>`).exec(html);
+    expect(hint, 'the hint the textarea points at is not on the page').not.toBeNull();
+    expect(visibleText(hint![0])).toContain('Please do not put personal details here');
+    // The link goes to the section of the policy that describes reports.
+    expect(hint![0]).toContain('href="/legal/privacy#reports"');
+  });
+
   test('offers every kind of problem by its label, and the labels are sentences a reader can pick', async () => {
     const text = visibleText(await pageHtml());
     for (const kind of PROBLEM_KINDS) {
