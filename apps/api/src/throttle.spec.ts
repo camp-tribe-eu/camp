@@ -15,6 +15,8 @@ import {
   MAIL_ROUTES,
   PLAN_LIMIT,
   PLAN_ROUTES,
+  REPORT_LIMIT,
+  REPORT_ROUTES,
 } from './throttle';
 
 // CAMP-69 — the rate limit, checked without booting Nest.
@@ -435,6 +437,13 @@ describe('🔴 the login, mail, consent and plan decorators agree with their rou
     expect(carrying('MAIL')).not.toEqual([]);
     expect(carrying('CONSENT')).not.toEqual([]);
     expect(carrying('PLAN')).not.toEqual([]);
+    expect(carrying('REPORT')).not.toEqual([]);
+  });
+
+  // «Report a problem». `@Throttle(REPORT)` sets the number, `REPORT_ROUTES`
+  // sets the bucket: the same two statements about one route, a sixth time.
+  it('every route marked REPORT is in REPORT_ROUTES, and nothing else is', () => {
+    expect(carrying('REPORT')).toEqual([...REPORT_ROUTES].sort());
   });
 
   // CAMP-391. `@Throttle(PLAN)` sets the number, `PLAN_ROUTES` sets the bucket:
@@ -650,5 +659,70 @@ describe('🔴 the plan bucket (CAMP-391)', () => {
 
   it('the route list names the one route that runs the planner', () => {
     expect([...PLAN_ROUTES]).toEqual(['plan']);
+  });
+});
+
+// 🔴 «Report a problem»: `POST /problem-reports` appends a row ANYONE can
+// append, with no account — the one route whose cost is a moderator's time.
+// Its own bucket, for the CAMP-176 reason: a person who reports the pin and
+// the price must not be spending what stops somebody guessing a password, and
+// a person reading ten pages must not be spending this one.
+describe('🔴 the report bucket («Report a problem»)', () => {
+  it.each([
+    '/problem-reports',
+    '/PROBLEM-REPORTS',
+    '/problem-reports/',
+    '/problem-reports?x=1',
+    '//problem-reports',
+    '/Problem-Reports/?a=b',
+  ])('files %s under report', (path) => {
+    expect(bucketOf(path)).toBe('report');
+  });
+
+  it('does not share a counter with sign-in, mail, consent, plan, ordinary reading or the bulk routes', () => {
+    const report = bucketOf('/problem-reports');
+    for (const other of [
+      '/auth/login',
+      '/auth/signup',
+      '/account/letters',
+      '/plan',
+      '/spots/countries',
+      '/spots/fr/lot/camping-du-lac',
+      '/spots/index',
+      '/client-errors',
+    ])
+      expect(bucketOf(other)).not.toBe(report);
+  });
+
+  it('a path that merely starts like it is ordinary', () => {
+    for (const path of [
+      '/problem-reports/x',
+      '/problem-report',
+      '/problem-reportss',
+      '/spots/problem-reports',
+      '/reports',
+    ]) {
+      expect(bucketOf(path)).toBe('ordinary');
+    }
+  });
+
+  it('allows five in ten minutes — written out, not read back', () => {
+    expect(REPORT_LIMIT.limit).toBe(5);
+    expect(REPORT_LIMIT.ttl).toBe(600_000);
+  });
+
+  it('and that is far below the default, or it is not a limit', () => {
+    // Per hour: what one caller can make a moderator read.
+    const perHour = (REPORT_LIMIT.limit * 3_600_000) / REPORT_LIMIT.ttl;
+    const defaultPerHour =
+      (DEFAULT_LIMIT.limit * 3_600_000) / DEFAULT_LIMIT.ttl;
+    expect(perHour).toBe(30);
+    expect(perHour).toBeLessThan(defaultPerHour / 100);
+    // …and room for a person who found two things wrong on one page.
+    expect(REPORT_LIMIT.limit).toBeGreaterThanOrEqual(2);
+  });
+
+  it('the route list names the one route that stores a report', () => {
+    expect([...REPORT_ROUTES]).toEqual(['problem-reports']);
   });
 });

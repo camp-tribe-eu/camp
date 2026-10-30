@@ -16,6 +16,7 @@ import {
   type HubRegionStats,
 } from '@/lib/hub-stats';
 import { renderAsyncComponent, renderNestedAsync } from './render-component';
+import { requestReaders, walkImportGraph } from './import-graph';
 import { visibleText } from './rendered-text';
 
 // Design-audit §11, screens 1 and 2 — the stat tiles, the two buttons and
@@ -590,31 +591,7 @@ test('🔴 the country and region pages and everything they import read no reque
     join(SRC, 'app', 'camping', '[country]', '[region]', 'page.tsx'),
     join(SRC, 'app', 'camping', '[country]', '[region]', 'page', '[n]', 'page.tsx'),
   ];
-  const resolveImport = (from: string, spec: string): string | null => {
-    const base = spec.startsWith('@/')
-      ? join(SRC, spec.slice(2))
-      : spec.startsWith('.')
-        ? resolve(dirname(from), spec)
-        : null;
-    if (!base) return null;
-    for (const ext of ['', '.ts', '.tsx', '/index.ts', '/index.tsx']) {
-      const p = base + ext;
-      if (existsSync(p) && /\.tsx?$/.test(p)) return p;
-    }
-    return null;
-  };
-  const seen = new Set<string>();
-  const queue = [...pages];
-  while (queue.length) {
-    const file = queue.pop()!;
-    if (seen.has(file)) continue;
-    seen.add(file);
-    const src = readFileSync(file, 'utf8');
-    for (const m of src.matchAll(/(?:from|import)\s+['"]([^'"]+)['"]/g)) {
-      const next = resolveImport(file, m[1]);
-      if (next) queue.push(next);
-    }
-  }
+  const seen = walkImportGraph(SRC, pages);
   // Anchor: the walk reached the pages' own pieces, or it proves nothing.
   const names = [...seen].map((f) => f.slice(SRC.length + 1));
   expect(names).toContain('lib/hub-stats.ts');
@@ -625,14 +602,7 @@ test('🔴 the country and region pages and everything they import read no reque
   expect(names).toContain('components/region-driving.tsx');
   expect(seen.size).toBeGreaterThan(10);
 
-  const FORBIDDEN = [/\bheaders\(\)/, /\bcookies\(\)/, /no-store/, /force-dynamic/];
-  const offenders: string[] = [];
-  for (const file of seen) {
-    const src = readFileSync(file, 'utf8');
-    for (const re of FORBIDDEN) {
-      if (re.test(src)) offenders.push(`${file.slice(SRC.length + 1)}: ${re.source}`);
-    }
-  }
+  const offenders = requestReaders(SRC, seen);
   for (const file of pages) {
     if (/\bsearchParams\b/.test(readFileSync(file, 'utf8'))) {
       offenders.push(`${file.slice(SRC.length + 1)}: searchParams in a page`);
