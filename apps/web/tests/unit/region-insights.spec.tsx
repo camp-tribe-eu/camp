@@ -217,8 +217,9 @@ test.describe('the region page says what is counted', () => {
   // 🔴 The date ONCE per block, both readings named, not once per line —
   // review counted the first version saying the same day three times over.
   test('🔴 the two days are said once, at the foot, and nothing is a percentage', async () => {
-    const text = await pageText(payload());
-    const block = text.slice(text.indexOf('Camping in Bovec'), text.indexOf('Other regions'));
+    // Read off this block alone: "Driving a camper here" (CAMP-404) sits
+    // beside it and says its own days, once, at its own foot.
+    const block = await blockText(payload());
     expect(block.length).toBeGreaterThan(100);
     expect(block.match(/Counted as of/g)).toHaveLength(1);
     expect(block.match(/18 October 2026/g)).toHaveLength(1);
@@ -230,7 +231,7 @@ test.describe('the region page says what is counted', () => {
     // supermarket, station, water); showers is under the threshold.
     expect(block.match(/ — /g)).toHaveLength(5);
     // One day only when both readings fall on it.
-    const same = await pageText(payload({ readAt: '2026-09-25' }));
+    const same = await blockText(payload({ readAt: '2026-09-25' }));
     expect(same).toContain('Counted as of 25 September 2026.');
     expect(same.match(/25 September 2026/g)).toHaveLength(1);
     expect(same).not.toContain('surroundings computed');

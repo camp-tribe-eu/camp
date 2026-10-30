@@ -45,8 +45,10 @@ export interface RegionInsights {
   amenities: Record<InsightAmenity, { yes: number; no: number }>;
   surroundings: {
     computedAt: string | null;
-    supermarket: { known: number; within: number };
+    supermarket: { known: number; within: number; medianM: number | null };
     station: { known: number; within: number };
+    /** CAMP-404. `null` when the API does not send it (an older one). */
+    town: { known: number; medianM: number | null } | null;
     water: {
       named: number;
       top: { name: string; sites: number; nearestM: number; farthestM: number } | null;
@@ -111,6 +113,15 @@ export function readRegionInsights(raw: unknown): RegionInsights | null {
   };
   const supermarket = pair(s.supermarket);
   const station = pair(s.station);
+  // CAMP-404: the medians are read on their own, never as a reason to drop
+  // the whole payload. An API from before them still has the figures above,
+  // and "Camping in" must keep printing; only the lines that need a median
+  // go quiet (`regionDrivingLines`).
+  const sm = (s.supermarket ?? {}) as Record<string, unknown>;
+  const tw = (s.town ?? {}) as Record<string, unknown>;
+  const townKnown = count(tw.known);
+  const town =
+    townKnown === null ? null : { known: townKnown, medianM: count(tw.medianM) };
   const w = (s.water ?? {}) as Record<string, unknown>;
   const named = count(w.named);
   if (!supermarket || !station || named === null) return null;
@@ -140,8 +151,9 @@ export function readRegionInsights(raw: unknown): RegionInsights | null {
     amenities,
     surroundings: {
       computedAt: day(s.computedAt),
-      supermarket,
+      supermarket: { ...supermarket, medianM: count(sm.medianM) },
       station,
+      town,
       water: { named, top },
     },
   };
@@ -164,7 +176,15 @@ const AMENITY_WORDS: Record<InsightAmenity, { label: string; it: string }> = {
   shower: { label: 'Showers', it: 'them' },
 };
 
-const SURROUNDINGS_KEYS = new Set(['supermarket', 'station', 'water']);
+// The keys whose figures are read off the computed surroundings, not off
+// the OSM tags: they decide which of the two days a line stands on.
+const SURROUNDINGS_KEYS = new Set([
+  'supermarket',
+  'station',
+  'water',
+  'supermarket-median',
+  'town-median',
+]);
 
 /**
  * The lines, in reading order, SHORT: the block's intro says how the
@@ -288,3 +308,83 @@ export function regionInsightDates(lines: readonly InsightLine[]): string | null
 
 /** `2026-10-16` → "16 October 2026". */
 export const formatInsightDay = formatOvernightDay;
+
+
+/** The two types that are, by their OSM tag, a place made for a motorhome. */
+const MOTORHOME_TYPES = ['rv_park', 'camper_stop'] as const;
+
+/**
+ * CAMP-404 — "Driving a camper here": the lines of the block, in the same
+ * voice, on the same payload, under the same rules as `regionInsightLines`.
+ *
+ * Three claims are possible, and each is printed only when it can be
+ * counted honestly:
+ *
+ * 1. How many sites ARE motorhome parks or camper stops. A count with the
+ *    region's sites beside it, exactly as the type line does (type is on
+ *    every row). 🔴 NEVER A ZERO: "no motorhome park here" would be read as
+ *    "a camper cannot stay", but `paid` is what a site with no fee tag is
+ *    DEFAULTED to (osm/tag-mapping.ts) and a paid campsite may take a
+ *    motorhome as well — so a region with none prints no line, not "none",
+ *    and the other sites are never described by what they are not.
+ *
+ * 2. and 3. The MEDIAN straight-line distance to the nearest supermarket
+ *    and to the nearest town or city, over the sites that HAVE it
+ *    computed, with that number beside it: "across the 6 sites with
+ *    computed surroundings", not the region's 10 or 111. The API takes the
+ *    median; this file only decides whether it is backed by five.
+ *
+ * 🔴 NOT HERE, AND WHY. Elevation and terrain ("mountain roads"): 2.0 % of
+ * rows, 51 regions with five (survey §1) — nothing can be said about a
+ * road from three measured heights. Distance to a railway stop: for a
+ * driver it means nothing, and 576 rows are 100+ km from one. Electricity:
+ * already the first amenity line of "Camping in", same figure, same
+ * denominator — printing it twice would be noise, not a second fact.
+ * Percentages: never. Every distance is straight-line, said in the line:
+ * under a heading about driving a reader takes a bare "km" for a road.
+ */
+export function regionDrivingLines(i: RegionInsights): InsightLine[] {
+  const out: InsightLine[] = [];
+
+  if (i.readAt && i.spots >= INSIGHT_MIN_KNOWN) {
+    const every = INSIGHT_SPOT_TYPES.reduce((acc, t) => acc + i.types[t], 0);
+    const present = MOTORHOME_TYPES.filter((t) => i.types[t] > 0);
+    const total = present.reduce((acc, t) => acc + i.types[t], 0);
+    // The counts must add up to the region, as the type line demands: a
+    // payload that disagrees with itself prints nothing.
+    if (every === i.spots && total > 0) {
+      const word = (t: InsightSpotType) => TYPE_WORDS[t][i.types[t] === 1 ? 0 : 1];
+      const of =
+        total === i.spots ? `all ${n(i.spots)} sites` : `${n(total)} of the ${n(i.spots)} sites`;
+      const text =
+        present.length === 1
+          ? `${of} ${total === 1 ? 'is a' : 'are'} ${word(present[0])}.`
+          : `${of}: ${present.map((t) => `${n(i.types[t])} ${word(t)}`).join(', ')}.`;
+      out.push({ key: 'motorhome', text: `Set up for motorhomes — ${text}`, asOf: i.readAt });
+    }
+  }
+
+  const s = i.surroundings;
+  if (s.computedAt) {
+    const across = (known: number) =>
+      `across the ${n(known)} sites with computed surroundings`;
+    const sm = s.supermarket;
+    if (sm.known >= INSIGHT_MIN_KNOWN && sm.medianM !== null) {
+      out.push({
+        key: 'supermarket-median',
+        text: `Nearest supermarket — a median of ${formatDistance(sm.medianM)} in a straight line, ${across(sm.known)}.`,
+        asOf: s.computedAt,
+      });
+    }
+    const tw = s.town;
+    if (tw && tw.known >= INSIGHT_MIN_KNOWN && tw.medianM !== null) {
+      out.push({
+        key: 'town-median',
+        text: `Nearest town or city — a median of ${formatDistance(tw.medianM)} in a straight line, ${across(tw.known)}.`,
+        asOf: s.computedAt,
+      });
+    }
+  }
+
+  return out;
+}

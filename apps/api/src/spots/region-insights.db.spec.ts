@@ -310,7 +310,15 @@ describe('countRegionInsights over Bovec', () => {
   it('supermarket: known is rows with a distance, within is ≤ 2 000 m inclusive', async () => {
     expect(NEARBY_M).toBe(2000);
     const i = await countRegionInsights(query, 'si', 'Bovec');
-    expect(i.surroundings.supermarket).toEqual({ known: 7, within: 4 });
+    // CAMP-404: the median of 300, 500, 1999, 2000, 2001, 5000, 12000 is
+    // the fourth, 2000 — counted by hand, the mean would be 3400.
+    expect(i.surroundings.supermarket).toEqual({
+      known: 7,
+      within: 4,
+      medianM: 2000,
+    });
+    // No row of Bovec has a town computed: none known, no median.
+    expect(i.surroundings.town).toEqual({ known: 0, medianM: null });
   });
 
   // 🔴 THE REVIEW'S FINDING. b04's nearest station is 150 km away — an
@@ -344,8 +352,9 @@ describe('countRegionInsights over Bovec', () => {
     expect(i.readAt).toBe('2026-10-16');
     expect(i.surroundings).toEqual({
       computedAt: null,
-      supermarket: { known: 0, within: 0 },
+      supermarket: { known: 0, within: 0, medianM: null },
       station: { known: 0, within: 0 },
+      town: { known: 0, medianM: null },
       water: { named: 0, top: null },
     });
   });
