@@ -44,6 +44,15 @@
 export const CONTACT_EMAIL = 'hello@camptribe.eu';
 
 /**
+ * Where a person writes about THEIR DATA: access, correction, erasure, an
+ * objection under Article 21. Named in the privacy policy (2.1, the section
+ * on problem reports and "Your rights"). The mailbox exists — checked
+ * 30.10.2026 before the address went into the text; an address printed in
+ * a legal page that bounces is a right nobody can exercise.
+ */
+export const PRIVACY_EMAIL = 'privacy@camptribe.eu';
+
+/**
  * 🔴 Exactly what the owner approved, and no more.
  *
  * The E-Commerce Directive (2000/31/EC, Art. 5), implemented in Belgium
@@ -136,8 +145,12 @@ export const LEGAL_PAGES: LegalPage[] = [
     title: 'Privacy',
     summary:
       'What we hold about you, who else touches it, and the two things you can do yourself without asking us.',
-    version: '2.0',
-    effectiveFrom: '2026-10-16',
+    // 2.1 (30.10.2026): the "Report a problem" form — what it stores, the
+    // basis (6(1)(f)), the 12/24-month term the purge enforces, and the
+    // address for rights requests. Raised by migration
+    // 1793400000000-PrivacyProblemReports together with this line.
+    version: '2.1',
+    effectiveFrom: '2026-10-30',
   },
   {
     slug: 'cookies',
