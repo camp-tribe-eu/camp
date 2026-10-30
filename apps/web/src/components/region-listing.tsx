@@ -38,6 +38,7 @@ import {
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { ButtonLink } from '@/components/button';
 import RegionInsights from '@/components/region-insights';
+import RegionDriving from '@/components/region-driving';
 import { countedAsOf, regionFaq, regionTiles } from '@/lib/hub-stats';
 import { HubFaq, HubStatTiles } from '@/components/hub-stats';
 
@@ -176,6 +177,7 @@ export default async function RegionListing({
           are hundreds of thousands — would be the same text under many
           URLs. */}
       {baseFirstPage && <RegionInsights country={country} region={region} />}
+      {baseFirstPage && <RegionDriving country={country} region={region} />}
 
       {empty ? (
         <EmptyResult

@@ -620,6 +620,9 @@ test('🔴 the country and region pages and everything they import read no reque
   expect(names).toContain('lib/hub-stats.ts');
   expect(names).toContain('components/hub-stats.tsx');
   expect(names).toContain('components/region-listing.tsx');
+  // CAMP-404: "Driving a camper here" hangs on the same page and must be
+  // inside this walk, or the guard would pass over it.
+  expect(names).toContain('components/region-driving.tsx');
   expect(seen.size).toBeGreaterThan(10);
 
   const FORBIDDEN = [/\bheaders\(\)/, /\bcookies\(\)/, /no-store/, /force-dynamic/];

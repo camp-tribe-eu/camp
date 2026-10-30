@@ -25,6 +25,17 @@ import { notSecondarySql } from './links';
 // denominator is the same as the supermarket's: rows with the distance
 // computed at all.
 //
+// 🔴 CAMP-404 — "DRIVING A CAMPER HERE" RESTS ON THIS SAME PAYLOAD, with
+// three more figures: the MEDIAN straight-line distance to the nearest
+// supermarket and to the nearest town or city, and the number of rows each
+// is a median OF. The median is taken HERE, in SQL, because the one reason
+// it is a median is that a single wrong row must not move it: 576 stations
+// are 100–1 888 km away (survey §1), the same per-country extract can park
+// one shop or one town that far off, and a mean over that region would
+// print an absurd distance for the sake of one record. Over rows with the
+// distance computed — never over the region, whose other rows have none.
+// Height and terrain are NOT here: 2.0 % filled (survey §1).
+//
 // 🔴 RAW COUNTS, NOT SENTENCES. The one place that decides whether a
 // figure is large enough to print (five known values, the survey's
 // threshold) is apps/web/src/lib/region-insights.ts — one lock, one test,
@@ -57,8 +68,11 @@ export interface RegionInsights {
   surroundings: {
     /** `YYYY-MM-DD`: the last time a context was computed for any row here. */
     computedAt: string | null;
-    supermarket: { known: number; within: number };
+    /** `medianM`: metres, median of the `known` distances; null with none. */
+    supermarket: { known: number; within: number; medianM: number | null };
     station: { known: number; within: number };
+    /** The nearest town or city (`context.town`): how many, and the median. */
+    town: { known: number; medianM: number | null };
     water: {
       /** Rows whose nearest water carries a name. */
       named: number;
@@ -94,6 +108,14 @@ export const REGION_INSIGHTS_SQL = `
            AS supermarket_known,
          count(*) FILTER (WHERE (s.context -> 'supermarket' ->> 'm')::numeric <= ${NEARBY_M})::int
            AS supermarket_within,
+         round(percentile_cont(0.5) WITHIN GROUP
+           (ORDER BY (s.context -> 'supermarket' ->> 'm')::numeric))::int
+           AS supermarket_median_m,
+         count(*) FILTER (WHERE s.context -> 'town' ->> 'm' IS NOT NULL)::int
+           AS town_known,
+         round(percentile_cont(0.5) WITHIN GROUP
+           (ORDER BY (s.context -> 'town' ->> 'm')::numeric))::int
+           AS town_median_m,
          count(*) FILTER (WHERE s.context -> 'station' ->> 'm' IS NOT NULL)::int
            AS station_known,
          count(*) FILTER (WHERE (s.context -> 'station' ->> 'm')::numeric <= ${NEARBY_M})::int
@@ -148,6 +170,11 @@ export async function countRegionInsights(
       supermarket: {
         known: n('supermarket_known'),
         within: n('supermarket_within'),
+        medianM: (row.supermarket_median_m as number | null) ?? null,
+      },
+      town: {
+        known: n('town_known'),
+        medianM: (row.town_median_m as number | null) ?? null,
       },
       station: { known: n('station_known'), within: n('station_within') },
       water: {
