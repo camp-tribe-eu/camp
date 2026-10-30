@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# CampTribe — щонічний деплой: викотити main, ЯКЩО він змінився.
+#
+#   camptribe-deploy-nightly            # те, що робить таймер
+#
+# Запускає `camptribe-deploy` (CAMP-61), а не замінює його: збірка,
+# перемикання, перевірка й автовідкат — усе там. Тут лише питання «чи
+# треба», і відповіді «ні» стоять ПЕРЕД будь-якою роботою.
+#
+# 🔴 ЧОМУ ЦЕ НА МАШИНІ, А НЕ КРОК У GITHUB ACTIONS. Власник заборонив
+# тримати ключ від прода в секретах CI (рішення 26.10.2026): воркфлоу, що
+# заходить на машину по SSH, змусив би цей ключ там лежати. Тут усе навпаки —
+# машина сама дивиться назовні на публічний репозиторій (читання без
+# облікових даних) і сама собі нічого не відкриває.
+#
+# 🔴 ЧОМУ ЩОДОБИ, А НЕ «ЩОРАЗУ, ЯК ЗМІНИВСЯ main». Збірка триває ~400 с
+# і займає 8,6 ГБ (заміряно 12.10.2026). Деплой на кожен злитий PR — це
+# десятки збірок на день, і кожна ділить процесор із живим сайтом. Один
+# на добу, у фіксований час, після того як PR з даними вже злито (див.
+# `camptribe-deploy-nightly.timer`).
+#
+# Порядок рішень, і кожне «ні» гучне або навмисно тихе:
+#
+#   main не змінився          → код 0, ЖОДНОЇ збірки. Це нормальна ніч.
+#   main не прочитався        → код 1. Порожня відповідь з кодом 0 — теж
+#                               збій: «не знаю» не дорівнює «не змінився».
+#   чинний реліз не визначено → код 1. Не знаючи, що на проді, нема з чим
+#                               порівнювати, і будувати наосліп не можна.
+#   main = реліз, з якого відкотились → код 1. Див. нижче.
+#   інакше                    → `camptribe-deploy deploy --sha <main> --apply`
+#
+# 🔴 ВІДКАТ НЕ МАЄ ПРАВА СКАСУВАТИСЬ САМ. Відкат — це «main зараз поганий,
+# поверни попередній». Але main при цьому лишається тим самим, і без цієї
+# перевірки таймер о 13:00 побачив би «main ≠ чинний» і викотив би рівно
+# те, від чого відкотились. Тому: якщо останній успішний запис історії —
+# відкат (або ручне `switch`) З релізу, що збігається з main, таймер не
+# рухається й ВИХОДИТЬ ПОМИЛКОЮ — щоб про це знали, а не щоб воно
+# мовчки висіло. Спрацює знову, щойно в main зʼявиться інший коміт.
+# Ціна хибного спрацювання названа: лист щоночі, поки людина не
+# вирішить, і це дешевше, ніж мовчки скасований відкат.
+#
+# 🔴 `--migrate` ТУТ НЕМАЄ І НЕ БУДЕ. Міграція змінює схему БД, і рішення
+# «зараз» належить людині. Якщо в main є нова міграція, `camptribe-deploy`
+# сам відмовить ДО збірки («чекають міграції»), код 1, лист — і чекатиме
+# людину, яка викотить з `--migrate`.
+#
+# Коди виходу `camptribe-deploy` проходять як є (1: зупинка до перемикання,
+# 3: автовідкат відпрацював, 4: стан машини невідомий) — їх читає той, хто
+# розбирає лист.
+set -euo pipefail
+
+ROOT="${CAMPTRIBE_ROOT:-/srv/camptribe}"
+LINK="${CAMPTRIBE_LINK:-current}"
+REPO="${CAMPTRIBE_REPO:-https://github.com/camp-tribe-eu/camp.git}"
+BRANCH="${CAMPTRIBE_BRANCH:-main}"
+DEPLOY="${CAMPTRIBE_DEPLOY_BIN:-/usr/local/bin/camptribe-deploy}"
+FETCH_TIMEOUT="${CAMPTRIBE_FETCH_TIMEOUT:-120}"
+
+say() { printf '%s\n' "$*"; }
+die() { printf '✗ %s\n' "$*" >&2; exit 1; }
+
+is_sha() { [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]]; }
+
+# ── 1. що зараз у main на GitHub ─────────────────────────────────────
+#
+# 🔴 `ls-remote`, а не fetch у постійну теку: стан, якого не існує, не
+# може розійтись із дійсністю. Сам `camptribe-deploy` потім робить справжній
+# `git fetch --depth 1` потрібного SHA у теку релізу. Прохання «перевір
+# origin/main» тим самим виконано — те саме читання, без клона на машині.
+# `GIT_TERMINAL_PROMPT=0`: недоступний репозиторій має впасти, а не чекати
+# пароля на терміналі, якого нема.
+git_remote_main() {
+  local out line sha ref
+  if command -v timeout >/dev/null 2>&1; then
+    out=$(GIT_TERMINAL_PROMPT=0 timeout "$FETCH_TIMEOUT" git ls-remote "$REPO" "refs/heads/${BRANCH}") \
+      || die "не вдалось прочитати ${BRANCH} з ${REPO}"
+  else
+    out=$(GIT_TERMINAL_PROMPT=0 git ls-remote "$REPO" "refs/heads/${BRANCH}") \
+      || die "не вдалось прочитати ${BRANCH} з ${REPO}"
+  fi
+  # 🔴 Порожній вивід із кодом 0 — це «гілки немає», а не «нічого не змінилось».
+  while IFS= read -r line; do
+    sha="${line%%[[:space:]]*}"; ref="${line##*[[:space:]]}"
+    if [ "$ref" = "refs/heads/${BRANCH}" ] && is_sha "$sha"; then
+      printf '%s' "$sha"
+      return 0
+    fi
+  done <<EOF
+$out
+EOF
+  die "у ${REPO} немає гілки ${BRANCH} (або відповідь нерозбірлива) — не знаю, що викочувати"
+}
+
+# ── 2. що зараз на проді ─────────────────────────────────────────────
+live_sha() {
+  local dir="${ROOT}/${LINK}" s=""
+  [ -e "$dir" ] || die "немає ${dir} — не знаю, що зараз на проді"
+  if [ -f "${dir}/RELEASE.json" ]; then
+    s=$(jq -r '.sha // empty' "${dir}/RELEASE.json" 2>/dev/null || true)
+  fi
+  # Реліз, збудований до маніфестів (CAMP-61): SHA лише в .git.
+  if ! is_sha "$s"; then
+    s=$(git -c safe.directory='*' -C "$dir" rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null || true)
+  fi
+  is_sha "$s" || die "не вдалось визначити коміт чинного релізу в ${dir}"
+  printf '%s' "$s"
+}
+
+# ── 3. чи не скасуємо ми відкат ──────────────────────────────────────
+# Останній успішний запис історії, крім `revert` (так само, як `hist_last_ok`
+# у camptribe-deploy): «дія<TAB>з_якого_релізу».
+last_move() {
+  local hist="${ROOT}/deploy-history.jsonl"
+  [ -f "$hist" ] || return 0
+  jq -r 'select(.ok == true and .action != "revert") | [.action, .from] | @tsv' "$hist" 2>/dev/null | tail -n 1 || true
+}
+
+main() {
+  need_cmds
+  local remote live move action from
+  remote=$(git_remote_main)
+  live=$(live_sha)
+  say "main:   ${remote}"
+  say "чинний: ${live}"
+
+  if [ "$remote" = "$live" ]; then
+    say "main не змінився з минулого викочування — збірку не починаю, нічого не роблю."
+    return 0
+  fi
+
+  move=$(last_move)
+  if [ -n "$move" ]; then
+    action="${move%%$'\t'*}"; from="${move#*$'\t'}"
+    case "$action" in
+      rollback|switch)
+        if [ -n "$from" ] && [ "${remote:0:7}" = "$from" ]; then
+          die "останній крок історії — ${action} З релізу ${from}, а це і є поточний main. Викочувати його вдруге — скасувати ${action}. Чекаю нового коміту в ${BRANCH} або рішення людини (camptribe-deploy deploy --sha ${remote} --apply)."
+        fi
+        ;;
+    esac
+  fi
+
+  [ -x "$DEPLOY" ] || die "немає виконуваного ${DEPLOY} — деплой неможливий"
+  say "main змінився: ${live:0:7} → ${remote:0:7}. Запускаю деплой (без --migrate)."
+  local rc=0
+  "$DEPLOY" deploy --sha "$remote" --ref "$BRANCH" --apply --deployer nightly-timer || rc=$?
+  say "camptribe-deploy завершився з кодом ${rc}"
+  return "$rc"
+}
+
+need_cmds() {
+  command -v git >/dev/null 2>&1 || die "на машині немає git"
+  command -v jq >/dev/null 2>&1 || die "на машині немає jq"
+}
+
+# Запуск лише як програма (як і в camptribe-deploy): `source` не стартує main.
+if [ -z "${BASH_SOURCE[0]:-}" ] || [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

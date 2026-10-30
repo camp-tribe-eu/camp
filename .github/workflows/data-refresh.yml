@@ -11,6 +11,15 @@ name: Data refresh
 # prices are out of date». Тобто код відпрацював правильно — не помітив
 # НІХТО, бо дивитись було нікому.
 #
+# 🔴 ПЛАН ЛАНЦЮГА, ЩОБ НЕ ВІДКРИВАТИ ЗАНОВО (30.10.2026). Дві ланки
+# рвались, і обидві — «далі була людина»: PR ніхто не зливав (#371 провисів
+# два дні), а злите не доходило до читача, бо сайт статичний і дані
+# потрапляють на сторінки лише з повною збіркою. Тепер: цей воркфлоу
+# зливає свій PR (лише коли в diff три файли даних — `data-pr-guard.mjs`),
+# а таймер на машині щодоби о 13:00 UTC викочує main, якщо він змінився
+# (`infra/bin/camptribe-deploy-nightly`). Деплой не звідси: ключ від прода
+# в секретах CI не живе.
+#
 # 🔴 Пара до цього процесу — `scripts/ci/check-data-freshness.mjs` у CI.
 # Процес оновлює, сторож не дає відкритися зі старим. Поодинці кожен
 # безсилий: оновлювач може мовчки падати, а сторож сам нічого не лагодить.
@@ -79,6 +88,7 @@ jobs:
       # main під захистом гілки, тож прямого пуша немає: відкриваємо PR.
       # Це навмисно — зміна даних проходить CI, як і будь-яка інша.
       - name: PR, якщо щось змінилось
+        id: cpr
         uses: peter-evans/create-pull-request@v7
         with:
           branch: data/refresh
@@ -90,3 +100,33 @@ jobs:
 
             Сторож свіжості на цих даних зелений — інакше цей PR не з'явився б.
           delete-branch: true
+
+      # 🔴 ДРУГА ПОЛОВИНА ЛАНЦЮГА: PR ніхто не зливав. #368 злито руками
+      # 28.10, #371 провисів два дні, і `wildfires.json` протух на 4,3 доби
+      # при бюджеті 3. Оновлювач, чий результат чекає на людину, — це
+      # той самий «розкладу немає», тільки на крок далі.
+      #
+      # 🔴 ПРАВО ЗЛИВАТИ В main — НЕ БЛАНКЕТНЕ. Усю межу тримає
+      # `scripts/ci/data-pr-guard.mjs`: автор — цей бот, гілка — data/refresh,
+      # КОЖЕН файл у diff — один із трьох, що пишуть збирачі, і зливається
+      # саме той коміт, який перевірили. Один чужий шлях — PR лишається
+      # відкритим, а прогін червоніє. Чому не `--auto`, чого це НЕ
+      # доводить (CI на такому PR не біжить) і чому не глоб `data/*.json` —
+      # у шапці того файлу.
+      #
+      # Спершу сторож доводить, що кусає: без цього кроку він міг би
+      # приїхати зламаним і мовчки пускати все.
+      - name: Сторож зливання ще кусає
+        run: |
+          set -o pipefail
+          node scripts/ci/data-pr-guard.mjs --self-test | tee /dev/stderr \
+            | grep -c 'data-pr-guard self-test:' >/dev/null
+
+      - name: Злити PR, якщо він лише з даними
+        if: steps.cpr.outputs.pull-request-number != '' && (steps.cpr.outputs.pull-request-operation == 'created' || steps.cpr.outputs.pull-request-operation == 'updated')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+          PR_SHA: ${{ steps.cpr.outputs.pull-request-head-sha }}
+        run: node scripts/ci/data-pr-guard.mjs --pr "$PR_NUMBER" --sha "$PR_SHA"

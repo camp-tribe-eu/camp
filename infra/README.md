@@ -38,9 +38,38 @@ status=200/CHDIR
 | `systemd/camptribe-osm-import.timer` | вівторок 04:30 UTC, `Persistent=true` (понеділкове будування екстрактів + доба запасу) |
 | `systemd/camptribe-fuel-prices.service` | 🔴 щодня: `import-stations.js --report` (ES/FR/IT → `fuel_station_prices`) |
 | `systemd/camptribe-fuel-prices.timer` | 05:00 UTC, `Persistent=true` |
+| `systemd/camptribe-deploy-nightly.service` | 🔴 щонічний деплой: `camptribe-deploy-nightly` (від root; `Nice=10`; `TimeoutStartSec=45min`) |
+| `systemd/camptribe-deploy-nightly.timer` | 13:00 UTC, `Persistent=true` — після найпізнішого заміряного старту `data-refresh` (див. нижче) |
+| `bin/camptribe-deploy-nightly` | `ls-remote` main → порівняти з чинним релізом → `camptribe-deploy deploy --sha … --apply` лише якщо різні; без `--migrate`; не скасовує відкат |
 | `bin/camptribe-backup` | бекап CSV + повний `pg_dump` (CAMP-386: інакше 208 обʼєктів `directus_*` і `project_id` ліцензії не бекапились) + **звірка вмісту** + 14 денних зрізів |
 | `bin/camptribe-failed` | лишає слід у `/srv/camptribe/failed/<юніт>` |
 | `bin/camptribe-deploy` | викладка, перевірка й відкат релізу (CAMP-61); зазвичай запускається з ноутбука через `deploy-app.sh` |
+
+## 🔴 Як дані доходять до читача (ланцюг із трьох ланок)
+
+1. **`data-refresh`** (GitHub, `cron 17 4 * * *`) збирає пожежі, посуху й
+   ціни пального, відкриває PR **і сам його зливає**, якщо в diff лише
+   три файли даних (`scripts/ci/data-pr-guard.mjs`).
+2. **`camptribe-deploy-nightly.timer`** (машина, 13:00 UTC) питає публічний
+   GitHub, чи змінився `main`, і лише тоді викликає `camptribe-deploy`.
+   Не змінився — вихід 0 без збірки.
+3. **`camptribe-deploy`** будує реліз поруч із живим, перемикає, перевіряє
+   й сам відкочує. Відкат лишається таким, як у ручного деплою.
+
+🔴 **Чому 13:00, а не 05:00.** GitHub запускає заплановані завдання з
+запізненням: три заміряні прогони `data-refresh` стартували о 09:53, 10:39
+і 10:57 UTC при розкладі 04:17 (`gh api repos/camp-tribe-eu/camp/actions/
+workflows/data-refresh.yml/runs`). Деплой о 05:00 вивозив би вчорашні дані.
+
+🔴 **Таймер ніколи не робить `--migrate`** — міграція це рішення людини;
+без неї `camptribe-deploy` відмовить до збірки, юніт упаде, піде лист.
+🔴 **Таймер не скасовує відкат:** якщо останній успішний крок історії —
+`rollback`/`switch` З релізу, що збігається з `main`, він виходить
+помилкою й чекає нового коміту або людини.
+
+⚠ `deploy-infra.sh --apply` робить `enable --now camptribe-*.timer`, тобто
+**ввімкне й цей таймер**. Файли лежать у репозиторії, поки це не запущено;
+на машині нічого не ввімкнено.
 
 ## Деплой застосунку — окремо від юнітів
 

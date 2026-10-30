@@ -620,6 +620,16 @@ jobs:
           ./infra/env-value.selftest.sh | tee /dev/stderr \
             | grep -c 'env-value self-test: усе гаразд' >/dev/null
 
+      # 🔴 Щонічний деплой: таймер, що збирає 8,6 ГБ, коли main не змінився,
+      # виглядає справним до першого простою посеред дня. Свідок — підмінений
+      # `camptribe-deploy`, що пише кожен виклик у журнал; тест читає журнал,
+      # а не вивід скрипта. Окремо доводить, що відкат не скасовується сам.
+      - name: Nightly deploy builds only when main changed, never migrates, never undoes a rollback
+        run: |
+          set -o pipefail
+          ./infra/deploy-nightly.selftest.sh | tee /dev/stderr \
+            | grep -c 'deploy-nightly self-test: усе гаразд' >/dev/null
+
       # 🔴 CAMP-349. `"«$v»"` — байти `»` (0xC2 0xBB) прилипають до імені
       # змінної, під `set -u` це «unbound variable», і скрипт падає ТИМ
       # САМИМ рядком, яким мав пояснити помилку. У матриці мутацій крах
@@ -1020,6 +1030,16 @@ jobs:
           set -o pipefail
           node scripts/ci/check-uptime.mjs --self-test | tee /dev/stderr \
             | grep -c 'check-uptime self-test:' >/dev/null
+
+      # 🔴 Автозлиття PR від data-refresh. Право зливати в main без людини
+      # живе рівно настільки, наскільки цей сторож відмовляє: самотест грає
+      # PR із чужим файлом поза data/ і читає, чи викликано `gh pr merge`.
+      # Той самий файл біжить у самому data-refresh перед зливанням.
+      - name: Data PR auto-merge refuses any path outside the three data files
+        run: |
+          set -o pipefail
+          node scripts/ci/data-pr-guard.mjs --self-test | tee /dev/stderr \
+            | grep -c 'data-pr-guard self-test:' >/dev/null
 
       # 🔴 A watchdog that switches the other watchdogs off. The daily jobs
       # in watchdog.yml carry an `if:` that skips the three-hourly tick; a
