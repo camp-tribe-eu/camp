@@ -34,6 +34,8 @@ status=200/CHDIR
 | `systemd/camptribe-freshness.timer` | 06:00 UTC, `Persistent=true` |
 | `systemd/camptribe-coverage-drift.service` | 🔴 чи досі правда таблиця заповненості, на якій стоять ваги планувальника (CAMP-262): `measure-coverage.js --check` |
 | `systemd/camptribe-coverage-drift.timer` | 06:30 UTC, `Persistent=true` |
+| `systemd/camptribe-retention.service` | 🔴 строк зберігання персональних даних, який виконує код: `retention-purge.mjs` видаляє прострочені `problem_reports` (12 міс від закриття / 24 нерозглянуті, правила в `RULES` скрипта) і ПАДАЄ, якщо не зміг |
+| `systemd/camptribe-retention.timer` | 04:00 UTC, `Persistent=true` — після бекапу 03:30, тож видалене лежить у зрізі ще 14 діб |
 | `systemd/camptribe-osm-import.service` | 🔴 вівторок 04:30 UTC: `import-release.mjs --max-age-days 9` (останній реліз `osm-weekly` → `camping_spots`). `spot_links` тут немає навмисно — це вирок людини |
 | `systemd/camptribe-osm-import.timer` | вівторок 04:30 UTC, `Persistent=true` (понеділкове будування екстрактів + доба запасу) |
 | `systemd/camptribe-fuel-prices.service` | 🔴 щодня: `import-stations.js --report` (ES/FR/IT → `fuel_station_prices`) |

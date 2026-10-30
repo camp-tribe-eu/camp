@@ -1,0 +1,38 @@
+# Строк зберігання персональних даних, який виконує код, а не документ.
+#
+# 🔴 ЧОМУ. 30.10.2026 для заявок «Report a problem» (`problem_reports`)
+# записано підставу GDPR ст. 6(1)(f) і строк: 12 місяців від закриття,
+# 24 для нерозглянутих. Записано в документі — й не виконувалось нічим.
+# Строк, якого не виконує код, — не строк. Правила живуть в ОДНОМУ
+# місці: `RULES` у scripts/ops/retention-purge.mjs; звідти їх читає
+# і цей юніт, і тести.
+#
+# 🔴 ПАДАЄ, КОЛИ НЕ ЗМІГ. База недоступна, таблиці немає, psql упав,
+# порахували N а видалили не N, є стан без правила — ненульовий код,
+# і `OnFailure` піднімає лист (CAMP-306/394). Прострочених немає —
+# код 0, і в journal «перевірено N, прострочених 0», не мовчання.
+#
+# 🔴 ПОРЯДОК ЗА БЕКАПОМ, НЕ ПЕРЕД НИМ. Бекап о 03:30 UTC; цей юніт о
+# 04:00: що б цей юніт не видалив, воно лежить у сьогоднішньому зрізі
+# ще 14 діб (`camptribe-backup`). Помилкове видалення відновне.
+#
+# 🔴 БЕЗ `--dry-run` навмисно: сухий прогін — для людини з ноутбука
+# (`node scripts/ops/retention-purge.mjs --dry-run`), а таймер, який
+# роками лише рахує, і є тим «строком у документі», проти якого це все.
+# Самотест скрипта читає цей файл і червоніє, якщо прапорець з'явиться.
+[Unit]
+Description=CampTribe personal-data retention purge
+After=postgresql.service
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+ExecStart=/usr/bin/node scripts/ops/retention-purge.mjs
+# 🔴 Слід знімається лише після УСПІШНОГО прогону, як у freshness:
+# для Type=oneshot ExecStartPost не біжить, якщо ExecStart повернув
+# ненуль, тож вчорашня тривога не зникає від того, що юніт стартував.
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-retention.service

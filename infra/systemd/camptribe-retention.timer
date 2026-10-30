@@ -1,0 +1,8 @@
+[Unit]
+Description=CampTribe personal-data retention purge, daily
+[Timer]
+# Після денного бекапу (03:30): видалене лежить у зрізі ще 14 діб.
+OnCalendar=*-*-* 04:00:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target

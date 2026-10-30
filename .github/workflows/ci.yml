@@ -266,6 +266,15 @@ jobs:
       - name: Shipped data is inside its freshness budget
         run: node scripts/ci/check-data-freshness.mjs
 
+      # 🔴 Строк зберігання, який виконує код, а не документ: 12 місяців
+      # від закриття заявки, 24 для нерозглянутих — правила в RULES
+      # скрипта, юніт systemd і прапорці звірені тут же.
+      - name: Retention purge still fails when it could not purge
+        run: |
+          set -o pipefail
+          node scripts/ops/retention-purge.mjs --self-test | tee /dev/stderr \
+            | grep -c 'retention-purge self-test:' >/dev/null
+
       # Fails on an advisory nobody has looked at, not on every known
       # one — the reasoning is in scripts/security/known-advisories.json.
       #
