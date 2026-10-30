@@ -834,3 +834,16 @@ a.ct-popup-title:hover {
 body {
   padding-bottom: var(--consent-h, 0px);
 }
+
+/* A <summary> dressed as a button («Report a problem» on a campsite page).
+   The disclosure marker goes: the button's own look says it opens. Two
+   rules because Safari draws the marker as a WebKit pseudo-element that
+   `list-style` does not reach. A class here rather than a Tailwind
+   arbitrary variant, because the unit harness reads `…:hidden` as a
+   hidden element and the text behind it as unseen. */
+summary.ct-disclosure {
+  list-style: none;
+}
+summary.ct-disclosure::-webkit-details-marker {
+  display: none;
+}

@@ -26,6 +26,8 @@ const PERSONAL = new Map([
   ['trip-stop', 'trip-stop'],
   // CAMP-390: журнал згод — хто, на що (версія формулювання), надав чи відкликав.
   ['consent-record', 'consent-record'],
+  // «Report a problem»: що не так із кемпінгом — і, ЗА БАЖАННЯМ, як відповісти людині.
+  ['problem-report', 'problem-report'],
 ]);
 
 // Сутності БЕЗ даних про людину — довідники місць, погоди, тарифів.

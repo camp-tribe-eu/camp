@@ -118,9 +118,31 @@ const READ_ONLY = {
   route_points: { icon: 'pin_drop', note: 'Stops along a route.' },
 };
 
+/**
+ * The moderation queues. `editable` is what the Moderator may change; the
+ * rest of each row is what a visitor submitted and is read-only to them.
+ */
 const MODERATION = {
-  photo_submissions: { icon: 'photo_camera', note: 'Shoot date is mandatory and public. Rejections need a reason.' },
-  reviews: { icon: 'reviews', note: 'Rejections need a reason the author can act on.' },
+  photo_submissions: {
+    icon: 'photo_camera',
+    note: 'Shoot date is mandatory and public. Rejections need a reason.',
+    editable: ['status', 'rejection_reason', 'reviewed_at', 'reviewed_by_directus_id'],
+  },
+  reviews: {
+    icon: 'reviews',
+    note: 'Rejections need a reason the author can act on.',
+    editable: ['status', 'rejection_reason', 'reviewed_at', 'reviewed_by_directus_id'],
+  },
+  // «Report a problem»: a reader says the data is wrong, a person looks.
+  // Nothing is applied to the campsite from here — the row is the inbox,
+  // the decision is the moderator's, and the fix (if any) is a separate act.
+  // 🔴 `contact` may name a person: readable by the Moderator, never edited,
+  // never shown anywhere else. Retention is not decided (GDPR-REGISTER §10).
+  problem_reports: {
+    icon: 'flag',
+    note: 'Readers report wrong data on a campsite page. Set status and a note; nothing changes on the site by itself. Contact is optional and only for a follow-up question.',
+    editable: ['status', 'resolution_note', 'reviewed_at', 'reviewed_by_directus_id'],
+  },
 };
 
 let token;
@@ -446,7 +468,7 @@ async function main() {
     [READ_ONLY, 'read-only'],
     [MODERATION, 'moderation'],
   ]) {
-    for (const [name, meta] of Object.entries(group)) {
+    for (const [name, { editable: _editable, ...meta }] of Object.entries(group)) {
       const ok = await setCollectionMeta(name, { hidden: false, ...meta });
       if (ok) console.log(`   ${label.padEnd(10)} ${name}`);
     }
@@ -582,13 +604,9 @@ async function main() {
     'Approves or rejects photos and reviews. Read-only everywhere else. Cannot delete — a rejection has to keep its reason.',
   );
   const modGrants = [
-    ...Object.keys(MODERATION).flatMap((c) => [
+    ...Object.entries(MODERATION).flatMap(([c, { editable }]) => [
       { collection: c, action: 'read' },
-      {
-        collection: c,
-        action: 'update',
-        fields: ['status', 'rejection_reason', 'reviewed_at', 'reviewed_by_directus_id'],
-      },
+      { collection: c, action: 'update', fields: editable },
     ]),
     ...Object.keys(READ_ONLY).map((c) => ({ collection: c, action: 'read' })),
   ];

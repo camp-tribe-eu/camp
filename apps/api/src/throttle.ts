@@ -171,6 +171,48 @@ export function isPlanPath(path: string): boolean {
   return PLAN_ROUTES.some((r) => clean === r);
 }
 
+/**
+ * 🔴 «Report a problem»: the route that WRITES A ROW ANYONE CAN WRITE, which
+ * is a different cost again — and the one a public form turns into a bot's
+ * mailbox the day after it opens, if nothing bounds it.
+ *
+ * `POST /problem-reports` takes a kind, up to 2 000 characters of a reader's
+ * own words and an optional contact, from anyone, with no account (the person
+ * who knows a campsite closed is a passer-by). Each accepted request is a row
+ * a moderator reads in Directus. Under the default bucket one caller could
+ * append 120 a minute — 170 000 rows a day for a person to wade through,
+ * which is the same as nobody reading any of them.
+ *
+ * Its OWN bucket, for the CAMP-176 reason: a person who reports two things
+ * about one campsite must not be spending the budget that stops somebody
+ * guessing a password, and a person reading ten pages must not be spending
+ * this one.
+ *
+ * Five per ten minutes. Argued, not measured: a reader reports one problem,
+ * perhaps two (the pin AND the price), and a campsite owner going through
+ * their own page a handful. It caps what one caller can make a moderator read
+ * at thirty rows an hour — and the rows are bounded in size by the table's
+ * own CHECK constraints, so the ceiling is also a ceiling in bytes.
+ *
+ * 🔴 WHAT THIS DOES NOT DO: stop a botnet, where every address sends five.
+ * That is Cloudflare's job, in front of us, as the head of this file says.
+ * And the counter holds the caller's address IN MEMORY for the window and
+ * nowhere else — the table has no IP column, by design (the entity says why).
+ */
+export const REPORT_LIMIT = { ttl: 10 * MINUTE, limit: 5 };
+
+/** The routes that spend the REPORT bucket. Paths as the router sees them. */
+export const REPORT_ROUTES = ['problem-reports'] as const;
+
+/** Is this the route that stores a problem report? Normalised like isPlanPath. */
+export function isReportPath(path: string): boolean {
+  const clean = path
+    .split('?')[0]
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
+  return REPORT_ROUTES.some((r) => clean === r);
+}
+
 /** The routes that spend the MAIL bucket. Paths as the router sees them. */
 export const MAIL_ROUTES = [
   // CAMP-229: зміна пошти шле лист на вказану адресу, тож рахується тут, а
@@ -254,7 +296,7 @@ export function isLoginPath(path: string): boolean {
 /**
  * Which counter this request is spent from.
  *
- * 🔴 ONE function, exported, so the six buckets are a fact a test can
+ * 🔴 ONE function, exported, so the seven buckets are a fact a test can
  * read rather than a ternary buried in a Nest guard. The bug review
  * found was precisely that the limit and the bucket were decided in two
  * different files and nothing compared them.
@@ -266,12 +308,13 @@ export function isLoginPath(path: string): boolean {
  */
 export function bucketOf(
   path: string,
-): 'bulk' | 'login' | 'mail' | 'consent' | 'plan' | 'ordinary' {
+): 'bulk' | 'login' | 'mail' | 'consent' | 'plan' | 'report' | 'ordinary' {
   if (isBulkPath(path)) return 'bulk';
   if (isLoginPath(path)) return 'login';
   if (isMailPath(path)) return 'mail';
   if (isConsentPath(path)) return 'consent';
   if (isPlanPath(path)) return 'plan';
+  if (isReportPath(path)) return 'report';
   return 'ordinary';
 }
 

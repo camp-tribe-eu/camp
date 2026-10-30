@@ -40,6 +40,7 @@ import { ButtonLink } from '@/components/button';
 import { CampsiteMedia, type Photo } from '@/components/campsite-media';
 import { ScaleTrack, SpotFactsLine } from '@/components/spot-facts';
 import { aroundRows, cleanContext, spotFacts } from '@/lib/spot-facts';
+import ReportProblem from '@/components/report-problem';
 
 // CAMP-34 — the campsite page.
 //
@@ -509,6 +510,14 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           `campsite.spec.ts` («у main жодного img, крім вебкаму»)
           почервонів би вже не через це. */}
       {!hasPhotos && <NoPhotos />}
+
+      {/* «Report a problem» — the first step of the arbitration the owner
+          asked for. A client island on a static page: it renders closed into
+          the build and talks to the API only from the reader's browser, so
+          the page stays prerendered (report-problem.spec.tsx walks the
+          import graph). Always rendered, photos or not: a wrong pin is
+          wrong whether or not there is a picture above it. */}
+      <ReportProblem slug={spot.slug} />
 
       <Around spot={spot} />
 

@@ -28,6 +28,7 @@ import {
   AirQualityModelled,
   AirQualityStation,
 } from './entities/air-quality.entity';
+import { ProblemReport } from './entities/problem-report.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -61,6 +62,8 @@ export const AppDataSource = new DataSource({
     // CAMP-164: the EEA air quality stations and the 1 km modelled index.
     AirQualityStation,
     AirQualityModelled,
+    // «Report a problem»: a reader's note that a campsite's data is wrong.
+    ProblemReport,
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
