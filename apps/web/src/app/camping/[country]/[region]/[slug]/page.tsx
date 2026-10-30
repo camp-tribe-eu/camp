@@ -38,6 +38,8 @@ import { droughtAtBuild } from '@/lib/drought-build';
 import { WebcamNote } from '@/components/webcam-panel';
 import { ButtonLink } from '@/components/button';
 import { CampsiteMedia, type Photo } from '@/components/campsite-media';
+import { ScaleTrack, SpotFactsLine } from '@/components/spot-facts';
+import { aroundRows, cleanContext, spotFacts } from '@/lib/spot-facts';
 
 // CAMP-34 — the campsite page.
 //
@@ -396,6 +398,13 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
             {setting}
           </p>
         )}
+        {/* 🔴 CAMP-FACTS. The mockup's line is "from €/night · type ·
+            season · elevation"; three of the four do not exist in our
+            data (docs/region-insight-survey.md §1). This one is built
+            from what THIS campsite has, prints nothing for what it has
+            not, and is absent altogether under two facts — the rules
+            and the numbers are in `lib/spot-facts.ts`. */}
+        <SpotFactsLine facts={spotFacts(spot)} />
       </header>
 
       {spot.missingSince && <MissingNotice since={spot.missingSince} />}
@@ -804,44 +813,12 @@ function describe(spot: Spot, where: string): string {
  * precision that makes it worth quoting.
  */
 function Around({ spot }: { spot: Spot }) {
-  const c = spot.context ?? {};
-  const facts: { label: string; value: string }[] = [];
-
-  if (c.water) {
-    facts.push({
-      label: c.water.name ?? WATER_LABEL[c.water.kind],
-      value: formatDistance(c.water.m),
-    });
-  }
-  if (c.town) {
-    facts.push({
-      label: c.town.name ?? 'Nearest town',
-      value: formatDistance(c.town.m),
-    });
-  }
-  if (c.supermarket) {
-    facts.push({ label: 'Supermarket', value: formatDistance(c.supermarket.m) });
-  }
-  if (c.station) {
-    facts.push({
-      label: c.station.name
-        ? `${c.station.name} ${RAILWAY_STOP}`
-        : RAILWAY_STOP_TITLE,
-      value: formatDistance(c.station.m),
-    });
-  }
+  const c = cleanContext(spot.context);
+  const rows = aroundRows(c);
   const usedElevation = c.elevation !== undefined || c.terrain !== undefined;
-  if (c.elevation !== undefined) {
-    facts.push({ label: 'Elevation', value: `${c.elevation} m` });
-  }
-  if (c.terrain) {
-    facts.push({
-      label: 'Terrain',
-      value: `${TERRAIN_LABEL[c.terrain.type]} (${c.terrain.relief} m relief)`,
-    });
-  }
+  const scaled = rows.some((r) => r.scale);
 
-  if (facts.length === 0) {
+  if (rows.length === 0) {
     return (
       <Section title="What&rsquo;s around it">
         <p className="max-w-prose text-sm text-ink-2">
@@ -853,18 +830,35 @@ function Around({ spot }: { spot: Spot }) {
 
   return (
     <Section title="What&rsquo;s around it">
-      <p className="max-w-prose">{summarise(spot)}</p>
+      <p className="max-w-prose">{summarise({ ...spot, context: c })}</p>
+      {/* 🔴 EACH TRACK IS A FIXED SCALE, written at its right-hand end,
+          and never the farthest of the other rows: normalised to its
+          neighbours a bar would say "far" in a village and "near" in a
+          remote valley. A row with no distance has no track and no row.
+          Constants and why: `SCALE_MAX_M` in `lib/spot-facts.ts`. */}
       <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
-        {facts.map((f) => (
+        {rows.map((r) => (
           <div
-            key={f.label}
-            className="flex items-baseline justify-between gap-3 border-b border-line-2 py-1.5 text-sm"
+            key={r.key}
+            data-row={r.key}
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1.5 border-b border-line-2 py-2 text-sm"
           >
-            <dt className="text-ink-2">{f.label}</dt>
-            <dd className="tabular-nums text-heading">{f.value}</dd>
+            <dt className="text-ink-2">{r.label}</dt>
+            <dd className="tabular-nums text-heading">{r.value}</dd>
+            {r.scale && (
+              <dd className="col-span-2">
+                <ScaleTrack row={r} />
+              </dd>
+            )}
           </div>
         ))}
       </dl>
+      {scaled && (
+        <p className="mt-2 text-xs text-ink-2" data-testid="scale-legend">
+          Each bar runs from 0 to the distance at its right-hand end; a full
+          bar means that far or farther.
+        </p>
+      )}
       {/* 🔴 Credit the elevation model only where it was used.
           
           This said "from OpenStreetMap geometry and the Copernicus
