@@ -1,4 +1,4 @@
-import { SeedLegalPages1792800000000 } from "../../../api/src/migrations/1792800000000-SeedLegalPages";
+import { seededLegalPages } from "../../../api/src/pages/legal-seeded";
 import { LegalProse } from "@/components/legal-prose";
 import { renderComponent } from "./render-component";
 
@@ -6,11 +6,15 @@ import { renderComponent } from "./render-component";
  * Правові документи так, як їх засіяла міграція, — для тестів, що читають
  * їхній ЗМІСТ.
  *
- * 🔴 ЦЕ ТЕКСТ ІЗ МІГРАЦІЇ, А НЕ ТЕКСТ ІЗ КОДУ. До CAMP-365 політику
+ * 🔴 ЦЕ ТЕКСТ ІЗ МІГРАЦІЙ, А НЕ ТЕКСТ ІЗ КОДУ. До CAMP-365 політику
  * приватності в юніт-тестах малював компонент `privacy.tsx`. Тепер
- * компонента немає: текст живе в базі, а в репозиторії лишається один
- * його відбиток — той, яким міграція `SeedLegalPages` засіває базу. Тести,
- * яким потрібні слова документа, беруть їх звідти.
+ * компонента немає: текст живе в базі, а в репозиторії лишається його
+ * відбиток у міграціях — посів `SeedLegalPages` і кожна пізніша міграція,
+ * що міняє документ (перша — `PrivacyProblemReports`, політика 2.1).
+ * Що саме лежить у базі після ВСІХ міграцій, складає
+ * `apps/api/src/pages/legal-seeded.ts`; тести, яким потрібні слова
+ * документа, беруть їх звідти — те саме місце, з якого читає
+ * `legal-seed.spec.ts` на справжньому Postgres.
  *
  * 🔴 ЧОГО ЦЕ НЕ БАЧИТЬ, І ЦЕ НАЗВАНО. Правка, зроблена ПОТІМ у CMS, цим
  * тестам невидима: вони про засіяний текст. Що засіяне й подане читачеві —
@@ -34,9 +38,7 @@ interface Seeded {
   body: string;
 }
 
-export const SEEDED: readonly Seeded[] = (
-  new SeedLegalPages1792800000000() as unknown as { pages: Seeded[] }
-).pages;
+export const SEEDED: readonly Seeded[] = seededLegalPages();
 
 /** Розмітка одного документа, або падіння з назвою, якщо його немає. */
 export function seededBody(slug: string): string {

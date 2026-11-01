@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useId, useState } from 'react';
 import { Button, buttonClasses } from '@/components/button';
 import {
@@ -154,9 +155,23 @@ export default function ReportProblem({ slug }: { slug: string }) {
                 disabled={disabled}
                 required
                 maxLength={MAX_DESCRIPTION}
+                aria-describedby={`${id}-description-hint`}
                 aria-invalid={problemFor('description') ? true : undefined}
                 onChange={(e) => setDraft({ ...draft, description: e.target.value })}
               />
+              {/* 🔴 The one honest mitigation for a free-text field we do not
+                  filter (privacy policy 2.1, "Reporting a problem"): say it
+                  beside the field, before the person types. The policy says
+                  the form says this — so it has to. */}
+              <p id={`${id}-description-hint`} className={HINT}>
+                Please do not put personal details here — yours or anyone
+                else’s: no names, phone numbers or addresses. We do not filter
+                what you write. How reports are handled is in the{' '}
+                <Link href="/legal/privacy#reports" className="underline">
+                  privacy policy
+                </Link>
+                .
+              </p>
               {problemFor('description') && (
                 <p className="mt-1 text-sm text-warn">{problemFor('description')}</p>
               )}

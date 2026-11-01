@@ -1,5 +1,5 @@
 import { apiFetch } from "./api";
-import { COMPANY, COMPANY_ADDRESS, CONTACT_EMAIL } from "./legal";
+import { COMPANY, COMPANY_ADDRESS, CONTACT_EMAIL, PRIVACY_EMAIL } from "./legal";
 import { FUEL, longDate } from "./fuel";
 import { isAllowedHref, substitute } from "./rich-text";
 
@@ -68,6 +68,8 @@ export const PAGE_VALUES: Readonly<Record<string, string>> = {
   "company.email": COMPANY.email,
   "company.address": COMPANY_ADDRESS,
   "contact.email": CONTACT_EMAIL,
+  // Політика приватності 2.1: адреса для звернень про персональні дані.
+  "privacy.email": PRIVACY_EMAIL,
   // 🔴 ЖИВЕ ЗНАЧЕННЯ, А НЕ КОНСТАНТА. Тиждень паливного бюлетеня
   // змінюється щотижня, і текст, який на нього посилається, мусить
   // їхати за ним. Тримати дату РЯДКОМ у базі означало б, що речення

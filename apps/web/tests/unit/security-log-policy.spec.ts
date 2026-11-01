@@ -127,7 +127,10 @@ function section(from: string, to: string): string {
   return prose.slice(a, b);
 }
 
-const LOG = section('The security log', 'Your account, if you make one');
+// 🔴 Межа корпусу — НАСТУПНИЙ заголовок. Політика 2.2 поставила після журналу
+// два нові підрозділи (журнал помилок браузера й биті адреси), і зі старою
+// межею «Your account» їхні «seven days» потрапляли в розділ про журнал.
+const LOG = section('The security log', 'When something breaks in your browser');
 
 test('конфіг ротації розібрався, а не дав NaN', () => {
   expect(Number.isInteger(rotate), 'директиви `rotate N` у конфігу немає').toBe(true);
