@@ -154,7 +154,7 @@ node -e "…gunzipSync…"  → фіч: 14 | @timestamp: true
 | --- | --- | --- |
 | `camping_spots` | `scripts/osm-pipeline/import-release.mjs --max-age-days 9` | `camptribe-osm-import.timer`, вівторок 04:30 UTC |
 | `fuel_station_prices` | `apps/api/dist/fuel/import-stations.js --report` | `camptribe-fuel-prices.timer`, щодня 05:00 UTC |
-| `spot_links` | `reconcile-sources.js --apply` | **немає навмисно**: це вирок «два записи — один кемпінг», а не імпорт; сухий прогін 28.10 дав 76 нових звʼязків при верхній межі хибних 16,7% |
+| `spot_links` | `reconcile-sources.js --apply` | **юніта ще немає**; сам скрипт з 01.11 придатний до запуску без нагляду: пише лише пари, де назва, відстань **і домен сайту/пошти** кажуть одне (на тих самих 76 парах 28.10: 55 пишуться, 21 лишаються дублями без позначки). Юніт за зразком `camptribe-fuel-prices.service`: `ExecStart=/usr/bin/node dist/spots/reconcile-sources.js --apply`, після `camptribe-osm-import` |
 | `osm_route_poi` | `load-route-poi.sh` | **немає**: потребує `osmium` і `ogr2ogr` та 27 PBF (~25 ГБ) на машині, де їх нема; див. нижче |
 
 🔴 **Чому `osm-weekly` зелений, а `camping_spots` стоїть.** Воркфлоу закінчує

@@ -1,9 +1,14 @@
 import {
+  AUTO_LINK_IDENTITY,
   CLAIMED_BY_OUTSIDE_RECORD_SQL,
+  RULE_ID,
   complements,
+  identityOf,
   proposeLinks,
+  splitByIdentity,
+  writeLinks,
 } from './reconcile-sources';
-import type { PairRow, SpotRow } from './reconcile-sources';
+import type { PairRow, Proposal, SpotRow } from './reconcile-sources';
 
 function row(over: Partial<SpotRow> & { id: string }): SpotRow {
   return {
@@ -157,6 +162,21 @@ describe('proposeLinks', () => {
     expect(out.review[0].why).toContain('already linked');
   });
 
+  it('sends a record to a person when IT already sits behind another campsite', () => {
+    // 🔴 The mirror of the case above, found 01.11.2026 on the first
+    // unattended-shaped run: 10 of 55 auto-tier links were refused by
+    // the unique index on live secondaries, because the DATAtourisme row
+    // was already linked to ONE OSM row and a SECOND OSM row 30–250 m
+    // away matched it too. Which OSM row is the campsite is a person's
+    // call; a timer that fails on it every week is an alarm nobody hears.
+    const out = proposeLinks([pair], new Set(), new Set(), new Set(['dt-1']));
+    expect(out.link).toHaveLength(0);
+    expect(out.review).toHaveLength(1);
+    expect(out.review[0].why).toBe(
+      'this record is already linked to another campsite',
+    );
+  });
+
   it('picks the same winner whichever order the pairs arrive in', () => {
     const second = row({ id: 'dt-2', name: 'Les 2 Rivières', lon: east(120) });
     const forwards = proposeLinks(
@@ -168,6 +188,164 @@ describe('proposeLinks', () => {
       new Set(),
     );
     expect(forwards.link[0].secondary.id).toBe(backwards.link[0].secondary.id);
+  });
+});
+
+/**
+ * Рішення 28.10.2026: без нагляду пишеться лише те, у чому впевнені.
+ * Матчер каже «один кемпінг» за назвою й відстанню; третя вісь — домен
+ * сайту чи пошти, поле, якого матчер не читає. Два тести нижче тримають
+ * межу з обох боків на ОДНАКОВИХ назві й відстані (sim 1, 71 м), щоб
+ * різниця була лише в домені: пара вище порога зливається, пара нижче —
+ * ні. Опустити поріг до старого (авто = усе, що сказав матчер) — і
+ * другий тест червоніє.
+ */
+describe('splitByIdentity — the third axis', () => {
+  const osm = row({
+    id: 'osm-1',
+    osm_ref: 'a216',
+    name: 'Les 2 Rivières',
+    website: 'https://www.camping-2-rivieres.fr/',
+  });
+  const sameDomain = row({
+    id: 'dt-1',
+    name: 'Camping 2 Rivières',
+    lon: east(71),
+    website: 'camping-2-rivieres.fr/tarifs',
+  });
+  const otherDomain = { ...sameDomain, website: 'https://autre-camping.fr' };
+  const silent = { ...sameDomain, website: null };
+
+  const verdictOf = (other: SpotRow) =>
+    proposeLinks([{ a: osm, b: other, metres: 71 }], new Set());
+
+  it('auto-links the pair the matcher AND the domain both call one campsite', () => {
+    const out = verdictOf(sameDomain);
+    expect(out.link).toHaveLength(1);
+    // The two confidences, as numbers: the matcher's, then the gate's.
+    expect(out.link[0].similarity).toBe(1);
+    expect(out.link[0].metres).toBe(71);
+    expect(identityOf(out.link[0])).toBe('agree');
+    const { auto, held } = splitByIdentity(out.link);
+    expect(auto).toHaveLength(1);
+    expect(held).toHaveLength(0);
+  });
+
+  it('holds back the SAME pair when the domains differ — sim 1, 71 m, and still no', () => {
+    const out = verdictOf(otherDomain);
+    // The matcher is as sure as it ever gets …
+    expect(out.link).toHaveLength(1);
+    expect(out.link[0].similarity).toBe(1);
+    expect(out.link[0].metres).toBe(71);
+    // … and it is not written, because the independent axis says no.
+    const { auto, held } = splitByIdentity(out.link);
+    expect(auto).toHaveLength(0);
+    expect(held).toHaveLength(1);
+    expect(held[0].identity).toBe('disagree');
+  });
+
+  it('holds back a pair where one side names nobody — silence is not a weak yes', () => {
+    const { auto, held } = splitByIdentity(verdictOf(silent).link);
+    expect(auto).toHaveLength(0);
+    expect(held[0].identity).toBe('none');
+  });
+
+  it('the gate is agreement, not "anything but disagreement"', () => {
+    expect(AUTO_LINK_IDENTITY).toBe('agree');
+  });
+
+  it('reads the email as a second way of naming oneself', () => {
+    const byMail = row({
+      id: 'osm-2',
+      osm_ref: 'a217',
+      name: 'Les 2 Rivières',
+      website: null,
+      email: 'contact@camping-2-rivieres.fr',
+    });
+    expect(identityOf({ primary: byMail, secondary: sameDomain })).toBe(
+      'agree',
+    );
+  });
+
+  it('names the third axis in the rule it stamps on every row', () => {
+    // So old rows (written by the matcher alone) and new ones can be
+    // told apart in the table without opening the code.
+    expect(RULE_ID).toMatch(/\+domain$/);
+  });
+});
+
+/**
+ * 🔴 Оборотність — це РЯДОК у spot_links, і нічого більше. Тест тримає
+ * записувача фальшивим клієнтом, який лише записує, що в нього просили:
+ * один INSERT у spot_links на звʼязок, з обома id, відстанню, схожістю
+ * і правилом — усім, що треба арбітру, щоб побачити й розчепити, — і
+ * жодного слова про camping_spots. Зробити злиття незворотним (сховати
+ * дубль через UPDATE camping_spots, або прибрати правило з рядка) —
+ * і цей тест червоніє.
+ */
+describe('writeLinks leaves the trace an undo needs', () => {
+  const proposal: Proposal = {
+    primary: row({ id: 'osm-1', osm_ref: 'a216', name: 'Les 2 Rivières' }),
+    secondary: row({ id: 'dt-1', name: 'Camping 2 Rivières' }),
+    metres: 71,
+    similarity: 1,
+    why: 'same name, same place',
+  };
+
+  function recorder(failOn?: (sql: string, params?: unknown[]) => boolean) {
+    const calls: { sql: string; params?: unknown[] }[] = [];
+    return {
+      calls,
+      async query(sql: string, params?: unknown[]) {
+        calls.push({ sql, params });
+        if (failOn?.(sql, params)) throw new Error('duplicate key value');
+        return { rowCount: /^\s*INSERT/i.test(sql) ? 1 : null };
+      },
+    };
+  }
+
+  it('writes exactly one spot_links row per link, carrying what an undo needs', async () => {
+    const db = recorder();
+    const r = await writeLinks(db, [proposal]);
+    expect(r.written).toBe(1);
+    expect(r.refused).toHaveLength(0);
+    const inserts = db.calls.filter((c) => /^\s*INSERT/i.test(c.sql));
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0].sql).toMatch(/INSERT\s+INTO\s+spot_links/i);
+    expect(inserts[0].sql).toMatch(
+      /\(primary_id,\s*secondary_id,\s*metres,\s*name_similarity,\s*rule\)/i,
+    );
+    expect(inserts[0].params).toEqual(['osm-1', 'dt-1', 71, 1, RULE_ID]);
+  });
+
+  it('never touches a campsite row — hiding happens at read time, from the link', async () => {
+    const db = recorder();
+    await writeLinks(db, [proposal]);
+    for (const c of db.calls) expect(c.sql).not.toMatch(/camping_spots/i);
+    for (const c of db.calls) expect(c.sql).not.toMatch(/^\s*(UPDATE|DELETE)/i);
+  });
+
+  it('a row the database refuses costs one row, not the run', async () => {
+    const second: Proposal = {
+      ...proposal,
+      secondary: row({ id: 'dt-2', name: 'Les 2 Rivières', lon: east(120) }),
+      metres: 120,
+    };
+    const db = recorder((sql, params) => params?.[1] === 'dt-1');
+    const r = await writeLinks(db, [proposal, second]);
+    expect(r.written).toBe(1);
+    expect(r.refused).toHaveLength(1);
+    expect(r.refused[0]).toContain('duplicate key');
+    expect(db.calls.some((c) => /ROLLBACK TO SAVEPOINT/i.test(c.sql))).toBe(
+      true,
+    );
+  });
+
+  it('opens no transaction of its own, so a rehearsal can roll it back', async () => {
+    const db = recorder();
+    await writeLinks(db, [proposal]);
+    for (const c of db.calls)
+      expect(c.sql).not.toMatch(/^\s*(BEGIN|COMMIT)\b/i);
   });
 });
 
