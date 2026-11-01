@@ -327,7 +327,11 @@ async function main(): Promise<void> {
   console.log('\n✓ the threshold rehearsal holds');
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Guarded so that importing this module (a spec, a tool) never opens the
+// database or plants rows: the rehearsal runs only under direct invocation.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

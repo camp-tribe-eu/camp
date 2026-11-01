@@ -72,7 +72,7 @@ printf '{"sha":"%s"}\n' "$SHA2" > "$MROOT/releases/${SHA1:0:7}/RELEASE.json"
 run
 eq "$RC" 0; ok $? 'код 0' "код=$RC; $OUT"
 eq "$(calls)" 0; ok $? '🔴 camptribe-deploy НЕ викликано (журнал порожній)' "викликів=$(calls)"
-echo "$OUT" | grep -q 'збірку не починаю'; ok $? 'сказано словами, що нічого не робить' "$OUT"
+grep -q 'збірку не починаю' <<<"$OUT"; ok $? 'сказано словами, що нічого не робить' "$OUT"
 printf '{"sha":"%s"}\n' "$SHA1" > "$MROOT/releases/${SHA1:0:7}/RELEASE.json"
 
 echo '— 🔴 main змінився: деплой запущено, і саме такий'
@@ -99,7 +99,7 @@ printf '{"action":"deploy","from":"aaaaaaa","to":"%s","ok":true}\n{"action":"rol
 run
 eq "$RC" 1; ok $? 'останній крок — відкат З релізу, що є main: код 1' "код=$RC; $OUT"
 eq "$(calls)" 0; ok $? '🔴 …і деплою немає' "викликів=$(calls)"
-echo "$OUT" | grep -q 'скасувати rollback'; ok $? '…і сказано, чому' "$OUT"
+grep -q 'скасувати rollback' <<<"$OUT"; ok $? '…і сказано, чому' "$OUT"
 printf '{"action":"switch","from":"%s","to":"aaaaaaa","ok":true}\n' "${SHA2:0:7}" > "$HIST"
 run
 eq "$(calls)" 0; ok $? 'ручне switch З цього релізу — теж утримує' "викликів=$(calls)"
@@ -140,17 +140,21 @@ echo '— самі юніти'
 SVC="$HERE/systemd/camptribe-deploy-nightly.service"
 TMR="$HERE/systemd/camptribe-deploy-nightly.timer"
 # Рядки без коментарів: у коментарях слово «--migrate» стоїть навмисно.
+# Herestring, not a pipe: `grep -q` exits at the first match and the writer
+# would take SIGPIPE under pipefail (CAMP-333), so the text is read once.
 active() { grep -v '^[[:space:]]*#' "$1"; }
-active "$SVC" | grep -q '^ExecStart=/usr/local/bin/camptribe-deploy-nightly$'
+SVC_ACTIVE="$(active "$SVC")"
+TMR_ACTIVE="$(active "$TMR")"
+grep -q '^ExecStart=/usr/local/bin/camptribe-deploy-nightly$' <<<"$SVC_ACTIVE"
 ok $? 'ExecStart веде на скрипт, без аргументів' "$(active "$SVC" | grep ExecStart)"
-{ active "$SVC" | grep -q '^OnFailure=camptribe-failed@%n.service$' && active "$SVC" | grep -q '^ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-deploy-nightly.service$'; }
+{ grep -q '^OnFailure=camptribe-failed@%n.service$' <<<"$SVC_ACTIVE" && grep -q '^ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-deploy-nightly.service$' <<<"$SVC_ACTIVE"; }
 ok $? 'падіння лишає слід, успіх його знімає' ""
-! active "$SVC" | grep -qE 'migrate|EnvironmentFile|Environment=.*(KEY|TOKEN|SECRET|PASSWORD)'
+! grep -qE 'migrate|EnvironmentFile|Environment=.*(KEY|TOKEN|SECRET|PASSWORD)' <<<"$SVC_ACTIVE"
 ok $? '🔴 у юніті немає --migrate, EnvironmentFile і секретів' ""
 H="$(active "$TMR" | sed -n 's/^OnCalendar=\*-\*-\* \([0-9][0-9]\):00:00 UTC$/\1/p')"
 { [ -n "$H" ] && [ "$((10#$H))" -ge 12 ]; }
 ok $? "🔴 час деплою ${H:-?}:00 UTC — після найпізнішого заміряного старту data-refresh (10:57 UTC)" "OnCalendar: $(active "$TMR" | grep OnCalendar)"
-active "$TMR" | grep -q '^Persistent=true$'; ok $? 'Persistent=true' ""
+grep -q '^Persistent=true$' <<<"$TMR_ACTIVE"; ok $? 'Persistent=true' ""
 [ "$(active "$TMR" | grep -c '^OnCalendar=')" = 1 ]; ok $? 'рівно один OnCalendar — один деплой на добу' ""
 
 echo
