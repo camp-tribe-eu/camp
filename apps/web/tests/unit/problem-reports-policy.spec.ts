@@ -66,15 +66,20 @@ const registerSection10 = () => registerSection(10);
 /** «**3 місяці**», «**1 місяць**», «**12 місяців**» — число з коду, жирним, у реєстрі. */
 const monthsBold = (months: number) => new RegExp(`\\*\\*${months} місяц(ь|і|ів)\\*\\*`);
 
-/** Підрозділ {#reports} політики: від його `<h3>` до наступного заголовка. */
-function reportsSectionHtml(): string {
+/** Розділ політики за якорем: від його `<h2>`/`<h3>` до наступного заголовка. */
+function policySectionHtml(anchor: string): string {
   const html = seededHtml('privacy');
-  const at = html.search(/<h3\b[^>]*\sid="reports"/);
-  expect(at, 'у політиці немає заголовка з якорем «reports»').toBeGreaterThanOrEqual(0);
+  const at = html.search(new RegExp(`<h[23]\\b[^>]*\\sid="${anchor}"`));
+  expect(at, `у політиці немає заголовка з якорем «${anchor}»`).toBeGreaterThanOrEqual(0);
   const rest = html.slice(at);
   const next = rest.slice(1).search(/<h[23]\b/);
   return next < 0 ? rest : rest.slice(0, next + 1);
 }
+const reportsSectionHtml = () => policySectionHtml('reports');
+
+/** Усі «N month(s)» у видимому тексті — те, що читач справді бачить як строк. */
+const monthsStated = (text: string) =>
+  [...text.matchAll(/\b(\d+) months?\b/g)].map((m) => Number(m[1]));
 
 test.describe('політика приватності описує форму «Report a problem»', () => {
   test('🔴 розділ є, і він каже, що зберігається і що ні', () => {
@@ -197,6 +202,33 @@ test.describe('🔴 строк і підстава однакові в коді,
     });
   }
 
+  // 🔴 Політика 2.3 назвала строки журналів літерами; тут вони привʼязані до
+  // RULES так само, як строки заявок: у кожному розділі має стояти РІВНО те
+  // число місяців, що в коді, і жодного іншого. Мутація «RULES 3 → 6, політику
+  // не чіпали» червонить і називає обидва числа.
+  for (const [table, anchor] of [
+    ['client_errors', 'browser-errors'],
+    ['not_found_hits', 'dead-links'],
+  ] as const) {
+    test(`строк ${table} із RULES стоїть у політиці {#${anchor}} і в «How long we keep it»`, async () => {
+      const months = (await rules(table)).branches[0].months;
+      const section = visibleText(policySectionHtml(anchor));
+      const stated = monthsStated(section);
+      expect(
+        stated,
+        `політика {#${anchor}}: RULES каже ${months} міс, у тексті стоїть: ${stated.join(', ') || 'жодного числа місяців'}`,
+      ).toEqual([months]);
+      expect(section, `{#${anchor}} не каже, що строк виконує код щодня`).toContain('deletes what has expired every day');
+      const keepHtml = policySectionHtml('keep');
+      const keepMonths = monthsStated(visibleText(keepHtml));
+      expect(
+        keepMonths,
+        `«How long we keep it»: RULES каже ${months} міс для ${table}, у списку стоять: ${keepMonths.join(', ')}`,
+      ).toContain(months);
+      expect(keepHtml, `«How long we keep it» не відсилає до {#${anchor}}`).toContain(`href="/legal/privacy#${anchor}"`);
+    });
+  }
+
   test('🔴 §4 і §5 — різні числа: строк одного журналу не можна приписати іншому', async () => {
     const ce = (await rules('client_errors')).branches[0].months;
     const nf = (await rules('not_found_hits')).branches[0].months;
@@ -222,10 +254,10 @@ test.describe('🔴 строк і підстава однакові в коді,
 });
 
 test.describe('реєстр правових сторінок і сама сторінка', () => {
-  test('версія політики піднята разом із текстом: 2.2 від 01.11.2026', () => {
+  test('версія політики піднята разом із текстом: 2.3 від 02.11.2026', () => {
     const p = legalPage('privacy')!;
-    expect(p.version).toBe('2.2');
-    expect(p.effectiveFrom).toBe('2026-11-01');
+    expect(p.version).toBe('2.3');
+    expect(p.effectiveFrom).toBe('2026-11-02');
   });
 
   // 🔴 Політика лишається статичною: ні сторінка, ні будь-що, що вона
@@ -436,9 +468,9 @@ test.describe('🔴 обробники й отримувачі: реєстр = �
       expect(html, `немає якоря «${anchor}»`).toMatch(new RegExp(`<h3\\b[^>]*\\sid="${anchor}"`));
     }
     const text = visibleText(html);
-    // Автоматичного видалення для цих двох журналів у коді немає (0 DELETE) — політика не обіцяє.
-    expect(text).toContain('we have not yet built an automatic deletion for these reports');
-    expect(text).toContain('there is no automatic deletion yet');
+    // 2.3: строк для обох журналів виконує код (RULES) — політика більше не каже «немає».
+    // Самі числа звіряються з RULES у «строк і підстава однакові в коді, реєстрі й політиці».
+    expect(text).not.toMatch(/no automatic deletion|not yet built an automatic deletion/);
     // Планувальник: нічого не зберігається, ліміт 10/хв — із throttle.ts.
     const throttle = readFileSync(join(ROOT, 'apps', 'api', 'src', 'throttle.ts'), 'utf8');
     const plan = /export const PLAN_LIMIT = \{ ttl: ([^,]+), limit: (\d+) \}/.exec(throttle);
