@@ -161,12 +161,14 @@ export function fileSources() {
  * Таблиці, що мають дату імпорту. Перелік — замір по
  * `apps/api/src/migrations` 27.10.2026, а не памʼять.
  *
- * 🔴 ДВА ІЗ ДЕВʼЯТИ ІМПОРТЕРІВ МАЮТЬ РОЗКЛАД В РЕПОЗИТОРІЇ (з 28.10.2026):
- * `camptribe-osm-import.timer` (camping_spots) і `camptribe-fuel-prices.timer`
- * (fuel_station_prices). Решту запускає людина (`osm-weekly.yml` лише
- * публікує екстракт і ДРУКУЄ команду імпорту; `air/import.ts` каже прямо
- * «the refresh is not scheduled»). Тому для сімох «застарів» означає
- * «людина не запустила», а не «cron упав», і адресат тривоги — людина.
+ * 🔴 ТРИ ІЗ ДЕВʼЯТИ ІМПОРТЕРІВ МАЮТЬ РОЗКЛАД В РЕПОЗИТОРІЇ (з 28.10.2026 два,
+ * з CAMP-113 три): `camptribe-osm-import.timer` (camping_spots),
+ * `camptribe-route-poi-import.timer` (osm_route_poi) і
+ * `camptribe-fuel-prices.timer` (fuel_station_prices). Решту запускає людина
+ * (`osm-weekly.yml` лише публікує екстракт і ДРУКУЄ команду імпорту;
+ * `air/import.ts` каже прямо «the refresh is not scheduled»). Тому для
+ * шістьох «застарів» означає «людина не запустила», а не «cron упав», і
+ * адресат тривоги — людина.
  *
  * 🔴 БЕЗ ДАТИ, отже тут їх НЕМАЄ: `ne_admin`, `osm_ctx_poi`,
  * `osm_ctx_water`, `osm_ctx_place`, `osm_country_area`,

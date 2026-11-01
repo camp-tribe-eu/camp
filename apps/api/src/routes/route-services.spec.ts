@@ -286,11 +286,24 @@ describe('the tag rules behind each kind', () => {
   // nothing, which reads exactly like an honest gap. The loader refuses
   // an empty kind at import time; this catches it at commit time.
   it('matches the tag list the pipeline actually filters for', () => {
+    // 🔴 CAMP-113 (28.10.2026): the array moved out of load-route-poi.sh into
+    // route-poi-filters.sh, which that script AND extract-route-poi.sh (the
+    // weekly build on a runner) source — one list, two callers. Read from
+    // the file that holds it; the two scripts are asserted to source it.
     const script = readFileSync(
-      join(__dirname, '../../../../scripts/osm-pipeline/load-route-poi.sh'),
+      join(__dirname, '../../../../scripts/osm-pipeline/route-poi-filters.sh'),
       'utf8',
     );
-    // 🔴 CAMP-327: the script's array holds PLAIN `key=value` pairs and the
+    for (const caller of ['load-route-poi.sh', 'extract-route-poi.sh']) {
+      const text = readFileSync(
+        join(__dirname, '../../../../scripts/osm-pipeline', caller),
+        'utf8',
+      );
+      // named, checked, then sourced — see the scripts for why the check
+      expect(text).toMatch(/^FILTERS_FILE=".*\/route-poi-filters\.sh"$/m);
+      expect(text).toMatch(/^\. "\$FILTERS_FILE"$/m);
+    }
+    // 🔴 CAMP-327: the array holds PLAIN `key=value` pairs and the
     // substring form is applied once, in its loop (load-route-poi.selftest.sh
     // checks what osmium is handed). So what is compared here is the PAIRS —
     // and the line below the comparison is what ties `osmiumFiltersFor` to the

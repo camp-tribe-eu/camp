@@ -355,9 +355,26 @@ export function buildRoutePoiInsertSql(): string {
  * objects. Measured on camptribe_dev before this card: 154 183 `fuel` rows
  * against 119 201 objects in the raw extracts.
  */
-export const LPG_SUMMARY_SQL = `SELECT lpg AS state, count(*)::text AS rows,
+/**
+ * 🔴 CAMP-113: `runOnly` — the table side reads the rows THIS RUN wrote
+ * (`last_seen_at = $1`, the run's stamp). The weekly import is scoped to the
+ * countries a release holds, and a check that compares the whole Union's
+ * table with two countries' staging is wrong by construction: measured
+ * 01.11.2026 on a scratch copy of the dev table, the first scoped import of
+ * Malta + Luxembourg rolled back with "11502 rows say cylinder_swap=yes and
+ * no staged object says shop=gas". In a full run (load-route-poi.sh) every
+ * row left after the delete carries the run's stamp, so the filter is the
+ * identity there — one SQL, read correctly in both runs. Without the flag
+ * the whole table is read, which is what the specs that compare the layer
+ * with a count of objects want.
+ */
+export function lpgSummarySql(runOnly = false): string {
+  const run = runOnly ? ' AND last_seen_at = $1::timestamptz' : '';
+  return `SELECT lpg AS state, count(*)::text AS rows,
               count(DISTINCT ${canonicalRefSql('osm_ref')})::text AS objects
-         FROM osm_route_poi WHERE kind = 'fuel' GROUP BY 1`;
+         FROM osm_route_poi WHERE kind = 'fuel'${run} GROUP BY 1`;
+}
+export const LPG_SUMMARY_SQL = lpgSummarySql();
 
 /**
  * 🔴 CAMP-258: `cylinder_swap` — `yes` FOR ANY OBJECT THAT SAYS `shop=gas`,
@@ -427,7 +444,12 @@ export function cylinderSwapSelectSql(alias = 's'): string {
  * today's data (`w493009868`, `w849580105`) not `extra`, and a spec stages a
  * shop that arrives ONLY as an area so that dropping it is red.
  */
-export const GAS_LAYER_SUMMARY_SQL = `WITH gas AS (
+export function gasLayerSummarySql(runOnly = false): string {
+  // see lpgSummarySql for why the table side can be scoped to the run
+  const run = runOnly
+    ? '\n          WHERE r.last_seen_at = $1::timestamptz'
+    : '';
+  return `WITH gas AS (
          SELECT s.id AS id, ${canonicalRefSql('s.id')} AS cref
            FROM osm_route_poi_staging s
           WHERE s.id IS NOT NULL AND s.shop ILIKE '%gas%' AND EXISTS (
@@ -445,7 +467,7 @@ export const GAS_LAYER_SUMMARY_SQL = `WITH gas AS (
                 (i.k IS NOT NULL OR c.k IS NOT NULL) AS says_gas
            FROM osm_route_poi r
            LEFT JOIN by_id i ON i.k = r.osm_ref
-           LEFT JOIN by_cref c ON c.k = r.osm_ref
+           LEFT JOIN by_cref c ON c.k = r.osm_ref${run}
        )
        SELECT
        count(*) FILTER (WHERE kind = 'gas_exchange')::text AS own_kind,
@@ -461,6 +483,8 @@ export const GAS_LAYER_SUMMARY_SQL = `WITH gas AS (
        count(DISTINCT CASE WHEN kind = 'gas_exchange' OR cylinder_swap = 'yes'
                            THEN ${canonicalRefSql('osm_ref')} END)::text AS layer_objects
   FROM t`;
+}
+export const GAS_LAYER_SUMMARY_SQL = gasLayerSummarySql();
 
 /**
  * 🔴 CAMP-327: THE TEN KINDS' RULES, CHECKED AGAINST THE STAGED TAGS — one

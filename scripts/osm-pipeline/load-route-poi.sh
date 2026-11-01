@@ -44,17 +44,19 @@
 #   cd apps/api && npx ts-node src/osm/load-route-poi.ts
 # (this script runs that for you at the end)
 #
-# 🔴 NOT WIRED INTO .github/workflows/osm-weekly.yml, DELIBERATELY.
-#
-# That workflow builds a campsite-only extract, publishes it as a release
-# asset and leaves the import to a person on the machine that holds the
-# database. Adding a second, much larger layer to it is a change to the
-# release format and to what the owner downloads every Monday — a
-# decision with a cost, not a detail to slip into this card. Until it is
-# made, refreshing these rows is this script, run by hand against the
-# extracts load-context.sh already has on disk. `last_seen_at` records
-# when each row was last confirmed, so the staleness is measurable rather
-# than assumed.
+# 🔴 THIS IS THE BY-HAND PATH. The scheduled one is elsewhere (CAMP-113,
+# decision of 28.10.2026): `.github/workflows/osm-weekly.yml` runs
+# extract-route-poi.sh on every member state's extract — the same PBF it has
+# already downloaded for the campsites — and publishes one
+# `<region>.rpoi.geojson.gz` per country in the weekly `osm-YYYY-MM-DD`
+# release; `scripts/osm-pipeline/import-route-poi.mjs`, run by
+# `camptribe-route-poi-import.timer` on the machine, brings them into the
+# database with the same age limit the campsite import has. This script
+# stays for a scratch database and for a machine that already holds the
+# extracts; both paths cut the layer with the SAME tag list
+# (route-poi-filters.sh) and the SAME export (export-rpoi.json), and both
+# end in load-route-poi.ts. `last_seen_at` records when each row was last
+# confirmed, so the staleness is measurable rather than assumed.
 #
 # Cost on the machine this was built on, 28.09.2026: about 9 minutes of
 # osmium over the 27 extracts, then about 14 minutes in
@@ -143,58 +145,22 @@ fi
 echo $$ > "$LOCK_DIR/pid"
 trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
 
-# 🔴 The tag list, and it must stay identical to STORED_POI_RULES in
-# apps/api/src/osm/route-poi.ts (CAMP-119: every kind the table can hold,
-# not only the nine a route page shows — `shop=gas` is the tenth, CAMP-258 —
-# a spec reads this array and compares). `amenity=parking` is deliberately NOT here: 3.1 million
-# objects, and a separate conversation. A tag filtered here and not classified
-# there is a row loaded and thrown away; a tag classified there and not
-# filtered here is a kind that silently holds nothing — which is the
-# failure that does not announce itself. `load-route-poi.ts` fails if any
-# kind ends up empty, which is the check that catches both directions.
+# 🔴 THE TAG LIST LIVES IN route-poi-filters.sh, SOURCED HERE — and by
+# extract-route-poi.sh, which builds the same layer on a GitHub runner for
+# the weekly release. One array, two callers; the file says why. It defines
+# FILTERS (the plain pairs the spec compares with STORED_POI_RULES) and
+# TAG_ARGS (the `n/key=*value*` / `w/key=*value*` form osmium is handed).
 #
-# 🔴 CAMP-327: PLAIN `key=value` PAIRS HERE, AND THE SUBSTRING FORM IN ONE
-# PLACE BELOW. Every rule reads its key as a `;` list (`amenity=restaurant;
-# ice_cream` is a restaurant), osmium compares the WHOLE value, so every
-# value has to be asked for as `key=*value*`. It used to be written out by
-# hand for one entry (`'shop=*gas*'`) and as an equality for the other
-# seventeen — which is how 30 objects of the Austrian extract alone (`tourism=
-# hotel;camp_site` among them) never reached staging. Written once, in the loop, the form
-# cannot differ between entries; the spec compares the PAIRS with
-# STORED_POI_RULES and the self-test checks what osmium is actually handed.
-FILTERS=(
-  amenity=fuel
-  amenity=charging_station
-  amenity=drinking_water
-  amenity=water_point
-  man_made=water_tap
-  amenity=sanitary_dump_station
-  highway=rest_area
-  highway=services
-  shop=gas
-  shop=supermarket
-  shop=convenience
-  amenity=restaurant
-  amenity=cafe
-  amenity=fast_food
-  tourism=hotel
-  tourism=motel
-  tourism=hostel
-  tourism=guest_house
-)
-
-TAG_ARGS=()
-for f in "${FILTERS[@]}"; do
-  # Nodes AND ways: a supermarket and a motorway services are usually
-  # areas, and "the nearest shop" that skipped every building would be
-  # wrong in a way nobody would spot from the page.
-  #
-  # 🔴 The `*`s sit inside double quotes: an unquoted `*` is a glob over
-  # WORK_DIR, and a file called `shop=xgas` there would replace the filter
-  # with its own name, silently, with exit 0 (load-route-poi.selftest.sh
-  # plants such a file). `${f%%=*}` is the key, `${f#*=}` the value.
-  TAG_ARGS+=("n/${f%%=*}=*${f#*=}*" "w/${f%%=*}=*${f#*=}*")
-done
+# 🔴 CHECKED BEFORE IT IS SOURCED. Under `set -e` a missing file in `.` is
+# fatal — but the EXIT trap above has already been set, and bash 3.2 (macOS)
+# then reports the TRAP's exit code: measured 01.11.2026, `set -euo pipefail;
+# trap … EXIT; . /missing` exits 0 and prints nothing but bash's own line.
+# A script that did nothing would have exited green. The self-test plants
+# this case.
+FILTERS_FILE="$REPO_ROOT/scripts/osm-pipeline/route-poi-filters.sh"
+[ -f "$FILTERS_FILE" ] || { echo "::error::$FILTERS_FILE is missing" >&2; exit 1; }
+# shellcheck source=route-poi-filters.sh
+. "$FILTERS_FILE"
 
 if [ $# -gt 0 ]; then
   SOURCES=()

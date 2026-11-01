@@ -155,7 +155,7 @@ node -e "…gunzipSync…"  → фіч: 14 | @timestamp: true
 | `camping_spots` | `scripts/osm-pipeline/import-release.mjs --max-age-days 9` | `camptribe-osm-import.timer`, вівторок 04:30 UTC |
 | `fuel_station_prices` | `apps/api/dist/fuel/import-stations.js --report` | `camptribe-fuel-prices.timer`, щодня 05:00 UTC |
 | `spot_links` | `reconcile-sources.js --apply` | **юніта ще немає**; сам скрипт з 01.11 придатний до запуску без нагляду: пише лише пари, де назва, відстань **і домен сайту/пошти** кажуть одне (на тих самих 76 парах 28.10: 55 пишуться, 21 лишаються дублями без позначки). Юніт за зразком `camptribe-fuel-prices.service`: `ExecStart=/usr/bin/node dist/spots/reconcile-sources.js --apply`, після `camptribe-osm-import` |
-| `osm_route_poi` | `load-route-poi.sh` | **немає**: потребує `osmium` і `ogr2ogr` та 27 PBF (~25 ГБ) на машині, де їх нема; див. нижче |
+| `osm_route_poi` | `scripts/osm-pipeline/import-route-poi.mjs --max-age-days 9` (шар ріже `osm-weekly.yml` з тих самих PBF, що й кемпінги — `extract-route-poi.sh` — і кладе в той самий реліз як `<регіон>.rpoi.geojson.gz`) | `camptribe-route-poi-import.timer`, вівторок 05:30 UTC (CAMP-113, рішення 28.10.2026 — дорога (2) нижче) |
 
 🔴 **Чому `osm-weekly` зелений, а `camping_spots` стоїть.** Воркфлоу закінчує
 роботу релізом: жоден його крок не торкається бази, і це написано в його
@@ -167,8 +167,12 @@ node -e "…gunzipSync…"  → фіч: 14 | @timestamp: true
 робить дані «свіжими» для сторожа. З межею юніт падає, коли воркфлоу
 пропустив більше одного циклу.
 
-🔴 **`osm_route_poi`** — єдина з чотирьох, що лишається без автоматики. Дві
-дороги: (1) поставити на прод `osmium-tool` і `gdal-bin` і тримати там 25 ГБ
+🔴 **`osm_route_poi`** — була єдиною з чотирьох без автоматики. Дві дороги:
+(1) поставити на прод `osmium-tool` і `gdal-bin` і тримати там 25 ГБ
 екстрактів — те, від чого цей документ рекомендував відмовитись; (2) будувати
 шар у `osm-weekly.yml` (екстракти там уже завантажені) і віддавати релізом, а
-на машині читати так само, як кемпінги. Друга — окрема картка.
+на машині читати так само, як кемпінги. Обрано другу (28.10.2026, CAMP-113):
+`extract-route-poi.sh` у тому самому джобі, що й кемпінги, після того як
+кемпінги вже передано далі; `import-route-poi.mjs` на машині з тією самою
+межею віку (`--max-age-days 9` проти бюджету 10 діб); часткова поставка
+видаляє невидані рядки лише в країнах, чий файл приїхав.
