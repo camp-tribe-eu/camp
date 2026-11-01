@@ -77,7 +77,7 @@ export class AttributionSources1793700000000 implements MigrationInterface {
     summary:
       'Where every map, boundary, reading and price on this site comes from, and the licences we are bound by.',
     version: '1.1',
-    effectiveFrom: '2026-11-01',
+    effectiveFrom: '2026-11-02',
     body: `Almost everything on this site is built from open data. This page says exactly what, from whom, and under which licence — both because we are required to and because you should be able to check us. The one source that is not open data, the webcams, is named at the end. Where your browser fetches something from one of these providers directly, the [privacy](/legal/privacy#who-else) page says what that provider sees.
 
 ## Campsites, and the map {#osm}
