@@ -54,7 +54,9 @@ import {
   canonicalRefSql,
   cylinderSwapSelectSql,
   GAS_LAYER_SUMMARY_SQL,
+  gasLayerSummarySql,
   LPG_SUMMARY_SQL,
+  lpgSummarySql,
 } from './route-poi-sql';
 import { FALSY, TRUTHY } from './tag-mapping';
 
@@ -922,6 +924,33 @@ describe('the loader notices when fuel:lpg did not arrive', () => {
     expect(LPG_SUMMARY_SQL).toContain("WHERE kind = 'fuel'");
     expect(LPG_SUMMARY_SQL).toContain('GROUP BY 1');
     expect(LPG_SUMMARY_SQL).toContain('count(DISTINCT');
+  });
+
+  // 🔴 CAMP-113: the loader reads both summaries over the rows ITS run wrote,
+  // because a scoped import (the weekly one) must not compare the Union's
+  // table with two countries' staging. The scoped form carries the stamp as
+  // $1 on the TABLE side only; the staging side is the same text. And the
+  // loader is the file that passes `true` — read from its source, so that
+  // switching it back to the whole-table constant is a red test here and a
+  // rolled-back import in load-route-poi.db.spec.ts.
+  it('has a run-scoped form, and the loader is what uses it', () => {
+    expect(lpgSummarySql(true)).toContain(
+      "WHERE kind = 'fuel' AND last_seen_at = $1::timestamptz GROUP BY 1",
+    );
+    expect(lpgSummarySql(false)).not.toContain('$1');
+    const gas = gasLayerSummarySql(true);
+    const tableSide = gas.slice(gas.indexOf('FROM osm_route_poi r'));
+    expect(tableSide).toMatch(
+      /LEFT JOIN by_cref c ON c\.k = r\.osm_ref\n\s+WHERE r\.last_seen_at = \$1::timestamptz\n/,
+    );
+    expect(gas.slice(0, gas.indexOf('FROM osm_route_poi r'))).not.toContain(
+      '$1',
+    );
+    expect(gasLayerSummarySql(false)).not.toContain('$1');
+    const loader = readFileSync(join(__dirname, 'load-route-poi.ts'), 'utf8');
+    expect(loader).toMatch(/lpgSummarySql\(true\),\s*\[\s*runAt,?\s*\]/);
+    expect(loader).toMatch(/gasLayerSummarySql\(true\),\s*\[runAt\]/);
+    expect(loader).not.toMatch(/\b(LPG|GAS_LAYER)_SUMMARY_SQL\b/);
   });
 });
 

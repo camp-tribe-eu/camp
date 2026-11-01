@@ -539,6 +539,42 @@ describe('a scoped run removes unseen rows of the named countries only (CAMP-113
     expect(await n6()).toBe(0);
   });
 
+  // 🔴 THE WHOLE-TABLE CHECKS READ THIS RUN'S ROWS. Measured 01.11.2026 on a
+  // scratch copy of the dev table (2 274 449 rows, 11 502 of them
+  // cylinder_swap=yes): the first scoped import of Malta + Luxembourg rolled
+  // back with "11502 rows say cylinder_swap=yes and no staged object says
+  // shop=gas" — the gas check compared the Union's table with two countries'
+  // staging. MUTATION: pass `false` (or drop the `[runAt]`) at the
+  // gasLayerSummarySql call in load-route-poi.ts — this test fails with that
+  // very message.
+  it('checks the gas layer and LPG over the rows this run wrote, not over countries it did not read', async () => {
+    await resetStaging({ gas: true }); // n10 is a gas shop, n11 a forecourt that swaps cylinders
+    const full = runLoader();
+    expect({ status: full.status, err: full.err }).toEqual({
+      status: 0,
+      err: '',
+    });
+    // next week, ANOTHER country's extract: a fuel station and a shop, no
+    // gas anywhere in it
+    await db.query('TRUNCATE osm_route_poi_staging');
+    await stageObject('n500', { amenity: 'fuel', name: 'Tankstelle' }, 80);
+    await stageObject('n501', { shop: 'supermarket' }, 81);
+    const at = runLoader(['AT']);
+    expect({ status: at.status, err: at.err }).toEqual({ status: 0, err: '' });
+    expect(at.out).toContain(
+      'gas layer (kind=gas_exchange OR cylinder_swap=yes): 0 rows / 0 objects',
+    );
+    // …and the previous run's gas layer is untouched
+    expect(
+      (
+        await db.query(
+          `SELECT osm_ref FROM osm_route_poi
+            WHERE kind = 'gas_exchange' OR cylinder_swap = 'yes' ORDER BY 1`,
+        )
+      ).rows,
+    ).toEqual([{ osm_ref: 'n10' }, { osm_ref: 'n11' }]);
+  });
+
   // 🔴 A code that is not a member state is a disagreement, not a no-op:
   // scoped to `UK` the delete would remove nothing and the run would look
   // like success. Refused before the connection is opened.

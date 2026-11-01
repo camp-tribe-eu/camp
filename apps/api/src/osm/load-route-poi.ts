@@ -71,9 +71,9 @@ import {
   canonicalRefSql,
   EU_SQL_LIST,
   euLeakGuardSql,
-  GAS_LAYER_SUMMARY_SQL,
+  gasLayerSummarySql,
   LIST_RULES_SUMMARY_SQL,
-  LPG_SUMMARY_SQL,
+  lpgSummarySql,
 } from './route-poi-sql';
 
 const DB_URL =
@@ -194,7 +194,16 @@ async function main() {
     // 82% of fuel stations, so a column that is `unknown` on all of them
     // looks exactly like a column that was read. The only tell is a fuel
     // population with no `yes` in it — see lpgArrivalError.
-    const lpgSummary = await db.query<LpgSummaryRow>(LPG_SUMMARY_SQL);
+    //
+    // 🔴 CAMP-113: READ OVER THE ROWS THIS RUN WROTE (`runOnly`, the run's
+    // stamp). In a full run that is every row left in the table; in a run
+    // scoped to the countries a release holds it is those countries — and
+    // not the Union's 11 502 forecourts with cylinder_swap=yes compared with
+    // two countries' staging, which is how the first scoped import rolled
+    // back (01.11.2026, scratch copy of the dev table).
+    const lpgSummary = await db.query<LpgSummaryRow>(lpgSummarySql(true), [
+      runAt,
+    ]);
     const lpgFailure = lpgArrivalError(lpgSummary.rows);
     if (lpgFailure !== null) throw new Error(lpgFailure);
     const lpgBy = new Map<string, LpgSummaryRow>(
@@ -206,8 +215,9 @@ async function main() {
     // layer a map draws as `kind = 'gas_exchange' OR cylinder_swap = 'yes'`.
     // Written for the kind only, every number looks right and the layer is a
     // third of what it should be — see gasLayerError.
-    const gasLayer = (await db.query<GasLayerSummary>(GAS_LAYER_SUMMARY_SQL))
-      .rows[0];
+    const gasLayer = (
+      await db.query<GasLayerSummary>(gasLayerSummarySql(true), [runAt])
+    ).rows[0];
     const gasFailure = gasLayerError(gasLayer);
     if (gasFailure !== null) throw new Error(gasFailure);
 
