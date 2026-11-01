@@ -1,9 +1,24 @@
 {
-  "_": "CAMP-56. The record of who read our legal pages before they went live. See scripts/seo/check-legal-review.mjs. While `acknowledgedUntil` is in the future a public build warns; past it, it fails. That is the same shape as known-advisories.json: a debt we have looked at, with a date it stops being acceptable.",
-  "jurisdiction": "Belgium — Wetboek van economisch recht, plus GDPR and Directive 2011/83/EU. The company is UTD BV, Antwerpen, so a Dutch or French lawyer is not a substitute.",
-  "reviewedBy": null,
-  "reviewedOn": null,
-  "note": "Owner debt #4. Nothing here is signed off yet. Filling this in is a statement that a qualified lawyer read these exact versions — not that somebody skimmed them.",
-  "pages": {},
-  "acknowledgedUntil": "2026-10-31"
+  "_": "CAMP-56. The record of the legal review our public legal pages were last read under. See scripts/seo/check-legal-review.mjs: a public build is refused unless every built page's version is listed here AND docs/GDPR-REGISTER.md still has the sha256 recorded below. Edit a page's version, or the register, and this record has to be made again — on purpose.",
+  "reviewedBy": "CampTribe coordinator — owner decision 27.10.2026: no external lawyer, the legal review is ours. Not a lawyer's opinion; where confidence ends is written in the sources below.",
+  "reviewedOn": "2026-11-01",
+  "jurisdiction": "Belgium — Wetboek van economisch recht, plus GDPR and Directive 2011/83/EU. The controller is UTD BV, Antwerpen.",
+  "sources": [
+    "docs/GDPR-REGISTER.md — Art. 30 register, measured from apps/api/src/entities/, with the basis and retention term per operation and the processor table measured from code (debt #27, 01.11.2026)",
+    "privacy 2.3 (migration 1793600000000-PrivacyRetentionLogs): the 3-month and 1-month log terms, the 12/24-month problem-report term, the two processors — each bound to RULES in scripts/ops/retention-purge.mjs by apps/web/tests/unit/problem-reports-policy.spec.ts",
+    "project brain, Facts/pravova-pidstava-problem-reports.md — Art. 6(1)(f) for problem reports and the 12/24-month terms, decided 30.10.2026 (outside the repository; pointed at, not checked)"
+  ],
+  "pages": {
+    "terms": "1.1",
+    "privacy": "2.3",
+    "cookies": "1.0",
+    "disclaimer": "1.0",
+    "attribution": "1.0",
+    "database": "1.0",
+    "notice": "1.0"
+  },
+  "register": {
+    "path": "docs/GDPR-REGISTER.md",
+    "sha256": "e05541150d18117a8ae75cec92d9bbe7767a928adf0ff67f35b97407c2fb90f6"
+  }
 }
