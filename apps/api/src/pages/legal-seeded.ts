@@ -1,5 +1,6 @@
 import { SeedLegalPages1792800000000 } from '../migrations/1792800000000-SeedLegalPages';
 import { PrivacyProblemReports1793400000000 } from '../migrations/1793400000000-PrivacyProblemReports';
+import { PrivacyProcessors1793500000000 } from '../migrations/1793500000000-PrivacyProcessors';
 
 /**
  * Правові документи такими, якими їх лишають у базі ВСІ міграції разом.
@@ -31,6 +32,7 @@ export interface SeededLegalPage {
 
 const UPDATES: ReadonlyArray<SeededLegalPage> = [
   new PrivacyProblemReports1793400000000().page,
+  new PrivacyProcessors1793500000000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {

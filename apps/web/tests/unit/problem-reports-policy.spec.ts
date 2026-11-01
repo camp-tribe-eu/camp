@@ -191,10 +191,10 @@ test.describe('🔴 строк і підстава однакові в коді,
 });
 
 test.describe('реєстр правових сторінок і сама сторінка', () => {
-  test('версія політики піднята разом із текстом: 2.1 від 30.10.2026', () => {
+  test('версія політики піднята разом із текстом: 2.2 від 01.11.2026', () => {
     const p = legalPage('privacy')!;
-    expect(p.version).toBe('2.1');
-    expect(p.effectiveFrom).toBe('2026-10-30');
+    expect(p.version).toBe('2.2');
+    expect(p.effectiveFrom).toBe('2026-11-01');
   });
 
   // 🔴 Політика лишається статичною: ні сторінка, ні будь-що, що вона
@@ -214,5 +214,205 @@ test.describe('реєстр правових сторінок і сама сто
     }
     expect(offenders).toEqual([]);
     expect(readFileSync(page, 'utf8')).toContain('export const dynamicParams = false');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 🔴 ОБРОБНИКИ Й ОТРИМУВАЧІ: РЕЄСТР = ПОЛІТИКА = КОД (борг №27).
+//
+// До 01.11.2026 реєстр називав Resend поштовим сервісом, а код слав через
+// SMTP Hetzner уже два тижні; політика казала «Three processors» і
+// перелічувала двох. Жоден тест цього не бачив, бо жоден не читав усі три
+// місця разом. Тут вони читаються разом, і «реально в коді» означає:
+//
+//   · пошта — набір значень MAIL_PROVIDER, які `apps/api/src/auth/mail.ts`
+//     справді приймає, і хост SMTP у `apps/api/.env.example` (Hetzner —
+//     `*.your-server.de`);
+//   · край — заголовок `CF-Connecting-IP`, який читають Caddy й `throttle.ts`;
+//   · прямі зʼєднання браузера — хости, що стоять ЛІТЕРАЛАМИ в коді й CSP:
+//     `lib/map-sources.ts` (плитки), `lib/webcams.ts` і `img-src`
+//     (вебкамери), `data/satellite-sources.json` (супутник).
+//
+// ⚠️ Чого це не бачить, названо в реєстрі: значення env на самій машині
+// (`SMTP_HOST`, `NEXT_PUBLIC_SELF_TILES_URL`) репозиторій не несе.
+// ---------------------------------------------------------------------------
+
+type Party = { name: string; role: 'processor' | 'direct' | 'none'; hosts: string[] };
+
+/** Таблиця «Обробники й отримувачі» реєстру: імʼя, роль і хости в коді. */
+function registerParties(): Party[] {
+  const md = readFileSync(join(ROOT, 'docs', 'GDPR-REGISTER.md'), 'utf8');
+  const start = md.indexOf('\n## Обробники');
+  if (start < 0) throw new Error('GDPR-REGISTER.md: немає розділу «Обробники»');
+  const rest = md.slice(start + 1);
+  const end = rest.slice(1).search(/\n## /);
+  const section = end < 0 ? rest : rest.slice(0, end + 1);
+  const out: Party[] = [];
+  for (const line of section.split('\n')) {
+    const cells = line.split('|').map((c) => c.trim());
+    // | хто | роль | що робить | де | хости | доказ |  → 8 комірок із порожніми краями
+    if (cells.length !== 8 || cells[1] === 'хто' || /^-+$/.test(cells[1])) continue;
+    const role = cells[2];
+    if (role !== 'processor' && role !== 'direct' && role !== 'none') {
+      throw new Error(`реєстр: у «${cells[1]}» роль «${role}» — не processor/direct/none`);
+    }
+    const hosts = [...cells[5].matchAll(/`([a-z0-9.-]+\.[a-z]{2,}(?::\d+)?)`/g)].map((m) => m[1]);
+    out.push({ name: cells[1], role, hosts });
+  }
+  if (out.length === 0) throw new Error('реєстр: таблиця обробників порожня або іншої форми');
+  return out;
+}
+
+/** Розділ «Who else sees it» політики: два списки жирних імен — обробники й прямі. */
+function policyParties(): { processors: string[]; direct: string[] } {
+  const html = seededHtml('privacy');
+  const at = html.search(/<h2\b[^>]*\sid="who-else"/);
+  expect(at, 'у політиці немає розділу «Who else sees it»').toBeGreaterThanOrEqual(0);
+  const rest = html.slice(at);
+  const next = rest.slice(1).search(/<h2\b/);
+  const section = next < 0 ? rest : rest.slice(0, next + 1);
+  const lists = [...section.matchAll(/<ul\b[^>]*>([\s\S]*?)<\/ul>/g)].map((m) => m[1]);
+  expect(lists.length, 'у розділі мають бути рівно два списки: обробники й прямі зʼєднання').toBe(2);
+  const names = (ul: string) =>
+    [...ul.matchAll(/<li\b[^>]*>[\s\S]*?<strong\b[^>]*>([\s\S]*?)<\/strong>/g)].map((m) =>
+      visibleText(m[1]),
+    );
+  return { processors: names(lists[0]), direct: names(lists[1]) };
+}
+
+/** Хости, до яких браузер читача зʼєднується сам, — літерали в коді й CSP. */
+function hostsInCode(): Array<{ host: string; where: string }> {
+  const web = join(ROOT, 'apps', 'web');
+  const out: Array<{ host: string; where: string }> = [];
+  const pick = (file: string, re: RegExp) => {
+    const text = readFileSync(join(web, file), 'utf8');
+    for (const m of text.matchAll(re)) out.push({ host: new URL(m[1]).host, where: file });
+  };
+  // Плитки: типове значення, коли NEXT_PUBLIC_TILES_URL не задано.
+  pick('src/lib/map-sources.ts', /NEXT_PUBLIC_TILES_URL \?\? '(https:\/\/[^']+)'/g);
+  // Вебкамери: адреса кадру.
+  pick('src/lib/webcams.ts', /`(https:\/\/[^/`]+)\//g);
+  // CSP img-src: усе, що не 'self'/data:/blob:.
+  pick('scripts/security-headers.mjs', /"img-src [^"]*?(https:\/\/[^\s"]+)/g);
+  // Супутник: кожне джерело.
+  const sat = JSON.parse(readFileSync(join(web, 'src', 'data', 'satellite-sources.json'), 'utf8')) as {
+    sources: Array<{ id: string; tiles: string }>;
+  };
+  for (const s of sat.sources) out.push({ host: new URL(s.tiles).host, where: `satellite-sources.json ${s.id}` });
+  if (out.length < 4) throw new Error(`хостів у коді знайдено ${out.length} — розбір зламався`);
+  return out;
+}
+
+const diff = (a: string[], b: string[]) => ({
+  onlyA: a.filter((x) => !b.includes(x)),
+  onlyB: b.filter((x) => !a.includes(x)),
+});
+
+test.describe('🔴 обробники й отримувачі: реєстр = політика = код', () => {
+  test('обробники (ст. 28): ті самі імена в реєстрі й у політиці, і жодного зайвого', () => {
+    const reg = registerParties().filter((p) => p.role === 'processor').map((p) => p.name);
+    const pol = policyParties().processors;
+    const d = diff(reg, pol);
+    expect(
+      [...d.onlyA.map((n) => `лише в реєстрі: ${n}`), ...d.onlyB.map((n) => `лише в політиці: ${n}`)],
+      'обробники розійшлись',
+    ).toEqual([]);
+    expect(reg.length).toBeGreaterThanOrEqual(2);
+    // Політика називає їхнє число словом — воно мусить дорівнювати переліку.
+    const text = visibleText(seededHtml('privacy'));
+    const word = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six'][reg.length];
+    expect(text).toContain(`${word} processors`);
+  });
+
+  test('прямі зʼєднання браузера: ті самі імена в реєстрі й у політиці', () => {
+    const reg = registerParties().filter((p) => p.role === 'direct').map((p) => p.name);
+    const pol = policyParties().direct;
+    const d = diff(reg, pol);
+    expect(
+      [...d.onlyA.map((n) => `лише в реєстрі: ${n}`), ...d.onlyB.map((n) => `лише в політиці: ${n}`)],
+      'отримувачі за прямим зʼєднанням розійшлись',
+    ).toEqual([]);
+    const text = visibleText(seededHtml('privacy'));
+    const word = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six'][reg.length];
+    expect(text).toContain(`${word} services are not our processors`);
+  });
+
+  test('🔴 кожен хост, до якого браузер ходить за кодом, має свого отримувача в реєстрі — і навпаки', () => {
+    const code = hostsInCode();
+    const reg = registerParties().filter((p) => p.role === 'direct');
+    const problems: string[] = [];
+    for (const { host, where } of code) {
+      const owners = reg.filter((p) => p.hosts.includes(host));
+      if (owners.length !== 1) {
+        problems.push(`хост ${host} (${where}) має ${owners.length} рядків у реєстрі, потрібен рівно один`);
+      }
+    }
+    for (const p of reg) {
+      if (p.hosts.length === 0) problems.push(`«${p.name}» у реєстрі без жодного хоста`);
+      for (const h of p.hosts) {
+        if (!code.some((c) => c.host === h)) {
+          problems.push(`«${p.name}»: хост ${h} стоїть у реєстрі, але в коді його більше немає`);
+        }
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  test('🔴 пошта: mail.ts приймає лише dev і smtp, а хост SMTP — Hetzner, якого реєстр і політика називають', () => {
+    const mail = readFileSync(join(ROOT, 'apps', 'api', 'src', 'auth', 'mail.ts'), 'utf8');
+    const accepted = [...mail.matchAll(/provider === '([a-z0-9]+)'/g)].map((m) => m[1]).sort();
+    expect(accepted, 'mail.ts приймає провайдера, якого реєстр не знає').toEqual(['dev', 'smtp']);
+    const env = readFileSync(join(ROOT, 'apps', 'api', '.env.example'), 'utf8');
+    const smtpHost = /^SMTP_HOST=([^\s#]+)/m.exec(env)?.[1] ?? '';
+    expect(smtpHost, '.env.example без SMTP_HOST').not.toBe('');
+    const owner = registerParties().find((p) => p.hosts.includes(smtpHost));
+    expect(owner?.name, `хост SMTP ${smtpHost} не належить жодному обробнику в реєстрі`).toBeTruthy();
+    expect(owner!.role).toBe('processor');
+    expect(policyParties().processors).toContain(owner!.name);
+    // І сам відправник називає того ж обробника, що й реєстр: хост → імʼя.
+    const sender = readFileSync(join(ROOT, 'apps', 'api', 'src', 'auth', 'mail-smtp.ts'), 'utf8');
+    expect(sender, 'mail-smtp.ts не називає обробника з реєстру').toContain(owner!.name.split(' ')[0]);
+  });
+
+  test('🔴 край: CF-Connecting-IP читають Caddy й throttle.ts — отже Cloudflare обробник, і він названий', () => {
+    const caddy = readFileSync(join(ROOT, 'infra', 'caddy', 'camptribe.eu.caddyfile'), 'utf8');
+    const throttle = readFileSync(join(ROOT, 'apps', 'api', 'src', 'throttle.ts'), 'utf8');
+    expect(caddy).toMatch(/CF-Connecting-IP/i);
+    expect(throttle).toMatch(/cf-connecting-ip/i);
+    const cf = registerParties().find((p) => /cloudflare/i.test(p.name));
+    expect(cf?.role, 'Cloudflare у реєстрі має бути processor').toBe('processor');
+    expect(policyParties().processors).toContain(cf!.name);
+  });
+
+  test('«The map»: не обіцяє перемикати провайдера — кнопки перемикають стилі', () => {
+    const text = visibleText(seededHtml('privacy'));
+    expect(text).not.toContain('you can switch it');
+    expect(text).toContain('switch between its styles, not between providers');
+    // І кнопки справді є, інакше речення про стилі — вигадка.
+    const map = readFileSync(join(ROOT, 'apps', 'web', 'src', 'components', 'campsite-map.tsx'), 'utf8');
+    expect(map).toContain('aria-label="Map style"');
+  });
+
+  test('«Changes»: не каже, що всі редакції лежать у git', () => {
+    const text = visibleText(seededHtml('privacy'));
+    expect(text).not.toContain('Earlier versions are in our public source repository');
+    expect(text).toContain('The text itself is held in our database');
+  });
+
+  test('реєстр §4, §5, §9 мають свої розділи в політиці, і ті кажуть правду про строк', () => {
+    const html = seededHtml('privacy');
+    for (const anchor of ['browser-errors', 'dead-links', 'planner']) {
+      expect(html, `немає якоря «${anchor}»`).toMatch(new RegExp(`<h3\\b[^>]*\\sid="${anchor}"`));
+    }
+    const text = visibleText(html);
+    // Автоматичного видалення для цих двох журналів у коді немає (0 DELETE) — політика не обіцяє.
+    expect(text).toContain('we have not yet built an automatic deletion for these reports');
+    expect(text).toContain('there is no automatic deletion yet');
+    // Планувальник: нічого не зберігається, ліміт 10/хв — із throttle.ts.
+    const throttle = readFileSync(join(ROOT, 'apps', 'api', 'src', 'throttle.ts'), 'utf8');
+    const plan = /export const PLAN_LIMIT = \{ ttl: ([^,]+), limit: (\d+) \}/.exec(throttle);
+    expect(plan, 'PLAN_LIMIT не знайдено в throttle.ts').not.toBeNull();
+    expect(Number(plan![2])).toBe(10);
+    expect(text).toContain('ten times a minute');
   });
 });

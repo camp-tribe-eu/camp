@@ -149,8 +149,12 @@ export const LEGAL_PAGES: LegalPage[] = [
     // basis (6(1)(f)), the 12/24-month term the purge enforces, and the
     // address for rights requests. Raised by migration
     // 1793400000000-PrivacyProblemReports together with this line.
-    version: '2.1',
-    effectiveFrom: '2026-10-30',
+    // 2.2 (01.11.2026, debt #27): the processors as measured in the code
+    // (two, not "three"), the four services the browser reaches directly,
+    // the browser-error and dead-link logs and the planner, and two false
+    // sentences removed. Migration 1793500000000-PrivacyProcessors.
+    version: '2.2',
+    effectiveFrom: '2026-11-01',
   },
   {
     slug: 'cookies',
