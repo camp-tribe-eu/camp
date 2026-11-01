@@ -28,10 +28,12 @@
 //     ранку, а не тримати рядки вічно мовчки.
 //
 // 🔴 ПРАВИЛА — В ОДНОМУ МІСЦІ: `RULES` нижче. Звідси їх читає сторож,
-// самотест і `apps/api/src/reports/retention.db.spec.ts` (справжній
-// Postgres). Другої копії «12» чи «24» ніде немає навмисно: з межею
-// віку релізу (`--max-age-days` окремо від бюджету свіжості) ми вже
-// обпеклись.
+// самотест, `apps/api/src/reports/retention.db.spec.ts` і
+// `apps/api/src/telemetry/retention-logs.db.spec.ts` (справжній Postgres),
+// а `apps/web/tests/unit/problem-reports-policy.spec.ts` звіряє з ними
+// реєстр (§4, §5, §10). Другої копії «12», «24», «3» чи «1» ніде немає
+// навмисно: з межею віку релізу (`--max-age-days` окремо від бюджету
+// свіжості) ми вже обпеклись.
 //
 // 🔴 ПОРЯДОК: СПЕРШУ ПОРАХУВАТИ, ПОТІМ ВИДАЛИТИ, і обома кроками керує
 // ОДИН текст умови (`ageClause`). Жодного DROP/TRUNCATE; DELETE лише за
@@ -94,6 +96,55 @@ export const RULES = Object.freeze([
         where: `status = 'new'`,
         since: 'created_at',
         mark: 'нерозглянута заявка видалена за строком — її не розглянув ніхто',
+      }),
+    ]),
+  },
+  // 🔴 ДВА ЖУРНАЛИ БЕЗ СТАНУ: одна гілка на таблицю, `where: TRUE` — строк
+  // іде від запису, бо в рядка немає «закриття». Обидві таблиці навмисно
+  // без IP, сесії й акаунта (їхні entity кажуть це), але вільний текст
+  // (`message`, `stack`, `referrer`) може принести чуже — тож строк
+  // відповідає на питання «навіщо тримаємо», а не на «скільки не шкода».
+  {
+    table: 'client_errors',
+    card: 'Журнал помилок браузера (CAMP-92); строк — реєстр §4',
+    legal: 'docs/GDPR-REGISTER.md §4 — GDPR ст. 6(1)(f); строк обрано 01.11.2026 за метою, без юриста',
+    branches: Object.freeze([
+      Object.freeze({
+        name: 'all',
+        label: 'усі (журнал без стану)',
+        // 🔴 ЧОМУ 3 МІСЯЦІ. Запис потрібен, доки помилку не полагодили,
+        // і щоб після релізу сказати «не повторилась». Жива помилка пише
+        // СВІЖІ рядки щодня — старі не додають нічого, чого нема у
+        // свіжих. Рідкісна (один браузер, одна сторінка) може приходити
+        // раз на кілька тижнів: квартал — найдовший проміжок, за який
+        // «не повторилась жодного разу» означає «полагоджено», а не
+        // «не дивились». Довше — лише ризик вільного тексту без користі.
+        months: 3,
+        where: 'TRUE',
+        since: 'received_at',
+        mark: null,
+      }),
+    ]),
+  },
+  {
+    table: 'not_found_hits',
+    card: 'Журнал ненайдених адрес (CAMP-235); строк — реєстр §5',
+    legal: 'docs/GDPR-REGISTER.md §5 — GDPR ст. 6(1)(f); строк обрано 01.11.2026 за метою, без юриста',
+    branches: Object.freeze([
+      Object.freeze({
+        name: 'all',
+        label: 'усі (журнал без стану)',
+        // 🔴 ЧОМУ 1 МІСЯЦЬ. Запис потрібен, доки не поставили 301. Звіт
+        // читає останні 7 діб (`REPORT_DAYS` у telemetry/not-found.service.ts;
+        // самотест нижче звіряє, що строк не коротший за вікно звіту), а
+        // імпорт OSM, який ламає адреси, — щотижневий. Місяць — чотири
+        // вікна звіту: пропущений понеділок (чи три) нічого не втрачає.
+        // Адреса, яку за місяць ніхто не спитав, переадресації не
+        // потребує; яку питають — має свіжі рядки.
+        months: 1,
+        where: 'TRUE',
+        since: 'created_at',
+        mark: null,
       }),
     ]),
   },
@@ -313,6 +364,24 @@ function selfTest() {
   t('у кожного правила є таблиця, картка й правова нотатка',
     RULES.every((r) => r.table && r.card && r.legal && r.branches.length > 0), true);
 
+  // ── журнали браузера й 404 (01.11.2026) ───────────────────────────
+  const ce = RULES.find((r) => r.table === 'client_errors');
+  const nf = RULES.find((r) => r.table === 'not_found_hits');
+  t('🔴 правил три: заявки, помилки браузера, ненайдені адреси',
+    RULES.map((r) => r.table).sort().join(','), 'client_errors,not_found_hits,problem_reports');
+  t('🔴 client_errors — 3 місяці від received_at, одна гілка на всі рядки',
+    ce.branches.length === 1 && ce.branches[0].months === 3 && ce.branches[0].since === 'received_at' && ce.branches[0].where === 'TRUE', true);
+  t('🔴 not_found_hits — 1 місяць від created_at, одна гілка на всі рядки',
+    nf.branches.length === 1 && nf.branches[0].months === 1 && nf.branches[0].since === 'created_at' && nf.branches[0].where === 'TRUE', true);
+  t('🔴 строки журналів РІЗНІ — переплутати таблиці не можна непомітно',
+    ce.branches[0].months !== nf.branches[0].months, true);
+  // 🔴 Чистка не сміє з'їсти те, що читає звіт: вікно звіту — з коду, не з пам'яті.
+  const nfSvc = readFileSync(path.join(ROOT, 'apps/api/src/telemetry/not-found.service.ts'), 'utf8');
+  const reportDays = Number(/^export const REPORT_DAYS = (\d+);/m.exec(nfSvc)?.[1]);
+  t('вікно звіту 404 прочитане з коду (REPORT_DAYS)', Number.isInteger(reportDays) && reportDays > 0, true);
+  t('🔴 строк not_found_hits не коротший за вікно звіту (28 діб на місяць — найгірший випадок)',
+    nf.branches[0].months * 28 >= reportDays, true);
+
   // ── SQL ───────────────────────────────────────────────────────────
   t('умова віку називає строк гілки і дату, від якої він іде',
     ageClause(open, AS_OF), `(created_at) < '2026-10-30T04:00:00Z'::timestamptz - interval '24 months'`);
@@ -347,7 +416,9 @@ function selfTest() {
     q.asked = asked;
     return q;
   };
-  const base = (db) => ({ now: NOW, log: silent, db, dbUrl: 'postgres://x' });
+  // Підставні бази нижче знають лише problem_reports — журнали перевіряє
+  // окремий випадок далі, щоб кожна відповідь була названа, а не вгадана.
+  const base = (db) => ({ now: NOW, log: silent, db, dbUrl: 'postgres://x', rules: [pr] });
 
   // жива таблиця, прострочених немає → 0, і видалення не питали
   const quiet = fakeDb([
@@ -411,6 +482,26 @@ function selfTest() {
   t('🔴 рядок у стані без правила → код 1', runWith(new Set(), base(stranger)), 1);
   t('…і прострочене НЕ видалялось: умова не доведена', stranger.asked.some((s) => s.startsWith('DELETE')), false);
 
+  // журнали: одна гілка TRUE покриває все; DELETE за тією ж умовою віку
+  t('умова віку журналу: received_at < зараз − 3 місяці',
+    ageClause(ce.branches[0], AS_OF), `(received_at) < '2026-10-30T04:00:00Z'::timestamptz - interval '3 months'`);
+  t('підрахунок журналу — WHERE TRUE, тобто всі рядки в одній гілці',
+    branchCountSql(ce, ce.branches[0], AS_OF).endsWith('FROM client_errors WHERE TRUE'), true);
+  const logs = fakeDb([
+    ['SELECT count(*) FROM client_errors', [['3']]],
+    ['FROM client_errors WHERE TRUE', [['3', '1']]],
+    ['DELETE FROM client_errors WHERE (TRUE) AND (received_at) <', [['c1', '2026-06-01']]],
+    ['SELECT count(*) FROM not_found_hits', [['2']]],
+    ['FROM not_found_hits WHERE TRUE', [['2', '2']]],
+    ['DELETE FROM not_found_hits WHERE (TRUE) AND (created_at) <', [['n1', '2026-09-01'], ['n2', '2026-09-02']]],
+  ]);
+  const logLines = [];
+  t('журнали: прострочене видалено, код 0',
+    runWith(new Set(), { ...base(logs), rules: [ce, nf], log: { log: (s) => logLines.push(s), error: () => {} } }), 0);
+  t('журнали: підсумок «таблиць 2, перевірено 5, прострочених 3, видалено 3»',
+    logLines.some((l) => l.includes('таблиць 2, перевірено 5, прострочених 3, видалено 3')), true);
+  t('журнали: позначок немає — вони лише для нерозглянутих заявок', logLines.some((l) => l.includes('позначка')), false);
+
   // --dry-run: рахує, не видаляє, код 0
   const dry = fakeDb([
     ['SELECT count(*) FROM problem_reports', [['3']]],
@@ -440,7 +531,7 @@ function selfTest() {
 
   // 🔴 Лічильник стверджується, бо випадок, до якого не дійшло,
   // виглядає точно як випадок, що пройшов.
-  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 43);
+  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 54);
   console.log(`retention-purge self-test: ran ${p + f}, passed ${p}, failed ${f}`);
   return f === 0 ? 0 : 1;
 }

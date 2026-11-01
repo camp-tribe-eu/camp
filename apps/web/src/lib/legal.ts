@@ -153,7 +153,11 @@ export const LEGAL_PAGES: LegalPage[] = [
     // (two, not "three"), the four services the browser reaches directly,
     // the browser-error and dead-link logs and the planner, and two false
     // sentences removed. Migration 1793500000000-PrivacyProcessors.
-    version: '2.2',
+    // 2.3 (02.11.2026): the browser-error log (3 months) and the dead-link
+    // log (1 month) now have a term the purge enforces, so "no automatic
+    // deletion yet" is replaced by the two numbers, bound to RULES by test.
+    // Migration 1793600000000-PrivacyRetentionLogs.
+    version: '2.3',
     effectiveFrom: '2026-11-01',
   },
   {
