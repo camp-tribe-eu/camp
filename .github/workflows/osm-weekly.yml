@@ -32,6 +32,30 @@ name: OSM weekly extract
 #    each country is its own job, they run at once, and `fail-fast: false`
 #    means one country's bad day costs that country only.
 #
+# 🔴 CAMP-113 (decision of 28.10.2026): THE SAME JOB CUTS A SECOND LAYER.
+#
+# `osm_route_poi` — fuel, charging, water, dump stations, rest areas, shops,
+# food and lodging between campsites — was refreshed by hand with
+# load-route-poi.sh on a machine holding all 27 extracts, and went 14+ days
+# stale. The extract job here already downloads every member state's PBF
+# (25 GB a week, the expensive part); after the campsites are cut and
+# handed over, `extract-route-poi.sh` cuts the route POI from the SAME file
+# and the result travels in the SAME release as `<region>.rpoi.geojson.gz`
+# + `<region>.rpoi.count`. On the machine, `import-route-poi.mjs`
+# (camptribe-route-poi-import.timer, Tuesday 05:30 UTC) pulls them with the
+# same age limit the campsite import has. Two layers, one download, one
+# release, one chain. The route-POI step runs AFTER the campsite artifact is
+# uploaded, so its failure costs the route POI of that country and never
+# the campsites; the job still goes red, which is what the alert reads.
+#
+# 🔴 COST, because the repository is about to become private (2 000
+# Actions minutes a month). Measured on the 26.10.2026 run: the 27 campsite
+# jobs took 85.6 wall minutes, 102 billable (each job rounds up); Germany's
+# 4.9 GB download alone was 12.5 of its 21 minutes, the osmium pass 2.1.
+# The route-POI pass over the same PBF costs about 1.7× the campsite pass
+# (Germany, locally: 40 s against 65 s), i.e. a few minutes on the largest
+# countries and seconds on most — see the card for the measured total.
+#
 # Repo is public. Never print user data, emails or secrets — the logs are
 # readable by any logged-in GitHub account.
 
@@ -266,10 +290,11 @@ jobs:
           scripts/osm-pipeline/extract-campsites.sh \
             "$SLUG.osm.pbf" "out/$SLUG.geojson"
 
-          # France is 4.9 GB and the runner has about 14 GB free. Nothing
-          # downstream needs the PBF, so it goes before anything else can
-          # run out of room.
-          rm -f "$SLUG.osm.pbf" "$SLUG.filtered.osm.pbf"
+          # 🔴 The PBF is NOT removed here any more (CAMP-113): the route-POI
+          # step below reads the same file. It is removed there. France is
+          # 5.1 GB, the route-POI intermediates add ~200 MB, and the runner
+          # has about 14 GB free.
+          rm -f "$SLUG.filtered.osm.pbf"
 
           COUNT=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))['features']))" "out/$SLUG.geojson")
           echo "$REGION: $COUNT features"
@@ -291,6 +316,7 @@ jobs:
           # real date existed nowhere but one line of job log.
           echo "$REGION $COUNT $YMD" > "out/$SLUG.count"
           echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+          echo "ymd=$YMD" >> "$GITHUB_OUTPUT"
           ls -lh out/
 
       - name: Hand the file to the publish job
@@ -300,6 +326,45 @@ jobs:
           path: out/
           # Short on purpose: this is a courier between two jobs of the
           # same run, not storage. Storage is the release below.
+          retention-days: 1
+
+      # 🔴 CAMP-113: the second layer, from the PBF the step above verified
+      # and kept. AFTER the campsite artifact is uploaded, so that a failure
+      # here costs this country's route POI and never its campsites. ONE
+      # script, shared with nothing but itself on purpose: it sources the
+      # same tag list load-route-poi.sh uses (route-poi-filters.sh) and the
+      # same export config (export-rpoi.json), and it refuses a result of 0
+      # features — a country of nothing is a broken filter, and an import
+      # of it would read as "every POI here has gone".
+      #
+      # The script prints the count on stdout and everything else on
+      # stderr, so there is one count and it is the script's.
+      - name: Route POI from the same extract
+        id: rpoi
+        if: steps.build.outcome == 'success'
+        env:
+          REGION: ${{ matrix.region }}
+          SLUG: ${{ steps.build.outputs.slug }}
+          YMD: ${{ steps.build.outputs.ymd }}
+        run: |
+          set -euo pipefail
+          mkdir -p rpoi
+          COUNT=$(scripts/osm-pipeline/extract-route-poi.sh \
+            "$SLUG.osm.pbf" "rpoi/$SLUG.rpoi.geojson")
+          # Now nothing needs the PBF.
+          rm -f "$SLUG.osm.pbf"
+          gzip -9 "rpoi/$SLUG.rpoi.geojson"
+          # Same shape as the campsite .count: region, features, extract date.
+          echo "$REGION $COUNT $YMD" > "rpoi/$SLUG.rpoi.count"
+          echo "$REGION: $COUNT route POI features"
+          ls -lh rpoi/
+
+      - name: Hand the route-POI file to the publish job
+        if: steps.rpoi.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: rpoi-${{ steps.build.outputs.slug }}
+          path: rpoi/
           retention-days: 1
 
   publish:
@@ -324,6 +389,13 @@ jobs:
           pattern: extract-*
           merge-multiple: true
           path: out
+      # The route-POI courier (CAMP-113), into its own directory so that the
+      # campsite counts below never read a .rpoi.count by accident.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: rpoi-*
+          merge-multiple: true
+          path: rpoi
 
       - name: Check what arrived
         id: check
@@ -352,6 +424,20 @@ jobs:
             echo "complete=full" >> "$GITHUB_OUTPUT"
           fi
 
+          # CAMP-113: the route-POI layer, counted apart. Zero here is not
+          # "none" for the release — the campsites still publish — but it
+          # is printed, and the import on the machine fails by name for
+          # every country the release does not hold.
+          mkdir -p rpoi
+          RPOI_GOT=$(find rpoi -name '*.rpoi.geojson.gz' | wc -l | tr -d ' ')
+          RPOI_TOTAL=0
+          if [ "$RPOI_GOT" -gt 0 ]; then
+            RPOI_TOTAL=$(cat rpoi/*.rpoi.count | awk '{s+=$2} END {print s}')
+          fi
+          echo "route POI: got=$RPOI_GOT planned=$PLANNED features=$RPOI_TOTAL"
+          echo "rpoi_got=$RPOI_GOT" >> "$GITHUB_OUTPUT"
+          echo "rpoi_total=$RPOI_TOTAL" >> "$GITHUB_OUTPUT"
+
       - name: Publish the release
         if: steps.check.outputs.complete != 'none'
         env:
@@ -360,6 +446,8 @@ jobs:
           TOTAL: ${{ steps.check.outputs.total }}
           GOT: ${{ steps.check.outputs.got }}
           PLANNED: ${{ needs.plan.outputs.count }}
+          RPOI_GOT: ${{ steps.check.outputs.rpoi_got }}
+          RPOI_TOTAL: ${{ steps.check.outputs.rpoi_total }}
         run: |
           set -euo pipefail
           TAG="osm-$(date -u +%Y-%m-%d)"
@@ -403,6 +491,33 @@ jobs:
             echo "node scripts/osm-pipeline/import-release.mjs --tag $TAG fr si"
             echo '```'
             echo
+            # 🔴 CAMP-113: the second layer in the same release. Its own
+            # table and its own import command, because its own importer
+            # reads it (import-route-poi.mjs), and because a reader must be
+            # able to see that a country has campsites but no route POI.
+            echo "## Route POI"
+            echo
+            if [ "$RPOI_GOT" -gt 0 ]; then
+              echo "Fuel, charging, water, dump stations, rest areas, shops, food and lodging (\`*.rpoi.geojson.gz\`), cut from the same extracts."
+              echo
+              echo "| region | route POI | extract |"
+              echo "| --- | --- | --- |"
+              sort rpoi/*.rpoi.count | awk '{printf "| %s | %s | 20%s-%s-%s |\n", $1, $2, substr($3,1,2), substr($3,3,2), substr($3,5,2)}'
+              echo
+              echo "**$RPOI_TOTAL route POI features across $RPOI_GOT of $PLANNED regions.**"
+              if [ "$RPOI_GOT" -lt "$PLANNED" ]; then
+                echo
+                echo "> ⚠️ Incomplete: $((PLANNED - RPOI_GOT)) region(s) have no route-POI file in this release. The import names each of them and leaves their rows as they were."
+              fi
+              echo
+              echo "Import with:"
+              echo '```'
+              echo "node scripts/osm-pipeline/import-route-poi.mjs --tag $TAG"
+              echo '```'
+            else
+              echo "> ⚠️ No region produced a route-POI file in this run. \`import-route-poi.mjs\` will fail by name for every member state; nothing in \`osm_route_poi\` changes."
+            fi
+            echo
             # 🔴 ODbL requires attribution and the licence notice from
             # anyone who redistributes the database — and publishing a
             # release asset is redistribution, not display. See
@@ -414,16 +529,24 @@ jobs:
             echo "© OpenStreetMap contributors. Extracts by [Geofabrik](https://download.geofabrik.de/)."
           } > notes.md
 
+          # The assets: campsites always (COMPLETE is not 'none' here), route
+          # POI when any arrived. An array, because a glob that matches
+          # nothing would be handed to gh as a literal file name.
+          ASSETS=(out/*.geojson.gz out/*.count)
+          if [ "$RPOI_GOT" -gt 0 ]; then
+            ASSETS+=(rpoi/*.rpoi.geojson.gz rpoi/*.rpoi.count)
+          fi
+
           # A re-run on the same day updates the day's release instead of
           # failing on the existing tag.
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --notes-file notes.md
-            gh release upload "$TAG" out/*.geojson.gz out/*.count --clobber
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else
             # 🔴 Pre-release on purpose. These are weekly data snapshots;
             # marking one "Latest release" would put a geojson dump at the
             # top of the repository page as though it were the product.
-            gh release create "$TAG" out/*.geojson.gz out/*.count \
+            gh release create "$TAG" "${ASSETS[@]}" \
               --prerelease \
               --title "OSM campsites — $(date -u +%Y-%m-%d)" \
               --notes-file notes.md
@@ -482,6 +605,7 @@ jobs:
             echo ""
             echo "- regions: **${{ steps.check.outputs.got }} of ${{ needs.plan.outputs.count }}**"
             echo "- campsites: **${{ steps.check.outputs.total }}**"
+            echo "- route POI: **${{ steps.check.outputs.rpoi_total }}** across **${{ steps.check.outputs.rpoi_got }} of ${{ needs.plan.outputs.count }}** regions (CAMP-113)"
             echo "- release: \`osm-$(date -u +%Y-%m-%d)\` (kept, not expiring)"
             # 🔴 WHAT GREEN MEANS HERE. This run ends at the release: no step
             # of it touches the database, by design (see the header). A green
@@ -489,7 +613,7 @@ jobs:
             # it being read as "the data is updated" — `camping_spots` sat on
             # 17.10 under a week of green runs because nothing took the release
             # to the machine. The line says so where the person looks.
-            echo "- imported into the database: **not by this workflow.** The server's \`camptribe-osm-import.timer\` (infra/systemd) imports the newest release on Tuesdays at 04:30 UTC."
+            echo "- imported into the database: **not by this workflow.** The server's \`camptribe-osm-import.timer\` (infra/systemd) imports the newest release's campsites on Tuesdays at 04:30 UTC, and \`camptribe-route-poi-import.timer\` its route POI at 05:30 UTC."
           } >> "$GITHUB_STEP_SUMMARY"
 
   # 🔴 A scheduled run that fails at 04:00 on a Monday fails to nobody.

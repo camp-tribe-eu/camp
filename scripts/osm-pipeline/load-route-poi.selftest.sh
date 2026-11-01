@@ -31,7 +31,7 @@ ROOT="$(mktemp -d "${TMPDIR:-/tmp}/load-route-poi-selftest.XXXXXX")"
 trap 'rm -rf "$ROOT"' EXIT
 
 # The number of pass/fail calls below. Update it WITH the cases.
-EXPECTED=20
+EXPECTED=21
 
 # The database the run is asked for. Nothing connects to it: every tool that
 # would is a shim, and the name says so.
@@ -285,13 +285,34 @@ fi
 # be handed it and the run would "succeed".
 FAKE="$ROOT/fake-repo"
 mkdir -p "$FAKE/scripts/osm-pipeline" "$FAKE/apps/api"
-cp "$SCRIPT" "$HERE/_pgconn.sh" "$FAKE/scripts/osm-pipeline/"
+cp "$SCRIPT" "$HERE/_pgconn.sh" "$HERE/route-poi-filters.sh" "$FAKE/scripts/osm-pipeline/"
 out=$(run d "$FAKE/scripts/osm-pipeline/load-route-poi.sh"); rc=$?
 if [ $rc -ne 0 ] && grep -q 'export-rpoi.json is missing' <<<"$out" &&
    ! grep -q '^osmium export' "$CALLS"; then
   pass "without export-rpoi.json the run stops before osmium export"
 else
   fail "a missing export config was not refused; rc=$rc, calls: $(cat "$CALLS" | head -3)"
+fi
+
+# ── e: a missing filter list is a refusal, not a green nothing ───────
+#
+# 🔴 The tag list is sourced from route-poi-filters.sh (CAMP-113, shared
+# with extract-route-poi.sh). Under `set -e` a failed `.` SHOULD be fatal —
+# but the lock's EXIT trap is already armed, and bash 3.2 (macOS) then
+# exits with the TRAP's code: measured 01.11.2026, `set -euo pipefail; trap
+# … EXIT; . /missing` exits 0. A script that ran nothing would have read as
+# a pass. So the file is checked by name before it is sourced, and this
+# case runs a copy in a tree that lacks it. MUTATION: delete the `[ -f
+# "$FILTERS_FILE" ]` line — on macOS this case goes red by exit code alone.
+FAKE2="$ROOT/fake-repo-no-filters"
+mkdir -p "$FAKE2/scripts/osm-pipeline" "$FAKE2/apps/api"
+cp "$SCRIPT" "$HERE/_pgconn.sh" "$HERE/export-rpoi.json" "$FAKE2/scripts/osm-pipeline/"
+out=$(run e "$FAKE2/scripts/osm-pipeline/load-route-poi.sh"); rc=$?
+if [ $rc -ne 0 ] && grep -q 'route-poi-filters.sh is missing' <<<"$out" &&
+   ! grep -q '^osmium' "$CALLS"; then
+  pass "without route-poi-filters.sh the run stops before any osmium call, and says which file"
+else
+  fail "a missing filter list was not refused; rc=$rc, out: $(head -2 <<<"$out"), calls: $(head -3 "$CALLS")"
 fi
 
 echo

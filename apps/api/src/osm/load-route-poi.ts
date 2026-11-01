@@ -19,6 +19,24 @@
 // rolls back — `lpgArrivalError` covers the second, and `gasLayerError` the
 // third.
 //
+// 🔴 CAMP-113 (decision of 28.10.2026): AN OPTIONAL COUNTRY SCOPE.
+//
+//   node dist/osm/load-route-poi.js            # staging holds every member state
+//   node dist/osm/load-route-poi.js LU MT      # staging holds these two only
+//
+// The weekly release is built one country per job and is PUBLISHED PARTIAL
+// on purpose when a country's build fails (osm-weekly.yml, `complete=partial`).
+// import-route-poi.mjs stages whatever arrived and names the countries it
+// staged. Without a scope, the delete below reads "a row this run did not
+// see is gone from OpenStreetMap" — which, on a release missing France,
+// would remove every French fuel station as "gone" while the French extract
+// simply had not been built. With a scope the delete is confined to the
+// countries whose extract WAS read; the others keep their rows and their
+// older `last_seen_at`, which is the truth about them. The UPSERT is not
+// scoped: a Belgian row inside the Luxembourg extract's border buffer was
+// seen, and saying so is correct. The by-hand path (load-route-poi.sh, all
+// 27 PBFs) passes nothing and keeps the whole-table rule.
+//
 // 🔴 One statement, inside one transaction, and never a TRUNCATE
 // followed by an INSERT outside one. The API is reading this table while
 // the weekly import runs; a truncate that is visible before its insert
@@ -38,6 +56,7 @@ import {
   REST_STOP_KINDS,
   STORED_POI_KINDS,
 } from './route-poi';
+import { isEuMemberState } from './eu';
 import { ensureStagingColumns, exportedTags } from './route-poi-export';
 import {
   lpgArrivalError,
@@ -60,7 +79,32 @@ import {
 const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
 
+/**
+ * The countries this run is allowed to remove rows from, as lower-case ISO
+ * codes — or null for "every member state" (the by-hand path).
+ *
+ * 🔴 Refused, not dropped: a code that is not a member state means the
+ * caller and this file disagree about what a country is, and import-spots.ts
+ * has the same rule. `UK` here would otherwise scope the delete to a
+ * country that holds no rows and silently remove nothing — a run that
+ * looked exactly like success.
+ */
+export function parseScope(argv: readonly string[]): string[] | null {
+  if (argv.length === 0) return null;
+  const codes = argv.map((a) => a.trim().toLowerCase());
+  const bad = codes.filter((c) => !/^[a-z]{2}$/.test(c) || !isEuMemberState(c));
+  if (bad.length > 0) {
+    throw new Error(
+      `not EU member state codes: ${bad.join(', ')} — the scope is the ` +
+        `two-letter codes of the countries whose extracts were staged`,
+    );
+  }
+  return [...new Set(codes)].sort();
+}
+
 async function main() {
+  // Read before the connection is opened: a typo must stop the run at the door.
+  const scope = parseScope(process.argv.slice(2));
   const db = new Client({ connectionString: DB_URL });
   await db.connect();
 
@@ -97,10 +141,20 @@ async function main() {
       EU_SQL_LIST,
     ]);
 
-    const gone = await db.query(
-      `DELETE FROM osm_route_poi WHERE last_seen_at < $1::timestamptz`,
-      [runAt],
-    );
+    // 🔴 Scoped when a scope was given — see the header. `country` is the
+    // column the INSERT above just wrote, lower-case; the scope is
+    // lower-cased by parseScope so the comparison cannot miss on case.
+    const gone =
+      scope === null
+        ? await db.query(
+            `DELETE FROM osm_route_poi WHERE last_seen_at < $1::timestamptz`,
+            [runAt],
+          )
+        : await db.query(
+            `DELETE FROM osm_route_poi
+              WHERE last_seen_at < $1::timestamptz AND country = ANY ($2::text[])`,
+            [runAt, scope],
+          );
 
     // 🔴 Every kind must have arrived, and the check is inside the
     // transaction so a kind that came back empty rolls the whole thing
@@ -131,7 +185,7 @@ async function main() {
     if (empty.length > 0) {
       throw new Error(
         `these kinds loaded nothing: ${empty.join(', ')} — the tag list in ` +
-          `scripts/osm-pipeline/load-route-poi.sh and STORED_POI_RULES in ` +
+          `scripts/osm-pipeline/route-poi-filters.sh and STORED_POI_RULES in ` +
           `src/osm/route-poi.ts have drifted apart`,
       );
     }
@@ -223,6 +277,12 @@ async function main() {
     await db.query('COMMIT');
     await db.query('ANALYZE osm_route_poi');
 
+    console.log(
+      scope === null
+        ? `  scope: every member state (rows not seen by this run are removed)`
+        : `  scope: ${scope.map((c) => c.toUpperCase()).join(', ')} ` +
+            `(unseen rows removed in these countries only; other countries are updated, never removed)`,
+    );
     console.log(`  written: ${inserted.rowCount}, removed: ${gone.rowCount}`);
     for (const kind of STORED_POI_KINDS) {
       console.log(

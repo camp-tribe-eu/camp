@@ -739,6 +739,22 @@ jobs:
           node scripts/osm-pipeline/import-release.mjs --self-test | tee /dev/stderr \
             | grep -c 'import-release self-test:' >/dev/null
 
+      # 🔴 CAMP-113. The route-POI import is the same chain for the second
+      # layer, and the three things its self-test proves cannot be seen from
+      # a page: the age limit refuses an old release BEFORE any request (an
+      # unattended import of old data would stamp 2.3 million rows "seen
+      # now" and blind the freshness sentry); a release asset with 0
+      # features is a failed country, never "every POI here has gone"; and
+      # the systemd unit that ships passes a limit strictly under the
+      # sentry's budget for osm_route_poi — read from the sentry, not typed.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: The route-POI import refuses an old release and an empty country, and its unit says so
+        run: |
+          set -o pipefail
+          node scripts/osm-pipeline/import-route-poi.mjs --self-test | tee /dev/stderr \
+            | grep -c 'import-route-poi self-test:' >/dev/null
+
       # 🔴 CAMP-253. Seven of the eight mutations review put on this file
       # are caught by its self-test and by nothing else — and the
       # self-test was not wired here when the file was written, so all
@@ -771,6 +787,20 @@ jobs:
           set -o pipefail
           ./scripts/osm-pipeline/extract-campsites.selftest.sh | tee /dev/stderr \
             | grep -c 'extract-campsites self-test:' >/dev/null
+
+      # 🔴 CAMP-113. The weekly route-POI cut, on the same osmium: the tag
+      # list and the export config reach the tool (a list value is selected,
+      # a tag outside the config does not travel), no mapper's name leaves,
+      # and a PBF with no route POI makes the script FAIL — proved by a copy
+      # with the zero-guard removed that is required to exit 0 on the same
+      # fixture, so the guard, and nothing else, is what refuses.
+      # 🔴 CAMP-285/286: the step reads the self-test's own output, under
+      # `set -o pipefail` because Actions runs `bash -e {0}` without it.
+      - name: The route-POI extract reaches osmium with its list and config, and refuses an empty country
+        run: |
+          set -o pipefail
+          ./scripts/osm-pipeline/extract-route-poi.selftest.sh | tee /dev/stderr \
+            | grep -c 'extract-route-poi self-test:' >/dev/null
 
       # 🔴 CAMP-119. The raw-extract counter is the oracle the stopping-place
       # import is reconciled against, so the thing that must not be wrong in

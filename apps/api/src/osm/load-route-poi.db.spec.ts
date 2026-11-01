@@ -50,10 +50,11 @@ function loaderUrl(): string {
   return url.toString();
 }
 
-function runLoader() {
+function runLoader(scope: string[] = []) {
   const res = spawnSync(
     process.execPath,
-    [TS_NODE, 'src/osm/load-route-poi.ts'], // as load-route-poi.sh runs it
+    // as load-route-poi.sh runs it; import-route-poi.mjs adds the codes
+    [TS_NODE, 'src/osm/load-route-poi.ts', ...scope],
     {
       cwd: API_ROOT,
       env: { ...process.env, DATABASE_URL: loaderUrl() },
@@ -485,5 +486,70 @@ describe('the loader, run as a program (CAMP-258)', () => {
     expect(run.out).toMatch(
       /food\s+staged objects naming it as a list element 2, mentioned wider 3, mentioned and not taken 1\n/,
     );
+  });
+});
+
+// CAMP-113 (28.10.2026) — THE SCOPE, RUN. The weekly release can be partial,
+// and import-route-poi.mjs hands the loader the codes of the countries it
+// staged. What is asserted is the DATABASE after a scoped run: an unseen
+// row of a country OUTSIDE the scope survives, the same row goes when its
+// country is named. Every row of the fixture resolves to SI (the only
+// polygon), so "outside the scope" is any other member state.
+//
+// 🔴 MUTATION: drop `AND country = ANY ($2::text[])` from the scoped DELETE
+// in load-route-poi.ts. The unit tests of parseScope stay green, the loader
+// prints "scope: AT", and n6 is removed from a country the run never read.
+describe('a scoped run removes unseen rows of the named countries only (CAMP-113)', () => {
+  it('keeps an unseen row whose country is outside the scope, and removes it once the country is named', async () => {
+    await resetStaging({ gas: true });
+    // a second restaurant, so that removing n6 below does not empty the
+    // `food` kind — that is the per-kind guard's job, not this test's
+    await stageObject('n60', { amenity: 'restaurant', name: 'Gostilna' }, 70);
+    const full = runLoader();
+    expect({ status: full.status, err: full.err }).toEqual({
+      status: 0,
+      err: '',
+    });
+    expect(full.out).toContain('scope: every member state');
+    const n6 = async () =>
+      (
+        await db.query(
+          `SELECT count(*)::int AS n FROM osm_route_poi WHERE osm_ref = 'n6'`,
+        )
+      ).rows[0].n;
+    expect(await n6()).toBe(1);
+
+    // the restaurant leaves the extract…
+    await db.query(`DELETE FROM osm_route_poi_staging WHERE id = 'n6'`);
+
+    // …and a run scoped to Austria must not touch a Slovenian row
+    const at = runLoader(['AT']);
+    expect({ status: at.status, err: at.err }).toEqual({ status: 0, err: '' });
+    expect(at.out).toContain(
+      'scope: AT (unseen rows removed in these countries only',
+    );
+    expect(at.out).toMatch(/removed: 0\n/);
+    expect(await n6()).toBe(1);
+
+    // the same staging, scoped to Slovenia: now it is gone
+    const si = runLoader(['si']); // lower case is accepted and normalised
+    expect({ status: si.status, err: si.err }).toEqual({ status: 0, err: '' });
+    expect(si.out).toContain('scope: SI (');
+    expect(si.out).toMatch(/removed: 1\n/);
+    expect(await n6()).toBe(0);
+  });
+
+  // 🔴 A code that is not a member state is a disagreement, not a no-op:
+  // scoped to `UK` the delete would remove nothing and the run would look
+  // like success. Refused before the connection is opened.
+  it('refuses a scope that is not a member state, before touching the table', async () => {
+    await resetStaging({ gas: true });
+    const run = runLoader(['UK']);
+    expect(run.status).toBe(1);
+    expect(run.err).toContain('not EU member state codes: uk');
+    expect(
+      (await db.query('SELECT count(*)::int AS n FROM osm_route_poi')).rows[0]
+        .n,
+    ).toBe(0);
   });
 });

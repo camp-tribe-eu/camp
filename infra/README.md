@@ -38,6 +38,8 @@ status=200/CHDIR
 | `systemd/camptribe-retention.timer` | 04:00 UTC, `Persistent=true` — після бекапу 03:30, тож видалене лежить у зрізі ще 14 діб |
 | `systemd/camptribe-osm-import.service` | 🔴 вівторок 04:30 UTC: `import-release.mjs --max-age-days 9` (останній реліз `osm-weekly` → `camping_spots`). `spot_links` тут немає навмисно — це вирок людини |
 | `systemd/camptribe-osm-import.timer` | вівторок 04:30 UTC, `Persistent=true` (понеділкове будування екстрактів + доба запасу) |
+| `systemd/camptribe-route-poi-import.service` | 🔴 вівторок 05:30 UTC: `import-route-poi.mjs --max-age-days 9` (той самий реліз `osm-weekly` → `osm_route_poi`; CAMP-113, рішення 28.10.2026). Усі країни релізу — в одну `osm_route_poi_staging`, лоадер один раз; невидані рядки видаляються лише в країнах, чий файл приїхав |
+| `systemd/camptribe-route-poi-import.timer` | вівторок 05:30 UTC, `Persistent=true` — через годину після імпорту кемпінгів (одне ядро Postgres), за пів години до сторожа свіжості |
 | `systemd/camptribe-fuel-prices.service` | 🔴 щодня: `import-stations.js --report` (ES/FR/IT → `fuel_station_prices`) |
 | `systemd/camptribe-fuel-prices.timer` | 05:00 UTC, `Persistent=true` |
 | `systemd/camptribe-deploy-nightly.service` | 🔴 щонічний деплой: `camptribe-deploy-nightly` (від root; `Nice=10`; `TimeoutStartSec=45min`) |
