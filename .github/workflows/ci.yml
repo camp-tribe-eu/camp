@@ -277,6 +277,9 @@ jobs:
 
       # Fails on an advisory nobody has looked at, not on every known
       # one — the reasoning is in scripts/security/known-advisories.json.
+      # Since 01.11.2026 it audits both scopes (prod and dev) and every
+      # acceptance carries a measured scope and a review date; an entry
+      # without either, or past its date, fails the same as a new advisory.
       #
       # 🔴 The self-test is here because this guard is the one that went
       # blind. Its workspace list was hand-written and stopped at two

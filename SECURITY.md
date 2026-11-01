@@ -36,8 +36,10 @@ Findings we are particularly interested in:
 
 ## What is not a finding
 
-- **Known transitive dependency advisories.** They are listed, with the
-  reason each is accepted, in
+- **Known transitive dependency advisories.** They are listed, each with
+  the reason it is accepted, the scope it was measured in (`prod` ships;
+  `dev` is build and test tooling only) and the date it is reviewed
+  again, in
   [`scripts/security/known-advisories.json`](scripts/security/known-advisories.json).
   A report that repeats that list adds nothing; a report showing one of
   them is actually reachable in our code is very welcome.
