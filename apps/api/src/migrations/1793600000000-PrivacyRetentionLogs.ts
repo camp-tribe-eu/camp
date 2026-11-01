@@ -41,7 +41,7 @@ export class PrivacyRetentionLogs1793600000000 implements MigrationInterface {
     summary:
       'What we hold about you, who else touches it, and the two things you can do yourself without asking us.',
     version: '2.3',
-    effectiveFrom: '2026-11-02',
+    effectiveFrom: '2026-11-01',
     body: `## Who is responsible {#who}
 
 {{company.address}} is the controller for personal data processed through this site. You can reach a person at [{{company.email}}](mailto:{{company.email}}).
