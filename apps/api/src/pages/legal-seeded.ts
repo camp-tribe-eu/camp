@@ -2,6 +2,7 @@ import { SeedLegalPages1792800000000 } from '../migrations/1792800000000-SeedLeg
 import { PrivacyProblemReports1793400000000 } from '../migrations/1793400000000-PrivacyProblemReports';
 import { PrivacyProcessors1793500000000 } from '../migrations/1793500000000-PrivacyProcessors';
 import { PrivacyRetentionLogs1793600000000 } from '../migrations/1793600000000-PrivacyRetentionLogs';
+import { AttributionSources1793700000000 } from '../migrations/1793700000000-AttributionSources';
 
 /**
  * Правові документи такими, якими їх лишають у базі ВСІ міграції разом.
@@ -35,6 +36,7 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   new PrivacyProblemReports1793400000000().page,
   new PrivacyProcessors1793500000000().page,
   new PrivacyRetentionLogs1793600000000().page,
+  new AttributionSources1793700000000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {
