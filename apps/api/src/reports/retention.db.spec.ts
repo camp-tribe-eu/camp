@@ -100,7 +100,10 @@ async function run(
           throw new Error(`__need__ ${sql}`);
         },
         dbUrl: 'postgres://test',
-        ...(rules ? { rules } : {}),
+        // 🔴 Лише правило заявок: у цій сесії є тимчасова таблиця тільки
+        // для problem_reports. Журнали (client_errors, not_found_hits)
+        // перевіряє telemetry/retention-logs.db.spec.ts.
+        rules: rules ?? [rule],
       });
     } catch (e) {
       if (need.sql === null) throw e;
