@@ -1673,6 +1673,18 @@ jobs:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
         run: npx ts-node src/spots/verify-folds.ts
 
+      # Рішення 28.10.2026: без нагляду `--apply` пише лише пари, де
+      # назва, відстань І домен кажуть одне. Скрипт садить три пари з
+      # однаковими назвою й відстанню, що різняться лише доменом, пише,
+      # читає слід у spot_links, ховає й повертає дубль одним UPDATE,
+      # звіряє camping_spots побайтово — і все відкочує. Спека тримає
+      # функції; це тримає те, що бачить лише база.
+      - name: The reconciler writes only the domain-confirmed tier, reversibly
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        run: npx ts-node src/spots/verify-reconcile-threshold.ts
+
       - name: The fold script's twin arithmetic still agrees with itself
         working-directory: apps/api
       # 🔴 CAMP-285/286: the step reads the self-test's own output, under

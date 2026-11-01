@@ -41,6 +41,40 @@
 // campsite. Both rows survive intact, each source keeps writing to its
 // own row, and the reader-side join in spots.service.ts is what makes
 // them one page. That is why no import has to know this exists.
+//
+// 🔴 ТРЕТЯ ВІСЬ — ДОМЕН — І ЧОМУ `--apply` ПИШЕ МЕНШЕ, НІЖ МАТЧЕР КАЖЕ.
+//
+// Рішення 28.10.2026 (Facts/rishennia-po-danykh-28-10-2026): хибне
+// злиття коштує на порядок дорожче за незлитий дубль — читач їде не
+// туди, — тому без нагляду зливати можна лише те, у чому впевнені, а
+// решту лишати дублями. Сухий прогін того дня: 76 вироків «один
+// кемпінг» від матчера, верхня межа хибних 16,7% (11 з 66 судимих).
+//
+// Матчер читає ДВІ осі — назву й відстань. Жоден поріг на цих двох осях
+// не опускає виміряну межу нижче ~15%, і це не слабкість порога, а
+// підлога самої міри: серед 2 584 судимих ЖИВИХ звʼязків (замір
+// 01.11.2026 на копії бази) домени розходяться у 17,6%, і в контрольній
+// смузі 0–25 м, де два записи майже напевно один кемпінг, — у 21,2%.
+// Це частота, з якою один французький кемпінг публікує два домени
+// (свій і мережі, свій і міста, .fr і .com), а не частота помилок.
+//
+// Тож третя вісь береться В ПРАВИЛО: `--apply` пише лише пару, де обидві
+// сторони називають себе (сайт або пошта) і називають ОДИН домен —
+// незалежне «так» від руки, яка не дивилась на назву. На тих самих 76:
+// 55 проходять, 21 лишаються дублями (11 різні домени, 10 одна сторона
+// мовчить). Їх ніхто не позначає й не ховає — арбітраж через «Report a
+// problem» бачить два записи поруч, як і читач.
+//
+// 🔴 ЩО ЦЕ РОБИТЬ ІЗ МІРОЮ. Домен тепер у правилі, тому міра «різні
+// домени» про авто-ярус більше нічого не каже — вона б підтверджувала
+// сама себе, і друкувати для нього «0,0%» було б брехнею. Чесна межа
+// для авто-ярусу з полів, які ми маємо, НЕ ВИВОДИТЬСЯ: у DATAtourisme
+// 0 телефонів і 0 пошт на 8 752 рядки (заміряно), третьої незалежної
+// осі немає. Що можна сказати: хибне авто-злиття потребує двох різних
+// бізнесів на одному домені, ≤300 м один від одного, з майже однаковими
+// назвами. Форма «один домен, різні назви» в OSM існує (306 пар ≤300 м,
+// замір 01.11.2026) — тож це не нуль, і цей абзац існує, щоб ніхто не
+// прочитав відсутність цифри як нуль.
 
 import 'dotenv/config';
 import { Client } from 'pg';
@@ -60,9 +94,13 @@ const DB_URL =
 // 🔴 Імʼя правила несе ОБИДВІ стелі, бо від CAMP-277 їх дві. Старі
 // рядки в `spot_links` лишаються зі своїм записаним іменем — саме
 // для того воно там і зберігається, щоб було видно, хто чим звʼязав.
+// 🔴 `+domain` — третя вісь. Рядок із цим іменем написано лише тоді,
+// коли обидві сторони назвали один домен; рядки без суфікса написав
+// матчер сам, і арбітраж бачить різницю, не відкриваючи код.
 export const RULE_ID =
   `decide@${RULES.sameSpotMetres}m/${RULES.confidentSimilarity}` +
-  `+ident@${RULES.identicalNameMetres}m/${RULES.identicalSimilarity}`;
+  `+ident@${RULES.identicalNameMetres}m/${RULES.identicalSimilarity}` +
+  `+domain`;
 
 /**
  * The degrees to pre-filter by before the exact metric test.
@@ -75,7 +113,7 @@ export const RULE_ID =
  * bounding box in the DATAtourisme importer, which measured 7.4 km where
  * it read as 11 km. 0.02° is wider than 400 m everywhere in the EU-27.
  */
-const BOX_DEGREES = 0.02;
+export const BOX_DEGREES = 0.02;
 
 export type SpotRow = {
   id: string;
@@ -238,6 +276,23 @@ export const CLAIMED_BY_OUTSIDE_RECORD_SQL = `
     JOIN camping_spots s ON s.id = l.secondary_id
    WHERE l.unlinked_at IS NULL AND s.osm_ref IS NULL`;
 
+/**
+ * The secondaries a LIVE link already holds — the other side of the
+ * same blindness `CLAIMED_BY_OUTSIDE_RECORD_SQL` closes for primaries.
+ *
+ * 🔴 Found on the first unattended-shaped run, 01.11.2026, on a copy of
+ * the table: of 55 links the auto tier proposed, 10 were refused by
+ * `idx_spot_links_secondary_live`. Every one was a DATAtourisme row
+ * already linked to ONE OSM row, now matched by a SECOND OSM row 30–250 m
+ * away — OSM holding the same campsite twice, the OSM↔OSM problem this
+ * file defers on purpose. The database was right to refuse, but a run
+ * that ends in ten refusals ends non-zero, and a timer that fails every
+ * week is an alarm nobody hears. A person has to choose between the two
+ * OSM rows; this sends them that question instead of an error.
+ */
+export const LINKED_SECONDARY_SQL = `
+  SELECT secondary_id AS id FROM spot_links WHERE unlinked_at IS NULL`;
+
 export function proposeLinks(
   pairs: PairRow[],
   judged: Set<string>,
@@ -254,6 +309,8 @@ export function proposeLinks(
    * again on every run for ever.
    */
   claimedAlready: Set<string> = new Set(),
+  /** Secondaries a LIVE link already holds — see LINKED_SECONDARY_SQL. */
+  linkedSecondaries: Set<string> = new Set(),
 ): Outcome {
   const byNonOsm = new Map<string, { row: SpotRow; cands: SpotRow[] }>();
   for (const p of pairs) {
@@ -335,6 +392,16 @@ export function proposeLinks(
       });
       continue;
     }
+    // The mirror case: this RECORD already sits behind another OSM row.
+    // Two OSM rows for one campsite is a map problem, and which of them
+    // is the campsite is a person's call, not a unique index's.
+    if (linkedSecondaries.has(row.id)) {
+      out.review.push({
+        ...proposal,
+        why: 'this record is already linked to another campsite',
+      });
+      continue;
+    }
 
     const rival = claimed.get(primary.id);
     if (!rival) {
@@ -380,6 +447,121 @@ export function complements(p: Proposal): {
       !p.primary.name !== !p.secondary.name,
     bothContactAndStars: (contactA || contactB) && (starsA || starsB),
   };
+}
+
+/**
+ * What the two sides say about who they are, on a field the matcher
+ * never reads: the registrable domain of the website or the email.
+ *
+ *   agree     both name themselves and share a domain
+ *   disagree  both name themselves and share nothing
+ *   none      at least one side names nobody
+ */
+export type Identity = 'agree' | 'disagree' | 'none';
+
+export function identityOf(p: {
+  primary: Pick<SpotRow, 'website' | 'email'>;
+  secondary: Pick<SpotRow, 'website' | 'email'>;
+}): Identity {
+  const a = identityDomains({
+    website: p.primary.website,
+    email: p.primary.email,
+  });
+  const b = identityDomains({
+    website: p.secondary.website,
+    email: p.secondary.email,
+  });
+  if (a.size === 0 || b.size === 0) return 'none';
+  return [...a].some((d) => b.has(d)) ? 'agree' : 'disagree';
+}
+
+/**
+ * The only identity verdict `--apply` writes. See the file header for
+ * why it is this one and not "anything but disagree": a side that names
+ * nobody is not a weak yes, it is no evidence at all.
+ */
+export const AUTO_LINK_IDENTITY: Identity = 'agree';
+
+export type HeldProposal = Proposal & { identity: Identity };
+
+/**
+ * Split the matcher's "same campsite" verdicts into what is written
+ * unattended and what is left as two visible rows.
+ *
+ * 🔴 `held` is a REPORT, not a state. Nothing in the database records
+ * that a held pair was seen: no mark, no hidden flag, no spot_links row.
+ * It is proposed again on every run, and that is intended — the two
+ * rows stay two pages until a person links them through "Report a
+ * problem", and the reconciler does not get a vote on that by stamping
+ * them.
+ */
+export function splitByIdentity(link: Proposal[]): {
+  auto: Proposal[];
+  held: HeldProposal[];
+} {
+  const auto: Proposal[] = [];
+  const held: HeldProposal[] = [];
+  for (const p of link) {
+    const identity = identityOf(p);
+    if (identity === AUTO_LINK_IDENTITY) auto.push(p);
+    else held.push({ ...p, identity });
+  }
+  return { auto, held };
+}
+
+/** The slice of a pg Client the writer needs — so a test can hand it a recorder. */
+export type LinkWriter = {
+  query(sql: string, params?: unknown[]): Promise<{ rowCount: number | null }>;
+};
+
+/**
+ * Write the links, one row of `spot_links` each, inside the CALLER's
+ * transaction — it opens none of its own, so a rehearsal can wrap it in
+ * BEGIN … ROLLBACK and prove the write without keeping it.
+ *
+ * 🔴 The row IS the reversibility. It carries both ids, the distance,
+ * the similarity and the rule that made it, so an arbitrator can see
+ * what was joined to what and why, and undo it with one UPDATE of
+ * `unlinked_at` — after which the read-side join shows two pages again,
+ * because neither campsite row was ever touched. A writer that hid the
+ * duplicate any other way would leave nothing to undo from.
+ *
+ * 🔴 A SAVEPOINT per row, because ON CONFLICT covers ONE index and this
+ * table has three. `ON CONFLICT (primary_id, secondary_id)` catches a
+ * pair we have already judged. It does NOT catch a row that collides
+ * with the partial unique index on `secondary_id` — for example a link
+ * a person made by hand between the same rows in the other direction.
+ * Without a savepoint that one row aborts the transaction and all the
+ * writes roll back, AFTER the run has printed a confident summary.
+ * Measured cost of the savepoint on 2 986 rows: under a second.
+ */
+export async function writeLinks(
+  db: LinkWriter,
+  links: Proposal[],
+): Promise<{ written: number; refused: string[] }> {
+  let written = 0;
+  const refused: string[] = [];
+  for (const p of links) {
+    await db.query('SAVEPOINT one_link');
+    try {
+      const r = await db.query(
+        `INSERT INTO spot_links
+           (primary_id, secondary_id, metres, name_similarity, rule)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (primary_id, secondary_id) DO NOTHING`,
+        [p.primary.id, p.secondary.id, p.metres, p.similarity, RULE_ID],
+      );
+      written += r.rowCount ?? 0;
+      await db.query('RELEASE SAVEPOINT one_link');
+    } catch (err) {
+      await db.query('ROLLBACK TO SAVEPOINT one_link');
+      refused.push(
+        `${p.primary.osm_ref ?? p.primary.id} ↔ ${p.secondary.slug}: ` +
+          `${(err as Error).message}`,
+      );
+    }
+  }
+  return { written, refused };
 }
 
 /**
@@ -486,11 +668,19 @@ async function main(): Promise<void> {
       CLAIMED_BY_OUTSIDE_RECORD_SQL,
     );
     const claimedAlready = new Set<string>(claimedRows.rows.map((r) => r.id));
-    const out = proposeLinks(pairs, judged, claimedAlready);
+    const linkedRows = await db.query<{ id: string }>(LINKED_SECONDARY_SQL);
+    const linkedSecondaries = new Set<string>(linkedRows.rows.map((r) => r.id));
+    const out = proposeLinks(pairs, judged, claimedAlready, linkedSecondaries);
+    // 🔴 The matcher's verdict is one number; what `--apply` writes is a
+    // smaller one. Both are printed, under different names, so nobody
+    // reads "76" and expects 76 rows.
+    const { auto, held } = splitByIdentity(out.link);
+    const heldDisagree = held.filter((p) => p.identity === 'disagree');
+    const heldNone = held.filter((p) => p.identity === 'none');
 
     let gains = 0;
     let both = 0;
-    for (const p of out.link) {
+    for (const p of auto) {
       const c = complements(p);
       if (c.gains) gains++;
       if (c.bothContactAndStars) both++;
@@ -498,18 +688,29 @@ async function main(): Promise<void> {
 
     console.log('');
     console.log(`  link (same name, same place)   ${out.link.length}`);
+    console.log(
+      `    → auto-link, both sides name the same domain   ${auto.length}`,
+    );
+    console.log(
+      `    → held back as two visible rows                ${held.length}` +
+        `  (domains differ ${heldDisagree.length}, one side names nobody ${heldNone.length})`,
+    );
     console.log(`  leave for a human to look at   ${out.review.length}`);
     console.log(`  different campsites            ${out.apart}`);
     console.log(`  already judged, left alone     ${out.alreadyJudged}`);
     console.log('');
     console.log(
-      `  of the links: one side holds what the other lacks  ${gains}`,
+      `  of the auto-links: one side holds what the other lacks  ${gains}`,
     );
-    console.log(`  of the links: together give contact AND stars      ${both}`);
+    console.log(
+      `  of the auto-links: together give contact AND stars      ${both}`,
+    );
 
     // 🔴 A dry run states its own expected error rate before anybody
-    // decides to write 3 000 rows. Judged on the website, which the rule
-    // never reads — see link-evidence.ts.
+    // decides to write rows. Judged on the website, which the MATCHER
+    // never reads — see link-evidence.ts. It is printed for the matcher's
+    // verdict, where it means something, and refused for the auto tier,
+    // where it would be judging the rule by the rule.
     const asPair = (p: Proposal) => ({
       aWebsite: p.primary.website,
       aEmail: p.primary.email,
@@ -519,6 +720,7 @@ async function main(): Promise<void> {
     const ev = judgeByIdentity(out.link.map(asPair));
     const bound = upperBoundPercent(ev);
     console.log('');
+    console.log("  the matcher's verdict alone (name + distance):");
     console.log(
       `  both sides name themselves          ${ev.agree + ev.disagree}`,
     );
@@ -529,6 +731,13 @@ async function main(): Promise<void> {
       bound === null
         ? '  → nothing judgeable: no upper bound can be stated'
         : `  → upper bound on the wrong-link rate ${bound.toFixed(1)}%`,
+    );
+    console.log(
+      `  the auto tier (name + distance + same domain), ${auto.length} links:`,
+    );
+    console.log(
+      '  → this measure cannot judge it — the domain is now in the rule, ' +
+        'and no third independent field exists (see header)',
     );
 
     // 🔴 The rule's loosest corner, measured separately. If the far end
@@ -656,15 +865,15 @@ async function main(): Promise<void> {
     if (sampleSize > 0) {
       // 🔴 Deterministic, evenly spread, and it prints coordinates — the
       // point is that somebody can open these on a map and disagree.
-      const step = Math.max(1, Math.floor(out.link.length / sampleSize));
+      const step = Math.max(1, Math.floor(auto.length / sampleSize));
       console.log(
-        '\n--- sample for hand-checking (open the coordinates on a map) ---',
+        '\n--- sample of the AUTO tier for hand-checking (open the coordinates on a map) ---',
       );
       console.log(
         'metres\tsim\tosm_ref\tOSM name\tother name\tlat,lon (OSM)\tlat,lon (other)',
       );
-      for (let i = 0; i < out.link.length && i / step < sampleSize; i += step) {
-        const p = out.link[i];
+      for (let i = 0; i < auto.length && i / step < sampleSize; i += step) {
+        const p = auto[i];
         console.log(
           [
             p.metres,
@@ -728,7 +937,10 @@ async function main(): Promise<void> {
     const predictFile = predictAt >= 0 ? process.argv[predictAt + 1] : null;
     const fingerprint = (p: Proposal) =>
       `${p.primary.id}|${p.secondary.id}|${Math.round(p.metres)}|${p.similarity}`;
-    const predicted = out.link.map(fingerprint).sort();
+    // 🔴 Fingerprinted over the AUTO tier — the set that will be written —
+    // not over the matcher's verdict. Predicting 76 and writing 55 would
+    // fail the check below on every run, correctly.
+    const predicted = auto.map(fingerprint).sort();
 
     if (predictFile && !apply) {
       writeFileSync(predictFile, JSON.stringify(predicted, null, 0));
@@ -737,47 +949,31 @@ async function main(): Promise<void> {
       );
     }
 
+    if (held.length > 0) {
+      console.log(
+        `\n--- held back: the matcher says one campsite, the domains do not confirm it (first 15 of ${held.length}) ---`,
+      );
+      for (const p of held.slice(0, 15)) {
+        console.log(
+          `  ${String(p.primary.name).padEnd(34).slice(0, 34)} | ` +
+            `${String(p.secondary.name).padEnd(34).slice(0, 34)} | ` +
+            `${String(p.metres).padStart(4)} m | sim ${p.similarity} | ${p.identity}`,
+        );
+      }
+    }
+
     if (!apply) {
       console.log('\n(dry run — nothing written. Add --apply to write.)');
       return;
     }
 
     await db.query('BEGIN');
-    let written = 0;
-    const refused: string[] = [];
-    for (const p of out.link) {
-      // 🔴 A SAVEPOINT per row, because ON CONFLICT covers ONE index and
-      // this table has three.
-      //
-      // `ON CONFLICT (primary_id, secondary_id)` catches a pair we have
-      // already judged. It does NOT catch a row that collides with the
-      // partial unique index on `secondary_id` or on `primary_id` — for
-      // example a link a person made by hand between the same rows in
-      // the other direction. Without a savepoint that one row aborts the
-      // transaction and all ~3 000 writes roll back, AFTER the run has
-      // printed a confident summary. Measured cost of the savepoint on
-      // 2 986 rows: under a second.
-      await db.query('SAVEPOINT one_link');
-      try {
-        const r = await db.query(
-          `INSERT INTO spot_links
-             (primary_id, secondary_id, metres, name_similarity, rule)
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (primary_id, secondary_id) DO NOTHING`,
-          [p.primary.id, p.secondary.id, p.metres, p.similarity, RULE_ID],
-        );
-        written += r.rowCount ?? 0;
-        await db.query('RELEASE SAVEPOINT one_link');
-      } catch (err) {
-        await db.query('ROLLBACK TO SAVEPOINT one_link');
-        refused.push(
-          `${p.primary.osm_ref ?? p.primary.id} ↔ ${p.secondary.slug}: ` +
-            `${(err as Error).message}`,
-        );
-      }
-    }
+    const { written, refused } = await writeLinks(db, auto);
     await db.query('COMMIT');
-    console.log(`\n✓ ${written} links written. No campsite row was touched.`);
+    console.log(
+      `\n✓ ${written} links written (auto tier). ${held.length} held back, ` +
+        'unmarked. No campsite row was touched.',
+    );
 
     // 🔴 ЗВІРКА З ПЕРЕДБАЧЕННЯМ, ПОЕЛЕМЕНТНО.
     //
