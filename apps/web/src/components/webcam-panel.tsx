@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type Ref } from 'react';
 import {
   WEBCAM_NETWORK,
   WINDY_ADD_URL,
@@ -9,6 +9,7 @@ import {
   absence,
   direction,
   distance,
+  watchForFrames,
   WEBCAM_RADIUS_M,
   reportedMinutesAgo,
   reportedPhrase,
@@ -64,6 +65,8 @@ export function WebcamNote({
   renderedAt: string;
 }) {
   const [now, setNow] = useState(() => new Date(renderedAt));
+  const [frames, setFrames] = useState<Record<string, string> | null>(null);
+  const section = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -72,16 +75,61 @@ export function WebcamNote({
     return () => clearInterval(id);
   }, []);
 
-  return <WebcamPanel webcams={webcams} now={now} />;
+  // 🔴 THE PICTURES ARE ASKED FOR WHEN THE READER GETS NEAR THE PANEL,
+  // never at build time and not on every page view.
+  //
+  // Windy's image addresses are valid for 15 minutes and this page lives
+  // for days, so the page carries none: see `lib/webcams.ts`. The answer
+  // is used at once — the <img> is not lazy-loaded — because an
+  // address fetched now and opened in twenty minutes is a 401. Asking
+  // only near the viewport is also what keeps the number of requests to
+  // Windy proportional to readers who can see the pictures.
+  //
+  // Once per mount. A tab left open for an hour keeps the frames it has;
+  // the card's link to Windy is what is always live.
+  const refs = showable(webcams, now).map((c) => c.ref);
+  const wanted = refs.join(',');
+  useEffect(() => {
+    if (!wanted) return;
+    return watchForFrames(section.current, wanted.split(','), setFrames, {
+      fetchImpl: (url) => fetch(url),
+      observe:
+        typeof IntersectionObserver === 'undefined'
+          ? undefined
+          : (el, onNear) => {
+              const io = new IntersectionObserver(
+                (entries) => {
+                  if (entries.some((e) => e.isIntersecting)) {
+                    io.disconnect();
+                    onNear();
+                  }
+                },
+                { rootMargin: '300px' },
+              );
+              io.observe(el);
+              return () => io.disconnect();
+            },
+    });
+  }, [wanted]);
+
+  return <WebcamPanel webcams={webcams} now={now} frames={frames} sectionRef={section} />;
 }
 
 export function WebcamPanel({
   webcams,
   now,
+  frames,
+  sectionRef,
 }: {
   webcams: Webcam[] | null | undefined;
   /** Whatever clock the caller is keeping. No `new Date()` in here. */
   now: Date;
+  /**
+   * Frame addresses by camera ref, exactly as the API gave them — or null
+   * until they have arrived. This component never builds one.
+   */
+  frames?: Record<string, string> | null;
+  sectionRef?: Ref<HTMLElement>;
 }) {
   const cams = showable(webcams, now);
   const why = absence(webcams, now);
@@ -95,6 +143,7 @@ export function WebcamPanel({
 
   return (
     <section
+      ref={sectionRef}
       data-testid="webcam-note"
       data-count={String(cams.length)}
       aria-labelledby="webcams-heading"
@@ -174,6 +223,7 @@ export function WebcamPanel({
             {cams.map((cam) => {
               const mins = reportedMinutesAgo(cam.lastFrameAt, now);
               const dir = direction(cam.title);
+              const frame = frames?.[cam.ref];
               return (
                 <li key={cam.ref} className="rounded border border-line-2 bg-surface-2 p-2">
                   <a
@@ -185,24 +235,42 @@ export function WebcamPanel({
                     {/* 🔴 The DAYLIGHT frame, always — see lib/webcams.ts.
                         The current frame after sunset is a flat grey
                         rectangle, measured; a grey rectangle reads as a
-                        broken site rather than as nightfall.
+                        broken site rather than as nightfall. The API
+                        service reads `images.daylight.preview`.
 
                         Plain <img>, no next/image: the bytes are Windy's
                         and must be served from their CDN under their
-                        terms, not copied through ours. `src` is the address
-                        Windy's API returned for this camera — never one we
-                        assembled, which their terms forbid. Width and height
-                        are the API's published preview size, so the card
-                        does not jump while it loads. */}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={cam.imageUrl as string}
-                      alt={`The most recent daylight view from the ${shortTitle(cam.title)} webcam`}
-                      width={400}
-                      height={224}
-                      loading="lazy"
-                      className="h-auto w-full rounded"
-                    />
+                        terms, not copied through ours. `src` is the
+                        address Windy's API returned for this camera,
+                        fetched when the reader arrived — never one we
+                        assembled, which their terms forbid, and never one
+                        baked into the page, which would be dead in 15
+                        minutes. Not lazy-loaded: an address is only
+                        good for 15 minutes and must be opened now.
+
+                        Width and height are the API's published preview
+                        size, so the card does not jump while it loads. */}
+                    {frame ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={frame}
+                        alt={`The most recent daylight view from the ${shortTitle(cam.title)} webcam`}
+                        width={400}
+                        height={224}
+                        decoding="async"
+                        className="h-auto w-full rounded"
+                      />
+                    ) : (
+                      // 🔴 Until a picture arrives — or if none does — the
+                      // tile says what it is, which is true in every state:
+                      // a link to the camera on Windy. No empty grey box.
+                      <span
+                        data-boilerplate="webcam-view-link"
+                        className="flex aspect-[400/224] w-full items-center justify-center rounded bg-surface px-2 text-center text-xs underline"
+                      >
+                        View this camera on {WINDY_CREDIT_PARTS.site}
+                      </span>
+                    )}
                   </a>
                   <p className="mt-2 font-semibold text-heading">
                     {shortTitle(cam.title)}

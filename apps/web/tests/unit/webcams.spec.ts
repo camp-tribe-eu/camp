@@ -13,6 +13,9 @@ import {
   WEBCAM_RADIUS_M,
   direction,
   distance,
+  framesRequestUrl,
+  parseFrames,
+  watchForFrames,
   reportedMinutesAgo,
   reportedPhrase,
   shortTitle,
@@ -21,6 +24,7 @@ import {
   type Webcam,
 } from '@/lib/webcams';
 import { renderComponent, rendersNothing } from './render-component';
+import { requestReaders, walkImportGraph } from './import-graph';
 
 // CAMP-190 — the rules that keep the pictures honest and the terms kept.
 //
@@ -36,11 +40,14 @@ const NOW = new Date('2026-10-04T19:35:00.000Z');
 const apiImage = (ref: string) =>
   `https://imgproxy.windy.com/_/preview/plain/daylight/${ref}/original.jpg?v=2`;
 
+/** The API's answer for a list of cameras, as the page receives it. */
+const framesFor = (cams: Webcam[]) =>
+  Object.fromEntries(cams.map((c) => [c.ref, apiImage(c.ref)]));
+
 const cam = (over: Partial<Webcam> = {}): Webcam => ({
   ref: '1690466401',
   title: 'Bovec: Live webcam - airport - View to Kanin',
   categories: ['mountain'],
-  imageUrl: apiImage(over.ref ?? '1690466401'),
   detailUrl: 'https://windy.com/webcams/1690466401',
   providerUrl: 'https://www.whatsupcams.com/en/webcams/Slovenia/Goriska/Bovec/live-webcam-bovec-airport',
   lastFrameAt: '2026-10-04T19:23:01.000Z',
@@ -61,7 +68,7 @@ test.describe('what the terms require of every frame we show', () => {
   // their page for that camera. A frame without it is a frame we may not
   // display, so this is a licence test, not a style one.
   test('every picture is INSIDE its link back to windy.com', () => {
-    const html = renderComponent(WebcamPanel, { webcams: REAL, now: NOW });
+    const html = renderComponent(WebcamPanel, { webcams: REAL, now: NOW, frames: framesFor(REAL) });
     expect([...html.matchAll(/<img[^>]*>/g)]).toHaveLength(3);
 
     // 🔴 CONTAINMENT, not "the href appears somewhere on the page".
@@ -82,7 +89,7 @@ test.describe('what the terms require of every frame we show', () => {
         // the same collapse that made the `webcams_title_sayable` CHECK
         // constraint inert, and a licence test that cannot fail is worth
         // exactly nothing.
-        `<a[^>]*href="${c.detailUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>(?:(?!</a>)[\\s\\S])*?<img[^>]*src="${(c.imageUrl as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`,
+        `<a[^>]*href="${c.detailUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>(?:(?!</a>)[\\s\\S])*?<img[^>]*src="${apiImage(c.ref).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`,
       );
       expect(anchor.test(html), `the frame for ${c.ref} is not inside its link`).toBe(true);
     }
@@ -122,7 +129,7 @@ test.describe('what the terms require of every frame we show', () => {
   // every <img> sits inside an <a> whose href is that camera's own
   // `detailUrl`, and none is left over once the anchors are removed.
   test('🔴 no picture is left outside a link to its own Windy page', () => {
-    const html = renderComponent(WebcamPanel, { webcams: REAL, now: NOW });
+    const html = renderComponent(WebcamPanel, { webcams: REAL, now: NOW, frames: framesFor(REAL) });
     const anchors = [...html.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)];
     const pictured = anchors.filter((a) => /<img\b/.test(a[2]));
     expect(pictured.map((a) => a[1])).toEqual(REAL.map((c) => c.detailUrl));
@@ -156,13 +163,13 @@ test.describe('the frame we choose, and why it is never the current one', () => 
   // `daylight` frame was the valley. A grey rectangle on a campsite page
   // reads as a broken site, not as nightfall — and a static page cannot
   // know whether the sun is up when somebody reads it.
-  test('🔴 the collector reads the DAYLIGHT frame the API offers, never the current one', () => {
-    const collector = readFileSync(
-      join(process.cwd(), '..', '..', 'scripts', 'windy', 'fetch-webcams.mjs'),
+  test('🔴 the service that asks Windy reads the DAYLIGHT frame, never the current one', () => {
+    const svc = readFileSync(
+      join(process.cwd(), '..', 'api', 'src', 'webcams', 'frames.ts'),
       'utf8',
     );
-    expect(collector).toMatch(/input\?\.images\?\.daylight\?\.preview/);
-    expect(collector).not.toMatch(/images\??\.current/);
+    expect(svc).toMatch(/\.images\s*\?\.daylight\?\.preview/);
+    expect(svc).not.toMatch(/images\??\.current/);
   });
 
   // 🔴 THE SENTINEL FOR "WE DO NOT BUILD THE ADDRESS". Windy's terms allow
@@ -170,10 +177,10 @@ test.describe('the frame we choose, and why it is never the current one', () => 
   // deliberately UNRELATED to the camera's id: the only way the page can
   // print it is to take it from the data it was given, and the only way
   // it can print one containing the id is to have assembled it.
-  test('🔴 the picture address is the one stored from the API, not one built from the id', () => {
+  test('🔴 the picture address is the one the API gave, not one built from the id', () => {
     const given = 'https://imgproxy.windy.com/_/preview/plain/daylight/OPAQUE-7f3a/original.jpg?v=2';
-    const c = cam({ ref: '1690466401', imageUrl: given });
-    const html = renderComponent(WebcamPanel, { webcams: [c], now: NOW });
+    const c = cam({ ref: '1690466401' });
+    const html = renderComponent(WebcamPanel, { webcams: [c], now: NOW, frames: { [c.ref]: given } });
     const srcs = [...html.matchAll(/<img[^>]*src="([^"]+)"/g)].map((m) => m[1]);
     expect(srcs).toEqual([given]);
     expect(html, 'the id leaked into an address — it is being assembled').not.toContain(
@@ -181,19 +188,158 @@ test.describe('the frame we choose, and why it is never the current one', () => 
     );
   });
 
-  test('🔴 a row with no address from the API shows no picture, and no address of ours', () => {
-    expect(usable(cam({ imageUrl: null }), NOW)).toBe(false);
-    expect(usable(cam({ imageUrl: 'http://imgproxy.windy.com/x.jpg' }), NOW)).toBe(false);
-    const html = renderComponent(WebcamPanel, { webcams: [cam({ imageUrl: null })], now: NOW });
+  // 🔴 THE PAGE CARRIES NO PICTURE ADDRESS AT ALL. Windy says an address
+  // is valid for 15 minutes; this HTML is read for days. Whatever the
+  // component is given as `webcams`, the markup it produces before the
+  // frames arrive has no <img> and no host, so nothing in the built page
+  // can be dead in a quarter of an hour.
+  test('🔴 without frames the markup holds no picture and no picture address', () => {
+    const html = renderComponent(WebcamPanel, { webcams: REAL, now: NOW });
     expect(html).not.toMatch(/<img/);
+    expect(html).not.toMatch(/imgproxy|original\.jpg|\/plain\//);
+    // …and every card still says what it is and still links to Windy.
+    expect(text(html)).toContain('View this camera on windy.com');
+    for (const c of REAL) expect(html).toContain(`href="${c.detailUrl}"`);
+    expect(html).toContain('data-count="3"');
+  });
+
+  test('🔴 a camera the API gave no frame for keeps its card, its link and no picture', () => {
+    const html = renderComponent(WebcamPanel, {
+      webcams: REAL,
+      now: NOW,
+      frames: { [REAL[0].ref]: apiImage(REAL[0].ref) },
+    });
+    expect([...html.matchAll(/<img\b/g)]).toHaveLength(1);
+    expect([...html.matchAll(/View this camera on windy\.com/g)]).toHaveLength(2);
+    for (const c of REAL) expect(html).toContain(`href="${c.detailUrl}"`);
+  });
+
+  test('the frames are read from the API answer one entry at a time', () => {
+    const asked = ['1', '2', '3'];
+    expect(parseFrames({ frames: { '1': apiImage('1'), '2': 'http://x/y.jpg', '3': 7, '9': apiImage('9') } }, asked))
+      .toEqual({ '1': apiImage('1') });
+    for (const bad of [null, undefined, 'x', 42, {}, { frames: null }, { frames: 'a' }, { frames: [] }]) {
+      expect(parseFrames(bad, asked)).toEqual({});
+    }
+    expect(framesRequestUrl(['1', '2'], 'https://api.example')).toBe(
+      'https://api.example/webcams/frames?refs=1,2',
+    );
+  });
+
+  // 🔴 THE CLIENT'S BEHAVIOUR, WITHOUT A BROWSER. The component's effect
+  // is one call to `watchForFrames`, which takes its fetch and its
+  // observer as arguments — so each promise the page makes about WHEN it
+  // asks Windy's frames, and what happens when that goes wrong, is run
+  // here against fakes.
+  test.describe('watchForFrames', () => {
+    const ok = (frames: unknown) => async () => ({ ok: true, json: async () => ({ frames }) });
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    test('asks NOTHING until the reader is near the panel, then exactly once', async () => {
+      const urls: string[] = [];
+      let near: () => void = () => {};
+      const got: Array<Record<string, string>> = [];
+      watchForFrames({} as Element, ['1', '2'], (f) => got.push(f), {
+        fetchImpl: async (u) => {
+          urls.push(u);
+          return ok({ '1': apiImage('1') })();
+        },
+        observe: (_el, onNear) => {
+          near = onNear;
+          return () => {};
+        },
+      }, 'https://api.example');
+      await flush();
+      expect(urls, 'asked before the reader got near').toEqual([]);
+      near();
+      await flush();
+      expect(urls).toEqual(['https://api.example/webcams/frames?refs=1,2']);
+      expect(got).toEqual([{ '1': apiImage('1') }]);
+    });
+
+    test('with no observer in the browser it asks at once', async () => {
+      const urls: string[] = [];
+      watchForFrames({} as Element, ['7'], () => {}, {
+        fetchImpl: async (u) => { urls.push(u); return ok({})(); },
+      }, '');
+      await flush();
+      expect(urls).toEqual(['/webcams/frames?refs=7']);
+    });
+
+    test('🔴 a refusal, an outage and a garbage answer each leave the cards, with no picture', async () => {
+      const cases: Array<[string, () => Promise<{ ok: boolean; json: () => Promise<unknown> }>]> = [
+        ['429/503', async () => ({ ok: false, json: async () => ({}) })],
+        ['network error', async () => { throw new Error('offline'); }],
+        ['not json', async () => ({ ok: true, json: async () => { throw new Error('bad json'); } })],
+        ['wrong shape', ok('nonsense')],
+      ];
+      for (const [label, fetchImpl] of cases) {
+        const got: Array<Record<string, string>> = [];
+        watchForFrames(null, ['1'], (f) => got.push(f), { fetchImpl }, '');
+        await flush();
+        expect(got, label).toEqual([{}]);
+      }
+    });
+
+    test('a reader who has left is not written to, and the observer is released', async () => {
+      let released = false;
+      let near: () => void = () => {};
+      const got: unknown[] = [];
+      const stop = watchForFrames({} as Element, ['1'], (f) => got.push(f), {
+        fetchImpl: ok({ '1': apiImage('1') }),
+        observe: (_el, onNear) => {
+          near = onNear;
+          return () => { released = true; };
+        },
+      }, '');
+      near();
+      stop();
+      await flush();
+      expect(got).toEqual([]);
+      expect(released).toBe(true);
+    });
+  });
+
+  // 🔴 The client part cannot be rendered by the unit harness (hooks), so
+  // its three promises are read from the source: it asks only through
+  // `watchForFrames`, it opens the picture at once (a lazy image
+  // fetched late is a dead address), and it never marks a request as
+  // uncacheable — which would make every page in its import graph look
+  // dynamic to the static-page guards.
+  test('the client asks through one function, loads at once, and reads no request', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src', 'components', 'webcam-panel.tsx'),
+      'utf8',
+    );
+    expect(src).toMatch(/watchForFrames\(/);
+    expect(src).not.toMatch(/loading="lazy"|loading='lazy'/);
+    expect(src).toMatch(/IntersectionObserver/);
+    expect(src).not.toMatch(/no-store|force-dynamic|headers\(\)|cookies\(\)/);
+    expect(src.match(/\bfetch\(/g)).toHaveLength(1);
+  });
+
+  // 🔴 THE PAGE STAYS STATIC. The panel now makes a request of its own —
+  // from the reader's browser, after the page has been served — and that
+  // must never turn into the page reading a request. The same walk the
+  // campsite-page guard in report-problem.spec.tsx makes, with the anchor
+  // that matters here: it has to REACH the panel and the lib, or a clean
+  // result says nothing about them.
+  test('🔴 the campsite page still reads no request, panel and frame client included', () => {
+    const SRC = join(process.cwd(), 'src');
+    const page = join(SRC, 'app', 'camping', '[country]', '[region]', '[slug]', 'page.tsx');
+    const seen = walkImportGraph(SRC, [page]);
+    const names = [...seen].map((f) => f.slice(SRC.length + 1));
+    expect(names).toContain('components/webcam-panel.tsx');
+    expect(names).toContain('lib/webcams.ts');
+    expect(requestReaders(SRC, seen)).toEqual([]);
   });
 
   // 🔴 The same sentinel, over the SOURCE. A fixture test cannot see a
   // helper that is defined and never called, or a second place that
-  // assembles the address; this reads every runtime file of the web app
-  // and the API for the CDN host, the path shape and the file name.
-  // (Migrations are excluded on purpose: the CHECK that pins the stored
-  // address to the one CDN host has to name it.)
+  // assembles the address. The path shape and the file name are what an
+  // assembled address needs; the host alone is allowed to be NAMED (the
+  // API refuses any other host), but never in a template literal or a
+  // concatenation. Migrations are excluded: they hold SQL, not a builder.
   test('🔴 no runtime source assembles a Windy image address', () => {
     const walk = (dir: string): string[] =>
       readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -202,33 +348,42 @@ test.describe('the frame we choose, and why it is never the current one', () => 
         return /\.(ts|tsx|mjs|js)$/.test(e.name) && !/\.(spec|test)\./.test(e.name) ? [full] : [];
       });
     const root = join(process.cwd(), '..', '..');
-    const files = [...walk(join(root, 'apps', 'web', 'src')), ...walk(join(root, 'apps', 'api', 'src'))];
+    const files = [
+      ...walk(join(root, 'apps', 'web', 'src')),
+      ...walk(join(root, 'apps', 'api', 'src')),
+      join(root, 'scripts', 'windy', 'fetch-webcams.mjs'),
+    ];
     expect(files.length, 'the walk found nothing — the path is wrong').toBeGreaterThan(50);
-    const offenders = files.filter((f) =>
-      /imgproxy|\/plain\/|original\.jpg/.test(readFileSync(f, 'utf8')),
-    );
+    const assembles = (t: string) =>
+      /\/plain\/|original\.jpg/.test(t) ||
+      /`[^`]*imgproxy[^`]*\$\{/.test(t) ||
+      /`[^`]*\$\{[^`]*imgproxy/.test(t) ||
+      /imgproxy[^'"`\n]*['"`]\s*\+/.test(t) ||
+      /\+\s*['"`][^'"`\n]*imgproxy/.test(t);
+    const offenders = files.filter((f) => assembles(readFileSync(f, 'utf8')));
     expect(offenders.map((f) => f.replace(root, ''))).toEqual([]);
 
-    // The collector may name the host (to refuse any other) but may not
-    // interpolate anything into an address on it.
-    const collector = readFileSync(join(root, 'scripts', 'windy', 'fetch-webcams.mjs'), 'utf8');
-    expect(collector).not.toMatch(/`[^`]*(?:imgproxy|\/plain\/|original\.jpg)[^`]*\$\{/);
+    // The detector itself can be fooled by nothing it is meant to catch.
+    for (const bad of [
+      "const u = `https://imgproxy.windy.com/_/${size}/x`;",
+      "const u = 'https://imgproxy.windy.com/_/preview/plain/daylight/' + id;",
+      "const base = 'https://imgproxy.windy.com/'; const u = base + id + '/original.jpg'",
+    ]) {
+      expect(assembles(bad), bad).toBe(true);
+    }
+    expect(assembles("export const FRAME_HOST = 'imgproxy.windy.com';")).toBe(false);
   });
 
-  // 🔴 The three places that must name ONE host: the collector's
-  // allow-list, the CSP `img-src`, and the database CHECK.
-  test('the host a stored address may have is the one the CSP allows and the table pins', () => {
+  // 🔴 The two places that must name ONE host: the API's allow-list and
+  // the CSP `img-src`. A frame on a host the CSP does not name is a
+  // picture blocked in every reader's browser while 2 000 unit tests pass.
+  test('the host a frame may have is the one the CSP allows', () => {
     const root = join(process.cwd(), '..', '..');
-    const collector = readFileSync(join(root, 'scripts', 'windy', 'fetch-webcams.mjs'), 'utf8');
-    const host = /export const IMAGE_HOST = '([^']+)'/.exec(collector)?.[1];
+    const svc = readFileSync(join(root, 'apps', 'api', 'src', 'webcams', 'frames.ts'), 'utf8');
+    const host = /export const FRAME_HOST = '([^']+)'/.exec(svc)?.[1];
     expect(host).toBe('imgproxy.windy.com');
     const csp = readFileSync(join(root, 'apps', 'web', 'scripts', 'security-headers.mjs'), 'utf8');
     expect(csp).toContain(`"img-src 'self' data: blob: https://${host}"`);
-    const mig = readFileSync(
-      join(root, 'apps', 'api', 'src', 'migrations', '1793700000000-WebcamImageUrl.ts'),
-      'utf8',
-    );
-    expect(mig).toContain(`LIKE 'https://${host}/%'`);
   });
 
   // 🔴 The API gives a timestamp for the CAMERA, not for this frame. A

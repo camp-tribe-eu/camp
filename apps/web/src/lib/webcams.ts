@@ -33,11 +33,6 @@ export interface Webcam {
   ref: string;
   title: string;
   categories: string[];
-  /**
-   * The frame's address exactly as Windy's API returned it
-   * (`images.daylight.preview`). Never built here.
-   */
-  imageUrl: string | null;
   detailUrl: string;
   providerUrl: string | null;
   lastFrameAt: string | null;
@@ -48,28 +43,110 @@ export interface Webcam {
  * 🔴 THERE IS NO `frameUrl` HERE, AND THERE MUST NOT BE ONE.
  *
  * It used to assemble the frame's CDN address out of the camera's id.
- * Windy's Webcams API terms
- * require image URLs to be used only as the API provides them
- * ("Use images only with URLs provided by the API."; and the agreement
- * lists "image URL usage other than provided by the API" among the
- * misuses that end the service). A built address is exactly that.
+ * Windy's Webcams API terms require image URLs to be used only as the API
+ * provides them ("Use images only with URLs provided by the API."; and
+ * the agreement lists "image URL usage other than provided by the API"
+ * among the misuses that end the service). A built address is exactly
+ * that.
  *
- * So the address is `images.daylight.preview` from the API's own answer,
- * read by `scripts/windy/fetch-webcams.mjs` at collection time, stored in
- * `webcams.image_url` and delivered here as `imageUrl`. The page prints
- * it as given.
+ * And the address the API provides cannot sit in the page either: Windy
+ * wrote to us (02.11.2026) that "image URLs in the Free plan are valid
+ * for only 15 minutes, so they need to be refreshed accordingly", and
+ * these pages live for days. So the page carries NO picture address at
+ * all. When the reader reaches the panel, the browser asks our API
+ * (`GET /webcams/frames`, apps/api/src/webcams/frames.ts), which asks
+ * Windy with our key and keeps the answer for ten minutes, and the frames
+ * are drawn from that answer.
  *
- * Measured 02.11.2026 on the Free tier (nearby=46.36,13.84,25, 20 of the
- * 121 cameras): all 20 addresses the API returned are character-for-
- * character what the old function built, carry only `?v=2` and no token,
- * and 40 of 40 (preview + thumbnail) still answered 200 when asked again
- * 11.2 minutes later, and 40 of 40 again 36.2 minutes later. Windy's docs say image tokens expire after 10
- * minutes on Free and the URL then returns 401; that is not what the API
- * does today, which is why this stores the address — and why the
- * collector refreshes it on every run. If Windy
- * ever starts signing these, the pictures break and the captions beside
- * them still read true, as they always did.
+ * Measured the same day, and not relied on: the addresses carry no token
+ * and 40 of 40 still answered 200 after 36 minutes. That is behaviour
+ * Windy has not promised and may change without notice; a rule they
+ * wrote outranks a behaviour we saw.
+ *
+ * 🔴 THE PICTURE IS ALWAYS OPTIONAL. If the request fails, is refused or
+ * answers without a camera, the card keeps its caption, its distance and
+ * its link to the camera's page on Windy, and says so. Nothing on this
+ * page may depend on the picture arriving.
+ *
+ * 🔴 TWO MORE FACTS FROM THAT LETTER THAT BIND THE PRODUCT.
+ *
+ *   · Donations are allowed "provided that access to the webcams remains
+ *     freely available to all visitors". The webcams may never go behind
+ *     a payment or a registration.
+ *   · The January 2021 statement that the API was for testing only "is
+ *     outdated in the context of our current Webcams API offering".
  */
+
+/**
+ * The frames the API answered with, keyed by camera ref — or `{}`.
+ *
+ * Only refs we asked about and only `https:` strings are taken; anything
+ * else is dropped, one entry at a time, so one bad value costs one
+ * picture and never the panel.
+ */
+export function parseFrames(body: unknown, asked: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const frames = (body as { frames?: unknown } | null)?.frames;
+  if (!frames || typeof frames !== 'object') return out;
+  for (const ref of asked) {
+    const u = (frames as Record<string, unknown>)[ref];
+    if (typeof u === 'string' && u.startsWith('https://')) out[ref] = u;
+  }
+  return out;
+}
+
+/** The API origin, from the same variable the account and report code read. */
+export const WEBCAM_FRAMES_API = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
+
+export function framesRequestUrl(refs: string[], base: string = WEBCAM_FRAMES_API): string {
+  return `${base}/webcams/frames?refs=${refs.map(encodeURIComponent).join(',')}`;
+}
+
+export interface FrameWatchDeps {
+  fetchImpl: (url: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }>;
+  /** Absent where the browser has none: then the frames are asked for at once. */
+  observe?: (el: Element, onNear: () => void) => () => void;
+}
+
+/**
+ * Ask for the frames when the reader gets near the panel, once, and hand
+ * the answer to `onFrames` — `{}` when the request failed, was refused or
+ * came back without a camera. Returns the cleanup.
+ *
+ * 🔴 Out of the component so that it can be tested without a browser:
+ * the unit harness cannot run hooks. The component's effect is one call
+ * to this and nothing else.
+ *
+ * `onFrames` is never called after the cleanup has run, so a reader who
+ * has navigated away does not set state on a dead component.
+ */
+export function watchForFrames(
+  el: Element | null,
+  asked: string[],
+  onFrames: (frames: Record<string, string>) => void,
+  deps: FrameWatchDeps,
+  base: string = WEBCAM_FRAMES_API,
+): () => void {
+  let cancelled = false;
+  let stopObserving: (() => void) | null = null;
+  const go = () => {
+    deps
+      .fetchImpl(framesRequestUrl(asked, base))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (!cancelled) onFrames(parseFrames(body, asked));
+      })
+      .catch(() => {
+        if (!cancelled) onFrames({});
+      });
+  };
+  if (!el || !deps.observe) go();
+  else stopObserving = deps.observe(el, go);
+  return () => {
+    cancelled = true;
+    stopObserving?.();
+  };
+}
 
 /**
  * The credit Windy's terms require, word for word — and it is TWO links,
@@ -216,10 +293,6 @@ export type WebcamVerdict = 'ok' | 'stale' | 'unusable';
  */
 export function verdict(cam: Webcam, now: Date): WebcamVerdict {
   if (!cam.detailUrl?.startsWith('https://')) return 'unusable';
-  // 🔴 No address from the API means no picture, and we do not make one
-  // up. A row imported before the column existed lands here until the
-  // next collection run replaces it.
-  if (typeof cam.imageUrl !== 'string' || !cam.imageUrl.startsWith('https://')) return 'unusable';
   if (typeof cam.title !== 'string' || !cam.title) return 'unusable';
   if (!Number.isFinite(cam.metres) || cam.metres < 0) return 'unusable';
   const mins = reportedMinutesAgo(cam.lastFrameAt, now);

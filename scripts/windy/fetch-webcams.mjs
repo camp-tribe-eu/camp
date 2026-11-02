@@ -19,18 +19,10 @@
 //     65 435 campsites; the per-campsite walk is 65 435 requests and is
 //     exactly the "continuous scanning" they name. `regionQueries`
 //     refuses to build more than one query per region.
-//   · No picture is ever written. We store ONE ADDRESS per camera — the
-//     `images.daylight.preview` the API returned, untouched — and a
-//     reader's browser fetches the frame from Windy's CDN at the moment
-//     they look, which is the only form of "showing" the terms permit.
-//
-// 🔴 THE THIRD THING THE TERMS FORBID, AND THIS FILE IS WHERE IT IS KEPT.
-//
-//   "image URL usage other than provided by the API"
-//
-// The page used to BUILD the address from the camera id. It now shows the
-// address stored here, and `readWebcam` refuses a row whose API answer
-// carries none — it does not make one up.
+//   · `IMAGE_FIELDS` is not requested and no image is ever written. The
+//     table has no column for one. A reader's browser fetches the frame
+//     from Windy's CDN at the moment they look, which is the only form
+//     of "showing" the terms permit.
 //
 // 🔴 AND THE KEY NEVER LEAVES THIS PROCESS. It is read from the
 // environment, sent in a header, and never logged — `safeUrl` strips it
@@ -47,15 +39,6 @@ const ROOT = join(HERE, '..', '..');
 
 export const API = 'https://api.windy.com/webcams/api/v3/webcams';
 export const PROVIDER = 'windy';
-
-/**
- * The only host a frame may come from: the one the page's CSP `img-src`
- * allows (apps/web/scripts/security-headers.mjs) and the one the
- * `webcams_image_url_host` CHECK pins. A test ties all three together, so
- * a CDN move on their side fails loudly here instead of blanking every
- * picture in every reader's browser.
- */
-export const IMAGE_HOST = 'imgproxy.windy.com';
 
 /**
  * 🔴 Not the canonical list. `RESERVED_WORDS` in apps/web/src/lib/cems.ts
@@ -229,37 +212,14 @@ export function listUrl(nearby, offset = 0) {
   if (!Number.isInteger(offset) || offset < 0 || offset > MAX_OFFSET) {
     throw new Error(`offset must be an integer in 0..${MAX_OFFSET}, got ${offset}`);
   }
-  // 🔴 `images` IS included, and only so that we can keep the ADDRESS
-  // the API gives for the daylight preview — see `readWebcam`. The terms
-  // require image URLs to come from the API, so asking is the lawful way
-  // to have one; nothing but that one string is ever stored.
+  // 🔴 `images` is NOT among the included fields. We do not want them,
+  // we must not store them, and a field we never ask for is one nobody
+  // can accidentally persist.
   return (
     `${API}?limit=${PAGE_LIMIT}&offset=${offset}` +
     `&nearby=${encodeURIComponent(nearby)}` +
-    `&include=${encodeURIComponent('location,urls,categories,images')}`
+    `&include=${encodeURIComponent('location,urls,categories')}`
   );
-}
-
-/**
- * The daylight preview address exactly as the API returned it, or null.
- *
- * 🔴 NOT BUILT, NOT NORMALISED, NOT REWRITTEN. The string is accepted or
- * refused whole: https, our one CDN host, no credentials. Anything else
- * is a row we cannot show, and showing it from a made-up address is the
- * misuse this exists to end.
- */
-export function readImageUrl(input) {
-  const u = input?.images?.daylight?.preview;
-  if (typeof u !== 'string') return null;
-  let parsed;
-  try {
-    parsed = new URL(u);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== 'https:' || parsed.hostname !== IMAGE_HOST) return null;
-  if (parsed.username || parsed.password) return null;
-  return u;
 }
 
 /**
@@ -296,10 +256,6 @@ export function readWebcam(input) {
 
   const detail = input.urls?.detail;
   if (typeof detail !== 'string' || !detail.startsWith('https://')) return null;
-  // 🔴 A camera the API gave no usable frame address for is DROPPED, not
-  // stored with a blank and not given an address of ours.
-  const imageUrl = readImageUrl(input);
-  if (!imageUrl) return null;
   const provider = input.urls?.provider;
   const providerUrl =
     typeof provider === 'string' && provider.startsWith('https://') ? provider : null;
@@ -323,7 +279,6 @@ export function readWebcam(input) {
     categories: categories.filter((c) => KEEP_CATEGORIES.has(c)),
     lat,
     lon,
-    imageUrl,
     detailUrl: detail,
     providerUrl,
     lastFrameAt,
@@ -410,10 +365,9 @@ export async function selfTest() {
   ok('listUrl refuses an offset past 1000, written out', threw(() => listUrl('46,13,25', 1001), /offset must be/));
   ok('listUrl refuses a malformed nearby', threw(() => listUrl('46.33,13.55'), /malformed nearby/));
   ok('…refuses an offset past the tier ceiling', threw(() => listUrl('46,13,25', MAX_OFFSET + 1), /offset must be/));
-  // 🔴 We DO ask for `images`: the terms allow an image URL only as the
-  // API provided it, so the API's own address is the only lawful source.
-  // What we must never do is store anything but that one string.
-  ok('…asks for the images field, so the address comes from the API', /include=[^&]*images/.test(decodeURIComponent(listUrl('46,13,25'))));
+  // 🔴 The field we must never request, because a field never asked for
+  // is one nobody can accidentally store.
+  ok('…never asks for images', !listUrl('46,13,25').includes('images'));
 
   // --- one request per region, made mechanical
   const region = (slug) => ({ country: 'SI', slug, lat: 46.3, lon: 13.5, minLat: 46, minLon: 13, maxLat: 46.6, maxLon: 14 });
@@ -446,27 +400,10 @@ export async function selfTest() {
     webcamId: 1, title: 'Bovec', status: 'active',
     location: { latitude: 46.33, longitude: 13.55, country_code: 'si' },
     urls: { detail: 'https://windy.com/webcams/1', provider: 'https://skaping.com/x' },
-    // 🔴 An address that does NOT match the id on purpose: the row must
-    // carry what the API said, never what the id would build.
-    images: { daylight: { preview: 'https://imgproxy.windy.com/_/preview/plain/daylight/OPAQUE-7f3a/original.jpg?v=2' } },
     categories: [{ id: 'mountain' }], lastUpdatedOn: '2026-10-04T18:10:57.000Z',
   };
   const good = readWebcam(full);
   ok('a complete camera is read', good?.ref === '1' && good.country === 'SI');
-  ok(
-    '🔴 the stored frame address is the API\'s, verbatim — not built from the id',
-    good?.imageUrl === full.images.daylight.preview && !good.imageUrl.includes('/1/original'),
-    String(good?.imageUrl),
-  );
-  ok(
-    '🔴 the DAYLIGHT frame is the one kept, never the current one',
-    readWebcam({ ...full, images: { current: { preview: 'https://imgproxy.windy.com/_/preview/plain/current/1/original.jpg?v=2' }, daylight: full.images.daylight } })?.imageUrl === full.images.daylight.preview
-      && readWebcam({ ...full, images: { current: full.images.daylight } }) === null,
-  );
-  ok('🔴 a camera with no frame address from the API is DROPPED, not given one of ours', readWebcam({ ...full, images: undefined }) === null && readWebcam({ ...full, images: { daylight: {} } }) === null);
-  ok('…and so is one whose address is not on our one CDN host', readWebcam({ ...full, images: { daylight: { preview: 'https://evil.example/x.jpg' } } }) === null);
-  ok('…or not https, or carrying credentials', readWebcam({ ...full, images: { daylight: { preview: 'http://imgproxy.windy.com/x.jpg' } } }) === null && readWebcam({ ...full, images: { daylight: { preview: 'https://u:p@imgproxy.windy.com/x.jpg' } } }) === null);
-  ok('…or a host that merely ENDS like ours', readWebcam({ ...full, images: { daylight: { preview: 'https://imgproxy.windy.com.evil.example/x.jpg' } } }) === null);
   ok('…and its country is upper-cased to ISO', good?.country === 'SI');
   ok('🔴 a camera with no link back is DROPPED, not blanked', readWebcam({ ...full, urls: { provider: 'https://x' } }) === null);
   ok('…and so is one whose link is not https', readWebcam({ ...full, urls: { detail: 'http://windy.com/1' } }) === null);
@@ -486,12 +423,6 @@ export async function selfTest() {
   ok('…and a useful one among useless ones is kept', readWebcam({ ...full, categories: [{ id: 'airport' }, { id: 'beach' }] })?.categories.join() === 'beach');
   ok('a missing provider url is null, not a guess', readWebcam({ ...full, urls: { detail: full.urls.detail } })?.providerUrl === null);
   ok('an unparseable timestamp is null, not now()', readWebcam({ ...full, lastUpdatedOn: 'soon' })?.lastFrameAt === null);
-
-  // --- the INSERT: ten columns, ten values, the address in the right one
-  const sql = upsertSql([good, { ...good, ref: '2' }]);
-  ok('the upsert names image_url and refreshes it on conflict', /image_url[\s\S]*VALUES/.test(sql.text) && /image_url = EXCLUDED\.image_url/.test(sql.text));
-  ok('…with ten row parameters plus one timestamp each', sql.params.length === 2 * 10 + 2, String(sql.params.length));
-  ok('…and the address lands where the column list puts it (10th of row one)', sql.params[9] === good.imageUrl && sql.params[19] === good.imageUrl);
 
   // --- pacing, which the first real dry run proved was missing
   let slept = [];
@@ -591,14 +522,14 @@ if (invokedDirectly && process.argv.includes('--self-test')) {
  */
 export function upsertSql(rows) {
   if (rows.length === 0) return null;
-  // 🔴 Ten placeholders per row for the row's own columns, then one
+  // 🔴 Nine placeholders per row for the row's own columns, then one
   // more each for `last_frame_at` in a second block at the end.
   //
   // Two blocks rather than ten-per-row because the timestamps are
   // appended as a group below; keeping the arithmetic in one place is
   // what stops a parameter landing in the wrong column, which Postgres
   // would accept wherever the types happen to agree.
-  const PER_ROW = 10;
+  const PER_ROW = 9;
   const tsBase = rows.length * PER_ROW;
   const values = rows
     .map((_r, i) => {
@@ -606,17 +537,17 @@ export function upsertSql(rows) {
       return (
         `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5}::text[],` +
         `ST_SetSRID(ST_MakePoint($${b + 6},$${b + 7}),4326)::geography,` +
-        `$${b + 8},$${b + 9},$${b + 10},$${tsBase + i + 1},now())`
+        `$${b + 8},$${b + 9},$${tsBase + i + 1},now())`
       );
     })
     .join(',');
   const params = rows.flatMap((r) => [
-    r.provider, r.ref, r.title, r.country, r.categories, r.lon, r.lat, r.detailUrl, r.providerUrl, r.imageUrl,
+    r.provider, r.ref, r.title, r.country, r.categories, r.lon, r.lat, r.detailUrl, r.providerUrl,
   ]);
   params.push(...rows.map((r) => r.lastFrameAt));
   return {
     text:
-      `INSERT INTO webcams (provider, ref, title, country, categories, location, detail_url, provider_url, image_url, last_frame_at, fetched_at)
+      `INSERT INTO webcams (provider, ref, title, country, categories, location, detail_url, provider_url, last_frame_at, fetched_at)
        VALUES ${values}
        ON CONFLICT (provider, ref) DO UPDATE SET
          title = EXCLUDED.title,
@@ -625,7 +556,6 @@ export function upsertSql(rows) {
          location = EXCLUDED.location,
          detail_url = EXCLUDED.detail_url,
          provider_url = EXCLUDED.provider_url,
-         image_url = EXCLUDED.image_url,
          last_frame_at = EXCLUDED.last_frame_at,
          fetched_at = now()`,
     params,

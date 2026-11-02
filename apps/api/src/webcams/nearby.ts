@@ -66,7 +66,6 @@ export function nearbyWebcamsSql(
         SELECT c.ref,
                c.title,
                c.categories,
-               c.image_url    AS "imageUrl",
                c.detail_url   AS "detailUrl",
                c.provider_url AS "providerUrl",
                c.last_frame_at AS "lastFrameAt",
@@ -79,16 +78,11 @@ export function nearbyWebcamsSql(
   )`;
 }
 
-/**
- * One camera as the page receives it. No picture, by construction: the
- * address of the frame is the one Windy's API gave the collector, stored
- * untouched. `null` is a row imported before the column existed.
- */
+/** One camera as the page receives it. No image, by construction. */
 export interface WebcamView {
   ref: string;
   title: string;
   categories: string[];
-  imageUrl: string | null;
   detailUrl: string;
   providerUrl: string | null;
   /** When the camera last reported, per the catalogue at our last read. */

@@ -56,7 +56,6 @@ const SET_A: Webcam[] = [
     ref: '1690466401',
     title: 'Bovec: Live webcam - airport - View to Kanin',
     categories: ['mountain'],
-    imageUrl: 'https://imgproxy.windy.com/_/preview/plain/daylight/1690466401/original.jpg?v=2',
     detailUrl: 'https://windy.com/webcams/1690466401',
     providerUrl: 'https://www.whatsupcams.com/en/webcams/Slovenia/Goriska/Bovec/live-webcam-bovec-airport',
     lastFrameAt: '2026-10-04T19:23:01.000Z',
@@ -66,7 +65,6 @@ const SET_A: Webcam[] = [
     ref: '1689851105',
     title: 'Bovec',
     categories: ['mountain'],
-    imageUrl: 'https://imgproxy.windy.com/_/preview/plain/daylight/1689851105/original.jpg?v=2',
     detailUrl: 'https://windy.com/webcams/1689851105',
     providerUrl: null,
     lastFrameAt: '2026-10-04T18:10:57.000Z',
@@ -79,7 +77,6 @@ const SET_B: Webcam[] = [
     ref: '1726103455',
     title: "Saint-Medard-d'Aunis › West: La Plaine",
     categories: ['landscape'],
-    imageUrl: 'https://imgproxy.windy.com/_/preview/plain/daylight/1726103455/original.jpg?v=2',
     detailUrl: 'https://windy.com/webcams/1726103455',
     providerUrl: 'https://example-operator.fr/cam',
     lastFrameAt: '2026-10-04T19:31:40.000Z',
@@ -89,7 +86,6 @@ const SET_B: Webcam[] = [
     ref: '1611140235',
     title: 'Zadar: harbour',
     categories: ['harbor'],
-    imageUrl: 'https://imgproxy.windy.com/_/preview/plain/daylight/1611140235/original.jpg?v=2',
     detailUrl: 'https://windy.com/webcams/1611140235',
     providerUrl: null,
     lastFrameAt: '2026-10-04T17:52:12.000Z',
@@ -134,6 +130,7 @@ test.describe('what `data-boilerplate` is allowed to hide', () => {
       'webcam-none',
       'webcam-operator',
       'webcam-stale',
+      'webcam-view-link',
     ]);
 
     for (const [name, variants] of texts) {
@@ -178,6 +175,7 @@ test.describe('what `data-boilerplate` is allowed to hide', () => {
       'the most recent daylight view',
       'webcams provided by windy.com',
       'add a webcam',
+      'view this camera on windy.com',
       'own site',
     ]) {
       expect(stripped, `"${phrase}" is still counted against every pair`).not.toContain(phrase);
