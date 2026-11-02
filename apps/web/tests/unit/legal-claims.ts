@@ -187,3 +187,26 @@ export function apiRoutes(): ApiRoute[] {
   walk(API_SRC);
   return out;
 }
+
+/**
+ * Екранувати рядок для вставки в `RegExp` — УСІ метасимволи й зворотна коса,
+ * не лише перший `$`.
+ *
+ * 🔴 Перша редакція сторожа кукі робила `ident.replace('$', '\\$')`: рядковий
+ * шаблон заміняє лише ПЕРШЕ входження, і CodeQL назвав це
+ * `js/incomplete-sanitization` (high, алерт #42). Для сторожа це не діра в
+ * продукті, а діра в ньому самому: ідентифікатор ключа з двома `$` (`A$B$`)
+ * лишав другий `$` якорем кінця рядка, регулярка не знаходила оголошення, і
+ * сторож падав «ключ не розкривається» — тобто червонів НЕ ЗА ТЕ. Тест на цю
+ * функцію — `legal-cookies-claims.spec.ts`.
+ */
+export const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Значення `const NAME = '…'` у коді, або `null`, якщо такого оголошення немає.
+ * Ідентифікатор шукається цілим словом, а не підрядком.
+ */
+export function constString(code: string, ident: string): string | null {
+  const re = new RegExp(`(?<![\\w$])const\\s+${escapeRegExp(ident)}(?![\\w$])\\s*(?::[^=]+)?=\\s*['"]([^'"]+)['"]`);
+  return re.exec(code)?.[1] ?? null;
+}

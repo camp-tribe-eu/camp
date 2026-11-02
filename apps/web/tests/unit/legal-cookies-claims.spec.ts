@@ -8,6 +8,8 @@ import { RETURN_TTL_MS } from '@/lib/return-path';
 import {
   API_SRC,
   WEB_SRC,
+  constString,
+  escapeRegExp,
   hrefsIn,
   importGraph,
   pageRoutes,
@@ -46,14 +48,14 @@ function storageWrites(): Write[] {
       if (/^['"]/.test(arg)) {
         key = arg.slice(1, -1);
       } else {
-        const decl = new RegExp(`\\bconst\\s+${arg.replace('$', '\\$')}\\s*(?::[^=]+)?=\\s*['"]([^'"]+)['"]`).exec(code);
-        if (!decl) {
+        const value = constString(code, arg);
+        if (value === null) {
           throw new Error(
             `${basename(file)}: .setItem(${arg}) — ключ не розкривається в літерал у цьому файлі; ` +
               'сторож не вміє його назвати, а сторінка кукі мусить.',
           );
         }
-        key = decl[1];
+        key = value;
       }
       const local = /\bwindow\.localStorage\b/.test(code);
       const session = /\bwindow\.sessionStorage\b/.test(code);
@@ -100,6 +102,27 @@ function otherStores(): string[] {
 const namedOnPage = (): string[] => [
   ...new Set(pageText('cookies').match(/\bcamptribe\.(?!eu\b)[a-z]+\b/g) ?? []),
 ];
+
+test.describe('розкриття ключа в літерал (хелпер сторожа)', () => {
+  // 🔴 Окремий тест на САМ хелпер: CodeQL (#42, js/incomplete-sanitization)
+  // знайшов, що ідентифікатор з кількома `$` екранувався лише раз. Сторож, який
+  // не вміє прочитати ключ, червоніє НЕ ЗА ТЕ — а мутація «ключ з двома $» нижче
+  // тримає саме це.
+  test('🔴 ідентифікатор із кількома `$` та метасимволами знаходить своє оголошення', () => {
+    const code = "const A$B$ = 'camptribe.dollars';\nconst a_b = 'camptribe.plain';\nconst NOT_A$B$ = 'camptribe.other';";
+    expect(constString(code, 'A$B$')).toBe('camptribe.dollars');
+    expect(constString(code, 'a_b')).toBe('camptribe.plain');
+    // Ціле слово, не підрядок: `B$` не вгадує `A$B$` чи `NOT_A$B$`.
+    expect(constString(code, 'B$')).toBeNull();
+    expect(constString(code, 'MISSING')).toBeNull();
+  });
+
+  test('🔴 escapeRegExp екранує кожен метасимвіл і зворотну косу, не лише перший', () => {
+    const all = '.*+?^${}()|[]\\';
+    expect(new RegExp(`^${escapeRegExp(all + all)}$`).test(all + all)).toBe(true);
+    expect(escapeRegExp('$$')).toBe('\\$\\$');
+  });
+});
 
 test.describe('кукі: перелік на сторінці = перелік у коді', () => {
   test('🔴 ключ у коді, якого сторінка не називає, і ключ на сторінці, якого код не пише — обидва червоніють', () => {
