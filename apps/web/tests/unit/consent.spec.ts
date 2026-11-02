@@ -7,6 +7,7 @@ import {
   readConsent,
   writeConsent,
 } from '../../src/lib/consent';
+import { legalPage } from '../../src/lib/legal';
 
 // CAMP-56 — the consent decision, checked without a browser.
 //
@@ -131,7 +132,16 @@ test.describe('what is written down', () => {
 
   test('the version asked about is the cookie policy’s own version', () => {
     // Bumping the policy must re-ask; this is the link that makes it so.
-    expect(consentVersion()).toBe('1.0');
+    //
+    // 🔴 Compared with the REGISTRY, not with a literal. This line said
+    // `toBe('1.0')` and went red the day the cookie policy moved to 1.1 —
+    // for the right reason (a bump is meant to re-ask) read the wrong way
+    // round: a test that pins the number fails on every legitimate bump and
+    // would stay green if `consentVersion` were hard-coded to the same
+    // literal. Asked of the registry, it fails only if the link breaks.
+    const registered = legalPage('cookies')?.version;
+    expect(registered, 'the registry has no cookie policy').toBeTruthy();
+    expect(consentVersion()).toBe(registered);
   });
 });
 
