@@ -115,14 +115,46 @@ export function codesSelect(schemes = SCHEMES_USED, limitM = SNAP_LIMIT_M, landM
            max(p.snap_m) FILTER (WHERE p.snapped) AS snap_m,
            count(DISTINCT p.code) FILTER (WHERE NOT p.snapped) AS contained,
            coalesce(array_agg(DISTINCT p.code) FILTER (WHERE p.snapped), '{}') AS snapped_codes,
-           count(DISTINCT p.code) FILTER (WHERE p.sea) AS sea_contained
+           count(DISTINCT p.code) FILTER (WHERE p.sea) AS sea_contained,
+           min(p.land_share) FILTER (WHERE p.sea) AS min_sea_share
       FROM camping_spots s
       LEFT JOIN (VALUES ${pairsValues(schemes)}) AS u(country, scheme)
              ON u.country = s.country
       LEFT JOIN LATERAL (
         -- Containment: every zone of this scheme the point stands in.
+        --
+        -- 🔴 A SEA ZONE IS KEPT HERE ON PURPOSE. Do not "fix" it, and do not
+        -- reopen the question: it was asked, measured and decided
+        -- (02.11.2026, owner's coordinator).
+        --
+        -- The rule is not about the zone's kind, it is about WHO MADE THE
+        -- LINK. A campsite INSIDE a polygon was placed there by the weather
+        -- service that drew it — we read, we invented nothing. A campsite
+        -- OUTSIDE every polygon and "pulled" to the nearest one was linked by
+        -- US, and for Latvia that meant open sea (see SNAP below, which
+        -- refuses sea). Read someone else's geometry: trust it. Invent the
+        -- link yourself: forbid it.
+        --
+        -- WHY THE LAND SHARE CANNOT TELL A SHORE STRIP FROM OPEN SEA, and why
+        -- the 1 106 campsites that stand in a sea zone are right to:
+        --   · the strips campsites stand in are as watery as the open sea:
+        --     BE801 "Coastal zone" 0.076, PL "Strefa brzegowa" 0.022, DK
+        --     "Skagerraks kysten" 0.018 — against "Gulf of Finland" 0.064.
+        --     No threshold separates them; 1 005 of the 1 106 are below 0.1.
+        --   · 563 of those 1 005 stand on land by the layer, ALL within
+        --     2 891 m of the coast, none farther than 5 km, median 606 m:
+        --     every one is on the coast.
+        --   · the other 442 are "at sea" by the layer only because
+        --     ne_admin1 is 1:10m and has no small islands (Sea of
+        --     Archipelago, Sydfynske Øhav, Smålandsfarvandet): 48 are
+        --     5–19 km from its land. A campsite on an island in a bay is
+        --     the one that needs the marine warning most.
+        -- Measured 02.11.2026 on a copy of the dev database (57 128 live
+        -- campsites). The run prints the 1 106 / 1 005 every time
+        -- (seaHeldSql): if it jumps, the source moved its geometry.
         SELECT z.scheme || ':' || z.code AS code, false AS snapped, NULL::float8 AS snap_m,
-               (z.scheme = 'EMMA_ID' AND z.land_share < ${landMin}) AS sea
+               (z.scheme = 'EMMA_ID' AND z.land_share < ${landMin}) AS sea,
+               z.land_share AS land_share
           FROM ${STAGING} z
          WHERE z.scheme = u.scheme AND ST_Contains(z.geom, s.location)
         UNION ALL
@@ -134,7 +166,7 @@ export function codesSelect(schemes = SCHEMES_USED, limitM = SNAP_LIMIT_M, landM
         -- narrows to eight candidates by bounding box and KNN, and only
         -- those are measured on the sphere. The code breaks a tie so the
         -- winner cannot move between runs.
-        SELECT n.scheme || ':' || n.code, true, n.dist, false
+        SELECT n.scheme || ':' || n.code, true, n.dist, false, NULL::float8
           FROM (SELECT 1 WHERE NOT EXISTS (
                   SELECT 1 FROM ${STAGING} c
                    WHERE c.scheme = u.scheme AND ST_Contains(c.geom, s.location))) AS g,
@@ -213,7 +245,8 @@ export function seaHeldSql(schemes = SCHEMES_USED) {
     SELECT count(*) FILTER (WHERE f.sea_contained > 0) AS holding_sea_zone,
            count(*) FILTER (WHERE f.sea_contained > 0 AND EXISTS (
              SELECT 1 FROM ${LAND_LAYER} n WHERE ST_Contains(n.geom, s.location))) AS of_them_on_land,
-           count(*) FILTER (WHERE f.sea_contained > 0 AND f.contained = f.sea_contained) AS holding_only_sea
+           count(*) FILTER (WHERE f.sea_contained > 0 AND f.contained = f.sea_contained) AS holding_only_sea,
+           count(*) FILTER (WHERE f.min_sea_share < 0.1) AS thinnest_under_a_tenth
       FROM found f JOIN camping_spots s ON s.id = f.id`;
 }
 
@@ -617,10 +650,13 @@ async function run({ apply }) {
         continue;
       }
       if (step.name === 'sea held by containment') {
-        const [held, onLand, onlySea] = psql(step.sql).split('|').map(Number);
+        const [held, onLand, onlySea, underTenth] = psql(step.sql).split('|').map(Number);
+        // Залишено навмисно, див. коментар у `codesSelect`; число друкується, бо
+        // якщо воно стрибне — джерело змінило геометрію.
         console.log(
-          `тримають морську зону за ВМІСТОМ (так було завжди): ${held} кемпінгів, з них ${onLand} стоять на суходолі ` +
-            `за шаром, ${onlySea} не мають жодної іншої зони`,
+          `тримають морську зону за ВМІСТОМ (так було завжди, залишено навмисно): ${held} кемпінгів ` +
+            `(02.11.2026: 1106), із них у зоні з часткою суходолу нижче 0.1 — ${underTenth} (1005); ` +
+            `${onLand} стоять на суходолі за шаром, ${onlySea} не мають жодної іншої зони`,
         );
         continue;
       }
@@ -1378,8 +1414,8 @@ async function selfTestDb() {
     check(kinds === 0 && judgeSnapKinds(kinds).ok, 'the data guard counts no snapped sea code');
     check(judgeSnapKinds(1).ok === false && /SEA zones/.test(judgeSnapKinds(1).why), 'and fails, naming the harm, on one');
     const held = q(url, seaHeldSql(schemes)).split('|').map(Number);
-    check(held[0] === 1 && held[1] === 0 && held[2] === 1,
-      `the sea-hold line counts the one campsite inside a sea polygon, off the land layer, with no other zone — got ${held}`);
+    check(held[0] === 1 && held[1] === 0 && held[2] === 1 && held[3] === 1,
+      `the sea-hold line counts the one campsite inside a sea polygon, off the land layer, with no other zone, in a zone under a tenth — got ${held}`);
 
     // The summary the run prints, on the same rows.
     const d = q(url, snapDistancesSql(schemes)).split('|').map(Number);

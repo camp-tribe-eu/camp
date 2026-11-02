@@ -331,6 +331,17 @@ export const LAND_LAYER = 'ne_admin1';
  * campsites by CONTAINMENT, and that is how it has been since the first
  * run (1 143 campsites sit inside a sea polygon). This constant is about
  * what a campsite may be PULLED to, and about countries with no land zone.
+ *
+ * 🔴 AND THAT IS THE WHOLE RULE: containment is trusted, a link we invent is
+ * forbidden. Measured 02.11.2026 (copy of dev, 57 128 live campsites): 1 106
+ * stand inside a sea zone, 1 005 of them in one under 0.1 land — and the
+ * threshold cannot be moved to separate "shore strip" from "open sea",
+ * because BE801 "Coastal zone" is 0.076, PL "Strefa brzegowa" 0.022 and DK
+ * "Skagerraks kysten" 0.018, all BELOW "Gulf of Finland" 0.064. What the
+ * numbers do show: the 563 that stand on land are all within 2 891 m of the
+ * coast (none past 5 km, median 606 m), and the 442 "at sea" are small
+ * islands missing from the 1:10m layer. See `codesSelect` for the reasoning
+ * in full; do not reopen it without a number that is not in this paragraph.
  */
 export const LAND_SHARE_MIN = 0.5;
 
