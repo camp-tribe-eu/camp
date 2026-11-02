@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import ProviderCatalogue from "@/components/provider-catalogue";
+import { collectionGraph, jsonLdProps } from "@/lib/jsonld";
 import { listProviders } from "@/lib/rental-providers";
 
 // CAMP-427 — сторінка вибору провайдера.
@@ -17,6 +18,24 @@ export default async function ProvidersPage() {
   const all = await listProviders();
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
+      {/* 🔴 Структуровані дані на КОЖНІЙ сторінці — вимога сторожа
+          `check-structured-data`, і він спіймав цю сторінку порожньою.
+          CollectionPage зі списком компаній описує рівно те, чим сторінка
+          є: перелік, а не стаття. */}
+      <script
+        {...jsonLdProps(
+          collectionGraph({
+            name: "Компанії прокату кемперів у ЄС",
+            description:
+              "Компанії прокату кемперів у Європейському Союзі з переліком сервісів і парку.",
+            path: "/camper-rental/providers",
+            items: all.map((p) => ({
+              name: p.name,
+              path: `/camper-rental/providers/${p.slug}`,
+            })),
+          }),
+        )}
+      />
       <h1 className="text-3xl font-bold">Компанії прокату кемперів</h1>
       <p className="mt-3 max-w-2xl">
         Числа депо й парку — <strong>заявлені самими компаніями</strong>, ми їх

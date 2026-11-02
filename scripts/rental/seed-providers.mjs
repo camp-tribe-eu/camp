@@ -17,9 +17,9 @@
 // не тихе ігнорування поля. База теж не дасть їх покласти, але сівалка
 // мусить сказати ЧОМУ, а не впасти на обмеженні.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const SEED = join(ROOT, 'apps', 'api', 'src', 'rental', 'providers.seed.json');
@@ -206,7 +206,17 @@ function selfTest() {
   console.log(`\n✓ seed-providers self-test: ${cases.length} cases`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// 🔴 НІЧОГО НЕ РОБИТЬ ПРИ ІМПОРТІ. Цей файл видаляє й пише рядки; якби
+// `main()` стояв на рівні модуля, тест, який імпортує `faults`, сіяв би
+// базу. Сторож `check-script-entrypoints.mjs` спіймав це на мені:
+// «A file that deletes rows does not get to rely on nobody importing it».
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+
+if (invokedDirectly) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
