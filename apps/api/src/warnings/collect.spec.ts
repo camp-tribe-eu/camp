@@ -54,7 +54,9 @@ describe('CAMP-302: оберт оновлювача', () => {
         warningsFrom: (_p, country) => ({
           kept: [block(country)],
           unbound:
-            country === 'france' ? [{ code: 'FR999', why: 'no FR zone is named Nowhere' }] : undefined,
+            country === 'france'
+              ? [{ code: 'FR999', why: 'no FR zone is named Nowhere' }]
+              : undefined,
         }),
       }),
     );
@@ -65,7 +67,7 @@ describe('CAMP-302: оберт оновлювача', () => {
     expect(r.snapshot.warnings).toHaveLength(3);
   });
 
-  it('жодного незв\'язаного коду — порожній перелік, а не відсутній', async () => {
+  it("жодного незв'язаного коду — порожній перелік, а не відсутній", async () => {
     const r = await collect(deps());
     expect(r.unbound).toEqual([]);
   });

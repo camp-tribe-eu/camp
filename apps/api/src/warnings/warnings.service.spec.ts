@@ -49,14 +49,19 @@ const make = (
 
 describe('NUTS-код без зони гучний', () => {
   it('🔴 незвʼязаний код іде в `error` кожен оберт, з країною, кодом і причиною — а знімок усе одно береться', async () => {
-    const err = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const err = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
     try {
       const { svc } = make({
         loader: async () => ({
           ...fetcher,
           warningsFrom: (p: unknown, country: string) => ({
             ...fetcher.warningsFrom(p, country),
-            unbound: country === 'france' ? [{ code: 'FR999', why: 'no FR zone is named Nowhere' }] : [],
+            unbound:
+              country === 'france'
+                ? [{ code: 'FR999', why: 'no FR zone is named Nowhere' }]
+                : [],
           }),
         }),
       });
@@ -73,7 +78,9 @@ describe('NUTS-код без зони гучний', () => {
   });
 
   it('жодного незвʼязаного коду — жодного рядка в `error`', async () => {
-    const err = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const err = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
     try {
       const { svc } = make();
       await svc.refresh();

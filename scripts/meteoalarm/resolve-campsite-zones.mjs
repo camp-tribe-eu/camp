@@ -45,6 +45,7 @@ import { hrCountiesFeatures, HR_COUNTIES } from './osm-hr-counties.mjs';
 import {
   OBSOLETE_CACHE,
   SCHEMES_USED,
+  SILENT,
   SNAP_LIMIT_M,
   LAND_LAYER,
   LAND_SHARE_MIN,
@@ -220,7 +221,8 @@ export function landShareSql() {
  * 🔴 A COUNTRY WITH NO LAND ZONE HAS NO ZONES. Its zones are deleted from the
  * staging table and named: its campsites stay without one, which is the true
  * answer and better than a warning for ships. Latvia, whose four zones are
- * all sea, is the case that found it.
+ * all sea, is the case that found it — and Malta's one zone goes with it
+ * (0.455 land; Malta is silent, so no campsite is affected today).
  */
 export function landlessSql(landMin = LAND_SHARE_MIN) {
   return `
@@ -565,6 +567,21 @@ export function judgeSnapKinds(wrong) {
     : { ok: true };
 }
 
+/**
+ * The line the run prints about countries whose zones were all removed.
+ *
+ * 🔴 EVERY country, not the one that found the problem. Latvia (4 zones, all
+ * sea) found it, and Malta's single zone goes with it — inert today, because
+ * Malta is in `SILENT` and no campsite of it is joined, but a reader who saw
+ * only "LV (4 зон)" would look for Malta somewhere else. A country that is
+ * silent is marked, so "removed" is not mistaken for "lost campsites".
+ */
+export function describeLandless(rows, silent = SILENT) {
+  if (rows.length === 0) return 'країн без жодної сухопутної зони немає';
+  const named = rows.map(([c, n]) => `${c} (${n} зон${silent.includes(c) ? ', мовчазна: її кемпінги й так не з\u2019єднуються' : ''})`);
+  return `країни, де жодна зона не сухопутна, — їхніх кемпінгів не позначено ніяк: ${named.join(', ')}`;
+}
+
 /** The one line the run prints about who was pulled to a zone. */
 export function describeSnap(d, limitM = SNAP_LIMIT_M) {
   return (
@@ -642,11 +659,7 @@ async function run({ apply }) {
       }
       if (step.name === 'landless countries') {
         const gone = psql(step.sql).split('\n').filter(Boolean).map((l) => l.split('|'));
-        console.log(
-          gone.length
-            ? `країни, де жодна зона не сухопутна, — їхніх кемпінгів не позначено ніяк: ${gone.map(([c, n]) => `${c} (${n} зон)`).join(', ')}`
-            : 'країн без жодної сухопутної зони немає',
-        );
+        console.log(describeLandless(gone));
         continue;
       }
       if (step.name === 'sea held by containment') {
@@ -1207,6 +1220,14 @@ async function selfTest() {
       '🔴 звірка роду читає рід зони з проміжної таблиці й питає про МОРСЬКІ, а не повторює умову запиту');
     check(judgeSnapKinds(0).ok === true && judgeSnapKinds(76).ok === false && /76/.test(judgeSnapKinds(76).why),
       '🔴 один підтягнутий морський код — відмова прогону, і причина називає число');
+    const landless = describeLandless([['LV', '4'], ['MT', '1']]);
+    check(
+      landless.includes('LV (4 зон)') && landless.includes('MT (1 зон'),
+      '🔴 рядок про країни без суходолу називає ОБИДВІ: Латвію, що знайшла проблему, і Мальту, що пішла разом із нею',
+    );
+    check(/MT \(1 зон, мовчазна/.test(landless) && !/LV \(4 зон, мовчазна/.test(landless),
+      'і позначає мовчазну (Мальта), а не Латвію, бо кемпінги Латвії з\u2019єднуються');
+    check(describeLandless([]) === 'країн без жодної сухопутної зони немає', 'і каже, коли таких немає');
     check(judgeSnap({ farthestM: 5000 }).ok === true, 'рівно на межі — ще в межі');
     check(
       judgeSnap({ farthestM: 5001 }).ok === false && /5001 m/.test(judgeSnap({ farthestM: 5001 }).why),
@@ -1258,7 +1279,7 @@ async function selfTest() {
     );
   }
 
-  const EXPECTED_CASES = 95;
+  const EXPECTED_CASES = 98;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;

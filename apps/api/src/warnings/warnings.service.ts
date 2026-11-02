@@ -210,11 +210,19 @@ export class WarningsService implements OnModuleInit, OnModuleDestroy {
       // 🔴 Гучно, кожен оберт, поки код не вписано в таблицю винятків:
       // `error`, а не `warn` — це не «фід мовчить», це «попередження, яке
       // ми тримаємо в руках, нікому не дійде».
+      //
+      // ⚠️ МЕЖА, А НЕ ДЕФЕКТ: код виходу 3 з `fetch-warnings.mjs` працює
+      // ЛИШЕ в CLI. Цей збирач іде всередині процесу API й не виходить, тож
+      // щоденний прогін через цей шлях незв'язаний код НЕ зупинить — він лише
+      // пише сюди. Так і треба: падати щоночі через один код гірше за рядок у
+      // журналі. Не думай, що код виходу діє скрізь.
       if (result.unbound.length > 0) {
         this.log.error(
           `${result.unbound.length} NUTS-код(ів) у чинних попередженнях без зони MeteoAlarm — ` +
             'жоден кемпінг не отримає їх: ' +
-            result.unbound.map((u) => `${u.country} ${u.code} (${u.why})`).join('; '),
+            result.unbound
+              .map((u) => `${u.country} ${u.code} (${u.why})`)
+              .join('; '),
         );
       }
       if (result.failed.length > 0) {
