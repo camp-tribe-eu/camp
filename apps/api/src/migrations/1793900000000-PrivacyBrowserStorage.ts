@@ -103,6 +103,17 @@ The details are on the [cookies](/legal/cookies) page.`,
       'We would rather tell you where the line is than let you discover it.',
       '> **What deletion does not reach, and why.** The site does not yet take photographs or reviews, so today there is nothing of that kind to keep. The rule is already part of account deletion, and it is this: one record would survive — that a photo or a review was rejected, why, when, and for which place. It would carry nothing that points back to you — no name, no address, not even a reference to the account that was deleted. Because no part of it identifies a person, it would have stopped being personal data, and the right to erasure would have nothing left to reach. We would keep it to be able to account for our own moderation decisions. Separately, the licence you grant for photographs once they are published is a contract rather than personal data, so those photographs may remain — but your name comes off them on request. We would rather tell you where the line is than let you discover it.',
     );
+    // 🔴 «What we do not do»: «What you save is shown back to you; it is not
+    // used to score or categorise you» — те саме «what you save», п'яте місце:
+    // розділ нижче каже «the site does not yet let you save anything», а цей
+    // розділ читач відкриває саме тоді, коли хоче знати, чого з його даними НЕ
+    // роблять. Сторож ловить це за дієсловом `save` у всіх формах, а не за
+    // переліком іменників (`legal-privacy-holds.spec.ts`).
+    body = replaceOnce(
+      body,
+      'What you save is shown back to you; it is not used to score or categorise you.',
+      'Nothing we hold about you is used to score or categorise you.',
+    );
     // 🔴 «Changes»: «so their full text is in our public source repository»
     // стверджувало, що повний текст попередньої редакції можна ПРОЧИТАТИ в
     // репозиторії. Для п'яти редакцій з PR #399/#401 (terms 1.2, cookies 1.1,

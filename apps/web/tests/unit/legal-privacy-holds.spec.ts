@@ -27,16 +27,24 @@ import { API_SRC, apiRoutes, pageText, readCode } from './legal-claims';
  */
 
 /** Що сайт уміє ПРИЙНЯТИ від читача — з write-маршрутів контролерів API. */
-function capabilities(): Record<'trip' | 'place' | 'photo' | 'review', boolean> {
+function capabilities(): Record<'trip' | 'place' | 'photo' | 'review' | 'save', boolean> {
   const writing = apiRoutes().filter((r) => ['Post', 'Put', 'Patch'].includes(r.method));
   // Якір: розбір бачить write-маршрути (інакше «нічого немає» — це сліпота).
   expect(writing.length, 'жодного write-маршруту — розбір сліпий').toBeGreaterThan(5);
   const any = (re: RegExp) => writing.some((r) => re.test(r.label));
+  const trip = any(/trip/i);
+  const place = any(/place|spot|favou?rite|saved/i);
+  const photo = any(/photo|upload|image|picture/i);
+  const review = any(/review|rating/i);
   return {
-    trip: any(/trip/i),
-    place: any(/place|spot|favou?rite|saved/i),
-    photo: any(/photo|upload|image|picture/i),
-    review: any(/review|rating/i),
+    trip,
+    place,
+    photo,
+    review,
+    // 🔴 «Зберегти» як ДІЄСЛОВО: читач може щось зберегти, лише якщо сайт уміє
+    // прийняти хоч одне з цього. Перелік іменників не ловив зворот «what you
+    // save is shown back to you» — він обіцяє збереження так само, як «photos».
+    save: trip || place || photo || review,
   };
 }
 
@@ -45,6 +53,14 @@ const NOUNS: Record<keyof ReturnType<typeof capabilities>, RegExp> = {
   place: /\bsaved places?\b|\bsave (?:a )?places?\b/i,
   photo: /\bphoto(?:graph)?s?\b/i,
   review: /\breviews?\b/i,
+  // Дієслово в усіх формах (save, saves, saved, saving), а не лише іменники:
+  // «What you save is shown back to you» не називає жодного іменника зі списку.
+  //
+  // Єдиний виняток — «saved link»: адреса сторінки, яку ЛЮДИНА зберегла в себе
+  // («because you or somebody else opened a saved link», розділ про журнал
+  // безпеки). Це не дані, які тримаємо ми, і перша редакція цього правила
+  // хибно червоніла саме на ньому.
+  save: /\bsav(?:e|es|ed|ing)\b(?!\s+links?\b)/i,
 };
 
 /** Умовність: речення не стверджує, що ми це приймаємо чи тримаємо. */
