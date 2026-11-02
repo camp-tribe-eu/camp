@@ -296,6 +296,21 @@ jobs:
       - name: No new dependency advisories
         run: node scripts/security/check-dependencies.mjs
 
+      # CAMP-330. Шість попереджень CodeQL `medium` відхилено 02.11.2026 —
+      # кожне з причиною, прочитаною в коді. Причина тримається на одному
+      # рядку: «шлях не приходить із мережі», «вміст уже розібрано»,
+      # «origin — літерал». Коментар у GitHub переживе зміну цього рядка і
+      # лишиться тихо чинним; цей сторож — ні. Мутація 02.11.2026: прибрати
+      # `encodeURIComponent` з `assetDownloadUrl` → `✗ якір зник із файлу`,
+      # exit 1.
+      - name: Dismissal guard still catches a dead reason
+        run: |
+          set -o pipefail
+          node scripts/security/check-codeql-dismissals.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-codeql-dismissals self-test:' >/dev/null
+      - name: Every dismissed CodeQL alert still has its reason
+        run: node scripts/security/check-codeql-dismissals.mjs
+
       # 🔴 A branch that grows past a card's worth of work stops being a
       # feature branch. On 22.09.2026 one carried 28 commits for days,
       # during which CodeQL and Dependabot reported on main and therefore
