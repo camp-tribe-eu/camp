@@ -67,7 +67,7 @@ function main() {
   console.log(`✓ check-osm-weekly-guards: ${downloadCommands(text).length} завантажень зі стелею й виявленням зупинки, alert бачить cancelled`);
 }
 
-const COMMAND_FLAGS = '--speed-limit 1048576 --speed-time 60 --max-time 1200';
+const COMMAND_FLAGS = '--speed-limit 102400 --speed-time 300 --max-time 1200';
 
 function selfTest() {
   const good = readFileSync(join(ROOT, WORKFLOW), 'utf8');
@@ -87,7 +87,7 @@ function selfTest() {
     [
       '🔴 curl без --max-time — падіння',
       () =>
-        faults(good.replace(COMMAND_FLAGS, '--speed-limit 1048576 --speed-time 60')).some((f) =>
+        faults(good.replace(COMMAND_FLAGS, '--speed-limit 102400 --speed-time 300')).some((f) =>
           f.includes('--max-time'),
         ),
     ],
