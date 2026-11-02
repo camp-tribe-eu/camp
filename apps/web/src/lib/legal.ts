@@ -158,7 +158,7 @@ export const LEGAL_PAGES: LegalPage[] = [
     // deletion yet" is replaced by the two numbers, bound to RULES by test.
     // Migration 1793600000000-PrivacyRetentionLogs.
     version: '2.3',
-    effectiveFrom: '2026-11-01',
+    effectiveFrom: '2026-11-02',
   },
   {
     slug: 'cookies',
