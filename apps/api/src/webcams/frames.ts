@@ -89,7 +89,11 @@ export const MAX_WINDY_CALLS_PER_MINUTE = 30;
  * all of them, and that call makes every one of them fresh for ten
  * minutes. The page cannot cause another call until they expire, so
  * `3 600 000 / FRAME_CACHE_MS` = 6 an hour, however many readers it has.
- * Derived, not typed: `frames.spec.ts` simulates the hour and counts.
+ * True for a page whose cameras are ALL live, and equally for one with
+ * cameras that have no frame or that Windy no longer lists — those are
+ * cached as answers too (see `Entry`). Derived, not typed: `frames.spec.ts`
+ * simulates the hour and counts, for a page of live, frameless and absent
+ * cameras together.
  */
 export const WINDY_CALLS_PER_PAGE_HOUR = 3_600_000 / FRAME_CACHE_MS;
 
