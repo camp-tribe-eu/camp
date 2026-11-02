@@ -236,12 +236,61 @@ describe('🔴 the login route is counted in its own bucket', () => {
 // (`users_password_hash_shape`), so this exercises the second refusal:
 // the one in `signIn`, which has to hold when the database was bypassed.
 describe('a stored value that is not a hash costs what a miss costs', () => {
-  /** Milliseconds for one signIn, measured not guessed. */
-  async function took(user: User | null): Promise<number> {
-    const service = new AuthService(usersOf(user), sessionsOf(null));
-    const started = process.hrtime.bigint();
-    await service.signIn('a@example.com', 'whatever the password is');
-    return Number(process.hrtime.bigint() - started) / 1e6;
+  /**
+   * 🔴 THREE RUNS, AND THE BEST ONE. Debt #31, 02.11.2026.
+   *
+   * One sample a side made this describe red on a pull request that
+   * changed a single JSON file, and red again on a laptop with nothing
+   * else running. Measuring the ten shapes with the numbers printed
+   * showed where the noise lives, and it is not where the bar is:
+   *
+   *   shape                          miss     broken    ratio
+   *   N that is not a power of two   350.7     177.6    0.506   ← first call
+   *   too few fields                 253.8     176.5    0.695
+   *   the other eight            173–182   172–177    0.99–1.01
+   *
+   * The true ratio is ONE. Every outlier is in `miss`, and the worst is
+   * the first scrypt of the process, which pays for warm-up that has
+   * nothing to do with either branch. A single sample hands that bill to
+   * whichever test runs first, and when the bill reaches 2× the guard
+   * reddens for the runner instead of for the code.
+   *
+   * 🔴 THE MINIMUM, NOT THE MEAN. Noise here is one-sided: a scheduler
+   * can only make a run slower, never faster than the work. The mean
+   * carries every interruption into the number; the minimum is the
+   * cleanest sample seen — the closest thing to the cost of the work
+   * itself. Averaging would keep the 350 ms warm-up in the answer.
+   *
+   * This does not weaken the guard: the defect it exists for makes the
+   * broken branch ~0 ms, and no number of runs turns 0 into 175.
+   *
+   * 🔴 BOTH DIRECTIONS WERE MEASURED, because only one of them is the
+   * usual kind of proof and the other is the one this change is for.
+   *
+   *   · it still catches the defect — mutate `signIn` back to
+   *     `stored ?? await decoyHash()`, dropping the shape check: all ten
+   *     shapes go red, each naming `broken row 0.0 ms`, ratio 0.000;
+   *   · it no longer reddens for nothing — this describe, five runs in a
+   *     row on one laptop:
+   *
+   *       before (one sample a side)   3 of 5 runs red
+   *       after  (best of three)       0 of 5 runs red
+   *
+   * The second line is the point. A guard that reddens for the runner
+   * teaches people to re-run it instead of reading it, and then it is no
+   * longer guarding anything.
+   */
+  const SAMPLES = 3;
+
+  async function took(user: User | null, runs = SAMPLES): Promise<number> {
+    let best = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < runs; i++) {
+      const service = new AuthService(usersOf(user), sessionsOf(null));
+      const started = process.hrtime.bigint();
+      await service.signIn('a@example.com', 'whatever the password is');
+      best = Math.min(best, Number(process.hrtime.bigint() - started) / 1e6);
+    }
+    return best;
   }
 
   const broken = (hash: string) =>
@@ -294,7 +343,8 @@ describe('a stored value that is not a hash costs what a miss costs', () => {
   ];
 
   // 🔴 The whole run is one measurement, not one per case: scrypt costs
-  // ~200 ms and six of those plus a baseline is most of a minute.
+  // ~200 ms, and with `SAMPLES` runs on each of two sides that is six
+  // of them per shape.
   jest.setTimeout(60_000);
 
   it.each(SHAPES)(
@@ -308,8 +358,24 @@ describe('a stored value that is not a hash costs what a miss costs', () => {
 
       // 🔴 The card's own bar: "no more than twice". Stated as a ratio
       // because the absolute number is the machine's, not the code's.
-      expect(withBrokenRow).toBeGreaterThan(miss / 2);
-      expect(withBrokenRow).toBeLessThan(miss * 2);
+      //
+      // The measured ratio is 1.00 on every shape, so this is not a bar
+      // the honest path sits against — it is one the DEFECT fails by
+      // three orders of magnitude (0.1 ms against 175).
+      //
+      // 🔴 A THROW, NOT A MATCHER, because the matcher cannot carry the
+      // reading. `Expected: > 276.7, Received: 270.4` said nothing about
+      // which side was off, and twice this guard was read as noise on
+      // that evidence alone. The message names both numbers, the ratio
+      // and the shape, so the next red is diagnosed from the log.
+      const ratio = withBrokenRow / miss;
+      if (ratio <= 0.5 || ratio >= 2) {
+        throw new Error(
+          `timing oracle on "${_what}": ratio ${ratio.toFixed(3)} outside 0.5–2 ` +
+            `(miss ${miss.toFixed(1)} ms, broken row ${withBrokenRow.toFixed(1)} ms, ` +
+            `best of ${SAMPLES} runs a side)`,
+        );
+      }
     },
   );
 
