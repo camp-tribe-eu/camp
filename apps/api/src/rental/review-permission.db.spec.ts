@@ -75,17 +75,17 @@ beforeAll(async () => {
   await db.connect();
 
   await db.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
-  // Тип статусу належить іншій міграції; тут він лише передумова.
-  await db.query(`
-    DO $$ BEGIN
-      CREATE TYPE "public"."content_status_enum" AS ENUM ('draft','published');
-    EXCEPTION WHEN duplicate_object THEN NULL; END $$
-  `);
+  // 🔴 ТИПИ ТЕЖ БЕРУТЬСЯ З МІГРАЦІЇ, а не пишуться тут своїм рядком.
+  // Перша редакція створювала `content_status_enum` від себе — імені,
+  // якого в базі немає взагалі (TypeORM робить окремий тип на кожну
+  // таблицю), і тест стеріг би схему, що не існує.
+  //
   // Назва типу сама по собі трапляється тричі: у CREATE TYPE, у колонці
   // таблиці й у DROP TYPE з `down()`. Тому шукаємо повний оператор.
   for (const needle of [
     'CREATE TYPE "public"."rental_service_availability_enum"',
     'CREATE TYPE "public"."rental_review_source_enum"',
+    'CREATE TYPE "public"."rental_providers_status_enum"',
   ]) {
     const create = statementFor(text, needle).trim();
     await db.query(

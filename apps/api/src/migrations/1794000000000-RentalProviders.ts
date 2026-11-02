@@ -32,6 +32,16 @@ export class RentalProviders1794000000000 implements MigrationInterface {
       CREATE TYPE "public"."rental_review_source_enum"
         AS ENUM ('trustpilot', 'google')
     `);
+    // 🔴 СВІЙ ТИП НА ТАБЛИЦЮ, бо спільного `content_status_enum` у базі
+    // НЕМАЄ. TypeORM робить окремий тип на кожну таблицю з такою
+    // колонкою (`rental_cities_status_enum`, `guides_status_enum`…), і
+    // перша редакція цієї міграції послалась на неіснуюче імʼя — CI
+    // упав на `type "public"."content_status_enum" does not exist`.
+    // Значення — ті самі чотири, що в решті контентних таблиць.
+    await queryRunner.query(`
+      CREATE TYPE "public"."rental_providers_status_enum"
+        AS ENUM ('draft', 'review', 'published', 'archived')
+    `);
 
     await queryRunner.query(`
       CREATE TABLE "rental_providers" (
@@ -52,7 +62,7 @@ export class RentalProviders1794000000000 implements MigrationInterface {
         -- бізнес; без джерела ми не доведемо нічого.
         "source_url" character varying,
         "source_checked_on" date,
-        "status" "public"."content_status_enum" NOT NULL DEFAULT 'draft',
+        "status" "public"."rental_providers_status_enum" NOT NULL DEFAULT 'draft',
         "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_rental_providers" PRIMARY KEY ("id"),
         -- Країна — рівно дві великі літери: ISO-3166-1 alpha-2 і нічого
@@ -191,6 +201,9 @@ export class RentalProviders1794000000000 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE "rental_provider_services"`);
     await queryRunner.query(`DROP TABLE "rental_provider_translations"`);
     await queryRunner.query(`DROP TABLE "rental_providers"`);
+    await queryRunner.query(
+      `DROP TYPE "public"."rental_providers_status_enum"`,
+    );
     await queryRunner.query(`DROP TYPE "public"."rental_review_source_enum"`);
     await queryRunner.query(
       `DROP TYPE "public"."rental_service_availability_enum"`,
