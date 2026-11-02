@@ -1,9 +1,11 @@
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 
 import { expect, test } from '@playwright/test';
 
 import { legalPage } from '@/lib/legal';
+import { HOST, isLocalOrFixture, normalise, SWEEP_ROOTS, sweepHosts } from './attribution-sweep';
 import { SEEDED, seededHtml } from './legal-cms';
 import { visibleText } from './rendered-text';
 
@@ -30,6 +32,20 @@ import { visibleText } from './rendered-text';
  * Зворотний бік: кожне зовнішнє посилання сторінки веде або на хост із коду,
  * або на текст ліцензії чи бібліотеку з `REFERENCE_HOSTS` — із причиною.
  * Рядок про джерело, якого в коді немає, — теж падіння з назвою хоста.
+ *
+ * 🔴 ДРУГИЙ СТОРОЖ — СУЦІЛЬНИЙ ОБХІД (`attribution-sweep.ts`). `SOURCE_FILES`
+ * — список, написаний руками, і він бачить лише записане в ньому: новий файл
+ * із новим зовнішнім хостом проходив зеленим (так `api.datatourisme.fr` і
+ * `data.gouv.fr` стояли в коді без рядка на сторінці). Обхід читає ВСІ
+ * файли виробничих тек і вимагає, щоб кожен знайдений хост був в одному з
+ * трьох кошиків: названий на сторінці; у `REFERENCE_HOSTS`; у `NOT_A_SOURCE`.
+ * Список лишається: він несе «чому» на кожен файл, а обхід — «нічого не
+ * пропущено». Один не замінює другого.
+ *
+ * 🔴 ВИНЯТОК ЦЕ РЯДОК ІЗ ПРИЧИНОЮ І МІСЦЕМ. `NOT_A_SOURCE` не приймає голого
+ * хоста: кожен запис — пояснення (`why`) і файли, де цей хост справді
+ * лишається не джерелом (`in`). Той самий хост у файлі поза `in` — знову
+ * падіння: виняток закриває рядок, а не ім'я.
  */
 
 // `__dirname`, а не `import.meta`: Playwright компілює специфікації в CommonJS.
@@ -53,6 +69,8 @@ const SOURCE_FILES: ReadonlyArray<{ path: string; why: string }> = [
   { path: 'apps/web/src/data/drought.json', why: 'drought layer as shipped (meta)' },
   { path: 'scripts/effis/fetch-wildfires.mjs', why: 'wildfire layer' },
   { path: 'apps/web/src/data/wildfires.json', why: 'wildfire layer as shipped (meta)' },
+  { path: 'apps/api/src/datatourisme/api-v1.ts', why: 'DATAtourisme catalogue API: French campsite tariffs and stars' },
+  { path: 'scripts/datatourisme/fetch-regions.mjs', why: 'DATAtourisme regional files, discovered through data.gouv.fr' },
   { path: 'apps/api/src/air/source.ts', why: 'EEA air quality: the hourly file and the model service' },
   { path: 'apps/api/src/bathing/source.ts', why: 'EEA bathing water service' },
   { path: 'apps/api/src/fuel/stations.ts', why: 'per-station fuel prices, three ministries' },
@@ -65,16 +83,82 @@ const SOURCE_FILES: ReadonlyArray<{ path: string; why: string }> = [
 ];
 
 /**
- * Хости в тих файлах, які НЕ є джерелами, і чому. Кожен — назване
- * рішення, а не мовчазний пропуск.
+ * Виняток: хост, який знайдено в коді і який НЕ є джерелом даних для
+ * читача. `why` — чому; `in` — префікси шляхів, де саме він таким є.
+ * Той самий хост у файлі поза `in` не прощається.
  */
-const NOT_A_SOURCE: Readonly<Record<string, string>> = {
-  'standards.iso.org': 'an ISO schema identifier inside the query string of IGN France’s catalogue URL',
-  'cartes.gouv.fr': 'the page IGN France’s service points to for its conditions — a licence text, not data; listed in REFERENCE_HOSTS',
-  'meteo.hr': 'a CAP sender identifier used as a self-test fixture in fetch-warnings.mjs; nothing is fetched from it',
-  'skaping.com': 'a camera operator’s URL used as a self-test fixture in fetch-webcams.mjs; nothing is fetched from it',
-  'x': 'a self-test fixture',
-  'opengis.net': 'the OGC XML namespace in the WFS request fetch-wildfires.mjs builds; nothing is fetched from it',
+interface Exception {
+  why: string;
+  in: readonly string[];
+}
+const because = (why: string, ...where: string[]): Exception => ({ why, in: where });
+
+/** Де `data/rental` і сторінки оренди посилаються на орган, що видав правило. */
+const RENTAL = [
+  'apps/web/src/data/rental/',
+  'apps/web/src/app/camper-rental/',
+  'apps/web/src/components/rental-checklist.tsx',
+] as const;
+const CITED_AUTHORITY =
+  'a link to the authority that publishes a rule (toll, vignette, emission zone, driving licence) which the camper-rental pages state in our own words; nothing is fetched from it and no dataset is reproduced';
+const cited = (...hosts: string[]): Record<string, Exception> =>
+  Object.fromEntries(hosts.map((h) => [h, because(CITED_AUTHORITY, ...RENTAL)]));
+
+/**
+ * Хости, знайдені в коді, які не є джерелами даних читача, і чому.
+ * Кожен — назване рішення, а не мовчазний пропуск.
+ */
+const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
+  // ── ідентифікатори й простори імен, а не звернення ──
+  'standards.iso.org': because('an ISO schema identifier inside the query string of IGN France’s catalogue URL', 'apps/web/src/data/satellite-sources.json'),
+  'opengis.net': because('the OGC XML namespace in the WFS request fetch-wildfires.mjs builds; nothing is fetched from it', 'scripts/effis/fetch-wildfires.mjs'),
+  'schema.org': because('the JSON-LD vocabulary identifier in structured data and in its checker; a name, not an endpoint', 'apps/web/src/', 'scripts/seo/'),
+  'w3.org': because('an XML namespace and a specification reference in the sitemap writer and its schemas', 'apps/web/src/lib/sitemap.ts', 'scripts/seo/schemas/'),
+  'sitemaps.org': because('the sitemap XML namespace in the sitemap writer and its schemas', 'apps/web/src/lib/sitemap.ts', 'scripts/seo/schemas/'),
+  'ietf.org': because('an RFC reference inside the sitemap XSD’s documentation', 'scripts/seo/schemas/'),
+  'apple.com': because('the DTD identifier of a property list in an ops script', 'scripts/ops/pull-security-log.sh'),
+  'data.datatourisme.fr': because('the prefix of DATAtourisme object identifiers, quoted in a comment about the tariff entity; nothing is fetched from it', 'apps/api/src/entities/spot-tariff.entity.ts'),
+
+  // ── фікстури самоперевірок і приклади в коментарях ──
+  'meteo.hr': because('a CAP sender string, quoted in a comment and used as a self-test fixture; nothing is fetched from it', 'scripts/meteoalarm/fetch-warnings.mjs', 'apps/web/src/lib/warning-types.ts'),
+  'skaping.com': because('a camera operator’s URL used as a self-test fixture in fetch-webcams.mjs; nothing is fetched from it', 'scripts/windy/fetch-webcams.mjs'),
+  'e.com': because('a self-test fixture for the internal-anchor checker', 'scripts/ci/check-internal-anchors.mjs'),
+  'x.github.io': because('a self-test fixture for the map-asset checker, which refuses github.io hosts', 'scripts/ci/check-map-assets.mjs'),
+  'y.github.io': because('a self-test fixture for the map-asset checker, which refuses github.io hosts', 'scripts/ci/check-map-assets.mjs'),
+  'protomaps.github.io': because('named so the map-asset checker can REFUSE it (GitHub Pages terms forbid commercial use); never loaded', 'scripts/ci/check-map-assets.mjs'),
+  'mt1.google.com': because('a Google tile URL the satellite-licence checker exists to REFUSE, written as a self-test fixture; never loaded', 'scripts/ci/check-satellite-licences.mjs'),
+  'camping-verif-alpha.fr': because('an invented campsite website in the reconcile-threshold verifier’s fixture data', 'apps/api/src/spots/verify-reconcile-threshold.ts'),
+  'camping-verif-beta.fr': because('an invented campsite website in the reconcile-threshold verifier’s fixture data', 'apps/api/src/spots/verify-reconcile-threshold.ts'),
+  'camping-verif-gamma.fr': because('an invented campsite website in the reconcile-threshold verifier’s fixture data', 'apps/api/src/spots/verify-reconcile-threshold.ts'),
+  'autre-camping-beta.fr': because('an invented campsite website in the reconcile-threshold verifier’s fixture data', 'apps/api/src/spots/verify-reconcile-threshold.ts'),
+  'evil': because('an attacker-controlled redirect target quoted in comments about open-redirect defences', 'apps/web/src/components/account-forms.tsx', 'apps/web/src/lib/return-path.ts'),
+  'evil.com': because('an attacker-controlled redirect target quoted in comments about open-redirect defences', 'apps/web/src/lib/rich-text.ts'),
+  'camptribe.euab': because('a malformed own-domain string quoted in a comment about URL joining', 'apps/web/src/lib/jsonld.ts'),
+  'user': because('the userinfo part of a URL quoted in a comment about stripping credentials from logged paths', 'apps/api/src/telemetry/not-found.rules.ts'),
+
+  // ── інфраструктура й збірка: нічого не доходить до читача ──
+  'cloudflare.com': because('Cloudflare’s published proxy IP ranges, read by the firewall script to allow only the proxy; no data reaches a page', 'infra/bin/camptribe-firewall'),
+  'github.com': because('our own repository: pull-request links in CI and release assets of our own OSM extracts, whose underlying data (OpenStreetMap, Geofabrik) is named on the page', 'scripts/ci/check-dependabot-prs.mjs', 'scripts/osm-pipeline/import-release.mjs', 'infra/bin/', '.github/'),
+  'api.github.com': because('the release listing of our own repository, read by the OSM import to find the extracts our pipeline published; the data itself is named on the page', 'scripts/osm-pipeline/import-release.mjs'),
+  'build.protomaps.com': because('a measurement script that reads only the directories of a PMTiles archive by range request to size a possible basemap; nothing it reads reaches a page. If that build ever ships as the basemap, this host moves onto the page', 'scripts/tiles/measure-pmtiles.mjs'),
+
+  // ── партнерські мережі: читач отримує посилання, не дані ──
+  'awin.com': because('an affiliate network our outbound partner links are tagged for (marked sponsored); the reader gets a link, no data is read from it', 'apps/web/src/lib/affiliate.ts'),
+  'awin1.com': because('the tracking host of the Awin affiliate network, as a recognised outbound-link host; no data is read from it', 'apps/web/src/lib/affiliate.ts'),
+  'impact.com': because('an affiliate network our outbound partner links are tagged for (marked sponsored); the reader gets a link, no data is read from it', 'apps/web/src/lib/affiliate.ts'),
+  'cj.com': because('an affiliate network our outbound partner links are tagged for (marked sponsored); the reader gets a link, no data is read from it', 'apps/web/src/lib/affiliate.ts'),
+  'booking.com': because('a booking partner our outbound links are tagged for (marked sponsored); the reader gets a link, no data is read from it', 'apps/web/src/lib/affiliate.ts'),
+  'acsi.eu': because('a campsite-booking partner our outbound links are tagged for (marked sponsored); the reader gets a link, no data is read from it', 'apps/web/src/lib/affiliate.ts'),
+
+  // ── сторінки оренди: посилання на орган, що видав правило ──
+  ...cited(
+    'asfinag.at', 'autoroutes.fr', 'autostrade.it', 'boe.es', 'certificat-air.gouv.fr', 'croatia.hr', 'dgt.es',
+    'diariodarepublica.pt', 'economy-finance.ec.europa.eu', 'eur-lex.europa.eu', 'evinjeta.dars.si', 'fstyr.dk',
+    'gesetze-im-internet.de', 'hac.hr', 'infraestruturasdeportugal.pt', 'milieuzones.nl', 'mit.gov.it',
+    'mitma.gob.es', 'naturstyrelsen.dk', 'naturvardsverket.se', 'normattiva.it', 'oesterreich.gv.at',
+    'policija.si', 'rijksoverheid.nl', 'rsa.ie', 'storebaelt.dk', 'tii.ie', 'toll-collect.de',
+    'transportstyrelsen.se', 'turismodeportugal.pt', 'umweltbundesamt.de',
+  ),
 };
 
 /**
@@ -104,10 +188,9 @@ const REFERENCE_HOSTS: Readonly<Record<string, string>> = {
   'windy.com': 'Windy’s terms, which is also in code',
 };
 
-const HOST = /https?:\/\/([a-z0-9][a-z0-9.-]*[a-z0-9])(?=[/?#"'`\s)\]<,]|$)/gi;
-const normalise = (h: string) => h.toLowerCase().replace(/^www\./, '');
-const isLocalOrFixture = (h: string) =>
-  /^(localhost|127\.0\.0\.1)$/.test(h) || /\.(example|test|invalid|localhost)$/.test(h) || /^camptribe\.eu$/.test(h);
+/** Чи закриває виняток цей хост у цьому файлі (а не просто це ім'я). */
+const isExcepted = (host: string, file: string) =>
+  Object.hasOwn(NOT_A_SOURCE, host) && NOT_A_SOURCE[host].in.some((p) => file.startsWith(p));
 
 /** Хости джерел, і в яких файлах кожен стоїть. */
 function hostsInCode(): Map<string, Set<string>> {
@@ -116,7 +199,7 @@ function hostsInCode(): Map<string, Set<string>> {
     const text = readFileSync(join(ROOT, f.path), 'utf8');
     for (const m of text.matchAll(HOST)) {
       const host = normalise(m[1]);
-      if (isLocalOrFixture(host) || host in NOT_A_SOURCE) continue;
+      if (isLocalOrFixture(host) || isExcepted(host, f.path)) continue;
       const files = found.get(host) ?? new Set<string>();
       files.add(f.path);
       found.set(host, files);
@@ -199,5 +282,139 @@ test.describe('attribution: every source in code is on the page, and nothing els
     const seeded = SEEDED.find((d) => d.slug === 'attribution');
     expect(seeded?.version).toBe(legalPage('attribution')?.version);
     expect(seeded?.effectiveFrom).toBe(legalPage('attribution')?.effectiveFrom);
+  });
+});
+
+/** Теки, яких обхід не читає, і чому. Кожна — причина, а не мовчання. */
+const NOT_SWEPT: Readonly<Record<string, string>> = {
+  docs: 'prose documentation for people; none of it runs on the site or reaches a reader',
+  'test-results': 'Playwright output written by test runs, not source',
+  scratchpad: 'untracked local scratch space on a developer machine; not in git',
+};
+
+/**
+ * 🔴 СУЦІЛЬНИЙ ОБХІД. Не користується `SOURCE_FILES`: корпус — усе, що лежить
+ * у виробничих теках (`SWEEP_ROOTS`). Кожен знайдений хост — у кошику:
+ * названий на сторінці, `REFERENCE_HOSTS` або `NOT_A_SOURCE`; інакше падіння
+ * з назвою хоста й файлів.
+ */
+test.describe('attribution: a sweep of all production code, independent of SOURCE_FILES', () => {
+  const html = seededHtml('attribution');
+  const page = hostsOnPage(html);
+  const sweep = sweepHosts(ROOT);
+
+  /** Кошики: знаменник — усі хости, які знайшов обхід. */
+  const buckets = () => {
+    const named: string[] = [];
+    const reference: string[] = [];
+    const excepted: string[] = [];
+    const uncovered: string[] = [];
+    for (const [host, files] of sweep.hosts) {
+      if (page.has(host)) named.push(host);
+      else if (Object.hasOwn(REFERENCE_HOSTS, host)) reference.push(host);
+      else {
+        const outside = [...files].filter((f) => !isExcepted(host, f));
+        if (outside.length === 0) excepted.push(host);
+        else uncovered.push(`${host}  ←  ${outside.join(', ')}`);
+      }
+    }
+    return { named, reference, excepted, uncovered };
+  };
+
+  test('the corpus is the code: files read, hosts found, and every SOURCE_FILES entry is inside it', () => {
+    expect(sweep.files.size, 'the sweep read almost nothing').toBeGreaterThan(400);
+    expect(sweep.hosts.size, 'the sweep found almost no hosts').toBeGreaterThan(80);
+    const outside = SOURCE_FILES.map((f) => f.path).filter((p) => !sweep.files.has(p));
+    expect(outside, `SOURCE_FILES lists files the sweep does not read: ${outside.join(', ')}`).toEqual([]);
+    for (const r of SWEEP_ROOTS) {
+      expect(sweepHosts(ROOT, [r]).files.size, `sweep root ${r} is empty or missing`).toBeGreaterThan(0);
+    }
+  });
+
+  test('a new top-level directory or app is a decision, not an oversight', () => {
+    // 🔴 Обхід читає лише `SWEEP_ROOTS`. Нова тека з кодом (`packages/…`,
+    // `apps/mobile`) без рядка тут була б сліпою зоною — тож вона падає, поки
+    // її не внесено в корені або не названо тут із причиною.
+    const covered = (rel: string) => SWEEP_ROOTS.some((r) => r === rel || r.startsWith(`${rel}/`));
+    const dirs = (rel: string) =>
+      readdirSync(join(ROOT, rel), { withFileTypes: true })
+        .filter((e) => e.isDirectory() && e.name !== 'node_modules' && (!e.name.startsWith('.') || covered(e.name)))
+        .map((e) => (rel ? `${rel}/${e.name}` : e.name));
+    const unclassified = [...dirs(''), ...dirs('apps')]
+      .filter((d) => d !== 'apps')
+      .filter((d) => !covered(d) && !Object.hasOwn(NOT_SWEPT, d));
+    expect(
+      unclassified,
+      `directories that are neither swept nor named in NOT_SWEPT with a reason: ${unclassified.join(', ')}`,
+    ).toEqual([]);
+    const bare = Object.entries(NOT_SWEPT).filter(([, why]) => why.trim().split(/\s+/).length < 4).map(([d]) => d);
+    expect(bare, `NOT_SWEPT entries without a reason: ${bare.join(', ')}`).toEqual([]);
+  });
+
+  test('every host the sweep finds is named on the page, a reference, or a stated exception', () => {
+    const b = buckets();
+    test.info().annotations.push({
+      type: 'denominator',
+      description: `${sweep.files.size} files, ${sweep.hosts.size} hosts: ${b.named.length} named on the page, ${b.reference.length} reference, ${b.excepted.length} excepted, ${b.uncovered.length} uncovered`,
+    });
+    expect(
+      b.uncovered,
+      `external hosts in production code that are not on the attribution page, not a reference and not an exception ` +
+        `(${b.uncovered.length} of ${sweep.hosts.size}). Name the source on the page, or add it to NOT_A_SOURCE with a reason and a place:\n  ${b.uncovered.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
+  test('an exception without a reason is not an exception', () => {
+    const bare = Object.entries(NOT_A_SOURCE)
+      .filter(
+        ([, e]) =>
+          typeof e.why !== 'string' || e.why.trim().split(/\s+/).length < 5 || e.in.length === 0 || e.in.some((p) => !p.trim()),
+      )
+      .map(([h]) => h);
+    expect(bare, `exceptions with no real reason (5+ words) or no place: ${bare.join(', ')}`).toEqual([]);
+    const bareRef = Object.entries(REFERENCE_HOSTS)
+      .filter(([, why]) => typeof why !== 'string' || why.trim().split(/\s+/).length < 3)
+      .map(([h]) => h);
+    expect(bareRef, `REFERENCE_HOSTS with no real reason: ${bareRef.join(', ')}`).toEqual([]);
+  });
+
+  test('an exception is not dead and not shadowing a line on the page', () => {
+    const dead = Object.keys(NOT_A_SOURCE).filter((h) => !sweep.hosts.has(h));
+    expect(dead, `exceptions for hosts the sweep no longer finds (delete them): ${dead.join(', ')}`).toEqual([]);
+    const shadowing = Object.keys(NOT_A_SOURCE).filter((h) => page.has(h));
+    expect(
+      shadowing,
+      `exceptions for hosts that ARE on the page — remove the row, or deleting the page link would stay green: ${shadowing.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  test('the walker finds a new host wherever it lies, and skips what it should', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'attribution-sweep-'));
+    const put = (rel: string, body: string | Buffer) => {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), body);
+    };
+    try {
+      put('apps/api/src/fresh/feature.ts', "const U = 'https://fresh-source.eu/v1';");
+      put('scripts/meteoalarm/osm-hr-counties.mjs', "export const U = 'https://nominatim.openstreetmap.org/lookup?osm_ids=R1';");
+      put('apps/web/src/data/x.json', '{"a":"https://www.Shouting-Host.eu/path"}');
+      put('scripts/sentence.mjs', '// see https://sentence-end.eu. And https://ported.eu:8443/x');
+      put('apps/api/src/fresh/feature.spec.ts', "const U = 'https://only-in-a-spec.eu';");
+      put('apps/api/src/migrations/1-Seed.ts', "const U = 'https://only-in-a-migration.eu';");
+      put('apps/api/node_modules/dep/index.js', "const U = 'https://only-in-a-dependency.eu';");
+      put('apps/web/src/blob.bin', Buffer.concat([Buffer.from('https://only-in-a-binary.eu'), Buffer.from([0, 1, 2])]));
+      put('apps/web/src/own.ts', "'http://localhost:3000' 'https://camptribe.eu/x' 'https://cms.camptribe.eu' 'https://example.com' 'https://a.example'");
+      const found = sweepHosts(dir);
+      expect([...found.hosts.keys()].sort()).toEqual([
+        'fresh-source.eu',
+        'nominatim.openstreetmap.org',
+        'ported.eu',
+        'sentence-end.eu',
+        'shouting-host.eu',
+      ]);
+      expect([...(found.hosts.get('nominatim.openstreetmap.org') ?? [])]).toEqual(['scripts/meteoalarm/osm-hr-counties.mjs']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
