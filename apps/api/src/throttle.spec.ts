@@ -13,6 +13,8 @@ import {
   LOGIN_ROUTES,
   MAIL_LIMIT,
   MAIL_ROUTES,
+  FRAMES_LIMIT,
+  FRAMES_ROUTES,
   PLAN_LIMIT,
   PLAN_ROUTES,
   REPORT_LIMIT,
@@ -438,6 +440,13 @@ describe('🔴 the login, mail, consent and plan decorators agree with their rou
     expect(carrying('CONSENT')).not.toEqual([]);
     expect(carrying('PLAN')).not.toEqual([]);
     expect(carrying('REPORT')).not.toEqual([]);
+    expect(carrying('FRAMES')).not.toEqual([]);
+  });
+
+  // CAMP-190. `@Throttle(FRAMES)` sets the number, `FRAMES_ROUTES` sets the
+  // bucket: the same two statements about one route, an eighth time.
+  it('every route marked FRAMES is in FRAMES_ROUTES, and nothing else is', () => {
+    expect(carrying('FRAMES')).toEqual([...FRAMES_ROUTES].sort());
   });
 
   // «Report a problem». `@Throttle(REPORT)` sets the number, `REPORT_ROUTES`
@@ -659,6 +668,65 @@ describe('🔴 the plan bucket (CAMP-391)', () => {
 
   it('the route list names the one route that runs the planner', () => {
     expect([...PLAN_ROUTES]).toEqual(['plan']);
+  });
+});
+
+// 🔴 CAMP-190: `GET /webcams/frames` is the one route whose cache miss is a
+// request to somebody else's service, under a clause that ends our access.
+// Its own bucket, so that ten campsite pages read in a minute neither spend
+// nor are spent by what counts the planner, sign-in or the bulk routes.
+describe('🔴 the frames bucket (CAMP-190)', () => {
+  it.each([
+    '/webcams/frames',
+    '/WEBCAMS/frames',
+    '/webcams/frames/',
+    '/webcams/frames?refs=1,2,3',
+    '//webcams/frames',
+  ])('files %s under frames', (path) => {
+    expect(bucketOf(path)).toBe('frames');
+  });
+
+  it('does not share a counter with anything else', () => {
+    const frames = bucketOf('/webcams/frames');
+    for (const other of [
+      '/auth/login',
+      '/auth/signup',
+      '/account/letters',
+      '/plan',
+      '/problem-reports',
+      '/spots/countries',
+      '/spots/fr/lot/camping-du-lac',
+      '/spots/index',
+    ])
+      expect(bucketOf(other)).not.toBe(frames);
+  });
+
+  it('a path that merely starts like it is ordinary', () => {
+    for (const path of [
+      '/webcams',
+      '/webcams/frames/x',
+      '/webcams/framesx',
+      '/spots/webcams/frames',
+    ]) {
+      expect(bucketOf(path)).toBe('ordinary');
+    }
+  });
+
+  it('allows ten a minute — written out, not read back', () => {
+    expect(FRAMES_LIMIT.limit).toBe(10);
+    expect(FRAMES_LIMIT.ttl).toBe(60_000);
+  });
+
+  it('and that is a third of the 30-a-minute ceiling on calls to Windy, so one caller cannot spend it', () => {
+    // MAX_WINDY_CALLS_PER_MINUTE is 30 (frames.ts, tested there). Written
+    // out because the argument is the ratio, not either number.
+    expect(FRAMES_LIMIT.limit * 3).toBeLessThanOrEqual(30);
+    expect(FRAMES_LIMIT.limit).toBeLessThan(DEFAULT_LIMIT.limit / 10);
+    expect(FRAMES_LIMIT.limit).toBeGreaterThanOrEqual(6);
+  });
+
+  it('the route list names the one route that can call Windy', () => {
+    expect([...FRAMES_ROUTES]).toEqual(['webcams/frames']);
   });
 });
 

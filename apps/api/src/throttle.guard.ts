@@ -47,7 +47,7 @@ export class ApiThrottlerGuard extends ThrottlerGuard {
   }
 
   /**
-   * 🔴 Seven buckets per caller (bulk, login, mail, consent, plan, report, ordinary), not one per route.
+   * 🔴 Eight buckets per caller (bulk, login, mail, consent, plan, report, frames, ordinary), not one per route.
    *
    * `suffix` is already the tracker string from getTracker. The base
    * implementation prepends the controller and handler names, which is a
