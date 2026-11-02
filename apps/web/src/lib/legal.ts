@@ -190,9 +190,17 @@ export const LEGAL_PAGES: LegalPage[] = [
     slug: 'attribution',
     title: 'Data and attribution',
     summary:
-      'Where every map, boundary and elevation on this site comes from, and the licences we are bound by.',
-    version: '1.0',
-    effectiveFrom: '2026-09-23',
+      'Where every map, boundary, reading and price on this site comes from, and the licences we are bound by.',
+    // 1.1 (02.11.2026): the twelve sources the site showed and 1.0 did not
+    // name — satellite imagery (IGN España, IGN France), EEA bathing water
+    // and air quality, MeteoAlarm and the three boundary sets behind it,
+    // Copernicus EDO and EFFIS, the Weekly Oil Bulletin and three national
+    // fuel feeds, Windy webcams — each with the licence read from its
+    // publisher. Bound to the code by `tests/unit/attribution-sources.spec.ts`:
+    // every source host in code has a line on the page, and nothing else
+    // does. Migration 1793700000000-AttributionSources.
+    version: '1.1',
+    effectiveFrom: '2026-11-02',
   },
   {
     // CAMP-186. ODbL §4.6 lets us answer with the DESCRIPTION of our
