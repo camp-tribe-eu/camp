@@ -311,6 +311,22 @@ jobs:
       - name: Every dismissed CodeQL alert still has its reason
         run: node scripts/security/check-codeql-dismissals.mjs
 
+      # 🔴 02.11.2026: Німеччина, Франція та Італія висіли рівно 45:45 і
+      # були вбиті `timeout-minutes`. Останній рядок журналу кожної —
+      # `Terminate orphan process (curl)`: зʼєднання стояло, а не роботи
+      # було забагато (26.10 ті самі країни відпрацювали за 21, 12 і 4
+      # хвилини). Реліз вийшов на 24 країни з 27, а робота `alert`
+      # промовчала, бо таймаут у GitHub — це `cancelled`, не `failure`.
+      # Обидві властивості тепер стережуться текстом: відтворити
+      # `timeout-minutes` і `needs.*.result` на раннері неможливо.
+      - name: OSM download guard still catches a missing time ceiling
+        run: |
+          set -o pipefail
+          node scripts/ci/check-osm-weekly-guards.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-osm-weekly-guards self-test:' >/dev/null
+      - name: The weekly OSM download cannot hang, and its alarm sees a timeout
+        run: node scripts/ci/check-osm-weekly-guards.mjs
+
       # 🔴 A branch that grows past a card's worth of work stops being a
       # feature branch. On 22.09.2026 one carried 28 commits for days,
       # during which CodeQL and Dependabot reported on main and therefore
