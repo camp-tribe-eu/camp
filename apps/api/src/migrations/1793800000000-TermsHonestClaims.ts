@@ -88,7 +88,7 @@ export class TermsHonestClaims1793800000000 implements MigrationInterface {
     body = replaceOnce(
       body,
       'and the previous wording is recorded in our public source repository, so it is always possible to establish which version applied on a given day.',
-      'and the text itself is held in our database. The versions we have published so far were each shipped as code, so their full text is in our public source repository; should a later version be edited in our content system instead, that will no longer be true of it, and we will keep the earlier text ourselves. Write to [{{company.email}}](mailto:{{company.email}}) and we will send you the text that was in force on any day you name.',
+      'and the text itself is held in our database. The versions we have published so far were each shipped as code, so they are recorded in our public source repository; should a later version be edited in our content system instead, that will no longer be true of it, and we will keep the earlier text ourselves. Write to [{{company.email}}](mailto:{{company.email}}) and we will send you the text that was in force on any day you name.',
     );
     return {
       slug: this.previous.slug,

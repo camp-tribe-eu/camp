@@ -10,6 +10,7 @@ import {
   WEB_SRC,
   constString,
   escapeRegExp,
+  storageWrites,
   hrefsIn,
   importGraph,
   pageRoutes,
@@ -32,45 +33,8 @@ import {
  * запис, якого сторож не вміє назвати, і є «забутий ключ».
  */
 
-type Write = { file: string; key: string; storage: 'local' | 'session' };
-
 const webFiles = sourceFiles(WEB_SRC);
 const apiFiles = sourceFiles(API_SRC);
-
-/** Усі ключі, які код пише у веб-сховище, і в яке саме. */
-function storageWrites(): Write[] {
-  const out: Write[] = [];
-  for (const file of webFiles) {
-    const code = readCode(file);
-    for (const m of code.matchAll(/\.setItem\(\s*([A-Za-z_$][\w$]*|'[^']*'|"[^"]*")/g)) {
-      const arg = m[1];
-      let key: string;
-      if (/^['"]/.test(arg)) {
-        key = arg.slice(1, -1);
-      } else {
-        const value = constString(code, arg);
-        if (value === null) {
-          throw new Error(
-            `${basename(file)}: .setItem(${arg}) — ключ не розкривається в літерал у цьому файлі; ` +
-              'сторож не вміє його назвати, а сторінка кукі мусить.',
-          );
-        }
-        key = value;
-      }
-      const local = /\bwindow\.localStorage\b/.test(code);
-      const session = /\bwindow\.sessionStorage\b/.test(code);
-      if (local === session) {
-        throw new Error(
-          `${basename(file)}: пише ключ «${key}», але файл звертається ${
-            local ? 'до обох сховищ' : 'ні до localStorage, ні до sessionStorage'
-          } — незрозуміло, в яке саме.`,
-        );
-      }
-      out.push({ file: basename(file), key, storage: local ? 'local' : 'session' });
-    }
-  }
-  return out;
-}
 
 /** Усе інше, що могло б зберігати щось у браузері читача, окрім `.setItem(`. */
 function otherStores(): string[] {
@@ -218,18 +182,28 @@ test.describe('кукі: мапа — де є кнопки стилів і хт�
     expect(linked, 'абзац веде не на ті сторінки, де код має перемикач').toEqual(withSwitcher);
   });
 
-  test('🔴 мапи без кнопок — це сторінки кемпінгу й маршруту, і сторінка так і каже', () => {
+  test('🔴 мапи без кнопок — рівно ці сторінки (повний маршрут, не перший сегмент), і сторінка так і каже', () => {
     const without = anyMap().filter((r) => !switcher().includes(r));
-    // Перший сегмент маршруту → слово, яким сторінка його називає.
-    const NAME: Record<string, string> = { camping: 'campsite', routes: 'route' };
-    const first = [...new Set(without.map((r) => r.split('/')[1]))].sort();
+    // 🔴 ПОВНИЙ МАРШРУТ → слово, яким сторінка його називає. Перша редакція
+    // мапила за ПЕРШИМ сегментом адреси, і мапа, додана на хаб країни
+    // `/camping/[country]` (не сторінка кемпінгу), лишала тест зеленим:
+    // сегмент `camping` уже мав слово «campsite». Знайшла рецензія #399, M9.
+    const NAME: Record<string, string> = {
+      '/camping/[country]/[region]/[slug]': 'campsite',
+      '/routes/[slug]': 'route',
+    };
     expect(
-      first.filter((s) => !NAME[s]),
+      without.filter((r) => !NAME[r]),
       'зʼявилась сторінка з мапою без кнопок, про яку сторінка кукі не знає',
+    ).toEqual([]);
+    // І навпаки: сторінка, яку називає текст, справді має мапу без кнопок.
+    expect(
+      Object.keys(NAME).filter((r) => !without.includes(r)),
+      'текст називає сторінку, на якій мапи без кнопок уже немає',
     ).toEqual([]);
     const para = paragraphs('cookies').find((p) => p.text.includes('have no such buttons'));
     expect(para, 'немає речення «have no such buttons»').toBeTruthy();
-    for (const s of first) expect(para!.text, `сторінка не називає ${NAME[s]}`).toContain(NAME[s]);
+    for (const r of without) expect(para!.text, `сторінка не називає ${NAME[r]}`).toContain(NAME[r]);
   });
 
   test('🔴 «three styles, all from that same provider» — це MAP_SOURCES', () => {

@@ -7,7 +7,8 @@ import {
   readConsent,
   writeConsent,
 } from '../../src/lib/consent';
-import { legalPage } from '../../src/lib/legal';
+import { LEGAL_PAGES } from '../../src/lib/legal';
+import { SEEDED } from './legal-cms';
 
 // CAMP-56 — the consent decision, checked without a browser.
 //
@@ -133,15 +134,31 @@ test.describe('what is written down', () => {
   test('the version asked about is the cookie policy’s own version', () => {
     // Bumping the policy must re-ask; this is the link that makes it so.
     //
-    // 🔴 Compared with the REGISTRY, not with a literal. This line said
-    // `toBe('1.0')` and went red the day the cookie policy moved to 1.1 —
-    // for the right reason (a bump is meant to re-ask) read the wrong way
-    // round: a test that pins the number fails on every legitimate bump and
-    // would stay green if `consentVersion` were hard-coded to the same
-    // literal. Asked of the registry, it fails only if the link breaks.
-    const registered = legalPage('cookies')?.version;
-    expect(registered, 'the registry has no cookie policy').toBeTruthy();
-    expect(consentVersion()).toBe(registered);
+    // 🔴 THE EXPECTED VALUE MUST NOT BE COMPUTED BY THE SAME EXPRESSION AS THE
+    // IMPLEMENTATION. This test said `toBe(legalPage('cookies')?.version)` —
+    // the very call `consentVersion` makes — so a `consentVersion` hard-coded
+    // to the current version, or reading another page's, passed (review of
+    // #399, M10: `() => '1.1'` stayed green). Two witnesses now, neither of
+    // them `legalPage`:
+    //
+    //   1. the version the DATABASE will hold — the last migration that puts
+    //      the cookie policy there (`seededLegalPages`, which is what the
+    //      build checks the registry against);
+    //   2. FOLLOWING: the registry entry is moved and `consentVersion` must
+    //      move with it, which a hard-coded value cannot do.
+    const inDatabase = SEEDED.find((p) => p.slug === 'cookies')?.version;
+    expect(inDatabase, 'no migration seeds the cookie policy').toBeTruthy();
+    expect(consentVersion()).toBe(inDatabase);
+
+    const entry = LEGAL_PAGES.find((p) => p.slug === 'cookies')!;
+    const real = entry.version;
+    try {
+      entry.version = '99.0-test';
+      expect(consentVersion(), 'consentVersion does not follow the registry').toBe('99.0-test');
+    } finally {
+      entry.version = real;
+    }
+    expect(consentVersion()).toBe(real);
   });
 });
 

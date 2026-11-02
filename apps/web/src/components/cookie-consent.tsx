@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type Ref } from 'react';
 import Link from 'next/link';
 import {
   CONSENT_KEY,
@@ -91,6 +91,23 @@ export default function CookieConsent() {
     setShow(false);
   };
 
+  return <ConsentBannerView bannerRef={bannerRef} onAnswer={answer} />;
+}
+
+/**
+ * The banner itself, as markup — separate from the component that decides
+ * WHEN to show it, so that a test can render it and read what a person
+ * reads (`legal-storage-surfaces.spec.ts`). A banner that is `null` until an
+ * effect runs cannot be read from static HTML, and a claim a test cannot see
+ * is a claim nothing guards.
+ */
+export function ConsentBannerView({
+  bannerRef,
+  onAnswer,
+}: {
+  bannerRef?: Ref<HTMLDivElement>;
+  onAnswer: (choice: ConsentChoice) => void;
+}) {
   return (
     <div
       ref={bannerRef}
@@ -114,13 +131,18 @@ export default function CookieConsent() {
             says the same thing in half the words, and an e2e test holds
             the banner under a fifth of the viewport. */}
         <div className="max-w-prose">
+          {/* 🔴 THE SAME WORDS AS THE FIRST SENTENCE OF THE COOKIES PAGE, and a
+              test holds them equal. This line used to say "We store nothing
+              until you choose", which stopped being true the day the code
+              began writing a sign-in token and a return address on the
+              reader's own action, banner answered or not. */}
           <p id="cookie-title" className="text-sm font-semibold text-heading">
-            We store nothing until you choose
+            Nothing optional is stored on your device until you choose
           </p>
           <p className="mt-1 text-sm leading-6 text-ink-2">
             No analytics or advertising cookies.{' '}
             <Link href="/legal/cookies" className="underline">
-              What we would store
+              What we store
             </Link>
           </p>
         </div>
@@ -132,13 +154,13 @@ export default function CookieConsent() {
           <Button
             type="button"
             data-testid="cookie-reject"
-            onClick={() => answer('rejected')} className="flex-1 font-semibold sm:flex-none">
+            onClick={() => onAnswer('rejected')} className="flex-1 font-semibold sm:flex-none">
             Reject
           </Button>
           <Button
             type="button"
             data-testid="cookie-accept"
-            onClick={() => answer('accepted')} className="flex-1 font-semibold sm:flex-none">
+            onClick={() => onAnswer('accepted')} className="flex-1 font-semibold sm:flex-none">
             Accept
           </Button>
         </div>
