@@ -45,6 +45,12 @@ function markedBlocks(html: string): string[] {
   );
 }
 
+/** Frames as the API would answer them, so the marked blocks under a picture appear. */
+const framesFor = (cams: Webcam[] | null | undefined) =>
+  Object.fromEntries(
+    (cams ?? []).map((c) => [c.ref, `https://imgproxy.windy.com/_/preview/plain/daylight/${c.ref}/original.jpg?v=2`]),
+  );
+
 const NOW = new Date('2026-10-04T19:35:00.000Z');
 /** The same page, read a day and an hour after it was built. */
 const LATER = new Date('2026-10-05T20:35:00.000Z');
@@ -115,11 +121,15 @@ test.describe('what `data-boilerplate` is allowed to hide', () => {
       // fixtures do not sit next to. See `webcams.spec.ts`.
       [SET_A, LATER],
     ];
+    // 🔴 Each case twice: with the frames the API gave and without them
+    // (the tile that says what a card is until a picture arrives).
     for (const [webcams, when] of cases) {
-      for (const block of markedBlocks(renderComponent(WebcamPanel, { webcams, now: when }))) {
-        const [name, text] = [block.slice(0, block.indexOf('::')), block.slice(block.indexOf('::') + 2)];
-        if (!texts.has(name)) texts.set(name, new Set());
-        texts.get(name)!.add(text);
+      for (const frames of [framesFor(webcams), undefined]) {
+        for (const block of markedBlocks(renderComponent(WebcamPanel, { webcams, now: when, frames }))) {
+          const [name, text] = [block.slice(0, block.indexOf('::')), block.slice(block.indexOf('::') + 2)];
+          if (!texts.has(name)) texts.set(name, new Set());
+          texts.get(name)!.add(text);
+        }
       }
     }
 
@@ -147,8 +157,8 @@ test.describe('what `data-boilerplate` is allowed to hide', () => {
   // above and contribute nothing a reader or the guard could tell apart.
   // What survives the stripping has to be the camera's own facts.
   test('what survives the stripping still differs between two campsites', () => {
-    const a = visibleHtmlText(renderComponent(WebcamPanel, { webcams: SET_A, now: NOW }));
-    const b = visibleHtmlText(renderComponent(WebcamPanel, { webcams: SET_B, now: NOW }));
+    const a = visibleHtmlText(renderComponent(WebcamPanel, { webcams: SET_A, now: NOW, frames: framesFor(SET_A) }));
+    const b = visibleHtmlText(renderComponent(WebcamPanel, { webcams: SET_B, now: NOW, frames: framesFor(SET_B) }));
 
     expect(a.length, 'the panel is template and nothing else').toBeGreaterThan(20);
     expect(a).not.toEqual(b);
@@ -169,7 +179,7 @@ test.describe('what `data-boilerplate` is allowed to hide', () => {
   // otherwise the marks are decorative and the guard is still counting
   // the template.
   test('the template itself does not survive the stripping', () => {
-    const stripped = visibleHtmlText(renderComponent(WebcamPanel, { webcams: SET_A, now: NOW }));
+    const stripped = visibleHtmlText(renderComponent(WebcamPanel, { webcams: SET_A, now: NOW, frames: framesFor(SET_A) }));
     for (const phrase of [
       'webcams nearby',
       'the most recent daylight view',

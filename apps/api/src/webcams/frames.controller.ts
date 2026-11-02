@@ -6,8 +6,16 @@ import {
   Query,
 } from '@nestjs/common';
 
+import { Throttle } from '@nestjs/throttler';
+
+import { FRAMES_LIMIT } from '../throttle';
 import { parseRefs } from './frames';
 import { FramesService } from './frames.service';
+
+// 🔴 Its own bucket: FRAMES_LIMIT sets the number, `FRAMES_ROUTES` in
+// throttle.ts sets the bucket. They are two statements about one route
+// and `throttle.spec.ts` compares them.
+const FRAMES = { default: FRAMES_LIMIT };
 
 @Controller('webcams')
 export class FramesController {
@@ -25,6 +33,7 @@ export class FramesController {
    * answer for a few minutes would add to that age and hand the reader an
    * address closer to its end than the number we proved.
    */
+  @Throttle(FRAMES)
   @Get('frames')
   @Header('Cache-Control', 'no-store')
   one(@Query('refs') refs?: string) {

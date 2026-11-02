@@ -201,8 +201,20 @@ export class FramesRefused extends Error {
   }
 }
 
+/**
+ * What we know about ONE camera, and when we learned it.
+ *
+ * 🔴 `url: null` IS AN ANSWER, NOT AN ABSENCE. "Windy has no frame for
+ * this camera" and "Windy no longer lists it" are things Windy told us,
+ * and they live for FRAME_CACHE_MS exactly like a frame does. The first
+ * version cached only cameras that HAD a frame, so a page with one dead
+ * camera among three could never be "all fresh" and every reader's
+ * request went to Windy: measured by review, 360 calls an hour instead of
+ * 6. Cameras go dark, change status and vanish all the time — which is
+ * why we store only their ids — so this is the normal case, not an edge.
+ */
 interface Entry {
-  url: string;
+  url: string | null;
   at: number;
 }
 
@@ -216,60 +228,81 @@ export class FrameCache {
     string,
     Promise<Record<string, string>>
   >();
-  private readonly failedAt = new Map<string, number>();
+  /**
+   * When Windy last failed us — ONE pause for all of Windy, not one per
+   * set of cameras and not one per camera.
+   *
+   * 🔴 Keyed by the sorted list of refs, this pause was bypassed by
+   * rotating a second ref: `A,x`, `A,y`, `A,z` are three different keys
+   * and each one called Windy while Windy was refusing — thirty times a
+   * minute at the ceiling, which is the "excessive automated requests"
+   * the written terms keep. A failure (a 429, a 5xx, a timeout) is a fact
+   * about Windy, not about which cameras happened to be in the list, so
+   * the pause is global: during it NO call is made, whatever is asked.
+   * Cost of a failure to the rest of the site: one minute without new
+   * frames, and nothing worse. Cost of the alternative, measured: up to
+   * 30 calls into a closed door every minute.
+   */
+  private pausedAt: number | null = null;
   private callTimes: number[] = [];
   /** Total calls made to Windy, for tests and for the log line. */
   calls = 0;
 
   constructor(private readonly deps: FrameDeps) {}
 
-  private fresh(ref: string, now: number): string | null {
+  /** `undefined` = nothing fresh known; `null` = fresh "no frame". */
+  private fresh(ref: string, now: number): string | null | undefined {
     const e = this.entries.get(ref);
     // 🔴 `<`, not `<=`: at exactly FRAME_CACHE_MS the address is old.
-    return e && now - e.at < FRAME_CACHE_MS ? e.url : null;
+    return e && now - e.at < FRAME_CACHE_MS ? e.url : undefined;
   }
 
   async frames(refs: string[]): Promise<Record<string, string>> {
+    // 🔴 FIRST, drop what we do not hold. A ref that is not in `webcams`
+    // never reaches the cache, the pause or the ceiling, so a caller who
+    // pads a real ref with invented ids spends nothing but their own
+    // request — see the per-reader limit in throttle.ts for that part.
+    const held = await this.deps.known(refs);
+    if (held.length === 0) return {};
+
     const now = this.deps.now();
-    const cached: Record<string, string> = {};
-    let allFresh = true;
-    for (const r of refs) {
+    const out: Record<string, string> = {};
+    let needCall = false;
+    for (const r of held) {
       const u = this.fresh(r, now);
-      if (u) cached[r] = u;
-      else allFresh = false;
+      if (typeof u === 'string') out[r] = u;
+      else if (u === undefined) needCall = true;
     }
-    if (allFresh) return cached;
+    if (!needCall) return out;
 
-    const key = [...refs].sort().join(',');
-    const failed = this.failedAt.get(key);
-    if (failed !== undefined && now - failed < FAILURE_BACKOFF_MS)
-      return cached;
-
+    const key = [...held].sort().join(',');
     const running = this.inFlight.get(key);
     if (running) return running;
 
-    const p = this.refresh(refs, key).finally(() => this.inFlight.delete(key));
+    const p = this.refresh(held).finally(() => this.inFlight.delete(key));
     this.inFlight.set(key, p);
     return p;
   }
 
   /**
-   * ONE call for every ref asked, including those still fresh.
+   * ONE call for every camera asked about, including those still fresh.
    *
    * 🔴 All of them, not only the missing ones: that is what makes the
-   * per-page bound hold. After this call every address this page shows is
-   * ten minutes young, so the page cannot trigger another call before
-   * they expire — whatever other pages did to some of them in between.
+   * per-page bound hold. After this call every camera this page shows is
+   * ten minutes young — frame or no frame — so the page cannot trigger
+   * another call before they expire, whatever other pages did to some of
+   * them in between.
    */
-  private async refresh(
-    refs: string[],
-    key: string,
-  ): Promise<Record<string, string>> {
-    const held = new Set(await this.deps.known(refs));
-    const wanted = refs.filter((r) => held.has(r));
-    if (wanted.length === 0) return {};
-
+  private async refresh(held: string[]): Promise<Record<string, string>> {
     const now = this.deps.now();
+    if (this.pausedAt !== null && now - this.pausedAt < FAILURE_BACKOFF_MS) {
+      throw new FramesRefused(
+        503,
+        'the camera provider is not being asked just now',
+      );
+    }
+    const wanted = held;
+
     this.callTimes = this.callTimes.filter((t) => now - t < 60_000);
     if (this.callTimes.length >= MAX_WINDY_CALLS_PER_MINUTE) {
       throw new FramesRefused(
@@ -280,30 +313,36 @@ export class FrameCache {
     this.callTimes.push(now);
     this.calls += 1;
 
+    const fail = (message: string): never => {
+      this.pausedAt = now;
+      throw new FramesRefused(503, message);
+    };
+
     let res: Awaited<ReturnType<FrameDeps['callWindy']>>;
     try {
       res = await this.deps.callWindy(windyUrl(wanted));
     } catch {
-      this.failedAt.set(key, now);
-      throw new FramesRefused(503, 'the camera provider did not answer');
+      return fail('the camera provider did not answer');
     }
     if (res.status !== 200) {
-      this.failedAt.set(key, now);
-      throw new FramesRefused(
-        503,
-        `the camera provider answered ${res.status}`,
-      );
+      return fail(`the camera provider answered ${res.status}`);
     }
     const got = framesFrom(await res.json(), wanted);
     const at = this.deps.now();
-    for (const [ref, url] of Object.entries(got))
-      this.entries.set(ref, { url, at });
-    this.failedAt.delete(key);
+    // Every camera asked about gets an entry: its frame, or `null`.
+    for (const r of wanted) {
+      this.entries.set(r, { url: got[r] ?? null, at });
+    }
     this.prune(at);
-    return got;
+    const out: Record<string, string> = {};
+    for (const r of held) {
+      const u = this.fresh(r, at);
+      if (typeof u === 'string') out[r] = u;
+    }
+    return out;
   }
 
-  /** Drop what has expired, so the map cannot grow without bound. */
+  /** Drop what has expired, so the maps cannot grow without bound. */
   private prune(now: number): void {
     if (this.entries.size < 1000) return;
     for (const [ref, e] of this.entries)

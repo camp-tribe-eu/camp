@@ -33,22 +33,62 @@ const row = (id: string, preview: unknown = addr(id)) => ({
   images: { daylight: { preview } },
 });
 
+/**
+ * What a real list answer looks like, and it is NOT "a frame for every
+ * id". Cameras go dark, lose their frame and vanish from the catalogue
+ * all the time, so the fake has three states and a typical page of three
+ * cameras has ALL THREE:
+ *
+ *   frame      `images.daylight.preview` present          (ref '1')
+ *   no frame   listed, but `images` carries no daylight   (ref '2')
+ *   gone       not in the answer at all                   (ref '3')
+ *
+ * The first version of this fake returned a frame for every id, so the
+ * two cache holes review found — a camera with no frame never cached,
+ * and so every reader's request went to Windy — could not exist in any
+ * test. A guard that cannot reproduce a dead camera cannot catch the
+ * next bug of that kind.
+ */
+const NO_FRAME = new Set(['2']);
+const GONE = new Set(['3']);
+
+function windyRows(
+  ids: string[],
+  address: (id: string) => string = addr,
+  states: { noFrame: Set<string>; gone: Set<string> } = {
+    noFrame: NO_FRAME,
+    gone: GONE,
+  },
+) {
+  return (
+    ids
+      .filter((i) => !states.gone.has(i))
+      .map((i) =>
+        states.noFrame.has(i)
+          ? { webcamId: Number(i), images: {} }
+          : row(i, address(i)),
+      )
+      // Deliberately reversed: Windy does not promise the order.
+      .reverse()
+  );
+}
+
 /** A fake Windy and a clock. `calls` records every URL we asked. */
 function rig(over: Partial<FrameDeps> = {}) {
   let t = 1_000_000;
   const calls: string[] = [];
+  const states = { noFrame: new Set(NO_FRAME), gone: new Set(GONE) };
   const deps: FrameDeps = {
     now: () => t,
     known: async (refs) => refs,
     callWindy: async (url) => {
       calls.push(url);
       const ids = /webcamIds=([0-9,]+)/.exec(url)![1].split(',');
-      // Deliberately reversed: Windy does not promise the order.
       return {
         status: 200,
         json: async () => ({
           total: ids.length,
-          webcams: ids.map((i) => row(i)).reverse(),
+          webcams: windyRows(ids, addr, states),
         }),
       };
     },
@@ -57,6 +97,7 @@ function rig(over: Partial<FrameDeps> = {}) {
   return {
     cache: new FrameCache(deps),
     calls,
+    states,
     advance: (ms: number) => (t += ms),
   };
 }
@@ -96,10 +137,10 @@ describe('the address lives for less than Windy says it is valid', () => {
         return {
           status: 200,
           json: async () => ({
-            webcams: ids.map((i) => {
+            webcams: windyRows(ids, (i) => {
               const a = `${addr(i)}&n=${t}`;
               issued.set(a, t);
-              return row(i, a);
+              return a;
             }),
           }),
         };
@@ -193,11 +234,142 @@ describe('how much we ask of Windy', () => {
       },
     });
     await expect(cache.frames(['1'])).rejects.toBeInstanceOf(FramesRefused);
-    for (let i = 0; i < 20; i++) await cache.frames(['1']);
+    for (let i = 0; i < 20; i++)
+      await expect(cache.frames(['1'])).rejects.toBeInstanceOf(FramesRefused);
     expect(n).toBe(1);
     advance(FAILURE_BACKOFF_MS);
     await expect(cache.frames(['1'])).rejects.toBeInstanceOf(FramesRefused);
     expect(n).toBe(2);
+  });
+});
+
+describe('🔴 a camera with no frame is an ANSWER, and it is cached like one', () => {
+  /** One reader every ten seconds for an hour, on one page. */
+  async function hourOn(
+    refs: string[],
+    over: Partial<FrameDeps> = {},
+    tweak?: (r: ReturnType<typeof rig>) => void,
+  ) {
+    const r = rig(over);
+    tweak?.(r);
+    let last: Record<string, string> = {};
+    for (let i = 0; i < 360; i++) {
+      last = await r.cache.frames(refs);
+      r.advance(10_000);
+    }
+    return { calls: r.calls.length, last };
+  }
+
+  it('a page with one live camera, one without a frame and one Windy no longer lists costs 6 an hour', async () => {
+    // Review measured 360 here: the cameras without an entry were never
+    // "fresh", so every reader's request went to Windy.
+    const { calls, last } = await hourOn(['1', '2', '3']);
+    expect(calls).toBe(6);
+    expect(calls).toBeLessThanOrEqual(WINDY_CALLS_PER_PAGE_HOUR);
+    expect(last).toEqual({ '1': addr('1') });
+  });
+
+  it('a page where EVERY camera is dead costs 6 an hour too, and shows no picture', async () => {
+    const { calls, last } = await hourOn(['2', '3']);
+    expect(calls).toBe(6);
+    expect(last).toEqual({});
+  });
+
+  it('a camera that is simply not in the answer is cached as not there', async () => {
+    const { cache, calls, advance } = rig();
+    await cache.frames(['3']);
+    for (let i = 0; i < 50; i++) {
+      advance(1_000);
+      await cache.frames(['3']);
+    }
+    expect(calls).toHaveLength(1);
+    advance(FRAME_CACHE_MS);
+    await cache.frames(['3']);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('…and the "no frame" does not outlive its ten minutes: a camera that gets one is shown then', async () => {
+    const { cache, states, advance } = rig();
+    expect(await cache.frames(['2'])).toEqual({});
+    states.noFrame.delete('2'); // the camera comes back
+    advance(FRAME_CACHE_MS - 1);
+    expect(await cache.frames(['2'])).toEqual({});
+    advance(1);
+    expect(await cache.frames(['2'])).toEqual({ '2': addr('2') });
+  });
+});
+
+describe('🔴 a failure is a fact about Windy, so the pause is Windy-wide', () => {
+  it('rotating a second ref does not get round the pause', async () => {
+    // Review: with the pause keyed by the SET of refs, `A,x1`, `A,x2`, …
+    // were all different keys and each one called Windy while it was
+    // refusing — thirty times a minute at the ceiling.
+    let n = 0;
+    const { cache, advance } = rig({
+      callWindy: async () => {
+        n += 1;
+        return { status: 503, json: async () => ({}) };
+      },
+    });
+    await expect(cache.frames(['1', '10'])).rejects.toBeInstanceOf(
+      FramesRefused,
+    );
+    for (let i = 11; i < 111; i++) {
+      await expect(cache.frames(['1', String(i)])).rejects.toBeInstanceOf(
+        FramesRefused,
+      );
+      advance(100);
+    }
+    expect(n).toBe(1); // not `n` calls into a closed door in one minute
+  });
+
+  it('a 429 from Windy, a 5xx and a timeout each pause every page, once', async () => {
+    for (const fail of [
+      async () => ({ status: 429, json: async () => ({}) }),
+      async () => ({ status: 500, json: async () => ({}) }),
+      async () => {
+        throw new Error('timeout');
+      },
+    ]) {
+      let n = 0;
+      const { cache, advance } = rig({
+        callWindy: async () => {
+          n += 1;
+          return fail();
+        },
+      });
+      await expect(cache.frames(['1'])).rejects.toBeInstanceOf(FramesRefused);
+      advance(1_000);
+      await expect(cache.frames(['40'])).rejects.toBeInstanceOf(FramesRefused);
+      await expect(cache.frames(['41', '42'])).rejects.toBeInstanceOf(
+        FramesRefused,
+      );
+      expect(n).toBe(1);
+      advance(FAILURE_BACKOFF_MS);
+      await expect(cache.frames(['43'])).rejects.toBeInstanceOf(FramesRefused);
+      expect(n).toBe(2);
+    }
+  });
+
+  it('what is already cached is still served during the pause', async () => {
+    let fail = false;
+    const { cache, advance } = rig({
+      callWindy: async (url) => {
+        if (fail) return { status: 503, json: async () => ({}) };
+        const ids = /webcamIds=([0-9,]+)/.exec(url)![1].split(',');
+        return { status: 200, json: async () => ({ webcams: windyRows(ids) }) };
+      },
+    });
+    await cache.frames(['1']);
+    fail = true;
+    advance(FRAME_CACHE_MS);
+    await expect(cache.frames(['1'])).rejects.toBeInstanceOf(FramesRefused);
+    advance(1_000);
+    // A fresh entry for another camera, fetched before the failure, is
+    // not lost to the pause: only a MISS needs Windy.
+    fail = false;
+    advance(FAILURE_BACKOFF_MS);
+    await expect(cache.frames(['1'])).resolves.toEqual({ '1': addr('1') });
   });
 });
 
@@ -213,6 +385,21 @@ describe('only cameras we hold, only addresses Windy gave', () => {
     expect(await rig({ known: async () => [] }).cache.frames(['666'])).toEqual(
       {},
     );
+  });
+
+  it('🔴 padding a real ref with ids we do not hold costs Windy nothing, ever', async () => {
+    // Review: `refs=<ours>,<invented>` made the set uncacheable (the
+    // invented id was never "fresh"), so every request called Windy and
+    // 120 of them a minute spent the whole ceiling in fifteen seconds.
+    const { cache, calls } = rig({
+      known: async (refs) => refs.filter((r) => r === '1'),
+    });
+    for (let i = 0; i < 200; i++)
+      await cache.frames(['1', String(9_000_000 + i)]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('webcamIds=1&');
+    // …and the ceiling is untouched: a different real camera still gets through.
+    await expect(cache.frames(['1'])).resolves.toEqual({ '1': addr('1') });
   });
 
   it('keys the answer by the camera id, not by position', () => {

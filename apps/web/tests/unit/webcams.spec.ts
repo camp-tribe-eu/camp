@@ -389,9 +389,45 @@ test.describe('the frame we choose, and why it is never the current one', () => 
   // 🔴 The API gives a timestamp for the CAMERA, not for this frame. A
   // clock on the picture would be one we invented.
   test('the picture carries no time of its own', () => {
-    const t = text(renderComponent(WebcamPanel, { webcams: REAL, now: NOW }));
+    const t = text(renderComponent(WebcamPanel, { webcams: REAL, now: NOW, frames: framesFor(REAL) }));
     expect(t).toContain('The most recent daylight view');
     expect(t).not.toMatch(/taken \d/);
+  });
+
+  // 🔴 A CAPTION DESCRIBES WHAT IS ON SCREEN. "The most recent daylight
+  // view." under a card whose frame did not arrive described nothing.
+  test('🔴 the picture caption appears under a picture and under nothing else', () => {
+    const none = renderComponent(WebcamPanel, { webcams: REAL, now: NOW });
+    expect(text(none)).not.toContain('most recent daylight view');
+    const one = renderComponent(WebcamPanel, {
+      webcams: REAL,
+      now: NOW,
+      frames: { [REAL[1].ref]: apiImage(REAL[1].ref) },
+    });
+    expect([...one.matchAll(/data-boilerplate="webcam-frame-note"/g)]).toHaveLength(1);
+    expect([...one.matchAll(/<img\b/g)]).toHaveLength(1);
+    const all = renderComponent(WebcamPanel, { webcams: REAL, now: NOW, frames: framesFor(REAL) });
+    expect([...all.matchAll(/data-boilerplate="webcam-frame-note"/g)]).toHaveLength(REAL.length);
+  });
+
+  // 🔴 «AT THEIR ORIGINAL SIZE OR SMALLER, WITHOUT MODIFICATION» — Windy's
+  // letter, 02.11.2026. `w-full` on a 400 px preview stretched it to
+  // 450–1 000 px in a wide column. Measured on 20 live previews: 19 are
+  // 400 px wide and one is 320, so a fixed width would stretch that one.
+  // The rendered image may carry no width/height of its own and no
+  // `w-full`; it may only shrink (`max-w-full`).
+  test('🔴 a picture is never drawn larger than it is', () => {
+    const html = renderComponent(WebcamPanel, { webcams: REAL, now: NOW, frames: framesFor(REAL) });
+    const imgs = [...html.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]);
+    expect(imgs).toHaveLength(REAL.length);
+    for (const img of imgs) {
+      const classes = (/class="([^"]*)"/.exec(img)?.[1] ?? '').split(/\s+/);
+      expect(classes, img).toContain('max-w-full');
+      expect(classes, img).not.toContain('w-full');
+      expect(classes.filter((c) => /^(?:w|min-w)-/.test(c)), img).toEqual([]);
+      expect(img, 'a fixed width stretches a 320 px preview').not.toMatch(/\s(?:width|height)=/);
+      expect(img).not.toMatch(/style="[^"]*(?:width|zoom|scale|transform)/i);
+    }
   });
 
   // 🔴 "11 minutes ago" IS NOT A FACT ABOUT A STATIC PAGE.
@@ -565,7 +601,7 @@ test.describe('the words beside the pictures', () => {
   });
 
   test('…and the panel adds no word of its own beyond the source’s', () => {
-    const t = text(renderComponent(WebcamPanel, { webcams: REAL, now: NOW }));
+    const t = text(renderComponent(WebcamPanel, { webcams: REAL, now: NOW, frames: framesFor(REAL) }));
     // Everything the panel says that is not a camera title or a number.
     for (const phrase of ['Webcams nearby', 'away', 'The most recent daylight view', WINDY_CREDIT]) {
       expect(t).toContain(phrase);

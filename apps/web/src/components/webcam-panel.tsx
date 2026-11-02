@@ -248,17 +248,23 @@ export function WebcamPanel({
                         minutes. Not lazy-loaded: an address is only
                         good for 15 minutes and must be opened now.
 
-                        Width and height are the API's published preview
-                        size, so the card does not jump while it loads. */}
+                        🔴 NO `w-full`, NO width OR height ATTRIBUTE. Windy
+                        allows the preview "at its original size or
+                        smaller, without modification" (their letter,
+                        02.11.2026). `w-full` stretched a 400 px preview to
+                        450–1 000 px in a wide column, which is larger than
+                        the original. Measured on 20 live previews: 19 are
+                        400 px wide and one is 320 px, so a fixed 400 would
+                        stretch that one too. The image is drawn at its
+                        natural size and only ever shrinks (`max-w-full`)
+                        to fit a narrow column. */}
                     {frame ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={frame}
                         alt={`The most recent daylight view from the ${shortTitle(cam.title)} webcam`}
-                        width={400}
-                        height={224}
                         decoding="async"
-                        className="h-auto w-full rounded"
+                        className="h-auto max-w-full rounded"
                       />
                     ) : (
                       // 🔴 Until a picture arrives — or if none does — the
@@ -283,10 +289,16 @@ export function WebcamPanel({
                   {/* 🔴 The most recent DAYLIGHT view, said plainly and
                       without a time. The API gives a timestamp for the
                       camera, not for this frame, so putting a clock on
-                      the picture would be inventing one. */}
-                  <p className="mt-0.5 text-xs" data-boilerplate="webcam-frame-note">
-                    The most recent daylight view.
-                  </p>
+                      the picture would be inventing one.
+
+                      🔴 ONLY WHERE THERE IS A PICTURE. This line describes
+                      what is on screen; under a card whose frame did not
+                      come, it described nothing. */}
+                  {frame && (
+                    <p className="mt-0.5 text-xs" data-boilerplate="webcam-frame-note">
+                      The most recent daylight view.
+                    </p>
+                  )}
                   {cam.providerUrl && (
                     <p className="mt-0.5 text-xs">
                       {/* They do not ask for this. The camera is the
