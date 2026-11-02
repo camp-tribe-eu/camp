@@ -38,6 +38,13 @@ export interface ProviderListItem {
   foundedYear: number | null;
   serviceCount: number;
   vehicleCount: number;
+  /**
+   * 🔴 Коди сервісів, які компанія ДАЄ — `included` або `extra`, ніколи
+   * `unavailable`. Сайт статичний і звужує список у браузері; без цього
+   * поля йому довелось би судити про наявність сервісу з його кількості,
+   * тобто вгадувати.
+   */
+  serviceCodes: string[];
   reviewProfiles: ReviewProfileView[];
 }
 
@@ -146,7 +153,11 @@ export class RentalProvidersService {
               (SELECT count(*) FROM rental_provider_services s
                 WHERE s.provider_id = p.id) AS service_count,
               (SELECT count(*) FROM rental_provider_vehicles v
-                WHERE v.provider_id = p.id) AS vehicle_count
+                WHERE v.provider_id = p.id) AS vehicle_count,
+              COALESCE((SELECT array_agg(s.code ORDER BY s.code)
+                          FROM rental_provider_services s
+                         WHERE s.provider_id = p.id
+                           AND s.availability <> 'unavailable'), '{}') AS service_codes
          FROM rental_providers p
         WHERE ${where.join(' AND ')}
         ORDER BY ${sortClause(sort)}`,
@@ -167,6 +178,7 @@ export class RentalProvidersService {
       foundedYear: num(r.founded_year),
       serviceCount: Number(r.service_count),
       vehicleCount: Number(r.vehicle_count),
+      serviceCodes: (r.service_codes as unknown as string[]) ?? [],
       reviewProfiles: profiles.get(String(r.slug)) ?? [],
     }));
   }
