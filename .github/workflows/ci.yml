@@ -1635,6 +1635,28 @@ jobs:
         working-directory: apps/api
         run: npx eslint "src/**/*.ts" --max-warnings=0
 
+      # 🔴 02.11.2026. Оновлення typeorm 1.1.1 → 1.1.2 (PR #414) поклало
+      # typeorm у КОРЕНЕВИЙ node_modules, а ts-node лишився в
+      # apps/api/node_modules — і кореневий `cli-ts-node-commonjs.js`
+      # перестав його бачити. Міграції не виконались, і через них упали
+      # api, web, public-build, visual, e2e, lighthouse — шість робіт із
+      # повідомленням «Cannot find module 'ts-node'», яке не називає
+      # причину. `working-directory` тут не допомагає: Node шукає модуль
+      # від місця САМОГО СКРИПТА, а не від робочої теки.
+      #
+      # Інваріант простий: звідки б не запустився typeorm, він мусить
+      # бачити ts-node. Тепер це стверджується ОДНИМ рядком і до
+      # міграцій, тож наступного разу CI скаже, ЩО саме поїхало.
+      - name: typeorm can resolve ts-node from wherever it is installed
+        working-directory: apps/api
+        run: |
+          node -e "
+            const cli = require.resolve('typeorm/cli-ts-node-commonjs.js');
+            const tsNode = require.resolve('ts-node', { paths: [cli] });
+            console.log('cli    :', cli);
+            console.log('ts-node:', tsNode);
+          "
+
       - name: Migrate
         working-directory: apps/api
         env:
