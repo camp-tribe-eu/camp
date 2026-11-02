@@ -7,6 +7,7 @@ import {
   legalSlugs,
 } from "@/lib/legal-content";
 import { PAGE_REVALIDATE_SECONDS, PAGE_TAG } from "@/lib/page-content";
+import { escapeRegExp } from "./legal-claims";
 
 // 🔴 CAMP-365 — СТОРОЖ: ПРАВОВИЙ ДОКУМЕНТ, ЯКОГО НЕМАЄ АБО ЧИЄ ТІЛО
 // ПОРОЖНЄ, ЗУПИНЯЄ ЗБІРКУ І НАЗИВАЄ СЕБЕ.
@@ -76,7 +77,13 @@ test.describe("checkLegalDocument", () => {
       try {
         checkLegalDocument(
           p.slug,
-          { ...good(), slug: p.slug, version: p.version, effectiveFrom: p.effectiveFrom, body: "" },
+          {
+            ...good(),
+            slug: p.slug,
+            version: p.version,
+            effectiveFrom: p.effectiveFrom,
+            body: "",
+          },
           p,
         );
       } catch (e) {
@@ -89,7 +96,10 @@ test.describe("checkLegalDocument", () => {
 
   // Решта полів, які сторінка друкує: порожнє не малюємо.
   for (const field of ["title", "summary", "version", "effectiveFrom"]) {
-    for (const [label, v] of [["відсутнє", undefined], ["порожнє", "  "]] as const) {
+    for (const [label, v] of [
+      ["відсутнє", undefined],
+      ["порожнє", "  "],
+    ] as const) {
       test(`поле «${field}» ${label} — збірка падає й називає документ і поле`, () => {
         const doc = good() as Record<string, unknown>;
         if (v === undefined) delete doc[field];
@@ -118,7 +128,16 @@ test.describe("checkLegalDocument", () => {
   test("🔴 версія в базі не дорівнює реєстру — падіння з обома значеннями", () => {
     const newer = `${REG.version}.1`;
     expect(() => checkLegalDocument("terms", good({ version: newer }))).toThrow(
-      new RegExp(`«terms».*«${newer.replace(/\./g, "\\.")}».*«${REG.version.replace(/\./g, "\\.")}»`),
+      // 🔴 Було `.replace(/\./g, "\\.")` — екранувалася ЛИШЕ крапка
+      // (CodeQL `js/incomplete-sanitization`, high). Версія сьогодні —
+      // цифри й крапки, тож діри в продукті тут немає; діра в САМОМУ
+      // стороже: версія на кшталт `1.2+eu` зробила б `+` квантифікатором,
+      // регулярка не знайшла б повідомлення, і тест почервонів би НЕ ЗА ТЕ.
+      // Тепер екранується кожен метасимвол — тією самою функцією, яку
+      // `legal-cookies-claims.spec.ts` уже доводить тестом.
+      new RegExp(
+        `«terms».*«${escapeRegExp(newer)}».*«${escapeRegExp(REG.version)}»`,
+      ),
     );
     expect(() => checkLegalDocument("terms", good({ version: "0.1" }))).toThrow(
       /версія/,
@@ -273,10 +292,7 @@ test.describe("legalSlugs і legalDocument поверх API", () => {
   // не мав би що скидати. Читається те, з чим `fetch` справді викликано.
   test("🔴 запити несуть мітку pages і добову витримку", async () => {
     await withFetch(
-      (url) =>
-        url.endsWith("/legal")
-          ? json(listOf(ALL))
-          : json(good()),
+      (url) => (url.endsWith("/legal") ? json(listOf(ALL)) : json(good())),
       async (seen) => {
         await legalSlugs();
         await legalDocument("terms");
@@ -284,7 +300,9 @@ test.describe("legalSlugs і legalDocument поверх API", () => {
         for (const s of seen) {
           const next = s.init.next as { revalidate?: number; tags?: string[] };
           expect(next.tags, `${s.url}: мітки`).toContain(PAGE_TAG);
-          expect(next.revalidate, `${s.url}: витримка`).toBe(PAGE_REVALIDATE_SECONDS);
+          expect(next.revalidate, `${s.url}: витримка`).toBe(
+            PAGE_REVALIDATE_SECONDS,
+          );
         }
         expect(PAGE_TAG).toBe("pages");
       },
