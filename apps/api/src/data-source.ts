@@ -21,6 +21,13 @@ import {
   RentalCity,
   RentalCityTranslation,
 } from './entities/rental.entity';
+import {
+  RentalProvider,
+  RentalProviderReviewProfile,
+  RentalProviderService,
+  RentalProviderTranslation,
+  RentalProviderVehicle,
+} from './entities/rental-provider.entity';
 import { PhotoSubmission, Review } from './entities/moderation.entity';
 import { SpotTariff } from './entities/spot-tariff.entity';
 import { BathingWater } from './entities/bathing-water.entity';
@@ -53,6 +60,11 @@ export const AppDataSource = new DataSource({
     CamperTypeTranslation,
     RentalCity,
     RentalCityTranslation,
+    RentalProvider,
+    RentalProviderTranslation,
+    RentalProviderService,
+    RentalProviderVehicle,
+    RentalProviderReviewProfile,
     PhotoSubmission,
     Review,
     // CAMP-147: the campsite price list, one row per tariff.
