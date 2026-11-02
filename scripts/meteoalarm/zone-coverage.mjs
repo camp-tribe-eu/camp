@@ -20,6 +20,15 @@
 // publishes? `SCHEMES_USED` below is that question's data, and it comes
 // from `fetch-warnings.mjs --census`, not from an opinion.
 //
+// 🔴 02.11.2026: THE ANSWER FOR FIVE COUNTRIES CHANGED, AND THE TRAP DID NOT.
+// GISCO's licence forbids commercial use, so France, Bulgaria, Romania,
+// Hungary and Belgium are no longer joined on the NUTS their feeds publish
+// but on `EMMA_ID` — and a French campsite's `EMMA_ID` matches a French
+// warning only because `fetch-warnings.mjs` writes the zone's code beside
+// the NUTS code (`nuts-binding.mjs`, by name). The paragraph above stays as
+// the reason that step cannot be skipped; the self-test below ties the two
+// ends on 88 live codes, so a campsite code the warnings never carry fails.
+//
 // 🔴 MEASURED 13.10.2026, all 27 live feeds, 42 135 code occurrences:
 //
 //     EMMA_ID     26 969   16 countries

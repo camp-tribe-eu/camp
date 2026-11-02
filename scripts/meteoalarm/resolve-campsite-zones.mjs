@@ -15,9 +15,15 @@
 // Actions лишається те, що там і було: вимірювання покриття.
 //
 // 🔴 ЩО САМЕ ПИШЕМО, вирішує перепис у `zone-coverage.mjs`, не цей
-// файл. Франція лежить у полігонах MeteoAlarm на 97.5% і попереджає в
-// NUTS3; EMMA-код на французькому рядку не збігся б ніколи. Тому
-// з'єднання йде ПАРАМИ «країна × схема, яку вона вживає».
+// файл. З'єднання йде ПАРАМИ «країна × схема».
+//
+// 🔴 02.11.2026 ЦЕ БІЛЬШЕ НЕ «СХЕМА, ЯКУ ВОНА ВЖИВАЄ». Франція, Болгарія,
+// Румунія, Угорщина й Бельгія попереджають у NUTS, а кемпінг несе
+// EMMA_ID: полігони NUTS ми брали в GISCO (EuroGeographics), чия ліцензія
+// забороняє комерційне використання. Збігається це лише тому, що
+// `fetch-warnings.mjs` дописує до NUTS-області код зони за назвою
+// (`nuts-binding.mjs`). Повіти Хорватії — NUTS3 з OpenStreetMap: у списку
+// зон MeteoAlarm повітів немає.
 
 import { execFileSync } from 'node:child_process';
 import {
@@ -782,6 +788,37 @@ async function selfTest() {
       `🔴 повіт, чий ref:nuts:3 змінився, відкинутий один: ${real.features.length} прийнято, ${real.rejected.map((r) => r.code)} відкинуто`,
     );
 
+    // 🔴 І ТРИ СПОСОБИ, ЯКИМИ ПОВІТ МОЖЕ НЕ ДІЙТИ. Кожен — окремо, бо
+    // без цього прибрати будь-яку з умов відбору можна було безкарно.
+    const feat = (code, over = {}) => ({
+      type: 'Feature',
+      properties: { osm_type: 'relation', osm_id: HR_COUNTIES[code].rel, extratags: { 'ref:nuts:3': code }, ...over },
+      geometry: { type: 'MultiPolygon', coordinates: [] },
+    });
+    const all = Object.keys(HR_COUNTIES);
+    const lacking = hrCountiesFeatures({ features: all.filter((c) => c !== 'HR031').map((c) => feat(c)) });
+    check(
+      lacking.features.length === 20 && lacking.rejected.length === 1 &&
+        lacking.rejected[0].code === 'HR031' && /absent/.test(lacking.rejected[0].why),
+      '🔴 повіт, якого немає у відповіді, названий відсутнім, а не зникає мовчки',
+    );
+    check(hrCountiesFeatures({ features: [] }).rejected.length === 21, 'порожня відповідь відкидає всі 21, а не жодного');
+    const foreign = hrCountiesFeatures({ features: [...all.map((c) => feat(c)), feat('HR031', { osm_id: 22238 })] });
+    check(
+      foreign.features.length === 21 && foreign.rejected.length === 1 && /not one of the counties/.test(foreign.rejected[0].why),
+      '🔴 чужа relation (Zala, HU223, що теж має ref:nuts:3) не стає повітом Хорватії',
+    );
+    const way = hrCountiesFeatures({ features: [...all.filter((c) => c !== 'HR031').map((c) => feat(c)), feat('HR031', { osm_type: 'way' })] });
+    check(
+      way.features.length === 20 && way.rejected.some((r) => /not one of the counties/.test(r.why)),
+      '🔴 `way` з тим самим номером — не `relation`: не приймається',
+    );
+    const point = hrCountiesFeatures({ features: all.map((c) => (c === 'HR031' ? { ...feat(c), geometry: { type: 'Point', coordinates: [0, 0] } } : feat(c))) });
+    check(
+      point.features.length === 20 && point.rejected[0]?.code === 'HR031' && /not an area/.test(point.rejected[0].why),
+      '🔴 повіт, що прийшов точкою, а не площею, відкинутий — точка нічого не містить',
+    );
+
     for (const d of [stale, named, sel]) rmSync(d, { recursive: true, force: true });
   }
 
@@ -823,7 +860,7 @@ async function selfTest() {
     );
   }
 
-  const EXPECTED_CASES = 68;
+  const EXPECTED_CASES = 73;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;
