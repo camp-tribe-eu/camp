@@ -56,19 +56,22 @@
 -- country is two capitals — each of those is a CHECK, and a row that
 -- violated one would fail the load loudly rather than quietly skew a
 -- count.
-INSERT INTO webcams (provider, ref, title, country, categories, location, detail_url, provider_url, last_frame_at) VALUES
+INSERT INTO webcams (provider, ref, title, country, categories, location, detail_url, provider_url, image_url, last_frame_at) VALUES
   ('windy', '1690466401', 'Bovec: Live webcam - airport - View to Kanin', 'SI', '{mountain}',
    ST_GeomFromText('POINT(13.5520 46.3390)', 4326)::geography,
    'https://windy.com/webcams/1690466401',
    'https://www.whatsupcams.com/en/webcams/Slovenia/Goriska/Bovec/live-webcam-bovec-airport',
+   'https://imgproxy.windy.com/_/preview/plain/daylight/1690466401/original.jpg?v=2',
    now() - interval '9 minutes'),
   ('windy', '1689851105', 'Bovec', 'SI', '{mountain}',
    ST_GeomFromText('POINT(13.5660 46.3440)', 4326)::geography,
    'https://windy.com/webcams/1689851105', NULL,
+   'https://imgproxy.windy.com/_/preview/plain/daylight/1689851105/original.jpg?v=2',
    now() - interval '41 minutes'),
   ('windy', '1611140235', 'Zadar: harbour', 'HR', '{harbor}',
    ST_GeomFromText('POINT(15.4355 43.9550)', 4326)::geography,
    'https://windy.com/webcams/1611140235', NULL,
+   'https://imgproxy.windy.com/_/preview/plain/daylight/1611140235/original.jpg?v=2',
    now() - interval '3 days');
 
 DO $$

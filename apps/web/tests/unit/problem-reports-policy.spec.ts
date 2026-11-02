@@ -293,8 +293,8 @@ test.describe('реєстр правових сторінок і сама сто
 //     `*.your-server.de`);
 //   · край — заголовок `CF-Connecting-IP`, який читають Caddy й `throttle.ts`;
 //   · прямі зʼєднання браузера — хости, що стоять ЛІТЕРАЛАМИ в коді й CSP:
-//     `lib/map-sources.ts` (плитки), `lib/webcams.ts` і `img-src`
-//     (вебкамери), `data/satellite-sources.json` (супутник).
+//     `lib/map-sources.ts` (плитки), `img-src`
+//     (вебкамери: адреса кадру тепер приходить із API, хост лишається в CSP), `data/satellite-sources.json` (супутник).
 //
 // ⚠️ Чого це не бачить, названо в реєстрі: значення env на самій машині
 // (`SMTP_HOST`, `NEXT_PUBLIC_SELF_TILES_URL`) репозиторій не несе.
@@ -353,8 +353,11 @@ function hostsInCode(): Array<{ host: string; where: string }> {
   };
   // Плитки: типове значення, коли NEXT_PUBLIC_TILES_URL не задано.
   pick('src/lib/map-sources.ts', /NEXT_PUBLIC_TILES_URL \?\? '(https:\/\/[^']+)'/g);
-  // Вебкамери: адреса кадру.
-  pick('src/lib/webcams.ts', /`(https:\/\/[^/`]+)\//g);
+  // Вебкамери: хост кадру тепер береться з відповіді API (збирач зберігає
+  // `images.daylight.preview` як є), тож у `src/lib/webcams.ts` літерала
+  // немає. Єдине місце в коді сайту, де цей хост стоїть, — CSP `img-src`
+  // нижче; а що збирач і CHECK у таблиці називають той самий хост, тримає
+  // `webcams.spec.ts`.
   // CSP img-src: усе, що не 'self'/data:/blob:.
   pick('scripts/security-headers.mjs', /"img-src [^"]*?(https:\/\/[^\s"]+)/g);
   // Супутник: кожне джерело.

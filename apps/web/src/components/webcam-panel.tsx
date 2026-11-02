@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react';
 import {
   WEBCAM_NETWORK,
-  WINDY_CREDIT,
+  WINDY_ADD_URL,
+  WINDY_CREDIT_PARTS,
+  WINDY_HOME_URL,
   absence,
   direction,
   distance,
-  frameUrl,
   WEBCAM_RADIUS_M,
   reportedMinutesAgo,
   reportedPhrase,
@@ -188,12 +189,14 @@ export function WebcamPanel({
 
                         Plain <img>, no next/image: the bytes are Windy's
                         and must be served from their CDN under their
-                        terms, not copied through ours. Width and height
+                        terms, not copied through ours. `src` is the address
+                        Windy's API returned for this camera — never one we
+                        assembled, which their terms forbid. Width and height
                         are the API's published preview size, so the card
                         does not jump while it loads. */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={frameUrl(cam.ref)}
+                      src={cam.imageUrl as string}
                       alt={`The most recent daylight view from the ${shortTitle(cam.title)} webcam`}
                       width={400}
                       height={224}
@@ -238,9 +241,21 @@ export function WebcamPanel({
           </ul>
 
           <p className="mt-3 text-xs" data-boilerplate="webcam-credit">
-            {/* The credit their terms dictate, word for word, and the
-                sentence that keeps the pictures honest. */}
-            {WINDY_CREDIT}. Distances are straight-line from this campsite —
+            {/* The credit their terms dictate, word for word — TWO links,
+                the site and the add-a-webcam page, as their "Courtesy"
+                markup has them — and the sentence that keeps the pictures honest.
+                The text is `WINDY_CREDIT` in lib/webcams.ts, split here
+                only to carry the anchors; a test reads the rendered page
+                and holds the two together. */}
+            {WINDY_CREDIT_PARTS.lead}{' '}
+            <a href={WINDY_HOME_URL} target="_blank" rel="noopener noreferrer" className="underline">
+              {WINDY_CREDIT_PARTS.site}
+            </a>{' '}
+            &mdash;{' '}
+            <a href={WINDY_ADD_URL} target="_blank" rel="noopener noreferrer" className="underline">
+              {WINDY_CREDIT_PARTS.add}
+            </a>
+            . Distances are straight-line from this campsite —
             a camera is not a view of the site itself.
           </p>
         </>

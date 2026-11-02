@@ -50,10 +50,15 @@ describe('nearbyWebcamsSql', () => {
     );
   });
 
-  it('never selects an image column, because there is none to select', () => {
-    // The bytes are Windy's and are served from their CDN under their
-    // terms. A column here would be a copy.
-    expect(sql).not.toMatch(/\bimage\b/i);
+  it('hands the page the address the API gave us, and nothing that is a picture', () => {
+    // 🔴 Windy's terms allow image URLs only as the API provided them, so
+    // the page must receive the stored one — it may not rebuild it from
+    // `ref`. And the bytes are Windy's: the only image-ish column is the
+    // address, never a copy of the frame.
+    expect(flat(sql)).toContain('c.image_url AS "imageUrl"');
+    const columns = [...flat(sql).matchAll(/\bc\.(\w*image\w*)/gi)].map((m) => m[1]);
+    expect(columns).toEqual(['image_url']);
+    expect(sql).not.toMatch(/bytea|\bblob\b|lo_import/i);
   });
 
   it('answers an empty array rather than null when nothing is near', () => {

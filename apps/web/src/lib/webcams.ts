@@ -33,6 +33,11 @@ export interface Webcam {
   ref: string;
   title: string;
   categories: string[];
+  /**
+   * The frame's address exactly as Windy's API returned it
+   * (`images.daylight.preview`). Never built here.
+   */
+  imageUrl: string | null;
   detailUrl: string;
   providerUrl: string | null;
   lastFrameAt: string | null;
@@ -40,26 +45,52 @@ export interface Webcam {
 }
 
 /**
- * 🔴 Built from the camera's id, which is the one thing about this URL
- * we are sure of.
+ * 🔴 THERE IS NO `frameUrl` HERE, AND THERE MUST NOT BE ONE.
  *
- * The API returns image URLs in its payload and the tariff page says
- * "Image url validity is limited to 15 minutes". The URLs it returns
- * carry no token and answered fine, so the 15 minutes may be about a
- * different tier or a different form — we could not prove either way.
+ * It used to assemble the frame's CDN address out of the camera's id.
+ * Windy's Webcams API terms
+ * require image URLs to be used only as the API provides them
+ * ("Use images only with URLs provided by the API."; and the agreement
+ * lists "image URL usage other than provided by the API" among the
+ * misuses that end the service). A built address is exactly that.
  *
- * What we do know: these pages are static and live for days, so a URL
- * that expires in fifteen minutes would be a broken image on every page
- * within the hour. The id-addressed form has answered every time we
- * asked, which is the only form that can work for a built page at all.
- * If it ever stops, the image breaks and the caption beside it still
- * reads true — which is why the caption never depends on the picture.
+ * So the address is `images.daylight.preview` from the API's own answer,
+ * read by `scripts/windy/fetch-webcams.mjs` at collection time, stored in
+ * `webcams.image_url` and delivered here as `imageUrl`. The page prints
+ * it as given.
+ *
+ * Measured 02.11.2026 on the Free tier (nearby=46.36,13.84,25, 20 of the
+ * 121 cameras): all 20 addresses the API returned are character-for-
+ * character what the old function built, carry only `?v=2` and no token,
+ * and 40 of 40 (preview + thumbnail) still answered 200 when asked again
+ * 11.2 minutes later. Windy's docs say image tokens expire after 10
+ * minutes on Free and the URL then returns 401; that is not what the API
+ * does today, which is why this stores the address — and why the
+ * collector refreshes it on every run. If Windy
+ * ever starts signing these, the pictures break and the captions beside
+ * them still read true, as they always did.
  */
-export const frameUrl = (ref: string, size: 'thumbnail' | 'preview' = 'preview'): string =>
-  `https://imgproxy.windy.com/_/${size}/plain/daylight/${encodeURIComponent(ref)}/original.jpg?v=2`;
 
-/** The credit Windy's terms require, word for word. */
-export const WINDY_CREDIT = 'Webcams provided by windy.com';
+/**
+ * The credit Windy's terms require, word for word — and it is TWO links,
+ * not one. The terms page (api.windy.com/webcams/terms, "Courtesy") gives
+ * this markup:
+ *
+ *   Webcams provided by <a href="https://www.windy.com/">windy.com</a>
+ *   &mdash; <a href="https://www.windy.com/webcams/add">add a webcam</a>
+ *
+ * Until 02.11.2026 we printed the first half as plain text with no link
+ * at all. The panel renders `WINDY_CREDIT` with `windy.com` and
+ * `add a webcam` as anchors to these two addresses.
+ */
+export const WINDY_CREDIT_PARTS = {
+  lead: 'Webcams provided by',
+  site: 'windy.com',
+  add: 'add a webcam',
+} as const;
+export const WINDY_CREDIT = `${WINDY_CREDIT_PARTS.lead} ${WINDY_CREDIT_PARTS.site} — ${WINDY_CREDIT_PARTS.add}`;
+export const WINDY_HOME_URL = 'https://www.windy.com/';
+export const WINDY_ADD_URL = 'https://www.windy.com/webcams/add';
 
 /**
  * Чия це мережа — для речень, які говорять про ПОКРИТТЯ.
@@ -185,6 +216,10 @@ export type WebcamVerdict = 'ok' | 'stale' | 'unusable';
  */
 export function verdict(cam: Webcam, now: Date): WebcamVerdict {
   if (!cam.detailUrl?.startsWith('https://')) return 'unusable';
+  // 🔴 No address from the API means no picture, and we do not make one
+  // up. A row imported before the column existed lands here until the
+  // next collection run replaces it.
+  if (typeof cam.imageUrl !== 'string' || !cam.imageUrl.startsWith('https://')) return 'unusable';
   if (typeof cam.title !== 'string' || !cam.title) return 'unusable';
   if (!Number.isFinite(cam.metres) || cam.metres < 0) return 'unusable';
   const mins = reportedMinutesAgo(cam.lastFrameAt, now);
