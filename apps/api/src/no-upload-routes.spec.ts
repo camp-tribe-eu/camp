@@ -1,7 +1,12 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
-// CAMP-388 — підстава, на якій multer лежить у scripts/security/known-advisories.json.
+// CAMP-388 — підстава, на якій multer ЛЕЖАВ у scripts/security/known-advisories.json
+// з 25.10 по 01.11.2026. Запис знято: @nestjs/platform-express 12.3.2 приніс
+// multer 2.5.0 (`npm view @nestjs/platform-express dependencies.multer`).
+// Спек лишається, бо тримає інше: завантаження файлів у API немає, і день,
+// коли воно зʼявиться (CAMP-86), має бути днем, коли хтось подивиться на
+// multer свідомо — а не днем, коли він тихо стане в чергу перед запитом.
 //
 // 🔴 ЩО ЦЕ ТРИМАЄ. GHSA-q7qp-rjg7-q26m (multer, high) прийнято НЕ тому, що
 // «ми вважаємо це безпечним», а тому, що multer у нас ніколи не стоїть
@@ -151,11 +156,11 @@ describe('the API has no upload handler, so multer is never in front of a reques
       throw new Error(
         'У API з’явилося завантаження файлів:\n  ' +
           hits.join('\n  ') +
-          '\n\nНа цьому тримається прийняття multer GHSA-q7qp-rjg7-q26m у ' +
-          'scripts/security/known-advisories.json («multer ніколи не стоїть ' +
-          'перед запитом»). Воно більше не правдиве: або підніміть multer ' +
-          'до ≥2.5.0 (`npm view @nestjs/platform-express dependencies.multer` ' +
-          'покаже, чи вже можна), або перепишіть причину й дату перегляду.',
+          '\n\nДосі multer ніколи не стояв перед запитом, і на цьому трималося ' +
+          'кожне прийняття його advisory у scripts/security/known-advisories.json. ' +
+          'Тепер стоїть: перевірте `npm audit --omit=dev` у apps/api — ' +
+          'якщо multer там є, він уже прод-ризик, і запис у baseline мусить ' +
+          'мати причину про ЗАВАНТАЖЕННЯ, scope "prod" і дату перегляду.',
       );
     }
     expect(hits).toEqual([]);

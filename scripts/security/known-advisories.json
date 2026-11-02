@@ -1,11 +1,38 @@
 {
   "apps/api": {
-    "GHSA-q7qp-rjg7-q26m": {
-      "severity": "high",
-      "package": "multer",
-      "title": "multer vulnerable to Denial of Service via a pending asynchronous fileFilter after request",
-      "why": "CAMP-388, заміряно 25.10.2026 (через дві доби після публікації). ВРАЗЛИВІСТЬ ПОТРЕБУЄ multer ПЕРЕД ЗАПИТОМ І `fileFilter` НА ЗАВАНТАЖЕННІ; У НАС ЙОГО НІДЕ НЕ СТАВЛЯТЬ. (1) `grep -rnE \"FileInterceptor|FilesInterceptor|AnyFilesInterceptor|FileFieldsInterceptor|NoFilesInterceptor|MulterModule|UploadedFiles?|fileFilter|['\\\"]multer['\\\"]|Express\\.Multer\" apps/api/src --include='*.ts' --exclude='*.spec.ts'` → 0 збігів у 201 виробничому файлі. (2) `grep -rnE \"@(Post|Put|Patch|Delete)\\(\" apps/api/src --include='*.ts' --exclude='*.spec.ts' | wc -l` → 15 маршрутів із тілом (auth ×8, account-settings ×3, account-rights ×2, client-errors, not-found), жоден не приймає файл: інтерсептора завантаження не має жоден (пункт 1). ЧОМУ НЕ ПІДНЯТО: виправлено в multer 2.5.0 (22.10.2026), але `@nestjs/platform-express` закріплює multer ТОЧНО — `npm view @nestjs/platform-express@12.2.0 dependencies.multer` → 2.4.0, а 12.2.0 і є `latest` (19.10.2026), тож жодна версія Nest 12 не приносить 2.5.0. Через `overrides` теж ні: `\"multer\": \"2.5.0\"` у коренях + `npm install --package-lock-only` на наявному lock → 0 змін у lock (заміряно 25.10.2026; те саме, що записано в CAMP-159 і в коміті 71c6d16). ЩОБ ЦЯ ПІДСТАВА НЕ СТАЛА ХИБНОЮ МОВЧКИ: `apps/api/src/no-upload-routes.spec.ts` червоніє в день, коли в `apps/api/src` зʼявиться будь-яке з цих імен (CAMP-86, фото, буде першим). ВИКИНУТИ ЗАПИС: коли `npm view @nestjs/platform-express dependencies.multer` покаже ≥2.5.0 — сторож сам надрукує «fixed upstream, drop from the baseline»."
+    "GHSA-3g3m-2fjr-6pw4": {
+      "severity": "moderate",
+      "package": "glob",
+      "title": "Glob: AbortSignal cancellation bypass allows post-timeout filesystem traversal",
+      "scope": "dev",
+      "why": "01.11.2026, картка «аудит зелений». ЛИШЕ ЗБІРКА Й ТЕСТИ: `npm audit --omit=dev` у apps/api → 0 (сторож міряє це сам, поле scope). Хто тримає: jest@30.5.2 через @jest/reporters, jest-config, jest-runtime (`npm view @jest/reporters@30.5.2 dependencies.glob` → ^13.0.6, у дереві glob 13.0.6) і ts-jest → babel-plugin-istanbul → test-exclude@7.0.2 (`dependencies.glob` → ^10.4.1, у дереві 10.5.0). ЩО ЦЕ: обхід скасування через AbortSignal — glob продовжує читати диск після таймауту, якщо викликач передав сигнал і покладається на нього. Jest обходить НАШЕ дерево на CI й ноутбуках за НАШИМИ патернами; чужого вводу тут немає, сигналу jest не передає. ЧОМУ НЕ ПІДНЯТО: виправлено лише в 14.0.2 (27.10.2026), жодного виправленого 10.x чи 13.x немає (діапазон advisory >=9.0.0 <=14.0.1); `npm audit` не бачить немажорного шляху (fixAvailable → jest@25.1.0, isSemVerMajor — тобто відкат). Override не рухає вузол, який уже є в lock (заміряно 01.11.2026 на qs: `\"qs\": \"^6.17.1\"` в overrides + `npm install --package-lock-only` → qs лишився 6.16.0; зрушив лише `npm update qs`), а `npm update glob` не виходить за ^13. ЯК ЗАКРИТИ: коли `npm view jest dependencies` чи `npm view @jest/reporters dependencies.glob` покаже ^14 — `npm update jest --workspace apps/api --package-lock-only`, сторож сам надрукує «fixed upstream».",
+      "acceptedUntil": "2027-01-31"
+    },
+    "GHSA-g3hv-75wg-m249": {
+      "severity": "moderate",
+      "package": "minimatch",
+      "title": "minimatch has potential denial of service via globparts amplification",
+      "scope": "dev",
+      "why": "01.11.2026, картка «аудит зелений». ЛИШЕ ЗБІРКА Й ТЕСТИ: `npm audit --omit=dev` у apps/api → 0. Хто тримає (три різні мажори, усі вразливі — діапазон advisory <11.0.1): eslint@8.57.1, @eslint/eslintrc@2.1.4, eslint-plugin-import/react/jsx-a11y → ^3.1.2 (у дереві 3.1.5); @typescript-eslint/typescript-estree@8.71.1 і glob@13.0.6 → ^10.2.2, @nestjs/cli@12.0.8 → 10.2.6 точно (`npm view @nestjs/cli@12.0.11 dependencies.minimatch` → теж 10.2.6, тобто й latest); glob@10.5.0 → ^9.0.4. ЩО ЦЕ: DoS через розмноження globparts від ПАТЕРНА. Патерни тут наші — testMatch у jest, глоби lint-скрипта, assets у nest-cli.json; користувач сайту чи API патерн не подає. ЧОМУ НЕ ПІДНЯТО: виправлено лише в 11.0.1 (27.10.2026); для eslint 8 це стрибок із 3.x через два мажори, для решти — через один; `npm audit` пропонує лише мажор (eslint-config-next@0.2.4 / @nestjs/cli@11.0.24 — відкати). Override не рухає вузли, що вже в lock (замір на qs, див. GHSA-3g3m-2fjr-6pw4). Цю ж advisory Dependabot рахує ОДНИМ алертом (development, package-lock.json), `npm audit` — 43 пакетами, бо друкує кожен хоп `via`. ЯК ЗАКРИТИ: eslint 9 у apps/api (мажор, окрема картка; web уже на ^9, але й eslint@9.39.5 тягне ^3.1.5 — `npm view eslint@9 dependencies.minimatch`), тож реально чекаємо на випуски eslint/typescript-eslint/@nestjs/cli з ^11.",
+      "acceptedUntil": "2027-01-31"
+    },
+    "GHSA-gcqx-w48m-w2h4": {
+      "severity": "low",
+      "package": "deepmerge",
+      "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
+      "scope": "dev",
+      "why": "01.11.2026, картка «аудит зелений». ЛИШЕ ТЕСТИ: `npm audit --omit=dev` у apps/api → 0. Хто тримає: jest-config@30.5.2 (`npm view jest-config@30.5.2 dependencies.deepmerge` → ^4.3.1), яка зливає НАШ jest-конфіг із типовим. ЩО ЦЕ: отруєння прототипу об'єкта, який повертає mergeObject(), коли ВХІД містить __proto__ — вхід тут це наш власний конфіг у репозиторії. ЧОМУ НЕ ПІДНЯТО: виправленої версії НЕ ІСНУЄ — `npm view deepmerge version` → 4.3.1, це й є вразлива; перелік versions закінчується на 4.3.1 (діапазон advisory >=4.2.0 <=4.3.1). `npm audit` пропонує лише jest@25.1.0 (відкат до jest без deepmerge). ЯК ЗАКРИТИ: коли вийде deepmerge >4.3.1 — `npm update deepmerge --package-lock-only`; або коли jest-config перестане його тягнути.",
+      "acceptedUntil": "2027-01-31"
     }
   },
-  "apps/web": {}
+  "apps/web": {
+    "GHSA-g3hv-75wg-m249": {
+      "severity": "moderate",
+      "package": "minimatch",
+      "title": "minimatch has potential denial of service via globparts amplification",
+      "scope": "dev",
+      "why": "01.11.2026, картка «аудит зелений». ЛИШЕ ЛІНТ: `npm audit --omit=dev` у apps/web → 0; у `dependencies` web лише next, react, react-dom, maplibre-gl, і жоден не тягне minimatch. Хто тримає: eslint-config-next@16.4.3 → eslint-plugin-import/react/jsx-a11y (^3.1.2 → 3.1.5), typescript-eslint → @typescript-eslint/typescript-estree (^10.2.2), @eslint/config-array (^10.2.4); @lhci/cli → chrome-launcher → rimraf@3 → glob@7 (не вразливий сам, <9, але його minimatch — 3.x). Що це й чому не піднято — те саме, що в записі apps/api: патерни наші, виправлення лише в 11.0.1 (27.10.2026), `npm audit` пропонує лише мажор-відкат eslint-config-next@0.2.4. ЯК ЗАКРИТИ: eslint-config-next, що тягне typescript-eslint/плагіни з minimatch ^11 — `npm update eslint-config-next --workspace apps/web --package-lock-only` після виходу.",
+      "acceptedUntil": "2027-01-31"
+    }
+  }
 }
