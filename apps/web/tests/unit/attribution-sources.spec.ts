@@ -166,7 +166,7 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
 
   // ── інфраструктура й збірка: нічого не доходить до читача ──
   'cloudflare.com': because('Cloudflare’s published proxy IP ranges, read by the firewall script to allow only the proxy; no data reaches a page', 'infra/bin/camptribe-firewall'),
-  'github.com': because('our own repository: pull-request links in CI and release assets of our own OSM extracts, whose underlying data (OpenStreetMap, Geofabrik) is named on the page', 'scripts/ci/check-dependabot-prs.mjs', 'scripts/osm-pipeline/import-release.mjs', 'infra/bin/', '.github/'),
+  'github.com': because('our own repository: pull-request links in CI and release assets of our own OSM extracts, whose underlying data (OpenStreetMap, Geofabrik) is named on the page', 'scripts/ci/check-dependabot-prs.mjs', 'scripts/osm-pipeline/import-release.mjs', 'infra/bin/', '.github/', 'scripts/security/codeql-dismissals.json'),
   'api.github.com': because('the release listing of our own repository, read by the OSM import to find the extracts our pipeline published; the data itself is named on the page', 'scripts/osm-pipeline/import-release.mjs'),
   'build.protomaps.com': because('a measurement script that reads only the directories of a PMTiles archive by range request to size a possible basemap; nothing it reads reaches a page. If that build ever ships as the basemap, this host moves onto the page', 'scripts/tiles/measure-pmtiles.mjs'),
 
