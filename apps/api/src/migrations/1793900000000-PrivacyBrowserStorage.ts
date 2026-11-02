@@ -37,7 +37,12 @@ import {
  *     й відгуки сказано «does not yet» — із тим, що правило видалення вже
  *     є в коді (`account-rights.service.ts`) і діятиме, коли вони зʼявляться.
  *
- * 🔴 ТЕКСТ — ШІСТЬ ЗАМІН З ПЕРЕВІРКОЮ ЄДИНОСТІ ЯКОРЯ, від тіла 2.3, яке бере
+ *  4. «Changes»: «so their full text is in our public source repository» →
+ *     «so they are recorded in our public source repository» (див. коментар
+ *     біля заміни) і «we will tell you which text» → «we will send you the
+ *     text», як у terms §6.
+ *
+ * 🔴 ТЕКСТ — ВІСІМ ЗАМІН З ПЕРЕВІРКОЮ ЄДИНОСТІ ЯКОРЯ, від тіла 2.3, яке бере
  * з його міграції, а не передруковує. Версію піднімає й реєстр
  * `lib/legal.ts`. Збіг трьох поверхонь (cookies, privacy, банер) тримає
  * `apps/web/tests/unit/legal-storage-surfaces.spec.tsx`: ключі виводяться з
@@ -97,6 +102,25 @@ The details are on the [cookies](/legal/cookies) page.`,
       '> **What deletion does not reach, and why.**',
       'We would rather tell you where the line is than let you discover it.',
       '> **What deletion does not reach, and why.** The site does not yet take photographs or reviews, so today there is nothing of that kind to keep. The rule is already part of account deletion, and it is this: one record would survive — that a photo or a review was rejected, why, when, and for which place. It would carry nothing that points back to you — no name, no address, not even a reference to the account that was deleted. Because no part of it identifies a person, it would have stopped being personal data, and the right to erasure would have nothing left to reach. We would keep it to be able to account for our own moderation decisions. Separately, the licence you grant for photographs once they are published is a contract rather than personal data, so those photographs may remain — but your name comes off them on request. We would rather tell you where the line is than let you discover it.',
+    );
+    // 🔴 «Changes»: «so their full text is in our public source repository»
+    // стверджувало, що повний текст попередньої редакції можна ПРОЧИТАТИ в
+    // репозиторії. Для п'яти редакцій з PR #399/#401 (terms 1.2, cookies 1.1,
+    // database 1.1, notice 1.1, privacy 2.4) це неправда: їхні міграції
+    // складають текст замінами з попереднього (не передруковують його двічі —
+    // і це правильно), тож у файлі його не прочитати, лише відтворити
+    // виконанням. Речення описує механізм, який є: редакції приїздили кодом і
+    // записані в репозиторії. Те саме, тими самими словами, — у terms §6
+    // (`legal-edition-storage.spec.ts` червоніє, коли сторінки розходяться).
+    body = replaceOnce(
+      body,
+      'each shipped as code, so their full text is in our public source repository;',
+      'each shipped as code, so they are recorded in our public source repository;',
+    );
+    body = replaceOnce(
+      body,
+      'Write to us and we will tell you which text was in force on a given day.',
+      'Write to us and we will send you the text that was in force on any day you name.',
     );
     return {
       // Літерал, а не `this.previous.slug`: сторож реєстру (`problem-reports-policy`,
