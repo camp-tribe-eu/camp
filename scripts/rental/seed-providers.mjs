@@ -78,7 +78,9 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--self-test')) return selfTest();
 
-  const list = JSON.parse(readFileSync(SEED, 'utf8'));
+  // Файл може бути масивом або `{ _meta, providers }` — збирач віддає друге.
+  const raw = JSON.parse(readFileSync(SEED, 'utf8'));
+  const list = Array.isArray(raw) ? raw : raw?.providers;
   const bad = faults(list);
   if (bad.length) {
     for (const b of bad) console.error(`✗ ${b}`);
