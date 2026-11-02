@@ -243,6 +243,18 @@ export function isReportPath(path: string): boolean {
  * costs when it is spent is pictures missing for a minute, never a
  * breach of Windy's terms.
  */
+/**
+ * ⚠️ RISK, NOT MEASURED, LEFT AS IS ON PURPOSE: CGNAT. Mobile operators
+ * put thousands of subscribers behind one IPv4 address, and this route
+ * fires on EVERY view of a campsite page that has a camera panel. Ten a
+ * minute per address can therefore be spent by a few people on one
+ * operator, and the rest of them see tiles instead of pictures until the
+ * minute turns. The number is argued above and is not changed blind; when
+ * there is real traffic, look at the share of 429s on this bucket by
+ * address block before touching it. (The caller's address is the socket's
+ * or Cloudflare's `CF-Connecting-IP`, see `clientKey`, so it cannot be
+ * forged by a header.)
+ */
 export const FRAMES_LIMIT = { ttl: MINUTE, limit: 10 };
 
 /** The routes that spend the FRAMES bucket. Paths as the router sees them. */

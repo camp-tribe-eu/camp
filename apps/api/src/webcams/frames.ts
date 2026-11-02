@@ -83,6 +83,20 @@ export const FAILURE_BACKOFF_MS = 60_000;
 export const MAX_WINDY_CALLS_PER_MINUTE = 30;
 
 /**
+ * ⚠️ NOT MEASURED, AND WRITTEN HERE SO THAT IT IS SEEN WHEN TRAFFIC ARRIVES:
+ * the Windy key is SHARED with the camera collector
+ * (`scripts/windy/fetch-webcams.mjs`), and Windy's 300 a minute is per
+ * key. A review call saw `x-ratelimit-remaining: 287` of 300, so somebody
+ * had already spent 13 in the window. The collector paces itself at one
+ * request per 600 ms — up to about 100 a minute for the ~8 minutes of a
+ * full pass over 811 regions. Added to this ceiling that is 130 of 300,
+ * which fits; but the collector knows nothing of this route and this
+ * route knows nothing of the collector, so the day the collector runs on
+ * a schedule alongside real traffic, look at `x-ratelimit-remaining`
+ * first. Nothing here reads it yet.
+ */
+
+/**
  * The most a SINGLE campsite page can cost Windy per hour.
  *
  * A reader's request for a page's cameras makes ONE call to Windy for
@@ -283,7 +297,17 @@ export class FrameCache {
     const running = this.inFlight.get(key);
     if (running) return running;
 
-    const p = this.refresh(held).finally(() => this.inFlight.delete(key));
+    // 🔴 A refusal does not take away what is already fresh. A page with
+    // two good frames and one expired camera, read during the pause or at
+    // the ceiling, gets the two — review measured six of six readers
+    // getting nothing for a camera that was fresh in the cache.
+    const p = this.refresh(held)
+      .catch((e: unknown) => {
+        if (e instanceof FramesRefused && Object.keys(out).length > 0)
+          return out;
+        throw e;
+      })
+      .finally(() => this.inFlight.delete(key));
     this.inFlight.set(key, p);
     return p;
   }
@@ -322,16 +346,45 @@ export class FrameCache {
       throw new FramesRefused(503, message);
     };
 
-    let res: Awaited<ReturnType<FrameDeps['callWindy']>>;
+    // 🔴 THE WHOLE ANSWER IS READ INSIDE THE `try`, body included.
+    //
+    // `fetch()` resolves as soon as the HEADERS arrive, so a server that
+    // sends `200` and then goes quiet gives a resolved promise whose
+    // `json()` rejects later (our own `AbortSignal.timeout` covers the
+    // body too). With `json()` outside the `try` that became a generic
+    // 503 with NO pause set: measured by review, 20 readers in 20 seconds
+    // made 20 calls into a door that was already shut.
+    let body: unknown;
     try {
-      res = await this.deps.callWindy(windyUrl(wanted));
-    } catch {
+      const res = await this.deps.callWindy(windyUrl(wanted));
+      if (res.status !== 200) {
+        return fail(`the camera provider answered ${res.status}`);
+      }
+      body = await res.json();
+    } catch (e) {
+      if (e instanceof FramesRefused) throw e;
       return fail('the camera provider did not answer');
     }
-    if (res.status !== 200) {
-      return fail(`the camera provider answered ${res.status}`);
+    // 🔴 A 200 THAT IS NOT A LIST IS A FAILURE, NOT "NO FRAMES".
+    //
+    // `{}`, `{"webcams":null}`, `{"status":"error"}` and `null` carry no
+    // information about any camera, and reading them as "none of these
+    // has a frame" would cache that for ten minutes for EVERY camera on
+    // the page: review measured 59 of 59 following readers getting empty
+    // cards while Windy was fine, and not one retry. A minute of their
+    // trouble must not become ten minutes of ours — so it pauses, like
+    // any other failure, and caches nothing.
+    //
+    // What Windy really answers for a camera that has been taken down is
+    // `200 {"total":0,"webcams":[]}` — a LIST, empty — and that is a true
+    // answer ("not listed") which IS cached. Two of the three Bovec
+    // cameras in our fixture are in exactly that state today.
+    if (!Array.isArray((body as { webcams?: unknown } | null)?.webcams)) {
+      return fail(
+        'the camera provider answered with something that is not a list',
+      );
     }
-    const got = framesFrom(await res.json(), wanted);
+    const got = framesFrom(body, wanted);
     const at = this.deps.now();
     // Every camera asked about gets an entry: its frame, or `null`.
     for (const r of wanted) {
