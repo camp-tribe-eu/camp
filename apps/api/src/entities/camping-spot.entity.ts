@@ -173,10 +173,15 @@ export class CampingSpot {
    * second, so collapsing them would turn a gap in our pipeline into a
    * statement about the weather.
    *
-   * 🔴 Only schemes the country's own feed publishes are written here.
-   * Measured 13.10.2026: France sits inside MeteoAlarm's own polygons
-   * for 97.5% of its campsites and publishes its warnings in NUTS3 —
-   * EMMA codes on a French row would match nothing, forever.
+   * 🔴 THE CODE ON THE ROW MUST BE ONE THE WARNING CARRIES. France
+   * publishes its warnings in NUTS3 and its rows carry `EMMA_ID` — which
+   * matches only because `fetch-warnings.mjs` adds the MeteoAlarm zone's
+   * code beside every NUTS code it keeps (`nuts-binding.mjs`, tied by
+   * name). Until 02.11.2026 the rows carried NUTS from EuroGeographics'
+   * GISCO polygons, whose licence forbids commercial use. Croatia is the
+   * exception: its counties are `NUTS3` from OpenStreetMap, because
+   * MeteoAlarm's zone list has none. `zone-coverage.mjs` holds the
+   * scheme per country and tests it against what the pipeline emits.
    */
   @Column({ name: 'warning_areas', type: 'text', array: true, nullable: true })
   warningAreas: string[] | null;

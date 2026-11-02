@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -253,11 +253,63 @@ test.describe('🔴 строк і підстава однакові в коді,
   });
 });
 
+/**
+ * 🔴 ВЕРСІЮ Й ДАТУ ЗВІРЯЄМО З МІГРАЦІЄЮ, А НЕ З ЛІТЕРАЛОМ ТУТ.
+ *
+ * 02.11.2026 рецензія завалила PR #396 саме на цьому. Перша редакція
+ * цього тесту писала `expect(p.effectiveFrom).toBe('2026-11-02')` —
+ * тобто звіряла поле реєстру з числом, набраним у тому ж файлі. Коли я
+ * «довів мутацією», що сторож не сліпий, я довів лише, що дві
+ * константи збігаються: обидві мої, обидві в одному дереві, жодна не є
+ * незалежним свідком.
+ *
+ * А справжній факт лежить у ДВОХ місцях: у реєстрі `lib/legal.ts` і в
+ * міграції, яка кладе той самий рядок у базу. Саме їх розбіжність
+ * ламає збірку (`legal-content.ts`: «дата набуття чинності в базі …, у
+ * реєстрі …»). Тому тест має звіряти ці два місця між собою — тоді
+ * зміна одного боку червоніє ТУТ, до деплою, а не на проді.
+ *
+ * Міграцію шукаємо за найбільшим номером серед тих, що кладуть
+ * `slug: 'privacy'`, а не за іменем: інакше наступна редакція політики
+ * лишить тест стерегти позаминулу.
+ */
+function latestPrivacyMigration(): { version: string; effectiveFrom: string; file: string } {
+  const dir = join(ROOT, 'apps', 'api', 'src', 'migrations');
+  const candidates = readdirSync(dir)
+    .filter((f) => f.endsWith('.ts'))
+    .map((f) => ({ f, text: readFileSync(join(dir, f), 'utf8') }))
+    .filter(({ text }) => /slug:\s*'privacy'/.test(text))
+    .sort((a, b) => Number.parseInt(b.f, 10) - Number.parseInt(a.f, 10));
+
+  if (candidates.length === 0) {
+    throw new Error('жодна міграція не кладе сторінку privacy — тест стереже порожнечу');
+  }
+  const { f, text } = candidates[0];
+  const version = /version:\s*'([^']+)'/.exec(text)?.[1];
+  const effectiveFrom = /effectiveFrom:\s*'([^']+)'/.exec(text)?.[1];
+  if (!version || !effectiveFrom) {
+    throw new Error(`${f}: не знайдено version/effectiveFrom — форма міграції змінилась`);
+  }
+  return { version, effectiveFrom, file: f };
+}
+
 test.describe('реєстр правових сторінок і сама сторінка', () => {
-  test('версія політики піднята разом із текстом: 2.3 від 02.11.2026', () => {
+  test('версія й дата політики в реєстрі — ті самі, що міграція кладе в базу', () => {
     const p = legalPage('privacy')!;
-    expect(p.version).toBe('2.3');
-    expect(p.effectiveFrom).toBe('2026-11-02');
+    const m = latestPrivacyMigration();
+    expect(p.version, `реєстр проти ${m.file}`).toBe(m.version);
+    expect(p.effectiveFrom, `реєстр проти ${m.file}`).toBe(m.effectiveFrom);
+  });
+
+  /**
+   * Негативний контроль до попереднього: сама міграція мусить нести
+   * щось осмислене. Без цього тест вище лишався б зеленим, якби обидва
+   * боки стали порожніми рядками.
+   */
+  test('🔴 міграція політики несе непорожню версію й дату у вигляді дати', () => {
+    const m = latestPrivacyMigration();
+    expect(m.version).toMatch(/^\d+\.\d+$/);
+    expect(m.effectiveFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   // 🔴 Політика лишається статичною: ні сторінка, ні будь-що, що вона
@@ -293,8 +345,8 @@ test.describe('реєстр правових сторінок і сама сто
 //     `*.your-server.de`);
 //   · край — заголовок `CF-Connecting-IP`, який читають Caddy й `throttle.ts`;
 //   · прямі зʼєднання браузера — хости, що стоять ЛІТЕРАЛАМИ в коді й CSP:
-//     `lib/map-sources.ts` (плитки), `lib/webcams.ts` і `img-src`
-//     (вебкамери), `data/satellite-sources.json` (супутник).
+//     `lib/map-sources.ts` (плитки), `img-src`
+//     (вебкамери: адреса кадру тепер приходить із API, хост лишається в CSP), `data/satellite-sources.json` (супутник).
 //
 // ⚠️ Чого це не бачить, названо в реєстрі: значення env на самій машині
 // (`SMTP_HOST`, `NEXT_PUBLIC_SELF_TILES_URL`) репозиторій не несе.
@@ -353,8 +405,11 @@ function hostsInCode(): Array<{ host: string; where: string }> {
   };
   // Плитки: типове значення, коли NEXT_PUBLIC_TILES_URL не задано.
   pick('src/lib/map-sources.ts', /NEXT_PUBLIC_TILES_URL \?\? '(https:\/\/[^']+)'/g);
-  // Вебкамери: адреса кадру.
-  pick('src/lib/webcams.ts', /`(https:\/\/[^/`]+)\//g);
+  // Вебкамери: хост кадру тепер береться з відповіді API (збирач зберігає
+  // `images.daylight.preview` як є), тож у `src/lib/webcams.ts` літерала
+  // немає. Єдине місце в коді сайту, де цей хост стоїть, — CSP `img-src`
+  // нижче; а що збирач і CHECK у таблиці називають той самий хост, тримає
+  // `webcams.spec.ts`.
   // CSP img-src: усе, що не 'self'/data:/blob:.
   pick('scripts/security-headers.mjs', /"img-src [^"]*?(https:\/\/[^\s"]+)/g);
   // Супутник: кожне джерело.

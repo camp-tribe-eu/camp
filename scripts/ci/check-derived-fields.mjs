@@ -29,22 +29,22 @@
 // every property `SpotContext` declares must appear by name in the
 // prose. Adding a field is therefore a two-file change, and CI says so.
 
-import { readFileSync, realpathSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readFileSync, realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { chooseAction } from '../lib/entrypoint.mjs';
+import { chooseAction } from "../lib/entrypoint.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(HERE, '..', '..');
-const TYPE_FILE = join(ROOT, 'apps', 'api', 'src', 'osm', 'spot-context.ts');
+const ROOT = join(HERE, "..", "..");
+const TYPE_FILE = join(ROOT, "apps", "api", "src", "osm", "spot-context.ts");
 const SEED_FILE = join(
   ROOT,
-  'apps',
-  'api',
-  'src',
-  'migrations',
-  '1792800000000-SeedLegalPages.ts',
+  "apps",
+  "api",
+  "src",
+  "migrations",
+  "1792800000000-SeedLegalPages.ts",
 );
 
 /**
@@ -64,20 +64,22 @@ export function seededBody(source, slug) {
   const at = source.indexOf(`slug: '${slug}',`);
   if (at < 0) throw new Error(`no document «${slug}» in the legal seed`);
   const next = source.indexOf("slug: '", at + 1);
-  const open = source.indexOf('body: `', at);
+  const open = source.indexOf("body: `", at);
   if (open < 0 || (next >= 0 && open > next)) {
     throw new Error(`document «${slug}» has no body in the legal seed`);
   }
-  const start = open + 'body: `'.length;
-  const end = source.indexOf('`', start);
-  if (end < 0 || source[end + 1] !== ',') {
-    throw new Error(`the body of «${slug}» does not end where a template literal does`);
+  const start = open + "body: `".length;
+  const end = source.indexOf("`", start);
+  if (end < 0 || source[end + 1] !== ",") {
+    throw new Error(
+      `the body of «${slug}» does not end where a template literal does`,
+    );
   }
   const body = source.slice(start, end);
   if (/\\|\$\{/.test(body)) {
     throw new Error(
       `the body of «${slug}» holds a backslash or a template placeholder; ` +
-        'reading it by position would not give what the database holds',
+        "reading it by position would not give what the database holds",
     );
   }
   return body;
@@ -103,12 +105,12 @@ export function declaredFields(source) {
   // Stripping first means a brace inside a comment cannot be the brace
   // that closes the body.
   const stripped = source
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
 
-  const start = stripped.indexOf('export interface SpotContext {');
+  const start = stripped.indexOf("export interface SpotContext {");
   if (start < 0) return [];
-  const end = stripped.indexOf('\n}', start);
+  const end = stripped.indexOf("\n}", start);
   if (end < 0) return [];
   const body = stripped.slice(start, end);
 
@@ -120,7 +122,8 @@ export function declaredFields(source) {
   // `readonly` is a modifier, not a name; a quoted key is still a key;
   // and the colon may sit on the next line. Each of those is a real
   // declaration that would otherwise never need a word on the page.
-  const FIELD = /^ {2}(?:readonly\s+)?(?:\[?["']?)([A-Za-z_$][\w$]*)["']?\]?\s*\??\s*:/gm;
+  const FIELD =
+    /^ {2}(?:readonly\s+)?(?:\[?["']?)([A-Za-z_$][\w$]*)["']?\]?\s*\??\s*:/gm;
   for (const m of body.matchAll(FIELD)) out.push(m[1]);
   return [...new Set(out)];
 }
@@ -149,14 +152,29 @@ export function declaredFields(source) {
  */
 export function renderedPage(page) {
   return page
-    .replace(/\]\([^)\s]*\)/g, ']')
-    .replace(/\s*\{#[^}\n]*\}\s*$/gm, '');
+    .replace(/\]\([^)\s]*\)/g, "]")
+    .replace(/\s*\{#[^}\n]*\}\s*$/gm, "");
 }
 
+/**
+ * Every regular-expression metacharacter, and the backslash, escaped.
+ *
+ * 🔴 WAS `field.replace(/[$]/g, '\\$&')` — only `$`, which CodeQL named
+ * `js/incomplete-sanitization` (high). A TypeScript identifier today can
+ * carry `$` and `_` and nothing else exotic, so this was not a hole in the
+ * product; it was a hole in the GUARD. The day a field arrives named with
+ * anything else — a renamed key read from JSON, a field spelled through a
+ * template — one metacharacter turns the name into a pattern, the pattern
+ * stops matching the page, and the guard goes red FOR THE WRONG REASON.
+ * A guard that can redden for the wrong reason is one people learn to
+ * re-run instead of read.
+ */
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export function namedInPage(field, page) {
-  // `$` is legal in an identifier and special in a pattern.
-  const name = field.replace(/[$]/g, '\\$&');
-  return new RegExp(`\\*\\*${name}\\*\\*`).test(renderedPage(page));
+  return new RegExp(`\\*\\*${escapeRegExp(field)}\\*\\*`).test(
+    renderedPage(page),
+  );
 }
 
 /**
@@ -181,16 +199,16 @@ export function namedInPage(field, page) {
  */
 export function declaredFieldsCrude(source) {
   const stripped = source
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
-  const marker = 'export interface SpotContext {';
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
+  const marker = "export interface SpotContext {";
   const at = stripped.indexOf(marker);
   if (at < 0) return [];
   let depth = 0;
   let end = -1;
   for (let i = at + marker.length - 1; i < stripped.length; i++) {
-    if (stripped[i] === '{') depth += 1;
-    else if (stripped[i] === '}') {
+    if (stripped[i] === "{") depth += 1;
+    else if (stripped[i] === "}") {
       depth -= 1;
       if (depth === 0) {
         end = i;
@@ -205,19 +223,22 @@ export function declaredFieldsCrude(source) {
   // own members live — a nested object type's keys are not our fields.
   const out = [];
   let level = 0;
-  let line = '';
+  let line = "";
   for (const ch of body) {
-    if (ch === '\n') {
+    if (ch === "\n") {
       if (level === 0) {
-        const m = /^\s*(?:readonly\s+)?["'[]?([A-Za-z_$][\w$]*)["'\]]?\s*\??\s*:/.exec(line);
+        const m =
+          /^\s*(?:readonly\s+)?["'[]?([A-Za-z_$][\w$]*)["'\]]?\s*\??\s*:/.exec(
+            line,
+          );
         if (m) out.push(m[1]);
       }
-      line = '';
+      line = "";
       continue;
     }
     if (level === 0) line += ch;
-    if (ch === '{' || ch === '(' || ch === '[') level += 1;
-    if (ch === '}' || ch === ')' || ch === ']') level -= 1;
+    if (ch === "{" || ch === "(" || ch === "[") level += 1;
+    if (ch === "}" || ch === ")" || ch === "]") level -= 1;
   }
   return [...new Set(out)];
 }
@@ -236,12 +257,12 @@ function run(typeSrc, pageSrc, log = console) {
   const only = (a, b) => a.filter((f) => !b.includes(f));
   if (only(fields, crude).length > 0 || only(crude, fields).length > 0) {
     log.error(
-      '✗ The two readings of SpotContext disagree, so neither can be trusted:\n' +
-        `  the main reader saw:  ${fields.join(', ') || '(nothing)'}\n` +
-        `  the second reader saw: ${crude.join(', ') || '(nothing)'}\n` +
-        '\n  One of them is missing a field. A field this guard cannot see is\n' +
-        '  a field it will never ask the page to describe, and the ✓ it would\n' +
-        '  print is over a §4.6 hole.',
+      "✗ The two readings of SpotContext disagree, so neither can be trusted:\n" +
+        `  the main reader saw:  ${fields.join(", ") || "(nothing)"}\n` +
+        `  the second reader saw: ${crude.join(", ") || "(nothing)"}\n` +
+        "\n  One of them is missing a field. A field this guard cannot see is\n" +
+        "  a field it will never ask the page to describe, and the ✓ it would\n" +
+        "  print is over a §4.6 hole.",
     );
     return 1;
   }
@@ -251,29 +272,31 @@ function run(typeSrc, pageSrc, log = console) {
   // we derive nothing at all.
   if (fields.length === 0) {
     log.error(
-      '✗ No fields were read from SpotContext — the interface moved or was renamed.\n' +
-        '  Until this reads them again the page below is unchecked, which is\n' +
-        '  the state §4.6 is least forgiving of.',
+      "✗ No fields were read from SpotContext — the interface moved or was renamed.\n" +
+        "  Until this reads them again the page below is unchecked, which is\n" +
+        "  the state §4.6 is least forgiving of.",
     );
     return 1;
   }
 
   const missing = missingFrom(fields, pageSrc);
   if (missing.length > 0) {
-    log.error('✗ Computed fields missing from the ODbL §4.6 description:\n');
+    log.error("✗ Computed fields missing from the ODbL §4.6 description:\n");
     for (const f of missing) log.error(`  ${f}`);
     log.error(
-      '\n  The legal document `database` (seeded by\n' +
-        '  apps/api/src/migrations/1792800000000-SeedLegalPages.ts) is what\n' +
-        '  we offer recipients INSTEAD of the derived database. A field it\n' +
-        '  does not name is a field we did not disclose. List it as\n' +
-        '  `- **name** — what it holds`, and say how it is computed — not\n' +
+      "\n  The legal document `database` (seeded by\n" +
+        "  apps/api/src/migrations/1792800000000-SeedLegalPages.ts) is what\n" +
+        "  we offer recipients INSTEAD of the derived database. A field it\n" +
+        "  does not name is a field we did not disclose. List it as\n" +
+        "  `- **name** — what it holds`, and say how it is computed — not\n" +
         '  "and other fields", which is not a method of making alterations.',
     );
     return 1;
   }
 
-  log.log(`✓ all ${fields.length} derived fields are described: ${fields.join(', ')}`);
+  log.log(
+    `✓ all ${fields.length} derived fields are described: ${fields.join(", ")}`,
+  );
   return 0;
 }
 
@@ -310,20 +333,23 @@ export interface Other { notAField?: string; }
 
   const fields = declaredFields(type);
   failIf(
-    fields.join(',') !== 'water,elevation,at',
+    fields.join(",") !== "water,elevation,at",
     `read ${JSON.stringify(fields)}, not water,elevation,at`,
   );
   // 🔴 Only SpotContext. A neighbouring interface is not our disclosure.
-  failIf(fields.includes('notAField'), 'a field from another interface was read');
-  failIf(fields.includes('helper'), 'a function was read as a field');
+  failIf(
+    fields.includes("notAField"),
+    "a field from another interface was read",
+  );
+  failIf(fields.includes("helper"), "a function was read as a field");
   // And a word that appears only in a comment is not a field.
-  failIf(fields.includes('decoy'), 'a word from a comment was read as a field');
+  failIf(fields.includes("decoy"), "a word from a comment was read as a field");
 
-  const full = '- **water** — a\n- **elevation** — b\n- **at** — c';
-  failIf(run(type, full, quiet) !== 0, 'a complete page was rejected');
+  const full = "- **water** — a\n- **elevation** — b\n- **at** — c";
+  failIf(run(type, full, quiet) !== 0, "a complete page was rejected");
 
-  for (const drop of ['water', 'elevation', 'at']) {
-    const holed = full.replace(`**${drop}**`, '');
+  for (const drop of ["water", "elevation", "at"]) {
+    const holed = full.replace(`**${drop}**`, "");
     failIf(
       run(type, holed, quiet) !== 1,
       `a page missing "${drop}" was accepted`,
@@ -350,12 +376,12 @@ export interface SpotContext {
 `;
   const afterBrace = declaredFields(braceInComment);
   failIf(
-    afterBrace.join(',') !== 'water,elevation,at',
+    afterBrace.join(",") !== "water,elevation,at",
     `a "}" inside a comment cut the interface short: read ${JSON.stringify(afterBrace)}`,
   );
   failIf(
     run(braceInComment, full, quiet) !== 0,
-    'a complete page was rejected after a brace in a comment',
+    "a complete page was rejected after a brace in a comment",
   );
 
   const modifiers = `
@@ -367,7 +393,7 @@ export interface SpotContext {
 `;
   const withModifiers = declaredFields(modifiers);
   failIf(
-    withModifiers.join(',') !== 'water,elevation,at',
+    withModifiers.join(",") !== "water,elevation,at",
     `a modifier or a quoted key hid a field: read ${JSON.stringify(withModifiers)}`,
   );
 
@@ -378,11 +404,11 @@ export interface SpotContext {
   // destination, an anchor, an escaped pair of asterisks, or a word in
   // prose — each a way to have the NAME on the page without LISTING it.
   for (const unlisted of [
-    '- **water** — a\n- **elevation** — b\n[x](/y/**at**)',
-    '- **water** — a\n- **elevation** — b\n## Heading {#**at**}',
-    '- **water** — a\n- **elevation** — b\n\\*\\*at\\*\\* is escaped, not bold',
-    '- **water** — a\n- **elevation** — b\nthe at field, in prose',
-    '- **water** — a\n- **elevation** — b\n*at* in italics only',
+    "- **water** — a\n- **elevation** — b\n[x](/y/**at**)",
+    "- **water** — a\n- **elevation** — b\n## Heading {#**at**}",
+    "- **water** — a\n- **elevation** — b\n\\*\\*at\\*\\* is escaped, not bold",
+    "- **water** — a\n- **elevation** — b\nthe at field, in prose",
+    "- **water** — a\n- **elevation** — b\n*at* in italics only",
   ]) {
     failIf(
       run(type, unlisted, quiet) !== 1,
@@ -403,11 +429,11 @@ export interface SpotContext {
   const a = declaredFields(extra);
   const b = declaredFieldsCrude(extra);
   failIf(
-    a.join(',') !== b.join(','),
+    a.join(",") !== b.join(","),
     `the two readers disagree on a file they should both read: ${a} vs ${b}`,
   );
   failIf(
-    !a.includes('nested') || a.includes('b'),
+    !a.includes("nested") || a.includes("b"),
     `a nested object type was read wrong: ${JSON.stringify(a)}`,
   );
 
@@ -430,12 +456,13 @@ a: number;
   const main = declaredFields(disagree);
   const second = declaredFieldsCrude(disagree);
   failIf(
-    main.join(',') === second.join(','),
+    main.join(",") === second.join(","),
     `the disagreement fixture no longer makes them disagree: both read ${main}`,
   );
   failIf(
-    run(disagree, '- **water** — a\n- **nested** — b\n- **at** — c', quiet) !== 1,
-    'two readings that disagree were not refused',
+    run(disagree, "- **water** — a\n- **nested** — b\n- **at** — c", quiet) !==
+      1,
+    "two readings that disagree were not refused",
   );
 
   // 🔴 THE EXTRACTOR READS THE RIGHT DOCUMENT, OR REFUSES. It cuts text out
@@ -443,8 +470,11 @@ a: number;
   // the neighbour's body, a missing slug, an escape, an unterminated body.
   const seed = (...docs) =>
     `class X {\n  private readonly pages = [\n${docs
-      .map((d) => `    {\n      slug: '${d[0]}',\n      title: 'T',\n${d[1]}    },\n`)
-      .join('')}  ];\n}\n`;
+      .map(
+        (d) =>
+          `    {\n      slug: '${d[0]}',\n      title: 'T',\n${d[1]}    },\n`,
+      )
+      .join("")}  ];\n}\n`;
   const withBody = (b) => `      body: \`${b}\`,\n`;
   const throws = (fn) => {
     try {
@@ -455,32 +485,41 @@ a: number;
     }
   };
   failIf(
-    seededBody(seed(['a', withBody('first')], ['database', withBody('- **at** — c')]), 'database') !==
-      '- **at** — c',
-    'the extractor did not return the requested document\'s own body',
-  );
-  failIf(
-    !throws(() => seededBody(seed(['database', ''], ['b', withBody('NEIGHBOUR')]), 'database')),
-    'a document with no body field was given its neighbour\'s body',
-  );
-  failIf(
-    !throws(() => seededBody(seed(['a', withBody('x')]), 'database')),
-    'an unknown slug was not refused',
-  );
-  failIf(
-    !throws(() => seededBody(seed(['database', withBody('a \\ b')]), 'database')),
-    'a body with a backslash was read by position instead of refused',
+    seededBody(
+      seed(["a", withBody("first")], ["database", withBody("- **at** — c")]),
+      "database",
+    ) !== "- **at** — c",
+    "the extractor did not return the requested document's own body",
   );
   failIf(
     !throws(() =>
-      seededBody("slug: 'database',\n      body: `never ends", 'database'),
+      seededBody(
+        seed(["database", ""], ["b", withBody("NEIGHBOUR")]),
+        "database",
+      ),
     ),
-    'a body that does not end like a template literal was not refused',
+    "a document with no body field was given its neighbour's body",
+  );
+  failIf(
+    !throws(() => seededBody(seed(["a", withBody("x")]), "database")),
+    "an unknown slug was not refused",
+  );
+  failIf(
+    !throws(() =>
+      seededBody(seed(["database", withBody("a \\ b")]), "database"),
+    ),
+    "a body with a backslash was read by position instead of refused",
+  );
+  failIf(
+    !throws(() =>
+      seededBody("slug: 'database',\n      body: `never ends", "database"),
+    ),
+    "a body that does not end like a template literal was not refused",
   );
 
   // The anti-emptiness guard, which every comparison above depends on.
   failIf(
-    run('export interface Something {}', full, quiet) !== 1,
+    run("export interface Something {}", full, quiet) !== 1,
     'a renamed interface was treated as "no derived fields"',
   );
 
@@ -506,15 +545,15 @@ a: number;
 
   if (rc === 0) {
     console.log(
-      '✓ rehearsal: fields are read from SpotContext alone — not from a\n' +
-        '  neighbouring interface, a function or a comment — a complete page\n' +
-        '  passes, each missing field is reported, and a renamed interface\n' +
+      "✓ rehearsal: fields are read from SpotContext alone — not from a\n" +
+        "  neighbouring interface, a function or a comment — a complete page\n" +
+        "  passes, each missing field is reported, and a renamed interface\n" +
         '  fails instead of reading as "nothing is derived".\n' +
         '  And the shapes that got past it: a "}" inside a JSDoc, a\n' +
-        '  `readonly` or quoted key, and a field named only where a reader\n' +
-        '  is not shown it (a link destination, an anchor, escaped asterisks,\n' +
-        '  plain prose). Two independent readers of the type must agree, and\n' +
-        '  the extractor reads the right document or refuses.',
+        "  `readonly` or quoted key, and a field named only where a reader\n" +
+        "  is not shown it (a link destination, an anchor, escaped asterisks,\n" +
+        "  plain prose). Two independent readers of the type must agree, and\n" +
+        "  the extractor reads the right document or refuses.",
     );
   }
   return rc;
@@ -523,7 +562,9 @@ a: number;
 const invokedDirectly = (() => {
   if (process.argv[1] === undefined) return false;
   try {
-    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+    return (
+      import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+    );
   } catch {
     return false;
   }
@@ -537,15 +578,15 @@ if (!invokedDirectly) {
   // never run. An unknown flag is an error, not a shrug.
   const action = chooseAction(
     process.argv.slice(2),
-    ['--self-test'],
-    'check-derived-fields.mjs',
+    ["--self-test"],
+    "check-derived-fields.mjs",
   );
-  if (action.has('--self-test')) process.exit(selfTest());
+  if (action.has("--self-test")) process.exit(selfTest());
   else
     process.exit(
       run(
-        readFileSync(TYPE_FILE, 'utf8'),
-        seededBody(readFileSync(SEED_FILE, 'utf8'), 'database'),
+        readFileSync(TYPE_FILE, "utf8"),
+        seededBody(readFileSync(SEED_FILE, "utf8"), "database"),
       ),
     );
 }

@@ -1,0 +1,59 @@
+{
+  "_": "CAMP-330. Попередження CodeQL, які ми відхилили — з причиною, прочитаною в коді, і з ЯКОРЕМ: тим рядком, на якому причина тримається. `check-codeql-dismissals.mjs` падає, щойно якір зникає або перестає бути єдиним у файлі. Та сама форма, що й known-advisories.json: не «відхилено», а «відхилено ось чому, і ось що має почервоніти, коли причина помре».",
+  "dismissals": [
+    {
+      "alert": 41,
+      "rule": "js/http-to-file-access",
+      "path": "scripts/meteoalarm/resolve-areas.mjs",
+      "line": 455,
+      "anchor": "const at = join(CACHE, name);",
+      "measuredOn": "2026-11-02",
+      "why": "Правило стереже ШЛЯХ, а віддалена сторона тут керує лише ВМІСТОМ. `name` — єдиний виклик у файлі: `cached(`${src.id}.json`, …)`, де `src` береться з нашого власного переліку джерел (`meteoalarm-geocodes`, `osm-hr-counties`, `natural-earth-admin-1`), а `CACHE` — `process.env.RESOLVE_CACHE ?? '/tmp/camp-149-cache'`. Відповідь не може ані перейменувати файл, ані вийти з теки. Санітизація шляху, якої вимагає правило, тут нічого не стереже. Отруєний кеш теж не довговічний: тіло, що не є JSON, валить `JSON.parse` у тому самому `try`, і наступний прогін перезавантажує."
+    },
+    {
+      "alert": 29,
+      "rule": "js/http-to-file-access",
+      "path": "scripts/meteoalarm/resolve-campsite-zones.mjs",
+      "line": 527,
+      "anchor": "const part = `${file}.${process.pid}.part`;",
+      "measuredOn": "2026-11-02",
+      "why": "Те саме, що й №41, плюс перевірка ПЕРЕД записом: кількома рядками вище тіло мусить виявитися FeatureCollection із зонами, інакше `throw` — тобто в кеш лягає лише те, що вже розібрано. Шлях — `${file}.${process.pid}.part` з нашого ідентифікатора джерела, і `renameSync` у межах теки. Віддалена сторона не впливає на жодну частину імені."
+    },
+    {
+      "alert": 39,
+      "rule": "js/http-to-file-access",
+      "path": "scripts/fuel/fetch-fuel-prices.mjs",
+      "line": 674,
+      "anchor": "await writeFile(OUT, `${JSON.stringify(data, null, 2)}\\n`, 'utf8');",
+      "measuredOn": "2026-11-02",
+      "why": "`OUT` — константа модуля (`join(HERE, '..', '..', 'apps', 'web', 'src', 'data', 'fuel-prices.json')`), а `data` — не сире тіло, а наш уже зібраний обʼєкт із розібраними числами й назвами країн. Жодна частина шляху й жоден байт файлу не приходять із мережі в незміненому вигляді."
+    },
+    {
+      "alert": 15,
+      "rule": "js/http-to-file-access",
+      "path": "scripts/edo/fetch-drought.mjs",
+      "line": 687,
+      "anchor": "if (cached) await writeFile(cached, buf);",
+      "measuredOn": "2026-11-02",
+      "why": "🔴 Найсильніший випадок, і саме тому його варто було прочитати: рядок стоїть ПІСЛЯ того, як `readGeoTiff(buf)` і `cropPixels(...)` відпрацювали без винятку. Тобто в кеш лягає лише те, що вже виявилося коректним GeoTIFF із очікуваною сіткою; тіло, яке прикинулося HTTP 200, до файлу не доходить — воно валиться в `catch` вище. Шлях — `join(cacheDir, `${COVERAGE}-${time}.tif`)`, де `COVERAGE` константа, а `time` — декада з нашого ж переліку."
+    },
+    {
+      "alert": 14,
+      "rule": "js/http-to-file-access",
+      "path": "scripts/edo/fetch-drought.mjs",
+      "line": 1039,
+      "anchor": "await writeFile(join(dirname(OUT), 'drought-domain.json'), `${JSON.stringify(domainFile)}\\n`, 'utf8');",
+      "measuredOn": "2026-11-02",
+      "why": "Імʼя файлу — літерал `'drought-domain.json'`, тека — `dirname(OUT)` від константи модуля. Вміст теж не сирий: це результат `buildMask(rasters, win)`, тобто наша власна побудова по вже перевірених растрах. Мережа не торкається ані шляху, ані байтів."
+    },
+    {
+      "alert": 33,
+      "rule": "js/file-access-to-http",
+      "path": "scripts/osm-pipeline/import-release.mjs",
+      "line": 393,
+      "anchor": "return `https://github.com/${repo}/releases/download/${checkTag(tag)}/${encodeURIComponent(asset)}`;",
+      "measuredOn": "2026-11-02",
+      "why": "Правило боїться витоку: дані з файлу вирішують, КУДИ ми підемо. Тут адресу будує `assetDownloadUrl`, і походження кожної частини назване: origin — літерал `https://github.com/`, `repo` — константа `REPO`, `tag` проходить `checkTag` із суцільним білим списком `/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/`, а `asset` — через `encodeURIComponent`. Вийти на інший хост чи піднятися шляхом неможливо, і це вже доведено тестами в самому файлі: ворожі теги кидають виняток, а `'a b/c?d#e'` перетворюється на `a%20b%2Fc%3Fd%23e`. Якір навмисно саме цей рядок: прибери з нього `checkTag` або `encodeURIComponent` — і підстава цього відхилення помре, а сторож це скаже."
+    }
+  ]
+}

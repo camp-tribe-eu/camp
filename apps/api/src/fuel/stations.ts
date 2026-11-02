@@ -184,8 +184,7 @@ export const SOURCES: readonly FuelSource[] = [
       'Ministerio para la Transición Ecológica y el Reto Demográfico, ' +
       'Geoportal de Gasolineras',
     licence: 'datos.gob.es general conditions — commercial reuse permitted',
-    homepage:
-      'https://sede.serviciosmin.gob.es/es-ES/datosabiertos/catalogo/precios-carburantes',
+    homepage: 'https://geoportalgasolineras.es/',
     // 🔴 PreciosCarburantes, plural. See the note at the head of this file.
     urls: [
       'https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/',

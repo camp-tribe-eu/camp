@@ -299,6 +299,37 @@ jobs:
       - name: No new dependency advisories
         run: node scripts/security/check-dependencies.mjs
 
+      # CAMP-330. Шість попереджень CodeQL `medium` відхилено 02.11.2026 —
+      # кожне з причиною, прочитаною в коді. Причина тримається на одному
+      # рядку: «шлях не приходить із мережі», «вміст уже розібрано»,
+      # «origin — літерал». Коментар у GitHub переживе зміну цього рядка і
+      # лишиться тихо чинним; цей сторож — ні. Мутація 02.11.2026: прибрати
+      # `encodeURIComponent` з `assetDownloadUrl` → `✗ якір зник із файлу`,
+      # exit 1.
+      - name: Dismissal guard still catches a dead reason
+        run: |
+          set -o pipefail
+          node scripts/security/check-codeql-dismissals.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-codeql-dismissals self-test:' >/dev/null
+      - name: Every dismissed CodeQL alert still has its reason
+        run: node scripts/security/check-codeql-dismissals.mjs
+
+      # 🔴 02.11.2026: Німеччина, Франція та Італія висіли рівно 45:45 і
+      # були вбиті `timeout-minutes`. Останній рядок журналу кожної —
+      # `Terminate orphan process (curl)`: зʼєднання стояло, а не роботи
+      # було забагато (26.10 ті самі країни відпрацювали за 21, 12 і 4
+      # хвилини). Реліз вийшов на 24 країни з 27, а робота `alert`
+      # промовчала, бо таймаут у GitHub — це `cancelled`, не `failure`.
+      # Обидві властивості тепер стережуться текстом: відтворити
+      # `timeout-minutes` і `needs.*.result` на раннері неможливо.
+      - name: OSM download guard still catches a missing time ceiling
+        run: |
+          set -o pipefail
+          node scripts/ci/check-osm-weekly-guards.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-osm-weekly-guards self-test:' >/dev/null
+      - name: The weekly OSM download cannot hang, and its alarm sees a timeout
+        run: node scripts/ci/check-osm-weekly-guards.mjs
+
       # 🔴 A branch that grows past a card's worth of work stops being a
       # feature branch. On 22.09.2026 one carried 28 commits for days,
       # during which CodeQL and Dependabot reported on main and therefore
@@ -403,9 +434,10 @@ jobs:
             | grep -c 'check-dependabot-prs self-test:' >/dev/null
 
       # 🔴 CAMP-287 крок 1. Перепис схем вирішує, чиї попередження ми
-      # взагалі можемо зіставити з кемпінгом. Франція лежить у полігонах
-      # EMMA на 97.5%, а попереджає в NUTS3 — коди в чужій схемі не
-      # збігаються ні з чим, і цей самотест тримає саме цю межу.
+      # взагалі можемо зіставити з кемпінгом. Франція попереджає в NUTS3, а
+      # кемпінг несе EMMA_ID: це збігається лише тому, що fetch-warnings
+      # дописує до NUTS-області код зони MeteoAlarm (за назвою), і цей
+      # самотест тримає зчеплення на живому корпусі з 88 кодів.
       - name: Zone census still refuses a scheme the country never uses
         run: |
           set -o pipefail
@@ -415,6 +447,16 @@ jobs:
       # 🔴 CAMP-287. Репетирується ПОСЛІДОВНІСТЬ, не лише запит: прогін
       # без `--apply` не сміє писати нічого, а `--apply` мусить писати
       # рівно один раз і міряти покриття ПІСЛЯ запису.
+      # 🔴 GISCO (EuroGeographics) забороняє комерційне використання. Зону
+      # для NUTS-коду тепер знаходить `nuts-binding.mjs` за назвою; цей
+      # самотест тримає нормалізацію й живий корпус (86 з 88 за назвою, 88 з
+      # двома винятками), і червоніє, якщо хоч одне з чисел зсунулось.
+      - name: NUTS-to-zone name binding still ties the live codes
+        run: |
+          set -o pipefail
+          node scripts/meteoalarm/nuts-binding.mjs --self-test | tee /dev/stderr \
+            | grep -c '✓ nuts-binding self-test:' >/dev/null
+
       - name: Zone resolver still refuses to write without --apply
         run: |
           set -o pipefail
@@ -498,8 +540,8 @@ jobs:
           set -o pipefail
           node scripts/meteoalarm/fetch-warnings.mjs --self-test | tee /dev/stderr \
             | grep -c 'fetch-warnings self-test:' >/dev/null
-      # CAMP-149. Which geometry source answers which scheme, the NUTS
-      # vintage, and the Irish splits — all pure, no network.
+      # CAMP-149. Which geometry source answers which scheme, that none of
+      # them is GISCO, and the Irish splits — all pure, no network.
       - name: Warning area resolution
         if: ${{ !cancelled() }}
       # 🔴 CAMP-285/286: the step reads the self-test's own output.
@@ -1535,6 +1577,20 @@ jobs:
           set -o pipefail
           ./scripts/osm-pipeline/backup-local.selftest.sh | tee /dev/stderr \
             | grep -c 'backup-local dump self-test: усе гаразд' >/dev/null
+
+      # 🔴 ПІДТЯГУВАННЯ КЕМПІНГА ДО НАЙБЛИЖЧОЇ ЗОНИ — на справжньому PostGIS.
+      # Те, що робить запит (відстань, країна, межа), текстом не перевіряється:
+      # мутація «межа ×10» лишає в тексті все, що бачить текстовий тест.
+      # Набір створює власну базу з двома синтетичними країнами, проганяє
+      # справжній `codesSelect` і знищує її. Крок читає надруковане: рядок із
+      # власною назвою друкується лише коли виконано рівно EXPECTED випадків.
+      - name: Zone resolver snaps to its own country's nearest zone and no farther
+        env:
+          CAMPTRIBE_SELFTEST_PG_BASE: postgres://postgres:postgres@localhost:5432
+        run: |
+          set -o pipefail
+          node scripts/meteoalarm/resolve-campsite-zones.mjs --self-test-db | tee /dev/stderr \
+            | grep -c '✓ resolve-campsite-zones self-test (PostGIS):' >/dev/null
 
       - run: npm ci
 

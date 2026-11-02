@@ -61,11 +61,14 @@
 // hour. Re-run the command rather than trusting the figures above; a
 // number in a comment is a measurement or it is a decoration.
 
-import { writeFile } from 'node:fs/promises';
-import { realpathSync } from 'node:fs';
+import { writeFile, readFile } from 'node:fs/promises';
+import { mkdtempSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
+import { bindAlert, withZones } from './nuts-binding.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, '..', '..', 'apps', 'web', 'src', 'data', 'warnings.json');
@@ -212,6 +215,12 @@ export function warningsFrom(payload, country, now) {
   // readable level. A country where NONE does has stopped being
   // understood, and that is independent of how quiet its sky is.
   let unreadable = 0;
+  // 🔴 NUTS codes that found no MeteoAlarm zone, named. A campsite carries
+  // the EMMA zone it sits in, so a NUTS-coded warning area that is not
+  // tied to one reaches no campsite at all — silently, because its NUTS
+  // code still looks like a code. Counting is not enough: a name is what
+  // someone can act on.
+  const unbound = new Map();
 
   // 🔴 ONE ROW PER ALERT AND AREA, NOT PER LANGUAGE.
   //
@@ -232,6 +241,12 @@ export function warningsFrom(payload, country, now) {
 
   for (const entry of payload?.warnings ?? []) {
     const alert = entry?.alert;
+    // 🔴 PER ALERT, FROM EVERY LANGUAGE BLOCK. The kept row is the English
+    // one, but MeteoAlarm's own name for a Belgian province is Dutch.
+    const zones = bindAlert(alert?.info);
+    // Only an alert we KEEP can lose a campsite: an expired one is gone
+    // whether or not its area was tied to a zone.
+    let keptAny = false;
     for (const info of alert?.info ?? []) {
       seen += 1;
       const sentAt = alert?.sent ? Date.parse(alert.sent) : Number.NaN;
@@ -242,6 +257,7 @@ export function warningsFrom(payload, country, now) {
         counts[why] += 1;
         continue;
       }
+      keptAny = true;
       const level = awareness(paramOf(info, 'awareness_level'));
       const type = awareness(paramOf(info, 'awareness_type'));
       const areas = areasOf(info);
@@ -345,7 +361,13 @@ export function warningsFrom(payload, country, now) {
         // not translate it and we do not add one of our own.
         type: type.label,
         typeCode: type.code,
-        areas,
+        // 🔴 THE ZONE CODE JOINS THE NUTS CODE, AFTER THE KEY ABOVE WAS
+        // BUILT FROM THE ISSUER'S OWN CODES. Campsites carry MeteoAlarm
+        // zones, not NUTS (GISCO's licence forbids commercial use), so a
+        // French warning published as `NUTS3:FR812` must also say
+        // `EMMA_ID:FR020` or no French campsite can ever be matched to it.
+        // The id stays what it was: it identifies the alert, not our join.
+        areas: withZones(areas, zones.bound),
         // 🔴 THE SAME DEFECT AS `onset`, ONE LINE DOWN, AND I DID NOT
         // LOOK. Review swapped this to `alert.sender ?? info.senderName`
         // with the suite green: no fixture carried both. On the live
@@ -371,9 +393,18 @@ export function warningsFrom(payload, country, now) {
         if (preferEnglish(row, held)) byKey.set(key, row);
       }
     }
+    if (keptAny) for (const u of zones.unbound) unbound.set(u.code, u.why);
   }
   kept.push(...byKey.values());
-  return { country, seen, kept, counts, publishedAhead, unreadable };
+  return {
+    country,
+    seen,
+    kept,
+    counts,
+    publishedAhead,
+    unreadable,
+    unbound: [...unbound].map(([code, why]) => ({ code, why })),
+  };
 }
 
 // ---------------------------------------------------------------- self-test
@@ -1107,11 +1138,112 @@ function selfTest() {
     ok('…but a country we cannot read at all is', blind.length === 1 && blind[0] === 'broken');
   }
 
+  // 🔴 CAMP-GISCO. A campsite carries the MeteoAlarm zone it sits in, so a
+  // warning published in NUTS must ALSO name that zone, or no campsite in
+  // France, Bulgaria, Romania, Hungary or Belgium can ever be matched to
+  // it. These read the warning that comes OUT of `warningsFrom`, not the
+  // binder in isolation: a binder nobody calls is the defect this guards.
+  {
+    const nuts = (name, scheme, value) => ({ areaDesc: name, geocode: [{ valueName: scheme, value }] });
+    const fr = warningsFrom(feed([block({ area: [nuts('Ain', 'NUTS3', 'FR711')] })]), 'france', NOW);
+    ok('a French NUTS3 area comes out carrying its MeteoAlarm zone as well',
+      fr.kept[0]?.areas[0]?.codes.join() === 'NUTS3:FR711,EMMA_ID:FR039', fr.kept[0]?.areas[0]?.codes.join());
+    ok('…and the row id still names the issuer\'s own code, not our join',
+      fr.kept[0]?.id === 'X|NUTS3:FR711', String(fr.kept[0]?.id));
+    ok('…and nothing is reported unbound', fr.unbound.length === 0, JSON.stringify(fr.unbound));
+
+    const lost = warningsFrom(feed([block({ area: [nuts('Nowhere', 'NUTS3', 'FR999')] })]), 'france', NOW);
+    ok('🔴 a NUTS area no zone matches is kept as it was AND named as unbound',
+      lost.kept[0]?.areas[0]?.codes.join() === 'NUTS3:FR999' && lost.unbound[0]?.code === 'FR999', JSON.stringify(lost.unbound));
+
+    const gone = warningsFrom(
+      feed([block({ expires: '2026-10-01T00:00:00Z', area: [nuts('Nowhere', 'NUTS3', 'FR999')] })]),
+      'france',
+      NOW,
+    );
+    ok('…but an expired warning is not reported: it reaches nobody whatever its area is', gone.unbound.length === 0 && gone.kept.length === 0);
+
+    // Belgium names its provinces in Dutch; the kept row is the English one.
+    const be = warningsFrom(
+      feed([
+        block({ language: 'en-GB', area: [nuts('East Flanders', 'NUTS2', 'BE23')] }),
+        block({ language: 'nl-BE', area: [nuts('Oost-Vlaanderen', 'NUTS2', 'BE23')] }),
+      ]),
+      'belgium',
+      NOW,
+    );
+    ok('🔴 the zone is found from ANOTHER language block when the kept one cannot name it',
+      be.kept.length === 1 && be.kept[0].language === 'en-GB' && be.kept[0].areas[0].codes.join() === 'NUTS2:BE23,EMMA_ID:BE003',
+      JSON.stringify(be.kept.map((k) => [k.language, k.areas[0].codes])));
+
+    const hr = warningsFrom(
+      feed([block({ area: [{ areaDesc: 'Primorsko-goranska', geocode: [{ valueName: 'EMMA_ID', value: 'HR018' }, { valueName: 'NUTS3', value: 'HR031' }] }] })]),
+      'croatia',
+      NOW,
+    );
+    ok('Croatia is left exactly as the feed sent it', hr.kept[0]?.areas[0]?.codes.join() === 'EMMA_ID:HR018,NUTS3:HR031' && hr.unbound.length === 0);
+    const pl = warningsFrom(feed([block()]), 'poland', NOW);
+    ok('a country with no NUTS is untouched and reports nothing', pl.kept[0]?.areas[0]?.codes.join() === 'EMMA_ID:PL803' && pl.unbound.length === 0);
+  }
+
+  // 🔴 UNBOUND IS LOUD. Review: a NUTS code with no zone printed one line and
+  // exited 0, so the first Belgian Brabant warning would have reached nobody.
+  {
+    const none = unboundVerdict([{ country: 'france', unbound: [] }, { country: 'poland' }]);
+    ok('no unbound code: exit 0 and nothing said', none.code === 0 && none.lines.length === 0 && none.count === 0);
+    const some = unboundVerdict([
+      { country: 'france', unbound: [] },
+      { country: 'belgium', unbound: [{ code: 'BE24', why: 'no BE zone is named Vlaams-Brabant' }] },
+      { country: 'romania', unbound: [{ code: 'RO999', why: 'x' }] },
+    ]);
+    ok('🔴 one unbound code makes the PROCESS fail, with a code that is not the crash code (1)', some.code === 3 && some.code !== 1);
+    ok('…counts them, across countries', some.count === 2, String(some.count));
+    ok('…and names each one with its country and why',
+      some.lines.some((l) => l.includes('belgium BE24') && l.includes('Vlaams-Brabant')) && some.lines.some((l) => l.includes('romania RO999')));
+    ok('…and says how to fix it', some.lines.some((l) => /NAME_EXCEPTIONS/.test(l)));
+    // …on the output of the real function, not a hand-made list.
+    const real = warningsFrom(feed([block({ area: [{ areaDesc: 'Nowhere', geocode: [{ valueName: 'NUTS3', value: 'FR999' }] }] })]), 'france', NOW);
+    ok('🔴 and on what `warningsFrom` really returns for a NUTS area no zone matches',
+      unboundVerdict([real]).code === 3 && unboundVerdict([real]).lines.join().includes('FR999'));
+    const fine = warningsFrom(feed([block({ area: [{ areaDesc: 'Ain', geocode: [{ valueName: 'NUTS3', value: 'FR711' }] }] })]), 'france', NOW);
+    ok('…while a tied one leaves the run green', unboundVerdict([fine]).code === 0);
+
+    // 🔴 AND THE PROCESS ITSELF. The verdict above is a function; what the
+    // reviewer saw was an exit code of 0, and that is `main`'s wiring, which
+    // only running the script can test. Fixture feeds, one alert each.
+    const runCli = (area) => {
+      const dir = mkdtempSync(join(tmpdir(), 'camp-unbound-'));
+      try {
+        writeFileSync(join(dir, 'feeds-belgium.json'), JSON.stringify({
+          warnings: [{ alert: { identifier: 'CLI', sent: '2026-11-02T07:00:00Z', info: [{
+            language: 'en-GB', event: 'Wind', headline: 'Wind warning', expires: '2099-01-01T00:00:00Z',
+            parameter: [{ valueName: 'awareness_level', value: '3; orange; Severe' }, { valueName: 'awareness_type', value: '1; Wind' }],
+            area: [area],
+          }] } }],
+        }));
+        return spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--country=belgium'], {
+          env: { ...process.env, CAMP_FEED_FIXTURE_DIR: dir },
+          encoding: 'utf8',
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    const loudRun = runCli({ areaDesc: 'Nowhere', geocode: [{ valueName: 'NUTS2', value: 'BE99' }] });
+    ok('🔴 the SCRIPT exits 3 when a kept warning names a NUTS code no zone matches',
+      loudRun.status === 3, `status ${loudRun.status}\n${loudRun.stderr}${loudRun.stdout}`.slice(0, 400));
+    ok('…and says UNBOUND NUTS and the code on stderr, where a timer or a person looks',
+      /UNBOUND NUTS: 1/.test(loudRun.stderr) && /belgium BE99/.test(loudRun.stderr), loudRun.stderr.slice(0, 200));
+    const quietRun = runCli({ areaDesc: 'Brussels', geocode: [{ valueName: 'NUTS2', value: 'BE10' }] });
+    ok('…while the same warning on a code that IS tied (BE10, Brussels) exits 0', quietRun.status === 0, `status ${quietRun.status}`);
+    ok('…and a fixture run says it wrote nothing', /nothing written/.test(quietRun.stdout), quietRun.stdout.slice(-120));
+  }
+
   ok('every member state is listed exactly once', new Set(COUNTRIES).size === 27);
   ok('the url is built from the country', feedUrl('poland').endsWith('/feeds-poland'));
 
   // 🔴 CAMP-286: counted, and named after this file.
-  const EXPECTED_CASES = 164;
+  const EXPECTED_CASES = 183;
   if (cases !== EXPECTED_CASES) {
     bad += 1;
     console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
@@ -1129,6 +1261,22 @@ function selfTest() {
 // -------------------------------------------------------------------- main
 
 const PAUSE_MS = 400;
+
+/**
+ * 🔴 FOR THE SELF-TEST ONLY: `CAMP_FEED_FIXTURE_DIR` points at a directory of
+ * `feeds-<country>.json`, and the run reads those instead of the network.
+ * It exists so the PROCESS — its exit code — can be tested: the decision
+ * about what a run exits with was a `console.log` in `main` that no test
+ * could reach. A run with the seam set NEVER writes the published file.
+ */
+const FIXTURE_DIR = process.env.CAMP_FEED_FIXTURE_DIR;
+
+async function readFeed(country) {
+  if (FIXTURE_DIR) return JSON.parse(await readFile(join(FIXTURE_DIR, `feeds-${country}.json`), 'utf8'));
+  const res = await fetch(feedUrl(country));
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
 /**
  * A flag, however it is written. `--dry-run` and `--dry-run=true` are the
  * same request.
@@ -1241,6 +1389,30 @@ export function census(payloads) {
 // ⚠️ Named, not positional. Review swapped `seen` and `kept` at the call
 // site and all 144 assertions passed — three unlabelled numbers in a row
 // is a mis-wiring waiting to happen, and nothing covers `main`.
+/**
+ * What a run says, and exits with, about NUTS codes that found no MeteoAlarm
+ * zone. Pure, so the decision is testable: it used to be a `console.log` in
+ * `main` that nothing covered.
+ *
+ * `code` is 3, not 1: 1 means the run itself threw, and a reader of the exit
+ * code must be able to tell "the file was not written" from "the file was
+ * written and says it cannot place these".
+ */
+export function unboundVerdict(results) {
+  const all = results.flatMap((r) => (r.unbound ?? []).map((u) => ({ country: r.country, ...u })));
+  if (all.length === 0) return { code: 0, count: 0, lines: [] };
+  return {
+    code: 3,
+    count: all.length,
+    lines: [
+      `\n✗ UNBOUND NUTS: ${all.length} code(s) in kept warnings found no MeteoAlarm zone — ` +
+        'a campsite is matched to a zone, so NO campsite is matched to these:',
+      ...all.map((u) => `    ${u.country} ${u.code}: ${u.why}`),
+      '  Tie each to its zone in NAME_EXCEPTIONS (nuts-binding.mjs), or MeteoAlarm renamed a zone.',
+    ],
+  };
+}
+
 export const yieldLooksBroken = ({ only, seen, kept }) => !only && seen > 0 && kept === 0;
 
 /**
@@ -1296,7 +1468,10 @@ async function main() {
   // WROTE THE FILE — falsy twice over, so the list fell back to all 27
   // and the dry run fell back to false. A typo in a debugging flag
   // published a document. The decision is `runPlan`, which is testable.
-  const { countries, dryRun, only } = runPlan(process.argv);
+  const plan = runPlan(process.argv);
+  const { countries, only } = plan;
+  // A fixture run is a rehearsal: it may not become the published answer.
+  const dryRun = plan.dryRun || Boolean(FIXTURE_DIR);
   // 🔴 ONE COUNTRY NEVER WRITES THE FILE. `--country=croatia` produced a
   // document shaped like a full-Europe run, with `meta.silent: []` —
   // nothing in it recorded that twenty-six countries were never asked.
@@ -1324,9 +1499,7 @@ async function main() {
     for (let attempt = 0; attempt < 2 && payload === undefined; attempt += 1) {
       if (attempt > 0) await sleep(PAUSE_MS * 2);
       try {
-        const res = await fetch(feedUrl(country));
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        payload = await res.json();
+        payload = await readFeed(country);
       } catch (err) {
         lastError = err;
       }
@@ -1356,6 +1529,18 @@ async function main() {
       DROPPED.map((d) => `${totals[d]} ${d}`).join(', '),
   );
   if (silent.length) console.log(`countries that did not answer: ${silent.join(', ')}`);
+  // 🔴 NAMED, NOT ONLY COUNTED: a NUTS area with no MeteoAlarm zone reaches
+  // no campsite, and its NUTS code looks like a code that should work.
+  const unboundNuts = shapes.flatMap((r) => r.unbound.map((u) => ({ country: r.country, ...u })));
+  // 🔴 LOUD, NOT A WARNING LINE. Review: Belgium's three Brabant regions found
+  // no zone, and the run printed "⚠" and returned 0 — the first Brabant
+  // warning would have reached nobody and nothing anywhere would have said
+  // so. The file is still written (one unplaceable area costs that area,
+  // never the other 600 warnings), but the PROCESS fails, so a timer, a CI
+  // step or a person watching an exit code sees it.
+  const loud = unboundVerdict(shapes);
+  for (const line of loud.lines) console.error(line);
+  if (loud.code !== 0) process.exitCode = loud.code;
 
   // 🔴 Refuses to write a file that says Europe is calm because the
   // filter broke. Every country failing, or nothing at all surviving
@@ -1459,6 +1644,9 @@ async function main() {
       // 🔴 Surfaced, not filtered: see `dropReason`. Today every one of
       // these is Bulgaria, 72 minutes ahead on a clock.
       publishedAhead,
+      // 🔴 Kept warnings whose NUTS code found no MeteoAlarm zone. Empty
+      // is the healthy answer; a name here is a place nobody is told about.
+      unboundNuts,
       // 🔴 Written because the failure above was INVISIBLE in the output:
       // a run missing 26 countries produced a document indistinguishable
       // from a full one. A reader must be able to see who answered.

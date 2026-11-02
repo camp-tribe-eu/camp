@@ -137,8 +137,11 @@ export const LEGAL_PAGES: LegalPage[] = [
     title: 'Terms of use',
     summary:
       'What CampTribe is, what it is not, what you can rely on, and who may open an account.',
-    version: '1.1',
-    effectiveFrom: '2026-10-16',
+    // 1.2 (02.11.2026, debt #29): three claims the code did not back — the
+    // content we accept, where earlier wordings are kept, and how age is
+    // confirmed. Migration 1793800000000-TermsHonestClaims.
+    version: '1.2',
+    effectiveFrom: '2026-11-02',
   },
   {
     slug: 'privacy',
@@ -153,20 +156,27 @@ export const LEGAL_PAGES: LegalPage[] = [
     // (two, not "three"), the four services the browser reaches directly,
     // the browser-error and dead-link logs and the planner, and two false
     // sentences removed. Migration 1793500000000-PrivacyProcessors.
-    // 2.3 (02.11.2026): the browser-error log (3 months) and the dead-link
+    // 2.3 (01.11.2026): the browser-error log (3 months) and the dead-link
     // log (1 month) now have a term the purge enforces, so "no automatic
     // deletion yet" is replaced by the two numbers, bound to RULES by test.
     // Migration 1793600000000-PrivacyRetentionLogs.
-    version: '2.3',
-    effectiveFrom: '2026-11-01',
+    // 2.4 (02.11.2026, debt #29): "only that answer" and "we ask you to
+    // confirm" replaced with what the code does, in the words of cookies 1.1
+    // and terms 1.2. Migration 1793900000000-PrivacyBrowserStorage.
+    version: '2.4',
+    effectiveFrom: '2026-11-02',
   },
   {
     slug: 'cookies',
     title: 'Cookies',
     summary:
-      'Nothing is stored on your device until you say yes, and saying no is one click.',
-    version: '1.0',
-    effectiveFrom: '2026-09-23',
+      'Nothing optional is stored on your device until you say yes, and saying no is one click.',
+    // 1.1 (02.11.2026, debt #29): all three entries the code writes are
+    // named (not "the only thing"), and the map paragraph says which pages
+    // have the style buttons. Migration 1793801000000-CookiesHonestClaims.
+    // Raising this voids a saved consent once — the site is closed.
+    version: '1.1',
+    effectiveFrom: '2026-11-02',
   },
   {
     slug: 'disclaimer',
@@ -180,9 +190,17 @@ export const LEGAL_PAGES: LegalPage[] = [
     slug: 'attribution',
     title: 'Data and attribution',
     summary:
-      'Where every map, boundary and elevation on this site comes from, and the licences we are bound by.',
-    version: '1.0',
-    effectiveFrom: '2026-09-23',
+      'Where every map, boundary, reading and price on this site comes from, and the licences we are bound by.',
+    // 1.1 (02.11.2026): the twelve sources the site showed and 1.0 did not
+    // name — satellite imagery (IGN España, IGN France), EEA bathing water
+    // and air quality, MeteoAlarm and the three boundary sets behind it,
+    // Copernicus EDO and EFFIS, the Weekly Oil Bulletin and three national
+    // fuel feeds, Windy webcams — each with the licence read from its
+    // publisher. Bound to the code by `tests/unit/attribution-sources.spec.ts`:
+    // every source host in code has a line on the page, and nothing else
+    // does. Migration 1793700000000-AttributionSources.
+    version: '1.1',
+    effectiveFrom: '2026-11-02',
   },
   {
     // CAMP-186. ODbL §4.6 lets us answer with the DESCRIPTION of our
@@ -194,15 +212,20 @@ export const LEGAL_PAGES: LegalPage[] = [
     title: 'How this database is made',
     summary:
       'What we take from OpenStreetMap, what we compute ourselves, what we join in, and what we leave out.',
-    version: '1.0',
-    effectiveFrom: '2026-10-04',
+    // 1.1 (02.11.2026, debt #29): supermarket only, slug suffix is global,
+    // two decisions computed rather than stored, and the tags of a merged
+    // duplicate are kept. Migration 1793802000000-DatabaseHonestClaims.
+    version: '1.1',
+    effectiveFrom: '2026-11-02',
   },
   {
     slug: 'notice',
     title: 'Legal notice',
     summary: 'Who operates this site and how to reach a human.',
-    version: '1.0',
-    effectiveFrom: '2026-09-23',
+    // 1.1 (02.11.2026, debt #29): the list of other pages names all six.
+    // Migration 1793803000000-NoticeAllPages.
+    version: '1.1',
+    effectiveFrom: '2026-11-02',
   },
 ];
 
