@@ -23,6 +23,7 @@
     "basic-ftp": "^6.2.1"
   },
   "devDependencies": {
-    "js-yaml": "^5.4.1"
+    "js-yaml": "^5.4.1",
+    "ts-node": "^10.9.2"
   }
 }
