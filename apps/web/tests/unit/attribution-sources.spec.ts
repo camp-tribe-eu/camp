@@ -95,8 +95,15 @@ interface Exception {
    * тест червоніє, і хост мусить дістати рядок на сторінці, а не лишитися тут.
    */
   dormantModule?: string;
+  /**
+   * 🔴 «Прийде з PR». Хост, який у цьому дереві ще не з'явився (або ще лишається
+   * до злиття): мертвий виняток для нього — не падіння. Це дозволено лише тут і
+   * лише з назвою PR; після злиття запис видаляють.
+   */
+  transitional?: string;
 }
 const because = (why: string, ...where: string[]): Exception => ({ why, in: where });
+const transitional = (pr: string, e: Exception): Exception => ({ ...e, transitional: pr });
 const dormant = (module: string, why: string, ...where: string[]): Exception => ({ why, in: where, dormantModule: module });
 
 /** Де `data/rental` і сторінки оренди посилаються на першоджерело того, що переказують. */
@@ -184,6 +191,29 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
   ),
   ...cited(CONTEXT, 'croatia.hr', 'turismodeportugal.pt', 'naturstyrelsen.dk'),
 
+  // ── перехід #398: GISCO виходить із конвеєра, Nominatim заходить ──
+  //
+  // 🔴 ПОРЯДОК ЗЛИТТЯ. Сторінка вже не називає Eurostat GISCO, бо #398 прибирає
+  // його з коду. Доки #398 не злито, `resolve-areas.mjs` і `zone-coverage.mjs`
+  // ще читають GISCO — і сторінка про це мовчить. Тому #394 НЕ МОЖНА зливати
+  // раніше за #398 (умова ліцензії GISCO — рядок «© EuroGeographics…» — тоді
+  // порушена). Після злиття #398 обидва записи нижче видалити.
+  'gisco-services.ec.europa.eu': transitional(
+    '#398',
+    because(
+      'Eurostat GISCO NUTS boundaries, still read by the warning-zone scripts until PR #398 removes them; the page no longer names the source because #398 lands first. Delete this row when #398 is merged',
+      'scripts/meteoalarm/resolve-areas.mjs',
+      'scripts/meteoalarm/zone-coverage.mjs',
+    ),
+  ),
+  'nominatim.openstreetmap.org': transitional(
+    '#398',
+    because(
+      'the query service the zone script calls once per run to fetch Croatia’s county outlines; the geometry is OpenStreetMap data, whose licence and credit are on the page, and the reader’s browser never contacts this host',
+      'scripts/meteoalarm/osm-hr-counties.mjs',
+    ),
+  ),
+
   // ── написано, але не підключено: тимчасово, з умовою ──
   'api.datatourisme.fr': dormant(
     'apps/api/src/datatourisme/api-v1',
@@ -204,7 +234,6 @@ const REFERENCE_HOSTS: Readonly<Record<string, string>> = {
   'dati.gov.it': 'IODL 2.0 text',
   'datos.gob.es': 'datos.gob.es general conditions of reuse',
   'cartes.gouv.fr': 'IGN France’s conditions of use, which its service points to',
-  'ec.europa.eu': 'Eurostat’s download conditions for GISCO geodata',
   'openfontlicense.org': 'SIL Open Font License text',
   'maplibre.org': 'the map library (BSD-3-Clause), a dependency rather than a data source',
   'openmaptiles.org': 'the tile schema, named by the tile provider’s own credit line',
@@ -297,8 +326,6 @@ test.describe('attribution: every source in code is on the page, and nothing els
 
   test('the notices the licences dictate are in the visible text', () => {
     const text = visibleText(html);
-    // Eurostat GISCO download conditions: the copyright notice, verbatim.
-    expect(text).toContain('© EuroGeographics for the administrative boundaries');
     // MeteoAlarm terms clause 5: the source for information spanning countries.
     expect(text).toContain('EUMETNET – MeteoAlarm');
     // CEMS terms: the notice for modified data, with a four-digit year.
@@ -410,7 +437,9 @@ test.describe('attribution: a sweep of all production code, independent of SOURC
   });
 
   test('an exception is not dead and not shadowing a line on the page', () => {
-    const dead = Object.keys(NOT_A_SOURCE).filter((h) => !sweep.hosts.has(h));
+    const dead = Object.entries(NOT_A_SOURCE)
+      .filter(([h, e]) => !sweep.hosts.has(h) && !e.transitional)
+      .map(([h]) => h);
     expect(dead, `exceptions for hosts the sweep no longer finds (delete them): ${dead.join(', ')}`).toEqual([]);
     const shadowing = Object.keys(NOT_A_SOURCE).filter((h) => page.has(h));
     expect(
@@ -424,11 +453,16 @@ test.describe('attribution: a sweep of all production code, independent of SOURC
     for (const [host, e] of Object.entries(NOT_A_SOURCE)) {
       if (!e.dormantModule) continue;
       const base = e.dormantModule.split('/').pop() as string;
+      // 🔴 МЕЖА, НАЗВАНА В КОДІ: ловляться лише СТАТИЧНІ імпорти — `from '…'`,
+      // `require('…')`, `import('…')` з рядковим літералом (розширення
+      // `.js`/`.ts`/`.mjs` зрізається). `import(змінна)`, `require(join(__dirname,
+      // 'api-v1'))` і підстановка імені під час виконання лишаються поза цим
+      // тестом: статично їх не впіймати.
       for (const f of sweep.files) {
         if (f.startsWith(e.dormantModule)) continue;
         // `from './api-v1'`, `require('../datatourisme/api-v1')`, `import('./api-v1')`
         for (const m of readFileSync(join(ROOT, f), 'utf8').matchAll(/(?:from|require\(|import\()\s*['"]([^'"]+)['"]/g)) {
-          if (m[1].split('/').pop() === base) importers.push(`${host} ← imported by ${f}`);
+          if ((m[1].split('/').pop() as string).replace(/\.[cm]?[jt]sx?$/, '') === base) importers.push(`${host} ← imported by ${f}`);
         }
       }
     }

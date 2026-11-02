@@ -26,10 +26,11 @@ import { SeedLegalPages1792800000000 } from './1792800000000-SeedLegalPages';
  *   · MeteoAlarm — умови від 15/03/2024, прочитані в браузері (сторінка —
  *     SPA): «equivalent to CC BY 4.0» плюс сім вимог розділу 5, і три
  *     набори меж, якими код площі попереджень кладе на кемпінги:
- *     геокоди MeteoAlarm (gitlab.com), NUTS 2013 від Eurostat GISCO
- *     (умови завантаження: «© EuroGeographics for the administrative
- *     boundaries» і «the data will not be used for commercial purposes»),
- *     Natural Earth admin-1 (public domain);
+ *     геокоди MeteoAlarm (gitlab.com), контури хорватських повітів з
+ *     OpenStreetMap, Natural Earth admin-1 (public domain). NUTS від Eurostat
+ *     GISCO тут БУЛИ (умови: «© EuroGeographics…» і «not … for commercial
+ *     purposes»); PR #398 прибирає їх із конвеєра, тож сторінка їх не несе —
+ *     див. застереження про порядок злиття в `attribution-sources.spec.ts`;
  *   · Copernicus EDO (CDI) — умови CEMS, нота «Contains modified …»;
  *     EFFIS/GWIS — CC BY 4.0 (сторінка data-license) і ті самі умови;
  *   · ціни пального: Weekly Oil Bulletin Європейської комісії (правова
@@ -73,7 +74,8 @@ export class AttributionSources1793700000000 implements MigrationInterface {
         }>;
       }
     ).pages.find((p) => p.slug === 'attribution');
-    if (!seeded) throw new Error('SeedLegalPages: немає сторінки «attribution»');
+    if (!seeded)
+      throw new Error('SeedLegalPages: немає сторінки «attribution»');
     return seeded;
   })();
 
@@ -160,8 +162,8 @@ MeteoAlarm’s [terms and conditions](https://meteoalarm.org/en/live/page/terms-
 
 A warning names its area by a code, not by a shape. To place campsites inside those areas we use three sets of boundaries — once, when the database is built; none of them is drawn on the map:
 
-- MeteoAlarm’s own geocode file, published by the MeteoAlarm programme on [gitlab.com](https://gitlab.com/meteoalarm-pm-group/documents), for the countries whose warnings use its codes;
-- the NUTS boundaries, 2013 edition, from Eurostat’s GISCO service at [gisco-services.ec.europa.eu](https://gisco-services.ec.europa.eu/distribution/v2/nuts/), for the countries whose warnings use NUTS codes. Eurostat’s [download conditions](https://ec.europa.eu/eurostat/web/gisco/geodata/statistical-units) ask that the source be acknowledged with this notice — **© EuroGeographics for the administrative boundaries** — and grant the data on condition that it is not used for commercial purposes;
+- MeteoAlarm’s own geocode file, published by the MeteoAlarm programme on [gitlab.com](https://gitlab.com/meteoalarm-pm-group/documents), for the countries whose warnings use its codes, and — matched by zone name — for those whose warnings use NUTS codes;
+- the outlines of Croatia’s counties, from [OpenStreetMap](https://www.openstreetmap.org/) under the licence named above, because MeteoAlarm’s own list does not carry Croatia’s counties;
 - Natural Earth’s admin-1 boundaries, read from its repository at [raw.githubusercontent.com](https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson), public domain, for Ireland.
 
 ## Drought {#drought}
@@ -180,7 +182,7 @@ Burnt areas of the last fourteen days come from the European Forest Fire Informa
 
 **Prices at the pump.** Route pages show the price at individual stations in three countries, each from the ministry that publishes it, with the source and the day it was read beside every price:
 
-- **Spain** — the Ministerio para la Transición Ecológica y el Reto Demográfico’s [Geoportal de Gasolineras](https://geoportalgasolineras.es/); the dataset is catalogued at [sede.serviciosmin.gob.es](https://sede.serviciosmin.gob.es/es-ES/datosabiertos/catalogo/precios-carburantes) and read from [sedeaplicaciones.minetur.gob.es](https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/), under the [general conditions of reuse](https://datos.gob.es/es/aviso-legal) of datos.gob.es, which permit commercial and non-commercial reuse and ask for the source, the date of last update, and that the meaning not be distorted.
+- **Spain** — the Ministerio para la Transición Ecológica y el Reto Demográfico’s [Geoportal de Gasolineras](https://geoportalgasolineras.es/) and read from [sedeaplicaciones.minetur.gob.es](https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/), under the [general conditions of reuse](https://datos.gob.es/es/aviso-legal) of datos.gob.es, which permit commercial and non-commercial reuse and ask for the source, the date of last update, and that the meaning not be distorted.
 - **France** — the Ministère de l’Économie et des Finances’ [prix-carburants.gouv.fr](https://www.prix-carburants.gouv.fr/), read from [data.economie.gouv.fr](https://data.economie.gouv.fr/explore/dataset/prix-des-carburants-en-france-flux-instantane-v2/), under the Licence Ouverte 2.0.
 - **Italy** — the [Ministero delle Imprese e del Made in Italy](https://www.mimit.gov.it/it/open-data/elenco-dataset/carburanti-prezzi-praticati-e-anagrafica-degli-impianti), whose public search is [carburanti.mise.gov.it](https://carburanti.mise.gov.it/ospzSearch/), under the [Italian Open Data Licence 2.0 (IODL)](https://www.dati.gov.it/content/italian-open-data-license-v20), which permits commercial reuse and asks for the source and the licensor to be named.
 
@@ -257,7 +259,12 @@ You are also welcome to write to [{{company.email}}](mailto:{{company.email}}), 
     await queryRunner.query(
       `UPDATE legal_page_translations SET title = $2, plain_summary = $3, body = $4
         WHERE legal_page_id = $1 AND language_code = 'en'`,
-      [rows[0].id, this.previous.title, this.previous.summary, this.previous.body],
+      [
+        rows[0].id,
+        this.previous.title,
+        this.previous.summary,
+        this.previous.body,
+      ],
     );
     await queryRunner.query(
       `UPDATE legal_pages SET version = $2, effective_from = $3 WHERE id = $1`,
