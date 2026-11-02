@@ -1544,6 +1544,20 @@ jobs:
           ./scripts/osm-pipeline/backup-local.selftest.sh | tee /dev/stderr \
             | grep -c 'backup-local dump self-test: усе гаразд' >/dev/null
 
+      # 🔴 ПІДТЯГУВАННЯ КЕМПІНГА ДО НАЙБЛИЖЧОЇ ЗОНИ — на справжньому PostGIS.
+      # Те, що робить запит (відстань, країна, межа), текстом не перевіряється:
+      # мутація «межа ×10» лишає в тексті все, що бачить текстовий тест.
+      # Набір створює власну базу з двома синтетичними країнами, проганяє
+      # справжній `codesSelect` і знищує її. Крок читає надруковане: рядок із
+      # власною назвою друкується лише коли виконано рівно EXPECTED випадків.
+      - name: Zone resolver snaps to its own country's nearest zone and no farther
+        env:
+          CAMPTRIBE_SELFTEST_PG_BASE: postgres://postgres:postgres@localhost:5432
+        run: |
+          set -o pipefail
+          node scripts/meteoalarm/resolve-campsite-zones.mjs --self-test-db | tee /dev/stderr \
+            | grep -c '✓ resolve-campsite-zones self-test (PostGIS):' >/dev/null
+
       - run: npm ci
 
       # 🔴 CAMP-192: build TWICE and check it actually wrote files.

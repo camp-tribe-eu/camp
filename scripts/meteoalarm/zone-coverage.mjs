@@ -147,6 +147,10 @@ export const USED_SOURCES = Object.freeze({
   EMMA_ID: {
     url: 'https://gitlab.com/meteoalarm-pm-group/documents/-/raw/master/MeteoAlarm_Geocodes_2026_07_31.json',
     idField: 'code',
+    // The zone's own country, for snapping: an `EI…` zone is Irish, and a
+    // code prefix would say otherwise. Zones without one are never a snap
+    // target but still answer containment.
+    countryField: 'country',
     zones: 2006,
     file: 'EMMA_ID.json',
   },
@@ -185,13 +189,13 @@ export function usesPairs(schemes = SCHEMES_USED) {
 }
 
 /**
- * One GeoJSON feature collection as `scheme\tcode\tgeometry` lines.
+ * One GeoJSON feature collection as `scheme\tcode\tgeometry\tcountry` lines.
  *
  * 🔴 A feature whose geometry or id is missing is DROPPED AND COUNTED,
  * never written as an empty row: a zone with no shape contains nothing,
  * and a silent skip would lower coverage for a reason no number names.
  */
-export function rowsFrom(collection, scheme, idField) {
+export function rowsFrom(collection, scheme, idField, countryField = null) {
   const out = [];
   let dropped = 0;
   for (const f of collection?.features ?? []) {
@@ -209,7 +213,14 @@ export function rowsFrom(collection, scheme, idField) {
     // `.includes('\t')` on it is false. Unreachable code wearing a
     // guard's clothes is worse than no guard: it reads as a handled
     // case. The tab in the row below is therefore ours alone.
-    out.push(`${scheme}\t${code}\t${JSON.stringify(geometry)}`);
+    // Country: the source's own field when it has one, else the first two
+    // letters of the code (`HR031` is Croatian). Never guessed from the
+    // geometry, and never a tab or newline: it is a column of the `\copy`.
+    const country = String(countryField ? (f?.properties?.[countryField] ?? '') : code.slice(0, 2))
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z]/g, '');
+    out.push(`${scheme}\t${code}\t${JSON.stringify(geometry)}\t${country}`);
   }
   return { lines: out, dropped };
 }
@@ -248,13 +259,49 @@ export function verdict(total, placed, perCountry) {
 }
 
 /**
- * What the six countries that used to ride on GISCO got from it, on the
- * SAME 57 128 live campsites this resolver now reads (a copy of the dev
- * database, 02.11.2026), by running the previous resolver unchanged.
- * `[total, placed]`: placed = has at least one zone code.
+ * How far a campsite that falls inside NO zone may be pulled to the
+ * nearest zone of its own country, in metres.
  *
- * Kept so the run can print the loss next to the figure, and so a reader
- * of a red run sees what "before" was without a git archaeology.
+ * 🔴 ONE CONSTANT, NOT A FUNCTION OF THE DATA, AND IT IS NOT A NUMBER I
+ * CHOSE FOR THE RESULT. It is the limit this project already uses and
+ * already explains to readers (`/legal/database`): `import-spots.ts` gives
+ * a point that falls in no polygon the nearest one "within a hard limit",
+ * because a 1:10m coastline shaves shores and islands off — Croatia put
+ * 367 of 778 campsites outside every polygon, all within 3.85 km. The
+ * resolver reads the same kind of generalised outline (MeteoAlarm's) and
+ * so meets the same defect; it takes the same remedy with the same limit,
+ * and a test reads `import-spots.ts` to keep the two equal.
+ *
+ * MEASURED 02.11.2026 on the campsites that hold no zone after the GISCO
+ * replacement, distance to the nearest zone of their own country:
+ *
+ *   the six countries (598):  ≤100 m 100   ≤500 m 349   ≤1 km 491   ≤2 km 543
+ *                             ≤3 km 570    ≤4 km 582    ≤5 km 585   ≤10 km 591
+ *                             >10 km 7, the farthest 22 814 m
+ *   all 20 joined countries (1 223): ≤1 km 642  ≤3 km 830  ≤5 km 889
+ *                             ≤10 km 977  ≤25 km 1 049; 69 have no zone of
+ *                             their own country within a degree (Latvia)
+ *
+ * The decay is steep, not a cliff: 491 in the first kilometre, 12 between
+ * three and four, 3 between four and five, 6 between five and ten. Past
+ * 5 km each one is a different place — Burgas's 6.7 km, a French spot
+ * 22 km from any zone — not a shore the outline shaved. Those stay unplaced.
+ */
+export const SNAP_LIMIT_M = 5000;
+
+/**
+ * The three measurements per country, `[total, placed]`, on the SAME 57 128
+ * live campsites (a copy of the dev database, 02.11.2026). `placed` is
+ * "has at least one zone code".
+ *
+ *   BEFORE_GISCO        the previous resolver, unchanged, `--apply` on the copy
+ *   AFTER_REPLACEMENT   this resolver with GISCO gone and NO snapping
+ *                       (the run's own "placed without snapping" column)
+ *   MEASURED_AFTER_SNAP this resolver as it stands, `--apply` on the copy:
+ *                       `DATABASE_URL=… node scripts/meteoalarm/resolve-campsite-zones.mjs --apply`
+ *
+ * Kept so a red run shows what "before" was without archaeology, and so the
+ * floors below can be shown to come from a measurement.
  */
 export const BEFORE_GISCO = Object.freeze({
   BE: [748, 748],
@@ -265,37 +312,86 @@ export const BEFORE_GISCO = Object.freeze({
   RO: [567, 557],
 });
 
+export const AFTER_REPLACEMENT = Object.freeze({
+  BE: [748, 738],
+  BG: [275, 247],
+  FR: [21759, 21217],
+  HR: [642, 638],
+  HU: [615, 612],
+  RO: [567, 556],
+});
+
+export const MEASURED_AFTER_SNAP = Object.freeze({
+  BE: [748, 748],
+  BG: [275, 271],
+  FR: [21759, 21751],
+  HR: [642, 642],
+  HU: [615, 615],
+  RO: [567, 566],
+});
+
+/**
+ * 🔴 A FLOOR IS THE MEASURED VALUE MINUS A MARGIN, NOT A ROUND NUMBER FITTED
+ * SO THE PRESENT STATE PASSES. `FLOOR_MARGIN_PP` is that margin, in
+ * percentage points of live campsites, and the self-test recomputes every
+ * floor below from `MEASURED_AFTER_SNAP` and fails if they disagree.
+ *
+ * Two points, not one: a country of 275 campsites moves a point on three of
+ * them, and an import that adds three coastal campsites farther than
+ * `SNAP_LIMIT_M` from any zone is not a broken resolver. A country losing
+ * its source is: Croatia without its counties, or France without its zones,
+ * falls by tens of points.
+ */
+export const FLOOR_MARGIN_PP = 2.0;
+
 /**
  * 🔴 THE FLOOR PER COUNTRY, because the global one cannot see these.
  *
  * Croatia is 642 of 57 128 campsites. Losing every one of them moves the
- * global share from 91.8% to 90.7% — over its 80% floor, no word printed —
+ * global share from 93.4% to 92.3% — over its 80% floor, no word printed —
  * while a whole country has no warnings. The six below are the ones whose
  * join changed on 02.11.2026, so they are the ones that can lose
  * campsites without anyone noticing.
  *
- * Percent of live campsites with at least one zone code, from the run
- * after GISCO was removed (02.11.2026), less about one point so that
- * ordinary drift of the import does not trip them:
+ * Percent of live campsites with at least one zone code — measured value
+ * (from `MEASURED_AFTER_SNAP`) less `FLOOR_MARGIN_PP`, rounded down to a
+ * tenth. Each line says where its number comes from:
  *
- *             before (GISCO)   after        floor
- *   BE         748/748 100.0%  738/748 98.7%   97.5
- *   BG         266/275  96.7%  247/275 89.8%   88.5
- *   FR      21 669/21 759 99.6%  21 217/21 759 97.5%   96.5
- *   HR         639/642  99.5%  638/642 99.4%   98.5
- *   HU         615/615 100.0%  612/615 99.5%   98.5
- *   RO         557/567  98.2%  556/567 98.1%   97.0
+ *   BE  748/748   = 100.0%  → 98.0
+ *   BG  271/275   =  98.5%  → 96.5   (GISCO gave 266/275 = 96.7%)
+ *   FR  21 751/21 759 = 100.0% → 98.0   (GISCO 21 669 = 99.6%)
+ *   HR  642/642   = 100.0%  → 98.0
+ *   HU  615/615   = 100.0%  → 98.0
+ *   RO  566/567   =  99.8%  → 97.8
  *
- * These are a cost, not a pass: France lost 452 campsites net (502 had a
- * zone before and none now, 50 the other way), 429 of the 502 within a
- * kilometre of a MeteoAlarm polygon — its zones are coarser at the coast
- * than GISCO's. Whether to pull a campsite to the nearest zone within a
- * distance is a decision for the owner and is not made here.
+ * `AFTER_REPLACEMENT` vs `MEASURED_AFTER_SNAP` is what snapping bought:
+ * France 21 217 → 21 751, Bulgaria 247 → 271. Before it, France sat 452
+ * campsites under GISCO — 429 of the 502 it lost within a kilometre of a
+ * MeteoAlarm polygon, whose coastline is coarser. Snapping to the nearest
+ * zone of the campsite's own country, within `SNAP_LIMIT_M`, is the remedy
+ * this project already applies to its other generalised outline.
  */
-export const COUNTRY_FLOORS = Object.freeze({ BE: 97.5, BG: 88.5, FR: 96.5, HR: 98.5, HU: 98.5, RO: 97.0 });
+export const COUNTRY_FLOORS = Object.freeze({ BE: 98.0, BG: 96.5, FR: 98.0, HR: 98.0, HU: 98.0, RO: 97.8 });
+
+/**
+ * 🔴 "AT LEAST ONE ZONE CODE" IS NOT "MATCHABLE" FOR CROATIA, and snapping
+ * makes that gap wider. Croatia's feed carries a dead EMMA id on every
+ * county (HR018 …) beside the NUTS3 that counts, so a Croatian campsite with
+ * only an EMMA code placed would match nothing but the six sea channels.
+ * Without the county source Croatia still shows ~100% on the line above,
+ * because snapping drags every point to an EMMA region. So the scheme that
+ * matches gets its own floor: share of the country's campsites that carry a
+ * code of that scheme. Measured 642 of 642; floor = 100.0 − 2.0.
+ */
+export const SCHEME_FLOORS = Object.freeze({ HR: { scheme: 'NUTS3', floor: 98.0, measured: [642, 642] } });
 
 /** Every country under its own floor, named, or ok. */
-export function floorsVerdict(perCountry, floors = COUNTRY_FLOORS, before = BEFORE_GISCO) {
+export function floorsVerdict(
+  perCountry,
+  floors = COUNTRY_FLOORS,
+  before = BEFORE_GISCO,
+  schemeFloors = SCHEME_FLOORS,
+) {
   const rows = new Map(perCountry.map((r) => [r.country, r]));
   const under = [];
   const table = [];
@@ -321,6 +417,20 @@ export function floorsVerdict(perCountry, floors = COUNTRY_FLOORS, before = BEFO
         `${country}: ${placed} of ${row.total} (${share}%) are placed, under its ${floor}% floor` +
           (was ? ` — GISCO gave ${was[1]} of ${was[0]}` : ''),
       );
+    }
+  }
+  for (const [country, { scheme, floor }] of Object.entries(schemeFloors)) {
+    const row = rows.get(country);
+    if (!row || !(row.total > 0)) continue; // already named above if it has a floor of its own
+    const missing = row[`missing${scheme}`];
+    if (missing === undefined) {
+      under.push(`${country}: how many carry a ${scheme} code was not measured`);
+      continue;
+    }
+    const have = row.total - missing;
+    const share = Math.round((1000 * have) / row.total) / 10;
+    if (share < floor) {
+      under.push(`${country}: only ${have} of ${row.total} (${share}%) carry a ${scheme} code, under its ${floor}% floor — the scheme its warnings are matched on`);
     }
   }
   return under.length ? { ok: false, why: under.join('; '), table } : { ok: true, table };
@@ -516,9 +626,28 @@ function selfTest() {
   // `JSON.stringify` — остання робила кожен рядок `[object Object]`, і
   // ніхто цього не читав.
   check(
-    made.lines[0] === 'EMMA_ID\tBE001\t{"type":"Polygon","coordinates":[]}',
+    made.lines[0] === 'EMMA_ID\tBE001\t{"type":"Polygon","coordinates":[]}\tBE',
     `the row is scheme, then code, then the geometry as JSON — got ${made.lines[0]}`,
   );
+
+  // 🔴 The country column is what snapping is allowed to look at. It is the
+  // source's own field when the source has one (an `EI…` zone is Irish), the
+  // code's first two letters when it has not, and always letters only.
+  {
+    const zone = (code, country) => ({ properties: { code, country }, geometry: { type: 'Point', coordinates: [0, 0] } });
+    const col = (line) => line.split('\t')[3];
+    check(col(rowsFrom({ features: [zone('EI001', 'IE')] }, 'EMMA_ID', 'code', 'country').lines[0]) === 'IE',
+      '🔴 the country comes from the source\'s field, not from the code prefix (EI001 is Irish)');
+    check(col(rowsFrom({ features: [zone('EI001', 'IE')] }, 'EMMA_ID', 'code').lines[0]) === 'EI',
+      'and without a country field it is the code prefix — which is why EMMA must name the field');
+    check(USED_SOURCES.EMMA_ID.countryField === 'country', 'EMMA names its country field');
+    check(col(rowsFrom({ features: [zone('FR001', 'fr')] }, 'EMMA_ID', 'code', 'country').lines[0]) === 'FR',
+      'the country is upper-cased');
+    check(rowsFrom({ features: [zone('FR001', 'F\tR')] }, 'EMMA_ID', 'code', 'country').lines[0].split('\t').length === 4,
+      '🔴 a country with a tab in it cannot add a column');
+    check(col(rowsFrom({ features: [zone('FR001', undefined)] }, 'EMMA_ID', 'code', 'country').lines[0]) === '',
+      'a zone with no country is kept, with an empty one — it still answers containment, never snapping');
+  }
 
   const spaced = rowsFrom(
     { features: [{ properties: { code: '  BE001  ' }, geometry: { type: 'Polygon', coordinates: [] } }] },
@@ -538,8 +667,8 @@ function selfTest() {
     'code',
   );
   check(
-    tabbed.lines.length === 1 && tabbed.lines[0].split('\t').length === 3,
-    'a geometry holding a tab character still produced exactly three columns',
+    tabbed.lines.length === 1 && tabbed.lines[0].split('\t').length === 4,
+    'a geometry holding a tab character still produced exactly four columns',
   );
 
   // 🔴 ВХІДНИЙ ПОРЯДОК НАВМИСНО НЕ ЗБІГАЄТЬСЯ З ОЧІКУВАНИМ. Перша
@@ -587,20 +716,42 @@ function selfTest() {
   // 🔴 СТОРОЖ НА МОВЧАЗНУ ВТРАТУ ПОКРИТТЯ, ПО КРАЇНАХ. Глобальна підлога
   // не бачить країну в 642 кемпінги: заміряно нижче, 57 128 живих.
   {
-    // Заміряна дійсність: рядки `{country, total, missing}` після прибирання GISCO.
-    const AFTER = [
-      { country: 'BE', total: 748, missing: 10 },
-      { country: 'BG', total: 275, missing: 28 },
-      { country: 'FR', total: 21759, missing: 542 },
-      { country: 'HR', total: 642, missing: 4 },
-      { country: 'HU', total: 615, missing: 3 },
-      { country: 'RO', total: 567, missing: 11 },
-    ];
+    const share = (a) => Math.round((1000 * a[1]) / a[0]) / 10;
+    // Рядки `{country, total, missing}` — з ВИМІРЯНОГО, не з моїх чисел.
+    const rowsOf = (m) =>
+      Object.entries(m).map(([country, [total, placed]]) => ({
+        country,
+        total,
+        missing: total - placed,
+        // Скільки не несуть код NUTS3 — для Хорватії підлога є окремо.
+        missingNUTS3: country === 'HR' ? 0 : undefined,
+      }));
+    const AFTER = rowsOf(MEASURED_AFTER_SNAP);
+
+    // 🔴 КОЖНА ПІДЛОГА — ЗАМІРЯНЕ МІНУС ЗАПАС, а не число, підігнане під
+    // теперішній стан. Перераховується тут з тих самих чисел, що в коментарі.
+    for (const [country, floor] of Object.entries(COUNTRY_FLOORS)) {
+      const want = Math.floor((share(MEASURED_AFTER_SNAP[country]) - FLOOR_MARGIN_PP) * 10 + 1e-9) / 10;
+      check(floor === want, `${country}: floor ${floor} is the measured ${share(MEASURED_AFTER_SNAP[country])}% less ${FLOOR_MARGIN_PP} points = ${want}`);
+    }
+    check(FLOOR_MARGIN_PP === 2.0, 'the margin is two percentage points, written once');
+    check(
+      Object.keys(MEASURED_AFTER_SNAP).every(
+        (c) => AFTER_REPLACEMENT[c][1] <= MEASURED_AFTER_SNAP[c][1] && MEASURED_AFTER_SNAP[c][1] <= MEASURED_AFTER_SNAP[c][0] &&
+          AFTER_REPLACEMENT[c][0] === MEASURED_AFTER_SNAP[c][0] && BEFORE_GISCO[c][0] === MEASURED_AFTER_SNAP[c][0],
+      ),
+      'the three measurements share one denominator per country, and snapping only ever adds',
+    );
+    check(
+      SCHEME_FLOORS.HR.floor === Math.floor((100 * (SCHEME_FLOORS.HR.measured[1] / SCHEME_FLOORS.HR.measured[0]) - FLOOR_MARGIN_PP) * 10 + 1e-9) / 10,
+      'the Croatian NUTS3 floor is its measured 642 of 642 less the same margin',
+    );
+
     const ok = floorsVerdict(AFTER);
     check(ok.ok === true, `the six countries as measured on 02.11.2026 pass their floors: ${ok.why ?? ''}`);
     check(
       ok.table.map((t) => `${t.country} ${t.placed}/${t.total}`).join() ===
-        'BE 738/748,BG 247/275,FR 21217/21759,HR 638/642,HU 612/615,RO 556/567',
+        'BE 748/748,BG 271/275,FR 21751/21759,HR 642/642,HU 615/615,RO 566/567',
       'the table is the measured numerator over its denominator, per country',
     );
     check(
@@ -610,24 +761,41 @@ function selfTest() {
     );
 
     // 🔴 Хорватія ціла зникає, а глобальна частка цього не помічає.
-    const croatiaGone = AFTER.map((r) => (r.country === 'HR' ? { ...r, missing: r.total } : r));
-    const missingAll = croatiaGone.reduce((n, r) => n + r.missing, 0);
-    const globalPlaced = 52469 - 638;
+    const croatiaGone = AFTER.map((r) => (r.country === 'HR' ? { ...r, missing: r.total, missingNUTS3: r.total } : r));
+    const globalPlaced = 53358 - 642;
     const g = verdict(57128, globalPlaced, croatiaGone);
     const f = floorsVerdict(croatiaGone);
     check(g.ok === true, `🔴 with all of Croatia gone the GLOBAL verdict still says ok at ${g.share}% — that is the hole`);
+    check(f.ok === false && /^HR: 0 of 642 \(0%\)/.test(f.why), `🔴 …and the per-country floor names it: ${f.why}`);
+
+    // 🔴 І ДІРА, ЯКУ ПІДТЯГУВАННЯ ВІДКРИЛО: Хорватія без повітів OSM лишається
+    // «розташованою» на 100%, бо кожну точку підтягнуто до регіону EMMA. Її
+    // попередження ж ходять по NUTS3.
+    const noCounties = AFTER.map((r) => (r.country === 'HR' ? { ...r, missingNUTS3: r.total } : r));
+    const h = floorsVerdict(noCounties);
     check(
-      f.ok === false && /^HR: 0 of 642 \(0%\)/.test(f.why),
-      `🔴 …and the per-country floor names it: ${f.why}`,
+      h.ok === false && /^HR: only 0 of 642 \(0%\) carry a NUTS3 code/.test(h.why),
+      `🔴 Croatia with every point placed but none on a county is caught by its scheme floor: ${h.why}`,
     );
-    check(missingAll > 0, 'the fixture really lost campsites');
+    check(
+      floorsVerdict(AFTER.map((r) => (r.country === 'HR' ? { ...r, missingNUTS3: undefined } : r))).ok === false,
+      'and "not measured" is a failure, not a pass',
+    );
+    check(
+      floorsVerdict(AFTER.map((r) => (r.country === 'HR' ? { ...r, missingNUTS3: 12 } : r))).ok === true,
+      'twelve Croatian campsites off a county (1.9%) are within the margin',
+    );
+    check(
+      floorsVerdict(AFTER.map((r) => (r.country === 'HR' ? { ...r, missingNUTS3: 14 } : r))).ok === false,
+      '🔴 …and fourteen (2.2%) are not: the scheme floor binds on its own',
+    );
 
     // Кожна підлога тримає САМА: країна рівно на підлозі проходить, на
-    // одну десяту нижче — ні. Без цього мутація «підлога 0» на одній
+    // один відсоток нижче — ні. Без цього мутація «підлога 0» на одній
     // країні лишалась би непоміченою.
     for (const [country, floor] of Object.entries(COUNTRY_FLOORS)) {
       const row = AFTER.find((r) => r.country === country);
-      const placedAt = (share) => Math.ceil((share / 100) * row.total);
+      const placedAt = (sh) => Math.ceil((sh / 100) * row.total);
       const at = AFTER.map((r) => (r === row ? { ...r, missing: r.total - placedAt(floor) } : r));
       const below = AFTER.map((r) => (r === row ? { ...r, missing: r.total - placedAt(floor) + Math.ceil(row.total / 100) } : r));
       check(floorsVerdict(at).ok === true, `${country} exactly at its ${floor}% floor passes`);
@@ -652,8 +820,8 @@ function selfTest() {
 
   // 🔴 Літерал, і він ловить випадок, що перестав досягатись: такий
   // друкує те саме, що друкує випадок, який пройшов. 45 до 02.11.2026,
-  // 70 після заміни GISCO (`node … --self-test` рахує сам).
-  const EXPECTED_CASES = 70;
+  // 88 після заміни GISCO й підтягування (`node … --self-test` рахує сам).
+  const EXPECTED_CASES = 88;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;

@@ -45,6 +45,8 @@ import { hrCountiesFeatures, HR_COUNTIES } from './osm-hr-counties.mjs';
 import {
   OBSOLETE_CACHE,
   SCHEMES_USED,
+  SNAP_LIMIT_M,
+  BEFORE_GISCO,
   USED_SOURCES,
   floorsVerdict,
   rowsFrom,
@@ -102,16 +104,44 @@ export function pairsValues(schemes = SCHEMES_USED) {
 //
 // Зони країн, чиїх фідів ми не тягнемо (`MK`), інертні: код лежить,
 // збігтися йому нема з чим.
-export function codesSelect(schemes = SCHEMES_USED) {
+export function codesSelect(schemes = SCHEMES_USED, limitM = SNAP_LIMIT_M) {
   return `
     SELECT s.id,
-           coalesce(array_agg(DISTINCT z.scheme || ':' || z.code)
-                      FILTER (WHERE z.code IS NOT NULL), '{}') AS codes
+           coalesce(array_agg(DISTINCT p.code) FILTER (WHERE p.code IS NOT NULL), '{}') AS codes,
+           coalesce(bool_or(p.snapped), false) AS snapped,
+           max(p.snap_m) FILTER (WHERE p.snapped) AS snap_m,
+           count(DISTINCT p.code) FILTER (WHERE NOT p.snapped) AS contained
       FROM camping_spots s
       LEFT JOIN (VALUES ${pairsValues(schemes)}) AS u(country, scheme)
              ON u.country = s.country
-      LEFT JOIN ${STAGING} z
-             ON z.scheme = u.scheme AND ST_Contains(z.geom, s.location)
+      LEFT JOIN LATERAL (
+        -- Containment: every zone of this scheme the point stands in.
+        SELECT z.scheme || ':' || z.code AS code, false AS snapped, NULL::float8 AS snap_m
+          FROM ${STAGING} z
+         WHERE z.scheme = u.scheme AND ST_Contains(z.geom, s.location)
+        UNION ALL
+        -- 🔴 SNAPPING: ONLY FOR A SCHEME IN WHICH THE POINT STANDS IN NOTHING,
+        -- and only to a zone of the campsite's OWN country within the limit.
+        -- A generalised outline shaves shores and islands off (see
+        -- SNAP_LIMIT_M); a point past the limit is a different place and
+        -- stays unplaced. Two steps, as import-spots.ts learned: the index
+        -- narrows to eight candidates by bounding box and KNN, and only
+        -- those are measured on the sphere. The code breaks a tie so the
+        -- winner cannot move between runs.
+        SELECT n.scheme || ':' || n.code, true, n.dist
+          FROM (SELECT 1 WHERE NOT EXISTS (
+                  SELECT 1 FROM ${STAGING} c
+                   WHERE c.scheme = u.scheme AND ST_Contains(c.geom, s.location))) AS g,
+               LATERAL (
+                 SELECT k.scheme, k.code,
+                        ST_Distance(k.geom::geography, s.location::geography) AS dist
+                   FROM (SELECT q.scheme, q.code, q.geom FROM ${STAGING} q
+                          WHERE q.scheme = u.scheme AND q.country = s.country
+                            AND q.geom && ST_Expand(s.location, ${limitM} / 30000.0)
+                          ORDER BY q.geom <-> s.location LIMIT 8) k
+                  WHERE ST_DWithin(k.geom::geography, s.location::geography, ${limitM})
+                  ORDER BY dist, k.code LIMIT 1) AS n
+      ) p ON true
      WHERE s.missing_since IS NULL AND s.location IS NOT NULL
      GROUP BY s.id`;
 }
@@ -137,9 +167,42 @@ export function wouldCoverSql(schemes = SCHEMES_USED) {
     WITH found AS (${codesSelect(schemes)})
     SELECT s.country,
            count(*) AS total,
-           count(*) FILTER (WHERE cardinality(found.codes) = 0) AS missing
+           count(*) FILTER (WHERE cardinality(found.codes) = 0) AS missing,
+           count(*) FILTER (WHERE NOT EXISTS (
+             SELECT 1 FROM unnest(found.codes) c WHERE c LIKE 'NUTS3:%')) AS missing_nuts3
       FROM found JOIN camping_spots s ON s.id = found.id
      GROUP BY s.country ORDER BY s.country`;
+}
+
+/**
+ * Who got a zone by snapping, per country: total, placed WITHOUT it, placed
+ * with it, and how many were snapped. The middle figure is what the
+ * replacement alone gave; the difference is what snapping added.
+ */
+export function snapByCountrySql(schemes = SCHEMES_USED) {
+  return `
+    WITH found AS (${codesSelect(schemes)})
+    SELECT s.country,
+           count(*) AS total,
+           count(*) FILTER (WHERE found.contained > 0) AS placed_without_snap,
+           count(*) FILTER (WHERE cardinality(found.codes) > 0) AS placed,
+           count(*) FILTER (WHERE found.snapped) AS snapped
+      FROM found JOIN camping_spots s ON s.id = found.id
+     GROUP BY s.country ORDER BY s.country`;
+}
+
+/** How far the snapped ones were pulled, in buckets, and the farthest. */
+export function snapDistancesSql(schemes = SCHEMES_USED) {
+  return `
+    WITH found AS (${codesSelect(schemes)})
+    SELECT count(*) FILTER (WHERE snapped) AS snapped,
+           count(*) FILTER (WHERE snapped AND snap_m <= 100) AS le_100m,
+           count(*) FILTER (WHERE snapped AND snap_m <= 500) AS le_500m,
+           count(*) FILTER (WHERE snapped AND snap_m <= 1000) AS le_1km,
+           count(*) FILTER (WHERE snapped AND snap_m <= 3000) AS le_3km,
+           count(*) FILTER (WHERE snapped AND snap_m <= 5000) AS le_5km,
+           coalesce(round(max(snap_m) FILTER (WHERE snapped)), 0) AS farthest_m
+      FROM found`;
 }
 
 /**
@@ -164,7 +227,9 @@ export function storedCoverSql() {
     SELECT country,
            count(*) AS total,
            count(*) FILTER (WHERE warning_areas IS NULL
-                               OR cardinality(warning_areas) = 0) AS missing
+                               OR cardinality(warning_areas) = 0) AS missing,
+           count(*) FILTER (WHERE warning_areas IS NULL OR NOT EXISTS (
+             SELECT 1 FROM unnest(warning_areas) c WHERE c LIKE 'NUTS3:%')) AS missing_nuts3
       FROM camping_spots
      WHERE missing_since IS NULL AND location IS NOT NULL
      GROUP BY country ORDER BY country`;
@@ -182,13 +247,17 @@ export function plan({ apply }) {
   const steps = [
     { name: 'column exists', sql: "SELECT 1 FROM information_schema.columns WHERE table_name='camping_spots' AND column_name='warning_areas'" },
     { name: 'drop staging', sql: `DROP TABLE IF EXISTS ${STAGING}` },
-    { name: 'create staging', sql: `CREATE TABLE ${STAGING} (scheme text, code text, gj text)` },
+    { name: 'create staging', sql: `CREATE TABLE ${STAGING} (scheme text, code text, gj text, country text)` },
     { name: 'load', copy: true },
     { name: 'geometry', sql: `ALTER TABLE ${STAGING} ADD COLUMN geom geometry(Geometry,4326)` },
     { name: 'make valid', sql: `UPDATE ${STAGING} SET geom = ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(gj), 4326))` },
     { name: 'index', sql: `CREATE INDEX ON ${STAGING} USING GIST (geom)` },
     { name: 'analyze', sql: `ANALYZE ${STAGING}` },
   ];
+  // 🔴 Підтягнуте має бути ВИДНО, у обох режимах і ДО запису: після нього
+  // колонка не каже, хто потрапив у неї підтягуванням.
+  steps.push({ name: 'snap by country', sql: snapByCountrySql() });
+  steps.push({ name: 'snap distances', sql: snapDistancesSql() });
   if (apply) steps.push({ name: 'write', sql: updateSql() });
   if (apply) {
     // 🔴 ІНВАРІАНТ, ЯКОГО ПІДЛОГА НЕ ЛОВИТЬ. `LEFT JOIN` → `JOIN` у
@@ -370,7 +439,35 @@ export async function sourceRows({
   return { lines, dropped };
 }
 
+/** The one line the run prints about who was pulled to a zone. */
+export function describeSnap(d, limitM = SNAP_LIMIT_M) {
+  return (
+    `підтягнуто до найближчої зони (≤ ${limitM} м, своєї країни): ${d.snapped} кемпінгів — ` +
+    `≤100 м ${d.le100}, ≤500 м ${d.le500}, ≤1 км ${d.le1k}, ≤3 км ${d.le3k}, ≤5 км ${d.le5k}; ` +
+    `найдальший ${d.farthestM} м`
+  );
+}
+
+/** `part` of `total`, to one decimal — the same rounding the verdict uses. */
+const pct = (part, total) => Math.round((1000 * part) / total) / 10;
+
+/**
+ * Підтягування за межею не відбувається — перевірка по ДАНИХ, не по
+ * тексту запиту: найдальший підтягнутий кемпінг мусить лежати в межі.
+ *
+ * 🔴 Це окремо від самотесту проти справжнього PostGIS (`--self-test-db`):
+ * той ловить зламаний запит на синтетичних точках, цей — на справжніх
+ * 57 тисячах, коли межу зламали деінде, ніж у тесті.
+ */
+export function judgeSnap(d, limitM = SNAP_LIMIT_M) {
+  if (d.farthestM > limitM) {
+    return { ok: false, why: `a campsite was pulled ${d.farthestM} m to a zone — the limit is ${limitM} m` };
+  }
+  return { ok: true };
+}
+
 async function run({ apply }) {
+  let snapRows = [];
   const steps = plan({ apply });
   if (!psql(steps[0].sql)) {
     console.error(
@@ -389,7 +486,7 @@ async function run({ apply }) {
     for (const step of steps.slice(1)) {
       if (step.copy) {
         execFileSync('psql', [DB, '-v', 'ON_ERROR_STOP=1', '-q', '-c',
-          `\\copy ${STAGING} (scheme, code, gj) FROM '${tsv}'`], { stdio: 'inherit' });
+          `\\copy ${STAGING} (scheme, code, gj, country) FROM '${tsv}'`], { stdio: 'inherit' });
         continue;
       }
       if (step.name === 'no nulls left') {
@@ -404,10 +501,42 @@ async function run({ apply }) {
         }
         continue;
       }
+      // 🔴 ПІДТЯГНУТЕ ДРУКУЄТЬСЯ ОКРЕМО Й ДО ЗАПИСУ. Число, що завтра
+      // стрибне, — сигнал, що полігони джерела змінились, а не що в нас
+      // більше покриття.
+      if (step.name === 'snap by country') {
+        snapRows = psql(step.sql).split('\n').filter(Boolean).map((l) => {
+          const [country, total, withoutSnap, placed, snapped] = l.split('|');
+          return {
+            country,
+            total: Number(total),
+            placedWithoutSnap: Number(withoutSnap),
+            placed: Number(placed),
+            snapped: Number(snapped),
+          };
+        });
+        continue;
+      }
+      if (step.name === 'snap distances') {
+        const [n, le100, le500, le1k, le3k, le5k, far] = psql(step.sql).split('|').map(Number);
+        const d = { snapped: n, le100, le500, le1k, le3k, le5k, farthestM: far };
+        console.log(`\n${describeSnap(d)}`);
+        const bad = judgeSnap(d);
+        if (!bad.ok) {
+          console.error(`✗ ${bad.why}`);
+          return 1;
+        }
+        continue;
+      }
       if (step.name === 'coverage') {
         const rows = psql(step.sql).split('\n').filter(Boolean).map((l) => {
-          const [country, total, missing] = l.split('|');
-          return { country, total: Number(total), missing: Number(missing) };
+          const [country, total, missing, missingNuts3] = l.split('|');
+          return {
+            country,
+            total: Number(total),
+            missing: Number(missing),
+            missingNUTS3: Number(missingNuts3),
+          };
         });
         const j = judgeCoverage(rows);
         if (!j.ok) {
@@ -421,10 +550,17 @@ async function run({ apply }) {
         // 🔴 Шість країн, чий зв'язок змінився з прибиранням GISCO, —
         // завжди, а не лише коли щось погано: «було → стало» зі
         // знаменником, бо втрата покриття тут тиха за побудовою.
-        console.log('\nшість країн, що їхали на GISCO (було → стало, кемпінгів із хоч одним кодом):');
+        console.log('\nшість країн, що їхали на GISCO (кемпінгів із хоч одним кодом):');
+        console.log('  країна   до GISCO            після заміни         після підтягування   підлога');
         for (const t of j.table) {
           const was = t.was ? `${t.was.placed}/${t.was.total} ${t.was.share}%` : 'немає';
-          console.log(`  ${t.country}  ${was}  →  ${t.placed}/${t.total} ${t.share}%  (підлога ${t.floor}%)`);
+          const sn = snapRows.find((r) => r.country === t.country);
+          const mid = sn ? `${sn.placedWithoutSnap}/${sn.total} ${pct(sn.placedWithoutSnap, sn.total)}%` : '?';
+          console.log(
+            `  ${t.country.padEnd(7)}  ${was.padEnd(19)}  ${mid.padEnd(19)}  ` +
+              `${`${t.placed}/${t.total} ${t.share}%`.padEnd(19)}  ${t.floor}%` +
+              (sn ? `   (підтягнуто ${sn.snapped})` : ''),
+          );
         }
         continue;
       }
@@ -822,16 +958,61 @@ async function selfTest() {
     for (const d of [stale, named, sel]) rmSync(d, { recursive: true, force: true });
   }
 
+  // 🔴 ПІДТЯГУВАННЯ: що в плані, що в запиті, що в числі. Поведінку запиту
+  // перевіряє `--self-test-db` на справжньому PostGIS; тут — те, що можна
+  // побачити без бази.
+  {
+    const dryNames = plan({ apply: false }).map((x) => x.name);
+    const wetNames = plan({ apply: true }).map((x) => x.name);
+    for (const [label, names] of [['без --apply', dryNames], ['з --apply', wetNames]]) {
+      check(
+        names.includes('snap by country') && names.includes('snap distances'),
+        `🔴 ${label}: підтягнуте рахується й друкується окремим кроком, а не лишається внутрішністю запиту`,
+      );
+    }
+    check(
+      wetNames.indexOf('snap distances') < wetNames.indexOf('write') && wetNames.indexOf('snap by country') < wetNames.indexOf('write'),
+      'і це ДО запису: після нього колонка не каже, хто підтягнутий',
+    );
+    check(SNAP_LIMIT_M === 5000, `межа — одна константа, 5 000 м, а не функція від даних (зараз ${SNAP_LIMIT_M})`);
+    const importSql = readFileSync(path.join(HERE, '..', '..', 'apps', 'api', 'src', 'osm', 'import-spots.ts'), 'utf8');
+    const theirs = /ST_DWithin\(c\.geom::geography, p\.pt::geography, (\d+)\)/.exec(importSql)?.[1];
+    check(
+      Number(theirs) === SNAP_LIMIT_M,
+      `🔴 межа ТА САМА, що в import-spots.ts і на /legal/database (${theirs} м там, ${SNAP_LIMIT_M} м тут)`,
+    );
+    const sql = codesSelect();
+    check(
+      new RegExp(`ST_DWithin\\(k\\.geom::geography, s\\.location::geography, ${SNAP_LIMIT_M}\\)`).test(sql),
+      'запит бере межу з константи, а не з власного літерала',
+    );
+    check(/q\.country = s\.country/.test(sql), '🔴 підтягується лише до зони СВОЄЇ країни');
+    check(/NOT EXISTS/.test(sql), 'підтягується лише точка, що не стоїть у жодній зоні цієї схеми');
+    check(/CREATE TABLE warning_zones_staging \(scheme text, code text, gj text, country text\)/.test(
+      plan({ apply: false }).find((x) => x.name === 'create staging').sql), 'проміжна таблиця має колонку країни');
+    check(judgeSnap({ farthestM: 5000 }).ok === true, 'рівно на межі — ще в межі');
+    check(
+      judgeSnap({ farthestM: 5001 }).ok === false && /5001 m/.test(judgeSnap({ farthestM: 5001 }).why),
+      '🔴 метр за межею — відмова, і причина називає відстань',
+    );
+    check(judgeSnap({ farthestM: 0 }).ok === true, 'нікого не підтягнуто — теж гаразд');
+    const line = describeSnap({ snapped: 904, le100: 143, le500: 453, le1k: 657, le3k: 845, le5k: 904, farthestM: 4892 });
+    check(
+      line.includes('904 кемпінгів') && line.includes('≤100 м 143') && line.includes('≤5 км 904') && line.includes('найдальший 4892 м') && line.includes('≤ 5000 м'),
+      'рядок про підтягнуте називає скільки, розподіл за відстанню, найдальшого й межу',
+    );
+  }
+
   // 🔴 СТОРОЖ, ЩО ЇДЕ В ПРОГІН: `judgeCoverage`, а не `verdict` окремо.
   {
     const rows = [
-      { country: 'FR', total: 21759, missing: 542 },
-      { country: 'BE', total: 748, missing: 10 },
-      { country: 'BG', total: 275, missing: 28 },
-      { country: 'HR', total: 642, missing: 4 },
-      { country: 'HU', total: 615, missing: 3 },
-      { country: 'RO', total: 567, missing: 11 },
-      { country: 'DE', total: 8364, missing: 101 },
+      { country: 'FR', total: 21759, missing: 8 },
+      { country: 'BE', total: 748, missing: 0 },
+      { country: 'BG', total: 275, missing: 4 },
+      { country: 'HR', total: 642, missing: 0, missingNUTS3: 0 },
+      { country: 'HU', total: 615, missing: 0 },
+      { country: 'RO', total: 567, missing: 1 },
+      { country: 'DE', total: 8364, missing: 15 },
       { country: 'ES', total: 3312, missing: 10 },
       { country: 'IT', total: 4166, missing: 14 },
       { country: 'PL', total: 2085, missing: 1 },
@@ -848,7 +1029,7 @@ async function selfTest() {
     const good = judgeCoverage(real);
     check(good.ok === true && good.table.length === 6, `заміряна дійсність проходить обидві підлоги: ${good.why ?? ''}`);
     // 🔴 Хорватія ціла зникла: глобальний вердикт мовчить, прогін — ні.
-    const hrGone = real.map((r) => (r.country === 'HR' ? { ...r, missing: r.total } : r));
+    const hrGone = real.map((r) => (r.country === 'HR' ? { ...r, missing: r.total, missingNUTS3: r.total } : r));
     const bad = judgeCoverage(hrGone);
     check(
       bad.ok === false && /^HR: 0 of 642/.test(bad.why),
@@ -860,7 +1041,7 @@ async function selfTest() {
     );
   }
 
-  const EXPECTED_CASES = 73;
+  const EXPECTED_CASES = 86;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;
@@ -869,6 +1050,143 @@ async function selfTest() {
     rc === 0
       ? `✓ resolve-campsite-zones self-test: ${cases.length} cases over the plan and the query`
       : `✗ resolve-campsite-zones self-test: ${cases.length} cases, at least one failed`,
+  );
+  return rc;
+}
+
+/**
+ * 🔴 ЗАПИТ ПРОГАНЯЄТЬСЯ НА СПРАВЖНЬОМУ POSTGIS, бо те, що він робить, —
+ * відстань, країна, межа, — текстом не перевіряється. Мутація «межа ×10»
+ * лишає в тексті запиту все, що перевіряє текстовий тест, і змінює
+ * єдине, що важить: кого підтягнуто.
+ *
+ * Дві синтетичні країни на рівній місцевості (1° широти ≈ 111 км):
+ *   XA — одна зона ((10,50)–(11,51)) і сусідка XB за 0.71 км на схід;
+ *   XH — як Хорватія: велика зона EMMA_ID і менша NUTS3 «повіт» у ній.
+ * Бази, що тримає цей тест, — його власні: створюється й знищується тут.
+ */
+async function selfTestDb() {
+  let rc = 0;
+  const cases = [];
+  const check = (cond, m) => {
+    cases.push(m);
+    if (!cond) {
+      console.error(`✗ REHEARSAL FAILED: ${m}`);
+      rc = 1;
+    }
+  };
+  const base = process.env.CAMPTRIBE_SELFTEST_PG_BASE ?? 'postgres://localhost:5432';
+  const name = `camptribe_selftest_snap_${process.pid}`;
+  const url = `${base}/${name}`;
+  const q = (conn, sql, ...flags) =>
+    execFileSync('psql', [conn, '-v', 'ON_ERROR_STOP=1', '-tAX', '-F', '|', ...flags, '-c', sql], {
+      encoding: 'utf8',
+    }).trim();
+
+  q(`${base}/postgres`, `CREATE DATABASE ${name}`);
+  try {
+    q(url, 'CREATE EXTENSION postgis');
+    q(
+      url,
+      `CREATE TABLE camping_spots (id int PRIMARY KEY, country text, missing_since timestamptz,
+                                    location geometry(Point,4326), warning_areas text[]);
+       CREATE TABLE ${STAGING} (scheme text, code text, country text, geom geometry(Geometry,4326));
+       CREATE INDEX ON ${STAGING} USING GIST (geom)`,
+    );
+    const box = (x0, y0, x1, y1) =>
+      `ST_GeomFromText('POLYGON((${x0} ${y0},${x1} ${y0},${x1} ${y1},${x0} ${y1},${x0} ${y0}))',4326)`;
+    const zone = (scheme, code, country, g) =>
+      `INSERT INTO ${STAGING} VALUES ('${scheme}','${code}','${country}',${g})`;
+    q(
+      url,
+      [
+        zone('EMMA_ID', 'XA001', 'XA', box(10, 50, 11, 51)),
+        zone('EMMA_ID', 'XB001', 'XB', box(11.03, 50, 12, 51)),
+        zone('EMMA_ID', 'XH001', 'XH', box(30, 50, 31, 51)),
+        zone('NUTS3', 'XH031', 'XH', box(30, 50.2, 31, 51)),
+        zone('EMMA_ID', 'XC001', 'XC', box(40, 50, 41, 51)),
+        zone('EMMA_ID', 'XC009', 'XC', box(41.004, 50, 42, 51)),
+      ].join(';'),
+    );
+    // 1° of latitude is 111.2 km, so these are ~3.0, ~6.0 and ~1.42 km.
+    const spot = (id, country, lon, lat, gone = false) =>
+      `INSERT INTO camping_spots VALUES (${id},'${country}',${gone ? 'now()' : 'NULL'},ST_SetSRID(ST_MakePoint(${lon},${lat}),4326))`;
+    q(
+      url,
+      [
+        spot(1, 'XA', 10.5, 50.5), // inside
+        spot(2, 'XA', 10.5, 49.973), // ~3.0 km south of the zone
+        spot(3, 'XA', 10.5, 49.946), // ~6.0 km south: past the limit
+        spot(4, 'XA', 11.02, 50.5), // 0.71 km from FOREIGN XB001, 1.42 km from own XA001
+        spot(5, 'XA', 10.5, 49.973, true), // gone: not read at all
+        spot(6, 'XH', 30.5, 50.1), // in the region, 11 km from the county
+        spot(7, 'XH', 30.5, 50.195), // in the region, ~0.56 km from the county
+        spot(8, 'ZZ', 10.5, 50.5), // a country with no scheme
+        spot(9, 'XC', 41.003, 50.5), // between two own zones: 0.21 km from XC001, 0.07 km from XC009
+      ].join(';'),
+    );
+    const schemes = { XA: ['EMMA_ID'], XH: ['EMMA_ID', 'NUTS3'], XC: ['EMMA_ID'] };
+    const rows = Object.fromEntries(
+      q(url, `SELECT id, codes, snapped, round(snap_m)::int, contained FROM (${codesSelect(schemes)}) c ORDER BY id`)
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => {
+          const [id, codes, snapped, m, contained] = l.split('|');
+          return [id, { codes, snapped: snapped === 't', m: m === '' ? null : Number(m), contained: Number(contained) }];
+        }),
+    );
+
+    check(rows[1].codes === '{EMMA_ID:XA001}' && !rows[1].snapped && rows[1].contained === 1,
+      'a point inside a zone carries that zone and is NOT marked snapped');
+    check(rows[2].codes === '{EMMA_ID:XA001}' && rows[2].snapped && rows[2].contained === 0,
+      '🔴 a point ~3 km outside its country\'s only zone is pulled to it, and counted as snapped');
+    check(rows[2].m >= 2900 && rows[2].m <= 3300, `…at the distance it really is (${rows[2].m} m; a geography edge is a geodesic, so a little over the 3 003 m of the parallel)`);
+    check(rows[3].codes === '{}' && !rows[3].snapped,
+      `🔴 a point ~6 km out is NOT pulled — the limit is ${SNAP_LIMIT_M} m and it holds (snap limit mutated ×10 turns this red)`);
+    check(rows[4].codes === '{EMMA_ID:XA001}' && rows[4].m >= 1350 && rows[4].m <= 1500,
+      `🔴 a point nearer a FOREIGN zone (0.71 km) takes its own country's (${rows[4].m} m), never the neighbour's`);
+    check(!(5 in rows), 'a campsite that has gone missing is not read at all');
+    check(rows[6].codes === '{EMMA_ID:XH001}' && !rows[6].snapped,
+      'one scheme can place a point while another cannot: 11 km from the county, it stays region-only');
+    check(rows[7].codes === '{EMMA_ID:XH001,NUTS3:XH031}' && rows[7].snapped && rows[7].contained === 1 && rows[7].m >= 500 && rows[7].m <= 800,
+      '🔴 snapping is per SCHEME: inside the region and 0.56 km off the county, it gets the county too, and is counted snapped');
+    check(rows[8].codes === '{}' && !rows[8].snapped, 'a country with no scheme is left alone');
+    check(rows[9].codes === '{EMMA_ID:XC009}' && rows[9].snapped,
+      '🔴 the NEAREST own zone wins, not the first by code: XC009 is 70 m away, XC001 210 m');
+
+    // The summary the run prints, on the same rows.
+    const d = q(url, snapDistancesSql(schemes)).split('|').map(Number);
+    check(d[0] === 4 && d[5] === 4 && d[6] > 0 && d[6] <= SNAP_LIMIT_M,
+      `the distance summary counts the 4 snapped points, all within the limit (farthest ${d[6]} m)`);
+    const by = Object.fromEntries(
+      q(url, snapByCountrySql(schemes)).split('\n').filter(Boolean).map((l) => {
+        const [c, ...rest] = l.split('|');
+        return [c, rest.map(Number)];
+      }),
+    );
+    // total, placed without snapping, placed, snapped
+    check(by.XA.join() === '4,1,3,2', `XA: 4 live, 1 placed by containment, 3 placed, 2 snapped — got ${by.XA}`);
+    check(by.XH.join() === '2,2,2,1', `XH: 2 live, both placed by containment, 1 also snapped — got ${by.XH}`);
+
+    // And the write carries the snapped codes into the column.
+    q(url, updateSql(schemes));
+    check(q(url, `SELECT warning_areas FROM camping_spots WHERE id = 2`) === '{EMMA_ID:XA001}',
+      'the UPDATE writes the snapped code into the column');
+    check(q(url, `SELECT warning_areas FROM camping_spots WHERE id = 3`) === '{}',
+      'and writes an empty array, not NULL, for the one that stayed out');
+  } finally {
+    q(`${base}/postgres`, `DROP DATABASE IF EXISTS ${name}`);
+  }
+
+  const EXPECTED_CASES = 15;
+  if (cases.length !== EXPECTED_CASES) {
+    console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
+    rc = 1;
+  }
+  console.log(
+    rc === 0
+      ? `✓ resolve-campsite-zones self-test (PostGIS): ${cases.length} cases over the snapping`
+      : `✗ resolve-campsite-zones self-test (PostGIS): ${cases.length} cases, at least one failed`,
   );
   return rc;
 }
@@ -885,9 +1203,10 @@ const invokedDirectly = (() => {
 if (invokedDirectly) {
   const action = chooseAction(
     process.argv.slice(2),
-    ['--self-test', '--apply'],
+    ['--self-test', '--self-test-db', '--apply'],
     'resolve-campsite-zones.mjs',
   );
   if (action.has('--self-test')) process.exit(await selfTest());
+  if (action.has('--self-test-db')) process.exit(await selfTestDb());
   process.exit(await run({ apply: action.has('--apply') }));
 }
