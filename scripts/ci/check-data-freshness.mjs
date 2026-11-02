@@ -84,6 +84,15 @@ export function audit(sources, now) {
         `прийняття протухлості скінчилось ${s.acceptedUntil} — причина мусить бути переглянута`);
       continue;
     }
+    // 🔴 Прийняття ГРУПИ має той самий строк і ту саму смерть. Прострочене
+    // прийняття червоніє САМО, навіть якщо решта таблиці свіжа: інакше
+    // «до 01.12» означало б «назавжди, якщо більше нічого не зламається».
+    for (const [group, a] of Object.entries(s.acceptedGroups ?? {})) {
+      if (now >= Date.parse(a.until)) {
+        say(s, 'accepted-expired',
+          `прийняття протухлості «${group}» скінчилось ${a.until} — причина мусить бути переглянута`);
+      }
+    }
     // 🔴 «НІКОЛИ» І «ДАВНО» — РІЗНІ ВІДПОВІДІ, і плутати їх не можна.
     // Порожня таблиця — імпортера не налаштували; стара — він зупинився.
     // Перше лагодить людина один раз, друге — повторний запуск.
@@ -191,7 +200,27 @@ export const DB_SOURCES = Object.freeze([
   // бачити застарілу країну.
   { name: 'fuel_station_prices (ціни станцій ES/FR/IT)', card: 'CAMP-154',
     table: 'fuel_station_prices', column: 'fetched_at', budgetHours: 2 * 24,
-    groupBy: 'source' },
+    groupBy: 'source',
+    // 🔴 ПРИЙНЯТО ЗІ СТРОКОМ, І ЦЕ НЕ НАШ ЗБІЙ. Заміряно 02.11.2026:
+    // `www.mimit.gov.it` не відповідає зовсім — ані CSV, ані корінь сайту,
+    // ані з ноутбука (Бельгія), ані з нашої машини (Hetzner, Німеччина):
+    // `curl --max-time 60` → код 000, зʼєднання не встановлюється. DNS
+    // живий (81.126.92.6), отже це не перенесення адреси. Те саме бачать
+    // сторонні: issue в `bbarrionuevo/strumentiutili.it` каже, що останнє
+    // оновлення даних — 15.10.2026, і запит із серверів GitHub теж падає
+    // в таймаут. Наш найсвіжіший рядок — 13.10.2026.
+    //
+    // Італію приймаємо до 01.12.2026; Іспанія і Франція далі під повним
+    // бюджетом у дві доби. Після цієї дати сторож почервоніє САМ і
+    // вимагатиме рішення: чекати далі, брати дзеркало (інша ланка
+    // походження — питання ліцензії й атрибуції, отже рішення власника)
+    // чи прибрати італійські станції зі сторінок.
+    acceptedGroups: {
+      'it-mimit': {
+        until: '2026-12-01',
+        why: 'www.mimit.gov.it недосяжний із двох незалежних мереж із ~13.10.2026; DNS живий, адреса не змінювалась; те саме повідомляють сторонні проєкти',
+      },
+    } },
   { name: 'spot_tariffs (тарифи DATAtourisme)', card: 'CAMP-147',
     table: 'spot_tariffs', column: 'created_at', budgetHours: 10 * 24 },
   { name: 'spot_links (звʼязки OSM↔DATAtourisme)', card: 'CAMP-144',
@@ -249,10 +278,43 @@ const ISO = `'YYYY-MM-DD"T"HH24:MI:SS"Z"'`;
  * сторожа, бо виглядає він при цьому цілком здоровим.
  * `NULLS LAST` ставить ім'я під те саме правило, що й дату.
  */
-export const probeSql = (s) =>
+/**
+ * Групи, чия протухлість ПРИЙНЯТА і строк прийняття ще не минув.
+ *
+ * 🔴 ЧОМУ ГРУПА, А НЕ ДЖЕРЕЛО ЦІЛКОМ. `acceptedUntil` приймає всю таблицю,
+ * і для `fuel_station_prices` це було б запобіжником, ширшим за дефект:
+ * мертва Італія замовкла б разом із живими Іспанією і Францією, і день,
+ * коли зупиниться Іспанія, минув би тихо. Приймається рівно та група, яка
+ * справді лежить, — решта таблиці стережеться як раніше.
+ */
+export function liveAcceptedGroups(s, now) {
+  const all = s.acceptedGroups ?? {};
+  return Object.keys(all).filter((k) => now < Date.parse(all[k].until));
+}
+
+/**
+ * Прийняту групу прибирає САМ ЗАПИТ, а не фільтр після нього.
+ *
+ * Інакше «найстаріша з груп» лишалась би Італією, і вік таблиці далі
+ * рахувався б по ній: ми прийняли б скаргу, не прийнявши число, на якому
+ * вона стоїть.
+ */
+const groupFilter = (s, now) => {
+  const live = liveAcceptedGroups(s, now);
+  if (live.length === 0) return '';
+  for (const k of live) {
+    // Імена груп — наші константи, не ввід читача. Але запит збирається
+    // рядком, і єдиний спосіб, яким це колись перестане бути правдою, —
+    // необережна правка конфігу. Тому не екранування, а відмова.
+    if (!/^[a-z0-9_-]+$/i.test(k)) throw new Error(`acceptedGroups: «${k}» не схоже на ім'я джерела`);
+  }
+  return ` WHERE (${s.groupBy})::text NOT IN (${live.map((k) => `'${k}'`).join(', ')})`;
+};
+
+export const probeSql = (s, now = Date.now()) =>
   s.groupBy
     ? `WITH g AS (SELECT max(${s.column}) AS m, (${s.groupBy})::text AS k ` +
-      `FROM ${s.table} GROUP BY ${s.groupBy}) ` +
+      `FROM ${s.table}${groupFilter(s, now)} GROUP BY ${s.groupBy}) ` +
       `SELECT (SELECT count(*) FROM ${s.table}), ` +
       `to_char((SELECT min(m) FROM g) AT TIME ZONE 'UTC', ${ISO}), ` +
       `(SELECT k FROM g ORDER BY m ASC NULLS LAST, k ASC LIMIT 1)`
@@ -322,11 +384,18 @@ export function runWith(flags, {
     if (p) detail = p.text.slice(s.name.length + 2);
     else if (s.acceptedUntil) detail = `прийнято до ${s.acceptedUntil}`;
     else detail = `${age((now - Date.parse(s.stamp)) / 36e5)} від ${s.stamp}, бюджет ${age(s.budgetHours)}`;
+    // 🔴 Прийняту групу ВИДНО В КОЖНОМУ ЗВІТІ, і разом із датою. Прийняття,
+    // якого не видно, — це не прийняття, а тиша: рядок стає зеленим, і
+    // ніхто не згадає, що за ним стоїть мертве джерело.
+    const accepted = liveAcceptedGroups(s, now);
+    const held = accepted.length
+      ? `  (прийнято до ${accepted.map((k) => `${k} → ${s.acceptedGroups[k].until}`).join(', ')})`
+      : '';
     const rows = s.rows === undefined ? '' : `${String(s.rows).padStart(9)} рядків  `;
     // Ім'я винної групи дописуємо лише там, де воно є і де є на що
     // скаржитись: у зеленому рядку «найстаріша з груп» нікого не викриває.
     const who = p && s.oldestGroup ? `  ← найстаріше джерело: ${s.oldestGroup}` : '';
-    log.log(`  ${mark} ${s.name.padEnd(46)} ${rows}${detail}${who}`);
+    log.log(`  ${mark} ${s.name.padEnd(46)} ${rows}${detail}${who}${held}`);
   }
 
   const ring = ringing(problems, alarmOn);
@@ -470,9 +539,57 @@ function selfTest() {
   t('🔴 юніт systemd передає лише ті прапорці, які скрипт знає',
     passed !== null && passed.length > 0 && passed.every((a) => KNOWN_FLAGS.includes(a)), true);
 
+  // ── прийняття ОКРЕМОЇ ГРУПИ: строк, видимість і межа ──
+  //
+  // 🔴 Прийнято має бути рівно те, що лежить. Запобіжник, ширший за
+  // дефект, коштує дорожче за дефект: приймаючи всю таблицю заради
+  // мертвої Італії, ми не почули б і зупинку Іспанії.
+  const AGROUP = {
+    table: 'tt', column: 'cc', groupBy: 'g', budgetHours: 48,
+    acceptedGroups: { 'it-mimit': { until: '2026-12-01', why: 'джерело недосяжне ззовні, заміряно з двох мереж' } },
+  };
+  const BEFORE = Date.parse('2026-11-02T00:00:00Z');
+  const AFTER = Date.parse('2026-12-02T00:00:00Z');
+  t('🔴 поки прийняття живе — група виходить із ЗАПИТУ, а не фільтрується після',
+    probeSql(AGROUP, BEFORE).includes("FROM tt WHERE (g)::text NOT IN ('it-mimit') GROUP BY g"), true);
+  t('🔴 строк минув — група повертається в запит сама, без правки коду',
+    probeSql(AGROUP, AFTER).includes('NOT IN'), false);
+  t('🔴 рядки рахуються по ВСІЙ таблиці навіть із прийнятою групою — знаменник не звужується',
+    probeSql(AGROUP, BEFORE).includes('(SELECT count(*) FROM tt)'), true);
+  t('🔴 прострочене прийняття групи червоніє САМЕ, навіть коли решта таблиці свіжа',
+    audit([{ ...AGROUP, name: 'x', rows: 10, stamp: new Date(AFTER - 3600e3).toISOString() }], AFTER)
+      .some((x) => x.kind === 'accepted-expired' && x.text.includes('it-mimit')), true);
+  t('поки строк не минув — прийнята група не піднімає скарги',
+    audit([{ ...AGROUP, name: 'x', rows: 10, stamp: new Date(BEFORE - 3600e3).toISOString() }], BEFORE).length, 0);
+  t('🔴 решта таблиці стережеться як раніше: протухле НЕприйняте джерело дзвонить',
+    audit([{ ...AGROUP, name: 'x', rows: 10, stamp: new Date(BEFORE - 100 * 3600e3).toISOString() }], BEFORE)
+      .some((x) => x.kind === 'stale'), true);
+  // 🔴 ПРИЙНЯТТЯ, ЯКОГО НЕ ВИДНО, — ЦЕ ТИША, А НЕ ПРИЙНЯТТЯ. Рядок стає
+  // зеленим, і через місяць ніхто не згадає, що за ним мертве джерело.
+  // Тому звіт мусить називати і групу, і дату, у КОЖНОМУ прогоні.
+  t('🔴 звіт називає прийняту групу і дату — у зеленому рядку теж', (() => {
+    const lines = [];
+    const spy = { log: (x) => lines.push(String(x)), error: (x) => lines.push(String(x)) };
+    runWith(new Set(['--db', '--stale-only']), {
+      now: NOW, log: spy, files, dbUrl: 'postgres://x',
+      readDb: () => ({ rows: 5, stamp: ok(1) }),
+    });
+    const row = lines.find((l) => l.includes('fuel_station_prices'));
+    return Boolean(row && row.includes('прийнято до') && row.includes('it-mimit') && row.includes('2026-12-01'));
+  })(), true);
+  t("🔴 імʼя групи, не схоже на імʼя джерела, — відмова, а не екранування",
+    (() => {
+      try {
+        probeSql({ ...AGROUP, acceptedGroups: { "it'--": { until: '2026-12-01', why: 'x' } } }, BEFORE);
+        return false;
+      } catch {
+        return true;
+      }
+    })(), true);
+
   // 🔴 Лічильник стверджується, бо випадок, до якого не дійшло,
   // виглядає точно як випадок, що пройшов.
-  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 33);
+  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 41);
   console.log(`check-data-freshness self-test: ran ${p + f}, passed ${p}, failed ${f}`);
   return f === 0 ? 0 : 1;
 }
