@@ -217,12 +217,37 @@ const ISO = `'YYYY-MM-DD"T"HH24:MI:SS"Z"'`;
  * З `groupBy` — найновіша мітка КОЖНОЇ групи, і береться найстаріша з них:
  * таблиця стара рівно настільки, наскільки стара її найзапущеніша частина.
  * Порожня таблиця дає 0 рядків і NULL, як і без `groupBy`.
+ *
+ * 🔴 ТРЕТЄ ПОЛЕ — ІМ'Я ВИННОЇ ГРУПИ, І ВОНО НЕ ПРИКРАСА.
+ *
+ * Заміряно на проді 02.11.2026. Лист сторожа щоранку писав:
+ *
+ *   ✗ fuel_station_prices (ціни станцій ES/FR/IT)  79910 рядків  19.8 діб
+ *
+ * А в базі було так: `es-minetur` 22 063 рядки оновлені ТОГО Ж ДНЯ,
+ * `fr-data-economie` 15 799 теж того дня, і лише `it-mimit` 42 048 стояв
+ * на 13.10 — мертвий фід. Тобто дві країни з трьох свіжі, а лист звинувачує
+ * таблицю цілком і не каже, яку саме країну чинити.
+ *
+ * Напрямок виміру правильний (найстаріша група, а не найновіша — інакше
+ * жива Іспанія прикривала б мертву Італію). Хибне було ПОВІДОМЛЕННЯ: число
+ * рядків береться з усієї таблиці, вік — з найгіршої групи, а ім'я групи
+ * не друкувалось ніде. Сторож, який щодня червоніє без адреси, навчає
+ * читача пропускати свої листи — і того дня, коли він почервоніє по
+ * справжній причині, лист відкриють так само неуважно.
+ *
+ * 🔴 `k ASC` у впорядкуванні — не оздоба. Дві групи того самого віку без
+ * нього давали б довільну з двох, і лист щоранку називав би то Іспанію,
+ * то Францію без жодної зміни в даних. Сторож, чиє повідомлення гуляє
+ * саме по собі, вчить не вірити його словам.
  */
 export const probeSql = (s) =>
   s.groupBy
-    ? `SELECT (SELECT count(*) FROM ${s.table}), ` +
-      `to_char(min(m) AT TIME ZONE 'UTC', ${ISO}) ` +
-      `FROM (SELECT max(${s.column}) AS m FROM ${s.table} GROUP BY ${s.groupBy}) g`
+    ? `WITH g AS (SELECT max(${s.column}) AS m, (${s.groupBy})::text AS k ` +
+      `FROM ${s.table} GROUP BY ${s.groupBy}) ` +
+      `SELECT (SELECT count(*) FROM ${s.table}), ` +
+      `to_char((SELECT min(m) FROM g) AT TIME ZONE 'UTC', ${ISO}), ` +
+      `(SELECT k FROM g ORDER BY m ASC NULLS FIRST, k ASC LIMIT 1)`
     : `SELECT count(*), to_char(max(${s.column}) AT TIME ZONE 'UTC', ${ISO}) FROM ${s.table}`;
 
 /** Живе читання через psql — він є на машині (Postgres локальний). */
@@ -237,8 +262,14 @@ export function readDbLive(dbUrl) {
       // і вона мусить вийти зі стеком, а не перетворитись на тихий код.
       throw new Error(`${s.table}: psql не відповів — ${(e.stderr ?? e.message ?? '').toString().trim()}`);
     }
-    const [n, t] = out.split('|');
-    return { rows: Number(n), stamp: t === undefined || t === '' ? null : t };
+    const [n, t, k] = out.split('|');
+    return {
+      rows: Number(n),
+      stamp: t === undefined || t === '' ? null : t,
+      // Порожнє поле — не група: так виглядає таблиця без `groupBy` і
+      // порожня таблиця з ним. `null` тут чесніший за порожній рядок.
+      oldestGroup: k === undefined || k === '' ? null : k,
+    };
   };
 }
 
@@ -284,7 +315,10 @@ export function runWith(flags, {
     else if (s.acceptedUntil) detail = `прийнято до ${s.acceptedUntil}`;
     else detail = `${age((now - Date.parse(s.stamp)) / 36e5)} від ${s.stamp}, бюджет ${age(s.budgetHours)}`;
     const rows = s.rows === undefined ? '' : `${String(s.rows).padStart(9)} рядків  `;
-    log.log(`  ${mark} ${s.name.padEnd(46)} ${rows}${detail}`);
+    // Ім'я винної групи дописуємо лише там, де воно є і де є на що
+    // скаржитись: у зеленому рядку «найстаріша з груп» нікого не викриває.
+    const who = p && s.oldestGroup ? `  ← найстаріше джерело: ${s.oldestGroup}` : '';
+    log.log(`  ${mark} ${s.name.padEnd(46)} ${rows}${detail}${who}`);
   }
 
   const ring = ringing(problems, alarmOn);
@@ -400,7 +434,12 @@ function selfTest() {
   // цього файлу, а не копіює.
   const grouped = probeSql({ table: 'tt', column: 'cc', groupBy: 'g' });
   t('🔴 запит із groupBy бере найстарішу з найновіших міток груп',
-    grouped.includes('min(m)') && grouped.includes('max(cc) AS m') && grouped.endsWith('GROUP BY g) g'), true);
+    grouped.includes('min(m)') && grouped.includes('max(cc) AS m') && grouped.includes('GROUP BY g'), true);
+  // 🔴 Без третього поля лист знову звинувачуватиме таблицю цілком.
+  t('🔴 запит із groupBy повертає ІМʼЯ найстарішої групи, впорядкованої за віком',
+    grouped.includes('(g)::text AS k') && grouped.includes('ORDER BY m ASC NULLS FIRST, k ASC LIMIT 1'), true);
+  t('🔴 рядків рахуємо по ВСІЙ таблиці, а не по найстарішій групі',
+    grouped.includes('(SELECT count(*) FROM tt)'), true);
   t('🔴 ціни пального читаються по джерелах — інакше мертва Італія ховається за живою Іспанією',
     DB_SOURCES.find((x) => x.table === 'fuel_station_prices')?.groupBy, 'source');
   t('бюджети файлів читаються з коду-споживача',
@@ -416,7 +455,7 @@ function selfTest() {
 
   // 🔴 Лічильник стверджується, бо випадок, до якого не дійшло,
   // виглядає точно як випадок, що пройшов.
-  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 31);
+  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 33);
   console.log(`check-data-freshness self-test: ran ${p + f}, passed ${p}, failed ${f}`);
   return f === 0 ? 0 : 1;
 }
