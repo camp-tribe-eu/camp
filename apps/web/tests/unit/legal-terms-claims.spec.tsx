@@ -1,4 +1,3 @@
-import { readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 import { expect, test } from '@playwright/test';
@@ -9,6 +8,7 @@ import { CONTACT_EMAIL } from '@/lib/legal';
 import {
   API_SRC,
   WEB_SRC,
+  apiRoutes,
   pageText,
   paragraphs,
   readCode,
@@ -56,26 +56,13 @@ test.describe('умови §4: що сайт приймає від читача'
 
   /** Маршрути API, що пишуть, і названі так, ніби приймають фото чи відгук. */
   function contentRoutes(): { writing: number; contentNamed: string[] } {
-    let writing = 0;
-    const contentNamed: string[] = [];
-    const walk = (dir: string) => {
-      for (const name of readdirSync(dir)) {
-        const p = join(dir, name);
-        if (statSync(p).isDirectory()) {
-          if (name !== 'node_modules' && name !== 'dist' && name !== 'migrations') walk(p);
-        } else if (/\.controller\.ts$/.test(name)) {
-          const code = readCode(p);
-          const base = /@Controller\(\s*['"]([^'"]*)['"]/.exec(code)?.[1] ?? '';
-          for (const m of code.matchAll(/@(?:Post|Put|Patch)\(\s*(?:['"]([^'"]*)['"])?\s*\)\s*(?:@[\w]+\([^)]*\)\s*)*(?:async\s+)?(\w+)/g)) {
-            writing++;
-            const label = `${base}/${m[1] ?? ''} → ${m[2]}`;
-            if (/photo|review|upload|image|picture|file|attach/i.test(label)) contentNamed.push(`${name}: ${label}`);
-          }
-        }
-      }
+    const writing = apiRoutes().filter((r) => ['Post', 'Put', 'Patch'].includes(r.method));
+    return {
+      writing: writing.length,
+      contentNamed: writing
+        .filter((r) => /photo|review|upload|image|picture|file|attach/i.test(r.label))
+        .map((r) => `${r.file}: ${r.label}`),
     };
-    walk(API_SRC);
-    return { writing, contentNamed };
   }
 
   test('🔴 код не приймає ні файлів, ні фото, ні відгуків — і сторінка не обіцяє їх', () => {
@@ -101,7 +88,12 @@ test.describe('умови §4: що сайт приймає від читача'
 
     const para = paragraphs('terms').find((p) => p.text.includes('If you send us content'));
     expect(para, 'на сторінці немає абзацу «If you send us content»').toBeTruthy();
-    const named = Object.keys(accepts).filter((n) => new RegExp(`\\b${n}s?\\b`, 'i').test(para!.text));
+    // Речення «If we ever begin to publish … such as photographs» — умовне: воно
+    // не обіцяє, що ми це приймаємо, тож іменники в ньому не рахуються. Що умова
+    // досі хибна, тримає тест нижче (ліцензія на публікацію ⇔ код публікує).
+    const claimed = para!.text.replace(/If we ever begin to publish[^.]*\./, '');
+    expect(claimed.length, 'умовне речення не знайдено — розбір сліпий').toBeLessThan(para!.text.length);
+    const named = Object.keys(accepts).filter((n) => new RegExp(`\\b${n}s?\\b`, 'i').test(claimed));
 
     // Сторінка називає лише те, що код приймає…
     expect(
@@ -114,6 +106,48 @@ test.describe('умови §4: що сайт приймає від читача'
       { uploads, uploadRoutes, reviewRoutes },
       'код тепер приймає більше, ніж «one thing» на сторінці умов',
     ).toEqual({ uploads: [], uploadRoutes: [], reviewRoutes: [] });
+  });
+
+  /**
+   * Чи публікуємо ми щось, що надіслав читач.
+   *
+   * Скарга публікується, якщо її можна ПРОЧИТАТИ ззовні: є GET-маршрут
+   * контролера скарг, або веб звертається до `/problem-reports` не лише
+   * POST-ом. Що модератор читає її в CMS, — не публікація (політика
+   * приватності: «Nobody else receives them»).
+   */
+  function readersContentIsPublished(): { api: string[]; web: string[] } {
+    const routes = apiRoutes().filter((r) => r.file === 'problem-reports.controller.ts');
+    const api = routes.filter((r) => r.method === 'Get' || r.method === 'Head').map((r) => r.label);
+    const web = webFiles
+      .filter((f) => readCode(f).includes('/problem-reports'))
+      .filter((f) => !/method:\s*'POST'/.test(readCode(f)) || /method:\s*'(?:GET|HEAD)'/.test(readCode(f)))
+      .map((f) => basename(f));
+    return { api, web };
+  }
+
+  test('🔴 абзац про надіслане читачем: ліцензія на публікацію є тоді й лише тоді, коли код його публікує', () => {
+    // Якорі: контролер скарг прочитано і в ньому є POST; веб справді шле на /problem-reports.
+    const reports = apiRoutes().filter((r) => r.file === 'problem-reports.controller.ts');
+    expect(reports.map((r) => r.method), 'контролера скарг не знайдено — розбір сліпий').toContain('Post');
+    expect(
+      webFiles.some((f) => readCode(f).includes('/problem-reports')),
+      'веб не звертається до /problem-reports — розбір сліпий',
+    ).toBe(true);
+
+    const published = readersContentIsPublished();
+    const isPublished = published.api.length + published.web.length > 0;
+    const para = paragraphs('terms').find((p) => p.text.includes('If you send us content'))!;
+    expect(para, 'на сторінці немає абзацу «If you send us content»').toBeTruthy();
+
+    const grantsPermission = /permission to publish/i.test(para.text);
+    const saysNotPublished = /We do not publish it/.test(para.text);
+    expect(
+      { isPublished, grantsPermission, saysNotPublished },
+      isPublished
+        ? 'код тепер публікує надіслане читачем (' + JSON.stringify(published) + '), а сторінка каже «We do not publish it»'
+        : 'сторінка бере ліцензію на публікацію того, що код не публікує',
+    ).toEqual({ isPublished, grantsPermission: isPublished, saysNotPublished: !isPublished });
   });
 
   test('🔴 форма «Report a problem», названа на сторінці, є на сторінці кемпінгу, текстова, без файлового поля', () => {

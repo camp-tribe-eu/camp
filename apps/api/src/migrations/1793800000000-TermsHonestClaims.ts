@@ -2,6 +2,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 import {
   applyLegalUpdate,
   replaceOnce,
+  replaceSpan,
   revertLegalUpdate,
   seededPage,
 } from '../pages/legal-update';
@@ -17,10 +18,13 @@ import {
  *     «Report a problem». Завантажень файлів немає (жодного інтерсептора
  *     завантаження, жодного файлового поля форми — нуль у `apps/web/src` і
  *     `apps/api/src`; тримають `no-upload-routes.spec.ts` в API й
- *     `legal-terms-claims.spec.tsx` у вебі), відгуків немає, `const photos: Photo[] = []`. Перелік звужено до
- *     того, що є. Ліцензійне формулювання (власник лишається власником,
- *     дає дозвіл публікувати) НЕ чіпано — воно знадобиться, коли
- *     завантаження зʼявиться.
+ *     `legal-terms-claims.spec.tsx` у вебі), відгуків немає,
+ *     `const photos: Photo[] = []`. Перелік звужено до того, що є.
+ *     🔴 І ліцензійне речення поруч («you give us permission to publish it
+ *     here») ПРИБРАНО: скарги не публікуються (API не має жодного GET для
+ *     них), тож воно стверджувало б ліцензію на те, чого ми не робимо.
+ *     Сторінка тепер каже «We do not publish it», а формулювання дозволу
+ *     повернеться разом із першим, що ми справді публікуємо від читачів.
  *  2. §6 посилалась на публічний репозиторій як місце попередніх
  *     редакцій. Тексти тепер у базі (CAMP-365), у git лежить лише посів.
  *     Замінено на те, що ми справді можемо зробити: зберігаємо самі й
@@ -53,11 +57,24 @@ export class TermsHonestClaims1793800000000 implements MigrationInterface {
       'We ask you to confirm your age. We do not ask for your date of birth,',
       'Creating an account is your confirmation that you are eighteen or older: the sign-up form says so in a sentence above the button, and there is no box to tick. We do not ask for your date of birth,',
     );
-    // 1. Що ми приймаємо сьогодні — одне.
-    body = replaceOnce(
+    // 1. Що ми приймаємо сьогодні — одне, і не публікуємо його.
+    //
+    // 🔴 ЦЕЙ АБЗАЦ ПЕРЕПИСАНО ЦІЛИМ, а не одне речення в ньому. Перша редакція
+    // цієї правки звужувала лише перелік («a correction, a photograph, a
+    // review» → звіт про помилку) і лишала поруч «you give us permission to
+    // publish it here … you confirm that publishing it breaks nobody else’s
+    // rights». Разом вони казали: ми беремо в читача ліцензію ОПУБЛІКУВАТИ
+    // його скаргу — а скарги не публікуються (в API немає жодного GET для
+    // них, політика приватності каже «a moderator reads … nobody else
+    // receives them», скарга може нести контакт, який людина лишила). Нова
+    // неправда, якої у версії 1.1 не було, створена самою правкою.
+    // Ліцензійне формулювання повернеться тоді, коли зʼявиться те, що ми
+    // справді публікуємо від читачів (фото, відгуки).
+    body = replaceSpan(
       body,
-      'If you send us content — a correction, a photograph, a review — you keep it,',
-      'If you send us content — at the moment that means one thing, a written report of a mistake in our data, sent through the “Report a problem” form on a campsite page — you keep it,',
+      'If you send us content',
+      'by writing to [{{company.email}}](mailto:{{company.email}}).',
+      'If you send us content — at the moment that means one thing, a written report of a mistake in our data, sent through the “Report a problem” form on a campsite page — you keep it. We do not publish it: a person reads it and, if it is right, corrects our own data. If we ever begin to publish what readers send us, such as photographs, this page will say so first, and will say what you give us permission to do. We may decline a report, and you can ask us to remove one you have sent at any time by writing to [{{company.email}}](mailto:{{company.email}}).',
     );
     // 2. Де попередні редакції.
     body = replaceOnce(

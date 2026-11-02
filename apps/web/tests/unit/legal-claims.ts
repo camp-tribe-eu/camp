@@ -150,3 +150,40 @@ export function pageRoutes(): Array<{ route: string; file: string }> {
 }
 
 export const exists = existsSync;
+
+export type ApiRoute = { file: string; method: 'Get' | 'Post' | 'Put' | 'Patch' | 'Delete' | 'Head'; label: string };
+
+/**
+ * Усі маршрути контролерів API: метод, файл і «/база/шлях → обробник».
+ *
+ * 🔴 Один розбір для всіх сторожів, які питають «що читач може зробити з
+ * сайтом»: чи приймаємо від нього файли, чи публікуємо його скаргу, чи можна
+ * зберегти поїздку. Кожен викликач сам ставить якір (знайдено хоч скільки-
+ * небудь маршрутів), бо порожній розбір відповідає «нічого немає» так само,
+ * як справжній.
+ */
+export function apiRoutes(): ApiRoute[] {
+  const out: ApiRoute[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) {
+        if (name !== 'node_modules' && name !== 'dist' && name !== 'migrations') walk(p);
+      } else if (/\.controller\.ts$/.test(name)) {
+        const code = readCode(p);
+        const base = /@Controller\(\s*['"]([^'"]*)['"]/.exec(code)?.[1] ?? '';
+        for (const m of code.matchAll(
+          /@(Get|Post|Put|Patch|Delete|Head)\(\s*(?:['"]([^'"]*)['"])?\s*\)\s*(?:@[\w]+\([^)]*\)\s*)*(?:async\s+)?(\w+)/g,
+        )) {
+          out.push({
+            file: name,
+            method: m[1] as ApiRoute['method'],
+            label: `${base}/${m[2] ?? ''} → ${m[3]}`,
+          });
+        }
+      }
+    }
+  };
+  walk(API_SRC);
+  return out;
+}
