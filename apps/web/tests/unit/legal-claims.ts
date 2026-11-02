@@ -211,6 +211,7 @@ export function constString(code: string, ident: string): string | null {
   return re.exec(code)?.[1] ?? null;
 }
 
+/**
  * Усі ключі, які код пише у веб-сховище, і в яке саме. Одне місце для всіх
  * правових поверхонь (cookies, privacy, банер): вони порівнюються з ЦИМ, а не
  * з переліком, переписаним у кожному тесті.
