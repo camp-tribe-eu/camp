@@ -18,6 +18,7 @@ import { SpotsModule } from './spots/spots.module';
 import { RoutesModule } from './routes/routes.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { GuidesModule } from './guides/guides.module';
+import { RentalProvidersModule } from './rental/rental-providers.module';
 import { NavigationModule } from './navigation/navigation.module';
 import { PagesModule } from './pages/pages.module';
 import { AuthModule } from './auth/auth.module';
@@ -116,6 +117,7 @@ export const REASONS = loadMeasuredReasons();
     // caller we want hitting us constantly.
     TelemetryModule,
     GuidesModule,
+    RentalProvidersModule,
     NavigationModule,
     PagesModule,
     // CAMP-50: sessions, and the first routes whose answer depends on

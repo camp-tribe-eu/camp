@@ -207,6 +207,77 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
     'scripts/meteoalarm/osm-hr-counties.mjs',
   ),
 
+  // ── CAMP-427: сайти самих прокатних компаній ──
+  //
+  // 🔴 ЧОМУ ЦЕ НЕ РЯДОК НА СТОРІНЦІ АТРИБУЦІЇ. Сторінка атрибуції називає
+  // ДЖЕРЕЛА ДАНИХ і ліцензії, за якими ми маємо право їх показувати. Тут
+  // інше: це сайт компанії, з якого прочитано факти ПРО НЕЇ САМУ, і
+  // атрибуція до нього стоїть ПОРЯДУ З ФАКТОМ — на сторінці провайдера
+  // друкується точна адреса сторінки й дата перевірки. Це суворіше за
+  // один рядок у спільному переліку, а не слабше.
+  //
+  // Усі п'ятнадцять хостів приходять з одного файлу — засіву каталогу.
+  'fr.trustpilot.com': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'help.indiecampers.com': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'help.paulcamper.com': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'indiecampers.com': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'roadsurfer.com': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'blacksheep-van.com': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'cross-rent.de': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'drm.de': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'mcrent.de': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'mcrent.eu': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'paulcamper.de': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'rent-easy.de': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'rental-alliance.com': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'touringcars.com': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+  'yescapa.com': because(
+    'the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list',
+    'apps/api/src/rental/providers.seed.json',
+  ),
+
   // ── написано, але не підключено: тимчасово, з умовою ──
   'api.datatourisme.fr': dormant(
     'apps/api/src/datatourisme/api-v1',
