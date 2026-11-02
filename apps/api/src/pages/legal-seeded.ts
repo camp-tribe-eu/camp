@@ -3,6 +3,10 @@ import { PrivacyProblemReports1793400000000 } from '../migrations/1793400000000-
 import { PrivacyProcessors1793500000000 } from '../migrations/1793500000000-PrivacyProcessors';
 import { PrivacyRetentionLogs1793600000000 } from '../migrations/1793600000000-PrivacyRetentionLogs';
 import { AttributionSources1793700000000 } from '../migrations/1793700000000-AttributionSources';
+import { TermsHonestClaims1793800000000 } from '../migrations/1793800000000-TermsHonestClaims';
+import { CookiesHonestClaims1793801000000 } from '../migrations/1793801000000-CookiesHonestClaims';
+import { DatabaseHonestClaims1793802000000 } from '../migrations/1793802000000-DatabaseHonestClaims';
+import { NoticeAllPages1793803000000 } from '../migrations/1793803000000-NoticeAllPages';
 
 /**
  * Правові документи такими, якими їх лишають у базі ВСІ міграції разом.
@@ -37,6 +41,10 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   new PrivacyProcessors1793500000000().page,
   new PrivacyRetentionLogs1793600000000().page,
   new AttributionSources1793700000000().page,
+  new TermsHonestClaims1793800000000().page,
+  new CookiesHonestClaims1793801000000().page,
+  new DatabaseHonestClaims1793802000000().page,
+  new NoticeAllPages1793803000000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {
