@@ -43,11 +43,12 @@ import { SeedLegalPages1792800000000 } from './1792800000000-SeedLegalPages';
  *   · у наявних розділах — хости, з яких дані справді читаються
  *     (tiles.openfreemap.org, naciscdn.org, api.open-meteo.com), бо тест
  *     звіряє хости, а не назви;
- *   · у розділі DATAtourisme — два хости, яких не було в списку `SOURCE_FILES`
- *     і які знайшов лише суцільний обхід (`attribution-sweep.ts`):
- *     api.datatourisme.fr (каталог v1, `api-v1.ts`) і data.gouv.fr (регіональні
- *     файли, `fetch-regions.mjs`). Версія лишається 1.1: текст ще не
- *     опубліковано, злиття — день набуття чинності.
+ *   · у розділі DATAtourisme — data.gouv.fr (регіональні файли,
+ *     `fetch-regions.mjs`): хост, якого не було в списку `SOURCE_FILES` і який
+ *     знайшов лише суцільний обхід (`attribution-sweep.ts`). Каталог v1
+ *     (api.datatourisme.fr, `api-v1.ts`) на сторінці НЕ названий навмисно:
+ *     модуль не підключено (CAMP-181), а сторінка описує те, що ми робимо.
+ *     Версія лишається 1.1: текст ще не опубліковано.
  *
  * 🔴 ТА САМА ДИСЦИПЛІНА, ЩО В ПРИВАТНОСТІ 2.1–2.3: текст живе в базі
  * (CAMP-365), версію підіймає міграція разом із реєстром `lib/legal.ts`;
@@ -101,7 +102,7 @@ Distance to the nearest water, town, supermarket and railway stop, the terrain d
 
 ## French campsites: names, descriptions and stars {#datatourisme}
 
-Campsites in France also come from [DATAtourisme](https://www.datatourisme.fr/), France’s national tourism data platform, whose records are written by regional tourist offices and aggregated by ADN Tourisme. We read it from the platform’s own [catalogue API](https://api.datatourisme.fr/) and from the regional files it publishes on [data.gouv.fr](https://www.data.gouv.fr/). It is published under the [Licence Ouverte 2.0 (Etalab)](https://www.etalab.gouv.fr/licence-ouverte-open-licence/), which permits commercial reuse worldwide and asks for attribution in return.
+Campsites in France also come from [DATAtourisme](https://www.datatourisme.fr/), France’s national tourism data platform, whose records are written by regional tourist offices and aggregated by ADN Tourisme. We read it from the regional files the platform publishes on [data.gouv.fr](https://www.data.gouv.fr/). It is published under the [Licence Ouverte 2.0 (Etalab)](https://www.etalab.gouv.fr/licence-ouverte-open-licence/), which permits commercial reuse worldwide and asks for attribution in return.
 
 It gives us three things OpenStreetMap does not carry at all: the campsite’s own description, its **official star classification** — the French state rating, not ours — and, for most sites, the operator’s website.
 

@@ -69,7 +69,6 @@ const SOURCE_FILES: ReadonlyArray<{ path: string; why: string }> = [
   { path: 'apps/web/src/data/drought.json', why: 'drought layer as shipped (meta)' },
   { path: 'scripts/effis/fetch-wildfires.mjs', why: 'wildfire layer' },
   { path: 'apps/web/src/data/wildfires.json', why: 'wildfire layer as shipped (meta)' },
-  { path: 'apps/api/src/datatourisme/api-v1.ts', why: 'DATAtourisme catalogue API: French campsite tariffs and stars' },
   { path: 'scripts/datatourisme/fetch-regions.mjs', why: 'DATAtourisme regional files, discovered through data.gouv.fr' },
   { path: 'apps/api/src/air/source.ts', why: 'EEA air quality: the hourly file and the model service' },
   { path: 'apps/api/src/bathing/source.ts', why: 'EEA bathing water service' },
@@ -90,19 +89,39 @@ const SOURCE_FILES: ReadonlyArray<{ path: string; why: string }> = [
 interface Exception {
   why: string;
   in: readonly string[];
+  /**
+   * 🔴 «Тимчасово, з умовою»: модуль (шлях без розширення), який написано, але
+   * не підключено. Виняток діє, доки його ніхто не імпортує; щойно імпортує —
+   * тест червоніє, і хост мусить дістати рядок на сторінці, а не лишитися тут.
+   */
+  dormantModule?: string;
 }
 const because = (why: string, ...where: string[]): Exception => ({ why, in: where });
+const dormant = (module: string, why: string, ...where: string[]): Exception => ({ why, in: where, dormantModule: module });
 
-/** Де `data/rental` і сторінки оренди посилаються на орган, що видав правило. */
+/** Де `data/rental` і сторінки оренди посилаються на першоджерело того, що переказують. */
 const RENTAL = [
   'apps/web/src/data/rental/',
   'apps/web/src/app/camper-rental/',
   'apps/web/src/components/rental-checklist.tsx',
 ] as const;
-const CITED_AUTHORITY =
-  'a link to the authority that publishes a rule (toll, vignette, emission zone, driving licence) which the camper-rental pages state in our own words; nothing is fetched from it and no dataset is reproduced';
-const cited = (...hosts: string[]): Record<string, Exception> =>
-  Object.fromEntries(hosts.map((h) => [h, because(CITED_AUTHORITY, ...RENTAL)]));
+
+/**
+ * 🔴 Причина називає, ЩО САМЕ це за першоджерело, а не просто «зовнішнє
+ * посилання»: різниця між цими формулюваннями через пів року — вся різниця.
+ * Чотири різновиди, перевірені по `FactSource` кожного хоста в `countries.ts`,
+ * `thresholds.ts`, `rental-checklist.tsx` і `camper-rental/page.tsx`.
+ */
+const LAW =
+  'the text of the law that is the origin of a norm the camper-rental page retells in its own words; cited as the source of the rule, nothing is fetched or reproduced';
+const AUTHORITY =
+  'the public body that issues or administers a rule (toll, vignette, emission zone, winter tyres, overnight stay) which the camper-rental page retells in its own words; cited as the origin of the norm, nothing is fetched or reproduced';
+const OPERATOR =
+  'the operator’s own published tariff or vehicle classification, which the camper-rental page retells in its own words; cited as the origin of the rule, no figures are fetched or reproduced';
+const CONTEXT =
+  'the national body the camper-rental page names beside a general statement about the country made in our own words (not a rule, not a dataset); a link to where to read further, nothing is fetched';
+const cited = (why: string, ...hosts: string[]): Record<string, Exception> =>
+  Object.fromEntries(hosts.map((h) => [h, because(why, ...RENTAL)]));
 
 /**
  * Хости, знайдені в коді, які не є джерелами даних читача, і чому.
@@ -150,14 +169,26 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
   'booking.com': because('a booking partner our outbound links are tagged for (marked sponsored); the reader gets a link, no data is read from it', 'apps/web/src/lib/affiliate.ts'),
   'acsi.eu': because('a campsite-booking partner our outbound links are tagged for (marked sponsored); the reader gets a link, no data is read from it', 'apps/web/src/lib/affiliate.ts'),
 
-  // ── сторінки оренди: посилання на орган, що видав правило ──
+  // ── сторінки оренди: першоджерело норми, яку сторінка переказує ──
+  ...cited(LAW, 'eur-lex.europa.eu', 'boe.es', 'normattiva.it', 'diariodarepublica.pt', 'gesetze-im-internet.de'),
   ...cited(
-    'asfinag.at', 'autoroutes.fr', 'autostrade.it', 'boe.es', 'certificat-air.gouv.fr', 'croatia.hr', 'dgt.es',
-    'diariodarepublica.pt', 'economy-finance.ec.europa.eu', 'eur-lex.europa.eu', 'evinjeta.dars.si', 'fstyr.dk',
-    'gesetze-im-internet.de', 'hac.hr', 'infraestruturasdeportugal.pt', 'milieuzones.nl', 'mit.gov.it',
-    'mitma.gob.es', 'naturstyrelsen.dk', 'naturvardsverket.se', 'normattiva.it', 'oesterreich.gv.at',
-    'policija.si', 'rijksoverheid.nl', 'rsa.ie', 'storebaelt.dk', 'tii.ie', 'toll-collect.de',
-    'transportstyrelsen.se', 'turismodeportugal.pt', 'umweltbundesamt.de',
+    AUTHORITY,
+    'umweltbundesamt.de', 'certificat-air.gouv.fr', 'mit.gov.it', 'dgt.es', 'mitma.gob.es', 'rijksoverheid.nl',
+    'milieuzones.nl', 'oesterreich.gv.at', 'policija.si', 'transportstyrelsen.se', 'fstyr.dk', 'rsa.ie',
+    'naturvardsverket.se', 'economy-finance.ec.europa.eu',
+  ),
+  ...cited(
+    OPERATOR,
+    'toll-collect.de', 'autoroutes.fr', 'autostrade.it', 'asfinag.at', 'hac.hr', 'evinjeta.dars.si',
+    'infraestruturasdeportugal.pt', 'storebaelt.dk', 'tii.ie',
+  ),
+  ...cited(CONTEXT, 'croatia.hr', 'turismodeportugal.pt', 'naturstyrelsen.dk'),
+
+  // ── написано, але не підключено: тимчасово, з умовою ──
+  'api.datatourisme.fr': dormant(
+    'apps/api/src/datatourisme/api-v1',
+    'DATAtourisme catalogue API v1: the module is written but not wired to any importer (CAMP-181), so nothing is read from this host today. When it is wired, this host MUST get a line on the attribution page and leave this list',
+    'apps/api/src/datatourisme/api-v1.ts',
   ),
 };
 
@@ -385,6 +416,25 @@ test.describe('attribution: a sweep of all production code, independent of SOURC
     expect(
       shadowing,
       `exceptions for hosts that ARE on the page — remove the row, or deleting the page link would stay green: ${shadowing.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  test('a dormant exception ends the moment its module is imported', () => {
+    const importers: string[] = [];
+    for (const [host, e] of Object.entries(NOT_A_SOURCE)) {
+      if (!e.dormantModule) continue;
+      const base = e.dormantModule.split('/').pop() as string;
+      for (const f of sweep.files) {
+        if (f.startsWith(e.dormantModule)) continue;
+        // `from './api-v1'`, `require('../datatourisme/api-v1')`, `import('./api-v1')`
+        for (const m of readFileSync(join(ROOT, f), 'utf8').matchAll(/(?:from|require\(|import\()\s*['"]([^'"]+)['"]/g)) {
+          if (m[1].split('/').pop() === base) importers.push(`${host} ← imported by ${f}`);
+        }
+      }
+    }
+    expect(
+      importers,
+      `a module whose host is excepted as "not wired" is now imported; give the host a line on the attribution page and delete the exception:\n  ${importers.join('\n  ')}`,
     ).toEqual([]);
   });
 
