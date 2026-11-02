@@ -35,8 +35,8 @@ let fuel: Source;
 const probe = async () => {
   const r = await db.query(mod.probeSql(fuel));
   const row = r.rows[0] as Record<string, string | null>;
-  const [rows, stamp] = Object.values(row);
-  return { rows: Number(rows), stamp };
+  const [rows, stamp, oldestGroup] = Object.values(row);
+  return { rows: Number(rows), stamp, oldestGroup };
 };
 
 beforeAll(async () => {
@@ -61,7 +61,7 @@ afterAll(async () => {
 
 describe('the fuel freshness probe', () => {
   it('reads an empty table as no rows and no stamp, so it is "never run"', async () => {
-    expect(await probe()).toEqual({ rows: 0, stamp: null });
+    expect(await probe()).toEqual({ rows: 0, stamp: null, oldestGroup: null });
   });
 
   it('is the age of the OLDEST source, not of the newest row', async () => {
@@ -71,13 +71,26 @@ describe('the fuel freshness probe', () => {
          ('fr-data-economie', '2026-10-28 06:59:27+00'),
          ('it-mimit',         '2026-10-13 09:59:39+00')`,
     );
-    expect(await probe()).toEqual({ rows: 3, stamp: '2026-10-13T09:59:39Z' });
+    // 🔴 І воно НАЗИВАЄ винного. Без цього поля лист сторожа писав
+    // «вся таблиця протухла», коли протухла одна країна з трьох.
+    expect(await probe()).toEqual({
+      rows: 3,
+      stamp: '2026-10-13T09:59:39Z',
+      oldestGroup: 'it-mimit',
+    });
   });
 
   it('turns fresh again only when the stale source is read', async () => {
     await db.query(
       `UPDATE fuel_station_prices SET fetched_at = '2026-10-28 07:10:00+00' WHERE source = 'it-mimit'`,
     );
-    expect(await probe()).toEqual({ rows: 3, stamp: '2026-10-28T06:59:27Z' });
+    // Тепер найстаріші дві — Іспанія і Франція, з ОДНАКОВОЮ міткою.
+    // Ім'я мусить бути сталим, а не випадковим з двох: інакше лист
+    // змінював би винного без жодної зміни в даних.
+    expect(await probe()).toEqual({
+      rows: 3,
+      stamp: '2026-10-28T06:59:27Z',
+      oldestGroup: 'es-minetur',
+    });
   });
 });

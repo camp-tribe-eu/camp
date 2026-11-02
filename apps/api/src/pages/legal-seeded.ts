@@ -7,6 +7,7 @@ import { TermsHonestClaims1793800000000 } from '../migrations/1793800000000-Term
 import { CookiesHonestClaims1793801000000 } from '../migrations/1793801000000-CookiesHonestClaims';
 import { DatabaseHonestClaims1793802000000 } from '../migrations/1793802000000-DatabaseHonestClaims';
 import { NoticeAllPages1793803000000 } from '../migrations/1793803000000-NoticeAllPages';
+import { PrivacyBrowserStorage1793900000000 } from '../migrations/1793900000000-PrivacyBrowserStorage';
 
 /**
  * Правові документи такими, якими їх лишають у базі ВСІ міграції разом.
@@ -45,6 +46,7 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   new CookiesHonestClaims1793801000000().page,
   new DatabaseHonestClaims1793802000000().page,
   new NoticeAllPages1793803000000().page,
+  new PrivacyBrowserStorage1793900000000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {

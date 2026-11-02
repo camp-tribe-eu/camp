@@ -1,0 +1,756 @@
+{
+ "_comment": "Live NUTS codes of the five countries that publish them (FR, BG, RO NUTS3; HU, BE NUTS2), with EVERY areaDesc the feed gave each one in every language, captured 02.11.2026 from feeds.meteoalarm.org. `zone` is NOT what the binder answers: it is the MeteoAlarm zone whose polygon overlaps the code's 2013 GISCO polygon most (a one-off measurement; GISCO is not shipped and not read at run time). A binder that agrees with it agrees with geography, not with itself.",
+ "capturedAt": "2026-11-02",
+ "entries": [
+  {
+   "code": "FR711",
+   "scheme": "NUTS3",
+   "names": [
+    "Ain"
+   ],
+   "zone": "FR039"
+  },
+  {
+   "code": "FR718",
+   "scheme": "NUTS3",
+   "names": [
+    "Haute-Savoie"
+   ],
+   "zone": "FR035"
+  },
+  {
+   "code": "FR823",
+   "scheme": "NUTS3",
+   "names": [
+    "Alpes-Maritimes"
+   ],
+   "zone": "FR029"
+  },
+  {
+   "code": "FR825",
+   "scheme": "NUTS3",
+   "names": [
+    "Var"
+   ],
+   "zone": "FR028"
+  },
+  {
+   "code": "FR831",
+   "scheme": "NUTS3",
+   "names": [
+    "Corse-du-Sud"
+   ],
+   "zone": "FR090"
+  },
+  {
+   "code": "FR832",
+   "scheme": "NUTS3",
+   "names": [
+    "Haute-Corse"
+   ],
+   "zone": "FR089"
+  },
+  {
+   "code": "BG311",
+   "scheme": "NUTS3",
+   "names": [
+    "Vidin",
+    "Видин"
+   ],
+   "zone": "BG024"
+  },
+  {
+   "code": "BG312",
+   "scheme": "NUTS3",
+   "names": [
+    "Montana",
+    "Монтана"
+   ],
+   "zone": "BG009"
+  },
+  {
+   "code": "BG313",
+   "scheme": "NUTS3",
+   "names": [
+    "Vratsa",
+    "Враца"
+   ],
+   "zone": "BG025"
+  },
+  {
+   "code": "BG314",
+   "scheme": "NUTS3",
+   "names": [
+    "Pleven",
+    "Плевен"
+   ],
+   "zone": "BG013"
+  },
+  {
+   "code": "BG315",
+   "scheme": "NUTS3",
+   "names": [
+    "Lovech",
+    "Ловеч"
+   ],
+   "zone": "BG008"
+  },
+  {
+   "code": "BG321",
+   "scheme": "NUTS3",
+   "names": [
+    "Veliko Tarnovo",
+    "Велико Търново"
+   ],
+   "zone": "BG027"
+  },
+  {
+   "code": "BG322",
+   "scheme": "NUTS3",
+   "names": [
+    "Gabrovo",
+    "Габрово"
+   ],
+   "zone": "BG004"
+  },
+  {
+   "code": "BG323",
+   "scheme": "NUTS3",
+   "names": [
+    "Ruse",
+    "Русе"
+   ],
+   "zone": "BG015"
+  },
+  {
+   "code": "BG324",
+   "scheme": "NUTS3",
+   "names": [
+    "Razgrad",
+    "Разград"
+   ],
+   "zone": "BG016"
+  },
+  {
+   "code": "BG325",
+   "scheme": "NUTS3",
+   "names": [
+    "Silistra",
+    "Силистра"
+   ],
+   "zone": "BG021"
+  },
+  {
+   "code": "BG331",
+   "scheme": "NUTS3",
+   "names": [
+    "Varna",
+    "Варна"
+   ],
+   "zone": "BG026"
+  },
+  {
+   "code": "BG332",
+   "scheme": "NUTS3",
+   "names": [
+    "Dobrich",
+    "Добрич"
+   ],
+   "zone": "BG003"
+  },
+  {
+   "code": "BG333",
+   "scheme": "NUTS3",
+   "names": [
+    "Shumen",
+    "Шумен"
+   ],
+   "zone": "BG019"
+  },
+  {
+   "code": "BG334",
+   "scheme": "NUTS3",
+   "names": [
+    "Targovishte",
+    "Търговище"
+   ],
+   "zone": "BG023"
+  },
+  {
+   "code": "BG341",
+   "scheme": "NUTS3",
+   "names": [
+    "Burgas",
+    "Бургас"
+   ],
+   "zone": "BG002"
+  },
+  {
+   "code": "BG342",
+   "scheme": "NUTS3",
+   "names": [
+    "Sliven",
+    "Сливен"
+   ],
+   "zone": "BG020"
+  },
+  {
+   "code": "BG343",
+   "scheme": "NUTS3",
+   "names": [
+    "Yambol",
+    "Ямбол"
+   ],
+   "zone": "BG028"
+  },
+  {
+   "code": "BG344",
+   "scheme": "NUTS3",
+   "names": [
+    "Stara Zagora",
+    "Стара Загора"
+   ],
+   "zone": "BG022"
+  },
+  {
+   "code": "BG411",
+   "scheme": "NUTS3",
+   "names": [
+    "Sofia-city",
+    "София град"
+   ],
+   "zone": "BG017"
+  },
+  {
+   "code": "BG412",
+   "scheme": "NUTS3",
+   "names": [
+    "Sofia-region",
+    "Софийска област"
+   ],
+   "zone": "BG018"
+  },
+  {
+   "code": "BG413",
+   "scheme": "NUTS3",
+   "names": [
+    "Blagoevgrad",
+    "Благоевград"
+   ],
+   "zone": "BG001"
+  },
+  {
+   "code": "BG414",
+   "scheme": "NUTS3",
+   "names": [
+    "Pernik",
+    "Перник"
+   ],
+   "zone": "BG014"
+  },
+  {
+   "code": "BG415",
+   "scheme": "NUTS3",
+   "names": [
+    "Kyustendil",
+    "Кюстендил"
+   ],
+   "zone": "BG007"
+  },
+  {
+   "code": "BG421",
+   "scheme": "NUTS3",
+   "names": [
+    "Plovdiv",
+    "Пловдив"
+   ],
+   "zone": "BG011"
+  },
+  {
+   "code": "BG422",
+   "scheme": "NUTS3",
+   "names": [
+    "Haskovo",
+    "Хасково"
+   ],
+   "zone": "BG005"
+  },
+  {
+   "code": "BG423",
+   "scheme": "NUTS3",
+   "names": [
+    "Pazardzhik",
+    "Пазарджик"
+   ],
+   "zone": "BG012"
+  },
+  {
+   "code": "BG424",
+   "scheme": "NUTS3",
+   "names": [
+    "Smolyan",
+    "Смолян"
+   ],
+   "zone": "BG010"
+  },
+  {
+   "code": "BG425",
+   "scheme": "NUTS3",
+   "names": [
+    "Kardzhali",
+    "Кърджали"
+   ],
+   "zone": "BG006"
+  },
+  {
+   "code": "RO111",
+   "scheme": "NUTS3",
+   "names": [
+    "Bihor"
+   ],
+   "zone": "RO019"
+  },
+  {
+   "code": "RO112",
+   "scheme": "NUTS3",
+   "names": [
+    "Bistrița-Năsăud"
+   ],
+   "zone": "RO017"
+  },
+  {
+   "code": "RO113",
+   "scheme": "NUTS3",
+   "names": [
+    "Cluj"
+   ],
+   "zone": "RO040"
+  },
+  {
+   "code": "RO114",
+   "scheme": "NUTS3",
+   "names": [
+    "Maramureș"
+   ],
+   "zone": "RO003"
+  },
+  {
+   "code": "RO115",
+   "scheme": "NUTS3",
+   "names": [
+    "Satu Mare"
+   ],
+   "zone": "RO002"
+  },
+  {
+   "code": "RO116",
+   "scheme": "NUTS3",
+   "names": [
+    "Sălaj"
+   ],
+   "zone": "RO018"
+  },
+  {
+   "code": "RO121",
+   "scheme": "NUTS3",
+   "names": [
+    "Alba"
+   ],
+   "zone": "RO001"
+  },
+  {
+   "code": "RO122",
+   "scheme": "NUTS3",
+   "names": [
+    "Brașov"
+   ],
+   "zone": "RO034"
+  },
+  {
+   "code": "RO123",
+   "scheme": "NUTS3",
+   "names": [
+    "Covasna"
+   ],
+   "zone": "RO033"
+  },
+  {
+   "code": "RO124",
+   "scheme": "NUTS3",
+   "names": [
+    "Harghita"
+   ],
+   "zone": "RO016"
+  },
+  {
+   "code": "RO125",
+   "scheme": "NUTS3",
+   "names": [
+    "Mureș"
+   ],
+   "zone": "RO041"
+  },
+  {
+   "code": "RO126",
+   "scheme": "NUTS3",
+   "names": [
+    "Sibiu"
+   ],
+   "zone": "RO042"
+  },
+  {
+   "code": "RO211",
+   "scheme": "NUTS3",
+   "names": [
+    "Bacău"
+   ],
+   "zone": "RO015"
+  },
+  {
+   "code": "RO212",
+   "scheme": "NUTS3",
+   "names": [
+    "Botoșani"
+   ],
+   "zone": "RO005"
+  },
+  {
+   "code": "RO213",
+   "scheme": "NUTS3",
+   "names": [
+    "Iași"
+   ],
+   "zone": "RO006"
+  },
+  {
+   "code": "RO214",
+   "scheme": "NUTS3",
+   "names": [
+    "Neamț"
+   ],
+   "zone": "RO014"
+  },
+  {
+   "code": "RO215",
+   "scheme": "NUTS3",
+   "names": [
+    "Suceava"
+   ],
+   "zone": "RO004"
+  },
+  {
+   "code": "RO216",
+   "scheme": "NUTS3",
+   "names": [
+    "Vaslui"
+   ],
+   "zone": "RO007"
+  },
+  {
+   "code": "RO221",
+   "scheme": "NUTS3",
+   "names": [
+    "Brăila"
+   ],
+   "zone": "RO013"
+  },
+  {
+   "code": "RO222",
+   "scheme": "NUTS3",
+   "names": [
+    "Buzău"
+   ],
+   "zone": "RO031"
+  },
+  {
+   "code": "RO223",
+   "scheme": "NUTS3",
+   "names": [
+    "Constanța"
+   ],
+   "zone": "RO010"
+  },
+  {
+   "code": "RO224",
+   "scheme": "NUTS3",
+   "names": [
+    "Galați"
+   ],
+   "zone": "RO008"
+  },
+  {
+   "code": "RO225",
+   "scheme": "NUTS3",
+   "names": [
+    "Tulcea"
+   ],
+   "zone": "RO009"
+  },
+  {
+   "code": "RO226",
+   "scheme": "NUTS3",
+   "names": [
+    "Vrancea"
+   ],
+   "zone": "RO032"
+  },
+  {
+   "code": "RO311",
+   "scheme": "NUTS3",
+   "names": [
+    "Argeș"
+   ],
+   "zone": "RO036"
+  },
+  {
+   "code": "RO312",
+   "scheme": "NUTS3",
+   "names": [
+    "Călărași"
+   ],
+   "zone": "RO011"
+  },
+  {
+   "code": "RO313",
+   "scheme": "NUTS3",
+   "names": [
+    "Dâmbovița"
+   ],
+   "zone": "RO029"
+  },
+  {
+   "code": "RO314",
+   "scheme": "NUTS3",
+   "names": [
+    "Giurgiu"
+   ],
+   "zone": "RO026"
+  },
+  {
+   "code": "RO315",
+   "scheme": "NUTS3",
+   "names": [
+    "Ialomița"
+   ],
+   "zone": "RO012"
+  },
+  {
+   "code": "RO316",
+   "scheme": "NUTS3",
+   "names": [
+    "Prahova"
+   ],
+   "zone": "RO030"
+  },
+  {
+   "code": "RO317",
+   "scheme": "NUTS3",
+   "names": [
+    "Teleorman"
+   ],
+   "zone": "RO025"
+  },
+  {
+   "code": "RO321",
+   "scheme": "NUTS3",
+   "names": [
+    "București"
+   ],
+   "zone": "RO027"
+  },
+  {
+   "code": "RO322",
+   "scheme": "NUTS3",
+   "names": [
+    "Ilfov"
+   ],
+   "zone": "RO028"
+  },
+  {
+   "code": "RO411",
+   "scheme": "NUTS3",
+   "names": [
+    "Dolj"
+   ],
+   "zone": "RO024"
+  },
+  {
+   "code": "RO412",
+   "scheme": "NUTS3",
+   "names": [
+    "Gorj"
+   ],
+   "zone": "RO038"
+  },
+  {
+   "code": "RO413",
+   "scheme": "NUTS3",
+   "names": [
+    "Mehedinți"
+   ],
+   "zone": "RO023"
+  },
+  {
+   "code": "RO414",
+   "scheme": "NUTS3",
+   "names": [
+    "Olt"
+   ],
+   "zone": "RO035"
+  },
+  {
+   "code": "RO415",
+   "scheme": "NUTS3",
+   "names": [
+    "Vâlcea"
+   ],
+   "zone": "RO037"
+  },
+  {
+   "code": "RO421",
+   "scheme": "NUTS3",
+   "names": [
+    "Arad"
+   ],
+   "zone": "RO020"
+  },
+  {
+   "code": "RO422",
+   "scheme": "NUTS3",
+   "names": [
+    "Caraș-Severin"
+   ],
+   "zone": "RO022"
+  },
+  {
+   "code": "RO423",
+   "scheme": "NUTS3",
+   "names": [
+    "Hunedoara"
+   ],
+   "zone": "RO039"
+  },
+  {
+   "code": "RO424",
+   "scheme": "NUTS3",
+   "names": [
+    "Timiș"
+   ],
+   "zone": "RO021"
+  },
+  {
+   "code": "HU10",
+   "scheme": "NUTS2",
+   "names": [
+    "Central Hungary",
+    "Közép-Magyarország"
+   ],
+   "zone": "HU006"
+  },
+  {
+   "code": "HU21",
+   "scheme": "NUTS2",
+   "names": [
+    "Central Transdanubia",
+    "Közép-Dunántúl"
+   ],
+   "zone": "HU003"
+  },
+  {
+   "code": "HU22",
+   "scheme": "NUTS2",
+   "names": [
+    "Nyugat-Dunántúl",
+    "Western Transdanubia"
+   ],
+   "zone": "HU002"
+  },
+  {
+   "code": "HU23",
+   "scheme": "NUTS2",
+   "names": [
+    "Dél-Dunántúl",
+    "Southern Transdanubia"
+   ],
+   "zone": "HU004"
+  },
+  {
+   "code": "HU31",
+   "scheme": "NUTS2",
+   "names": [
+    "Northern Hungary",
+    "Észak-Magyarország"
+   ],
+   "zone": "HU007"
+  },
+  {
+   "code": "HU32",
+   "scheme": "NUTS2",
+   "names": [
+    "Northern Great Plain",
+    "Észak-Alföld"
+   ],
+   "zone": "HU001"
+  },
+  {
+   "code": "HU33",
+   "scheme": "NUTS2",
+   "names": [
+    "Dél-Alföld",
+    "Southern Great Plain"
+   ],
+   "zone": "HU005"
+  },
+  {
+   "code": "BE21",
+   "scheme": "NUTS2",
+   "names": [
+    "Antwerp",
+    "Antwerpen",
+    "Anvers"
+   ],
+   "zone": "BE002"
+  },
+  {
+   "code": "BE22",
+   "scheme": "NUTS2",
+   "names": [
+    "Limbourg",
+    "Limburg"
+   ],
+   "zone": "BE007"
+  },
+  {
+   "code": "BE23",
+   "scheme": "NUTS2",
+   "names": [
+    "East Flanders",
+    "Flandre Orientale",
+    "Oost-Vlaanderen",
+    "Ostflandern"
+   ],
+   "zone": "BE003"
+  },
+  {
+   "code": "BE25",
+   "scheme": "NUTS2",
+   "names": [
+    "Flandre Occidentale",
+    "West Flanders",
+    "West-Vlaanderen",
+    "Westflandern"
+   ],
+   "zone": "BE009"
+  },
+  {
+   "code": "BE32",
+   "scheme": "NUTS2",
+   "names": [
+    "Hainaut",
+    "Henegouwen",
+    "Hennegau"
+   ],
+   "zone": "BE005"
+  }
+ ]
+}

@@ -60,6 +60,15 @@ const SOURCE_FILES: ReadonlyArray<{ path: string; why: string }> = [
   { path: 'apps/web/src/lib/map-sources.ts', why: 'basemap tiles the browser loads' },
   { path: 'apps/web/src/data/satellite-sources.json', why: 'national orthophoto services the browser loads' },
   { path: 'apps/web/src/lib/webcams.ts', why: 'webcam frames the browser loads' },
+  // 🔴 Доданий 02.11.2026, бо список пропустив справжнє. #402 прибрав
+  // побудову URL кадра з `webcams.ts` (умови Windy забороняють будувати їх
+  // поза API), і `imgproxy.windy.com` зник із корпусу — сторінка лишилася
+  // називати хост, якого в корпусі нема, і сторож назвав це зайвим
+  // посиланням. Хост нікуди не подівся: браузер читача ходить саме туди.
+  // Політика безпеки — той перелік, який не може збрехати про це, бо її
+  // порушення видно в консолі браузера: будь-який третій хост, до якого
+  // браузер має право звернутися, стоїть у ній поіменно.
+  { path: 'apps/web/scripts/security-headers.mjs', why: 'every third-party host the reader\u2019s browser is allowed to contact (CSP)' },
   { path: 'scripts/windy/fetch-webcams.mjs', why: 'webcam metadata import' },
   { path: 'apps/web/src/lib/warnings.ts', why: 'MeteoAlarm link the licence dictates' },
   { path: 'scripts/meteoalarm/fetch-warnings.mjs', why: 'weather warning feeds' },
@@ -95,15 +104,8 @@ interface Exception {
    * тест червоніє, і хост мусить дістати рядок на сторінці, а не лишитися тут.
    */
   dormantModule?: string;
-  /**
-   * 🔴 «Прийде з PR». Хост, який у цьому дереві ще не з'явився (або ще лишається
-   * до злиття): мертвий виняток для нього — не падіння. Це дозволено лише тут і
-   * лише з назвою PR; після злиття запис видаляють.
-   */
-  transitional?: string;
 }
 const because = (why: string, ...where: string[]): Exception => ({ why, in: where });
-const transitional = (pr: string, e: Exception): Exception => ({ ...e, transitional: pr });
 const dormant = (module: string, why: string, ...where: string[]): Exception => ({ why, in: where, dormantModule: module });
 
 /** Де `data/rental` і сторінки оренди посилаються на першоджерело того, що переказують. */
@@ -191,27 +193,18 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
   ),
   ...cited(CONTEXT, 'croatia.hr', 'turismodeportugal.pt', 'naturstyrelsen.dk'),
 
-  // ── перехід #398: GISCO виходить із конвеєра, Nominatim заходить ──
+  // ── перехід #398 завершено ──
   //
-  // 🔴 ПОРЯДОК ЗЛИТТЯ. Сторінка вже не називає Eurostat GISCO, бо #398 прибирає
-  // його з коду. Доки #398 не злито, `resolve-areas.mjs` і `zone-coverage.mjs`
-  // ще читають GISCO — і сторінка про це мовчить. Тому #394 НЕ МОЖНА зливати
-  // раніше за #398 (умова ліцензії GISCO — рядок «© EuroGeographics…» — тоді
-  // порушена). Після злиття #398 обидва записи нижче видалити.
-  'gisco-services.ec.europa.eu': transitional(
-    '#398',
-    because(
-      'Eurostat GISCO NUTS boundaries, still read by the warning-zone scripts until PR #398 removes them; the page no longer names the source because #398 lands first. Delete this row when #398 is merged',
-      'scripts/meteoalarm/resolve-areas.mjs',
-      'scripts/meteoalarm/zone-coverage.mjs',
-    ),
-  ),
-  'nominatim.openstreetmap.org': transitional(
-    '#398',
-    because(
-      'the query service the zone script calls once per run to fetch Croatia’s county outlines; the geometry is OpenStreetMap data, whose licence and credit are on the page, and the reader’s browser never contacts this host',
-      'scripts/meteoalarm/osm-hr-counties.mjs',
-    ),
+  // 🔴 ЩО ТУТ БУЛО. Доки #398 не злито, `gisco-services.ec.europa.eu` і
+  // `nominatim.openstreetmap.org` стояли як `transitional('#398')` — виняток,
+  // якому дозволено бути мертвим, бо дерево ще не те. #398 злито в main, і
+  // замір на злитому дереві показав: GISCO не зустрічається в коді жодного
+  // разу, Nominatim — рівно в одному файлі. Тому запис GISCO видалено, а
+  // Nominatim став звичайним винятком: тепер мертвим він бути не може, і
+  // сторож падає, щойно скрипт перестане його читати.
+  'nominatim.openstreetmap.org': because(
+    'the query service the zone script calls once per run to fetch Croatia’s county outlines; the geometry is OpenStreetMap data, whose licence and credit are on the page, and the reader’s browser never contacts this host',
+    'scripts/meteoalarm/osm-hr-counties.mjs',
   ),
 
   // ── написано, але не підключено: тимчасово, з умовою ──
@@ -438,7 +431,7 @@ test.describe('attribution: a sweep of all production code, independent of SOURC
 
   test('an exception is not dead and not shadowing a line on the page', () => {
     const dead = Object.entries(NOT_A_SOURCE)
-      .filter(([h, e]) => !sweep.hosts.has(h) && !e.transitional)
+      .filter(([h]) => !sweep.hosts.has(h))
       .map(([h]) => h);
     expect(dead, `exceptions for hosts the sweep no longer finds (delete them): ${dead.join(', ')}`).toEqual([]);
     const shadowing = Object.keys(NOT_A_SOURCE).filter((h) => page.has(h));

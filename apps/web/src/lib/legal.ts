@@ -160,8 +160,11 @@ export const LEGAL_PAGES: LegalPage[] = [
     // log (1 month) now have a term the purge enforces, so "no automatic
     // deletion yet" is replaced by the two numbers, bound to RULES by test.
     // Migration 1793600000000-PrivacyRetentionLogs.
-    version: '2.3',
-    effectiveFrom: '2026-11-01',
+    // 2.4 (02.11.2026, debt #29): "only that answer" and "we ask you to
+    // confirm" replaced with what the code does, in the words of cookies 1.1
+    // and terms 1.2. Migration 1793900000000-PrivacyBrowserStorage.
+    version: '2.4',
+    effectiveFrom: '2026-11-02',
   },
   {
     slug: 'cookies',

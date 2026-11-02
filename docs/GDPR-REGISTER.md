@@ -164,11 +164,12 @@
 | Hetzner Online GmbH | processor | сервер, Postgres, CMS (Directus на тій самій машині), вихідна пошта (SMTP) і скриньки `hello@`/`privacy@` (MX) | ЄС (Німеччина) | `www784.your-server.de` | `apps/api/.env.example` `SMTP_HOST`; `apps/api/src/auth/mail-smtp.ts`; `dig MX camptribe.eu` 01.11.2026 → `www784.your-server.de`; `docs/roadmap-to-launch.md` (CCX43, Нюрнберг) |
 | Cloudflare, Inc. | processor | край, зворотний проксі, DNS; бачить кожен запит до сайту | ЄС/глобально, SCC | — | `infra/caddy/camptribe.eu.caddyfile` і `apps/api/src/throttle.ts` читають `CF-Connecting-IP` |
 | OpenFreeMap | direct | плитки й гліфи мапи на кожній сторінці з мапою | — | `tiles.openfreemap.org` | `apps/web/src/lib/map-sources.ts` (`NEXT_PUBLIC_TILES_URL`); CSP `connect-src` в `apps/web/scripts/security-headers.mjs` |
-| Windy | direct | кадри публічних вебкамер на сторінці кемпінгу (`loading="lazy"`) | — | `imgproxy.windy.com` | `apps/web/src/lib/webcams.ts` `frameUrl`; CSP `img-src` |
+| Windy | direct | кадри публічних вебкамер на сторінці кемпінгу: адресу кадру наш API бере в Windy на запит (ключем сервера, дані читача туди не йдуть), а сам кадр браузер читача завантажує напряму, коли читач дійшов до блоку | — | `imgproxy.windy.com` | `apps/api/src/webcams/frames.ts` `FRAME_HOST`; CSP `img-src` |
 | IGN España (PNOA) | direct | супутникові плитки над Іспанією, лише коли читач увімкнув «Satellite» | — | `www.ign.es` | `apps/web/src/data/satellite-sources.json` (`sat-es`) |
 | IGN France (Géoplateforme) | direct | супутникові плитки над Францією, лише коли читач увімкнув «Satellite» | — | `data.geopf.fr` | `apps/web/src/data/satellite-sources.json` (`sat-fr`) |
 | GitHub, Inc. | none | код, CI й нічна репетиція відновлення — усе на фікстурі з ранера, даних проду не отримує | — | — | `.github/workflows/backup-verify.yml` робить дамп із бази ранера, не з проду; `ci.yml` — `ci-seed.sql` |
 | Directus | none | CMS на нашій машині, не хмарний сервіс | — | `localhost:8055` | `infra/systemd/camptribe-cms.service` |
+| OpenStreetMap Foundation (Nominatim) | none | наш скрипт `resolve-campsite-zones.mjs` на сервері один раз на запуск питає контури 21 хорватського повіту одним запитом `/lookup` (ідентифікатори відношень OSM); читач сайту з цим хостом не зʼєднується, персональних даних хост не отримує — бачить IP машини, що запускає резолвер, і `User-Agent` скрипта | — | `nominatim.openstreetmap.org` | `scripts/meteoalarm/osm-hr-counties.mjs` `HR_COUNTIES_URL`, `HR_HEADERS`; дані — OpenStreetMap, ліцензія ODbL |
 
 ### Договори за ст. 28
 

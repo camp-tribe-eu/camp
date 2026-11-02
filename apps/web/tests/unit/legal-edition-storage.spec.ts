@@ -43,16 +43,24 @@ function claims(slug: string) {
   const t = editionsParagraph(slug);
   return {
     textHeldInDatabase: /text itself is held in our database/.test(t),
-    pastEditionsFullTextInPublicRepo: /shipped as code, so their full text is in our public source repository/.test(t),
+    pastEditionsRecordedInPublicRepo: /shipped as code, so they are recorded in our public source repository/.test(t),
+    // 🔴 І НЕ БІЛЬШЕ. «Their full text is in our public source repository»
+    // стверджує, що текст можна ПРОЧИТАТИ файлом, а для редакцій, чия міграція
+    // складає текст замінами з попередньої (terms 1.2, cookies 1.1, database 1.1,
+    // notice 1.1, privacy 2.4), це неправда: його можна лише відтворити
+    // виконанням. Сторінка описує механізм (приїхали кодом, записані), а не
+    // читабельність. Слова «full text» чи «readable» повертають сильніше
+    // твердження — і це червоніє.
+    doesNotPromiseReadableFullText: !/\b(?:full text|in full|entire text|complete text|readable|can read|read (?:it|them|each|every|the))\b/i.test(t),
     laterCmsEditionsNotInRepo: /edited in our content system instead, that will no longer be true of it/.test(t),
     weKeepLaterOnesOurselves: /we will keep the earlier text ourselves/.test(t),
-    offersEditionForAGivenDay: /text (?:that )?was in force on (?:a given|any) day/.test(t),
+    sendsTheEditionForAGivenDay: /we will send you the text that was in force on (?:a given|any) day/.test(t),
     versionPrintedAtTop: /at the top of (?:this|the) page/.test(t),
   };
 }
 
 test.describe('де лежать попередні редакції: terms = privacy', () => {
-  test('🔴 обидві сторінки роблять ті самі шість тверджень, і всі шість — так', () => {
+  test('🔴 обидві сторінки роблять ті самі твердження про попередні редакції — і не сильніші, ніж правда', () => {
     const [terms, privacy] = PAGES.map(claims);
     // Не «обидві мовчать»: кожне твердження справді сказане.
     expect(Object.values(terms).every(Boolean), `terms: ${JSON.stringify(terms)}`).toBe(true);

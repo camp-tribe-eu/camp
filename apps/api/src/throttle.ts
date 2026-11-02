@@ -213,6 +213,62 @@ export function isReportPath(path: string): boolean {
   return REPORT_ROUTES.some((r) => clean === r);
 }
 
+/**
+ * 🔴 CAMP-190: the route that CAN CALL WINDY, which is a different cost
+ * again — and the only one where a reader's request may cost somebody
+ * else's service, under a clause («excessive automated requests») that
+ * ends our access if it is broken.
+ *
+ * `GET /webcams/frames` is served from a cache nine times in ten. A
+ * request that misses spends one of the process-wide thirty calls a
+ * minute (`MAX_WINDY_CALLS_PER_MINUTE`). Under the default bucket one
+ * caller could make 120 requests a minute, every one of them for a
+ * different real camera, and spend that whole ceiling in fifteen seconds
+ * — after which every reader of every page gets a 429. Review measured
+ * the same arithmetic with an invented id padding one real one; that hole
+ * is closed in the cache itself (an id we do not hold never reaches it),
+ * but the real-camera walk is closed only here.
+ *
+ * Its OWN bucket, for the CAMP-176 reason: a person reading ten
+ * campsite pages must not be spending what the planner, the sign-in or
+ * the bulk routes are counted against, and the reverse.
+ *
+ * Ten a minute. Argued, not measured: a reader makes ONE request per
+ * campsite page, when the panel comes near the screen; six pages a
+ * minute is already fast reading, and ten leaves room for a household
+ * behind one address. It means one caller can cause at most ten misses a
+ * minute — a third of the ceiling — so it takes THREE separate callers
+ * to spend all of it, not one. That is the floor this gives; a botnet is
+ * Cloudflare's job, as the head of this file says, and what the ceiling
+ * costs when it is spent is pictures missing for a minute, never a
+ * breach of Windy's terms.
+ */
+/**
+ * ⚠️ RISK, NOT MEASURED, LEFT AS IS ON PURPOSE: CGNAT. Mobile operators
+ * put thousands of subscribers behind one IPv4 address, and this route
+ * fires on EVERY view of a campsite page that has a camera panel. Ten a
+ * minute per address can therefore be spent by a few people on one
+ * operator, and the rest of them see tiles instead of pictures until the
+ * minute turns. The number is argued above and is not changed blind; when
+ * there is real traffic, look at the share of 429s on this bucket by
+ * address block before touching it. (The caller's address is the socket's
+ * or Cloudflare's `CF-Connecting-IP`, see `clientKey`, so it cannot be
+ * forged by a header.)
+ */
+export const FRAMES_LIMIT = { ttl: MINUTE, limit: 10 };
+
+/** The routes that spend the FRAMES bucket. Paths as the router sees them. */
+export const FRAMES_ROUTES = ['webcams/frames'] as const;
+
+/** Is this the route that can call Windy? Normalised like isPlanPath. */
+export function isFramesPath(path: string): boolean {
+  const clean = path
+    .split('?')[0]
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
+  return FRAMES_ROUTES.some((r) => clean === r);
+}
+
 /** The routes that spend the MAIL bucket. Paths as the router sees them. */
 export const MAIL_ROUTES = [
   // CAMP-229: зміна пошти шле лист на вказану адресу, тож рахується тут, а
@@ -296,7 +352,7 @@ export function isLoginPath(path: string): boolean {
 /**
  * Which counter this request is spent from.
  *
- * 🔴 ONE function, exported, so the seven buckets are a fact a test can
+ * 🔴 ONE function, exported, so the eight buckets are a fact a test can
  * read rather than a ternary buried in a Nest guard. The bug review
  * found was precisely that the limit and the bucket were decided in two
  * different files and nothing compared them.
@@ -308,13 +364,22 @@ export function isLoginPath(path: string): boolean {
  */
 export function bucketOf(
   path: string,
-): 'bulk' | 'login' | 'mail' | 'consent' | 'plan' | 'report' | 'ordinary' {
+):
+  | 'bulk'
+  | 'login'
+  | 'mail'
+  | 'consent'
+  | 'plan'
+  | 'report'
+  | 'frames'
+  | 'ordinary' {
   if (isBulkPath(path)) return 'bulk';
   if (isLoginPath(path)) return 'login';
   if (isMailPath(path)) return 'mail';
   if (isConsentPath(path)) return 'consent';
   if (isPlanPath(path)) return 'plan';
   if (isReportPath(path)) return 'report';
+  if (isFramesPath(path)) return 'frames';
   return 'ordinary';
 }
 
