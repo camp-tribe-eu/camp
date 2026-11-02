@@ -35,7 +35,16 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chooseAction } from '../lib/entrypoint.mjs';
-import { SCHEMES_USED, USED_SOURCES, rowsFrom, usesPairs, verdict } from './zone-coverage.mjs';
+import { hrCountiesFeatures, HR_COUNTIES } from './osm-hr-counties.mjs';
+import {
+  OBSOLETE_CACHE,
+  SCHEMES_USED,
+  USED_SOURCES,
+  floorsVerdict,
+  rowsFrom,
+  usesPairs,
+  verdict,
+} from './zone-coverage.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DB = process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
@@ -191,6 +200,25 @@ export function plan({ apply }) {
   return steps;
 }
 
+/**
+ * Чи прийнятне покриття: глобальна підлога І підлога кожної з шести
+ * країн, чий зв'язок змінився.
+ *
+ * 🔴 ОКРЕМА ФУНКЦІЯ, а не рядки в `run`, бо `run` ходить у базу й жодне
+ * самотестування його не торкається. Глобальна підлога (80%) не бачить
+ * країну в 642 кемпінги — див. `COUNTRY_FLOORS`, — а те, чого не бачить
+ * сторож, нічого й не коштує зламати.
+ */
+export function judgeCoverage(rows) {
+  const total = rows.reduce((n, r) => n + r.total, 0);
+  const placed = total - rows.reduce((n, r) => n + r.missing, 0);
+  const v = verdict(total, placed, rows);
+  if (!v.ok) return { ok: false, why: v.why };
+  const f = floorsVerdict(rows);
+  if (!f.ok) return { ok: false, why: f.why };
+  return { ok: true, total, placed, share: v.share, short: v.short, table: f.table };
+}
+
 const psql = (sql) => execFileSync('psql', [DB, '-tAX', '-c', sql], { encoding: 'utf8' }).trim();
 
 // 🔴 КЕШ ЛЕЖИТЬ У РЕПОЗИТОРІЇ, А НЕ В /tmp, і це не смак — це три
@@ -258,12 +286,18 @@ export async function sourceRows({
 } = {}) {
   const lines = [];
   let dropped = 0;
+  // 🔴 Полігони GISCO (EuroGeographics) — «не для комерційного
+  // використання». Попередня версія резолвера кешувала їх під цими
+  // іменами, і на сервері вони лежать досі: прибираємо, а не сподіваємось.
+  for (const old of OBSOLETE_CACHE) rmSync(path.join(dir, old), { force: true });
   for (const [scheme, src] of Object.entries(sources)) {
-    const file = path.join(dir, `${scheme}.json`);
+    // 🔴 Ім'я кешу — власність джерела, не схеми: `NUTS3.json` на сервері
+    // це GISCO, і `existsSync` віддав би його як «повіти Хорватії».
+    const file = path.join(dir, src.file ?? `${scheme}.json`);
     // Те, що щойно завантажили, вже розібране — удруге 33 МБ не парсимо.
     let collection = null;
     if (!existsSync(file)) {
-      const res = await fetchImpl(src.url);
+      const res = await fetchImpl(src.url, src.headers ? { headers: src.headers } : undefined);
       if (!res.ok) throw new Error(`GET ${src.url} returned ${res.status}`);
       const bytes = Buffer.from(await res.arrayBuffer());
       // 🔴 РОЗБИРАЄМО ДО ТОГО, як файл стане кешем, і це не педантизм.
@@ -306,11 +340,17 @@ export async function sourceRows({
         rmSync(part, { force: true });
       }
     }
-    const made = rowsFrom(
-      collection ?? JSON.parse(readFileSync(file, 'utf8')),
-      scheme,
-      src.idField,
-    );
+    let raw = collection ?? JSON.parse(readFileSync(file, 'utf8'));
+    // 🔴 Джерело, чий формат не збігається з потрібним (Nominatim →
+    // `NUTS_ID`), має власний відбір: він повертає лише те, за що
+    // ручається, і ІМЕНУЄ решту. Один повіт, якого OSM більше не підтверджує,
+    // коштує одного повіту, а не прогону.
+    if (src.select) {
+      const picked = src.select(raw);
+      for (const r of picked.rejected) console.warn(`⚠ ${scheme} ${r.code ?? ''}: ${r.why}`);
+      raw = { type: 'FeatureCollection', features: picked.features };
+    }
+    const made = rowsFrom(raw, scheme, src.idField);
     // 🔴 Заміряне число зон — у `USED_SOURCES`. Джерело, що віддало
     // інакше, змінилось під нами, і це треба побачити, а не всереднити.
     if (made.lines.length !== src.zones) {
@@ -363,16 +403,22 @@ async function run({ apply }) {
           const [country, total, missing] = l.split('|');
           return { country, total: Number(total), missing: Number(missing) };
         });
-        const total = rows.reduce((n, r) => n + r.total, 0);
-        const placed = total - rows.reduce((n, r) => n + r.missing, 0);
-        const v = verdict(total, placed, rows);
-        if (!v.ok) {
-          console.error(`✗ ${v.why}`);
+        const j = judgeCoverage(rows);
+        if (!j.ok) {
+          console.error(`✗ ${j.why}`);
           return 1;
         }
-        console.log(`\n${placed} із ${total} кемпінгів розташовано — ${v.share}%`);
-        for (const r of v.short.slice(0, 10)) {
+        console.log(`\n${j.placed} із ${j.total} кемпінгів розташовано — ${j.share}%`);
+        for (const r of j.short.slice(0, 10)) {
           console.log(`  ${r.country}: ${r.missing} без коду з ${r.total}`);
+        }
+        // 🔴 Шість країн, чий зв'язок змінився з прибиранням GISCO, —
+        // завжди, а не лише коли щось погано: «було → стало» зі
+        // знаменником, бо втрата покриття тут тиха за побудовою.
+        console.log('\nшість країн, що їхали на GISCO (було → стало, кемпінгів із хоч одним кодом):');
+        for (const t of j.table) {
+          const was = t.was ? `${t.was.placed}/${t.was.total} ${t.was.share}%` : 'немає';
+          console.log(`  ${t.country}  ${was}  →  ${t.placed}/${t.total} ${t.share}%  (підлога ${t.floor}%)`);
         }
         continue;
       }
@@ -468,9 +514,20 @@ async function selfTest() {
   check(/missing_since IS NULL/.test(NO_NULLS_SQL), 'серед живих рядків, не всіх');
 
   const vals = pairsValues();
-  check(vals.includes("('FR','NUTS3')"), 'Франція зʼєднується по NUTS3');
-  check(!vals.includes("('FR','EMMA_ID')"), '🔴 і НЕ по EMMA_ID: 97.5% покриття, 0% збігів');
-  check(vals.includes("('BE','NUTS2')") && vals.includes("('BE','EMMA_ID')"), 'Бельгія має обидві');
+  // 🔴 ДО 02.11.2026 ТУТ СТОЯЛО НАВПАКИ («Франція по NUTS3, НЕ по EMMA_ID»).
+  // Воно було правдою, доки кемпінг ніс NUTS із полігонів GISCO, чия
+  // ліцензія забороняє комерційне використання. Тепер кемпінг несе зону
+  // MeteoAlarm, а NUTS-область попередження дістає код тієї ж зони
+  // (`fetch-warnings.mjs` + `nuts-binding.mjs`), і `zone-coverage.mjs`
+  // перевіряє це зчеплення на живому корпусі.
+  check(vals.includes("('FR','EMMA_ID')"), 'Франція зʼєднується по EMMA_ID — зону дописує до її NUTS-областей fetch-warnings');
+  check(!vals.includes("('FR','NUTS3')"), '🔴 і НЕ по NUTS3: полігонів NUTS у нас більше нема, а ліцензія GISCO забороняє комерцію');
+  check(vals.includes("('BE','EMMA_ID')") && !vals.includes("('BE','NUTS2')"), 'Бельгія — лише EMMA_ID');
+  check(
+    vals.includes("('HR','EMMA_ID')") && vals.includes("('HR','NUTS3')"),
+    'Хорватія тримає обидві: її повіти є лише як NUTS3 з OpenStreetMap',
+  );
+  check(!/NUTS2/.test(vals), '🔴 жодної пари з NUTS2: джерела для неї немає');
   check(!/\bSE\b/.test(vals), 'Швеція не зʼєднується ні з чим — її фід кодів не несе');
   check(
     pairsValues({ AT: ['EMMA_ID'] }) === "('AT','EMMA_ID')",
@@ -629,7 +686,144 @@ async function selfTest() {
     rmSync(dir2, { recursive: true, force: true });
   }
 
-  const EXPECTED_CASES = 56;
+  // 🔴 ТРИ РЕЧІ, ЯКИХ ВИМАГАЄ ЗАМІНА GISCO, І КОЖНА — НА ТІЙ САМІЙ
+  // `sourceRows`, що їде в прогін.
+  {
+    const body = JSON.stringify({
+      type: 'FeatureCollection',
+      features: [
+        { properties: { code: 'A1' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+        { properties: { code: 'B2' }, geometry: { type: 'Point', coordinates: [1, 1] } },
+      ],
+    });
+    const mk = () => mkdtempSync(path.join(tmpdir(), 'camp-gisco-rehearsal-'));
+    const fetchImpl = async (url, init) => {
+      asked.push({ url, init });
+      return { ok: true, arrayBuffer: async () => Buffer.from(body) };
+    };
+    const asked = [];
+
+    // 1. GISCO, що лишився в кеші від старого резолвера, зникає.
+    const stale = mk();
+    for (const f of OBSOLETE_CACHE) writeFileSync(path.join(stale, f), '{"type":"FeatureCollection","features":[]}');
+    await sourceRows({
+      dir: stale,
+      sources: { T: { url: 'https://example.invalid/z', idField: 'code', zones: 2, file: 'T.json' } },
+      fetchImpl,
+    });
+    check(
+      OBSOLETE_CACHE.every((f) => !existsSync(path.join(stale, f))),
+      '🔴 полігони GISCO, що старий резолвер лишив у кеші, видаляються при кожному прогоні',
+    );
+    check(OBSOLETE_CACHE.length === 2, 'і це рівно два імені, під якими старий резолвер їх клав');
+
+    // 2. Ім'я кешу — із джерела, не зі схеми: `NUTS3.json` на сервері це GISCO.
+    const named = mk();
+    writeFileSync(path.join(named, 'NUTS3.json'), '{"type":"FeatureCollection","features":[{"properties":{"code":"GISCO"},"geometry":{"type":"Point","coordinates":[0,0]}}]}');
+    asked.length = 0;
+    const got = await sourceRows({
+      dir: named,
+      sources: { NUTS3: { url: 'https://example.invalid/hr', idField: 'code', zones: 2, file: 'osm-hr.json' } },
+      fetchImpl,
+    });
+    check(
+      asked.length === 1 && got.lines.every((l) => !l.includes('GISCO')) && existsSync(path.join(named, 'osm-hr.json')),
+      '🔴 джерело NUTS3 тягнеться по мережі й кешується під СВОЇМ іменем — старий NUTS3.json його не підміняє',
+    );
+
+    // 3. Заголовки доходять до запиту; відбір іменує відкинуте й не валить прогін.
+    const sel = mk();
+    asked.length = 0;
+    const warned = [];
+    const was = console.warn;
+    console.warn = (m) => warned.push(String(m));
+    let picked;
+    try {
+      picked = await sourceRows({
+        dir: sel,
+        sources: {
+          T: {
+            url: 'https://example.invalid/z',
+            headers: { 'User-Agent': 'rehearsal' },
+            select: (c) => ({
+              features: c.features.filter((f) => f.properties.code === 'A1'),
+              rejected: [{ code: 'B2', why: 'тег змінився' }],
+            }),
+            idField: 'code',
+            zones: 1,
+            file: 'T.json',
+          },
+        },
+        fetchImpl,
+      });
+    } finally {
+      console.warn = was;
+    }
+    check(asked[0]?.init?.headers?.['User-Agent'] === 'rehearsal', 'заголовки джерела (User-Agent для Nominatim) доходять до запиту');
+    check(
+      picked.lines.length === 1 && picked.lines[0].includes('A1') && !picked.lines.join().includes('B2'),
+      '🔴 відкинутий відбором запис коштує одного запису: решта залишається',
+    );
+    check(
+      warned.some((w) => w.includes('B2') && w.includes('тег змінився')),
+      '🔴 …і названий разом із причиною, а не лише пораховано',
+    );
+    // 🔴 І НА ТОМУ САМОМУ ВІДБОРІ, що їде в прогін: один повіт із 21 без
+    // тега коштує одного повіту.
+    const real = hrCountiesFeatures({
+      features: Object.entries(HR_COUNTIES).map(([code, c], i) => ({
+        type: 'Feature',
+        properties: { osm_type: 'relation', osm_id: c.rel, extratags: { 'ref:nuts:3': i === 3 ? 'XX999' : code } },
+        geometry: { type: 'Polygon', coordinates: [] },
+      })),
+    });
+    check(
+      real.features.length === 20 && real.rejected.length === 1 && real.rejected[0].code === 'HR024',
+      `🔴 повіт, чий ref:nuts:3 змінився, відкинутий один: ${real.features.length} прийнято, ${real.rejected.map((r) => r.code)} відкинуто`,
+    );
+
+    for (const d of [stale, named, sel]) rmSync(d, { recursive: true, force: true });
+  }
+
+  // 🔴 СТОРОЖ, ЩО ЇДЕ В ПРОГІН: `judgeCoverage`, а не `verdict` окремо.
+  {
+    const rows = [
+      { country: 'FR', total: 21759, missing: 542 },
+      { country: 'BE', total: 748, missing: 10 },
+      { country: 'BG', total: 275, missing: 28 },
+      { country: 'HR', total: 642, missing: 4 },
+      { country: 'HU', total: 615, missing: 3 },
+      { country: 'RO', total: 567, missing: 11 },
+      { country: 'DE', total: 8364, missing: 101 },
+      { country: 'ES', total: 3312, missing: 10 },
+      { country: 'IT', total: 4166, missing: 14 },
+      { country: 'PL', total: 2085, missing: 1 },
+      { country: 'NL', total: 3649, missing: 38 },
+      { country: 'SE', total: 2288, missing: 2288 },
+      { country: 'AT', total: 791, missing: 7 },
+      { country: 'GR', total: 596, missing: 191 },
+      { country: 'DK', total: 1987, missing: 5 },
+    ];
+    // Заповнюємо решту живих рядків країнами, що не мають підлоги, щоб
+    // знаменник був справжнім (57 128), а не складений для цього тесту.
+    const rest = 57128 - rows.reduce((n, r) => n + r.total, 0);
+    const real = [...rows, { country: 'XX', total: rest, missing: 0 }];
+    const good = judgeCoverage(real);
+    check(good.ok === true && good.table.length === 6, `заміряна дійсність проходить обидві підлоги: ${good.why ?? ''}`);
+    // 🔴 Хорватія ціла зникла: глобальний вердикт мовчить, прогін — ні.
+    const hrGone = real.map((r) => (r.country === 'HR' ? { ...r, missing: r.total } : r));
+    const bad = judgeCoverage(hrGone);
+    check(
+      bad.ok === false && /^HR: 0 of 642/.test(bad.why),
+      `🔴 прогін відмовляє, коли зникла країна, якої глобальна підлога не бачить: ${bad.why}`,
+    );
+    check(
+      judgeCoverage(real.map((r) => ({ ...r, missing: r.total }))).ok === false,
+      'і коли зникло все — теж, за глобальною',
+    );
+  }
+
+  const EXPECTED_CASES = 68;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;

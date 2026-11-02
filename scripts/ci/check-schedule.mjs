@@ -101,19 +101,21 @@ export const WATCHED = [
     // 🔴 CAMP-149. This one watches a NOMENCLATURE, which is the slowest
     // and quietest thing we depend on.
     //
-    // The warning join resolves codes against geometry pinned to the
-    // NUTS 2013 vintage, because that is what the feed uses — measured:
-    // against the current file, 8 of France's 82 codes resolve. When
-    // Europe revises the nomenclature again, nothing errors. Coverage
-    // simply falls, those warnings stop appearing on campsite pages,
-    // and the only thing that would have noticed is this weekly run.
+    // The warning join ties NUTS-coded areas to MeteoAlarm zones by NAME
+    // (since 02.11.2026; it used to resolve them against GISCO polygons
+    // pinned to the NUTS 2013 vintage, whose licence forbids commercial
+    // use) and draws Croatia's counties from OpenStreetMap. A name that
+    // is respelled, a zone renumbered or a county relation re-tagged
+    // breaks nothing loudly: coverage simply falls, those warnings stop
+    // appearing on campsite pages, and the only thing that would have
+    // noticed is this weekly run.
     //
     // So a job that watches for silence must not itself go silent.
     workflow: 'warning-geography.yml',
     everyDays: 7,
     graceDays: 2,
     since: '2026-10-05',
-    why: 'the warning join is measured against a pinned NUTS vintage and three outside sources; when a nomenclature moves, coverage falls quietly and warnings stop reaching campsite pages with nothing to say so',
+    why: 'the warning join ties NUTS areas to MeteoAlarm zones by name and draws Croatia from OpenStreetMap; when a name, a zone code or a county tag moves, coverage falls quietly and warnings stop reaching campsite pages with nothing to say so',
   },
 ];
 

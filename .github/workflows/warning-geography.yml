@@ -9,9 +9,15 @@ name: Warning geography still resolves
 # live feeds, and every one of those measurements is a date rather than
 # a fact:
 #
-#   · the feed uses the NUTS **2013** vintage. France renumbered in
-#     2016, so `FR712` means Ain in the old list and nothing in the new
-#     one — against the current file, 8 of France's 82 codes resolve.
+#   · NUTS-coded areas (France, Bulgaria, Romania, Hungary, Belgium) are
+#     tied to the MeteoAlarm zone of the SAME NAME (`nuts-binding.mjs`),
+#     so a respelled province or a renumbered zone stops binding. Until
+#     02.11.2026 this was resolved against GISCO polygons pinned to the
+#     NUTS 2013 vintage — France renumbered in 2016, so `FR712` meant Ain
+#     in the old list and nothing in the new one — and GISCO's licence
+#     forbids commercial use, so that source is gone.
+#   · Croatia's counties are OpenStreetMap relations tied to the feed's
+#     NUTS3 by their own `ref:nuts:3` tag; a re-tagged county is named.
 #   · Germany and Czechia send `WARNCELLID` and `CISORP` alongside
 #     `EMMA_ID`, never instead. That is what lets us carry no geometry
 #     for either; the day one area arrives with only a WARNCELLID, it
@@ -44,6 +50,9 @@ on:
   pull_request:
     paths:
       - 'scripts/meteoalarm/resolve-areas.mjs'
+      - 'scripts/meteoalarm/nuts-binding.mjs'
+      - 'scripts/meteoalarm/emma-zone-names.json'
+      - 'scripts/meteoalarm/osm-hr-counties.mjs'
       - '.github/workflows/warning-geography.yml'
 
 permissions:
@@ -86,7 +95,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: /tmp/camp-149-cache
-          key: camp-149-geometry-v1
+          # v2: the v1 cache held GISCO polygons, whose licence forbids
+          # commercial use; a new key leaves them behind.
+          key: camp-149-geometry-v2
 
       - name: Coverage against the live feeds
         run: node scripts/meteoalarm/resolve-areas.mjs --coverage

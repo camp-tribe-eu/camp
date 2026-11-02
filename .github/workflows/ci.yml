@@ -400,9 +400,10 @@ jobs:
             | grep -c 'check-dependabot-prs self-test:' >/dev/null
 
       # 🔴 CAMP-287 крок 1. Перепис схем вирішує, чиї попередження ми
-      # взагалі можемо зіставити з кемпінгом. Франція лежить у полігонах
-      # EMMA на 97.5%, а попереджає в NUTS3 — коди в чужій схемі не
-      # збігаються ні з чим, і цей самотест тримає саме цю межу.
+      # взагалі можемо зіставити з кемпінгом. Франція попереджає в NUTS3, а
+      # кемпінг несе EMMA_ID: це збігається лише тому, що fetch-warnings
+      # дописує до NUTS-області код зони MeteoAlarm (за назвою), і цей
+      # самотест тримає зчеплення на живому корпусі з 88 кодів.
       - name: Zone census still refuses a scheme the country never uses
         run: |
           set -o pipefail
@@ -412,6 +413,16 @@ jobs:
       # 🔴 CAMP-287. Репетирується ПОСЛІДОВНІСТЬ, не лише запит: прогін
       # без `--apply` не сміє писати нічого, а `--apply` мусить писати
       # рівно один раз і міряти покриття ПІСЛЯ запису.
+      # 🔴 GISCO (EuroGeographics) забороняє комерційне використання. Зону
+      # для NUTS-коду тепер знаходить `nuts-binding.mjs` за назвою; цей
+      # самотест тримає нормалізацію й живий корпус (86 з 88 за назвою, 88 з
+      # двома винятками), і червоніє, якщо хоч одне з чисел зсунулось.
+      - name: NUTS-to-zone name binding still ties the live codes
+        run: |
+          set -o pipefail
+          node scripts/meteoalarm/nuts-binding.mjs --self-test | tee /dev/stderr \
+            | grep -c '✓ nuts-binding self-test:' >/dev/null
+
       - name: Zone resolver still refuses to write without --apply
         run: |
           set -o pipefail
@@ -495,8 +506,8 @@ jobs:
           set -o pipefail
           node scripts/meteoalarm/fetch-warnings.mjs --self-test | tee /dev/stderr \
             | grep -c 'fetch-warnings self-test:' >/dev/null
-      # CAMP-149. Which geometry source answers which scheme, the NUTS
-      # vintage, and the Irish splits — all pure, no network.
+      # CAMP-149. Which geometry source answers which scheme, that none of
+      # them is GISCO, and the Irish splits — all pure, no network.
       - name: Warning area resolution
         if: ${{ !cancelled() }}
       # 🔴 CAMP-285/286: the step reads the self-test's own output.

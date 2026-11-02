@@ -3,6 +3,15 @@
 //
 //   node scripts/meteoalarm/resolve-areas.mjs --self-test
 //
+// 🔴 CAMP-GISCO (02.11.2026): THERE IS NO NUTS GEOMETRY HERE ANY MORE.
+// The NUTS paragraphs below are measured HISTORY. EuroGeographics' GISCO
+// licence says "the data will not be used for commercial purposes", on all
+// seven vintages (2003…2024), so the two GISCO sources are gone. A NUTS code
+// from France, Bulgaria, Romania, Hungary or Belgium is now tied to the
+// MeteoAlarm zone of the same name (`nuts-binding.mjs`) and resolved as an
+// `EMMA_ID` — which also ends the vintage problem, since a name has none.
+// Croatia's counties come from OpenStreetMap (`osm-hr-counties.mjs`).
+//
 // 🔴 A WARNING CARRIES A CODE, NOT A SHAPE, and the codes are not one
 // scheme. Measured across all 27 live feeds on 05.10.2026:
 //
@@ -33,6 +42,9 @@
 // nothing in the new one. Reaching for the newest file — the obvious
 // move — resolves one code in ten and loses the rest without a word.
 
+import { bindAlert, withZones } from './nuts-binding.mjs';
+import { HR_COUNTIES_URL, HR_HEADERS, hrCountiesFeatures } from './osm-hr-counties.mjs';
+
 /** Where each scheme's geometry comes from. */
 export const SOURCES = {
   EMMA_ID: {
@@ -40,15 +52,17 @@ export const SOURCES = {
     url: 'https://gitlab.com/meteoalarm-pm-group/documents/-/raw/master/MeteoAlarm_Geocodes_2026_07_31.json',
     idField: 'code',
   },
+  // 🔴 NUTS3 HERE MEANS CROATIA'S COUNTIES AND NOTHING ELSE. `covers` says
+  // so: `NUTS3:FR812` has no geometry (it is tied to an EMMA zone upstream,
+  // by name), and a source that answered for it would answer wrongly.
+  // There is no NUTS2 source: Belgium and Hungary go through EMMA_ID.
   NUTS3: {
-    id: 'eurostat-nuts-2013-l3',
-    url: 'https://gisco-services.ec.europa.eu/distribution/v2/nuts/geojson/NUTS_RG_01M_2013_4326_LEVL_3.geojson',
+    id: 'osm-hr-counties',
+    url: HR_COUNTIES_URL,
+    headers: HR_HEADERS,
+    select: hrCountiesFeatures,
     idField: 'NUTS_ID',
-  },
-  NUTS2: {
-    id: 'eurostat-nuts-2013-l2',
-    url: 'https://gisco-services.ec.europa.eu/distribution/v2/nuts/geojson/NUTS_RG_01M_2013_4326_LEVL_2.geojson',
-    idField: 'NUTS_ID',
+    covers: (value) => /^HR/i.test(value),
   },
   FIPS: {
     id: 'natural-earth-admin-1',
@@ -185,10 +199,23 @@ export function plans(codes) {
 
   if (parsed.length === 0) return [{ scheme: null, places: [], why: 'the area carries no code' }];
 
-  const usable = parsed.filter((p) => SOURCES[p.scheme]);
+  // 🔴 A SOURCE THAT DOES NOT COVER THE VALUE IS NO SOURCE FOR IT. `NUTS3`
+  // has geometry for Croatia only; a French `NUTS3:FR812` that reached it
+  // would be looked up among Croatian counties and reported as "not in its
+  // source" — a lie about WHICH problem it is.
+  const usable = parsed.filter((p) => SOURCES[p.scheme] && (SOURCES[p.scheme].covers?.(p.value) ?? true));
   if (usable.length === 0) {
     const schemes = [...new Set(parsed.map((p) => p.scheme))].join(', ');
-    return [{ scheme: null, places: [], why: `no resolvable scheme among: ${schemes}` }];
+    const uncovered = parsed.filter((p) => SOURCES[p.scheme]).map((p) => `${p.scheme}:${p.value}`);
+    return [
+      {
+        scheme: null,
+        places: [],
+        why:
+          `no resolvable scheme among: ${schemes}` +
+          (uncovered.length ? ` (${uncovered.join(', ')} is tied to no MeteoAlarm zone)` : ''),
+      },
+    ];
   }
 
   // 🔴 ORDERED BY `SOURCES`, NOT BY THE FEED. The comment above claimed
@@ -346,8 +373,7 @@ async function join() {
   const { COUNTRIES, feedUrl, warningsFrom } = await import('./fetch-warnings.mjs');
   const geometry = {};
   for (const [scheme, src] of Object.entries(SOURCES)) {
-    const doc = await cached(`${src.id}.json`, src.url);
-    geometry[scheme] = doc.features ?? [];
+    geometry[scheme] = await featuresOf(src);
   }
   const now = new Date();
   const tally = { code: 0, polygon: 0, circle: 0 };
@@ -404,15 +430,24 @@ async function join() {
 
 const CACHE = process.env.RESOLVE_CACHE ?? '/tmp/camp-149-cache';
 
-async function cached(name, url) {
-  const { mkdir, readFile, writeFile } = await import('node:fs/promises');
+/**
+ * Cache files an earlier version of this script wrote, which hold
+ * EuroGeographics GISCO polygons — "not for commercial purposes". Removed
+ * whenever the cache is read, because a runner that cached them once would
+ * otherwise carry them for as long as its cache key survives.
+ */
+export const OBSOLETE_CACHE = Object.freeze(['eurostat-nuts-2013-l3.json', 'eurostat-nuts-2013-l2.json']);
+
+async function cached(name, url, headers) {
+  const { mkdir, readFile, writeFile, rm } = await import('node:fs/promises');
   const { join } = await import('node:path');
   await mkdir(CACHE, { recursive: true });
+  for (const old of OBSOLETE_CACHE) await rm(join(CACHE, old), { force: true });
   const at = join(CACHE, name);
   try {
     return JSON.parse(await readFile(at, 'utf8'));
   } catch {
-    const res = await fetch(url);
+    const res = await fetch(url, headers ? { headers } : undefined);
     if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
     const text = await res.text();
     await writeFile(at, text, 'utf8');
@@ -420,16 +455,35 @@ async function cached(name, url) {
   }
 }
 
-/** Distinct `SCHEME:VALUE` codes a feed carries, by country. */
+/** One source's features, with whatever the source has to be filtered through. */
+async function featuresOf(src) {
+  const doc = await cached(`${src.id}.json`, src.url, src.headers);
+  if (!src.select) return doc.features ?? [];
+  const picked = src.select(doc);
+  for (const r of picked.rejected) console.log(`  ⚠ ${src.id} ${r.code ?? ''}: ${r.why}`);
+  return picked.features;
+}
+
+/**
+ * Distinct `SCHEME:VALUE` codes a feed carries, by country.
+ *
+ * 🔴 AS THE PIPELINE SEES THEM, NOT AS THE FEED SENDS THEM. A NUTS code
+ * gains the MeteoAlarm zone it is tied to, exactly as `warningsFrom` does
+ * before a warning reaches anyone — otherwise this measurement would grade
+ * the feed against a join the product does not use, and report France as
+ * unresolvable while its campsites matched fine (or the reverse).
+ */
 export function codesIn(payload) {
   const out = new Set();
   let uncoded = 0;
   for (const w of payload?.warnings ?? []) {
+    const { bound } = bindAlert(w.alert?.info);
     for (const info of w.alert?.info ?? []) {
       for (const area of info.area ?? []) {
-        const codes = (area.geocode ?? [])
+        const plain = (area.geocode ?? [])
           .filter((g) => g?.valueName && g?.value)
           .map((g) => `${g.valueName}:${g.value}`);
+        const codes = withZones([{ codes: plain }], bound)[0].codes;
         // 🔴 AN AREA WITH NO CODE USED TO VANISH, which RAISED coverage:
         // four areas in, three uncoded, and the measure reported 1 of 1.
         // Losing the codes we need made the number look better.
@@ -568,25 +622,21 @@ export const MIN_COVERAGE = 0.95;
  * it means the gap closed upstream and the note is now a lie.
  */
 export const KNOWN_GAPS = {
-  croatia: {
-    codes: ['HR014'],
-    why:
-      'DHMZ sends HR014 in its CAP feed. Measured 11.10.2026: it is in ' +
-      "neither MeteoAlarm's own published geocode list — the newest is " +
-      'MeteoAlarm_Geocodes_2026_07_31.json, whose Croatian codes are ' +
-      'HR001-HR008 and HR801-HR806 — nor NUTS 2013 level 3, which has ' +
-      'HR031-HR037, HR041-HR049 and HR04A-HR04E. So the feed and the list ' +
-      'that is supposed to describe it disagree, and the disagreement is ' +
-      'upstream of us. Question queued for MeteoAlarm (CAMP-263).',
-  },
+  // 🔴 EMPTY SINCE 02.11.2026, and that is the guard doing its job. It held
+  // `croatia: ['HR014']` — an area DHMZ sends whose EMMA code is in no list
+  // and whose NUTS3 was not in the GISCO 2013 file. Its NUTS3 is `HR027`
+  // (Karlovac), which OpenStreetMap's county relation carries, so with
+  // Croatia's counties drawn from OSM the area resolves and the run said:
+  // "KNOWN_GAPS still lists croatia:HR014, but it resolves now". Deleted, as
+  // that message asks. The question queued for MeteoAlarm (CAMP-263) about
+  // why the feed and the list disagree stands: HR014 is still in neither.
 };
 
 async function coverage() {
   const { COUNTRIES, feedUrl } = await import('./fetch-warnings.mjs');
   const geometry = {};
   for (const [scheme, src] of Object.entries(SOURCES)) {
-    const doc = await cached(`${src.id}.json`, src.url);
-    geometry[scheme] = doc.features ?? [];
+    geometry[scheme] = await featuresOf(src);
     console.log(`  ${scheme.padEnd(9)} ${String(geometry[scheme].length).padStart(5)} features  (${src.id})`);
   }
   console.log('');
@@ -742,7 +792,16 @@ function selfTest() {
   ok('...and the same for Czechia CISORP',
     plan(['CISORP:5102', 'EMMA_ID:CZ05102']).scheme === 'EMMA_ID');
 
-  ok('NUTS3 is kept as NUTS3', plan(['NUTS3:FR712']).scheme === 'NUTS3');
+  // 🔴 CAMP-GISCO. `NUTS3` has geometry for Croatia only (OpenStreetMap
+  // counties); a French NUTS3 code is tied to an EMMA zone upstream and
+  // must NOT be looked up among Croatian counties.
+  ok('a Croatian NUTS3 code still has a source', plan(['NUTS3:HR031']).scheme === 'NUTS3');
+  ok('🔴 a French NUTS3 code has none, and says which code is tied to no zone',
+    plan(['NUTS3:FR712']).scheme === null && /NUTS3:FR712 is tied to no MeteoAlarm zone/.test(plan(['NUTS3:FR712']).why ?? ''),
+    plan(['NUTS3:FR712']).why);
+  ok('…but the same area with its zone attached resolves, as an EMMA_ID',
+    plan(['NUTS3:FR712', 'EMMA_ID:FR039']).scheme === 'EMMA_ID');
+  ok('there is no NUTS2 source: Belgium and Hungary are tied by name', !('NUTS2' in SOURCES));
   // 🔴 The preference is `SOURCES` order, NOT the order the feed lists
   // its geocodes in. The old test for this passed only because its
   // fixture happened to put the expected scheme first.
@@ -751,10 +810,17 @@ function selfTest() {
     plans(['NUTS3:HR031', 'EMMA_ID:HR018']).map((c) => c.scheme).join());
   ok('…and both are still offered, preferred first',
     plans(['NUTS3:HR031', 'EMMA_ID:HR018']).map((c) => c.scheme).join() === 'EMMA_ID,NUTS3');
-  ok('NUTS2 is a different source from NUTS3',
-    SOURCES.NUTS2.url !== SOURCES.NUTS3.url && /LEVL_2/.test(SOURCES.NUTS2.url));
-  ok('the NUTS source is pinned to the 2013 vintage',
-    /_2013_/.test(SOURCES.NUTS3.url) && /_2013_/.test(SOURCES.NUTS2.url), SOURCES.NUTS3.url);
+  // 🔴 LICENCE, NOT TASTE: GISCO says "the data will not be used for
+  // commercial purposes" on all seven vintages. This replaces the test that
+  // pinned the 2013 vintage — there is no vintage to pin any more.
+  ok('🔴 no source this script downloads is GISCO / EuroGeographics',
+    Object.values(SOURCES).every((src) => !/gisco|eurogeographics|europa\.eu/i.test(src.url)),
+    Object.values(SOURCES).map((src) => src.url).join(' '));
+  ok('🔴 the cache names GISCO runs left behind are marked for removal',
+    OBSOLETE_CACHE.join() === 'eurostat-nuts-2013-l3.json,eurostat-nuts-2013-l2.json'
+      && Object.values(SOURCES).every((src) => !OBSOLETE_CACHE.includes(`${src.id}.json`)));
+  ok('the NUTS source is the Croatian counties and covers only Croatian codes',
+    SOURCES.NUTS3.id === 'osm-hr-counties' && SOURCES.NUTS3.covers('HR031') && !SOURCES.NUTS3.covers('FR812'));
 
   ok('Dublin legacy code expands to the four counties it became',
     plan(['FIPS:EI07']).places[0].values.join(',') === 'EI33,EI34,EI35,EI39');
@@ -990,6 +1056,36 @@ function selfTest() {
     ok('…and one country answering is certainly not', tooFewMeasured(1, 27));
   }
 
+  // 🔴 CAMP-GISCO: THE MEASUREMENT GRADES WHAT THE PIPELINE DOES. `codesIn`
+  // gives a NUTS area the zone it is tied to, as `warningsFrom` does, so a
+  // French département resolves on its EMMA zone and one that is tied to
+  // none is a NAMED failure instead of vanishing.
+  {
+    const geom = { EMMA_ID: [{ properties: { code: 'FR039' } }], NUTS3: [{ properties: { NUTS_ID: 'HR031' } }] };
+    const feedOf = (infos) => ({ warnings: [{ alert: { info: infos } }] });
+    const frArea = (name, value) => ({ area: [{ areaDesc: name, geocode: [{ valueName: 'NUTS3', value }] }] });
+    const tied = codesIn(feedOf([frArea('Ain', 'FR711')]));
+    ok('a French NUTS3 area comes out with its zone beside it', tied.join() === 'NUTS3:FR711||EMMA_ID:FR039', tied.join());
+    const placed = coverageOf(tied, geom);
+    ok('…and resolves, on the zone, 1 of 1', placed.resolved === 1 && placed.total === 1, JSON.stringify(placed));
+    const lost = codesIn(feedOf([frArea('Nowhere', 'FR999')]));
+    const miss = coverageOf(lost, geom);
+    ok('🔴 an area no zone matches is a NAMED failure, 0 of 1',
+      miss.resolved === 0 && miss.total === 1 && /FR999/.test(miss.unresolved.map((u) => u[0]).join()),
+      JSON.stringify(miss.unresolved));
+    const hr = codesIn(feedOf([{ area: [{ areaDesc: 'Primorsko', geocode: [
+      { valueName: 'EMMA_ID', value: 'HR018' }, { valueName: 'NUTS3', value: 'HR031' }] }] }]));
+    ok('Croatia keeps both codes and resolves on its county', coverageOf(hr, geom).resolved === 1);
+    const lang = codesIn(feedOf([
+      { area: [{ areaDesc: 'East Flanders', geocode: [{ valueName: 'NUTS2', value: 'BE23' }] }] },
+      { area: [{ areaDesc: 'Oost-Vlaanderen', geocode: [{ valueName: 'NUTS2', value: 'BE23' }] }] },
+    ]));
+    ok('🔴 a name in ANOTHER language block is enough: the English area is tied too',
+      // `codesIn` returns DISTINCT code strings: one entry means both areas
+      // came out identical, i.e. the English one was tied as well.
+      lang.length === 1 && lang[0] === 'NUTS2:BE23||EMMA_ID:BE003', lang.join(' ; '));
+  }
+
   ok('every source has a url and an id field',
     Object.values(SOURCES).every((s) => s.url && s.idField && s.id));
 
@@ -997,7 +1093,7 @@ function selfTest() {
   // reached prints what a passing case prints — and the line names this
   // file, because the CI step greps for it and a bare "self-test passed"
   // is a line several scripts print.
-  const EXPECTED_CASES = 80;
+  const EXPECTED_CASES = 89;
   if (cases !== EXPECTED_CASES) {
     console.log(`x    ${cases} cases ran, expected ${EXPECTED_CASES}`);
     bad += 1;

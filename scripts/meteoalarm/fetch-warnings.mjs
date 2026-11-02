@@ -66,6 +66,7 @@ import { realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
+import { bindAlert, withZones } from './nuts-binding.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, '..', '..', 'apps', 'web', 'src', 'data', 'warnings.json');
@@ -212,6 +213,12 @@ export function warningsFrom(payload, country, now) {
   // readable level. A country where NONE does has stopped being
   // understood, and that is independent of how quiet its sky is.
   let unreadable = 0;
+  // 🔴 NUTS codes that found no MeteoAlarm zone, named. A campsite carries
+  // the EMMA zone it sits in, so a NUTS-coded warning area that is not
+  // tied to one reaches no campsite at all — silently, because its NUTS
+  // code still looks like a code. Counting is not enough: a name is what
+  // someone can act on.
+  const unbound = new Map();
 
   // 🔴 ONE ROW PER ALERT AND AREA, NOT PER LANGUAGE.
   //
@@ -232,6 +239,12 @@ export function warningsFrom(payload, country, now) {
 
   for (const entry of payload?.warnings ?? []) {
     const alert = entry?.alert;
+    // 🔴 PER ALERT, FROM EVERY LANGUAGE BLOCK. The kept row is the English
+    // one, but MeteoAlarm's own name for a Belgian province is Dutch.
+    const zones = bindAlert(alert?.info);
+    // Only an alert we KEEP can lose a campsite: an expired one is gone
+    // whether or not its area was tied to a zone.
+    let keptAny = false;
     for (const info of alert?.info ?? []) {
       seen += 1;
       const sentAt = alert?.sent ? Date.parse(alert.sent) : Number.NaN;
@@ -242,6 +255,7 @@ export function warningsFrom(payload, country, now) {
         counts[why] += 1;
         continue;
       }
+      keptAny = true;
       const level = awareness(paramOf(info, 'awareness_level'));
       const type = awareness(paramOf(info, 'awareness_type'));
       const areas = areasOf(info);
@@ -345,7 +359,13 @@ export function warningsFrom(payload, country, now) {
         // not translate it and we do not add one of our own.
         type: type.label,
         typeCode: type.code,
-        areas,
+        // 🔴 THE ZONE CODE JOINS THE NUTS CODE, AFTER THE KEY ABOVE WAS
+        // BUILT FROM THE ISSUER'S OWN CODES. Campsites carry MeteoAlarm
+        // zones, not NUTS (GISCO's licence forbids commercial use), so a
+        // French warning published as `NUTS3:FR812` must also say
+        // `EMMA_ID:FR020` or no French campsite can ever be matched to it.
+        // The id stays what it was: it identifies the alert, not our join.
+        areas: withZones(areas, zones.bound),
         // 🔴 THE SAME DEFECT AS `onset`, ONE LINE DOWN, AND I DID NOT
         // LOOK. Review swapped this to `alert.sender ?? info.senderName`
         // with the suite green: no fixture carried both. On the live
@@ -371,9 +391,18 @@ export function warningsFrom(payload, country, now) {
         if (preferEnglish(row, held)) byKey.set(key, row);
       }
     }
+    if (keptAny) for (const u of zones.unbound) unbound.set(u.code, u.why);
   }
   kept.push(...byKey.values());
-  return { country, seen, kept, counts, publishedAhead, unreadable };
+  return {
+    country,
+    seen,
+    kept,
+    counts,
+    publishedAhead,
+    unreadable,
+    unbound: [...unbound].map(([code, why]) => ({ code, why })),
+  };
 }
 
 // ---------------------------------------------------------------- self-test
@@ -1107,11 +1136,59 @@ function selfTest() {
     ok('…but a country we cannot read at all is', blind.length === 1 && blind[0] === 'broken');
   }
 
+  // 🔴 CAMP-GISCO. A campsite carries the MeteoAlarm zone it sits in, so a
+  // warning published in NUTS must ALSO name that zone, or no campsite in
+  // France, Bulgaria, Romania, Hungary or Belgium can ever be matched to
+  // it. These read the warning that comes OUT of `warningsFrom`, not the
+  // binder in isolation: a binder nobody calls is the defect this guards.
+  {
+    const nuts = (name, scheme, value) => ({ areaDesc: name, geocode: [{ valueName: scheme, value }] });
+    const fr = warningsFrom(feed([block({ area: [nuts('Ain', 'NUTS3', 'FR711')] })]), 'france', NOW);
+    ok('a French NUTS3 area comes out carrying its MeteoAlarm zone as well',
+      fr.kept[0]?.areas[0]?.codes.join() === 'NUTS3:FR711,EMMA_ID:FR039', fr.kept[0]?.areas[0]?.codes.join());
+    ok('…and the row id still names the issuer\'s own code, not our join',
+      fr.kept[0]?.id === 'X|NUTS3:FR711', String(fr.kept[0]?.id));
+    ok('…and nothing is reported unbound', fr.unbound.length === 0, JSON.stringify(fr.unbound));
+
+    const lost = warningsFrom(feed([block({ area: [nuts('Nowhere', 'NUTS3', 'FR999')] })]), 'france', NOW);
+    ok('🔴 a NUTS area no zone matches is kept as it was AND named as unbound',
+      lost.kept[0]?.areas[0]?.codes.join() === 'NUTS3:FR999' && lost.unbound[0]?.code === 'FR999', JSON.stringify(lost.unbound));
+
+    const gone = warningsFrom(
+      feed([block({ expires: '2026-10-01T00:00:00Z', area: [nuts('Nowhere', 'NUTS3', 'FR999')] })]),
+      'france',
+      NOW,
+    );
+    ok('…but an expired warning is not reported: it reaches nobody whatever its area is', gone.unbound.length === 0 && gone.kept.length === 0);
+
+    // Belgium names its provinces in Dutch; the kept row is the English one.
+    const be = warningsFrom(
+      feed([
+        block({ language: 'en-GB', area: [nuts('East Flanders', 'NUTS2', 'BE23')] }),
+        block({ language: 'nl-BE', area: [nuts('Oost-Vlaanderen', 'NUTS2', 'BE23')] }),
+      ]),
+      'belgium',
+      NOW,
+    );
+    ok('🔴 the zone is found from ANOTHER language block when the kept one cannot name it',
+      be.kept.length === 1 && be.kept[0].language === 'en-GB' && be.kept[0].areas[0].codes.join() === 'NUTS2:BE23,EMMA_ID:BE003',
+      JSON.stringify(be.kept.map((k) => [k.language, k.areas[0].codes])));
+
+    const hr = warningsFrom(
+      feed([block({ area: [{ areaDesc: 'Primorsko-goranska', geocode: [{ valueName: 'EMMA_ID', value: 'HR018' }, { valueName: 'NUTS3', value: 'HR031' }] }] })]),
+      'croatia',
+      NOW,
+    );
+    ok('Croatia is left exactly as the feed sent it', hr.kept[0]?.areas[0]?.codes.join() === 'EMMA_ID:HR018,NUTS3:HR031' && hr.unbound.length === 0);
+    const pl = warningsFrom(feed([block()]), 'poland', NOW);
+    ok('a country with no NUTS is untouched and reports nothing', pl.kept[0]?.areas[0]?.codes.join() === 'EMMA_ID:PL803' && pl.unbound.length === 0);
+  }
+
   ok('every member state is listed exactly once', new Set(COUNTRIES).size === 27);
   ok('the url is built from the country', feedUrl('poland').endsWith('/feeds-poland'));
 
   // 🔴 CAMP-286: counted, and named after this file.
-  const EXPECTED_CASES = 164;
+  const EXPECTED_CASES = 172;
   if (cases !== EXPECTED_CASES) {
     bad += 1;
     console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
@@ -1356,6 +1433,15 @@ async function main() {
       DROPPED.map((d) => `${totals[d]} ${d}`).join(', '),
   );
   if (silent.length) console.log(`countries that did not answer: ${silent.join(', ')}`);
+  // 🔴 NAMED, NOT ONLY COUNTED: a NUTS area with no MeteoAlarm zone reaches
+  // no campsite, and its NUTS code looks like a code that should work.
+  const unboundNuts = shapes.flatMap((r) => r.unbound.map((u) => ({ country: r.country, ...u })));
+  if (unboundNuts.length) {
+    console.log(
+      `\n⚠ ${unboundNuts.length} NUTS code(s) in kept warnings found no MeteoAlarm zone, so no campsite is matched to them:`,
+    );
+    for (const u of unboundNuts) console.log(`    ${u.country} ${u.code}: ${u.why}`);
+  }
 
   // 🔴 Refuses to write a file that says Europe is calm because the
   // filter broke. Every country failing, or nothing at all surviving
@@ -1459,6 +1545,9 @@ async function main() {
       // 🔴 Surfaced, not filtered: see `dropReason`. Today every one of
       // these is Bulgaria, 72 minutes ahead on a clock.
       publishedAhead,
+      // 🔴 Kept warnings whose NUTS code found no MeteoAlarm zone. Empty
+      // is the healthy answer; a name here is a place nobody is told about.
+      unboundNuts,
       // 🔴 Written because the failure above was INVISIBLE in the output:
       // a run missing 26 countries produced a document indistinguishable
       // from a full one. A reader must be able to see who answered.
