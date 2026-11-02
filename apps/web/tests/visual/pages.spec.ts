@@ -50,6 +50,19 @@ import { expect, test, type Page } from '@playwright/test';
 //    layout — which is where our CSS actually lives.
 //
 // 4. Animations off, and the page is waited for rather than slept on.
+//
+// 5. 🔴 THE RUNNER'S RENDERING IS DETERMINISTIC, SO A DIFFERENCE HAS A CAUSE.
+//    Measured 02.11.2026: the baselines were regenerated twice from one
+//    commit (CI runs 41446335605 and 41447826923, both on 6e8aaab9) and all
+//    eight PNGs came out byte for byte identical (`cmp`). "It is just
+//    render noise" is therefore NOT an acceptable explanation for a
+//    difference — before re-shooting, find what changed. That measurement
+//    also left one question open, written down so it is not forgotten: after
+//    the cookie banner got a longer heading, `home-phone` differed from the
+//    OLD baseline by 3 120 pixels (max channel delta 1/255) in rows y 60–70,
+//    in the header's translucent band, far from the banner. Whether our
+//    change caused it or the old baseline predates a browser/runner image
+//    update was not established.
 
 /** Viewports worth guarding: the phone most readers use, and a laptop. */
 const VIEWPORTS = [
