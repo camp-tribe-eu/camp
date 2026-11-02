@@ -249,7 +249,7 @@ test.describe('campsite page', () => {
     expect(await axeViolations(page)).toEqual([]);
   });
 
-  // 🔴 CAMP-387. Hydration enables the «Send report» button inside the
+  // 🔴 Hydration enables the «Send report» button inside the
   // CLOSED «Report a problem» <details>, which is a style change, so an
   // opacity transition starts on an element nobody paints. Firefox gives
   // a transition its start time with the first paint of the element, so
