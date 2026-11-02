@@ -32,7 +32,10 @@ type Source = {
   name: string;
   acceptedGroups?: Record<string, { until: string; why: string }>;
 };
-type Mod = { probeSql: (s: Source, now?: number) => string; DB_SOURCES: readonly Source[] };
+type Mod = {
+  probeSql: (s: Source, now?: number) => string;
+  DB_SOURCES: readonly Source[];
+};
 
 /**
  * 🔴 ЧАС ПЕРЕДАЄТЬСЯ, А НЕ БЕРЕТЬСЯ З ГОДИННИКА. `probeSql` тепер викидає
