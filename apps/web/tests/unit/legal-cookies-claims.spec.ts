@@ -182,18 +182,28 @@ test.describe('кукі: мапа — де є кнопки стилів і хт�
     expect(linked, 'абзац веде не на ті сторінки, де код має перемикач').toEqual(withSwitcher);
   });
 
-  test('🔴 мапи без кнопок — це сторінки кемпінгу й маршруту, і сторінка так і каже', () => {
+  test('🔴 мапи без кнопок — рівно ці сторінки (повний маршрут, не перший сегмент), і сторінка так і каже', () => {
     const without = anyMap().filter((r) => !switcher().includes(r));
-    // Перший сегмент маршруту → слово, яким сторінка його називає.
-    const NAME: Record<string, string> = { camping: 'campsite', routes: 'route' };
-    const first = [...new Set(without.map((r) => r.split('/')[1]))].sort();
+    // 🔴 ПОВНИЙ МАРШРУТ → слово, яким сторінка його називає. Перша редакція
+    // мапила за ПЕРШИМ сегментом адреси, і мапа, додана на хаб країни
+    // `/camping/[country]` (не сторінка кемпінгу), лишала тест зеленим:
+    // сегмент `camping` уже мав слово «campsite». Знайшла рецензія #399, M9.
+    const NAME: Record<string, string> = {
+      '/camping/[country]/[region]/[slug]': 'campsite',
+      '/routes/[slug]': 'route',
+    };
     expect(
-      first.filter((s) => !NAME[s]),
+      without.filter((r) => !NAME[r]),
       'зʼявилась сторінка з мапою без кнопок, про яку сторінка кукі не знає',
+    ).toEqual([]);
+    // І навпаки: сторінка, яку називає текст, справді має мапу без кнопок.
+    expect(
+      Object.keys(NAME).filter((r) => !without.includes(r)),
+      'текст називає сторінку, на якій мапи без кнопок уже немає',
     ).toEqual([]);
     const para = paragraphs('cookies').find((p) => p.text.includes('have no such buttons'));
     expect(para, 'немає речення «have no such buttons»').toBeTruthy();
-    for (const s of first) expect(para!.text, `сторінка не називає ${NAME[s]}`).toContain(NAME[s]);
+    for (const r of without) expect(para!.text, `сторінка не називає ${NAME[r]}`).toContain(NAME[r]);
   });
 
   test('🔴 «three styles, all from that same provider» — це MAP_SOURCES', () => {

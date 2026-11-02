@@ -28,7 +28,16 @@ import {
  *     terms 1.2 («Creating an account is your confirmation that you are
  *     eighteen or older … there is no box to tick»).
  *
- * 🔴 ТЕКСТ — ДВІ ЗАМІНИ З ПЕРЕВІРКОЮ ЄДИНОСТІ ЯКОРЯ, від тіла 2.3, яке бере
+ *  3. «Your account» і «short version» обіцяли «what you save — trips,
+ *     places, photos, reviews», а «What deletion does not reach» —
+ *     відхилене фото чи відгук. Сайт цього не приймає: write-маршрутів
+ *     save/review/photo/upload у контролерах нуль, `trips.controller.ts` має
+ *     лише GET. Перелік «we hold … and nothing else» тепер називає те, що
+ *     справді є (пошта, хеш пароля, запис згоди на листи, сесії), а про фото
+ *     й відгуки сказано «does not yet» — із тим, що правило видалення вже
+ *     є в коді (`account-rights.service.ts`) і діятиме, коли вони зʼявляться.
+ *
+ * 🔴 ТЕКСТ — ШІСТЬ ЗАМІН З ПЕРЕВІРКОЮ ЄДИНОСТІ ЯКОРЯ, від тіла 2.3, яке бере
  * з його міграції, а не передруковує. Версію піднімає й реєстр
  * `lib/legal.ts`. Збіг трьох поверхонь (cookies, privacy, банер) тримає
  * `apps/web/tests/unit/legal-storage-surfaces.spec.tsx`: ключі виводяться з
@@ -60,6 +69,34 @@ The details are on the [cookies](/legal/cookies) page.`,
       body,
       'Opening one requires you to be eighteen, and we ask you to confirm that rather than asking for your date of birth — a date we would then be holding and would have to protect, to answer a question that a yes already answers.',
       'Opening one requires you to be eighteen. Creating an account is your confirmation that you are eighteen or older: the sign-up form says so in a sentence above the button, and there is no box to tick. We do not ask for your date of birth — a date we would then be holding and would have to protect, to answer a question that the confirmation already answers.',
+    );
+    // 🔴 Пункти про «what you save»: політика досі обіцяла фото, відгуки,
+    // поїздки й збережені місця, яких сайт не приймає (рецензія #399/#401:
+    // write-маршрутів save/review/photo/upload у контролерах нуль, у
+    // `trips.controller.ts` лише GET, експорт сам пише «there is no photo
+    // upload yet»). «We hold the following, and nothing else» із переліком
+    // того, чого ми не тримаємо, — найгірша неправда в політиці
+    // приватності: саме це речення читають, щоб зрозуміти обсяг.
+    body = replaceOnce(
+      body,
+      'and whatever you save — trips, places, photos.',
+      'and which browsers are signed in — nothing else, because the site does not yet let you save anything.',
+    );
+    body = replaceOnce(
+      body,
+      'An account exists so that what you save stays yours across devices. We hold the following, and nothing else:',
+      'An account is how the site knows who you are when you sign in. We hold the following, and nothing else:',
+    );
+    body = replaceOnce(
+      body,
+      '- sessions — the fact that a browser is signed in, and until when;\n- what you saved: trips and their stops, saved places, photos you submitted, reviews you wrote.',
+      '- sessions — the fact that a browser is signed in, and until when.\n\nThe site does not yet let you save a trip, a place, a photograph or a review, so there is nothing of that kind to hold. When it does, this list changes with it, in the same release; the data file and the account deletion described below already cover them.',
+    );
+    body = replaceSpan(
+      body,
+      '> **What deletion does not reach, and why.**',
+      'We would rather tell you where the line is than let you discover it.',
+      '> **What deletion does not reach, and why.** The site does not yet take photographs or reviews, so today there is nothing of that kind to keep. The rule is already part of account deletion, and it is this: one record would survive — that a photo or a review was rejected, why, when, and for which place. It would carry nothing that points back to you — no name, no address, not even a reference to the account that was deleted. Because no part of it identifies a person, it would have stopped being personal data, and the right to erasure would have nothing left to reach. We would keep it to be able to account for our own moderation decisions. Separately, the licence you grant for photographs once they are published is a contract rather than personal data, so those photographs may remain — but your name comes off them on request. We would rather tell you where the line is than let you discover it.',
     );
     return {
       // Літерал, а не `this.previous.slug`: сторож реєстру (`problem-reports-policy`,
