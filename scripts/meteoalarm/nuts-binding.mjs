@@ -63,6 +63,23 @@ export const NUTS_SCHEMES = Object.freeze(['NUTS2', 'NUTS3']);
  * Codes whose name does not equal any zone's name — written down, with
  * the reason and the zone they land on.
  *
+ * 🔴 TWO KINDS, AND THE SECOND WAS MISSED. `BG334` and `RO321` were found
+ * from LIVE codes (02.11.2026). Review then checked codes that were NOT in
+ * the feeds that day, and Belgium's three Brabant regions found no zone:
+ * MeteoAlarm has ONE zone, `BE004 "Brabant"`, for Brussels, Flemish
+ * Brabant and Walloon Brabant together, and no name of the three equals
+ * it. Belgium's own feed already publishes that area as `EMMA_ID:BE004`,
+ * so the day a warning names `NUTS2:BE24` it would have reached nobody —
+ * with a "⚠ unbound" line and exit code 0. The three are listed here with
+ * the same second check (the GISCO polygon of each region overlaps BE004
+ * more than any other zone: BE10 100%, BE24 89%, BE31 87% of the region
+ * lies inside it; a one-off measurement, not shipped).
+ *
+ * The price of a shared zone is a shared warning: Flemish Brabant's
+ * warning also reaches campsites in Walloon Brabant, because MeteoAlarm's
+ * own polygon cannot tell them apart. That is the list's granularity, not a
+ * choice made here.
+ *
  * 🔴 `zoneName` is not decoration: `bindCode` refuses an exception whose
  * zone no longer carries that name, so the table cannot rot into a
  * binding to a zone that was renumbered under it.
@@ -77,6 +94,21 @@ export const NAME_EXCEPTIONS = Object.freeze({
     zone: 'BG023',
     zoneName: 'Targovoshte',
     why: 'the feed spells the province Targovishte, MeteoAlarm Targovoshte — one vowel apart in transliteration',
+  },
+  BE10: {
+    zone: 'BE004',
+    zoneName: 'Brabant',
+    why: 'Brussels-Capital Region has no zone of its own: MeteoAlarm\'s single "Brabant" zone covers it together with both Brabant provinces',
+  },
+  BE24: {
+    zone: 'BE004',
+    zoneName: 'Brabant',
+    why: 'Flemish Brabant — MeteoAlarm\'s single "Brabant" zone covers both Brabant provinces and Brussels, and no spelling of the province equals it',
+  },
+  BE31: {
+    zone: 'BE004',
+    zoneName: 'Brabant',
+    why: 'Walloon Brabant (Brabant wallon) — MeteoAlarm\'s single "Brabant" zone covers both Brabant provinces and Brussels',
   },
   RO321: {
     zone: 'RO027',
@@ -298,7 +330,18 @@ function selfTest() {
     'and the refusal names both the old name and the new one',
   );
   check(Object.values(NAME_EXCEPTIONS).every((e) => e.why.length > 20 && e.zoneName), 'every real exception carries a reason and a zone name');
-  check(Object.keys(NAME_EXCEPTIONS).sort().join() === 'BG334,RO321', 'the exceptions are exactly the two measured on 02.11.2026');
+  check(
+    Object.keys(NAME_EXCEPTIONS).sort().join() === 'BE10,BE24,BE31,BG334,RO321',
+    'the exceptions are the two measured on live codes (02.11.2026) and the three Belgian Brabant regions that review found were not live that day',
+  );
+  check(
+    ['BE10', 'BE24', 'BE31'].every((c) => bindCode(c, ['Brussels', 'Flemish Brabant', 'Vlaams-Brabant', 'Brabant wallon']).zone === 'BE004'),
+    '🔴 the three Brabant regions land on BE004 whatever name the feed gives them — the day Belgium names one, it reaches somebody',
+  );
+  check(
+    ['BE10', 'BE24', 'BE31'].every((c) => bindCode(c, ['Brussels', 'Flemish Brabant', 'Vlaams-Brabant', 'Brabant wallon'], ZONES, {}).zone === null),
+    'and without the exceptions they bind nothing — they are exceptions, not accidents of the name rule',
+  );
   for (const [code, e] of Object.entries(NAME_EXCEPTIONS)) {
     check(ZONES[countryOf(code)]?.[e.zone] === e.zoneName, `${code} lands on ${e.zone}, which the committed table still names ${e.zoneName}`);
   }
@@ -398,7 +441,7 @@ function selfTest() {
 
   // 🔴 EXPECTED_CASES, because a case that stopped being reached prints
   // what a passing case prints.
-  const EXPECTED_CASES = 43;
+  const EXPECTED_CASES = 48;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;

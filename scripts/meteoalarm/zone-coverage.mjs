@@ -290,6 +290,51 @@ export function verdict(total, placed, perCountry) {
 export const SNAP_LIMIT_M = 5000;
 
 /**
+ * The land layer a zone is measured against: the Natural Earth admin-1
+ * polygons `import-spots.ts` already reads (`ne_admin1`, in every database
+ * that has had an OSM import).
+ */
+export const LAND_LAYER = 'ne_admin1';
+
+/**
+ * 🔴 A ZONE IS A LAND ZONE IF AT LEAST THIS SHARE OF ITS AREA IS LAND.
+ * A SEA ZONE IS NEVER A ZONE FOR A CAMPSITE THAT IS PULLED TO IT.
+ *
+ * Found by review: Latvia has four zones in MeteoAlarm's list and all four
+ * are sea (LV801–804, "Gulf of Riga …", "Central Baltic east"), so "the
+ * nearest zone of its own country within 5 km" meant "the sea" — 70
+ * campsites, the farthest 4 667 m INLAND, were handed warnings for ships.
+ *
+ * WHAT TELLS THE KINDS APART, MEASURED on the 2 006 zones of the file, not
+ * assumed (02.11.2026):
+ *
+ *   · `type` — useless: every zone says `EMMA_ID`.
+ *   · the code — useless: 8xx marks sea in Denmark, Ireland and the Baltic,
+ *     but AT801–804 are Austrian districts, and Poland and Czechia number
+ *     land districts 801…3263.
+ *   · the name — ten languages ("Costa -", "Küste", "Gulf of", "kysten",
+ *     "priekrante", "Strefa brzegowa"…) and "Coast" / "Coastal Zone" are
+ *     strips that sit on the shore.
+ *   · the SHARE OF THE ZONE'S AREA THAT IS LAND — bimodal. 1 862 of 2 006
+ *     zones are ≥ 0.5 land (1 685 are ≥ 0.99); 135 are < 0.1; only 9 lie
+ *     between 0.1 and 0.5. That is the signal, and 0.5 is its trough.
+ *
+ * Zones under 0.5 land, by country (sea / all): DK 20/28, ES 51/233,
+ * IE 25/51, FI 12/53, DE 8/410, NL 9/25, PL 5/385, HR 6/14, LV 4/4,
+ * LT 1/71, SI 1/6, BE 1/10, MT 1/1. The two that are land by name and
+ * not by share — Malta (0.455) and Åland FI043 (0.342, counted in FI 12) — belong to
+ * countries this resolver does not join (Malta is silent; Åland's
+ * campsites are `AX`), so the threshold does not touch a campsite.
+ *
+ * Not every sea zone is open water: Belgium's "Coastal zone", Spain's
+ * "Costa -", Poland's "Strefa brzegowa" are shore strips that hold
+ * campsites by CONTAINMENT, and that is how it has been since the first
+ * run (1 143 campsites sit inside a sea polygon). This constant is about
+ * what a campsite may be PULLED to, and about countries with no land zone.
+ */
+export const LAND_SHARE_MIN = 0.5;
+
+/**
  * The three measurements per country, `[total, placed]`, on the SAME 57 128
  * live campsites (a copy of the dev database, 02.11.2026). `placed` is
  * "has at least one zone code".
@@ -311,6 +356,13 @@ export const BEFORE_GISCO = Object.freeze({
   HU: [615, 615],
   RO: [567, 557],
 });
+
+/**
+ * The whole base, `[total, placed]`: the previous resolver, unchanged, on the
+ * same 57 128 live campsites. The other two columns of the whole-base line
+ * are computed by the run itself — they depend on the land layer.
+ */
+export const BEFORE_GISCO_ALL = Object.freeze([57128, 52955]);
 
 export const AFTER_REPLACEMENT = Object.freeze({
   BE: [748, 738],

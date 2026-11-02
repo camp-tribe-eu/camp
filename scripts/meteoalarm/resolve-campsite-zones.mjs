@@ -46,7 +46,10 @@ import {
   OBSOLETE_CACHE,
   SCHEMES_USED,
   SNAP_LIMIT_M,
+  LAND_LAYER,
+  LAND_SHARE_MIN,
   BEFORE_GISCO,
+  BEFORE_GISCO_ALL,
   USED_SOURCES,
   floorsVerdict,
   rowsFrom,
@@ -104,19 +107,22 @@ export function pairsValues(schemes = SCHEMES_USED) {
 //
 // Зони країн, чиїх фідів ми не тягнемо (`MK`), інертні: код лежить,
 // збігтися йому нема з чим.
-export function codesSelect(schemes = SCHEMES_USED, limitM = SNAP_LIMIT_M) {
+export function codesSelect(schemes = SCHEMES_USED, limitM = SNAP_LIMIT_M, landMin = LAND_SHARE_MIN) {
   return `
     SELECT s.id,
            coalesce(array_agg(DISTINCT p.code) FILTER (WHERE p.code IS NOT NULL), '{}') AS codes,
            coalesce(bool_or(p.snapped), false) AS snapped,
            max(p.snap_m) FILTER (WHERE p.snapped) AS snap_m,
-           count(DISTINCT p.code) FILTER (WHERE NOT p.snapped) AS contained
+           count(DISTINCT p.code) FILTER (WHERE NOT p.snapped) AS contained,
+           coalesce(array_agg(DISTINCT p.code) FILTER (WHERE p.snapped), '{}') AS snapped_codes,
+           count(DISTINCT p.code) FILTER (WHERE p.sea) AS sea_contained
       FROM camping_spots s
       LEFT JOIN (VALUES ${pairsValues(schemes)}) AS u(country, scheme)
              ON u.country = s.country
       LEFT JOIN LATERAL (
         -- Containment: every zone of this scheme the point stands in.
-        SELECT z.scheme || ':' || z.code AS code, false AS snapped, NULL::float8 AS snap_m
+        SELECT z.scheme || ':' || z.code AS code, false AS snapped, NULL::float8 AS snap_m,
+               (z.scheme = 'EMMA_ID' AND z.land_share < ${landMin}) AS sea
           FROM ${STAGING} z
          WHERE z.scheme = u.scheme AND ST_Contains(z.geom, s.location)
         UNION ALL
@@ -128,7 +134,7 @@ export function codesSelect(schemes = SCHEMES_USED, limitM = SNAP_LIMIT_M) {
         -- narrows to eight candidates by bounding box and KNN, and only
         -- those are measured on the sphere. The code breaks a tie so the
         -- winner cannot move between runs.
-        SELECT n.scheme || ':' || n.code, true, n.dist
+        SELECT n.scheme || ':' || n.code, true, n.dist, false
           FROM (SELECT 1 WHERE NOT EXISTS (
                   SELECT 1 FROM ${STAGING} c
                    WHERE c.scheme = u.scheme AND ST_Contains(c.geom, s.location))) AS g,
@@ -137,6 +143,10 @@ export function codesSelect(schemes = SCHEMES_USED, limitM = SNAP_LIMIT_M) {
                         ST_Distance(k.geom::geography, s.location::geography) AS dist
                    FROM (SELECT q.scheme, q.code, q.geom FROM ${STAGING} q
                           WHERE q.scheme = u.scheme AND q.country = s.country
+                            -- 🔴 NEVER A SEA ZONE. A campsite that is pulled is
+                            -- pulled to land: counties are land by what they
+                            -- are, an EMMA zone by its share of land.
+                            AND (q.scheme <> 'EMMA_ID' OR q.land_share >= ${landMin})
                             AND q.geom && ST_Expand(s.location, ${limitM} / 30000.0)
                           ORDER BY q.geom <-> s.location LIMIT 8) k
                   WHERE ST_DWithin(k.geom::geography, s.location::geography, ${limitM})
@@ -154,6 +164,71 @@ export function updateSql(schemes = SCHEMES_USED) {
        SET warning_areas = found.codes
       FROM found
      WHERE found.id = t.id`;
+}
+
+/**
+ * The share of each EMMA zone that is land, from the land layer.
+ *
+ * Planar area ratio in degrees: both areas are measured the same way, so the
+ * ratio is right to the precision a 0.5 threshold needs, and it does not
+ * need a spheroid. The layer is made valid first — one self-intersecting
+ * polygon would otherwise end the run on a TopologyException.
+ */
+export function landShareSql() {
+  return `
+    UPDATE ${STAGING} z
+       SET land_share = coalesce((
+             SELECT sum(ST_Area(ST_Intersection(z.geom, ST_MakeValid(n.geom))))
+               FROM ${LAND_LAYER} n
+              WHERE n.geom && z.geom), 0) / nullif(ST_Area(z.geom), 0)
+     WHERE z.scheme = 'EMMA_ID'`;
+}
+
+/**
+ * 🔴 A COUNTRY WITH NO LAND ZONE HAS NO ZONES. Its zones are deleted from the
+ * staging table and named: its campsites stay without one, which is the true
+ * answer and better than a warning for ships. Latvia, whose four zones are
+ * all sea, is the case that found it.
+ */
+export function landlessSql(landMin = LAND_SHARE_MIN) {
+  return `
+    WITH gone AS (
+      DELETE FROM ${STAGING} z
+       WHERE z.scheme = 'EMMA_ID'
+         AND NOT EXISTS (SELECT 1 FROM ${STAGING} y
+                          WHERE y.scheme = 'EMMA_ID' AND y.country = z.country
+                            AND y.land_share >= ${landMin})
+      RETURNING z.country)
+    SELECT coalesce(country, ''), count(*) FROM gone GROUP BY 1 ORDER BY 1`;
+}
+
+/**
+ * Campsites that hold a sea zone by CONTAINMENT, and how many of them stand
+ * on land by the land layer. Not new — every run has done this — but not
+ * visible either, and it is the number the owner decides on.
+ */
+export function seaHeldSql(schemes = SCHEMES_USED) {
+  return `
+    WITH found AS (${codesSelect(schemes)})
+    SELECT count(*) FILTER (WHERE f.sea_contained > 0) AS holding_sea_zone,
+           count(*) FILTER (WHERE f.sea_contained > 0 AND EXISTS (
+             SELECT 1 FROM ${LAND_LAYER} n WHERE ST_Contains(n.geom, s.location))) AS of_them_on_land,
+           count(*) FILTER (WHERE f.sea_contained > 0 AND f.contained = f.sea_contained) AS holding_only_sea
+      FROM found f JOIN camping_spots s ON s.id = f.id`;
+}
+
+/**
+ * 🔴 THE GUARD, ON THE DATA: how many codes a campsite was PULLED to are a
+ * sea zone. Reads the zone's kind from the staging table, not from the
+ * predicate in `codesSelect`, so a select whose land test was deleted still
+ * gets caught. Must be zero.
+ */
+export function snapKindsSql(schemes = SCHEMES_USED) {
+  return `
+    WITH found AS (${codesSelect(schemes)})
+    SELECT count(*) FROM found f, unnest(f.snapped_codes) c
+      JOIN ${STAGING} z ON z.scheme || ':' || z.code = c
+     WHERE z.scheme = 'EMMA_ID' AND z.land_share < ${LAND_SHARE_MIN}`;
 }
 
 /**
@@ -246,16 +321,23 @@ export function storedCoverSql() {
 export function plan({ apply }) {
   const steps = [
     { name: 'column exists', sql: "SELECT 1 FROM information_schema.columns WHERE table_name='camping_spots' AND column_name='warning_areas'" },
+    { name: 'land layer exists', sql: `SELECT to_regclass('public.${LAND_LAYER}') IS NOT NULL` },
     { name: 'drop staging', sql: `DROP TABLE IF EXISTS ${STAGING}` },
-    { name: 'create staging', sql: `CREATE TABLE ${STAGING} (scheme text, code text, gj text, country text)` },
+    { name: 'create staging', sql: `CREATE TABLE ${STAGING} (scheme text, code text, gj text, country text, land_share float8)` },
     { name: 'load', copy: true },
     { name: 'geometry', sql: `ALTER TABLE ${STAGING} ADD COLUMN geom geometry(Geometry,4326)` },
     { name: 'make valid', sql: `UPDATE ${STAGING} SET geom = ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(gj), 4326))` },
     { name: 'index', sql: `CREATE INDEX ON ${STAGING} USING GIST (geom)` },
+    // 🔴 КОЖНА ЗОНА EMMA ДІСТАЄ ЧАСТКУ СУХОДОЛУ, і країна, де жодна зона не
+    // сухопутна, втрачає всі свої зони: див. `LAND_SHARE_MIN`.
+    { name: 'land share', sql: landShareSql() },
+    { name: 'landless countries', sql: landlessSql() },
     { name: 'analyze', sql: `ANALYZE ${STAGING}` },
   ];
   // 🔴 Підтягнуте має бути ВИДНО, у обох режимах і ДО запису: після нього
   // колонка не каже, хто потрапив у неї підтягуванням.
+  steps.push({ name: 'sea held by containment', sql: seaHeldSql() });
+  steps.push({ name: 'snap kinds', sql: snapKindsSql() });
   steps.push({ name: 'snap by country', sql: snapByCountrySql() });
   steps.push({ name: 'snap distances', sql: snapDistancesSql() });
   if (apply) steps.push({ name: 'write', sql: updateSql() });
@@ -425,7 +507,7 @@ export async function sourceRows({
       for (const r of picked.rejected) console.warn(`⚠ ${scheme} ${r.code ?? ''}: ${r.why}`);
       raw = { type: 'FeatureCollection', features: picked.features };
     }
-    const made = rowsFrom(raw, scheme, src.idField);
+    const made = rowsFrom(raw, scheme, src.idField, src.countryField);
     // 🔴 Заміряне число зон — у `USED_SOURCES`. Джерело, що віддало
     // інакше, змінилось під нами, і це треба побачити, а не всереднити.
     if (made.lines.length !== src.zones) {
@@ -437,6 +519,17 @@ export async function sourceRows({
     dropped += made.dropped;
   }
   return { lines, dropped };
+}
+
+/**
+ * 🔴 Підтягнутий кемпінг не сміє дістати морську зону: рахується по ДАНИХ.
+ * `wrong` — скільки підтягнутих кодів належить зоні з часткою суходолу
+ * нижче межі. Мусить бути нуль.
+ */
+export function judgeSnapKinds(wrong) {
+  return wrong > 0
+    ? { ok: false, why: `${wrong} code(s) a campsite was pulled to are SEA zones — a land campsite must never be given a warning for ships` }
+    : { ok: true };
 }
 
 /** The one line the run prints about who was pulled to a zone. */
@@ -504,6 +597,42 @@ async function run({ apply }) {
       // 🔴 ПІДТЯГНУТЕ ДРУКУЄТЬСЯ ОКРЕМО Й ДО ЗАПИСУ. Число, що завтра
       // стрибне, — сигнал, що полігони джерела змінились, а не що в нас
       // більше покриття.
+      if (step.name === 'land layer exists') {
+        if (psql(step.sql) !== 't') {
+          console.error(
+            `✗ шару суходолу ${LAND_LAYER} у цій базі немає — без нього не відрізнити морську зону ` +
+              'від сухопутної. Його дає імпорт OSM (import-spots).',
+          );
+          return 1;
+        }
+        continue;
+      }
+      if (step.name === 'landless countries') {
+        const gone = psql(step.sql).split('\n').filter(Boolean).map((l) => l.split('|'));
+        console.log(
+          gone.length
+            ? `країни, де жодна зона не сухопутна, — їхніх кемпінгів не позначено ніяк: ${gone.map(([c, n]) => `${c} (${n} зон)`).join(', ')}`
+            : 'країн без жодної сухопутної зони немає',
+        );
+        continue;
+      }
+      if (step.name === 'sea held by containment') {
+        const [held, onLand, onlySea] = psql(step.sql).split('|').map(Number);
+        console.log(
+          `тримають морську зону за ВМІСТОМ (так було завжди): ${held} кемпінгів, з них ${onLand} стоять на суходолі ` +
+            `за шаром, ${onlySea} не мають жодної іншої зони`,
+        );
+        continue;
+      }
+      if (step.name === 'snap kinds') {
+        const wrong = Number(psql(step.sql));
+        const bad = judgeSnapKinds(wrong);
+        if (!bad.ok) {
+          console.error(`✗ ${bad.why}`);
+          return 1;
+        }
+        continue;
+      }
       if (step.name === 'snap by country') {
         snapRows = psql(step.sql).split('\n').filter(Boolean).map((l) => {
           const [country, total, withoutSnap, placed, snapped] = l.split('|');
@@ -550,6 +679,14 @@ async function run({ apply }) {
         // 🔴 Шість країн, чий зв'язок змінився з прибиранням GISCO, —
         // завжди, а не лише коли щось погано: «було → стало» зі
         // знаменником, бо втрата покриття тут тиха за побудовою.
+        {
+          const tot = snapRows.reduce((n, r) => n + r.total, 0);
+          const mid = snapRows.reduce((n, r) => n + r.placedWithoutSnap, 0);
+          console.log(
+            `\nуся база: до GISCO ${BEFORE_GISCO_ALL[1]}/${BEFORE_GISCO_ALL[0]} ${pct(BEFORE_GISCO_ALL[1], BEFORE_GISCO_ALL[0])}%  →  ` +
+              `після заміни ${mid}/${tot} ${pct(mid, tot)}%  →  після підтягування ${j.placed}/${j.total} ${j.share}%`,
+          );
+        }
         console.log('\nшість країн, що їхали на GISCO (кемпінгів із хоч одним кодом):');
         console.log('  країна   до GISCO            після заміни         після підтягування   підлога');
         for (const t of j.table) {
@@ -873,6 +1010,25 @@ async function selfTest() {
       '🔴 джерело NUTS3 тягнеться по мережі й кешується під СВОЇМ іменем — старий NUTS3.json його не підміняє',
     );
 
+    // 2б. 🔴 Поле країни доходить до рядка. Знайдено живим прогоном: `rowsFrom`
+    // уміла брати країну з поля джерела, а `sourceRows` його не передавала, тож
+    // 21 ірландська зона з кодом `EI…` лишилась «країною EI», а не `IE`.
+    const withCountry = mk();
+    const body2 = JSON.stringify({
+      type: 'FeatureCollection',
+      features: [{ properties: { code: 'EI001', country: 'IE' }, geometry: { type: 'Point', coordinates: [0, 0] } }],
+    });
+    const got2 = await sourceRows({
+      dir: withCountry,
+      sources: { T: { url: 'https://example.invalid/z', idField: 'code', countryField: 'country', zones: 1, file: 'T.json' } },
+      fetchImpl: async () => ({ ok: true, arrayBuffer: async () => Buffer.from(body2) }),
+    });
+    check(
+      got2.lines[0].split('\t')[3] === 'IE',
+      `🔴 країна рядка — з поля джерела, не з префікса коду: ${got2.lines[0].split('\t')[3]} (EI001 — ірландська)`,
+    );
+    rmSync(withCountry, { recursive: true, force: true });
+
     // 3. Заголовки доходять до запиту; відбір іменує відкинуте й не валить прогін.
     const sel = mk();
     asked.length = 0;
@@ -988,8 +1144,33 @@ async function selfTest() {
     );
     check(/q\.country = s\.country/.test(sql), '🔴 підтягується лише до зони СВОЄЇ країни');
     check(/NOT EXISTS/.test(sql), 'підтягується лише точка, що не стоїть у жодній зоні цієї схеми');
-    check(/CREATE TABLE warning_zones_staging \(scheme text, code text, gj text, country text\)/.test(
-      plan({ apply: false }).find((x) => x.name === 'create staging').sql), 'проміжна таблиця має колонку країни');
+    check(/CREATE TABLE warning_zones_staging \(scheme text, code text, gj text, country text, land_share float8\)/.test(
+      plan({ apply: false }).find((x) => x.name === 'create staging').sql), 'проміжна таблиця має колонки країни й частки суходолу');
+    // 🔴 МОРСЬКІ ЗОНИ. Поведінку запиту перевіряє `--self-test-db`; тут — що крок
+    // у плані, що запит каже, і що межа — одна.
+    for (const [label, names] of [['без --apply', dryNames], ['з --apply', wetNames]]) {
+      check(
+        ['land layer exists', 'land share', 'landless countries', 'snap kinds', 'sea held by containment'].every((n) => names.includes(n)),
+        `🔴 ${label}: шар суходолу перевіряється, частка суходолу рахується, країни без суходолу чистяться, а підтягнуте звіряється з родом зони`,
+      );
+    }
+    check(
+      wetNames.indexOf('land share') < wetNames.indexOf('landless countries') &&
+        wetNames.indexOf('landless countries') < wetNames.indexOf('snap by country') &&
+        wetNames.indexOf('snap kinds') < wetNames.indexOf('write'),
+      'і в такому порядку: частка → чистка → підтягування → звірка роду → запис',
+    );
+    check(LAND_SHARE_MIN === 0.5, `межа суходолу — 0.5, дно двогорбого розподілу (зараз ${LAND_SHARE_MIN})`);
+    check(
+      new RegExp(`q\\.scheme <> 'EMMA_ID' OR q\\.land_share >= ${LAND_SHARE_MIN}`).test(codesSelect()),
+      '🔴 підтягування бере лише зону з часткою суходолу від межі (повіти — суходіл за природою)',
+    );
+    check(/DELETE FROM warning_zones_staging/.test(landlessSql()) && /scheme = 'EMMA_ID'/.test(landlessSql()),
+      'країна без суходолу втрачає зони EMMA, а не повіти');
+    check(/WHERE z\.scheme = 'EMMA_ID' AND z\.land_share < 0\.5/.test(snapKindsSql()),
+      '🔴 звірка роду читає рід зони з проміжної таблиці й питає про МОРСЬКІ, а не повторює умову запиту');
+    check(judgeSnapKinds(0).ok === true && judgeSnapKinds(76).ok === false && /76/.test(judgeSnapKinds(76).why),
+      '🔴 один підтягнутий морський код — відмова прогону, і причина називає число');
     check(judgeSnap({ farthestM: 5000 }).ok === true, 'рівно на межі — ще в межі');
     check(
       judgeSnap({ farthestM: 5001 }).ok === false && /5001 m/.test(judgeSnap({ farthestM: 5001 }).why),
@@ -1041,7 +1222,7 @@ async function selfTest() {
     );
   }
 
-  const EXPECTED_CASES = 86;
+  const EXPECTED_CASES = 95;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;
@@ -1090,8 +1271,9 @@ async function selfTestDb() {
       url,
       `CREATE TABLE camping_spots (id int PRIMARY KEY, country text, missing_since timestamptz,
                                     location geometry(Point,4326), warning_areas text[]);
-       CREATE TABLE ${STAGING} (scheme text, code text, country text, geom geometry(Geometry,4326));
-       CREATE INDEX ON ${STAGING} USING GIST (geom)`,
+       CREATE TABLE ${STAGING} (scheme text, code text, country text, geom geometry(Geometry,4326), land_share float8);
+       CREATE INDEX ON ${STAGING} USING GIST (geom);
+       CREATE TABLE ${LAND_LAYER} (geom geometry(Geometry,4326))`,
     );
     const box = (x0, y0, x1, y1) =>
       `ST_GeomFromText('POLYGON((${x0} ${y0},${x1} ${y0},${x1} ${y1},${x0} ${y1},${x0} ${y0}))',4326)`;
@@ -1106,8 +1288,24 @@ async function selfTestDb() {
         zone('NUTS3', 'XH031', 'XH', box(30, 50.2, 31, 51)),
         zone('EMMA_ID', 'XC001', 'XC', box(40, 50, 41, 51)),
         zone('EMMA_ID', 'XC009', 'XC', box(41.004, 50, 42, 51)),
+        // XM: a land zone and, just south of it, a SEA zone (no land under it)
+        zone('EMMA_ID', 'XM001', 'XM', box(50, 50, 51, 51)),
+        zone('EMMA_ID', 'XM801', 'XM', box(50, 49.5, 51, 49.99)),
+        // XL: like Latvia — its only zone is sea
+        zone('EMMA_ID', 'XL801', 'XL', box(60, 50, 61, 51)),
       ].join(';'),
     );
+    // The land layer is the land boxes and nothing else: no layer under XM801 or XL801.
+    q(
+      url,
+      [
+        box(10, 50, 11, 51), box(11.03, 50, 12, 51), box(30, 50, 31, 51), box(40, 50, 41, 51),
+        box(41.004, 50, 42, 51), box(50, 50, 51, 51),
+      ].map((g) => `INSERT INTO ${LAND_LAYER} VALUES (${g})`).join(';'),
+    );
+    // The very statements a run issues, in a run's order.
+    q(url, landShareSql());
+    const gone = q(url, landlessSql());
     // 1° of latitude is 111.2 km, so these are ~3.0, ~6.0 and ~1.42 km.
     const spot = (id, country, lon, lat, gone = false) =>
       `INSERT INTO camping_spots VALUES (${id},'${country}',${gone ? 'now()' : 'NULL'},ST_SetSRID(ST_MakePoint(${lon},${lat}),4326))`;
@@ -1123,16 +1321,20 @@ async function selfTestDb() {
         spot(7, 'XH', 30.5, 50.195), // in the region, ~0.56 km from the county
         spot(8, 'ZZ', 10.5, 50.5), // a country with no scheme
         spot(9, 'XC', 41.003, 50.5), // between two own zones: 0.21 km from XC001, 0.07 km from XC009
+        spot(10, 'XM', 50.5, 49.9925), // 0.28 km from the SEA zone, 0.83 km from the land zone
+        spot(11, 'XM', 50.5, 49.7), // inside the sea zone, 33 km from any land zone
+        spot(12, 'XL', 60.5, 51.02), // a country whose only zone is sea, 2.2 km off it
+        spot(13, 'XL', 60.5, 50.5), // …and one inside that sea zone
       ].join(';'),
     );
-    const schemes = { XA: ['EMMA_ID'], XH: ['EMMA_ID', 'NUTS3'], XC: ['EMMA_ID'] };
+    const schemes = { XA: ['EMMA_ID'], XH: ['EMMA_ID', 'NUTS3'], XC: ['EMMA_ID'], XM: ['EMMA_ID'], XL: ['EMMA_ID'] };
     const rows = Object.fromEntries(
-      q(url, `SELECT id, codes, snapped, round(snap_m)::int, contained FROM (${codesSelect(schemes)}) c ORDER BY id`)
+      q(url, `SELECT id, codes, snapped, round(snap_m)::int, contained, sea_contained FROM (${codesSelect(schemes)}) c ORDER BY id`)
         .split('\n')
         .filter(Boolean)
         .map((l) => {
-          const [id, codes, snapped, m, contained] = l.split('|');
-          return [id, { codes, snapped: snapped === 't', m: m === '' ? null : Number(m), contained: Number(contained) }];
+          const [id, codes, snapped, m, contained, sea] = l.split('|');
+          return [id, { codes, snapped: snapped === 't', m: m === '' ? null : Number(m), contained: Number(contained), sea: Number(sea) }];
         }),
     );
 
@@ -1154,10 +1356,35 @@ async function selfTestDb() {
     check(rows[9].codes === '{EMMA_ID:XC009}' && rows[9].snapped,
       '🔴 the NEAREST own zone wins, not the first by code: XC009 is 70 m away, XC001 210 m');
 
+    // 🔴 SEA IS NOT A ZONE FOR A CAMPSITE THAT IS PULLED. Review: Latvia's four
+    // zones are all sea, and 70 campsites — one 4.7 km inland — were handed
+    // warnings for ships.
+    const share = Object.fromEntries(
+      q(url, `SELECT code, round(land_share::numeric, 2) FROM ${STAGING} ORDER BY code`).split('\n').filter(Boolean).map((l) => l.split('|')),
+    );
+    check(share.XA001 === '1.00' && share.XM001 === '1.00' && share.XM801 === '0.00',
+      `the land share is computed from the land layer: land 1.00, sea 0.00 — got XM001 ${share.XM001}, XM801 ${share.XM801}`);
+    check(share.XL801 === undefined && share.XM801 === '0.00',
+      '🔴 a country whose only zone is sea has NO zones after the run\'s own clean-up, and one that has a land zone keeps its sea zone');
+    check(gone === 'XL|1', `…and the clean-up names what it removed: ${gone} (Latvia is exactly this case)`);
+    check(rows[10].codes === '{EMMA_ID:XM001}' && rows[10].snapped,
+      `🔴 a point nearer a SEA zone (0.28 km) is pulled to the LAND zone (${rows[10].m} m), never to the sea (allow sea again and this turns red)`);
+    check(rows[11].codes === '{EMMA_ID:XM801}' && !rows[11].snapped && rows[11].sea === 1,
+      'containment is unchanged and counted: a point inside a sea polygon still holds it, marked as a sea hold');
+    check(rows[12].codes === '{}' && !rows[12].snapped,
+      '🔴 a campsite of a country with no land zone stays WITHOUT a zone, 2.2 km off its sea zone');
+    check(rows[13].codes === '{}', 'and one standing inside that sea zone has none either: empty is more honest than a ship warning');
+    const kinds = Number(q(url, snapKindsSql(schemes)));
+    check(kinds === 0 && judgeSnapKinds(kinds).ok, 'the data guard counts no snapped sea code');
+    check(judgeSnapKinds(1).ok === false && /SEA zones/.test(judgeSnapKinds(1).why), 'and fails, naming the harm, on one');
+    const held = q(url, seaHeldSql(schemes)).split('|').map(Number);
+    check(held[0] === 1 && held[1] === 0 && held[2] === 1,
+      `the sea-hold line counts the one campsite inside a sea polygon, off the land layer, with no other zone — got ${held}`);
+
     // The summary the run prints, on the same rows.
     const d = q(url, snapDistancesSql(schemes)).split('|').map(Number);
-    check(d[0] === 4 && d[5] === 4 && d[6] > 0 && d[6] <= SNAP_LIMIT_M,
-      `the distance summary counts the 4 snapped points, all within the limit (farthest ${d[6]} m)`);
+    check(d[0] === 5 && d[5] === 5 && d[6] > 0 && d[6] <= SNAP_LIMIT_M,
+      `the distance summary counts the 5 snapped points, all within the limit (farthest ${d[6]} m)`);
     const by = Object.fromEntries(
       q(url, snapByCountrySql(schemes)).split('\n').filter(Boolean).map((l) => {
         const [c, ...rest] = l.split('|');
@@ -1178,7 +1405,7 @@ async function selfTestDb() {
     q(`${base}/postgres`, `DROP DATABASE IF EXISTS ${name}`);
   }
 
-  const EXPECTED_CASES = 15;
+  const EXPECTED_CASES = 25;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;

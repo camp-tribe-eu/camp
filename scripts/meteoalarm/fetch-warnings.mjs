@@ -61,8 +61,10 @@
 // hour. Re-run the command rather than trusting the figures above; a
 // number in a comment is a measurement or it is a decoration.
 
-import { writeFile } from 'node:fs/promises';
-import { realpathSync } from 'node:fs';
+import { writeFile, readFile } from 'node:fs/promises';
+import { mkdtempSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
@@ -1184,11 +1186,64 @@ function selfTest() {
     ok('a country with no NUTS is untouched and reports nothing', pl.kept[0]?.areas[0]?.codes.join() === 'EMMA_ID:PL803' && pl.unbound.length === 0);
   }
 
+  // 🔴 UNBOUND IS LOUD. Review: a NUTS code with no zone printed one line and
+  // exited 0, so the first Belgian Brabant warning would have reached nobody.
+  {
+    const none = unboundVerdict([{ country: 'france', unbound: [] }, { country: 'poland' }]);
+    ok('no unbound code: exit 0 and nothing said', none.code === 0 && none.lines.length === 0 && none.count === 0);
+    const some = unboundVerdict([
+      { country: 'france', unbound: [] },
+      { country: 'belgium', unbound: [{ code: 'BE24', why: 'no BE zone is named Vlaams-Brabant' }] },
+      { country: 'romania', unbound: [{ code: 'RO999', why: 'x' }] },
+    ]);
+    ok('🔴 one unbound code makes the PROCESS fail, with a code that is not the crash code (1)', some.code === 3 && some.code !== 1);
+    ok('…counts them, across countries', some.count === 2, String(some.count));
+    ok('…and names each one with its country and why',
+      some.lines.some((l) => l.includes('belgium BE24') && l.includes('Vlaams-Brabant')) && some.lines.some((l) => l.includes('romania RO999')));
+    ok('…and says how to fix it', some.lines.some((l) => /NAME_EXCEPTIONS/.test(l)));
+    // …on the output of the real function, not a hand-made list.
+    const real = warningsFrom(feed([block({ area: [{ areaDesc: 'Nowhere', geocode: [{ valueName: 'NUTS3', value: 'FR999' }] }] })]), 'france', NOW);
+    ok('🔴 and on what `warningsFrom` really returns for a NUTS area no zone matches',
+      unboundVerdict([real]).code === 3 && unboundVerdict([real]).lines.join().includes('FR999'));
+    const fine = warningsFrom(feed([block({ area: [{ areaDesc: 'Ain', geocode: [{ valueName: 'NUTS3', value: 'FR711' }] }] })]), 'france', NOW);
+    ok('…while a tied one leaves the run green', unboundVerdict([fine]).code === 0);
+
+    // 🔴 AND THE PROCESS ITSELF. The verdict above is a function; what the
+    // reviewer saw was an exit code of 0, and that is `main`'s wiring, which
+    // only running the script can test. Fixture feeds, one alert each.
+    const runCli = (area) => {
+      const dir = mkdtempSync(join(tmpdir(), 'camp-unbound-'));
+      try {
+        writeFileSync(join(dir, 'feeds-belgium.json'), JSON.stringify({
+          warnings: [{ alert: { identifier: 'CLI', sent: '2026-11-02T07:00:00Z', info: [{
+            language: 'en-GB', event: 'Wind', headline: 'Wind warning', expires: '2099-01-01T00:00:00Z',
+            parameter: [{ valueName: 'awareness_level', value: '3; orange; Severe' }, { valueName: 'awareness_type', value: '1; Wind' }],
+            area: [area],
+          }] } }],
+        }));
+        return spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--country=belgium'], {
+          env: { ...process.env, CAMP_FEED_FIXTURE_DIR: dir },
+          encoding: 'utf8',
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    const loudRun = runCli({ areaDesc: 'Nowhere', geocode: [{ valueName: 'NUTS2', value: 'BE99' }] });
+    ok('🔴 the SCRIPT exits 3 when a kept warning names a NUTS code no zone matches',
+      loudRun.status === 3, `status ${loudRun.status}\n${loudRun.stderr}${loudRun.stdout}`.slice(0, 400));
+    ok('…and says UNBOUND NUTS and the code on stderr, where a timer or a person looks',
+      /UNBOUND NUTS: 1/.test(loudRun.stderr) && /belgium BE99/.test(loudRun.stderr), loudRun.stderr.slice(0, 200));
+    const quietRun = runCli({ areaDesc: 'Brussels', geocode: [{ valueName: 'NUTS2', value: 'BE10' }] });
+    ok('…while the same warning on a code that IS tied (BE10, Brussels) exits 0', quietRun.status === 0, `status ${quietRun.status}`);
+    ok('…and a fixture run says it wrote nothing', /nothing written/.test(quietRun.stdout), quietRun.stdout.slice(-120));
+  }
+
   ok('every member state is listed exactly once', new Set(COUNTRIES).size === 27);
   ok('the url is built from the country', feedUrl('poland').endsWith('/feeds-poland'));
 
   // 🔴 CAMP-286: counted, and named after this file.
-  const EXPECTED_CASES = 172;
+  const EXPECTED_CASES = 183;
   if (cases !== EXPECTED_CASES) {
     bad += 1;
     console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
@@ -1206,6 +1261,22 @@ function selfTest() {
 // -------------------------------------------------------------------- main
 
 const PAUSE_MS = 400;
+
+/**
+ * 🔴 FOR THE SELF-TEST ONLY: `CAMP_FEED_FIXTURE_DIR` points at a directory of
+ * `feeds-<country>.json`, and the run reads those instead of the network.
+ * It exists so the PROCESS — its exit code — can be tested: the decision
+ * about what a run exits with was a `console.log` in `main` that no test
+ * could reach. A run with the seam set NEVER writes the published file.
+ */
+const FIXTURE_DIR = process.env.CAMP_FEED_FIXTURE_DIR;
+
+async function readFeed(country) {
+  if (FIXTURE_DIR) return JSON.parse(await readFile(join(FIXTURE_DIR, `feeds-${country}.json`), 'utf8'));
+  const res = await fetch(feedUrl(country));
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
 /**
  * A flag, however it is written. `--dry-run` and `--dry-run=true` are the
  * same request.
@@ -1318,6 +1389,30 @@ export function census(payloads) {
 // ⚠️ Named, not positional. Review swapped `seen` and `kept` at the call
 // site and all 144 assertions passed — three unlabelled numbers in a row
 // is a mis-wiring waiting to happen, and nothing covers `main`.
+/**
+ * What a run says, and exits with, about NUTS codes that found no MeteoAlarm
+ * zone. Pure, so the decision is testable: it used to be a `console.log` in
+ * `main` that nothing covered.
+ *
+ * `code` is 3, not 1: 1 means the run itself threw, and a reader of the exit
+ * code must be able to tell "the file was not written" from "the file was
+ * written and says it cannot place these".
+ */
+export function unboundVerdict(results) {
+  const all = results.flatMap((r) => (r.unbound ?? []).map((u) => ({ country: r.country, ...u })));
+  if (all.length === 0) return { code: 0, count: 0, lines: [] };
+  return {
+    code: 3,
+    count: all.length,
+    lines: [
+      `\n✗ UNBOUND NUTS: ${all.length} code(s) in kept warnings found no MeteoAlarm zone — ` +
+        'a campsite is matched to a zone, so NO campsite is matched to these:',
+      ...all.map((u) => `    ${u.country} ${u.code}: ${u.why}`),
+      '  Tie each to its zone in NAME_EXCEPTIONS (nuts-binding.mjs), or MeteoAlarm renamed a zone.',
+    ],
+  };
+}
+
 export const yieldLooksBroken = ({ only, seen, kept }) => !only && seen > 0 && kept === 0;
 
 /**
@@ -1373,7 +1468,10 @@ async function main() {
   // WROTE THE FILE — falsy twice over, so the list fell back to all 27
   // and the dry run fell back to false. A typo in a debugging flag
   // published a document. The decision is `runPlan`, which is testable.
-  const { countries, dryRun, only } = runPlan(process.argv);
+  const plan = runPlan(process.argv);
+  const { countries, only } = plan;
+  // A fixture run is a rehearsal: it may not become the published answer.
+  const dryRun = plan.dryRun || Boolean(FIXTURE_DIR);
   // 🔴 ONE COUNTRY NEVER WRITES THE FILE. `--country=croatia` produced a
   // document shaped like a full-Europe run, with `meta.silent: []` —
   // nothing in it recorded that twenty-six countries were never asked.
@@ -1401,9 +1499,7 @@ async function main() {
     for (let attempt = 0; attempt < 2 && payload === undefined; attempt += 1) {
       if (attempt > 0) await sleep(PAUSE_MS * 2);
       try {
-        const res = await fetch(feedUrl(country));
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        payload = await res.json();
+        payload = await readFeed(country);
       } catch (err) {
         lastError = err;
       }
@@ -1436,12 +1532,15 @@ async function main() {
   // 🔴 NAMED, NOT ONLY COUNTED: a NUTS area with no MeteoAlarm zone reaches
   // no campsite, and its NUTS code looks like a code that should work.
   const unboundNuts = shapes.flatMap((r) => r.unbound.map((u) => ({ country: r.country, ...u })));
-  if (unboundNuts.length) {
-    console.log(
-      `\n⚠ ${unboundNuts.length} NUTS code(s) in kept warnings found no MeteoAlarm zone, so no campsite is matched to them:`,
-    );
-    for (const u of unboundNuts) console.log(`    ${u.country} ${u.code}: ${u.why}`);
-  }
+  // 🔴 LOUD, NOT A WARNING LINE. Review: Belgium's three Brabant regions found
+  // no zone, and the run printed "⚠" and returned 0 — the first Brabant
+  // warning would have reached nobody and nothing anywhere would have said
+  // so. The file is still written (one unplaceable area costs that area,
+  // never the other 600 warnings), but the PROCESS fails, so a timer, a CI
+  // step or a person watching an exit code sees it.
+  const loud = unboundVerdict(shapes);
+  for (const line of loud.lines) console.error(line);
+  if (loud.code !== 0) process.exitCode = loud.code;
 
   // 🔴 Refuses to write a file that says Europe is calm because the
   // filter broke. Every country failing, or nothing at all surviving

@@ -206,7 +206,9 @@ export function plans(codes) {
   const usable = parsed.filter((p) => SOURCES[p.scheme] && (SOURCES[p.scheme].covers?.(p.value) ?? true));
   if (usable.length === 0) {
     const schemes = [...new Set(parsed.map((p) => p.scheme))].join(', ');
-    const uncovered = parsed.filter((p) => SOURCES[p.scheme]).map((p) => `${p.scheme}:${p.value}`);
+    // Every NUTS code, with a source or without: NUTS2 has none at all, and a
+    // Belgian area that found no zone must still be NAMED.
+    const uncovered = parsed.filter((p) => /^NUTS[23]$/.test(p.scheme)).map((p) => `${p.scheme}:${p.value}`);
     return [
       {
         scheme: null,
@@ -505,6 +507,10 @@ export function coverageOf(areaCodes, geometry) {
   // broke; a name says what, and only a name can be compared against a
   // list of gaps we already know about.
   const missingCodes = [];
+  // 🔴 NUTS areas tied to NO MeteoAlarm zone, by code. A percentage hides
+  // them: one French area of forty is 97.5% and passes a 95% floor, and that
+  // area reaches no campsite.
+  const unbound = [];
   const note = (why, n) => unresolved.set(why, (unresolved.get(why) ?? 0) + n);
 
   for (const joined of areaCodes) {
@@ -526,6 +532,7 @@ export function coverageOf(areaCodes, geometry) {
       else {
         total += 1;
         note(candidates[0].why, 1);
+        for (const m of String(candidates[0].why).matchAll(/(NUTS[23]:[A-Z0-9]+)/g)) unbound.push(m[1]);
       }
       continue;
     }
@@ -581,7 +588,7 @@ export function coverageOf(areaCodes, geometry) {
     }
   }
 
-  return { total, resolved, uncoded, unresolved: [...unresolved.entries()], missingCodes };
+  return { total, resolved, uncoded, unresolved: [...unresolved.entries()], missingCodes, unbound };
 }
 
 /**
@@ -632,6 +639,19 @@ export const KNOWN_GAPS = {
   // why the feed and the list disagree stands: HR014 is still in neither.
 };
 
+/**
+ * The failure for NUTS areas tied to no zone, or null. A function so the
+ * words can be tested; the `throw` that uses it is one line in `coverage`.
+ */
+export function unboundError(unboundAll) {
+  if (unboundAll.length === 0) return null;
+  return (
+    `${unboundAll.length} NUTS area(s) in the live feeds are tied to no MeteoAlarm zone: ${unboundAll.join(', ')} — ` +
+    'add the code to NAME_EXCEPTIONS in nuts-binding.mjs, or MeteoAlarm renamed a zone and emma-zone-names.json is stale ' +
+    '(node scripts/meteoalarm/nuts-binding.mjs --refresh-table)'
+  );
+}
+
 async function coverage() {
   const { COUNTRIES, feedUrl } = await import('./fetch-warnings.mjs');
   const geometry = {};
@@ -662,6 +682,8 @@ async function coverage() {
   const unreadable = [];
   /** Unresolved codes nobody has written down yet. */
   const newGaps = [];
+  /** NUTS areas tied to no MeteoAlarm zone, whatever percentage they make. */
+  const unboundAll = [];
   /** Gaps we wrote down that have since closed — the note is now a lie. */
   const closedGaps = [];
   for (const country of COUNTRIES) {
@@ -689,6 +711,7 @@ async function coverage() {
     // 🔴 A gap we have never seen before is the news; a gap we wrote down
     // is not. Compared by NAME, so a country can lose a different area
     // while its percentage stays identical and this still says so.
+    for (const code of c.unbound) unboundAll.push(`${country}:${code}`);
     const known = KNOWN_GAPS[country]?.codes ?? [];
     for (const code of c.missingCodes) {
       if (!known.includes(code)) newGaps.push(`${country}:${code}`);
@@ -731,6 +754,11 @@ async function coverage() {
   // 🔴 A NAME THAT IS NEW, NOT A NUMBER THAT MOVED. See KNOWN_GAPS for
   // why: one of Croatia's fourteen areas is 7.1% and trips a 95% floor,
   // while five of Spain's 233 is 2.1% and does not.
+  // 🔴 AN UNTIED NUTS AREA IS A HARD FAILURE AT ANY PERCENTAGE. One French area
+  // of forty is 97.5% and passes the floor below, and that area reaches no
+  // campsite: a campsite carries a MeteoAlarm zone, not a NUTS code.
+  const untied = unboundError(unboundAll);
+  if (untied) throw new Error(untied);
   if (newGaps.length) {
     throw new Error(
       `${newGaps.length} area(s) nobody has written down could not be resolved: ` +
@@ -1073,6 +1101,20 @@ function selfTest() {
     ok('🔴 an area no zone matches is a NAMED failure, 0 of 1',
       miss.resolved === 0 && miss.total === 1 && /FR999/.test(miss.unresolved.map((u) => u[0]).join()),
       JSON.stringify(miss.unresolved));
+    ok('🔴 …and the unbound code is listed by NAME, whatever percentage it makes',
+      miss.unbound.join() === 'NUTS3:FR999', JSON.stringify(miss.unbound));
+    // forty tied areas and one that is not: 97.5%, over the 95% floor, and still a failure
+    const forty = Array.from({ length: 39 }, () => 'NUTS3:FR711||EMMA_ID:FR039');
+    const mixed = coverageOf([...forty, 'NUTS3:FR999'], geom);
+    ok('one untied area of forty is 97.5% — over the floor — and is still reported as unbound',
+      mixed.resolved / mixed.total > MIN_COVERAGE && mixed.unbound.join() === 'NUTS3:FR999',
+      `${mixed.resolved}/${mixed.total}`);
+    const nuts2 = coverageOf(codesIn(feedOf([{ area: [{ areaDesc: 'Nowhere', geocode: [{ valueName: 'NUTS2', value: 'BE99' }] }] }])), geom);
+    ok('a NUTS2 area (no source at all) is named too', nuts2.unbound.join() === 'NUTS2:BE99', JSON.stringify(nuts2));
+    ok('…and a resolved area reports none', coverageOf(tied, geom).unbound.length === 0);
+    ok('🔴 the coverage run FAILS on them, naming each, however few',
+      unboundError(['belgium:NUTS2:BE24']) !== null && /belgium:NUTS2:BE24/.test(unboundError(['belgium:NUTS2:BE24']))
+        && /NAME_EXCEPTIONS/.test(unboundError(['x'])) && unboundError([]) === null);
     const hr = codesIn(feedOf([{ area: [{ areaDesc: 'Primorsko', geocode: [
       { valueName: 'EMMA_ID', value: 'HR018' }, { valueName: 'NUTS3', value: 'HR031' }] }] }]));
     ok('Croatia keeps both codes and resolves on its county', coverageOf(hr, geom).resolved === 1);
@@ -1093,7 +1135,7 @@ function selfTest() {
   // reached prints what a passing case prints — and the line names this
   // file, because the CI step greps for it and a bare "self-test passed"
   // is a line several scripts print.
-  const EXPECTED_CASES = 89;
+  const EXPECTED_CASES = 94;
   if (cases !== EXPECTED_CASES) {
     console.log(`x    ${cases} cases ran, expected ${EXPECTED_CASES}`);
     bad += 1;

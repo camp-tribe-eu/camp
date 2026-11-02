@@ -48,6 +48,28 @@ describe('CAMP-302: оберт оновлювача', () => {
     expect(r.snapshot.warnings).toHaveLength(3);
   });
 
+  it('🔴 NUTS-код без зони виходить назовні з обертом, а не лишається в рядку, який нікому не видно', async () => {
+    const r = await collect(
+      deps({
+        warningsFrom: (_p, country) => ({
+          kept: [block(country)],
+          unbound:
+            country === 'france' ? [{ code: 'FR999', why: 'no FR zone is named Nowhere' }] : undefined,
+        }),
+      }),
+    );
+    expect(r.unbound).toEqual([
+      { country: 'france', code: 'FR999', why: 'no FR zone is named Nowhere' },
+    ]);
+    // …і попередження при цьому НЕ зникає: один незв'язаний код не коштує оберту.
+    expect(r.snapshot.warnings).toHaveLength(3);
+  });
+
+  it('жодного незв\'язаного коду — порожній перелік, а не відсутній', async () => {
+    const r = await collect(deps());
+    expect(r.unbound).toEqual([]);
+  });
+
   it('час знімка — це час ЗНЯТТЯ, один на весь оберт', async () => {
     const r = await collect(deps());
     expect(r.snapshot.fetchedAt).toBe(NOW.toISOString());

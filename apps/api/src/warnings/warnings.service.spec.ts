@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { findFetcher, WarningsService } from './warnings.service';
 import { countShapes } from './snapshot';
 
@@ -45,6 +46,43 @@ const make = (
     },
   };
 };
+
+describe('NUTS-код без зони гучний', () => {
+  it('🔴 незвʼязаний код іде в `error` кожен оберт, з країною, кодом і причиною — а знімок усе одно береться', async () => {
+    const err = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      const { svc } = make({
+        loader: async () => ({
+          ...fetcher,
+          warningsFrom: (p: unknown, country: string) => ({
+            ...fetcher.warningsFrom(p, country),
+            unbound: country === 'france' ? [{ code: 'FR999', why: 'no FR zone is named Nowhere' }] : [],
+          }),
+        }),
+      });
+      await svc.refresh();
+      const said = err.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(said).toMatch(/france FR999/);
+      expect(said).toMatch(/no FR zone is named Nowhere/);
+      expect(said).toMatch(/жоден кемпінг не отримає/);
+      // один незвʼязаний код не коштує знімка
+      expect(svc.current().fetchedAt).not.toBeNull();
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it('жодного незвʼязаного коду — жодного рядка в `error`', async () => {
+    const err = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      const { svc } = make();
+      await svc.refresh();
+      expect(err).not.toHaveBeenCalled();
+    } finally {
+      err.mockRestore();
+    }
+  });
+});
 
 describe('CAMP-302: оновлювач у памʼяті', () => {
   it('🔴 до першого оберту часу немає — і це не «свіжо»', async () => {
