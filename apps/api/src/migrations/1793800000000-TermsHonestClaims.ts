@@ -25,10 +25,18 @@ import {
  *     них), тож воно стверджувало б ліцензію на те, чого ми не робимо.
  *     Сторінка тепер каже «We do not publish it», а формулювання дозволу
  *     повернеться разом із першим, що ми справді публікуємо від читачів.
- *  2. §6 посилалась на публічний репозиторій як місце попередніх
- *     редакцій. Тексти тепер у базі (CAMP-365), у git лежить лише посів.
- *     Замінено на те, що ми справді можемо зробити: зберігаємо самі й
- *     надсилаємо на запит редакцію, чинну в названий день.
+ *  2. §6 казала «the previous wording is recorded in our public source
+ *     repository». Перша редакція цієї правки вважала це хибним («тексти в
+ *     базі, у git лише посів») і замінила на «we keep every earlier wording
+ *     ourselves». ЗАМІР СПРОСТУВАВ ПРЕМИСУ: репозиторій публічний, і з 16
+ *     пар «сторінка + версія» в історії реєстру 11 мають повний текст
+ *     файлом у коміті (TSX до CAMP-365, міграції після). Правда тонша за
+ *     обидві формули і вже стоїть у політиці приватності («Changes»):
+ *     минулі редакції приїхали кодом і лежать у публічному репозиторії;
+ *     редакція, зроблена в CMS, туди не потрапить, і її попередній текст
+ *     зберігаємо ми. Умови тепер кажуть те саме тими самими словами — це
+ *     механізм, а не намір, тож він не протухне. Розходження двох сторінок
+ *     тримає `legal-edition-storage.spec.ts`.
  *  3. §4 казала «We ask you to confirm your age», а запиту немає: галочки
  *     нема (`account.service.ts`: «Terms have no box»), є абзац над кнопкою
  *     реєстрації — «By creating an account you confirm that you are
@@ -80,7 +88,7 @@ export class TermsHonestClaims1793800000000 implements MigrationInterface {
     body = replaceOnce(
       body,
       'and the previous wording is recorded in our public source repository, so it is always possible to establish which version applied on a given day.',
-      'and we keep every earlier wording ourselves: write to [{{company.email}}](mailto:{{company.email}}) and we will send you the text that was in force on any day you name.',
+      'and the text itself is held in our database. The versions we have published so far were each shipped as code, so their full text is in our public source repository; should a later version be edited in our content system instead, that will no longer be true of it, and we will keep the earlier text ourselves. Write to [{{company.email}}](mailto:{{company.email}}) and we will send you the text that was in force on any day you name.',
     );
     return {
       slug: this.previous.slug,

@@ -211,10 +211,8 @@ test.describe('умови §4: як підтверджується вік', () =
 });
 
 test.describe('умови §6: де лежать попередні редакції', () => {
-  test('🔴 сторінка не відсилає до репозиторію, а адреса, на яку просить писати, — з реєстру', () => {
-    const text = pageText('terms');
-    expect(text).not.toMatch(/repository|github|\bgit\b/i);
-    const para = paragraphs('terms').find((p) => p.text.includes('we keep every earlier wording ourselves'));
+  test('🔴 адреса, на яку просить писати за редакцією, — з реєстру (що саме сказано про репозиторій, тримає legal-edition-storage)', () => {
+    const para = paragraphs('terms').find((p) => p.text.includes('in force on any day you name'));
     expect(para, 'немає речення про те, де зберігаються попередні редакції').toBeTruthy();
     // «{{company.email}}» розкрито підстановкою, і розкрито в ту адресу, що в реєстрі.
     expect(para!.text).toContain(CONTACT_EMAIL);
