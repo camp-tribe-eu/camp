@@ -63,7 +63,7 @@ export interface Webcam {
  * 121 cameras): all 20 addresses the API returned are character-for-
  * character what the old function built, carry only `?v=2` and no token,
  * and 40 of 40 (preview + thumbnail) still answered 200 when asked again
- * 11.2 minutes later. Windy's docs say image tokens expire after 10
+ * 11.2 minutes later, and 40 of 40 again 36.2 minutes later. Windy's docs say image tokens expire after 10
  * minutes on Free and the URL then returns 401; that is not what the API
  * does today, which is why this stores the address — and why the
  * collector refreshes it on every run. If Windy
