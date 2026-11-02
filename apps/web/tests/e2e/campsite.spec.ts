@@ -248,6 +248,71 @@ test.describe('campsite page', () => {
     await page.goto(fx.empty);
     expect(await axeViolations(page)).toEqual([]);
   });
+
+  // 🔴 Hydration enables the «Send report» button inside the
+  // CLOSED «Report a problem» <details>, which is a style change, so an
+  // opacity transition starts on an element nobody paints. Firefox gives
+  // a transition its start time with the first paint of the element, so
+  // this one sat at `startTime: null, currentTime: 0, running` for ever —
+  // and `settle()` in axe.ts, which waits for every finite motion to end,
+  // rightly refused to scan (CI run 41348347561, firefox-desktop only).
+  //
+  // This reads the LIVE page, not the stylesheet: the question is whether
+  // anything inside a closed <details> is moving, whatever put it there.
+  // The <summary> is excluded — it is painted while the <details> is
+  // closed, and its hover is meant to move.
+  test('nothing moves inside a closed disclosure once the page is live', async ({
+    page,
+  }) => {
+    await page.goto(fx.empty);
+    // Hydrated: `ready` flipped and the button lost `disabled`.
+    await expect(
+      page.getByTestId('report-problem').locator('button[type="submit"]'),
+    ).toBeEnabled();
+
+    const hidden = await page.evaluate(() =>
+      document
+        .getAnimations()
+        .filter((a) => {
+          const el = (a.effect as KeyframeEffect | null)?.target as Element | null;
+          return (
+            a.playState === 'running' &&
+            !!el &&
+            !!el.closest('details:not([open])') &&
+            !el.closest('summary')
+          );
+        })
+        .map((a) => {
+          const el = (a.effect as KeyframeEffect).target as Element;
+          return `${(a as CSSTransition).transitionProperty ?? 'animation'} on <${el.tagName.toLowerCase()}>`;
+        }),
+    );
+    expect(hidden).toEqual([]);
+  });
+
+  // The fix is a rule scoped to what is NOT painted, so it has two ways
+  // to be wrong in the other direction, and both are read off the live
+  // page: switching motion off for the <summary> (painted while closed),
+  // and leaving it off for the button once the form is opened.
+  test('motion is off only where nothing is painted', async ({ page }) => {
+    await page.goto(fx.empty);
+    const section = page.getByTestId('report-problem');
+    const send = section.locator('button[type="submit"]');
+    await expect(send).toBeEnabled();
+
+    const duration = (loc: typeof send) =>
+      loc.evaluate((el) => getComputedStyle(el).transitionDuration);
+
+    // Not painted: no motion at all.
+    expect(await duration(send)).toBe('0s');
+    // Painted while the <details> is closed: keeps the theme's 0.2 s.
+    expect(await duration(section.locator('summary'))).toBe('0.2s');
+
+    await section.locator('summary').click();
+    await expect(send).toBeVisible();
+    // Painted now: the same 0.2 s as every other button.
+    expect(await duration(send)).toBe('0.2s');
+  });
 });
 
 // CAMP-190 — the heading outline, which is how a page states its
