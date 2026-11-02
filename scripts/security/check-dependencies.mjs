@@ -501,7 +501,16 @@ function selfTest() {
   const report = {
     vulnerabilities: {
       minimatch: {
-        via: [{ url: 'https://github.com/advisories/GHSA-x', severity: 'moderate', title: 't' }],
+        // 🔴 `.invalid`, а не `github.com`. Це вигадана адреса у
+        // ВИГАДАНОМУ звіті самоперевірки, і виглядати вона мусить саме
+        // так. Поки тут стояло `https://github.com/advisories/…`,
+        // суцільний обхід джерел (`attribution-sweep`) рахував її
+        // справжнім зовнішнім хостом у виробничому файлі й вимагав
+        // рядок на сторінці атрибуції або виняток. Виняток тут був би
+        // гіршим за правку: він розширив би причину «наш власний
+        // репозиторій» на те, що нею не є. `.invalid` зарезервовано
+        // RFC 2606 рівно для цього.
+        via: [{ url: 'https://advisory.invalid/GHSA-x', severity: 'moderate', title: 't' }],
       },
       eslint: { via: ['minimatch'] },
       'eslint-config-next': { via: ['eslint', 'minimatch'] },
