@@ -10,6 +10,7 @@ import {
   WEB_SRC,
   constString,
   escapeRegExp,
+  storageWrites,
   hrefsIn,
   importGraph,
   pageRoutes,
@@ -32,45 +33,8 @@ import {
  * запис, якого сторож не вміє назвати, і є «забутий ключ».
  */
 
-type Write = { file: string; key: string; storage: 'local' | 'session' };
-
 const webFiles = sourceFiles(WEB_SRC);
 const apiFiles = sourceFiles(API_SRC);
-
-/** Усі ключі, які код пише у веб-сховище, і в яке саме. */
-function storageWrites(): Write[] {
-  const out: Write[] = [];
-  for (const file of webFiles) {
-    const code = readCode(file);
-    for (const m of code.matchAll(/\.setItem\(\s*([A-Za-z_$][\w$]*|'[^']*'|"[^"]*")/g)) {
-      const arg = m[1];
-      let key: string;
-      if (/^['"]/.test(arg)) {
-        key = arg.slice(1, -1);
-      } else {
-        const value = constString(code, arg);
-        if (value === null) {
-          throw new Error(
-            `${basename(file)}: .setItem(${arg}) — ключ не розкривається в літерал у цьому файлі; ` +
-              'сторож не вміє його назвати, а сторінка кукі мусить.',
-          );
-        }
-        key = value;
-      }
-      const local = /\bwindow\.localStorage\b/.test(code);
-      const session = /\bwindow\.sessionStorage\b/.test(code);
-      if (local === session) {
-        throw new Error(
-          `${basename(file)}: пише ключ «${key}», але файл звертається ${
-            local ? 'до обох сховищ' : 'ні до localStorage, ні до sessionStorage'
-          } — незрозуміло, в яке саме.`,
-        );
-      }
-      out.push({ file: basename(file), key, storage: local ? 'local' : 'session' });
-    }
-  }
-  return out;
-}
 
 /** Усе інше, що могло б зберігати щось у браузері читача, окрім `.setItem(`. */
 function otherStores(): string[] {

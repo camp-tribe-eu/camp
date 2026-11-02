@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 
 import { resolveImport } from './import-graph';
 import { seededHtml } from './legal-cms';
@@ -210,3 +210,44 @@ export function constString(code: string, ident: string): string | null {
   const re = new RegExp(`(?<![\\w$])const\\s+${escapeRegExp(ident)}(?![\\w$])\\s*(?::[^=]+)?=\\s*['"]([^'"]+)['"]`);
   return re.exec(code)?.[1] ?? null;
 }
+
+ * Усі ключі, які код пише у веб-сховище, і в яке саме. Одне місце для всіх
+ * правових поверхонь (cookies, privacy, банер): вони порівнюються з ЦИМ, а не
+ * з переліком, переписаним у кожному тесті.
+ */
+export type Write = { file: string; key: string; storage: 'local' | 'session' };
+
+export function storageWrites(): Write[] {
+  const out: Write[] = [];
+  for (const file of sourceFiles(WEB_SRC)) {
+    const code = readCode(file);
+    for (const m of code.matchAll(/\.setItem\(\s*([A-Za-z_$][\w$]*|'[^']*'|"[^"]*")/g)) {
+      const arg = m[1];
+      let key: string;
+      if (/^['"]/.test(arg)) {
+        key = arg.slice(1, -1);
+      } else {
+        const value = constString(code, arg);
+        if (value === null) {
+          throw new Error(
+            `${basename(file)}: .setItem(${arg}) — ключ не розкривається в літерал у цьому файлі; ` +
+              'сторож не вміє його назвати, а сторінка кукі мусить.',
+          );
+        }
+        key = value;
+      }
+      const local = /\bwindow\.localStorage\b/.test(code);
+      const session = /\bwindow\.sessionStorage\b/.test(code);
+      if (local === session) {
+        throw new Error(
+          `${basename(file)}: пише ключ «${key}», але файл звертається ${
+            local ? 'до обох сховищ' : 'ні до localStorage, ні до sessionStorage'
+          } — незрозуміло, в яке саме.`,
+        );
+      }
+      out.push({ file: basename(file), key, storage: local ? 'local' : 'session' });
+    }
+  }
+  return out;
+}
+
