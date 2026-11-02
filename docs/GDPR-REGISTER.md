@@ -169,6 +169,7 @@
 | IGN France (Géoplateforme) | direct | супутникові плитки над Францією, лише коли читач увімкнув «Satellite» | — | `data.geopf.fr` | `apps/web/src/data/satellite-sources.json` (`sat-fr`) |
 | GitHub, Inc. | none | код, CI й нічна репетиція відновлення — усе на фікстурі з ранера, даних проду не отримує | — | — | `.github/workflows/backup-verify.yml` робить дамп із бази ранера, не з проду; `ci.yml` — `ci-seed.sql` |
 | Directus | none | CMS на нашій машині, не хмарний сервіс | — | `localhost:8055` | `infra/systemd/camptribe-cms.service` |
+| OpenStreetMap Foundation (Nominatim) | none | наш скрипт `resolve-campsite-zones.mjs` на сервері один раз на запуск питає контури 21 хорватського повіту одним запитом `/lookup` (ідентифікатори відношень OSM); читач сайту з цим хостом не зʼєднується, персональних даних хост не отримує — бачить IP машини, що запускає резолвер, і `User-Agent` скрипта | — | `nominatim.openstreetmap.org` | `scripts/meteoalarm/osm-hr-counties.mjs` `HR_COUNTIES_URL`, `HR_HEADERS`; дані — OpenStreetMap, ліцензія ODbL |
 
 ### Договори за ст. 28
 

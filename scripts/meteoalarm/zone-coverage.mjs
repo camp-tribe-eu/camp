@@ -20,6 +20,15 @@
 // publishes? `SCHEMES_USED` below is that question's data, and it comes
 // from `fetch-warnings.mjs --census`, not from an opinion.
 //
+// 🔴 02.11.2026: THE ANSWER FOR FIVE COUNTRIES CHANGED, AND THE TRAP DID NOT.
+// GISCO's licence forbids commercial use, so France, Bulgaria, Romania,
+// Hungary and Belgium are no longer joined on the NUTS their feeds publish
+// but on `EMMA_ID` — and a French campsite's `EMMA_ID` matches a French
+// warning only because `fetch-warnings.mjs` writes the zone's code beside
+// the NUTS code (`nuts-binding.mjs`, by name). The paragraph above stays as
+// the reason that step cannot be skipped; the self-test below ties the two
+// ends on 88 live codes, so a campsite code the warnings never carry fails.
+//
 // 🔴 MEASURED 13.10.2026, all 27 live feeds, 42 135 code occurrences:
 //
 //     EMMA_ID     26 969   16 countries
@@ -41,21 +50,32 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chooseAction } from '../lib/entrypoint.mjs';
+import { warningsFrom } from './fetch-warnings.mjs';
+import { BINDABLE } from './nuts-binding.mjs';
+import { HR_COUNTIES, HR_COUNTIES_URL, HR_HEADERS, hrCountiesFeatures } from './osm-hr-counties.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Which geocode schemes each member state publishes AND we can resolve.
+ * Which geocode scheme each member state's campsites are matched on.
  *
- * 🔴 THE NAME OF THIS MAP USED TO OVERSTATE IT, and review caught the
- * difference. It is not "what each feed publishes": Czechia publishes
- * `CISORP` and Germany publishes `WARNCELLID`, and neither is here,
- * because no geometry source exists for either. It is the INTERSECTION —
- * published and resolvable — and reading the verdict means knowing that.
+ * 🔴 THIS USED TO BE "WHAT THE FEED PUBLISHES AND WE CAN RESOLVE", AND IT IS
+ * NOT ANY MORE. Until 02.11.2026 France was joined on `NUTS3` because that
+ * is what its feed publishes, against GISCO polygons whose licence forbids
+ * commercial use. Now France, Bulgaria, Romania, Hungary and Belgium are
+ * joined on `EMMA_ID` — MeteoAlarm's own zones — while their feeds still
+ * publish NUTS. That is only sound because `fetch-warnings.mjs` adds the
+ * zone's `EMMA_ID` to every NUTS-coded area it keeps (`nuts-binding.mjs`,
+ * by name). The self-test below ties the two: a country may be joined on a
+ * scheme its feed does not publish ONLY if the binder has a zone table for
+ * it, and the SQL test reads the codes the real `warningsFrom` emits.
  *
- * 🔴 From `fetch-warnings.mjs --census` on 13.10.2026, not from the
- * scheme list in `resolve-areas.mjs`: that one says what we COULD
- * resolve, this says what anybody actually sends.
+ * Croatia keeps `NUTS3`, from OpenStreetMap's county relations: its zone
+ * list has no counties at all (see `osm-hr-counties.mjs`).
+ *
+ * 🔴 Czechia publishes `CISORP` and Germany `WARNCELLID`, and neither is
+ * here, because no geometry source exists for either — Germany's feed also
+ * publishes `EMMA_ID`, so German campsites are placed anyway.
  *
  * 🔴 LATVIA IS HERE AND IS NOT WHOLE. The census prints it on its own
  * line — `partly coded: latvia 32/204` — so 172 of its 204 areas carry
@@ -65,11 +85,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
  * be. The matcher's `unlocatable` is what catches the rest.
  */
 export const SCHEMES_USED = Object.freeze({
-  AT: ['EMMA_ID'], BE: ['EMMA_ID', 'NUTS2'], BG: ['NUTS3'], CZ: ['EMMA_ID'],
+  AT: ['EMMA_ID'], BE: ['EMMA_ID'], BG: ['EMMA_ID'], CZ: ['EMMA_ID'],
   DE: ['EMMA_ID'], DK: ['EMMA_ID'], ES: ['EMMA_ID'], FI: ['EMMA_ID'],
-  FR: ['NUTS3'], GR: ['EMMA_ID'], HR: ['EMMA_ID', 'NUTS3'], HU: ['NUTS2'],
+  FR: ['EMMA_ID'], GR: ['EMMA_ID'], HR: ['EMMA_ID', 'NUTS3'], HU: ['EMMA_ID'],
   IE: ['EMMA_ID'], IT: ['EMMA_ID'], LT: ['EMMA_ID'], LV: ['EMMA_ID'],
-  NL: ['EMMA_ID'], PL: ['EMMA_ID'], PT: ['EMMA_ID'], RO: ['NUTS3'],
+  NL: ['EMMA_ID'], PL: ['EMMA_ID'], PT: ['EMMA_ID'], RO: ['EMMA_ID'],
 });
 
 /**
@@ -87,22 +107,23 @@ export const SCHEMES_USED = Object.freeze({
 export const SILENT = Object.freeze(['CY', 'EE', 'LU', 'MT', 'SE', 'SI', 'SK']);
 
 /**
- * The census output, quoted, so the map above has something to answer to.
+ * The census output, quoted: what each country's feed PUBLISHES.
  *
  * 🔴 ДВА ЛІТЕРАЛИ ГІРШІ ЗА ОДИН, АЛЕ КРАЩІ ЗА ЖОДНОГО. Рецензія
- * заміряла, що 21 пара країна-схема з 22 не захищена нічим: `BG:NUTS3`
- * можна було поміняти на `BG:EMMA_ID` і прогін лишався зеленим. Звірка
- * з `eu-member-states.json` цього не ловить — вона про КРАЇНИ, а тут
- * зіпсована СХЕМА.
+ * заміряла, що 21 пара країна-схема з 22 не захищена нічим. Це —
+ * дослівні рядки `fetch-warnings.mjs --census` від 13.10.2026: не моє
+ * тлумачення, а цитата виводу, яку можна переперевірити однією командою.
  *
- * Корпус для живих фідів у модульний тест не затягнути, тож це —
- * дослівні рядки `fetch-warnings.mjs --census` від 13.10.2026. Вони не
- * моє тлумачення, а цитата виводу, яку можна переперевірити однією
- * командою. `SCHEMES_USED` мусить інвертуватись рівно в них.
+ * 🔴 ЦЕ БІЛЬШЕ НЕ ТЕ САМЕ, ЩО `SCHEMES_USED`, І ТАК МАЄ БУТИ. До
+ * 02.11.2026 мапа інвертувалась у перепис рівно. Тепер п'ять країн, чиї
+ * фіди публікують NUTS, зіставляються за EMMA_ID — бо кемпінг несе зону
+ * MeteoAlarm, а не NUTS (ліцензія GISCO забороняє комерційне
+ * використання). Самотест вимагає: пара `(країна, EMMA_ID)` без EMMA у
+ * переписі допустима лише для країни, чий NUTS фід публікує І для якої
+ * `nuts-binding.mjs` має таблицю зон.
  *
  * Тут немає `WARNCELLID` і `CISORP`: вони в переписі є, але геометрії
- * для них не існує, тож у мапі їх і не повинно бути. `FIPS` виключений
- * за ціною — 8 входжень на 40.7 МБ.
+ * для них не існує. `FIPS` виключений за ціною — 8 входжень на 40.7 МБ.
  */
 export const CENSUS_2026_10_13 = Object.freeze({
   EMMA_ID: ['AT', 'BE', 'HR', 'CZ', 'DK', 'FI', 'DE', 'GR', 'IE', 'IT', 'LV', 'LT', 'NL', 'PL', 'PT', 'ES'],
@@ -110,24 +131,47 @@ export const CENSUS_2026_10_13 = Object.freeze({
   NUTS2: ['BE', 'HU'],
 });
 
-/** The three sources that earn their download. */
+/**
+ * The two sources that earn their download.
+ *
+ * 🔴 `NUTS3` HERE IS CROATIA'S COUNTIES FROM OPENSTREETMAP, not GISCO — the
+ * key is the scheme the feed publishes (`NUTS3:HR031`), the source is what
+ * draws it. `NUTS2` is gone: Belgium and Hungary are joined on EMMA_ID.
+ *
+ * 🔴 `file` IS THE CACHE NAME AND IT IS NOT `NUTS3.json` ON PURPOSE. A
+ * server that ran the old resolver has the GISCO polygons cached under
+ * exactly that name, and `existsSync` would have fed them to this source
+ * as Croatia's counties, silently, forever.
+ */
 export const USED_SOURCES = Object.freeze({
   EMMA_ID: {
     url: 'https://gitlab.com/meteoalarm-pm-group/documents/-/raw/master/MeteoAlarm_Geocodes_2026_07_31.json',
     idField: 'code',
+    // The zone's own country, for snapping: an `EI…` zone is Irish, and a
+    // code prefix would say otherwise. Zones without one are never a snap
+    // target but still answer containment.
+    countryField: 'country',
     zones: 2006,
+    file: 'EMMA_ID.json',
   },
   NUTS3: {
-    url: 'https://gisco-services.ec.europa.eu/distribution/v2/nuts/geojson/NUTS_RG_01M_2013_4326_LEVL_3.geojson',
+    url: HR_COUNTIES_URL,
+    headers: HR_HEADERS,
+    // Nominatim's answer → features keyed by NUTS code, minus the counties
+    // OSM no longer vouches for (named in `rejected`, never the whole run).
+    select: hrCountiesFeatures,
     idField: 'NUTS_ID',
-    zones: 1480,
-  },
-  NUTS2: {
-    url: 'https://gisco-services.ec.europa.eu/distribution/v2/nuts/geojson/NUTS_RG_01M_2013_4326_LEVL_2.geojson',
-    idField: 'NUTS_ID',
-    zones: 320,
+    zones: Object.keys(HR_COUNTIES).length,
+    file: 'osm-hr-counties.json',
   },
 });
+
+/**
+ * Cache files an earlier version of the resolver wrote and this one must
+ * not leave lying about: they hold EuroGeographics GISCO polygons, whose
+ * licence forbids commercial use. Removed on every run.
+ */
+export const OBSOLETE_CACHE = Object.freeze(['NUTS3.json', 'NUTS2.json']);
 
 /**
  * `(country, scheme)` pairs, as SQL `VALUES`, from the map above.
@@ -145,13 +189,13 @@ export function usesPairs(schemes = SCHEMES_USED) {
 }
 
 /**
- * One GeoJSON feature collection as `scheme\tcode\tgeometry` lines.
+ * One GeoJSON feature collection as `scheme\tcode\tgeometry\tcountry` lines.
  *
  * 🔴 A feature whose geometry or id is missing is DROPPED AND COUNTED,
  * never written as an empty row: a zone with no shape contains nothing,
  * and a silent skip would lower coverage for a reason no number names.
  */
-export function rowsFrom(collection, scheme, idField) {
+export function rowsFrom(collection, scheme, idField, countryField = null) {
   const out = [];
   let dropped = 0;
   for (const f of collection?.features ?? []) {
@@ -169,7 +213,14 @@ export function rowsFrom(collection, scheme, idField) {
     // `.includes('\t')` on it is false. Unreachable code wearing a
     // guard's clothes is worse than no guard: it reads as a handled
     // case. The tab in the row below is therefore ours alone.
-    out.push(`${scheme}\t${code}\t${JSON.stringify(geometry)}`);
+    // Country: the source's own field when it has one, else the first two
+    // letters of the code (`HR031` is Croatian). Never guessed from the
+    // geometry, and never a tab or newline: it is a column of the `\copy`.
+    const country = String(countryField ? (f?.properties?.[countryField] ?? '') : code.slice(0, 2))
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z]/g, '');
+    out.push(`${scheme}\t${code}\t${JSON.stringify(geometry)}\t${country}`);
   }
   return { lines: out, dropped };
 }
@@ -207,6 +258,247 @@ export function verdict(total, placed, perCountry) {
   return { ok: true, share, short };
 }
 
+/**
+ * How far a campsite that falls inside NO zone may be pulled to the
+ * nearest zone of its own country, in metres.
+ *
+ * 🔴 ONE CONSTANT, NOT A FUNCTION OF THE DATA, AND IT IS NOT A NUMBER I
+ * CHOSE FOR THE RESULT. It is the limit this project already uses and
+ * already explains to readers (`/legal/database`): `import-spots.ts` gives
+ * a point that falls in no polygon the nearest one "within a hard limit",
+ * because a 1:10m coastline shaves shores and islands off — Croatia put
+ * 367 of 778 campsites outside every polygon, all within 3.85 km. The
+ * resolver reads the same kind of generalised outline (MeteoAlarm's) and
+ * so meets the same defect; it takes the same remedy with the same limit,
+ * and a test reads `import-spots.ts` to keep the two equal.
+ *
+ * MEASURED 02.11.2026 on the campsites that hold no zone after the GISCO
+ * replacement, distance to the nearest zone of their own country:
+ *
+ *   the six countries (598):  ≤100 m 100   ≤500 m 349   ≤1 km 491   ≤2 km 543
+ *                             ≤3 km 570    ≤4 km 582    ≤5 km 585   ≤10 km 591
+ *                             >10 km 7, the farthest 22 814 m
+ *   all 20 joined countries (1 223): ≤1 km 642  ≤3 km 830  ≤5 km 889
+ *                             ≤10 km 977  ≤25 km 1 049; 69 have no zone of
+ *                             their own country within a degree (Latvia)
+ *
+ * The decay is steep, not a cliff: 491 in the first kilometre, 12 between
+ * three and four, 3 between four and five, 6 between five and ten. Past
+ * 5 km each one is a different place — Burgas's 6.7 km, a French spot
+ * 22 km from any zone — not a shore the outline shaved. Those stay unplaced.
+ */
+export const SNAP_LIMIT_M = 5000;
+
+/**
+ * The land layer a zone is measured against: the Natural Earth admin-1
+ * polygons `import-spots.ts` already reads (`ne_admin1`, in every database
+ * that has had an OSM import).
+ */
+export const LAND_LAYER = 'ne_admin1';
+
+/**
+ * 🔴 A ZONE IS A LAND ZONE IF AT LEAST THIS SHARE OF ITS AREA IS LAND.
+ * A SEA ZONE IS NEVER A ZONE FOR A CAMPSITE THAT IS PULLED TO IT.
+ *
+ * Found by review: Latvia has four zones in MeteoAlarm's list and all four
+ * are sea (LV801–804, "Gulf of Riga …", "Central Baltic east"), so "the
+ * nearest zone of its own country within 5 km" meant "the sea" — 70
+ * campsites, the farthest 4 667 m INLAND, were handed warnings for ships.
+ *
+ * WHAT TELLS THE KINDS APART, MEASURED on the 2 006 zones of the file, not
+ * assumed (02.11.2026):
+ *
+ *   · `type` — useless: every zone says `EMMA_ID`.
+ *   · the code — useless: 8xx marks sea in Denmark, Ireland and the Baltic,
+ *     but AT801–804 are Austrian districts, and Poland and Czechia number
+ *     land districts 801…3263.
+ *   · the name — ten languages ("Costa -", "Küste", "Gulf of", "kysten",
+ *     "priekrante", "Strefa brzegowa"…) and "Coast" / "Coastal Zone" are
+ *     strips that sit on the shore.
+ *   · the SHARE OF THE ZONE'S AREA THAT IS LAND — bimodal. 1 862 of 2 006
+ *     zones are ≥ 0.5 land (1 685 are ≥ 0.99); 135 are < 0.1; only 9 lie
+ *     between 0.1 and 0.5. That is the signal, and 0.5 is its trough.
+ *
+ * Zones under 0.5 land, by country (sea / all): DK 20/28, ES 51/233,
+ * IE 25/51, FI 12/53, DE 8/410, NL 9/25, PL 5/385, HR 6/14, LV 4/4,
+ * LT 1/71, SI 1/6, BE 1/10, MT 1/1. The two that are land by name and
+ * not by share — Malta (0.455) and Åland FI043 (0.342, counted in FI 12) — belong to
+ * countries this resolver does not join (Malta is silent; Åland's
+ * campsites are `AX`), so the threshold does not touch a campsite.
+ *
+ * Not every sea zone is open water: Belgium's "Coastal zone", Spain's
+ * "Costa -", Poland's "Strefa brzegowa" are shore strips that hold
+ * campsites by CONTAINMENT, and that is how it has been since the first
+ * run (1 143 campsites sit inside a sea polygon). This constant is about
+ * what a campsite may be PULLED to, and about countries with no land zone.
+ *
+ * 🔴 AND THAT IS THE WHOLE RULE: containment is trusted, a link we invent is
+ * forbidden. Measured 02.11.2026 (copy of dev, 57 128 live campsites): 1 106
+ * stand inside a sea zone, 1 005 of them in one under 0.1 land — and the
+ * threshold cannot be moved to separate "shore strip" from "open sea",
+ * because BE801 "Coastal zone" is 0.076, PL "Strefa brzegowa" 0.022 and DK
+ * "Skagerraks kysten" 0.018, all BELOW "Gulf of Finland" 0.064. What the
+ * numbers do show: the 563 that stand on land are all within 2 891 m of the
+ * coast (none past 5 km, median 606 m), and the 442 "at sea" are small
+ * islands missing from the 1:10m layer. See `codesSelect` for the reasoning
+ * in full; do not reopen it without a number that is not in this paragraph.
+ */
+export const LAND_SHARE_MIN = 0.5;
+
+/**
+ * The three measurements per country, `[total, placed]`, on the SAME 57 128
+ * live campsites (a copy of the dev database, 02.11.2026). `placed` is
+ * "has at least one zone code".
+ *
+ *   BEFORE_GISCO        the previous resolver, unchanged, `--apply` on the copy
+ *   AFTER_REPLACEMENT   this resolver with GISCO gone and NO snapping
+ *                       (the run's own "placed without snapping" column)
+ *   MEASURED_AFTER_SNAP this resolver as it stands, `--apply` on the copy:
+ *                       `DATABASE_URL=… node scripts/meteoalarm/resolve-campsite-zones.mjs --apply`
+ *
+ * Kept so a red run shows what "before" was without archaeology, and so the
+ * floors below can be shown to come from a measurement.
+ */
+export const BEFORE_GISCO = Object.freeze({
+  BE: [748, 748],
+  BG: [275, 266],
+  FR: [21759, 21669],
+  HR: [642, 639],
+  HU: [615, 615],
+  RO: [567, 557],
+});
+
+/**
+ * The whole base, `[total, placed]`: the previous resolver, unchanged, on the
+ * same 57 128 live campsites. The other two columns of the whole-base line
+ * are computed by the run itself — they depend on the land layer.
+ */
+export const BEFORE_GISCO_ALL = Object.freeze([57128, 52955]);
+
+export const AFTER_REPLACEMENT = Object.freeze({
+  BE: [748, 738],
+  BG: [275, 247],
+  FR: [21759, 21217],
+  HR: [642, 638],
+  HU: [615, 612],
+  RO: [567, 556],
+});
+
+export const MEASURED_AFTER_SNAP = Object.freeze({
+  BE: [748, 748],
+  BG: [275, 271],
+  FR: [21759, 21751],
+  HR: [642, 642],
+  HU: [615, 615],
+  RO: [567, 566],
+});
+
+/**
+ * 🔴 A FLOOR IS THE MEASURED VALUE MINUS A MARGIN, NOT A ROUND NUMBER FITTED
+ * SO THE PRESENT STATE PASSES. `FLOOR_MARGIN_PP` is that margin, in
+ * percentage points of live campsites, and the self-test recomputes every
+ * floor below from `MEASURED_AFTER_SNAP` and fails if they disagree.
+ *
+ * Two points, not one: a country of 275 campsites moves a point on three of
+ * them, and an import that adds three coastal campsites farther than
+ * `SNAP_LIMIT_M` from any zone is not a broken resolver. A country losing
+ * its source is: Croatia without its counties, or France without its zones,
+ * falls by tens of points.
+ */
+export const FLOOR_MARGIN_PP = 2.0;
+
+/**
+ * 🔴 THE FLOOR PER COUNTRY, because the global one cannot see these.
+ *
+ * Croatia is 642 of 57 128 campsites. Losing every one of them moves the
+ * global share from 93.4% to 92.3% — over its 80% floor, no word printed —
+ * while a whole country has no warnings. The six below are the ones whose
+ * join changed on 02.11.2026, so they are the ones that can lose
+ * campsites without anyone noticing.
+ *
+ * Percent of live campsites with at least one zone code — measured value
+ * (from `MEASURED_AFTER_SNAP`) less `FLOOR_MARGIN_PP`, rounded down to a
+ * tenth. Each line says where its number comes from:
+ *
+ *   BE  748/748   = 100.0%  → 98.0
+ *   BG  271/275   =  98.5%  → 96.5   (GISCO gave 266/275 = 96.7%)
+ *   FR  21 751/21 759 = 100.0% → 98.0   (GISCO 21 669 = 99.6%)
+ *   HR  642/642   = 100.0%  → 98.0
+ *   HU  615/615   = 100.0%  → 98.0
+ *   RO  566/567   =  99.8%  → 97.8
+ *
+ * `AFTER_REPLACEMENT` vs `MEASURED_AFTER_SNAP` is what snapping bought:
+ * France 21 217 → 21 751, Bulgaria 247 → 271. Before it, France sat 452
+ * campsites under GISCO — 429 of the 502 it lost within a kilometre of a
+ * MeteoAlarm polygon, whose coastline is coarser. Snapping to the nearest
+ * zone of the campsite's own country, within `SNAP_LIMIT_M`, is the remedy
+ * this project already applies to its other generalised outline.
+ */
+export const COUNTRY_FLOORS = Object.freeze({ BE: 98.0, BG: 96.5, FR: 98.0, HR: 98.0, HU: 98.0, RO: 97.8 });
+
+/**
+ * 🔴 "AT LEAST ONE ZONE CODE" IS NOT "MATCHABLE" FOR CROATIA, and snapping
+ * makes that gap wider. Croatia's feed carries a dead EMMA id on every
+ * county (HR018 …) beside the NUTS3 that counts, so a Croatian campsite with
+ * only an EMMA code placed would match nothing but the six sea channels.
+ * Without the county source Croatia still shows ~100% on the line above,
+ * because snapping drags every point to an EMMA region. So the scheme that
+ * matches gets its own floor: share of the country's campsites that carry a
+ * code of that scheme. Measured 642 of 642; floor = 100.0 − 2.0.
+ */
+export const SCHEME_FLOORS = Object.freeze({ HR: { scheme: 'NUTS3', floor: 98.0, measured: [642, 642] } });
+
+/** Every country under its own floor, named, or ok. */
+export function floorsVerdict(
+  perCountry,
+  floors = COUNTRY_FLOORS,
+  before = BEFORE_GISCO,
+  schemeFloors = SCHEME_FLOORS,
+) {
+  const rows = new Map(perCountry.map((r) => [r.country, r]));
+  const under = [];
+  const table = [];
+  for (const [country, floor] of Object.entries(floors)) {
+    const row = rows.get(country);
+    if (!row || !(row.total > 0)) {
+      under.push(`${country}: no campsites were read at all`);
+      continue;
+    }
+    const placed = row.total - row.missing;
+    const share = Math.round((1000 * placed) / row.total) / 10;
+    const was = before[country];
+    table.push({
+      country,
+      total: row.total,
+      placed,
+      share,
+      floor,
+      was: was ? { total: was[0], placed: was[1], share: Math.round((1000 * was[1]) / was[0]) / 10 } : null,
+    });
+    if (share < floor) {
+      under.push(
+        `${country}: ${placed} of ${row.total} (${share}%) are placed, under its ${floor}% floor` +
+          (was ? ` — GISCO gave ${was[1]} of ${was[0]}` : ''),
+      );
+    }
+  }
+  for (const [country, { scheme, floor }] of Object.entries(schemeFloors)) {
+    const row = rows.get(country);
+    if (!row || !(row.total > 0)) continue; // already named above if it has a floor of its own
+    const missing = row[`missing${scheme}`];
+    if (missing === undefined) {
+      under.push(`${country}: how many carry a ${scheme} code was not measured`);
+      continue;
+    }
+    const have = row.total - missing;
+    const share = Math.round((1000 * have) / row.total) / 10;
+    if (share < floor) {
+      under.push(`${country}: only ${have} of ${row.total} (${share}%) carry a ${scheme} code, under its ${floor}% floor — the scheme its warnings are matched on`);
+    }
+  }
+  return under.length ? { ok: false, why: under.join('; '), table } : { ok: true, table };
+}
+
 function selfTest() {
   let rc = 0;
   const cases = [];
@@ -219,7 +511,7 @@ function selfTest() {
   };
 
   const pairs = usesPairs();
-  check(pairs.length === 22, `the census yields 22 (country, scheme) pairs, got ${pairs.length}`);
+  check(pairs.length === 21, `the map yields 21 (country, scheme) pairs, got ${pairs.length}`);
   // 🔴 Стабільний порядок: інакше диф мапи шумить, а мутація
   // «прибрати `.sort()`» непомітна.
   check(
@@ -237,29 +529,67 @@ function selfTest() {
     'an unsorted input still comes out in a settled order',
   );
 
-  // 🔴 ІНВЕРСІЯ МАПИ МУСИТЬ ДОРІВНЮВАТИ ПЕРЕПИСОВІ. Без цього випадку
-  // 21 пара з 22 не була захищена нічим.
+  // 🔴 КОЖНА ПАРА (КРАЇНА, СХЕМА) МУСИТЬ БУТИ ОБҐРУНТОВАНА. Раніше мапа
+  // інвертувалась у перепис рівно; тепер п'ять країн зіставляються за
+  // схемою, якої їхній фід не публікує, і це чесно лише доти, доки
+  // `nuts-binding.mjs` справді дописує зону до їхніх NUTS-областей.
+  const nutsCountries = new Set(Object.keys(HR_COUNTIES).map((k) => k.slice(0, 2)));
   {
-    const inverted = {};
-    for (const [country, scheme] of pairs) (inverted[scheme] ??= []).push(country);
-    for (const scheme of Object.keys(CENSUS_2026_10_13)) {
-      const want = [...CENSUS_2026_10_13[scheme]].sort().join(',');
-      const got = [...(inverted[scheme] ?? [])].sort().join(',');
-      check(got === want, `${scheme} is published by exactly the census's countries — got ${got}`);
-    }
+    const published = (c, s) => (CENSUS_2026_10_13[s] ?? []).includes(c);
+    const publishesNuts = (c) => published(c, 'NUTS2') || published(c, 'NUTS3');
+    const unsound = pairs.filter(
+      ([c, s]) => !(published(c, s) || (s === 'EMMA_ID' && publishesNuts(c) && BINDABLE.includes(c))),
+    );
     check(
-      Object.keys(inverted).sort().join(',') === Object.keys(CENSUS_2026_10_13).sort().join(','),
-      'the map names no scheme the census did not',
+      unsound.length === 0,
+      `🔴 every pair is published by the country's feed, or is an EMMA_ID tied to its NUTS by name — unsound: ${unsound.map((x) => x.join(':')).join(', ')}`,
+    );
+    check(
+      BINDABLE.every((c) => SCHEMES_USED[c]?.includes('EMMA_ID')),
+      '🔴 every country whose NUTS is tied to a zone is joined on EMMA_ID — otherwise the codes the warnings gain match nothing',
+    );
+    // Geometry exists for every pair: EMMA zones for any country, and
+    // NUTS3 only for the countries whose counties we actually draw.
+    const bare = pairs.filter(([c, s]) => !(s === 'EMMA_ID' || (s === 'NUTS3' && nutsCountries.has(c))));
+    check(bare.length === 0, `🔴 every pair has geometry behind it — none for: ${bare.map((x) => x.join(':')).join(', ')}`);
+    // A country that publishes NUTS and is neither tied by name nor drawn
+    // by OSM is a country whose warnings place nowhere.
+    const stranded = [...new Set([...(CENSUS_2026_10_13.NUTS2 ?? []), ...(CENSUS_2026_10_13.NUTS3 ?? [])])].filter(
+      (c) => !BINDABLE.includes(c) && !nutsCountries.has(c),
+    );
+    check(stranded.length === 0, `no country publishes NUTS with nothing to place it — stranded: ${stranded.join(', ')}`);
+  }
+
+  // 🔴 КІНЕЦЬ У КІНЕЦЬ, НА ЖИВИХ КОДАХ. Кемпінг, що стоїть у зоні, яку
+  // називає географія, мусить нести код, який ВИДАЄ `warningsFrom` для
+  // попередження про цей NUTS. Корпус — 88 кодів із живих фідів 02.11.2026
+  // з відповіддю з накладання полігонів, а не з імен.
+  {
+    const corpus = JSON.parse(readFileSync(path.join(here, 'nuts-live-corpus.json'), 'utf8')).entries;
+    const now = new Date('2026-11-02T12:00:00Z');
+    const unmatched = corpus.filter((e) => {
+      const country = e.code.slice(0, 2);
+      const infos = e.names.map((name, i) => ({
+        language: i === 0 ? 'en-GB' : `x${i}`,
+        event: 'Wind',
+        headline: 'Wind warning',
+        expires: '2026-11-03T00:00:00Z',
+        parameter: [
+          { valueName: 'awareness_level', value: '3; orange; Severe' },
+          { valueName: 'awareness_type', value: '1; Wind' },
+        ],
+        area: [{ areaDesc: name, geocode: [{ valueName: e.scheme, value: e.code }] }],
+      }));
+      const out = warningsFrom({ warnings: [{ alert: { identifier: 'T', info: infos } }] }, 'x', now);
+      const warned = new Set((out.kept[0]?.areas ?? []).flatMap((a) => a.codes).map((c) => c.toLowerCase()));
+      const spot = (SCHEMES_USED[country] ?? []).map((sch) => `${sch}:${e.zone}`.toLowerCase());
+      return !spot.some((c) => warned.has(c));
+    });
+    check(
+      unmatched.length === 0,
+      `🔴 a campsite in the zone geography names holds a code the warning carries: ${corpus.length - unmatched.length} of ${corpus.length} live NUTS codes — unmatched: ${unmatched.map((e) => e.code).join(',')}`,
     );
   }
-  check(
-    pairs.some(([c, s]) => c === 'FR' && s === 'NUTS3'),
-    'France is joined on NUTS3 — the scheme its own feed publishes',
-  );
-  check(
-    !pairs.some(([c, s]) => c === 'FR' && s === 'EMMA_ID'),
-    '🔴 France must NOT be joined on EMMA_ID: 97.5% of its campsites sit inside those polygons and none of its warnings name them',
-  );
   for (const silent of SILENT) {
     check(
       !(silent in SCHEMES_USED),
@@ -301,23 +631,46 @@ function selfTest() {
   }
   check(!('FIPS' in USED_SOURCES), 'FIPS is 8 occurrences and 40.7 MB of a border-inaccurate source');
   check(!('WARNCELLID' in USED_SOURCES), 'WARNCELLID has no geometry source to download');
+  check(!('NUTS2' in USED_SOURCES), 'NUTS2 has no geometry source any more: Belgium and Hungary are joined on EMMA_ID');
+  // 🔴 ЛІЦЕНЗІЯ, А НЕ СМАК. EuroGeographics: «the data will not be used for
+  // commercial purposes» — заміряно 02.11.2026 на всіх семи випусках
+  // GISCO NUTS. Жодне джерело, з якого цей скрипт тягне полігони, не
+  // сміє вказувати туди.
+  check(
+    Object.values(USED_SOURCES).every((src) => !/gisco|eurogeographics|europa\.eu/i.test(src.url)),
+    '🔴 no source this resolver downloads is GISCO / EuroGeographics',
+  );
+  check(
+    Object.values(USED_SOURCES).every((src) => !OBSOLETE_CACHE.includes(src.file)),
+    '🔴 no source is cached under a name an old GISCO run left on the server',
+  );
+  check(
+    OBSOLETE_CACHE.includes('NUTS3.json') && OBSOLETE_CACHE.includes('NUTS2.json'),
+    'the cache names the GISCO runs used are marked for removal',
+  );
   // 🔴 Поля джерел НІХТО не читав, тож `idField: 'code' → 'XXXX'` і
   // `zones: 2006 → 1` переживали прогін: об'єкт був інертний, окрім
   // двох перевірок `in`. Завантажувач, який прийде за цим PR, читатиме
   // саме їх.
   for (const [scheme, src] of Object.entries(USED_SOURCES)) {
     check(
-      /^https:\/\/\S+$/.test(src.url) && src.idField.length > 0 && src.zones > 0,
-      `${scheme} names an https source, the property its codes live in, and how many zones it had`,
+      /^https:\/\/\S+$/.test(src.url) && src.idField.length > 0 && src.zones > 0 && src.file.endsWith('.json'),
+      `${scheme} names an https source, the property its codes live in, how many zones it had and a cache file`,
     );
   }
   check(USED_SOURCES.EMMA_ID.idField === 'code', 'EMMA zones carry their code in `code`');
-  check(USED_SOURCES.NUTS3.idField === 'NUTS_ID', 'NUTS zones carry theirs in `NUTS_ID`');
+  check(USED_SOURCES.NUTS3.idField === 'NUTS_ID', 'the county features carry their NUTS code in `NUTS_ID`');
   check(
-    USED_SOURCES.EMMA_ID.zones === 2006 &&
-      USED_SOURCES.NUTS3.zones === 1480 &&
-      USED_SOURCES.NUTS2.zones === 320,
-    'the zone counts are the ones measured on 13.10.2026',
+    USED_SOURCES.EMMA_ID.zones === 2006 && USED_SOURCES.NUTS3.zones === 21,
+    'the zone counts are the ones measured: 2 006 EMMA zones (13.10.2026) and 21 Croatian counties (02.11.2026)',
+  );
+  check(
+    USED_SOURCES.NUTS3.zones === Object.keys(HR_COUNTIES).length,
+    'the county source expects exactly the counties `osm-hr-counties.mjs` lists',
+  );
+  check(
+    typeof USED_SOURCES.NUTS3.select === 'function' && USED_SOURCES.NUTS3.headers['User-Agent'].includes('camptribe'),
+    'the county source filters what OSM vouches for and says who is asking',
   );
 
   const collection = {
@@ -336,9 +689,28 @@ function selfTest() {
   // `JSON.stringify` — остання робила кожен рядок `[object Object]`, і
   // ніхто цього не читав.
   check(
-    made.lines[0] === 'EMMA_ID\tBE001\t{"type":"Polygon","coordinates":[]}',
+    made.lines[0] === 'EMMA_ID\tBE001\t{"type":"Polygon","coordinates":[]}\tBE',
     `the row is scheme, then code, then the geometry as JSON — got ${made.lines[0]}`,
   );
+
+  // 🔴 The country column is what snapping is allowed to look at. It is the
+  // source's own field when the source has one (an `EI…` zone is Irish), the
+  // code's first two letters when it has not, and always letters only.
+  {
+    const zone = (code, country) => ({ properties: { code, country }, geometry: { type: 'Point', coordinates: [0, 0] } });
+    const col = (line) => line.split('\t')[3];
+    check(col(rowsFrom({ features: [zone('EI001', 'IE')] }, 'EMMA_ID', 'code', 'country').lines[0]) === 'IE',
+      '🔴 the country comes from the source\'s field, not from the code prefix (EI001 is Irish)');
+    check(col(rowsFrom({ features: [zone('EI001', 'IE')] }, 'EMMA_ID', 'code').lines[0]) === 'EI',
+      'and without a country field it is the code prefix — which is why EMMA must name the field');
+    check(USED_SOURCES.EMMA_ID.countryField === 'country', 'EMMA names its country field');
+    check(col(rowsFrom({ features: [zone('FR001', 'fr')] }, 'EMMA_ID', 'code', 'country').lines[0]) === 'FR',
+      'the country is upper-cased');
+    check(rowsFrom({ features: [zone('FR001', 'F\tR')] }, 'EMMA_ID', 'code', 'country').lines[0].split('\t').length === 4,
+      '🔴 a country with a tab in it cannot add a column');
+    check(col(rowsFrom({ features: [zone('FR001', undefined)] }, 'EMMA_ID', 'code', 'country').lines[0]) === '',
+      'a zone with no country is kept, with an empty one — it still answers containment, never snapping');
+  }
 
   const spaced = rowsFrom(
     { features: [{ properties: { code: '  BE001  ' }, geometry: { type: 'Polygon', coordinates: [] } }] },
@@ -358,8 +730,8 @@ function selfTest() {
     'code',
   );
   check(
-    tabbed.lines.length === 1 && tabbed.lines[0].split('\t').length === 3,
-    'a geometry holding a tab character still produced exactly three columns',
+    tabbed.lines.length === 1 && tabbed.lines[0].split('\t').length === 4,
+    'a geometry holding a tab character still produced exactly four columns',
   );
 
   // 🔴 ВХІДНИЙ ПОРЯДОК НАВМИСНО НЕ ЗБІГАЄТЬСЯ З ОЧІКУВАНИМ. Перша
@@ -404,10 +776,115 @@ function selfTest() {
   check(v.short[0].country === 'SE', 'the largest shortfall is named first');
   check(verdict(0, 0, []).ok === false, '🔴 reading no campsites at all is a failure, not 0%');
 
-  // 🔴 Літерал, і він спіймав мене тричі за цю сесію. Лічба: 3 про
-  // схеми + 7 мовчазних + 5 про область + 7 про джерела + 5 про рядки +
-  // 12 про вирок + 2 про порядок + 4 про інверсію перепису = 45.
-  const EXPECTED_CASES = 45;
+  // 🔴 СТОРОЖ НА МОВЧАЗНУ ВТРАТУ ПОКРИТТЯ, ПО КРАЇНАХ. Глобальна підлога
+  // не бачить країну в 642 кемпінги: заміряно нижче, 57 128 живих.
+  {
+    const share = (a) => Math.round((1000 * a[1]) / a[0]) / 10;
+    // Рядки `{country, total, missing}` — з ВИМІРЯНОГО, не з моїх чисел.
+    const rowsOf = (m) =>
+      Object.entries(m).map(([country, [total, placed]]) => ({
+        country,
+        total,
+        missing: total - placed,
+        // Скільки не несуть код NUTS3 — для Хорватії підлога є окремо.
+        missingNUTS3: country === 'HR' ? 0 : undefined,
+      }));
+    const AFTER = rowsOf(MEASURED_AFTER_SNAP);
+
+    // 🔴 КОЖНА ПІДЛОГА — ЗАМІРЯНЕ МІНУС ЗАПАС, а не число, підігнане під
+    // теперішній стан. Перераховується тут з тих самих чисел, що в коментарі.
+    for (const [country, floor] of Object.entries(COUNTRY_FLOORS)) {
+      const want = Math.floor((share(MEASURED_AFTER_SNAP[country]) - FLOOR_MARGIN_PP) * 10 + 1e-9) / 10;
+      check(floor === want, `${country}: floor ${floor} is the measured ${share(MEASURED_AFTER_SNAP[country])}% less ${FLOOR_MARGIN_PP} points = ${want}`);
+    }
+    check(FLOOR_MARGIN_PP === 2.0, 'the margin is two percentage points, written once');
+    check(
+      Object.keys(MEASURED_AFTER_SNAP).every(
+        (c) => AFTER_REPLACEMENT[c][1] <= MEASURED_AFTER_SNAP[c][1] && MEASURED_AFTER_SNAP[c][1] <= MEASURED_AFTER_SNAP[c][0] &&
+          AFTER_REPLACEMENT[c][0] === MEASURED_AFTER_SNAP[c][0] && BEFORE_GISCO[c][0] === MEASURED_AFTER_SNAP[c][0],
+      ),
+      'the three measurements share one denominator per country, and snapping only ever adds',
+    );
+    check(
+      SCHEME_FLOORS.HR.floor === Math.floor((100 * (SCHEME_FLOORS.HR.measured[1] / SCHEME_FLOORS.HR.measured[0]) - FLOOR_MARGIN_PP) * 10 + 1e-9) / 10,
+      'the Croatian NUTS3 floor is its measured 642 of 642 less the same margin',
+    );
+
+    const ok = floorsVerdict(AFTER);
+    check(ok.ok === true, `the six countries as measured on 02.11.2026 pass their floors: ${ok.why ?? ''}`);
+    check(
+      ok.table.map((t) => `${t.country} ${t.placed}/${t.total}`).join() ===
+        'BE 748/748,BG 271/275,FR 21751/21759,HR 642/642,HU 615/615,RO 566/567',
+      'the table is the measured numerator over its denominator, per country',
+    );
+    check(
+      Object.keys(COUNTRY_FLOORS).join() === 'BE,BG,FR,HR,HU,RO' &&
+        Object.keys(BEFORE_GISCO).join() === Object.keys(COUNTRY_FLOORS).join(),
+      'exactly the six whose join changed have a floor and a before-figure',
+    );
+
+    // 🔴 Хорватія ціла зникає, а глобальна частка цього не помічає.
+    const croatiaGone = AFTER.map((r) => (r.country === 'HR' ? { ...r, missing: r.total, missingNUTS3: r.total } : r));
+    const globalPlaced = 53358 - 642;
+    const g = verdict(57128, globalPlaced, croatiaGone);
+    const f = floorsVerdict(croatiaGone);
+    check(g.ok === true, `🔴 with all of Croatia gone the GLOBAL verdict still says ok at ${g.share}% — that is the hole`);
+    check(f.ok === false && /^HR: 0 of 642 \(0%\)/.test(f.why), `🔴 …and the per-country floor names it: ${f.why}`);
+
+    // 🔴 І ДІРА, ЯКУ ПІДТЯГУВАННЯ ВІДКРИЛО: Хорватія без повітів OSM лишається
+    // «розташованою» на 100%, бо кожну точку підтягнуто до регіону EMMA. Її
+    // попередження ж ходять по NUTS3.
+    const noCounties = AFTER.map((r) => (r.country === 'HR' ? { ...r, missingNUTS3: r.total } : r));
+    const h = floorsVerdict(noCounties);
+    check(
+      h.ok === false && /^HR: only 0 of 642 \(0%\) carry a NUTS3 code/.test(h.why),
+      `🔴 Croatia with every point placed but none on a county is caught by its scheme floor: ${h.why}`,
+    );
+    check(
+      floorsVerdict(AFTER.map((r) => (r.country === 'HR' ? { ...r, missingNUTS3: undefined } : r))).ok === false,
+      'and "not measured" is a failure, not a pass',
+    );
+    check(
+      floorsVerdict(AFTER.map((r) => (r.country === 'HR' ? { ...r, missingNUTS3: 12 } : r))).ok === true,
+      'twelve Croatian campsites off a county (1.9%) are within the margin',
+    );
+    check(
+      floorsVerdict(AFTER.map((r) => (r.country === 'HR' ? { ...r, missingNUTS3: 14 } : r))).ok === false,
+      '🔴 …and fourteen (2.2%) are not: the scheme floor binds on its own',
+    );
+
+    // Кожна підлога тримає САМА: країна рівно на підлозі проходить, на
+    // один відсоток нижче — ні. Без цього мутація «підлога 0» на одній
+    // країні лишалась би непоміченою.
+    for (const [country, floor] of Object.entries(COUNTRY_FLOORS)) {
+      const row = AFTER.find((r) => r.country === country);
+      const placedAt = (sh) => Math.ceil((sh / 100) * row.total);
+      const at = AFTER.map((r) => (r === row ? { ...r, missing: r.total - placedAt(floor) } : r));
+      const below = AFTER.map((r) => (r === row ? { ...r, missing: r.total - placedAt(floor) + Math.ceil(row.total / 100) } : r));
+      check(floorsVerdict(at).ok === true, `${country} exactly at its ${floor}% floor passes`);
+      const v2 = floorsVerdict(below);
+      check(v2.ok === false && v2.why.startsWith(`${country}:`), `${country} a point under its floor is named: ${v2.why ?? 'passed'}`);
+    }
+
+    check(
+      floorsVerdict(AFTER.filter((r) => r.country !== 'FR')).ok === false &&
+        /FR: no campsites were read at all/.test(floorsVerdict(AFTER.filter((r) => r.country !== 'FR')).why),
+      '🔴 a country that vanished from the report is a failure, not a pass',
+    );
+    check(
+      floorsVerdict([...AFTER.filter((r) => r.country !== 'BG'), { country: 'BG', total: 0, missing: 0 }]).ok === false,
+      'a country with no campsites at all is a failure, not 100% of nothing',
+    );
+    check(
+      /GISCO gave 266 of 275/.test(floorsVerdict(AFTER.map((r) => (r.country === 'BG' ? { ...r, missing: 275 } : r))).why),
+      'and the refusal puts the old figure beside the new one',
+    );
+  }
+
+  // 🔴 Літерал, і він ловить випадок, що перестав досягатись: такий
+  // друкує те саме, що друкує випадок, який пройшов. 45 до 02.11.2026,
+  // 88 після заміни GISCO й підтягування (`node … --self-test` рахує сам).
+  const EXPECTED_CASES = 88;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ REHEARSAL FAILED: ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;

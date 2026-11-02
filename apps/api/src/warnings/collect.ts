@@ -17,7 +17,12 @@ export interface CollectDeps {
     payload: unknown,
     country: string,
     now: Date,
-  ) => { kept: Warning[]; seen?: number };
+  ) => {
+    kept: Warning[];
+    seen?: number;
+    /** NUTS-коди, що не знайшли зони MeteoAlarm (`nuts-binding.mjs`). */
+    unbound?: Array<{ code: string; why: string }>;
+  };
   /** Детектор «прогін побачив блоки й не лишив жодного» з фетчера. */
   yieldLooksBroken?: (x: {
     only: string | null;
@@ -44,6 +49,13 @@ export interface CollectResult {
   calls: number;
   /** Країни, фід яких не відповів. Порожньо — усі відповіли. */
   failed: string[];
+  /**
+   * 🔴 NUTS-коди, що не знайшли зони MeteoAlarm. Кемпінг несе зону, тож
+   * попередження про такий код не дійде до жодного кемпінга — і мовчки,
+   * бо код виглядає робочим. Рецензія: три брабантські регіони Бельгії
+   * друкували рядок і давали код виходу 0.
+   */
+  unbound: Array<{ country: string; code: string; why: string }>;
 }
 
 /**
@@ -63,6 +75,7 @@ export async function collect(deps: CollectDeps): Promise<CollectResult> {
   const now = deps.now();
   const warnings: Warning[] = [];
   const failed: string[] = [];
+  const unbound: CollectResult['unbound'] = [];
   let calls = 0;
   let seen = 0;
 
@@ -78,6 +91,7 @@ export async function collect(deps: CollectDeps): Promise<CollectResult> {
       const made = deps.warningsFrom(payload, country, now);
       seen += made.seen ?? 0;
       warnings.push(...made.kept);
+      for (const u of made.unbound ?? []) unbound.push({ country, ...u });
     } catch {
       failed.push(country);
     }
@@ -91,6 +105,7 @@ export async function collect(deps: CollectDeps): Promise<CollectResult> {
     },
     calls,
     failed,
+    unbound,
     looksBroken: broken({ only: null, seen, kept: warnings.length }),
   };
 }
