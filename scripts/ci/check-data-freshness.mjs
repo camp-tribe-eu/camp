@@ -240,6 +240,14 @@ const ISO = `'YYYY-MM-DD"T"HH24:MI:SS"Z"'`;
  * нього давали б довільну з двох, і лист щоранку називав би то Іспанію,
  * то Францію без жодної зміни в даних. Сторож, чиє повідомлення гуляє
  * саме по собі, вчить не вірити його словам.
+ *
+ * 🔴 `NULLS LAST`, а не `NULLS FIRST` — зауваження рецензії, і воно слушне.
+ * `min(m)` мітки NULL ПРОПУСКАЄ. З `NULLS FIRST` упорядкування робило б
+ * навпаки: назвало б групу, у якої мітка NULL, тоді як дата в тому ж
+ * рядку показувала б найстарішу СЕРЕД НЕПОРОЖНІХ. Ім'я й дата розійшлись
+ * би, і рядок звіту став би внутрішньо суперечливим — найгірший стан для
+ * сторожа, бо виглядає він при цьому цілком здоровим.
+ * `NULLS LAST` ставить ім'я під те саме правило, що й дату.
  */
 export const probeSql = (s) =>
   s.groupBy
@@ -247,7 +255,7 @@ export const probeSql = (s) =>
       `FROM ${s.table} GROUP BY ${s.groupBy}) ` +
       `SELECT (SELECT count(*) FROM ${s.table}), ` +
       `to_char((SELECT min(m) FROM g) AT TIME ZONE 'UTC', ${ISO}), ` +
-      `(SELECT k FROM g ORDER BY m ASC NULLS FIRST, k ASC LIMIT 1)`
+      `(SELECT k FROM g ORDER BY m ASC NULLS LAST, k ASC LIMIT 1)`
     : `SELECT count(*), to_char(max(${s.column}) AT TIME ZONE 'UTC', ${ISO}) FROM ${s.table}`;
 
 /** Живе читання через psql — він є на машині (Postgres локальний). */
@@ -436,8 +444,17 @@ function selfTest() {
   t('🔴 запит із groupBy бере найстарішу з найновіших міток груп',
     grouped.includes('min(m)') && grouped.includes('max(cc) AS m') && grouped.includes('GROUP BY g'), true);
   // 🔴 Без третього поля лист знову звинувачуватиме таблицю цілком.
+  //
+  // ⚠️ МЕЖА ЦЬОГО СТОРОЖА, названа рецензією і названа тут навмисно.
+  // Детермінованість (`k ASC`) стережеться лише ТЕКСТОМ запиту, а не
+  // поведінкою: прибравши `, k ASC` тільки з запиту, тест на справжній
+  // базі лишився зеленим 4 прогони з 4 — Postgres випадково повертав ту
+  // саму групу. Нав'язати йому інший порядок при однакових мітках ми не
+  // можемо, тож поведінкового доказу тут не буде в принципі.
+  // Текстова перевірка — це стеля, а не лінощі; хто її послабить,
+  // лишить проєкт зовсім без сторожа на цю властивість.
   t('🔴 запит із groupBy повертає ІМʼЯ найстарішої групи, впорядкованої за віком',
-    grouped.includes('(g)::text AS k') && grouped.includes('ORDER BY m ASC NULLS FIRST, k ASC LIMIT 1'), true);
+    grouped.includes('(g)::text AS k') && grouped.includes('ORDER BY m ASC NULLS LAST, k ASC LIMIT 1'), true);
   t('🔴 рядків рахуємо по ВСІЙ таблиці, а не по найстарішій групі',
     grouped.includes('(SELECT count(*) FROM tt)'), true);
   t('🔴 ціни пального читаються по джерелах — інакше мертва Італія ховається за живою Іспанією',
