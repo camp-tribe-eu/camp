@@ -123,9 +123,22 @@ export function merge(
     } else {
       const before = (next.amenities ?? {}) as Record<string, unknown>;
       const after: Record<string, unknown> = { ...before };
-      for (const [k, v] of Object.entries(patch.amenities ?? {})) {
-        if (v === null) delete after[k];
-        else after[k] = v;
+      // 🔴 ІДЕМО ПО СВОЄМУ ПЕРЕЛІКУ, А НЕ ПО КЛЮЧАХ КОРИСТУВАЧА.
+      //
+      // CodeQL знайшов тут `js/remote-property-injection`, двічі high, і
+      // мав рацію по суті: ім'я властивості, у яку пишемо, походило з
+      // тіла запиту. Сьогодні це безпечно лише тому, що `faults()`
+      // відкидає все поза `AMENITY_KEYS` — але гарантія жила в
+      // ВИКЛИКАЧЕВІ, а не тут. Другий виклик без перевірки — і
+      // `__proto__` чи `constructor` приїхали б у `delete`/присвоєння.
+      //
+      // Тепер ключ може бути лише одним із десяти власних літералів, і
+      // функція безпечна сама по собі, а не за домовленістю.
+      const given = (patch.amenities ?? {}) as Record<string, unknown>;
+      for (const k of AMENITY_KEYS) {
+        if (!Object.prototype.hasOwnProperty.call(given, k)) continue;
+        if (given[k] === null) delete after[k];
+        else after[k] = given[k];
       }
       // Остання прибрана зручність забирає й сам об'єкт: порожній
       // `amenities: {}` нічого не означає й лише плутає читача дампу.

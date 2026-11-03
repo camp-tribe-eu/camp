@@ -147,4 +147,34 @@ describe('накладання правки', () => {
   it('WRITABLE — рівно два поля, і це саме ті, що зливає сторінка', () => {
     expect([...WRITABLE]).toEqual(['name', 'amenities']);
   });
+
+  // 🔴 merge() БЕЗПЕЧНА САМА ПО СОБІ, А НЕ ЗА ДОМОВЛЕНІСТЮ З ВИКЛИКАЧЕМ.
+  //
+  // CodeQL знайшов тут `js/remote-property-injection`, двічі high: ім'я
+  // властивості, у яку пишемо, походило з тіла запиту. Сьогодні перед
+  // нею завжди стоїть `faults()` — але гарантія жила в ІНШІЙ функції, і
+  // другий виклик без перевірки зняв би її мовчки.
+  it('🔴 вигадані ключі не долітають навіть повз faults()', () => {
+    expect(
+      merge({}, { amenities: { jacuzzi: 'yes', shower: 'yes' } } as never),
+    ).toEqual({ amenities: { shower: 'yes' } });
+  });
+
+  it('🔴 __proto__ і constructor не записуються й нічого не псують', () => {
+    const out = merge({}, {
+      amenities: { __proto__: 'yes', constructor: 'yes' },
+    } as never);
+    expect(out).toEqual({});
+    expect(Object.prototype.hasOwnProperty.call(out, '__proto__')).toBe(false);
+    // І прототип самого Object лишився незайманим.
+    expect(({} as Record<string, unknown>).jacuzzi).toBeUndefined();
+  });
+
+  it('успадковане від прототипу теж не рахується як правка', () => {
+    const inherited = Object.create({ shower: 'yes' }) as Record<
+      string,
+      unknown
+    >;
+    expect(merge({}, { amenities: inherited } as never)).toEqual({});
+  });
 });
