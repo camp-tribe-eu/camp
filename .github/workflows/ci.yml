@@ -532,9 +532,9 @@ jobs:
       # Scale-воркфлоу тримає свій нуль; docs/scale-check.md каже решту.
       #
       # 🔴 І тутешнє «23 `test.skip` sites» було неправдою: тим самим
-      # інструментом на тому ж коміті їх 27, а сьогодні 36. Число в
+      # інструментом на тому ж коміті їх 29, а сьогодні 38. Число в
       # коментарі не вміє старіти вголос — тепер рахує
-      # scripts/ci/check-e2e-skips.mjs.
+      # scripts/ci/check-e2e-skips.mjs: 29 тоді, 38 сьогодні.
       # 🔴 CAMP-285/286: the step reads the self-test's own output.
       # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
       # so a failing node on the left of a pipe is invisible. The grepped

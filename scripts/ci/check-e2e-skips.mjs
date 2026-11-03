@@ -12,14 +12,14 @@
 //    green over an e2e test that declined to run.»
 //
 // 🔴 І САМЕ «23» НЕ ВІДТВОРЮЄТЬСЯ. Цим сторожем, напущеним на той самий
-// коміт, де рядок зʼявився (1c74ae1), місць **27**, а не 23. Тобто число
+// коміт, де рядок зʼявився (1c74ae1), місць **29**, а не 23. Тобто число
 // в документі міряли лінійкою, якої ніхто не записав, — рівно те, про що
 // каже закон «число бреше, поки його не розсудив хтось ззовні».
 //
 // Однією лінійкою, цим файлом:
 //
-//   1c74ae1  файлів e2e 23, місць пропуску 27
-//   сьогодні файлів e2e 46, місць пропуску 36
+//   1c74ae1  файлів e2e 23, місць пропуску 29
+//   сьогодні файлів e2e 46, місць пропуску 38
 //
 // Файлів удвічі більше, пропусків +9. Тобто тести росли швидше за
 // пропуски — але ніхто цього не знав, бо ніхто не рахував. Речення в
@@ -77,9 +77,29 @@ export function specFiles(dir = E2E) {
  * 🔴 Рахуємо ВХОДЖЕННЯ, а не рядки: `test.skip(` з переносом аргументів
  * займає кілька рядків, і підрахунок рядків дав би менше, ніж є.
  */
+export const SKIP_CALL =
+  /\b(?:testInfo\.(?:skip|fixme)|test\.describe\.(?:skip|fixme)|test\.(?:skip|fixme))\s*\(/g;
+
 export function skipsIn(source) {
-  return [...source.matchAll(/\btest\.(?:skip|fixme)\s*\(/g)].length;
+  return [...source.matchAll(new RegExp(SKIP_CALL.source, 'g'))].length;
 }
+
+// 🔴 ЦЕЙ ПЕРЕЛІК ФОРМ — НЕ ПРИКРАСА, ЙОГО БРАК КОШТУВАВ ЖИВОГО ОБХОДУ.
+//
+// Перша версія знала лише `test.skip(`. Рецензія знайшла в дереві ДВА
+// справжні пропуски, яких вона не бачила:
+//
+//   apps/web/tests/e2e/error-reporting.spec.ts:72   testInfo.skip(…)
+//   apps/web/tests/e2e/rate-limit.spec.ts:75        testInfo.skip(…)
+//
+// Кожен знімає цілий `describe` на пʼяти проєктах із шести. Тобто
+// «36» було насправді 38, а бюджет мав обхід: дописаний `testInfo.skip(`
+// проходив із exit 0, той самий пропуск як `test.skip(` — ні. Сторож,
+// повз якого є дорога, стереже лише тих, хто про неї не знає.
+//
+// Гірше: мій же самотест це ОСВЯЧУВАВ випадком «чужий skip не
+// рахується», тобто доводив, що сліпота — задум. Межа, названа в коді
+// (про коментарі), була не та, що боліла.
 
 // 🔴 МЕЖА ЦЬОГО ІНСТРУМЕНТА, НАЗВАНА, А НЕ ЗАМОВЧАНА.
 //
@@ -124,8 +144,33 @@ export function verdict(total, budget) {
   return { ok: true, why: 'same' };
 }
 
+// 🔴 ЗІПСОВАНИЙ ФАЙЛ БЮДЖЕТУ — ЦЕ ЗБІЙ, А НЕ «БЮДЖЕТ undefined».
+//
+// Рецензія: з ключем `max_skips` замість `maxSkips` сторож друкував
+// «✓ пропусків у e2e 38, бюджет undefined: не виріс» і виходив 0 —
+// бо `38 > undefined` це `false`. А `--update` на тому ж файлі писав
+// «✓ бюджет опущено: undefined → 38», тобто ПІДНІМАВ його до 38.
+// Зіпсований файл спершу давав зелене, а потім сам себе «лікував»
+// угору. Порівняння з `undefined` мовчазно хибне в обидва боки.
+export function budgetFrom(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`бюджет не читається як JSON: ${e.message}`);
+  }
+  const n = parsed?.maxSkips;
+  if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) {
+    throw new Error(
+      `у бюджеті немає числа maxSkips (прочитано ${JSON.stringify(n)}) — ` +
+        'порівняння з ним було б мовчазно хибним',
+    );
+  }
+  return n;
+}
+
 function readBudget() {
-  return JSON.parse(readFileSync(BUDGET_FILE, 'utf8')).maxSkips;
+  return budgetFrom(readFileSync(BUDGET_FILE, 'utf8'));
 }
 
 function main(argv) {
@@ -172,7 +217,21 @@ function selfTest() {
     ['і з переносом аргументів', skipsIn('test.skip(\n  a,\n  "b",\n);'), 1],
     ['🔴 рахує ВХОДЖЕННЯ, а не рядки', skipsIn('test.skip(\n a,\n "b");\ntest.skip(c,"d");'), 2],
     ['fixme теж', skipsIn('test.fixme(a, "b");'), 1],
-    ['чужий skip не рахується', skipsIn('describe.skip("x", f); page.skip();'), 0],
+    ['чужий skip не рахується', skipsIn('page.skip(); foo.test.skipped(x);'), 0],
+    ['🔴 testInfo.skip — справжній пропуск (error-reporting.spec.ts:72)',
+      skipsIn('testInfo.skip(testInfo.project.name !== "chromium-desktop");'), 1],
+    ['🔴 testInfo.skip із причиною (rate-limit.spec.ts:75)',
+      skipsIn('    testInfo.skip(\n      a !== b,\n      "server behaviour",\n    );'), 1],
+    ['🔴 test.describe.skip знімає цілий блок — теж місце',
+      skipsIn('test.describe.skip("усе це", () => {});'), 1],
+    ['testInfo.fixme теж', skipsIn('testInfo.fixme(a, "b");'), 1],
+    ['🔴 зіпсований ключ — збій, а не «бюджет undefined»',
+      (() => { try { budgetFrom('{"max_skips": 36}'); return 'пройшло'; }
+               catch { return 'впало'; } })(), 'впало'],
+    ['🔴 не-JSON — теж збій',
+      (() => { try { budgetFrom('{'); return 'пройшло'; } catch { return 'впало'; } })(), 'впало'],
+    ['справний бюджет читається', budgetFrom('{"maxSkips": 38}'), 38],
+    ['нуль — законний бюджет', budgetFrom('{"maxSkips": 0}'), 0],
     ['🔴 згадка без дужки (справжній випадок з site-map-attribution) — не місце',
       skipsIn('// ДИФЕРЕНЦІЙНО, а не `test.skip`: там, де мапи бути не може'), 0],
     ['а от у коментарі з дужкою — порахується, і це відома межа',
@@ -208,5 +267,12 @@ const invokedDirectly =
 
 if (invokedDirectly) {
   const argv = process.argv.slice(2);
-  process.exit(argv.includes('--self-test') ? selfTest() : main(argv));
+  if (argv.includes('--self-test')) process.exit(selfTest());
+  try {
+    process.exit(main(argv));
+  } catch (e) {
+    // Стек тут нічого не додає: причина завжди в одному файлі бюджету.
+    console.error(`✗ ${e.message}`);
+    process.exit(1);
+  }
 }

@@ -87,14 +87,24 @@ with that one ruler, on both trees:
 
 | | files in `tests/e2e` | `test.skip` sites |
 |---|---|---|
-| `1c74ae1`, where the "23" was written | 23 | **27** |
-| today | 46 | **36** |
+| `1c74ae1`, where the "23" was written | 23 | **29** |
+| today | 46 | **38** |
 
-🔴 **The "23" does not reproduce.** The same commit measures 27 under the
+🔴 **The "23" does not reproduce.** The same commit measures 29 under the
 guard, so the old figure came from a ruler nobody recorded — most likely
-`grep -c` over lines, which counts a `test.skip` mentioned inside a
-comment and misses nothing else. On one ruler the real story is milder
+`grep -c` over lines, which counts a `test.skip` written inside a comment
+and misses `testInfo.skip` entirely. On one ruler the real story is milder
 than the prose implied: the suite doubled, the skips grew by nine.
+
+🔴 **And the guard's own first ruler was wrong too, which is why both
+numbers here are its second.** It began by knowing only `test.skip(`, and
+an adversarial review found two real skips in the tree it could not see —
+`error-reporting.spec.ts:72` and `rate-limit.spec.ts:75`, both
+`testInfo.skip`, each taking out a whole `describe` on five projects of
+six. So "36" was 38, and the budget had a live bypass: the same skip
+written as `testInfo.skip(` passed, written as `test.skip(` failed. Every
+figure on this page was re-measured with the corrected instrument on both
+trees, rather than comparing an old count with a new one.
 
 **And the gate the paragraph actually asked for now exists too.** The old
 text said the scale gate "is not yet on `ci.yml`'s e2e suite" because
