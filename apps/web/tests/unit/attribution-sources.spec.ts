@@ -471,6 +471,7 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
   ),
   "drm.de": because(
     "the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list",
+    "apps/api/src/rental/camper-types.seed.json",
     "apps/api/src/rental/provider-countries.json",
     "apps/api/src/rental/providers.seed.json",
   ),
@@ -504,6 +505,7 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
   ),
   "help.paulcamper.com": because(
     "the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list",
+    "apps/api/src/rental/camper-types.seed.json",
     "apps/api/src/rental/providers.seed.json",
   ),
   "hisanakolesih.com": because(
@@ -512,6 +514,7 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
   ),
   "indiecampers.com": because(
     "the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list",
+    "apps/api/src/rental/camper-types.seed.json",
     "apps/api/src/rental/provider-countries.json",
     "apps/api/src/rental/providers.seed.json",
   ),
@@ -593,6 +596,7 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
   ),
   "touringcars.com": because(
     "the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list",
+    "apps/api/src/rental/camper-types.seed.json",
     "apps/api/src/rental/provider-countries.json",
     "apps/api/src/rental/providers.seed.json",
   ),
@@ -618,6 +622,7 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
   ),
   "yescapa.com": because(
     "the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list",
+    "apps/api/src/rental/camper-types.seed.json",
     "apps/api/src/rental/provider-countries.json",
     "apps/api/src/rental/providers.seed.json",
   ),

@@ -245,6 +245,9 @@
           "berths": 5,
           "beltedSeats": 5,
           "lengthCm": 490,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "VW T6.1 California Beach — Campervan Hire",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/vehicles/beach-hostel/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -254,6 +257,9 @@
           "berths": 2,
           "beltedSeats": 4,
           "lengthCm": 599,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Sprinter-type Campervan",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/vehicles/couple-cottage/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -263,6 +269,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 599,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "medium-sized sprinter-type campervan",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/vehicles/family-finca/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -272,6 +281,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 541,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Sprinter-type Campervan",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/vehicles/road-house/",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -387,6 +399,9 @@
           "berths": 2,
           "beltedSeats": 4,
           "lengthCm": 590,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "one box with no separate cab section",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://indiecampers.com/discover/en-gb/campervans/eu-active-standard",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -396,6 +411,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 500,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Iconic Volkswagen — California Standard",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://indiecampers.com/discover/en-gb/campervans/eu-california-standard",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -405,6 +423,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 600,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "a campervan, a factory van conversion",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://indiecampers.com/discover/en-gb/campervans/eu-grandcalifornia-standard",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -414,6 +435,9 @@
           "berths": 5,
           "beltedSeats": 5,
           "lengthCm": 660,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "Class C RV",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://indiecampers.com/discover/en-gb/campervans/eu-family-plus",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -620,6 +644,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 490,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Camper van — Volkswagen California T6.1",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.blacksheep-van.com/en/our-campervans/california-comfort/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -629,6 +656,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 640,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "this converted van",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.blacksheep-van.com/en/our-campervans/explorer-4/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -638,6 +668,9 @@
           "berths": 5,
           "beltedSeats": 5,
           "lengthCm": 490,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Camper van — Volkswagen California Beach T6.1",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.blacksheep-van.com/en/our-campervans/campervan-beach/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -647,6 +680,9 @@
           "berths": 2,
           "beltedSeats": 5,
           "lengthCm": 497,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Camper van — Volkswagen ID.Buzz",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.blacksheep-van.com/en/our-campervans/volkswagen-id-buzz/",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -755,6 +791,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 499,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "camper van M1 — the original VW California",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.drm.de/en/wohnmobile/m-mini/m1-california-star",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -764,6 +803,9 @@
           "berths": 2,
           "beltedSeats": 4,
           "lengthCm": 599,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Proven panel van",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.drm.de/en/wohnmobile/v-van/v2-compact-star",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -773,6 +815,9 @@
           "berths": 3,
           "beltedSeats": 3,
           "lengthCm": 650,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "Agile overcab motorhome",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.drm.de/en/wohnmobile/f-family/f2-family-cruiser",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -782,6 +827,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 745,
+          "camperTypeSlug": "aclass",
+          "camperTypeSaid": "rent a fully integrated luxury motorhome",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.drm.de/en/wohnmobile/l-luxury/l1-luxury-star",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -1032,6 +1080,9 @@
           "berths": 2,
           "beltedSeats": null,
           "lengthCm": null,
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "Car type: Semi-integrated",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.touringcars.com/en/vehicle/small/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -1041,6 +1092,9 @@
           "berths": 4,
           "beltedSeats": null,
           "lengthCm": null,
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "Car type: Semi-integrated",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.touringcars.com/en/vehicle/medium/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -1059,6 +1113,9 @@
           "berths": 4,
           "beltedSeats": null,
           "lengthCm": null,
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "Car type: Semi-integrated",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.touringcars.com/en/vehicle/luxury-automatic/",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -1139,6 +1196,9 @@
           "berths": null,
           "beltedSeats": null,
           "lengthCm": null,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "camper-type/van",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.yescapa.com/camper-type/van",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -1148,6 +1208,9 @@
           "berths": null,
           "beltedSeats": null,
           "lengthCm": null,
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "camper-type/lowprofile",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.yescapa.com/camper-type/lowprofile",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -1157,6 +1220,9 @@
           "berths": null,
           "beltedSeats": null,
           "lengthCm": null,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "camper-type/coachbuilt",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.yescapa.com/camper-type/coachbuilt",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -1166,6 +1232,9 @@
           "berths": null,
           "beltedSeats": null,
           "lengthCm": null,
+          "camperTypeSlug": "aclass",
+          "camperTypeSaid": "camper-type/aclass",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.yescapa.com/camper-type/aclass",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -1267,6 +1336,9 @@
           "berths": null,
           "beltedSeats": null,
           "lengthCm": null,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Kastenwagen",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://help.paulcamper.com/pc-helpcenter/mieterinnen-buchungsinformation-de",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -1285,6 +1357,9 @@
           "berths": null,
           "beltedSeats": null,
           "lengthCm": null,
+          "camperTypeSlug": "caravan",
+          "camperTypeSaid": "Wohnwagen",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://help.paulcamper.com/pc-helpcenter/mieterinnen-buchungsinformation-de",
           "sourceCheckedOn": "2026-11-02"
         }

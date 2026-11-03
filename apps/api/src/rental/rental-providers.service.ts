@@ -215,12 +215,24 @@ export class RentalProvidersService {
       [p.id],
     )) as Record<string, unknown>[];
 
+    // 🔴 CAMP-371. ТИП ЇДЕ РАЗОМ ІЗ ДОКАЗОМ І ВЛАСНОЮ ДАТОЮ.
+    //
+    // `LEFT JOIN`, бо тип є лише в 30 машин зі 115: порожнє поле чесніше
+    // за тип, виведений із довжини. Назва береться з перекладу, а не зі
+    // слага — читач не має читати `lowprofile`.
     const vehicles = (await this.db.query(
-      `SELECT name, slug, berths, belted_seats, length_cm, source_url, source_checked_on
-         FROM rental_provider_vehicles
-        WHERE provider_id = $1
-        ORDER BY name`,
-      [p.id],
+      `SELECT v.name, v.slug, v.berths, v.belted_seats, v.length_cm,
+              v.source_url, v.source_checked_on,
+              ct.slug AS camper_type_slug,
+              ctt.name AS camper_type_name,
+              v.camper_type_said, v.camper_type_checked_on
+         FROM rental_provider_vehicles v
+         LEFT JOIN camper_types ct ON ct.id = v.camper_type_id
+         LEFT JOIN camper_type_translations ctt
+                ON ctt.camper_type_id = ct.id AND ctt.language_code = $2
+        WHERE v.provider_id = $1
+        ORDER BY v.name`,
+      [p.id, 'en'],
     )) as Record<string, unknown>[];
 
     const tr = (await this.db.query(

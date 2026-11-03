@@ -93,6 +93,18 @@ export interface VehicleRow {
   belted_seats: number | null;
   length_cm: number | null;
   /**
+   * 🔴 CAMP-371. ТИП — ЦЕ ТВЕРДЖЕННЯ ПРОКАТНИКА, А НЕ НАШ ВИСНОВОК.
+   *
+   * Тому поруч їде `camper_type_said` — його дослівні слова — і власна
+   * дата: парк прочитаний 02.11.2026, типи 03.11. Тип є у 30 машин зі
+   * 115; решта лишаються без нього, бо довжина підказала б майже завжди
+   * правильно, а майже-завжди-правильно про чужу машину це вигадка.
+   */
+  camper_type_slug: string | null;
+  camper_type_name: string | null;
+  camper_type_said: string | null;
+  camper_type_checked_on: string | null;
+  /**
    * 🔴 CAMP-371: ДАТА ПРОЧИТАННЯ — ЧАСТИНА ТВЕРДЖЕННЯ, А НЕ МЕТАДАНІ.
    *
    * «У них є Hymer B-Class» без дати — це твердження про СЬОГОДНІ, якого
