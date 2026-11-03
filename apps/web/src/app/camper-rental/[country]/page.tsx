@@ -1,12 +1,13 @@
-import type { Metadata } from 'next';
-import Link from 'next/link';
-import { notFound } from 'next/navigation';
-import RentalCountryData from '@/components/rental-country-data';
-import RentalDisclosure from '@/components/rental-disclosure';
-import RentalOfferSlot from '@/components/rental-offer-slot';
-import { abs, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
-import { alternatesFor } from '@/lib/i18n';
-import { countryFuel, euros, longDate, FUEL } from '@/lib/fuel';
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import RentalCountryData from "@/components/rental-country-data";
+import RentalDisclosure from "@/components/rental-disclosure";
+import RentalOfferSlot from "@/components/rental-offer-slot";
+import { listProviders } from "@/lib/rental-providers";
+import { abs, breadcrumbList, jsonLdProps } from "@/lib/jsonld";
+import { alternatesFor } from "@/lib/i18n";
+import { countryFuel, euros, longDate, FUEL } from "@/lib/fuel";
 import {
   count,
   inProse,
@@ -14,7 +15,7 @@ import {
   publishableCountries,
   rentalCountry,
   rentalOffers,
-} from '@/lib/rental';
+} from "@/lib/rental";
 
 // CAMP-4 / CAMP-54 — one page per member state, and only where it earns
 // one.
@@ -81,33 +82,43 @@ export default async function RentalCountryPage({
   const row = measuredFor(c.code);
   const fuel = countryFuel(c.code);
 
+  // 🔴 Лічимо на ЗБІРЦІ, а не в браузері: сторінка статична, і рішення
+  // «показувати звужене посилання чи ні» мусить бути вже у відданому
+  // HTML. Інакше читач побачить обіцянку, яка розвалиться після
+  // монтування.
+  const providers = await listProviders();
+  const providerCount = providers.length;
+  const basedHere = providers.filter(
+    (p) => p.homeCountry === c.code.toUpperCase(),
+  ).length;
+
   return (
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
       <script
         {...jsonLdProps(
           breadcrumbList([
-            { name: 'Camper rental', path: '/camper-rental' },
+            { name: "Camper rental", path: "/camper-rental" },
             { name: c.name, path },
           ]),
         )}
       />
       <script
         {...jsonLdProps({
-          '@context': 'https://schema.org',
-          '@type': 'WebPage',
-          '@id': `${abs(path)}#page`,
+          "@context": "https://schema.org",
+          "@type": "WebPage",
+          "@id": `${abs(path)}#page`,
           name: `Renting a camper in ${inProse(c)}`,
           description: c.angle,
           url: abs(path),
-          inLanguage: 'en',
-          about: { '@type': 'Place', name: c.name },
+          inLanguage: "en",
+          about: { "@type": "Place", name: c.name },
         })}
       />
 
       <nav aria-label="Breadcrumb" className="text-sm text-ink-2">
         <Link className="underline" href="/camper-rental">
           Camper rental
-        </Link>{' '}
+        </Link>{" "}
         / {c.name}
       </nav>
 
@@ -134,8 +145,8 @@ export default async function RentalCountryPage({
               </h3>
               <p className="mt-2 max-w-prose text-ink-2">{fact.body}</p>
               <p className="mt-3 text-sm text-ink-2">
-                Source:{' '}
-                {fact.source.url.startsWith('/') ? (
+                Source:{" "}
+                {fact.source.url.startsWith("/") ? (
                   <Link className="underline" href={fact.source.url}>
                     {fact.source.name}
                   </Link>
@@ -171,14 +182,13 @@ export default async function RentalCountryPage({
             What the driving costs
           </h2>
           <p className="mt-3 max-w-prose text-ink-2">
-            Diesel in {inProse(c)} costs{' '}
+            Diesel in {inProse(c)} costs{" "}
             <strong className="text-ink">{euros(fuel.diesel, 3)}</strong> a
-            litre in the week of {longDate(FUEL.bulletinDate)}, including
-            taxes, as published by the European Commission
-            {fuel.petrol !== null && <> — petrol {euros(fuel.petrol, 3)}</>}.
-            A rental camper is heavier and thirstier than the car you are
-            used to, and fuel will be the largest variable line in the
-            budget.{' '}
+            litre in the week of {longDate(FUEL.bulletinDate)}, including taxes,
+            as published by the European Commission
+            {fuel.petrol !== null && <> — petrol {euros(fuel.petrol, 3)}</>}. A
+            rental camper is heavier and thirstier than the car you are used to,
+            and fuel will be the largest variable line in the budget.{" "}
             <Link
               className="underline"
               href={`/tools/camper-trip-cost/${c.code}`}
@@ -190,6 +200,60 @@ export default async function RentalCountryPage({
         </section>
       )}
 
+      {/* 🔴 CAMP-427: ПОСИЛАННЯ ЛИШЕ ТУДИ, ДЕ Є ЩО ПОКАЗАТИ.
+          У каталозі десять компаній і лише ЧОТИРИ країни прописки
+          (DE 6, FR 2, PT 1, FI 1). Перша редакція цього блоку вела з
+          кожної з 27 сторінок у звужений каталог — тобто 23 сторінки
+          обіцяли б список і віддавали «0 із 10» без пояснення.
+          Тому лічимо на збірці й пишемо те, що є.
+
+          🔴 І формулювання чесне: ми знаємо, де компанія ЗАРЕЄСТРОВАНА,
+          а не в яких країнах вона видає машини. Сказати «хто здає в
+          Іспанії» означало б пообіцяти знання, якого в моделі ще немає. */}
+      <section
+        aria-labelledby="providers-heading"
+        className="mt-12 border-t border-line-2 pt-8"
+      >
+        <h2
+          id="providers-heading"
+          className="text-xl font-semibold text-heading"
+        >
+          Rental companies
+        </h2>
+        <p className="mt-3 max-w-prose text-ink-2">
+          {basedHere > 0 ? (
+            <>
+              <Link
+                className="underline"
+                href={`/camper-rental/providers?country=${c.code.toUpperCase()}`}
+              >
+                {basedHere === 1
+                  ? "One company we have read is based"
+                  : `${basedHere} of the companies we have read are based`}{" "}
+                in {inProse(c)}
+              </Link>
+              . We record where a company is registered, not yet every country
+              it hands over vehicles in — so{" "}
+              <Link className="underline" href="/camper-rental/providers">
+                the whole list
+              </Link>{" "}
+              is the fuller answer.
+            </>
+          ) : (
+            <>
+              None of the companies we have read so far is registered in{" "}
+              {inProse(c)}. That is not the same as nobody renting here: we
+              record where a company is registered, not yet every country it
+              operates in.{" "}
+              <Link className="underline" href="/camper-rental/providers">
+                All {providerCount} companies
+              </Link>{" "}
+              are listed with their services and fleet.
+            </>
+          )}
+        </p>
+      </section>
+
       <RentalOfferSlot offers={offers} where={inProse(c)} />
 
       <section
@@ -200,15 +264,15 @@ export default async function RentalCountryPage({
           Before you book
         </h2>
         <p className="mt-3 max-w-prose text-ink-2">
-          The questions that decide what a hire actually costs are the same
-          in every member state, and none of them is on the price page:{' '}
+          The questions that decide what a hire actually costs are the same in
+          every member state, and none of them is on the price page:{" "}
           <Link className="underline" href="/camper-rental">
             the excess, the mileage cap, the one-way fee and the plated mass
           </Link>
-          . For {inProse(c)} specifically, our{' '}
+          . For {inProse(c)} specifically, our{" "}
           <Link className="underline" href={`/camping/${c.code}`}>
             {count(row?.spots ?? 0)} campsite records
-          </Link>{' '}
+          </Link>{" "}
           are the other half of the plan.
         </p>
       </section>

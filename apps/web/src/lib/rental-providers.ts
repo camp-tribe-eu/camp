@@ -100,6 +100,34 @@ export function compare(a: Provider, b: Provider, key: SortKey): number {
   }
 }
 
+/**
+ * Фільтри з рядка запиту — лише ті значення, які справді є в каталозі.
+ *
+ * 🔴 ЧУЖЕ ЗНАЧЕННЯ ІГНОРУЄТЬСЯ, А НЕ ЗВУЖУЄ СПИСОК ДО ПОРОЖНЬОГО.
+ * `?country=ZZ` з чужого посилання або з друкарської помилки дав би
+ * «0 із 10» без жодного пояснення, і читач вирішив би, що каталог
+ * порожній. Показати все й не застосувати неіснуючу умову — чесніше.
+ *
+ * Правило тут, а не в компоненті, бо воно мусить мати тест: у
+ * клієнтському компоненті з `useState` наш рендер його не виконує.
+ */
+export function filtersFromQuery(
+  search: string,
+  all: Provider[],
+): CatalogueFilters {
+  const q = new URLSearchParams(search);
+  const country = (q.get("country") ?? "").toUpperCase();
+  const known = new Set(all.map((p) => p.homeCountry));
+  const codes = new Set(all.flatMap((p) => p.serviceCodes));
+  return {
+    country: known.has(country) ? country : null,
+    services: (q.get("services") ?? "")
+      .split(",")
+      .map((c) => c.trim())
+      .filter((c) => codes.has(c)),
+  };
+}
+
 export function arrange(
   all: Provider[],
   f: CatalogueFilters,
