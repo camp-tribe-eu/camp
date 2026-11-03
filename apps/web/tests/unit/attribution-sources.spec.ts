@@ -438,6 +438,7 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
   // десятки, і рукописний список розійшовся б із даними тихо. Коли
   // засів міняється, цей блок треба перебудувати — а якщо забути,
   // скаже тест «виняток не мертвий».
+
   "autogrupp.ee": because(
     "the rental company\u2019s own site, from which that company\u2019s own facts were read; attribution is per row on the provider page, where the exact page and the date it was checked stand next to the fact, which is stricter than one line in a global list",
     "apps/api/src/rental/providers-local.seed.json",

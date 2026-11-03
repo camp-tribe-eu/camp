@@ -44,6 +44,25 @@ export const COUNTRIES = join(
   "provider-countries.json",
 );
 
+/**
+ * 🔴 ДРУГИЙ ФАЙЛ ЗАСІВУ — НЕ ДУБЛІКАТ, А ІНША ВИБІРКА. У першому десять
+ * найбільших гравців ЄС; замір покриття показав, що вони лишають 14 країн
+ * із нулем або однією компанією — у Болгарії читачеві не було з чого
+ * вибирати. Тут 26 місцевих компаній, узятих за ВИМІРНИМ правилом:
+ * власний сайт, пункт видачі з адресою, парк від двох названих моделей,
+ * кемпери (не лише причепи), сайт живий. Розміру в правилі немає
+ * навмисно: «велика» в Мальті й «велика» в Німеччині — різні речі, і
+ * відсіювати за відчуттям означало б вирішувати за читача.
+ */
+export const LOCAL = join(
+  ROOT,
+  "apps",
+  "api",
+  "src",
+  "rental",
+  "providers-local.seed.json",
+);
+
 const AVAILABILITY = new Set(["included", "extra", "unavailable"]);
 const SOURCES = new Set(["trustpilot", "google"]);
 
@@ -120,7 +139,10 @@ async function main() {
 
   // Файл може бути масивом або `{ _meta, providers }` — збирач віддає друге.
   const raw = JSON.parse(readFileSync(SEED, "utf8"));
-  const list = Array.isArray(raw) ? raw : raw?.providers;
+  const main = Array.isArray(raw) ? raw : (raw?.providers ?? []);
+  const localRaw = JSON.parse(readFileSync(LOCAL, "utf8"));
+  const local = Array.isArray(localRaw) ? localRaw : (localRaw?.providers ?? []);
+  const list = [...main, ...local];
   const byCountrySlug = new Map(
     (JSON.parse(readFileSync(COUNTRIES, 'utf8'))?.providers ?? []).map((p) => [p.slug, p]),
   );

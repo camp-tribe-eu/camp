@@ -6,7 +6,8 @@
     "serviceCodesOutsideDictionary": [
       "delivery_to_renter",
       "kitchen_kit",
-      "roadside_assistance"
+      "roadside_assistance",
+      "snow_chains"
     ]
   },
   "providers": [
@@ -763,10 +764,38 @@
       "reviewProfiles": [],
       "services": [
         {
-          "code": "cleaning_service",
+          "code": "pets_allowed",
+          "availability": "extra",
+          "note": "Pets by arrangement; pet-hair cleaning is a paid extra",
+          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/eura-mobil-profila-t-676-eb-mercedes/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bedding",
+          "availability": "extra",
+          "note": "Bed linen and towels per person offered as an extra",
+          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/eura-mobil-profila-t-676-eb-mercedes/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "snow_chains",
+          "availability": "extra",
+          "note": "Snow chains offered as an optional extra",
+          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/eura-mobil-profila-t-676-eb-mercedes/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "kitchen_kit",
           "availability": "included",
-          "note": "Ozone cleaning stated",
-          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/",
+          "note": "Complete dish set for five persons listed as equipment",
+          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/eura-mobil-profila-t-676-eb-mercedes/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "cleaning_service",
+          "availability": "extra",
+          "note": "Optional full cleaning before return; ozone cleaning stated on the fleet page",
+          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/eura-mobil-profila-t-676-eb-mercedes/",
           "sourceCheckedOn": "2026-11-03"
         }
       ],
@@ -776,7 +805,8 @@
           "slug": "eura-mobil-profila-t-676-eb",
           "berths": 4,
           "beltedSeats": 4,
-          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/",
+          "lengthCm": 712,
+          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/eura-mobil-profila-t-676-eb-mercedes/",
           "sourceCheckedOn": "2026-11-03"
         },
         {
@@ -812,9 +842,38 @@
       "sourceUrl": "https://www.karavanea.sk/kontakt",
       "sourceCheckedOn": "2026-11-03",
       "intro": "Motorhome rental and sales business in Haniska near Košice in eastern Slovakia, listing ten vehicles including Hymer, Carado, Adria, Etrusco and Elnagh models with model years.",
-      "whatToKnow": "No service terms were found on the fetched pages, so the services list is empty rather than marked unavailable.",
+      "whatToKnow": "The depot is the company address in Haniska; the FAQ says the vehicle is handed over there. No depot count or fleet size is stated.",
       "reviewProfiles": [],
-      "services": [],
+      "services": [
+        {
+          "code": "pets_allowed",
+          "availability": "included",
+          "note": "Pets welcome with advance notice; each pet needs its own bed",
+          "sourceUrl": "https://www.karavanea.sk/faq-casto-kladene-otazky",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "included",
+          "note": "Camping table and chairs in the rear locker",
+          "sourceUrl": "https://www.karavanea.sk/faq-casto-kladene-otazky",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "kitchen_kit",
+          "availability": "included",
+          "note": "Kitchen equipped with plates, cutlery, cups and glasses",
+          "sourceUrl": "https://www.karavanea.sk/faq-casto-kladene-otazky",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "delivery_to_renter",
+          "availability": "unavailable",
+          "note": "Vehicle is collected at the Haniska base",
+          "sourceUrl": "https://www.karavanea.sk/faq-casto-kladene-otazky",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
       "vehicles": [
         {
           "name": "Hymer ML-T 580 4x4",
