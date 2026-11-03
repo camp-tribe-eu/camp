@@ -2,44 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import { listProviders } from "@/lib/rental-providers";
+import { jsonLdProps } from "@/lib/jsonld";
+import { providerGraph, providerPath } from "@/lib/provider-jsonld";
+import {
+  listProviders,
+  serviceLabel,
+  type ProviderPage,
+} from "@/lib/rental-providers";
 
 // CAMP-427 — сторінка однієї компанії, за зразком single product page.
-
-interface ServiceRow {
-  code: string;
-  availability: "included" | "extra" | "unavailable";
-  note: string | null;
-  source_url: string | null;
-  source_checked_on: string | null;
-}
-interface VehicleRow {
-  name: string;
-  slug: string;
-  berths: number | null;
-  belted_seats: number | null;
-  length_cm: number | null;
-}
-interface ProviderPage {
-  slug: string;
-  name: string;
-  intro: string | null;
-  whatToKnow: string | null;
-  legalName: string | null;
-  registrationNumber: string | null;
-  homeCountry: string;
-  website: string | null;
-  email: string | null;
-  phone: string | null;
-  declaredDepotCount: number | null;
-  declaredFleetSize: number | null;
-  foundedYear: number | null;
-  sourceUrl: string | null;
-  sourceCheckedOn: string | null;
-  services: ServiceRow[];
-  vehicles: VehicleRow[];
-  reviewProfiles: { source: string; profileUrl: string }[];
-}
 
 async function getProvider(slug: string): Promise<ProviderPage | null> {
   const res = await apiFetch(`/rental/providers/${encodeURIComponent(slug)}`, {
@@ -87,8 +58,13 @@ export default async function ProviderPageView({
   const p = await getProvider(slug);
   if (!p) notFound();
 
+  const path = providerPath(p.slug);
+
   return (
     <main className="mx-auto max-w-4xl px-4 py-10">
+      {/* CAMP-431 (пункт 4): граф компанії. Лише те, що є на сторінці —
+          ні рейтингу, ні ціни, бо ні того, ні того ми не тримаємо. */}
+      <script {...jsonLdProps(providerGraph(p, path))} />
       <p className="text-sm">
         <Link href="/camper-rental/providers">← all companies</Link>
       </p>
@@ -189,8 +165,8 @@ export default async function ProviderPageView({
           <ul className="mt-2 grid gap-1 text-sm" data-testid="services">
             {p.services.map((s) => (
               <li key={s.code}>
-                <span className="font-medium">{s.code.replace(/_/g, " ")}</span>{" "}
-                — {AVAILABILITY_LABEL[s.availability]}
+                <span className="font-medium">{serviceLabel(s.code)}</span> —{" "}
+                {AVAILABILITY_LABEL[s.availability]}
                 {s.note && <> ({s.note})</>}
               </li>
             ))}

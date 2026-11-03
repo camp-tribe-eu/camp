@@ -46,6 +46,75 @@ export interface Provider {
   countries: string[];
 }
 
+export const SERVICE_LABEL: Record<string, string> = {
+  unlimited_km: "unlimited mileage",
+  one_way: "one way",
+  pets_allowed: "pets allowed",
+  bedding: "bedding",
+  bike_rack: "bike rack",
+  winter_tyres: "winter tyres",
+  excess_reduction: "excess reduction",
+  additional_driver: "additional driver",
+  airport_transfer: "airport transfer",
+  awning: "awning",
+  camping_table_chairs: "table and chairs",
+  gps: "sat nav",
+  child_seat: "child seat",
+  cleaning_service: "cleaning",
+  young_driver: "young driver",
+};
+
+/**
+ * 🔴 ОДИН ПІДПИС НА ВЕСЬ ПРОЄКТ.
+ *
+ * Донедавна їх було два: каталог читав цю таблицю, а сторінка однієї
+ * компанії друкувала `code.replace(/_/g, " ")` — тобто «unlimited km»
+ * там, де в каталозі стояло «unlimited mileage». Дві назви однієї речі
+ * на двох сторінках одного сайту — і розійшлись вони мовчки. Тепер
+ * формула одна, і розмітка бере її ж, щоб граф і текст не сказали
+ * різного.
+ */
+export const serviceLabel = (code: string) =>
+  SERVICE_LABEL[code] ?? code.replace(/_/g, " ");
+
+/** Відповідь `/rental/providers/{slug}` — сторінка однієї компанії. */
+export interface ServiceRow {
+  code: string;
+  availability: "included" | "extra" | "unavailable";
+  note: string | null;
+  source_url: string | null;
+  source_checked_on: string | null;
+}
+
+export interface VehicleRow {
+  name: string;
+  slug: string;
+  berths: number | null;
+  belted_seats: number | null;
+  length_cm: number | null;
+}
+
+export interface ProviderPage {
+  slug: string;
+  name: string;
+  intro: string | null;
+  whatToKnow: string | null;
+  legalName: string | null;
+  registrationNumber: string | null;
+  homeCountry: string;
+  website: string | null;
+  email: string | null;
+  phone: string | null;
+  declaredDepotCount: number | null;
+  declaredFleetSize: number | null;
+  foundedYear: number | null;
+  sourceUrl: string | null;
+  sourceCheckedOn: string | null;
+  services: ServiceRow[];
+  vehicles: VehicleRow[];
+  reviewProfiles: { source: string; profileUrl: string }[];
+}
+
 export const SORT_KEYS = ["name", "depots", "fleet", "oldest"] as const;
 export type SortKey = (typeof SORT_KEYS)[number];
 

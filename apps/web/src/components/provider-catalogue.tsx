@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  NO_FILTERS,
+  SORT_KEYS,
+  SORT_LABEL,
   arrange,
   countriesOf,
   filtersFromQuery,
-  NO_FILTERS,
   serviceCodesOf,
-  SORT_KEYS,
-  SORT_LABEL,
+  serviceLabel,
   type CatalogueFilters,
   type Provider,
   type SortKey,
@@ -28,26 +29,6 @@ import {
 // як підпис посилання — назва це вказівник, куди веде лінк, а не їхній
 // контент. Коли дозвіл прийде, цифра стане доданим полем, а не
 // переробкою цього файлу.
-
-const SERVICE_LABEL: Record<string, string> = {
-  unlimited_km: "unlimited mileage",
-  one_way: "one way",
-  pets_allowed: "pets allowed",
-  bedding: "bedding",
-  bike_rack: "bike rack",
-  winter_tyres: "winter tyres",
-  excess_reduction: "excess reduction",
-  additional_driver: "additional driver",
-  airport_transfer: "airport transfer",
-  awning: "awning",
-  camping_table_chairs: "table and chairs",
-  gps: "sat nav",
-  child_seat: "child seat",
-  cleaning_service: "cleaning",
-  young_driver: "young driver",
-};
-
-const label = (code: string) => SERVICE_LABEL[code] ?? code.replace(/_/g, " ");
 
 const SOURCE_LABEL: Record<string, string> = {
   trustpilot: "Trustpilot",
@@ -150,7 +131,7 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
                     }))
                   }
                 />
-                {label(code)}
+                {serviceLabel(code)}
               </label>
             );
           })}
