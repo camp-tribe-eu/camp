@@ -60,6 +60,30 @@ async function accepts(sql: string, params: unknown[] = []): Promise<boolean> {
 }
 
 const PROFILES = 'rental_provider_review_profiles';
+
+/**
+ * 🔴 ВЛАСНА СХЕМА, А НЕ `public`. ЦЕ НЕ ОХАЙНІСТЬ — ЦЕ ДЕФЕКТ, ЯКИЙ
+ * СТРІЛЯВ У СУСІДНІ КРОКИ CI.
+ *
+ * Перша редакція робила `DROP TABLE IF EXISTS … rental_providers CASCADE`
+ * прямо в `public` спільної бази CI: створювала таблиці з тексту міграції,
+ * перевіряла замок і прибирала за собою — тобто лишала базу БЕЗ схеми
+ * провайдерів для всіх наступних кроків роботи `api`.
+ *
+ * Поки нікому після неї ці таблиці не були потрібні, це було невидимо.
+ * 03.11.2026 у фікстуру CI додали прокатні компанії, і наступний крок
+ * упав із `relation "rental_providers" does not exist`. Дефект стояв у
+ * дереві давно й чекав на свідка.
+ *
+ * 🔴 `CASCADE` робив це гіршим, ніж виглядає: він забирав і
+ * `rental_provider_countries`, `rental_provider_services`,
+ * `rental_provider_vehicles` — усе, що тримається зовнішнім ключем.
+ *
+ * Тепер таблиці створюються у власній схемі (`search_path`), і
+ * прибирання — це `DROP SCHEMA … CASCADE`, яке до `public` не дістає.
+ * Перевірка лишається тією самою: SQL береться з файлу міграції.
+ */
+const PROBE = 'review_permission_probe';
 const insert = `INSERT INTO ${PROFILES}
   (provider_id, source, profile_url, permission_confirmed_on, rating, review_count)
   VALUES ($1, $2, $3, $4, $5, $6)`;
@@ -92,7 +116,12 @@ beforeAll(async () => {
       `DO $$ BEGIN ${create}; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
     );
   }
-  await db.query(`DROP TABLE IF EXISTS ${PROFILES}, rental_providers CASCADE`);
+  await db.query(`DROP SCHEMA IF EXISTS ${PROBE} CASCADE`);
+  await db.query(`CREATE SCHEMA ${PROBE}`);
+  // Типи лежать у `public` (їх створює міграція), тому схема проби йде
+  // першою, а `public` лишається другою — інакше `"public"."…_enum"`
+  // у тексті таблиці не знайдеться.
+  await db.query(`SET search_path TO ${PROBE}, public`);
   await db.query(statementFor(text, 'CREATE TABLE "rental_providers"'));
   await db.query(statementFor(text, `CREATE TABLE "${PROFILES}"`));
 
@@ -105,8 +134,32 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db?.query(`DROP TABLE IF EXISTS ${PROFILES}, rental_providers CASCADE`);
+  await db?.query(`DROP SCHEMA IF EXISTS ${PROBE} CASCADE`);
+  // 🔴 І ДОВОДИМО, ЩО ПРИБРАЛИ САМЕ ЗА СОБОЮ.
+  //
+  // Без цього рядка повернення до `DROP TABLE … CASCADE` у `public`
+  // знову пройшло б непоміченим: тести цього файлу лишились би
+  // зеленими, а впав би чужий крок через пів години прогону — і причину
+  // довелося б шукати заново.
+  const left = await db?.query(
+    `SELECT to_regclass('public.rental_providers') IS NOT NULL AS alive`,
+  );
+  const alive = left?.rows.length
+    ? (left.rows[0] as { alive: boolean }).alive
+    : true;
+  // 🔴 ЗʼЄДНАННЯ ЗАКРИВАЄТЬСЯ ПЕРЕД ВИНЯТКОМ, А НЕ ПІСЛЯ.
+  //
+  // Перша редакція кидала помилку й лишала клієнта відкритим: jest
+  // друкував правильний вирок і НЕ ЗАВЕРШУВАВСЯ. У CI це пʼять хвилин до
+  // таймауту замість миттєвого червоного — а таймаут це `cancelled`, не
+  // `failure`, тобто тривога на провал про нього мовчить. Заміряно
+  // мутацією, а не прочитано в документації.
   await db?.end();
+  if (!alive) {
+    throw new Error(
+      'проба стерла public.rental_providers — наступні кроки CI впадуть на відсутній таблиці',
+    );
+  }
 });
 
 describe('🔴 цифра рейтингу не існує без дати письмового дозволу', () => {
