@@ -275,6 +275,17 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
     priority: '0.8',
     lastmod: MEASURED.measuredAt,
   });
+  // CAMP-427. Каталог компаній — та сама причина, що в гайдів нижче:
+  // розділ, про який краулеру ніхто не сказав, існує ні для кого.
+  // Сторінки окремих компаній у сайтмап НЕ йдуть: їхній зміст — факти
+  // про чужий бізнес, зняті в один день, і поки їх десять, цінність
+  // індексувати кожну окремо не доведена.
+  urls.push({
+    loc: `${SITE}/camper-rental/providers`,
+    changefreq: 'monthly',
+    priority: '0.7',
+    lastmod: MEASURED.measuredAt,
+  });
   for (const country of publishableCountries()) {
     urls.push({
       loc: `${SITE}/camper-rental/${country.code}`,
