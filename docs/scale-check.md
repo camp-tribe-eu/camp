@@ -74,15 +74,37 @@ Two things follow, and both are in this change:
   when a filter matches nothing, so naming the block makes their absence
   a failure instead of a silent pass.
 
-⚠️ **What is not covered, stated rather than folded in.** The gate is not
-yet on `ci.yml`'s e2e suite — only the guard's self-test is. `tests/e2e`
-has 23 `test.skip` sites, most of them of the form "this build holds no
-gone campsites" / "the fixture holds no campsite without facilities",
-which is this card's subject arriving from a third direction: tests that
-quietly stand down because the fixture lacks the case they were written
-for. Budgeting those needs a full e2e report to seed from and a decision
-per skip, which is a card of its own. Until then, CI can still go green
-over an e2e test that declined to run.
+✅ **The third direction is now counted — 03.11.2026.** The paragraph that
+stood here said `tests/e2e` had "23 `test.skip` sites", most of the form
+"this build holds no gone campsites" / "the fixture holds no campsite
+without facilities", and called that this card's subject arriving from a
+third direction: tests that quietly stand down because the fixture lacks
+the case they were written for. It then said budgeting them was a card of
+its own, and left the number in prose. A sentence counts nothing.
+
+`scripts/ci/check-e2e-skips.mjs` counts them and refuses growth. Measured
+with that one ruler, on both trees:
+
+| | files in `tests/e2e` | `test.skip` sites |
+|---|---|---|
+| `1c74ae1`, where the "23" was written | 23 | **27** |
+| today | 46 | **36** |
+
+🔴 **The "23" does not reproduce.** The same commit measures 27 under the
+guard, so the old figure came from a ruler nobody recorded — most likely
+`grep -c` over lines, which counts a `test.skip` mentioned inside a
+comment and misses nothing else. On one ruler the real story is milder
+than the prose implied: the suite doubled, the skips grew by nine.
+
+The budget lives in `scripts/ci/e2e-skip-budget.json` and may only fall.
+Lowering it takes `--update` plus a reason in the commit, which is the
+same shrinking-list shape as `check-selftest-steps.mjs`. The guard prints
+the reasons by frequency, so whoever lowers it can see which skips are
+about the fixture (budgetable) and which are about the browser — "WebKit
+on Linux cannot photograph a canvas", "no WebGL2 in this browser" — which
+no amount of data will fix. It does not try to tell those apart by itself:
+a classifier that almost understands the reason text would produce a
+number that looks like a measurement and is not one.
 
 This is not a gap in the tests. The tests are written well; they check
 what somebody guessed. These six are about size, and no volume of tests

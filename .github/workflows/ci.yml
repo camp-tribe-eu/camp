@@ -1032,6 +1032,19 @@ jobs:
       - name: No page sets dynamicParams = false
         run: node scripts/ci/check-dynamic-params.mjs
 
+      # 🔴 CAMP-134, третій напрямок картки: тест, що відмовився бігти,
+      # у звіті CI не відрізнити від тесту, що пройшов. `docs/scale-check.md`
+      # назвав це 27.09.2026 словами й не порахував; цим сторожем на тому
+      # самому коміті місць 27, сьогодні 36.
+      - name: The e2e skip budget still catches a test that quietly stands down
+        run: |
+          set -o pipefail
+          node scripts/ci/check-e2e-skips.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-e2e-skips self-test:' >/dev/null
+
+      - name: The number of e2e tests that stand down has not grown
+        run: node scripts/ci/check-e2e-skips.mjs
+
       # 🔴 CAMP-363. Сторож гачка ISR ходить на ЖИВИЙ сайт, тож повний
       # прогін тут неможливий: ні адреси, ні секрета, ні воріт у CI немає.
       # Але його ЯДРО — чисте, і саме воно вирішує, чи побачимо ми випадок
