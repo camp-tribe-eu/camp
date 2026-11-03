@@ -327,6 +327,23 @@ jobs:
           set -o pipefail
           node scripts/ci/check-osm-weekly-guards.mjs --self-test | tee /dev/stderr \
             | grep -c 'check-osm-weekly-guards self-test:' >/dev/null
+      # 🔴 CAMP-400: ПОДИВИТИСЬ НА СТОРОЖА — НЕ ЗНАЧИТЬ ПІДНЯТИ ТРИВОГУ.
+      #
+      # 03.11.2026 я запустив `systemctl start camptribe-freshness`, щоб
+      # ПРОЧИТАТИ стан даних. Юніт чесно вийшов з кодом 1 (дані були
+      # протухлі), спрацював OnFailure — і власник отримав лист «впало
+      # сторожів — 2». Тривога, що приходить, коли ніхто нічого не
+      # ламав, за тиждень перестає читатись.
+      #
+      # `camptribe-look` дає те саме оточення через `systemd-run`, без
+      # OnFailure і без секрета в argv. Тут перевіряється головне: у
+      # його переліку немає жодного юніта, що ПИШЕ.
+      - name: Looking at a sentry cannot start a job that writes
+        run: |
+          set -o pipefail
+          ./infra/bin/camptribe-look --self-test | tee /dev/stderr \
+            | grep -c 'camptribe-look self-test:' >/dev/null
+
       - name: The weekly OSM download cannot hang, and its alarm sees a timeout
         run: node scripts/ci/check-osm-weekly-guards.mjs
 
@@ -713,6 +730,40 @@ jobs:
           set -o pipefail
           ./infra/deploy-nightly.selftest.sh | tee /dev/stderr \
             | grep -c 'deploy-nightly self-test: усе гаразд' >/dev/null
+
+      # 🔴 CAMP-400. ІНФРАСТРУКТУРА В РЕПОЗИТОРІЇ ≠ ІНФРАСТРУКТУРА НА МАШИНІ.
+      #
+      # 03.11.2026 `osm_route_poi` був протухлий 18,5 діб, бо
+      # `camptribe-route-poi-import.service` і `.timer` лежали в
+      # репозиторії з 28.10 і НЕ БУЛИ розкладені: `systemctl is-enabled`
+      # → `not-found`. Код імпорту написано, розклад написано, і нічого
+      # з цього не виконалось жодного разу.
+      #
+      # Сторож свіжості щоранку казав правду про НАСЛІДОК і не міг
+      # назвати ПРИЧИНУ. Новий юніт називає її — о 05:45, тобто ПЕРЕД
+      # листом про свіжість о 06:00.
+      #
+      # Тут перевіряється сам сторож: що він знає ті самі теки, що й
+      # розкладка, і що порожнє джерело для нього — збій, а не чистота.
+      # 🔴 CAMP-400, пункт 3: бюджет без розкладу — обіцянка, яку нема
+      # кому виконати. 03.11.2026 дві таблиці протухли не тому, що
+      # збирач упав, а тому, що наповнювати їх було нікому: юніт POI
+      # лежав нерозкладеним, юніта звʼязків не існувало зовсім. Бюджет
+      # у 10 діб при тижневому таймері виконуваний; без таймера він
+      # червонітиме на одинадцяту добу щоранку й назавжди.
+      - name: Every freshness budget has something that can meet it
+        run: |
+          set -o pipefail
+          node scripts/ci/check-freshness-has-a-filler.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-freshness-has-a-filler self-test:' >/dev/null
+      - name: And no budget is shorter than its own timer
+        run: node scripts/ci/check-freshness-has-a-filler.mjs
+
+      - name: The infrastructure drift sentry knows where every file goes
+        run: |
+          set -o pipefail
+          ./infra/bin/camptribe-infra-drift --self-test | tee /dev/stderr \
+            | grep -c 'camptribe-infra-drift self-test:' >/dev/null
 
       # 🔴 CAMP-349. `"«$v»"` — байти `»` (0xC2 0xBB) прилипають до імені
       # змінної, під `set -u` це «unbound variable», і скрипт падає ТИМ

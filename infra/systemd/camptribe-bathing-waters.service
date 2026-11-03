@@ -1,0 +1,26 @@
+# CAMP-168 / CAMP-400: місця для купання EEA.
+#
+# 🔴 Рішення власника 03.11.2026: ставити до відкриття. До того таблиця
+# стояла ПОРОЖНЯ — не протухла, а така, що не наповнювалась жодного разу.
+#
+# 🔴 `--apply` ОБОВʼЯЗКОВЕ: без нього імпортер робить сухий прогін.
+# І це не формальність — він пише ОФІЦІЙНУ КЛАСИФІКАЦІЮ якості води на
+# сторінки, що ранжуються. Читач, який на неї покладеться, дізнається
+# про помилку стоячи у воді.
+[Unit]
+Description=CampTribe EEA bathing water import
+After=postgresql.service network-online.target
+Wants=network-online.target
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current/apps/api
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=1h
+ExecStart=/usr/bin/node dist/bathing/import.js --apply
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-bathing-waters.service
