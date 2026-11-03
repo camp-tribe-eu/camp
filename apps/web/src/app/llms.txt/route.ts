@@ -163,15 +163,28 @@ export async function GET() {
   // машина може процитувати, не ризикуючи. Не назвати його тут означало б
   // сховати від асистента найцінніше, що ми маємо, — і він переказав би
   // замість нас того, хто пише «хтось рекомендує».
-  const providerCount = (await listProviders()).length;
-  if (providerCount > 0) {
+  //
+  // І кожна компанія названа окремим рядком, а не лише цифрою в переліку.
+  // Асистента питають «хто здає кемпери в Латвії», а не «скільки їх у
+  // ЄС»: рядок зі слугом і країнами — це те, що він може процитувати з
+  // адресою. Рядки будуються з того самого переліку, що й число, тож
+  // розійтися вони не можуть.
+  const providers = await listProviders();
+  if (providers.length > 0) {
     lines.push(
       `- [Camper rental companies](${SITE}/camper-rental/providers) — ` +
-        `${providerCount} companies that hand over vehicles in the Union, ` +
+        `${providers.length} companies that hand over vehicles in the Union, ` +
         "each with the services it includes, what it charges extra for, " +
         "the models in its fleet, and the page and date every figure was " +
         "read from. No prices: they change weekly and would be stale here.",
     );
+    for (const p of providers) {
+      const where = p.countries.map((c) => c.toUpperCase()).join(", ");
+      lines.push(
+        `- [${p.name}](${SITE}/camper-rental/providers/${p.slug})` +
+          (where ? `: hands over vehicles in ${where}.` : "."),
+      );
+    }
   }
   for (const c of publishableCountries()) {
     lines.push(

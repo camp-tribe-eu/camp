@@ -770,7 +770,16 @@ test.describe("the count of countries, on every surface that prints one", () => 
     // Число береться з переліку, а не з тексту поруч із ним: стала,
     // вписана в рядок, пережила б зміну даних і збрехала б першою.
     expect(line).toContain(`${LLMS_PROVIDERS.length} companies`);
-    // І сторінки, якої немає в даних, тут теж бути не може.
-    expect(body).not.toContain("/camper-rental/providers/");
+    // І кожна компанія названа окремим рядком — бо питають «хто здає в
+    // Латвії», а не «скільки їх у ЄС». Рядків рівно стільки, скільки
+    // компаній: ні сторінки, якої немає в даних, ні компанії без рядка.
+    const own = body
+      .split("\n")
+      .filter((l) => l.includes("/camper-rental/providers/"));
+    expect(own.length).toBe(LLMS_PROVIDERS.length);
+    for (const p of LLMS_PROVIDERS) {
+      expect(body).toContain(`/camper-rental/providers/${p.slug})`);
+      expect(body).toContain(p.countries[0].toUpperCase());
+    }
   });
 });
