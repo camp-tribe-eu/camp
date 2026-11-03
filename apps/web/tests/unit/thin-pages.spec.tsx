@@ -662,6 +662,12 @@ async function renderMap(): Promise<string> {
   return html;
 }
 
+/** Дві компанії для llms.txt: рівно стільки, скільки друкує розділ. */
+const LLMS_PROVIDERS = [
+  { slug: "a", name: "A", countries: ["fr"] },
+  { slug: "b", name: "B", countries: ["de"] },
+];
+
 /** /llms.txt, served as a crawler receives it. */
 async function renderLlmsTxt(): Promise<string> {
   let body = "";
@@ -670,6 +676,10 @@ async function renderLlmsTxt(): Promise<string> {
       if (url.endsWith("/spots/countries")) return json(API_COUNTRIES);
       if (/\/spots\/[a-z]{2}\/regions(\?|$)/.test(url)) return json([]);
       if (url.endsWith("/guides")) return json([]);
+      // CAMP-427: каталог компаній названий у llms.txt, тому сторінка
+      // його питає. Дві компанії, а не нуль: з порожнім переліком розділ
+      // не друкується зовсім, і тест на його вміст пройшов би вхолосту.
+      if (url.includes("/rental/providers")) return json(LLMS_PROVIDERS);
       // CAMP-364: llms.txt і карта сайту питають дописи. Порожній
       // перелік — це «блог порожній», і саме так тут і є.
       if (url.includes("/posts")) return json({ posts: [] });
@@ -745,5 +755,22 @@ test.describe("the count of countries, on every surface that prints one", () => 
     expect(
       starts.split("\n").filter((l) => l.startsWith("- [Campsites in ")).length,
     ).toBe(API_COUNTRIES.length);
+  });
+
+  // 🔴 CAMP-427. Каталог компаній — єдине місце в проєкті, де про чужу
+  // компанію сказано з джерелом і датою перевірки. Якщо він не названий
+  // тут, асистент про нього не дізнається: карта сайту каже «адреса
+  // існує», а llms.txt каже, що на ній є.
+  test("🔴 llms.txt names the provider catalogue, with the count it really has", async () => {
+    const body = await renderLlmsTxt();
+    const line = body
+      .split("\n")
+      .find((l) => l.includes("/camper-rental/providers"));
+    expect(line, "каталог компаній не названий у llms.txt").toBeTruthy();
+    // Число береться з переліку, а не з тексту поруч із ним: стала,
+    // вписана в рядок, пережила б зміну даних і збрехала б першою.
+    expect(line).toContain(`${LLMS_PROVIDERS.length} companies`);
+    // І сторінки, якої немає в даних, тут теж бути не може.
+    expect(body).not.toContain("/camper-rental/providers/");
   });
 });

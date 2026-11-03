@@ -11,7 +11,7 @@ import {
 } from '@/components/account-cabinet-view';
 import { LoginDoneView, SignupDoneView } from '@/components/account-view';
 import type { Profile } from '@/lib/cabinet';
-import { robotsFor } from '@/lib/robots-rules';
+import { blockedByRobots } from './robots-reading';
 import { STATIC_HUBS } from '@/lib/sitemap';
 import { renderComponent } from './render-component';
 import { visibleText } from './rendered-text';
@@ -300,8 +300,7 @@ test.describe('🔴 /account: noindex метатегом, а не robots.txt (м
   });
 
   test('відкрита збірка НЕ закриває її в robots.txt — інакше робот не прочитає noindex', () => {
-    const rules = robotsFor(true).rules as { disallow: string[] };
-    const blocked = (path: string) => rules.disallow.some((d) => path.startsWith(d));
+    const blocked = (path: string) => blockedByRobots(true, path);
     expect(blocked('/account')).toBe(false);
     // CAMP-229 (3/3): і дві нові сторінки, з тієї ж причини.
     expect(blocked('/account/data')).toBe(false);
