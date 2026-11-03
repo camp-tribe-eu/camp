@@ -341,11 +341,20 @@ jobs:
       # Сухий прогін тут не чіпає базу: він лише читає файли, перевіряє їх
       # і друкує покриття. Саме покриття й є тим числом, яке вирішує,
       # чи можна вмикати жорсткий фільтр за типом (ворота CAMP-260).
-      - name: The rental catalogue seeders still refuse a bad file
+      # 🔴 ДВА КРОКИ, А НЕ ОДИН ІЗ ДВОМА РЯДКАМИ. Так вимагає
+      # `check-selftest-steps.mjs`, і він мене на цьому впіймав:
+      # «82 --self-test invocations are written here and this check could
+      # attribute 81». Він рахує один самотест на крок, бо саме так
+      # потім видно, ЯКИЙ із них не запустився — а прогін, що не
+      # стартував, виглядає точно як спіймана мутація (CAMP-285).
+      - name: The provider seeder still refuses a bad file
         run: |
           set -o pipefail
           node scripts/rental/seed-providers.mjs --self-test | tee /dev/stderr \
             | grep -c 'seed-providers self-test:' >/dev/null
+      - name: The camper-type seeder still refuses an unsourced claim
+        run: |
+          set -o pipefail
           node scripts/rental/seed-camper-types.mjs --self-test | tee /dev/stderr \
             | grep -c 'seed-camper-types self-test:' >/dev/null
       - name: And the catalogue files themselves are clean
