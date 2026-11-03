@@ -323,3 +323,34 @@ export class RentalProviderReviewProfile {
     return Boolean(this.permissionConfirmedOn);
   }
 }
+
+/**
+ * Країна ЄС, у якій компанія справді видає машини.
+ *
+ * 🔴 НЕ ПЛУТАТИ З `homeCountry`. Прописка — одна країна і юридичний
+ * факт; це — перелік і факт операційний. На десяти зібраних компаніях
+ * прописок чотири, а країн роботи двадцять.
+ */
+@Entity('rental_provider_countries')
+@Index(['providerId', 'country'], { unique: true })
+export class RentalProviderCountry {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ name: 'provider_id' })
+  providerId: string;
+
+  @ManyToOne(() => RentalProvider, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'provider_id' })
+  provider: RentalProvider;
+
+  @Index()
+  @Column({ length: 2 })
+  country: string;
+
+  @Column({ name: 'source_url', nullable: true })
+  sourceUrl?: string;
+
+  @Column({ name: 'source_checked_on', type: 'date', nullable: true })
+  sourceCheckedOn?: string;
+}

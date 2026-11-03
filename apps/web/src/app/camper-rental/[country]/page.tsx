@@ -88,8 +88,11 @@ export default async function RentalCountryPage({
   // монтування.
   const providers = await listProviders();
   const providerCount = providers.length;
-  const basedHere = providers.filter(
-    (p) => p.homeCountry === c.code.toUpperCase(),
+  // 🔴 ХТО ТУТ ВИДАЄ МАШИНИ, А НЕ ХТО ТУТ ЗАРЕЄСТРОВАНИЙ. За пропискою
+  // двадцять три з двадцяти семи країн давали б нуль; за місцем роботи
+  // покрито двадцять, і Нідерланди мають сім компаній замість жодної.
+  const rentHere = providers.filter((p) =>
+    p.countries.includes(c.code.toUpperCase()),
   ).length;
 
   return (
@@ -221,30 +224,27 @@ export default async function RentalCountryPage({
           Rental companies
         </h2>
         <p className="mt-3 max-w-prose text-ink-2">
-          {basedHere > 0 ? (
+          {rentHere > 0 ? (
             <>
               <Link
                 className="underline"
                 href={`/camper-rental/providers?country=${c.code.toUpperCase()}`}
               >
-                {basedHere === 1
-                  ? "One company we have read is based"
-                  : `${basedHere} of the companies we have read are based`}{" "}
+                {rentHere === 1
+                  ? "One company we have read hands over vehicles"
+                  : `${rentHere} of the companies we have read hand over vehicles`}{" "}
                 in {inProse(c)}
               </Link>
-              . We record where a company is registered, not yet every country
-              it hands over vehicles in — so{" "}
-              <Link className="underline" href="/camper-rental/providers">
-                the whole list
-              </Link>{" "}
-              is the fuller answer.
+              . Each is listed with where it is registered, how many depots it
+              states, what it includes in the price and what it charges extra
+              for — with the source and the date beside every figure.
             </>
           ) : (
             <>
-              None of the companies we have read so far is registered in{" "}
-              {inProse(c)}. That is not the same as nobody renting here: we
-              record where a company is registered, not yet every country it
-              operates in.{" "}
+              None of the companies we have read so far hands over vehicles in{" "}
+              {inProse(c)}. That is a gap in our list, not a statement about the
+              market: we have read {providerCount} companies, and more are being
+              added country by country.{" "}
               <Link className="underline" href="/camper-rental/providers">
                 All {providerCount} companies
               </Link>{" "}

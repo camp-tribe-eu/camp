@@ -23,6 +23,7 @@ import {
 } from './entities/rental.entity';
 import {
   RentalProvider,
+  RentalProviderCountry,
   RentalProviderReviewProfile,
   RentalProviderService,
   RentalProviderTranslation,
@@ -61,6 +62,7 @@ export const AppDataSource = new DataSource({
     RentalCity,
     RentalCityTranslation,
     RentalProvider,
+    RentalProviderCountry,
     RentalProviderTranslation,
     RentalProviderService,
     RentalProviderVehicle,

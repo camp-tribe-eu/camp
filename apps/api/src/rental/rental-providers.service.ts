@@ -45,6 +45,13 @@ export interface ProviderListItem {
    * тобто вгадувати.
    */
   serviceCodes: string[];
+  /**
+   * 🔴 Країни, де компанія ВИДАЄ МАШИНИ, а не де зареєстрована. На
+   * десяти зібраних компаніях прописок чотири, а країн роботи двадцять:
+   * фільтр по прописці відповідав би «ніхто» там, де насправді сім
+   * компаній.
+   */
+  countries: string[];
   reviewProfiles: ReviewProfileView[];
 }
 
@@ -132,7 +139,10 @@ export class RentalProvidersService {
 
     if (filters.country) {
       params.push(filters.country);
-      where.push(`p.home_country = $${params.length}`);
+      where.push(`EXISTS (
+        SELECT 1 FROM rental_provider_countries rc
+        WHERE rc.provider_id = p.id AND rc.country = $${params.length}
+      )`);
     }
     // 🔴 Кожен названий сервіс — ОКРЕМА умова існування, а не `IN (…)`.
     // `IN` дав би «має хоча б один із», тобто фільтр «тільки з душем і
@@ -157,7 +167,10 @@ export class RentalProvidersService {
               COALESCE((SELECT array_agg(s.code ORDER BY s.code)
                           FROM rental_provider_services s
                          WHERE s.provider_id = p.id
-                           AND s.availability <> 'unavailable'), '{}') AS service_codes
+                           AND s.availability <> 'unavailable'), '{}') AS service_codes,
+              COALESCE((SELECT array_agg(rc.country ORDER BY rc.country)
+                          FROM rental_provider_countries rc
+                         WHERE rc.provider_id = p.id), '{}') AS countries
          FROM rental_providers p
         WHERE ${where.join(' AND ')}
         ORDER BY ${sortClause(sort)}`,
@@ -179,6 +192,7 @@ export class RentalProvidersService {
       serviceCount: Number(r.service_count),
       vehicleCount: Number(r.vehicle_count),
       serviceCodes: (r.service_codes as unknown as string[]) ?? [],
+      countries: (r.countries as unknown as string[]) ?? [],
       reviewProfiles: profiles.get(String(r.slug)) ?? [],
     }));
   }
@@ -231,6 +245,13 @@ export class RentalProvidersService {
       foundedYear: num(p.founded_year as never),
       sourceUrl: p.source_url ?? null,
       sourceCheckedOn: p.source_checked_on ?? null,
+      countries: (
+        (await this.db.query(
+          `SELECT country FROM rental_provider_countries
+            WHERE provider_id = $1 ORDER BY country`,
+          [p.id],
+        )) as { country: string }[]
+      ).map((r) => r.country),
       services,
       vehicles,
       reviewProfiles:
