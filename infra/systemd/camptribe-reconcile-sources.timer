@@ -1,0 +1,15 @@
+[Unit]
+Description=CampTribe OSM↔DATAtourisme source reconcile, weekly
+
+[Timer]
+# 🔴 ПІСЛЯ обох імпортів OSM (04:30 кемпінги, 05:30 POI) і ПЕРЕД
+# сторожем свіжості о 06:00 — тобто у вівторок о 05:50.
+#
+# Порядок не випадковий: звʼязки рахуються по тому, що щойно приїхало з
+# OSM. Порахувати їх ДО імпорту означало б звʼязати вчорашній стан і
+# звітувати про це як про сьогоднішній.
+OnCalendar=Tue *-*-* 05:50:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
