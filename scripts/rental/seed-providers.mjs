@@ -63,6 +63,27 @@ export const LOCAL = join(
   "providers-local.seed.json",
 );
 
+/**
+ * 🔴 УСІ дочірні таблиці, у які ця сівалка пише. Перелік ОДИН, бо він
+ * одночасно керує видаленням перед записом — і саме розходження двох
+ * переліків зламало повторний засів на проді 03.11.2026:
+ *
+ *   duplicate key value violates unique constraint
+ *   "IDX_rental_provider_countries_one_per_country"
+ *
+ * Країни додали в запис і забули додати у видалення. Перший засів пройшов,
+ * другий упав — тобто дефект, якого НЕ ВИДНО, поки не запустиш двічі.
+ * Самоперевірка нижче тепер звіряє перелік із тими таблицями, у які код
+ * справді робить INSERT.
+ */
+export const CHILD_TABLES = [
+  "rental_provider_services",
+  "rental_provider_vehicles",
+  "rental_provider_review_profiles",
+  "rental_provider_translations",
+  "rental_provider_countries",
+];
+
 const AVAILABILITY = new Set(["included", "extra", "unavailable"]);
 const SOURCES = new Set(["trustpilot", "google"]);
 
@@ -141,10 +162,15 @@ async function main() {
   const raw = JSON.parse(readFileSync(SEED, "utf8"));
   const main = Array.isArray(raw) ? raw : (raw?.providers ?? []);
   const localRaw = JSON.parse(readFileSync(LOCAL, "utf8"));
-  const local = Array.isArray(localRaw) ? localRaw : (localRaw?.providers ?? []);
+  const local = Array.isArray(localRaw)
+    ? localRaw
+    : (localRaw?.providers ?? []);
   const list = [...main, ...local];
   const byCountrySlug = new Map(
-    (JSON.parse(readFileSync(COUNTRIES, 'utf8'))?.providers ?? []).map((p) => [p.slug, p]),
+    (JSON.parse(readFileSync(COUNTRIES, "utf8"))?.providers ?? []).map((p) => [
+      p.slug,
+      p,
+    ]),
   );
   const bad = faults(list);
   if (bad.length) {
@@ -217,12 +243,7 @@ async function main() {
       const id = r.rows[0].id;
       // Повний перезапис дочірніх рядків: інакше сервіс, який компанія
       // ПРИБРАЛА, лишався б на сторінці назавжди.
-      for (const t of [
-        "rental_provider_services",
-        "rental_provider_vehicles",
-        "rental_provider_review_profiles",
-        "rental_provider_translations",
-      ]) {
+      for (const t of CHILD_TABLES) {
         await db.query(`DELETE FROM ${t} WHERE provider_id = $1`, [id]);
       }
       await db.query(
@@ -235,10 +256,16 @@ async function main() {
       // можна: компанія може бути зареєстрована там, де не здає. Тому
       // додаємо примусово — інакше сторінка її країни про неї мовчала б.
       const geo = byCountrySlug.get(p.slug);
-      const countries = new Set([
-        p.homeCountry,
-        ...((geo?.countries ?? []).map((x) => String(x).toUpperCase())),
-      ]);
+      const countries = new Set(
+        [
+          p.homeCountry,
+          // Локальні компанії несуть країни у власному записі; великі
+          // гравці — в окремому файлі заміру. Беремо з обох, інакше
+          // половина каталогу знала б лише країну прописки.
+          ...(p.countries ?? []),
+          ...(geo?.countries ?? []),
+        ].map((x) => String(x).toUpperCase()),
+      );
       for (const code of countries) {
         await db.query(
           `INSERT INTO rental_provider_countries (provider_id, country, source_url, source_checked_on)
@@ -313,6 +340,23 @@ function selfTest() {
   const cases = [
     ["цілий запис проходить", () => faults([ok]).length === 0],
     ["порожній файл — біда, а не тиша", () => faults([]).length === 1],
+    // 🔴 СТРУКТУРНИЙ ВИПАДОК, А НЕ ПРО ДАНІ. Він ловить рівно той дефект,
+    // що зламав повторний засів: таблиця, у яку код пише, але не чистить
+    // перед записом. Перший прогін тоді проходить, другий падає на
+    // унікальному індексі — а між ними може минути місяць.
+    [
+      "🔴 кожна таблиця, у яку пишемо, стоїть і в переліку для видалення",
+      () => {
+        const source = readFileSync(new URL(import.meta.url), "utf8");
+        const written = [
+          ...source.matchAll(/INSERT INTO (rental_provider_[a-z_]+)/g),
+        ].map((m) => m[1]);
+        const missing = [...new Set(written)].filter(
+          (t) => !CHILD_TABLES.includes(t),
+        );
+        return written.length > 3 && missing.length === 0;
+      },
+    ],
     [
       "🔴 сторінка без абзацу — відмова: це рядок таблиці, а не сторінка",
       () =>
