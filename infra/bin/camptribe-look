@@ -29,12 +29,43 @@
 # що ЧИТАЮТЬ.
 set -uo pipefail
 
-# Ім'я → (юніт, команда). Обидва читають і нічого не пишуть.
+# Ім'я → юніт. КОМАНДИ ТУТ НЕМАЄ, і це головна правка цього файла.
+#
+# 🔴 ТУТ СТОЯВ ДРУГИЙ ПЕРЕЛІК — рівно те, що забороняють рядки нижче.
+# Третя колонка повторювала `ExecStart` юніта, і рецензія довела ціну:
+# мутація команди на `--json --no-such-flag` лишала самотест зеленим
+# 5/5. Тобто сторож перевіряв, що перелік збігається сам із собою.
+#
+# Тепер команда береться з юніта разом з оточенням і користувачем —
+# звідки ж іще, адже саме його команду ми й хочемо подивитись.
 looks() {
   cat <<'LIST'
-freshness|camptribe-freshness.service|/usr/bin/node scripts/ci/check-data-freshness.mjs --db --stale-only
-infra-drift|camptribe-infra-drift.service|/usr/local/bin/camptribe-infra-drift
+freshness|camptribe-freshness.service
+infra-drift|camptribe-infra-drift.service
 LIST
+}
+
+# 🔴 ЧИ ПИШЕ ЦЕЙ ЮНІТ — ПИТАЄМО В ЙОГО КОМАНДИ, А НЕ В ЙОГО ІМЕНІ.
+#
+# Тут був чорний список із семи імен (`osm-import|route-poi|reconcile|…`).
+# Рецензія додала `backup` із `/usr/local/bin/camptribe-backup --apply`
+# і отримала зелені 5/5: писач пройшов, бо його імені в списку не було.
+# Чорний список стереже те, що встигли назвати.
+#
+# Прапорець запису — це властивість КОМАНДИ, і вона читається. Сам
+# перелік імен при цьому закритий і прибитий у самотесті, тож додати до
+# нього будь-що, не зачепивши тест, теж не вийде.
+writes_flag() {
+  case " $1 " in
+    *' --apply '*|*' --migrate '*|*' --write '*|*' --prune '*|*' --delete '*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Команда юніта, як її бачить systemd: `{ path=… ; argv[]=КОМАНДА ; … }`.
+exec_start_of() {
+  systemctl show "$1" -p ExecStart --value 2>/dev/null \
+    | sed -n 's/.*argv\[\]=\(.*\) ; ignore_errors.*/\1/p' | head -1
 }
 
 row_for() { looks | awk -F'|' -v k="$1" '$1==k'; }
@@ -53,9 +84,19 @@ run_look() {
     return 2
   fi
   unit="$(printf '%s' "$row" | cut -d'|' -f2)"
-  cmd="$(printf '%s' "$row" | cut -d'|' -f3)"
-  # Оточення й користувача беремо З САМОГО ЮНІТА: другий перелік
-  # розійшовся б із першим мовчки.
+  cmd="$(exec_start_of "$unit")"
+  if [ -z "$cmd" ]; then
+    echo "✗ не прочитати ExecStart у ${unit} — юніта немає або systemd мовчить" >&2
+    return 2
+  fi
+  # 🔴 Відмова саме тут, а не в переліку імен: дивитись можна лише на те,
+  # що читає. Якщо комусь колись знадобиться юніт із `--apply`, хай це
+  # буде окремий свідомий інструмент, а не тихо «подивитись».
+  if writes_flag "$cmd"; then
+    echo "✗ ${unit} ПИШЕ (${cmd}) — camptribe-look лише дивиться" >&2
+    return 2
+  fi
+  # Оточення й користувача теж беремо з юніта.
   envfile="$(systemctl show "$unit" -p EnvironmentFiles --value | sed 's/ (ignore_errors=.*)//')"
   user="$(systemctl show "$unit" -p User --value)"
   [ -n "${user}" ] || user=root
@@ -77,11 +118,28 @@ self_test() {
   t 'freshness є в переліку' "$(row_for freshness | cut -d'|' -f2)" 'camptribe-freshness.service'
   t 'infra-drift є в переліку' "$(row_for infra-drift | cut -d'|' -f2)" 'camptribe-infra-drift.service'
   t '🔴 невідоме імʼя не вгадується' "$(row_for osm-import)" ''
-  # 🔴 Найважливіший випадок: у переліку НЕ МАЄ бути нічого, що пише.
-  local writers
-  writers="$(looks | grep -cE 'osm-import|route-poi|reconcile|retention|fuel-prices|air-quality|bathing' || true)"
-  t '🔴 жодного юніта, що ПИШЕ, у переліку немає' "${writers}" '0'
-  t 'перелік непорожній' "$(looks | grep -c . )" '2'
+
+  # 🔴 ПЕРЕЛІК ЗАКРИТИЙ І ПРИБИТИЙ ТОЧНО. Чорний список стеріг лише ті
+  # імена, які встигли назвати; цей випадок червоніє на БУДЬ-ЯКЕ
+  # поповнення, зокрема на `backup`, яким рецензія й пробила старий.
+  t '🔴 у переліку рівно двоє, і саме ці' \
+    "$(looks | cut -d'|' -f1 | sort | tr '\n' ' ')" 'freshness infra-drift '
+
+  # 🔴 Прапорець запису читається з команди, а не з імені.
+  writes_flag '/usr/local/bin/camptribe-backup --apply'
+  t '🔴 команда з --apply розпізнається як писач' "$?" '0'
+  writes_flag '/usr/bin/node scripts/x.mjs --db --stale-only'
+  t 'читальна команда писачем не вважається' "$?" '1'
+  writes_flag '/usr/local/bin/camptribe-deploy deploy --sha abc --migrate'
+  t '🔴 --migrate теж запис' "$?" '0'
+  writes_flag '/usr/bin/node x.mjs --applyish'
+  t 'схоже слово без межі не рахується' "$?" '1'
+
+  # Розбір `ExecStart`, як його друкує systemd, — на зразку з машини.
+  local sample='{ path=/usr/bin/node ; argv[]=/usr/bin/node a.mjs --db ; ignore_errors=no ; pid=1 }'
+  t 'ExecStart розбирається з argv[]' \
+    "$(printf '%s' "$sample" | sed -n 's/.*argv\[\]=\(.*\) ; ignore_errors.*/\1/p')" \
+    '/usr/bin/node a.mjs --db'
 
   printf '\ncamptribe-look self-test: ran %s, passed %s, failed %s\n' \
     "$((pass+fail))" "$pass" "$fail"
