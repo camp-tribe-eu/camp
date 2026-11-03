@@ -76,6 +76,8 @@ const FULL: ProviderPage = {
       berths: 4,
       belted_seats: 4,
       length_cm: 540,
+      source_url: "https://example.test/fleet",
+      source_checked_on: "2026-11-03",
     },
   ],
   reviewProfiles: [

@@ -43,8 +43,8 @@ const FULL = {
       code: "unlimited_km",
       availability: "included",
       note: null,
-      source_url: null,
-      source_checked_on: null,
+      source_url: "https://example.test/terms",
+      source_checked_on: "2026-11-03",
     },
   ],
   vehicles: [
@@ -54,6 +54,8 @@ const FULL = {
       berths: 4,
       belted_seats: 4,
       length_cm: 540,
+      source_url: "https://example.test/fleet",
+      source_checked_on: "2026-11-03",
     },
   ],
   reviewProfiles: [
@@ -121,6 +123,40 @@ test.describe("сингл провайдера за зразком сторін�
     expect(left).toContain('data-testid="vehicles"');
     // Щоб відсутність щось означала: панель справді винесена з лівої.
     expect(left).not.toContain("Scale, as the company states it");
+  });
+
+  // 🔴 CAMP-371, умова 1 і пункт 2 «Способу перевірки» дослівно:
+  // «на сторінці провайдера видно дату прочитання даних» і «мутація
+  // "прибрати дату зрізу" мусить червонити перевірку — назвати, яку».
+  //
+  // Ось ці три. Без них сторінка стверджує «у них є ця модель» у
+  // теперішньому часі — а ми бачили її в названий день і більше не
+  // дивились. Машину могли продати наступного тижня.
+  test("🔴 рядок парку несе дату прочитання", async () => {
+    const html = await render();
+    const rows = html.match(/<li[^>]*>(?:(?!<\/li>)[\s\S])*<\/li>/g) ?? [];
+    const fleet = rows.filter((r) => r.includes(FULL.vehicles[0].name));
+    // Щоб порожнє читання не пройшло за збіг: рядок справді знайдено.
+    expect(fleet.length).toBe(1);
+    expect(fleet[0]).toContain('data-testid="vehicle-checked"');
+    expect(fleet[0]).toContain(FULL.vehicles[0].source_checked_on!);
+  });
+
+  test("🔴 рядок сервісу несе дату прочитання", async () => {
+    const html = await render();
+    const withDate = (html.match(/data-testid="service-checked"/g) ?? [])
+      .length;
+    const said = FULL.services.filter(
+      (s) => s.source_checked_on !== null,
+    ).length;
+    // Знаменник названий: нуль із нулем теж «збігається».
+    expect(said).toBeGreaterThan(0);
+    expect(withDate).toBe(said);
+  });
+
+  test("🔴 і сторінка каже, що перелік — це знімок, а не склад сьогодні", async () => {
+    const html = await render();
+    expect(html).toContain("What a company had on the day we read its page");
   });
 
   test("країна названа словом, а не кодом", async () => {
