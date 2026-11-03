@@ -109,6 +109,28 @@ export default async function ProviderPageView({
                     <span className="font-medium">{serviceLabel(s.code)}</span>{" "}
                     — {AVAILABILITY_LABEL[s.availability]}
                     {s.note && <> ({s.note})</>}
+                    {/* Та сама умова, що й для парку: умови прокату
+                        міняються, тож рядок несе дату свого прочитання. */}
+                    {s.source_checked_on && (
+                      <span
+                        className="text-ink-2"
+                        data-testid="service-checked"
+                      >
+                        {" "}
+                        · read{" "}
+                        {s.source_url ? (
+                          <a
+                            href={s.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer nofollow"
+                          >
+                            {s.source_checked_on}
+                          </a>
+                        ) : (
+                          s.source_checked_on
+                        )}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -136,9 +158,40 @@ export default async function ProviderPageView({
                     {v.length_cm !== null && (
                       <> · length: {(v.length_cm / 100).toFixed(2)} m</>
                     )}
+                    {/* 🔴 CAMP-371: ДАТА ПРОЧИТАННЯ СТОЇТЬ ПОРУЧ ІЗ ФАКТОМ.
+                        «У них є ця модель» без дати — твердження про
+                        сьогодні, якого ми не перевіряли: машину могли
+                        продати. Дата в базі була від самого початку, її
+                        просто ніхто не показував. */}
+                    {v.source_checked_on && (
+                      <span
+                        className="text-ink-2"
+                        data-testid="vehicle-checked"
+                      >
+                        {" "}
+                        · read{" "}
+                        {v.source_url ? (
+                          <a
+                            href={v.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer nofollow"
+                          >
+                            {v.source_checked_on}
+                          </a>
+                        ) : (
+                          v.source_checked_on
+                        )}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
+              {/* Те саме застереження, що й про сервіси: перелік — це те,
+                  що ми бачили в названий день, а не склад парку сьогодні. */}
+              <p className="mt-2 text-xs text-ink-2">
+                What a company had on the day we read its page. Fleets change;
+                ask them before you plan around a model.
+              </p>
             </section>
           )}
         </div>

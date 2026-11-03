@@ -92,6 +92,19 @@ export interface VehicleRow {
   berths: number | null;
   belted_seats: number | null;
   length_cm: number | null;
+  /**
+   * 🔴 CAMP-371: ДАТА ПРОЧИТАННЯ — ЧАСТИНА ТВЕРДЖЕННЯ, А НЕ МЕТАДАНІ.
+   *
+   * «У них є Hymer B-Class» без дати — це твердження про СЬОГОДНІ, якого
+   * ми не перевіряли: машину могли продати минулого місяця. Умова
+   * картки дослівно: «кожен запис несе дату прочитання, і вона показана
+   * читачеві».
+   *
+   * API віддавав ці два поля від самого початку
+   * (`rental-providers.service.ts:219`) — їх просто ніхто не читав.
+   */
+  source_url: string | null;
+  source_checked_on: string | null;
 }
 
 export interface ProviderPage {
