@@ -489,19 +489,60 @@ test.describe('сторожі на текст', () => {
     );
   });
 
-  test('лише кабінет пише місце повернення', () => {
-    const writers = ['components/account-forms.tsx', 'components/account-cabinet.tsx', 'lib/cabinet.ts'];
-    expect(code('components/account-cabinet.tsx')).toContain('rememberReturn(');
-    expect(code('components/account-forms.tsx')).not.toContain('rememberReturn(');
-    expect(code('lib/cabinet.ts')).not.toContain('rememberReturn(');
-    // Ключ сховища не згадується ніде, крім його власного модуля.
-    for (const rel of writers) expect(code(rel), rel).not.toContain('camptribe.return');
+  // 🔴 CAMP-227 ПЕРЕНЕСЛА ЦЕЙ РЯДОК, І СТОРОЖ ПЕРЕЇХАВ ЗА НИМ.
+  //
+  // Раніше тут стояло «лише кабінет пише місце повернення»: кабінет був
+  // єдиною точкою стіни входу, що це робила. Макет називає ЧОТИРИ, і
+  // сторінки заявки й листингів не робили цього взагалі — людина
+  // впиралась у глухий кут. Рішення переїхало в `lib/auth-wall.ts`,
+  // тож інваріант той самий, а місце одне замість чотирьох.
+  test('🔴 місце повернення пише РІВНО ОДИН модуль', () => {
+    const callers = [
+      'components/account-forms.tsx',
+      'components/account-cabinet.tsx',
+      'components/claim-form.tsx',
+      'components/owner-listings.tsx',
+      'lib/cabinet.ts',
+    ];
+    // Щоб відсутність щось значила: той, хто пише, справді пише.
+    //
+    // 🔴 Шукаємо ІМПОРТ, а не `rememberReturn(`: у `auth-wall.ts`
+    // функція приходить аргументом зі значенням за замовчуванням
+    // (`remember = rememberReturn`), тож дужки після імені там не
+    // стоять. Перша редакція цього випадку шукала дужки й червоніла на
+    // правильному коді — я перевіряв форму виклику, а стерегти треба
+    // залежність.
+    expect(code('lib/auth-wall.ts')).toContain('rememberReturn');
+    for (const rel of callers) {
+      expect(code(rel), rel).not.toContain('rememberReturn');
+      // Ключ сховища не згадується ніде, крім його власного модуля.
+      expect(code(rel), rel).not.toContain('camptribe.return');
+    }
+    expect(code('lib/auth-wall.ts')).not.toContain('camptribe.return');
     expect(code('lib/return-path.ts')).toContain("'camptribe.return'");
   });
 
-  test('кабінет запамʼятовує адресу цієї сторінки, а не що-небудь із запиту', () => {
-    const c = code('components/account-cabinet.tsx');
-    expect(c).toMatch(/rememberReturn\(\s*window\.location\.pathname\s*\+\s*window\.location\.search\s*\)/);
-    expect(c).not.toMatch(/URLSearchParams|searchParams|\.get\(/);
+  test('🔴 адреса береться з того, ДЕ людина стоїть, і більше нізвідки', () => {
+    const c = code('lib/auth-wall.ts');
+    // Шлях складається рівно з двох полів переданого місця.
+    expect(c).toMatch(/remember\(`\$\{where\.pathname\}\$\{where\.search\}`\)/);
+    // І в самому модулі немає нічого, чим можна було б підсунути адресу.
+    expect(c).not.toMatch(/URLSearchParams|searchParams|\.get\(|document\.|referrer/i);
+  });
+
+  test('🔴 а виклики передають location, а не параметр запиту', () => {
+    for (const rel of [
+      'components/account-cabinet.tsx',
+      'components/claim-form.tsx',
+      'components/owner-listings.tsx',
+    ]) {
+      const c = code(rel);
+      expect(c, rel).toMatch(
+        /pathname:\s*window\.location\.pathname,\s*search:\s*window\.location\.search/,
+      );
+      // `?next=` у цьому проєкті не читається ніде — і це перевіряється,
+      // а не стверджується.
+      expect(c, rel).not.toMatch(/['"`]next['"`]/);
+    }
   });
 });
