@@ -50,8 +50,13 @@ export const EMPTY_STATES: readonly EmptyState[] = [
     icon: '🗺',
     // макет: «Маршрутів поки немає»
     title: 'No routes yet',
-    // макет: «Складіть свій у Trip Planner — або візьміть готовий і змініть під себе.»
-    body: 'Build your own in the Trip Planner — or take a ready-made one and change it to suit you.',
+    // макет: «Складіть свій у Trip Planner — або візьміть готовий і змініть під
+    // себе.» 🔴 CAMP-425: макет обіцяв, що складений маршрут буде тут.
+    // Складати планувальник уміє, ЗБЕРЕГТИ в акаунт — ні: у
+    // `trips.controller.ts` лише `@Get`, write-маршруту немає жодного.
+    body:
+      'The Trip Planner works out a route in your browser and shows it straight away. ' +
+      'It cannot save one to your account yet, so this list stays empty.',
     actions: [
       // макет: «У Trip Planner»
       { label: 'Open the Trip Planner', href: '/plan', primary: true },
@@ -64,8 +69,14 @@ export const EMPTY_STATES: readonly EmptyState[] = [
     icon: '⛺',
     // макет: «Ще нічого не збережено»
     title: 'Nothing saved yet',
-    // макет: «Сердечко на будь-якому кемпінгу — і він тут. Список синхронізується між пристроями.»
-    body: 'A heart on any campsite and it lands here. The list syncs between your devices.',
+    // макет: «Сердечко на будь-якому кемпінгу — і він тут. Список
+    // синхронізується між пристроями.» 🔴 CAMP-425: сердечка немає на
+    // жодній сторінці, і зберегти місце нікуди — та сама відсутність
+    // write-маршруту. «Синхронізується між пристроями» описувало б список,
+    // якого не існує.
+    body:
+      'Saving a campsite to your account is not built yet, so nothing can land here. ' +
+      'The site does not yet let you save a trip, a place, a photograph or a review.',
     actions: [
       // макет: «Відкрити мапу»
       { label: 'Open the map', href: '/map', primary: true },
@@ -75,9 +86,19 @@ export const EMPTY_STATES: readonly EmptyState[] = [
     id: 'photos',
     icon: '📷',
     // макет: «Ви ще не надсилали фото»
-    title: "You haven't sent any photos yet",
-    // макет: «Були в кемпінгу, якого немає на фото? Ваш знімок побачать тисячі людей — із вашим імʼям у підписі.»
-    body: 'Been to a campsite we have no photo of? Thousands of people will see your shot — with your name in the credit.',
+    //
+    // 🔴 CAMP-425. «Ви ще не надсилали» каже, що надіслати можна. Не можна:
+    // завантажень немає ніде, і це доведено окремим сторожем
+    // (`apps/api/src/no-upload-routes.spec.ts`). Обіцяти «тисячі людей
+    // побачать ваш знімок» за такої умови — твердження про те, що ми
+    // ЗРОБИМО, подане як те, що ми робимо.
+    title: 'We do not take photos yet',
+    // макет: «Були в кемпінгу, якого немає на фото? Ваш знімок побачать
+    // тисячі людей — із вашим імʼям у підписі.»
+    body:
+      'There is no upload anywhere on the site, and the site does not yet let you save a trip, ' +
+      'a place, a photograph or a review. We publish no stock and no generated pictures either, ' +
+      'so a campsite page without photographs is an honest page rather than an unfinished one.',
     // макет: кнопка «Додати фото» — свідомо немає, див. вище.
     actions: [],
   },

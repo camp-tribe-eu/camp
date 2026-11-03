@@ -276,16 +276,23 @@ test.describe('решта екрана', () => {
 
   test('називає, ЩО зникне, і чого немає в цьому списку теж не вигадано (жодних цифр без джерела)', () => {
     const text = visibleText(served());
+    // 🔴 CAMP-425: маршрутів, збережених кемпінгів і відгуків на акаунті
+    // немає — сайт їх не приймає, тож «зникне» про них було твердженням,
+    // що вони є.
     expect(text).toContain(
-      'Will disappear: your profile, your routes and saved campsites, your settings, and any reviews you wrote.',
+      'Will disappear: your profile, your settings, and every browser that is signed in.',
     );
+    expect(text).toContain('does not yet let you save a trip, a place, a photograph or a review');
     expect(text).not.toMatch(/\b\d+ (routes|saved|campsites)\b/i);
   });
 
   test('чесно каже, що вибір фото застосовується одразу і вхід його не повертає', () => {
     expect(visibleText(served())).toContain(
-      'Your choice is applied straight away. Signing back in later restores your account and your routes — but not your reviews, and not the photos. Your own words are deleted with the account, whichever choice you make here.',
+      'Your choice is applied straight away. Signing back in later restores your account and your settings — but never a photograph, whichever choice you make here.',
     );
+    // 🔴 І сам вибір більше не вдає, що фото є: механізм лишається, але
+    // сказано вголос, що сьогодні він застосовується ні до чого.
+    expect(visibleText(served())).toContain('The site does not take photographs yet');
   });
 
   test('«Скасувати» веде на сторінку, що існує', () => {
@@ -353,12 +360,18 @@ test.describe('🔴 вхід, що скасував видалення, каже
     const html = renderComponent(LoginDoneView, { to: '/account', restored: true });
     const text = visibleText(html);
     expect(text).toContain(NOTICE);
-    expect(text).toContain('Signing in has cancelled that: your profile and routes are back.');
+    expect(text).toContain(
+      'Signing in has cancelled that: your profile, your settings and this browser’s sign-in are back.',
+    );
+    expect(text).toContain('does not yet let you save a trip, a place, a photograph or a review');
     // 🔴 Рецензія #266 заміряла: після входу `trips:1`, але `reviews:0`. Три
     // екрани називали фото ЄДИНИМ винятком, а відгуки стираються назавжди —
     // `account-rights.service.ts:425`, `DELETE FROM reviews`, навмисно («their
     // own words are theirs»). Поведінка правильна, мовчання про неї — ні.
-    expect(text).toContain('Your reviews are not');
+    // Різниця лишається названою: `DELETE FROM reviews` назавжди, поїздки
+    // відновлюються. Прибрати це речення означало б, що того дня, коли
+    // відгуки зʼявляться, екран мовчки введе в оману.
+    expect(text).toContain('it would not come back');
     expect(text).toContain('signing in does not bring them back');
     expect(html).toContain('role="status"');
     expect(html).toContain('href="/account"');

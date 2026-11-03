@@ -439,10 +439,20 @@ export function LoginDoneView({
           className="mt-4 max-w-md rounded border border-line-2 bg-surface-2 p-4 text-sm text-ink"
         >
           <p className="font-semibold text-heading">Your account was scheduled for deletion.</p>
+          {/* 🔴 CAMP-425. Рядок казав «маршрути повернулись, відгуки — ні»,
+              ніби і те, і те на акаунті є. Сьогодні немає нічого: сайт не
+              приймає ні поїздки, ні місця, ні фото, ні відгуку.
+
+              🔴 Але саму РІЗНИЦЮ прибирати не можна.
+              `account-rights.service.ts` справді робить `DELETE FROM reviews`
+              назавжди («their own words are theirs»), а поїздки відновлює.
+              Викинути це речення сьогодні означало б, що того дня, коли
+              відгуки зʼявляться, екран мовчки введе в оману. */}
           <p className="mt-1">
-            Signing in has cancelled that: your profile and routes are back. Your reviews are not —
-            they were deleted with the account, and signing in does not bring them back. What you
-            chose for your photos has already been applied and stays too.
+            Signing in has cancelled that: your profile, your settings and this browser’s sign-in
+            are back. The site does not yet let you save a trip, a place, a photograph or a review —
+            and had you written one, it would not come back: your own words are deleted with the
+            account, and signing in does not bring them back.
           </p>
         </div>
       )}
