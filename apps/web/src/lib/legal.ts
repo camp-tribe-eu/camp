@@ -163,8 +163,14 @@ export const LEGAL_PAGES: LegalPage[] = [
     // 2.4 (02.11.2026, debt #29): "only that answer" and "we ask you to
     // confirm" replaced with what the code does, in the words of cookies 1.1
     // and terms 1.2. Migration 1793900000000-PrivacyBrowserStorage.
-    version: '2.4',
-    effectiveFrom: '2026-11-02',
+    // 2.5 (03.11.2026, CAMP-436): claiming a campsite listing — a new
+    // category of personal data (which account asked about which campsite),
+    // the letter that goes to a third party's published address and does not
+    // name the person asking, the mask instead of the address, the three and
+    // ten a day, and the one-month term. Register §11 carries the same
+    // numbers. Migration 1794400000000-PrivacySpotClaims.
+    version: '2.5',
+    effectiveFrom: '2026-11-03',
   },
   {
     slug: 'cookies',
