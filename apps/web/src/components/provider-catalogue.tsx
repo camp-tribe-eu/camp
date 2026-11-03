@@ -67,8 +67,15 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
   return (
     <div data-testid="provider-catalogue">
       <div className="flex flex-wrap items-end gap-4">
+        {/* 🔴 «Hands over vehicles in», а не «home country».
+            Підпис казав «країна компанії», а фільтр читав `p.countries` —
+            країни, де компанія ВИДАЄ МАШИНИ. Читач у Нідерландах обирав
+            NL, очікуючи голландські компанії, і отримував німецьку з депо
+            в Амстердамі — тобто саме те, що йому й потрібно, але не те,
+            що йому пообіцяли. Рішення вже записане в CAMP-421
+            («зареєстрована в» → «видає машини в»); сюди воно не дійшло. */}
         <label className="flex flex-col gap-1 text-sm">
-          <span>Company’s home country</span>
+          <span>Hands over vehicles in</span>
           <select
             data-testid="filter-country"
             className="rounded border border-neutral-300 bg-white px-3 py-2"
