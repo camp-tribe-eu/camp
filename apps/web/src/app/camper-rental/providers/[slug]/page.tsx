@@ -151,6 +151,27 @@ export default async function ProviderPageView({
                 {p.vehicles.map((v) => (
                   <li key={v.slug}>
                     <span className="font-medium">{v.name}</span>
+                    {/* 🔴 CAMP-371: ТИП СТОЇТЬ ПОРУЧ ІЗ ТИМ, ЩО СКАЗАВ
+                        САМ ПРОКАТНИК, І ЗІ СВОЄЮ ДАТОЮ.
+                        «Over-cab motorhome» без його слів — наш висновок,
+                        виданий за його; зі своєю датою — бо парк читали
+                        02.11, а типи 03.11. Тип є не в усіх, і порожнє
+                        місце тут чесніше за здогад із довжини. */}
+                    {v.camper_type_name && (
+                      <span data-testid="vehicle-type">
+                        {" "}
+                        · {v.camper_type_name}
+                        {v.camper_type_said && (
+                          <span className="text-ink-2">
+                            {" "}
+                            (they say: {v.camper_type_said}
+                            {v.camper_type_checked_on &&
+                              `, read ${v.camper_type_checked_on}`}
+                            )
+                          </span>
+                        )}
+                      </span>
+                    )}
                     {v.berths !== null && <> · berths: {v.berths}</>}
                     {v.belted_seats !== null && (
                       <> · belted seats: {v.belted_seats}</>

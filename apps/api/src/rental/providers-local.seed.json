@@ -80,6 +80,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 696,
+          "camperTypeSlug": "aclass",
+          "camperTypeSaid": "интегриран",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://camperisimo.com/sunlight-i-67-s/",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -88,6 +91,9 @@
           "slug": "giottiline-siena-440-automatic",
           "beltedSeats": 6,
           "lengthCm": 699,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "алковен",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://camperisimo.com/giottiline-siena-440/",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -160,6 +166,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 699,
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "полуинтегриран",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.dimarrent.com/camper-carado-t334.html",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -1448,6 +1457,9 @@
           "berths": 4,
           "beltedSeats": 5,
           "lengthCm": 490,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "campervan",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://vanbaltic.com/vw-california-beach-space/",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -1456,6 +1468,9 @@
           "slug": "vw-california-t6-1-ocean-comfort",
           "beltedSeats": 4,
           "lengthCm": 490,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "campervan",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://vanbaltic.com/vw-california-ocean-comfort/",
           "sourceCheckedOn": "2026-11-03"
         },

@@ -1,0 +1,121 @@
+{
+  "_readme": [
+    "CAMP-371, пункт 3 «Що зробити»: фільтр «який вен чи причеп шукаєте».",
+    "Фільтрувати не було за чим — camper_types порожня, camper_type_id порожній у 39 із 39 машин.",
+    "",
+    "ТАКСОНОМІЯ НЕ ВИГАДАНА. Чотири категорії — це ті самі, за якими Yescapa роздає",
+    "свої сторінки (/camper-type/van, /lowprofile, /coachbuilt, /aclass), тобто галузевий",
+    "поділ, а не наш. П'ята, причіп, прийшла з PaulCamper (/wohnwagen) і відповідає",
+    "дослівній вимозі власника: «який вен чи ПРИЧЕП ви шукаєте».",
+    "",
+    "🔴 ЧОГО ТУТ НЕМАЄ І ЧОМУ. Ані довжини, ані висоти, ані маси, ані витрати пального.",
+    "Порахувати діапазон із наших же 25 класифікованих машин я міг — і це було б число",
+    "про НАШ КАТАЛОГ, а читач прочитав би його як число про КАТЕГОРІЮ. «Ван 4,9–6,4 м»",
+    "означало б лише «такі вани ми встигли внести». Поля лишаються порожні, доки не",
+    "з'явиться джерело про категорію, а не про нашу вибірку.",
+    "",
+    "🔴 КЛАС ПРАВ — ЄДИНЕ ЧИСЛО, ЯКЕ Є, І ВОНО ЗАМІРЯНЕ. Сутність сама пояснює, чому",
+    "це колонка, а не речення в прозі: це найдорожча помилка новачка. Тому B стоїть лише",
+    "там, де джерела кажуть B одноголосно; де та сама компанія має і B, і C1 — стоїть",
+    "B_or_C1, тобто «сторінка мусить сказати, а не вгадати».",
+    "",
+    "Переклад лише en: у LOCALES жодна інша мова не має live: true (CAMP-219).",
+    "Написати de/fr зараз означало б покласти в базу текст для сторінок, яких немає."
+  ],
+  "sourceCheckedOn": "2026-11-03",
+  "types": [
+    {
+      "slug": "van",
+      "position": 10,
+      "licenceClass": "B",
+      "status": "published",
+      "sourceUrl": "https://www.yescapa.com/camper-type/van",
+      "licenceEvidence": [
+        "https://indiecampers.com/discover/en-gb/campervans/eu-active-standard — «Driving licence required: Standard car licence (Category B)»",
+        "https://indiecampers.com/discover/en-gb/campervans/eu-california-standard — те саме",
+        "https://www.drm.de/en/wohnmobile/v-van/v2-compact-star — «Driving licence Class B», «Perm. gross weight 3,500 kg»"
+      ],
+      "translations": {
+        "en": {
+          "name": "Campervan",
+          "altNames": "converted van · panel van · Kastenwagen · fourgon aménagé",
+          "description": "A van rebuilt inside: one box, no separate cab section. Easiest to drive and to park, and the only category here where every source we read says a standard category B licence is enough. Indie Campers put it plainly about its own Grand California: a campervan is a factory van conversion that keeps the footprint and driving feel of a large van."
+        }
+      }
+    },
+    {
+      "slug": "lowprofile",
+      "position": 20,
+      "licenceClass": "B_or_C1",
+      "status": "published",
+      "sourceUrl": "https://www.yescapa.com/camper-type/lowprofile",
+      "licenceEvidence": [
+        "https://www.touringcars.com/en/vehicle/small — «Car type: Semi-integrated», «3,500 kg»",
+        "https://www.touringcars.com/en/vehicle/medium — те саме",
+        "https://www.touringcars.com/en/vehicle/luxury-automatic — те саме",
+        "🔴 усі три на 3 500 кг, тобто B. Але це ОДИН прокатник, і довші напівінтегровані бувають важчі — тому B_or_C1, а не B."
+      ],
+      "translations": {
+        "en": {
+          "name": "Low-profile motorhome",
+          "altNames": "semi-integrated · low profile · Teilintegriert · profilé",
+          "description": "Keeps the driver's cab of the base vehicle and builds the living area behind it, with no bed over the cab — so it is lower and drinks less than an over-cab of the same length. Whether a category B licence is enough depends on the build: ask the company for the vehicle's permissible gross weight before you book."
+        }
+      }
+    },
+    {
+      "slug": "coachbuilt",
+      "position": 30,
+      "licenceClass": "B_or_C1",
+      "status": "published",
+      "sourceUrl": "https://www.yescapa.com/camper-type/coachbuilt",
+      "licenceEvidence": [
+        "https://www.drm.de/en/wohnmobile/f-family/f2-family-cruiser — «over-cab motorhome», «Driving licence Class B», «Perm. gross weight 3,500 kg»",
+        "https://indiecampers.com/discover/en-gb/campervans/eu-family-plus — «Class C RV», «Driving licence required: Standard car licence (Category B)»"
+      ],
+      "translations": {
+        "en": {
+          "name": "Over-cab motorhome",
+          "altNames": "coachbuilt · alcove · Alkoven · capucine · Class C RV",
+          "description": "A bed sits in the box above the driver's cab, which buys sleeping places without buying length — the usual choice for four or five people. The two we have sources for are both 3 500 kg and category B, but larger over-cabs are built above that, so the weight is worth reading before you book."
+        }
+      }
+    },
+    {
+      "slug": "aclass",
+      "position": 40,
+      "licenceClass": "B_or_C1",
+      "status": "published",
+      "sourceUrl": "https://www.yescapa.com/camper-type/aclass",
+      "licenceEvidence": [
+        "https://www.drm.de/en/wohnmobile/l-luxury/l1-luxury-star — «fully integrated luxury motorhome», «Driving licence Class C1 or old class 3», «The vehicle has a permissible gross weight of over 3.5 tonnes; the driver requires the appropriate driving licence»",
+        "🔴 Це рівно той випадок, заради якого в переліку є B_or_C1: той самий прокатник має і B (F2, 3 500 кг), і C1 (L1, понад 3,5 т)."
+      ],
+      "translations": {
+        "en": {
+          "name": "A-class motorhome",
+          "altNames": "fully integrated · integrated · Vollintegriert · intégral",
+          "description": "The cab is part of the living body — the widest windscreen and the most room inside, and the category most likely to weigh more than 3 500 kg. DRM says it outright about its own L1: over 3.5 tonnes, so the driver needs the matching licence. Check the weight before you book."
+        }
+      }
+    },
+    {
+      "slug": "caravan",
+      "position": 50,
+      "licenceClass": "trailer",
+      "status": "published",
+      "sourceUrl": "https://help.paulcamper.com/pc-helpcenter/mieterinnen-buchungsinformation-de",
+      "licenceEvidence": [
+        "🔴 Жодного заміру по конкретному причепу в нас немає — у каталозі він один (PaulCamper, Wohnwagen).",
+        "Клас прав тут за означенням залежить від СУМАРНОЇ маси тягача й причепа (B / B96 / BE), тобто від пари, а не від причепа. Тому trailer, а не B."
+      ],
+      "translations": {
+        "en": {
+          "name": "Caravan",
+          "altNames": "towed caravan · trailer · Wohnwagen · caravane",
+          "description": "Towed behind your own car, so you unhitch it at the pitch and keep driving. What licence you need depends on the car and the caravan together, not on the caravan alone — B, B96 or BE, by the combined weight."
+        }
+      }
+    }
+  ]
+}

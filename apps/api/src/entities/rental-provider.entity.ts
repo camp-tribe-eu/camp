@@ -236,6 +236,25 @@ export class RentalProviderVehicle {
   @JoinColumn({ name: 'camper_type_id' })
   camperType?: CamperType;
 
+  /**
+   * 🔴 CAMP-371. ДОСЛІВНІ СЛОВА ПРОКАТНИКА, ЯКИМИ ТИП І ДОВЕДЕНО.
+   *
+   * «Car type: Semi-integrated», «Agile overcab motorhome»,
+   * «полуинтегриран». Без них тип — це НАШ висновок, виданий за його.
+   * Довжина підказала б тип майже завжди правильно, і саме тому поле
+   * існує: майже-завжди-правильно про чужу машину це вигадка, а не дані.
+   */
+  @Column({ name: 'camper_type_said', nullable: true })
+  camperTypeSaid?: string;
+
+  /**
+   * Окрема дата зрізу — бо тип читали НЕ тоді, коли парк: парк 02.11.2026,
+   * типи 03.11. Спільна дата поставила б під фактом день, коли його не
+   * читали.
+   */
+  @Column({ name: 'camper_type_checked_on', type: 'date', nullable: true })
+  camperTypeCheckedOn?: string;
+
   @Column({ type: 'int', nullable: true })
   berths?: number;
 

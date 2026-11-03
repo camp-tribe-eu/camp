@@ -54,6 +54,10 @@ const FULL = {
       berths: 4,
       belted_seats: 4,
       length_cm: 540,
+      camper_type_slug: "lowprofile",
+      camper_type_name: "Low-profile motorhome",
+      camper_type_said: "Car type: Semi-integrated",
+      camper_type_checked_on: "2026-11-04",
       source_url: "https://example.test/fleet",
       source_checked_on: "2026-11-03",
     },
@@ -63,10 +67,10 @@ const FULL = {
   ],
 };
 
-async function render(): Promise<string> {
+async function render(payload: unknown = FULL): Promise<string> {
   const real = globalThis.fetch;
   globalThis.fetch = (async () =>
-    new Response(JSON.stringify(FULL), {
+    new Response(JSON.stringify(payload), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     })) as typeof fetch;
@@ -152,6 +156,46 @@ test.describe("сингл провайдера за зразком сторін�
     // Знаменник названий: нуль із нулем теж «збігається».
     expect(said).toBeGreaterThan(0);
     expect(withDate).toBe(said);
+  });
+
+  // 🔴 CAMP-371, пункт 3. ТИП ЄСТЬ, І ВІН НЕ НАШ ВИСНОВОК.
+  //
+  // У фікстурі дата типу навмисно ІНША (04.11), ніж дата парку (03.11):
+  // тип читали окремим заміром, і спільна дата поставила б під фактом
+  // день, коли його не читали. Якщо колись хтось зведе їх в одну колонку,
+  // червоніє саме цей випадок.
+  test("🔴 рядок парку несе тип, слова прокатника і ВЛАСНУ дату", async () => {
+    const html = await render();
+    const rows = html.match(/<li[^>]*>(?:(?!<\/li>)[\s\S])*<\/li>/g) ?? [];
+    const fleet = rows.filter((r) => r.includes(FULL.vehicles[0].name));
+    expect(fleet.length).toBe(1);
+    expect(fleet[0]).toContain('data-testid="vehicle-type"');
+    // назва типу словами, не слагом
+    expect(fleet[0]).toContain("Low-profile motorhome");
+    expect(fleet[0]).not.toContain("lowprofile");
+    // дослівні слова прокатника
+    expect(fleet[0]).toContain("Car type: Semi-integrated");
+    // і ДВІ різні дати в одному рядку
+    expect(fleet[0]).toContain("2026-11-04");
+    expect(fleet[0]).toContain("2026-11-03");
+  });
+
+  test("машина без типу не отримує порожнього ярлика", async () => {
+    const html = await render({
+      ...FULL,
+      vehicles: [
+        {
+          ...FULL.vehicles[0],
+          camper_type_slug: null,
+          camper_type_name: null,
+          camper_type_said: null,
+          camper_type_checked_on: null,
+        },
+      ],
+    });
+    expect(html).not.toContain('data-testid="vehicle-type"');
+    // але дата ПАРКУ лишається — вона про інший факт
+    expect(html).toContain('data-testid="vehicle-checked"');
   });
 
   test("🔴 і сторінка каже, що перелік — це знімок, а не склад сьогодні", async () => {

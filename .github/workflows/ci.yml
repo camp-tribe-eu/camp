@@ -330,6 +330,36 @@ jobs:
       - name: The weekly OSM download cannot hang, and its alarm sees a timeout
         run: node scripts/ci/check-osm-weekly-guards.mjs
 
+      # 🔴 CAMP-371. ДВІ СІВАЛКИ КАТАЛОГУ ОРЕНДИ, ЖОДНОЇ З ЯКИХ CI НЕ ЗАПУСКАВ.
+      #
+      # `seed-providers.mjs` має 20+ випадків самоперевірки з 03.11.2026 —
+      # і `grep seed-providers .github/` того ж дня не знайшов НІЧОГО.
+      # Тобто перевірки, які ловлять рейтинг без дозволу й країну не в
+      # alpha-2, не виконувались жодного разу з моменту написання.
+      # Сторож, якого ніхто не запускає, — це коментар.
+      #
+      # Сухий прогін тут не чіпає базу: він лише читає файли, перевіряє їх
+      # і друкує покриття. Саме покриття й є тим числом, яке вирішує,
+      # чи можна вмикати жорсткий фільтр за типом (ворота CAMP-260).
+      # 🔴 ДВА КРОКИ, А НЕ ОДИН ІЗ ДВОМА РЯДКАМИ. Так вимагає
+      # `check-selftest-steps.mjs`, і він мене на цьому впіймав:
+      # «82 --self-test invocations are written here and this check could
+      # attribute 81». Він рахує один самотест на крок, бо саме так
+      # потім видно, ЯКИЙ із них не запустився — а прогін, що не
+      # стартував, виглядає точно як спіймана мутація (CAMP-285).
+      - name: The provider seeder still refuses a bad file
+        run: |
+          set -o pipefail
+          node scripts/rental/seed-providers.mjs --self-test | tee /dev/stderr \
+            | grep -c 'seed-providers self-test:' >/dev/null
+      - name: The camper-type seeder still refuses an unsourced claim
+        run: |
+          set -o pipefail
+          node scripts/rental/seed-camper-types.mjs --self-test | tee /dev/stderr \
+            | grep -c 'seed-camper-types self-test:' >/dev/null
+      - name: And the catalogue files themselves are clean
+        run: node scripts/rental/seed-camper-types.mjs --dry-run
+
       # 🔴 A branch that grows past a card's worth of work stops being a
       # feature branch. On 22.09.2026 one carried 28 commits for days,
       # during which CodeQL and Dependabot reported on main and therefore
