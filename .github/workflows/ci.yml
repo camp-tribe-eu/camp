@@ -327,6 +327,23 @@ jobs:
           set -o pipefail
           node scripts/ci/check-osm-weekly-guards.mjs --self-test | tee /dev/stderr \
             | grep -c 'check-osm-weekly-guards self-test:' >/dev/null
+      # 🔴 CAMP-400: ПОДИВИТИСЬ НА СТОРОЖА — НЕ ЗНАЧИТЬ ПІДНЯТИ ТРИВОГУ.
+      #
+      # 03.11.2026 я запустив `systemctl start camptribe-freshness`, щоб
+      # ПРОЧИТАТИ стан даних. Юніт чесно вийшов з кодом 1 (дані були
+      # протухлі), спрацював OnFailure — і власник отримав лист «впало
+      # сторожів — 2». Тривога, що приходить, коли ніхто нічого не
+      # ламав, за тиждень перестає читатись.
+      #
+      # `camptribe-look` дає те саме оточення через `systemd-run`, без
+      # OnFailure і без секрета в argv. Тут перевіряється головне: у
+      # його переліку немає жодного юніта, що ПИШЕ.
+      - name: Looking at a sentry cannot start a job that writes
+        run: |
+          set -o pipefail
+          ./infra/bin/camptribe-look --self-test | tee /dev/stderr \
+            | grep -c 'camptribe-look self-test:' >/dev/null
+
       - name: The weekly OSM download cannot hang, and its alarm sees a timeout
         run: node scripts/ci/check-osm-weekly-guards.mjs
 
