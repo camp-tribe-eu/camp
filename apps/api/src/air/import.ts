@@ -608,7 +608,8 @@ async function main() {
           '  This does NOT fail the unit. It is watched instead by the daily\n' +
           '  freshness sentry: air_quality_modelled is empty while\n' +
           '  air_quality_stations is fresh, which it reports as a stop\n' +
-          '  (provenBy, check-data-freshness.mjs) — once a day, not every run.',
+          '  (emptyIsStopWhenUnitRan, check-data-freshness.mjs) — once a\n' +
+          '  day, not every run.',
       );
     } else {
       process.exitCode = 1;
