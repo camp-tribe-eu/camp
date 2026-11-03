@@ -49,8 +49,33 @@ type PwNode = {
   key?: unknown;
 };
 
+/**
+ * 🔴 ДВІ ФОРМИ, І ЦЕ НЕ ТИМЧАСОВО.
+ *
+ * Playwright 1.63 компілює JSX ВЛАСНИМ runtime і віддає
+ * `{__pw_type: 'jsx', type, props, key}`. У 1.64.1 `jsx-runtime`
+ * ВИДАЛЕНО з пакета зовсім (розпаковано обидва: у 1.63 є експорт
+ * `./jsx-runtime` і файл, у 1.64.1 немає ані того, ані іншого, ані
+ * жодного `__pw_type`), і `jsxImportSource` береться з tsconfig — а там
+ * `"jsx": "react-jsx"`. Заміряно зондом під 1.64.1:
+ *
+ *   ключі   $$typeof, type, key, props, _owner, _store
+ *   $$typeof Symbol(react.transitional.element)
+ *   __pw_type undefined
+ *
+ * Тобто під 1.64 це вже СПРАВЖНІ елементи React, і місток стає
+ * тотожним. Обидві форми мають `type` і `props`, тому все нижче працює
+ * однаково — міняється лише те, що ми згодні вважати вузлом.
+ *
+ * 🔴 ЧОМУ ПІДТРИМУЄМО ОБИДВІ, А НЕ ПЕРЕХОДИМО НА ОДНУ. Доки lock-файл
+ * пінить 1.63, а Dependabot пропонує 1.64, набір мусить бути зеленим на
+ * ОБОХ — інакше оновлення стає подією, яку ніхто не наважується злити.
+ */
 const isPwNode = (v: unknown): v is PwNode =>
-  !!v && typeof v === 'object' && (v as PwNode).__pw_type === 'jsx';
+  !!v &&
+  typeof v === 'object' &&
+  ((v as PwNode).__pw_type === 'jsx' ||
+    typeof (v as { $$typeof?: unknown }).$$typeof === 'symbol');
 
 /**
  * A function component, wrapped so React gets React elements back.
