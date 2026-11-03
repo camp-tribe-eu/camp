@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { needsLogin, pauseForLogin } from '@/lib/auth-wall';
 import {
   canAskAgain,
   codeLooksComplete,
@@ -31,6 +32,7 @@ function useReady(): boolean {
 
 export function ClaimForm() {
   const ready = useReady();
+  const router = useRouter();
   const params = useSearchParams();
   const spot = params.get('spot') ?? '';
   const [step, setStep] = useState<ClaimStep>('ask');
@@ -45,6 +47,16 @@ export function ClaimForm() {
     setBusy(true);
     try {
       const res = await action();
+      // 🔴 CAMP-227: «вхід — не сторінка, а пауза посеред дії». Людина,
+      // яка не ввійшла, має повернутись САМЕ СЮДИ, разом зі slug
+      // кемпінгу, а не впертись у речення «увійди спершу».
+      if (needsLogin(res.kind)) {
+        pauseForLogin(
+          { pathname: window.location.pathname, search: window.location.search },
+          (to) => router.replace(to),
+        );
+        return;
+      }
       setOutcome(res);
       if (res.kind === 'sent') {
         setSentTo(res.sentTo);
