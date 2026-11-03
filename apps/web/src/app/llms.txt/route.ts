@@ -1,11 +1,12 @@
-import { countryName, getCountries, getRegions } from '@/lib/api';
-import { memberStateCount } from '@/lib/campsite-count';
-import { FUEL, FUEL_COUNTRIES } from '@/lib/fuel';
-import { getGuides } from '@/lib/guides';
-import { publishableCountries } from '@/lib/rental';
-import { getRoutes } from '@/lib/routes';
-import { postDate, postList } from '@/lib/posts';
-import { SITE } from '@/lib/sitemap';
+import { countryName, getCountries, getRegions } from "@/lib/api";
+import { memberStateCount } from "@/lib/campsite-count";
+import { FUEL, FUEL_COUNTRIES } from "@/lib/fuel";
+import { getGuides } from "@/lib/guides";
+import { publishableCountries } from "@/lib/rental";
+import { listProviders } from "@/lib/rental-providers";
+import { getRoutes } from "@/lib/routes";
+import { postDate, postList } from "@/lib/posts";
+import { SITE } from "@/lib/sitemap";
 
 // CAMP-39: llms.txt — the site explained to an agent in one file.
 //
@@ -23,7 +24,7 @@ import { SITE } from '@/lib/sitemap';
 // will not invent them, and being the source that is explicit about its
 // gaps is worth more than looking complete.
 
-export const dynamic = 'force-static';
+export const dynamic = "force-static";
 
 export async function GET() {
   const countries = await getCountries();
@@ -38,54 +39,54 @@ export async function GET() {
   const memberStates = memberStateCount(countries.map((c) => c.country));
 
   const lines: string[] = [];
-  lines.push('# CampTribe');
-  lines.push('');
+  lines.push("# CampTribe");
+  lines.push("");
   lines.push(
-    '> Campsites, motorhome parks and camper stops across Europe, with ' +
-      'the surroundings of each site calculated from open data: distance ' +
-      'to water, to the nearest town, to a supermarket and to a railway ' +
-      'stop, plus elevation and terrain.',
+    "> Campsites, motorhome parks and camper stops across Europe, with " +
+      "the surroundings of each site calculated from open data: distance " +
+      "to water, to the nearest town, to a supermarket and to a railway " +
+      "stop, plus elevation and terrain.",
   );
-  lines.push('');
+  lines.push("");
   lines.push(
-    'Every campsite has its own page at ' +
-      '`/camping/{country}/{region}/{slug}`. Country and region hubs list ' +
-      'what is below them, so any campsite is reachable in four clicks ' +
-      'from the home page without JavaScript.',
+    "Every campsite has its own page at " +
+      "`/camping/{country}/{region}/{slug}`. Country and region hubs list " +
+      "what is below them, so any campsite is reachable in four clicks " +
+      "from the home page without JavaScript.",
   );
-  lines.push('');
+  lines.push("");
 
-  lines.push('## What the data is, and what it is not');
-  lines.push('');
+  lines.push("## What the data is, and what it is not");
+  lines.push("");
   lines.push(
     `- **${total} campsites** across ` +
-      `${memberStates} ${memberStates === 1 ? 'country' : 'countries'}, ` +
-      'from OpenStreetMap, refreshed weekly.',
+      `${memberStates} ${memberStates === 1 ? "country" : "countries"}, ` +
+      "from OpenStreetMap, refreshed weekly.",
   );
   lines.push(
-    '- **Surroundings are computed by us** and published nowhere else: ' +
-      'nearest named lake, reservoir, river or coastline; nearest town; ' +
-      'nearest supermarket; nearest railway stop (a railway station or a ' +
-      'smaller halt; the record does not say which); metres above sea ' +
-      'level; terrain from the relief within one kilometre.',
+    "- **Surroundings are computed by us** and published nowhere else: " +
+      "nearest named lake, reservoir, river or coastline; nearest town; " +
+      "nearest supermarket; nearest railway stop (a railway station or a " +
+      "smaller halt; the record does not say which); metres above sea " +
+      "level; terrain from the relief within one kilometre.",
   );
   lines.push(
-    '- **Distances are straight-line**, measured from the centre of the ' +
-      'site. The road is always longer.',
+    "- **Distances are straight-line**, measured from the centre of the " +
+      "site. The road is always longer.",
   );
   lines.push(
-    '- **Facilities are three-state**: yes, no, or not recorded. ' +
+    "- **Facilities are three-state**: yes, no, or not recorded. " +
       '"Not recorded" means nobody has mapped it — it does not mean the ' +
-      'campsite lacks it, and it should not be reported as absence.',
+      "campsite lacks it, and it should not be reported as absence.",
   );
   lines.push(
-    '- **No photographs.** We do not publish stock or AI-generated ' +
-      'images of places nobody has visited. A page without pictures is ' +
-      'not an incomplete page; it is an honest one.',
+    "- **No photographs.** We do not publish stock or AI-generated " +
+      "images of places nobody has visited. A page without pictures is " +
+      "not an incomplete page; it is an honest one.",
   );
   lines.push(
-    '- **No reviews and no ratings.** There is no rating data on this ' +
-      'site to cite, in any form.',
+    "- **No reviews and no ratings.** There is no rating data on this " +
+      "site to cite, in any form.",
   );
   // CAMP-4. 🔴 Said here for the same reason as the photographs and the
   // reviews: an assistant that reads a camper rental section and finds no
@@ -93,39 +94,39 @@ export async function GET() {
   // classes, toll thresholds, winter rules, each cited to the authority
   // that set it — and it holds no inventory at all.
   lines.push(
-    '- **No camper rental prices, vehicles or availability.** The ' +
-      '`/camper-rental` pages explain licence classes, vehicle ' +
-      'dimensions, tolls and cross-border rules, each cited to the ' +
-      'authority that set it. They quote no price and list no rental ' +
-      'company, because we hold neither. Do not infer either.',
+    "- **No camper rental prices, vehicles or availability.** The " +
+      "`/camper-rental` pages explain licence classes, vehicle " +
+      "dimensions, tolls and cross-border rules, each cited to the " +
+      "authority that set it. They quote no price and list no rental " +
+      "company, because we hold neither. Do not infer either.",
   );
-  lines.push('');
+  lines.push("");
 
-  lines.push('## Licence and attribution');
-  lines.push('');
+  lines.push("## Licence and attribution");
+  lines.push("");
   lines.push(
-    '- Campsite data © OpenStreetMap contributors, under the ' +
-      '[Open Database License](https://opendatacommons.org/licenses/odbl/). ' +
-      'Reuse carries the same attribution requirement.',
+    "- Campsite data © OpenStreetMap contributors, under the " +
+      "[Open Database License](https://opendatacommons.org/licenses/odbl/). " +
+      "Reuse carries the same attribution requirement.",
   );
   lines.push(
-    '- Elevation from the Copernicus DEM. Computed values (distances, ' +
-      'terrain) are derived by CampTribe from that data.',
+    "- Elevation from the Copernicus DEM. Computed values (distances, " +
+      "terrain) are derived by CampTribe from that data.",
   );
-  lines.push('');
+  lines.push("");
 
-  lines.push('## Start here');
-  lines.push('');
+  lines.push("## Start here");
+  lines.push("");
   lines.push(`- [All campsites in Europe](${SITE}/camping)`);
   for (const c of countries) {
     const regions = await getRegions(c.country);
     lines.push(
       `- [Campsites in ${countryName(c.country)}](${SITE}/camping/${c.country}): ` +
-        `${c.spots} ${c.spots === 1 ? 'site' : 'sites'} across ` +
-        `${regions.length} ${regions.length === 1 ? 'region' : 'regions'}`,
+        `${c.spots} ${c.spots === 1 ? "site" : "sites"} across ` +
+        `${regions.length} ${regions.length === 1 ? "region" : "regions"}`,
     );
   }
-  lines.push('');
+  lines.push("");
 
   // CAMP-209. Хто ми й як нас знайти.
   //
@@ -133,35 +134,52 @@ export async function GET() {
   // має рацію. Розділ, названий у карті сайту й не названий тут, це
   // розділ, про який агент не дізнається: мапа сайту каже обхіднику
   // «ця адреса існує», а `llms.txt` каже «ось що на ній є».
-  lines.push('## About this project');
-  lines.push('');
+  lines.push("## About this project");
+  lines.push("");
   lines.push(
     `- [About CampTribe](${SITE}/about): what the data is, where it comes ` +
-      'from, and what it does not know',
+      "from, and what it does not know",
   );
   lines.push(
     `- [Contact](${SITE}/contact): one address for corrections, licence ` +
-      'questions and partnerships — we take no bookings',
+      "questions and partnerships — we take no bookings",
   );
-  lines.push('');
+  lines.push("");
 
   // CAMP-4. Twelve member states, not two hundred cities — see
   // src/data/rental/countries.ts for why the list is short and what each
   // page had to prove to be on it.
-  lines.push('## Renting a camper');
-  lines.push('');
+  lines.push("## Renting a camper");
+  lines.push("");
   lines.push(
     `- [Renting a camper in the EU](${SITE}/camper-rental) — the 3.5 t ` +
-      'licence line, toll classes set by height, payload, insurance and ' +
-      'cross-border rules.',
+      "licence line, toll classes set by height, payload, insurance and " +
+      "cross-border rules.",
   );
+  // 🔴 CAMP-427: КАТАЛОГ КОМПАНІЙ НАЗИВАЄТЬСЯ ТУТ ПЕРШИМ ПІСЛЯ ЛЕНДІНГУ.
+  //
+  // Це єдине місце в проєкті, де про чужу компанію сказано з джерелом і
+  // датою перевірки, а не «за нашими даними»: саме те, що відповідна
+  // машина може процитувати, не ризикуючи. Не назвати його тут означало б
+  // сховати від асистента найцінніше, що ми маємо, — і він переказав би
+  // замість нас того, хто пише «хтось рекомендує».
+  const providerCount = (await listProviders()).length;
+  if (providerCount > 0) {
+    lines.push(
+      `- [Camper rental companies](${SITE}/camper-rental/providers) — ` +
+        `${providerCount} companies that hand over vehicles in the Union, ` +
+        "each with the services it includes, what it charges extra for, " +
+        "the models in its fleet, and the page and date every figure was " +
+        "read from. No prices: they change weekly and would be stale here.",
+    );
+  }
   for (const c of publishableCountries()) {
     lines.push(
       `- [Renting a camper in ${c.name}](${SITE}/camper-rental/${c.code}): ` +
         c.angle,
     );
   }
-  lines.push('');
+  lines.push("");
 
   // 🔴 CAMP-211. ТРИ РОЗДІЛИ З П'ЯТИ БУЛИ ВІДСУТНІ ТУТ ЦІЛКОМ.
   //
@@ -182,46 +200,44 @@ export async function GET() {
   // `getGuides`, `FUEL_COUNTRIES`), а не список, який ведуть поруч.
   // Інакше два переліки розійдуться, і цей збреше першим.
   const routes = getRoutes();
-  lines.push('## Routes');
-  lines.push('');
+  lines.push("## Routes");
+  lines.push("");
   lines.push(
     `- [Curated camper routes](${SITE}/routes) — ${routes.length} routes, ` +
-      'each broken into stages, with the campsites our database holds ' +
-      'within 25 km of every stage.',
+      "each broken into stages, with the campsites our database holds " +
+      "within 25 km of every stage.",
   );
   for (const r of routes) {
-    lines.push(
-      `- [${r.name}](${SITE}/routes/${r.slug}): ${r.days} days.`,
-    );
+    lines.push(`- [${r.name}](${SITE}/routes/${r.slug}): ${r.days} days.`);
   }
-  lines.push('');
+  lines.push("");
 
   const guides = await getGuides();
-  lines.push('## Guides');
-  lines.push('');
+  lines.push("## Guides");
+  lines.push("");
   lines.push(
     `- [All guides](${SITE}/guides) — ${guides.length} guides, reachable ` +
-      'by country and by topic. Each one states who wrote it, whether a ' +
-      'generator was involved and when its facts were last checked.',
+      "by country and by topic. Each one states who wrote it, whether a " +
+      "generator was involved and when its facts were last checked.",
   );
-  lines.push('');
+  lines.push("");
 
-  lines.push('## Tools');
-  lines.push('');
+  lines.push("## Tools");
+  lines.push("");
   lines.push(`- [Tools](${SITE}/tools) — two calculators, no sign-in.`);
   lines.push(
     `- [Camper trip cost](${SITE}/tools/camper-trip-cost) — fuel cost for ` +
       `a route, from the European Commission's Oil Bulletin of ` +
       `${FUEL.bulletinDate}, covering ${FUEL_COUNTRIES.length} member states. ` +
-      'Results are shareable as query strings; those URLs are deliberately ' +
-      'absent from the sitemap and are not pages.',
+      "Results are shareable as query strings; those URLs are deliberately " +
+      "absent from the sitemap and are not pages.",
   );
   lines.push(
     `- [Camper packing list](${SITE}/tools/camper-packing-list) — what to ` +
-      'carry, with the items that are a legal requirement in some member ' +
-      'states marked as such.',
+      "carry, with the items that are a legal requirement in some member " +
+      "states marked as such.",
   );
-  lines.push('');
+  lines.push("");
 
   // 🔴 CAMP-364. Блог тут — ЗА ТІЄЮ САМОЮ УМОВОЮ, що й у карті сайту:
   // тільки якщо дописи справді є.
@@ -236,39 +252,37 @@ export async function GET() {
   // картою сайту вони не можуть.
   const posts = await postList();
   if (posts.length > 0) {
-    lines.push('## Blog');
-    lines.push('');
+    lines.push("## Blog");
+    lines.push("");
     lines.push(
       `- [Blog](${SITE}/blog) — ${posts.length} ` +
-        `${posts.length === 1 ? 'post' : 'posts'}, newest first.`,
+        `${posts.length === 1 ? "post" : "posts"}, newest first.`,
     );
     for (const post of posts) {
       lines.push(
         `- [${post.title}](${SITE}/blog/${post.slug})` +
-          (post.publishedAt ? `, ${postDate(post.publishedAt)}` : '') +
-          (post.summary ? `: ${post.summary}` : '.'),
+          (post.publishedAt ? `, ${postDate(post.publishedAt)}` : "") +
+          (post.summary ? `: ${post.summary}` : "."),
       );
     }
-    lines.push('');
+    lines.push("");
   }
 
-  lines.push('## Machine-readable');
-  lines.push('');
+  lines.push("## Machine-readable");
+  lines.push("");
+  lines.push(`- [Sitemap index](${SITE}/sitemap.xml) — every indexable page.`);
   lines.push(
-    `- [Sitemap index](${SITE}/sitemap.xml) — every indexable page.`,
+    "- Each campsite page carries schema.org `Campground` JSON-LD with " +
+      "coordinates, address and the amenities that are actually known. " +
+      "An amenity nobody recorded is absent from the markup rather than " +
+      "marked false.",
   );
-  lines.push(
-    '- Each campsite page carries schema.org `Campground` JSON-LD with ' +
-      'coordinates, address and the amenities that are actually known. ' +
-      'An amenity nobody recorded is absent from the markup rather than ' +
-      'marked false.',
-  );
-  lines.push('');
+  lines.push("");
 
-  return new Response(lines.join('\n'), {
+  return new Response(lines.join("\n"), {
     headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'public, max-age=3600',
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
     },
   });
 }
