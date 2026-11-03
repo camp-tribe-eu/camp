@@ -113,20 +113,35 @@ export function audit(sources, now) {
       //
       // `provenBy` називає СУСІДНЄ джерело того самого імпортера. Є в
       // сусіда рядки — імпортер живий, і порожнеча тут це зупинка.
-      if (s.provenBy !== undefined) {
-        const proof = sources.find((x) => x.name === s.provenBy);
-        // Опечатка в `provenBy` не має тихо повертати стару поведінку:
-        // це було б сліпотою, зробленою правкою проти сліпоти.
-        if (!proof) {
+      // 🔴 ДОКАЗ ЗАПУСКУ ВИВОДИТЬСЯ З `unit`, А НЕ З ДРУГОГО ПЕРЕЛІКУ.
+      //
+      // Спершу я написав тут `provenBy: '<імʼя сусіднього джерела>'` —
+      // і це був другий перелік того, що поле `unit` уже каже. Два
+      // переліки не звіряються, вони розходяться: досить перейменувати
+      // джерело, і доказ тихо зникає, а сторож мовчки вертається до
+      // старої сліпоти. Рівно за це я критикував `camptribe-infra-drift`
+      // у тому ж вечорі.
+      //
+      // Тепер сусіди знаходяться за `unit`: хто приносить ці дані, те
+      // поле вже називає, і воно одне.
+      if (s.emptyIsStopWhenUnitRan) {
+        if (!s.unit) {
           say(s, 'bad-config',
-            `provenBy вказує на «${s.provenBy}», а такого джерела немає — ` +
-              'доказ запуску недосяжний, отже порожнеча тут недоведена');
+            'emptyIsStopWhenUnitRan без `unit` — немає за чим шукати сусіда, ' +
+              'отже порожнеча тут недоведена');
           continue;
         }
-        if (proof.rows > 0) {
+        const siblings = sources.filter((x) => x !== s && x.unit === s.unit);
+        if (siblings.length === 0) {
+          say(s, 'bad-config',
+            `у юніта «${s.unit}» немає інших джерел — доказ запуску недосяжний`);
+          continue;
+        }
+        const alive = siblings.find((x) => x.rows > 0);
+        if (alive) {
           say(s, 'empty-though-ran',
-            `таблиця порожня, хоч «${proof.name}» має ${proof.rows} — ` +
-              'той самий імпортер запускався, отже це ЗУПИНКА, а не «ще не налаштовано»');
+            `таблиця порожня, хоч «${alive.name}» має ${alive.rows} — ` +
+              `той самий юніт (${s.unit}) запускався, отже це ЗУПИНКА, а не «ще не налаштовано»`);
           continue;
         }
       }
@@ -280,11 +295,9 @@ export const DB_SOURCES = Object.freeze([
     unit: 'camptribe-air-quality' },
   { name: 'air_quality_modelled (повітря EEA, модель)', card: 'CAMP-439',
     table: 'air_quality_modelled', column: 'read_at',
-    // 🔴 Той самий `unit`, що в станцій, — і це не повторення, а СУТЬ:
-    // обидва джерела приносить один `camptribe-air-quality`, тому
-    // живі станції доводять, що імпортер запускався, а порожній растр
-    // при них — зупинка, а не «ще не налаштовано».
-    provenBy: 'air_quality_stations (повітря EEA, станції)',
+    // Той самий `unit`, що в станцій: живі станції доводять, що юніт
+    // запускався, а порожній растр при них — зупинка (CAMP-439).
+    emptyIsStopWhenUnitRan: true,
     budgetHours: () => budgetFromSource('apps/web/src/lib/air-quality.ts', 'AIR_FRESH_FOR_HOURS'),
     unit: 'camptribe-air-quality' },
 ]);
@@ -501,9 +514,10 @@ function selfTest() {
   // ── CAMP-439: порожня таблиця живого імпортера ───────────────────
   //
   // Справжній стан проду 03.11.2026: станції 4019, растр 0, один юніт.
-  const STATIONS = { name: 'станції', rows: 4019, stamp: ok(0), budgetHours: 4 };
+  const STATIONS = { name: 'станції', rows: 4019, stamp: ok(0), budgetHours: 4,
+                     unit: 'camptribe-air-quality' };
   const RASTER = { name: 'растр', rows: 0, stamp: null, budgetHours: 4,
-                   provenBy: 'станції' };
+                   unit: 'camptribe-air-quality', emptyIsStopWhenUnitRan: true };
   t('🔴 порожня при живому сусіді — ЗУПИНКА, а не «не запускався»',
     audit([STATIONS, RASTER], NOW).find((p) => p.name === 'растр')?.kind,
     'empty-though-ran');
@@ -516,11 +530,21 @@ function selfTest() {
       .find((p) => p.name === 'растр')?.kind, 'never');
   t('і тоді таймер справді мовчить про обидва',
     ringing(audit([{ ...STATIONS, rows: 0, stamp: null }, RASTER], NOW), 'stale').length, 0);
-  t('🔴 опечатка в provenBy — збій, а не тиха стара поведінка',
-    kind({ name: 'a', rows: 0, stamp: null, budgetHours: 4, provenBy: 'якого немає' }),
+  t('🔴 прапорець без `unit` — збій, а не тиха стара поведінка',
+    kind({ name: 'a', rows: 0, stamp: null, budgetHours: 4, emptyIsStopWhenUnitRan: true }),
     'bad-config');
-  t('джерело без provenBy поводиться як раніше',
-    kind({ name: 'a', rows: 0, stamp: null, budgetHours: 4 }), 'never');
+  t('🔴 юніт-одинак — теж збій: доказу запуску взяти нізвідки',
+    kind({ name: 'a', rows: 0, stamp: null, budgetHours: 4,
+           unit: 'самотній', emptyIsStopWhenUnitRan: true }), 'bad-config');
+  t('джерело без прапорця поводиться як раніше',
+    kind({ name: 'a', rows: 0, stamp: null, budgetHours: 4, unit: 'u' }), 'never');
+  // 🔴 Сусіда шукаємо за `unit`, а не за будь-якими рядками поруч.
+  // Тут є і свій сусід (порожній), і чужий юніт із 99 рядками: чужі
+  // рядки доказом бути не мусять, тож вирок — «never».
+  t('🔴 рядки ЧУЖОГО юніта доказом не є',
+    audit([{ ...STATIONS, rows: 0, stamp: null },
+           { name: 'інший', rows: 99, stamp: ok(0), budgetHours: 4, unit: 'хтось-інший' },
+           RASTER], NOW).find((p) => p.name === 'растр')?.kind, 'never');
   t('бюджет у годинах застосовується до годин (повітря: 5 год при 4)',
     kind({ name: 'a', rows: 5, stamp: ok(5), budgetHours: 4 }), 'stale');
 
@@ -664,7 +688,7 @@ function selfTest() {
 
   // 🔴 Лічильник стверджується, бо випадок, до якого не дійшло,
   // виглядає точно як випадок, що пройшов.
-  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 47);
+  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 49);
   console.log(`check-data-freshness self-test: ran ${p + f}, passed ${p}, failed ${f}`);
   return f === 0 ? 0 : 1;
 }
