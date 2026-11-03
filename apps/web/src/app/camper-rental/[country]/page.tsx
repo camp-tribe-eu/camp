@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import RentalCountryData from "@/components/rental-country-data";
 import RentalDisclosure from "@/components/rental-disclosure";
 import RentalOfferSlot from "@/components/rental-offer-slot";
+import { listProviders } from "@/lib/rental-providers";
 import { abs, breadcrumbList, jsonLdProps } from "@/lib/jsonld";
 import { alternatesFor } from "@/lib/i18n";
 import { countryFuel, euros, longDate, FUEL } from "@/lib/fuel";
@@ -80,6 +81,16 @@ export default async function RentalCountryPage({
   const offers = rentalOffers(c.code);
   const row = measuredFor(c.code);
   const fuel = countryFuel(c.code);
+
+  // 🔴 Лічимо на ЗБІРЦІ, а не в браузері: сторінка статична, і рішення
+  // «показувати звужене посилання чи ні» мусить бути вже у відданому
+  // HTML. Інакше читач побачить обіцянку, яка розвалиться після
+  // монтування.
+  const providers = await listProviders();
+  const providerCount = providers.length;
+  const basedHere = providers.filter(
+    (p) => p.homeCountry === c.code.toUpperCase(),
+  ).length;
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
@@ -189,10 +200,16 @@ export default async function RentalCountryPage({
         </section>
       )}
 
-      {/* 🔴 CAMP-427: звідси каталог звужений ПО ЦІЙ країні. Параметр
-          читає клієнтський фільтр після монтування й приймає лише ті
-          значення, які справді є в каталозі, — чужа адреса не зробить
-          порожній список без пояснення. */}
+      {/* 🔴 CAMP-427: ПОСИЛАННЯ ЛИШЕ ТУДИ, ДЕ Є ЩО ПОКАЗАТИ.
+          У каталозі десять компаній і лише ЧОТИРИ країни прописки
+          (DE 6, FR 2, PT 1, FI 1). Перша редакція цього блоку вела з
+          кожної з 27 сторінок у звужений каталог — тобто 23 сторінки
+          обіцяли б список і віддавали «0 із 10» без пояснення.
+          Тому лічимо на збірці й пишемо те, що є.
+
+          🔴 І формулювання чесне: ми знаємо, де компанія ЗАРЕЄСТРОВАНА,
+          а не в яких країнах вона видає машини. Сказати «хто здає в
+          Іспанії» означало б пообіцяти знання, якого в моделі ще немає. */}
       <section
         aria-labelledby="providers-heading"
         className="mt-12 border-t border-line-2 pt-8"
@@ -201,23 +218,39 @@ export default async function RentalCountryPage({
           id="providers-heading"
           className="text-xl font-semibold text-heading"
         >
-          Who rents in {inProse(c)}
+          Rental companies
         </h2>
         <p className="mt-3 max-w-prose text-ink-2">
-          The companies we have read are listed with what each one includes,
-          what it charges extra for, and what it has in its fleet — with the
-          source and the date beside every figure.{" "}
-          <Link
-            className="underline"
-            href={`/camper-rental/providers?country=${c.code.toUpperCase()}`}
-          >
-            Companies based in {inProse(c)}
-          </Link>
-          , or{" "}
-          <Link className="underline" href="/camper-rental/providers">
-            all of them
-          </Link>
-          .
+          {basedHere > 0 ? (
+            <>
+              <Link
+                className="underline"
+                href={`/camper-rental/providers?country=${c.code.toUpperCase()}`}
+              >
+                {basedHere === 1
+                  ? "One company we have read is based"
+                  : `${basedHere} of the companies we have read are based`}{" "}
+                in {inProse(c)}
+              </Link>
+              . We record where a company is registered, not yet every country
+              it hands over vehicles in — so{" "}
+              <Link className="underline" href="/camper-rental/providers">
+                the whole list
+              </Link>{" "}
+              is the fuller answer.
+            </>
+          ) : (
+            <>
+              None of the companies we have read so far is registered in{" "}
+              {inProse(c)}. That is not the same as nobody renting here: we
+              record where a company is registered, not yet every country it
+              operates in.{" "}
+              <Link className="underline" href="/camper-rental/providers">
+                All {providerCount} companies
+              </Link>{" "}
+              are listed with their services and fleet.
+            </>
+          )}
         </p>
       </section>
 
